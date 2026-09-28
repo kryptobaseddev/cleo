@@ -98,6 +98,104 @@ export interface WorktreeIncludePattern {
 }
 
 // ---------------------------------------------------------------------------
+// Per-task worktree lock (T12506)
+// ---------------------------------------------------------------------------
+
+/**
+ * Identity of the process that holds (or asks for) a task's worktree lock.
+ *
+ * Every field is optional on input: `createWorktree` fills `pid` and
+ * `processStartedAt` from the calling process when the caller does not name a
+ * longer-lived owner process. The spawn pipeline passes the per-agent session
+ * id, agent id, stable device id and the nearest non-launcher ancestor process
+ * (the harness that outlives the short `cleo` invocation).
+ *
+ * @task T12506
+ */
+export interface WorktreeLockHolder {
+  /** CLEO session id of the holder (`CLEO_SESSION_ID`). */
+  sessionId?: string | null;
+  /** Agent id of the holder (`CLEO_AGENT_ID`). */
+  agentId?: string | null;
+  /** Stable device id (`getStableDeviceId()`); pids are only comparable on one device. */
+  deviceId?: string | null;
+  /** Owner process id whose liveness keeps the lock held. */
+  pid?: number;
+  /**
+   * Owner process start time as rendered by `ps -o lstart=` under
+   * `PS_STABLE_ENV` (UTC, C locale). A live pid with a different start time is
+   * a recycled pid, i.e. the holder is dead.
+   */
+  processStartedAt?: string | null;
+}
+
+/**
+ * On-disk record of a held per-task worktree lock
+ * (`<cleoHome>/locks/worktrees/<projectHash>/<taskId>.lock`).
+ *
+ * Published atomically (write temp file, then hard-link into place, which
+ * fails with `EEXIST` when another holder won), so a reader never sees a
+ * partially written record.
+ *
+ * @task T12506
+ */
+export interface WorktreeLockRecord {
+  /** Record schema version. */
+  schemaVersion: 1;
+  /** Random token identifying this acquisition. */
+  token: string;
+  /** Task the lock guards. */
+  taskId: string;
+  /** Project hash scoping the worktree. */
+  projectHash: string;
+  /** Holder session id, or `null` when unknown. */
+  sessionId: string | null;
+  /** Holder agent id, or `null` when unknown. */
+  agentId: string | null;
+  /** Holder device id, or `null` when unknown. */
+  deviceId: string | null;
+  /** Holder owner process id. */
+  pid: number;
+  /** Holder owner process start time (`ps lstart`, UTC), or `null` when unprobeable. */
+  processStartedAt: string | null;
+  /** Host name of the holder. */
+  hostname: string;
+  /** ISO 8601 time the lock was acquired. */
+  acquiredAt: string;
+  /** ISO 8601 time of the holder's latest heartbeat. */
+  heartbeatAt: string;
+}
+
+/**
+ * How `createWorktree` obtained the per-task lock.
+ *
+ * - `acquired`: no lock existed.
+ * - `reclaimed`: a lock existed but its holder was provably dead (pid gone or
+ *   start time differs) or its heartbeat was older than the TTL.
+ *
+ * @task T12506
+ */
+export type WorktreeLockAcquisitionStatus = 'acquired' | 'reclaimed';
+
+/**
+ * Lock outcome reported on {@link CreateWorktreeResult.lock}.
+ *
+ * @task T12506
+ */
+export interface WorktreeLockAcquisition {
+  /** How the lock was obtained. */
+  status: WorktreeLockAcquisitionStatus;
+  /** Absolute path of the lock file. */
+  lockPath: string;
+  /** The record now on disk. */
+  record: WorktreeLockRecord;
+  /** The previous holder's record when the lock was reclaimed. */
+  reclaimedFrom?: WorktreeLockRecord;
+  /** Why the previous holder was judged dead (`reclaimed` only). */
+  reclaimReason?: 'pid-gone' | 'pid-recycled' | 'heartbeat-stale' | 'unreadable';
+}
+
+// ---------------------------------------------------------------------------
 // Create operation
 // ---------------------------------------------------------------------------
 
@@ -178,6 +276,20 @@ export interface CreateWorktreeOptions {
    * @task T9807
    */
   spawnScope?: string;
+  /**
+   * Identity recorded in the per-task worktree lock (T12506). Missing fields
+   * default to the calling process (pid + `ps` start time).
+   *
+   * @task T12506
+   */
+  holder?: WorktreeLockHolder;
+  /**
+   * Heartbeat age (ms) beyond which an existing lock is reclaimable even when
+   * its owner pid is alive. Defaults to `CLEO_WORKTREE_LOCK_TTL_MS` or 4 hours.
+   *
+   * @task T12506
+   */
+  lockTtlMs?: number;
 }
 
 /**
@@ -211,8 +323,15 @@ export interface CreateWorktreeResult {
    * branch behind; false on a clean first-time creation.
    *
    * @task T1878
+   * @task T12506 — also true when an existing worktree directory was
+   *   re-attached instead of recreated (never force-removed).
    */
   reused: boolean;
+  /**
+   * Per-task lock acquired before `git worktree add` (T12506). Absent only on
+   * results synthesised by callers that skip provisioning (e.g. `--resume`).
+   */
+  lock?: WorktreeLockAcquisition;
   /** Environment variables to inject into the spawned agent process. */
   envVars: Record<string, string>;
   /** Prompt preamble text for agent isolation context. */

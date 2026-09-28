@@ -13,12 +13,14 @@
  * @task T1161
  */
 
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
   CreateWorktreeOptions,
   CreateWorktreeResult,
+  WorktreeHook,
   WorktreeHookResult,
+  WorktreeLockAcquisition,
 } from '@cleocode/contracts';
 
 /**
@@ -52,6 +54,7 @@ import {
   resolveWorktreeRootForHash,
 } from './paths.js';
 import { addWorktreeToSentinelIndex, appendWorktreeAuditLog } from './worktree-audit.js';
+import { acquireWorktreeTaskLock, releaseWorktreeTaskLock } from './worktree-lock.js';
 import { assertNoWorktreeConfigLeak, ensureWorktreeBuildReady } from './worktree-preflight.js';
 
 /**
@@ -158,6 +161,113 @@ function shellQuote(value: string): string {
 }
 
 /**
+ * Parse `git worktree list --porcelain` into one record per worktree.
+ *
+ * @param gitRoot - Repository root.
+ * @returns Entries with their realpath-normalised path and `locked` flag.
+ */
+function listRegisteredWorktrees(gitRoot: string): Array<{ path: string; locked: boolean }> {
+  let out: string;
+  try {
+    out = gitSync(['worktree', 'list', '--porcelain'], gitRoot);
+  } catch {
+    return [];
+  }
+  const entries: Array<{ path: string; locked: boolean }> = [];
+  for (const block of out.split(/\n\s*\n/)) {
+    const lines = block.split('\n');
+    const head = lines.find((l) => l.startsWith('worktree '));
+    if (!head) continue;
+    entries.push({
+      path: realpathOrSelf(head.slice('worktree '.length)),
+      locked: lines.some((l) => l === 'locked' || l.startsWith('locked ')),
+    });
+  }
+  return entries;
+}
+
+/** `realpathSync` that falls back to the input for a missing path. */
+function realpathOrSelf(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
+/**
+ * True when `worktreePath` is a worktree git knows about in `gitRoot`
+ * (T12506: the only kind of existing directory `createWorktree` re-attaches).
+ */
+function isRegisteredWorktree(gitRoot: string, worktreePath: string): boolean {
+  const target = realpathOrSelf(worktreePath);
+  return listRegisteredWorktrees(gitRoot).some((e) => e.path === target);
+}
+
+/** True when git already holds a `git worktree lock` on `worktreePath`. */
+function isGitLockedWorktree(gitRoot: string, worktreePath: string): boolean {
+  const target = realpathOrSelf(worktreePath);
+  return listRegisteredWorktrees(gitRoot).some((e) => e.path === target && e.locked);
+}
+
+/**
+ * Resolve the mainline ref that "merged" is judged against: `origin/main` when
+ * the remote-tracking ref exists, otherwise `fallbackRef`.
+ *
+ * @param gitRoot - Repository root.
+ * @param fallbackRef - Ref used when `origin/main` is absent (usually `baseRef`).
+ * @returns The ref name.
+ */
+function resolveMainlineRef(gitRoot: string, fallbackRef: string): string {
+  return gitSilent(['rev-parse', '--verify', '--quiet', 'refs/remotes/origin/main'], gitRoot)
+    ? 'origin/main'
+    : fallbackRef;
+}
+
+/**
+ * Count commits on `branch` that are not on the mainline
+ * (`git rev-list --count <mainline>..<branch>`).
+ *
+ * @param gitRoot - Repository root.
+ * @param branch - Branch to inspect.
+ * @param fallbackRef - Mainline fallback when `origin/main` is absent.
+ * @returns The number of unmerged commits (errors count as "unknown" → 1, the safe answer).
+ *
+ * @task T12506
+ */
+export function countUnmergedCommits(gitRoot: string, branch: string, fallbackRef: string): number {
+  const mainline = resolveMainlineRef(gitRoot, fallbackRef);
+  try {
+    const n = Number(gitSync(['rev-list', '--count', `${mainline}..${branch}`], gitRoot).trim());
+    return Number.isFinite(n) ? n : 1;
+  } catch {
+    return 1;
+  }
+}
+
+/**
+ * Free the branch NAME `branch` so it can be recreated, without losing any
+ * commit that is not on the mainline (T12506).
+ *
+ * - Branch fully merged into the mainline → `git branch -D` (nothing is lost).
+ * - Otherwise → `git branch -m` to `cleo/preserved/<branch>/<utc-stamp>`.
+ *
+ * @throws Error when neither operation succeeds (the caller must not proceed).
+ */
+function discardBranchName(gitRoot: string, branch: string, fallbackRef: string): void {
+  if (countUnmergedCommits(gitRoot, branch, fallbackRef) === 0) {
+    gitSync(['branch', '-D', branch], gitRoot);
+    return;
+  }
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*$/, 'Z');
+  const preserved = `cleo/preserved/${branch}/${stamp}`;
+  gitSync(['branch', '-m', branch, preserved], gitRoot);
+  process.stderr.write(
+    `[worktree] preserved unmerged history of ${branch} as ${preserved} (never deleted)\n`,
+  );
+}
+
+/**
  * Create a git worktree for an agent task.
  *
  * Steps:
@@ -219,82 +329,145 @@ export async function createWorktree(
   // returns immediately with no side-effects.
   assertNoWorktreeConfigLeak(gitRoot);
 
-  // Remove stale worktree at this path if it exists (left from a prior run).
-  // Dirty worktrees are preserved to avoid losing uncommitted agent work.
-  if (existsSync(worktreePath)) {
-    const porcelain = gitSync(['status', '--porcelain'], worktreePath);
-    if (porcelain.trim() !== '') {
-      process.stderr.write(
-        `[worktree] WARNING: preserving dirty worktree at ${worktreePath} (uncommitted changes detected)\n`,
-      );
-    } else {
-      gitSilent(['worktree', 'unlock', worktreePath], gitRoot);
-      if (!gitSilent(['worktree', 'remove', '--force', worktreePath], gitRoot)) {
-        rmSync(worktreePath, { recursive: true, force: true });
-      }
-      // Best-effort: delete the stale branch so we always start fresh when the
-      // directory existed (the branch-reuse path below handles the case where
-      // only the branch survives without a directory).
-      gitSilent(['branch', '-D', branch], gitRoot);
-    }
+  // T12506 — take the per-task lock BEFORE touching the worktree or branch.
+  // Two concurrent spawns of one task used to both pass the check-then-act
+  // below; the loser force-removed the winner's live worktree. A live holder
+  // now gets E_WORKTREE_LOCKED naming it; a provably dead or stale holder's
+  // lock is reclaimed.
+  const lock = acquireWorktreeTaskLock({
+    projectHash,
+    taskId,
+    ...(options.holder ? { holder: options.holder } : {}),
+    ...(options.lockTtlMs !== undefined ? { ttlMs: options.lockTtlMs } : {}),
+  });
+  try {
+    return await provisionUnderLock(projectRoot, options, {
+      gitRoot,
+      projectHash,
+      branch,
+      baseRef,
+      worktreePath,
+      hooks,
+      lockWorktree,
+      applyInclude,
+      lock,
+    });
+  } catch (err) {
+    releaseWorktreeTaskLock(projectHash, taskId, lock.record.token);
+    throw err;
   }
+}
 
-  // Check whether the branch already exists without a worktree directory.
-  // This happens when a prior spawn created the branch but the worktree
-  // directory was cleaned up (e.g. aborted after `git worktree add` but
-  // before the agent ran). Attaching to the existing branch avoids the
-  // "branch already exists" error from `git worktree add -b`.
-  // `git branch --list <branch>` exits 0 regardless; non-empty output means
-  // the branch exists.
-  const branchExists = gitSync(['branch', '--list', branch], gitRoot).trim() !== '';
+/** Resolved inputs shared by {@link createWorktree} and {@link provisionUnderLock}. */
+interface ProvisionContext {
+  gitRoot: string;
+  projectHash: string;
+  branch: string;
+  baseRef: string;
+  worktreePath: string;
+  hooks: WorktreeHook[];
+  lockWorktree: boolean;
+  applyInclude: boolean;
+  lock: WorktreeLockAcquisition;
+}
+
+/**
+ * Everything `createWorktree` does once the per-task lock is held.
+ *
+ * T12506 invariants:
+ * - An existing worktree directory is NEVER force-removed. When it is a
+ *   registered worktree of this repository it is re-attached as-is
+ *   (`reused: true`) — no checkout, include copy, hook or install touches
+ *   its files, because its previous (now dead or stale) holder may have left
+ *   uncommitted, gitignored or unmerged work in it.
+ * - A task branch that carries commits not on the mainline (`origin/main`,
+ *   else `baseRef`) is never `branch -D`'d; `forceReset` renames it to a
+ *   `cleo/preserved/...` ref instead.
+ *
+ * @internal
+ */
+async function provisionUnderLock(
+  projectRoot: string,
+  options: CreateWorktreeOptions,
+  ctx: ProvisionContext,
+): Promise<CreateWorktreeResultWithBootstrap> {
+  const { taskId } = options;
+  const { gitRoot, projectHash, branch, baseRef, worktreePath, hooks, lockWorktree, lock } = ctx;
+  const { applyInclude } = ctx;
 
   let reused: boolean;
-  if (branchExists) {
-    // T1927: detect orphan history — commits on task/<taskId> that are not
-    // reachable from baseRef. This happens when test fixtures or prior aborted
-    // sessions leave branches with unrelated commits (e.g. T1878 integration
-    // tests creating fixture commits on task/ branches). Merging such a branch
-    // would import garbage history into the integration base.
-    const orphanLog = gitSync(['log', '--format=%H', `${baseRef}..${branch}`], gitRoot).trim();
-    const orphanCommits = orphanLog
-      .split('\n')
-      .map((s) => s.trim())
-      .filter(Boolean);
+  let reattached = false;
+  if (existsSync(worktreePath)) {
+    if (!isRegisteredWorktree(gitRoot, worktreePath)) {
+      throw Object.assign(
+        new Error(
+          `${BRANCH_LOCK_ERROR_CODES.E_WORKTREE_INVALID}: "${worktreePath}" exists but is not a ` +
+            `registered git worktree of ${gitRoot}. It is left untouched because it may hold ` +
+            `agent work; inspect it, move it aside, then re-run the spawn.`,
+        ),
+        { code: BRANCH_LOCK_ERROR_CODES.E_WORKTREE_INVALID, worktreePath },
+      );
+    }
+    process.stderr.write(
+      `[worktree] re-attaching existing worktree at ${worktreePath} (lock ${lock.status}` +
+        `${lock.reclaimReason ? `: previous holder ${lock.reclaimReason}` : ''}); nothing removed\n`,
+    );
+    reused = true;
+    reattached = true;
+  } else {
+    // Check whether the branch already exists without a worktree directory.
+    // This happens when a prior spawn created the branch but the worktree
+    // directory was cleaned up (e.g. aborted after `git worktree add` but
+    // before the agent ran). Attaching to the existing branch avoids the
+    // "branch already exists" error from `git worktree add -b`.
+    // `git branch --list <branch>` exits 0 regardless; non-empty output means
+    // the branch exists.
+    const branchExists = gitSync(['branch', '--list', branch], gitRoot).trim() !== '';
 
-    if (orphanCommits.length > 0) {
-      if (options.forceReset) {
-        // Caller explicitly requested reset — delete the stale branch so we
-        // fall through to the fresh-branch creation path below.
-        gitSilent(['branch', '-D', branch], gitRoot);
-        // Fall through: branchExists will be false for the recreate below.
-        gitSync(['worktree', 'add', '-b', branch, worktreePath, baseRef], gitRoot);
-        reused = false;
+    if (branchExists) {
+      // T1927: detect orphan history — commits on task/<taskId> that are not
+      // reachable from baseRef. Merging such a branch would import garbage
+      // history into the integration base.
+      const orphanLog = gitSync(['log', '--format=%H', `${baseRef}..${branch}`], gitRoot).trim();
+      const orphanCommits = orphanLog
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      if (orphanCommits.length > 0) {
+        if (options.forceReset) {
+          // T12506: never `branch -D` history that is not on the mainline —
+          // move it aside to a preserved ref, then recreate from baseRef.
+          discardBranchName(gitRoot, branch, baseRef);
+          gitSync(['worktree', 'add', '-b', branch, worktreePath, baseRef], gitRoot);
+          reused = false;
+        } else {
+          throw Object.assign(
+            new Error(
+              `${BRANCH_LOCK_ERROR_CODES.E_DIRTY_BRANCH}: branch "${branch}" has ` +
+                `${orphanCommits.length} commit(s) not reachable from "${baseRef}". ` +
+                `This indicates orphan history from a test fixture or prior session. ` +
+                `Inspect the branch, or pass { forceReset: true } to createWorktree to move ` +
+                `it aside to a preserved ref and start fresh.`,
+            ),
+            { code: BRANCH_LOCK_ERROR_CODES.E_DIRTY_BRANCH, orphanCommits },
+          );
+        }
       } else {
-        throw Object.assign(
-          new Error(
-            `${BRANCH_LOCK_ERROR_CODES.E_DIRTY_BRANCH}: branch "${branch}" has ` +
-              `${orphanCommits.length} commit(s) not reachable from "${baseRef}". ` +
-              `This indicates orphan history from a test fixture or prior session. ` +
-              `Delete the branch manually (\`git branch -D ${branch}\`) or pass ` +
-              `{ forceReset: true } to createWorktree.`,
-          ),
-          { code: BRANCH_LOCK_ERROR_CODES.E_DIRTY_BRANCH, orphanCommits },
-        );
+        // Branch exists but is clean (points to baseRef or an ancestor) — safe to reuse.
+        gitSync(['worktree', 'add', worktreePath, branch], gitRoot);
+        reused = true;
       }
     } else {
-      // Branch exists but is clean (points to baseRef or an ancestor) — safe to reuse.
-      gitSync(['worktree', 'add', worktreePath, branch], gitRoot);
-      reused = true;
+      // Create the worktree with a new branch.
+      gitSync(['worktree', 'add', '-b', branch, worktreePath, baseRef], gitRoot);
+      reused = false;
     }
-  } else {
-    // Create the worktree with a new branch.
-    gitSync(['worktree', 'add', '-b', branch, worktreePath, baseRef], gitRoot);
-    reused = false;
   }
 
   // Apply git worktree lock to prevent accidental pruning.
-  let locked = false;
-  if (lockWorktree) {
+  let locked = reattached && isGitLockedWorktree(gitRoot, worktreePath);
+  if (lockWorktree && !locked) {
     // Try with --reason (git >= 2.37), fall back without.
     if (
       gitSilent(['worktree', 'lock', '--reason', `cleo-agent-${taskId}`, worktreePath], gitRoot)
@@ -310,8 +483,12 @@ export async function createWorktree(
   // T9226 — spawn-clone-exclude filter: hide files matching the exclude
   // patterns from the worktree via sparse-checkout. Best-effort.
   const excludePatterns = options.spawnCloneExclude ?? [];
+  // T12506: a re-attached worktree is left exactly as its holder left it —
+  // no sparse-checkout, hooks, include copies or installs touch its files.
   const appliedExcludePatterns =
-    excludePatterns.length > 0 ? applySpawnCloneExcludeFilter(worktreePath, excludePatterns) : [];
+    !reattached && excludePatterns.length > 0
+      ? applySpawnCloneExcludeFilter(worktreePath, excludePatterns)
+      : [];
 
   // T9807 — spawn scope: limit the worktree to a directory prefix via cone-mode
   // sparse-checkout (e.g. `packages/cleo` for a CLI-only task). Best-effort;
@@ -320,12 +497,14 @@ export async function createWorktree(
   // avoid conflicting sparse-checkout modes.
   const spawnScope = options.spawnScope ?? null;
   const appliedScope =
-    spawnScope && appliedExcludePatterns.length === 0
+    !reattached && spawnScope && appliedExcludePatterns.length === 0
       ? applySpawnScope(worktreePath, spawnScope)
       : null;
 
   // Run post-create hooks before returning the handle.
-  const postCreateHookResults = await runWorktreeHooks(hooks, 'post-create', worktreePath);
+  const postCreateHookResults = reattached
+    ? []
+    : await runWorktreeHooks(hooks, 'post-create', worktreePath);
 
   // Apply .worktreeinclude (or legacy .cleo/worktree-include) patterns.
   // The matcher in @cleocode/worktree-napi uses real ignore::gitignore
@@ -337,7 +516,7 @@ export async function createWorktree(
   // the pnpm-monorepo-only 1.9 GB / 69k-file blast radius the hardcoded list
   // imposed on every spawn (the 60s timeout root cause).
   let appliedPatterns: ReturnType<typeof applyIncludePatterns> = [];
-  if (applyInclude) {
+  if (applyInclude && !reattached) {
     const patterns = loadWorktreeIncludePatterns(projectRoot);
     appliedPatterns = applyIncludePatterns(patterns, projectRoot, worktreePath);
   }
@@ -347,7 +526,7 @@ export async function createWorktree(
   // to the parent project root (which may not be accessible from containerized
   // builds or when the XDG worktree path is outside the parent repo tree).
   const parentProjectInfoPath = join(projectRoot, '.cleo', 'project-info.json');
-  if (existsSync(parentProjectInfoPath)) {
+  if (!reattached && existsSync(parentProjectInfoPath)) {
     const worktreeCleoDir = join(worktreePath, '.cleo');
     mkdirSync(worktreeCleoDir, { recursive: true });
     const worktreeProjectInfoPath = join(worktreeCleoDir, 'project-info.json');
@@ -418,7 +597,9 @@ export async function createWorktree(
   // worktrees are provisioned concurrently. Only runs when pnpm-lock.yaml
   // was included via .worktreeinclude (i.e. the project uses pnpm).
   // Uses per-worktree pnpm store (.pnpm-store/) for full isolation.
-  if (appliedPatterns.some((p) => p.pattern === 'pnpm-lock.yaml')) {
+  if (reattached) {
+    // T12506: never install into (or otherwise mutate) a re-attached worktree.
+  } else if (appliedPatterns.some((p) => p.pattern === 'pnpm-lock.yaml')) {
     const installed = installWorktreeDependencies(worktreePath, gitRoot);
     if (installed) {
       copiedPaths.push('node_modules/ (pnpm install)');
@@ -441,7 +622,9 @@ export async function createWorktree(
   }
 
   // Run post-start hooks after copy-on-write bootstrap.
-  const postStartHookResults = await runWorktreeHooks(hooks, 'post-start', worktreePath);
+  const postStartHookResults = reattached
+    ? []
+    : await runWorktreeHooks(hooks, 'post-start', worktreePath);
 
   // Build env vars for agent spawn.
   const currentPath = process.env['PATH'] ?? '';
@@ -483,7 +666,7 @@ export async function createWorktree(
     xdgPath: worktreePath,
     taskId,
     branch,
-    reason: reused ? 'branch-reuse' : 'spawn',
+    reason: reattached ? 'worktree-reattach' : reused ? 'branch-reuse' : 'spawn',
     success: true,
   });
 
@@ -499,6 +682,7 @@ export async function createWorktree(
     createdAt,
     locked,
     reused,
+    lock,
     envVars,
     preamble,
     hookResults: postCreateHookResults,

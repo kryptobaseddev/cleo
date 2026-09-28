@@ -51,6 +51,7 @@ import { computeProjectHash, resolveWorktreeRootForHash } from '@cleocode/paths'
 // ---------------------------------------------------------------------------
 
 import {
+  acquireWorktreeTaskLock,
   getGitRoot,
   gitSilent,
   gitSync,
@@ -58,6 +59,7 @@ import {
   napiDestroyWorktree,
   pruneWorktrees,
 } from '@cleocode/worktree';
+import { resolveSpawnLockHolder } from './worktree-lock-holder.js';
 
 // Re-export getGitRoot for barrel consumers
 export { getGitRoot };
@@ -124,39 +126,26 @@ export function createAgentWorktree(taskId: string, projectRoot: string): AgentW
     baseRef = 'main';
   }
 
-  // T11123: Remove stale worktree via NAPI destroyWorktree instead of raw
-  // git worktree unlock + remove + branch delete shell-outs.
+  // T12506: take the per-task worktree lock first (E_WORKTREE_LOCKED when a
+  // live holder owns it), and NEVER destroy an existing worktree — the prior
+  // force-remove + `branch -D` deleted live agents' work whenever their
+  // changes were gitignored or already committed. Re-attach it instead.
+  const projectHashForLock = computeProjectHash(projectRoot);
+  acquireWorktreeTaskLock({
+    projectHash: projectHashForLock,
+    taskId,
+    holder: resolveSpawnLockHolder(),
+  });
   if (existsSync(worktreePath)) {
-    try {
-      napiDestroyWorktree({
-        repoRoot: gitRoot,
-        worktreePath,
-        force: true,
-      });
-    } catch {
-      // Fallback: brute-force filesystem + git removal for stale entries
-      // that NAPI cannot resolve (corrupted admin dirs, detached worktrees).
-      gitSilent(['worktree', 'unlock', worktreePath], gitRoot); // raw-git-worktree-ok: corrupted-worktree cleanup fallback after NAPI destroy fails
-      if (
-        !gitSilent(
-          [
-            'worktree' /* raw-git-worktree-ok: corrupted-worktree cleanup fallback after NAPI destroy fails */,
-            'remove',
-            '--force',
-            worktreePath,
-          ],
-          gitRoot,
-        )
-      ) {
-        try {
-          rmSync(worktreePath, { recursive: true, force: true });
-        } catch {
-          /* best-effort */
-        }
-      }
-      // Attempt to delete the leftover branch.
-      gitSilent(['branch', '-D', branch], gitRoot);
-    }
+    return {
+      path: worktreePath,
+      branch,
+      taskId,
+      baseRef,
+      projectHash: projectHashForLock,
+      createdAt: new Date().toISOString(),
+      locked: true,
+    };
   }
 
   // Create the worktree with a new branch.

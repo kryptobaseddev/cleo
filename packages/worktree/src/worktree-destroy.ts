@@ -18,6 +18,7 @@ import { computeProjectHash, resolveTaskWorktreePath } from './paths.js';
 import { appendWorktreeAuditLog, removeWorktreeFromSentinelIndex } from './worktree-audit.js';
 import { runWorktreeHooks } from './worktree-hooks.js';
 import { locateTaskWorktree } from './worktree-locate.js';
+import { releaseWorktreeTaskLock } from './worktree-lock.js';
 
 /**
  * Destroy the git worktree for a task.
@@ -157,6 +158,10 @@ export async function destroyWorktree(
   } else {
     worktreeRemoved = true; // genuinely absent: not on disk, not registered
   }
+
+  // T12506: the worktree is gone, so its per-task lock guards nothing — free
+  // it so the next spawn of this task provisions without waiting for a TTL.
+  if (worktreeRemoved) releaseWorktreeTaskLock(projectHash, taskId);
 
   // Step 4: Optionally delete the branch.
   if (deleteBranch) {

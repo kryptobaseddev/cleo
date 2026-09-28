@@ -71,4 +71,5 @@ export {
   resolveTaskWorktreePath,
   resolveWorktreeIndexPath,
   resolveWorktreeRootForHash,
+  resolveWorktreeTaskLockPath,
 } from './worktree-paths.js';

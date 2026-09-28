@@ -67,7 +67,7 @@ export {
   WORKTREE_INDEX_RELATIVE_PATH,
   WORKTREE_LIFECYCLE_AUDIT_FILE,
 } from './worktree-audit.js';
-export { createWorktree } from './worktree-create.js';
+export { countUnmergedCommits, createWorktree } from './worktree-create.js';
 export { destroyWorktree } from './worktree-destroy.js';
 export { runWorktreeHooks } from './worktree-hooks.js';
 export { applyIncludePatterns, loadWorktreeIncludePatterns } from './worktree-include.js';
@@ -77,6 +77,24 @@ export {
   resolveWorktreeRoot,
 } from './worktree-list.js';
 export * from './worktree-locate.js';
+export {
+  type AcquireWorktreeTaskLockOptions,
+  acquireWorktreeTaskLock,
+  assessWorktreeLockHolder,
+  DEFAULT_WORKTREE_LOCK_TTL_MS,
+  heartbeatWorktreeTaskLock,
+  isWorktreeLockedError,
+  type ProcessLiveness,
+  type ProcessProbe,
+  probeProcess,
+  readProcessStartTime,
+  readWorktreeTaskLock,
+  releaseWorktreeTaskLock,
+  resolveWorktreeLockTtlMs,
+  WORKTREE_LOCK_TTL_ENV,
+  type WorktreeLockAssessment,
+  type WorktreeLockedError,
+} from './worktree-lock.js';
 export type { MigrateWorktreeResult } from './worktree-migrate.js';
 export {
   discoverParentProjectRoot,
