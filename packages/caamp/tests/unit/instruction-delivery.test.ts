@@ -31,6 +31,20 @@ describe('self-contained instruction delivery (static, live providers unverified
     expect(result.content).not.toContain('<!-- CAAMP:START -->');
   });
 
+  it('delivers the core with its on-demand pointer, never the reference (T12580)', async () => {
+    const protocol = await readFile(new URL('../../../core/templates/CLEO-INJECTION.md', import.meta.url), 'utf8');
+    const reference = await readFile(new URL('../../../core/templates/CLEO-REFERENCE.md', import.meta.url), 'utf8');
+    const dir = await fixture();
+    await writeFile(join(dir, 'protocol.md'), protocol);
+    await writeFile(join(dir, 'hub.md'), '<!-- CAAMP:START -->\n@protocol.md\n<!-- CAAMP:END -->');
+    const result = await resolveInstructionDelivery('@hub.md', dir);
+    expect(result.findings).toEqual([]);
+    expect(result.content).toContain('**Ask the owner.**');
+    expect(result.content).toContain('cleo briefing inject --section <name>');
+    expect(result.content).not.toContain('## Knowledge repair');
+    expect(reference).toContain('## Knowledge repair');
+  });
+
   it('reports broken references and cycles without hiding them as healthy', async () => {
     const dir = await fixture();
     await writeFile(join(dir, 'a.md'), '@b.md');

@@ -34,7 +34,7 @@ CREATE TABLE brain_observations (id TEXT PRIMARY KEY, title TEXT NOT NULL, creat
 CREATE TABLE tasks_sessions (id TEXT PRIMARY KEY, name TEXT NOT NULL, current_task TEXT,
   tasks_completed_json TEXT, started_at TEXT NOT NULL);
 CREATE TABLE tasks_widgets (id TEXT PRIMARY KEY, created_at TEXT NOT NULL);
-CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE tasks_schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `;
 
 let dir: string;
@@ -78,7 +78,7 @@ beforeEach(() => {
        ('T1', 'epic', '2026-09-14T10:00:00.000Z'),
        ('T2', 'shared work', '2026-09-14T17:27:42.313Z');
      INSERT INTO tasks_sessions VALUES ('ses_old', 'old', NULL, '[]', '2026-08-01T00:00:00Z');
-     INSERT INTO schema_meta VALUES ('task_id_sequence', '{"counter":2}');`,
+     INSERT INTO tasks_schema_meta VALUES ('task_id_sequence', '{"counter":2}');`,
   );
   copyFileSync(source, target);
 
@@ -87,7 +87,7 @@ beforeEach(() => {
     target,
     `INSERT INTO tasks_tasks (id, title, parent_id, created_at) VALUES ('T3', 'live meaning', 'T1', '2026-09-16T00:00:00Z');
      DELETE FROM tasks_sessions WHERE id = 'ses_old';
-     UPDATE schema_meta SET value = '{"counter":7}' WHERE key = 'task_id_sequence';`,
+     UPDATE tasks_schema_meta SET value = '{"counter":7}' WHERE key = 'task_id_sequence';`,
   );
   // Source after divergence: a different T3 (collision) and its child T4.
   exec(

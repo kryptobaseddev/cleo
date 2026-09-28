@@ -3,13 +3,15 @@
  * feature per D030.
  *
  * Executes `post-create` and `post-start` hooks in the worktree directory.
- * Each hook runs via `sh -c <command>` with the worktree path as CWD.
+ * Each hook runs through the platform shell ({@link shellInvocation}: `/bin/sh -c`
+ * on POSIX, cmd.exe on Windows) with the worktree path as CWD (T12604).
  *
  * @task T1161
  */
 
 import { execFile } from 'node:child_process';
 import type { WorktreeHook, WorktreeHookResult } from '@cleocode/contracts';
+import { shellInvocation } from '@cleocode/paths';
 
 const DEFAULT_HOOK_TIMEOUT_MS = 30_000;
 
@@ -27,14 +29,17 @@ export async function runSingleHook(
   const timeoutMs = hook.timeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS;
   const start = Date.now();
 
+  const shell = shellInvocation(hook.command);
+
   return new Promise<WorktreeHookResult>((resolve) => {
     const child = execFile(
-      'sh',
-      ['-c', hook.command],
+      shell.file,
+      shell.args,
       {
         cwd: worktreePath,
         timeout: timeoutMs,
         encoding: 'utf-8',
+        windowsVerbatimArguments: shell.windowsVerbatimArguments,
       },
       (_err, stdout, stderr) => {
         const durationMs = Date.now() - start;

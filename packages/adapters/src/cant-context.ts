@@ -23,9 +23,9 @@
 
 import { execFile } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { promisify } from 'node:util';
+import { getCleoHome, getCleoPlatformPaths } from '@cleocode/paths';
 
 const execFileAsync = promisify(execFile);
 
@@ -175,10 +175,12 @@ export function discoverCantFiles(dir: string): string[] {
 }
 
 /**
- * Resolve XDG-compliant paths for the 3-tier CANT hierarchy.
+ * Resolve the platform paths for the 3-tier CANT hierarchy.
  *
- * Respects `XDG_DATA_HOME` and `XDG_CONFIG_HOME` environment variables.
- * Falls back to XDG defaults (`~/.local/share/` and `~/.config/`).
+ * The global tier lives under `getCleoHome()` and the user tier under the
+ * CLEO config dir, both from `@cleocode/paths` — on Linux that is
+ * `$XDG_DATA_HOME/cleo/cant` and `$XDG_CONFIG_HOME/cleo/cant`; on macOS
+ * `~/Library/Application Support/cleo/cant` and `~/Library/Preferences/cleo/cant`.
  *
  * @param projectDir - The project root directory (for the project tier).
  * @returns An object with `global`, `user`, and `project` CANT directory paths.
@@ -188,13 +190,9 @@ export function resolveThreeTierPaths(projectDir: string): {
   user: string;
   project: string;
 } {
-  const home = homedir();
-  const xdgData = process.env['XDG_DATA_HOME'] ?? join(home, '.local', 'share');
-  const xdgConfig = process.env['XDG_CONFIG_HOME'] ?? join(home, '.config');
-
   return {
-    global: join(xdgData, 'cleo', 'cant'),
-    user: join(xdgConfig, 'cleo', 'cant'),
+    global: join(getCleoHome(), 'cant'),
+    user: join(getCleoPlatformPaths().config, 'cant'),
     project: join(projectDir, '.cleo', 'cant'),
   };
 }
@@ -377,11 +375,11 @@ async function fetchMentalModelInjection(agentName: string, projectRoot: string)
 // ---------------------------------------------------------------------------
 
 /**
- * Read CLEOOS-IDENTITY.md from the project or global XDG location.
+ * Read CLEOOS-IDENTITY.md from the project or the global CLEO home.
  *
  * Search order:
  * 1. `<projectDir>/.cleo/CLEOOS-IDENTITY.md` (project-level, deployed by init)
- * 2. `$XDG_DATA_HOME/cleo/CLEOOS-IDENTITY.md` (global XDG default)
+ * 2. `<getCleoHome()>/CLEOOS-IDENTITY.md` (global)
  *
  * @param projectDir - The project root directory.
  * @returns The identity file content, or null if not found.
@@ -397,9 +395,7 @@ export function readIdentityFile(projectDir: string): string | null {
     }
   }
 
-  const home = homedir();
-  const xdgData = process.env['XDG_DATA_HOME'] ?? join(home, '.local', 'share');
-  const globalPath = join(xdgData, 'cleo', 'CLEOOS-IDENTITY.md');
+  const globalPath = join(getCleoHome(), 'CLEOOS-IDENTITY.md');
   if (existsSync(globalPath)) {
     try {
       const content = readFileSync(globalPath, 'utf-8');

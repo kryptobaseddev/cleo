@@ -11,6 +11,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { findOnPath } from '@cleocode/paths';
 import { getCleoHome } from '../paths.js';
 import { getCleoVersion } from '../scaffold.js';
 import { getSystemInfo } from '../system/platform-paths.js';
@@ -64,7 +65,7 @@ export function collectDiagnostics(): Record<string, string> {
     }
   };
 
-  const cleoLocation = getVersion('which', ['cleo']);
+  const cleoLocation = findOnPath('cleo') ?? '';
   const ghVersion = getVersion('gh', ['--version']).split('\n')[0] ?? 'not installed';
   const sysInfo = getSystemInfo();
 

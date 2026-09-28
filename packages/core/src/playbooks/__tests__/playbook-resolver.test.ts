@@ -28,7 +28,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   listPlaybooks,
   PlaybookNotFoundError,
@@ -411,4 +411,38 @@ describe('packaged starter smoke test (real filesystem)', () => {
       expect(result.tier).toBe('packaged');
     }
   });
+});
+
+// ---------------------------------------------------------------------------
+// Global tier default — the platform CLEO data dir (T12602)
+// ---------------------------------------------------------------------------
+
+describe('global tier default (T12602)', () => {
+  const PLATFORM = Object.getOwnPropertyDescriptor(process, 'platform');
+
+  afterEach(() => {
+    if (PLATFORM) Object.defineProperty(process, 'platform', PLATFORM);
+    vi.unstubAllEnvs();
+  });
+
+  // CLEO_HOME stands in for getCleoHome() so the real data dir is untouched;
+  // XDG_DATA_HOME points elsewhere to show it is not what is read.
+  for (const platform of ['darwin', 'linux', 'win32'] as const) {
+    it(`${platform}: lists a playbook placed in <getCleoHome()>/playbooks`, () => {
+      Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+      vi.stubEnv('CLEO_HOME', globalDir);
+      vi.stubEnv('XDG_DATA_HOME', projectDir);
+      mkdirSync(join(globalDir, 'playbooks'), { recursive: true });
+      writeFileSync(
+        join(globalDir, 'playbooks', 'global-flow.cantbook'),
+        makePlaybookContent('global-flow'),
+      );
+
+      const listed = listPlaybooks({ projectRoot: projectDir, packagedStarterDir: projectDir });
+
+      expect(listed.map((p: ResolvedPlaybook) => [p.name, p.tier])).toEqual([
+        ['global-flow', 'global'],
+      ]);
+    });
+  }
 });

@@ -9,6 +9,8 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import type { DependencyReport } from '@cleocode/contracts';
+import { findOnPath } from '@cleocode/paths';
+import { twinCollapseDoctorCheck } from '../doctor/twin-collapse.js';
 import { checkGitHooks, type HookCheckResult } from '../hooks.js';
 import { checkCaampBinary, checkGlobalInstructionDelivery, checkInjection } from '../injection.js';
 import {
@@ -403,6 +405,17 @@ export async function getSystemHealth(
     }
   }
 
+  // T12535: a failed or pending twin collapse. Read-only and without a domain
+  // bind, so it reports even while every bind fails with E_TWIN_COLLAPSE_FAILED.
+  if (existsSync(cleoDir)) {
+    const twin = twinCollapseDoctorCheck(projectRoot);
+    checks.push({
+      name: twin.check,
+      status: twin.status === 'error' ? 'fail' : twin.status === 'warning' ? 'warn' : 'pass',
+      message: twin.fix ? `${twin.message}. ${twin.fix}` : twin.message,
+    });
+  }
+
   // Get version
   let version = 'unknown';
   try {
@@ -673,8 +686,8 @@ function checkContributorChannel(projectRoot: string): DoctorCheck {
   }
 
   // Check that cleo-dev is on PATH
-  const pathDirs = (process.env['PATH'] ?? '').split(':').filter(Boolean);
-  const devCliOnPath = pathDirs.some((dir) => existsSync(join(dir, devCli)));
+  // PATH delimiter + PATHEXT aware: on Windows `cleo-dev` is `cleo-dev.cmd` (T12605).
+  const devCliOnPath = findOnPath(devCli) !== null;
 
   if (!devCliOnPath) {
     return {
@@ -687,7 +700,13 @@ function checkContributorChannel(projectRoot: string): DoctorCheck {
 
   // Probe whether the dev CLI actually responds
   try {
-    const version = execFileSync(devCli, ['--version'], { timeout: 5000 }).toString().trim();
+    const version = execFileSync(devCli, ['--version'], {
+      timeout: 5000,
+      // A win32 `.cmd` launcher only runs through cmd.exe (T12605).
+      shell: process.platform === 'win32',
+    })
+      .toString()
+      .trim();
     return {
       check: 'contributor_channel',
       status: 'ok',
@@ -975,6 +994,10 @@ export async function coreDoctorReport(projectRoot: string): Promise<DoctorRepor
 
   // Contributor project channel check (ADR-029)
   checks.push(checkContributorChannel(projectRoot));
+
+  // T12535: a failed or pending twin collapse (read-only, no domain bind, so
+  // it reports even while every bind fails with E_TWIN_COLLAPSE_FAILED).
+  checks.push(twinCollapseDoctorCheck(projectRoot));
 
   // Agent definition presence check
   const agentDefPath = join(getAgentsHome(), 'agents', 'cleo-subagent');

@@ -39,8 +39,8 @@
 
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type {
   ExecResult,
   ExtensionAPI,
@@ -275,16 +275,30 @@ function propString(props: CantProperty[], key: string): string | undefined {
 }
 
 /**
- * Resolve an agent reference to a .cant file on disk. Checks
- * `$PWD/.cleo/agents/`, `$CLEO_HOME/agents/`, then `$HOME/.local/share/cleo/agents/`.
+ * The CLEO home this bridge was installed into, or undefined when it runs
+ * from anywhere else. `cleo admin scaffold-hub` copies it to
+ * `<cleoHome>/pi-extensions/`, and `<cleoHome>` is the platform data dir
+ * (`~/Library/Application Support/cleo` on macOS, `%LOCALAPPDATA%\cleo\Data`
+ * on Windows, `~/.local/share/cleo` on Linux), so the install location is the
+ * one answer that is right on every OS without importing @cleocode/*.
  */
-function resolveAgentFile(cwd: string, agentName: string): string | undefined {
+function installedCleoHome(): string | undefined {
+  const extDir = dirname(fileURLToPath(import.meta.url));
+  return basename(extDir) === "pi-extensions" ? dirname(extDir) : undefined;
+}
+
+/**
+ * Resolve an agent reference to a .cant file on disk. Checks
+ * `$PWD/.cleo/agents/`, `$CLEO_HOME/agents/`, then `<installed CLEO home>/agents/`.
+ */
+export function resolveAgentFile(cwd: string, agentName: string): string | undefined {
+  const cleoHome = installedCleoHome();
   const candidates = [
     join(cwd, ".cleo", "agents", `${agentName}.cant`),
     process.env.CLEO_HOME
       ? join(process.env.CLEO_HOME, "agents", `${agentName}.cant`)
       : undefined,
-    join(homedir(), ".local", "share", "cleo", "agents", `${agentName}.cant`),
+    cleoHome ? join(cleoHome, "agents", `${agentName}.cant`) : undefined,
   ].filter((p): p is string => typeof p === "string");
   for (const path of candidates) if (existsSync(path)) return path;
   return undefined;

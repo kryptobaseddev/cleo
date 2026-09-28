@@ -41,13 +41,55 @@ const injectionPath = resolve(
 /** Read once — all assertions operate on this string */
 const injectionContent = readFileSync(injectionPath, 'utf-8');
 
+/**
+ * T12580: CLEO-INJECTION.md is the always-loaded core; reference sections
+ * moved to CLEO-REFERENCE.md and are printed on demand with
+ * `cleo briefing inject --section <name>`. Content that moved is asserted
+ * where it now lives AND through the core's pointer table, so the test still
+ * proves an agent can reach it.
+ */
+const referenceContent = readFileSync(
+  resolve(thisDir, '../../../../core/templates/CLEO-REFERENCE.md'),
+  'utf-8',
+);
+
+/** Body of one on-demand section in the reference, or '' when absent. */
+function referenceSection(name: string): string {
+  const open = `<!-- CLEO-INJECTION:section=${name} -->`;
+  const start = referenceContent.indexOf(open);
+  if (start === -1) return '';
+  const end = referenceContent.indexOf(`<!-- /CLEO-INJECTION:section=${name} -->`, start);
+  return end === -1 ? '' : referenceContent.slice(start + open.length, end);
+}
+
+/** Section names the core's "On-demand reference" table points at (first column). */
+function corePointers(): Set<string> {
+  const table = injectionContent.slice(injectionContent.indexOf('## On-demand reference'));
+  const rows = table.slice(0, table.indexOf('\n## ', 5)).split('\n');
+  return new Set(
+    rows
+      .filter((line) => line.startsWith('| `'))
+      .flatMap((line) => [...(line.split('|')[1] ?? '').matchAll(/`([a-z][a-z0-9-]+)`/g)])
+      .map((m) => m[1] as string),
+  );
+}
+
+/** Assert `name` is pointed at by the core AND declared in the reference; return its body. */
+function onDemand(name: string): string {
+  expect(injectionContent).toContain('cleo briefing inject --section <name>');
+  expect(corePointers()).toContain(name);
+  const body = referenceSection(name);
+  expect(body, `reference section ${name}`).not.toBe('');
+  return body;
+}
+
 // ---------------------------------------------------------------------------
 // Required section markers
 // ---------------------------------------------------------------------------
 
 describe('CLEO-INJECTION.md — required section markers', () => {
-  it('contains "Memory Protocol (JIT)" H2 section', () => {
-    expect(injectionContent).toMatch(/^## Memory Protocol \(JIT\)/m);
+  it('delivers "Memory Protocol (JIT)" on demand (core pointer → reference section)', () => {
+    expect(onDemand('memory-jit')).toMatch(/^## Memory Protocol \(JIT\)/m);
   });
 
   it('contains "Escalation" H2 section', () => {
@@ -63,8 +105,10 @@ describe('CLEO-INJECTION.md — required section markers', () => {
     expect(injectionContent).toMatch(/^## Work Loop/m);
   });
 
-  it('contains "Task Discovery" H2 section', () => {
-    expect(injectionContent).toMatch(/^## Task Discovery/m);
+  it('delivers "Task Discovery" on demand, with the discovery quick form in the core', () => {
+    expect(onDemand('task-discovery')).toMatch(/^## Task Discovery/m);
+    expect(injectionContent).toContain('cleo find "query"');
+    expect(injectionContent).toContain('cleo list --parent <id>');
   });
 });
 
@@ -111,17 +155,22 @@ describe('CLEO-INJECTION.md — command correctness', () => {
     expect(injectionContent).toContain('cleo find');
   });
 
-  it('documents add-batch array input and dry-run count fields', () => {
-    expect(injectionContent).toContain('top-level JSON array of task objects');
-    expect(injectionContent).toContain('/data/wouldCreate');
-    expect(injectionContent).toContain('/data/insertedCount');
+  it('documents add-batch array input and dry-run count fields (task-creation, on demand)', () => {
+    const section = onDemand('task-creation');
+    expect(section).toContain('top-level JSON array of task objects');
+    expect(section).toContain('/data/wouldCreate');
+    expect(section).toContain('/data/insertedCount');
   });
 
-  it('documents docs path policy, strict preflight, and runtime doc kinds', () => {
-    expect(injectionContent).toContain('repo-relative paths');
-    expect(injectionContent).toContain('arbitrary external absolute paths');
-    expect(injectionContent).toContain('cleo docs list-types');
-    expect(injectionContent).toContain('DocKindRegistry');
+  it('documents docs path policy, strict preflight, and runtime doc kinds (documents, on demand)', () => {
+    const section = onDemand('documents');
+    expect(section).toContain('repo-relative paths');
+    expect(section).toContain('arbitrary external absolute paths');
+    expect(section).toContain('cleo docs list-types');
+    expect(section).toContain('DocKindRegistry');
+    // The canonical-doc write/read triggers stay in the core.
+    expect(injectionContent).toContain('cleo docs add --type <kind> --slug <kebab-handle>');
+    expect(injectionContent).toContain('cleo docs fetch <slug>');
   });
 
   it('uses contract-backed mutate field paths', () => {

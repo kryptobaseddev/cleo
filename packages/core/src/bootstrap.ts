@@ -31,6 +31,13 @@ import {
   getProjectRoot,
 } from './paths.js';
 import { ensureGlobalHome, getPackageRoot } from './scaffold.js';
+import {
+  auditCleoLink,
+  CANONICAL_HUB_TEMPLATE_REF,
+  CLEO_LINK_REPAIR_COMMAND,
+  repairCleoLink,
+  resolveGlobalHubContent,
+} from './system/cleo-link.js';
 import { getTemplateById } from './templates/registry.js';
 import { writeFileAtomic } from './tools/fs.js';
 
@@ -166,7 +173,11 @@ export async function bootstrapGlobalCleo(options?: BootstrapOptions): Promise<B
  * Behaviour:
  *   - If `~/.cleo` does not exist           → create the symlink.
  *   - If it is already the correct symlink  → no-op.
- *   - If it is a symlink to a wrong target  → warn; do not modify.
+ *   - If it is a DANGLING symlink            → replace it (T12596: nothing is
+ *                                             reachable through it, so the
+ *                                             repair is lossless; receipt kept).
+ *   - If it is a symlink to a live wrong dir → warn with the repair command;
+ *                                             do not modify.
  *   - If it is a real directory with files  → move to `~/.cleo.bak-<ts>`
  *                                             and create the symlink (user
  *                                             informed via ctx.created).
@@ -187,6 +198,26 @@ export async function ensureCleoSymlink(ctx: BootstrapContext): Promise<void> {
     // Ensure the canonical target exists so the symlink is never dangling
     await mkdir(canonicalTarget, { recursive: true });
 
+    // T12596: a dangling link (e.g. a Linux target carried to macOS by
+    // dotfiles) reads as ABSENT through `existsSync`, and creating a link over
+    // it failed with EEXIST — so the hub reference never resolved. Replace it.
+    const audit = auditCleoLink({ path: legacyPath, canonicalTarget });
+    if (audit.state === 'dangling') {
+      const { receipt } = await repairCleoLink({
+        path: legacyPath,
+        canonicalTarget,
+        states: ['dangling'],
+      });
+      if (receipt.action === 'relinked') {
+        ctx.created.push(
+          `~/.cleo relinked: dangling target ${receipt.before.target} → ${canonicalTarget} (receipt ${receipt.receiptId})`,
+        );
+      } else {
+        ctx.warnings.push(`~/.cleo is a dangling link: ${receipt.reason ?? 'not repaired'}`);
+      }
+      return;
+    }
+
     // If nothing at ~/.cleo, just create the symlink
     if (!existsSync(legacyPath)) {
       await symlink(canonicalTarget, legacyPath, linkType);
@@ -204,7 +235,7 @@ export async function ensureCleoSymlink(ctx: BootstrapContext): Promise<void> {
         return; // no-op, already correct
       }
       ctx.warnings.push(
-        `~/.cleo is a symlink pointing to ${currentTarget}, expected ${canonicalTarget}. Leaving untouched — remove it manually if you want the canonical link.`,
+        `~/.cleo is a symlink pointing to ${currentTarget}, expected ${canonicalTarget}. Leaving untouched — run \`${CLEO_LINK_REPAIR_COMMAND}\` to relink it (the old link is preserved).`,
       );
       return;
     }
@@ -421,9 +452,23 @@ async function injectAgentsHub(ctx: BootstrapContext): Promise<void> {
       // CLEO_HOME-derived path. CLEO_HOME may be a temp directory in test
       // environments, which would write a stale temp-path block into the real
       // ~/.agents/AGENTS.md on every test run (T9020 / T1929).
-      const templateRef = `@${getCanonicalTemplatesTildePath()}/CLEO-INJECTION.md`;
-      const action = await inject(globalAgentsMd, templateRef);
-      ctx.created.push(`~/.agents/AGENTS.md (${action})`);
+      //
+      // T12596: a reference that does not resolve delivers NOTHING, silently.
+      // When ~/.cleo/templates is unreachable (a link Step 0.5 could not
+      // repair), embed the protocol instead and name the repair command.
+      const installed = getInjectionInstallPath();
+      const hub = resolveGlobalHubContent(
+        existsSync(installed) ? readFileSync(installed, 'utf-8') : null,
+      );
+      const action = await inject(globalAgentsMd, hub.content);
+      ctx.created.push(
+        `~/.agents/AGENTS.md (${action}${hub.mode === 'embedded' ? ', protocol embedded' : ''})`,
+      );
+      if (hub.mode === 'embedded') {
+        ctx.warnings.push(
+          `~/.agents/AGENTS.md: ${CANONICAL_HUB_TEMPLATE_REF} does not resolve (~/.cleo is ${hub.audit.state}); embedded the protocol instead. Run: ${CLEO_LINK_REPAIR_COMMAND}`,
+        );
+      }
 
       // Post-inject validation: verify the file is clean
       const postContent = await readFile(globalAgentsMd, 'utf8');
@@ -713,25 +758,12 @@ async function verifyBootstrapHealth(ctx: BootstrapContext): Promise<void> {
 
     // Check 2: ~/.cleo symlink integrity. On fresh installs Step 0.5 created
     // the link; here we verify it stayed intact (user didn't replace it).
-    const legacyPath = resolveLegacyCleoDir();
-    const canonicalTarget = getCleoHome();
-    if (existsSync(legacyPath)) {
-      const stat = lstatSync(legacyPath);
-      if (stat.isSymbolicLink()) {
-        const target = await readlink(legacyPath);
-        if (target !== canonicalTarget) {
-          ctx.warnings.push(
-            `Health: ~/.cleo points to ${target}, expected ${canonicalTarget}. Remove it and re-run bootstrap.`,
-          );
-        }
-      } else {
-        ctx.warnings.push(
-          `Health: ~/.cleo is not a symlink — canonical layout requires it to link to ${canonicalTarget}. Re-run bootstrap to migrate.`,
-        );
-      }
-    } else {
+    // T12596: classify with lstat — a dangling link used to read as "missing".
+    const link = auditCleoLink();
+    if (link.state !== 'canonical') {
       ctx.warnings.push(
-        `Health: ~/.cleo symlink missing — re-run bootstrap so @~/.cleo/* injection references resolve correctly.`,
+        `Health: ~/.cleo is ${link.state}${link.target ? ` (→ ${link.target})` : ''}, expected a link to ${link.canonicalTarget}` +
+          (link.remedy ? `. Run: ${link.remedy}` : '. Resolve it manually.'),
       );
     }
 

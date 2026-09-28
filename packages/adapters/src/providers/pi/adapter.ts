@@ -16,21 +16,18 @@
  * @task T553
  */
 
-import { exec } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
 import type {
   AdapterCapabilities,
   AdapterHealthStatus,
   CLEOProviderAdapter,
 } from '@cleocode/contracts';
+import { findOnPath } from '@cleocode/paths';
 import { PiHookProvider } from './hooks.js';
 import { PiInstallProvider } from './install.js';
 import { PiSpawnProvider } from './spawn.js';
-
-const execAsync = promisify(exec);
 
 /**
  * Resolve the Pi global state root directory.
@@ -163,7 +160,7 @@ export class PiAdapter implements CLEOProviderAdapter {
    *
    * Checks:
    * 1. Adapter has been initialized
-   * 2. Pi CLI is available (via PI_CLI_PATH or `which pi`)
+   * 2. Pi CLI is available (via PI_CLI_PATH or a PATH search for `pi`)
    * 3. Pi global state root (~/.pi/agent/ or PI_CODING_AGENT_DIR) exists
    *
    * @returns Health status with details about each check
@@ -182,19 +179,12 @@ export class PiAdapter implements CLEOProviderAdapter {
     // Check Pi CLI availability
     let cliAvailable = false;
     const cliPath = process.env['PI_CLI_PATH'] ?? 'pi';
-    try {
-      if (cliPath !== 'pi') {
-        const { stdout } = await execAsync(`test -x "${cliPath}" && echo ok`);
-        cliAvailable = stdout.trim() === 'ok';
-        details.cliPath = cliPath;
-      } else {
-        const { stdout } = await execAsync('which pi');
-        cliAvailable = stdout.trim().length > 0;
-        details.cliPath = stdout.trim();
-      }
-    } catch {
-      details.cliAvailable = false;
-    }
+    // PI_CLI_PATH (a path) is checked directly, a bare name searched on
+    // PATH/PATHEXT; no `test -x`/`which` shell-out (T12604).
+    const resolvedCli = findOnPath(cliPath);
+    cliAvailable = resolvedCli !== null;
+    if (resolvedCli) details.cliPath = cliPath === 'pi' ? resolvedCli : cliPath;
+    else details.cliAvailable = false;
 
     // Check for Pi global state root
     const agentDir = getPiAgentDir();

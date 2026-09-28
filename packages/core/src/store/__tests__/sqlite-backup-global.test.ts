@@ -319,8 +319,8 @@ describe('sqlite-backup global tier', () => {
 
     const tasksDb = new DatabaseSync(tasksDbPath);
     // T12508: the snapshot gate persists its debounce in the tasks-domain
-    // `schema_meta` table; without it the gate admits no snapshot.
-    tasksDb.exec('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+    // `tasks_schema_meta` table; without it the gate admits no snapshot.
+    tasksDb.exec('CREATE TABLE tasks_schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
     const brainDb = new DatabaseSync(brainDbPath);
     const conduitDb = new DatabaseSync(conduitDbPath);
 
@@ -483,9 +483,9 @@ describe('sqlite-backup global tier', () => {
     }
 
     const conduitDb = new DatabaseSync(conduitDbPath);
-    // T12508: gate state store (tasks-domain `schema_meta`).
+    // T12508: gate state store (tasks-domain `tasks_schema_meta`).
     const tasksDb = new DatabaseSync(':memory:');
-    tasksDb.exec('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+    tasksDb.exec('CREATE TABLE tasks_schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
     vi.doMock('../conduit-sqlite.js', () => ({ getConduitNativeDb: () => conduitDb }));
     vi.doMock('../sqlite.js', () => ({ getNativeDb: () => tasksDb, getDb: () => tasksDb }));
     vi.doMock('../memory-sqlite.js', () => ({ getBrainNativeDb: () => null }));

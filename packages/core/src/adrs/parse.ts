@@ -8,7 +8,7 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, isAbsolute, join } from 'node:path';
 import type { AdrFrontmatter, AdrRecord } from './types.js';
 
 /** Extract ADR ID from filename (e.g., 'ADR-007-domain-consolidation.md' -> 'ADR-007') */
@@ -45,9 +45,9 @@ export function extractTitle(content: string): string {
 
 /** Parse a single ADR markdown file into an AdrRecord */
 export function parseAdrFile(filePath: string, projectRoot: string): AdrRecord {
-  const absolutePath = filePath.startsWith('/') ? filePath : join(projectRoot, filePath);
+  const absolutePath = isAbsolute(filePath) ? filePath : join(projectRoot, filePath);
   const content = readFileSync(absolutePath, 'utf-8');
-  const filename = filePath.split('/').pop()!;
+  const filename = basename(filePath);
 
   return {
     id: extractAdrId(filename),

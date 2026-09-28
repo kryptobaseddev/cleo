@@ -2,7 +2,7 @@
  * Sticky-note tag-filter tests (T11355 · E4 JSON-storage optimization).
  *
  * Proves the load-all-then-JS-filter pattern is gone:
- *   - tag filtering runs in SQL via the sticky_tags junction (contains-ALL);
+ *   - tag filtering runs in SQL via the brain_sticky_tags junction (contains-ALL);
  *   - the LIMIT is honored at the SQL layer even when a tag filter is active;
  *   - tags_json is backfilled into the junction on create;
  *   - existing list behavior is preserved.
@@ -36,13 +36,13 @@ describe('listStickies tag filtering (T11355)', () => {
     await rm(tempDir, { recursive: true, force: true }).catch(() => {});
   });
 
-  it('backfills the sticky_tags junction on create', async () => {
+  it('backfills the brain_sticky_tags junction on create', async () => {
     const sticky = await addSticky({ content: 'tagged note', tags: ['alpha', 'beta'] }, tempDir);
     const nativeDb = getBrainNativeDb();
     expect(nativeDb).not.toBeNull();
 
     const rows = nativeDb!
-      .prepare('SELECT tag FROM sticky_tags WHERE sticky_id = ? ORDER BY tag')
+      .prepare('SELECT tag FROM brain_sticky_tags WHERE sticky_id = ? ORDER BY tag')
       .all(sticky.id) as Array<{ tag: string }>;
     expect(rows.map((r) => r.tag)).toEqual(['alpha', 'beta']);
   });
@@ -81,7 +81,7 @@ describe('listStickies tag filtering (T11355)', () => {
              SELECT n.id
              FROM brain_sticky_notes n
              WHERE n.id IN (
-               SELECT sticky_id FROM sticky_tags
+               SELECT sticky_id FROM brain_sticky_tags
                WHERE tag IN ('shared')
                GROUP BY sticky_id HAVING COUNT(DISTINCT tag) = 1
              )

@@ -13,77 +13,18 @@
  * @task T4916
  * @epic T4914
  * @task T9148
+ * @task T12580
  */
 
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { pushWarning } from '@cleocode/core';
-import { resolveLegacyCleoDir } from '@cleocode/paths';
 import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
-import { cliError } from '../renderers/index.js';
-
-/** Canonical section names supported by `cleo briefing inject`. */
-const INJECTION_SECTION_NAMES = [
-  'session-start',
-  'work-loop',
-  'triggers',
-  'task-creation',
-  'task-discovery',
-  'session-commands',
-  'memory',
-  'nexus',
-  'orchestration',
-  'playbooks',
-  'documents',
-  'error-handling',
-  'pre-complete-gate',
-  'spawn-tiers',
-  'rules',
-  'memory-jit',
-  'escalation',
-] as const;
-
-/** Union of all valid injection section name strings. */
-export type InjectionSectionName = (typeof INJECTION_SECTION_NAMES)[number];
+import { cliError, cliOutput } from '../renderers/index.js';
 
 /** Adapter-specific rendering formats for `--format adapter:<name>`. */
 const ADAPTER_FORMATS = ['claude', 'codex', 'gemini', 'compact-json'] as const;
 type AdapterFormat = (typeof ADAPTER_FORMATS)[number];
-
-/**
- * Resolve the CLEO-INJECTION.md path from the standard XDG location.
- *
- * Falls back to `~/.cleo/templates/CLEO-INJECTION.md` for installations
- * without XDG_CONFIG_HOME set.
- */
-function resolveInjectionTemplatePath(): string {
-  const xdgConfig = resolveLegacyCleoDir(process.env['XDG_CONFIG_HOME']);
-  return join(xdgConfig, 'templates', 'CLEO-INJECTION.md');
-}
-
-/**
- * Extract a named section from CLEO-INJECTION.md using HTML-comment anchors.
- *
- * Anchors have the form:
- *   <!-- CLEO-INJECTION:section=NAME -->
- *   ...content...
- *   <!-- /CLEO-INJECTION:section=NAME -->
- *
- * Returns the content between the anchors (exclusive), or null if the section
- * is not found.
- */
-function extractSection(content: string, sectionName: string): string | null {
-  const openTag = `<!-- CLEO-INJECTION:section=${sectionName} -->`;
-  const closeTag = `<!-- /CLEO-INJECTION:section=${sectionName} -->`;
-  const start = content.indexOf(openTag);
-  if (start === -1) return null;
-  const contentStart = start + openTag.length;
-  const end = content.indexOf(closeTag, contentStart);
-  if (end === -1) return null;
-  return content.slice(contentStart, end).trim();
-}
 
 /**
  * Render section content in adapter-appropriate form for provider context windows.
@@ -114,83 +55,83 @@ function renderForAdapter(sectionName: string, content: string, format: AdapterF
 }
 
 /**
- * Core inject logic — reads the INJECTION template and emits the named section.
- * Shared between the direct argv dispatch path and the citty subcommand path.
+ * Emit a validation failure for `cleo briefing inject` as a LAFS error envelope
+ * plus a `W_TEMPLATE_INJECT_FAILED` warning (T9772).
+ */
+function failInject(message: string, fix: string): void {
+  pushWarning({ code: 'W_TEMPLATE_INJECT_FAILED', message });
+  cliError(message, 1, { name: 'E_VALIDATION', fix }, { operation: 'briefing.inject' });
+  process.exitCode = 1;
+}
+
+/**
+ * `cleo briefing inject --section <name>` — print one protocol section.
+ *
+ * `CLEO-INJECTION.md` is the always-loaded core; reference sections live in
+ * the package's `CLEO-REFERENCE.md` and are fetched with this command. Output
+ * is one LAFS envelope (ADR-086) whose `data.content` is the section markdown
+ * (or its `--format adapter:<name>` rendering); `--field /data/content`
+ * prints it raw.
  *
  * @task T9148
+ * @task T12580
  */
-async function runBriefingInject(sectionName: string, formatStr: string): Promise<void> {
-  const templatePath = resolveInjectionTemplatePath();
-  if (!existsSync(templatePath)) {
-    // T9772: template-not-found is a non-fatal inject failure — surface as
-    // a `W_TEMPLATE_INJECT_FAILED` warning attached to the LAFS error envelope.
-    pushWarning({
-      code: 'W_TEMPLATE_INJECT_FAILED',
-      message: `CLEO-INJECTION.md not found at ${templatePath}`,
-    });
-    cliError(
-      `CLEO-INJECTION.md not found at ${templatePath}`,
-      1,
-      {
-        name: 'E_TEMPLATE_NOT_FOUND',
-        fix: 'Re-run `cleo init` or restore the templates directory.',
-      },
-      { operation: 'briefing.inject' },
-    );
-    process.exitCode = 1;
-    return;
-  }
-
-  const content = readFileSync(templatePath, 'utf-8');
-  const section = extractSection(content, sectionName);
-
-  if (section === null) {
-    const available = INJECTION_SECTION_NAMES.join(', ');
-    // T9772: unknown section is a validation failure — emit envelope with warning.
-    pushWarning({
-      code: 'W_TEMPLATE_INJECT_FAILED',
-      message: `Section "${sectionName}" not found in CLEO-INJECTION.md.`,
-    });
-    cliError(
-      `Section "${sectionName}" not found in CLEO-INJECTION.md. Available sections: ${available}`,
-      1,
-      {
-        name: 'E_VALIDATION',
-        fix: `Pass one of: ${available}`,
-      },
-      { operation: 'briefing.inject' },
-    );
-    process.exitCode = 1;
-    return;
-  }
-
-  let output = section;
-  if (formatStr.startsWith('adapter:')) {
-    const adapterName = formatStr.slice('adapter:'.length) as AdapterFormat;
-    if (!(ADAPTER_FORMATS as readonly string[]).includes(adapterName)) {
-      // T9772: unknown adapter is a validation failure — emit envelope with warning.
-      const supported = ADAPTER_FORMATS.join(', ');
-      pushWarning({
-        code: 'W_TEMPLATE_INJECT_FAILED',
-        message: `Unknown adapter format "${adapterName}".`,
-      });
-      cliError(
-        `Unknown adapter format "${adapterName}". Supported: ${supported}`,
-        1,
-        {
-          name: 'E_VALIDATION',
-          fix: `Pass one of: ${supported}`,
-        },
-        { operation: 'briefing.inject' },
+const briefingInjectCommand = defineCommand({
+  meta: {
+    name: 'inject',
+    description:
+      'Print one CLEO protocol section (core or on-demand reference) by name, e.g. --section task-creation',
+  },
+  args: {
+    section: {
+      type: 'string',
+      description: 'Section name (see the On-demand reference table in CLEO-INJECTION.md)',
+      required: true,
+    },
+    format: {
+      type: 'string',
+      description: 'markdown (default) or adapter:<claude|codex|gemini|compact-json>',
+      default: 'markdown',
+    },
+  },
+  async run({ args }) {
+    const { readInjectionSection } = await import('@cleocode/core/injection');
+    const sectionName = String(args.section ?? '');
+    const lookup = readInjectionSection(sectionName);
+    if (lookup.content === null) {
+      const available = lookup.available.join(', ');
+      failInject(
+        lookup.available.length === 0
+          ? 'No CLEO protocol template found (package templates and installed CLEO-INJECTION.md are missing).'
+          : `Section "${sectionName}" not found. Available sections: ${available}`,
+        lookup.available.length === 0
+          ? 'Re-run `cleo init` or reinstall @cleocode/cleo.'
+          : `Pass one of: ${available}`,
       );
-      process.exitCode = 1;
       return;
     }
-    output = renderForAdapter(sectionName, section, adapterName);
-  }
-
-  process.stdout.write(output + '\n');
-}
+    const formatStr = String(args.format ?? 'markdown');
+    let output = lookup.content;
+    if (formatStr.startsWith('adapter:')) {
+      const adapterName = formatStr.slice('adapter:'.length);
+      if (!(ADAPTER_FORMATS as readonly string[]).includes(adapterName)) {
+        const supported = ADAPTER_FORMATS.join(', ');
+        failInject(
+          `Unknown adapter format "${adapterName}". Supported: ${supported}`,
+          `Pass one of: ${supported}`,
+        );
+        return;
+      }
+      output = renderForAdapter(sectionName, lookup.content, adapterName as AdapterFormat);
+    }
+    // ADR-086: one LAFS envelope on stdout, through the render SSoT. The
+    // section text is `data.content`; `--field /data/content` extracts it raw.
+    cliOutput(
+      { section: sectionName, source: lookup.source, content: output },
+      { command: 'briefing-inject', operation: 'briefing.inject' },
+    );
+  },
+});
 
 /**
  * Root briefing command — show composite session-start context.
@@ -199,7 +140,7 @@ async function runBriefingInject(sectionName: string, formatStr: string): Promis
  * limits. Use at session start to restore context quickly.
  *
  * Subcommands:
- * - `inject` — emit one CLEO-INJECTION.md section by anchor name (T9148)
+ * - `inject` — print one protocol section (core or reference) by name (T9148 · T12580)
  *
  * @task T4916
  * @epic T4914
@@ -280,25 +221,11 @@ export const briefingCommand = defineCommand({
       default: false,
     },
   },
+  subCommands: {
+    inject: briefingInjectCommand,
+  },
   async run({ args, cmd, rawArgs }) {
-    // Citty does not route to subcommands within lazy-loaded top-level commands.
-    // Detect 'inject' in process.argv directly (rawArgs may be empty at parent level).
-    const allArgv = process.argv.slice(2);
-    const briefingIdx = allArgv.indexOf('briefing');
-    const argsAfterBriefing =
-      briefingIdx >= 0 ? allArgv.slice(briefingIdx + 1) : rawArgs ? [...rawArgs] : [];
-    const firstNonFlag = argsAfterBriefing.find((a) => !a.startsWith('-'));
-    if (firstNonFlag === 'inject') {
-      // Parse --section and --format from process.argv manually.
-      const sectionIdx = argsAfterBriefing.indexOf('--section');
-      const sectionName = sectionIdx >= 0 ? argsAfterBriefing[sectionIdx + 1] : '';
-      const formatIdx = argsAfterBriefing.indexOf('--format');
-      const formatStr =
-        formatIdx >= 0 ? (argsAfterBriefing[formatIdx + 1] ?? 'markdown') : 'markdown';
-      await runBriefingInject(sectionName ?? '', formatStr);
-      return;
-    }
-    if (isSubCommandDispatch(argsAfterBriefing as readonly string[], cmd.subCommands)) return;
+    if (isSubCommandDispatch(rawArgs, cmd.subCommands)) return;
 
     const result = await dispatchFromCli(
       'query',

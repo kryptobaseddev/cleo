@@ -137,9 +137,15 @@ export const TASK_KIND = [
 export const IMPACT = ['major', 'minor', 'patch'] as const;
 
 /**
- * Source attribution for resolved tool commands. Mirrors ADR-061 §1 surfaces.
+ * Source attribution for resolved tool commands. Mirrors ADR-061 §1 surfaces;
+ * `package-script` is a project `package.json` script (T12633).
  */
-export const RESOLVED_SOURCE = ['project-context', 'language-default', 'legacy-alias'] as const;
+export const RESOLVED_SOURCE = [
+  'project-context',
+  'package-script',
+  'language-default',
+  'legacy-alias',
+] as const;
 
 // ─── Enum schemas ────────────────────────────────────────────────────────────
 

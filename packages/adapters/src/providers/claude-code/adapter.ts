@@ -7,17 +7,16 @@
  * @task T5240
  */
 
-import { exec } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
 import type {
   AdapterCapabilities,
   AdapterHealthStatus,
   AdapterSpawnProvider,
   CLEOProviderAdapter,
 } from '@cleocode/contracts';
+import { findOnPath } from '@cleocode/paths';
 import { ClaudeSDKSpawnProvider } from '../claude-sdk/spawn.js';
 import { ClaudeCodeContextMonitorProvider } from './context-monitor.js';
 import { ClaudeCodeHookProvider } from './hooks.js';
@@ -26,8 +25,6 @@ import { ClaudeCodePathProvider } from './paths.js';
 import { ClaudeCodeSpawnProvider } from './spawn.js';
 import { ClaudeCodeTaskSyncProvider } from './task-sync.js';
 import { ClaudeCodeTransportProvider } from './transport.js';
-
-const execAsync = promisify(exec);
 
 /**
  * CLEO provider adapter for Anthropic Claude Code CLI.
@@ -202,13 +199,11 @@ export class ClaudeCodeAdapter implements CLEOProviderAdapter {
 
     // Check Claude CLI availability
     let cliAvailable = false;
-    try {
-      const { stdout } = await execAsync('which claude');
-      cliAvailable = stdout.trim().length > 0;
-      details.cliPath = stdout.trim();
-    } catch {
-      details.cliAvailable = false;
-    }
+    // In-process PATH/PATHEXT lookup: there is no `which` on Windows (T12604).
+    const resolvedCli = findOnPath('claude');
+    cliAvailable = resolvedCli !== null;
+    if (resolvedCli) details.cliPath = resolvedCli;
+    else details.cliAvailable = false;
 
     // Check for Claude Code config directory
     const claudeConfigDir = join(homedir(), '.claude');

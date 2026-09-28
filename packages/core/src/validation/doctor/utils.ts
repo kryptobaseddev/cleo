@@ -8,6 +8,8 @@
  * @epic T4454
  */
 
+import { isEphemeralPath } from '../../nexus/registry-hygiene.js';
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -45,9 +47,13 @@ const TEMP_PATTERNS = ['/.temp/', '/tmp/', '/bats-run-', '/.tmp/', '/tmp.', '/ba
  * @task T4525
  */
 export function isTempProject(path: string): boolean {
+  // Patterns are '/'-form; fold Windows separators so they match there too,
+  // and defer real temp-dir containment to the shared check (T12606).
+  const p = path.replace(/\\/g, '/');
   return (
-    TEMP_PATTERNS.some((pattern) => path.includes(pattern)) ||
-    (path.includes('/test/') && (path.includes('bats-run-') || path.includes('test-')))
+    isEphemeralPath(path) ||
+    TEMP_PATTERNS.some((pattern) => p.includes(pattern)) ||
+    (p.includes('/test/') && (p.includes('bats-run-') || p.includes('test-')))
   );
 }
 

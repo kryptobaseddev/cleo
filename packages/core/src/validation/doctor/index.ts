@@ -16,6 +16,7 @@ export {
   checkCoreFilesNotIgnored,
   checkDocsAccessibility,
   checkExodusStrandedResidue,
+  checkLegacyCantDirs,
   checkNodeVersion,
   checkRootGitignore,
   checkSqliteNotTracked,

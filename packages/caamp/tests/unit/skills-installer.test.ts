@@ -174,6 +174,25 @@ describe("installSkill", () => {
     expect(stat.isSymbolicLink() || stat.isDirectory()).toBe(true);
   });
 
+  it("replaces a dangling link left by a dead ~/.cleo route and verifies it resolves (T12598)", async () => {
+    const sourceDir = await createMockSkill(testDir, "test-skill");
+    const skillName = `dangling-${randomUUID()}`;
+    const provider = createMockProvider("claude-code");
+    await mkdir(provider.pathSkills, { recursive: true });
+    const linkPath = join(provider.pathSkills, skillName);
+    await symlink(`/home/nobody/.cleo/skills/${skillName}`, linkPath);
+    expect(existsSync(linkPath)).toBe(false);
+
+    const result = await installSkill(sourceDir, skillName, [provider], true);
+
+    expect(result.success).toBe(true);
+    expect(result.errors).toHaveLength(0);
+    expect(existsSync(join(linkPath, "SKILL.md"))).toBe(true);
+    if (lstatSync(linkPath).isSymbolicLink()) {
+      expect(await readlink(linkPath)).toBe(result.canonicalPath);
+    }
+  });
+
   it("installs skill and links to multiple providers", async () => {
     const sourceDir = await createMockSkill(testDir, "test-skill");
     const skillName = `multi-provider-${randomUUID()}`;

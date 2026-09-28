@@ -418,6 +418,15 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
       (await import('../commands/doctor-fk-check.js')).doctorFkCheckCommand as CommandDef,
   },
   {
+    exportName: 'doctorGlobalDeliveryCommand',
+    name: 'global-delivery',
+    description:
+      'Check that ~/.cleo, the global hub reference and every harness CLEO skill install ',
+    load: async () =>
+      (await import('../commands/doctor-global-delivery.js'))
+        .doctorGlobalDeliveryCommand as CommandDef,
+  },
+  {
     exportName: 'doctorLegacyBackupsCommand',
     name: 'legacy-backups',
     description:
@@ -525,6 +534,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
       (await import('../commands/doctor-tool-locks.js')).doctorToolLocksCommand as CommandDef,
   },
   {
+    exportName: 'doctorTwinCollapseCommand',
+    name: 'twin-collapse',
+    description:
+      'Report the twin collapses (bare schema_meta / sticky_tags kept in step with their prefixed ',
+    load: async () =>
+      (await import('../commands/doctor-twin-collapse.js')).doctorTwinCollapseCommand as CommandDef,
+  },
+  {
     exportName: 'doctorWorktreeStoresCommand',
     name: 'worktree-stores',
     description:
@@ -543,7 +560,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'doneCommand',
     name: 'done',
     description:
-      'Complete a task (alias of complete). With --plan: read-only evidence plan — change set, gates, tool runs, AC mapping, blockers and the exact commands; writes nothing',
+      'Record every required gate from derived evidence (change set, tools, typed gates, AC links) in one write, then complete. --plan: read-only plan; writes nothing',
     load: async () => (await import('../commands/done.js')).doneCommand as CommandDef,
   },
   {

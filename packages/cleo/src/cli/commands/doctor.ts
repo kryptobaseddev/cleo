@@ -35,6 +35,7 @@ import { doctorDbSubstrateCommand } from './doctor-db-substrate.js';
 import { doctorExodusCommand } from './doctor-exodus.js';
 import { doctorExodusResidueCommand } from './doctor-exodus-residue.js';
 import { doctorFkCheckCommand } from './doctor-fk-check.js';
+import { doctorGlobalDeliveryCommand } from './doctor-global-delivery.js';
 import { doctorKnowledgeSubcommand } from './doctor-knowledge.js';
 import { doctorLegacyBackupsCommand } from './doctor-legacy-backups.js';
 import { doctorLegacyReaperCommand } from './doctor-legacy-reaper.js';
@@ -49,6 +50,7 @@ import { doctorRepairCommand } from './doctor-repair.js';
 import { doctorSplitBrainCommand } from './doctor-split-brain.js';
 import { doctorSupersededStoreCommand } from './doctor-superseded-store.js';
 import { doctorToolLocksCommand } from './doctor-tool-locks.js';
+import { doctorTwinCollapseCommand } from './doctor-twin-collapse.js';
 import { doctorWorktreeStoresCommand } from './doctor-worktree-stores.js';
 import { readMigrationConflicts } from './migrate-agents-v2.js';
 
@@ -255,12 +257,16 @@ export const doctorCommand = defineCommand({
     'malformed-ids': doctorMalformedIdsCommand,
     // T12095 — pre-dual-scope store files still on disk under their old LIVE names
     'superseded-store': doctorSupersededStoreCommand,
+    // T12535 — twin collapses (bare schema_meta / sticky_tags → prefixed twins): report + --retry
+    'twin-collapse': doctorTwinCollapseCommand,
     // T12460 — project stores stranded inside CLEO worktrees (read-only report)
     'worktree-stores': doctorWorktreeStoresCommand,
     // T12097 — machine-wide guard for test runs started OUTSIDE cleo verify
     'memory-guard': doctorMemoryGuardCommand,
     // T12353 — tracked .cleo/project-id vs project-info.json (+ --resolve re-key)
     'project-identity': doctorProjectIdentityCommand,
+    // T12596 · T12598 — ~/.cleo, the global hub and every harness skill install must resolve
+    'global-delivery': doctorGlobalDeliveryCommand,
     // T12471 — machine-wide registry integrity: rebind moved by id, flag split/missing/temp
     projects: doctorRegistryCommand,
     // T12329 — import rows only a diverged store copy has, under new ids (dry-run first)

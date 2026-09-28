@@ -35,7 +35,6 @@
  * @architecture docs/architecture/SG-CLEO-SKILLS-architecture-v3.md §1
  */
 
-import { execFile } from 'node:child_process';
 import {
   cpSync,
   existsSync,
@@ -47,9 +46,7 @@ import {
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
-
-const execFileAsync = promisify(execFile);
+import { create as tarCreate, extract as tarExtract } from 'tar';
 
 /**
  * Filename of the legacy-root sentinel written after a successful migration.
@@ -186,7 +183,7 @@ export interface MigrationOptions {
  * Shape of the optional tar wrapper used by {@link MigrationOptions}.
  *
  * @remarks
- * Tests can swap the default `execFile`-backed implementation for a pure
+ * Tests can swap the default in-process `tar` implementation for a pure
  * in-memory fake. The functions return on success and throw on failure
  * (mirroring `execFileAsync` semantics).
  *
@@ -228,12 +225,12 @@ export function defaultMigrationOptions(manifestNames: string[]): MigrationOptio
 }
 
 /**
- * Default {@link TarExec} that shells out to the system `tar` binary.
+ * Default {@link TarExec}: gzip tar create/extract.
  *
  * @remarks
- * Uses `-czf` for create and `-xzf` for extract — the same flags the rest of
- * the CLEO backup pipeline (e.g. `cleo backup add`) relies on. Surfaces
- * stderr in thrown errors so callers can debug missing dependencies.
+ * Runs in-process through the `tar` library rather than a system `tar`
+ * binary, so it behaves the same on every OS (T12604). The export keeps its
+ * historical name for API compatibility.
  *
  * @public
  */
@@ -242,13 +239,13 @@ export const systemTarExec: TarExec = {
     // -C parent + basename keeps the archive root scoped (no absolute paths).
     const parent = join(sourceRoot, '..');
     const base = sourceRoot.slice(parent.length + 1);
-    await execFileAsync('tar', ['-czf', archivePath, '-C', parent, base]);
+    await tarCreate({ gzip: true, file: archivePath, cwd: parent }, [base]);
   },
   async extract({ archivePath, destinationRoot }) {
     mkdirSync(destinationRoot, { recursive: true });
     // -C destination/.. so the archive's top-level dir lands at destination.
     const parent = join(destinationRoot, '..');
-    await execFileAsync('tar', ['-xzf', archivePath, '-C', parent]);
+    await tarExtract({ file: archivePath, cwd: parent });
   },
 };
 
