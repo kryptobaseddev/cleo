@@ -42,6 +42,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { ExitCode } from '@cleocode/contracts';
 import { WarningCollector, withWarningCollector } from '@cleocode/lafs';
+import { readPortableProjectId } from '@cleocode/paths';
 import { and, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CleoError } from '../errors.js';
@@ -51,7 +52,7 @@ import { currentDeviceId } from '../nexus/path-map.js';
 import { nexusRegister } from '../nexus/registry.js';
 import { getCleoHome, recordProjectEncounter } from '../paths.js';
 import { moveProject, rerootProject } from '../project-lifecycle.js';
-import { getProjectRoot } from '../project-scope.js';
+import { computeStableProjectHash, getProjectRoot } from '../project-scope.js';
 import { setProjectMovedRefusal } from '../project-tombstone.js';
 import { awaitBackgroundOps } from '../store/background-ops.js';
 import { getDb, resetDbState } from '../store/sqlite.js';
@@ -1042,7 +1043,50 @@ describe('T12558 × T12562 — relocation refusals compose with the init refusal
     // for the one path that may proceed: a genuinely new project.
     const result = await initProject({ here: true, newIdentity: true });
     expect(result.initialized).toBe(true);
-    const newId = readFileSync(join(root, '.cleo', 'project-id'), 'utf-8').trim();
+    const tracked = readPortableProjectId(root);
+    expect(tracked.status).toBe('valid');
+    const newId = tracked.status === 'valid' ? tracked.projectId : '';
     expect(newId).not.toBe('noforce-T12558');
+
+    // Round 5: a NEW project gets a projectHash derived from its new id — not
+    // from the path, which the rerooted project's hash may already be.
+    const newInfo = JSON.parse(readFileSync(join(root, '.cleo', 'project-info.json'), 'utf-8'));
+    const liveInfo = JSON.parse(
+      readFileSync(join(root, 'app', '.cleo', 'project-info.json'), 'utf-8'),
+    );
+    expect(newInfo.projectHash).not.toBe(computeStableProjectHash(root));
+    expect(newInfo.projectHash).not.toBe(liveInfo.projectHash);
+    expect(newInfo.projectHash).toBe(generateProjectHash(`project-id:${newId}`));
+    // Both projects carry this directory's name: warned, not auto-renamed.
+    expect(
+      result.warnings.some((w) => w.includes('ambiguous') && w.includes('cleo project rename')),
+    ).toBe(true);
+  });
+
+  it('under --new-identity the hash differs from the path-derived hash the old project would get', async () => {
+    const root = await makeProject(join(testDir, 'hashpath'), 'hashpath-T12558');
+    // The old project's stored hash IS the path hash here (the realistic case).
+    const info = JSON.parse(readFileSync(join(root, '.cleo', 'project-info.json'), 'utf-8'));
+    writeFileSync(
+      join(root, '.cleo', 'project-info.json'),
+      JSON.stringify({ ...info, projectHash: computeStableProjectHash(root) }),
+    );
+    mkdirSync(join(root, 'app'));
+    expect((await rerootProject(join(root, 'app'), root)).success).toBe(true);
+    git(root, 'checkout', '--', '.');
+    vi.stubEnv('CLEO_ROOT', undefined);
+    process.chdir(root);
+
+    const { initProject } = await import('../init.js');
+    await initProject({ here: true, newIdentity: true });
+
+    const oldHash = JSON.parse(
+      readFileSync(join(root, 'app', '.cleo', 'project-info.json'), 'utf-8'),
+    ).projectHash;
+    const newHash = JSON.parse(
+      readFileSync(join(root, '.cleo', 'project-info.json'), 'utf-8'),
+    ).projectHash;
+    expect(oldHash).toBe(computeStableProjectHash(root));
+    expect(newHash).not.toBe(oldHash);
   });
 });

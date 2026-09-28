@@ -909,6 +909,32 @@ function isStrictlyInside(child: string, parent: string): boolean {
 }
 
 /**
+ * The CLEO project that encloses a gitlink checkout (submodule or
+ * separate-git-dir), or `undefined` when none does (T12562 · T12558 round 5).
+ *
+ * The walk starts at the gitlink's PARENT directory, never at the checkout
+ * itself: a `.cleo/` inside the checkout — tracked files, or the tombstone a
+ * reroot leaves — must not make it look self-contained, because project-root
+ * resolution walks past a gitlink root and would still use the enclosing
+ * store. A relocation refusal met on the way up is not an enclosing project.
+ *
+ * @param gitlinkRoot - Root of the gitlink checkout (its `.git` is a file).
+ * @returns The enclosing project root, or `undefined`.
+ */
+function enclosingProjectOfGitlink(gitlinkRoot: string): string | undefined {
+  const parent = dirname(gitlinkRoot);
+  if (parent === gitlinkRoot) return undefined;
+  try {
+    const root = getProjectRoot(parent);
+    return existsSync(join(root, '.cleo')) && isStrictlyInside(gitlinkRoot, root)
+      ? root
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Find the nearest git checkout boundary at or above `start`.
  *
  * @param start - Absolute directory to start from.
@@ -1001,11 +1027,7 @@ export function resolveInitTarget(opts: { here?: boolean; cwd?: string } = {}): 
 
   let enclosingProjectRoot: string | undefined;
   if (gitBoundary?.kind === 'submodule') {
-    const resolved =
-      source === 'here' ? dirname(getCleoDirAbsolute(opts.cwd, { bootstrap: true })) : projectRoot;
-    if (isStrictlyInside(gitBoundary.root, resolved) && existsSync(join(resolved, '.cleo'))) {
-      enclosingProjectRoot = resolved;
-    }
+    enclosingProjectRoot = enclosingProjectOfGitlink(gitBoundary.root);
   }
   return {
     cleoDir,
@@ -1345,20 +1367,18 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
   const target = resolveInitTarget({ here: opts.here });
   const { cleoDir, projectRoot: projRoot } = target;
 
-  // T12558: never scaffold where a project was relocated away from. These
-  // checks write nothing and run BEFORE the already-initialized guard: at a
-  // relocated root, tracked `.cleo/` files restored by `git checkout` would
-  // otherwise read as "already initialized — use --force", the wrong advice.
-  // Resolving from the target refuses with E_PROJECT_MOVED at a valid reroot
-  // tombstone, at the target itself or at an ancestor it would resolve to.
+  // T12558: relocation state, detected WITHOUT writing or throwing yet.
+  // Resolving from the target reports E_PROJECT_MOVED at a valid reroot
+  // tombstone (at the target or an ancestor it would resolve to); the store
+  // guard's registry arm is checked up front for the same reason.
+  let movedOnResolve: CleoError | undefined;
   if (!opts.here) {
     try {
       getProjectRoot(projRoot);
     } catch (err) {
-      if (err instanceof CleoError && err.code === ExitCode.PROJECT_MOVED) throw err;
+      if (err instanceof CleoError && err.code === ExitCode.PROJECT_MOVED) movedOnResolve = err;
     }
   }
-  // The store guard's registry arm, run up front for the same reason.
   const { detectRelocatedRoot, allowStoreAtRelocatedRoot } = await import(
     './store/relocated-store-guard.js'
   );
@@ -1366,6 +1386,23 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
   const relocated = existsSync(join(cleoDir, 'cleo.db'))
     ? null
     : detectRelocatedRoot(projRoot, resolveDualScopeDbPath('global'));
+
+  // T12562: legacy `tasks.db` counts too, so a forced re-init snapshots it.
+  // T12558: at a relocated root (no store) restored tracked files never count,
+  // so #1605's guard never answers "already initialized — use --force" there.
+  const alreadyInitialized =
+    !relocated &&
+    existsSync(cleoDir) &&
+    (existsSync(join(cleoDir, 'cleo.db')) ||
+      existsSync(join(cleoDir, 'tasks.db')) ||
+      existsSync(join(cleoDir, 'config.json')));
+
+  // #1605's target refusals (worktree, gitlink, force-not-cwd, ancestor) run
+  // FIRST: a relocation opt-out can never reopen a target CLEO cannot use.
+  assertInitTargetAllowed(target, opts, alreadyInitialized);
+
+  // T12558: relocation refusals, still before any write.
+  if (movedOnResolve) throw movedOnResolve;
   if (relocated && !opts.here) {
     const { projectMovedError } = await import('./project-tombstone.js');
     throw projectMovedError(projRoot, relocated, undefined, relocated.via);
@@ -1389,21 +1426,6 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
       },
     );
   }
-
-  // T12562: legacy `tasks.db` counts too, so a forced re-init snapshots it.
-  // T12558: at a relocated root (no store) restored tracked files never count.
-  const alreadyInitialized =
-    !relocated &&
-    existsSync(cleoDir) &&
-    (existsSync(join(cleoDir, 'cleo.db')) ||
-      existsSync(join(cleoDir, 'tasks.db')) ||
-      existsSync(join(cleoDir, 'config.json')));
-
-  // T12077: `--map-codebase` is ADDITIVE — it analyses the tree and writes
-  // findings to BRAIN; it scaffolds nothing and wipes nothing, so it is not
-  // blocked by the already-initialized guard (the onboarding nextStep
-  // recommends it right after a successful init).
-  assertInitTargetAllowed(target, opts, alreadyInitialized);
 
   // T12558: `--here --new-identity` at a relocated root — every refusal has
   // passed. The restored `.cleo/project-id` (and a stale tombstone) belong to
@@ -1689,6 +1711,11 @@ async function scaffoldInitTarget(
   if (retiredProjectId) {
     warnings.push(
       `.cleo/project-id changed: this is a NEW project, not ${retiredProjectId} (which lives on elsewhere). Commit the new .cleo/project-id.`,
+    );
+    // Both projects are registered under this directory's name; say so rather
+    // than rename either one behind the operator's back.
+    warnings.push(
+      `Project name "${basename(projRoot)}" is now ambiguous: ${retiredProjectId} was registered under the same name. Rename this one with \`cleo project rename <new-name>\`.`,
     );
   }
 

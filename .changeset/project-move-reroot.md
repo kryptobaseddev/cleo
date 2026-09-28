@@ -88,12 +88,22 @@ source stayed live, so the registry could later bind to the stale copy.
     `E_PROJECT_MOVED` (exit 9) never collides with the `INIT_ERROR_CODES`
     refusals (exit 1 with `details.codeName`), and it keeps its code on both
     the CLI and dispatch init paths.
+  - #1605's target refusals (worktree, gitlink, force-not-cwd, ancestor) run
+    before the relocation refusals, so a relocation opt-out can never reopen a
+    target CLEO cannot use. A gitlink checkout's enclosing project is found
+    by walking up from its parent, never from its own `.cleo/`, so a
+    submodule that carries reroot relocation state is still refused with
+    `E_INIT_GITLINK_UNSUPPORTED`.
+  - An id minted by `--new-identity` gets a `projectHash` derived from that
+    id, never from the path. Two projects that share a path therefore never
+    share a hash.
   - At a relocated root, `cleo init --here` alone is refused. It would adopt
     the live project's id and create a second store for one project.
     `cleo init --here --new-identity` starts a genuinely DIFFERENT project
     there instead: it mints a new id, retires the restored
-    `.cleo/project-id`, warns that the new id needs committing, and logs to
-    `.cleo/audit/relocation-override.jsonl`. Every refusal text and the
+    `.cleo/project-id`, warns that the new id needs committing and that the
+    project name is now ambiguous (suggesting `cleo project rename`, without
+    renaming anything), and logs to `.cleo/audit/relocation-override.jsonl`. Every refusal text and the
     doctor remedy name `cd "<movedTo>"` first.
   - An unreadable checkout (EACCES, EPERM) is not treated as vanished; only
     ENOENT on `.cleo/` is. So a same-nonce backup copy cannot take the row
