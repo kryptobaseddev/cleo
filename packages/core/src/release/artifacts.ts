@@ -12,6 +12,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { promisify } from 'node:util';
+import { findOnPath, shellInvocation } from '@cleocode/paths';
 
 const execFileAsync = promisify(execFile);
 
@@ -63,12 +64,7 @@ export interface ArtifactHandler {
  * @task T4552
  */
 async function commandExists(cmd: string): Promise<boolean> {
-  try {
-    await execFileAsync('which', [cmd]);
-    return true;
-  } catch {
-    return false;
-  }
+  return findOnPath(cmd) !== null;
 }
 
 /**
@@ -81,8 +77,10 @@ async function execCommand(command: string, dryRun: boolean): Promise<ArtifactRe
   }
 
   try {
-    const { stdout, stderr } = await execFileAsync('sh', ['-c', command], {
+    const shell = shellInvocation(command);
+    const { stdout, stderr } = await execFileAsync(shell.file, shell.args, {
       timeout: 300_000,
+      windowsVerbatimArguments: shell.windowsVerbatimArguments,
     });
     return { success: true, output: (stdout + stderr).trim(), dryRun: false };
   } catch (err) {
@@ -106,9 +104,18 @@ const genericTarballHandler: ArtifactHandler = {
 
   async validate(config) {
     if (config.buildCommand) {
+      // cmd.exe has no parse-only mode, so a syntax check is POSIX-only (T12604).
+      if (process.platform === 'win32') {
+        return {
+          success: true,
+          output:
+            'Build command syntax check unavailable on Windows (cmd.exe has no parse-only mode)',
+          dryRun: false,
+        };
+      }
       // Just check syntax validity
       try {
-        await execFileAsync('sh', ['-n', '-c', config.buildCommand]);
+        await execFileAsync('/bin/sh', ['-n', '-c', config.buildCommand]);
         return { success: true, output: 'Build command syntax valid', dryRun: false };
       } catch {
         return { success: false, output: 'Invalid build command syntax', dryRun: false };

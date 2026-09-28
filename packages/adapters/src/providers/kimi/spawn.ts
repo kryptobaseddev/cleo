@@ -27,12 +27,9 @@
  * @task T648
  */
 
-import { exec } from 'node:child_process';
-import { promisify } from 'node:util';
 import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/contracts';
 import { getErrorMessage } from '@cleocode/contracts';
-
-const execAsync = promisify(exec);
+import { findOnPath } from '@cleocode/paths';
 
 /** Moonshot AI API base URL. */
 const MOONSHOT_API_BASE = 'https://api.moonshot.cn/v1';
@@ -80,15 +77,10 @@ function resolveMoonshotApiKey(): string | null {
  *
  * This is a forward-compatibility hook for any future official Kimi CLI.
  *
- * @returns `true` if `kimi` is found via `which`
+ * @returns `true` if `kimi` is found on PATH (PATHEXT-aware on Windows)
  */
 async function kimiCliBinaryAvailable(): Promise<boolean> {
-  try {
-    await execAsync('which kimi');
-    return true;
-  } catch {
-    return false;
-  }
+  return findOnPath('kimi') !== null;
 }
 
 /**

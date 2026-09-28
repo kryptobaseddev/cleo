@@ -28,7 +28,7 @@
  * @task T1161
  */
 export interface WorktreeHook {
-  /** Shell command to run (executed via `sh -c` in the worktree dir). */
+  /** Shell command to run in the worktree dir (`/bin/sh -c` on POSIX, cmd.exe on Windows). */
   command: string;
   /**
    * When to run the hook.

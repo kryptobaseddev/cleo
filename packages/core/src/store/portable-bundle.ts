@@ -55,6 +55,7 @@ import {
   type PortableUnmigratedLegacyReport,
 } from '@cleocode/contracts';
 import { create as tarCreate } from 'tar';
+import { isEphemeralPath } from '../nexus/registry-hygiene.js';
 import { getCleoConfigDir, getCleoHome } from '../paths.js';
 import { getCleoVersion } from '../scaffold/ensure-config.js';
 import { encryptFileStream } from './backup-crypto.js';
@@ -194,12 +195,12 @@ interface RegistryRow {
  * @returns Whether the path is temp/fixture material.
  */
 export function isTempProjectPath(absPath: string): boolean {
-  const home = os.homedir();
-  const tempRoots = [os.tmpdir(), '/tmp', '/var/tmp', path.join(home, '.temp')].map((p) =>
-    path.resolve(p),
-  );
+  // OS temp dirs via the shared realpath + path.relative check (T12606);
+  // `~/.temp` is a CLEO-specific scratch root on top of those.
+  if (isEphemeralPath(absPath)) return true;
   const resolved = path.resolve(absPath);
-  if (tempRoots.some((r) => resolved === r || resolved.startsWith(`${r}${path.sep}`))) return true;
+  const homeTemp = path.resolve(os.homedir(), '.temp');
+  if (resolved === homeTemp || resolved.startsWith(`${homeTemp}${path.sep}`)) return true;
   return /(^|[/\\._-])(vitest|regression|fixtures?)([/\\._-]|$)/i.test(resolved);
 }
 

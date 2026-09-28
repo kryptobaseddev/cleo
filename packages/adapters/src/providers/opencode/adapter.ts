@@ -7,20 +7,17 @@
  * @task T5240
  */
 
-import { exec } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
 import type {
   AdapterCapabilities,
   AdapterHealthStatus,
   CLEOProviderAdapter,
 } from '@cleocode/contracts';
+import { findOnPath } from '@cleocode/paths';
 import { OpenCodeHookProvider } from './hooks.js';
 import { OpenCodeInstallProvider } from './install.js';
 import { OpenCodeSpawnProvider } from './spawn.js';
-
-const execAsync = promisify(exec);
 
 /**
  * CLEO provider adapter for OpenCode AI coding assistant.
@@ -141,13 +138,11 @@ export class OpenCodeAdapter implements CLEOProviderAdapter {
 
     // Check OpenCode CLI availability
     let cliAvailable = false;
-    try {
-      const { stdout } = await execAsync('which opencode');
-      cliAvailable = stdout.trim().length > 0;
-      details.cliPath = stdout.trim();
-    } catch {
-      details.cliAvailable = false;
-    }
+    // In-process PATH/PATHEXT lookup: there is no `which` on Windows (T12604).
+    const resolvedCli = findOnPath('opencode');
+    cliAvailable = resolvedCli !== null;
+    if (resolvedCli) details.cliPath = resolvedCli;
+    else details.cliAvailable = false;
 
     // Check for OpenCode config directory in the project
     if (this.projectDir) {
