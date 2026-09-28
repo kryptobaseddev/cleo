@@ -69,9 +69,10 @@ export const doctorGlobalDeliveryCommand = defineCommand({
           {
             name: 'E_CLEO_LINK_REPAIR_FAILED',
             fix:
-              'The previous ~/.cleo entry was restored. On Windows enable Developer Mode or run ' +
-              'as administrator, then re-run `cleo doctor global-delivery --repair`. The receipt ' +
-              'log under <cleoHome>/audit records the attempt.',
+              'The entry that failed was restored to its previous link (~/.cleo or the skill ' +
+              'link). The intent and failed receipts under <cleoHome>/audit list every planned ' +
+              'entry with its previous target. On Windows enable Developer Mode or run as ' +
+              'administrator, then re-run `cleo doctor global-delivery --repair`.',
           },
           { operation: 'doctor.global-delivery.run' },
         );

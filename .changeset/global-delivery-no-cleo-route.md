@@ -59,3 +59,22 @@ resolved to nothing. No harness on the machine loaded any CLEO protocol or skill
 - **Foreign links are never moved automatically.** A live `~/.cleo` that points
   somewhere else may be intentional. Bootstrap and `install-global` only report
   it and name `cleo doctor global-delivery --repair`.
+- **Skill repair receipts.** Before the first skill entry changes, `--repair`
+  appends an `intent` line to `global-delivery.jsonl`. It lists every planned
+  entry and its previous link target. The run then appends `completed` or
+  `failed`.
+- **Failure rollback.** If an entry can be neither linked nor copied, its
+  previous link is restored and the run stops.
+- **Harness entries are never deleted recursively.** They only ever hold links,
+  so they are only unlinked. A copy is built in a hidden staging folder and then
+  renamed into place.
+
+**Known limits.**
+- **Which entries are managed.** An entry counts as CLEO-managed when a canonical
+  skill with the same name exists, or when its link routes through `~/.cleo` or
+  points into the skills root. In practice that means the `ct-*` skills.
+- **Copies are not checked.** A copy made where links are unsupported is never
+  compared with its source, so it can go stale after a skill update. `--repair`
+  does not refresh copies; reinstalling the skill does.
+- **Scanned directories.** `~/.config/opencode/skills` and `~/.kimi-code/skills`
+  are scanned alongside the provider registry dirs.

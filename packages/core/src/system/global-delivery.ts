@@ -28,13 +28,14 @@ import {
   readdirSync,
   readFileSync,
   readlinkSync,
+  renameSync,
   rmSync,
   symlinkSync,
   unlinkSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
 import * as path from 'node:path';
-import { join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { getAgentsHome, getCleoHome } from '../paths.js';
 import { resolveSkillsRoot } from '../skills/skill-root.js';
 import {
@@ -50,11 +51,21 @@ import {
 export const GLOBAL_DELIVERY_REPAIR_COMMAND = 'cleo doctor global-delivery --repair';
 
 /**
- * Skill dirs an older CLEO/CAAMP release wrote to that the provider registry
- * no longer lists, relative to the home directory. Scanned so their stale
- * links are reported and repaired rather than left dangling forever.
+ * Skill dirs scanned in addition to the provider registry, relative to the
+ * home directory, so their stale links are reported and repaired rather than
+ * left dangling forever:
+ * - `.kimi-code/skills` — written by an older release; the registry no
+ *   longer lists it.
+ * - `.config/opencode/skills` — the registry resolves OpenCode's dir through
+ *   `XDG_CONFIG_HOME`, so when that is set elsewhere (or the registry entry
+ *   changes) the home-relative dir that older installs populated would be
+ *   missed. Measured on macOS 2026-09-28: 16 `ct-*` links there, all routed
+ *   through `~/.cleo`.
  */
-export const LEGACY_HARNESS_SKILL_DIRS: readonly string[] = ['.kimi-code/skills'];
+export const LEGACY_HARNESS_SKILL_DIRS: readonly string[] = [
+  '.kimi-code/skills',
+  '.config/opencode/skills',
+];
 
 /**
  * State of one harness skill entry:
@@ -134,6 +145,16 @@ export interface GlobalDeliveryReceipt {
   at: string;
   /** Dry run: nothing was written. */
   dryRun: boolean;
+  /**
+   * `intent` is appended BEFORE the first skill entry changes (it carries
+   * {@link GlobalDeliveryReceipt.planned}); the run then appends `completed`
+   * or `failed`. `planned` receipts (dry run) are returned, never written.
+   */
+  phase: 'planned' | 'intent' | 'completed' | 'failed';
+  /** Every entry the run will change, with its previous link target. */
+  planned: Array<{ path: string; previousTarget: string | null; state: SkillInstallState }>;
+  /** The error that stopped the run, when `phase === 'failed'`. */
+  error: string | null;
   /** The `~/.cleo` link repair receipt. */
   link: CleoLinkRepairReceipt;
   /** Skill entry outcomes. */
@@ -169,7 +190,8 @@ export async function discoverHarnessSkillDirs(home: string = homedir()): Promis
     const caamp = await import('@cleocode/caamp');
     for (const provider of caamp.getAllProviders()) {
       try {
-        for (const d of caamp.resolveProviderSkillsDirs(provider, 'global')) if (d) dirs.add(d);
+        for (const d of caamp.resolveProviderSkillsDirs(provider, 'global'))
+          if (d) dirs.add(resolve(d));
       } catch {
         // A provider without a global skills dir contributes nothing.
       }
@@ -177,7 +199,7 @@ export async function discoverHarnessSkillDirs(home: string = homedir()): Promis
   } catch {
     // caamp unavailable: legacy dirs only.
   }
-  for (const rel of LEGACY_HARNESS_SKILL_DIRS) dirs.add(join(home, rel));
+  for (const rel of LEGACY_HARNESS_SKILL_DIRS) dirs.add(resolve(home, rel));
   return [...dirs].filter((d) => existsSync(d));
 }
 
@@ -314,11 +336,24 @@ export async function auditGlobalDelivery(
   };
 }
 
+/** Unlink `path` if it is a link; never follows it and never deletes recursively. */
+function unlinkIfLink(path: string): void {
+  try {
+    if (lstatSync(path).isSymbolicLink()) unlinkSync(path);
+  } catch {
+    // nothing there
+  }
+}
+
 /**
  * Point one harness entry at the canonical skill: a symlink verified to
  * resolve, or a copy when the link cannot be made or does not resolve
- * (Windows without Developer Mode; filesystems without links). The old entry
- * is a link, so replacing it discards no data.
+ * (Windows without Developer Mode; filesystems without links).
+ *
+ * The entry path only ever holds a LINK, so it is only ever `unlink`ed —
+ * never deleted recursively. A copy is built in a hidden staging sibling and
+ * renamed into place; if that fails, only the staging dir (which this
+ * function created) is removed, and the previous link is restored.
  */
 function relinkEntry(
   entryPath: string,
@@ -329,16 +364,23 @@ function relinkEntry(
   try {
     symlinkSync(canonicalPath, entryPath, process.platform === 'win32' ? 'junction' : 'dir');
     if (existsSync(join(entryPath, 'SKILL.md')) || existsSync(entryPath)) return 'symlink';
-    unlinkSync(entryPath);
+    unlinkIfLink(entryPath);
   } catch {
-    rmSync(entryPath, { recursive: true, force: true });
+    unlinkIfLink(entryPath);
   }
+  const staging = join(
+    dirname(entryPath),
+    `.${basename(entryPath)}.cleo-staging-${process.pid}-${randomUUID().slice(0, 8)}`,
+  );
   try {
-    cpSync(canonicalPath, entryPath, { recursive: true });
+    cpSync(canonicalPath, staging, { recursive: true });
+    renameSync(staging, entryPath);
     return 'copy';
   } catch (err) {
-    // Neither a link nor a copy could be made: restore the previous link.
-    rmSync(entryPath, { recursive: true, force: true });
+    // Neither a link nor a copy could be made: drop our own staging copy and
+    // restore the previous link.
+    rmSync(staging, { recursive: true, force: true });
+    unlinkIfLink(entryPath);
     if (previousTarget !== null) symlinkSync(previousTarget, entryPath);
     throw err;
   }
@@ -360,41 +402,58 @@ export async function repairGlobalDelivery(
   const dryRun = opts.dryRun === true;
   const before = await auditGlobalDelivery(opts);
   const { receipt: linkReceipt } = await repairCleoLink({ ...opts, dryRun });
-  const outcomes: SkillRepairOutcome[] = [];
-  for (const entry of before.skills) {
-    if (entry.state === 'ok') continue;
-    const canonicalPath = join(before.skillsRoot, entry.name);
-    const outcome: SkillRepairOutcome = {
-      path: entry.path,
-      before: entry.state,
-      previousTarget: entry.target,
-      action: 'skipped',
-      reason: null,
-    };
-    if (entry.state === 'orphan' || !existsSync(canonicalPath)) {
-      outcome.reason = `no canonical skill at ${canonicalPath}; left in place`;
-    } else if (dryRun) {
-      outcome.action = 'symlink';
-    } else {
-      outcome.action = relinkEntry(entry.path, canonicalPath, entry.target);
-    }
-    outcomes.push(outcome);
-  }
-
   const receipt: GlobalDeliveryReceipt = {
     receiptId: randomUUID(),
     at: new Date().toISOString(),
     dryRun,
+    phase: 'planned',
     link: linkReceipt,
-    skills: outcomes,
+    planned: before.skills
+      .filter((s) => s.state !== 'ok')
+      .map((s) => ({ path: s.path, previousTarget: s.target, state: s.state })),
+    skills: [],
     receiptLog: null,
+    error: null,
+  };
+  const log = (phase: GlobalDeliveryReceipt['phase']): void => {
+    receipt.phase = phase;
+    appendFileSync(receipt.receiptLog as string, `${JSON.stringify(receipt)}\n`, 'utf8');
   };
   if (!dryRun) {
     const auditDir = opts.auditDir ?? join(opts.canonicalTarget ?? getCleoHome(), 'audit');
     mkdirSync(auditDir, { recursive: true });
     receipt.receiptLog = join(auditDir, 'global-delivery.jsonl');
-    appendFileSync(receipt.receiptLog, `${JSON.stringify(receipt)}\n`, 'utf8');
+    // Intent first: every entry about to change, with its previous target, is
+    // on disk before the first mutation — a crash mid-loop loses nothing.
+    log('intent');
   }
+  const outcomes = receipt.skills;
+  try {
+    for (const entry of before.skills) {
+      if (entry.state === 'ok') continue;
+      const canonicalPath = join(before.skillsRoot, entry.name);
+      const outcome: SkillRepairOutcome = {
+        path: entry.path,
+        before: entry.state,
+        previousTarget: entry.target,
+        action: 'skipped',
+        reason: null,
+      };
+      if (entry.state === 'orphan' || !existsSync(canonicalPath)) {
+        outcome.reason = `no canonical skill at ${canonicalPath}; left in place`;
+      } else if (dryRun) {
+        outcome.action = 'symlink';
+      } else {
+        outcome.action = relinkEntry(entry.path, canonicalPath, entry.target);
+      }
+      outcomes.push(outcome);
+    }
+  } catch (err) {
+    receipt.error = err instanceof Error ? err.message : String(err);
+    if (!dryRun) log('failed');
+    throw err;
+  }
+  if (!dryRun) log('completed');
   const audit = dryRun ? before : await auditGlobalDelivery(opts);
   return { audit, receipt };
 }
