@@ -129,14 +129,17 @@ interface RegistryRow {
 
 /**
  * Whether a registered path is gone, within {@link PROBE_TIMEOUT_MS}
- * (T12471): `gone` when the path is absent (ENOENT/ENOTDIR) or now declares a
- * different project id; `unknown` when it cannot be read (EACCES, EPERM,
- * timeout) — never proof of absence; `present` otherwise.
+ * (T12471): `gone` ONLY when the path is absent (ENOENT/ENOTDIR); `unknown`
+ * when it cannot be read (EACCES, EPERM, timeout) — never proof of absence;
+ * `{ declares }` when it exists but declares another id — `.cleo/project-id`
+ * is tracked, so a branch checkout, rebase or conflict flips it transiently,
+ * and the row (with its permissions) must survive that window; `present`
+ * otherwise.
  */
 async function probeRowPath(
   projectPath: string,
   projectId: string,
-): Promise<'gone' | 'present' | 'unknown'> {
+): Promise<'gone' | 'present' | 'unknown' | { declares: string }> {
   const { probeProjectHolding } = await import('./path-map.js');
   const { withinBudget } = await import('./projects-scan.js');
   const holding = await probeProjectHolding(projectPath, projectId, PROBE_TIMEOUT_MS);
@@ -156,7 +159,9 @@ async function probeRowPath(
   if (stat !== 'exists') return 'unknown';
   // The directory answered: it holds a different project, or no `.cleo/` at all.
   const declared = readDeclaredProjectIdentity(projectPath);
-  return declared !== null && declared.projectId !== projectId ? 'gone' : 'present';
+  return declared !== null && declared.projectId !== projectId
+    ? { declares: declared.projectId }
+    : 'present';
 }
 
 /** Report whether a registry path is temp-like (`.temp/` segment or OS temp root). */
@@ -303,6 +308,7 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
   const matchedRows: NexusProjectsCleanRemoval[] = [];
   const missingIds = new Set<string>();
   const unreadableIds = new Set<string>();
+  const mismatchOf = new Map<string, string>();
   // T12471: tri-state, bounded probe. Only `no` (ENOENT/ENOTDIR, or a
   // different id declared there) proves a project gone; `unknown` (EACCES,
   // EPERM, timeout) is a live project this process cannot see.
@@ -313,7 +319,9 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
   for (const [index, row] of allRows.entries()) {
     const missing = holdings[index] === 'gone';
     if (missing) missingIds.add(row.projectId);
-    if (holdings[index] === 'unknown') unreadableIds.add(row.projectId);
+    const holding = holdings[index];
+    if (holding === 'unknown') unreadableIds.add(row.projectId);
+    if (typeof holding === 'object') mismatchOf.set(row.projectId, holding.declares);
     const temp = isTempPath(row.projectPath);
     const test = isTestPath(row.projectPath);
     if (missing) classification.missingPath++;
@@ -342,8 +350,20 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
   const unreadable = matchedRows
     .filter((r) => unreadableIds.has(r.projectId))
     .map((r) => ({ projectId: r.projectId, projectPath: r.projectPath }));
+  // Reported under --orphans (where it used to be deleted) and whenever
+  // another criterion matched it; never removed.
+  const matchedIds = new Set(matchedRows.map((r) => r.projectId));
+  const idMismatch = allRows.flatMap((r) => {
+    const declares = mismatchOf.get(r.projectId);
+    return declares && (opts.matchOrphaned || matchedIds.has(r.projectId))
+      ? [{ projectId: r.projectId, projectPath: r.projectPath, declares }]
+      : [];
+  });
   const removals = matchedRows.filter(
-    (r) => !relocatedIds.has(r.projectId) && !unreadableIds.has(r.projectId),
+    (r) =>
+      !relocatedIds.has(r.projectId) &&
+      !unreadableIds.has(r.projectId) &&
+      !mismatchOf.has(r.projectId),
   );
   for (const removal of removals)
     for (const reason of removal.reasons)
@@ -356,6 +376,7 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
   const relocatedField = {
     ...(relocated.length > 0 ? { relocated } : {}),
     ...(unreadable.length > 0 ? { unreadable } : {}),
+    ...(idMismatch.length > 0 ? { idMismatch } : {}),
   };
 
   if (opts.dryRun || matched === 0) {

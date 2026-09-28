@@ -338,7 +338,7 @@ function splitRemedy(row: RegistryRowView, peer: NexusRegistrySplitPeer): string
     `to keep ${row.projectId}: in "${peer.projectPath}" restore .cleo/project-id to ${row.projectId} ` +
     `(\`git log -p -- .cleo/project-id\`)${peer.registered ? `, run \`cleo nexus unregister ${peer.projectId}\`` : ''}, ` +
     'then run `cleo doctor project-identity --resolve` there';
-  return `Owner decision — CLEO never merges ids. ${keepPeer}; or ${keepRow}.`;
+  return `Owner decision — CLEO never merges ids. ${keepPeer}; or ${keepRow}; or keep both: a fork is a distinct project.`;
 }
 
 /** Why a scanned path that declares a row's id is not a rebind target, or `null`. */
@@ -475,7 +475,8 @@ async function classifyGone(row: RegistryRowView, ctx: GoneContext): Promise<Pla
         message: `${row.projectId} is gone from ${row.projectPath}; ${named.projectPath} has the same name under ${named.projectId}, but no repository evidence ties them — it may be an unrelated project.`,
         remedy:
           `Inspect only — compare \`cleo nexus show ${row.projectId}\` with "${named.projectPath}" (its git log and .cleo/project-id). ` +
-          "Never change the other project's id or registry row on a name match alone." +
+          "Never change the other project's id or registry row on a name match alone; " +
+          'keep both if they differ: a fork is a distinct project.' +
           (markMissing
             ? ` \`${DOCTOR_COMMAND} --apply\` records ${row.projectId}'s location as missing and keeps its row.`
             : ''),
@@ -538,10 +539,14 @@ async function splitPeers(
     if (p.projectId === row.projectId || ctx.linked(p.projectId, row.projectId)) continue;
     if (basename(p.path) !== name && basename(p.path) !== row.name) continue;
     const evidence = remotes.size > 0 || commits.size > 0 ? await ctx.evidenceOf(p.path) : null;
+    // A shared root commit with a DIFFERENT remote is a fork or a second
+    // clone of one template — a distinct project, never proof of a split.
+    const remotesDiffer =
+      !!evidence?.gitRemote && remotes.size > 0 && !remotes.has(evidence.gitRemote);
     const matchedBy =
       evidence?.gitRemote && remotes.has(evidence.gitRemote)
         ? 'remote'
-        : evidence?.gitRootCommit && commits.has(evidence.gitRootCommit)
+        : evidence?.gitRootCommit && commits.has(evidence.gitRootCommit) && !remotesDiffer
           ? 'root-commit'
           : 'name';
     peers.push({
@@ -729,7 +734,7 @@ async function inspect(opts: ProjectRegistryScanOptions): Promise<Inspection> {
             ...base,
             kind: 'unreadable',
             message: `${row.projectPath}/.cleo could not be read (permission denied or timed out). Only a missing path proves a project gone, so the row is kept as is.`,
-            remedy: `Check access to "${row.projectPath}" (\`ls -ld "${row.projectPath}/.cleo"\`), then re-run \`${DOCTOR_COMMAND}\``,
+            remedy: `Check access to "${row.projectPath}" (\`ls -ld "${row.projectPath}/.cleo"\`), then re-run \`${DOCTOR_COMMAND}\`; or \`cleo nexus unregister ${row.projectId}\` if you no longer need it`,
             applicable: false,
           },
         };

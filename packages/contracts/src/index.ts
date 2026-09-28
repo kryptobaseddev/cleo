@@ -1505,6 +1505,7 @@ export type {
   NexusProjectLocationState,
   NexusProjectRecord,
   NexusProjectStats,
+  NexusProjectsCleanIdMismatch,
   NexusProjectsCleanParams,
   NexusProjectsCleanReason,
   NexusProjectsCleanReceipt,

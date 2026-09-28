@@ -1571,6 +1571,7 @@ const projectsCleanCommand = defineCommand({
             classification,
             ...(preview.relocated ? { relocated: preview.relocated } : {}),
             ...(preview.unreadable ? { unreadable: preview.unreadable } : {}),
+            ...(preview.idMismatch ? { idMismatch: preview.idMismatch } : {}),
           },
           {
             command: 'nexus-projects-clean-preview',
@@ -1593,6 +1594,7 @@ const projectsCleanCommand = defineCommand({
             matchedByReason,
             ...(preview.relocated ? { relocated: preview.relocated } : {}),
             ...(preview.unreadable ? { unreadable: preview.unreadable } : {}),
+            ...(preview.idMismatch ? { idMismatch: preview.idMismatch } : {}),
           },
           {
             command: 'nexus-projects-clean',
@@ -1661,6 +1663,7 @@ const projectsCleanCommand = defineCommand({
           receipt: result.receipt,
           ...(result.relocated ? { relocated: result.relocated } : {}),
           ...(result.unreadable ? { unreadable: result.unreadable } : {}),
+          ...(result.idMismatch ? { idMismatch: result.idMismatch } : {}),
         },
         {
           command: 'nexus-projects-clean',

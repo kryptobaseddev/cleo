@@ -169,6 +169,7 @@ describe('doctor projects: move 3, restore 1 with a re-minted id (T12471)', () =
     ]);
     expect(gamma?.remedy).toContain('cleo nexus unregister gamma-T12471');
     expect(gamma?.remedy).toContain('cleo doctor project-identity --resolve');
+    expect(gamma?.remedy).toContain('or keep both: a fork is a distinct project');
     expect(await snapshot()).toEqual(before);
   });
 
@@ -579,5 +580,96 @@ describe('doctor projects review fixes (T12471 · PR #1611)', () => {
     expect(f?.kind).toBe('missing');
     expect(f?.message).not.toContain('no longer exists');
     expect(f?.message).toContain('.cleo');
+  });
+
+  it('N2: clean --orphans keeps a row whose path transiently declares another id', async () => {
+    const root = await registerProject(join(testDir, 'ws', 'flip'), 'flip-T12471');
+    // A checkout of an old branch flips the tracked id for a while.
+    writeFileSync(join(root, '.cleo', 'project-id'), 'other-branch-T12471\n');
+    writeFileSync(
+      join(root, '.cleo', 'project-info.json'),
+      JSON.stringify({ projectId: 'other-branch-T12471' }),
+    );
+
+    const { cleanProjects } = await import('../../nexus/projects-clean.js');
+    const result = await cleanProjects({ dryRun: false, matchOrphaned: true });
+
+    expect(result.purged).toBe(0);
+    expect(await registeredPath('flip-T12471')).toBe(root);
+    expect(result.idMismatch).toEqual([
+      { projectId: 'flip-T12471', projectPath: root, declares: 'other-branch-T12471' },
+    ]);
+  });
+
+  it('N1: a root-commit match with a DIFFERENT remote (a fork) is only a possible split', async () => {
+    const ws = join(testDir, 'ws');
+    const upstream = join(ws, 'a', 'lib');
+    mkdirSync(upstream, { recursive: true });
+    const git = (cwd: string, ...args: string[]) =>
+      execFileSync('git', args, {
+        cwd,
+        env: {
+          ...process.env,
+          GIT_AUTHOR_NAME: 't',
+          GIT_AUTHOR_EMAIL: 't@example.invalid',
+          GIT_COMMITTER_NAME: 't',
+          GIT_COMMITTER_EMAIL: 't@example.invalid',
+        },
+      });
+    git(upstream, 'init', '-q');
+    writeFileSync(join(upstream, 'README'), 'x');
+    git(upstream, 'add', 'README');
+    git(upstream, 'commit', '-q', '-m', 'root');
+    git(upstream, 'remote', 'add', 'origin', 'https://example.invalid/upstream/lib.git');
+    const fork = join(ws, 'b', 'lib');
+    mkdirSync(join(ws, 'b'), { recursive: true });
+    git(ws, 'clone', '-q', upstream, fork);
+    git(fork, 'remote', 'set-url', 'origin', 'https://example.invalid/fork/lib.git');
+    await registerProject(upstream, 'upstream-T12471');
+    mkdirSync(join(fork, '.cleo'), { recursive: true });
+    writeFileSync(
+      join(fork, '.cleo', 'project-info.json'),
+      JSON.stringify({ projectId: 'fork-T12471' }),
+    );
+    await rm(upstream, { recursive: true, force: true });
+
+    const report = await inspectProjectRegistry({ roots: [join(ws, 'b')] });
+    const f = report.findings.find((x) => x.projectId === 'upstream-T12471');
+    expect(f?.kind).toBe('possible-split');
+    expect(f?.remedy).toContain('keep both');
+  });
+
+  it('N3: a project under a non-home Library directory is found; ~/Library is skipped', async () => {
+    const { walkForCleoBounded } = await import('../../nexus/projects-scan.js');
+    const home = join(testDir, 'home');
+    const nested = join(home, 'code', 'Library', 'core');
+    const appSupport = join(home, 'Library', 'app');
+    for (const dir of [nested, appSupport]) mkdirSync(join(dir, '.cleo'), { recursive: true });
+    const savedHome = process.env['HOME'];
+    process.env['HOME'] = home;
+    try {
+      const walked = await walkForCleoBounded([home], {
+        maxDepth: 3,
+        concurrency: 4,
+        timeoutMs: 2000,
+      });
+      expect(walked.found).toContain(nested);
+      expect(walked.found).not.toContain(appSupport);
+    } finally {
+      process.env['HOME'] = savedHome;
+    }
+  });
+
+  it('N4: an unreadable row offers unregister when the project is no longer needed', async () => {
+    const root = await registerProject(join(testDir, 'locked2', 'p'), 'n4-T12471');
+    chmodSync(join(root, '.cleo'), 0o000);
+    try {
+      const report = await inspectProjectRegistry();
+      const f = report.findings.find((x) => x.projectId === 'n4-T12471');
+      expect(f?.kind).toBe('unreadable');
+      expect(f?.remedy).toContain('cleo nexus unregister n4-T12471');
+    } finally {
+      chmodSync(join(root, '.cleo'), 0o755);
+    }
   });
 });

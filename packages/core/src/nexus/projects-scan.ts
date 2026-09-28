@@ -10,6 +10,7 @@
 
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import path from 'node:path';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { listRegistryParentRoots } from './registry-roots.js';
@@ -75,16 +76,29 @@ const SKIP_DIRS = new Set([
   'venv',
   '.tox',
   'vendor',
-  // T12471: never scan the trash, OS/app state, or CLEO's own worktree homes
-  // (`~/Library/Application Support/cleo`, `~/.local/share/cleo`) for projects.
+  // T12471: never scan the trash or package caches for projects.
   '.Trash',
   '.Trashes',
   '$RECYCLE.BIN',
-  'Library',
-  '.local',
   '.npm',
   '.pnpm-store',
 ]);
+
+/**
+ * Directories skipped only directly under the home directory (T12471): OS and
+ * app state (`~/Library`, `~/.local`, which also hold CLEO's own worktree
+ * homes). Anywhere else a directory of that name is an ordinary one, so a
+ * project under `code/Library/core` is still found.
+ */
+const HOME_SKIP_DIRS = new Set(['Library', '.local']);
+
+/** Whether `name` inside `dir` is skipped by the project walkers. */
+function isSkippedDir(dir: string, name: string): boolean {
+  return (
+    SKIP_DIRS.has(name) ||
+    (HOME_SKIP_DIRS.has(name) && path.resolve(dir) === path.resolve(homedir()))
+  );
+}
 
 /**
  * Return the device number for a path, or -1 on error.
@@ -150,7 +164,7 @@ export function walkForCleo(
       continue;
     }
 
-    if (SKIP_DIRS.has(entry.name)) continue;
+    if (isSkippedDir(dir, entry.name)) continue;
 
     const childDev = getDevice(fullPath);
     if (childDev !== rootDev && childDev !== -1) continue;
@@ -261,7 +275,7 @@ export async function walkForCleoBounded(
         found.add(item.dir);
         continue;
       }
-      if (SKIP_DIRS.has(entry.name) || item.depth >= opts.maxDepth) continue;
+      if (isSkippedDir(item.dir, entry.name) || item.depth >= opts.maxDepth) continue;
       const child = path.join(item.dir, entry.name);
       if (seen.has(child)) continue;
       const childStat = await withinBudget(

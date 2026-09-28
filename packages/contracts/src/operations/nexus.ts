@@ -1537,6 +1537,23 @@ export interface NexusProjectsCleanResult {
    * prove a project gone (T12471). Absent when none.
    */
   unreadable?: NexusProjectsCleanUnreadable[];
+  /**
+   * Matched rows that were NOT removed because their path exists but declares
+   * another project id (T12471). `.cleo/project-id` is tracked, so a branch
+   * checkout, rebase or merge conflict flips it transiently; only an absent
+   * path proves a project gone. Absent when none.
+   */
+  idMismatch?: NexusProjectsCleanIdMismatch[];
+}
+
+/** A registry row `nexus.projects.clean` kept because its path declares another id (T12471). */
+export interface NexusProjectsCleanIdMismatch {
+  /** Immutable registry project ID. */
+  projectId: string;
+  /** Registered path. */
+  projectPath: string;
+  /** The id the path declares now. */
+  declares: string;
 }
 
 /** A registry row `nexus.projects.clean` kept because its path was unreadable (T12471). */

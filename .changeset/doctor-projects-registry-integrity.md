@@ -20,7 +20,8 @@ parent of every registered path, plus `--roots`) for `.cleo/` declarations.
   `cleo doctor project-identity --resolve` remedy and never applied. Paths in
   a trash directory or the CLEO home, paths holding a valid reroot tombstone,
   and locations demoted to `missing` in reroot geometry are never targets.
-- `split` needs repository evidence (same git remote or root commit; nested
+- `split` needs repository evidence (same git remote, or same root commit
+  without a conflicting remote — a fork is a distinct project; nested
   CLEO projects inside another registered project are excluded). A name-only
   match is `possible-split`: inspect only, and the gone row's location is
   still recorded `missing`.
@@ -41,8 +42,11 @@ parent of every registered path, plus `--roots`) for `.cleo/` declarations.
   gone but whose id is found at another path (a recorded location that still
   declares it, or a scan of the registry's parent directories; trash excluded).
   Such rows are returned under `relocated` with the `cleo doctor projects`
-  remedy. A path is gone only when it is absent (ENOENT/ENOTDIR) or declares a
-  different id; an unreadable path (EACCES, EPERM, timeout) is never removed
-  and is returned under `unreadable`.
-- The project scanners skip `.Trash`, `.Trashes`, `$RECYCLE.BIN`, `Library`,
-  `.local`, `.npm` and `.pnpm-store`.
+  remedy. A path is gone only when it is absent (ENOENT/ENOTDIR). An
+  unreadable path (EACCES, EPERM, timeout) is never removed and is returned
+  under `unreadable`; a path that exists but declares another id (a branch
+  checkout flips the tracked `.cleo/project-id`) is never removed and is
+  returned under `idMismatch`.
+- The project scanners skip `.Trash`, `.Trashes`, `$RECYCLE.BIN`, `.npm` and
+  `.pnpm-store` everywhere, and `Library` and `.local` directly under the home
+  directory only.
