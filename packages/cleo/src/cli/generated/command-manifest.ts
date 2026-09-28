@@ -298,6 +298,13 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/dash.js')).dashCommand as CommandDef,
   },
   {
+    exportName: 'decideCommand',
+    name: 'decide',
+    description:
+      'Typed-decision (System One) provider: decide config (API URL + key), decide status (reachability probe), decide ask (one debug question). Unconfigured means heuristics answer.',
+    load: async () => (await import('../commands/decide.js')).decideCommand as CommandDef,
+  },
+  {
     exportName: 'decomposeCommand',
     name: 'decompose',
     description: "Move a task's text acceptance criteria onto a new child so it can hold subtasks",

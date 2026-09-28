@@ -1275,6 +1275,7 @@ export type {
   ApplyInsightsResult,
   DialecticInsights,
   DialecticTurn,
+  DialecticTurnOrigin,
   EvaluateDialecticParams,
   EvaluateDialecticResult,
 } from './operations/dialectic.js';
@@ -1458,6 +1459,7 @@ export type {
   NexusDepsEntry,
   NexusDepsParams,
   NexusDepsResult,
+  NexusDeviceRecord,
   NexusDiffHealth,
   NexusDiffParams,
   NexusDiffResult,
@@ -1498,6 +1500,7 @@ export type {
   NexusPermissionLevel,
   NexusPermissionSetParams,
   NexusPermissionSetResult,
+  NexusProjectCandidate,
   NexusProjectCheckout,
   NexusProjectLocationState,
   NexusProjectRecord,
@@ -1612,8 +1615,10 @@ export type {
   NexusProfileUpsertResult,
   NexusProfileViewParams,
   NexusProfileViewResult,
+  UserProfileScope,
   UserProfileTrait,
 } from './operations/nexus-user-profile.js';
+export { USER_PROFILE_SCOPES } from './operations/nexus-user-profile.js';
 // Commonly used ops types re-exported at top level for convenience
 export type {
   BrainState,
@@ -1934,6 +1939,10 @@ export type {
   WorktreeLifecycleAction,
   WorktreeLifecycleAuditEntry,
   WorktreeListEntry,
+  WorktreeLockAcquisition,
+  WorktreeLockAcquisitionStatus,
+  WorktreeLockHolder,
+  WorktreeLockRecord,
   WorktreeSource,
   WorktreeStatusCategory,
 } from './operations/worktree.js';
@@ -2013,6 +2022,8 @@ export type {
   SyncResult,
   SyncStatus,
 } from './postgres-data-accessor.js';
+// === Process-table probe constants (T12500 · T12506) ===
+export { PS_STABLE_ENV } from './process-probe.js';
 // === Project Context (ecosystem detection types) ===
 export type {
   EcosystemHint,

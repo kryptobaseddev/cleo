@@ -2,8 +2,8 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.20.7
-  lastReviewed: 2026-09-27
+  version: 2.20.8
+  lastReviewed: 2026-09-28
   stability: stable
 ---
 
@@ -24,6 +24,21 @@ incident learning with project/revision evidence. A failed diagnostic is not cle
 Provider reference delivery must be verified or embedded self-contained; static
 instruction checks do not establish live Codex, Claude, or Kimi behavior.
 
+
+## Asking the owner (HITL ask tool)
+
+Whenever you need the owner to answer, decide, approve or choose ANYTHING, use the
+ask tool (`AskUserQuestion` in Claude Code, or the provider equivalent listed in
+CAAMP's `PROVIDER_ASK_TOOLS`) with concrete, detailed, selectable options. Never
+ask inside a response, and never bury a question or decision in prose. Each option
+states what happens and its trade-offs; put the recommended option first. Do not
+send routine status chatter: report only when done or when a decision is needed.
+
+- **Subagents never ask the human.** Return the question with its options to your
+  orchestrator (`blocked` plus `{question, options[{label, description}], recommended}`
+  in the manifest); the orchestrator asks via its ask tool.
+- **No ask tool in the harness:** emit one LAFS `hitl.request` envelope
+  `{question, options[{label, description}], recommended}` and stop.
 
 ## Project identity and moving between devices
 
@@ -113,6 +128,10 @@ stderr; `session status` / `briefing` label a guessed session `unbound: true`.
   pane never sees another pane's session.
 - Agent-tool subagents inherit the parent's `CLAUDE_CODE_SESSION_ID` and act in
   the parent's session; `cleo orchestrate spawn` gives workers their own.
+
+## Typed decisions (`cleo decide`, T12491)
+
+`decide` answers typed questions (yes/no, choice, score) through a swappable Jev-wire provider and falls back to local heuristics when unconfigured or failing. It needs two settings, an API URL and a key: `printf %s "$KEY" | cleo decide config --url <u> --key-stdin` (optional `--model`; `--clear` removes them). The key is kept in a 0600 file and never printed. `cleo decide status` probes reachability and `cleo decide ask --state <text> --noul <q>` runs one debug question.
 
 ## Quick Reference
 

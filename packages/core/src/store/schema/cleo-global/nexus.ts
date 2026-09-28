@@ -67,6 +67,7 @@
  * @see cleo docs fetch adr-090-nexus-graph-residency-split
  */
 
+import { USER_PROFILE_SCOPES } from '@cleocode/contracts';
 import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import { makeSchemaMetaTable } from '../schema-utils.js';
@@ -259,6 +260,36 @@ export const nexusProjectLocations = sqliteTable(
   ],
 );
 
+/**
+ * `nexus_devices` — one row per machine that runs CLEO against this global
+ * store (T12510). `device_id` is the persisted `<cleoHome>/device-id` UUID
+ * (T9321), the same id {@link nexusProjectLocations} rows carry, so a location
+ * resolves to a hostname / OS / arch / CLEO version and a last heartbeat. The
+ * CLI upserts this device's row at most once per minute.
+ *
+ * @task T12510
+ */
+export const nexusDevices = sqliteTable(
+  'nexus_devices',
+  {
+    /** Stable device id (`<cleoHome>/device-id`). Primary key. */
+    deviceId: text('device_id').primaryKey(),
+    /** `os.hostname()` at the last heartbeat. */
+    hostname: text('hostname').notNull(),
+    /** `process.platform` (e.g. `darwin`, `linux`, `win32`). */
+    os: text('os').notNull(),
+    /** `process.arch` (e.g. `arm64`, `x64`). */
+    arch: text('arch').notNull(),
+    /** CLEO version that sent the last heartbeat. */
+    cleoVersion: text('cleo_version').notNull(),
+    /** ISO-8601 UTC first-heartbeat instant (canonical TEXT, §4). */
+    firstSeen: text('first_seen').notNull().default(sql`(datetime('now'))`),
+    /** ISO-8601 UTC last-heartbeat instant (canonical TEXT, §4). */
+    lastHeartbeatAt: text('last_heartbeat_at').notNull().default(sql`(datetime('now'))`),
+  },
+  (table) => [index('idx_nexus_devices_last_heartbeat').on(table.lastHeartbeatAt)],
+);
+
 // ---------------------------------------------------------------------------
 // Audit + schema meta
 // ---------------------------------------------------------------------------
@@ -368,12 +399,31 @@ export const nexusUserProfile = sqliteTable(
     reinforcementCount: integer('reinforcement_count').notNull().default(1),
     /** traitKey of the trait that supersedes this one (T1139 supersession graph). */
     supersededBy: text('superseded_by'),
+
+    /**
+     * Portable project id (`.cleo/project-id`, ADR-094) of the project this
+     * trait was derived in. `NULL` = unknown origin (rows written before
+     * T12543): excluded from spawn prompts, still queryable.
+     *
+     * @task T12543
+     */
+    projectId: text('project_id'),
+
+    /**
+     * Visibility scope (`project` | `user`). `project` rows are injected only
+     * into prompts for the project in `project_id`; `user` rows are explicitly
+     * user-global. Defaults to `project`.
+     *
+     * @task T12543
+     */
+    scope: text('scope', { enum: USER_PROFILE_SCOPES }).notNull().default('project'),
   },
   (table) => [
     index('idx_nexus_user_profile_confidence').on(table.confidence),
     index('idx_nexus_user_profile_source').on(table.source),
     index('idx_nexus_user_profile_last_reinforced').on(table.lastReinforcedAt),
     index('idx_nexus_user_profile_superseded').on(table.supersededBy),
+    index('idx_nexus_user_profile_project').on(table.projectId, table.scope),
   ],
 );
 

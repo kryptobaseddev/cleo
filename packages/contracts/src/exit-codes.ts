@@ -53,6 +53,14 @@ export enum ExitCode {
    * LAFS code `E_SESSION_UNBOUND`. @task T12500
    */
   SESSION_UNBOUND = 24,
+  /**
+   * A second spawn asked for a task worktree whose per-task lock is held by a
+   * live holder (session, agent, pid + process start, device, heartbeat).
+   * Re-provisioning would force-remove the holder's live worktree, so the
+   * spawn refuses. LAFS code `E_WORKTREE_LOCKED`; the error details name the
+   * holder. @task T12506
+   */
+  WORKTREE_LOCKED = 25,
 
   // === SESSION ERRORS (30-39) ===
   SESSION_EXISTS = 30,

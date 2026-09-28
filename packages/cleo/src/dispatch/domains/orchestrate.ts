@@ -807,6 +807,9 @@ export class OrchestrateHandler implements DomainHandler {
             noWorktree: params.noWorktree as boolean | undefined,
             spawnScope: params.spawnScope as string | undefined,
             ...(atomicityScope ? { atomicityScope } : {}),
+            // T12506 — `--resume` was dropped here, so every resume ran the
+            // normal provisioning path (and hit the worktree lock).
+            ...(params.resume === true ? { resume: true } : {}),
           };
           return wrapResult(await coreOps.spawn(p), 'mutate', 'orchestrate', operation, startTime);
         }

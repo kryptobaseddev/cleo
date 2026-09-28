@@ -192,6 +192,15 @@ describe('CLEO-INJECTION CLI-only template', () => {
           /Avoid empty completion traces/,
         ],
       },
+      {
+        rule: 'owner questions through the ask tool (T12481)',
+        clauses: [
+          /goes through the ask tool \(`AskUserQuestion` or the provider equivalent\) with concrete selectable options, recommended first/,
+          /Never ask in prose or bury a question in a response/,
+          /Subagents never ask the human; they return the question and options to their orchestrator, which asks/,
+          /emit one LAFS `hitl\.request` envelope `\{question, options\[\{label, description\}\], recommended\}` and stop/,
+        ],
+      },
     ])('retains $rule', ({ clauses }) => {
       const text = content.replace(/\s+/g, ' ');
       for (const clause of clauses) expect(text).toMatch(clause);

@@ -284,6 +284,17 @@ export function renderNexusProjectsList(data: Record<string, unknown>, quiet: bo
     );
     lines.push(`  ${''.padEnd(28)}  path=${str(p['path'])}`);
   }
+  // T12510 — the devices a location's deviceId resolves to.
+  const devices = (data['devices'] as Array<Record<string, unknown>>) ?? [];
+  if (devices.length > 0) {
+    lines.push('', `[nexus] Devices (${devices.length}):`, '');
+    for (const d of devices) {
+      const marker = d['current'] === true ? '*' : ' ';
+      lines.push(
+        ` ${marker}${str(d['hostname']).padEnd(28)}  ${str(d['os'])}/${str(d['arch'])}  cleo=${str(d['cleoVersion'])}  heartbeat=${str(d['lastHeartbeatAt'])}  id=${str(d['deviceId'])}`,
+      );
+    }
+  }
   return lines.join('\n');
 }
 

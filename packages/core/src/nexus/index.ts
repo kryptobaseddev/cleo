@@ -67,6 +67,17 @@ export {
   orphanDetection,
   resolveCrossDeps,
 } from './deps.js';
+// Devices (T12510)
+export {
+  DEVICE_HEARTBEAT_INTERVAL_MS,
+  DEVICE_HEARTBEAT_STAMP,
+  type DeviceFacts,
+  type DeviceHeartbeatOutcome,
+  type DeviceStartupHeartbeatOutcome,
+  heartbeatThisDevice,
+  listNexusDevices,
+  recordDeviceHeartbeat,
+} from './devices.js';
 // Index diff - compare node/relation counts between git commits (T1473)
 export {
   diffNexusIndex,
@@ -189,6 +200,7 @@ export {
   type NexusPermissionLevel,
   // Types
   type NexusProject,
+  NexusProjectAmbiguityError,
   type NexusProjectStats,
   type NexusRegistryFile,
   nexusGetProject,

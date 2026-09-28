@@ -815,6 +815,8 @@ export {
   nexusOrphans,
   orphanDetection,
 } from './nexus/deps.js';
+// Device heartbeat on CLI start (T12510)
+export { heartbeatThisDevice } from './nexus/devices.js';
 export {
   // EngineResult wrappers (T1569 Wave 2)
   nexusDiscover,
@@ -2588,9 +2590,22 @@ export {
   nexusProfileUpsert,
   nexusProfileView,
   reinforceTrait,
+  resolveTraitProjectId,
+  setUserProfileTraitScope,
   supersedeTrait,
   upsertUserProfileTrait,
 } from './nexus/user-profile.js';
+// Nexus — user-profile hygiene: receipt classifier + reversible repair (T12543)
+export {
+  classifyReceiptTrait,
+  OPERATION_ENVELOPE_RULE,
+  pruneReceiptTraits,
+  restorePrunedTraits,
+  type TraitPruneCandidate,
+  type TraitPruneOptions,
+  type TraitPruneResult,
+  type TraitRestoreResult,
+} from './nexus/user-profile-hygiene.js';
 export { nexusWiki } from './nexus/wiki-index.js';
 // Worktree completion SDK (T9548)
 export type {
