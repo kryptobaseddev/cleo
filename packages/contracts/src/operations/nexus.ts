@@ -1526,6 +1526,198 @@ export interface NexusProjectsCleanResult {
   matchedByReason: Partial<Record<NexusProjectsCleanReason, number>>;
   /** Receipt of the applied removal; absent on dry-run or when nothing matched (T12324). */
   receipt?: NexusProjectsCleanReceipt;
+  /**
+   * Matched rows that were NOT removed because their id was found at another
+   * path (T12471): the project moved, it is not an orphan. Absent when none.
+   */
+  relocated?: NexusProjectsCleanRelocated[];
+  /**
+   * Matched rows that were NOT removed because their path could not be read
+   * (EACCES, EPERM, timeout): only ENOENT/ENOTDIR or a different declared id
+   * prove a project gone (T12471). Absent when none.
+   */
+  unreadable?: NexusProjectsCleanUnreadable[];
+  /**
+   * Matched rows that were NOT removed because their path exists but declares
+   * another project id (T12471). `.cleo/project-id` is tracked, so a branch
+   * checkout, rebase or merge conflict flips it transiently; only an absent
+   * path proves a project gone. Absent when none.
+   */
+  idMismatch?: NexusProjectsCleanIdMismatch[];
+}
+
+/** A registry row `nexus.projects.clean` kept because its path declares another id (T12471). */
+export interface NexusProjectsCleanIdMismatch {
+  /** Immutable registry project ID. */
+  projectId: string;
+  /** Registered path. */
+  projectPath: string;
+  /** The id the path declares now. */
+  declares: string;
+}
+
+/** A registry row `nexus.projects.clean` kept because its path was unreadable (T12471). */
+export interface NexusProjectsCleanUnreadable {
+  /** Immutable registry project ID. */
+  projectId: string;
+  /** Registered path that could not be read. */
+  projectPath: string;
+}
+
+/**
+ * A registry row `nexus.projects.clean` refused to remove because its project
+ * id was found at another path on this device (T12471).
+ */
+export interface NexusProjectsCleanRelocated {
+  /** Immutable registry project ID. */
+  projectId: string;
+  /** Registered path (gone from disk). */
+  projectPath: string;
+  /** Path(s) that declare the same id now. */
+  foundAt: string[];
+  /** Exact command that rebinds the row instead of deleting it. */
+  remedy: string;
+}
+
+/**
+ * Classification of one registry row by `cleo doctor projects` (T12471).
+ *
+ * - `ok` — the registered path holds the project.
+ * - `moved` — the path provably no longer holds it and another path on this
+ *   device declares the id. `--apply` rebinds the row only when that path's
+ *   untracked checkout nonce equals one recorded for the id (`proof:
+ *   'nonce'`); an `id-only` match (a clone, a copied `.cleo/project-id`) is
+ *   reported with the `cleo doctor project-identity --resolve` remedy and
+ *   never applied. Trash, CLEO-home, tombstoned and reroot-demoted paths are
+ *   never targets.
+ * - `ambiguous` — the path is gone and several paths carry the id's nonce;
+ *   the operator confirms one with `cleo doctor project-identity --resolve`.
+ * - `split` — one project under two ids, proven by repository evidence: the
+ *   registered path is gone and a same-named path with the same git remote or
+ *   root commit holds a different id (a re-minted identity), or two registered
+ *   rows, neither nested in another registered project, share a git remote.
+ *   Never changed automatically.
+ * - `possible-split` — the path is gone and a same-named path holds another
+ *   id, with no repository evidence tying them: informational (inspect, never
+ *   rewrite or unregister the other project). `--apply` still records the
+ *   gone location as `missing`.
+ * - `missing` — the path is gone and the id was found nowhere. `--apply`
+ *   records the location as `missing`; the row is kept.
+ * - `temp` — the path is under a temp directory while the registry is
+ *   persistent (a fixture or scratch directory left in the registry).
+ * - `root` — the path is the home directory or a filesystem root.
+ * - `unreadable` — the path could not be read (EACCES, EPERM, timeout). Only
+ *   ENOENT/ENOTDIR prove a path gone, so nothing is changed.
+ * - `other-device` — the path was recorded on another device; not probed.
+ */
+export type NexusRegistryFindingKind =
+  | 'ok'
+  | 'moved'
+  | 'ambiguous'
+  | 'split'
+  | 'possible-split'
+  | 'missing'
+  | 'temp'
+  | 'root'
+  | 'unreadable'
+  | 'other-device';
+
+/** The other side of a split identity (T12471). */
+export interface NexusRegistrySplitPeer {
+  /** The other project id. */
+  projectId: string;
+  /** Where the other id lives. */
+  projectPath: string;
+  /** Whether the other id has its own registry row. */
+  registered: boolean;
+  /** What paired the two ids: a shared git remote or root commit, or the directory name alone. */
+  matchedBy: 'name' | 'remote' | 'root-commit';
+}
+
+/** One registry row as classified by `cleo doctor projects` (T12471). */
+export interface NexusRegistryFinding {
+  /** Immutable registry project ID. */
+  projectId: string;
+  /** Registered project name. */
+  name: string;
+  /** Registered path (may be a `superseded:<id>` sentinel). */
+  projectPath: string;
+  /** Classification. */
+  kind: NexusRegistryFindingKind;
+  /** One-line explanation. */
+  message: string;
+  /** Exact command(s) that fix it, or `null` when nothing needs fixing. */
+  remedy: string | null;
+  /** `true` when `--apply` changes registry rows for this finding. */
+  applicable: boolean;
+  /** Paths on this device that declare this id (`moved`, `ambiguous`). */
+  foundAt?: string[];
+  /**
+   * What ties a `moved` checkout to the row: `nonce` when its untracked
+   * checkout nonce equals one recorded for the id (a real move), `id-only`
+   * when only the committed id matches.
+   */
+  proof?: 'nonce' | 'id-only';
+  /** The other ids of a `split` or `possible-split` identity. */
+  splitWith?: NexusRegistrySplitPeer[];
+}
+
+/** One registry change made by `cleo doctor projects --apply` (T12471). */
+export interface NexusRegistryRepairAction {
+  /** `rebind` points the row at `to`; `mark-missing` records the location as `missing`. */
+  action: 'rebind' | 'mark-missing';
+  /** Project the action applies to. */
+  projectId: string;
+  /** Registered path before the action. */
+  from: string;
+  /** New registered path (`rebind` only). */
+  to?: string;
+  /** `applied`, or `skipped` when the row changed between inspection and apply. */
+  outcome: 'applied' | 'skipped';
+}
+
+/** Durable receipt of an applied `cleo doctor projects` run (T12471). */
+export interface NexusRegistryRepairReceipt {
+  /** `nexus_audit_log.id` written in the same transaction as the changes. */
+  receiptId: string;
+  /** Absolute path of the global registry store that was changed. */
+  storePath: string;
+  /** ISO 8601 timestamp of the apply. */
+  appliedAt: string;
+  /** Every action, in order. */
+  actions: NexusRegistryRepairAction[];
+  /** Registry row count before and after; equal counts show no row was lost. */
+  registryRows: { before: number; after: number };
+  /** Exact command that restores the prior rows. */
+  rollback: string;
+}
+
+/** Result of `cleo doctor projects` (dry run or apply) (T12471). */
+export interface NexusRegistryIntegrityReport {
+  /** `true` when nothing was written. */
+  dryRun: boolean;
+  /** Absolute path of the global registry store inspected. */
+  storePath: string;
+  /** Directories scanned for `.cleo/project-id`. */
+  roots: string[];
+  /** Scan coverage: projects found, and directories that timed out or were unreadable. */
+  scan: { projectsFound: number; timedOut: string[]; unreadable: string[] };
+  /** Registry rows per kind; every row is counted. */
+  counts: Record<NexusRegistryFindingKind, number>;
+  /** Every row whose kind is not `ok`. */
+  findings: NexusRegistryFinding[];
+  /** Receipt of the applied changes; absent on a dry run or when nothing applied. */
+  receipt?: NexusRegistryRepairReceipt;
+}
+
+/** Result of `cleo doctor projects --rollback <receiptId>` (T12471). */
+export interface NexusRegistryRollbackResult {
+  /** The receipt that was rolled back. */
+  receiptId: string;
+  /** `nexus_audit_log.id` of the rollback itself. */
+  rollbackReceiptId: string;
+  /** Rows written back per table. */
+  restored: { registry: number; locations: number; paths: number };
 }
 
 /** Parameters for `nexus.refresh-bridge`. */
