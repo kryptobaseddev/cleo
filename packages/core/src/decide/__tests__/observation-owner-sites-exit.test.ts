@@ -91,6 +91,19 @@ dns.lookup = function lookup(hostname, options, callback) {
 syncBuiltinESMExports();
 `;
 
+/** Simulated cold load of the decide client in the child, in ms: longer than the budget. */
+const SLOW_LOAD_MS = 400;
+
+/** Loader hooks: delay loading `decide/client.js`, as a cold runner or cold CLI can. */
+const SLOW_LOAD_HOOKS = `
+export async function load(url, context, nextLoad) {
+  if (url.endsWith('/decide/client.js')) {
+    await new Promise((r) => setTimeout(r, ${SLOW_LOAD_MS}));
+  }
+  return nextLoad(url, context);
+}
+`;
+
 /**
  * A provider that answers at once: `change` for the type choice, 0.2 for the
  * owner noul. It runs in its OWN process: `spawnSync` blocks this test's event loop.
@@ -128,6 +141,7 @@ let root: string;
 let project: string;
 let home: string;
 let preloadPath: string;
+let slowLoadPath: string;
 let tlsHole: Server;
 let tlsHolePort = 0;
 const heldSockets: Socket[] = [];
@@ -184,25 +198,31 @@ function configure(baseUrl: string): void {
 }
 
 /** The newest decision audit line — proves the case reached the decision. */
-function lastAudit(): { site?: string; fallbackReason?: string; shadow?: { acted?: string } } {
+function lastAudit(): {
+  site?: string;
+  fallbackReason?: string;
+  latencyMs?: number;
+  shadow?: { acted?: string };
+} {
   const lines = readFileSync(join(project, '.cleo', 'audit', 'decisions.jsonl'), 'utf-8')
     .trim()
     .split('\n');
   return JSON.parse(lines[lines.length - 1] ?? '{}') as {
     site?: string;
     fallbackReason?: string;
+    latencyMs?: number;
     shadow?: { acted?: string };
   };
 }
 
-function expectPromptExit(site: Site, run: Run, label: string): void {
+function expectPromptExit(site: Site, run: Run, label: string, extraMs = 0): void {
   const context = `${site}/${label}: ${Math.round(run.ms)} ms (baseline ${Math.round(baselineMs[site])} ms)\nstderr:\n${run.stderr}`;
   expect(run.signal, context).toBeNull();
   expect(run.status, context).toBe(0);
   // Default mode once configured is shadow: the result is the heuristic's.
   if (site === 'observe') expect(run.stdout, context).toContain('"source":"keyword"');
   else expect(run.stdout, context).toContain('"verdict":"proceed"');
-  expect(run.ms - baselineMs[site], context).toBeLessThan(DECISION_BUDGET_MS + SLACK_MS);
+  expect(run.ms - baselineMs[site], context).toBeLessThan(DECISION_BUDGET_MS + SLACK_MS + extraMs);
   const audit = lastAudit();
   expect(audit.site).toBe(SITE_IDS[site]);
   expect(audit.shadow?.acted).toBe('heuristic');
@@ -220,6 +240,13 @@ describe.skipIf(!DIST_AVAILABLE)(
       spawnSync('git', ['init', '-q'], { cwd: project });
       preloadPath = join(root, 'silent-dns-preload.mjs');
       writeFileSync(preloadPath, PRELOAD);
+      const hooksPath = join(root, 'slow-load-hooks.mjs');
+      writeFileSync(hooksPath, SLOW_LOAD_HOOKS);
+      slowLoadPath = join(root, 'slow-load-register.mjs');
+      writeFileSync(
+        slowLoadPath,
+        `import { register } from 'node:module';\nregister(${JSON.stringify(pathToFileURL(hooksPath).href)});\n`,
+      );
 
       tlsHole = createServer((socket) => heldSockets.push(socket));
       await new Promise<void>((r) => tlsHole.listen(0, '127.0.0.1', r));
@@ -272,6 +299,31 @@ describe.skipIf(!DIST_AVAILABLE)(
       configure(`http://127.0.0.1:${providers.get(999)?.port}`);
       expectPromptExit(site, runSite(site), 'status-999');
       expect(lastAudit().fallbackReason).toBeDefined();
+    }, 60_000);
+
+    // The budget bounds provider WAIT, not module load (the #1630 CI failure:
+    // a cold runner spent the whole budget loading modules, so a fast
+    // provider "timed out" before it was called).
+    const slowLoadEnv = (): Record<string, string> => ({
+      NODE_OPTIONS: `--import=${pathToFileURL(slowLoadPath).href}`,
+    });
+
+    it.each(SITES)('%s: slow module load + fast provider — still answered', (site) => {
+      configure(`http://127.0.0.1:${providers.get(200)?.port}`);
+      const run = runSite(site, slowLoadEnv());
+      // The hook really delayed the load (else this case proves nothing).
+      expect(run.ms - baselineMs[site]).toBeGreaterThanOrEqual(SLOW_LOAD_MS - 50);
+      expectPromptExit(site, run, 'slow-load-fast', SLOW_LOAD_MS);
+      expect(lastAudit().fallbackReason).toBeUndefined();
+    }, 60_000);
+
+    it.each(SITES)('%s: slow module load + hanging provider — ~budget of provider wait', (site) => {
+      configure(`https://127.0.0.1:${tlsHolePort}`);
+      expectPromptExit(site, runSite(site, slowLoadEnv()), 'slow-load-hang', SLOW_LOAD_MS);
+      const audit = lastAudit();
+      expect(audit.fallbackReason).toBe('timeout');
+      // decide()'s own latency: the provider wait, excluding the module load.
+      expect(audit.latencyMs ?? Number.POSITIVE_INFINITY).toBeLessThan(DECISION_BUDGET_MS + 150);
     }, 60_000);
 
     it.each(SITES)('%s: slow DNS (resolver query never answered)', (site) => {

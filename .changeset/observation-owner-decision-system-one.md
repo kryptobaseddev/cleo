@@ -61,9 +61,11 @@ choice?
 - **Data sent:** the task title (clipped to 160 characters), `blockedBy`
   (clipped to 300) and description (clipped to 440), redacted before clipping.
 
-Each site is bounded at 300 ms from its own start, and settings resolution
-and module load count against it (`askSiteDecision` takes the site's
-`startedAt`). On
-timeout, provider error, budget denial or an unconfigured provider, the
-heuristic answers. `resolveDecisionSiteSettings` now accepts sites without a
+Each site waits at most 300 ms for the provider. The budget covers request
+building, redaction and the round trip, and it starts once the decision
+modules are loaded (`askSiteDecision`). Module loading is left out on
+purpose: in a cold CLI process it alone can take longer than 300 ms, and
+charging it would mean a fast provider never gets to answer. On timeout,
+provider error, budget denial or an unconfigured provider, the heuristic
+answers. `resolveDecisionSiteSettings` now accepts sites without a
 generative tier (`llmTierKey` is optional).

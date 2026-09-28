@@ -11,8 +11,8 @@
  *   heuristic acts.
  * - The title and text are redacted, then clipped, before they leave the
  *   machine.
- * - The whole step, module load included, is bounded by
- *   {@link OBSERVATION_TYPE_BUDGET_MS}.
+ * - Provider wait is bounded by {@link OBSERVATION_TYPE_BUDGET_MS}; the budget
+ *   starts once the decision modules are loaded.
  *
  * Mode comes from `decide.sites.observationType` (`off | shadow | on`):
  * `shadow` (the default once a provider is configured) audits the decision
@@ -28,7 +28,7 @@ import type { BrainObservationType, DecisionAnswer, DecisionRequest } from '@cle
 import type { DecideOptions } from '../decide/client.js';
 import { type DecisionSiteMode, redactThenClip } from '../decide/site.js';
 
-/** End-to-end budget for the type decision, in milliseconds. */
+/** Wait budget for the type decision, in ms (module load excluded; see `askSiteDecision`). */
 export const OBSERVATION_TYPE_BUDGET_MS = 300;
 
 /** Minimum confidence the answer needs before `on` mode uses the decided type. */
@@ -244,7 +244,6 @@ export async function chooseObservationType(
   title: string | undefined,
   opts: ChooseObservationTypeOptions = {},
 ): Promise<ObservationTypeChoice> {
-  const startedAt = performance.now();
   const keywordType = classifyObservationTypeByKeywords(text);
   const heuristic: ObservationTypeChoice = {
     type: keywordType,
@@ -272,7 +271,6 @@ export async function chooseObservationType(
     const decision = await askSiteDecision({
       siteId: OBSERVATION_TYPE_SITE,
       budgetMs: OBSERVATION_TYPE_BUDGET_MS,
-      startedAt,
       minConfidence: OBSERVATION_TYPE_MIN_CONFIDENCE,
       mode,
       heuristicVerdict: keywordType,

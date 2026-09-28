@@ -20,7 +20,8 @@
  *   change the verdict. `shadow` still asks, so the audit measures agreement.
  * - Title, `blockedBy` and description are redacted, then clipped, before they
  *   leave the machine.
- * - Bounded by {@link OWNER_DECISION_BUDGET_MS}, module load included.
+ * - Provider wait is bounded by {@link OWNER_DECISION_BUDGET_MS}; the budget
+ *   starts once the decision modules are loaded.
  *
  * Mode comes from `decide.sites.ownerDecision` (`off | shadow | on`): `shadow`
  * (the default once a provider is configured) audits the answer next to the
@@ -45,7 +46,7 @@ import {
   type ReadinessSignals,
 } from './classify-readiness.js';
 
-/** End-to-end budget for the owner-decision question, in milliseconds. */
+/** Wait budget for the owner-decision question, in ms (module load excluded; see `askSiteDecision`). */
 export const OWNER_DECISION_BUDGET_MS = 300;
 
 /** Call-site id for the owner-decision question; keys the audit line. */
@@ -117,7 +118,6 @@ export async function resolveOwnerDecisionSignal(
   task: Task,
   opts: OwnerDecisionOptions = {},
 ): Promise<OwnerDecisionSignal | null> {
-  const startedAt = performance.now();
   if ((task.blockedBy ?? '').trim() === '') return null;
   if ((task.labels ?? []).some((l) => l.toLowerCase() === OWNER_DECISION_LABEL)) return null;
   try {
@@ -142,7 +142,6 @@ export async function resolveOwnerDecisionSignal(
     const decision = await askSiteDecision({
       siteId: OWNER_DECISION_SITE,
       budgetMs: OWNER_DECISION_BUDGET_MS,
-      startedAt,
       minConfidence: OWNER_DECISION_MIN_CONFIDENCE,
       mode,
       heuristicVerdict: substring ? 'owner-decision' : 'none',
