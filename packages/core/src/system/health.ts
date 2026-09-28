@@ -11,7 +11,13 @@ import { join } from 'node:path';
 import type { DependencyReport } from '@cleocode/contracts';
 import { checkGitHooks, type HookCheckResult } from '../hooks.js';
 import { checkCaampBinary, checkGlobalInstructionDelivery, checkInjection } from '../injection.js';
-import { getAgentsHome, getCleoHome, isProjectInitialized, resolveOrCwd } from '../paths.js';
+import {
+  getAgentsHome,
+  getCleoHome,
+  isProjectInitialized,
+  recordProjectEncounter,
+  resolveOrCwd,
+} from '../paths.js';
 import { getSystemInfo, type SystemInfo } from '../platform.js';
 import {
   checkBrainDb,
@@ -1576,8 +1582,10 @@ export async function startupHealthCheck(projectRoot?: string): Promise<StartupH
     // T12324: a temp/scratch project never lands in a persistent registry.
     const register = shouldAutoRegisterProject(root, getCleoHome());
     if (register) {
-      const { nexusReconcile } = await import('../nexus/registry.js');
-      await nexusReconcile(root);
+      // T12470: a health check is not an explicit registration. The encounter
+      // never mints an identity, never writes `.cleo/project-id`, and never
+      // repoints an existing project's row to an unconfirmed checkout.
+      await recordProjectEncounter(root);
     }
     checks.push({
       check: 'nexus_registration',

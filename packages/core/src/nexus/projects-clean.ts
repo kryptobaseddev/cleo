@@ -200,9 +200,10 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
 
   const pollutedIds: Set<string> = new Set();
   if (opts.matchPolluted) {
-    // Group rows by canonicalProjectId. The canonical ID uses git-root+realpath
-    // so bind-mount variants of the same repo collapse to the same key.
-    const { canonicalProjectId: computeId } = await import('./identity.js');
+    // Group rows by path fingerprint (git-root realpath + name + remote) so
+    // bind-mount variants of the same checkout collapse to one key. A grouping
+    // key only — never an identity (T12470).
+    const { projectPathFingerprint: computeId } = await import('./identity.js');
     const canonicalGroups = new Map<string, RegistryRow[]>();
     await Promise.all(
       allRows.map(async (row) => {

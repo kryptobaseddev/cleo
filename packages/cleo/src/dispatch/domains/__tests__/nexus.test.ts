@@ -769,7 +769,16 @@ describe('NexusHandler', () => {
       const result = await handler.mutate('reconcile', {});
 
       expect(result.success).toBe(true);
-      expect(nexusReconcileProject).toHaveBeenCalledWith(getProjectRoot());
+      expect(nexusReconcileProject).toHaveBeenCalledWith(getProjectRoot(), { forceRebind: false });
+    });
+
+    it('forwards --force-rebind explicitly (T12470)', async () => {
+      vi.mocked(nexusReconcileProject).mockResolvedValue({
+        success: true,
+        data: { status: 'path_updated' },
+      });
+      await handler.mutate('reconcile', { projectRoot: '/custom/path', forceRebind: true });
+      expect(nexusReconcileProject).toHaveBeenCalledWith('/custom/path', { forceRebind: true });
     });
 
     it('reconciles using explicit projectRoot when provided', async () => {
@@ -781,7 +790,7 @@ describe('NexusHandler', () => {
       const result = await handler.mutate('reconcile', { projectRoot: '/custom/path' });
 
       expect(result.success).toBe(true);
-      expect(nexusReconcileProject).toHaveBeenCalledWith('/custom/path');
+      expect(nexusReconcileProject).toHaveBeenCalledWith('/custom/path', { forceRebind: false });
     });
 
     it('propagates error from engine', async () => {

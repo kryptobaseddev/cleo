@@ -29,7 +29,7 @@ exports[`T11578 AC3 — nexus DDL snapshot (post-cutover prefixed shape + FTS5) 
   },
   {
     "name": "nexus_project_locations",
-    "sql": "CREATE TABLE \`nexus_project_locations\` ( \`project_id\` text NOT NULL, \`device_id\` text NOT NULL, \`path\` text NOT NULL, \`first_seen\` text NOT NULL DEFAULT (datetime('now')), \`last_seen\` text NOT NULL DEFAULT (datetime('now')), \`state\` text NOT NULL DEFAULT 'live', PRIMARY KEY (\`project_id\`, \`device_id\`, \`path\`), CHECK ("state" IN ('live', 'missing', 'superseded')), CHECK ("first_seen" IS NULL OR "first_seen" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'), CHECK ("last_seen" IS NULL OR "last_seen" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
+    "sql": "CREATE TABLE "nexus_project_locations" ( \`project_id\` text NOT NULL, \`device_id\` text NOT NULL, \`path\` text NOT NULL, \`first_seen\` text NOT NULL DEFAULT (datetime('now')), \`last_seen\` text NOT NULL DEFAULT (datetime('now')), \`state\` text NOT NULL DEFAULT 'live', \`checkout_nonce\` text, \`git_root_commit\` text, \`git_remote\` text, PRIMARY KEY (\`project_id\`, \`device_id\`, \`path\`), CHECK ("state" IN ('live', 'missing', 'superseded', 'candidate')), CHECK ("first_seen" IS NULL OR "first_seen" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'), CHECK ("last_seen" IS NULL OR "last_seen" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
     "type": "table",
   },
   {
