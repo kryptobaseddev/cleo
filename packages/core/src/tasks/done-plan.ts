@@ -45,7 +45,7 @@ import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { getProjectRoot } from '../paths.js';
-import { readCiChecks, readCiSatisfies } from '../release/ci-evidence.js';
+import { isCiDocumentPath, readCiChecks, readCiSatisfies } from '../release/ci-evidence.js';
 import { readRequiredCheckPins } from '../release/pr-evidence.js';
 
 import { getTaskAccessor } from '../store/data-accessor.js';
@@ -67,14 +67,14 @@ import { loadVerificationGatePolicy } from './verification-policy.js';
 
 /**
  * Whether `ci:<pr>` can attest both tool gates for this change set (T12634):
- * both `evidence.ciChecks` lists are declared, a code task also declares its
- * job globs, and the PR does not edit a pinned workflow (its own CI would
+ * both `evidence.ciChecks` lists are declared, a change that is not purely
+ * documentation also declares its job globs, and the PR does not edit a pinned workflow (its own CI would
  * vouch for itself). Otherwise the plan falls back to local tool runs.
  */
-function ciPlannable(storeRoot: string, isCode: boolean, touched: readonly string[]): boolean {
+function ciPlannable(storeRoot: string, needsJobs: boolean, touched: readonly string[]): boolean {
   const lists = readCiChecks(storeRoot);
   if (!lists.tests?.length || !lists.qa?.length) return false;
-  if (isCode && (!lists.jobs?.tests?.length || !lists.jobs?.qa?.length)) return false;
+  if (needsJobs && (!lists.jobs?.tests?.length || !lists.jobs?.qa?.length)) return false;
   let context: Record<string, unknown> | null = null;
   try {
     context = JSON.parse(readFileSync(join(storeRoot, '.cleo', 'project-context.json'), 'utf-8'));
@@ -518,10 +518,11 @@ export async function deriveTaskEvidence(
     changeSet.prNumber !== undefined &&
     changeSet.stackedOn === undefined &&
     readCiSatisfies(storeRoot) &&
-    ciPlannable(storeRoot, classifyEvidenceTask({ task }) === 'code', [
-      ...changeSet.files,
-      ...changeSet.deletedFiles,
-    ])
+    ciPlannable(
+      storeRoot,
+      ![...changeSet.files, ...changeSet.deletedFiles].every(isCiDocumentPath),
+      [...changeSet.files, ...changeSet.deletedFiles],
+    )
       ? changeSet.prNumber
       : null;
   const toolRuns: DonePlanToolRun[] = [];

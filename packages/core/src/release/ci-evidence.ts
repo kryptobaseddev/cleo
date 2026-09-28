@@ -30,12 +30,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { EvidenceAtom, EvidenceValidationContext } from '@cleocode/contracts';
 import { isGitWorkTree } from '../git/work-tree.js';
-import {
-  checkPrTaskLinkage,
-  classifyEvidenceTask,
-  type EvidenceRoots,
-  isDocumentArtifact,
-} from '../tasks/evidence.js';
+import { checkPrTaskLinkage, type EvidenceRoots, isDocumentArtifact } from '../tasks/evidence.js';
 import { isGhCliAvailable } from './github-pr.js';
 import {
   describeRequiredWorkflowsSource,
@@ -212,6 +207,27 @@ export interface CiChecksConfig {
    * is not enough.
    */
   jobs?: { tests?: string[]; qa?: string[] };
+}
+
+/**
+ * Top-level directories whose files are code for the `ci:` skip decision even
+ * when they are Markdown or text: a `.md` under `packages/**` can be a runtime
+ * template (CLEO-INJECTION.md is injected into every agent), and the CI `code`
+ * path filter plus the scripts, crates and workflow filters cover these roots.
+ */
+const CI_CODE_ROOTS: readonly string[] = ['packages/', 'crates/', 'scripts/', '.github/'];
+
+/**
+ * Stricter than `pr:`'s {@link isDocumentArtifact}: a documentation artifact
+ * that lives outside every code root. Only a diff made entirely of these may
+ * leave its test and typecheck jobs honestly skipped.
+ *
+ * @param path - Repo-relative changed path.
+ * @returns True when the path cannot affect code, tests or CI.
+ * @task T12634
+ */
+export function isCiDocumentPath(path: string): boolean {
+  return isDocumentArtifact(path) && !CI_CODE_ROOTS.some((root) => path.startsWith(root));
 }
 
 /** `*`-glob to an anchored regular expression. */
@@ -430,8 +446,16 @@ function defaultIsAncestor(ancestor: string, descendant: string, cwd: string): b
 }
 
 function defaultOnDefaultBranch(sha: string, cwd: string): { ref: string | null; landed: boolean } {
-  const symbolic = gitRead(cwd, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']);
-  let ref = symbolic ? symbolic.replace(/^refs\/remotes\//, '') : null;
+  // The forge is authoritative; a local origin/HEAD can be stale or unset.
+  const fromGh = ghDefaultBranch(cwd);
+  const symbolic = fromGh
+    ? null
+    : gitRead(cwd, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']);
+  let ref = fromGh
+    ? `origin/${fromGh}`
+    : symbolic
+      ? symbolic.replace(/^refs\/remotes\//, '')
+      : null;
   if (ref === null) {
     for (const candidate of ['origin/main', 'origin/master']) {
       if (
@@ -444,6 +468,21 @@ function defaultOnDefaultBranch(sha: string, cwd: string): { ref: string | null;
   }
   if (ref === null) return { ref: null, landed: false };
   return { ref, landed: defaultIsAncestor(sha, ref, cwd) };
+}
+
+/** Default branch name from `gh repo view --json defaultBranchRef`, or null. */
+function ghDefaultBranch(cwd: string): string | null {
+  if (!isGhCliAvailable()) return null;
+  try {
+    const name = execFileSync(
+      'gh',
+      ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'],
+      { cwd, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] },
+    ).trim();
+    return /^[A-Za-z0-9._/-]+$/.test(name) ? name : null;
+  } catch {
+    return null;
+  }
 }
 
 function defaultFirstParentOf(sha: string, cwd: string): string | null {
@@ -747,8 +786,10 @@ export async function resolveCiEvidenceAtom(
   // A PR whose whole diff is documentation had nothing for the test and
   // typecheck jobs to run on — the same judgement `pr:` makes when it refuses a
   // docs-only PR as a code task's implementation — so its skip is honest too.
-  const docsOnlyDiff = pr.changedPaths.length > 0 && pr.changedPaths.every(isDocumentArtifact);
-  const isCode = classifyEvidenceTask(context) === 'code' && !docsOnlyDiff;
+  // Round 3: the DIFF alone decides — a task label is agent-editable
+  // (`cleo update --labels docs`) and must never excuse skipped jobs.
+  const docsOnlyDiff = pr.changedPaths.length > 0 && pr.changedPaths.every(isCiDocumentPath);
+  const isCode = !docsOnlyDiff;
   const jobsByGate: Record<string, string[]> = {};
   if (isCode) {
     for (const g of gateLists) {

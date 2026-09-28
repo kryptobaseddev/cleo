@@ -441,16 +441,59 @@ describe('resolveCiEvidenceAtom', () => {
       expect(!r.ok && r.reason).toMatch(/job Type Check: not found/);
     });
 
-    it('docs task with Unit Tests skipped: accepted (an honest skip)', async () => {
-      const docs: EvidenceValidationContext = {
+    it('a docs LABEL does not excuse skipped jobs on a code diff (round 3 #1)', async () => {
+      const labelled: EvidenceValidationContext = {
         ...context(),
         task: { ...context().task, labels: ['docs'] },
       };
       const r = await resolve({
-        context: docs,
+        context: labelled,
+        fetchChecks: async () => ({ ok: true, checks: unitSkipped }),
+      });
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toMatch(/job Unit Tests \(ubuntu-latest, shard 1\): skipped/);
+    });
+
+    it('a docs-labelled task whose diff IS documentation only: accepted', async () => {
+      const labelled: EvidenceValidationContext = {
+        ...context(),
+        task: { ...context().task, labels: ['docs'] },
+      };
+      const r = await resolve({
+        context: labelled,
+        resolvePr: async () => ({
+          ...merged,
+          changedPaths: ['docs/guide.md'],
+          changedFileCount: 1,
+        }),
         fetchChecks: async () => ({ ok: true, checks: unitSkipped }),
       });
       expect(r.ok, JSON.stringify(r)).toBe(true);
+    });
+
+    it('a .md under packages/** is code: a runtime template change with Unit Tests skipped is refused (round 3 #2)', async () => {
+      const r = await resolve({
+        resolvePr: async () => ({
+          ...merged,
+          changedPaths: ['packages/core/templates/CLEO-INJECTION.md'],
+          changedFileCount: 1,
+        }),
+        fetchChecks: async () => ({ ok: true, checks: unitSkipped }),
+      });
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toMatch(/job Unit Tests.*skipped/);
+    });
+
+    it('a mixed diff (docs plus code) with Unit Tests skipped is refused (round 3 #3)', async () => {
+      const r = await resolve({
+        resolvePr: async () => ({
+          ...merged,
+          changedPaths: ['README.md', 'a.ts'],
+          changedFileCount: 2,
+        }),
+        fetchChecks: async () => ({ ok: true, checks: unitSkipped }),
+      });
+      expect(r.ok).toBe(false);
     });
 
     it('code task whose PR diff is documentation only: the skip is honest, accepted', async () => {

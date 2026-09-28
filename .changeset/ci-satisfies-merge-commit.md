@@ -59,3 +59,9 @@ Owner decision D11149.
   `origin/<default>`. A PR merged into an integration branch counts once that
   branch reaches the default branch, and never before; otherwise it is refused
   with "not on <default>". An undeterminable default branch is also refused.
+- Only the diff decides whether skipped jobs are honest; a task label never does.
+  A diff made entirely of documentation outside `packages/`, `crates/`, `scripts/`
+  and `.github/` keeps the honest skip. A Markdown file under `packages/**` (for
+  example a runtime template) counts as code.
+- The default branch is resolved with `gh repo view --json defaultBranchRef`
+  first, then `origin/HEAD`.
