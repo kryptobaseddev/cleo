@@ -65,18 +65,21 @@ describe('project command group', () => {
       { meta?: { name: string; description: string }; args?: Record<string, unknown> }
     >;
 
-    it('move states that it copies, leaves the old copy, and rebinds the registry', () => {
+    it('move states that it renames (no copy, no old copy left), rebinds the registry, and refuses cross-device', () => {
       const text = subs['move']?.meta?.description ?? '';
-      expect(text).toMatch(/^Copy this project/);
-      expect(text).toContain('leave the old copy in place');
-      expect(text).toContain('rebind the registry');
+      expect(text).toContain('RENAMING its root');
+      expect(text).toContain('nothing is copied and no old copy is left');
+      expect(text).toContain('The registry is rebound');
+      expect(text).toContain('cross-device');
       expect(text).toContain('cleo project reroot');
     });
 
     it('has a reroot subcommand with a required childDir positional and --dry-run', () => {
       const reroot = subs['reroot'];
       expect(reroot?.meta?.name).toBe('reroot');
-      expect(reroot?.meta?.description).toContain('RENAME .cleo/');
+      expect(reroot?.meta?.description).toContain('RENAMES');
+      expect(reroot?.meta?.description).toContain('.cleo-moved.json');
+      expect(reroot?.meta?.description).toContain('Everything else stays');
       expect(reroot?.args?.['childDir']).toMatchObject({ type: 'positional', required: true });
       expect(reroot?.args?.['dry-run']).toMatchObject({ type: 'boolean', default: false });
     });

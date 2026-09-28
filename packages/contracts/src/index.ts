@@ -2035,10 +2035,12 @@ export type {
 } from './project-context.js';
 // === Project relocation (move / reroot — T12552 · T12558) ===
 export type {
+  MoveProjectResult,
+  ProjectMovedTombstone,
+  ProjectRelocationExclusion,
   ProjectRelocationKind,
   ProjectRelocationPlan,
   ProjectRelocationRegistryAction,
-  ProjectRelocationTransfer,
   RerootProjectResult,
 } from './project-lifecycle.js';
 // === ProjectTools Contracts (scaffold-project, doctor-project, scaffold-global — T10069 / T9835b) ===

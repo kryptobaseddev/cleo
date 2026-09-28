@@ -2,13 +2,15 @@
  * `cleo project move` / `cleo project reroot` — the relocation engine
  * (T12552 · T12555 · T12556 · T12558).
  *
+ * Both relocations RENAME; nothing is copied.
+ *
  * - T12552: a dry run returns a plan and changes neither disk nor registry.
- * - T12555: only the ROOT-level `.git` / `node_modules` are skipped by a move;
- *   a nested repository survives.
- * - T12556: a copy never carries the source's checkout nonce, so moving the
- *   real project by hand can never hand the registry to the stale copy.
+ * - T12555: the whole tree moves — root `.git` and nested repositories alike.
+ * - T12556: there is never a second copy, so no stale copy can be promoted;
+ *   a concurrent WAL writer loses no rows.
  * - T12558: move refuses child/ancestor targets before any IO; reroot renames
- *   `.cleo/` into a child and rebinds the registry, and its dry run is pure.
+ *   CLEO's entries into a child, leaves a tombstone, is resumable, and the old
+ *   root refuses with E_PROJECT_MOVED instead of growing an empty store.
  *
  * Every case runs against a temp `CLEO_HOME`.
  *
@@ -18,20 +20,25 @@
  * @task T12558
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
   realpathSync,
   renameSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { fileURLToPath } from 'node:url';
+import { ExitCode } from '@cleocode/contracts';
 import { and, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readCheckoutNonce } from '../nexus/checkout-nonce.js';
@@ -39,8 +46,11 @@ import { currentDeviceId } from '../nexus/path-map.js';
 import { nexusRegister } from '../nexus/registry.js';
 import { getCleoHome, recordProjectEncounter } from '../paths.js';
 import { moveProject, rerootProject } from '../project-lifecycle.js';
+import { getProjectRoot } from '../project-scope.js';
 import { awaitBackgroundOps } from '../store/background-ops.js';
-import { resetDbState } from '../store/sqlite.js';
+import { getDb, resetDbState } from '../store/sqlite.js';
+
+const TEMPLATES = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'templates', 'github');
 
 let testDir: string;
 let originalCwd: string;
@@ -50,6 +60,7 @@ beforeEach(async () => {
   vi.stubEnv('CLEO_HOME', join(testDir, 'cleo-home'));
   vi.stubEnv('CLEO_DIR', undefined);
   vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_PROJECT_ROOT', undefined);
   vi.stubEnv('CLEO_DISABLE_PROJECT_AUTOREGISTER', undefined);
   mkdirSync(join(testDir, 'cleo-home'), { recursive: true });
   // No-argument registry calls need a caller project of their own.
@@ -98,13 +109,22 @@ function makeGitRepo(root: string, file = 'README'): void {
   git(root, 'commit', '-q', '-m', 'root');
 }
 
-/** A registered CLEO project (git repo + tracked id + project-info.json). */
+/**
+ * A registered CLEO project: git repo with `.cleo/project-id` COMMITTED (as
+ * ADR-094 requires), project-info.json, and its location recorded live.
+ */
 async function makeProject(root: string, projectId: string): Promise<string> {
   makeGitRepo(root);
   mkdirSync(join(root, '.cleo'), { recursive: true });
   writeFileSync(join(root, '.cleo', 'project-id'), `${projectId}\n`);
-  writeFileSync(join(root, '.cleo', 'project-info.json'), JSON.stringify({ projectId }));
+  writeFileSync(
+    join(root, '.cleo', 'project-info.json'),
+    JSON.stringify({ projectId, projectHash: 'feedfacecafe' }),
+  );
+  git(root, 'add', '.cleo/project-id');
+  git(root, 'commit', '-q', '-m', 'id');
   await nexusRegister(root, projectId, 'write');
+  await recordProjectEncounter(root);
   return root;
 }
 
@@ -145,6 +165,16 @@ async function locationState(projectId: string, path: string) {
     .get()?.state;
 }
 
+async function liveLocations(projectId: string): Promise<string[]> {
+  const { db, projectLocations } = await registry();
+  return db
+    .select({ path: projectLocations.path })
+    .from(projectLocations)
+    .where(and(eq(projectLocations.projectId, projectId), eq(projectLocations.state, 'live')))
+    .all()
+    .map((r) => r.path);
+}
+
 /** Recursive `path → size:mtime` listing — any write shows up as a difference. */
 function treeSnapshot(root: string): string {
   const out: string[] = [];
@@ -160,13 +190,20 @@ function treeSnapshot(root: string): string {
   return out.join('\n');
 }
 
+/** Copy CLEO's GitHub init templates into `<root>/.github`. */
+function installCleoGithubTemplates(root: string): void {
+  mkdirSync(join(root, '.github', 'ISSUE_TEMPLATE'), { recursive: true });
+  for (const f of readdirSync(join(TEMPLATES, 'ISSUE_TEMPLATE'))) {
+    copyFileSync(join(TEMPLATES, 'ISSUE_TEMPLATE', f), join(root, '.github', 'ISSUE_TEMPLATE', f));
+  }
+}
+
 describe('T12552 — move --dry-run is a pure plan', () => {
-  it('returns source, target and registry action, and leaves the target absent and every registry and location row unchanged', async () => {
+  it('returns source, target, blockers and registry action; target absent; registry and tree unchanged', async () => {
     const source = await makeProject(join(testDir, 'src'), 'dry-T12552');
-    await recordProjectEncounter(source);
     const target = join(testDir, 'dest');
     const rowsBefore = await registrySnapshot();
-    const treeBefore = treeSnapshot(source);
+    const treeBefore = treeSnapshot(testDir);
 
     const result = await moveProject(target, source, { dryRun: true });
 
@@ -178,94 +215,126 @@ describe('T12552 — move --dry-run is a pure plan', () => {
       projectId: 'dry-T12552',
       source,
       target,
-      transfer: 'copy',
-      excluded: ['.git'],
+      transfer: 'rename',
+      entries: ['.'],
+      writes: [],
+      blockers: [],
       registry: {
         action: 'rebind',
         livePath: target,
         demotedPath: source,
-        demotedState: 'candidate',
-        nonce: 'fresh',
+        demotedState: 'missing',
+        nonce: 'carried',
       },
     });
-    expect(result.data.entries).toEqual(expect.arrayContaining(['.cleo', 'README']));
+    expect(result.data.checkpoint).toContain(join('backups', 'dry-T12552'));
     expect(existsSync(target)).toBe(false);
+    expect(treeSnapshot(testDir)).toBe(treeBefore);
     expect(await registrySnapshot()).toBe(rowsBefore);
-    expect(treeSnapshot(source)).toBe(treeBefore);
   });
 });
 
-describe('T12555 — the copy filter applies at the project root only', () => {
-  it('a nested child git repository survives the move and `git rev-parse` works in it', async () => {
-    const source = await makeProject(join(testDir, 'mono'), 'nested-T12555');
+describe('T12555 · T12556 — move renames the whole root', () => {
+  it('carries root .git, a nested repo, the nonce and project-info.json byte-identical; the old path is gone', async () => {
+    const source = await makeProject(join(testDir, 'mono'), 'rename-T12556');
     makeGitRepo(join(source, 'child'), 'CHILD');
-    // A workspace package's own node_modules is part of the tree.
-    mkdirSync(join(source, 'pkg', 'node_modules', 'dep'), { recursive: true });
-    writeFileSync(join(source, 'pkg', 'node_modules', 'dep', 'index.js'), 'x');
-    // The root-level node_modules is the only one skipped.
-    mkdirSync(join(source, 'node_modules', 'big'), { recursive: true });
-    const target = join(testDir, 'moved');
+    mkdirSync(join(source, 'node_modules', 'dep'), { recursive: true });
+    const nonce = readCheckoutNonce(source);
+    const infoBefore = readFileSync(join(source, '.cleo', 'project-info.json'));
+    const target = join(testDir, 'moved', 'mono');
 
     const result = await moveProject(target, source);
 
     expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(existsSync(source)).toBe(false);
+    expect(gitTop(target)).toBe(realpathSync(target));
     expect(gitTop(join(target, 'child'))).toBe(realpathSync(join(target, 'child')));
-    expect(existsSync(join(target, 'child', 'CHILD'))).toBe(true);
-    expect(existsSync(join(target, 'pkg', 'node_modules', 'dep', 'index.js'))).toBe(true);
-    expect(existsSync(join(target, 'node_modules'))).toBe(false);
-    expect(existsSync(join(target, '.git'))).toBe(false);
-    if (result.success) expect(result.data.excluded).toEqual(['.git', 'node_modules']);
+    expect(existsSync(join(target, 'node_modules', 'dep'))).toBe(true);
+    expect(readCheckoutNonce(target)).toBe(nonce);
+    expect(readFileSync(join(target, '.cleo', 'project-info.json')).equals(infoBefore)).toBe(true);
+    expect(await registryPath('rename-T12556')).toBe(target);
+    expect(await locationState('rename-T12556', target)).toBe('live');
+    expect(await locationState('rename-T12556', source)).toBe('missing');
+    expect(await liveLocations('rename-T12556')).toEqual([target]);
+    // The checkpoint lives OUTSIDE the moved tree.
+    expect(result.data.checkpointPath.startsWith(join(testDir, 'cleo-home', 'backups'))).toBe(true);
+    expect(readdirSync(result.data.checkpointPath)).toContain(
+      `${result.data.checkpointId}.meta.json`,
+    );
   });
-});
 
-describe('T12556 — a CLEO-made copy never carries the source nonce', () => {
-  it('stamps the copy with a fresh nonce and rebinds the registry to it', async () => {
-    const source = await makeProject(join(testDir, 'orig'), 'nonce-T12556');
-    const sourceNonce = readCheckoutNonce(source);
-    expect(sourceNonce).toMatch(/^[0-9a-f]{32}$/);
-    const target = join(testDir, 'copy');
+  it('after a move no writable .cleo remains at the old path, even after commands at the new one', async () => {
+    const source = await makeProject(join(testDir, 'old'), 'nowrite-T12556');
+    const target = join(testDir, 'new');
+    vi.stubEnv('CLEO_ROOT', source);
+    process.chdir(source);
 
+    expect((await moveProject(target, source)).success).toBe(true);
+    await recordProjectEncounter(target);
+    await getDb(target);
+
+    expect(existsSync(source)).toBe(false);
+    expect(existsSync(join(source, '.cleo'))).toBe(false);
+  });
+
+  it('a concurrent WAL writer during the move loses no rows and leaves an intact database', async () => {
+    const source = await makeProject(join(testDir, 'busy'), 'wal-T12556');
+    await getDb(source); // create the real store
+    resetDbState();
+    const dbFile = join(source, '.cleo', 'cleo.db');
+    const setup = new DatabaseSync(dbFile);
+    setup.exec('CREATE TABLE wal_probe (n INTEGER PRIMARY KEY)');
+    setup.close();
+
+    // A separate process commits one row at a time for ~1.5 s, then reports
+    // how many commits succeeded.
+    const writer = spawn(
+      process.execPath,
+      [
+        '-e',
+        `const { DatabaseSync } = require('node:sqlite');
+         const db = new DatabaseSync(process.argv[1]);
+         db.exec('PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000');
+         const ins = db.prepare('INSERT INTO wal_probe DEFAULT VALUES');
+         let ok = 0; const end = Date.now() + 1500;
+         process.stdout.write('ready\\n');
+         while (Date.now() < end) { try { ins.run(); ok++; } catch (e) { process.stderr.write(String(e)); break; } }
+         db.close(); process.stdout.write('count=' + ok + '\\n');`,
+        dbFile,
+      ],
+      { stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+    const exited = new Promise<void>((done) => writer.on('exit', () => done()));
+    let out = '';
+    writer.stdout.on('data', (d: Buffer) => {
+      out += d.toString();
+    });
+    await vi.waitFor(() => expect(out).toContain('ready'), { timeout: 10_000 });
+
+    const target = join(testDir, 'busy-moved');
     const result = await moveProject(target, source);
+    await exited;
 
-    expect(result.success).toBe(true);
-    const copyNonce = readCheckoutNonce(target);
-    expect(copyNonce).toMatch(/^[0-9a-f]{32}$/);
-    expect(copyNonce).not.toBe(sourceNonce);
-    expect(await registryPath('nonce-T12556')).toBe(target);
-    expect(await locationState('nonce-T12556', target)).toBe('live');
-    expect(await locationState('nonce-T12556', source)).toBe('candidate');
-  });
-
-  it('mv of the live project, then a command in the stale copy, leaves the real project live', async () => {
-    const source = await makeProject(join(testDir, 'real'), 'race-T12556');
-    await recordProjectEncounter(source);
-    const copy = join(testDir, 'stale');
-    expect((await moveProject(copy, source)).success).toBe(true);
-
-    // Whichever location the registry now names is the real project.
-    const live = await registryPath('race-T12556');
-    expect(live === source || live === copy).toBe(true);
-    const real = live as string;
-    const stale = real === source ? copy : source;
-
-    const movedReal = join(testDir, 'elsewhere', 'real-moved');
-    mkdirSync(join(testDir, 'elsewhere'), { recursive: true });
-    renameSync(real, movedReal);
-
-    // Any command run in the stale copy is an encounter.
-    await recordProjectEncounter(stale);
-    expect(await registryPath('race-T12556')).not.toBe(stale);
-    expect(await locationState('race-T12556', stale)).not.toBe('live');
-
-    // The real project, wherever it went, is still the one that proves the move.
-    await recordProjectEncounter(movedReal);
-    expect(await registryPath('race-T12556')).toBe(movedReal);
-    expect(await locationState('race-T12556', movedReal)).toBe('live');
-  });
+    const committed = Number(/count=(\d+)/.exec(out)?.[1] ?? '-1');
+    expect(committed).toBeGreaterThan(0);
+    if (!result.success) {
+      // A refusal is acceptable: then nothing moved and the source is intact.
+      expect(existsSync(dbFile)).toBe(true);
+      return;
+    }
+    const moved = new DatabaseSync(join(target, '.cleo', 'cleo.db'), { readOnly: true });
+    try {
+      expect(moved.prepare('PRAGMA integrity_check').get()).toEqual({ integrity_check: 'ok' });
+      expect(moved.prepare('SELECT count(*) AS n FROM wal_probe').get()).toEqual({ n: committed });
+    } finally {
+      moved.close();
+    }
+  }, 60_000);
 });
 
-describe('T12558 — move refuses child and ancestor targets before any IO', () => {
-  it('a child target is E_INVALID_TARGET with a fix pointing to reroot', async () => {
+describe('T12558 — move refuses bad targets before any IO', () => {
+  it('a child directory target is E_INVALID_TARGET with a fix pointing to reroot', async () => {
     const source = await makeProject(join(testDir, 'parent'), 'child-T12558');
     const target = join(source, 'app');
     const rowsBefore = await registrySnapshot();
@@ -282,27 +351,48 @@ describe('T12558 — move refuses child and ancestor targets before any IO', () 
     expect(await registrySnapshot()).toBe(rowsBefore);
   });
 
-  it('an ancestor target is E_INVALID_TARGET', async () => {
-    const source = await makeProject(join(testDir, 'outer', 'inner'), 'ancestor-T12558');
-    const treeBefore = treeSnapshot(join(testDir, 'outer'));
-
-    const result = await moveProject(join(testDir, 'outer'), source);
-
+  it('a FILE target inside the project does not suggest reroot', async () => {
+    const source = await makeProject(join(testDir, 'filetarget'), 'file-T12558');
+    const result = await moveProject(join(source, 'README'), source);
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.error.code).toBe('E_INVALID_TARGET');
-    expect(result.error.fix).toContain('cleo project reroot');
+    expect(result.error.fix).not.toContain('reroot');
+  });
+
+  it('an ancestor target is E_INVALID_TARGET', async () => {
+    const source = await makeProject(join(testDir, 'outer', 'inner'), 'ancestor-T12558');
+    const treeBefore = treeSnapshot(join(testDir, 'outer'));
+    const result = await moveProject(join(testDir, 'outer'), source);
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('E_INVALID_TARGET');
     expect(treeSnapshot(join(testDir, 'outer'))).toBe(treeBefore);
+  });
+
+  it('refuses while a CLEO worktree is bound, with a conflict exit class', async () => {
+    const source = await makeProject(join(testDir, 'wtm'), 'move-wt-T12558');
+    const { computeProjectHash, resolveWorktreeRootForHash } = await import('@cleocode/paths');
+    mkdirSync(join(resolveWorktreeRootForHash(computeProjectHash(source)), 'T1'), {
+      recursive: true,
+    });
+    const plan = await moveProject(join(testDir, 'x'), source, { dryRun: true });
+    expect(plan.success && plan.data.blockers).toHaveLength(1);
+    const result = await moveProject(join(testDir, 'x'), source);
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.code).toBe('E_MOVE_BLOCKED');
+    expect(result.error.exitCode).toBe(ExitCode.CONCURRENT_MODIFICATION);
+    expect(existsSync(source)).toBe(true);
   });
 });
 
 describe('T12558 — cleo project reroot', () => {
   it('--dry-run returns the plan and touches no disk and no registry', async () => {
     const root = await makeProject(join(testDir, 'mono'), 'reroot-dry-T12558');
-    await recordProjectEncounter(root);
     const child = join(root, 'app');
     mkdirSync(child);
     writeFileSync(join(root, '.worktreeinclude'), '.env\n');
+    installCleoGithubTemplates(root);
     const rowsBefore = await registrySnapshot();
     const treeBefore = treeSnapshot(testDir);
 
@@ -316,8 +406,9 @@ describe('T12558 — cleo project reroot', () => {
       source: root,
       target: child,
       transfer: 'rename',
-      entries: ['.cleo', '.worktreeinclude'],
-      writes: ['.cleo/project-info.json'],
+      entries: ['.cleo', '.worktreeinclude', '.github'],
+      excluded: [],
+      writes: [join(root, '.cleo-moved.json')],
       registry: { livePath: child, demotedPath: root, demotedState: 'missing', nonce: 'carried' },
       blockers: [],
     });
@@ -325,14 +416,26 @@ describe('T12558 — cleo project reroot', () => {
     expect(await registrySnapshot()).toBe(rowsBefore);
   });
 
-  it('renames .cleo into the child, keeps the same id and nonce, promotes the child and demotes the old root', async () => {
+  it("leaves a repository's own .github behind", async () => {
+    const root = await makeProject(join(testDir, 'ownci'), 'reroot-gh-T12558');
+    installCleoGithubTemplates(root);
+    mkdirSync(join(root, '.github', 'workflows'));
+    writeFileSync(join(root, '.github', 'workflows', 'ci.yml'), 'on: push\n');
+    mkdirSync(join(root, 'app'));
+    const result = await rerootProject(join(root, 'app'), root, { dryRun: true });
+    expect(result.success && result.data.entries).toEqual(['.cleo']);
+    expect(result.success && result.data.excluded.map((e) => e.entry)).toEqual(['.github']);
+  });
+
+  it('renames CLEO entries into the child, keeps id, nonce and project-info.json, leaves a tombstone and one live row', async () => {
     const root = await makeProject(join(testDir, 'mono'), 'reroot-T12558');
-    await recordProjectEncounter(root);
     const nonce = readCheckoutNonce(root);
     const child = join(root, 'app');
     makeGitRepo(child);
     writeFileSync(join(root, '.worktreeinclude'), '.env\n');
+    installCleoGithubTemplates(root);
     writeFileSync(join(root, '.cleo', 'marker'), 'same-inode');
+    const infoBefore = readFileSync(join(root, '.cleo', 'project-info.json'));
     // Run from the old root, as the CLI does: nothing may recreate .cleo/ there.
     vi.stubEnv('CLEO_ROOT', root);
     process.chdir(root);
@@ -343,74 +446,106 @@ describe('T12558 — cleo project reroot', () => {
     if (!result.success) return;
     expect(result.data).toMatchObject({
       dryRun: false,
+      resumed: false,
       projectId: 'reroot-T12558',
       oldRoot: root,
       newRoot: child,
-      renamed: ['.cleo', '.worktreeinclude'],
+      renamed: ['.cleo', '.worktreeinclude', '.github'],
       projectIdFile: 'present',
+      tombstone: join(root, '.cleo-moved.json'),
     });
     expect(existsSync(join(root, '.cleo'))).toBe(false);
-    expect(existsSync(join(root, '.worktreeinclude'))).toBe(false);
+    expect(existsSync(join(root, '.github'))).toBe(false);
     expect(readFileSync(join(child, '.cleo', 'marker'), 'utf-8')).toBe('same-inode');
-    expect(readFileSync(join(child, '.worktreeinclude'), 'utf-8')).toBe('.env\n');
     expect(readFileSync(join(child, '.cleo', 'project-id'), 'utf-8').trim()).toBe('reroot-T12558');
-    const info = JSON.parse(readFileSync(join(child, '.cleo', 'project-info.json'), 'utf-8'));
-    expect(info.projectId).toBe('reroot-T12558');
-    expect(info).not.toHaveProperty('projectRoot');
+    expect(readFileSync(join(child, '.cleo', 'project-info.json')).equals(infoBefore)).toBe(true);
     expect(readCheckoutNonce(child)).toBe(nonce);
-    // The checkpoint was taken before the rename, so it travelled with .cleo/.
-    const backups = readdirSync(join(child, '.cleo', 'backups', 'sqlite'));
-    expect(backups).toContain(`${result.data.checkpointId}.meta.json`);
+    expect(JSON.parse(readFileSync(join(root, '.cleo-moved.json'), 'utf-8'))).toMatchObject({
+      projectId: 'reroot-T12558',
+      movedTo: child,
+    });
+    expect(result.data.checkpointPath.startsWith(join(testDir, 'cleo-home', 'backups'))).toBe(true);
+    expect(readdirSync(result.data.checkpointPath)).toContain(
+      `${result.data.checkpointId}.meta.json`,
+    );
     expect(await registryPath('reroot-T12558')).toBe(child);
-    expect(await locationState('reroot-T12558', child)).toBe('live');
     expect(await locationState('reroot-T12558', root)).toBe('missing');
+    expect(await liveLocations('reroot-T12558')).toEqual([child]);
   });
 
   it('writes .cleo/project-id with the same id when it is absent', async () => {
     const root = await makeProject(join(testDir, 'noid'), 'reroot-noid-T12558');
-    execFileSync('rm', [join(root, '.cleo', 'project-id')]);
-    const child = join(root, 'app');
-    mkdirSync(child);
-
-    const result = await rerootProject(child, root);
-
-    expect(result.success).toBe(true);
-    if (result.success) expect(result.data.projectIdFile).toBe('written');
-    expect(readFileSync(join(child, '.cleo', 'project-id'), 'utf-8')).toContain(
+    rmSync(join(root, '.cleo', 'project-id'));
+    mkdirSync(join(root, 'app'));
+    const result = await rerootProject(join(root, 'app'), root);
+    expect(result.success && result.data.projectIdFile).toBe('written');
+    expect(readFileSync(join(root, 'app', '.cleo', 'project-id'), 'utf-8')).toContain(
       'reroot-noid-T12558',
     );
   });
 
-  it('refuses a target outside the project, and one that already holds .cleo', async () => {
+  it('refuses a target outside the project, one that already holds .cleo, and a bound worktree', async () => {
     const root = await makeProject(join(testDir, 'r'), 'reroot-bad-T12558');
-    const outside = join(testDir, 'outside');
-    mkdirSync(outside);
-    const out = await rerootProject(outside, root);
-    expect(out.success).toBe(false);
-    if (!out.success) expect(out.error.code).toBe('E_INVALID_TARGET');
+    mkdirSync(join(testDir, 'outside'));
+    const out = await rerootProject(join(testDir, 'outside'), root);
+    expect(!out.success && out.error.code).toBe('E_INVALID_TARGET');
 
-    const child = join(root, 'app');
-    mkdirSync(join(child, '.cleo'), { recursive: true });
-    const clash = await rerootProject(child, root);
-    expect(clash.success).toBe(false);
-    if (!clash.success) expect(clash.error.code).toBe('E_INVALID_TARGET');
-    expect(existsSync(join(root, '.cleo', 'project-info.json'))).toBe(true);
-  });
+    mkdirSync(join(root, 'app', '.cleo'), { recursive: true });
+    const clash = await rerootProject(join(root, 'app'), root);
+    expect(!clash.success && clash.error.code).toBe('E_INVALID_TARGET');
 
-  it('refuses while a CLEO worktree exists for the project', async () => {
-    const root = await makeProject(join(testDir, 'wt'), 'reroot-wt-T12558');
-    const child = join(root, 'app');
-    mkdirSync(child);
+    mkdirSync(join(root, 'b'));
     const { computeProjectHash, resolveWorktreeRootForHash } = await import('@cleocode/paths');
     mkdirSync(join(resolveWorktreeRootForHash(computeProjectHash(root)), 'T1'), {
       recursive: true,
     });
-
-    const plan = await rerootProject(child, root, { dryRun: true });
-    expect(plan.success && plan.data.blockers.length).toBe(1);
-    const result = await rerootProject(child, root);
-    expect(result.success).toBe(false);
-    if (!result.success) expect(result.error.code).toBe('E_REROOT_BLOCKED');
+    const blocked = await rerootProject(join(root, 'b'), root);
+    expect(!blocked.success && blocked.error.code).toBe('E_REROOT_BLOCKED');
+    expect(!blocked.success && blocked.error.exitCode).toBe(ExitCode.CONCURRENT_MODIFICATION);
     expect(existsSync(join(root, '.cleo', 'project-info.json'))).toBe(true);
+  });
+
+  it('resumes after a crash between the rename and the rebind, leaving exactly one live row', async () => {
+    const root = await makeProject(join(testDir, 'crash'), 'reroot-crash-T12558');
+    const child = join(root, 'app');
+    mkdirSync(child);
+    // Simulated crash: the rename happened, nothing after it did.
+    renameSync(join(root, '.cleo'), join(child, '.cleo'));
+    expect(await registryPath('reroot-crash-T12558')).toBe(root);
+
+    const plan = await rerootProject(child, child, { dryRun: true });
+    expect(plan.success && plan.data.source).toBe(root);
+
+    const result = await rerootProject(child, child);
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data).toMatchObject({ resumed: true, oldRoot: root, newRoot: child });
+    expect(await registryPath('reroot-crash-T12558')).toBe(child);
+    expect(await locationState('reroot-crash-T12558', root)).toBe('missing');
+    expect(await liveLocations('reroot-crash-T12558')).toEqual([child]);
+    expect(existsSync(join(root, '.cleo-moved.json'))).toBe(true);
+  });
+
+  it('the old root refuses with E_PROJECT_MOVED — also after `git checkout -- .` — and never grows an empty store', async () => {
+    const root = await makeProject(join(testDir, 'tomb'), 'reroot-tomb-T12558');
+    const child = join(root, 'app');
+    mkdirSync(child);
+    expect((await rerootProject(child, root)).success).toBe(true);
+    vi.stubEnv('CLEO_ROOT', undefined);
+
+    mkdirSync(join(root, 'docs'));
+    expect(() => getProjectRoot(join(root, 'docs'))).toThrow(/E_PROJECT_MOVED/);
+    expect(() => getProjectRoot(root)).toThrow(/E_PROJECT_MOVED/);
+
+    // `git checkout -- .` restores the tracked .cleo/project-id in the parent.
+    git(root, 'checkout', '--', '.');
+    expect(existsSync(join(root, '.cleo', 'project-id'))).toBe(true);
+    expect(() => getProjectRoot(root)).toThrow(/E_PROJECT_MOVED/);
+
+    // Even without the tombstone, the registry marks this location missing.
+    rmSync(join(root, '.cleo-moved.json'));
+    await expect(getDb(root)).rejects.toThrow(/E_PROJECT_MOVED/);
+    expect(existsSync(join(root, '.cleo', 'cleo.db'))).toBe(false);
   });
 });

@@ -8,10 +8,24 @@
  */
 
 import { resolve } from 'node:path';
-import type { EngineFailure, ProjectRelocationPlan, RenderableEnvelope } from '@cleocode/contracts';
+import type {
+  EngineFailure,
+  MoveProjectResult,
+  ProjectRelocationPlan,
+  RenderableEnvelope,
+  RerootProjectResult,
+} from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
-import { moveProject, projectLifecycle, renameProject, rerootProject } from '@cleocode/core';
+import {
+  CleoError,
+  getProjectRoot,
+  moveProject,
+  projectLifecycle,
+  renameProject,
+  rerootProject,
+} from '@cleocode/core';
 import { defineCommand } from 'citty';
+import { getFormatContext } from '../format-context.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
 function formatSuccessSection(
@@ -39,29 +53,96 @@ function emitEngineFailure(error: EngineFailure['error'], operation: string): vo
   process.exitCode = exitCode;
 }
 
+/**
+ * Resolve the project root the way every other command does (walk up from
+ * cwd), so `move` works from a subdirectory and `reroot .` from the child.
+ * A refusal (`E_PROJECT_MOVED`, not a project) is emitted and `null` returned.
+ */
+function resolveRootOrFail(operation: string): string | null {
+  try {
+    return getProjectRoot();
+  } catch (err) {
+    const code =
+      err instanceof CleoError && typeof err.details?.['code'] === 'string'
+        ? err.details['code']
+        : 'E_NOT_CLEO_PROJECT';
+    emitEngineFailure(
+      {
+        code,
+        message: (err as Error).message,
+        exitCode: err instanceof CleoError ? err.code : ExitCode.CONFIG_ERROR,
+        fix: err instanceof CleoError ? err.fix : undefined,
+      },
+      operation,
+    );
+    return null;
+  }
+}
+
 /** Human lines for a relocation plan (`move` / `reroot` dry run). */
 function planItems(plan: ProjectRelocationPlan): string[] {
   const r = plan.registry;
   return [
-    `Project ID:  ${plan.projectId}`,
     `Source:      ${plan.source}`,
     `Target:      ${plan.target}`,
-    `Transfer:    ${plan.transfer} ${plan.entries.join(', ') || '(nothing)'}`,
-    `Excluded:    ${plan.excluded.join(', ') || '(none)'}`,
-    `Writes:      ${plan.writes.join(', ')}`,
-    `Registry:    ${r.action} → ${r.livePath} live; ${r.demotedPath} ${r.demotedState} (nonce ${r.nonce})`,
-    ...(plan.checkpoint ? [`Checkpoint:  ${plan.checkpoint}`] : []),
+    `Rename:      ${plan.entries.join(', ') || '(nothing)'}`,
+    ...plan.excluded.map((e) => `Left:        ${e.entry} (${e.reason})`),
+    `Writes:      ${plan.writes.join(', ') || '(nothing)'}`,
+    `Registry:    ${r.livePath} live; ${r.demotedPath} ${r.demotedState}`,
+    `Checkpoint:  ${plan.checkpoint}`,
     ...plan.blockers.map((b) => `BLOCKER:     ${b}`),
     ...plan.deferredChecks.map((c) => `Checked at apply time: ${c}`),
     'Nothing was changed. Run without --dry-run to apply.',
   ];
 }
 
+/** Human lines for a completed move or reroot. */
+function resultItems(r: MoveProjectResult | RerootProjectResult): string[] {
+  const [from, to] = 'oldPath' in r ? [r.oldPath, r.newPath] : [r.oldRoot, r.newRoot];
+  return [
+    `Project ID:  ${r.projectId}`,
+    `Old root:    ${from}`,
+    `New root:    ${to}`,
+    ...('renamed' in r ? [`Renamed:     ${r.renamed.join(', ') || '(resumed)'}`] : []),
+    `Checkpoint:  ${r.checkpointPath || '(none: resumed)'}`,
+    `Registry:    ${r.reconcileStatus}`,
+    ...('notes' in r ? r.notes.map((n) => `Next:        ${n}`) : []),
+  ];
+}
+
+/**
+ * Emit a relocation plan or result: structured under `/data` for machines
+ * (so `--field /data/blockers` works), a section for humans.
+ */
+function emitRelocation(
+  data: ProjectRelocationPlan | MoveProjectResult | RerootProjectResult,
+  operation: string,
+): void {
+  if (getFormatContext().format !== 'human') {
+    cliOutput(data, { command: 'project', operation });
+    return;
+  }
+  const verb = operation === 'project.move' ? 'move' : 'reroot';
+  cliOutput(
+    data.dryRun
+      ? formatSuccessSection(`Dry Run: project ${verb}`, undefined, [
+          `Project ID:  ${data.projectId}`,
+          ...planItems(data),
+        ])
+      : formatSuccessSection(
+          verb === 'move' ? 'Project Moved' : 'Project Rerooted',
+          '✅',
+          resultItems(data),
+        ),
+    { command: 'project', operation },
+  );
+}
+
 const moveSubCommand = defineCommand({
   meta: {
     name: 'move',
     description:
-      'Copy this project to a new directory (root-level .git and node_modules are not copied), leave the old copy in place, and rebind the registry to the new copy. The old copy is demoted; delete it yourself. For a subdirectory of this project use `cleo project reroot`.',
+      'Move this project to a new path on the same device by RENAMING its root: .git, the database and everything else move together, nothing is copied and no old copy is left. The registry is rebound to the new path. Refuses a cross-device target (use a plain `mv`, then any cleo command) and a target inside the project (use `cleo project reroot`).',
   },
   args: {
     newPath: {
@@ -71,39 +152,23 @@ const moveSubCommand = defineCommand({
     },
     'dry-run': {
       type: 'boolean',
-      description: 'Print the plan (files, registry action) and change nothing.',
+      description: 'Print the plan (renames, blockers, registry action) and change nothing.',
       default: false,
     },
     json: { type: 'boolean', description: 'Output raw JSON envelope.', default: false },
   },
   async run({ args }) {
-    const newPath = resolve(args['newPath']);
     const operation = 'project.move';
-    const dryRun = args['dry-run'] === true;
-    const result = await moveProject(newPath, process.cwd(), { dryRun });
+    const root = resolveRootOrFail(operation);
+    if (root === null) return;
+    const result = await moveProject(resolve(args['newPath']), root, {
+      dryRun: args['dry-run'] === true,
+    });
     if (!result.success) {
       emitEngineFailure(result.error, operation);
       return;
     }
-    const r = result.data;
-    if (r.dryRun) {
-      cliOutput(formatSuccessSection('Dry Run: project move', undefined, planItems(r)), {
-        command: 'project',
-        operation,
-      });
-      return;
-    }
-    cliOutput(
-      formatSuccessSection('Project Copied and Rebound', '✅', [
-        `Project ID:  ${r.projectId}`,
-        `Old path:    ${r.oldPath} (left in place, demoted)`,
-        `New path:    ${r.newPath}`,
-        `New hash:    ${r.newProjectHash}`,
-        `Not copied:  ${r.excluded.join(', ') || '(none)'}`,
-        `Registry:    ${r.reconcileStatus}`,
-      ]),
-      { command: 'project', operation },
-    );
+    emitRelocation(result.data, operation);
   },
 });
 
@@ -111,12 +176,13 @@ const rerootSubCommand = defineCommand({
   meta: {
     name: 'reroot',
     description:
-      'Make a subdirectory of this project the project root: checkpoint, then RENAME .cleo/ (and .worktreeinclude) into it, keep the same project id, and rebind the registry. Refuses while a session or worktree is active.',
+      "Make a subdirectory of this project the project root. Checkpoints, then RENAMES CLEO's own top-level entries into it (.cleo/, .worktreeinclude, and .github/ when it holds only CLEO's init templates), keeps the same project id, leaves a .cleo-moved.json tombstone at the old root and rebinds the registry. Everything else stays. Refuses while a session or worktree is active. Run `cleo project reroot .` from the child to finish an interrupted reroot.",
   },
   args: {
     childDir: {
       type: 'positional',
-      description: 'Existing subdirectory of the current project root.',
+      description:
+        'Existing subdirectory of the current project root (`.` from the child resumes).',
       required: true,
     },
     'dry-run': {
@@ -127,35 +193,17 @@ const rerootSubCommand = defineCommand({
     json: { type: 'boolean', description: 'Output raw JSON envelope.', default: false },
   },
   async run({ args }) {
-    const childDir = resolve(args['childDir']);
     const operation = 'project.reroot';
-    const dryRun = args['dry-run'] === true;
-    const result = await rerootProject(childDir, process.cwd(), { dryRun });
+    const root = resolveRootOrFail(operation);
+    if (root === null) return;
+    const result = await rerootProject(resolve(args['childDir']), root, {
+      dryRun: args['dry-run'] === true,
+    });
     if (!result.success) {
       emitEngineFailure(result.error, operation);
       return;
     }
-    const r = result.data;
-    if (r.dryRun) {
-      cliOutput(formatSuccessSection('Dry Run: project reroot', undefined, planItems(r)), {
-        command: 'project',
-        operation,
-      });
-      return;
-    }
-    cliOutput(
-      formatSuccessSection('Project Rerooted', '✅', [
-        `Project ID:  ${r.projectId}`,
-        `Old root:    ${r.oldRoot}`,
-        `New root:    ${r.newRoot}`,
-        `Renamed:     ${r.renamed.join(', ')}`,
-        `project-id:  ${r.projectIdFile}`,
-        `Checkpoint:  ${r.checkpointId}`,
-        `Registry:    ${r.reconcileStatus}`,
-        ...r.notes.map((n) => `Next:        ${n}`),
-      ]),
-      { command: 'project', operation },
-    );
+    emitRelocation(result.data, operation);
   },
 });
 

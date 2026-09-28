@@ -15,6 +15,7 @@ import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import { isAbsolutePath } from '@cleocode/paths';
 import { CleoError } from './errors.js';
 import { generateProjectHash } from './nexus/hash.js';
+import { projectMovedMessage, readProjectTombstone } from './project-tombstone.js';
 
 /**
  * Async context payload set by the spawn adapter when launching a subagent
@@ -456,6 +457,19 @@ export function getProjectRoot(cwd?: string): string {
     // T889/T909: refuse to accept $HOME or / as a project root, even if a
     // `.cleo/` sentinel exists there. This blocks the orphan-DB vector.
     const isDangerousRoot = current === homeRoot || current === '/' || current === '';
+
+    // T12558: `cleo project reroot` left a tombstone here. With no live store
+    // beside it (the `.cleo/` is gone, or `git checkout -- .` restored only its
+    // tracked files), resolving here would silently create an EMPTY store and
+    // answer every read with nothing. Refuse and name the new root instead.
+    const tombstone = isDangerousRoot ? null : readProjectTombstone(current);
+    if (tombstone && !existsSync(join(cleoDir, 'cleo.db'))) {
+      const moved = projectMovedMessage(current, tombstone);
+      throw new CleoError(ExitCode.NOT_FOUND, moved.message, {
+        fix: moved.fix,
+        details: { field: 'projectRoot', code: 'E_PROJECT_MOVED', movedTo: tombstone.movedTo },
+      });
+    }
 
     if (existsSync(cleoDir) && !isDangerousRoot) {
       // T1463/P1-7: validate that the .cleo/ dir has the required sibling

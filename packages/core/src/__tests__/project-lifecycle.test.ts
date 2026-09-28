@@ -77,25 +77,24 @@ describe('project-lifecycle', () => {
   // ── moveProject ──────────────────────────────────────────────────
 
   describe('moveProject', () => {
-    it('AC3: copies project files to new location and updates project-info.json', async () => {
+    it('AC3 (T12556): renames the project and leaves project-info.json byte-identical', async () => {
       const newDir = join(tmpdir(), `cleo-moved-${Date.now()}`);
+      const { readFileSync, existsSync } = await import('node:fs');
+      const before = readFileSync(join(projectDir, '.cleo', 'project-info.json'));
 
-      // moveProject will fail at nexus (test project isn't in global registry),
-      // but the file copy + project-info.json write happen first
       const result = await moveProject(newDir, projectDir);
 
-      // Verify project-info.json was written at the destination
-      const { readFileSync } = await import('node:fs');
-      const destInfo = JSON.parse(
+      // The root was RENAMED: nothing is left at the old path, and
+      // project-info.json is carried unchanged. The only field the rebind may
+      // ADD is the checkout nonce this fixture lacked (T12470 mints one on the
+      // first confirmed location); projectHash is never recomputed.
+      expect(existsSync(projectDir)).toBe(false);
+      const { checkoutNonce, ...after } = JSON.parse(
         readFileSync(join(newDir, '.cleo', 'project-info.json'), 'utf-8'),
       );
-
-      expect(destInfo.projectId).toBe('550e8400-e29b-41d4-a716-446655440000');
-      expect(destInfo.projectRoot).toBe(newDir);
-      expect(typeof destInfo.projectHash).toBe('string');
-      expect(destInfo.projectHash.length).toBeGreaterThanOrEqual(12);
-      // projectHash should differ from original because path changed
-      expect(destInfo.projectHash).not.toBe('a1b2c3d4e5f6');
+      expect(after).toEqual(JSON.parse(before.toString()));
+      expect(after.projectHash).toBe('a1b2c3d4e5f6');
+      expect(checkoutNonce).toMatch(/^[0-9a-f]{32}$/);
 
       // Nexus error is expected in tests (no global nexus registry setup)
       // The result shape should still be EngineResult
@@ -116,7 +115,7 @@ describe('project-lifecycle', () => {
         expect(typeof data.projectId).toBe('string');
         expect(typeof data.oldPath).toBe('string');
         expect(typeof data.newPath).toBe('string');
-        expect(typeof data.newProjectHash).toBe('string');
+        expect(typeof data.checkpointId).toBe('string');
       } else {
         // On failure, error must have code + message
         expect(result.error).toHaveProperty('code');
@@ -179,18 +178,17 @@ describe('project-lifecycle', () => {
       await cleanup(newDir);
     });
 
-    it('AC7: copy-based move avoids cross-filesystem rename issues', async () => {
-      // Implementation uses fs.cp rather than fs.rename, so EXDEV errors
-      // are never encountered. The copy-then-validate pattern is
-      // cross-filesystem safe by design.
+    it('AC7 (T12556): same-device move is a rename — the tree is at the new path only', async () => {
+      // Cross-device targets are refused with E_CROSS_DEVICE (see
+      // project-relocation-faults-T12558.test.ts); within one device the
+      // root is renamed, so there is never a second copy to diverge.
       const newDir = join(tmpdir(), `cleo-xfs-${Date.now()}`);
       const result = await moveProject(newDir, projectDir);
 
-      // Verify files were actually copied (not symlinked or renamed)
       const { existsSync } = await import('node:fs');
+      expect(result.success).toBe(true);
       expect(existsSync(join(newDir, '.cleo', 'project-info.json'))).toBe(true);
-      // Original should still exist (copy, not move)
-      expect(existsSync(join(projectDir, '.cleo', 'project-info.json'))).toBe(true);
+      expect(existsSync(join(projectDir, '.cleo', 'project-info.json'))).toBe(false);
 
       await cleanup(newDir);
     });
