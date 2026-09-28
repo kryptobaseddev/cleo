@@ -80,6 +80,12 @@ export interface DecisionShadowRecord {
   readonly heuristicScores?: Readonly<Record<string, number>>;
   /** Question name → the subject it asks about (e.g. a task id). */
   readonly subjects?: Readonly<Record<string, string>>;
+  /**
+   * Set when the provider answered but the call site refused the answer, so
+   * the heuristic acted. `invalid_choice`: a `choice` value outside the
+   * offered options (T12493).
+   */
+  readonly rejected?: 'invalid_choice';
 }
 
 /** One line of `.cleo/audit/decisions.jsonl`. */

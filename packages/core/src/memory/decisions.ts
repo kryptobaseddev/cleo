@@ -13,9 +13,12 @@ import { createHash } from 'node:crypto';
 import {
   CANONICAL_TYPE_TAGS,
   DecisionValidatorFailedError,
+  type DialecticInsights,
   TaxonomyError,
   TaxonomyRegistry,
 } from '@cleocode/contracts';
+import type { DecideOptions } from '../decide/client.js';
+import type { DecisionSiteMode } from '../decide/site.js';
 import { taskExistsInTasksDb } from '../store/cross-db-cleanup.js';
 import { getBrainAccessor } from '../store/memory-accessor.js';
 import type { BrainDecisionRow, NewBrainDecisionRow } from '../store/schema/memory-schema.js';
@@ -106,6 +109,36 @@ export interface DecisionValidationResult {
 }
 
 /**
+ * Options for {@link validateDecisionConflicts}: the System One contradiction
+ * check (T12493). Every field is optional; production callers pass only
+ * `projectRoot`.
+ */
+export interface ValidateDecisionConflictsOptions {
+  /** Explicit mode; overrides `decide.sites.decisionContradiction` when a provider is configured. */
+  mode?: DecisionSiteMode;
+  /** Explicit opt-in for the generative (T1828) check; overrides `decide.generativeFallback.decisionContradiction`. */
+  llmTier?: boolean;
+  /** Provider, connection, budget, cache and audit wiring forwarded to `decide()`. Tests inject a stub here. */
+  decide?: DecideOptions;
+  /** Project root for config lookup and the audit sink. */
+  projectRoot?: string;
+  /** Bound on the whole generative path, ms. Default {@link GENERATIVE_CONTRADICTION_TIMEOUT_MS}; tests shorten it. */
+  generativeTimeoutMs?: number;
+}
+
+/** Word-Jaccard score at which a prior decision counts as a near-duplicate collision. */
+const DECISION_COLLISION_THRESHOLD = 0.65;
+
+/**
+ * Bound on the WHOLE generative (T1828) contradiction check, in ms: module
+ * load, backend resolution (Ollama probes, credential lookup) and the model
+ * call. It used to run with no timeout at all. On expiry the validator stops
+ * waiting and takes the no-signal result; a backend probe still in flight may
+ * finish in the background.
+ */
+const GENERATIVE_CONTRADICTION_TIMEOUT_MS = 15_000;
+
+/**
  * Read the configured confidence threshold for ADR decision validation.
  *
  * Checks `.cleo/config.json` key `decisions.validatorConfidenceThreshold`.
@@ -146,16 +179,26 @@ async function resolveValidatorThreshold(projectRoot: string): Promise<number> {
  * (`confidence: 1.0`, empty violation arrays) immediately so that unit test
  * suites that do not want to make real LLM calls are not affected.
  *
- * ## LLM call
+ * ## Contradiction check (T12493)
  *
- * Uses `evaluateDialectic()` from `dialectic-evaluator.ts` (cold tier,
- * `claude-sonnet-4-6`).  The "user message" describes the candidate decision;
- * the "system response" summarises existing decisions to provide contradiction
- * context.  The LLM is prompted to identify conflicts and assign a confidence
- * score.
+ * 1. System One: ONE `decide()` request asking how each of the top 3 prior
+ *    decisions (by word-Jaccard score) relates to the candidate — a `choice`
+ *    of `contradicts | supersedes | refines | unrelated` — bounded at
+ *    300 ms end to end. Mode comes from
+ *    `decide.sites.decisionContradiction`: `shadow` (the default once a
+ *    provider is configured) audits the answers and acts on the heuristic;
+ *    `on` acts on them when every answer is confident. Unconfigured → `off`,
+ *    no network call. Contradictions come only from typed answers.
+ * 2. Generative fallback (T1828): `evaluateDialectic()`, whose prose insights
+ *    are scanned for decision ids. It runs only when the decision did not act
+ *    and `decide.generativeFallback.decisionContradiction` resolves true. When
+ *    the key is unset it is on in every mode except `on` (unconfigured, `off`
+ *    and `shadow` keep today's behaviour; only `on` replaces it). The whole
+ *    path, backend resolution included, is bounded at 15 s.
  *
- * When no LLM backend is available, the function returns `confidence: 1.0` so
- * that writes are never silently blocked due to infrastructure absence.
+ * When neither answers, confidence is the deterministic result
+ * (1.0 minus 0.15 per collision), so writes are never silently blocked due to
+ * infrastructure absence.
  *
  * ## Rejection
  *
@@ -165,13 +208,16 @@ async function resolveValidatorThreshold(projectRoot: string): Promise<number> {
  *
  * @param params        - The store params for the candidate decision.
  * @param existingDecisions - Snapshot of existing decisions for conflict checking.
+ * @param options - System One mode, generative opt-in and `decide()` wiring (T12493).
  * @returns Validation result with conflict lists and overall confidence.
  *
  * @task T1828
+ * @task T12493
  */
 export async function validateDecisionConflicts(
   params: Pick<StoreDecisionParams, 'decision' | 'rationale' | 'type' | 'adrPath' | 'supersedes'>,
   existingDecisions: Pick<BrainDecisionRow, 'id' | 'decision' | 'rationale' | 'supersedes'>[],
+  options: ValidateDecisionConflictsOptions = {},
 ): Promise<DecisionValidationResult> {
   const PASS: DecisionValidationResult = {
     collisions: [],
@@ -195,6 +241,7 @@ export async function validateDecisionConflicts(
   const supersessionViolations: string[] = [];
 
   // --- Pass 1: Detect near-duplicate collisions (deterministic, no LLM) ---
+  const scored: Array<{ existing: (typeof existingDecisions)[number]; score: number }> = [];
   const candidateLower = (params.decision.trim() + ' ' + params.rationale.trim()).toLowerCase();
   for (const existing of existingDecisions) {
     const existingLower = (
@@ -208,7 +255,8 @@ export async function validateDecisionConflicts(
     const intersection = [...cTokens].filter((t) => eTokens.has(t)).length;
     const union = new Set([...cTokens, ...eTokens]).size;
     const jaccard = union > 0 ? intersection / union : 0;
-    if (jaccard >= 0.65) {
+    scored.push({ existing, score: jaccard });
+    if (jaccard >= DECISION_COLLISION_THRESHOLD) {
       collisions.push(existing.id);
     }
   }
@@ -226,71 +274,160 @@ export async function validateDecisionConflicts(
     }
   }
 
-  // --- Pass 3: LLM contradiction check ---
-  let llmConfidence = 1.0;
+  // --- Pass 3: contradiction check — System One, then the generative path ---
+  // No model answer → the deterministic result (what the generative path
+  // yields when it finds no contradiction signal).
+  let llmConfidence = Math.max(0, 1.0 - collisions.length * 0.15);
+  let decided = false;
+  let llmTier = false;
   try {
-    const { evaluateDialectic } = await import('./dialectic-evaluator.js');
-
-    // Build a synthetic turn: userMessage = candidate, systemResponse = existing summary
-    const existingSummary =
-      existingDecisions.length === 0
-        ? 'No existing decisions in the database.'
-        : existingDecisions
-            .slice(0, 20) // cap at 20 to stay within context limits
-            .map((d) => `[${d.id}] ${d.decision}: ${d.rationale}`)
-            .join('\n');
-
-    const userMessage =
-      `Candidate ADR decision for conflict checking:\n` +
-      `Type: ${params.type}\n` +
-      `Decision: ${params.decision}\n` +
-      `Rationale: ${params.rationale}\n` +
-      (params.adrPath ? `ADR path: ${params.adrPath}\n` : '') +
-      (collisions.length > 0
-        ? `\nPossible near-duplicates detected: ${collisions.join(', ')}\n`
-        : '');
-
-    const systemResponse =
-      `Existing architectural decisions in the system:\n${existingSummary}\n\n` +
-      `Task: Identify whether the candidate decision contradicts any existing decisions. ` +
-      `Assign a confidence score where 1.0 = no conflicts and 0.0 = severe contradiction.`;
-
-    const insights = await evaluateDialectic({
-      userMessage,
-      systemResponse,
-      activePeerId: 'decision-validator',
-      sessionId: `validate:${createHash('sha256').update(params.decision).digest('hex').slice(0, 8)}`,
+    const { resolveDecisionSiteSettings } = await import('../decide/site.js');
+    const {
+      askContradictionDecision,
+      DECISION_CONTRADICTION_LLM_KEY,
+      DECISION_CONTRADICTION_MODE_KEY,
+      MAX_CONTRADICTION_CANDIDATES,
+    } = await import('./decision-contradiction.js');
+    const settings = await resolveDecisionSiteSettings({
+      modeKey: DECISION_CONTRADICTION_MODE_KEY,
+      llmTierKey: DECISION_CONTRADICTION_LLM_KEY,
+      mode: options.mode,
+      llmTier: options.llmTier,
+      // Shadow must be behaviour-neutral: the generative check keeps its
+      // pre-T12493 default (on) everywhere except `on`, which replaces it.
+      llmTierDefault: (mode) => mode !== 'on',
+      wiring: options.decide,
+      projectRoot: options.projectRoot,
     });
+    llmTier = settings.llmTier;
 
-    // Map dialectic confidence: if any peer insight has a low confidence flag
-    // for contradiction, reflect that in the overall score.
-    const contradictionInsights = insights.peerInsights.filter(
-      (i) =>
-        i.key.includes('contradict') || i.key.includes('conflict') || i.key.includes('collision'),
-    );
+    const candidates = scored
+      .filter((s) => s.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, MAX_CONTRADICTION_CANDIDATES)
+      .map(({ existing, score }) => ({
+        id: existing.id,
+        decision: existing.decision,
+        rationale: existing.rationale,
+        score,
+      }));
 
-    if (contradictionInsights.length > 0) {
-      // Extract referenced decision IDs from insight values (heuristic: IDs look like D\d+)
-      for (const insight of contradictionInsights) {
-        const ids = insight.value.match(/\bD\d{3,}\b/g) ?? [];
-        for (const id of ids) {
-          if (!contradictions.includes(id)) {
-            contradictions.push(id);
-          }
+    if (settings.mode !== 'off' && candidates.length > 0) {
+      const verdict = await askContradictionDecision(
+        {
+          type: params.type,
+          decision: params.decision,
+          rationale: params.rationale,
+          supersedes: params.supersedes,
+          supersessionValid: params.supersedes !== undefined && supersessionViolations.length === 0,
+        },
+        candidates,
+        {
+          mode: settings.mode,
+          heuristicVerdict: collisions.length > 0 ? 'collision' : 'clear',
+          collisionThreshold: DECISION_COLLISION_THRESHOLD,
+          decide: options.decide,
+          projectRoot: options.projectRoot,
+        },
+      );
+      if (settings.mode === 'on' && verdict?.confident) {
+        decided = true;
+        for (const id of verdict.contradictions) {
+          contradictions.push(id);
+          llmConfidence = Math.min(
+            llmConfidence,
+            1 - (verdict.contradictionProbabilities[id] ?? 1),
+          );
         }
-        // Lower confidence proportionally to how many contradiction signals were found
-        llmConfidence = Math.min(llmConfidence, insight.confidence);
       }
     }
-
-    // If LLM emitted no contradiction signals, keep confidence at 1.0 minus
-    // small penalty for each deterministic collision found.
-    if (contradictionInsights.length === 0) {
-      llmConfidence = Math.max(0, 1.0 - collisions.length * 0.15);
-    }
   } catch {
-    // LLM unavailable — treat as passing to avoid blocking writes
+    // Settings or module load failed — the deterministic result stands.
+  }
+
+  // Generative path (T1828): only when the decision did not act.
+  if (!decided && llmTier) {
     llmConfidence = 1.0;
+    const generativeDeadline = AbortSignal.timeout(
+      options.generativeTimeoutMs ?? GENERATIVE_CONTRADICTION_TIMEOUT_MS,
+    );
+    // Resolves with no insights when the deadline fires, whatever phase the
+    // generative path is in (the evaluator honours the signal only in its
+    // model call, not in backend resolution).
+    const expired = new Promise<DialecticInsights>((resolve) => {
+      const empty = (): void => resolve({ globalTraits: [], peerInsights: [] });
+      if (generativeDeadline.aborted) empty();
+      else generativeDeadline.addEventListener('abort', empty, { once: true });
+    });
+    try {
+      // Build a synthetic turn: userMessage = candidate, systemResponse = existing summary
+      const existingSummary =
+        existingDecisions.length === 0
+          ? 'No existing decisions in the database.'
+          : existingDecisions
+              .slice(0, 20) // cap at 20 to stay within context limits
+              .map((d) => `[${d.id}] ${d.decision}: ${d.rationale}`)
+              .join('\n');
+
+      const userMessage =
+        `Candidate ADR decision for conflict checking:\n` +
+        `Type: ${params.type}\n` +
+        `Decision: ${params.decision}\n` +
+        `Rationale: ${params.rationale}\n` +
+        (params.adrPath ? `ADR path: ${params.adrPath}\n` : '') +
+        (collisions.length > 0
+          ? `\nPossible near-duplicates detected: ${collisions.join(', ')}\n`
+          : '');
+
+      const systemResponse =
+        `Existing architectural decisions in the system:\n${existingSummary}\n\n` +
+        `Task: Identify whether the candidate decision contradicts any existing decisions. ` +
+        `Assign a confidence score where 1.0 = no conflicts and 0.0 = severe contradiction.`;
+
+      const evaluate = async (): Promise<DialecticInsights> => {
+        const { evaluateDialectic } = await import('./dialectic-evaluator.js');
+        return evaluateDialectic(
+          {
+            userMessage,
+            systemResponse,
+            activePeerId: 'decision-validator',
+            sessionId: `validate:${createHash('sha256').update(params.decision).digest('hex').slice(0, 8)}`,
+          },
+          { abortSignal: generativeDeadline },
+        );
+      };
+      const insights = await Promise.race([evaluate(), expired]);
+
+      // Map dialectic confidence: if any peer insight has a low confidence flag
+      // for contradiction, reflect that in the overall score.
+      const contradictionInsights = insights.peerInsights.filter(
+        (i) =>
+          i.key.includes('contradict') || i.key.includes('conflict') || i.key.includes('collision'),
+      );
+
+      if (contradictionInsights.length > 0) {
+        // Extract referenced decision IDs from insight values (heuristic: IDs look like D\d+)
+        for (const insight of contradictionInsights) {
+          const ids = insight.value.match(/\bD\d{3,}\b/g) ?? [];
+          for (const id of ids) {
+            if (!contradictions.includes(id)) {
+              contradictions.push(id);
+            }
+          }
+          // Lower confidence proportionally to how many contradiction signals were found
+          llmConfidence = Math.min(llmConfidence, insight.confidence);
+        }
+      }
+
+      // If LLM emitted no contradiction signals, keep confidence at 1.0 minus
+      // small penalty for each deterministic collision found.
+      if (contradictionInsights.length === 0) {
+        llmConfidence = Math.max(0, 1.0 - collisions.length * 0.15);
+      }
+    } catch {
+      // LLM unavailable — treat as passing to avoid blocking writes
+      llmConfidence = 1.0;
+    }
   }
 
   // Overall confidence is the product of LLM confidence and supersession penalty.
@@ -395,6 +532,7 @@ export async function storeDecision(
         rationale: d.rationale,
         supersedes: d.supersedes,
       })),
+      { projectRoot },
     );
 
     const threshold = await resolveValidatorThreshold(projectRoot);
