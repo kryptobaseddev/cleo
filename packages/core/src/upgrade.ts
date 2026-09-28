@@ -46,6 +46,7 @@ import {
 } from './scaffold.js';
 import { cleanProjectSchemas, ensureGlobalSchemas } from './schema-management.js';
 import { acquireLock, forceCheckpointBeforeOperation, type ReleaseFn } from './store/index.js';
+import { describeSnapshotMiss } from './store/snapshot-gate.js';
 // applyPerfPragmas no longer needed here — openCleoDb applies SSoT pragmas (T9189)
 import { checkStorageMigration, type PreflightResult } from './system/storage-preflight.js';
 
@@ -206,7 +207,19 @@ export async function runUpgrade(
         }
 
         // CRITICAL: Force checkpoint before ANY destructive operations
-        await forceCheckpointBeforeOperation('storage-migration', options.cwd);
+        const preSnapshot = await forceCheckpointBeforeOperation('storage-migration', options.cwd);
+        // T12508: tell the user when no fresh snapshot was taken. Migration
+        // still proceeds — the verified pre-migration copy below is its backup.
+        const snapshotMiss = describeSnapshotMiss(preSnapshot);
+        if (snapshotMiss) {
+          actions.push({
+            action: 'pre_migration_snapshot',
+            status: 'skipped',
+            details: 'No fresh SQLite snapshot was taken before the storage migration',
+            reason: snapshotMiss,
+            fix: 'The migration keeps a verified copy in .cleo/backups/safety/. Run `cleo backup add` afterwards for a fresh snapshot.',
+          });
+        }
 
         // Initialize migration state tracking
         const { MigrationLogger } = await import('./migration/logger.js');

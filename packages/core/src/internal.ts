@@ -1515,6 +1515,12 @@ export {
   sessionAdoptedEndMessage,
   sessionUnboundMessage,
 } from './store/session-store.js';
+export type {
+  SnapshotGateMode,
+  SnapshotGateResult,
+  SnapshotGateSkipReason,
+  SnapshotOutcome,
+} from './store/snapshot-gate.js';
 export { getDb, getNativeDb } from './store/sqlite.js';
 export type {
   BackupScope,
