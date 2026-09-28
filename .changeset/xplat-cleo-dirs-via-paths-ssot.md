@@ -32,6 +32,17 @@ so those sites read or wrote a second tree the rest of CLEO never sees.
 - `playbook.ts`'s `~/.local/share/cleo/playbooks` branch was unreachable and
   is removed; the core resolver already used `getCleoHome()`.
 
+Behaviour changes to know about:
+
+- **Linux:** the nexus-deprecation telemetry and the `nexus projects clean`
+  audit log were written to a hard-coded `~/.local/state/cleo`. They now
+  honour `XDG_STATE_HOME`. With it unset, the path is unchanged.
+- **macOS and Windows:** `.cant` files under `~/.local/share/cleo/cant` and
+  `~/.config/cleo/cant` are no longer read. The new `legacy_cant_dirs` check
+  in `cleo doctor` warns when those dirs still hold `.cant` files and names
+  where to move them. The cleo-os extension warns once per process when it
+  cannot load `@cleocode/paths` and skips the global/user tiers.
+
 The `lint-paths-ssot` baseline drops from 17 to 2 (the remaining two are
 CAAMP's third-party harness config dirs, which are correct).
 
@@ -39,7 +50,13 @@ T12608: ADR parsing, skill scanning, federated skill search, import logging,
 branch-lock audit dirs, provider memory import and nexus JSON migration used
 `split('/')` on absolute paths, which returns the whole path on Windows. They
 now use `path.basename` / `path.dirname`, and ADR parsing checks
-`path.isAbsolute`. `isUnderRoot` in portable-bundle relocation accepts `/` and
-`\` as the boundary, because bundle rows carry the source machine's paths. The
+`path.isAbsolute`. Portable-bundle relocation (`isUnderRoot` / `relocatePath`)
+accepts `/` and `\` as the boundary, because bundle rows carry the source
+machine's paths. It ignores a trailing separator on either root (so a bundle
+rooted at `/` or `D:\` no longer drops the separator), writes the remainder
+with the destination's separator (a Windows bundle relocated onto macOS or
+Linux gets `/a/b`, not the single filename `a\b`), and resolves `..`, so
+`proj/../../etc/passwd` is not treated as under `proj`. Windows-shaped path
+values are now recognised as absolute, where only `/`-prefixed ones were. The
 CAAMP `pi cant` / `pi extensions` installers expand `~` with the new
 `expandTildePath()` (`os.homedir()`), since `HOME` is unset on Windows.

@@ -56,7 +56,7 @@ export class ClaudeSDKSpawnProvider implements AdapterSpawnProvider {
    *
    * Uses 3-tier key resolution so the provider works with:
    * - `ANTHROPIC_API_KEY` environment variable (explicit)
-   * - `~/.local/share/cleo/anthropic-key` (user-stored via cleo config)
+   * - `<getCleoHome()>/anthropic-key` (user-stored via cleo config)
    * - Claude Code OAuth token (zero-config for Claude Code users)
    *
    * @returns `true` when any Anthropic credential is available

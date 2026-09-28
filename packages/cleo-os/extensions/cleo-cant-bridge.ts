@@ -576,23 +576,49 @@ export interface CleoPathsModule {
   getCleoPlatformPaths: () => { config: string };
 }
 
+/** Set once the "@cleocode/paths unavailable" warning has been emitted. */
+let cleoPathsUnavailableWarned = false;
+
 /**
  * Load `@cleocode/paths`, the SSoT for CLEO's platform dirs.
  *
  * Returns `null` when it cannot be resolved. Callers then skip the global
  * tiers rather than guess a Linux-only `~/.local/share` path that is wrong
- * on macOS and Windows.
+ * on macOS and Windows. The first `null` of the process is reported through
+ * `warn`, so the skipped tiers are visible without repeating every turn.
+ *
+ * @param warn - Receives the one-time warning (e.g. `ctx.ui.notify`).
+ * @returns The paths module, or null when it cannot be loaded.
  */
-export async function loadCleoPaths(): Promise<CleoPathsModule | null> {
+export async function loadCleoPaths(
+  warn?: (message: string) => void,
+): Promise<CleoPathsModule | null> {
+  let reason: string;
   try {
     const mod = (await importCleoModule("@cleocode/paths")) as Partial<CleoPathsModule>;
-    if (typeof mod.getCleoHome !== "function" || typeof mod.getCleoPlatformPaths !== "function") {
-      return null;
+    if (typeof mod.getCleoHome === "function" && typeof mod.getCleoPlatformPaths === "function") {
+      return { getCleoHome: mod.getCleoHome, getCleoPlatformPaths: mod.getCleoPlatformPaths };
     }
-    return { getCleoHome: mod.getCleoHome, getCleoPlatformPaths: mod.getCleoPlatformPaths };
-  } catch {
-    return null;
+    reason = "module has no getCleoHome/getCleoPlatformPaths";
+  } catch (err: unknown) {
+    reason = err instanceof Error ? err.message : String(err);
   }
+  if (!cleoPathsUnavailableWarned && warn) {
+    cleoPathsUnavailableWarned = true;
+    warn(
+      `@cleocode/paths unavailable (${reason}); global and user CANT tiers and the global CLEOOS-IDENTITY.md are skipped`,
+    );
+  }
+  return null;
+}
+
+/**
+ * Reset the one-time warning latch of {@link loadCleoPaths}.
+ *
+ * @internal Test-only.
+ */
+export function _resetCleoPathsWarningForTests(): void {
+  cleoPathsUnavailableWarned = false;
 }
 
 /**
@@ -776,7 +802,10 @@ export default function (pi: ExtensionAPI): void {
     });
 
     try {
-      const { files, stats } = discoverCantFilesMultiTier(ctx.cwd, await loadCleoPaths());
+      const cleoPaths = await loadCleoPaths((message) => {
+        if (ctx.hasUI) ctx.ui.notify(`CleoOS CANT bridge: ${message}`, "warning");
+      });
+      const { files, stats } = discoverCantFilesMultiTier(ctx.cwd, cleoPaths);
       if (files.length === 0) return;
 
       // Dynamic import: @cleocode/cant may not be installed in all environments.
@@ -907,7 +936,9 @@ export default function (pi: ExtensionAPI): void {
         if (!identityFileContent) {
           // Resolve global CLEO home via @cleocode/paths (SSoT, T9016). No
           // Linux-path guess when it is unavailable: skip the global file.
-          const cleoPaths = await loadCleoPaths();
+          const cleoPaths = await loadCleoPaths((message) => {
+            if (ctx?.hasUI) ctx.ui.notify(`CleoOS CANT bridge: ${message}`, "warning");
+          });
           const globalIdentityPath = cleoPaths
             ? join(cleoPaths.getCleoHome(), "CLEOOS-IDENTITY.md")
             : null;

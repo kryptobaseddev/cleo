@@ -44,37 +44,84 @@ const HISTORICAL_COLUMN =
 
 const EXAMPLE_LIMIT = 160;
 
+/** Either path separator: bundle rows carry the SOURCE machine's paths. */
+const ANY_SEP = /[\\/]+/;
+
 /**
- * True when `value` is `root` or lies under it (path-boundary aware, so
- * `/a/b` does not match `/a/bc`).
- *
- * Accepts `/` and `\` as the boundary. The paths come from rows a bundle
- * recorded on its SOURCE machine, which need not be this OS, so the check
- * cannot use the host's `path.relative` / `path.sep`: `C:\p\a` must count as
- * under `C:\p` when a Windows bundle is relocated on Linux, and vice versa.
- *
- * @param value - Candidate path.
- * @param root - Root path.
- * @returns Whether `value` is at or under `root`.
+ * Drop trailing separators so `/a/b/` and `/a/b` compare equal. A bare root
+ * (`/`, `C:\`) becomes `''` / `C:`, the prefix every path on it starts with.
  */
-export function isUnderRoot(value: string, root: string): boolean {
-  if (value === root) return true;
-  if (root.length === 0 || !value.startsWith(root)) return false;
-  if (root.endsWith('/') || root.endsWith('\\')) return true;
-  const boundary = value.charAt(root.length);
-  return boundary === '/' || boundary === '\\';
+function trimTrailingSep(p: string): string {
+  return p.replace(/[\\/]+$/, '');
 }
 
 /**
- * Replace the `from` prefix of a path with `to` (boundary aware).
+ * Separator to write under `root`: `\` for a drive-rooted or UNC root,
+ * `/` otherwise. Decided by the destination, never by the host OS, so a
+ * relocation reads the same wherever it runs.
+ */
+function separatorFor(root: string): '/' | '\\' {
+  return /^[A-Za-z]:/.test(root) || root.startsWith('\\\\') ? '\\' : '/';
+}
+
+/**
+ * The segments of `value` below `root`, with `.` and `..` resolved, or
+ * `null` when `value` is not at or under `root`.
+ *
+ * Accepts `/` and `\` as the boundary and in the remainder: a Windows bundle
+ * relocated on Linux must see `C:\p\a` under `C:\p`, and vice versa, so the
+ * host's `path.relative` / `path.sep` cannot be used. A `..` that climbs
+ * above `root` (`/p/../../etc`) means the value is not under it.
+ */
+function segmentsUnder(value: string, root: string): string[] | null {
+  const base = trimTrailingSep(root);
+  if (root.length === 0 || !value.startsWith(base)) return null;
+  const rest = value.slice(base.length);
+  if (rest.length > 0 && !/^[\\/]/.test(rest)) return null;
+  const out: string[] = [];
+  for (const segment of rest.split(ANY_SEP)) {
+    if (segment === '' || segment === '.') continue;
+    if (segment === '..') {
+      if (out.length === 0) return null;
+      out.pop();
+    } else {
+      out.push(segment);
+    }
+  }
+  return out;
+}
+
+/**
+ * True when `value` is `root` or lies under it (path-boundary aware, so
+ * `/a/b` does not match `/a/bc`; `..` escapes do not count as under).
+ *
+ * @param value - Candidate path.
+ * @param root - Root path; a trailing separator is ignored.
+ * @returns Whether `value` is at or under `root`.
+ */
+export function isUnderRoot(value: string, root: string): boolean {
+  return segmentsUnder(value, root) !== null;
+}
+
+/**
+ * Re-root `value` from `from` onto `to` (boundary aware).
+ *
+ * The remainder keeps its segments, with `.`/`..` resolved, and is joined
+ * with `to`'s separator: `C:\p\a\b` moved from `C:\p` to `/home/me/p`
+ * becomes `/home/me/p/a/b`, not the single POSIX filename `a\b`.
  *
  * @param value - Path under `from`.
- * @param from - Old root.
- * @param to - New root.
- * @returns The relocated path.
+ * @param from - Old root; a trailing separator is ignored.
+ * @param to - New root; a trailing separator is ignored.
+ * @returns The relocated path, or `value` unchanged when it is not under `from`.
  */
 export function relocatePath(value: string, from: string, to: string): string {
-  return value === from ? to : `${to}${value.slice(from.length)}`;
+  const segments = segmentsUnder(value, from);
+  if (segments === null) return value;
+  const base = trimTrailingSep(to);
+  const sep = separatorFor(to);
+  if (segments.length === 0) return base.length > 0 ? base : to;
+  return `${base}${sep}${segments.join(sep)}`;
 }
 
 /** Recursively rewrite path-named string keys of a parsed JSON value. */
@@ -98,7 +145,7 @@ function rewriteJson(
     let changed = 0;
     const out: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
-      if (typeof value === 'string' && PATH_JSON_KEY.test(key) && value.startsWith('/')) {
+      if (typeof value === 'string' && PATH_JSON_KEY.test(key) && isAbsolutePath(value)) {
         if (isUnderRoot(value, from)) {
           out[key] = relocatePath(value, from, to);
           onRewrite(out[key] as string);
@@ -157,7 +204,7 @@ export function relocateDatabase(
   const leftUnder = new FindingSet();
   const leftOutside = new FindingSet();
   const missing = new FindingSet();
-  const destCleo = `${to}/.cleo`;
+  const destCleo = `${trimTrailingSep(to)}${separatorFor(to)}.cleo`;
   const checkTarget = (location: string, next: string): void => {
     // Files under the new .cleo/ are placed after relocation; anything else
     // must already exist (or be restored by the user, e.g. a git clone).
@@ -194,7 +241,7 @@ export function relocateDatabase(
           .all(from) as Array<{ rid: number | bigint | null; v: string }>;
         for (const row of rows) {
           const mentionsRoot = row.v.includes(from);
-          if (pathColumn && row.v.startsWith('/')) {
+          if (pathColumn && isAbsolutePath(row.v)) {
             if (isUnderRoot(row.v, from)) {
               const next = relocatePath(row.v, from, to);
               db.prepare(`UPDATE ${quoteIdent(table.name)} SET ${col} = ? WHERE rowid = ?`).run(

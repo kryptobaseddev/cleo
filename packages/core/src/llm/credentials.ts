@@ -15,9 +15,9 @@
  *                         pool, file-locked, 0600). T-LLM-CRED Phase 2.
  * 4. **claude-creds**   — `~/.claude/.credentials.json` OAuth token
  *                         (only for `anthropic` provider; Claude Code zero-config)
- * 5. **global-config**  — `~/.config/cleo/config.json` (XDG config dir, post-T9405)
- *                         → `llm.providers.<provider>.apiKey`. The legacy
- *                         `~/.local/share/cleo/config.json` location is still
+ * 5. **global-config**  — `<CLEO config dir>/config.json` (`~/.config/cleo` on
+ *                         Linux, post-T9405) → `llm.providers.<provider>.apiKey`.
+ *                         The legacy `<getCleoHome()>/config.json` location is still
  *                         read as a fallback during the transition window.
  * 6. **project-config** — `.cleo/config.json`  → `llm.providers.<provider>.apiKey`
  *
@@ -232,7 +232,7 @@ function readGlobalProviderKey(provider: ModelTransport): string | null {
  * Tier 4b backward compat: read the legacy flat key file written by
  * `storeAnthropicApiKey()` before T1677 migrated storage to config.json.
  *
- * File: `~/.local/share/cleo/anthropic-key` (plain text, one line).
+ * File: `<getCleoHome()>/anthropic-key` (plain text, one line).
  * Returns null when the file does not exist or is empty.
  */
 function readFlatAnthropicKey(): string | null {
@@ -383,7 +383,7 @@ export function resolveCredentials(
     };
   }
 
-  // Tier 4b — legacy flat key file (~/.local/share/cleo/anthropic-key).
+  // Tier 4b — legacy flat key file (<getCleoHome()>/anthropic-key).
   // Backward compat for keys written by storeAnthropicApiKey() before T1677.
   // Only applicable to the anthropic provider.
   if (provider === 'anthropic') {
@@ -717,7 +717,7 @@ export const OAUTH_STATUS_PROVIDERS: readonly ModelTransport[] = [
 /**
  * Store an Anthropic API key in the CLEO global config directory.
  *
- * Writes to `~/.local/share/cleo/anthropic-key` with 0600 permissions.
+ * Writes to `<getCleoHome()>/anthropic-key` with 0600 permissions.
  *
  * @param apiKey - The API key to store.
  */

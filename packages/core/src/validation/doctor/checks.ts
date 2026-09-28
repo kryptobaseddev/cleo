@@ -12,7 +12,7 @@ import { execFileSync } from 'node:child_process';
 import { accessSync, constants, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { getCleoWorktreesRoot } from '@cleocode/paths';
+import { getCleoPlatformPaths, getCleoWorktreesRoot } from '@cleocode/paths';
 import { listRegisteredWorktrees } from '@cleocode/worktree';
 import { CORE_PROTECTED_FILES } from '../../constants.js';
 import { inspectProjectIdentity } from '../../doctor/project-identity.js';
@@ -1871,6 +1871,64 @@ export function checkProjectIdentity(projectRoot?: string): CheckResult {
 }
 
 /**
+ * Warn about CANT files left in the pre-T12602 Linux-style dirs on macOS and
+ * Windows.
+ *
+ * The global and user CANT tiers used to resolve to
+ * `~/.local/share/cleo/cant` and `~/.config/cleo/cant` on every OS. They now
+ * resolve through `@cleocode/paths` (`<getCleoHome()>/cant` and
+ * `<CLEO config dir>/cant`), so `.cant` files still in the old dirs are no
+ * longer read. On Linux the old and new dirs are the same, so this check
+ * passes there.
+ *
+ * @param home - Home directory holding the old dirs (testing).
+ * @returns `warning` listing each old dir that still holds `.cant` files and
+ *   where to move them; `passed` otherwise.
+ *
+ * @task T12602
+ */
+export function checkLegacyCantDirs(home: string = homedir()): CheckResult {
+  const pairs = [
+    { from: join(home, '.local', 'share', 'cleo', 'cant'), to: join(getCleoHome(), 'cant') },
+    {
+      from: join(home, '.config', 'cleo', 'cant'),
+      to: join(getCleoPlatformPaths().config, 'cant'),
+    },
+  ];
+  const stranded: Array<{ from: string; to: string; files: number }> = [];
+  for (const { from, to } of pairs) {
+    if (from === to || !existsSync(from)) continue;
+    let files = 0;
+    try {
+      files = readdirSync(from, { recursive: true }).filter((f) =>
+        String(f).endsWith('.cant'),
+      ).length;
+    } catch {
+      continue;
+    }
+    if (files > 0) stranded.push({ from, to, files });
+  }
+  if (stranded.length === 0) {
+    return {
+      id: 'legacy_cant_dirs',
+      category: 'configuration',
+      status: 'passed',
+      message: 'No CANT files in legacy ~/.local/share or ~/.config dirs',
+      details: { stranded },
+      fix: null,
+    };
+  }
+  return {
+    id: 'legacy_cant_dirs',
+    category: 'configuration',
+    status: 'warning',
+    message: `${stranded.map((s) => `${s.files} .cant file(s) in ${s.from}`).join('; ')} are no longer read`,
+    details: { stranded },
+    fix: stranded.map((s) => `move ${s.from} to ${s.to}`).join('; '),
+  };
+}
+
+/**
  * Run all global health checks and return results array.
  * @task T4525
  */
@@ -1904,6 +1962,8 @@ export function runAllGlobalChecks(cleoHome?: string, projectRoot?: string): Che
     checkNoLocalSchemas(projectRoot),
     // Orphan worktrees audit (T9043)
     auditOrphanWorktrees(),
+    // CANT files stranded in pre-T12602 Linux-style dirs (T12602)
+    checkLegacyCantDirs(),
     // Shared-worktree git hazards (T12161)
     checkSharedWorktreeStashes(projectRoot),
     checkSharedGitIdentity(projectRoot),
