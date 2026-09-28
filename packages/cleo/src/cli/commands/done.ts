@@ -22,8 +22,63 @@ import { defineCommand } from '../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 import { completeCommandArgs, completeDispatchParams } from './complete.js';
 
+/** One batch entry: a blocked record, or a recorded task and its completion. */
+async function batchEntry(
+  taskId: string,
+  result: Awaited<ReturnType<typeof import('@cleocode/core/tasks/done-record.js').recordTaskDone>>,
+  args: { taskId: string; [flag: string]: unknown },
+): Promise<Record<string, unknown>> {
+  if (!result.success) {
+    const { code, message, fix } = result.error;
+    return { taskId, completed: false, error: code, message, next: fix };
+  }
+  const params = completeDispatchParams({ ...args, taskId });
+  const done = await dispatchRaw('mutate', 'tasks', 'complete', params);
+  const recordedGates = result.data.recordedGates;
+  if (done.success) return { taskId, recordedGates, completed: true };
+  const failure = { error: 'E_DONE_BLOCKED', message: done.error?.message, next: done.error?.fix };
+  return { taskId, recordedGates, completed: false, ...failure };
+}
+
 /**
- * `cleo done <id> [--plan] [--satisfies AC1,AC3|all] [--pr <n>] [complete flags]`.
+ * Batch close (T12628): record every task (tools run once for the batch),
+ * complete each recorded one through `tasks.complete`, and report one entry
+ * per task. One task's blocker never stops the others; any blocked task makes
+ * the envelope `E_DONE_PARTIAL` with every entry in `details.results`.
+ */
+async function runBatchDone(
+  taskIds: string[],
+  args: { taskId: string; [flag: string]: unknown },
+  options: { projectRoot: string },
+  plan: boolean,
+): Promise<void> {
+  if (plan) {
+    const { planTaskDone } = await import('@cleocode/core/tasks/done-plan.js');
+    const plans = await Promise.all(taskIds.map((id) => planTaskDone(id, options)));
+    const data = { plans: plans.map((p, i) => ({ taskId: taskIds[i], ...p })) };
+    return cliOutput(data, { command: 'done', operation: 'tasks.done.plan' });
+  }
+  const { recordTasksDone } = await import('@cleocode/core/tasks/done-record.js');
+  const results: Array<Record<string, unknown>> = [];
+  for (const { taskId, result } of await recordTasksDone(taskIds, options)) {
+    results.push(await batchEntry(taskId, result, args));
+  }
+  const blocked = results.filter((r) => r.completed !== true);
+  if (blocked.length === 0)
+    return cliOutput({ results }, { command: 'done', operation: 'tasks.done' });
+  const names = blocked.map((r) => r.taskId).join(', ');
+  cliError(
+    `${blocked.length} of ${results.length} tasks not completed: ${names}`,
+    'E_DONE_PARTIAL',
+    {
+      details: { results },
+    },
+  );
+  process.exitCode = 1;
+}
+
+/**
+ * `cleo done <id> [<id>…] [--plan] [--satisfies AC1,AC3|all] [--pr <n>] [complete flags]`.
  */
 export const doneCommand = defineCommand({
   meta: {
@@ -58,6 +113,14 @@ export const doneCommand = defineCommand({
     }
     const { getProjectRoot } = await import('@cleocode/core/paths.js');
     const options = { projectRoot: getProjectRoot(), ...parsed.options };
+    // T12628: `cleo done T1 T2 T3 [--pr N]` closes several tasks in one call.
+    const taskIds = [...new Set([args.taskId, ...((args._ as string[] | undefined) ?? [])])].filter(
+      (id) => /^T\d+$/.test(id),
+    );
+    if (taskIds.length > 1) {
+      await runBatchDone(taskIds, args, options, args.plan === true);
+      return;
+    }
     if (args.plan === true) {
       const plan = await planTaskDone(args.taskId, options);
       if (!plan.success) {

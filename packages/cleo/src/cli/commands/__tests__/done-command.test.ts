@@ -10,12 +10,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const recordTaskDone = vi.fn();
+const recordTasksDone = vi.fn();
 const planTaskDone = vi.fn();
 const dispatchRaw = vi.fn();
 const cliError = vi.fn();
 const cliOutput = vi.fn();
 
-vi.mock('@cleocode/core/tasks/done-record.js', () => ({ recordTaskDone }));
+vi.mock('@cleocode/core/tasks/done-record.js', () => ({ recordTaskDone, recordTasksDone }));
 vi.mock('@cleocode/core/tasks/done-plan.js', async (orig) => ({
   ...(await orig<typeof import('@cleocode/core/tasks/done-plan.js')>()),
   planTaskDone,
@@ -36,7 +37,15 @@ const recorded = {
 };
 
 afterEach(() => {
-  for (const fn of [recordTaskDone, planTaskDone, dispatchRaw, cliError, cliOutput]) fn.mockReset();
+  for (const fn of [
+    recordTaskDone,
+    recordTasksDone,
+    planTaskDone,
+    dispatchRaw,
+    cliError,
+    cliOutput,
+  ])
+    fn.mockReset();
   process.exitCode = undefined;
 });
 
@@ -125,5 +134,41 @@ describe('cleo done', () => {
     expect(planTaskDone).toHaveBeenCalledWith('T1', { projectRoot: '/p', satisfies: 'all' });
     expect(recordTaskDone).not.toHaveBeenCalled();
     expect(dispatchRaw).not.toHaveBeenCalled();
+  });
+
+  it('several ids: one batch record, completes only the recorded tasks, reports each (T12628)', async () => {
+    recordTasksDone.mockResolvedValue([
+      { taskId: 'T1', result: recorded },
+      {
+        taskId: 'T2',
+        result: {
+          success: false,
+          error: { code: 'E_DONE_BLOCKED', message: 'no', fix: 'cleo done T2 --plan' },
+        },
+      },
+      { taskId: 'T3', result: { ...recorded, data: { ...recorded.data, taskId: 'T3' } } },
+    ]);
+    dispatchRaw.mockResolvedValue({ success: true, data: {} });
+    await runDone({ taskId: 'T1', _: ['T1', 'T2', 'T3'], pr: '42' });
+    expect(recordTasksDone).toHaveBeenCalledWith(['T1', 'T2', 'T3'], {
+      projectRoot: '/p',
+      prNumber: 42,
+    });
+    expect(recordTaskDone).not.toHaveBeenCalled();
+    expect(dispatchRaw.mock.calls.map((c) => c[3].taskId)).toEqual(['T1', 'T3']);
+    const [message, code, details] = cliError.mock.calls[0] ?? [];
+    expect(code).toBe('E_DONE_PARTIAL');
+    expect(message).toMatch(/1 of 3 tasks not completed: T2/);
+    expect(
+      details.details.results.map((r: { taskId: string; completed: boolean }) => [
+        r.taskId,
+        r.completed,
+      ]),
+    ).toEqual([
+      ['T1', true],
+      ['T2', false],
+      ['T3', true],
+    ]);
+    expect(process.exitCode).toBe(1);
   });
 });

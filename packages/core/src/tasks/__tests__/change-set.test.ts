@@ -306,6 +306,52 @@ describe('merged PR (AC1, AC5)', () => {
     expect(cs.blockers).toEqual([]);
   });
 
+  it('a task shipped across several of its OWN PRs: the latest is primary, the rest are extra implemented attempts (D11151)', async () => {
+    const repo = repoWithOrigin(base, 'repo');
+    const first = squashMerge(repo, 'T970');
+    git(repo, ['switch', '-q', '-c', 'task/T970-b']);
+    writeFileSync(join(repo, 'd.ts'), 'export const d = 1;\n');
+    git(repo, ['add', 'd.ts']);
+    git(repo, ['commit', '-q', '-m', 'T970: part two']);
+    git(repo, ['switch', '-q', 'main']);
+    git(repo, ['merge', '-q', '--squash', 'task/T970-b']);
+    git(repo, ['commit', '-q', '-m', 'T970: part two (#44)']);
+    const second = git(repo, ['rev-parse', 'HEAD']);
+
+    const cs = await deriveTaskChangeSet(
+      { task: task('T970'), storeRoot: repo, cwd: repo },
+      {
+        listMergedPrs: async () => ({
+          ok: true,
+          prs: [
+            pr(40, 'integration batch: T970, T971', 'integration/x'),
+            pr(42, 'T970: part one', 'task/T970'),
+            pr(44, 'T970: part two', 'task/T970-b'),
+          ],
+        }),
+        ...onMain,
+        resolvePr: async (n) =>
+          n === 42
+            ? prResolution(n, first, ['a.ts', 'new.ts', 'old.ts'])
+            : prResolution(n, second, ['d.ts']),
+        ...noDocs,
+        env: {},
+      },
+    );
+    expect(cs.blockers).toEqual([]);
+    expect(cs.prNumber).toBe(44);
+    expect(cs.implementedEvidence).toBe('pr:44;files:d.ts');
+    expect(cs.additionalPrs).toEqual([
+      {
+        prNumber: 42,
+        mergeCommitSha: first,
+        files: ['a.ts', 'new.ts'],
+        deletedFiles: ['old.ts'],
+        implementedEvidence: 'pr:42;files:a.ts,new.ts',
+      },
+    ]);
+  });
+
   it('several citing PRs that task.files cannot narrow yield a blocker listing them', async () => {
     const repo = repoWithOrigin(base, 'repo');
     const squash = squashMerge(repo, 'T911');

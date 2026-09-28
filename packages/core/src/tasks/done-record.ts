@@ -188,13 +188,21 @@ function checkoutBlocker(plan: DonePlan): DonePlanBlocker | null {
     };
   }
   if (cs.source === 'pr' && cs.mergeCommitSha) {
-    const contained =
-      head !== null &&
-      gitRead(root, ['merge-base', '--is-ancestor', cs.mergeCommitSha, 'HEAD']) !== null;
-    if (contained) return null;
+    // D11151: every PR the task shipped in must be in the tested tree.
+    const merges = [
+      ...(cs.additionalPrs ?? []).flatMap((p) =>
+        p.mergeCommitSha ? [{ pr: p.prNumber, sha: p.mergeCommitSha }] : [],
+      ),
+      { pr: cs.prNumber, sha: cs.mergeCommitSha },
+    ];
+    const missing = merges.find(
+      (m) =>
+        head === null || gitRead(root, ['merge-base', '--is-ancestor', m.sha, 'HEAD']) === null,
+    );
+    if (!missing) return null;
     return {
       code: 'checkout-required',
-      message: `${root} has ${short(head)} checked out, which does not contain PR #${cs.prNumber}'s merge commit ${short(cs.mergeCommitSha)}.`,
+      message: `${root} has ${short(head)} checked out, which does not contain PR #${missing.pr}'s merge commit ${short(missing.sha)}.`,
       next: {
         command: `git -C ${shellQuote(root)} switch --detach ${cs.mergeCommitSha} && cleo done ${plan.taskId}`,
         why: 'Tests, lint, typecheck and typed gates must run on a tree containing the merged change.',
@@ -324,6 +332,28 @@ export async function recordTaskDone(
       sessionId = (await resolveBoundSessionId(storeRoot).catch(() => null)) ?? undefined;
     }
     const { readAllowCachedGates } = await import('./gate-result-cache.js');
+    // D11151: one implemented attempt per earlier own-branch PR, each through
+    // the same validators, before the primary write.
+    for (const extra of plan.additionalImplemented ?? []) {
+      const attempt = await (steps.write ?? defaultWrite)(storeRoot, {
+        taskId,
+        gateEvidence: { implemented: extra },
+        noRun: typed.gateCount > 0 && readAllowCachedGates(storeRoot),
+        ...(sessionId ? { sessionId } : {}),
+        ...(opts.agent ? { agent: opts.agent } : {}),
+      });
+      if (!attempt.success) {
+        return blocked(plan, {
+          code: 'evidence-refused',
+          message: attempt.error.message,
+          next: {
+            command: `cleo done ${taskId} --plan`,
+            why: 'The validators refused an earlier PR of this task; the plan shows what changed.',
+          },
+          cause: attempt.error.code,
+        });
+      }
+    }
     const written = await (steps.write ?? defaultWrite)(storeRoot, {
       taskId,
       gateEvidence,
@@ -354,4 +384,54 @@ export async function recordTaskDone(
     verificationPassed,
     plan,
   });
+}
+
+/** One task's outcome in a batch close. */
+export interface BatchDoneEntry {
+  /** Task the entry is for. */
+  taskId: string;
+  /** Its record result, or its `E_DONE_BLOCKED`. */
+  result: EngineResult<DoneRecordResult>;
+}
+
+/**
+ * Close several tasks shipped by one PR (T12628): each task is planned and
+ * recorded on its own, and one task's blocker never stops the others. The
+ * tools run once per execution root for the whole batch — every task shares
+ * one memoised runner — and each task still gets its own validated write.
+ * Shared evidence is NOT pre-acknowledged: the ADR-059 warning fires as for
+ * any other reuse.
+ *
+ * @param taskIds - Tasks to record, in order.
+ * @param opts - Shared options (`prNumber`, `satisfies`, roots, author, steps).
+ * @returns One entry per task, in the given order.
+ * @example
+ * ```ts
+ * const entries = await recordTasksDone(['T1', 'T2', 'T3'], { prNumber: 42 });
+ * ```
+ * @task T12628
+ */
+export async function recordTasksDone(
+  taskIds: readonly string[],
+  opts: RecordTaskDoneOptions = {},
+): Promise<BatchDoneEntry[]> {
+  const base = opts.steps?.runTool ?? defaultRunTool;
+  const runs = new Map<string, ReturnType<DoneToolRunner>>();
+  const runTool: DoneToolRunner = (tool, storeRoot, executionRoot) => {
+    const key = `${tool}\u0000${executionRoot}`;
+    let run = runs.get(key);
+    if (!run) {
+      run = base(tool, storeRoot, executionRoot);
+      runs.set(key, run);
+    }
+    return run;
+  };
+  const entries: BatchDoneEntry[] = [];
+  for (const taskId of taskIds) {
+    entries.push({
+      taskId,
+      result: await recordTaskDone(taskId, { ...opts, steps: { ...opts.steps, runTool } }),
+    });
+  }
+  return entries;
 }

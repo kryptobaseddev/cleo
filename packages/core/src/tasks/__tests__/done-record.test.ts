@@ -28,7 +28,7 @@ import { validateGateVerify } from '../../validation/engine-ops.js';
 import { addTask } from '../add.js';
 import type { ChangeSetDeps } from '../change-set.js';
 import { completeTask } from '../complete.js';
-import { type RecordTaskDoneOptions, recordTaskDone } from '../done-record.js';
+import { type RecordTaskDoneOptions, recordTaskDone, recordTasksDone } from '../done-record.js';
 import { parseGateJson, reqAdd } from '../req.js';
 
 function git(dir: string, args: string[]): string {
@@ -71,11 +71,13 @@ function initRepo(dir: string): void {
   );
 }
 
-async function seedTask(acceptance: string[]): Promise<string> {
+async function seedTask(acceptance: string[], title?: string): Promise<string> {
   const result = await addTask(
     {
-      title: `done fixture ${acceptance.length}`,
-      description: 'seeded fixture for the done record path',
+      title: title ?? `done fixture ${acceptance.length}`,
+      description: title
+        ? `seeded fixture: ${title} for the done record path`
+        : 'seeded fixture for the done record path',
       acceptance,
       skipContainmentInvariant: true,
     },
@@ -731,5 +733,208 @@ describe('typed results verified in a worktree complete from main after merge (T
     const error = (await completeFromMain(id)) as { message?: string } | null;
     expect(error?.message).toMatch(/inputs changed since verification/);
     git(root, ['worktree', 'remove', '--force', wt]);
+  });
+});
+
+describe('batch close: several tasks shipped by one PR (T12628)', () => {
+  /** Seed the pr: provenance cache so the real validator never calls gh. */
+  function seedPrCache(prNumber: number, title: string, merge: string, paths: string[]): void {
+    const mergedAt = '2026-09-28T00:00:00Z';
+    mkdirSync(join(root, '.cleo', 'cache', 'evidence'), { recursive: true });
+    writeFileSync(
+      join(root, '.cleo', 'cache', 'evidence', `pr-${prNumber}.json`),
+      JSON.stringify({
+        schemaVersion: 2,
+        title,
+        body: '',
+        headRefName: 'feat/batch',
+        changedPaths: paths,
+        changedFileCount: paths.length,
+        key: `pr-${prNumber}@${mergedAt}`,
+        prNumber,
+        mergeCommitSha: merge,
+        mergedAt,
+        successCount: 1,
+        totalChecks: 1,
+        capturedAt: new Date().toISOString(),
+      }),
+    );
+  }
+
+  it('closes three tasks from one PR: tools once, one result each, one blocker does not stop the rest', async () => {
+    const ids = [
+      await seedTask(['Change src/a.ts to return 2'], 'Alpha parser rewrite'),
+      await seedTask(['Change src/a.ts to return 2'], 'Beta cache eviction policy'),
+      await seedTask(['Change src/a.ts to return 2'], 'Gamma telemetry exporter'),
+    ];
+    // The middle task declares a file the PR never touched: the EXISTING pr:
+    // linkage refuses it, and only it.
+    await env.accessor.updateTaskFields(ids[1]!, { filesJson: JSON.stringify(['src/other.ts']) });
+    git(root, ['switch', '-q', '-c', 'feat/batch']);
+    writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 2;\n');
+    git(root, ['commit', '-q', '-am', 'batch']);
+    git(root, ['switch', '-q', 'main']);
+    git(root, ['merge', '-q', '--squash', 'feat/batch']);
+    const title = `fix: ${ids.join(' ')} (#42)`;
+    git(root, ['commit', '-q', '-m', title]);
+    const merge = git(root, ['rev-parse', 'HEAD']);
+    seedPrCache(42, title, merge, ['src/a.ts']);
+
+    const runs: string[] = [];
+    const writes: Array<Record<string, unknown>> = [];
+    const results = await recordTasksDone(ids, {
+      ...opts(),
+      prNumber: 42,
+      deps: {
+        ...deps,
+        listMergedPrs: async () => ({
+          ok: true,
+          prs: [{ number: 42, title, body: '', headRefName: 'feat/batch' }],
+        }),
+        viewPr: async (n) => ({
+          number: n,
+          title,
+          headRefName: 'feat/batch',
+          baseRefName: 'main',
+          state: 'MERGED',
+          mergedAt: '2026-09-28T00:00:00Z',
+          headRefOid: null,
+          mergeCommitSha: merge,
+        }),
+        findPrByHead: async () => null,
+        resolvePr: async (n) => ({
+          ok: true,
+          prNumber: n,
+          mergeCommitSha: merge,
+          mergedAt: '2026-09-28T00:00:00Z',
+          successCount: 1,
+          totalChecks: 1,
+          cacheHit: true,
+          title,
+          body: '',
+          headRefName: 'feat/batch',
+          changedPaths: ['src/a.ts'],
+          changedFileCount: 1,
+        }),
+      },
+      steps: {
+        runTool: async (tool) => {
+          runs.push(tool);
+          return { exitCode: 0, cacheHit: false, durationMs: 1, timedOut: false, tail: '' };
+        },
+        write: async (store, params) => {
+          writes.push(params);
+          const r = await validateGateVerify(store, params);
+          return r.success ? { success: true, data: { passed: r.data.passed } } : r;
+        },
+      },
+    });
+
+    expect(runs.toSorted()).toEqual(['lint', 'test', 'typecheck']);
+    expect(results.map((r) => [r.taskId, r.result.success])).toEqual([
+      [ids[0], true],
+      [ids[1], false],
+      [ids[2], true],
+    ]);
+    const refused = results[1]!.result;
+    expect(!refused.success && (refused.error.details as DoneBlockedDetails).blocker).toBe(
+      'evidence-refused',
+    );
+    expect(!refused.success && (refused.error.details as DoneBlockedDetails).cause).toBe(
+      'E_EVIDENCE_CONTENT_MISMATCH',
+    );
+    for (const id of [ids[0]!, ids[2]!]) {
+      expect((await env.accessor.loadSingleTask(id))?.verification?.gates).toMatchObject({
+        implemented: true,
+        testsPassed: true,
+        qaPassed: true,
+      });
+    }
+    // ADR-059: batch close never pre-acknowledges shared evidence.
+    expect(writes.every((w) => !('sharedEvidence' in w))).toBe(true);
+  });
+
+  it('a task shipped in two own-branch PRs records one implemented attempt per PR, the earlier first (D11151)', async () => {
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 2;\n');
+    git(root, ['commit', '-q', '-am', `${id}: one`]);
+    git(root, ['switch', '-q', 'main']);
+    git(root, ['merge', '-q', '--squash', `task/${id}`]);
+    git(root, ['commit', '-q', '-m', `${id}: one (#41)`]);
+    const first = git(root, ['rev-parse', 'HEAD']);
+    git(root, ['switch', '-q', '-c', `task/${id}-b`]);
+    writeFileSync(join(root, 'src', 'd.ts'), 'export const d = 1;\n');
+    git(root, ['add', 'src/d.ts']);
+    git(root, ['commit', '-q', '-m', `${id}: two`]);
+    git(root, ['switch', '-q', 'main']);
+    git(root, ['merge', '-q', '--squash', `task/${id}-b`]);
+    git(root, ['commit', '-q', '-m', `${id}: two (#42)`]);
+    const second = git(root, ['rev-parse', 'HEAD']);
+    const resolution = (n: number, sha: string, paths: string[]) => ({
+      ok: true as const,
+      prNumber: n,
+      mergeCommitSha: sha,
+      mergedAt: '2026-09-28T00:00:00Z',
+      successCount: 1,
+      totalChecks: 1,
+      cacheHit: true,
+      title: id,
+      body: '',
+      headRefName: n === 41 ? `task/${id}` : `task/${id}-b`,
+      changedPaths: paths,
+      changedFileCount: paths.length,
+    });
+    const writes: Array<Record<string, string>> = [];
+    const r = await recordTaskDone(
+      id,
+      opts({
+        deps: {
+          ...deps,
+          listMergedPrs: async () => ({
+            ok: true,
+            prs: [
+              { number: 41, title: `${id}: one`, body: '', headRefName: `task/${id}` },
+              { number: 42, title: `${id}: two`, body: '', headRefName: `task/${id}-b` },
+            ],
+          }),
+          viewPr: async (n) => ({
+            number: n,
+            title: id,
+            headRefName: '',
+            baseRefName: 'main',
+            state: 'MERGED',
+            mergedAt: '2026-09-28T00:00:00Z',
+            headRefOid: null,
+            mergeCommitSha: n === 41 ? first : second,
+          }),
+          findPrByHead: async () => null,
+          resolvePr: async (n) =>
+            n === 41 ? resolution(41, first, ['src/a.ts']) : resolution(42, second, ['src/d.ts']),
+        },
+        steps: {
+          runTool: async () => ({
+            exitCode: 0,
+            cacheHit: false,
+            durationMs: 0,
+            timedOut: false,
+            tail: '',
+          }),
+          write: async (_store, params) => {
+            writes.push(params.gateEvidence as Record<string, string>);
+            return { success: true, data: { passed: true } };
+          },
+        },
+      }),
+    );
+    expect(r.success, JSON.stringify(r.success ? '' : r.error)).toBe(true);
+    expect(writes).toEqual([
+      { implemented: `pr:41;files:src/a.ts;satisfies:${id}#AC1` },
+      {
+        implemented: `pr:42;files:src/d.ts;satisfies:${id}#AC1`,
+        testsPassed: `tool:test;satisfies:${id}#AC1`,
+        qaPassed: `tool:lint;tool:typecheck;satisfies:${id}#AC1`,
+      },
+    ]);
   });
 });
