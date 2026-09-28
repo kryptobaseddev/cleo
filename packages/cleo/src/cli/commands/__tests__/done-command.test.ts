@@ -171,4 +171,13 @@ describe('cleo done', () => {
     ]);
     expect(process.exitCode).toBe(1);
   });
+
+  it('rejects an argument that is not a task id instead of dropping it (review LOW)', async () => {
+    await runDone({ taskId: 'T1', _: ['T1', 't2'] });
+    expect(recordTasksDone).not.toHaveBeenCalled();
+    expect(recordTaskDone).not.toHaveBeenCalled();
+    expect(cliError.mock.calls[0]?.[0]).toMatch(/Not task ids: t2/);
+    expect(cliError.mock.calls[0]?.[1]).toBe('E_INVALID_INPUT');
+    expect(process.exitCode).toBe(2);
+  });
 });

@@ -738,6 +738,13 @@ async function deriveOnePr(
   const { files, deleted } = mergeCommitChanges(root, pr.mergeCommitSha);
   const prPaths = new Set(pr.changedPaths);
   cs.files = prPaths.size > 0 ? files.filter((p) => prPaths.has(p)) : files;
+  // A PR shared by several tasks (batch `--pr`): each task's files: evidence
+  // names only the files it declared, when any of them is in the PR.
+  const declared = task.files ?? [];
+  if (declared.length > 0) {
+    const own = cs.files.filter((f) => diffIntersectsAc([f], declared));
+    if (own.length > 0) cs.files = own;
+  }
   cs.deletedFiles = deleted;
   if (cs.files.length === 0) {
     cs.blockers.push(

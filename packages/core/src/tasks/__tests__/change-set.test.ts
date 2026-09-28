@@ -352,6 +352,23 @@ describe('merged PR (AC1, AC5)', () => {
     ]);
   });
 
+  it("a shared PR's files are narrowed to the task's declared files (batch --pr, review LOW)", async () => {
+    const repo = repoWithOrigin(base, 'repo');
+    const squash = squashMerge(repo, 'T915');
+    const cs = await deriveTaskChangeSet(
+      { task: task('T915', { files: ['a.ts'] }), storeRoot: repo, cwd: repo, prNumber: 42 },
+      {
+        listMergedPrs: noPrs,
+        ...onMain,
+        resolvePr: async (n) => prResolution(n, squash, ['a.ts', 'new.ts', 'old.ts']),
+        ...noDocs,
+        env: {},
+      },
+    );
+    expect(cs.files).toEqual(['a.ts']);
+    expect(cs.implementedEvidence).toBe('pr:42;files:a.ts');
+  });
+
   it('several citing PRs that task.files cannot narrow yield a blocker listing them', async () => {
     const repo = repoWithOrigin(base, 'repo');
     const squash = squashMerge(repo, 'T911');

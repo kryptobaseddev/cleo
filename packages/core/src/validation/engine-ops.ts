@@ -322,7 +322,7 @@ export interface GateVerifyParams {
    * `evidence`, and refuses `CLEO_OWNER_OVERRIDE` (the override stays a
    * single-gate, audited `cleo verify` path).
    */
-  gateEvidence?: Partial<Record<VerificationGate, string>>;
+  gateEvidence?: Partial<Record<VerificationGate, string | readonly string[]>>;
 }
 
 export interface GateVerifyResult {
@@ -618,7 +618,7 @@ export async function validateGateVerify(
     let sharedEvidenceAcknowledged = false;
     let sharedAtomWarned = false;
     const evidenceStrings = multiTargets
-      ? multiTargets.map((g) => params.gateEvidence?.[g] as string)
+      ? multiTargets.flatMap((g) => evidenceAttempts(params.gateEvidence?.[g]))
       : params.evidence
         ? [params.evidence]
         : [];
@@ -649,7 +649,7 @@ export async function validateGateVerify(
     const now = new Date().toISOString();
     let action: GateVerifyResult['action'] = 'view';
     const evidenceStored: EvidenceAtom[] = [];
-    const perGateAtoms = new Map<VerificationGate, EvidenceAtom[]>();
+    const perGateAtoms = new Map<VerificationGate, EvidenceAtom[][]>();
 
     if (reset) {
       verification = initVerification();
@@ -866,18 +866,29 @@ export async function validateGateVerify(
       // T12625: each gate validates and composes its OWN atoms, in gate order,
       // so `implemented` is on the record before the decision-only rule for
       // testsPassed/qaPassed reads it.
+      //
+      // T12628 (D11151): a gate may carry ORDERED attempts (one per PR a task
+      // shipped in). Every attempt is validated before anything is persisted,
+      // each gets its own audit line, and the gate's stored evidence is the
+      // last attempt — so the whole set is recorded in this one write or not
+      // at all.
       for (const targetGate of multiTargets ?? []) {
-        const atoms = await validateEvidenceFor(params.gateEvidence?.[targetGate] as string, [
-          targetGate,
-        ]);
-        if (!Array.isArray(atoms)) return atoms;
-        const contextualFailure = checkTaskEvidenceContext(evidenceContext, targetGate, atoms);
-        if (contextualFailure) return engineError('E_EVIDENCE_CONTENT_MISMATCH', contextualFailure);
-        evidenceStored.push(...atoms);
-        perGateAtoms.set(targetGate, atoms);
+        const attempts: EvidenceAtom[][] = [];
+        for (const attempt of evidenceAttempts(params.gateEvidence?.[targetGate])) {
+          const atoms = await validateEvidenceFor(attempt, [targetGate]);
+          if (!Array.isArray(atoms)) return atoms;
+          const contextualFailure = checkTaskEvidenceContext(evidenceContext, targetGate, atoms);
+          if (contextualFailure)
+            return engineError('E_EVIDENCE_CONTENT_MISMATCH', contextualFailure);
+          evidenceStored.push(...atoms);
+          attempts.push(atoms);
+        }
+        const last = attempts[attempts.length - 1];
+        if (!last) return engineError('E_INVALID_INPUT', `gateEvidence.${targetGate} is empty`);
+        perGateAtoms.set(targetGate, attempts);
         verification.gates[targetGate] = true;
         verification.evidence![targetGate] = composeGateEvidence(
-          atoms,
+          last,
           agentId,
           undefined,
           undefined,
@@ -1088,12 +1099,14 @@ export async function validateGateVerify(
         // own atoms, the shape every single-gate write already has.
         if (multiTargets) {
           for (const g of multiTargets) {
-            await appendGateAuditLine(projectRoot, {
-              ...auditRecord,
-              gate: g,
-              action: 'set',
-              evidence: composeGateEvidence(perGateAtoms.get(g) ?? [], agentId),
-            });
+            for (const attempt of perGateAtoms.get(g) ?? []) {
+              await appendGateAuditLine(projectRoot, {
+                ...auditRecord,
+                gate: g,
+                action: 'set',
+                evidence: composeGateEvidence(attempt, agentId),
+              });
+            }
           }
         } else await appendGateAuditLine(projectRoot, auditRecord);
         if (override.override && action !== 'reset') {
@@ -1194,6 +1207,12 @@ export async function validateGateVerify(
   } finally {
     ownedVerificationExecution?.close();
   }
+}
+
+/** A gate's evidence as ordered attempts (a single string is one attempt). */
+function evidenceAttempts(value: string | readonly string[] | undefined): string[] {
+  if (value === undefined) return [];
+  return typeof value === 'string' ? [value] : [...value];
 }
 
 /**
