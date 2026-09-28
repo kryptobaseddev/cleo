@@ -29,6 +29,14 @@ started after the request, so a burst of session ends produces one snapshot,
 plus at most one trailing snapshot for requests made while it ran. The worker
 appends its outcome as one JSON line to `.cleo/logs/session-end-snapshot.log`.
 
+At most one worker is queued per project. An O_EXCL marker
+(`.cleo/backups/sqlite/.session-end-worker.pending`) exists from spawn until the
+worker holds the gate lock, and the worker drops it before it claims its
+generation. A session end that finds a live marker spawns nothing, because the
+queued worker's snapshot will contain its writes. A burst therefore keeps at
+most two workers alive: one running and one queued. A marker whose pid is dead,
+or that is older than two minutes, is treated as absent.
+
 If the worker cannot be spawned, or `CLEO_SESSION_END_SNAPSHOT=inline` is set,
 the snapshot runs in-process with a lock wait of about 6.5 s. Under vitest it
 runs inline by default.
@@ -53,7 +61,15 @@ runs inline by default.
 - **One VACUUM per physical file.** Targets that resolve to the same database
   file are snapshotted once. The other prefixes get a hard link to the same
   file, so `brain-*.db` and `conduit-*.db` still exist for restore, listing
-  and `recover-brain-db`, at no extra disk cost.
+  and `recover-brain-db`, at no extra disk cost. Where hard links are not
+  supported (EPERM, ENOTSUP such as exFAT, EXDEV, EMLINK), the other prefixes
+  get a copy instead.
+- **Crash-safe snapshot files.** Every snapshot is written to
+  `<name>.tmp-<pid>`, fsynced, then renamed. A process killed mid-VACUUM
+  leaves only the temp file, never an empty file under a valid snapshot name
+  that restore would pick as the newest. Readers ignore `*.tmp-*` files, and
+  the next snapshot removes leftovers whose pid is dead or that are older than
+  one hour.
 - **Snapshots come from the right project.** Target handles are resolved for
   the requested project (`cwd`). A project-tier handle whose file lies outside
   that project's `.cleo/` is refused as `failed`.

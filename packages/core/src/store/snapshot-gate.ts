@@ -160,6 +160,13 @@ export interface SnapshotGateOptions {
   readonly seenGeneration?: number;
   /** Lock retries for `required` mode. Defaults to {@link SNAPSHOT_LOCK_WAIT_RETRIES}. */
   readonly lockWaitRetries?: number;
+  /**
+   * Called under the lock BEFORE the state is re-read and the generation is
+   * claimed. The session-end worker uses it to drop its "worker pending"
+   * marker: a request that saw the marker was made before this point, so the
+   * generation claimed next covers it. Errors are ignored.
+   */
+  readonly onLockAcquired?: () => void;
   /** Clock override for tests (debounce and timestamps only). Defaults to `Date.now`. */
   readonly now?: () => number;
 }
@@ -322,6 +329,11 @@ export async function runGatedSnapshot(
   }
 
   try {
+    try {
+      opts.onLockAcquired?.();
+    } catch {
+      // A failing hook must not cost the snapshot.
+    }
     // Re-read under the lock: another process may have snapshotted meanwhile.
     const state = tryReadGateState(db);
     if (!state && mode === 'routine') return none('state-unavailable');

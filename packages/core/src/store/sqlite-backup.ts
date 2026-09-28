@@ -43,16 +43,21 @@
 
 import {
   chmodSync,
+  closeSync,
   copyFileSync,
   existsSync,
+  fsyncSync,
   linkSync,
   mkdirSync,
+  openSync,
   readdirSync,
   realpathSync,
+  renameSync,
+  rmSync,
   statSync,
   unlinkSync,
 } from 'node:fs';
-import { join, sep } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { DB_INVENTORY, type DbInventoryEntry, type DbRole } from '@cleocode/contracts';
 import { getCleoDir, getCleoHome, resolveOrCwd } from '../paths.js';
@@ -629,6 +634,8 @@ export interface VacuumOptions {
    * Defaults to `SNAPSHOT_LOCK_WAIT_RETRIES` (about 90 s).
    */
   lockWaitRetries?: number;
+  /** Called under the gate lock before the generation is claimed (see `snapshot-gate.ts`). */
+  onLockAcquired?: () => void;
 }
 
 /**
@@ -702,6 +709,7 @@ async function snapshotProjectTargetsGated(
       mode: opts.mode ?? 'routine',
       ...(opts.seenGeneration !== undefined && { seenGeneration: opts.seenGeneration }),
       ...(opts.lockWaitRetries !== undefined && { lockWaitRetries: opts.lockWaitRetries }),
+      ...(opts.onLockAcquired !== undefined && { onLockAcquired: opts.onLockAcquired }),
     },
     async (prefix) => {
       const target = byPrefix.get(prefix);
@@ -753,6 +761,108 @@ function assertOwnedByProject(source: string, prefix: string, cwd?: string): voi
     throw new Error(
       `refusing to snapshot ${prefix}: its database ${source} is not inside ${cleoDir}`,
     );
+  }
+}
+
+/**
+ * `link()` error codes that mean "this filesystem cannot hard-link these
+ * files" rather than a real failure: permission-less link (EPERM), no link
+ * support (ENOTSUP, e.g. exFAT), different devices (EXDEV), link-count cap
+ * (EMLINK). The caller copies instead.
+ */
+const LINK_FALLBACK_CODES = new Set(['EPERM', 'ENOTSUP', 'EXDEV', 'EMLINK']);
+
+/**
+ * Hard-link `existing` to `dest`. Returns `false` when the filesystem cannot
+ * hard-link (see {@link LINK_FALLBACK_CODES}); any other error throws.
+ *
+ * @task T12508
+ */
+function tryHardLink(existing: string, dest: string): boolean {
+  try {
+    linkSync(existing, dest);
+    return true;
+  } catch (err) {
+    if (err instanceof Error && 'code' in err && typeof err.code === 'string') {
+      if (LINK_FALLBACK_CODES.has(err.code)) return false;
+    }
+    throw err;
+  }
+}
+
+/** Suffix marking an in-progress snapshot file: `<name>.tmp-<pid>`. */
+const TEMP_SNAPSHOT_RE = /\.db\.tmp-(\d+)$/;
+
+/** Age after which any temp snapshot is a leftover, even if its pid was reused. */
+const TEMP_SNAPSHOT_MAX_AGE_MS = 60 * 60_000;
+
+/**
+ * Temp path a snapshot is written to before it is committed. It does not end
+ * in `.db`, so every snapshot reader (listing, retention, restore, doctor)
+ * ignores it.
+ */
+function tempSnapshotPath(dest: string): string {
+  return `${dest}.tmp-${process.pid}`;
+}
+
+/**
+ * Make a finished temp snapshot durable and give it its real name: fsync the
+ * file, rename it (atomic within a directory), then fsync the directory
+ * (best-effort) so the rename itself survives a crash.
+ *
+ * @task T12508
+ */
+function commitSnapshotFile(tmp: string, dest: string): void {
+  const fd = openSync(tmp, 'r');
+  try {
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+  renameSync(tmp, dest);
+  try {
+    const dirFd = openSync(dirname(dest), 'r');
+    try {
+      fsyncSync(dirFd);
+    } finally {
+      closeSync(dirFd);
+    }
+  } catch {
+    // Not every platform can fsync a directory; the rename is still atomic.
+  }
+}
+
+/** Whether a process with this pid exists (EPERM means it exists but is not ours). */
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err instanceof Error && 'code' in err && err.code === 'EPERM';
+  }
+}
+
+/**
+ * Remove temp snapshots left by a process killed mid-write: those whose pid
+ * is dead, or that are older than {@link TEMP_SNAPSHOT_MAX_AGE_MS}. Never
+ * throws.
+ *
+ * @task T12508
+ */
+function removeDeadTempSnapshots(backupDir: string): void {
+  try {
+    for (const name of readdirSync(backupDir)) {
+      const m = TEMP_SNAPSHOT_RE.exec(name);
+      if (!m) continue;
+      const pid = Number(m[1]);
+      const path = join(backupDir, name);
+      const stale =
+        pid !== process.pid &&
+        (!isPidAlive(pid) || Date.now() - statSync(path).mtimeMs > TEMP_SNAPSHOT_MAX_AGE_MS);
+      if (stale) rmSync(path, { force: true });
+    }
+  } catch {
+    // Cleanup is best-effort.
   }
 }
 
@@ -861,16 +971,31 @@ async function snapshotOne(
   }
   const dest = join(backupDir, destName);
 
+  // Leftovers of a snapshot killed mid-write (see commitSnapshotFile).
+  removeDeadTempSnapshots(backupDir);
+
   // Already snapshotted this physical file in this run: hard-link the same
   // snapshot under this prefix. One VACUUM, no extra disk, and every reader
   // that looks for `<prefix>-*.db` (restore, recover-brain-db, listing)
-  // still finds a file.
+  // still finds a file. A filesystem without hard links (exFAT, FAT, some
+  // network mounts) gets a copy instead.
   const existing = source !== null ? writtenBySource.get(source) : undefined;
   if (existing !== undefined) {
     try {
-      linkSync(existing, dest);
+      if (tryHardLink(existing, dest)) {
+        rotateSnapshots(backupDir, target.prefix, destName);
+        return 'linked';
+      }
+      const tmp = tempSnapshotPath(dest);
+      try {
+        copyFileSync(existing, tmp);
+        commitSnapshotFile(tmp, dest);
+      } catch (err) {
+        rmSync(tmp, { force: true });
+        throw err;
+      }
       rotateSnapshots(backupDir, target.prefix, destName);
-      return 'linked';
+      return 'written';
     } finally {
       if (opened && target.closeDb) target.closeDb(opened);
     }
@@ -884,9 +1009,18 @@ async function snapshotOne(
     // in that case so we keep the call uniform.
     db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
 
-    // Escape single quotes in path (path is programmatic, but be safe).
-    const safeDest = dest.replace(/'/g, "''");
-    db.exec(`VACUUM INTO '${safeDest}'`);
+    // VACUUM INTO a temp name, fsync, then rename: a process killed
+    // mid-VACUUM leaves only `<name>.tmp-<pid>`, which no reader lists,
+    // never an empty file under a valid snapshot name (T12508).
+    const tmp = tempSnapshotPath(dest);
+    try {
+      // Escape single quotes in path (path is programmatic, but be safe).
+      db.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`);
+      commitSnapshotFile(tmp, dest);
+    } catch (err) {
+      rmSync(tmp, { force: true });
+      throw err;
+    }
 
     if (source !== null) writtenBySource.set(source, dest);
     rotateSnapshots(backupDir, target.prefix, destName);
@@ -1177,11 +1311,19 @@ export async function vacuumIntoGlobalBackup(
     // non-fatal — continue even if rotation enumeration fails
   }
 
+  removeDeadTempSnapshots(backupDir);
   try {
-    // Checkpoint then VACUUM INTO for a WAL-free, atomic snapshot.
+    // Checkpoint then VACUUM INTO a temp name, fsync, rename (T12508): a
+    // kill mid-VACUUM never leaves an empty file under a snapshot name.
     db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
-    const safeDest = snapshotPath.replace(/'/g, "''");
-    db.exec(`VACUUM INTO '${safeDest}'`);
+    const tmp = tempSnapshotPath(snapshotPath);
+    try {
+      db.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`);
+      commitSnapshotFile(tmp, snapshotPath);
+    } catch (err) {
+      rmSync(tmp, { force: true });
+      throw err;
+    }
   } finally {
     // Release ephemeral handle for raw-file-vacuum-readonly targets.
     if (opened && target.closeDb) {

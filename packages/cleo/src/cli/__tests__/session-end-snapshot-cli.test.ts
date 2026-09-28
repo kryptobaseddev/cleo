@@ -173,10 +173,20 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('cleo session end — detached snapshot (T1
       ),
     );
 
-    // Every worker reports once; wait for all five.
-    const allReported = await waitFor(() => workerLines().length - before === 5, 90_000);
-    expect(allReported).toBe(true);
+    // Wait until no worker is queued or running, then for the log to settle.
+    const marker = join(backupDir(), '.session-end-worker.pending');
+    const lock = join(backupDir(), '.snapshot-gate.lock');
+    const idle = (): boolean =>
+      workerLines().length > before && !existsSync(marker) && !existsSync(lock);
+    expect(await waitFor(idle, 90_000)).toBe(true);
+    await new Promise((r) => setTimeout(r, 1_000));
+    expect(idle()).toBe(true);
+
+    // One queued worker at a time (T12508 spawn marker): 1 or 2 workers ran,
+    // not 5, and each one that ran either snapshotted or was covered.
     const lines = workerLines().slice(before);
+    expect(lines.length).toBeGreaterThanOrEqual(1);
+    expect(lines.length).toBeLessThanOrEqual(2);
     const snapshotted = lines.filter((l) => l.result?.snapshotted.includes('tasks'));
     expect(snapshotted.length).toBeGreaterThanOrEqual(1);
     expect(snapshotted.length).toBeLessThanOrEqual(2);

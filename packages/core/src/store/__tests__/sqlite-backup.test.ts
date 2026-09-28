@@ -32,14 +32,30 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 let gateStateDb: DatabaseSync;
 
 /**
- * Build a mocked tasks native handle: `exec` is the test's spy (so VACUUM INTO
- * never touches disk) and `prepare` reaches the in-memory gate state.
+ * Build a mocked native handle whose `exec` is the test's spy. On
+ * `VACUUM INTO '<path>'` it creates an empty file at `<path>`, as SQLite does:
+ * the snapshot writer (T12508) fsyncs and renames that temp file, so a spy
+ * that wrote nothing would make every snapshot fail.
+ */
+function fakeVacuum(exec: (sql: string) => void): { exec: (sql: string) => void } {
+  return {
+    exec: (sql: string): void => {
+      exec(sql);
+      const m = /^VACUUM INTO '(.*)'$/.exec(sql);
+      if (m?.[1]) writeFileSync(m[1].replace(/''/g, "'"), '');
+    },
+  };
+}
+
+/**
+ * Build a mocked tasks native handle: {@link fakeVacuum} plus `prepare`, which
+ * reaches the in-memory gate state.
  */
 function withGateState(exec: (sql: string) => void): {
   exec: (sql: string) => void;
   prepare: DatabaseSync['prepare'];
 } {
-  return { exec, prepare: (sql: string) => gateStateDb.prepare(sql) };
+  return { ...fakeVacuum(exec), prepare: (sql: string) => gateStateDb.prepare(sql) };
 }
 
 /**
@@ -203,7 +219,7 @@ describe('sqlite-backup', () => {
       getDb: async () => null,
     }));
     vi.doMock('../memory-sqlite.js', () => ({
-      getBrainNativeDb: () => ({ exec: brainExec }),
+      getBrainNativeDb: () => fakeVacuum(brainExec),
       getBrainDb: async () => null,
     }));
     vi.doMock('../conduit-sqlite.js', () => ({
@@ -245,7 +261,7 @@ describe('sqlite-backup', () => {
       getDb: async () => null,
     }));
     vi.doMock('../memory-sqlite.js', () => ({
-      getBrainNativeDb: () => ({ exec: brainExec }),
+      getBrainNativeDb: () => fakeVacuum(brainExec),
       getBrainDb: async () => null,
     }));
     vi.doMock('../conduit-sqlite.js', () => ({
@@ -501,11 +517,11 @@ describe('sqlite-backup', () => {
       getDb: async () => null,
     }));
     vi.doMock('../memory-sqlite.js', () => ({
-      getBrainNativeDb: () => ({ exec: brainExec }),
+      getBrainNativeDb: () => fakeVacuum(brainExec),
       getBrainDb: async () => null,
     }));
     vi.doMock('../conduit-sqlite.js', () => ({
-      getConduitNativeDb: () => ({ exec: conduitExec }),
+      getConduitNativeDb: () => fakeVacuum(conduitExec),
       ensureConduitDb: () => ({ action: 'exists', path: '' }),
     }));
     stubOtherChokepointOpeners();
@@ -626,6 +642,67 @@ describe('sqlite-backup', () => {
     expect(files).toHaveLength(3);
     const inodes = new Set(files.map((f) => statSync(join(backupDir, f)).ino));
     expect(inodes.size).toBe(1);
+  });
+
+  /**
+   * T12508: on a filesystem without hard links (exFAT → ENOTSUP) the shared
+   * file is COPIED under the other prefixes instead — still one VACUUM, and
+   * `brain-*` / `conduit-*` still exist for restore and recovery.
+   */
+  it('falls back to a copy when hard links are unsupported (T12508)', async () => {
+    const tempDir = join(tmpdir(), `cleo-t12508-nolink-${Date.now()}`);
+    const backupDir = join(tempDir, 'backups', 'sqlite');
+    mkdirSync(tempDir, { recursive: true });
+    const shared = new DatabaseSync(join(tempDir, 'cleo.db'));
+    shared.exec('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+    const realExec = shared.exec.bind(shared);
+    let vacuums = 0;
+    shared.exec = (sql: string): void => {
+      if (sql.startsWith('VACUUM INTO')) vacuums += 1;
+      realExec(sql);
+    };
+    vi.doMock('node:fs', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('node:fs')>();
+      return {
+        ...actual,
+        linkSync: (): never => {
+          throw Object.assign(new Error('ENOTSUP: operation not supported, link'), {
+            code: 'ENOTSUP',
+          });
+        },
+      };
+    });
+    vi.doMock('../sqlite.js', () => ({ getNativeDb: () => shared, getDb: async () => null }));
+    vi.doMock('../memory-sqlite.js', () => ({
+      getBrainNativeDb: () => shared,
+      getBrainDb: async () => null,
+    }));
+    vi.doMock('../conduit-sqlite.js', () => ({
+      getConduitNativeDb: () => shared,
+      ensureConduitDb: () => ({ action: 'exists', path: '' }),
+    }));
+    stubOtherChokepointOpeners();
+    vi.doMock('../../paths.js', () => ({
+      getCleoDir: () => tempDir,
+      getCleoHome: () => tempDir,
+      resolveOrCwd: (cwd?: string) => cwd ?? tempDir,
+    }));
+
+    const { vacuumIntoBackupAll, listBrainBackups } = await import('../sqlite-backup.js');
+    const r = await vacuumIntoBackupAll();
+    const brainList = listBrainBackups();
+    shared.close();
+    vi.doUnmock('node:fs');
+
+    expect(vacuums).toBe(1);
+    expect(r?.failed).toEqual([]);
+    expect(r?.linked).toEqual([]);
+    expect(r?.snapshotted).toEqual(['tasks', 'brain', 'conduit']);
+    const files = readdirSync(backupDir).filter((f) => /^(tasks|brain|conduit)-.*\.db$/.test(f));
+    expect(files).toHaveLength(3);
+    // Three separate files (copies), and brain recovery finds its prefix.
+    expect(new Set(files.map((f) => statSync(join(backupDir, f)).ino)).size).toBe(3);
+    expect(brainList).toHaveLength(1);
   });
 
   /**
