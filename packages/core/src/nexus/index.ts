@@ -97,7 +97,7 @@ export {
 export { escapeXml, generateGexf, hexToRgb } from './gexf-export.js';
 // Hash - canonical project identity hash
 export { generateProjectHash } from './hash.js';
-// Identity - canonical project ID computation (T9149 W5)
+// Identity - path fingerprints, alias keys only (T9149, demoted by T12470)
 export {
   type CanonicalProjectIdResult,
   canonicalProjectId,
@@ -106,6 +106,7 @@ export {
   findGitRoot,
   legacyProjectId,
   type ProjectIdentityComponents,
+  projectPathFingerprint,
 } from './identity.js';
 // Impact - BFS upstream blast radius (T1473)
 export {

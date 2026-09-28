@@ -10,6 +10,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -516,19 +517,17 @@ describe('reconciliation extended', () => {
     expect(result.status).toBe('ok');
   });
 
-  it('auto-registers unknown project without projectId', async () => {
+  it('refuses a project without an identity instead of deriving one (T12470)', async () => {
     const projDir = join(testDir, 'auto-reg-no-id');
     await createTestProjectDb(projDir, [
       { id: 'T001', title: 'Task', status: 'pending', description: 'desc' },
     ]);
 
-    const result = await nexusReconcile(projDir);
-    expect(result.status).toBe('auto_registered');
-
-    // Verify it's now in the registry
-    const hash = generateProjectHash(projDir);
-    const project = await nexusGetProject(hash);
-    expect(project).not.toBeNull();
+    // Reconcile never mints an identity (that is init / register / resolve),
+    // and never falls back to a hash of the path.
+    await expect(nexusReconcile(projDir)).rejects.toThrow(/declares no identity/);
+    expect(await nexusGetProject(generateProjectHash(projDir))).toBeNull();
+    expect(existsSync(join(projDir, '.cleo', 'project-id'))).toBe(false);
   });
 });
 

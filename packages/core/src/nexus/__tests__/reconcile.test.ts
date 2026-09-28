@@ -122,7 +122,15 @@ describe('nexusReconcile', () => {
     const newProjectDir = join(testDir, 'moved-project');
     await createTestProject(newProjectDir, projectId);
 
-    const result = await nexusReconcile(newProjectDir);
+    // T12470: the original path still exists, so this is a second checkout
+    // (or a clone), not a move — recorded as a candidate, row untouched.
+    expect(await nexusReconcile(newProjectDir)).toMatchObject({
+      status: 'candidate',
+      oldPath: projectDir,
+    });
+    expect((await nexusGetProject('test-proj'))!.path).toBe(projectDir);
+
+    const result = await nexusReconcile(newProjectDir, { forceRebind: true });
 
     expect(result.status).toBe('path_updated');
     expect(result.oldPath).toBe(projectDir);

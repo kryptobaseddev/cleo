@@ -28,7 +28,7 @@ export interface MoveProjectResult {
   /** Updated project hash (based on new path). */
   newProjectHash: string;
   /** Nexus reconcile status. */
-  reconcileStatus: 'ok' | 'path_updated' | 'auto_registered';
+  reconcileStatus: 'ok' | 'path_updated' | 'auto_registered' | 'candidate';
 }
 
 /** Result of a successful project rename. */
@@ -56,7 +56,7 @@ export interface ReregisterProjectResult {
   /** Whether the project had drifted (path changed since last register). */
   drifted: boolean;
   /** Nexus reconcile status. */
-  reconcileStatus: 'ok' | 'path_updated' | 'auto_registered';
+  reconcileStatus: 'ok' | 'path_updated' | 'auto_registered' | 'candidate';
   /** Previous path if drift was detected. */
   oldPath?: string;
 }
@@ -208,7 +208,10 @@ export async function moveProject(
   await writeProjectInfo(newPath, newInfo);
 
   // Reconcile nexus registry with the new path
-  let reconcile: { status: 'ok' | 'path_updated' | 'auto_registered'; oldPath?: string };
+  let reconcile: {
+    status: 'ok' | 'path_updated' | 'auto_registered' | 'candidate';
+    oldPath?: string;
+  };
   try {
     reconcile = await nexusReconcile(newPath);
   } catch (err) {
@@ -366,7 +369,10 @@ export async function reregisterProject(
   const projectHash = generateProjectHash(projectRoot);
 
   // AC5: Reconcile with nexus — detects drift
-  let reconcile: { status: 'ok' | 'path_updated' | 'auto_registered'; oldPath?: string };
+  let reconcile: {
+    status: 'ok' | 'path_updated' | 'auto_registered' | 'candidate';
+    oldPath?: string;
+  };
   try {
     reconcile = await nexusReconcile(projectRoot);
   } catch (err) {

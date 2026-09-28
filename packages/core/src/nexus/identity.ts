@@ -1,14 +1,17 @@
 /**
- * Canonical project identity computation (T9149 — W5 N1 Epsilon-unique insight).
+ * Path fingerprints of a project checkout (T9149, demoted by T12470).
  *
- * Addresses the 80,969-row pollution from cross-provider mount-path divergence
- * (e.g. /mnt/projects/cleocode vs /workspace/cleocode both hashing to different
- * base64url(path) IDs for the same repo).
- *
- * `canonicalProjectId` anchors identity to git-root + realpath so container
- * bind-mounts, CI clones, and developer laptops all produce the same ID.
+ * A project is identified ONLY by the id it declares — the tracked
+ * `.cleo/project-id`, then `project-info.json` (ADR-094; see
+ * `readDeclaredProjectIdentity` in `@cleocode/paths`). The values computed here
+ * hash a checkout's LOCATION (git-root realpath + name + remote), so they
+ * change when the project moves. They survive only as alias keys in
+ * `nexus_project_id_aliases`, which keeps ids that older CLEO versions derived
+ * from a path resolvable. Never return one as a project id and never key a
+ * registry row by one. This supersedes the T9149 realpath-fingerprint identity.
  *
  * @task T9149
+ * @task T12470
  * @module nexus/identity
  */
 
@@ -36,9 +39,9 @@ export interface ProjectIdentityComponents {
   readonly remoteUrl?: string;
 }
 
-/** Result of canonical ID computation. */
+/** Result of path-fingerprint computation (an alias key, not an identity). */
 export interface CanonicalProjectIdResult {
-  /** The 12-hex-char canonical project ID. */
+  /** The 12-hex-char path fingerprint — an alias key, never a project id. */
   readonly id: string;
   /** The components used to compute the ID. */
   readonly components: ProjectIdentityComponents;
@@ -125,6 +128,90 @@ export async function findGitRemoteUrl(
   }
 }
 
+/**
+ * Normalise a git remote URL so `git@host:o/r.git` and `https://host/o/r`
+ * compare equal. Returns `null` for empty input.
+ *
+ * @param url - Raw `git remote get-url` output or a stored `remoteUrl`.
+ * @returns A `host/owner/repo` style key, or `null`.
+ *
+ * @example
+ * ```ts
+ * normalizeRemoteUrl('git@github.com:o/r.git'); // 'github.com/o/r'
+ * ```
+ */
+export function normalizeRemoteUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  let key = url.trim();
+  if (!key) return null;
+  key = key.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
+  key = key.replace(/^[^@/]+@/, '');
+  key = key.replace(/^([^/:]+):(?!\d+\/)/, '$1/');
+  key = key.replace(/\/+$/, '').replace(/\.git$/i, '');
+  return key.toLowerCase() || null;
+}
+
+/**
+ * Git facts about a checkout, recorded on its location for DISPLAY (T12470).
+ * Never proof: a clone shares both, a bare `git init` can add any remote, and
+ * a root commit can be faked. Moves are proven by the checkout nonce
+ * (`nexus/checkout-nonce.ts`) alone. `null` means unknown.
+ */
+export interface CheckoutEvidence {
+  /** First (parentless) commit of the repository — the lexically smallest when several. */
+  readonly gitRootCommit: string | null;
+  /** Normalised `origin` URL ({@link normalizeRemoteUrl}). */
+  readonly gitRemote: string | null;
+}
+
+/**
+ * Collect {@link CheckoutEvidence} for a checkout. Never throws for an absent
+ * repository, commit or remote — those fields are `null`.
+ *
+ * @param fromPath - Checkout root.
+ * @param execution - Optional captured caller lifetime.
+ * @returns The evidence.
+ *
+ * @example
+ * ```ts
+ * const { gitRootCommit, gitRemote } = await collectCheckoutEvidence(root);
+ * ```
+ */
+export async function collectCheckoutEvidence(
+  fromPath: string,
+  execution?: OperationExecutionContext,
+): Promise<CheckoutEvidence> {
+  execution?.assertActive();
+  const rootCommit = async (): Promise<string | null> => {
+    try {
+      // --no-replace-objects: `refs/replace` must not be able to fake it.
+      const args = ['--no-replace-objects', 'rev-list', '--max-parents=0', 'HEAD'];
+      const { stdout } = await execFileAsync('git', args, {
+        cwd: resolve(fromPath),
+        signal: execution?.signal,
+        timeout: execution ? Math.max(1, execution.remainingMs()) : undefined,
+        killSignal: 'SIGKILL',
+        maxBuffer: 256 * 1024,
+      });
+      execution?.assertActive();
+      const roots = stdout
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => /^[0-9a-f]{40,64}$/.test(line))
+        .sort();
+      return roots[0] ?? null;
+    } catch {
+      execution?.assertActive();
+      return null;
+    }
+  };
+  const results = await Promise.allSettled([rootCommit(), findGitRemoteUrl(fromPath, execution)]);
+  for (const result of results) if (result.status === 'rejected') throw result.reason;
+  const commit = results[0].status === 'fulfilled' ? results[0].value : null;
+  const remote = results[1].status === 'fulfilled' ? results[1].value : null;
+  return { gitRootCommit: commit, gitRemote: normalizeRemoteUrl(remote) };
+}
+
 // ---------------------------------------------------------------------------
 // Project-info.json name
 // ---------------------------------------------------------------------------
@@ -158,31 +245,26 @@ async function readProjectInfoName(
 // ---------------------------------------------------------------------------
 
 /**
- * Compute the canonical project ID for a given repository path.
+ * Compute the path fingerprint `sha256(gitRoot|name|remote)[0:12]` of a checkout.
  *
- * Algorithm:
- *   1. Resolve `repoPath` to its `realpath` (resolves symlinks, normalises mounts).
- *   2. Detect the git root via `git rev-parse --show-toplevel` (falls back to realpath).
- *   3. Read `.cleo/project-info.json` name (optional).
- *   4. Read `git remote get-url origin` (optional).
- *   5. SHA-256 of `<gitRoot>|<projectName>|<remoteUrl>`, first 12 hex chars.
+ * **Alias key only (T12470).** The value depends on where the checkout lives,
+ * so it is recorded in `nexus_project_id_aliases` to keep path-derived ids
+ * from older CLEO versions resolvable — it is never a project's identity.
  *
- * This ensures `/mnt/projects/cleocode` and `/workspace/cleocode` (same git root,
- * same remote) produce the same ID — resolving the 80,969-row pollution vector.
- *
- * @param repoPath - Absolute path to the project root (may be a symlink or bind-mount).
+ * @param repoPath - Absolute path to the checkout (may be a symlink or bind-mount).
  * @param execution - Optional captured caller lifetime, never renewed between stages.
  * @remarks All started Git children settle before this operation finishes. Context
- * cancellation/deadline failures cannot establish fallback identity or authority.
+ * cancellation/deadline failures cannot establish a fallback fingerprint.
  * @example
  * ```ts
- * const identity = await canonicalProjectId(projectRoot, execution);
+ * const { id: aliasKey } = await projectPathFingerprint(projectRoot, execution);
  * ```
- * @returns The canonical project ID result with components and hash.
+ * @returns The fingerprint with the components it was computed from.
  *
  * @task T9149
+ * @task T12470
  */
-export async function canonicalProjectId(
+export async function projectPathFingerprint(
   repoPath: string,
   execution?: OperationExecutionContext,
 ): Promise<CanonicalProjectIdResult> {
@@ -215,6 +297,15 @@ export async function canonicalProjectId(
     },
   };
 }
+
+/**
+ * Former name of {@link projectPathFingerprint}.
+ *
+ * @deprecated T12470 — the value is a path fingerprint (alias key), not a
+ * project id. Read identity with `readDeclaredProjectIdentity` from
+ * `@cleocode/paths`.
+ */
+export const canonicalProjectId: typeof projectPathFingerprint = projectPathFingerprint;
 
 // ---------------------------------------------------------------------------
 // Legacy alias migration

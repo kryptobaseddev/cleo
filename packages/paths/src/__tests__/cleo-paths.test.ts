@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -9,12 +9,14 @@ import {
   _resetCleoPlatformPathsCache,
   canonicalizePath,
   computeCanonicalProjectId,
+  computePathFingerprintId,
   getCanonicalTemplatesTildePath,
   getCleoHome,
   getCleoPlatformPaths,
   getCleoSystemInfo,
   getCleoTemplatesTildePath,
   legacyProjectId,
+  readDeclaredProjectIdentity,
   resolveCanonicalCleoDir,
   resolveLegacyCleoDir,
   resolveProjectByCwd,
@@ -205,10 +207,10 @@ describe('cleo-paths', () => {
 
       const result = resolveProjectByCwd(tempDir);
       expect(result).not.toBeNull();
-      // T11023: projectId is now canonical 12-hex-char ID
-      expect(result!.projectId).toMatch(/^[0-9a-f]{12}$/);
+      // T12470: projectId is the DECLARED id, never a path hash
+      expect(result!.projectId).toBe('test-uuid-1234');
+      expect(result!.source).toBe('project-info');
       expect(result!.projectRoot).toBe(tempDir);
-      // legacyUUID still accessible
       expect(result!.legacyUUID).toBe('test-uuid-1234');
     });
 
@@ -225,9 +227,106 @@ describe('cleo-paths', () => {
 
       const result = resolveProjectByCwd(subDir);
       expect(result).not.toBeNull();
-      expect(result!.projectId).toMatch(/^[0-9a-f]{12}$/);
+      expect(result!.projectId).toBe('walk-up-uuid');
       expect(result!.projectRoot).toBe(tempDir);
       expect(result!.legacyUUID).toBe('walk-up-uuid');
+    });
+
+    // ── T12470: ID-first identity — the path is never the identity ─────
+
+    it('prefers the tracked .cleo/project-id over project-info.json (T12470)', () => {
+      const cleoDir = join(tempDir, '.cleo');
+      mkdirSync(cleoDir, { recursive: true });
+      writeFileSync(join(cleoDir, 'project-id'), '# header\ntracked-id-0001\n');
+      writeFileSync(join(cleoDir, 'project-info.json'), JSON.stringify({ projectId: 'info-id' }));
+      const result = resolveProjectByCwd(tempDir);
+      expect(result).toEqual({
+        projectId: 'tracked-id-0001',
+        projectRoot: tempDir,
+        legacyUUID: 'info-id',
+        source: 'tracked',
+      });
+    });
+
+    it('resolves a fresh clone that carries only the tracked id (T12470)', () => {
+      const cleoDir = join(tempDir, '.cleo');
+      mkdirSync(cleoDir, { recursive: true });
+      mkdirSync(join(tempDir, '.git'), { recursive: true }); // a clone is a git toplevel
+      writeFileSync(join(cleoDir, 'project-id'), 'c78d09c3a8ee\n');
+      const result = resolveProjectByCwd(join(tempDir));
+      expect(result?.projectId).toBe('c78d09c3a8ee');
+      expect(result?.source).toBe('tracked');
+      expect(result?.legacyUUID).toBeUndefined();
+    });
+
+    it('falls back to project-info.json when the tracked file is malformed (T12470)', () => {
+      const cleoDir = join(tempDir, '.cleo');
+      mkdirSync(cleoDir, { recursive: true });
+      writeFileSync(join(cleoDir, 'project-id'), '../escape\n');
+      writeFileSync(join(cleoDir, 'project-info.json'), JSON.stringify({ projectId: 'info-id' }));
+      expect(resolveProjectByCwd(tempDir)?.projectId).toBe('info-id');
+    });
+
+    it.each([
+      ['UUID', '3f2b8c1e-9a4d-4e6f-8b2a-1c3d5e7f9a0b'],
+      ['12-hex', 'a1b2c3d4e5f6'],
+      ['legacy base64url', 'L1VzZXJzL2tlYXRvbmhvc2tpbnMvcHJv'],
+    ])('treats a %s id as opaque (T12470)', (_shape, id) => {
+      const cleoDir = join(tempDir, '.cleo');
+      mkdirSync(cleoDir, { recursive: true });
+      mkdirSync(join(tempDir, '.git'), { recursive: true });
+      writeFileSync(join(cleoDir, 'project-id'), `${id}\n`);
+      expect(resolveProjectByCwd(tempDir)?.projectId).toBe(id);
+      expect(readDeclaredProjectIdentity(tempDir)?.projectId).toBe(id);
+    });
+
+    it('returns the same id after the project moves between two roots (T12470 AC1)', () => {
+      const rootA = join(tempDir, 'root-a');
+      const rootB = join(tempDir, 'elsewhere', 'root-b');
+      mkdirSync(join(rootA, 'proj', '.cleo'), { recursive: true });
+      mkdirSync(join(rootB), { recursive: true });
+      writeFileSync(join(rootA, 'proj', '.cleo', 'project-id'), 'moved-project-id\n');
+      writeFileSync(
+        join(rootA, 'proj', '.cleo', 'project-info.json'),
+        JSON.stringify({ projectId: 'moved-project-id', name: 'proj' }),
+      );
+      const before = resolveProjectByCwd(join(rootA, 'proj'));
+      renameSync(join(rootA, 'proj'), join(rootB, 'proj'));
+      const after = resolveProjectByCwd(join(rootB, 'proj'));
+      expect(before?.projectId).toBe('moved-project-id');
+      expect(after?.projectId).toBe(before?.projectId);
+      expect(after?.projectRoot).toBe(join(rootB, 'proj'));
+      // The path fingerprint DOES change — which is why it is only an alias key.
+      expect(computePathFingerprintId(join(rootB, 'proj'))).not.toBe(
+        computePathFingerprintId(join(rootA, 'proj')),
+      );
+    });
+
+    it('a tracked-id-only .cleo below a git toplevel does not shadow the parent (T12470)', () => {
+      mkdirSync(join(tempDir, '.git'), { recursive: true });
+      mkdirSync(join(tempDir, '.cleo'), { recursive: true });
+      writeFileSync(join(tempDir, '.cleo', 'project-id'), 'monorepo-root-id\n');
+      const sub = join(tempDir, 'packages', 'sub');
+      mkdirSync(join(sub, '.cleo'), { recursive: true });
+      writeFileSync(join(sub, '.cleo', 'project-id'), 'committed-sub-id\n');
+      expect(resolveProjectByCwd(sub)?.projectId).toBe('monorepo-root-id');
+      expect(resolveProjectByCwd(sub)?.projectRoot).toBe(tempDir);
+      // The same subdirectory IS a root once it is a git toplevel…
+      mkdirSync(join(sub, '.git'), { recursive: true });
+      expect(resolveProjectByCwd(sub)?.projectId).toBe('committed-sub-id');
+    });
+
+    it('a subdirectory with project-info.json is a root even below a git toplevel (T12470)', () => {
+      mkdirSync(join(tempDir, '.git'), { recursive: true });
+      mkdirSync(join(tempDir, '.cleo'), { recursive: true });
+      writeFileSync(join(tempDir, '.cleo', 'project-id'), 'monorepo-root-id\n');
+      const sub = join(tempDir, 'nested');
+      mkdirSync(join(sub, '.cleo'), { recursive: true });
+      writeFileSync(
+        join(sub, '.cleo', 'project-info.json'),
+        JSON.stringify({ projectId: 'nested-id' }),
+      );
+      expect(resolveProjectByCwd(sub)?.projectId).toBe('nested-id');
     });
 
     it('returns null when no .cleo/project-info.json is found', () => {
@@ -273,7 +372,7 @@ describe('cleo-paths', () => {
 
       const result = resolveProjectByCwd(subDir);
       expect(result).not.toBeNull();
-      expect(result!.projectId).toMatch(/^[0-9a-f]{12}$/);
+      expect(result!.projectId).toBe('valid-parent-uuid');
       expect(result!.projectRoot).toBe(tempDir);
       expect(result!.legacyUUID).toBe('valid-parent-uuid');
     });
@@ -294,15 +393,15 @@ describe('cleo-paths', () => {
       try {
         execFileSync('git', ['init'], { cwd: fixtureDir, stdio: 'ignore' });
       } catch {
-        /* git optional — computeCanonicalProjectId falls back to path */
+        /* git optional — identity never depends on it */
       }
       const origCwd = process.cwd();
       try {
         process.chdir(fixtureDir);
         const result = resolveProjectByCwd();
         expect(result).not.toBeNull();
-        // T11023: projectId is the 12-char-hex canonical runtime id
-        expect(result!.projectId).toMatch(/^[0-9a-f]{12}$/);
+        // T12470: the declared id, independent of the path
+        expect(result!.projectId).toBe('cwd-default-uuid');
         expect(result!.projectRoot.length).toBeGreaterThan(0);
       } finally {
         process.chdir(origCwd);
@@ -318,7 +417,7 @@ describe('cleo-paths', () => {
       const cleoDir = join(fixtureDir, '.cleo');
       mkdirSync(cleoDir, { recursive: true });
 
-      // Init git repo so computeCanonicalProjectId can resolve git root
+      // Git layout is irrelevant to identity (T12470); kept to mirror a real repo
       try {
         execFileSync('git', ['init'], { cwd: fixtureDir, stdio: 'ignore' });
         execFileSync('git', ['config', 'user.email', 'test@test.com'], {

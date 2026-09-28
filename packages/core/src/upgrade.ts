@@ -1057,7 +1057,10 @@ export async function runUpgrade(
     try {
       const nexusCreated: string[] = [];
       const nexusWarnings: string[] = [];
-      await initNexusRegistration(projectRootForMaint, nexusCreated, nexusWarnings);
+      // T12470: maintenance never moves a registry row (encounter rules).
+      await initNexusRegistration(projectRootForMaint, nexusCreated, nexusWarnings, {
+        maintenance: true,
+      });
       if (nexusCreated.length > 0) {
         actions.push({
           action: 'nexus_registration',

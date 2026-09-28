@@ -534,7 +534,9 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
 
   reconcile: async (params) =>
     wrapCoreResult(
-      await nexusReconcileProject(params.projectRoot ?? getProjectRoot()),
+      await nexusReconcileProject(params.projectRoot ?? getProjectRoot(), {
+        forceRebind: params.forceRebind === true,
+      }),
       'reconcile',
     ),
 
