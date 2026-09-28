@@ -25,7 +25,7 @@ Two gates join `cleo check arch` and the Arch Boundary Check workflow:
   stage guidance, the spawn prompt or a `.cant` protocol does not exist, is
   not `install: harness`, or is not actually installed, and when
   `metadata.install` disagrees with what install does. Today's 15 known
-  violations (ct-lead and six LOOM skills not installed, T12646; ct-grade
-  installed although internal, T12649) are baselined; stale entries fail.
+  violations (ct-lead and six LOOM skills not installed; ct-grade
+  installed although internal) are baselined against T12653, which switches install to `metadata.install`; stale entries fail.
 
 No install behaviour changes in this release.
