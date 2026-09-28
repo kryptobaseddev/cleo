@@ -24,8 +24,7 @@
  * @epic T9752
  */
 
-import { execSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -190,7 +189,7 @@ function applyBackfillMigration(nativeDb: import('node:sqlite').DatabaseSync): v
     '20260520163324_t9755-backfill-legacy-ship-commits',
     'migration.sql',
   );
-  const sql = execSync(`cat ${sqlPath}`, { encoding: 'utf-8' });
+  const sql = readFileSync(sqlPath, 'utf-8');
   const statements = sql.split('--> statement-breakpoint');
   for (const stmt of statements) {
     const trimmed = stmt.trim();
@@ -270,7 +269,7 @@ describe('T9755 backfill-legacy-ship-commits migration', () => {
       '20260520163324_t9755-backfill-legacy-ship-commits',
       'migration.sql',
     );
-    const sql = execSync(`cat ${sqlPath}`, { encoding: 'utf-8' });
+    const sql = readFileSync(sqlPath, 'utf-8');
     const statements = sql.split('--> statement-breakpoint');
     for (const stmt of statements) {
       const trimmed = stmt.trim();

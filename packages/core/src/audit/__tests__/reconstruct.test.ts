@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { ReconstructResult } from '@cleocode/contracts';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { worktreeScope } from '../../project-scope.js';
@@ -19,7 +20,7 @@ import { reconstructLineage } from '../reconstruct.js';
  */
 const REPO_ROOT =
   process.env['CLEO_AUDIT_HISTORICAL_REPO'] ??
-  new URL('../../../../..', import.meta.url).pathname.replace(/\/$/, '');
+  fileURLToPath(new URL('../../../../..', import.meta.url)).replace(/\/$/, '');
 
 let fixture: string;
 let scratch: string;

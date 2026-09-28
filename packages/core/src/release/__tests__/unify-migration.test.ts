@@ -21,8 +21,7 @@
  * @epic T9499
  */
 
-import { execSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -149,7 +148,7 @@ function applyUnifyMigration(nativeDb: import('node:sqlite').DatabaseSync): void
     '20260519010000_t9686b2-unify-releases-tables',
     'migration.sql',
   );
-  const sql = execSync(`cat ${sqlPath}`, { encoding: 'utf-8' });
+  const sql = readFileSync(sqlPath, 'utf-8');
   // Drizzle's runner splits on '--> statement-breakpoint'. Replicate that here.
   const statements = sql.split('--> statement-breakpoint');
   for (const stmt of statements) {
