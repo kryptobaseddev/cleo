@@ -455,6 +455,10 @@ const acceptanceGateBindingSchema: z.ZodType<AcceptanceGateBinding> = z
             'Tree-relative cwd must be relative and stay inside the tree',
           ),
         inputsHash: z.string().regex(/^[a-f0-9]{64}$/),
+        baseSha: z
+          .string()
+          .regex(/^[0-9a-f]{40}$/)
+          .optional(),
       })
       .strict()
       .optional(),

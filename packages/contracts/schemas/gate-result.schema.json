@@ -165,6 +165,10 @@
             "inputsHash": {
               "type": "string",
               "pattern": "^[a-f0-9]{64}$"
+            },
+            "baseSha": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
             }
           },
           "required": [

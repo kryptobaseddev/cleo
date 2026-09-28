@@ -577,6 +577,115 @@ describe('typed results verified in a worktree complete from main after merge (T
     git(root, ['worktree', 'remove', '--force', wt]);
   });
 
+  it("a revert of the task's change on main after the merge: refused (round 3)", async () => {
+    const { id, wt } = await verifiedInWorktree();
+    git(root, ['merge', '-q', '--no-ff', '-m', 'merge', `task/${id}`]);
+    git(root, ['worktree', 'remove', '--force', wt]);
+    git(root, ['revert', '--no-edit', '-m', '1', 'HEAD']);
+    const error = (await completeFromMain(id)) as { message?: string; fix?: string } | null;
+    expect(error?.message).toMatch(/changed on .* since verification: src\/a\.ts/);
+    expect(error?.fix).toContain(`cleo verify ${id} --gate testsPassed`);
+    expect((await env.accessor.loadSingleTask(id))?.status).not.toBe('done');
+  });
+
+  it('a result verified on a dirty tree is never carried to another tree', async () => {
+    commitCheckScript();
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    await reqAdd(
+      root,
+      id,
+      parseGateJson(
+        JSON.stringify({
+          kind: 'command',
+          cmd: 'node',
+          args: ['check-a.mjs'],
+          req: 'R1',
+          description: 'a returns 2',
+        }),
+      ),
+      env.accessor,
+    );
+    const wt = join(realpathSync(join(root, '..')), `${id}-wt-${Date.now()}`);
+    git(root, ['worktree', 'add', '-q', '-b', `task/${id}`, wt]);
+    writeFileSync(join(wt, 'src', 'a.ts'), 'export const a = 2;\n');
+    git(wt, ['add', 'src/a.ts']);
+    git(wt, ['commit', '-q', '-m', `${id}: change a`]);
+    const head = git(wt, ['rev-parse', 'HEAD']);
+    // An uncommitted tracked edit at verification time.
+    writeFileSync(join(wt, '.gitignore'), '.cleo/\n.cleo-home/\n# dirty\n');
+    const before = process.cwd();
+    process.chdir(wt);
+    try {
+      const r = await validateGateVerify(root, {
+        taskId: id,
+        gateEvidence: {
+          implemented: `commit:${head};files:src/a.ts;satisfies:${id}#AC1;satisfies:${id}#AC2`,
+          testsPassed: `tool:test;satisfies:${id}#AC1;satisfies:${id}#AC2`,
+          qaPassed: `tool:lint;satisfies:${id}#AC1;satisfies:${id}#AC2`,
+        },
+      });
+      expect(r.success, JSON.stringify(r.success ? '' : r.error)).toBe(true);
+    } finally {
+      process.chdir(before);
+    }
+    expect(
+      (await env.accessor.loadSingleTask(id))?.verification?.gateResults?.[0]?.binding?.tree?.clean,
+    ).toBe(false);
+    git(root, ['merge', '-q', '--no-ff', '-m', 'merge', `task/${id}`]);
+    const error = (await completeFromMain(id)) as { message?: string } | null;
+    expect(error?.message).toMatch(/verified on a dirty tree/);
+    git(root, ['worktree', 'remove', '--force', wt]);
+  });
+
+  it('a result with no recorded fork point (no origin default) is never carried to another tree', async () => {
+    commitCheckScript();
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    await reqAdd(
+      root,
+      id,
+      parseGateJson(
+        JSON.stringify({
+          kind: 'command',
+          cmd: 'node',
+          args: ['check-a.mjs'],
+          req: 'R1',
+          description: 'a returns 2',
+        }),
+      ),
+      env.accessor,
+    );
+    const wt = join(realpathSync(join(root, '..')), `${id}-wt-${Date.now()}`);
+    git(root, ['worktree', 'add', '-q', '-b', `task/${id}`, wt]);
+    writeFileSync(join(wt, 'src', 'a.ts'), 'export const a = 2;\n');
+    git(wt, ['add', 'src/a.ts']);
+    git(wt, ['commit', '-q', '-m', `${id}: change a`]);
+    const head = git(wt, ['rev-parse', 'HEAD']);
+    git(root, ['remote', 'remove', 'origin']);
+    const before = process.cwd();
+    process.chdir(wt);
+    try {
+      const r = await validateGateVerify(root, {
+        taskId: id,
+        gateEvidence: {
+          implemented: `commit:${head};files:src/a.ts;satisfies:${id}#AC1;satisfies:${id}#AC2`,
+          testsPassed: `tool:test;satisfies:${id}#AC1;satisfies:${id}#AC2`,
+          qaPassed: `tool:lint;satisfies:${id}#AC1;satisfies:${id}#AC2`,
+        },
+      });
+      expect(r.success, JSON.stringify(r.success ? '' : r.error)).toBe(true);
+    } finally {
+      process.chdir(before);
+    }
+    expect(
+      (await env.accessor.loadSingleTask(id))?.verification?.gateResults?.[0]?.binding?.tree
+        ?.baseSha,
+    ).toBeUndefined();
+    git(root, ['merge', '-q', '--no-ff', '-m', 'merge', `task/${id}`]);
+    const error = (await completeFromMain(id)) as { message?: string } | null;
+    expect(error?.message).toMatch(/no recorded fork point/);
+    git(root, ['worktree', 'remove', '--force', wt]);
+  });
+
   it('inputs changed after the merge: refused', async () => {
     const { id, wt } = await verifiedInWorktree();
     git(root, ['merge', '-q', '--no-ff', '-m', 'merge', `task/${id}`]);
