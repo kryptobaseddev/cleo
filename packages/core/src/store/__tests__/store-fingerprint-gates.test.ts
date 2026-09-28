@@ -37,11 +37,22 @@
  *   - row hashes are HMACs under a per-comparison key; fingerprints made with
  *     different keys FAIL, and `.rows` and `.key` are written 0600.
  *
+ * T12636, each also paired with a red mutation:
+ *
+ *   - a per-table tombstone cap, and an explicit `--allow-table-wipe` for a
+ *     table that would lose every row (the 404-row scenario: 4 tombstones
+ *     erased two whole tables under the global cap);
+ *   - every fingerprint JSON carries a MAC under the comparison key, and an
+ *     edited field or a missing `--key-file` FAILS;
+ *   - a new key is written only with `--key-out`, never into the directory
+ *     of `--out`/`--rows`, and never over an existing file.
+ *
  * The scripts run as real child processes, exactly as an operator runs them.
  * All fingerprints of one comparison share the key in `keyFile`.
  *
  * @task T12332
  * @task T12613
+ * @task T12636
  * @epic T12322
  */
 
@@ -111,6 +122,7 @@ interface TableFp {
   excludedColumns?: string[];
 }
 interface Fingerprint {
+  mac?: string;
   store: string;
   vecLoaded: boolean;
   keyId: string;
@@ -121,10 +133,9 @@ interface Fingerprint {
   invariants: Record<string, number>;
 }
 
-/** Fingerprint one store file with the shared key (or a fresh one); returns the JSON, its path, and the sidecar. */
-function fingerprintFile(dbFile: string, label: string, sharedKey = true) {
+/** Fingerprint one store file with the shared key (or other key args); returns the JSON, its path, and the sidecar. */
+function fingerprintFile(dbFile: string, label: string, key = ['--key-file', keyFile]) {
   const file = join(testRoot, `${label}.fp.json`);
-  const key = sharedKey ? ['--key-file', keyFile] : [];
   execFileSync('node', [FINGERPRINT, '--db', dbFile, '--label', label, '--out', file, ...key], {
     encoding: 'utf8',
   });
@@ -143,7 +154,18 @@ function compare(source: string, replica: string, mode: 'replay' | 'merge', extr
   try {
     const out = execFileSync(
       'node',
-      [COMPARE, '--source', source, '--replica', replica, '--mode', mode, ...extra],
+      [
+        COMPARE,
+        '--source',
+        source,
+        '--replica',
+        replica,
+        '--mode',
+        mode,
+        '--key-file',
+        keyFile,
+        ...extra,
+      ],
       { encoding: 'utf8' },
     );
     return { code: 0, out };
@@ -272,7 +294,17 @@ describe('fingerprint-store', () => {
     try {
       execFileSync(
         'node',
-        [FINGERPRINT, '--db', db.copy, '--label', dirname(db.copy), '--out', out],
+        [
+          FINGERPRINT,
+          '--db',
+          db.copy,
+          '--label',
+          dirname(db.copy),
+          '--out',
+          out,
+          '--key-file',
+          keyFile,
+        ],
         { encoding: 'utf8', stdio: 'pipe' },
       );
     } catch (e) {
@@ -284,7 +316,6 @@ describe('fingerprint-store', () => {
     expect(stderr).toContain('refusing to write a fingerprint that contains the store path');
     expect(existsSync(out)).toBe(false);
     expect(existsSync(`${out}.rows`)).toBe(false);
-    expect(existsSync(`${out}.key`)).toBe(false);
   });
 
   it('writes nothing beside the store, even in a chmod 555 directory', () => {
@@ -468,13 +499,36 @@ describe('compare-fingerprints: both modes', () => {
   });
 });
 
-/** Copy a fingerprint (JSON + sidecar) under a new label, so a test can tamper with the copy. */
+/** Canonical JSON (keys sorted at every level), written independently of scripts/lib as an oracle. */
+function canonical(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`;
+  if (v !== null && typeof v === 'object') {
+    const o = v as Record<string, unknown>;
+    return `{${Object.keys(o)
+      .filter((k) => o[k] !== undefined)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(v);
+}
+/** Re-sign an edited fingerprint with the comparison key, as someone holding the key could. */
+function signed(fp: Fingerprint): string {
+  const { mac: _mac, ...body } = fp;
+  const key = readFileSync(keyFile, 'utf8').trim();
+  return JSON.stringify({
+    ...body,
+    mac: createHmac('sha256', key).update(canonical(body)).digest('hex'),
+  });
+}
+
+/** Copy a fingerprint (JSON + sidecar) under a new label, re-signed, so a test can tamper with the copy. */
 function cloneFingerprint(name: StoreName, label: string) {
   const { file } = fingerprint(name);
   const clone = join(testRoot, `${label}.fp.json`);
   const fp = JSON.parse(readFileSync(file, 'utf8')) as Fingerprint;
   fp.rowsFile = `${label}.fp.json.rows`;
-  writeFileSync(clone, JSON.stringify(fp));
+  writeFileSync(clone, signed(fp));
   copyFileSync(`${file}.rows`, `${clone}.rows`);
   return { file: clone, fp };
 }
@@ -496,7 +550,7 @@ describe('T12613: the .rows sidecar is bound to its fingerprint', () => {
     const src = fingerprint('source');
     const wiped = cloneFingerprint('emptied', 'wipedPatched');
     copyFileSync(`${src.file}.rows`, `${wiped.file}.rows`);
-    writeFileSync(wiped.file, JSON.stringify({ ...wiped.fp, rowsSha256: sha256(src.rows) }));
+    writeFileSync(wiped.file, signed({ ...wiped.fp, rowsSha256: sha256(src.rows) }));
     const r = compare(src.file, wiped.file, 'merge');
     expect(r.code).toBe(1);
     expect(r.out).toContain(
@@ -509,7 +563,7 @@ describe('T12613: the .rows sidecar is bound to its fingerprint', () => {
     const src = fingerprint('source');
     const changed = cloneFingerprint('changedRow', 'changedPatched');
     copyFileSync(`${src.file}.rows`, `${changed.file}.rows`);
-    writeFileSync(changed.file, JSON.stringify({ ...changed.fp, rowsSha256: sha256(src.rows) }));
+    writeFileSync(changed.file, signed({ ...changed.fp, rowsSha256: sha256(src.rows) }));
     const r = compare(src.file, changed.file, 'merge');
     expect(r.code).toBe(1);
     expect(r.out).toContain(
@@ -564,7 +618,9 @@ describe('T12613: --allow-deleted is validated', () => {
       /GATE B FAIL \*: --allow-deleted holds 3 row\(s\), over the --max-deleted cap of \d+/,
     );
 
-    const r = compare(src, rep, 'merge', ['--allow-deleted', allow, '--max-deleted', '3']);
+    // The whole table goes, so the per-table cap and the wipe need their own consent here.
+    const wipe = ['--max-deleted-per-table', '100%', '--allow-table-wipe', 'brain_observations'];
+    const r = compare(src, rep, 'merge', ['--allow-deleted', allow, '--max-deleted', '3', ...wipe]);
     expect(r.out).toContain('PASS (merge)');
     expect(r.out).toContain(
       'WARNING: --allow-deleted EXCUSED 3 missing row(s) in brain_observations (3 tombstone(s), cap 3)',
@@ -574,6 +630,7 @@ describe('T12613: --allow-deleted is validated', () => {
       allow,
       '--max-deleted',
       '3',
+      ...wipe,
       '--json',
     ]);
     expect(JSON.parse(json.out)).toMatchObject({
@@ -626,9 +683,12 @@ describe('T12613: row hashes are keyed per comparison', () => {
     expect(lines).not.toContain(`tasks_task_dependencies\t${sha256(text)}`);
   });
 
-  it('without --key-file a fresh key is written 0600; fingerprints under different keys FAIL', () => {
-    const own = fingerprintFile(db.copy, 'ownKey', false);
-    expect(statSync(`${own.file}.key`).mode & 0o777).toBe(0o600);
+  it('a fresh --key-out key is written 0600; fingerprints under different keys FAIL', () => {
+    const keyDir = join(testRoot, 'keys');
+    mkdirSync(keyDir, { recursive: true });
+    const ownKey = join(keyDir, 'own.key');
+    const own = fingerprintFile(db.copy, 'ownKey', ['--key-out', ownKey]);
+    expect(statSync(ownKey).mode & 0o777).toBe(0o600);
     expect(statSync(`${own.file}.rows`).mode & 0o777).toBe(0o600);
     expect(own.fp.keyId).not.toBe(fingerprint('source').fp.keyId);
     const r = compare(fingerprint('source').file, own.file, 'replay');
@@ -756,4 +816,177 @@ describe('T12613: the WAL snapshot never outlives its use', () => {
       live.writer.close();
     }
   }, 120_000);
+});
+
+/** Run the fingerprint script expecting a refusal; returns its stderr. */
+function refusedFingerprint(args: string[]): string {
+  try {
+    execFileSync('node', [FINGERPRINT, '--db', db.copy, ...args], {
+      encoding: 'utf8',
+      stdio: 'pipe',
+    });
+  } catch (e) {
+    return (e as { stderr: string }).stderr;
+  }
+  throw new Error('fingerprint-store did not refuse');
+}
+
+describe('T12636: a per-table cap, and an explicit flag to wipe a table', () => {
+  /** The 404-row fixture: the source plus observations up to 404 syncing rows, and a replica missing two whole tables. */
+  function fixture404() {
+    const base = fingerprint('source');
+    const synced = Object.values(base.fp.tables)
+      .filter((t) => t.shareable)
+      .reduce((n, t) => n + (t.rows ?? 0), 0);
+    const src = join(testRoot, 'src404.db');
+    const rep = join(testRoot, 'rep404.db');
+    if (!existsSync(src)) {
+      copyFileSync(db.source, src);
+      const conn = openRaw(src);
+      const add = conn.prepare(
+        "INSERT INTO brain_observations (id, type, title) VALUES (?, 'change', ?)",
+      );
+      for (let i = 0; i < 404 - synced; i++) add.run(`P${i}`, `padding ${i}`);
+      conn.close();
+      copyFileSync(src, rep);
+      const wipe = openRaw(rep);
+      wipe.exec('DELETE FROM tasks_task_dependencies; DELETE FROM tasks_tasks;');
+      wipe.close();
+    }
+    const s = fingerprintFile(src, 'src404');
+    const r = fingerprintFile(rep, 'rep404');
+    const total = Object.values(s.fp.tables)
+      .filter((t) => t.shareable)
+      .reduce((n, t) => n + (t.rows ?? 0), 0);
+    const lines = s.rows
+      .split('\n')
+      .filter((l) => l.startsWith('tasks_tasks\t') || l.startsWith('tasks_task_dependencies\t'));
+    const allow = join(testRoot, 'tombstones404');
+    writeFileSync(allow, `${lines.join('\n')}\n`);
+    return { src: s.file, rep: r.file, total, tombstones: lines.length, allow };
+  }
+
+  it('4 tombstones under the global 1% cap cannot erase two whole tables of a 404-row store', () => {
+    const f = fixture404();
+    expect(f.total).toBe(404);
+    expect(f.tombstones).toBe(4);
+    const r = compare(f.src, f.rep, 'merge', ['--allow-deleted', f.allow]);
+    expect(r.code).toBe(1);
+    expect(r.out).not.toContain('over the --max-deleted cap'); // 4 ≤ ceil(1% of 404) = 5
+    expect(r.out).toContain(
+      "GATE B FAIL tasks_tasks: --allow-deleted holds 3 row(s) of this table's 3, over the --max-deleted-per-table cap of 1",
+    );
+    expect(r.out).toContain(
+      'GATE B FAIL tasks_task_dependencies: --allow-deleted would delete all 1 source row(s); pass --allow-table-wipe tasks_task_dependencies if that is intended',
+    );
+  });
+
+  it('with the per-table cap lifted a whole-table wipe still needs --allow-table-wipe, and is reported', () => {
+    const f = fixture404();
+    const lifted = ['--allow-deleted', f.allow, '--max-deleted-per-table', '3'];
+    const r = compare(f.src, f.rep, 'merge', lifted);
+    expect(r.code).toBe(1);
+    expect(r.out).not.toContain('over the --max-deleted-per-table cap');
+    expect(r.out).toContain(
+      'GATE B FAIL tasks_tasks: --allow-deleted would delete all 3 source row(s); pass --allow-table-wipe tasks_tasks if that is intended',
+    );
+
+    const wipes = [
+      '--allow-table-wipe',
+      'tasks_tasks',
+      '--allow-table-wipe',
+      'tasks_task_dependencies',
+    ];
+    const ok = compare(f.src, f.rep, 'merge', [...lifted, ...wipes]);
+    expect(ok.out).toContain('PASS (merge)');
+    expect(ok.out).toContain(
+      'WARNING: --allow-table-wipe: EVERY source row of tasks_tasks was deleted',
+    );
+    expect(ok.out).toContain(
+      'WARNING: --allow-table-wipe: EVERY source row of tasks_task_dependencies was deleted',
+    );
+  });
+});
+
+describe('T12636: every fingerprint JSON is signed with the comparison key', () => {
+  it('an edited rowsFile or count FAILS the MAC', () => {
+    const src = fingerprint('source');
+    const copy = fingerprint('copy');
+    const fp = JSON.parse(copy.raw) as Fingerprint;
+    const editedRows = join(testRoot, 'edited-rows.fp.json');
+    writeFileSync(editedRows, JSON.stringify({ ...fp, rowsFile: 'source.fp.json.rows' }));
+    const r1 = compare(src.file, editedRows, 'merge');
+    expect(r1.code).toBe(1);
+    expect(r1.out).toContain(
+      'GATE B FAIL *: replica fingerprint MAC does not verify under --key-file (edited, or made with another key)',
+    );
+
+    const editedCount = join(testRoot, 'edited-count.fp.json');
+    fp.tables.tasks_tasks.rows = 4;
+    writeFileSync(editedCount, JSON.stringify(fp));
+    const r2 = compare(editedCount, src.file, 'replay');
+    expect(r2.code).toBe(1);
+    expect(r2.out).toContain('GATE B FAIL *: source fingerprint MAC does not verify');
+  });
+
+  it('an untouched fingerprint verifies, and without --key-file nothing is trusted', () => {
+    const src = fingerprint('source');
+    expect(src.fp.mac).toMatch(/^[0-9a-f]{64}$/);
+    expect(JSON.parse(signed(src.fp)).mac).toBe(src.fp.mac);
+    let out = '';
+    try {
+      execFileSync('node', [COMPARE, '--source', src.file, '--replica', fingerprint('copy').file], {
+        encoding: 'utf8',
+      });
+    } catch (e) {
+      out = (e as { stdout: string }).stdout;
+    }
+    expect(out).toContain('GATE B FAIL *: no --key-file: the fingerprint MACs cannot be verified');
+  });
+});
+
+describe('T12636: a new key never lands beside the fingerprints', () => {
+  it('requires exactly one of --key-file or --key-out', () => {
+    const out = join(testRoot, 'nokey.fp.json');
+    expect(refusedFingerprint(['--out', out])).toContain(
+      'pass exactly one of --key-file <existing> or --key-out <new>',
+    );
+    expect(existsSync(out)).toBe(false);
+  });
+
+  it('refuses --key-out in the directory of --out or --rows', () => {
+    const out = join(testRoot, 'beside.fp.json');
+    expect(refusedFingerprint(['--out', out, '--key-out', join(testRoot, 'beside.key')])).toContain(
+      'refusing --key-out in the directory of --out or --rows',
+    );
+    const rowsDir = join(testRoot, 'rowsdir');
+    mkdirSync(rowsDir, { recursive: true });
+    expect(
+      refusedFingerprint([
+        '--out',
+        join(testRoot, 'keys-elsewhere.fp.json'),
+        '--rows',
+        join(rowsDir, 'x.rows'),
+        '--key-out',
+        join(rowsDir, 'x.key'),
+      ]),
+    ).toContain('refusing --key-out in the directory of --out or --rows');
+    expect(existsSync(join(testRoot, 'beside.key'))).toBe(false);
+    expect(existsSync(join(rowsDir, 'x.key'))).toBe(false);
+  });
+
+  it('never overwrites an existing key', () => {
+    const keyDir = join(testRoot, 'keys');
+    mkdirSync(keyDir, { recursive: true });
+    const existing = join(keyDir, 'existing.key');
+    writeFileSync(existing, 'k'.repeat(64));
+    const stderr = refusedFingerprint([
+      '--out',
+      join(testRoot, 'overwrite.fp.json'),
+      '--key-out',
+      existing,
+    ]);
+    expect(stderr).toContain('EEXIST');
+    expect(readFileSync(existing, 'utf8')).toBe('k'.repeat(64));
+  });
 });
