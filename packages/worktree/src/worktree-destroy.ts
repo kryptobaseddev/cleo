@@ -12,7 +12,7 @@
 
 import { existsSync, rmSync } from 'node:fs';
 import type { DestroyWorktreeOptions, DestroyWorktreeResult } from '@cleocode/contracts';
-import { getGitRoot, gitSilent, gitSync } from './git.js';
+import { countUnmergedCommits, getGitRoot, gitSilent, gitSync } from './git.js';
 import { destroyWorktree as napiDestroyWorktree } from './napi-binding.js';
 import { computeProjectHash, resolveTaskWorktreePath } from './paths.js';
 import { appendWorktreeAuditLog, removeWorktreeFromSentinelIndex } from './worktree-audit.js';
@@ -167,7 +167,14 @@ export async function destroyWorktree(
   if (deleteBranch) {
     try {
       const branchExists = gitSync(['branch', '--list', branch], gitRoot);
-      if (branchExists) {
+      const unmerged = branchExists ? countUnmergedCommits(gitRoot, branch, ['HEAD']) : 0;
+      if (branchExists && unmerged > 0 && options.forceDeleteUnmergedBranch !== true) {
+        // T12506: never delete history that exists nowhere else implicitly.
+        branchDeleted = false;
+        if (!error) {
+          error = `Branch '${branch}' kept: ${unmerged} commit(s) are on neither origin/main nor HEAD. Merge it, or pass forceDeleteUnmergedBranch to delete it anyway.`;
+        }
+      } else if (branchExists) {
         gitSync(['branch', '-D', branch], gitRoot);
         branchDeleted = true;
       } else {

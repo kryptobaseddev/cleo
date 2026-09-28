@@ -13,6 +13,7 @@
  * @task T1161
  */
 
+import { randomBytes } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
@@ -47,7 +48,7 @@ interface CreateWorktreeResultWithBootstrap extends CreateWorktreeResult {
 
 import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts';
 import { getCleoWorktreesRoot } from '@cleocode/paths';
-import { getGitRoot, gitSilent, gitSync, resolveHeadRef } from './git.js';
+import { countUnmergedCommits, getGitRoot, gitSilent, gitSync, resolveHeadRef } from './git.js';
 import {
   computeProjectHash,
   resolveTaskWorktreePath,
@@ -211,56 +212,23 @@ function isGitLockedWorktree(gitRoot: string, worktreePath: string): boolean {
 }
 
 /**
- * Resolve the mainline ref that "merged" is judged against: `origin/main` when
- * the remote-tracking ref exists, otherwise `fallbackRef`.
- *
- * @param gitRoot - Repository root.
- * @param fallbackRef - Ref used when `origin/main` is absent (usually `baseRef`).
- * @returns The ref name.
- */
-function resolveMainlineRef(gitRoot: string, fallbackRef: string): string {
-  return gitSilent(['rev-parse', '--verify', '--quiet', 'refs/remotes/origin/main'], gitRoot)
-    ? 'origin/main'
-    : fallbackRef;
-}
-
-/**
- * Count commits on `branch` that are not on the mainline
- * (`git rev-list --count <mainline>..<branch>`).
- *
- * @param gitRoot - Repository root.
- * @param branch - Branch to inspect.
- * @param fallbackRef - Mainline fallback when `origin/main` is absent.
- * @returns The number of unmerged commits (errors count as "unknown" → 1, the safe answer).
- *
- * @task T12506
- */
-export function countUnmergedCommits(gitRoot: string, branch: string, fallbackRef: string): number {
-  const mainline = resolveMainlineRef(gitRoot, fallbackRef);
-  try {
-    const n = Number(gitSync(['rev-list', '--count', `${mainline}..${branch}`], gitRoot).trim());
-    return Number.isFinite(n) ? n : 1;
-  } catch {
-    return 1;
-  }
-}
-
-/**
  * Free the branch NAME `branch` so it can be recreated, without losing any
  * commit that is not on the mainline (T12506).
  *
  * - Branch fully merged into the mainline → `git branch -D` (nothing is lost).
- * - Otherwise → `git branch -m` to `cleo/preserved/<branch>/<utc-stamp>`.
+ * - Otherwise → `git branch -m` to `cleo/preserved/<branch>/<utc-stamp>-<random>`.
+ *   The random suffix keeps two resets in the same second from colliding. A
+ *   failed rename THROWS — it never falls through to `branch -D`.
  *
- * @throws Error when neither operation succeeds (the caller must not proceed).
+ * @throws Error when the branch name could not be freed (the caller must not proceed).
  */
 function discardBranchName(gitRoot: string, branch: string, fallbackRef: string): void {
-  if (countUnmergedCommits(gitRoot, branch, fallbackRef) === 0) {
+  if (countUnmergedCommits(gitRoot, branch, [fallbackRef]) === 0) {
     gitSync(['branch', '-D', branch], gitRoot);
     return;
   }
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*$/, 'Z');
-  const preserved = `cleo/preserved/${branch}/${stamp}`;
+  const preserved = `cleo/preserved/${branch}/${stamp}-${randomBytes(4).toString('hex')}`;
   gitSync(['branch', '-m', branch, preserved], gitRoot);
   process.stderr.write(
     `[worktree] preserved unmerged history of ${branch} as ${preserved} (never deleted)\n`,
@@ -340,20 +308,28 @@ export async function createWorktree(
     ...(options.holder ? { holder: options.holder } : {}),
     ...(options.lockTtlMs !== undefined ? { ttlMs: options.lockTtlMs } : {}),
   });
+  const ctx: ProvisionContext = {
+    gitRoot,
+    projectHash,
+    branch,
+    baseRef,
+    worktreePath,
+    hooks,
+    lockWorktree,
+    applyInclude,
+    lock,
+    freshWorktreeCreated: false,
+  };
   try {
-    return await provisionUnderLock(projectRoot, options, {
-      gitRoot,
-      projectHash,
-      branch,
-      baseRef,
-      worktreePath,
-      hooks,
-      lockWorktree,
-      applyInclude,
-      lock,
-    });
+    return await provisionUnderLock(projectRoot, options, ctx);
   } catch (err) {
     releaseWorktreeTaskLock(projectHash, taskId, lock.record.token);
+    // T12506: tell callers whether THIS call created the worktree directory.
+    // Only then may they clean it up; any other failure left a pre-existing
+    // (possibly live) worktree that must never be destroyed.
+    if (err !== null && typeof err === 'object') {
+      Object.assign(err, { freshWorktreeCreated: ctx.freshWorktreeCreated });
+    }
     throw err;
   }
 }
@@ -369,6 +345,8 @@ interface ProvisionContext {
   lockWorktree: boolean;
   applyInclude: boolean;
   lock: WorktreeLockAcquisition;
+  /** Set once `git worktree add` created the directory in THIS call. */
+  freshWorktreeCreated: boolean;
 }
 
 /**
@@ -440,6 +418,7 @@ async function provisionUnderLock(
           // move it aside to a preserved ref, then recreate from baseRef.
           discardBranchName(gitRoot, branch, baseRef);
           gitSync(['worktree', 'add', '-b', branch, worktreePath, baseRef], gitRoot);
+          ctx.freshWorktreeCreated = true;
           reused = false;
         } else {
           throw Object.assign(
@@ -456,11 +435,13 @@ async function provisionUnderLock(
       } else {
         // Branch exists but is clean (points to baseRef or an ancestor) — safe to reuse.
         gitSync(['worktree', 'add', worktreePath, branch], gitRoot);
+        ctx.freshWorktreeCreated = true;
         reused = true;
       }
     } else {
       // Create the worktree with a new branch.
       gitSync(['worktree', 'add', '-b', branch, worktreePath, baseRef], gitRoot);
+      ctx.freshWorktreeCreated = true;
       reused = false;
     }
   }

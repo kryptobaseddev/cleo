@@ -17,12 +17,9 @@
 
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
 
-import { getCleoHome } from '@cleocode/paths';
-
-/** Filename within `getCleoHome()` storing the persisted UUID. */
-const DEVICE_ID_FILE = 'device-id';
+import { resolveStableDeviceIdPath } from '@cleocode/paths';
 
 /** Process-lifetime cache so repeat callers do not re-read the disk. */
 let _cachedDeviceId: string | null = null;
@@ -44,7 +41,7 @@ let _cachedDeviceId: string | null = null;
 export function getStableDeviceId(): string {
   if (_cachedDeviceId !== null) return _cachedDeviceId;
 
-  const path = join(getCleoHome(), DEVICE_ID_FILE);
+  const path = resolveStableDeviceIdPath();
 
   if (existsSync(path)) {
     try {

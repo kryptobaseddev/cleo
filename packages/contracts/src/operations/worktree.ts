@@ -172,10 +172,13 @@ export interface WorktreeLockRecord {
  * - `acquired`: no lock existed.
  * - `reclaimed`: a lock existed but its holder was provably dead (pid gone or
  *   start time differs) or its heartbeat was older than the TTL.
+ * - `reentered`: the lock is held by the SAME caller (session id, agent id,
+ *   owner pid and start time all match), e.g. an orchestrator retrying its own
+ *   spawn; the existing worktree is re-attached.
  *
  * @task T12506
  */
-export type WorktreeLockAcquisitionStatus = 'acquired' | 'reclaimed';
+export type WorktreeLockAcquisitionStatus = 'acquired' | 'reclaimed' | 'reentered';
 
 /**
  * Lock outcome reported on {@link CreateWorktreeResult.lock}.
@@ -377,6 +380,16 @@ export interface DestroyWorktreeOptions {
    * @default true
    */
   deleteBranch?: boolean;
+  /**
+   * When true, `deleteBranch` also deletes a branch that carries commits on
+   * neither `origin/main` nor the project's current `HEAD`. Without it such a
+   * branch is kept and `error` explains why (T12506: unmerged agent work is
+   * never deleted implicitly).
+   *
+   * @default false
+   * @task T12506
+   */
+  forceDeleteUnmergedBranch?: boolean;
   /**
    * When true, force destruction even if the worktree has uncommitted changes.
    *

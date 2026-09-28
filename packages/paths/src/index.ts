@@ -40,6 +40,7 @@ export {
   resolveCanonicalCleoDir,
   resolveLegacyCleoDir,
   resolveProjectByCwd,
+  resolveStableDeviceIdPath,
 } from './cleo-paths.js';
 export {
   type EnforceOptions,

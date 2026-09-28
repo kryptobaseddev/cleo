@@ -22,13 +22,15 @@ import type { WorktreeLockRecord } from '@cleocode/contracts';
 import { BRANCH_LOCK_ERROR_CODES, ExitCode } from '@cleocode/contracts';
 import { resolveWorktreeTaskLockPath } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { computeProjectHash } from '../paths.js';
+import { computeProjectHash, resolveTaskWorktreePath } from '../paths.js';
 import { createWorktree } from '../worktree-create.js';
+import { destroyWorktree } from '../worktree-destroy.js';
 import {
   acquireWorktreeTaskLock,
   isWorktreeLockedError,
   readProcessStartTime,
   readWorktreeTaskLock,
+  releaseWorktreeTaskLock,
 } from '../worktree-lock.js';
 
 function git(args: string[], cwd: string): string {
@@ -53,6 +55,29 @@ function deadPid(): number {
   const r = spawnSync(process.execPath, ['-e', '']);
   if (r.pid === undefined) throw new Error('could not spawn');
   return r.pid;
+}
+
+/** Write a raw lock record for a bare project hash. */
+function plantRaw(projectHash: string, taskId: string, over: Partial<WorktreeLockRecord>): void {
+  const lockPath = resolveWorktreeTaskLockPath(projectHash, taskId);
+  mkdirSync(dirname(lockPath), { recursive: true });
+  const now = new Date().toISOString();
+  const record: WorktreeLockRecord = {
+    schemaVersion: 1,
+    token: `raw-${Math.random()}`,
+    taskId,
+    projectHash,
+    sessionId: null,
+    agentId: null,
+    deviceId: null,
+    pid: process.pid,
+    processStartedAt: null,
+    hostname: hostname(),
+    acquiredAt: now,
+    heartbeatAt: now,
+    ...over,
+  };
+  writeFileSync(lockPath, JSON.stringify(record));
 }
 
 /** Write a lock record directly (simulates a holder from another process). */
@@ -229,6 +254,84 @@ describe('createWorktree — per-task lock (T12506)', () => {
     expect(preserved).toContain(orphan);
   });
 
+  it('forceReset twice within one second preserves BOTH histories under distinct names', async () => {
+    const projectHash = computeProjectHash(projectRoot);
+    const orphans: string[] = [];
+    for (let round = 0; round < 2; round++) {
+      git(['checkout', '-B', 'scratch', 'main'], projectRoot);
+      writeFileSync(join(projectRoot, `o${round}.txt`), `${round}\n`);
+      git(['add', `o${round}.txt`], projectRoot);
+      git(['commit', '-m', `unmerged ${round}`], projectRoot);
+      orphans.push(git(['rev-parse', 'HEAD'], projectRoot).trim());
+      git(['checkout', 'main'], projectRoot);
+      const wt = resolveTaskWorktreePath(projectHash, 'T7007');
+      if (existsSync(wt)) git(['worktree', 'remove', '--force', wt], projectRoot);
+      git(['branch', '-f', 'task/T7007', 'scratch'], projectRoot);
+      releaseWorktreeTaskLock(projectHash, 'T7007');
+      await createWorktree(projectRoot, { taskId: 'T7007', lockWorktree: false, forceReset: true });
+    }
+    const refs = git(
+      [
+        'for-each-ref',
+        '--format=%(refname:short) %(objectname)',
+        'refs/heads/cleo/preserved/task/T7007/',
+      ],
+      projectRoot,
+    )
+      .trim()
+      .split('\n');
+    expect(refs).toHaveLength(2);
+    expect(new Set(refs.map((r) => r.split(' ')[0])).size).toBe(2);
+    for (const sha of orphans) expect(refs.join('\n')).toContain(sha);
+  });
+
+  it('the same orchestrator retrying its own spawn re-attaches instead of exit 25 (review item 2)', async () => {
+    const holder = { sessionId: 'ses_orch', agentId: 'agent-t7008' };
+    const first = await createWorktree(projectRoot, {
+      taskId: 'T7008',
+      lockWorktree: false,
+      holder,
+    });
+    const head = commitIn(first.path, 'a.ts', 'a\n');
+    writeFileSync(join(first.path, 'wip.txt'), 'wip\n');
+    const retry = await createWorktree(projectRoot, {
+      taskId: 'T7008',
+      lockWorktree: false,
+      holder,
+    });
+    expect(retry.lock?.status).toBe('reentered');
+    expect(retry.reused).toBe(true);
+    expect(readFileSync(join(retry.path, 'wip.txt'), 'utf-8')).toBe('wip\n');
+    expect(git(['rev-parse', 'task/T7008'], projectRoot).trim()).toBe(head);
+  });
+
+  it('a failure on a pre-existing branch is flagged NOT freshly created (callers must not clean up)', async () => {
+    git(['checkout', '-b', 'task/T7009'], projectRoot);
+    writeFileSync(join(projectRoot, 'p.txt'), 'x\n');
+    git(['add', 'p.txt'], projectRoot);
+    git(['commit', '-m', 'pre-existing'], projectRoot);
+    git(['checkout', 'main'], projectRoot);
+    const err = await createWorktree(projectRoot, { taskId: 'T7009', lockWorktree: false }).catch(
+      (e: unknown) => e,
+    );
+    expect((err as { freshWorktreeCreated?: boolean }).freshWorktreeCreated).toBe(false);
+  });
+
+  it('destroyWorktree keeps a branch with unmerged commits unless explicitly forced (review item 5)', async () => {
+    const r = await createWorktree(projectRoot, { taskId: 'T7010', lockWorktree: false });
+    const head = commitIn(r.path, 'keep.ts', 'k\n');
+    const d1 = await destroyWorktree(projectRoot, { taskId: 'T7010', force: true });
+    expect(d1.branchDeleted).toBe(false);
+    expect(d1.error).toMatch(/kept/);
+    expect(git(['rev-parse', 'task/T7010'], projectRoot).trim()).toBe(head);
+    const d2 = await destroyWorktree(projectRoot, {
+      taskId: 'T7010',
+      force: true,
+      forceDeleteUnmergedBranch: true,
+    });
+    expect(d2.branchDeleted).toBe(true);
+  });
+
   it('the lock is released when provisioning fails, so a retry is not blocked', async () => {
     git(['checkout', '-b', 'task/T7006'], projectRoot);
     writeFileSync(join(projectRoot, 'o.txt'), 'x\n');
@@ -282,25 +385,74 @@ describe('acquireWorktreeTaskLock — holder liveness (T12506)', () => {
     expect(r.reclaimReason).toBe('pid-recycled');
   });
 
-  it('reclaims a live holder whose heartbeat is older than the TTL', () => {
+  it('never reclaims a VERIFIED live holder on heartbeat age (review item 3)', () => {
     const t0 = Date.parse('2026-09-27T00:00:00Z');
+    // Holder = this live process with its real start time: verifiable.
     acquireWorktreeTaskLock({ projectHash: hash, taskId: 'T3', now: () => t0 });
-    expect(() =>
+    let caught: unknown;
+    try {
       acquireWorktreeTaskLock({
         projectHash: hash,
         taskId: 'T3',
+        ttlMs: 60_000,
+        now: () => t0 + 10 * 60 * 60 * 1000, // 10h later, TTL 1 min
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(isWorktreeLockedError(caught)).toBe(true);
+  });
+
+  it('reclaims an UNVERIFIABLE holder (other device) once its heartbeat is older than the TTL', () => {
+    const t0 = Date.parse('2026-09-27T00:00:00Z');
+    acquireWorktreeTaskLock({
+      projectHash: hash,
+      taskId: 'T3b',
+      holder: { deviceId: 'other-device' },
+      now: () => t0,
+    });
+    expect(() =>
+      acquireWorktreeTaskLock({
+        projectHash: hash,
+        taskId: 'T3b',
+        deviceId: 'this-device',
         ttlMs: 60_000,
         now: () => t0 + 30_000,
       }),
     ).toThrow(/E_WORKTREE_LOCKED/);
     const r = acquireWorktreeTaskLock({
       projectHash: hash,
-      taskId: 'T3',
+      taskId: 'T3b',
+      deviceId: 'this-device',
       ttlMs: 60_000,
       now: () => t0 + 61_000,
     });
     expect(r.status).toBe('reclaimed');
     expect(r.reclaimReason).toBe('heartbeat-stale');
+  });
+
+  it('probes the pid by DEVICE id, not host name (hostname changes do not matter)', () => {
+    // Same device id but a different recorded host name: the pid is still
+    // probed, so a dead pid is reclaimed immediately (no TTL wait).
+    plantRaw(hash, 'T3c', { deviceId: 'dev-same', hostname: 'renamed-host', pid: deadPid() });
+    const r = acquireWorktreeTaskLock({ projectHash: hash, taskId: 'T3c', deviceId: 'dev-same' });
+    expect(r.reclaimReason).toBe('pid-gone');
+  });
+
+  it('the same caller (session, agent, owner process) re-enters its own lock (review item 2b)', () => {
+    const holder = { sessionId: 'ses_orch', agentId: 'agent-t9' };
+    const first = acquireWorktreeTaskLock({ projectHash: hash, taskId: 'T9', holder });
+    const again = acquireWorktreeTaskLock({ projectHash: hash, taskId: 'T9', holder });
+    expect(again.status).toBe('reentered');
+    expect(again.reclaimedFrom?.token).toBe(first.record.token);
+    // A different session with the same owner process is still refused.
+    expect(() =>
+      acquireWorktreeTaskLock({
+        projectHash: hash,
+        taskId: 'T9',
+        holder: { sessionId: 'ses_other', agentId: 'agent-t9' },
+      }),
+    ).toThrow(/E_WORKTREE_LOCKED/);
   });
 
   it('never reclaims a live, fresh holder', () => {

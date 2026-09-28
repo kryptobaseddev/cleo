@@ -40,6 +40,7 @@ export { copyPathsWithReflock } from './copy-on-write.js';
 export {
   type AddTransientWorktreeOptions,
   addTransientWorktree,
+  countUnmergedCommits,
   DEFAULT_GIT_TIMEOUT_MS,
   getGitRoot,
   gitSilent,
@@ -67,7 +68,7 @@ export {
   WORKTREE_INDEX_RELATIVE_PATH,
   WORKTREE_LIFECYCLE_AUDIT_FILE,
 } from './worktree-audit.js';
-export { countUnmergedCommits, createWorktree } from './worktree-create.js';
+export { createWorktree } from './worktree-create.js';
 export { destroyWorktree } from './worktree-destroy.js';
 export { runWorktreeHooks } from './worktree-hooks.js';
 export { applyIncludePatterns, loadWorktreeIncludePatterns } from './worktree-include.js';
@@ -83,11 +84,13 @@ export {
   assessWorktreeLockHolder,
   DEFAULT_WORKTREE_LOCK_TTL_MS,
   heartbeatWorktreeTaskLock,
+  isSameLockCaller,
   isWorktreeLockedError,
   type ProcessLiveness,
   type ProcessProbe,
   probeProcess,
   readProcessStartTime,
+  readStableDeviceId,
   readWorktreeTaskLock,
   releaseWorktreeTaskLock,
   resolveWorktreeLockTtlMs,

@@ -35,6 +35,8 @@ const getActiveSessionMock = vi.fn();
 const execFileSyncMock = vi.fn();
 const execFileMock = vi.fn();
 const existsSyncMock = vi.fn();
+const acquireWorktreeTaskLockMock = vi.fn();
+const releaseWorktreeTaskLockMock = vi.fn();
 
 vi.mock('node:child_process', () => ({
   execFileSync: (...args: unknown[]) => execFileSyncMock(...args),
@@ -59,6 +61,8 @@ vi.mock('@cleocode/worktree', async () => {
   return {
     ...actual,
     destroyWorktree: (...args: unknown[]) => destroyWorktreeMock(...args),
+    acquireWorktreeTaskLock: (...args: unknown[]) => acquireWorktreeTaskLockMock(...args),
+    releaseWorktreeTaskLock: (...args: unknown[]) => releaseWorktreeTaskLockMock(...args),
   };
 });
 
@@ -108,7 +112,9 @@ vi.mock('../plan.js', () => ({
 }));
 
 // Imported AFTER the mocks so the orchestrate spawn binding uses them.
-const { orchestrateSpawn, runLintChangesets } = await import('../spawn-ops.js');
+const { orchestrateSpawn, runLintChangesets, shouldCleanUpFailedProvision } = await import(
+  '../spawn-ops.js'
+);
 
 // ---------------------------------------------------------------------------
 // runLintChangesets — T10448 pre-spawn hygiene gate
@@ -423,5 +429,210 @@ describe('orchestrateSpawn — supervisor end-to-end (T9545 / Saga T10176)', () 
       force: true,
       reason: 'spawn-timeout-cleanup',
     });
+  });
+});
+
+describe('orchestrateSpawn — worktree lock safety (T12506 review)', () => {
+  const stubAccessor = (): unknown => ({
+    loadSingleTask: vi.fn(async () => ({ id: 'T9999', parentId: null })),
+    appendLog: vi.fn(async () => undefined),
+    loadSessions: vi.fn(async () => []),
+    upsertSingleSession: vi.fn(async () => undefined),
+  });
+  const lockRecord = { token: 'tok-1' };
+  const wtResult = (over: Record<string, unknown> = {}) => ({
+    path: '/tmp/wt/T9999',
+    branch: 'task/T9999',
+    taskId: 'T9999',
+    baseRef: 'main',
+    projectHash: 'deadbeef',
+    createdAt: new Date().toISOString(),
+    locked: false,
+    reused: false,
+    envVars: {},
+    preamble: '',
+    appliedExcludePatterns: [],
+    lock: { status: 'acquired', lockPath: '/x.lock', record: lockRecord },
+    ...over,
+  });
+  const reset = (): void => {
+    for (const m of [
+      destroyWorktreeMock,
+      spawnWorktreeMock,
+      validateSpawnReadinessMock,
+      composeSpawnPayloadMock,
+      getTaskAccessorMock,
+      getActiveSessionMock,
+      acquireWorktreeTaskLockMock,
+      releaseWorktreeTaskLockMock,
+      execFileSyncMock,
+      existsSyncMock,
+    ]) {
+      m.mockReset();
+    }
+    getTaskAccessorMock.mockResolvedValue(stubAccessor());
+    getActiveSessionMock.mockResolvedValue({ id: 'sess-1' });
+    validateSpawnReadinessMock.mockResolvedValue({ ready: true, issues: [] });
+  };
+  const atomicityRefusal = {
+    atomicity: { allowed: false, code: 'E_ATOMICITY_NO_SCOPE', message: 'no scope' },
+    prompt: '',
+    agentId: 'cleo-worker',
+    role: 'worker',
+    tier: 0,
+    harnessHint: null,
+    meta: { protocol: 'rcasd', composerVersion: '3.0.0' },
+    taskId: 'T9999',
+  };
+
+  it('shouldCleanUpFailedProvision: only a worktree this call freshly created', () => {
+    expect(
+      shouldCleanUpFailedProvision(Object.assign(new Error('x'), { freshWorktreeCreated: true })),
+    ).toBe(true);
+    expect(
+      shouldCleanUpFailedProvision(Object.assign(new Error('x'), { freshWorktreeCreated: false })),
+    ).toBe(false);
+    expect(shouldCleanUpFailedProvision(new Error('EACCES: link failed'))).toBe(false);
+    expect(
+      shouldCleanUpFailedProvision(
+        Object.assign(new Error('E_WORKTREE_LOCKED'), {
+          code: 'E_WORKTREE_LOCKED',
+          freshWorktreeCreated: true,
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it('a lock I/O failure (e.g. link ENOTSUP/EACCES) never triggers destroyWorktree (item 1)', async () => {
+    reset();
+    spawnWorktreeMock.mockRejectedValue(
+      Object.assign(new Error('E_WORKTREE_LOCKED: could not take the worktree lock (EACCES)'), {
+        code: 'E_WORKTREE_LOCKED',
+        exitCode: 25,
+        holder: null,
+        reason: 'lock-unavailable',
+        lockPath: '/x.lock',
+        fix: 'fix',
+      }),
+    );
+    const result = await orchestrateSpawn('T9999');
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('E_WORKTREE_LOCKED');
+    expect(result.error?.exitCode).toBe(25);
+    expect(destroyWorktreeMock).not.toHaveBeenCalled();
+  });
+
+  it('a generic provisioning error on a pre-existing worktree never triggers destroyWorktree (item 1)', async () => {
+    reset();
+    spawnWorktreeMock.mockRejectedValue(new Error('ENOTSUP: operation not supported, link'));
+    const result = await orchestrateSpawn('T9999');
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('E_WORKTREE_PROVISION_FAILED');
+    expect(destroyWorktreeMock).not.toHaveBeenCalled();
+  });
+
+  it('cleanup still runs for a worktree this call freshly created', async () => {
+    reset();
+    spawnWorktreeMock.mockRejectedValue(
+      Object.assign(new Error('post-create hook failed'), { freshWorktreeCreated: true }),
+    );
+    destroyWorktreeMock.mockResolvedValue({
+      taskId: 'T9999',
+      worktreeRemoved: true,
+      branchDeleted: true,
+      dirty: false,
+      force: true,
+      hookResults: [],
+    });
+    const result = await orchestrateSpawn('T9999');
+    expect(result.error?.code).toBe('E_WORKTREE_PROVISION_FAILED');
+    expect(destroyWorktreeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases the lock when the spawn fails after provisioning, so a retry is not exit 25 (item 2a)', async () => {
+    reset();
+    spawnWorktreeMock.mockResolvedValue(wtResult());
+    composeSpawnPayloadMock.mockResolvedValue(atomicityRefusal);
+    const result = await orchestrateSpawn('T9999');
+    expect(result.error?.code).toBe('E_ATOMICITY_NO_SCOPE');
+    expect(releaseWorktreeTaskLockMock).toHaveBeenCalledWith('deadbeef', 'T9999', 'tok-1');
+    expect(destroyWorktreeMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps the lock with the agent on success', async () => {
+    reset();
+    spawnWorktreeMock.mockResolvedValue(wtResult());
+    composeSpawnPayloadMock.mockResolvedValue({
+      ...atomicityRefusal,
+      atomicity: { allowed: true },
+    });
+    const result = await orchestrateSpawn('T9999');
+    expect(result.success).toBe(true);
+    expect(releaseWorktreeTaskLockMock).not.toHaveBeenCalled();
+  });
+
+  it('--resume takes the lock, never unlocks git, never destroys on timeout (item 2c)', async () => {
+    reset();
+    existsSyncMock.mockReturnValue(true);
+    acquireWorktreeTaskLockMock.mockReturnValue({
+      status: 'reentered',
+      lockPath: '/x.lock',
+      record: { token: 'tok-resume' },
+    });
+    composeSpawnPayloadMock.mockImplementationOnce(() => {
+      throw Object.assign(new Error(`E_TIMEOUT: step 'compose-prompt' aborted`), {
+        code: 'E_TIMEOUT',
+      });
+    });
+    const result = await orchestrateSpawn(
+      'T9999',
+      undefined,
+      undefined,
+      undefined,
+      false,
+      undefined,
+      undefined,
+      true,
+    );
+    expect(result.error?.code).toBe('E_TIMEOUT');
+    expect(acquireWorktreeTaskLockMock).toHaveBeenCalledTimes(1);
+    expect(destroyWorktreeMock).not.toHaveBeenCalled();
+    const unlockCalls = execFileSyncMock.mock.calls.filter(
+      (c) => Array.isArray(c[1]) && (c[1] as string[]).includes('unlock'),
+    );
+    expect(unlockCalls).toHaveLength(0);
+    expect(releaseWorktreeTaskLockMock).toHaveBeenCalledWith(
+      expect.any(String),
+      'T9999',
+      'tok-resume',
+    );
+  });
+
+  it('--resume against a live foreign holder is refused with exit 25', async () => {
+    reset();
+    existsSyncMock.mockReturnValue(true);
+    acquireWorktreeTaskLockMock.mockImplementation(() => {
+      throw Object.assign(new Error('E_WORKTREE_LOCKED: held'), {
+        code: 'E_WORKTREE_LOCKED',
+        exitCode: 25,
+        holder: { sessionId: 'ses_other' },
+        reason: 'held',
+        lockPath: '/x.lock',
+        fix: 'wait',
+      });
+    });
+    const result = await orchestrateSpawn(
+      'T9999',
+      undefined,
+      undefined,
+      undefined,
+      false,
+      undefined,
+      undefined,
+      true,
+    );
+    expect(result.error?.code).toBe('E_WORKTREE_LOCKED');
+    expect(result.error?.exitCode).toBe(25);
+    expect(destroyWorktreeMock).not.toHaveBeenCalled();
   });
 });

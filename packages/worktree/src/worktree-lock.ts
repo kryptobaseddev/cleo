@@ -16,13 +16,23 @@
  * - **Atomic publish:** the record is written to a private temp file and then
  *   hard-linked into place. `link(2)` fails with `EEXIST` when the lock already
  *   exists, so exactly one contender wins and a reader never sees a partially
- *   written record.
+ *   written record. Filesystems without hard links (exFAT, some network
+ *   mounts) fall back to `open(O_CREAT|O_EXCL)` on the final path; a reader
+ *   that meets a young, not-yet-parseable record waits instead of reclaiming.
+ * - **Every acquisition failure is a refusal.** An I/O error (EACCES, EROFS,
+ *   ENOSPC, ...) surfaces as `E_WORKTREE_LOCKED` with `reason:
+ *   'lock-unavailable'` — never as a generic error a caller might answer with
+ *   worktree cleanup.
  * - **Holder identity:** session id, agent id, device id, owner pid plus the
  *   owner's `ps lstart` start time (rendered under `PS_STABLE_ENV`), host name
  *   and a heartbeat timestamp.
  * - **Liveness:** a held lock is reclaimable only when its holder is provably
- *   dead (pid gone, or alive with a different start time = recycled pid) or its
- *   heartbeat is older than the TTL. Anything else is `E_WORKTREE_LOCKED`.
+ *   dead (pid gone, or alive with a different start time = recycled pid). The
+ *   heartbeat TTL applies ONLY to holders whose pid cannot be verified (another
+ *   device, or no recorded start time); a verified live holder is never
+ *   reclaimed on age. Anything else is `E_WORKTREE_LOCKED`.
+ * - **Re-entry:** the same caller (session id, agent id, owner pid and start
+ *   time all equal) re-enters its own lock, so an orchestrator can retry.
  * - **Reclaim:** serialised through a second O_EXCL "reclaim mutex" file so two
  *   contenders that both saw the same dead holder cannot both win; the winner
  *   re-reads the lock and only replaces it if it is still the record it judged.
@@ -53,7 +63,7 @@ import type {
   WorktreeLockRecord,
 } from '@cleocode/contracts';
 import { BRANCH_LOCK_ERROR_CODES, ExitCode, PS_STABLE_ENV } from '@cleocode/contracts';
-import { resolveWorktreeTaskLockPath } from '@cleocode/paths';
+import { resolveStableDeviceIdPath, resolveWorktreeTaskLockPath } from '@cleocode/paths';
 
 /** Default heartbeat TTL: 4 hours. Override with `CLEO_WORKTREE_LOCK_TTL_MS`. */
 export const DEFAULT_WORKTREE_LOCK_TTL_MS = 4 * 60 * 60 * 1000;
@@ -66,6 +76,15 @@ const RECLAIM_MUTEX_STALE_MS = 30_000;
 
 /** Attempts to obtain the reclaim mutex before re-evaluating the lock. */
 const RECLAIM_ATTEMPTS = 50;
+
+/** A record younger than this that does not parse is still being written (O_EXCL fallback). */
+const UNREADABLE_GRACE_MS = 5_000;
+
+/** Upper bound on acquisition passes (each pass wins, throws, waits or observes progress). */
+const MAX_ACQUIRE_PASSES = 400;
+
+/** `link(2)` errnos that mean "hard links unsupported here", not "lock held". */
+const LINK_UNSUPPORTED = new Set(['ENOTSUP', 'EOPNOTSUPP', 'EPERM', 'ENOSYS', 'EXDEV', 'EMLINK']);
 
 /** Sleep between reclaim-mutex attempts. */
 const RECLAIM_BACKOFF_MS = 20;
@@ -87,6 +106,8 @@ export interface WorktreeLockAssessment {
   live: boolean;
   /** Why a non-live holder is reclaimable. */
   reason?: 'pid-gone' | 'pid-recycled' | 'heartbeat-stale';
+  /** True when the holder's pid + start time were verified live on this device. */
+  verified?: boolean;
 }
 
 /** Options for {@link acquireWorktreeTaskLock}. */
@@ -103,6 +124,8 @@ export interface AcquireWorktreeTaskLockOptions {
   probe?: ProcessProbe;
   /** Clock (default `Date.now`). */
   now?: () => number;
+  /** This device's id (default: the persisted `<cleoHome>/device-id`, if any). */
+  deviceId?: string | null;
 }
 
 /** Error thrown when the lock is held by a live holder. */
@@ -111,8 +134,10 @@ export interface WorktreeLockedError extends Error {
   code: typeof BRANCH_LOCK_ERROR_CODES.E_WORKTREE_LOCKED;
   /** Numeric exit code (`ExitCode.WORKTREE_LOCKED`). */
   exitCode: number;
-  /** The live holder's record. */
-  holder: WorktreeLockRecord;
+  /** The live holder's record; `null` when the lock itself could not be taken. */
+  holder: WorktreeLockRecord | null;
+  /** `held` = a live holder owns it; `lock-unavailable` = the lock file could not be created or read. */
+  reason: 'held' | 'lock-unavailable';
   /** Absolute path of the lock file. */
   lockPath: string;
   /** Remediation hint. */
@@ -176,12 +201,30 @@ export function probeProcess(pid: number): ProcessLiveness {
 }
 
 /**
+ * Read this device's persisted stable id (`<cleoHome>/device-id`), or `null`
+ * when core has not created it yet. Never creates it.
+ *
+ * @returns The device id, or `null`.
+ */
+export function readStableDeviceId(): string | null {
+  try {
+    const raw = readFileSync(resolveStableDeviceIdPath(), 'utf-8').trim();
+    return raw === '' ? null : raw;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Decide whether an existing lock's holder is live.
  *
- * Reclaimable when, and only when, the holder is provably dead — its pid is
- * gone, or alive with a different recorded start time (a recycled pid) — or
- * its heartbeat is older than `ttlMs`. A holder on another device cannot have
- * its pid probed, so only the heartbeat can release it.
+ * - Same device (device ids equal; host names equal when either id is
+ *   unknown): the pid is probed. Gone → `pid-gone`; alive with a different
+ *   start time → `pid-recycled`; alive with the SAME start time → live and
+ *   verified, whatever the heartbeat age (a verified live holder is never
+ *   reclaimed on age — T12506 review).
+ * - Unverifiable (another device, or no start time on either side): only the
+ *   heartbeat TTL can release it.
  *
  * @param record - The lock record on disk.
  * @param opts - TTL, clock, probe and this device's id.
@@ -192,53 +235,91 @@ export function assessWorktreeLockHolder(
   opts: { ttlMs: number; now: number; probe: ProcessProbe; deviceId: string | null },
 ): WorktreeLockAssessment {
   const sameDevice =
-    record.deviceId === null || opts.deviceId === null || record.deviceId === opts.deviceId;
-  if (sameDevice && record.hostname === hostname()) {
+    record.deviceId !== null && opts.deviceId !== null
+      ? record.deviceId === opts.deviceId
+      : record.hostname === hostname();
+  if (sameDevice) {
     const liveness = opts.probe(record.pid);
     if (!liveness.alive) return { live: false, reason: 'pid-gone' };
-    if (
-      record.processStartedAt !== null &&
-      liveness.startedAt !== null &&
-      liveness.startedAt !== record.processStartedAt
-    ) {
-      return { live: false, reason: 'pid-recycled' };
+    if (record.processStartedAt !== null && liveness.startedAt !== null) {
+      if (liveness.startedAt !== record.processStartedAt) {
+        return { live: false, reason: 'pid-recycled' };
+      }
+      return { live: true, verified: true };
     }
   }
   const heartbeat = Date.parse(record.heartbeatAt);
   if (!Number.isFinite(heartbeat) || opts.now - heartbeat > opts.ttlMs) {
     return { live: false, reason: 'heartbeat-stale' };
   }
-  return { live: true };
+  return { live: true, verified: false };
 }
+
+/**
+ * True when `candidate` is the same caller as the lock's `holder`: session id
+ * and agent id both present and equal, and the same owner process (pid and
+ * start time). Only then may a spawn re-enter an existing lock.
+ *
+ * @param holder - Record on disk.
+ * @param candidate - Record the caller would publish.
+ * @returns Whether re-entry is allowed.
+ */
+export function isSameLockCaller(
+  holder: WorktreeLockRecord,
+  candidate: WorktreeLockRecord,
+): boolean {
+  return (
+    holder.sessionId !== null &&
+    holder.agentId !== null &&
+    holder.sessionId === candidate.sessionId &&
+    holder.agentId === candidate.agentId &&
+    holder.pid === candidate.pid &&
+    holder.processStartedAt !== null &&
+    holder.processStartedAt === candidate.processStartedAt
+  );
+}
+
+/** Result of reading a lock file. */
+type LockRead =
+  | { kind: 'absent' }
+  | { kind: 'record'; record: WorktreeLockRecord }
+  | { kind: 'unreadable'; ageMs: number };
 
 /**
  * Read and validate the lock record at `lockPath`.
  *
  * @param lockPath - Absolute lock file path.
- * @returns The record, `null` when absent, or `'unreadable'` when the file
- *   exists but does not hold a valid record.
+ * @param now - Current time (ms) used to age an unparseable file.
+ * @returns What is on disk.
  */
-function readLockRecordAt(lockPath: string): WorktreeLockRecord | null | 'unreadable' {
+function readLockAt(lockPath: string, now: number): LockRead {
   let raw: string;
   try {
     raw = readFileSync(lockPath, 'utf-8');
   } catch (err) {
-    return (err as NodeJS.ErrnoException).code === 'ENOENT' ? null : 'unreadable';
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { kind: 'absent' };
+    throw err;
   }
   try {
     const parsed = JSON.parse(raw) as Partial<WorktreeLockRecord>;
     if (
-      parsed.schemaVersion !== 1 ||
-      typeof parsed.token !== 'string' ||
-      typeof parsed.pid !== 'number' ||
-      typeof parsed.heartbeatAt !== 'string'
+      parsed.schemaVersion === 1 &&
+      typeof parsed.token === 'string' &&
+      typeof parsed.pid === 'number' &&
+      typeof parsed.heartbeatAt === 'string'
     ) {
-      return 'unreadable';
+      return { kind: 'record', record: parsed as WorktreeLockRecord };
     }
-    return parsed as WorktreeLockRecord;
   } catch {
-    return 'unreadable';
+    /* fall through */
   }
+  let ageMs = Number.POSITIVE_INFINITY;
+  try {
+    ageMs = now - statSync(lockPath).mtimeMs;
+  } catch {
+    /* vanished */
+  }
+  return { kind: 'unreadable', ageMs };
 }
 
 /**
@@ -252,21 +333,23 @@ export function readWorktreeTaskLock(
   projectHash: string,
   taskId: string,
 ): WorktreeLockRecord | null {
-  const record = readLockRecordAt(resolveWorktreeTaskLockPath(projectHash, taskId));
-  return record === 'unreadable' ? null : record;
+  try {
+    const read = readLockAt(resolveWorktreeTaskLockPath(projectHash, taskId), Date.now());
+    return read.kind === 'record' ? read.record : null;
+  } catch {
+    return null;
+  }
 }
 
-/** Write `content` to a fresh private temp file next to `target` and fsync it. */
-function writeTempFile(target: string, token: string, content: string): string {
-  const tmp = `${target}.${token}.tmp`;
-  const fd = openSync(tmp, 'wx', 0o600);
+/** Write `content` to `path` with `O_CREAT|O_EXCL` and fsync it. Throws EEXIST when taken. */
+function writeExclusive(path: string, content: string): void {
+  const fd = openSync(path, 'wx', 0o600);
   try {
     writeSync(fd, content);
     fsyncSync(fd);
   } finally {
     closeSync(fd);
   }
-  return tmp;
 }
 
 /** Unlink `path`, ignoring a missing file. */
@@ -278,46 +361,111 @@ function unlinkQuiet(path: string): void {
   }
 }
 
+/** Serialise a record for disk. */
+function serialise(record: WorktreeLockRecord): string {
+  return `${JSON.stringify(record, null, 2)}\n`;
+}
+
 /**
- * Publish `record` at `lockPath` iff no lock exists (link(2) is atomic and
- * fails with EEXIST when the name is taken).
+ * Publish `record` at `lockPath` iff no lock exists.
  *
- * @returns true when this call created the lock.
+ * Primary path: temp file + `link(2)` (atomic, fails with EEXIST). When the
+ * filesystem has no hard links (exFAT → ENOTSUP/EPERM, ...), falls back to
+ * `O_EXCL` on the final path — still exclusive, and readers treat a young
+ * unparseable record as "being written".
+ *
+ * @returns true when this call created the lock; false when it already exists.
+ * @throws Any other I/O error (the caller turns it into a refusal).
  */
 function publishExclusive(lockPath: string, record: WorktreeLockRecord): boolean {
-  const tmp = writeTempFile(lockPath, record.token, `${JSON.stringify(record, null, 2)}\n`);
+  const tmp = `${lockPath}.${record.token}.tmp`;
+  writeExclusive(tmp, serialise(record));
+  let linkErr: NodeJS.ErrnoException | undefined;
   try {
     linkSync(tmp, lockPath);
     return true;
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'EEXIST') return false;
-    throw err;
+    linkErr = err as NodeJS.ErrnoException;
   } finally {
     unlinkQuiet(tmp);
   }
+  if (linkErr.code === 'EEXIST') return false;
+  if (!LINK_UNSUPPORTED.has(linkErr.code ?? '')) throw linkErr;
+  try {
+    writeExclusive(lockPath, serialise(record));
+    return true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EEXIST') return false;
+    throw err;
+  }
 }
 
-/** Block the thread for `ms` (bounded, used only while contending for the reclaim mutex). */
+/** Block the thread for `ms` (bounded; used only while contending). */
 function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
 /**
- * Take the reclaim mutex (`<lock>.reclaim`, O_EXCL). A mutex older than
- * {@link RECLAIM_MUTEX_STALE_MS} belongs to a crashed reclaimer and is removed.
- *
- * @returns A release function, or `null` when the mutex stayed busy.
+ * Remove an abandoned mutex only if it is still the file we judged stale:
+ * rename it to a private name, then compare inodes. A mutex created in the
+ * meantime by a live contender is put back rather than deleted.
  */
-function takeReclaimMutex(lockPath: string, now: () => number): (() => void) | null {
+function breakStaleMutex(mutexPath: string, staleIno: number): void {
+  const graveyard = `${mutexPath}.${randomUUID()}.stale`;
+  try {
+    renameSync(mutexPath, graveyard);
+  } catch {
+    return; // already gone
+  }
+  let ino = -1;
+  try {
+    ino = statSync(graveyard).ino;
+  } catch {
+    return;
+  }
+  if (ino === staleIno) {
+    unlinkQuiet(graveyard);
+    return;
+  }
+  try {
+    linkSync(graveyard, mutexPath); // restore the live contender's mutex
+  } catch {
+    try {
+      renameSync(graveyard, mutexPath);
+    } catch {
+      /* best effort */
+    }
+  }
+  unlinkQuiet(graveyard);
+}
+
+/**
+ * Take the per-lock mutex (`<lock>.reclaim`, O_EXCL, content = our token). It
+ * serialises every non-create transition of the lock file (reclaim, re-entry,
+ * heartbeat). A mutex older than {@link RECLAIM_MUTEX_STALE_MS} belongs to a
+ * crashed holder and is broken by inode.
+ *
+ * @returns A release function (removes the mutex only if it is still ours),
+ *   or `null` when the mutex stayed busy.
+ */
+function takeLockMutex(lockPath: string, now: () => number): (() => void) | null {
   const mutexPath = `${lockPath}.reclaim`;
+  const token = randomUUID();
   for (let attempt = 0; attempt < RECLAIM_ATTEMPTS; attempt++) {
     try {
-      closeSync(openSync(mutexPath, 'wx', 0o600));
-      return () => unlinkQuiet(mutexPath);
+      writeExclusive(mutexPath, token);
+      return () => {
+        try {
+          if (readFileSync(mutexPath, 'utf-8') === token) unlinkSync(mutexPath);
+        } catch {
+          /* already gone */
+        }
+      };
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
       try {
-        if (now() - statSync(mutexPath).mtimeMs > RECLAIM_MUTEX_STALE_MS) unlinkQuiet(mutexPath);
+        const st = statSync(mutexPath);
+        if (now() - st.mtimeMs > RECLAIM_MUTEX_STALE_MS) breakStaleMutex(mutexPath, st.ino);
       } catch {
         /* vanished between open and stat — retry */
       }
@@ -343,9 +491,11 @@ function lockedError(
     .filter((part): part is string => part !== null)
     .join(', ');
   const fix =
-    `The worktree for ${taskId} belongs to a live holder. Attach to it with ` +
-    `'cleo orchestrate spawn ${taskId} --resume', or wait until the holder exits or its ` +
-    `heartbeat (last ${holder.heartbeatAt}) goes stale. Lock file: ${lockPath}`;
+    `The worktree for ${taskId} belongs to a live holder (${who}). The same orchestrator ` +
+    `(same session, agent and owner process) re-enters automatically. Otherwise wait for ` +
+    `that holder to finish; if it is abandoned, stop process ${holder.pid} — a dead ` +
+    `holder's lock is reclaimed on the next spawn and its worktree is re-attached, never ` +
+    `removed. Lock file: ${lockPath}`;
   return Object.assign(
     new Error(
       `${BRANCH_LOCK_ERROR_CODES.E_WORKTREE_LOCKED}: the worktree for task ${taskId} is locked by ` +
@@ -355,8 +505,32 @@ function lockedError(
       code: BRANCH_LOCK_ERROR_CODES.E_WORKTREE_LOCKED,
       exitCode: ExitCode.WORKTREE_LOCKED,
       holder,
+      reason: 'held' as const,
       lockPath,
       fix,
+    },
+  );
+}
+
+/** Wrap an I/O failure while taking the lock as a refusal (never a cleanup trigger). */
+function unavailableError(taskId: string, lockPath: string, cause: unknown): WorktreeLockedError {
+  const detail =
+    cause instanceof Error
+      ? `${(cause as NodeJS.ErrnoException).code ?? cause.name}: ${cause.message}`
+      : String(cause);
+  return Object.assign(
+    new Error(
+      `${BRANCH_LOCK_ERROR_CODES.E_WORKTREE_LOCKED}: could not take the worktree lock for task ` +
+        `${taskId} (${detail}). Refusing to provision without it; nothing was removed.`,
+    ),
+    {
+      code: BRANCH_LOCK_ERROR_CODES.E_WORKTREE_LOCKED,
+      exitCode: ExitCode.WORKTREE_LOCKED,
+      holder: null,
+      reason: 'lock-unavailable' as const,
+      lockPath,
+      fix: `Make ${dirname(lockPath)} writable (check permissions, free space and the CLEO_HOME filesystem), then retry the spawn.`,
+      cause,
     },
   );
 }
@@ -375,28 +549,48 @@ export function isWorktreeLockedError(err: unknown): err is WorktreeLockedError 
 }
 
 /**
- * Atomically acquire the per-task worktree lock, reclaiming it from a dead or
- * stale holder.
+ * Atomically acquire the per-task worktree lock: create it, re-enter it (same
+ * caller), or reclaim it from a provably dead / unverifiable-and-stale holder.
  *
  * @param options - Task, holder identity, TTL and test seams.
  * @returns How the lock was obtained plus the record now on disk.
  * @throws {@link WorktreeLockedError} (`E_WORKTREE_LOCKED`) when a live holder
- *   owns the lock.
+ *   owns the lock OR the lock could not be taken at all. Every failure of this
+ *   function is a refusal: callers must never answer it with cleanup.
  */
 export function acquireWorktreeTaskLock(
   options: AcquireWorktreeTaskLockOptions,
+): WorktreeLockAcquisition {
+  const lockPath = resolveWorktreeTaskLockPath(options.projectHash, options.taskId);
+  try {
+    return acquireUnchecked(options, lockPath);
+  } catch (err) {
+    if (isWorktreeLockedError(err)) throw err;
+    throw unavailableError(options.taskId, lockPath, err);
+  }
+}
+
+/** {@link acquireWorktreeTaskLock} without the refusal wrapper. */
+function acquireUnchecked(
+  options: AcquireWorktreeTaskLockOptions,
+  lockPath: string,
 ): WorktreeLockAcquisition {
   const { projectHash, taskId } = options;
   const holder = options.holder ?? {};
   const now = options.now ?? Date.now;
   const probe = options.probe ?? probeProcess;
   const ttlMs = options.ttlMs ?? resolveWorktreeLockTtlMs();
-  const lockPath = resolveWorktreeTaskLockPath(projectHash, taskId);
   mkdirSync(dirname(lockPath), { recursive: true });
 
   const pid = holder.pid ?? process.pid;
   const processStartedAt =
     holder.processStartedAt !== undefined ? holder.processStartedAt : readProcessStartTime(pid);
+  const deviceId =
+    holder.deviceId !== undefined && holder.deviceId !== null
+      ? holder.deviceId
+      : options.deviceId !== undefined
+        ? options.deviceId
+        : readStableDeviceId();
   const stamp = new Date(now()).toISOString();
   const record: WorktreeLockRecord = {
     schemaVersion: 1,
@@ -405,7 +599,7 @@ export function acquireWorktreeTaskLock(
     projectHash,
     sessionId: holder.sessionId ?? null,
     agentId: holder.agentId ?? null,
-    deviceId: holder.deviceId ?? null,
+    deviceId,
     pid,
     processStartedAt,
     hostname: hostname(),
@@ -413,62 +607,67 @@ export function acquireWorktreeTaskLock(
     heartbeatAt: stamp,
   };
 
-  // Bounded: each pass either wins, throws, or observed a lock that changed
-  // under it (another contender won or released), which cannot loop forever
-  // without some contender making progress.
-  for (let pass = 0; pass < 8; pass++) {
+  for (let pass = 0; pass < MAX_ACQUIRE_PASSES; pass++) {
     if (publishExclusive(lockPath, record)) return { status: 'acquired', lockPath, record };
 
-    const existing = readLockRecordAt(lockPath);
-    if (existing === null) continue; // released between link and read — retry
+    const existing = readLockAt(lockPath, now());
+    if (existing.kind === 'absent') continue; // released between create and read — retry
+    let status: 'reclaimed' | 'reentered';
     let reason: WorktreeLockAcquisition['reclaimReason'];
-    if (existing === 'unreadable') {
+    if (existing.kind === 'unreadable') {
+      if (existing.ageMs < UNREADABLE_GRACE_MS) {
+        sleepSync(RECLAIM_BACKOFF_MS); // O_EXCL fallback writer mid-write
+        continue;
+      }
+      status = 'reclaimed';
       reason = 'unreadable';
+    } else if (isSameLockCaller(existing.record, record)) {
+      status = 'reentered';
     } else {
-      const verdict = assessWorktreeLockHolder(existing, {
+      const verdict = assessWorktreeLockHolder(existing.record, {
         ttlMs,
         now: now(),
         probe,
-        deviceId: record.deviceId,
+        deviceId,
       });
-      if (verdict.live) throw lockedError(taskId, lockPath, existing);
+      if (verdict.live) throw lockedError(taskId, lockPath, existing.record);
+      status = 'reclaimed';
       reason = verdict.reason;
     }
 
-    const release = takeReclaimMutex(lockPath, now);
-    if (release === null) continue; // another contender is reclaiming — re-evaluate
+    const release = takeLockMutex(lockPath, now);
+    if (release === null) continue; // another contender is transitioning it — re-evaluate
     try {
       // Re-read under the mutex: only replace the exact record we judged.
-      const current = readLockRecordAt(lockPath);
+      const current = readLockAt(lockPath, now());
       const same =
-        current === 'unreadable'
-          ? existing === 'unreadable'
-          : current !== null && existing !== 'unreadable' && current.token === existing.token;
+        existing.kind === 'unreadable'
+          ? current.kind === 'unreadable'
+          : current.kind === 'record' && current.record.token === existing.record.token;
       if (!same) continue;
       unlinkQuiet(lockPath);
       if (publishExclusive(lockPath, record)) {
         return {
-          status: 'reclaimed',
+          status,
           lockPath,
           record,
-          ...(existing !== 'unreadable' ? { reclaimedFrom: existing } : {}),
-          ...(reason ? { reclaimReason: reason } : {}),
+          ...(existing.kind === 'record' ? { reclaimedFrom: existing.record } : {}),
+          ...(status === 'reclaimed' && reason ? { reclaimReason: reason } : {}),
         };
       }
     } finally {
       release();
     }
   }
-  const final = readLockRecordAt(lockPath);
-  if (final !== null && final !== 'unreadable') throw lockedError(taskId, lockPath, final);
-  throw Object.assign(
-    new Error(`E_WORKTREE_LOCK_CONTENDED: could not acquire the worktree lock for ${taskId}`),
-    { code: BRANCH_LOCK_ERROR_CODES.E_WORKTREE_LOCKED, exitCode: ExitCode.WORKTREE_LOCKED },
-  );
+  const final = readLockAt(lockPath, now());
+  if (final.kind === 'record') throw lockedError(taskId, lockPath, final.record);
+  throw new Error(`lock for ${taskId} stayed contended for ${MAX_ACQUIRE_PASSES} passes`);
 }
 
 /**
- * Refresh the holder's heartbeat. Only the holder that owns `token` may beat.
+ * Refresh the holder's heartbeat. Only the holder that owns `token` may beat,
+ * and the rewrite happens under the lock mutex after re-checking the token, so
+ * it can never clobber a lock another contender reclaimed in the meantime.
  *
  * @param projectHash - Project hash.
  * @param taskId - Task id.
@@ -483,17 +682,30 @@ export function heartbeatWorktreeTaskLock(
   now: () => number = Date.now,
 ): WorktreeLockRecord | null {
   const lockPath = resolveWorktreeTaskLockPath(projectHash, taskId);
-  const current = readLockRecordAt(lockPath);
-  if (current === null || current === 'unreadable' || current.token !== token) return null;
-  const next: WorktreeLockRecord = { ...current, heartbeatAt: new Date(now()).toISOString() };
-  const tmp = writeTempFile(lockPath, `${token}.beat`, `${JSON.stringify(next, null, 2)}\n`);
-  renameSync(tmp, lockPath);
-  return next;
+  const release = takeLockMutex(lockPath, now);
+  if (release === null) return null;
+  try {
+    const current = readLockAt(lockPath, now());
+    if (current.kind !== 'record' || current.record.token !== token) return null;
+    const next: WorktreeLockRecord = {
+      ...current.record,
+      heartbeatAt: new Date(now()).toISOString(),
+    };
+    const tmp = `${lockPath}.${token}.beat.tmp`;
+    unlinkQuiet(tmp);
+    writeExclusive(tmp, serialise(next));
+    renameSync(tmp, lockPath);
+    return next;
+  } catch {
+    return null;
+  } finally {
+    release();
+  }
 }
 
 /**
  * Release the per-task lock. With `token`, only that acquisition's lock is
- * removed (a lock since reclaimed by someone else is left alone).
+ * removed (a lock since reclaimed or re-entered by someone else is left alone).
  *
  * @param projectHash - Project hash.
  * @param taskId - Task id.
@@ -506,11 +718,11 @@ export function releaseWorktreeTaskLock(
   token?: string,
 ): boolean {
   const lockPath = resolveWorktreeTaskLockPath(projectHash, taskId);
-  if (token !== undefined) {
-    const current = readLockRecordAt(lockPath);
-    if (current === null || current === 'unreadable' || current.token !== token) return false;
-  }
   try {
+    if (token !== undefined) {
+      const current = readLockAt(lockPath, Date.now());
+      if (current.kind !== 'record' || current.record.token !== token) return false;
+    }
     unlinkSync(lockPath);
     return true;
   } catch {
