@@ -47,6 +47,11 @@
 import type { DecisionAnswer, DecisionQuestion, DecisionRequest, Task } from '@cleocode/contracts';
 import { z } from 'zod';
 import type { DecideOptions } from '../decide/client.js';
+import {
+  type DecisionSiteMode,
+  redactThenClip,
+  resolveDecisionSiteSettings,
+} from '../decide/site.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 
 // ============================================================================
@@ -192,7 +197,7 @@ export interface DuplicateCheckResult {
  * - `shadow` — ask, audit both answers, act on the heuristic.
  * - `on`     — ask, act on the decision; the heuristic acts on any fallback.
  */
-export type DuplicateDecisionMode = 'off' | 'shadow' | 'on';
+export type DuplicateDecisionMode = DecisionSiteMode;
 
 /** Optional wiring for {@link checkDuplicates}. Every field defaults from config. */
 export interface DuplicateCheckOptions {
@@ -675,22 +680,6 @@ function isConfident(answers: Readonly<Record<string, { readonly confidence: num
 }
 
 /**
- * Redact secrets, THEN clip to `max` characters, marking the cut.
- *
- * The order matters: clipping first can cut a secret in half, and a partial
- * secret no longer matches the redaction patterns — `decide()`'s own redaction
- * would then let the prefix through.
- */
-function redactThenClip(text: string, max: number, redact: (s: string) => string): string {
-  const safe = redact(text);
-  return safe.length <= max ? safe : `${safe.slice(0, max - 1)}…`;
-}
-
-function isDecisionMode(value: unknown): value is DuplicateDecisionMode {
-  return value === 'off' || value === 'shadow' || value === 'on';
-}
-
-/**
  * Resolve the System One mode and the generative-tier opt-in.
  *
  * Unconfigured (no explicit provider/connection and nothing stored by
@@ -701,42 +690,14 @@ async function resolveDuplicateDecisionSettings(
   opts: DuplicateCheckOptions,
   cwd: string | undefined,
 ): Promise<DuplicateDecisionSettings> {
-  const wiring = opts.decide ?? {};
-  let configured: boolean;
-  if (wiring.provider) {
-    configured = true;
-  } else if (wiring.connection !== undefined) {
-    configured = wiring.connection !== null && wiring.connection.apiKey.trim() !== '';
-  } else {
-    try {
-      const { loadDecideConnection } = await import('../decide/credentials.js');
-      configured = loadDecideConnection() !== null;
-    } catch {
-      configured = false;
-    }
-  }
-
-  const needConfig = (configured && opts.mode === undefined) || opts.llmTier === undefined;
-  let configMode: unknown;
-  let configLlmTier: unknown;
-  if (needConfig) {
-    try {
-      const { getConfigValue } = await import('../config/registry.js');
-      const { getProjectRoot } = await import('../paths.js');
-      const projectRoot = cwd ?? getProjectRoot();
-      [configMode, configLlmTier] = await Promise.all([
-        getConfigValue(DUPLICATE_DECISION_MODE_KEY, { projectRoot }),
-        getConfigValue(DUPLICATE_LLM_TIER_KEY, { projectRoot }),
-      ]);
-    } catch {
-      // Unreadable config → defaults.
-    }
-  }
-
-  const mode: DuplicateDecisionMode = !configured
-    ? 'off'
-    : (opts.mode ?? (isDecisionMode(configMode) ? configMode : 'shadow'));
-  return { mode, llmTier: opts.llmTier ?? configLlmTier === true };
+  return resolveDecisionSiteSettings({
+    modeKey: DUPLICATE_DECISION_MODE_KEY,
+    llmTierKey: DUPLICATE_LLM_TIER_KEY,
+    mode: opts.mode,
+    llmTier: opts.llmTier,
+    wiring: opts.decide,
+    projectRoot: cwd,
+  });
 }
 
 /** Question name for the candidate at `index` (0-based). */

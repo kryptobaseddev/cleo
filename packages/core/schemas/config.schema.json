@@ -1196,6 +1196,12 @@
               "enum": ["off", "shadow", "on"],
               "default": "shadow",
               "description": "`cleo add` duplicate detection (T12492). shadow = ask the provider, audit its answers next to the heuristic's in .cleo/audit/decisions.jsonl, act on the heuristic. on = act on the provider's answer. off = never ask. Always off when no provider is configured."
+            },
+            "decisionContradiction": {
+              "type": "string",
+              "enum": ["off", "shadow", "on"],
+              "default": "shadow",
+              "description": "ADR decision contradiction check on `storeDecision` writes that request model validation (T12493). One choice question per prior decision (contradicts | supersedes | refines | unrelated), top 3 by word overlap, 300 ms budget. shadow = ask, audit next to the heuristic, act on the heuristic. on = act on the answers when every confidence is >= 0.6. off = never ask. Always off when no provider is configured."
             }
           }
         },
@@ -1208,6 +1214,10 @@
               "type": "boolean",
               "default": false,
               "description": "Run the T1681 generative-LLM duplicate check (up to 15 s on the `cleo add` write path). Off by default."
+            },
+            "decisionContradiction": {
+              "type": "boolean",
+              "description": "Run the T1828 generative-LLM decision contradiction check (up to 15 s on the decision write path). When unset: on while no System One provider is configured (the pre-T12493 behaviour), off once one is."
             }
           }
         }

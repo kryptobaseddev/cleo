@@ -98,4 +98,12 @@ export {
   type DecisionProviderErrorKind,
   type DecisionProviderErrorOptions,
 } from './provider.js';
+export {
+  type DecisionSiteMode,
+  type DecisionSiteSettings,
+  isDecisionSiteMode,
+  type ResolveDecisionSiteSettingsInput,
+  redactThenClip,
+  resolveDecisionSiteSettings,
+} from './site.js';
 export { type DecideFetch, type DecideFetchInit, decideFetch } from './transport.js';
