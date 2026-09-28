@@ -24,7 +24,7 @@ import {
   getProjectAgentsDir,
 } from '@cleocode/caamp';
 import { getCleoHome, getProjectRoot } from '../paths.js';
-import { resolveSkillsRoot } from './skill-root.js';
+import { resolveBundledSkillDir, resolveSkillsRoot } from './skill-root.js';
 import type {
   Skill,
   SkillFrontmatter,
@@ -306,8 +306,10 @@ export function discoverAllSkills(cwd?: string): Skill[] {
 }
 
 /**
- * Find a specific skill by name across all search paths.
+ * Find a specific skill by name across all search paths, falling back to
+ * the copy bundled in `@cleocode/skills` when none holds it.
  * @task T4516
+ * @task T12646
  */
 export function findSkill(name: string, cwd?: string): Skill | null {
   const { canonical } = mapSkillName(name);
@@ -329,7 +331,10 @@ export function findSkill(name: string, cwd?: string): Skill | null {
     }
   }
 
-  return null;
+  // T12646: not installed anywhere — read the copy bundled in @cleocode/skills
+  // so stage guidance and spawn prompts never lose a protocol they name.
+  const bundled = resolveBundledSkillDir(canonical);
+  return bundled === null ? null : discoverSkill(bundled);
 }
 
 /**

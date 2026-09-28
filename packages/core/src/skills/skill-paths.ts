@@ -16,7 +16,7 @@
 import { existsSync, lstatSync, readlinkSync, realpathSync } from 'node:fs';
 import { delimiter, join, resolve } from 'node:path';
 import { resolveOrCwd } from '../paths.js';
-import { resolveSkillsRoot } from './skill-root.js';
+import { resolveBundledSkillDir, resolveSkillsRoot } from './skill-root.js';
 
 /** Source type classification for a skill directory. */
 export type SkillSourceType = 'embedded' | 'caamp' | 'project-link' | 'global-link';
@@ -137,7 +137,13 @@ export function getSkillSearchPaths(projectRoot?: string): SkillSearchPath[] {
  * Searches all paths from getSkillSearchPaths() in priority order.
  * First match wins.
  *
+ * When no search path holds the skill, falls back to the copy bundled in
+ * `@cleocode/skills` (except under `CLEO_SKILL_SOURCE=embedded`), so a spawn
+ * prompt can always read a protocol it names even when install selection
+ * left it out of the data dir (T12646).
+ *
  * @task T4552
+ * @task T12646
  */
 export function resolveSkillPath(skillName: string, projectRoot?: string): string | null {
   const searchPaths = getSkillSearchPaths(projectRoot);
@@ -149,7 +155,9 @@ export function resolveSkillPath(skillName: string, projectRoot?: string): strin
     }
   }
 
-  return null;
+  if (process.env['CLEO_SKILL_SOURCE'] === 'embedded') return null;
+  const bundled = resolveBundledSkillDir(skillName);
+  return bundled === null ? null : safeRealpath(bundled);
 }
 
 /**

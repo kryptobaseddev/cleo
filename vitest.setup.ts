@@ -26,16 +26,40 @@
  * fork's process and overrides the default established here.
  */
 
-import { createRequire } from 'node:module';
-import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join, resolve, sep } from 'node:path';
+import { createRequire, syncBuiltinESMExports } from 'node:module';
+import { constants as fsConstants, mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { delimiter, join, resolve, sep } from 'node:path';
+import { afterEach } from 'vitest';
+import { createPlatformPathsResolver } from './packages/paths/src/platform-paths.js';
 
 // We must patch the CommonJS `child_process` module object so every importer
 // (ESM and CJS) sees the wrapped functions. The ESM namespace object is
 // read-only, so we use createRequire to reach the underlying CJS export.
 const cjsRequire = createRequire(import.meta.url);
 const child_process: Record<string, unknown> = cjsRequire('node:child_process');
+
+// ---------------------------------------------------------------------------
+// Real data dir, captured BEFORE the sandbox below replaces HOME / CLEO_HOME.
+// The write guard at the end of this file refuses every test write under it
+// (T12645: caamp tests left 53 skill fixtures in the real
+// `~/Library/Application Support/cleo/skills`). This setup can run twice in
+// one fork (root config + a package config that names it too); the first
+// run's capture is kept, because by the second run HOME is already the
+// sandbox.
+// ---------------------------------------------------------------------------
+const PROTECTED_ROOTS_ENV = 'CLEO_TEST_PROTECTED_DATA_ROOTS';
+if (!process.env[PROTECTED_ROOTS_ENV]) {
+  const roots = new Set<string>([
+    // The data dir as the parent shell resolves it (honours CLEO_HOME)...
+    createPlatformPathsResolver('cleo', 'CLEO_HOME').getPlatformPaths().data,
+    // ...the platform default even when the shell overrides CLEO_HOME...
+    createPlatformPathsResolver('cleo', 'CLEO_TEST_UNSET_HOME_OVERRIDE').getPlatformPaths().data,
+    // ...and the `~/.cleo` convenience alias that links to it.
+    join(homedir(), '.cleo'),
+  ]);
+  process.env[PROTECTED_ROOTS_ENV] = [...roots].map((r) => resolve(r)).join(delimiter);
+}
 
 // Capture the caller's selected filesystem before sanitizing inherited aliases.
 // Only choose a physical system-temp base, never the arbitrary inherited
@@ -289,3 +313,155 @@ wrap('spawn', 1, 2);
 wrap('spawnSync', 1, 2);
 wrap('execFile', 1, 2);
 wrap('execFileSync', 1, 2);
+
+// ---------------------------------------------------------------------------
+// Real-data-dir write guard (T12645). Every fs mutation whose target lies
+// under a root captured in PROTECTED_ROOTS_ENV is refused with
+// E_TEST_REAL_DATA_WRITE and recorded; the afterEach below fails the test
+// even when the code under test swallowed the error. `<root>/worktrees` is
+// exempt: agent worktrees (and the tests run inside them) live there.
+//
+// A root that contains the sandbox or the system temp dir is dropped, so an
+// inherited `CLEO_HOME=/tmp` can never turn every sandbox write into a hit.
+// ---------------------------------------------------------------------------
+
+/** Shared across setup re-runs in one process (see the double-run note above). */
+const REAL_DATA_WRITES = Symbol.for('cleo.vitest.realDataWrites');
+const FS_GUARD_INSTALLED = Symbol.for('cleo.vitest.realDataGuardInstalled');
+type GuardGlobal = typeof globalThis & {
+  [REAL_DATA_WRITES]?: string[];
+  [FS_GUARD_INSTALLED]?: boolean;
+};
+const guardGlobal = globalThis as GuardGlobal;
+guardGlobal[REAL_DATA_WRITES] ??= [];
+const realDataWrites = guardGlobal[REAL_DATA_WRITES];
+
+const isWithin = (target: string, root: string): boolean =>
+  target === root || target.startsWith(`${root}${sep}`);
+
+const protectedRoots = (process.env[PROTECTED_ROOTS_ENV] ?? '')
+  .split(delimiter)
+  .filter((root) => root.length > 0)
+  .filter((root) => !isWithin(sandbox, root) && !isWithin(sandboxParent, root));
+
+function toPathString(value: unknown): string | null {
+  if (typeof value === 'string') return value;
+  if (value instanceof URL) return value.protocol === 'file:' ? decodeURIComponent(value.pathname) : null;
+  if (Buffer.isBuffer(value)) return value.toString('utf8');
+  return null;
+}
+
+/** The protected root `value` falls under, or null. */
+function protectedRootOf(value: unknown): string | null {
+  const raw = toPathString(value);
+  if (raw === null) return null;
+  const target = resolve(raw);
+  for (const root of protectedRoots) {
+    if (!isWithin(target, root)) continue;
+    if (isWithin(target, join(root, 'worktrees'))) return null;
+    return root;
+  }
+  return null;
+}
+
+/** Flags passed to `open` that can create or modify a file. */
+function isWriteFlag(flags: unknown): boolean {
+  if (typeof flags === 'number') {
+    const { O_WRONLY, O_RDWR, O_CREAT, O_TRUNC, O_APPEND } = fsConstants;
+    return (flags & (O_WRONLY | O_RDWR | O_CREAT | O_TRUNC | O_APPEND)) !== 0;
+  }
+  return typeof flags === 'string' && /[wa+]/.test(flags);
+}
+
+type FsKind = 'sync' | 'callback' | 'promise';
+interface FsGuardSpec {
+  name: string;
+  /** Argument positions holding a path the call writes. */
+  pathArgs: readonly number[];
+  /** For `open`: only guard when the flags argument (index 1) writes. */
+  openFlags?: boolean;
+}
+
+const FS_WRITE_SPECS: readonly FsGuardSpec[] = [
+  { name: 'mkdir', pathArgs: [0] },
+  { name: 'mkdtemp', pathArgs: [0] },
+  { name: 'writeFile', pathArgs: [0] },
+  { name: 'appendFile', pathArgs: [0] },
+  { name: 'copyFile', pathArgs: [1] },
+  { name: 'cp', pathArgs: [1] },
+  { name: 'rename', pathArgs: [0, 1] },
+  { name: 'symlink', pathArgs: [1] },
+  { name: 'link', pathArgs: [1] },
+  { name: 'rm', pathArgs: [0] },
+  { name: 'rmdir', pathArgs: [0] },
+  { name: 'unlink', pathArgs: [0] },
+  { name: 'truncate', pathArgs: [0] },
+  { name: 'open', pathArgs: [0], openFlags: true },
+];
+
+function realDataWriteError(fn: string, target: unknown, root: string): Error {
+  const message = [
+    `E_TEST_REAL_DATA_WRITE: ${fn} targets the REAL CLEO data dir.`,
+    `  target: ${toPathString(target)}`,
+    `  root:   ${root}`,
+    `  sandbox CLEO_HOME: ${process.env.CLEO_HOME}`,
+    '',
+    'Tests must resolve cleoHome inside the per-fork sandbox that vitest.setup.ts',
+    "creates (a package vitest.config.ts that runs directly must list it in",
+    '`setupFiles`), or mock the resolver to a tmpdir.',
+  ].join('\n');
+  realDataWrites.push(message);
+  return Object.assign(new Error(message), { code: 'E_TEST_REAL_DATA_WRITE' });
+}
+
+function guardFsFunction(target: Record<string, unknown>, fnName: string, spec: FsGuardSpec, kind: FsKind): void {
+  const original = target[fnName];
+  if (typeof original !== 'function') return;
+  const guarded: AnyFn = function (this: unknown, ...args: unknown[]) {
+    if (!spec.openFlags || isWriteFlag(args[1])) {
+      for (const index of spec.pathArgs) {
+        const root = protectedRootOf(args[index]);
+        if (root === null) continue;
+        const err = realDataWriteError(fnName, args[index], root);
+        if (kind === 'promise') return Promise.reject(err);
+        if (kind === 'callback') {
+          const callback = args[args.length - 1];
+          if (typeof callback === 'function') {
+            process.nextTick(() => (callback as AnyFn)(err));
+            return undefined;
+          }
+        }
+        throw err;
+      }
+    }
+    return (original as AnyFn).apply(this, args);
+  };
+  for (const sym of Object.getOwnPropertySymbols(original as object)) {
+    (guarded as unknown as Record<symbol, unknown>)[sym] = (original as unknown as Record<symbol, unknown>)[sym];
+  }
+  try {
+    target[fnName] = guarded;
+  } catch {
+    /* read-only export; skip */
+  }
+}
+
+if (!guardGlobal[FS_GUARD_INSTALLED] && protectedRoots.length > 0) {
+  guardGlobal[FS_GUARD_INSTALLED] = true;
+  const cjsFs: Record<string, unknown> = cjsRequire('node:fs');
+  const cjsFsPromises: Record<string, unknown> = cjsRequire('node:fs/promises');
+  for (const spec of FS_WRITE_SPECS) {
+    guardFsFunction(cjsFs, spec.name, spec, 'callback');
+    guardFsFunction(cjsFs, `${spec.name}Sync`, spec, 'sync');
+    guardFsFunction(cjsFsPromises, spec.name, spec, 'promise');
+  }
+  guardFsFunction(cjsFs, 'createWriteStream', { name: 'createWriteStream', pathArgs: [0] }, 'sync');
+  // Push the wrapped CJS functions into every ESM `import { x } from 'node:fs'`.
+  syncBuiltinESMExports();
+}
+
+afterEach(() => {
+  if (realDataWrites.length === 0) return;
+  const writes = realDataWrites.splice(0);
+  throw new Error(`${writes.length} write(s) targeted the real CLEO data dir:\n\n${writes.join('\n\n')}`);
+});

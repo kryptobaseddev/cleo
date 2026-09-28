@@ -23,10 +23,12 @@
  * @epic T9740
  */
 
-import { realpathSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import * as path from 'node:path';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { getCleoHome } from '@cleocode/paths';
 
 /**
@@ -139,6 +141,70 @@ export const CLAUDE_SKILLS_AGENTS_SHARED_PATH: string = join(
  */
 export function resolveSkillsRoot(): string {
   return join(getCleoHome(), 'skills');
+}
+
+/** Memoised {@link resolveBundledSkillsDir} result (`undefined` = not probed yet). */
+let bundledSkillsDir: string | null | undefined;
+
+/**
+ * Resolve the `skills/` directory shipped inside the `@cleocode/skills`
+ * package — the read-only source every install copies from.
+ *
+ * @remarks
+ * Name-based resolvers (`resolveSkillPath`, `findSkill`) fall back to this
+ * directory when a skill is not installed in {@link resolveSkillsRoot}.
+ * Install selection decides what harnesses see; it must not decide whether a
+ * spawn prompt can read the protocol it names (T12646: `ct-lead` and several
+ * LOOM-stage skills are never installed, so lead spawns and stage guidance
+ * degraded to "Skills not installed").
+ *
+ * Tries Node module resolution first, then walks up from this module looking
+ * for a workspace `packages/skills/skills` or an installed
+ * `node_modules/@cleocode/skills/skills`. A candidate counts only when its
+ * `manifest.json` exists.
+ *
+ * @returns Absolute path to the bundled skills directory, or `null` when the
+ *   package cannot be found.
+ * @task T12646
+ * @public
+ */
+export function resolveBundledSkillsDir(): string | null {
+  if (bundledSkillsDir !== undefined) return bundledSkillsDir;
+  const candidates: string[] = [];
+  try {
+    const req = createRequire(import.meta.url);
+    candidates.push(join(dirname(req.resolve('@cleocode/skills/package.json')), 'skills'));
+  } catch {
+    // Not resolvable from here — fall through to the directory walk.
+  }
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (;;) {
+    candidates.push(join(dir, 'packages', 'skills', 'skills'));
+    candidates.push(join(dir, 'node_modules', '@cleocode', 'skills', 'skills'));
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  bundledSkillsDir = candidates.find((c) => existsSync(join(c, 'manifest.json'))) ?? null;
+  return bundledSkillsDir;
+}
+
+/**
+ * Resolve one bundled skill directory by exact name.
+ *
+ * @param skillName - Skill directory name (e.g. `ct-lead`).
+ * @returns Absolute path to `<bundled>/<skillName>` when it holds a
+ *   `SKILL.md`, else `null`.
+ * @task T12646
+ * @public
+ */
+export function resolveBundledSkillDir(skillName: string): string | null {
+  const root = resolveBundledSkillsDir();
+  if (root === null || skillName.length === 0 || skillName !== path.basename(skillName)) {
+    return null;
+  }
+  const candidate = join(root, skillName);
+  return existsSync(join(candidate, 'SKILL.md')) ? candidate : null;
 }
 
 /**

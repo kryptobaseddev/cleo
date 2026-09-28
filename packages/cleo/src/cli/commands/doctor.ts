@@ -47,6 +47,7 @@ import { runDoctorProjects } from './doctor-projects.js';
 import { doctorRegistryCommand } from './doctor-projects-registry.js';
 import { doctorReleaseReadinessCommand } from './doctor-release-readiness.js';
 import { doctorRepairCommand } from './doctor-repair.js';
+import { doctorSkillFixturesCommand } from './doctor-skill-fixtures.js';
 import { doctorSplitBrainCommand } from './doctor-split-brain.js';
 import { doctorSupersededStoreCommand } from './doctor-superseded-store.js';
 import { doctorToolLocksCommand } from './doctor-tool-locks.js';
@@ -264,6 +265,8 @@ export const doctorCommand = defineCommand({
     'project-identity': doctorProjectIdentityCommand,
     // T12596 · T12598 — ~/.cleo, the global hub and every harness skill install must resolve
     'global-delivery': doctorGlobalDeliveryCommand,
+    // T12645 — caamp test fixtures left in the real skills root (quarantine with a receipt)
+    'skill-fixtures': doctorSkillFixturesCommand,
     // T12471 — machine-wide registry integrity: rebind moved by id, flag split/missing/temp
     projects: doctorRegistryCommand,
     // T12329 — import rows only a diverged store copy has, under new ids (dry-run first)
