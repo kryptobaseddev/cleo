@@ -17,6 +17,7 @@ import {
 import {
   certifiedSigners,
   createDeviceGrant,
+  createDeviceRevocation,
   createUserKeys,
   deviceCertificate,
   homeStreamKey,
@@ -280,22 +281,81 @@ describe('device trust: signed, certified master key grants', () => {
     ).toThrow(KeyTrustError);
   });
 
+  const certRow = (d: ReturnType<typeof dev>, key: Buffer, live = true) => ({
+    deviceId: d.deviceId,
+    encryptionPublicKey: d.encryption.publicKey.toString('base64'),
+    signingPublicKey: d.signing.publicKey.toString('base64'),
+    keyVersion: 1,
+    certificate: deviceCertificate(key, userId, d.pub, 1).toString('base64'),
+    live,
+  });
+  const pins = { replicas: { '0192f1c2-7d3e-7abc-8def-0000000000a1': 4 }, checkpoints: {} };
+  const revoke = (signer: ReturnType<typeof dev>, revoked: ReturnType<typeof dev>, p = pins) => ({
+    deviceId: revoked.deviceId,
+    ...createDeviceRevocation({
+      userId,
+      revoked: { deviceId: revoked.deviceId, signingPublicKey: revoked.signing.publicKey },
+      pins: p,
+      signer: { deviceId: signer.deviceId, signing: signer.signing },
+    }),
+  });
+
   it('certifies only devices the master key vouches for', () => {
-    const row = (d: ReturnType<typeof dev>, key: Buffer, revokedAt: string | null = null) => ({
-      deviceId: d.deviceId,
-      name: 'x',
-      platform: 'linux' as const,
-      encryptionPublicKey: d.encryption.publicKey.toString('base64'),
-      signingPublicKey: d.signing.publicKey.toString('base64'),
-      cliVersion: '1',
-      createdAt: new Date().toISOString(),
-      lastSeenAt: null,
-      revokedAt,
-      certificate: deviceCertificate(key, userId, d.pub, 1).toString('base64'),
-      certificateKeyVersion: 1,
+    const trust = { certificates: [certRow(a, mk), certRow(evil, randomKey())], revocations: [] };
+    expect([...certifiedSigners(mk, userId, 1, trust).keys()]).toEqual([a.deviceId]);
+    expect(certifiedSigners(mk, userId, 2, trust).size).toBe(0);
+  });
+
+  it('keeps a revoked key trusted up to its pins, and never trusts one with no record (round 3)', () => {
+    // b is revoked (not live). With no record it is pending: left out, unless the revocation flow asks.
+    const noRecord = { certificates: [certRow(a, mk), certRow(b, mk, false)], revocations: [] };
+    expect(certifiedSigners(mk, userId, 1, noRecord).has(b.deviceId)).toBe(false);
+    expect(
+      certifiedSigners(mk, userId, 1, noRecord, { includePending: true }).get(b.deviceId),
+    ).toEqual([{ publicKey: b.signing.publicKey, pin: null, pending: true }]);
+    // a signs a revocation record for b: b is trusted with the pin, whatever the server says about live.
+    for (const live of [false, true]) {
+      const t = {
+        certificates: [certRow(a, mk), certRow(b, mk, live)],
+        revocations: [revoke(a, b)],
+      };
+      expect(certifiedSigners(mk, userId, 1, t).get(b.deviceId)).toEqual([
+        { publicKey: b.signing.publicKey, pin: pins },
+      ]);
+    }
+    // A record signed by an uncertified key, or with edited pins, is ignored.
+    const byEvil = {
+      certificates: [certRow(a, mk), certRow(b, mk, false), certRow(evil, randomKey())],
+      revocations: [revoke(evil, b)],
+    };
+    expect(certifiedSigners(mk, userId, 1, byEvil).has(b.deviceId)).toBe(false);
+    const edited = {
+      ...revoke(a, b),
+      pins: { replicas: { '0192f1c2-7d3e-7abc-8def-0000000000a1': 99 }, checkpoints: {} },
+    };
+    expect(
+      certifiedSigners(mk, userId, 1, {
+        certificates: [certRow(a, mk), certRow(b, mk, false)],
+        revocations: [edited],
+      }).has(b.deviceId),
+    ).toBe(false);
+    // The lost-only-device case: b signs the record for a itself, having certified itself after a passphrase unlock.
+    const selfRescue = {
+      certificates: [certRow(a, mk, false), certRow(b, mk)],
+      revocations: [revoke(b, a)],
+    };
+    expect(certifiedSigners(mk, userId, 1, selfRescue).get(a.deviceId)).toEqual([
+      { publicKey: a.signing.publicKey, pin: pins },
+    ]);
+  });
+
+  it('refuses a grant from a revoked (pinned) signer', () => {
+    const t = certifiedSigners(mk, userId, 1, {
+      certificates: [certRow(a, mk, false), certRow(b, mk)],
+      revocations: [revoke(b, a)],
     });
-    const roster = [row(a, mk), row(b, mk, new Date().toISOString()), row(evil, randomKey())];
-    expect([...certifiedSigners(mk, userId, 1, roster).keys()]).toEqual([a.deviceId]);
-    expect(certifiedSigners(mk, userId, 2, roster).size).toBe(0);
+    expect(() =>
+      openDeviceGrant({ userId, device: b.open, grant: grant(mk, a, b), trustedSigners: t }),
+    ).toThrow(/untrusted device/);
   });
 });

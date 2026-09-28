@@ -2,6 +2,7 @@ import type {
   AppendSegmentRequest,
   Checkpoint,
   CreateCheckpointRequest,
+  RevocationPins,
   Segment,
 } from '@cleocode/contracts/cloud';
 import { describe, expect, it } from 'vitest';
@@ -22,6 +23,7 @@ import {
   type PullCursor,
   type SegmentMeta,
 } from '../journal.js';
+import type { SignerKey } from '../keys.js';
 import { registerProject } from '../projects.js';
 
 const streamId = 'project:0192f1c2-7d3e-7abc-8def-0123456789ab';
@@ -156,11 +158,18 @@ function nexus() {
     }
     if (method === 'POST' && path.endsWith('/checkpoints')) {
       const b = body as CreateCheckpointRequest;
-      const cp = { ...b, streamId, createdAt: new Date().toISOString() };
+      const cp = { ...b, streamId, endorsements: [], createdAt: new Date().toISOString() };
       s.checkpoints.unshift(cp);
       return { checkpoint: cp };
     }
     if (path.endsWith('/checkpoints')) return { checkpoints: s.checkpoints };
+    const endorse = /\/checkpoints\/([0-9a-f-]+)\/endorsements$/.exec(path);
+    if (method === 'POST' && endorse) {
+      const cp = s.checkpoints.find((c) => c.checkpointId === endorse[1]);
+      if (!cp) throw new Error('no checkpoint');
+      cp.endorsements.push(body);
+      return { checkpoint: cp };
+    }
     const dl = /\/checkpoints\/([0-9a-f-]+)\/download$/.exec(path);
     if (dl) {
       const cp = s.checkpoints.find((c) => c.checkpointId === dl[1]);
@@ -222,7 +231,7 @@ describe('pull: verification of every segment before it is returned', () => {
     expect(p1.segments.map((s) => s.plaintext.toString())).toEqual(['ops-0', 'ops-1']);
     expect(p1.cursor).toEqual({
       after: 2,
-      sinceGenesis: true,
+      knowsAllReplicas: true,
       replicas: { [replicaA]: { deviceId: deviceA, replicaSeq: 1 } },
     });
     const p2 = await x.reader.pull(p1.cursor, x.trusted, 2);
@@ -417,7 +426,7 @@ describe('pull: replay, reordering and replica binding (MEDIUM 3)', () => {
     );
     const cursor: PullCursor = {
       after: 1,
-      sinceGenesis: true,
+      knowsAllReplicas: true,
       replicas: { [replicaA]: { deviceId: deviceA, replicaSeq: 0 } },
     };
     x.state.page = { streamId, segments: [a], head: 2, nextAfter: 1 };
@@ -478,16 +487,18 @@ describe('checkpoints: signed, AAD-bound, never rolled back (MEDIUM 4)', () => {
 
   async function twoCheckpoints() {
     const x = await withSegments(2);
+    const c1 = (await x.writerA.pull(initialPullCursor(), x.trusted, 1)).cursor;
     const old = await x.writerA.pushCheckpoint({
       bundle: Buffer.from('old'),
       manifest: manifest(1),
-      coversSeq: 1,
+      cursor: c1,
       parentCheckpointId: null,
     });
+    const c2 = (await x.writerA.pull(c1, x.trusted)).cursor;
     const next = await x.writerA.pushCheckpoint({
       bundle: Buffer.from('new'),
       manifest: manifest(2),
-      coversSeq: 2,
+      cursor: c2,
       parentCheckpointId: old.checkpointId,
     });
     return { x, old, next };
@@ -533,6 +544,123 @@ describe('checkpoints: signed, AAD-bound, never rolled back (MEDIUM 4)', () => {
     await expect(x.reader.restoreCheckpoint(next.checkpointId, x.trusted)).rejects.toMatchObject({
       code: 'E_BLOB_INTEGRITY',
     });
+  });
+});
+
+describe('revoked signers stay trusted up to their pins (round 3)', () => {
+  const H = 'e'.repeat(64);
+  const manifest = (rows: number) => ({
+    schemaVersion: 1,
+    tables: { tasks_tasks: { rows, hash: H } },
+  });
+  /** A trusted set in which device A's key is revoked with `pins`, and B is live. */
+  const pinnedA = (x: Awaited<ReturnType<typeof withSegments>>, pins: RevocationPins) =>
+    new Map<string, SignerKey[]>([
+      [deviceA, [{ publicKey: (x.devices[deviceA] as KeyPair).publicKey, pin: pins }]],
+      [deviceB, [{ publicKey: (x.devices[deviceB] as KeyPair).publicKey, pin: null }]],
+    ]);
+
+  it('accepts a revoked key’s segments up to the pin and refuses the first one past it', async () => {
+    const x = await withSegments(3);
+    const upTo2 = await x.reader.pull(
+      initialPullCursor(),
+      pinnedA(x, { replicas: { [replicaA]: 2 }, checkpoints: {} }),
+    );
+    expect(upTo2.segments.map((s) => s.replicaSeq)).toEqual([0, 1, 2]);
+    await expect(
+      x.reader.pull(
+        initialPullCursor(),
+        pinnedA(x, { replicas: { [replicaA]: 1 }, checkpoints: {} }),
+      ),
+    ).rejects.toMatchObject({ code: 'E_FORBIDDEN', ...reason('revoked-signer') });
+    // A replica the pin does not name is refused outright.
+    await expect(
+      x.reader.pull(
+        initialPullCursor(),
+        pinnedA(x, { replicas: { [replicaB]: 9 }, checkpoints: {} }),
+      ),
+    ).rejects.toMatchObject(reason('revoked-signer'));
+  });
+
+  it('accepts a revoked key’s checkpoint within its stream pin, or when a live device endorsed it', async () => {
+    const x = await withSegments(2);
+    const cursor = (await x.writerA.pull(initialPullCursor(), x.trusted)).cursor;
+    const cp = await x.writerA.pushCheckpoint({
+      bundle: Buffer.from('b'),
+      manifest: manifest(2),
+      cursor,
+      parentCheckpointId: null,
+    });
+    const within = pinnedA(x, { replicas: { [replicaA]: 1 }, checkpoints: { [streamId]: 2 } });
+    expect((await x.reader.restoreCheckpoint(cp.checkpointId, within)).bundle.toString()).toBe('b');
+    const past = pinnedA(x, { replicas: { [replicaA]: 1 }, checkpoints: { [streamId]: 1 } });
+    await expect(x.reader.restoreCheckpoint(cp.checkpointId, past)).rejects.toMatchObject(
+      reason('revoked-signer'),
+    );
+    // B (live) re-signs it; now it restores under the narrower pin too.
+    await x.reader.endorseCheckpoint(cp, within);
+    expect((await x.reader.restoreCheckpoint(cp.checkpointId, past)).bundle.toString()).toBe('b');
+    // An endorsement by a revoked (pinned) key does not count.
+    const onlyA = pinnedA(x, { replicas: {}, checkpoints: {} });
+    onlyA.set(deviceB, [
+      {
+        publicKey: (x.devices[deviceB] as KeyPair).publicKey,
+        pin: { replicas: {}, checkpoints: {} },
+      },
+    ]);
+    await expect(x.reader.restoreCheckpoint(cp.checkpointId, onlyA)).rejects.toMatchObject(
+      reason('revoked-signer'),
+    );
+  });
+});
+
+describe('checkpoint replica map seeds the cursor (round 3, limit 2)', () => {
+  const H = 'e'.repeat(64);
+  it('refuses a gap right after a checkpoint, which a cursor without the map could not see', async () => {
+    const x = await withSegments(2);
+    const cursor = (await x.writerA.pull(initialPullCursor(), x.trusted)).cursor;
+    const cp = await x.writerA.pushCheckpoint({
+      bundle: Buffer.from('b'),
+      manifest: { schemaVersion: 1, tables: { tasks_tasks: { rows: 2, hash: H } } },
+      cursor,
+      parentCheckpointId: null,
+    });
+    expect(cp.replicas).toEqual({ [replicaA]: { deviceId: deviceA, lastReplicaSeq: 1 } });
+    for (let i = 2; i < 5; i++) await x.writerA.push(i, ops(i), meta(i, replicaA));
+    const restored = await x.reader.restoreCheckpoint(cp.checkpointId, x.trusted);
+    expect(restored.cursor).toEqual({
+      after: 2,
+      knowsAllReplicas: true,
+      replicas: { [replicaA]: { deviceId: deviceA, replicaSeq: 1 } },
+    });
+    // The server withholds replicaSeq 2 and 3 and serves 4.
+    x.state.page = { streamId, segments: [x.segments[4]], head: 5, nextAfter: 5 };
+    await expect(x.reader.pull(restored.cursor, x.trusted)).rejects.toMatchObject(
+      reason('replica-gap'),
+    );
+    // Without the map the same page would have been accepted.
+    x.state.page = { streamId, segments: [x.segments[4]], head: 5, nextAfter: 5 };
+    const blind = await x.reader.pull(
+      { after: 2, knowsAllReplicas: false, replicas: {} },
+      x.trusted,
+    );
+    expect(blind.segments).toHaveLength(1);
+    // The full, honest continuation is accepted.
+    expect(
+      (await x.reader.pull(restored.cursor, x.trusted)).segments.map((s) => s.replicaSeq),
+    ).toEqual([2, 3, 4]);
+  });
+
+  it('will not sign a checkpoint from a cursor that does not know every replica', async () => {
+    const x = await withSegments(1);
+    await expect(
+      x.writerA.pushCheckpoint({
+        bundle: Buffer.from('b'),
+        manifest: { schemaVersion: 1, tables: {} },
+        cursor: { after: 1, knowsAllReplicas: false, replicas: {} },
+        parentCheckpointId: null,
+      }),
+    ).rejects.toMatchObject(reason('checkpoint-replicas'));
   });
 });
 

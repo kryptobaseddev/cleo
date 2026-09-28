@@ -235,6 +235,21 @@ export const Manifest = z.object({
 });
 export type Manifest = z.infer<typeof Manifest>;
 
+/**
+ * Where one replica stood at a checkpoint: the device that signs its segments and the last replicaSeq
+ * folded in. A checkpoint lists every replica with a segment at or below its coversSeq, so a client that
+ * restores it can check every later segment for gaps and re-attribution (PullCursor).
+ */
+export const ReplicaHead = z.object({
+  deviceId: DeviceId,
+  lastReplicaSeq: z.number().int().nonnegative(),
+});
+export type ReplicaHead = z.infer<typeof ReplicaHead>;
+
+/** Per replica id, keys are replica ids. Covered by the checkpoint signature (replicasCanonical). */
+export const ReplicaHeads = z.record(ReplicaId, ReplicaHead);
+export type ReplicaHeads = z.infer<typeof ReplicaHeads>;
+
 export const CreateCheckpointRequest = z.object({
   /** Minted by the author: the signature and the bundle's AAD both cover it. */
   checkpointId: CheckpointId,
@@ -246,13 +261,16 @@ export const CreateCheckpointRequest = z.object({
   /** The last stream seq whose ops are folded into this checkpoint. */
   coversSeq: z.number().int().nonnegative(),
   manifest: Manifest,
+  /** Every replica with a segment at or below coversSeq. The server checks it against the journal. */
+  replicas: ReplicaHeads,
   /** The encrypted checkpoint bundle, uploaded to R2 first. */
   blobSha256: Sha256Hex,
   sizeBytes: z.number().int().positive(),
   /**
    * Ed25519 signature by the authoring device over checkpointSigningMessage(...): the stream, the
    * checkpoint and parent ids, replica, device, coversSeq, the manifest hash (manifestCanonical), the
-   * bundle sha256 and size. The server verifies it on create; a client verifies it before restoring.
+   * replica map hash (replicasCanonical), the bundle sha256 and size. The server verifies it on create;
+   * a client verifies it before restoring. Creating the same checkpoint again is a no-op.
    */
   signature: Base64,
 });
@@ -266,12 +284,22 @@ export const Checkpoint = z.object({
   deviceId: DeviceId,
   coversSeq: z.number().int().nonnegative(),
   manifest: Manifest,
+  replicas: ReplicaHeads,
   blobSha256: Sha256Hex,
   sizeBytes: z.number().int().positive(),
   signature: Base64,
+  /**
+   * Re-signatures by other devices (checkpointEndorsementMessage). A client accepts a checkpoint whose
+   * author it no longer trusts without a pin (a revoked device) when a live device endorsed it.
+   */
+  endorsements: z.array(z.object({ deviceId: DeviceId, signature: Base64 })),
   createdAt: z.iso.datetime(),
 });
 export type Checkpoint = z.infer<typeof Checkpoint>;
+
+/** A live device re-signs a checkpoint. The device must be the calling device. */
+export const EndorseCheckpointRequest = z.object({ deviceId: DeviceId, signature: Base64 });
+export type EndorseCheckpointRequest = z.infer<typeof EndorseCheckpointRequest>;
 
 export const CreateCheckpointResult = z.object({ checkpoint: Checkpoint });
 export type CreateCheckpointResult = z.infer<typeof CreateCheckpointResult>;
@@ -407,6 +435,57 @@ export type PutDeviceWrappedKeyRequest = z.infer<typeof PutDeviceWrappedKeyReque
 /** What the server returns for `GET /v1/devices/:deviceId/key`. */
 export const DeviceKeyGrant = PutDeviceWrappedKeyRequest.extend({ deviceId: DeviceId });
 export type DeviceKeyGrant = z.infer<typeof DeviceKeyGrant>;
+
+/**
+ * Where a revoked signing key stops being trusted: per replica, the last replicaSeq it may have signed,
+ * and per stream, the highest coversSeq of a checkpoint it may have signed. Keys are replica ids and
+ * stream ids. Covered by the revocation signature (revocationPinsCanonical).
+ */
+export const RevocationPins = z.object({
+  replicas: z.record(ReplicaId, z.number().int().nonnegative()),
+  checkpoints: z.record(StreamId, z.number().int().nonnegative()),
+});
+export type RevocationPins = z.infer<typeof RevocationPins>;
+
+/**
+ * A revocation record (docs/security/e2e-keys.md, "Revocation"): a certified device signs that one
+ * signing key of a device is revoked, and pins what it signed before. History up to the pins stays
+ * verifiable; anything past them is refused. The signer must be the calling device.
+ */
+export const CreateDeviceRevocationRequest = z.object({
+  /** The revoked key (base64 Ed25519 public key): the device's current key or an earlier one. */
+  signingPublicKey: Base64,
+  pins: RevocationPins,
+  signerDeviceId: DeviceId,
+  /** Ed25519 by the signer over deviceRevocationMessage(...). */
+  signature: Base64,
+});
+export type CreateDeviceRevocationRequest = z.infer<typeof CreateDeviceRevocationRequest>;
+
+export const DeviceRevocation = CreateDeviceRevocationRequest.extend({ deviceId: DeviceId });
+export type DeviceRevocation = z.infer<typeof DeviceRevocation>;
+
+/**
+ * One device certificate ever issued, kept for as long as the device's history exists. A revoke or a
+ * re-registration with new keys never deletes one. `live` is the server's claim that the key is the
+ * device's current key and the device is not revoked; clients trust it only in the safe direction.
+ */
+export const DeviceCertificateRecord = z.object({
+  deviceId: DeviceId,
+  encryptionPublicKey: Base64,
+  signingPublicKey: Base64,
+  keyVersion: z.number().int().positive(),
+  certificate: Base64,
+  live: z.boolean(),
+});
+export type DeviceCertificateRecord = z.infer<typeof DeviceCertificateRecord>;
+
+/** `GET /v1/devices/trust`: everything a client needs to build its trusted signer set (certifiedSigners). */
+export const DeviceTrust = z.object({
+  certificates: z.array(DeviceCertificateRecord),
+  revocations: z.array(DeviceRevocation),
+});
+export type DeviceTrust = z.infer<typeof DeviceTrust>;
 
 export const PutProjectKeyRequest = z.object({
   /** The project data key, wrapped by the member's master key. */

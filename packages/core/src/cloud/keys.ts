@@ -1,4 +1,9 @@
-import type { Device, PutDeviceWrappedKeyRequest } from '@cleocode/contracts/cloud';
+import type {
+  CreateDeviceRevocationRequest,
+  DeviceTrust,
+  PutDeviceWrappedKeyRequest,
+  RevocationPins,
+} from '@cleocode/contracts/cloud';
 import {
   constantTimeEqual,
   DecryptError,
@@ -19,7 +24,12 @@ import {
   signEd25519,
   verifyEd25519,
 } from './crypto.js';
-import { deviceCertificateMessage, deviceGrantMessage } from './signing.js';
+import {
+  deviceCertificateMessage,
+  deviceGrantMessage,
+  deviceRevocationMessage,
+  revocationPinsCanonical,
+} from './signing.js';
 
 /** What the server stores for a user (PutUserKeysRequest). Nothing here opens without a secret. */
 export interface StoredUserKeys {
@@ -181,31 +191,152 @@ export function verifyDeviceCertificate(
 }
 
 /**
- * The signing keys of the user's devices that the master key certifies, by device id. Build the trusted
- * signer set for pulls and grants from this, never from the server's device list alone. Revoked devices
- * are left out; a hidden revocation is covered by rotation (a new key version certifies only live devices).
+ * One signing key a client trusts for a device. `pin` is null for a live key. A revoked key keeps a pin:
+ * its signatures are accepted up to the pinned replicaSeq per replica and the pinned checkpoint coversSeq
+ * per stream, and refused past them. `pending` marks a certified key that is no longer live but has no
+ * revocation record yet (only returned with `includePending`, for writing that record).
+ */
+export interface SignerKey {
+  publicKey: Uint8Array;
+  pin: RevocationPins | null;
+  pending?: boolean;
+}
+
+/** Trusted signers by device id. A bare key stands for one live key (a device's own key, for example). */
+export type TrustedSigners = ReadonlyMap<string, Uint8Array | readonly SignerKey[]>;
+
+/** The keys trusted for `deviceId`, normalized. */
+export function signerKeys(trusted: TrustedSigners, deviceId: string): readonly SignerKey[] {
+  const v = trusted.get(deviceId);
+  if (!v) return [];
+  return v instanceof Uint8Array ? [{ publicKey: v, pin: null }] : v;
+}
+
+/** Keys that may vouch for new things (grants, endorsements): live and unpinned. */
+export const liveKeys = (trusted: TrustedSigners, deviceId: string) =>
+  signerKeys(trusted, deviceId).filter((k) => k.pin === null && !k.pending);
+
+const utf8 = (s: string) => Buffer.from(s, 'utf8');
+
+/** Where two pins agree: only entries in both, at the lower bound. Used when several records revoke one key. */
+function narrowerPins(a: RevocationPins, b: RevocationPins): RevocationPins {
+  const both = (x: Record<string, number>, y: Record<string, number>) =>
+    Object.fromEntries(
+      Object.keys(x)
+        .filter((k) => k in y)
+        .map((k) => [k, Math.min(x[k] as number, y[k] as number)]),
+    );
+  return {
+    replicas: both(a.replicas, b.replicas),
+    checkpoints: both(a.checkpoints, b.checkpoints),
+  };
+}
+
+/**
+ * The trusted signer set, built from `GET /v1/devices/trust` and the master key the client holds. Build
+ * the set for pulls, checkpoints and grants from this, never from the server's device list alone.
+ * - A key counts only if its certificate (an HMAC under the master key) verifies: the server cannot add one.
+ * - A certified key with a revocation record signed by a certified key is trusted up to the record's pins.
+ *   So a revoked device's history stays readable, and nothing it signs later is.
+ * - A certified key the server calls live, with no record, is trusted without a pin.
+ * - A certified key that is no longer live (revoked, or replaced by a re-registration) with no record is
+ *   left out, unless `includePending`: the revocation flow uses that to pull, verify and pin its history
+ *   before signing the record. A key that has been revoked therefore never gains trust from the server.
  */
 export function certifiedSigners(
   mk: Uint8Array,
   userId: string,
   keyVersion: number,
-  devices: readonly Device[],
-): Map<string, Buffer> {
-  const out = new Map<string, Buffer>();
-  for (const d of devices) {
-    if (d.revokedAt || !d.certificate || d.certificateKeyVersion !== keyVersion) continue;
+  trust: DeviceTrust,
+  opts: { includePending?: boolean } = {},
+): Map<string, SignerKey[]> {
+  const certified = new Map<string, { deviceId: string; publicKey: Buffer; live: boolean }>();
+  for (const c of trust.certificates) {
+    if (c.keyVersion !== keyVersion) continue;
     const keys = {
-      deviceId: d.deviceId,
-      encryptionPublicKey: Buffer.from(d.encryptionPublicKey, 'base64'),
-      signingPublicKey: Buffer.from(d.signingPublicKey, 'base64'),
+      deviceId: c.deviceId,
+      encryptionPublicKey: Buffer.from(c.encryptionPublicKey, 'base64'),
+      signingPublicKey: Buffer.from(c.signingPublicKey, 'base64'),
     };
     if (
-      verifyDeviceCertificate(mk, userId, keys, keyVersion, Buffer.from(d.certificate, 'base64'))
-    ) {
-      out.set(d.deviceId, keys.signingPublicKey);
-    }
+      !verifyDeviceCertificate(mk, userId, keys, keyVersion, Buffer.from(c.certificate, 'base64'))
+    )
+      continue;
+    const id = `${c.deviceId}/${hex(keys.signingPublicKey)}`;
+    const live = (certified.get(id)?.live ?? false) || c.live;
+    certified.set(id, { deviceId: c.deviceId, publicKey: keys.signingPublicKey, live });
+  }
+  const pins = new Map<string, RevocationPins>();
+  for (const r of trust.revocations) {
+    const revokedKey = Buffer.from(r.signingPublicKey, 'base64');
+    const id = `${r.deviceId}/${hex(revokedKey)}`;
+    if (!certified.has(id)) continue;
+    const msg = revocationMessage(userId, r.deviceId, revokedKey, r.pins, r.signerDeviceId);
+    const signature = Buffer.from(r.signature, 'base64');
+    const signed = [...certified.values()].some(
+      (k) => k.deviceId === r.signerDeviceId && verifyEd25519(k.publicKey, msg, signature),
+    );
+    if (!signed) continue;
+    const prev = pins.get(id);
+    pins.set(id, prev ? narrowerPins(prev, r.pins) : r.pins);
+  }
+  const out = new Map<string, SignerKey[]>();
+  for (const [id, k] of certified) {
+    const pin = pins.get(id);
+    const key: SignerKey | null = pin
+      ? { publicKey: k.publicKey, pin }
+      : k.live
+        ? { publicKey: k.publicKey, pin: null }
+        : opts.includePending
+          ? { publicKey: k.publicKey, pin: null, pending: true }
+          : null;
+    if (!key) continue;
+    out.set(k.deviceId, [...(out.get(k.deviceId) ?? []), key]);
   }
   return out;
+}
+
+const revocationMessage = (
+  userId: string,
+  deviceId: string,
+  revokedKey: Uint8Array,
+  pins: RevocationPins,
+  signerDeviceId: string,
+) =>
+  deviceRevocationMessage({
+    userId,
+    revokedDeviceId: deviceId,
+    revokedSigningPublicKeyHex: hex(revokedKey),
+    pinsHash: sha256Hex(utf8(revocationPinsCanonical(pins))),
+    signerDeviceId,
+  });
+
+/**
+ * Revoke one signing key of a device and pin its history (the POST /v1/devices/:id/revocations body).
+ * The signer must hold a certified key: after losing every other device, the device that just unlocked
+ * with the passphrase certifies itself (a self-grant) and signs this. Compute `pins` from segments and
+ * checkpoints this client has itself verified (revocationPins), never from numbers the server supplies.
+ */
+export function createDeviceRevocation(args: {
+  userId: string;
+  revoked: { deviceId: string; signingPublicKey: Uint8Array };
+  pins: RevocationPins;
+  signer: { deviceId: string; signing: KeyPair };
+}): CreateDeviceRevocationRequest {
+  const { userId, revoked, pins, signer } = args;
+  const msg = revocationMessage(
+    userId,
+    revoked.deviceId,
+    revoked.signingPublicKey,
+    pins,
+    signer.deviceId,
+  );
+  return {
+    signingPublicKey: Buffer.from(revoked.signingPublicKey).toString('base64'),
+    pins,
+    signerDeviceId: signer.deviceId,
+    signature: signEd25519(signer.signing, msg).toString('base64'),
+  };
 }
 
 const grantMessage = (
@@ -272,11 +403,12 @@ export function openDeviceGrant(args: {
   userId: string;
   device: { deviceId: string; encryption: KeyPair; signingPublicKey: Uint8Array };
   grant: PutDeviceWrappedKeyRequest;
-  trustedSigners: ReadonlyMap<string, Uint8Array>;
+  trustedSigners: TrustedSigners;
 }): Buffer {
   const { userId, device, grant, trustedSigners } = args;
-  const signerKey = trustedSigners.get(grant.signerDeviceId);
-  if (!signerKey)
+  // Only a live key vouches for a new grant: a revoked device's pin covers its history, not new keys.
+  const candidates = liveKeys(trustedSigners, grant.signerDeviceId);
+  if (candidates.length === 0)
     throw new KeyTrustError(`key grant is signed by untrusted device ${grant.signerDeviceId}`);
   const me: DevicePublicKeys = {
     deviceId: device.deviceId,
@@ -286,7 +418,8 @@ export function openDeviceGrant(args: {
   const sealed = Buffer.from(grant.sealedMasterKey, 'base64');
   const certificate = Buffer.from(grant.certificate, 'base64');
   const msg = grantMessage(userId, me, grant.keyVersion, sealed, certificate, grant.signerDeviceId);
-  if (!verifyEd25519(signerKey, msg, Buffer.from(grant.grantSignature, 'base64'))) {
+  const grantSignature = Buffer.from(grant.grantSignature, 'base64');
+  if (!candidates.some((k) => verifyEd25519(k.publicKey, msg, grantSignature))) {
     throw new KeyTrustError('key grant signature does not verify');
   }
   const mk = openSealed(

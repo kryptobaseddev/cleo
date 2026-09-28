@@ -12,6 +12,8 @@ import {
   type Manifest,
   PresignUploadResult,
   PullSegmentsResult,
+  type ReplicaHeads,
+  type RevocationPins,
   type Segment,
 } from '@cleocode/contracts/cloud';
 import {
@@ -31,9 +33,13 @@ import {
   isSecureUrl,
   NexusError,
 } from './http.js';
+import { liveKeys, type SignerKey, signerKeys, type TrustedSigners } from './keys.js';
 import {
+  type CheckpointSigningParts,
+  checkpointEndorsementMessage,
   checkpointSigningMessage,
   manifestCanonical,
+  replicasCanonical,
   type SegmentMetaFields,
   segmentMetaCanonical,
   segmentSigningMessage,
@@ -66,6 +72,8 @@ export type RefusalReason =
   | 'page'
   | 'checkpoint-stream'
   | 'checkpoint-rollback'
+  | 'checkpoint-replicas'
+  | 'revoked-signer'
   | 'too-large';
 
 const refuse = (code: ClientErrorCode, reason: RefusalReason, message: string) =>
@@ -146,15 +154,54 @@ export interface PullCursor {
   /** The last stream seq applied. The next pull asks for segments strictly after it. */
   after: number;
   /**
-   * True when this cursor has seen every segment since seq 1. A replica's first segment must then have
-   * replicaSeq 0. A cursor seeded from a checkpoint is false: a replica first seen after it may start higher.
+   * True when `replicas` lists every replica with a segment at or below `after`: the cursor started at
+   * genesis, or was seeded from a checkpoint's signed replica map (cursorFromCheckpoint). A replica first
+   * seen later must then start at replicaSeq 0. False only for a cursor built some other way.
    */
-  sinceGenesis: boolean;
+  knowsAllReplicas: boolean;
   /** Per replica: the device that signs its segments (pinned at first sight) and the last replicaSeq applied. */
   replicas: Record<string, { deviceId: string; replicaSeq: number }>;
 }
 
-export const initialPullCursor = (): PullCursor => ({ after: 0, sinceGenesis: true, replicas: {} });
+export const initialPullCursor = (): PullCursor => ({
+  after: 0,
+  knowsAllReplicas: true,
+  replicas: {},
+});
+
+/** A cursor that resumes right after a (verified) checkpoint, seeded from its signed replica map. */
+export function cursorFromCheckpoint(cp: Pick<Checkpoint, 'coversSeq' | 'replicas'>): PullCursor {
+  const replicas: PullCursor['replicas'] = {};
+  for (const [id, h] of Object.entries(cp.replicas)) {
+    replicas[id] = { deviceId: h.deviceId, replicaSeq: h.lastReplicaSeq };
+  }
+  return { after: cp.coversSeq, knowsAllReplicas: true, replicas };
+}
+
+/**
+ * The pins for revoking `deviceId`'s key: the last replicaSeq of each of its replicas in the given
+ * cursors, and the highest coversSeq of its checkpoints in the given (already verified) lists. Compute
+ * them from pulls this client verified itself, with the key trusted as pending (certifiedSigners with
+ * includePending), before signing the revocation.
+ */
+export function revocationPins(
+  deviceId: string,
+  streams: readonly { streamId: string; cursor: PullCursor; checkpoints?: readonly Checkpoint[] }[],
+): RevocationPins {
+  const pins: RevocationPins = { replicas: {}, checkpoints: {} };
+  for (const st of streams) {
+    for (const [id, r] of Object.entries(st.cursor.replicas)) {
+      if (r.deviceId === deviceId)
+        pins.replicas[id] = Math.max(pins.replicas[id] ?? 0, r.replicaSeq);
+    }
+    for (const cp of st.checkpoints ?? []) {
+      if (cp.deviceId === deviceId && cp.streamId === st.streamId) {
+        pins.checkpoints[st.streamId] = Math.max(pins.checkpoints[st.streamId] ?? 0, cp.coversSeq);
+      }
+    }
+  }
+  return pins;
+}
 
 export interface JournalOptions {
   http: Http;
@@ -180,6 +227,24 @@ const utf8 = (s: string) => Buffer.from(s, 'utf8');
 export const segmentMetaHash = (m: SegmentMetaFields) => sha256Hex(utf8(segmentMetaCanonical(m)));
 /** sha256 of the canonical manifest. Covered by the checkpoint signature. */
 export const manifestHash = (m: Manifest) => sha256Hex(utf8(manifestCanonical(m)));
+
+/** sha256 of the canonical replica map. Covered by the checkpoint signature. */
+export const replicasHash = (r: ReplicaHeads) => sha256Hex(utf8(replicasCanonical(r)));
+
+const checkpointParts = (
+  cp: Omit<Checkpoint, 'endorsements' | 'createdAt' | 'signature'>,
+): CheckpointSigningParts => ({
+  streamId: cp.streamId,
+  checkpointId: cp.checkpointId,
+  parentCheckpointId: cp.parentCheckpointId,
+  replicaId: cp.replicaId,
+  deviceId: cp.deviceId,
+  coversSeq: cp.coversSeq,
+  manifestHash: manifestHash(cp.manifest),
+  replicasHash: replicasHash(cp.replicas),
+  blobSha256: cp.blobSha256,
+  sizeBytes: cp.sizeBytes,
+});
 
 const segmentContext = (
   streamId: string,
@@ -270,10 +335,11 @@ export class Journal {
    *   stream, replica, device, position, ciphertext hash and metadata hash (`bad-signature`);
    * - belongs to a replica pinned to another device (`replica-device`), repeats a replicaSeq
    *   (`replica-replay`) or skips one (`replica-gap`);
+   * - is signed by a revoked key past its revocation pin (`revoked-signer`);
    * - has bytes that do not match its hash (`hash-mismatch`, `blob-hash`, `blob-size`) or fail to decrypt.
    * Returns the next cursor; persist it with the applied ops.
    */
-  async pull(cursor: PullCursor, trustedSigners: ReadonlyMap<string, Uint8Array>, limit = 200) {
+  async pull(cursor: PullCursor, trustedSigners: TrustedSigners, limit = 200) {
     if (!Number.isSafeInteger(cursor.after) || cursor.after < 0)
       throw refuse('E_VALIDATION', 'page', 'cursor.after must be a non-negative integer');
     if (!Number.isInteger(limit) || limit < 1 || limit > MAX_PULL_LIMIT)
@@ -308,7 +374,7 @@ export class Journal {
           `segment ${s.seq}: replica ${s.replicaId} belongs to device ${pin.deviceId}, not ${s.deviceId}`,
         );
       }
-      const expected = pin ? pin.replicaSeq + 1 : cursor.sinceGenesis ? 0 : s.replicaSeq;
+      const expected = pin ? pin.replicaSeq + 1 : cursor.knowsAllReplicas ? 0 : s.replicaSeq;
       if (s.replicaSeq !== expected) {
         const replay = pin !== undefined && s.replicaSeq <= pin.replicaSeq;
         throw refuse(
@@ -325,16 +391,13 @@ export class Journal {
       throw refuse('E_PROTOCOL', 'page', 'nextAfter does not match the last segment');
     if (page.head < last)
       throw refuse('E_PROTOCOL', 'page', 'head is behind the segments returned');
-    const next: PullCursor = { after: last, sinceGenesis: cursor.sinceGenesis, replicas };
+    const next: PullCursor = { after: last, knowsAllReplicas: cursor.knowsAllReplicas, replicas };
     return { segments: out, head: page.head, cursor: next };
   }
 
-  private async verifyAndOpen(
-    s: Segment,
-    trusted: ReadonlyMap<string, Uint8Array>,
-  ): Promise<PulledSegment> {
-    const signer = trusted.get(s.deviceId);
-    if (!signer) {
+  private async verifyAndOpen(s: Segment, trusted: TrustedSigners): Promise<PulledSegment> {
+    const keys = signerKeys(trusted, s.deviceId);
+    if (keys.length === 0) {
       throw refuse(
         'E_FORBIDDEN',
         'unknown-signer',
@@ -350,8 +413,18 @@ export class Journal {
       segmentHash: s.segmentHash,
       metaHash,
     });
-    if (!verifyEd25519(signer, msg, Buffer.from(s.signature, 'base64'))) {
+    const signature = Buffer.from(s.signature, 'base64');
+    const signer = keys.find((k) => verifyEd25519(k.publicKey, msg, signature));
+    if (!signer) {
       throw refuse('E_FORBIDDEN', 'bad-signature', `segment ${s.seq} has an invalid signature`);
+    }
+    const pinned = signer.pin?.replicas[s.replicaId];
+    if (signer.pin && (pinned === undefined || s.replicaSeq > pinned)) {
+      throw refuse(
+        'E_FORBIDDEN',
+        'revoked-signer',
+        `segment ${s.seq} was signed by a revoked key past its pin (replica ${s.replicaId}, replicaSeq ${s.replicaSeq})`,
+      );
     }
     if ((s.ciphertext === null) === (s.blobSha256 === null)) {
       throw refuse(
@@ -399,44 +472,60 @@ export class Journal {
 
   /**
    * Encrypt, upload and sign a checkpoint bundle, then register it. The client mints the checkpoint id,
-   * because the signature and the bundle's AAD both cover it. The server verifies the signature and
-   * refuses lineage breaks and regressions.
+   * because the signature and the bundle's AAD both cover it. `cursor` is this replica's pull cursor at
+   * the point the bundle captures: it gives coversSeq and the signed replica map, so it must know every
+   * replica. The server verifies the signature and the replica map, and refuses lineage breaks and
+   * regressions. A retry of the same checkpoint returns it again.
    */
   async pushCheckpoint(args: {
     bundle: Uint8Array;
     manifest: Manifest;
-    coversSeq: number;
+    cursor: PullCursor;
     parentCheckpointId: string | null;
   }): Promise<Checkpoint> {
     const { streamId, replicaId, deviceId } = this.o;
+    if (!args.cursor.knowsAllReplicas)
+      throw refuse(
+        'E_VALIDATION',
+        'checkpoint-replicas',
+        'a checkpoint needs a cursor that knows every replica',
+      );
+    const replicas: ReplicaHeads = {};
+    for (const [id, r] of Object.entries(args.cursor.replicas)) {
+      replicas[id] = { deviceId: r.deviceId, lastReplicaSeq: r.replicaSeq };
+    }
+    const coversSeq = args.cursor.after;
     const checkpointId = uuidv7();
     const ciphertext = seal(
       this.o.key,
       args.bundle,
       'checkpoint',
-      checkpointContext(streamId, checkpointId, args.coversSeq),
+      checkpointContext(streamId, checkpointId, coversSeq),
     );
     const blobSha256 = await this.uploadBlob(ciphertext, 'checkpoint');
-    const fields = {
+    const record = {
       checkpointId,
+      streamId,
       parentCheckpointId: args.parentCheckpointId,
       replicaId,
       deviceId,
-      coversSeq: args.coversSeq,
+      coversSeq,
+      manifest: args.manifest,
+      replicas,
       blobSha256,
       sizeBytes: ciphertext.length,
     };
     const signature = signEd25519(
       this.o.signing,
-      checkpointSigningMessage({ ...fields, streamId, manifestHash: manifestHash(args.manifest) }),
+      checkpointSigningMessage(checkpointParts(record)),
     ).toString('base64');
+    const { streamId: _stream, ...body } = record;
     const res = await this.o.http.request(
       'POST',
       `${this.base}/checkpoints`,
       CreateCheckpointResult,
       {
-        ...fields,
-        manifest: args.manifest,
+        ...body,
         signature,
       },
     );
@@ -447,10 +536,12 @@ export class Journal {
   }
 
   /**
-   * Check a checkpoint record: it belongs to this stream and its signature verifies under a trusted
-   * device over every field that matters (ids, lineage, coversSeq, manifest, bundle hash and size).
+   * Check a checkpoint record: it belongs to this stream, and a trusted key signed every field that
+   * matters (ids, lineage, coversSeq, manifest, replica map, bundle hash and size). Accepted signers:
+   * - the author, with a live key, or with a revoked key whose pin for this stream covers coversSeq;
+   * - otherwise, any live device that endorsed (re-signed) it.
    */
-  verifyCheckpoint(cp: Checkpoint, trustedSigners: ReadonlyMap<string, Uint8Array>): void {
+  verifyCheckpoint(cp: Checkpoint, trustedSigners: TrustedSigners): void {
     if (cp.streamId !== this.o.streamId) {
       throw refuse(
         'E_PROTOCOL',
@@ -458,34 +549,72 @@ export class Journal {
         `checkpoint ${cp.checkpointId} belongs to another stream`,
       );
     }
-    const signer = trustedSigners.get(cp.deviceId);
-    if (!signer) {
+    const parts = checkpointParts(cp);
+    const endorsed = cp.endorsements.some((e) => {
+      const msg = checkpointEndorsementMessage(e.deviceId, parts);
+      const sig = Buffer.from(e.signature, 'base64');
+      return liveKeys(trustedSigners, e.deviceId).some((k) => verifyEd25519(k.publicKey, msg, sig));
+    });
+    const keys = signerKeys(trustedSigners, cp.deviceId);
+    const msg = checkpointSigningMessage(parts);
+    const sig = Buffer.from(cp.signature, 'base64');
+    const author: SignerKey | undefined = keys.find((k) => verifyEd25519(k.publicKey, msg, sig));
+    const pinned = author?.pin?.checkpoints[cp.streamId];
+    const authorOk =
+      author !== undefined &&
+      (author.pin === null || (pinned !== undefined && cp.coversSeq <= pinned));
+    if (authorOk || endorsed) return;
+    if (keys.length === 0) {
       throw refuse(
         'E_FORBIDDEN',
         'unknown-signer',
         `checkpoint ${cp.checkpointId} is signed by an unknown device ${cp.deviceId}`,
       );
     }
-    const msg = checkpointSigningMessage({ ...cp, manifestHash: manifestHash(cp.manifest) });
-    if (!verifyEd25519(signer, msg, Buffer.from(cp.signature, 'base64'))) {
+    if (!author) {
       throw refuse(
         'E_FORBIDDEN',
         'bad-signature',
         `checkpoint ${cp.checkpointId} has an invalid signature`,
       );
     }
+    throw refuse(
+      'E_FORBIDDEN',
+      'revoked-signer',
+      `checkpoint ${cp.checkpointId} was signed by a revoked key past its pin, and no live device endorsed it`,
+    );
+  }
+
+  /**
+   * Re-sign (endorse) a checkpoint with this device's key, after checking it against `trustedSigners`,
+   * for example so that a checkpoint written by a device about to be revoked stays restorable without its pin.
+   */
+  async endorseCheckpoint(cp: Checkpoint, trustedSigners: TrustedSigners): Promise<Checkpoint> {
+    this.verifyCheckpoint(cp, trustedSigners);
+    const signature = signEd25519(
+      this.o.signing,
+      checkpointEndorsementMessage(this.o.deviceId, checkpointParts(cp)),
+    ).toString('base64');
+    const res = await this.o.http.request(
+      'POST',
+      `${this.base}/checkpoints/${cp.checkpointId}/endorsements`,
+      CreateCheckpointResult,
+      { deviceId: this.o.deviceId, signature },
+    );
+    return res.checkpoint;
   }
 
   /**
    * Download, verify and decrypt a checkpoint bundle (point-in-time restore). `minCoversSeq` is the
    * highest checkpoint coversSeq this replica has already seen (the caller persists it): an older
-   * checkpoint is refused, so the server cannot roll the replica back.
+   * checkpoint is refused, so the server cannot roll the replica back. The returned cursor resumes the
+   * pull after the checkpoint, seeded from its signed replica map.
    */
   async restoreCheckpoint(
     checkpointId: string,
-    trustedSigners: ReadonlyMap<string, Uint8Array>,
+    trustedSigners: TrustedSigners,
     opts: { minCoversSeq?: number } = {},
-  ): Promise<{ bundle: Buffer; checkpoint: Checkpoint }> {
+  ): Promise<{ bundle: Buffer; checkpoint: Checkpoint; cursor: PullCursor }> {
     if (!CheckpointId.safeParse(checkpointId).success)
       throw refuse('E_VALIDATION', 'payload', 'not a checkpoint id');
     const list = await this.o.http.request(
@@ -524,7 +653,7 @@ export class Journal {
       checkpointContext(this.o.streamId, cp.checkpointId, cp.coversSeq),
       `checkpoint ${cp.checkpointId}`,
     );
-    return { bundle, checkpoint: cp };
+    return { bundle, checkpoint: cp, cursor: cursorFromCheckpoint(cp) };
   }
 
   private async uploadBlob(

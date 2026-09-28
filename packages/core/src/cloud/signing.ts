@@ -1,4 +1,9 @@
-import type { Manifest, TableDeltas } from '@cleocode/contracts/cloud';
+import type {
+  Manifest,
+  ReplicaHeads,
+  RevocationPins,
+  TableDeltas,
+} from '@cleocode/contracts/cloud';
 
 /*
  * The exact bytes every signature and MAC in the E2E protocol covers (docs/security/e2e-keys.md).
@@ -88,12 +93,30 @@ export function manifestCanonical(m: Manifest): string {
   });
 }
 
-/**
- * The bytes the authoring device signs (Ed25519) for a checkpoint. `parentCheckpointId` is `-` for a
- * genesis checkpoint. A client verifies this before restoring, so an older checkpoint cannot be served
- * under a newer id and a record's fields cannot be edited.
- */
-export function checkpointSigningMessage(parts: {
+const sortedRecord = <V, W>(r: Record<string, V>, f: (v: V) => W) =>
+  Object.fromEntries(
+    Object.keys(r)
+      .sort()
+      .map((k) => [k, f(r[k] as V)]),
+  );
+
+/** Canonical JSON of a checkpoint's replica map: replica ids sorted, then `deviceId`, `lastReplicaSeq`. */
+export function replicasCanonical(r: ReplicaHeads): string {
+  return JSON.stringify(
+    sortedRecord(r, (h) => ({ deviceId: h.deviceId, lastReplicaSeq: h.lastReplicaSeq })),
+  );
+}
+
+/** Canonical JSON of revocation pins: `checkpoints` then `replicas`, each with sorted keys. */
+export function revocationPinsCanonical(p: RevocationPins): string {
+  return JSON.stringify({
+    checkpoints: sortedRecord(p.checkpoints, (n) => n),
+    replicas: sortedRecord(p.replicas, (n) => n),
+  });
+}
+
+/** The fields a checkpoint signature covers, in message order. */
+export interface CheckpointSigningParts {
   streamId: string;
   checkpointId: string;
   parentCheckpointId: string | null;
@@ -101,20 +124,69 @@ export function checkpointSigningMessage(parts: {
   deviceId: string;
   coversSeq: number;
   manifestHash: string;
+  /** sha256 hex of replicasCanonical(replicas). */
+  replicasHash: string;
   blobSha256: string;
   sizeBytes: number;
+}
+
+const checkpointFields = (p: CheckpointSigningParts) => [
+  p.streamId,
+  p.checkpointId,
+  p.parentCheckpointId ?? '-',
+  p.replicaId,
+  p.deviceId,
+  p.coversSeq,
+  p.manifestHash,
+  p.replicasHash,
+  p.blobSha256,
+  p.sizeBytes,
+];
+
+/**
+ * The bytes the authoring device signs (Ed25519) for a checkpoint, v2. `parentCheckpointId` is `-` for
+ * a genesis checkpoint. A client verifies this before restoring, so an older checkpoint cannot be served
+ * under a newer id, a record's fields cannot be edited, and the replica map that seeds the pull cursor
+ * is the author's.
+ */
+export function checkpointSigningMessage(parts: CheckpointSigningParts): Uint8Array {
+  return lines('cleo-nexus/checkpoint/v2', ...checkpointFields(parts));
+}
+
+/**
+ * The bytes another device signs to endorse (re-sign) a checkpoint: the same fields, under their own
+ * domain and the endorser's id, so an endorsement is never mistaken for an authorship.
+ */
+export function checkpointEndorsementMessage(
+  endorserDeviceId: string,
+  parts: CheckpointSigningParts,
+): Uint8Array {
+  return lines(
+    'cleo-nexus/checkpoint-endorsement/v1',
+    endorserDeviceId,
+    ...checkpointFields(parts),
+  );
+}
+
+/**
+ * The bytes a certified device signs to revoke one signing key of a device and pin its history.
+ */
+export function deviceRevocationMessage(parts: {
+  userId: string;
+  revokedDeviceId: string;
+  /** Hex of the raw 32-byte Ed25519 public key being revoked. */
+  revokedSigningPublicKeyHex: string;
+  /** sha256 hex of revocationPinsCanonical(pins). */
+  pinsHash: string;
+  signerDeviceId: string;
 }): Uint8Array {
   return lines(
-    'cleo-nexus/checkpoint/v1',
-    parts.streamId,
-    parts.checkpointId,
-    parts.parentCheckpointId ?? '-',
-    parts.replicaId,
-    parts.deviceId,
-    parts.coversSeq,
-    parts.manifestHash,
-    parts.blobSha256,
-    parts.sizeBytes,
+    'cleo-nexus/device-revocation/v1',
+    parts.userId,
+    parts.revokedDeviceId,
+    parts.revokedSigningPublicKeyHex,
+    parts.pinsHash,
+    parts.signerDeviceId,
   );
 }
 
