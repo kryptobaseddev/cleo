@@ -44,7 +44,19 @@ const inheritedTemp = tmpdir();
 // This fallback project alias must not survive fixture CLEO_ROOT overrides.
 delete process.env.CLEO_PROJECT_ROOT;
 for (const name of ['TMPDIR', 'TMP', 'TEMP']) delete process.env[name];
-const platformTemp = tmpdir();
+// macOS: tmpdir() is `/tmp` or `/var/folders/...`, both symlinks into
+// `/private`. Code under test realpaths directories (registry, evidence,
+// worktree guards) while fixtures built from the unresolved sandbox path did
+// not, so ~350 tests failed on macOS only (T12518). Every sandbox path is
+// therefore derived from the physical temp root.
+const platformTemp = (() => {
+  const t = tmpdir();
+  try {
+    return realpathSync(t);
+  } catch {
+    return t;
+  }
+})();
 const sandboxParent = (() => {
   let inheritedPhysical: string;
   try {
