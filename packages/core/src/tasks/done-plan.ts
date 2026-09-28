@@ -513,7 +513,7 @@ export async function deriveTaskEvidence(
   if (task.status === 'done') {
     changeSet.warnings.push(`${taskId} is already done; nothing is left to record.`);
   } else if (changeSet.implementedEvidence !== null || passed('implemented')) {
-    commands.push(`cleo complete ${taskId}`);
+    commands.push(`${cd}cleo complete ${taskId}`);
   }
   const next =
     blockers[0]?.next ??
