@@ -242,7 +242,11 @@ export type MasterKeys = ReadonlyMap<number, Uint8Array>;
  * Key ids are `${deviceId}/${hex of the Ed25519 public key}`.
  */
 export interface TrustState {
-  /** The highest master key version seen. Live trust needs a certificate at this version. */
+  /**
+   * The highest master key version this client holds or has proven (by unlocking it). Only such versions are
+   * persisted: a version the server merely declares is used for one call and never stored, so one bad
+   * response cannot brick the device. Live trust needs a certificate at the current version.
+   */
   keyVersion: number;
   /** The last pins seen per revoked key. A key seen pinned is never live again. */
   pins: Record<string, RevocationPins>;
@@ -251,6 +255,65 @@ export interface TrustState {
 }
 
 export const initialTrustState = (): TrustState => ({ keyVersion: 0, pins: {}, revoked: [] });
+
+/**
+ * How far a declared account key version may exceed the highest version this client holds or has proven.
+ * A rotation bumps the version by one, so an honest server is never more than one ahead of a device that
+ * has seen the previous rotation. A device that missed two rotations sees a server error (and fails closed);
+ * it needs a passphrase unlock anyway, to fetch the new master key.
+ */
+export const MAX_ROTATION_STEP = 1;
+
+export interface TrustEvaluation {
+  signers: Map<string, SignerKey[]>;
+  /** Persist this with the pull cursor, in the same local transaction. */
+  state: TrustState;
+  /**
+   * The account's key version is ahead of every master key this client holds: nothing is live. Tell the
+   * user "the account key was rotated: unlock with your passphrase to fetch the new master key".
+   */
+  keyRotated: boolean;
+  /**
+   * The server declared a key version no rotation can explain (more than MAX_ROTATION_STEP above what this
+   * client holds or has proven). Not a rotation: nothing is persisted, and nothing is live in this call.
+   */
+  serverError?: 'implausible-key-version';
+}
+
+/**
+ * Update TrustState after a successful passphrase or recovery-key unlock, the only proof of the account's
+ * real key version. It requires proof of possession: the unwrapped master key must match `stored`'s
+ * verifier (and the unwrap itself already checked the AAD, which binds the user and the version).
+ * - `keyVersion` becomes the proven version.
+ * - Seen pins are cleared **only** with `confirmedPinReset: true`, after the user explicitly confirms it (for
+ *   example, when a thief's record narrowed a pin while the stolen device was still live). The next
+ *   certifiedSigners call then takes pins from the records live devices have signed.
+ * - The seen-revoked set is never cleared: revocation is monotonic.
+ */
+export function resetTrustStateAfterUnlock(
+  state: TrustState,
+  proof: {
+    masterKey: Uint8Array;
+    stored: Pick<StoredUserKeys, 'masterKeyVerifier' | 'keyVersion'>;
+  },
+  opts: { confirmedPinReset?: boolean } = {},
+): TrustState {
+  if (
+    !constantTimeEqual(
+      Buffer.from(masterKeyVerifier(proof.masterKey)),
+      Buffer.from(proof.stored.masterKeyVerifier),
+    )
+  ) {
+    throw new KeyTrustError(
+      'the master key does not match its verifier: no proof of the key version',
+    );
+  }
+  return {
+    keyVersion: proof.stored.keyVersion,
+    pins: opts.confirmedPinReset === true ? {} : { ...state.pins },
+    revoked: [...state.revoked],
+  };
+}
 
 /**
  * The trusted signer set, built from `GET /v1/devices/trust`, the master keys the client holds and its
@@ -286,14 +349,17 @@ export function certifiedSigners(
   state: TrustState,
   /**
    * The account's key version as the server declares it (`keyVersion` of GET /v1/account/keys), or null
-   * when the account has no keys yet. It can only raise the current version: a server that lies downward
-   * gains nothing over withholding (limit 3), and one that lies upward only stops live trust.
+   * when the account has no keys yet. Used for this call only, never persisted. It may raise the current
+   * version by at most MAX_ROTATION_STEP above the highest held or proven version: a rotation bumps the
+   * version by one. A higher value is a server error (`serverError`), not a rotation.
    */
   accountKeyVersion: number | null,
   opts: { includePending?: boolean } = {},
-): { signers: Map<string, SignerKey[]>; state: TrustState; keyRotated: boolean } {
+): TrustEvaluation {
   const held = Math.max(0, ...masterKeys.keys());
-  const current = Math.max(state.keyVersion, accountKeyVersion ?? 0, held);
+  const proven = Math.max(state.keyVersion, held);
+  const implausible = accountKeyVersion !== null && accountKeyVersion > proven + MAX_ROTATION_STEP;
+  const current = Math.max(proven, implausible ? 0 : (accountKeyVersion ?? 0));
   const certified = new Map<
     string,
     { deviceId: string; publicKey: Buffer; live: boolean; atCurrent: boolean }
@@ -316,7 +382,8 @@ export function certifiedSigners(
     certified.set(id, {
       deviceId: c.deviceId,
       publicKey: keys.signingPublicKey,
-      live: (prev?.live ?? false) || (c.live && atCurrent),
+      // An implausible declaration fails closed: nothing is live in this call (nothing is persisted either).
+      live: (prev?.live ?? false) || (c.live && atCurrent && !implausible),
       atCurrent: (prev?.atCurrent ?? false) || atCurrent,
     });
   }
@@ -373,13 +440,18 @@ export function certifiedSigners(
     signers.set(k.deviceId, [...(signers.get(k.deviceId) ?? []), key]);
   }
   const next: TrustState = {
-    keyVersion: current,
+    keyVersion: proven,
     pins: Object.fromEntries([...pins].sort(([a], [b]) => (a < b ? -1 : 1))),
     revoked: [...revoked].sort(),
   };
   // The account moved to a key version this client has no master key for: nothing is live until it
   // unlocks with the passphrase (or the recovery key) and fetches the new master key.
-  return { signers, state: next, keyRotated: current > held };
+  return {
+    signers,
+    state: next,
+    keyRotated: current > held,
+    ...(implausible ? { serverError: 'implausible-key-version' as const } : {}),
+  };
 }
 
 const revocationMessage = (

@@ -11,6 +11,15 @@ import { Base64, DeviceId, Hlc, ProjectId, ReplicaId, Sha256Hex, StreamId } from
 
 export const API_VERSION = 'v1' as const;
 
+/**
+ * The highest key version any schema accepts. Key versions go up by one per rotation, so this is far above
+ * any real account, and it keeps an absurd value (2^53 - 1, say) out of client state.
+ */
+export const MAX_KEY_VERSION = 1_000_000;
+
+/** A master key or project key version: a positive integer, at most MAX_KEY_VERSION. */
+export const KeyVersion = z.number().int().positive().max(MAX_KEY_VERSION);
+
 /** Largest inline segment. Larger segments go to R2 as a blob and are referenced by sha256. */
 export const MAX_INLINE_SEGMENT_BYTES = 1_048_576;
 export const MAX_PULL_LIMIT = 500;
@@ -49,7 +58,7 @@ export const Device = z.object({
    */
   certificate: Base64.nullable(),
   /** The master key version the certificate was made under. */
-  certificateKeyVersion: z.number().int().positive().nullable(),
+  certificateKeyVersion: KeyVersion.nullable(),
 });
 export type Device = z.infer<typeof Device>;
 
@@ -402,7 +411,7 @@ export const PutUserKeysRequest = z.object({
   recoveryWrappedMasterKey: Base64,
   /** sha256 of the master key's public verifier, so a wrong unwrap is detected client-side. */
   masterKeyVerifier: Sha256Hex,
-  keyVersion: z.number().int().positive(),
+  keyVersion: KeyVersion,
 });
 
 /** What the server returns for `GET /v1/account/keys`. */
@@ -422,7 +431,7 @@ export type UserKeys = z.infer<typeof UserKeys>;
 export const PutDeviceWrappedKeyRequest = z.object({
   /** The master key sealed to the recipient device's X25519 key. */
   sealedMasterKey: Base64,
-  keyVersion: z.number().int().positive(),
+  keyVersion: KeyVersion,
   /** The recipient's device certificate (see Device.certificate), made by the signer under the master key. */
   certificate: Base64,
   /** The device that made the grant. It must be the calling device: a self-grant names the recipient. */
@@ -474,7 +483,7 @@ export const DeviceCertificateRecord = z.object({
   deviceId: DeviceId,
   encryptionPublicKey: Base64,
   signingPublicKey: Base64,
-  keyVersion: z.number().int().positive(),
+  keyVersion: KeyVersion,
   certificate: Base64,
   live: z.boolean(),
 });
@@ -490,7 +499,7 @@ export type DeviceTrust = z.infer<typeof DeviceTrust>;
 export const PutProjectKeyRequest = z.object({
   /** The project data key, wrapped by the member's master key. */
   wrappedProjectKey: Base64,
-  keyVersion: z.number().int().positive(),
+  keyVersion: KeyVersion,
 });
 
 // ---------- conflicts (metadata only; the content stays E2E) ----------

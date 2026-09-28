@@ -24,8 +24,10 @@ import {
   initialTrustState,
   KeyTrustError,
   liveKeys,
+  MAX_ROTATION_STEP,
   newProjectKey,
   openDeviceGrant,
+  resetTrustStateAfterUnlock,
   unlockWithPassphrase,
   unlockWithRecoveryKey,
   unwrapProjectKey,
@@ -582,11 +584,62 @@ describe('device trust: signed, certified master key grants', () => {
     const r = certifiedSigners(k1, userId, trust, initialTrustState(), 2);
     expect(r.signers.size).toBe(0);
     expect(r.keyRotated).toBe(true);
-    expect(r.state.keyVersion).toBe(2);
-    // The persisted version holds even if the server later declares v1 again.
-    const again = certifiedSigners(k1, userId, trust, r.state, 1);
-    expect(again.signers.size).toBe(0);
-    expect(again.keyRotated).toBe(true);
+    // A declared version is used for this call only (round 7): only held or proven versions persist.
+    expect(r.state.keyVersion).toBe(1);
+  });
+
+  it('cannot be bricked by an absurd key version, and recovers on the next honest response (round 7)', () => {
+    const k1 = new Map([[1, mk]]);
+    const trust = { certificates: [certRow(b, mk, true)], revocations: [] };
+    const bad = certifiedSigners(k1, userId, trust, initialTrustState(), 2 ** 53 - 1);
+    expect(bad.serverError).toBe('implausible-key-version');
+    expect(bad.keyRotated).toBe(false);
+    expect(bad.signers.size).toBe(0); // fails closed for this call
+    expect(bad.state.keyVersion).toBe(1); // nothing implausible persisted
+    // The honest server answers again: no passphrase needed.
+    const ok = certifiedSigners(k1, userId, trust, bad.state, 1);
+    expect(ok.serverError).toBeUndefined();
+    expect(ok.signers.get(b.deviceId)).toEqual([{ publicKey: b.signing.publicKey, pin: null }]);
+    // A real rotation (one step) is still recognised.
+    expect(certifiedSigners(k1, userId, trust, bad.state, 2).keyRotated).toBe(true);
+  });
+
+  it('reports a declared version more than one rotation ahead as a server error, not a rotation (round 7)', () => {
+    const k1 = new Map([[1, mk]]);
+    const trust = { certificates: [certRow(b, mk, true)], revocations: [] };
+    const r = certifiedSigners(k1, userId, trust, initialTrustState(), 1 + MAX_ROTATION_STEP + 1);
+    expect(r.serverError).toBe('implausible-key-version');
+    expect(r.keyRotated).toBe(false);
+    expect(
+      certifiedSigners(k1, userId, trust, initialTrustState(), 1 + MAX_ROTATION_STEP).serverError,
+    ).toBeUndefined();
+  });
+
+  it('resets TrustState after an unlock: proven version, pins only on confirmation, revoked kept (round 7)', async () => {
+    const { masterKey, stored } = await createUserKeys(userId, 'a long enough passphrase', 3);
+    const unlocked = await unlockWithPassphrase(userId, stored, 'a long enough passphrase');
+    const pinned = { replicas: { [R]: 2 }, checkpoints: {} };
+    const state = { keyVersion: 1, pins: { 'dev/key': pinned }, revoked: ['dev/key', 'other/key'] };
+    const kept = resetTrustStateAfterUnlock(state, { masterKey: unlocked, stored });
+    expect(kept).toEqual({
+      keyVersion: 3,
+      pins: { 'dev/key': pinned },
+      revoked: ['dev/key', 'other/key'],
+    });
+    const cleared = resetTrustStateAfterUnlock(
+      state,
+      { masterKey: masterKey, stored },
+      { confirmedPinReset: true },
+    );
+    expect(cleared).toEqual({ keyVersion: 3, pins: {}, revoked: ['dev/key', 'other/key'] });
+    // No proof of possession, no reset.
+    expect(() =>
+      resetTrustStateAfterUnlock(
+        state,
+        { masterKey: randomKey(), stored },
+        { confirmedPinReset: true },
+      ),
+    ).toThrow(KeyTrustError);
   });
 
   it('refuses a grant from a revoked (pinned) signer', () => {
