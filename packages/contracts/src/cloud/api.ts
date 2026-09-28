@@ -57,6 +57,11 @@ export const RegisterProjectRequest = z.object({
   encryptedName: Base64.optional(),
   /** The git origin, only if the user opts in (it can reveal a private repo's name). */
   remoteUrl: z.string().max(500).optional(),
+  /**
+   * The organization that will own the project. The caller must be a member of it. Defaults to the
+   * caller's personal organization, which every account has.
+   */
+  organizationId: z.string().uuid().optional(),
 });
 export type RegisterProjectRequest = z.infer<typeof RegisterProjectRequest>;
 
@@ -65,7 +70,10 @@ export const Project = z.object({
   label: z.string().nullable(),
   encryptedName: Base64.nullable(),
   remoteUrl: z.string().nullable(),
-  ownerUserId: z.string(),
+  /** Projects are owned by an organization. Access derives from membership (ADR-095, ownership). */
+  organizationId: z.string().uuid(),
+  /** Who registered the project. Provenance only: it grants nothing. Null once that account is deleted. */
+  createdByUserId: z.string().uuid().nullable(),
   createdAt: z.iso.datetime(),
 });
 export type Project = z.infer<typeof Project>;
