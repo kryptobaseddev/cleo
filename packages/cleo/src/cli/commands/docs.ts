@@ -2003,7 +2003,13 @@ const publishCommand = defineCommand({
     },
     title: {
       type: 'string',
-      description: 'Override the PR title. Default: `docs(<type>): publish <slug>`.',
+      description:
+        'Override the PR title. Default: the commit subject `docs(<T####|type>): publish <slug>`.',
+    },
+    task: {
+      type: 'string',
+      description:
+        "Owning task id (T####) for the commit subject + `Task:` trailer. Default: the doc's single task owner; required when it has several.",
     },
     body: {
       type: 'string',
@@ -2030,6 +2036,7 @@ const publishCommand = defineCommand({
         if (args.slug) details.slug = String(args.slug);
         if (args.type) details.type = String(args.type);
         if (args.title) details.title = String(args.title);
+        if (args.task) details.taskId = String(args.task);
       } else {
         details.for = args.for ? String(args.for) : null;
         details.to = args.to ? String(args.to) : null;
@@ -2056,6 +2063,7 @@ const publishCommand = defineCommand({
         ...(typeof args.title === 'string' ? { title: args.title } : {}),
         ...(typeof args.body === 'string' ? { body: args.body } : {}),
         ...(typeof args.base === 'string' ? { base: args.base } : {}),
+        ...(typeof args.task === 'string' ? { taskId: args.task } : {}),
       })) as
         | { success: true; data: unknown }
         | {
@@ -2139,7 +2147,13 @@ const publishPrCommand = defineCommand({
     },
     title: {
       type: 'string',
-      description: 'Override the PR title. Default: `docs(<type>): publish <slug>`.',
+      description:
+        'Override the PR title. Default: the commit subject `docs(<T####|type>): publish <slug>`.',
+    },
+    task: {
+      type: 'string',
+      description:
+        "Owning task id (T####) for the commit subject + `Task:` trailer. Default: the doc's single task owner; required when it has several.",
     },
     body: {
       type: 'string',
@@ -2158,6 +2172,7 @@ const publishPrCommand = defineCommand({
       if (args.slug) details.slug = String(args.slug);
       if (args.type) details.type = String(args.type);
       if (args.title) details.title = String(args.title);
+      if (args.task) details.taskId = String(args.task);
       cliOutput(details, { command: 'docs publish-pr', operation: 'docs.publish' });
       return;
     }
@@ -2169,6 +2184,7 @@ const publishPrCommand = defineCommand({
       ...(typeof args.title === 'string' ? { title: args.title } : {}),
       ...(typeof args.body === 'string' ? { body: args.body } : {}),
       ...(typeof args.base === 'string' ? { base: args.base } : {}),
+      ...(typeof args.task === 'string' ? { taskId: args.task } : {}),
     })) as
       | { success: true; data: unknown }
       | {
