@@ -47,6 +47,7 @@
  */
 
 import type { Session } from '@cleocode/contracts';
+import { readDeclaredProjectIdentity } from '@cleocode/paths';
 import { eq } from 'drizzle-orm';
 import { getLogger } from '../logger.js';
 import {
@@ -122,21 +123,14 @@ function toManifestRow(
 }
 
 /**
- * Resolve the CANONICAL `nexus_project_registry.project_id` (12-hex) for a project
- * root, best-effort. Returns `null` when the project is not resolvable (e.g. not a
- * git repo / no canonical id) — the manifest row then carries a NULL `project_id`.
- *
- * Lazy `import()` of the nexus identity helper keeps this module's import graph
- * light and avoids a cycle (the nexus layer transitively imports the store).
+ * Resolve the project's `nexus_project_registry.project_id` — the id the
+ * project DECLARES (tracked `.cleo/project-id`, then `project-info.json`), the
+ * same key the registry rows are stored under (T12469 · T12470). Returns
+ * `null` when the root declares no identity; the manifest row then carries a
+ * NULL `project_id`. A path fingerprint is never substituted.
  */
-async function resolveCanonicalProjectId(projectRoot: string): Promise<string | null> {
-  try {
-    const { canonicalProjectId } = await import('../nexus/identity.js');
-    const result = await canonicalProjectId(projectRoot);
-    return result.id ?? null;
-  } catch {
-    return null;
-  }
+function resolveCanonicalProjectId(projectRoot: string): string | null {
+  return readDeclaredProjectIdentity(projectRoot)?.projectId ?? null;
 }
 
 /**
@@ -201,7 +195,7 @@ export async function mirrorSessionToManifest(
 ): Promise<void> {
   try {
     const handle = await ensureGlobalSignaldockDb();
-    const projectId = await resolveCanonicalProjectId(projectRoot);
+    const projectId = resolveCanonicalProjectId(projectRoot);
     const row = toManifestRow(session, projectId, projectRoot);
     await upsertManifestRow(handle, row);
   } catch (err) {
@@ -241,7 +235,7 @@ export async function reconcileSessionManifestOnStart(
       return;
     }
     const handle = await ensureGlobalSignaldockDb();
-    const projectId = await resolveCanonicalProjectId(projectRoot);
+    const projectId = resolveCanonicalProjectId(projectRoot);
     const row = toManifestRow(authoritative, projectId, projectRoot);
     await upsertManifestRow(handle, row);
   } catch (err) {

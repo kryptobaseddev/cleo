@@ -48,6 +48,7 @@ import {
   getCleoDirAbsolute,
   getCleoHome,
   getProjectRoot,
+  recordProjectEncounter,
   resolveCleoDir,
 } from './paths.js';
 // Shared utility imports
@@ -95,6 +96,12 @@ export interface InitOptions {
    * an identity — neither is ever rewritten.
    */
   newIdentity?: boolean;
+  /**
+   * Point the registry row at this checkout even though its previous location
+   * still exists on this device (T12470). Without it such a checkout is only a
+   * `candidate`.
+   */
+  forceRebind?: boolean;
 }
 
 /** Result of the init operation. */
@@ -517,6 +524,17 @@ export async function initCoreSkills(created: string[], warnings: string[]): Pro
   }
 }
 
+/** Options for {@link initNexusRegistration} (T12470). */
+export interface InitNexusRegistrationOptions {
+  /**
+   * Maintenance caller (`cleo upgrade` / `self-update`): record an encounter
+   * only — never mint an identity and never repoint an existing row.
+   */
+  maintenance?: boolean;
+  /** Explicit rebind even though the previous location still exists. */
+  forceRebind?: boolean;
+}
+
 /**
  * Register/reconcile project with NEXUS.
  * Uses nexusReconcile for idempotent handshake — auto-registers if new,
@@ -528,6 +546,7 @@ export async function initNexusRegistration(
   projectRoot: string,
   created: string[],
   warnings: string[],
+  opts: InitNexusRegistrationOptions = {},
 ): Promise<void> {
   try {
     const { shouldAutoRegisterProject } = await import('./nexus/registry-hygiene.js');
@@ -538,8 +557,27 @@ export async function initNexusRegistration(
       );
       return;
     }
+    if (opts.maintenance) {
+      // T12470: a maintenance command (`cleo upgrade` / `self-update`) is not
+      // an explicit registration. It goes through the encounter, which never
+      // mints an identity and never moves an existing row to this checkout.
+      const outcome = await recordProjectEncounter(projectRoot);
+      if (outcome === 'recorded') created.push('NEXUS registration (encounter recorded)');
+      return;
+    }
     const { nexusReconcile } = await import('./nexus/registry.js');
-    const result = await nexusReconcile(projectRoot);
+    const result = await nexusReconcile(projectRoot, {
+      ...(opts.forceRebind ? { forceRebind: true } : {}),
+    });
+    if (result.status === 'candidate') {
+      warnings.push(
+        `NEXUS registration: this project is registered at ${result.oldPath}, which still exists; ` +
+          'this checkout was recorded as a candidate and the registry was NOT repointed. ' +
+          'If this checkout should own the registration, run `cleo doctor project-identity --resolve` ' +
+          'or re-run with `--force-rebind`.',
+      );
+      return;
+    }
     if (result.status === 'auto_registered') {
       created.push('NEXUS registration (auto-registered new project)');
     } else if (result.status === 'path_updated') {
@@ -1098,7 +1136,9 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
   // Skills are NOT installed during project-level init — they are installed once globally.
 
   // T4684: NEXUS registration (reconcile-based handshake, T5368)
-  await initNexusRegistration(projRoot, created, warnings);
+  await initNexusRegistration(projRoot, created, warnings, {
+    ...(opts.forceRebind ? { forceRebind: true } : {}),
+  });
 
   // T5240: Adapter discovery, activation, and install
   try {

@@ -127,7 +127,9 @@ describe('AC2: a fresh clone resolves the same projectId', () => {
 describe('AC4: moving a project keeps its projectId and updates only the path', () => {
   it('re-points the single registry row in place', async () => {
     const home = newHome('device');
-    const before = newRepo('before');
+    // T12470: an encounter follows a move only when it is verifiable — the old
+    // path is gone and the recorded git remote (or root commit) matches.
+    const before = newRepo('before', 'https://example.invalid/before.git');
     await ensureProjectInfo(before);
     const id = readInfoId(before);
     await registerProjectOnEncounter(before, id);

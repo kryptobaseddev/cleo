@@ -20,7 +20,12 @@
 
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { getCleoHome, resolveCanonicalCleoDir, resolveProjectByCwd } from '@cleocode/paths';
+import {
+  canonicalizePath,
+  getCleoHome,
+  resolveCanonicalCleoDir,
+  resolveProjectByCwd,
+} from '@cleocode/paths';
 
 export { getCleoHome };
 
@@ -28,9 +33,10 @@ export { getCleoHome };
  * Returns the project's `.cleo/` directory.
  *
  * Resolution order:
- * 1. {@link resolveProjectByCwd} — reads `.cleo/project-info.json` for a stable
- *    `projectId`, then resolves the canonical `.cleo/` path via
- *    {@link resolveCanonicalCleoDir} (nexus.db registry lookup).
+ * 1. {@link resolveProjectByCwd} — reads the declared `projectId`
+ *    (`.cleo/project-id`, then `project-info.json`) and the checkout root. The
+ *    registry path from {@link resolveCanonicalCleoDir} is used only when it
+ *    names this same checkout (T12470); otherwise `<projectRoot>/.cleo`.
  * 2. Fallback: `CLEO_ROOT` env var or `process.cwd()` + `'.cleo'` for
  *    non-project contexts (e.g., before `cleo init`).
  *
@@ -39,10 +45,17 @@ export { getCleoHome };
 export function getCleoProjectDir(): string {
   const project = resolveProjectByCwd();
   if (project !== null) {
+    const local = join(project.projectRoot, '.cleo');
+    // T12470: the registry names ONE checkout per project id — whichever was
+    // confirmed last. Two clones of one project share the id, so the registry
+    // answer is used only when it agrees with the checkout the caller is in;
+    // otherwise clone A would read clone B's `.cleo/`. Mirrors the
+    // path-agrees check in core's getCleoDirAbsolute.
     const canonical = resolveCanonicalCleoDir(project.projectId);
-    if (canonical !== null) return canonical;
-    // Project found but not in nexus registry yet — use projectRoot fallback.
-    return join(project.projectRoot, '.cleo');
+    if (canonical !== null && canonicalizePath(canonical) === canonicalizePath(local)) {
+      return canonical;
+    }
+    return local;
   }
   // Fallback for non-project contexts (pre-init, CLEO_ROOT override).
   const root = process.env['CLEO_ROOT'] ?? process.cwd();
