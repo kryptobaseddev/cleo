@@ -20,6 +20,10 @@
 -- the entry is marked applied. IF NOT EXISTS keeps a re-run harmless. No data
 -- is touched.
 --
+-- CHECK constraints are written exactly as the schema derives them (T11364
+-- parity). A NULL `probe_error_code` passes the IN check, because a CHECK
+-- rejects only FALSE.
+--
 -- Timestamp is after T12510's 20260928020000 so the two never collide.
 --
 -- @task T12511
@@ -50,7 +54,7 @@ CREATE TABLE IF NOT EXISTS `nexus_project_git_state` (
 	PRIMARY KEY (`project_id`, `device_id`, `path`),
 	CHECK ("detached" IN (0, 1)),
 	CHECK ("shallow" IN (0, 1)),
-	CHECK ("probe_error_code" IS NULL OR "probe_error_code" IN ('E_PATH_MISSING', 'E_PATH_ACCESS', 'E_NOT_GIT_REPO', 'E_GIT_TIMEOUT', 'E_GIT_FAILED', 'E_FETCH_FAILED')),
+	CHECK ("probe_error_code" IN ('E_PATH_MISSING', 'E_PATH_ACCESS', 'E_NOT_GIT_REPO', 'E_GIT_TIMEOUT', 'E_GIT_FAILED', 'E_FETCH_FAILED')),
 	CHECK ("remote_fetched_at" IS NULL OR "remote_fetched_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'),
 	CHECK ("probed_at" IS NULL OR "probed_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')
 );
