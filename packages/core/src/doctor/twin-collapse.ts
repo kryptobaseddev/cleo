@@ -3,12 +3,13 @@
  *
  * A twin collapse runs inside the tasks and brain domain binds (see
  * `store/twin-collapse.ts`). When it cannot finish (no space for its snapshot,
- * an unusable `.cleo/backups/sqlite`, a merge error) every command that opens
- * the project fails with `E_TWIN_COLLAPSE_FAILED`. This module is how the user
- * gets out:
+ * an unusable `.cleo/backups/sqlite`, a merge error) the store turns
+ * read-only for users: reads are served from the merged TEMP shadows, and every
+ * mutating command is refused with `E_TWIN_COLLAPSE_FAILED`. This module is how
+ * the user gets out:
  *
  * - {@link inspectProjectTwinCollapse} reads the store read-only, WITHOUT
- *   binding a domain (so it works while the binds fail): each pair's state,
+ *   binding a domain: each pair's state, conflicts,
  *   the recorded failure, and a preflight of the snapshot a pending collapse
  *   needs (backup directory usable, space needed vs free).
  * - {@link retryTwinCollapse} runs the collapse once on the chokepoint handle,
@@ -176,7 +177,7 @@ export function twinCollapseDoctorCheck(projectRoot: string): TwinCollapseDoctor
       status: 'error',
       message:
         failed.length > 0
-          ? `twin collapse of ${failed.map((p) => p.table).join(', ')} failed: ${first?.cause ?? 'unknown cause'}` +
+          ? `twin collapse of ${failed.map((p) => p.table).join(', ')} failed (reads work, writes are refused): ${first?.cause ?? 'unknown cause'}` +
             (first?.snapshotPath ? ` (snapshot ${first.snapshotPath})` : '')
           : `pending twin collapse cannot write its snapshot: ${report.preflight?.backupDirProblem ?? `${report.preflight?.requiredBytes} bytes needed, ${report.preflight?.availableBytes} free`}`,
       details,
@@ -185,7 +186,8 @@ export function twinCollapseDoctorCheck(projectRoot: string): TwinCollapseDoctor
   }
   const pending = report.pairs.filter((p) => p.state === 'pending' && p.wouldChangeTwin);
   const changed = report.pairs.filter((p) => p.state === 'bare-changed');
-  if (pending.length > 0 || changed.length > 0) {
+  const conflicted = report.pairs.filter((p) => p.conflicts.length > 0);
+  if (pending.length > 0 || changed.length > 0 || conflicted.length > 0) {
     return {
       check: 'twin_collapse',
       status: 'warning',
@@ -195,6 +197,9 @@ export function twinCollapseDoctorCheck(projectRoot: string): TwinCollapseDoctor
           : '',
         changed.length > 0
           ? `an older CLEO build changed ${changed.map((p) => `${p.table} (${p.changedSinceMerge})`).join(', ')} since the last merge; the next open carries it`
+          : '',
+        conflicted.length > 0
+          ? `both builds changed ${conflicted.map((p) => `${p.table}: ${p.conflicts.join(', ')}`).join('; ')} (last merge ${conflicted[0]?.conflictsAt}); the twin value was kept`
           : '',
       ]
         .filter(Boolean)

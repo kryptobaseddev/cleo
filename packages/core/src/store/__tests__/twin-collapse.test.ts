@@ -307,28 +307,61 @@ describe('the bare table is authoritative at the initial collapse (Blocker A)', 
     expect(meta(db, 'tasks_schema_meta', SNAPSHOT_GATE_META_KEY)).toBe(
       '{"generation":8,"prefixes":{}}',
     );
+    // Field-level MAX: the bare record with only its generation raised.
     expect(meta(db, 'tasks_schema_meta', 'file_meta')).toBe(
-      '{"generation":20,"lastSessionId":"ses_old"}',
+      '{"generation":20,"lastSessionId":"ses_live"}',
     );
-    expect(counterOf(meta(db, 'tasks_schema_meta', 'task_id_sequence'))).toBe(4);
+    const seq = JSON.parse(meta(db, 'tasks_schema_meta', 'task_id_sequence') ?? '{}');
+    expect(seq.counter).toBe(4); // max(bare 2, twin 4) …
+    expect(seq.checksum).toMatch(/^alloc-/); // … inside the BARE object
     expect(meta(db, 'tasks_schema_meta', 'backfill:terminal-pipeline-stage')).toBeUndefined();
   });
 
-  it('mergeSchemaMetaValue: counters take the larger value, never a sum or a reset', () => {
-    const seq = (n: number) => JSON.stringify({ counter: n, lastId: `T${n}`, checksum: 'x' });
-    expect(mergeSchemaMetaValue('task_id_sequence', seq(7), seq(3))).toBe('bare');
-    expect(mergeSchemaMetaValue('task_id_sequence', seq(3), seq(7))).toBe('twin');
-    expect(mergeSchemaMetaValue('task_id_sequence', seq(5), seq(5))).toBe('twin');
-    expect(mergeSchemaMetaValue('task_id_sequence', 'not json', seq(1))).toBe('twin');
-    expect(mergeSchemaMetaValue('task_id_sequence', seq(1), 'not json')).toBe('bare');
-    expect(mergeSchemaMetaValue('task_id_sequence', seq(1), undefined)).toBe('bare');
+  it('file_meta on the real store: the bare record wins, its generation is maxed (field-level)', () => {
+    const db = preMigrationTasks(0);
+    setMeta(db, 'schema_meta', 'file_meta', '{"lastSessionId":"ses_20260926…","generation":90}');
+    setMeta(
+      db,
+      'tasks_schema_meta',
+      'file_meta',
+      '{"lastSessionId":"ses_20260602…","generation":411}',
+    );
+    collapseTwinTables(db, dbPath());
+    expect(JSON.parse(meta(db, 'tasks_schema_meta', 'file_meta') ?? '{}')).toEqual({
+      lastSessionId: 'ses_20260926…',
+      generation: 411,
+    });
+  });
+
+  it('mergeSchemaMetaValue: the bare value, with only the counter field maxed', () => {
+    const seq = (n: number, id = `T${n}`) =>
+      JSON.stringify({ counter: n, lastId: id, checksum: 'x' });
+    expect(mergeSchemaMetaValue('task_id_sequence', seq(7), seq(3))).toBe(seq(7));
+    expect(mergeSchemaMetaValue('task_id_sequence', seq(3, 'Tbare'), seq(7))).toBe(seq(7, 'Tbare')); // never the whole twin value, never a sum
+    expect(mergeSchemaMetaValue('task_id_sequence', seq(5), seq(5))).toBe(seq(5));
+    expect(mergeSchemaMetaValue('task_id_sequence', '5', '9')).toBe('9'); // plain numbers
+    expect(mergeSchemaMetaValue('task_id_sequence', '12', '9')).toBe('12');
+    expect(mergeSchemaMetaValue('task_id_sequence', 'not json', seq(9))).toBe('not json');
+    expect(mergeSchemaMetaValue('task_id_sequence', seq(1), undefined)).toBe(seq(1));
     expect(
-      mergeSchemaMetaValue(SNAPSHOT_GATE_META_KEY, '{"generation":2}', '{"generation":2}'),
-    ).toBe('bare');
-    expect(mergeSchemaMetaValue('file_meta', '{"generation":3}', '{"generation":9}')).toBe('twin');
-    expect(mergeSchemaMetaValue('file_meta', '{"generation":9}', '{"generation":3}')).toBe('bare');
-    expect(mergeSchemaMetaValue('backfill:x', '{}', undefined)).toBe('skip');
-    expect(mergeSchemaMetaValue(`${TWIN_COLLAPSE_MARKER_PREFIX}x`, '{}', undefined)).toBe('skip');
+      mergeSchemaMetaValue(
+        SNAPSHOT_GATE_META_KEY,
+        '{"generation":2,"prefixes":{"tasks":1}}',
+        '{"generation":6,"prefixes":{}}',
+      ),
+    ).toBe('{"generation":6,"prefixes":{"tasks":1}}');
+    expect(
+      mergeSchemaMetaValue(
+        'file_meta',
+        '{"lastSessionId":"ses_20260926…","generation":90}',
+        '{"lastSessionId":"ses_20260602…","generation":411}',
+      ),
+    ).toBe('{"lastSessionId":"ses_20260926…","generation":411}');
+    expect(mergeSchemaMetaValue('file_meta', '{"generation":9}', '{"generation":3}')).toBe(
+      '{"generation":9}',
+    );
+    expect(mergeSchemaMetaValue('backfill:x', '{}', undefined)).toBeNull();
+    expect(mergeSchemaMetaValue(`${TWIN_COLLAPSE_MARKER_PREFIX}x`, '{}', undefined)).toBeNull();
     expect(mergeSchemaMetaValue('focus_state:ses_1', 'bare', 'twin')).toBe('bare');
   });
 });
@@ -358,6 +391,40 @@ describe('incremental re-merge: the old build keeps writing the bare tables', ()
     expect(await next.getMetaValue('parallel_state')).toBeNull(); // the deletion propagated
     expect(await next.getMetaValue('focus_state:ses_new')).toEqual({ currentTask: 'T7' });
     expect(inspectTwinCollapse(tasksNative())[0]?.state).toBe('collapsed');
+  });
+
+  it('a key both builds changed since the last merge keeps the twin value, and doctor reports it', async () => {
+    const db = preMigrationTasks(0);
+    setMeta(db, 'schema_meta', 'focus_state', '{"currentTask":"T1"}');
+    setMeta(db, 'schema_meta', 'project_meta', '{"name":"v1"}');
+    await reopen();
+    // This build moves focus; the old build moves it too, and edits project_meta alone.
+    const accessor = await createSqliteDataAccessor(projectDir);
+    await accessor.setMetaValue('focus_state', { currentTask: 'T-new' });
+    setMeta(tasksNative(), 'schema_meta', 'focus_state', '{"currentTask":"T-old"}');
+    setMeta(tasksNative(), 'schema_meta', 'project_meta', '{"name":"v2"}');
+    // Both builds also start a session: file_meta is a counter key, so it is
+    // never a conflict. The twin's record is kept, with the generation maxed.
+    await accessor.setMetaValue('file_meta', { lastSessionId: 'ses_new', generation: 5 });
+    setMeta(
+      tasksNative(),
+      'schema_meta',
+      'file_meta',
+      '{"lastSessionId":"ses_old","generation":9}',
+    );
+
+    await reopen();
+    const next = await createSqliteDataAccessor(projectDir);
+    expect(await next.getMetaValue('focus_state')).toEqual({ currentTask: 'T-new' }); // twin wins
+    expect(await next.getMetaValue('project_meta')).toEqual({ name: 'v2' }); // no conflict: bare
+    expect(await next.getMetaValue('file_meta')).toEqual({
+      lastSessionId: 'ses_new',
+      generation: 9,
+    });
+    expect(inspectTwinCollapse(tasksNative())[0]).toMatchObject({
+      state: 'collapsed',
+      conflicts: ['focus_state'],
+    });
   });
 
   it('a bare counter lower than the twin never moves the twin counter down', async () => {
@@ -397,20 +464,23 @@ describe('sticky_tags', () => {
     expect(db.prepare('SELECT COUNT(*) AS c FROM main.sticky_tags').get()).toEqual({ c: 4 });
   });
 
-  it('incremental: old-build tag changes propagate, and this build’s own tag edits survive', async () => {
+  it('incremental: old-build tag changes propagate; an id both builds changed keeps the twin', async () => {
     const { db, a, b } = await preMigrationSticky();
     collapseTwinTables(db, dbPath());
-    // This build adds a tag to a and removes gamma from b.
-    db.prepare('INSERT INTO main.brain_sticky_tags (sticky_id, tag) VALUES (?, ?)').run(a, 'new');
-    db.prepare("DELETE FROM main.brain_sticky_tags WHERE sticky_id = ? AND tag = 'gamma'").run(b);
-    // The old build removes beta from a and adds delta to b.
+    // Only the old build touches a: removes beta, adds old-add.
     db.prepare("DELETE FROM main.sticky_tags WHERE sticky_id = ? AND tag = 'beta'").run(a);
+    db.prepare('INSERT INTO main.sticky_tags (sticky_id, tag) VALUES (?, ?)').run(a, 'old-add');
+    // Both touch b: this build adds mine, the old build adds delta.
+    db.prepare('INSERT INTO main.brain_sticky_tags (sticky_id, tag) VALUES (?, ?)').run(b, 'mine');
     db.prepare('INSERT INTO main.sticky_tags (sticky_id, tag) VALUES (?, ?)').run(b, 'delta');
 
     await reopen();
-    expect(twinTags(brainNative())).toEqual([`${a}:alpha`, `${a}:new`, `${b}:delta`].sort());
-    expect((await listStickies({ tags: ['delta'] }, projectDir)).map((n) => n.id)).toEqual([b]);
-    expect(await listStickies({ tags: ['beta'] }, projectDir)).toEqual([]);
+    expect(twinTags(brainNative())).toEqual(
+      [`${a}:alpha`, `${a}:old-add`, `${b}:gamma`, `${b}:mine`].sort(),
+    );
+    expect((await listStickies({ tags: ['old-add'] }, projectDir)).map((n) => n.id)).toEqual([a]);
+    expect(await listStickies({ tags: ['beta'] }, projectDir)).toEqual([]); // removal propagated
+    expect(inspectTwinCollapse(brainNative())[1]).toMatchObject({ conflicts: [b] });
   });
 });
 
@@ -515,22 +585,24 @@ describe('concurrency guard: the marker is re-read under the write lock', () => 
     // The other process holds the write lock and commits its own collapse of
     // the same bare table, after which its user moved focus to T42 in the
     // twin. Merging again here would reset focus_state to the bare T1.
-    const seen: Record<string, string> = {};
+    const bareHashes: Record<string, string> = {};
     for (const row of db
       .prepare(
         "SELECT key, value FROM main.schema_meta WHERE key NOT LIKE 'backfill:%' ORDER BY key",
       )
       .all() as Array<{ key: string; value: string }>) {
-      seen[row.key] = sha(row.value);
+      bareHashes[row.key] = sha(row.value);
     }
     const marker = JSON.stringify({
-      version: 2,
+      version: 3,
       task: 'T12535',
       collapsedAt: 'x',
       lastMergedAt: 'x',
       snapshot: null,
-      seen,
+      hashes: { bare: bareHashes, twin: {} },
       dropped: [],
+      conflicts: [],
+      conflictsAt: null,
     });
     const script = `
       const { DatabaseSync } = require('node:sqlite');

@@ -589,9 +589,10 @@ function establishTasksSchema(nativeDb: DatabaseSync, store: ProjectStore): Node
 
   // T12535: bring the prefixed twins up to date with their bare tables (the
   // initial collapse snapshots first; later opens carry what an older build
-  // wrote since) before any caller reads them. Throws E_TWIN_COLLAPSE_FAILED —
-  // failing the bind — rather than serve an unmerged task-id counter.
-  collapseTwinTables(nativeDb, store.dbPath);
+  // wrote since) before any caller reads them. A failure never fails the bind:
+  // reads are served from the merged TEMP shadows and the dispatch write guard
+  // refuses writes with E_TWIN_COLLAPSE_FAILED.
+  collapseTwinTables(nativeDb, store.dbPath, { onFailure: 'degrade' });
 
   // Migration SQL contains PRAGMA foreign_keys=ON statements. In test
   // environments, disable FKs after migration so fixtures can insert

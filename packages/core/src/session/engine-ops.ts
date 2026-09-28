@@ -16,8 +16,6 @@ import type { Session, SessionSummaryInput, TaskWorkState } from '@cleocode/cont
 import { ExitCode, SESSION_JOURNAL_SCHEMA_VERSION } from '@cleocode/contracts';
 import type { GlobalInstructionRefreshReport } from '@cleocode/contracts/caamp-markers';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
-import { CleoError } from '../errors.js';
-import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { paginate } from '../pagination.js';
 import { type ContextInjectionData, injectContext } from '../sessions/context-inject.js';
 import { readFocusState, writeFocusState } from '../sessions/focus-state-store.js';
@@ -68,21 +66,6 @@ import {
   stopTask,
   type TaskWorkHistoryEntry,
 } from '../task-work/index.js';
-
-/**
- * The engine error for a task-store failure. A failed twin collapse keeps its
- * own code (`E_TWIN_COLLAPSE_FAILED`), cause and fix, so the caller learns why
- * the store cannot open and how to recover; anything else keeps the historic
- * `E_NOT_INITIALIZED`.
- *
- * @task T12535
- */
-function taskDbUnavailable<T>(err: unknown): EngineResult<T> {
-  if (err instanceof CleoError && err.code === ExitCode.TWIN_COLLAPSE_FAILED) {
-    return cleoErrorToEngineResult<T>(err);
-  }
-  return engineError<T>('E_NOT_INITIALIZED', 'Task database not initialized');
-}
 
 // ---------------------------------------------------------------------------
 // Private helpers
@@ -182,8 +165,8 @@ export async function sessionStatus(projectRoot: string): Promise<
       overrideCount,
       ...(unbound ? { unbound: true as const } : {}),
     });
-  } catch (err) {
-    return taskDbUnavailable(err);
+  } catch {
+    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
   }
 }
 
@@ -301,8 +284,8 @@ export async function sessionList(
       },
       page: pageResult.page,
     };
-  } catch (err) {
-    return taskDbUnavailable(err);
+  } catch {
+    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
   }
 }
 
@@ -325,8 +308,8 @@ export async function sessionFind(
   try {
     const result = await findSessions(projectRoot, params);
     return engineSuccess(result);
-  } catch (err) {
-    return taskDbUnavailable(err);
+  } catch {
+    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
   }
 }
 
@@ -369,8 +352,8 @@ export async function taskCurrentGet(
       currentTask: result.currentTask,
       currentPhase: result.currentPhase,
     });
-  } catch (err) {
-    return taskDbUnavailable(err);
+  } catch {
+    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
   }
 }
 
@@ -422,8 +405,8 @@ export async function taskStop(
     const accessor = await getTaskAccessor(projectRoot);
     const result = await stopTask(undefined, accessor);
     return engineSuccess({ cleared: true, previousTask: result.previousTask });
-  } catch (err) {
-    return taskDbUnavailable(err);
+  } catch {
+    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
   }
 }
 
@@ -442,8 +425,8 @@ export async function taskWorkHistory(
     const accessor = await getTaskAccessor(projectRoot);
     const history = await getTaskHistory(undefined, accessor);
     return engineSuccess({ history, count: history.length });
-  } catch (err) {
-    return taskDbUnavailable(err);
+  } catch {
+    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
   }
 }
 
@@ -760,8 +743,8 @@ export async function sessionStart(
     });
 
     return engineSuccess(enrichedSession as Session);
-  } catch (err) {
-    return taskDbUnavailable(err);
+  } catch {
+    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
   }
 }
 
@@ -985,8 +968,8 @@ export async function sessionEnd(
       ended: true,
       ...(memoryPrompt && { memoryPrompt }),
     });
-  } catch (err) {
-    return taskDbUnavailable(err);
+  } catch {
+    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
   }
 }
 
@@ -1082,8 +1065,8 @@ export async function sessionResume(
     };
 
     return engineSuccess(enrichedSession as Session);
-  } catch (err) {
-    return taskDbUnavailable(err);
+  } catch {
+    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
   }
 }
 
@@ -1142,8 +1125,8 @@ export async function sessionGc(
     }
 
     return engineSuccess({ orphaned, removed });
-  } catch (err) {
-    return taskDbUnavailable(err);
+  } catch {
+    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
   }
 }
 
@@ -1199,8 +1182,8 @@ export async function sessionHistory(
   try {
     const result = await getSessionHistory(projectRoot, params);
     return engineSuccess(result);
-  } catch (err) {
-    return taskDbUnavailable(err);
+  } catch {
+    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
   }
 }
 
@@ -1218,8 +1201,8 @@ export async function sessionCleanup(
   try {
     const result = await cleanupSessions(projectRoot);
     return engineSuccess(result);
-  } catch (err) {
-    return taskDbUnavailable(err);
+  } catch {
+    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
   }
 }
 
@@ -1434,8 +1417,8 @@ export async function sessionArchive(
   try {
     const result = await archiveSessions(projectRoot, olderThan);
     return engineSuccess(result);
-  } catch (err) {
-    return taskDbUnavailable(err);
+  } catch {
+    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
   }
 }
 

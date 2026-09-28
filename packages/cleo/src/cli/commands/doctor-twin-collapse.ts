@@ -5,10 +5,10 @@
  *
  * The collapse runs inside every open of the project store. When it fails
  * (no space for its snapshot, an unusable `.cleo/backups/sqlite`, a merge
- * error), each command fails with `E_TWIN_COLLAPSE_FAILED`. This command reads
- * the store without binding a domain, so it still works then: it names the
- * cause, the snapshot path and the space needed, and `--retry` runs the
- * collapse once after the cause is cleared. The restore path is documented in
+ * error), reads keep working and every mutating command is refused with
+ * `E_TWIN_COLLAPSE_FAILED`. This command reads the store without binding a
+ * domain: it names the cause, the snapshot path and the space needed, and
+ * `--retry` runs the collapse once after the cause is cleared. The restore path is documented in
  * `packages/core/src/doctor/twin-collapse.ts`.
  *
  * @task T12535
