@@ -10,7 +10,8 @@
  *   (POSIX `detached`), and at the deadline the whole group is SIGKILLed
  *   (`taskkill /T /F` on Windows). The pipes are destroyed and the child is
  *   unref'd, so a grandchild that escaped the group cannot keep the CLI alive.
- * - Output is capped at `maxOutputBytes`; past it the group is killed.
+ * - Output is capped at `maxOutputBytes` per call and optionally by a
+ *   run-wide {@link GitOutputBudget}; past either the group is killed.
  * - While any call is live, `SIGINT`/`SIGTERM`/`SIGHUP` and `exit` kill every
  *   live group. A detached group is not in the terminal's foreground group, so
  *   Ctrl-C would otherwise orphan it. The signal is re-raised when no other
@@ -19,15 +20,16 @@
  *
  * ## Hardened
  *
- * Every call gets `-c core.fsmonitor=false` (no fsmonitor hook script and no
- * fsmonitor daemon), `-c core.hooksPath=<devnull>`, and ext:: transport
- * disabled. Callers add per-filter overrides ({@link filterOverrides}) to
- * commands that read the work tree, and {@link FETCH_HARDENING} to fetches.
- * The environment disables every prompt: `GIT_TERMINAL_PROMPT=0`, empty
- * `GIT_ASKPASS`/`SSH_ASKPASS`, `SSH_ASKPASS_REQUIRE=never`,
- * `GCM_INTERACTIVE=never`. It also sets `GIT_OPTIONAL_LOCKS=0`, so `status`
- * never takes `index.lock`, and removes `GIT_SSH`/`GIT_SSH_COMMAND` so the
- * pinned `core.sshCommand` applies.
+ * Every call carries {@link BASE_CONFIG} — no fsmonitor, no hooks, a protocol
+ * allowlist (http/https/ssh/file), empty gitProxy/alternateRefsCommand/
+ * credential helper/askpass, batch-mode ssh, no auto gc — plus caller pairs
+ * such as {@link filterConfig}. Overrides travel as `GIT_CONFIG_COUNT` /
+ * `GIT_CONFIG_KEY_n` / `GIT_CONFIG_VALUE_n`, never `-c`, because `-c` splits
+ * at the first `=` and a key may contain one. The environment disables every
+ * prompt (`GIT_TERMINAL_PROMPT=0`, empty `GIT_ASKPASS`/`SSH_ASKPASS`,
+ * `SSH_ASKPASS_REQUIRE=never`, `GCM_INTERACTIVE=never`), forbids partial-clone
+ * lazy fetches (`GIT_NO_LAZY_FETCH=1`), sets `GIT_OPTIONAL_LOCKS=0`, and drops
+ * `GIT_SSH`/`GIT_SSH_COMMAND`/`GIT_PROXY_COMMAND`/`GIT_EXTERNAL_DIFF`.
  *
  * @task T12511
  */
@@ -38,60 +40,85 @@ import { registerTeardownAbort } from '../teardown-signal.js';
 import { discoveryEnv } from './work-tree.js';
 
 /** Default cap on one call's stdout + stderr, bytes. */
-export const DEFAULT_GIT_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
+export const DEFAULT_GIT_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 
-/** `-c` overrides applied to every probe call. */
-export const BASE_HARDENING: readonly string[] = [
-  '-c',
-  'core.fsmonitor=false',
-  '-c',
-  `core.hooksPath=${devNull}`,
-  '-c',
-  'protocol.ext.allow=never',
-];
+/** One config override: `[key, value]`. */
+export type GitConfigPair = readonly [key: string, value: string];
 
 /**
- * Extra `-c` overrides for `git fetch`: no credential helper, no askpass, plain
- * batch-mode ssh, no submodule recursion. `credential.helper=` (empty) resets
- * the helper list, and single-valued keys given with `-c` override the
- * repository's value.
+ * Overrides applied to EVERY probe call. Any git command can reach the
+ * network (a partial clone fetches missing blobs lazily), so the transport
+ * pins apply everywhere, not only to `fetch`.
+ *
+ * - `core.fsmonitor=false`: no fsmonitor hook script, no fsmonitor daemon.
+ * - `core.hooksPath=<devnull>`: no hook.
+ * - `protocol.allow=never` plus an http/https/ssh/file allowlist: no `ext::`,
+ *   `fd::` or `<vcs>::` remote helper, no `git://` (whose `core.gitProxy`
+ *   runs a command).
+ * - Empty `core.gitProxy`, `core.alternateRefsCommand`, `credential.helper`
+ *   (resets the list) and `core.askPass`; plain batch-mode ssh.
+ * - `gc.auto=0`, `maintenance.auto=false`: no detached gc holding repo locks.
  */
-export const FETCH_HARDENING: readonly string[] = [
-  '-c',
-  'credential.helper=',
-  '-c',
-  'core.askPass=',
-  '-c',
-  'core.sshCommand=ssh -oBatchMode=yes',
-  '-c',
-  'fetch.recurseSubmodules=false',
-  '-c',
-  'submodule.recurse=false',
+export const BASE_CONFIG: readonly GitConfigPair[] = [
+  ['core.fsmonitor', 'false'],
+  ['core.hooksPath', devNull],
+  ['protocol.allow', 'never'],
+  ['protocol.http.allow', 'always'],
+  ['protocol.https.allow', 'always'],
+  ['protocol.ssh.allow', 'always'],
+  ['protocol.file.allow', 'always'],
+  ['core.gitProxy', ''],
+  ['core.alternateRefsCommand', ''],
+  ['credential.helper', ''],
+  ['core.askPass', ''],
+  ['core.sshCommand', 'ssh -oBatchMode=yes'],
+  ['gc.auto', '0'],
+  ['maintenance.auto', 'false'],
+  ['fetch.recurseSubmodules', 'false'],
+  ['submodule.recurse', 'false'],
 ];
 
 /**
- * `-c` overrides that disable the named filter drivers. Git has no global
- * switch, so the caller enumerates `filter.<name>.*` from `git config` first.
- * An empty `clean`/`smudge`/`process` is "no driver", and `required=false`
- * keeps a disabled required filter from failing the command.
+ * Overrides that disable the named filter drivers. Git has no global switch,
+ * so the caller enumerates `filter.<name>.*` from `git config` first. An empty
+ * `clean`/`smudge`/`process` is "no driver", and `required=false` keeps a
+ * disabled required filter from failing the command. Passed through
+ * `GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n`, so a name containing `=` is intact
+ * (with `-c` git would split the key at that `=`).
  *
  * @param names - Filter driver names.
- * @returns `-c` argument pairs.
+ * @returns Config pairs.
  */
-export function filterOverrides(names: Iterable<string>): string[] {
-  const out: string[] = [];
+export function filterConfig(names: Iterable<string>): GitConfigPair[] {
+  const out: GitConfigPair[] = [];
   for (const name of names) {
-    for (const key of ['clean', 'smudge', 'process']) out.push('-c', `filter.${name}.${key}=`);
-    out.push('-c', `filter.${name}.required=false`);
+    for (const key of ['clean', 'smudge', 'process']) out.push([`filter.${name}.${key}`, '']);
+    out.push([`filter.${name}.required`, 'false']);
   }
   return out;
 }
 
-/** Probe environment: no ambient repo, no prompts, no optional locks. */
-export function hardenedGitEnv(): NodeJS.ProcessEnv {
-  const env = discoveryEnv();
-  delete env['GIT_SSH'];
-  delete env['GIT_SSH_COMMAND'];
+/**
+ * Probe environment: no ambient repo, no prompts, no lazy fetch, no optional
+ * locks, and `config` appended as command-scope overrides after any the
+ * caller's environment already carries (so ours are read last).
+ *
+ * @param config - Overrides beyond {@link BASE_CONFIG}.
+ * @returns Environment for a probe git process.
+ */
+export function hardenedGitEnv(config: readonly GitConfigPair[] = []): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...discoveryEnv() };
+  for (const key of ['GIT_SSH', 'GIT_SSH_COMMAND', 'GIT_PROXY_COMMAND', 'GIT_EXTERNAL_DIFF']) {
+    delete env[key];
+  }
+  const inherited = Number(env['GIT_CONFIG_COUNT'] ?? '0');
+  let n = Number.isInteger(inherited) && inherited > 0 ? inherited : 0;
+  for (const [key, value] of [...BASE_CONFIG, ...config]) {
+    env[`GIT_CONFIG_KEY_${n}`] = key;
+    env[`GIT_CONFIG_VALUE_${n}`] = value;
+    n++;
+  }
+  env['GIT_CONFIG_COUNT'] = String(n);
   return {
     ...env,
     GIT_TERMINAL_PROMPT: '0',
@@ -99,9 +126,44 @@ export function hardenedGitEnv(): NodeJS.ProcessEnv {
     SSH_ASKPASS: '',
     SSH_ASKPASS_REQUIRE: 'never',
     GCM_INTERACTIVE: 'never',
+    GIT_NO_LAZY_FETCH: '1',
     GIT_OPTIONAL_LOCKS: '0',
     LC_ALL: 'C',
   };
+}
+
+/**
+ * Bytes of git output held in memory at once across a whole probe run, so a
+ * high concurrency cannot multiply the per-call cap into gigabytes.
+ */
+export class GitOutputBudget {
+  private used = 0;
+
+  /**
+   * @param limit - Maximum bytes in flight across all calls sharing this budget.
+   */
+  constructor(readonly limit: number) {}
+
+  /**
+   * Reserve `bytes`.
+   *
+   * @param bytes - Bytes about to be held.
+   * @returns `false` when the reservation would exceed the limit.
+   */
+  take(bytes: number): boolean {
+    if (this.used + bytes > this.limit) return false;
+    this.used += bytes;
+    return true;
+  }
+
+  /**
+   * Release `bytes` previously taken.
+   *
+   * @param bytes - Bytes no longer held.
+   */
+  release(bytes: number): void {
+    this.used = Math.max(0, this.used - bytes);
+  }
 }
 
 /** Outcome of one bounded git invocation. */
@@ -130,6 +192,10 @@ export interface BoundedGitOptions {
   gitBin?: string;
   /** Output cap. Default {@link DEFAULT_GIT_MAX_OUTPUT_BYTES}. */
   maxOutputBytes?: number;
+  /** Overrides beyond {@link BASE_CONFIG} (e.g. {@link filterConfig}). */
+  config?: readonly GitConfigPair[];
+  /** Run-wide in-flight output budget. */
+  budget?: GitOutputBudget;
 }
 
 // ---------------------------------------------------------------------------
@@ -220,10 +286,10 @@ function untrack(child: ChildProcess): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Run `git <BASE_HARDENING> <args>` in `cwd`, bounded by `deadline` and
+ * Run `git <args>` in `cwd` with {@link hardenedGitEnv}, bounded by `deadline` and
  * `maxOutputBytes`. Never rejects.
  *
- * @param args - Arguments after the base hardening (may start with more `-c`).
+ * @param args - Git arguments.
  * @param options - cwd, deadline, git executable and output cap.
  * @returns The run outcome.
  * @example
@@ -245,9 +311,9 @@ export function runBoundedGit(
     const err: Buffer[] = [];
     let bytes = 0;
     let settled = false;
-    const child = spawn(options.gitBin ?? 'git', [...BASE_HARDENING, ...args], {
+    const child = spawn(options.gitBin ?? 'git', [...args], {
       cwd: options.cwd,
-      env: hardenedGitEnv(),
+      env: hardenedGitEnv(options.config),
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: process.platform !== 'win32',
       windowsHide: true,
@@ -261,6 +327,7 @@ export function runBoundedGit(
       settled = true;
       clearTimeout(timer);
       deregister();
+      options.budget?.release(bytes);
       if (kill) {
         killTree(child, false);
         // A grandchild outside the group may still hold these; release them so
@@ -287,11 +354,14 @@ export function runBoundedGit(
     const collect =
       (into: Buffer[]) =>
       (b: Buffer): void => {
-        bytes += b.length;
-        if (bytes > maxOutputBytes) {
+        if (
+          bytes + b.length > maxOutputBytes ||
+          (options.budget && !options.budget.take(b.length))
+        ) {
           finish({ code: null, timedOut: false, overflowed: true, spawnError: null }, true);
           return;
         }
+        bytes += b.length;
         into.push(b);
       };
     child.stdout?.on('data', collect(out));

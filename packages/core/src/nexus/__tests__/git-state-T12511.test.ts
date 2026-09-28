@@ -40,6 +40,7 @@ import {
   probeGitState,
   probeGitStates,
   redactRemoteUrl,
+  redactUrlsInText,
   runProjectsGitStatus,
 } from '../git-state.js';
 import { nexusUnregister } from '../registry.js';
@@ -537,5 +538,103 @@ describe('the process never outlives the deadline (T12511 review)', () => {
     const row = await probeGitState(target(repo), { gitBin: bin, maxOutputBytes: 1_000_000 });
     expect(row.probeErrorCode).toBe('E_GIT_FAILED');
     expect(row.probeError).toMatch(/exceeded 1000000 bytes/);
+  });
+});
+
+describe('round 2: more repository-configured code does not execute (T12511 review)', () => {
+  it('status in a partial clone does not lazily fetch (no configured upload-pack runs)', async () => {
+    const { remote } = makeClone('pc');
+    git(remote, 'config', 'uploadpack.allowFilter', 'true');
+    const clone = join(testDir, 'partial');
+    git(testDir, 'clone', '-q', '--filter=blob:none', `file://${remote}`, clone);
+    // Upstream renames a.txt -> b.txt with an edit (inexact rename).
+    const other = join(testDir, 'pc-other');
+    git(testDir, 'clone', '-q', remote, other);
+    git(other, 'mv', 'a.txt', 'b.txt');
+    writeFileSync(join(other, 'b.txt'), 'a\nmore\n');
+    git(other, 'commit', '-qam', 'rename');
+    git(other, 'push', '-q', 'origin', 'main');
+    git(clone, 'fetch', '-q');
+    // HEAD now names b.txt, whose blob was never downloaded.
+    git(clone, 'reset', '-q', '--soft', 'origin/main');
+    const ran = join(testDir, 'lazy.ran');
+    const upload = join(testDir, 'lazy-upload.sh');
+    writeFileSync(upload, `#!/bin/sh\ntouch "${ran}"\nexec git-upload-pack "$@"\n`);
+    chmodSync(upload, 0o755);
+    git(clone, 'config', 'remote.origin.uploadpack', upload);
+
+    const row = await probeGitState(target(clone));
+    expect(row.probeErrorCode).toBeNull();
+    expect(existsSync(ran)).toBe(false);
+  });
+
+  it('--fetch does not run core.gitProxy', async () => {
+    const repo = makeRepo(join(testDir, 'gp'));
+    const ran = join(testDir, 'proxy.ran');
+    git(repo, 'config', 'core.gitProxy', markerScript('proxy.sh', ran));
+    git(repo, 'remote', 'add', 'origin', 'git://127.0.0.1:9/x.git');
+    const row = await probeGitState(target(repo), { fetch: true, timeoutMs: 10_000 });
+    expect(row.probeErrorCode).toBe('E_FETCH_FAILED');
+    expect(existsSync(ran)).toBe(false);
+  });
+
+  it('--fetch does not run core.alternateRefsCommand', async () => {
+    const { remote } = makeClone('ar');
+    const reference = join(testDir, 'ar-ref');
+    git(testDir, 'clone', '-q', remote, reference);
+    const clone = join(testDir, 'ar-clone');
+    git(testDir, 'clone', '-q', '--reference', reference, remote, clone);
+    const ran = join(testDir, 'altrefs.ran');
+    git(clone, 'config', 'core.alternateRefsCommand', markerScript('altrefs.sh', ran));
+    const other = join(testDir, 'ar-other');
+    git(testDir, 'clone', '-q', remote, other);
+    writeFileSync(join(other, 'z.txt'), 'z\n');
+    git(other, 'add', 'z.txt');
+    git(other, 'commit', '-q', '-m', 'z');
+    git(other, 'push', '-q', 'origin', 'main');
+
+    const row = await probeGitState(target(clone), { fetch: true });
+    expect(row.probeErrorCode).toBeNull();
+    expect(row.behind).toBe(1);
+    expect(existsSync(ran)).toBe(false);
+  });
+
+  it('a filter whose name contains "=" is disabled too', async () => {
+    const repo = makeRepo(join(testDir, 'eq'));
+    const ran = join(testDir, 'eqfilter.ran');
+    git(repo, 'config', 'filter.x=y.clean', markerScript('eq.sh', ran));
+    writeFileSync(join(repo, '.gitattributes'), '*.txt filter=x=y\n');
+    const later = new Date(Date.now() + 5_000);
+    utimesSync(join(repo, 'a.txt'), later, later);
+    const row = await probeGitState(target(repo));
+    expect(row.probeErrorCode).toBeNull();
+    expect(existsSync(ran)).toBe(false);
+  });
+
+  it('query-string tokens are not stored', () => {
+    expect(redactRemoteUrl('https://host/o/r.git?access_token=abc&x=1')).toBe(
+      'https://host/o/r.git',
+    );
+    expect(redactUrlsInText("fatal: 'https://u:p@host/r?token=abc' failed")).toBe(
+      "fatal: 'https://host/r' failed",
+    );
+  });
+});
+
+describe('run-wide output budget (T12511 review)', () => {
+  it('concurrent calls cannot exceed the shared budget', async () => {
+    const { GitOutputBudget } = await import('../../git/bounded-git.js');
+    const repo = makeRepo(join(testDir, 'r'));
+    const bin = join(testDir, 'chatty-git.sh');
+    writeFileSync(bin, '#!/bin/sh\nhead -c 600000 /dev/zero\nsleep 1\n');
+    chmodSync(bin, 0o755);
+    const budget = new GitOutputBudget(1_000_000);
+    const rows = await probeGitStates([target(repo, 'a'), target(repo, 'b'), target(repo, 'c')], {
+      gitBin: bin,
+      concurrency: 3,
+      budget,
+    });
+    // 3 x 600 kB in flight cannot fit in 1 MB: at least one is cut off.
+    expect(rows.some((r) => /output budget/.test(r.probeError ?? ''))).toBe(true);
   });
 });

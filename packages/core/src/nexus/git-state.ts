@@ -53,8 +53,9 @@ import {
   type BoundedGitRun,
   DEADLINE_EXCEEDED,
   DEFAULT_GIT_MAX_OUTPUT_BYTES,
-  FETCH_HARDENING,
-  filterOverrides,
+  filterConfig,
+  type GitConfigPair,
+  GitOutputBudget,
   runBoundedGit,
   withDeadline,
 } from '../git/bounded-git.js';
@@ -80,6 +81,8 @@ export const GIT_STATE_DEFAULTS = {
   fetchTimeoutMs: 30_000,
   /** A fetch older than this is stale, ms (24 h). */
   staleAfterMs: 24 * 60 * 60 * 1000,
+  /** Git output held in memory at once across the whole run, bytes. */
+  runOutputBudgetBytes: 64 * 1024 * 1024,
 } as const;
 
 /** One location to probe. */
@@ -108,8 +111,10 @@ export interface GitStateProbeOptions {
   now?: () => Date;
   /** Git executable (tests substitute a hanging one). Default `git`. */
   gitBin?: string;
-  /** Cap on one git call's output, bytes. Default 64 MiB. */
+  /** Cap on one git call's output, bytes. Default 8 MiB. */
   maxOutputBytes?: number;
+  /** Run-wide in-flight output budget shared by every location. */
+  budget?: GitOutputBudget;
 }
 
 /** Parsed `git status --porcelain=v2 --branch -z`. */
@@ -209,16 +214,20 @@ const SSH_SCHEMES = new Set(['ssh', 'git+ssh', 'ssh+git']);
  * - `ssh://user:pass@host/…` → `ssh://user@host/…`: the ssh login (`git`) is not
  *   a secret; a password is.
  * - scp-style `user:pass@host:path` → `user@host:path`.
- * - Local paths and `file://` are unchanged.
+ * - A query string or fragment is dropped (`?access_token=…`).
+ * - Local paths and `file://` are otherwise unchanged.
  *
- * @param url - Configured remote URL.
+ * @param raw - Configured remote URL.
  * @returns The URL without secrets.
  * @example
  * ```ts
  * redactRemoteUrl('https://alice:ghp_x@github.com/o/r.git'); // 'https://github.com/o/r.git'
  * ```
  */
-export function redactRemoteUrl(url: string): string {
+export function redactRemoteUrl(raw: string): string {
+  // A query or fragment can carry a token (`?access_token=…`); a remote URL
+  // never needs one to identify the repository.
+  const url = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(raw) ? raw.replace(/[?#].*$/s, '') : raw;
   const withScheme = /^([a-zA-Z][a-zA-Z0-9+.-]*):\/\/([^/?#]*)@(.*)$/s.exec(url);
   if (withScheme) {
     const [, scheme = '', userinfo = '', rest = ''] = withScheme;
@@ -335,13 +344,20 @@ export async function probeGitState(
       return fail('E_GIT_TIMEOUT', `${what} exceeded ${timeoutMs}ms; git process group killed`);
     }
     if (run.overflowed) {
-      return fail('E_GIT_FAILED', `${what} output exceeded ${maxOutputBytes} bytes; killed`);
+      return fail(
+        'E_GIT_FAILED',
+        `${what} output exceeded ${maxOutputBytes} bytes (or the run-wide output budget); killed`,
+      );
     }
     if (run.spawnError !== null) return fail('E_GIT_FAILED', `cannot run git: ${run.stderr}`);
     return fail('E_GIT_FAILED', gitMessage(run, what));
   };
-  const git = (args: readonly string[], cwd: string): Promise<BoundedGitRun> =>
-    runBoundedGit(args, { cwd, deadline, gitBin, maxOutputBytes });
+  const git = (
+    args: readonly string[],
+    cwd: string,
+    config: readonly GitConfigPair[] = [],
+  ): Promise<BoundedGitRun> =>
+    runBoundedGit(args, { cwd, deadline, gitBin, maxOutputBytes, config, budget: options.budget });
   const fsTimeout = (what: string): NexusProjectGitState =>
     fail('E_GIT_TIMEOUT', `${what} of ${target.path} exceeded ${timeoutMs}ms (filesystem)`);
 
@@ -424,7 +440,7 @@ export async function probeGitState(
   // exit 1 = nothing matched (no remotes, no filters).
   if (config.code !== 0 && config.code !== 1) return failRun(config, 'git config');
   const cfg = parseProbeConfig(config.code === 0 ? config.stdout : '');
-  const noFilters = filterOverrides(cfg.filters);
+  const noFilters = filterConfig(cfg.filters);
 
   // 4. Optional fetch — non-fatal: the row still describes the local state
   //    and the previous fetch.
@@ -432,16 +448,15 @@ export async function probeGitState(
   if (doFetch) {
     const fetched = await git(
       [
-        ...FETCH_HARDENING,
-        ...noFilters,
         'fetch',
         '--quiet',
         '--no-recurse-submodules',
-        // Beats `remote.<name>.uploadpack` — a `-c` override does not: the
-        // first configured value wins for that key.
+        // Beats `remote.<name>.uploadpack`; a config override does not (the
+        // first configured value wins for that key).
         '--upload-pack=git-upload-pack',
       ],
       runDir,
+      noFilters,
     );
     if (fetched.timedOut) return failRun(fetched, 'git fetch');
     if (fetched.code !== 0) fetchFailure = gitMessage(fetched, 'git fetch');
@@ -450,8 +465,11 @@ export async function probeGitState(
   // 5. Status. Submodule work trees are not entered (`dirty`): a child git
   //    there would read that repository's own, unenumerated filters.
   const status = await git(
-    [...noFilters, 'status', '--porcelain=v2', '--branch', '-z', '--ignore-submodules=dirty'],
+    // --no-renames: rename detection reads blob contents, which in a partial
+    // clone means a lazy fetch (GIT_NO_LAZY_FETCH also forbids it).
+    ['status', '--porcelain=v2', '--branch', '-z', '--ignore-submodules=dirty', '--no-renames'],
     runDir,
+    noFilters,
   );
   if (status.code !== 0) return failRun(status, 'git status');
   const parsed = parsePorcelainV2Status(status.stdout);
@@ -785,6 +803,7 @@ export async function runProjectsGitStatus(
     timeoutMs,
   );
   const rows = await probeGitStates(targets, {
+    budget: new GitOutputBudget(GIT_STATE_DEFAULTS.runOutputBudgetBytes),
     fetch,
     concurrency,
     timeoutMs,
