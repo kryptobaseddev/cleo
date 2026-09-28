@@ -1223,6 +1223,17 @@ export interface RetrievalObservation {
    * until the T1147 W7 sweep stamps them as clean.
    */
   provenanceClass?: string;
+  /**
+   * Stored quality score in [0, 1] (`quality_score` column), when the row
+   * carries one. Used to rank entries inside the spawn-prompt PSYCHE-MEMORY
+   * budget (T12519). Absent on legacy schemas.
+   */
+  qualityScore?: number;
+  /**
+   * Number of times this entry has been cited (`citation_count` column).
+   * Secondary ranking signal for the PSYCHE-MEMORY budget (T12519).
+   */
+  citationCount?: number;
 }
 
 /**
@@ -1241,6 +1252,17 @@ export interface RetrievalLearning {
    * until the T1147 W7 sweep stamps them as clean.
    */
   provenanceClass?: string;
+  /**
+   * Stored quality score in [0, 1] (`quality_score` column), when the row
+   * carries one. Used to rank entries inside the spawn-prompt PSYCHE-MEMORY
+   * budget (T12519). Absent on legacy schemas.
+   */
+  qualityScore?: number;
+  /**
+   * Number of times this entry has been cited (`citation_count` column).
+   * Secondary ranking signal for the PSYCHE-MEMORY budget (T12519).
+   */
+  citationCount?: number;
 }
 
 /**
@@ -1259,6 +1281,17 @@ export interface RetrievalPattern {
    * until the T1147 W7 sweep stamps them as clean.
    */
   provenanceClass?: string;
+  /**
+   * Stored quality score in [0, 1] (`quality_score` column), when the row
+   * carries one. Used to rank entries inside the spawn-prompt PSYCHE-MEMORY
+   * budget (T12519). Absent on legacy schemas.
+   */
+  qualityScore?: number;
+  /**
+   * Number of times this entry has been cited (`citation_count` column).
+   * Secondary ranking signal for the PSYCHE-MEMORY budget (T12519).
+   */
+  citationCount?: number;
 }
 
 /**
@@ -1277,6 +1310,21 @@ export interface RetrievalDecision {
    * until the T1147 W7 sweep stamps them as clean.
    */
   provenanceClass?: string;
+  /**
+   * Stored quality score in [0, 1] (`quality_score` column), when the row
+   * carries one. Used to rank entries inside the spawn-prompt PSYCHE-MEMORY
+   * budget (T12519). Absent on legacy schemas.
+   */
+  qualityScore?: number;
+  /**
+   * Number of times this entry has been cited (`citation_count` column).
+   * Secondary ranking signal for the PSYCHE-MEMORY budget (T12519).
+   */
+  citationCount?: number;
+  /** Task the decision was recorded against (`context_task_id`), if any (T12519). */
+  contextTaskId?: string | null;
+  /** Epic the decision was recorded against (`context_epic_id`), if any (T12519). */
+  contextEpicId?: string | null;
 }
 
 /**
