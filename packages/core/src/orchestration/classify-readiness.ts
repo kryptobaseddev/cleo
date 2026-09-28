@@ -12,7 +12,9 @@
  * ## Grill triggers (AC2)
  * 1. Missing acceptance criteria — task has no `acceptance` entries.
  * 2. Owner-decision required — task carries an `owner-decision` label OR
- *    `blockedBy` contains "owner" / "decision" text.
+ *    its `blockedBy` needs an owner decision: a confident System One `noul`
+ *    answer when the caller supplies one ({@link ReadinessSignals.ownerDecision},
+ *    T12494), else `blockedBy` contains "owner" / "decision" text.
  * 3. IVTR max-retries exhausted — any phase in `ivtrLoopBackCount` has
  *    reached {@link MAX_LOOP_BACKS_PER_PHASE} (requires HITL escalation).
  * 4. Release/publish gate active — task `pipelineStage` is `'release'` and
@@ -133,7 +135,35 @@ export interface ReadinessSignals {
    * Defaults to `false` when omitted.
    */
   hitlApproved?: boolean;
+
+  /**
+   * System One's answer to "does this task's `blockedBy` need an owner
+   * decision?" (T12494), resolved by `resolveOwnerDecisionSignal`.
+   *
+   * Used in place of the `blockedBy` substring rule when its confidence is at
+   * least {@link OWNER_DECISION_MIN_CONFIDENCE}; otherwise, or when absent,
+   * the substring rule decides. The `owner-decision` label always wins. It
+   * only FLAGS readiness: a flagged task is routed to the owner through the
+   * orchestrator's ask tool, never decided here.
+   */
+  ownerDecision?: OwnerDecisionSignal | null;
 }
+
+/** A typed answer about whether a task's `blockedBy` needs an owner decision. */
+export interface OwnerDecisionSignal {
+  /** Whether an owner decision is needed before work starts. */
+  readonly required: boolean;
+  /** Probability that it is needed, in [0, 1]. */
+  readonly probability: number;
+  /** Confidence in the answer, in [0, 1]. */
+  readonly confidence: number;
+}
+
+/**
+ * Minimum confidence an {@link OwnerDecisionSignal} needs to replace the
+ * `blockedBy` substring rule.
+ */
+export const OWNER_DECISION_MIN_CONFIDENCE = 0.6;
 
 // ─── Internal constants ───────────────────────────────────────────────────────
 
@@ -207,19 +237,13 @@ function hasMissingAc(task: Task): boolean {
 }
 
 /**
- * Return `true` when the task requires an owner decision before work can start.
- *
- * Two signals are checked:
- *  1. `task.labels` contains `'owner-decision'` (exact, case-insensitive).
- *  2. `task.blockedBy` free-text mentions "owner" OR "decision"
- *     (case-insensitive substring match).
+ * Whether `task.blockedBy` mentions "owner" or "decision" (case-insensitive
+ * substring) — the heuristic for an owner-decision block.
  *
  * @param task - Task record to inspect.
+ * @returns Whether the substring rule flags an owner decision.
  */
-function requiresOwnerDecision(task: Task): boolean {
-  const labels = (task.labels ?? []).map((l) => l.toLowerCase());
-  if (labels.includes(OWNER_DECISION_LABEL)) return true;
-
+export function blockedByMentionsOwnerDecision(task: Pick<Task, 'blockedBy'>): boolean {
   const blockedBy = (task.blockedBy ?? '').toLowerCase();
   if (blockedBy.length > 0) {
     for (const kw of OWNER_DECISION_BLOCKED_BY_KEYWORDS) {
@@ -228,6 +252,39 @@ function requiresOwnerDecision(task: Task): boolean {
   }
 
   return false;
+}
+
+/** Whether the task carries the `owner-decision` label (case-insensitive). */
+function hasOwnerDecisionLabel(task: Task): boolean {
+  return (task.labels ?? []).map((l) => l.toLowerCase()).includes(OWNER_DECISION_LABEL);
+}
+
+/** Whether `signal` is confident enough to replace the substring rule. */
+function isConfidentSignal(
+  signal: OwnerDecisionSignal | null | undefined,
+): signal is OwnerDecisionSignal {
+  return signal != null && signal.confidence >= OWNER_DECISION_MIN_CONFIDENCE;
+}
+
+/**
+ * Return `true` when the task requires an owner decision before work can start.
+ *
+ * Checked in order:
+ *  1. `task.labels` contains `'owner-decision'` (exact, case-insensitive).
+ *  2. A System One signal with confidence ≥ {@link OWNER_DECISION_MIN_CONFIDENCE}.
+ *  3. Otherwise `task.blockedBy` mentions "owner" OR "decision"
+ *     (case-insensitive substring match).
+ *
+ * @param task - Task record to inspect.
+ * @param signal - Optional System One answer.
+ */
+function requiresOwnerDecision(
+  task: Task,
+  signal: OwnerDecisionSignal | null | undefined,
+): boolean {
+  if (hasOwnerDecisionLabel(task)) return true;
+  if (isConfidentSignal(signal)) return signal.required;
+  return blockedByMentionsOwnerDecision(task);
 }
 
 /**
@@ -374,7 +431,7 @@ function hasReadyFrontier(children: Task[]): boolean {
  * @epic T11492 SG-AUTOPILOT
  */
 export function classifyReadiness(task: Task, signals: ReadinessSignals = {}): ReadinessResult {
-  const { children, ivtrState, blobNames, hitlApproved = false } = signals;
+  const { children, ivtrState, blobNames, hitlApproved = false, ownerDecision } = signals;
   const triggers: GrillTrigger[] = [];
 
   // ── 1. Missing acceptance criteria ──────────────────────────────────────
@@ -383,7 +440,7 @@ export function classifyReadiness(task: Task, signals: ReadinessSignals = {}): R
   }
 
   // ── 2. Owner-decision required ───────────────────────────────────────────
-  if (requiresOwnerDecision(task)) {
+  if (requiresOwnerDecision(task, ownerDecision)) {
     triggers.push('OWNER_DECISION_REQUIRED');
   }
 
@@ -404,7 +461,7 @@ export function classifyReadiness(task: Task, signals: ReadinessSignals = {}): R
 
   // ── Short-circuit: any trigger fires → grill ────────────────────────────
   if (triggers.length > 0) {
-    const reason = buildGrillReason(task, triggers, children);
+    const reason = buildGrillReason(task, triggers, children, ownerDecision);
     return { verdict: 'grill', reason, triggers };
   }
 
@@ -447,6 +504,7 @@ function buildGrillReason(
   task: Task,
   triggers: GrillTrigger[],
   children: Task[] | undefined,
+  ownerDecision: OwnerDecisionSignal | null | undefined,
 ): string {
   const parts: string[] = [`Task ${task.id} (${task.title}) requires grilling:`];
 
@@ -459,12 +517,13 @@ function buildGrillReason(
         break;
 
       case 'OWNER_DECISION_REQUIRED': {
-        const hasLabel = (task.labels ?? [])
-          .map((l) => l.toLowerCase())
-          .includes(OWNER_DECISION_LABEL);
-        if (hasLabel) {
+        if (hasOwnerDecisionLabel(task)) {
           parts.push(
             `  • OWNER_DECISION_REQUIRED — label '${OWNER_DECISION_LABEL}' indicates an open owner decision.`,
+          );
+        } else if (isConfidentSignal(ownerDecision)) {
+          parts.push(
+            `  • OWNER_DECISION_REQUIRED — System One judged blockedBy '${task.blockedBy}' to need an owner decision (p=${ownerDecision.probability.toFixed(2)}, confidence ${ownerDecision.confidence.toFixed(2)}); route it to the owner through the ask tool.`,
           );
         } else {
           parts.push(

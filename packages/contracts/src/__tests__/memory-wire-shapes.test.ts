@@ -219,6 +219,8 @@ type _ObserveBrainResultShape = {
   id: string;
   type: string;
   createdAt: string;
+  typeSource?: 'caller' | 'keyword' | 'system-one';
+  typeConfidence?: number;
 };
 
 type _AssertObserveResultPinned = AssertEquals1<

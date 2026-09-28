@@ -1202,6 +1202,18 @@
               "enum": ["off", "shadow", "on"],
               "default": "shadow",
               "description": "ADR decision contradiction check on `storeDecision` writes that request model validation (T12493). One choice question per prior decision (contradicts | supersedes | refines | unrelated), top 3 by word overlap, 300 ms budget. shadow = ask, audit next to the heuristic, act on the heuristic. on = act on the answers when every confidence is >= 0.6. off = never ask. Always off when no provider is configured."
+            },
+            "observationType": {
+              "type": "string",
+              "enum": ["off", "shadow", "on"],
+              "default": "shadow",
+              "description": "Observation type when `observeBrain` / `cleo memory observe` gets no `type` (T12494). One choice question over bugfix | refactor | feature | decision | change | discovery, 300 ms budget. shadow = ask, audit next to the whole-word keyword type, store the keyword type. on = store the decided type when its confidence is >= 0.6. off = never ask. Always off when no provider is configured."
+            },
+            "ownerDecision": {
+              "type": "string",
+              "enum": ["off", "shadow", "on"],
+              "default": "shadow",
+              "description": "Readiness grill gate (`cleo classify`, sentient auto-promote) for a task with a `blockedBy` reason and no `owner-decision` label (T12494). One noul question: does the block need a human owner's decision? 300 ms budget. shadow = ask, audit next to the `owner`/`decision` substring rule, act on the rule. on = use the answer when its confidence is >= 0.6. It only flags: a flagged task grills and goes to the owner through the ask tool. off = never ask. Always off when no provider is configured."
             }
           }
         },

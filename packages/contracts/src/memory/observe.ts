@@ -148,6 +148,15 @@ export interface ObserveBrainResult {
   type: string;
   /** ISO 8601 creation timestamp. */
   createdAt: string;
+  /**
+   * T12494: where the stored type came from — `caller` (explicit `type`),
+   * `keyword` (whole-word keyword heuristic) or `system-one` (a confident
+   * System One `choice` in `on` mode). Absent when not determined on this path
+   * (e.g. the extraction gate merged or rejected the write).
+   */
+  typeSource?: 'caller' | 'keyword' | 'system-one';
+  /** T12494: confidence behind a `keyword` (flat 0.5) or `system-one` type. */
+  typeConfidence?: number;
 }
 
 // ── DocAttachmentObservationPayload ─────────────────────────────────
