@@ -68,7 +68,11 @@
     "ciSatisfies": true,
     "ciChecks": {
       "tests": ["CI"],
-      "qa": ["CI", "Lockfile Check", "Contracts Dep Lint"]
+      "qa": ["CI", "Lockfile Check", "Contracts Dep Lint"],
+      "jobs": {
+        "tests": ["Unit Tests*"],
+        "qa": ["Type Check", "Lint & Format"]
+      }
     }
   }
 }

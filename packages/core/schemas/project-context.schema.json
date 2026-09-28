@@ -269,7 +269,16 @@
           "additionalProperties": false,
           "properties": {
             "tests": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 },
-            "qa": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 }
+            "qa": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 },
+            "jobs": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Job-name globs (* wildcard) that must each have run and succeeded in the pinned workflows before ci:<pr> attests a code task's gate.",
+              "properties": {
+                "tests": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 },
+                "qa": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 }
+              }
+            }
           },
           "description": "Required checks that attest testsPassed (tests) and qaPassed (qa) for ci:<pr>; each must be a subset of the required list."
         }

@@ -24,6 +24,8 @@
  * @task T12623
  */
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type {
   AcRow,
   DoneNextStep,
@@ -44,12 +46,7 @@ import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { getProjectRoot } from '../paths.js';
 import { readCiChecks, readCiSatisfies } from '../release/ci-evidence.js';
-
-/** Both gate lists of `evidence.ciChecks` are declared, so `ci:` can attest both gates. */
-function ciChecksConfigured(storeRoot: string): boolean {
-  const lists = readCiChecks(storeRoot);
-  return Boolean(lists.tests?.length && lists.qa?.length);
-}
+import { readRequiredCheckPins } from '../release/pr-evidence.js';
 
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { type ChangeSetDeps, deriveTaskChangeSet } from './change-set.js';
@@ -67,6 +64,26 @@ import {
 } from './tool-cache.js';
 import { resolveToolCommand } from './tool-resolver.js';
 import { loadVerificationGatePolicy } from './verification-policy.js';
+
+/**
+ * Whether `ci:<pr>` can attest both tool gates for this change set (T12634):
+ * both `evidence.ciChecks` lists are declared, a code task also declares its
+ * job globs, and the PR does not edit a pinned workflow (its own CI would
+ * vouch for itself). Otherwise the plan falls back to local tool runs.
+ */
+function ciPlannable(storeRoot: string, isCode: boolean, touched: readonly string[]): boolean {
+  const lists = readCiChecks(storeRoot);
+  if (!lists.tests?.length || !lists.qa?.length) return false;
+  if (isCode && (!lists.jobs?.tests?.length || !lists.jobs?.qa?.length)) return false;
+  let context: Record<string, unknown> | null = null;
+  try {
+    context = JSON.parse(readFileSync(join(storeRoot, '.cleo', 'project-context.json'), 'utf-8'));
+  } catch {
+    context = null;
+  }
+  const pins = readRequiredCheckPins(context);
+  return !Object.values(pins).some((pin) => pin.workflow && touched.includes(pin.workflow));
+}
 
 /** Gates `cleo done` derives evidence for; every other required gate is manual. */
 const EVIDENCE_GATES: readonly VerificationGate[] = ['implemented', 'testsPassed', 'qaPassed'];
@@ -501,7 +518,10 @@ export async function deriveTaskEvidence(
     changeSet.prNumber !== undefined &&
     changeSet.stackedOn === undefined &&
     readCiSatisfies(storeRoot) &&
-    ciChecksConfigured(storeRoot)
+    ciPlannable(storeRoot, classifyEvidenceTask({ task }) === 'code', [
+      ...changeSet.files,
+      ...changeSet.deletedFiles,
+    ])
       ? changeSet.prNumber
       : null;
   const toolRuns: DonePlanToolRun[] = [];

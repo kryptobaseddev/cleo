@@ -65,8 +65,26 @@ const allGreen: CommitCheck[] = [
     workflowPath: '.github/workflows/lockfile-check.yml',
   }),
   check('Contracts Dep Lint', { workflowPath: '.github/workflows/ci.yml' }),
-  check('Type Check'),
+  check('Type Check', { workflowPath: '.github/workflows/ci.yml' }),
+  check('Lint & Format', { workflowPath: '.github/workflows/ci.yml' }),
+  check('Unit Tests (ubuntu-latest, shard 1)', { workflowPath: '.github/workflows/ci.yml' }),
+  check('Unit Tests (ubuntu-latest, shard 2)', { workflowPath: '.github/workflows/ci.yml' }),
 ];
+
+/** Every mapped check pinned to github-actions and its workflow file. */
+const PINNED = {
+  release: {
+    prRequiredWorkflows: [
+      { name: 'CI', app: 'github-actions', workflow: '.github/workflows/ci.yml' },
+      {
+        name: 'Lockfile Check',
+        app: 'github-actions',
+        workflow: '.github/workflows/lockfile-check.yml',
+      },
+      { name: 'Contracts Dep Lint', app: 'github-actions', workflow: '.github/workflows/ci.yml' },
+    ],
+  },
+};
 const onHead = allGreen.map((c) => ({ ...c, headSha: HEAD, event: 'pull_request' }));
 
 function context(
@@ -208,7 +226,11 @@ describe('resolveCiEvidenceAtom', () => {
   }
   const optedIn = {
     ciSatisfies: true,
-    ciChecks: { tests: ['CI'], qa: ['CI', 'Lockfile Check', 'Contracts Dep Lint'] },
+    ciChecks: {
+      tests: ['CI'],
+      qa: ['CI', 'Lockfile Check', 'Contracts Dep Lint'],
+      jobs: { tests: ['Unit Tests*'], qa: ['Type Check', 'Lint & Format'] },
+    },
   };
 
   function resolve(extra: Partial<ResolveCiEvidenceOptions> = {}) {
@@ -217,6 +239,7 @@ describe('resolveCiEvidenceAtom', () => {
       { storeRoot: root, executionRoot: root },
       {
         context: context(),
+        projectContext: PINNED,
         resolvePr: async () => merged,
         fetchChecks: async (sha) => ({
           ok: true,
@@ -271,8 +294,12 @@ describe('resolveCiEvidenceAtom', () => {
       mergeCommitSha: MERGE,
       taskId: 'T1',
       gateChecks: {
-        testsPassed: ['CI'],
-        qaPassed: ['CI', 'Lockfile Check', 'Contracts Dep Lint'],
+        testsPassed: [
+          'CI',
+          'Unit Tests (ubuntu-latest, shard 1)',
+          'Unit Tests (ubuntu-latest, shard 2)',
+        ],
+        qaPassed: ['CI', 'Lockfile Check', 'Contracts Dep Lint', 'Type Check', 'Lint & Format'],
       },
     });
     expect(atom?.kind === 'ci' && atom.checks.find((c) => c.name === 'CI')).toMatchObject({
@@ -329,6 +356,12 @@ describe('resolveCiEvidenceAtom', () => {
       ...allGreen.filter((c) => c.name !== 'CI'),
       check('CI', { appSlug: 'evil-bot', workflowPath: undefined }),
     ];
+    const r = await resolve({ fetchChecks: async () => ({ ok: true, checks: forged }) });
+    expect(!r.ok && r.reason).toMatch(/CI: posted by evil-bot/);
+  });
+
+  it('refuses when a check that attests a gate is unpinned, naming the fix (round 2 #3)', async () => {
+    writeContext(optedIn);
     const r = await resolve({
       projectContext: {
         release: {
@@ -339,9 +372,95 @@ describe('resolveCiEvidenceAtom', () => {
           ],
         },
       },
-      fetchChecks: async () => ({ ok: true, checks: forged }),
+      context: context('T1', ['qaPassed']),
     });
-    expect(!r.ok && r.reason).toMatch(/CI: posted by evil-bot/);
+    expect(!r.ok && r.reason).toMatch(
+      /unpinned check\(s\) Lockfile Check, Contracts Dep Lint: declare each in release\.prRequiredWorkflows/,
+    );
+  });
+
+  it('refuses a PR that edits a pinned workflow file (round 2 #2)', async () => {
+    writeContext(optedIn);
+    const r = await resolve({
+      resolvePr: async () => ({
+        ...merged,
+        changedPaths: ['a.ts', '.github/workflows/ci.yml'],
+        changedFileCount: 2,
+      }),
+    });
+    expect(!r.ok && r.reason).toMatch(/edits the pinned workflow \.github\/workflows\/ci\.yml/);
+  });
+
+  describe('skipped jobs on a code task (round 2 #1)', () => {
+    beforeEach(() => writeContext(optedIn));
+    const unitSkipped = allGreen.map((c) =>
+      c.name.startsWith('Unit Tests') ? { ...c, conclusion: 'skipped' } : c,
+    );
+
+    it('code task with Unit Tests skipped: refused, naming the job', async () => {
+      const r = await resolve({ fetchChecks: async () => ({ ok: true, checks: unitSkipped }) });
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toMatch(/job Unit Tests \(ubuntu-latest, shard 1\): skipped/);
+    });
+
+    it('code task with a job missing entirely: refused', async () => {
+      const r = await resolve({
+        context: context('T1', ['qaPassed']),
+        fetchChecks: async () => ({
+          ok: true,
+          checks: allGreen.filter((c) => c.name !== 'Type Check'),
+        }),
+      });
+      expect(!r.ok && r.reason).toMatch(/job Type Check: not found/);
+    });
+
+    it('docs task with Unit Tests skipped: accepted (an honest skip)', async () => {
+      const docs: EvidenceValidationContext = {
+        ...context(),
+        task: { ...context().task, labels: ['docs'] },
+      };
+      const r = await resolve({
+        context: docs,
+        fetchChecks: async () => ({ ok: true, checks: unitSkipped }),
+      });
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+    });
+
+    it('code task whose PR diff is documentation only: the skip is honest, accepted', async () => {
+      const r = await resolve({
+        resolvePr: async () => ({
+          ...merged,
+          changedPaths: ['AGENTS.md', 'docs/x.md'],
+          changedFileCount: 2,
+        }),
+        fetchChecks: async () => ({ ok: true, checks: unitSkipped }),
+      });
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+    });
+
+    it('code task with Unit Tests success: accepted, the jobs recorded', async () => {
+      const r = await resolve();
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      expect(r.ok && r.atom.gateChecks?.testsPassed).toEqual([
+        'CI',
+        'Unit Tests (ubuntu-latest, shard 1)',
+        'Unit Tests (ubuntu-latest, shard 2)',
+      ]);
+    });
+
+    it('code task without job globs configured: refused, naming the key', async () => {
+      writeContext({ ciSatisfies: true, ciChecks: { tests: ['CI'], qa: ['CI'] } });
+      const r = await resolve();
+      expect(!r.ok && r.reason).toMatch(/evidence\.ciChecks\.jobs\.tests/);
+    });
+
+    it('a job posted by a workflow outside the pinned ones never counts', async () => {
+      const elsewhere = allGreen.map((c) =>
+        c.name.startsWith('Unit Tests') ? { ...c, workflowPath: '.github/workflows/other.yml' } : c,
+      );
+      const r = await resolve({ fetchChecks: async () => ({ ok: true, checks: elsewhere }) });
+      expect(!r.ok && r.reason).toMatch(/job Unit Tests\*: not found/);
+    });
   });
 
   describe('PR-head substitution', () => {

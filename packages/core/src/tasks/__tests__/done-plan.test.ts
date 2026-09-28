@@ -287,7 +287,14 @@ describe('merged-PR CI replaces local tool runs when the project opts in (T12634
       ctxPath,
       JSON.stringify({
         ...ctx,
-        evidence: { ciSatisfies: optIn, ciChecks: { tests: ['CI'], qa: ['CI'] } },
+        evidence: {
+          ciSatisfies: optIn,
+          ciChecks: {
+            tests: ['CI'],
+            qa: ['CI'],
+            jobs: { tests: ['Unit Tests*'], qa: ['Type Check'] },
+          },
+        },
       }),
     );
     return deriveTaskEvidence(id, {

@@ -30,7 +30,12 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { EvidenceAtom, EvidenceValidationContext } from '@cleocode/contracts';
 import { isGitWorkTree } from '../git/work-tree.js';
-import { checkPrTaskLinkage, type EvidenceRoots } from '../tasks/evidence.js';
+import {
+  checkPrTaskLinkage,
+  classifyEvidenceTask,
+  type EvidenceRoots,
+  isDocumentArtifact,
+} from '../tasks/evidence.js';
 import { isGhCliAvailable } from './github-pr.js';
 import {
   describeRequiredWorkflowsSource,
@@ -165,7 +170,7 @@ export function readCiSatisfies(projectRoot: string): boolean {
  * @returns `tests` → testsPassed, `qa` → qaPassed; a missing list is absent.
  * @task T12634
  */
-export function readCiChecks(projectRoot: string): { tests?: string[]; qa?: string[] } {
+export function readCiChecks(projectRoot: string): CiChecksConfig {
   const raw = (readProjectContextFile(projectRoot) as { evidence?: { ciChecks?: unknown } } | null)
     ?.evidence?.ciChecks;
   if (typeof raw !== 'object' || raw === null) return {};
@@ -173,11 +178,106 @@ export function readCiChecks(projectRoot: string): { tests?: string[]; qa?: stri
     Array.isArray(v) && v.every((x) => typeof x === 'string' && x.trim() !== '')
       ? (v as string[]).map((x) => x.trim())
       : undefined;
-  const { tests, qa } = raw as { tests?: unknown; qa?: unknown };
+  const { tests, qa, jobs } = raw as { tests?: unknown; qa?: unknown; jobs?: unknown };
+  const jobLists =
+    typeof jobs === 'object' && jobs !== null
+      ? (jobs as { tests?: unknown; qa?: unknown })
+      : undefined;
+  const jobTests = list(jobLists?.tests);
+  const jobQa = list(jobLists?.qa);
   return {
     ...(list(tests) ? { tests: list(tests) } : {}),
     ...(list(qa) ? { qa: list(qa) } : {}),
+    ...(jobTests || jobQa
+      ? { jobs: { ...(jobTests ? { tests: jobTests } : {}), ...(jobQa ? { qa: jobQa } : {}) } }
+      : {}),
   };
+}
+
+/** `evidence.ciChecks` as read from project context (T12634). */
+export interface CiChecksConfig {
+  /** Required checks attesting testsPassed. */
+  tests?: string[];
+  /** Required checks attesting qaPassed. */
+  qa?: string[];
+  /**
+   * Job-name globs (`*` wildcard) that must each match at least one job run by
+   * the pinned workflows of that gate's checks, all `success`, before a `code`
+   * task's gate is attested — an aggregate that counts skipped jobs as a pass
+   * is not enough.
+   */
+  jobs?: { tests?: string[]; qa?: string[] };
+}
+
+/** `*`-glob to an anchored regular expression. */
+function globToRegExp(glob: string): RegExp {
+  return new RegExp(
+    `^${glob
+      .split('*')
+      .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
+      .join('.*')}$`,
+  );
+}
+
+/**
+ * Judge job globs on one SHA: every glob must match at least one job (check
+ * run) from the allowed workflows/app, and the latest run of each matched
+ * (job, event) must be `success` — a `skipped` job is refused by name.
+ *
+ * @param globs - Job-name globs for the gate.
+ * @param checks - Every check reported for the commit.
+ * @param sha - Commit being judged.
+ * @param scope - The app and workflow files the jobs must come from.
+ * @param onlyEvent - Restrict to runs of this event (the PR-head substitution).
+ * @returns The judged job names, or one reason per unmet glob.
+ * @task T12634
+ */
+export function evaluateJobs(
+  globs: readonly string[],
+  checks: readonly CommitCheck[],
+  sha: string,
+  scope: { app?: string | number; workflows: readonly string[] },
+  onlyEvent?: string,
+): { ok: true; jobs: string[] } | { ok: false; reasons: string[] } {
+  const inScope = checks.filter(
+    (c) =>
+      c.source === 'check-run' &&
+      c.headSha === sha &&
+      (onlyEvent === undefined || c.event === onlyEvent) &&
+      c.workflowPath !== undefined &&
+      scope.workflows.includes(c.workflowPath) &&
+      (scope.app === undefined ||
+        (typeof scope.app === 'number' ? c.appId === scope.app : c.appSlug === scope.app)),
+  );
+  const reasons: string[] = [];
+  const jobs: string[] = [];
+  for (const glob of globs) {
+    const re = globToRegExp(glob);
+    const matched = inScope.filter((c) => re.test(c.name));
+    if (matched.length === 0) {
+      reasons.push(
+        `job ${glob}: not found in ${scope.workflows.join(', ')} on ${sha.slice(0, 12)}`,
+      );
+      continue;
+    }
+    const latest = new Map<string, CommitCheck>();
+    for (const c of matched) {
+      const key = `${c.name}\u0000${c.event ?? ''}`;
+      const prev = latest.get(key);
+      if (!prev || c.id > prev.id) latest.set(key, c);
+    }
+    const bad = [...latest.values()].find(
+      (c) => c.status !== 'completed' || c.conclusion !== 'success',
+    );
+    if (bad) {
+      reasons.push(
+        `job ${bad.name}: ${bad.status !== 'completed' ? `pending (${bad.status})` : bad.conclusion} on ${sha.slice(0, 12)}`,
+      );
+      continue;
+    }
+    jobs.push(...new Set([...latest.values()].map((c) => c.name)));
+  }
+  return reasons.length > 0 ? { ok: false, reasons } : { ok: true, jobs };
 }
 
 function pinMatches(check: CommitCheck, pin: RequiredCheckPinSpec | undefined): boolean {
@@ -461,7 +561,7 @@ export async function resolveCiEvidenceAtom(
     .filter((g): g is 'testsPassed' | 'qaPassed' => g === 'testsPassed' || g === 'qaPassed')
     .map((g) => ({
       gate: g,
-      key: g === 'testsPassed' ? 'tests' : 'qa',
+      key: g === 'testsPassed' ? ('tests' as const) : ('qa' as const),
       list: ciChecks[g === 'testsPassed' ? 'tests' : 'qa'],
     }));
   if (gateLists.length === 0) {
@@ -523,6 +623,35 @@ export async function resolveCiEvidenceAtom(
   // Pins: branch protection's app ids when that tier supplied the list,
   // otherwise object entries of release.prRequiredWorkflows.
   const pins = required.pins ?? readRequiredCheckPins(projectContext);
+  // Round 2 (MEDIUM): a check that attests a gate must be pinned to the app
+  // that posts it — an unpinned name would match a run from any app.
+  const mapped = [...new Set(gateLists.flatMap((g) => g.list ?? []))];
+  const unpinned = mapped.filter((name) => pins[name]?.app === undefined);
+  if (unpinned.length > 0) {
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_INSUFFICIENT',
+      reason:
+        `ci:${prNumber} cannot trust unpinned check(s) ${unpinned.join(', ')}: declare each in ` +
+        'release.prRequiredWorkflows as { "name": "<check>", "app": "<app slug or id>", ' +
+        '"workflow": ".github/workflows/<file>.yml" } (or pin it in branch protection).',
+    };
+  }
+  // Round 2: a pull_request run executes the PR's OWN edited workflow, so a PR
+  // that touches a pinned workflow file cannot vouch for itself.
+  const pinnedWorkflows = [
+    ...new Set(mapped.flatMap((name) => (pins[name]?.workflow ? [pins[name]!.workflow!] : []))),
+  ];
+  const editedWorkflows = pinnedWorkflows.filter((w) => pr.changedPaths.includes(w));
+  if (editedWorkflows.length > 0) {
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_INSUFFICIENT',
+      reason:
+        `PR #${prNumber} edits the pinned workflow ${editedWorkflows.join(', ')}, so its own CI ` +
+        'cannot attest it. Record local results instead (tool:test, tool:lint, tool:typecheck).',
+    };
+  }
 
   const fetchChecks = opts.fetchChecks ?? defaultFetchChecks;
   const fetched = await fetchChecks(pr.mergeCommitSha, roots.executionRoot);
@@ -568,8 +697,59 @@ export async function resolveCiEvidenceAtom(
         `(source: ${describeRequiredWorkflowsSource(required.source)}):\n  - ${judgedChecks.reasons.join('\n  - ')}`,
     };
   }
+  // Round 2 (skipped tests): the aggregate counts skipped jobs as a pass. For a
+  // CODE task every configured job glob must have actually run and succeeded
+  // in the pinned workflows; a docs/research task keeps the honest skip.
+  // A PR whose whole diff is documentation had nothing for the test and
+  // typecheck jobs to run on — the same judgement `pr:` makes when it refuses a
+  // docs-only PR as a code task's implementation — so its skip is honest too.
+  const docsOnlyDiff = pr.changedPaths.length > 0 && pr.changedPaths.every(isDocumentArtifact);
+  const isCode = classifyEvidenceTask(context) === 'code' && !docsOnlyDiff;
+  const jobsByGate: Record<string, string[]> = {};
+  if (isCode) {
+    for (const g of gateLists) {
+      const globs = readCiChecks(roots.storeRoot).jobs?.[g.key];
+      if (!globs || globs.length === 0) {
+        return {
+          ok: false,
+          codeName: 'E_EVIDENCE_INSUFFICIENT',
+          reason:
+            `ci:${prNumber} cannot attest ${g.gate} for code task ${context.task.id}: set ` +
+            `evidence.ciChecks.jobs.${g.key} to the job names that must run (e.g. "Unit Tests*").`,
+        };
+      }
+      const scopeWorkflows = (g.list ?? []).flatMap((n) =>
+        pins[n]?.workflow ? [pins[n]!.workflow!] : [],
+      );
+      const app = (g.list ?? []).map((n) => pins[n]?.app).find((a) => a !== undefined);
+      if (scopeWorkflows.length === 0) {
+        return {
+          ok: false,
+          codeName: 'E_EVIDENCE_INSUFFICIENT',
+          reason: `ci:${prNumber}: no workflow file is pinned for ${g.gate}'s checks, so its jobs cannot be scoped; add "workflow" to their release.prRequiredWorkflows entries.`,
+        };
+      }
+      const scope = { ...(app !== undefined ? { app } : {}), workflows: scopeWorkflows };
+      let judgedJobs = evaluateJobs(globs, checks, pr.mergeCommitSha, scope);
+      if (!judgedJobs.ok && treeEqualHead) {
+        const onHead = evaluateJobs(globs, checks, treeEqualHead, scope, 'pull_request');
+        if (onHead.ok) judgedJobs = onHead;
+      }
+      if (!judgedJobs.ok) {
+        return {
+          ok: false,
+          codeName: 'E_EVIDENCE_TESTS_FAILED',
+          reason:
+            `${g.gate} for code task ${context.task.id} needs its jobs to have run on PR #${prNumber}:\n  - ` +
+            judgedJobs.reasons.join('\n  - '),
+        };
+      }
+      jobsByGate[g.gate] = judgedJobs.jobs;
+    }
+  }
   const gateChecks: { testsPassed?: string[]; qaPassed?: string[] } = {};
-  for (const g of gateLists) gateChecks[g.gate] = [...(g.list ?? [])];
+  for (const g of gateLists)
+    gateChecks[g.gate] = [...(g.list ?? []), ...(jobsByGate[g.gate] ?? [])];
   return {
     ok: true,
     atom: {

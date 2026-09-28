@@ -45,3 +45,13 @@ Owner decision D11149.
   checks. A gate without a list refuses `ci:`. For cleocode: tests=["CI"],
   qa=["CI","Lockfile Check","Contracts Dep Lint"], with all three pinned to
   `github-actions` and their workflow files.
+- Code tasks need their real jobs. `evidence.ciChecks.jobs` lists job-name globs
+  per gate; cleocode uses tests=["Unit Tests*"] and qa=["Type Check", "Lint &
+  Format"]. Every glob must match a job from the pinned workflows, and that job
+  must have succeeded. A skipped or missing job is refused by name, because the
+  "CI" aggregate counts skipped jobs as a pass. Documentation, research and spike
+  tasks keep the honest skip, as does a PR whose whole diff is documentation.
+- A PR that edits a pinned workflow file is refused, because its pull_request run
+  executed its own edit. `cleo done` falls back to local tools.
+- Every check mapped in `ciChecks` must be pinned to an app. Otherwise `ci:` is
+  refused and the message names the fix.

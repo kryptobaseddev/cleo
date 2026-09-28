@@ -2379,7 +2379,15 @@ async function validatePrAtom(
   };
 }
 
-function isDocumentArtifact(path: string): boolean {
+/**
+ * Whether a path is a documentation artifact (`.md`/`.mdx`/`.rst`/`.adoc`/`.txt`,
+ * README, LICENSE, CHANGELOG) — the rule `pr:` uses to refuse a docs-only PR
+ * as implementation of a code task.
+ *
+ * @param path - Repo-relative path.
+ * @returns True for a documentation artifact.
+ */
+export function isDocumentArtifact(path: string): boolean {
   return (
     /\.(md|mdx|rst|adoc|txt)$/i.test(path) ||
     /(?:^|\/)(README|LICENSE|CHANGELOG)(?:\.[^/]*)?$/i.test(path)

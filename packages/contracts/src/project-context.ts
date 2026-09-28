@@ -84,7 +84,12 @@ export interface ProjectEvidenceContext {
    *
    * @task T12634
    */
-  ciChecks?: { tests?: string[]; qa?: string[] };
+  ciChecks?: {
+    tests?: string[];
+    qa?: string[];
+    /** Job-name globs that must have run and succeeded for a code task's gate. */
+    jobs?: { tests?: string[]; qa?: string[] };
+  };
 }
 
 /**
