@@ -11,11 +11,11 @@
  * @task T5240
  */
 
-import { spawn as nodeSpawn } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/contracts';
 import { findOnPath } from '@cleocode/paths';
+import { spawnCli } from '../shared/cli-spawn.js';
 import { getCleoTemplatesTildePath } from '../shared/paths.js';
 
 /** Name used for the CLEO subagent definition in OpenCode's agent directory. */
@@ -180,7 +180,7 @@ export class OpenCodeSpawnProvider implements AdapterSpawnProvider {
         agentName = OPENCODE_FALLBACK_AGENT;
       }
 
-      const child = nodeSpawn(
+      const child = spawnCli(
         'opencode',
         [
           'run',

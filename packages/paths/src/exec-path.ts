@@ -197,6 +197,87 @@ export function shellInvocation(command: string, opts: ExecPathOptions = {}): Sh
   return { file, args: ['/d', '/s', '/c', `"${command}"`], windowsVerbatimArguments: true };
 }
 
+/** cmd.exe metacharacters; each is caret-escaped so cmd treats it literally. */
+const CMD_META = /([()\][%!^"`<>&|;, *?])/g;
+
+/**
+ * Quote one argument for a `.cmd`/`.bat` target launched through cmd.exe.
+ *
+ * Two layers, as cmd parses the line and the batch file's program parses its
+ * argv: MSVCRT quoting (backslashes before a quote doubled, the quote
+ * escaped, the whole argument wrapped in quotes), then every cmd
+ * metacharacter caret-escaped TWICE — cmd re-parses the line when it
+ * dispatches a batch file, consuming one caret layer each pass. Because every
+ * quote is escaped, cmd never sees a quoted region in which operators such as
+ * `&` or `|` would be live. `%VAR%` expands before carets are processed, but
+ * `%NAME^%` names a variable (`NAME^`) that is never defined, and an undefined
+ * reference is left verbatim on a `cmd /c` line. This is the scheme `cross-spawn` uses against the BatBadBut class
+ * (CVE-2024-27980).
+ *
+ * @param arg - Literal argument.
+ * @returns The escaped token.
+ * @throws When `arg` holds CR or LF: cmd.exe ends the command at a line
+ *   break and no escape can carry one into a batch file.
+ * @example
+ * ```ts
+ * quoteCmdArg('a b'); // '^^^"a^^^ b^^^"'
+ * ```
+ */
+export function quoteCmdArg(arg: string): string {
+  if (/[\r\n]/.test(arg))
+    throw new Error('E_UNSAFE_BATCH_ARG: a .cmd/.bat argument cannot contain a line break');
+  const msvcrt = `"${arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\*)$/, '$1$1')}"`;
+  return msvcrt.replace(CMD_META, '^$1').replace(CMD_META, '^$1');
+}
+
+/** An executable plus argv, resolved for `child_process.spawn` on a platform. */
+export interface SpawnInvocation {
+  /** File to spawn. */
+  file: string;
+  /** Arguments to pass. */
+  args: string[];
+  /** Pass through to `spawn` — `true` only for the cmd.exe batch form. */
+  windowsVerbatimArguments: boolean;
+}
+
+/**
+ * Resolve how to spawn `command args` without a shell on any platform.
+ *
+ * POSIX: returned unchanged. win32: the command is resolved to the absolute
+ * path {@link findOnPath} finds, because Node's own lookup tries only `.exe`
+ * and `.com`. A `.cmd`/`.bat` target (every npm-installed CLI) cannot be
+ * spawned directly — Node refuses since CVE-2024-27980 — so it is launched
+ * through `%ComSpec% /d /s /c` with every token escaped by {@link quoteCmdArg}.
+ *
+ * @param command - Command name or path.
+ * @param args - Literal arguments.
+ * @param opts - Platform and environment overrides.
+ * @returns The spawnable invocation.
+ * @throws When a batch-file argument contains a line break (see {@link quoteCmdArg}).
+ * @example
+ * ```ts
+ * const inv = resolveSpawnInvocation('codex', ['--full-auto', promptFile]);
+ * spawn(inv.file, inv.args, { windowsVerbatimArguments: inv.windowsVerbatimArguments });
+ * ```
+ */
+export function resolveSpawnInvocation(
+  command: string,
+  args: readonly string[],
+  opts: ExecPathOptions = {},
+): SpawnInvocation {
+  const platform = opts.platform ?? process.platform;
+  if (platform !== 'win32') {
+    return { file: command, args: [...args], windowsVerbatimArguments: false };
+  }
+  const resolved = findOnPath(command, opts) ?? command;
+  if (!/\.(cmd|bat)$/i.test(resolved)) {
+    return { file: resolved, args: [...args], windowsVerbatimArguments: false };
+  }
+  const line = [resolved.replace(CMD_META, '^$1'), ...args.map(quoteCmdArg)].join(' ');
+  const shell = shellInvocation(line, opts);
+  return { file: shell.file, args: shell.args, windowsVerbatimArguments: true };
+}
+
 /** Environment key for `PATHEXT`, matched case-insensitively. */
 function pathExtKey(env: NodeJS.ProcessEnv): string {
   return Object.keys(env).find((key) => key.toUpperCase() === 'PATHEXT') ?? 'PATHEXT';

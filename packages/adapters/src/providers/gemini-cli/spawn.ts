@@ -25,10 +25,11 @@
  * @task T648
  */
 
-import { spawn as nodeSpawn } from 'node:child_process';
+import type { SpawnOptions } from 'node:child_process';
 import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/contracts';
 import { getErrorMessage } from '@cleocode/contracts';
 import { findOnPath } from '@cleocode/paths';
+import { spawnCli } from '../shared/cli-spawn.js';
 
 /** Default Gemini model for subagent spawns. */
 const DEFAULT_MODEL = 'gemini-2.5-pro';
@@ -110,7 +111,7 @@ export class GeminiCliSpawnProvider implements AdapterSpawnProvider {
       // --model: select the Gemini model variant
       // Prompt is supplied via stdin (pipe)
       const args = ['--yolo', '--model', model];
-      const spawnOpts: Parameters<typeof nodeSpawn>[2] = {
+      const spawnOpts: SpawnOptions = {
         detached: true,
         stdio: ['pipe', 'ignore', 'ignore'],
       };
@@ -119,7 +120,7 @@ export class GeminiCliSpawnProvider implements AdapterSpawnProvider {
         spawnOpts.cwd = context.workingDirectory;
       }
 
-      const child = nodeSpawn('gemini', args, spawnOpts);
+      const child = spawnCli('gemini', args, spawnOpts);
 
       // Write the prompt to stdin then close so the CLI receives it.
       if (child.stdin) {

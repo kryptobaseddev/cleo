@@ -84,6 +84,7 @@ import type {
   ProcessLaunchExecution,
   SystemdControlContext,
 } from '@cleocode/contracts/resource-governor';
+import { resolveSpawnInvocation } from '@cleocode/paths';
 import { z } from 'zod';
 import { registerTeardownAbort } from '../teardown-signal.js';
 
@@ -202,6 +203,11 @@ export interface SpawnArgsBuildResult {
    * `undefined` when `mode = 'pgid'`.
    */
   unitName?: string;
+  /**
+   * `true` only when win32 launches a `.cmd`/`.bat` through cmd.exe; the
+   * pre-quoted line must reach cmd unmodified (T12618).
+   */
+  windowsVerbatimArguments?: boolean;
 }
 
 /**
@@ -477,6 +483,17 @@ export function buildSpawnArgs(
         mode: 'pgid',
       };
     }
+    if (process.platform === 'win32') {
+      // Resolve to the absolute path; a `.cmd` shim (pnpm, npx, …) goes
+      // through cmd.exe with injection-safe quoting (T12618).
+      const inv = resolveSpawnInvocation(command, args);
+      return {
+        command: inv.file,
+        args: inv.args,
+        mode: 'pgid',
+        ...(inv.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
+      };
+    }
     return { command, args: [...args], mode: 'pgid' };
   }
 
@@ -615,10 +632,13 @@ export function spawnWrapped(
     options,
   );
   launchRemaining(execution);
+  const launchOpts = built.windowsVerbatimArguments
+    ? { ...spawnOpts, windowsVerbatimArguments: true }
+    : spawnOpts;
   const child = spawn(
     built.command,
     built.args,
-    controlled ? { ...spawnOpts, env: managerEnvironment(control, childEnvironment) } : spawnOpts,
+    controlled ? { ...launchOpts, env: managerEnvironment(control, childEnvironment) } : launchOpts,
   );
   return {
     child,

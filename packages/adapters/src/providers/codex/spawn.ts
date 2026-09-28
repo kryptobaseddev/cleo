@@ -24,10 +24,11 @@
  * @task T648
  */
 
-import { spawn as nodeSpawn } from 'node:child_process';
+import type { SpawnOptions } from 'node:child_process';
 import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/contracts';
 import { getErrorMessage } from '@cleocode/contracts';
 import { findOnPath } from '@cleocode/paths';
+import { spawnCli } from '../shared/cli-spawn.js';
 import { removeSpawnPromptFile, writeSpawnPromptFile } from '../shared/prompt-file.js';
 
 /** Internal tracking entry for a spawned process. */
@@ -106,7 +107,7 @@ export class CodexSpawnProvider implements AdapterSpawnProvider {
 
       // --full-auto: non-interactive batch mode (auto-approve all actions)
       const args = ['--full-auto', tmpFile];
-      const spawnOpts: Parameters<typeof nodeSpawn>[2] = {
+      const spawnOpts: SpawnOptions = {
         detached: true,
         stdio: 'ignore',
       };
@@ -115,7 +116,7 @@ export class CodexSpawnProvider implements AdapterSpawnProvider {
         spawnOpts.cwd = context.workingDirectory;
       }
 
-      const child = nodeSpawn('codex', args, spawnOpts);
+      const child = spawnCli('codex', args, spawnOpts);
       child.unref();
 
       if (child.pid) {
