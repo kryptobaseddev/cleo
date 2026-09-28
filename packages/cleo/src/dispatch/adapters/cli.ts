@@ -60,6 +60,7 @@ const ERROR_CODE_TO_EXIT: Record<string, number> = {
   E_HAS_DEPENDENTS: 19,
   E_CHECKSUM_MISMATCH: 20,
   E_CONFLICT: 23,
+  E_SESSION_UNBOUND: 24,
   E_SESSION_EXISTS: 30,
   E_SESSION_NOT_FOUND: 31,
   E_SCOPE_CONFLICT: 32,
@@ -167,28 +168,31 @@ export function createCliGatewayHandler(): GatewayHandler {
 }
 
 /**
- * Best-effort lookup of the current session ID for CLI commands.
+ * Best-effort lookup of the CALLER's bound session ID for CLI commands.
  *
- * Delegates to core's canonical `resolveCurrentSessionId`, so the CLI shares
- * ONE precedence with every other identity consumer:
+ * The id is stamped onto every request and attributes its audit row, so it
+ * delegates to core's `resolveBoundSessionId` (T12500):
  *
  * 1. the env-named session (`CLEO_SESSION_ID` & co., T11344) — honoured only
  *    when its session row exists (T12499). An env id with no row is rejected
  *    instead of being stamped onto the request as a phantom identity;
- * 2. the session bound to this terminal / harness by `session start`
- *    (T12499 — `CLAUDE_CODE_SESSION_ID`, `TMUX_PANE`, `TERM_SESSION_ID`, …);
- * 3. the most-recent active row (legacy fallback; removal tracked by T12500).
+ * 2. the session bound to this terminal / harness by `session start` /
+ *    `session resume` (T12499 — `CLAUDE_CODE_SESSION_ID`, `TMUX_PANE`, …).
+ *
+ * There is no newest-active-row tier: from an unbound terminal it names
+ * another agent's session, so an unbound request carries NO session id.
  *
  * Returns null on any failure (many CLI commands don't need a session).
  *
  * @epic T4959
  * @task T11344
  * @task T12499
+ * @task T12500
  */
 export async function lookupCliSession(): Promise<string | null> {
   try {
-    const { resolveCurrentSessionId } = await import('@cleocode/core/internal');
-    return await resolveCurrentSessionId();
+    const { resolveBoundSessionId } = await import('@cleocode/core/internal');
+    return await resolveBoundSessionId();
   } catch {
     return null;
   }

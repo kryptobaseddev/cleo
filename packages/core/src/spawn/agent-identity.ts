@@ -68,8 +68,9 @@ export function deriveAgentHandle(taskId: string): string {
  * Epic exists to eliminate. The returned `sessionId` is what the spawn pipeline
  * injects as `CLEO_SESSION_ID` into the isolation shell.
  *
- * Best-effort: callers should treat a thrown error as "no per-agent session
- * allocated" and degrade to the orchestrator's session (legacy behaviour).
+ * Throws when the session row cannot be read or written. Spawn callers go
+ * through {@link requireSpawnSession}, which turns that into a refusal: a
+ * spawned agent never inherits the orchestrator's session (T12500).
  *
  * @param projectRoot - Absolute path to the project root.
  * @param taskId      - The task being spawned.
@@ -114,4 +115,56 @@ export async function allocateSpawnSession(
   await accessor.upsertSingleSession(session);
 
   return { sessionId, agentId: agentHandle, agentHandle, reused: false };
+}
+
+/** Outcome of {@link requireSpawnSession}: an explicit per-agent session, or a refusal. */
+export type SpawnSessionResolution =
+  | { readonly ok: true; readonly identity: SpawnAgentIdentity }
+  | {
+      readonly ok: false;
+      /** Always `E_SESSION_UNBOUND`: the spawned agent would have no session of its own. */
+      readonly code: 'E_SESSION_UNBOUND';
+      readonly message: string;
+      readonly fix: string;
+      /** Why allocation failed. */
+      readonly cause: string;
+    };
+
+/**
+ * Allocate the spawned agent's OWN session, or refuse the spawn (T12500 · epic T12497).
+ *
+ * Before T12500 both spawn paths caught an allocation failure and fell back to
+ * `getActiveSession()` — the newest active row, i.e. usually the ORCHESTRATOR's
+ * session — and injected it as the child's `CLEO_SESSION_ID`. The child then
+ * ended, attributed to and focused the orchestrator's session. There is no
+ * safe session to guess, so a failed allocation now fails the spawn with
+ * `E_SESSION_UNBOUND` instead.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param taskId - The task being spawned.
+ * @param allocate - Allocation strategy (defaults to {@link allocateSpawnSession}; tests inject failures).
+ * @returns The explicit per-agent identity, or a typed refusal.
+ * @task T12500
+ */
+export async function requireSpawnSession(
+  projectRoot: string,
+  taskId: string,
+  allocate: (root: string, id: string) => Promise<SpawnAgentIdentity> = allocateSpawnSession,
+): Promise<SpawnSessionResolution> {
+  try {
+    return { ok: true, identity: await allocate(projectRoot, taskId) };
+  } catch (err) {
+    const cause = err instanceof Error ? err.message : String(err);
+    return {
+      ok: false,
+      code: 'E_SESSION_UNBOUND',
+      message:
+        `Could not allocate a session for spawned task ${taskId}: ${cause}. ` +
+        "Refusing to hand it the orchestrator's session.",
+      fix:
+        "Check the task store with 'cleo doctor', then retry the spawn. A spawned agent " +
+        "always runs under its own session (CLEO_SESSION_ID), never the orchestrator's.",
+      cause,
+    };
+  }
 }

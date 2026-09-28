@@ -11,7 +11,9 @@
  */
 
 import type { Session } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts';
 import { and, desc, eq, isNull } from 'drizzle-orm';
+import { CleoError } from '../errors.js';
 import { captureProjectScope, getProjectRoot, worktreeScope } from '../project-scope.js';
 import { getCurrentConnectionSessionId } from '../sessions/connection-session-handle.js';
 import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
@@ -515,7 +517,10 @@ export async function unbindSessionTerminals(sessionId: string, cwd?: string): P
  * 3. **Terminal binding** — {@link resolveTerminalBoundSession}: the active
  *    session that this terminal / harness started (T12499).
  * 4. **Most-recent active row** — {@link getActiveSession}, the legacy
- *    single-process fallback (removal tracked by T12500).
+ *    single-process fallback. READ-ONLY consumers only (T12500): from an
+ *    unbound terminal this is another agent's session. Mutations resolve
+ *    through {@link resolveBoundSession} / {@link requireBoundSession}, and
+ *    read surfaces that want to label the guess use {@link resolveSessionForRead}.
  *
  * Making most-recent-active the FALLBACK rather than the default identity is
  * what dissolves multi-agent session-bleed AND memory scope-leakage: a
@@ -532,33 +537,16 @@ export async function unbindSessionTerminals(sessionId: string, cwd?: string): P
  * @task T11640
  */
 export async function resolveCurrentSession(cwd?: string): Promise<Session | null> {
-  const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
-  return worktreeScope.run(scope, async () => {
-    const connId = getCurrentConnectionSessionId();
-    if (connId) {
-      const byConn = await getSession(connId, scope.worktreeRoot);
-      if (byConn) return byConn;
-      // connection named a session with no row yet — fall through to env/active.
-    }
-    const envId = resolveSessionIdFromEnv();
-    if (envId) {
-      const byEnv = await getSession(envId, scope.worktreeRoot);
-      if (byEnv) return byEnv;
-      // env id named a session that does not exist — fall through to the binding.
-    }
-    // T12499: the session this terminal started wins over the newest active row.
-    const byTerminal = await resolveTerminalBoundSession(scope.worktreeRoot);
-    if (byTerminal) return byTerminal;
-    return getActiveSession(scope.worktreeRoot);
-  });
+  return (await resolveSessionForRead(cwd)).session;
 }
 
 /**
  * Resolve the CALLER's current session id (T11344/T11640).
  *
  * Thin id-only convenience over {@link resolveCurrentSession} sharing its
- * connection-handle → env → terminal-binding → most-recent-active precedence. Prefer this over
- * `(await getActiveSession())?.id` in identity-resolution hot paths.
+ * connection-handle → env → terminal-binding → most-recent-active precedence.
+ * READ-ONLY consumers only: the last tier may name another agent's session. A
+ * caller that attributes or mutates must use {@link resolveBoundSessionId}.
  *
  * @param cwd - Working directory for DB resolution.
  * @returns The resolved session id, or `null`.
@@ -566,22 +554,182 @@ export async function resolveCurrentSession(cwd?: string): Promise<Session | nul
  * @task T11640
  */
 export async function resolveCurrentSessionId(cwd?: string): Promise<string | null> {
+  return (await resolveSessionForRead(cwd)).session?.id ?? null;
+}
+
+/** Which identity tier bound the caller to its session (T12500). */
+export type SessionBindingSource = 'connection' | 'env' | 'terminal';
+
+/** A session the caller is provably bound to (T12500). */
+export interface BoundSessionResolution {
+  /** The caller's own session row. */
+  readonly session: Session;
+  /** The identity tier that named it. */
+  readonly via: SessionBindingSource;
+}
+
+/**
+ * Resolve the session the CALLER is bound to — never a guess (T12500 · epic T12497).
+ *
+ * Tiers 1-3 of {@link resolveCurrentSession} only: the daemon connection
+ * handle, an env-named session (`CLEO_SESSION_ID` & co.) whose row exists, and
+ * the terminal binding written by `session start` / `session resume`. The
+ * newest-active-row fallback is deliberately absent: from an unbound terminal
+ * it names whichever agent wrote the DB last, so a mutation resolved through it
+ * ends, attributes to, or suspends ANOTHER agent's session.
+ *
+ * Every mutation that means "the caller's session" resolves through this (or
+ * {@link requireBoundSession}); only read-only surfaces may use the fallback,
+ * and they label it via {@link resolveSessionForRead}.
+ *
+ * @param cwd - Working directory for DB resolution.
+ * @returns The bound session and the tier that bound it, or `null` when unbound.
+ * @task T12500
+ */
+export async function resolveBoundSession(cwd?: string): Promise<BoundSessionResolution | null> {
   const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
   return worktreeScope.run(scope, async () => {
     const connId = getCurrentConnectionSessionId();
     if (connId) {
       const byConn = await getSession(connId, scope.worktreeRoot);
-      if (byConn) return byConn.id;
+      if (byConn) return { session: byConn, via: 'connection' as const };
+      // connection named a session with no row yet — fall through to env.
     }
     const envId = resolveSessionIdFromEnv();
     if (envId) {
       const byEnv = await getSession(envId, scope.worktreeRoot);
-      if (byEnv) return byEnv.id;
+      if (byEnv) return { session: byEnv, via: 'env' as const };
+      // env id named a session that does not exist — fall through to the binding.
     }
-    // T12499: the session this terminal started wins over the newest active row.
+    // T12499: the session this terminal started / resumed.
     const byTerminal = await resolveTerminalBoundSession(scope.worktreeRoot);
-    if (byTerminal) return byTerminal.id;
-    const active = await getActiveSession(scope.worktreeRoot);
-    return active?.id ?? null;
+    if (byTerminal) return { session: byTerminal, via: 'terminal' as const };
+    return null;
+  });
+}
+
+/**
+ * Id-only form of {@link resolveBoundSession} (T12500).
+ *
+ * For attribution (audit rows, decisions, memory writes): an unbound caller is
+ * attributed to NO session rather than to the newest active one.
+ *
+ * @param cwd - Working directory for DB resolution.
+ * @returns The bound session id, or `null` when the caller is unbound.
+ * @task T12500
+ */
+export async function resolveBoundSessionId(cwd?: string): Promise<string | null> {
+  return (await resolveBoundSession(cwd))?.session.id ?? null;
+}
+
+/** Result of a read-only session resolution (T12500). */
+export interface ReadSessionResolution {
+  /** The resolved session, or `null` when no session exists at all. */
+  readonly session: Session | null;
+  /**
+   * `true` when the caller is NOT bound and `session` is merely the newest
+   * active row — possibly another agent's. Read-only envelopes surface this as
+   * `unbound: true` so the reader does not mistake it for its own session.
+   */
+  readonly unbound: boolean;
+}
+
+/**
+ * Resolve a session for a READ-ONLY surface, labelling a guess (T12500).
+ *
+ * Bound tiers first ({@link resolveBoundSession}); when the caller is unbound,
+ * falls back to the newest active row and reports `unbound: true`. Status,
+ * briefing and show may display that row — they change nothing — but must
+ * pass the label through to their envelope.
+ *
+ * @param cwd - Working directory for DB resolution.
+ * @returns The session (bound or newest-active) plus the `unbound` label.
+ * @task T12500
+ */
+export async function resolveSessionForRead(cwd?: string): Promise<ReadSessionResolution> {
+  const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    const bound = await resolveBoundSession(scope.worktreeRoot);
+    if (bound) return { session: bound.session, unbound: false };
+    const newest = await getActiveSession(scope.worktreeRoot);
+    return { session: newest, unbound: newest !== null };
+  });
+}
+
+/**
+ * Whether ANY session is active in this project (T12500).
+ *
+ * An existence scan, not an identity: it decides whether an unbound caller is
+ * ambiguous (`E_SESSION_UNBOUND`) or simply has no session to act on.
+ *
+ * @param cwd - Working directory for DB resolution.
+ * @returns `true` when at least one session row is `active`.
+ * @task T12500
+ */
+export async function hasActiveSession(cwd?: string): Promise<boolean> {
+  return (await getActiveSession(cwd)) !== null;
+}
+
+/** How to bind a caller to a session — shared by every E_SESSION_UNBOUND (T12500). */
+export const SESSION_UNBOUND_FIX =
+  "Bind this terminal to a session: run 'cleo session start --scope <scope> --name <name>' " +
+  "(or 'cleo session resume <id>' for an existing one), or set CLEO_SESSION_ID=<id>. " +
+  "To act on a specific session without binding, pass it explicitly (e.g. 'cleo session end --session <id>').";
+
+/** Copy-paste remedies attached to every E_SESSION_UNBOUND (T12500). */
+export const SESSION_UNBOUND_ALTERNATIVES: ReadonlyArray<{ action: string; command: string }> = [
+  {
+    action: 'Start and bind a session',
+    command: 'cleo session start --scope global --name "<name>"',
+  },
+  { action: 'Bind an existing session', command: 'cleo session resume <sessionId>' },
+  { action: 'Name the session for this shell', command: 'export CLEO_SESSION_ID=<sessionId>' },
+  { action: 'List active sessions', command: 'cleo session list --status active' },
+];
+
+/**
+ * Message for an E_SESSION_UNBOUND refusal (T12500).
+ *
+ * @param operation - What the caller tried to do (e.g. `end the session`).
+ * @returns Human-readable refusal naming why the newest session was not used.
+ * @task T12500
+ */
+export function sessionUnboundMessage(operation: string): string {
+  return (
+    `Cannot ${operation}: no session is bound to this caller (no CLEO_SESSION_ID naming a session, ` +
+    'and this terminal has not started or resumed one). Refusing to guess the newest active ' +
+    'session, which may belong to another agent.'
+  );
+}
+
+/**
+ * Resolve the caller's bound session for a MUTATION, refusing to guess (T12500).
+ *
+ * - Bound → the caller's session.
+ * - Unbound and NO session is active → `null` (nothing is ambiguous; callers
+ *   keep their existing "no session" behaviour).
+ * - Unbound while some session IS active → throws `E_SESSION_UNBOUND`
+ *   ({@link ExitCode.SESSION_UNBOUND}) — the legacy fallback would have picked
+ *   that other session.
+ *
+ * @param operation - What the caller is attempting, for the error message.
+ * @param cwd - Working directory for DB resolution.
+ * @returns The bound session, or `null` when no session is active at all.
+ * @throws CleoError with `ExitCode.SESSION_UNBOUND` when unbound but sessions exist.
+ * @task T12500
+ */
+export async function requireBoundSession(
+  operation: string,
+  cwd?: string,
+): Promise<Session | null> {
+  const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    const bound = await resolveBoundSession(scope.worktreeRoot);
+    if (bound) return bound.session;
+    if (!(await hasActiveSession(scope.worktreeRoot))) return null;
+    throw new CleoError(ExitCode.SESSION_UNBOUND, sessionUnboundMessage(operation), {
+      fix: SESSION_UNBOUND_FIX,
+      alternatives: [...SESSION_UNBOUND_ALTERNATIVES],
+    });
   });
 }

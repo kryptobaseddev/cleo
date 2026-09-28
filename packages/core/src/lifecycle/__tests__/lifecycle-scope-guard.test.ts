@@ -88,6 +88,11 @@ vi.mock('../index.js', () => ({
 vi.mock('../../store/session-store.js', () => ({
   getActiveSession: mocks.getActiveSession,
   resolveCurrentSession: mocks.getActiveSession,
+  // T12500: the scope guard authorises the caller's BOUND session.
+  resolveBoundSession: async (...args: unknown[]) => {
+    const session = await mocks.getActiveSession(...args);
+    return session ? { session, via: 'env' } : null;
+  },
   createSession: vi.fn(),
 }));
 

@@ -179,7 +179,9 @@ describe('E_SESSION_CONFLICT routes to bulk recovery when several leak (T12308)'
     const { sessionStart } = await import('../../session/engine-ops.js');
     const res = await sessionStart('/tmp/p', { scope: 'global', name: 'x' });
     expect(res.success).toBe(false);
-    expect(res.error?.message).toContain("End it first with 'cleo session end'");
+    // T12500: the advice names the blocker, because a bare `session end` from
+    // a terminal not bound to it is refused with E_SESSION_UNBOUND.
+    expect(res.error?.message).toContain("End it first with 'cleo session end --session ses-only'");
     expect(res.error?.message).not.toContain('session gc');
   });
 });

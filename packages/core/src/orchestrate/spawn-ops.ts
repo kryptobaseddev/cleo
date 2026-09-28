@@ -68,7 +68,7 @@ import type {
   SpawnResult,
   WorktreeHook,
 } from '@cleocode/contracts';
-import { RESOURCE_DEFERRED_CODE } from '@cleocode/contracts';
+import { ExitCode, RESOURCE_DEFERRED_CODE } from '@cleocode/contracts';
 import { destroyWorktree, runWorktreeHooks } from '@cleocode/worktree';
 import { findLeastLoadedAgent } from '../agents/capacity.js';
 import { substituteCantAgentBody } from '../agents/variable-substitution.js';
@@ -87,9 +87,8 @@ import { governor } from '../resources/governor.js';
 import { provisionIsolatedShell } from '../sdk/isolation.js';
 import { spawnWorktree } from '../sentient/worktree-dispatch.js';
 import { initializeDefaultAdapters, spawnRegistry } from '../spawn/adapter-registry.js';
-import { allocateSpawnSession } from '../spawn/agent-identity.js';
+import { requireSpawnSession } from '../spawn/agent-identity.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { getActiveSession } from '../store/session-store.js';
 import { openAgentRegistryDbForComposer } from './plan.js';
 
 export type { EngineResult };
@@ -838,22 +837,23 @@ export async function orchestrateSpawnExecute(
     //
     // T11343 — allocate the spawned task's OWN per-agent session (not the
     // orchestrator's) and inject it into the isolation shell below. See
-    // orchestrateSpawn for the full rationale. Falls back to the orchestrator
-    // session id only if allocation fails.
-    let activeSessionId: string | null = null;
-    let spawnAgentId: string | null = null;
-    try {
-      const identity = await allocateSpawnSession(cwd, taskId);
-      activeSessionId = identity.sessionId;
-      spawnAgentId = identity.agentId;
-    } catch {
-      try {
-        const active = await getActiveSession(cwd);
-        activeSessionId = active?.id ?? null;
-      } catch {
-        activeSessionId = null;
-      }
+    // orchestrateSpawn for the full rationale. T12500 — no fallback: a failed
+    // allocation refuses the spawn instead of handing over the orchestrator's
+    // (newest active) session.
+    const spawnSession = await requireSpawnSession(cwd, taskId);
+    if (!spawnSession.ok) {
+      return {
+        success: false,
+        error: {
+          code: spawnSession.code,
+          message: spawnSession.message,
+          exitCode: ExitCode.SESSION_UNBOUND,
+          details: { taskId, cause: spawnSession.cause, fix: spawnSession.fix },
+        },
+      };
     }
+    const activeSessionId = spawnSession.identity.sessionId;
+    const spawnAgentId = spawnSession.identity.agentId;
 
     const payload = await composeSpawnForTask(taskId, cwd, {
       tier,
@@ -1366,22 +1366,18 @@ export async function orchestrateSpawn(
     // `cleo` call inside the worktree collapsed onto "whoever touched the DB
     // last" — the root cause of multi-agent session-bleed AND memory
     // scope-leakage. Allocation is idempotent across `--resume` (reuses the
-    // same-handle active session). Failure is non-fatal: we degrade to the
-    // orchestrator's active session id so the prompt still links somewhere.
-    let activeSessionId: string | null = null;
-    let spawnAgentId: string | null = null;
-    try {
-      const identity = await allocateSpawnSession(root, taskId);
-      activeSessionId = identity.sessionId;
-      spawnAgentId = identity.agentId;
-    } catch {
-      try {
-        const active = await getActiveSession(root);
-        activeSessionId = active?.id ?? null;
-      } catch {
-        activeSessionId = null;
-      }
+    // same-handle active session). T12500 — failure is FATAL: degrading to
+    // the orchestrator's active session id is exactly the bleed above.
+    const spawnSession = await requireSpawnSession(root, taskId);
+    if (!spawnSession.ok) {
+      spawnLogger.error({ taskId, cause: spawnSession.cause }, 'spawn session allocation failed');
+      return engineError(spawnSession.code, spawnSession.message, {
+        fix: spawnSession.fix,
+        details: { taskId, cause: spawnSession.cause },
+      });
     }
+    const activeSessionId = spawnSession.identity.sessionId;
+    const spawnAgentId = spawnSession.identity.agentId;
 
     // T1253 — Derive CONDUIT subscription config from the task's parent epic.
     //

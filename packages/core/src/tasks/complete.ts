@@ -42,7 +42,7 @@ import { requireActiveSession } from '../sessions/session-enforcement.js';
 import { createOperationExecutionContext, trackBackgroundOp } from '../store/background-ops.js';
 import type { DataAccessor, TransactionAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { resolveCurrentSession } from '../store/session-store.js';
+import { resolveBoundSessionId } from '../store/session-store.js';
 import {
   appendAcCoverageForceBypass,
   appendAcWaiverAudit,
@@ -1552,7 +1552,9 @@ export async function taskComplete(
       // → most-recent-active). This collapses the prior hand-rolled
       // "env-then-active-override" — which let the most-recent active row shadow
       // the caller's explicit CLEO_SESSION_ID — onto the canonical precedence.
-      const sessionId = (await resolveCurrentSession(projectRoot))?.id ?? null;
+      // T12500: bound tiers only — an unbound caller stamps no session rather
+      // than the newest active one (another agent's).
+      const sessionId = await resolveBoundSessionId(projectRoot);
       await accessor.updateTaskFields(taskId, { modifiedBy: agentId, sessionId });
     } catch {
       // Provenance write failure is non-fatal.

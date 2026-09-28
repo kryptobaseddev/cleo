@@ -24,6 +24,11 @@
  * silently regress. It does NOT rewrite existing callsites — those migrate out
  * incrementally; lower the baseline with `--update-baseline` as they do.
  *
+ * T12500 lowered the baseline 11 → 0: every identity-meaning callsite now
+ * resolves the caller's BOUND session (`resolveBoundSession` /
+ * `requireBoundSession`, which refuse with `E_SESSION_UNBOUND` instead of
+ * guessing), and the two remaining scans carry the per-line opt-out.
+ *
  * What counts as a "bare callsite"
  * --------------------------------
  *   - A CALL `getActiveSession(` (with the trailing `(`), NOT the definition,
@@ -260,8 +265,9 @@ if (STRICT) {
     console.error(`    ${v.snippet}`);
   }
   console.error(
-    '\nFix: use resolveCurrentSession()/resolveCurrentSessionId() for identity,\n' +
-      '     or annotate a justified SCAN-meaning callsite with\n' +
+    '\nFix: use resolveBoundSession()/requireBoundSession() for mutations and attribution\n' +
+      '     (T12500 — never the newest active row), resolveSessionForRead() for read-only\n' +
+      '     display (labels `unbound`), or annotate a justified SCAN-meaning callsite with\n' +
       '     `// get-active-session-allowed: <reason>`.\n',
   );
   process.exit(1);

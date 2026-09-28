@@ -13,7 +13,7 @@
  */
 
 import type { Session, SessionSummaryInput, TaskWorkState } from '@cleocode/contracts';
-import { SESSION_JOURNAL_SCHEMA_VERSION } from '@cleocode/contracts';
+import { ExitCode, SESSION_JOURNAL_SCHEMA_VERSION } from '@cleocode/contracts';
 import type { GlobalInstructionRefreshReport } from '@cleocode/contracts/caamp-markers';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { paginate } from '../pagination.js';
@@ -50,7 +50,12 @@ import { appendSessionJournalEntry } from '../sessions/session-journal.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import {
   bindTerminalToSession,
-  resolveCurrentSession,
+  hasActiveSession,
+  resolveBoundSession,
+  resolveSessionForRead,
+  SESSION_UNBOUND_ALTERNATIVES,
+  SESSION_UNBOUND_FIX,
+  sessionUnboundMessage,
   unbindSessionTerminals,
 } from '../store/session-store.js';
 import {
@@ -89,7 +94,8 @@ function toEngineError<T>(
 
   // Map numeric CleoError exit codes to string codes where straightforward.
   // For unrecognised codes fall back to the provided fallbackCode.
-  const code = fallbackCode;
+  // T12500: an unbound caller must see E_SESSION_UNBOUND, not the fallback.
+  const code = e.code === ExitCode.SESSION_UNBOUND ? 'E_SESSION_UNBOUND' : fallbackCode;
   const message = e.message ?? fallbackMessage;
   return engineError<T>(code, message, {
     ...(e.fix !== undefined && { fix: e.fix }),
@@ -125,6 +131,12 @@ export async function sessionStatus(projectRoot: string): Promise<
     taskWork?: TaskWorkState | null;
     /** Running CLEO_OWNER_OVERRIDE count for the active session. */
     overrideCount: number;
+    /**
+     * `true` when this caller is NOT bound to a session and `session` is only
+     * the newest active row — possibly another agent's (T12500). Omitted when
+     * the session is the caller's own.
+     */
+    unbound?: true;
   }>
 > {
   try {
@@ -132,7 +144,9 @@ export async function sessionStatus(projectRoot: string): Promise<
     // T11344 — env-first identity resolution. The CALLER's session
     // (`CLEO_SESSION_ID`) wins over the DB's most-recent active row so a
     // spawned agent's `cleo session status` reports ITS own session.
-    const active = await resolveCurrentSession(projectRoot);
+    // T12500 — read-only: an unbound caller may still SEE the newest active
+    // row, but the envelope labels it `unbound: true`.
+    const { session: active, unbound } = await resolveSessionForRead(projectRoot);
     // T11345 — read the per-session focus_state key for the resolved session.
     const focusState = await readFocusState(accessor, active?.id ?? null);
 
@@ -148,6 +162,7 @@ export async function sessionStatus(projectRoot: string): Promise<
       session: active ?? null,
       taskWork: focusState ?? null,
       overrideCount,
+      ...(unbound ? { unbound: true as const } : {}),
     });
   } catch {
     return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
@@ -419,6 +434,24 @@ export async function taskWorkHistory(
 // ---------------------------------------------------------------------------
 
 /**
+ * Whether a READ-ONLY surface is showing a session the caller is not bound to
+ * (T12500). `false` when an explicit session id was supplied, when the caller
+ * is bound, when no session is active, or when the store cannot be read.
+ *
+ * @param projectRoot - Project root for DB resolution.
+ * @param explicitSessionId - A session id the caller named explicitly.
+ * @returns `true` only when the session on display is a newest-active guess.
+ */
+async function isCallerUnbound(projectRoot: string, explicitSessionId?: string): Promise<boolean> {
+  if (explicitSessionId) return false;
+  try {
+    return (await resolveSessionForRead(projectRoot)).unbound;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Bind the calling terminal to a session it just started or resumed (T12499).
  *
  * Best-effort: a binding failure never fails the lifecycle command. Skipped when
@@ -435,7 +468,8 @@ async function bindCallingTerminal(projectRoot: string, sessionId: string): Prom
     if (resolveSessionIdFromEnv() !== null) return;
     await bindTerminalToSession(sessionId, projectRoot);
   } catch {
-    // Best-effort — the newest-active fallback still applies without a binding.
+    // Best-effort — without a binding, mutations from this terminal are
+    // refused with E_SESSION_UNBOUND (T12500) until it binds another way.
   }
 }
 
@@ -494,7 +528,7 @@ export async function sessionStart(
     // When --agent <handle> is provided, the conflict is scoped per-handle so that N
     // concurrent worktree agents can each have their own active session.
     // When no handle is provided, fall back to the original single-session guard.
-    const existingActive = await accessor.getActiveSession();
+    const existingActive = await accessor.getActiveSession(); // get-active-session-allowed: existence scan for the start guard — the row is named in the error, never acted on
     if (existingActive) {
       const conflictsByHandle = params.agentHandle
         ? // Per-handle conflict: only block if the same handle already has an active session
@@ -531,12 +565,15 @@ export async function sessionStart(
         return engineError(
           'E_SESSION_CONFLICT',
           `An active session already exists${handleSuffix} (${conflictId}).` +
-            (stale > 1 ? bulk : " End it first with 'cleo session end'."),
+            (stale > 1 ? bulk : ` End it first with 'cleo session end --session ${conflictId}'.`),
           {
             fix:
               stale > 1
                 ? `Run 'cleo session gc --max-age 1' to end all ${stale} stale sessions, then start again.`
-                : "Run 'cleo session end' before starting a new session.",
+                : // T12500: name the id — a bare `session end` from a terminal that
+                  // is not bound to this session is refused with E_SESSION_UNBOUND.
+                  `Run 'cleo session end --session ${conflictId}' before starting a new session, ` +
+                  "or pass '--agent <handle>' to run a second session alongside it.",
             details: { activeSessionId: conflictId, activeSessionCount: stale },
           },
         );
@@ -738,6 +775,9 @@ export async function sessionStart(
  *
  * T11346 — the target session is resolved env-first (the CALLER's session via
  * `resolveCurrentSession`), NOT `getActiveSession()` (most-recent active row).
+ * T12500 — narrowed to the caller's BOUND session (connection handle →
+ * `CLEO_SESSION_ID` → terminal binding). An unbound caller gets
+ * `E_SESSION_UNBOUND` while any session is active; it never ends the newest.
  * An explicit `params.sessionId` overrides env/active resolution. This means
  * one agent calling `cleo session end` can no longer end a different
  * concurrently-active agent's session — it ends ITS own, or no-ops with
@@ -775,7 +815,16 @@ export async function sessionEnd(
         );
       }
     } else {
-      activeSession = await resolveCurrentSession(projectRoot);
+      // T12500 — the caller's BOUND session only. The newest active row is
+      // another agent's session whenever this terminal never bound one.
+      const bound = await resolveBoundSession(projectRoot);
+      activeSession = bound?.session ?? null;
+      if (!activeSession && (await hasActiveSession(projectRoot))) {
+        return engineError('E_SESSION_UNBOUND', sessionUnboundMessage('end the session'), {
+          fix: SESSION_UNBOUND_FIX,
+          alternatives: [...SESSION_UNBOUND_ALTERNATIVES],
+        });
+      }
     }
 
     if (!activeSession) {
@@ -947,6 +996,10 @@ export async function sessionResume(
     }
 
     if (session.status === 'active') {
+      // T12500: resuming an already-active session is how a new terminal
+      // adopts it — bind so its later mutations resolve this session instead
+      // of failing with E_SESSION_UNBOUND.
+      await bindCallingTerminal(projectRoot, sessionId);
       return engineSuccess(session);
     }
 
@@ -1178,9 +1231,17 @@ export async function sessionRecordDecision(
     let resolvedSessionId = params.sessionId;
     if (!resolvedSessionId) {
       // T11344 — attribute the decision to the CALLER's session (env-first),
-      // not the DB's most-recent active row.
-      const activeSession = await resolveCurrentSession(projectRoot);
-      resolvedSessionId = activeSession?.id ?? 'default';
+      // not the DB's most-recent active row. T12500 — bound tiers only: an
+      // unbound caller is refused while any session is active, and only
+      // falls back to 'default' when no session exists at all.
+      const bound = await resolveBoundSession(projectRoot);
+      if (!bound && (await hasActiveSession(projectRoot))) {
+        return engineError('E_SESSION_UNBOUND', sessionUnboundMessage('record the decision'), {
+          fix: SESSION_UNBOUND_FIX,
+          alternatives: [...SESSION_UNBOUND_ALTERNATIVES],
+        });
+      }
+      resolvedSessionId = bound?.session.id ?? 'default';
     }
     const result = await recordDecision(projectRoot, {
       ...params,
@@ -1332,6 +1393,8 @@ export async function sessionSwitch(
 ): Promise<EngineResult<Session>> {
   try {
     const result = await switchSession(projectRoot, sessionId);
+    // T12500: the terminal that switches now works in the target session.
+    await bindCallingTerminal(projectRoot, sessionId);
     return engineSuccess(result);
   } catch (err: unknown) {
     return toEngineError(err, 'E_NOT_INITIALIZED', 'Failed to switch session');
@@ -1467,14 +1530,21 @@ export async function sessionBriefing(
     // The explicit `sessionId` option takes highest priority (internal callers only).
     const resolvedSessionId = options?.sessionId ?? resolveSessionIdFromEnv() ?? undefined;
 
-    const [briefing, instructionDelivery] = await Promise.all([
+    const [briefing, instructionDelivery, unbound] = await Promise.all([
       computeBriefing(projectRoot, {
         ...options,
         ...(resolvedSessionId ? { activeSessionId: resolvedSessionId } : {}),
       }),
       refreshGlobalInstructionDelivery(),
+      isCallerUnbound(projectRoot, options?.sessionId),
     ]);
-    return engineSuccess({ ...briefing, instructionDelivery });
+    // T12500 — read-only: the briefing may describe the newest active session
+    // for an unbound caller, but says so.
+    return engineSuccess({
+      ...briefing,
+      instructionDelivery,
+      ...(unbound ? { unbound: true as const } : {}),
+    });
   } catch (err: unknown) {
     return toEngineError(err, 'E_INTERNAL', 'Failed to compute briefing');
   }

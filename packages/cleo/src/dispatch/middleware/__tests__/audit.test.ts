@@ -81,6 +81,11 @@ vi.mock('../../../../../core/src/store/session-store.js', () => ({
   createSession: vi.fn(),
   getActiveSession: vi.fn().mockResolvedValue(null),
   resolveCurrentSession: (...args: unknown[]) => mockResolveCurrentSession(...args),
+  // T12500: grade-mode lookup resolves the caller's BOUND session.
+  resolveBoundSession: async (...args: unknown[]) => {
+    const session = await mockResolveCurrentSession(...args);
+    return session ? { session, via: 'env' } : null;
+  },
   resolveCurrentSessionId: vi.fn().mockResolvedValue(null),
 }));
 

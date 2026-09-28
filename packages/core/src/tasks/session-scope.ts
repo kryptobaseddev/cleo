@@ -24,7 +24,7 @@ import type { TaskRecord, TasksAddParams } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { getActiveSession } from '../store/session-store.js';
+import { resolveBoundSession } from '../store/session-store.js';
 import { addTask, toTaskAddOptions } from './add.js';
 import { taskToRecord } from './engine-converters.js';
 import { findTasks } from './find.js';
@@ -139,7 +139,9 @@ export async function resolveParentFromSession(
   // exactly the state the issues describe.
   if (params.type !== 'epic') {
     try {
-      const session = await getActiveSession(projectRoot);
+      // T12500: inherit only from the CALLER's bound session. The newest
+      // active row is another agent's scope whenever this caller is unbound.
+      const session = (await resolveBoundSession(projectRoot))?.session ?? null;
       if (session?.scope?.type === 'epic' && session.scope.epicId) {
         const epicId = session.scope.epicId;
         // Do not inherit from an epic that is already finished — a session

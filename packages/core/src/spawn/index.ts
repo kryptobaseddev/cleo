@@ -17,8 +17,12 @@ export {
   spawnRegistry,
 } from './adapter-registry.js';
 // Per-agent spawn identity (T11343 · Epic T11284)
-export type { SpawnAgentIdentity } from './agent-identity.js';
-export { allocateSpawnSession, deriveAgentHandle } from './agent-identity.js';
+export type { SpawnAgentIdentity, SpawnSessionResolution } from './agent-identity.js';
+export {
+  allocateSpawnSession,
+  deriveAgentHandle,
+  requireSpawnSession,
+} from './agent-identity.js';
 // Branch-lock engine (T1118, T1462, T1587, T1601)
 export type { PruneWorktreeResult } from './branch-lock.js';
 export {

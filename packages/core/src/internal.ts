@@ -1488,11 +1488,24 @@ export {
 // opener which is the SSoT for every write-path consumer.
 export type { CleoDbHandle, CleoDbRole } from './store/open-cleo-db.js';
 export { openCleoDb } from './store/open-cleo-db.js';
+export type {
+  BoundSessionResolution,
+  ReadSessionResolution,
+  SessionBindingSource,
+} from './store/session-store.js';
 export {
   createSession,
   getActiveSession,
+  hasActiveSession,
+  requireBoundSession,
+  resolveBoundSession,
+  resolveBoundSessionId,
   resolveCurrentSession,
   resolveCurrentSessionId,
+  resolveSessionForRead,
+  SESSION_UNBOUND_ALTERNATIVES,
+  SESSION_UNBOUND_FIX,
+  sessionUnboundMessage,
 } from './store/session-store.js';
 export { getDb, getNativeDb } from './store/sqlite.js';
 export type {
