@@ -1217,7 +1217,7 @@
             },
             "decisionContradiction": {
               "type": "boolean",
-              "description": "Run the T1828 generative-LLM decision contradiction check (up to 15 s on the decision write path). When unset: on while no System One provider is configured (the pre-T12493 behaviour), off once one is."
+              "description": "Run the T1828 generative-LLM decision contradiction check (up to 15 s on the decision write path, backend resolution included). When unset: on unless decide.sites.decisionContradiction is `on` — unconfigured, off and shadow keep the pre-T12493 behaviour; only `on` replaces it."
             }
           }
         }

@@ -13,7 +13,9 @@
  *   decisions by the validator's own word-Jaccard score (score > 0).
  * - Each candidate gets one `choice` question with the options in
  *   {@link CONTRADICTION_RELATIONS}. A contradiction is a typed answer naming a
- *   known candidate id — never an id found in prose.
+ *   known candidate id — never an id found in prose. `supersedes` about any
+ *   decision other than a validly declared `supersedes` target also counts
+ *   (undeclared supersession); see {@link countsAsContradiction}.
  * - The whole step, module load included, is bounded by
  *   {@link DECISION_CONTRADICTION_BUDGET_MS}.
  * - Every text field is redacted, then clipped, before it leaves the machine.
@@ -55,8 +57,8 @@ export const DECISION_CONTRADICTION_MODE_KEY = 'decide.sites.decisionContradicti
 
 /**
  * Config key for the older generative-LLM contradiction check (T1828).
- * Absent → on while System One is unconfigured (today's behaviour), off once
- * it is configured.
+ * Absent → on in every mode except `on` (unconfigured, `off` and `shadow`
+ * keep today's behaviour); only `on` replaces it.
  */
 export const DECISION_CONTRADICTION_LLM_KEY = 'decide.generativeFallback.decisionContradiction';
 
@@ -93,8 +95,14 @@ export interface ContradictionSubject {
   readonly decision: string;
   /** Rationale text. */
   readonly rationale: string;
-  /** Id of the decision this one declares it supersedes, if any. */
+  /** Id of the decision this one declares it supersedes, if any. Sent in `state.new`. */
   readonly supersedes?: string;
+  /**
+   * Whether the declared supersession passed the validator's graph check
+   * (target exists and is not already superseded). Only a valid declaration
+   * exempts its target from being counted.
+   */
+  readonly supersessionValid?: boolean;
 }
 
 /** A prior decision offered to the decision, with its lexical score. */
@@ -127,12 +135,9 @@ export interface ContradictionDecisionOptions {
 export interface ContradictionVerdict {
   /** Candidate id → decided relation. */
   readonly relations: Readonly<Record<string, ContradictionRelation>>;
-  /**
-   * Candidate ids the decision judged contradicted. A `contradicts` answer
-   * about the decision the new one declares it supersedes is not counted.
-   */
+  /** Candidate ids counted as contradicted; see {@link countsAsContradiction}. */
   readonly contradictions: readonly string[];
-  /** Candidate id → probability of `contradicts`, for every counted contradiction. */
+  /** Candidate id → probability of the counted relation, for every counted contradiction. */
   readonly contradictionProbabilities: Readonly<Record<string, number>>;
   /** Whether every answer met {@link DECISION_CONTRADICTION_MIN_CONFIDENCE}; only then may `on` act. */
   readonly confident: boolean;
@@ -153,6 +158,30 @@ function answersAreValid(
 
 function isConfident(answers: Readonly<Record<string, { readonly confidence: number }>>): boolean {
   return Object.values(answers).every((a) => a.confidence >= DECISION_CONTRADICTION_MIN_CONFIDENCE);
+}
+
+/**
+ * Whether a decided relation counts as a contradiction of candidate `id`.
+ *
+ * - `contradicts` counts, and `supersedes` counts too: replacing a decision
+ *   without declaring it is an undeclared supersession, and letting it through
+ *   would store two live decisions that cannot both hold.
+ * - Neither counts for the candidate the new decision validly declares it
+ *   supersedes (declared, and the graph check found no violation).
+ * - `refines` and `unrelated` never count.
+ *
+ * @param subject - The decision being written.
+ * @param id - Candidate decision id.
+ * @param relation - The decided relation.
+ * @returns Whether the relation is a counted contradiction.
+ */
+export function countsAsContradiction(
+  subject: ContradictionSubject,
+  id: string,
+  relation: ContradictionRelation,
+): boolean {
+  if (relation !== 'contradicts' && relation !== 'supersedes') return false;
+  return !(subject.supersessionValid === true && subject.supersedes === id);
 }
 
 /** Question name for the candidate at `index` (0-based). */
@@ -176,14 +205,17 @@ export function buildContradictionRequest(
   redact: (s: string) => string,
 ): DecisionRequest {
   const clip = (text: string, max: number): string => redactThenClip(text, max, redact);
-  const state: Record<string, { id?: string; type?: string; decision: string; rationale: string }> =
-    {
-      new: {
-        type: subject.type,
-        decision: clip(subject.decision, DECISION_TEXT_MAX_CHARS),
-        rationale: clip(subject.rationale, DECISION_RATIONALE_MAX_CHARS),
-      },
-    };
+  const state: Record<
+    string,
+    { id?: string; type?: string; supersedes?: string; decision: string; rationale: string }
+  > = {
+    new: {
+      type: subject.type,
+      ...(subject.supersedes ? { supersedes: subject.supersedes } : {}),
+      decision: clip(subject.decision, DECISION_TEXT_MAX_CHARS),
+      rationale: clip(subject.rationale, DECISION_RATIONALE_MAX_CHARS),
+    },
+  };
   const questions: Record<string, DecisionQuestion> = {};
   candidates.forEach((c, i) => {
     const name = questionName(i);
@@ -284,8 +316,18 @@ export async function askContradictionDecision(
                     : 'heuristic',
                 heuristicVerdict: opts.heuristicVerdict,
                 heuristicAnswers: heuristicAudit,
+                // Compared on the acted axis: the heuristic never counts a
+                // contradiction, so they agree when the decision counts none.
                 agree: valid
-                  ? names.every((n) => entry.answers[n]?.value === heuristicAnswers[n]?.value)
+                  ? names.every((n, i) => {
+                      const value = entry.answers[n]?.value;
+                      const id = candidates[i]?.id;
+                      return !(
+                        isRelation(value) &&
+                        id &&
+                        countsAsContradiction(subject, id, value)
+                      );
+                    })
                   : null,
                 heuristicVerdicts,
                 heuristicScores,
@@ -316,9 +358,9 @@ export async function askContradictionDecision(
       const answer = outcome.answers[questionName(i)];
       if (answer?.type !== 'choice' || !isRelation(answer.value)) return;
       relations[c.id] = answer.value;
-      if (answer.value === 'contradicts' && c.id !== subject.supersedes) {
+      if (countsAsContradiction(subject, c.id, answer.value)) {
         contradictions.push(c.id);
-        contradictionProbabilities[c.id] = answer.probabilities['contradicts'] ?? 1;
+        contradictionProbabilities[c.id] = answer.probabilities[answer.value] ?? 1;
       }
     });
     return {

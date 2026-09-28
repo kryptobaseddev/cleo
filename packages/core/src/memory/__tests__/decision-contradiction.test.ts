@@ -77,7 +77,16 @@ const HEURISTIC_RESULT = {
 // Local Jev stub
 // ---------------------------------------------------------------------------
 
-type StubMode = 'fast' | 'slow' | 'error' | 'invalid' | 'out-of-range' | 'bad-status' | 'unsure';
+type StubMode =
+  | 'fast'
+  | 'slow'
+  | 'error'
+  | 'invalid'
+  | 'out-of-range'
+  | 'bad-status'
+  | 'unsure'
+  | 'supersedes'
+  | 'refines';
 
 let server: Server;
 let baseUrl: string;
@@ -102,7 +111,23 @@ function stubAnswer(name: string): Record<string, unknown> {
       confidence: 0.9,
     };
   }
-  const contradicts = name === 'c1';
+  if (stubMode === 'refines') {
+    return {
+      type: 'choice',
+      choice: 'refines',
+      probabilities: { contradicts: 0.05, supersedes: 0.05, refines: 0.8, unrelated: 0.1 },
+      confidence: 0.9,
+    };
+  }
+  if (stubMode === 'supersedes' && name === 'c1') {
+    return {
+      type: 'choice',
+      choice: 'supersedes',
+      probabilities: { contradicts: 0.1, supersedes: 0.8, refines: 0.05, unrelated: 0.05 },
+      confidence: 0.9,
+    };
+  }
+  const contradicts = name === 'c1' && stubMode !== 'supersedes';
   return {
     type: 'choice',
     choice: contradicts ? 'contradicts' : 'unrelated',
@@ -230,7 +255,8 @@ describe('System One contradiction check — configured', () => {
     const result = await run('shadow', audit);
 
     expect(result).toEqual(HEURISTIC_RESULT);
-    expect(evaluateDialectic).not.toHaveBeenCalled();
+    // Shadow is behaviour-neutral: the pre-T12493 generative check still runs.
+    expect(evaluateDialectic).toHaveBeenCalledTimes(1);
     expect(audit.entries).toHaveLength(1);
     const entry = audit.entries[0]!;
     expect(entry.site).toBe(DECISION_CONTRADICTION_SITE);
@@ -339,9 +365,72 @@ describe('System One contradiction check — configured', () => {
     expect(audit.entries).toHaveLength(0);
   });
 
-  it('configured: the generative path runs only when explicitly opted in', async () => {
-    await run('shadow', memoryAudit(), { llmTier: true });
+  it('on: replaces the generative check unless explicitly opted in', async () => {
+    stubMode = 'unsure';
+    await run('on', memoryAudit());
+    expect(evaluateDialectic).not.toHaveBeenCalled();
+    await run('on', memoryAudit(), { llmTier: true });
     expect(evaluateDialectic).toHaveBeenCalledTimes(1);
+  });
+
+  it('shadow: the generative check can be switched off explicitly', async () => {
+    await run('shadow', memoryAudit(), { llmTier: false });
+    expect(evaluateDialectic).not.toHaveBeenCalled();
+  });
+});
+
+describe('System One contradiction check — supersession', () => {
+  it('sends the declared supersedes id in state.new', async () => {
+    await run('shadow', memoryAudit(), { params: { supersedes: 'D001' } });
+
+    const state = received[0]?.body['state'] as Record<string, { supersedes?: string }>;
+    expect(state['new']?.supersedes).toBe('D001');
+  });
+
+  it('on: an UNDECLARED "supersedes" answer counts as a contradiction', async () => {
+    stubMode = 'supersedes';
+    const result = await run('on', memoryAudit());
+
+    expect(result.contradictions).toEqual(['D001']);
+    expect(result.confidence).toBeCloseTo(0.2, 5);
+  });
+
+  it('on: "supersedes" about the validly declared target is not counted', async () => {
+    stubMode = 'supersedes';
+    const result = await run('on', memoryAudit(), { params: { supersedes: 'D001' } });
+
+    expect(result.contradictions).toEqual([]);
+    expect(result.confidence).toBe(1);
+  });
+
+  it('on: a declared target that is already superseded gets no exemption', async () => {
+    const existing = EXISTING.map((d) => (d.id === 'D001' ? { ...d, supersedes: 'D000' } : d));
+    const result = await validateDecisionConflicts({ ...NEW, supersedes: 'D001' }, existing, {
+      mode: 'on',
+      decide: stubWiring(memoryAudit()),
+      projectRoot: projectDir,
+    });
+
+    expect(result.supersession_graph_violations).toEqual([
+      'supersedes:D001:already-superseded-by:D000',
+    ]);
+    expect(result.contradictions).toEqual(['D001']);
+    expect(result.confidence).toBe(0);
+  });
+});
+
+describe('System One contradiction check — shadow agreement is on the acted axis', () => {
+  it.each([
+    ['refines everywhere', 'refines', undefined, true],
+    ['undeclared supersedes', 'supersedes', undefined, false],
+    ['validly declared supersedes', 'supersedes', 'D001', true],
+    ['contradicts', 'fast', undefined, false],
+  ] as const)('%s (stub %s, declared %s) → agree %s', async (_label, mode, supersedes, agree) => {
+    stubMode = mode;
+    const audit = memoryAudit();
+    await run('shadow', audit, supersedes ? { params: { supersedes } } : {});
+
+    expect(audit.entries[0]?.shadow?.agree).toBe(agree);
   });
 });
 
@@ -410,6 +499,20 @@ describe('System One contradiction check — unconfigured', () => {
     });
 
     expect(evaluateDialectic).not.toHaveBeenCalled();
+    expect(result).toEqual(HEURISTIC_RESULT);
+  });
+
+  it('bounds the WHOLE generative path, backend resolution included', async () => {
+    // Never settles: models a backend probe or credential fetch that hangs
+    // before the (abortable) model call is ever reached.
+    evaluateDialectic.mockReturnValue(new Promise(() => undefined));
+    const started = performance.now();
+    const result = await validateDecisionConflicts(NEW, EXISTING, {
+      projectRoot: projectDir,
+      generativeTimeoutMs: 100,
+    });
+
+    expect(performance.now() - started).toBeLessThan(1_000);
     expect(result).toEqual(HEURISTIC_RESULT);
   });
 

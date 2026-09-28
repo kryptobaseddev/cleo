@@ -13,6 +13,7 @@ import { createHash } from 'node:crypto';
 import {
   CANONICAL_TYPE_TAGS,
   DecisionValidatorFailedError,
+  type DialecticInsights,
   TaxonomyError,
   TaxonomyRegistry,
 } from '@cleocode/contracts';
@@ -121,15 +122,19 @@ export interface ValidateDecisionConflictsOptions {
   decide?: DecideOptions;
   /** Project root for config lookup and the audit sink. */
   projectRoot?: string;
+  /** Bound on the whole generative path, ms. Default {@link GENERATIVE_CONTRADICTION_TIMEOUT_MS}; tests shorten it. */
+  generativeTimeoutMs?: number;
 }
 
 /** Word-Jaccard score at which a prior decision counts as a near-duplicate collision. */
 const DECISION_COLLISION_THRESHOLD = 0.65;
 
 /**
- * Bound on the generative (T1828) contradiction check, in ms. It used to run
- * with no timeout at all; `evaluateDialectic` returns empty insights when
- * aborted, so a stalled model now ends in the no-signal result.
+ * Bound on the WHOLE generative (T1828) contradiction check, in ms: module
+ * load, backend resolution (Ollama probes, credential lookup) and the model
+ * call. It used to run with no timeout at all. On expiry the validator stops
+ * waiting and takes the no-signal result; a backend probe still in flight may
+ * finish in the background.
  */
 const GENERATIVE_CONTRADICTION_TIMEOUT_MS = 15_000;
 
@@ -186,9 +191,10 @@ async function resolveValidatorThreshold(projectRoot: string): Promise<number> {
  *    no network call. Contradictions come only from typed answers.
  * 2. Generative fallback (T1828): `evaluateDialectic()`, whose prose insights
  *    are scanned for decision ids. It runs only when the decision did not act
- *    and `decide.generativeFallback.decisionContradiction` resolves true —
- *    by default while System One is unconfigured, which is today's behaviour,
- *    and not once it is configured. It is bounded at 15 s.
+ *    and `decide.generativeFallback.decisionContradiction` resolves true. When
+ *    the key is unset it is on in every mode except `on` (unconfigured, `off`
+ *    and `shadow` keep today's behaviour; only `on` replaces it). The whole
+ *    path, backend resolution included, is bounded at 15 s.
  *
  * When neither answers, confidence is the deterministic result
  * (1.0 minus 0.15 per collision), so writes are never silently blocked due to
@@ -287,7 +293,9 @@ export async function validateDecisionConflicts(
       llmTierKey: DECISION_CONTRADICTION_LLM_KEY,
       mode: options.mode,
       llmTier: options.llmTier,
-      llmTierWhenUnconfigured: true,
+      // Shadow must be behaviour-neutral: the generative check keeps its
+      // pre-T12493 default (on) everywhere except `on`, which replaces it.
+      llmTierDefault: (mode) => mode !== 'on',
       wiring: options.decide,
       projectRoot: options.projectRoot,
     });
@@ -311,6 +319,7 @@ export async function validateDecisionConflicts(
           decision: params.decision,
           rationale: params.rationale,
           supersedes: params.supersedes,
+          supersessionValid: params.supersedes !== undefined && supersessionViolations.length === 0,
         },
         candidates,
         {
@@ -339,9 +348,18 @@ export async function validateDecisionConflicts(
   // Generative path (T1828): only when the decision did not act.
   if (!decided && llmTier) {
     llmConfidence = 1.0;
+    const generativeDeadline = AbortSignal.timeout(
+      options.generativeTimeoutMs ?? GENERATIVE_CONTRADICTION_TIMEOUT_MS,
+    );
+    // Resolves with no insights when the deadline fires, whatever phase the
+    // generative path is in (the evaluator honours the signal only in its
+    // model call, not in backend resolution).
+    const expired = new Promise<DialecticInsights>((resolve) => {
+      const empty = (): void => resolve({ globalTraits: [], peerInsights: [] });
+      if (generativeDeadline.aborted) empty();
+      else generativeDeadline.addEventListener('abort', empty, { once: true });
+    });
     try {
-      const { evaluateDialectic } = await import('./dialectic-evaluator.js');
-
       // Build a synthetic turn: userMessage = candidate, systemResponse = existing summary
       const existingSummary =
         existingDecisions.length === 0
@@ -366,15 +384,19 @@ export async function validateDecisionConflicts(
         `Task: Identify whether the candidate decision contradicts any existing decisions. ` +
         `Assign a confidence score where 1.0 = no conflicts and 0.0 = severe contradiction.`;
 
-      const insights = await evaluateDialectic(
-        {
-          userMessage,
-          systemResponse,
-          activePeerId: 'decision-validator',
-          sessionId: `validate:${createHash('sha256').update(params.decision).digest('hex').slice(0, 8)}`,
-        },
-        { abortSignal: AbortSignal.timeout(GENERATIVE_CONTRADICTION_TIMEOUT_MS) },
-      );
+      const evaluate = async (): Promise<DialecticInsights> => {
+        const { evaluateDialectic } = await import('./dialectic-evaluator.js');
+        return evaluateDialectic(
+          {
+            userMessage,
+            systemResponse,
+            activePeerId: 'decision-validator',
+            sessionId: `validate:${createHash('sha256').update(params.decision).digest('hex').slice(0, 8)}`,
+          },
+          { abortSignal: generativeDeadline },
+        );
+      };
+      const insights = await Promise.race([evaluate(), expired]);
 
       // Map dialectic confidence: if any peer insight has a low confidence flag
       // for contradiction, reflect that in the overall score.

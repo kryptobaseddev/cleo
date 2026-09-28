@@ -13,9 +13,11 @@ decision ids. The check is now ONE `decide()` request:
   word-overlap (Jaccard) score. A prior decision that shares no word with the
   new one is never sent.
 - **One `choice` question per candidate**: `contradicts`, `supersedes`,
-  `refines` or `unrelated`. A contradiction is the typed answer `contradicts`
-  about a known candidate id. A `contradicts` answer about the decision the
-  new one declares in `supersedes` is not counted.
+  `refines` or `unrelated`. A contradiction is a typed answer about a known
+  candidate id: `contradicts`, or `supersedes` (an undeclared supersession).
+  The declared `supersedes` id is sent in the new decision's state. Neither
+  answer counts for that declared target, unless the validator's supersession
+  graph check flagged the declaration.
 - **Budget**: 300 ms, measured from the start of the decision step, so the
   client's own setup counts against it. On timeout, provider error, budget
   denial or an unconfigured provider, the heuristic answers.
@@ -28,7 +30,7 @@ decision ids. The check is now ONE `decide()` request:
 ADR decision write that has at least one overlapping prior decision, shadow
 mode sends the provider:
 
-- the new decision's type, text and rationale;
+- the new decision's type, text, rationale and declared `supersedes` id;
 - the ids, texts and rationales of up to 3 prior decisions.
 
 Each field is redacted for known credential patterns and then clipped
@@ -52,12 +54,18 @@ reach this path.
   `memory.decision-contradiction` carries a `shadow` record: the heuristic's
   answer (`unrelated`) and per-candidate verdict (`collision` or `none`) with
   its raw Jaccard score, the decision answers, which answer was acted on,
-  `agree` (null on fallback), and the decision id behind each question.
-- **Generative check (T1828).** It now runs only when the decision did not
-  act and `decide.generativeFallback.decisionContradiction` resolves true.
-  When the key is unset, it is on while no provider is configured, so an
-  unconfigured write behaves as before, and off once one is. It is now
-  bounded at 15 s; an aborted call yields the no-signal result.
+  `agree`, and the decision id behind each question. `agree` compares on the
+  acted axis: true when the decision counts no contradiction (the heuristic
+  never counts one); null on fallback.
+- **Generative check (T1828).** Shadow mode is behaviour-neutral. When
+  `decide.generativeFallback.decisionContradiction` is unset, the check runs
+  as before when no provider is configured, in `off` and in `shadow`. Only
+  `on` replaces it. There it runs only when explicitly set to true and the
+  decision did not act. The whole path, including backend resolution (Ollama
+  probes, credential lookup), is now bounded at 15 s. On expiry the validator
+  takes the no-signal result, and a probe still in flight finishes in the
+  background. A configured `shadow` write can therefore take up to 300 ms
+  plus 15 s.
 - Shared call-site plumbing (`resolveDecisionSiteSettings`, `redactThenClip`,
   `isDecisionSiteMode`) moved to `packages/core/src/decide/site.ts`.
   `cleo add` duplicate detection (T12492) uses it with unchanged behaviour.

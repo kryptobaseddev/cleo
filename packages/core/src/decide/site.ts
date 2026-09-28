@@ -41,11 +41,12 @@ export interface ResolveDecisionSiteSettingsInput {
   /** Explicit generative opt-in; wins over config. */
   readonly llmTier?: boolean;
   /**
-   * Generative default when the config key is absent and System One is NOT
-   * configured. Sites whose generative path ran unconditionally before System
-   * One set this to keep that behaviour; the default is `false`.
+   * Generative default when the config key is absent, given the effective
+   * mode (`off` whenever System One is unconfigured). Sites whose generative
+   * path ran unconditionally before System One use it to stay
+   * behaviour-neutral outside `on`. Default: always `false`.
    */
-  readonly llmTierWhenUnconfigured?: boolean;
+  readonly llmTierDefault?: (mode: DecisionSiteMode) => boolean;
   /** The `decide()` wiring the site will use; an explicit provider or connection decides "configured". */
   readonly wiring?: DecideOptions;
   /** Project root for config lookup. Default: the resolved CLEO project root. */
@@ -128,7 +129,7 @@ export async function resolveDecisionSiteSettings(
   const mode: DecisionSiteMode = !configured
     ? 'off'
     : (input.mode ?? (isDecisionSiteMode(configMode) ? configMode : 'shadow'));
-  const llmTierDefault = !configured && input.llmTierWhenUnconfigured === true;
+  const llmTierDefault = input.llmTierDefault?.(mode) ?? false;
   const llmTier =
     input.llmTier ?? (typeof configLlmTier === 'boolean' ? configLlmTier : llmTierDefault);
   return { mode, llmTier };
