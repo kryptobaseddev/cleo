@@ -131,6 +131,11 @@ export interface ResolveCiEvidenceOptions {
   isAncestor?: (ancestor: string, descendant: string, cwd: string) => boolean;
   /** First parent of a commit, or null; defaults to `git rev-parse <sha>^1`. */
   firstParentOf?: (sha: string, cwd: string) => string | null;
+  /**
+   * Whether a commit has landed on origin's default branch; defaults to
+   * `origin/HEAD` (else origin/main, origin/master) and `merge-base --is-ancestor`.
+   */
+  onDefaultBranch?: (sha: string, cwd: string) => { ref: string | null; landed: boolean };
 }
 
 /** Parsed `.cleo/project-context.json` of the store root, or null. */
@@ -424,6 +429,23 @@ function defaultIsAncestor(ancestor: string, descendant: string, cwd: string): b
   return gitRead(cwd, ['merge-base', '--is-ancestor', ancestor, descendant]) !== null;
 }
 
+function defaultOnDefaultBranch(sha: string, cwd: string): { ref: string | null; landed: boolean } {
+  const symbolic = gitRead(cwd, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']);
+  let ref = symbolic ? symbolic.replace(/^refs\/remotes\//, '') : null;
+  if (ref === null) {
+    for (const candidate of ['origin/main', 'origin/master']) {
+      if (
+        gitRead(cwd, ['rev-parse', '--verify', '--quiet', `refs/remotes/${candidate}`]) !== null
+      ) {
+        ref = candidate;
+        break;
+      }
+    }
+  }
+  if (ref === null) return { ref: null, landed: false };
+  return { ref, landed: defaultIsAncestor(sha, ref, cwd) };
+}
+
 function defaultFirstParentOf(sha: string, cwd: string): string | null {
   return gitRead(cwd, ['rev-parse', '--verify', '--quiet', `${sha}^1`]);
 }
@@ -599,6 +621,28 @@ export async function resolveCiEvidenceAtom(
         unlinked.codeName === 'E_EVIDENCE_CONTENT_MISMATCH'
           ? 'E_EVIDENCE_CONTENT_MISMATCH'
           : 'E_EVIDENCE_INSUFFICIENT',
+    };
+  }
+
+  // The work must have LANDED on the default branch: a PR merged into an
+  // integration branch counts once that branch reached the default branch
+  // (its merge commit is then an ancestor), and never before.
+  const onDefault = (opts.onDefaultBranch ?? defaultOnDefaultBranch)(
+    pr.mergeCommitSha,
+    roots.executionRoot,
+  );
+  if (onDefault.ref === null) {
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_INSUFFICIENT',
+      reason: `Cannot determine origin's default branch in ${roots.executionRoot}, so ci:${prNumber} cannot show the work landed (git remote set-head origin --auto).`,
+    };
+  }
+  if (!onDefault.landed) {
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_INSUFFICIENT',
+      reason: `PR #${prNumber}'s merge commit ${pr.mergeCommitSha.slice(0, 12)} is not on ${onDefault.ref}: the work has not landed on the default branch (git fetch origin, or wait until its integration branch merges).`,
     };
   }
 

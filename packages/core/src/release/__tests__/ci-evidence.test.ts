@@ -248,6 +248,7 @@ describe('resolveCiEvidenceAtom', () => {
         treeOf: () => null,
         firstParentOf: () => PARENT,
         isAncestor: () => false,
+        onDefaultBranch: () => ({ ref: 'origin/main', landed: true }),
         ...extra,
       },
     );
@@ -327,6 +328,32 @@ describe('resolveCiEvidenceAtom', () => {
     expect(r.ok).toBe(false);
     expect(!r.ok && r.codeName).toBe('E_EVIDENCE_CONTENT_MISMATCH');
     expect(!r.ok && r.reason).toMatch(/does not establish a relationship to task T999/);
+  });
+
+  it('a PR merged into an integration branch that later landed on the default branch: accepted', async () => {
+    writeContext(optedIn);
+    let asked = '';
+    const r = await resolve({
+      onDefaultBranch: (sha) => {
+        asked = sha;
+        return { ref: 'origin/main', landed: true };
+      },
+    });
+    expect(asked).toBe(MERGE);
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+  });
+
+  it('a PR whose merge never reached the default branch: refused "not on origin/main"', async () => {
+    writeContext(optedIn);
+    const r = await resolve({ onDefaultBranch: () => ({ ref: 'origin/main', landed: false }) });
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.reason).toMatch(/not on origin\/main/);
+  });
+
+  it('refuses when the default branch cannot be determined', async () => {
+    writeContext(optedIn);
+    const r = await resolve({ onDefaultBranch: () => ({ ref: null, landed: false }) });
+    expect(!r.ok && r.reason).toMatch(/Cannot determine origin's default branch/);
   });
 
   it('refuses without task context', async () => {

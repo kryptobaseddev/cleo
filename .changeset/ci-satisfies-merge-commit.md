@@ -55,3 +55,7 @@ Owner decision D11149.
   executed its own edit. `cleo done` falls back to local tools.
 - Every check mapped in `ciChecks` must be pinned to an app. Otherwise `ci:` is
   refused and the message names the fix.
+- The work must have landed: the PR's merge commit must be an ancestor of
+  `origin/<default>`. A PR merged into an integration branch counts once that
+  branch reaches the default branch, and never before; otherwise it is refused
+  with "not on <default>". An undeterminable default branch is also refused.
