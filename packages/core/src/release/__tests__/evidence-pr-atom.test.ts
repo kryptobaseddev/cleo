@@ -201,6 +201,17 @@ describe('resolvePrEvidenceAtom — happy path', () => {
     });
   });
 
+  it('readOnly resolves the same PR and writes no cache entry (T12623 planner)', async () => {
+    fetchSpy.mockResolvedValue({ ok: true, payload: makePrPayload() });
+    const r = await resolvePrEvidenceAtom(
+      357,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      { fetchGhPrPayload: mockFetch, readOnly: true },
+    );
+    expect(r.ok).toBe(true);
+    expect(existsSync(prCacheEntryPath(projectRoot, 357))).toBe(false);
+  });
+
   it('accepts a merged PR with mixed SUCCESS+FAILURE inside the CI workflow (PR-357 reality)', async () => {
     // PR #357 shipped with macos-latest shard 1 = FAILURE inside the CI
     // workflow, but ubuntu-latest builds + Lockfile Check + Contracts Dep

@@ -1,0 +1,405 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.9.21",
+  "resolvedVersion": "v2026.9.21",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": "T12468",
+  "releaseKind": "regular",
+  "createdAt": "2026-09-28T22:46:40.495Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.9.13",
+  "previousTag": "v2026.9.13",
+  "previousShippedAt": "2026-09-22T06:19:04.198Z",
+  "tasks": [
+    {
+      "id": "T12560",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "nexus status output is unbounded (~635 B per file in data.assessment.files); a reporter got 391 MB",
+      "evidenceAtoms": [
+        "pr:1622",
+        "files:.changeset/nexus-status-bounded-files.md,packages/cleo/src/cli/commands/__tests__/nexus-status-files-bound.test.ts,packages/cleo/src/cli/commands/nexus.ts,packages/contracts/src/graph.ts,packages/contracts/src/index.ts,packages/core/src/nexus/__tests__/assessment-projection.test.ts,packages/core/src/nexus/assessment-projection.ts"
+      ],
+      "epicAncestor": "T12468",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12580",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Split CLEO-INJECTION.md into an always-loaded core and on-demand sections; caveman compression alone saves only 3%",
+      "evidenceAtoms": [
+        "pr:1623",
+        "files:.changeset/injection-core-split.md,packages/caamp/tests/unit/instruction-delivery.test.ts,packages/cleo/src/cli/commands/briefing.ts,packages/cleo/src/cli/lib/__tests__/injection-flags-accepted.test.ts,packages/core/src/__tests__/injection-mvi-tiers.test.ts,packages/core/src/__tests__/injection-section.test.ts,packages/core/src/injection.ts,packages/core/src/orchestration/__tests__/autonomous-spec.test.ts,packages/core/src/orchestration/__tests__/spawn-prompt.test.ts,packages/core/src/orchestration/spawn-prompt.ts,packages/core/templates/CLEO-INJECTION.md,packages/core/templates/CLEO-REFERENCE.md,packages/skills/skills/ct-cleo/SKILL.md,packages/skills/skills/ct-cleo/__tests__/injection-content.test.ts,scripts/.lint-cli-boundary-baseline.json,scripts/__tests__/lint-flag-existence.test.mjs,scripts/__tests__/lint-injection-pointers.test.mjs,scripts/lint-injection-commands.mjs,scripts/lint-injection-flags.mjs"
+      ],
+      "epicAncestor": "T12468",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12494",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Sites 4-5: observation type choice when --type absent; needs-human-decision noul in classify-readiness (feeds the ask-tool HITL rule)",
+      "evidenceAtoms": [
+        "pr:1624",
+        "files:.changeset/observation-owner-decision-system-one.md,packages/cleo/src/cli/commands/classify.ts,packages/cleo/src/dispatch/domains/memory.ts,packages/contracts/src/__tests__/memory-wire-shapes.test.ts,packages/contracts/src/memory/observe.ts,packages/core/schemas/config.schema.json,packages/core/src/decide/__tests__/observation-owner-sites-exit.test.ts,packages/core/src/decide/__tests__/site-decision-budget.test.ts,packages/core/src/decide/index.ts,packages/core/src/decide/site.ts,packages/core/src/index.ts,packages/core/src/memory/__tests__/observation-type-decision.test.ts,packages/core/src/memory/engine-compat.ts,packages/core/src/memory/observation-type-decision.ts,packages/core/src/memory/retrieval/observe.ts,packages/core/src/orchestration/__tests__/owner-decision-readiness.test.ts,packages/core/src/orchestration/classify-readiness.ts,packages/core/src/orchestration/index.ts,packages/core/src/orchestration/owner-decision-readiness.ts,packages/core/src/sentient/propose-tick.ts"
+      ],
+      "epicAncestor": "T12468",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12596",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Global hub ~/.agents/AGENTS.md references ~/.cleo/templates, which is dangling on macOS: agents get no CLEO protocol",
+      "evidenceAtoms": [
+        "pr:1625",
+        "files:.changeset/global-delivery-no-cleo-route.md,packages/caamp/src/core/skills/installer.ts,packages/caamp/tests/unit/skills-installer.test.ts,packages/cleo/src/cli/commands/doctor-global-delivery.ts,packages/cleo/src/cli/commands/doctor.ts,packages/core/src/__tests__/temp-path-no-pollution.test.ts,packages/core/src/bootstrap.ts,packages/core/src/engine/__tests__/skill-install-safety.test.ts,packages/core/src/injection.ts,packages/core/src/skills/__tests__/doctor-adopt.test.ts,packages/core/src/skills/__tests__/doctor.test.ts,packages/core/src/skills/__tests__/skill-root.test.ts,packages/core/src/skills/doctor.ts,packages/core/src/skills/skill-root.ts,packages/core/src/system/__tests__/cleo-link-rollback.test.ts,packages/core/src/system/__tests__/cleo-link.test.ts,packages/core/src/system/__tests__/global-delivery-failure.test.ts,packages/core/src/system/__tests__/global-delivery.test.ts,packages/core/src/system/cleo-link.ts,packages/core/src/system/global-delivery.ts,packages/core/templates/CLEO-INJECTION.md,packages/skills/skills/ct-cleo/SKILL.md",
+        "note:Verified live on this Mac 2026-09-28 at a03ec27f0: readlink ~/.cleo = /Users/keatonhoskins/Library/Application Support/cleo; hub ~/.agents/AGENTS.md references @~/.cleo/templates/CLEO-INJECTION.md which exists and carries the ask-tool rule; cleo doctor global-delivery reports link canonical, hubReferenceResolves true, hub state reference, 128/128 skill entries ok, 0 dangling"
+      ],
+      "epicAncestor": "T12468",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12598",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "CAAMP skill installs symlink every harness to ~/.cleo/skills: 96 dangling links on macOS",
+      "evidenceAtoms": [
+        "pr:1625",
+        "files:.changeset/global-delivery-no-cleo-route.md,packages/caamp/src/core/skills/installer.ts,packages/caamp/tests/unit/skills-installer.test.ts,packages/cleo/src/cli/commands/doctor-global-delivery.ts,packages/cleo/src/cli/commands/doctor.ts,packages/core/src/__tests__/temp-path-no-pollution.test.ts,packages/core/src/bootstrap.ts,packages/core/src/engine/__tests__/skill-install-safety.test.ts,packages/core/src/injection.ts,packages/core/src/skills/__tests__/doctor-adopt.test.ts,packages/core/src/skills/__tests__/doctor.test.ts,packages/core/src/skills/__tests__/skill-root.test.ts,packages/core/src/skills/doctor.ts,packages/core/src/skills/skill-root.ts,packages/core/src/system/__tests__/cleo-link-rollback.test.ts,packages/core/src/system/__tests__/cleo-link.test.ts,packages/core/src/system/__tests__/global-delivery-failure.test.ts,packages/core/src/system/__tests__/global-delivery.test.ts,packages/core/src/system/cleo-link.ts,packages/core/src/system/global-delivery.ts,packages/core/templates/CLEO-INJECTION.md,packages/skills/skills/ct-cleo/SKILL.md"
+      ],
+      "epicAncestor": "T12468",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12604",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "XP: remove POSIX shell and Unix-tool shell-outs from runtime paths (sh -c, which, rm, tar)",
+      "evidenceAtoms": [
+        "pr:1635",
+        "files:.changeset/win32-cmd-spawn.md,.changeset/xplat-shell-path-tmp.md,packages/adapters/src/__tests__/agent-spawn-wrapper-win32.test.ts,packages/adapters/src/__tests__/cli-spawn-win32.test.ts,packages/adapters/src/__tests__/spawn-prompt-file.test.ts,packages/adapters/src/providers/claude-code/adapter.ts,packages/adapters/src/providers/claude-code/spawn.ts,packages/adapters/src/providers/codex/adapter.ts,packages/adapters/src/providers/codex/spawn.ts,packages/adapters/src/providers/gemini-cli/adapter.ts,packages/adapters/src/providers/gemini-cli/spawn.ts,packages/adapters/src/providers/kimi/adapter.ts,packages/adapters/src/providers/kimi/spawn.ts,packages/adapters/src/providers/opencode/__tests__/spawn-prompt-delivery.test.ts,packages/adapters/src/providers/opencode/adapter.ts,packages/adapters/src/providers/opencode/spawn.ts,packages/adapters/src/providers/pi/adapter.ts,packages/adapters/src/providers/pi/spawn.ts,packages/adapters/src/providers/shared/agent-spawn-wrapper.ts,packages/adapters/src/providers/shared/cli-spawn.ts,packages/adapters/src/providers/shared/prompt-file.ts,packages/contracts/src/operations/worktree.ts,packages/core/src/__tests__/gc-prune-guard.test.ts,packages/core/src/__tests__/no-posix-shellout-lookups.test.ts,packages/core/src/adapters/discovery.ts,packages/core/src/doctor/worktree-orphans.ts,packages/core/src/gc/cleanup.ts,packages/core/src/injection.ts,packages/core/src/issue/diagnostics.ts,packages/core/src/nexus/__tests__/ephemeral-path-xplat.test.ts,packages/core/src/nexus/registry-hygiene.ts,packages/core/src/platform.ts,packages/core/src/release/artifacts.ts,packages/core/src/release/engine-ops.ts,packages/core/src/resources/__tests__/spawn-wrapper-win32.test.ts,packages/core/src/resources/spawn-wrapper.ts,packages/core/src/setup/sections/verification.ts,packages/core/src/skills/migration.ts,packages/core/src/spawn/__tests__/branch-lock-win32-path.test.ts,packages/core/src/spawn/branch-lock.ts,packages/core/src/store/data-accessor.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/system/dependencies.ts,packages/core/src/system/health.ts,packages/core/src/system/runtime.ts,packages/core/src/validation/doctor/utils.ts,packages/git-shim/src/__tests__/launcher.test.ts,packages/git-shim/src/index.ts,packages/git-shim/src/launcher.ts,packages/git-shim/src/shim.ts,packages/paths/src/__tests__/exec-path.test.ts,packages/paths/src/__tests__/spawn-invocation.test.ts,packages/paths/src/exec-path.ts,packages/paths/src/index.ts,packages/worktree/src/__tests__/worktree-hooks-win32.test.ts,packages/worktree/src/worktree-create.ts,packages/worktree/src/worktree-hooks.ts",
+        "note:Constituent PR 1627 (head CI red: unit shard 2); integration PR 1635 merged it and is CI-green. AC5 relation T12604->T12446 (related) exists. AC1/AC4 NOT met: packages/cleo-os/src/commands/doctor.ts:139 still execFile('which',['cleo']) with no win32 branch (cleo-os scoped out in PR 1627)"
+      ],
+      "epicAncestor": "T12468",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12605",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "XP: build and search PATH with path.delimiter and PATHEXT; make the git shim runnable on Windows",
+      "evidenceAtoms": [
+        "pr:1635",
+        "files:.changeset/win32-cmd-spawn.md,.changeset/xplat-shell-path-tmp.md,packages/adapters/src/__tests__/agent-spawn-wrapper-win32.test.ts,packages/adapters/src/__tests__/cli-spawn-win32.test.ts,packages/adapters/src/__tests__/spawn-prompt-file.test.ts,packages/adapters/src/providers/claude-code/adapter.ts,packages/adapters/src/providers/claude-code/spawn.ts,packages/adapters/src/providers/codex/adapter.ts,packages/adapters/src/providers/codex/spawn.ts,packages/adapters/src/providers/gemini-cli/adapter.ts,packages/adapters/src/providers/gemini-cli/spawn.ts,packages/adapters/src/providers/kimi/adapter.ts,packages/adapters/src/providers/kimi/spawn.ts,packages/adapters/src/providers/opencode/__tests__/spawn-prompt-delivery.test.ts,packages/adapters/src/providers/opencode/adapter.ts,packages/adapters/src/providers/opencode/spawn.ts,packages/adapters/src/providers/pi/adapter.ts,packages/adapters/src/providers/pi/spawn.ts,packages/adapters/src/providers/shared/agent-spawn-wrapper.ts,packages/adapters/src/providers/shared/cli-spawn.ts,packages/adapters/src/providers/shared/prompt-file.ts,packages/contracts/src/operations/worktree.ts,packages/core/src/__tests__/gc-prune-guard.test.ts,packages/core/src/__tests__/no-posix-shellout-lookups.test.ts,packages/core/src/adapters/discovery.ts,packages/core/src/doctor/worktree-orphans.ts,packages/core/src/gc/cleanup.ts,packages/core/src/injection.ts,packages/core/src/issue/diagnostics.ts,packages/core/src/nexus/__tests__/ephemeral-path-xplat.test.ts,packages/core/src/nexus/registry-hygiene.ts,packages/core/src/platform.ts,packages/core/src/release/artifacts.ts,packages/core/src/release/engine-ops.ts,packages/core/src/resources/__tests__/spawn-wrapper-win32.test.ts,packages/core/src/resources/spawn-wrapper.ts,packages/core/src/setup/sections/verification.ts,packages/core/src/skills/migration.ts,packages/core/src/spawn/__tests__/branch-lock-win32-path.test.ts,packages/core/src/spawn/branch-lock.ts,packages/core/src/store/data-accessor.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/system/dependencies.ts,packages/core/src/system/health.ts,packages/core/src/system/runtime.ts,packages/core/src/validation/doctor/utils.ts,packages/git-shim/src/__tests__/launcher.test.ts,packages/git-shim/src/index.ts,packages/git-shim/src/launcher.ts,packages/git-shim/src/shim.ts,packages/paths/src/__tests__/exec-path.test.ts,packages/paths/src/__tests__/spawn-invocation.test.ts,packages/paths/src/exec-path.ts,packages/paths/src/index.ts,packages/worktree/src/__tests__/worktree-hooks-win32.test.ts,packages/worktree/src/worktree-create.ts,packages/worktree/src/worktree-hooks.ts",
+        "note:Constituent PR 1627 (head CI red); integration PR 1635 merged it and is CI-green"
+      ],
+      "epicAncestor": "T12468",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12606",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "XP: replace hard-coded /tmp in provider spawn adapters and temp-path detection with os.tmpdir()",
+      "evidenceAtoms": [
+        "pr:1635",
+        "files:.changeset/win32-cmd-spawn.md,.changeset/xplat-shell-path-tmp.md,packages/adapters/src/__tests__/agent-spawn-wrapper-win32.test.ts,packages/adapters/src/__tests__/cli-spawn-win32.test.ts,packages/adapters/src/__tests__/spawn-prompt-file.test.ts,packages/adapters/src/providers/claude-code/adapter.ts,packages/adapters/src/providers/claude-code/spawn.ts,packages/adapters/src/providers/codex/adapter.ts,packages/adapters/src/providers/codex/spawn.ts,packages/adapters/src/providers/gemini-cli/adapter.ts,packages/adapters/src/providers/gemini-cli/spawn.ts,packages/adapters/src/providers/kimi/adapter.ts,packages/adapters/src/providers/kimi/spawn.ts,packages/adapters/src/providers/opencode/__tests__/spawn-prompt-delivery.test.ts,packages/adapters/src/providers/opencode/adapter.ts,packages/adapters/src/providers/opencode/spawn.ts,packages/adapters/src/providers/pi/adapter.ts,packages/adapters/src/providers/pi/spawn.ts,packages/adapters/src/providers/shared/agent-spawn-wrapper.ts,packages/adapters/src/providers/shared/cli-spawn.ts,packages/adapters/src/providers/shared/prompt-file.ts,packages/contracts/src/operations/worktree.ts,packages/core/src/__tests__/gc-prune-guard.test.ts,packages/core/src/__tests__/no-posix-shellout-lookups.test.ts,packages/core/src/adapters/discovery.ts,packages/core/src/doctor/worktree-orphans.ts,packages/core/src/gc/cleanup.ts,packages/core/src/injection.ts,packages/core/src/issue/diagnostics.ts,packages/core/src/nexus/__tests__/ephemeral-path-xplat.test.ts,packages/core/src/nexus/registry-hygiene.ts,packages/core/src/platform.ts,packages/core/src/release/artifacts.ts,packages/core/src/release/engine-ops.ts,packages/core/src/resources/__tests__/spawn-wrapper-win32.test.ts,packages/core/src/resources/spawn-wrapper.ts,packages/core/src/setup/sections/verification.ts,packages/core/src/skills/migration.ts,packages/core/src/spawn/__tests__/branch-lock-win32-path.test.ts,packages/core/src/spawn/branch-lock.ts,packages/core/src/store/data-accessor.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/system/dependencies.ts,packages/core/src/system/health.ts,packages/core/src/system/runtime.ts,packages/core/src/validation/doctor/utils.ts,packages/git-shim/src/__tests__/launcher.test.ts,packages/git-shim/src/index.ts,packages/git-shim/src/launcher.ts,packages/git-shim/src/shim.ts,packages/paths/src/__tests__/exec-path.test.ts,packages/paths/src/__tests__/spawn-invocation.test.ts,packages/paths/src/exec-path.ts,packages/paths/src/index.ts,packages/worktree/src/__tests__/worktree-hooks-win32.test.ts,packages/worktree/src/worktree-create.ts,packages/worktree/src/worktree-hooks.ts",
+        "note:Constituent PR 1627 (head CI red); integration PR 1635 is CI-green. AC1/AC2 NOT met: packages/cleo-os/src/harnesses/pi-coding-agent/adapter.ts:258 still writes /tmp/cleo-pi-<id>.txt and pi-wrapper.ts writes under /tmp (cleo-os scoped out in PR 1627)"
+      ],
+      "epicAncestor": "T12468",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12618",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Windows: adapters spawn provider CLIs by bare name; npm .cmd shims can't be spawned without a shell",
+      "evidenceAtoms": [
+        "pr:1635",
+        "files:.changeset/win32-cmd-spawn.md,.changeset/xplat-shell-path-tmp.md,packages/adapters/src/__tests__/agent-spawn-wrapper-win32.test.ts,packages/adapters/src/__tests__/cli-spawn-win32.test.ts,packages/adapters/src/__tests__/spawn-prompt-file.test.ts,packages/adapters/src/providers/claude-code/adapter.ts,packages/adapters/src/providers/claude-code/spawn.ts,packages/adapters/src/providers/codex/adapter.ts,packages/adapters/src/providers/codex/spawn.ts,packages/adapters/src/providers/gemini-cli/adapter.ts,packages/adapters/src/providers/gemini-cli/spawn.ts,packages/adapters/src/providers/kimi/adapter.ts,packages/adapters/src/providers/kimi/spawn.ts,packages/adapters/src/providers/opencode/__tests__/spawn-prompt-delivery.test.ts,packages/adapters/src/providers/opencode/adapter.ts,packages/adapters/src/providers/opencode/spawn.ts,packages/adapters/src/providers/pi/adapter.ts,packages/adapters/src/providers/pi/spawn.ts,packages/adapters/src/providers/shared/agent-spawn-wrapper.ts,packages/adapters/src/providers/shared/cli-spawn.ts,packages/adapters/src/providers/shared/prompt-file.ts,packages/contracts/src/operations/worktree.ts,packages/core/src/__tests__/gc-prune-guard.test.ts,packages/core/src/__tests__/no-posix-shellout-lookups.test.ts,packages/core/src/adapters/discovery.ts,packages/core/src/doctor/worktree-orphans.ts,packages/core/src/gc/cleanup.ts,packages/core/src/injection.ts,packages/core/src/issue/diagnostics.ts,packages/core/src/nexus/__tests__/ephemeral-path-xplat.test.ts,packages/core/src/nexus/registry-hygiene.ts,packages/core/src/platform.ts,packages/core/src/release/artifacts.ts,packages/core/src/release/engine-ops.ts,packages/core/src/resources/__tests__/spawn-wrapper-win32.test.ts,packages/core/src/resources/spawn-wrapper.ts,packages/core/src/setup/sections/verification.ts,packages/core/src/skills/migration.ts,packages/core/src/spawn/__tests__/branch-lock-win32-path.test.ts,packages/core/src/spawn/branch-lock.ts,packages/core/src/store/data-accessor.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/system/dependencies.ts,packages/core/src/system/health.ts,packages/core/src/system/runtime.ts,packages/core/src/validation/doctor/utils.ts,packages/git-shim/src/__tests__/launcher.test.ts,packages/git-shim/src/index.ts,packages/git-shim/src/launcher.ts,packages/git-shim/src/shim.ts,packages/paths/src/__tests__/exec-path.test.ts,packages/paths/src/__tests__/spawn-invocation.test.ts,packages/paths/src/exec-path.ts,packages/paths/src/index.ts,packages/worktree/src/__tests__/worktree-hooks-win32.test.ts,packages/worktree/src/worktree-create.ts,packages/worktree/src/worktree-hooks.ts",
+        "note:Delivered by PR 1629 stacked on 1627; integration PR 1635 is CI-green"
+      ],
+      "epicAncestor": "T12468",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12619",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "opencode adapter passes the prompt as an argv argument; multi-line prompts can't reach a .cmd opencode on Windows",
+      "evidenceAtoms": [
+        "pr:1635",
+        "files:.changeset/win32-cmd-spawn.md,.changeset/xplat-shell-path-tmp.md,packages/adapters/src/__tests__/agent-spawn-wrapper-win32.test.ts,packages/adapters/src/__tests__/cli-spawn-win32.test.ts,packages/adapters/src/__tests__/spawn-prompt-file.test.ts,packages/adapters/src/providers/claude-code/adapter.ts,packages/adapters/src/providers/claude-code/spawn.ts,packages/adapters/src/providers/codex/adapter.ts,packages/adapters/src/providers/codex/spawn.ts,packages/adapters/src/providers/gemini-cli/adapter.ts,packages/adapters/src/providers/gemini-cli/spawn.ts,packages/adapters/src/providers/kimi/adapter.ts,packages/adapters/src/providers/kimi/spawn.ts,packages/adapters/src/providers/opencode/__tests__/spawn-prompt-delivery.test.ts,packages/adapters/src/providers/opencode/adapter.ts,packages/adapters/src/providers/opencode/spawn.ts,packages/adapters/src/providers/pi/adapter.ts,packages/adapters/src/providers/pi/spawn.ts,packages/adapters/src/providers/shared/agent-spawn-wrapper.ts,packages/adapters/src/providers/shared/cli-spawn.ts,packages/adapters/src/providers/shared/prompt-file.ts,packages/contracts/src/operations/worktree.ts,packages/core/src/__tests__/gc-prune-guard.test.ts,packages/core/src/__tests__/no-posix-shellout-lookups.test.ts,packages/core/src/adapters/discovery.ts,packages/core/src/doctor/worktree-orphans.ts,packages/core/src/gc/cleanup.ts,packages/core/src/injection.ts,packages/core/src/issue/diagnostics.ts,packages/core/src/nexus/__tests__/ephemeral-path-xplat.test.ts,packages/core/src/nexus/registry-hygiene.ts,packages/core/src/platform.ts,packages/core/src/release/artifacts.ts,packages/core/src/release/engine-ops.ts,packages/core/src/resources/__tests__/spawn-wrapper-win32.test.ts,packages/core/src/resources/spawn-wrapper.ts,packages/core/src/setup/sections/verification.ts,packages/core/src/skills/migration.ts,packages/core/src/spawn/__tests__/branch-lock-win32-path.test.ts,packages/core/src/spawn/branch-lock.ts,packages/core/src/store/data-accessor.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/system/dependencies.ts,packages/core/src/system/health.ts,packages/core/src/system/runtime.ts,packages/core/src/validation/doctor/utils.ts,packages/git-shim/src/__tests__/launcher.test.ts,packages/git-shim/src/index.ts,packages/git-shim/src/launcher.ts,packages/git-shim/src/shim.ts,packages/paths/src/__tests__/exec-path.test.ts,packages/paths/src/__tests__/spawn-invocation.test.ts,packages/paths/src/exec-path.ts,packages/paths/src/index.ts,packages/worktree/src/__tests__/worktree-hooks-win32.test.ts,packages/worktree/src/worktree-create.ts,packages/worktree/src/worktree-hooks.ts",
+        "note:Delivered by PR 1629 round 3, stacked on 1627; integration PR 1635 is CI-green"
+      ],
+      "epicAncestor": "T12468",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12602",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "XP: resolve CLEO data/state dirs through @cleocode/paths, not XDG_* ?? ~/.local fallbacks",
+      "evidenceAtoms": [
+        "pr:1628",
+        "files:.changeset/xplat-cleo-dirs-via-paths-ssot.md,packages/adapters/src/__tests__/cant-context.test.ts,packages/adapters/src/cant-context.ts,packages/adapters/src/providers/claude-sdk/spawn.ts,packages/adapters/src/providers/shared/__tests__/credentials-cleo-home.test.ts,packages/adapters/src/providers/shared/credentials.ts,packages/caamp/src/commands/pi/cant.ts,packages/caamp/src/commands/pi/extensions.ts,packages/caamp/tests/unit/commands/pi/tilde-source.test.ts,packages/cleo-os/extensions/cleo-cant-bridge.ts,packages/cleo-os/tests/cant-bridge-paths-unavailable.test.ts,packages/cleo-os/tests/cant-bridge-tier-paths.test.ts,packages/cleo/scripts/install-daemon-service.mjs,packages/cleo/src/cli/__tests__/cant-bridge-template-agent-lookup.test.ts,packages/cleo/src/cli/__tests__/daemon-paths-ssot.test.ts,packages/cleo/src/cli/__tests__/process-exit-no-hang.test.ts,packages/cleo/src/cli/commands/__tests__/gc-worktrees-root.test.ts,packages/cleo/src/cli/commands/gc.ts,packages/cleo/src/cli/commands/nexus.ts,packages/cleo/src/dispatch/domains/playbook.ts,packages/cleo/templates/cleoos-hub/pi-extensions/cant-bridge.ts,packages/core/src/__tests__/xplat-win32-path-splitting.test.ts,packages/core/src/adrs/link-pipeline.ts,packages/core/src/adrs/parse.ts,packages/core/src/llm/__tests__/catalog-cache.test.ts,packages/core/src/llm/catalog-cache.ts,packages/core/src/llm/credentials.ts,packages/core/src/memory/__tests__/dialectic-evaluator.test.ts,packages/core/src/memory/dialectic-evaluator.ts,packages/core/src/memory/import-from-provider.ts,packages/core/src/nexus/migrate-json-to-sqlite.ts,packages/core/src/nexus/projects-clean.ts,packages/core/src/playbooks/__tests__/playbook-resolver.test.ts,packages/core/src/skills/federated-search.ts,packages/core/src/skills/skills-guard.ts,packages/core/src/spawn/branch-lock.ts,packages/core/src/store/__tests__/portable-bundle-relocate-xplat.test.ts,packages/core/src/store/import-logging.ts,packages/core/src/store/portable-bundle-relocate.ts,packages/core/src/validation/__tests__/doctor-orphan-audit.test.ts,packages/core/src/validation/doctor/checks.ts,packages/core/src/validation/doctor/index.ts,packages/git-shim/src/audit-log.ts,packages/paths/src/__tests__/xplat-dirs.test.ts,packages/paths/src/cleo-paths.ts,packages/paths/src/index.ts,packages/paths/src/platform-paths.ts,scripts/.lint-paths-ssot-baseline.json"
+      ],
+      "epicAncestor": "T12468",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12608",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "XP: stop splitting absolute OS paths on '/' and expanding ~ from HOME only",
+      "evidenceAtoms": [
+        "pr:1628",
+        "files:.changeset/xplat-cleo-dirs-via-paths-ssot.md,packages/adapters/src/__tests__/cant-context.test.ts,packages/adapters/src/cant-context.ts,packages/adapters/src/providers/claude-sdk/spawn.ts,packages/adapters/src/providers/shared/__tests__/credentials-cleo-home.test.ts,packages/adapters/src/providers/shared/credentials.ts,packages/caamp/src/commands/pi/cant.ts,packages/caamp/src/commands/pi/extensions.ts,packages/caamp/tests/unit/commands/pi/tilde-source.test.ts,packages/cleo-os/extensions/cleo-cant-bridge.ts,packages/cleo-os/tests/cant-bridge-paths-unavailable.test.ts,packages/cleo-os/tests/cant-bridge-tier-paths.test.ts,packages/cleo/scripts/install-daemon-service.mjs,packages/cleo/src/cli/__tests__/cant-bridge-template-agent-lookup.test.ts,packages/cleo/src/cli/__tests__/daemon-paths-ssot.test.ts,packages/cleo/src/cli/__tests__/process-exit-no-hang.test.ts,packages/cleo/src/cli/commands/__tests__/gc-worktrees-root.test.ts,packages/cleo/src/cli/commands/gc.ts,packages/cleo/src/cli/commands/nexus.ts,packages/cleo/src/dispatch/domains/playbook.ts,packages/cleo/templates/cleoos-hub/pi-extensions/cant-bridge.ts,packages/core/src/__tests__/xplat-win32-path-splitting.test.ts,packages/core/src/adrs/link-pipeline.ts,packages/core/src/adrs/parse.ts,packages/core/src/llm/__tests__/catalog-cache.test.ts,packages/core/src/llm/catalog-cache.ts,packages/core/src/llm/credentials.ts,packages/core/src/memory/__tests__/dialectic-evaluator.test.ts,packages/core/src/memory/dialectic-evaluator.ts,packages/core/src/memory/import-from-provider.ts,packages/core/src/nexus/migrate-json-to-sqlite.ts,packages/core/src/nexus/projects-clean.ts,packages/core/src/playbooks/__tests__/playbook-resolver.test.ts,packages/core/src/skills/federated-search.ts,packages/core/src/skills/skills-guard.ts,packages/core/src/spawn/branch-lock.ts,packages/core/src/store/__tests__/portable-bundle-relocate-xplat.test.ts,packages/core/src/store/import-logging.ts,packages/core/src/store/portable-bundle-relocate.ts,packages/core/src/validation/__tests__/doctor-orphan-audit.test.ts,packages/core/src/validation/doctor/checks.ts,packages/core/src/validation/doctor/index.ts,packages/git-shim/src/audit-log.ts,packages/paths/src/__tests__/xplat-dirs.test.ts,packages/paths/src/cleo-paths.ts,packages/paths/src/index.ts,packages/paths/src/platform-paths.ts,scripts/.lint-paths-ssot-baseline.json"
+      ],
+      "epicAncestor": "T12468",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12621",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "cleo verify: a typed gate slower than 2s can never be recorded (shared deadline, no budget flag, --no-run still executes, no result cache)",
+      "evidenceAtoms": [
+        "pr:1635",
+        "files:.changeset/t12621-typed-gate-result-cache.md,packages/adapters/src/providers/shared/agent-spawn-wrapper.ts,packages/cleo/src/cli/commands/__tests__/verify-explain.test.ts,packages/cleo/src/cli/commands/verify.ts,packages/cleo/src/dispatch/domains/check.ts,packages/contracts/schemas/gate-result.schema.json,packages/contracts/src/acceptance-gate-schema.ts,packages/contracts/src/acceptance-gate.ts,packages/contracts/src/operations/validate.ts,packages/core/src/resources/__tests__/spawn-wrapper-notice.test.ts,packages/core/src/resources/spawn-wrapper.ts,packages/core/src/sagas/reconcile.ts,packages/core/src/tasks/__tests__/req.tasks.test.ts,packages/core/src/tasks/complete.ts,packages/core/src/tasks/gate-preview.ts,packages/core/src/tasks/gate-result-cache.ts,packages/core/src/tasks/gate-runner.ts,packages/core/src/validation/engine-ops.ts,packages/core/templates/CLEO-INJECTION.md",
+        "note:Constituent PR 1631 (head CI red: unit shards 1,2); integration PR 1635 merged it and is CI-green"
+      ],
+      "epicAncestor": "T12468",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12633",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "tool:typecheck evidence is vacuous in project-reference monorepos: resolves to 'npx tsc --noEmit' on a root tsconfig with files:[]",
+      "evidenceAtoms": [
+        "pr:1635",
+        "files:.changeset/typecheck-evidence-not-vacuous.md,packages/contracts/src/release/plan.test.ts,packages/contracts/src/release/plan.ts,packages/core/src/tasks/__tests__/tool-vacuity.test.ts,packages/core/src/tasks/evidence.ts,packages/core/src/tasks/tool-resolver.ts,packages/core/src/tasks/tool-vacuity.ts,packages/core/templates/CLEO-INJECTION.md,packages/skills/skills/ct-task-executor/references/evidence-and-gates.md",
+        "note:Constituent PR 1632 (head CI red: unit shard 1); integration PR 1635 merged it and is CI-green"
+      ],
+      "epicAncestor": "T12468",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12534",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Reference cloud client runtime: core/src/cloud (E2E crypto, key hierarchy, journal push/pull), node:crypto only",
+      "evidenceAtoms": [
+        "pr:1584",
+        "files:packages/contracts/src/cloud/api.ts,packages/core/src/cloud/__tests__/crypto.test.ts,packages/core/src/cloud/__tests__/journal.test.ts,packages/core/src/cloud/__tests__/manifest-check.test.ts,packages/core/src/cloud/__tests__/signing.test.ts,packages/core/src/cloud/crypto.ts,packages/core/src/cloud/http.ts,packages/core/src/cloud/index.ts,packages/core/src/cloud/journal.ts,packages/core/src/cloud/keys.ts,packages/core/src/cloud/manifest-check.ts,packages/core/src/cloud/projects.ts,packages/core/src/cloud/signing.ts,packages/core/src/cloud/streams.ts",
+        "note:AC4 spec lives in kryptobaseddev/cleo-nexus docs/security/e2e-keys.md (blob 51c774c65, section Hierarchy), cited by PR 1584; no copy in this repo"
+      ],
+      "epicAncestor": "T12468",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12533",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Cloud wire contracts: contracts/src/cloud (zod, types only)",
+      "evidenceAtoms": [
+        "pr:1583",
+        "files:packages/contracts/package.json,packages/contracts/src/cloud/api.ts,packages/contracts/src/cloud/envelope.ts,packages/contracts/src/cloud/ids.ts,packages/contracts/src/cloud/index.ts"
+      ],
+      "epicAncestor": "T12468",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12623",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo done --plan: read-only evidence planner (deriveTaskEvidence)",
+      "evidenceAtoms": [
+        "pr:1634",
+        "files:.changeset/ci-satisfies-merge-commit.md,.changeset/done-batch-and-multi-pr.md,.changeset/done-plan-evidence-planner.md,.changeset/done-record-and-complete.md,.cleo/project-context.json,packages/cleo/src/cli/commands/__tests__/done-command.test.ts,packages/cleo/src/cli/commands/complete.ts,packages/cleo/src/cli/commands/done.ts,packages/cleo/src/cli/commands/verify.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/index.ts,packages/contracts/schemas/gate-result.schema.json,packages/contracts/src/__tests__/evidence-atom-schema.test.ts,packages/contracts/src/acceptance-gate-schema.ts,packages/contracts/src/acceptance-gate.ts,packages/contracts/src/done-plan.ts,packages/contracts/src/evidence-atom-schema.ts,packages/contracts/src/index.ts,packages/contracts/src/project-context.ts,packages/contracts/src/task.ts,packages/core/schemas/project-context.schema.json,packages/core/src/release/__tests__/ci-evidence.test.ts,packages/core/src/release/__tests__/evidence-pr-atom.test.ts,packages/core/src/release/ci-evidence.ts,packages/core/src/release/plan.ts,packages/core/src/release/pr-evidence.ts,packages/core/src/routing/build-command-groups.ts,packages/core/src/tasks/__tests__/change-set.test.ts,packages/core/src/tasks/__tests__/done-plan.test.ts,packages/core/src/tasks/__tests__/done-record.test.ts,packages/core/src/tasks/change-set.ts,packages/core/src/tasks/complete.ts,packages/core/src/tasks/done-plan.ts,packages/core/src/tasks/done-record.ts,packages/core/src/tasks/evidence.ts,packages/core/src/tasks/gate-runner.ts,packages/core/src/validation/engine-ops.ts"
+      ],
+      "epicAncestor": "T12468",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12636",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Gate B/C: per-table tombstone cap, authenticate fingerprint JSON, keep keys outside --out",
+      "evidenceAtoms": [
+        "pr:1639",
+        "files:packages/core/src/store/__tests__/store-fingerprint-gates.test.ts,scripts/compare-fingerprints.mjs,scripts/fingerprint-store.mjs,scripts/lib/fingerprint-mac.mjs"
+      ],
+      "epicAncestor": "T12468",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12589",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Legacy path alias collides for every project under the same 24-char prefix; warns on every command",
+      "evidenceAtoms": [
+        "pr:1621",
+        "files:.changeset/legacy-alias-ambiguity-focus-diagnostics.md,packages/cleo/src/cli/commands/__tests__/doctor-db-substrate.test.ts,packages/cleo/src/cli/commands/doctor-projects-registry.ts,packages/cleo/src/dispatch/domains/__tests__/focus-knowledge.test.ts,packages/cleo/src/dispatch/domains/focus.ts,packages/contracts/src/index.ts,packages/contracts/src/operations/nexus.ts,packages/core/src/__tests__/t11021-project-registry.test.ts,packages/core/src/doctor/__tests__/projects-T12471.test.ts,packages/core/src/doctor/db-substrate.ts,packages/core/src/doctor/projects.ts,packages/core/src/memory/__tests__/attention-shared-handle-T12590.test.ts,packages/core/src/memory/attention.ts,packages/core/src/nexus/__tests__/legacy-alias-T12589.test.ts,packages/core/src/nexus/legacy-alias.ts,packages/core/src/nexus/registry.ts,packages/core/src/paths.ts,packages/paths/src/cleo-paths.ts,packages/paths/src/index.ts"
+      ],
+      "epicAncestor": "T12468",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12590",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "cleo focus in agentmbx reports memory and ready-wave sourceDiagnostics as failed",
+      "evidenceAtoms": [
+        "pr:1621",
+        "files:.changeset/legacy-alias-ambiguity-focus-diagnostics.md,packages/cleo/src/cli/commands/__tests__/doctor-db-substrate.test.ts,packages/cleo/src/cli/commands/doctor-projects-registry.ts,packages/cleo/src/dispatch/domains/__tests__/focus-knowledge.test.ts,packages/cleo/src/dispatch/domains/focus.ts,packages/contracts/src/index.ts,packages/contracts/src/operations/nexus.ts,packages/core/src/__tests__/t11021-project-registry.test.ts,packages/core/src/doctor/__tests__/projects-T12471.test.ts,packages/core/src/doctor/db-substrate.ts,packages/core/src/doctor/projects.ts,packages/core/src/memory/__tests__/attention-shared-handle-T12590.test.ts,packages/core/src/memory/attention.ts,packages/core/src/nexus/__tests__/legacy-alias-T12589.test.ts,packages/core/src/nexus/legacy-alias.ts,packages/core/src/nexus/registry.ts,packages/core/src/paths.ts,packages/paths/src/cleo-paths.ts,packages/paths/src/index.ts"
+      ],
+      "epicAncestor": "T12468",
+      "ivtrPhaseAtPlan": "contribution"
+    }
+  ],
+  "changelog": {
+    "features": [
+      "T12580",
+      "T12494",
+      "T12534",
+      "T12533",
+      "T12623"
+    ],
+    "fixes": [
+      "T12560",
+      "T12596",
+      "T12598",
+      "T12604",
+      "T12605",
+      "T12606",
+      "T12618",
+      "T12619",
+      "T12602",
+      "T12608",
+      "T12621",
+      "T12633",
+      "T12636",
+      "T12589",
+      "T12590"
+    ],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-28T22:46:40.495Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-28T22:46:40.495Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-28T22:46:40.495Z",
+      "resolvedCommand": "npx biome check .",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-28T22:46:40.495Z",
+      "resolvedCommand": "npx tsc --noEmit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-28T22:46:40.495Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-28T22:46:40.495Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 411 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.9.21 — 2026-09-28\n\n### Added\n\n- `cleo done <id> --plan` prints the evidence plan for a task (change set, gates, tool runs, AC mapping, ordered blockers, runnable commands) and writes nothing _(provenance: [T12623](https://github.com/kryptobaseddev/cleo/search?q=T12623&type=commits), [T12624](https://github.com/kryptobaseddev/cleo/search?q=T12624&type=commits))_\n- Split CLEO-INJECTION.md into a 3.4k-token always-loaded core and an on-demand CLEO-REFERENCE.md; make `cleo briefing inject --section` actually run _(provenance: [T12580](https://github.com/kryptobaseddev/cleo/search?q=T12580&type=commits))_\n- System One sites 4-5: observation type chosen by one choice question when no type is given, and a needs-owner-decision noul for the readiness grill gate (300 ms budget each, shadow by default once configured) _(provenance: [T12494](https://github.com/kryptobaseddev/cleo/search?q=T12494&type=commits))_\n\n### Fixed\n\n- Skill installs and the global hub no longer depend on a working ~/.cleo; new `cleo doctor global-delivery [--repair] [--dry-run]` repairs a dangling ~/.cleo, dangling skill links and the hub with a receipt _(provenance: [T12596](https://github.com/kryptobaseddev/cleo/search?q=T12596&type=commits), [T12598](https://github.com/kryptobaseddev/cleo/search?q=T12598&type=commits))_\n- A truncated legacy project alias shared by several projects resolves to none and no longer warns on every command; `cleo focus` no longer fails its memory and ready-wave sources _(provenance: [T12589](https://github.com/kryptobaseddev/cleo/search?q=T12589&type=commits), [T12590](https://github.com/kryptobaseddev/cleo/search?q=T12590&type=commits))_\n- cleo nexus status no longer emits every assessed file; it reports counts and one page _(provenance: [T12560](https://github.com/kryptobaseddev/cleo/search?q=T12560&type=commits))_\n- typed gate passes are cached, `verify --no-run` works, and deadline errors name the phase and the fix _(provenance: [T12621](https://github.com/kryptobaseddev/cleo/search?q=T12621&type=commits))_\n- tool:typecheck runs the project's own script and rejects runs that provably checked nothing (E_EVIDENCE_TOOL_VACUOUS) _(provenance: [T12633](https://github.com/kryptobaseddev/cleo/search?q=T12633&type=commits))_\n- provider CLIs and evidence tools spawn on Windows via their resolved path; npm .cmd shims go through cmd.exe with injection-safe quoting _(provenance: [T12618](https://github.com/kryptobaseddev/cleo/search?q=T12618&type=commits), [T12619](https://github.com/kryptobaseddev/cleo/search?q=T12619&type=commits))_\n- CLEO data, state and worktree dirs resolve through @cleocode/paths on macOS and Windows; OS paths are no longer split on '/' _(provenance: [T12602](https://github.com/kryptobaseddev/cleo/search?q=T12602&type=commits), [T12608](https://github.com/kryptobaseddev/cleo/search?q=T12608&type=commits))_\n- agent spawns, evidence runs, worktree hooks, the git shim and prompt files now work on Windows (no sh/which/rm/tar, ';' PATH, os.tmpdir()) _(provenance: [T12604](https://github.com/kryptobaseddev/cleo/search?q=T12604&type=commits), [T12605](https://github.com/kryptobaseddev/cleo/search?q=T12605&type=commits), [T12606](https://github.com/kryptobaseddev/cleo/search?q=T12606&type=commits))_\n",
+    "changesetEntryCount": 11,
+    "changesetIds": [
+      "done-plan-evidence-planner",
+      "global-delivery-no-cleo-route",
+      "injection-core-split",
+      "legacy-alias-ambiguity-focus-diagnostics",
+      "nexus-status-bounded-files",
+      "observation-owner-decision-system-one",
+      "t12621-typed-gate-result-cache",
+      "typecheck-evidence-not-vacuous",
+      "win32-cmd-spawn",
+      "xplat-cleo-dirs-via-paths-ssot",
+      "xplat-shell-path-tmp"
+    ],
+    "taskIds": [
+      "T12560",
+      "T12580",
+      "T12494",
+      "T12596",
+      "T12598",
+      "T12604",
+      "T12605",
+      "T12606",
+      "T12618",
+      "T12619",
+      "T12602",
+      "T12608",
+      "T12621",
+      "T12633",
+      "T12534",
+      "T12533",
+      "T12623",
+      "T12636",
+      "T12589",
+      "T12590"
+    ]
+  }
+}

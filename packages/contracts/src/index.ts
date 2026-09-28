@@ -513,6 +513,27 @@ export type {
   WorktreeAnomaly,
   WorktreeAnomalyKind,
 } from './doctor.js';
+// === Done planner: read-only `cleo done --plan` evidence plan (T12623, T12624) ===
+export type {
+  ChangeSetDoc,
+  ChangeSetPrCandidate,
+  ChangeSetRootSource,
+  ChangeSetSource,
+  DoneBlockedDetails,
+  DoneNextStep,
+  DonePlan,
+  DonePlanAcBasis,
+  DonePlanAcMapping,
+  DonePlanBlocker,
+  DonePlanBlockerCode,
+  DonePlanGate,
+  DonePlanToolCacheState,
+  DonePlanToolRun,
+  DonePlanTypedGate,
+  DoneRecordResult,
+  DoneToolResult,
+  TaskChangeSet,
+} from './done-plan.js';
 export type {
   EngineErrorPayload,
   EngineFailure,

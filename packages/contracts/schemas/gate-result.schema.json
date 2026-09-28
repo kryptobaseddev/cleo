@@ -147,6 +147,37 @@
             ],
             "additionalProperties": false
           }
+        },
+        "tree": {
+          "type": "object",
+          "properties": {
+            "headSha": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "clean": {
+              "type": "boolean"
+            },
+            "cwd": {
+              "type": "string",
+              "minLength": 1
+            },
+            "inputsHash": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "baseSha": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            }
+          },
+          "required": [
+            "headSha",
+            "clean",
+            "cwd",
+            "inputsHash"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
