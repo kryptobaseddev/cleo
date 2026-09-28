@@ -380,28 +380,83 @@ export async function getActiveSession(cwd?: string): Promise<Session | null> {
 
 // === TERMINAL BINDINGS (T12499) ===
 
+/** The calling terminal's identity keys split by what they identify (T12500). */
+interface TerminalKeyTiers {
+  /** Agent-harness process (`CLAUDE_CODE_SESSION_ID`, `CODEX_THREAD_ID`, …). */
+  readonly provider: TerminalKey | undefined;
+  /** Multiplexer pane (`TMUX_PANE`, `ZELLIJ_PANE_ID`, `WEZTERM_PANE`). */
+  readonly pane: TerminalKey | undefined;
+  /** Terminal tab (`TERM_SESSION_ID`, `ITERM_SESSION_ID`, `WT_SESSION`, …) or the ppid fallback. */
+  readonly tab: TerminalKey | undefined;
+}
+
 /**
- * Bind the calling terminal to a session (T12499 · epic T12497).
+ * Split identity keys (most specific first) into provider / pane / tab tiers.
  *
- * Upserts ONE `session_terminal_bindings` row — for the MOST SPECIFIC identity
- * key of the calling terminal ({@link resolveTerminalKeys} orders them provider
- * harness id → multiplexer pane → terminal tab → ppid-chain fallback) —
- * pointing at `sessionId`. A later short-lived `cleo` call from the same
- * terminal resolves this session through {@link resolveTerminalBoundSession}.
+ * @param keys - Keys from {@link resolveTerminalKeys}.
+ * @returns The first key of each tier.
+ */
+function splitTerminalKeys(keys: readonly TerminalKey[]): TerminalKeyTiers {
+  return {
+    provider: keys.find((k) => k.kind === 'provider'),
+    pane: keys.find((k) => k.kind === 'multiplexer'),
+    tab: keys.find((k) => k.kind === 'terminal' || k.kind === 'ppid'),
+  };
+}
+
+/**
+ * Upsert one binding row (T12499 · T12500).
  *
- * T12500: only the most specific key is bound. Binding the coarse tab-level
- * keys (`TERM_SESSION_ID`, `ITERM_SESSION_ID`, …) as well let a SIBLING —
- * another tmux pane in the same tab, or a second Claude Code instance — resolve
- * through the shared tab key and end this session.
+ * @param db - Project DB handle.
+ * @param key - Identity key.
+ * @param sessionId - Bound session.
+ * @param boundByProvider - See `session_terminal_bindings.bound_by_provider`.
+ */
+function upsertBinding(
+  db: Awaited<ReturnType<typeof getDb>>,
+  key: TerminalKey,
+  sessionId: string,
+  boundByProvider: boolean,
+): void {
+  const boundAt = new Date().toISOString();
+  db.insert(sessionTerminalBindings)
+    .values({
+      bindingKey: key.key,
+      keySource: key.source,
+      keyKind: key.kind,
+      sessionId,
+      boundByProvider,
+      boundAt,
+    })
+    .onConflictDoUpdate({
+      target: sessionTerminalBindings.bindingKey,
+      set: { keySource: key.source, keyKind: key.kind, sessionId, boundByProvider, boundAt },
+    })
+    .run();
+}
+
+/**
+ * Bind the calling terminal to a session (T12499 · T12500 · epic T12497).
  *
- * Refuses to bind a session id that has no row, so a binding can never name a
- * session this project does not hold. Re-binding a key moves it to the newer
- * session (the terminal started another session).
+ * Keys are bound per tier ({@link resolveTerminalKeys} → provider / pane / tab):
  *
- * @param sessionId - The session the terminal just started or resumed.
+ * - the **provider** key (an agent process — `CLAUDE_CODE_SESSION_ID`, …), when present;
+ * - the **pane** key (`TMUX_PANE`, …), when present;
+ * - the **tab** key (`TERM_SESSION_ID`, …, or the ppid fallback) only when there
+ *   is NO pane key — a pane is its own identity and never shares its tab's.
+ *
+ * Every row records `bound_by_provider` = "a provider key was present". That is
+ * what lets an agent in a tab adopt a session a HUMAN started in that tab while
+ * two agents that each started their own session stay isolated (see
+ * {@link resolveTerminalBoundSession}).
+ *
+ * Refuses to bind a session id that has no row. Re-binding a key moves it to
+ * the newer session.
+ *
+ * @param sessionId - The session the terminal just started, resumed or switched to.
  * @param cwd - Working directory for DB resolution.
  * @param keys - Identity keys, most specific first (defaults to the live terminal's).
- * @returns The key that was bound (zero or one entry).
+ * @returns The keys that were bound.
  * @task T12499
  * @task T12500
  */
@@ -410,28 +465,18 @@ export async function bindTerminalToSession(
   cwd?: string,
   keys: readonly TerminalKey[] = resolveTerminalKeys(),
 ): Promise<TerminalKey[]> {
-  const key = keys[0];
-  if (!key) return [];
+  const { provider, pane, tab } = splitTerminalKeys(keys);
+  const toBind = [provider, pane, pane ? undefined : tab].filter(
+    (k): k is TerminalKey => k !== undefined,
+  );
+  if (toBind.length === 0) return [];
   const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
   return worktreeScope.run(scope, async () => {
     const session = await getSession(sessionId, scope.worktreeRoot);
     if (!session) return [];
     const db = await getDb(scope.worktreeRoot);
-    const boundAt = new Date().toISOString();
-    db.insert(sessionTerminalBindings)
-      .values({
-        bindingKey: key.key,
-        keySource: key.source,
-        keyKind: key.kind,
-        sessionId,
-        boundAt,
-      })
-      .onConflictDoUpdate({
-        target: sessionTerminalBindings.bindingKey,
-        set: { keySource: key.source, keyKind: key.kind, sessionId, boundAt },
-      })
-      .run();
-    return [key];
+    for (const key of toBind) upsertBinding(db, key, sessionId, provider !== undefined);
+    return toBind;
   });
 }
 
@@ -450,7 +495,7 @@ export async function bindTerminalToSession(
  *
  * @param sessionId - The started / resumed / switched-to session.
  * @param cwd - Working directory for DB resolution.
- * @returns `true` when a binding row was written.
+ * @returns `true` when at least one binding row was written.
  * @task T12500
  */
 export async function bindCallingTerminal(sessionId: string, cwd?: string): Promise<boolean> {
@@ -468,12 +513,21 @@ export async function bindCallingTerminal(sessionId: string, cwd?: string): Prom
 /**
  * Resolve the session bound to the calling terminal (T12499 · T12500).
  *
- * Looks up ONLY the terminal's most specific identity key and returns its
- * bound session when that row still exists and is `active`. It deliberately
- * does NOT fall through to a coarser key: when a pane- or harness-level key is
- * present but unbound, the tab-level key it shares with its siblings says
- * nothing about THIS caller (T12500 — pane %2 ended pane %1's session that way).
- * A binding to an ended or deleted session is ignored.
+ * 1. **Provider key bound** → that session (the agent's own).
+ * 2. Else the **pane** key, when present. A pane never falls through to its
+ *    tab: a sibling pane sharing the tab id resolves nothing.
+ * 3. Else the **tab** key (or ppid fallback).
+ *
+ * Steps 2-3 are unconditional for a caller WITHOUT a provider key (a human
+ * shell: it may end a session an agent started in its tab). For a caller WITH
+ * a provider key, a coarse binding is adopted only when it was written without
+ * a provider key (a human-started session, `bound_by_provider = 0`) AND no
+ * other provider key owns an explicit binding to that session. On adoption the
+ * provider key is bound too (`bound_by_provider = 0`: adopted, not owned) so
+ * later calls resolve directly. Two agents that each started their own session
+ * stay isolated because their tab binding is `bound_by_provider = 1`.
+ *
+ * Only `active` sessions are returned; a binding to an ended session is ignored.
  *
  * @param cwd - Working directory for DB resolution.
  * @param keys - Identity keys, most specific first (defaults to the live terminal's).
@@ -485,28 +539,74 @@ export async function resolveTerminalBoundSession(
   cwd?: string,
   keys: readonly TerminalKey[] = resolveTerminalKeys(),
 ): Promise<Session | null> {
-  const key = keys[0];
-  if (!key) return null;
+  const { provider, pane, tab } = splitTerminalKeys(keys);
+  if (!provider && !pane && !tab) return null;
   const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
   return worktreeScope.run(scope, async () => {
     const db = await getDb(scope.worktreeRoot);
-    let boundId: string | undefined;
-    try {
+    type BindingRow = { sessionId: string; boundByProvider: boolean };
+    const lookup = async (key: TerminalKey): Promise<BindingRow | undefined> => {
       const rows = await db
-        .select({ sessionId: sessionTerminalBindings.sessionId })
+        .select({
+          sessionId: sessionTerminalBindings.sessionId,
+          boundByProvider: sessionTerminalBindings.boundByProvider,
+        })
         .from(sessionTerminalBindings)
         .where(eq(sessionTerminalBindings.bindingKey, key.key))
         .limit(1)
         .all();
-      boundId = rows[0]?.sessionId;
+      return rows[0];
+    };
+    const activeSession = async (id: string): Promise<Session | null> => {
+      const session = await getSession(id, scope.worktreeRoot);
+      return session && session.status === 'active' ? session : null;
+    };
+    /** Another provider key explicitly started/resumed this session. */
+    const ownedByOtherProvider = async (sessionId: string, own: TerminalKey): Promise<boolean> => {
+      const rows = await db
+        .select({ bindingKey: sessionTerminalBindings.bindingKey })
+        .from(sessionTerminalBindings)
+        .where(
+          and(
+            eq(sessionTerminalBindings.sessionId, sessionId),
+            eq(sessionTerminalBindings.keyKind, 'provider'),
+            eq(sessionTerminalBindings.boundByProvider, true),
+          ),
+        )
+        .all();
+      return rows.some((r) => r.bindingKey !== own.key);
+    };
+
+    try {
+      if (provider) {
+        const own = await lookup(provider);
+        if (own) {
+          const session = await activeSession(own.sessionId);
+          if (session) return session;
+        }
+      }
+      const coarse = pane ?? tab;
+      if (!coarse) return null;
+      const row = await lookup(coarse);
+      if (!row) return null;
+      if (provider) {
+        if (row.boundByProvider) return null;
+        if (await ownedByOtherProvider(row.sessionId, provider)) return null;
+      }
+      const session = await activeSession(row.sessionId);
+      if (session && provider) {
+        try {
+          upsertBinding(db, provider, session.id, false);
+        } catch {
+          // Adoption is an optimisation; resolution already succeeded.
+        }
+      }
+      return session;
     } catch {
-      // A store opened before the T12499 migration has no binding table: the
-      // binding tier is advisory, so resolution continues to the next tier.
+      // A store opened before the T12499/T12500 migrations lacks the table or
+      // column: the binding tier is advisory, so resolution continues.
       return null;
     }
-    if (!boundId) return null;
-    const session = await getSession(boundId, scope.worktreeRoot);
-    return session && session.status === 'active' ? session : null;
   });
 }
 

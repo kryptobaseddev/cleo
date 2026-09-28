@@ -145,7 +145,7 @@ Keep these three relationship systems distinct:
 | Start session | `cleo session start --scope global --name "<what you are doing>"` (both flags are REQUIRED) |
 | End session | `cleo session end --note "..."` |
 
-Sessions are terminal-bound. `E_SESSION_UNBOUND` → bind via `cleo session start`, `cleo session resume <id>` or `CLEO_SESSION_ID=<id>`, or pass `--session <id>`; CI and multi-step scripts must export `CLEO_SESSION_ID`.
+Sessions are terminal-bound. `E_SESSION_UNBOUND` → bind via `cleo session start`, `cleo session resume <id>` or `CLEO_SESSION_ID=<id>`, or pass `--session <id>`; CI and multi-step scripts must export `CLEO_SESSION_ID`. Claude Code adopts a session a human started in its tab; Agent-tool subagents inherit the parent's `CLAUDE_CODE_SESSION_ID`, so they act in the parent's session.
 <!-- /CLEO-INJECTION:section=session-commands -->
 
 <!-- CLEO-INJECTION:section=memory -->
@@ -255,7 +255,7 @@ Use current repo-relative paths, never arbitrary external absolute paths (`/tmp`
 <!-- /CLEO-INJECTION:section=documents -->
 <!-- CLEO-INJECTION:section=human-render -->
 ## Human Render Contract (ADR-077)
-Typed `RenderableEnvelope<T>` from `@cleocode/contracts`. `envelope.data.kind` ∈ `tree | table | list | grouped-list | section | single | generic` — agents route on `kind`. Render logic in `packages/core/src/render/`, primitives in `packages/animations/render/`, icon enums in `@cleocode/contracts/render/icon.ts`. Register with `registerRenderer(command, kind, fn)`. Commands: `cleo show T<id>` (typed), `cleo show T<id> --human` (force), `cleo tree T<id>` (generic walk of parent + `groups` edges).
+Typed `RenderableEnvelope<T>` from `@cleocode/contracts`. `envelope.data.kind` ∈ `tree | table | list | grouped-list | section | single | generic` — agents route on `kind`. Register with `registerRenderer(command, kind, fn)` (`packages/core/src/render/`). Commands: `cleo show T<id>` (typed), `cleo show T<id> --human` (force), `cleo tree T<id>` (generic walk of parent + `groups` edges).
 <!-- /CLEO-INJECTION:section=human-render -->
 
 <!-- CLEO-INJECTION:section=output-contract -->

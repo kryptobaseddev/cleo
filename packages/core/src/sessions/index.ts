@@ -21,7 +21,11 @@ import { CleoError } from '../errors.js';
 import { sessionListItemNext, sessionStartNext } from '../mvi-helpers.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { bindCallingTerminal, requireBoundSession } from '../store/session-store.js';
+import {
+  bindCallingTerminal,
+  requireBoundSession,
+  resolveBoundSession,
+} from '../store/session-store.js';
 import type { AgentSessionHandle } from './agent-session-adapter.js';
 import { closeAgentSession, openAgentSession } from './agent-session-adapter.js';
 import { resolveParentSessionIdFromEnv } from './session-id.js';
@@ -446,9 +450,15 @@ export async function sessionStatus(
   const accessor = await getTaskAccessor(projectRoot);
   const sessions = await readSessions(projectRoot, accessor);
 
-  // get-active-session-allowed: existence scan for session enforcement ("is ANY session active?"); identity callers use resolveBoundSession (T12500)
+  // T12500: the caller's BOUND session first. Only when unbound does this fall
+  // back to the newest active row — acceptable here because every caller is
+  // read-only (SDK `sessions.status()`, `status`) or an existence check
+  // (session enforcement: "is ANY session active?"). Mutations never use it.
+  const bound = (await resolveBoundSession(projectRoot))?.session;
+  if (bound?.status === 'active') return bound;
   const active = sessions
     .filter((s: Session) => s.status === 'active')
+    // get-active-session-allowed: read-only / existence fallback for an UNBOUND caller (see above)
     .sort(
       (a: Session, b: Session) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
     )[0];

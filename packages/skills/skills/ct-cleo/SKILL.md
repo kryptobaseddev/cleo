@@ -80,13 +80,20 @@ Code-graph answers (`cleo nexus impact`, `context`, `full-context`, `why`, `sear
 
 ## Sessions are terminal-bound (T12500)
 
-`cleo session start` binds the calling terminal / harness session (most specific
-key: `CLAUDE_CODE_SESSION_ID`, `TMUX_PANE`, … tab id). Session mutations from an
-unbound terminal fail with `E_SESSION_UNBOUND` instead of guessing the newest
-session; bind with `cleo session start`, `cleo session resume <id>` or
-`CLEO_SESSION_ID=<id>`, or name the target with `--session <id>`. CI and
-multi-step scripts must export `CLEO_SESSION_ID`. `session status` / `briefing`
-label a guessed session `unbound: true`.
+`cleo session start` binds the calling agent process (`CLAUDE_CODE_SESSION_ID`,
+`CODEX_THREAD_ID`, …), pane (`TMUX_PANE`, …) or tab (`TERM_SESSION_ID`, …). Session
+mutations from an unbound caller fail with `E_SESSION_UNBOUND` instead of
+guessing the newest session; bind with `cleo session start`, `cleo session resume
+<id>` or `CLEO_SESSION_ID=<id>`, or name the target with `--session <id>`. CI and
+multi-step scripts must export `CLEO_SESSION_ID`. Unattributed mutations warn on
+stderr; `session status` / `briefing` label a guessed session `unbound: true`.
+
+- A session a human started in a tab is adopted by Claude Code in that tab
+  (also after a Claude restart); a session Claude started can be ended from the tab.
+- Two Claude instances that each start a session stay isolated; a sibling tmux
+  pane never sees another pane's session.
+- Agent-tool subagents inherit the parent's `CLAUDE_CODE_SESSION_ID` and act in
+  the parent's session; `cleo orchestrate spawn` gives workers their own.
 
 ## Quick Reference
 

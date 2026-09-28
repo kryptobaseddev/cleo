@@ -534,24 +534,26 @@ export async function sessionStart(
           (s: Session) => s.status === 'active',
         );
         const stale = allActive.length;
+        // T12500 review: never advise ending the blocker — from a second agent
+        // that is a scripted way to end SOMEONE ELSE's session. Lead with
+        // starting your own (`--agent`) or adopting it if it really is yours.
+        const own =
+          ` Start your own session alongside it with '--agent <handle>', or, if it is ` +
+          `yours, bind it here with 'cleo session resume ${conflictId}'.`;
         const bulk =
           stale > 1
-            ? ` ${stale} sessions are currently active; 'cleo session end' ends one at a time. ` +
-              `Clear the backlog with 'cleo session gc --max-age 1', or list them with ` +
+            ? ` ${stale} sessions are currently active. Stale ones (older than a day) can be ` +
+              `cleared with 'cleo session gc --max-age 1'; list them with ` +
               `'cleo session list --status active --limit ${stale}'.`
             : '';
         return engineError(
           'E_SESSION_CONFLICT',
-          `An active session already exists${handleSuffix} (${conflictId}).` +
-            (stale > 1 ? bulk : ` End it first with 'cleo session end --session ${conflictId}'.`),
+          `An active session already exists${handleSuffix} (${conflictId}).${own}${bulk}`,
           {
             fix:
-              stale > 1
-                ? `Run 'cleo session gc --max-age 1' to end all ${stale} stale sessions, then start again.`
-                : // T12500: name the id — a bare `session end` from a terminal that
-                  // is not bound to this session is refused with E_SESSION_UNBOUND.
-                  `Run 'cleo session end --session ${conflictId}' before starting a new session, ` +
-                  "or pass '--agent <handle>' to run a second session alongside it.",
+              `Run 'cleo session start --agent <handle> …' to start your own session, or ` +
+              `'cleo session resume ${conflictId}' if it is yours. Do not end another agent's session.` +
+              (stale > 1 ? ` Stale backlog: 'cleo session gc --max-age 1'.` : ''),
             details: { activeSessionId: conflictId, activeSessionCount: stale },
           },
         );

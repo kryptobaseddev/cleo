@@ -51,6 +51,7 @@ import {
   hasActiveSession,
   requireBoundSession,
   resolveBoundSession,
+  resolveBoundSessionId,
   resolveSessionForRead,
   SESSION_LIVE_TTL_MS,
 } from '../../store/session-store.js';
@@ -320,6 +321,46 @@ describe('binding specificity, SDK end, harness env ids, stale sessions (T12500 
       resolveBoundSession(tempDir),
     );
     expect(three).toBeNull();
+  });
+
+  it('a tab-started session is adopted by Claude Code in that tab (attribution + end)', async () => {
+    const tabSession = await start(TAB, 'human-tab');
+
+    // Attribution (what update/complete/observe stamp) resolves the tab session.
+    expect(await inTerminal(CLAUDE_1, () => resolveBoundSessionId(tempDir))).toBe(tabSession);
+
+    // Adoption bound the provider key: a NEW tab session does not move Claude.
+    const newer = await start(TAB, 'human-tab-2');
+    expect(newer).not.toBe(tabSession);
+    expect(await inTerminal(CLAUDE_1, () => resolveBoundSessionId(tempDir))).toBe(tabSession);
+
+    const ended = await inTerminal(CLAUDE_1, () => sessionEnd(tempDir));
+    expect(ended.success).toBe(true);
+    expect(ended.data?.sessionId).toBe(tabSession);
+  });
+
+  it('a restarted Claude (new provider id) still reaches the tab session via the tab', async () => {
+    const tabSession = await start(TAB, 'human-tab');
+    // First Claude adopts it…
+    expect(await inTerminal(CLAUDE_1, () => resolveBoundSessionId(tempDir))).toBe(tabSession);
+    // …then exits; the restarted instance has a new CLAUDE_CODE_SESSION_ID.
+    expect(await inTerminal(CLAUDE_2, () => resolveBoundSessionId(tempDir))).toBe(tabSession);
+  });
+
+  it('a Claude-started session is ended by that Claude and is visible from the plain tab', async () => {
+    const mine = await start(CLAUDE_1, 'claude-own');
+    expect(await inTerminal(TAB, () => resolveBoundSessionId(tempDir))).toBe(mine);
+    const ended = await inTerminal(CLAUDE_1, () => sessionEnd(tempDir));
+    expect(ended.data?.sessionId).toBe(mine);
+  });
+
+  it('a Claude that starts its own session is not captured by the tab session', async () => {
+    const tabSession = await start(TAB, 'human-tab');
+    const mine = await start(CLAUDE_1, 'claude-own');
+    expect(mine).not.toBe(tabSession);
+    expect(await inTerminal(CLAUDE_1, () => resolveBoundSessionId(tempDir))).toBe(mine);
+    // A second Claude in the tab does not adopt the first Claude's session.
+    expect(await inTerminal(CLAUDE_2, () => resolveBoundSessionId(tempDir))).toBeNull();
   });
 
   it('SDK endSession from an unbound terminal throws SESSION_UNBOUND and ends nobody', async () => {

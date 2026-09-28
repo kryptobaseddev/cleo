@@ -21,7 +21,7 @@
  */
 
 import { sql } from 'drizzle-orm';
-import { index, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import { tasksSessions } from './schema/cleo-project/tasks-core.js';
 
 /** Physical table name — the single source for the accessor and tests. */
@@ -45,6 +45,13 @@ export const sessionTerminalBindings = sqliteTable(
     sessionId: text('session_id')
       .notNull()
       .references(() => tasksSessions.id, { onDelete: 'cascade' }),
+    /**
+     * `true` when written by an explicit start / resume / switch from a process
+     * carrying an agent-harness (provider) identity; `false` for a human-written
+     * tab / pane binding and for a provider key that ADOPTED a human tab
+     * session. Only a `false` coarse binding may be adopted by an agent (T12500).
+     */
+    boundByProvider: integer('bound_by_provider', { mode: 'boolean' }).notNull().default(false),
     /** ISO-8601 UTC instant the binding was last written. */
     boundAt: text('bound_at').notNull().default(sql`(datetime('now'))`),
   },

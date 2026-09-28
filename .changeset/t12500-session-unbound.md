@@ -28,9 +28,18 @@ an unbound caller, labelled `unbound: true`.
 
 Spawn no longer falls back to the orchestrator's session when allocating the
 child's own session fails; the spawn is refused with `E_SESSION_UNBOUND`.
-Terminal bindings use the MOST SPECIFIC identity key only (harness session,
-then multiplexer pane, then tab): a sibling tmux pane or a second Claude Code
-instance sharing a tab id no longer resolves — or ends — the other's session.
+Terminal bindings are split by kind: agent process (`CLAUDE_CODE_SESSION_ID`,
+…), pane (`TMUX_PANE`, …) and tab (`TERM_SESSION_ID`, …, or ppid). A sibling
+tmux pane never falls through to the tab, and two Claude Code instances that
+each started a session stay isolated. A session a human started in a tab IS
+adopted by Claude Code in that tab (also after a restart), because tab
+bindings record `bound_by_provider` (new column, migration
+`20260928000000_t12500-binding-provider-flag`); a Claude-started session can
+be ended from the plain tab. CLI mutations that run with no bound session
+print a one-line stderr warning. The `E_SESSION_CONFLICT` advice now leads
+with `--agent <handle>` / `session resume <id>` and never suggests ending
+another agent's session. Sticky-to-session-note conversion and the drift
+watchdog use the bound session.
 The SDK `cleo.sessions.end()` / `endSession` and session snapshots resolve the
 bound session too; `sessions.start()` / `resume()` bind. Observations auto-link
 only to the bound session's task. A harness exporting a non-CLEO
