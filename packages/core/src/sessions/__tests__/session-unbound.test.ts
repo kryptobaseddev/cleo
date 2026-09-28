@@ -48,11 +48,14 @@ import {
 import { requireSpawnSession } from '../../spawn/agent-identity.js';
 import {
   getSession,
+  hasActiveSession,
   requireBoundSession,
   resolveBoundSession,
   resolveSessionForRead,
+  SESSION_LIVE_TTL_MS,
 } from '../../store/session-store.js';
 import { safestop } from '../../system/safestop.js';
+import { endSession, startSession } from '../index.js';
 import { SESSION_ENV_KEY_PRECEDENCE } from '../session-id.js';
 import { TERMINAL_KEY_SOURCES } from '../terminal-identity.js';
 
@@ -246,6 +249,113 @@ describe('unbound callers (T12500)', () => {
   });
 });
 
+describe('binding specificity, SDK end, harness env ids, stale sessions (T12500 review)', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    vi.stubEnv('CLEO_ROOT', undefined);
+    vi.stubEnv('CLEO_DIR', undefined);
+    clearIdentityEnv();
+    tempDir = await mkdtemp(join(tmpdir(), 'cleo-session-bind-'));
+    const cleoDir = join(tempDir, '.cleo');
+    await mkdir(join(cleoDir, 'backups', 'operational'), { recursive: true });
+    await writeFile(
+      join(cleoDir, 'config.json'),
+      JSON.stringify({
+        enforcement: { session: { requiredForMutate: false } },
+        lifecycle: { mode: 'off' },
+        verification: { enabled: false },
+      }),
+    );
+  });
+
+  afterEach(async () => {
+    vi.unstubAllEnvs();
+    try {
+      const { closeAllDatabases } = await import('../../store/sqlite.js');
+      await closeAllDatabases();
+    } catch {
+      /* ignore */
+    }
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 }).catch(
+      () => {},
+    );
+  });
+
+  const TAB = { TERM_SESSION_ID: 'w0t0p0:SHARED-TAB' };
+  const TMUX = { TMUX: '/tmp/tmux-501/default,42,0' };
+  const PANE_1 = { ...TAB, ...TMUX, TMUX_PANE: '%1' };
+  const PANE_2 = { ...TAB, ...TMUX, TMUX_PANE: '%2' };
+  const CLAUDE_1 = { ...TAB, CLAUDE_CODE_SESSION_ID: 'claude-one' };
+  const CLAUDE_2 = { ...TAB, CLAUDE_CODE_SESSION_ID: 'claude-two' };
+
+  async function start(vars: Record<string, string>, name: string): Promise<string> {
+    return inTerminal(vars, async () => {
+      const res = await sessionStart(tempDir, { scope: 'global', name, agentHandle: name });
+      expect(res.success).toBe(true);
+      return res.data!.id;
+    });
+  }
+
+  it('a sibling tmux pane sharing the tab id cannot end the other pane’s session', async () => {
+    const pane1 = await start(PANE_1, 'pane-1');
+
+    const res = await inTerminal(PANE_2, () => sessionEnd(tempDir));
+
+    expect(res.success).toBe(false);
+    expect(res.error?.code).toBe('E_SESSION_UNBOUND');
+    expect((await getSession(pane1, tempDir))?.status).toBe('active');
+    // Pane %1 itself still resolves and ends its own session.
+    const own = await inTerminal(PANE_1, () => sessionEnd(tempDir));
+    expect(own.data?.sessionId).toBe(pane1);
+  });
+
+  it('two Claude Code instances in one tab each own only their session', async () => {
+    const one = await start(CLAUDE_1, 'claude-1');
+    const two = await start(CLAUDE_2, 'claude-2');
+    expect((await inTerminal(CLAUDE_1, () => resolveBoundSession(tempDir)))?.session.id).toBe(one);
+    expect((await inTerminal(CLAUDE_2, () => resolveBoundSession(tempDir)))?.session.id).toBe(two);
+    // A third instance in the same tab is unbound — the shared tab key is not bound at all.
+    const three = await inTerminal({ ...TAB, CLAUDE_CODE_SESSION_ID: 'claude-three' }, () =>
+      resolveBoundSession(tempDir),
+    );
+    expect(three).toBeNull();
+  });
+
+  it('SDK endSession from an unbound terminal throws SESSION_UNBOUND and ends nobody', async () => {
+    const one = await inTerminal(CLAUDE_1, () =>
+      startSession(tempDir, { name: 'sdk-one', scope: 'global' }),
+    );
+    const err = await inTerminal(CLAUDE_2, () =>
+      endSession(tempDir, {}).then(
+        () => null,
+        (e: unknown) => e,
+      ),
+    );
+    expect((err as CleoError).code).toBe(ExitCode.SESSION_UNBOUND);
+    expect((await getSession(one.id, tempDir))?.status).toBe('active');
+    // The starting terminal ends its own session through the SDK.
+    const ended = await inTerminal(CLAUDE_1, () => endSession(tempDir, {}));
+    expect(ended.id).toBe(one.id);
+  });
+
+  it('a harness env id with no CLEO row still binds the terminal on start', async () => {
+    const harness = { ...CLAUDE_1, CLAUDE_SESSION_ID: 'not-a-cleo-session' };
+    const id = await start(harness, 'harness');
+    const res = await inTerminal(harness, () => sessionEnd(tempDir));
+    expect(res.success).toBe(true);
+    expect(res.data?.sessionId).toBe(id);
+  });
+
+  it('a stale never-ended session does not make unbound calls ambiguous', async () => {
+    const id = await start(CLAUDE_1, 'stale');
+    expect(await hasActiveSession(tempDir)).toBe(true);
+    const later = Date.now() + SESSION_LIVE_TTL_MS + 60_000;
+    expect(await hasActiveSession(tempDir, later)).toBe(false);
+    expect((await getSession(id, tempDir))?.status).toBe('active');
+  });
+});
+
 describe('spawn session allocation (T12500)', () => {
   let tempDir: string;
 
@@ -297,7 +407,7 @@ describe('spawn session allocation (T12500)', () => {
     expect(child?.agentHandle).toBe('agent-t4242');
   });
 
-  it('refuses with E_SESSION_UNBOUND instead of inheriting when allocation fails', async () => {
+  it('refuses with the REAL allocation error instead of inheriting when allocation fails', async () => {
     const orchestrator = await inTerminal(TERMINAL_A, async () => {
       const res = await sessionStart(tempDir, { scope: 'global', name: 'orchestrator' });
       return res.data!.id;
@@ -311,8 +421,20 @@ describe('spawn session allocation (T12500)', () => {
 
     expect(spawned.ok).toBe(false);
     if (spawned.ok) return;
-    expect(spawned.code).toBe('E_SESSION_UNBOUND');
+    // A store failure is reported as itself, never relabelled E_SESSION_UNBOUND.
+    expect(spawned.code).toBe('E_INTERNAL');
+    expect(spawned.exitCode).toBe(ExitCode.GENERAL_ERROR);
     expect(spawned.cause).toBe('store locked');
     expect(JSON.stringify(spawned)).not.toContain(orchestrator);
+  });
+
+  it('keeps a CleoError allocation failure’s own catalog code', async () => {
+    const spawned = await requireSpawnSession(tempDir, 'T4244', async () => {
+      throw new CleoError(ExitCode.LOCK_TIMEOUT, 'lock held');
+    });
+    expect(spawned.ok).toBe(false);
+    if (spawned.ok) return;
+    expect(spawned.code).not.toBe('E_SESSION_UNBOUND');
+    expect(spawned.exitCode).toBe(ExitCode.LOCK_TIMEOUT);
   });
 });

@@ -18,6 +18,9 @@
  */
 
 import type { Session } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts';
+import { getErrorDefinition } from '../error-catalog.js';
+import { CleoError } from '../errors.js';
 import { generateSessionId } from '../sessions/session-id.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 
@@ -122,8 +125,14 @@ export type SpawnSessionResolution =
   | { readonly ok: true; readonly identity: SpawnAgentIdentity }
   | {
       readonly ok: false;
-      /** Always `E_SESSION_UNBOUND`: the spawned agent would have no session of its own. */
-      readonly code: 'E_SESSION_UNBOUND';
+      /**
+       * The REAL failure's LAFS code (T12500 review): a `CleoError` keeps its
+       * catalog code (e.g. `E_CLEO_LOCK_TIMEOUT`); anything else — a SQLite or
+       * I/O failure — is `E_INTERNAL`. Never relabelled `E_SESSION_UNBOUND`.
+       */
+      readonly code: string;
+      /** Numeric exit code matching {@link code}. */
+      readonly exitCode: number;
       readonly message: string;
       readonly fix: string;
       /** Why allocation failed. */
@@ -137,8 +146,8 @@ export type SpawnSessionResolution =
  * `getActiveSession()` — the newest active row, i.e. usually the ORCHESTRATOR's
  * session — and injected it as the child's `CLEO_SESSION_ID`. The child then
  * ended, attributed to and focused the orchestrator's session. There is no
- * safe session to guess, so a failed allocation now fails the spawn with
- * `E_SESSION_UNBOUND` instead.
+ * safe session to guess, so a failed allocation now fails the spawn, carrying
+ * the underlying store error rather than falling back.
  *
  * @param projectRoot - Absolute path to the project root.
  * @param taskId - The task being spawned.
@@ -155,9 +164,11 @@ export async function requireSpawnSession(
     return { ok: true, identity: await allocate(projectRoot, taskId) };
   } catch (err) {
     const cause = err instanceof Error ? err.message : String(err);
+    const cleoDef = err instanceof CleoError ? getErrorDefinition(err.code) : undefined;
     return {
       ok: false,
-      code: 'E_SESSION_UNBOUND',
+      code: cleoDef?.lafsCode ?? 'E_INTERNAL',
+      exitCode: err instanceof CleoError ? err.code : ExitCode.GENERAL_ERROR,
       message:
         `Could not allocate a session for spawned task ${taskId}: ${cause}. ` +
         "Refusing to hand it the orchestrator's session.",

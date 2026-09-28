@@ -383,11 +383,16 @@ export async function getActiveSession(cwd?: string): Promise<Session | null> {
 /**
  * Bind the calling terminal to a session (T12499 · epic T12497).
  *
- * Upserts one `session_terminal_bindings` row per identity key of the calling
- * terminal ({@link resolveTerminalKeys}: provider harness id, multiplexer pane,
- * terminal tab, or the ppid-chain fallback), each pointing at `sessionId`. A
- * later short-lived `cleo` call from the same terminal resolves this session
- * through {@link resolveTerminalBoundSession} before any newest-active fallback.
+ * Upserts ONE `session_terminal_bindings` row — for the MOST SPECIFIC identity
+ * key of the calling terminal ({@link resolveTerminalKeys} orders them provider
+ * harness id → multiplexer pane → terminal tab → ppid-chain fallback) —
+ * pointing at `sessionId`. A later short-lived `cleo` call from the same
+ * terminal resolves this session through {@link resolveTerminalBoundSession}.
+ *
+ * T12500: only the most specific key is bound. Binding the coarse tab-level
+ * keys (`TERM_SESSION_ID`, `ITERM_SESSION_ID`, …) as well let a SIBLING —
+ * another tmux pane in the same tab, or a second Claude Code instance — resolve
+ * through the shared tab key and end this session.
  *
  * Refuses to bind a session id that has no row, so a binding can never name a
  * session this project does not hold. Re-binding a key moves it to the newer
@@ -395,83 +400,113 @@ export async function getActiveSession(cwd?: string): Promise<Session | null> {
  *
  * @param sessionId - The session the terminal just started or resumed.
  * @param cwd - Working directory for DB resolution.
- * @param keys - Identity keys to bind (defaults to the live terminal's keys).
- * @returns The keys that were bound; empty when there were none or the session
- *   row does not exist.
+ * @param keys - Identity keys, most specific first (defaults to the live terminal's).
+ * @returns The key that was bound (zero or one entry).
  * @task T12499
+ * @task T12500
  */
 export async function bindTerminalToSession(
   sessionId: string,
   cwd?: string,
   keys: readonly TerminalKey[] = resolveTerminalKeys(),
 ): Promise<TerminalKey[]> {
-  if (keys.length === 0) return [];
+  const key = keys[0];
+  if (!key) return [];
   const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
   return worktreeScope.run(scope, async () => {
     const session = await getSession(sessionId, scope.worktreeRoot);
     if (!session) return [];
     const db = await getDb(scope.worktreeRoot);
     const boundAt = new Date().toISOString();
-    for (const key of keys) {
-      db.insert(sessionTerminalBindings)
-        .values({
-          bindingKey: key.key,
-          keySource: key.source,
-          keyKind: key.kind,
-          sessionId,
-          boundAt,
-        })
-        .onConflictDoUpdate({
-          target: sessionTerminalBindings.bindingKey,
-          set: { keySource: key.source, keyKind: key.kind, sessionId, boundAt },
-        })
-        .run();
-    }
-    return [...keys];
+    db.insert(sessionTerminalBindings)
+      .values({
+        bindingKey: key.key,
+        keySource: key.source,
+        keyKind: key.kind,
+        sessionId,
+        boundAt,
+      })
+      .onConflictDoUpdate({
+        target: sessionTerminalBindings.bindingKey,
+        set: { keySource: key.source, keyKind: key.kind, sessionId, boundAt },
+      })
+      .run();
+    return [key];
   });
 }
 
 /**
- * Resolve the session bound to the calling terminal (T12499).
+ * Bind the calling terminal to a session it just started, resumed or switched
+ * to (T12499 · T12500). Best-effort: a binding failure never fails the
+ * lifecycle command.
  *
- * Walks the terminal's identity keys in precedence order and returns the first
- * bound session whose row still exists and is `active`. A binding to an ended
- * or deleted session is ignored (the terminal has no live session), so the
- * caller falls through to its next tier.
+ * Skipped only when the process already carries an env session id that NAMES
+ * AN EXISTING ROW (e.g. a spawned worker's `CLEO_SESSION_ID`): that identity
+ * already governs the process, and binding would let a worker sharing its
+ * harness's `CLAUDE_CODE_SESSION_ID` overwrite the orchestrator's binding. A
+ * harness that exports `CLAUDE_SESSION_ID` / `AIDER_SESSION_ID` holding a
+ * non-CLEO id still binds — otherwise every later mutation from it would be
+ * refused with `E_SESSION_UNBOUND`.
+ *
+ * @param sessionId - The started / resumed / switched-to session.
+ * @param cwd - Working directory for DB resolution.
+ * @returns `true` when a binding row was written.
+ * @task T12500
+ */
+export async function bindCallingTerminal(sessionId: string, cwd?: string): Promise<boolean> {
+  try {
+    const envId = resolveSessionIdFromEnv();
+    if (envId !== null && (await getSession(envId, cwd)) !== null) return false;
+    return (await bindTerminalToSession(sessionId, cwd)).length > 0;
+  } catch {
+    // Best-effort — without a binding, mutations from this terminal are
+    // refused with E_SESSION_UNBOUND until it binds another way.
+    return false;
+  }
+}
+
+/**
+ * Resolve the session bound to the calling terminal (T12499 · T12500).
+ *
+ * Looks up ONLY the terminal's most specific identity key and returns its
+ * bound session when that row still exists and is `active`. It deliberately
+ * does NOT fall through to a coarser key: when a pane- or harness-level key is
+ * present but unbound, the tab-level key it shares with its siblings says
+ * nothing about THIS caller (T12500 — pane %2 ended pane %1's session that way).
+ * A binding to an ended or deleted session is ignored.
  *
  * @param cwd - Working directory for DB resolution.
- * @param keys - Identity keys to look up (defaults to the live terminal's keys).
+ * @param keys - Identity keys, most specific first (defaults to the live terminal's).
  * @returns The bound active session, or `null`.
  * @task T12499
+ * @task T12500
  */
 export async function resolveTerminalBoundSession(
   cwd?: string,
   keys: readonly TerminalKey[] = resolveTerminalKeys(),
 ): Promise<Session | null> {
-  if (keys.length === 0) return null;
+  const key = keys[0];
+  if (!key) return null;
   const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
   return worktreeScope.run(scope, async () => {
     const db = await getDb(scope.worktreeRoot);
-    for (const key of keys) {
-      let boundId: string | undefined;
-      try {
-        const rows = await db
-          .select({ sessionId: sessionTerminalBindings.sessionId })
-          .from(sessionTerminalBindings)
-          .where(eq(sessionTerminalBindings.bindingKey, key.key))
-          .limit(1)
-          .all();
-        boundId = rows[0]?.sessionId;
-      } catch {
-        // A store opened before the T12499 migration has no binding table: the
-        // binding tier is advisory, so resolution continues to the next tier.
-        return null;
-      }
-      if (!boundId) continue;
-      const session = await getSession(boundId, scope.worktreeRoot);
-      if (session && session.status === 'active') return session;
+    let boundId: string | undefined;
+    try {
+      const rows = await db
+        .select({ sessionId: sessionTerminalBindings.sessionId })
+        .from(sessionTerminalBindings)
+        .where(eq(sessionTerminalBindings.bindingKey, key.key))
+        .limit(1)
+        .all();
+      boundId = rows[0]?.sessionId;
+    } catch {
+      // A store opened before the T12499 migration has no binding table: the
+      // binding tier is advisory, so resolution continues to the next tier.
+      return null;
     }
-    return null;
+    if (!boundId) return null;
+    const session = await getSession(boundId, scope.worktreeRoot);
+    return session && session.status === 'active' ? session : null;
   });
 }
 
@@ -657,17 +692,47 @@ export async function resolveSessionForRead(cwd?: string): Promise<ReadSessionRe
 }
 
 /**
- * Whether ANY session is active in this project (T12500).
+ * How recently an `active` session must have started or recorded activity to
+ * make an unbound caller ambiguous (T12500). Sessions leak `active` — an agent
+ * that crashes never ends its own — so an ancient row must not turn every
+ * unbound call into `E_SESSION_UNBOUND` forever.
+ */
+export const SESSION_LIVE_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Whether any LIVE session is active in this project (T12500).
  *
  * An existence scan, not an identity: it decides whether an unbound caller is
- * ambiguous (`E_SESSION_UNBOUND`) or simply has no session to act on.
+ * ambiguous (`E_SESSION_UNBOUND`) or simply has no session to act on. Only
+ * sessions whose newest of `lastActivity` / `startedAt` falls within
+ * {@link SESSION_LIVE_TTL_MS} count; a stale, never-ended row does not.
  *
  * @param cwd - Working directory for DB resolution.
- * @returns `true` when at least one session row is `active`.
+ * @param nowMs - Clock override for tests.
+ * @returns `true` when at least one live session row is `active`.
  * @task T12500
  */
-export async function hasActiveSession(cwd?: string): Promise<boolean> {
-  return (await getActiveSession(cwd)) !== null;
+export async function hasActiveSession(cwd?: string, nowMs: number = Date.now()): Promise<boolean> {
+  const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    const db = await getDb(scope.worktreeRoot);
+    const rows = await db
+      .select({
+        startedAt: schema.sessions.startedAt,
+        lastActivity: schema.sessions.lastActivity,
+      })
+      .from(schema.sessions)
+      .where(eq(schema.sessions.status, 'active'))
+      .all();
+    const cutoff = nowMs - SESSION_LIVE_TTL_MS;
+    return rows.some((row) => {
+      const seen = Math.max(
+        Date.parse(row.startedAt ?? '') || 0,
+        Date.parse(row.lastActivity ?? '') || 0,
+      );
+      return seen >= cutoff;
+    });
+  });
 }
 
 /** How to bind a caller to a session — shared by every E_SESSION_UNBOUND (T12500). */

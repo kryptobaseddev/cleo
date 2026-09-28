@@ -3,7 +3,7 @@ name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
   version: 2.20.6
-  lastReviewed: 2026-09-24
+  lastReviewed: 2026-09-27
   stability: stable
 ---
 
@@ -78,11 +78,22 @@ Use `cleo backup inspect <snapshot> --record-id <id>` for read-only historical e
 
 Code-graph answers (`cleo nexus impact`, `context`, `full-context`, `why`, `search-code`, `task-symbols`, `clusters`, `flows`) carry `meta._nexus.freshness`: stale file count and sample, whether the queried symbol's own file is stale, and the refresh command with an estimated cost. A query refreshes up to 25 stale files inline within a 60 s budget (`nexus.autoRefresh.maxFiles`/`budgetMs`/`enabled`) and discloses it in `freshness.autoRefresh`; beyond that it answers from the stale index with `W_NEXUS_INDEX_STALE`. `unknown` freshness is never fresh. `cleo nexus analyze` re-parses only changed files, re-resolves every file, and reports `mode`, `reason` and per-phase cost; it falls back to a full parse (and says why) when there is no parse cache, the extractor build changed, or over 30% of files changed. `--full` forces a rebuild.
 
+## Sessions are terminal-bound (T12500)
+
+`cleo session start` binds the calling terminal / harness session (most specific
+key: `CLAUDE_CODE_SESSION_ID`, `TMUX_PANE`, … tab id). Session mutations from an
+unbound terminal fail with `E_SESSION_UNBOUND` instead of guessing the newest
+session; bind with `cleo session start`, `cleo session resume <id>` or
+`CLEO_SESSION_ID=<id>`, or name the target with `--session <id>`. CI and
+multi-step scripts must export `CLEO_SESSION_ID`. `session status` / `briefing`
+label a guessed session `unbound: true`.
+
 ## Quick Reference
 
 | Need | Command |
 |------|---------|
 | Start session | `cleo session status` → `cleo briefing` |
+| End session (from another terminal) | `cleo session end --session <id>` |
 | Find work | `cleo next` → `cleo focus <id>` |
 | Search tasks | `cleo find "query"` |
 | Complete task | `cleo verify T### --gate ... --evidence "..."` → `cleo complete T###` |

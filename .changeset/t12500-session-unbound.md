@@ -28,4 +28,15 @@ an unbound caller, labelled `unbound: true`.
 
 Spawn no longer falls back to the orchestrator's session when allocating the
 child's own session fails; the spawn is refused with `E_SESSION_UNBOUND`.
-Gate 16 (`lint-no-bare-get-active-session`) baseline lowered 11 → 0.
+Terminal bindings use the MOST SPECIFIC identity key only (harness session,
+then multiplexer pane, then tab): a sibling tmux pane or a second Claude Code
+instance sharing a tab id no longer resolves — or ends — the other's session.
+The SDK `cleo.sessions.end()` / `endSession` and session snapshots resolve the
+bound session too; `sessions.start()` / `resume()` bind. Observations auto-link
+only to the bound session's task. A harness exporting a non-CLEO
+`CLAUDE_SESSION_ID` still binds on start. Only sessions active within 24 h make
+an unbound caller ambiguous. Spawn allocation failures report the real error.
+
+Gate 16 (`lint-no-bare-get-active-session`) now also flags inline
+newest-active selection; bare callsites 11 → 0, baseline 4 (read-only
+displays).

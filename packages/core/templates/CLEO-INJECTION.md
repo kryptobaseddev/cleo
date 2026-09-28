@@ -101,9 +101,7 @@ Parent matrix: Saga `parent_id IS NULL`; Epic `parent_id` = Saga (or null for st
 | Narrow to strongest signals | `cleo reconcile scope <id> --threshold 0.75` |
 | Write the proposed `relates` edges | `cleo reconcile scope <id> --apply` |
 
-Actions: **merge** (same tier+parent, ≥90%) · **absorb** (≥90% across containers) ·
-**split** (shared scope apart — use `cleo decompose`) · **link** (siblings, usually
-intended sequencing). `--apply` writes ONLY `relates` edges — nothing is merged, retitled, reparented or deleted — and the earlier task always survives, so runs are reproducible. Read `link` sceptically: shared naming conventions inflate title similarity. Act on `merge`/`absorb`, which also require a tier+parent match.
+Actions: **merge** (same tier+parent, ≥90%) · **absorb** (≥90% across containers) · **split** (shared scope apart — use `cleo decompose`) · **link** (siblings, usually intended sequencing). `--apply` writes ONLY `relates` edges (nothing merged, retitled, reparented or deleted; the earlier task survives). Shared naming inflates `link` similarity; act on `merge`/`absorb`.
 
 ## Task Discovery
 
@@ -146,6 +144,8 @@ Keep these three relationship systems distinct:
 | Resume context | `cleo briefing` |
 | Start session | `cleo session start --scope global --name "<what you are doing>"` (both flags are REQUIRED) |
 | End session | `cleo session end --note "..."` |
+
+Sessions are terminal-bound. `E_SESSION_UNBOUND` → bind via `cleo session start`, `cleo session resume <id>` or `CLEO_SESSION_ID=<id>`, or pass `--session <id>`; CI and multi-step scripts must export `CLEO_SESSION_ID`.
 <!-- /CLEO-INJECTION:section=session-commands -->
 
 <!-- CLEO-INJECTION:section=memory -->
@@ -230,7 +230,7 @@ HIGH/CRITICAL requires reviewing affected callers before editing. For stale, par
 
 ## Playbook Domain (v2026.4.93 · T910 Orchestration Coherence v4)
 
-`.cantbook` YAML encodes staged agent flows. Runtime: deterministic state machine, HMAC-signed HITL resume tokens. References: `docs/architecture/orchestration-flow.md` (6-layer pipeline), `.cleo/adrs/ADR-053-playbook-runtime.md` (state-machine decision).
+`.cantbook` YAML encodes staged agent flows (deterministic state machine, HMAC-signed HITL resume tokens; ADR-053).
 
 | Goal | Command |
 |------|---------|
@@ -238,7 +238,7 @@ HIGH/CRITICAL requires reviewing affected callers before editing. For stale, par
 | Inspect run state | `cleo playbook status <runId>` |
 | Resume after HITL approval | `cleo playbook resume <runId>` |
 
-Starter playbooks ship with `@cleocode/playbooks`: `rcasd.cantbook`, `ivtr.cantbook`, `release.cantbook`.
+Starters (`@cleocode/playbooks`): `rcasd`, `ivtr`, `release`.
 <!-- /CLEO-INJECTION:section=playbooks -->
 
 <!-- CLEO-INJECTION:section=documents -->

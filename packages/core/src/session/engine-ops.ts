@@ -49,7 +49,7 @@ import { generateSessionId, resolveSessionIdFromEnv } from '../sessions/session-
 import { appendSessionJournalEntry } from '../sessions/session-journal.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import {
-  bindTerminalToSession,
+  bindCallingTerminal,
   hasActiveSession,
   resolveBoundSession,
   resolveSessionForRead,
@@ -452,28 +452,6 @@ async function isCallerUnbound(projectRoot: string, explicitSessionId?: string):
 }
 
 /**
- * Bind the calling terminal to a session it just started or resumed (T12499).
- *
- * Best-effort: a binding failure never fails the lifecycle command. Skipped when
- * the process already carries an explicit CLEO session identity in its
- * environment (`CLEO_SESSION_ID` & co., e.g. a spawned worker): that identity
- * already governs the process, and binding would let a worker sharing its
- * harness's `CLAUDE_CODE_SESSION_ID` overwrite the orchestrator's binding.
- *
- * @param projectRoot - Project root for DB resolution.
- * @param sessionId - The started or resumed session.
- */
-async function bindCallingTerminal(projectRoot: string, sessionId: string): Promise<void> {
-  try {
-    if (resolveSessionIdFromEnv() !== null) return;
-    await bindTerminalToSession(sessionId, projectRoot);
-  } catch {
-    // Best-effort — without a binding, mutations from this terminal are
-    // refused with E_SESSION_UNBOUND (T12500) until it binds another way.
-  }
-}
-
-/**
  * Start a new session.
  *
  * Validates scope, guards against active session conflicts, chains session
@@ -688,7 +666,7 @@ export async function sessionStart(
     // T12499: bind this terminal / harness to the new session so its later
     // short-lived `cleo` calls resolve it before any newest-active fallback.
     // Runs before grade mode below exports CLEO_SESSION_ID into this process.
-    await bindCallingTerminal(projectRoot, sessionId);
+    await bindCallingTerminal(sessionId, projectRoot);
 
     // Now update predecessor's nextSessionId
     if (previousSessionId) {
@@ -999,7 +977,7 @@ export async function sessionResume(
       // T12500: resuming an already-active session is how a new terminal
       // adopts it — bind so its later mutations resolve this session instead
       // of failing with E_SESSION_UNBOUND.
-      await bindCallingTerminal(projectRoot, sessionId);
+      await bindCallingTerminal(sessionId, projectRoot);
       return engineSuccess(session);
     }
 
@@ -1040,7 +1018,7 @@ export async function sessionResume(
     await accessor.upsertSingleSession(session);
 
     // T12499: the terminal that resumes a session becomes bound to it.
-    await bindCallingTerminal(projectRoot, sessionId);
+    await bindCallingTerminal(sessionId, projectRoot);
 
     // Wave 3B: Enrich resumed session with brain memory context (best-effort)
     let memoryContext:
@@ -1394,7 +1372,7 @@ export async function sessionSwitch(
   try {
     const result = await switchSession(projectRoot, sessionId);
     // T12500: the terminal that switches now works in the target session.
-    await bindCallingTerminal(projectRoot, sessionId);
+    await bindCallingTerminal(sessionId, projectRoot);
     return engineSuccess(result);
   } catch (err: unknown) {
     return toEngineError(err, 'E_NOT_INITIALIZED', 'Failed to switch session');

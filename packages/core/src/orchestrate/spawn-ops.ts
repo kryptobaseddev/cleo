@@ -68,7 +68,7 @@ import type {
   SpawnResult,
   WorktreeHook,
 } from '@cleocode/contracts';
-import { ExitCode, RESOURCE_DEFERRED_CODE } from '@cleocode/contracts';
+import { RESOURCE_DEFERRED_CODE } from '@cleocode/contracts';
 import { destroyWorktree, runWorktreeHooks } from '@cleocode/worktree';
 import { findLeastLoadedAgent } from '../agents/capacity.js';
 import { substituteCantAgentBody } from '../agents/variable-substitution.js';
@@ -838,8 +838,8 @@ export async function orchestrateSpawnExecute(
     // T11343 — allocate the spawned task's OWN per-agent session (not the
     // orchestrator's) and inject it into the isolation shell below. See
     // orchestrateSpawn for the full rationale. T12500 — no fallback: a failed
-    // allocation refuses the spawn instead of handing over the orchestrator's
-    // (newest active) session.
+    // allocation refuses the spawn with the REAL store error instead of handing
+    // over the orchestrator's (newest active) session.
     const spawnSession = await requireSpawnSession(cwd, taskId);
     if (!spawnSession.ok) {
       return {
@@ -847,7 +847,7 @@ export async function orchestrateSpawnExecute(
         error: {
           code: spawnSession.code,
           message: spawnSession.message,
-          exitCode: ExitCode.SESSION_UNBOUND,
+          exitCode: spawnSession.exitCode,
           details: { taskId, cause: spawnSession.cause, fix: spawnSession.fix },
         },
       };
