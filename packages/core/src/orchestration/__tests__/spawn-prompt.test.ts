@@ -133,6 +133,9 @@ describe('buildSpawnPrompt — core contract', () => {
       'utf8',
     );
     expect(result.prompt.split(fullTemplate)).toHaveLength(2);
+    // T12580: tier 1 carries the core only; reference sections stay on demand.
+    expect(result.prompt).not.toContain('## CLEO Protocol Reference (embedded — tier 2)');
+    expect(result.prompt).toContain('cleo briefing inject --section <name>');
   });
 
   it('tier 2 includes tier 1 embed + skill excerpts + anti-patterns', () => {
@@ -145,6 +148,24 @@ describe('buildSpawnPrompt — core contract', () => {
     expect(result.prompt).toContain('## CLEO Protocol (embedded — tier 1)');
     expect(result.prompt).toContain('## Skill Excerpts (tier 2)');
     expect(result.prompt).toContain('## Anti-Patterns');
+  });
+
+  it('tier 2 embeds the on-demand reference resolved in full, even with the core deduplicated (T12580)', () => {
+    const reference = readFileSync(
+      new URL('../../../templates/CLEO-REFERENCE.md', import.meta.url),
+      'utf8',
+    );
+    for (const skipCleoInjectionEmbed of [false, true]) {
+      const result = buildSpawnPrompt({
+        task: BASE_TASK,
+        protocol: 'implementation',
+        tier: 2,
+        projectRoot: PROJECT_ROOT,
+        skipCleoInjectionEmbed,
+      });
+      expect(result.prompt).toContain('## CLEO Protocol Reference (embedded — tier 2)');
+      expect(result.prompt.split(reference)).toHaveLength(2);
+    }
   });
 });
 

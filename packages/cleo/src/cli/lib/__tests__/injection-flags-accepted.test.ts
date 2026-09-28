@@ -29,7 +29,11 @@ import {
 import { assertKnownFlags, CLI_GLOBAL_FLAGS, UnknownFlagError } from '../strict-args.js';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../..');
-const TEMPLATE = join(REPO_ROOT, 'packages/core/templates/CLEO-INJECTION.md');
+// T12580: the core and its on-demand reference are both agent instructions.
+const TEMPLATES = [
+  join(REPO_ROOT, 'packages/core/templates/CLEO-INJECTION.md'),
+  join(REPO_ROOT, 'packages/core/templates/CLEO-REFERENCE.md'),
+];
 const MANIFEST = join(REPO_ROOT, 'packages/cleo/src/cli/generated/command-manifest.ts');
 
 /** verb → command-module basename, read from the generated manifest source. */
@@ -70,7 +74,9 @@ async function accepts(cmd: CommandDef, flag: string): Promise<boolean> {
   return false;
 }
 
-const documented = extractDocumentedFlags(readFileSync(TEMPLATE, 'utf-8')) as Map<string, string[]>;
+const documented = extractDocumentedFlags(
+  TEMPLATES.map((path) => readFileSync(path, 'utf-8')).join('\n\n'),
+) as Map<string, string[]>;
 
 describe('gate 21 — documented flags are accepted (T12139)', () => {
   it('extracts a non-trivial number of flags (vacuous-pass guard)', () => {
@@ -108,7 +114,7 @@ describe('gate 21 — documented flags are accepted (T12139)', () => {
     return rejected;
   }
 
-  it('every flag documented in CLEO-INJECTION.md is accepted by its command', async () => {
+  it('every flag documented in CLEO-INJECTION.md / CLEO-REFERENCE.md is accepted by its command', async () => {
     // Any entry here is either a flag the protocol documents and the binary
     // refuses, or a flag that exists only on a subcommand path this resolver
     // could not reach. Both are worth a human look.

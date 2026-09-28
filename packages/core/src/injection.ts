@@ -71,6 +71,108 @@ export function getInjectionTemplateContent(): string | null {
   return null;
 }
 
+/**
+ * File name of the on-demand protocol reference shipped beside
+ * `CLEO-INJECTION.md` in the package `templates/` directory.
+ *
+ * `CLEO-INJECTION.md` is the always-loaded core that every session and
+ * tier-1 spawn prompt carries. Reference sections (task creation, sagas,
+ * nexus, orchestration, docs, evidence detail, …) live in this file, which is
+ * never `@`-referenced — agents print one section on demand with
+ * `cleo briefing inject --section <name>`, and tier-2 spawn prompts embed it.
+ *
+ * @task T12580
+ */
+export const CLEO_REFERENCE_TEMPLATE = 'CLEO-REFERENCE.md';
+
+/**
+ * Extract a named section delimited by
+ * `<!-- CLEO-INJECTION:section=NAME -->` … `<!-- /CLEO-INJECTION:section=NAME -->`.
+ *
+ * @param content - Template text (core or reference).
+ * @param sectionName - Section anchor name.
+ * @returns The trimmed content between the anchors, or null when absent.
+ */
+export function extractInjectionSection(content: string, sectionName: string): string | null {
+  const openTag = `<!-- CLEO-INJECTION:section=${sectionName} -->`;
+  const closeTag = `<!-- /CLEO-INJECTION:section=${sectionName} -->`;
+  const start = content.indexOf(openTag);
+  if (start === -1) return null;
+  const contentStart = start + openTag.length;
+  const end = content.indexOf(closeTag, contentStart);
+  if (end === -1) return null;
+  return content.slice(contentStart, end).trim();
+}
+
+/**
+ * List every section anchor name declared in a template, in document order.
+ *
+ * @param content - Template text (core or reference).
+ * @returns Section names; duplicates are dropped.
+ */
+export function listInjectionSections(content: string): string[] {
+  const names = [...content.matchAll(/<!-- CLEO-INJECTION:section=([a-z0-9-]+) -->/g)].map(
+    (m) => m[1] as string,
+  );
+  return [...new Set(names)];
+}
+
+/** Result of {@link readInjectionSection}. */
+export interface InjectionSectionLookup {
+  /** Requested section name. */
+  section: string;
+  /** Section body, or null when no source declares it. */
+  content: string | null;
+  /** Absolute path of the file the section came from, or null when not found. */
+  source: string | null;
+  /** Every section name the searched sources declare (core first). */
+  available: string[];
+}
+
+/**
+ * Resolve one protocol section across the always-loaded core and the
+ * on-demand reference.
+ *
+ * Sources, in order: the package-bundled `CLEO-INJECTION.md` and
+ * {@link CLEO_REFERENCE_TEMPLATE} (version-matched with the running CLI), then
+ * the installed `<cleoHome>/templates/CLEO-INJECTION.md` as a fallback for a
+ * layout whose package templates are missing.
+ *
+ * @param sectionName - Section anchor name, e.g. `task-creation`.
+ * @param templatesDir - Package templates directory; defaults to the bundled one.
+ * @returns The section content with its source, plus every available name.
+ * @task T12580
+ */
+export function readInjectionSection(
+  sectionName: string,
+  templatesDir: string = join(getPackageRoot(), 'templates'),
+): InjectionSectionLookup {
+  const candidates = [
+    join(templatesDir, 'CLEO-INJECTION.md'),
+    join(templatesDir, CLEO_REFERENCE_TEMPLATE),
+    join(getCleoHome(), 'templates', 'CLEO-INJECTION.md'),
+  ];
+  const available: string[] = [];
+  let found: { content: string; source: string } | null = null;
+  for (const path of candidates) {
+    if (!existsSync(path)) continue;
+    const text = readFileSync(path, 'utf-8');
+    for (const name of listInjectionSections(text)) {
+      if (!available.includes(name)) available.push(name);
+    }
+    if (found === null) {
+      const section = extractInjectionSection(text, sectionName);
+      if (section !== null) found = { content: section, source: path };
+    }
+  }
+  return {
+    section: sectionName,
+    content: found?.content ?? null,
+    source: found?.source ?? null,
+    available,
+  };
+}
+
 // ── Legacy cleanup ───────────────────────────────────────────────────
 
 /**

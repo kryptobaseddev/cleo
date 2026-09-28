@@ -28,6 +28,7 @@ import {
   loadGlobalFlags,
   loadRetiredFlags,
   makeFlagChecker,
+  readInjectionTemplates,
 } from '../lint-injection-commands.mjs';
 import { extractRunBlockText } from '../lint-workflow-cleo-commands.mjs';
 
@@ -41,7 +42,6 @@ const checker = () => {
 };
 
 const STRICT_ARGS = 'packages/cleo/src/cli/lib/strict-args.ts';
-const INJECTION = 'packages/core/templates/CLEO-INJECTION.md';
 
 describe('loadGlobalFlags', () => {
   it('parses the real CLI_GLOBAL_FLAGS and finds --json', () => {
@@ -205,8 +205,8 @@ describe('the gate does not fire on things that are correct', () => {
 });
 
 describe('the shipped surfaces are clean', () => {
-  it('CLEO-INJECTION.md declares every flag it documents', () => {
-    expect(findFlagViolations(read(INJECTION), checker())).toEqual([]);
+  it('CLEO-INJECTION.md and CLEO-REFERENCE.md declare every flag they document', () => {
+    expect(findFlagViolations(readInjectionTemplates(REPO_ROOT), checker())).toEqual([]);
   });
 
   it('every workflow run: block declares every flag it passes', () => {
@@ -305,7 +305,7 @@ describe('--field pointer pairing (gh#1373 PR, bug found by cleo-dev)', () => {
     // somebody else owned, so a correct edit elsewhere failed my test. A test
     // over a document that other people edit must assert what has to stay
     // true, not what is true today.
-    const out = extractDocumentedPointers(read(INJECTION));
+    const out = extractDocumentedPointers(readInjectionTemplates(REPO_ROOT));
 
     expect(out.length).toBeGreaterThan(0); // guards a regex matching nothing
     expect(out.filter((d) => d.verb === 'verify').length).toBeGreaterThan(0);
