@@ -1045,6 +1045,10 @@ describe('T310: conduit + signaldock integration', () => {
     const tasksDb = new DatabaseSync(tasksPath);
     const brainDb = new DatabaseSync(brainPath);
     const sdDb = new DatabaseSync(sdPath);
+    // T12508: the snapshot gate persists its debounce in `schema_meta`.
+    tasksDb.exec(
+      'CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
+    );
 
     // Mock the native DB getters and path helpers
     vi.doMock('../sqlite.js', () => ({ getNativeDb: () => tasksDb, getDb: () => tasksDb }));
@@ -1065,7 +1069,7 @@ describe('T310: conduit + signaldock integration', () => {
       await import('../sqlite-backup.js');
 
     // Project-tier backup (tasks, brain, conduit)
-    await vacuumIntoBackupAll({ cwd: projectRoot, force: true });
+    await vacuumIntoBackupAll({ cwd: projectRoot });
 
     tasksDb.close();
     brainDb.close();

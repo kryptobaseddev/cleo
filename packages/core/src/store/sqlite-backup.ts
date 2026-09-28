@@ -43,14 +43,21 @@
 
 import {
   chmodSync,
+  closeSync,
   copyFileSync,
   existsSync,
+  fsyncSync,
+  linkSync,
   mkdirSync,
+  openSync,
   readdirSync,
+  realpathSync,
+  renameSync,
+  rmSync,
   statSync,
   unlinkSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { DB_INVENTORY, type DbInventoryEntry, type DbRole } from '@cleocode/contracts';
 import { getCleoDir, getCleoHome, resolveOrCwd } from '../paths.js';
@@ -64,18 +71,22 @@ import { getGlobalSaltPath } from './global-salt.js';
 import { getBrainDb, getBrainNativeDb } from './memory-sqlite.js';
 import { getNexusDb, getNexusNativeDb } from './nexus-sqlite.js';
 import { getSkillsNativeDb, openSkillsDb } from './skills-db.js';
+import {
+  readSnapshotGeneration,
+  runGatedSnapshot,
+  type SnapshotGateMode,
+  type SnapshotGateResult,
+  type SnapshotOutcome,
+  selectSnapshotsToKeep,
+} from './snapshot-gate.js';
 import { getDb, getNativeDb } from './sqlite.js';
 
-/** Maximum number of snapshots retained per database (oldest rotated out). */
-const MAX_SNAPSHOTS = 10;
-/** Debounce window (ms) during which duplicate snapshot requests are suppressed. */
-const DEBOUNCE_MS = 30_000; // 30 seconds
-
 /**
- * Per-database snapshot book-keeping: last snapshot timestamp (epoch ms)
- * keyed by the canonical snapshot prefix (e.g. `"tasks"` / `"brain"`).
+ * Maximum number of snapshots retained per global-tier database and for the
+ * global-salt backups (oldest rotated out). Project-tier snapshots use the
+ * time-spread policy in `snapshot-gate.ts` instead (T12508).
  */
-const _lastBackupEpoch: Record<string, number> = {};
+const MAX_SNAPSHOTS = 10;
 
 /**
  * Minimal shape of the handle used by the snapshot pipeline — only `exec()`
@@ -157,8 +168,13 @@ interface SnapshotTarget {
   readonly tier: DbInventoryEntry['tier'];
   /** How this target obtains a live handle. See {@link SnapshotStrategy}. */
   readonly strategy: SnapshotStrategy;
-  /** Resolves the live native handle, or `null` if not yet initialized. */
-  readonly getDb: () => SnapshotDbHandle | null;
+  /**
+   * Resolves the live native handle for the project at `cwd` (global targets
+   * ignore it), or `null` if not yet initialized. The `cwd` MUST be passed:
+   * without it a project-tier getter resolves the process's ambient project,
+   * and project A's backup would contain project B's database (T12508).
+   */
+  readonly getDb: (cwd?: string) => SnapshotDbHandle | null;
   /**
    * Eagerly opens the canonical singleton when {@link getDb} returns `null`.
    * MUST flow through the per-DB chokepoint (ADR-068) — these openers all
@@ -222,8 +238,9 @@ async function openTasksDbForSnapshot(cwd?: string): Promise<SnapshotDbHandle | 
 async function openConduitDbForSnapshot(cwd?: string): Promise<SnapshotDbHandle | null> {
   // ensureConduitDb requires an absolute project root. E6-L3 (T11523): it is now
   // async (routes through the dual-scope cleo.db chokepoint).
-  await ensureConduitDb(resolveOrCwd(cwd));
-  return getConduitNativeDb();
+  const projectRoot = resolveOrCwd(cwd);
+  await ensureConduitDb(projectRoot);
+  return getConduitNativeDb(projectRoot);
 }
 
 // ---------------------------------------------------------------------------
@@ -329,22 +346,26 @@ function buildRawFileVacuumOpener(
   return async (cwd?: string): Promise<SnapshotDbHandle | null> => {
     const path = resolveInventoryPath(entry, cwd);
     if (!path) return null;
-    if (!existsSync(path)) return null;
+    // T12508: `existsSync` answers false for EACCES too, which would class an
+    // unreadable database as absent. Only ENOENT means absent; any other stat
+    // error is a failure and propagates.
     try {
-      // Dynamic import preserves the T1331 lazy-init contract: importing
-      // sqlite.ts (which statically imports sqlite-backup.ts for
-      // `listSqliteBackups`) MUST NOT pull node:sqlite into module-load
-      // time. Only the raw-file-vacuum-readonly path needs the
-      // constructor, and it is exercised at snapshot-time, not load-time.
-      const { DatabaseSync } = await import('node:sqlite');
-      return new DatabaseSync(path, { readOnly: true });
-    } catch {
-      // The file might be locked by another writer, corrupt, or otherwise
-      // unopenable. Skip silently — snapshot failure must never block
-      // normal operation (and the malformed-DB case is exactly why the
-      // saga exists).
-      return null;
+      statSync(path);
+    } catch (err) {
+      if (err instanceof Error && 'code' in err && err.code === 'ENOENT') return null;
+      throw err;
     }
+    // Dynamic import preserves the T1331 lazy-init contract: importing
+    // sqlite.ts (which statically imports sqlite-backup.ts for
+    // `listSqliteBackups`) MUST NOT pull node:sqlite into module-load
+    // time. Only the raw-file-vacuum-readonly path needs the
+    // constructor, and it is exercised at snapshot-time, not load-time.
+    //
+    // T12508: an existing file that cannot be opened (locked, corrupt) THROWS
+    // here. That is a failure, not an absent database; the gate reports it
+    // and every caller stays non-fatal.
+    const { DatabaseSync } = await import('node:sqlite');
+    return new DatabaseSync(path, { readOnly: true });
   };
 }
 
@@ -384,7 +405,7 @@ const CHOKEPOINT_OPENERS: Partial<
   Record<
     DbRole,
     {
-      readonly getDb: () => SnapshotDbHandle | null;
+      readonly getDb: (cwd?: string) => SnapshotDbHandle | null;
       readonly openDb: (cwd?: string) => Promise<SnapshotDbHandle | null>;
     }
   >
@@ -555,25 +576,32 @@ function snapshotPattern(prefix: string): RegExp {
 }
 
 /**
- * Rotate snapshots for a single prefix: delete the oldest files until fewer
- * than {@link MAX_SNAPSHOTS} remain. Non-fatal on any filesystem error.
+ * Apply time-spread retention to a single prefix: delete every snapshot not
+ * selected by {@link selectSnapshotsToKeep} (latest, quarter-hourly, hourly
+ * and daily slots). Runs AFTER the new snapshot is written, so a failed
+ * `VACUUM INTO` never costs an existing recovery point, and the file just
+ * written is pinned. Non-fatal on any filesystem error.
+ *
+ * @param backupDir - Snapshot directory.
+ * @param prefix - Snapshot prefix to prune.
+ * @param justWritten - Basename of the snapshot just written; never deleted.
+ * @task T12508 — replaces the newest-10 rotation that a burst could flush
  */
-function rotateSnapshots(backupDir: string, prefix: string): void {
+function rotateSnapshots(backupDir: string, prefix: string, justWritten: string): void {
   try {
     const pattern = snapshotPattern(prefix);
-    const files = readdirSync(backupDir)
-      .filter((f) => pattern.test(f))
-      .map((f) => ({
-        name: f,
-        path: join(backupDir, f),
-        mtimeMs: statSync(join(backupDir, f)).mtimeMs,
-      }))
-      .sort((a, b) => a.mtimeMs - b.mtimeMs); // oldest first
-
-    while (files.length >= MAX_SNAPSHOTS) {
-      const oldest = files.shift();
-      if (!oldest) break;
-      unlinkSync(oldest.path);
+    const names = readdirSync(backupDir).filter((f) => pattern.test(f));
+    const keep = selectSnapshotsToKeep(names, {
+      pinned: justWritten,
+      nowStamp: formatTimestamp(new Date()),
+    });
+    for (const name of names) {
+      if (keep.has(name)) continue;
+      try {
+        unlinkSync(join(backupDir, name));
+      } catch {
+        // non-fatal — try the rest
+      }
     }
   } catch {
     // non-fatal
@@ -587,8 +615,284 @@ export interface VacuumOptions {
    * directory. Defaults to `process.cwd()` (delegated to {@link getCleoDir}).
    */
   cwd?: string;
-  /** When true, bypass the {@link DEBOUNCE_MS} debounce window. */
-  force?: boolean;
+  /**
+   * Gate admission mode (see `snapshot-gate.ts`). `routine` (default) is
+   * debounced and skips when a snapshot is in flight. `required` — session
+   * end and pre-destructive checkpoints — is not debounced, waits for the
+   * lock, and is satisfied only by a snapshot that started after the request.
+   * Neither mode bypasses the lock.
+   */
+  mode?: SnapshotGateMode;
+  /**
+   * `required` mode: the gate generation the caller observed when it made the
+   * request (see `readSnapshotGeneration`); only a later snapshot covers it.
+   * Defaults to the generation read when this call starts.
+   */
+  seenGeneration?: number;
+  /** `required` mode: never treat a prefix as covered (see `snapshot-gate.ts`). */
+  alwaysSnapshot?: boolean;
+  /**
+   * `required` mode: lock retries before giving up with `lock-timeout`.
+   * Defaults to `SNAPSHOT_LOCK_WAIT_RETRIES` (about 90 s).
+   */
+  lockWaitRetries?: number;
+  /** Called under the gate lock before the generation is claimed (see `snapshot-gate.ts`). */
+  onLockAcquired?: () => void;
+}
+
+/**
+ * Resolve the project `cleo.db` handle that stores the snapshot gate state
+ * (see `snapshot-gate.ts`). Returns `null` when it cannot be opened, in which
+ * case the gate admits no snapshot.
+ *
+ * @task T12508
+ */
+async function resolveGateStateDb(cwd?: string): Promise<DatabaseSync | null> {
+  try {
+    const bound = getNativeDb(cwd);
+    if (bound) return bound;
+    await getDb(cwd);
+    return getNativeDb(cwd);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read the project's current snapshot generation — what a `required` request
+ * should record as `seenGeneration` at the moment it is made (after the
+ * caller's last write), when the snapshot itself runs later or elsewhere.
+ *
+ * @param cwd - Project directory.
+ * @returns The generation, or `null` when the gate state cannot be read.
+ * @task T12508
+ */
+export async function readProjectSnapshotGeneration(cwd?: string): Promise<number | null> {
+  return readSnapshotGeneration(await resolveGateStateDb(cwd));
+}
+
+/**
+ * Snapshot the given project-tier targets through the project-wide gate:
+ * one snapshot in flight per project across processes, and a per-prefix
+ * debounce persisted in `cleo.db`. Non-fatal.
+ *
+ * @returns The gate outcome, or `null` when the backup directory cannot be
+ *          resolved or no target is snapshottable.
+ * @task T12508
+ */
+async function snapshotProjectTargetsGated(
+  targets: readonly SnapshotTarget[],
+  opts: VacuumOptions,
+): Promise<SnapshotGateResult | null> {
+  const cwd = opts.cwd;
+  let backupDir: string;
+  try {
+    const cleoDir = getCleoDir(cwd);
+    backupDir = join(cleoDir, 'backups', 'sqlite');
+    mkdirSync(backupDir, { recursive: true });
+  } catch {
+    return null; // cannot resolve backup dir — abort silently
+  }
+
+  const byPrefix = new Map(
+    targets.filter((t) => t.strategy !== 'skip-derived').map((t) => [t.prefix, t] as const),
+  );
+  if (byPrefix.size === 0) return null;
+
+  // One VACUUM per physical database file per run (T12508): tasks, brain and
+  // conduit share the project cleo.db handle. Maps source realpath → the
+  // snapshot file written for it in this run.
+  const writtenBySource = new Map<string, string>();
+  return runGatedSnapshot(
+    {
+      backupDir,
+      stateDb: await resolveGateStateDb(cwd),
+      prefixes: [...byPrefix.keys()],
+      mode: opts.mode ?? 'routine',
+      ...(opts.seenGeneration !== undefined && { seenGeneration: opts.seenGeneration }),
+      ...(opts.alwaysSnapshot !== undefined && { alwaysSnapshot: opts.alwaysSnapshot }),
+      ...(opts.lockWaitRetries !== undefined && { lockWaitRetries: opts.lockWaitRetries }),
+      ...(opts.onLockAcquired !== undefined && { onLockAcquired: opts.onLockAcquired }),
+    },
+    async (prefix) => {
+      const target = byPrefix.get(prefix);
+      return target ? snapshotOne(target, backupDir, writtenBySource, cwd) : 'absent';
+    },
+  );
+}
+
+/**
+ * Real path of the database file behind a native handle, or `null` when it is
+ * unknown (an in-memory database, or a handle without `location()`).
+ *
+ * @task T12508
+ */
+function sourceFileOf(db: SnapshotDbHandle): string | null {
+  if (!hasLocation(db)) return null;
+  const location = db.location();
+  if (!location) return null;
+  try {
+    return realpathSync(location);
+  } catch {
+    return location;
+  }
+}
+
+/** Whether a handle exposes `DatabaseSync.location()` (Node 24+). */
+function hasLocation(
+  db: SnapshotDbHandle,
+): db is SnapshotDbHandle & { location: () => string | null } {
+  return 'location' in db && typeof db.location === 'function';
+}
+
+/**
+ * Refuse to snapshot a project-tier handle whose file lies outside this
+ * project's `.cleo/` directory. A handle resolved for the wrong project (the
+ * ambient one in a multi-project process) would otherwise put project B's
+ * database into project A's backups.
+ *
+ * @task T12508
+ */
+function assertOwnedByProject(source: string, prefix: string, cwd?: string): void {
+  let cleoDir = getCleoDir(cwd);
+  try {
+    cleoDir = realpathSync(cleoDir);
+  } catch {
+    // Compare against the unresolved path.
+  }
+  if (!source.startsWith(cleoDir + sep)) {
+    throw new Error(
+      `refusing to snapshot ${prefix}: its database ${source} is not inside ${cleoDir}`,
+    );
+  }
+}
+
+/**
+ * `link()` error codes that mean "this filesystem cannot hard-link these
+ * files" rather than a real failure: permission-less link (EPERM), no link
+ * support (ENOTSUP, e.g. exFAT), different devices (EXDEV), link-count cap
+ * (EMLINK). The caller copies instead.
+ */
+const LINK_FALLBACK_CODES = new Set(['EPERM', 'ENOTSUP', 'EXDEV', 'EMLINK']);
+
+/**
+ * Hard-link `existing` to `dest`. Returns `false` when the filesystem cannot
+ * hard-link (see {@link LINK_FALLBACK_CODES}); any other error throws.
+ *
+ * @task T12508
+ */
+function tryHardLink(existing: string, dest: string): boolean {
+  try {
+    linkSync(existing, dest);
+    return true;
+  } catch (err) {
+    if (err instanceof Error && 'code' in err && typeof err.code === 'string') {
+      if (LINK_FALLBACK_CODES.has(err.code)) return false;
+    }
+    throw err;
+  }
+}
+
+/**
+ * An in-progress snapshot file `<name>.tmp-<pid>`, or a SQLite sidecar
+ * (`-journal`, `-wal`, `-shm`) that `VACUUM INTO` may leave beside it.
+ */
+const TEMP_SNAPSHOT_RE = /\.db\.tmp-(\d+)(?:-journal|-wal|-shm)?$/;
+
+/** Age after which any temp snapshot is a leftover, even if its pid was reused. */
+const TEMP_SNAPSHOT_MAX_AGE_MS = 60 * 60_000;
+
+/**
+ * Temp path a snapshot is written to before it is committed. It does not end
+ * in `.db`, so every snapshot reader (listing, retention, restore, doctor)
+ * ignores it.
+ */
+function tempSnapshotPath(dest: string): string {
+  return `${dest}.tmp-${process.pid}`;
+}
+
+/**
+ * Make a finished temp snapshot durable and give it its real name: fsync the
+ * file, rename it (atomic within a directory), then fsync the directory
+ * (best-effort) so the rename itself survives a crash.
+ *
+ * @task T12508
+ */
+function commitSnapshotFile(tmp: string, dest: string): void {
+  const fd = openSync(tmp, 'r');
+  try {
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+  renameSync(tmp, dest);
+  try {
+    const dirFd = openSync(dirname(dest), 'r');
+    try {
+      fsyncSync(dirFd);
+    } finally {
+      closeSync(dirFd);
+    }
+  } catch {
+    // Not every platform can fsync a directory; the rename is still atomic.
+  }
+}
+
+/** Whether a process with this pid exists (EPERM means it exists but is not ours). */
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err instanceof Error && 'code' in err && err.code === 'EPERM';
+  }
+}
+
+/**
+ * Remove temp snapshots left by a process killed mid-write: those whose pid
+ * is dead, or that are older than {@link TEMP_SNAPSHOT_MAX_AGE_MS}. Never
+ * throws.
+ *
+ * @task T12508
+ */
+function removeDeadTempSnapshots(backupDir: string): void {
+  try {
+    for (const name of readdirSync(backupDir)) {
+      const m = TEMP_SNAPSHOT_RE.exec(name);
+      if (!m) continue;
+      const pid = Number(m[1]);
+      const path = join(backupDir, name);
+      const stale =
+        pid !== process.pid &&
+        (!isPidAlive(pid) || Date.now() - statSync(path).mtimeMs > TEMP_SNAPSHOT_MAX_AGE_MS);
+      if (stale) rmSync(path, { force: true });
+    }
+  } catch {
+    // Cleanup is best-effort.
+  }
+}
+
+/** Attempts at finding a free snapshot filename before giving up. */
+const SNAPSHOT_NAME_ATTEMPTS = 3;
+
+/**
+ * Choose a snapshot filename `<prefix>-YYYYMMDD-HHmmss.db` that does not yet
+ * exist. `VACUUM INTO` refuses an existing destination, and two snapshots of
+ * one prefix can fall in the same second (a routine checkpoint followed by a
+ * pre-destructive one). On a collision this waits for the next second rather
+ * than adding a suffix, so every reader of the documented filename format
+ * (listing, restore, verify, doctor) keeps working. Called under the gate
+ * lock, so no other gated writer can take the name in between.
+ *
+ * @task T12508
+ */
+async function freeSnapshotName(backupDir: string, prefix: string): Promise<string> {
+  for (let attempt = 0; attempt < SNAPSHOT_NAME_ATTEMPTS; attempt++) {
+    const name = `${prefix}-${formatTimestamp(new Date())}.db`;
+    if (!existsSync(join(backupDir, name))) return name;
+    await new Promise((r) => setTimeout(r, 1000 - (Date.now() % 1000) + 5));
+  }
+  throw new Error(`no free snapshot filename for ${prefix} in ${backupDir}`);
 }
 
 /**
@@ -614,27 +918,37 @@ export interface VacuumOptions {
  * {@link vacuumIntoBackupAll}; failures here must never block normal
  * operation.
  *
+ * The filename is stamped HERE, under the gate lock, not when the request
+ * was made — see {@link freeSnapshotName}.
+ *
  * @param target — snapshot target descriptor (role + prefix + native DB getter)
  * @param backupDir — absolute path to the snapshot directory
- * @param now — reference timestamp for the filename
  * @param cwd — optional working directory propagated to `target.openDb`
+ * @param writtenBySource — snapshot files already written in this run, keyed
+ *        by source realpath; a second target on the same file is hard-linked.
+ * @returns `'written'` when a snapshot file was written; `'linked'` when the
+ *          same physical database was already snapshotted in this run and the
+ *          file was hard-linked under this prefix; `'absent'` when the
+ *          database does not exist in this project (or is a derived row).
+ *          Opener, ownership and `VACUUM INTO` errors throw.
  *
  * @task T10316 — eager-open via openCleoDb chokepoint (Saga T10281 / E3)
  * @task T10317 — raw-file-vacuum-readonly strategy for opener-less roles
+ * @task T12508 — reports whether it wrote, so the gate never records a skip as a snapshot
  */
 async function snapshotOne(
   target: SnapshotTarget,
   backupDir: string,
-  now: Date,
+  writtenBySource: Map<string, string>,
   cwd?: string,
-): Promise<void> {
+): Promise<SnapshotOutcome> {
   if (target.strategy === 'skip-derived') {
     // Derived row — file is rebuildable from the blob CAS. Inventory row
     // documents `backupPath === 'rebuildable-from-blob-store'`. Nothing to do.
-    return;
+    return 'absent';
   }
 
-  let db = target.getDb();
+  let db = target.getDb(cwd);
   let opened: SnapshotDbHandle | null = null;
   if (!db) {
     // T10316 / T10317: eager-open via the canonical per-DB chokepoint (for
@@ -642,18 +956,56 @@ async function snapshotOne(
     // raw-file-vacuum-readonly roles). Either way, the snapshot pipeline
     // never silently skips a registered target just because the in-process
     // handle cache is empty.
-    try {
-      db = await target.openDb(cwd);
-    } catch {
-      // Non-fatal — opener failure (e.g. missing project context, locked
-      // file, malformed orphan) must not block snapshots of other targets.
-      return;
-    }
-    if (!db) return;
+    // An opener that THROWS (locked file, malformed orphan) propagates: the
+    // gate reports it as failed. `null` means there is no such database here.
+    db = await target.openDb(cwd);
+    if (!db) return 'absent';
     opened = db;
   }
 
-  const dest = join(backupDir, `${target.prefix}-${formatTimestamp(now)}.db`);
+  let destName: string;
+  let source: string | null;
+  try {
+    source = sourceFileOf(db);
+    if (source !== null && (target.tier === 'project' || target.tier === 'derived')) {
+      assertOwnedByProject(source, target.prefix, cwd);
+    }
+    destName = await freeSnapshotName(backupDir, target.prefix);
+  } catch (err) {
+    if (opened && target.closeDb) target.closeDb(opened);
+    throw err;
+  }
+  const dest = join(backupDir, destName);
+
+  // Leftovers of a snapshot killed mid-write (see commitSnapshotFile).
+  removeDeadTempSnapshots(backupDir);
+
+  // Already snapshotted this physical file in this run: hard-link the same
+  // snapshot under this prefix. One VACUUM, no extra disk, and every reader
+  // that looks for `<prefix>-*.db` (restore, recover-brain-db, listing)
+  // still finds a file. A filesystem without hard links (exFAT, FAT, some
+  // network mounts) gets a copy instead.
+  const existing = source !== null ? writtenBySource.get(source) : undefined;
+  if (existing !== undefined) {
+    try {
+      if (tryHardLink(existing, dest)) {
+        rotateSnapshots(backupDir, target.prefix, destName);
+        return 'linked';
+      }
+      const tmp = tempSnapshotPath(dest);
+      try {
+        copyFileSync(existing, tmp);
+        commitSnapshotFile(tmp, dest);
+      } catch (err) {
+        rmSync(tmp, { force: true });
+        throw err;
+      }
+      rotateSnapshots(backupDir, target.prefix, destName);
+      return 'written';
+    } finally {
+      if (opened && target.closeDb) target.closeDb(opened);
+    }
+  }
 
   try {
     // TRUNCATE checkpoint: flushes all WAL frames to the main DB and truncates
@@ -663,11 +1015,22 @@ async function snapshotOne(
     // in that case so we keep the call uniform.
     db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
 
-    rotateSnapshots(backupDir, target.prefix);
+    // VACUUM INTO a temp name, fsync, then rename: a process killed
+    // mid-VACUUM leaves only `<name>.tmp-<pid>`, which no reader lists,
+    // never an empty file under a valid snapshot name (T12508).
+    const tmp = tempSnapshotPath(dest);
+    try {
+      // Escape single quotes in path (path is programmatic, but be safe).
+      db.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`);
+      commitSnapshotFile(tmp, dest);
+    } catch (err) {
+      rmSync(tmp, { force: true });
+      throw err;
+    }
 
-    // Escape single quotes in path (path is programmatic, but be safe).
-    const safeDest = dest.replace(/'/g, "''");
-    db.exec(`VACUUM INTO '${safeDest}'`);
+    if (source !== null) writtenBySource.set(source, dest);
+    rotateSnapshots(backupDir, target.prefix, destName);
+    return 'written';
   } finally {
     // Release the ephemeral handle for raw-file-vacuum-readonly targets.
     // Chokepoint-opener handles (`closeDb === null`) remain owned by their
@@ -681,44 +1044,41 @@ async function snapshotOne(
 /**
  * Create a VACUUM INTO snapshot of the primary SQLite database (tasks.db).
  *
- * Debounced by default (30s). Pass `force: true` to bypass debounce. This
- * function is retained for backward compatibility with existing call sites
- * in `data-safety-central.ts` that only snapshot tasks.db.
- *
- * Prefer {@link vacuumIntoBackupAll} for new code — it snapshots every
- * inventory-registered database and shares the same debounce + rotation
- * guarantees.
+ * Retained for backward compatibility with call sites in
+ * `data-safety-central.ts` that only snapshot tasks.db. It passes through the
+ * same project-wide gate as {@link vacuumIntoBackupAll}: at most one snapshot
+ * in flight per project. Per-write checkpoints use the debounced `routine`
+ * mode; pre-destructive checkpoints pass `mode: 'required'` and AWAIT the
+ * result, so the snapshot is on disk before the destructive step begins.
  *
  * Non-fatal: all errors are swallowed — backup failure must never
  * interrupt normal operation.
+ *
+ * @returns The gate outcome (which prefixes were snapshotted, or why none
+ *          were), or `null` when nothing could be attempted.
+ * @task T12508 — gated; the `force` bypass was removed
  */
-export async function vacuumIntoBackup(opts: VacuumOptions = {}): Promise<void> {
-  const now = Date.now();
-  const prefix = 'tasks';
-  const last = _lastBackupEpoch[prefix] ?? 0;
-  if (!opts.force && now - last < DEBOUNCE_MS) {
-    return; // debounced
-  }
-
+export async function vacuumIntoBackup(
+  opts: VacuumOptions = {},
+): Promise<SnapshotGateResult | null> {
   try {
-    const cleoDir = getCleoDir(opts.cwd);
-    const backupDir = join(cleoDir, 'backups', 'sqlite');
-    mkdirSync(backupDir, { recursive: true });
-
-    const target = SNAPSHOT_TARGETS.find((t) => t.prefix === prefix);
-    if (!target) return;
-
-    await snapshotOne(target, backupDir, new Date(), opts.cwd);
-    _lastBackupEpoch[prefix] = Date.now();
+    const target = SNAPSHOT_TARGETS.find((t) => t.prefix === 'tasks');
+    if (!target) return null;
+    return await snapshotProjectTargetsGated([target], opts);
   } catch {
     // non-fatal — backup failure must never interrupt normal operation
+    return null;
   }
 }
 
 /**
  * Create VACUUM INTO snapshots of every project-tier (and opt-in `derived`)
- * SQLite database registered in `DB_INVENTORY`. Each database is debounced
- * independently.
+ * SQLite database registered in `DB_INVENTORY`, through the project-wide
+ * cross-process gate (see `snapshot-gate.ts`). The session-end hook passes
+ * `mode: 'required'`: the snapshot is not debounced by earlier per-write
+ * checkpoints, so it captures the session's final writes, and requests that
+ * queue behind one running snapshot are all covered by the next one — a burst
+ * of session ends produces one snapshot.
  *
  * This is the preferred entry point for session-lifecycle hooks and
  * pre-destructive-operation snapshots — it guarantees that BRAIN memory is
@@ -733,32 +1093,18 @@ export async function vacuumIntoBackup(opts: VacuumOptions = {}): Promise<void> 
  *
  * @task T5158
  * @task T10317 — extended to every `DB_INVENTORY` project + derived row
+ * @returns The gate outcome (which prefixes were snapshotted, or why none
+ *          were), or `null` when nothing could be attempted.
+ * @task T12508 — cross-process gate + persisted debounce; `force` removed
  */
-export async function vacuumIntoBackupAll(opts: VacuumOptions = {}): Promise<void> {
-  const nowMs = Date.now();
-  const now = new Date();
-
-  let backupDir: string;
+export async function vacuumIntoBackupAll(
+  opts: VacuumOptions = {},
+): Promise<SnapshotGateResult | null> {
   try {
-    const cleoDir = getCleoDir(opts.cwd);
-    backupDir = join(cleoDir, 'backups', 'sqlite');
-    mkdirSync(backupDir, { recursive: true });
+    return await snapshotProjectTargetsGated(SNAPSHOT_TARGETS, opts);
   } catch {
-    return; // cannot resolve backup dir — abort silently
-  }
-
-  for (const target of SNAPSHOT_TARGETS) {
-    if (target.strategy === 'skip-derived') continue;
-    const last = _lastBackupEpoch[target.prefix] ?? 0;
-    if (!opts.force && nowMs - last < DEBOUNCE_MS) {
-      continue; // debounced — skip this target only
-    }
-    try {
-      await snapshotOne(target, backupDir, now, opts.cwd);
-      _lastBackupEpoch[target.prefix] = Date.now();
-    } catch {
-      // non-fatal — continue with remaining targets
-    }
+    // non-fatal — backup failure must never interrupt normal operation
+    return null;
   }
 }
 
@@ -971,11 +1317,19 @@ export async function vacuumIntoGlobalBackup(
     // non-fatal — continue even if rotation enumeration fails
   }
 
+  removeDeadTempSnapshots(backupDir);
   try {
-    // Checkpoint then VACUUM INTO for a WAL-free, atomic snapshot.
+    // Checkpoint then VACUUM INTO a temp name, fsync, rename (T12508): a
+    // kill mid-VACUUM never leaves an empty file under a snapshot name.
     db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
-    const safeDest = snapshotPath.replace(/'/g, "''");
-    db.exec(`VACUUM INTO '${safeDest}'`);
+    const tmp = tempSnapshotPath(snapshotPath);
+    try {
+      db.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`);
+      commitSnapshotFile(tmp, snapshotPath);
+    } catch (err) {
+      rmSync(tmp, { force: true });
+      throw err;
+    }
   } finally {
     // Release ephemeral handle for raw-file-vacuum-readonly targets.
     if (opened && target.closeDb) {
