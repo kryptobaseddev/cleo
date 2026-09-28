@@ -84,6 +84,8 @@ export const projectRegistry = sqliteTable(
     /**
      * Path fingerprint of the most recently encountered checkout. NOT unique —
      * the registry is keyed by `project_id` alone (ADR-094 · T12469).
+     * It is NOT the write-once identity `projectHash` from project-info.json
+     * (T12557): never join it to `audit_log.project_hash` or release ids.
      */
     projectHash: text('project_hash').notNull(),
     /**
