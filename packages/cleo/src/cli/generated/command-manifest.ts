@@ -557,6 +557,13 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/doctor.js')).doctorCommand as CommandDef,
   },
   {
+    exportName: 'doneCommand',
+    name: 'done',
+    description:
+      'Record every required gate from derived evidence (change set, tools, typed gates, AC links) in one write, then complete. --plan: read-only plan; writes nothing',
+    load: async () => (await import('../commands/done.js')).doneCommand as CommandDef,
+  },
+  {
     exportName: 'dynamicCommand',
     name: 'dynamic',
     description: 'STUB — auto-generated commands (T4897)',

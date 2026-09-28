@@ -718,6 +718,8 @@ function serializeAtom(atom: EvidenceAtom): string | null {
       return `callsite-coverage:${atom.symbolName}:${atom.relativeSourcePath}`;
     case 'pr':
       return `pr:${atom.prNumber}`;
+    case 'ci':
+      return `ci:${atom.prNumber}`;
     default:
       return null;
   }
