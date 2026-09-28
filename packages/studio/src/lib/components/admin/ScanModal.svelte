@@ -30,7 +30,8 @@
 
   let { open = $bindable(true), onClose, onSuccess }: Props = $props();
 
-  let roots = $state('~/code,~/projects,/mnt/projects');
+  // T12476: blank lets the server derive roots from registered projects.
+  let roots = $state('');
   let maxDepth = $state('4');
   let autoRegister = $state(false);
 
@@ -91,9 +92,9 @@
   <div class="scan-body">
     <Input
       label="Root paths (comma-separated)"
-      description="Absolute or home-relative directories to crawl. `~` is expanded server-side."
+      description="Absolute or home-relative directories to crawl. `~` is expanded server-side. Leave blank to scan the parent directories of registered projects."
       bind:value={roots}
-      placeholder="~/code,~/projects,/mnt/projects"
+      placeholder="~/code,~/projects"
     />
 
     <Input

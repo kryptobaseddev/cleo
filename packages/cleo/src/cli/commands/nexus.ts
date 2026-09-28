@@ -1387,7 +1387,8 @@ const projectsScanCommand = defineCommand({
   args: {
     roots: {
       type: 'string',
-      description: 'Comma-separated search roots (default: ~/code,~/projects,/mnt/projects)',
+      description:
+        'Comma-separated search roots (default: parent directories of registered projects; ~/code,~/projects when none)',
     },
     'max-depth': {
       type: 'string',
