@@ -7,6 +7,7 @@
  * @task T566
  */
 
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 import { withWorkspaceSubpathAliases } from '../../vitest-workspace-resolver.js';
 import { MEMORY_SAFE_TEST_DEFAULTS } from '../../vitest.memory-safe.js';
@@ -57,12 +58,12 @@ export default defineConfig({
       ).pathname,
       '@cleocode/contracts': new URL('../../packages/contracts/src/index.ts', import.meta.url)
         .pathname,
-      '@cleocode/adapters': new URL('./src/index.ts', import.meta.url).pathname,
+      '@cleocode/adapters': fileURLToPath(new URL('./src/index.ts', import.meta.url)),
       // T1919: CAAMP is now imported by adapter install providers. Resolve from
       // source so tests don't require a prior build step for @cleocode/caamp.
-      '@cleocode/caamp': new URL('../../packages/caamp/src/index.ts', import.meta.url).pathname,
+      '@cleocode/caamp': fileURLToPath(new URL('../../packages/caamp/src/index.ts', import.meta.url)),
       // T1919: paths is a leaf package needed by caamp source imports in tests.
-      '@cleocode/paths': new URL('../../packages/paths/src/index.ts', import.meta.url).pathname,
+      '@cleocode/paths': fileURLToPath(new URL('../../packages/paths/src/index.ts', import.meta.url)),
       // T937: harness-interop sandbox resolves @cleocode/playbooks to source so the
       // runtime can be exercised end-to-end without circular build dependencies.
       // Adapters does not depend on @cleocode/playbooks at build time — the alias

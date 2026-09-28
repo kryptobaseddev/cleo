@@ -377,7 +377,12 @@ describe('captured encounter registration ownership', () => {
     }
   });
 
-  it('rejects conflicting owners and rolls back a registry insert when alias storage fails', async () => {
+  // T12469 (ADR-094): the registry is keyed by project_id alone. This test
+  // used to pin the path-keyed behaviour — a second id at a registered path, or
+  // a path-derived canonical alias owned by another project, was rejected as
+  // "another immutable identity". Both now register by design; the rollback
+  // guarantees (alias-storage failure, malformed identity) are unchanged.
+  it('registers a new id at a taken path, keeps one row per path, and rolls back when alias storage fails', async () => {
     const fixture = mkdtempSync(join(tmpdir(), 'cleo-encounter-conflict-'));
     const project = join(fixture, 'project');
     const second = join(fixture, 'second');
@@ -388,21 +393,41 @@ describe('captured encounter registration ownership', () => {
     vi.stubEnv('CLEO_HOME', home);
     const { getNexusRegistryDb } = await import('../store/nexus-sqlite.js');
     const { projectRegistry } = await import('../store/schema/nexus-schema.js');
-    const { sql } = await import('drizzle-orm');
+    const { supersededRegistryPath } = await import('../nexus/path-map.js');
+    const { eq, sql } = await import('drizzle-orm');
     try {
       await registerProjectOnEncounter(project, infoProjectId);
       const db = await getNexusRegistryDb(home);
+      const resolvedProject = db.select().from(projectRegistry).get()?.projectPath;
+
+      // A different id encountered at the same path registers; the previous
+      // holder (no other live checkout) is parked on its non-path sentinel so
+      // exactly one registry row names the path.
+      await registerProjectOnEncounter(project, secondId);
+      const atPath = db
+        .select({ projectId: projectRegistry.projectId })
+        .from(projectRegistry)
+        .where(eq(projectRegistry.projectPath, resolvedProject ?? project))
+        .all();
+      expect(atPath).toEqual([{ projectId: secondId }]);
+      expect(
+        db
+          .select({ projectPath: projectRegistry.projectPath })
+          .from(projectRegistry)
+          .where(eq(projectRegistry.projectId, infoProjectId))
+          .get()?.projectPath,
+      ).toBe(supersededRegistryPath(infoProjectId));
+
       const before = db.select().from(projectRegistry).all();
-      await expect(registerProjectOnEncounter(project, secondId)).rejects.toThrow(
-        'another immutable identity',
-      );
-      expect(db.select().from(projectRegistry).all()).toEqual(before);
       db.run(
         sql`CREATE TRIGGER reject_fixture_alias BEFORE INSERT ON nexus_project_id_aliases BEGIN SELECT RAISE(ABORT, 'fixture alias failure'); END`,
       );
       await expect(registerProjectOnEncounter(second, secondId)).rejects.toThrow();
       expect(db.select().from(projectRegistry).all()).toEqual(before);
       db.run(sql`DROP TRIGGER reject_fixture_alias`);
+
+      // A path-derived canonical alias owned by another project keeps its
+      // owner; registration still succeeds and never rewrites that owner.
       const { canonicalProjectId } = await import('../nexus/identity.js');
       const canonical = await canonicalProjectId(second);
       db.insert(projectRegistry)
@@ -413,14 +438,20 @@ describe('captured encounter registration ownership', () => {
           name: 'Existing canonical alias owner',
         })
         .run();
-      const beforeCanonicalConflict = db.select().from(projectRegistry).all();
-      await expect(registerProjectOnEncounter(second, secondId)).rejects.toThrow(
-        'another immutable identity',
-      );
-      expect(db.select().from(projectRegistry).all()).toEqual(beforeCanonicalConflict);
+      const independent = db
+        .select()
+        .from(projectRegistry)
+        .where(eq(projectRegistry.projectId, canonical.id))
+        .get();
+      await registerProjectOnEncounter(second, secondId);
+      expect(
+        db.select().from(projectRegistry).where(eq(projectRegistry.projectId, canonical.id)).get(),
+      ).toEqual(independent);
+
+      const beforeMalformed = db.select().from(projectRegistry).all();
       writeFileSync(join(second, '.cleo', 'project-info.json'), '{malformed');
       await expect(registerProjectOnEncounter(second, secondId)).rejects.toThrow();
-      expect(db.select().from(projectRegistry).all()).toEqual(beforeCanonicalConflict);
+      expect(db.select().from(projectRegistry).all()).toEqual(beforeMalformed);
     } finally {
       await awaitBackgroundOps();
       const { closeAllDatabases } = await import('../store/sqlite.js');

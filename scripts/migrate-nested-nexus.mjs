@@ -59,6 +59,7 @@ import { existsSync, readdirSync, rmdirSync, statSync, unlinkSync } from 'node:f
 import { homedir } from 'node:os';
 import { join, relative } from 'node:path';
 import { createInterface } from 'node:readline/promises';
+import { isMain } from './lib/is-main.mjs';
 
 // ---------------------------------------------------------------------------
 // CLI flags
@@ -376,7 +377,7 @@ async function main() {
 export { ALLOWED_FILES, ALLOWED_SUBDIRS, execute, plan, resolveCleoHome };
 
 // CLI entry point — only run main() when invoked directly (not when imported).
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   main().catch((err) => {
     console.error('[migrate-nested-nexus] Fatal error:', err);
     process.exit(2);

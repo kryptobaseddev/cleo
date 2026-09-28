@@ -177,6 +177,7 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
   const {
     projectRegistry: regTable,
     projectIdAliases: aliasTable,
+    projectLocations: locationTable,
     projectPaths: pathTable,
     nexusAuditLog: auditTable,
   } = await import('../store/schema/nexus-schema.js');
@@ -334,7 +335,12 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
           tx.delete(aliasTable).where(inArray(aliasTable.canonicalId, slice)).run().changes,
         );
       }
-      // T12354: path-map rows go with their project, and none may outlive it.
+      // T12354 · T12469: an explicitly purged project's locations go with it,
+      // and none may outlive the registry row they belong to.
+      tx.run(
+        sql`DELETE FROM ${locationTable} WHERE ${locationTable.projectId} NOT IN (SELECT ${regTable.projectId} FROM ${regTable})`,
+      );
+      // Legacy path map, still dual-written for older binaries (T12469).
       tx.run(
         sql`DELETE FROM ${pathTable} WHERE ${pathTable.projectId} NOT IN (SELECT ${regTable.projectId} FROM ${regTable})`,
       );

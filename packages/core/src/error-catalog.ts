@@ -321,6 +321,18 @@ export const ERROR_CATALOG: ReadonlyMap<number, ErrorDefinition> = new Map<numbe
         'E_CLEO_ID_COLLISION',
       ),
     ],
+    [
+      ExitCode.VERSION_CONFLICT,
+      def(
+        ExitCode.VERSION_CONFLICT,
+        'VERSION_CONFLICT',
+        'CONFLICT',
+        'Task version conflict (optimistic concurrency)',
+        409,
+        true,
+        'E_CONFLICT',
+      ),
+    ],
 
     // === SESSION ERRORS (30-39) ===
     [

@@ -145,6 +145,19 @@ function applySpawnScope(worktreePath: string, scope: string): string | null {
 }
 
 /**
+ * POSIX single-quote one shell word: wrap it in `'...'` and rewrite each
+ * embedded `'` as `'\''`. The result is one literal word for any input — no
+ * word splitting, parameter, command or glob expansion — so a copy-pasted
+ * `cd` into a worktree under `Application Support` parses (T12528).
+ *
+ * @param value - Raw path.
+ * @returns The single-quoted shell word.
+ */
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
  * Create a git worktree for an agent task.
  *
  * Steps:
@@ -450,7 +463,7 @@ export async function createWorktree(
     '',
     `CLEO_AGENT_CWD=${worktreePath}`,
     '',
-    `FIRST ACTION: cd ${worktreePath}`,
+    `FIRST ACTION: cd ${shellQuote(worktreePath)}`,
     '',
     `You are working on branch: ${branch}`,
     'You MUST NOT run any of these git commands:',

@@ -31,7 +31,11 @@ import { worktreeScope } from '../paths.js';
 import { getProjectInfo } from '../project-info.js';
 import { createParserExecutionPort } from '../resources/spawn-wrapper.js';
 import { nexusNodes, nexusRelations } from '../store/schema/cleo-project/nexus-graph.js';
-import { assessmentSummary, writeAssessment } from './assessment-store.js';
+import {
+  assessmentSummary,
+  storedAssessmentHasAbsoluteRoots,
+  writeAssessment,
+} from './assessment-store.js';
 import {
   buildFileManifest,
   clearFileManifest,
@@ -42,14 +46,21 @@ import {
 import { generateProjectHash } from './hash.js';
 import { readKnowledgeIndexAssessment } from './knowledge.js';
 import { resolveSourceRoots } from './source-roots.js';
+import { portableSourceRoots } from './stored-roots.js';
 
-/** Compare ownership and observed revisions without treating observation time as a change. */
+/**
+ * Compare ownership and observed revisions without treating observation time as a change.
+ *
+ * Paths are compared project-relative (T12474): moving the project changes no
+ * ownership, so it must not change the fingerprint.
+ */
 function rootFingerprint(roots: GraphSourceRootAssessment): string {
+  const portable = portableSourceRoots(roots);
   return JSON.stringify({
-    projectId: roots.projectId,
-    projectRoot: roots.projectRoot,
-    sourceRoot: roots.sourceRoot,
-    roots: roots.roots.map((root) => ({
+    projectId: portable.projectId,
+    projectRoot: portable.projectRoot,
+    sourceRoot: portable.sourceRoot,
+    roots: portable.roots.map((root) => ({
       requestedPath: root.requestedPath,
       canonicalPath: root.canonicalPath,
       graphPrefix: root.graphPrefix,
@@ -68,13 +79,18 @@ function rootFingerprint(roots: GraphSourceRootAssessment): string {
  * commit produced them, so a new commit must not by itself force a full
  * rebuild (T12315). The revision is still recorded as provenance and still
  * guards against concurrent change via {@link rootFingerprint}.
+ *
+ * No absolute root enters the fingerprint (T12474): every path is taken
+ * relative to the project root, so relocating the project keeps its graph
+ * incrementally reusable.
  */
 function ownershipFingerprint(roots: GraphSourceRootAssessment): string {
+  const portable = portableSourceRoots(roots);
   return JSON.stringify({
-    projectId: roots.projectId,
-    projectRoot: roots.projectRoot,
-    sourceRoot: roots.sourceRoot,
-    roots: roots.roots.map((root) => ({
+    projectId: portable.projectId,
+    projectRoot: portable.projectRoot,
+    sourceRoot: portable.sourceRoot,
+    roots: portable.roots.map((root) => ({
       requestedPath: root.requestedPath,
       canonicalPath: root.canonicalPath,
       graphPrefix: root.graphPrefix,
@@ -169,18 +185,18 @@ async function readAnalysisIdentity(
   return projectId;
 }
 
-/** Preserve explicitly selected nested repository scope on routine reindexing. */
-function includedRepositoryScope(db: NodeSQLiteDatabase, repoPath: string): string[] {
-  return db
-    .values(sql`SELECT repositories.value
-    FROM main._nexus_meta, json_each(json_extract(_nexus_meta.value, '$.includedRepositories')) AS repositories
-    WHERE _nexus_meta.key = 'graph_assessment'
-      AND json_extract(_nexus_meta.value, '$.sourceRoot') = ${repoPath}`)
-    .map((row) => {
-      const repository = row[0];
-      if (typeof repository !== 'string') throw new Error('Invalid saved nested repository scope');
-      return repository;
-    });
+/**
+ * Preserve explicitly selected nested repository scope on routine reindexing.
+ *
+ * Reads the decoded previous assessment rather than raw `_nexus_meta` JSON,
+ * because the stored source root is project-relative since T12474.
+ */
+function includedRepositoryScope(
+  previous: GraphIndexAssessment | null,
+  repoPath: string,
+): string[] {
+  if (!previous || previous.sourceRoot !== repoPath) return [];
+  return [...(previous.includedRepositories ?? [])];
 }
 
 /** Read the extractor fingerprint recorded with the committed generation (T12315). */
@@ -331,7 +347,11 @@ export function publishNexusGraph(
       tx.run(sql`DELETE FROM main._nexus_meta WHERE key = 'graph_extractor_fingerprint'`);
     }
     if (rows.assessment)
-      writeFileManifest(tx, buildFileManifest(rows.assessment, rows.assessment.files));
+      writeFileManifest(
+        tx,
+        buildFileManifest(rows.assessment, rows.assessment.files),
+        rows.assessment.sourceRoots?.projectRoot,
+      );
     else clearFileManifest(tx);
     // T12348: summary and reference list are written together, separately.
     if (rows.assessment) writeAssessment(tx, rows.assessment);
@@ -348,6 +368,7 @@ export function publishNexusGraph(
  *   `null` when only the file manifest needs re-recording.
  * @param manifest - File manifest re-observed from the verified tree.
  * @param expectedGeneration - Generation the verification was performed against.
+ * @param projectRoot - Canonical project root the manifest's source root is stored against.
  * @returns The recorded assessment, or `null` when none was re-recorded.
  * @throws When the generation changed since verification.
  */
@@ -356,13 +377,14 @@ function recordVerifiedProvenance(
   assessment: GraphIndexAssessment | null,
   manifest: GraphFileManifest,
   expectedGeneration: string | null,
+  projectRoot: string | undefined,
 ): GraphIndexAssessment | null {
   writeGraphTransaction(db, (tx) => {
     if (graphGeneration(tx) !== expectedGeneration)
       throw new Error('Nexus graph changed during verification; provenance not updated.');
     // A re-recorded summary keeps the stored reference list of this generation.
     if (assessment) writeAssessment(tx, assessment);
-    writeFileManifest(tx, manifest);
+    writeFileManifest(tx, manifest, projectRoot);
   });
   return assessment;
 }
@@ -505,7 +527,7 @@ async function runScopedNexusAnalysis(
 
   const requestedSource = resolve(params.repoPath);
   const includedRepositories =
-    params.includedRepositories ?? includedRepositoryScope(db, requestedSource);
+    params.includedRepositories ?? includedRepositoryScope(previousAssessment, requestedSource);
   const rootRequest = {
     projectId,
     projectRoot,
@@ -623,9 +645,12 @@ async function runScopedNexusAnalysis(
     // rebuild, so the unchanged graph must still record the revision it was
     // just verified against — otherwise knowledge coverage would report it
     // stale forever. The files were re-hashed above, so the claim is exact.
+    // T12474: a record still holding pre-move absolute roots is rewritten in
+    // its portable form even when nothing else changed.
     const provenance =
       previousAssessment.sourceRoots &&
-      rootFingerprint(previousAssessment.sourceRoots) !== rootFingerprint(sourceRoots)
+      (rootFingerprint(previousAssessment.sourceRoots) !== rootFingerprint(sourceRoots) ||
+        storedAssessmentHasAbsoluteRoots(db))
         ? {
             ...previousAssessment,
             sourceRoots,
@@ -641,6 +666,7 @@ async function runScopedNexusAnalysis(
         provenance,
         buildFileManifest(provenance ?? previousAssessment, verifiedFiles),
         expectedGeneration,
+        sourceRoots.projectRoot,
       ) ?? committedAssessment;
   }
 

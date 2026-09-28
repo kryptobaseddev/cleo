@@ -79,3 +79,12 @@ export {
   pruneWorktreeOrphans,
   scanWorktreeOrphans,
 } from './worktree-orphans.js';
+// T12460 — project stores stranded inside CLEO worktrees (read-only report).
+export type {
+  WorktreeStoreEntry,
+  WorktreeStoreFile,
+  WorktreeStoreScanOptions,
+  WorktreeStoreScanResult,
+  WorktreeStoreTableDiff,
+} from './worktree-stores.js';
+export { scanWorktreeStores } from './worktree-stores.js';

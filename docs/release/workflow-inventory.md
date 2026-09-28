@@ -39,6 +39,13 @@ consolidation plan with measured CI-minute savings.
 - `freshness-sentinel.yml` has no `# @task` header. Filed for follow-up.
 - `lockfile-check.yml` has no `# @task` header — it predates the convention.
 
+### 1.1 Consumer-template boundary
+
+This inventory covers the cleocode repository's owner CI workflows. It is not the
+consumer workflow/hook template contract. For the T10476-supported consumer
+surface taxonomy, including rendered release workflow templates and installed git
+or provider hooks, see `docs/release/consumer-workflow-hook-contract.md`.
+
 ---
 
 ## 2. Overlap Matrix

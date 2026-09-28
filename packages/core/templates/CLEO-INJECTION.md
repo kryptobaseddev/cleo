@@ -226,7 +226,7 @@ HIGH/CRITICAL requires reviewing affected callers before editing. For stale, par
 <!-- CLEO-INJECTION:section=playbooks -->
 ## Worktree-by-Default (T1140 · ADR-055)
 
-`cleo orchestrate spawn` provisions a Git worktree at `<cleoHome>/worktrees/<projectHash>/<taskId>/`. Its required `## Worktree Setup (REQUIRED)` section names the path, branch and `FIRST ACTION: cd <path>`. Confine reads/writes/Git operations there. Integrate with `git merge --no-ff` to preserve commit SHAs and authors (ADR-062). Use `--no-worktree` for meta-tasks.
+`cleo orchestrate spawn` provisions a Git worktree at `<cleoHome>/worktrees/<projectHash>/<taskId>/`. Its required `## Worktree Setup (REQUIRED)` section names the path, branch and `FIRST ACTION: cd '<path>'`. Confine reads/writes/Git operations there. Integrate with `git merge --no-ff` to preserve commit SHAs and authors (ADR-062). Use `--no-worktree` for meta-tasks.
 
 ## Playbook Domain
 

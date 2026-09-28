@@ -15,6 +15,7 @@
 
 import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { negatedFlag } from '../lib/negated-flag.js';
 import { humanLine } from '../renderers/index.js';
 
 /**
@@ -58,7 +59,7 @@ export const dashCommand = defineCommand({
 
     // T1636: hygiene section note — always shown unless suppressed.
     // Keeps the main dashboard output unchanged; the note is informational only.
-    if (!args['no-hygiene']) {
+    if (!negatedFlag(args, 'hygiene')) {
       humanLine(
         '\n--- Sentient Hygiene (T1636) ---\n' +
           'Background scan runs every 4h (dream cycle). ' +

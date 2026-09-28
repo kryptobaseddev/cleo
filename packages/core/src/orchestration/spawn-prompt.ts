@@ -43,7 +43,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Task } from '@cleocode/contracts';
 import { normalizeSlug } from '../docs/slug-normalize.js';
-import { ISOLATION_ENV_KEYS, provisionIsolatedShell } from '../sdk/isolation.js';
+import { provisionIsolatedShell } from '../sdk/isolation.js';
 import { resolveSkillPath } from '../skills/skill-paths.js';
 
 /**
@@ -546,19 +546,20 @@ function loadSubagentProtocolBlock(projectRoot: string): string | null {
  * Emitted when the orchestrate engine has pre-provisioned a git worktree for
  * the task (worktree-by-default per T1140 / ADR-055). The section:
  *
- * - Names the worktree absolute path and branch.
- * - States the context-isolation constraint so the agent knows it is
- *   authorized only within the worktree boundary.
- * - Provides the `FIRST ACTION` directive so the agent initializes its cwd.
- * - Warns that each Bash tool call starts a fresh shell — cwd does NOT persist
- *   between calls (T1758). Agents MUST re-cd at the start of every Bash call.
- * - Embeds the utility preamble from {@link provisionIsolatedShell} as the
- *   single source of truth for the cd-guard + env-export snippet, so the
- *   isolation contract is never duplicated (T1758).
+ * - Names the branch and task, and states the context-isolation constraint so
+ *   the agent knows it is authorized only within the worktree boundary.
+ * - Provides the `FIRST ACTION` directive and warns that each Bash tool call
+ *   starts a fresh shell — cwd does NOT persist between calls (T1758).
+ * - Embeds the preamble from {@link provisionIsolatedShell} as the ONE cd
+ *   guard and the only shell rendering of the worktree path (T12520). The
+ *   preamble single-quotes every path, so the commands survive a path with
+ *   spaces such as macOS `~/Library/Application Support/...`. Earlier versions
+ *   also emitted an unquoted `WORKTREE=<path>` snippet and a bare
+ *   `cd <path>` FIRST ACTION (both broke on every macOS worktree) plus a
+ *   stale `/mnt/projects/cleocode` example; all three are gone.
  *
- * When `--no-worktree` is passed at spawn time this function is not called
- * and the section is absent. Agents that encounter a prompt without this
- * section may still run on the primary worktree (backward compat).
+ * When there is no worktree (`--no-worktree`, or provisioning skipped) this
+ * function is not called and the section is absent.
  *
  * The `projectHash` is derived from the worktree path (second-to-last path
  * component per the canonical XDG layout: `.../worktrees/<hash>/<taskId>`).
@@ -570,6 +571,7 @@ function loadSubagentProtocolBlock(projectRoot: string): string | null {
  *
  * @task T1140 — worktree-by-default spawn prompt
  * @task T1758 — harden tier-1 spawn prompt: cwd-reset warning + cd guard
+ * @task T12520 — quoted paths, one cd guard, no stale literal
  */
 function buildWorktreeSetupBlock(
   worktreePath: string,
@@ -600,60 +602,23 @@ function buildWorktreeSetupBlock(
     ...(identity.agentId ? { agentId: identity.agentId } : {}),
   });
 
-  // The cd guard snippet in a copy-pastable form for the CRITICAL section.
-  const cdGuardSnippet = `WORKTREE=${worktreePath}; cd "$WORKTREE" || exit 1; pwd | grep -q "$WORKTREE" || exit 1`;
-
-  // Enumerate the injected env keys for the note at the bottom.
-  const envKeyList = ISOLATION_ENV_KEYS.join(', ');
-
+  // T12520 — the preamble is the ONE cd guard and the only place a path is
+  // rendered as shell text; `provisionIsolatedShell` single-quotes every path,
+  // so the block stays valid under `~/Library/Application Support/...`. The
+  // prose below deliberately names no path (it would need its own quoting and
+  // would be a second, drifting copy of the guard).
   return [
-    '## Worktree Setup (REQUIRED) — STRICT ISOLATION',
+    '## Worktree Setup (REQUIRED)',
     '',
-    `> Authorized only within \`${worktreePath}\`.`,
+    `Authorized only within this worktree (branch \`${worktreeBranch}\`, task \`${taskId}\`). Never read or write the main checkout or any path outside the worktree in Edit/Write.`,
     '',
-    `- **Worktree**: \`${worktreePath}\``,
-    `- **Branch**: \`${worktreeBranch}\``,
-    `- **Task**: \`${taskId}\``,
+    '**FIRST ACTION**: run the block below. Each Bash call starts a new shell and cwd does NOT persist between Bash calls, so begin EVERY Bash call with its `cd ... || exit 1` line.',
     '',
-    `**FIRST ACTION**: \`cd ${worktreePath}\``,
-    '',
-    '**CRITICAL — WORKTREE ISOLATION**:',
-    '1. After initial `cd`, `pwd` must show worktree path',
-    '2. Each Bash call starts a fresh shell. Re-`cd` at start of EVERY Bash call: `cd <worktree> && <command>`',
-    `3. NEVER \`cd /mnt/projects/cleocode\`. NEVER use absolute paths outside the worktree in Edit/Write`,
-    `4. Read merged branches via your worktree (it tracks \`main\`'s latest)`,
-    '',
-    '**WARNING — cwd does NOT persist between Bash calls**:',
-    'Each Bash tool invocation starts a new shell process. Your working directory',
-    'resets to the default every call. You MUST prefix every Bash call with the',
-    'worktree cd-guard below — failure to do so is the leading cause of agents',
-    'accidentally writing files to the wrong location.',
-    '',
-    'Ready-to-use cd-guard snippet (copy-paste to start every Bash call):',
-    '```bash',
-    cdGuardSnippet,
-    '```',
-    '',
-    'Shell isolation preamble (single-source-of-truth from `provisionIsolatedShell`):',
     '```bash',
     isolation.preamble.trimEnd(),
     '```',
     '',
-    `Injected env vars: \`${envKeyList}\``,
-    '',
-    'Forbidden git ops: `git checkout, git switch, git branch -b/-D, git reset --hard, git worktree add/remove, git rebase, git stash pop, git push --force`',
-    '',
-    'All commits MUST land on YOUR branch only. The orchestrator integrates via `git merge --no-ff` (ADR-062), preserving your commit SHAs and authorship.',
-    '',
-    '**BRANCH PROVENANCE (T1927)**:',
-    `The orchestrator provisioned \`${worktreeBranch}\` cleanly from the integration base.`,
-    'If you ever need to manually create a task branch (e.g. in a fallback flow), ALWAYS run:',
-    '```bash',
-    `git branch -D ${worktreeBranch} 2>/dev/null || true`,
-    `git branch ${worktreeBranch} <base-ref>`,
-    '```',
-    'NEVER use `git worktree add -b` on a branch that may already exist — it silently reuses',
-    'orphan history from prior sessions or test fixtures and will corrupt the merge on completion.',
+    `**CRITICAL — WORKTREE ISOLATION**: commit only to \`${worktreeBranch}\`; the orchestrator integrates with \`git merge --no-ff\` (ADR-062). Forbidden: \`git checkout\`, \`git switch\`, \`git branch -b/-D\`, \`git reset --hard\`, \`git worktree add/remove\`, \`git rebase\`, \`git stash pop\`, \`git push --force\`.`,
   ].join('\n');
 }
 

@@ -48,7 +48,11 @@ import {
 import { generateSessionId, resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import { appendSessionJournalEntry } from '../sessions/session-journal.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { resolveCurrentSession } from '../store/session-store.js';
+import {
+  bindTerminalToSession,
+  resolveCurrentSession,
+  unbindSessionTerminals,
+} from '../store/session-store.js';
 import {
   currentTask,
   getTaskHistory,
@@ -415,6 +419,27 @@ export async function taskWorkHistory(
 // ---------------------------------------------------------------------------
 
 /**
+ * Bind the calling terminal to a session it just started or resumed (T12499).
+ *
+ * Best-effort: a binding failure never fails the lifecycle command. Skipped when
+ * the process already carries an explicit CLEO session identity in its
+ * environment (`CLEO_SESSION_ID` & co., e.g. a spawned worker): that identity
+ * already governs the process, and binding would let a worker sharing its
+ * harness's `CLAUDE_CODE_SESSION_ID` overwrite the orchestrator's binding.
+ *
+ * @param projectRoot - Project root for DB resolution.
+ * @param sessionId - The started or resumed session.
+ */
+async function bindCallingTerminal(projectRoot: string, sessionId: string): Promise<void> {
+  try {
+    if (resolveSessionIdFromEnv() !== null) return;
+    await bindTerminalToSession(sessionId, projectRoot);
+  } catch {
+    // Best-effort — the newest-active fallback still applies without a binding.
+  }
+}
+
+/**
  * Start a new session.
  *
  * Validates scope, guards against active session conflicts, chains session
@@ -623,6 +648,11 @@ export async function sessionStart(
     // before predecessor.nextSessionId can reference it.
     await accessor.upsertSingleSession(newSession);
 
+    // T12499: bind this terminal / harness to the new session so its later
+    // short-lived `cleo` calls resolve it before any newest-active fallback.
+    // Runs before grade mode below exports CLEO_SESSION_ID into this process.
+    await bindCallingTerminal(projectRoot, sessionId);
+
     // Now update predecessor's nextSessionId
     if (previousSessionId) {
       const sessions = await accessor.loadSessions();
@@ -805,6 +835,13 @@ export async function sessionEnd(
       await accessor.upsertSingleSession(activeSession);
     }
 
+    // T12499: an ended session is no terminal's identity any more.
+    try {
+      await unbindSessionTerminals(sessionId, projectRoot);
+    } catch {
+      // Best-effort — resolution ignores bindings to non-active sessions anyway.
+    }
+
     // T140: Build summarization prompt and ingest structured summary if provided
     let memoryPrompt: string | undefined;
     try {
@@ -948,6 +985,9 @@ export async function sessionResume(
     }
 
     await accessor.upsertSingleSession(session);
+
+    // T12499: the terminal that resumes a session becomes bound to it.
+    await bindCallingTerminal(projectRoot, sessionId);
 
     // Wave 3B: Enrich resumed session with brain memory context (best-effort)
     let memoryContext:

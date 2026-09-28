@@ -14,6 +14,7 @@
  * @epic T299
  */
 
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 import { withWorkspaceSubpathAliases } from '../../vitest-workspace-resolver.js';
 import { MEMORY_SAFE_TEST_DEFAULTS } from '../../vitest.memory-safe.js';
@@ -81,7 +82,7 @@ export default defineConfig({
       ).pathname,
       '@cleocode/contracts': new URL('../../packages/contracts/src/index.ts', import.meta.url)
         .pathname,
-      '@cleocode/core/internal': new URL('./src/internal.ts', import.meta.url).pathname,
+      '@cleocode/core/internal': fileURLToPath(new URL('./src/internal.ts', import.meta.url)),
       // T9747: caamp source files import `@cleocode/core/skills/skill-root.js`.
       // When those files are loaded by vitest during core's own test suite,
       // Node's package-self-reference resolution fails because we're already
@@ -90,20 +91,20 @@ export default defineConfig({
         './src/skills/skill-root.ts',
         import.meta.url,
       ).pathname,
-      '@cleocode/core': new URL('./src/index.ts', import.meta.url).pathname,
+      '@cleocode/core': fileURLToPath(new URL('./src/index.ts', import.meta.url)),
       '@cleocode/adapters': new URL('../../packages/adapters/src/index.ts', import.meta.url)
         .pathname,
-      '@cleocode/lafs': new URL('../../packages/lafs/src/index.ts', import.meta.url).pathname,
+      '@cleocode/lafs': fileURLToPath(new URL('../../packages/lafs/src/index.ts', import.meta.url)),
       // @cleocode/paths — workspace-local canonical path utilities (env-paths wrapper).
       // Must be aliased so vitest resolves packages/core/src/paths.ts without a build step.
-      '@cleocode/paths': new URL('../../packages/paths/src/index.ts', import.meta.url).pathname,
+      '@cleocode/paths': fileURLToPath(new URL('../../packages/paths/src/index.ts', import.meta.url)),
       // @cleocode/utils — pure zero-dependency leaf (formatBytes, redact, …).
       // Aliased to source so vitest resolves redaction.ts / plugin-facade.ts
       // imports without first building utils' dist/ (T11414 · E5).
-      '@cleocode/utils': new URL('../../packages/utils/src/index.ts', import.meta.url).pathname,
+      '@cleocode/utils': fileURLToPath(new URL('../../packages/utils/src/index.ts', import.meta.url)),
       // caamp and cant — required to resolve @cleocode/core/internal transitive deps
-      '@cleocode/caamp': new URL('../../packages/caamp/src/index.ts', import.meta.url).pathname,
-      '@cleocode/cant': new URL('../../packages/cant/src/index.ts', import.meta.url).pathname,
+      '@cleocode/caamp': fileURLToPath(new URL('../../packages/caamp/src/index.ts', import.meta.url)),
+      '@cleocode/cant': fileURLToPath(new URL('../../packages/cant/src/index.ts', import.meta.url)),
     }),
   },
 });

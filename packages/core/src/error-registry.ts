@@ -210,6 +210,14 @@ const CLEO_ERROR_REGISTRY: CleoRegistryEntry[] = [
     retryable: true,
     httpStatus: 409,
   },
+  {
+    exitCode: ExitCode.VERSION_CONFLICT,
+    lafsCode: 'E_CONFLICT',
+    category: 'CONFLICT',
+    description: 'Task version conflict (optimistic concurrency)',
+    retryable: true,
+    httpStatus: 409,
+  },
 
   // Session errors (30-39)
   {

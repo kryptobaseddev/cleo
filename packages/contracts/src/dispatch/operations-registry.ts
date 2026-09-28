@@ -3033,6 +3033,14 @@ export const OPERATIONS: OperationDef[] = [
         description: 'Disable automatic parent completion',
         cli: { flag: 'no-auto-complete' },
       },
+      {
+        name: 'expectedUpdatedAt',
+        type: 'string',
+        required: false,
+        description:
+          'Optimistic-concurrency guard: fail with E_CONFLICT unless the task updatedAt still equals this value',
+        cli: { flag: 'expected-updated-at' },
+      },
     ] satisfies ParamDef[],
     inputSchema: tasksUpdateInputContract,
     outputSchema: OUTPUT_CONTRACTS['tasks.update'],
