@@ -16,12 +16,21 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { canonicalizePath } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { generateProjectHash } from '../nexus/hash.js';
 import { getCleoDirAbsolute } from '../paths.js';
 import { getProjectInfo, getProjectInfoSync } from '../project-info.js';
 import { spawnWorktree, teardownWorktree } from '../sentient/worktree-dispatch.js';
@@ -640,8 +649,11 @@ describe('worktree identity edge cases', () => {
     writeFileSync(emptyFix.projectInfoPath, '{}');
 
     try {
-      // getProjectInfo should throw because projectHash is missing.
-      await expect(getProjectInfo(emptyFix.projectRoot)).rejects.toThrow('projectHash');
+      // T12557: a missing projectHash is backfilled once from the real root.
+      await expect(getProjectInfo(emptyFix.projectRoot)).resolves.toMatchObject({
+        projectHash: generateProjectHash(realpathSync(emptyFix.projectRoot)),
+        projectId: '',
+      });
 
       // But spawnWorktree should still succeed — the worktree gets a
       // copy of whatever the parent has.

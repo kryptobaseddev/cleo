@@ -12,8 +12,10 @@
 import { existsSync } from 'node:fs';
 import { cp, readFile, rename, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve as resolvePath } from 'node:path';
+import { withStrippedFieldsReceipt } from './doctor/project-identity.js';
 import { type EngineResult, engineError, engineSuccess } from './engine-result.js';
 import { generateProjectHash, nexusReconcile, nexusRenameProject } from './nexus/index.js';
+import { computeStableProjectHash } from './project-scope.js';
 
 // ── Result types ─────────────────────────────────────────────────────
 
@@ -41,7 +43,10 @@ export interface RenameProjectResult {
   oldName: string;
   /** The new project name. */
   newName: string;
-  /** Updated project hash (name influences hash). */
+  /**
+   * The project's write-once `projectHash`, unchanged by a rename (T12557).
+   * The field name is kept for API compatibility.
+   */
   newProjectHash: string;
 }
 
@@ -288,13 +293,30 @@ export async function renameProject(
     (typeof info.projectName === 'string' ? info.projectName : '') ||
     basename(projectRoot);
 
-  // AC4: Update project-info.json — only name changes, path stays same
-  const newProjectHash = generateProjectHash(projectRoot);
+  // AC4: Update project-info.json — only name changes. T12557: projectHash is
+  // a write-once identity key (release ids, audit rows), so the stored value is
+  // kept byte-identical. projectRoot is a path fact and is never written back:
+  // a legacy value is dropped into the same `strippedFields` receipt that
+  // `cleo doctor project-identity --resolve` keeps.
+  const newProjectHash =
+    typeof info.projectHash === 'string' && info.projectHash.length > 0
+      ? info.projectHash
+      : computeStableProjectHash(projectRoot);
+  const now = new Date().toISOString();
+  const kept =
+    info.projectRoot === undefined
+      ? info
+      : withStrippedFieldsReceipt(
+          info,
+          [{ file: 'project-info.json', field: 'projectRoot', value: info.projectRoot }],
+          now,
+          true,
+        );
   const newInfo = {
-    ...info,
+    ...kept,
     name: newName.trim(),
     projectHash: newProjectHash,
-    lastUpdated: new Date().toISOString(),
+    lastUpdated: now,
   };
   await writeProjectInfo(projectRoot, newInfo);
 
