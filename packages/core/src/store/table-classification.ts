@@ -727,7 +727,14 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'cleo-dev ruling 2026-09-28',
     note: 'ruling: definitions sync. The table has no lease/claim column (schedule_id, cron_expr, title, description, enabled, timestamps); execution claims live elsewhere',
   },
-  schema_meta: { class: 'local-only', status: 'draft', source: 'table-classification-draft.md' },
+  schema_meta: {
+    class: 'local-only',
+    status: 'frozen-legacy',
+    source: 'T12535 PR 1 (atomic twin collapse)',
+    dropTask: 'T12535',
+    liveTwin: 'tasks_schema_meta',
+    note: 'physically identical to its live twin; store/twin-collapse.ts carries its rows there at every open (initial collapse, then incremental re-merge while an older build still writes it) and never writes this table',
+  },
   selfimprove_dhq: {
     class: 'portable-project',
     status: 'resolved',
@@ -778,9 +785,12 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     note: 'static seed recreated by migrations; not in the narrow derived set',
   },
   sticky_tags: {
-    class: 'portable-personal',
-    status: 'draft',
-    source: 'table-classification-draft.md',
+    class: 'local-only',
+    status: 'frozen-legacy',
+    source: 'T12535 PR 1 (atomic twin collapse)',
+    dropTask: 'T12535',
+    liveTwin: 'brain_sticky_tags',
+    note: 'physically identical to its live twin (was portable-personal while live); store/twin-collapse.ts carries its rows there at every open (initial collapse, then incremental re-merge while an older build still writes it) and never writes this table',
   },
   task_acceptance_criteria: {
     class: 'local-only',

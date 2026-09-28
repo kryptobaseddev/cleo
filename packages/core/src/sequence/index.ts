@@ -11,7 +11,11 @@ import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { resolveOrCwd } from '../paths.js';
 import { createDataAccessor, type DataAccessor } from '../store/data-accessor.js';
-import { createSqliteDataAccessor, setMetaValue } from '../store/sqlite-data-accessor.js';
+import {
+  advanceTaskIdSequence,
+  createSqliteDataAccessor,
+  setMetaValue,
+} from '../store/sqlite-data-accessor.js';
 import { schemaMeta } from '../store/tasks-schema.js';
 
 const SEQUENCE_META_KEY = 'task_id_sequence';
@@ -164,7 +168,7 @@ function getMaxIdFromTasks(tasks: Array<Pick<Task, 'id'>>): number {
 export async function showSequence(cwd?: string): Promise<Record<string, unknown>> {
   const seq = await readSequence(cwd);
   if (!seq) {
-    throw new CleoError(ExitCode.NOT_FOUND, 'Sequence state not found in SQLite schema_meta');
+    throw new CleoError(ExitCode.NOT_FOUND, 'Sequence state not found in SQLite tasks_schema_meta');
   }
   return {
     counter: seq.counter,
@@ -334,32 +338,14 @@ export async function allocateNextTaskId(cwd?: string, retryCount = 0): Promise<
       if (typeof maxStoredId !== 'number' || !Number.isSafeInteger(maxStoredId)) {
         throw new Error('Task identity inventory failed during allocation');
       }
-      // Increment counter atomically
-      nativeDb
-        .prepare(`
-      UPDATE schema_meta
-      SET value = json_set(value,
-        '$.counter', MAX(json_extract(value, '$.counter'), ?) + 1,
-        '$.lastId', 'T' || printf('%03d', MAX(json_extract(value, '$.counter'), ?) + 1),
-        '$.checksum', 'alloc-' || strftime('%s','now')
-      )
-      WHERE key = 'task_id_sequence'
-    `)
-        .run(maxStoredId, maxStoredId);
+      // Increment counter atomically and read it back (tasks accessor, T12535)
+      const counter = advanceTaskIdSequence(nativeDb, maxStoredId);
 
-      // Read new counter value
-      const row = nativeDb
-        .prepare(`
-      SELECT json_extract(value, '$.counter') AS counter
-      FROM schema_meta WHERE key = 'task_id_sequence'
-    `)
-        .get() as { counter: number } | undefined;
-
-      if (!row) {
+      if (counter === undefined) {
         throw new CleoError(ExitCode.FILE_ERROR, 'Sequence counter not found after increment');
       }
 
-      const newId = `T${String(row.counter).padStart(3, '0')}`;
+      const newId = `T${String(counter).padStart(3, '0')}`;
 
       // Collision check: verify no existing task with this ID.
       // T11578 · AC1: the runtime task rows now live in the PREFIXED consolidated

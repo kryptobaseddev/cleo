@@ -156,7 +156,7 @@ describe.skipIf(DIST_MISSING)('snapshot gate — real multi-process (T12508)', (
     mkdirSync(backupDir, { recursive: true });
     const statePath = join(workDir, 'state.db');
     const seed = new DatabaseSync(statePath);
-    seed.exec('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+    seed.exec('CREATE TABLE tasks_schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
     seed.close();
     const logPath = join(workDir, 'intervals.log');
 

@@ -539,7 +539,7 @@ function alteredLiveTables(
     for (const table of new Set(counts.map((c) => c.targetTable))) {
       if (!hasTable(live.db, 'before', table) || !hasTable(live.db, 'main', table)) continue;
       const seed =
-        table === 'schema_meta'
+        table === 'tasks_schema_meta'
           ? ` WHERE NOT (key = 'task_id_sequence' AND value = '${sequenceSeed.replace(/'/g, "''")}')`
           : '';
       // The table's SHAPE may legitimately change during the run: the

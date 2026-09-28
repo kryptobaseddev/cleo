@@ -3,7 +3,7 @@
  *
  * Covers, in-process:
  * - `routine`: a burst of N requests within the debounce window produces one
- *   snapshot; the debounce is read from the persisted `schema_meta` row;
+ *   snapshot; the debounce is read from the persisted `tasks_schema_meta` row;
  *   no state store means no snapshot; a held lock means skip.
  * - `required` (session end, pre-destructive): not debounced by a routine
  *   snapshot; unaffected by a failed earlier attempt; works without the state
@@ -40,7 +40,7 @@ let stateDb: DatabaseSync;
 beforeEach(() => {
   workDir = mkdtempSync(join(tmpdir(), 'cleo-t12508-gate-'));
   stateDb = new DatabaseSync(join(workDir, 'state.db'));
-  stateDb.exec('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+  stateDb.exec('CREATE TABLE tasks_schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
 });
 
 afterEach(() => {
@@ -115,7 +115,7 @@ describe('runGatedSnapshot — routine mode (T12508)', () => {
     await runGatedSnapshot({ backupDir: workDir, stateDb, prefixes: ['tasks'] }, recorder().snap);
 
     const row = stateDb
-      .prepare('SELECT value FROM schema_meta WHERE key = ?')
+      .prepare('SELECT value FROM tasks_schema_meta WHERE key = ?')
       .get(SNAPSHOT_GATE_META_KEY) as { value: string } | undefined;
     const persisted: {
       generation: number;
@@ -146,7 +146,7 @@ describe('runGatedSnapshot — routine mode (T12508)', () => {
 
   it('a start time in the future (clock moved back) does not block', async () => {
     const future = Date.now() + 3_600_000;
-    stateDb.prepare('INSERT INTO schema_meta (key, value) VALUES (?, ?)').run(
+    stateDb.prepare('INSERT INTO tasks_schema_meta (key, value) VALUES (?, ?)').run(
       SNAPSHOT_GATE_META_KEY,
       JSON.stringify({
         generation: 1,
@@ -272,7 +272,7 @@ describe('runGatedSnapshot — required mode (T12508)', () => {
     expect(runs).toEqual(['tasks']);
   });
 
-  it('works without schema_meta (HIGH-1)', async () => {
+  it('works without tasks_schema_meta (HIGH-1)', async () => {
     const bare = new DatabaseSync(':memory:');
     const { runs, snap } = recorder();
     const r1 = await runGatedSnapshot(
@@ -420,7 +420,7 @@ describe('runGatedSnapshot — required mode (T12508)', () => {
 class ClaimFailingDb extends DatabaseSync {
   private failed = false;
   override prepare(sql: string): ReturnType<DatabaseSync['prepare']> {
-    if (!this.failed && sql.startsWith('INSERT INTO schema_meta')) {
+    if (!this.failed && sql.startsWith('INSERT INTO tasks_schema_meta')) {
       this.failed = true;
       throw new Error('SQLITE_BUSY: injected claim failure');
     }
@@ -432,7 +432,7 @@ describe('runGatedSnapshot — generation claim failure (T12508 #6)', () => {
   it('a run whose claim failed records nothing, so it cannot cover a request', async () => {
     const path = join(workDir, 'claim.db');
     const db = new ClaimFailingDb(path);
-    db.exec('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+    db.exec('CREATE TABLE tasks_schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
     const { runs, snap } = recorder();
 
     const r = await runGatedSnapshot(
@@ -444,7 +444,7 @@ describe('runGatedSnapshot — generation claim failure (T12508 #6)', () => {
     // …but nothing was recorded under the unclaimed generation.
     expect(readSnapshotGeneration(db)).toBe(0);
     const row = db
-      .prepare('SELECT value FROM schema_meta WHERE key = ?')
+      .prepare('SELECT value FROM tasks_schema_meta WHERE key = ?')
       .get(SNAPSHOT_GATE_META_KEY);
     expect(row).toBeUndefined();
 

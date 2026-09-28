@@ -43,6 +43,7 @@ export const CLI_COMMAND_CATEGORIES: Readonly<Record<string, CliCategory>> = {
   list: 'Task Management',
   update: 'Task Management',
   complete: 'Task Management',
+  done: 'Task Management',
   delete: 'Task Management',
   cancel: 'Task Management',
   start: 'Task Management',

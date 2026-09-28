@@ -543,6 +543,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
       (await import('../commands/doctor-tool-locks.js')).doctorToolLocksCommand as CommandDef,
   },
   {
+    exportName: 'doctorTwinCollapseCommand',
+    name: 'twin-collapse',
+    description:
+      'Report the twin collapses (bare schema_meta / sticky_tags kept in step with their prefixed ',
+    load: async () =>
+      (await import('../commands/doctor-twin-collapse.js')).doctorTwinCollapseCommand as CommandDef,
+  },
+  {
     exportName: 'doctorWorktreeStoresCommand',
     name: 'worktree-stores',
     description:
@@ -556,6 +564,13 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     name: 'doctor',
     description: 'Run system diagnostics and health checks',
     load: async () => (await import('../commands/doctor.js')).doctorCommand as CommandDef,
+  },
+  {
+    exportName: 'doneCommand',
+    name: 'done',
+    description:
+      'Record every required gate from derived evidence (change set, tools, typed gates, AC links) in one write, then complete. --plan: read-only plan; writes nothing',
+    load: async () => (await import('../commands/done.js')).doneCommand as CommandDef,
   },
   {
     exportName: 'dynamicCommand',

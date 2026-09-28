@@ -67,6 +67,11 @@ describe('error-catalog', () => {
           expect(entry.lafsCode).toBe('E_PROJECT_MOVED');
           continue;
         }
+        if (entry.code === ExitCode.TWIN_COLLAPSE_FAILED) {
+          // T12535: named `E_TWIN_COLLAPSE_FAILED` by the twin-collapse review.
+          expect(entry.lafsCode).toBe('E_TWIN_COLLAPSE_FAILED');
+          continue;
+        }
         if (entry.code === ExitCode.WORKTREE_LOCKED) {
           // T12506: named `E_WORKTREE_LOCKED` by its contract (epic T12498).
           expect(entry.lafsCode).toBe('E_WORKTREE_LOCKED');

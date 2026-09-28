@@ -31,7 +31,7 @@ describe('EvidenceAtomSchema (T10337)', () => {
   it('EVIDENCE_ATOM_KINDS covers every discriminated union member (T12030)', () => {
     // Verify the shared constant is in sync with the zod discriminated union.
     // The discriminated union keys are 'commit','files','test-run','tool','url',
-    // 'note','decision','pr','loc-drop','callsite-coverage','satisfies'.
+    // 'note','decision','pr','ci','loc-drop','callsite-coverage','satisfies'.
     const expected = [
       'commit',
       'files',
@@ -41,6 +41,7 @@ describe('EvidenceAtomSchema (T10337)', () => {
       'note',
       'decision',
       'pr',
+      'ci',
       'loc-drop',
       'callsite-coverage',
       'satisfies',

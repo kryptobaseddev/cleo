@@ -242,6 +242,14 @@ const CLEO_ERROR_REGISTRY: CleoRegistryEntry[] = [
     retryable: true,
     httpStatus: 409,
   },
+  {
+    exitCode: ExitCode.TWIN_COLLAPSE_FAILED,
+    lafsCode: 'E_TWIN_COLLAPSE_FAILED',
+    category: 'INTERNAL',
+    description: 'Twin-table collapse failed and was rolled back',
+    retryable: true,
+    httpStatus: 503,
+  },
 
   // Session errors (30-39)
   {

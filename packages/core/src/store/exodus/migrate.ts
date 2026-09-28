@@ -1168,7 +1168,7 @@ export async function runExodusMigrate(
       const tasksDomain = await import('../sqlite.js');
       tasksDomain.ensureTasksDomainTables(projectNative, projectDbPath);
       projectNative
-        .prepare("DELETE FROM main.schema_meta WHERE key = 'task_id_sequence' AND value = ?")
+        .prepare("DELETE FROM main.tasks_schema_meta WHERE key = 'task_id_sequence' AND value = ?")
         .run(tasksDomain.TASK_ID_SEQUENCE_SEED);
       reseedProject = () => tasksDomain.seedTasksMeta(projectNative);
     }
