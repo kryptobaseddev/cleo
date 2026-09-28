@@ -91,7 +91,8 @@ describe('ct-master-tac plugin install verification (T431)', () => {
       const keys = parseFrontmatterKeys(fm!);
       expect(keys['name']).toBe('ct-master-tac');
       expect(keys['version']).toBeTruthy();
-      expect(keys['tier']).toBeTruthy();
+      // T12648: the tier moved into `metadata.tier` (skills SSoT, D11157).
+      expect(fm).toMatch(/^\s+tier:\s*\S/m);
     });
   });
 

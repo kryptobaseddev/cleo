@@ -748,6 +748,24 @@ const checkArchCommand = defineCommand({
         script: 'scripts/lint-no-raw-table-writes.mjs',
         description: 'No new raw SQL write on a classified cleo.db table (ratchet)',
       },
+      {
+        // T12648: SKILL.md frontmatter is the skills metadata SSoT (D11157).
+        // The manifest is generated from it, so a hand-edited version, a
+        // directory the manifest omits, or an entry with no directory fails.
+        id: 'gate-29',
+        task: 'T12648',
+        script: 'scripts/lint-skills-manifest.mjs',
+        description: 'Skills manifest generated from valid SKILL.md frontmatter',
+      },
+      {
+        // T12648: a skill named by stage guidance, the spawn prompt or a
+        // .cant protocol must exist, be declared install: harness and be
+        // installed; metadata.install must match what install does.
+        id: 'gate-30',
+        task: 'T12648',
+        script: 'scripts/lint-emitted-skills.mjs',
+        description: 'Every skill code emits is installable (ratchet)',
+      },
     ] as const;
 
     const scriptArgs = strict ? ['--strict'] : ['--check'];

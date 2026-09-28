@@ -6,6 +6,11 @@ loomStage: consensus
 adrRefs:
   - ADR-015
   - ADR-023
+metadata:
+  version: 1.0.0
+  tier: on-demand
+  install: harness
+  stability: stable
 ---
 
 # Consensus Voter
