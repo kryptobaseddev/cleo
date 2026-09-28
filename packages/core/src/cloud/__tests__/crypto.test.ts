@@ -24,7 +24,6 @@ import {
   initialTrustState,
   KeyTrustError,
   liveKeys,
-  MAX_ROTATION_STEP,
   newProjectKey,
   openDeviceGrant,
   resetTrustStateAfterUnlock,
@@ -607,12 +606,10 @@ describe('device trust: signed, certified master key grants', () => {
   it('reports a declared version more than one rotation ahead as a server error, not a rotation (round 7)', () => {
     const k1 = new Map([[1, mk]]);
     const trust = { certificates: [certRow(b, mk, true)], revocations: [] };
-    const r = certifiedSigners(k1, userId, trust, initialTrustState(), 1 + MAX_ROTATION_STEP + 1);
+    const r = certifiedSigners(k1, userId, trust, initialTrustState(), 3);
     expect(r.serverError).toBe('implausible-key-version');
     expect(r.keyRotated).toBe(false);
-    expect(
-      certifiedSigners(k1, userId, trust, initialTrustState(), 1 + MAX_ROTATION_STEP).serverError,
-    ).toBeUndefined();
+    expect(certifiedSigners(k1, userId, trust, initialTrustState(), 2).serverError).toBeUndefined();
   });
 
   it('resets TrustState after an unlock: proven version, pins only on confirmation, revoked kept (round 7)', async () => {
@@ -626,6 +623,13 @@ describe('device trust: signed, certified master key grants', () => {
       pins: { 'dev/key': pinned },
       revoked: ['dev/key', 'other/key'],
     });
+    // An older genuine wrap (v1) never lowers the version.
+    const old = await createUserKeys(userId, 'a long enough passphrase', 1);
+    const v1 = await unlockWithPassphrase(userId, old.stored, 'a long enough passphrase');
+    expect(
+      resetTrustStateAfterUnlock({ ...state, keyVersion: 2 }, { masterKey: v1, stored: old.stored })
+        .keyVersion,
+    ).toBe(2);
     const cleared = resetTrustStateAfterUnlock(
       state,
       { masterKey: masterKey, stored },

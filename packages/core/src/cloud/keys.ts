@@ -284,9 +284,11 @@ export interface TrustEvaluation {
  * Update TrustState after a successful passphrase or recovery-key unlock, the only proof of the account's
  * real key version. It requires proof of possession: the unwrapped master key must match `stored`'s
  * verifier (and the unwrap itself already checked the AAD, which binds the user and the version).
- * - `keyVersion` becomes the proven version.
+ * - `keyVersion` becomes the proven version, if it is higher (an older genuine wrap never lowers it).
  * - Seen pins are cleared **only** with `confirmedPinReset: true`, after the user explicitly confirms it (for
- *   example, when a thief's record narrowed a pin while the stolen device was still live). The next
+ *   example, when a thief's record narrowed a pin while the stolen device was still live). The confirmation
+ *   prompt must tell the user to revoke the thief's device FIRST: while it is live, its records still count
+ *   and would narrow the pins again. The next
  *   certifiedSigners call then takes pins from the records live devices have signed.
  * - The seen-revoked set is never cleared: revocation is monotonic.
  */
@@ -309,7 +311,8 @@ export function resetTrustStateAfterUnlock(
     );
   }
   return {
-    keyVersion: proof.stored.keyVersion,
+    // Never lower: an older genuine wrap (a replayed pre-rotation one) proves only that older version.
+    keyVersion: Math.max(state.keyVersion, proof.stored.keyVersion),
     pins: opts.confirmedPinReset === true ? {} : { ...state.pins },
     revoked: [...state.revoked],
   };
