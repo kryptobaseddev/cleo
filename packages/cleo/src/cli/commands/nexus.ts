@@ -26,6 +26,11 @@ import {
 import { getProjectRoot } from '@cleocode/core';
 import { getSymbolImpact } from '@cleocode/core/nexus';
 import { runNexusAnalysis } from '@cleocode/core/nexus/analyze-orchestrator.js';
+import {
+  type AssessmentFilesRequest,
+  parseAssessmentFilesRequest,
+  projectAssessmentFiles,
+} from '@cleocode/core/nexus/assessment-projection.js';
 import { exportNexusGraph } from '@cleocode/core/nexus/export.js';
 import {
   assessNexusFreshnessForQuery,
@@ -152,7 +157,7 @@ const statusCommand = defineCommand({
   meta: {
     name: 'status',
     description:
-      'Show code intelligence index freshness: file count, node/relation counts, last indexed time, stale files. Falls back to NEXUS registry status if code-intelligence index is unavailable.',
+      'Show code intelligence index freshness: file count, node/relation counts, last indexed time, stale files. Per-file rows are counted (assessment.filesByStatus) and paged (assessment.filesPage; --limit/--offset/--file-status, --files for all). Falls back to NEXUS registry status if code-intelligence index is unavailable.',
   },
   args: {
     path: {
@@ -168,6 +173,26 @@ const statusCommand = defineCommand({
       type: 'boolean',
       description:
         'Include every retained unresolved/unmodeled reference (large; the default reports referenceCount)',
+    },
+    // T12560: the per-file list is ~635 B per file (391 MB for one reporter),
+    // so the default reports counts plus a 20-row page and marks `files` withheld.
+    files: {
+      type: 'boolean',
+      description:
+        'Include every assessed file row under assessment.files (large; the default reports fileCount, filesByStatus and a 20-row filesPage)',
+    },
+    limit: {
+      type: 'string',
+      description: 'Rows in assessment.filesPage (default 20; 0 = every row)',
+    },
+    offset: {
+      type: 'string',
+      description: 'Rows to skip before assessment.filesPage (use filesPage.nextOffset)',
+    },
+    'file-status': {
+      type: 'string',
+      description:
+        'Page only files with this status: analyzed|excluded|unsupported|oversized|failed',
     },
     json: {
       type: 'boolean',
@@ -277,6 +302,28 @@ const statusCommand = defineCommand({
       return;
     }
 
+    let filesRequest: AssessmentFilesRequest;
+    try {
+      filesRequest = parseAssessmentFilesRequest({
+        files: args.files as boolean | undefined,
+        limit: args.limit as string | undefined,
+        offset: args.offset as string | undefined,
+        fileStatus: args['file-status'] as string | undefined,
+      });
+    } catch (err) {
+      cliError(
+        err instanceof Error ? err.message : String(err),
+        ExitCode.INVALID_INPUT,
+        {
+          name: 'E_VALIDATION',
+          fix: 'cleo nexus status --limit 20 --offset 0 --file-status failed',
+        },
+        { operation: 'nexus.status' },
+      );
+      process.exitCode = ExitCode.INVALID_INPUT;
+      return;
+    }
+
     const currentRoot = getProjectRoot();
     if (args.path && path.resolve(repoPath) !== path.resolve(currentRoot)) {
       cliError(
@@ -324,10 +371,12 @@ const statusCommand = defineCommand({
       });
       // T12348: the summary by default; the reference list only on request.
       const summary = await readKnowledgeIndexAssessment(currentRoot);
-      const assessment =
+      const detailed =
         summary && args.references
           ? { ...summary, references: await readKnowledgeIndexReferences(currentRoot) }
           : summary;
+      // T12560: counts plus one page; the whole file list only on explicit request.
+      const assessment = detailed && projectAssessmentFiles(detailed, filesRequest);
       const durationMs = Date.now() - startTime;
 
       cliOutput(
