@@ -89,6 +89,7 @@ Full rationale per gate: `cleo docs fetch arch-gates-rationale` (git mirror: `do
 | 25 | CLI startup barrel — entrypoint graph (T12455 · T12138) | `scripts/lint-cli-startup-barrel-entrypoint.mjs` | none (zero-tolerance) | Nothing in `packages/cleo/src/cli/index.ts`'s static import graph statically imports a core barrel — use dynamic `await import()` (opt-out `// startup-barrel-allowed: <reason>`). |
 | 26 | No raw negated-flag reads (T12528) | `scripts/lint-no-negated-flag-reads.mjs` | inline (`BASELINE`, 1 entry: `orchestrate.ts`, owned by PR #1577) | Read `--no-<flag>` only via `negatedFlag(args, '<name>')`, never `args['no-<flag>']`/`args.noFoo` under `packages/cleo/src/`. |
 | 27 | HITL ask-tool rule delivery (T12483) | `scripts/lint-hitl-rule-delivery.mjs` | none (zero-tolerance) | The ask-tool owner-decision rule stays present on every agent surface: CLEO-INJECTION.md, `ct-cleo`, `ct-orchestrator`, and the spawn-prompt Return Format Contract. |
+| 28 | Raw table writers — Gate A ratchet (T12332) | `scripts/lint-no-raw-table-writes.mjs` | `scripts/.lint-no-raw-table-writes-baseline.json` (227 sites / 73 files) | No net-new raw `INSERT`/`UPDATE`/`DELETE`/`REPLACE` on a classified `cleo.db` table outside the chokepoint (`openDualScopeDb` + the canonical accessors); write through the table's accessor. |
 
 **Common modes (all gates):** `--strict` zero-tolerance · `--baseline` regenerate · default fail-on-net-add.
 

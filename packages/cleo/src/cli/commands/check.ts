@@ -735,6 +735,19 @@ const checkArchCommand = defineCommand({
         script: 'scripts/lint-hitl-rule-delivery.mjs',
         description: 'HITL ask-tool rule present on every agent delivery surface',
       },
+      {
+        // T12332 (Gate A): every cleo.db table now carries a replication
+        // class, and replication captures writes at the chokepoint
+        // (openDualScopeDb and the canonical accessors, which are exempt). A
+        // raw INSERT/UPDATE/DELETE/REPLACE elsewhere is a write nobody can
+        // enumerate. A ratchet: today's offenders are baselined per
+        // (file, table), a new one fails, and a removed one must leave the
+        // baseline in the same change.
+        id: 'gate-28',
+        task: 'T12332',
+        script: 'scripts/lint-no-raw-table-writes.mjs',
+        description: 'No new raw SQL write on a classified cleo.db table (ratchet)',
+      },
     ] as const;
 
     const scriptArgs = strict ? ['--strict'] : ['--check'];

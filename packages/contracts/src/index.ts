@@ -2437,6 +2437,20 @@ export {
   SupervisorIpcResponseEnvelopeSchema,
   SupervisorIpcResponseSchema,
 } from './supervisor-ipc/index.js';
+// === Table Classification Types (T12332 — Gate A replication classes) ===
+export type {
+  ColumnClass,
+  ColumnOverride,
+  PendingTableClassification,
+  RowRouting,
+  TableClass,
+  TableClassification,
+  TableClassificationStatus,
+  TablePatternRule,
+  TableRegistryEntry,
+  TableScope,
+  TableScopeRegistry,
+} from './table-classification.js';
 // === Task Types ===
 export type {
   AcceptanceItem,

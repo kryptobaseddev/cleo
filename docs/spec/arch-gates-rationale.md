@@ -221,6 +221,13 @@ No `args['no-<flag>']`, `args.noFoo`, or `reader(args, 'no-…')` read under `pa
 
 The owner rule — every owner answer, decision, approval or choice goes through the harness ask tool with concrete options, never prose; subagents return the question to their orchestrator; `hitl.request` envelope when no ask tool exists — must be present on every surface an agent reads: `packages/core/templates/CLEO-INJECTION.md` (universal protocol step 7), the `ct-cleo` and `ct-orchestrator` skills, and the spawn-prompt Return Format Contract (`buildHitlLine`, emitted at tiers 0-2). Each surface is checked for short stable marker phrases, so wording can be tightened but the rule cannot be deleted from one surface unnoticed.
 
+## Gate 28 — Raw table writers — Gate A ratchet (T12332) — `scripts/lint-no-raw-table-writes.mjs`
+
+- **Script:** `scripts/lint-no-raw-table-writes.mjs`
+- **Baseline:** `scripts/.lint-no-raw-table-writes-baseline.json` (227 sites / 73 files; 249 / 76 before the canonical accessors were exempted)
+
+Every physical table in the project and global `cleo.db` carries a replication class in `packages/core/src/store/table-classification.ts`. The Gate A test `store/__tests__/table-classification-gate.test.ts` fails on an unclassified table, a pending one, a column change the committed snapshot has not acknowledged, or a credential-shaped column in a syncing table without its own class. Replication captures writes at the chokepoint: `openDualScopeDb` and the canonical accessors built on it (the modules implementing the `@cleocode/contracts` accessor interfaces, listed in the script's `SANCTIONED`), so those are exempt, not baselined. A raw `INSERT` / `UPDATE` / `DELETE` / `REPLACE` on a classified table anywhere else is a write nobody can enumerate. Measured 2026-09-28: some land in frozen bare twins no reader looks at (`tasks`, `task_acceptance_criteria`), and Studio writes brain rows through its own `DatabaseSync`. A RATCHET keyed on (file, table): a new offender fails, and a REMOVED one also fails until `--update-baseline` drops it, so the allowance cannot be spent again. Matching is case-insensitive and spans lines; comments are blanked by a string-, template-, regex- and Rust-aware lexer. Files whose SQL words are prose only (`operations-registry.ts`) are listed in `PROSE_ONLY`. Scans non-test `*.ts/*.tsx/*.mjs/*.js/*.rs` under `packages/` and `crates/`; the table set is parsed from the registry source. Blind spot (follow-up): dynamic names (`INSERT INTO ${t}`). `--strict` ignores the baseline.
+
 ## Gate-table footnotes (verbatim)
 
 **Common modes (all gates):** `--strict` zero-tolerance · `--baseline` regenerate · default fail-on-net-add.
