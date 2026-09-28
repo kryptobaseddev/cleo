@@ -57,7 +57,7 @@ export interface CommitCheck {
 
 /** Result of {@link evaluateMergeCommitChecks}. */
 export type MergeCommitCheckResult =
-  | { ok: true; checks: Array<{ name: string; conclusion: string }> }
+  | { ok: true; checks: Array<{ name: string; conclusion: string; sha: string }> }
   | { ok: false; reasons: string[] };
 
 /** A `ci:` atom resolution: the validated atom, or the refusal. */
@@ -85,6 +85,8 @@ export interface ResolveCiEvidenceOptions {
   ) => Promise<{ ok: true; checks: CommitCheck[] } | { ok: false; reason: string }>;
   /** Parsed `.cleo/project-context.json`, for the required-check list. */
   projectContext?: Record<string, unknown> | null;
+  /** Tree SHA of a commit, or null when the object is not local; defaults to `git rev-parse`. */
+  treeOf?: (sha: string, cwd: string) => string | null;
 }
 
 /**
@@ -126,6 +128,7 @@ export function evaluateMergeCommitChecks(
   required: readonly string[],
   checks: readonly CommitCheck[],
   mergeCommitSha: string,
+  treeEquivalentSha?: string,
 ): MergeCommitCheckResult {
   if (required.length === 0) {
     return {
@@ -134,34 +137,67 @@ export function evaluateMergeCommitChecks(
     };
   }
   const reasons: string[] = [];
-  const matched: Array<{ name: string; conclusion: string }> = [];
+  const matched: Array<{ name: string; conclusion: string; sha: string }> = [];
   for (const name of required) {
     const named = checks.filter((c) => c.name === name);
-    const onMerge = named.filter((c) => c.headSha === mergeCommitSha);
-    if (onMerge.length === 0) {
-      const elsewhere = named[0];
-      reasons.push(
-        elsewhere
-          ? `${name}: ran on ${elsewhere.headSha.slice(0, 12)}, not the merge commit ${mergeCommitSha.slice(0, 12)}`
-          : `${name}: not found on merge commit ${mergeCommitSha.slice(0, 12)}`,
-      );
+    const verdict = judgeOnSha(named, mergeCommitSha);
+    if (verdict === null) {
+      matched.push({ name, conclusion: 'success', sha: mergeCommitSha });
       continue;
     }
-    const latest = (['workflow-run', 'check-run'] as const)
-      .map(
-        (source) => onMerge.filter((c) => c.source === source).toSorted((a, b) => b.id - a.id)[0],
-      )
-      .filter((c): c is CommitCheck => c !== undefined);
-    const bad = latest.find((c) => c.status !== 'completed' || c.conclusion !== 'success');
-    if (bad) {
-      reasons.push(
-        `${name}: ${bad.status !== 'completed' ? `pending (${bad.status})` : bad.conclusion} on merge commit ${mergeCommitSha.slice(0, 12)}`,
-      );
+    // T12634: the final PR run tested the same TREE when the PR head's tree is
+    // identical to the merge commit's; its success stands in for a merge-commit
+    // run that was cancelled or never started.
+    if (
+      treeEquivalentSha !== undefined &&
+      treeEquivalentSha !== mergeCommitSha &&
+      judgeOnSha(named, treeEquivalentSha) === null
+    ) {
+      matched.push({ name, conclusion: 'success', sha: treeEquivalentSha });
       continue;
     }
-    matched.push({ name, conclusion: 'success' });
+    const elsewhere = named.find(
+      (c) => c.headSha !== mergeCommitSha && c.headSha !== treeEquivalentSha,
+    );
+    reasons.push(
+      verdict === 'missing' && elsewhere
+        ? `${name}: ran on ${elsewhere.headSha.slice(0, 12)}, not the merge commit ${mergeCommitSha.slice(0, 12)}`
+        : verdict === 'missing'
+          ? `${name}: not found on merge commit ${mergeCommitSha.slice(0, 12)}`
+          : `${name}: ${verdict} on merge commit ${mergeCommitSha.slice(0, 12)}`,
+    );
   }
   return reasons.length > 0 ? { ok: false, reasons } : { ok: true, checks: matched };
+}
+
+/**
+ * Judge one required name on one SHA: `null` when every source's latest
+ * attempt completed with `success`, else `'missing'` or the failing state.
+ */
+function judgeOnSha(named: readonly CommitCheck[], sha: string): string | null {
+  const onSha = named.filter((c) => c.headSha === sha);
+  if (onSha.length === 0) return 'missing';
+  const latest = (['workflow-run', 'check-run'] as const)
+    .map((source) => onSha.filter((c) => c.source === source).toSorted((a, b) => b.id - a.id)[0])
+    .filter((c): c is CommitCheck => c !== undefined);
+  const bad = latest.find((c) => c.status !== 'completed' || c.conclusion !== 'success');
+  if (!bad) return null;
+  return bad.status !== 'completed' ? `pending (${bad.status})` : (bad.conclusion ?? 'unknown');
+}
+
+/** Default {@link ResolveCiEvidenceOptions.treeOf}: `git rev-parse <sha>^{tree}`. */
+function defaultTreeOf(sha: string, cwd: string): string | null {
+  try {
+    return (
+      execFileSync('git', ['rev-parse', '--verify', '--quiet', `${sha}^{tree}`], {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim() || null
+    );
+  } catch {
+    return null;
+  }
 }
 
 /** Run one read-only `gh api` GET; `null` on failure. */
@@ -270,13 +306,34 @@ export async function resolveCiEvidenceAtom(
       reason: `Cannot determine the required checks (${required.source.reason}); ci:${prNumber} cannot be judged.`,
     };
   }
-  const fetched = await (opts.fetchChecks ?? defaultFetchChecks)(
-    pr.mergeCommitSha,
-    roots.executionRoot,
-  );
+  const fetchChecks = opts.fetchChecks ?? defaultFetchChecks;
+  const fetched = await fetchChecks(pr.mergeCommitSha, roots.executionRoot);
   if (!fetched.ok) return { ok: false, reason: fetched.reason, codeName: 'E_EVIDENCE_TOOL_FAILED' };
 
-  const judged = evaluateMergeCommitChecks(required.workflows, fetched.checks, pr.mergeCommitSha);
+  // T12634: GitHub deletes `refs/pull/<n>/merge` once a PR merges, so the
+  // final PR run's test-merge commit cannot be read back. Its stand-in is the
+  // final PR head: with strict branch protection the head is up to date, the
+  // test merge adds nothing, and the tested tree is the head's tree. Its
+  // checks count only when that tree is IDENTICAL to the merge commit's; an
+  // unknown tree (object not local) never counts.
+  const treeOf = opts.treeOf ?? defaultTreeOf;
+  const mergeTree = treeOf(pr.mergeCommitSha, roots.executionRoot);
+  const head = pr.headRefOid;
+  const headTree = head ? treeOf(head, roots.executionRoot) : null;
+  const treeEqualHead =
+    head && mergeTree !== null && headTree !== null && headTree === mergeTree ? head : undefined;
+  let checks = fetched.checks;
+  if (treeEqualHead && treeEqualHead !== pr.mergeCommitSha) {
+    const onHead = await fetchChecks(treeEqualHead, roots.executionRoot);
+    if (onHead.ok) checks = [...checks, ...onHead.checks];
+  }
+
+  const judged = evaluateMergeCommitChecks(
+    required.workflows,
+    checks,
+    pr.mergeCommitSha,
+    treeEqualHead,
+  );
   if (!judged.ok) {
     return {
       ok: false,
@@ -293,6 +350,7 @@ export async function resolveCiEvidenceAtom(
       prNumber,
       mergeCommitSha: pr.mergeCommitSha,
       checks: judged.checks,
+      ...(mergeTree !== null ? { testedTree: mergeTree } : {}),
       requiredSource: required.source.tier,
     },
   };

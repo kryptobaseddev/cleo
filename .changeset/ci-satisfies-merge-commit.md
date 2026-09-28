@@ -23,3 +23,11 @@ Owner decision D11149.
   local tool run. This removes the post-merge full-suite rerun.
 - A `ci:` atom counts as an actual verification result for code tasks. At complete
   time it is trusted as captured, like `pr:`.
+- Tree-equal PR runs: when the final PR head's tree is identical to the merge
+  commit's tree (`git rev-parse <sha>^{tree}`), a required check that succeeded
+  on the PR head counts, so a push run on `main` that was cancelled or never
+  started does not block. GitHub deletes `refs/pull/<n>/merge` once a PR merges,
+  so the PR head stands in for the final test-merge commit. When the trees
+  differ, or either tree is unknown locally, only merge-commit checks count.
+  The atom records the SHA each check was judged on (`checks[].sha`) and the
+  tested tree (`testedTree`).

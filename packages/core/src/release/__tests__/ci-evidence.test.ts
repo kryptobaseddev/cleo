@@ -225,6 +225,100 @@ describe('resolveCiEvidenceAtom', () => {
   });
 });
 
+describe('tree-equal PR runs (merge commit and PR head carry the same tree)', () => {
+  const TREE = 'c'.repeat(40);
+  let root: string;
+  const merged: PrAtomResolution = {
+    ok: true,
+    prNumber: 42,
+    mergeCommitSha: MERGE,
+    mergedAt: '2026-09-28T00:00:00Z',
+    successCount: 3,
+    totalChecks: 3,
+    cacheHit: false,
+    title: 'T1',
+    body: '',
+    headRefName: 'task/T1',
+    headRefOid: HEAD,
+    changedPaths: ['a.ts'],
+    changedFileCount: 1,
+  };
+  const onHead = allGreen.map((c) => ({ ...c, headSha: HEAD }));
+  const cancelledOnMerge = allGreen.map((c) =>
+    c.name === 'CI' ? { ...c, conclusion: 'cancelled' } : c,
+  );
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'ci-tree-'));
+    mkdirSync(join(root, '.cleo'), { recursive: true });
+    writeFileSync(
+      join(root, '.cleo', 'project-context.json'),
+      JSON.stringify({ evidence: { ciSatisfies: true } }),
+    );
+    process.env[PR_REQUIRED_WORKFLOWS_ENV_VAR] = REQUIRED.join(',');
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+    delete process.env[PR_REQUIRED_WORKFLOWS_ENV_VAR];
+  });
+
+  function resolveWith(checksBySha: Record<string, CommitCheck[]>, trees: Record<string, string>) {
+    return resolveCiEvidenceAtom(
+      42,
+      { storeRoot: root, executionRoot: root },
+      {
+        resolvePr: async () => merged,
+        fetchChecks: async (sha) => ({ ok: true, checks: checksBySha[sha] ?? [] }),
+        treeOf: (sha) => trees[sha] ?? null,
+      },
+    );
+  }
+
+  it('accepts required checks that succeeded on the PR head when its tree equals the merge tree', async () => {
+    const r = await resolveWith({ [MERGE]: [], [HEAD]: onHead }, { [MERGE]: TREE, [HEAD]: TREE });
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+    if (!r.ok) return;
+    expect(r.atom.testedTree).toBe(TREE);
+    expect(r.atom.checks.every((c) => c.sha === HEAD)).toBe(true);
+  });
+
+  it('refuses PR-head checks when the trees differ, falling back to merge-commit checks', async () => {
+    const r = await resolveWith(
+      { [MERGE]: [], [HEAD]: onHead },
+      { [MERGE]: TREE, [HEAD]: 'd'.repeat(40) },
+    );
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.reason).toMatch(/not found on merge commit/);
+  });
+
+  it('a cancelled main push run is covered by a tree-equal PR run', async () => {
+    const r = await resolveWith(
+      { [MERGE]: cancelledOnMerge, [HEAD]: onHead },
+      { [MERGE]: TREE, [HEAD]: TREE },
+    );
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+    if (!r.ok) return;
+    const bySha = Object.fromEntries(r.atom.checks.map((c) => [c.name, c.sha]));
+    expect(bySha).toEqual({ CI: HEAD, 'Lockfile Check': MERGE, 'Contracts Dep Lint': MERGE });
+  });
+
+  it('the same cancelled run with a tree-different PR head stays refused', async () => {
+    const r = await resolveWith(
+      { [MERGE]: cancelledOnMerge, [HEAD]: onHead },
+      { [MERGE]: TREE, [HEAD]: 'd'.repeat(40) },
+    );
+    expect(!r.ok && r.reason).toMatch(/CI: cancelled on merge commit/);
+  });
+
+  it('an unknown tree (object not local) never counts as equal', async () => {
+    const r = await resolveWith({ [MERGE]: [], [HEAD]: onHead }, { [MERGE]: TREE });
+    expect(r.ok).toBe(false);
+    // Neither object local: two unknowns are not two equal trees.
+    const neither = await resolveWith({ [MERGE]: [], [HEAD]: onHead }, {});
+    expect(neither.ok).toBe(false);
+  });
+});
+
 describe('gate rules accept a validated ci: atom for testsPassed and qaPassed only', () => {
   it('parses ci:<pr>', () => {
     expect(parseEvidence('ci:42').atoms).toEqual([{ kind: 'ci', prNumber: 42 }]);
@@ -247,7 +341,7 @@ describe('gate rules accept a validated ci: atom for testsPassed and qaPassed on
       kind: 'ci',
       prNumber: 42,
       mergeCommitSha: MERGE,
-      checks: [{ name: 'CI', conclusion: 'success' }],
+      checks: [{ name: 'CI', conclusion: 'success', sha: MERGE }],
       requiredSource: 'env',
     };
     expect(checkTaskEvidenceContext(context, 'testsPassed', [ci])).toBeNull();

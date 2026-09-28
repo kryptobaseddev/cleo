@@ -83,6 +83,12 @@ export type PrAtomResolution =
       title: string;
       body: string;
       headRefName: string;
+      /**
+       * Final PR head commit, when known (T12634: its checks count for `ci:`
+       * when its tree equals the merge commit's). Absent on cache entries
+       * captured before T12634.
+       */
+      headRefOid?: string;
       /** Complete changed-file inventory; count mismatch is reported by contextual validation. */
       changedPaths: string[];
       changedFileCount: number;
@@ -132,6 +138,7 @@ interface PrCacheEntry {
   readonly title: string;
   readonly body: string;
   readonly headRefName: string;
+  readonly headRefOid?: string;
   readonly changedPaths: string[];
   readonly changedFileCount: number;
   readonly key: string;
@@ -1134,6 +1141,7 @@ export async function resolvePrEvidenceAtom(
         title: cached.title,
         body: cached.body,
         headRefName: cached.headRefName,
+        ...(typeof cached.headRefOid === 'string' ? { headRefOid: cached.headRefOid } : {}),
         changedPaths: cached.changedPaths,
         changedFileCount: cached.changedFileCount,
       };
@@ -1270,6 +1278,7 @@ export async function resolvePrEvidenceAtom(
     title: payload.title ?? '',
     body: payload.body ?? '',
     headRefName: payload.headRefName ?? '',
+    ...(payload.headRefOid ? { headRefOid: payload.headRefOid } : {}),
     changedPaths,
     changedFileCount,
   };

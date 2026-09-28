@@ -378,8 +378,14 @@ export type EvidenceAtom =
       prNumber: number;
       /** Merge commit SHA (full 40-char hex) the checks ran on. */
       mergeCommitSha: string;
-      /** The required checks and their conclusions on that commit. */
-      checks: Array<{ name: string; conclusion: string }>;
+      /**
+       * The required checks, their conclusions and the commit each was judged
+       * on: the merge commit itself, or (T12634) the final PR head when its
+       * tree is identical to the merge commit's.
+       */
+      checks: Array<{ name: string; conclusion: string; sha: string }>;
+      /** Tree of the merge commit — the content every recorded check tested. */
+      testedTree?: string;
       /** Where the required-check list came from (env, project context, branch protection). */
       requiredSource: string;
     }
