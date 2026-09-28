@@ -14,6 +14,8 @@
  * - Worktree primitives: {@link computeProjectHash},
  *   {@link resolveWorktreeRootForHash}, {@link resolveTaskWorktreePath},
  *   {@link getCleoWorktreesRoot}, {@link resolveWorktreeIndexPath}
+ * - {@link getCleoStateDir} — CLEO state dir (XDG state on Linux, `<cleoHome>/state` elsewhere)
+ * - {@link expandTildePath} — `~` expansion via `os.homedir()`
  * - {@link isAbsolutePath} — cross-platform abs-path check
  * - Portable identity: {@link readPortableProjectId} (tracked `.cleo/project-id`, T12325)
  *
@@ -32,6 +34,7 @@ export {
   getCanonicalTemplatesTildePath,
   getCleoHome,
   getCleoPlatformPaths,
+  getCleoStateDir,
   getCleoSystemInfo,
   getCleoTemplatesTildePath,
   legacyProjectId,
@@ -56,6 +59,7 @@ export {
 } from './node-version-gate.js';
 export {
   createPlatformPathsResolver,
+  expandTildePath,
   type PlatformPaths,
   type PlatformPathsResolver,
   type SystemInfo,

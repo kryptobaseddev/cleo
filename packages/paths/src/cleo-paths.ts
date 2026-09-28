@@ -78,6 +78,33 @@ export function getCleoHome(): string {
 }
 
 /**
+ * Get the absolute path to CLEO's global state directory.
+ *
+ * State is data CLEO keeps between runs but can rebuild or lose: warn-once
+ * caches, deprecation telemetry, cleanup audit logs.
+ *
+ * Linux:   `$XDG_STATE_HOME/cleo` (default `~/.local/state/cleo`)
+ * macOS:   `<getCleoHome()>/state` (`~/Library/Application Support/cleo/state`)
+ * Windows: `<getCleoHome()>/state` (`%LOCALAPPDATA%\cleo\Data\state`)
+ *
+ * macOS and Windows have no XDG state dir, so state lives beside the data it
+ * describes and follows a `CLEO_HOME` override.
+ *
+ * @returns Absolute path of the state directory. Not created.
+ *
+ * @public
+ * @task T12602
+ */
+export function getCleoStateDir(): string {
+  const paths = cleoResolver.getPlatformPaths();
+  if (process.platform === 'darwin' || process.platform === 'win32') {
+    return join(paths.data, 'state');
+  }
+  // env-paths maps `log` to $XDG_STATE_HOME/<app> on Linux.
+  return paths.log;
+}
+
+/**
  * Path of the persisted stable device id — `<cleoHome>/device-id`.
  *
  * Core's `getStableDeviceId()` creates it; `@cleocode/worktree` reads it to

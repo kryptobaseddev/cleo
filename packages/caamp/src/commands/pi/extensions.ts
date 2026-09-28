@@ -22,6 +22,7 @@ import { existsSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
+import { expandTildePath } from '@cleocode/paths';
 import type { Command } from 'commander';
 import type { HarnessInstallOptions } from '../../core/harness/types.js';
 import { fetchWithTimeout } from '../../core/network/fetch.js';
@@ -85,7 +86,7 @@ export type PiExtensionsRemoveOptions = PiCommandBaseOptions;
  *
  * @internal
  */
-async function resolveExtensionSource(
+export async function resolveExtensionSource(
   source: string,
 ): Promise<{ localPath: string; cleanup: () => Promise<void>; inferredName: string }> {
   // Local file path first — cheapest check.
@@ -97,9 +98,9 @@ async function resolveExtensionSource(
     source.startsWith('../') ||
     source.startsWith('~')
   ) {
-    const expanded = source.startsWith('~/')
-      ? join(process.env['HOME'] ?? '', source.slice(2))
-      : source;
+    // os.homedir() via expandTildePath: HOME is unset on Windows, which made
+    // `~/x` expand to the relative path `x` (T12608).
+    const expanded = expandTildePath(source);
     if (!existsSync(expanded)) {
       throw new LAFSCommandError(
         PI_ERROR_CODES.NOT_FOUND,

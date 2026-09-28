@@ -12,6 +12,7 @@ import { execFileSync } from 'node:child_process';
 import { accessSync, constants, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { getCleoWorktreesRoot } from '@cleocode/paths';
 import { listRegisteredWorktrees } from '@cleocode/worktree';
 import { CORE_PROTECTED_FILES } from '../../constants.js';
 import { inspectProjectIdentity } from '../../doctor/project-identity.js';
@@ -1526,8 +1527,8 @@ export function checkNoLocalSchemas(projectRoot?: string): CheckResult {
 /**
  * Audit orphaned CLEO agent worktree directories.
  *
- * Lists all directories under `~/.local/share/cleo/worktrees/` (or the
- * XDG-resolved equivalent) whose names are NOT in the provided
+ * Lists all directories under `getCleoWorktreesRoot()` (the platform CLEO
+ * data dir, where `cleo orchestrate spawn` provisions) whose names are NOT in the provided
  * `activeTaskIds` set. Surfaces them as a `warning` so the operator can
  * clean them with `cleo gc --worktrees`.
  *
@@ -1541,8 +1542,7 @@ export function auditOrphanWorktrees(
   worktreesRoot?: string,
   activeTaskIds: Set<string> = new Set(),
 ): CheckResult {
-  const xdgData = process.env['XDG_DATA_HOME'] ?? join(homedir(), '.local', 'share');
-  const root = worktreesRoot ?? join(xdgData, 'cleo', 'worktrees');
+  const root = worktreesRoot ?? getCleoWorktreesRoot();
 
   if (!existsSync(root)) {
     return {

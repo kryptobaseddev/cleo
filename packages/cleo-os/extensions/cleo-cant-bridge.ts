@@ -567,27 +567,56 @@ interface TierDiscoveryStats {
 }
 
 /**
- * Resolve XDG-compliant paths for the 3-tier CANT hierarchy.
+ * The slice of `@cleocode/paths` this extension resolves CLEO dirs through.
+ * Loaded at runtime via {@link importCleoModule} (see the module-resolution
+ * note at the top of this file).
+ */
+export interface CleoPathsModule {
+  getCleoHome: () => string;
+  getCleoPlatformPaths: () => { config: string };
+}
+
+/**
+ * Load `@cleocode/paths`, the SSoT for CLEO's platform dirs.
  *
- * Respects `XDG_DATA_HOME` and `XDG_CONFIG_HOME` environment variables.
- * Falls back to XDG defaults (`~/.local/share/` and `~/.config/`).
+ * Returns `null` when it cannot be resolved. Callers then skip the global
+ * tiers rather than guess a Linux-only `~/.local/share` path that is wrong
+ * on macOS and Windows.
+ */
+export async function loadCleoPaths(): Promise<CleoPathsModule | null> {
+  try {
+    const mod = (await importCleoModule("@cleocode/paths")) as Partial<CleoPathsModule>;
+    if (typeof mod.getCleoHome !== "function" || typeof mod.getCleoPlatformPaths !== "function") {
+      return null;
+    }
+    return { getCleoHome: mod.getCleoHome, getCleoPlatformPaths: mod.getCleoPlatformPaths };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve the paths for the 3-tier CANT hierarchy.
+ *
+ * The global tier is `<getCleoHome()>/cant` and the user tier is
+ * `<CLEO config dir>/cant`, both from `@cleocode/paths`. When that module is
+ * unavailable only the project tier is returned.
  *
  * @param projectDir - The project root directory (for the project tier).
+ * @param cleoPaths - The loaded `@cleocode/paths` module, or null.
  * @returns An object with `global`, `user`, and `project` CANT directory paths.
  */
-function resolveThreeTierPaths(projectDir: string): {
-  global: string;
-  user: string;
+export function resolveThreeTierPaths(
+  projectDir: string,
+  cleoPaths: CleoPathsModule | null,
+): {
+  global: string | null;
+  user: string | null;
   project: string;
 } {
-  const home = homedir();
-  const xdgData =
-    process.env["XDG_DATA_HOME"] ?? join(home, ".local", "share");
-  const xdgConfig = process.env["XDG_CONFIG_HOME"] ?? join(home, ".config");
-
   return {
-    global: join(xdgData, "cleo", "cant"),
-    user: join(xdgConfig, "cleo", "cant"),
+    global: cleoPaths ? join(cleoPaths.getCleoHome(), "cant") : null,
+    user: cleoPaths ? join(cleoPaths.getCleoPlatformPaths().config, "cant") : null,
     project: join(projectDir, ".cleo", "cant"),
   };
 }
@@ -600,16 +629,20 @@ function resolveThreeTierPaths(projectDir: string): {
  * The precedence order is: project > user > global.
  *
  * @param projectDir - The project root directory.
+ * @param cleoPaths - The loaded `@cleocode/paths` module, or null.
  * @returns An object containing the merged file list and per-tier statistics.
  */
-function discoverCantFilesMultiTier(projectDir: string): {
+function discoverCantFilesMultiTier(
+  projectDir: string,
+  cleoPaths: CleoPathsModule | null,
+): {
   files: string[];
   stats: TierDiscoveryStats;
 } {
-  const paths = resolveThreeTierPaths(projectDir);
+  const paths = resolveThreeTierPaths(projectDir, cleoPaths);
 
-  const globalFiles = discoverCantFiles(paths.global);
-  const userFiles = discoverCantFiles(paths.user);
+  const globalFiles = paths.global ? discoverCantFiles(paths.global) : [];
+  const userFiles = paths.user ? discoverCantFiles(paths.user) : [];
   const projectFiles = discoverCantFiles(paths.project);
 
   // Build basename-keyed map; lowest precedence first so higher tiers override
@@ -743,7 +776,7 @@ export default function (pi: ExtensionAPI): void {
     });
 
     try {
-      const { files, stats } = discoverCantFilesMultiTier(ctx.cwd);
+      const { files, stats } = discoverCantFilesMultiTier(ctx.cwd, await loadCleoPaths());
       if (files.length === 0) return;
 
       // Dynamic import: @cleocode/cant may not be installed in all environments.
@@ -860,7 +893,7 @@ export default function (pi: ExtensionAPI): void {
         const projectRoot = event.projectRoot ?? ctx?.cwd ?? "";
 
         // Read CLEOOS-IDENTITY.md from disk (project-level or global XDG).
-        // Search order: <projectRoot>/.cleo/CLEOOS-IDENTITY.md → ~/.local/share/cleo/CLEOOS-IDENTITY.md
+        // Search order: <projectRoot>/.cleo/CLEOOS-IDENTITY.md → <getCleoHome()>/CLEOOS-IDENTITY.md
         // Best-effort: if neither path exists the block is skipped silently.
         let identityFileContent: string | null = null;
         if (projectRoot) {
@@ -872,22 +905,13 @@ export default function (pi: ExtensionAPI): void {
           }
         }
         if (!identityFileContent) {
-          // Resolve global CLEO home via @cleocode/paths (XDG SSoT, T9016).
-          // Falls back to the same XDG default when the module is unavailable.
-          let cleoHome: string;
-          try {
-            const pathsMod = (await importCleoModule("@cleocode/paths")) as {
-              getCleoHome?: () => string;
-            };
-            cleoHome =
-              typeof pathsMod.getCleoHome === "function"
-                ? pathsMod.getCleoHome()
-                : join(process.env["XDG_DATA_HOME"] ?? join(homedir(), ".local", "share"), "cleo");
-          } catch {
-            cleoHome = join(process.env["XDG_DATA_HOME"] ?? join(homedir(), ".local", "share"), "cleo");
-          }
-          const globalIdentityPath = join(cleoHome, "CLEOOS-IDENTITY.md");
-          if (existsSync(globalIdentityPath)) {
+          // Resolve global CLEO home via @cleocode/paths (SSoT, T9016). No
+          // Linux-path guess when it is unavailable: skip the global file.
+          const cleoPaths = await loadCleoPaths();
+          const globalIdentityPath = cleoPaths
+            ? join(cleoPaths.getCleoHome(), "CLEOOS-IDENTITY.md")
+            : null;
+          if (globalIdentityPath && existsSync(globalIdentityPath)) {
             try {
               identityFileContent = readFileSync(globalIdentityPath, "utf-8") || null;
             } catch { /* read failure — skip identity injection */ }

@@ -16,7 +16,6 @@
 
 import { statSync } from 'node:fs';
 import { appendFile, mkdir } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import path from 'node:path';
 import {
   ExitCode,
@@ -37,6 +36,7 @@ import {
 } from '@cleocode/core/nexus/freshness.js';
 import { KnowledgeSymbolAmbiguityError } from '@cleocode/core/nexus/knowledge.js';
 import { runNexusWiki } from '@cleocode/core/nexus/wiki-orchestrator.js';
+import { getCleoStateDir } from '@cleocode/paths';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
 import { buildNexusMetaExtensions } from '../../dispatch/nexus-decorator.js';
@@ -46,15 +46,15 @@ import { cliError, cliOutput, humanInfo, humanWarn } from '../renderers/index.js
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Append a deprecation telemetry record to the XDG state log.
+ * Append a deprecation telemetry record to the CLEO state log.
  *
- * Path: ~/.local/state/cleo/nexus-deprecation/YYYY-MM-DD.jsonl
+ * Path: <getCleoStateDir()>/nexus-deprecation/YYYY-MM-DD.jsonl
  * Non-fatal — telemetry errors must never block CLI execution (T9147).
  */
 async function appendDeprecationTelemetry(op: string, replacement: string): Promise<void> {
   try {
     const dateStr = new Date().toISOString().slice(0, 10);
-    const dir = path.join(homedir(), '.local', 'state', 'cleo', 'nexus-deprecation');
+    const dir = path.join(getCleoStateDir(), 'nexus-deprecation');
     await mkdir(dir, { recursive: true });
     const record = JSON.stringify({ ts: new Date().toISOString(), op, replacement }) + '\n';
     await appendFile(path.join(dir, `${dateStr}.jsonl`), record, 'utf8');

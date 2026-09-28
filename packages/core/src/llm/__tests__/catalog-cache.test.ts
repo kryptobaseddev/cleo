@@ -24,6 +24,7 @@ import {
   CatalogRefreshError,
   fetchAndCacheCatalog,
   findLatestCacheFile,
+  getCatalogDir,
   loadDiskCatalogIndex,
   type ModelsCatalogFile,
   readCacheFile,
@@ -90,6 +91,24 @@ describe('buildContextIndex', () => {
 // ---------------------------------------------------------------------------
 // findLatestCacheFile + writeCacheFile + readCacheFile
 // ---------------------------------------------------------------------------
+
+describe('getCatalogDir (T12602)', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('defaults to <getCleoHome()>/llm-catalog, not $XDG_DATA_HOME/cleo', () => {
+    vi.stubEnv('CLEO_DATA_DIR', undefined);
+    vi.stubEnv('CLEO_HOME', '/opt/cleo-data');
+    vi.stubEnv('XDG_DATA_HOME', '/xdg/data');
+    expect(getCatalogDir()).toBe(join('/opt/cleo-data', 'llm-catalog'));
+  });
+
+  it('CLEO_DATA_DIR still wins', () => {
+    vi.stubEnv('CLEO_DATA_DIR', '/explicit');
+    expect(getCatalogDir()).toBe(join('/explicit', 'llm-catalog'));
+  });
+});
 
 describe('disk cache helpers', () => {
   let tmpDir: string;

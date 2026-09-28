@@ -14,7 +14,7 @@
 import { mkdirSync, mkdtempSync, rmSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { auditOrphanTempDirs, auditOrphanWorktrees } from '../doctor/checks.js';
 
 // ---------------------------------------------------------------------------
@@ -75,6 +75,45 @@ describe('auditOrphanWorktrees', () => {
   it('uses category worktree', () => {
     const result = auditOrphanWorktrees(tempBase);
     expect(result.category).toBe('worktree');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// auditOrphanWorktrees — default root is the platform CLEO data dir (T12602)
+// ---------------------------------------------------------------------------
+
+describe('auditOrphanWorktrees default root (T12602)', () => {
+  let cleoHome: string;
+  let xdgData: string;
+
+  beforeEach(() => {
+    // getCleoHome() is the platform data dir (`~/Library/Application Support/cleo`
+    // on macOS); CLEO_HOME stands in for it here so the test never touches the
+    // real one. XDG_DATA_HOME points at an EMPTY dir: the old resolver read it
+    // (or ~/.local/share) on every OS and so saw no worktrees off Linux.
+    cleoHome = mkdtempSync(join(tmpdir(), 'cleo-doc-home-'));
+    xdgData = mkdtempSync(join(tmpdir(), 'cleo-doc-xdg-'));
+    vi.stubEnv('CLEO_HOME', cleoHome);
+    vi.stubEnv('XDG_DATA_HOME', xdgData);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    rmSync(cleoHome, { recursive: true, force: true });
+    rmSync(xdgData, { recursive: true, force: true });
+  });
+
+  it('finds an orphan worktree provisioned under getCleoWorktreesRoot()', () => {
+    const orphan = join(cleoHome, 'worktrees', 'projhash01', 'T9002');
+    mkdirSync(orphan, { recursive: true });
+    mkdirSync(join(cleoHome, 'worktrees', 'projhash01', 'T9001'), { recursive: true });
+
+    const result = auditOrphanWorktrees(undefined, new Set(['T9001']));
+
+    expect(result.status).toBe('warning');
+    expect(result.details?.['root']).toBe(join(cleoHome, 'worktrees'));
+    const orphans = result.details?.['orphans'] as Array<{ path: string }>;
+    expect(orphans.map((o) => o.path)).toEqual([orphan]);
   });
 });
 

@@ -39,10 +39,8 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { dirname, join, resolve as resolvePath } from 'node:path';
+import { join, resolve as resolvePath } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
-import { fileURLToPath } from 'node:url';
 import type { PlaybookApproval, PlaybookRun, PlaybookRunStatus } from '@cleocode/contracts';
 import type { playbook as corePlaybook } from '@cleocode/core';
 import { listPlaybooks, PlaybookNotFoundError, resolvePlaybook } from '@cleocode/core';
@@ -212,34 +210,10 @@ function normalizeListStatus(raw: unknown): PlaybookRunStatus | undefined {
 }
 
 /**
- * Resolve the list of directories to search for `<name>.cantbook` files.
- *
- * Legacy helper retained so that existing tests that set `playbookBaseDirs`
- * continue to work. New code should use {@link loadPlaybookByName} which
- * delegates to the tier-aware `resolvePlaybook()` function (T1937).
- *
- * @internal
- */
-function resolvePlaybookDirs(): readonly string[] {
-  if (__playbookRuntimeOverrides.playbookBaseDirs) {
-    return __playbookRuntimeOverrides.playbookBaseDirs;
-  }
-  const globalDir = join(homedir(), '.local', 'share', 'cleo', 'playbooks');
-  const here = dirname(fileURLToPath(import.meta.url));
-  // Canonical source layout: packages/cleo/src/dispatch/domains/playbook.ts
-  //                 → ../../../../playbooks/starter
-  // Bundled layout:   packages/cleo/dist/cli/commands/... keep parallel fallback.
-  const sourceStarter = resolvePath(here, '..', '..', '..', '..', 'playbooks', 'starter');
-  const bundledStarter = resolvePath(here, '..', '..', '..', 'playbooks', 'starter');
-  return [globalDir, sourceStarter, bundledStarter];
-}
-
-/**
  * Load and parse a `.cantbook` by name using the 3-tier canonical resolver
  * (T1937 — ADR-068 Decision 4).
  *
- * Falls back to the legacy `resolvePlaybookDirs()` search when the test
- * override `playbookBaseDirs` is set, so existing tests remain hermetic.
+ * Uses a linear search of the test override `playbookBaseDirs` when it is set, so existing tests remain hermetic.
  *
  * Returns `null` when the playbook cannot be found in any tier; callers
  * should emit `E_NOT_FOUND`.
@@ -251,8 +225,8 @@ async function loadPlaybookByName(
 ): Promise<{ sourcePath: string; source: string } | null> {
   // Legacy test override path: if playbookBaseDirs is set, use the old linear
   // search to keep existing tests hermetic without migration.
-  if (__playbookRuntimeOverrides.playbookBaseDirs) {
-    const candidates = resolvePlaybookDirs();
+  const candidates = __playbookRuntimeOverrides.playbookBaseDirs;
+  if (candidates) {
     const fileName = name.endsWith('.cantbook') ? name : `${name}.cantbook`;
     for (const dir of candidates) {
       const full = join(dir, fileName);

@@ -22,6 +22,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import type { PortablePathFinding, PortableRelocationReport } from '@cleocode/contracts';
+import { isAbsolutePath } from '@cleocode/paths';
 
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
@@ -47,12 +48,21 @@ const EXAMPLE_LIMIT = 160;
  * True when `value` is `root` or lies under it (path-boundary aware, so
  * `/a/b` does not match `/a/bc`).
  *
+ * Accepts `/` and `\` as the boundary. The paths come from rows a bundle
+ * recorded on its SOURCE machine, which need not be this OS, so the check
+ * cannot use the host's `path.relative` / `path.sep`: `C:\p\a` must count as
+ * under `C:\p` when a Windows bundle is relocated on Linux, and vice versa.
+ *
  * @param value - Candidate path.
  * @param root - Root path.
  * @returns Whether `value` is at or under `root`.
  */
 export function isUnderRoot(value: string, root: string): boolean {
-  return value === root || value.startsWith(`${root}/`);
+  if (value === root) return true;
+  if (root.length === 0 || !value.startsWith(root)) return false;
+  if (root.endsWith('/') || root.endsWith('\\')) return true;
+  const boundary = value.charAt(root.length);
+  return boundary === '/' || boundary === '\\';
 }
 
 /**
@@ -248,7 +258,7 @@ function rewriteAllStrings(
   to: string,
 ): { value: unknown; changed: number } {
   if (typeof node === 'string') {
-    return node.startsWith('/') && isUnderRoot(node, from)
+    return isAbsolutePath(node) && isUnderRoot(node, from)
       ? { value: relocatePath(node, from, to), changed: 1 }
       : { value: node, changed: 0 };
   }

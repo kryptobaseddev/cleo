@@ -34,7 +34,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { platform } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import type {
   AgentWorktreeState,
@@ -396,7 +396,7 @@ export function pruneWorktree(
   if (wasDirty) {
     try {
       const auditDir = opts.auditLogPath
-        ? opts.auditLogPath.split('/').slice(0, -1).join('/')
+        ? dirname(opts.auditLogPath)
         : join(projectRoot, '.cleo', 'audit');
       mkdirSync(auditDir, { recursive: true });
       const logPath = opts.auditLogPath ?? join(auditDir, 'worktree-prune.jsonl');
@@ -768,7 +768,7 @@ export function completeAgentWorktreeIntegration(
   let auditLogEntry: string | null = null;
   try {
     const auditDir = opts.auditLogPath
-      ? opts.auditLogPath.split('/').slice(0, -1).join('/')
+      ? dirname(opts.auditLogPath)
       : join(projectRoot, '.cleo', 'audit');
     mkdirSync(auditDir, { recursive: true });
     const logPath = opts.auditLogPath ?? join(auditDir, 'worktree-integration.jsonl');
