@@ -459,6 +459,7 @@ describe('validateDecisionConflicts', () => {
 describe('storeDecision ADR write-gate hook (T1828)', () => {
   let tempDir: string;
   let cleoDir: string;
+  let previousCleoHome: string | undefined;
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'cleo-brain-adr-gate-'));
@@ -466,6 +467,10 @@ describe('storeDecision ADR write-gate hook (T1828)', () => {
     await mkdir(cleoDir, { recursive: true });
     process.env['CLEO_DIR'] = cleoDir;
     process.env['CLEO_ENV'] = 'test'; // skip real LLM in integration path
+    // No System One provider: a stored `cleo decide config` on the host would
+    // otherwise switch the generative check off by default (T12493).
+    previousCleoHome = process.env['CLEO_HOME'];
+    process.env['CLEO_HOME'] = join(tempDir, 'cleo-home');
   });
 
   afterEach(async () => {
@@ -473,6 +478,8 @@ describe('storeDecision ADR write-gate hook (T1828)', () => {
     closeBrainDb();
     delete process.env['CLEO_DIR'];
     delete process.env['CLEO_ENV'];
+    if (previousCleoHome === undefined) delete process.env['CLEO_HOME'];
+    else process.env['CLEO_HOME'] = previousCleoHome;
     vi.restoreAllMocks();
     // maxRetries: Windows WAL sidecar files (.db-shm/.db-wal) stay locked
     // briefly after close(). 5 retries × 500 ms = 2.5 s max wait.
