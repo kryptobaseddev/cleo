@@ -293,6 +293,10 @@ export class Dispatcher {
               systemResponse: `Operation succeeded in domain "${capturedRequest.domain}".`,
               activePeerId: (capturedRequest.params?.['peerId'] as string | undefined) ?? 'global',
               sessionId: capturedSessionId,
+              // T12543: this turn is an operation and its result envelope,
+              // not a user utterance — the evaluator must never mint user
+              // traits from it.
+              origin: 'operation-envelope' as const,
             };
 
             const insights = await evaluateDialectic(turn, {

@@ -2584,9 +2584,21 @@ export {
   nexusProfileUpsert,
   nexusProfileView,
   reinforceTrait,
+  resolveTraitProjectId,
   supersedeTrait,
   upsertUserProfileTrait,
 } from './nexus/user-profile.js';
+// Nexus — user-profile hygiene: receipt classifier + reversible repair (T12543)
+export {
+  classifyReceiptTrait,
+  OPERATION_ENVELOPE_RULE,
+  pruneReceiptTraits,
+  restorePrunedTraits,
+  type TraitPruneCandidate,
+  type TraitPruneOptions,
+  type TraitPruneResult,
+  type TraitRestoreResult,
+} from './nexus/user-profile-hygiene.js';
 export { nexusWiki } from './nexus/wiki-index.js';
 // Worktree completion SDK (T9548)
 export type {

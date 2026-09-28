@@ -107,6 +107,8 @@ async function seedUserProfile(): Promise<void> {
       lastReinforcedAt: now,
       reinforcementCount: 1,
       supersededBy: null,
+      // T12543: seeded as explicitly user-global — visible in every project.
+      scope: 'user',
     });
   }
 }
@@ -216,7 +218,7 @@ describe('fetchIdentity', () => {
     const nexusDb = await getNexusDb();
     const { fetchIdentity } = await import('../brain-retrieval.js');
 
-    const result = await fetchIdentity('cleo-prime', nexusDb);
+    const result = await fetchIdentity('cleo-prime', nexusDb, null);
 
     // Only traits with confidence >= 0.5 should be returned (low-confidence-trait is 0.3)
     expect(result.userProfile.length).toBeGreaterThanOrEqual(4);
@@ -231,7 +233,7 @@ describe('fetchIdentity', () => {
     const nexusDb = await getNexusDb();
     const { fetchIdentity } = await import('../brain-retrieval.js');
 
-    const result = await fetchIdentity('cleo-subagent', nexusDb);
+    const result = await fetchIdentity('cleo-subagent', nexusDb, null);
     // Wave 8 (T1148): peerInstructions comes from sigil.systemPromptFragment.
     // When no sigil is registered for a peer, peerInstructions is empty string.
     // Sigil-populated peerInstructions are tested in sigil.test.ts.
@@ -245,7 +247,7 @@ describe('fetchIdentity', () => {
     const nexusDb = await getNexusDb();
     const { fetchIdentity } = await import('../brain-retrieval.js');
 
-    const result = await fetchIdentity('global', nexusDb);
+    const result = await fetchIdentity('global', nexusDb, null);
     expect(result.peerInstructions).toBe('');
   });
 });

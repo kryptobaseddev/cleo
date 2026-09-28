@@ -28,11 +28,15 @@ import type {
   NexusProfileSupersedeResult,
   NexusProfileUpsertResult,
   NexusProfileViewResult,
+  UserProfileScope,
   UserProfileTrait,
 } from '@cleocode/contracts';
-import { and, asc, desc, eq, gte, isNull } from 'drizzle-orm';
+import { readPortableProjectId } from '@cleocode/paths';
+import { and, asc, desc, eq, gte, isNull, or, type SQL } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+import { getProjectRoot } from '../paths.js';
+import { getProjectInfoSync } from '../project-info.js';
 import { getNexusDb } from '../store/nexus-sqlite.js';
 import * as nexusSchema from '../store/schema/nexus-schema.js';
 
@@ -62,6 +66,8 @@ function rowToTrait(row: nexusSchema.UserProfileRow): UserProfileTrait {
     lastReinforcedAt: new Date(row.lastReinforcedAt).toISOString(),
     reinforcementCount: row.reinforcementCount,
     supersededBy: row.supersededBy ?? null,
+    projectId: row.projectId ?? null,
+    scope: row.scope,
   };
 }
 
@@ -78,6 +84,55 @@ function clampConfidence(value: number): number {
 // ---------------------------------------------------------------------------
 // Public SDK functions
 // ---------------------------------------------------------------------------
+
+/**
+ * Resolve the portable project id a trait derived under `projectRoot` is
+ * stamped with (T12543).
+ *
+ * Uses the tracked write-once `.cleo/project-id` (ADR-094) and falls back to
+ * the `projectId` in `.cleo/project-info.json`. Never derives an id from the
+ * path: a path hash differs per checkout and device, so it would silently
+ * re-scope traits. Returns `null` when neither identity is readable — the
+ * caller then records the trait as unknown-origin (never shown in prompts).
+ *
+ * @param projectRoot - Absolute project root the trait was derived in.
+ * @returns The portable project id, or `null` when none is declared.
+ *
+ * @example
+ * ```ts
+ * const projectId = resolveTraitProjectId('/work/cleocode'); // 'c78d09c3a8ee'
+ * ```
+ *
+ * @task T12543
+ */
+export function resolveTraitProjectId(projectRoot: string): string | null {
+  const tracked = readPortableProjectId(projectRoot);
+  if (tracked.status === 'valid') return tracked.projectId;
+  const info = getProjectInfoSync(projectRoot);
+  return info?.projectId ? info.projectId : null;
+}
+
+/**
+ * Build the visibility predicate for traits injected into a project's agent
+ * prompts (T12543): explicitly user-global traits, plus project-scoped traits
+ * stamped with `projectId`. Unknown-origin rows (`project_id IS NULL`, scope
+ * `project`) never match. With `projectId === null` only user-global traits
+ * match.
+ *
+ * @param projectId - Portable id of the project the prompt is built for.
+ * @returns A drizzle SQL predicate over `nexus_user_profile`.
+ */
+function visibleInProjectClause(projectId: string | null): SQL | undefined {
+  const userGlobal = eq(nexusSchema.userProfile.scope, 'user');
+  if (projectId === null) return userGlobal;
+  return or(
+    userGlobal,
+    and(
+      eq(nexusSchema.userProfile.scope, 'project'),
+      eq(nexusSchema.userProfile.projectId, projectId),
+    ),
+  );
+}
 
 /**
  * Fetch a single user-profile trait by its key.
@@ -111,6 +166,9 @@ export async function getUserProfileTrait(
  * The `firstObservedAt` field is preserved from the existing row on update.
  *
  * @param nexusDb - Drizzle nexus database handle.
+ * `projectId` and `scope` (T12543) default to `null` (unknown origin) and
+ * `'project'`; the whole row — value and visibility — is replaced together.
+ *
  * @param trait   - Trait to insert or replace.  `firstObservedAt` and
  *                  `lastReinforcedAt` should be ISO 8601 strings; they are
  *                  stored as canonical TEXT ISO-8601 in the consolidated
@@ -146,6 +204,8 @@ export async function upsertUserProfileTrait(
       lastReinforcedAt: now,
       reinforcementCount: trait.reinforcementCount,
       supersededBy: trait.supersededBy ?? undefined,
+      projectId: trait.projectId ?? null,
+      scope: trait.scope ?? 'project',
     })
     .onConflictDoUpdate({
       target: nexusSchema.userProfile.traitKey,
@@ -157,6 +217,11 @@ export async function upsertUserProfileTrait(
         lastReinforcedAt: now,
         reinforcementCount: trait.reinforcementCount,
         supersededBy: trait.supersededBy ?? undefined,
+        // Value and visibility move together (T12543): the key is the primary
+        // key, so a re-derivation in another project re-stamps the row rather
+        // than leaving project B's value visible under project A's id.
+        projectId: trait.projectId ?? null,
+        scope: trait.scope ?? 'project',
       },
     });
 }
@@ -223,22 +288,29 @@ export async function listUserProfile(
     minConfidence?: number;
     /** Include superseded (deprecated) traits. Defaults to false. */
     includeSuperseded?: boolean;
+    /**
+     * Restrict to the traits visible in one project's prompts (T12543):
+     * `user`-scoped traits plus `project` traits stamped with this portable
+     * project id. `null` = the project has no declared identity, so only
+     * user-global traits are returned. Omit to list every row (admin view,
+     * export) — unknown-origin rows included.
+     */
+    visibleInProject?: string | null;
   },
 ): Promise<UserProfileTrait[]> {
   const minConf = opts?.minConfidence ?? 0.0;
   const includeSuperseded = opts?.includeSuperseded ?? false;
 
+  const filters: Array<SQL | undefined> = [gte(nexusSchema.userProfile.confidence, minConf)];
+  if (!includeSuperseded) filters.push(isNull(nexusSchema.userProfile.supersededBy));
+  if (opts?.visibleInProject !== undefined) {
+    filters.push(visibleInProjectClause(opts.visibleInProject));
+  }
+
   const query = nexusDb
     .select()
     .from(nexusSchema.userProfile)
-    .where(
-      includeSuperseded
-        ? gte(nexusSchema.userProfile.confidence, minConf)
-        : and(
-            gte(nexusSchema.userProfile.confidence, minConf),
-            isNull(nexusSchema.userProfile.supersededBy),
-          ),
-    )
+    .where(and(...filters))
     .orderBy(desc(nexusSchema.userProfile.confidence), asc(nexusSchema.userProfile.traitKey));
 
   const rows = await query;
@@ -352,15 +424,20 @@ export async function nexusProfileReinforce(
 export async function nexusProfileUpsert(
   trait: Pick<
     UserProfileTrait,
-    'traitKey' | 'traitValue' | 'confidence' | 'source' | 'derivedFromMessageId'
+    'traitKey' | 'traitValue' | 'confidence' | 'source' | 'derivedFromMessageId' | 'scope'
   >,
 ): Promise<EngineResult<NexusProfileUpsertResult>> {
   try {
     const nexusDb = await getNexusDb();
     const existing = await getUserProfileTrait(nexusDb, trait.traitKey);
     const now = new Date().toISOString();
+    const scope: UserProfileScope = trait.scope ?? 'project';
     const fullTrait: UserProfileTrait = {
       ...trait,
+      scope,
+      // T12543: stamp the originating project even for `user` scope, so the
+      // row's provenance survives a later demotion back to `project`.
+      projectId: resolveTraitProjectId(getProjectRoot()),
       firstObservedAt: existing?.firstObservedAt ?? now,
       lastReinforcedAt: now,
       reinforcementCount: existing ? existing.reinforcementCount + 1 : 1,

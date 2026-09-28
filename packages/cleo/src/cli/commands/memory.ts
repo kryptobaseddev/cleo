@@ -30,6 +30,7 @@
  *   cleo memory dream       — full dream cycle (STDP)
  *   cleo memory reflect     — LLM Observer + Reflector pipeline
  *   cleo memory dedup-scan  — report/merge duplicate entries
+ *   cleo memory prune-traits — remove receipt-style user-profile traits (T12543)
  *   cleo memory import      — migrate MEMORY.md files to brain.db
  *   cleo memory llm-status  — LLM backend resolution status
  *   cleo memory verify      — promote entry to verified=true
@@ -1235,6 +1236,50 @@ const pruneStubsCommand = defineCommand({
   },
 });
 
+/**
+ * `cleo memory prune-traits` — remove operation-receipt user-profile traits (T12543).
+ *
+ * Dry-run by default. `--apply` writes a backup of every matched row BEFORE
+ * deleting, and returns a receipt whose `restoreCommand` reverses it. See
+ * `packages/core/src/nexus/user-profile-hygiene.ts` for the rules.
+ */
+const pruneTraitsCommand = defineCommand({
+  meta: {
+    name: 'prune-traits',
+    description:
+      'Report (and with --apply, remove) user-profile traits that are operation receipts or ' +
+      'status lines ("Operation succeeded in domain \'check\'", "gate set to true for T123"). ' +
+      '--envelope-derived also matches every legacy dialectic trait with no project stamp: ' +
+      'those were minted from operation envelopes. Apply backs rows up first; ' +
+      '--restore <backup> reverses it. Dry-run by default.',
+  },
+  args: {
+    apply: {
+      type: 'boolean',
+      description: 'Back up, then delete matched rows and return a receipt (default: report only)',
+    },
+    'envelope-derived': {
+      type: 'boolean',
+      description: 'Also match legacy dialectic:* traits with no project stamp',
+    },
+    restore: {
+      type: 'string',
+      description: 'Re-insert the rows from a prune-traits backup file (never overwrites)',
+    },
+  },
+  async run({ args }) {
+    const core = await import('@cleocode/core/internal' as string);
+    const nexusDb = await core.getNexusDb(getProjectRoot());
+    const result = args.restore
+      ? await core.restorePrunedTraits(nexusDb, String(args.restore))
+      : await core.pruneReceiptTraits(nexusDb, {
+          apply: Boolean(args.apply),
+          includeEnvelopeDerived: Boolean(args['envelope-derived']),
+        });
+    cliOutput(result, { command: 'memory prune-traits', operation: 'memory.prune-traits' });
+  },
+});
+
 const dedupScanCommand = defineCommand({
   meta: {
     name: 'dedup-scan',
@@ -2270,6 +2315,7 @@ export const memoryCommand = defineCommand({
     reflect: reflectCommand,
     'dedup-scan': dedupScanCommand,
     'prune-stubs': pruneStubsCommand,
+    'prune-traits': pruneTraitsCommand,
     import: importCommand,
     doctor: doctorCommand,
     'llm-status': llmStatusCommand,
