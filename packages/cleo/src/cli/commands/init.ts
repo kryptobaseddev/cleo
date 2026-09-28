@@ -117,7 +117,7 @@ export const initCommand = defineCommand({
     here: {
       type: 'boolean',
       description:
-        'Initialize a NEW project in the current directory even when an ancestor is (or was) a CLEO project root — e.g. a sibling of a rerooted project (T12558)',
+        'Initialize a store in the current directory even when an ancestor is (or was) a CLEO project root, or when this directory is one a project was rerooted away from — the explicit, audited opt-out from E_PROJECT_MOVED (T12558)',
       default: false,
     },
     detect: {
@@ -223,6 +223,7 @@ export const initCommand = defineCommand({
         installSeedAgents: !!args['install-seed-agents'],
         newIdentity: !!args['new-identity'],
         forceRebind: !!args['force-rebind'],
+        adopt: !!args.here,
       };
 
       // T12558: `--here` pins the project root to cwd, so resolution never

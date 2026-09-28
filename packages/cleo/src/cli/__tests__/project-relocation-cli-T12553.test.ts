@@ -388,3 +388,57 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('a committed or forged tombstone (T12558 ro
     expect(existsSync(join(clone, '.cleo', 'cleo.db'))).toBe(true);
   }, 300_000);
 });
+
+describe.skipIf(!CLI_DIST_AVAILABLE)('round 3: escapes and false refusals (T12558)', () => {
+  it('a fresh clone into a path a project was MOVED away from works normally', () => {
+    const a = join(sandbox, 'r3-A');
+    initProject(a);
+    const m = join(sandbox, 'r3-M');
+    expect(cleo(a, ['project', 'move', m]).status).toBe(0);
+    execFileSync('git', ['clone', '-q', m, a]);
+
+    const run = cleo(a, ['find', 'x']);
+    expect(run.stdout).not.toContain('E_PROJECT_MOVED');
+    expect(parseSoleEnvelope(run.stdout).success).toBe(true);
+    expect(existsSync(join(a, '.cleo', 'cleo.db'))).toBe(true);
+  }, 300_000);
+
+  it('at a registry-refused root: typed reconcile, doctor points at the opt-out, init refuses cleanly, `init --here` adopts with an audit line', () => {
+    const root = join(sandbox, 'r3-mono');
+    initProject(root);
+    mkdirSync(join(root, 'app'));
+    expect(cleo(root, ['project', 'reroot', 'app']).status).toBe(0);
+    rmSync(join(root, '.cleo-moved.json'));
+    git(root, 'checkout', '--', '.');
+
+    const reconcile = cleo(root, ['nexus', 'reconcile']);
+    expect((parseSoleEnvelope(reconcile.stdout) as MovedError).error?.codeName).toBe(
+      'E_PROJECT_MOVED',
+    );
+    expect(reconcile.status).toBe(ExitCode.PROJECT_MOVED);
+
+    const doctor = field(root, '/data/remedy', 'doctor', 'project-identity');
+    expect(doctor).toContain('cleo init --here');
+    expect(doctor).not.toContain('adopts the tracked id');
+
+    const listing = (): string =>
+      execFileSync('find', ['.', '-path', './.git', '-prune', '-o', '-print'], {
+        cwd: root,
+        encoding: 'utf-8',
+      });
+    const before = listing();
+    const refused = cleo(root, ['init']);
+    const env = parseSoleEnvelope(refused.stdout) as MovedError;
+    expect(env.error?.codeName).toBe('E_PROJECT_MOVED');
+    expect(env.error?.fix).toContain('cleo init --here');
+    expect(env.error?.fix).not.toContain('.cleo-moved.json');
+    expect(listing()).toBe(before);
+
+    const here = cleo(root, ['init', '--here']);
+    expect(parseSoleEnvelope(here.stdout).success).toBe(true);
+    expect(
+      readFileSync(join(root, '.cleo', 'audit', 'relocation-override.jsonl'), 'utf-8'),
+    ).toContain('"action":"init --here"');
+    expect(parseSoleEnvelope(cleo(root, ['find', 'x']).stdout).success).toBe(true);
+  }, 300_000);
+});

@@ -25,7 +25,12 @@ import { createRequire } from 'node:module';
 import { basename, dirname } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { readDeclaredProjectIdentity, readPortableProjectId } from '@cleocode/paths';
-import { projectMovedError, readValidProjectTombstone } from '../project-tombstone.js';
+import {
+  isStrictlyInsideDir,
+  type ProjectMovedEvidence,
+  projectMovedError,
+  readValidProjectTombstone,
+} from '../project-tombstone.js';
 
 const _require = createRequire(import.meta.url);
 
@@ -40,8 +45,11 @@ function real(p: string): string {
 
 /**
  * Where `projectId` is live, when the registry marks `root` as a `missing`
- * location of it and names another existing path. Read-only; any failure to
- * read the registry answers `null` (the guard only refuses on proof).
+ * location of it and the live path is STRICTLY INSIDE `root` — reroot
+ * geometry. A `move` destination is never inside its source, so a fresh clone
+ * into a directory a project was MOVED away from is a normal candidate, not a
+ * refusal (T12558 round 3). Read-only; any failure to read the registry
+ * answers `null` (the guard only refuses on proof).
  */
 function liveElsewhere(globalDbPath: string, projectId: string, root: string): string | null {
   const { DatabaseSync: Ctor } = _require('node:sqlite') as {
@@ -62,6 +70,7 @@ function liveElsewhere(globalDbPath: string, projectId: string, root: string): s
       .get(projectId) as { projectPath?: string } | undefined;
     const live = row?.projectPath;
     if (!live || paths.has(live) || !existsSync(live)) return null;
+    if (!isStrictlyInsideDir(root, live)) return null;
     // Proof, not a pointer: the live path must still hold this project.
     return readDeclaredProjectIdentity(live)?.projectId === projectId ? live : null;
   } catch {
@@ -69,6 +78,58 @@ function liveElsewhere(globalDbPath: string, projectId: string, root: string): s
   } finally {
     db?.close();
   }
+}
+
+/** A root a project was relocated away from, and the proof. */
+export interface RelocatedRoot {
+  /** The relocated project. */
+  projectId: string;
+  /** Its live root now. */
+  movedTo: string;
+  /** What proved it: a valid tombstone, or the registry (reroot geometry). */
+  via: ProjectMovedEvidence;
+}
+
+/**
+ * Detect whether `root` is a directory a project was rerooted away from.
+ * Read-only.
+ *
+ * @param root - Candidate project root.
+ * @param globalDbPath - The global registry store path.
+ * @returns The relocation, or `null` when `root` may hold a store.
+ *
+ * @example
+ * ```ts
+ * const moved = detectRelocatedRoot('/work/mono', globalDbPath);
+ * ```
+ */
+export function detectRelocatedRoot(root: string, globalDbPath: string): RelocatedRoot | null {
+  const tombstone = readValidProjectTombstone(root);
+  if (tombstone)
+    return { projectId: tombstone.projectId, movedTo: tombstone.movedTo, via: 'tombstone' };
+  const declared = readPortableProjectId(root);
+  if (declared.status !== 'valid' || !existsSync(globalDbPath)) return null;
+  const movedTo = liveElsewhere(globalDbPath, declared.projectId, root);
+  return movedTo ? { projectId: declared.projectId, movedTo, via: 'registry' } : null;
+}
+
+/** Roots whose owner explicitly chose a new store anyway (`cleo init --here`). */
+const _adopted = new Set<string>();
+
+/**
+ * Let THIS process create a store at `root` even though it is a relocated
+ * root — the explicit, audited opt-out behind `cleo init --here`.
+ *
+ * @param root - The root the operator adopted.
+ *
+ * @example
+ * ```ts
+ * allowStoreAtRelocatedRoot('/work/mono');
+ * ```
+ */
+export function allowStoreAtRelocatedRoot(root: string): void {
+  _adopted.add(root);
+  _adopted.add(real(root));
 }
 
 /**
@@ -85,14 +146,9 @@ function liveElsewhere(globalDbPath: string, projectId: string, root: string): s
  */
 export function assertStoreNotRelocated(dbPath: string, globalDbPath: string): void {
   if (basename(dbPath) !== 'cleo.db' || basename(dirname(dbPath)) !== '.cleo') return;
-  if (existsSync(dbPath)) return;
+  if (existsSync(dbPath) || globalDbPath === dbPath) return;
   const root = dirname(dirname(dbPath));
-
-  const tombstone = readValidProjectTombstone(root);
-  if (tombstone) throw projectMovedError(root, tombstone);
-
-  const declared = readPortableProjectId(root);
-  if (declared.status !== 'valid' || !existsSync(globalDbPath) || globalDbPath === dbPath) return;
-  const movedTo = liveElsewhere(globalDbPath, declared.projectId, root);
-  if (movedTo) throw projectMovedError(root, { projectId: declared.projectId, movedTo });
+  if (_adopted.has(root)) return;
+  const moved = detectRelocatedRoot(root, globalDbPath);
+  if (moved) throw projectMovedError(root, moved, undefined, moved.via);
 }

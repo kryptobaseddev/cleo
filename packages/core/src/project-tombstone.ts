@@ -20,15 +20,18 @@
 
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join, relative, sep } from 'node:path';
 import type { ProjectMovedTombstone } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { pushWarning } from '@cleocode/lafs';
-import { readDeclaredProjectIdentity } from '@cleocode/paths';
+import { canonicalizePath, readDeclaredProjectIdentity } from '@cleocode/paths';
 import { CleoError } from './errors.js';
 
 /** File name of the tombstone, directly in the old project root. */
 export const PROJECT_TOMBSTONE_FILE = '.cleo-moved.json';
+
+/** Tombstone defects already reported in this process (path + defect). */
+const _warned = new Set<string>();
 
 /**
  * Whether project-root resolution refuses at a tombstoned root. The CLI turns
@@ -89,11 +92,32 @@ export function readProjectTombstone(root: string): ProjectMovedTombstone | null
 }
 
 /**
- * Why a present tombstone is not honoured, or `null` when it is valid:
- * the root's own declared id (when it declares one) and the project at
- * `movedTo` must both be the tombstone's project.
+ * `true` when `inner` is strictly inside `outer`, compared through symlinks.
+ *
+ * @param outer - Containing directory.
+ * @param inner - Candidate descendant.
+ * @returns Whether `inner` is a proper descendant of `outer`.
+ */
+export function isStrictlyInsideDir(outer: string, inner: string): boolean {
+  const rel = relative(canonicalizePath(outer), canonicalizePath(inner));
+  return rel.length > 0 && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+}
+
+/**
+ * Why a present tombstone is not honoured, or `null` when it is valid.
+ *
+ * A reroot only ever moves a project INTO a child of its root, so `movedTo`
+ * must be an absolute path strictly inside the tombstone's own directory.
+ * That alone defeats a committed tombstone in a same-machine clone (it points
+ * into the OTHER checkout) and a relative decoy (it would resolve against the
+ * caller's cwd). Beyond that, the root's own declared id (when it declares
+ * one) and the project at `movedTo` must both be the tombstone's project.
  */
 function tombstoneDefect(root: string, tombstone: ProjectMovedTombstone): string | null {
+  if (!isAbsolute(tombstone.movedTo)) return `movedTo "${tombstone.movedTo}" is not absolute`;
+  if (!isStrictlyInsideDir(root, tombstone.movedTo)) {
+    return `movedTo ${tombstone.movedTo} is not inside ${root}`;
+  }
   const here = readDeclaredProjectIdentity(root);
   if (here && here.projectId !== tombstone.projectId) {
     return `it names project ${tombstone.projectId} but ${root} declares ${here.projectId}`;
@@ -129,6 +153,11 @@ export function readValidProjectTombstone(root: string): ProjectMovedTombstone |
   const tombstone = readProjectTombstone(root);
   const defect = tombstone ? tombstoneDefect(root, tombstone) : 'it is not valid JSON';
   if (defect === null) return tombstone;
+  // One warning per tombstone per process: resolution and the store guard
+  // both read it on the same command.
+  const key = `${path}\0${defect}`;
+  if (_warned.has(key)) return null;
+  _warned.add(key);
   pushWarning({
     code: 'W_TOMBSTONE_IGNORED',
     message: `Ignoring ${path}: ${defect}. Delete it if the project no longer moved from here.`,
@@ -157,13 +186,18 @@ export function writeProjectTombstone(root: string, tombstone: ProjectMovedTombs
   return path;
 }
 
+/** What proved the relocation: the tombstone, or the registry alone. */
+export type ProjectMovedEvidence = 'tombstone' | 'registry';
+
 /**
  * The `E_PROJECT_MOVED` refusal for a command that resolved to `root`.
  *
  * @param root - The old root the command resolved to.
- * @param tombstone - Where the project went.
+ * @param moved - Where the project went.
  * @param from - Directory the command started in, when it is below `root`
  *   (a would-be new project there gets its own remedy).
+ * @param via - What proved the move; the remedy differs (only a tombstone can
+ *   be deleted).
  * @returns A {@link CleoError} with exit `PROJECT_MOVED`, a `cd` fix and
  *   `details.movedTo`.
  *
@@ -174,23 +208,28 @@ export function writeProjectTombstone(root: string, tombstone: ProjectMovedTombs
  */
 export function projectMovedError(
   root: string,
-  tombstone: Pick<ProjectMovedTombstone, 'projectId' | 'movedTo'>,
+  moved: Pick<ProjectMovedTombstone, 'projectId' | 'movedTo'>,
   from?: string,
+  via: ProjectMovedEvidence = 'tombstone',
 ): CleoError {
   const below = from && from !== root ? from : null;
+  const work = `cd "${moved.movedTo}" to work on project ${moved.projectId}.`;
   const fix = below
-    ? `cd "${tombstone.movedTo}" to work on project ${tombstone.projectId}. To start a NEW project in ${below}, run \`cleo init --here\` there.`
-    : `cd "${tombstone.movedTo}" and run the command there. To start a NEW project at ${root}, delete ${join(root, PROJECT_TOMBSTONE_FILE)} and run \`cleo init\`.`;
+    ? `${work} To start a NEW project in ${below}, run \`cleo init --here\` there.`
+    : via === 'tombstone'
+      ? `${work} To start a NEW project at ${root}, delete ${join(root, PROJECT_TOMBSTONE_FILE)} and run \`cleo init\`.`
+      : `${work} The registry records that it was rerooted out of ${root}. To keep a separate store for this checkout anyway, run \`cleo init --here\` in ${root} (audited in .cleo/audit/relocation-override.jsonl).`;
   return new CleoError(
     ExitCode.PROJECT_MOVED,
-    `E_PROJECT_MOVED: project ${tombstone.projectId} moved from ${root} to ${tombstone.movedTo}; refusing to create an empty store at the old root`,
+    `E_PROJECT_MOVED: project ${moved.projectId} moved from ${root} to ${moved.movedTo}; refusing to create an empty store at the old root`,
     {
       fix,
       details: {
         field: 'projectRoot',
-        projectId: tombstone.projectId,
+        projectId: moved.projectId,
         movedFrom: root,
-        movedTo: tombstone.movedTo,
+        movedTo: moved.movedTo,
+        evidence: via,
       },
     },
   );

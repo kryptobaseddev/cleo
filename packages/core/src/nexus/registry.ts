@@ -1316,6 +1316,15 @@ function caughtToEngineError<T>(error: unknown, fallbackMsg: string): EngineResu
       fix: error.fix,
     });
   }
+  // T12558: a refusal at a relocated root keeps its typed code, exit class,
+  // fix and details (`movedTo`) instead of collapsing to E_INTERNAL.
+  if (error instanceof CleoError && error.code === ExitCode.PROJECT_MOVED) {
+    return engineError<T>('E_PROJECT_MOVED', error.message, {
+      exitCode: error.code,
+      details: error.details,
+      fix: error.fix,
+    });
+  }
   const e = error instanceof Error ? error : null;
   return engineError<T>('E_INTERNAL', e?.message ?? fallbackMsg);
 }

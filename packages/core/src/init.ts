@@ -32,7 +32,16 @@
  */
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { copyFile, lstat, mkdir, readFile, symlink, unlink, writeFile } from 'node:fs/promises';
+import {
+  appendFile,
+  copyFile,
+  lstat,
+  mkdir,
+  readFile,
+  symlink,
+  unlink,
+  writeFile,
+} from 'node:fs/promises';
 import { platform } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
@@ -102,6 +111,14 @@ export interface InitOptions {
    * `candidate`.
    */
   forceRebind?: boolean;
+  /**
+   * `cleo init --here` (T12558): create a store in THIS directory even when it
+   * is a root a project was relocated away from. The override is explicit and
+   * appended to `.cleo/audit/relocation-override.jsonl`. Tracked `.cleo/` files
+   * restored by git (e.g. `config.json`) do not count as "already initialized"
+   * while no store exists.
+   */
+  adopt?: boolean;
 }
 
 /** Result of the init operation. */
@@ -832,16 +849,49 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
   // tombstone — at the target itself or at an ancestor it would resolve to —
   // BEFORE anything is written, so a refused init leaves no partial `.cleo/`.
   // `cleo init --here` pins the root and so starts a new project below it.
-  try {
-    getProjectRoot(projRoot);
-  } catch (err) {
-    if (err instanceof CleoError && err.code === ExitCode.PROJECT_MOVED) throw err;
+  if (!opts.adopt) {
+    try {
+      getProjectRoot(projRoot);
+    } catch (err) {
+      if (err instanceof CleoError && err.code === ExitCode.PROJECT_MOVED) throw err;
+    }
+  }
+  // The store guard's registry arm, run up front for the same reason.
+  const { detectRelocatedRoot, allowStoreAtRelocatedRoot } = await import(
+    './store/relocated-store-guard.js'
+  );
+  const { resolveDualScopeDbPath } = await import('./store/dual-scope-db.js');
+  const relocated = existsSync(join(cleoDir, 'cleo.db'))
+    ? null
+    : detectRelocatedRoot(projRoot, resolveDualScopeDbPath('global'));
+  if (relocated && !opts.adopt) {
+    const { projectMovedError } = await import('./project-tombstone.js');
+    throw projectMovedError(projRoot, relocated, undefined, relocated.via);
+  }
+  if (relocated && opts.adopt) {
+    allowStoreAtRelocatedRoot(projRoot);
+    const auditPath = join(cleoDir, 'audit', 'relocation-override.jsonl');
+    await mkdir(dirname(auditPath), { recursive: true });
+    await appendFile(
+      auditPath,
+      `${JSON.stringify({
+        timestamp: new Date().toISOString(),
+        action: 'init --here',
+        projectRoot: projRoot,
+        projectId: relocated.projectId,
+        movedTo: relocated.movedTo,
+        evidence: relocated.via,
+      })}\n`,
+    );
   }
 
   // Guard: fail if project already initialized (unless --force)
   const alreadyInitialized =
     existsSync(cleoDir) &&
-    (existsSync(join(cleoDir, 'tasks.db')) || existsSync(join(cleoDir, 'config.json')));
+    (existsSync(join(cleoDir, 'tasks.db')) ||
+      (opts.adopt
+        ? existsSync(join(cleoDir, 'cleo.db'))
+        : existsSync(join(cleoDir, 'config.json'))));
 
   // T12077: `--map-codebase` is ADDITIVE — it analyses the tree and writes
   // findings to BRAIN; it scaffolds nothing and wipes nothing. Blocking it

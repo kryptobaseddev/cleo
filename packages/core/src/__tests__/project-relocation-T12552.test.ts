@@ -645,10 +645,12 @@ describe('T12558 round 2 — the protection layer', () => {
     rmSync(join(root, '.cleo', 'cleo.db'));
     vi.stubEnv('CLEO_ROOT', undefined);
     const collector = new WarningCollector();
+    mkdirSync(join(root, 'inner'));
+    // Three distinct defects: wrong id, movedTo outside the root, no .cleo/ there.
     const bogus = [
-      { projectId: 'someone-else', movedTo: join(testDir, 'nowhere'), at: 'x' },
+      { projectId: 'someone-else', movedTo: join(root, 'inner'), at: 'x' },
       { projectId: 'clone-T12558', movedTo: join(testDir, 'nowhere'), at: 'x' },
-      { projectId: 'clone-T12558', movedTo: join(testDir, 'caller'), at: 'x' },
+      { projectId: 'clone-T12558', movedTo: join(root, 'inner'), at: 'x' },
     ];
     for (const tombstone of bogus) {
       writeFileSync(join(root, '.cleo-moved.json'), JSON.stringify(tombstone));
@@ -663,9 +665,10 @@ describe('T12558 round 2 — the protection layer', () => {
         rmSync(join(root, '.cleo', f), { force: true });
       }
     }
-    // One warning from resolution and one from the store guard, per case.
+    // Exactly one warning per bogus tombstone, although resolution and the
+    // store guard both read it.
     const ignored = (collector.drain() ?? []).filter((w) => w.code === 'W_TOMBSTONE_IGNORED');
-    expect(ignored).toHaveLength(bogus.length * 2);
+    expect(ignored).toHaveLength(bogus.length);
   });
 
   it('`git checkout -- .` then an encounter keeps the old root `missing`, so the store guard still refuses', async () => {
@@ -721,5 +724,163 @@ describe('T12558 round 2 — the protection layer', () => {
     const result = await moveProject(join(testDir, 'gwt-moved'), source);
     expect(!result.success && result.error.code).toBe('E_MOVE_BLOCKED');
     expect(!result.success && result.error.fix).toContain('git worktree prune');
+  });
+});
+
+describe('T12558 round 3 — no false refusals, no redirect across checkouts', () => {
+  /** A project inside a plain directory `dir` of the repository at `repo`. */
+  async function makeSubdirProject(repo: string, sub: string, projectId: string): Promise<string> {
+    const root = join(repo, sub);
+    mkdirSync(join(root, '.cleo'), { recursive: true });
+    writeFileSync(join(root, '.cleo', 'project-id'), `${projectId}\n`);
+    writeFileSync(join(root, '.cleo', 'project-info.json'), JSON.stringify({ projectId }));
+    await nexusRegister(root, projectId, 'write');
+    await recordProjectEncounter(root);
+    return root;
+  }
+
+  it('a fresh clone into a directory a project was MOVED away from is a normal checkout, not a refusal', async () => {
+    const source = await makeProject(join(testDir, 'A'), 'moved-away-T12558');
+    const target = join(testDir, 'M');
+    expect((await moveProject(target, source)).success).toBe(true);
+    expect(await locationState('moved-away-T12558', source)).toBe('missing');
+
+    // Clone the (moved) repository back into the now-empty old path.
+    execFileSync('git', ['clone', '-q', target, source]);
+    vi.stubEnv('CLEO_ROOT', undefined);
+    await recordProjectEncounter(source);
+
+    expect(getProjectRoot(source)).toBe(source);
+    await getDb(source);
+    expect(existsSync(join(source, '.cleo', 'cleo.db'))).toBe(true);
+  });
+
+  it('a registry-proven refusal (no tombstone) says so: fix offers `cleo init --here`, not deleting a tombstone', async () => {
+    const root = await makeProject(join(testDir, 'reg'), 'reg-T12558');
+    mkdirSync(join(root, 'app'));
+    expect((await rerootProject(join(root, 'app'), root)).success).toBe(true);
+    rmSync(join(root, '.cleo-moved.json'));
+    git(root, 'checkout', '--', '.');
+    vi.stubEnv('CLEO_ROOT', undefined);
+
+    let caught: CleoError | undefined;
+    try {
+      await getDb(root);
+    } catch (err) {
+      caught = err as CleoError;
+    }
+    expect(caught?.code).toBe(ExitCode.PROJECT_MOVED);
+    expect(caught?.details?.['evidence']).toBe('registry');
+    expect(caught?.fix).toContain('cleo init --here');
+    expect(caught?.fix).not.toContain('.cleo-moved.json');
+  });
+
+  it('a refused init scaffolds nothing (registry arm, restored tracked .cleo files)', async () => {
+    const root = await makeProject(join(testDir, 'noscaffold'), 'noscaffold-T12558');
+    mkdirSync(join(root, 'app'));
+    expect((await rerootProject(join(root, 'app'), root)).success).toBe(true);
+    rmSync(join(root, '.cleo-moved.json'));
+    git(root, 'checkout', '--', '.');
+    vi.stubEnv('CLEO_ROOT', undefined);
+    process.chdir(root);
+    const before = treeSnapshot(root);
+
+    const { initProject } = await import('../init.js');
+    await expect(initProject({})).rejects.toThrow(/E_PROJECT_MOVED/);
+
+    expect(treeSnapshot(root)).toBe(before);
+  });
+
+  it('a relative `movedTo` decoy is ignored', async () => {
+    const root = await makeProject(join(testDir, 'decoy'), 'decoy-T12558');
+    mkdirSync(join(root, 'app', '.cleo'), { recursive: true });
+    writeFileSync(join(root, 'app', '.cleo', 'project-id'), 'decoy-T12558\n');
+    writeFileSync(
+      join(root, '.cleo-moved.json'),
+      JSON.stringify({ projectId: 'decoy-T12558', movedTo: 'app', at: 'x' }),
+    );
+    rmSync(join(root, '.cleo', 'project-info.json'));
+    // No store yet, so the tombstone check actually runs (registration may
+    // have opened one).
+    resetDbState();
+    for (const f of ['cleo.db', 'cleo.db-wal', 'cleo.db-shm']) {
+      rmSync(join(root, '.cleo', f), { force: true });
+    }
+    vi.stubEnv('CLEO_ROOT', undefined);
+    // From the root, a relative `app` WOULD resolve to the decoy's .cleo/.
+    process.chdir(root);
+    expect(existsSync(join('app', '.cleo', 'project-id'))).toBe(true);
+    expect(getProjectRoot(root)).toBe(root);
+  });
+
+  it('a committed tombstone does not redirect a same-machine second clone to the first checkout', async () => {
+    const first = await makeProject(join(testDir, 'first'), 'twoclones-T12558');
+    mkdirSync(join(first, 'app'));
+    writeFileSync(join(first, 'app', 'KEEP'), 'x');
+    git(first, 'add', 'app/KEEP');
+    git(first, 'commit', '-q', '-m', 'app');
+    expect((await rerootProject(join(first, 'app'), first)).success).toBe(true);
+    git(first, 'add', '-f', '.cleo-moved.json');
+    git(first, 'commit', '-q', '-m', 'committed tombstone');
+
+    const second = join(testDir, 'second');
+    execFileSync('git', ['clone', '-q', first, second]);
+    expect(existsSync(join(second, '.cleo-moved.json'))).toBe(true);
+    vi.stubEnv('CLEO_ROOT', undefined);
+
+    expect(getProjectRoot(second)).toBe(second);
+    await getDb(second);
+    expect(existsSync(join(second, '.cleo', 'cleo.db'))).toBe(true);
+  });
+
+  it('the tombstone exclude works when the old root is a SUBDIRECTORY of the repository', async () => {
+    const repo = join(testDir, 'repo');
+    makeGitRepo(repo);
+    const root = await makeSubdirProject(repo, 'sub', 'subdir-T12558');
+    mkdirSync(join(root, 'app'));
+
+    expect((await rerootProject(join(root, 'app'), root)).success).toBe(true);
+
+    expect(readFileSync(join(repo, '.git', 'info', 'exclude'), 'utf-8')).toContain(
+      '/sub/.cleo-moved.json',
+    );
+    const status = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], {
+      cwd: repo,
+      encoding: 'utf-8',
+    });
+    expect(status).not.toContain('.cleo-moved.json');
+  });
+
+  it('the tombstone exclude works when `.git` is a FILE (linked worktree)', async () => {
+    const main = join(testDir, 'main');
+    makeGitRepo(main);
+    const linked = join(testDir, 'linked');
+    git(main, 'worktree', 'add', '-q', linked);
+    expect(statSync(join(linked, '.git')).isFile()).toBe(true);
+    const root = await makeSubdirProject(linked, 'svc', 'gitfile-T12558');
+    mkdirSync(join(root, 'app'));
+
+    expect((await rerootProject(join(root, 'app'), root)).success).toBe(true);
+
+    const status = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], {
+      cwd: linked,
+      encoding: 'utf-8',
+    });
+    expect(status).not.toContain('.cleo-moved.json');
+  });
+
+  it('undoing a reroot by hand reconciles to exactly one live location', async () => {
+    const root = await makeProject(join(testDir, 'undo'), 'undo-T12558');
+    const child = join(root, 'app');
+    mkdirSync(child);
+    expect((await rerootProject(child, root)).success).toBe(true);
+    // Undo by hand: move .cleo back, drop the tombstone.
+    renameSync(join(child, '.cleo'), join(root, '.cleo'));
+    rmSync(join(root, '.cleo-moved.json'));
+
+    await recordProjectEncounter(root);
+
+    expect(await registryPath('undo-T12558')).toBe(root);
+    expect(await liveLocations('undo-T12558')).toEqual([root]);
   });
 });

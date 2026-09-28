@@ -68,7 +68,24 @@ source stayed live, so the registry could later bind to the stale copy.
     thrown outside dispatch keep their typed code instead of becoming
     `E_CLI_UNCAUGHT`, and `init` failures keep theirs instead of becoming
     `E_INTERNAL`.
-  - `cleo doctor *` is never blocked by the tombstone.
+  - The registry arm only fires in reroot geometry, where the live path is
+    strictly inside the refused root. A fresh clone into a directory a
+    project was MOVED away from is therefore a normal checkout.
+  - A tombstone is valid only when `movedTo` is absolute and strictly inside
+    the tombstone's own directory. That defeats a committed tombstone in a
+    same-machine second clone and a relative decoy.
+  - The exclude line is written through
+    `git rev-parse --git-path info/exclude`, anchored at `--show-prefix`, so
+    it works for subdirectory roots and when `.git` is a file.
+  - A hand-undone reroot reconciles to exactly one live row. A location
+    counts only while it still holds `.cleo/` for the id.
+  - Each ignored tombstone warns once.
+  - `cleo doctor *` is never blocked by the tombstone. At a refused root,
+    `doctor project-identity` points to the live root or to `init --here`.
+  - `cleo init --here` is the audited opt-out. It creates a store at a
+    relocated root anyway and logs `.cleo/audit/relocation-override.jsonl`.
+  - A refused `init` scaffolds nothing. `cleo nexus reconcile` at a refused
+    root returns `E_PROJECT_MOVED` (exit 9), not `E_INTERNAL`.
   - `init` refuses before writing anything, so it never reports success with
     a "deferred" store. The new `cleo init --here` starts a new project in a
     directory below a rerooted root.

@@ -642,23 +642,30 @@ async function interruptedRerootSource(
 }
 
 /**
- * Keep `entry` out of commits in the repository at `root` by listing it in
- * `.git/info/exclude` — local to this checkout, so nothing tracked changes. A
- * committed tombstone would travel into every clone (T12558). Best effort:
- * `root` may not be a repository, and the tombstone is validated anyway.
+ * Keep `entry` out of commits in the repository containing `root` (T12558).
+ *
+ * Asks git for the exclude file (`rev-parse --git-path info/exclude`) and for
+ * `root`'s path inside the work tree (`--show-prefix`), so it works when
+ * `root` is a subdirectory of a repository and when `.git` is a FILE (a
+ * linked worktree or a submodule). The line is anchored to that repo-relative
+ * path. Local to this checkout — nothing tracked changes. Best effort: `root`
+ * may not be in a repository, and a tombstone is validated on read anyway.
  */
 async function excludeFromGit(root: string, entry: string): Promise<void> {
-  const info = join(root, '.git', 'info');
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const git = async (...args: string[]): Promise<string> =>
+    (await promisify(execFile)('git', ['-C', root, ...args], { encoding: 'utf-8' })).stdout.trim();
   try {
-    if (!statSync(join(root, '.git')).isDirectory()) return;
-    await mkdir(info, { recursive: true });
-    const exclude = join(info, 'exclude');
+    const exclude = resolvePath(root, await git('rev-parse', '--git-path', 'info/exclude'));
+    const line = `/${await git('rev-parse', '--show-prefix')}${entry}`;
+    await mkdir(dirname(exclude), { recursive: true });
     const current = existsSync(exclude) ? await readFile(exclude, 'utf-8') : '';
-    if (current.split(/\r?\n/).includes(`/${entry}`)) return;
-    const sep = current.length === 0 || current.endsWith('\n') ? '' : '\n';
-    await writeFile(exclude, `${current}${sep}/${entry}\n`);
+    if (current.split(/\r?\n/).includes(line)) return;
+    const joiner = current.length === 0 || current.endsWith('\n') ? '' : '\n';
+    await writeFile(exclude, `${current}${joiner}${line}\n`);
   } catch {
-    // Not a repository, or unwritable: the tombstone is still validated on read.
+    // Not in a repository, or git unavailable: the tombstone is still validated on read.
   }
 }
 

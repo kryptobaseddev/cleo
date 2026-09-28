@@ -38,7 +38,9 @@
  */
 
 import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { NexusProjectCheckout } from '@cleocode/contracts';
+import { readDeclaredProjectIdentity } from '@cleocode/paths';
 import { and, desc, eq, inArray, ne } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { getStableDeviceId } from '../llm/stable-device-id.js';
@@ -126,6 +128,17 @@ export function supersededRegistryPath(projectId: string): string {
  */
 export function isSupersededRegistryPath(projectPath: string): boolean {
   return projectPath.startsWith(SUPERSEDED_PATH_PREFIX);
+}
+
+/**
+ * Whether `path` still holds `projectId`: the directory exists, has `.cleo/`,
+ * and does not declare a DIFFERENT id. A directory the project was moved or
+ * rerooted out of (or whose `.cleo/` was moved back out by hand) does not.
+ */
+function holdsProject(path: string, projectId: string): boolean {
+  if (!existsSync(join(path, '.cleo'))) return false;
+  const declared = readDeclaredProjectIdentity(path);
+  return declared === null || declared.projectId === projectId;
 }
 
 /** Primary-key predicate for one location row. */
@@ -244,7 +257,7 @@ export function recordProjectCheckout(
     .all();
   let markedMissing = 0;
   for (const sibling of siblings) {
-    if (existsSync(sibling.path)) continue;
+    if (holdsProject(sibling.path, record.projectId)) continue;
     db.update(projectLocations)
       .set({ state: 'missing' })
       .where(locationKey(record.projectId, deviceId, sibling.path))
@@ -354,7 +367,12 @@ export function decideEncounterBinding(
   if (here.some((location) => location.state === 'live')) return 'refresh';
 
   const oldPath = row.projectPath;
-  if (isSupersededRegistryPath(oldPath) || existsSync(oldPath)) return 'candidate';
+  // The old path still HOLDING the project (not merely existing — a reroot
+  // undone by hand leaves the child directory behind, empty of `.cleo/`)
+  // means this is a second checkout, not a move.
+  if (isSupersededRegistryPath(oldPath) || holdsProject(oldPath, record.projectId)) {
+    return 'candidate';
+  }
   // Proof of a move is the checkout's NONCE alone (T12470): local, untracked
   // state that a real `mv` or a restore of `.cleo/` carries and a clone
   // cannot have. Root commit and remote are forgeable (a clone shares them, a
@@ -433,7 +451,13 @@ export function recordCandidateLocation(db: PathMapWriter, record: ProjectChecko
   return false;
 }
 
-/** Whether `record.projectId` has a `live` location on this device, other than this path, that still exists. */
+/**
+ * Whether `record.projectId` has a `live` location on this device, other than
+ * this path, that still PROVES it holds the project — the directory declares
+ * the same id. Mere existence is not enough: after a reroot is undone by hand
+ * the child directory still exists but no longer holds `.cleo/`, and the old
+ * root must then be able to become a location again (T12558 round 3).
+ */
 function hasOtherLiveLocation(
   db: PathMapWriter,
   record: ProjectCheckoutRecord,
@@ -451,7 +475,11 @@ function hasOtherLiveLocation(
       ),
     )
     .all()
-    .some((location) => existsSync(location.path));
+    .some(
+      (location) =>
+        existsSync(location.path) &&
+        readDeclaredProjectIdentity(location.path)?.projectId === record.projectId,
+    );
 }
 
 /**

@@ -35,6 +35,7 @@ import {
   readPortableProjectId,
 } from '@cleocode/paths';
 import { ensurePortableProjectId } from '../scaffold/project-identity.js';
+import { detectRelocatedRoot } from '../store/relocated-store-guard.js';
 
 /** Command that reports identity state; the prefix of every remedy below. */
 const IDENTITY_COMMAND = 'cleo doctor project-identity';
@@ -172,6 +173,18 @@ export function inspectProjectIdentity(projectRoot: string): ProjectIdentityInsp
     };
   }
   if (info === undefined) {
+    // T12558: a tracked id restored (e.g. by `git checkout -- .`) at a root the
+    // project was rerooted away from must not be "adopted" by a plain init —
+    // that is exactly the refusal. Point at the live root, or the opt-out.
+    const relocated = detectRelocatedRoot(projectRoot, join(getCleoHome(), 'cleo.db'));
+    if (relocated) {
+      return {
+        ...base,
+        state: 'not-adopted',
+        message: `.cleo/project-id declares ${relocated.projectId}, which was rerooted from here to ${relocated.movedTo} (${relocated.via}).`,
+        remedy: `cd "${relocated.movedTo}"   (the live project) — or \`cleo init --here\` to keep a separate, audited store here`,
+      };
+    }
     return trackedId
       ? {
           ...base,
