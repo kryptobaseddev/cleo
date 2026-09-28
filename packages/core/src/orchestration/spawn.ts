@@ -93,6 +93,13 @@ export interface ComposeSpawnPayloadOptions {
   role?: AgentSpawnCapability;
   /** Harness hint override. Default: {@link resolveHarnessHint}. */
   harnessHint?: HarnessHint;
+  /**
+   * CAAMP provider id of the orchestrator's harness, used to name its ask
+   * tool in the subagent's HITL line. Default: derived from `harnessHint`.
+   *
+   * @task T12482
+   */
+  askProviderId?: string;
   /** Project root for path + profile resolution. Default: `process.cwd()`. */
   projectRoot?: string;
   /**
@@ -814,6 +821,7 @@ export async function composeSpawnPayload(
     projectRoot,
     sessionId: options.sessionId ?? null,
     harnessHint,
+    ...(options.askProviderId !== undefined ? { askProviderId: options.askProviderId } : {}),
     skipCleoInjectionEmbed: !shouldEmbedInjection,
     worktreePath: options.worktreePath,
     worktreeBranch: options.worktreeBranch,
