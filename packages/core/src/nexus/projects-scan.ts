@@ -11,6 +11,7 @@
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+import { listRegistryParentRoots } from './registry-roots.js';
 
 /** Auto-register error record. */
 export interface ScanAutoRegisterError {
@@ -22,7 +23,11 @@ export interface ScanAutoRegisterError {
 
 /** Options for {@link scanForProjects}. */
 export interface ProjectsScanOptions {
-  /** Comma-separated string or array of search roots (default: ~/code, ~/projects, /mnt/projects). */
+  /**
+   * Comma-separated string or array of search roots. Default: the parent
+   * directories of live registered projects ({@link listRegistryParentRoots});
+   * `~/code` and `~/projects` only when the registry yields none (T12476).
+   */
   roots?: string | string[];
   /** Maximum directory traversal depth (default: 4, max: 20). */
   maxDepth?: number;
@@ -166,12 +171,17 @@ export async function scanForProjects(opts: ProjectsScanOptions = {}): Promise<P
 
   const { homedir } = await import('node:os');
   const home = homedir();
-  const defaultRoots = [path.join(home, 'code'), path.join(home, 'projects'), '/mnt/projects'];
-
   // Accept either a comma-separated string or an array of roots
   let parsedRoots: string[];
   if (opts.roots == null) {
-    parsedRoots = defaultRoots;
+    // T12476: derive from where this device's registered projects actually
+    // live. A hardcoded root is one past device's layout and, after a move,
+    // names a directory that does not exist.
+    const registryRoots = await listRegistryParentRoots();
+    parsedRoots =
+      registryRoots.length > 0
+        ? registryRoots
+        : [path.join(home, 'code'), path.join(home, 'projects')];
   } else if (typeof opts.roots === 'string') {
     parsedRoots = opts.roots
       .split(',')
