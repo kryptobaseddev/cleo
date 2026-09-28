@@ -811,6 +811,8 @@ export {
   nexusOrphans,
   orphanDetection,
 } from './nexus/deps.js';
+// Device heartbeat on CLI start (T12510)
+export { heartbeatThisDevice } from './nexus/devices.js';
 export {
   // EngineResult wrappers (T1569 Wave 2)
   nexusDiscover,
