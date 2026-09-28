@@ -30,6 +30,7 @@ import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
 import { createDoctorProgress } from '../progress.js';
 import { cliError, cliOutput, humanLine } from '../renderers/index.js';
 import { doctorAcceptanceDriftCommand } from './doctor-acceptance-drift.js';
+import { doctorCleoLinkCommand } from './doctor-cleo-link.js';
 import { doctorCredentialsCommand } from './doctor-credentials.js';
 import { doctorDbSubstrateCommand } from './doctor-db-substrate.js';
 import { doctorExodusCommand } from './doctor-exodus.js';
@@ -261,6 +262,8 @@ export const doctorCommand = defineCommand({
     'memory-guard': doctorMemoryGuardCommand,
     // T12353 — tracked .cleo/project-id vs project-info.json (+ --resolve re-key)
     'project-identity': doctorProjectIdentityCommand,
+    // T12596 — ~/.cleo must link to the OS data dir or the global hub delivers nothing
+    'cleo-link': doctorCleoLinkCommand,
     // T12471 — machine-wide registry integrity: rebind moved by id, flag split/missing/temp
     projects: doctorRegistryCommand,
     // T12329 — import rows only a diverged store copy has, under new ids (dry-run first)
