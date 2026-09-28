@@ -43,14 +43,43 @@ export {
   redactDecisionState,
 } from './client.js';
 export {
+  clearDecideCredentials,
+  DECIDE_CREDENTIALS_FILE,
+  DecideCredentialsError,
+  type DecideCredentialsInput,
+  type DecideCredentialsSummary,
+  decideCredentialsPath,
+  describeDecideCredentials,
+  loadDecideConnection,
+  maskApiKey,
+  SealedDecideConnection,
+  saveDecideCredentials,
+} from './credentials.js';
+export {
   createJevProvider,
   fromJevSystemOneResponse,
   JEV_ADAPTER_VERSION,
   type JevProviderOptions,
   type JevSystemOneBody,
+  listJevModels,
   parseRetryAfterMs,
   toJevSystemOneBody,
 } from './jev-wire.js';
+export {
+  askDecideDebug,
+  clearDecideConfig,
+  configureDecide,
+  DEFAULT_DECIDE_ASK_TIMEOUT_MS,
+  DEFAULT_DECIDE_PROBE_TIMEOUT_MS,
+  type DecideAskInput,
+  type DecideAskResult,
+  type DecideConfigureInput,
+  type DecideConfigureResult,
+  type DecideProbeOptions,
+  type DecideProbeResult,
+  type DecideProviderState,
+  probeDecideProvider,
+} from './operations.js';
 export {
   type DecisionProvider,
   type DecisionProviderConnection,

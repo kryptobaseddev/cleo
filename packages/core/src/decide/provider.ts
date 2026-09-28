@@ -25,6 +25,11 @@ import type { DecisionOutcome, DecisionProviderConfig, DecisionRequest } from '@
 export interface DecisionProviderConnection extends DecisionProviderConfig {
   /** API key, sent as `Authorization: Bearer <apiKey>`. */
   readonly apiKey: string;
+  /**
+   * Default model for requests that do not name one. Absent → the request is
+   * sent without a model and the provider's own default (if any) applies.
+   */
+  readonly model?: string;
 }
 
 /**

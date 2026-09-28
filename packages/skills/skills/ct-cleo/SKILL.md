@@ -2,7 +2,7 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.20.7
+  version: 2.20.8
   lastReviewed: 2026-09-27
   stability: stable
 ---
@@ -113,6 +113,10 @@ stderr; `session status` / `briefing` label a guessed session `unbound: true`.
   pane never sees another pane's session.
 - Agent-tool subagents inherit the parent's `CLAUDE_CODE_SESSION_ID` and act in
   the parent's session; `cleo orchestrate spawn` gives workers their own.
+
+## Typed decisions (`cleo decide`, T12491)
+
+`decide` answers typed questions (yes/no, choice, score) through a swappable Jev-wire provider and falls back to local heuristics when unconfigured or failing. It needs two settings, an API URL and a key: `printf %s "$KEY" | cleo decide config --url <u> --key-stdin` (optional `--model`; `--clear` removes them). The key is kept in a 0600 file and never printed. `cleo decide status` probes reachability and `cleo decide ask --state <text> --noul <q>` runs one debug question.
 
 ## Quick Reference
 

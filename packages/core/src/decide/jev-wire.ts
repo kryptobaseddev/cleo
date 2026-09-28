@@ -24,6 +24,14 @@
  * - Errors: 401, 402 (`insufficient_credits`), 422 (FastAPI validation list),
  *   429 (with `retry-after`), 5xx. All are thrown as {@link DecisionProviderError}.
  *
+ * - Model: the provider's OpenAPI marks `SystemOneRequest.model` REQUIRED and
+ *   documents no server-side default for `/v1/systemone` (the `laya-auto`
+ *   default is documented for `/v1/decide` only). The body therefore carries
+ *   `req.model ?? connection.model`; a request with neither is sent without a
+ *   model and the provider may reject it (422 → heuristic fallback).
+ * - `GET /v1/models` → `{ models: [{ name, description?, ... }] }`; used by
+ *   {@link listJevModels} for the reachability probe.
+ *
  * `/v1/decide` (single question, different body shape) is not used: every
  * single-question call is a one-question `/v1/systemone` call, so one mapping
  * covers every request.
@@ -48,6 +56,9 @@ import {
 
 /** Path of the multi-question endpoint, relative to the base URL. */
 const SYSTEMONE_PATH = '/v1/systemone';
+
+/** Path of the model-listing endpoint, relative to the base URL. */
+const MODELS_PATH = '/v1/models';
 
 /** Adapter identity + version; part of every cache key so a mapping change invalidates the cache. */
 export const JEV_ADAPTER_VERSION = 'jev-wire/1';
@@ -299,7 +310,13 @@ export function createJevProvider(
             'content-type': 'application/json',
             accept: 'application/json',
           },
-          body: JSON.stringify(toJevSystemOneBody(req)),
+          body: JSON.stringify(
+            toJevSystemOneBody(
+              req.model === undefined && connection.model
+                ? { ...req, model: connection.model }
+                : req,
+            ),
+          ),
           signal,
         });
       } catch (err) {
@@ -335,4 +352,51 @@ export function createJevProvider(
       return fromJevSystemOneResponse(req, body, Math.max(0, now() - started));
     },
   };
+}
+
+/** Loose schema for the `GET /v1/models` response. */
+const jevModelsSchema = z.looseObject({
+  models: z.array(z.looseObject({ name: z.string() })),
+});
+
+/**
+ * List the models the key may use (`GET {base}/v1/models`).
+ *
+ * @param connection - Base URL + API key (only ever placed in the `Authorization` header).
+ * @param signal - Aborts the request.
+ * @param opts - Injectable `fetch`.
+ * @returns Model names in the order the provider lists them.
+ * @throws {DecisionProviderError} On any HTTP, network, abort or shape failure.
+ */
+export async function listJevModels(
+  connection: Pick<DecisionProviderConnection, 'baseUrl' | 'apiKey'>,
+  signal: AbortSignal,
+  opts: Pick<JevProviderOptions, 'fetch'> = {},
+): Promise<string[]> {
+  const doFetch = opts.fetch ?? globalThis.fetch;
+  let response: Response;
+  try {
+    response = await doFetch(endpointUrl(connection.baseUrl, MODELS_PATH), {
+      method: 'GET',
+      headers: { authorization: `Bearer ${connection.apiKey}`, accept: 'application/json' },
+      signal,
+    });
+  } catch (err) {
+    const cause = err instanceof Error ? err : undefined;
+    const kind = signal.aborted ? 'aborted' : 'network';
+    throw new DecisionProviderError(kind, `model listing failed (${kind})`, { cause });
+  }
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
+    throw errorForStatus(response.status, parseRetryAfterMs(response.headers.get('retry-after')));
+  }
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    throw invalid('model listing is not JSON');
+  }
+  const parsed = jevModelsSchema.safeParse(body);
+  if (!parsed.success) throw invalid('model listing does not match the models shape');
+  return parsed.data.models.map((m) => m.name);
 }
