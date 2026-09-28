@@ -36,7 +36,6 @@ import type {
   DonePlanGate,
   DonePlanToolRun,
   DonePlanTypedGate,
-  EvidenceAtom,
   Task,
   TaskChangeSet,
   VerificationGate,
@@ -51,6 +50,7 @@ import { readRequiredCheckPins } from '../release/pr-evidence.js';
 
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { planAffectedTestRun } from './affected-packages.js';
+import { affectedScopeSupersededReason, mergeStateOfChangeSet } from './affected-scope.js';
 import { type ChangeSetDeps, deriveTaskChangeSet } from './change-set.js';
 import {
   checkGateEvidenceMinimumDetailed,
@@ -85,14 +85,6 @@ function ciPlannable(storeRoot: string, needsJobs: boolean, touched: readonly st
   }
   const pins = readRequiredCheckPins(context);
   return !Object.values(pins).some((pin) => pin.workflow && touched.includes(pin.workflow));
-}
-
-/** Recorded testsPassed evidence whose only verification result is an affected-scope run. */
-function isAffectedOnly(atoms: ReadonlyArray<EvidenceAtom>): boolean {
-  const results = atoms.filter(
-    (a) => a.kind === 'tool' || a.kind === 'test-run' || a.kind === 'ci',
-  );
-  return results.length > 0 && results.every((a) => a.kind === 'tool' && a.scope === 'affected');
 }
 
 /** Gates `cleo done` derives evidence for; every other required gate is manual. */
@@ -520,13 +512,13 @@ export async function deriveTaskEvidence(
   const root = changeSet.executionRoot;
   // T12635 (D11150): a scope:affected testsPassed only stands before merge.
   // Once the change set is a merged PR, merged CI or a full run supersedes it.
-  const affectedOnly = isAffectedOnly(task.verification?.evidence?.testsPassed?.atoms ?? []);
-  const superseded = affectedOnly && changeSet.source === 'pr';
-  if (superseded) {
-    changeSet.warnings.push(
-      'testsPassed was recorded from an affected-scope run; the merged change needs merged CI or a full run.',
-    );
-  }
+  // T12656: the same rule `cleo complete` enforces (one shared function).
+  const supersededReason = affectedScopeSupersededReason(
+    task.verification?.evidence?.testsPassed?.atoms ?? [],
+    mergeStateOfChangeSet(changeSet),
+  );
+  const superseded = supersededReason !== null;
+  if (supersededReason) changeSet.warnings.push(supersededReason);
   const passed = (gate: VerificationGate): boolean =>
     task.verification?.gates?.[gate] === true && !(gate === 'testsPassed' && superseded);
   const pending = policy.requiredGates.filter((g) => !passed(g));

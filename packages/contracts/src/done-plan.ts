@@ -168,6 +168,11 @@ export interface TaskChangeSet {
   blockers: DonePlanBlocker[];
   /** Non-blocking observations, e.g. PR discovery that could not reach `gh`. */
   warnings: string[];
+  /**
+   * The merged-PR lookup failed (e.g. `gh` unavailable), so a non-PR change set
+   * does not prove the change is unmerged (T12656).
+   */
+  prDiscoveryFailed?: boolean;
 }
 
 /** Planned state of one verification gate. */

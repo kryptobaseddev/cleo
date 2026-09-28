@@ -560,7 +560,10 @@ async function derivePrChangeSet(
   const { task } = input;
   const root = roots.executionRoot;
   const listed = await deps.listMergedPrs(task.id, root);
-  if (!listed.ok) cs.warnings.push(`Merged-PR discovery skipped: ${listed.reason}`);
+  if (!listed.ok) {
+    cs.warnings.push(`Merged-PR discovery skipped: ${listed.reason}`);
+    cs.prDiscoveryFailed = true;
+  }
   const citing = (listed.ok ? listed.prs : []).filter((pr) =>
     citesTask(`${pr.title}\n${pr.body}\n${pr.headRefName}`, task.id),
   );
