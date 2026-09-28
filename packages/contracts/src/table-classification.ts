@@ -35,10 +35,14 @@ export type TableScope = 'project' | 'global';
  * - `portable-personal` — the owner's own history; syncs across the owner's
  *   devices and is never shared with collaborators (sessions, memories).
  * - `portable-secret` — credentials; travel only sealed end-to-end.
- * - `local-only` — meaningful on this device alone (leases, queues, journals,
- *   paths, frozen legacy twins).
- * - `derived` — rebuilt locally from other data (FTS/vec shadows, the nexus
- *   code graph, git-derived provenance).
+ * - `local-only` — meaningful on this device alone (leases, queues, pids,
+ *   paths, locations, fs-keyed caches, frozen legacy twins).
+ * - `derived` — deliberately narrow: only what is rebuilt deterministically,
+ *   cheaply and without an LLM (FTS5/sqlite-vec shadow tables and the nexus
+ *   code graph). Embeddings and LLM or sleep-cycle output are NOT derived.
+ *
+ * Every class is backed up (tier 1); the class decides only whether a table
+ * also syncs across devices (tier 2).
  *
  * @task T12332
  */

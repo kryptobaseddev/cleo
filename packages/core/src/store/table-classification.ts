@@ -19,13 +19,40 @@
  * live one, so both twins are listed here and the frozen ones carry
  * `status: 'frozen-legacy'`, `liveTwin` and `dropTask` (T12535 collapses them).
  *
+ * ## Two tiers: every table is backed up, portable tables also sync
+ *
+ * - **Tier 1, backup (the invariant).** Every table in both stores, with every
+ *   row, whatever its class (including `local-only`, `derived`, pending and
+ *   even unclassified tables), is backed up: encrypted client-side and
+ *   versioned per device, so any machine can be restored bit-for-bit. A class
+ *   NEVER exempts a table from backup. {@link TABLE_CLASS_POLICY} encodes this
+ *   as `backup: true` for every class, and the Gate A test asserts it.
+ * - **Tier 2, sync/merge across the owner's devices.** Only the portable
+ *   classes. `portable-personal` merges across the owner's own devices;
+ *   `portable-project` also merges into the project's shared space for
+ *   collaborators; `portable-secret` travels sealed end-to-end. `peer_scope`
+ *   governs sharing with OTHER people, never the owner's own machines.
+ *
+ * The test for a table: if this device died and the owner opened a new one,
+ * would an agent have to redo work or lose knowledge? If yes, it is portable.
+ *
+ * `derived` is deliberately NARROW: only what is rebuilt deterministically,
+ * cheaply and without an LLM. That is the FTS5/sqlite-vec shadow tables and
+ * the nexus code graph (rebuilt from source by `cleo nexus analyze`).
+ * Embeddings, sleep-cycle output and anything an LLM produced are NOT
+ * derived: regenerating them costs money or time. `local-only` is for state
+ * that is meaningless off-device: leases, queues, pids, paths, locations and
+ * fs-keyed caches.
+ *
  * ## Sources
  *
  * The classes come from the classification draft
- * (`docs/research/table-classification-draft.md` in the cleo-nexus repo) plus
- * the core owner's rulings in its §F. Rows marked `needs-owner-call` are
- * provisional. Rows in `pending` have no class at all and must never be
- * treated as portable.
+ * (`docs/research/table-classification-draft.md` in the cleo-nexus repo), the
+ * core owner's rulings in its §F, and the core owner's two-tier ruling of
+ * 2026-09-28, which supersedes earlier rulings where they conflict (each such
+ * entry carries the old reasoning in its `note`). Rows marked
+ * `needs-owner-call` are provisional. Tables on the `pending` list have no
+ * class and never sync (they are still backed up).
  *
  * @task T12332
  * @epic T12322
@@ -146,19 +173,22 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'table-classification-draft.md',
   },
   brain_attention: {
-    class: 'local-only',
-    status: 'needs-owner-call',
-    source: 'table-classification-draft.md',
+    class: 'portable-personal',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'named in the ruling',
   },
   brain_backfill_runs: {
-    class: 'local-only',
-    status: 'draft',
-    source: 'table-classification-draft.md',
+    class: 'portable-personal',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'operator workflow history',
   },
   brain_consolidation_events: {
-    class: 'local-only',
-    status: 'draft',
-    source: 'table-classification-draft.md',
+    class: 'portable-personal',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'sleep-cycle run history',
   },
   brain_decisions: {
     class: 'portable-project',
@@ -181,7 +211,12 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     status: 'draft',
     source: 'table-classification-draft.md',
   },
-  brain_embeddings: { class: 'derived', status: 'draft', source: 'table-classification-draft.md' },
+  brain_embeddings: {
+    class: 'portable-personal',
+    status: 'needs-owner-call',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'embeddings are NOT derived under the ruling (they cost money to regenerate). vec0 is a virtual table the session extension cannot capture, so it must ship as a content-addressed cache blob; its _rowids/_chunks/_vector_chunks/_info shadows stay derived by pattern',
+  },
   brain_learnings: {
     class: 'portable-personal',
     status: 'draft',
@@ -200,15 +235,22 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
   },
   brain_memory_links: {
     class: 'portable-personal',
-    status: 'needs-owner-call',
-    source: 'table-classification-draft.md',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'named in the ruling',
   },
   brain_memory_trees: {
-    class: 'derived',
-    status: 'draft',
-    source: 'table-classification-draft.md',
+    class: 'portable-personal',
+    status: 'needs-owner-call',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'surprisal clustering output, so not derived under the ruling. Its id is an INTEGER autoincrement, so rows need a uid before they can merge; brain_observations.tree_id keeps its strip override until then',
   },
-  brain_modulators: { class: 'derived', status: 'draft', source: 'table-classification-draft.md' },
+  brain_modulators: {
+    class: 'local-only',
+    status: 'needs-owner-call',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'CONFLICT: the ruling says all brain_* are portable, but the T12332 description names brain_plasticity_events/brain_weight_history local-only, and draft §D measures 14M+ inserts ever ("must never replicate"). No longer derived under the narrow rule. Kept local-only (tier-1 backup) pending an owner call',
+  },
   brain_observations: {
     class: 'portable-personal',
     status: 'draft',
@@ -233,27 +275,45 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'table-classification-draft.md',
   },
   brain_observations_staging: {
-    class: 'local-only',
-    status: 'draft',
-    source: 'table-classification-draft.md',
+    class: 'portable-personal',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'sweep staging; same family as brain_v2_candidate, which the ruling names',
   },
-  brain_page_edges: { class: 'derived', status: 'draft', source: 'table-classification-draft.md' },
-  brain_page_nodes: { class: 'derived', status: 'draft', source: 'table-classification-draft.md' },
-  brain_patterns: { class: 'derived', status: 'draft', source: 'table-classification-draft.md' },
+  brain_page_edges: {
+    class: 'portable-personal',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'brain graph written by consolidation (163,969 rows live); weight/reinforcement_count are in-place counters',
+  },
+  brain_page_nodes: {
+    class: 'portable-personal',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'brain graph written by consolidation and graph-auto-populate, not by nexus analyze; carries reinforcement counters',
+  },
+  brain_patterns: {
+    class: 'portable-personal',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'writer verified: memory/specialists.ts (LLM Induction/CodePattern specialists) and sleep-consolidation.ts',
+  },
   brain_patterns_fts: {
     class: 'derived',
     status: 'draft',
     source: 'table-classification-draft.md',
   },
   brain_plasticity_events: {
-    class: 'derived',
-    status: 'draft',
-    source: 'table-classification-draft.md',
-  },
-  brain_promotion_log: {
     class: 'local-only',
     status: 'needs-owner-call',
-    source: 'table-classification-draft.md',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'CONFLICT: the ruling says all brain_* are portable, but the T12332 description names brain_plasticity_events/brain_weight_history local-only, and draft §D measures 14M+ inserts ever ("must never replicate"). No longer derived under the narrow rule. Kept local-only (tier-1 backup) pending an owner call',
+  },
+  brain_promotion_log: {
+    class: 'portable-personal',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'named in the ruling',
   },
   brain_release_links: {
     class: 'local-only',
@@ -263,9 +323,10 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     liveTwin: 'tasks_brain_release_links',
   },
   brain_retrieval_log: {
-    class: 'local-only',
-    status: 'draft',
-    source: 'table-classification-draft.md',
+    class: 'portable-personal',
+    status: 'needs-owner-call',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: '"all brain_*" per the ruling, but it is retrieval telemetry (2,030 rows); confirm it carries knowledge',
   },
   brain_schema_meta: {
     class: 'local-only',
@@ -289,23 +350,33 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
   },
   brain_task_observations: {
     class: 'portable-personal',
-    status: 'needs-owner-call',
-    source: 'table-classification-draft.md',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'named in the ruling; INTEGER autoincrement PK needs a uid before merge',
   },
   brain_transcript_events: {
-    class: 'local-only',
-    status: 'needs-owner-call',
-    source: 'table-classification-draft.md',
+    class: 'portable-personal',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'named in the ruling; raw transcripts are PII-heavy',
   },
   brain_usage_log: {
-    class: 'local-only',
-    status: 'draft',
-    source: 'table-classification-draft.md',
+    class: 'portable-personal',
+    status: 'needs-owner-call',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: '"all brain_*" per the ruling, but it is feedback telemetry (10,152 rows) that drives quality scores; confirm',
+  },
+  brain_v2_candidate: {
+    class: 'portable-personal',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'named in the ruling; pre-T1402 name of brain_observations_staging, dropped by T12535',
   },
   brain_weight_history: {
-    class: 'derived',
-    status: 'draft',
-    source: 'table-classification-draft.md',
+    class: 'local-only',
+    status: 'needs-owner-call',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'CONFLICT: the ruling says all brain_* are portable, but the T12332 description names brain_plasticity_events/brain_weight_history local-only, and draft §D measures 14M+ inserts ever ("must never replicate"). No longer derived under the narrow rule. Kept local-only (tier-1 backup) pending an owner call',
   },
   commit_files: {
     class: 'local-only',
@@ -322,49 +393,58 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     liveTwin: 'tasks_commits',
   },
   conduit_attachment_approvals: {
-    class: 'local-only',
+    class: 'portable-project',
     status: 'needs-owner-call',
-    source: 'table-classification-draft.md',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: conduit_* sync (agents need handoff history across devices). No secret column found. Merge scope project (not personal) is my proposal',
   },
   conduit_attachment_contributors: {
-    class: 'local-only',
+    class: 'portable-project',
     status: 'needs-owner-call',
-    source: 'table-classification-draft.md',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: conduit_* sync (agents need handoff history across devices). No secret column found. Merge scope project (not personal) is my proposal',
   },
   conduit_attachment_versions: {
-    class: 'local-only',
+    class: 'portable-project',
     status: 'needs-owner-call',
-    source: 'table-classification-draft.md',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: conduit_* sync (agents need handoff history across devices). No secret column found. Merge scope project (not personal) is my proposal',
   },
   conduit_attachments: {
-    class: 'local-only',
+    class: 'portable-project',
     status: 'needs-owner-call',
-    source: 'table-classification-draft.md',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: conduit_* sync (agents need handoff history across devices). No secret column found. Merge scope project (not personal) is my proposal',
   },
   conduit_conversations: {
-    class: 'local-only',
+    class: 'portable-project',
     status: 'needs-owner-call',
-    source: 'table-classification-draft.md',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: conduit_* sync (agents need handoff history across devices). No secret column found. Merge scope project (not personal) is my proposal',
   },
   conduit_dead_letters: {
     class: 'local-only',
-    status: 'draft',
-    source: 'table-classification-draft.md',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling keeps queues/delivery state device-local',
   },
   conduit_delivery_jobs: {
     class: 'local-only',
-    status: 'draft',
-    source: 'table-classification-draft.md',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling keeps queues/delivery state device-local',
   },
   conduit_message_pins: {
-    class: 'local-only',
+    class: 'portable-project',
     status: 'needs-owner-call',
-    source: 'table-classification-draft.md',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: conduit_* sync (agents need handoff history across devices). No secret column found. Merge scope project (not personal) is my proposal',
   },
   conduit_messages: {
-    class: 'local-only',
+    class: 'portable-project',
     status: 'needs-owner-call',
-    source: 'table-classification-draft.md',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: conduit_* sync (agents need handoff history across devices). No secret column found. Merge scope project (not personal) is my proposal',
   },
   conduit_messages_fts: {
     class: 'derived',
@@ -372,29 +452,34 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'table-classification-draft.md',
   },
   conduit_project_agent_refs: {
-    class: 'local-only',
-    status: 'draft',
-    source: 'table-classification-draft.md',
+    class: 'portable-project',
+    status: 'needs-owner-call',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: conduit_* sync (agents need handoff history across devices). No secret column found. Merge scope project (not personal) is my proposal',
   },
   conduit_topic_message_acks: {
     class: 'local-only',
-    status: 'draft',
-    source: 'table-classification-draft.md',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling keeps queues/delivery state device-local',
   },
   conduit_topic_messages: {
-    class: 'local-only',
+    class: 'portable-project',
     status: 'needs-owner-call',
-    source: 'table-classification-draft.md',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: conduit_* sync (agents need handoff history across devices). No secret column found. Merge scope project (not personal) is my proposal',
   },
   conduit_topic_subscriptions: {
-    class: 'local-only',
+    class: 'portable-project',
     status: 'needs-owner-call',
-    source: 'table-classification-draft.md',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: conduit_* sync (agents need handoff history across devices). No secret column found. Merge scope project (not personal) is my proposal',
   },
   conduit_topics: {
-    class: 'local-only',
+    class: 'portable-project',
     status: 'needs-owner-call',
-    source: 'table-classification-draft.md',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: conduit_* sync (agents need handoff history across devices). No secret column found. Merge scope project (not personal) is my proposal',
   },
   deriver_queue: { class: 'local-only', status: 'draft', source: 'table-classification-draft.md' },
   docs_attachment_refs: {
@@ -410,17 +495,27 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
   docs_manifest_entries: {
     class: 'portable-project',
     status: 'needs-owner-call',
-    source: 'table-classification-draft.md',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: manifests. output_file was not verified to be repo-relative, so it is held device-local until confirmed',
+    columns: [
+      {
+        column: 'output_file',
+        class: 'local-only',
+        reason: 'may hold an absolute path; unverified',
+      },
+    ],
   },
   docs_pipeline_manifest: {
     class: 'portable-project',
-    status: 'needs-owner-call',
-    source: 'table-classification-draft.md',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: manifests; source_file is written repo-relative (memory/manifest-ingestion.ts)',
   },
   docs_wikilinks: {
-    class: 'derived',
-    status: 'needs-owner-call',
-    source: 'table-classification-draft.md',
+    class: 'portable-project',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: docs_*; parsed links are not in the narrow derived set',
   },
   evidence_ac_bindings: {
     class: 'local-only',
@@ -431,8 +526,9 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
   },
   experiments: {
     class: 'portable-project',
-    status: 'needs-owner-call',
-    source: 'table-classification-draft.md',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: experiments (both twins)',
   },
   external_task_links: {
     class: 'local-only',
@@ -479,7 +575,15 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
   manifest_entries: {
     class: 'portable-project',
     status: 'needs-owner-call',
-    source: 'table-classification-draft.md',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: manifests. output_file was not verified to be repo-relative, so it is held device-local until confirmed',
+    columns: [
+      {
+        column: 'output_file',
+        class: 'local-only',
+        reason: 'may hold an absolute path; unverified',
+      },
+    ],
   },
   nexus_code_index: {
     class: 'derived',
@@ -497,9 +601,10 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'draft §1.9 (rebuilt by cleo nexus analyze)',
   },
   nexus_relation_weights: {
-    class: 'derived',
-    status: 'draft',
-    source: 'draft §1.9 (rebuilt by cleo nexus analyze)',
+    class: 'portable-personal',
+    status: 'needs-owner-call',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'co-access weights come from usage, not from `nexus analyze`, so they are outside the narrow derived set; confirm whether they carry knowledge',
   },
   nexus_relations: {
     class: 'derived',
@@ -508,19 +613,22 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
   },
   nexus_symbols_fts: { class: 'derived', status: 'draft', source: 'table-classification-draft.md' },
   pi_session_entries: {
-    class: 'local-only',
-    status: 'needs-owner-call',
-    source: 'table-classification-draft.md',
+    class: 'portable-personal',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: agent session history; personal like sessions',
   },
   pi_session_leaf: {
-    class: 'local-only',
-    status: 'needs-owner-call',
-    source: 'table-classification-draft.md',
+    class: 'portable-personal',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: agent session history; personal like sessions',
   },
   pipeline_manifest: {
     class: 'portable-project',
-    status: 'needs-owner-call',
-    source: 'table-classification-draft.md',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'live bare twin; ruling: pipeline_manifest',
   },
   playbook_approvals: {
     class: 'local-only',
@@ -595,14 +703,16 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
   },
   schedules: {
     class: 'portable-project',
-    status: 'needs-owner-call',
-    source: 'table-classification-draft.md',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: definitions sync. The table has no lease/claim column (schedule_id, cron_expr, title, description, enabled, timestamps); execution claims live elsewhere',
   },
   schema_meta: { class: 'local-only', status: 'draft', source: 'table-classification-draft.md' },
   selfimprove_dhq: {
-    class: 'local-only',
-    status: 'needs-owner-call',
-    source: 'table-classification-draft.md',
+    class: 'portable-project',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: selfimprove_dhq; INTEGER id, key the uid on dhq_id',
   },
   session_handoff_entries: {
     class: 'local-only',
@@ -615,6 +725,12 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'draft',
     source: 'table-classification-draft.md',
+  },
+  session_terminal_bindings: {
+    class: 'local-only',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'terminal identity keys (env/ppid) are meaningless off-device',
   },
   sessions: {
     class: 'local-only',
@@ -635,7 +751,12 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     status: 'draft',
     source: 'table-classification-draft.md',
   },
-  status_registry: { class: 'derived', status: 'draft', source: 'table-classification-draft.md' },
+  status_registry: {
+    class: 'local-only',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'static seed recreated by migrations; not in the narrow derived set',
+  },
   sticky_tags: {
     class: 'portable-personal',
     status: 'draft',
@@ -698,14 +819,16 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     liveTwin: 'tasks_tasks',
   },
   tasks_acceptance_projection_dirty: {
-    class: 'derived',
-    status: 'draft',
-    source: 'table-classification-draft.md',
+    class: 'local-only',
+    status: 'needs-owner-call',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'projection cache/dirty set. Not in the narrow derived set; cheap to rebuild, so proposed local-only (tier-1 backup only)',
   },
   tasks_acceptance_projection_state: {
-    class: 'derived',
-    status: 'draft',
-    source: 'table-classification-draft.md',
+    class: 'local-only',
+    status: 'needs-owner-call',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'projection cache/dirty set. Not in the narrow derived set; cheap to rebuild, so proposed local-only (tier-1 backup only)',
   },
   tasks_adr_relations: {
     class: 'portable-project',
@@ -756,11 +879,24 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'table-classification-draft.md',
   },
   tasks_commit_files: {
-    class: 'derived',
-    status: 'draft',
-    source: 'table-classification-draft.md',
+    class: 'portable-project',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: PR/commit/release links replicate, ALL rows (history is cheap)',
   },
-  tasks_commits: { class: 'derived', status: 'draft', source: 'table-classification-draft.md' },
+  tasks_commits: {
+    class: 'portable-project',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: PR/commit/release links replicate, ALL rows (history is cheap)',
+    columns: [
+      {
+        column: 'project_hash',
+        class: 'local-only',
+        reason: 'path-derived hash of the project root on this device (ADR-094)',
+      },
+    ],
+  },
   tasks_evidence_ac_bindings: {
     class: 'portable-project',
     status: 'draft',
@@ -768,15 +904,21 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
   },
   tasks_experiments: {
     class: 'portable-project',
-    status: 'needs-owner-call',
-    source: 'table-classification-draft.md',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: experiments (both twins)',
   },
   tasks_external_task_links: {
     class: 'portable-project',
     status: 'draft',
     source: 'table-classification-draft.md',
   },
-  tasks_goal: { class: 'local-only', status: 'draft', source: 'table-classification-draft.md' },
+  tasks_goal: {
+    class: 'local-only',
+    status: 'needs-owner-call',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'per-agent goal state (turn budget, verdict). Unclear whether an agent on a new device needs it; writer not reviewed',
+  },
   tasks_lifecycle_evidence: {
     class: 'portable-project',
     status: 'draft',
@@ -819,22 +961,30 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     status: 'draft',
     source: 'table-classification-draft.md',
   },
-  tasks_pr_commits: { class: 'derived', status: 'draft', source: 'table-classification-draft.md' },
-  tasks_pr_tasks: {
-    class: 'derived',
+  tasks_pr_commits: {
+    class: 'portable-project',
     status: 'resolved',
-    source: 'cleo-dev §F.11',
-    rowRouting: {
-      column: 'link_kind',
-      routes: { manual: 'portable-project' },
-      reason:
-        "§F.11: derived from git/PR bodies except rows with link_kind = 'manual', which replicate",
-    },
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: PR/commit/release links replicate, ALL rows (history is cheap)',
+  },
+  tasks_pr_tasks: {
+    class: 'portable-project',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: PR/commit/release links replicate, ALL rows (history is cheap)',
   },
   tasks_pull_requests: {
-    class: 'derived',
-    status: 'needs-owner-call',
-    source: 'table-classification-draft.md',
+    class: 'portable-project',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: PR/commit/release links replicate, ALL rows (history is cheap)',
+    columns: [
+      {
+        column: 'project_hash',
+        class: 'local-only',
+        reason: 'path-derived hash of the project root on this device (ADR-094)',
+      },
+    ],
   },
   tasks_release_artifacts: {
     class: 'portable-project',
@@ -847,16 +997,29 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'cleo-dev §F.11',
   },
   tasks_release_changesets: {
-    class: 'derived',
-    status: 'needs-owner-call',
-    source: 'table-classification-draft.md',
+    class: 'portable-project',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: PR/commit/release links replicate, ALL rows (history is cheap)',
   },
   tasks_release_commits: {
-    class: 'derived',
-    status: 'draft',
-    source: 'table-classification-draft.md',
+    class: 'portable-project',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: PR/commit/release links replicate, ALL rows (history is cheap)',
   },
-  tasks_releases: { class: 'portable-project', status: 'resolved', source: 'cleo-dev §F.11' },
+  tasks_releases: {
+    class: 'portable-project',
+    status: 'resolved',
+    source: 'cleo-dev §F.11',
+    columns: [
+      {
+        column: 'project_hash',
+        class: 'local-only',
+        reason: 'path-derived hash of the project root on this device (ADR-094)',
+      },
+    ],
+  },
   tasks_schema_meta: {
     class: 'local-only',
     status: 'draft',
@@ -880,9 +1043,10 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     ],
   },
   tasks_status_registry: {
-    class: 'derived',
-    status: 'draft',
-    source: 'table-classification-draft.md',
+    class: 'local-only',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'static seed recreated by migrations; not in the narrow derived set',
   },
   tasks_task_acceptance_criteria: {
     class: 'portable-project',
@@ -895,15 +1059,10 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'table-classification-draft.md',
   },
   tasks_task_commits: {
-    class: 'derived',
+    class: 'portable-project',
     status: 'resolved',
-    source: 'cleo-dev §F.11',
-    rowRouting: {
-      column: 'link_kind',
-      routes: { manual: 'portable-project' },
-      reason:
-        "§F.11: derived from git/PR bodies except rows with link_kind = 'manual', which replicate",
-    },
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: PR/commit/release links replicate, ALL rows (history is cheap)',
   },
   tasks_task_dependencies: {
     class: 'portable-project',
@@ -922,8 +1081,9 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
   },
   tasks_task_work_history: {
     class: 'portable-personal',
-    status: 'needs-owner-call',
-    source: 'table-classification-draft.md',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: work history syncs; personal per §F.7 (sessions are personal)',
   },
   tasks_tasks: {
     class: 'portable-project',
@@ -940,9 +1100,10 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     ],
   },
   tasks_token_usage: {
-    class: 'local-only',
-    status: 'draft',
-    source: 'table-classification-draft.md',
+    class: 'portable-personal',
+    status: 'needs-owner-call',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'ruling: token_usage is portable (cost history). Merge scope personal is my proposal (keyed by session, and sessions are personal)',
   },
   tasks_warp_chain_instances: {
     class: 'local-only',
@@ -954,7 +1115,12 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     status: 'draft',
     source: 'table-classification-draft.md',
   },
-  token_usage: { class: 'local-only', status: 'draft', source: 'table-classification-draft.md' },
+  token_usage: {
+    class: 'portable-personal',
+    status: 'needs-owner-call',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'live bare twin of tasks_token_usage; same ruling',
+  },
   warp_chain_instances: {
     class: 'local-only',
     status: 'draft',
@@ -1132,19 +1298,22 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
   },
   agent_service_grants: { class: 'portable-secret', status: 'draft', source: 'draft §3' },
   brain_attention: {
-    class: 'local-only',
-    status: 'needs-owner-call',
-    source: 'draft §3 (same split as project §1.8)',
+    class: 'portable-personal',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'named in the ruling',
   },
   brain_backfill_runs: {
-    class: 'local-only',
-    status: 'draft',
-    source: 'draft §3 (same split as project §1.8)',
+    class: 'portable-personal',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'operator workflow history',
   },
   brain_consolidation_events: {
-    class: 'local-only',
-    status: 'draft',
-    source: 'draft §3 (same split as project §1.8)',
+    class: 'portable-personal',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'sleep-cycle run history',
   },
   brain_decisions: {
     class: 'portable-personal',
@@ -1175,18 +1344,21 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
   },
   brain_memory_links: {
     class: 'portable-personal',
-    status: 'draft',
-    source: "draft §3 (the global brain is the user's)",
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'named in the ruling',
   },
   brain_memory_trees: {
-    class: 'derived',
-    status: 'draft',
-    source: 'draft §3 (same split as project §1.8)',
+    class: 'portable-personal',
+    status: 'needs-owner-call',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'surprisal clustering output, so not derived under the ruling. Its id is an INTEGER autoincrement, so rows need a uid before they can merge; brain_observations.tree_id keeps its strip override until then',
   },
   brain_modulators: {
-    class: 'derived',
-    status: 'draft',
-    source: 'draft §3 (same split as project §1.8)',
+    class: 'local-only',
+    status: 'needs-owner-call',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'CONFLICT: the ruling says all brain_* are portable, but the T12332 description names brain_plasticity_events/brain_weight_history local-only, and draft §D measures 14M+ inserts ever ("must never replicate"). No longer derived under the narrow rule. Kept local-only (tier-1 backup) pending an owner call',
   },
   brain_observations: {
     class: 'portable-personal',
@@ -1207,39 +1379,46 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     ],
   },
   brain_observations_staging: {
-    class: 'local-only',
-    status: 'draft',
-    source: 'draft §3 (same split as project §1.8)',
+    class: 'portable-personal',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'sweep staging; same family as brain_v2_candidate, which the ruling names',
   },
   brain_page_edges: {
-    class: 'derived',
-    status: 'draft',
-    source: 'draft §3 (same split as project §1.8)',
+    class: 'portable-personal',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'brain graph written by consolidation (163,969 rows live); weight/reinforcement_count are in-place counters',
   },
   brain_page_nodes: {
-    class: 'derived',
-    status: 'draft',
-    source: 'draft §3 (same split as project §1.8)',
+    class: 'portable-personal',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'brain graph written by consolidation and graph-auto-populate, not by nexus analyze; carries reinforcement counters',
   },
   brain_patterns: {
-    class: 'derived',
-    status: 'draft',
-    source: 'draft §3 (same split as project §1.8)',
+    class: 'portable-personal',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'writer verified: memory/specialists.ts (LLM Induction/CodePattern specialists) and sleep-consolidation.ts',
   },
   brain_plasticity_events: {
-    class: 'derived',
-    status: 'draft',
-    source: 'draft §3 (same split as project §1.8)',
-  },
-  brain_promotion_log: {
     class: 'local-only',
     status: 'needs-owner-call',
-    source: 'draft §3 (same split as project §1.8)',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'CONFLICT: the ruling says all brain_* are portable, but the T12332 description names brain_plasticity_events/brain_weight_history local-only, and draft §D measures 14M+ inserts ever ("must never replicate"). No longer derived under the narrow rule. Kept local-only (tier-1 backup) pending an owner call',
+  },
+  brain_promotion_log: {
+    class: 'portable-personal',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'named in the ruling',
   },
   brain_retrieval_log: {
-    class: 'local-only',
-    status: 'draft',
-    source: 'draft §3 (same split as project §1.8)',
+    class: 'portable-personal',
+    status: 'needs-owner-call',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: '"all brain_*" per the ruling, but it is retrieval telemetry (2,030 rows); confirm it carries knowledge',
   },
   brain_schema_meta: {
     class: 'local-only',
@@ -1262,21 +1441,29 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: "draft §3 (the global brain is the user's)",
   },
   brain_transcript_events: {
-    class: 'local-only',
-    status: 'needs-owner-call',
-    source: 'draft §3 (same split as project §1.8)',
+    class: 'portable-personal',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'named in the ruling; raw transcripts are PII-heavy',
   },
   brain_usage_log: {
-    class: 'local-only',
-    status: 'draft',
-    source: 'draft §3 (same split as project §1.8)',
+    class: 'portable-personal',
+    status: 'needs-owner-call',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: '"all brain_*" per the ruling, but it is feedback telemetry (10,152 rows) that drives quality scores; confirm',
   },
   brain_weight_history: {
-    class: 'derived',
-    status: 'draft',
-    source: 'draft §3 (same split as project §1.8)',
+    class: 'local-only',
+    status: 'needs-owner-call',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'CONFLICT: the ruling says all brain_* are portable, but the T12332 description names brain_plasticity_events/brain_weight_history local-only, and draft §D measures 14M+ inserts ever ("must never replicate"). No longer derived under the narrow rule. Kept local-only (tier-1 backup) pending an owner call',
   },
-  models_catalog: { class: 'derived', status: 'draft', source: 'draft §3' },
+  models_catalog: {
+    class: 'local-only',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'seeded from models.dev by llm/catalog-seeder.ts; not in the narrow derived set',
+  },
   nexus_audit_log: { class: 'local-only', status: 'draft', source: 'draft §3' },
   nexus_code_index: {
     class: 'derived',
@@ -1377,10 +1564,10 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     note: 'global copy exists only for DDL convergence; the store opens project scope',
   },
   providers: {
-    class: 'derived',
+    class: 'local-only',
     status: 'needs-owner-call',
-    source: 'draft §3',
-    note: 'seeded; the source column may mark user-added rows',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'seeded from models.dev and recreated locally; not in the narrow derived set. User-added rows (source column) would need portable-personal',
   },
   schedules: {
     class: 'local-only',
@@ -1418,14 +1605,24 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
       },
     ],
   },
-  session_manifest: { class: 'derived', status: 'draft', source: 'draft §3' },
+  session_manifest: {
+    class: 'local-only',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'mirror of project sessions (which sync via the project store); carries project_path',
+  },
   skills_skill_patches: { class: 'portable-personal', status: 'draft', source: 'draft §3' },
   skills_skill_reviews: {
     class: 'portable-personal',
     status: 'needs-owner-call',
     source: 'draft §3',
   },
-  skills_skill_usage: { class: 'local-only', status: 'draft', source: 'draft §3' },
+  skills_skill_usage: {
+    class: 'portable-personal',
+    status: 'needs-owner-call',
+    source: 'cleo-dev ruling 2026-09-28',
+    note: 'usage history, by analogy with token_usage (cost history is portable); confirm',
+  },
   skills_skills: {
     class: 'portable-personal',
     status: 'draft',
@@ -1487,21 +1684,7 @@ const GLOBAL_PATTERNS: readonly TablePatternRule[] = [
 ];
 
 /** Project tables that exist but await an owner ruling; they have no class. */
-const PROJECT_PENDING: readonly PendingTableClassification[] = [
-  {
-    table: 'brain_v2_candidate',
-    source:
-      'drizzle-brain 20260424000005_t1147 (renamed to brain_observations_staging by t1402, but a fresh store still carries it)',
-    question:
-      'Pre-T1402 name of brain_observations_staging. Classify like the staging table (local-only), or drop it in T12535?',
-  },
-  {
-    table: 'session_terminal_bindings',
-    source: 'drizzle-cleo-project t12499 (session-binding-schema.ts)',
-    question:
-      'Terminal identity key → session id. Keys are env/ppid based, so the table looks device-local; confirm local-only.',
-  },
-];
+const PROJECT_PENDING: readonly PendingTableClassification[] = [];
 
 /** Global tables that exist but await an owner ruling; they have no class. */
 const GLOBAL_PENDING: readonly PendingTableClassification[] = [
@@ -1509,13 +1692,13 @@ const GLOBAL_PENDING: readonly PendingTableClassification[] = [
     table: 'nexus_devices',
     source: 'drizzle-cleo-global t12510 (T12510, epic T12496)',
     question:
-      "One row per machine (hostname, os, arch, heartbeat). Newer than the draft. Portable-personal (the owner's device list) or local-only?",
+      "One row per machine (hostname, os, arch, heartbeat). Newer than the draft. Portable-personal (the owner's device list) or local-only? PROPOSED: local-only (the ruling keeps paths/locations device-local; per-device rows back up in tier 1).",
   },
   {
     table: 'nexus_project_locations',
     source: 'drizzle-cleo-global t12469 / t12470 (T12469)',
     question:
-      'Per-device project locations keyed (project_id, device_id, path). Newer than the draft. Portable-personal with per-device rows, or local-only like nexus_project_paths?',
+      'Per-device project locations keyed (project_id, device_id, path). Newer than the draft. Portable-personal with per-device rows, or local-only like nexus_project_paths? PROPOSED: local-only (the ruling keeps paths/locations device-local; per-device rows back up in tier 1).',
   },
 ];
 
@@ -1555,6 +1738,22 @@ export const TABLE_CLASSES: readonly TableClass[] = [
   'local-only',
   'derived',
 ];
+
+/**
+ * What each class means for the two tiers.
+ *
+ * `backup` is `true` for EVERY class: that is the tier-1 invariant, and it is
+ * typed as the literal `true` so a class can never opt out. `sync` is tier 2.
+ *
+ * @task T12332
+ */
+export const TABLE_CLASS_POLICY: Readonly<Record<TableClass, { backup: true; sync: boolean }>> = {
+  'portable-project': { backup: true, sync: true },
+  'portable-personal': { backup: true, sync: true },
+  'portable-secret': { backup: true, sync: true },
+  'local-only': { backup: true, sync: false },
+  derived: { backup: true, sync: false },
+};
 
 /**
  * Return the registry for a scope.
@@ -1611,19 +1810,16 @@ export function classifyTable(scope: TableScope, name: string): TableClassificat
 }
 
 /**
- * Whether a class travels off the device (sync or sealed).
+ * Whether a class syncs across devices (tier 2; sealed for secrets).
  *
- * A snapshot or journal writer includes a table only when this is true for
- * its class. Pending and unclassified tables have no class and never travel.
+ * A sync journal includes a table only when this is true for its class.
+ * Pending and unclassified tables have no class and never sync. Backup
+ * (tier 1) is not gated by this: every table is backed up.
  *
  * @param tableClass - The class to test.
  * @returns `true` for the three portable classes.
  * @task T12332
  */
 export function isPortableTableClass(tableClass: TableClass): boolean {
-  return (
-    tableClass === 'portable-project' ||
-    tableClass === 'portable-personal' ||
-    tableClass === 'portable-secret'
-  );
+  return TABLE_CLASS_POLICY[tableClass].sync;
 }

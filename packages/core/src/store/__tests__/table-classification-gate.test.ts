@@ -45,6 +45,7 @@ import {
   classifyTable,
   getTableRegistry,
   isPortableTableClass,
+  TABLE_CLASS_POLICY,
   TABLE_CLASSES,
 } from '../table-classification.js';
 
@@ -276,11 +277,63 @@ describe('classifyTable', () => {
     expect(classifyTable('project', '__proto__').kind).toBe('unclassified');
   });
 
-  it('only portable classes travel', () => {
+  it('only portable classes sync', () => {
     expect(TABLE_CLASSES.filter(isPortableTableClass)).toEqual([
       'portable-project',
       'portable-personal',
       'portable-secret',
     ]);
+  });
+});
+
+describe('Gate A: two-tier policy', () => {
+  it('tier 1: every class is backed up, whatever its sync class', () => {
+    expect(Object.keys(TABLE_CLASS_POLICY).sort()).toEqual([...TABLE_CLASSES].sort());
+    for (const c of TABLE_CLASSES) expect(TABLE_CLASS_POLICY[c].backup, c).toBe(true);
+  });
+
+  /**
+   * `derived` is narrow: only what is rebuilt deterministically, cheaply and
+   * without an LLM. That is FTS5/sqlite-vec shadow tables and the nexus code
+   * graph. The allowlist lives HERE, in the assertion, so widening `derived`
+   * takes an explicit edit to the gate.
+   */
+  const NEXUS_CODE_GRAPH = new Set([
+    'nexus_nodes',
+    'nexus_relations',
+    'nexus_contracts',
+    'nexus_code_index',
+  ]);
+  const FTS_SHADOW = /^[a-z_]+_fts(_(config|data|docsize|idx|content))?$/;
+  const VEC_SHADOW = /^brain_embeddings_.+$/;
+  const derivedAllowed = (t: string) =>
+    NEXUS_CODE_GRAPH.has(t) || FTS_SHADOW.test(t) || VEC_SHADOW.test(t);
+
+  it.each([
+    'project',
+    'global',
+  ] as const)('%s: derived is only FTS/vec shadows and the nexus code graph', (scope) => {
+    const shapes = scope === 'project' ? [...fresh.project, ...liveProject] : [...fresh.global];
+    const names = new Set([...Object.keys(getTableRegistry(scope).tables), ...shapes]);
+    const wide = [...names]
+      .filter((t) => {
+        const r = classifyTable(scope, t);
+        return (r.kind === 'entry' || r.kind === 'pattern') && r.class === 'derived';
+      })
+      .filter((t) => !derivedAllowed(t))
+      .sort();
+    expect(wide, `${scope}: tables classed derived outside the narrow set`).toEqual([]);
+  });
+
+  it('embeddings and LLM/sleep output are not derived', () => {
+    for (const t of [
+      'brain_embeddings',
+      'brain_patterns',
+      'brain_page_edges',
+      'brain_memory_trees',
+    ]) {
+      const r = classifyTable('project', t);
+      expect(r.kind === 'entry' && r.class !== 'derived', t).toBe(true);
+    }
   });
 });

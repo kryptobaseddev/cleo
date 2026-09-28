@@ -32,6 +32,12 @@ it, and nothing reports either outcome.
   sites on classified tables across 76 files, all baselined. A new site
   fails. A removed site also fails until the baseline drops it.
 
-Four tables are pending an owner ruling and carry no class:
-`brain_v2_candidate` and `session_terminal_bindings` (project),
-`nexus_devices` and `nexus_project_locations` (global).
+**Two tiers (core owner ruling, 2026-09-28).** Every table in both stores is
+backed up whatever its class (tier 1, asserted: `TABLE_CLASS_POLICY` maps
+every class to `backup: true`). The class decides only whether a table also
+syncs (tier 2). `derived` is deliberately narrow, only FTS5/vec shadows and the
+nexus code graph, and a test asserts it. Embeddings, sleep-cycle output and
+LLM output sync instead.
+
+Two global tables are pending an owner ruling and carry no class:
+`nexus_devices` and `nexus_project_locations`, both proposed local-only.
