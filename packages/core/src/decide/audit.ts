@@ -1,0 +1,126 @@
+/**
+ * Decision audit trail — one JSONL line per decision in
+ * `.cleo/audit/decisions.jsonl`.
+ *
+ * Each line records the site, provider request id, a hash of the questions,
+ * every answer with its probabilities and confidence, the outcome source
+ * (provider / cache / fallback, plus the fallback reason), latency and cost.
+ *
+ * It NEVER records the API key, the base URL's credentials, or the raw state —
+ * only hashes of the request. Writes are synchronous single-line appends (a
+ * few microseconds, so they do not eat into a sub-second decision budget) and
+ * are swallowed on failure: auditing must never break a decision.
+ *
+ * @task T12490
+ * @epic T12486
+ */
+
+import { appendFileSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import type { DecisionAnswer, DecisionOutcome, DecisionOutcomeSource } from '@cleocode/contracts';
+
+/** Project-relative path of the decision audit log. */
+export const DECISION_AUDIT_FILE = '.cleo/audit/decisions.jsonl';
+
+/** Why a fallback was used (absent for provider/cache outcomes). */
+export type DecisionFallbackReason =
+  | 'unconfigured'
+  | 'invalid_request'
+  | 'budget_exhausted'
+  | 'budget_cooling_down'
+  | 'budget_unavailable'
+  | 'timeout'
+  | 'unauthorized'
+  | 'insufficient_credits'
+  | 'rate_limited'
+  | 'server_error'
+  | 'network'
+  | 'invalid_response'
+  | 'provider_error';
+
+/** One audited answer: the decided value plus its distribution. */
+export interface DecisionAuditAnswer {
+  /** Question type. */
+  readonly type: DecisionAnswer['type'];
+  /** Decided value. */
+  readonly value: DecisionAnswer['value'];
+  /** Probability of "yes" (noul only). */
+  readonly probability?: number;
+  /** Per-option / per-level probabilities (choice and score). */
+  readonly probabilities?: Readonly<Record<string, number>> | readonly number[];
+  /** Model confidence. */
+  readonly confidence: number;
+}
+
+/** One line of `.cleo/audit/decisions.jsonl`. */
+export interface DecisionAuditEntry {
+  /** ISO-8601 timestamp. */
+  readonly timestamp: string;
+  /** Call-site identifier passed to `decide()`. */
+  readonly site: string;
+  /** Provider request id, when the outcome came from (or was cached from) a provider. */
+  readonly requestId?: string;
+  /** sha256 of the canonical question set. */
+  readonly questionsHash: string;
+  /** sha256 of the canonical (redacted) state — lets repeats be correlated without storing it. */
+  readonly stateHash: string;
+  /** Question name → audited answer. */
+  readonly answers: Readonly<Record<string, DecisionAuditAnswer>>;
+  /** Where the outcome came from. */
+  readonly source: DecisionOutcomeSource;
+  /** Why the fallback was used (fallback only). */
+  readonly fallbackReason?: DecisionFallbackReason;
+  /** Wall-clock latency of the whole `decide()` call, ms. */
+  readonly latencyMs: number;
+  /** Provider-reported cost in USD, when known. */
+  readonly costUsd?: number;
+}
+
+/** Destination for audit entries. Implementations never throw. */
+export interface DecisionAuditSink {
+  /** Record one entry. */
+  write(entry: DecisionAuditEntry): void;
+}
+
+/**
+ * Project an outcome's answers into audit form.
+ *
+ * @param outcome - The outcome to audit.
+ * @returns Question name → audited answer.
+ */
+export function auditAnswers(outcome: DecisionOutcome): Record<string, DecisionAuditAnswer> {
+  const out: Record<string, DecisionAuditAnswer> = {};
+  for (const [name, a] of Object.entries(outcome.answers)) {
+    out[name] =
+      a.type === 'noul'
+        ? { type: a.type, value: a.value, probability: a.probability, confidence: a.confidence }
+        : {
+            type: a.type,
+            value: a.value,
+            probabilities: a.probabilities,
+            confidence: a.confidence,
+          };
+  }
+  return out;
+}
+
+/**
+ * A sink appending to `<projectRoot>/.cleo/audit/decisions.jsonl`.
+ *
+ * @param projectRoot - Absolute project root.
+ * @returns A never-throwing {@link DecisionAuditSink}.
+ */
+export function createJsonlDecisionAudit(projectRoot: string): DecisionAuditSink {
+  const dir = join(projectRoot, '.cleo', 'audit');
+  const file = join(dir, 'decisions.jsonl');
+  return {
+    write(entry) {
+      try {
+        mkdirSync(dir, { recursive: true });
+        appendFileSync(file, `${JSON.stringify(entry)}\n`, 'utf-8');
+      } catch {
+        // Auditing must never break a decision.
+      }
+    },
+  };
+}
