@@ -469,6 +469,12 @@ export {
   reregisterProject,
   rerootProject,
 } from './project-lifecycle.js';
+// Relocation tombstone (T12558)
+export {
+  PROJECT_TOMBSTONE_FILE,
+  readValidProjectTombstone,
+  setProjectMovedRefusal,
+} from './project-tombstone.js';
 // Scaffold
 export {
   ensureCleoOsHub,

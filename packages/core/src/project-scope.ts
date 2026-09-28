@@ -15,7 +15,11 @@ import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import { isAbsolutePath } from '@cleocode/paths';
 import { CleoError } from './errors.js';
 import { generateProjectHash } from './nexus/hash.js';
-import { projectMovedMessage, readProjectTombstone } from './project-tombstone.js';
+import {
+  isProjectMovedRefusalEnabled,
+  projectMovedError,
+  readValidProjectTombstone,
+} from './project-tombstone.js';
 
 /**
  * Async context payload set by the spawn adapter when launching a subagent
@@ -461,14 +465,16 @@ export function getProjectRoot(cwd?: string): string {
     // T12558: `cleo project reroot` left a tombstone here. With no live store
     // beside it (the `.cleo/` is gone, or `git checkout -- .` restored only its
     // tracked files), resolving here would silently create an EMPTY store and
-    // answer every read with nothing. Refuse and name the new root instead.
-    const tombstone = isDangerousRoot ? null : readProjectTombstone(current);
-    if (tombstone && !existsSync(join(cleoDir, 'cleo.db'))) {
-      const moved = projectMovedMessage(current, tombstone);
-      throw new CleoError(ExitCode.NOT_FOUND, moved.message, {
-        fix: moved.fix,
-        details: { field: 'projectRoot', code: 'E_PROJECT_MOVED', movedTo: tombstone.movedTo },
-      });
+    // answer every read with nothing. Refuse and name the new root. Only a
+    // VALID tombstone counts (a committed or stale one is ignored with a
+    // warning), and `cleo doctor` turns the refusal off to inspect the state.
+    if (
+      !isDangerousRoot &&
+      isProjectMovedRefusalEnabled() &&
+      !existsSync(join(cleoDir, 'cleo.db'))
+    ) {
+      const tombstone = readValidProjectTombstone(current);
+      if (tombstone) throw projectMovedError(current, tombstone, start);
     }
 
     if (existsSync(cleoDir) && !isDangerousRoot) {

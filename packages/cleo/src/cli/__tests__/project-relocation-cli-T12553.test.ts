@@ -23,7 +23,7 @@
  */
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -298,5 +298,93 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('cleo project reroot — end to end', () =>
     // `reroot .` from the finished child has nothing to resume.
     const again = cleo(child, ['project', 'reroot', '.']);
     expect(parseSoleEnvelope(again.stdout).error?.codeName).toBe('E_SAME_PATH');
+  }, 300_000);
+});
+
+/** The error half of a LAFS envelope, with the fields E_PROJECT_MOVED carries. */
+interface MovedError {
+  success: boolean;
+  error?: { code?: number; codeName?: string; fix?: string; details?: { movedTo?: string } };
+}
+
+describe.skipIf(!CLI_DIST_AVAILABLE)('reroot protection layer (T12558 round 2)', () => {
+  let root: string;
+  let child: string;
+
+  beforeAll(() => {
+    root = join(sandbox, 'r2-mono');
+    initProject(root);
+    child = join(root, 'app');
+    mkdirSync(child);
+    expect(cleo(root, ['project', 'reroot', 'app']).status).toBe(0);
+  }, 180_000);
+
+  it('E_PROJECT_MOVED is typed on the resolution path: codeName, exit 9, cd fix, details.movedTo', () => {
+    const run = cleo(root, ['find', 'x']);
+    const env = parseSoleEnvelope(run.stdout) as MovedError;
+    expect(env.success).toBe(false);
+    expect(env.error?.codeName).toBe('E_PROJECT_MOVED');
+    expect(env.error?.code).toBe(ExitCode.PROJECT_MOVED);
+    expect(env.error?.fix).toContain(`cd "${child}"`);
+    expect(env.error?.details?.movedTo).toBe(child);
+    expect(run.status).toBe(ExitCode.PROJECT_MOVED);
+  });
+
+  it('`cleo doctor project-identity` is never blocked at the old root', () => {
+    const run = cleo(root, ['doctor', 'project-identity']);
+    expect(run.stdout).not.toContain('E_PROJECT_MOVED');
+  });
+
+  it('init in a sibling refuses with a typed error and writes nothing; `init --here` starts a new project', () => {
+    const sibling = join(root, 'app2');
+    mkdirSync(sibling);
+    const refused = cleo(sibling, ['init']);
+    const env = parseSoleEnvelope(refused.stdout) as MovedError;
+    expect(env.error?.codeName).toBe('E_PROJECT_MOVED');
+    expect(env.error?.fix).toContain('cleo init --here');
+    expect(refused.status).toBe(ExitCode.PROJECT_MOVED);
+    expect(existsSync(join(sibling, '.cleo'))).toBe(false);
+
+    const here = cleo(sibling, ['init', '--here']);
+    expect(parseSoleEnvelope(here.stdout).success).toBe(true);
+    expect(here.status).toBe(0);
+    expect(existsSync(join(sibling, '.cleo', 'project-info.json'))).toBe(true);
+  });
+
+  it('no tombstone + `git checkout -- .`: `cleo find` still refuses and creates no cleo.db', () => {
+    rmSync(join(root, '.cleo-moved.json'));
+    git(root, 'checkout', '--', '.');
+    expect(existsSync(join(root, '.cleo', 'project-id'))).toBe(true);
+
+    const run = cleo(root, ['find', 'x']);
+    const env = parseSoleEnvelope(run.stdout) as MovedError;
+    expect(env.success).toBe(false);
+    expect(env.error?.codeName).toBe('E_PROJECT_MOVED');
+    expect(env.error?.details?.movedTo).toBe(child);
+    expect(existsSync(join(root, '.cleo', 'cleo.db'))).toBe(false);
+  });
+});
+
+describe.skipIf(!CLI_DIST_AVAILABLE)('a committed or forged tombstone (T12558 round 2)', () => {
+  it('is ignored: find, doctor and a fresh store all work in the project', () => {
+    const root = join(sandbox, 'forged');
+    initProject(root);
+    writeFileSync(
+      join(root, '.cleo-moved.json'),
+      JSON.stringify({ projectId: 'not-this-project', movedTo: '/nonexistent/x', at: 'x' }),
+    );
+    git(root, 'add', '-f', '.cleo-moved.json');
+    git(root, 'commit', '--no-verify', '-qm', 'committed tombstone');
+    // A fresh clone carries the committed tombstone and has no store yet.
+    const clone = join(sandbox, 'forged-clone');
+    execFileSync('git', ['clone', '-q', root, clone]);
+
+    for (const dir of [root, clone]) {
+      const find = cleo(dir, ['find', 'x']);
+      expect(find.stdout).not.toContain('E_PROJECT_MOVED');
+      expect(parseSoleEnvelope(find.stdout).success).toBe(true);
+      expect(cleo(dir, ['doctor', 'project-identity']).stdout).not.toContain('E_PROJECT_MOVED');
+    }
+    expect(existsSync(join(clone, '.cleo', 'cleo.db'))).toBe(true);
   }, 300_000);
 });

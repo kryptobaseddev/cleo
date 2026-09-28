@@ -21,6 +21,13 @@ export enum ExitCode {
   VALIDATION_ERROR = 6,
   LOCK_TIMEOUT = 7,
   CONFIG_ERROR = 8,
+  /**
+   * The project this directory resolves to was relocated by
+   * `cleo project reroot`; a valid `.cleo-moved.json` tombstone names its new
+   * root. Refused instead of silently creating an empty store at the old root.
+   * LAFS code `E_PROJECT_MOVED`; details carry `movedTo`. @task T12558
+   */
+  PROJECT_MOVED = 9,
 
   // === HIERARCHY ERRORS (10-19) ===
   PARENT_NOT_FOUND = 10,

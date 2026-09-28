@@ -24,10 +24,8 @@ import { existsSync, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { basename, dirname } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { ExitCode } from '@cleocode/contracts';
-import { readPortableProjectId } from '@cleocode/paths';
-import { CleoError } from '../errors.js';
-import { projectMovedMessage, readProjectTombstone } from '../project-tombstone.js';
+import { readDeclaredProjectIdentity, readPortableProjectId } from '@cleocode/paths';
+import { projectMovedError, readValidProjectTombstone } from '../project-tombstone.js';
 
 const _require = createRequire(import.meta.url);
 
@@ -63,7 +61,9 @@ function liveElsewhere(globalDbPath: string, projectId: string, root: string): s
       )
       .get(projectId) as { projectPath?: string } | undefined;
     const live = row?.projectPath;
-    return live && !paths.has(live) && existsSync(live) ? live : null;
+    if (!live || paths.has(live) || !existsSync(live)) return null;
+    // Proof, not a pointer: the live path must still hold this project.
+    return readDeclaredProjectIdentity(live)?.projectId === projectId ? live : null;
   } catch {
     return null;
   } finally {
@@ -76,7 +76,7 @@ function liveElsewhere(globalDbPath: string, projectId: string, root: string): s
  *
  * @param dbPath - The project-scope store path about to be opened.
  * @param globalDbPath - The global registry store path.
- * @throws CleoError (`E_PROJECT_MOVED`, exit NOT_FOUND) naming the new root.
+ * @throws CleoError (`E_PROJECT_MOVED`, exit PROJECT_MOVED) naming the new root.
  *
  * @example
  * ```ts
@@ -88,20 +88,11 @@ export function assertStoreNotRelocated(dbPath: string, globalDbPath: string): v
   if (existsSync(dbPath)) return;
   const root = dirname(dirname(dbPath));
 
-  const tombstone = readProjectTombstone(root);
-  const declared = readPortableProjectId(root);
-  const movedTo =
-    tombstone?.movedTo ??
-    (declared.status === 'valid' && existsSync(globalDbPath) && globalDbPath !== dbPath
-      ? liveElsewhere(globalDbPath, declared.projectId, root)
-      : null);
-  if (!movedTo) return;
+  const tombstone = readValidProjectTombstone(root);
+  if (tombstone) throw projectMovedError(root, tombstone);
 
-  const projectId =
-    tombstone?.projectId ?? (declared.status === 'valid' ? declared.projectId : 'unknown');
-  const moved = projectMovedMessage(root, { projectId, movedTo });
-  throw new CleoError(ExitCode.NOT_FOUND, moved.message, {
-    fix: moved.fix,
-    details: { field: 'projectRoot', code: 'E_PROJECT_MOVED', movedTo },
-  });
+  const declared = readPortableProjectId(root);
+  if (declared.status !== 'valid' || !existsSync(globalDbPath) || globalDbPath === dbPath) return;
+  const movedTo = liveElsewhere(globalDbPath, declared.projectId, root);
+  if (movedTo) throw projectMovedError(root, { projectId: declared.projectId, movedTo });
 }

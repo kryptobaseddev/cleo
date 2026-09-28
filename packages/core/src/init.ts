@@ -827,6 +827,17 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
   // directory.
   const projRoot = dirname(cleoDir);
 
+  // T12558: never scaffold where a project was relocated away from. Resolving
+  // from the target refuses with E_PROJECT_MOVED at a (valid) reroot
+  // tombstone — at the target itself or at an ancestor it would resolve to —
+  // BEFORE anything is written, so a refused init leaves no partial `.cleo/`.
+  // `cleo init --here` pins the root and so starts a new project below it.
+  try {
+    getProjectRoot(projRoot);
+  } catch (err) {
+    if (err instanceof CleoError && err.code === ExitCode.PROJECT_MOVED) throw err;
+  }
+
   // Guard: fail if project already initialized (unless --force)
   const alreadyInitialized =
     existsSync(cleoDir) &&
@@ -892,6 +903,8 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
     await getDb(join(cleoDir, '..'));
     created.push('tasks.db');
   } catch (err) {
+    // A relocated root is a refusal, never a store "deferred" behind success.
+    if (err instanceof CleoError && err.code === ExitCode.PROJECT_MOVED) throw err;
     // SQLite init failure is not fatal — will be created on first access
     created.push(`tasks.db (deferred: ${err instanceof Error ? err.message : String(err)})`);
   }

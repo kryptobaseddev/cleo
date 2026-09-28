@@ -39,8 +39,10 @@ import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { ExitCode } from '@cleocode/contracts';
+import { WarningCollector, withWarningCollector } from '@cleocode/lafs';
 import { and, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { CleoError } from '../errors.js';
 import { readCheckoutNonce } from '../nexus/checkout-nonce.js';
 import { generateProjectHash } from '../nexus/hash.js';
 import { currentDeviceId } from '../nexus/path-map.js';
@@ -48,6 +50,7 @@ import { nexusRegister } from '../nexus/registry.js';
 import { getCleoHome, recordProjectEncounter } from '../paths.js';
 import { moveProject, rerootProject } from '../project-lifecycle.js';
 import { getProjectRoot } from '../project-scope.js';
+import { setProjectMovedRefusal } from '../project-tombstone.js';
 import { awaitBackgroundOps } from '../store/background-ops.js';
 import { getDb, resetDbState } from '../store/sqlite.js';
 
@@ -593,5 +596,130 @@ describe('T12558 — cleo project reroot', () => {
     rmSync(join(root, '.cleo-moved.json'));
     await expect(getDb(root)).rejects.toThrow(/E_PROJECT_MOVED/);
     expect(existsSync(join(root, '.cleo', 'cleo.db'))).toBe(false);
+  });
+});
+
+describe('T12558 round 2 — the protection layer', () => {
+  /** A rerooted project: `root/.cleo` renamed into `root/app`. */
+  async function rerooted(name: string, id: string): Promise<{ root: string; child: string }> {
+    const root = await makeProject(join(testDir, name), id);
+    const child = join(root, 'app');
+    mkdirSync(child);
+    expect((await rerootProject(child, root)).success).toBe(true);
+    vi.stubEnv('CLEO_ROOT', undefined);
+    return { root, child };
+  }
+
+  it('the refusal is typed: exit PROJECT_MOVED, a cd fix, details.movedTo', async () => {
+    const { root, child } = await rerooted('typed', 'typed-T12558');
+    let caught: unknown;
+    try {
+      getProjectRoot(root);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(CleoError);
+    const err = caught as CleoError;
+    expect(err.code).toBe(ExitCode.PROJECT_MOVED);
+    expect(err.toLAFSError().code).toBe('E_PROJECT_MOVED');
+    expect(err.fix).toContain(`cd "${child}"`);
+    expect(err.details?.['movedTo']).toBe(child);
+  });
+
+  it('reroot keeps the tombstone out of git via .git/info/exclude', async () => {
+    const { root } = await rerooted('exclude', 'exclude-T12558');
+    expect(readFileSync(join(root, '.git', 'info', 'exclude'), 'utf-8')).toContain(
+      '/.cleo-moved.json',
+    );
+    const status = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], {
+      cwd: root,
+      encoding: 'utf-8',
+    });
+    expect(status).not.toContain('.cleo-moved.json');
+  });
+
+  it('a committed / stale / forged tombstone is ignored with a warning and never bricks a project', async () => {
+    const root = await makeProject(join(testDir, 'clone'), 'clone-T12558');
+    await getDb(root);
+    resetDbState();
+    rmSync(join(root, '.cleo', 'cleo.db'));
+    vi.stubEnv('CLEO_ROOT', undefined);
+    const collector = new WarningCollector();
+    const bogus = [
+      { projectId: 'someone-else', movedTo: join(testDir, 'nowhere'), at: 'x' },
+      { projectId: 'clone-T12558', movedTo: join(testDir, 'nowhere'), at: 'x' },
+      { projectId: 'clone-T12558', movedTo: join(testDir, 'caller'), at: 'x' },
+    ];
+    for (const tombstone of bogus) {
+      writeFileSync(join(root, '.cleo-moved.json'), JSON.stringify(tombstone));
+      await withWarningCollector(collector, async () => {
+        expect(getProjectRoot(root)).toBe(root);
+        await getDb(root);
+      });
+      expect(existsSync(join(root, '.cleo', 'cleo.db'))).toBe(true);
+      // Start the next case with no store again, so both checks run.
+      resetDbState();
+      for (const f of ['cleo.db', 'cleo.db-wal', 'cleo.db-shm']) {
+        rmSync(join(root, '.cleo', f), { force: true });
+      }
+    }
+    // One warning from resolution and one from the store guard, per case.
+    const ignored = (collector.drain() ?? []).filter((w) => w.code === 'W_TOMBSTONE_IGNORED');
+    expect(ignored).toHaveLength(bogus.length * 2);
+  });
+
+  it('`git checkout -- .` then an encounter keeps the old root `missing`, so the store guard still refuses', async () => {
+    const { root } = await rerooted('encounter', 'encounter-T12558');
+    rmSync(join(root, '.cleo-moved.json'));
+    git(root, 'checkout', '--', '.');
+    // Every CLI command records an encounter for its cwd before running.
+    await recordProjectEncounter(root);
+
+    expect(await locationState('encounter-T12558', root)).toBe('missing');
+    await expect(getDb(root)).rejects.toThrow(/E_PROJECT_MOVED/);
+    expect(existsSync(join(root, '.cleo', 'cleo.db'))).toBe(false);
+  });
+
+  it('`cleo doctor` can resolve past the tombstone; the store guard still refuses an empty store', async () => {
+    const { root } = await rerooted('doctor', 'doctor-T12558');
+    setProjectMovedRefusal(false);
+    try {
+      let message = '';
+      try {
+        getProjectRoot(root);
+      } catch (err) {
+        message = (err as Error).message;
+      }
+      expect(message).not.toContain('E_PROJECT_MOVED');
+      // Even with resolution open, nothing may CREATE an empty store there.
+      git(root, 'checkout', '--', '.');
+      await expect(getDb(root)).rejects.toThrow(/E_PROJECT_MOVED/);
+      expect(existsSync(join(root, '.cleo', 'cleo.db'))).toBe(false);
+    } finally {
+      setProjectMovedRefusal(true);
+    }
+  });
+
+  it('init in a sibling below a rerooted root refuses before writing, and names `--here`', async () => {
+    const { root } = await rerooted('mono-init', 'mono-init-T12558');
+    const sibling = join(root, 'app2');
+    mkdirSync(sibling);
+    process.chdir(sibling);
+    const { initProject } = await import('../init.js');
+    await expect(initProject({})).rejects.toThrow(/E_PROJECT_MOVED/);
+    expect(existsSync(join(sibling, '.cleo'))).toBe(false);
+    try {
+      getProjectRoot(sibling);
+    } catch (err) {
+      expect((err as CleoError).fix).toContain('cleo init --here');
+    }
+  });
+
+  it('a git worktree blocker names `git worktree prune`', async () => {
+    const source = await makeProject(join(testDir, 'gwt'), 'gwt-T12558');
+    mkdirSync(join(source, '.git', 'worktrees', 'stale'), { recursive: true });
+    const result = await moveProject(join(testDir, 'gwt-moved'), source);
+    expect(!result.success && result.error.code).toBe('E_MOVE_BLOCKED');
+    expect(!result.success && result.error.fix).toContain('git worktree prune');
   });
 });

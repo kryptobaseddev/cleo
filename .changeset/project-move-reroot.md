@@ -53,6 +53,29 @@ source stayed live, so the registry could later bind to the stale copy.
   refusal also applies after `git checkout -- .` restores the tracked
   `.cleo/project-id`, and when the tombstone is gone but the registry marks
   that location `missing`.
+  - The tombstone is honoured only when it is provably current. It must
+    name the project the root declares, and `movedTo` must hold a `.cleo/`
+    for that same project. Any other tombstone (committed, copied into a
+    clone, stale or forged) is ignored with a `W_TOMBSTONE_IGNORED` warning,
+    so it cannot brick a project.
+  - Reroot lists the tombstone in the old root's `.git/info/exclude`, and
+    this repository's `.gitignore` ignores it.
+  - A command-time encounter no longer flips a `missing` location back to
+    `candidate` while the project is live elsewhere on the device. That flip
+    had disarmed the store guard in the real CLI.
+  - `E_PROJECT_MOVED` is a registered code: exit 9 (`PROJECT_MOVED`), with
+    a `cd "<movedTo>"` fix and `details.movedTo` on every path. Errors
+    thrown outside dispatch keep their typed code instead of becoming
+    `E_CLI_UNCAUGHT`, and `init` failures keep theirs instead of becoming
+    `E_INTERNAL`.
+  - `cleo doctor *` is never blocked by the tombstone.
+  - `init` refuses before writing anything, so it never reports success with
+    a "deferred" store. The new `cleo init --here` starts a new project in a
+    directory below a rerooted root.
+- Cross-device relocations: `reroot`'s dry run also compares `st_dev`, and
+  EXDEV from either verb is `E_CROSS_DEVICE`, not a permissions error. The
+  fix says to end sessions, stop writers and run `cleo backup add` before a
+  cross-device `mv`. A git-worktree blocker suggests `git worktree prune`.
 - `move` refuses a target inside the project or containing it
   (`E_INVALID_TARGET`) before any IO. For a directory target the fix hint
   points to `reroot`. Both verbs resolve the project root the way other

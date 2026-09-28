@@ -415,15 +415,43 @@ export function recordCandidateLocation(db: PathMapWriter, record: ProjectChecko
       .run();
     return true;
   }
+  // T12558: a `missing` location the project was explicitly moved AWAY from
+  // (reroot/move demoted it) stays `missing` while the project is live at
+  // another existing path on this device. A `git checkout -- .` at the old
+  // root restores the tracked id and makes every command an encounter here;
+  // flipping the row to `candidate` would disarm the store guard that refuses
+  // to create an empty store at a relocated root.
+  const keepMissing = existing.state === 'missing' && hasOtherLiveLocation(db, record, deviceId);
   db.update(projectLocations)
     .set({
       lastSeen: record.now,
-      ...(existing.state === 'live' ? {} : { state: 'candidate' as const }),
+      ...(existing.state === 'live' || keepMissing ? {} : { state: 'candidate' as const }),
       ...evidence,
     })
     .where(key)
     .run();
   return false;
+}
+
+/** Whether `record.projectId` has a `live` location on this device, other than this path, that still exists. */
+function hasOtherLiveLocation(
+  db: PathMapWriter,
+  record: ProjectCheckoutRecord,
+  deviceId: string,
+): boolean {
+  return db
+    .select({ path: projectLocations.path })
+    .from(projectLocations)
+    .where(
+      and(
+        eq(projectLocations.projectId, record.projectId),
+        eq(projectLocations.deviceId, deviceId),
+        eq(projectLocations.state, 'live'),
+        ne(projectLocations.path, record.projectPath),
+      ),
+    )
+    .all()
+    .some((location) => existsSync(location.path));
 }
 
 /**

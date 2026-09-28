@@ -159,6 +159,22 @@ function sameDevice(source: string, target: string): boolean {
   return statSync(source).dev === statSync(nearestExisting(target)).dev;
 }
 
+/**
+ * `E_CROSS_DEVICE`: a relocation only renames within one device. The fix says
+ * to quiesce the project first — a plain `mv` across devices is a copy, so a
+ * live writer during it tears the database exactly as the old copy did.
+ */
+function crossDeviceRefusal(source: string, target: string, command: string): EngineResult<never> {
+  return engineError(
+    'E_CROSS_DEVICE',
+    `"${target}" is on another device than "${source}"; cleo only relocates by rename within one device`,
+    {
+      exitCode: ExitCode.INVALID_INPUT,
+      fix: `First end every session (\`cleo session end\`), stop every process writing to the project, and run \`cleo backup add\`. Then: ${command}`,
+    },
+  );
+}
+
 /** Read `projectId` from project-info.json, or the failure to return. */
 async function readRelocatableIdentity(
   projectRoot: string,
@@ -219,6 +235,9 @@ function blockedError(
   const steps = [
     ...activeSessions.map((id) => `CLEO_SESSION_ID=${id} cleo session end`),
     ...(worktrees.length > 0 ? ['remove each worktree listed in details.worktrees'] : []),
+    ...(worktrees.some((w) => w.startsWith('git worktree '))
+      ? ['for a git worktree whose directory is already gone, run `git worktree prune`']
+      : []),
   ];
   return engineError(
     code,
@@ -529,13 +548,10 @@ export async function moveProject(
   const { projectId } = identity;
 
   const crossDevice = !sameDevice(projectRoot, newPath);
-  const crossDeviceError = engineError<never>(
-    'E_CROSS_DEVICE',
-    `"${newPath}" is on another device than "${projectRoot}"; cleo project move only renames within one device`,
-    {
-      exitCode: ExitCode.INVALID_INPUT,
-      fix: `mv "${projectRoot}" "${newPath}" && cd "${newPath}" && cleo nexus reconcile — the carried nonce proves the move and git stays intact`,
-    },
+  const crossDeviceError = crossDeviceRefusal(
+    projectRoot,
+    newPath,
+    `mv "${projectRoot}" "${newPath}" && cd "${newPath}" && cleo nexus reconcile — the carried nonce proves the move and git stays intact`,
   );
   const worktrees = await listBoundWorktrees(projectRoot, true);
 
@@ -626,6 +642,27 @@ async function interruptedRerootSource(
 }
 
 /**
+ * Keep `entry` out of commits in the repository at `root` by listing it in
+ * `.git/info/exclude` — local to this checkout, so nothing tracked changes. A
+ * committed tombstone would travel into every clone (T12558). Best effort:
+ * `root` may not be a repository, and the tombstone is validated anyway.
+ */
+async function excludeFromGit(root: string, entry: string): Promise<void> {
+  const info = join(root, '.git', 'info');
+  try {
+    if (!statSync(join(root, '.git')).isDirectory()) return;
+    await mkdir(info, { recursive: true });
+    const exclude = join(info, 'exclude');
+    const current = existsSync(exclude) ? await readFile(exclude, 'utf-8') : '';
+    if (current.split(/\r?\n/).includes(`/${entry}`)) return;
+    const sep = current.length === 0 || current.endsWith('\n') ? '' : '\n';
+    await writeFile(exclude, `${current}${sep}/${entry}\n`);
+  } catch {
+    // Not a repository, or unwritable: the tombstone is still validated on read.
+  }
+}
+
+/**
  * Finish a reroot from the child: identity, tombstone, rebind. Shared by the
  * normal path (after the rename) and a resume.
  */
@@ -645,12 +682,13 @@ async function completeReroot(
   if (idOutcome !== 'present' && idOutcome !== 'written') {
     throw new Error(`.cleo/project-id could not record ${projectId} (${idOutcome})`);
   }
-  const { writeProjectTombstone } = await import('./project-tombstone.js');
+  const { PROJECT_TOMBSTONE_FILE, writeProjectTombstone } = await import('./project-tombstone.js');
   const tombstone = writeProjectTombstone(oldRoot, {
     projectId,
     movedTo: childDir,
     at: new Date().toISOString(),
   });
+  await excludeFromGit(oldRoot, PROJECT_TOMBSTONE_FILE);
   const rebound = await rebindRegistry(projectId, childDir, oldRoot);
   if (!rebound.success) return rebound;
   return engineSuccess({ projectIdFile: idOutcome, tombstone, status: rebound.data });
@@ -834,6 +872,13 @@ export async function rerootProject(
   }
 
   const worktrees = await listBoundWorktrees(projectRoot, false);
+  // A child can be a mount point: then `.cleo/` cannot be renamed into it.
+  const crossDevice = !sameDevice(projectRoot, childDir);
+  const crossDeviceError = crossDeviceRefusal(
+    projectRoot,
+    childDir,
+    `mv "${join(projectRoot, '.cleo')}" "${join(childDir, '.cleo')}" && cd "${childDir}" && cleo project reroot .`,
+  );
   if (opts.dryRun) {
     return engineSuccess({
       dryRun: true,
@@ -856,11 +901,15 @@ export async function rerootProject(
         nonce: 'carried',
       },
       checkpoint: await checkpointLocation(projectId),
-      blockers: worktrees,
+      blockers: [
+        ...(crossDevice ? ['E_CROSS_DEVICE: the child is on another device'] : []),
+        ...worktrees,
+      ],
       deferredChecks: ['no active session (reads the project database)'],
     } satisfies ProjectRelocationPlan);
   }
 
+  if (crossDevice) return crossDeviceError;
   const sessions = await activeSessionIds(projectRoot);
   if (worktrees.length > 0 || sessions.length > 0) {
     return blockedError('E_REROOT_BLOCKED', worktrees, sessions);
@@ -874,6 +923,7 @@ export async function rerootProject(
   try {
     await renameEntries(projectRoot, childDir, entries);
   } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EXDEV') return crossDeviceError;
     return engineError(
       'E_MOVE_FAILED',
       `Failed to rename ${entries.join(', ')} into "${childDir}": ${(err as Error).message}`,

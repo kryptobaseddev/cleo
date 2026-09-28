@@ -114,6 +114,12 @@ export const initCommand = defineCommand({
       description: 'Overwrite existing files',
       default: false,
     },
+    here: {
+      type: 'boolean',
+      description:
+        'Initialize a NEW project in the current directory even when an ancestor is (or was) a CLEO project root — e.g. a sibling of a rerooted project (T12558)',
+      default: false,
+    },
     detect: {
       type: 'boolean',
       description: 'Auto-detect project configuration',
@@ -219,6 +225,9 @@ export const initCommand = defineCommand({
         forceRebind: !!args['force-rebind'],
       };
 
+      // T12558: `--here` pins the project root to cwd, so resolution never
+      // walks up to an ancestor project (or a reroot tombstone above it).
+      if (args.here) process.env['CLEO_ROOT'] = process.cwd();
       const result = await initProject(initOpts);
 
       // T11727 — first-run credential nudge. When the credential pool is empty
@@ -248,7 +257,14 @@ export const initCommand = defineCommand({
       );
     } catch (err) {
       if (err instanceof CleoError) {
-        cliError(`init failed: ${err.message}`, err.code, { name: 'E_INTERNAL' });
+        // T12558: keep the typed LAFS code, fix and details (E_PROJECT_MOVED
+        // carries `details.movedTo`), not a blanket E_INTERNAL.
+        cliError(`init failed: ${err.message}`, err.code, {
+          name: err.toLAFSError().code,
+          fix: err.fix,
+          alternatives: err.alternatives,
+          details: err.details,
+        });
         process.exit(err.code);
       }
       throw err;

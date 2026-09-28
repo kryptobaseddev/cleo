@@ -130,6 +130,9 @@ describe('move across devices (T12556)', () => {
     if (!result.success) {
       expect(result.error.code).toBe('E_CROSS_DEVICE');
       expect(result.error.fix).toContain(`mv "${root}"`);
+      // Quiesce first: a cross-device `mv` is a copy and tears a live WAL database.
+      expect(result.error.fix).toContain('cleo session end');
+      expect(result.error.fix).toContain('cleo backup add');
     }
     expect(existsSync(join(root, '.cleo', 'project-info.json'))).toBe(true);
     expect(await registryPath('exdev-T12556')).toBe(root);
@@ -157,6 +160,58 @@ describe('move across devices (T12556)', () => {
     const result = await moveProject(target, root);
     expect(!result.success && result.error.code).toBe('E_CROSS_DEVICE');
     expect(existsSync(target)).toBe(false);
+    expect(existsSync(join(root, '.cleo', 'project-info.json'))).toBe(true);
+  });
+});
+
+describe('reroot across devices (T12558)', () => {
+  it('the dry run reports a child on another device; the real run refuses as E_CROSS_DEVICE', async () => {
+    const root = await makeProject(join(testDir, 'mnt'), 'reroot-stdev-T12558');
+    const child = join(root, 'mounted');
+    mkdirSync(child);
+    vi.doMock('node:fs', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('node:fs')>();
+      const statSync = ((p: string, o?: object) => {
+        const st = actual.statSync(p, o as undefined);
+        return p === child ? Object.assign(Object.create(st), { dev: st.dev + 1 }) : st;
+      }) as typeof actual.statSync;
+      return { ...actual, statSync, default: { ...actual, statSync } };
+    });
+    const { rerootProject } = await import('../project-lifecycle.js');
+
+    const plan = await rerootProject(child, root, { dryRun: true });
+    expect(plan.success && plan.data.blockers.some((b) => b.startsWith('E_CROSS_DEVICE'))).toBe(
+      true,
+    );
+    const result = await rerootProject(child, root);
+    expect(!result.success && result.error.code).toBe('E_CROSS_DEVICE');
+    expect(existsSync(join(root, '.cleo', 'project-info.json'))).toBe(true);
+  });
+
+  it('EXDEV from the rename is E_CROSS_DEVICE, not a permissions error', async () => {
+    const root = await makeProject(join(testDir, 'xdev'), 'reroot-exdev-T12558');
+    const child = join(root, 'app');
+    mkdirSync(child);
+    vi.doMock('node:fs/promises', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('node:fs/promises')>();
+      return {
+        ...actual,
+        rename: async (from: string, to: string) => {
+          if (from === join(root, '.cleo')) {
+            throw Object.assign(new Error('EXDEV: cross-device link not permitted'), {
+              code: 'EXDEV',
+            });
+          }
+          return actual.rename(from, to);
+        },
+      };
+    });
+    const { rerootProject } = await import('../project-lifecycle.js');
+
+    const result = await rerootProject(child, root);
+
+    expect(!result.success && result.error.code).toBe('E_CROSS_DEVICE');
+    expect(!result.success && result.error.fix).not.toContain('permissions');
     expect(existsSync(join(root, '.cleo', 'project-info.json'))).toBe(true);
   });
 });
