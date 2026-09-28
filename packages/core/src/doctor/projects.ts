@@ -11,10 +11,12 @@
  * - {@link inspectProjectRegistry} is read-only and returns every non-`ok`
  *   row with its exact remedy.
  * - {@link applyProjectRegistryRepair} applies only the safe classes: a
- *   `moved` row is rebound to the one path that declares its id, and a
- *   `missing` row's location is recorded as `missing`. Nothing is deleted.
- *   The rows the changes touch are imaged before and after, and both images
- *   are written to `nexus_audit_log` in the same transaction as the changes.
+ *   `moved` row is rebound to the one path that declares its id, a
+ *   `missing` row's location is recorded as `missing`, and an alias row whose
+ *   truncated legacy key several projects claim is removed (T12589). No
+ *   registry row is deleted. The rows the changes touch are imaged before and
+ *   after, and both images are written to `nexus_audit_log` in the same
+ *   transaction as the changes.
  * - {@link rollbackProjectRegistryRepair} restores the before image, guarded
  *   on the current rows still matching the after image.
  *
@@ -36,6 +38,7 @@ import { readdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, join, parse, resolve, sep } from 'node:path';
 import type {
+  NexusRegistryAmbiguousAlias,
   NexusRegistryFinding,
   NexusRegistryFindingKind,
   NexusRegistryIntegrityReport,
@@ -44,12 +47,13 @@ import type {
   NexusRegistryRollbackResult,
   NexusRegistrySplitPeer,
 } from '@cleocode/contracts';
-import { readDeclaredProjectIdentity } from '@cleocode/paths';
+import { legacyAliasClaimants, readDeclaredProjectIdentity } from '@cleocode/paths';
 import { eq, inArray, or } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { runWithConcurrency } from '../lib/concurrency.js';
 import { readCheckoutNonce } from '../nexus/checkout-nonce.js';
 import { type CheckoutEvidence, collectCheckoutEvidence } from '../nexus/identity.js';
+import { registryAliasClaimants } from '../nexus/legacy-alias.js';
 import {
   confirmProjectLocation,
   currentDeviceId,
@@ -66,6 +70,7 @@ import { isEphemeralPath } from '../nexus/registry-hygiene.js';
 import { getCleoHome } from '../paths.js';
 import { isStrictlyInsideDir, readValidProjectTombstone } from '../project-tombstone.js';
 import type {
+  ProjectIdAliasRow,
   ProjectLocationRow,
   ProjectPathRow,
   ProjectRegistryRow,
@@ -158,17 +163,22 @@ interface Inspection {
   readonly planned: readonly PlannedFinding[];
 }
 
-/** Rows of the three registry tables a repair touches. */
+/**
+ * Rows of the registry tables a repair touches. `aliases` is present only
+ * when the repair's scope names alias keys (T12589); receipts written before
+ * that carry no alias image and are compared without one.
+ */
 interface RowImage {
   registry: ProjectRegistryRow[];
   locations: ProjectLocationRow[];
   paths: ProjectPathRow[];
+  aliases?: ProjectIdAliasRow[];
 }
 
 /** Details JSON stored with an applied repair. */
 interface StoredRepair {
   readonly receipt: NexusRegistryRepairReceipt;
-  readonly scope: { ids: string[]; paths: string[] };
+  readonly scope: { ids: string[]; paths: string[]; aliases?: string[] };
   readonly before: RowImage;
   readonly after: RowImage;
 }
@@ -771,6 +781,22 @@ async function inspect(opts: ProjectRegistryScanOptions): Promise<Inspection> {
     },
   );
 
+  // T12589: a truncated legacy key several projects claim names none of them.
+  const recorded = rows.map((row) => ({ projectId: row.projectId, path: row.projectPath }));
+  const ambiguousAliases: NexusRegistryAmbiguousAlias[] = aliases.flatMap((alias) => {
+    const claimants = legacyAliasClaimants(alias.legacyId, alias.canonicalId, recorded);
+    if (claimants.length < 2) return [];
+    return [
+      {
+        legacyId: alias.legacyId,
+        canonicalId: alias.canonicalId,
+        claimants,
+        message: `Alias ${alias.legacyId} is claimed by ${claimants.length} projects (${claimants.join(', ')}); it resolves to none of them.`,
+        remedy: `${DOCTOR_COMMAND} --apply`,
+      },
+    ];
+  });
+
   const counts = Object.fromEntries(FINDING_KINDS.map((kind) => [kind, 0])) as Record<
     NexusRegistryFindingKind,
     number
@@ -788,6 +814,7 @@ async function inspect(opts: ProjectRegistryScanOptions): Promise<Inspection> {
       },
       counts,
       findings: planned.filter((p) => p.finding.kind !== 'ok').map((p) => p.finding),
+      ambiguousAliases,
     },
     planned,
   };
@@ -847,6 +874,7 @@ function normalizeImage(image: RowImage): RowImage {
     registry: sort(image.registry),
     locations: sort(image.locations),
     paths: sort(image.paths),
+    ...(image.aliases ? { aliases: sort(image.aliases) } : {}),
   };
 }
 
@@ -859,8 +887,17 @@ function captureImage(
   schema: RegistrySchema,
   ids: readonly string[],
   paths: readonly string[],
+  aliasKeys?: readonly string[],
 ): RowImage {
-  const { projectRegistry, projectLocations, projectPaths } = schema;
+  const { projectRegistry, projectLocations, projectPaths, projectIdAliases } = schema;
+  const aliasRows: ProjectIdAliasRow[] = [];
+  for (const slice of chunks(aliasKeys ?? []))
+    for (const row of db
+      .select()
+      .from(projectIdAliases)
+      .where(inArray(projectIdAliases.legacyId, slice))
+      .all())
+      aliasRows.push({ ...row });
   const registry = new Map<string, ProjectRegistryRow>();
   const locations = new Map<string, ProjectLocationRow>();
   const pathRows = new Map<string, ProjectPathRow>();
@@ -905,6 +942,7 @@ function captureImage(
     registry: [...registry.values()],
     locations: [...locations.values()],
     paths: [...pathRows.values()],
+    ...(aliasKeys ? { aliases: aliasRows } : {}),
   });
 }
 
@@ -914,8 +952,11 @@ function deleteScope(
   schema: RegistrySchema,
   ids: readonly string[],
   paths: readonly string[],
+  aliasKeys: readonly string[] = [],
 ): void {
-  const { projectRegistry, projectLocations, projectPaths } = schema;
+  const { projectRegistry, projectLocations, projectPaths, projectIdAliases } = schema;
+  for (const slice of chunks(aliasKeys))
+    db.delete(projectIdAliases).where(inArray(projectIdAliases.legacyId, slice)).run();
   for (const idSlice of chunks(ids.length > 0 ? ids : [''])) {
     for (const pathSlice of chunks(paths.length > 0 ? paths : [''])) {
       db.delete(projectRegistry)
@@ -1016,11 +1057,13 @@ async function preProbe(
 
 /**
  * Inspect, then apply the safe repairs: rebind every `moved` row to the path
- * that declares its id, and record every `missing` row's location as
- * `missing`. One immediate transaction makes the changes and writes the
- * receipt (before and after images of every touched row) to
- * `nexus_audit_log`. No row is deleted, and nothing outside the registry is
- * written. A row that changed since inspection is skipped.
+ * that declares its id, record every `missing` row's location as
+ * `missing`, and remove every alias row whose key several projects claim
+ * (T12589). One immediate transaction makes the changes and writes the
+ * receipt (before and after images of every touched row, alias rows
+ * included) to `nexus_audit_log`. No registry row is deleted, and nothing
+ * outside the registry is written. A row that changed since inspection is
+ * skipped.
  *
  * @param opts - Same options as {@link inspectProjectRegistry}.
  * @returns The report, with `dryRun: false` and a receipt when anything applied.
@@ -1044,11 +1087,12 @@ export async function applyProjectRegistryRepair(
       (a, b) =>
         Number(targets.has(b.finding.projectPath)) - Number(targets.has(a.finding.projectPath)),
     );
-  if (work.length === 0) return { ...report, dryRun: false };
+  const aliasKeys = report.ambiguousAliases.map((a) => a.legacyId);
+  if (work.length === 0 && aliasKeys.length === 0) return { ...report, dryRun: false };
 
   const cleoHome = opts.cleoHome ?? getCleoHome();
   const schema = await openRegistry(cleoHome);
-  const { db, storePath, projectRegistry, nexusAuditLog } = schema;
+  const { db, storePath, projectRegistry, projectIdAliases, nexusAuditLog } = schema;
   const receiptId = randomUUID();
   const now = new Date().toISOString();
   const touchedIds = work.map((p) => p.finding.projectId);
@@ -1069,8 +1113,8 @@ export async function applyProjectRegistryRepair(
         .select({ id: projectRegistry.projectId })
         .from(projectRegistry)
         .all().length;
-      const scope = repairScope(tx, schema, touchedIds, touchedPaths);
-      const before = captureImage(tx, schema, scope.ids, scope.paths);
+      const scope = { ...repairScope(tx, schema, touchedIds, touchedPaths), aliases: aliasKeys };
+      const before = captureImage(tx, schema, scope.ids, scope.paths, scope.aliases);
       const actions: NexusRegistryRepairAction[] = [];
       for (const p of work) {
         const { projectId, projectPath } = p.finding;
@@ -1106,7 +1150,35 @@ export async function applyProjectRegistryRepair(
           });
         }
       }
-      const after = captureImage(tx, schema, scope.ids, scope.paths);
+      // T12589: remove each alias row whose key several projects still claim,
+      // re-checked inside the transaction (after any rebind above).
+      for (const ambiguous of report.ambiguousAliases) {
+        const row = tx
+          .select({ canonicalId: projectIdAliases.canonicalId })
+          .from(projectIdAliases)
+          .where(eq(projectIdAliases.legacyId, ambiguous.legacyId))
+          .get();
+        const still =
+          row?.canonicalId === ambiguous.canonicalId &&
+          registryAliasClaimants(tx, ambiguous.legacyId, row.canonicalId).length > 1;
+        if (still)
+          tx.delete(projectIdAliases)
+            .where(eq(projectIdAliases.legacyId, ambiguous.legacyId))
+            .run();
+        const owner = tx
+          .select({ projectPath: projectRegistry.projectPath })
+          .from(projectRegistry)
+          .where(eq(projectRegistry.projectId, ambiguous.canonicalId))
+          .get();
+        actions.push({
+          action: 'drop-ambiguous-alias',
+          projectId: ambiguous.canonicalId,
+          from: owner?.projectPath ?? '',
+          alias: ambiguous.legacyId,
+          outcome: still ? 'applied' : 'skipped',
+        });
+      }
+      const after = captureImage(tx, schema, scope.ids, scope.paths, scope.aliases);
       const result: NexusRegistryRepairReceipt = {
         receiptId,
         storePath,
@@ -1177,7 +1249,8 @@ export async function rollbackProjectRegistryRepair(
   opts: Pick<ProjectRegistryScanOptions, 'cleoHome'> = {},
 ): Promise<NexusRegistryRollbackResult> {
   const schema = await openRegistry(opts.cleoHome ?? getCleoHome());
-  const { db, projectRegistry, projectLocations, projectPaths, nexusAuditLog } = schema;
+  const { db, projectRegistry, projectLocations, projectPaths, projectIdAliases, nexusAuditLog } =
+    schema;
   const stored = readStoredRepair(db, schema, receiptId);
   if (!stored)
     throw new RegistryRepairError(
@@ -1201,21 +1274,29 @@ export async function rollbackProjectRegistryRepair(
           'E_ROLLBACK_CONFLICT',
           `Receipt ${receiptId} was already rolled back.`,
         );
-      const current = captureImage(tx, schema, stored.scope.ids, stored.scope.paths);
+      const current = captureImage(
+        tx,
+        schema,
+        stored.scope.ids,
+        stored.scope.paths,
+        stored.scope.aliases,
+      );
       if (JSON.stringify(current) !== JSON.stringify(normalizeImage(stored.after)))
         throw new RegistryRepairError(
           'E_ROLLBACK_CONFLICT',
           `Rows in the scope of receipt ${receiptId} changed after the repair; rolling back would overwrite that change. ` +
             `Inspect with \`${DOCTOR_COMMAND}\` and repair forward instead.`,
         );
-      deleteScope(tx, schema, stored.scope.ids, stored.scope.paths);
+      deleteScope(tx, schema, stored.scope.ids, stored.scope.paths, stored.scope.aliases);
       for (const row of stored.before.registry) tx.insert(projectRegistry).values(row).run();
       for (const row of stored.before.locations) tx.insert(projectLocations).values(row).run();
       for (const row of stored.before.paths) tx.insert(projectPaths).values(row).run();
+      for (const row of stored.before.aliases ?? []) tx.insert(projectIdAliases).values(row).run();
       const restored = {
         registry: stored.before.registry.length,
         locations: stored.before.locations.length,
         paths: stored.before.paths.length,
+        ...(stored.before.aliases ? { aliases: stored.before.aliases.length } : {}),
       };
       tx.insert(nexusAuditLog)
         .values({

@@ -90,7 +90,11 @@ export const doctorRegistryCommand = defineCommand({
       }
       const report = await inspectProjectRegistry(opts);
       cliOutput(report, { command: 'doctor', operation });
-      if (report.findings.some((f) => f.kind !== 'other-device') && (process.exitCode ?? 0) === 0)
+      if (
+        (report.findings.some((f) => f.kind !== 'other-device') ||
+          report.ambiguousAliases.length > 0) &&
+        (process.exitCode ?? 0) === 0
+      )
         process.exitCode = 1;
     } catch (error) {
       const code = error instanceof RegistryRepairError ? error.code : 'E_DOCTOR_PROJECTS_FAILED';

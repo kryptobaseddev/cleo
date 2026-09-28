@@ -1533,6 +1533,7 @@ export type {
   NexusRefreshBridgeResult,
   NexusRegisterParams,
   NexusRegisterResult,
+  NexusRegistryAmbiguousAlias,
   NexusRegistryClassification,
   NexusRegistryFinding,
   NexusRegistryFindingKind,

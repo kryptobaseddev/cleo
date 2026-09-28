@@ -378,7 +378,9 @@ describe('captured encounter registration ownership', () => {
           .where(eq(projectIdAliases.legacyId, legacyProjectId(projectA)))
           .get()?.canonicalId,
       ).toBe(idA);
-      expect(warning).toHaveBeenCalledWith(
+      // T12589: the shared key is ambiguous by construction, not a conflict;
+      // it resolves to neither project and is not reported on every command.
+      expect(warning).not.toHaveBeenCalledWith(
         expect.stringContaining('omitted colliding legacy alias'),
       );
     } finally {

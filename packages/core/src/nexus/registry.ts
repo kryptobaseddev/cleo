@@ -31,7 +31,7 @@ import {
 } from '@cleocode/contracts';
 import { pushWarning } from '@cleocode/lafs';
 import { readPortableProjectId } from '@cleocode/paths';
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
@@ -54,6 +54,7 @@ import { ensureCheckoutNonce } from './checkout-nonce.js';
 import { listNexusDevices } from './devices.js';
 import { generateProjectHash } from './hash.js';
 import { collectCheckoutEvidence, legacyProjectId, projectPathFingerprint } from './identity.js';
+import { registryAliasClaimants, resolveProjectAlias } from './legacy-alias.js';
 import {
   isSupersededRegistryPath,
   recordCandidateLocation,
@@ -416,6 +417,8 @@ async function recordProjectIdAliases(
   for (const legacyId of new Set(aliases)) {
     if (!legacyId) continue;
     try {
+      // T12589: never record a key another project also claims.
+      if (registryAliasClaimants(db, legacyId).some((id) => id !== projectId)) continue;
       await db
         .insert(projectIdAliases)
         .values({ legacyId, canonicalId: projectId, createdAt })
@@ -575,6 +578,15 @@ export async function nexusRegister(
             .from(projectIdAliases)
             .where(eq(projectIdAliases.legacyId, alias))
             .get();
+          // T12589: a legacy key shared by several projects names none of them;
+          // it is not recorded again and is not a conflict worth reporting.
+          if (
+            alias === legacyAlias &&
+            registryAliasClaimants(tx, alias, aliasOwner?.canonicalId).some(
+              (id) => id !== immutableId,
+            )
+          )
+            continue;
           const directOwner = tx
             .select()
             .from(projectRegistry)
@@ -698,10 +710,16 @@ export class NexusProjectAmbiguityError extends CleoError {
   readonly candidates: NexusProjectCandidate[];
 
   /**
-   * @param name - The ambiguous project name.
-   * @param rows - Every registry row with that name.
+   * @param name - The ambiguous project name, or alias key (T12589).
+   * @param rows - Every registry row that matches it.
+   * @param field - What `name` is: a project name, or an alias key that more
+   *   than one project claims.
    */
-  constructor(name: string, rows: ReadonlyArray<ProjectRegistryRow>) {
+  constructor(
+    name: string,
+    rows: ReadonlyArray<ProjectRegistryRow>,
+    field: 'name' | 'alias' = 'name',
+  ) {
     const candidates = rows.map((r) => ({
       projectId: r.projectId,
       name: r.name,
@@ -710,13 +728,13 @@ export class NexusProjectAmbiguityError extends CleoError {
     }));
     super(
       ExitCode.INVALID_INPUT,
-      `Project name '${name}' is ambiguous: ${candidates.length} projects match (${candidates
+      `${field === 'name' ? 'Project name' : 'Legacy project alias'} '${name}' is ambiguous: ${candidates.length} projects match (${candidates
         .map((c) => c.projectId)
         .join(', ')}). Use a project id.`,
       {
-        fix: 'Pass one of the candidate project ids instead of the name.',
+        fix: `Pass one of the candidate project ids instead of the ${field}.`,
         details: {
-          field: 'name',
+          field,
           expected: 'a unique project name, id or hash',
           actual: name,
           candidates,
@@ -774,17 +792,22 @@ export async function nexusGetProject(
         if (rows.length > 1) throw new NexusProjectAmbiguityError(nameOrHash, rows);
       }
       if (rows.length === 0) {
-        // Try alias resolution: legacyId → canonicalId lookup (T11025)
-        const aliasRows = await db
-          .select()
-          .from(projectIdAliases)
-          .where(eq(projectIdAliases.legacyId, nameOrHash))
-          .limit(1);
-        if (aliasRows.length > 0) {
+        // Try alias resolution: legacyId → canonicalId lookup (T11025). An
+        // alias several projects claim is refused, never rows[0] (T12589).
+        const alias = resolveProjectAlias(db, nameOrHash);
+        if (alias.status === 'ambiguous') {
+          const claimed = await db
+            .select()
+            .from(projectRegistry)
+            .where(inArray(projectRegistry.projectId, [...alias.claimants]))
+            .orderBy(desc(projectRegistry.lastSeen));
+          throw new NexusProjectAmbiguityError(nameOrHash, claimed, 'alias');
+        }
+        if (alias.status === 'resolved') {
           rows = await db
             .select()
             .from(projectRegistry)
-            .where(eq(projectRegistry.projectId, aliasRows[0].canonicalId));
+            .where(eq(projectRegistry.projectId, alias.canonicalId));
         }
       }
       return rows[0] ?? null;

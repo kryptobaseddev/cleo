@@ -435,6 +435,47 @@ export function legacyProjectId(repoPath: string): string {
   return Buffer.from(repoPath).toString('base64url').slice(0, 32);
 }
 
+/** A project and one path recorded for it, as read from the registry (T12589). */
+export interface RecordedProjectPath {
+  /** Immutable project id. */
+  readonly projectId: string;
+  /** A path recorded for the project (registry row or location). */
+  readonly path: string;
+}
+
+/**
+ * Every project that can claim an alias key (T12589): the alias row's owner
+ * plus each project with a recorded path whose {@link legacyProjectId} is the
+ * key.
+ *
+ * The legacy id encodes only the first 24 bytes of a path, so every project
+ * under a long shared prefix (`/Users/<name>/projects/…`) derives the SAME
+ * key. A key with more than one claimant is ambiguous: it names no project,
+ * and a resolver must refuse it rather than return whichever project happened
+ * to record it first. A non-legacy key (full-path fingerprint, UUID) is never
+ * derived from a path by this function, so only its owner claims it.
+ *
+ * @param alias - The alias key being resolved or recorded.
+ * @param owner - `canonical_id` of the alias row for `alias`, when one exists.
+ * @param paths - Every recorded project path to check.
+ * @returns Distinct claimant ids, sorted; ambiguous when longer than one.
+ * @example
+ * ```ts
+ * const claimants = legacyAliasClaimants(id, row?.canonicalId, registryPaths);
+ * if (claimants.length > 1) return null; // ambiguous — resolves to no project
+ * ```
+ */
+export function legacyAliasClaimants(
+  alias: string,
+  owner: string | null | undefined,
+  paths: Iterable<RecordedProjectPath>,
+): string[] {
+  const claimants = new Set<string>(owner ? [owner] : []);
+  for (const { projectId, path } of paths)
+    if (path && legacyProjectId(path) === alias) claimants.add(projectId);
+  return [...claimants].sort();
+}
+
 /**
  * Walk up from `cwd` (or `process.cwd()`) to the nearest directory whose
  * `.cleo/` DECLARES a project identity, and return that identity.
@@ -581,6 +622,16 @@ export function resolveCanonicalCleoDir(projectId: string): string | null {
         typeof aliasRow.canonical_id === 'string' &&
         aliasRow.canonical_id.length > 0
       ) {
+        // T12589: a truncated legacy key shared by several projects names none.
+        const recorded: RecordedProjectPath[] = db
+          .prepare('SELECT project_id, project_path FROM nexus_project_registry')
+          .all()
+          .map((row) => ({
+            projectId: String(row['project_id']),
+            path: String(row['project_path']),
+          }));
+        if (legacyAliasClaimants(projectId, aliasRow.canonical_id, recorded).length > 1)
+          return null;
         // Resolved a legacy alias — look up the canonical ID.
         const canonicalRow = directStmt.get(aliasRow.canonical_id) as
           | { project_path: string }
