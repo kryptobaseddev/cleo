@@ -1363,9 +1363,12 @@ export interface NexusProjectsCleanParams {
   vacuum?: boolean;
 }
 
-/** One checkout of a project recorded in the device-local path map (T12354). */
+/** Lifecycle state of one project location in `nexus_project_locations` (T12469). */
+export type NexusProjectLocationState = 'live' | 'missing' | 'superseded';
+
+/** One recorded location (checkout) of a project on a device (T12354 · T12469). */
 export interface NexusProjectCheckout {
-  /** Absolute checkout root on this device. */
+  /** Absolute checkout root on the device named by `deviceId`. */
   projectPath: string;
   /** Path fingerprint of the checkout. */
   projectHash: string;
@@ -1373,8 +1376,12 @@ export interface NexusProjectCheckout {
   firstSeen: string;
   /** ISO 8601 timestamp the checkout was last encountered. */
   lastSeen: string;
-  /** Whether the checkout directory exists now. */
+  /** Whether the checkout directory exists now (always `false` for another device). */
   exists: boolean;
+  /** Stable id of the device the checkout is on (T12469). */
+  deviceId: string;
+  /** Location state: `live`, `missing` (directory gone) or `superseded` (T12469). */
+  state: NexusProjectLocationState;
 }
 
 /** Why a registry row matched `nexus.projects.clean` criteria (T12324). */

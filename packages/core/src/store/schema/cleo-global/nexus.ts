@@ -68,7 +68,7 @@
  */
 
 import { sql } from 'drizzle-orm';
-import { index, integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, primaryKey, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import { makeSchemaMetaTable } from '../schema-utils.js';
 
 // ---------------------------------------------------------------------------
@@ -116,10 +116,17 @@ export const nexusProjectRegistry = sqliteTable(
   {
     /** Canonical 12-hex-char project identifier (T9149 W5). Primary key. */
     projectId: text('project_id').primaryKey(),
-    /** Stable project hash (unique). */
-    projectHash: text('project_hash').notNull().unique(),
-    /** Absolute filesystem path that owns this project_id (unique). */
-    projectPath: text('project_path').notNull().unique(),
+    /**
+     * Path fingerprint of the most recently encountered checkout. NOT unique:
+     * the registry is keyed by `project_id` alone (ADR-094 · T12469).
+     */
+    projectHash: text('project_hash').notNull(),
+    /**
+     * Most recently encountered checkout root. NOT unique: a path names a
+     * location, never an identity. Every checkout on every device lives in
+     * `nexus_project_locations` (ADR-094 · T12469).
+     */
+    projectPath: text('project_path').notNull(),
     /** Human-readable project name. */
     name: text('name').notNull(),
     /** ISO-8601 UTC registration instant (canonical TEXT, §4). */
@@ -138,9 +145,13 @@ export const nexusProjectRegistry = sqliteTable(
     taskCount: integer('task_count').notNull().default(0),
     /** JSON array of project labels (serialized TEXT per JSON-Column Audit). */
     labelsJson: text('labels_json').notNull().default('[]'),
-    /** Absolute path to the project's project-scope `cleo.db` brain partition. */
+    /**
+     * Legacy mirror of the project store path. Written for older binaries that
+     * share this global store; never read — the path is derived from
+     * `project_path` at runtime (T12469).
+     */
     brainDbPath: text('brain_db_path'),
-    /** Absolute path to the project's project-scope `cleo.db` tasks partition. */
+    /** Legacy mirror of the project store path; never read (see `brainDbPath`, T12469). */
     tasksDbPath: text('tasks_db_path'),
     /** ISO-8601 UTC last successful code-intelligence index run; NULL until indexed. */
     lastIndexed: text('last_indexed'),
@@ -149,6 +160,7 @@ export const nexusProjectRegistry = sqliteTable(
   },
   (table) => [
     index('idx_nexus_project_registry_hash').on(table.projectHash),
+    index('idx_nexus_project_registry_path').on(table.projectPath),
     index('idx_nexus_project_registry_health').on(table.healthStatus),
     index('idx_nexus_project_registry_name').on(table.name),
     index('idx_nexus_project_registry_last_indexed').on(table.lastIndexed),
@@ -179,6 +191,9 @@ export const nexusProjectIdAliases = sqliteTable(
  * seen on this device, keyed by path (T12354). The registry row holds one path
  * per `project_id`; this table lets two checkouts of one project coexist.
  *
+ * @deprecated Superseded by {@link nexusProjectLocations} (T12469). Kept so
+ *   older binaries that share this global store keep working; current code
+ *   neither reads nor writes it.
  * @task T12354
  */
 export const nexusProjectPaths = sqliteTable(
@@ -196,6 +211,40 @@ export const nexusProjectPaths = sqliteTable(
     lastSeen: text('last_seen').notNull().default(sql`(datetime('now'))`),
   },
   (table) => [index('idx_nexus_project_paths_project_id').on(table.projectId)],
+);
+
+/** Lifecycle states of one project location (T12469). */
+export const PROJECT_LOCATION_STATES = ['live', 'missing', 'superseded'] as const;
+
+/**
+ * `nexus_project_locations` — every place a project has been seen, on every
+ * device (ADR-094 · T12469). One row per `(project_id, device_id, path)`; rows
+ * are never deleted when a directory vanishes — they move to `missing`, and a
+ * path now claimed by another project moves to `superseded`, so location
+ * history survives for consumers such as legacy credential derivation.
+ *
+ * @task T12469
+ */
+export const nexusProjectLocations = sqliteTable(
+  'nexus_project_locations',
+  {
+    /** Immutable project id (soft FK → nexus_project_registry). */
+    projectId: text('project_id').notNull(),
+    /** Stable device id (`<cleoHome>/device-id`) of the device the path is on. */
+    deviceId: text('device_id').notNull(),
+    /** Absolute checkout root on that device. */
+    path: text('path').notNull(),
+    /** ISO-8601 UTC first-recorded instant (canonical TEXT, §4). */
+    firstSeen: text('first_seen').notNull().default(sql`(datetime('now'))`),
+    /** ISO-8601 UTC last-encountered instant (canonical TEXT, §4). */
+    lastSeen: text('last_seen').notNull().default(sql`(datetime('now'))`),
+    /** `live` · `missing` (directory gone) · `superseded` (path now holds another project). */
+    state: text('state', { enum: PROJECT_LOCATION_STATES }).notNull().default('live'),
+  },
+  (table) => [
+    primaryKey({ columns: [table.projectId, table.deviceId, table.path] }),
+    index('idx_nexus_project_locations_device_path').on(table.deviceId, table.path),
+  ],
 );
 
 // ---------------------------------------------------------------------------
@@ -368,6 +417,10 @@ export type NewNexusProjectIdAliasRow = typeof nexusProjectIdAliases.$inferInser
 export type NexusProjectPathRow = typeof nexusProjectPaths.$inferSelect;
 /** Row type for `nexus_project_paths` INSERT (T12354). */
 export type NewNexusProjectPathRow = typeof nexusProjectPaths.$inferInsert;
+/** Row type for `nexus_project_locations` SELECT (T12469). */
+export type NexusProjectLocationRow = typeof nexusProjectLocations.$inferSelect;
+/** Row type for `nexus_project_locations` INSERT (T12469). */
+export type NewNexusProjectLocationRow = typeof nexusProjectLocations.$inferInsert;
 /** Row type for `nexus_audit_log` SELECT (target shape). */
 export type NexusAuditLogRow = typeof nexusAuditLog.$inferSelect;
 /** Row type for `nexus_audit_log` INSERT (target shape). */
