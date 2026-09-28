@@ -15,7 +15,7 @@
  */
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { adrRelations, adrTaskLinks, architectureDecisions } from '../store/tasks-schema.js';
 import { parseAdrFile } from './parse.js';
 
@@ -91,7 +91,7 @@ export async function linkPipelineAdr(
   const now = new Date().toISOString();
 
   for (const filePath of matchingFiles) {
-    const filename = filePath.split('/').pop()!;
+    const filename = basename(filePath);
     try {
       const record = parseAdrFile(filePath, projectRoot);
       const fm = record.frontmatter;

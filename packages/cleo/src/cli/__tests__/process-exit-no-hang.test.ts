@@ -99,6 +99,8 @@ function runCli(args: readonly string[], projectRoot: string, dataHome: string):
     CLEO_ROOT: projectRoot,
     CLEO_DIR: join(projectRoot, '.cleo'),
     XDG_DATA_HOME: dataHome,
+    // getCleoHome() ignores XDG_DATA_HOME off Linux; pin it too (T12602).
+    CLEO_HOME: join(dataHome, 'cleo'),
     CLEO_OUTPUT_FORMAT: 'json',
   };
   const result = spawnSync('node', [CLI_DIST, ...args], {
@@ -310,6 +312,7 @@ describe('T12024 — mutation exit with hung dialectic backend (fake Ollama)', (
       CLEO_ROOT: _projectRoot,
       CLEO_DIR: join(_projectRoot, '.cleo'),
       XDG_DATA_HOME: _dataHome,
+      CLEO_HOME: join(_dataHome, 'cleo'),
       CLEO_OUTPUT_FORMAT: 'json',
     };
     const result = spawnSync('node', [CLI_DIST, ...args], {

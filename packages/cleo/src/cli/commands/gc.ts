@@ -21,12 +21,12 @@
  * @epic T726
  */
 
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pruneOrphanTempDirs, pruneOrphanWorktrees } from '@cleocode/core/gc/cleanup.js';
 import { runGC } from '@cleocode/core/gc/runner.js';
 import { readGCState } from '@cleocode/core/gc/state.js';
-import { resolveLegacyCleoDir } from '@cleocode/paths';
+import { getCleoWorktreesRoot, resolveLegacyCleoDir } from '@cleocode/paths';
 import { formatBytes } from '@cleocode/utils';
 import { defineCommand, showUsage } from 'citty';
 import { cliError, cliOutput } from '../renderers/index.js';
@@ -166,9 +166,7 @@ const worktreesCommand = defineCommand({
     },
   },
   async run({ args }) {
-    const xdgData = process.env['XDG_DATA_HOME'] ?? join(homedir(), '.local', 'share');
-    const worktreesRoot =
-      (args['worktrees-root'] as string | undefined) ?? join(xdgData, 'cleo', 'worktrees');
+    const worktreesRoot = (args['worktrees-root'] as string | undefined) ?? getCleoWorktreesRoot();
     const projectHash = args['project-hash'] as string | undefined;
     const dryRun = args['dry-run'];
 

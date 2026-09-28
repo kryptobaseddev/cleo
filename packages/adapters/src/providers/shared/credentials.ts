@@ -8,7 +8,7 @@
  *
  * ## Resolution tiers (first non-empty match wins)
  * 1. `ANTHROPIC_API_KEY` environment variable
- * 2. `~/.local/share/cleo/anthropic-key` (XDG-aware legacy flat-key file)
+ * 2. `<getCleoHome()>/anthropic-key` (legacy flat-key file)
  * 3. `~/.claude/.credentials.json` OAuth bearer token
  *
  * Call-sites use the same `resolveCredentials('anthropic').apiKey` pattern
@@ -24,6 +24,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { parseClaudeCodeCredentials } from '@cleocode/contracts';
+import { getCleoHome } from '@cleocode/paths';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -53,7 +54,7 @@ export interface ResolvedCredential {
  *
  * Resolution order (first non-empty match wins):
  * 1. `ANTHROPIC_API_KEY` environment variable
- * 2. `~/.local/share/cleo/anthropic-key` (XDG-aware stored key)
+ * 2. `<getCleoHome()>/anthropic-key` (stored key)
  * 3. `~/.claude/.credentials.json` Claude Code OAuth token
  *
  * Never throws — all filesystem errors are caught and treated as "not found".
@@ -74,10 +75,10 @@ export function resolveCredentials(_provider: 'anthropic'): ResolvedCredential {
   const envKey = process.env['ANTHROPIC_API_KEY'];
   if (envKey?.trim()) return { apiKey: envKey.trim() };
 
-  // Tier 2 — XDG-aware legacy flat-key file (~/.local/share/cleo/anthropic-key)
+  // Tier 2 — legacy flat-key file (<getCleoHome()>/anthropic-key), the same
+  // file core's storeAnthropicApiKey() writes.
   try {
-    const xdg = process.env['XDG_DATA_HOME'] ?? join(homedir(), '.local', 'share');
-    const keyFile = join(xdg, 'cleo', 'anthropic-key');
+    const keyFile = join(getCleoHome(), 'anthropic-key');
     if (existsSync(keyFile)) {
       const stored = readFileSync(keyFile, 'utf-8').trim();
       if (stored) return { apiKey: stored };

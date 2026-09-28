@@ -32,8 +32,8 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { getCleoHome } from '@cleocode/paths';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -99,15 +99,15 @@ export type ModelContextIndex = Record<string, number>;
  * Resolve the directory where catalog snapshots are stored.
  *
  * Respects `CLEO_DATA_DIR` env override (same convention used by the
- * credentials layer), then falls back to
- * `$XDG_DATA_HOME/cleo` → `~/.local/share/cleo`.
+ * credentials layer), then falls back to `<getCleoHome()>/llm-catalog` —
+ * `~/Library/Application Support/cleo` on macOS, `%LOCALAPPDATA%\cleo\Data`
+ * on Windows, `$XDG_DATA_HOME/cleo` on Linux.
  */
 export function getCatalogDir(): string {
   if (process.env['CLEO_DATA_DIR']) {
     return join(process.env['CLEO_DATA_DIR'], 'llm-catalog');
   }
-  const xdg = process.env['XDG_DATA_HOME'] ?? join(homedir(), '.local', 'share');
-  return join(xdg, 'cleo', 'llm-catalog');
+  return join(getCleoHome(), 'llm-catalog');
 }
 
 /**

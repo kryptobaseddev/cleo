@@ -9,6 +9,7 @@
  * @epic T4545
  */
 
+import { basename } from 'node:path';
 import { getLogPath } from '../paths.js';
 import { appendJsonl, readJson } from './json.js';
 
@@ -76,7 +77,7 @@ export async function extractPackageMeta(sourceFilePath: string): Promise<Import
   const meta = (data as Record<string, Record<string, unknown>> | null)?._meta;
 
   return {
-    sourceFile: sourceFilePath.split('/').pop() ?? sourceFilePath,
+    sourceFile: basename(sourceFilePath),
     sourceProject: (meta?.source as Record<string, string>)?.project ?? 'unknown',
     exportedAt: (meta?.exportedAt as string) ?? 'unknown',
     packageChecksum: (meta?.checksum as string) ?? 'unknown',
@@ -127,7 +128,7 @@ export async function logImportStart(
     meta = await extractPackageMeta(sourceFilePath);
   } catch {
     meta = {
-      sourceFile: sourceFilePath.split('/').pop() ?? sourceFilePath,
+      sourceFile: basename(sourceFilePath),
       sourceProject: 'unknown',
       exportedAt: 'unknown',
       packageChecksum: 'unknown',
@@ -165,7 +166,7 @@ export async function logImportSuccess(
     meta = await extractPackageMeta(sourceFilePath);
   } catch {
     meta = {
-      sourceFile: sourceFilePath.split('/').pop() ?? sourceFilePath,
+      sourceFile: basename(sourceFilePath),
       sourceProject: 'unknown',
       exportedAt: 'unknown',
       packageChecksum: 'unknown',
@@ -209,7 +210,7 @@ export async function logImportError(
     'error_occurred',
     null,
     {
-      sourceFile: sourceFilePath.split('/').pop() ?? sourceFilePath,
+      sourceFile: basename(sourceFilePath),
       stage,
       error: {
         message: errorMessage,
