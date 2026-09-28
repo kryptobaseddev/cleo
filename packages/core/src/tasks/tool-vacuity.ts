@@ -10,8 +10,8 @@
  *
  * Two provable cases are detected, both for TypeScript's `tsc`:
  *
- *   1. STATIC — a `tsc` invocation without `-b`/`--build` whose target config
- *      is references-only. TypeScript compiles no files for such a config
+ *   1. STATIC — a command whose `tsc` steps include NO `-b`/`--build` step
+ *      and at least one of which targets a references-only config. TypeScript compiles no files for such a config
  *      outside build mode; that is its documented semantics, not a guess.
  *      Checked before the tool runs (and before any cache lookup), so a stale
  *      cached pass for the vacuous command can never be served.
@@ -289,8 +289,10 @@ export function detectStaticVacuity(
 ): string | null {
   const invocations = findTscInvocations([command.cmd, ...command.args], executionRoot, true, 0);
   if (!invocations) return null;
+  // One build-mode step checks the referenced projects, so the command as a
+  // whole is not provably vacuous even if another step is (fail open).
+  if (invocations.some((inv) => isBuildMode(inv.args))) return null;
   for (const inv of invocations) {
-    if (isBuildMode(inv.args)) continue;
     const configPath = tscConfigPath(inv.args, executionRoot);
     if (configPath && existsSync(configPath) && isReferencesOnlyTsconfig(configPath)) {
       return (

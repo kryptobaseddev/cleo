@@ -16,12 +16,13 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { validateAtom } from '../evidence.js';
+import { captureDirtyFingerprint } from '../tool-cache.js';
 import { resolveToolCommand } from '../tool-resolver.js';
 
 const TYPESCRIPT_DIR = dirname(createRequire(import.meta.url).resolve('typescript/package.json'));
@@ -121,8 +122,79 @@ describe('references-only root tsconfig (the measured defect)', () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.command.source).toBe('language-default');
-    expect(r.command.args.slice(0, 2)).toEqual(['tsc', '-b']);
+    // Emitting build mode: `-b --noEmit` breaks composite chains (TS6310).
+    expect(r.command.args).toEqual(['tsc', '-b']);
   });
+});
+
+/**
+ * A composite CHAIN: b references a, the root references both. This is the
+ * shape `tsc -b --noEmit` rejects with TS6310 on correct code.
+ */
+function chainedMonorepo(bSource: string): void {
+  write('.cleo/project-context.json', { primaryType: 'node' });
+  write('package.json', { name: 'fixture', private: true });
+  write('tsconfig.json', {
+    files: [],
+    references: [{ path: './packages/a' }, { path: './packages/b' }],
+  });
+  write('packages/a/tsconfig.json', {
+    compilerOptions: {
+      composite: true,
+      strict: true,
+      module: 'nodenext',
+      rootDir: 'src',
+      outDir: 'dist',
+    },
+    include: ['src'],
+  });
+  write('packages/a/src/index.ts', 'export const one: number = 1;\n');
+  write('packages/b/tsconfig.json', {
+    compilerOptions: {
+      composite: true,
+      strict: true,
+      module: 'nodenext',
+      rootDir: 'src',
+      outDir: 'dist',
+    },
+    include: ['src'],
+    references: [{ path: '../a' }],
+  });
+  write('packages/b/src/index.ts', bSource);
+  linkTypescript();
+}
+
+describe('chained composite projects', () => {
+  it('correct code PASSES (no TS6310 from a no-emit build)', async () => {
+    chainedMonorepo(
+      'import { one } from "../../a/dist/index.js";\nexport const two: number = one + 1;\n',
+    );
+    initRepo();
+
+    const r = await validateAtom({ kind: 'tool', tool: 'typecheck' }, root);
+    expect(r).toMatchObject({ ok: true });
+  }, 60_000);
+
+  it('a type error in the dependent project still FAILS', async () => {
+    chainedMonorepo(
+      'import { one } from "../../a/dist/index.js";\nexport const two: string = one;\n',
+    );
+    initRepo();
+
+    const r = await validateAtom({ kind: 'tool', tool: 'typecheck' }, root);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.codeName).toBe('E_EVIDENCE_TOOL_FAILED');
+  }, 60_000);
+
+  it('untracked build output does not move the dirty-tree fingerprint', async () => {
+    chainedMonorepo('export const two: number = 2;\n');
+    initRepo();
+    const before = await captureDirtyFingerprint(root);
+
+    await validateAtom({ kind: 'tool', tool: 'typecheck' }, root);
+
+    expect(await captureDirtyFingerprint(root)).toBe(before);
+  }, 60_000);
 });
 
 describe('package.json scripts are preferred over language defaults', () => {
@@ -151,6 +223,43 @@ describe('package.json scripts are preferred over language defaults', () => {
     const r = resolveToolCommand('lint', root);
     expect(r.ok).toBe(true);
     if (r.ok) expect([r.command.cmd, ...r.command.args]).toEqual(['yarn', 'run', 'lint']);
+  });
+
+  it('reads scripts from the execution root, not the store root', () => {
+    write('.cleo/project-context.json', { primaryType: 'node' });
+    write('package.json', { name: 'store' });
+    const tree = mkdtempSync(join(tmpdir(), 'tool-vacuity-tree-'));
+    try {
+      writeFileSync(
+        join(tree, 'package.json'),
+        JSON.stringify({ name: 'tree', scripts: { build: 'make' } }),
+      );
+      const r = resolveToolCommand('build', root, { executionRoot: tree });
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.command.source).toBe('package-script');
+    } finally {
+      rmSync(tree, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to npm when the declared package manager is not installed', () => {
+    write('.cleo/project-context.json', { primaryType: 'node' });
+    write('package.json', {
+      name: 'fixture',
+      packageManager: 'pnpm@10.30.0',
+      scripts: { test: 'vitest run' },
+    });
+    const bin = join(root, 'fake-bin');
+    mkdirSync(bin);
+    vi.stubEnv('PATH', bin);
+
+    const missing = resolveToolCommand('test', root);
+    expect(missing.ok && missing.command.cmd).toBe('npm');
+
+    writeFileSync(join(bin, 'pnpm'), '#!/bin/sh\n');
+    chmodSync(join(bin, 'pnpm'), 0o755);
+    const present = resolveToolCommand('test', root);
+    expect(present.ok && present.command.cmd).toBe('pnpm');
   });
 
   it('an explicit project-context command still wins over the script', () => {
@@ -192,6 +301,18 @@ describe('vacuity guard (E_EVIDENCE_TOOL_VACUOUS)', () => {
     const r = await validateAtom({ kind: 'tool', tool: 'typecheck' }, root);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.codeName).toBe('E_EVIDENCE_TOOL_VACUOUS');
+  }, 60_000);
+
+  it('does NOT fire when the script also has a build-mode tsc step', async () => {
+    chainedMonorepo('export const two: number = 2;\n');
+    write('package.json', {
+      name: 'fixture',
+      scripts: { typecheck: 'tsc --noEmit -p tsconfig.json && tsc -b' },
+    });
+    initRepo();
+
+    const r = await validateAtom({ kind: 'tool', tool: 'typecheck' }, root);
+    expect(r).toMatchObject({ ok: true });
   }, 60_000);
 
   it('fires via the --listFilesOnly probe when the config is not statically provable', async () => {

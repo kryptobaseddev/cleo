@@ -363,7 +363,7 @@ All overrides append a line to `.cleo/audit/force-bypass.jsonl`. Use sparingly.
 
 ### Tool resolution + result cache (ADR-061)
 
-`tool:<name>` resolves through `.cleo/project-context.json`, then the project's `package.json` script of that name (`<pm> run <name>`), then `primaryType` fallbacks. Cache `.cleo/cache/evidence/<key>.json`: `(canonical, cmd, args, HEAD, dirty-tree fingerprint)`. Parallel verifies coalesce; cross-worktree semaphores: `~/.local/share/cleo/locks/tool-<canonical>/`, limit `CLEO_TOOL_CONCURRENCY_<TOOL>=<n>`. Deadlines: **1800000 ms (30 min) for `test` and `build`**, otherwise 300000 ms (5 min). Positive-integer override: `CLEO_TOOL_TIMEOUT_<TOOL>=<ms>`; invalid values explicitly fail with the tool default. Timeouts cache nothing; increase the deadline before an unchanged retry (gh#1221).
+`tool:<name>` resolves through `.cleo/project-context.json`, then the project's `package.json` script of that name (`<pm> run <name>`), then `primaryType` fallbacks (references-only tsconfig → `tsc -b`, which emits). A script that writes files (an auto-fixing `lint`) edits the checkout and later fails `E_EVIDENCE_STALE`; keep verification scripts read-only. Cache `.cleo/cache/evidence/<key>.json`: `(canonical, cmd, args, HEAD, dirty-tree fingerprint)`. Parallel verifies coalesce; cross-worktree semaphores: `~/.local/share/cleo/locks/tool-<canonical>/`, limit `CLEO_TOOL_CONCURRENCY_<TOOL>=<n>`. Deadlines: **1800000 ms (30 min) for `test` and `build`**, otherwise 300000 ms (5 min). Positive-integer override: `CLEO_TOOL_TIMEOUT_<TOOL>=<ms>`; invalid values explicitly fail with the tool default. Timeouts cache nothing; increase the deadline before an unchanged retry (gh#1221).
 
 ### `pr:<number>` retroactive atom (T9764)
 

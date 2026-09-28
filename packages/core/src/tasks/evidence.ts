@@ -1724,7 +1724,9 @@ async function validateTestRun(path: string, roots: EvidenceRoots): Promise<Atom
 
 async function validateTool(tool: string, roots: EvidenceRoots): Promise<AtomValidation> {
   const { storeRoot: projectRoot, executionRoot } = roots;
-  const resolution = resolveToolCommand(tool, projectRoot);
+  // T12633: project-context lives in the store; package.json scripts and
+  // tsconfig describe the code under test, so they are read where it runs.
+  const resolution = resolveToolCommand(tool, projectRoot, { executionRoot });
 
   // T12083: the project has no such toolchain. This is a fact about the
   // project, not a failure of the work — a plain JavaScript project cannot

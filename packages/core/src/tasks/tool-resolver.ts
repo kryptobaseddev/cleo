@@ -27,7 +27,7 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 
 import { loadProjectContext } from '../agents/variable-substitution.js';
 import type { ProjectType } from '../store/project-detect.js';
@@ -439,14 +439,33 @@ function detectPackageManager(
   declared: string | undefined,
   primaryType: ProjectType,
 ): PackageManager {
-  const name = declared?.split('@')[0];
-  if (name === 'pnpm' || name === 'yarn' || name === 'bun' || name === 'npm') return name;
-  const has = (f: string): boolean => existsSync(join(projectRoot, f));
-  if (has('pnpm-lock.yaml')) return 'pnpm';
-  if (has('yarn.lock')) return 'yarn';
-  if (has('bun.lock') || has('bun.lockb')) return 'bun';
-  if (has('package-lock.json')) return 'npm';
-  return primaryType === 'bun' ? 'bun' : 'npm';
+  const detected = ((): PackageManager => {
+    const name = declared?.split('@')[0];
+    if (name === 'pnpm' || name === 'yarn' || name === 'bun' || name === 'npm') return name;
+    const has = (f: string): boolean => existsSync(join(projectRoot, f));
+    if (has('pnpm-lock.yaml')) return 'pnpm';
+    if (has('yarn.lock')) return 'yarn';
+    if (has('bun.lock') || has('bun.lockb')) return 'bun';
+    if (has('package-lock.json')) return 'npm';
+    return primaryType === 'bun' ? 'bun' : 'npm';
+  })();
+  // A declared manager that is not installed would fail with ENOENT and read
+  // as a missing tool. `npm run` executes the same script, hooks included.
+  return detected === 'npm' || isOnPath(detected) ? detected : 'npm';
+}
+
+/**
+ * Is `bin` an executable on `PATH`? A plain directory scan — no subprocess.
+ *
+ * @internal
+ */
+function isOnPath(bin: string): boolean {
+  const exts = process.platform === 'win32' ? ['.cmd', '.exe', ''] : [''];
+  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+    if (!dir) continue;
+    if (exts.some((ext) => existsSync(join(dir, `${bin}${ext}`)))) return true;
+  }
+  return false;
 }
 
 /**
@@ -483,36 +502,25 @@ function resolvePackageScript(
 }
 
 /**
- * Minimum TypeScript version that accepts `--noEmit` in build mode. Earlier
- * versions reject it with TS5094 (measured against 5.4, 5.5 and 5.6).
- */
-const TSC_BUILD_NOEMIT_MIN: readonly [number, number] = [5, 6];
-
-/**
  * Adapt the node `typecheck` default to the project's tsconfig (T12633).
  *
  * A references-only root config (`"files": []` plus `references`) selects no
  * files outside build mode, so `tsc --noEmit` there is a no-op that exits 0.
- * Build mode checks every referenced project: `tsc -b --noEmit` where the
- * installed TypeScript accepts it, otherwise `tsc -b`.
+ * Build mode checks every referenced project.
+ *
+ * Plain `tsc -b`, which EMITS, and never `tsc -b --noEmit`: with a chain of
+ * composite projects (b references a) the latter fails TS6310 "Referenced
+ * project may not disable emit" on correct code (reproduced on TypeScript
+ * 5.9.3 and 6.0.2) — a red that no source change can clear. The emitted
+ * `dist/` and `.tsbuildinfo` files do not move the evidence cache key unless
+ * they are tracked: the dirty-tree fingerprint is `git diff HEAD`, which
+ * ignores untracked files.
  *
  * @internal
  */
-function adaptTypecheckDefault(def: CommandShape, projectRoot: string): CommandShape {
-  if (!isReferencesOnlyTsconfig(join(projectRoot, 'tsconfig.json'))) return def;
-  let noEmitOk = false;
-  try {
-    const { version } = JSON.parse(
-      readFileSync(join(projectRoot, 'node_modules', 'typescript', 'package.json'), 'utf-8'),
-    ) as { version?: string };
-    const [major = 0, minor = 0] = (version ?? '').split('.').map((n) => Number.parseInt(n, 10));
-    noEmitOk =
-      major > TSC_BUILD_NOEMIT_MIN[0] ||
-      (major === TSC_BUILD_NOEMIT_MIN[0] && minor >= TSC_BUILD_NOEMIT_MIN[1]);
-  } catch {
-    // Unknown version — plain `-b` is accepted by every TypeScript with build mode.
-  }
-  return { cmd: def.cmd, args: noEmitOk ? ['tsc', '-b', '--noEmit'] : ['tsc', '-b'] };
+function adaptTypecheckDefault(def: CommandShape, tsconfigRoot: string): CommandShape {
+  if (!isReferencesOnlyTsconfig(join(tsconfigRoot, 'tsconfig.json'))) return def;
+  return { cmd: def.cmd, args: ['tsc', '-b'] };
 }
 
 interface ResolveOptions {
@@ -521,6 +529,15 @@ interface ResolveOptions {
    * `project-context.json` is present.
    */
   primaryTypeOverride?: ProjectType;
+  /**
+   * The tree the resolved command will RUN in, when it differs from the
+   * store root that holds `.cleo/project-context.json` (a worktree). The
+   * project's `package.json` scripts and `tsconfig.json` are read from here,
+   * because they describe the code under test. Defaults to `projectRoot`.
+   *
+   * @task T12633
+   */
+  executionRoot?: string;
 }
 
 /**
@@ -615,7 +632,8 @@ export function resolveToolCommand(
     detectPrimaryTypeFromCwd(projectRoot);
 
   // Step 4 — the project's own package.json script (T12633)
-  const script = resolvePackageScript(canonical, projectRoot, primaryType);
+  const codeRoot = opts.executionRoot ?? projectRoot;
+  const script = resolvePackageScript(canonical, codeRoot, primaryType);
   if (script) {
     return {
       ok: true,
@@ -635,7 +653,7 @@ export function resolveToolCommand(
   const baseDef = defaults[canonical];
   const def =
     baseDef && primaryType === 'node' && canonical === 'typecheck'
-      ? adaptTypecheckDefault(baseDef, projectRoot)
+      ? adaptTypecheckDefault(baseDef, codeRoot)
       : baseDef;
 
   if (!def) {
