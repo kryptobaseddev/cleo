@@ -466,11 +466,7 @@ export async function prepareKnowledgeRepair(
       const root = context.identity.projectRoot;
       const info = await loadProjectInfo(root);
       context.assertActive();
-      if (
-        !info ||
-        info.projectId !== context.identity.projectId ||
-        (info.projectRoot !== undefined && info.projectRoot !== root)
-      )
+      if (!info || info.projectId !== context.identity.projectId)
         throw new KnowledgeRepairError(
           'E_REPAIR_SCOPE',
           'Canonical project metadata differs from the captured repair scope.',
@@ -734,11 +730,7 @@ export async function createKnowledgeRepairInvocation(
     { worktreeRoot: root, projectHash: generateProjectHash(root) },
     () => loadProjectInfo(root),
   );
-  if (
-    typeof info?.projectId !== 'string' ||
-    !info.projectId ||
-    (info.projectRoot !== undefined && info.projectRoot !== root)
-  )
+  if (typeof info?.projectId !== 'string' || !info.projectId)
     throw new KnowledgeRepairError(
       'E_REPAIR_SCOPE',
       'Canonical project identity is required for repair execution.',
@@ -960,11 +952,7 @@ export async function listPreparedKnowledgeRepairs(
       const root = context.identity.projectRoot;
       const metadata = await loadProjectInfo(root);
       context.assertActive();
-      if (
-        !metadata ||
-        metadata.projectId !== context.identity.projectId ||
-        (metadata.projectRoot !== undefined && metadata.projectRoot !== root)
-      )
+      if (!metadata || metadata.projectId !== context.identity.projectId)
         throw new KnowledgeRepairError('E_REPAIR_SCOPE', 'Canonical repair identity changed.');
       const taskDb = await getDb(root);
       context.assertActive();
@@ -1063,11 +1051,7 @@ async function openPreparedKnowledgeRepair(context: OperationExecutionContext, j
       const root = context.identity.projectRoot;
       const metadata = await loadProjectInfo(root);
       context.assertActive();
-      if (
-        !metadata ||
-        metadata.projectId !== context.identity.projectId ||
-        (metadata.projectRoot !== undefined && metadata.projectRoot !== root)
-      )
+      if (!metadata || metadata.projectId !== context.identity.projectId)
         throw new KnowledgeRepairError('E_REPAIR_SCOPE', 'Canonical repair identity changed.');
       const taskDb = await getDb(root);
       await getBrainDb(root);
@@ -1288,11 +1272,7 @@ async function executePreparedKnowledgeRepair(
       const root = context.identity.projectRoot;
       const metadata = await loadProjectInfo(root);
       context.assertActive();
-      if (
-        !metadata ||
-        metadata.projectId !== context.identity.projectId ||
-        (metadata.projectRoot !== undefined && metadata.projectRoot !== root)
-      )
+      if (!metadata || metadata.projectId !== context.identity.projectId)
         throw new KnowledgeRepairError('E_REPAIR_SCOPE', 'Canonical repair identity changed.');
       const taskDb = await getDb(root);
       await getBrainDb(root);

@@ -29,6 +29,7 @@ import { access as fsAccess, readFile, stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
+import { runWithConcurrency } from '../lib/concurrency.js';
 import { getLogger } from '../logger.js';
 import { getCleoHome, tryResolveCleoDir } from '../paths.js';
 
@@ -369,32 +370,6 @@ async function probeJsonFile(path: string, expectedVersion?: string): Promise<Js
     }
     return result;
   }
-}
-
-/** Counter-based concurrency limiter. No new dependencies. */
-async function runWithConcurrency<T, R>(
-  items: readonly T[],
-  limit: number,
-  worker: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let cursor = 0;
-  const lanes: Promise<void>[] = [];
-  const effectiveLimit = Math.max(1, Math.min(limit, items.length || 1));
-  for (let i = 0; i < effectiveLimit; i++) {
-    lanes.push(
-      (async () => {
-        while (true) {
-          const idx = cursor++;
-          if (idx >= items.length) return;
-          const item = items[idx] as T;
-          results[idx] = await worker(item, idx);
-        }
-      })(),
-    );
-  }
-  await Promise.all(lanes);
-  return results;
 }
 
 /** Compute `overall` for a project report from its constituent probes. */

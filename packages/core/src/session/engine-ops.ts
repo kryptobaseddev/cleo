@@ -952,6 +952,17 @@ export async function sessionEnd(
       // Journal write is best-effort — never block session end
     }
 
+    // T12508: request the session-end SQLite snapshot LAST — after the session
+    // row is persisted as ended and the journal entry is written. A detached
+    // worker takes it, so `cleo session end` (and the host Stop hook running
+    // it) returns without waiting for a VACUUM. Never throws.
+    try {
+      const { requestSessionEndSnapshot } = await import('../sessions/session-end-snapshot.js');
+      await requestSessionEndSnapshot(projectRoot);
+    } catch {
+      // Snapshot requests are best-effort — never block session end
+    }
+
     return engineSuccess({
       sessionId,
       ended: true,

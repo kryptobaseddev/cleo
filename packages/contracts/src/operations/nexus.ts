@@ -1335,6 +1335,135 @@ export interface NexusProjectCandidate {
   lastSeen: string;
 }
 
+/**
+ * Why a git state probe could not describe (all of) a location (T12511).
+ *
+ * - `E_PATH_MISSING` — the location's directory does not exist.
+ * - `E_PATH_ACCESS` — the directory exists but cannot be read (EACCES/EPERM).
+ * - `E_NOT_GIT_REPO` — neither the directory nor its declared
+ *   `evidence.gitRoot` is inside a git work tree.
+ * - `E_GIT_TIMEOUT` — git did not finish inside the per-row budget (a lock,
+ *   a credential prompt, a slow filesystem); its process group was killed.
+ * - `E_GIT_FAILED` — git exited non-zero for another reason.
+ * - `E_FETCH_FAILED` — `--fetch` was requested and the fetch failed; the local
+ *   fields are still filled and remote fields describe the PREVIOUS fetch.
+ */
+export type NexusGitProbeErrorCode =
+  | 'E_PATH_MISSING'
+  | 'E_PATH_ACCESS'
+  | 'E_NOT_GIT_REPO'
+  | 'E_GIT_TIMEOUT'
+  | 'E_GIT_FAILED'
+  | 'E_FETCH_FAILED';
+
+/**
+ * Git state of one project location on one device (`nexus_project_git_state`,
+ * T12511). Keyed like its location: `(projectId, deviceId, path)`.
+ *
+ * Remote fields (`ahead`, `behind`, `remoteHeadSha`) describe the remote as of
+ * the LAST FETCH, never now: the probe does not touch the network unless asked.
+ * `remoteFetchedAt` is that fetch's instant and `remoteStale` says whether it
+ * is older than the staleness window (or unknown), so a `behind: 0` is never
+ * read as "up to date" on the strength of a fetch from last month.
+ */
+export interface NexusProjectGitState {
+  /** Immutable project id. */
+  projectId: string;
+  /** Registered project name, when the registry row is present. */
+  projectName: string | null;
+  /** Stable id of the device the location is on. */
+  deviceId: string;
+  /** `true` when `deviceId` is the device running this command. */
+  current: boolean;
+  /** Location path (the checkout root CLEO recorded). */
+  path: string;
+  /** Directory git actually ran in: `path`, or its declared `evidence.gitRoot`. */
+  gitRoot: string | null;
+  /** Checked-out branch; `null` when detached or unknown. */
+  branch: string | null;
+  /** HEAD commit; `null` for an unborn branch or when the probe failed. */
+  headSha: string | null;
+  /** `true` when HEAD is detached. */
+  detached: boolean;
+  /** `true` for a shallow clone (ahead/behind may be truncated by the graft). */
+  shallow: boolean;
+  /** Tracked entries with staged or unstaged changes (incl. conflicts). */
+  dirtyCount: number | null;
+  /** Untracked, not-ignored entries. */
+  untrackedCount: number | null;
+  /** Upstream ref (e.g. `origin/main`); `null` when none is configured. */
+  upstream: string | null;
+  /** Commits on HEAD not on the upstream, as of the last fetch. */
+  ahead: number | null;
+  /** Commits on the upstream not on HEAD, as of the last fetch. */
+  behind: number | null;
+  /** Remote the upstream belongs to, else `origin`, else the first remote. */
+  remoteName: string | null;
+  /** That remote's configured URL. */
+  remoteUrl: string | null;
+  /** Upstream tracking-ref commit, as of the last fetch. */
+  remoteHeadSha: string | null;
+  /** ISO 8601 instant of the last fetch (FETCH_HEAD mtime); `null` if never. */
+  remoteFetchedAt: string | null;
+  /** `true` when `remoteFetchedAt` is unknown or older than the staleness window. */
+  remoteStale: boolean;
+  /** ISO 8601 instant this probe ran. */
+  probedAt: string;
+  /** Wall time of the probe, milliseconds. */
+  durationMs: number;
+  /** Why the probe could not describe (all of) the location; `null` on success. */
+  probeErrorCode: NexusGitProbeErrorCode | null;
+  /** Human-readable detail for `probeErrorCode` (git's stderr, the errno, …). */
+  probeError: string | null;
+}
+
+/** Parameters for `nexus.projects.status` (T12511). */
+export interface NexusProjectsStatusParams {
+  /** Run `git fetch` per location first (network). Default `false`. */
+  fetch?: boolean;
+  /** Locations probed at once. Default 8, clamped to 1..64. */
+  concurrency?: number;
+  /** Per-location budget for every git call it makes, ms. Default 10000 (30000 with fetch). */
+  timeoutMs?: number;
+  /** A fetch older than this is `remoteStale`, ms. Default 24h. */
+  staleAfterMs?: number;
+}
+
+/** Result of `nexus.projects.status` (T12511). */
+export interface NexusProjectsStatusResult {
+  /** Fresh probes of this device's live and missing locations. */
+  rows: NexusProjectGitState[];
+  /** Last recorded state of locations on OTHER devices (not re-probed). */
+  otherDevices: NexusProjectGitState[];
+  /** Number of fresh rows. */
+  count: number;
+  /** Device the probe ran on. */
+  deviceId: string;
+  /** Whether a fetch was attempted. */
+  fetched: boolean;
+  /** Effective concurrency. */
+  concurrency: number;
+  /** Effective per-location timeout, ms. */
+  timeoutMs: number;
+  /** Effective staleness window, ms. */
+  staleAfterMs: number;
+  /** Wall time of the whole probe, ms. */
+  durationMs: number;
+  /** Aggregate counts over `rows`. */
+  summary: {
+    /** Rows with no probe error. */
+    ok: number;
+    /** Rows with a probe error. */
+    errored: number;
+    /** Rows that timed out. */
+    timedOut: number;
+    /** Rows with at least one dirty or untracked entry. */
+    dirty: number;
+    /** Rows whose remote state is stale. */
+    remoteStale: number;
+  };
+}
+
 /** Parameters for `nexus.projects.register`. */
 export interface NexusProjectsRegisterParams {
   /** Path to the project directory (required). */
@@ -1526,6 +1655,198 @@ export interface NexusProjectsCleanResult {
   matchedByReason: Partial<Record<NexusProjectsCleanReason, number>>;
   /** Receipt of the applied removal; absent on dry-run or when nothing matched (T12324). */
   receipt?: NexusProjectsCleanReceipt;
+  /**
+   * Matched rows that were NOT removed because their id was found at another
+   * path (T12471): the project moved, it is not an orphan. Absent when none.
+   */
+  relocated?: NexusProjectsCleanRelocated[];
+  /**
+   * Matched rows that were NOT removed because their path could not be read
+   * (EACCES, EPERM, timeout): only ENOENT/ENOTDIR or a different declared id
+   * prove a project gone (T12471). Absent when none.
+   */
+  unreadable?: NexusProjectsCleanUnreadable[];
+  /**
+   * Matched rows that were NOT removed because their path exists but declares
+   * another project id (T12471). `.cleo/project-id` is tracked, so a branch
+   * checkout, rebase or merge conflict flips it transiently; only an absent
+   * path proves a project gone. Absent when none.
+   */
+  idMismatch?: NexusProjectsCleanIdMismatch[];
+}
+
+/** A registry row `nexus.projects.clean` kept because its path declares another id (T12471). */
+export interface NexusProjectsCleanIdMismatch {
+  /** Immutable registry project ID. */
+  projectId: string;
+  /** Registered path. */
+  projectPath: string;
+  /** The id the path declares now. */
+  declares: string;
+}
+
+/** A registry row `nexus.projects.clean` kept because its path was unreadable (T12471). */
+export interface NexusProjectsCleanUnreadable {
+  /** Immutable registry project ID. */
+  projectId: string;
+  /** Registered path that could not be read. */
+  projectPath: string;
+}
+
+/**
+ * A registry row `nexus.projects.clean` refused to remove because its project
+ * id was found at another path on this device (T12471).
+ */
+export interface NexusProjectsCleanRelocated {
+  /** Immutable registry project ID. */
+  projectId: string;
+  /** Registered path (gone from disk). */
+  projectPath: string;
+  /** Path(s) that declare the same id now. */
+  foundAt: string[];
+  /** Exact command that rebinds the row instead of deleting it. */
+  remedy: string;
+}
+
+/**
+ * Classification of one registry row by `cleo doctor projects` (T12471).
+ *
+ * - `ok` — the registered path holds the project.
+ * - `moved` — the path provably no longer holds it and another path on this
+ *   device declares the id. `--apply` rebinds the row only when that path's
+ *   untracked checkout nonce equals one recorded for the id (`proof:
+ *   'nonce'`); an `id-only` match (a clone, a copied `.cleo/project-id`) is
+ *   reported with the `cleo doctor project-identity --resolve` remedy and
+ *   never applied. Trash, CLEO-home, tombstoned and reroot-demoted paths are
+ *   never targets.
+ * - `ambiguous` — the path is gone and several paths carry the id's nonce;
+ *   the operator confirms one with `cleo doctor project-identity --resolve`.
+ * - `split` — one project under two ids, proven by repository evidence: the
+ *   registered path is gone and a same-named path with the same git remote or
+ *   root commit holds a different id (a re-minted identity), or two registered
+ *   rows, neither nested in another registered project, share a git remote.
+ *   Never changed automatically.
+ * - `possible-split` — the path is gone and a same-named path holds another
+ *   id, with no repository evidence tying them: informational (inspect, never
+ *   rewrite or unregister the other project). `--apply` still records the
+ *   gone location as `missing`.
+ * - `missing` — the path is gone and the id was found nowhere. `--apply`
+ *   records the location as `missing`; the row is kept.
+ * - `temp` — the path is under a temp directory while the registry is
+ *   persistent (a fixture or scratch directory left in the registry).
+ * - `root` — the path is the home directory or a filesystem root.
+ * - `unreadable` — the path could not be read (EACCES, EPERM, timeout). Only
+ *   ENOENT/ENOTDIR prove a path gone, so nothing is changed.
+ * - `other-device` — the path was recorded on another device; not probed.
+ */
+export type NexusRegistryFindingKind =
+  | 'ok'
+  | 'moved'
+  | 'ambiguous'
+  | 'split'
+  | 'possible-split'
+  | 'missing'
+  | 'temp'
+  | 'root'
+  | 'unreadable'
+  | 'other-device';
+
+/** The other side of a split identity (T12471). */
+export interface NexusRegistrySplitPeer {
+  /** The other project id. */
+  projectId: string;
+  /** Where the other id lives. */
+  projectPath: string;
+  /** Whether the other id has its own registry row. */
+  registered: boolean;
+  /** What paired the two ids: a shared git remote or root commit, or the directory name alone. */
+  matchedBy: 'name' | 'remote' | 'root-commit';
+}
+
+/** One registry row as classified by `cleo doctor projects` (T12471). */
+export interface NexusRegistryFinding {
+  /** Immutable registry project ID. */
+  projectId: string;
+  /** Registered project name. */
+  name: string;
+  /** Registered path (may be a `superseded:<id>` sentinel). */
+  projectPath: string;
+  /** Classification. */
+  kind: NexusRegistryFindingKind;
+  /** One-line explanation. */
+  message: string;
+  /** Exact command(s) that fix it, or `null` when nothing needs fixing. */
+  remedy: string | null;
+  /** `true` when `--apply` changes registry rows for this finding. */
+  applicable: boolean;
+  /** Paths on this device that declare this id (`moved`, `ambiguous`). */
+  foundAt?: string[];
+  /**
+   * What ties a `moved` checkout to the row: `nonce` when its untracked
+   * checkout nonce equals one recorded for the id (a real move), `id-only`
+   * when only the committed id matches.
+   */
+  proof?: 'nonce' | 'id-only';
+  /** The other ids of a `split` or `possible-split` identity. */
+  splitWith?: NexusRegistrySplitPeer[];
+}
+
+/** One registry change made by `cleo doctor projects --apply` (T12471). */
+export interface NexusRegistryRepairAction {
+  /** `rebind` points the row at `to`; `mark-missing` records the location as `missing`. */
+  action: 'rebind' | 'mark-missing';
+  /** Project the action applies to. */
+  projectId: string;
+  /** Registered path before the action. */
+  from: string;
+  /** New registered path (`rebind` only). */
+  to?: string;
+  /** `applied`, or `skipped` when the row changed between inspection and apply. */
+  outcome: 'applied' | 'skipped';
+}
+
+/** Durable receipt of an applied `cleo doctor projects` run (T12471). */
+export interface NexusRegistryRepairReceipt {
+  /** `nexus_audit_log.id` written in the same transaction as the changes. */
+  receiptId: string;
+  /** Absolute path of the global registry store that was changed. */
+  storePath: string;
+  /** ISO 8601 timestamp of the apply. */
+  appliedAt: string;
+  /** Every action, in order. */
+  actions: NexusRegistryRepairAction[];
+  /** Registry row count before and after; equal counts show no row was lost. */
+  registryRows: { before: number; after: number };
+  /** Exact command that restores the prior rows. */
+  rollback: string;
+}
+
+/** Result of `cleo doctor projects` (dry run or apply) (T12471). */
+export interface NexusRegistryIntegrityReport {
+  /** `true` when nothing was written. */
+  dryRun: boolean;
+  /** Absolute path of the global registry store inspected. */
+  storePath: string;
+  /** Directories scanned for `.cleo/project-id`. */
+  roots: string[];
+  /** Scan coverage: projects found, and directories that timed out or were unreadable. */
+  scan: { projectsFound: number; timedOut: string[]; unreadable: string[] };
+  /** Registry rows per kind; every row is counted. */
+  counts: Record<NexusRegistryFindingKind, number>;
+  /** Every row whose kind is not `ok`. */
+  findings: NexusRegistryFinding[];
+  /** Receipt of the applied changes; absent on a dry run or when nothing applied. */
+  receipt?: NexusRegistryRepairReceipt;
+}
+
+/** Result of `cleo doctor projects --rollback <receiptId>` (T12471). */
+export interface NexusRegistryRollbackResult {
+  /** The receipt that was rolled back. */
+  receiptId: string;
+  /** `nexus_audit_log.id` of the rollback itself. */
+  rollbackReceiptId: string;
+  /** Rows written back per table. */
+  restored: { registry: number; locations: number; paths: number };
 }
 
 /** Parameters for `nexus.refresh-bridge`. */
@@ -1764,6 +2085,7 @@ export type NexusOps = {
   readonly 'projects.remove': readonly [NexusProjectsRemoveParams, NexusProjectsRemoveResult];
   readonly 'projects.scan': readonly [NexusProjectsScanParams, NexusProjectsScanResult];
   readonly 'projects.clean': readonly [NexusProjectsCleanParams, NexusProjectsCleanResult];
+  readonly 'projects.status': readonly [NexusProjectsStatusParams, NexusProjectsStatusResult];
   readonly 'refresh-bridge': readonly [NexusRefreshBridgeParams, NexusRefreshBridgeResult];
   readonly diff: readonly [NexusDiffParams, NexusDiffResult];
   readonly 'query-cte': readonly [NexusQueryCteParams, NexusQueryCteResult];

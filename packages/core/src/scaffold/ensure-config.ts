@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import type { ScaffoldResult } from '@cleocode/contracts/scaffold-diagnostics';
 import { generateProjectHash } from '../nexus/hash.js';
 import { getConfigPath, resolveCleoDir } from '../paths.js';
+import { computeStableProjectHash } from '../project-scope.js';
 import { saveJson } from '../store/json.js';
 import { decideProjectIdentity, ensurePortableProjectId } from './project-identity.js';
 
@@ -402,6 +403,17 @@ export async function ensureConfig(
 }
 
 /**
+ * Schema-valid `project-info.json` fields a force-regenerate carries over
+ * verbatim, because nothing can regenerate them: identity-repair receipts
+ * (`previousProjectIds`, `strippedFields`) and the operator's `description`.
+ */
+const CARRIED_PROJECT_INFO_FIELDS = [
+  'description',
+  'previousProjectIds',
+  'strippedFields',
+] as const;
+
+/**
  * Create or refresh project-info.json, and adopt its id into the tracked,
  * write-once `.cleo/project-id` (T12325).
  * Idempotent: skips if file exists (unless force).
@@ -489,7 +501,23 @@ export async function ensureProjectInfo(
   const existingCheckoutNonce =
     typeof existing?.['checkoutNonce'] === 'string' ? existing['checkoutNonce'] : undefined;
 
-  const projectHash = generateProjectHash(projectRoot);
+  // T12557: receipts and operator-authored fields are not derived either — a
+  // force-regenerate (`cleo upgrade`, doctor fixes, identity repair) keeps them.
+  const carried: Record<string, unknown> = {};
+  for (const field of CARRIED_PROJECT_INFO_FIELDS)
+    if (existing?.[field] !== undefined) carried[field] = existing[field];
+
+  // T12557: write-once — a force-regenerate keeps the stored identity key.
+  // T12558: an id minted on explicit request (`--new-identity`) is a NEW
+  // project, possibly at a path another project's hash was derived from (a
+  // reroot's old root). Its hash is derived from the new id, never the path,
+  // so the two projects' release ids cannot collide once federated.
+  const projectHash =
+    typeof existing?.['projectHash'] === 'string' && existing['projectHash'].length > 0
+      ? existing['projectHash']
+      : opts?.mintNewIdentity && identity.source === 'minted'
+        ? generateProjectHash(`project-id:${identity.projectId}`)
+        : computeStableProjectHash(projectRoot);
   const cleoVersion = getCleoVersion();
   const now = new Date().toISOString();
 
@@ -518,6 +546,7 @@ export async function ensureProjectInfo(
     cleoVersion,
     createdAt: existingCreatedAt ?? now,
     ...(existingCheckoutNonce && { checkoutNonce: existingCheckoutNonce }),
+    ...carried,
     lastUpdated: now,
     schemas: {
       config: configSchemaVersion,

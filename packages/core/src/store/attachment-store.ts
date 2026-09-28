@@ -20,7 +20,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Attachment, AttachmentMetadata, AttachmentRef } from '@cleocode/contracts';
-import { and, eq, or, sql } from 'drizzle-orm';
+import { and, asc, eq, or, sql } from 'drizzle-orm';
 import { EngineResultError } from '../engine-result.js';
 import { resolveCleoDir } from '../paths.js';
 import type { CleoBlobStore as CleoBlobStoreType } from './llmtxt-blob-adapter.js';
@@ -365,6 +365,21 @@ export interface AttachmentStore {
    * @returns Array of {@link AttachmentMetadata} (may be empty)
    */
   listByOwner(ownerType: string, ownerId: string, cwd?: string): Promise<AttachmentMetadata[]>;
+
+  /**
+   * List every owner bound to one attachment — the inverse of
+   * {@link AttachmentStore.listByOwner}. One entry per `attachment_refs` row,
+   * ordered by owner type then owner id so callers see a stable sequence.
+   *
+   * @param attachmentId - Attachment ID whose refs to read
+   * @param cwd          - Optional working directory for path resolution
+   * @returns The `(ownerType, ownerId)` pairs (empty when none exist)
+   * @task T12549
+   */
+  listRefs(
+    attachmentId: string,
+    cwd?: string,
+  ): Promise<Array<{ ownerType: AttachmentRef['ownerType']; ownerId: string }>>;
 
   /**
    * Create an `attachment_refs` row linking an attachment to an owner.
@@ -972,6 +987,17 @@ export function createAttachmentStore(): AttachmentStore {
         if (row) results.push(rowToMetadata(row));
       }
       return results;
+    },
+
+    async listRefs(attachmentId, cwd) {
+      const db = await getDb(cwd);
+      const rows = await db
+        .select({ ownerType: attachmentRefs.ownerType, ownerId: attachmentRefs.ownerId })
+        .from(attachmentRefs)
+        .where(eq(attachmentRefs.attachmentId, attachmentId))
+        .orderBy(asc(attachmentRefs.ownerType), asc(attachmentRefs.ownerId))
+        .all();
+      return rows.map((r) => ({ ownerType: r.ownerType, ownerId: r.ownerId }));
     },
 
     async ref(attachmentId, ownerType, ownerId, attachedBy, cwd) {

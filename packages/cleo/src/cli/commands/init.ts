@@ -31,6 +31,7 @@ import {
   CleoError,
   getWorkflowTemplatesDir as getCoreWorkflowTemplatesDir,
   type InitOptions,
+  initErrorCodeName,
   initProject,
   pushWarning,
   scaffoldWorkflows,
@@ -111,7 +112,8 @@ export const initCommand = defineCommand({
     },
     force: {
       type: 'boolean',
-      description: 'Overwrite existing files',
+      description:
+        "Re-initialize THIS directory's project: resets .cleo/config.json and project-info.json, rewrites .cleo/.gitignore and the managed git hooks. Snapshots databases and those files to .cleo/backups/sqlite/ first; never targets an ancestor or a worktree.",
       default: false,
     },
     detect: {
@@ -150,10 +152,16 @@ export const initCommand = defineCommand({
         'Point the NEXUS registry at this checkout even though the project is registered at another path that still exists (T12470).',
       default: false,
     },
+    here: {
+      type: 'boolean',
+      description:
+        'Initialize the current directory itself, even inside an ancestor CLEO project (T12562). A directory that is its own git root is targeted without it. At a directory a project was rerooted away from it requires --new-identity (T12558).',
+      default: false,
+    },
     'new-identity': {
       type: 'boolean',
       description:
-        'Mint a new project identity instead of re-linking a registered one (T12325). Never rewrites an existing .cleo/project-id.',
+        "Mint a new project identity instead of re-linking a registered one (T12325). Never rewrites an existing .cleo/project-id — except with --here at a directory a project was rerooted away from, where that project's restored id is retired for the new one (T12558).",
       default: false,
     },
   },
@@ -217,6 +225,7 @@ export const initCommand = defineCommand({
         installSeedAgents: !!args['install-seed-agents'],
         newIdentity: !!args['new-identity'],
         forceRebind: !!args['force-rebind'],
+        here: !!args.here,
       };
 
       const result = await initProject(initOpts);
@@ -248,7 +257,15 @@ export const initCommand = defineCommand({
       );
     } catch (err) {
       if (err instanceof CleoError) {
-        cliError(`init failed: ${err.message}`, err.code, { name: 'E_INTERNAL' });
+        // T12562: keep the refusal's stable code and fix instead of E_INTERNAL.
+        // T12558: any other typed CleoError (E_PROJECT_MOVED carries
+        // `details.movedTo`) keeps its own LAFS code.
+        cliError(`init failed: ${err.message}`, err.code, {
+          name: initErrorCodeName(err) ?? err.toLAFSError().code,
+          ...(err.fix !== undefined ? { fix: err.fix } : {}),
+          ...(err.alternatives !== undefined ? { alternatives: err.alternatives } : {}),
+          ...(err.details !== undefined ? { details: err.details } : {}),
+        });
         process.exit(err.code);
       }
       throw err;

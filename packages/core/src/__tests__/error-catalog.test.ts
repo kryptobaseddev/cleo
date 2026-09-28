@@ -62,6 +62,11 @@ describe('error-catalog', () => {
           expect(entry.lafsCode).toBe('E_SESSION_UNBOUND');
           continue;
         }
+        if (entry.code === ExitCode.PROJECT_MOVED) {
+          // T12558: named `E_PROJECT_MOVED` by its contract (reroot tombstone).
+          expect(entry.lafsCode).toBe('E_PROJECT_MOVED');
+          continue;
+        }
         if (entry.code === ExitCode.WORKTREE_LOCKED) {
           // T12506: named `E_WORKTREE_LOCKED` by its contract (epic T12498).
           expect(entry.lafsCode).toBe('E_WORKTREE_LOCKED');

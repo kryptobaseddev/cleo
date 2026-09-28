@@ -344,6 +344,7 @@ export {
 // Docs publish-pr foundation + new-doc flow (T9716 + T9718 — T9644 / Epic T9630 / Saga T9625)
 export type {
   ProvisionResult,
+  PublishOwnerRef,
   PublishPrError,
   PublishPrOptions,
   PublishPrResult,
@@ -352,6 +353,8 @@ export type {
 } from './docs/publish-pr.js';
 export {
   branchForSlug,
+  buildPublishCommitMessage,
+  buildPublishCommitSubject,
   buildPublishFrontmatter,
   defaultPublishPrBody,
   defaultRun,
@@ -364,6 +367,7 @@ export {
   publishDirForType,
   publishDocsAsPr,
   publishPrError,
+  resolvePublishTaskId,
   stripExistingFrontmatter,
   teardownPublishPrWorktree,
   tempWorktreeDirForSlug,
@@ -877,6 +881,7 @@ export {
   nexusProjectsList,
   nexusProjectsRegister,
   nexusProjectsRemove,
+  nexusProjectsStatus,
   nexusReconcile,
   nexusReconcileProject,
   nexusRegister,
@@ -1511,6 +1516,12 @@ export {
   sessionAdoptedEndMessage,
   sessionUnboundMessage,
 } from './store/session-store.js';
+export type {
+  SnapshotGateMode,
+  SnapshotGateResult,
+  SnapshotGateSkipReason,
+  SnapshotOutcome,
+} from './store/snapshot-gate.js';
 export { getDb, getNativeDb } from './store/sqlite.js';
 export type {
   BackupScope,

@@ -431,6 +431,30 @@ describe('T363 cleo backup inspect', () => {
       expect(fs.readFileSync(snapshotPath)).toEqual(original);
     });
 
+    it('accepts a snapshot reached through a symlinked directory but still refuses a symlinked file', async () => {
+      const aliasDir = path.join(tmpDir, 'alias-dir');
+      fs.symlinkSync(tmpDir, aliasDir, 'dir');
+      await runInspect(path.join(aliasDir, path.basename(snapshotPath)), [
+        '--record-id',
+        'O-exact',
+      ]);
+      expect(process.exitCode ?? 0).toBe(0);
+      expect(JSON.parse(stdoutParts.join(''))).toMatchObject({
+        success: true,
+        data: { status: 'found', source: { path: snapshotPath } },
+      });
+
+      stdoutParts.length = 0;
+      const aliasFile = path.join(tmpDir, 'alias.db');
+      fs.symlinkSync(snapshotPath, aliasFile);
+      await runInspect(aliasFile, ['--record-id', 'O-exact']);
+      expect(process.exitCode).toBe(ExitCode.VALIDATION_ERROR);
+      expect(JSON.parse(stdoutParts.join(''))).toMatchObject({
+        success: false,
+        error: { codeName: 'E_BACKUP_INSPECT_UNSUPPORTED_SOURCE' },
+      });
+    });
+
     it('returns scoped absence without inventing a payload', async () => {
       await runInspect(snapshotPath, ['--record-id', 'O-exac']);
       expect(process.exitCode ?? 0).toBe(0);

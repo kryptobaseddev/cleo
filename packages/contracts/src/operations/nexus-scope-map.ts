@@ -505,6 +505,15 @@ export const NEXUS_SCOPE_MAP = {
     stores: ['nexus-registry'],
     requiresProject: false,
   },
+  'projects.status': {
+    op: 'projects.status',
+    description:
+      'Probe git state (branch, head, dirty, upstream, ahead/behind) of every location on this device and record it.',
+    scope: 'global',
+    effect: 'write',
+    stores: ['nexus-registry', 'fs'],
+    requiresProject: false,
+  },
   'refresh-bridge': {
     op: 'refresh-bridge',
     description: 'Refresh the Nexus → BRAIN cross-store bridge.',

@@ -7,6 +7,8 @@
  * @module lib
  */
 
+export { runWithConcurrency } from './concurrency.js';
+
 export {
   computeDelay,
   type RetryablePredicate,

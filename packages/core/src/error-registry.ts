@@ -227,6 +227,14 @@ const CLEO_ERROR_REGISTRY: CleoRegistryEntry[] = [
     httpStatus: 428,
   },
   {
+    exitCode: ExitCode.PROJECT_MOVED,
+    lafsCode: 'E_PROJECT_MOVED',
+    category: 'NOT_FOUND',
+    description: 'Project was relocated by cleo project reroot',
+    retryable: false,
+    httpStatus: 410,
+  },
+  {
     exitCode: ExitCode.WORKTREE_LOCKED,
     lafsCode: 'E_WORKTREE_LOCKED',
     category: 'CONFLICT',

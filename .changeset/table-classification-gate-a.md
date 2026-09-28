@@ -28,7 +28,7 @@ it, and nothing reports either outcome.
   stale entry, a pending table that no longer exists, or a column override
   that names a column that is not there.
 - **Raw-writer ratchet** (`scripts/lint-no-raw-table-writes.mjs`, arch gate
-  27): at introduction there are 249 raw `INSERT`/`UPDATE`/`DELETE`/`REPLACE`
+  28): at introduction there are 249 raw `INSERT`/`UPDATE`/`DELETE`/`REPLACE`
   sites on classified tables across 76 files, all baselined. A new site
   fails. A removed site also fails until the baseline drops it.
 
