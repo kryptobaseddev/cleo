@@ -1,18 +1,20 @@
 /**
- * T12619 — the opencode prompt is delivered through a file, never argv.
+ * T12619 — the opencode prompt is delivered on stdin, never argv.
  *
  * The prompt used to be the last positional argument of `opencode run`. On
  * Windows opencode is a `.cmd` shim launched through cmd.exe, which cannot
  * carry a line break (E_UNSAFE_BATCH_ARG) and caps the line at 8191 chars,
- * so every real multi-line prompt failed there. It now goes to a private temp
- * file attached with `--file`, on every platform; argv carries no prompt text.
+ * so every real multi-line prompt failed there. `--file` would only attach
+ * it behind a pointer message; `opencode run` uses piped stdin AS the message
+ * when no positional is given, so the prompt is piped on every platform.
  */
 
 import type { ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { PassThrough } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@cleocode/paths', async (importOriginal) => {
@@ -39,22 +41,25 @@ const PROMPT = 'Implement T1.\n\nSteps:\n  1. read "spec" & run tests\n  2. 100%
 const realPlatform = process.platform;
 let cwd: string;
 let child: EventEmitter;
+let stdinText: () => string;
 
 function setPlatform(value: NodeJS.Platform): void {
   Object.defineProperty(process, 'platform', { value, configurable: true });
 }
 
-/** The `--file` value from the spawned argv (POSIX form). */
-function promptFileFrom(args: readonly string[]): string {
-  const i = args.indexOf('--file');
-  expect(i).toBeGreaterThan(-1);
-  return args[i + 1] as string;
+/** Temp dirs the old `--file` delivery created. */
+function promptDirs(): string[] {
+  return readdirSync(tmpdir()).filter((d) => d.startsWith('cleo-opencode-spawn-'));
 }
 
 beforeEach(() => {
   cwd = mkdtempSync(join(tmpdir(), 'opencode-spawn-'));
   child = new EventEmitter();
-  Object.assign(child, { pid: 4242, unref: () => undefined });
+  const stdin = new PassThrough();
+  const chunks: Buffer[] = [];
+  stdin.on('data', (c: Buffer) => chunks.push(c));
+  stdinText = () => Buffer.concat(chunks).toString('utf-8');
+  Object.assign(child, { pid: 4242, unref: () => undefined, stdin });
   vi.mocked(spawn).mockReturnValue(child as ChildProcess);
 });
 afterEach(() => {
@@ -65,29 +70,32 @@ afterEach(() => {
 });
 
 describe('opencode prompt delivery (T12619)', () => {
-  it('POSIX: prompt goes to an attached file, intact, and never into argv', async () => {
+  it('POSIX: prompt is piped on stdin byte-exact; argv has no prompt; no temp file', async () => {
     setPlatform('linux');
+    const before = promptDirs();
     const result = await new OpenCodeSpawnProvider().spawn({
       taskId: 'T1',
       prompt: PROMPT,
       workingDirectory: cwd,
     });
     expect(result.status).toBe('running');
-    const [, args] = vi.mocked(spawn).mock.calls[0] ?? [];
+    const [, args, opts] = vi.mocked(spawn).mock.calls[0] ?? [];
     const argv = (args ?? []) as readonly string[];
-    expect(argv.some((a) => a.includes('Implement T1') || a.includes('\n'))).toBe(false);
-    const file = promptFileFrom(argv);
-    expect(readFileSync(file, 'utf-8')).toBe(PROMPT);
-
-    child.emit('exit', 0);
-    await vi.waitFor(() => expect(existsSync(file)).toBe(false));
+    expect(opts).toMatchObject({ stdio: ['pipe', 'ignore', 'ignore'] });
+    await vi.waitFor(() => expect(stdinText()).toBe(PROMPT));
+    expect(argv.some((a) => a.includes('Implement') || a.includes('\n'))).toBe(false);
+    expect(argv).not.toContain('--file');
+    // No positional message: argv ends at the title, so stdin IS the message.
+    expect(argv.at(-1)).toBe('CLEO T1');
+    expect(promptDirs()).toEqual(before);
   });
 
-  it('win32: a multi-line prompt spawns through cmd.exe (no E_UNSAFE_BATCH_ARG)', async () => {
+  it('win32: a multi-line prompt spawns through cmd.exe and is piped on stdin', async () => {
     setPlatform('win32');
     vi.stubEnv('PATH', 'C:\\npm');
     vi.stubEnv('PATHEXT', '.COM;.EXE;.BAT;.CMD');
     vi.stubEnv('ComSpec', 'C:\\Windows\\system32\\cmd.exe');
+    const before = promptDirs();
     const result = await new OpenCodeSpawnProvider().spawn({
       taskId: 'T1',
       prompt: PROMPT,
@@ -100,6 +108,16 @@ describe('opencode prompt delivery (T12619)', () => {
     const line = ((args ?? []) as readonly string[])[3] ?? '';
     expect(line).toContain('C:\\npm\\opencode.cmd');
     expect(line).not.toContain('Implement');
-    expect(line).toContain('--file');
+    expect(line).not.toContain('--file');
+    await vi.waitFor(() => expect(stdinText()).toBe(PROMPT));
+    expect(promptDirs()).toEqual(before);
+  });
+
+  it('a spawn error (no exit) does not leave the instance tracked', async () => {
+    setPlatform('linux');
+    const provider = new OpenCodeSpawnProvider();
+    await provider.spawn({ taskId: 'T1', prompt: PROMPT, workingDirectory: cwd });
+    child.emit('error', Object.assign(new Error('spawn opencode ENOENT'), { code: 'ENOENT' }));
+    expect(await provider.listRunning()).toEqual([]);
   });
 });

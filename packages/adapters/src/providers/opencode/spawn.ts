@@ -17,20 +17,12 @@ import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/
 import { findOnPath } from '@cleocode/paths';
 import { spawnCli } from '../shared/cli-spawn.js';
 import { getCleoTemplatesTildePath } from '../shared/paths.js';
-import { removeSpawnPromptFile, writeSpawnPromptFile } from '../shared/prompt-file.js';
 
 /** Name used for the CLEO subagent definition in OpenCode's agent directory. */
 const OPENCODE_SUBAGENT_NAME = 'cleo-subagent';
 
 /** Fallback agent name when custom agent definition cannot be created. */
 const OPENCODE_FALLBACK_AGENT = 'general';
-
-/**
- * Fixed `opencode run` message pointing at the attached prompt file. It is
- * the only positional text in argv; the prompt itself is never there (T12619).
- */
-const OPENCODE_FILE_PROMPT_MESSAGE =
-  'Your full task instructions are in the attached file. Read it and follow it exactly.';
 
 /** Internal tracking entry for a spawned process. */
 interface TrackedProcess {
@@ -128,8 +120,8 @@ async function ensureSubagentDefinition(
  *
  * Spawns detached OpenCode CLI processes for subagent execution.
  * Each spawn ensures a CLEO subagent definition exists, then runs
- * `opencode run --format json --agent <name> --title <title> --file <promptFile> <fixed message>`
- * (the prompt is never in argv, T12619)
+ * `opencode run --format json --agent <name> --title <title>` with the
+ * prompt piped on stdin (never in argv, T12619)
  * as a detached, unref'd child process.
  *
  * @remarks
@@ -166,8 +158,6 @@ export class OpenCodeSpawnProvider implements AdapterSpawnProvider {
     const instanceId = `opencode-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     const startTime = new Date().toISOString();
     const workingDirectory = context.workingDirectory ?? process.cwd();
-    let promptFile: string | undefined;
-
     try {
       // Enrich prompt with CANT bundle, memory bridge, and mental model (T555).
       // Best-effort: if CANT context is unavailable, the raw prompt is used.
@@ -190,31 +180,25 @@ export class OpenCodeSpawnProvider implements AdapterSpawnProvider {
         agentName = OPENCODE_FALLBACK_AGENT;
       }
 
-      // The prompt travels in a private temp file attached with `--file`,
-      // never in argv (T12619): on Windows opencode is a `.cmd` shim run
-      // through cmd.exe, which cannot carry a line break and caps the line at
-      // 8191 chars, and argv is visible to every local user on all platforms.
-      promptFile = await writeSpawnPromptFile('opencode-spawn', context.prompt);
+      // The prompt is piped on stdin, never argv (T12619). With no positional
+      // message `opencode run` uses piped stdin AS the message (not an
+      // attachment). argv would fail on Windows — opencode is a `.cmd` shim
+      // run through cmd.exe, which cannot carry a line break and caps the line
+      // at 8191 chars — and argv is visible to every local user everywhere.
       const child = spawnCli(
         'opencode',
-        [
-          'run',
-          '--format',
-          'json',
-          '--agent',
-          agentName,
-          '--title',
-          `CLEO ${context.taskId}`,
-          '--file',
-          promptFile,
-          OPENCODE_FILE_PROMPT_MESSAGE,
-        ],
+        ['run', '--format', 'json', '--agent', agentName, '--title', `CLEO ${context.taskId}`],
         {
           cwd: workingDirectory,
           detached: true,
-          stdio: 'ignore',
+          stdio: ['pipe', 'ignore', 'ignore'],
         },
       );
+
+      // A child that dies before reading raises EPIPE on stdin; that is an
+      // exit, not an unhandled error.
+      child.stdin?.on('error', () => undefined);
+      child.stdin?.end(context.prompt, 'utf-8');
 
       child.unref();
 
@@ -226,10 +210,12 @@ export class OpenCodeSpawnProvider implements AdapterSpawnProvider {
         });
       }
 
-      const capturedPromptFile = promptFile;
-      child.on('exit', async () => {
+      child.on('exit', () => {
         this.processMap.delete(instanceId);
-        await removeSpawnPromptFile(capturedPromptFile);
+      });
+      // A failed async spawn (e.g. ENOENT) emits `error` and never `exit`.
+      child.on('error', () => {
+        this.processMap.delete(instanceId);
       });
 
       return {
@@ -240,7 +226,6 @@ export class OpenCodeSpawnProvider implements AdapterSpawnProvider {
         startTime,
       };
     } catch {
-      if (promptFile) await removeSpawnPromptFile(promptFile);
       return {
         instanceId,
         taskId: context.taskId,

@@ -33,8 +33,10 @@ CVE-2024-21538: 100k backslashes took 7.5 s and blocked the event loop on
 untrusted prompt text. On 200k random inputs the output is byte-identical to
 the regex form.
 
-**opencode prompt (T12619).** The prompt is now written to a private temp file
-and attached with `--file` on every platform. The file is removed when the
-child exits. argv carries only a fixed pointer message and never the prompt.
-Before this, every multi-line prompt failed on Windows with `E_UNSAFE_BATCH_ARG`,
-and long prompts ran into cmd's 8191-character line limit.
+**opencode prompt (T12619).** The prompt is now piped on stdin with no
+positional argument, on every platform. With no positional message,
+`opencode run` uses piped stdin as the message itself, rather than an
+attachment behind a pointer message. There is no temp file, and argv never
+carries the prompt. Before this, every multi-line prompt failed on Windows with
+`E_UNSAFE_BATCH_ARG`, and long prompts ran into cmd's 8191-character line limit.
+A spawn `error` that never emits `exit` no longer leaves the instance tracked.
