@@ -49,6 +49,7 @@ import {
   decisionCacheKey,
   hashCanonical,
 } from './cache.js';
+import { loadDecideConnection } from './credentials.js';
 import { createJevProvider, JEV_ADAPTER_VERSION } from './jev-wire.js';
 import {
   type DecisionProvider,
@@ -68,8 +69,10 @@ export type DecisionHeuristic = (req: DecisionRequest) => Readonly<Record<string
 /** Options for {@link decide}. */
 export interface DecideOptions {
   /**
-   * Provider connection (base URL + API key). Absent, null, or with a blank
-   * key / invalid URL → unconfigured, and every call returns the fallback.
+   * Provider connection (base URL + API key + optional default model).
+   * Absent (`undefined`) → the connection stored by `cleo decide config`
+   * (`./credentials.ts`) is loaded. `null`, a blank key or an invalid URL →
+   * unconfigured, and every call returns the fallback.
    */
   readonly connection?: DecisionProviderConnection | null;
   /** Explicit provider; overrides `connection`. Tests inject a fake here. */
@@ -138,9 +141,18 @@ export function redactDecisionState(state: DecisionState): DecisionState {
   return out;
 }
 
-function resolveProvider(opts: DecideOptions): DecisionProvider | null {
+/** The explicit connection, or — when none was passed — the stored one. */
+function resolveConnection(opts: DecideOptions): DecisionProviderConnection | null {
+  if (opts.connection !== undefined) return opts.connection;
+  if (opts.provider) return null;
+  return loadDecideConnection()?.connection() ?? null;
+}
+
+function resolveProvider(
+  opts: DecideOptions,
+  connection: DecisionProviderConnection | null,
+): DecisionProvider | null {
   if (opts.provider) return opts.provider;
-  const connection = opts.connection;
   if (!connection || connection.apiKey.trim() === '') return null;
   if (!decisionProviderConfigSchema.safeParse({ baseUrl: connection.baseUrl }).success) return null;
   return createJevProvider(connection);
@@ -279,7 +291,13 @@ export async function decide(
   const elapsed = (): number => Math.max(0, performance.now() - started);
   const audit = resolveAudit(opts);
 
-  const sent: DecisionRequest = { ...req, state: redactDecisionState(req.state) };
+  const connection = resolveConnection(opts);
+  const defaultModel = req.model === undefined ? connection?.model : undefined;
+  const sent: DecisionRequest = {
+    ...req,
+    ...(defaultModel ? { model: defaultModel } : {}),
+    state: redactDecisionState(req.state),
+  };
   const questionsHash = hashCanonical(req.questions);
   const stateHash = hashCanonical(sent.state);
 
@@ -301,7 +319,7 @@ export async function decide(
   const useFallback = (reason: DecisionFallbackReason): DecisionOutcome =>
     finish({ answers: fallback(req), source: 'fallback', latencyMs: elapsed() }, reason);
 
-  const provider = resolveProvider(opts);
+  const provider = resolveProvider(opts, connection);
   if (!provider) return useFallback('unconfigured');
   if (!decisionRequestSchema.safeParse(sent).success) return useFallback('invalid_request');
 
