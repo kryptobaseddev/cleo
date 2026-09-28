@@ -139,6 +139,7 @@ describe('repairSkillFixtures', () => {
     };
     const { receipt } = repairSkillFixtures({ ...opts(), rename: exdev });
     expect(receipt.moved.map((m) => m.method)).toEqual(['copy', 'copy', 'copy']);
+    expect(receipt.moved.every((m) => m.sourceRemoved && m.sourceError === null)).toBe(true);
     expect(existsSync(join(skillsRoot, 'real-skill'))).toBe(false);
     expect(readFileSync(join(receipt.quarantineDir, `deep-${UUID}`, 'file1.txt'), 'utf8')).toBe(
       'content1',

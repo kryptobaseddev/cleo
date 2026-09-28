@@ -29,8 +29,8 @@
 import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { existsSync, constants as fsConstants, mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { delimiter, join, resolve, sep } from 'node:path';
-import { afterAll, afterEach, expect } from 'vitest';
+import { delimiter, isAbsolute, join, resolve, sep } from 'node:path';
+import { afterAll, afterEach, beforeEach, expect } from 'vitest';
 
 // We must patch the CommonJS `child_process` module object so every importer
 // (ESM and CJS) sees the wrapped functions. The ESM namespace object is
@@ -77,8 +77,11 @@ if (!process.env[PROTECTED_ROOTS_ENV]) {
     join(home, '.cleo'),
   ]);
   // ...and a data dir the parent shell selected with CLEO_HOME.
+  // Same expansion as @cleocode/paths `resolveHomeOverride`: `~` and a
+  // relative value both resolve against HOME, never against cwd.
   if (inheritedCleoHome) {
-    roots.add(inheritedCleoHome.startsWith('~') ? join(home, inheritedCleoHome.slice(1)) : inheritedCleoHome);
+    if (inheritedCleoHome.startsWith('~')) roots.add(join(home, inheritedCleoHome.slice(1)));
+    else roots.add(isAbsolute(inheritedCleoHome) ? inheritedCleoHome : join(home, inheritedCleoHome));
   }
   process.env[PROTECTED_ROOTS_ENV] = [...roots].map((r) => resolve(r)).join(delimiter);
 }
@@ -364,9 +367,16 @@ wrap('execFileSync', 1, 2);
 /** Shared across setup re-runs in one process (see the double-run note above). */
 const REAL_DATA_WRITES = Symbol.for('cleo.vitest.realDataWrites');
 const FS_GUARD_INSTALLED = Symbol.for('cleo.vitest.realDataGuardInstalled');
+/**
+ * Describes the running test. Re-bound by every setup run: the fs wrappers are
+ * installed once per process, so they must not close over one file's module
+ * instance of this setup (isolation re-evaluates it per test file).
+ */
+const CURRENT_TEST = Symbol.for('cleo.vitest.realDataCurrentTest');
 type GuardGlobal = typeof globalThis & {
   [REAL_DATA_WRITES]?: string[];
   [FS_GUARD_INSTALLED]?: boolean;
+  [CURRENT_TEST]?: () => string;
 };
 const guardGlobal = globalThis as GuardGlobal;
 guardGlobal[REAL_DATA_WRITES] ??= [];
@@ -454,9 +464,7 @@ function realDataWriteError(fn: string, target: unknown, root: string): Error {
     `  target: ${toPathString(target)}`,
     `  root:   ${root}`,
     `  sandbox CLEO_HOME: ${process.env.CLEO_HOME}`,
-    `  test:   ${expect.getState().testPath ?? '(unknown file)'} > ${
-      expect.getState().currentTestName ?? '(beforeAll/afterAll hook)'
-    }`,
+    `  test:   ${guardGlobal[CURRENT_TEST]?.() ?? '(unknown test)'}`,
     '',
     'Tests must resolve cleoHome inside the per-fork sandbox that vitest.setup.ts',
     "creates (a package vitest.config.ts that runs directly must list it in",
@@ -518,7 +526,22 @@ function failOnRealDataWrites(): void {
   throw new Error(`${writes.length} write(s) targeted the real CLEO data dir:\n\n${writes.join('\n\n')}`);
 }
 
-afterEach(failOnRealDataWrites);
+// `currentTestName` outlives its test, so a later beforeAll/afterAll hit would
+// otherwise be pinned on the previous test. Registered first: this beforeEach
+// runs before the file's, and the afterEach below runs after the file's.
+let inTestBody = false;
+guardGlobal[CURRENT_TEST] = () => {
+  const state = expect.getState();
+  const name = inTestBody ? state.currentTestName : undefined;
+  return `${state.testPath ?? '(unknown file)'} > ${name ?? '(beforeAll/afterAll hook)'}`;
+};
+beforeEach(() => {
+  inTestBody = true;
+});
+afterEach(() => {
+  inTestBody = false;
+  failOnRealDataWrites();
+});
 // Registered first, so it runs after the file's own afterAll hooks: catches
 // hits from beforeAll/afterAll that no afterEach saw.
 afterAll(failOnRealDataWrites);

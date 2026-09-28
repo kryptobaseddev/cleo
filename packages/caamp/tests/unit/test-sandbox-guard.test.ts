@@ -86,10 +86,19 @@ describe('caamp test sandbox (T12645)', () => {
     expect(takeRecordedWrites()).toHaveLength(1);
   });
 
-  it('exempts only the checkout this run started in', () => {
+  // Only meaningful when the run's own checkout lies under a protected root
+  // (an agent worktree in the data dir). Anywhere else there is nothing to
+  // exempt, and a write outside the roots would pass vacuously — so skip.
+  const ownCheckout = (() => {
     let dir = resolve(process.cwd());
     while (!existsSync(join(dir, '.git'))) dir = resolve(dir, '..');
-    const own = join(dir, 'node_modules', `.vitest-guard-own-${randomUUID()}`);
+    return dir;
+  })();
+  const ownCheckoutProtected = protectedRoots().some((root) => isWithin(ownCheckout, root));
+
+  it.skipIf(!ownCheckoutProtected)('exempts the checkout this run started in', () => {
+    const own = join(ownCheckout, 'node_modules', `.vitest-guard-own-${randomUUID()}`);
+    expect(protectedRoots().some((root) => isWithin(own, root))).toBe(true);
     try {
       writeFileSync(own, 'x');
     } finally {

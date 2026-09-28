@@ -138,6 +138,13 @@ export interface SkillFixtureMove {
   to: string;
   /** `rename`, or `copy` when rename failed with EXDEV (hashes verified before the source is removed). */
   method: 'rename' | 'copy';
+  /**
+   * False when a verified copy landed but removing the source failed: both
+   * paths then hold the entry, and `sourceError` says why.
+   */
+  sourceRemoved: boolean;
+  /** Why the source could not be removed, else null. */
+  sourceError: string | null;
 }
 
 /** Receipt for one {@link restoreSkillFixtures} run. */
@@ -192,11 +199,19 @@ function moveVerified(
 ): SkillFixtureMove {
   try {
     rename(from, to);
-    return { from, to, method: 'rename' };
+    return { from, to, method: 'rename', sourceRemoved: true, sourceError: null };
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
   }
-  cpSync(from, to, { recursive: true, errorOnExist: true, force: false });
+  try {
+    cpSync(from, to, { recursive: true, errorOnExist: true, force: false });
+  } catch (err) {
+    // A partial copy is ours to remove; the source was never touched.
+    rmSync(to, { recursive: true, force: true });
+    throw new Error(
+      `copy of ${from} to ${to} failed (${(err as Error).message}); partial copy removed, source left in place`,
+    );
+  }
   const copied = classifySkillFixture(basename(to), to).files;
   if (inventoryKey(copied) !== inventoryKey(expected)) {
     rmSync(to, { recursive: true, force: true });
@@ -204,8 +219,12 @@ function moveVerified(
       `copy of ${from} to ${to} did not match the recorded sha256 inventory; source left in place`,
     );
   }
-  rmSync(from, { recursive: true });
-  return { from, to, method: 'copy' };
+  try {
+    rmSync(from, { recursive: true });
+  } catch (err) {
+    return { from, to, method: 'copy', sourceRemoved: false, sourceError: (err as Error).message };
+  }
+  return { from, to, method: 'copy', sourceRemoved: true, sourceError: null };
 }
 
 /** Manifest skill names plus every skill directory bundled in `@cleocode/skills`. */
@@ -439,7 +458,13 @@ export function restoreSkillFixtures(
         reason: 'quarantined files no longer match the receipt',
       });
     } else if (dryRun) {
-      receipt.restored.push({ from: move.to, to: move.from, method: 'rename' });
+      receipt.restored.push({
+        from: move.to,
+        to: move.from,
+        method: 'rename',
+        sourceRemoved: true,
+        sourceError: null,
+      });
     } else {
       receipt.restored.push(moveVerified(move.to, move.from, files, opts.rename ?? renameSync));
     }
