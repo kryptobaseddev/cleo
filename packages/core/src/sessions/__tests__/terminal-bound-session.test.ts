@@ -40,6 +40,7 @@ import {
 import { SESSION_ENV_KEY_PRECEDENCE } from '../session-id.js';
 import {
   type ProcessAncestor,
+  readProcessEntry,
   resolveTerminalKeys,
   TERMINAL_KEY_SOURCES,
 } from '../terminal-identity.js';
@@ -127,6 +128,33 @@ describe('resolveTerminalKeys — provider/terminal key map (T12499)', () => {
     resolveTerminalKeys({ env: { TERM_SESSION_ID: 'x' }, ppid: 40, lookupProcess: lookup });
     expect(lookup).not.toHaveBeenCalled();
   });
+});
+
+describe('readProcessEntry — time-zone and locale independence (T12500)', () => {
+  it.skipIf(process.platform === 'win32')(
+    'derives the same start time (and ppid key) under TZ=UTC and TZ=America/Los_Angeles',
+    () => {
+      const pid = process.pid;
+      vi.stubEnv('TZ', 'UTC');
+      vi.stubEnv('LANG', 'de_DE.UTF-8');
+      const utc = readProcessEntry(pid);
+      vi.stubEnv('TZ', 'America/Los_Angeles');
+      vi.stubEnv('LANG', 'en_US.UTF-8');
+      const la = readProcessEntry(pid);
+      vi.unstubAllEnvs();
+
+      expect(utc).not.toBeNull();
+      expect(la?.startedAt).toBe(utc?.startedAt);
+      // …so the ppid-chain key built from it is identical too.
+      const keyOf = (entry: ProcessAncestor | null) =>
+        resolveTerminalKeys({
+          env: {},
+          ppid: pid,
+          lookupProcess: () => (entry ? { ...entry, command: 'zsh' } : null),
+        })[0]?.key;
+      expect(keyOf(la)).toBe(keyOf(utc));
+    },
+  );
 });
 
 describe('terminal-bound session resolution (T12499)', () => {

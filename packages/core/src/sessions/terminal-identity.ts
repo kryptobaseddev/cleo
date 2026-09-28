@@ -124,6 +124,17 @@ export const PPID_CHAIN_LAUNCHERS: ReadonlySet<string> = new Set([
   'cleo',
 ]);
 
+/**
+ * Environment overrides for the `ps` probe (T12500): UTC and the C locale make
+ * the `lstart` start time — part of every ppid-chain key — independent of the
+ * caller's `TZ` / `LANG`.
+ */
+export const PS_STABLE_ENV: Readonly<Record<'TZ' | 'LC_ALL' | 'LANG', string>> = {
+  TZ: 'UTC',
+  LC_ALL: 'C',
+  LANG: 'C',
+};
+
 /** Maximum number of ancestors the ppid-chain walk inspects. */
 export const PPID_CHAIN_MAX_DEPTH = 4 as const;
 
@@ -190,6 +201,10 @@ export function readProcessEntry(pid: number): ProcessAncestor | null {
         encoding: 'utf8',
         timeout: 1000,
         stdio: ['ignore', 'pipe', 'ignore'],
+        // T12500: `lstart` is rendered in the caller's time zone and locale, so
+        // two shells with different TZ/LANG would derive different keys for
+        // the same process and silently lose their binding. Pin both.
+        env: { ...process.env, ...PS_STABLE_ENV },
       },
     ).trim();
     // `lstart` is five whitespace-separated fields: `Sat Sep 27 22:07:02 2026`.
