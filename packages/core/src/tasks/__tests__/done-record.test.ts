@@ -510,7 +510,9 @@ describe('one write is all-or-nothing across gates (review test gaps)', () => {
 
 describe('typed results verified in a worktree complete from main after merge (T12625 round 2)', () => {
   /** Worker flow: typed gate + task change verified inside the task's worktree. */
-  async function verifiedInWorktree(): Promise<{ id: string; wt: string }> {
+  async function verifiedInWorktree(
+    change: (wt: string) => void = () => {},
+  ): Promise<{ id: string; wt: string }> {
     commitCheckScript();
     const id = await seedTask(['Change src/a.ts to return 2']);
     await reqAdd(
@@ -530,6 +532,7 @@ describe('typed results verified in a worktree complete from main after merge (T
     const wt = join(realpathSync(join(root, '..')), `${id}-wt-${Date.now()}`);
     git(root, ['worktree', 'add', '-q', '-b', `task/${id}`, wt]);
     writeFileSync(join(wt, 'src', 'a.ts'), 'export const a = 2;\n');
+    change(wt);
     git(wt, ['commit', '-q', '-am', `${id}: change a`]);
     const before = process.cwd();
     process.chdir(wt);
@@ -684,6 +687,37 @@ describe('typed results verified in a worktree complete from main after merge (T
     const error = (await completeFromMain(id)) as { message?: string } | null;
     expect(error?.message).toMatch(/no recorded fork point/);
     git(root, ['worktree', 'remove', '--force', wt]);
+  });
+
+  /** src/b.ts on main, so the task can rename it. */
+  function seedRenamable(): void {
+    writeFileSync(join(root, 'src', 'b.ts'), 'export const b = 1;\n');
+    git(root, ['add', 'src/b.ts']);
+    git(root, ['commit', '-q', '-m', 'add b']);
+    git(root, ['push', '-q', 'origin', 'main']);
+  }
+  const renameB = (wt: string): void => {
+    git(wt, ['mv', 'src/b.ts', 'src/c.ts']);
+  };
+
+  it('a clean rename, merged, completes from main', async () => {
+    seedRenamable();
+    const { id, wt } = await verifiedInWorktree(renameB);
+    git(root, ['merge', '-q', '--no-ff', '-m', 'merge', `task/${id}`]);
+    git(root, ['worktree', 'remove', '--force', wt]);
+    expect(await completeFromMain(id)).toBeNull();
+  });
+
+  it('a renamed-away path re-added on main after the merge: refused (--no-renames)', async () => {
+    seedRenamable();
+    const { id, wt } = await verifiedInWorktree(renameB);
+    git(root, ['merge', '-q', '--no-ff', '-m', 'merge', `task/${id}`]);
+    git(root, ['worktree', 'remove', '--force', wt]);
+    writeFileSync(join(root, 'src', 'b.ts'), 'export const b = 99;\n');
+    git(root, ['add', 'src/b.ts']);
+    git(root, ['commit', '-q', '-m', 're-add b']);
+    const error = (await completeFromMain(id)) as { message?: string } | null;
+    expect(error?.message).toMatch(/since verification: src\/b\.ts/);
   });
 
   it('inputs changed after the merge: refused', async () => {

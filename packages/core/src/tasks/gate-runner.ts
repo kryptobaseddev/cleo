@@ -690,7 +690,15 @@ function assertTreeEquivalent(
       `Typed requirement ${gateLabel} has no recorded fork point, so the verified change cannot be compared in ${tree}`,
       fix,
     );
-  const changed = gitOut(tree, ['diff', '--name-only', bound.baseSha, bound.headSha]);
+  // --no-renames: a rename is listed as the old path's deletion AND the new
+  // path's addition, so a renamed-away path later re-added here is caught.
+  const changed = gitOut(tree, [
+    'diff',
+    '--name-only',
+    '--no-renames',
+    bound.baseSha,
+    bound.headSha,
+  ]);
   if (changed === null)
     throw new TypedRevalidationError(
       `Typed requirement ${gateLabel}: cannot read the verified change ${bound.baseSha.slice(0, 12)}..${bound.headSha.slice(0, 12)} in ${tree}`,
@@ -698,7 +706,15 @@ function assertTreeEquivalent(
     );
   const paths = changed.split('\n').filter(Boolean);
   if (paths.length > 0) {
-    const drift = gitOut(tree, ['diff', '--name-only', bound.headSha, 'HEAD', '--', ...paths]);
+    const drift = gitOut(tree, [
+      'diff',
+      '--name-only',
+      '--no-renames',
+      bound.headSha,
+      'HEAD',
+      '--',
+      ...paths,
+    ]);
     if (drift === null || drift !== '')
       throw new TypedRevalidationError(
         `Typed requirement ${gateLabel}: the verified change was changed on ${tree} since verification: ${(drift ?? 'unreadable').split('\n').join(', ')}`,
