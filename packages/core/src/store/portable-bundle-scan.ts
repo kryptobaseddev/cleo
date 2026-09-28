@@ -547,7 +547,7 @@ export const CREDENTIAL_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   playbook_approvals: ['token'],
   tasks_playbook_approvals: ['token'],
   // global scope
-  accounts: ['secret_enc'],
+  accounts: ['secret_enc', 'refresh_enc'],
   agent_registry_accounts: ['access_token', 'refresh_token', 'id_token', 'password'],
   agent_registry_agents: ['webhook_secret', 'api_key_hash', 'api_key_encrypted'],
   agent_registry_sessions: ['token'],
