@@ -31,7 +31,7 @@ import { join, resolve } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
 import {
   canonicalizePath,
-  computeCanonicalProjectId,
+  computePathFingerprintId,
   formatPortableProjectId,
   getCleoHome,
   isValidPortableProjectId,
@@ -175,7 +175,7 @@ export async function findRelinkCandidates(
     // base64url alias is truncated to 32 chars (24 path bytes), so every
     // checkout under a shared prefix collides on it — measured: two sibling
     // temp dirs re-linked to each other through it.
-    const derived = [computeCanonicalProjectId(realRoot)];
+    const derived = [computePathFingerprintId(realRoot)];
     const aliasRows = db
       .select()
       .from(projectIdAliases)

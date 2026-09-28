@@ -5,10 +5,11 @@
  */
 
 import { realpathSync } from 'node:fs';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
+import { readPortableProjectId, resolveProjectByCwd } from '@cleocode/paths';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { seedTasks } from '../../store/__tests__/test-db-helper.js';
@@ -19,12 +20,13 @@ import { projectIdAliases } from '../../store/schema/nexus-schema.js';
 import { closeAllDatabases, resetDbState } from '../../store/sqlite.js';
 import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
 import { generateProjectHash } from '../hash.js';
-import { canonicalProjectId } from '../identity.js';
+import { canonicalProjectId, projectPathFingerprint } from '../identity.js';
 import {
   nexusGetProject,
   nexusInit,
   nexusList,
   nexusProjectExists,
+  nexusReconcile,
   nexusRegister,
   nexusSync,
   nexusSyncAll,
@@ -205,6 +207,12 @@ describe('nexusRegister', () => {
 
   it('registers a changed immutable id at the same path as a separate project (T12469)', async () => {
     vi.stubEnv('CLEO_DISABLE_PROJECT_AUTOREGISTER', '1');
+    // Declared up front: an adopted id would be written to the tracked
+    // `.cleo/project-id`, which outranks project-info.json (T12470).
+    await writeFile(
+      join(projectDir, '.cleo/project-info.json'),
+      JSON.stringify({ projectId: 'first-owner' }),
+    );
     const hash = await nexusRegister(projectDir, 'owner', 'write');
     const before = await nexusGetProject(hash);
     await writeFile(
@@ -262,6 +270,44 @@ describe('nexusRegister', () => {
     expect(checkouts.every((c) => c.state === 'live')).toBe(true);
   });
 
+  it('records an adopted identity instead of deriving one from the path (T12470)', async () => {
+    vi.stubEnv('CLEO_DISABLE_PROJECT_AUTOREGISTER', '1');
+    const hash = await nexusRegister(projectDir, 'adopted');
+    const row = await nexusGetProject(hash);
+    const tracked = readPortableProjectId(projectDir);
+    expect(tracked.status).toBe('valid');
+    expect(row?.projectId).toBe(tracked.status === 'valid' ? tracked.projectId : null);
+    // Never the path fingerprint — that survives only as an alias.
+    const { id: fingerprint } = await projectPathFingerprint(projectDir);
+    expect(row?.projectId).not.toBe(fingerprint);
+  });
+
+  it('keeps one row and the same id when a project moves between two roots (T12470 AC3)', async () => {
+    vi.stubEnv('CLEO_DISABLE_PROJECT_AUTOREGISTER', '1');
+    const rootA = join(testDir, 'root-a');
+    const rootB = join(testDir, 'root-b', 'nested');
+    await mkdir(join(rootA, 'proj', '.cleo'), { recursive: true });
+    await mkdir(rootB, { recursive: true });
+    await writeFile(join(rootA, 'proj', '.cleo', 'project-id'), 'moving-project-id\n');
+    const idA = resolveProjectByCwd(join(rootA, 'proj'))?.projectId;
+    await nexusRegister(join(rootA, 'proj'), 'moving');
+
+    await rename(join(rootA, 'proj'), join(rootB, 'proj'));
+    const idB = resolveProjectByCwd(join(rootB, 'proj'))?.projectId;
+    expect(await nexusReconcile(realpathSync(join(rootB, 'proj')))).toMatchObject({
+      status: 'path_updated',
+    });
+
+    expect(idA).toBe('moving-project-id');
+    expect(idB).toBe(idA);
+    const rows = await nexusList();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      projectId: 'moving-project-id',
+      path: realpathSync(join(rootB, 'proj')),
+    });
+  });
+
   it('preserves a metadata read failure instead of replacing stored counts with zero', async () => {
     vi.stubEnv('CLEO_DISABLE_PROJECT_AUTOREGISTER', '1');
     const hash = await nexusRegister(projectDir, 'owner', 'write');
@@ -277,6 +323,10 @@ describe('nexusRegister', () => {
 
   it('rejects unreadable identity metadata instead of assigning a fallback identity', async () => {
     vi.stubEnv('CLEO_DISABLE_PROJECT_AUTOREGISTER', '1');
+    await writeFile(
+      join(projectDir, '.cleo/project-info.json'),
+      JSON.stringify({ projectId: 'declared-owner' }),
+    );
     const hash = await nexusRegister(projectDir, 'owner');
     const before = await nexusGetProject(hash);
     await writeFile(join(projectDir, '.cleo/project-info.json'), '{broken');

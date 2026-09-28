@@ -46,7 +46,7 @@ import {
   projectRegistry,
 } from '../store/schema/nexus-schema.js';
 import { generateProjectHash } from './hash.js';
-import { canonicalProjectId, legacyProjectId } from './identity.js';
+import { legacyProjectId, projectPathFingerprint } from './identity.js';
 import { isSupersededRegistryPath, recordProjectCheckout } from './path-map.js';
 import { registryStorePath } from './registry-hygiene.js';
 
@@ -347,6 +347,9 @@ async function readProjectId(projectPath: string): Promise<string> {
     const read = readPortableProjectId(projectPath);
     return read.status === 'valid' ? read.projectId : '';
   };
+  // T12470: the tracked `.cleo/project-id` outranks project-info.json.
+  const trackedId = tracked();
+  if (trackedId) return trackedId;
   try {
     return (
       z
@@ -360,6 +363,35 @@ async function readProjectId(projectPath: string): Promise<string> {
       `Cannot read project identity at ${infoPath}: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
+}
+
+/**
+ * Return the id a project root declares, adopting one first when it declares
+ * none (T12470).
+ *
+ * A path — or any hash of it — is never a project identity. A root with
+ * neither `.cleo/project-id` nor a `project-info.json` id gets one the same
+ * way `cleo init` does: re-linked from the registry when exactly one
+ * registered identity matches, otherwise freshly minted — and recorded
+ * write-once in `.cleo/project-id`, so every later resolution returns it.
+ *
+ * @throws {CleoError} `CONFIG_ERROR` when no identity can be recorded.
+ */
+async function adoptDeclaredProjectId(projectPath: string): Promise<string> {
+  const declaredId = await readProjectId(projectPath);
+  if (declaredId) return declaredId;
+  const { decideProjectIdentity, ensurePortableProjectId } = await import(
+    '../scaffold/project-identity.js'
+  );
+  const decision = await decideProjectIdentity(projectPath, undefined);
+  await ensurePortableProjectId(projectPath, decision.projectId);
+  const recorded = await readProjectId(projectPath);
+  if (recorded) return recorded;
+  throw new CleoError(
+    ExitCode.CONFIG_ERROR,
+    `Project at ${projectPath} declares no identity and none could be recorded in .cleo/project-id; refusing to derive one from its path`,
+    { fix: `Run \`cleo init\` in ${projectPath} to record the project's identity` },
+  );
 }
 
 /** Record alternate project identity tokens as aliases for registry lookup. */
@@ -448,12 +480,13 @@ export async function nexusRegister(
     if (!(await stat(join(resolvedPath, '.cleo'))).isDirectory()) {
       throw new CleoError(ExitCode.NOT_FOUND, `Path missing .cleo directory: ${resolvedPath}`);
     }
-    const declaredId = await readProjectId(resolvedPath);
-    const canonicalIdentity = await canonicalProjectId(resolvedPath);
+    const declaredId = await adoptDeclaredProjectId(resolvedPath);
+    const pathFingerprint = await projectPathFingerprint(resolvedPath);
     await nexusInit();
     const { getNexusDb } = await import('../store/nexus-sqlite.js');
-    // T12469: ownership is the immutable id alone — never the path or its hash.
-    const ownerId = declaredId || canonicalIdentity.id;
+    // T12469 · T12470: ownership is the DECLARED id alone — never the path or
+    // a hash of it. The path fingerprint is recorded below only as an alias.
+    const ownerId = declaredId;
     const ownershipFilter = eq(projectRegistry.projectId, ownerId);
 
     // The accessor may auto-register this path. Never carry an absence observation
@@ -521,7 +554,7 @@ export async function nexusRegister(
           projectHash,
           now,
         });
-        for (const alias of new Set([canonicalIdentity.id, legacyAlias])) {
+        for (const alias of new Set([pathFingerprint.id, legacyAlias])) {
           if (alias === immutableId) continue;
           const aliasOwner = tx
             .select()
@@ -954,10 +987,11 @@ export async function nexusReconcile(
   const { eq } = await import('drizzle-orm');
   const db = await getNexusDb();
 
-  const projectId = await readProjectId(projectRoot);
+  const projectId = await adoptDeclaredProjectId(projectRoot);
   const currentHash = generateProjectHash(projectRoot);
-  const canonicalIdentity = await canonicalProjectId(projectRoot);
-  const stableProjectId = projectId || canonicalIdentity.id;
+  const pathFingerprint = await projectPathFingerprint(projectRoot);
+  // T12470: the declared id alone; the path fingerprint is an alias only.
+  const stableProjectId = projectId;
 
   // Look up by the immutable id (stable across moves). T12469: the path and
   // its hash are never consulted — a row at this path under another id is a
@@ -993,7 +1027,7 @@ export async function nexusReconcile(
       });
       await recordProjectIdAliases(
         stableProjectId,
-        [stableProjectId, canonicalIdentity.id, legacyProjectId(projectRoot)],
+        [stableProjectId, pathFingerprint.id, legacyProjectId(projectRoot)],
         now,
       );
       return { status: 'ok' };
@@ -1029,7 +1063,7 @@ export async function nexusReconcile(
     });
     await recordProjectIdAliases(
       stableProjectId,
-      [stableProjectId, canonicalIdentity.id, legacyProjectId(projectRoot)],
+      [stableProjectId, pathFingerprint.id, legacyProjectId(projectRoot)],
       now,
     );
     return { status: 'path_updated', oldPath, newPath: projectRoot };

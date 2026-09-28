@@ -1,14 +1,17 @@
 /**
- * Canonical project identity computation (T9149 — W5 N1 Epsilon-unique insight).
+ * Path fingerprints of a project checkout (T9149, demoted by T12470).
  *
- * Addresses the 80,969-row pollution from cross-provider mount-path divergence
- * (e.g. /mnt/projects/cleocode vs /workspace/cleocode both hashing to different
- * base64url(path) IDs for the same repo).
- *
- * `canonicalProjectId` anchors identity to git-root + realpath so container
- * bind-mounts, CI clones, and developer laptops all produce the same ID.
+ * A project is identified ONLY by the id it declares — the tracked
+ * `.cleo/project-id`, then `project-info.json` (ADR-094; see
+ * `readDeclaredProjectIdentity` in `@cleocode/paths`). The values computed here
+ * hash a checkout's LOCATION (git-root realpath + name + remote), so they
+ * change when the project moves. They survive only as alias keys in
+ * `nexus_project_id_aliases`, which keeps ids that older CLEO versions derived
+ * from a path resolvable. Never return one as a project id and never key a
+ * registry row by one. This supersedes the T9149 realpath-fingerprint identity.
  *
  * @task T9149
+ * @task T12470
  * @module nexus/identity
  */
 
@@ -36,9 +39,9 @@ export interface ProjectIdentityComponents {
   readonly remoteUrl?: string;
 }
 
-/** Result of canonical ID computation. */
+/** Result of path-fingerprint computation (an alias key, not an identity). */
 export interface CanonicalProjectIdResult {
-  /** The 12-hex-char canonical project ID. */
+  /** The 12-hex-char path fingerprint — an alias key, never a project id. */
   readonly id: string;
   /** The components used to compute the ID. */
   readonly components: ProjectIdentityComponents;
@@ -158,31 +161,26 @@ async function readProjectInfoName(
 // ---------------------------------------------------------------------------
 
 /**
- * Compute the canonical project ID for a given repository path.
+ * Compute the path fingerprint `sha256(gitRoot|name|remote)[0:12]` of a checkout.
  *
- * Algorithm:
- *   1. Resolve `repoPath` to its `realpath` (resolves symlinks, normalises mounts).
- *   2. Detect the git root via `git rev-parse --show-toplevel` (falls back to realpath).
- *   3. Read `.cleo/project-info.json` name (optional).
- *   4. Read `git remote get-url origin` (optional).
- *   5. SHA-256 of `<gitRoot>|<projectName>|<remoteUrl>`, first 12 hex chars.
+ * **Alias key only (T12470).** The value depends on where the checkout lives,
+ * so it is recorded in `nexus_project_id_aliases` to keep path-derived ids
+ * from older CLEO versions resolvable — it is never a project's identity.
  *
- * This ensures `/mnt/projects/cleocode` and `/workspace/cleocode` (same git root,
- * same remote) produce the same ID — resolving the 80,969-row pollution vector.
- *
- * @param repoPath - Absolute path to the project root (may be a symlink or bind-mount).
+ * @param repoPath - Absolute path to the checkout (may be a symlink or bind-mount).
  * @param execution - Optional captured caller lifetime, never renewed between stages.
  * @remarks All started Git children settle before this operation finishes. Context
- * cancellation/deadline failures cannot establish fallback identity or authority.
+ * cancellation/deadline failures cannot establish a fallback fingerprint.
  * @example
  * ```ts
- * const identity = await canonicalProjectId(projectRoot, execution);
+ * const { id: aliasKey } = await projectPathFingerprint(projectRoot, execution);
  * ```
- * @returns The canonical project ID result with components and hash.
+ * @returns The fingerprint with the components it was computed from.
  *
  * @task T9149
+ * @task T12470
  */
-export async function canonicalProjectId(
+export async function projectPathFingerprint(
   repoPath: string,
   execution?: OperationExecutionContext,
 ): Promise<CanonicalProjectIdResult> {
@@ -215,6 +213,15 @@ export async function canonicalProjectId(
     },
   };
 }
+
+/**
+ * Former name of {@link projectPathFingerprint}.
+ *
+ * @deprecated T12470 — the value is a path fingerprint (alias key), not a
+ * project id. Read identity with `readDeclaredProjectIdentity` from
+ * `@cleocode/paths`.
+ */
+export const canonicalProjectId: typeof projectPathFingerprint = projectPathFingerprint;
 
 // ---------------------------------------------------------------------------
 // Legacy alias migration

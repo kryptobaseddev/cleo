@@ -21,7 +21,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { _resetCleoPlatformPathsCache, computeCanonicalProjectId } from '@cleocode/paths';
+import { _resetCleoPlatformPathsCache } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createWorktree } from '../worktree-create.js';
 import { destroyWorktree } from '../worktree-destroy.js';
@@ -58,7 +58,8 @@ function seedCleoProject(projectRoot: string, cleoHome: string): void {
     ),
   );
 
-  const projectId = computeCanonicalProjectId(projectRoot);
+  // T12470: the registry is keyed by the DECLARED id, never a path hash.
+  const projectId = 'legacy-spawn-verify-e2e';
   const db = new DatabaseSync(join(cleoHome, 'nexus.db'));
   try {
     db.exec(

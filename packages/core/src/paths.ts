@@ -28,11 +28,11 @@ import { basename, dirname, join, resolve } from 'node:path';
 import type { DatabaseSync as DatabaseSyncType } from 'node:sqlite';
 import { E_CWD_WALKUP_FORBIDDEN, ExitCode } from '@cleocode/contracts';
 import {
-  computeCanonicalProjectId as _computeCanonicalProjectId,
   getCanonicalTemplatesTildePath as _getCanonicalTemplatesTildePath,
   getCleoTemplatesTildePath as _getCleoTemplatesTildePath,
   isAbsolutePath as _isAbsolutePath,
   resolveProjectByCwd as _pathsResolveProjectByCwd,
+  readDeclaredProjectIdentity as _readDeclaredProjectIdentity,
   resolveCanonicalCleoDir as _resolveCanonicalCleoDir,
 } from '@cleocode/paths';
 import { CleoError } from './errors.js';
@@ -390,15 +390,14 @@ export function getCleoDirAbsolute(cwd?: string, opts?: { bootstrap?: boolean })
   const project = _pathsResolveProjectByCwd(cwd);
   if (project !== null) {
     // T11021: Schedule lifecycle-tracked registration against captured global ownership.
-    // T11023: pass legacyUUID so it gets registered as an alias alongside
-    // the canonical ID.
+    // T12470: the declared id (tracked `.cleo/project-id` first) owns the row.
     // T11281: unit tests that exercise the nexus registration/reconcile contract
     // in isolation set CLEO_DISABLE_PROJECT_AUTOREGISTER=1 so this encounter-time
     // side-effect does not pre-register the fixture project out from under the
     // test's explicit registration state. Off by default — production always
     // auto-registers on encounter.
     if (process.env['CLEO_DISABLE_PROJECT_AUTOREGISTER'] !== '1') {
-      scheduleProjectEncounter(project.projectRoot, project.legacyUUID ?? project.projectId);
+      scheduleProjectEncounter(project.projectRoot, project.projectId);
     }
     try {
       const projectRoot = getProjectRoot(cwd);
@@ -609,52 +608,64 @@ function _findCleoDirRoot(cwd?: string): string | null {
 }
 
 /**
- * Resolve the canonical projectId from a working directory.
+ * Resolve the project id from a working directory.
  *
- * First reads `.cleo/project-info.json` from CWD or an ancestor directory (AC2).
- * Falls back to nexus registry `project_registry.project_path` match when no
- * local `project-info.json` is found (AC3).
+ * Resolution order (T12470 · ADR-094) — the id is always DECLARED, never
+ * derived from a path:
+ *   1. An absolute `CLEO_DIR` pin: the pinned root's declared id.
+ *   2. The nearest ancestor (or, from a git worktree, its main checkout) whose
+ *      `.cleo/` declares an id: tracked `.cleo/project-id`, then
+ *      `project-info.json`.
+ *   3. The registry's recorded location for this directory — a suggestion used
+ *      only when no ancestor declares an identity.
+ *
+ * Old path-derived ids handed in by callers keep resolving through
+ * `nexus_project_id_aliases` in `resolveCanonicalCleoDir`.
  *
  * @param cwd - Optional working directory. Defaults to `process.cwd()`.
- * @returns The canonical projectId string (AC4).
+ * @returns The opaque project id.
  * @throws {CleoError} `ExitCode.NEXUS_PROJECT_NOT_FOUND` (E_CLEO_NEXUS_PROJECT_NOT_FOUND)
- *   with a remediation hint when no CLEO project is found (AC5).
+ *   with a remediation hint when no CLEO project is found.
  *
  * @example
  * ```typescript
  * const projectId = resolveProjectByCwd('/repo/packages/core');
- * // "a1b2c3d4e5f6"
+ * // "c78d09c3a8ee" — the content of /repo/.cleo/project-id
  * ```
  *
  * @public
  * @task T11013
+ * @task T12470
  */
 export function resolveProjectByCwd(cwd?: string): string {
-  // CLEO_DIR override (backward-compat, T11262 regression fix). When CLEO_DIR
-  // is an absolute path it pins the project for the whole process; return a
-  // deterministic projectId derived from the pinned project root so callers
-  // that chain into resolveCanonicalCleoDir (which also honours CLEO_DIR) never
-  // hit the empty-registry NEXUS_PROJECT_NOT_FOUND throw. See _cleoDirEnvOverride.
+  let from = cwd;
+  // CLEO_DIR override (backward-compat, T11262). An absolute CLEO_DIR pins the
+  // project for the whole process. T12470: return the pinned root's DECLARED
+  // id — never a hash of its path. A pinned root that declares nothing is
+  // resolved by the ordinary chain FROM THAT ROOT, never from the process cwd
+  // (which may sit inside a different project).
   const overrideDir = _cleoDirEnvOverride();
   if (overrideDir !== null) {
     const projectRoot = overrideDir.replace(/[\\/]\.cleo$/, '');
-    return _computeCanonicalProjectId(projectRoot);
+    const declared = _readDeclaredProjectIdentity(projectRoot);
+    if (declared !== null) return declared.projectId;
+    from = projectRoot;
   }
 
-  // AC2: Try local project-info.json first (via paths package)
-  const pathsResult = _pathsResolveProjectByCwd(cwd);
+  // Declared identity: tracked .cleo/project-id, then project-info.json.
+  const pathsResult = _pathsResolveProjectByCwd(from);
   if (pathsResult !== null) {
     return pathsResult.projectId;
   }
 
   // AC4: Walk up from cwd looking for git worktree gitlinks.
   // When cwd is inside a worktree (`.git` is a FILE pointing to main repo),
-  // resolve the main repo and try project-info.json there.
+  // resolve the main repo and read its declared identity there.
   // This handles the canonical CLEO worktree layout where worktrees live
   // under ~/.local/share/cleo/worktrees/<hash>/<taskId>/ — completely
   // separate from the main repo — and therefore ancestor-walk from cwd
-  // will never encounter the main repo's .cleo/project-info.json.
-  const start = resolve(cwd ?? process.cwd());
+  // will never encounter the main repo's `.cleo/`.
+  const start = resolve(from ?? process.cwd());
   let current = start;
   while (true) {
     const mainRepo = _resolveMainRepoFromGitlink(current);
@@ -663,7 +674,7 @@ export function resolveProjectByCwd(cwd?: string): string {
       if (mainRepoResult !== null) {
         return mainRepoResult.projectId;
       }
-      // Found a gitlink but the main repo has no project-info.json —
+      // Found a gitlink but the main repo declares no identity —
       // don't keep walking up past the gitlink; the worktree's ancestors
       // won't help.
       break;
@@ -673,8 +684,8 @@ export function resolveProjectByCwd(cwd?: string): string {
     current = parent;
   }
 
-  // AC3: Fall back to nexus registry lookup
-  const nexusProjectId = _resolveProjectByCwdFromNexus(cwd);
+  // Suggestion only: the registry's recorded location for this directory.
+  const nexusProjectId = _resolveProjectByCwdFromNexus(from);
   if (nexusProjectId !== null) {
     return nexusProjectId;
   }
@@ -2031,7 +2042,7 @@ export async function recordProjectEncounter(cwd?: string): Promise<ProjectEncou
   }
   const project = _pathsResolveProjectByCwd(start);
   if (project === null) return 'no-project';
-  const infoProjectId = project.legacyUUID ?? project.projectId;
+  const infoProjectId = project.projectId;
   const cleoHome = getCleoHome();
   if (!shouldAutoRegisterProject(project.projectRoot, cleoHome)) return 'ephemeral';
   const checkout = captureProjectScope(project.projectRoot, worktreeScope.getStore()).worktreeRoot;
@@ -2106,9 +2117,10 @@ export async function registerProjectOnEncounter(
     const outcome = await trackBackgroundOp(
       () =>
         worktreeScope.run({ ...scope, execution }, async () => {
-          const { canonicalProjectId, legacyProjectId } = await import('./nexus/identity.js');
+          const { projectPathFingerprint, legacyProjectId } = await import('./nexus/identity.js');
           const { generateProjectHash } = await import('./nexus/hash.js');
-          const canonical = await canonicalProjectId(resolvedPath, execution);
+          // Path-derived values are ALIASES of the declared id, never the id (T12470).
+          const canonical = await projectPathFingerprint(resolvedPath, execution);
           execution.assertActive();
           const { getNexusRegistryDb } = await import('./store/nexus-sqlite.js');
           const { eq } = await import('drizzle-orm');

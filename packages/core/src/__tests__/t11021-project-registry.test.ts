@@ -284,10 +284,10 @@ describe('captured encounter registration ownership', () => {
       const native = getNativeTasksDb(project)!;
       native.exec('BEGIN IMMEDIATE');
       const identity = await import('../nexus/identity.js');
-      const original = identity.canonicalProjectId;
+      const original = identity.projectPathFingerprint;
       const entered = Promise.withResolvers<void>();
       const release = Promise.withResolvers<void>();
-      vi.spyOn(identity, 'canonicalProjectId').mockImplementationOnce(async (...args) => {
+      vi.spyOn(identity, 'projectPathFingerprint').mockImplementationOnce(async (...args) => {
         entered.resolve();
         await release.promise;
         return original(...args);
@@ -484,10 +484,10 @@ describe('captured encounter registration ownership', () => {
         { signal: controller.signal },
       );
       const identity = await import('../nexus/identity.js');
-      const original = identity.canonicalProjectId;
+      const original = identity.projectPathFingerprint;
       const entered = Promise.withResolvers<void>();
       const release = Promise.withResolvers<void>();
-      vi.spyOn(identity, 'canonicalProjectId').mockImplementationOnce(async (...args) => {
+      vi.spyOn(identity, 'projectPathFingerprint').mockImplementationOnce(async (...args) => {
         entered.resolve();
         await release.promise;
         return original(...args);
