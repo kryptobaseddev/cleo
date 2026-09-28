@@ -55,9 +55,12 @@ const SLACK_BOT_RE = /\bxoxb-[A-Za-z0-9_-]+\b/g;
 
 /**
  * GitHub tokens: classic/OAuth/app/refresh (`ghp_`, `gho_`, `ghu_`, `ghs_`,
- * `ghr_` + 36+ chars) and fine-grained PATs (`github_pat_…`).
+ * `ghr_` + 36+ chars) and fine-grained PATs in their exact shape
+ * (`github_pat_` + 22 + `_` + 59), so `github_pat_`-prefixed snake_case
+ * identifiers are left alone.
  */
-const GITHUB_TOKEN_RE = /\bgh[pousr]_[A-Za-z0-9]{36,}\b|\bgithub_pat_[A-Za-z0-9_]{22,}\b/g;
+const GITHUB_TOKEN_RE =
+  /\bgh[pousr]_[A-Za-z0-9]{36,}\b|\bgithub_pat_[A-Za-z0-9]{22}_[A-Za-z0-9]{59}\b/g;
 
 /** JWT bearer token: `eyJ<base64>.<base64>.<base64>`. */
 const JWT_RE = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g;

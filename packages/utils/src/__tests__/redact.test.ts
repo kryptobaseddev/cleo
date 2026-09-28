@@ -24,11 +24,20 @@ describe('redact (superset of both prior credential scrubbers)', () => {
       `ghp_${'A'.repeat(36)}`,
       `gho_${'b'.repeat(36)}`,
       `ghs_${'C1'.repeat(18)}`,
-      `github_pat_${'D'.repeat(22)}_${'e'.repeat(59)}`,
+      `github_pat_${'D1'.repeat(11)}_${'e2'.repeat(29)}f`,
     ]) {
       const out = redact(`token ${token} end`);
       expect(out).not.toContain(token.slice(0, 8));
       expect(out).toContain('[REDACTED]');
+    }
+  });
+
+  it('leaves github_pat_-prefixed snake_case identifiers alone', () => {
+    for (const ident of [
+      'github_pat_config_loader_value_for_tests',
+      'const github_pat_rotation_policy_enabled_flag = true',
+    ]) {
+      expect(redact(ident)).toBe(ident);
     }
   });
 

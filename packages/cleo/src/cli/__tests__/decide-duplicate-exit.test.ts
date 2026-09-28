@@ -85,7 +85,7 @@ createServer((req, res) => {
     for (const name of Object.keys(body.questions ?? {})) {
       answers[name] = { type: 'noul', noul: 0.1, confidence: 0.9 };
     }
-    res.writeHead(200, { 'content-type': 'application/json' });
+    res.writeHead(Number(process.argv[1] ?? 200), { 'content-type': 'application/json' });
     res.end(JSON.stringify({ model: body.model, answers, meta: { request_id: 'fast' } }));
   });
 }).listen(0, '127.0.0.1', function () {
@@ -114,6 +114,19 @@ let silentDns: UdpSocket;
 let silentDnsPort = 0;
 let fastProvider: ChildProcess | undefined;
 let fastProviderPort = 0;
+/** Providers answering with an out-of-range HTTP status, by status. */
+const oddProviders = new Map<number, { child: ChildProcess; port: number }>();
+
+/** Start {@link FAST_PROVIDER} in its own process, answering with `status`. */
+async function startProvider(status: number): Promise<{ child: ChildProcess; port: number }> {
+  const child = spawn('node', ['--input-type=module', '-e', FAST_PROVIDER, String(status)], {
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
+  const port = await new Promise<number>((r) =>
+    child.stdout?.once('data', (d: Buffer) => r(Number(d.toString().trim()))),
+  );
+  return { child, port };
+}
 
 function cli(args: readonly string[], extraEnv: Record<string, string> = {}): Run {
   const env: NodeJS.ProcessEnv = {
@@ -199,12 +212,10 @@ describe.skipIf(!CLI_DIST_AVAILABLE)(
       await new Promise<void>((r) => tlsHole.listen(0, '127.0.0.1', r));
       tlsHolePort = (tlsHole.address() as { port: number }).port;
 
-      fastProvider = spawn('node', ['--input-type=module', '-e', FAST_PROVIDER], {
-        stdio: ['ignore', 'pipe', 'inherit'],
-      });
-      fastProviderPort = await new Promise<number>((r) =>
-        fastProvider?.stdout?.once('data', (d: Buffer) => r(Number(d.toString().trim()))),
-      );
+      const fast = await startProvider(200);
+      fastProvider = fast.child;
+      fastProviderPort = fast.port;
+      for (const status of [999, 100]) oddProviders.set(status, await startProvider(status));
 
       silentDns = createSocket('udp4');
       silentDns.on('message', () => undefined);
@@ -278,6 +289,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)(
       await new Promise<void>((r) => tlsHole?.close(() => r()));
       silentDns?.close();
       fastProvider?.kill();
+      for (const { child } of oddProviders.values()) child.kill();
       rmSync(root, { recursive: true, force: true });
     });
 
@@ -317,6 +329,20 @@ describe.skipIf(!CLI_DIST_AVAILABLE)(
       configure(`http://127.0.0.1:${fastProviderPort}`);
       expectPromptExit(ambiguousAdd(), 'fast-provider');
       expect(lastFallbackReason()).toBeUndefined();
+    }, 60_000);
+
+    it.each([
+      999, 100,
+    ])('provider answers HTTP %i (outside 200-599): fallback, task created, prompt exit', (status) => {
+      configure(`http://127.0.0.1:${oddProviders.get(status)?.port}`);
+      expectPromptExit(ambiguousAdd(), `status-${status}`);
+      expect(lastFallbackReason()).toBeDefined();
+    }, 60_000);
+
+    it('.local provider host (mDNS): refused without a system lookup', () => {
+      configure('https://decide-exit-test.local');
+      expectPromptExit(ambiguousAdd(), 'dot-local');
+      expect(['network', 'timeout']).toContain(lastFallbackReason());
     }, 60_000);
 
     it('slow DNS (resolver query never answered)', () => {

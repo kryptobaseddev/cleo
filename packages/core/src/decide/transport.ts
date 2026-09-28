@@ -13,12 +13,26 @@
  * the signal fires:
  *
  * - DNS goes through a dedicated `dns.Resolver` (c-ares) whose `cancel()`
- *   ends in-flight queries; IP literals and `localhost` skip DNS. Names the
- *   resolver cannot find (e.g. `/etc/hosts`-only) fall back to `dns.lookup`.
- * - The request uses `agent: false` — no pooled keep-alive socket survives the
+ *   ends in-flight queries. IP literals skip DNS; `localhost` and other
+ *   hosts-file names are answered from the hosts file, in file order.
+ * - `.local` (mDNS) names are refused outright unless the hosts file maps
+ *   them: c-ares answers NXDOMAIN, and the system resolver would then wait
+ *   seconds on multicast, uncancellably.
+ * - When c-ares cannot answer (NXDOMAIN, SERVFAIL, REFUSED, timeout — e.g. a
+ *   VPN's split DNS that only the system resolver knows), `dns.lookup` is the
+ *   fallback. It is the ONE step that cannot be cancelled: a hung
+ *   `getaddrinfo` holds the process until it returns. That residual risk is
+ *   disclosed in the T12492 changeset.
+ * - Every resolved address is tried in order (IPv4 first, then IPv6) until a
+ *   connection is made; a refused or unreachable address moves on to the next.
+ * - Requests use `agent: false` — no pooled keep-alive socket survives the
  *   call — and `req.destroy()` on abort tears down a socket in any phase.
- * - TLS still verifies the certificate against the ORIGINAL hostname
+ * - TLS verifies the certificate against the ORIGINAL hostname
  *   (`servername`), not the resolved address.
+ * - Every listener converts a throw into a rejection: a response the WHATWG
+ *   `Response` cannot represent (status outside 200–599) is a rejected call,
+ *   never an uncaught exception that kills the CLI mid-write.
+ * - The transport never consults `HTTPS_PROXY` / `NODE_USE_ENV_PROXY`.
  *
  * Provider-neutral: it knows no endpoint paths or wire shapes.
  *
@@ -26,6 +40,7 @@
  */
 
 import { lookup as dnsLookup, Resolver } from 'node:dns';
+import { readFileSync } from 'node:fs';
 import { request as httpRequest, type IncomingMessage } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { isIP } from 'node:net';
@@ -52,7 +67,29 @@ const RESOLVER_TIMEOUT_MS = 2_000;
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 
 /** Statuses whose `Response` must not carry a body. */
-const NULL_BODY_STATUSES: ReadonlySet<number> = new Set([101, 204, 205, 304]);
+const NULL_BODY_STATUSES: ReadonlySet<number> = new Set([204, 205, 304]);
+
+/** c-ares answers after which the system resolver may still know the name. */
+const SYSTEM_FALLBACK_CODES: ReadonlySet<string> = new Set([
+  'ENOTFOUND',
+  'ENODATA',
+  'NOTFOUND',
+  'ESERVFAIL',
+  'SERVFAIL',
+  'EREFUSED',
+  'REFUSED',
+  'ETIMEOUT',
+  'TIMEOUT',
+]);
+
+/** Connect-phase failures after which the next address is worth trying. */
+const NEXT_ADDRESS_CODES: ReadonlySet<string> = new Set([
+  'ECONNREFUSED',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'EADDRNOTAVAIL',
+  'EAFNOSUPPORT',
+]);
 
 function abortError(): Error {
   const err = new Error('The operation was aborted');
@@ -60,83 +97,239 @@ function abortError(): Error {
   return err;
 }
 
-function isNotFound(err: NodeJS.ErrnoException): boolean {
-  return err.code === 'ENOTFOUND' || err.code === 'ENODATA' || err.code === 'NOTFOUND';
+function errorCode(err: unknown): string | undefined {
+  return err instanceof Error && 'code' in err && typeof err.code === 'string'
+    ? err.code
+    : undefined;
 }
 
-/** Resolve `hostname` to one address, cancellably. */
-function resolveHost(hostname: string, signal: AbortSignal): Promise<string> {
-  if (isIP(hostname)) return Promise.resolve(hostname);
-  if (hostname.toLowerCase() === 'localhost') return Promise.resolve('127.0.0.1');
+function asError(err: unknown): Error {
+  return err instanceof Error ? err : new Error(String(err));
+}
 
-  return new Promise<string>((resolve, reject) => {
+/** Hosts-file path for this platform. */
+function hostsFilePath(): string {
+  return process.platform === 'win32'
+    ? `${process.env['SystemRoot'] ?? 'C:\\Windows'}\\System32\\drivers\\etc\\hosts`
+    : '/etc/hosts';
+}
+
+/**
+ * Addresses the hosts file maps `hostname` to, in file order. A synchronous
+ * read of a small local file — no handle survives it.
+ */
+function hostsFileAddresses(hostname: string): string[] {
+  let text: string;
+  try {
+    text = readFileSync(hostsFilePath(), 'utf-8');
+  } catch {
+    return [];
+  }
+  const out: string[] = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const [address, ...names] = (raw.split('#')[0] ?? '').trim().split(/\s+/);
+    if (!address || !isIP(address)) continue;
+    if (names.some((n) => n.toLowerCase() === hostname) && !out.includes(address)) {
+      out.push(address);
+    }
+  }
+  return out;
+}
+
+/** IPv4 addresses first, then IPv6, preserving order within each family. */
+function v4First(addresses: readonly string[]): string[] {
+  return [...addresses.filter((a) => isIP(a) === 4), ...addresses.filter((a) => isIP(a) === 6)];
+}
+
+/** Resolve through c-ares: both families. Cancellable; never throws synchronously. */
+function resolveWithCares(hostname: string, signal: AbortSignal): Promise<string[]> {
+  return new Promise<string[]>((resolve, reject) => {
     const resolver = new Resolver({ timeout: RESOLVER_TIMEOUT_MS, tries: 1 });
     let done = false;
-    const finish = (err: Error | null, address?: string): void => {
+    const finish = (err: Error | null, addresses: string[] = []): void => {
       if (done) return;
       done = true;
       signal.removeEventListener('abort', onAbort);
       if (err) reject(err);
-      else resolve(address ?? hostname);
+      else resolve(addresses);
     };
     const onAbort = (): void => {
       resolver.cancel();
       finish(abortError());
     };
     signal.addEventListener('abort', onAbort, { once: true });
-
-    resolver.resolve4(hostname, (err4, v4) => {
-      if (!err4 && v4[0]) return finish(null, v4[0]);
-      if (done) return;
-      resolver.resolve6(hostname, (err6, v6) => {
-        if (!err6 && v6[0]) return finish(null, v6[0]);
+    try {
+      resolver.resolve4(hostname, (err4, v4) => {
         if (done) return;
-        const err = err6 ?? err4;
-        // Not in DNS: maybe a hosts-file name. `dns.lookup` answers those
-        // from local files without a network round trip.
-        if (err && isNotFound(err)) {
-          dnsLookup(hostname, (errL, address) => finish(errL, address));
+        resolver.resolve6(hostname, (err6, v6) => {
+          const found = [...(err4 ? [] : v4), ...(err6 ? [] : v6)];
+          if (found.length > 0) finish(null, found);
+          else finish(err4 ?? err6 ?? new Error(`could not resolve ${hostname}`));
+        });
+      });
+    } catch (err) {
+      finish(asError(err));
+    }
+  });
+}
+
+/**
+ * The system resolver (`getaddrinfo`) — NOT cancellable. Used only after
+ * c-ares could not answer. An abort still settles the promise at once, but a
+ * hung lookup keeps its threadpool request alive until it returns.
+ */
+function resolveWithSystem(hostname: string, signal: AbortSignal): Promise<string[]> {
+  return new Promise<string[]>((resolve, reject) => {
+    const onAbort = (): void => reject(abortError());
+    signal.addEventListener('abort', onAbort, { once: true });
+    try {
+      dnsLookup(hostname, { all: true }, (err, addresses) => {
+        signal.removeEventListener('abort', onAbort);
+        if (err) reject(err);
+        else resolve(addresses.map((a) => a.address));
+      });
+    } catch (err) {
+      signal.removeEventListener('abort', onAbort);
+      reject(asError(err));
+    }
+  });
+}
+
+/** Resolve `hostname` to every candidate address, in connection order. */
+async function resolveHost(hostname: string, signal: AbortSignal): Promise<string[]> {
+  if (isIP(hostname)) return [hostname];
+  const name = hostname.toLowerCase().replace(/\.$/, '');
+  const fromHosts = hostsFileAddresses(name);
+  // `localhost` keeps the hosts file's own order (the system order).
+  if (name === 'localhost') return fromHosts.length > 0 ? fromHosts : ['127.0.0.1', '::1'];
+  if (fromHosts.length > 0) return v4First(fromHosts);
+  if (name === 'local' || name.endsWith('.local')) {
+    throw new Error(`refusing to resolve ${hostname}: .local (mDNS) names are not supported`);
+  }
+
+  try {
+    return v4First(await resolveWithCares(hostname, signal));
+  } catch (err) {
+    if (signal.aborted) throw abortError();
+    const code = errorCode(err);
+    if (code === undefined || !SYSTEM_FALLBACK_CODES.has(code)) throw asError(err);
+    return v4First(await resolveWithSystem(hostname, signal));
+  }
+}
+
+/**
+ * Buffer `res` into a WHATWG `Response`, capped at {@link MAX_RESPONSE_BYTES}.
+ * Settles by rejection on any failure, including a status `Response` refuses.
+ */
+function toResponse(res: IncomingMessage): Promise<Response> {
+  return new Promise<Response>((resolve, reject) => {
+    const status = res.statusCode ?? 0;
+    if (!Number.isInteger(status) || status < 200 || status > 599) {
+      res.destroy();
+      reject(new Error(`provider returned an HTTP status outside 200-599 (${status})`));
+      return;
+    }
+    const chunks: Buffer[] = [];
+    let total = 0;
+    res.on('data', (chunk: Buffer) => {
+      try {
+        total += chunk.byteLength;
+        if (total > MAX_RESPONSE_BYTES) {
+          res.destroy(new Error('response body exceeds the size limit'));
           return;
         }
-        finish(err ?? new Error(`could not resolve ${hostname}`));
-      });
+        chunks.push(chunk);
+      } catch (err) {
+        res.destroy(asError(err));
+      }
+    });
+    res.on('error', (err) => reject(err));
+    res.on('aborted', () => reject(new Error('response aborted')));
+    res.on('close', () => {
+      if (!res.complete) reject(new Error('response closed before it completed'));
+    });
+    res.on('end', () => {
+      try {
+        const headers = new Headers();
+        for (const [name, value] of Object.entries(res.headers)) {
+          if (value === undefined) continue;
+          for (const v of Array.isArray(value) ? value : [value]) headers.append(name, v);
+        }
+        const body = NULL_BODY_STATUSES.has(status) ? null : Buffer.concat(chunks);
+        resolve(new Response(body, { status, headers }));
+      } catch (err) {
+        reject(asError(err));
+      }
     });
   });
 }
 
-/** Buffer `res` into a WHATWG `Response`, capped at {@link MAX_RESPONSE_BYTES}. */
-function toResponse(res: IncomingMessage): Promise<Response> {
+/** One request to one resolved address. Settles by rejection; no listener throws. */
+function requestOnce(
+  target: URL,
+  address: string,
+  hostname: string,
+  init: DecideFetchInit,
+): Promise<Response> {
+  const { signal } = init;
+  const https = target.protocol === 'https:';
   return new Promise<Response>((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let total = 0;
-    res.on('data', (chunk: Buffer) => {
-      total += chunk.byteLength;
-      if (total > MAX_RESPONSE_BYTES) {
-        res.destroy(new Error('response body exceeds the size limit'));
-        return;
-      }
-      chunks.push(chunk);
+    let settled = false;
+    let req: ReturnType<typeof httpRequest> | undefined;
+    const settle = (fn: () => void): void => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', onAbort);
+      fn();
+    };
+    const onAbort = (): void => {
+      req?.destroy(abortError());
+      settle(() => reject(abortError()));
+    };
+    try {
+      req = (https ? httpsRequest : httpRequest)({
+        host: address,
+        port: target.port || (https ? 443 : 80),
+        path: `${target.pathname}${target.search}`,
+        method: init.method,
+        headers: { ...init.headers, host: target.host },
+        agent: false,
+        ...(https && !isIP(hostname) ? { servername: hostname } : {}),
+      });
+    } catch (err) {
+      settle(() => reject(asError(err)));
+      return;
+    }
+    const active = req;
+    signal.addEventListener('abort', onAbort, { once: true });
+    active.on('error', (err) => {
+      settle(() => reject(signal.aborted ? abortError() : err));
     });
-    res.on('error', reject);
-    res.on('end', () => {
-      const status = res.statusCode ?? 0;
-      const headers = new Headers();
-      for (const [name, value] of Object.entries(res.headers)) {
-        if (value === undefined) continue;
-        for (const v of Array.isArray(value) ? value : [value]) headers.append(name, v);
-      }
-      const body = NULL_BODY_STATUSES.has(status) ? null : Buffer.concat(chunks);
-      resolve(new Response(body, { status, headers }));
+    active.on('response', (res) => {
+      toResponse(res).then(
+        (response) => settle(() => resolve(response)),
+        (err: unknown) => {
+          active.destroy();
+          settle(() => reject(signal.aborted ? abortError() : asError(err)));
+        },
+      );
     });
+    try {
+      active.end(init.body);
+    } catch (err) {
+      active.destroy();
+      settle(() => reject(asError(err)));
+    }
   });
 }
 
 /**
  * Perform one HTTP(S) request and buffer the response.
  *
- * Rejects with an `AbortError` when `init.signal` fires; by then the DNS
- * query, socket and request have been destroyed, so no handle outlives the
- * call.
+ * Rejects — never throws out of a callback — on abort, on any network or
+ * protocol failure, and on a status outside 200–599. By the time an abort
+ * rejects, the DNS query, socket and request have been destroyed (except a
+ * system-resolver fallback already in flight; see the module docs).
  *
  * @param url - Absolute `http:` or `https:` URL.
  * @param init - Method, headers, body and the (required) abort signal.
@@ -146,38 +339,23 @@ export async function decideFetch(url: string, init: DecideFetchInit): Promise<R
   const { signal } = init;
   if (signal.aborted) throw abortError();
   const target = new URL(url);
-  const https = target.protocol === 'https:';
-  if (!https && target.protocol !== 'http:') {
+  if (target.protocol !== 'https:' && target.protocol !== 'http:') {
     throw new Error(`unsupported protocol ${target.protocol}`);
   }
   const hostname = target.hostname.replace(/^\[|\]$/g, '');
-  const address = await resolveHost(hostname, signal);
+  const addresses = await resolveHost(hostname, signal);
   if (signal.aborted) throw abortError();
 
-  return new Promise<Response>((resolve, reject) => {
-    const request = https ? httpsRequest : httpRequest;
-    const req = request({
-      host: address,
-      port: target.port || (https ? 443 : 80),
-      path: `${target.pathname}${target.search}`,
-      method: init.method,
-      headers: { ...init.headers, host: target.host },
-      agent: false,
-      ...(https && !isIP(hostname) ? { servername: hostname } : {}),
-    });
-    const onAbort = (): void => {
-      req.destroy(abortError());
-    };
-    signal.addEventListener('abort', onAbort, { once: true });
-    const cleanup = (): void => signal.removeEventListener('abort', onAbort);
-    req.on('close', cleanup);
-    req.on('error', (err) => {
-      cleanup();
-      reject(signal.aborted ? abortError() : err);
-    });
-    req.on('response', (res) => {
-      toResponse(res).then(resolve, (err: Error) => reject(signal.aborted ? abortError() : err));
-    });
-    req.end(init.body);
-  });
+  let lastError: Error = new Error(`no address for ${hostname}`);
+  for (const address of addresses) {
+    try {
+      return await requestOnce(target, address, hostname, init);
+    } catch (err) {
+      if (signal.aborted) throw abortError();
+      lastError = asError(err);
+      const code = errorCode(err);
+      if (code === undefined || !NEXT_ADDRESS_CODES.has(code)) throw lastError;
+    }
+  }
+  throw lastError;
 }

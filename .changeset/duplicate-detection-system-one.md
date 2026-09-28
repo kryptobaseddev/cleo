@@ -53,14 +53,33 @@ configured, or when `decide.sites.duplicateDetection` is `off`.
   - an unroutable address;
   - slow DNS.
 
-  DNS now goes through a cancellable `dns.Resolver`. Sockets are unpooled
-  (`agent: false`) and are destroyed on abort, in any phase.
+  How the transport now behaves:
+  - DNS goes through a cancellable `dns.Resolver`. `localhost` and other
+    hosts-file names are answered from the hosts file, in the file's order.
+  - Every resolved address is tried, IPv4 first, then IPv6.
+  - Sockets are unpooled (`agent: false`) and are destroyed on abort, in any
+    phase.
+  - An HTTP status outside 200–599 becomes a fallback. It used to be an
+    uncaught `RangeError` that ended `cleo add` before the task was written.
+  - `.local` (mDNS) names are refused unless the hosts file maps them.
+
+  **Residual risk:** when c-ares cannot answer (NXDOMAIN, SERVFAIL, REFUSED
+  or timeout, e.g. VPN split DNS), the transport falls back to the system
+  resolver (`dns.lookup`). That call cannot be cancelled, so a hung
+  `getaddrinfo` can still hold `cleo add` open until it returns, or until the
+  3 s teardown backstop. The decision itself still falls back within the
+  300 ms budget.
+- **Proxies:** the decide transport ignores `HTTPS_PROXY`, `HTTP_PROXY` and
+  `NODE_USE_ENV_PROXY`. Behind a proxy that is the only route out, decisions
+  fail open to the heuristic, and the audit records `network` or `timeout`.
 - **Rate limits.** `retry-after` is capped at 60 s. Negative, past or
   unparseable values are ignored. A cool-down persisted by an earlier uncapped
   build is clamped as well.
 - **Provider URL.** A URL with userinfo (`user:pass@host`) is rejected by
   `cleo decide config`, and the password is never echoed.
 - **Redaction.** The shared redaction patterns (`@cleocode/utils`) now cover
-  GitHub tokens (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_`).
+  GitHub tokens: `ghp_`, `gho_`, `ghu_`, `ghs_` and `ghr_`, plus fine-grained
+  `github_pat_` tokens in their exact 22_59 shape, so snake_case identifiers
+  that start with `github_pat_` are not redacted.
 - `DuplicateCheckResult.tier` gains `'decision'`. The duplicate-bypass audit
   (`--force-duplicate`) is unchanged.
