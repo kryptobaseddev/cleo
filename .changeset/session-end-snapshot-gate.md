@@ -19,23 +19,26 @@ same `cleo.db`, so each SDK snapshot wrote three full copies.
 
 **What happens now when a session ends.** Both `sessionEnd` (CLI/dispatch) and
 `endSession` (SDK) call `requestSessionEndSnapshot` as their last step, after
-the session row is written as ended. It reads the current snapshot generation
-and spawns a detached, unref'd worker (`sessions/session-end-snapshot-entry.js`),
-then returns. The command that ended the session does not wait for a VACUUM.
+the session row is written as ended. It spawns a detached, unref'd worker
+(`sessions/session-end-snapshot-entry.js`) and returns, so the command that
+ended the session does not wait for a VACUUM.
 
-The worker takes the snapshot through the gate's `required` mode with that
-generation. It waits for the lock, and it is satisfied by any snapshot that
-started after the request, so a burst of session ends produces one snapshot,
-plus at most one trailing snapshot for requests made while it ran. The worker
-appends its outcome as one JSON line to `.cleo/logs/session-end-snapshot.log`.
+At most one worker is queued per project. A marker,
+`.cleo/backups/sqlite/.session-end-worker.pending`, is created atomically and
+exclusively (temp file, then `link()`) and never rewritten. The queued worker's
+pid and start time go in a per-token sidecar. A session end that finds a live
+marker spawns nothing, and is logged as coalesced in the worker log.
 
-At most one worker is queued per project. An O_EXCL marker
-(`.cleo/backups/sqlite/.session-end-worker.pending`) exists from spawn until the
-worker holds the gate lock, and the worker drops it before it claims its
-generation. A session end that finds a live marker spawns nothing, because the
-queued worker's snapshot will contain its writes. A burst therefore keeps at
-most two workers alive: one running and one queued. A marker whose pid is dead,
-or that is older than two minutes, is treated as absent.
+The worker drops the marker once it holds the gate lock, then snapshots
+unconditionally: requests coalesced onto it while it was queued, so no
+generation it could see proves their writes are already in a snapshot. A burst
+therefore keeps at most two workers alive, one running and one queued, and
+writes at most two snapshots.
+
+A marker is stale when it is older than two minutes, or its holder's pid is
+dead or now belongs to a different process (its `ps -o lstart` start time no
+longer matches). The worker appends its outcome to
+`.cleo/logs/session-end-snapshot.log`.
 
 If the worker cannot be spawned, or `CLEO_SESSION_END_SNAPSHOT=inline` is set,
 the snapshot runs in-process with a lock wait of about 6.5 s. Under vitest it
@@ -67,9 +70,9 @@ runs inline by default.
 - **Crash-safe snapshot files.** Every snapshot is written to
   `<name>.tmp-<pid>`, fsynced, then renamed. A process killed mid-VACUUM
   leaves only the temp file, never an empty file under a valid snapshot name
-  that restore would pick as the newest. Readers ignore `*.tmp-*` files, and
-  the next snapshot removes leftovers whose pid is dead or that are older than
-  one hour.
+  that restore would pick as the newest. Readers ignore `*.tmp-*` files. The
+  next snapshot removes leftovers, including their `-journal`, `-wal` and
+  `-shm` files, when their pid is dead or they are older than one hour.
 - **Snapshots come from the right project.** Target handles are resolved for
   the requested project (`cwd`). A project-tier handle whose file lies outside
   that project's `.cleo/` is refused as `failed`.

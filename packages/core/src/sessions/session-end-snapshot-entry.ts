@@ -4,18 +4,21 @@
  * Spawned by `requestSessionEndSnapshot` (`session-end-snapshot.ts`) as a
  * detached, unref'd process, so the command that ended the session returns
  * without waiting for a VACUUM. Takes the snapshot through the gate's
- * `required` mode with the generation the parent observed, waiting up to the
- * full pre-destructive bound for the lock (nobody is waiting on this process).
+ * `required` mode, waiting up to the full pre-destructive bound for the lock
+ * (nobody is waiting on this process).
  *
- * As soon as it holds the gate lock — before it claims a generation — it drops
- * the per-project "worker pending" marker, so a later session end spawns the
- * next worker instead of coalescing onto a snapshot that no longer covers it.
+ * As soon as it holds the gate lock it drops the per-project "worker pending"
+ * marker — so a later session end spawns the next worker instead of
+ * coalescing onto a snapshot that may no longer contain its writes — and then
+ * snapshots UNCONDITIONALLY (`alwaysSnapshot`). Requests coalesced onto this
+ * worker while it was queued; no generation it could observe proves their
+ * writes are in an earlier snapshot, so it never counts itself covered.
  *
  * It appends one JSON line with the outcome to
  * `.cleo/logs/session-end-snapshot.log` (never stdout: this process has no
  * reader, and CLEO keeps stdout for LAFS envelopes).
  *
- * argv: `<projectRoot> <seenGeneration | ""> <markerToken>`
+ * argv: `<projectRoot> <markerToken>`
  *
  * @task T12508
  */
@@ -31,15 +34,12 @@ if (!projectRoot) {
   process.stderr.write('session-end-snapshot worker: missing <projectRoot> argument\n');
   process.exit(2);
 }
-const rawGeneration = process.argv[3] ?? '';
-const markerToken = process.argv[4] ?? '';
-const parsed = rawGeneration === '' ? Number.NaN : Number(rawGeneration);
-const seenGeneration = Number.isSafeInteger(parsed) ? parsed : undefined;
+const markerToken = process.argv[3] ?? '';
 
 const result = await snapshotAfterSessionEnd(projectRoot, {
   lockWaitRetries: SNAPSHOT_LOCK_WAIT_RETRIES,
+  alwaysSnapshot: true,
   onLockAcquired: () => releaseSessionEndWorkerMarker(projectRoot, markerToken),
-  ...(seenGeneration !== undefined && { seenGeneration }),
 });
 // Also on lock-timeout or failure: never leave the marker to block others.
 releaseSessionEndWorkerMarker(projectRoot, markerToken);
@@ -54,7 +54,6 @@ try {
       at: new Date().toISOString(),
       pid: process.pid,
       projectRoot,
-      seenGeneration: seenGeneration ?? null,
       result,
     })}\n`,
   );

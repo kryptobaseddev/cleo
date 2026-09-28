@@ -158,6 +158,13 @@ export interface SnapshotGateOptions {
    * Defaults to the generation read at the start of this call.
    */
   readonly seenGeneration?: number;
+  /**
+   * `required` mode: never treat a prefix as covered — snapshot every
+   * requested prefix once the lock is held. Used by the session-end worker:
+   * requests coalesce onto it while it is queued, so no generation it could
+   * observe proves those requests' writes are in an earlier snapshot.
+   */
+  readonly alwaysSnapshot?: boolean;
   /** Lock retries for `required` mode. Defaults to {@link SNAPSHOT_LOCK_WAIT_RETRIES}. */
   readonly lockWaitRetries?: number;
   /**
@@ -338,9 +345,12 @@ export async function runGatedSnapshot(
     const state = tryReadGateState(db);
     if (!state && mode === 'routine') return none('state-unavailable');
     const startMs = now();
-    const admitted = opts.prefixes.filter((p) =>
-      needsSnapshot(state?.prefixes[p], mode, startMs, seenGeneration),
-    );
+    const admitted =
+      mode === 'required' && opts.alwaysSnapshot === true
+        ? [...opts.prefixes]
+        : opts.prefixes.filter((p) =>
+            needsSnapshot(state?.prefixes[p], mode, startMs, seenGeneration),
+          );
     if (admitted.length === 0) return none(mode === 'routine' ? 'debounced' : 'covered');
 
     // Claim the next generation BEFORE snapshotting, so a request made while

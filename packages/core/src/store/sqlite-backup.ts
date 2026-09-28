@@ -629,6 +629,8 @@ export interface VacuumOptions {
    * Defaults to the generation read when this call starts.
    */
   seenGeneration?: number;
+  /** `required` mode: never treat a prefix as covered (see `snapshot-gate.ts`). */
+  alwaysSnapshot?: boolean;
   /**
    * `required` mode: lock retries before giving up with `lock-timeout`.
    * Defaults to `SNAPSHOT_LOCK_WAIT_RETRIES` (about 90 s).
@@ -708,6 +710,7 @@ async function snapshotProjectTargetsGated(
       prefixes: [...byPrefix.keys()],
       mode: opts.mode ?? 'routine',
       ...(opts.seenGeneration !== undefined && { seenGeneration: opts.seenGeneration }),
+      ...(opts.alwaysSnapshot !== undefined && { alwaysSnapshot: opts.alwaysSnapshot }),
       ...(opts.lockWaitRetries !== undefined && { lockWaitRetries: opts.lockWaitRetries }),
       ...(opts.onLockAcquired !== undefined && { onLockAcquired: opts.onLockAcquired }),
     },
@@ -790,8 +793,11 @@ function tryHardLink(existing: string, dest: string): boolean {
   }
 }
 
-/** Suffix marking an in-progress snapshot file: `<name>.tmp-<pid>`. */
-const TEMP_SNAPSHOT_RE = /\.db\.tmp-(\d+)$/;
+/**
+ * An in-progress snapshot file `<name>.tmp-<pid>`, or a SQLite sidecar
+ * (`-journal`, `-wal`, `-shm`) that `VACUUM INTO` may leave beside it.
+ */
+const TEMP_SNAPSHOT_RE = /\.db\.tmp-(\d+)(?:-journal|-wal|-shm)?$/;
 
 /** Age after which any temp snapshot is a leftover, even if its pid was reused. */
 const TEMP_SNAPSHOT_MAX_AGE_MS = 60 * 60_000;

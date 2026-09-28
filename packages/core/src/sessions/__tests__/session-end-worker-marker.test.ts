@@ -20,6 +20,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   utimesSync,
@@ -27,6 +28,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -81,6 +83,12 @@ describe.skipIf(DIST_MISSING)('session-end worker marker (T12508)', { timeout: 1
 
   const markerPath = (): string => join(backupDir, '.session-end-worker.pending');
   const lockDir = (): string => join(backupDir, '.snapshot-gate.lock');
+  const logLines = (): string[] => {
+    const log = join(projectRoot, '.cleo', 'logs', 'session-end-snapshot.log');
+    return existsSync(log) ? readFileSync(log, 'utf-8').split('\n') : [];
+  };
+  const coalescedLines = (): string[] =>
+    logLines().filter((l) => l.includes('"session-end-snapshot-coalesced"'));
   const workerLines = (): WorkerLine[] => {
     const log = join(projectRoot, '.cleo', 'logs', 'session-end-snapshot.log');
     if (!existsSync(log)) return [];
@@ -137,6 +145,17 @@ describe.skipIf(DIST_MISSING)('session-end worker marker (T12508)', { timeout: 1
     expect(spawned).toHaveLength(1);
     expect(burst.filter((r) => r.mode === 'coalesced')).toHaveLength(14);
     expect(existsSync(markerPath())).toBe(true);
+    // Every coalesced request is recorded in the worker log (T12508 round 5).
+    expect(coalescedLines()).toHaveLength(14);
+    // The marker is written once and never rewritten (so a hand-off can never
+    // recreate a marker the worker already dropped): it still names this
+    // requester, and the worker's identity is in the per-token sidecar.
+    const marker: { token: string; pid: number } = JSON.parse(readFileSync(markerPath(), 'utf-8'));
+    expect(marker.pid).toBe(process.pid);
+    const sidecar: { pid: number } = JSON.parse(
+      readFileSync(`${markerPath()}.${marker.token}.worker`, 'utf-8'),
+    );
+    expect(sidecar.pid).toBe(spawned[0]?.pid);
 
     // Release: the worker takes the lock, drops the marker, claims, snapshots.
     rmSync(lockDir(), { recursive: true, force: true });
@@ -149,6 +168,78 @@ describe.skipIf(DIST_MISSING)('session-end worker marker (T12508)', { timeout: 1
     expect(trailing.mode).toBe('detached');
     expect(await waitFor(() => workerLines().length === 2, 60_000)).toBe(true);
     expect(workerLines()[1]?.result?.snapshotted).toContain('tasks');
+  });
+
+  /**
+   * r5-race (T12508 round 5): A reads generation G and queues worker W_A; a
+   * snapshot already in flight (W0) then claims G+1 and completes; C writes
+   * and coalesces onto W_A. W_A must still snapshot — its snapshot is the only
+   * one that can contain C's write — even though a generation above A's read
+   * exists. Also when the intervening claim was a tasks-only pre-destructive
+   * snapshot.
+   */
+  for (const scope of ['all prefixes', 'tasks only (pre-destructive)'] as const) {
+    it(`a queued worker is not covered by a claim made while it waited: ${scope}`, async () => {
+      const { requestSessionEndSnapshot } = await import('../session-end-snapshot.js');
+      const { getNativeDb } = await import('../../store/sqlite.js');
+      const db = getNativeDb(projectRoot);
+      if (!db) throw new Error('project store not open');
+      db.exec('CREATE TABLE IF NOT EXISTS zz (x TEXT)');
+
+      // W0 is in flight (holds the lock); A ends its session and queues W_A.
+      mkdirSync(lockDir(), { recursive: true });
+      const a = await requestSessionEndSnapshot(projectRoot);
+      expect(a.mode).toBe('detached');
+
+      // W0 claims G+1 and records its snapshot — after A's generation read.
+      const g = (a.seenGeneration ?? 0) + 1;
+      const now = Date.now();
+      const prefixes =
+        scope === 'all prefixes'
+          ? ['tasks', 'brain', 'conduit', 'llmtxt', 'signaldock-project']
+          : ['tasks'];
+      db.prepare(
+        'INSERT INTO schema_meta (key, value) VALUES (?, ?) ' +
+          'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+      ).run(
+        'sqlite_snapshot_gate',
+        JSON.stringify({
+          generation: g,
+          prefixes: Object.fromEntries(
+            prefixes.map((p) => [p, { generation: g, startedAt: now, completedAt: now }]),
+          ),
+        }),
+      );
+
+      // C's final write lands after W0's claim; C coalesces onto W_A.
+      db.exec("INSERT INTO zz VALUES ('C-final-write')");
+      expect((await requestSessionEndSnapshot(projectRoot)).mode).toBe('coalesced');
+
+      rmSync(lockDir(), { recursive: true, force: true });
+      expect(await waitFor(() => workerLines().length === 1, 60_000)).toBe(true);
+      expect(workerLines()[0]?.result?.snapshotted).toContain('tasks');
+
+      const newest = readdirSync(backupDir)
+        .filter((f) => /^tasks-\d{8}-\d{6}\.db$/.test(f))
+        .sort()
+        .pop();
+      expect(newest).toBeDefined();
+      const copy = new DatabaseSync(join(backupDir, newest ?? ''), { readOnly: true });
+      const rows = copy.prepare('SELECT x FROM zz').all() as Array<{ x: string }>;
+      copy.close();
+      expect(rows.map((r) => r.x)).toContain('C-final-write');
+    });
+  }
+
+  it('a marker naming a live pid that is a DIFFERENT process (pid 1) does not block', async () => {
+    const { requestSessionEndSnapshot } = await import('../session-end-snapshot.js');
+    // pid 1 is always alive, but it is not the worker that wrote this marker.
+    writeFileSync(
+      markerPath(),
+      JSON.stringify({ token: 'impostor', pid: 1, pidStart: 'Thu Jan  1 00:00:00 1970' }),
+    );
+    expect((await requestSessionEndSnapshot(projectRoot)).mode).toBe('detached');
+    await waitFor(() => workerLines().length === 1, 60_000);
   });
 
   it('a marker with a dead pid, or older than the stale bound, does not block', async () => {

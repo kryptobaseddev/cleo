@@ -706,6 +706,46 @@ describe('sqlite-backup', () => {
   });
 
   /**
+   * T12508: a process killed mid-VACUUM can leave the temp snapshot AND its
+   * rollback journal (`<name>.tmp-<pid>-journal`). The next snapshot removes
+   * both when that pid is dead.
+   */
+  it('removes a dead temp snapshot and its journal (T12508)', async () => {
+    const execMock = vi.fn();
+    vi.doMock('../sqlite.js', () => ({
+      getNativeDb: () => withGateState(execMock),
+      getDb: async () => null,
+    }));
+    vi.doMock('../memory-sqlite.js', () => ({
+      getBrainNativeDb: () => null,
+      getBrainDb: async () => null,
+    }));
+    vi.doMock('../conduit-sqlite.js', () => ({
+      getConduitNativeDb: () => null,
+      ensureConduitDb: () => ({ action: 'exists', path: '' }),
+    }));
+    stubOtherChokepointOpeners();
+    const tempDir = join(tmpdir(), `cleo-t12508-journal-${Date.now()}`);
+    const backupDir = join(tempDir, 'backups', 'sqlite');
+    mkdirSync(backupDir, { recursive: true });
+    vi.doMock('../../paths.js', () => ({
+      getCleoDir: () => tempDir,
+      getCleoHome: () => tempDir,
+      resolveOrCwd: (cwd?: string) => cwd ?? tempDir,
+    }));
+    // A pid that cannot exist.
+    const dead = 'tasks-20260101-000000.db.tmp-2147483646';
+    writeFileSync(join(backupDir, dead), '');
+    writeFileSync(join(backupDir, `${dead}-journal`), '');
+
+    const { vacuumIntoBackup } = await import('../sqlite-backup.js');
+    await vacuumIntoBackup({ mode: 'required' });
+
+    const left = readdirSync(backupDir).filter((f) => f.includes('.tmp-'));
+    expect(left).toEqual([]);
+  });
+
+  /**
    * T12508 #3: with project A already open in the process, snapshotting
    * project B must read B's database, never the ambient A handle.
    */
