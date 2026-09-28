@@ -58,4 +58,27 @@ describe('project command group', () => {
       expect(positional).toHaveLength(0);
     });
   });
+
+  describe('move and reroot help text (T12558)', () => {
+    const subs = projectCommand.subCommands as Record<
+      string,
+      { meta?: { name: string; description: string }; args?: Record<string, unknown> }
+    >;
+
+    it('move states that it copies, leaves the old copy, and rebinds the registry', () => {
+      const text = subs['move']?.meta?.description ?? '';
+      expect(text).toMatch(/^Copy this project/);
+      expect(text).toContain('leave the old copy in place');
+      expect(text).toContain('rebind the registry');
+      expect(text).toContain('cleo project reroot');
+    });
+
+    it('has a reroot subcommand with a required childDir positional and --dry-run', () => {
+      const reroot = subs['reroot'];
+      expect(reroot?.meta?.name).toBe('reroot');
+      expect(reroot?.meta?.description).toContain('RENAME .cleo/');
+      expect(reroot?.args?.['childDir']).toMatchObject({ type: 'positional', required: true });
+      expect(reroot?.args?.['dry-run']).toMatchObject({ type: 'boolean', default: false });
+    });
+  });
 });

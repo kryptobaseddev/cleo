@@ -427,6 +427,46 @@ export function recordCandidateLocation(db: PathMapWriter, record: ProjectChecko
 }
 
 /**
+ * Demote a location this device no longer treats as the project's home
+ * (T12556 · T12558). `cleo project move` leaves the source tree behind as a
+ * `candidate` (it still declares the id but is no longer confirmed);
+ * `cleo project reroot` leaves the old root with no `.cleo/` at all, so it is
+ * `missing`. A location that was never recorded is recorded in that state so
+ * the history is complete. The registry row is not touched.
+ *
+ * @param db - Registry handle or transaction.
+ * @param record - The location to demote.
+ * @param state - `candidate` (still declares the id) or `missing` (does not).
+ *
+ * @example
+ * ```ts
+ * demoteProjectLocation(tx, { projectId, projectPath: oldRoot, now }, 'missing');
+ * ```
+ */
+export function demoteProjectLocation(
+  db: PathMapWriter,
+  record: ProjectCheckoutRecord,
+  state: 'candidate' | 'missing',
+): void {
+  const deviceId = record.deviceId ?? currentDeviceId();
+  adoptLocalDeviceRows(db, deviceId);
+  db.insert(projectLocations)
+    .values({
+      projectId: record.projectId,
+      deviceId,
+      path: record.projectPath,
+      firstSeen: record.now,
+      lastSeen: record.now,
+      state,
+    })
+    .onConflictDoUpdate({
+      target: [projectLocations.projectId, projectLocations.deviceId, projectLocations.path],
+      set: { state },
+    })
+    .run();
+}
+
+/**
  * Refresh an already-confirmed location without repointing the registry row.
  *
  * @param db - Registry handle or transaction.

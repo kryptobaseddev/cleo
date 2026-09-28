@@ -846,7 +846,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'projectCommand',
     name: 'project',
-    description: 'Project lifecycle management (move, rename, re-register).',
+    description: 'Project lifecycle management (move, reroot, rename, re-register).',
     load: async () => (await import('../commands/project.js')).projectCommand as CommandDef,
   },
   {

@@ -56,6 +56,24 @@ export function readCheckoutNonce(projectRoot: string): string | null {
 }
 
 /**
+ * Mint a fresh nonce without writing it anywhere.
+ *
+ * A checkout CLEO copies (`cleo project move`, T12556) must not carry its
+ * source's nonce, or the copy is indistinguishable from the original after
+ * either one is later moved by hand. The copy's writer stamps this instead.
+ *
+ * @returns 32 lowercase hex characters (128 random bits).
+ *
+ * @example
+ * ```ts
+ * const info = { ...sourceInfo, [CHECKOUT_NONCE_FIELD]: mintCheckoutNonce() };
+ * ```
+ */
+export function mintCheckoutNonce(): string {
+  return randomBytes(16).toString('hex');
+}
+
+/**
  * Return the checkout's nonce, minting one into `project-info.json` when the
  * file exists and has none. Called only when a location is CONFIRMED, so a
  * candidate never gains a nonce the registry would accept.
@@ -76,7 +94,7 @@ export function ensureCheckoutNonce(projectRoot: string): string | null {
   if (existing) return existing;
   const info = readInfo(projectRoot);
   if (!info) return null;
-  const nonce = randomBytes(16).toString('hex');
+  const nonce = mintCheckoutNonce();
   const path = join(projectRoot, '.cleo', 'project-info.json');
   const temp = `${path}.${randomBytes(6).toString('hex')}.tmp`;
   writeFileSync(temp, `${JSON.stringify({ ...info, [CHECKOUT_NONCE_FIELD]: nonce }, null, 2)}\n`);

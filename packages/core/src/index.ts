@@ -457,6 +457,7 @@ export type { ProjectInfo } from './project-info.js';
 export { getProjectInfo, getProjectInfoSync, updateProjectName } from './project-info.js';
 export type {
   MoveProjectResult,
+  RelocateProjectOptions,
   RenameProjectResult,
   ReregisterProjectResult,
 } from './project-lifecycle.js';
@@ -466,6 +467,7 @@ export {
   moveProject,
   renameProject,
   reregisterProject,
+  rerootProject,
 } from './project-lifecycle.js';
 // Scaffold
 export {
