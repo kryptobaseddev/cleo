@@ -509,6 +509,15 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
       (await import('../commands/doctor-repair.js')).doctorRepairCommand as CommandDef,
   },
   {
+    exportName: 'doctorSkillFixturesCommand',
+    name: 'skill-fixtures',
+    description:
+      'Find caamp test fixtures left in the real skills root (UUID-named and known fixture ',
+    load: async () =>
+      (await import('../commands/doctor-skill-fixtures.js'))
+        .doctorSkillFixturesCommand as CommandDef,
+  },
+  {
     exportName: 'doctorSplitBrainCommand',
     name: 'split-brain',
     description:

@@ -10,6 +10,7 @@
   "testing": {
     "framework": "vitest",
     "command": "pnpm run test",
+    "affectedCommand": "pnpm exec vitest run {projects}",
     "testFilePatterns": [
       "**/*.test.ts",
       "**/*.test.tsx",

@@ -11,7 +11,6 @@ description: >-
   "install master tac", "bootstrap protocols", "tools.skill.install ct-master-tac",
   "verify protocol bundle", "repair protocol files", "fresh CleoOS install".
 version: 1.0.0
-tier: 1
 core: false
 category: meta
 protocol: null
@@ -28,6 +27,11 @@ compatibility:
   - gemini-cli
 license: MIT
 install-hook: "tools.skill.install ct-master-tac"
+metadata:
+  version: 1.0.0
+  tier: internal
+  install: internal
+  stability: deprecated
 ---
 
 # ct-master-tac — Master Tactical Bundle
