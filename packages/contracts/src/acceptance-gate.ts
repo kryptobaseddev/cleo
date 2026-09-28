@@ -28,8 +28,8 @@ import type {
 
 /**
  * Captured options for evaluating acceptance gates without renewing operation authority.
- * @remarks An absent execution context receives a two-second shared foreground budget.
- * Per-gate timeouts can tighten it; long work requires explicit runtime admission.
+ * @remarks An absent execution context is admitted for every gate's tool deadline plus
+ * the two-second bookkeeping budget (T12516); per-gate timeouts bound each gate.
  * @example
  * ```typescript
  * const options: AcceptanceGateRunOptions = { projectRoot: '/project', execution };
@@ -49,6 +49,23 @@ export interface AcceptanceGateRunOptions
   maxOutputBytes?: number;
   /** Existing manager context, separate from the child environment. */
   systemdControl?: SystemdControlContext;
+  /**
+   * Typed-gate result cache policy (T12621). Keyed by gate definition hash, git
+   * HEAD, dirty-tree fingerprint and cwd; only passes are stored.
+   * - `off`: never read or write the cache.
+   * - `refresh`: always execute, then store a pass (`cleo verify --run`).
+   * - `use`: serve a fresh cached pass, otherwise execute and store a pass.
+   * - `only`: serve a fresh cached pass; a cacheable gate without one is an
+   *   `error` result and is never executed (`cleo verify --no-run`).
+   *
+   * @defaultValue 'off'
+   */
+  cache?: 'off' | 'refresh' | 'use' | 'only';
+  /**
+   * Digest of the single gate's captured invocation and input artifacts; part of
+   * its cache key. Required, with a one-gate batch, whenever `cache` is not `off`.
+   */
+  cacheInputsHash?: string;
 }
 
 // ─── Base ────────────────────────────────────────────────────────────────────
@@ -80,7 +97,10 @@ export interface GateBase {
   /**
    * Gate timeout in milliseconds.
    *
-   * @defaultValue 60_000 (further bounded by the shared operation deadline)
+   * @defaultValue The ADR-061 tool deadline for the gate kind: `CLEO_GATE_TIMEOUT_MS`,
+   * else `CLEO_TOOL_TIMEOUT_<KIND>`, else 1_800_000 for `test` and 300_000 otherwise
+   * (T12516). It bounds the gate's own execution; the two-second shared budget
+   * covers only the surrounding bookkeeping, never a gate (T12621).
    */
   timeoutMs?: number;
 }

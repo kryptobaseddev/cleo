@@ -154,7 +154,8 @@ export function buildAgentSpawnArgs(
   scopeId?: string,
 ): AgentSpawnArgs {
   if (!hasSystemdRun()) {
-    if (!_demotionLogged) {
+    // T12621: pgid is the expected mode off Linux, so only a Linux debug run hears about it.
+    if (!_demotionLogged && process.platform === 'linux' && process.env['CLEO_DEBUG']) {
       _demotionLogged = true;
       process.stderr.write(
         '[cleo:agent-spawn-wrapper] systemd-run unavailable — ' +

@@ -37,7 +37,10 @@ import {
 import { checkAndIncrementOverrideCap } from '../security/override-cap.js';
 import { enforceSharedEvidence } from '../security/shared-evidence-tracker.js';
 import { warnIfNoActiveSession } from '../sessions/session-enforcement.js';
-import { createOperationExecutionContext } from '../store/background-ops.js';
+import {
+  createOperationExecutionContext,
+  OperationExecutionError,
+} from '../store/background-ops.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import {
   checkCallsiteCoverageAtom,
@@ -55,6 +58,7 @@ import {
 import { appendForceBypassLine, appendGateAuditLine } from '../tasks/gate-audit.js';
 import {
   createTaskGateReceipt,
+  GATE_NOT_CACHED_PREFIX,
   revalidateTaskGateResults,
   runTaskGates,
   typedGateAdmissionMs,
@@ -302,6 +306,12 @@ export interface GateVerifyParams {
    * triggers a warning (or a hard reject in strict mode).
    */
   sharedEvidence?: boolean;
+  /**
+   * `--no-run` (T12621): serve every process-executing typed gate from the
+   * ADR-061 result cache and execute none. A gate without a fresh cached pass
+   * refuses the write, before anything is recorded, with `E_GATE_NOT_CACHED`.
+   */
+  noRun?: boolean;
 }
 
 export interface GateVerifyResult {
@@ -385,6 +395,7 @@ export async function validateGateVerify(
   projectRoot = resolve(projectRoot);
   const inheritedExecution = worktreeScope.getStore()?.execution;
   let ownedVerificationExecution: OperationExecutionContext | undefined;
+  let typedPhase = 'task and evidence validation';
   try {
     const { taskId, gate, value = true, agent, all, reset } = params;
     const agentId = agent ?? 'unknown';
@@ -823,11 +834,27 @@ export async function validateGateVerify(
 
     if (admitOwnedTypedExecution) typedExecution = admitOwnedTypedExecution();
     if (typedExecution) {
+      typedPhase = 'typed gate execution';
       typedExecution.assertActive();
       verification.gateResults = await runTaskGates(task, initialAcRows, {
         projectRoot,
         execution: typedExecution,
+        // T12621: reuse a pass cached by `cleo verify --run` or an earlier
+        // attempt; `--no-run` executes nothing.
+        cache: params.noRun ? 'only' : 'use',
       });
+      // `--no-run` refuses the whole write rather than recording a gate it
+      // declined to execute as an `error` result.
+      const notCached = verification.gateResults.filter((result) =>
+        result.errorMessage?.startsWith(GATE_NOT_CACHED_PREFIX),
+      );
+      if (notCached.length > 0)
+        return engineError(
+          'E_GATE_NOT_CACHED',
+          notCached.map((result) => result.errorMessage!.replace('<taskId>', taskId)).join('\n'),
+        );
+      typedExecution.assertActive();
+      typedPhase = 'persisting the verification';
     }
     verification.passed =
       computePassed(verification, configGates) &&
@@ -1040,6 +1067,10 @@ export async function validateGateVerify(
 
     return engineSuccess(result);
   } catch (err) {
+    // T12621: a bare "Shared operation deadline reached" named neither the
+    // phase that ran out nor the remedy, so agents grepped the dist bundle.
+    if (err instanceof OperationExecutionError && err.code === 'E_OPERATION_DEADLINE')
+      return engineError('E_OPERATION_DEADLINE', typedDeadlineMessage(params.taskId, typedPhase));
     const message =
       err instanceof Error
         ? [err.message, err.cause instanceof Error ? err.cause.message : undefined]
@@ -1050,6 +1081,22 @@ export async function validateGateVerify(
   } finally {
     ownedVerificationExecution?.close();
   }
+}
+
+/**
+ * Deadline diagnostic for a typed verification write: the phase that ran out
+ * and the remedies, in one self-contained message (the CLI envelope carries
+ * only `code` and `message`).
+ */
+function typedDeadlineMessage(taskId: string, phase: string): string {
+  return (
+    `Typed verification of ${taskId} reached its operation deadline during ${phase}. ` +
+    'Each typed gate is bounded by its own timeout (gate `timeoutMs`, else CLEO_GATE_TIMEOUT_MS, ' +
+    'else CLEO_TOOL_TIMEOUT_<KIND>, else 1800000 ms for test and 300000 ms otherwise). ' +
+    'Fix: raise that timeout for a slow gate, or run `cleo verify ' +
+    taskId +
+    ' --run` first so passing results are cached and the write reuses them (add --no-run to forbid execution).'
+  );
 }
 
 // ---------------------------------------------------------------------------

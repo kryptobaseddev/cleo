@@ -16,6 +16,8 @@
  *     with {@link typedGateAdmissionMs}: the ADR-061 tool deadline of every executing gate
  *     plus {@link TYPED_GATE_BOOKKEEPING_MS} for the surrounding bookkeeping (T12516).
  *   - Per-gate timeouts can only tighten the captured deadline, never renew it.
+ *   - Passing process gates can be served from the ADR-061 evidence cache
+ *     (`options.cache`, see `gate-result-cache.ts`); failures are never cached (T12621).
  *   - Structured test-count evidence and HTTP service startup require separate capabilities.
  *   - Results are observations; this module does not persist completion authority.
  *
@@ -66,6 +68,11 @@ import { captureWrapped } from '../resources/spawn-wrapper.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
 import { registerTeardownAbort } from '../teardown-signal.js';
 import { acItemToText, acTextHash } from './ac-table.js';
+import {
+  captureGateCacheState,
+  readCachedGatePass,
+  writeCachedGateResult,
+} from './gate-result-cache.js';
 import { heavyToolEnv } from './heavy-tool-env.js';
 import { resolveSpawnTimeoutMs } from './tool-cache.js';
 
@@ -172,6 +179,68 @@ export function typedGateAdmissionMs(
 }
 
 /**
+ * Actionable refusal for `cache: 'only'` (`cleo verify --no-run`) when a gate
+ * would have to execute. Names the gate and the command that fills the cache.
+ */
+function gateNotCachedMessage(gate: AcceptanceGate, cacheable: boolean): string {
+  const name = gate.req ?? gate.description;
+  if (gate.kind === 'http')
+    return `${GATE_NOT_CACHED_PREFIX} http gate "${name}" observes a live service and is never cached; drop --no-run to execute it`;
+  if (!cacheable)
+    return `${GATE_NOT_CACHED_PREFIX} gate "${name}" has no cached result because the project root is not a git checkout (results are keyed by HEAD + dirty-tree fingerprint); drop --no-run to execute it`;
+  return (
+    `${GATE_NOT_CACHED_PREFIX} gate "${name}" has no cached pass for the current HEAD, working tree and inputs. ` +
+    'Run `cleo verify <taskId> --run` first (it caches passing results), or drop --no-run to execute it now'
+  );
+}
+
+/**
+ * Prefix of the `errorMessage` a gate carries when `cache: 'only'` refused to
+ * execute it. The verifier matches it to refuse the whole write with
+ * `E_GATE_NOT_CACHED` instead of recording an `error` result.
+ * @task T12621
+ */
+export const GATE_NOT_CACHED_PREFIX = '--no-run:';
+
+/**
+ * Digest of a gate's captured invocation and input artifacts: the part of its
+ * cache key that the git fingerprint cannot see (untracked harness scripts,
+ * task files, the environment hash).
+ */
+function gateInputsHash(
+  invocation: AcceptanceGateInvocation | undefined,
+  artifacts: readonly AcceptanceGateArtifact[],
+): string {
+  return createHash('sha256')
+    .update(JSON.stringify({ invocation: invocation ?? null, artifacts }))
+    .digest('hex');
+}
+
+/**
+ * Compute a gate's cache inputs digest the same way the attesting verifier does.
+ * @param task - Task that owns the gate; its `files` are verifier inputs.
+ * @param gate - Gate whose invocation and inputs are captured.
+ * @param execution - Admitted lifetime whose project root scopes the capture.
+ * @param env - Environment the gate will launch with.
+ * @returns Digest to pass as `cacheInputsHash` to {@link runGates}.
+ * @example
+ * ```typescript
+ * const cacheInputsHash = await captureGateInputsHash(task, gate, execution);
+ * ```
+ * @task T12621
+ */
+export async function captureGateInputsHash(
+  task: Task,
+  gate: AcceptanceGate,
+  execution: OperationExecutionContext,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<string> {
+  const root = resolve(execution.identity.projectRoot);
+  const invocation = executableInvocation(gate, root, { ...env });
+  return gateInputsHash(invocation, await snapshotGateInputs(task, gate, invocation, execution));
+}
+
+/**
  * Admission for a batch run without a caller-owned lifetime.
  * An invalid deadline override is not swallowed: {@link runOneGate} resolves it
  * again and reports it as that gate's `error` result, as it always has.
@@ -245,6 +314,15 @@ export async function runGates(
     systemdControl: options.systemdControl,
   };
   const checkedBy = execution?.identity.actor ?? batch.env['CLEO_AGENT_ID'] ?? CHECKED_BY;
+  const cacheMode = options.cache ?? 'off';
+  const cacheInputsHash = options.cacheInputsHash;
+  if (cacheMode !== 'off' && (snapshot.length !== 1 || !cacheInputsHash))
+    throw new Error('Typed gate caching requires one gate per batch and its inputs digest');
+  // T12621: the repo state is captured only when the policy reads or writes.
+  const cacheState =
+    cacheMode !== 'off' && TOOL_GATE_KINDS.has(snapshot[0]!.kind)
+      ? await captureGateCacheState(projectRoot)
+      : null;
   const results: AcceptanceGateResult[] = [];
   try {
     return await worktreeScope.run(scope, async () => {
@@ -261,7 +339,25 @@ export async function runGates(
           const parsed = acceptanceGateSchema.parse(gate);
           if (!isDeepStrictEqual(parsed, gate))
             throw new Error('Gate includes unsupported or noncanonical fields');
-          results.push(await runOneGate(parsed, i, projectRoot, options.skipManual ?? true, batch));
+          if (cacheState && (cacheMode === 'use' || cacheMode === 'only')) {
+            const hit = readCachedGatePass(projectRoot, parsed, cacheState, cacheInputsHash!);
+            if (hit) {
+              results.push({ ...hit, index: i });
+              continue;
+            }
+          }
+          if (cacheMode === 'only' && TOOL_GATE_KINDS.has(parsed.kind))
+            throw new Error(gateNotCachedMessage(parsed, cacheState !== null));
+          const observed = await runOneGate(
+            parsed,
+            i,
+            projectRoot,
+            options.skipManual ?? true,
+            batch,
+          );
+          if (cacheState && cacheMode !== 'only')
+            writeCachedGateResult(projectRoot, parsed, cacheState, cacheInputsHash!, observed);
+          results.push(observed);
         } catch (error) {
           results.push(
             makeResult(
@@ -338,7 +434,15 @@ export async function runTaskGates(
         artifacts,
       };
       const observed = (
-        await runGates([gate], { ...options, projectRoot: root, env, execution })
+        await runGates([gate], {
+          ...options,
+          projectRoot: root,
+          env,
+          execution,
+          ...(options.cache && options.cache !== 'off'
+            ? { cacheInputsHash: gateInputsHash(invocation, artifacts) }
+            : {}),
+        })
       )[0]!;
       let result: AcceptanceGateResult = { ...observed, index, binding };
       try {
