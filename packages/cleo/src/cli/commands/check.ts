@@ -724,6 +724,17 @@ const checkArchCommand = defineCommand({
         script: 'scripts/lint-no-negated-flag-reads.mjs',
         description: "No raw args['no-<flag>'] read in the CLI (citty never sets it)",
       },
+      {
+        // T12483: the owner rule that every human decision goes through the
+        // harness ask tool with options (never prose; subagents relay to the
+        // orchestrator) must reach every surface an agent reads: the injected
+        // template, the ct-cleo / ct-orchestrator skills, and the spawn-prompt
+        // return contract emitted at every tier.
+        id: 'gate-27',
+        task: 'T12483',
+        script: 'scripts/lint-hitl-rule-delivery.mjs',
+        description: 'HITL ask-tool rule present on every agent delivery surface',
+      },
     ] as const;
 
     const scriptArgs = strict ? ['--strict'] : ['--check'];
