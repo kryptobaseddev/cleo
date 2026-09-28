@@ -254,8 +254,19 @@ export interface BackupObservationInspection {
     atimeNs: string;
     /** Observed access time at the final identity/content-metadata recheck. */
     atimeAfterNs: string;
-    /** Whether access time changed; this does not identify the responsible reader. */
-    atimeChanged: boolean;
+    /**
+     * Whether access time changed; this does not identify the responsible reader.
+     * `null` when {@link atimeIsolation} is `'unavailable'`: the inspection's own
+     * read may have advanced atime, so a change is not evidence of another reader.
+     */
+    atimeChanged: boolean | null;
+    /**
+     * Whether the inspection's own read was kept from updating access time.
+     * `'noatime'`: the source was opened with O_NOATIME (Linux).
+     * `'unavailable'`: the platform has no O_NOATIME (macOS), so atime may
+     * reflect this inspection.
+     */
+    atimeIsolation: 'noatime' | 'unavailable';
   };
   /** Actual SQLite schema marker; not an inferred product/schema version. */
   userVersion: number;

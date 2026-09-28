@@ -25,6 +25,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { fileURLToPath } from 'node:url';
 
 import type { GraphIndexFileReport, GraphPublicationRows } from '@cleocode/contracts';
 import type { GraphSourceRootAssessment } from '@cleocode/contracts/graph';
@@ -87,7 +88,9 @@ describe('bounded parser workers (T12262)', () => {
     try {
       const poolPath = join(directory, 'pool.mjs');
       buildSync({
-        entryPoints: [new URL('../pipeline/workers/worker-pool.ts', import.meta.url).pathname],
+        entryPoints: [
+          fileURLToPath(new URL('../pipeline/workers/worker-pool.ts', import.meta.url)),
+        ],
         outfile: poolPath,
         bundle: true,
         platform: 'node',
@@ -160,18 +163,18 @@ describe('isolated shared extraction (T12262)', () => {
     const directory = makeTempDir();
     try {
       symlinkSync(
-        new URL('../../node_modules', import.meta.url).pathname,
+        fileURLToPath(new URL('../../node_modules', import.meta.url)),
         join(directory, 'node_modules'),
         'dir',
       );
       const entries = [
-        ['worker', new URL('../pipeline/workers/parse-worker.ts', import.meta.url).pathname],
-        ['pipeline', new URL('../pipeline/index.ts', import.meta.url).pathname],
-        ['extractor', new URL('../pipeline/parse-loop.ts', import.meta.url).pathname],
-        ['pool', new URL('../pipeline/workers/worker-pool.ts', import.meta.url).pathname],
+        ['worker', fileURLToPath(new URL('../pipeline/workers/parse-worker.ts', import.meta.url))],
+        ['pipeline', fileURLToPath(new URL('../pipeline/index.ts', import.meta.url))],
+        ['extractor', fileURLToPath(new URL('../pipeline/parse-loop.ts', import.meta.url))],
+        ['pool', fileURLToPath(new URL('../pipeline/workers/worker-pool.ts', import.meta.url))],
         [
           'provider',
-          new URL('../../../core/src/resources/spawn-wrapper.ts', import.meta.url).pathname,
+          fileURLToPath(new URL('../../../core/src/resources/spawn-wrapper.ts', import.meta.url)),
         ],
       ];
       for (const [name, entry] of entries) {
