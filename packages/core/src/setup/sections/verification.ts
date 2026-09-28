@@ -13,7 +13,7 @@
  *   3. **config-integrity**    — global + project config files parse cleanly.
  *   4. **harness-reach**       — detected harness responds:
  *                                  Pi   → HTTP GET `<piUrl>/health` (3 s).
- *                                  Code → `which claude` exits 0.
+ *                                  Code → `claude` found on PATH (PATHEXT-aware).
  *   5. **signaldock-reach**    — if `signaldock.enabled`, HTTP GET to
  *                                `<endpoint>/health` (3 s); SKIP otherwise.
  *   6. **brain-db**            — `brain.db` exists on disk and opens
@@ -212,7 +212,7 @@ async function runConfigIntegrityCheck(cwd?: string): Promise<VerificationCheck>
  * Check 4 — Detected harness responds.
  *
  * - `pi` (or `piUrl` in config) → HTTP GET `<piUrl>/health` (3 s timeout).
- * - `claude-code`               → resolves `which claude` in PATH.
+ * - `claude-code`               → finds `claude` on PATH (PATHEXT-aware, no `which`).
  * - `unknown`                   → SKIP.
  *
  * @internal
