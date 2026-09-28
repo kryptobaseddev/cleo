@@ -9,6 +9,7 @@ import type { Session, TaskWorkState } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { resolveBoundSession } from '../store/session-store.js';
 import { readFocusState, writeFocusState } from './focus-state-store.js';
 
 /**
@@ -40,9 +41,10 @@ export async function switchSession(projectRoot: string, sessionId: string): Pro
   // Suspend the CALLER's current session (if different from target). T11640 —
   // identity resolution (connection-handle → CLEO_SESSION_ID → most-recent-
   // active) so a switch suspends the agent's OWN session, not whoever wrote the
-  // DB last.
-  const currentActive = await accessor.resolveCurrentSession();
-  if (currentActive && currentActive.id !== sessionId) {
+  // DB last. T12500 — bound tiers only: an unbound caller suspends NOTHING
+  // rather than the newest active row, which is another agent's session.
+  const currentActive = (await resolveBoundSession(projectRoot))?.session ?? null;
+  if (currentActive && currentActive.status === 'active' && currentActive.id !== sessionId) {
     currentActive.status = 'suspended';
     Object.assign(currentActive, { suspendedAt: now });
     if (currentActive.stats) {

@@ -12,6 +12,7 @@
 import { formatPrGateSummary, type PrGateSummary, runPrGate } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { negatedFlag } from '../lib/negated-flag.js';
 import { getOperationParams, paramsToCittyArgs } from '../lib/registry-args.js';
 import { cliError } from '../renderers/index.js';
 
@@ -712,6 +713,41 @@ const checkArchCommand = defineCommand({
         script: 'scripts/lint-cli-startup-barrel-entrypoint.mjs',
         description: 'No module reachable from the CLI entrypoint statically imports a core barrel',
       },
+      {
+        // T12528: citty parses `--no-<name>` as `{ <name>: false }`, never as
+        // `{ 'no-<name>': true }`, so a handler reading `args['no-<name>']`
+        // silently ignores the flag. Sixteen handlers did, including
+        // `orchestrate spawn --no-worktree` and `release plan --no-changelog`.
+        // Every read goes through `negatedFlag()` in cli/lib/negated-flag.ts.
+        id: 'gate-26',
+        task: 'T12528',
+        script: 'scripts/lint-no-negated-flag-reads.mjs',
+        description: "No raw args['no-<flag>'] read in the CLI (citty never sets it)",
+      },
+      {
+        // T12483: the owner rule that every human decision goes through the
+        // harness ask tool with options (never prose; subagents relay to the
+        // orchestrator) must reach every surface an agent reads: the injected
+        // template, the ct-cleo / ct-orchestrator skills, and the spawn-prompt
+        // return contract emitted at every tier.
+        id: 'gate-27',
+        task: 'T12483',
+        script: 'scripts/lint-hitl-rule-delivery.mjs',
+        description: 'HITL ask-tool rule present on every agent delivery surface',
+      },
+      {
+        // T12332 (Gate A): every cleo.db table now carries a replication
+        // class, and replication captures writes at the chokepoint
+        // (openDualScopeDb and the canonical accessors, which are exempt). A
+        // raw INSERT/UPDATE/DELETE/REPLACE elsewhere is a write nobody can
+        // enumerate. A ratchet: today's offenders are baselined per
+        // (file, table), a new one fails, and a removed one must leave the
+        // baseline in the same change.
+        id: 'gate-28',
+        task: 'T12332',
+        script: 'scripts/lint-no-raw-table-writes.mjs',
+        description: 'No new raw SQL write on a classified cleo.db table (ratchet)',
+      },
     ] as const;
 
     const scriptArgs = strict ? ['--strict'] : ['--check'];
@@ -875,7 +911,7 @@ const checkPrCommand = defineCommand({
             .filter(Boolean)
         : undefined,
       memoryMax: args['memory-max'] as string | undefined,
-      keepGoing: !args['no-keep-going'],
+      keepGoing: !negatedFlag(args, 'keep-going'),
       onProgress: (line) => process.stderr.write(`${line}\n`),
     });
     emitPrGateSummary(summary);

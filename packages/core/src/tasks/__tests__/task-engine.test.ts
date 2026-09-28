@@ -34,6 +34,7 @@ vi.mock('../complete.js', async (importActual) => {
 vi.mock('../../store/session-store.js', () => ({
   getActiveSession: vi.fn().mockResolvedValue(null),
   resolveCurrentSession: vi.fn().mockResolvedValue(null),
+  resolveBoundSessionId: vi.fn().mockResolvedValue(null),
   createSession: vi.fn(),
 }));
 
@@ -67,7 +68,11 @@ vi.mock('../../logger.js', () => ({
 import { loadConfig } from '../../config.js';
 import { getIvtrState } from '../../lifecycle/ivtr-loop.js';
 import { getAccessor, getTaskAccessor } from '../../store/data-accessor.js';
-import { getActiveSession, resolveCurrentSession } from '../../store/session-store.js';
+import {
+  getActiveSession,
+  resolveBoundSessionId,
+  resolveCurrentSession,
+} from '../../store/session-store.js';
 import { completeTaskStrict, completeTask as coreCompleteTask, taskComplete } from '../complete.js';
 
 // ---------------------------------------------------------------------------
@@ -84,6 +89,8 @@ const mockGetActiveSession = vi.mocked(getActiveSession);
 // (connection-handle → CLEO_SESSION_ID → most-recent-active), so identity
 // tests drive THIS spy.
 const mockResolveCurrentSession = vi.mocked(resolveCurrentSession);
+// T12500 — the completion stamp now uses the caller's BOUND session id only.
+const mockResolveBoundSessionId = vi.mocked(resolveBoundSessionId);
 
 /**
  * Build a minimal DataAccessor mock for completeTaskStrict tests.
@@ -318,13 +325,7 @@ describe('taskComplete', () => {
     );
 
     const sessionId = 'ses_20260424_test_session';
-    mockResolveCurrentSession.mockResolvedValue({
-      id: sessionId,
-      status: 'active',
-      startedAt: '2026-01-01T00:00:00Z',
-    } as ReturnType<typeof resolveCurrentSession> extends Promise<infer T>
-      ? Exclude<T, null>
-      : never);
+    mockResolveBoundSessionId.mockResolvedValue(sessionId);
 
     const result = await taskComplete(projectRoot, 'T201');
 
@@ -333,6 +334,33 @@ describe('taskComplete', () => {
     expect(mockUpdateTaskFields).toHaveBeenCalledWith(
       'T201',
       expect.objectContaining({ sessionId }),
+    );
+  });
+
+  it('stamps NO session_id for an unbound caller, even when another session is active (T12500)', async () => {
+    const mockUpdateTaskFields = vi.fn().mockResolvedValue(undefined);
+    const accessor = makeCompletableAccessorMock({
+      taskId: 'T202',
+      updateTaskFields: mockUpdateTaskFields,
+    }) as ReturnType<typeof getAccessor> extends Promise<infer T> ? T : never;
+    mockGetAccessor.mockResolvedValue(accessor);
+    mockGetTaskAccessor.mockResolvedValue(accessor);
+    // Another agent's session is the newest active row; this caller is unbound.
+    mockResolveCurrentSession.mockResolvedValue({
+      id: 'ses_other_agent',
+      status: 'active',
+      startedAt: '2026-01-01T00:00:00Z',
+    } as ReturnType<typeof resolveCurrentSession> extends Promise<infer T>
+      ? Exclude<T, null>
+      : never);
+    mockResolveBoundSessionId.mockResolvedValue(null);
+
+    const result = await taskComplete(projectRoot, 'T202');
+
+    expect(result.success).toBe(true);
+    expect(mockUpdateTaskFields).toHaveBeenCalledWith(
+      'T202',
+      expect.objectContaining({ sessionId: null }),
     );
   });
 });

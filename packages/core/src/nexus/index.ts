@@ -67,6 +67,17 @@ export {
   orphanDetection,
   resolveCrossDeps,
 } from './deps.js';
+// Devices (T12510)
+export {
+  DEVICE_HEARTBEAT_INTERVAL_MS,
+  DEVICE_HEARTBEAT_STAMP,
+  type DeviceFacts,
+  type DeviceHeartbeatOutcome,
+  type DeviceStartupHeartbeatOutcome,
+  heartbeatThisDevice,
+  listNexusDevices,
+  recordDeviceHeartbeat,
+} from './devices.js';
 // Index diff - compare node/relation counts between git commits (T1473)
 export {
   diffNexusIndex,
@@ -95,9 +106,23 @@ export {
 } from './flows.js';
 // GEXF export - graph serialization (T1473)
 export { escapeXml, generateGexf, hexToRgb } from './gexf-export.js';
+// Git state probe per project location (T12511)
+export {
+  GIT_STATE_DEFAULTS,
+  type GitProbeTarget,
+  type GitStateProbeOptions,
+  isRemoteStale,
+  listGitStates,
+  listLocalProbeTargets,
+  parsePorcelainV2Status,
+  probeGitState,
+  probeGitStates,
+  recordGitStates,
+  runProjectsGitStatus,
+} from './git-state.js';
 // Hash - canonical project identity hash
 export { generateProjectHash } from './hash.js';
-// Identity - canonical project ID computation (T9149 W5)
+// Identity - path fingerprints, alias keys only (T9149, demoted by T12470)
 export {
   type CanonicalProjectIdResult,
   canonicalProjectId,
@@ -106,6 +131,7 @@ export {
   findGitRoot,
   legacyProjectId,
   type ProjectIdentityComponents,
+  projectPathFingerprint,
 } from './identity.js';
 // Impact - BFS upstream blast radius (T1473)
 export {
@@ -188,6 +214,7 @@ export {
   type NexusPermissionLevel,
   // Types
   type NexusProject,
+  NexusProjectAmbiguityError,
   type NexusProjectStats,
   type NexusRegistryFile,
   nexusGetProject,
@@ -201,6 +228,7 @@ export {
   nexusProjectsList,
   nexusProjectsRegister,
   nexusProjectsRemove,
+  nexusProjectsStatus,
   nexusReconcile,
   nexusReconcileProject,
   nexusRegister,
@@ -219,6 +247,8 @@ export {
   readRegistryRequired,
   resetNexusDbState,
 } from './registry.js';
+// Registry-derived default search roots (T12476)
+export { listRegistryParentRoots, parentRootsOf } from './registry-roots.js';
 // Sharing - multi-contributor .cleo/ state management
 export {
   // Operations

@@ -381,6 +381,28 @@ interface CittyCliError extends Error {
   readonly code: string;
 }
 
+/** The parts of a core `CleoError` the entrypoint needs (duck-typed: no core import here). */
+interface CleoErrorLike {
+  message: string;
+  code: number;
+  fix?: string;
+  alternatives?: Array<{ action: string; command: string }>;
+  details?: Record<string, unknown>;
+  toLAFSError(): { code: string };
+}
+
+/**
+ * Narrow a thrown value to a core `CleoError` without importing core into the
+ * entrypoint's static graph (gate 25).
+ */
+function asCleoErrorLike(err: unknown): CleoErrorLike | null {
+  if (!(err instanceof Error) || err.name !== 'CleoError') return null;
+  const candidate = err as Error & Partial<CleoErrorLike>;
+  return typeof candidate.code === 'number' && typeof candidate.toLAFSError === 'function'
+    ? (candidate as CleoErrorLike)
+    : null;
+}
+
 /**
  * Type-guard for citty's `CLIError`. Returns the value when it has both
  * `name === 'CLIError'` AND a string `code` (e.g. `'EARG'`), else `null`.
@@ -511,7 +533,13 @@ async function runMainWithLafsEnvelope(
     // empty `cleo list` exits 100), skipping any hook placed after them, and a
     // detached encounter loses the race with teardown. Before this, only
     // `init` / `nexus reconcile` — which await their write — followed a move.
-    const { recordProjectEncounter } = await import('@cleocode/core/internal');
+    const { recordProjectEncounter, setProjectMovedRefusal } = await import(
+      '@cleocode/core/internal'
+    );
+    // T12558: `cleo doctor *` must be able to inspect a relocated project, so
+    // resolution does not refuse at a reroot tombstone for it. (Creating an
+    // empty store there is still refused by the store guard.)
+    if (rawArgs.find((a) => !a.startsWith('-')) === 'doctor') setProjectMovedRefusal(false);
     try {
       const outcome = await recordProjectEncounter();
       if (process.env['CLEO_DEBUG'])
@@ -520,6 +548,19 @@ async function runMainWithLafsEnvelope(
       if (process.env['CLEO_DEBUG'])
         process.stderr.write(
           `[cleo][debug] Project encounter not recorded: ${error instanceof Error ? error.message : String(error)}\n`,
+        );
+    }
+    // T12510 — heartbeat this device into `nexus_devices`. Throttled to one
+    // write per minute (a `stat` inside the interval); never fails the command.
+    try {
+      const { heartbeatThisDevice } = await import('@cleocode/core/internal');
+      const outcome = await heartbeatThisDevice();
+      if (process.env['CLEO_DEBUG'])
+        process.stderr.write(`[cleo][debug] Device heartbeat: ${outcome}\n`);
+    } catch (error) {
+      if (process.env['CLEO_DEBUG'])
+        process.stderr.write(
+          `[cleo][debug] Device heartbeat not recorded: ${error instanceof Error ? error.message : String(error)}\n`,
         );
     }
     try {
@@ -544,6 +585,20 @@ async function runMainWithLafsEnvelope(
           fix: cittyErrorFix(cittyCliError.code),
         });
         process.exit(1);
+      }
+
+      // T12558: a typed CleoError thrown outside dispatch (e.g. during project
+      // root resolution, such as E_PROJECT_MOVED) keeps its exit class, LAFS
+      // code, fix and details instead of collapsing to E_CLI_UNCAUGHT / exit 1.
+      const typed = asCleoErrorLike(err);
+      if (typed) {
+        cliError(typed.message, typed.code, {
+          name: typed.toLAFSError().code,
+          fix: typed.fix,
+          alternatives: typed.alternatives,
+          details: typed.details,
+        });
+        process.exit(typed.code);
       }
 
       // Non-citty error path — still must emit an envelope.

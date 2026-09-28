@@ -43,8 +43,8 @@ import { type ReleasePlan, safeParseReleasePlan } from '@cleocode/contracts';
 import { eq, inArray } from 'drizzle-orm';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getLogger } from '../logger.js';
-import { generateProjectHash } from '../nexus/hash.js';
 import { getProjectRoot } from '../paths.js';
+import { getProjectHashKey } from '../project-info.js';
 import { getDb, getNativeDb } from '../store/sqlite.js';
 import * as schema from '../store/tasks-schema.js';
 import { resolveCommitPresenceInTag } from './commit-presence.js';
@@ -1567,7 +1567,8 @@ export async function releaseReconcileV2(
 
   const unknownTokens = new Set<string>();
   const orphanCommits: string[] = [];
-  const projectHash = generateProjectHash(projectRoot);
+  // T12557: the write-once key plan.ts used, never a path-derived hash.
+  const projectHash = getProjectHashKey(projectRoot);
   const releaseId = `${projectHash}:${version}`;
   const nowIso = new Date().toISOString();
 

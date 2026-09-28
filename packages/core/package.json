@@ -421,6 +421,16 @@
       "import": "./dist/git-shim-export.js",
       "require": "./dist/git-shim-export.js"
     },
+    "./decide/*": {
+      "types": "./dist/decide/*.d.ts",
+      "import": "./dist/decide/*.js",
+      "require": "./dist/decide/*.js"
+    },
+    "./decide/*.js": {
+      "types": "./dist/decide/*.d.ts",
+      "import": "./dist/decide/*.js",
+      "require": "./dist/decide/*.js"
+    },
     "./resources/*": {
       "types": "./dist/resources/*.d.ts",
       "import": "./dist/resources/*.js",

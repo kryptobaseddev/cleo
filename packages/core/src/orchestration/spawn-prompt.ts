@@ -41,10 +41,15 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { getProviderAskTool } from '@cleocode/caamp';
 import type { Task } from '@cleocode/contracts';
 import { normalizeSlug } from '../docs/slug-normalize.js';
-import { ISOLATION_ENV_KEYS, provisionIsolatedShell } from '../sdk/isolation.js';
+import { provisionIsolatedShell } from '../sdk/isolation.js';
 import { resolveSkillPath } from '../skills/skill-paths.js';
+import {
+  buildBudgetedPsycheMemoryBlock,
+  relevanceContextFromTask,
+} from './psyche-memory-budget.js';
 
 /**
  * Locate `packages/core/templates/CLEO-INJECTION.md` at runtime.
@@ -274,6 +279,17 @@ export interface BuildSpawnPromptInput {
    * @task T889 / T893 / W3-2
    */
   harnessHint?: 'claude-code' | 'generic' | 'bare';
+  /**
+   * CAAMP provider id (or alias) of the harness that owns the conversation
+   * with the human — the orchestrator's harness, not the subagent's. Selects
+   * the ask tool named in the HITL line of the Return Format Contract via
+   * `getProviderAskTool`. Defaults to `'claude-code'` when
+   * {@link BuildSpawnPromptInput.harnessHint} is `'claude-code'`; otherwise
+   * the line names the `hitl.request` envelope fallback.
+   *
+   * @task T12482
+   */
+  askProviderId?: string;
   /**
    * When `true`, the tier-1 / tier-2 CLEO-INJECTION.md embed is replaced
    * with a one-line pointer back to the canonical template path. Keeps the
@@ -546,19 +562,20 @@ function loadSubagentProtocolBlock(projectRoot: string): string | null {
  * Emitted when the orchestrate engine has pre-provisioned a git worktree for
  * the task (worktree-by-default per T1140 / ADR-055). The section:
  *
- * - Names the worktree absolute path and branch.
- * - States the context-isolation constraint so the agent knows it is
- *   authorized only within the worktree boundary.
- * - Provides the `FIRST ACTION` directive so the agent initializes its cwd.
- * - Warns that each Bash tool call starts a fresh shell — cwd does NOT persist
- *   between calls (T1758). Agents MUST re-cd at the start of every Bash call.
- * - Embeds the utility preamble from {@link provisionIsolatedShell} as the
- *   single source of truth for the cd-guard + env-export snippet, so the
- *   isolation contract is never duplicated (T1758).
+ * - Names the branch and task, and states the context-isolation constraint so
+ *   the agent knows it is authorized only within the worktree boundary.
+ * - Provides the `FIRST ACTION` directive and warns that each Bash tool call
+ *   starts a fresh shell — cwd does NOT persist between calls (T1758).
+ * - Embeds the preamble from {@link provisionIsolatedShell} as the ONE cd
+ *   guard and the only shell rendering of the worktree path (T12520). The
+ *   preamble single-quotes every path, so the commands survive a path with
+ *   spaces such as macOS `~/Library/Application Support/...`. Earlier versions
+ *   also emitted an unquoted `WORKTREE=<path>` snippet and a bare
+ *   `cd <path>` FIRST ACTION (both broke on every macOS worktree) plus a
+ *   stale `/mnt/projects/cleocode` example; all three are gone.
  *
- * When `--no-worktree` is passed at spawn time this function is not called
- * and the section is absent. Agents that encounter a prompt without this
- * section may still run on the primary worktree (backward compat).
+ * When there is no worktree (`--no-worktree`, or provisioning skipped) this
+ * function is not called and the section is absent.
  *
  * The `projectHash` is derived from the worktree path (second-to-last path
  * component per the canonical XDG layout: `.../worktrees/<hash>/<taskId>`).
@@ -570,6 +587,7 @@ function loadSubagentProtocolBlock(projectRoot: string): string | null {
  *
  * @task T1140 — worktree-by-default spawn prompt
  * @task T1758 — harden tier-1 spawn prompt: cwd-reset warning + cd guard
+ * @task T12520 — quoted paths, one cd guard, no stale literal
  */
 function buildWorktreeSetupBlock(
   worktreePath: string,
@@ -600,60 +618,23 @@ function buildWorktreeSetupBlock(
     ...(identity.agentId ? { agentId: identity.agentId } : {}),
   });
 
-  // The cd guard snippet in a copy-pastable form for the CRITICAL section.
-  const cdGuardSnippet = `WORKTREE=${worktreePath}; cd "$WORKTREE" || exit 1; pwd | grep -q "$WORKTREE" || exit 1`;
-
-  // Enumerate the injected env keys for the note at the bottom.
-  const envKeyList = ISOLATION_ENV_KEYS.join(', ');
-
+  // T12520 — the preamble is the ONE cd guard and the only place a path is
+  // rendered as shell text; `provisionIsolatedShell` single-quotes every path,
+  // so the block stays valid under `~/Library/Application Support/...`. The
+  // prose below deliberately names no path (it would need its own quoting and
+  // would be a second, drifting copy of the guard).
   return [
-    '## Worktree Setup (REQUIRED) — STRICT ISOLATION',
+    '## Worktree Setup (REQUIRED)',
     '',
-    `> Authorized only within \`${worktreePath}\`.`,
+    `Authorized only within this worktree (branch \`${worktreeBranch}\`, task \`${taskId}\`). Never read or write the main checkout or any path outside the worktree in Edit/Write.`,
     '',
-    `- **Worktree**: \`${worktreePath}\``,
-    `- **Branch**: \`${worktreeBranch}\``,
-    `- **Task**: \`${taskId}\``,
+    '**FIRST ACTION**: run the block below. Each Bash call starts a new shell and cwd does NOT persist between Bash calls, so begin EVERY Bash call with its `cd ... || exit 1` line.',
     '',
-    `**FIRST ACTION**: \`cd ${worktreePath}\``,
-    '',
-    '**CRITICAL — WORKTREE ISOLATION**:',
-    '1. After initial `cd`, `pwd` must show worktree path',
-    '2. Each Bash call starts a fresh shell. Re-`cd` at start of EVERY Bash call: `cd <worktree> && <command>`',
-    `3. NEVER \`cd /mnt/projects/cleocode\`. NEVER use absolute paths outside the worktree in Edit/Write`,
-    `4. Read merged branches via your worktree (it tracks \`main\`'s latest)`,
-    '',
-    '**WARNING — cwd does NOT persist between Bash calls**:',
-    'Each Bash tool invocation starts a new shell process. Your working directory',
-    'resets to the default every call. You MUST prefix every Bash call with the',
-    'worktree cd-guard below — failure to do so is the leading cause of agents',
-    'accidentally writing files to the wrong location.',
-    '',
-    'Ready-to-use cd-guard snippet (copy-paste to start every Bash call):',
-    '```bash',
-    cdGuardSnippet,
-    '```',
-    '',
-    'Shell isolation preamble (single-source-of-truth from `provisionIsolatedShell`):',
     '```bash',
     isolation.preamble.trimEnd(),
     '```',
     '',
-    `Injected env vars: \`${envKeyList}\``,
-    '',
-    'Forbidden git ops: `git checkout, git switch, git branch -b/-D, git reset --hard, git worktree add/remove, git rebase, git stash pop, git push --force`',
-    '',
-    'All commits MUST land on YOUR branch only. The orchestrator integrates via `git merge --no-ff` (ADR-062), preserving your commit SHAs and authorship.',
-    '',
-    '**BRANCH PROVENANCE (T1927)**:',
-    `The orchestrator provisioned \`${worktreeBranch}\` cleanly from the integration base.`,
-    'If you ever need to manually create a task branch (e.g. in a fallback flow), ALWAYS run:',
-    '```bash',
-    `git branch -D ${worktreeBranch} 2>/dev/null || true`,
-    `git branch ${worktreeBranch} <base-ref>`,
-    '```',
-    'NEVER use `git worktree add -b` on a branch that may already exist — it silently reuses',
-    'orphan history from prior sessions or test fixtures and will corrupt the merge on completion.',
+    `**CRITICAL — WORKTREE ISOLATION**: commit only to \`${worktreeBranch}\`; the orchestrator integrates with \`git merge --no-ff\` (ADR-062). Forbidden: \`git checkout\`, \`git switch\`, \`git branch -b/-D\`, \`git reset --hard\`, \`git worktree add/remove\`, \`git rebase\`, \`git stash pop\`, \`git push --force\`.`,
   ].join('\n');
 }
 
@@ -1099,8 +1080,26 @@ function buildQualityGateBlock(): string {
   ].join('\n');
 }
 
+/**
+ * Build the one-line HITL rule for a SUBAGENT (T12482).
+ *
+ * Spawned agents never ask the human: harness ask tools are unavailable to
+ * subagents (Claude Code's `AskUserQuestion` included), and the owner
+ * directive routes every decision through the orchestrator. The subagent
+ * returns `blocked` with the question + options in the manifest; the line
+ * names the tool the ORCHESTRATOR asks with, or the `hitl.request` fallback.
+ *
+ * @param type - Return-contract type word (e.g. `Implementation`).
+ * @param askProviderId - Orchestrator's CAAMP provider id, if known.
+ */
+function buildHitlLine(type: string, askProviderId: string | undefined): string {
+  const tool = askProviderId ? getProviderAskTool(askProviderId).toolName : null;
+  const how = tool ? `asks via \`${tool}\`` : 'emits one `hitl.request` LAFS envelope';
+  return `HITL: never ask the human. Return \`${type} blocked.\` with {question, options[{label,description}], recommended} in the manifest; the orchestrator ${how}.`;
+}
+
 /** Build the return-format contract — exact strings the subagent may return. */
-function buildReturnFormatBlock(protocol: string): string {
+function buildReturnFormatBlock(protocol: string, askProviderId?: string): string {
   const type =
     protocol === 'research'
       ? 'Research'
@@ -1137,6 +1136,8 @@ function buildReturnFormatBlock(protocol: string): string {
     '1. The `pipeline_manifest` table via `cleo manifest append` (see **Manifest Protocol** below)',
     '2. The task record itself (gates, status, notes)',
     '3. Files committed to your branch',
+    '',
+    buildHitlLine(type, askProviderId),
   ].join('\n');
 }
 
@@ -1228,7 +1229,8 @@ function buildManifestProtocolBlock(taskId: string, protocol: SpawnProtocolPhase
  * The legacy flat-file manifest row was removed when `pipeline_manifest`
  * (SQLite) became the canonical manifest store (ADR-027 §6.2, T1096). Subagents append
  * manifest entries via `cleo manifest append` — see the Manifest Protocol block
- * rendered alongside this one.
+ * rendered alongside this one. T12482 dropped this block's restatement of that
+ * rule (the Manifest Protocol block already says it) to fund the HITL line.
  */
 function buildFilePathsBlock(
   taskId: string,
@@ -1244,10 +1246,6 @@ function buildFilePathsBlock(
     `| Agent output directory | \`${outputDir}\` |`,
     `| RCASD workspace (${taskId}) | \`${rcasdDir}\` |`,
     `| Test-run captures | \`${testRunsDir}\` |`,
-    '',
-    '> Manifest entries are stored in `pipeline_manifest` (tasks.db) and MUST be',
-    '> written via `cleo manifest append` (see **Manifest Protocol**). Never',
-    '> create a flat `.jsonl` manifest file — the legacy sink was retired (ADR-027).',
   ].join('\n');
 }
 
@@ -1530,131 +1528,32 @@ function buildAntiPatternBlock(): string {
  * the spawned agent its user profile, peer memory, and session context.
  * Mirrors the `computeBriefing` path in `briefing.ts` (M1 parity).
  *
+ * T12519: the block is budgeted. Operation receipts and dispatch traces are
+ * excluded. The rest is ranked by relevance to `task` and capped at
+ * `PSYCHE_MEMORY_TOKEN_BUDGET` tokens, admitting whole entries only. See
+ * `psyche-memory-budget.ts`.
+ *
  * Called only when `tier >= 1` and `retrievalBundle` is set.
- * Callers MUST NOT crash if the bundle is empty (all arrays may be empty
- * until T1147 W7 sweep ships in .132).
+ * Callers MUST NOT crash if the bundle is empty.
  *
  * @param bundle - The retrieval bundle from `buildRetrievalBundle`.
+ * @param task - The task being spawned (relevance ranking source).
+ * @param attentionDigestLines - Pre-rendered Tier-2 attention lines (T11374).
  * @returns Markdown string for the `## PSYCHE-MEMORY` section.
  *
  * @task T1260 PSYCHE E3
+ * @task T12519
  */
 function buildPsycheMemoryBlock(
   bundle: import('@cleocode/contracts').RetrievalBundle,
+  task: Task,
   attentionDigestLines?: readonly string[],
 ): string {
-  const lines: string[] = ['## PSYCHE-MEMORY'];
-  lines.push('');
-  lines.push(
-    `> Token budget used: ${bundle.tokenCounts.total} (cold=${bundle.tokenCounts.cold}, warm=${bundle.tokenCounts.warm}, hot=${bundle.tokenCounts.hot})`,
-  );
-
-  // -- Tier-2 attention digest (T11374) — budget-bounded MVI lines from the
-  //    open working-memory jots visible to the spawned task's scope. Empty when
-  //    there are no open items (the empty-attention contract: inject nothing).
-  if (attentionDigestLines && attentionDigestLines.length > 0) {
-    lines.push('');
-    lines.push(...attentionDigestLines);
-  }
-
-  // -- Cold: user profile --
-  if (bundle.cold.userProfile.length > 0) {
-    lines.push('');
-    lines.push('### User Profile');
-    for (const trait of bundle.cold.userProfile) {
-      lines.push(`- **${trait.traitKey}**: ${trait.traitValue}`);
-    }
-  }
-
-  // -- Cold: sigil card (Wave 8 T1148) --
-  if (bundle.cold.sigilCard) {
-    const s = bundle.cold.sigilCard;
-    lines.push('');
-    lines.push('### Active Peer Sigil');
-    if (s.displayName) lines.push(`- **Name**: ${s.displayName}`);
-    if (s.role) lines.push(`- **Role**: ${s.role}`);
-    if (s.cantFile) lines.push(`- **CANT file**: ${s.cantFile}`);
-    if (s.capabilityFlags) lines.push(`- **Capabilities**: ${s.capabilityFlags}`);
-  }
-
-  if (bundle.cold.peerInstructions) {
-    lines.push('');
-    lines.push('### Peer Instructions');
-    lines.push(bundle.cold.peerInstructions);
-  }
-
-  // -- Warm: peer memory --
-  if (bundle.warm.decisions.length > 0) {
-    lines.push('');
-    lines.push('### Key Decisions');
-    for (const d of bundle.warm.decisions) {
-      lines.push(`- [${d.id}] ${d.decision}`);
-    }
-  }
-
-  if (bundle.warm.peerPatterns.length > 0) {
-    lines.push('');
-    lines.push('### Patterns');
-    for (const p of bundle.warm.peerPatterns) {
-      lines.push(`- [${p.id}] ${p.pattern}`);
-    }
-  }
-
-  if (bundle.warm.peerLearnings.length > 0) {
-    lines.push('');
-    lines.push('### Learnings');
-    for (const l of bundle.warm.peerLearnings) {
-      lines.push(`- [${l.id}] ${l.insight}`);
-    }
-  }
-
-  // -- Hot: session state --
-  if (bundle.hot.sessionNarrative) {
-    lines.push('');
-    lines.push('### Session Narrative');
-    lines.push(bundle.hot.sessionNarrative);
-  }
-
-  if (bundle.hot.recentObservations.length > 0) {
-    lines.push('');
-    lines.push('### Recent Observations');
-    for (const o of bundle.hot.recentObservations) {
-      lines.push(`- [${o.id}] ${o.title}`);
-    }
-  }
-
-  if (bundle.hot.activeTasks.length > 0) {
-    lines.push('');
-    lines.push('### Active Tasks');
-    for (const t of bundle.hot.activeTasks) {
-      lines.push(`- ${t.id}: ${t.title} (${t.status})`);
-    }
-  }
-
-  // Empty bundle notice (expected until T1147 W7 sweep ships in .132).
-  // Tier-2 attention lines count as content — if the agent has open jots the
-  // block is non-empty even when the retrieval bundle is bare (T11374).
-  const hasContent =
-    (attentionDigestLines !== undefined && attentionDigestLines.length > 0) ||
-    bundle.cold.userProfile.length > 0 ||
-    bundle.cold.peerInstructions ||
-    bundle.cold.sigilCard !== undefined ||
-    bundle.warm.decisions.length > 0 ||
-    bundle.warm.peerPatterns.length > 0 ||
-    bundle.warm.peerLearnings.length > 0 ||
-    bundle.hot.sessionNarrative ||
-    bundle.hot.recentObservations.length > 0 ||
-    bundle.hot.activeTasks.length > 0;
-
-  if (!hasContent) {
-    lines.push('');
-    lines.push(
-      '> No memory context available. All entries are pending the T1147 W7 sweep (.132) ' +
-        "to promote from 'unswept-pre-T1151' to 'swept-clean'. Proceed without memory context.",
-    );
-  }
-
-  return lines.join('\n');
+  return buildBudgetedPsycheMemoryBlock({
+    bundle,
+    relevance: relevanceContextFromTask(task),
+    ...(attentionDigestLines !== undefined ? { attentionDigestLines } : {}),
+  }).block;
 }
 
 // ============================================================================
@@ -1735,7 +1634,9 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   // 9. Quality Gates       — biome / build / test
   authoredSections.push(buildHeader(input.task, protocol, tier));
   authoredSections.push(buildTaskIdentity(input.task));
-  authoredSections.push(buildReturnFormatBlock(protocol));
+  const askProviderId =
+    input.askProviderId ?? (input.harnessHint === 'claude-code' ? 'claude-code' : undefined);
+  authoredSections.push(buildReturnFormatBlock(protocol, askProviderId));
   authoredSections.push(buildManifestProtocolBlock(taskId, protocol));
   authoredSections.push(buildSessionBlock(input.sessionId));
   // Worktree Setup (T1140) — only emitted when the engine provisioned one.
@@ -1782,7 +1683,7 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   // the Tier-2 attention digest lines into the same block (budget-bounded).
   if (tier >= 1 && input.retrievalBundle) {
     authoredSections.push(
-      buildPsycheMemoryBlock(input.retrievalBundle, input.attentionDigestLines),
+      buildPsycheMemoryBlock(input.retrievalBundle, input.task, input.attentionDigestLines),
     );
   }
   authoredSections.push(buildFilePathsBlock(taskId, outputDir, rcasdDir, testRunsDir));

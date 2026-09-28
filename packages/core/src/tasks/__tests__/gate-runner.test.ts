@@ -30,9 +30,12 @@ import { createOperationExecutionContext } from '../../store/background-ops.js';
 import { acItemToText, acTextHash, buildFreshAcRows } from '../ac-table.js';
 import {
   createTaskGateReceipt,
+  resolveGateTimeoutMs,
   revalidateTaskGateResults,
   runGates,
   runTaskGates,
+  TYPED_GATE_BOOKKEEPING_MS,
+  typedGateAdmissionMs,
 } from '../gate-runner.js';
 
 // ─── Setup ────────────────────────────────────────────────────────────────
@@ -1176,4 +1179,56 @@ describe('task-bound explicit gate verification (T12292)', () => {
       execution.close();
     }
   });
+});
+
+describe('typed gate tool deadlines (T12516 · ADR-061)', () => {
+  const suite: TestGate = {
+    kind: 'test',
+    description: 'suite',
+    command: 'npm',
+    args: ['test'],
+    expect: 'exit0',
+  };
+  const check: CommandGate = { kind: 'command', description: 'check', cmd: 'node', args: [] };
+  const manual: ManualGate = { kind: 'manual', description: 'human', prompt: 'look' };
+
+  it('defaults to the ADR-061 tool deadline, not the shared 2 s budget', () => {
+    expect(resolveGateTimeoutMs(suite, {})).toBe(1_800_000);
+    expect(resolveGateTimeoutMs(check, {})).toBe(300_000);
+  });
+
+  it('honours the gate timeout, then CLEO_GATE_TIMEOUT_MS, then CLEO_TOOL_TIMEOUT_<KIND>', () => {
+    expect(resolveGateTimeoutMs({ ...suite, timeoutMs: 7 }, { CLEO_GATE_TIMEOUT_MS: '9' })).toBe(7);
+    expect(resolveGateTimeoutMs(suite, { CLEO_GATE_TIMEOUT_MS: '9' })).toBe(9);
+    expect(resolveGateTimeoutMs(suite, { CLEO_TOOL_TIMEOUT_TEST: '4200' })).toBe(4200);
+    expect(() => resolveGateTimeoutMs(suite, { CLEO_TOOL_TIMEOUT_TEST: 'soon' })).toThrow();
+  });
+
+  it('admits every tool deadline plus the bookkeeping budget', () => {
+    expect(typedGateAdmissionMs([suite, check, manual], {})).toBe(
+      1_800_000 + 300_000 + TYPED_GATE_BOOKKEEPING_MS,
+    );
+    expect(typedGateAdmissionMs([manual], {})).toBe(TYPED_GATE_BOOKKEEPING_MS);
+  });
+
+  it('runs a gate slower than 2 s to completion without a caller lifetime', async () => {
+    _forceSystemdRunAvailable(false);
+    try {
+      const [result] = await runGates(
+        [
+          {
+            kind: 'test',
+            description: 'slow suite',
+            command: process.execPath,
+            args: ['-e', 'setTimeout(() => process.exit(0), 3000)'],
+            expect: 'exit0',
+          },
+        ],
+        { projectRoot },
+      );
+      expect(result?.result, result?.errorMessage).toBe('pass');
+    } finally {
+      _forceSystemdRunAvailable(undefined);
+    }
+  }, 30_000);
 });

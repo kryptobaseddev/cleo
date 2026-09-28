@@ -237,18 +237,30 @@ export async function convertStickyToSessionNote(
     };
   }
 
-  const { readSessions, saveSessions, sessionStatus } = await import('../sessions/index.js');
+  const { readSessions, saveSessions } = await import('../sessions/index.js');
+  const { hasActiveSession, resolveBoundSession, SESSION_UNBOUND_FIX, sessionUnboundMessage } =
+    await import('../store/session-store.js');
 
   try {
     // We update the session object's notes array directly
     const sessions = await readSessions(projectRoot);
 
     // Find target session
+    // T12500: an explicit id, else the CALLER's bound session — never the
+    // newest active row (another agent's session when this caller is unbound).
     let targetSessionId = sessionId;
     if (!targetSessionId) {
-      const activeSession = await sessionStatus(projectRoot, {});
-      if (activeSession) {
-        targetSessionId = activeSession.id;
+      const bound = await resolveBoundSession(projectRoot);
+      if (bound?.session.status === 'active') {
+        targetSessionId = bound.session.id;
+      } else if (await hasActiveSession(projectRoot)) {
+        return {
+          success: false,
+          error: {
+            code: 'E_SESSION_UNBOUND',
+            message: `${sessionUnboundMessage('convert the sticky note into a session note')} ${SESSION_UNBOUND_FIX}`,
+          },
+        };
       }
     }
 

@@ -1,14 +1,14 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Coordinates ct-docs-lookup, ct-docs-write, ct-docs-review, ct-spec-writer, and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.16.0
+version: 3.16.1
 tier: 3
 core: false
 category: specialist
 protocol: null
 metadata:
-  version: 3.16.0
-  lastReviewed: 2026-09-19
+  version: 3.16.1
+  lastReviewed: 2026-09-27
   stability: stable
 dependencies:
   - ct-docs-lookup
@@ -398,8 +398,10 @@ Per-line opt-out (use sparingly): append
 the writer-uniqueness lint. Where T10369 prevents *new* raw `.md`
 writers from landing in `packages/core/src/**`, this sweep walks every
 `*.md` file *already* added under `.cleo/canon.yml`'s `rawMdPaths`
-directories since the T9791 docs-import cutoff (commit `251814e86`)
-and classifies each one against the docs SSoT:
+directories since the T9791 docs-import cutoff — the commit that
+imported the legacy corpus and committed its manifests under
+`.cleo/audit/imports/`, which is how the sweep locates it — and
+classifies each one against the docs SSoT:
 
 | Remediation | Meaning | Fix |
 |---|---|---|

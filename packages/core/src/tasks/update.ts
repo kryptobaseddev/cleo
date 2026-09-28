@@ -25,6 +25,7 @@ import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { assertTaskVersion, nextTaskVersion } from '../store/task-version.js';
 import { enforceAcceptanceImmutability } from './ac-immutability.js';
 import { applyAcPlan, planAcUpdate, rebuildChildProjectionAc } from './ac-table.js';
 import { normalizeAcceptance } from './acceptance-input.js';
@@ -155,6 +156,128 @@ export interface UpdateTaskOptions {
   addRelates?: Array<{ taskId: string; type: string; reason?: string }>;
   /** Remove related tasks by taskId. @task T9327 */
   removeRelates?: string[];
+  /**
+   * Optimistic-concurrency guard: the task version (`updatedAt`) the caller
+   * read. It is compared with the stored row inside the write transaction and
+   * a mismatch throws `E_CONFLICT` (`ExitCode.VERSION_CONFLICT`) carrying the
+   * current version. Omit it for last-writer-wins on scalar fields; the set
+   * operations below are atomic either way. @task T12503
+   */
+  expectedUpdatedAt?: string;
+}
+
+/**
+ * Task fields each scalar change name owns. Inside the write transaction the
+ * update is rebased onto the CURRENT row: only these fields are copied from
+ * the staged task, so a concurrent writer's changes to other fields survive.
+ * @task T12503
+ */
+const SCALAR_FIELDS_BY_CHANGE: Readonly<Record<string, ReadonlyArray<keyof Task>>> = {
+  title: ['title'],
+  status: ['status', 'completedAt', 'cancelledAt'],
+  priority: ['priority'],
+  type: ['type'],
+  size: ['size'],
+  phase: ['phase'],
+  description: ['description'],
+  acceptance: ['acceptance'],
+  blockedBy: ['blockedBy'],
+  noAutoComplete: ['noAutoComplete'],
+  kind: ['kind'],
+  scope: ['scope'],
+  severity: ['severity'],
+  pipelineStage: ['pipelineStage'],
+  parentId: ['parentId', 'type'],
+};
+
+function copyTaskField<K extends keyof Task>(to: Task, from: Task, key: K): void {
+  to[key] = from[key];
+}
+
+function withAdded(values: string[] | undefined, added: string[]): string[] {
+  const set = new Set(values ?? []);
+  for (const value of added) set.add(value.trim());
+  return [...set];
+}
+
+function withRemoved(values: string[] | undefined, removed: string[]): string[] {
+  const toRemove = new Set(removed.map((value) => value.trim()));
+  return (values ?? []).filter((value) => !toRemove.has(value));
+}
+
+/**
+ * Apply the collection mutations of an update (labels, depends, files,
+ * relates, notes) to `target` as set operations against ITS current values.
+ *
+ * `updateTask` runs this twice: once on the pre-transaction read so
+ * validation sees the intended result, and again on the row re-read inside
+ * the write transaction so a concurrent `--add-labels` (or depends/files)
+ * from another process is merged, never overwritten from a stale read.
+ * Arrays are replaced, never mutated in place. @task T12503
+ */
+function applyCollectionOps(
+  target: Task,
+  options: UpdateTaskOptions,
+  note: string | undefined,
+): void {
+  if (options.labels !== undefined) target.labels = [...options.labels];
+  if (options.addLabels?.length) target.labels = withAdded(target.labels, options.addLabels);
+  if (options.removeLabels?.length)
+    target.labels = withRemoved(target.labels, options.removeLabels);
+
+  if (options.depends !== undefined) target.depends = [...options.depends];
+  if (options.addDepends?.length) target.depends = withAdded(target.depends, options.addDepends);
+  if (options.removeDepends?.length)
+    target.depends = withRemoved(target.depends, options.removeDepends);
+
+  if (options.files !== undefined) target.files = [...options.files];
+  if (options.addFiles?.length) target.files = withAdded(target.files, options.addFiles);
+  if (options.removeFiles?.length) target.files = withRemoved(target.files, options.removeFiles);
+
+  if (options.relates !== undefined) {
+    target.relates = options.relates.map((r) => ({
+      taskId: r.taskId,
+      type: r.type,
+      ...(r.reason ? { reason: r.reason } : {}),
+    }));
+  }
+  if (options.addRelates?.length) {
+    const existing = new Map((target.relates ?? []).map((r) => [r.taskId, r]));
+    for (const r of options.addRelates) {
+      existing.set(r.taskId, {
+        taskId: r.taskId,
+        type: r.type,
+        ...(r.reason ? { reason: r.reason } : {}),
+      });
+    }
+    target.relates = [...existing.values()];
+  }
+  if (options.removeRelates?.length) {
+    const toRemove = new Set(options.removeRelates.map((id) => id.trim()));
+    target.relates = (target.relates ?? []).filter((r) => !toRemove.has(r.taskId));
+  }
+
+  if (note !== undefined) target.notes = [...(target.notes ?? []), note];
+}
+
+/**
+ * Rebase a staged update onto the row read inside the write transaction:
+ * copy only the scalar fields this update changed, then re-apply the
+ * collection set operations against the current collections. @task T12503
+ */
+function rebaseTaskUpdate(
+  current: Task,
+  staged: Task,
+  changes: readonly string[],
+  options: UpdateTaskOptions,
+  note: string | undefined,
+): Task {
+  const next: Task = { ...current };
+  for (const change of new Set(changes)) {
+    for (const field of SCALAR_FIELDS_BY_CHANGE[change] ?? []) copyTaskField(next, staged, field);
+  }
+  applyCollectionOps(next, options, note);
+  return next;
 }
 
 /** Result of updating a task. */
@@ -201,6 +324,9 @@ export async function updateTask(
     options.status === 'done' && task.status !== 'done' && !hasNonStatusDoneFields(options);
 
   if (isStatusOnlyDoneTransition) {
+    // The complete flow owns its own write transaction; check the guard
+    // against the read it would otherwise act on. @task T12503
+    assertTaskVersion(options.taskId, task, options.expectedUpdatedAt);
     const result = await completeTask({ taskId: options.taskId }, cwd, accessor);
     return { task: result.task, changes: ['status'] };
   }
@@ -337,78 +463,48 @@ export async function updateTask(
     changes.push('description');
   }
 
+  // Collection fields (labels, depends, files, relates, notes) are set
+  // operations: record the change and validate here, then apply them once to
+  // this read (for validation) and again to the row re-read inside the write
+  // transaction (for persistence). @task T12503
   if (options.labels !== undefined) {
     if (options.labels.length) validateLabels(options.labels);
-    task.labels = options.labels;
     changes.push('labels');
   }
 
   if (options.addLabels?.length) {
     validateLabels(options.addLabels);
-    const existing = new Set(task.labels ?? []);
-    for (const l of options.addLabels) existing.add(l.trim());
-    task.labels = [...existing];
     changes.push('labels');
   }
 
-  if (options.removeLabels?.length) {
-    const toRemove = new Set(options.removeLabels.map((l) => l.trim()));
-    task.labels = (task.labels ?? []).filter((l) => !toRemove.has(l));
-    changes.push('labels');
-  }
+  if (options.removeLabels?.length) changes.push('labels');
 
-  if (options.depends !== undefined) {
-    task.depends = options.depends;
-    changes.push('depends');
-  }
+  if (options.depends !== undefined) changes.push('depends');
+  if (options.addDepends?.length) changes.push('depends');
+  if (options.removeDepends?.length) changes.push('depends');
 
-  if (options.addDepends?.length) {
-    const existing = new Set(task.depends ?? []);
-    for (const d of options.addDepends) existing.add(d.trim());
-    task.depends = [...existing];
-    changes.push('depends');
-  }
+  const timestampedNote =
+    options.notes === undefined
+      ? undefined
+      : `${new Date()
+          .toISOString()
+          .replace('T', ' ')
+          .replace(/\.\d+Z$/, ' UTC')}: ${options.notes}`;
 
-  if (options.removeDepends?.length) {
-    const toRemove = new Set(options.removeDepends.map((d) => d.trim()));
-    task.depends = (task.depends ?? []).filter((d) => !toRemove.has(d));
-    changes.push('depends');
-  }
+  applyCollectionOps(task, options, timestampedNote);
 
   validateDependencyWaiver(options.priority, options.dependsWaiver, task.depends ?? []);
 
-  if (options.notes !== undefined) {
-    const timestampedNote = `${new Date()
-      .toISOString()
-      .replace('T', ' ')
-      .replace(/\.\d+Z$/, ' UTC')}: ${options.notes}`;
-    if (!task.notes) task.notes = [];
-    task.notes.push(timestampedNote);
-    changes.push('notes');
-  }
+  if (timestampedNote !== undefined) changes.push('notes');
 
   if (options.acceptance !== undefined) {
     task.acceptance = options.acceptance;
     changes.push('acceptance');
   }
 
-  if (options.files !== undefined) {
-    task.files = options.files;
-    changes.push('files');
-  }
-
-  if (options.addFiles?.length) {
-    const existing = new Set(task.files ?? []);
-    for (const f of options.addFiles) existing.add(f.trim());
-    task.files = [...existing];
-    changes.push('files');
-  }
-
-  if (options.removeFiles?.length) {
-    const toRemove = new Set(options.removeFiles.map((f) => f.trim()));
-    task.files = (task.files ?? []).filter((f) => !toRemove.has(f));
-    changes.push('files');
-  }
+  if (options.files !== undefined) changes.push('files');
+  if (options.addFiles?.length) changes.push('files');
+  if (options.removeFiles?.length) changes.push('files');
 
   if (options.blockedBy !== undefined) {
     // Auto-clear when set to empty string (T9241)
@@ -444,34 +540,10 @@ export async function updateTask(
     changes.push('severity');
   }
 
-  // T9327: relates mutations
-  if (options.relates !== undefined) {
-    task.relates = options.relates.map((r) => ({
-      taskId: r.taskId,
-      type: r.type,
-      ...(r.reason ? { reason: r.reason } : {}),
-    }));
-    changes.push('relates');
-  }
-
-  if (options.addRelates?.length) {
-    const existing = new Map((task.relates ?? []).map((r) => [r.taskId, r]));
-    for (const r of options.addRelates) {
-      existing.set(r.taskId, {
-        taskId: r.taskId,
-        type: r.type,
-        ...(r.reason ? { reason: r.reason } : {}),
-      });
-    }
-    task.relates = [...existing.values()];
-    changes.push('relates');
-  }
-
-  if (options.removeRelates?.length) {
-    const toRemove = new Set(options.removeRelates.map((id) => id.trim()));
-    task.relates = (task.relates ?? []).filter((r) => !toRemove.has(r.taskId));
-    changes.push('relates');
-  }
+  // T9327: relates mutations (applied by applyCollectionOps above)
+  if (options.relates !== undefined) changes.push('relates');
+  if (options.addRelates?.length) changes.push('relates');
+  if (options.removeRelates?.length) changes.push('relates');
 
   // Pipeline stage transition — forward-only (T060)
   if (options.pipelineStage !== undefined) {
@@ -603,29 +675,48 @@ export async function updateTask(
 
   task.updatedAt = now;
 
-  // Capture final relates state before transaction (built above from options)
-  const finalRelates = task.relates ?? [];
   const isRelatesChange = changes.includes('relates');
   const isAcceptanceChange = changes.includes('acceptance');
   const isReparent = changes.includes('parentId');
 
+  // The row actually persisted: the staged update rebased onto the row read
+  // inside the write transaction (T12503).
+  let written: Task = task;
+
   // Wrap writes in a transaction for TOCTOU safety (T023)
   await acc.transaction(async (tx) => {
+    // T12503 — optimistic concurrency. BEGIN IMMEDIATE holds the write lock
+    // from here to COMMIT, so this read is the row no other process can
+    // change before our write. Reject a stale expected version, then rebase
+    // the staged update onto it so set operations never lose a concurrent
+    // writer's additions and untouched fields keep their current values.
+    const current = await acc.loadSingleTask(options.taskId);
+    if (!current) {
+      throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${options.taskId}`, {
+        fix: `Use 'cleo find "${options.taskId}"' to search`,
+      });
+    }
+    assertTaskVersion(options.taskId, current, options.expectedUpdatedAt);
+    written = rebaseTaskUpdate(current, task, changes, options, timestampedNote);
+    written.updatedAt = nextTaskVersion(current, now);
+    // The waiver rule applies to the dependency set actually persisted.
+    validateDependencyWaiver(options.priority, options.dependsWaiver, written.depends ?? []);
+
     const severityAttestation =
       options.severity === undefined
         ? undefined
         : await prepareSignedSeverityAttestation(
             {
               timestamp: now,
-              title: task.title,
+              title: written.title,
               severity: options.severity,
-              taskId: task.id,
-              ...(task.parentId ? { epic: task.parentId } : {}),
+              taskId: written.id,
+              ...(written.parentId ? { epic: written.parentId } : {}),
             },
             { cwd },
           );
 
-    await tx.upsertSingleTask(task);
+    await tx.upsertSingleTask(written);
 
     // T9514: persist relates mutations to task_relations table.
     // The in-memory task.relates update is not enough — upsertSingleTask
@@ -635,7 +726,7 @@ export async function updateTask(
       if (options.relates !== undefined) {
         // Set-replace: clear existing rows then insert the new set.
         await tx.clearRelations(options.taskId);
-        for (const r of finalRelates) {
+        for (const r of written.relates ?? []) {
           await tx.addRelation(options.taskId, r.taskId, r.type, r.reason);
         }
       } else {
@@ -665,7 +756,7 @@ export async function updateTask(
     }
 
     if (isReparent) {
-      const parentIds = [originalParentId, task.parentId ?? null].filter(
+      const parentIds = [originalParentId, written.parentId ?? null].filter(
         (parentId): parentId is string => parentId !== null,
       );
       const uniqueParentIds = [...new Set(parentIds)];
@@ -690,7 +781,7 @@ export async function updateTask(
         details: {
           reason: 'reparent',
           oldParentId: originalParentId,
-          newParentId: task.parentId ?? null,
+          newParentId: written.parentId ?? null,
           audits: projectionAudits,
         },
         before: null,
@@ -705,7 +796,7 @@ export async function updateTask(
         action: lifecycleEvent,
         taskId: options.taskId,
         actor: 'system',
-        details: { title: task.title, changes },
+        details: { title: written.title, changes },
         before: { status: lifecycleBeforeStatus },
         after: { status: lifecycleAfterStatus },
       });
@@ -719,7 +810,7 @@ export async function updateTask(
       actor: 'system',
       details: {
         changes,
-        title: task.title,
+        title: written.title,
         ...(severityAttestation
           ? { severityAttestation: { ...severityAttestation, status: 'committed' } }
           : {}),
@@ -730,11 +821,11 @@ export async function updateTask(
         ...(options.dependsWaiver !== undefined ? { dependsWaiver: options.dependsWaiver } : {}),
       },
       before: null,
-      after: { changes, title: task.title },
+      after: { changes, title: written.title },
     });
   });
 
-  return { task, changes };
+  return { task: written, changes };
 }
 
 // ---------------------------------------------------------------------------

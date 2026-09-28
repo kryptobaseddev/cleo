@@ -16,7 +16,7 @@
 import {
   getLogger,
   getProjectInfoSync,
-  resolveCurrentSession,
+  resolveBoundSession,
   resolveSessionIdFromEnv,
 } from '@cleocode/core/internal';
 import { getConfig } from '../lib/config.js';
@@ -61,7 +61,9 @@ async function isGradeMode(): Promise<boolean> {
   if (process.env.CLEO_SESSION_GRADE === 'true') return true;
 
   try {
-    const session = await resolveCurrentSession();
+    // T12500: the CALLER's bound session only — another agent's newest
+    // session being in grade mode says nothing about this request.
+    const session = (await resolveBoundSession())?.session;
     if (session?.gradeMode) return true;
   } catch {
     // fail-open — DB unreachable defaults to no grade mode

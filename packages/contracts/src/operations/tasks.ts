@@ -1569,6 +1569,12 @@ export interface TasksUpdateQueryParams {
   addRelates?: Array<{ taskId: string; type: string; reason?: string }>;
   /** Remove related tasks by taskId. @task T9327 */
   removeRelates?: string[];
+  /**
+   * Optimistic-concurrency guard: the task `updatedAt` the caller read. When
+   * the stored version differs, the update fails with `E_CONFLICT` and the
+   * current version, instead of overwriting a newer write. @task T12503
+   */
+  expectedUpdatedAt?: string;
 }
 /**
  * Result of `tasks.update` — the updated task record with change list.
@@ -2602,6 +2608,7 @@ export const TASKS_UPDATE_INPUT_SCHEMA: JsonSchema = {
       },
     },
     removeRelates: { type: 'array', items: { type: 'string' } },
+    expectedUpdatedAt: { type: 'string', minLength: 1 },
   },
 };
 

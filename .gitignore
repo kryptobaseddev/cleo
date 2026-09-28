@@ -217,3 +217,7 @@ crates/cant-napi/*.node
 # package.json `files`, but it is generated output and must never be committed —
 # it was accidentally staged once (191 files / 5.7k lines) during T12037.
 packages/cleo/studio-dist/
+
+# T12558: `cleo project reroot` tombstone — local state, never committed
+# (a committed tombstone would travel into every clone).
+/.cleo-moved.json

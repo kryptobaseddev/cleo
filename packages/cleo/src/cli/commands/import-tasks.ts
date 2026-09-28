@@ -9,6 +9,7 @@
 
 import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { negatedFlag } from '../lib/negated-flag.js';
 
 /**
  * cleo import-tasks <file> — import tasks from .cleo-export.json with ID remapping.
@@ -78,7 +79,7 @@ export const importTasksCommand = defineCommand({
         parent: args.parent,
         phase: args.phase,
         addLabel: args['add-label'],
-        provenance: args['no-provenance'] ? false : undefined,
+        provenance: negatedFlag(args, 'provenance') ? false : undefined,
         resetStatus: args['reset-status'],
         onConflict: args['on-conflict'],
         onMissingDep: args['on-missing-dep'],

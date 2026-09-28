@@ -151,6 +151,9 @@ export async function importUserProfile(path?: string): Promise<ImportUserProfil
       await upsertUserProfileTrait(nexusDb, {
         ...incoming,
         source: incoming.source || 'import:user_profile.json',
+        // T12543: an import without a scope keeps the row's scope, so a user-
+        // global trait is never demoted (a demoting write would be refused).
+        scope: incoming.scope ?? existing.scope,
         firstObservedAt: existing.firstObservedAt, // preserve original observation
         lastReinforcedAt: incoming.lastReinforcedAt || new Date().toISOString(),
         reinforcementCount: incoming.reinforcementCount ?? existing.reinforcementCount,

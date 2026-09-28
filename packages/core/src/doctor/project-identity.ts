@@ -19,7 +19,16 @@
  * The tracked file is never modified here. It is write-once, and a malformed
  * one is restored from version control, never regenerated.
  *
+ * T12557: `projectRoot` is a path fact, derived from the real root at runtime.
+ * A persisted copy in `project-info.json` or `project-context.json` goes stale
+ * on every move, so the inspection lists it under `derivedFields` and
+ * `--resolve` strips it. Each removed value is kept in `project-info.json`
+ * under `strippedFields`, the same in-file receipt pattern as
+ * `previousProjectIds`. `projectHash` is NOT a path fact: it is a write-once
+ * identity key, and nothing here ever touches it.
+ *
  * @task T12353
+ * @task T12557
  * @see ADR-094 — write-once portable project identity (amends ADR-013 §9)
  */
 
@@ -27,12 +36,15 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  canonicalizePath,
   getCleoHome,
   isValidPortableProjectId,
   PORTABLE_PROJECT_ID_FILE,
+  readDeclaredProjectIdentity,
   readPortableProjectId,
 } from '@cleocode/paths';
 import { ensurePortableProjectId } from '../scaffold/project-identity.js';
+import { detectRelocatedRoot } from '../store/relocated-store-guard.js';
 
 /** Command that reports identity state; the prefix of every remedy below. */
 const IDENTITY_COMMAND = 'cleo doctor project-identity';
@@ -61,6 +73,34 @@ export type ProjectIdentityState =
   | 'untracked'
   | 'ignored';
 
+/** A persisted path fact in a metadata file (T12557). */
+export interface DerivedFieldFinding {
+  /** File under `.cleo/` that carries the field. */
+  readonly file: 'project-info.json' | 'project-context.json';
+  /** The field name. */
+  readonly field: 'projectRoot';
+  /** The persisted value, kept so a strip receipt can restore it. */
+  readonly value: unknown;
+}
+
+/** Files that must not persist path-derived fields. */
+const DERIVED_FIELD_FILES: readonly DerivedFieldFinding['file'][] = [
+  'project-info.json',
+  'project-context.json',
+];
+
+/**
+ * Path facts derived from the real root at runtime, never authoritative on
+ * disk. `projectHash` is deliberately absent: it is a write-once identity key.
+ */
+const DERIVED_FIELDS: readonly DerivedFieldFinding['field'][] = ['projectRoot'];
+
+/** Schema `maxItems` for the `previousProjectIds` / `strippedFields` receipts; oldest drop first. */
+const RECEIPT_MAX_ITEMS = 50;
+
+/** Bound every git probe: briefing runs this inspection on each call. */
+const GIT_PROBE_TIMEOUT_MS = 5000;
+
 /** Read-only report produced by {@link inspectProjectIdentity}. */
 export interface ProjectIdentityInspection {
   /** Absolute project root that was inspected. */
@@ -75,6 +115,11 @@ export interface ProjectIdentityInspection {
   readonly message: string;
   /** Exact command(s) that fix it, or `null` when nothing needs fixing. */
   readonly remedy: string | null;
+  /**
+   * Legacy path-derived fields persisted on disk (T12557). They are ignored at
+   * runtime and do not change `state`; `--resolve` strips them.
+   */
+  readonly derivedFields: readonly DerivedFieldFinding[];
 }
 
 /** One step {@link resolveProjectIdentity} took or would take. */
@@ -86,7 +131,9 @@ export interface IdentityResolutionStep {
     | 'repoint-aliases'
     | 'alias-old-id'
     | 'drop-inverted-alias'
-    | 'rewrite-project-info';
+    | 'rewrite-project-info'
+    | 'confirm-candidate-location'
+    | 'strip-derived-fields';
   /** Human-readable detail with the ids and counts involved. */
   readonly detail: string;
 }
@@ -123,12 +170,38 @@ function readInfo(
   }
 }
 
+/** Read a `.cleo/` JSON object; `undefined` when absent or not an object. */
+function readCleoJson(projectRoot: string, file: string): Record<string, unknown> | undefined {
+  const path = join(projectRoot, '.cleo', file);
+  if (!existsSync(path)) return undefined;
+  try {
+    const data: unknown = JSON.parse(readFileSync(path, 'utf-8'));
+    return data !== null && typeof data === 'object' && !Array.isArray(data)
+      ? (data as Record<string, unknown>)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** List persisted path-derived fields across the metadata files (T12557). */
+function findDerivedFields(projectRoot: string): DerivedFieldFinding[] {
+  const found: DerivedFieldFinding[] = [];
+  for (const file of DERIVED_FIELD_FILES) {
+    const data = readCleoJson(projectRoot, file);
+    if (!data) continue;
+    for (const field of DERIVED_FIELDS)
+      if (field in data) found.push({ file, field, value: data[field] });
+  }
+  return found;
+}
+
 /** Git's view of the tracked file: `null` when this is not a git work tree. */
 function gitFileState(projectRoot: string): 'tracked' | 'untracked' | 'ignored' | null {
   const rel = `.cleo/${PORTABLE_PROJECT_ID_FILE}`;
   const run = (args: string[]): boolean => {
     try {
-      execFileSync('git', args, { cwd: projectRoot, stdio: 'pipe' });
+      execFileSync('git', args, { cwd: projectRoot, stdio: 'pipe', timeout: GIT_PROBE_TIMEOUT_MS });
       return true;
     } catch {
       return false;
@@ -157,7 +230,13 @@ export function inspectProjectIdentity(projectRoot: string): ProjectIdentityInsp
   const info = readInfo(projectRoot);
   const trackedId = tracked.status === 'valid' ? tracked.projectId : null;
   const localId = info && info !== 'unparseable' ? info.id : null;
-  const base = { projectRoot, trackedId, localId };
+  const base = { projectRoot, trackedId, localId, derivedFields: findDerivedFields(projectRoot) };
+  // A CLEO root need not be a git work tree; git remedies apply only inside one.
+  let git: ReturnType<typeof gitFileState> | undefined;
+  const gitState = (): ReturnType<typeof gitFileState> => {
+    if (git === undefined) git = gitFileState(projectRoot);
+    return git;
+  };
 
   if (tracked.status === 'invalid') {
     return {
@@ -165,10 +244,24 @@ export function inspectProjectIdentity(projectRoot: string): ProjectIdentityInsp
       state: 'invalid',
       message: `.cleo/project-id is unusable (${tracked.reason}). CLEO never regenerates it.`,
       remedy:
-        'git checkout -- .cleo/project-id   (restore the committed id; inspect with `git log -p -- .cleo/project-id`)',
+        gitState() === null
+          ? 'restore .cleo/project-id from a backup of this project (the CLEO root is not a git work tree)'
+          : 'git checkout -- .cleo/project-id   (restore the committed id; inspect with `git log -p -- .cleo/project-id`)',
     };
   }
   if (info === undefined) {
+    // T12558: a tracked id restored (e.g. by `git checkout -- .`) at a root the
+    // project was rerooted away from must not be "adopted" by a plain init —
+    // that is exactly the refusal. Point at the live root, or the opt-out.
+    const relocated = detectRelocatedRoot(projectRoot, join(getCleoHome(), 'cleo.db'));
+    if (relocated) {
+      return {
+        ...base,
+        state: 'not-adopted',
+        message: `.cleo/project-id declares ${relocated.projectId}, which was rerooted from here to ${relocated.movedTo} (${relocated.via}).`,
+        remedy: `cd "${relocated.movedTo}"   (the live project). A DIFFERENT project here needs a new id: \`cleo init --here --new-identity\``,
+      };
+    }
     return trackedId
       ? {
           ...base,
@@ -197,7 +290,10 @@ export function inspectProjectIdentity(projectRoot: string): ProjectIdentityInsp
       ...base,
       state: 'missing',
       message: `.cleo/project-id is missing. The local id is ${localId}.`,
-      remedy: `${IDENTITY_COMMAND} --resolve && git add .cleo/project-id && git commit -m "chore: track CLEO project id"`,
+      remedy:
+        gitState() === null
+          ? `${IDENTITY_COMMAND} --resolve   (the CLEO root is not a git work tree; keep .cleo/project-id with the project)`
+          : `${IDENTITY_COMMAND} --resolve && git add .cleo/project-id && git commit -m "chore: track CLEO project id"`,
     };
   }
   if (trackedId !== localId) {
@@ -208,8 +304,7 @@ export function inspectProjectIdentity(projectRoot: string): ProjectIdentityInsp
       remedy: `${IDENTITY_COMMAND} --resolve --dry-run   then   ${IDENTITY_COMMAND} --resolve   (re-keys local state to ${trackedId}; ${localId} stays resolvable as an alias)`,
     };
   }
-  const git = gitFileState(projectRoot);
-  if (git === 'ignored') {
+  if (gitState() === 'ignored') {
     return {
       ...base,
       state: 'ignored',
@@ -219,7 +314,7 @@ export function inspectProjectIdentity(projectRoot: string): ProjectIdentityInsp
         'cleo upgrade   (refreshes .cleo/.gitignore with `!project-id`), then git add .cleo/project-id',
     };
   }
-  if (git === 'untracked') {
+  if (gitState() === 'untracked') {
     return {
       ...base,
       state: 'untracked',
@@ -242,6 +337,145 @@ function writeJsonAtomic(path: string, data: Record<string, unknown>): void {
   renameSync(tmp, path);
 }
 
+/** Whether git tracks `.cleo/<file>`, so rewriting it dirties the work tree. */
+function isGitTracked(projectRoot: string, file: string): boolean {
+  try {
+    execFileSync('git', ['ls-files', '--error-unmatch', `.cleo/${file}`], {
+      cwd: projectRoot,
+      stdio: 'pipe',
+      timeout: GIT_PROBE_TIMEOUT_MS,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Return `info` with `findings` appended to its `strippedFields` receipt
+ * (capped at the schema's `maxItems`) and, when `stripInfo`, its own path
+ * facts removed. Pure; the caller writes the result.
+ *
+ * @param info - Parsed `project-info.json`.
+ * @param findings - Path facts being removed, with their values.
+ * @param now - ISO timestamp recorded on each receipt entry.
+ * @param stripInfo - Remove `DERIVED_FIELDS` from `info` itself.
+ * @returns A new object; `info` is not mutated.
+ * @example
+ * ```ts
+ * const next = withStrippedFieldsReceipt(info, findings, new Date().toISOString(), true);
+ * ```
+ * @task T12557
+ */
+export function withStrippedFieldsReceipt(
+  info: Readonly<Record<string, unknown>>,
+  findings: readonly DerivedFieldFinding[],
+  now: string,
+  stripInfo: boolean,
+): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...info };
+  const prior = Array.isArray(info['strippedFields']) ? info['strippedFields'] : [];
+  next['strippedFields'] = [
+    ...prior,
+    ...findings.map((finding) => ({ ...finding, strippedAt: now })),
+  ].slice(-RECEIPT_MAX_ITEMS);
+  if (stripInfo) for (const field of DERIVED_FIELDS) delete next[field];
+  return next;
+}
+
+/**
+ * Remove persisted path facts. The receipt is written first, into
+ * `project-info.json` `strippedFields`, so a value is never removed without a
+ * durable record of it; without a readable `project-info.json` nothing is
+ * stripped.
+ */
+function stripDerivedFields(
+  projectRoot: string,
+  findings: readonly DerivedFieldFinding[],
+  now: string,
+): boolean {
+  const info = readCleoJson(projectRoot, 'project-info.json');
+  if (!info) return false;
+  const stripInfo = findings.some((finding) => finding.file === 'project-info.json');
+  writeJsonAtomic(
+    join(projectRoot, '.cleo', 'project-info.json'),
+    withStrippedFieldsReceipt(info, findings, now, stripInfo),
+  );
+  if (findings.some((finding) => finding.file === 'project-context.json')) {
+    const context = readCleoJson(projectRoot, 'project-context.json');
+    if (context) {
+      for (const field of DERIVED_FIELDS) delete context[field];
+      writeJsonAtomic(join(projectRoot, '.cleo', 'project-context.json'), context);
+    }
+  }
+  return true;
+}
+
+/** An unconfirmed checkout of a registered project (T12470). */
+interface CandidateCheckout {
+  readonly projectId: string;
+  readonly path: string;
+  readonly registeredPath: string;
+}
+
+/**
+ * Find this checkout's `candidate` location: it declares an id whose registry
+ * row names another path, and it is not already a live location on this device.
+ */
+async function findCandidateCheckout(
+  projectRoot: string,
+  cleoHome: string | undefined,
+): Promise<CandidateCheckout | null> {
+  const declared = readDeclaredProjectIdentity(projectRoot);
+  if (!declared) return null;
+  const path = canonicalizePath(projectRoot);
+  const { getNexusRegistryDb } = await import('../store/nexus-sqlite.js');
+  const { projectRegistry } = await import('../store/schema/nexus-schema.js');
+  const { eq } = await import('drizzle-orm');
+  const { decideEncounterBinding } = await import('../nexus/path-map.js');
+  const db = await getNexusRegistryDb(cleoHome ?? getCleoHome());
+  const row = db
+    .select({ projectPath: projectRegistry.projectPath })
+    .from(projectRegistry)
+    .where(eq(projectRegistry.projectId, declared.projectId))
+    .get();
+  if (!row || row.projectPath === path) return null;
+  const binding = decideEncounterBinding(db, {
+    projectId: declared.projectId,
+    projectPath: path,
+    now: new Date().toISOString(),
+  });
+  if (binding === 'refresh') return null;
+  return { projectId: declared.projectId, path, registeredPath: row.projectPath };
+}
+
+/** Promote a candidate checkout to the project's live, registered location. */
+async function confirmCandidateCheckout(
+  candidate: CandidateCheckout,
+  cleoHome: string | undefined,
+): Promise<void> {
+  const { getNexusRegistryDb } = await import('../store/nexus-sqlite.js');
+  const { confirmProjectLocation } = await import('../nexus/path-map.js');
+  const { collectCheckoutEvidence } = await import('../nexus/identity.js');
+  const { ensureCheckoutNonce } = await import('../nexus/checkout-nonce.js');
+  const evidence = await collectCheckoutEvidence(candidate.path);
+  // The confirmed checkout gets its own nonce, so a later move is provable.
+  const checkoutNonce = ensureCheckoutNonce(candidate.path);
+  const db = await getNexusRegistryDb(cleoHome ?? getCleoHome());
+  db.transaction(
+    (tx) => {
+      confirmProjectLocation(tx, {
+        projectId: candidate.projectId,
+        projectPath: candidate.path,
+        now: new Date().toISOString(),
+        evidence,
+        checkoutNonce,
+      });
+    },
+    { behavior: 'immediate' },
+  );
+}
+
 /** Options for {@link resolveProjectIdentity}. */
 export interface ResolveProjectIdentityOptions {
   /** Plan only; write nothing. */
@@ -259,6 +493,9 @@ export interface ResolveProjectIdentityOptions {
  *   renames the row's primary key, re-points aliases and records the old id as
  *   an alias. Then `project-info.json` is rewritten, keeping the old id under
  *   `previousProjectIds`.
+ * - In every state, persisted `projectRoot` fields are stripped first
+ *   (T12557). The removed values are kept in `project-info.json`
+ *   `strippedFields`. `projectHash` is never touched.
  *
  * Every other state is refused with its remedy. The operation is idempotent:
  * re-running after a partial apply completes the remaining steps.
@@ -285,12 +522,47 @@ export async function resolveProjectIdentity(
     rows: { before: number; after: number } = { before: 0, after: 0 },
   ): IdentityResolution => ({ dryRun, before, steps, registryRows: rows, refused });
 
+  // T12470: a checkout that declares an already-registered id is only a
+  // `candidate` until confirmed. Resolving here IS the explicit confirmation.
+  const confirmCandidateStep = async (): Promise<boolean> => {
+    const candidate = await findCandidateCheckout(projectRoot, options.cleoHome);
+    if (!candidate) return false;
+    steps.push({
+      action: 'confirm-candidate-location',
+      detail: `confirm ${candidate.path} as the live location of ${candidate.projectId} (registry row moves from ${candidate.registeredPath}; its permissions stay with the row)`,
+    });
+    if (!dryRun) await confirmCandidateCheckout(candidate, options.cleoHome);
+    return true;
+  };
+
+  if (before.derivedFields.length > 0) {
+    const removed = before.derivedFields
+      .map((finding) => `${finding.file}:${finding.field}=${JSON.stringify(finding.value)}`)
+      .join(', ');
+    const trackedNote = before.derivedFields.some(
+      (finding) => finding.file === 'project-context.json',
+    )
+      ? isGitTracked(projectRoot, 'project-context.json')
+        ? '; .cleo/project-context.json is git-tracked, so this dirties the work tree (commit the change)'
+        : '; .cleo/project-context.json is not git-tracked'
+      : '';
+    steps.push({
+      action: 'strip-derived-fields',
+      detail: `remove ${removed} (a path fact derived at runtime; a persisted copy goes stale on a move). Receipt: project-info.json strippedFields${trackedNote}`,
+    });
+    if (!dryRun && !stripDerivedFields(projectRoot, before.derivedFields, new Date().toISOString()))
+      return result(
+        'Cannot record a strip receipt: .cleo/project-info.json is missing or unreadable.',
+      );
+  }
+
   if (before.state === 'missing' && before.localId) {
     steps.push({
       action: 'write-tracked-id',
       detail: `create .cleo/project-id = ${before.localId}`,
     });
     if (!dryRun) await ensurePortableProjectId(projectRoot, before.localId);
+    await confirmCandidateStep();
     return result(null);
   }
   if (before.state === 'info-invalid') {
@@ -302,12 +574,13 @@ export async function resolveProjectIdentity(
       const { ensureProjectInfo } = await import('../scaffold/ensure-config.js');
       await ensureProjectInfo(projectRoot, { force: true });
     }
+    await confirmCandidateStep();
     return result(null);
   }
+  if (before.state !== 'conflict' && (await confirmCandidateStep())) return result(null);
   if (before.state !== 'conflict' || !before.trackedId || !before.localId) {
-    return result(
-      before.remedy ? `${before.message} Remedy: ${before.remedy}` : 'Nothing to resolve.',
-    );
+    if (before.remedy) return result(`${before.message} Remedy: ${before.remedy}`);
+    return result(steps.length > 0 ? null : 'Nothing to resolve.');
   }
 
   const oldId = before.localId;
@@ -411,7 +684,7 @@ export async function resolveProjectIdentity(
     writeJsonAtomic(join(projectRoot, '.cleo', 'project-info.json'), {
       ...info.data,
       projectId: newId,
-      previousProjectIds: [...new Set([...previous, oldId])],
+      previousProjectIds: [...new Set([...previous, oldId])].slice(-RECEIPT_MAX_ITEMS),
       lastUpdated: now,
     });
   }

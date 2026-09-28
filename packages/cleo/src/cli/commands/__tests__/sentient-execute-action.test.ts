@@ -320,6 +320,36 @@ describe('cleo sentient propose accept --no-execute (T9898)', () => {
     const last = captured.outputs.at(-1)?.payload as { executed: boolean };
     expect(last?.executed).toBe(false);
   });
+
+  // T12528: the case above hands the handler `{ 'no-execute': true }`, a shape
+  // citty never produces — `--no-execute` parses to `{ execute: false }`. Before
+  // the fix the real flag fell through to the prompt, and a "y" executed the
+  // fixAction the operator had just opted out of. Parse the real argv instead.
+  it('skips execution for a citty-parsed --no-execute even when the prompt would say yes (T12528)', async () => {
+    dbState.row = makeProposalRow('cleo templates upgrade tmpl-x');
+    const restore = await setPromptResponse(true);
+    try {
+      const { parseArgs } = await import('citty');
+      const mod = await import('../sentient.js');
+      const accept = (
+        mod.sentientCommand as unknown as {
+          subCommands: {
+            propose: { subCommands: { accept: { args: import('citty').ArgsDef } } };
+          };
+        }
+      ).subCommands.propose.subCommands.accept;
+      const args = parseArgs(['prop-1', '--no-execute', '--project', tmpRoot], accept.args);
+      expect(args['no-execute']).not.toBe(true);
+      const run = await getAcceptRun();
+      await run({ args });
+    } finally {
+      restore();
+    }
+
+    expect(mockSpawn).not.toHaveBeenCalled();
+    const last = captured.outputs.at(-1)?.payload as { executed: boolean };
+    expect(last?.executed).toBe(false);
+  });
 });
 
 describe('cleo sentient propose accept — safety guard (T9898)', () => {

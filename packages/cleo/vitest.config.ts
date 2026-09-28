@@ -13,6 +13,7 @@
  * @task T566
  */
 
+import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
 import { withWorkspaceSubpathAliases } from '../../vitest-workspace-resolver.js';
@@ -97,224 +98,104 @@ export default defineConfig({
       // These MUST appear BEFORE the bare `@cleocode/contracts` alias so
       // vitest matches the longer prefix first; otherwise the broader alias
       // rewrites the path to `index.ts/<subpath>` and Node errors with ENOTDIR.
-      '@cleocode/contracts/enums': new URL(
-        '../../packages/contracts/src/enums.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/contracts/jobs': new URL(
-        '../../packages/contracts/src/jobs.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/contracts/provenance': new URL(
-        '../../packages/contracts/src/provenance.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/contracts/operations/docs': new URL(
-        '../../packages/contracts/src/operations/docs.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/contracts/enums': fileURLToPath(new URL('../../packages/contracts/src/enums.ts', import.meta.url)),
+      '@cleocode/contracts/jobs': fileURLToPath(new URL('../../packages/contracts/src/jobs.ts', import.meta.url)),
+      '@cleocode/contracts/provenance': fileURLToPath(new URL('../../packages/contracts/src/provenance.ts', import.meta.url)),
+      '@cleocode/contracts/operations/docs': fileURLToPath(new URL('../../packages/contracts/src/operations/docs.ts', import.meta.url)),
       // T10134: render subpath aliases — animations/render imports these via
       // `@cleocode/contracts/render/*.js`. Without explicit aliases the
       // bare-package alias below rewrites the subpath to
       // `index.ts/render/icon.js` and Node's loader errors with ENOTDIR.
-      '@cleocode/contracts/render/icon.js': new URL(
-        '../../packages/contracts/src/render/icon.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/contracts/render/tree.js': new URL(
-        '../../packages/contracts/src/render/tree.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/contracts/render/table.js': new URL(
-        '../../packages/contracts/src/render/table.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/contracts/render/list.js': new URL(
-        '../../packages/contracts/src/render/list.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/contracts/render/envelope.js': new URL(
-        '../../packages/contracts/src/render/envelope.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/contracts/render/icon.js': fileURLToPath(new URL('../../packages/contracts/src/render/icon.ts', import.meta.url)),
+      '@cleocode/contracts/render/tree.js': fileURLToPath(new URL('../../packages/contracts/src/render/tree.ts', import.meta.url)),
+      '@cleocode/contracts/render/table.js': fileURLToPath(new URL('../../packages/contracts/src/render/table.ts', import.meta.url)),
+      '@cleocode/contracts/render/list.js': fileURLToPath(new URL('../../packages/contracts/src/render/list.ts', import.meta.url)),
+      '@cleocode/contracts/render/envelope.js': fileURLToPath(new URL('../../packages/contracts/src/render/envelope.ts', import.meta.url)),
       // T11936: the TUI worker-stream fold imports `GatewayStreamEvent` via
       // `@cleocode/contracts/gateway`. Like the subpaths above, this MUST appear
       // before the bare alias or vitest rewrites it to `index.ts/gateway`
       // (ENOTDIR). Maps to the contracts gateway source module.
-      '@cleocode/contracts/gateway': new URL(
-        '../../packages/contracts/src/gateway.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/contracts': new URL('../../packages/contracts/src/index.ts', import.meta.url)
-        .pathname,
-      '@cleocode/core/internal': new URL('../../packages/core/src/internal.ts', import.meta.url)
-        .pathname,
+      '@cleocode/contracts/gateway': fileURLToPath(new URL('../../packages/contracts/src/gateway.ts', import.meta.url)),
+      '@cleocode/contracts': fileURLToPath(new URL('../../packages/contracts/src/index.ts', import.meta.url)),
+      '@cleocode/core/internal': fileURLToPath(new URL('../../packages/core/src/internal.ts', import.meta.url)),
       // @cleocode/paths — workspace-local canonical path utilities (env-paths wrapper).
       // Must be aliased so vitest resolves packages/core/src/paths.ts without a build step.
-      '@cleocode/paths': new URL('../../packages/paths/src/index.ts', import.meta.url).pathname,
+      '@cleocode/paths': fileURLToPath(new URL('../../packages/paths/src/index.ts', import.meta.url)),
       // @cleocode/utils — pure zero-dependency leaf (formatBytes, redact, …).
       // Aliased to source so vitest resolves the leaf without building its
       // dist/ first (T11414 · E5). Mirrors the @cleocode/paths treatment.
-      '@cleocode/utils': new URL('../../packages/utils/src/index.ts', import.meta.url).pathname,
+      '@cleocode/utils': fileURLToPath(new URL('../../packages/utils/src/index.ts', import.meta.url)),
       // caamp and cant — required to resolve @cleocode/core/internal transitive deps
-      '@cleocode/caamp': new URL('../../packages/caamp/src/index.ts', import.meta.url).pathname,
-      '@cleocode/cant': new URL('../../packages/cant/src/index.ts', import.meta.url).pathname,
+      '@cleocode/caamp': fileURLToPath(new URL('../../packages/caamp/src/index.ts', import.meta.url)),
+      '@cleocode/cant': fileURLToPath(new URL('../../packages/cant/src/index.ts', import.meta.url)),
       // T1187-followup / v2026.4.113: CLI imports buildManifestEntryFromShorthand
       // from the core SDK (package-boundary fix — CLI must delegate to core for
       // defaulting logic). Matches existing brain-backfill.js / precompact-flush.js pattern.
-      '@cleocode/core/memory/manifest-builder.js': new URL(
-        '../../packages/core/src/memory/manifest-builder.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/core/memory/manifest-builder.js': fileURLToPath(new URL('../../packages/core/src/memory/manifest-builder.ts', import.meta.url)),
       // Store sub-path exports — must be listed before the root alias so the
       // more-specific pattern wins.  Production code uses `import(x as string)`
       // which vitest's transform cannot statically hoist; registering these aliases
       // ensures vi.mock('@cleocode/core/store/…') resolves to the source tree and
       // is correctly intercepted at runtime.
-      '@cleocode/core/store/nexus-sqlite': new URL(
-        '../../packages/core/src/store/nexus-sqlite.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/core/store/nexus-schema': new URL(
-        '../../packages/core/src/store/schema/nexus-schema.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/core/store/nexus-sqlite': fileURLToPath(new URL('../../packages/core/src/store/nexus-sqlite.ts', import.meta.url)),
+      '@cleocode/core/store/nexus-schema': fileURLToPath(new URL('../../packages/core/src/store/schema/nexus-schema.ts', import.meta.url)),
       // T10304: backup-recover-brain SSoT (Saga T10281 Epic T10286) — used by
       // `cleo backup recover brain` CLI verb. vi.mock against this subpath needs
       // an alias so source-tree resolution wins under vitest.
-      '@cleocode/core/store/backup-recover-brain.js': new URL(
-        '../../packages/core/src/store/backup-recover-brain.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/core/store/backup-recover-brain.js': fileURLToPath(new URL('../../packages/core/src/store/backup-recover-brain.ts', import.meta.url)),
       // T10319: backup-verify SSoT (Saga T10281 Epic T10284) — used by
       // `cleo backup verify` CLI verb. Same source-tree resolution rationale
       // as the backup-recover-brain alias above.
-      '@cleocode/core/store/backup-verify.js': new URL(
-        '../../packages/core/src/store/backup-verify.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/core/store/backup-verify.js': fileURLToPath(new URL('../../packages/core/src/store/backup-verify.ts', import.meta.url)),
       // T946 sentient daemon consumes these subpath exports at runtime.
-      '@cleocode/core/sdk': new URL('../../packages/core/src/cleo.ts', import.meta.url).pathname,
-      '@cleocode/core/tasks': new URL(
-        '../../packages/core/src/tasks/index.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/core/sdk': fileURLToPath(new URL('../../packages/core/src/cleo.ts', import.meta.url)),
+      '@cleocode/core/tasks': fileURLToPath(new URL('../../packages/core/src/tasks/index.ts', import.meta.url)),
       // T11933: gateway SDK client subpath — `exports` points at dist/, so
       // vitest source-tree resolution needs this alias for the `cleo tui`
       // cockpit's `@cleocode/core/gateway-client` import (same rationale as
       // the /tasks alias above).
-      '@cleocode/core/gateway-client': new URL(
-        '../../packages/core/src/gateway-client/index.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/core/gateway-client': fileURLToPath(new URL('../../packages/core/src/gateway-client/index.ts', import.meta.url)),
       // T10124 / Saga T10113 — sagas core module hosts the pure-business
       // saga ops (create/add/list/members/rollup) used by the dispatch layer.
-      '@cleocode/core/sagas': new URL(
-        '../../packages/core/src/sagas/index.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/core/sagas': fileURLToPath(new URL('../../packages/core/src/sagas/index.ts', import.meta.url)),
       // T997/T1004: precompact-flush subpath export used by memory dispatch domain
-      '@cleocode/core/memory/precompact-flush.js': new URL(
-        '../../packages/core/src/memory/precompact-flush.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/core/memory/precompact-flush.js': fileURLToPath(new URL('../../packages/core/src/memory/precompact-flush.ts', import.meta.url)),
       // T1003: brain-backfill subpath export used by memory dispatch domain
-      '@cleocode/core/memory/brain-backfill.js': new URL(
-        '../../packages/core/src/memory/brain-backfill.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/core/memory/brain-backfill.js': fileURLToPath(new URL('../../packages/core/src/memory/brain-backfill.ts', import.meta.url)),
       // T1015: sentient + gc daemons relocated from cleo → core
-      '@cleocode/core/sentient/daemon.js': new URL(
-        '../../packages/core/src/sentient/daemon.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/core/sentient/state.js': new URL(
-        '../../packages/core/src/sentient/state.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/core/sentient/tick.js': new URL(
-        '../../packages/core/src/sentient/tick.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/core/sentient/propose-tick.js': new URL(
-        '../../packages/core/src/sentient/propose-tick.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/core/sentient/proposal-rate-limiter.js': new URL(
-        '../../packages/core/src/sentient/proposal-rate-limiter.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/core/sentient/daemon.js': fileURLToPath(new URL('../../packages/core/src/sentient/daemon.ts', import.meta.url)),
+      '@cleocode/core/sentient/state.js': fileURLToPath(new URL('../../packages/core/src/sentient/state.ts', import.meta.url)),
+      '@cleocode/core/sentient/tick.js': fileURLToPath(new URL('../../packages/core/src/sentient/tick.ts', import.meta.url)),
+      '@cleocode/core/sentient/propose-tick.js': fileURLToPath(new URL('../../packages/core/src/sentient/propose-tick.ts', import.meta.url)),
+      '@cleocode/core/sentient/proposal-rate-limiter.js': fileURLToPath(new URL('../../packages/core/src/sentient/proposal-rate-limiter.ts', import.meta.url)),
       // T9898: execute-action SSoT (Saga T9855 / E6.4) — fixAction safety guard +
       // spawn + audit-log append surface consumed by `cleo sentient propose accept`.
-      '@cleocode/core/sentient/execute-action.js': new URL(
-        '../../packages/core/src/sentient/execute-action.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/core/sentient/execute-action.js': fileURLToPath(new URL('../../packages/core/src/sentient/execute-action.ts', import.meta.url)),
       // T9898: skills-store subpath import used by sentient.ts review-status verbs.
       // The bare-package resolver can't find it in sparse worktrees; aliasing to the
       // source tree lets vitest tests that import sentient.ts load cleanly.
-      '@cleocode/core/store/skills-store.js': new URL(
-        '../../packages/core/src/store/skills-store.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/core/store/skills-store.js': fileURLToPath(new URL('../../packages/core/src/store/skills-store.ts', import.meta.url)),
       // T9898: sqlite subpath import used by `sentient propose accept|reject|list`
       // (dynamic import). Same rationale as skills-store alias above.
-      '@cleocode/core/store/sqlite.js': new URL(
-        '../../packages/core/src/store/sqlite.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/core/store/sqlite.js': fileURLToPath(new URL('../../packages/core/src/store/sqlite.ts', import.meta.url)),
       // T9898: tasks-schema subpath import used by sentient.ts dynamic queries.
-      '@cleocode/core/store/tasks-schema': new URL(
-        '../../packages/core/src/store/tasks-schema.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/core/sentient': new URL(
-        '../../packages/core/src/sentient/index.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/core/store/tasks-schema': fileURLToPath(new URL('../../packages/core/src/store/tasks-schema.ts', import.meta.url)),
+      '@cleocode/core/sentient': fileURLToPath(new URL('../../packages/core/src/sentient/index.ts', import.meta.url)),
       // T9421: setup subpath export used by `cleo setup` CLI command + tests.
-      '@cleocode/core/setup': new URL(
-        '../../packages/core/src/setup/index.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/core/gc/daemon.js': new URL(
-        '../../packages/core/src/gc/daemon.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/core/gc/runner.js': new URL(
-        '../../packages/core/src/gc/runner.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/core/gc/state.js': new URL(
-        '../../packages/core/src/gc/state.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/core/gc/transcript.js': new URL(
-        '../../packages/core/src/gc/transcript.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/core/gc': new URL('../../packages/core/src/gc/index.ts', import.meta.url)
-        .pathname,
+      '@cleocode/core/setup': fileURLToPath(new URL('../../packages/core/src/setup/index.ts', import.meta.url)),
+      '@cleocode/core/gc/daemon.js': fileURLToPath(new URL('../../packages/core/src/gc/daemon.ts', import.meta.url)),
+      '@cleocode/core/gc/runner.js': fileURLToPath(new URL('../../packages/core/src/gc/runner.ts', import.meta.url)),
+      '@cleocode/core/gc/state.js': fileURLToPath(new URL('../../packages/core/src/gc/state.ts', import.meta.url)),
+      '@cleocode/core/gc/transcript.js': fileURLToPath(new URL('../../packages/core/src/gc/transcript.ts', import.meta.url)),
+      '@cleocode/core/gc': fileURLToPath(new URL('../../packages/core/src/gc/index.ts', import.meta.url)),
       // T1203: core formatters subpath — pure tree/wave rendering utilities
-      '@cleocode/core/formatters': new URL(
-        '../../packages/core/src/formatters/index.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/core/formatters': fileURLToPath(new URL('../../packages/core/src/formatters/index.ts', import.meta.url)),
       // T1453: conduit subpath export used by conduit dispatch domain
-      '@cleocode/core/conduit': new URL(
-        '../../packages/core/src/conduit/index.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/core/conduit': fileURLToPath(new URL('../../packages/core/src/conduit/index.ts', import.meta.url)),
       // T1473: nexus subpath export used by nexus CLI thin wrapper
-      '@cleocode/core/nexus': new URL(
-        '../../packages/core/src/nexus/index.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/core/nexus': fileURLToPath(new URL('../../packages/core/src/nexus/index.ts', import.meta.url)),
       // T9620: agents public API subpath — CLI agent commands use @cleocode/core/agents
-      '@cleocode/core/agents': new URL(
-        '../../packages/core/src/agents/index.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/core/agents': fileURLToPath(new URL('../../packages/core/src/agents/index.ts', import.meta.url)),
       // T9769 (T9763 W0): caamp/src/core/advanced/orchestration.ts imports the
       // subpath at runtime — vitest's alias rewrites for `@cleocode/core` only
       // cover the root entry point, leaving this subpath to fall through to
@@ -323,195 +204,86 @@ export default defineConfig({
       // imports load under vitest. Resolves the import error that surfaced
       // after T9747's skill-root refactor for every renderer test that pulls
       // in `@cleocode/core` through `formatSuccess`.
-      '@cleocode/core/skills/skill-root.js': new URL(
-        '../../packages/core/src/skills/skill-root.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/core/skills/skill-root.js': fileURLToPath(new URL('../../packages/core/src/skills/skill-root.ts', import.meta.url)),
       // T9424: status subpath export used by `cleo status` CLI thin wrapper
-      '@cleocode/core/status': new URL(
-        '../../packages/core/src/status/index.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/core/status': fileURLToPath(new URL('../../packages/core/src/status/index.ts', import.meta.url)),
       // T9274: llm/usage-pricing subpath — cost tracking helpers (not in package exports map)
-      '@cleocode/core/llm/usage-pricing': new URL(
-        '../../packages/core/src/llm/usage-pricing.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/core/llm/usage-pricing': fileURLToPath(new URL('../../packages/core/src/llm/usage-pricing.ts', import.meta.url)),
       // T9314: llm/catalog-cache subpath — models.dev live catalog cache
-      '@cleocode/core/llm/catalog-cache': new URL(
-        '../../packages/core/src/llm/catalog-cache.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/core/llm/catalog-cache': fileURLToPath(new URL('../../packages/core/src/llm/catalog-cache.ts', import.meta.url)),
       // T9323: llm subpath imports used by llm-login.ts and its tests
-      '@cleocode/core/llm/credentials-store.js': new URL(
-        '../../packages/core/src/llm/credentials-store.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/core/llm/credentials-store.js': fileURLToPath(new URL('../../packages/core/src/llm/credentials-store.ts', import.meta.url)),
       // T11725: onboarding front-door orchestrator subpath used by the
       // `cleo login` / `auth login` / `llm login` handlers.
-      '@cleocode/core/llm/onboarding/front-door.js': new URL(
-        '../../packages/core/src/llm/onboarding/front-door.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/core/llm/catalog-model-resolver.js': new URL(
-        '../../packages/core/src/llm/catalog-model-resolver.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/core/llm/onboarding/front-door.js': fileURLToPath(new URL('../../packages/core/src/llm/onboarding/front-door.ts', import.meta.url)),
+      '@cleocode/core/llm/catalog-model-resolver.js': fileURLToPath(new URL('../../packages/core/src/llm/catalog-model-resolver.ts', import.meta.url)),
       // T9598: config subpath import used by `cleo auth consent`
-      '@cleocode/core/config.js': new URL(
-        '../../packages/core/src/config.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/core/config.js': fileURLToPath(new URL('../../packages/core/src/config.ts', import.meta.url)),
       // T9887: config/registry subpath — the SSoT `resolveCleoConfig` cascade
       // resolver (Saga T9855 / E4) consumed by the `cleo config` CLI surface.
-      '@cleocode/core/config/registry': new URL(
-        '../../packages/core/src/config/registry.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/core/config/registry': fileURLToPath(new URL('../../packages/core/src/config/registry.ts', import.meta.url)),
       // T9886: templates/registry subpath — SSoT TemplateManifest registry
       // (Saga T9855 / E4) consumed by the `cleo templates` CLI surface.
-      '@cleocode/core/templates/registry': new URL(
-        '../../packages/core/src/templates/registry.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/core/templates/registry': fileURLToPath(new URL('../../packages/core/src/templates/registry.ts', import.meta.url)),
       // T9416: llm subpath imports used by `cleo auth list` / `cleo auth remove`
-      '@cleocode/core/llm/credential-pool.js': new URL(
-        '../../packages/core/src/llm/credential-pool.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/core/llm/credential-removal.js': new URL(
-        '../../packages/core/src/llm/credential-removal.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/core/llm/credential-pool.js': fileURLToPath(new URL('../../packages/core/src/llm/credential-pool.ts', import.meta.url)),
+      '@cleocode/core/llm/credential-removal.js': fileURLToPath(new URL('../../packages/core/src/llm/credential-removal.ts', import.meta.url)),
       // T9419: credential-seeders/index subpath used by E2b integration tests
       // to construct SeederRegistry + CredentialSeeder fixtures without going
       // through the BUILTIN_SEEDERS singleton.
-      '@cleocode/core/llm/credential-seeders/index.js': new URL(
-        '../../packages/core/src/llm/credential-seeders/index.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/core/llm/oauth/device-code.js': new URL(
-        '../../packages/core/src/llm/oauth/device-code.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/core/llm/provider-registry/builtin/kimi-code.js': new URL(
-        '../../packages/core/src/llm/provider-registry/builtin/kimi-code.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/core/llm/provider-registry/index.js': new URL(
-        '../../packages/core/src/llm/provider-registry/index.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/core/llm/credential-seeders/index.js': fileURLToPath(new URL('../../packages/core/src/llm/credential-seeders/index.ts', import.meta.url)),
+      '@cleocode/core/llm/oauth/device-code.js': fileURLToPath(new URL('../../packages/core/src/llm/oauth/device-code.ts', import.meta.url)),
+      '@cleocode/core/llm/provider-registry/builtin/kimi-code.js': fileURLToPath(new URL('../../packages/core/src/llm/provider-registry/builtin/kimi-code.ts', import.meta.url)),
+      '@cleocode/core/llm/provider-registry/index.js': fileURLToPath(new URL('../../packages/core/src/llm/provider-registry/index.ts', import.meta.url)),
       // T9315: dynamic imports used by resolveDefaultModel + buildSession
-      '@cleocode/core/llm/role-resolver.js': new URL(
-        '../../packages/core/src/llm/role-resolver.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/core/llm/concrete-session.js': new URL(
-        '../../packages/core/src/llm/concrete-session.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/core/llm/credentials.js': new URL(
-        '../../packages/core/src/llm/credentials.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/core/llm/transports/anthropic.js': new URL(
-        '../../packages/core/src/llm/transports/anthropic.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/core/llm/transports/chat-completions.js': new URL(
-        '../../packages/core/src/llm/transports/chat-completions.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/core/llm/transports/gemini.js': new URL(
-        '../../packages/core/src/llm/transports/gemini.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/core/llm/oauth/pkce.js': new URL(
-        '../../packages/core/src/llm/oauth/pkce.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/contracts/llm/oauth.js': new URL(
-        '../../packages/contracts/src/llm/oauth.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/contracts/operations/llm.js': new URL(
-        '../../packages/contracts/src/operations/llm.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/core': new URL('../../packages/core/src/index.ts', import.meta.url).pathname,
+      '@cleocode/core/llm/role-resolver.js': fileURLToPath(new URL('../../packages/core/src/llm/role-resolver.ts', import.meta.url)),
+      '@cleocode/core/llm/concrete-session.js': fileURLToPath(new URL('../../packages/core/src/llm/concrete-session.ts', import.meta.url)),
+      '@cleocode/core/llm/credentials.js': fileURLToPath(new URL('../../packages/core/src/llm/credentials.ts', import.meta.url)),
+      '@cleocode/core/llm/transports/anthropic.js': fileURLToPath(new URL('../../packages/core/src/llm/transports/anthropic.ts', import.meta.url)),
+      '@cleocode/core/llm/transports/chat-completions.js': fileURLToPath(new URL('../../packages/core/src/llm/transports/chat-completions.ts', import.meta.url)),
+      '@cleocode/core/llm/transports/gemini.js': fileURLToPath(new URL('../../packages/core/src/llm/transports/gemini.ts', import.meta.url)),
+      '@cleocode/core/llm/oauth/pkce.js': fileURLToPath(new URL('../../packages/core/src/llm/oauth/pkce.ts', import.meta.url)),
+      '@cleocode/contracts/llm/oauth.js': fileURLToPath(new URL('../../packages/contracts/src/llm/oauth.ts', import.meta.url)),
+      '@cleocode/contracts/operations/llm.js': fileURLToPath(new URL('../../packages/contracts/src/operations/llm.ts', import.meta.url)),
+      '@cleocode/core': fileURLToPath(new URL('../../packages/core/src/index.ts', import.meta.url)),
       // T12067: `cli/animation-bridge.ts` imports @cleocode/animations, which
       // ships no root `main`/`exports` entry — so without this alias vitest
       // fails to resolve the package and TEN test files fail to LOAD (not to
       // assert) on a fresh checkout where `packages/animations/dist` has not
       // been built. Invisible until now only because this project's tests
       // never ran; locally it resolves via a dist left over from a full build.
-      '@cleocode/animations': new URL(
-        '../../packages/animations/src/index.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/lafs': new URL('../../packages/lafs/src/index.ts', import.meta.url).pathname,
+      '@cleocode/animations': fileURLToPath(new URL('../../packages/animations/src/index.ts', import.meta.url)),
+      '@cleocode/lafs': fileURLToPath(new URL('../../packages/lafs/src/index.ts', import.meta.url)),
       // T9965: js-yaml + @iarna/toml are deps of @cleocode/caamp; in worktrees
       // they resolve through caamp/node_modules rather than root node_modules.
-      '@iarna/toml': new URL(
-        '../../packages/caamp/node_modules/@iarna/toml/toml.js',
-        import.meta.url,
-      ).pathname,
-      'js-yaml': new URL(
-        '../../packages/caamp/node_modules/js-yaml/index.js',
-        import.meta.url,
-      ).pathname,
+      '@iarna/toml': fileURLToPath(new URL('../../packages/caamp/node_modules/@iarna/toml/toml.js', import.meta.url)),
+      'js-yaml': fileURLToPath(new URL('../../packages/caamp/node_modules/js-yaml/index.js', import.meta.url)),
       // T1113: nexus code sub-path exports — legacy dist-path imports used in nexus.ts
-      '@cleocode/nexus/dist/src/code/unfold.js': new URL(
-        '../../packages/nexus/src/code/unfold.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/nexus/dist/src/code/search.js': new URL(
-        '../../packages/nexus/src/code/search.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/nexus/code/unfold': new URL(
-        '../../packages/nexus/src/code/unfold.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/nexus/code/search': new URL(
-        '../../packages/nexus/src/code/search.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/nexus': new URL('../../packages/nexus/src/index.ts', import.meta.url).pathname,
+      '@cleocode/nexus/dist/src/code/unfold.js': fileURLToPath(new URL('../../packages/nexus/src/code/unfold.ts', import.meta.url)),
+      '@cleocode/nexus/dist/src/code/search.js': fileURLToPath(new URL('../../packages/nexus/src/code/search.ts', import.meta.url)),
+      '@cleocode/nexus/code/unfold': fileURLToPath(new URL('../../packages/nexus/src/code/unfold.ts', import.meta.url)),
+      '@cleocode/nexus/code/search': fileURLToPath(new URL('../../packages/nexus/src/code/search.ts', import.meta.url)),
+      '@cleocode/nexus': fileURLToPath(new URL('../../packages/nexus/src/index.ts', import.meta.url)),
       // T9522: @cleocode/worktree — worktree provisioning helpers, transitively
       // imported by @cleocode/core/internal via orchestrate/spawn-ops.ts.
       // Required for integration tests that instantiate TasksHandler.
-      '@cleocode/worktree': new URL(
-        '../../packages/worktree/src/index.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/worktree': fileURLToPath(new URL('../../packages/worktree/src/index.ts', import.meta.url)),
       // T11257 R6: @cleocode/runtime/daemon — web-subsystem.ts imports
       // defineSubsystem from the daemon subpath. Alias the subpath to the
       // source tree so vitest resolves it without needing the dist build.
-      '@cleocode/runtime/daemon': new URL(
-        '../../packages/runtime/src/daemon/index.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/runtime/daemon': fileURLToPath(new URL('../../packages/runtime/src/daemon/index.ts', import.meta.url)),
       // T11805: @cleocode/runtime/gateway — go-ivtr-runner.ts dynamically
       // imports orchestrateSpawnExecute from the gateway subpath. Alias to the
       // source tree (mirrors the daemon subpath) so vitest can resolve — and
       // therefore vi.mock can intercept — it without the dist build. Must
       // precede the root `@cleocode/runtime` alias so the subpath matches first.
-      '@cleocode/runtime/gateway': new URL(
-        '../../packages/runtime/src/gateway/index.ts',
-        import.meta.url,
-      ).pathname,
+      '@cleocode/runtime/gateway': fileURLToPath(new URL('../../packages/runtime/src/gateway/index.ts', import.meta.url)),
       // T11257 R6: @cleocode/runtime root alias for runtime index.
-      '@cleocode/runtime': new URL('../../packages/runtime/src/index.ts', import.meta.url)
-        .pathname,
+      '@cleocode/runtime': fileURLToPath(new URL('../../packages/runtime/src/index.ts', import.meta.url)),
       // T9315: citty is not symlinked into root node_modules in sparse worktrees;
       // alias it to the pnpm store copy so tests that import CLI command files
       // (which use defineCommand) resolve without node_modules setup.
-      'citty': new URL(
-        '../../node_modules/.pnpm/citty@0.2.1/node_modules/citty/dist/index.mjs',
-        import.meta.url,
-      ).pathname,
+      'citty': fileURLToPath(new URL('../../node_modules/.pnpm/citty@0.2.1/node_modules/citty/dist/index.mjs', import.meta.url)),
     }),
   },
 });

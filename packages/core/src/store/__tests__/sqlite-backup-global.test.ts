@@ -318,6 +318,9 @@ describe('sqlite-backup global tier', () => {
     }
 
     const tasksDb = new DatabaseSync(tasksDbPath);
+    // T12508: the snapshot gate persists its debounce in the tasks-domain
+    // `schema_meta` table; without it the gate admits no snapshot.
+    tasksDb.exec('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
     const brainDb = new DatabaseSync(brainDbPath);
     const conduitDb = new DatabaseSync(conduitDbPath);
 
@@ -336,7 +339,7 @@ describe('sqlite-backup global tier', () => {
     }));
 
     const { vacuumIntoBackupAll, listSqliteBackupsAll } = await import('../sqlite-backup.js');
-    await vacuumIntoBackupAll({ cwd, force: true });
+    await vacuumIntoBackupAll({ cwd });
 
     tasksDb.close();
     brainDb.close();
@@ -480,8 +483,11 @@ describe('sqlite-backup global tier', () => {
     }
 
     const conduitDb = new DatabaseSync(conduitDbPath);
+    // T12508: gate state store (tasks-domain `schema_meta`).
+    const tasksDb = new DatabaseSync(':memory:');
+    tasksDb.exec('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
     vi.doMock('../conduit-sqlite.js', () => ({ getConduitNativeDb: () => conduitDb }));
-    vi.doMock('../sqlite.js', () => ({ getNativeDb: () => null, getDb: () => null }));
+    vi.doMock('../sqlite.js', () => ({ getNativeDb: () => tasksDb, getDb: () => tasksDb }));
     vi.doMock('../memory-sqlite.js', () => ({ getBrainNativeDb: () => null }));
     vi.doMock('../nexus-sqlite.js', () => ({ getNexusNativeDb: () => null }));
     vi.doMock('../agent-registry-store.js', () => ({
@@ -495,13 +501,18 @@ describe('sqlite-backup global tier', () => {
     }));
 
     const { vacuumIntoBackupAll } = await import('../sqlite-backup.js');
-    await vacuumIntoBackupAll({ cwd, force: true });
+    await vacuumIntoBackupAll({ cwd });
 
     conduitDb.close();
+    tasksDb.close();
 
     const remaining = readdirSync(backupDir).filter((f) => /^conduit-\d{8}-\d{6}\.db$/.test(f));
-    // After adding the 12th (11 stale + 1 new), rotation must trim to ≤10
+    // After adding the 12th (11 stale + 1 new), rotation must trim to ≤10.
+    // T12508: time-spread slots keep the new snapshot plus the newest stale
+    // days, so the new snapshot and 2026-01-11 must both survive.
     expect(remaining.length).toBeLessThanOrEqual(10);
+    expect(remaining).toContain('conduit-20260111-120000.db');
+    expect(remaining.length).toBeGreaterThan(1);
   });
 
   /**

@@ -24,10 +24,11 @@ import type {
   LifecycleProgressParams,
   LifecycleResetParams,
   LifecycleSkipParams,
+  Session,
 } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getProjectRoot } from '../paths.js';
-import { resolveCurrentSession } from '../store/session-store.js';
+import { resolveBoundSession } from '../store/session-store.js';
 import { getForceBypassPath } from '../tasks/gate-audit.js';
 import { getPipelineStageOrder, isPipelineTransitionForward } from '../tasks/pipeline-stage.js';
 import {
@@ -110,9 +111,11 @@ export async function enforceScopeForLifecycleMutation(
   // that actually issued this lifecycle mutation, not whoever wrote the DB last.
   // If there is no resolvable session, allow the operation — session enforcement
   // is handled separately by requireActiveSession().
-  let session: Awaited<ReturnType<typeof resolveCurrentSession>>;
+  // T12500: bound tiers only — another agent's newest session must neither
+  // authorise nor refuse this caller's mutation.
+  let session: Session | null;
   try {
-    session = await resolveCurrentSession(projectRoot);
+    session = (await resolveBoundSession(projectRoot))?.session ?? null;
   } catch {
     // DB not available or not initialised — let the downstream operation
     // surface its own error rather than blocking here.

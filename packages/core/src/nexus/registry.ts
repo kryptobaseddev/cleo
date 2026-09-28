@@ -12,6 +12,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { mkdir, readFile, realpath, stat } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import {
@@ -19,6 +20,9 @@ import {
   type NexusInitParams,
   type NexusListParams,
   type NexusPermissionSetParams,
+  type NexusProjectCandidate,
+  type NexusProjectsStatusParams,
+  type NexusProjectsStatusResult,
   type NexusReconcileParams,
   type NexusRegisterParams,
   type NexusShowParams,
@@ -27,7 +31,7 @@ import {
 } from '@cleocode/contracts';
 import { pushWarning } from '@cleocode/lafs';
 import { readPortableProjectId } from '@cleocode/paths';
-import { eq, or } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
@@ -40,14 +44,22 @@ import { resetNexusDbState } from '../store/nexus-sqlite.js';
 import type { ProjectRegistryRow } from '../store/schema/nexus-schema.js';
 import {
   nexusAuditLog,
+  projectGitState,
   projectIdAliases,
+  projectLocations,
   projectPaths,
   projectRegistry,
 } from '../store/schema/nexus-schema.js';
+import { ensureCheckoutNonce } from './checkout-nonce.js';
+import { listNexusDevices } from './devices.js';
 import { generateProjectHash } from './hash.js';
-import { canonicalProjectId, legacyProjectId } from './identity.js';
-import { recordProjectCheckout } from './path-map.js';
-import { normalizeRegistryStorePath, registryStorePath } from './registry-hygiene.js';
+import { collectCheckoutEvidence, legacyProjectId, projectPathFingerprint } from './identity.js';
+import {
+  isSupersededRegistryPath,
+  recordCandidateLocation,
+  recordProjectCheckout,
+} from './path-map.js';
+import { registryStorePath } from './registry-hygiene.js';
 
 // ── Domain types ─────────────────────────────────────────────────────
 //
@@ -153,9 +165,14 @@ function rowToProject(row: ProjectRegistryRow): NexusProject {
     lastSync: row.lastSync,
     taskCount: row.taskCount,
     labels,
-    // T12324: rows written before the fix still name the pre-E6 relics.
-    brainDbPath: normalizeRegistryStorePath(row.brainDbPath ?? null),
-    tasksDbPath: normalizeRegistryStorePath(row.tasksDbPath ?? null),
+    // T12469: derived from the path at runtime; the stored columns are a
+    // legacy mirror for older binaries and are never read.
+    brainDbPath: isSupersededRegistryPath(row.projectPath)
+      ? null
+      : registryStorePath(row.projectPath),
+    tasksDbPath: isSupersededRegistryPath(row.projectPath)
+      ? null
+      : registryStorePath(row.projectPath),
     lastIndexed: row.lastIndexed ?? null,
     stats,
   };
@@ -341,6 +358,9 @@ async function readProjectId(projectPath: string): Promise<string> {
     const read = readPortableProjectId(projectPath);
     return read.status === 'valid' ? read.projectId : '';
   };
+  // T12470: the tracked `.cleo/project-id` outranks project-info.json.
+  const trackedId = tracked();
+  if (trackedId) return trackedId;
   try {
     return (
       z
@@ -356,27 +376,33 @@ async function readProjectId(projectPath: string): Promise<string> {
   }
 }
 
-/** Reject path/hash/immutable-identity disagreement before encounter side effects or writes. */
-function validateRegistrationOwner(
-  rows: ProjectRegistryRow[],
-  projectPath: string,
-  projectHash: string,
-  declaredId: string,
-): ProjectRegistryRow | undefined {
-  if (
-    rows.some(
-      (row) =>
-        row.projectPath !== projectPath ||
-        row.projectHash !== projectHash ||
-        (declaredId && row.projectId !== declaredId),
-    )
-  ) {
-    throw new CleoError(
-      ExitCode.NEXUS_PROJECT_EXISTS,
-      `Conflicting project identity or path ownership: ${projectPath}`,
-    );
-  }
-  return rows[0];
+/**
+ * Return the id a project root declares, adopting one first when it declares
+ * none (T12470).
+ *
+ * A path — or any hash of it — is never a project identity. A root with
+ * neither `.cleo/project-id` nor a `project-info.json` id gets one the same
+ * way `cleo init` does: re-linked from the registry when exactly one
+ * registered identity matches, otherwise freshly minted — and recorded
+ * write-once in `.cleo/project-id`, so every later resolution returns it.
+ *
+ * @throws {CleoError} `CONFIG_ERROR` when no identity can be recorded.
+ */
+async function adoptDeclaredProjectId(projectPath: string): Promise<string> {
+  const declaredId = await readProjectId(projectPath);
+  if (declaredId) return declaredId;
+  const { decideProjectIdentity, ensurePortableProjectId } = await import(
+    '../scaffold/project-identity.js'
+  );
+  const decision = await decideProjectIdentity(projectPath, undefined);
+  await ensurePortableProjectId(projectPath, decision.projectId);
+  const recorded = await readProjectId(projectPath);
+  if (recorded) return recorded;
+  throw new CleoError(
+    ExitCode.CONFIG_ERROR,
+    `Project at ${projectPath} declares no identity and none could be recorded in .cleo/project-id; refusing to derive one from its path`,
+    { fix: `Run \`cleo init\` in ${projectPath} to record the project's identity` },
+  );
 }
 
 /** Record alternate project identity tokens as aliases for registry lookup. */
@@ -407,7 +433,9 @@ async function recordProjectIdAliases(
  * @returns The canonical path fingerprint of the registered project.
  * @remarks Metadata is read before a synchronous ownership recheck and atomic
  * registry/alias transaction. Encounter-time store initialization and audit logging
- * are separate operations. Conflicting identity ownership is never a project move.
+ * are separate operations. Ownership is the immutable project id alone (ADR-094 ·
+ * T12469): the same id at a new path moves the row to that checkout and records a
+ * location; a different id at a registered path registers beside the old row.
  * @example
  * ```ts
  * const hash = await nexusRegister(projectRoot, { path: projectRoot, name: 'app', permission: 'read' });
@@ -463,22 +491,15 @@ export async function nexusRegister(
     if (!(await stat(join(resolvedPath, '.cleo'))).isDirectory()) {
       throw new CleoError(ExitCode.NOT_FOUND, `Path missing .cleo directory: ${resolvedPath}`);
     }
-    const declaredId = await readProjectId(resolvedPath);
-    const canonicalIdentity = await canonicalProjectId(resolvedPath);
+    const declaredId = await adoptDeclaredProjectId(resolvedPath);
+    const pathFingerprint = await projectPathFingerprint(resolvedPath);
+    const evidence = await collectCheckoutEvidence(resolvedPath);
     await nexusInit();
     const { getNexusDb } = await import('../store/nexus-sqlite.js');
-    const ownershipFilter = or(
-      eq(projectRegistry.projectPath, resolvedPath),
-      eq(projectRegistry.projectHash, projectHash),
-      eq(projectRegistry.projectId, declaredId || canonicalIdentity.id),
-    );
-    const before = await getNexusDb();
-    validateRegistrationOwner(
-      before.select().from(projectRegistry).where(ownershipFilter).all(),
-      resolvedPath,
-      projectHash,
-      declaredId,
-    );
+    // T12469 · T12470: ownership is the DECLARED id alone — never the path or
+    // a hash of it. The path fingerprint is recorded below only as an alias.
+    const ownerId = declaredId;
+    const ownershipFilter = eq(projectRegistry.projectId, ownerId);
 
     // The accessor may auto-register this path. Never carry an absence observation
     // across this await into the write transaction.
@@ -495,13 +516,9 @@ export async function nexusRegister(
     const skippedAliases: string[] = [];
     const projectId = db.transaction(
       (tx) => {
-        const existing = validateRegistrationOwner(
-          tx.select().from(projectRegistry).where(ownershipFilter).all(),
-          resolvedPath,
-          projectHash,
-          declaredId,
-        );
-        const immutableId = declaredId || existing?.projectId || canonicalIdentity.id;
+        // Keyed by the primary key, so at most one row: no owner conflict exists.
+        const existing = tx.select().from(projectRegistry).where(ownershipFilter).get();
+        const immutableId = ownerId;
         const projectName = name || existing?.name || basename(resolvedPath) || 'unnamed';
         const nameOwner = tx
           .select()
@@ -521,6 +538,9 @@ export async function nexusRegister(
           taskCount: meta.taskCount,
           labelsJson: JSON.stringify(meta.labels),
           lastSeen: now,
+          // The row names the checkout encountered most recently (T12469).
+          projectPath: resolvedPath,
+          projectHash,
           brainDbPath: registryStorePath(resolvedPath),
           tasksDbPath: registryStorePath(resolvedPath),
         };
@@ -534,21 +554,21 @@ export async function nexusRegister(
             .values({
               ...metadata,
               projectId: immutableId,
-              projectHash,
-              projectPath: resolvedPath,
               registeredAt: now,
               healthStatus: 'unknown',
               statsJson: '{}',
             })
             .run();
-        // T12354: record this checkout in the device-local path map.
+        // T12354 · T12469: record this checkout as a live location.
         recordProjectCheckout(tx, {
           projectId: immutableId,
           projectPath: resolvedPath,
           projectHash,
           now,
+          evidence,
+          checkoutNonce: ensureCheckoutNonce(resolvedPath),
         });
-        for (const alias of new Set([canonicalIdentity.id, legacyAlias])) {
+        for (const alias of new Set([pathFingerprint.id, legacyAlias])) {
           if (alias === immutableId) continue;
           const aliasOwner = tx
             .select()
@@ -564,16 +584,12 @@ export async function nexusRegister(
             (aliasOwner && aliasOwner.canonicalId !== immutableId) ||
             (directOwner && directOwner.projectId !== immutableId)
           ) {
-            // The old truncated path token is lossy. Preserve its owner and disclose
-            // the omitted compatibility alias, never redirect another project.
-            if (alias === legacyAlias) {
-              skippedAliases.push(alias);
-              continue;
-            }
-            throw new CleoError(
-              ExitCode.NEXUS_PROJECT_EXISTS,
-              `Project identity alias already belongs to another project: ${alias}`,
-            );
+            // Both aliases are derived from the PATH (base64url path, git-root
+            // hash), so another owner means the path changed hands, not an
+            // identity conflict (T12469). Preserve its owner and disclose the
+            // omitted compatibility alias; never redirect another project.
+            skippedAliases.push(alias);
+            continue;
           }
           tx.insert(projectIdAliases)
             .values({ legacyId: alias, canonicalId: immutableId, createdAt: now })
@@ -631,8 +647,13 @@ export async function nexusUnregister(
   const { getNexusDb } = await import('../store/nexus-sqlite.js');
   const { eq } = await import('drizzle-orm');
   const db = await getNexusDb();
-  await db.delete(projectRegistry).where(eq(projectRegistry.projectHash, project.hash));
-  // T12354: an unregistered project keeps no checkouts in the path map.
+  await db.delete(projectRegistry).where(eq(projectRegistry.projectId, project.projectId));
+  // T12469: an explicitly unregistered project keeps no locations. (A vanished
+  // directory is marked `missing` instead; only this owner action deletes.)
+  await db.delete(projectLocations).where(eq(projectLocations.projectId, project.projectId));
+  // T12511: its probed git state goes with it.
+  await db.delete(projectGitState).where(eq(projectGitState.projectId, project.projectId));
+  // Legacy path map, still dual-written for older binaries (T12469).
   await db.delete(projectPaths).where(eq(projectPaths.projectId, project.projectId));
 
   await writeNexusAudit({
@@ -660,6 +681,54 @@ export async function nexusList(
 }
 
 /**
+ * A project NAME matched more than one registry row (T12510). Names are not
+ * unique — two checkouts or two unrelated projects can share one — so the
+ * lookup refuses to pick one and lists every candidate id instead.
+ *
+ * @example
+ * ```ts
+ * try { await nexusGetProject('', { name: 'api' }); }
+ * catch (e) { if (e instanceof NexusProjectAmbiguityError) console.error(e.candidates); }
+ * ```
+ */
+export class NexusProjectAmbiguityError extends CleoError {
+  /** Stable machine-readable error code. */
+  readonly codeName = 'E_NEXUS_PROJECT_AMBIGUOUS';
+  /** Every matching project, most recently seen first. */
+  readonly candidates: NexusProjectCandidate[];
+
+  /**
+   * @param name - The ambiguous project name.
+   * @param rows - Every registry row with that name.
+   */
+  constructor(name: string, rows: ReadonlyArray<ProjectRegistryRow>) {
+    const candidates = rows.map((r) => ({
+      projectId: r.projectId,
+      name: r.name,
+      path: r.projectPath,
+      lastSeen: r.lastSeen,
+    }));
+    super(
+      ExitCode.INVALID_INPUT,
+      `Project name '${name}' is ambiguous: ${candidates.length} projects match (${candidates
+        .map((c) => c.projectId)
+        .join(', ')}). Use a project id.`,
+      {
+        fix: 'Pass one of the candidate project ids instead of the name.',
+        details: {
+          field: 'name',
+          expected: 'a unique project name, id or hash',
+          actual: name,
+          candidates,
+        },
+      },
+    );
+    this.name = 'NexusProjectAmbiguityError';
+    this.candidates = candidates;
+  }
+}
+
+/**
  * Get a project by name or hash.
  * Returns null if not found.
  */
@@ -676,25 +745,33 @@ export async function nexusGetProject(
   const nameOrHash =
     paramsOrUndefined !== undefined ? paramsOrUndefined.name : projectRootOrNameOrHash;
   try {
-    const { eq, or } = await import('drizzle-orm');
+    const { eq } = await import('drizzle-orm');
     // ADR-090 · T11648: run on a LIVE handle with retry — the registry lives in
     // the GLOBAL ATTACH of the shared project handle, which a concurrent
     // cross-project open can close mid-query.
     const row = await withLiveNexusDb(async (db) => {
-      // Try hash match first, then name
+      // T12469: the immutable id is the key, so it wins; a path hash is not
+      // unique, so among hash/name matches the most recently seen row wins.
       let rows = await db
         .select()
         .from(projectRegistry)
-        .where(
-          or(eq(projectRegistry.projectHash, nameOrHash), eq(projectRegistry.name, nameOrHash)),
-        );
-
+        .where(eq(projectRegistry.projectId, nameOrHash));
       if (rows.length === 0) {
-        // Try direct projectId match
         rows = await db
           .select()
           .from(projectRegistry)
-          .where(eq(projectRegistry.projectId, nameOrHash));
+          .where(eq(projectRegistry.projectHash, nameOrHash))
+          .orderBy(desc(projectRegistry.lastSeen));
+      }
+      if (rows.length === 0) {
+        // T12510: a name is not unique. One match resolves; several are
+        // ambiguous and the caller must choose by id — never rows[0].
+        rows = await db
+          .select()
+          .from(projectRegistry)
+          .where(eq(projectRegistry.name, nameOrHash))
+          .orderBy(desc(projectRegistry.lastSeen));
+        if (rows.length > 1) throw new NexusProjectAmbiguityError(nameOrHash, rows);
       }
       if (rows.length === 0) {
         // Try alias resolution: legacyId → canonicalId lookup (T11025)
@@ -715,7 +792,8 @@ export async function nexusGetProject(
 
     if (!row) return null;
     return rowToProject(row);
-  } catch {
+  } catch (error) {
+    if (error instanceof NexusProjectAmbiguityError) throw error;
     return null;
   }
 }
@@ -763,7 +841,7 @@ export async function nexusSync(
       lastSync: now,
       lastSeen: now,
     })
-    .where(eq(projectRegistry.projectHash, project.hash));
+    .where(eq(projectRegistry.projectId, project.projectId));
 
   await writeNexusAudit({
     action: 'sync',
@@ -805,7 +883,7 @@ export async function nexusSyncAll(): Promise<{ synced: number; failed: number }
           lastSync: now,
           lastSeen: now,
         })
-        .where(eq(projectRegistry.projectHash, project.hash));
+        .where(eq(projectRegistry.projectId, project.projectId));
       synced++;
     } catch {
       failed++;
@@ -846,28 +924,43 @@ export async function nexusUpdateIndexStats(
     const { eq } = await import('drizzle-orm');
     const db = await getNexusDb();
 
-    const rows = await db
-      .select()
-      .from(projectRegistry)
-      .where(eq(projectRegistry.projectHash, projectHash));
+    // T12469: a path hash is not unique; the most recently seen row for this
+    // checkout is the one being indexed, and it is updated by its id.
+    const ownerAt = async () =>
+      (
+        await db
+          .select({ projectId: projectRegistry.projectId })
+          .from(projectRegistry)
+          .where(eq(projectRegistry.projectHash, projectHash))
+          .orderBy(desc(projectRegistry.lastSeen))
+          .limit(1)
+      )[0];
+    let owner = await ownerAt();
 
-    if (rows.length === 0) {
-      // Not yet registered — auto-register first (best effort)
+    if (!owner) {
+      // Not yet registered — record the encounter (best effort). T12470: never
+      // `nexusRegister` here: analyze is not an explicit registration, so it
+      // must neither mint/write `.cleo/project-id` nor repoint an existing
+      // project's row to this path. The encounter records an unconfirmed
+      // checkout as a candidate, which owns no row and gets no stats.
       try {
-        await nexusRegister(projectPath);
+        const { recordProjectEncounter } = await import('../paths.js');
+        await recordProjectEncounter(projectPath);
       } catch {
-        // Already registered or cannot register — ignore
+        // Cannot record — ignore; stats are best effort.
       }
+      owner = await ownerAt();
     }
 
-    await db
-      .update(projectRegistry)
-      .set({
-        lastIndexed: now,
-        statsJson: JSON.stringify(stats),
-        lastSeen: now,
-      })
-      .where(eq(projectRegistry.projectHash, projectHash));
+    if (owner)
+      await db
+        .update(projectRegistry)
+        .set({
+          lastIndexed: now,
+          statsJson: JSON.stringify(stats),
+          lastSeen: now,
+        })
+        .where(eq(projectRegistry.projectId, owner.projectId));
 
     await writeNexusAudit({
       action: 'update-index-stats',
@@ -928,7 +1021,7 @@ export async function nexusSetPermission(
   await db
     .update(projectRegistry)
     .set({ permissions: permission })
-    .where(eq(projectRegistry.projectHash, project.hash));
+    .where(eq(projectRegistry.projectId, project.projectId));
 
   await writeNexusAudit({
     action: 'set-permission',
@@ -943,22 +1036,23 @@ export async function nexusSetPermission(
 /**
  * Reconcile the current project's identity with the global nexus registry.
  *
- * 4-scenario policy:
+ * 3-scenario policy, keyed by the immutable project id alone (ADR-094 · T12469):
  *   1. projectId in registry + path matches → update lastSeen, return {status:'ok'}
  *   2. projectId in registry + path changed → update path+hash, return {status:'path_updated'}
  *   3. projectId not in registry → auto-register, return {status:'auto_registered'}
- *   4. projectHash matches but different projectId → throw CleoError (identity conflict)
  *
- * Uses projectId as the stable identifier across project moves, since
- * projectHash is derived from the absolute path and changes when moved.
+ * The former scenario 4 (a row at this path hash under another id → identity
+ * conflict) is gone: a path is a location, not an identity. That row is a
+ * stale location of another project, recorded as `superseded` in
+ * `nexus_project_locations` when this project is recorded.
  *
  * @task T5368
  */
 export async function nexusReconcile(
   projectRoot: string,
-  _params: NexusReconcileParams = {},
+  params: NexusReconcileParams = {},
 ): Promise<{
-  status: 'ok' | 'path_updated' | 'auto_registered';
+  status: 'ok' | 'path_updated' | 'auto_registered' | 'candidate';
   oldPath?: string;
   newPath?: string;
 }> {
@@ -971,137 +1065,121 @@ export async function nexusReconcile(
   const { eq } = await import('drizzle-orm');
   const db = await getNexusDb();
 
+  // T12470: reconcile never mints or writes an identity — that is `cleo init`
+  // / `cleo nexus register` / `cleo doctor project-identity --resolve`.
   const projectId = await readProjectId(projectRoot);
+  if (!projectId)
+    throw new CleoError(
+      ExitCode.CONFIG_ERROR,
+      `Project at ${projectRoot} declares no identity (.cleo/project-id or project-info.json projectId); refusing to derive one from its path`,
+      { fix: `Run \`cleo init\` in ${projectRoot} to record the project's identity` },
+    );
   const currentHash = generateProjectHash(projectRoot);
-  const canonicalIdentity = await canonicalProjectId(projectRoot);
-  const stableProjectId = projectId || canonicalIdentity.id;
+  const pathFingerprint = await projectPathFingerprint(projectRoot);
+  const evidence = await collectCheckoutEvidence(projectRoot);
+  // T12470: the declared id alone; the path fingerprint is an alias only.
+  const stableProjectId = projectId;
 
-  // Scenario 4 check: hash matches but different projectId
-  if (projectId) {
-    const hashRows = await db
-      .select()
-      .from(projectRegistry)
-      .where(eq(projectRegistry.projectHash, currentHash));
-    const hashMatch = hashRows[0];
-    if (hashMatch && hashMatch.projectId !== projectId) {
-      await writeNexusAudit({
-        action: 'reconcile',
-        projectHash: currentHash,
-        projectId,
-        operation: 'reconcile',
-        success: false,
-        errorMessage: `Identity conflict: hash ${currentHash} registered to '${hashMatch.projectId}', current project is '${projectId}'`,
-      });
-      throw new CleoError(
-        ExitCode.NEXUS_REGISTRY_CORRUPT,
-        `Project identity conflict: hash ${currentHash} is registered to projectId '${hashMatch.projectId}' but current project has projectId '${projectId}'`,
-        { fix: 'Manually resolve the conflict with `cleo nexus unregister` and re-register' },
-      );
-    }
-  }
+  // Look up by the immutable id (stable across moves). T12469: the path and
+  // its hash are never consulted — a row at this path under another id is a
+  // stale location of another project, superseded when this one is recorded.
+  const idRows = await db
+    .select()
+    .from(projectRegistry)
+    .where(eq(projectRegistry.projectId, stableProjectId));
+  const existing = idRows[0];
 
-  // Look up by projectId (stable across moves)
-  if (projectId) {
-    const idRows = await db
-      .select()
-      .from(projectRegistry)
-      .where(eq(projectRegistry.projectId, projectId));
-    const existing = idRows[0];
+  if (existing) {
+    const now = new Date().toISOString();
 
-    if (existing) {
-      const now = new Date().toISOString();
-
-      if (existing.projectPath === projectRoot) {
-        // Scenario 1: path matches — just update lastSeen
-        await db
-          .update(projectRegistry)
-          .set({ lastSeen: now })
-          .where(eq(projectRegistry.projectId, projectId));
-        recordProjectCheckout(db, {
-          projectId,
-          projectPath: projectRoot,
-          projectHash: currentHash,
-          now,
-        });
-        await writeNexusAudit({
-          action: 'reconcile',
-          projectHash: currentHash,
-          projectId,
-          operation: 'reconcile',
-          success: true,
-          details: { status: 'ok' },
-        });
-        await recordProjectIdAliases(
-          stableProjectId,
-          [stableProjectId, canonicalIdentity.id, legacyProjectId(projectRoot)],
-          now,
-        );
-        return { status: 'ok' };
-      }
-
-      // Scenario 2: path changed — update path, hash, lastSeen, and DB paths
-      const oldPath = existing.projectPath;
-      const newBrainDbPath = registryStorePath(projectRoot);
-      const newTasksDbPath = registryStorePath(projectRoot);
+    if (existing.projectPath === projectRoot) {
+      // Scenario 1: path matches — just update lastSeen
       await db
         .update(projectRegistry)
-        .set({
-          projectPath: projectRoot,
-          projectHash: currentHash,
-          lastSeen: now,
-          brainDbPath: newBrainDbPath,
-          tasksDbPath: newTasksDbPath,
-        })
-        .where(eq(projectRegistry.projectId, projectId));
+        .set({ lastSeen: now })
+        .where(eq(projectRegistry.projectId, stableProjectId));
       recordProjectCheckout(db, {
-        projectId,
+        projectId: stableProjectId,
         projectPath: projectRoot,
         projectHash: currentHash,
         now,
+        evidence,
+        checkoutNonce: ensureCheckoutNonce(projectRoot),
       });
       await writeNexusAudit({
         action: 'reconcile',
         projectHash: currentHash,
-        projectId,
+        projectId: stableProjectId,
         operation: 'reconcile',
         success: true,
-        details: { status: 'path_updated', oldPath, newPath: projectRoot },
+        details: { status: 'ok' },
       });
       await recordProjectIdAliases(
         stableProjectId,
-        [stableProjectId, canonicalIdentity.id, legacyProjectId(projectRoot)],
+        [stableProjectId, pathFingerprint.id, legacyProjectId(projectRoot)],
         now,
       );
-      return { status: 'path_updated', oldPath, newPath: projectRoot };
+      return { status: 'ok' };
     }
-  }
 
-  // Also check by hash for projects without a projectId
-  const hashRows = await db
-    .select()
-    .from(projectRegistry)
-    .where(eq(projectRegistry.projectHash, currentHash));
-  const hashMatch = hashRows[0];
-
-  if (hashMatch) {
-    const now = new Date().toISOString();
+    // Scenario 2: path changed — update path, hash, lastSeen, and DB paths
+    const oldPath = existing.projectPath;
+    // T12470: even an explicit reconcile never takes the row (and its
+    // permissions) away from a location that still exists on this device —
+    // that is a second checkout or a clone, not a move. It is recorded as a
+    // candidate unless the caller explicitly asks to rebind.
+    if (!params.forceRebind && !isSupersededRegistryPath(oldPath) && existsSync(oldPath)) {
+      recordCandidateLocation(db, {
+        projectId: stableProjectId,
+        projectPath: projectRoot,
+        projectHash: currentHash,
+        now,
+        evidence,
+      });
+      await writeNexusAudit({
+        action: 'reconcile',
+        projectHash: currentHash,
+        projectId: stableProjectId,
+        operation: 'reconcile',
+        success: true,
+        details: { status: 'candidate', oldPath, newPath: projectRoot },
+      });
+      return { status: 'candidate', oldPath, newPath: projectRoot };
+    }
+    const newBrainDbPath = registryStorePath(projectRoot);
+    const newTasksDbPath = registryStorePath(projectRoot);
     await db
       .update(projectRegistry)
-      .set({ lastSeen: now })
-      .where(eq(projectRegistry.projectHash, currentHash));
+      .set({
+        projectPath: projectRoot,
+        projectHash: currentHash,
+        lastSeen: now,
+        brainDbPath: newBrainDbPath,
+        tasksDbPath: newTasksDbPath,
+      })
+      .where(eq(projectRegistry.projectId, stableProjectId));
+    recordProjectCheckout(db, {
+      projectId: stableProjectId,
+      projectPath: projectRoot,
+      projectHash: currentHash,
+      now,
+      evidence,
+      checkoutNonce: ensureCheckoutNonce(projectRoot),
+    });
     await writeNexusAudit({
       action: 'reconcile',
       projectHash: currentHash,
+      projectId: stableProjectId,
       operation: 'reconcile',
       success: true,
-      details: { status: 'ok' },
+      details: { status: 'path_updated', oldPath, newPath: projectRoot },
     });
     await recordProjectIdAliases(
-      hashMatch.projectId,
-      [hashMatch.projectId, canonicalIdentity.id, legacyProjectId(projectRoot)],
+      stableProjectId,
+      [stableProjectId, pathFingerprint.id, legacyProjectId(projectRoot)],
       now,
     );
-    return { status: 'ok' };
+    return { status: 'path_updated', oldPath, newPath: projectRoot };
   }
 
   // Scenario 3: not in registry — auto-register
@@ -1157,6 +1235,9 @@ export async function nexusMoveProject(projectId: string, newPath: string): Prom
       tasksDbPath: newTasksDbPath,
     })
     .where(eq(projectRegistry.projectId, projectId));
+  // Record the location (and re-home any row displaced from the new path)
+  // immediately, so two rows never share a path (T12469).
+  recordProjectCheckout(db, { projectId, projectPath: resolvedPath, projectHash: newHash, now });
   await writeNexusAudit({
     action: 'move',
     projectHash: newHash,
@@ -1233,6 +1314,22 @@ export { resetNexusDbState };
  * Convert a caught error to an EngineResult failure.
  */
 function caughtToEngineError<T>(error: unknown, fallbackMsg: string): EngineResult<T> {
+  if (error instanceof NexusProjectAmbiguityError) {
+    return engineError<T>(error.codeName, error.message, {
+      exitCode: error.code,
+      details: error.details,
+      fix: error.fix,
+    });
+  }
+  // T12558: a refusal at a relocated root keeps its typed code, exit class,
+  // fix and details (`movedTo`) instead of collapsing to E_INTERNAL.
+  if (error instanceof CleoError && error.code === ExitCode.PROJECT_MOVED) {
+    return engineError<T>('E_PROJECT_MOVED', error.message, {
+      exitCode: error.code,
+      details: error.details,
+      fix: error.fix,
+    });
+  }
   const e = error instanceof Error ? error : null;
   return engineError<T>('E_INTERNAL', e?.message ?? fallbackMsg);
 }
@@ -1399,9 +1496,10 @@ export async function nexusSyncProject(name?: string): Promise<EngineResult<unkn
 // SSoT-EXEMPT:engine-migration-T1569
 export async function nexusReconcileProject(
   projectRoot: string,
+  params: NexusReconcileParams = {},
 ): Promise<EngineResult<Awaited<ReturnType<typeof nexusReconcile>>>> {
   try {
-    const result = await nexusReconcile(projectRoot, {});
+    const result = await nexusReconcile(projectRoot, params);
     return engineSuccess(result);
   } catch (error) {
     return caughtToEngineError(error, `Failed to reconcile project: ${projectRoot}`);
@@ -1417,9 +1515,37 @@ export async function nexusReconcileProject(
 export async function nexusProjectsList(): Promise<EngineResult<unknown>> {
   try {
     const list = await nexusList('', {});
-    return engineSuccess({ projects: list, count: list.length });
+    const { getNexusRegistryDb } = await import('../store/nexus-sqlite.js');
+    const devices = listNexusDevices(await getNexusRegistryDb(getCleoHome()));
+    return engineSuccess({ projects: list, count: list.length, devices });
   } catch (error) {
     return caughtToEngineError(error, 'Failed to list nexus projects');
+  }
+}
+
+/**
+ * Probe and record the git state of every project location on this device
+ * (`nexus.projects.status`, T12511). Bounded concurrency, a per-location
+ * timeout, no network unless `fetch` — see `nexus/git-state.ts`.
+ *
+ * @param _projectRoot - Unused: the probe covers every location on this device
+ *   (uniform ADR-057 signature).
+ * @param params - Fetch, concurrency, timeout and staleness.
+ * @returns Fresh rows for this device plus recorded rows of other devices.
+ * @task T12511
+ */
+export async function nexusProjectsStatus(
+  _projectRoot: string,
+  params: NexusProjectsStatusParams,
+): Promise<EngineResult<NexusProjectsStatusResult>> {
+  try {
+    const { getNexusRegistryDb } = await import('../store/nexus-sqlite.js');
+    const { runProjectsGitStatus } = await import('./git-state.js');
+    return engineSuccess(
+      await runProjectsGitStatus(await getNexusRegistryDb(getCleoHome()), params),
+    );
+  } catch (error) {
+    return caughtToEngineError(error, 'Failed to probe project git state');
   }
 }
 

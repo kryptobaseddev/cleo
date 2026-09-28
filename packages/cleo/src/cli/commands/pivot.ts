@@ -10,6 +10,7 @@
 
 import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { negatedFlag } from '../lib/negated-flag.js';
 
 /**
  * `cleo pivot <fromTaskId> <toTaskId> --reason "<text>" [--no-blocks-from]`.
@@ -51,7 +52,7 @@ export const pivotCommand = defineCommand({
         fromTaskId: args.fromTaskId,
         toTaskId: args.toTaskId,
         reason: args.reason,
-        blocksFrom: !args['no-blocks-from'],
+        blocksFrom: !negatedFlag(args, 'blocks-from'),
       },
       { command: 'pivot' },
     );

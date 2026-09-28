@@ -50,6 +50,7 @@ import type {
   TaskAuditLogRow,
   TaskFieldUpdates,
   TaskQueryFilters,
+  TaskWriteGuard,
   TransactionAccessor,
 } from './data-accessor.js';
 import type { ArchiveFields } from './db-helpers.js';
@@ -67,6 +68,7 @@ import { tasksAuditLog } from './schema/cleo-project/audit.js';
 import { resolveCurrentSession } from './session-store.js';
 import { closeDb, getDb, getNativeTasksDb } from './sqlite.js';
 import { TERMINAL_TASK_STATUSES } from './status-registry.js';
+import { assertTaskVersion, nextTaskVersion } from './task-version.js';
 import * as schema from './tasks-schema.js';
 import { withWriteRetry } from './with-retry.js';
 
@@ -1136,7 +1138,11 @@ async function createOwnedSqliteDataAccessor(
 
     // ---- Targeted write methods ----
 
-    async updateTaskFields(taskId: string, fields: TaskFieldUpdates): Promise<void> {
+    async updateTaskFields(
+      taskId: string,
+      fields: TaskFieldUpdates,
+      guard?: TaskWriteGuard,
+    ): Promise<void> {
       return accessor.transaction(async () => {
         const db = await getDb(cwd);
         // TaskFieldUpdates uses the schema's field names. Reject unsupported runtime
@@ -1147,7 +1153,22 @@ async function createOwnedSqliteDataAccessor(
             throw new Error(`Unsupported task update field: ${key}`);
           }
         }
-        const updateRow = { ...fields, updatedAt: fields.updatedAt ?? new Date().toISOString() };
+        // T12503: read the stored version INSIDE the write transaction (BEGIN
+        // IMMEDIATE holds the lock), reject a stale expected version with
+        // E_CONFLICT, and advance the version strictly so a same-millisecond
+        // write can never reproduce a version a stale reader already holds.
+        const [current] = await db
+          .select({ updatedAt: schema.tasks.updatedAt, createdAt: schema.tasks.createdAt })
+          .from(schema.tasks)
+          .where(eq(schema.tasks.id, taskId))
+          .limit(1)
+          .all();
+        if (!current) throw new Error(`Task not found: ${taskId}`);
+        assertTaskVersion(taskId, current, guard?.expectedUpdatedAt);
+        const updateRow = {
+          ...fields,
+          updatedAt: fields.updatedAt ?? nextTaskVersion(current),
+        };
 
         // gh#391: this is the chokepoint for `cleo update <id> --add-labels`.
         // Parallel invocations from a single shell used to lose ~50% of writes
@@ -1249,12 +1270,16 @@ async function createOwnedSqliteDataAccessor(
                     await writeMetaValue(cwd, key, value);
                   });
                 },
-                async updateTaskFields(taskId: string, flds: TaskFieldUpdates): Promise<void> {
+                async updateTaskFields(
+                  taskId: string,
+                  flds: TaskFieldUpdates,
+                  guard?: TaskWriteGuard,
+                ): Promise<void> {
                   scope.assertActive();
                   return accessor.transaction(async () => {
                     scope.assertActive();
                     // Delegate to the outer accessor's implementation
-                    await accessor.updateTaskFields(taskId, flds);
+                    await accessor.updateTaskFields(taskId, flds, guard);
                   });
                 },
                 async getChildren(parentId: string): Promise<Task[]> {

@@ -304,6 +304,25 @@ describe('doctor db-substrate (T10307)', () => {
     }
   });
 
+  it('walks several fleet roots and surveys a shared project once (T12476)', () => {
+    createProjectWithTasksDb('project-a');
+    const secondRoot = mkdtempSync(join(tmpdir(), 'cleo-fleet-second-'));
+    try {
+      const projectB = join(secondRoot, 'project-b');
+      mkdirSync(join(projectB, '.cleo'), { recursive: true });
+      seedHealthyDb(join(projectB, '.cleo', 'tasks.db'));
+
+      // fleetRoot listed twice: project-a must still appear exactly once.
+      const result = surveyFleetDbSubstrate([fleetRoot, secondRoot, fleetRoot]);
+
+      expect(result.scope).toBe('fleet');
+      const roots = result.projects.map((p) => p.projectRoot).sort();
+      expect(roots).toEqual([join(fleetRoot, 'project-a'), projectB].sort());
+    } finally {
+      rmSync(secondRoot, { recursive: true, force: true });
+    }
+  });
+
   it('detects orphan-project-root warning when fleetRoot itself has a .cleo/', () => {
     // Seed orphan .cleo/ at the fleet root path. Per the audit, this is
     // exactly the T9550 regression class case (/mnt/projects/.cleo/).

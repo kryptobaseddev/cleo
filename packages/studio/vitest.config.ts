@@ -11,6 +11,7 @@
  * handled by the plugin's built-in module-runes preprocessing.
  */
 
+import { fileURLToPath } from 'node:url';
 import { svelte, vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig } from 'vitest/config';
 import { withWorkspaceSubpathAliases } from '../../vitest-workspace-resolver.js';
@@ -42,9 +43,9 @@ export default defineConfig({
     // File-based Vitest projects do not inherit root aliases. Resolve SDK
     // imports to source so stale dist files cannot hide task-policy regressions.
     alias: withWorkspaceSubpathAliases({
-      $lib: new URL('./src/lib', import.meta.url).pathname,
-      '@cleocode/core': new URL('../core/src/index.ts', import.meta.url).pathname,
-      '@cleocode/contracts': new URL('../contracts/src/index.ts', import.meta.url).pathname,
+      $lib: fileURLToPath(new URL('./src/lib', import.meta.url)),
+      '@cleocode/core': fileURLToPath(new URL('../core/src/index.ts', import.meta.url)),
+      '@cleocode/contracts': fileURLToPath(new URL('../contracts/src/index.ts', import.meta.url)),
     }),
     server: {
       deps: {

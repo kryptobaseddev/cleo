@@ -44,8 +44,15 @@ function resolveExecutionSessionId(): string {
  * @param cliSessionLookup Optional async function that resolves the active
  *   session ID from SQLite for CLI commands. If not provided, the resolver
  *   falls through to env var / null.
+ * @param onUnboundMutation Optional hook run when a CLI MUTATION (outside the
+ *   `session` domain) resolved no session (T12500): the operation proceeds but
+ *   is attributed to nothing, so the CLI warns on stderr instead of silently
+ *   dropping attribution (and, for lifecycle, skipping the epic scope guard).
  */
-export function createSessionResolver(cliSessionLookup?: () => Promise<string | null>): Middleware {
+export function createSessionResolver(
+  cliSessionLookup?: () => Promise<string | null>,
+  onUnboundMutation?: (req: DispatchRequest) => Promise<void>,
+): Middleware {
   return async (req: DispatchRequest, next: DispatchNext): Promise<DispatchResponse> => {
     if (!req.executionSessionId) {
       req.executionSessionId = resolveExecutionSessionId();
@@ -92,7 +99,11 @@ export function createSessionResolver(cliSessionLookup?: () => Promise<string | 
       req.originSessionId ??= resolveOriginSessionId(req.sessionId, req.executionSessionId);
       return next();
     }
-    const envId = resolveSessionIdFromEnv();
+    // T12499: a CLI request already consulted the env id in Tier 3, which
+    // rejects an id with no session row. Re-reading the raw env here would
+    // stamp that rejected id straight back onto the request.
+    const cliResolved = cliSessionLookup !== undefined && req.source === 'cli';
+    const envId = cliResolved ? null : resolveSessionIdFromEnv();
     if (envId) {
       req.sessionId = envId;
       req.originSessionId ??= resolveOriginSessionId(req.sessionId, req.executionSessionId);
@@ -101,6 +112,18 @@ export function createSessionResolver(cliSessionLookup?: () => Promise<string | 
 
     // Tier 5: No session — leave undefined
     req.originSessionId ??= resolveOriginSessionId(req.sessionId, req.executionSessionId);
+    if (
+      onUnboundMutation &&
+      req.source === 'cli' &&
+      req.gateway === 'mutate' &&
+      req.domain !== 'session'
+    ) {
+      try {
+        await onUnboundMutation(req);
+      } catch {
+        // A warning must never fail the command.
+      }
+    }
     return next();
   };
 }

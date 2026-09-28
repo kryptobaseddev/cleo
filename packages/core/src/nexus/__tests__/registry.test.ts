@@ -4,10 +4,12 @@
  * @epic T4540
  */
 
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { realpathSync } from 'node:fs';
+import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
+import { readPortableProjectId, resolveProjectByCwd } from '@cleocode/paths';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { seedTasks } from '../../store/__tests__/test-db-helper.js';
@@ -18,12 +20,13 @@ import { projectIdAliases } from '../../store/schema/nexus-schema.js';
 import { closeAllDatabases, resetDbState } from '../../store/sqlite.js';
 import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
 import { generateProjectHash } from '../hash.js';
-import { canonicalProjectId } from '../identity.js';
+import { canonicalProjectId, projectPathFingerprint } from '../identity.js';
 import {
   nexusGetProject,
   nexusInit,
   nexusList,
   nexusProjectExists,
+  nexusReconcile,
   nexusRegister,
   nexusSync,
   nexusSyncAll,
@@ -202,21 +205,41 @@ describe('nexusRegister', () => {
     expect(project!.taskCount).toBe(0);
   });
 
-  it('rejects changed immutable ownership without rewriting the registered row', async () => {
+  it('registers a changed immutable id at the same path as a separate project (T12469)', async () => {
     vi.stubEnv('CLEO_DISABLE_PROJECT_AUTOREGISTER', '1');
+    // Declared up front: an adopted id would be written to the tracked
+    // `.cleo/project-id`, which outranks project-info.json (T12470).
+    await writeFile(
+      join(projectDir, '.cleo/project-info.json'),
+      JSON.stringify({ projectId: 'first-owner' }),
+    );
     const hash = await nexusRegister(projectDir, 'owner', 'write');
     const before = await nexusGetProject(hash);
     await writeFile(
       join(projectDir, '.cleo/project-info.json'),
       JSON.stringify({ projectId: 'different-owner' }),
     );
-    await expect(nexusRegister(projectDir, 'overwrite', 'read')).rejects.toThrow(
-      /Conflicting project identity/,
-    );
-    expect(await nexusGetProject(hash)).toEqual(before);
+    // A path is a location, never an identity: the new id registers instead of
+    // being refused.
+    expect(await nexusRegister(projectDir, 'overwrite', 'read')).toBe(hash);
+    // The old row keeps its metadata but leaves the path: it has no other live
+    // location, so it is parked on the `superseded:<id>` sentinel.
+    const sentinel = `superseded:${before!.projectId}`;
+    expect(await nexusGetProject(before!.projectId)).toEqual({
+      ...before,
+      path: sentinel,
+      hash: generateProjectHash(sentinel),
+      brainDbPath: null,
+      tasksDbPath: null,
+    });
+    expect(await nexusGetProject('different-owner')).toMatchObject({
+      path: before!.path,
+      name: 'overwrite',
+    });
+    expect(await nexusList()).toHaveLength(2);
   });
 
-  it('refuses to move another registered path merely because the declared IDs agree', async () => {
+  it('keeps one row for a declared id seen at a second path (T12469)', async () => {
     vi.stubEnv('CLEO_DISABLE_PROJECT_AUTOREGISTER', '1');
     await writeFile(
       join(projectDir, '.cleo/project-info.json'),
@@ -230,9 +253,60 @@ describe('nexusRegister', () => {
       join(other, '.cleo/project-info.json'),
       JSON.stringify({ projectId: 'immutable-owner' }),
     );
-    await expect(nexusRegister(other, 'other')).rejects.toThrow(/Conflicting project identity/);
-    expect(await nexusGetProject(hash)).toEqual(before);
+    // Same immutable id at another path: the one row follows the latest
+    // checkout; both checkouts are recorded as live locations.
+    await nexusRegister(other, 'other');
     expect(await nexusList()).toHaveLength(1);
+    expect(await nexusGetProject('immutable-owner')).toMatchObject({
+      registeredAt: before!.registeredAt,
+      path: realpathSync(other),
+      name: 'other',
+    });
+    const { listProjectCheckouts } = await import('../path-map.js');
+    const checkouts = await listProjectCheckouts('immutable-owner');
+    expect(checkouts.map((c) => c.projectPath).sort()).toEqual(
+      [before!.path, realpathSync(other)].sort(),
+    );
+    expect(checkouts.every((c) => c.state === 'live')).toBe(true);
+  });
+
+  it('records an adopted identity instead of deriving one from the path (T12470)', async () => {
+    vi.stubEnv('CLEO_DISABLE_PROJECT_AUTOREGISTER', '1');
+    const hash = await nexusRegister(projectDir, 'adopted');
+    const row = await nexusGetProject(hash);
+    const tracked = readPortableProjectId(projectDir);
+    expect(tracked.status).toBe('valid');
+    expect(row?.projectId).toBe(tracked.status === 'valid' ? tracked.projectId : null);
+    // Never the path fingerprint — that survives only as an alias.
+    const { id: fingerprint } = await projectPathFingerprint(projectDir);
+    expect(row?.projectId).not.toBe(fingerprint);
+  });
+
+  it('keeps one row and the same id when a project moves between two roots (T12470 AC3)', async () => {
+    vi.stubEnv('CLEO_DISABLE_PROJECT_AUTOREGISTER', '1');
+    const rootA = join(testDir, 'root-a');
+    const rootB = join(testDir, 'root-b', 'nested');
+    await mkdir(join(rootA, 'proj', '.cleo'), { recursive: true });
+    await mkdir(rootB, { recursive: true });
+    await mkdir(join(rootA, 'proj', '.git'), { recursive: true }); // a git toplevel
+    await writeFile(join(rootA, 'proj', '.cleo', 'project-id'), 'moving-project-id\n');
+    const idA = resolveProjectByCwd(join(rootA, 'proj'))?.projectId;
+    await nexusRegister(join(rootA, 'proj'), 'moving');
+
+    await rename(join(rootA, 'proj'), join(rootB, 'proj'));
+    const idB = resolveProjectByCwd(join(rootB, 'proj'))?.projectId;
+    expect(await nexusReconcile(realpathSync(join(rootB, 'proj')))).toMatchObject({
+      status: 'path_updated',
+    });
+
+    expect(idA).toBe('moving-project-id');
+    expect(idB).toBe(idA);
+    const rows = await nexusList();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      projectId: 'moving-project-id',
+      path: realpathSync(join(rootB, 'proj')),
+    });
   });
 
   it('preserves a metadata read failure instead of replacing stored counts with zero', async () => {
@@ -250,6 +324,10 @@ describe('nexusRegister', () => {
 
   it('rejects unreadable identity metadata instead of assigning a fallback identity', async () => {
     vi.stubEnv('CLEO_DISABLE_PROJECT_AUTOREGISTER', '1');
+    await writeFile(
+      join(projectDir, '.cleo/project-info.json'),
+      JSON.stringify({ projectId: 'declared-owner' }),
+    );
     const hash = await nexusRegister(projectDir, 'owner');
     const before = await nexusGetProject(hash);
     await writeFile(join(projectDir, '.cleo/project-info.json'), '{broken');
@@ -282,7 +360,7 @@ describe('nexusRegister', () => {
     }
   });
 
-  it('refuses a canonical alias owned elsewhere and rolls back the new registration', async () => {
+  it('keeps a path-derived canonical alias owned elsewhere and still registers (T12469)', async () => {
     vi.stubEnv('CLEO_DISABLE_PROJECT_AUTOREGISTER', '1');
     await writeFile(
       join(projectDir, '.cleo/project-info.json'),
@@ -297,11 +375,12 @@ describe('nexusRegister', () => {
       createdAt: new Date().toISOString(),
     });
     const aliasesBefore = await db.select().from(projectIdAliases);
-    await expect(nexusRegister(projectDir, 'new-name', 'write')).rejects.toThrow(
-      /alias already belongs to another project/,
-    );
-    expect(await nexusList()).toEqual([]);
-    expect(await db.select().from(projectIdAliases)).toEqual(aliasesBefore);
+    await nexusRegister(projectDir, 'new-name', 'write');
+    expect((await nexusList()).map((p) => p.projectId)).toEqual(['declared-owner']);
+    // The alias keeps its existing owner; it is never redirected.
+    expect(
+      await db.select().from(projectIdAliases).where(eq(projectIdAliases.legacyId, alias)),
+    ).toEqual(aliasesBefore.filter((row) => row.legacyId === alias));
   });
 
   it.each([

@@ -462,3 +462,65 @@ export interface ProviderRegistry {
   /** Provider definitions keyed by provider ID. */
   providers: Record<string, RegistryProvider>;
 }
+
+// ── Human-in-the-loop ask tools (T12482) ─────────────────────────────
+
+/**
+ * Whether a provider exposes a structured-question ("ask the human") tool.
+ *
+ * - `native`  — the harness ships a built-in tool that renders selectable options.
+ * - `none`    — verified absent from the harness's built-in tool set.
+ * - `unknown` — not verified from docs or source; never guessed.
+ *
+ * @public
+ */
+export type AskToolStatus = 'native' | 'none' | 'unknown';
+
+/**
+ * Registry record of a provider's structured-question tool.
+ *
+ * @remarks
+ * Data only. `source` says where the fact was verified so a stale entry can be
+ * re-checked; `caveat` records availability limits (mode gates, subagent
+ * restrictions). When `toolName` is `null` the agent uses
+ * {@link HitlRequestFallback} instead.
+ *
+ * @public
+ */
+export interface ProviderAskTool {
+  /** Verification status of the ask tool. */
+  status: AskToolStatus;
+  /** Exact tool name the model calls, or `null` when none is known. */
+  toolName: string | null;
+  /** Availability limits, or `null` when none are known. */
+  caveat: string | null;
+  /** Where the fact was verified (doc URL, source path, or binary inspected). */
+  source: string;
+}
+
+/**
+ * Fallback when a provider has no (known) ask tool: the agent emits ONE LAFS
+ * envelope with this operation carrying the payload fields, then stops.
+ *
+ * @public
+ */
+export interface HitlRequestFallback {
+  /** LAFS operation name of the envelope. */
+  operation: 'hitl.request';
+  /** Payload fields the envelope `data` carries. */
+  fields: readonly ['question', 'options', 'recommended'];
+  /** Shape of each option entry. */
+  optionFields: readonly ['label', 'description'];
+}
+
+/**
+ * Resolved ask-tool answer for one provider.
+ *
+ * @public
+ */
+export interface ResolvedProviderAskTool extends ProviderAskTool {
+  /** Canonical provider id (aliases resolved). */
+  providerId: string;
+  /** The `hitl.request` fallback; use it whenever `toolName` is `null`. */
+  fallback: HitlRequestFallback;
+}

@@ -79,7 +79,7 @@ const GIT_AMBIENT_REPO_VARS = [
  * @returns Environment safe for directory-discovery probes.
  * @task T12308
  */
-function discoveryEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+export function discoveryEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const copy = { ...env };
   for (const key of GIT_AMBIENT_REPO_VARS) delete copy[key];
   return copy;
@@ -231,7 +231,27 @@ export interface DeclaredEvidenceGitRoot {
  */
 function readConfiguredGitRoot(storeRoot: string): string | null {
   try {
-    const raw = readFileSync(join(storeRoot, '.cleo', 'project-context.json'), 'utf-8');
+    return parseConfiguredGitRoot(
+      readFileSync(join(storeRoot, '.cleo', 'project-context.json'), 'utf-8'),
+    );
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `evidence.gitRoot` from the text of a `.cleo/project-context.json`.
+ *
+ * Split from the file read so a caller that must bound the read (a probe
+ * over hundreds of checkouts, some on slow filesystems) can read the file
+ * asynchronously under its own deadline and still share this parse.
+ *
+ * @param raw - File contents.
+ * @returns The trimmed declared root, or `null` when absent or malformed.
+ * @task T12511
+ */
+export function parseConfiguredGitRoot(raw: string): string | null {
+  try {
     const parsed: unknown = JSON.parse(raw);
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
     const evidence = (parsed as { evidence?: unknown }).evidence;

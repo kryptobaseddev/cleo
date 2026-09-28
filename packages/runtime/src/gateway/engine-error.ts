@@ -63,6 +63,7 @@ export const STRING_TO_EXIT: Record<string, number> = {
   E_RETRYABLE: 7,
   E_LOCK_TIMEOUT: 7,
   E_CONFIG_ERROR: 8,
+  E_PROJECT_MOVED: 9,
 
   // Hierarchy Errors (10-19)
   E_PARENT_NOT_FOUND: 10,
@@ -82,6 +83,9 @@ export const STRING_TO_EXIT: Record<string, number> = {
   E_CHECKSUM_MISMATCH: 20,
   E_CONCURRENT_MODIFICATION: 21,
   E_ID_COLLISION: 22,
+  E_CONFLICT: 23,
+  E_SESSION_UNBOUND: 24,
+  E_WORKTREE_LOCKED: 25,
 
   // Session Errors (30-39)
   E_SESSION_EXISTS: 30,

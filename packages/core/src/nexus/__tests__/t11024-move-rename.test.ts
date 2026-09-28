@@ -302,7 +302,9 @@ describe('nexusReconcile Scenario 2', () => {
     await reg(pd, pid, 's2');
     const md = join(td, 's2m');
     await mkProj(md, pid);
-    const r = await nexusReconcile(md);
+    // T12470: the old checkout still exists — an explicit rebind is required.
+    expect((await nexusReconcile(md)).status).toBe('candidate');
+    const r = await nexusReconcile(md, { forceRebind: true });
     expect(r.status).toBe('path_updated');
     const p = await nexusGetProject('s2');
     expect(p).not.toBeNull();
@@ -315,7 +317,7 @@ describe('nexusReconcile Scenario 2', () => {
     await reg(pd, pid, 'it');
     const md = join(td, 'im');
     await mkProj(md, pid);
-    expect((await nexusReconcile(md)).status).toBe('path_updated');
+    expect((await nexusReconcile(md, { forceRebind: true })).status).toBe('path_updated');
     expect((await nexusReconcile(md)).status).toBe('ok');
   });
 });

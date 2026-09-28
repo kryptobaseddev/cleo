@@ -2,8 +2,8 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.20.6
-  lastReviewed: 2026-09-24
+  version: 2.20.9
+  lastReviewed: 2026-09-28
   stability: stable
 ---
 
@@ -24,6 +24,40 @@ incident learning with project/revision evidence. A failed diagnostic is not cle
 Provider reference delivery must be verified or embedded self-contained; static
 instruction checks do not establish live Codex, Claude, or Kimi behavior.
 
+
+## Asking the owner (HITL ask tool)
+
+Whenever you need the owner to answer, decide, approve or choose ANYTHING, use the
+ask tool (`AskUserQuestion` in Claude Code, or the provider equivalent listed in
+CAAMP's `PROVIDER_ASK_TOOLS`) with concrete, detailed, selectable options. Never
+ask inside a response, and never bury a question or decision in prose. Each option
+states what happens and its trade-offs; put the recommended option first. Do not
+send routine status chatter: report only when done or when a decision is needed.
+
+- **Subagents never ask the human.** Return the question with its options to your
+  orchestrator (`blocked` plus `{question, options[{label, description}], recommended}`
+  in the manifest); the orchestrator asks via its ask tool.
+- **No ask tool in the harness:** emit one LAFS `hitl.request` envelope
+  `{question, options[{label, description}], recommended}` and stop.
+
+## Project identity and moving between devices
+
+A project is identified by its portable `project_id` in `.cleo/project-id`
+(tracked, write-once; ADR-094). A path is only a per-device hint, so a moved or
+restored checkout keeps its identity. After a new device, restore or migration,
+or when a known repo reports "Not inside a CLEO project", registry paths are
+unreachable, or nexus hits `ENOENT` on an old path, run and report:
+
+1. `cleo doctor projects` — machine-wide: moved, missing, split and temp rows with
+   remedies. Dry-run by default; `--apply` rebinds only on nonce proof and writes a
+   receipt; `--rollback <id>` restores.
+2. `cleo doctor project-identity` — missing, conflicting or uncommitted id.
+3. `cleo doctor --all-projects` — unreachable registered projects.
+4. `cleo nexus projects clean --orphans --dry-run` — NEVER without `--dry-run`;
+   it deletes rows for projects that merely moved.
+5. `cleo doctor credentials` — credentials still keyed by an old path.
+
+Never delete registry rows for projects that may have moved.
 
 ## Guarded knowledge repair
 
@@ -78,11 +112,35 @@ Use `cleo backup inspect <snapshot> --record-id <id>` for read-only historical e
 
 Code-graph answers (`cleo nexus impact`, `context`, `full-context`, `why`, `search-code`, `task-symbols`, `clusters`, `flows`) carry `meta._nexus.freshness`: stale file count and sample, whether the queried symbol's own file is stale, and the refresh command with an estimated cost. A query refreshes up to 25 stale files inline within a 60 s budget (`nexus.autoRefresh.maxFiles`/`budgetMs`/`enabled`) and discloses it in `freshness.autoRefresh`; beyond that it answers from the stale index with `W_NEXUS_INDEX_STALE`. `unknown` freshness is never fresh. `cleo nexus analyze` re-parses only changed files, re-resolves every file, and reports `mode`, `reason` and per-phase cost; it falls back to a full parse (and says why) when there is no parse cache, the extractor build changed, or over 30% of files changed. `--full` forces a rebuild.
 
+## Sessions are terminal-bound (T12500)
+
+`cleo session start` binds the calling agent process (`CLAUDE_CODE_SESSION_ID`,
+`CODEX_THREAD_ID`, …), pane (`TMUX_PANE`, …) or tab (`TERM_SESSION_ID`, …). Session
+mutations from an unbound caller fail with `E_SESSION_UNBOUND` instead of
+guessing the newest session; bind with `cleo session start`, `cleo session resume
+<id>` or `CLEO_SESSION_ID=<id>`, or name the target with `--session <id>`. CI and
+multi-step scripts must export `CLEO_SESSION_ID`. Unattributed mutations warn on
+stderr; `session status` / `briefing` label a guessed session `unbound: true`.
+
+- A session a human started in a tab is adopted by Claude Code in that tab
+  (also after a Claude restart). An adopter works in it but cannot end it without
+  `--session <id>`, and starting its own session never takes over the tab. A
+  session Claude started can be ended from the tab.
+- Two Claude instances that each start a session stay isolated; a sibling tmux
+  pane never sees another pane's session.
+- Agent-tool subagents inherit the parent's `CLAUDE_CODE_SESSION_ID` and act in
+  the parent's session; `cleo orchestrate spawn` gives workers their own.
+
+## Typed decisions (`cleo decide`, T12491)
+
+`decide` answers typed questions (yes/no, choice, score) through a swappable Jev-wire provider and falls back to local heuristics when unconfigured or failing. It needs two settings, an API URL and a key: `printf %s "$KEY" | cleo decide config --url <u> --key-stdin` (optional `--model`; `--clear` removes them). The key is kept in a 0600 file and never printed. `cleo decide status` probes reachability and `cleo decide ask --state <text> --noul <q>` runs one debug question.
+
 ## Quick Reference
 
 | Need | Command |
 |------|---------|
 | Start session | `cleo session status` → `cleo briefing` |
+| End session (from another terminal) | `cleo session end --session <id>` |
 | Find work | `cleo next` → `cleo focus <id>` |
 | Search tasks | `cleo find "query"` |
 | Complete task | `cleo verify T### --gate ... --evidence "..."` → `cleo complete T###` |

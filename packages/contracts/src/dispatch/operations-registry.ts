@@ -3033,6 +3033,14 @@ export const OPERATIONS: OperationDef[] = [
         description: 'Disable automatic parent completion',
         cli: { flag: 'no-auto-complete' },
       },
+      {
+        name: 'expectedUpdatedAt',
+        type: 'string',
+        required: false,
+        description:
+          'Optimistic-concurrency guard: fail with E_CONFLICT unless the task updatedAt still equals this value',
+        cli: { flag: 'expected-updated-at' },
+      },
     ] satisfies ParamDef[],
     inputSchema: tasksUpdateInputContract,
     outputSchema: OUTPUT_CONTRACTS['tasks.update'],
@@ -6945,6 +6953,44 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate' as const,
     domain: 'nexus',
+    operation: 'projects.status',
+    description:
+      'nexus.projects.status (mutate) — probe and record git state of every project location on this device (bounded, parallel; no network unless fetch)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'fetch',
+        type: 'boolean',
+        required: false,
+        description: 'Run git fetch per location first (network; off by default)',
+      },
+      {
+        name: 'concurrency',
+        type: 'number',
+        required: false,
+        description: 'Locations probed at once (default 8, max 64)',
+      },
+      {
+        name: 'timeoutMs',
+        type: 'number',
+        required: false,
+        description: 'Per-location git budget in ms (default 10000; 30000 with fetch)',
+      },
+      {
+        name: 'staleAfterMs',
+        type: 'number',
+        required: false,
+        description: 'A fetch older than this marks remote state stale (default 24h)',
+      },
+    ],
+  },
+
+  {
+    gateway: 'mutate' as const,
+    domain: 'nexus',
     operation: 'projects.clean',
     description:
       'nexus.projects.clean (mutate) — bulk-purge project registry rows matching configurable criteria',
@@ -8151,6 +8197,12 @@ export const OPERATIONS: OperationDef[] = [
       { name: 'title', type: 'string' as const, required: false, description: 'Override PR title' },
       { name: 'body', type: 'string' as const, required: false, description: 'Override PR body' },
       { name: 'base', type: 'string' as const, required: false, description: 'PR base branch' },
+      {
+        name: 'taskId',
+        type: 'string' as const,
+        required: false,
+        description: 'Owning task id (T####) for the PR commit subject',
+      },
     ],
   },
   {
@@ -8184,6 +8236,12 @@ export const OPERATIONS: OperationDef[] = [
       { name: 'title', type: 'string' as const, required: false, description: 'Override PR title' },
       { name: 'body', type: 'string' as const, required: false, description: 'Override PR body' },
       { name: 'base', type: 'string' as const, required: false, description: 'PR base branch' },
+      {
+        name: 'taskId',
+        type: 'string' as const,
+        required: false,
+        description: 'Owning task id (T####) for the PR commit subject',
+      },
     ],
   },
   {

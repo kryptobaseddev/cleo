@@ -6,15 +6,27 @@
  * @packageDocumentation
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import {
+  existsSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import { isAbsolutePath } from '@cleocode/paths';
 import { CleoError } from './errors.js';
 import { generateProjectHash } from './nexus/hash.js';
+import {
+  isProjectMovedRefusalEnabled,
+  projectMovedError,
+  readValidProjectTombstone,
+} from './project-tombstone.js';
 
 /**
  * Async context payload set by the spawn adapter when launching a subagent
@@ -122,6 +134,129 @@ export function captureProjectScope(
 }
 
 /**
+ * Read the `gitdir:` target of a gitlink `.git` FILE in `dir`.
+ *
+ * @param dir - Directory to inspect.
+ * @returns The absolute gitdir; `''` when `.git` is a file that cannot be
+ *   parsed; `null` when `.git` is missing or is a directory.
+ */
+function readGitlinkTarget(dir: string): string | null {
+  const gitMarker = join(dir, '.git');
+  try {
+    if (!statSync(gitMarker).isFile()) return null;
+  } catch {
+    return null;
+  }
+  try {
+    const match = readFileSync(gitMarker, 'utf-8').match(/^gitdir:\s*(.+)$/m);
+    // A relative gitdir (`worktree.useRelativePaths`) is relative to the checkout.
+    return match?.[1] ? resolve(dir, match[1].trim()) : '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Return the main checkout root of the linked git worktree at `dir`.
+ *
+ * A linked worktree's gitlink points at `<common>/worktrees/<name>`; the main
+ * checkout is the parent of `<common>` when that is a `.git` directory, or the
+ * `core.worktree` of `<common>` for a worktree of a submodule. A
+ * submodule or `--separate-git-dir` gitlink points elsewhere (for example
+ * `<super>/.git/modules/<name>`) and is its own repository, so it returns
+ * `null` (T12562).
+ *
+ * @param dir - Directory to inspect.
+ * @returns The main checkout root, or `null` when `dir` is not a linked worktree.
+ * @example
+ * ```ts
+ * linkedWorktreeMainRoot('/data/cleo/worktrees/abc/T1'); // '/home/u/project'
+ * linkedWorktreeMainRoot('/home/u/project/vendor/sub'); // null (submodule)
+ * ```
+ * @task T12562
+ */
+export function linkedWorktreeMainRoot(dir: string): string | null {
+  const gitdir = readGitlinkTarget(dir);
+  if (!gitdir || basename(dirname(gitdir)) !== 'worktrees') return null;
+  const commonDir = dirname(dirname(gitdir));
+  if (basename(commonDir) === '.git') return dirname(commonDir);
+  // A worktree of a submodule: the common dir is `<super>/.git/modules/<name>`,
+  // a git-internal path. The checkout is its `core.worktree`; without one,
+  // the main checkout is unknown.
+  return readCoreWorktree(commonDir);
+}
+
+/**
+ * Read `core.worktree` from a git directory's `config`, resolved against it.
+ *
+ * @param gitDir - Absolute git directory.
+ * @returns The absolute work tree, or `null` when unset or unreadable.
+ */
+function readCoreWorktree(gitDir: string): string | null {
+  try {
+    const config = readFileSync(join(gitDir, 'config'), 'utf-8');
+    const core = /^\[core\][^[]*/m.exec(config)?.[0] ?? '';
+    const value = /^\s*worktree\s*=\s*(.+?)\s*$/m.exec(core)?.[1];
+    return value ? resolve(gitDir, value) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Report whether `dir` is the root of a linked git worktree: its `.git` is a
+ * gitlink FILE whose `gitdir` lies under `<common>/worktrees/`.
+ *
+ * @param dir - Directory to inspect.
+ * @returns `true` for a linked worktree, or for a gitlink that cannot be
+ *   parsed (conservatively). `false` for a real repository directory, a
+ *   missing `.git`, or a submodule / `--separate-git-dir` gitlink, which is its
+ *   own repository and may own its own store (T12562).
+ * @remarks Never throws.
+ * @example
+ * ```ts
+ * isGitLinkedCheckout('/home/u/.local/share/cleo/worktrees/abc/T1'); // true
+ * isGitLinkedCheckout('/home/u/project'); // false: .git is a directory
+ * ```
+ * @task T12460
+ * @task T12562
+ */
+export function isGitLinkedCheckout(dir: string): boolean {
+  const gitdir = readGitlinkTarget(dir);
+  if (gitdir === null) return false;
+  if (gitdir === '') return true;
+  return basename(dirname(gitdir)) === 'worktrees';
+}
+
+/**
+ * Map a candidate project root to the root that OWNS the project store.
+ *
+ * A CLEO worktree (ADR-055) is a linked git checkout whose `.cleo/` can exist
+ * on disk: the project's own tracked `.cleo/` files, or the
+ * `project-info.json` seeded for identity inheritance (T11033). Neither makes
+ * the worktree a project. Its store is the PARENT project's `.cleo/cleo.db`.
+ * When `root` is a linked checkout whose main repository is a valid CLEO
+ * project, this returns that main repository; otherwise `root` unchanged.
+ *
+ * @param root - Candidate project root (worktree root, scope root, or walk hit).
+ * @returns The parent project root for a CLEO worktree, else `root`.
+ * @remarks Only `root` itself is inspected, never its ancestors, so a nested
+ * fixture `.cleo/` inside a checkout keeps resolving to itself. A worktree
+ * whose parent is not a CLEO project is returned unchanged; the store-open
+ * guard then refuses it instead of creating a local store.
+ * @example
+ * ```ts
+ * resolveStoreOwnerRoot('/data/cleo/worktrees/abc/T1'); // '/home/u/project'
+ * resolveStoreOwnerRoot('/home/u/project');             // '/home/u/project'
+ * ```
+ * @task T12460
+ */
+export function resolveStoreOwnerRoot(root: string): string {
+  if (!isGitLinkedCheckout(root)) return root;
+  return _resolveMainRepoFromGitlink(root) ?? root;
+}
+
+/**
  * Attempt to resolve the main git repo root from a gitlink (.git as FILE).
  * Returns the main repo path if the gitlink is valid and the main repo is a
  * CLEO project; otherwise returns `null`.
@@ -140,7 +275,12 @@ export function _resolveMainRepoFromGitlink(gitlinkDir: string): string | null {
     const gitLinkContent = readFileSync(gitLinkPath, 'utf-8').trim();
     const match = gitLinkContent.match(/^gitdir:\s*(.+)$/m);
     if (!match) return null;
-    const gitdir = match[1].trim();
+    // A relative gitdir (`worktree.useRelativePaths`) is relative to the checkout.
+    const gitdir = resolve(gitlinkDir, match[1].trim());
+    // T12562: only `<main>/.git/worktrees/<name>` is a linked worktree. A
+    // submodule's `<super>/.git/modules/<name>` stripped the same way named the
+    // superproject, so a submodule shared (and wrote) its parent's store.
+    if (basename(dirname(gitdir)) !== 'worktrees') return null;
     // gitdir is `<main>/.git/worktrees/<name>` → strip last 3 segments.
     const mainRepo = dirname(dirname(dirname(gitdir)));
     if (existsSync(join(mainRepo, '.cleo')) && validateProjectRoot(mainRepo)) {
@@ -404,6 +544,21 @@ export function getProjectRoot(cwd?: string): string {
     // `.cleo/` sentinel exists there. This blocks the orphan-DB vector.
     const isDangerousRoot = current === homeRoot || current === '/' || current === '';
 
+    // T12558: `cleo project reroot` left a tombstone here. With no live store
+    // beside it (the `.cleo/` is gone, or `git checkout -- .` restored only its
+    // tracked files), resolving here would silently create an EMPTY store and
+    // answer every read with nothing. Refuse and name the new root. Only a
+    // VALID tombstone counts (a committed or stale one is ignored with a
+    // warning), and `cleo doctor` turns the refusal off to inspect the state.
+    if (
+      !isDangerousRoot &&
+      isProjectMovedRefusalEnabled() &&
+      !existsSync(join(cleoDir, 'cleo.db'))
+    ) {
+      const tombstone = readValidProjectTombstone(current);
+      if (tombstone) throw projectMovedError(current, tombstone, start);
+    }
+
     if (existsSync(cleoDir) && !isDangerousRoot) {
       // T1463/P1-7: validate that the .cleo/ dir has the required sibling
       // markers (.git/ or package.json) before accepting this candidate.
@@ -494,7 +649,7 @@ let _legacyFallbackWarned = false;
 
 /** Fields consumed by logging, audit, and correlation subsystems. */
 export interface ProjectInfo {
-  /** 12-char SHA-256 hex of the normalized project path (per-install identity). */
+  /** Write-once 12-char hex identity key persisted at init (T12557: never re-derived once stored). */
   projectHash: string;
   /** Portable project-local UUID stored with `.cleo/project-info.json`. */
   projectId: string;
@@ -504,15 +659,75 @@ export interface ProjectInfo {
   projectName: string;
 }
 
-/** Decode the existing project metadata contract at a caller-owned root. */
-function decodeProjectInfo(raw: string, projectRoot: string): ProjectInfo {
+/**
+ * Compute the write-once `projectHash` for a project root.
+ *
+ * `projectHash` is an identity key (audit correlation, idempotency, release
+ * ids), not a path fact. It is computed once, at init, and persisted. This
+ * computes it from the real path of the MAIN checkout: a linked worktree maps
+ * to its parent project, and symlinked spellings (`/tmp` vs `/private/tmp`)
+ * collapse to one path, so every spelling of one project gets one hash.
+ *
+ * @param projectRoot - Project root or a linked worktree of it.
+ * @returns 12-char hex hash of the canonical main-checkout path.
+ * @example
+ * ```ts
+ * const hash = computeStableProjectHash('/tmp/project'); // same as '/private/tmp/project'
+ * ```
+ * @task T12557
+ */
+export function computeStableProjectHash(projectRoot: string): string {
+  const real = (path: string): string => {
+    try {
+      return realpathSync(path);
+    } catch {
+      return resolve(path);
+    }
+  };
+  return generateProjectHash(real(resolveStoreOwnerRoot(real(projectRoot))));
+}
+
+/**
+ * Persist a derived `projectHash` into a legacy file, compare-and-swap style.
+ *
+ * The file is re-read just before the rename and written only when it still
+ * has no hash and still carries `expectedProjectId`, so a concurrent re-key
+ * (`doctor project-identity --resolve`) or backfill is never clobbered. Every
+ * failure leaves the file untouched; the caller keeps the derived value.
+ */
+function backfillProjectHash(infoPath: string, expectedProjectId: unknown, hash: string): void {
+  try {
+    const current = JSON.parse(readFileSync(infoPath, 'utf-8')) as Record<string, unknown>;
+    if (current.projectId !== expectedProjectId) return;
+    if (typeof current.projectHash === 'string' && current.projectHash.length > 0) return;
+    const tmp = `${infoPath}.tmp-${process.pid}`;
+    writeFileSync(tmp, `${JSON.stringify({ ...current, projectHash: hash }, null, 2)}\n`);
+    renameSync(tmp, infoPath);
+  } catch {
+    // Read-only or vanished store: the derived value is still stable for this root.
+  }
+}
+
+/**
+ * Decode the existing project metadata contract at a caller-owned root.
+ *
+ * T12557: `projectRoot` always comes from the caller, never the file. The
+ * persisted `projectHash` is authoritative. A legacy file without one gets
+ * {@link computeStableProjectHash}, persisted once (best effort) so the value
+ * never changes afterwards.
+ */
+function decodeProjectInfo(raw: string, projectRoot: string, infoPath: string): ProjectInfo {
   const data = JSON.parse(raw) as Record<string, unknown>;
-  if (typeof data.projectHash !== 'string' || data.projectHash.length === 0) {
-    throw new Error('project-info.json missing required field: projectHash');
+  let projectHash: string;
+  if (typeof data.projectHash === 'string' && data.projectHash.length > 0) {
+    projectHash = data.projectHash;
+  } else {
+    projectHash = computeStableProjectHash(projectRoot);
+    backfillProjectHash(infoPath, data.projectId, projectHash);
   }
   const segments = projectRoot.replace(/[\\/]+$/, '').split(/[\\/]/);
   return {
-    projectHash: data.projectHash,
+    projectHash,
     projectId: typeof data.projectId === 'string' ? data.projectId : '',
     projectRoot,
     projectName: segments[segments.length - 1] ?? 'unknown',
@@ -524,8 +739,9 @@ function decodeProjectInfo(raw: string, projectRoot: string): ProjectInfo {
  * @param projectRoot - Captured root used for the returned identity and name.
  * @param cleoDir - Explicit data directory owned by that root.
  * @returns Validated project information, retaining the legacy empty portable ID.
- * @throws When reading, JSON decoding or required-field validation fails.
- * @remarks This leaf does not resolve paths or consult ambient environment pins.
+ * @throws When reading or JSON decoding fails.
+ * @remarks This leaf does not consult ambient environment pins. A legacy file
+ * without `projectHash` is backfilled once (see {@link computeStableProjectHash}).
  * @example
  * ```ts
  * const info = await readProjectInfoAtDirectory(root, join(root, '.cleo'));
@@ -535,10 +751,8 @@ export async function readProjectInfoAtDirectory(
   projectRoot: string,
   cleoDir: string,
 ): Promise<ProjectInfo> {
-  return decodeProjectInfo(
-    await readFile(join(cleoDir, 'project-info.json'), 'utf-8'),
-    projectRoot,
-  );
+  const infoPath = join(cleoDir, 'project-info.json');
+  return decodeProjectInfo(await readFile(infoPath, 'utf-8'), projectRoot, infoPath);
 }
 
 /**
@@ -546,7 +760,7 @@ export async function readProjectInfoAtDirectory(
  * @param projectRoot - Captured root used for the returned identity and name.
  * @param cleoDir - Explicit data directory owned by that root.
  * @returns Validated project information, retaining the legacy empty portable ID.
- * @throws When reading, JSON decoding or required-field validation fails.
+ * @throws When reading or JSON decoding fails.
  * @remarks Unlike the legacy public nullable wrapper, this preserves diagnostic failures.
  * @example
  * ```ts
@@ -554,5 +768,6 @@ export async function readProjectInfoAtDirectory(
  * ```
  */
 export function readProjectInfoAtDirectorySync(projectRoot: string, cleoDir: string): ProjectInfo {
-  return decodeProjectInfo(readFileSync(join(cleoDir, 'project-info.json'), 'utf-8'), projectRoot);
+  const infoPath = join(cleoDir, 'project-info.json');
+  return decodeProjectInfo(readFileSync(infoPath, 'utf-8'), projectRoot, infoPath);
 }

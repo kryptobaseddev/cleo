@@ -97,6 +97,7 @@ vi.mock('@cleocode/core/internal', async () => ({
   nexusProjectsRemove: vi.fn(),
   nexusProjectsScan: vi.fn(),
   nexusProjectsClean: vi.fn(),
+  nexusProjectsStatus: vi.fn(),
   nexusRefreshBridge: vi.fn(),
   nexusDiff: vi.fn(),
   nexusQueryCte: vi.fn(),
@@ -566,6 +567,7 @@ describe('NexusHandler — Phase 2 T1510 operations', () => {
       expect(mutate).toContain('projects.remove');
       expect(mutate).toContain('projects.scan');
       expect(mutate).toContain('projects.clean');
+      expect(mutate).toContain('projects.status');
       expect(mutate).toContain('refresh-bridge');
     });
   });

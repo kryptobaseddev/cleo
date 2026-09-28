@@ -48,8 +48,30 @@ describe('error-catalog', () => {
       }
     });
 
-    it('every entry has a LAFS code starting with E_CLEO_', () => {
+    it('every entry has a LAFS code starting with E_CLEO_ (except the named E_CONFLICT / E_SESSION_UNBOUND / E_WORKTREE_LOCKED)', () => {
+      // T12503: the optimistic-concurrency conflict is the one deliberately
+      // un-namespaced code — its contract (task T12503, epic T12497) names it
+      // `E_CONFLICT`. Any other entry must keep the E_CLEO_ prefix.
       for (const entry of ERROR_CATALOG.values()) {
+        if (entry.code === ExitCode.VERSION_CONFLICT) {
+          expect(entry.lafsCode).toBe('E_CONFLICT');
+          continue;
+        }
+        if (entry.code === ExitCode.SESSION_UNBOUND) {
+          // T12500: named `E_SESSION_UNBOUND` by its contract (epic T12497).
+          expect(entry.lafsCode).toBe('E_SESSION_UNBOUND');
+          continue;
+        }
+        if (entry.code === ExitCode.PROJECT_MOVED) {
+          // T12558: named `E_PROJECT_MOVED` by its contract (reroot tombstone).
+          expect(entry.lafsCode).toBe('E_PROJECT_MOVED');
+          continue;
+        }
+        if (entry.code === ExitCode.WORKTREE_LOCKED) {
+          // T12506: named `E_WORKTREE_LOCKED` by its contract (epic T12498).
+          expect(entry.lafsCode).toBe('E_WORKTREE_LOCKED');
+          continue;
+        }
         expect(entry.lafsCode).toMatch(/^E_CLEO_/);
       }
     });

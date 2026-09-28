@@ -14,6 +14,7 @@
  * @epic T299
  */
 
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 import { withWorkspaceSubpathAliases } from '../../vitest-workspace-resolver.js';
 import { MEMORY_SAFE_TEST_DEFAULTS } from '../../vitest.memory-safe.js';
@@ -67,43 +68,29 @@ export default defineConfig({
       // These MUST appear BEFORE the bare `@cleocode/contracts` alias so
       // vitest matches the longer prefix first; otherwise the broader alias
       // rewrites the path to `index.ts/<subpath>` and Node errors with ENOTDIR.
-      '@cleocode/contracts/enums': new URL(
-        '../../packages/contracts/src/enums.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/contracts/provenance': new URL(
-        '../../packages/contracts/src/provenance.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/contracts/jobs': new URL(
-        '../../packages/contracts/src/jobs.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/contracts': new URL('../../packages/contracts/src/index.ts', import.meta.url)
-        .pathname,
-      '@cleocode/core/internal': new URL('./src/internal.ts', import.meta.url).pathname,
+      '@cleocode/contracts/enums': fileURLToPath(new URL('../../packages/contracts/src/enums.ts', import.meta.url)),
+      '@cleocode/contracts/provenance': fileURLToPath(new URL('../../packages/contracts/src/provenance.ts', import.meta.url)),
+      '@cleocode/contracts/jobs': fileURLToPath(new URL('../../packages/contracts/src/jobs.ts', import.meta.url)),
+      '@cleocode/contracts': fileURLToPath(new URL('../../packages/contracts/src/index.ts', import.meta.url)),
+      '@cleocode/core/internal': fileURLToPath(new URL('./src/internal.ts', import.meta.url)),
       // T9747: caamp source files import `@cleocode/core/skills/skill-root.js`.
       // When those files are loaded by vitest during core's own test suite,
       // Node's package-self-reference resolution fails because we're already
       // inside @cleocode/core. Alias the subpath to the TS source directly.
-      '@cleocode/core/skills/skill-root.js': new URL(
-        './src/skills/skill-root.ts',
-        import.meta.url,
-      ).pathname,
-      '@cleocode/core': new URL('./src/index.ts', import.meta.url).pathname,
-      '@cleocode/adapters': new URL('../../packages/adapters/src/index.ts', import.meta.url)
-        .pathname,
-      '@cleocode/lafs': new URL('../../packages/lafs/src/index.ts', import.meta.url).pathname,
+      '@cleocode/core/skills/skill-root.js': fileURLToPath(new URL('./src/skills/skill-root.ts', import.meta.url)),
+      '@cleocode/core': fileURLToPath(new URL('./src/index.ts', import.meta.url)),
+      '@cleocode/adapters': fileURLToPath(new URL('../../packages/adapters/src/index.ts', import.meta.url)),
+      '@cleocode/lafs': fileURLToPath(new URL('../../packages/lafs/src/index.ts', import.meta.url)),
       // @cleocode/paths — workspace-local canonical path utilities (env-paths wrapper).
       // Must be aliased so vitest resolves packages/core/src/paths.ts without a build step.
-      '@cleocode/paths': new URL('../../packages/paths/src/index.ts', import.meta.url).pathname,
+      '@cleocode/paths': fileURLToPath(new URL('../../packages/paths/src/index.ts', import.meta.url)),
       // @cleocode/utils — pure zero-dependency leaf (formatBytes, redact, …).
       // Aliased to source so vitest resolves redaction.ts / plugin-facade.ts
       // imports without first building utils' dist/ (T11414 · E5).
-      '@cleocode/utils': new URL('../../packages/utils/src/index.ts', import.meta.url).pathname,
+      '@cleocode/utils': fileURLToPath(new URL('../../packages/utils/src/index.ts', import.meta.url)),
       // caamp and cant — required to resolve @cleocode/core/internal transitive deps
-      '@cleocode/caamp': new URL('../../packages/caamp/src/index.ts', import.meta.url).pathname,
-      '@cleocode/cant': new URL('../../packages/cant/src/index.ts', import.meta.url).pathname,
+      '@cleocode/caamp': fileURLToPath(new URL('../../packages/caamp/src/index.ts', import.meta.url)),
+      '@cleocode/cant': fileURLToPath(new URL('../../packages/cant/src/index.ts', import.meta.url)),
     }),
   },
 });

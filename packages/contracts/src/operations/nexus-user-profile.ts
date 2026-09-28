@@ -25,6 +25,18 @@
 // ============================================================================
 
 /**
+ * Legal visibility scopes for a user-profile trait (T12543).
+ *
+ * - `project` — visible only to agents working in the project whose portable
+ *   id is stamped on the trait (`projectId`). The default for every new row.
+ * - `user`    — explicitly marked user-global: visible in every project.
+ */
+export const USER_PROFILE_SCOPES = ['project', 'user'] as const;
+
+/** Visibility scope of a user-profile trait. See {@link USER_PROFILE_SCOPES}. */
+export type UserProfileScope = (typeof USER_PROFILE_SCOPES)[number];
+
+/**
  * A single user-profile trait record.
  *
  * This is the canonical in-memory / wire shape for all profile operations.
@@ -61,6 +73,22 @@ export interface UserProfileTrait {
    * Set by `supersedeTrait` (T1139 supersession graph prep).
    */
   supersededBy: string | null;
+  /**
+   * Portable project id (`.cleo/project-id`, ADR-094) of the project the trait
+   * was derived in. `null` = unknown origin (rows written before T12543).
+   * Omitted on input means `null`.
+   *
+   * @task T12543
+   */
+  projectId?: string | null;
+  /**
+   * Visibility scope. Omitted on input means `'project'`. Spawn prompts include
+   * only `user` traits plus `project` traits whose `projectId` is the current
+   * project; unknown-origin rows are excluded.
+   *
+   * @task T12543
+   */
+  scope?: UserProfileScope;
 }
 
 // ============================================================================
@@ -180,7 +208,7 @@ export interface NexusProfileUpsertParams {
   /** Trait to create or update (required). */
   trait: Pick<
     UserProfileTrait,
-    'traitKey' | 'traitValue' | 'confidence' | 'source' | 'derivedFromMessageId'
+    'traitKey' | 'traitValue' | 'confidence' | 'source' | 'derivedFromMessageId' | 'scope'
   >;
 }
 

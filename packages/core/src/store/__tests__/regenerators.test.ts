@@ -115,6 +115,16 @@ describe('T352 regenerators (dry-run init JSON generators)', () => {
       expect((content['projectHash'] as string).length).toBeGreaterThan(0);
     });
 
+    it('preserves an existing write-once projectHash, never recomputes it (T12557)', () => {
+      fs.mkdirSync(path.join(tmpRoot, '.cleo'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpRoot, '.cleo', 'project-info.json'),
+        JSON.stringify({ projectId: 'x', projectHash: 'abcdefabcdef' }),
+      );
+      const content = regenerateProjectInfoJson(tmpRoot).content as Record<string, unknown>;
+      expect(content['projectHash']).toBe('abcdefabcdef');
+    });
+
     it('produces different projectHash for different projectRoots', () => {
       const root2 = fs.mkdtempSync(path.join(os.tmpdir(), 'cleo-t352-other-'));
       try {

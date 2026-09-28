@@ -17,8 +17,12 @@
  * invocations against the same saga either block on the lock or no-op with
  * `action: 'blocked'` (depending on the contention).
  *
+ * **Transactional**: a closure validates typed completion criteria and
+ * writes the saga row plus a `saga_reconciled` `tasks_audit_log` receipt in
+ * ONE write transaction — a failed receipt write rolls the closure back.
+ *
  * **Observable**: every reconcile decision (close, no-op, blocked, error)
- * appends a JSON-line entry to `.cleo/audit/saga-reconcile.jsonl` so the
+ * also appends a best-effort JSON-line entry to `.cleo/audit/saga-reconcile.jsonl` so the
  * repair history is auditable post-hoc — mirroring the `saga-detach.jsonl`
  * pattern from {@link detachSagaMember}.
  *
@@ -34,14 +38,24 @@
  * @see packages/core/src/sagas/detach.ts (audit-log idiom)
  */
 
+import { randomUUID } from 'node:crypto';
 import { appendFileSync, mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import type { TaskStatus } from '@cleocode/contracts';
+import { dirname, join, resolve } from 'node:path';
+import type { DataAccessor, Task, TaskStatus, TransactionAccessor } from '@cleocode/contracts';
+import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import { getCleoHome } from '@cleocode/paths';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getLogger } from '../logger.js';
+import {
+  captureProjectScope,
+  readProjectInfoAtDirectorySync,
+  worktreeScope,
+} from '../project-scope.js';
+import { createOperationExecutionContext } from '../store/background-ops.js';
 import { acquireLock } from '../store/lock.js';
+import { validateTaskGateCompletion } from '../tasks/gate-runner.js';
 import { taskList } from '../tasks/list.js';
+import { isTerminalPipelineStage } from '../tasks/pipeline-stage.js';
 import { taskShow } from '../tasks/show.js';
 import { buildSagaAutoCloseEvidence } from './storage.js';
 
@@ -61,6 +75,13 @@ const TERMINAL_STATUSES: ReadonlySet<TaskStatus> = new Set(['done', 'cancelled',
 
 /** Relative path within project root for the saga-reconcile audit log. */
 export const SAGA_RECONCILE_AUDIT_FILE = '.cleo/audit/saga-reconcile.jsonl';
+
+/**
+ * `tasks_audit_log.action` of the receipt written in the same transaction as a
+ * reconcile closure. This DB row is the authoritative closure record; the
+ * JSONL file above is a best-effort operational log of every decision.
+ */
+export const SAGA_RECONCILE_RECEIPT_ACTION = 'saga_reconciled';
 
 /** Default human-readable reason recorded when the verb closes a drifted saga. */
 export const SAGA_RECONCILE_CLOSE_REASON = 'all members terminal';
@@ -84,7 +105,9 @@ export interface ReconcileSagaParams {
   sagaId?: string;
   /**
    * When `true`, run in report-only mode — log what would happen without
-   * mutating any rows or writing to the audit log. The structured result
+   * mutating any rows, opening a write transaction, or writing to either
+   * audit log. Typed completion criteria are still validated, so a saga
+   * whose typed proof is unmet previews as `action: 'error'`. The structured result
    * still surfaces the same `action` values so an operator can preview the
    * exact closure set.
    */
@@ -234,60 +257,184 @@ async function partitionMembersByStatus(
 }
 
 /**
- * Flip a saga row to `status='done'` with full T10116 provenance.
+ * Typed-completion validator shared by every saga reconciled in one run.
  *
- * Uses `upsertSingleTask` (matching the T10116 `completeTask` auto-close
- * branch in `tasks/complete.ts`) so the saga row carries the same
- * synthesized verification envelope regardless of which mutation path
- * triggered the closure — `completeTask` (root-cause) or `reconcileSaga`
- * (this periodic safety net). Both write:
+ * Criteria are read from `criteriaSource` — the write transaction on the real
+ * path, the plain accessor on the dry-run path — while canonical
+ * `gate.verify.typed` receipts are read through `receiptSource` (the
+ * `TransactionAccessor` contract is write-only apart from a few reads, so
+ * `queryAuditLog` stays on the outer accessor, exactly as in
+ * `tasks/complete.ts`). Resolves to the execution lifetime that validated the
+ * saga, or `undefined` when the saga carries no typed criteria.
+ */
+type SagaTypedValidator = (
+  task: Task,
+  criteriaSource: Pick<TransactionAccessor, 'getAcRows'>,
+  receiptSource: Pick<DataAccessor, 'queryAuditLog'>,
+) => Promise<OperationExecutionContext | undefined>;
+
+/**
+ * Build the typed-completion validator for ONE saga of a reconcile run.
  *
- *   - `status='done'`
- *   - `completedAt`/`updatedAt` = supplied timestamp
- *   - `pipelineStage='contribution'` (satisfies the T877 SQLite invariant
- *     trigger `trg_tasks_status_pipeline_insert`)
- *   - `verification = buildSagaAutoCloseEvidence(sagaId, memberIds, now)`
- *     (synthesised three-atom envelope per gate; T10116)
+ * When the caller supplied an execution lifetime it is used as-is and never
+ * renewed. Otherwise the validator lazily owns a short-lived lifetime (2 s
+ * budget, mirroring `tasks/complete.ts`) that starts when THIS saga's typed
+ * check begins — not when the sweep was admitted — so a long multi-saga
+ * sweep cannot starve later typed sagas of budget or abort the whole run.
+ * `close()` releases the owned lifetime and must run once the saga settles.
+ */
+function createSagaTypedValidator(
+  projectRoot: string,
+  callerExecution: OperationExecutionContext | undefined,
+): { validate: SagaTypedValidator; close: () => void } {
+  let execution = callerExecution;
+  let ownedExecution: OperationExecutionContext | undefined;
+  const validate: SagaTypedValidator = async (task, criteriaSource, receiptSource) => {
+    execution?.assertActive();
+    const criteria = await criteriaSource.getAcRows(task.id);
+    if (
+      !(task.acceptance ?? []).some((item) => typeof item !== 'string') &&
+      !criteria.some((row) => row.kind === 'evidence_bound')
+    )
+      return execution;
+    if (!execution) {
+      const info = readProjectInfoAtDirectorySync(projectRoot, join(projectRoot, '.cleo'));
+      if (!info.projectId) throw new Error('Typed reconciliation requires stable project identity');
+      ownedExecution = createOperationExecutionContext(
+        {
+          projectId: info.projectId,
+          projectRoot,
+          actor: process.env.CLEO_AGENT_ID ?? 'cleo',
+          operation: 'tasks.saga.reconcile',
+          idempotencyKey: `${task.id}:${randomUUID()}`,
+        },
+        { budgetMs: 2000 },
+      );
+      execution = ownedExecution;
+    }
+    await validateTaskGateCompletion(task, criteria, { projectRoot, execution }, receiptSource);
+    execution.assertActive();
+    return execution;
+  };
+  return { validate, close: () => ownedExecution?.close() };
+}
+
+/**
+ * Check that the saga and its membership still match what the lock-guarded
+ * read path observed, so a closure is never written against drifted state.
+ */
+function assertSagaUnchanged(
+  sagaId: string,
+  sagaTask: Task | null,
+  currentMembers: readonly Task[],
+  memberIds: readonly string[],
+): asserts sagaTask is Task {
+  if (!sagaTask || sagaTask.type !== 'saga')
+    throw new Error(`Saga ${sagaId} disappeared or changed identity before closure`);
+  if (sagaTask.status === 'done')
+    throw new Error(`Saga ${sagaId} changed status before closure; retry reconciliation`);
+  if (
+    currentMembers.length !== memberIds.length ||
+    currentMembers.some(
+      (member) => !memberIds.includes(member.id) || !TERMINAL_STATUSES.has(member.status),
+    )
+  )
+    throw new Error(`Saga ${sagaId} membership or terminal state changed before closure`);
+}
+
+/**
+ * Validate — and, unless `dryRun`, close — one saga whose members are all
+ * terminal.
  *
- * The reconcile path's evidence atoms carry an extra
- * `note:reconcile-via-saga-reconcile-verb` marker so auditors can tell the
- * synthesis path apart from the `completeTask` branch. The standard
- * `buildSagaAutoCloseEvidence` envelope already names the closing trigger;
- * we wrap the saga ID with a `(reconcile)` suffix in the member CSV when
- * the closure happens here rather than in `completeTask`.
+ * **Real run**: everything happens inside ONE `BEGIN IMMEDIATE` write
+ * transaction (the same boundary `completeTask` uses, T10595): the saga row
+ * and its members are re-read after the write lock is held, typed completion
+ * is validated against the transaction's criteria rows, and the saga upsert
+ * plus the `saga_reconciled` receipt in `tasks_audit_log` commit or roll back
+ * together. A failed receipt write therefore leaves the saga untouched.
+ *
+ * Reads inside the transaction go through the outer accessor: the
+ * `TransactionAccessor` contract exposes no `loadSingleTask`, and the outer
+ * accessor shares the transaction's native handle, so those reads observe the
+ * locked, current state (identical to `completeTask`).
+ *
+ * **Dry run**: performs the same drift and typed-completion checks WITHOUT
+ * opening a write transaction. A report-only preview must not take the tasks
+ * DB write lock and serialize real writers behind it; the price is that the
+ * preview reads an ordinary snapshot, which is all a preview can promise.
  */
 async function applyAutoClose(
   projectRoot: string,
   sagaId: string,
   memberIds: readonly string[],
   timestamp: string,
+  dryRun: boolean,
+  validateTyped: SagaTypedValidator,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   try {
-    // Lazy import to avoid pulling the data-accessor module graph into
-    // callers that only need the reconcile read paths (typically zero-saga
-    // projects). Mirrors the lazy-import pattern used by `auto-extract.ts`.
+    // Lazy import keeps the data-accessor graph out of read-only discovery.
     const { getTaskAccessor } = await import('../store/data-accessor.js');
     const accessor = await getTaskAccessor(projectRoot);
 
-    // Load the saga row so we can preserve every existing field on upsert.
-    // `updateTaskFields` would also work but skips the `verification`
-    // round-trip we need for parity with `completeTask`.
-    const sagaTask = await accessor.loadSingleTask(sagaId);
-    if (!sagaTask) {
-      return { ok: false, message: `Saga ${sagaId} disappeared between read and write` };
+    if (dryRun) {
+      const sagaTask = await accessor.loadSingleTask(sagaId);
+      assertSagaUnchanged(sagaId, sagaTask, await accessor.getChildren(sagaId), memberIds);
+      await validateTyped(sagaTask, accessor, accessor);
+      return { ok: true };
     }
 
-    sagaTask.status = 'done';
-    sagaTask.completedAt = timestamp;
-    sagaTask.updatedAt = timestamp;
-    sagaTask.pipelineStage = 'contribution';
-    sagaTask.verification = buildSagaAutoCloseEvidence(sagaId, memberIds, timestamp);
-
-    await accessor.upsertSingleTask(sagaTask);
+    await accessor.transaction(async (tx) => {
+      const sagaTask = await accessor.loadSingleTask(sagaId);
+      assertSagaUnchanged(sagaId, sagaTask, await tx.getChildren(sagaId), memberIds);
+      const execution = await validateTyped(sagaTask, tx, accessor);
+      const statusBefore = sagaTask.status;
+      const gateResults = sagaTask.verification?.gateResults;
+      sagaTask.status = 'done';
+      sagaTask.completedAt = timestamp;
+      sagaTask.updatedAt = timestamp;
+      // T871: keep pipelineStage aligned with status='done' without
+      // overwriting an already-terminal stage (mirrors completeTask).
+      if (!isTerminalPipelineStage(sagaTask.pipelineStage)) {
+        sagaTask.pipelineStage = 'contribution';
+      }
+      // Preserve authentic typed results so the closed saga still proves them.
+      sagaTask.verification = {
+        ...buildSagaAutoCloseEvidence(sagaId, memberIds, timestamp),
+        ...(gateResults ? { gateResults } : {}),
+      };
+      const commit = async (): Promise<void> => {
+        // Re-validate the row actually being written, as completeTask does.
+        await validateTyped(sagaTask, tx, accessor);
+        execution?.assertActive();
+        await tx.upsertSingleTask(sagaTask);
+        await tx.appendLog({
+          id: `log-${randomUUID()}`,
+          timestamp,
+          action: SAGA_RECONCILE_RECEIPT_ACTION,
+          taskId: sagaId,
+          actor: execution?.identity.actor ?? 'system',
+          details: { members: [...memberIds], reason: SAGA_RECONCILE_CLOSE_REASON },
+          before: { status: statusBefore },
+          after: { status: 'done' },
+        });
+        execution?.assertActive();
+      };
+      if (execution)
+        await worktreeScope.run(
+          captureProjectScope(projectRoot, {
+            ...captureProjectScope(projectRoot, worktreeScope.getStore()),
+            execution,
+          }),
+          commit,
+        );
+      else await commit();
+    });
     return { ok: true };
-  } catch (err: unknown) {
-    const e = err as { message?: string };
-    return { ok: false, message: e?.message ?? 'Failed to apply saga auto-close write' };
+  } catch (error) {
+    // A cancelled/expired caller lifetime is an operation failure, never a
+    // per-saga error entry.
+    worktreeScope.getStore()?.execution?.assertActive();
+    return { ok: false, message: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -301,6 +448,7 @@ async function reconcileOneSaga(
   projectRoot: string,
   sagaId: string,
   dryRun: boolean,
+  validateTyped: SagaTypedValidator,
 ): Promise<SagaReconcileEntry> {
   const timestamp = new Date().toISOString();
 
@@ -411,7 +559,7 @@ async function reconcileOneSaga(
       return entry;
     }
 
-    // Resolve members via task_relations.type='groups'.
+    // Resolve members via parent_id containment.
     const membersResult = await resolveMembersForSaga(projectRoot, sagaId);
     if (!membersResult.ok) {
       const entry: SagaReconcileEntry = {
@@ -509,11 +657,16 @@ async function reconcileOneSaga(
       return entry;
     }
 
-    // All members terminal + saga not done → close (the drift case). Dry-run
-    // skips the write but still reports `action: 'close'` so operators can
-    // preview the exact closure set.
-    if (!dryRun) {
-      const writeResult = await applyAutoClose(projectRoot, sagaId, terminal, timestamp);
+    // Dry-run uses the same current authority check; it omits only the writes.
+    {
+      const writeResult = await applyAutoClose(
+        projectRoot,
+        sagaId,
+        terminal,
+        timestamp,
+        dryRun,
+        validateTyped,
+      );
       if (!writeResult.ok) {
         const entry: SagaReconcileEntry = {
           sagaId,
@@ -593,11 +746,19 @@ async function reconcileOneSaga(
  * For each saga the function:
  *   1. Acquires a per-saga advisory lock (non-blocking; `action: 'blocked'`
  *      when contended).
- *   2. Resolves members via `task_relations.type='groups'`.
+ *   2. Resolves members via `parent_id` containment.
  *   3. If all members are terminal AND the saga itself is not `done`,
- *      flips `status='done'` (+ `completedAt`/`updatedAt`).
+ *      validates the saga's typed completion criteria and flips
+ *      `status='done'` inside one write transaction that also writes a
+ *      `saga_reconciled` receipt to `tasks_audit_log` (all-or-nothing).
  *   4. Releases the lock.
  *   5. Appends a JSON-line entry to `.cleo/audit/saga-reconcile.jsonl`.
+ *
+ * Typed validation runs under the caller's execution lifetime when one is
+ * in scope; a cancelled or expired caller lifetime rejects the whole call
+ * rather than being renewed. Without one, each typed saga gets its own
+ * short-lived lifetime (2 s budget from the start of its typed check); an
+ * expired owned lifetime fails only that saga (`action: 'error'`).
  *
  * @param projectRoot - Absolute path to the project root.
  * @param params - Optional single-saga scope + dry-run flag.
@@ -612,64 +773,79 @@ export async function reconcileSaga(
   projectRoot: string,
   params: ReconcileSagaParams = {},
 ): Promise<EngineResult<ReconcileResult>> {
-  const dryRun = params.dryRun === true;
+  projectRoot = resolve(projectRoot);
+  const inherited = captureProjectScope(projectRoot, worktreeScope.getStore());
+  const callerExecution = inherited.execution;
+  return worktreeScope.run(inherited, async () => {
+    const dryRun = params.dryRun === true;
 
-  // Resolve the saga set to inspect.
-  let sagaIds: string[];
-  if (params.sagaId && params.sagaId.length > 0) {
-    sagaIds = [params.sagaId];
-  } else {
-    // T10638: after type='saga' migration, only query the canonical shape.
-    const result = await taskList(projectRoot, { type: 'saga' });
-    if (!result.success) {
-      return engineError(
-        'E_GENERAL',
-        result.error?.message ?? 'Failed to list sagas for reconcile',
-      );
+    // Resolve the saga set to inspect.
+    let sagaIds: string[];
+    if (params.sagaId && params.sagaId.length > 0) {
+      sagaIds = [params.sagaId];
+    } else {
+      // T10638: after type='saga' migration, only query the canonical shape.
+      const result = await taskList(projectRoot, { type: 'saga' });
+      if (!result.success) {
+        return engineError(
+          'E_GENERAL',
+          result.error?.message ?? 'Failed to list sagas for reconcile',
+        );
+      }
+      sagaIds = result.data?.tasks.map((t: { id: string }) => t.id) ?? [];
+      // Stable order so cron output is deterministic across runs.
+      sagaIds = sagaIds.sort((a, b) => a.localeCompare(b));
     }
-    sagaIds = result.data?.tasks.map((t: { id: string }) => t.id) ?? [];
-    // Stable order so cron output is deterministic across runs.
-    sagaIds = sagaIds.sort((a, b) => a.localeCompare(b));
-  }
 
-  const entries: SagaReconcileEntry[] = [];
-  let closed = 0;
-  let noOp = 0;
-  let blocked = 0;
-  let pending = 0;
-  let errors = 0;
+    const entries: SagaReconcileEntry[] = [];
+    let closed = 0;
+    let noOp = 0;
+    let blocked = 0;
+    let pending = 0;
+    let errors = 0;
 
-  for (const sagaId of sagaIds) {
-    const entry = await reconcileOneSaga(projectRoot, sagaId, dryRun);
-    entries.push(entry);
-    switch (entry.action) {
-      case 'close':
-        closed += 1;
-        break;
-      case 'no-op':
-        if (entry.pendingMembers.length > 0) {
-          pending += 1;
-        } else {
-          noOp += 1;
-        }
-        break;
-      case 'blocked':
-        blocked += 1;
-        break;
-      case 'error':
-        errors += 1;
-        break;
+    for (const sagaId of sagaIds) {
+      callerExecution?.assertActive();
+      const typed = createSagaTypedValidator(projectRoot, callerExecution);
+      let entry: SagaReconcileEntry;
+      try {
+        entry = await reconcileOneSaga(projectRoot, sagaId, dryRun, typed.validate);
+      } finally {
+        typed.close();
+      }
+      // Only the CALLER's lifetime can abort the sweep; a per-saga owned
+      // lifetime that expired has already surfaced as that saga's error.
+      callerExecution?.assertActive();
+      entries.push(entry);
+      switch (entry.action) {
+        case 'close':
+          closed += 1;
+          break;
+        case 'no-op':
+          if (entry.pendingMembers.length > 0) {
+            pending += 1;
+          } else {
+            noOp += 1;
+          }
+          break;
+        case 'blocked':
+          blocked += 1;
+          break;
+        case 'error':
+          errors += 1;
+          break;
+      }
     }
-  }
 
-  return engineSuccess({
-    total: entries.length,
-    closed,
-    noOp,
-    blocked,
-    pending,
-    errors,
-    dryRun,
-    entries,
+    return engineSuccess({
+      total: entries.length,
+      closed,
+      noOp,
+      blocked,
+      pending,
+      errors,
+      dryRun,
+      entries,
+    });
   });
 }

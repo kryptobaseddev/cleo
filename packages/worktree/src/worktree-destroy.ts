@@ -12,12 +12,13 @@
 
 import { existsSync, rmSync } from 'node:fs';
 import type { DestroyWorktreeOptions, DestroyWorktreeResult } from '@cleocode/contracts';
-import { getGitRoot, gitSilent, gitSync } from './git.js';
+import { countUnmergedCommits, getGitRoot, gitSilent, gitSync } from './git.js';
 import { destroyWorktree as napiDestroyWorktree } from './napi-binding.js';
 import { computeProjectHash, resolveTaskWorktreePath } from './paths.js';
 import { appendWorktreeAuditLog, removeWorktreeFromSentinelIndex } from './worktree-audit.js';
 import { runWorktreeHooks } from './worktree-hooks.js';
 import { locateTaskWorktree } from './worktree-locate.js';
+import { releaseWorktreeTaskLock } from './worktree-lock.js';
 
 /**
  * Destroy the git worktree for a task.
@@ -158,11 +159,22 @@ export async function destroyWorktree(
     worktreeRemoved = true; // genuinely absent: not on disk, not registered
   }
 
+  // T12506: the worktree is gone, so its per-task lock guards nothing — free
+  // it so the next spawn of this task provisions without waiting for a TTL.
+  if (worktreeRemoved) releaseWorktreeTaskLock(projectHash, taskId);
+
   // Step 4: Optionally delete the branch.
   if (deleteBranch) {
     try {
       const branchExists = gitSync(['branch', '--list', branch], gitRoot);
-      if (branchExists) {
+      const unmerged = branchExists ? countUnmergedCommits(gitRoot, branch, ['HEAD']) : 0;
+      if (branchExists && unmerged > 0 && options.forceDeleteUnmergedBranch !== true) {
+        // T12506: never delete history that exists nowhere else implicitly.
+        branchDeleted = false;
+        if (!error) {
+          error = `Branch '${branch}' kept: ${unmerged} commit(s) are on neither origin/main nor HEAD. Merge it, or pass forceDeleteUnmergedBranch to delete it anyway.`;
+        }
+      } else if (branchExists) {
         gitSync(['branch', '-D', branch], gitRoot);
         branchDeleted = true;
       } else {

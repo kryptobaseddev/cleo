@@ -164,3 +164,26 @@ export function getCleoWorktreesRoot(): string {
 export function resolveWorktreeIndexPath(projectRoot: string): string {
   return joinSegments(projectRoot, '.cleo', 'worktrees.json');
 }
+
+/** Subdirectory of `<cleoHome>` holding per-task worktree lock files (T12506). */
+const WORKTREE_LOCKS_SUBDIR = ['locks', 'worktrees'] as const;
+
+/**
+ * Resolve the per-task worktree LOCK file path —
+ * `<cleoHome>/locks/worktrees/<projectHash>/<taskId>.lock`.
+ *
+ * The lock lives under the CLEO home (not inside the worktree, which is the
+ * thing it guards, and not inside the project, whose `.cleo/` differs per
+ * checkout) so every spawn of the same task on this machine contends on one
+ * file. `@cleocode/worktree` creates it atomically before `git worktree add`.
+ *
+ * @param projectHash - 16-char project hash from {@link computeProjectHash}.
+ * @param taskId - The task ID.
+ * @returns Absolute path to the task's lock file.
+ *
+ * @public
+ * @task T12506
+ */
+export function resolveWorktreeTaskLockPath(projectHash: string, taskId: string): string {
+  return joinSegments(getCleoHome(), ...WORKTREE_LOCKS_SUBDIR, projectHash, `${taskId}.lock`);
+}

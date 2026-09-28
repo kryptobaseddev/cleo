@@ -21,6 +21,7 @@
 
 import type { DispatchTrace } from '@cleocode/contracts';
 import { captureProjectScope, worktreeScope } from '../project-scope.js';
+import { buildTraceText } from './dispatch-trace-format.js';
 import { verifyAndStore } from './extraction-gate.js';
 
 // ============================================================================
@@ -67,35 +68,4 @@ export async function emitDispatchTrace(projectRoot: string, trace: DispatchTrac
       sourceConfidence: 'speculative',
     }),
   );
-}
-
-// ============================================================================
-// Internal helpers
-// ============================================================================
-
-/**
- * Serialize a {@link DispatchTrace} into the plain-text format stored in BRAIN.
- *
- * The format is intentionally human-readable so the extract pipeline can parse
- * it without JSON parsing — LLM extraction works on prose, not structured data.
- *
- * @param trace - The dispatch trace to serialize.
- * @returns Plain-text representation suitable for BRAIN storage.
- */
-function buildTraceText(trace: DispatchTrace): string {
-  const lines: string[] = [
-    `Dispatch trace for task ${trace.taskId}:`,
-    `  predictedAgentId: ${trace.predictedAgentId}`,
-    `  confidence: ${trace.confidence}`,
-    `  registryHit: ${trace.registryHit}`,
-    `  fallbackUsed: ${trace.fallbackUsed}`,
-    `  reason: ${trace.reason}`,
-    `  resolvedAt: ${trace.resolvedAt}`,
-  ];
-
-  if (trace.resolverWarning) {
-    lines.push(`  resolverWarning: ${trace.resolverWarning}`);
-  }
-
-  return lines.join('\n');
 }

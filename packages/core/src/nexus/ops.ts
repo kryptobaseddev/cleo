@@ -111,6 +111,7 @@ export declare const nexusCoreOps: {
   readonly 'projects.remove': NexusCoreOperation<'projects.remove'>;
   readonly 'projects.scan': NexusCoreOperation<'projects.scan'>;
   readonly 'projects.clean': NexusCoreOperation<'projects.clean'>;
+  readonly 'projects.status': NexusCoreOperation<'projects.status'>;
   readonly 'refresh-bridge': NexusCoreOperation<'refresh-bridge'>;
   readonly diff: NexusCoreOperation<'diff'>;
   readonly 'query-cte': NexusCoreOperation<'query-cte'>;

@@ -49,7 +49,7 @@ import { generateObject } from 'ai';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { z } from 'zod';
 import { getLogger } from '../logger.js';
-import { upsertUserProfileTrait } from '../nexus/user-profile.js';
+import { resolveTraitProjectId, upsertUserProfileTrait } from '../nexus/user-profile.js';
 import { observeBrain } from './brain-retrieval.js';
 import { resolveLlmBackend } from './llm-backend-resolver.js';
 import { appendNarrativeDelta } from './session-narrative.js';
@@ -382,6 +382,18 @@ export async function evaluateDialectic(
     return EMPTY;
   }
 
+  // T12543: an operation-envelope turn (the dispatcher hook) carries no user
+  // utterance — only an operation and its result — so it can never yield a
+  // user trait. Skip the model call entirely rather than pay for output that
+  // would be discarded.
+  if (turn.origin === 'operation-envelope') {
+    log.debug(
+      { event: 'dialectic.envelope_turn_skipped', sessionId: turn.sessionId },
+      'evaluateDialectic: operation-envelope turn — no evaluation',
+    );
+    return EMPTY;
+  }
+
   // Warm tier (T11757): prefer the unified `extraction`-role profile + local
   // inference (Ollama → transformers) before escalating to cold/anthropic. This
   // turns the dialectic loop ON wherever a local model or a pinned profile is
@@ -586,6 +598,10 @@ export async function applyInsights(
   // 1. Global traits → nexus.db user_profile (Wave 1 SDK)
   // -------------------------------------------------------------------------
   const now = new Date().toISOString();
+  // T12543: stamp the portable id of the project the trait was derived in, so
+  // the spawn-prompt reader never shows it to another project. `null` (no
+  // declared identity) records unknown origin — excluded from every prompt.
+  const projectId = insights.globalTraits.length > 0 ? resolveTraitProjectId(projectRoot) : null;
   for (const trait of insights.globalTraits) {
     try {
       await upsertUserProfileTrait(nexusDb, {
@@ -598,6 +614,8 @@ export async function applyInsights(
         lastReinforcedAt: now,
         reinforcementCount: 1,
         supersededBy: null,
+        projectId,
+        scope: 'project',
       });
     } catch {
       // Best-effort — do not surface individual trait failures upward

@@ -145,7 +145,7 @@ async function assessWithStaleSet(
   let manifest: ReturnType<typeof readFileManifest>;
   const none = new Set<string>();
   try {
-    manifest = readFileManifest(db);
+    manifest = readFileManifest(db, projectRoot);
   } catch (error) {
     const freshness: GraphIndexFreshness = {
       ...base,
@@ -183,15 +183,34 @@ async function assessWithStaleSet(
 
   const { walkRepositoryPaths } = await import('@cleocode/nexus/pipeline');
   const unreadable: string[] = [];
-  const current = await walkRepositoryPaths(
-    manifest.sourceRoot,
-    undefined,
-    (report) => {
-      if (report.status === 'failed') unreadable.push(report.path);
-    },
-    manifest.includedRepositories,
-    { knownFiles: known },
-  );
+  let current: Awaited<ReturnType<typeof walkRepositoryPaths>>;
+  try {
+    current = await walkRepositoryPaths(
+      manifest.sourceRoot,
+      undefined,
+      (report) => {
+        if (report.status === 'failed') unreadable.push(report.path);
+      },
+      manifest.includedRepositories,
+      { knownFiles: known },
+    );
+  } catch (error) {
+    // T12474: an unreachable source root is an unassessable index, never a crash.
+    const freshness: GraphIndexFreshness = {
+      ...base,
+      indexed: true,
+      status: 'unknown',
+      lastIndexedAt: manifest.assessedAt,
+      fileCount: manifest.files.length,
+      staleFileCount: -1,
+      refreshEstimate: 'unknown',
+      checkMs: Math.round(performance.now() - started),
+      reason:
+        `the recorded source root ${manifest.sourceRoot} could not be walked ` +
+        `(${error instanceof Error ? error.message : String(error)}); run ${NEXUS_REFRESH_COMMAND}`,
+    };
+    return { freshness, staleFiles: none };
+  }
 
   const stale = new Set<string>(unreadable);
   const seen = new Set<string>();
@@ -295,7 +314,7 @@ export async function ensureNexusIndexFresh(
         `${effective.budgetMs}; answered from the stale index`,
     );
 
-  const manifest = readFileManifest(db);
+  const manifest = readFileManifest(db, projectRoot);
   const started = performance.now();
   try {
     const result = await runNexusAnalysis({

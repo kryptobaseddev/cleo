@@ -991,10 +991,11 @@ jobs:
   manual-write-sweep:
     # T10372 / Epic T10293 / Saga T10288 SG-DOCS-INTEGRITY E5.2 — repo-wide
     # manual-write sweep. Walks every `.md` file added under `.cleo/canon.yml`'s
-    # `rawMdPaths` directories since the T9791 docs-import cutoff
-    # (commit 251814e86), hashes it, and queries the docs SSoT to classify
-    # each file as `in-sync`, `drift`, or `orphan`. Emits a structured JSON
-    # report under `audit/manual-write-sweep-<date>.json`.
+    # `rawMdPaths` directories since the T9791 docs-import cutoff (located
+    # from the import manifests under `.cleo/audit/imports/`), hashes it, and
+    # queries the docs SSoT to classify each file as `in-sync`, `drift`, or
+    # `orphan`. Emits a structured JSON report under
+    # `audit/manual-write-sweep-<date>.json`.
     #
     # READ-ONLY: the script mutates nothing. Initially wired with
     # `continue-on-error: true` so the existing orphan corpus does not fail

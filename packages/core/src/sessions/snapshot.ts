@@ -20,6 +20,7 @@ import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { requireBoundSession } from '../store/session-store.js';
 import { getDecisionLog } from './decisions.js';
 import { computeHandoff, type HandoffData } from './handoff.js';
 
@@ -144,10 +145,10 @@ export async function serializeSession(
   if (options.sessionId) {
     session = sessions.find((s) => s.id === options.sessionId);
   } else {
-    // Find the active session
-    session = sessions
-      .filter((s) => s.status === 'active')
-      .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())[0];
+    // T12500: the CALLER's bound session — never the newest active row,
+    // which from an unbound terminal is another agent's session.
+    const bound = await requireBoundSession('serialize the session', projectRoot);
+    session = bound ? sessions.find((s) => s.id === bound.id) : undefined;
   }
 
   if (!session) {

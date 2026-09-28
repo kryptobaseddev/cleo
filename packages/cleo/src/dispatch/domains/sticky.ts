@@ -136,6 +136,22 @@ async function stickyConvertSessionNoteOp(
   return { sessionId: (result.data as { sessionId: string }).sessionId };
 }
 
+/**
+ * Convert a sticky to a session note, keeping the engine's error (T12500).
+ *
+ * `stickyConvertSessionNoteOp` is the typed op and reports only the id; the
+ * handler uses this instead so a refusal such as `E_SESSION_UNBOUND` reaches
+ * the caller with its code and binding instructions.
+ *
+ * @param params - Sticky id and optional explicit session id.
+ * @returns The engine result.
+ */
+function convertSessionNoteWithError(
+  params: StickyConvertSessionNoteParams,
+): ReturnType<typeof stickyConvertToSessionNote> {
+  return stickyConvertToSessionNote(getProjectRoot(), params.stickyId, params.sessionId);
+}
+
 /** Attach sticky as note on an existing task. @task T1537 */
 async function stickyConvertTaskNoteOp(
   params: StickyConvertTaskNoteParams,
@@ -246,10 +262,17 @@ const _stickyTypedHandler = defineTypedHandler<StickyDispatchOps>('sticky', {
   'convert.session_note': async (params) => {
     if (!params.stickyId)
       return lafsError('E_INVALID_INPUT', 'stickyId is required', 'convert.session_note');
-    const data = await stickyCoreOps['convert.session_note'](params);
-    return data.sessionId
-      ? lafsSuccess(data, 'convert.session_note')
-      : lafsError('E_CONVERT_FAILED', 'convert to session note failed', 'convert.session_note');
+    // T12500: keep the engine's refusal code (e.g. E_SESSION_UNBOUND with
+    // binding instructions) instead of collapsing into E_CONVERT_FAILED.
+    const result = await convertSessionNoteWithError(params);
+    if (!result.success) {
+      return lafsError(
+        result.error?.code ?? 'E_CONVERT_FAILED',
+        result.error?.message ?? 'convert to session note failed',
+        'convert.session_note',
+      );
+    }
+    return lafsSuccess({ sessionId: result.data.sessionId }, 'convert.session_note');
   },
 
   'convert.task_note': async (params) => {

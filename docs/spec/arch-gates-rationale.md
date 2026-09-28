@@ -1,0 +1,431 @@
+# Architectural gate rationale
+
+Canonical per-gate rationale for the `## SSoT & Architectural Gates` table in the repository-root `AGENTS.md` (T12579).
+AGENTS.md keeps one line of rule per gate; this document holds the full rule text and incident rationale that each row carried before T12579, verbatim.
+Sections are keyed by gate number AND script path. Gate numbers here match AGENTS.md row numbers; the `cleo check arch` runner uses independent `gate-N` ids, so always join on the script path (as `scripts/lint-arch-gate-parity.mjs`, gate 20, does).
+
+## Gate-section preamble (verbatim, from AGENTS.md before T12579)
+
+Run all gates at once:
+
+```bash
+cleo check arch          # baseline mode — regressions only
+cleo check arch --strict # zero-tolerance
+```
+
+`cleo check arch` runs **every gate in the table below** — gate 20
+(`lint-arch-gate-parity`) fails the build if the two ever disagree again. Until
+T12122 they did: the runner bundled 10 of the 15 then-documented gates, so the
+command reported a green that had never exercised the other five, and four
+gates it *did* run were absent from this table. A tool that silently covers
+part of what its documentation claims is the same defect as a filter that is
+accepted and not applied — and every agent is told to run this command to
+self-check before pushing.
+
+Note that the runner's `gate-N` ids and this table's row numbers are
+independent and do collide (runner `gate-6` is row 16's gate). Join on the
+SCRIPT PATH, which is what gate 20 does.
+
+`--strict` is aspirational, not a passing gate: several gates carry real
+baselines, so `cleo check arch --strict` fails today by design. Baseline mode
+(the default) is the one that must stay green.
+
+CI job: `Architectural Boundary Check (SG-ARCH-SOLID T9837)` (baseline mode by default).
+
+## Gate 1 — `defineCommand` factory SSoT (T10072) — `scripts/lint-no-raw-define-command.mjs`
+
+- **Script:** `scripts/lint-no-raw-define-command.mjs`
+- **Baseline:** `.cleo/define-command-ssot-baseline.json`
+
+Only `packages/cleo/src/cli/lib/define-cli-command.ts` may import from `'citty'`.
+
+## Gate 2 — Paths SSoT (T9802 · D009) — `scripts/lint-paths-ssot.mjs`
+
+- **Script:** `scripts/lint-paths-ssot.mjs`
+- **Baseline:** inline
+
+`env-paths`, `XDG_DATA_HOME` reads, `'/cleo/worktrees'` strings live in `packages/paths/` only.
+
+## Gate 3 — DB Open Guard (T10073 · ADR-068 · T11529) — `scripts/lint-no-direct-db-open.mjs --strict`
+
+- **Script:** `scripts/lint-no-direct-db-open.mjs --strict`
+- **Baseline:** inline (3-entry allowlist)
+
+**STRICT (zero tolerance).** `new DatabaseSync(`/`new Database(` only inside the 3 canonical allowlist entries (store/, migration/, studio connections.ts) — everything else uses `openDualScopeDb`/`openCleoDb` or an inline `// db-open-allowed` marker.
+
+## Gate 4 — Contracts Fan-Out (T10074) — `scripts/lint-contracts-fan-out.mjs`
+
+- **Script:** `scripts/lint-contracts-fan-out.mjs`
+- **Baseline:** `scripts/.lint-contracts-fan-out-baseline.json`
+
+`export interface`/`type` in `cleo/` or `core/` imported by >2 packages must move to `packages/contracts/`.
+
+## Gate 5 — `SSoT-EXEMPT` linkage (T10075) — `scripts/lint-no-ssot-exempt.mjs`
+
+- **Script:** `scripts/lint-no-ssot-exempt.mjs`
+- **Baseline:** inline
+
+Every `// SSoT-EXEMPT` comment must reference an open `T####` task.
+
+## Gate 6 — CLI package boundary (T9837e) — `scripts/lint-cli-package-boundary.mjs`
+
+- **Script:** `scripts/lint-cli-package-boundary.mjs`
+- **Baseline:** `scripts/.lint-cli-boundary-baseline.json`
+
+No standalone named function >30 LOC in `packages/cleo/src/cli/commands/**/*.ts` — move helpers to `core/`.
+
+## Gate 7 — Deployed template parity (T9860) — `scripts/lint-deployed-template-parity.mjs`
+
+- **Script:** `scripts/lint-deployed-template-parity.mjs`
+- **Baseline:** `.lint-deployed-template-parity-baseline.json`
+
+`.github/workflows/*` MUST match rendered output of `packages/core/templates/workflows/*.yml.tmpl`.
+
+## Gate 8 — `engines.node` SSoT (T11281) — `scripts/lint-node-engine-ssot.mjs`
+
+- **Script:** `scripts/lint-node-engine-ssot.mjs`
+- **Baseline:** inline (root `package.json`)
+
+Every `packages/*/package.json` `engines.node` MUST equal root's; `FALLBACK_MIN_NODE` in `node-version-gate.ts` matches. The Node gate reads `engines.node` at runtime — bumping the floor is one root edit.
+
+## Gate 9 — Publish surface SSoT (T11400) — `scripts/lint-publish-surface.mjs`
+
+- **Script:** `scripts/lint-publish-surface.mjs`
+- **Baseline:** inline (`EXPECTED_PUBLISH_COUNT`)
+
+The `publish_pkg` list in `.github/workflows/release.yml` is the npm publish SSoT. Entry count MUST equal `EXPECTED_PUBLISH_COUNT` (18 post-E1, trending DOWN to 1 per owner decision 1); every entry is public + correctly-named; no per-platform `worktree-napi-*` stub in the list or on disk. To shrink: delete the line **and** decrement the constant in the same PR.
+
+## Gate 10 — Contracts purity (T11418) — `scripts/lint-no-runtime-in-contracts.mjs`
+
+- **Script:** `scripts/lint-no-runtime-in-contracts.mjs`
+- **Baseline:** `scripts/.lint-no-runtime-in-contracts-baseline.json`
+
+`packages/contracts/` is types-only. NO net-new exported runtime helper (a bodied function/arrow that isn't a type guard `: x is T`, zod schema, or const data). Pre-existing helpers are baselined and migrate OUT under E5 (T11392); `--strict` passes once contracts is pure. Tighten after a migration with `--update-baseline`.
+
+## Gate 11 — Tools-vs-Skills boundary (T11409) — `scripts/lint-tools-vs-skills-boundary.mjs`
+
+- **Script:** `scripts/lint-tools-vs-skills-boundary.mjs`
+- **Baseline:** `scripts/.lint-tools-vs-skills-boundary-baseline.json`
+
+Atomic tool primitives are DEFINED only under `packages/core/src/tools` + `packages/contracts/src/tools` (per `ATOMIC_TOOL_BOUNDARY` in `boundary.ts`); harness/provider packages (`mcp-adapter`/`caamp`/`cleo-os`) CONSUME, never redefine. NO net-new out-of-home primitive definition. Tighten with `--update-baseline` after migrating one into `core/src/tools`.
+
+## Gate 12 — Crate publish guard (T11389) — `scripts/lint-no-crate-publish.mjs`
+
+- **Script:** `scripts/lint-no-crate-publish.mjs`
+- **Baseline:** inline (`ALLOWLIST`)
+
+Zero crates.io publishes (owner decision): every `crates/<name>/Cargo.toml` MUST declare `publish = false`. A crate omitting it (Cargo default = publishable) or `publish = true` fails. For a deliberate external crate, set `publish = true` **and** add it to `ALLOWLIST`.
+
+## Gate 13 — LLM Chokepoint Guard (T11783) — `scripts/lint-llm-chokepoint.mjs`
+
+- **Script:** `scripts/lint-llm-chokepoint.mjs`
+- **Baseline:** `scripts/.lint-llm-chokepoint-baseline.json`
+
+LLM resolution + client/transport construction live ONLY in the chokepoint (`resolveLLMForSystem`/`role-resolver.ts`/`api-mode.ts` + the single `model-runner.ts` + `transports/**`). Forbidden out-of-chokepoint (6 rule classes, each baselined): `new *Transport(`, AI-SDK `create{Anthropic,OpenAI,OpenAICompatible,GoogleGenerativeAI}(`, raw `new {Anthropic,OpenAI}(`, `process.env.*_API_KEY` reads, hardcoded model-id literals (core resolution/consumer code), `resolveCredentials(` for inline client construction. Structural fix for E9 resolver divergence (PR #954). Per-line opt-out `// llm-resolve-allowed: <reason>`.
+
+## Gate 14 — Injection Command Existence (T12069) — `scripts/lint-injection-commands.mjs`
+
+- **Script:** `scripts/lint-injection-commands.mjs`
+- **Baseline:** inline (`RETIRED_COMMAND_ALLOWLIST`)
+
+Every `cleo <verb> [<sub>]` named in `packages/core/templates/CLEO-INJECTION.md` MUST resolve against the CLI's command manifest. That template is injected verbatim into EVERY spawned agent and is phrased as instruction, so a documented-but-missing command burns a turn and — worse — teaches the agent the whole subsystem is broken. Measured 2026-08-06: 5 of 7 "first-reach" Nexus commands did not exist (`nexus report`/`brain find`/`compare`/`shared`/`synthesize`, plus `nexus admin`). Parses manifest + command modules from SOURCE (never `dist/`), so CI needs no build. A verb named while documenting its own REMOVAL goes in `RETIRED_COMMAND_ALLOWLIST` with rationale.
+
+## Gate 15 — Workflow Command Existence (T12093) — `scripts/lint-workflow-cleo-commands.mjs`
+
+- **Script:** `scripts/lint-workflow-cleo-commands.mjs`
+- **Baseline:** none (zero-tolerance)
+
+Gate 14's rule, applied to `.github/workflows/*.yml` + `packages/core/templates/workflows/*.yml.tmpl`. Every `cleo <verb> [<sub>]` in a `run:` block MUST resolve against the command manifest. Worse than gate 14's case because the failure is delayed and expensive: `release-prepare.yml` ran `cleo version-bump` (never existed) and then `cleo release changelog` (no such sub-verb), each at the END of `Prepare bump-PR`, so every dispatch cost a full green preflight (~21 min) to discover ONE of them — and the shipped template carried the same break into every consuming project since PR #868. Scans `run:` only (a `name:` is a display string) and anchors the match so `@cleocode/cleo exec …` is not read as `cleo exec`.
+
+## Gate 16 — Bare `getActiveSession()` (T11640) — `scripts/lint-no-bare-get-active-session.mjs`
+
+- **Script:** `scripts/lint-no-bare-get-active-session.mjs`
+- **Baseline:** `scripts/.lint-no-bare-get-active-session-baseline.json` (4-callsite baseline, T12500)
+
+No NET-NEW bare `getActiveSession()` callsite, and no net-new INLINE newest-active selection (`sessions.filter(s => s.status === 'active').sort(…startedAt…)[0]` / `sessions.find(s => s.status === 'active')`); the 4 baselined are read-only displays. Mutations and attribution resolve the caller's BOUND session (`resolveBoundSession` / `requireBoundSession` → `E_SESSION_UNBOUND` when unbound); read-only surfaces use `resolveSessionForRead`, which labels a newest-active guess `unbound: true`. Justified scans carry `// get-active-session-allowed: <reason>`.
+
+## Gate 17 — Per-domain DB singleton (T12041) — `scripts/lint-no-domain-db-singleton.mjs`
+
+- **Script:** `scripts/lint-no-domain-db-singleton.mjs`
+- **Baseline:** inline (8-violation baseline)
+
+No NET-NEW per-domain DB handle cache. Bind through the `ProjectStore`/`GlobalStore` ports so `cleo health` can enumerate every handle (the E6 cutover, ADR-068).
+
+## Gate 18 — Vitest memory safety (T12087) — `scripts/lint-vitest-memory-safe.mjs`
+
+- **Script:** `scripts/lint-vitest-memory-safe.mjs`
+- **Baseline:** none (zero-tolerance)
+
+**ZERO TOLERANCE.** Every `vitest.config.*` MUST spread `MEMORY_SAFE_TEST_DEFAULTS` (worker cap + heap cap). An unbounded fork pool froze this machine twice, and it only ever bites LOCALLY — CI runners have 2-4 cores, so the unsafe default passes there and takes down the developer instead.
+
+## Gate 19 — CLI startup barrel imports (T12076) — `scripts/lint-cli-startup-barrel-imports.mjs`
+
+- **Script:** `scripts/lint-cli-startup-barrel-imports.mjs`
+- **Baseline:** inline (106-import ratchet)
+
+Ratchet, not zero-tolerance: the count of static `@cleocode/core` barrel imports in the CLI may fall but never rise. Each one forces the full 1266-module core graph to load before any command runs (measured 2.54 s for the barrel vs 0.12 s for a deep module). **Repo-wide scope** — pairs with row 25, which is narrow and absolute over the entrypoint's reachable graph. Neither subsumes the other: a barrel import inside a lazily-loaded command belongs to THIS gate and is correctly invisible to row 25.
+
+## Gate 20 — Arch-gate parity (T12122) — `scripts/lint-arch-gate-parity.mjs`
+
+- **Script:** `scripts/lint-arch-gate-parity.mjs`
+- **Baseline:** none (zero-tolerance)
+
+**The gate on the gates.** The gate list bundled into `cleo check arch` and THIS table MUST name the same set of scripts. Measured 2026-09-12: the runner bundled 10 while this table documented 15, drifting in both directions — so every agent told to run `cleo check arch` before pushing got a green covering two-thirds of the documented gates. Joins on script PATH, never gate number (the two numbering schemes already collide: runner `gate-6` is row 16's gate, not row 6's).
+
+## Gate 21 — Dual-scope unqualified reads (T12156) — `scripts/lint-dual-scope-unqualified-reads.mjs`
+
+- **Script:** `scripts/lint-dual-scope-unqualified-reads.mjs`
+- **Baseline:** `scripts/.lint-dual-scope-unqualified-reads-baseline.json`
+
+Tables resident in BOTH the project and global `cleo.db` MUST be schema-qualified in SQL. `openDualScopeDb` performs no ATTACH — the second schema comes from `ensureGlobalRegistryAttached()` in `store/nexus-sqlite.ts`, which binds the global file onto the PROJECT handle as `nexus_global`. Because `bindProjectDomain` shares ONE path-keyed native handle across every project-scope domain, that attach is process-global and retroactive: a domain bound before anything touched nexus has its own handle gain a second schema (measured — same native object, `["main"]` → `["main","nexus_global"]`). A bare `FROM <table>` then resolves by SQLite search order and returns a confident number that never says which file it read (project `__drizzle_migrations` = 108, global = 14; the bare query answers 108). Deliberately NARROW: nexus registry tables resolve by bare name through that fall-through ON PURPOSE, so "qualify everything" would break them. The ambiguous set is derived from `schema/cleo-shared/` plus an explicit infra list (`__drizzle_migrations`, `_writer_leases`, `_writer_queue`, `brain_schema_meta` — the last is raw-SQL and undeclarable from source).
+
+## Gate 22 — AI SDK surface inventory (T12169) — `scripts/lint-ai-sdk-surface.mjs`
+
+- **Script:** `scripts/lint-ai-sdk-surface.mjs`
+- **Baseline:** `scripts/.lint-ai-sdk-surface-baseline.json`
+
+Every module that reaches the AI SDK at RUNTIME is recorded; a net-new entrant fails. `ai@6`'s `logWarnings` emits its one-time banner with `console.info` — **stdout** — which lands after the LAFS envelope and breaks ADR-086. Deliberately an INVENTORY, not a per-module rule: the stdout guard is installed once at the CLI's envelope funnel, so requiring every module to install it would contradict that design. What actually failed was a module reaching the SDK with nobody asking the coverage question — `memory/llm-backend-resolver.ts` builds its client by `await import('@ai-sdk/openai-compatible')`, imports `ai` only as `import type` (erased at runtime), and never loads the LLM chokepoint the guard was first installed at. A TYPE-ONLY import is not a reach and does not trip the gate — treating it as one is what made that module look covered.
+
+## Gate 23 — Agent-prompt command existence (T12308) — `scripts/lint-agent-prompt-commands.mjs`
+
+- **Script:** `scripts/lint-agent-prompt-commands.mjs`
+- **Baseline:** none (zero-tolerance)
+
+Gate 14's rule, applied to the surface CLEO **generates**: the spawn prompt. Gate 14 checks the injection template and gate 15 the workflow `run:` blocks; nothing checked `spawn-prompt.ts`, whose stage guidance is assembled at runtime and only ever read inside somebody else's agent — so it is less reviewable than either, not more. Measured 2026-09-21: the Validation stage told every agent to run `cleo verify <id> --run` after that flag had been dropped from the command (typed gates still executed, but only as a side effect of an unrelated `--evidence` write, so the agent had no supported way to ask the question the protocol had just told it to ask), and the coordination block told every orchestrated agent `cleo conduit subscribe --topicName` — `topicName` is the DISPATCH parameter, the flag is `--topic`, and citty parses non-strictly, so the topic was accepted and discarded before the required-arg check failed on a flag that had apparently been supplied. Imports every rule and allowlist from `lint-injection-commands.mjs` rather than restating them: a gate carrying its own copy of the CLI's flag model drifts from the parser it models and starts rejecting flags the CLI accepts. Comment lines are excluded — prose about a command is not an instruction to run it — and the emitter list is explicit, because a glob over `core/src` sweeps in error strings and test fixtures, and that noise is what gets a gate disabled.
+
+## Gate 24 — No committed native binaries (T12382) — `scripts/lint-no-committed-native-binaries.mjs`
+
+- **Script:** `scripts/lint-no-committed-native-binaries.mjs`
+- **Baseline:** inline (`BASELINE`, 1 non-cant entry)
+
+No tracked `*.node` / `*.wasm`. Until T12382 the only `.cant` parser users received was a committed `cant.linux-x64-gnu.node`, so every `.cant` parse threw on macOS, Windows and ARM Linux, and nothing tied a committed binary to its source (the committed lafs-napi binary already rejects every real envelope). The cant addon is now built for 8 native triples plus `wasm32-wasip1-threads` by `.github/workflows/cant-napi-build.yml` and staged at release, where the same script runs in `--packed` mode: `npm pack` must ship every triple, the `.wasm` and the generated loader, and each binary must carry the literal `cant-napi-source-rev:<released sha>` (stamped by `crates/cant-napi/build.rs`), so a stale or leftover binary fails the release. A cant binary can never be baselined; `--strict` ignores the baseline.
+
+## Gate 25 — CLI startup barrel — entrypoint graph (T12455 · T12138) — `scripts/lint-cli-startup-barrel-entrypoint.mjs`
+
+- **Script:** `scripts/lint-cli-startup-barrel-entrypoint.mjs`
+- **Baseline:** none (zero-tolerance)
+
+**ZERO TOLERANCE, and deliberately narrower than row 19.** No module reachable from `packages/cleo/src/cli/index.ts`'s STATIC import graph may statically import a CORE barrel. `cli/index.ts` runs on EVERY invocation — `cleo --version` and `--help` included — so anything it reaches transitively is loaded before a single argument is parsed. Measured 2026-09-12 against the core the installed CLI actually resolves: `cleo --version` 1.31 s, bare Node boot 0.01 s, importing `@cleocode/core/internal` alone 1.14 s — so **~87% of CLI startup was one barrel import**, reached for ONE function (`buildCommandGroups`). The narrow module costs 0.09 s. Dynamic `await import(...)` at point of use is always fine; that is the prescribed pattern. Row 19 is the REPO-WIDE ratchet over the same invariant and the two are complementary, not redundant: a barrel import in a lazily-loaded command costs nothing until that command runs (row 19's business), while one reachable from the entrypoint is paid unconditionally (this row's), which is why a ratchet is too weak here and zero is the only defensible number. The script landed in T12138 but shipped unwired — in neither `cleo check arch`, this table, nor CI — until T12455. Per-line opt-out `// startup-barrel-allowed: <reason>`.
+
+## Gate 26 — No raw negated-flag reads (T12528) — `scripts/lint-no-negated-flag-reads.mjs`
+
+- **Script:** `scripts/lint-no-negated-flag-reads.mjs`
+- **Baseline:** inline (`BASELINE`, 1 entry: `orchestrate.ts`, owned by PR #1577)
+
+No `args['no-<flag>']`, `args.noFoo`, or `reader(args, 'no-…')` read under `packages/cleo/src/` outside `cli/lib/negated-flag.ts`. citty's `parseArgs` turns every `--no-<name>` into `{ <name>: false }` and never sets `'no-<name>'` — even when the command declares `'no-<name>'` as its own boolean — so such a read never sees the flag and the opt-out silently does nothing. Measured 2026-09-27: `orchestrate spawn --no-worktree` still provisioned a worktree (T12520), and 15 more handlers (`check --no-keep-going`, `release plan --no-changelog`, `upgrade --no-auto-migrate`, `dash --no-hygiene`, `relates list --no-depends`, …) carried the same dead read. Use `negatedFlag(args, '<name>')`, which reads both forms. `--strict` ignores the baseline.
+
+## Gate 27 — HITL ask-tool rule delivery (T12483) — `scripts/lint-hitl-rule-delivery.mjs`
+
+- **Script:** `scripts/lint-hitl-rule-delivery.mjs`
+- **Baseline:** none (zero-tolerance)
+
+The owner rule — every owner answer, decision, approval or choice goes through the harness ask tool with concrete options, never prose; subagents return the question to their orchestrator; `hitl.request` envelope when no ask tool exists — must be present on every surface an agent reads: `packages/core/templates/CLEO-INJECTION.md` (universal protocol step 7), the `ct-cleo` and `ct-orchestrator` skills, and the spawn-prompt Return Format Contract (`buildHitlLine`, emitted at tiers 0-2). Each surface is checked for short stable marker phrases, so wording can be tightened but the rule cannot be deleted from one surface unnoticed.
+
+## Gate 28 — Raw table writers — Gate A ratchet (T12332) — `scripts/lint-no-raw-table-writes.mjs`
+
+- **Script:** `scripts/lint-no-raw-table-writes.mjs`
+- **Baseline:** `scripts/.lint-no-raw-table-writes-baseline.json` (227 sites / 73 files; 249 / 76 before the canonical accessors were exempted)
+
+Every physical table in the project and global `cleo.db` carries a replication class in `packages/core/src/store/table-classification.ts`. The Gate A test `store/__tests__/table-classification-gate.test.ts` fails on an unclassified table, a pending one, a column change the committed snapshot has not acknowledged, or a credential-shaped column in a syncing table without its own class. Replication captures writes at the chokepoint: `openDualScopeDb` and the canonical accessors built on it (the modules implementing the `@cleocode/contracts` accessor interfaces, listed in the script's `SANCTIONED`), so those are exempt, not baselined. A raw `INSERT` / `UPDATE` / `DELETE` / `REPLACE` on a classified table anywhere else is a write nobody can enumerate. Measured 2026-09-28: some land in frozen bare twins no reader looks at (`tasks`, `task_acceptance_criteria`), and Studio writes brain rows through its own `DatabaseSync`. A RATCHET keyed on (file, table): a new offender fails, and a REMOVED one also fails until `--update-baseline` drops it, so the allowance cannot be spent again. Matching is case-insensitive and spans lines; comments are blanked by a string-, template-, regex- and Rust-aware lexer. Files whose SQL words are prose only (`operations-registry.ts`) are listed in `PROSE_ONLY`. Scans non-test `*.ts/*.tsx/*.mjs/*.js/*.rs` under `packages/` and `crates/`; the table set is parsed from the registry source. Blind spot (follow-up): dynamic names (`INSERT INTO ${t}`). `--strict` ignores the baseline.
+
+## Gate-table footnotes (verbatim)
+
+**Common modes (all gates):** `--strict` zero-tolerance · `--baseline` regenerate · default fail-on-net-add.
+
+**Per-line opt-outs (trailing comment):** `// define-command-ssot-allowed`, `// db-open-allowed: <reason>`, `// fan-out-ok: <reason>`, `// ssot-exempt-ok: <reason>`, `// cli-boundary-ok: <reason>`, `// cli-boundary-file-ok: <reason>` (first 20 lines), `// llm-resolve-allowed: <reason>`, `// startup-barrel-allowed: <reason>`.
+
+**Exempt by convention (CLI package boundary, row 6):** functions named `*Command` / `make*Command` (citty factory helpers).
+
+## Appendix — other AGENTS.md prose condensed in T12579 (verbatim originals)
+
+These sections were shortened in AGENTS.md because they repeat CLEO-INJECTION.md or carry incident history rather than rules. The rules survive in AGENTS.md; the full original text is preserved here.
+
+### Instruction architecture
+
+The packaged protocol source is `packages/core/templates/CLEO-INJECTION.md`.
+Installation publishes it to the CLEO templates directory; the global hub
+`~/.agents/AGENTS.md` points there. Project `AGENTS.md` owns repository rules
+and project context. CAAMP owns managed blocks in provider instruction files;
+provider adapters own runtime delivery. Canonical ct-* skills under
+`packages/skills/skills/` own detailed workflow guidance. Spawn prompts embed
+resolved protocol content according to their configured tier.
+
+User instructions and provider safety requirements take precedence. Establish
+the assigned worktree before orientation; then use briefing/focus, inspect
+current authority and coverage, inspect source evidence, act, verify, and record
+useful learning. Historical handoffs are evidence, not automatically current
+instructions. Missing or failed knowledge must remain visible.
+
+Reference expansion is provider-dependent. A literal `@path` is not proof that
+an agent loaded that file. Delivery without verified expansion must use a
+self-contained managed bootstrap. Keep user-authored text outside managed blocks
+unchanged; report missing references, cycles, duplicates, and stale content.
+Check packaged, installed, global, project, provider, skill, bridge, and spawn
+surfaces when changing instruction behavior. Run command-existence and delivery
+regressions; mark live Codex, Claude, or Kimi evaluations unverified unless run.
+
+### DB Open Guard — canonical allowlist (row 3)
+
+Reduced to **3 path entries** after the E6 store-rewrite cascade (T11521–T11528) routed every per-domain accessor through `openDualScopeDb` (T11529 · E6-L9). The gate now runs in `--strict` mode (zero tolerance).
+
+| Location                                              | Reason                                          |
+|-------------------------------------------------------|-------------------------------------------------|
+| `packages/core/src/store/**`                          | The chokepoint (incl. `dual-scope-db.ts`)       |
+| `packages/core/src/migration/**`                      | Schema bootstrapping (pre-chokepoint)           |
+| `packages/studio/src/lib/server/db/connections.ts`    | Per-project ProjectContext opens (pre-port)     |
+
+Test files (`__tests__/`, `.test.ts`, `.spec.ts`) may open raw for seeding and are matched by a regex, not the canonical allowlist. Every other legitimate raw open (external claude-mem migration source, hot-path conduit, per-project nexus graph DBs) now carries an inline `// db-open-allowed: <reason>` marker at the call site instead of a directory-wide entry.
+
+Bypassing the chokepoint causes pragma drift (vs `specs/sqlite-pragmas.json`), WAL/lock contention, and topology opacity (`cleo health` cannot enumerate the handle).
+
+### Skill Maintenance (Saga T9799 · Epic T9960)
+
+Canonical `ct-*` skills under `packages/skills/skills/` describe how CLEO works to every spawned agent. When code changes but skill text doesn't, agents act on stale instructions.
+
+**Convention:** when you edit a path declared in the coverage map (`packages/skills/internal/skill-coverage.yml`), update the corresponding skill in the same PR — or acknowledge via commit trailer `Skill-Drift-Acknowledged: <reason>`.
+
+> ⚠️ **NOT ENFORCED — this is a convention, not a gate (T12124 · GH #1256).**
+> There is no `Skill Drift Check` job and no `E_SKILL_DRIFT_UNACKNOWLEDGED`
+> error: no script reads the coverage map, no workflow runs the check, and the
+> map itself holds exactly one entry (`cleo-validator`, tier 2) pointing at
+> paths its own comment says do not exist. The tier-0 skills listed below have
+> **no coverage entries at all**, so the "no trailer override" rule below
+> protects nothing today.
+>
+> This warning is here because the previous wording asserted a CI gate that
+> does not exist, and a false assurance is worse than none — it removes the
+> vigilance that would otherwise substitute for the missing mechanism. The risk
+> is not theoretical: `CLEO-INJECTION.md`, a tier-0 artifact injected verbatim
+> into every spawned agent, had drifted into describing bare `cleo show {id}`
+> as the "full task record" (it withholds `description`), which is the sentence
+> that produced the GH #1243 data-loss incident. **Until the gate exists, treat
+> skill updates as a manual responsibility on every PR.**
+>
+> Building it is tracked in T12124 · GH #1256.
+
+**Tier-0 skills — trailer override is not permitted BY CONVENTION (unenforced, see above):**
+
+- `ct-cleo` — CLI protocol + session lifecycle
+- `ct-orchestrator` — spawn/delegation contract
+- `ct-task-executor` — worker contract
+- `ct-dev-workflow` — commit / branch / release flow
+- `ct-documentor` — docs SSoT routing
+- `CLEO-INJECTION.md` — protocol injected into every spawn prompt
+
+**Tier-1 LOOM-stage skills** (one per stage in `packages/core/src/validation/protocols/`): trailer override permitted.
+
+Every `SKILL.md` ships with metadata (documentation, not enforcement):
+
+```yaml
+metadata:
+  version: 2.0.0           # bump on every material change
+  lastReviewed: 2026-05-21 # ISO date
+  stability: stable        # experimental | stable | deprecated
+```
+
+### Release & Branching (ADR-065 · SPEC-T9345 · ADR-087)
+
+PR-gated pipeline. **NO direct pushes to `main`.** All PRs target `main` through GitHub Merge Queue.
+
+> **One deliberate exception, stated so nobody later "discovers" it as a vulnerability.** Branch
+> protection runs with `enforce_admins: false` — the setting the snippet further down this section
+> sets explicitly — so a repository admin CAN merge without the required `CI` check. That is the
+> owner's intended escape hatch, not a gap. Everything else is closed: `allow_force_pushes: false`,
+> `allow_deletions: false`, `required_status_checks.strict: true`. The invariant is therefore "no
+> direct pushes **for non-admins**", and an agent should not treat admin bypass as evidence the
+> pipeline is broken. Verified 2026-09-12 (T12152 · the AGENTS.md enforcement audit).
+
+**Verbs:** `plan` → `open` → `reconcile` (or `rollback`). The legacy `start`/`verify`/`publish` verbs were removed in T9540; the `ship` shim was deleted in T10103.
+
+**Branches:** `feat/T####-<slug>` or `task/T####-<slug>` (feature) · `release/v<version>` (cut by `release-prepare` GHA workflow).
+
+**Per-task evidence gating (ADR-051):** record gates individually BEFORE `cleo complete` — atom grammar in CLEO-INJECTION.md.
+
+**Shipping:**
+
+```bash
+cleo release plan v2026.MM.N --epic TXXXX        # or --tasks TXXXX,TYYYY
+cleo release open v2026.MM.N                     # dispatches release-prepare; --commit-plan to bundle
+cleo release pr-status v2026.MM.N                # poll PR + CI
+git tag -a v2026.MM.N -m "Release v2026.MM.N"    # explicit — auto-tag is retired
+git push origin v2026.MM.N
+cleo release reconcile v2026.MM.N                # backfills provenance tables
+```
+
+**One-shot smoke:** `cleo release ship-e2e-smoke <version> --epic <id>` — plan → open → wait-for-PR → wait-for-tag → verify-npm-published. Dry-run by default; `--execute` for real mutations.
+
+**Branch protection (owner-once):**
+
+```bash
+gh api -X PUT repos/:owner/:repo/branches/main/protection \
+  -f required_status_checks[strict]=true \
+  -f required_status_checks[contexts][]=CI \
+  -f required_status_checks[contexts][]="Lockfile Check" \
+  -f required_status_checks[contexts][]="Contracts Dep Lint" \
+  -f enforce_admins=false \
+  -f required_pull_request_reviews[required_approving_review_count]=0 \
+  -f restrictions=null
+```
+
+Runbooks: `docs/release/merge-queue-runbook.md`, `docs/release/verb-matrix.md`, `docs/release/branch-protection-setup.md`.
+
+### Canonical Docs Routing (ADR-076 · T9796)
+
+Canonical docs (ADR, spec, research, handoff, note, release-note, plan) — create via `cleo docs add`, NEVER raw `Write`. Routing registry: `.cleo/canon.yml` (schema `.cleo/canon.schema.json`). Per-DocKind fields: `canonicalHome` (`ssot` or `ssot-first`), `publishMirror`, `rawMdAllowed`.
+
+CI gate: `cleo check canon docs` (`Canon Drift Check (T9796)`) — walks `git diff --diff-filter=A` PR-base→HEAD, flags new `*.md` bypassing the SSoT (forward-only; legacy files imported by T9791 never flagged).
+
+**LAFS envelope contract:** the human-readable envelope spec (shape, `_meta`, success/result/error invariants, error categories, pagination, `_extensions`, MVI, transport conventions) is `docs/specs/LAFS-ENVELOPE-CONTRACT.md` (SSoT slug `lafs-envelope-contract`, owner T11113).
+
+**New doc kind:** add to `packages/contracts/src/docs-taxonomy.ts` (`BUILTIN_DOC_KINDS`) → add routing entry to `.cleo/canon.yml` → `pnpm --filter @cleocode/cleo run build`.
+
+### Memory guard — what CLEO bounds, and what it CANNOT (T12096 · T12097)
+
+`cleo verify --evidence "tool:test"` spawns the project's own test command, so
+CLEO injects a ceiling there (`resources/heavy-tool-env.ts`: heap cap, worker
+cap, `pnpm -r` fan-out cap). That covers evidence runs and **nothing else**.
+
+A test an agent starts itself — `pnpm test`, `npx vitest run`, `cargo test` —
+never enters a CLEO process, so no CLEO-side bound can apply. Measured
+2026-08-10: that path drove `app.slice` to 48.1 GiB against a `MemoryHigh` of
+exactly 48 GiB; the kernel reclaimed hard, thrashed 7.7 GiB of zram, and the
+desktop locked up. **There was no OOM kill** — a throttle-and-thrash freeze logs
+nothing, which is why repeated OOM hunts found nothing. Diagnose with
+`journalctl -b -1 -k | grep -i oom-kill` FIRST; an empty result means the
+mechanism is throttling, not OOM.
+
+Environment variables are NOT a fix for this: they bind only shells started
+after they are set. The five heaviest tabs that day all predated the profile
+edit. A cgroup limit on the enclosing slice is the only layer that binds
+processes already running — proven by applying `MemoryHigh` to a live scope 12
+minutes after its creation and observing it take effect immediately.
+
+```bash
+cleo doctor memory-guard          # audit (read-only)
+cleo doctor memory-guard --fix    # apply RAM-derived limits to app.slice
+```
+
+Recommendations derive from total RAM (`MemoryHigh` 72 %, `MemoryMax` 90 %), so a
+16 GiB laptop is not handed a 45 GiB ceiling. Off-Linux the audit reports
+`supported: false` rather than guessing.
+
+### The store is `cleo.db`, and three things say otherwise (T12095)
+
+Post-E6 (ADR-068) the project store is **`.cleo/cleo.db`** with task rows in
+PREFIXED tables (`tasks_tasks`, `tasks_sessions`, …). Three leftovers make a
+healthy project look corrupt, and an agent that reasons about `.db` file sizes
+instead of asking the CLI will believe all three:
+
+| Artefact | Reality |
+|----------|---------|
+| `.cleo/tasks.db` — small, months old | The **pre-migration** store. The migration does not delete it, so it survives under the name every doc used to mean "live". |
+| `.cleo/backups/sqlite/tasks-<ts>.db` — ~100× larger | Snapshots **of `cleo.db`**. `openTasksDbForSnapshot` routes through the dual-scope chokepoint; the `tasks-` prefix is a legacy label kept for the rotation regex. `restore backup --file tasks.db` is therefore correct *and* misleading. |
+| A bare `tasks` table inside `cleo.db`, 0 rows | An empty relic beside the populated `tasks_tasks`. A direct SQL probe finds the decoy. |
+
+So a 408 KB `tasks.db` beside 58 MB `tasks-*.db` snapshots is the NORMAL layout
+of a migrated project — measured 2026-08-09 in a project with 1,123 intact tasks,
+where an agent spent a session theorising truncation, rotation, and then that the
+real store might be `llmtxt.db`.
+
+`cleo doctor superseded-store` answers it in one call: it names each superseded
+file and proves which store holds the data by counting rows in both. Read-only.

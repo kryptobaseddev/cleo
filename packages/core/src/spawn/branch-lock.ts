@@ -51,13 +51,16 @@ import { computeProjectHash, resolveWorktreeRootForHash } from '@cleocode/paths'
 // ---------------------------------------------------------------------------
 
 import {
+  acquireWorktreeTaskLock,
   getGitRoot,
   gitSilent,
   gitSync,
   integrateWorktree,
   napiDestroyWorktree,
   pruneWorktrees,
+  releaseWorktreeTaskLock,
 } from '@cleocode/worktree';
+import { resolveSpawnLockHolder } from './worktree-lock-holder.js';
 
 // Re-export getGitRoot for barrel consumers
 export { getGitRoot };
@@ -124,39 +127,26 @@ export function createAgentWorktree(taskId: string, projectRoot: string): AgentW
     baseRef = 'main';
   }
 
-  // T11123: Remove stale worktree via NAPI destroyWorktree instead of raw
-  // git worktree unlock + remove + branch delete shell-outs.
+  // T12506: take the per-task worktree lock first (E_WORKTREE_LOCKED when a
+  // live holder owns it), and NEVER destroy an existing worktree — the prior
+  // force-remove + `branch -D` deleted live agents' work whenever their
+  // changes were gitignored or already committed. Re-attach it instead.
+  const projectHashForLock = computeProjectHash(projectRoot);
+  acquireWorktreeTaskLock({
+    projectHash: projectHashForLock,
+    taskId,
+    holder: resolveSpawnLockHolder(),
+  });
   if (existsSync(worktreePath)) {
-    try {
-      napiDestroyWorktree({
-        repoRoot: gitRoot,
-        worktreePath,
-        force: true,
-      });
-    } catch {
-      // Fallback: brute-force filesystem + git removal for stale entries
-      // that NAPI cannot resolve (corrupted admin dirs, detached worktrees).
-      gitSilent(['worktree', 'unlock', worktreePath], gitRoot); // raw-git-worktree-ok: corrupted-worktree cleanup fallback after NAPI destroy fails
-      if (
-        !gitSilent(
-          [
-            'worktree' /* raw-git-worktree-ok: corrupted-worktree cleanup fallback after NAPI destroy fails */,
-            'remove',
-            '--force',
-            worktreePath,
-          ],
-          gitRoot,
-        )
-      ) {
-        try {
-          rmSync(worktreePath, { recursive: true, force: true });
-        } catch {
-          /* best-effort */
-        }
-      }
-      // Attempt to delete the leftover branch.
-      gitSilent(['branch', '-D', branch], gitRoot);
-    }
+    return {
+      path: worktreePath,
+      branch,
+      taskId,
+      baseRef,
+      projectHash: projectHashForLock,
+      createdAt: new Date().toISOString(),
+      locked: true,
+    };
   }
 
   // Create the worktree with a new branch.
@@ -190,6 +180,19 @@ export function createAgentWorktree(taskId: string, projectRoot: string): AgentW
     createdAt: new Date().toISOString(),
     locked: true,
   };
+}
+
+/**
+ * POSIX single-quote one shell word: wrap it in `'...'` and rewrite each
+ * embedded `'` as `'\''`. The result is one literal word for any input — no
+ * word splitting, parameter, command or glob expansion — so a copy-pasted
+ * `cd` into a worktree under `Application Support` parses (T12528).
+ *
+ * @param value - Raw path.
+ * @returns The single-quoted shell word.
+ */
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 /**
@@ -245,7 +248,7 @@ export function buildWorktreeSpawnResult(
     '',
     `CLEO_AGENT_CWD=${worktree.path}`,
     '',
-    `FIRST ACTION: cd ${worktree.path}`,
+    `FIRST ACTION: cd ${shellQuote(worktree.path)}`,
     '',
     `You are working on branch: ${worktree.branch}`,
     'You MUST NOT run any of these git commands:',
@@ -450,6 +453,11 @@ export function pruneWorktree(
       };
     }
   }
+
+  // T12506: the worktree is gone (e.g. integrated by completeAgentWorktreeViaMerge),
+  // so its per-task lock guards nothing. Leaving it held made the next spawn
+  // of the task fail E_WORKTREE_LOCKED for the rest of the owner's lifetime.
+  releaseWorktreeTaskLock(computeProjectHash(projectRoot), taskId);
 
   // Delete the branch only when it has no commits ahead of current HEAD.
   let branchDeleted = false;

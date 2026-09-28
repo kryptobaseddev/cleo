@@ -96,6 +96,37 @@ export async function gitAsync(args: string[], cwd: string, timeoutMs?: number):
 }
 
 /**
+ * Count commits on `branch` that are on NO mainline ref: not on `origin/main`
+ * (when that remote-tracking ref exists) and not on any of `extraRefs`
+ * (`git rev-list --count <branch> --not <refs...>`). Used to decide whether a
+ * branch name may be deleted without losing history (T12506).
+ *
+ * @param gitRoot - Repository root.
+ * @param branch - Branch to inspect.
+ * @param extraRefs - Additional refs that count as "merged" (e.g. `baseRef`, `HEAD`).
+ * @returns The number of unmerged commits; any git error answers 1 (the safe answer).
+ *
+ * @task T12506
+ */
+export function countUnmergedCommits(
+  gitRoot: string,
+  branch: string,
+  extraRefs: readonly string[] = [],
+): number {
+  const refs = [...extraRefs];
+  if (gitSilent(['rev-parse', '--verify', '--quiet', 'refs/remotes/origin/main'], gitRoot)) {
+    refs.push('origin/main');
+  }
+  if (refs.length === 0) return 1;
+  try {
+    const n = Number(gitSync(['rev-list', '--count', branch, '--not', ...refs], gitRoot).trim());
+    return Number.isFinite(n) ? n : 1;
+  } catch {
+    return 1;
+  }
+}
+
+/**
  * Determine the git root directory for a given project path.
  *
  * @param projectRoot - Absolute path to start the search from.

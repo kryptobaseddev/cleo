@@ -11,7 +11,7 @@ import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { ExitCode, type SessionRecordAssumptionParams } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
-import { getTaskAccessor } from '../store/data-accessor.js';
+import { requireBoundSession } from '../store/session-store.js';
 import type { AssumptionRecord } from './types.js';
 
 /**
@@ -33,10 +33,13 @@ export async function recordAssumption(
     throw new CleoError(ExitCode.INVALID_INPUT, 'confidence must be one of: high, medium, low');
   }
 
-  const accessor = await getTaskAccessor(projectRoot);
-  const activeSession = await accessor.getActiveSession();
-
-  const sessionId = params.sessionId || activeSession?.id || 'default';
+  // T12500: attribute to an explicit id, else the CALLER's bound session.
+  // Unbound while any session is active → E_SESSION_UNBOUND (never the newest
+  // row); no session at all → 'default'.
+  const sessionId =
+    params.sessionId ||
+    (await requireBoundSession('record the assumption', projectRoot))?.id ||
+    'default';
   const id = `asm-${randomBytes(8).toString('hex')}`;
   const now = new Date().toISOString();
 

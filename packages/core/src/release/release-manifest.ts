@@ -12,7 +12,8 @@
  * `20260520163500_t9756-uniform-releases-pk/` rewrites historical
  * `legacy:<version>` rows in place. New writes (via {@link prepareRelease}
  * and {@link migrateReleasesFromJson}) derive `<projectHash>` from
- * {@link generateProjectHash} so all rows share one shape.
+ * {@link getProjectHashKey} (the write-once persisted hash, T12557) so all
+ * rows share one key.
  *
  * Provenance discrimination is no longer carried by the PK prefix. The
  * `tasksJson` column (NOT NULL on legacy rows, NULL on new-pipeline rows)
@@ -35,9 +36,9 @@ import { appendFileSync, existsSync, mkdirSync, renameSync, writeFileSync } from
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { and, count, desc, eq, sql } from 'drizzle-orm';
-import { generateProjectHash } from '../nexus/hash.js';
 import { createPage } from '../pagination.js';
 import { getProjectRoot, resolveCleoDir } from '../paths.js';
+import { getProjectHashKey } from '../project-info.js';
 import * as schema from '../store/tasks-schema.js';
 import type { ReleaseChannel } from './channel.js';
 import { resolveChannelFromBranch } from './channel.js';
@@ -224,7 +225,7 @@ function effectivePageLimit(
 }
 
 /**
- * Project-root resolution for {@link generateProjectHash} that mirrors the
+ * Project-root resolution for {@link getProjectHashKey} that mirrors the
  * tolerant fallback used by {@link resolveCanonicalCleoDir}: try the strict
  * `getProjectRoot` walk-up first, fall back to the literal `cwd` (or
  * `process.cwd()`) when the strict check fails.
@@ -462,7 +463,7 @@ export async function prepareRelease(
   // tolerant resolution `resolveCanonicalCleoDir` uses so tests/init paths that
   // don't yet satisfy `getProjectRoot`'s strict `.cleo + .git` predicate
   // can still derive a stable hash from cwd.
-  const projectHash = generateProjectHash(resolveProjectRootForHash(cwd));
+  const projectHash = getProjectHashKey(resolveProjectRootForHash(cwd));
   const id = `${projectHash}:${normalizedVersion}`;
 
   await db
@@ -1398,7 +1399,7 @@ export async function migrateReleasesJsonToSqlite(
     // T9756: emit the uniform `<projectHash>:<version>` PK shape. The
     // populated `tasksJson` column still discriminates these rows as
     // legacy-origin for `releasesRowToManifest`.
-    const projectHash = generateProjectHash(resolveProjectRootForHash(projectRoot));
+    const projectHash = getProjectHashKey(resolveProjectRootForHash(projectRoot));
     const id = `${projectHash}:${r.version}`;
     await db
       .insert(schema.releases)
