@@ -144,6 +144,12 @@ export const initCommand = defineCommand({
       description: 'With --workflows: print the rendered YAML without writing.',
       default: false,
     },
+    'force-rebind': {
+      type: 'boolean',
+      description:
+        'Point the NEXUS registry at this checkout even though the project is registered at another path that still exists (T12470).',
+      default: false,
+    },
     'new-identity': {
       type: 'boolean',
       description:
@@ -210,6 +216,7 @@ export const initCommand = defineCommand({
         mapCodebase: !!args['map-codebase'],
         installSeedAgents: !!args['install-seed-agents'],
         newIdentity: !!args['new-identity'],
+        forceRebind: !!args['force-rebind'],
       };
 
       const result = await initProject(initOpts);

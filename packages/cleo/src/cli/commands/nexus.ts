@@ -650,13 +650,22 @@ const reconcileCommand = defineCommand({
       type: 'string',
       description: 'Project path (default: current directory)',
     },
+    'force-rebind': {
+      type: 'boolean',
+      description:
+        'Point the registry row at this checkout even though its previous location still exists (T12470). Without it, that checkout is recorded as a candidate.',
+      default: false,
+    },
   },
   async run({ args }) {
     await dispatchFromCli(
       'mutate',
       'nexus',
       'reconcile',
-      { projectRoot: args.path as string | undefined },
+      {
+        projectRoot: args.path as string | undefined,
+        ...(args['force-rebind'] ? { forceRebind: true } : {}),
+      },
       { command: 'nexus' },
     );
   },

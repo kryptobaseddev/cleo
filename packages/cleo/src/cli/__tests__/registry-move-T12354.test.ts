@@ -69,7 +69,7 @@ function registryState(): { rows: string[]; paths: string[]; missing: string[] }
 }
 
 describe.skipIf(!CLI_DIST_AVAILABLE)('registry follows a move on an ordinary command', () => {
-  it('cleo list after mv re-points the row; a copy adds a second checkout', () => {
+  it('cleo list after mv re-points the row; a copy stays an unconfirmed candidate', () => {
     const before = join(sandbox, 'before');
     mkdirSync(before, { recursive: true });
     spawnSync('git', ['init', '-q'], { cwd: before });
@@ -83,13 +83,12 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('registry follows a move on an ordinary com
     // T12469: the vanished checkout is kept as `missing`, never deleted.
     expect(registryState()).toEqual({ rows: [after], paths: [after], missing: [before] });
 
+    // T12470: a copy of a checkout whose original still exists is not a move.
+    // An ordinary command never repoints the row to it (nor hands over the
+    // row's permissions); it is recorded as an unconfirmed candidate.
     const copy = join(sandbox, 'copy');
     cpSync(after, copy, { recursive: true });
     runCli(['list'], copy);
-    expect(registryState()).toEqual({
-      rows: [copy],
-      paths: [after, copy].sort(),
-      missing: [before],
-    });
+    expect(registryState()).toEqual({ rows: [after], paths: [after], missing: [before] });
   });
 });

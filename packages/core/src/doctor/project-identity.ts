@@ -27,9 +27,11 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  canonicalizePath,
   getCleoHome,
   isValidPortableProjectId,
   PORTABLE_PROJECT_ID_FILE,
+  readDeclaredProjectIdentity,
   readPortableProjectId,
 } from '@cleocode/paths';
 import { ensurePortableProjectId } from '../scaffold/project-identity.js';
@@ -86,7 +88,8 @@ export interface IdentityResolutionStep {
     | 'repoint-aliases'
     | 'alias-old-id'
     | 'drop-inverted-alias'
-    | 'rewrite-project-info';
+    | 'rewrite-project-info'
+    | 'confirm-candidate-location';
   /** Human-readable detail with the ids and counts involved. */
   readonly detail: string;
 }
@@ -242,6 +245,71 @@ function writeJsonAtomic(path: string, data: Record<string, unknown>): void {
   renameSync(tmp, path);
 }
 
+/** An unconfirmed checkout of a registered project (T12470). */
+interface CandidateCheckout {
+  readonly projectId: string;
+  readonly path: string;
+  readonly registeredPath: string;
+}
+
+/**
+ * Find this checkout's `candidate` location: it declares an id whose registry
+ * row names another path, and it is not already a live location on this device.
+ */
+async function findCandidateCheckout(
+  projectRoot: string,
+  cleoHome: string | undefined,
+): Promise<CandidateCheckout | null> {
+  const declared = readDeclaredProjectIdentity(projectRoot);
+  if (!declared) return null;
+  const path = canonicalizePath(projectRoot);
+  const { getNexusRegistryDb } = await import('../store/nexus-sqlite.js');
+  const { projectRegistry } = await import('../store/schema/nexus-schema.js');
+  const { eq } = await import('drizzle-orm');
+  const { decideEncounterBinding } = await import('../nexus/path-map.js');
+  const db = await getNexusRegistryDb(cleoHome ?? getCleoHome());
+  const row = db
+    .select({ projectPath: projectRegistry.projectPath })
+    .from(projectRegistry)
+    .where(eq(projectRegistry.projectId, declared.projectId))
+    .get();
+  if (!row || row.projectPath === path) return null;
+  const binding = decideEncounterBinding(db, {
+    projectId: declared.projectId,
+    projectPath: path,
+    now: new Date().toISOString(),
+  });
+  if (binding === 'refresh') return null;
+  return { projectId: declared.projectId, path, registeredPath: row.projectPath };
+}
+
+/** Promote a candidate checkout to the project's live, registered location. */
+async function confirmCandidateCheckout(
+  candidate: CandidateCheckout,
+  cleoHome: string | undefined,
+): Promise<void> {
+  const { getNexusRegistryDb } = await import('../store/nexus-sqlite.js');
+  const { confirmProjectLocation } = await import('../nexus/path-map.js');
+  const { collectCheckoutEvidence } = await import('../nexus/identity.js');
+  const { ensureCheckoutNonce } = await import('../nexus/checkout-nonce.js');
+  const evidence = await collectCheckoutEvidence(candidate.path);
+  // The confirmed checkout gets its own nonce, so a later move is provable.
+  const checkoutNonce = ensureCheckoutNonce(candidate.path);
+  const db = await getNexusRegistryDb(cleoHome ?? getCleoHome());
+  db.transaction(
+    (tx) => {
+      confirmProjectLocation(tx, {
+        projectId: candidate.projectId,
+        projectPath: candidate.path,
+        now: new Date().toISOString(),
+        evidence,
+        checkoutNonce,
+      });
+    },
+    { behavior: 'immediate' },
+  );
+}
+
 /** Options for {@link resolveProjectIdentity}. */
 export interface ResolveProjectIdentityOptions {
   /** Plan only; write nothing. */
@@ -285,12 +353,26 @@ export async function resolveProjectIdentity(
     rows: { before: number; after: number } = { before: 0, after: 0 },
   ): IdentityResolution => ({ dryRun, before, steps, registryRows: rows, refused });
 
+  // T12470: a checkout that declares an already-registered id is only a
+  // `candidate` until confirmed. Resolving here IS the explicit confirmation.
+  const confirmCandidateStep = async (): Promise<boolean> => {
+    const candidate = await findCandidateCheckout(projectRoot, options.cleoHome);
+    if (!candidate) return false;
+    steps.push({
+      action: 'confirm-candidate-location',
+      detail: `confirm ${candidate.path} as the live location of ${candidate.projectId} (registry row moves from ${candidate.registeredPath}; its permissions stay with the row)`,
+    });
+    if (!dryRun) await confirmCandidateCheckout(candidate, options.cleoHome);
+    return true;
+  };
+
   if (before.state === 'missing' && before.localId) {
     steps.push({
       action: 'write-tracked-id',
       detail: `create .cleo/project-id = ${before.localId}`,
     });
     if (!dryRun) await ensurePortableProjectId(projectRoot, before.localId);
+    await confirmCandidateStep();
     return result(null);
   }
   if (before.state === 'info-invalid') {
@@ -302,8 +384,10 @@ export async function resolveProjectIdentity(
       const { ensureProjectInfo } = await import('../scaffold/ensure-config.js');
       await ensureProjectInfo(projectRoot, { force: true });
     }
+    await confirmCandidateStep();
     return result(null);
   }
+  if (before.state !== 'conflict' && (await confirmCandidateStep())) return result(null);
   if (before.state !== 'conflict' || !before.trackedId || !before.localId) {
     return result(
       before.remedy ? `${before.message} Remedy: ${before.remedy}` : 'Nothing to resolve.',

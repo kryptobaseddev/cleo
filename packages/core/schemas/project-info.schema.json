@@ -23,6 +23,11 @@
       "minLength": 1,
       "description": "Portable project-local identity (UUIDv4). Survives .cleo/ moves between filesystems. Used as the stable brain key for cross-system project sharing."
     },
+    "checkoutNonce": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$",
+      "description": "Random per-checkout secret (T12470). Lives only in this untracked file; the global registry records it on each confirmed location, so a moved or restored checkout is recognised while a clone (which cannot have it) stays an unconfirmed candidate. Never copy it between checkouts."
+    },
     "projectHash": {
       "type": "string",
       "pattern": "^[a-f0-9]{12}$",
