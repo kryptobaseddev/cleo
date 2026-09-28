@@ -520,7 +520,12 @@ describe('(c) failure injection mid-migration', () => {
     } catch (error) {
       caught = error;
     }
-    expect(caught).toMatchObject({ code: 55, message: expect.stringMatching(/injected failure/) });
+    expect(caught).toMatchObject({
+      code: 55,
+      // The snapshot WAS written before the merge failed.
+      message: expect.stringMatching(/injected failure.*Snapshot: .*cleo\.db\.migration-/),
+      details: { snapshotWritten: true },
+    });
     expect(db.isTransaction).toBe(false);
     expect(tableDigest(db, 'schema_meta', 'key')).toBe(bare);
     // Only the failure record (written outside the rolled-back transaction) differs.

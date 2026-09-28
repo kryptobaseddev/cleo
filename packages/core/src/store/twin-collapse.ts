@@ -596,6 +596,8 @@ export interface TwinCollapseFailure {
   readonly cause: string;
   /** The snapshot this collapse needs (the planned path) or wrote, or `null`. */
   readonly snapshotPath: string | null;
+  /** Whether {@link snapshotPath} was written (`false`: only planned). */
+  readonly snapshotWritten: boolean;
   /** Free space the snapshot needs, in bytes (0 when none was needed). */
   readonly requiredBytes: number;
   /** Free space measured on the backup filesystem, or `null`. */
@@ -628,7 +630,11 @@ export function twinCollapseFailureOf(db: DatabaseSync): TwinCollapseFailure | u
  * @task T12535
  */
 export function twinCollapseError(failure: TwinCollapseFailure, cause?: unknown): CleoError {
-  const where = failure.snapshotPath ? ` Snapshot: ${failure.snapshotPath}.` : '';
+  const where = !failure.snapshotPath
+    ? ''
+    : failure.snapshotWritten
+      ? ` Snapshot: ${failure.snapshotPath}.`
+      : ` Snapshot would be written to ${failure.snapshotPath}.`;
   const space =
     failure.requiredBytes > 0
       ? ` The snapshot needs ${failure.requiredBytes} bytes free` +
@@ -869,6 +875,7 @@ export function collapseTwinTables(
           tables: needSnapshot.map((p) => p.table),
           cause: `snapshot not written: ${error instanceof Error ? error.message : String(error)}`,
           snapshotPath: plan.snapshotPath,
+          snapshotWritten: false,
           requiredBytes: plan.requiredBytes,
           availableBytes: plan.availableBytes,
           failedAt: new Date().toISOString(),
@@ -899,6 +906,7 @@ export function collapseTwinTables(
         tables: failed.map((p) => p.table),
         cause: firstError instanceof Error ? firstError.message : String(firstError),
         snapshotPath,
+        snapshotWritten: snapshotPath !== null,
         requiredBytes: 0,
         availableBytes: null,
         failedAt: new Date().toISOString(),

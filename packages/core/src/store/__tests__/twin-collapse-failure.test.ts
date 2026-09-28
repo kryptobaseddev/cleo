@@ -167,10 +167,11 @@ describe('a blocked backups directory', () => {
           join('.cleo', 'backups', 'sqlite', 'cleo.db.migration-'),
         ),
         requiredBytes: expect.any(Number),
+        snapshotWritten: false,
       },
     });
     expect(String(blocked?.message)).toMatch(
-      /writes are refused.*Snapshot: .*cleo\.db\.migration-/,
+      /writes are refused.*Snapshot would be written to .*cleo\.db\.migration-/,
     );
 
     const report = inspectProjectTwinCollapse(projectDir);
