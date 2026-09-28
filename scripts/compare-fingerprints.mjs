@@ -30,6 +30,13 @@
  *   - it holds more lines than `--max-deleted` (default `1%` of the source's
  *     syncing rows, rounded up; an absolute count or another percentage can be
  *     passed explicitly);
+ *   - it holds more lines for ONE table than `--max-deleted-per-table`
+ *     (default `1%` of that table's source rows, rounded up; a count or a
+ *     percentage). A global cap alone lets a few tombstones erase a small
+ *     table inside a large store;
+ *   - it would delete EVERY source row of a table, unless that table is named
+ *     with `--allow-table-wipe <table>` (repeatable). A wipe is never implied
+ *     by a cap, and an allowed wipe is reported as a WARNING;
  *   - it equals the source row set: passing the source's own `.rows` as the
  *     tombstone file would launder a wiped replica.
  * Every excused row is reported per table, as a WARNING line and in the JSON
@@ -50,6 +57,15 @@
  * Both fingerprints must carry the same `keyId` (the row hashes are HMACs; see
  * fingerprint-store.mjs). Fingerprints made with different keys cannot be
  * compared and FAIL.
+ *
+ * ## Each fingerprint JSON is signed
+ *
+ * `--key-file` (the comparison key) is required: every fingerprint carries a
+ * `mac` over the canonical encoding of all its other fields
+ * (`scripts/lib/fingerprint-mac.mjs`), and a fingerprint whose MAC does not
+ * verify FAILS before any of its fields is trusted. Editing `rowsFile`,
+ * `rowsSha256`, a digest or a count therefore fails. Without `--key-file`
+ * nothing can be verified, and the comparison FAILS.
  *
  * In both modes a syncing table the comparator cannot verify FAILS: one that
  * is `unreadable` on either side (e.g. vec0 without sqlite-vec), missing on the
@@ -74,7 +90,9 @@
  *
  * Usage:
  *   node scripts/compare-fingerprints.mjs --source a.json --replica b.json
- *     [--mode replay|merge] [--allow-deleted <file>] [--max-deleted <n|p%>] [--json]
+ *     --key-file <key> [--mode replay|merge] [--allow-deleted <file>]
+ *     [--max-deleted <n|p%>] [--max-deleted-per-table <n|p%>]
+ *     [--allow-table-wipe <table>]... [--json]
  *
  * The `.rows` sidecar of each fingerprint is found next to its JSON, by the
  * basename the fingerprint records (`rowsFile`).
@@ -83,11 +101,13 @@
  *
  * @task T12332
  * @task T12613
+ * @task T12636
  */
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
+import { parseKey, verifyFingerprintMac } from './lib/fingerprint-mac.mjs';
 
 const { values } = parseArgs({
   options: {
@@ -96,6 +116,9 @@ const { values } = parseArgs({
     mode: { type: 'string', default: 'replay' },
     'allow-deleted': { type: 'string' },
     'max-deleted': { type: 'string', default: '1%' },
+    'max-deleted-per-table': { type: 'string', default: '1%' },
+    'allow-table-wipe': { type: 'string', multiple: true, default: [] },
+    'key-file': { type: 'string' },
     json: { type: 'boolean', default: false },
   },
 });
@@ -162,23 +185,33 @@ function checkRowsBinding(side, fp, loaded, failures) {
 /** Resolve `--max-deleted` (`<n>` or `<p>%`) against the source's syncing row count. */
 function deletionCap(spec, sourceRows) {
   const m = /^(\d+(?:\.\d+)?)(%?)$/.exec(spec);
-  if (!m) throw new Error('--max-deleted must be a count or a percentage, e.g. 25 or 1%');
+  if (!m) throw new Error('a deletion cap must be a count or a percentage, e.g. 25 or 1%');
   return m[2] ? Math.ceil((sourceRows * Number(m[1])) / 100) : Math.floor(Number(m[1]));
 }
 
-/** Fail a tombstone file that names rows the source never had, exceeds the cap, or IS the source. */
+/** Fail a tombstone file that names rows the source never had, exceeds a cap, or IS the source. */
 function checkTombstones(source, allow, cap, failures) {
   let foreign = 0;
   let lines = 0;
   let equal = countLines(source) === countLines(allow);
   for (const [table, counts] of allow) {
     const src = source.get(table) ?? new Map();
+    let tableLines = 0;
     for (const [hash, n] of counts) {
       lines += n;
+      tableLines += n;
       const have = src.get(hash) ?? 0;
       if (n > have) foreign += n - have;
       if (n !== have) equal = false;
     }
+    const srcRows = [...src.values()].reduce((a, b) => a + b, 0);
+    const tableCap = deletionCap(values['max-deleted-per-table'], srcRows);
+    if (tableLines > tableCap)
+      failures.push({
+        gate: 'B',
+        table,
+        reason: `--allow-deleted holds ${tableLines} row(s) of this table's ${srcRows}, over the --max-deleted-per-table cap of ${tableCap}`,
+      });
   }
   if (foreign > 0)
     failures.push({
@@ -201,10 +234,30 @@ function checkTombstones(source, allow, cap, failures) {
   return lines;
 }
 
-function compare(source, replica, mode, rows) {
+function compare(source, replica, mode, rows, key) {
   const failures = [];
   const notes = [];
   const excused = {};
+  const wiped = [];
+  if (!key)
+    failures.push({
+      gate: 'B',
+      table: '*',
+      reason: 'no --key-file: the fingerprint MACs cannot be verified',
+    });
+  else {
+    for (const [side, fp] of [
+      ['source', source],
+      ['replica', replica],
+    ]) {
+      if (!verifyFingerprintMac(fp, key))
+        failures.push({
+          gate: 'B',
+          table: '*',
+          reason: `${side} fingerprint MAC does not verify under --key-file (edited, or made with another key)`,
+        });
+    }
+  }
   if (!source.keyId || source.keyId !== replica.keyId)
     failures.push({
       gate: 'B',
@@ -288,6 +341,20 @@ function compare(source, replica, mode, rows) {
           reason: `${lost} source row(s) missing on replica and not in --allow-deleted`,
         });
       if (ok > 0) excused[table] = ok;
+      // Deleting every row of a table needs its own explicit consent.
+      const srcRows = [...(rows.source.byTable.get(table)?.values() ?? [])].reduce(
+        (a, b) => a + b,
+        0,
+      );
+      if (ok > 0 && lost + ok === srcRows) {
+        if (values['allow-table-wipe'].includes(table)) wiped.push(table);
+        else
+          failures.push({
+            gate: 'B',
+            table,
+            reason: `--allow-deleted would delete all ${srcRows} source row(s); pass --allow-table-wipe ${table} if that is intended`,
+          });
+      }
     }
   }
   if (mode === 'replay') {
@@ -328,7 +395,7 @@ function compare(source, replica, mode, rows) {
       failures.push({ gate: 'C', invariant: inv, reason: 'not measured on replica' });
     else if (r > s) failures.push({ gate: 'C', invariant: inv, reason: `${s} → ${r}` });
   }
-  return { ok: failures.length === 0, mode, failures, notes, excused, allowance };
+  return { ok: failures.length === 0, mode, failures, notes, excused, allowance, wiped };
 }
 
 const source = load(values.source);
@@ -343,7 +410,8 @@ const rows =
           : null,
       }
     : {};
-const result = compare(source, replica, values.mode, rows);
+const key = values['key-file'] ? parseKey(readFileSync(values['key-file'], 'utf8')) : null;
+const result = compare(source, replica, values.mode, rows, key);
 if (values.json) console.log(JSON.stringify(result, null, 1));
 else {
   for (const f of result.failures)
@@ -352,6 +420,8 @@ else {
     console.log(
       `WARNING: --allow-deleted EXCUSED ${n} missing row(s) in ${table} (${result.allowance.lines} tombstone(s), cap ${result.allowance.cap})`,
     );
+  for (const table of result.wiped)
+    console.log(`WARNING: --allow-table-wipe: EVERY source row of ${table} was deleted`);
   for (const n of result.notes) console.log(`note: ${n}`);
   console.log(
     result.ok

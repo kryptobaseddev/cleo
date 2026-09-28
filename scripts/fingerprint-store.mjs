@@ -42,22 +42,32 @@
  * An unkeyed row hash is a guessing oracle: a row with few, predictable
  * values (a dependency edge `T3 → T2`) is recovered by hashing candidates. The
  * row hash is therefore keyed. Both sides of one comparison MUST use the same
- * key, and the key must not travel with the fingerprints:
+ * key, and the key must NOT travel with the fingerprints:
  *
- *   node scripts/fingerprint-store.mjs --db source.db --out source.json
- *     # no --key-file: a random 32-byte key is written to source.json.key (0600)
- *   node scripts/fingerprint-store.mjs --db replica.db --out replica.json \
- *     --key-file source.json.key
- *   node scripts/compare-fingerprints.mjs --source source.json --replica replica.json
+ *   node scripts/fingerprint-store.mjs --db source.db --out shared/source.json \
+ *     --key-out ~/private/compare.key      # a new random 32-byte key, 0600
+ *   node scripts/fingerprint-store.mjs --db replica.db --out shared/replica.json \
+ *     --key-file ~/private/compare.key
+ *   node scripts/compare-fingerprints.mjs --source shared/source.json \
+ *     --replica shared/replica.json --key-file ~/private/compare.key
  *
- * The JSON records only `keyId`, an HMAC of a fixed label under the key; the
- * comparator fails two fingerprints whose `keyId`s differ. The comparator
- * never needs the key itself.
+ * There is no default key location. One of `--key-file` (an existing key) or
+ * `--key-out` (where to create a new one) is required, and `--key-out` is
+ * refused when it would land in the directory of `--out` or of the `.rows`
+ * sidecar: a directory of fingerprints is the thing that gets copied or
+ * shared, and a key inside it would travel with the rows it protects.
+ * `--key-out` never overwrites an existing file.
  *
- * SENSITIVE: the `.rows` sidecar and the `.key` file are written with mode
- * 0600. Anyone holding both can test guesses against every row, so keep them
- * together only on the machine that runs the comparison, and delete them
- * afterwards.
+ * The JSON records `keyId`, an HMAC of a fixed label under the key, and
+ * `mac`, an HMAC under the key over the canonical encoding of every other
+ * field (`scripts/lib/fingerprint-mac.mjs`). The comparator verifies both
+ * with `--key-file`, so an edited field (`rowsFile`, `rowsSha256`, a digest,
+ * a count) fails.
+ *
+ * SENSITIVE: the `.rows` sidecar and the key file are written with mode
+ * 0600. Anyone holding both can test guesses against every row, so keep the
+ * key on the machine that runs the comparison, and delete the sidecars and
+ * the key afterwards.
  *
  * Memory: one table's row hashes are held at a time (about 130 bytes per row
  * as hex strings, so ~130 MB for a 1M-row table), then sorted, digested and
@@ -96,11 +106,14 @@
  *
  * Usage:
  *   node scripts/fingerprint-store.mjs --db <cleo.db> [--scope project|global]
- *     [--label <name>] [--out <file.json>] [--rows <file.rows>] [--key-file <file>]
+ *     (--key-file <file> | --key-out <file>) [--label <name>] [--out <file.json>]
+ *     [--rows <file.rows>]
  *
  * Companion: scripts/compare-fingerprints.mjs.
  *
  * @task T12332
+ * @task T12613
+ * @task T12636
  */
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 import {
@@ -126,6 +139,7 @@ import {
   classifyTable,
   isPortableTableClass,
 } from '../packages/core/src/store/table-classification.ts';
+import { fingerprintMac, parseKey } from './lib/fingerprint-mac.mjs';
 
 const REPO_ROOT = resolve(import.meta.dirname, '..');
 
@@ -137,6 +151,7 @@ const { values } = parseArgs({
     out: { type: 'string' },
     rows: { type: 'string' },
     'key-file': { type: 'string' },
+    'key-out': { type: 'string' },
   },
 });
 if (!values.db) throw new Error('pass --db <cleo.db>');
@@ -152,23 +167,28 @@ function openPrivate(file) {
   return fd;
 }
 
-// The HMAC key for the row hashes: shared by both sides of one comparison.
+// The HMAC key for the row hashes and the JSON MAC: shared by both sides of one comparison.
+if (Boolean(values['key-file']) === Boolean(values['key-out']))
+  throw new Error(
+    'fingerprint-store: pass exactly one of --key-file <existing> or --key-out <new>',
+  );
 let key;
 if (values['key-file']) {
-  key = readFileSync(values['key-file'], 'utf8').trim();
-  if (key.length < 32)
-    throw new Error('fingerprint-store: --key-file must hold at least 32 characters');
+  key = parseKey(readFileSync(values['key-file'], 'utf8'));
 } else {
-  key = randomBytes(32).toString('hex');
-  if (values.out) {
-    const fd = openPrivate(`${values.out}.key`);
-    writeSync(fd, `${key}\n`);
-    closeSync(fd);
-  } else {
-    console.error(
-      'fingerprint-store: no --key-file and no --out, so the generated key is discarded',
-    );
+  const keyOut = resolve(values['key-out']);
+  for (const shared of [values.out, rowsPath]) {
+    if (shared && dirname(resolve(shared)) === dirname(keyOut))
+      throw new Error(
+        'fingerprint-store: refusing --key-out in the directory of --out or --rows: sharing that directory would share the key',
+      );
   }
+  key = randomBytes(32).toString('hex');
+  // wx: never overwrite a key another comparison may still use.
+  const fd = openSync(keyOut, 'wx', 0o600);
+  fchmodSync(fd, 0o600);
+  writeSync(fd, `${key}\n`);
+  closeSync(fd);
 }
 const keyId = createHmac('sha256', key)
   .update('cleo-fingerprint-key-id')
@@ -498,12 +518,12 @@ if (scope === 'project') {
 db.close();
 removeSnapshot();
 
+result.mac = fingerprintMac(result, key);
 const json = JSON.stringify(result, null, 1);
 // Never record a path: refuse to write a fingerprint that names the store's location.
 for (const leak of [input, dirname(input), dirname(dirname(input))]) {
   if (leak.length > 1 && json.includes(leak)) {
     if (rowsPath) rmSync(rowsPath, { force: true });
-    if (!values['key-file'] && values.out) rmSync(`${values.out}.key`, { force: true });
     throw new Error(
       'fingerprint-store: refusing to write a fingerprint that contains the store path',
     );
