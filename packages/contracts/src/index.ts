@@ -2022,6 +2022,7 @@ export type {
   PortableSkippedProject,
   PortableSkipReason,
   PortableSymlinkEntry,
+  PortableSymlinkFallback,
   PortableTableComparison,
   PortableUnmigratedLegacyReport,
 } from './portable-bundle.js';

@@ -407,6 +407,18 @@ export interface PortableRelocationReport {
   rewrittenTargetMissing: PortablePathFinding[];
 }
 
+/** A bundle symlink restored as something other than a link (T12607). */
+export interface PortableSymlinkFallback {
+  /** Link path relative to the section root. */
+  relPath: string;
+  /** Link target as recorded in the bundle. */
+  target: string;
+  /** What was placed instead. */
+  mode: 'copy' | 'skipped';
+  /** Why linking failed. */
+  reason: string;
+}
+
 /** Restore outcome for one section. */
 export interface PortableImportSectionResult {
   /** Section kind. */
@@ -440,6 +452,13 @@ export interface PortableImportSectionResult {
   keyCounts: Array<PortableTableComparison>;
   /** Relocation report (projects placed at a different root only). */
   relocation?: PortableRelocationReport;
+  /**
+   * Bundle symlinks that could NOT be restored as links (T12607), e.g. on
+   * Windows without Developer Mode: `copy` when the target was copied in its
+   * place, `skipped` when the target does not exist so there was nothing to
+   * copy. Absent when every symlink was restored as a link.
+   */
+  symlinkFallbacks?: PortableSymlinkFallback[];
   /** Legacy-only data carried over unmigrated (projects only). */
   unmigratedLegacyData?: PortableUnmigratedLegacyReport;
   /** Global registry update for this project (projects only). */

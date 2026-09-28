@@ -42,9 +42,11 @@
  */
 
 import { existsSync, lstatSync, readdirSync, readlinkSync, realpathSync } from 'node:fs';
-import { cp, mkdir, readdir, rm, symlink, unlink } from 'node:fs/promises';
+import { cp, mkdir, readdir, rm, unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import * as path from 'node:path';
+import { getCleoHome, linkOrCopy } from '@cleocode/paths';
+import { resolveSkillsRoot } from './skill-root.js';
 
 /**
  * One symlink that was created (or would be created in `--dry-run`).
@@ -56,7 +58,7 @@ export interface BridgeSymlinkRecord {
   name: string;
   /** Absolute path of the symlink under `~/.claude/skills/agents-shared/`. */
   linkPath: string;
-  /** Absolute path of the symlink target inside `~/.cleo/skills/`. */
+  /** Absolute path of the link target inside the skills root (`<cleoHome>/skills`). */
   target: string;
 }
 
@@ -205,7 +207,10 @@ export function buildBackupTimestamp(): string {
  * @param homeRoot - Absolute home directory (usually {@link homedir}).
  * @returns The four absolute paths involved in the bridge topology.
  */
-function resolveBridgePaths(homeRoot: string): {
+function resolveBridgePaths(
+  homeRoot: string,
+  homeOverridden: boolean,
+): {
   skillsRoot: string;
   bridgeTarget: string;
   bridgePath: string;
@@ -213,10 +218,15 @@ function resolveBridgePaths(homeRoot: string): {
   claudeSkillsRoot: string;
 } {
   return {
-    skillsRoot: path.join(homeRoot, '.cleo', 'skills'),
+    // T12603: the live skills root is <cleoHome>/skills — never read through
+    // ~/.cleo, which dangles when dotfiles carry a Linux link. A `homeDir`
+    // sandbox keeps its home-relative fixture layout.
+    skillsRoot: homeOverridden ? path.join(homeRoot, '.cleo', 'skills') : resolveSkillsRoot(),
     bridgeTarget: path.join(homeRoot, '.claude', 'skills', 'agents-shared'),
     bridgePath: path.join(homeRoot, '.agents', 'skills'),
-    backupsRoot: path.join(homeRoot, '.cleo', 'backups'),
+    backupsRoot: homeOverridden
+      ? path.join(homeRoot, '.cleo', 'backups')
+      : path.join(getCleoHome(), 'backups'),
     claudeSkillsRoot: path.join(homeRoot, '.claude', 'skills'),
   };
 }
@@ -264,23 +274,21 @@ function symlinkPointsAt(linkPath: string, target: string): boolean {
 }
 
 /**
- * Create (or re-create) a symlink so it points at `target`.
+ * Create (or re-create) a link so it points at `target`.
  *
- * @param linkPath - Path of the symlink to create.
- * @param target - Absolute path the symlink should point at.
+ * T12607: goes through `linkOrCopy` — a junction on Windows (no Developer
+ * Mode needed), verified to resolve, with a copy fallback. The previous bare
+ * `symlink(…, 'dir')` failed the skills doctor repair on Windows, and its
+ * `existsSync` guard missed a dangling link (EEXIST on re-create).
+ *
+ * @param linkPath - Path of the link to create.
+ * @param target - Absolute path the link should point at.
  * @param dryRun - When `true`, no disk mutation occurs.
  */
 async function ensureSymlink(linkPath: string, target: string, dryRun: boolean): Promise<void> {
   if (dryRun) return;
   await mkdir(path.dirname(linkPath), { recursive: true });
-  if (existsSync(linkPath)) {
-    try {
-      await unlink(linkPath);
-    } catch {
-      // Fall through — symlink() will surface a clearer error if removal failed.
-    }
-  }
-  await symlink(target, linkPath, 'dir');
+  linkOrCopy(target, linkPath, 'dir');
 }
 
 /**
@@ -340,7 +348,7 @@ export async function runDoctorBridge(
   const force = options.force ?? false;
   const dryRun = options.dryRun ?? false;
   const { skillsRoot, bridgeTarget, bridgePath, backupsRoot, claudeSkillsRoot } =
-    resolveBridgePaths(homeRoot);
+    resolveBridgePaths(homeRoot, options.homeDir !== undefined);
 
   // 1. Ensure bridge target dir exists.
   if (!dryRun) {
@@ -437,8 +445,8 @@ export async function runDoctorBridge(
     }
     if (!dryRun) {
       await mkdir(path.dirname(bridgePath), { recursive: true });
-      await symlink(bridgeTarget, bridgePath, 'dir');
-      bridgeSymlinkActive = true;
+      // T12607: junction on Windows, verified, copy fallback.
+      bridgeSymlinkActive = linkOrCopy(bridgeTarget, bridgePath, 'dir').mode !== 'copy';
     }
   }
 

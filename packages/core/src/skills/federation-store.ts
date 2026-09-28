@@ -1,7 +1,7 @@
 /**
  * Federation index storage — per-user list of trusted federation peers.
  *
- * Persists to `~/.cleo/federation.json` (operator-managed, plain JSON, no
+ * Persists to `<cleoHome>/federation.json` (operator-managed, plain JSON, no
  * SQLite). The format is intentionally simple so the operator can hand-edit
  * the file when needed without booting CLEO.
  *
@@ -32,6 +32,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { getCleoHome } from '@cleocode/paths';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -78,17 +79,31 @@ export interface FederationIndex {
 // ---------------------------------------------------------------------------
 
 /**
- * Return the canonical filesystem path for the federation index.
+ * Return the canonical filesystem path for the federation index:
+ * `<cleoHome>/federation.json` in the platform data dir.
  *
- * Always `~/.cleo/federation.json` — NOT the XDG `getCleoHome()` path,
- * because federation peers are explicitly operator-managed and the simple
- * `~/.cleo` location lets the user hand-edit without spelunking through
- * `~/.local/share`.
+ * T12603: this used to be `~/.cleo/federation.json`, which only resolves when
+ * `~/.cleo` links to the data dir. A `~/.cleo` link carried between machines
+ * by dotfiles dangles, and every federation read then saw an empty index.
+ * `~/.cleo` is still the hand-editing convenience path on a healthy install
+ * (it links here); an existing file there is read through by
+ * {@link readFederationIndex} until the next write moves it.
  *
  * @task T9729
+ * @task T12603
  */
 export function getFederationIndexPath(): string {
-  return join(homedir(), '.cleo', 'federation.json'); // path-drift-allowed: operator-managed file deliberately at ~/.cleo, NOT XDG getCleoHome() (T9729)
+  return join(getCleoHome(), 'federation.json');
+}
+
+/**
+ * Pre-T12603 location, `~/.cleo/federation.json`. Read-only: consulted only
+ * when the canonical file does not exist.
+ *
+ * @task T12603
+ */
+export function getLegacyFederationIndexPath(): string {
+  return join(homedir(), '.cleo', 'federation.json'); // path-drift-allowed: legacy read-through only (T12603)
 }
 
 // ---------------------------------------------------------------------------
@@ -163,7 +178,13 @@ export function assertTrustLevel(value: unknown): asserts value is FederationTru
  * @task T9729
  */
 export function readFederationIndex(path?: string): FederationIndex {
-  const resolved = path ?? getFederationIndexPath();
+  let resolved = path ?? getFederationIndexPath();
+  // T12603: legacy read-through — an index written to ~/.cleo/federation.json
+  // by an older release (or hand-edited there while ~/.cleo was a real dir)
+  // stays visible until the next write lands it at the canonical path.
+  if (path === undefined && !existsSync(resolved) && existsSync(getLegacyFederationIndexPath())) {
+    resolved = getLegacyFederationIndexPath();
+  }
   if (!existsSync(resolved)) {
     return { version: 1, entries: [] };
   }
@@ -187,7 +208,7 @@ export function readFederationIndex(path?: string): FederationIndex {
  * Atomically write the federation index to disk.
  *
  * Uses the tmp-then-rename pattern so a crash mid-write never leaves a
- * partial file. The parent directory (`~/.cleo`) is created on demand.
+ * partial file. The parent directory (`<cleoHome>`) is created on demand.
  *
  * @param index - The index to persist.
  * @param path - Optional override (defaults to {@link getFederationIndexPath}).

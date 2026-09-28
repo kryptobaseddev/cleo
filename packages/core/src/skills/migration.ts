@@ -48,6 +48,8 @@ import {
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { getCleoHome } from '@cleocode/paths';
+import { resolveSkillsRoot } from './skill-root.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -218,8 +220,9 @@ export function defaultMigrationOptions(manifestNames: string[]): MigrationOptio
   const home = homedir();
   return {
     legacyRoot: join(home, '.local', 'share', 'agents', 'skills'),
-    canonicalRoot: join(home, '.cleo', 'skills'),
-    backupDir: join(home, '.cleo', 'backups', 'skills'),
+    // T12603: platform data dir, never through ~/.cleo.
+    canonicalRoot: resolveSkillsRoot(),
+    backupDir: join(getCleoHome(), 'backups', 'skills'),
     manifestNames,
     now: () => new Date(),
     tarExec: systemTarExec,

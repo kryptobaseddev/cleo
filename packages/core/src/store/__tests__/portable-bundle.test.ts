@@ -15,6 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import type { PortableBundleManifest } from '@cleocode/contracts';
+import { _setSymlinkImplForTests } from '@cleocode/paths';
 import { create as tarCreate, extract as tarExtract, list as tarList } from 'tar';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { generateProjectHash } from '../../nexus/hash.js';
@@ -243,6 +244,45 @@ describe('portable bundle v2 (T12318)', () => {
     );
     expect(fs.existsSync(path.join(target, '.cleo', 'tasks.db'))).toBe(true);
     expect(fs.existsSync(path.join(target, '.cleo', 'keys'))).toBe(false);
+  });
+
+  it('import completes where symlinks fail, and records the copy it made instead (T12607)', async () => {
+    const bundle = path.join(tmp, 'out', 'p.cleobundle.tar.gz');
+    await exportPortableBundle({
+      scope: 'project',
+      projectRoot,
+      outputPath: bundle,
+      label: 'p',
+      cleoHome: home,
+      configHome,
+    });
+    _setSymlinkImplForTests(() => {
+      throw Object.assign(new Error('EPERM: operation not permitted, symlink'), { code: 'EPERM' });
+    });
+    try {
+      const target = path.join(tmp, 'dest-root', 'nolinks');
+      const imported = await importPortableBundle({
+        bundlePath: bundle,
+        target,
+        cleoHome: path.join(tmp, 'home-dest'),
+        configHome: path.join(tmp, 'config-dest'),
+      });
+      expect(imported.lossless).toBe(true);
+      const placed = path.join(target, '.cleo', 'latest-note.md');
+      expect(fs.lstatSync(placed).isSymbolicLink()).toBe(false);
+      expect(fs.readFileSync(placed, 'utf-8')).toBe(
+        fs.readFileSync(path.join(target, '.cleo', 'agent-outputs', 'note.md'), 'utf-8'),
+      );
+      expect(imported.sections[0]?.symlinkFallbacks).toEqual([
+        expect.objectContaining({
+          relPath: 'latest-note.md',
+          target: 'agent-outputs/note.md',
+          mode: 'copy',
+        }),
+      ]);
+    } finally {
+      _setSymlinkImplForTests();
+    }
   });
 
   it('fails loudly when neither the primary store nor a legacy store exists', async () => {

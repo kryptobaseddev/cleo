@@ -22,18 +22,10 @@
  * @epic T9261 (T-LLM-CRED-CENTRALIZATION Phase 5)
  */
 
-import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  statSync,
-  symlinkSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { linkOrCopy } from '@cleocode/paths';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -140,7 +132,7 @@ export function findLatestCacheFile(dir: string): string | null {
 
 /**
  * Write `data` to `<dir>/<timestamp>-models.json` and update the
- * `latest.json` symlink to point at the new file.
+ * `latest.json` link (or, where links fail, copy) to the new file.
  *
  * @returns Absolute path of the written file.
  */
@@ -151,13 +143,14 @@ export function writeCacheFile(dir: string, data: ModelsCatalogFile): string {
   const filePath = join(dir, filename);
   writeFileSync(filePath, JSON.stringify(data), 'utf-8');
 
-  // Atomically rotate the `latest.json` symlink.
-  const symlinkPath = join(dir, 'latest.json');
+  // Rotate `latest.json`: a relative symlink where supported, a copy where
+  // file symlinks are not (Windows without Developer Mode) — T12607. The old
+  // code swallowed the symlink failure, so latest.json never existed there,
+  // and its `existsSync` guard missed a dangling link (EEXIST forever).
   try {
-    if (existsSync(symlinkPath)) unlinkSync(symlinkPath);
-    symlinkSync(filename, symlinkPath);
+    linkOrCopy(filename, join(dir, 'latest.json'), 'file', { overwrite: true });
   } catch {
-    // Symlink failure is non-fatal — the versioned file was written successfully.
+    // Non-fatal — the versioned file was written successfully.
   }
 
   return filePath;

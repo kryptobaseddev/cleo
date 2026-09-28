@@ -36,8 +36,10 @@ import type {
   PortableProjectSection,
   PortableRelocationReport,
   PortableSectionBase,
+  PortableSymlinkFallback,
   PortableTableComparison,
 } from '@cleocode/contracts';
+import { linkOrCopy } from '@cleocode/paths';
 import { extract as tarExtract, list as tarList } from 'tar';
 import { generateProjectHash } from '../nexus/hash.js';
 import { getCleoConfigDir, getCleoHome } from '../paths.js';
@@ -383,7 +385,10 @@ function relocateRegistryRows(
   return outcomes;
 }
 
-function placeSection(stagingDir: string, plan: Placement): { files: number; dbs: number } {
+function placeSection(
+  stagingDir: string,
+  plan: Placement,
+): { files: number; dbs: number; symlinkFallbacks: PortableSymlinkFallback[] } {
   fs.mkdirSync(plan.destDir, { recursive: true });
   for (const f of plan.section.files) {
     const src = path.join(stagingDir, f.bundlePath);
@@ -403,13 +408,51 @@ function placeSection(stagingDir: string, plan: Placement): { files: number; dbs
     }
     fs.renameSync(tmp, dst);
   }
+  // T12607: restore links through linkOrCopy (junction on Windows, verified,
+  // copy fallback). A bare symlinkSync threw on Windows and aborted the whole
+  // import after the data was already placed.
+  const symlinkFallbacks: PortableSymlinkFallback[] = [];
   for (const link of plan.section.symlinks ?? []) {
     const dst = path.join(plan.destDir, link.relPath);
     fs.mkdirSync(path.dirname(dst), { recursive: true });
     fs.rmSync(dst, { force: true });
-    fs.symlinkSync(link.target, dst);
+    const resolved = path.resolve(path.dirname(dst), link.target);
+    let targetStat: fs.Stats | null = null;
+    try {
+      targetStat = fs.statSync(resolved);
+    } catch {
+      targetStat = null;
+    }
+    if (targetStat === null) {
+      // A dangling link in the source: keep it dangling where links work;
+      // there is nothing to copy where they do not.
+      try {
+        fs.symlinkSync(link.target, dst);
+      } catch (err) {
+        symlinkFallbacks.push({
+          relPath: link.relPath,
+          target: link.target,
+          mode: 'skipped',
+          reason: err instanceof Error ? err.message : String(err),
+        });
+      }
+      continue;
+    }
+    const placed = linkOrCopy(link.target, dst, targetStat.isDirectory() ? 'dir' : 'file');
+    if (placed.mode === 'copy') {
+      symlinkFallbacks.push({
+        relPath: link.relPath,
+        target: link.target,
+        mode: 'copy',
+        reason: placed.fallbackReason ?? 'link not supported',
+      });
+    }
   }
-  return { files: plan.section.files.length, dbs: plan.section.databases.length };
+  return {
+    files: plan.section.files.length,
+    dbs: plan.section.databases.length,
+    symlinkFallbacks,
+  };
 }
 
 /**
@@ -656,6 +699,7 @@ export async function importPortableBundle(
         mismatches: counts.mismatches,
         keyCounts: counts.keyCounts,
       };
+      if (written.symlinkFallbacks.length > 0) result.symlinkFallbacks = written.symlinkFallbacks;
       if (plan.project && plan.destRoot) {
         result.name = plan.project.name;
         result.projectId = plan.project.projectId;

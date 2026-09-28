@@ -15,9 +15,10 @@
  * @epic T9261 (T-LLM-CRED-CENTRALIZATION Phase 5)
  */
 
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { lstatSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { _setSymlinkImplForTests } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildContextIndex,
@@ -116,6 +117,29 @@ describe('disk cache helpers', () => {
     const files = readdirSync(tmpDir);
     expect(files).toContain('latest.json');
     expect(files.some((f) => f.endsWith('-models.json'))).toBe(true);
+  });
+
+  it('latest.json is readable where symlinks fail (forced), and rotates on the next write (T12607)', () => {
+    _setSymlinkImplForTests(() => {
+      throw Object.assign(new Error('EPERM: operation not permitted, symlink'), { code: 'EPERM' });
+    });
+    try {
+      writeCacheFile(tmpDir, FIXTURE_CATALOG);
+      const latest = join(tmpDir, 'latest.json');
+      expect(lstatSync(latest).isSymbolicLink()).toBe(false); // a copy
+      expect(readCacheFile(latest)).toEqual(FIXTURE_CATALOG);
+      const second = { ...FIXTURE_CATALOG, marker: 'second' } as typeof FIXTURE_CATALOG;
+      writeCacheFile(tmpDir, second);
+      expect(JSON.parse(readFileSync(latest, 'utf-8')).marker).toBe('second');
+    } finally {
+      _setSymlinkImplForTests();
+    }
+  });
+
+  it('a dangling latest.json is replaced, not left stale (T12607)', () => {
+    symlinkSync('0-models.json', join(tmpDir, 'latest.json')); // target never existed
+    writeCacheFile(tmpDir, FIXTURE_CATALOG);
+    expect(readCacheFile(join(tmpDir, 'latest.json'))).toEqual(FIXTURE_CATALOG);
   });
 
   it('readCacheFile round-trips the catalog faithfully', () => {

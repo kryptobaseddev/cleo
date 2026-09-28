@@ -17,17 +17,11 @@
  * @task T1161
  */
 
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import type { WorktreeIncludePattern } from '@cleocode/contracts';
+import { linkOrCopy } from '@cleocode/paths';
 import { readWorktreeInclude as napiReadWorktreeInclude } from './napi-binding.js';
 
 const CANONICAL_INCLUDE_FILE = '.worktreeinclude';
@@ -259,11 +253,13 @@ function applyIncludePatternsLegacy(
       continue;
     }
 
+    // T12607: junction on Windows, verified, copy fallback — a bare
+    // symlinkSync needs Developer Mode on Windows and only warned on failure.
     try {
-      symlinkSync(sourcePath, targetPath);
+      linkOrCopy(sourcePath, targetPath, statSync(sourcePath).isDirectory() ? 'dir' : 'file');
       applied.push(entry);
     } catch {
-      process.stderr.write(`[worktree] include-pattern symlink failed: ${entry.pattern}\\n`);
+      process.stderr.write(`[worktree] include-pattern link and copy failed: ${entry.pattern}\\n`);
     }
   }
 

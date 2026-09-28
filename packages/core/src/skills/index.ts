@@ -122,6 +122,7 @@ export {
   addFederationPeer,
   assertTrustLevel,
   getFederationIndexPath,
+  getLegacyFederationIndexPath,
   listFederationPeers,
   normaliseFederationUrl,
   readFederationIndex,

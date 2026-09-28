@@ -21,6 +21,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { getTopUsed } from '../store/skills-store.js';
 import { type FederationEntry, listFederationPeers } from './federation-store.js';
+import { resolveSkillsRoot } from './skill-root.js';
 import type { SkillTrustLevel } from './skills-guard.js';
 
 // ---------------------------------------------------------------------------
@@ -134,9 +135,9 @@ export function computeScore(
 // Local filesystem search
 // ---------------------------------------------------------------------------
 
+/** T12603: the platform data dir root, never read through ~/.cleo. */
 function defaultLocalSkillsRoot(): string {
-  const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
-  return join(home, '.cleo', 'skills');
+  return resolveSkillsRoot();
 }
 
 /**

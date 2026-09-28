@@ -15,6 +15,7 @@
  *   {@link resolveWorktreeRootForHash}, {@link resolveTaskWorktreePath},
  *   {@link getCleoWorktreesRoot}, {@link resolveWorktreeIndexPath}
  * - {@link isAbsolutePath} — cross-platform abs-path check
+ * - {@link linkOrCopy} — junction/symlink with verified copy fallback (T12607)
  * - Portable identity: {@link readPortableProjectId} (tracked `.cleo/project-id`, T12325)
  *
  * @packageDocumentation
@@ -42,6 +43,15 @@ export {
   resolveProjectByCwd,
   resolveStableDeviceIdPath,
 } from './cleo-paths.js';
+export {
+  _setSymlinkImplForTests,
+  type LinkKind,
+  type LinkMode,
+  LinkOccupiedError,
+  type LinkOrCopyOptions,
+  type LinkOrCopyResult,
+  linkOrCopy,
+} from './link-or-copy.js';
 export {
   type EnforceOptions,
   enforceNodeVersion,
