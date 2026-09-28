@@ -11,20 +11,27 @@
 import { execFileSync } from 'node:child_process';
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   readFileSync,
   realpathSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { _resetDeviceIdCacheForTests } from '../../llm/stable-device-id.js';
 import { getCleoHome } from '../../paths.js';
 import { awaitBackgroundOps } from '../../store/background-ops.js';
-import { projectGitState, projectLocations } from '../../store/schema/nexus-schema.js';
+import {
+  projectGitState,
+  projectLocations,
+  projectRegistry,
+} from '../../store/schema/nexus-schema.js';
 import { resetDbState } from '../../store/sqlite.js';
 import {
   isRemoteStale,
@@ -32,8 +39,10 @@ import {
   parsePorcelainV2Status,
   probeGitState,
   probeGitStates,
+  redactRemoteUrl,
   runProjectsGitStatus,
 } from '../git-state.js';
+import { nexusUnregister } from '../registry.js';
 
 let testDir: string;
 const saved: Record<string, string | undefined> = {};
@@ -111,6 +120,8 @@ function alive(pid: number): boolean {
 }
 
 const target = (path: string, projectId = 'p1') => ({ projectId, deviceId: 'dev-a', path });
+
+const eqPath = (path: string) => eq(projectLocations.path, path);
 
 describe('AC1 — bounded concurrency and a per-location timeout (T12511)', () => {
   it('a hung git is killed at the per-row deadline together with its process group', async () => {
@@ -350,5 +361,181 @@ describe('parsePorcelainV2Status (T12511)', () => {
       dirtyCount: 2,
       untrackedCount: 1,
     });
+  });
+});
+
+/** An executable script that touches `marker` (and passes stdin through). */
+function markerScript(name: string, marker: string): string {
+  const bin = join(testDir, name);
+  writeFileSync(bin, `#!/bin/sh\ntouch "${marker}"\ncat\n`);
+  chmodSync(bin, 0o755);
+  return bin;
+}
+
+describe('hostile repository config does not execute (T12511 review)', () => {
+  it('status runs neither a core.fsmonitor hook nor a filter clean/process driver', async () => {
+    const repo = makeRepo(join(testDir, 'hostile'));
+    const fsmon = join(testDir, 'fsmonitor.ran');
+    const clean = join(testDir, 'clean.ran');
+    const proc = join(testDir, 'process.ran');
+    git(repo, 'config', 'core.fsmonitor', markerScript('fsmon.sh', fsmon));
+    git(repo, 'config', 'filter.evil.clean', markerScript('clean.sh', clean));
+    git(repo, 'config', 'filter.evil.process', markerScript('process.sh', proc));
+    git(repo, 'config', 'filter.evil.required', 'true');
+    writeFileSync(join(repo, '.gitattributes'), '*.txt filter=evil\n');
+    // Same content, new mtime: status must re-hash a.txt through the filter.
+    const later = new Date(Date.now() + 5_000);
+    utimesSync(join(repo, 'a.txt'), later, later);
+    const row = await probeGitState(target(repo));
+    expect(row.probeErrorCode).toBeNull();
+    expect(row.branch).toBe('main');
+    expect(existsSync(fsmon)).toBe(false);
+    expect(existsSync(clean)).toBe(false);
+    expect(existsSync(proc)).toBe(false);
+  });
+
+  it('fetch runs no hook (core.hooksPath) and no configured upload-pack', async () => {
+    const { remote, clone } = makeClone('hk');
+    const other = join(testDir, 'hk-other');
+    git(testDir, 'clone', '-q', remote, other);
+    writeFileSync(join(other, 'c.txt'), 'c\n');
+    git(other, 'add', 'c.txt');
+    git(other, 'commit', '-q', '-m', 'c');
+    git(other, 'push', '-q', 'origin', 'main');
+
+    const hookRan = join(testDir, 'hook.ran');
+    const hooks = join(testDir, 'hooks');
+    mkdirSync(hooks);
+    writeFileSync(join(hooks, 'reference-transaction'), `#!/bin/sh\ntouch "${hookRan}"\n`);
+    chmodSync(join(hooks, 'reference-transaction'), 0o755);
+    git(clone, 'config', 'core.hooksPath', hooks);
+    const uploadRan = join(testDir, 'upload.ran');
+    const upload = join(testDir, 'upload.sh');
+    writeFileSync(upload, `#!/bin/sh\ntouch "${uploadRan}"\nexec git-upload-pack "$@"\n`);
+    chmodSync(upload, 0o755);
+    git(clone, 'config', 'remote.origin.uploadpack', upload);
+
+    const row = await probeGitState(target(clone), { fetch: true });
+    expect(row.probeErrorCode).toBeNull();
+    expect(row.behind).toBe(1);
+    expect(existsSync(hookRan)).toBe(false);
+    expect(existsSync(uploadRan)).toBe(false);
+  });
+});
+
+describe('remote URL credentials are never stored (T12511 review)', () => {
+  it('redactRemoteUrl strips secrets and keeps non-secret users', () => {
+    expect(redactRemoteUrl('https://alice:ghp_secret@github.com/o/r.git')).toBe(
+      'https://github.com/o/r.git',
+    );
+    expect(redactRemoteUrl('https://ghp_token@github.com/o/r.git')).toBe(
+      'https://github.com/o/r.git',
+    );
+    expect(redactRemoteUrl('ssh://bob:hunter2@host:2222/x.git')).toBe('ssh://bob@host:2222/x.git');
+    expect(redactRemoteUrl('ssh://git@github.com/o/r.git')).toBe('ssh://git@github.com/o/r.git');
+    expect(redactRemoteUrl('git@github.com:o/r.git')).toBe('git@github.com:o/r.git');
+    expect(redactRemoteUrl('/srv/git/r.git')).toBe('/srv/git/r.git');
+    expect(redactRemoteUrl('file:///srv/git/r.git')).toBe('file:///srv/git/r.git');
+  });
+
+  it('a probed, stored and cross-device row carries no token', async () => {
+    const repo = makeRepo(join(testDir, 'cred'));
+    git(repo, 'remote', 'add', 'origin', 'https://alice:ghp_secret@github.com/o/r.git');
+    const row = await probeGitState(target(repo));
+    expect(row.remoteUrl).toBe('https://github.com/o/r.git');
+
+    const { getNexusRegistryDb } = await import('../../store/nexus-sqlite.js');
+    const db = await getNexusRegistryDb(getCleoHome());
+    db.insert(projectLocations)
+      .values({ projectId: 'p-cred', deviceId: 'dev-b', path: repo })
+      .run();
+    // Device B probes and records; device A reads it back in otherDevices.
+    await runProjectsGitStatus(db, {}, { deviceId: 'dev-b' });
+    const res = await runProjectsGitStatus(db, {}, { deviceId: 'dev-a' });
+    expect(JSON.stringify(res.otherDevices)).not.toContain('ghp_secret');
+    expect(JSON.stringify(listGitStates(db))).not.toContain('alice');
+  });
+});
+
+describe('rows follow their locations (T12511 review)', () => {
+  it('prunes rows for locations no longer probed and for unregistered projects', async () => {
+    const { getNexusRegistryDb } = await import('../../store/nexus-sqlite.js');
+    const db = await getNexusRegistryDb(getCleoHome());
+    const a = makeRepo(join(testDir, 'pa'));
+    const b = makeRepo(join(testDir, 'pb'));
+    db.insert(projectRegistry)
+      .values([
+        { projectId: 'p-a', projectHash: 'ha', projectPath: a, name: 'pa' },
+        { projectId: 'p-b', projectHash: 'hb', projectPath: b, name: 'pb' },
+      ])
+      .run();
+    db.insert(projectLocations)
+      .values([
+        { projectId: 'p-a', deviceId: 'dev-a', path: a },
+        { projectId: 'p-b', deviceId: 'dev-a', path: b },
+      ])
+      .run();
+    await runProjectsGitStatus(db, {}, { deviceId: 'dev-a' });
+    expect(listGitStates(db).map((r) => r.projectId)).toEqual(['p-a', 'p-b']);
+
+    // The location goes superseded: its row must not linger as current state.
+    db.update(projectLocations).set({ state: 'superseded' }).where(eqPath(b)).run();
+    await runProjectsGitStatus(db, {}, { deviceId: 'dev-a' });
+    expect(listGitStates(db).map((r) => r.projectId)).toEqual(['p-a']);
+
+    await nexusUnregister('pa');
+    expect(listGitStates(db)).toEqual([]);
+  });
+
+  it('probes a checkout once when two location paths resolve to it', async () => {
+    const { getNexusRegistryDb } = await import('../../store/nexus-sqlite.js');
+    const db = await getNexusRegistryDb(getCleoHome());
+    const real = makeRepo(join(testDir, 'real'));
+    const link = join(testDir, 'link');
+    symlinkSync(real, link);
+    db.insert(projectLocations)
+      .values([
+        { projectId: 'p-r', deviceId: 'dev-a', path: link },
+        { projectId: 'p-r', deviceId: 'dev-a', path: real },
+      ])
+      .run();
+    const res = await runProjectsGitStatus(db, {}, { deviceId: 'dev-a' });
+    expect(res.rows).toHaveLength(1);
+    expect(listGitStates(db)).toHaveLength(1);
+  });
+});
+
+describe('the process never outlives the deadline (T12511 review)', () => {
+  it('a grandchild that escaped the process group cannot hold the pipes open', async () => {
+    const repo = makeRepo(join(testDir, 'r'));
+    const bin = join(testDir, 'escape-git.sh');
+    const pidFile = join(testDir, 'escaped.pid');
+    // perl setpgrp: the sleeper leaves git's group but inherits its stdout.
+    writeFileSync(
+      bin,
+      `#!/bin/sh\nperl -e 'setpgrp(0,0); open(F, ">", "${pidFile}"); print F $$; close F; exec "sleep", "30"' &\nsleep 30\n`,
+    );
+    chmodSync(bin, 0o755);
+    const pipesBefore = process.getActiveResourcesInfo().filter((r) => r === 'PipeWrap').length;
+    const row = await probeGitState(target(repo), { timeoutMs: 300, gitBin: bin });
+    expect(row.probeErrorCode).toBe('E_GIT_TIMEOUT');
+    await new Promise((r) => setTimeout(r, 50));
+    const pipesAfter = process.getActiveResourcesInfo().filter((r) => r === 'PipeWrap').length;
+    try {
+      expect(pipesAfter).toBeLessThanOrEqual(pipesBefore);
+    } finally {
+      const pid = Number(readFileSync(pidFile, 'utf8').trim());
+      if (alive(pid)) process.kill(pid, 'SIGKILL');
+    }
+  });
+
+  it('output beyond the cap is a recorded failure, not an unbounded buffer', async () => {
+    const repo = makeRepo(join(testDir, 'r'));
+    const bin = join(testDir, 'chatty-git.sh');
+    writeFileSync(bin, '#!/bin/sh\nhead -c 3000000 /dev/zero\n');
+    chmodSync(bin, 0o755);
+    const row = await probeGitState(target(repo), { gitBin: bin, maxOutputBytes: 1_000_000 });
+    expect(row.probeErrorCode).toBe('E_GIT_FAILED');
+    expect(row.probeError).toMatch(/exceeded 1000000 bytes/);
   });
 });

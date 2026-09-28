@@ -30,3 +30,17 @@ therefore see where each project lives and its last known git state.
   `.cleo/project-context.json` `evidence.gitRoot`.
 - Returns the fresh rows for this device, plus the last recorded rows of other
   devices in `otherDevices`.
+
+The probe runs no code the repository configures:
+- Every git call passes `-c core.fsmonitor=false` and `core.hooksPath=<devnull>`,
+  and turns off the ext:: transport.
+- Every filter driver the config names is disabled for that call.
+- A fetch passes `--upload-pack=git-upload-pack` and empty `credential.helper`
+  and `core.askPass`. It uses plain `ssh -oBatchMode=yes` and does not recurse
+  into submodules.
+- Every prompt is disabled in the environment.
+
+Credentials in remote URLs are never stored: a token or password in the userinfo
+part is removed, while an ssh login such as `git@` is kept. Rows for locations
+that are no longer probed are pruned in the same transaction as the write, and
+`nexus unregister` deletes the project's rows.

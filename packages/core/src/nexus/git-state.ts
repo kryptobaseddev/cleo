@@ -38,9 +38,8 @@
  * @epic T12496
  */
 
-import { spawn } from 'node:child_process';
 import { constants as fsConstants } from 'node:fs';
-import { access, stat } from 'node:fs/promises';
+import { access, readFile, realpath, stat } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 import type {
   NexusGitProbeErrorCode,
@@ -50,7 +49,16 @@ import type {
 } from '@cleocode/contracts';
 import { and, eq, inArray, ne } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
-import { discoveryEnv, resolveDeclaredEvidenceGitRoot } from '../git/work-tree.js';
+import {
+  type BoundedGitRun,
+  DEADLINE_EXCEEDED,
+  DEFAULT_GIT_MAX_OUTPUT_BYTES,
+  FETCH_HARDENING,
+  filterOverrides,
+  runBoundedGit,
+  withDeadline,
+} from '../git/bounded-git.js';
+import { parseConfiguredGitRoot } from '../git/work-tree.js';
 import { runWithConcurrency } from '../lib/concurrency.js';
 import {
   type ProjectGitStateRow,
@@ -100,99 +108,8 @@ export interface GitStateProbeOptions {
   now?: () => Date;
   /** Git executable (tests substitute a hanging one). Default `git`. */
   gitBin?: string;
-}
-
-/** Outcome of one git invocation. */
-interface GitRun {
-  /** Exit code; `null` when killed or never started. */
-  code: number | null;
-  stdout: string;
-  stderr: string;
-  /** Killed at the deadline. */
-  timedOut: boolean;
-  /** Spawn failure (ENOENT for a missing git, EACCES for the cwd, …). */
-  spawnError: NodeJS.ErrnoException | null;
-}
-
-/** Probe environment: no ambient repo, no prompts, no optional locks. */
-function probeEnv(): NodeJS.ProcessEnv {
-  return { ...discoveryEnv(), GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', LC_ALL: 'C' };
-}
-
-/**
- * Run one git command in `cwd`, killed with its whole process group when
- * `deadline` passes. Never rejects.
- */
-function runGit(
-  gitBin: string,
-  args: readonly string[],
-  cwd: string,
-  deadline: number,
-): Promise<GitRun> {
-  const remaining = deadline - Date.now();
-  if (remaining <= 0) {
-    return Promise.resolve({
-      code: null,
-      stdout: '',
-      stderr: '',
-      timedOut: true,
-      spawnError: null,
-    });
-  }
-  return new Promise((resolveRun) => {
-    const out: Buffer[] = [];
-    const err: Buffer[] = [];
-    let settled = false;
-    const settle = (run: GitRun): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolveRun(run);
-    };
-    // A new process group (POSIX) so the deadline can kill git AND whatever it
-    // spawned (ssh, credential helpers) — they hold the pipes open otherwise.
-    const child = spawn(gitBin, [...args], {
-      cwd,
-      env: probeEnv(),
-      stdio: ['ignore', 'pipe', 'pipe'],
-      detached: process.platform !== 'win32',
-      windowsHide: true,
-    });
-    const timer = setTimeout(() => {
-      try {
-        if (child.pid !== undefined && process.platform !== 'win32') {
-          process.kill(-child.pid, 'SIGKILL');
-        } else {
-          child.kill('SIGKILL');
-        }
-      } catch {
-        // Already exited between the deadline and the kill.
-      }
-      // Resolve now rather than on 'close': a grandchild that escaped the
-      // group could still hold the pipes.
-      settle({
-        code: null,
-        stdout: Buffer.concat(out).toString('utf8'),
-        stderr: Buffer.concat(err).toString('utf8'),
-        timedOut: true,
-        spawnError: null,
-      });
-    }, remaining);
-    child.stdout.on('data', (b: Buffer) => out.push(b));
-    child.stderr.on('data', (b: Buffer) => err.push(b));
-    child.on('error', (e: NodeJS.ErrnoException) =>
-      settle({ code: null, stdout: '', stderr: e.message, timedOut: false, spawnError: e }),
-    );
-    child.on('close', (code) =>
-      settle({
-        code,
-        stdout: Buffer.concat(out).toString('utf8'),
-        stderr: Buffer.concat(err).toString('utf8'),
-        timedOut: false,
-        spawnError: null,
-      }),
-    );
-  });
+  /** Cap on one git call's output, bytes. Default 64 MiB. */
+  maxOutputBytes?: number;
 }
 
 /** Parsed `git status --porcelain=v2 --branch -z`. */
@@ -254,27 +171,79 @@ export function parsePorcelainV2Status(raw: string): ParsedStatus {
   return parsed;
 }
 
-/** Remote a branch tracks, and every remote's URL, from `git config`. */
-function parseRemoteConfig(raw: string): {
+/** Remote a branch tracks, every remote's URL, and every filter driver name. */
+function parseProbeConfig(raw: string): {
   branchRemote: Map<string, string>;
   remoteUrl: Map<string, string>;
+  filters: Set<string>;
 } {
   const branchRemote = new Map<string, string>();
   const remoteUrl = new Map<string, string>();
+  const filters = new Set<string>();
   // `-z`: each entry is `key\nvalue\0`.
   for (const entry of raw.split('\0')) {
     const nl = entry.indexOf('\n');
-    if (nl < 0) continue;
-    const key = entry.slice(0, nl);
-    const value = entry.slice(nl + 1);
+    const key = nl < 0 ? entry : entry.slice(0, nl);
+    const value = nl < 0 ? '' : entry.slice(nl + 1);
     if (key.startsWith('branch.') && key.endsWith('.remote')) {
       branchRemote.set(key.slice('branch.'.length, -'.remote'.length), value);
     } else if (key.startsWith('remote.') && key.endsWith('.url')) {
       const name = key.slice('remote.'.length, -'.url'.length);
       if (!remoteUrl.has(name)) remoteUrl.set(name, value);
+    } else if (key.startsWith('filter.')) {
+      const name = key.slice('filter.'.length, key.lastIndexOf('.'));
+      if (name.length > 0) filters.add(name);
     }
   }
-  return { branchRemote, remoteUrl };
+  return { branchRemote, remoteUrl, filters };
+}
+
+/** Schemes whose userinfo user is an account name, not a credential. */
+const SSH_SCHEMES = new Set(['ssh', 'git+ssh', 'ssh+git']);
+
+/**
+ * Remove credentials from a remote URL before it is stored or shown.
+ *
+ * - `scheme://user:pass@host/…` (http, https, ftp, git, …) → `scheme://host/…`:
+ *   for these schemes even a bare user is typically a token.
+ * - `ssh://user:pass@host/…` → `ssh://user@host/…`: the ssh login (`git`) is not
+ *   a secret; a password is.
+ * - scp-style `user:pass@host:path` → `user@host:path`.
+ * - Local paths and `file://` are unchanged.
+ *
+ * @param url - Configured remote URL.
+ * @returns The URL without secrets.
+ * @example
+ * ```ts
+ * redactRemoteUrl('https://alice:ghp_x@github.com/o/r.git'); // 'https://github.com/o/r.git'
+ * ```
+ */
+export function redactRemoteUrl(url: string): string {
+  const withScheme = /^([a-zA-Z][a-zA-Z0-9+.-]*):\/\/([^/?#]*)@(.*)$/s.exec(url);
+  if (withScheme) {
+    const [, scheme = '', userinfo = '', rest = ''] = withScheme;
+    if (!SSH_SCHEMES.has(scheme.toLowerCase())) return `${scheme}://${rest}`;
+    const user = userinfo.split(':')[0] ?? '';
+    return user.length > 0 ? `${scheme}://${user}@${rest}` : `${scheme}://${rest}`;
+  }
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(url)) return url;
+  const scp = /^([^@/]+)@([^/:]+:.*)$/s.exec(url);
+  if (scp) {
+    const [, userinfo = '', rest = ''] = scp;
+    return `${userinfo.split(':')[0]}@${rest}`;
+  }
+  return url;
+}
+
+/**
+ * Apply {@link redactRemoteUrl} to every URL embedded in free text (git's
+ * stderr quotes the remote URL verbatim, credentials included).
+ *
+ * @param text - Message text.
+ * @returns The text with URL credentials removed.
+ */
+export function redactUrlsInText(text: string): string {
+  return text.replace(/[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^\s'"<>]+/g, (url) => redactRemoteUrl(url));
 }
 
 /** Newest mtime among the given files, or `null` when none exists. */
@@ -292,7 +261,7 @@ async function newestMtime(paths: readonly string[]): Promise<Date | null> {
 }
 
 /** First meaningful line of git's stderr, for a row's `probeError`. */
-function gitMessage(run: GitRun, fallback: string): string {
+function gitMessage(run: BoundedGitRun, fallback: string): string {
   const line = run.stderr
     .split('\n')
     .map((l) => l.trim())
@@ -319,6 +288,7 @@ export async function probeGitState(
 ): Promise<NexusProjectGitState> {
   const now = options.now ?? (() => new Date());
   const gitBin = options.gitBin ?? 'git';
+  const maxOutputBytes = options.maxOutputBytes ?? DEFAULT_GIT_MAX_OUTPUT_BYTES;
   const doFetch = options.fetch === true;
   const timeoutMs =
     options.timeoutMs ??
@@ -356,20 +326,35 @@ export async function probeGitState(
   };
   const fail = (code: NexusGitProbeErrorCode, message: string): NexusProjectGitState => {
     row.probeErrorCode = code;
-    row.probeError = message;
+    row.probeError = redactUrlsInText(message);
     row.durationMs = Date.now() - started;
     return row;
   };
-  const failRun = (run: GitRun, what: string): NexusProjectGitState =>
-    run.timedOut
-      ? fail('E_GIT_TIMEOUT', `${what} exceeded ${timeoutMs}ms; git process group killed`)
-      : fail('E_GIT_FAILED', gitMessage(run, what));
+  const failRun = (run: BoundedGitRun, what: string): NexusProjectGitState => {
+    if (run.timedOut) {
+      return fail('E_GIT_TIMEOUT', `${what} exceeded ${timeoutMs}ms; git process group killed`);
+    }
+    if (run.overflowed) {
+      return fail('E_GIT_FAILED', `${what} output exceeded ${maxOutputBytes} bytes; killed`);
+    }
+    if (run.spawnError !== null) return fail('E_GIT_FAILED', `cannot run git: ${run.stderr}`);
+    return fail('E_GIT_FAILED', gitMessage(run, what));
+  };
+  const git = (args: readonly string[], cwd: string): Promise<BoundedGitRun> =>
+    runBoundedGit(args, { cwd, deadline, gitBin, maxOutputBytes });
+  const fsTimeout = (what: string): NexusProjectGitState =>
+    fail('E_GIT_TIMEOUT', `${what} of ${target.path} exceeded ${timeoutMs}ms (filesystem)`);
 
-  // 1. The directory itself.
+  // 1. The directory itself — bounded: a dead mount must not stall the row.
   try {
-    const s = await stat(target.path);
+    const s = await withDeadline(stat(target.path), deadline);
+    if (s === DEADLINE_EXCEEDED) return fsTimeout('stat');
     if (!s.isDirectory()) return fail('E_PATH_MISSING', `not a directory: ${target.path}`);
-    await access(target.path, fsConstants.R_OK | fsConstants.X_OK);
+    const ok = await withDeadline(
+      access(target.path, fsConstants.R_OK | fsConstants.X_OK),
+      deadline,
+    );
+    if (ok === DEADLINE_EXCEEDED) return fsTimeout('access');
   } catch (e) {
     const code = (e as NodeJS.ErrnoException).code;
     if (code === 'ENOENT' || code === 'ENOTDIR') {
@@ -391,24 +376,29 @@ export async function probeGitState(
     '--show-toplevel',
   ];
   let runDir = target.path;
-  let rev = await runGit(gitBin, revParseArgs, runDir, deadline);
+  let rev = await git(revParseArgs, runDir);
   if (rev.code !== 0 && !rev.timedOut && rev.spawnError === null) {
     if (/not a git repository/i.test(rev.stderr)) {
-      const declared = resolveDeclaredEvidenceGitRoot(target.path, {});
+      const contextFile = join(target.path, '.cleo', 'project-context.json');
+      const raw = await withDeadline(
+        readFile(contextFile, 'utf-8').catch(() => null),
+        deadline,
+      );
+      if (raw === DEADLINE_EXCEEDED) return fsTimeout('reading .cleo/project-context.json');
+      const declared = raw === null ? null : parseConfiguredGitRoot(raw);
       if (declared === null) {
         return fail('E_NOT_GIT_REPO', `not inside a git work tree: ${target.path}`);
       }
-      runDir = declared.path;
-      rev = await runGit(gitBin, revParseArgs, runDir, deadline);
-      if (rev.code !== 0 && !rev.timedOut) {
+      runDir = isAbsolute(declared) ? declared : resolve(target.path, declared);
+      rev = await git(revParseArgs, runDir);
+      if (rev.code !== 0 && !rev.timedOut && !rev.overflowed) {
         return fail(
           'E_NOT_GIT_REPO',
-          `declared git root ${declared.path} (from ${declared.source}) is not a git work tree: ${gitMessage(rev, 'git rev-parse')}`,
+          `declared git root ${runDir} (from .cleo/project-context.json evidence.gitRoot="${declared}") is not a git work tree: ${gitMessage(rev, 'git rev-parse')}`,
         );
       }
     }
   }
-  if (rev.spawnError !== null) return fail('E_GIT_FAILED', `cannot run git: ${rev.stderr}`);
   if (rev.code !== 0) return failRun(rev, 'git rev-parse');
   const [gitDir, commonDirRaw, shallow, toplevel] = rev.stdout.trim().split('\n');
   row.shallow = shallow === 'true';
@@ -420,27 +410,49 @@ export async function probeGitState(
         ? commonDirRaw
         : resolve(runDir, commonDirRaw);
 
-  // 3. Optional fetch — non-fatal: the row still describes the local state
+  // 3. Remotes and filter drivers. Reading config runs no repository code;
+  //    the filter names are what lets every later call disable them.
+  const config = await git(
+    [
+      'config',
+      '-z',
+      '--get-regexp',
+      '^(branch\\..+\\.remote|remote\\..+\\.url|filter\\..+\\.(clean|smudge|process))$',
+    ],
+    runDir,
+  );
+  // exit 1 = nothing matched (no remotes, no filters).
+  if (config.code !== 0 && config.code !== 1) return failRun(config, 'git config');
+  const cfg = parseProbeConfig(config.code === 0 ? config.stdout : '');
+  const noFilters = filterOverrides(cfg.filters);
+
+  // 4. Optional fetch — non-fatal: the row still describes the local state
   //    and the previous fetch.
   let fetchFailure: string | null = null;
   if (doFetch) {
-    const fetched = await runGit(gitBin, ['fetch', '--quiet'], runDir, deadline);
-    if (fetched.timedOut) {
-      return failRun(fetched, 'git fetch');
-    }
+    const fetched = await git(
+      [
+        ...FETCH_HARDENING,
+        ...noFilters,
+        'fetch',
+        '--quiet',
+        '--no-recurse-submodules',
+        // Beats `remote.<name>.uploadpack` — a `-c` override does not: the
+        // first configured value wins for that key.
+        '--upload-pack=git-upload-pack',
+      ],
+      runDir,
+    );
+    if (fetched.timedOut) return failRun(fetched, 'git fetch');
     if (fetched.code !== 0) fetchFailure = gitMessage(fetched, 'git fetch');
   }
 
-  // 4. Status and remote config together.
-  const [status, config] = await Promise.all([
-    runGit(gitBin, ['status', '--porcelain=v2', '--branch', '-z'], runDir, deadline),
-    runGit(
-      gitBin,
-      ['config', '-z', '--get-regexp', '^(branch\\..+\\.remote|remote\\..+\\.url)$'],
-      runDir,
-      deadline,
-    ),
-  ]);
+  // 5. Status. Submodule work trees are not entered (`dirty`): a child git
+  //    there would read that repository's own, unenumerated filters.
+  const status = await git(
+    [...noFilters, 'status', '--porcelain=v2', '--branch', '-z', '--ignore-submodules=dirty'],
+    runDir,
+  );
   if (status.code !== 0) return failRun(status, 'git status');
   const parsed = parsePorcelainV2Status(status.stdout);
   row.headSha = parsed.headSha;
@@ -452,35 +464,32 @@ export async function probeGitState(
   row.dirtyCount = parsed.dirtyCount;
   row.untrackedCount = parsed.untrackedCount;
 
-  // `git config --get-regexp` exits 1 when nothing matches: no remotes.
-  if (config.timedOut) return failRun(config, 'git config');
-  const remotes = parseRemoteConfig(config.code === 0 ? config.stdout : '');
-  const tracked = parsed.branch !== null ? remotes.branchRemote.get(parsed.branch) : undefined;
+  const tracked = parsed.branch !== null ? cfg.branchRemote.get(parsed.branch) : undefined;
   row.remoteName =
-    tracked ??
-    (remotes.remoteUrl.has('origin') ? 'origin' : ([...remotes.remoteUrl.keys()][0] ?? null));
-  row.remoteUrl = row.remoteName !== null ? (remotes.remoteUrl.get(row.remoteName) ?? null) : null;
+    tracked ?? (cfg.remoteUrl.has('origin') ? 'origin' : ([...cfg.remoteUrl.keys()][0] ?? null));
+  const url = row.remoteName !== null ? cfg.remoteUrl.get(row.remoteName) : undefined;
+  // Never store or share a token or password embedded in the URL.
+  row.remoteUrl = url === undefined ? null : redactRemoteUrl(url);
 
-  // 5. Upstream tracking-ref commit (as of the last fetch).
+  // 6. Upstream tracking-ref commit (as of the last fetch).
   if (parsed.upstream !== null) {
-    const up = await runGit(
-      gitBin,
-      ['rev-parse', '--verify', '--quiet', '@{upstream}'],
-      runDir,
-      deadline,
-    );
-    if (up.timedOut) return failRun(up, 'git rev-parse @{upstream}');
+    const up = await git(['rev-parse', '--verify', '--quiet', '@{upstream}'], runDir);
+    if (up.timedOut || up.overflowed) return failRun(up, 'git rev-parse @{upstream}');
     // exit 1: upstream configured but its tracking ref is gone — leave null.
     if (up.code === 0) row.remoteHeadSha = up.stdout.trim() || null;
   }
 
-  // 6. Remote freshness: FETCH_HEAD is per-worktree, the tracking refs are
+  // 7. Remote freshness: FETCH_HEAD is per-worktree, the tracking refs are
   //    shared, so a fetch from any worktree of this repo counts.
-  const fetchedAt = await newestMtime(
-    [gitDir, commonDir]
-      .filter((d): d is string => typeof d === 'string' && d.length > 0)
-      .map((d) => join(d, 'FETCH_HEAD')),
+  const fetchedAt = await withDeadline(
+    newestMtime(
+      [gitDir, commonDir]
+        .filter((d): d is string => typeof d === 'string' && d.length > 0)
+        .map((d) => join(d, 'FETCH_HEAD')),
+    ),
+    deadline,
   );
+  if (fetchedAt === DEADLINE_EXCEEDED) return fsTimeout('stat of FETCH_HEAD');
   row.remoteFetchedAt = fetchedAt?.toISOString() ?? null;
   row.remoteStale = isRemoteStale(row, probedAt, staleAfterMs);
 
@@ -575,17 +584,43 @@ export function listLocalProbeTargets(db: GitStateStoreHandle, deviceId: string)
 }
 
 /**
- * Upsert probe rows into `nexus_project_git_state`, one transaction.
+ * Upsert probe rows into `nexus_project_git_state`, one transaction. With
+ * `pruneDeviceId`, that device's rows not in `rows` are deleted in the same
+ * transaction.
  *
  * @param db - Global registry handle.
  * @param rows - Probe results.
+ * @param options - `pruneDeviceId`: the device whose full row set `rows` is.
  */
 export function recordGitStates(
   db: GitStateStoreHandle,
   rows: readonly NexusProjectGitState[],
+  options: { pruneDeviceId?: string } = {},
 ): void {
-  if (rows.length === 0) return;
+  if (rows.length === 0 && options.pruneDeviceId === undefined) return;
   db.transaction((tx) => {
+    if (options.pruneDeviceId !== undefined) {
+      // A row whose location is no longer probed (superseded, deleted,
+      // deduplicated) must not linger as this device's current state.
+      const keep = new Set(rows.map((r) => `${r.projectId}\0${r.path}`));
+      const existing = tx
+        .select({ projectId: projectGitState.projectId, path: projectGitState.path })
+        .from(projectGitState)
+        .where(eq(projectGitState.deviceId, options.pruneDeviceId))
+        .all();
+      for (const e of existing) {
+        if (keep.has(`${e.projectId}\0${e.path}`)) continue;
+        tx.delete(projectGitState)
+          .where(
+            and(
+              eq(projectGitState.projectId, e.projectId),
+              eq(projectGitState.deviceId, options.pruneDeviceId),
+              eq(projectGitState.path, e.path),
+            ),
+          )
+          .run();
+      }
+    }
     for (const r of rows) {
       const values = {
         gitRoot: r.gitRoot,
@@ -685,6 +720,33 @@ function storedToState(
 }
 
 /**
+ * Drop targets of the same project whose paths resolve to the same directory
+ * (a symlink and its target, `/tmp` and `/private/tmp`), keeping the first.
+ * Each `realpath` is bounded by `timeoutMs`; an unresolvable path is kept
+ * as-is so its probe records the error.
+ */
+async function dedupeByRealPath(
+  targets: readonly GitProbeTarget[],
+  concurrency: number,
+  timeoutMs: number,
+): Promise<GitProbeTarget[]> {
+  const real = await runWithConcurrency(targets, concurrency, async (t) => {
+    const r = await withDeadline(
+      realpath(t.path).catch(() => t.path),
+      Date.now() + timeoutMs,
+    );
+    return r === DEADLINE_EXCEEDED ? t.path : r;
+  });
+  const seen = new Set<string>();
+  return targets.filter((t, i) => {
+    const key = `${t.projectId}\0${real[i] ?? t.path}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
  * Probe and record every location on this device, and return the fresh rows
  * together with the last recorded rows of every other device.
  *
@@ -717,7 +779,11 @@ export async function runProjectsGitStatus(
       ? params.staleAfterMs
       : GIT_STATE_DEFAULTS.staleAfterMs;
 
-  const targets = listLocalProbeTargets(db, deviceId);
+  const targets = await dedupeByRealPath(
+    listLocalProbeTargets(db, deviceId),
+    concurrency,
+    timeoutMs,
+  );
   const rows = await probeGitStates(targets, {
     fetch,
     concurrency,
@@ -726,7 +792,7 @@ export async function runProjectsGitStatus(
     now: overrides.now,
     gitBin: overrides.gitBin,
   });
-  recordGitStates(db, rows);
+  recordGitStates(db, rows, { pruneDeviceId: deviceId });
   const otherDevices = listGitStates(db, {
     excludeDeviceId: deviceId,
     now: overrides.now?.(),

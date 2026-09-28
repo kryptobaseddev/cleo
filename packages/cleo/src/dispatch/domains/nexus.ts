@@ -451,7 +451,7 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
 
   'projects.status': async (params) =>
     wrapCoreResult(
-      await nexusProjectsStatus({
+      await nexusProjectsStatus(getProjectRoot(), {
         fetch: params.fetch === true,
         concurrency: typeof params.concurrency === 'number' ? params.concurrency : undefined,
         timeoutMs: typeof params.timeoutMs === 'number' ? params.timeoutMs : undefined,
