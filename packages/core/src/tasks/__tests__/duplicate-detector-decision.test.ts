@@ -33,9 +33,12 @@ vi.mock('../../llm/role-resolver.js', () => ({
   },
 }));
 
-const { checkDuplicates, DUPLICATE_DECISION_BUDGET_MS, DUPLICATE_DECISION_SITE } = await import(
-  '../duplicate-detector.js'
-);
+const {
+  buildRejectMessage,
+  checkDuplicates,
+  DUPLICATE_DECISION_BUDGET_MS,
+  DUPLICATE_DECISION_SITE,
+} = await import('../duplicate-detector.js');
 
 // ---------------------------------------------------------------------------
 // Fixture
@@ -94,7 +97,7 @@ const HEURISTIC_RESULT = {
 // Local Jev stub
 // ---------------------------------------------------------------------------
 
-type StubMode = 'fast' | 'slow' | 'error';
+type StubMode = 'fast' | 'slow' | 'error' | 'unsure';
 
 let server: Server;
 let baseUrl: string;
@@ -124,7 +127,11 @@ beforeAll(async () => {
     const answers: Record<string, unknown> = {};
     for (const name of Object.keys(body.questions)) {
       // c1 is the duplicate; the rest are not.
-      answers[name] = { type: 'noul', noul: name === 'c1' ? 0.93 : 0.08, confidence: 0.9 };
+      answers[name] = {
+        type: 'noul',
+        noul: name === 'c1' ? 0.93 : 0.08,
+        confidence: stubMode === 'unsure' ? 0.4 : 0.9,
+      };
     }
     if (res.destroyed) return;
     res
@@ -242,6 +249,30 @@ describe('System One duplicate decision — configured', () => {
     expect(audit.entries[0]?.shadow?.acted).toBe('decision');
   });
 
+  it('on: a low-confidence "duplicate" does not reject; the heuristic acts', async () => {
+    stubMode = 'unsure';
+    const audit = memoryAudit();
+    const result = await checkDuplicates(NEW_TITLE, NEW_DESCRIPTION, accessor, [], projectDir, {
+      mode: 'on',
+      decide: stubWiring(audit),
+    });
+
+    expect(result).toEqual(HEURISTIC_RESULT);
+    expect(audit.entries[0]?.shadow?.acted).toBe('heuristic');
+  });
+
+  it('on: the rejection message labels the value as a System One probability', async () => {
+    const result = await checkDuplicates(NEW_TITLE, NEW_DESCRIPTION, accessor, [], projectDir, {
+      mode: 'on',
+      decide: stubWiring(memoryAudit()),
+    });
+    const message = buildRejectMessage(result.candidates, result.tier);
+
+    expect(message).toContain('System One duplicate probability: 93%');
+    expect(message).not.toContain('similarity');
+    expect(message).not.toContain('92%');
+  });
+
   it('slow provider: falls back within the budget and audits `timeout`', async () => {
     stubMode = 'slow';
     const audit = memoryAudit();
@@ -282,6 +313,83 @@ describe('System One duplicate decision — configured', () => {
     expect(result).toEqual(HEURISTIC_RESULT);
     expect(received).toHaveLength(0);
     expect(audit.entries).toHaveLength(0);
+  });
+});
+
+describe('System One duplicate decision — shadow agreement is measurable', () => {
+  it("records each candidate's Tier-3 heuristic verdict (warn/pass) and raw score", async () => {
+    // Tier-1 0.894 (warn zone) and 0.796 (pass); both Tier-2 ambiguous.
+    const warnPair = {
+      queryTasks: async () => ({
+        tasks: [
+          task(
+            'T301',
+            'Add retry logic to webhook sender',
+            'Retries failed webhook deliveries with exponential backoff',
+          ),
+          task(
+            'T302',
+            'Add retry logic for the webhook sender',
+            'Retry failed webhook deliveries with exponential backoff and jitter',
+          ),
+        ],
+        total: 2,
+      }),
+    } as Parameters<typeof checkDuplicates>[2];
+    const audit = memoryAudit();
+
+    await checkDuplicates(NEW_TITLE, NEW_DESCRIPTION, warnPair, [], projectDir, {
+      mode: 'shadow',
+      decide: stubWiring(audit),
+    });
+
+    const shadow = audit.entries[0]?.shadow;
+    expect(shadow?.subjects).toEqual({ c1: 'T301', c2: 'T302' });
+    expect(shadow?.heuristicVerdict).toBe('warn');
+    expect(shadow?.heuristicVerdicts).toEqual({ c1: 'warn', c2: 'pass' });
+    expect(shadow?.heuristicScores?.['c1']).toBeCloseTo(0.894, 2);
+    expect(shadow?.heuristicScores?.['c2']).toBeCloseTo(0.796, 2);
+    expect(shadow?.heuristicAnswers['c1']).toMatchObject({ value: true });
+    expect(shadow?.heuristicAnswers['c2']).toMatchObject({ value: false });
+    // Stub: c1 duplicate, c2 not — the same split as the heuristic.
+    expect(shadow?.agree).toBe(true);
+  });
+});
+
+describe('System One duplicate decision — redaction before clipping', () => {
+  const PAD =
+    'Context: the sender posts signed payloads to customer endpoints and records every attempt. '
+      .repeat(5)
+      .slice(0, 360);
+
+  // Each secret starts ~15 characters before the 440-character description
+  // cap, so clipping first would send its prefix un-redacted.
+  it.each([
+    ['anthropic key', `sk-ant-api03-${'Q'.repeat(80)}`, 'sk-ant'],
+    ['github token', `ghp_${'A'.repeat(36)}`, 'ghp_'],
+  ])('a %s straddling the cut never leaves the machine', async (_label, secret, marker) => {
+    const candidate = task(
+      'T201',
+      'Retry logic for the webhook sender',
+      `Failed webhook deliveries retry with exponential backoff. ${PAD} token ${secret}`,
+    );
+    const oneCandidate = {
+      queryTasks: async () => ({ tasks: [candidate], total: 1 }),
+    } as Parameters<typeof checkDuplicates>[2];
+
+    await checkDuplicates(
+      NEW_TITLE,
+      `Retry failed webhook deliveries with exponential backoff. ${PAD}`,
+      oneCandidate,
+      [],
+      projectDir,
+      { mode: 'shadow', decide: stubWiring(memoryAudit()) },
+    );
+
+    expect(received).toHaveLength(1);
+    const sent = JSON.stringify(received[0]?.body);
+    expect(sent).toContain('T201');
+    expect(sent).not.toContain(marker);
   });
 });
 

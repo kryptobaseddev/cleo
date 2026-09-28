@@ -48,11 +48,13 @@ import {
   decisionAnswerSchema,
 } from '@cleocode/contracts';
 import { z } from 'zod';
+import { MAX_RATE_LIMIT_COOLDOWN_MS } from './budget.js';
 import {
   type DecisionProvider,
   type DecisionProviderConnection,
   DecisionProviderError,
 } from './provider.js';
+import { type DecideFetch, decideFetch } from './transport.js';
 
 /** Path of the multi-question endpoint, relative to the base URL. */
 const SYSTEMONE_PATH = '/v1/systemone';
@@ -230,22 +232,33 @@ export function fromJevSystemOneResponse(
 }
 
 /**
- * Parse a `retry-after` header (delta seconds or HTTP date) into milliseconds.
+ * Parse a `retry-after` header (delta seconds or HTTP date) into milliseconds,
+ * capped at {@link MAX_RATE_LIMIT_COOLDOWN_MS}.
+ *
+ * Negative seconds, past dates and anything unparseable are ignored
+ * (`undefined`, so the budget applies its default cool-down). A numeric-looking
+ * value is never re-read as a date: `Date.parse('-5')` is a valid year.
  *
  * @param header - Raw header value, or null.
  * @param now - Current epoch ms (injectable for tests).
- * @returns Milliseconds to wait, or undefined when absent/unparseable.
+ * @returns Milliseconds to wait (≤ 60 000), or undefined when absent, negative or unparseable.
  */
 export function parseRetryAfterMs(
   header: string | null,
   now: number = Date.now(),
 ): number | undefined {
-  if (!header) return undefined;
-  const seconds = Number(header);
-  if (Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000);
-  const date = Date.parse(header);
-  if (Number.isFinite(date)) return Math.max(0, date - now);
-  return undefined;
+  const value = header?.trim();
+  if (!value) return undefined;
+  let ms: number;
+  if (/^[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?$/i.test(value)) {
+    ms = Number(value) * 1000;
+  } else {
+    const date = Date.parse(value);
+    if (!Number.isFinite(date)) return undefined;
+    ms = date - now;
+  }
+  if (!Number.isFinite(ms) || ms < 0) return undefined;
+  return Math.round(Math.min(ms, MAX_RATE_LIMIT_COOLDOWN_MS));
 }
 
 /** Classify a non-2xx HTTP status. */
@@ -272,8 +285,12 @@ function endpointUrl(baseUrl: string, path: string): string {
 
 /** Options for {@link createJevProvider}. */
 export interface JevProviderOptions {
-  /** `fetch` implementation; defaults to the global. Tests inject a stub. */
-  readonly fetch?: typeof fetch;
+  /**
+   * Transport; defaults to {@link decideFetch}, which releases every DNS,
+   * socket and TLS handle on abort (the global `fetch` does not). Tests
+   * inject a stub.
+   */
+  readonly fetch?: DecideFetch;
   /** Monotonic clock in ms; defaults to `performance.now`. */
   readonly now?: () => number;
 }
@@ -296,7 +313,7 @@ export function createJevProvider(
   connection: DecisionProviderConnection,
   opts: JevProviderOptions = {},
 ): DecisionProvider {
-  const doFetch = opts.fetch ?? globalThis.fetch;
+  const doFetch: DecideFetch = opts.fetch ?? decideFetch;
   const now = opts.now ?? (() => performance.now());
   return {
     async decide(req: DecisionRequest, signal: AbortSignal): Promise<DecisionOutcome> {
@@ -428,7 +445,7 @@ export async function listJevModels(
   signal: AbortSignal,
   opts: Pick<JevProviderOptions, 'fetch'> = {},
 ): Promise<string[]> {
-  const doFetch = opts.fetch ?? globalThis.fetch;
+  const doFetch: DecideFetch = opts.fetch ?? decideFetch;
   let response: Response;
   try {
     response = await doFetch(endpointUrl(connection.baseUrl, MODELS_PATH), {

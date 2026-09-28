@@ -95,6 +95,12 @@ const LLM_TIMEOUT_MS = 15_000;
  */
 export const DUPLICATE_DECISION_BUDGET_MS = 300;
 
+/**
+ * Minimum confidence EVERY decision answer needs before `on` mode acts on the
+ * decision. Below it the decision is audited but the heuristic acts.
+ */
+export const DUPLICATE_DECISION_MIN_CONFIDENCE = 0.6;
+
 /** Call-site id for the duplicate decision; keys the audit line. */
 export const DUPLICATE_DECISION_SITE = 'tasks.duplicate-detection';
 
@@ -659,11 +665,25 @@ interface DuplicateDecisionVerdict {
   duplicates: DuplicateCandidate[];
   /** Highest duplicate probability across all candidates. */
   maxProbability: number;
+  /** Whether every answer met {@link DUPLICATE_DECISION_MIN_CONFIDENCE}; only then may `on` act on it. */
+  confident: boolean;
 }
 
-/** Clip `text` to `max` characters, marking the cut. */
-function clip(text: string, max: number): string {
-  return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
+/** Whether every answer is confident enough for `on` mode to act on it. */
+function isConfident(answers: Readonly<Record<string, { readonly confidence: number }>>): boolean {
+  return Object.values(answers).every((a) => a.confidence >= DUPLICATE_DECISION_MIN_CONFIDENCE);
+}
+
+/**
+ * Redact secrets, THEN clip to `max` characters, marking the cut.
+ *
+ * The order matters: clipping first can cut a secret in half, and a partial
+ * secret no longer matches the redaction patterns — `decide()`'s own redaction
+ * would then let the prefix through.
+ */
+function redactThenClip(text: string, max: number, redact: (s: string) => string): string {
+  const safe = redact(text);
+  return safe.length <= max ? safe : `${safe.slice(0, max - 1)}…`;
 }
 
 function isDecisionMode(value: unknown): value is DuplicateDecisionMode {
@@ -732,7 +752,9 @@ function buildDuplicateDecisionRequest(
   title: string,
   description: string,
   candidates: readonly DecisionCandidate[],
+  redact: (s: string) => string,
 ): DecisionRequest {
+  const clip = (text: string, max: number): string => redactThenClip(text, max, redact);
   const state: Record<string, { id?: string; title: string; description: string }> = {
     new: {
       title: clip(title, DECISION_TITLE_MAX_CHARS),
@@ -756,15 +778,29 @@ function buildDuplicateDecisionRequest(
 }
 
 /**
- * The heuristic's answer for one candidate, as a noul answer.
- *
- * The Tier-1 score is rescaled so {@link DUPLICATE_REJECT_THRESHOLD} maps to
- * probability 0.5 — `value` is then exactly "the heuristic would reject".
- * Confidence is a flat 0.5: the heuristic carries no calibration of its own.
+ * The heuristic's Tier-3 verdict for one candidate: `warn` when its Tier-1
+ * score reaches {@link DUPLICATE_WARN_THRESHOLD}, else `pass`. Tier-3
+ * candidates are below the reject threshold by construction, so warn/pass is
+ * the only verdict the heuristic can reach here — and the one agreement with
+ * the decision is measured against.
+ */
+function heuristicVerdictFor(c: DecisionCandidate): 'warn' | 'pass' {
+  return c.tier1Score >= DUPLICATE_WARN_THRESHOLD ? 'warn' : 'pass';
+}
+
+/**
+ * The heuristic's answer for one candidate, as a noul answer: `value` is its
+ * warn verdict and `probability` the RAW Tier-1 similarity (uncalibrated — a
+ * warn can sit at 0.85 and a pass at 0.6). Confidence is a flat 0.5: the
+ * heuristic carries no calibration of its own.
  */
 function heuristicAnswer(c: DecisionCandidate): DecisionAnswer {
-  const probability = Math.min(1, (c.tier1Score * 0.5) / DUPLICATE_REJECT_THRESHOLD);
-  return { type: 'noul', value: probability >= 0.5, probability, confidence: 0.5 };
+  return {
+    type: 'noul',
+    value: heuristicVerdictFor(c) === 'warn',
+    probability: Math.min(1, Math.max(0, c.tier1Score)),
+    confidence: 0.5,
+  };
 }
 
 /**
@@ -791,12 +827,23 @@ async function askDuplicateDecision(
     const { decide } = await import('../decide/client.js');
     const { auditAnswers, createJsonlDecisionAudit } = await import('../decide/audit.js');
 
-    const req = buildDuplicateDecisionRequest(title, description, candidates);
+    const { redactContent } = await import('../memory/redaction.js');
+    const req = buildDuplicateDecisionRequest(
+      title,
+      description,
+      candidates,
+      (text) => redactContent(text).content,
+    );
     const heuristicAnswers: Record<string, DecisionAnswer> = {};
     const subjects: Record<string, string> = {};
+    const heuristicVerdicts: Record<string, string> = {};
+    const heuristicScores: Record<string, number> = {};
     candidates.forEach((c, i) => {
-      heuristicAnswers[questionName(i)] = heuristicAnswer(c);
-      subjects[questionName(i)] = c.task.id;
+      const name = questionName(i);
+      heuristicAnswers[name] = heuristicAnswer(c);
+      heuristicVerdicts[name] = heuristicVerdictFor(c);
+      heuristicScores[name] = c.tier1Score;
+      subjects[name] = c.task.id;
     });
     const heuristicAudit = auditAnswers({
       answers: heuristicAnswers,
@@ -823,7 +870,10 @@ async function askDuplicateDecision(
               ...entry,
               shadow: {
                 mode,
-                acted: mode === 'on' && answered ? 'decision' : 'heuristic',
+                acted:
+                  mode === 'on' && answered && isConfident(entry.answers)
+                    ? 'decision'
+                    : 'heuristic',
                 heuristicVerdict,
                 heuristicAnswers: heuristicAudit,
                 agree: answered
@@ -831,6 +881,8 @@ async function askDuplicateDecision(
                       ([name, a]) => a.value === heuristicAnswers[name]?.value,
                     )
                   : null,
+                heuristicVerdicts,
+                heuristicScores,
                 subjects,
               },
             });
@@ -861,7 +913,7 @@ async function askDuplicateDecision(
       }
     });
     duplicates.sort((a, b) => b.score - a.score);
-    return { duplicates, maxProbability };
+    return { duplicates, maxProbability, confident: isConfident(outcome.answers) };
   } catch {
     return null;
   }
@@ -1100,7 +1152,7 @@ export async function checkDuplicates(
         options,
         cwd,
       );
-      if (settings.mode === 'on' && verdict !== null) {
+      if (settings.mode === 'on' && verdict?.confident) {
         if (verdict.duplicates.length > 0) {
           return {
             maxScore: verdict.duplicates[0]?.score ?? 0,
@@ -1187,11 +1239,15 @@ export async function checkDuplicates(
  * Format a human-readable candidate list for warning/rejection messages.
  *
  * @param candidates - Array of duplicate candidates.
+ * @param label - What `score` measures; defaults to the lexical `similarity`.
  * @returns Formatted multi-line string listing candidates.
  */
-export function formatCandidateList(candidates: DuplicateCandidate[]): string {
+export function formatCandidateList(
+  candidates: DuplicateCandidate[],
+  label = 'similarity',
+): string {
   return candidates
-    .map((c) => `  • ${c.id}: "${c.title}" (similarity: ${(c.score * 100).toFixed(0)}%)`)
+    .map((c) => `  • ${c.id}: "${c.title}" (${label}: ${(c.score * 100).toFixed(0)}%)`)
     .join('\n');
 }
 
@@ -1212,10 +1268,24 @@ export function buildWarnMessage(candidates: DuplicateCandidate[]): string {
 /**
  * Build a rejection message for candidates above the reject threshold.
  *
+ * A System One rejection (`tier: 'decision'`) is worded as what it is — the
+ * model's duplicate probability — never as a lexical similarity score.
+ *
  * @param candidates - Candidates to include in the message.
+ * @param tier - The tier that decided (from {@link DuplicateCheckResult.tier}).
  * @returns Rejection string (no newline at end).
  */
-export function buildRejectMessage(candidates: DuplicateCandidate[]): string {
+export function buildRejectMessage(
+  candidates: DuplicateCandidate[],
+  tier?: DuplicateCheckResult['tier'],
+): string {
+  if (tier === 'decision') {
+    return (
+      `[BRAIN duplicate-check] Task creation REJECTED — System One judged these active tasks to be the same work:\n` +
+      formatCandidateList(candidates, 'System One duplicate probability') +
+      `\nRun with --force-duplicate to bypass (audited to .cleo/audit/duplicate-bypass.jsonl).`
+    );
+  }
   return (
     `[BRAIN duplicate-check] Task creation REJECTED — very similar active tasks found (score >= ${Math.round(DUPLICATE_REJECT_THRESHOLD * 100)}%):\n` +
     formatCandidateList(candidates) +

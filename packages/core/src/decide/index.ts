@@ -10,8 +10,11 @@ export {
   auditAnswers,
   createJsonlDecisionAudit,
   DECISION_AUDIT_FILE,
+  DEFAULT_DECISION_AUDIT_KEEP,
+  DEFAULT_DECISION_AUDIT_MAX_BYTES,
   type DecisionAuditAnswer,
   type DecisionAuditEntry,
+  type DecisionAuditRotation,
   type DecisionAuditSink,
   type DecisionFallbackReason,
   type DecisionShadowRecord,
@@ -26,6 +29,7 @@ export {
   type DecisionBudget,
   defaultBudgetStatePath,
   type FileTokenBucketOptions,
+  MAX_RATE_LIMIT_COOLDOWN_MS,
   type TokenBucketOptions,
 } from './budget.js';
 export {
@@ -94,3 +98,4 @@ export {
   type DecisionProviderErrorKind,
   type DecisionProviderErrorOptions,
 } from './provider.js';
+export { type DecideFetch, type DecideFetchInit, decideFetch } from './transport.js';

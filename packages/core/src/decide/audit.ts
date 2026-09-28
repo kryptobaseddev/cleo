@@ -15,7 +15,7 @@
  * @epic T12486
  */
 
-import { appendFileSync, mkdirSync } from 'node:fs';
+import { appendFileSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DecisionAnswer, DecisionOutcome, DecisionOutcomeSource } from '@cleocode/contracts';
 
@@ -74,6 +74,10 @@ export interface DecisionShadowRecord {
    * provider answer was available (fallback), so there was nothing to compare.
    */
   readonly agree: boolean | null;
+  /** Question name → the heuristic's own verdict for it, in the site's vocabulary (e.g. `warn`, `pass`). */
+  readonly heuristicVerdicts?: Readonly<Record<string, string>>;
+  /** Question name → the raw score the heuristic's verdict came from (e.g. Tier-1 similarity). */
+  readonly heuristicScores?: Readonly<Record<string, number>>;
   /** Question name → the subject it asks about (e.g. a task id). */
   readonly subjects?: Readonly<Record<string, string>>;
 }
@@ -134,19 +138,63 @@ export function auditAnswers(outcome: DecisionOutcome): Record<string, DecisionA
   return out;
 }
 
+/** Size at which `decisions.jsonl` is rotated, in bytes. */
+export const DEFAULT_DECISION_AUDIT_MAX_BYTES = 5 * 1024 * 1024;
+
+/** Rotated generations kept beside the live file (`decisions.jsonl.1` … `.N`). */
+export const DEFAULT_DECISION_AUDIT_KEEP = 3;
+
+/** Rotation bounds for {@link createJsonlDecisionAudit}. */
+export interface DecisionAuditRotation {
+  /** Rotate once the live file reaches this size. Default {@link DEFAULT_DECISION_AUDIT_MAX_BYTES}. */
+  readonly maxBytes?: number;
+  /** Older generations to keep. Default {@link DEFAULT_DECISION_AUDIT_KEEP}. */
+  readonly keep?: number;
+}
+
+/** Shift `file` → `file.1` → … → `file.keep`, dropping the oldest. */
+function rotate(file: string, keep: number): void {
+  rmSync(`${file}.${keep}`, { force: true });
+  for (let i = keep - 1; i >= 1; i--) {
+    try {
+      renameSync(`${file}.${i}`, `${file}.${i + 1}`);
+    } catch {
+      // Generation absent — nothing to shift.
+    }
+  }
+  if (keep >= 1) renameSync(file, `${file}.1`);
+  else rmSync(file, { force: true });
+}
+
 /**
- * A sink appending to `<projectRoot>/.cleo/audit/decisions.jsonl`.
+ * A sink appending to `<projectRoot>/.cleo/audit/decisions.jsonl`, rotated by
+ * size so the audit stays bounded (at most `(keep + 1) × maxBytes`, plus one
+ * line). Rotation is a stat and at most a few renames — cheap enough for the
+ * decision budget.
  *
  * @param projectRoot - Absolute project root.
+ * @param rotation - Size cap and generations kept.
  * @returns A never-throwing {@link DecisionAuditSink}.
  */
-export function createJsonlDecisionAudit(projectRoot: string): DecisionAuditSink {
+export function createJsonlDecisionAudit(
+  projectRoot: string,
+  rotation: DecisionAuditRotation = {},
+): DecisionAuditSink {
   const dir = join(projectRoot, '.cleo', 'audit');
   const file = join(dir, 'decisions.jsonl');
+  const maxBytes = Math.max(1, rotation.maxBytes ?? DEFAULT_DECISION_AUDIT_MAX_BYTES);
+  const keep = Math.max(0, Math.floor(rotation.keep ?? DEFAULT_DECISION_AUDIT_KEEP));
   return {
     write(entry) {
       try {
         mkdirSync(dir, { recursive: true });
+        let size = 0;
+        try {
+          size = statSync(file).size;
+        } catch {
+          // No live file yet.
+        }
+        if (size >= maxBytes) rotate(file, keep);
         appendFileSync(file, `${JSON.stringify(entry)}\n`, 'utf-8');
       } catch {
         // Auditing must never break a decision.
