@@ -30,7 +30,7 @@ vi.mock('../sqlite-backup.js', () => ({
     // Yield several macrotasks: a fire-and-forget caller would resolve first.
     await new Promise((r) => setTimeout(r, 30));
     events.push('snapshot:done');
-    return { snapshotted: ['tasks'], absent: [], failed: [], skipped: null };
+    return { snapshotted: ['tasks'], linked: [], absent: [], failed: [], skipped: null };
   }),
 }));
 

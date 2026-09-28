@@ -19,7 +19,7 @@
  * @epic T4867
  */
 
-import { mkdirSync, readdirSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readdirSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -580,6 +580,181 @@ describe('sqlite-backup', () => {
     expect(written).toHaveLength(1);
     // The free name was found by waiting for the next second (one step).
     expect(t1 - t0).toBeLessThanOrEqual(2);
+  });
+
+  /**
+   * T12508 #2: tasks, brain and conduit share ONE cleo.db handle. A run must
+   * VACUUM it once and hard-link the same file under the other prefixes, so
+   * every `<prefix>-*.db` reader still finds a file at no extra disk cost.
+   */
+  it('one VACUUM per physical database file; other prefixes are hard links (T12508)', async () => {
+    const tempDir = join(tmpdir(), `cleo-t12508-dedupe-${Date.now()}`);
+    const backupDir = join(tempDir, 'backups', 'sqlite');
+    mkdirSync(tempDir, { recursive: true });
+    const shared = new DatabaseSync(join(tempDir, 'cleo.db'));
+    shared.exec('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+    const realExec = shared.exec.bind(shared);
+    let vacuums = 0;
+    shared.exec = (sql: string): void => {
+      if (sql.startsWith('VACUUM INTO')) vacuums += 1;
+      realExec(sql);
+    };
+    vi.doMock('../sqlite.js', () => ({ getNativeDb: () => shared, getDb: async () => null }));
+    vi.doMock('../memory-sqlite.js', () => ({
+      getBrainNativeDb: () => shared,
+      getBrainDb: async () => null,
+    }));
+    vi.doMock('../conduit-sqlite.js', () => ({
+      getConduitNativeDb: () => shared,
+      ensureConduitDb: () => ({ action: 'exists', path: '' }),
+    }));
+    stubOtherChokepointOpeners();
+    vi.doMock('../../paths.js', () => ({
+      getCleoDir: () => tempDir,
+      getCleoHome: () => tempDir,
+      resolveOrCwd: (cwd?: string) => cwd ?? tempDir,
+    }));
+
+    const { vacuumIntoBackupAll } = await import('../sqlite-backup.js');
+    const r = await vacuumIntoBackupAll();
+    shared.close();
+
+    expect(vacuums).toBe(1);
+    expect(r?.snapshotted).toEqual(['tasks', 'brain', 'conduit']);
+    expect(r?.linked).toEqual(['brain', 'conduit']);
+    const files = readdirSync(backupDir).filter((f) => /^(tasks|brain|conduit)-/.test(f));
+    expect(files).toHaveLength(3);
+    const inodes = new Set(files.map((f) => statSync(join(backupDir, f)).ino));
+    expect(inodes.size).toBe(1);
+  });
+
+  /**
+   * T12508 #3: with project A already open in the process, snapshotting
+   * project B must read B's database, never the ambient A handle.
+   */
+  it('two projects: B is snapshotted from B, not from the ambient A handle (T12508)', async () => {
+    const root = join(tmpdir(), `cleo-t12508-two-${Date.now()}`);
+    const cleoA = join(root, 'a', '.cleo');
+    const cleoB = join(root, 'b', '.cleo');
+    mkdirSync(cleoA, { recursive: true });
+    mkdirSync(cleoB, { recursive: true });
+    const dbA = new DatabaseSync(join(cleoA, 'cleo.db'));
+    const dbB = new DatabaseSync(join(cleoB, 'cleo.db'));
+    for (const [db, who] of [
+      [dbA, 'A'],
+      [dbB, 'B'],
+    ] as const) {
+      db.exec('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+      db.exec(`CREATE TABLE marker (who TEXT); INSERT INTO marker VALUES ('${who}')`);
+    }
+    const projectOf = (cwd?: string): 'a' | 'b' => (cwd === join(root, 'b') ? 'b' : 'a');
+    // No cwd → the ambient project (A), exactly like the real bound registry.
+    vi.doMock('../sqlite.js', () => ({
+      getNativeDb: (cwd?: string) => (projectOf(cwd) === 'b' ? dbB : dbA),
+      getDb: async () => null,
+    }));
+    vi.doMock('../memory-sqlite.js', () => ({
+      getBrainNativeDb: () => null,
+      getBrainDb: async () => null,
+    }));
+    vi.doMock('../conduit-sqlite.js', () => ({
+      getConduitNativeDb: () => null,
+      ensureConduitDb: () => ({ action: 'exists', path: '' }),
+    }));
+    stubOtherChokepointOpeners();
+    vi.doMock('../../paths.js', () => ({
+      getCleoDir: (cwd?: string) => (projectOf(cwd) === 'b' ? cleoB : cleoA),
+      getCleoHome: () => root,
+      resolveOrCwd: (cwd?: string) => cwd ?? join(root, 'a'),
+    }));
+
+    const { vacuumIntoBackup } = await import('../sqlite-backup.js');
+    const r = await vacuumIntoBackup({ cwd: join(root, 'b') });
+    dbA.close();
+    dbB.close();
+
+    expect(r?.snapshotted).toEqual(['tasks']);
+    const [snap] = readdirSync(join(cleoB, 'backups', 'sqlite')).filter((f) =>
+      /^tasks-\d{8}-\d{6}\.db$/.test(f),
+    );
+    expect(snap).toBeDefined();
+    const copy = new DatabaseSync(join(cleoB, 'backups', 'sqlite', snap ?? ''), { readOnly: true });
+    const who = copy.prepare('SELECT who FROM marker').get() as { who: string } | undefined;
+    copy.close();
+    expect(who?.who).toBe('B');
+  });
+
+  it('refuses a project-tier handle whose file is outside the project (T12508)', async () => {
+    const root = join(tmpdir(), `cleo-t12508-foreign-${Date.now()}`);
+    const cleoB = join(root, 'b', '.cleo');
+    mkdirSync(cleoB, { recursive: true });
+    mkdirSync(join(root, 'a', '.cleo'), { recursive: true });
+    const foreign = new DatabaseSync(join(root, 'a', '.cleo', 'cleo.db'));
+    foreign.exec('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+    vi.doMock('../sqlite.js', () => ({ getNativeDb: () => foreign, getDb: async () => null }));
+    vi.doMock('../memory-sqlite.js', () => ({
+      getBrainNativeDb: () => null,
+      getBrainDb: async () => null,
+    }));
+    vi.doMock('../conduit-sqlite.js', () => ({
+      getConduitNativeDb: () => null,
+      ensureConduitDb: () => ({ action: 'exists', path: '' }),
+    }));
+    stubOtherChokepointOpeners();
+    vi.doMock('../../paths.js', () => ({
+      getCleoDir: () => cleoB,
+      getCleoHome: () => root,
+      resolveOrCwd: (cwd?: string) => cwd ?? join(root, 'b'),
+    }));
+
+    const { vacuumIntoBackup } = await import('../sqlite-backup.js');
+    const r = await vacuumIntoBackup({ cwd: join(root, 'b'), mode: 'required' });
+    foreign.close();
+
+    expect(r?.failed).toEqual(['tasks']);
+    expect(r?.snapshotted).toEqual([]);
+  });
+
+  /**
+   * T12508 #5: an existing database the process cannot stat (EACCES) is a
+   * FAILURE. `existsSync` would have answered false and classed it absent.
+   */
+  it('an unreadable raw-file database is failed, not absent (T12508)', async () => {
+    const projectRoot = join(tmpdir(), `cleo-t12508-eacces-${Date.now()}`);
+    const cleoDir = join(projectRoot, '.cleo');
+    const llmtxtDir = join(cleoDir, 'llmtxt');
+    mkdirSync(llmtxtDir, { recursive: true });
+    const seed = new DatabaseSync(join(llmtxtDir, 'llmtxt.db'));
+    seed.exec('CREATE TABLE t (x INTEGER)');
+    seed.close();
+    const tasksDb = new DatabaseSync(join(cleoDir, 'cleo.db'));
+    tasksDb.exec('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+    vi.doMock('../sqlite.js', () => ({ getNativeDb: () => tasksDb, getDb: async () => null }));
+    vi.doMock('../memory-sqlite.js', () => ({
+      getBrainNativeDb: () => null,
+      getBrainDb: async () => null,
+    }));
+    vi.doMock('../conduit-sqlite.js', () => ({
+      getConduitNativeDb: () => null,
+      ensureConduitDb: () => ({ action: 'exists', path: '' }),
+    }));
+    stubOtherChokepointOpeners();
+    vi.doMock('../../paths.js', () => ({
+      getCleoDir: () => cleoDir,
+      getCleoHome: () => projectRoot,
+      resolveOrCwd: (cwd?: string) => cwd ?? projectRoot,
+    }));
+
+    chmodSync(llmtxtDir, 0o000);
+    try {
+      const { vacuumIntoBackupAll } = await import('../sqlite-backup.js');
+      const r = await vacuumIntoBackupAll({ cwd: projectRoot, mode: 'required' });
+      expect(r?.failed).toContain('llmtxt');
+      expect(r?.absent).not.toContain('llmtxt');
+    } finally {
+      chmodSync(llmtxtDir, 0o755);
+      tasksDb.close();
+    }
   });
 
   /**

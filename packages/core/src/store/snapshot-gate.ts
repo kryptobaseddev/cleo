@@ -104,8 +104,12 @@ interface SnapshotGateState {
  */
 export type SnapshotGateMode = 'routine' | 'required';
 
-/** What a snapshot function did for one prefix. */
-export type SnapshotOutcome = 'written' | 'absent';
+/**
+ * What a snapshot function did for one prefix: wrote a file, hard-linked the
+ * file already written in this run for the same physical database, or found
+ * no database to snapshot.
+ */
+export type SnapshotOutcome = 'written' | 'linked' | 'absent';
 
 /** Why a gated snapshot request did not snapshot anything. */
 export type SnapshotGateSkipReason =
@@ -117,8 +121,13 @@ export type SnapshotGateSkipReason =
 
 /** Outcome of {@link runGatedSnapshot}. */
 export interface SnapshotGateResult {
-  /** Prefixes whose snapshot was written by this call. */
+  /** Prefixes that have a snapshot file from this call (written or hard-linked). */
   readonly snapshotted: readonly string[];
+  /**
+   * Subset of `snapshotted` that shares its file with an earlier prefix of the
+   * same run (same physical database — one VACUUM, hard-linked).
+   */
+  readonly linked: readonly string[];
   /** Prefixes whose database does not exist in this project (nothing to snapshot). */
   readonly absent: readonly string[];
   /** Prefixes whose snapshot was attempted and threw. */
@@ -272,6 +281,7 @@ export async function runGatedSnapshot(
   const db = opts.stateDb;
   const none = (skipped: SnapshotGateSkipReason, error?: string): SnapshotGateResult => ({
     snapshotted: [],
+    linked: [],
     absent: [],
     failed: [],
     skipped,
@@ -323,30 +333,39 @@ export async function runGatedSnapshot(
 
     // Claim the next generation BEFORE snapshotting, so a request made while
     // this run is in flight sees it and is not covered by it.
+    // If the claim cannot be persisted, this run records nothing: recording
+    // under an unclaimed generation could cover a request made while the run
+    // was in flight (it would have seen the old generation).
     const generation = (state?.generation ?? 0) + 1;
+    let claimed = false;
     if (db && state) {
       try {
         writeGateState(db, { ...state, generation });
+        claimed = true;
       } catch {
-        // Without the claim, later requests simply are not covered by this run.
+        // Unclaimed: later requests are simply not covered by this run.
       }
     }
 
     const snapshotted: string[] = [];
+    const linked: string[] = [];
     const absent: string[] = [];
     const failed: string[] = [];
     for (const prefix of admitted) {
       try {
         const outcome = await snapshot(prefix);
-        if (outcome === 'written') snapshotted.push(prefix);
-        else absent.push(prefix);
+        if (outcome === 'absent') absent.push(prefix);
+        else {
+          snapshotted.push(prefix);
+          if (outcome === 'linked') linked.push(prefix);
+        }
       } catch {
         failed.push(prefix);
       }
     }
 
     const satisfied = [...snapshotted, ...absent];
-    if (db && satisfied.length > 0) {
+    if (db && claimed && satisfied.length > 0) {
       try {
         const latest = readGateState(db);
         const completedAt = now();
@@ -359,7 +378,7 @@ export async function runGatedSnapshot(
         // The snapshot exists; losing its record only makes the next request run.
       }
     }
-    return { snapshotted, absent, failed, skipped: null };
+    return { snapshotted, linked, absent, failed, skipped: null };
   } finally {
     await release().catch(() => {});
   }

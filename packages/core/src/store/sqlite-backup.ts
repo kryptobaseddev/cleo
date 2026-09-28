@@ -45,12 +45,14 @@ import {
   chmodSync,
   copyFileSync,
   existsSync,
+  linkSync,
   mkdirSync,
   readdirSync,
+  realpathSync,
   statSync,
   unlinkSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { DB_INVENTORY, type DbInventoryEntry, type DbRole } from '@cleocode/contracts';
 import { getCleoDir, getCleoHome, resolveOrCwd } from '../paths.js';
@@ -65,6 +67,7 @@ import { getBrainDb, getBrainNativeDb } from './memory-sqlite.js';
 import { getNexusDb, getNexusNativeDb } from './nexus-sqlite.js';
 import { getSkillsNativeDb, openSkillsDb } from './skills-db.js';
 import {
+  readSnapshotGeneration,
   runGatedSnapshot,
   type SnapshotGateMode,
   type SnapshotGateResult,
@@ -160,8 +163,13 @@ interface SnapshotTarget {
   readonly tier: DbInventoryEntry['tier'];
   /** How this target obtains a live handle. See {@link SnapshotStrategy}. */
   readonly strategy: SnapshotStrategy;
-  /** Resolves the live native handle, or `null` if not yet initialized. */
-  readonly getDb: () => SnapshotDbHandle | null;
+  /**
+   * Resolves the live native handle for the project at `cwd` (global targets
+   * ignore it), or `null` if not yet initialized. The `cwd` MUST be passed:
+   * without it a project-tier getter resolves the process's ambient project,
+   * and project A's backup would contain project B's database (T12508).
+   */
+  readonly getDb: (cwd?: string) => SnapshotDbHandle | null;
   /**
    * Eagerly opens the canonical singleton when {@link getDb} returns `null`.
    * MUST flow through the per-DB chokepoint (ADR-068) — these openers all
@@ -225,8 +233,9 @@ async function openTasksDbForSnapshot(cwd?: string): Promise<SnapshotDbHandle | 
 async function openConduitDbForSnapshot(cwd?: string): Promise<SnapshotDbHandle | null> {
   // ensureConduitDb requires an absolute project root. E6-L3 (T11523): it is now
   // async (routes through the dual-scope cleo.db chokepoint).
-  await ensureConduitDb(resolveOrCwd(cwd));
-  return getConduitNativeDb();
+  const projectRoot = resolveOrCwd(cwd);
+  await ensureConduitDb(projectRoot);
+  return getConduitNativeDb(projectRoot);
 }
 
 // ---------------------------------------------------------------------------
@@ -332,7 +341,15 @@ function buildRawFileVacuumOpener(
   return async (cwd?: string): Promise<SnapshotDbHandle | null> => {
     const path = resolveInventoryPath(entry, cwd);
     if (!path) return null;
-    if (!existsSync(path)) return null;
+    // T12508: `existsSync` answers false for EACCES too, which would class an
+    // unreadable database as absent. Only ENOENT means absent; any other stat
+    // error is a failure and propagates.
+    try {
+      statSync(path);
+    } catch (err) {
+      if (err instanceof Error && 'code' in err && err.code === 'ENOENT') return null;
+      throw err;
+    }
     // Dynamic import preserves the T1331 lazy-init contract: importing
     // sqlite.ts (which statically imports sqlite-backup.ts for
     // `listSqliteBackups`) MUST NOT pull node:sqlite into module-load
@@ -383,7 +400,7 @@ const CHOKEPOINT_OPENERS: Partial<
   Record<
     DbRole,
     {
-      readonly getDb: () => SnapshotDbHandle | null;
+      readonly getDb: (cwd?: string) => SnapshotDbHandle | null;
       readonly openDb: (cwd?: string) => Promise<SnapshotDbHandle | null>;
     }
   >
@@ -633,6 +650,19 @@ async function resolveGateStateDb(cwd?: string): Promise<DatabaseSync | null> {
 }
 
 /**
+ * Read the project's current snapshot generation — what a `required` request
+ * should record as `seenGeneration` at the moment it is made (after the
+ * caller's last write), when the snapshot itself runs later or elsewhere.
+ *
+ * @param cwd - Project directory.
+ * @returns The generation, or `null` when the gate state cannot be read.
+ * @task T12508
+ */
+export async function readProjectSnapshotGeneration(cwd?: string): Promise<number | null> {
+  return readSnapshotGeneration(await resolveGateStateDb(cwd));
+}
+
+/**
  * Snapshot the given project-tier targets through the project-wide gate:
  * one snapshot in flight per project across processes, and a per-prefix
  * debounce persisted in `cleo.db`. Non-fatal.
@@ -660,6 +690,10 @@ async function snapshotProjectTargetsGated(
   );
   if (byPrefix.size === 0) return null;
 
+  // One VACUUM per physical database file per run (T12508): tasks, brain and
+  // conduit share the project cleo.db handle. Maps source realpath → the
+  // snapshot file written for it in this run.
+  const writtenBySource = new Map<string, string>();
   return runGatedSnapshot(
     {
       backupDir,
@@ -671,9 +705,55 @@ async function snapshotProjectTargetsGated(
     },
     async (prefix) => {
       const target = byPrefix.get(prefix);
-      return target ? snapshotOne(target, backupDir, cwd) : 'absent';
+      return target ? snapshotOne(target, backupDir, writtenBySource, cwd) : 'absent';
     },
   );
+}
+
+/**
+ * Real path of the database file behind a native handle, or `null` when it is
+ * unknown (an in-memory database, or a handle without `location()`).
+ *
+ * @task T12508
+ */
+function sourceFileOf(db: SnapshotDbHandle): string | null {
+  if (!hasLocation(db)) return null;
+  const location = db.location();
+  if (!location) return null;
+  try {
+    return realpathSync(location);
+  } catch {
+    return location;
+  }
+}
+
+/** Whether a handle exposes `DatabaseSync.location()` (Node 24+). */
+function hasLocation(
+  db: SnapshotDbHandle,
+): db is SnapshotDbHandle & { location: () => string | null } {
+  return 'location' in db && typeof db.location === 'function';
+}
+
+/**
+ * Refuse to snapshot a project-tier handle whose file lies outside this
+ * project's `.cleo/` directory. A handle resolved for the wrong project (the
+ * ambient one in a multi-project process) would otherwise put project B's
+ * database into project A's backups.
+ *
+ * @task T12508
+ */
+function assertOwnedByProject(source: string, prefix: string, cwd?: string): void {
+  let cleoDir = getCleoDir(cwd);
+  try {
+    cleoDir = realpathSync(cleoDir);
+  } catch {
+    // Compare against the unresolved path.
+  }
+  if (!source.startsWith(cleoDir + sep)) {
+    throw new Error(
+      `refusing to snapshot ${prefix}: its database ${source} is not inside ${cleoDir}`,
+    );
+  }
 }
 
 /** Attempts at finding a free snapshot filename before giving up. */
@@ -728,9 +808,13 @@ async function freeSnapshotName(backupDir: string, prefix: string): Promise<stri
  * @param target — snapshot target descriptor (role + prefix + native DB getter)
  * @param backupDir — absolute path to the snapshot directory
  * @param cwd — optional working directory propagated to `target.openDb`
- * @returns `'written'` when a snapshot file was written; `'absent'` when the
+ * @param writtenBySource — snapshot files already written in this run, keyed
+ *        by source realpath; a second target on the same file is hard-linked.
+ * @returns `'written'` when a snapshot file was written; `'linked'` when the
+ *          same physical database was already snapshotted in this run and the
+ *          file was hard-linked under this prefix; `'absent'` when the
  *          database does not exist in this project (or is a derived row).
- *          Opener and `VACUUM INTO` errors throw.
+ *          Opener, ownership and `VACUUM INTO` errors throw.
  *
  * @task T10316 — eager-open via openCleoDb chokepoint (Saga T10281 / E3)
  * @task T10317 — raw-file-vacuum-readonly strategy for opener-less roles
@@ -739,6 +823,7 @@ async function freeSnapshotName(backupDir: string, prefix: string): Promise<stri
 async function snapshotOne(
   target: SnapshotTarget,
   backupDir: string,
+  writtenBySource: Map<string, string>,
   cwd?: string,
 ): Promise<SnapshotOutcome> {
   if (target.strategy === 'skip-derived') {
@@ -747,7 +832,7 @@ async function snapshotOne(
     return 'absent';
   }
 
-  let db = target.getDb();
+  let db = target.getDb(cwd);
   let opened: SnapshotDbHandle | null = null;
   if (!db) {
     // T10316 / T10317: eager-open via the canonical per-DB chokepoint (for
@@ -763,13 +848,33 @@ async function snapshotOne(
   }
 
   let destName: string;
+  let source: string | null;
   try {
+    source = sourceFileOf(db);
+    if (source !== null && (target.tier === 'project' || target.tier === 'derived')) {
+      assertOwnedByProject(source, target.prefix, cwd);
+    }
     destName = await freeSnapshotName(backupDir, target.prefix);
   } catch (err) {
     if (opened && target.closeDb) target.closeDb(opened);
     throw err;
   }
   const dest = join(backupDir, destName);
+
+  // Already snapshotted this physical file in this run: hard-link the same
+  // snapshot under this prefix. One VACUUM, no extra disk, and every reader
+  // that looks for `<prefix>-*.db` (restore, recover-brain-db, listing)
+  // still finds a file.
+  const existing = source !== null ? writtenBySource.get(source) : undefined;
+  if (existing !== undefined) {
+    try {
+      linkSync(existing, dest);
+      rotateSnapshots(backupDir, target.prefix, destName);
+      return 'linked';
+    } finally {
+      if (opened && target.closeDb) target.closeDb(opened);
+    }
+  }
 
   try {
     // TRUNCATE checkpoint: flushes all WAL frames to the main DB and truncates
@@ -783,6 +888,7 @@ async function snapshotOne(
     const safeDest = dest.replace(/'/g, "''");
     db.exec(`VACUUM INTO '${safeDest}'`);
 
+    if (source !== null) writtenBySource.set(source, dest);
     rotateSnapshots(backupDir, target.prefix, destName);
     return 'written';
   } finally {

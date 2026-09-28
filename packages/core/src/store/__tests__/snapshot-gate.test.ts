@@ -203,7 +203,13 @@ describe('runGatedSnapshot — failed attempts never consume the window (T12508)
       { backupDir: workDir, stateDb, prefixes: ['tasks', 'llmtxt'], now: () => T0 },
       async (p) => (p === 'llmtxt' ? 'absent' : 'written'),
     );
-    expect(r).toEqual({ snapshotted: ['tasks'], absent: ['llmtxt'], failed: [], skipped: null });
+    expect(r).toEqual({
+      snapshotted: ['tasks'],
+      linked: [],
+      absent: ['llmtxt'],
+      failed: [],
+      skipped: null,
+    });
   });
 
   it('an absent prefix satisfies admission: later routine calls never take the lock for it (NEW-2)', async () => {
@@ -407,16 +413,80 @@ describe('runGatedSnapshot — required mode (T12508)', () => {
   });
 });
 
+/**
+ * A state store whose FIRST upsert fails: the gate's generation claim. Every
+ * later statement behaves normally.
+ */
+class ClaimFailingDb extends DatabaseSync {
+  private failed = false;
+  override prepare(sql: string): ReturnType<DatabaseSync['prepare']> {
+    if (!this.failed && sql.startsWith('INSERT INTO schema_meta')) {
+      this.failed = true;
+      throw new Error('SQLITE_BUSY: injected claim failure');
+    }
+    return super.prepare(sql);
+  }
+}
+
+describe('runGatedSnapshot — generation claim failure (T12508 #6)', () => {
+  it('a run whose claim failed records nothing, so it cannot cover a request', async () => {
+    const path = join(workDir, 'claim.db');
+    const db = new ClaimFailingDb(path);
+    db.exec('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+    const { runs, snap } = recorder();
+
+    const r = await runGatedSnapshot(
+      { backupDir: workDir, stateDb: db, prefixes: ['tasks'], mode: 'required', seenGeneration: 0 },
+      snap,
+    );
+    // The snapshot itself was taken…
+    expect(r.snapshotted).toEqual(['tasks']);
+    // …but nothing was recorded under the unclaimed generation.
+    expect(readSnapshotGeneration(db)).toBe(0);
+    const row = db
+      .prepare('SELECT value FROM schema_meta WHERE key = ?')
+      .get(SNAPSHOT_GATE_META_KEY);
+    expect(row).toBeUndefined();
+
+    // A request made during that run (it saw generation 0) is NOT covered.
+    const next = await runGatedSnapshot(
+      { backupDir: workDir, stateDb: db, prefixes: ['tasks'], mode: 'required', seenGeneration: 0 },
+      snap,
+    );
+    db.close();
+    expect(next.snapshotted).toEqual(['tasks']);
+    expect(runs).toEqual(['tasks', 'tasks']);
+  });
+});
+
 describe('describeSnapshotMiss (T12508)', () => {
   it('is null for written, covered and all-absent outcomes', () => {
     expect(
-      describeSnapshotMiss({ snapshotted: ['tasks'], absent: [], failed: [], skipped: null }),
+      describeSnapshotMiss({
+        snapshotted: ['tasks'],
+        linked: [],
+        absent: [],
+        failed: [],
+        skipped: null,
+      }),
     ).toBeNull();
     expect(
-      describeSnapshotMiss({ snapshotted: [], absent: [], failed: [], skipped: 'covered' }),
+      describeSnapshotMiss({
+        snapshotted: [],
+        linked: [],
+        absent: [],
+        failed: [],
+        skipped: 'covered',
+      }),
     ).toBeNull();
     expect(
-      describeSnapshotMiss({ snapshotted: [], absent: ['llmtxt'], failed: [], skipped: null }),
+      describeSnapshotMiss({
+        snapshotted: [],
+        linked: [],
+        absent: ['llmtxt'],
+        failed: [],
+        skipped: null,
+      }),
     ).toBeNull();
   });
 
@@ -424,6 +494,7 @@ describe('describeSnapshotMiss (T12508)', () => {
     expect(
       describeSnapshotMiss({
         snapshotted: [],
+        linked: [],
         absent: [],
         failed: [],
         skipped: 'lock-timeout',
@@ -431,7 +502,13 @@ describe('describeSnapshotMiss (T12508)', () => {
       }),
     ).toBe('lock held');
     expect(
-      describeSnapshotMiss({ snapshotted: [], absent: [], failed: ['tasks'], skipped: null }),
+      describeSnapshotMiss({
+        snapshotted: [],
+        linked: [],
+        absent: [],
+        failed: ['tasks'],
+        skipped: null,
+      }),
     ).toContain('tasks');
     expect(describeSnapshotMiss(null)).toContain('backup directory');
   });

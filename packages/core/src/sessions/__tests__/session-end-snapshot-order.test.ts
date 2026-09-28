@@ -35,7 +35,7 @@ vi.mock('../../hooks/registry.js', () => ({
 }));
 
 vi.mock('../session-end-snapshot.js', () => ({
-  snapshotAfterSessionEnd: vi.fn(async (projectRoot: string) => {
+  requestSessionEndSnapshot: vi.fn(async (projectRoot: string) => {
     mocks.events.push('snapshot');
     const { readSessions } = await import('../index.js');
     const sessions = await readSessions(projectRoot);
