@@ -36,6 +36,7 @@ import { eq } from 'drizzle-orm';
 import { resolveCleoDir } from '../paths.js';
 import { getDb } from './sqlite.js';
 import { attachments } from './tasks-schema.js';
+import { assertTwinCollapseWritable } from './twin-collapse.js';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -204,6 +205,8 @@ export async function repairAttachmentStore(opts?: RepairOptions): Promise<Repai
 
   const cleoDir = resolveCleoDir(cwd);
   const db = await getDb(cwd);
+  // T12535: fail fast on a store degraded by a failed twin collapse.
+  if (!dryRun) assertTwinCollapseWritable(db);
   const now = Date.now();
   const actions: RepairAction[] = [];
 

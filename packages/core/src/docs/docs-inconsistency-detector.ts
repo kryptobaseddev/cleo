@@ -32,12 +32,12 @@ import { join } from 'node:path';
 import { eq, sql } from 'drizzle-orm';
 import { getProjectRoot } from '../paths.js';
 import { CleoBlobStore } from '../store/llmtxt-blob-adapter.js';
+import { getDb } from '../store/sqlite.js';
 import {
   type AttachmentLifecycleStatus,
   attachmentRefs,
   attachments,
-} from '../store/schema/attachments.js';
-import { getDb } from '../store/sqlite.js';
+} from '../store/tasks-schema.js';
 
 // ─── Public types ────────────────────────────────────────────────────────────
 

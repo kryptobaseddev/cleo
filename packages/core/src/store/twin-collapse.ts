@@ -76,6 +76,28 @@
  *   set is made equal to the bare set (additions AND removals propagate);
  *   if the twin set changed too, the twin wins and a conflict is recorded.
  *
+ * `attachments` → `docs_attachments` (key `id`) and `attachment_refs` →
+ * `docs_attachment_refs` (key `(attachment_id, owner_type, owner_id)`) use the
+ * generic keyed-row pair ({@link rowPair}). Neither has a counter field; the
+ * bare row is authoritative over the columns both tables share:
+ *
+ * - Initial collapse, when the bare table has rows: the twin is made equal to
+ *   the bare table; frozen twin-only rows are dropped and listed.
+ * - Incremental re-merge, per key whose bare row hash changed: twin unchanged
+ *   → the bare row is upserted (or the twin row deleted when the bare row is
+ *   gone); twin changed too → the twin wins and a conflict is recorded.
+ * - Union shape: migration `20260929000000_t12535-docs-attachments-union-shape`
+ *   adds the bare-only `display_alias` column and indexes; the UNIQUE slug and
+ *   sha256 indexes are dropped and re-created by the merge itself around the
+ *   row changes, so a frozen twin duplicate cannot fail the migration and
+ *   two rows swapping a slug cannot fail the merge. Every merge ends with
+ *   them in place, or rolls back.
+ * - The `supersedes` / `superseded_by` self-FKs are checked at commit
+ *   (`PRAGMA defer_foreign_keys`), so a chain merges in any row order.
+ * - A bare row that violates a twin CHECK (e.g. a non-ISO `created_at`) fails
+ *   the merge; the store opens degraded and `cleo doctor twin-collapse` shows
+ *   the cause.
+ *
  * ## Contract
  *
  * 1. **Snapshot first** (initial collapse only, only when the merge changes
@@ -115,6 +137,7 @@
 import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { ExitCode } from '@cleocode/contracts';
+import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
 import { planMigrationSnapshot, writeMigrationSnapshot } from './pre-repair-snapshot.js';
@@ -583,8 +606,209 @@ const STICKY_TAGS: TwinPair = {
   },
 };
 
+// ── row tables (generic) ─────────────────────────────────────────────────────
+
+/** How a row-shaped bare table folds into its twin. */
+interface RowPairSpec {
+  /** The bare legacy table. */
+  readonly table: string;
+  /** The prefixed twin. */
+  readonly twin: string;
+  /** Key/value table holding the marker and failure rows. */
+  readonly kvTable: string;
+  /** The primary-key columns (the row identity, shared by both tables). */
+  readonly key: readonly string[];
+  /**
+   * Union shape: UNIQUE indexes the bare (newer) table has and the twin lacks.
+   * The merge drops them, applies the rows, and creates them again inside the
+   * same transaction, so a frozen twin duplicate or two rows swapping a value
+   * never trip them midway, and the result must satisfy them.
+   */
+  readonly uniqueIndexes?: ReadonlyArray<{ readonly name: string; readonly on: string }>;
+}
+
+/** Column names of a table, in declaration order. */
+function columnsOf(db: DatabaseSync, schema: string, table: string): string[] {
+  return (
+    db.prepare(`SELECT name FROM pragma_table_info(?, ?)`).all(table, schema) as Array<{
+      name: string;
+    }>
+  ).map((c) => c.name);
+}
+
+const quoteIdent = (name: string): string => `"${name.replace(/"/g, '""')}"`;
+
+/**
+ * Rows of a table keyed by the JSON of their key columns; each row is the JSON
+ * of the shared columns in `columns` order (the hash and upsert payload).
+ */
+function keyedRows(
+  db: DatabaseSync,
+  schema: string,
+  table: string,
+  key: readonly string[],
+  columns: readonly string[],
+): Map<string, string> {
+  const rows = db
+    .prepare(`SELECT ${columns.map(quoteIdent).join(', ')} FROM ${schema}.${quoteIdent(table)}`)
+    .all() as Array<Record<string, unknown>>;
+  return new Map(
+    rows.map((r) => [
+      JSON.stringify(key.map((k) => r[k])),
+      JSON.stringify(columns.map((c) => r[c] ?? null)),
+    ]),
+  );
+}
+
+/**
+ * A bare/twin pair of row tables with a shared primary key. The bare row is
+ * authoritative. Initial collapse: when the bare table has rows, the twin is
+ * made equal to it (missing and differing rows upserted, frozen twin-only rows
+ * dropped and listed). Incremental re-merge: a key whose bare row hash changed
+ * since the last merge is carried (upserted, or deleted when the bare row is
+ * gone) unless the twin row changed too, which is a conflict the twin wins.
+ * No counters: no field is merged on its own.
+ */
+function rowPair(spec: RowPairSpec): TwinPair {
+  // Shared columns: what both tables hold (after the union-shape migration the
+  // twin holds every bare column). Resolved per connection.
+  const shared = (db: DatabaseSync): string[] => {
+    const twinCols = new Set(columnsOf(db, 'main', spec.twin));
+    return columnsOf(db, 'main', spec.table).filter((c) => twinCols.has(c));
+  };
+  const rowsOf = (db: DatabaseSync, schema: string, table: string): Map<string, string> =>
+    keyedRows(db, schema, table, spec.key, shared(db));
+  const hashes = (rows: ReadonlyMap<string, string>): Record<string, string> =>
+    Object.fromEntries([...rows].map(([k, v]) => [k, sha(v)]));
+  const upsertInto = (db: DatabaseSync, schema: string, plan: Plan) => {
+    const cols = shared(db);
+    const before = keyedRows(db, schema, spec.twin, spec.key, cols);
+    const nonKey = cols.filter((c) => !spec.key.includes(c));
+    const upsert = db.prepare(
+      `INSERT INTO ${schema}.${quoteIdent(spec.twin)} (${cols.map(quoteIdent).join(', ')}) ` +
+        `VALUES (${cols.map(() => '?').join(', ')}) ` +
+        `ON CONFLICT(${spec.key.map(quoteIdent).join(', ')}) DO UPDATE SET ` +
+        nonKey.map((c) => `${quoteIdent(c)} = excluded.${quoteIdent(c)}`).join(', '),
+    );
+    const del = db.prepare(
+      `DELETE FROM ${schema}.${quoteIdent(spec.twin)} WHERE ` +
+        spec.key.map((k) => `${quoteIdent(k)} IS ?`).join(' AND '),
+    );
+    let inserted = 0;
+    let replaced = 0;
+    let deleted = 0;
+    for (const key of plan.del) {
+      deleted += Number(del.run(...(JSON.parse(key) as Array<string | number | null>)).changes);
+    }
+    for (const [key, row] of plan.set) {
+      upsert.run(...(JSON.parse(row) as Array<string | number | null>));
+      if (before.has(key)) replaced++;
+      else inserted++;
+    }
+    return { inserted, replaced, deleted };
+  };
+  return {
+    table: spec.table,
+    twin: spec.twin,
+    kvTable: spec.kvTable,
+    tables: [spec.table, spec.twin, spec.kvTable],
+    bareHashes: (db) => hashes(rowsOf(db, 'main', spec.table)),
+    twinHashes: (db) => hashes(rowsOf(db, 'main', spec.twin)),
+    plan(db, state) {
+      const plan = emptyPlan();
+      const bare = rowsOf(db, 'main', spec.table);
+      const twin = rowsOf(db, 'main', spec.twin);
+      if (state === undefined) {
+        if (bare.size === 0) return plan;
+        for (const [key, row] of bare) if (twin.get(key) !== row) plan.set.set(key, row);
+        for (const key of [...twin.keys()].sort()) {
+          if (bare.has(key)) continue;
+          plan.del.push(key);
+          plan.dropped.push(key);
+        }
+        return plan;
+      }
+      const last = lastHashes(db, this, state);
+      for (const key of [...new Set([...bare.keys(), ...Object.keys(last.bare)])].sort()) {
+        const bareRow = bare.get(key);
+        if ((bareRow === undefined ? ABSENT : sha(bareRow)) === (last.bare[key] ?? ABSENT))
+          continue;
+        const twinRow = twin.get(key);
+        if ((twinRow === undefined ? ABSENT : sha(twinRow)) !== (last.twin[key] ?? ABSENT)) {
+          plan.conflicts.push(key);
+        } else if (bareRow !== undefined) {
+          if (twinRow !== bareRow) plan.set.set(key, bareRow);
+        } else if (twinRow !== undefined) {
+          plan.del.push(key);
+        }
+      }
+      return plan;
+    },
+    apply(db, plan) {
+      // Rows may reference each other (self foreign keys); check at COMMIT.
+      db.exec('PRAGMA defer_foreign_keys = ON');
+      for (const index of spec.uniqueIndexes ?? [])
+        db.exec(`DROP INDEX IF EXISTS main.${quoteIdent(index.name)}`);
+      const counts = upsertInto(db, 'main', plan);
+      for (const index of spec.uniqueIndexes ?? [])
+        db.exec(
+          `CREATE UNIQUE INDEX main.${quoteIdent(index.name)} ON ${quoteIdent(spec.twin)} ${index.on}`,
+        );
+      const after = rowsOf(db, 'main', spec.twin);
+      for (const [key, row] of plan.set) {
+        if (after.get(key) !== row)
+          throw new Error(`${spec.table} collapse did not verify for row ${key}`);
+      }
+      for (const key of plan.del) {
+        if (after.has(key))
+          throw new Error(`${spec.table} collapse did not verify the removal of row ${key}`);
+      }
+      return counts;
+    },
+    shadow(db, plan) {
+      const twin = quoteIdent(spec.twin);
+      db.exec(`CREATE TEMP TABLE IF NOT EXISTS ${twin} AS SELECT * FROM main.${twin} WHERE 0`);
+      db.exec(
+        `CREATE UNIQUE INDEX IF NOT EXISTS temp.${quoteIdent(`${spec.twin}_shadow_key`)} ` +
+          `ON ${twin} (${spec.key.map(quoteIdent).join(', ')})`,
+      );
+      db.exec(`DELETE FROM temp.${twin}`);
+      db.exec(`INSERT INTO temp.${twin} SELECT * FROM main.${twin}`);
+      upsertInto(db, 'temp', plan);
+    },
+  };
+}
+
+/**
+ * `attachments` → `docs_attachments`. The union-shape migration
+ * (`drizzle-cleo-project/…_t12535-docs-attachments-union-shape`) gives the twin
+ * the bare table's `display_alias` column and its `type` / `display_alias`
+ * indexes. The two UNIQUE indexes the docs code relies on (`slug`, partial;
+ * `sha256`) are (re)created by every merge, after the rows are applied,
+ * because a frozen twin could hold duplicates that the bare-authoritative
+ * merge removes first.
+ */
+const ATTACHMENTS: TwinPair = rowPair({
+  table: 'attachments',
+  twin: 'docs_attachments',
+  kvTable: 'tasks_schema_meta',
+  key: ['id'],
+  uniqueIndexes: [
+    { name: 'uniq_docs_attachments_slug', on: '(slug) WHERE slug IS NOT NULL' },
+    { name: 'uniq_docs_attachments_sha256', on: '(sha256)' },
+  ],
+});
+
+/** `attachment_refs` → `docs_attachment_refs` (same columns and key). */
+const ATTACHMENT_REFS: TwinPair = rowPair({
+  table: 'attachment_refs',
+  twin: 'docs_attachment_refs',
+  kvTable: 'tasks_schema_meta',
+  key: ['attachment_id', 'owner_type', 'owner_id'],
+});
+
 /** The pairs this build collapses, in order. */
-const PAIRS: readonly TwinPair[] = [SCHEMA_META, STICKY_TAGS];
+const PAIRS: readonly TwinPair[] = [SCHEMA_META, STICKY_TAGS, ATTACHMENTS, ATTACHMENT_REFS];
 
 // ── failure, read-only-for-users mode ────────────────────────────────────────
 
@@ -628,14 +852,19 @@ export function twinCollapseFailureOf(db: DatabaseSync): TwinCollapseFailure | u
  * degraded store never takes a partial write (e.g. a sticky's `tags_json`
  * without its tag rows). The shadows' TEMP triggers stay as the backstop.
  *
- * @param handle - The connection the write would use (a `DatabaseSync`, or a
- *   drizzle instance's `$client`); anything else is not checked.
+ * @param handle - The connection the write would use: the native
+ *   `DatabaseSync`, or a drizzle instance (its `$client` is checked).
+ *   `null`/`undefined` (no bound handle) is not checked.
  * @throws {CleoError} `E_TWIN_COLLAPSE_FAILED` when the connection is degraded.
  * @task T12535
  */
-export function assertTwinCollapseWritable(handle: unknown): void {
-  if (typeof handle !== 'object' || handle === null) return;
-  const failure = degraded.get(handle);
+export function assertTwinCollapseWritable(
+  handle: DatabaseSync | NodeSQLiteDatabase | null | undefined,
+): void {
+  if (!handle) return;
+  const native = '$client' in handle ? handle.$client : handle;
+  if (typeof native !== 'object' || native === null) return;
+  const failure = degraded.get(native);
   if (failure) throw twinCollapseError(failure);
 }
 

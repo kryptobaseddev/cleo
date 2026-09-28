@@ -28,8 +28,9 @@
 
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import { assertTwinCollapseWritable } from '../store/twin-collapse.js';
 
-/** Row shape projected from `attachments` during the supersede transaction. */
+/** Row shape projected from `docs_attachments` during the supersede transaction. */
 interface AttachmentSupersedeRow {
   id: string;
   slug: string | null;
@@ -147,6 +148,8 @@ export async function supersedeDoc(
       'docs supersede: project cleo.db could not be opened (no native handle)',
     );
   }
+  // T12535: fail fast on a store degraded by a failed twin collapse.
+  assertTwinCollapseWritable(db);
   {
     const now = new Date().toISOString();
 
@@ -160,7 +163,7 @@ export async function supersedeDoc(
 
     try {
       const lookup = db.prepare(
-        'SELECT id, slug, lifecycle_status, supersedes, superseded_by FROM attachments WHERE slug = ?',
+        'SELECT id, slug, lifecycle_status, supersedes, superseded_by FROM docs_attachments WHERE slug = ?',
       );
       oldRow = lookup.get(oldSlug) as AttachmentSupersedeRow | undefined;
       newRow = lookup.get(newSlug) as AttachmentSupersedeRow | undefined;
@@ -179,10 +182,13 @@ export async function supersedeDoc(
       }
 
       db.prepare(
-        "UPDATE attachments SET lifecycle_status = 'superseded', superseded_by = ? WHERE id = ?",
+        "UPDATE docs_attachments SET lifecycle_status = 'superseded', superseded_by = ? WHERE id = ?",
       ).run(newRow.id, oldRow.id);
 
-      db.prepare('UPDATE attachments SET supersedes = ? WHERE id = ?').run(oldRow.id, newRow.id);
+      db.prepare('UPDATE docs_attachments SET supersedes = ? WHERE id = ?').run(
+        oldRow.id,
+        newRow.id,
+      );
 
       db.exec('COMMIT');
     } catch (txErr) {

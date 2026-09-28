@@ -20,7 +20,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DocsHandler } from '../../../dispatch/domains/docs.js';
 
-/** Shape of `attachments` rows we inspect during the supersede assertions. */
+/** Shape of `docs_attachments` rows we inspect during the supersede assertions. */
 interface AttachmentSupersedeRow {
   id: string;
   slug: string | null;
@@ -76,7 +76,7 @@ async function seedTwoDocs(
 }
 
 /**
- * Read an `attachments` row by slug using the canonical chokepoint.
+ * Read a `docs_attachments` row by slug using the canonical chokepoint.
  * Returns `undefined` when the slug does not resolve.
  */
 async function readBySlug(slug: string): Promise<AttachmentSupersedeRow | undefined> {
@@ -86,7 +86,7 @@ async function readBySlug(slug: string): Promise<AttachmentSupersedeRow | undefi
     const db = handle.db as DatabaseSync;
     return db
       .prepare(
-        'SELECT id, slug, lifecycle_status, supersedes, superseded_by FROM attachments WHERE slug = ?',
+        'SELECT id, slug, lifecycle_status, supersedes, superseded_by FROM docs_attachments WHERE slug = ?',
       )
       .get(slug) as AttachmentSupersedeRow | undefined;
   } finally {

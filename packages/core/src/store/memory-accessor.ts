@@ -592,7 +592,7 @@ export class BrainDataAccessor {
    * degraded by a failed twin collapse (T12535): no note row without its tags.
    */
   private assertStickyWritable(): void {
-    assertTwinCollapseWritable('$client' in this.db ? this.db.$client : undefined);
+    assertTwinCollapseWritable(this.db);
   }
 
   async addStickyNote(row: NewBrainStickyNoteRow): Promise<BrainStickyNoteRow> {

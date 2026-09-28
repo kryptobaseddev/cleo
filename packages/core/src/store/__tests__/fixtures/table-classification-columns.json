@@ -826,6 +826,7 @@
     "docs_attachments": [
       "attachment_json",
       "created_at",
+      "display_alias",
       "doc_version",
       "id",
       "keywords",

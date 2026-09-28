@@ -26,6 +26,7 @@ import { resolveCleoDir } from '../paths.js';
 import type { CleoBlobStore as CleoBlobStoreType } from './llmtxt-blob-adapter.js';
 import { getDb, getNativeTasksDb } from './sqlite.js';
 import { type AttachmentLifecycleStatus, attachmentRefs, attachments } from './tasks-schema.js';
+import { assertTwinCollapseWritable } from './twin-collapse.js';
 
 // ─── Error types ──────────────────────────────────────────────────────────────
 
@@ -655,6 +656,8 @@ export function createAttachmentStore(): AttachmentStore {
         const db = await getDb(cwd);
         const nativeDb = getNativeTasksDb(cwd);
         if (!nativeDb) throw new Error('Database not initialized');
+        // T12535: fail fast on a store degraded by a failed twin collapse.
+        assertTwinCollapseWritable(nativeDb);
 
         // Allocator chokepoint runtime assert (T10392) — every writer with
         // a slug SHOULD have first called reserveSlug(). The lookup is a
@@ -1005,6 +1008,8 @@ export function createAttachmentStore(): AttachmentStore {
         const db = await getDb(cwd);
         const nativeDb = getNativeTasksDb(cwd);
         if (!nativeDb) throw new Error('Database not initialized');
+        // T12535: fail fast on a store degraded by a failed twin collapse.
+        assertTwinCollapseWritable(nativeDb);
 
         try {
           nativeDb.prepare('BEGIN IMMEDIATE').run();
@@ -1054,6 +1059,8 @@ export function createAttachmentStore(): AttachmentStore {
         const db = await getDb(cwd);
         const nativeDb = getNativeTasksDb(cwd);
         if (!nativeDb) throw new Error('Database not initialized');
+        // T12535: fail fast on a store degraded by a failed twin collapse.
+        assertTwinCollapseWritable(nativeDb);
 
         // Verify attachment exists (inside the lock so read is consistent).
         const existing = await db
