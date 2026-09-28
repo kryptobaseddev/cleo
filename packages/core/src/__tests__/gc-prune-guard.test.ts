@@ -22,6 +22,7 @@ import {
   readdirSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -140,6 +141,35 @@ describe('pruneOrphanWorktrees (gc/cleanup) — T11996 dirty guard', () => {
       // Both files must be captured.
       expect(tarList).toContain('.env');
       expect(tarList).toContain('notes.txt');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('a symlink cycle is archived as a link, not ELOOP + a partial archive (T12604)', () => {
+    const { worktreesRoot, projectDir, cleanup } = makeLayout('abc789');
+    try {
+      const wt = join(projectDir, 'T9056');
+      initGitRepo(wt);
+      writeFileSync(join(wt, 'dirty.txt'), 'uncommitted\n');
+      mkdirSync(join(wt, 'nested'));
+      symlinkSync('..', join(wt, 'nested', 'loop'));
+
+      const result = pruneOrphanWorktrees({
+        worktreesRoot,
+        projectHash: 'abc789',
+        activeTaskIds: new Set(['PRESERVED']),
+      });
+
+      expect(result.errors).toEqual([]);
+      const quarantineDir = join(worktreesRoot, '..', 'quarantine', 'worktrees');
+      const archives = readdirSync(quarantineDir).filter((f) => f.startsWith('T9056'));
+      expect(archives).toHaveLength(1);
+      const tarList = execFileSync('tar', ['-tzf', join(quarantineDir, archives[0]!)], {
+        encoding: 'utf-8',
+      });
+      expect(tarList).toContain('dirty.txt');
+      expect(tarList).toContain('nested/loop');
     } finally {
       cleanup();
     }

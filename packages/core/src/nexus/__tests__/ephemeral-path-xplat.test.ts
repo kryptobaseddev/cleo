@@ -11,7 +11,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isTempProject } from '../../validation/doctor/utils.js';
 import { isEphemeralPath } from '../registry-hygiene.js';
 
@@ -57,11 +57,15 @@ describe('isEphemeralPath with macOS /private/var paths', () => {
 describe('isTempProject folds Windows separators (T12606)', () => {
   let dir: string | undefined;
   afterEach(() => {
+    vi.restoreAllMocks();
     if (dir) rmSync(dir, { recursive: true, force: true });
     dir = undefined;
   });
 
   it('matches backslash forms of the temp patterns', () => {
+    // A win32 path is relative on a POSIX host and resolves against cwd; pin
+    // cwd outside every temp root so the result is host-independent.
+    vi.spyOn(process, 'cwd').mockReturnValue('/cleo-nonexistent-root');
     expect(isTempProject('C:\\Users\\me\\.temp\\proj')).toBe(true);
     expect(isTempProject('D:\\ci\\bats-run-123\\x')).toBe(true);
     expect(isTempProject('C:\\Users\\me\\projects\\app')).toBe(false);

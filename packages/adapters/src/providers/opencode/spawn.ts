@@ -11,14 +11,12 @@
  * @task T5240
  */
 
-import { exec, spawn as nodeSpawn } from 'node:child_process';
+import { spawn as nodeSpawn } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
 import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/contracts';
+import { findOnPath } from '@cleocode/paths';
 import { getCleoTemplatesTildePath } from '../shared/paths.js';
-
-const execAsync = promisify(exec);
 
 /** Name used for the CLEO subagent definition in OpenCode's agent directory. */
 const OPENCODE_SUBAGENT_NAME = 'cleo-subagent';
@@ -139,15 +137,10 @@ export class OpenCodeSpawnProvider implements AdapterSpawnProvider {
   /**
    * Check if the OpenCode CLI is available in PATH.
    *
-   * @returns true if `opencode` is found via `which`
+   * @returns true if `opencode` is found on PATH (PATHEXT-aware on Windows)
    */
   async canSpawn(): Promise<boolean> {
-    try {
-      await execAsync('which opencode');
-      return true;
-    } catch {
-      return false;
-    }
+    return findOnPath('opencode') !== null;
   }
 
   /**

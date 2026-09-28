@@ -330,6 +330,9 @@ function hasUnpushedCommits(worktreePath: string): boolean {
   }
 }
 
+/** Time bound for one quarantine archive, matching the old `tar` child's timeout. */
+const QUARANTINE_TAR_TIMEOUT_MS = 120_000;
+
 /**
  * Quarantine a dirty or unpushed worktree by packing it into a `.tar.gz`
  * archive under `<worktreesRoot>/../quarantine/worktrees/`. The original
@@ -341,7 +344,8 @@ function hasUnpushedCommits(worktreePath: string): boolean {
  * @param taskId - Task ID for the entry name.
  * @param quarantineDir - Absolute path to the quarantine root directory.
  * @param reason - Human-readable reason (e.g. `'dirty'`, `'unpushed'`).
- * @returns Absolute path to the created archive, or `null` on failure.
+ * @param timeoutMs - Archive time bound; exceeding it fails the quarantine.
+ * @returns Absolute path to the created archive, or `null` on failure (no partial archive is left).
  *
  * @task T11996
  * @internal
@@ -351,12 +355,14 @@ function quarantineWorktreeDir(
   taskId: string,
   quarantineDir: string,
   reason: string,
+  timeoutMs: number = QUARANTINE_TAR_TIMEOUT_MS,
 ): string | null {
+  let archivePath: string | null = null;
   try {
     mkdirSync(quarantineDir, { recursive: true });
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
-    const archiveName = `${taskId}-${ts}.tar.gz`;
-    const archivePath = join(quarantineDir, archiveName);
+    archivePath = join(quarantineDir, `${taskId}-${ts}.tar.gz`);
+    const deadline = Date.now() + timeoutMs;
 
     // Capture untracked AND ignored files: we deliberately do NOT exclude
     // anything here — the quarantine must be a complete snapshot including
@@ -367,10 +373,18 @@ function quarantineWorktreeDir(
         sync: true,
         gzip: true,
         file: archivePath,
-        // Dereference symlinks so the archive is self-contained.
-        follow: true,
+        // Symlinks are archived AS links. Following them threw ELOOP on a
+        // cycle and would pull whole link targets (pnpm node_modules) in.
+        follow: false,
         // Use the parent directory as CWD so the archive root is `<taskId>/`.
         cwd: join(worktreePath, '..'),
+        // Same bound as the old `tar` child's 120s timeout: a throw here
+        // aborts the synchronous walk.
+        filter: () => {
+          if (Date.now() > deadline)
+            throw new Error(`E_QUARANTINE_TIMEOUT: archive exceeded ${timeoutMs}ms`);
+          return true;
+        },
       },
       [taskId],
     );
@@ -390,6 +404,8 @@ function quarantineWorktreeDir(
 
     return archivePath;
   } catch {
+    // Never leave a truncated archive that looks like a valid quarantine.
+    if (archivePath) rmSync(archivePath, { force: true });
     return null;
   }
 }

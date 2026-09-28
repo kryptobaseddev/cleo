@@ -7,18 +7,16 @@
  * subagent processes with prompts written to temporary files. Processes
  * run detached and are tracked by PID for listing and termination.
  *
- * Pi detection: `PI_CLI_PATH` env var or `which pi`.
+ * Pi detection: `PI_CLI_PATH` env var or a PATH search for `pi`.
  *
  * @task T553
  */
 
-import { exec, spawn as nodeSpawn } from 'node:child_process';
-import { promisify } from 'node:util';
+import { spawn as nodeSpawn } from 'node:child_process';
 import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/contracts';
 import { getErrorMessage } from '@cleocode/contracts';
+import { findOnPath } from '@cleocode/paths';
 import { removeSpawnPromptFile, writeSpawnPromptFile } from '../shared/prompt-file.js';
-
-const execAsync = promisify(exec);
 
 /** Internal tracking entry for a spawned process. */
 interface TrackedProcess {
@@ -57,23 +55,15 @@ export class PiSpawnProvider implements AdapterSpawnProvider {
   /**
    * Check if the Pi CLI is available.
    *
-   * Checks `PI_CLI_PATH` env var first, then tries `which pi`.
+   * Checks `PI_CLI_PATH` env var first, then searches PATH for `pi`.
    *
    * @returns true if the Pi CLI is accessible
    */
   async canSpawn(): Promise<boolean> {
     const cliPath = getPiCliPath();
-    try {
-      if (cliPath !== 'pi') {
-        // Custom path — check if it exists
-        const { stdout } = await execAsync(`test -x "${cliPath}" && echo ok`);
-        return stdout.trim() === 'ok';
-      }
-      await execAsync('which pi');
-      return true;
-    } catch {
-      return false;
-    }
+    // A custom path is checked directly, a bare name searched on PATH/PATHEXT
+    // — no `test -x`/`which` shell-out, neither exists on Windows (T12604).
+    return findOnPath(cliPath) !== null;
   }
 
   /**

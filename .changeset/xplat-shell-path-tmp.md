@@ -17,9 +17,15 @@ Several runtime paths assumed a POSIX host. On Windows that broke them outright:
   through a single resolver, `shellInvocation` in `@cleocode/paths`: `/bin/sh -c`
   on POSIX and `%ComSpec% /d /s /c` on Windows. `which` probes (`commandExists`,
   dependency and runtime checks, adapter discovery, issue diagnostics, release
-  artifacts, fs-harden detection) now use `findOnPath`. `rm -f index.lock` is
+  artifacts, fs-harden detection, and every provider adapter's `healthCheck`/
+  `canSpawn` — claude-code, codex, gemini-cli, kimi, opencode, pi including
+  pi's `test -x`) now use `findOnPath`, so providers no longer all report
+  "cannot spawn" on Windows. A source-scan test fails on any new `which`/
+  `test -x` shell-out in the in-scope packages. `rm -f index.lock` is
   replaced by `fs.rmSync`. The worktree-orphan, GC-quarantine and skills
-  migration archives use the bundled `tar` library.
+  migration archives use the bundled `tar` library. The quarantine archives
+  symlinks as links (a cycle used to raise ELOOP), keeps the old 120s bound,
+  and removes a partial archive on failure.
 - **PATH (T12605).** The git-shim PATH was built as `${shimDir}:${PATH}`. On
   Windows that fused the shim dir with the first real entry and dropped both,
   so branch protection was silently absent. PATH is now composed with the
@@ -35,4 +41,6 @@ Several runtime paths assumed a POSIX host. On Windows that broke them outright:
 
 Not changed: `captureWrapped` still refuses to run on Windows, because
 process-group containment is unavailable there. `cleo-os` harness `/tmp` and
-`which` sites are out of scope.
+`which` sites are out of scope (for example `cleo-os/src/commands/doctor.ts`
+`which cleo`). Provider CLIs installed as `.cmd` shims still need a shell to
+spawn on Windows; that is left for a follow-up.

@@ -25,12 +25,10 @@
  * @task T648
  */
 
-import { exec, spawn as nodeSpawn } from 'node:child_process';
-import { promisify } from 'node:util';
+import { spawn as nodeSpawn } from 'node:child_process';
 import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/contracts';
 import { getErrorMessage } from '@cleocode/contracts';
-
-const execAsync = promisify(exec);
+import { findOnPath } from '@cleocode/paths';
 
 /** Default Gemini model for subagent spawns. */
 const DEFAULT_MODEL = 'gemini-2.5-pro';
@@ -66,20 +64,16 @@ export class GeminiCliSpawnProvider implements AdapterSpawnProvider {
   /**
    * Check if the Gemini CLI is available in PATH.
    *
-   * @returns `true` if `gemini` is found via `which`
+   * @returns `true` if `gemini` is found on PATH (PATHEXT-aware on Windows)
    */
   async canSpawn(): Promise<boolean> {
-    try {
-      await execAsync('which gemini');
-      return true;
-    } catch {
-      console.warn(
-        '[GeminiCliSpawnProvider] gemini CLI not found. ' +
-          'Install: npm install -g @google/gemini-cli  ' +
-          'Docs: https://github.com/google-gemini/gemini-cli',
-      );
-      return false;
-    }
+    if (findOnPath('gemini') !== null) return true;
+    console.warn(
+      '[GeminiCliSpawnProvider] gemini CLI not found. ' +
+        'Install: npm install -g @google/gemini-cli  ' +
+        'Docs: https://github.com/google-gemini/gemini-cli',
+    );
+    return false;
   }
 
   /**

@@ -24,13 +24,11 @@
  * @task T648
  */
 
-import { exec, spawn as nodeSpawn } from 'node:child_process';
-import { promisify } from 'node:util';
+import { spawn as nodeSpawn } from 'node:child_process';
 import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/contracts';
 import { getErrorMessage } from '@cleocode/contracts';
+import { findOnPath } from '@cleocode/paths';
 import { removeSpawnPromptFile, writeSpawnPromptFile } from '../shared/prompt-file.js';
-
-const execAsync = promisify(exec);
 
 /** Internal tracking entry for a spawned process. */
 interface TrackedProcess {
@@ -63,20 +61,16 @@ export class CodexSpawnProvider implements AdapterSpawnProvider {
   /**
    * Check if the Codex CLI is available in PATH.
    *
-   * @returns `true` if `codex` is found via `which`
+   * @returns `true` if `codex` is found on PATH (PATHEXT-aware on Windows)
    */
   async canSpawn(): Promise<boolean> {
-    try {
-      await execAsync('which codex');
-      return true;
-    } catch {
-      console.warn(
-        '[CodexSpawnProvider] codex CLI not found. ' +
-          'Install: npm install -g @openai/codex  ' +
-          'Docs: https://github.com/openai/codex',
-      );
-      return false;
-    }
+    if (findOnPath('codex') !== null) return true;
+    console.warn(
+      '[CodexSpawnProvider] codex CLI not found. ' +
+        'Install: npm install -g @openai/codex  ' +
+        'Docs: https://github.com/openai/codex',
+    );
+    return false;
   }
 
   /**

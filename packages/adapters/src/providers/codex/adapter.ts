@@ -8,20 +8,17 @@
  * @epic T134
  */
 
-import { exec } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
 import type {
   AdapterCapabilities,
   AdapterHealthStatus,
   CLEOProviderAdapter,
 } from '@cleocode/contracts';
+import { findOnPath } from '@cleocode/paths';
 import { CodexHookProvider } from './hooks.js';
 import { CodexInstallProvider } from './install.js';
-
-const execAsync = promisify(exec);
 
 /**
  * CLEO provider adapter for OpenAI Codex CLI.
@@ -124,13 +121,11 @@ export class CodexAdapter implements CLEOProviderAdapter {
 
     // Check Codex CLI availability
     let cliAvailable = false;
-    try {
-      const { stdout } = await execAsync('which codex');
-      cliAvailable = stdout.trim().length > 0;
-      details.cliPath = stdout.trim();
-    } catch {
-      details.cliAvailable = false;
-    }
+    // In-process PATH/PATHEXT lookup: there is no `which` on Windows (T12604).
+    const resolvedCli = findOnPath('codex');
+    cliAvailable = resolvedCli !== null;
+    if (resolvedCli) details.cliPath = resolvedCli;
+    else details.cliAvailable = false;
 
     // Check for Codex CLI config directory
     const codexConfigDir = join(homedir(), '.codex');

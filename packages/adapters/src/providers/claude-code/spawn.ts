@@ -13,8 +13,7 @@
  * @task T11998 — per-session scope/pgid suite containment
  */
 
-import { exec, spawn as nodeSpawn } from 'node:child_process';
-import { promisify } from 'node:util';
+import { spawn as nodeSpawn } from 'node:child_process';
 import type {
   AdapterSpawnProvider,
   AgentSuiteOwnership,
@@ -22,11 +21,10 @@ import type {
   SpawnResult,
 } from '@cleocode/contracts';
 import { getErrorMessage } from '@cleocode/contracts';
+import { findOnPath } from '@cleocode/paths';
 import { buildAgentSpawnArgs } from '../shared/agent-spawn-wrapper.js';
 import { removeSpawnPromptFile, writeSpawnPromptFile } from '../shared/prompt-file.js';
 import { reapAgentSuite } from './suite-reaper.js';
-
-const execAsync = promisify(exec);
 
 /** Internal tracking entry for a spawned process. */
 interface TrackedProcess {
@@ -59,15 +57,10 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
   /**
    * Check if the Claude CLI is available in PATH.
    *
-   * @returns true if `claude` is found via `which`
+   * @returns true if `claude` is found on PATH (PATHEXT-aware on Windows)
    */
   async canSpawn(): Promise<boolean> {
-    try {
-      await execAsync('which claude');
-      return true;
-    } catch {
-      return false;
-    }
+    return findOnPath('claude') !== null;
   }
 
   /**

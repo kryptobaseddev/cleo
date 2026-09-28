@@ -62,8 +62,10 @@ export function installGitShimLaunchers(
     if (!isSymlinkTo(linkPath, shimBinPath)) {
       removeIfPresent(linkPath);
       symlinkSync(shimBinPath, linkPath);
+      // Only on create/replace: an existing correct link needs no write to
+      // the (possibly package-owned, read-only) shim binary.
+      chmodSync(shimBinPath, 0o755);
     }
-    chmodSync(shimBinPath, 0o755);
     return [linkPath];
   }
 

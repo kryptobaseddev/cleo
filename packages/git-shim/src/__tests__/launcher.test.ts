@@ -6,7 +6,16 @@
  * file symlinks, so branch protection was silently absent there.
  */
 
-import { lstatSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  lstatSync,
+  mkdtempSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { findOnPath } from '@cleocode/paths';
@@ -65,5 +74,15 @@ describe('installGitShimLaunchers', () => {
     installGitShimLaunchers(shimDir, shimBin, { platform: 'darwin' });
     expect(readlinkSync(join(shimDir, 'git'))).toBe(shimBin);
     expect(lstatSync(shimBin).mode & 0o111).not.toBe(0);
+  });
+});
+
+describe('installGitShimLaunchers chmod (T12605)', () => {
+  it('POSIX: leaves the shim binary mode alone when the link is already correct', () => {
+    const { shimDir, shimBin } = setup();
+    installGitShimLaunchers(shimDir, shimBin, { platform: 'linux' });
+    chmodSync(shimBin, 0o555);
+    installGitShimLaunchers(shimDir, shimBin, { platform: 'linux' });
+    expect(statSync(shimBin).mode & 0o777).toBe(0o555);
   });
 });
