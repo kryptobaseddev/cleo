@@ -70,6 +70,7 @@ import { closeDb, getDb, getNativeTasksDb } from './sqlite.js';
 import { TERMINAL_TASK_STATUSES } from './status-registry.js';
 import { assertTaskVersion, nextTaskVersion } from './task-version.js';
 import * as schema from './tasks-schema.js';
+import { assertTwinCollapseWritable } from './twin-collapse.js';
 import { withWriteRetry } from './with-retry.js';
 
 /**
@@ -121,6 +122,8 @@ export async function setMetaValue(
 /** Write metadata while the caller owns the transaction. */
 async function writeMetaValue(cwd: string | undefined, key: string, value: unknown): Promise<void> {
   const db = await getDb(cwd);
+  // T12535: fail fast on a store degraded by a failed twin collapse.
+  assertTwinCollapseWritable(getNativeTasksDb(cwd));
   const json = JSON.stringify(value);
   await db
     .insert(schema.schemaMeta)
@@ -152,6 +155,7 @@ async function writeMetaValue(cwd: string | undefined, key: string, value: unkno
  * @task T12535
  */
 export function advanceTaskIdSequence(nativeDb: DatabaseSync, floor: number): number | undefined {
+  assertTwinCollapseWritable(nativeDb);
   nativeDb
     .prepare(`
       UPDATE tasks_schema_meta

@@ -129,34 +129,56 @@ describe('a blocked backups directory', () => {
       db.prepare("SELECT value FROM main.tasks_schema_meta WHERE key = 'project_meta'").get(),
     ).toBeUndefined();
 
-    // A direct SDK write (store accessors, bypassing the dispatch guard) into
-    // either shadowed table fails loudly; nothing lands anywhere.
+    // A direct SDK write (store accessors, bypassing the dispatch guard) fails
+    // fast with E_TWIN_COLLAPSE_FAILED before its first statement: nothing
+    // lands anywhere, and a sticky's tags_json cannot drift from its tags.
     const focusRows = () =>
       JSON.stringify([
         db.prepare("SELECT value FROM main.tasks_schema_meta WHERE key = 'focus_state'").get(),
         db.prepare("SELECT value FROM temp.tasks_schema_meta WHERE key = 'focus_state'").get(),
       ]);
     const focusBefore = focusRows();
-    expect(await refusal(accessor.setMetaValue('focus_state', { currentTask: 'T9' }))).toMatch(
-      /E_TWIN_COLLAPSE_FAILED: store is read-only/,
+    await expect(accessor.setMetaValue('focus_state', { currentTask: 'T9' })).rejects.toMatchObject(
+      {
+        code: 55,
+      },
     );
     expect(focusRows()).toBe(focusBefore);
     const brainAccessor = await getBrainAccessor(projectDir);
-    const tagRows = () =>
-      JSON.stringify(
+    const stickyRows = () =>
+      JSON.stringify([
+        db.prepare('SELECT tags_json FROM main.brain_sticky_notes WHERE id = ?').get(note.id),
         db
           .prepare(
             'SELECT tag FROM main.brain_sticky_tags WHERE sticky_id = ? UNION ALL SELECT tag FROM temp.brain_sticky_tags WHERE sticky_id = ?',
           )
           .all(note.id, note.id),
-      );
-    const tagsBefore = tagRows();
+      ]);
+    const stickyBefore = stickyRows();
+    await expect(
+      brainAccessor.updateStickyNote(note.id, { tagsJson: JSON.stringify(['sdk-tag']) }),
+    ).rejects.toMatchObject({ code: 55 });
+    await expect(
+      brainAccessor.addStickyNote({
+        id: 'SN-sdk',
+        content: 'x',
+        tagsJson: '["t"]',
+        status: 'active',
+      }),
+    ).rejects.toMatchObject({ code: 55 });
+    await expect(brainAccessor.deleteStickyNote(note.id)).rejects.toMatchObject({ code: 55 });
+    expect(stickyRows()).toBe(stickyBefore); // tags_json and the junction unchanged
+    expect(
+      db.prepare("SELECT 1 FROM main.brain_sticky_notes WHERE id = 'SN-sdk'").get(),
+    ).toBeUndefined();
+    // Backstop: a raw write that skips the accessors hits the shadow's trigger.
     expect(
       await refusal(
-        brainAccessor.updateStickyNote(note.id, { tagsJson: JSON.stringify(['sdk-tag']) }),
+        Promise.resolve().then(() =>
+          db.prepare("INSERT INTO tasks_schema_meta (key, value) VALUES ('raw', '1')").run(),
+        ),
       ),
     ).toMatch(/E_TWIN_COLLAPSE_FAILED: store is read-only/);
-    expect(tagRows()).toBe(tagsBefore);
 
     const blocked = await storeWriteBlock(projectDir);
     expect(blocked).toMatchObject({

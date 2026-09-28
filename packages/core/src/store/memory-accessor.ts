@@ -50,6 +50,7 @@ import type {
   NewBrainStickyNoteRow,
 } from './schema/memory-schema.js';
 import * as brainSchema from './schema/memory-schema.js';
+import { assertTwinCollapseWritable } from './twin-collapse.js';
 
 export class BrainDataAccessor {
   constructor(private db: NodeSQLiteDatabase) {}
@@ -586,7 +587,16 @@ export class BrainDataAccessor {
     await this.db.insert(brainStickyTags).values(tags.map((tag) => ({ stickyId, tag })));
   }
 
+  /**
+   * Refuse a sticky write before its first statement while the store is
+   * degraded by a failed twin collapse (T12535): no note row without its tags.
+   */
+  private assertStickyWritable(): void {
+    assertTwinCollapseWritable('$client' in this.db ? this.db.$client : undefined);
+  }
+
   async addStickyNote(row: NewBrainStickyNoteRow): Promise<BrainStickyNoteRow> {
+    this.assertStickyWritable();
     await this.db.insert(brainSchema.brainStickyNotes).values(row);
     await this.syncStickyTags(row.id, BrainDataAccessor.parseStickyTags(row.tagsJson));
     const result = await this.db
@@ -668,6 +678,7 @@ export class BrainDataAccessor {
   }
 
   async updateStickyNote(id: string, updates: Partial<NewBrainStickyNoteRow>): Promise<void> {
+    this.assertStickyWritable();
     await this.db
       .update(brainSchema.brainStickyNotes)
       .set({ ...updates, updatedAt: new Date().toISOString().replace('T', ' ').slice(0, 19) })
@@ -679,6 +690,7 @@ export class BrainDataAccessor {
   }
 
   async deleteStickyNote(id: string): Promise<void> {
+    this.assertStickyWritable();
     // ON DELETE CASCADE removes junction rows, but PRAGMA foreign_keys may be
     // off on some handles — delete explicitly to guarantee no orphans.
     await this.db.delete(brainStickyTags).where(eq(brainStickyTags.stickyId, id));

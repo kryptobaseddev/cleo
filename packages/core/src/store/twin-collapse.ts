@@ -607,7 +607,7 @@ export interface TwinCollapseFailure {
 }
 
 /** Connections serving TEMP shadows because their collapse failed. */
-const degraded = new WeakMap<DatabaseSync, TwinCollapseFailure>();
+const degraded = new WeakMap<object, TwinCollapseFailure>();
 
 /**
  * The failure a connection is degraded by, if any: reads on it are served from
@@ -619,6 +619,24 @@ const degraded = new WeakMap<DatabaseSync, TwinCollapseFailure>();
  */
 export function twinCollapseFailureOf(db: DatabaseSync): TwinCollapseFailure | undefined {
   return degraded.get(db);
+}
+
+/**
+ * Refuse a write before its first statement when the store is degraded by a
+ * failed twin collapse. The write accessors of the collapsed tables
+ * (`tasks_schema_meta`, and sticky notes and tags) call it at entry, so a
+ * degraded store never takes a partial write (e.g. a sticky's `tags_json`
+ * without its tag rows). The shadows' TEMP triggers stay as the backstop.
+ *
+ * @param handle - The connection the write would use (a `DatabaseSync`, or a
+ *   drizzle instance's `$client`); anything else is not checked.
+ * @throws {CleoError} `E_TWIN_COLLAPSE_FAILED` when the connection is degraded.
+ * @task T12535
+ */
+export function assertTwinCollapseWritable(handle: unknown): void {
+  if (typeof handle !== 'object' || handle === null) return;
+  const failure = degraded.get(handle);
+  if (failure) throw twinCollapseError(failure);
 }
 
 /**
