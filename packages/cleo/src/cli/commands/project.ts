@@ -142,7 +142,7 @@ const moveSubCommand = defineCommand({
   meta: {
     name: 'move',
     description:
-      'Move this project to a new path on the same device by RENAMING its root: .git, the database and everything else move together, nothing is copied and no old copy is left. The registry is rebound to the new path. Refuses a cross-device target (use a plain `mv`, then any cleo command) and a target inside the project (use `cleo project reroot`).',
+      'Move this project to a new path on the same device by RENAMING its root: .git, the database and everything else move together, nothing is copied and no old copy is left. The registry is rebound to the new path. Refuses a cross-device target (use a plain `mv`, then any cleo command), a target inside the project (use `cleo project reroot`), and any move while sessions are active or worktrees exist (end them first).',
   },
   args: {
     newPath: {

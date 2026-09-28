@@ -71,6 +71,8 @@ describe('project command group', () => {
       expect(text).toContain('nothing is copied and no old copy is left');
       expect(text).toContain('The registry is rebound');
       expect(text).toContain('cross-device');
+      expect(text).toContain('sessions are active');
+      expect(text).toContain('worktrees exist');
       expect(text).toContain('cleo project reroot');
     });
 
