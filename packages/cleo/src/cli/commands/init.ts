@@ -150,6 +150,12 @@ export const initCommand = defineCommand({
         'Point the NEXUS registry at this checkout even though the project is registered at another path that still exists (T12470).',
       default: false,
     },
+    here: {
+      type: 'boolean',
+      description:
+        'Initialize the current directory itself, even inside an ancestor CLEO project (T12562). A directory that is its own git root is targeted without it.',
+      default: false,
+    },
     'new-identity': {
       type: 'boolean',
       description:
@@ -217,6 +223,7 @@ export const initCommand = defineCommand({
         installSeedAgents: !!args['install-seed-agents'],
         newIdentity: !!args['new-identity'],
         forceRebind: !!args['force-rebind'],
+        here: !!args.here,
       };
 
       const result = await initProject(initOpts);

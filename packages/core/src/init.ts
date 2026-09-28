@@ -31,11 +31,12 @@
  * @epic T4663
  */
 
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { copyFile, lstat, mkdir, readFile, symlink, unlink, writeFile } from 'node:fs/promises';
 import { platform } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
+import { isAbsolutePath } from '@cleocode/paths';
 import { classifyProject, type ProjectClassification } from './discovery.js';
 import { CleoError } from './errors.js';
 import { ensureGitHooks } from './hooks.js';
@@ -45,12 +46,15 @@ import { migrateAgentOutputs } from './migration/agent-outputs.js';
 import { pushWarning } from './output.js';
 import {
   getAgentsHome,
+  getCleoDir,
   getCleoDirAbsolute,
   getCleoHome,
   getProjectRoot,
   recordProjectEncounter,
   resolveCleoDir,
+  worktreeScope,
 } from './paths.js';
+import { captureProjectScope } from './project-scope.js';
 // Shared utility imports
 import {
   ensureBrainDb,
@@ -102,6 +106,42 @@ export interface InitOptions {
    * `candidate`.
    */
   forceRebind?: boolean;
+  /**
+   * Initialize the current working directory itself, even when it sits inside
+   * an ancestor CLEO project (T12562). A directory that is its own git root is
+   * targeted without this flag.
+   */
+  here?: boolean;
+}
+
+/**
+ * How {@link resolveInitTarget} chose the directory `cleo init` acts on.
+ *
+ * - `here` — `--here` asked for the current directory.
+ * - `pinned` — a worktree scope, absolute `CLEO_DIR` or `CLEO_ROOT` pinned it.
+ * - `git-root` — the current directory is its own git repository root.
+ * - `resolved` — the ancestor walk; the current directory or an ancestor project.
+ *
+ * @task T12562
+ */
+export type InitTargetSource = 'here' | 'pinned' | 'git-root' | 'resolved';
+
+/**
+ * The directory `cleo init` will act on, and whether it is the current directory.
+ *
+ * @task T12562
+ */
+export interface InitTarget {
+  /** Absolute path of the target's `.cleo/` directory. */
+  cleoDir: string;
+  /** Absolute path of the target project root (parent of `cleoDir`). */
+  projectRoot: string;
+  /** Absolute path of the working directory init was invoked from. */
+  cwd: string;
+  /** Rule that selected the target. */
+  source: InitTargetSource;
+  /** `true` when `projectRoot` is the working directory (compared by realpath). */
+  isCwd: boolean;
 }
 
 /** Result of the init operation. */
@@ -764,6 +804,127 @@ export async function installHandoffRedirectStubs(
 // ── Public API ───────────────────────────────────────────────────────
 
 /**
+ * Canonicalize a path for identity comparison, tolerating a missing path.
+ *
+ * @param path - Absolute path.
+ * @returns The realpath, or the resolved path when it cannot be read.
+ */
+function canonicalPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+/**
+ * Choose the directory `cleo init` acts on (T12562).
+ *
+ * Every other command walks up from a subdirectory to the enclosing project,
+ * and keeps doing so. `init` is different because it CREATES a project, so the
+ * walk must not silently redirect it: from a child git repository nested under
+ * an initialized CLEO root the walk found the parent, and the guard then
+ * advised `--force` against the parent's store.
+ *
+ * Resolution order:
+ * 1. `--here` targets the working directory.
+ * 2. An active worktree scope, an absolute `CLEO_DIR` or `CLEO_ROOT` /
+ *    `CLEO_PROJECT_ROOT` pins the target explicitly (unchanged behaviour).
+ * 3. A working directory that is its own git root (`.git` is a directory)
+ *    targets itself — a nested repository is a separate project.
+ * 4. Otherwise the existing resolution applies. A plain (non-git)
+ *    subdirectory of a CLEO project therefore still resolves to that ancestor;
+ *    {@link initProject} reports it by absolute path and never wipes it.
+ *
+ * @param opts - `here` forces the working directory; `cwd` overrides `process.cwd()`.
+ * @returns The chosen target.
+ *
+ * @example
+ * ```ts
+ * resolveInitTarget(); // { projectRoot: '/repo/child', source: 'git-root', isCwd: true, ... }
+ * ```
+ *
+ * @task T12562
+ */
+export function resolveInitTarget(opts: { here?: boolean; cwd?: string } = {}): InitTarget {
+  const cwd = resolve(opts.cwd ?? process.cwd());
+  const cleoDirEnv = getCleoDir();
+  const relativeCleoDir = isAbsolutePath(cleoDirEnv) ? '.cleo' : cleoDirEnv;
+  const envRoot = process.env['CLEO_ROOT'] ?? process.env['CLEO_PROJECT_ROOT'];
+  const pinned =
+    worktreeScope.getStore() !== undefined || isAbsolutePath(cleoDirEnv) || Boolean(envRoot);
+
+  let cleoDir: string;
+  let source: InitTargetSource;
+  if (opts.here) {
+    cleoDir = resolve(cwd, relativeCleoDir);
+    source = 'here';
+  } else if (pinned) {
+    // T9803/D009: `bootstrap` is the only sanctioned cwd-relative fallback.
+    cleoDir = getCleoDirAbsolute(opts.cwd, { bootstrap: true });
+    source = 'pinned';
+  } else if (isOwnGitRoot(cwd)) {
+    cleoDir = resolve(cwd, relativeCleoDir);
+    source = 'git-root';
+  } else {
+    cleoDir = getCleoDirAbsolute(opts.cwd, { bootstrap: true });
+    source = 'resolved';
+  }
+  // `cleoDir` is `<root>/.cleo` by default, so its parent is the project root.
+  // This also respects an absolute `CLEO_DIR` used by the init-e2e suite.
+  const projectRoot = dirname(cleoDir);
+  return {
+    cleoDir,
+    projectRoot,
+    cwd,
+    source,
+    isCwd: canonicalPath(projectRoot) === canonicalPath(cwd),
+  };
+}
+
+/**
+ * Report whether `dir` is the root of its own git repository.
+ *
+ * Only a `.git` DIRECTORY counts. A gitlink FILE marks a linked worktree whose
+ * project is the main checkout (T9092), so it keeps the existing resolution.
+ *
+ * @param dir - Absolute directory to inspect.
+ * @returns `true` when `<dir>/.git` is a directory.
+ */
+function isOwnGitRoot(dir: string): boolean {
+  try {
+    return statSync(join(dir, '.git')).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Take a `VACUUM INTO` snapshot of the project's databases before a forced
+ * re-init overwrites anything, and refuse to continue without one (T12562).
+ *
+ * @param projRoot - Absolute project root being re-initialized.
+ * @param cleoDir - Absolute `.cleo/` directory of that root.
+ * @throws {CleoError} When `cleo.db` exists but no fresh snapshot was written.
+ */
+async function snapshotBeforeForcedReinit(projRoot: string, cleoDir: string): Promise<void> {
+  if (!existsSync(join(cleoDir, 'cleo.db'))) return;
+  const { listSqliteBackups, vacuumIntoBackupAll } = await import('./store/sqlite-backup.js');
+  const startedAt = Date.now();
+  await vacuumIntoBackupAll({ cwd: projRoot, force: true });
+  // Snapshot names carry second precision, so allow the same second.
+  const fresh = listSqliteBackups(projRoot).find((b) => b.mtimeMs >= startedAt - 1000);
+  if (!fresh) {
+    throw new CleoError(
+      ExitCode.GENERAL_ERROR,
+      `Refusing --force: could not take a VACUUM INTO snapshot of ${join(cleoDir, 'cleo.db')}. ` +
+        'Nothing was changed. Run `cleo backup add` and retry.',
+      { fix: 'cleo backup add', details: { field: 'force', resolvedRoot: projRoot } },
+    );
+  }
+}
+
+/**
  * Run update-docs only: refresh all injections without reinitializing.
  * Re-injects CLEO-INJECTION.md into all detected agent instruction files.
  *
@@ -812,25 +973,31 @@ export async function updateDocs(): Promise<InitResult> {
  * @task T4707
  */
 export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
-  // T9803/D009: `cleo init` is the ONLY caller permitted to bootstrap a
-  // missing project root. Passing `{ bootstrap: true }` opts into the
-  // cwd-relative fallback; every other caller must resolve through an
-  // existing root or throw to prevent orphan-`.cleo/` synthesis inside
-  // worktrees.
-  const cleoDir = getCleoDirAbsolute(undefined, { bootstrap: true });
-  // `cleo init` CREATES the project root, so we cannot call getProjectRoot()
-  // here — that walks up looking for an existing `.cleo/` sentinel and throws
-  // `E_NOT_FOUND` when none is present (the whole point of `init` is that
-  // none is present yet). `cleoDir` is `<cwd>/.cleo` by default, so its
-  // parent directory is the project root. This also respects an absolute
-  // `CLEO_DIR` env var used by the init-e2e test suite to pin the target
-  // directory.
-  const projRoot = dirname(cleoDir);
+  // T12562: choose the target explicitly instead of trusting the ancestor
+  // walk. From a child git repo under an initialized CLEO root the walk
+  // resolved the PARENT, the guard below then advised `--force`, and following
+  // that advice re-initialized the parent store.
+  const target = resolveInitTarget({ here: opts.here });
+  const { cleoDir, projectRoot: projRoot } = target;
 
   // Guard: fail if project already initialized (unless --force)
   const alreadyInitialized =
     existsSync(cleoDir) &&
     (existsSync(join(cleoDir, 'tasks.db')) || existsSync(join(cleoDir, 'config.json')));
+
+  // T12562: --force may only ever wipe the directory the operator is in.
+  if (opts.force && !target.isCwd) {
+    throw new CleoError(
+      ExitCode.GENERAL_ERROR,
+      `Refusing --force: it would re-initialize ${projRoot}, which is not the current directory ` +
+        `(${target.cwd}). --force only ever wipes the current directory's project. ` +
+        `To create a separate project in ${target.cwd}, run \`cleo init --here\` there.`,
+      {
+        fix: `cd ${JSON.stringify(target.cwd)} && cleo init --here`,
+        details: { field: 'force', resolvedRoot: projRoot, cwd: target.cwd },
+      },
+    );
+  }
 
   // T12077: `--map-codebase` is ADDITIVE — it analyses the tree and writes
   // findings to BRAIN; it scaffolds nothing and wipes nothing. Blocking it
@@ -848,15 +1015,55 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
   // first recommended follow-up was impossible.
   const additiveMapOnly = opts.mapCodebase === true;
   if (alreadyInitialized && !opts.force && !additiveMapOnly) {
+    // T12562: an ancestor project is never offered --force. The CLI prints
+    // only `message`, so the absolute root must be in it.
+    if (!target.isCwd) {
+      throw new CleoError(
+        ExitCode.GENERAL_ERROR,
+        `${target.cwd} is inside the CLEO project already initialized at ${projRoot}. ` +
+          `Nothing was changed. To create a separate project in ${target.cwd}, ` +
+          `run \`cleo init --here\` there.`,
+        {
+          fix: `cd ${JSON.stringify(target.cwd)} && cleo init --here`,
+          details: { field: 'cwd', resolvedRoot: projRoot, cwd: target.cwd, source: target.source },
+        },
+      );
+    }
     throw new CleoError(
       ExitCode.GENERAL_ERROR,
-      'Project already initialized. DANGER ZONE: use --force to wipe and re-init.',
-      { fix: 'cleo init --force' },
+      `Project already initialized at ${projRoot}. DANGER ZONE: use --force to wipe and ` +
+        're-init (a VACUUM INTO snapshot is taken first).',
+      { fix: 'cleo init --force', details: { field: 'cwd', resolvedRoot: projRoot } },
     );
   }
 
   const force = !!opts.force;
+  const scope = captureProjectScope(projRoot, worktreeScope.getStore());
 
+  // T12562: snapshot before any forced overwrite; refuse when none was taken.
+  if (force && alreadyInitialized) {
+    await worktreeScope.run(scope, () => snapshotBeforeForcedReinit(projRoot, cleoDir));
+  }
+
+  // Pin every ambient `getProjectRoot()` / `getCleoDirAbsolute()` inside the
+  // scaffolding steps to the chosen target, so none of them walks back up to
+  // an ancestor project while the target's `.cleo/` is still being created.
+  return worktreeScope.run(scope, () => scaffoldInitTarget(opts, { cleoDir, projRoot, force }));
+}
+
+/**
+ * Run the scaffolding half of {@link initProject} against an already-chosen,
+ * already-guarded target.
+ *
+ * @param opts - The caller's init options.
+ * @param target - Resolved `.cleo/` directory, its project root and the force flag.
+ * @returns The init result.
+ */
+async function scaffoldInitTarget(
+  opts: InitOptions,
+  target: { cleoDir: string; projRoot: string; force: boolean },
+): Promise<InitResult> {
+  const { cleoDir, projRoot, force } = target;
   const created: string[] = [];
   const skipped: string[] = [];
   const warnings: string[] = [];
