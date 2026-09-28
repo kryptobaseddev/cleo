@@ -6,12 +6,15 @@
  * fails on Windows (or silently leaves a stale entry) and nothing notices.
  * This helper:
  *
- * 1. replaces an existing SYMLINK at `linkPath` (lstat-based, so a dangling
- *    link is found — `existsSync` follows links and reports it absent);
+ * 1. sets an existing SYMLINK at `linkPath` aside (lstat-based, so a dangling
+ *    link is found — `existsSync` follows links and reports it absent) and
+ *    restores it if every replacement fails;
  * 2. links: a directory junction on win32 (no privilege needed), a symlink
  *    elsewhere;
  * 3. verifies the link resolves; when linking throws or the link does not
- *    resolve, falls back to a copy (recursive for directories);
+ *    resolve, falls back to a copy (recursive for directories) built in a
+ *    hidden staging sibling and renamed into place. The link path itself is
+ *    only ever unlinked, never deleted recursively;
  * 4. returns which mode it used, so callers can record a copy.
  *
  * A real file or directory at `linkPath` is only replaced with
@@ -25,11 +28,12 @@ import {
   cpSync,
   existsSync,
   lstatSync,
+  renameSync,
   rmSync,
   symlinkSync,
   unlinkSync,
 } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 
 /** What the link points at. */
 export type LinkKind = 'dir' | 'file';
@@ -88,19 +92,44 @@ export function _setSymlinkImplForTests(impl?: SymlinkImpl): void {
   symlinkImpl = impl ?? ((target, path, type) => symlinkSync(target, path, type));
 }
 
-function clear(linkPath: string, overwrite: boolean): void {
+/** Hidden sibling of `path` for a staged copy or a set-aside previous entry. */
+function sibling(path: string, role: 'staging' | 'prev'): string {
+  const suffix = `${process.pid}-${Math.random().toString(16).slice(2, 10)}`;
+  return join(dirname(path), `.${basename(path)}.link-or-copy-${role}-${suffix}`);
+}
+
+/** Unlink `path` only if it is a link — never follows it, never recurses. */
+function unlinkIfLink(path: string): void {
+  try {
+    if (lstatSync(path).isSymbolicLink()) unlinkSync(path);
+  } catch {
+    // nothing there
+  }
+}
+
+/**
+ * Move whatever occupies `linkPath` to a hidden sibling so it can be restored
+ * if the replacement fails. Returns the set-aside path, or null when empty.
+ */
+function setAside(linkPath: string, overwrite: boolean): { path: string; isLink: boolean } | null {
   let stat: ReturnType<typeof lstatSync>;
   try {
     stat = lstatSync(linkPath);
   } catch {
-    return; // nothing there
+    return null; // nothing there
   }
-  if (stat.isSymbolicLink()) {
-    unlinkSync(linkPath);
-    return;
-  }
-  if (!overwrite) throw new LinkOccupiedError(linkPath);
-  rmSync(linkPath, { recursive: true, force: true });
+  const isLink = stat.isSymbolicLink();
+  if (!isLink && !overwrite) throw new LinkOccupiedError(linkPath);
+  const aside = sibling(linkPath, 'prev');
+  renameSync(linkPath, aside);
+  return { path: aside, isLink };
+}
+
+/** Drop the set-aside previous entry once its replacement is in place. */
+function discard(prev: { path: string; isLink: boolean } | null): void {
+  if (prev === null) return;
+  if (prev.isLink) unlinkSync(prev.path);
+  else rmSync(prev.path, { recursive: true, force: true }); // an entry the caller asked to overwrite
 }
 
 /**
@@ -129,7 +158,9 @@ export function linkOrCopy(
   const platform = opts.platform ?? process.platform;
   const absLink = resolve(linkPath);
   const absTarget = resolve(dirname(absLink), target);
-  clear(absLink, opts.overwrite === true);
+  // The previous entry is set aside, not deleted, until its replacement is in
+  // place; any failure below puts it back.
+  const prev = setAside(absLink, opts.overwrite === true);
 
   let fallbackReason: string | null = null;
   const junction = platform === 'win32' && kind === 'dir';
@@ -138,6 +169,7 @@ export function linkOrCopy(
     // relative) target so the pair stays relocatable.
     symlinkImpl(junction ? absTarget : target, absLink, junction ? 'junction' : kind);
     if (existsSync(absLink)) {
+      discard(prev);
       return {
         mode: junction ? 'junction' : 'symlink',
         linkPath: absLink,
@@ -146,16 +178,30 @@ export function linkOrCopy(
       };
     }
     fallbackReason = 'link was created but does not resolve';
-    unlinkSync(absLink);
   } catch (err) {
     fallbackReason ??= err instanceof Error ? err.message : String(err);
-    rmSync(absLink, { recursive: true, force: true });
   }
+  // The link path only ever held our link here: unlink, never recurse.
+  unlinkIfLink(absLink);
 
+  const restore = (): void => {
+    if (prev !== null) renameSync(prev.path, absLink);
+  };
   if (opts.fallback === 'none') {
+    restore();
     throw new Error(`could not link ${absLink} → ${absTarget}: ${fallbackReason}`);
   }
-  if (kind === 'dir') cpSync(absTarget, absLink, { recursive: true });
-  else copyFileSync(absTarget, absLink);
+  // Build the copy beside the target, then rename it into place.
+  const staging = sibling(absLink, 'staging');
+  try {
+    if (kind === 'dir') cpSync(absTarget, staging, { recursive: true });
+    else copyFileSync(absTarget, staging);
+    renameSync(staging, absLink);
+  } catch (err) {
+    rmSync(staging, { recursive: true, force: true }); // our own staging copy
+    restore();
+    throw err;
+  }
+  discard(prev);
   return { mode: 'copy', linkPath: absLink, target: absTarget, fallbackReason };
 }

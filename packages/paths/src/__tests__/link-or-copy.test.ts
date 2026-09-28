@@ -8,6 +8,7 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   readlinkSync,
   rmSync,
@@ -97,6 +98,26 @@ describe('linkOrCopy', () => {
     expect(readFileSync(occupied, 'utf-8')).toBe('user data');
     linkOrCopy(fileTarget, occupied, 'file', { overwrite: true });
     expect(readFileSync(occupied, 'utf-8')).toBe('file content');
+  });
+
+  it('restores the previous link when neither a link nor a copy can be made; leaves no staging', () => {
+    _setSymlinkImplForTests(eperm);
+    const link = join(base, 'latest.json');
+    symlinkSync('0-models.json', link); // previous (dangling) link
+    expect(() => linkOrCopy(join(base, 'missing.json'), link, 'file')).toThrow(/ENOENT/);
+    expect(readlinkSync(link)).toBe('0-models.json');
+    expect(readdirSync(base).filter((n) => n.includes('link-or-copy-'))).toEqual([]);
+  });
+
+  it('restores an overwritten real entry when the replacement fails', () => {
+    _setSymlinkImplForTests(eperm);
+    const occupied = join(base, 'occupied');
+    writeFileSync(occupied, 'user data');
+    expect(() =>
+      linkOrCopy(join(base, 'missing.json'), occupied, 'file', { overwrite: true }),
+    ).toThrow(/ENOENT/);
+    expect(readFileSync(occupied, 'utf-8')).toBe('user data');
+    expect(readdirSync(base).filter((n) => n.includes('link-or-copy-'))).toEqual([]);
   });
 
   it('with fallback "none" throws instead of copying', () => {
