@@ -44,12 +44,23 @@
  * that is meaningless off-device: leases, queues, pids, paths, locations and
  * fs-keyed caches.
  *
+ * ## Follow-up: current learned weights (does not block Gate A)
+ *
+ * `brain_plasticity_events` and `brain_weight_history` are local-only for row
+ * sync (they are STDP event history, 14M+ inserts). A new device still needs
+ * the CURRENT learned weights. Deliver them either as a compacted
+ * "current weights" projection that syncs as `portable-personal`, or as a
+ * periodic compacted snapshot blob. Until then a new device restores them
+ * only from the tier-1 backup.
+ *
  * ## Sources
  *
  * The classes come from the classification draft
  * (`docs/research/table-classification-draft.md` in the cleo-nexus repo), the
  * core owner's rulings in its §F, and the core owner's two-tier ruling of
- * 2026-09-28, which supersedes earlier rulings where they conflict (each such
+ * 2026-09-28 plus its follow-up ruling on the STDP tables. Table
+ * classification was delegated to agents by the owner, so these are cleo-dev
+ * rulings; the ruling supersedes earlier ones where they conflict (each such
  * entry carries the old reasoning in its `note`). Rows marked
  * `needs-owner-call` are provisional. Tables on the `pending` list have no
  * class and never sync (they are still backed up).
@@ -246,10 +257,10 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     note: 'surprisal clustering output, so not derived under the ruling. Its id is an INTEGER autoincrement, so rows need a uid before they can merge; brain_observations.tree_id keeps its strip override until then',
   },
   brain_modulators: {
-    class: 'local-only',
-    status: 'needs-owner-call',
+    class: 'portable-personal',
+    status: 'resolved',
     source: 'cleo-dev ruling 2026-09-28',
-    note: 'CONFLICT: the ruling says all brain_* are portable, but the T12332 description names brain_plasticity_events/brain_weight_history local-only, and draft §D measures 14M+ inserts ever ("must never replicate"). No longer derived under the narrow rule. Kept local-only (tier-1 backup) pending an owner call',
+    note: 'cleo-dev ruling (final, 2026-09-28): learned modulator state syncs',
   },
   brain_observations: {
     class: 'portable-personal',
@@ -305,9 +316,9 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
   },
   brain_plasticity_events: {
     class: 'local-only',
-    status: 'needs-owner-call',
+    status: 'resolved',
     source: 'cleo-dev ruling 2026-09-28',
-    note: 'CONFLICT: the ruling says all brain_* are portable, but the T12332 description names brain_plasticity_events/brain_weight_history local-only, and draft §D measures 14M+ inserts ever ("must never replicate"). No longer derived under the narrow rule. Kept local-only (tier-1 backup) pending an owner call',
+    note: 'cleo-dev ruling (final, 2026-09-28): local-only for row sync (14M+ inserts ever, draft §D); still tier-1 backed up. A new device gets the CURRENT learned weights through a follow-up projection or snapshot blob (see the module doc), not this event history',
   },
   brain_promotion_log: {
     class: 'portable-personal',
@@ -374,9 +385,9 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
   },
   brain_weight_history: {
     class: 'local-only',
-    status: 'needs-owner-call',
+    status: 'resolved',
     source: 'cleo-dev ruling 2026-09-28',
-    note: 'CONFLICT: the ruling says all brain_* are portable, but the T12332 description names brain_plasticity_events/brain_weight_history local-only, and draft §D measures 14M+ inserts ever ("must never replicate"). No longer derived under the narrow rule. Kept local-only (tier-1 backup) pending an owner call',
+    note: 'cleo-dev ruling (final, 2026-09-28): local-only for row sync (14M+ inserts ever, draft §D); still tier-1 backed up. A new device gets the CURRENT learned weights through a follow-up projection or snapshot blob (see the module doc), not this event history',
   },
   commit_files: {
     class: 'local-only',
@@ -1355,10 +1366,10 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     note: 'surprisal clustering output, so not derived under the ruling. Its id is an INTEGER autoincrement, so rows need a uid before they can merge; brain_observations.tree_id keeps its strip override until then',
   },
   brain_modulators: {
-    class: 'local-only',
-    status: 'needs-owner-call',
+    class: 'portable-personal',
+    status: 'resolved',
     source: 'cleo-dev ruling 2026-09-28',
-    note: 'CONFLICT: the ruling says all brain_* are portable, but the T12332 description names brain_plasticity_events/brain_weight_history local-only, and draft §D measures 14M+ inserts ever ("must never replicate"). No longer derived under the narrow rule. Kept local-only (tier-1 backup) pending an owner call',
+    note: 'cleo-dev ruling (final, 2026-09-28): learned modulator state syncs',
   },
   brain_observations: {
     class: 'portable-personal',
@@ -1404,9 +1415,9 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
   },
   brain_plasticity_events: {
     class: 'local-only',
-    status: 'needs-owner-call',
+    status: 'resolved',
     source: 'cleo-dev ruling 2026-09-28',
-    note: 'CONFLICT: the ruling says all brain_* are portable, but the T12332 description names brain_plasticity_events/brain_weight_history local-only, and draft §D measures 14M+ inserts ever ("must never replicate"). No longer derived under the narrow rule. Kept local-only (tier-1 backup) pending an owner call',
+    note: 'cleo-dev ruling (final, 2026-09-28): local-only for row sync (14M+ inserts ever, draft §D); still tier-1 backed up. A new device gets the CURRENT learned weights through a follow-up projection or snapshot blob (see the module doc), not this event history',
   },
   brain_promotion_log: {
     class: 'portable-personal',
@@ -1454,9 +1465,9 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
   },
   brain_weight_history: {
     class: 'local-only',
-    status: 'needs-owner-call',
+    status: 'resolved',
     source: 'cleo-dev ruling 2026-09-28',
-    note: 'CONFLICT: the ruling says all brain_* are portable, but the T12332 description names brain_plasticity_events/brain_weight_history local-only, and draft §D measures 14M+ inserts ever ("must never replicate"). No longer derived under the narrow rule. Kept local-only (tier-1 backup) pending an owner call',
+    note: 'cleo-dev ruling (final, 2026-09-28): local-only for row sync (14M+ inserts ever, draft §D); still tier-1 backed up. A new device gets the CURRENT learned weights through a follow-up projection or snapshot blob (see the module doc), not this event history',
   },
   models_catalog: {
     class: 'local-only',
