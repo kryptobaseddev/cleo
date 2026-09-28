@@ -10,7 +10,8 @@
  * the SAME row is updated in place (same projectId, new path + new projectHash) —
  * there is no second entry and no GC of an old-path row.
  */
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -22,7 +23,10 @@ import {
   pendingBackgroundOpCount,
 } from '../store/background-ops.js';
 
-function createTempCleoProject(dir: string, opts?: { projectName?: string; projectId?: string }) {
+function createTempCleoProject(
+  dir: string,
+  opts?: { projectName?: string; projectId?: string; remote?: string },
+) {
   const pid = opts?.projectId ?? `pid-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const cleoDir = join(dir, '.cleo');
   mkdirSync(cleoDir, { recursive: true });
@@ -30,7 +34,13 @@ function createTempCleoProject(dir: string, opts?: { projectName?: string; proje
   if (opts?.projectName) info.name = opts.projectName;
   writeFileSync(join(cleoDir, 'project-info.json'), JSON.stringify(info));
   writeFileSync(join(cleoDir, 'tasks.db'), '');
-  mkdirSync(join(dir, '.git'), { recursive: true });
+  if (opts?.remote) {
+    // A real repository, so the checkout carries verifiable evidence (T12470).
+    execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'ignore' });
+    execFileSync('git', ['remote', 'add', 'origin', opts.remote], { cwd: dir, stdio: 'ignore' });
+  } else {
+    mkdirSync(join(dir, '.git'), { recursive: true });
+  }
   return { projectRoot: resolve(dir), infoProjectId: pid };
 }
 
@@ -180,7 +190,10 @@ describe('registerProjectOnEncounter (T11021 AC2, AC3, AC5)', () => {
     const tempProj2 = join(tmpdir(), `cp2-${Date.now()}`);
     mkdirSync(tempHome, { recursive: true });
     tempDirs.push(tempHome, tempProj1, tempProj2);
-    const { infoProjectId } = createTempCleoProject(tempProj1, { projectName: 'movable' });
+    const { infoProjectId } = createTempCleoProject(tempProj1, {
+      projectName: 'movable',
+      remote: 'https://example.invalid/movable.git',
+    });
     const orig = process.env['CLEO_HOME'];
     process.env['CLEO_HOME'] = tempHome;
     try {
@@ -188,12 +201,11 @@ describe('registerProjectOnEncounter (T11021 AC2, AC3, AC5)', () => {
       expect(id1).toBe(infoProjectId);
       const hash1 = (await resolveProjectById(id1))!.projectHash;
 
-      // Simulate a move: the SAME project (same stored immutable id, the
-      // project-info.json travels with the directory) now lives at a new path.
-      const { projectRoot: movedRoot } = createTempCleoProject(tempProj2, {
-        projectName: 'movable',
-        projectId: infoProjectId,
-      });
+      // A real move: the directory (and its project-info.json) goes to a new
+      // path and the old one is gone. T12470: the encounter follows it only
+      // because the move is verifiable — same git remote as recorded.
+      renameSync(tempProj1, tempProj2);
+      const movedRoot = resolve(tempProj2);
       const id2 = await registerAndGetRegisteredId(movedRoot, infoProjectId);
 
       // T11281: identity is immutable — the id is RETAINED across the move.
@@ -284,10 +296,10 @@ describe('captured encounter registration ownership', () => {
       const native = getNativeTasksDb(project)!;
       native.exec('BEGIN IMMEDIATE');
       const identity = await import('../nexus/identity.js');
-      const original = identity.canonicalProjectId;
+      const original = identity.projectPathFingerprint;
       const entered = Promise.withResolvers<void>();
       const release = Promise.withResolvers<void>();
-      vi.spyOn(identity, 'canonicalProjectId').mockImplementationOnce(async (...args) => {
+      vi.spyOn(identity, 'projectPathFingerprint').mockImplementationOnce(async (...args) => {
         entered.resolve();
         await release.promise;
         return original(...args);
@@ -418,11 +430,28 @@ describe('captured encounter registration ownership', () => {
           .get()?.projectPath,
       ).toBe(supersededRegistryPath(infoProjectId));
 
+      // T12470: secondId is registered at `project` (which still exists), so
+      // encountering it at `second` only records a candidate — it binds
+      // nothing. The binding cases below therefore use a fresh id at `second`.
+      await registerProjectOnEncounter(second, secondId);
+      expect(
+        db
+          .select({ projectPath: projectRegistry.projectPath })
+          .from(projectRegistry)
+          .where(eq(projectRegistry.projectId, secondId))
+          .get()?.projectPath,
+      ).toBe(resolvedProject ?? project);
+      const freshId = `fresh-${secondId}`;
+      writeFileSync(
+        join(second, '.cleo', 'project-info.json'),
+        JSON.stringify({ projectId: freshId }),
+      );
+
       const before = db.select().from(projectRegistry).all();
       db.run(
         sql`CREATE TRIGGER reject_fixture_alias BEFORE INSERT ON nexus_project_id_aliases BEGIN SELECT RAISE(ABORT, 'fixture alias failure'); END`,
       );
-      await expect(registerProjectOnEncounter(second, secondId)).rejects.toThrow();
+      await expect(registerProjectOnEncounter(second, freshId)).rejects.toThrow();
       expect(db.select().from(projectRegistry).all()).toEqual(before);
       db.run(sql`DROP TRIGGER reject_fixture_alias`);
 
@@ -443,14 +472,14 @@ describe('captured encounter registration ownership', () => {
         .from(projectRegistry)
         .where(eq(projectRegistry.projectId, canonical.id))
         .get();
-      await registerProjectOnEncounter(second, secondId);
+      await registerProjectOnEncounter(second, freshId);
       expect(
         db.select().from(projectRegistry).where(eq(projectRegistry.projectId, canonical.id)).get(),
       ).toEqual(independent);
 
       const beforeMalformed = db.select().from(projectRegistry).all();
       writeFileSync(join(second, '.cleo', 'project-info.json'), '{malformed');
-      await expect(registerProjectOnEncounter(second, secondId)).rejects.toThrow();
+      await expect(registerProjectOnEncounter(second, freshId)).rejects.toThrow();
       expect(db.select().from(projectRegistry).all()).toEqual(beforeMalformed);
     } finally {
       await awaitBackgroundOps();
@@ -484,10 +513,10 @@ describe('captured encounter registration ownership', () => {
         { signal: controller.signal },
       );
       const identity = await import('../nexus/identity.js');
-      const original = identity.canonicalProjectId;
+      const original = identity.projectPathFingerprint;
       const entered = Promise.withResolvers<void>();
       const release = Promise.withResolvers<void>();
-      vi.spyOn(identity, 'canonicalProjectId').mockImplementationOnce(async (...args) => {
+      vi.spyOn(identity, 'projectPathFingerprint').mockImplementationOnce(async (...args) => {
         entered.resolve();
         await release.promise;
         return original(...args);
