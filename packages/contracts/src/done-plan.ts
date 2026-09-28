@@ -59,6 +59,8 @@ export type DonePlanBlockerCode =
   | 'no-change-set'
   | 'pr-ambiguous'
   | 'pr-unverified'
+  | 'pr-stacked'
+  | 'pr-reverted'
   | 'merge-commit-missing'
   | 'decision-missing'
   | 'tool-unresolved'
@@ -115,8 +117,17 @@ export interface TaskChangeSet {
   rootSource: ChangeSetRootSource;
   /** Merged PR number (`source === 'pr'`). */
   prNumber?: number;
-  /** Verified merge commit the files were read from (`source === 'pr'`). */
+  /**
+   * Verified merge commit the files were read from (`source === 'pr'`). For a
+   * stacked PR this is the BASE PR's merge into the default branch.
+   */
   mergeCommitSha?: string;
+  /**
+   * Set when the task's PR merged into another branch (a stacked PR) and the
+   * task is attributed to that branch's own PR once it reached the default
+   * branch.
+   */
+  stackedOn?: { baseRef: string; basePrNumber?: number };
   /** Branch tip commit (`source === 'branch'`). */
   commitSha?: string;
   /** Ref that was diffed (`HEAD` or `task/<id>`), for `source === 'branch'`. */

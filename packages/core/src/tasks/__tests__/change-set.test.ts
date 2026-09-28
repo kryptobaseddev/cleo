@@ -25,6 +25,7 @@ import {
   type ChangeSetTask,
   deriveTaskChangeSet,
   type MergedPrSummary,
+  type PrDetails,
 } from '../change-set.js';
 import { parseEvidence, validateAtom } from '../evidence.js';
 
@@ -66,6 +67,25 @@ function task(id: string, extra: Partial<ChangeSetTask> = {}): ChangeSetTask {
 }
 
 const noPrs: ChangeSetDeps['listMergedPrs'] = async () => ({ ok: true, prs: [] });
+
+/** gh pr view stand-in: every PR merged into `main` unless overridden. */
+function details(number: number, extra: Partial<PrDetails> = {}): PrDetails {
+  return {
+    number,
+    title: '',
+    headRefName: '',
+    baseRefName: 'main',
+    state: 'MERGED',
+    mergedAt: '2026-09-28T00:00:00Z',
+    headRefOid: null,
+    mergeCommitSha: null,
+    ...extra,
+  };
+}
+const onMain: Pick<ChangeSetDeps, 'viewPr' | 'findPrByHead'> = {
+  viewPr: async (n) => details(n),
+  findPrByHead: async () => null,
+};
 const noDocs: Pick<ChangeSetDeps, 'listTaskDocs' | 'listTaskDecisions'> = {
   listTaskDocs: async () => [],
   listTaskDecisions: async () => [],
@@ -270,6 +290,7 @@ describe('merged PR (AC1, AC5)', () => {
           ok: true,
           prs: [pr(42, 'T910: fix'), pr(43, 'T9100: other')],
         }),
+        ...onMain,
         resolvePr: async (n) => prResolution(n, squash, ['a.ts', 'new.ts', 'old.ts']),
         ...noDocs,
         env: {},
@@ -295,6 +316,7 @@ describe('merged PR (AC1, AC5)', () => {
           ok: true,
           prs: [pr(44, 'follow-up T911', 'feat/x'), pr(42, 'T911: fix', 'hotfix/y')],
         }),
+        ...onMain,
         resolvePr: async (n) => prResolution(n, squash, ['a.ts']),
         ...noDocs,
         env: {},
@@ -320,6 +342,7 @@ describe('merged PR (AC1, AC5)', () => {
             pr(42, 'fix', 'task/T914'),
           ],
         }),
+        ...onMain,
         resolvePr: async (n) => prResolution(n, squash, ['a.ts', 'new.ts', 'old.ts']),
         ...noDocs,
         env: {},
@@ -336,6 +359,7 @@ describe('merged PR (AC1, AC5)', () => {
       { task: task('T912', { files: ['a.ts'] }), storeRoot: repo, cwd: repo },
       {
         listMergedPrs: async () => ({ ok: true, prs: [pr(42, 'T912'), pr(44, 'T912 docs')] }),
+        ...onMain,
         resolvePr: async (n) =>
           prResolution(n, squash, n === 42 ? ['a.ts', 'new.ts', 'old.ts'] : ['README.md']),
         ...noDocs,
@@ -352,12 +376,190 @@ describe('merged PR (AC1, AC5)', () => {
       { task: task('T913'), storeRoot: repo, cwd: repo },
       {
         listMergedPrs: async () => ({ ok: true, prs: [pr(42, 'T913')] }),
+        ...onMain,
         resolvePr: async (n) => prResolution(n, 'f'.repeat(40), ['a.ts']),
         ...noDocs,
         env: {},
       },
     );
     expect(cs.blockers.map((b) => b.code)).toEqual(['merge-commit-missing']);
+  });
+});
+
+describe('stacked and reverted PRs', () => {
+  /**
+   * task/T940-base off main; task/T940 off the base with the work; the task PR
+   * merges into the BASE branch (merge commit S), not into main.
+   */
+  function stackedFixture(repo: string): { stackedMerge: string; baseTip: string } {
+    git(repo, ['switch', '-q', '-c', 'task/T940-base']);
+    writeFileSync(join(repo, 'base.ts'), 'export const b = 1;\n');
+    git(repo, ['add', '-A']);
+    git(repo, ['commit', '-q', '-m', 'base work']);
+    git(repo, ['switch', '-q', '-c', 'task/T940']);
+    commitTaskWork(repo, 'T940');
+    git(repo, ['switch', '-q', 'task/T940-base']);
+    git(repo, ['merge', '-q', '--no-ff', '-m', 'Merge #42 T940 into base', 'task/T940']);
+    return {
+      stackedMerge: git(repo, ['rev-parse', 'HEAD']),
+      baseTip: git(repo, ['rev-parse', 'HEAD']),
+    };
+  }
+
+  const citing: ChangeSetDeps['listMergedPrs'] = async () => ({
+    ok: true,
+    prs: [{ number: 42, title: 'T940: work', body: '', headRefName: 'task/T940' }],
+  });
+
+  it('a PR merged into an unmerged base branch is pr-stacked, naming the base PR', async () => {
+    const repo = repoWithOrigin(base, 'repo');
+    const { stackedMerge } = stackedFixture(repo);
+    const cs = await deriveTaskChangeSet(
+      { task: task('T940'), storeRoot: repo, cwd: repo },
+      {
+        listMergedPrs: citing,
+        viewPr: async (n) =>
+          details(n, { baseRefName: 'task/T940-base', mergeCommitSha: stackedMerge }),
+        findPrByHead: async () =>
+          details(41, { state: 'OPEN', mergedAt: null, headRefName: 'task/T940-base' }),
+        resolvePr: async () => {
+          throw new Error('a stacked PR must not be sent to the pr: validator');
+        },
+        ...noDocs,
+        env: {},
+      },
+    );
+    expect(cs.implementedEvidence).toBeNull();
+    expect(cs.blockers.map((b) => b.code)).toEqual(['pr-stacked']);
+    expect(cs.blockers[0]?.message).toContain('task/T940-base');
+    expect(cs.blockers[0]?.message).toContain('#41');
+    expect(cs.blockers[0]?.next.command).toBe('cleo done T940 --plan');
+    expect(cs.blockers[0]?.next.why).toContain('#41');
+  });
+
+  it('once the base PR merged to main and contains the stacked commits, attributes to its merge commit', async () => {
+    const repo = repoWithOrigin(base, 'repo');
+    const { stackedMerge, baseTip } = stackedFixture(repo);
+    git(repo, ['switch', '-q', 'main']);
+    git(repo, ['merge', '-q', '--squash', 'task/T940-base']);
+    git(repo, ['commit', '-q', '-m', 'base (#41)']);
+    const baseMerge = git(repo, ['rev-parse', 'HEAD']);
+
+    const cs = await deriveTaskChangeSet(
+      { task: task('T940'), storeRoot: repo, cwd: repo },
+      {
+        listMergedPrs: citing,
+        viewPr: async (n) =>
+          details(n, { baseRefName: 'task/T940-base', mergeCommitSha: stackedMerge }),
+        findPrByHead: async () =>
+          details(41, {
+            headRefName: 'task/T940-base',
+            headRefOid: baseTip,
+            mergeCommitSha: baseMerge,
+          }),
+        resolvePr: async () => {
+          throw new Error('attribution goes through commit:, not the stacked pr:');
+        },
+        ...noDocs,
+        env: {},
+      },
+    );
+    expect(cs.blockers).toEqual([]);
+    expect(cs.source).toBe('pr');
+    expect(cs.stackedOn).toEqual({ baseRef: 'task/T940-base', basePrNumber: 41 });
+    expect(cs.mergeCommitSha).toBe(baseMerge);
+    expect(cs.files).toEqual(['a.ts', 'new.ts']);
+    expect(cs.deletedFiles).toEqual(['old.ts']);
+    expect(cs.implementedEvidence).toBe(`commit:${baseMerge};files:a.ts,new.ts`);
+    const filesAtom = parseEvidence(cs.implementedEvidence ?? '').atoms.find(
+      (a) => a.kind === 'files',
+    );
+    expect((await validateAtom(filesAtom!, repo, undefined, baseMerge)).ok).toBe(true);
+  });
+
+  it('a base PR merged to main that does NOT contain the stacked commits stays pr-stacked', async () => {
+    const repo = repoWithOrigin(base, 'repo');
+    const { stackedMerge } = stackedFixture(repo);
+    const mainTip = git(repo, ['rev-parse', 'main']);
+    const cs = await deriveTaskChangeSet(
+      { task: task('T940'), storeRoot: repo, cwd: repo },
+      {
+        listMergedPrs: citing,
+        viewPr: async (n) =>
+          details(n, { baseRefName: 'task/T940-base', mergeCommitSha: stackedMerge }),
+        findPrByHead: async () =>
+          details(41, {
+            headRefName: 'task/T940-base',
+            headRefOid: mainTip,
+            mergeCommitSha: mainTip,
+          }),
+        resolvePr: async () => {
+          throw new Error('unreachable');
+        },
+        ...noDocs,
+        env: {},
+      },
+    );
+    expect(cs.blockers.map((b) => b.code)).toEqual(['pr-stacked']);
+    expect(cs.blockers[0]?.next.command).toBe('cleo done T940 --plan --pr 41');
+  });
+
+  it('a PR the pr: validator refuses falls back to the task branch, keeping the refusal as a warning', async () => {
+    const repo = repoWithOrigin(base, 'repo');
+    git(repo, ['switch', '-q', '-c', 'task/T960']);
+    const head = commitTaskWork(repo, 'T960');
+    const cs = await deriveTaskChangeSet(
+      { task: task('T960'), storeRoot: repo, cwd: repo },
+      {
+        listMergedPrs: async () => ({
+          ok: true,
+          prs: [{ number: 42, title: 'T960', body: '', headRefName: 'task/T960' }],
+        }),
+        ...onMain,
+        resolvePr: async () => ({
+          ok: false,
+          reason: 'required gates were not found on this PR',
+          codeName: 'E_EVIDENCE_TESTS_FAILED',
+        }),
+        ...noDocs,
+        env: {},
+      },
+    );
+    expect(cs.source).toBe('branch');
+    expect(cs.implementedEvidence).toBe(`commit:${head};files:a.ts,new.ts`);
+    expect(cs.blockers).toEqual([]);
+    expect(cs.warnings.join(' ')).toContain('PR #42 cannot serve as evidence');
+  });
+
+  it('a later merged Revert PR that cites the task blocks with pr-reverted', async () => {
+    const repo = repoWithOrigin(base, 'repo');
+    const cs = await deriveTaskChangeSet(
+      { task: task('T950'), storeRoot: repo, cwd: repo },
+      {
+        listMergedPrs: async () => ({
+          ok: true,
+          prs: [
+            { number: 42, title: 'fix(T950): thing', body: '', headRefName: 'task/T950' },
+            {
+              number: 45,
+              title: 'Revert "fix(T950): thing"',
+              body: 'Reverts kryptobaseddev/cleo#42',
+              headRefName: 'revert-42-task/T950',
+            },
+          ],
+        }),
+        ...onMain,
+        resolvePr: async () => {
+          throw new Error('a reverted PR must not be attributed');
+        },
+        ...noDocs,
+        env: {},
+      },
+    );
+    expect(cs.implementedEvidence).toBeNull();
+    expect(cs.candidates.map((c) => c.prNumber)).toEqual([42]);
+    expect(cs.blockers.map((b) => b.code)).toEqual(['pr-reverted']);
+    expect(cs.blockers[0]?.message).toContain('#45');
   });
 });
 

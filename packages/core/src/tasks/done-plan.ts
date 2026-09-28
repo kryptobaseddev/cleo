@@ -11,7 +11,7 @@
  *   and whether each already has a fresh cached result for the current tree;
  * - which acceptance criteria map to evidence deterministically — a stored
  *   passing typed gate, or every repo path the criterion names being in the
- *   change set — and which need `--satisfies`;
+ *   change set by exact repo-relative path — and which need `--satisfies`;
  * - the ordered blockers, each with one runnable next step;
  * - the exact commands, spelled as today's `cleo verify` / `cleo complete`
  *   verbs, so every one is runnable before `cleo done` records anything.
@@ -48,7 +48,6 @@ import { type ChangeSetDeps, deriveTaskChangeSet } from './change-set.js';
 import {
   checkGateEvidenceMinimumDetailed,
   classifyEvidenceTask,
-  diffIntersectsAc,
   extractTaskAcFilesWithProvenance,
 } from './evidence.js';
 import { extractTypedGates } from './gate-runner.js';
@@ -165,6 +164,16 @@ async function planToolRun(
   return run;
 }
 
+/**
+ * Repo-relative path in the one spelling exact matching compares: no leading
+ * `./`, no trailing `/`. Deliberately NOT {@link diffIntersectsAc}, whose
+ * suffix rule would let `src/index.ts` match `packages/lafs/src/index.ts` —
+ * acceptable for an advisory intersect, not for claiming a criterion.
+ */
+function normaliseRepoPath(path: string): string {
+  return path.replace(/^\.\//, '').replace(/\/+$/, '');
+}
+
 /** Stored typed-gate results, aligned with criteria by acceptance index. */
 function planTypedGates(task: Task, rows: readonly AcRow[]): DonePlanTypedGate[] {
   const results = task.verification?.gateResults ?? [];
@@ -209,6 +218,7 @@ function mapCriteria(
   satisfies: readonly string[] | 'all' | undefined,
 ): DonePlanAcMapping[] {
   const recorded = recordedCriteria(task);
+  const changed = new Set(changeSet.files.map(normaliseRepoPath));
   const writable = (gates: VerificationGate[]): VerificationGate[] =>
     gates.filter((g) => pending.includes(g));
   return rows.map((row) => {
@@ -222,11 +232,7 @@ function mapCriteria(
       return { ...base, mapped: true, gates: writable(['testsPassed']), basis: 'typed-gate' };
     }
     const named = extractTaskAcFilesWithProvenance({ acceptance: [row.text] }).files ?? [];
-    if (
-      named.length > 0 &&
-      changeSet.files.length > 0 &&
-      named.every((path) => diffIntersectsAc(changeSet.files, [path]))
-    ) {
+    if (named.length > 0 && named.every((path) => changed.has(normaliseRepoPath(path)))) {
       return {
         ...base,
         mapped: true,

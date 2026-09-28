@@ -64,6 +64,28 @@ export interface MergedPrSummary {
   body: string;
   /** Head branch. */
   headRefName: string;
+  /** Merge time, when discovery reports it (orders a revert after its original). */
+  mergedAt?: string | null;
+}
+
+/** One PR as `gh pr view` reports it: where it merged, and its commits. */
+export interface PrDetails {
+  /** PR number. */
+  number: number;
+  /** PR title. */
+  title: string;
+  /** Head branch. */
+  headRefName: string;
+  /** Branch the PR merged (or will merge) into. */
+  baseRefName: string;
+  /** `MERGED`, `OPEN` or `CLOSED`. */
+  state: string;
+  /** Merge time, or null when unmerged. */
+  mergedAt: string | null;
+  /** Head branch tip the PR carried. */
+  headRefOid: string | null;
+  /** Merge commit, or null when unmerged. */
+  mergeCommitSha: string | null;
 }
 
 /** A document attached to a task, as the docs read model reports it. */
@@ -86,6 +108,10 @@ export interface ChangeSetDeps {
     taskId: string,
     executionRoot: string,
   ) => Promise<{ ok: true; prs: MergedPrSummary[] } | { ok: false; reason: string }>;
+  /** One PR's base branch, state and commits (`gh pr view`); null when unknown. */
+  viewPr?: (prNumber: number, executionRoot: string) => Promise<PrDetails | null>;
+  /** The PR whose head is `branch` — merged first, else newest; null when none. */
+  findPrByHead?: (branch: string, executionRoot: string) => Promise<PrDetails | null>;
   /** Verify one PR through the existing `pr:` provenance code. */
   resolvePr?: (prNumber: number, roots: EvidenceRoots) => Promise<PrAtomResolution>;
   /** Documents attached to the task. */
@@ -104,7 +130,7 @@ export interface DeriveChangeSetInput {
   storeRoot: string;
   /** Directory the command was invoked from. Defaults to `process.cwd()`. */
   cwd?: string;
-  /** Explicit PR (`--pr <n>`); skips discovery. */
+  /** Explicit PR (`--pr <n>`); replaces candidate selection (discovery still runs, to find reverts). */
   prNumber?: number;
 }
 
@@ -226,7 +252,7 @@ async function defaultListMergedPrs(
 ): Promise<{ ok: true; prs: MergedPrSummary[] } | { ok: false; reason: string }> {
   const { isGhCliAvailable } = await import('../release/github-pr.js');
   if (!isGhCliAvailable()) return { ok: false, reason: 'gh CLI is not available on PATH' };
-  const fields = 'number,title,body,headRefName';
+  const fields = 'number,title,body,headRefName,mergedAt';
   const queries: string[][] = [
     ['--search', taskId],
     ['--head', `task/${taskId}`],
@@ -252,6 +278,60 @@ async function defaultListMergedPrs(
     }
   }
   return { ok: true, prs: [...byNumber.values()] };
+}
+
+const PR_DETAIL_FIELDS =
+  'number,title,headRefName,baseRefName,state,mergedAt,headRefOid,mergeCommit';
+
+/** Normalise one `gh pr view/list --json PR_DETAIL_FIELDS` row. */
+function toPrDetails(row: unknown): PrDetails | null {
+  if (row === null || typeof row !== 'object') return null;
+  const r = row as Record<string, unknown>;
+  if (typeof r.number !== 'number') return null;
+  const merge = r.mergeCommit as { oid?: unknown } | null | undefined;
+  const str = (v: unknown): string => (typeof v === 'string' ? v : '');
+  return {
+    number: r.number,
+    title: str(r.title),
+    headRefName: str(r.headRefName),
+    baseRefName: str(r.baseRefName),
+    state: str(r.state),
+    mergedAt: typeof r.mergedAt === 'string' && r.mergedAt !== '' ? r.mergedAt : null,
+    headRefOid: typeof r.headRefOid === 'string' ? r.headRefOid : null,
+    mergeCommitSha: typeof merge?.oid === 'string' ? merge.oid : null,
+  };
+}
+
+/** Run a read-only `gh` query; `null` on any failure. */
+function ghJson(args: readonly string[], cwd: string): unknown {
+  try {
+    return JSON.parse(
+      execFileSync('gh', args, { cwd, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] }),
+    );
+  } catch {
+    return null;
+  }
+}
+
+/** Default {@link ChangeSetDeps.viewPr}: `gh pr view <n>`. */
+async function defaultViewPr(prNumber: number, executionRoot: string): Promise<PrDetails | null> {
+  return toPrDetails(
+    ghJson(['pr', 'view', String(prNumber), '--json', PR_DETAIL_FIELDS], executionRoot),
+  );
+}
+
+/** Default {@link ChangeSetDeps.findPrByHead}: `gh pr list --head <branch> --state all`. */
+async function defaultFindPrByHead(
+  branch: string,
+  executionRoot: string,
+): Promise<PrDetails | null> {
+  const rows = ghJson(
+    ['pr', 'list', '--head', branch, '--state', 'all', '--json', PR_DETAIL_FIELDS, '--limit', '10'],
+    executionRoot,
+  );
+  if (!Array.isArray(rows)) return null;
+  const prs = rows.map(toPrDetails).filter((p): p is PrDetails => p !== null);
+  return prs.find((p) => p.state === 'MERGED') ?? prs[0] ?? null;
 }
 
 /** Default PR verification: the existing `pr:` provenance code, persisting nothing. */
@@ -339,58 +419,164 @@ function atomSafe(text: string): string {
   return text.replace(/[;\n]/g, ',').trim();
 }
 
-/**
- * Step 1 — a merged PR that cites the task. Returns `true` when the PR path
- * decided the outcome (a change set or a blocker), `false` to fall through.
- */
-async function derivePrChangeSet(
-  cs: TaskChangeSet,
-  input: DeriveChangeSetInput,
-  roots: EvidenceRoots,
-  deps: Required<Pick<ChangeSetDeps, 'listMergedPrs' | 'resolvePr'>>,
-): Promise<boolean> {
-  const { task } = input;
-  let numbers: number[];
-  if (input.prNumber !== undefined) {
-    numbers = [input.prNumber];
-  } else {
-    const listed = await deps.listMergedPrs(task.id, roots.executionRoot);
-    if (!listed.ok) {
-      cs.warnings.push(`Merged-PR discovery skipped: ${listed.reason}`);
-      return false;
-    }
-    const citing = listed.prs.filter((pr) =>
-      citesTask(`${pr.title}\n${pr.body}\n${pr.headRefName}`, task.id),
-    );
-    cs.candidates = citing.map((pr) => ({
-      prNumber: pr.number,
-      title: pr.title,
-      headRefName: pr.headRefName,
-    }));
-    numbers = citing.map((pr) => pr.number).sort((a, b) => a - b);
-  }
-  if (numbers.length === 0) return false;
+/** First-parent name-status of a merge (or squash) commit. */
+function mergeCommitChanges(root: string, sha: string): { files: string[]; deleted: string[] } {
+  return parseNameStatus(
+    git(root, [
+      'diff-tree',
+      '--root',
+      '--no-commit-id',
+      '-r',
+      '--name-status',
+      '--no-renames',
+      '-m',
+      '--first-parent',
+      sha,
+    ]) ?? '',
+  );
+}
 
-  const resolved = new Map<number, PrAtomResolution>();
-  if (numbers.length > 1 && task.files?.length) {
-    for (const n of numbers) resolved.set(n, await deps.resolvePr(n, roots));
-    const intersecting = numbers.filter((n) => {
+function hasCommit(root: string, sha: string | null): boolean {
+  return sha !== null && git(root, ['cat-file', '-e', `${sha}^{commit}`]) !== null;
+}
+
+/** A GitHub revert PR: `Revert "…"` by default, `revert:` by convention. */
+function isRevertTitle(title: string): boolean {
+  return /^revert\b/i.test(title.trim());
+}
+
+/**
+ * The task's PR merged into another branch — a stacked PR. Its merge commit
+ * is on that branch, not on the default branch, so `pr:` provenance cannot
+ * attribute it. Once the base branch's own PR has merged to the default
+ * branch AND its head contains the stacked merge, the task is attributed to
+ * that base merge commit via `commit:` + the stacked PR's surviving files;
+ * otherwise a `pr-stacked` blocker names the base branch and its PR.
+ */
+async function deriveStackedChangeSet(
+  cs: TaskChangeSet,
+  taskId: string,
+  root: string,
+  pr: PrDetails,
+  defaultBranch: string,
+  findPrByHead: NonNullable<ChangeSetDeps['findPrByHead']>,
+): Promise<true> {
+  const baseRef = pr.baseRefName;
+  const basePr = await findPrByHead(baseRef, root);
+  cs.stackedOn = { baseRef, ...(basePr ? { basePrNumber: basePr.number } : {}) };
+  const baseLanded =
+    basePr !== null && basePr.state === 'MERGED' && basePr.baseRefName === defaultBranch;
+  if (baseLanded && hasCommit(root, pr.mergeCommitSha) && hasCommit(root, basePr.headRefOid)) {
+    const contained =
+      git(root, [
+        'merge-base',
+        '--is-ancestor',
+        pr.mergeCommitSha as string,
+        basePr.headRefOid as string,
+      ]) !== null;
+    const baseMerge = basePr.mergeCommitSha;
+    if (contained && baseMerge !== null && hasCommit(root, baseMerge)) {
+      const { files, deleted } = mergeCommitChanges(root, pr.mergeCommitSha as string);
+      const surviving = files.filter(
+        (f) => git(root, ['cat-file', '-e', `${baseMerge}:${f}`]) !== null,
+      );
+      if (surviving.length > 0) {
+        cs.source = 'pr';
+        cs.mergeCommitSha = baseMerge;
+        cs.files = surviving;
+        cs.deletedFiles = deleted;
+        cs.implementedEvidence = `commit:${baseMerge};files:${surviving.join(',')}`;
+        return true;
+      }
+    }
+  }
+  const baseState =
+    basePr === null
+      ? `no PR has ${baseRef} as its head`
+      : `its PR #${basePr.number} is ${basePr.state.toLowerCase()} into ${basePr.baseRefName || 'unknown'}`;
+  const settled = basePr !== null && basePr.state === 'MERGED';
+  cs.source = 'pr';
+  cs.blockers.push(
+    blocker(
+      'pr-stacked',
+      `PR #${pr.number} merged into ${baseRef}, not ${defaultBranch}; ${baseState}.`,
+      settled ? `cleo done ${taskId} --plan --pr ${basePr.number}` : `cleo done ${taskId} --plan`,
+      settled
+        ? `PR #${basePr.number} is where ${baseRef} merged, but its head does not contain PR #${pr.number}'s merge; name the PR that carried the work to ${defaultBranch}.`
+        : basePr !== null
+          ? `Re-plan after PR #${basePr.number} (${baseRef}) merges into ${defaultBranch}.`
+          : `Re-plan after ${baseRef} reaches ${defaultBranch} through its own PR.`,
+    ),
+  );
+  return true;
+}
+
+/** Candidate numbers after the declared-files and own-branch narrowing rules. */
+async function narrowCandidates(
+  numbers: number[],
+  cs: TaskChangeSet,
+  task: ChangeSetTask,
+  roots: EvidenceRoots,
+  resolvePr: NonNullable<ChangeSetDeps['resolvePr']>,
+  resolved: Map<number, PrAtomResolution>,
+): Promise<number[]> {
+  let out = numbers;
+  if (out.length > 1 && task.files?.length) {
+    for (const n of out) resolved.set(n, await resolvePr(n, roots));
+    const intersecting = out.filter((n) => {
       const r = resolved.get(n);
       return r?.ok === true && diffIntersectsAc(r.changedPaths, task.files ?? []);
     });
-    if (intersecting.length > 0) numbers = intersecting;
+    if (intersecting.length > 0) out = intersecting;
   }
-  if (numbers.length > 1) {
+  if (out.length > 1) {
     // A PR merged FROM the task's own branch (`task/<id>` or `task/<id>-…`)
     // is the task's PR; an integration PR that merely lists the id in its body
     // is not. Deterministic by branch convention, never by wording.
     const own = cs.candidates.filter(
       (c) =>
-        numbers.includes(c.prNumber) &&
+        out.includes(c.prNumber) &&
         (c.headRefName === `task/${task.id}` || c.headRefName.startsWith(`task/${task.id}-`)),
     );
-    if (own.length === 1) numbers = [own[0]!.prNumber];
+    if (own.length === 1) out = [own[0]!.prNumber];
   }
+  return out;
+}
+
+/**
+ * Step 1 — a merged PR that cites the task. Returns `true` when the PR path
+ * decided the outcome (a change set or a blocker), `false` to fall through.
+ * A PR the `pr:` validator refuses leaves a `pr-unverified` blocker and
+ * returns `false`, so the caller can still try the task branch.
+ */
+async function derivePrChangeSet(
+  cs: TaskChangeSet,
+  input: DeriveChangeSetInput,
+  roots: EvidenceRoots,
+  deps: Required<Pick<ChangeSetDeps, 'listMergedPrs' | 'resolvePr' | 'viewPr' | 'findPrByHead'>>,
+): Promise<boolean> {
+  const { task } = input;
+  const root = roots.executionRoot;
+  const listed = await deps.listMergedPrs(task.id, root);
+  if (!listed.ok) cs.warnings.push(`Merged-PR discovery skipped: ${listed.reason}`);
+  const citing = (listed.ok ? listed.prs : []).filter((pr) =>
+    citesTask(`${pr.title}\n${pr.body}\n${pr.headRefName}`, task.id),
+  );
+  const reverts = citing.filter((pr) => isRevertTitle(pr.title));
+  const originals = citing.filter((pr) => !isRevertTitle(pr.title));
+  cs.candidates = originals.map((pr) => ({
+    prNumber: pr.number,
+    title: pr.title,
+    headRefName: pr.headRefName,
+  }));
+  let numbers =
+    input.prNumber !== undefined
+      ? [input.prNumber]
+      : originals.map((pr) => pr.number).sort((a, b) => a - b);
+  if (numbers.length === 0) return false;
+
+  const resolved = new Map<number, PrAtomResolution>();
+  numbers = await narrowCandidates(numbers, cs, task, roots, deps.resolvePr, resolved);
   if (numbers.length > 1) {
     const list = numbers.map((n) => `#${n}`).join(', ');
     cs.blockers.push(
@@ -405,28 +591,58 @@ async function derivePrChangeSet(
   }
 
   const prNumber = numbers[0] as number;
-  const pr = resolved.get(prNumber) ?? (await deps.resolvePr(prNumber, roots));
   cs.prNumber = prNumber;
-  if (!pr.ok) {
+  const original = originals.find((pr) => pr.number === prNumber);
+  const revert = reverts.find(
+    (r) =>
+      r.number !== prNumber &&
+      (r.mergedAt && original?.mergedAt ? r.mergedAt > original.mergedAt : r.number > prNumber),
+  );
+  if (revert) {
     cs.source = 'pr';
     cs.blockers.push(
       blocker(
-        pr.codeName === 'E_EVIDENCE_GIT_ROOT' ? 'git-root' : 'pr-unverified',
-        `PR #${prNumber} cannot serve as evidence: ${pr.reason}`,
-        pr.codeName === 'E_EVIDENCE_GIT_ROOT'
-          ? `CLEO_EVIDENCE_GIT_ROOT=<path to the repository> cleo done ${task.id} --plan`
-          : `gh pr view ${prNumber} --json state,mergeCommit,statusCheckRollup`,
-        'The existing pr: provenance check refused this PR; resolve the reason it names.',
-        pr.codeName,
+        'pr-reverted',
+        `PR #${prNumber} was reverted by PR #${revert.number} ("${revert.title}"); its change is not on the default branch.`,
+        `cleo done ${task.id} --plan --pr <the PR that re-landed the work>`,
+        'A reverted PR cannot prove the task is implemented; name the PR that re-landed it.',
       ),
     );
     return true;
   }
 
+  const defaultRef = resolveOriginDefault(root);
+  const defaultBranch = defaultRef?.replace(/^origin\//, '') ?? null;
+  const detail = await deps.viewPr(prNumber, root);
+  if (detail && defaultBranch && detail.baseRefName && detail.baseRefName !== defaultBranch) {
+    return deriveStackedChangeSet(cs, task.id, root, detail, defaultBranch, deps.findPrByHead);
+  }
+
+  const pr = resolved.get(prNumber) ?? (await deps.resolvePr(prNumber, roots));
+  if (!pr.ok) {
+    cs.source = 'pr';
+    const gitRoot = pr.codeName === 'E_EVIDENCE_GIT_ROOT';
+    cs.blockers.push(
+      blocker(
+        gitRoot ? 'git-root' : 'pr-unverified',
+        `PR #${prNumber} cannot serve as evidence: ${pr.reason}`,
+        gitRoot
+          ? `CLEO_EVIDENCE_GIT_ROOT=<path to the repository> cleo done ${task.id} --plan`
+          : pr.codeName === 'E_EVIDENCE_TESTS_FAILED'
+            ? `gh pr checks ${prNumber}`
+            : `gh pr view ${prNumber} --json state,baseRefName,mergeCommit`,
+        gitRoot
+          ? 'Declare the repository the evidence is about.'
+          : 'The existing pr: provenance check refused this PR. The task branch diff is used instead when the branch still exists; otherwise resolve the reason it names.',
+        pr.codeName,
+      ),
+    );
+    return gitRoot;
+  }
+
   cs.source = 'pr';
   cs.mergeCommitSha = pr.mergeCommitSha;
-  const root = roots.executionRoot;
-  if (git(root, ['cat-file', '-e', `${pr.mergeCommitSha}^{commit}`]) === null) {
+  if (!hasCommit(root, pr.mergeCommitSha)) {
     cs.blockers.push(
       blocker(
         'merge-commit-missing',
@@ -437,18 +653,7 @@ async function derivePrChangeSet(
     );
     return true;
   }
-  const diff = git(root, [
-    'diff-tree',
-    '--root',
-    '--no-commit-id',
-    '-r',
-    '--name-status',
-    '--no-renames',
-    '-m',
-    '--first-parent',
-    pr.mergeCommitSha,
-  ]);
-  const { files, deleted } = parseNameStatus(diff ?? '');
+  const { files, deleted } = mergeCommitChanges(root, pr.mergeCommitSha);
   const prPaths = new Set(pr.changedPaths);
   cs.files = prPaths.size > 0 ? files.filter((p) => prPaths.has(p)) : files;
   cs.deletedFiles = deleted;
@@ -591,10 +796,26 @@ export async function deriveTaskChangeSet(
     await derivePrChangeSet(cs, input, roots, {
       listMergedPrs: deps.listMergedPrs ?? defaultListMergedPrs,
       resolvePr: deps.resolvePr ?? defaultResolvePr,
+      viewPr: deps.viewPr ?? defaultViewPr,
+      findPrByHead: deps.findPrByHead ?? defaultFindPrByHead,
     })
   )
     return cs;
-  if (deriveBranchChangeSet(cs, input.task.id)) return cs;
+  // A PR the pr: validator refused does not end the search: the task branch
+  // still describes the work. The refusal survives as a warning when the
+  // branch answers, and as the blocker when it does not.
+  const refused = cs.blockers.filter((b) => b.code === 'pr-unverified');
+  if (deriveBranchChangeSet(cs, input.task.id)) {
+    if (refused.length > 0) {
+      cs.blockers = cs.blockers.filter((b) => b.code !== 'pr-unverified');
+      cs.warnings.push(
+        ...refused.map((b) => `${b.message} — derived from the task branch instead.`),
+      );
+      delete cs.prNumber;
+    }
+    return cs;
+  }
+  if (refused.length > 0) return cs;
   if (
     await deriveDocsChangeSet(cs, input, {
       listTaskDocs: deps.listTaskDocs ?? defaultListTaskDocs,

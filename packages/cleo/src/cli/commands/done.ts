@@ -48,6 +48,20 @@ export const doneCommand = defineCommand({
   async run(context) {
     const { args } = context;
     if (args.plan !== true) {
+      // Until `cleo done` records gates itself, these only shape a plan. Refuse
+      // them rather than complete the task as if they had been applied.
+      const planOnly = ['satisfies', 'pr'].filter((flag) => args[flag] !== undefined);
+      if (planOnly.length > 0) {
+        cliError(
+          `--${planOnly.join(' and --')} ${planOnly.length > 1 ? 'apply' : 'applies'} only with --plan; cleo done does not record evidence yet`,
+          'E_INVALID_INPUT',
+          {
+            fix: `cleo done ${args.taskId} --plan --${planOnly[0]} ${String(args[planOnly[0] as 'pr'])}`,
+          },
+        );
+        process.exitCode = 2;
+        return;
+      }
       await completeCommand.run?.({ rawArgs: context.rawArgs, args, cmd: completeCommand });
       return;
     }

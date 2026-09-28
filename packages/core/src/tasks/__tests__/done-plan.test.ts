@@ -157,6 +157,20 @@ describe('AC mapping is conservative', () => {
     expect(plan.acMapping[0]?.files).toEqual(['src/a.ts', 'src/b.ts']);
   });
 
+  it('a path-suffix match is not a match: src/a.ts does not map when only pkg/x/src/a.ts changed', async () => {
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    mkdirSync(join(root, 'pkg', 'x', 'src'), { recursive: true });
+    writeFileSync(join(root, 'pkg', 'x', 'src', 'a.ts'), 'export const x = 1;\n');
+    git(root, ['add', '-A']);
+    git(root, ['commit', '-q', '-m', `${id}: nested a.ts only`]);
+
+    const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
+    expect(plan.changeSet.files).toEqual(['pkg/x/src/a.ts']);
+    expect(plan.acMapping[0]).toMatchObject({ mapped: false, basis: 'none' });
+    expect(plan.needsSatisfies).toEqual(['AC1']);
+  });
+
   it('--satisfies fans the answer out to every gate and yields runnable commands', async () => {
     const id = await seedTask(['Change src/a.ts to return 2', 'Handles every edge case']);
     const head = commitOnTaskBranch(id);
