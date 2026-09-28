@@ -31,6 +31,7 @@ import {
   CleoError,
   getWorkflowTemplatesDir as getCoreWorkflowTemplatesDir,
   type InitOptions,
+  initErrorCodeName,
   initProject,
   pushWarning,
   scaffoldWorkflows,
@@ -111,7 +112,8 @@ export const initCommand = defineCommand({
     },
     force: {
       type: 'boolean',
-      description: 'Overwrite existing files',
+      description:
+        "Re-initialize THIS directory's project: resets .cleo/config.json and project-info.json, rewrites .cleo/.gitignore and the managed git hooks. Snapshots databases and those files to .cleo/backups/sqlite/ first; never targets an ancestor or a worktree.",
       default: false,
     },
     detect: {
@@ -255,7 +257,12 @@ export const initCommand = defineCommand({
       );
     } catch (err) {
       if (err instanceof CleoError) {
-        cliError(`init failed: ${err.message}`, err.code, { name: 'E_INTERNAL' });
+        // T12562: keep the refusal's stable code and fix instead of E_INTERNAL.
+        cliError(`init failed: ${err.message}`, err.code, {
+          name: initErrorCodeName(err) ?? 'E_INTERNAL',
+          ...(err.fix !== undefined ? { fix: err.fix } : {}),
+          ...(err.details !== undefined ? { details: err.details } : {}),
+        });
         process.exit(err.code);
       }
       throw err;
