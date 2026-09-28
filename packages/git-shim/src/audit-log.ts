@@ -4,7 +4,7 @@
  * Every block (refusal) and every bypass (`CLEO_ALLOW_GIT=1`) is recorded as
  * one JSON line at:
  *
- *   `<XDG_DATA_HOME ?? ~/.local/share>/cleo/audit/git-shim.jsonl`
+ *   `<getCleoHome()>/audit/git-shim.jsonl`
  *
  * Tests override the path via `CLEO_AUDIT_LOG_PATH`.
  *

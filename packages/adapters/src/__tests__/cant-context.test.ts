@@ -3,7 +3,7 @@
  *
  * Tests cover:
  * - discoverCantFiles: finds .cant files, handles missing dirs
- * - resolveThreeTierPaths: XDG-compliant paths with env var overrides
+ * - resolveThreeTierPaths: tiers resolve through @cleocode/paths on every platform
  * - discoverCantFilesMultiTier: 3-tier merge with override semantics
  * - readMemoryBridge: reads file, handles missing/empty
  * - buildMemoryBridgeBlock: wraps content in labeled section
@@ -14,9 +14,10 @@
  */
 
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { getCleoHome } from '@cleocode/paths';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   buildCantEnrichedPrompt,
@@ -24,6 +25,7 @@ import {
   buildMentalModelInjection,
   discoverCantFiles,
   discoverCantFilesMultiTier,
+  readIdentityFile,
   readMemoryBridge,
   resolveThreeTierPaths,
 } from '../cant-context.js';
@@ -68,33 +70,81 @@ describe('discoverCantFiles', () => {
 // ---------------------------------------------------------------------------
 
 describe('resolveThreeTierPaths', () => {
+  const PLATFORM = Object.getOwnPropertyDescriptor(process, 'platform');
+
+  function stubPlatform(platform: NodeJS.Platform): void {
+    Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+  }
+
+  beforeEach(() => {
+    vi.stubEnv('CLEO_HOME', undefined);
+    vi.stubEnv('CLEO_CONFIG_HOME', undefined);
+  });
+
+  afterEach(() => {
+    if (PLATFORM) Object.defineProperty(process, 'platform', PLATFORM);
+    vi.unstubAllEnvs();
+  });
+
   it('returns project tier pointing to .cleo/cant/', () => {
     const paths = resolveThreeTierPaths('/my/project');
     expect(paths.project).toBe(join('/my/project', '.cleo', 'cant'));
   });
 
-  it('respects XDG_DATA_HOME for global tier', () => {
-    const originalXdg = process.env['XDG_DATA_HOME'];
-    process.env['XDG_DATA_HOME'] = '/custom/data';
-    try {
-      const paths = resolveThreeTierPaths('/my/project');
-      expect(paths.global).toBe(join('/custom/data', 'cleo', 'cant'));
-    } finally {
-      if (originalXdg) process.env['XDG_DATA_HOME'] = originalXdg;
-      else delete process.env['XDG_DATA_HOME'];
-    }
+  it('global tier is <getCleoHome()>/cant and user tier is <CLEO config>/cant', () => {
+    vi.stubEnv('CLEO_HOME', '/opt/cleo-data');
+    vi.stubEnv('CLEO_CONFIG_HOME', '/opt/cleo-config');
+    const paths = resolveThreeTierPaths('/my/project');
+    expect(paths.global).toBe(join('/opt/cleo-data', 'cant'));
+    expect(paths.user).toBe(join('/opt/cleo-config', 'cant'));
   });
 
-  it('respects XDG_CONFIG_HOME for user tier', () => {
-    const originalXdg = process.env['XDG_CONFIG_HOME'];
-    process.env['XDG_CONFIG_HOME'] = '/custom/config';
-    try {
-      const paths = resolveThreeTierPaths('/my/project');
-      expect(paths.user).toBe(join('/custom/config', 'cleo', 'cant'));
-    } finally {
-      if (originalXdg) process.env['XDG_CONFIG_HOME'] = originalXdg;
-      else delete process.env['XDG_CONFIG_HOME'];
-    }
+  it('macOS: global and user tiers are under ~/Library, not the XDG dirs (T12602)', () => {
+    stubPlatform('darwin');
+    vi.stubEnv('XDG_DATA_HOME', '/custom/data');
+    vi.stubEnv('XDG_CONFIG_HOME', '/custom/config');
+    const paths = resolveThreeTierPaths('/my/project');
+    expect(paths.global).toBe(join(getCleoHome(), 'cant'));
+    expect(paths.global).toBe(join(homedir(), 'Library', 'Application Support', 'cleo', 'cant'));
+    expect(paths.user).toBe(join(homedir(), 'Library', 'Preferences', 'cleo', 'cant'));
+  });
+
+  it('Windows: global tier is under %LOCALAPPDATA% (T12602)', () => {
+    stubPlatform('win32');
+    vi.stubEnv('LOCALAPPDATA', 'C:\\Users\\me\\AppData\\Local');
+    vi.stubEnv('XDG_DATA_HOME', '/custom/data');
+    const paths = resolveThreeTierPaths('/my/project');
+    expect(paths.global).toBe(join(getCleoHome(), 'cant'));
+    expect(paths.global.startsWith('C:\\Users\\me\\AppData\\Local')).toBe(true);
+  });
+
+  it('Linux: honours XDG_DATA_HOME and XDG_CONFIG_HOME', () => {
+    stubPlatform('linux');
+    vi.stubEnv('XDG_DATA_HOME', '/custom/data');
+    vi.stubEnv('XDG_CONFIG_HOME', '/custom/config');
+    const paths = resolveThreeTierPaths('/my/project');
+    expect(paths.global).toBe(join('/custom/data', 'cleo', 'cant'));
+    expect(paths.user).toBe(join('/custom/config', 'cleo', 'cant'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// readIdentityFile — global tier (T12602)
+// ---------------------------------------------------------------------------
+
+describe('readIdentityFile', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('reads the global CLEOOS-IDENTITY.md from getCleoHome(), not $XDG_DATA_HOME/cleo', () => {
+    const cleoHome = join(tempDir, 'cleo-home');
+    mkdirSync(cleoHome, { recursive: true });
+    writeFileSync(join(cleoHome, 'CLEOOS-IDENTITY.md'), 'global identity');
+    vi.stubEnv('CLEO_HOME', cleoHome);
+    vi.stubEnv('XDG_DATA_HOME', join(tempDir, 'empty-xdg'));
+
+    expect(readIdentityFile(join(tempDir, 'project'))).toBe('global identity');
   });
 });
 
@@ -103,22 +153,24 @@ describe('resolveThreeTierPaths', () => {
 // ---------------------------------------------------------------------------
 
 describe('discoverCantFilesMultiTier', () => {
-  let origXdgData: string | undefined;
-  let origXdgConfig: string | undefined;
-
   beforeEach(() => {
-    // Override XDG paths so global/user tiers point to empty temp subdirs
-    origXdgData = process.env['XDG_DATA_HOME'];
-    origXdgConfig = process.env['XDG_CONFIG_HOME'];
-    process.env['XDG_DATA_HOME'] = join(tempDir, 'xdg-data');
-    process.env['XDG_CONFIG_HOME'] = join(tempDir, 'xdg-config');
+    // Point the global/user tiers at empty temp subdirs on every platform.
+    vi.stubEnv('CLEO_HOME', join(tempDir, 'cleo-home'));
+    vi.stubEnv('CLEO_CONFIG_HOME', join(tempDir, 'cleo-config'));
   });
 
   afterEach(() => {
-    if (origXdgData) process.env['XDG_DATA_HOME'] = origXdgData;
-    else delete process.env['XDG_DATA_HOME'];
-    if (origXdgConfig) process.env['XDG_CONFIG_HOME'] = origXdgConfig;
-    else delete process.env['XDG_CONFIG_HOME'];
+    vi.unstubAllEnvs();
+  });
+
+  it('discovers files from the global tier under getCleoHome() (T12602)', () => {
+    const globalCant = join(tempDir, 'cleo-home', 'cant');
+    mkdirSync(globalCant, { recursive: true });
+    writeFileSync(join(globalCant, 'global.cant'), 'team: global');
+
+    const result = discoverCantFilesMultiTier(tempDir);
+    expect(result.stats.global).toBe(1);
+    expect(result.files).toEqual([join(globalCant, 'global.cant')]);
   });
 
   it('discovers files from project tier', () => {

@@ -13,7 +13,7 @@
  *   3. **config-integrity**    — global + project config files parse cleanly.
  *   4. **harness-reach**       — detected harness responds:
  *                                  Pi   → HTTP GET `<piUrl>/health` (3 s).
- *                                  Code → `which claude` exits 0.
+ *                                  Code → `claude` found on PATH (PATHEXT-aware).
  *   5. **signaldock-reach**    — if `signaldock.enabled`, HTTP GET to
  *                                `<endpoint>/health` (3 s); SKIP otherwise.
  *   6. **brain-db**            — `brain.db` exists on disk and opens
@@ -36,6 +36,7 @@
 import { existsSync } from 'node:fs';
 import { access } from 'node:fs/promises';
 import { join } from 'node:path';
+import { findOnPath } from '@cleocode/paths';
 import { getConfigValue, loadConfig } from '../../config.js';
 import { getCredentialPool } from '../../llm/credential-pool.js';
 import { resolveCleoDir } from '../../paths.js';
@@ -211,7 +212,7 @@ async function runConfigIntegrityCheck(cwd?: string): Promise<VerificationCheck>
  * Check 4 — Detected harness responds.
  *
  * - `pi` (or `piUrl` in config) → HTTP GET `<piUrl>/health` (3 s timeout).
- * - `claude-code`               → resolves `which claude` in PATH.
+ * - `claude-code`               → finds `claude` on PATH (PATHEXT-aware, no `which`).
  * - `unknown`                   → SKIP.
  *
  * @internal
@@ -237,20 +238,16 @@ async function runHarnessReachabilityCheck(cwd?: string): Promise<VerificationCh
     }
 
     if (active === 'claude-code') {
-      // Probe: can we find the `claude` binary in PATH?
-      const { exec } = await import('node:child_process');
-      const { promisify } = await import('node:util');
-      const execP = promisify(exec);
-      try {
-        await withTimeout(execP('which claude'), 3_000);
+      // Probe: can we find the `claude` binary in PATH? In-process and
+      // PATHEXT-aware — there is no `which` on Windows (T12604).
+      if (findOnPath('claude') !== null) {
         return { name, status: 'PASS', message: '`claude` binary found in PATH' };
-      } catch {
-        return {
-          name,
-          status: 'FAIL',
-          message: '`claude` binary not found — install Claude Code',
-        };
       }
+      return {
+        name,
+        status: 'FAIL',
+        message: '`claude` binary not found — install Claude Code',
+      };
     }
 
     if (active === 'pi') {

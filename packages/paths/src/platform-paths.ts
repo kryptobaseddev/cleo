@@ -100,6 +100,33 @@ export interface PlatformPathsResolver {
 }
 
 /**
+ * Expand a leading `~` in a user-supplied path to the user's home directory.
+ *
+ * Uses `os.homedir()`, which reads `USERPROFILE` on Windows — unlike
+ * `process.env.HOME`, which is unset there and turns `~/x` into the relative
+ * path `x`. Accepts `~`, `~/x`, and on Windows `~\x`. Any other input,
+ * including `~user/x`, is returned unchanged.
+ *
+ * @param path - Path that may start with `~`.
+ * @param home - Home directory to expand into. Defaults to `os.homedir()`.
+ * @returns The expanded path, or `path` unchanged when it has no leading `~`.
+ *
+ * @example
+ * ```typescript
+ * expandTildePath('~/.pi/x.cant'); // "/home/me/.pi/x.cant" on Linux
+ * ```
+ *
+ * @public
+ * @task T12608
+ */
+export function expandTildePath(path: string, home: string = homedir()): string {
+  if (path === '~') return home;
+  const separatorAfterTilde =
+    path.startsWith('~/') || (process.platform === 'win32' && path.startsWith('~\\'));
+  return separatorAfterTilde ? join(home, path.slice(2)) : path;
+}
+
+/**
  * Normalize a home-override env var value to an absolute path.
  *
  * Returns `undefined` for absent / blank values so callers fall back to the
@@ -112,8 +139,8 @@ function resolveHomeOverride(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
   const trimmed = value.trim();
   if (trimmed.length === 0) return undefined;
-  if (trimmed === '~') return homedir();
-  if (trimmed.startsWith('~/')) return join(homedir(), trimmed.slice(2));
+  const expanded = expandTildePath(trimmed);
+  if (expanded !== trimmed) return expanded;
   if (isAbsolute(trimmed)) return trimmed;
   return join(homedir(), trimmed);
 }

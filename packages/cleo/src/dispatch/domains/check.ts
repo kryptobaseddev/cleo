@@ -451,9 +451,10 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
   },
 
   // T12308: `cleo verify <id> --run` — execute the task's typed gates and
-  // report them. A query, because it persists nothing: the results are an
-  // observation, and only `--evidence` turns an observation into an
-  // attestation. Restored because the spawn prompt has never stopped telling
+  // report them. A query, because it records no verification: the results are
+  // an observation, and only `--evidence` turns an observation into an
+  // attestation (its one write is the T12621 pass cache that attestation
+  // reuses). Restored because the spawn prompt has never stopped telling
   // agents to run it.
   'gate.run': async (params: ValidateGateParams) => {
     const projectRoot = getProjectRoot();
@@ -676,6 +677,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
       evidence: params.evidence,
       sessionId: params.sessionId,
       sharedEvidence: params.sharedEvidence,
+      noRun: params.noRun,
     };
     const result = await validateGateVerify(projectRoot, gateParams);
     // T994: Track memory usage on gate verification (fire-and-forget; must not block).

@@ -116,6 +116,13 @@ export interface ObserveBrainParams {
    */
   provenanceChain?: string[] | null;
   /**
+   * T12494: opt in to a System One type choice when `type` is absent.
+   * Set ONLY by the interactive `memory.observe` operation (`cleo memory
+   * observe`). Background writers leave it unset, so they never send their
+   * content to a provider; their type comes from the keyword heuristic.
+   */
+  askTypeDecision?: boolean;
+  /**
    * T992: Internal flag — when true, bypasses the verifyAndStore gate.
    * Set by storeVerifiedCandidate in extraction-gate.ts to avoid recursion,
    * or by the prepared docs projection executor after authentic canonical
@@ -148,6 +155,15 @@ export interface ObserveBrainResult {
   type: string;
   /** ISO 8601 creation timestamp. */
   createdAt: string;
+  /**
+   * T12494: where the stored type came from — `caller` (explicit `type`),
+   * `keyword` (whole-word keyword heuristic) or `system-one` (a confident
+   * System One `choice` in `on` mode). Absent when not determined on this path
+   * (e.g. the extraction gate merged or rejected the write).
+   */
+  typeSource?: 'caller' | 'keyword' | 'system-one';
+  /** T12494: confidence behind a `keyword` (flat 0.5) or `system-one` type. */
+  typeConfidence?: number;
 }
 
 // ── DocAttachmentObservationPayload ─────────────────────────────────

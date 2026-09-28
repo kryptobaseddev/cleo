@@ -150,44 +150,45 @@ export async function resolveAttentionIdentity(
   const sessionId = resolveSessionIdFromEnv();
   const agentId = resolveAgentIdFromEnv();
 
+  // T12590: the accessor wraps the SHARED project handle — do NOT close it.
+  // `close()` evicts every project-scope binding in the process, so a digest
+  // built beside other reads (`cleo focus` runs memory search and the ready
+  // wave concurrently) failed them mid-query. Lifecycle is owned by the
+  // dual-scope chokepoint.
   const accessor = await getTaskAccessor(projectRoot);
-  try {
-    // Current task: explicit override (spawn) wins; else per-session focus_state.
-    const currentTaskId =
-      options.taskId ?? (await readFocusState(accessor, sessionId))?.currentTask ?? null;
+  // Current task: explicit override (spawn) wins; else per-session focus_state.
+  const currentTaskId =
+    options.taskId ?? (await readFocusState(accessor, sessionId))?.currentTask ?? null;
 
-    const chain: AttentionScope[] = [];
+  const chain: AttentionScope[] = [];
 
-    if (agentId) chain.push({ kind: 'agent', id: agentId });
+  if (agentId) chain.push({ kind: 'agent', id: agentId });
 
-    // Walk task → epic → saga ancestry via parentId chain (no parallel resolver;
-    // reuse loadSingleTask + saga membership per the decomposition guidance).
-    if (currentTaskId) {
-      chain.push({ kind: 'task', id: currentTaskId });
-      const task = await accessor.loadSingleTask(currentTaskId).catch(() => null);
-      const epicId = task?.parentId ?? null;
-      if (epicId) {
-        chain.push({ kind: 'epic', id: epicId });
-        // The epic's parent (when it is a saga member) is the saga.
-        const epic = await accessor.loadSingleTask(epicId).catch(() => null);
-        const sagaCandidate = epic?.parentId ?? null;
-        if (sagaCandidate) {
-          // Confirm the candidate is genuinely a saga (its members include epicId).
-          const memberIds = await resolveSagaMemberIds(accessor, sagaCandidate).catch(() => null);
-          if (memberIds?.includes(epicId)) {
-            chain.push({ kind: 'saga', id: sagaCandidate });
-          }
+  // Walk task → epic → saga ancestry via parentId chain (no parallel resolver;
+  // reuse loadSingleTask + saga membership per the decomposition guidance).
+  if (currentTaskId) {
+    chain.push({ kind: 'task', id: currentTaskId });
+    const task = await accessor.loadSingleTask(currentTaskId).catch(() => null);
+    const epicId = task?.parentId ?? null;
+    if (epicId) {
+      chain.push({ kind: 'epic', id: epicId });
+      // The epic's parent (when it is a saga member) is the saga.
+      const epic = await accessor.loadSingleTask(epicId).catch(() => null);
+      const sagaCandidate = epic?.parentId ?? null;
+      if (sagaCandidate) {
+        // Confirm the candidate is genuinely a saga (its members include epicId).
+        const memberIds = await resolveSagaMemberIds(accessor, sagaCandidate).catch(() => null);
+        if (memberIds?.includes(epicId)) {
+          chain.push({ kind: 'saga', id: sagaCandidate });
         }
       }
     }
-
-    if (sessionId) chain.push({ kind: 'session', id: sessionId });
-    chain.push({ kind: 'global', id: 'global' });
-
-    return { sessionId, agentId, currentTaskId, chain };
-  } finally {
-    await accessor.close();
   }
+
+  if (sessionId) chain.push({ kind: 'session', id: sessionId });
+  chain.push({ kind: 'global', id: 'global' });
+
+  return { sessionId, agentId, currentTaskId, chain };
 }
 
 /**

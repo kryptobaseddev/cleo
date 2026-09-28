@@ -20,8 +20,13 @@
  * Nothing here persists. No verification record, no receipt, no gate state —
  * which is also why it does not need the criterion bindings `runTaskGates`
  * builds: a result that is never stored cannot be mistaken for evidence later.
+ * The one write is the ADR-061 result cache (T12621): a PASS is cached by gate
+ * hash + HEAD + dirty-tree fingerprint, so the attesting write that follows
+ * reuses it instead of executing the gate a second time. The cached observation
+ * is re-bound to the task by that write; it is never itself a record.
  *
  * @task T12308
+ * @task T12621
  */
 
 import { randomUUID } from 'node:crypto';
@@ -30,7 +35,13 @@ import type { AcceptanceGateResult, Task, ValidateGateParams } from '@cleocode/c
 import { readProjectInfoAtDirectorySync } from '../project-scope.js';
 import { createOperationExecutionContext } from '../store/background-ops.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { extractTypedGates, runGates, typedGateAdmissionMs } from './gate-runner.js';
+import { readAllowCachedGates } from './gate-result-cache.js';
+import {
+  captureGateInputsHash,
+  extractTypedGates,
+  runGates,
+  typedGateAdmissionMs,
+} from './gate-runner.js';
 
 /** Outcome of a typed-gate preview run. */
 export interface TaskGatePreview {
@@ -120,7 +131,25 @@ export async function previewTaskGates(
     { budgetMs: typedGateAdmissionMs(gates) },
   );
   try {
-    const observed = await runGates(gates, { projectRoot: root, execution });
+    // T12621: always execute (the caller asked to run), and cache each pass so
+    // the attesting `cleo verify --gate … --evidence …` reuses it.
+    // A gate whose inputs cannot be captured still runs, uncached; the runner
+    // reports its own error for it exactly as before.
+    const allowCachedGates = readAllowCachedGates(root);
+    const observed: AcceptanceGateResult[] = [];
+    for (const gate of gates) {
+      const cacheInputsHash = allowCachedGates
+        ? await captureGateInputsHash(task, gate, execution).catch(() => undefined)
+        : undefined;
+      observed.push(
+        ...(await runGates(
+          [gate],
+          cacheInputsHash
+            ? { projectRoot: root, execution, cache: 'refresh', cacheInputsHash }
+            : { projectRoot: root, execution },
+        )),
+      );
+    }
     // Restore the acceptance-array index the runner reports positionally, so a
     // result lines up with the criterion the reader sees in `cleo show`.
     const results = observed.map((result, i) => ({

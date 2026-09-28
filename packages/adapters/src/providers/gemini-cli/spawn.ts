@@ -25,12 +25,11 @@
  * @task T648
  */
 
-import { exec, spawn as nodeSpawn } from 'node:child_process';
-import { promisify } from 'node:util';
+import type { SpawnOptions } from 'node:child_process';
 import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/contracts';
 import { getErrorMessage } from '@cleocode/contracts';
-
-const execAsync = promisify(exec);
+import { findOnPath } from '@cleocode/paths';
+import { spawnCli } from '../shared/cli-spawn.js';
 
 /** Default Gemini model for subagent spawns. */
 const DEFAULT_MODEL = 'gemini-2.5-pro';
@@ -66,20 +65,16 @@ export class GeminiCliSpawnProvider implements AdapterSpawnProvider {
   /**
    * Check if the Gemini CLI is available in PATH.
    *
-   * @returns `true` if `gemini` is found via `which`
+   * @returns `true` if `gemini` is found on PATH (PATHEXT-aware on Windows)
    */
   async canSpawn(): Promise<boolean> {
-    try {
-      await execAsync('which gemini');
-      return true;
-    } catch {
-      console.warn(
-        '[GeminiCliSpawnProvider] gemini CLI not found. ' +
-          'Install: npm install -g @google/gemini-cli  ' +
-          'Docs: https://github.com/google-gemini/gemini-cli',
-      );
-      return false;
-    }
+    if (findOnPath('gemini') !== null) return true;
+    console.warn(
+      '[GeminiCliSpawnProvider] gemini CLI not found. ' +
+        'Install: npm install -g @google/gemini-cli  ' +
+        'Docs: https://github.com/google-gemini/gemini-cli',
+    );
+    return false;
   }
 
   /**
@@ -116,7 +111,7 @@ export class GeminiCliSpawnProvider implements AdapterSpawnProvider {
       // --model: select the Gemini model variant
       // Prompt is supplied via stdin (pipe)
       const args = ['--yolo', '--model', model];
-      const spawnOpts: Parameters<typeof nodeSpawn>[2] = {
+      const spawnOpts: SpawnOptions = {
         detached: true,
         stdio: ['pipe', 'ignore', 'ignore'],
       };
@@ -125,7 +120,7 @@ export class GeminiCliSpawnProvider implements AdapterSpawnProvider {
         spawnOpts.cwd = context.workingDirectory;
       }
 
-      const child = nodeSpawn('gemini', args, spawnOpts);
+      const child = spawnCli('gemini', args, spawnOpts);
 
       // Write the prompt to stdin then close so the CLI receives it.
       if (child.stdin) {

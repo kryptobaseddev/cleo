@@ -13,9 +13,7 @@
  * @task T11998 — per-session scope/pgid suite containment
  */
 
-import { exec, spawn as nodeSpawn } from 'node:child_process';
-import { unlink, writeFile } from 'node:fs/promises';
-import { promisify } from 'node:util';
+import { spawn as nodeSpawn } from 'node:child_process';
 import type {
   AdapterSpawnProvider,
   AgentSuiteOwnership,
@@ -23,10 +21,10 @@ import type {
   SpawnResult,
 } from '@cleocode/contracts';
 import { getErrorMessage } from '@cleocode/contracts';
+import { findOnPath } from '@cleocode/paths';
 import { buildAgentSpawnArgs } from '../shared/agent-spawn-wrapper.js';
+import { removeSpawnPromptFile, writeSpawnPromptFile } from '../shared/prompt-file.js';
 import { reapAgentSuite } from './suite-reaper.js';
-
-const execAsync = promisify(exec);
 
 /** Internal tracking entry for a spawned process. */
 interface TrackedProcess {
@@ -48,7 +46,7 @@ interface TrackedProcess {
  * @remarks
  * The provider uses `--allow-insecure --no-upgrade-check` flags to
  * ensure the Claude CLI starts without interactive prompts. Prompts are
- * written to temporary files under `/tmp/` and cleaned up after the
+ * written to temporary files under a private temp directory (`os.tmpdir()`) and cleaned up after the
  * child process exits. Processes are tracked by instance ID in an
  * in-memory map and verified via `kill(pid, 0)` liveness checks.
  */
@@ -59,15 +57,10 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
   /**
    * Check if the Claude CLI is available in PATH.
    *
-   * @returns true if `claude` is found via `which`
+   * @returns true if `claude` is found on PATH (PATHEXT-aware on Windows)
    */
   async canSpawn(): Promise<boolean> {
-    try {
-      await execAsync('which claude');
-      return true;
-    } catch {
-      return false;
-    }
+    return findOnPath('claude') !== null;
   }
 
   /**
@@ -103,8 +96,7 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
         // CANT enrichment unavailable — use raw prompt
       }
 
-      tmpFile = `/tmp/claude-spawn-${instanceId}.txt`;
-      await writeFile(tmpFile, enrichedPrompt, 'utf-8');
+      tmpFile = await writeSpawnPromptFile('claude-spawn', enrichedPrompt);
 
       // --print: non-interactive batch mode (process prompt, output response, exit)
       // --dangerously-skip-permissions: allow all tool calls without human approval
@@ -131,6 +123,8 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
       const spawnOpts: Parameters<typeof nodeSpawn>[2] = {
         detached: !isSystemd,
         stdio: ['ignore', 'pipe', 'pipe'],
+        // win32 `.cmd` shim routed through cmd.exe: keep its quoting (T12618).
+        ...(spawnBuild.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
       };
 
       if (context.workingDirectory) {
@@ -177,11 +171,7 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
       const capturedTmpFile = tmpFile;
       child.on('exit', async () => {
         this.processMap.delete(instanceId);
-        try {
-          await unlink(capturedTmpFile);
-        } catch {
-          // Ignore cleanup errors
-        }
+        await removeSpawnPromptFile(capturedTmpFile);
       });
 
       return {
@@ -199,11 +189,7 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
       console.error(`[ClaudeCodeSpawnProvider] Failed to spawn: ${getErrorMessage(error)}`);
 
       if (tmpFile) {
-        try {
-          await unlink(tmpFile);
-        } catch {
-          // Ignore cleanup errors
-        }
+        await removeSpawnPromptFile(tmpFile);
       }
 
       return {

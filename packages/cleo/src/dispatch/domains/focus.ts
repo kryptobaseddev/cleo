@@ -20,7 +20,7 @@
  */
 
 import { execSync } from 'node:child_process';
-import type { KnowledgeDiagnostic } from '@cleocode/contracts';
+import type { EngineFailure, KnowledgeDiagnostic } from '@cleocode/contracts';
 import type {
   FocusAttachedDoc,
   FocusBlocker,
@@ -115,6 +115,20 @@ function fetchRecentActivity(
 }
 
 /**
+ * The underlying error of a failed engine result, as one diagnostic reason
+ * (T12590): its code, message and fix hint, so a failed source says why.
+ *
+ * @param result - A failed engine result.
+ * @returns `"<code>: <message> (fix: <hint>)"`.
+ *
+ * @internal
+ */
+function describeEngineFailure(result: EngineFailure): string {
+  const { code, message, fix } = result.error;
+  return `${code}: ${message}${fix ? ` (fix: ${fix})` : ''}`;
+}
+
+/**
  * Collect task-scoped attachment entries from the docs store.
  *
  * Returns `[]` on failure and records failed source diagnostics.
@@ -171,25 +185,31 @@ async function fetchBrainContext(
       memoryFind({ query: taskId, limit: 3, tables: ['learnings'] }),
     ]);
 
+    const failures: string[] = [];
+    const fail = (table: string, cause: string): MemoryCompactHit[] => {
+      // T12590: a failed diagnostic names its cause, never just that it failed.
+      failures.push(`${table}: ${cause}`);
+      diagnostics['memory'] = {
+        status: 'failed',
+        reasons: ['One or more scoped memory retrievals failed.', ...failures],
+        evidence: [],
+      };
+      return [];
+    };
     const toHits = (
+      table: string,
       r: PromiseSettledResult<Awaited<ReturnType<typeof memoryFind>>>,
     ): MemoryCompactHit[] => {
-      if (r.status !== 'fulfilled' || !r.value.success) {
-        diagnostics['memory'] = {
-          status: 'failed',
-          reasons: ['One or more scoped memory retrievals failed.'],
-          evidence: [],
-        };
-        return [];
-      }
+      if (r.status === 'rejected') return fail(table, String(r.reason));
+      if (!r.value.success) return fail(table, describeEngineFailure(r.value));
       const data = r.value.data as { results?: MemoryCompactHit[] } | undefined;
       return (data?.results ?? []).slice(0, 3);
     };
 
     return {
-      observations: toHits(obsResult),
-      learnings: toHits(lrnResult),
-      decisions: toHits(decResult),
+      observations: toHits('observations', obsResult),
+      learnings: toHits('learnings', lrnResult),
+      decisions: toHits('decisions', decResult),
     };
   } catch (error) {
     diagnostics['memory'] = { status: 'failed', reasons: [String(error)], evidence: [] };
@@ -471,7 +491,7 @@ async function buildFocusEnvelope(
   if (readyResult.status === 'fulfilled' && readyResult.value?.success === false) {
     sourceDiagnostics['ready'] = {
       status: 'failed',
-      reasons: ['Ready-wave assessment failed.'],
+      reasons: ['Ready-wave assessment failed.', describeEngineFailure(readyResult.value)],
       evidence: [],
     };
   }

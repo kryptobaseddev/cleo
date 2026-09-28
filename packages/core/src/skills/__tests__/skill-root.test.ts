@@ -31,6 +31,8 @@ vi.mock('node:os', async () => {
 });
 
 import { realpathSync } from 'node:fs';
+import { join } from 'node:path';
+import { getCleoHome } from '@cleocode/paths';
 import { is_canonical, resolveSkillsRoot } from '../skill-root.js';
 
 describe('resolveSkillsRoot — canonical SSoT path helper', () => {
@@ -46,9 +48,10 @@ describe('resolveSkillsRoot — canonical SSoT path helper', () => {
     stderrSpy.mockRestore();
   });
 
-  it('always returns ~/.cleo/skills (no fallback resolution)', () => {
+  it('returns <cleoHome>/skills in the platform data dir, never ~/.cleo/skills (T12598)', () => {
     const root = resolveSkillsRoot();
-    expect(root).toBe('/home/test/.cleo/skills');
+    expect(root).toBe(join(getCleoHome(), 'skills'));
+    expect(root).not.toMatch(/[\\/]\.cleo[\\/]skills$/);
   });
 
   it('never emits a deprecation warning to stderr', () => {

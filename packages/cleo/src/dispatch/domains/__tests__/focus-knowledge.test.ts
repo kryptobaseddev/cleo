@@ -20,7 +20,7 @@ vi.mock('@cleocode/core/internal', () => ({
 vi.mock('@cleocode/core/doctor/knowledge', () => ({ runKnowledgeDoctor: vi.fn() }));
 
 import { runKnowledgeDoctor } from '@cleocode/core/doctor/knowledge';
-import { memoryFind } from '@cleocode/core/internal';
+import { memoryFind, orchestrateReady, taskShow } from '@cleocode/core/internal';
 import { createBudgetEnforcement } from '../../middleware/budget-enforcement.js';
 import { FocusHandler } from '../focus.js';
 
@@ -99,5 +99,39 @@ describe('focus knowledge assessment', () => {
       sourceDiagnostics: { memory: { status: 'failed' } },
       coverage: { status: 'missing' },
     });
+  });
+  it('names the underlying error of a failed memory read and ready wave (T12590)', async () => {
+    const failure = {
+      success: false as const,
+      error: {
+        code: 'E_BRAIN_SEARCH',
+        message: 'BRAIN database unavailable while checking retrieval eligibility',
+      },
+    };
+    vi.mocked(memoryFind).mockResolvedValueOnce(failure).mockResolvedValueOnce(failure);
+    vi.mocked(taskShow).mockResolvedValueOnce({
+      success: true,
+      data: {
+        task: { id: 'T123', title: 'Fixture', type: 'task', status: 'pending', parentId: 'T100' },
+      },
+    } as Awaited<ReturnType<typeof taskShow>>);
+    vi.mocked(orchestrateReady).mockResolvedValueOnce({
+      success: false,
+      error: { code: 'E_GENERAL', message: 'database is not open', fix: 'retry' },
+    });
+    const result = await new FocusHandler().query('show', { id: 'T123' });
+    expect(result.success).toBe(true);
+    const diagnostics = (
+      result.data as { sourceDiagnostics: Record<string, { reasons: string[] }> }
+    ).sourceDiagnostics;
+    expect(diagnostics['memory']?.reasons).toEqual([
+      'One or more scoped memory retrievals failed.',
+      'observations: E_BRAIN_SEARCH: BRAIN database unavailable while checking retrieval eligibility',
+      'decisions: E_BRAIN_SEARCH: BRAIN database unavailable while checking retrieval eligibility',
+    ]);
+    expect(diagnostics['ready']?.reasons).toEqual([
+      'Ready-wave assessment failed.',
+      'E_GENERAL: database is not open (fix: retry)',
+    ]);
   });
 });

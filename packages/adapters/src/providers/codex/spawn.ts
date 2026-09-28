@@ -24,13 +24,12 @@
  * @task T648
  */
 
-import { exec, spawn as nodeSpawn } from 'node:child_process';
-import { unlink, writeFile } from 'node:fs/promises';
-import { promisify } from 'node:util';
+import type { SpawnOptions } from 'node:child_process';
 import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/contracts';
 import { getErrorMessage } from '@cleocode/contracts';
-
-const execAsync = promisify(exec);
+import { findOnPath } from '@cleocode/paths';
+import { spawnCli } from '../shared/cli-spawn.js';
+import { removeSpawnPromptFile, writeSpawnPromptFile } from '../shared/prompt-file.js';
 
 /** Internal tracking entry for a spawned process. */
 interface TrackedProcess {
@@ -63,20 +62,16 @@ export class CodexSpawnProvider implements AdapterSpawnProvider {
   /**
    * Check if the Codex CLI is available in PATH.
    *
-   * @returns `true` if `codex` is found via `which`
+   * @returns `true` if `codex` is found on PATH (PATHEXT-aware on Windows)
    */
   async canSpawn(): Promise<boolean> {
-    try {
-      await execAsync('which codex');
-      return true;
-    } catch {
-      console.warn(
-        '[CodexSpawnProvider] codex CLI not found. ' +
-          'Install: npm install -g @openai/codex  ' +
-          'Docs: https://github.com/openai/codex',
-      );
-      return false;
-    }
+    if (findOnPath('codex') !== null) return true;
+    console.warn(
+      '[CodexSpawnProvider] codex CLI not found. ' +
+        'Install: npm install -g @openai/codex  ' +
+        'Docs: https://github.com/openai/codex',
+    );
+    return false;
   }
 
   /**
@@ -108,12 +103,11 @@ export class CodexSpawnProvider implements AdapterSpawnProvider {
         // CANT enrichment unavailable — use raw prompt
       }
 
-      tmpFile = `/tmp/codex-spawn-${instanceId}.txt`;
-      await writeFile(tmpFile, enrichedPrompt, 'utf-8');
+      tmpFile = await writeSpawnPromptFile('codex-spawn', enrichedPrompt);
 
       // --full-auto: non-interactive batch mode (auto-approve all actions)
       const args = ['--full-auto', tmpFile];
-      const spawnOpts: Parameters<typeof nodeSpawn>[2] = {
+      const spawnOpts: SpawnOptions = {
         detached: true,
         stdio: 'ignore',
       };
@@ -122,7 +116,7 @@ export class CodexSpawnProvider implements AdapterSpawnProvider {
         spawnOpts.cwd = context.workingDirectory;
       }
 
-      const child = nodeSpawn('codex', args, spawnOpts);
+      const child = spawnCli('codex', args, spawnOpts);
       child.unref();
 
       if (child.pid) {
@@ -136,11 +130,7 @@ export class CodexSpawnProvider implements AdapterSpawnProvider {
       const capturedTmpFile = tmpFile;
       child.on('exit', async () => {
         this.processMap.delete(instanceId);
-        try {
-          await unlink(capturedTmpFile);
-        } catch {
-          // Ignore cleanup errors
-        }
+        await removeSpawnPromptFile(capturedTmpFile);
       });
 
       return {
@@ -154,11 +144,7 @@ export class CodexSpawnProvider implements AdapterSpawnProvider {
       console.error(`[CodexSpawnProvider] Failed to spawn: ${getErrorMessage(error)}`);
 
       if (tmpFile) {
-        try {
-          await unlink(tmpFile);
-        } catch {
-          // Ignore cleanup errors
-        }
+        await removeSpawnPromptFile(tmpFile);
       }
 
       return {

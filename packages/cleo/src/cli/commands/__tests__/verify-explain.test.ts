@@ -567,6 +567,20 @@ describe('verifyCommand — dispatch routing (T1013)', () => {
     expect(captured.operation).toBe('gate.set');
     expect(captured.params.gate).toBe('implemented');
     expect(captured.params.evidence).toBe('commit:abc1234;files:a.ts');
+    expect(captured.params.noRun).toBeUndefined();
+  });
+
+  // T12621: citty parses `--no-run` as `run: false`; it was accepted and ignored.
+  it('forwards --no-run on a write as noRun', async () => {
+    const captured = await runVerifyCommand({
+      taskId: 'T1013',
+      gate: 'implemented',
+      run: false,
+      value: 'true',
+      evidence: 'commit:abc1234;files:a.ts',
+    });
+    expect(captured.operation).toBe('gate.set');
+    expect(captured.params.noRun).toBe(true);
   });
 });
 

@@ -31,6 +31,7 @@ import { existsSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
+import { expandTildePath } from '@cleocode/paths';
 import type { Command } from 'commander';
 import type { PiHarness } from '../../core/harness/pi.js';
 import type { HarnessTier } from '../../core/harness/scope.js';
@@ -80,7 +81,7 @@ export type PiCantRemoveOptions = PiCommandBaseOptions;
  *
  * @internal
  */
-interface ResolvedCantSource {
+export interface ResolvedCantSource {
   /** Absolute path to a local copy of the `.cant` file. */
   localPath: string;
   /** Best-effort cleanup callback (deletes tmp files / cloned repos). */
@@ -114,7 +115,7 @@ interface ResolvedCantSource {
  *
  * @internal
  */
-async function resolveCantSource(source: string): Promise<ResolvedCantSource> {
+export async function resolveCantSource(source: string): Promise<ResolvedCantSource> {
   // Local file path first — cheapest check.
   // On Windows, absolute paths start with a drive letter (e.g. C:\...) rather
   // than '/', so we use isAbsolute() instead of a slash-prefix check.
@@ -124,9 +125,9 @@ async function resolveCantSource(source: string): Promise<ResolvedCantSource> {
     source.startsWith('../') ||
     source.startsWith('~')
   ) {
-    const expanded = source.startsWith('~/')
-      ? join(process.env['HOME'] ?? '', source.slice(2))
-      : source;
+    // os.homedir() via expandTildePath: HOME is unset on Windows, which made
+    // `~/x` expand to the relative path `x` (T12608).
+    const expanded = expandTildePath(source);
     if (!existsSync(expanded)) {
       throw new LAFSCommandError(
         PI_ERROR_CODES.NOT_FOUND,

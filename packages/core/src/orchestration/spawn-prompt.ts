@@ -13,7 +13,7 @@
  * |------|---------|
  * | 0    | Minimal: task metadata + return-format contract + evidence-gate commands |
  * | 1    | Standard (DEFAULT): tier 0 + CLEO-INJECTION.md embed + stage-specific guidance + quality-gate commands + absolute paths + session linkage |
- * | 2    | Full: tier 1 + ct-cleo + ct-orchestrator skill excerpts + SUBAGENT-PROTOCOL-BLOCK + anti-pattern reference |
+ * | 2    | Full: tier 1 + CLEO-REFERENCE.md embed + ct-cleo + ct-orchestrator skill excerpts + SUBAGENT-PROTOCOL-BLOCK + anti-pattern reference |
  *
  * ## Protocol phases (RCASD-IVTR+C)
  *
@@ -70,8 +70,11 @@ import {
  * Returns the absolute path to CLEO-INJECTION.md, or `null` if no layout
  * contains the file. The cached string in {@link loadCleoInjection} degrades
  * gracefully on `null`.
+ *
+ * @param fileName - Template file name; `CLEO-REFERENCE.md` locates the
+ *   on-demand reference that ships beside the core (T12580).
  */
-function locateCleoInjectionTemplate(): string | null {
+function locateCleoInjectionTemplate(fileName = 'CLEO-INJECTION.md'): string | null {
   const thisFile = fileURLToPath(import.meta.url);
   const candidates: string[] = [];
 
@@ -79,7 +82,7 @@ function locateCleoInjectionTemplate(): string | null {
   // of our own package (or hit filesystem root).
   let dir = dirname(thisFile);
   for (let i = 0; i < 8; i++) {
-    const direct = join(dir, 'templates', 'CLEO-INJECTION.md');
+    const direct = join(dir, 'templates', fileName);
     if (existsSync(direct)) return direct;
     candidates.push(direct);
     const parent = resolve(dir, '..');
@@ -91,7 +94,7 @@ function locateCleoInjectionTemplate(): string | null {
   // few ancestor directories of the bundle.
   let baseDir = dirname(thisFile);
   for (let i = 0; i < 8; i++) {
-    const nm = join(baseDir, 'node_modules', '@cleocode', 'core', 'templates', 'CLEO-INJECTION.md');
+    const nm = join(baseDir, 'node_modules', '@cleocode', 'core', 'templates', fileName);
     if (existsSync(nm)) return nm;
     const parent = resolve(baseDir, '..');
     if (parent === baseDir) break;
@@ -454,6 +457,8 @@ export interface BuildSpawnPromptResult {
 
 interface TemplateCache {
   cleoInjection: string | null;
+  /** @task T12580 — on-demand protocol reference embedded at tier 2 */
+  cleoReference: string | null;
   ctCleoExcerpt: string | null;
   ctOrchestratorExcerpt: string | null;
   /** @task T9213 — ct-lead skill excerpt for tier-1 lead spawns */
@@ -463,6 +468,7 @@ interface TemplateCache {
 
 const CACHE: TemplateCache = {
   cleoInjection: null,
+  cleoReference: null,
   ctCleoExcerpt: null,
   ctOrchestratorExcerpt: null,
   ctLeadExcerpt: null,
@@ -477,6 +483,7 @@ const CACHE: TemplateCache = {
  */
 export function resetSpawnPromptCache(): void {
   CACHE.cleoInjection = null;
+  CACHE.cleoReference = null;
   CACHE.ctCleoExcerpt = null;
   CACHE.ctOrchestratorExcerpt = null;
   CACHE.ctLeadExcerpt = null;
@@ -498,6 +505,27 @@ function loadCleoInjection(): string | null {
     if (templatePath) {
       CACHE.cleoInjection = readFileSync(templatePath, 'utf-8');
       return CACHE.cleoInjection;
+    }
+  } catch {
+    // fall-through
+  }
+  return null;
+}
+
+/**
+ * Load the on-demand protocol reference (`CLEO-REFERENCE.md`) that ships
+ * beside CLEO-INJECTION.md. Returns `null` when absent so tier-2 assembly
+ * degrades to the core embed plus its `cleo briefing inject` pointers.
+ *
+ * @task T12580
+ */
+function loadCleoReference(): string | null {
+  if (CACHE.cleoReference !== null) return CACHE.cleoReference;
+  try {
+    const templatePath = locateCleoInjectionTemplate('CLEO-REFERENCE.md');
+    if (templatePath) {
+      CACHE.cleoReference = readFileSync(templatePath, 'utf-8');
+      return CACHE.cleoReference;
     }
   } catch {
     // fall-through
@@ -1279,6 +1307,8 @@ function buildTier0ProtocolPointer(): string {
     'Full protocol reference: `~/.cleo/templates/CLEO-INJECTION.md` (global) or `packages/core/templates/CLEO-INJECTION.md` (source).',
     '',
     'Cheapest-first discovery: `cleo session status` → `cleo dash` → `cleo current` → `cleo next` → `cleo show <id>`.',
+    '',
+    'On-demand protocol sections: `cleo briefing inject --section <name>`.',
   ].join('\n');
 }
 
@@ -1296,7 +1326,32 @@ function buildTier1InjectionEmbed(): string {
   return [
     '## CLEO Protocol (embedded — tier 1)',
     '',
-    '<details><summary>Click to expand full protocol</summary>',
+    '<details><summary>Click to expand core protocol</summary>',
+    '',
+    content,
+    '',
+    '</details>',
+  ].join('\n');
+}
+
+/**
+ * Build the tier 2 protocol-reference embed.
+ *
+ * CLEO-INJECTION.md is only the always-loaded core; its reference sections
+ * live in CLEO-REFERENCE.md. Tier-2 workers run autonomously, so they get the
+ * reference resolved in full rather than a `cleo briefing inject` round-trip
+ * per section. Emitted even when the core embed is deduplicated, because no
+ * harness auto-loads the reference.
+ *
+ * @task T12580
+ */
+function buildTier2ReferenceEmbed(): string | null {
+  const content = loadCleoReference();
+  if (!content) return null;
+  return [
+    '## CLEO Protocol Reference (embedded — tier 2)',
+    '',
+    '<details><summary>Click to expand on-demand reference sections</summary>',
     '',
     content,
     '',
@@ -1730,6 +1785,8 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
     } else {
       embeddedSections.push(buildTier1InjectionEmbed());
     }
+    const referenceEmbed = buildTier2ReferenceEmbed();
+    if (referenceEmbed) embeddedSections.push(referenceEmbed);
     embeddedSections.push(
       buildTierSkillExcerpts(2, input.role ?? 'orchestrator', input.projectRoot),
     );

@@ -7,7 +7,6 @@
 
 import { createHash } from 'node:crypto';
 import type {
-  BrainObservationType,
   BrainSourceConfidence,
   ObserveBrainParams,
   ObserveBrainResult,
@@ -25,33 +24,11 @@ import type { BrainMemoryTier } from '../../store/schema/memory-schema.js';
 import { getDb } from '../../store/sqlite.js';
 import { embedText, ensureEmbeddingProvider, isEmbeddingAvailable } from '../brain-embedding.js';
 import { addGraphEdge, upsertGraphNode } from '../graph-auto-populate.js';
+import {
+  classifyObservationTypeByKeywords,
+  type ObservationTypeChoice,
+} from '../observation-type-decision.js';
 import { computeObservationQuality } from '../quality-scoring.js';
-
-// ============================================================================
-// Observation type classification
-// ============================================================================
-
-/** Keyword patterns for auto-classifying observation type from text. */
-const TYPE_KEYWORDS: Array<{ keywords: string[]; type: BrainObservationType }> = [
-  { keywords: ['bug', 'fix', 'error', 'crash'], type: 'bugfix' },
-  { keywords: ['refactor', 'rename', 'extract', 'move'], type: 'refactor' },
-  { keywords: ['add', 'create', 'implement', 'new'], type: 'feature' },
-  { keywords: ['decide', 'chose', 'pick', 'instead'], type: 'decision' },
-  { keywords: ['update', 'change', 'modify', 'upgrade'], type: 'change' },
-];
-
-/** Auto-classify observation type from text using keyword matching. */
-function classifyObservationType(text: string): BrainObservationType {
-  const lower = text.toLowerCase();
-  for (const { keywords, type } of TYPE_KEYWORDS) {
-    for (const keyword of keywords) {
-      if (lower.includes(keyword)) {
-        return type;
-      }
-    }
-  }
-  return 'discovery';
-}
 
 /** Monotonic counter to prevent ID collisions within the same millisecond. */
 let observeSeq = 0;
@@ -167,6 +144,7 @@ export async function observeBrain(
     text,
     title: titleParam,
     type: typeParam,
+    askTypeDecision,
     project,
     sourceSessionId,
     sourceType,
@@ -212,14 +190,34 @@ export async function observeBrain(
       }
       if (sessionExists === false) validatedSourceSessionId = undefined;
     }
+    // T12494: no caller type → keywords, or System One in `on` mode — but
+    // only for a caller that opted in (`cleo memory observe`); background
+    // writers never send content to a provider. Asked here, before the writer
+    // queue, so a decision never holds the single writer. Only a System One
+    // answer changes the params: `off` and `shadow` leave the type to the
+    // writer's keyword pass, exactly as before.
+    let choice: ObservationTypeChoice | null = null;
+    if (typeParam === undefined && askTypeDecision === true) {
+      const { chooseObservationType } = await import('../observation-type-decision.js');
+      choice = await chooseObservationType(text, titleParam, { projectRoot });
+    }
     const { enqueueBrainWrite } = await import('../brain-writer-thread.js');
     const result = await enqueueBrainWrite({
       kind: 'observe',
       projectRoot,
-      params: { ...params, sourceSessionId: validatedSourceSessionId },
+      params: {
+        ...params,
+        ...(choice?.source === 'system-one' ? { type: choice.type } : {}),
+        askTypeDecision: undefined,
+        sourceSessionId: validatedSourceSessionId,
+      },
     });
     if (result.kind !== 'observe') {
       throw new Error(`Unexpected writer result kind: ${result.kind}`);
+    }
+    if (typeParam !== undefined) return { ...result.result, typeSource: 'caller' };
+    if (choice && result.result.type === choice.type) {
+      return { ...result.result, typeSource: choice.source, typeConfidence: choice.confidence };
     }
     return result.result;
   }
@@ -261,7 +259,7 @@ export async function observeBrain(
     // Gate approved — fall through to native storage below (no recursion needed).
   }
 
-  const type = typeParam ?? classifyObservationType(text);
+  const type = typeParam ?? classifyObservationTypeByKeywords(text);
   const title = titleParam ?? text.slice(0, 120);
   const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
