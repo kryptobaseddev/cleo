@@ -16,6 +16,7 @@
 import { readFile } from 'node:fs/promises';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { negatedFlag } from '../lib/negated-flag.js';
 
 /** cleo relates suggest — suggest related tasks based on shared attributes */
 const suggestCommand = defineCommand({
@@ -229,7 +230,7 @@ const listCommand = defineCommand({
         taskId: args.taskId,
         type: args.type,
         direction: args.direction,
-        includeDependencies: !args.noDepends,
+        includeDependencies: !negatedFlag(args, 'depends'),
       },
       { command: 'relates' },
     );

@@ -177,7 +177,7 @@ All domains follow the `<Op>Params` / `<Op>Result` naming convention. Available 
 | `pipeline.ts` | — | LOOM pipeline wave types |
 | `admin.ts` | `AdminOps` | Backup, restore, export, import |
 | `validate.ts` | `CheckOps` | Evidence gates, verification |
-| `release.ts` | `ReleaseOps` | CalVer release and tag |
+| `release.ts` | `ReleaseOps` | CalVer release operations plus T10483 command/template shared-surface contract |
 | `sentient.ts` | `SentientOps` | Tier-2 proposal management |
 | `conduit.ts` | `ConduitOps` | Messaging transport |
 | `research.ts` | `ResearchOps` | LOOM research stage |

@@ -14,10 +14,13 @@
  * @module nexus/graph-manifest
  */
 
+import { isAbsolute } from 'node:path';
 import type { GraphIndexAssessment, GraphIndexRunSummary } from '@cleocode/contracts';
 import { sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { z } from 'zod';
+import { ASSESSMENT_KEY } from './assessment-store.js';
+import { canonicalProjectRoot, fromStoredPath, isWithin, toStoredPath } from './stored-roots.js';
 
 /** `_nexus_meta` key of the compact file manifest. */
 const MANIFEST_KEY = 'graph_file_manifest';
@@ -31,7 +34,10 @@ export type GraphManifestEntry = [path: string, size: number, mtimeMs: number, h
 export interface GraphFileManifest {
   /** Generation the manifest describes. */
   generation: string | null;
-  /** Canonical root the paths are relative to. */
+  /**
+   * Absolute source root the paths are relative to. In memory it is absolute;
+   * in `_nexus_meta` it is stored relative to the project root (T12474).
+   */
   sourceRoot: string;
   /** Explicitly included nested repositories, needed to walk the same tree. */
   includedRepositories: string[];
@@ -112,11 +118,23 @@ export function buildFileManifest(
 
 /**
  * Write the manifest; call inside the transaction that publishes its generation.
+ *
+ * The source root is stored relative to `projectRoot` (T12474), so the record
+ * stays valid after the project moves.
+ *
  * @param tx - Open transaction on the project graph database.
  * @param manifest - Manifest of the generation being committed.
+ * @param projectRoot - Canonical project root; when omitted the root is stored as given.
  */
-export function writeFileManifest(tx: NodeSQLiteDatabase, manifest: GraphFileManifest): void {
-  tx.run(sql`INSERT INTO main._nexus_meta (key, value) VALUES (${MANIFEST_KEY}, ${JSON.stringify(manifest)})
+export function writeFileManifest(
+  tx: NodeSQLiteDatabase,
+  manifest: GraphFileManifest,
+  projectRoot?: string,
+): void {
+  const stored: GraphFileManifest = projectRoot
+    ? { ...manifest, sourceRoot: toStoredPath(projectRoot, manifest.sourceRoot) }
+    : manifest;
+  tx.run(sql`INSERT INTO main._nexus_meta (key, value) VALUES (${MANIFEST_KEY}, ${JSON.stringify(stored)})
     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = strftime('%s', 'now')`);
 }
 
@@ -130,17 +148,46 @@ export function clearFileManifest(tx: NodeSQLiteDatabase): void {
 }
 
 /**
- * Read the manifest of the committed generation.
+ * Project root a legacy absolute record was written under, read from the
+ * assessment published in the same transaction. Only consulted for a legacy
+ * manifest, and only the one JSON field is extracted.
+ */
+function legacyProjectRoot(db: NodeSQLiteDatabase): string | undefined {
+  const value = db.values(
+    sql`SELECT json_extract(value, '$.sourceRoots.projectRoot') FROM main._nexus_meta WHERE key = ${ASSESSMENT_KEY}`,
+  )[0]?.[0];
+  return typeof value === 'string' && isAbsolute(value) ? value : undefined;
+}
+
+/**
+ * Read the manifest of the committed generation, its source root resolved
+ * against the live project root.
+ *
+ * A manifest written before T12474 holds the absolute root of the machine that
+ * analyzed it; when that root lies inside the project root recorded with the
+ * same generation, it is rebased onto the live root, so a moved project walks
+ * its own tree instead of a path that no longer exists.
+ *
  * @param db - Project graph database.
+ * @param projectRoot - Live project root the database was opened for.
  * @returns The manifest, or `null` when the generation predates manifests.
  * @throws When a stored manifest is malformed.
  */
-export function readFileManifest(db: NodeSQLiteDatabase): GraphFileManifest | null {
+export function readFileManifest(
+  db: NodeSQLiteDatabase,
+  projectRoot: string,
+): GraphFileManifest | null {
   const value = db.values(
     sql`SELECT value FROM main._nexus_meta WHERE key = ${MANIFEST_KEY}`,
   )[0]?.[0];
   if (typeof value !== 'string') return null;
-  return manifestSchema.parse(JSON.parse(value));
+  const stored = manifestSchema.parse(JSON.parse(value));
+  const base = canonicalProjectRoot(projectRoot);
+  if (!isAbsolute(stored.sourceRoot))
+    return { ...stored, sourceRoot: fromStoredPath(base, stored.sourceRoot) };
+  const legacyRoot = legacyProjectRoot(db);
+  if (!legacyRoot || !isWithin(legacyRoot, stored.sourceRoot)) return stored;
+  return { ...stored, sourceRoot: fromStoredPath(base, stored.sourceRoot, legacyRoot) };
 }
 
 /**

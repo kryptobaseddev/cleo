@@ -16,6 +16,7 @@ import { randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type {
+  AcceptanceGate,
   EvidenceAtom,
   EvidenceValidationContext,
   KnowledgeCoverage,
@@ -56,6 +57,7 @@ import {
   createTaskGateReceipt,
   revalidateTaskGateResults,
   runTaskGates,
+  typedGateAdmissionMs,
 } from '../tasks/gate-runner.js';
 import {
   hasCallsiteCoverageLabel,
@@ -380,7 +382,6 @@ export async function validateGateVerify(
   projectRoot: string,
   params: GateVerifyParams,
 ): Promise<EngineResult<GateVerifyResult>> {
-  const admittedAt = Date.now();
   projectRoot = resolve(projectRoot);
   const inheritedExecution = worktreeScope.getStore()?.execution;
   let ownedVerificationExecution: OperationExecutionContext | undefined;
@@ -421,25 +422,38 @@ export async function validateGateVerify(
       originalAcceptance.some((item) => typeof item !== 'string');
     const initialAcRows = typedWrite ? await accessor.getAcRows(taskId) : [];
     let typedExecution: OperationExecutionContext | undefined;
+    // T12516: an owned typed lifetime is admitted only when the typed gates are
+    // about to run, and it is sized from their ADR-061 tool deadlines plus the
+    // shared bookkeeping budget. It used to be a fixed two seconds from admission,
+    // created here, so the lifetime was spent by evidence tools (`tool:test`) and
+    // by the gates themselves: any suite over two seconds ended in
+    // E_OPERATION_DEADLINE. A caller-owned (inherited) lifetime is kept as is.
+    let admitOwnedTypedExecution: (() => OperationExecutionContext) | undefined;
     if (typedWrite) {
       typedExecution = inheritedExecution;
       if (!typedExecution) {
         const identity = readProjectInfoAtDirectorySync(projectRoot, join(projectRoot, '.cleo'));
-        if (!identity.projectId)
-          throw new Error('Typed verification requires a stable project identity');
-        ownedVerificationExecution = createOperationExecutionContext(
-          {
-            projectId: identity.projectId,
-            projectRoot,
-            actor: agentId,
-            operation: 'check.gate.verify',
-            idempotencyKey: `${taskId}:${randomUUID()}`,
-          },
-          { deadlineAt: admittedAt + 2000 },
+        const projectId = identity.projectId;
+        if (!projectId) throw new Error('Typed verification requires a stable project identity');
+        const typedGates = originalAcceptance.filter(
+          (item): item is AcceptanceGate => typeof item !== 'string',
         );
-        typedExecution = ownedVerificationExecution;
+        admitOwnedTypedExecution = () => {
+          ownedVerificationExecution = createOperationExecutionContext(
+            {
+              projectId,
+              projectRoot,
+              actor: agentId,
+              operation: 'check.gate.verify',
+              idempotencyKey: `${taskId}:${randomUUID()}`,
+            },
+            { budgetMs: typedGateAdmissionMs(typedGates) },
+          );
+          return ownedVerificationExecution;
+        };
+      } else {
+        typedExecution.assertActive();
       }
-      typedExecution.assertActive();
     }
 
     const validateEvidenceAtom: typeof validateAtom = (...args) =>
@@ -805,7 +819,9 @@ export async function validateGateVerify(
       action = 'set_gate';
     }
 
+    if (admitOwnedTypedExecution) typedExecution = admitOwnedTypedExecution();
     if (typedExecution) {
+      typedExecution.assertActive();
       verification.gateResults = await runTaskGates(task, initialAcRows, {
         projectRoot,
         execution: typedExecution,

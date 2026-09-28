@@ -24,6 +24,7 @@ import type {
   TaskAuditLogRow,
   TaskFieldUpdates,
   TaskQueryFilters,
+  TaskWriteGuard,
   TransactionAccessor,
 } from './data-accessor.js';
 import {
@@ -280,12 +281,16 @@ export class SafetyDataAccessor implements DataAccessor {
 
   // ---- Targeted write methods (with safety) ----
 
-  async updateTaskFields(taskId: string, fields: TaskFieldUpdates): Promise<void> {
+  async updateTaskFields(
+    taskId: string,
+    fields: TaskFieldUpdates,
+    guard?: TaskWriteGuard,
+  ): Promise<void> {
     this.logVerbose(`Updating fields on task ${taskId}`);
     await safeSingleTaskWrite(
       this.inner,
       taskId,
-      () => this.inner.updateTaskFields(taskId, fields),
+      () => this.inner.updateTaskFields(taskId, fields, guard),
       this.cwd,
       this.getSafetyOptions(),
     );

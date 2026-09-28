@@ -20,6 +20,7 @@ import {
   type Task,
   type TaskStatus,
   type TaskType,
+  type TaskWriteGuard,
 } from '@cleocode/contracts';
 import { and, asc, count, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
@@ -36,6 +37,7 @@ import {
 import { parseLabels, updateTaskLabels } from './db-helpers.js';
 import { getDb, getNativeDb } from './sqlite.js';
 import { captureTaskAccessorScope, createSqliteDataAccessor } from './sqlite-data-accessor.js';
+import { assertTaskVersion, nextTaskVersion } from './task-version.js';
 import type { TaskRow } from './tasks-schema.js';
 import * as schema from './tasks-schema.js';
 
@@ -115,11 +117,19 @@ export async function getTask(taskId: string, cwd?: string): Promise<Task | null
   });
 }
 
-/** Update an existing task. */
+/**
+ * Update an existing task.
+ *
+ * The stored row is re-read inside the write transaction. When
+ * `guard.expectedUpdatedAt` is supplied and no longer matches the stored
+ * version, the update fails with `E_CONFLICT` instead of overwriting a newer
+ * write (T12503).
+ */
 export async function updateTask(
   taskId: string,
   updates: Partial<Task>,
   cwd?: string,
+  guard?: TaskWriteGuard,
 ): Promise<Task | null> {
   return inTaskStoreScope(cwd, async (cwd) => {
     if (updates.id !== undefined && updates.id !== taskId) {
@@ -135,6 +145,7 @@ export async function updateTask(
     return accessor.transaction(async (tx) => {
       const existing = await getTask(taskId, cwd);
       if (!existing) return null;
+      assertTaskVersion(taskId, existing, guard?.expectedUpdatedAt);
       const provided = { ...updates };
       for (const [key, value] of Object.entries(provided)) {
         if (value === undefined) Reflect.deleteProperty(provided, key);
@@ -143,7 +154,7 @@ export async function updateTask(
         ...existing,
         ...provided,
         id: taskId,
-        updatedAt: updates.updatedAt ?? new Date().toISOString(),
+        updatedAt: updates.updatedAt ?? nextTaskVersion(existing),
       };
       if (updates.status === 'pending' || updates.status === 'active') {
         if (updates.cancelledAt === undefined) updated.cancelledAt = undefined;

@@ -242,6 +242,26 @@ describe('cleo backup recover brain — dry-run mode (T10318 backward compat)', 
     const call = mockRunBackupRecover.mock.calls[0]?.[0];
     expect(call?.noDelta).toBe(true);
   });
+
+  // T12528: the case above hands the handler `{ 'no-delta': true }`, a shape
+  // citty never produces — real argv `--no-delta` parses to `{ delta: false }`.
+  it('plumbs a citty-parsed --no-delta through to the core helper (T12528)', async () => {
+    mockRunBackupRecover.mockReturnValue(DRY_RUN_PLAN);
+    const { parseArgs } = await import('citty');
+    const recoverGroup = backupCommand.subCommands?.['recover'] as {
+      subCommands: Record<string, { args: import('citty').ArgsDef; run: CittyLeaf['run'] }>;
+    };
+    const brainCmd = recoverGroup.subCommands['brain'];
+    if (!brainCmd) throw new Error('backup recover brain subcommand not found');
+    const argv = ['--dry-run', '--no-delta'];
+    const args = parseArgs(argv, brainCmd.args);
+    expect(args['no-delta']).not.toBe(true);
+
+    await brainCmd.run({ args: args as RecoverArgs, rawArgs: argv });
+
+    const call = mockRunBackupRecover.mock.calls[0]?.[0];
+    expect(call?.noDelta).toBe(true);
+  });
 });
 
 describe('cleo backup recover brain — happy path (T10318 backward compat)', () => {

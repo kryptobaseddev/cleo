@@ -187,6 +187,7 @@ it('covers every accepted update field at the canonical mapper boundary', () => 
     relates: [{ taskId: 'T030', type: 'related', reason: 'Shared evidence' }],
     addRelates: [{ taskId: 'T031', type: 'blocks', reason: 'Precondition' }],
     removeRelates: ['T032'],
+    expectedUpdatedAt: '2026-09-27T00:00:00.000Z',
   };
   const contract = INPUT_CONTRACTS['tasks.update'];
   if (!contract) throw new Error('tasks.update missing');

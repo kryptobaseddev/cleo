@@ -321,4 +321,76 @@ describe('sweep-manual-doc-writes — classification', () => {
     expect(report.summary.deleted).toBe(1);
     expect(report.summary.unresolved).toBe(0);
   });
+
+  it('resolves the T9791 cutoff from the import manifests when no --cutoff is passed', () => {
+    // The default cutoff used to be a hardcoded SHA from the branch T9791 ran
+    // on, which no PR checkout carries; the sweep died with
+    // `fatal: bad revision '251814e86..HEAD'` before classifying anything.
+    // This sandbox has no such object, so it exercises the default path.
+    mkdirSync(join(projectRoot, '.cleo/adrs'), { recursive: true });
+    mkdirSync(join(projectRoot, '.cleo/audit/imports/20260521T001800'), { recursive: true });
+    writeFileSync(join(projectRoot, '.cleo/canon.yml'), CANON_YML);
+    gitInit(projectRoot);
+
+    // The import commit — legacy file plus the manifest it committed.
+    writeFileSync(join(projectRoot, '.cleo/adrs/ADR-001-legacy.md'), '# legacy\n');
+    writeFileSync(join(projectRoot, '.cleo/audit/imports/20260521T001800/adrs.json'), '{}\n');
+    gitCommit(projectRoot, 'feat(T9791): execute cleo docs import');
+    const importSha = gitHead(projectRoot);
+
+    // A raw write after the import — the only file the sweep should see.
+    writeFileSync(join(projectRoot, '.cleo/adrs/ADR-002-post-import.md'), '# raw write\n');
+    gitCommit(projectRoot, 'add a raw write after the import');
+
+    writeStub({ listAttachments: [], blobBySha: {} });
+
+    const env = { ...process.env, PATH: `${stubBin}:${process.env.PATH}` };
+    const result = spawnSync(
+      'node',
+      [
+        SCRIPT,
+        '--repo-root',
+        projectRoot,
+        '--out',
+        join(sandbox, 'report.json'),
+        '--allow-unresolved',
+      ],
+      { encoding: 'utf-8', env },
+    );
+
+    expect(result.status).toBe(0);
+    const report = JSON.parse(readFileSync(join(sandbox, 'report.json'), 'utf-8'));
+    expect(report.summary.cutoff).toBe(importSha);
+    expect(report.summary.totalFiles).toBe(1);
+    expect(report.grouped.orphan).toHaveLength(1);
+    expect(report.grouped.orphan[0].file).toBe('.cleo/adrs/ADR-002-post-import.md');
+  });
+
+  it('names the missing import manifests instead of letting git fail on the cutoff', () => {
+    mkdirSync(join(projectRoot, '.cleo/adrs'), { recursive: true });
+    writeFileSync(join(projectRoot, '.cleo/canon.yml'), CANON_YML);
+    gitInit(projectRoot);
+    writeFileSync(join(projectRoot, 'README.md'), '# placeholder\n');
+    gitCommit(projectRoot, 'init');
+
+    writeStub({ listAttachments: [], blobBySha: {} });
+    const env = { ...process.env, PATH: `${stubBin}:${process.env.PATH}` };
+    const result = spawnSync(
+      'node',
+      [
+        SCRIPT,
+        '--repo-root',
+        projectRoot,
+        '--out',
+        join(sandbox, 'report.json'),
+        '--allow-unresolved',
+      ],
+      { encoding: 'utf-8', env },
+    );
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('could not resolve the T9791 docs-import cutoff');
+    expect(result.stderr).toContain('.cleo/audit/imports/');
+    expect(result.stderr).not.toContain('bad revision');
+  });
 });

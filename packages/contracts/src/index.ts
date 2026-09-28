@@ -365,6 +365,7 @@ export type {
   TaskFieldUpdates,
   TaskPopulation,
   TaskQueryFilters,
+  TaskWriteGuard,
   TransactionAccessor,
 } from './data-accessor.js';
 // === Database Inventory (Saga T10281 / Epic T10282 / Task T10305 — SG-BRAIN-DB-RESILIENCE) ===
@@ -2806,5 +2807,45 @@ export {
   type CollectionKey,
   DEFAULT_IDENTITY_FIELD,
 } from './collection-keys.js';
+
+// === Typed-decision contracts (T12489 · epic T12486) ===
+export type {
+  ChoiceDecisionAnswer,
+  ChoiceDecisionQuestion,
+  DecisionAnswer,
+  DecisionInstructions,
+  DecisionJsonValue,
+  DecisionOutcome,
+  DecisionOutcomeSource,
+  DecisionProviderConfig,
+  DecisionQuestion,
+  DecisionQuestionType,
+  DecisionRequest,
+  DecisionState,
+  NoulDecisionAnswer,
+  NoulDecisionQuestion,
+  ScoreDecisionAnswer,
+  ScoreDecisionQuestion,
+} from './decide.js';
+export {
+  choiceDecisionAnswerSchema,
+  choiceDecisionQuestionSchema,
+  DECISION_OUTCOME_SOURCES,
+  DECISION_QUESTION_TYPES,
+  DECISION_REQUEST_LIMITS,
+  decisionAnswerSchema,
+  decisionInstructionsSchema,
+  decisionOutcomeSchema,
+  decisionOutcomeSourceSchema,
+  decisionProviderConfigSchema,
+  decisionQuestionSchema,
+  decisionQuestionTypeSchema,
+  decisionRequestSchema,
+  decisionStateSchema,
+  noulDecisionAnswerSchema,
+  noulDecisionQuestionSchema,
+  scoreDecisionAnswerSchema,
+  scoreDecisionQuestionSchema,
+} from './decide.js';
 
 export { isStorableTaskId, isTaskId, TASK_ID_REGEX, type TaskId } from './task-id.js';

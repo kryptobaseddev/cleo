@@ -82,6 +82,7 @@ export const STRING_TO_EXIT: Record<string, number> = {
   E_CHECKSUM_MISMATCH: 20,
   E_CONCURRENT_MODIFICATION: 21,
   E_ID_COLLISION: 22,
+  E_CONFLICT: 23,
 
   // Session Errors (30-39)
   E_SESSION_EXISTS: 30,

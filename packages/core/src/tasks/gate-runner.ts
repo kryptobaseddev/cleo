@@ -12,8 +12,10 @@
  *
  * Design constraints:
  *   - Each gate is self-contained (no cross-gate state).
- *   - Gates run sequentially under the original shared deadline (two seconds by default).
- *   - Per-gate timeouts can only tighten the shared deadline. Long work needs runtime admission.
+ *   - Gates run sequentially under ONE captured operation deadline. The caller admits it
+ *     with {@link typedGateAdmissionMs}: the ADR-061 tool deadline of every executing gate
+ *     plus {@link TYPED_GATE_BOOKKEEPING_MS} for the surrounding bookkeeping (T12516).
+ *   - Per-gate timeouts can only tighten the captured deadline, never renew it.
  *   - Structured test-count evidence and HTTP service startup require separate capabilities.
  *   - Results are observations; this module does not persist completion authority.
  *
@@ -65,11 +67,30 @@ import { createAttachmentStore } from '../store/attachment-store.js';
 import { registerTeardownAbort } from '../teardown-signal.js';
 import { acItemToText, acTextHash } from './ac-table.js';
 import { heavyToolEnv } from './heavy-tool-env.js';
+import { resolveSpawnTimeoutMs } from './tool-cache.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-/** Default gate timeout in milliseconds. Overridden by env or per-gate `timeoutMs`. */
-const DEFAULT_TIMEOUT_MS = Number(process.env['CLEO_GATE_TIMEOUT_MS'] ?? 60_000);
+/**
+ * Shared budget for the bookkeeping around typed gates: task and criterion
+ * reads, input snapshots, result binding and the persisting transaction.
+ *
+ * It is the same two seconds the maintenance paths use, and it is ADDED to the
+ * tool deadlines rather than bounding them. Before T12516 it was the whole
+ * lifetime of a typed verification, so any gate whose tool ran longer than two
+ * seconds — every real test suite — stopped with `E_OPERATION_DEADLINE`.
+ *
+ * @task T12516
+ */
+export const TYPED_GATE_BOOKKEEPING_MS = 2000;
+
+/** Gate kinds that execute a tool (a process or a request) and so carry an ADR-061 deadline. */
+const TOOL_GATE_KINDS: ReadonlySet<AcceptanceGate['kind']> = new Set([
+  'test',
+  'command',
+  'lint',
+  'http',
+]);
 
 /** Maximum evidence string character count retained per gate result. */
 const MAX_EVIDENCE_CHARS = 2_000;
@@ -88,6 +109,80 @@ const CHECKED_BY = process.env['CLEO_AGENT_ID'] ?? 'cleo-verify';
  * ```
  */
 export type RunGatesOptions = AcceptanceGateRunOptions;
+
+/**
+ * Resolve the wall-clock deadline for one gate's tool execution.
+ *
+ * Precedence: the gate's own `timeoutMs`; then the legacy blanket
+ * `CLEO_GATE_TIMEOUT_MS`; then the ADR-061 tool deadline for the gate kind,
+ * resolved by {@link resolveSpawnTimeoutMs} — `CLEO_TOOL_TIMEOUT_<KIND>`, else
+ * 1,800,000 ms for `test` and 300,000 ms for every other kind.
+ *
+ * @param gate - Gate whose tool deadline is needed.
+ * @param env - Environment to read the overrides from.
+ * @returns Deadline in milliseconds.
+ * @throws When a declared or configured deadline is not a positive safe integer.
+ * @example
+ * ```typescript
+ * resolveGateTimeoutMs({ kind: 'test', description: 'suite', command: 'npm', args: ['test'], expect: 'exit0' }); // 1_800_000
+ * ```
+ * @task T12516
+ */
+export function resolveGateTimeoutMs(
+  gate: AcceptanceGate,
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  const legacy = env['CLEO_GATE_TIMEOUT_MS']?.trim();
+  const timeout =
+    gate.timeoutMs ??
+    (legacy ? Number(legacy) : undefined) ??
+    resolveSpawnTimeoutMs(gate.kind, env);
+  if (!Number.isSafeInteger(timeout) || timeout < 1)
+    throw new Error('Gate timeout must be a positive safe integer');
+  return timeout;
+}
+
+/**
+ * Wall-clock lifetime to admit for running a set of typed gates.
+ *
+ * The sum of every tool-executing gate's ADR-061 deadline plus
+ * {@link TYPED_GATE_BOOKKEEPING_MS}. Callers that own the operation lifetime
+ * create it with this budget so the two-second shared budget covers the
+ * bookkeeping only and never bounds a tool (T12516).
+ *
+ * @param gates - Gates that will run.
+ * @param env - Environment to read deadline overrides from.
+ * @returns Budget in milliseconds, clamped to the safe-integer range.
+ * @throws When a gate deadline override is invalid (see {@link resolveGateTimeoutMs}).
+ * @example
+ * ```typescript
+ * const execution = createOperationExecutionContext(identity, { budgetMs: typedGateAdmissionMs(gates) });
+ * ```
+ * @task T12516
+ */
+export function typedGateAdmissionMs(
+  gates: readonly AcceptanceGate[],
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  const total = gates.reduce(
+    (sum, gate) => sum + (TOOL_GATE_KINDS.has(gate.kind) ? resolveGateTimeoutMs(gate, env) : 0),
+    TYPED_GATE_BOOKKEEPING_MS,
+  );
+  return Math.min(total, Number.MAX_SAFE_INTEGER);
+}
+
+/**
+ * Admission for a batch run without a caller-owned lifetime.
+ * An invalid deadline override is not swallowed: {@link runOneGate} resolves it
+ * again and reports it as that gate's `error` result, as it always has.
+ */
+function unownedAdmissionMs(gates: readonly AcceptanceGate[], env?: NodeJS.ProcessEnv): number {
+  try {
+    return typedGateAdmissionMs(gates, env);
+  } catch {
+    return TYPED_GATE_BOOKKEEPING_MS;
+  }
+}
 
 /**
  * Execute all typed `AcceptanceGate` entries and return results.
@@ -139,7 +234,7 @@ export async function runGates(
     cwd: projectRoot,
     env: { ...(options.env ?? process.env) },
     execution: {
-      deadlineAt: execution?.deadlineAt ?? Date.now() + 2000,
+      deadlineAt: execution?.deadlineAt ?? Date.now() + unownedAdmissionMs(snapshot, options.env),
       signal: execution
         ? AbortSignal.any([execution.signal, controller.signal])
         : controller.signal,
@@ -618,9 +713,7 @@ async function runOneGate(
   skipManual: boolean,
   context: ProcessCaptureOptions,
 ): Promise<AcceptanceGateResult> {
-  const timeout = gate.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  if (!Number.isSafeInteger(timeout) || timeout < 1)
-    throw new Error('Gate timeout must be a positive safe integer');
+  const timeout = resolveGateTimeoutMs(gate, context.env ?? process.env);
 
   switch (gate.kind) {
     case 'test':
