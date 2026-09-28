@@ -67,6 +67,7 @@ import {
   listValidToolNames,
   resolveToolCommand,
 } from './tool-resolver.js';
+import { detectStaticVacuity, probeTscFileCount, VACUOUS_TOOL_FIX } from './tool-vacuity.js';
 
 /**
  * Valid tool names recognised by the `tool:<name>` evidence atom.
@@ -1754,6 +1755,20 @@ async function validateTool(tool: string, roots: EvidenceRoots): Promise<AtomVal
     };
   }
 
+  // T12633: a checker that provably checks nothing is not evidence. Decided
+  // BEFORE the cache lookup, so a pass cached for the vacuous command (every
+  // `npx tsc --noEmit` against a references-only tsconfig) is never served.
+  const staticVacuity = detectStaticVacuity(resolution.command, executionRoot);
+  if (staticVacuity !== null) {
+    return {
+      ok: false,
+      reason:
+        `Tool "${tool}" → ${resolution.command.cmd} ${resolution.command.args.join(' ')} ` +
+        `(${resolution.command.source}) is VACUOUS: ${staticVacuity} Fix: ${VACUOUS_TOOL_FIX}`,
+      codeName: 'E_EVIDENCE_TOOL_VACUOUS',
+    };
+  }
+
   // gh#1220/#1226/#1230: spawn in — and fingerprint against — the tree the
   // operator actually invoked from, not the shared store root. gh#1365: the
   // root arrives as a parameter now; it is NOT re-resolved here.
@@ -1865,6 +1880,19 @@ async function validateTool(tool: string, roots: EvidenceRoots): Promise<AtomVal
         `Tool "${tool}" exited with code ${result.exitCode}` +
         `${result.cacheHit ? ' (cached)' : ''}. Tail: ${tail}`,
       codeName: 'E_EVIDENCE_TOOL_FAILED',
+    };
+  }
+
+  // T12633: exit 0 from a direct `tsc` run is only a pass if it compiled
+  // something. `--listFilesOnly` answers that without re-checking.
+  if (probeTscFileCount(resolution.command, result.executionRoot) === 0) {
+    return {
+      ok: false,
+      reason:
+        `Tool "${tool}" → ${resolution.command.cmd} ${resolution.command.args.join(' ')} ` +
+        `exited 0 but is VACUOUS: \`--listFilesOnly\` reports 0 project files in ` +
+        `${result.executionRoot}, so it checked nothing. Fix: ${VACUOUS_TOOL_FIX}`,
+      codeName: 'E_EVIDENCE_TOOL_VACUOUS',
     };
   }
 

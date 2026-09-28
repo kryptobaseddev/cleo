@@ -293,6 +293,7 @@ Check exit code (`0` = success) and `"success"` in JSON output after every comma
 | — | `E_EVIDENCE_INSUFFICIENT` | Add missing atom kind for the gate (e.g. `commit:<sha>` + `files:<list>` for `implemented`) |
 | — | `E_EVIDENCE_TESTS_FAILED` | Fix failing tests before re-verifying with `tool:pnpm-test` or `test-run:<json>` |
 | — | `E_EVIDENCE_TOOL_FAILED` | Tool (biome/tsc/…) exited non-zero; fix source and re-run |
+| — | `E_EVIDENCE_TOOL_VACUOUS` | Tool exited 0 but provably checked nothing (e.g. `tsc` without `-b` on a references-only tsconfig); run it in a covering mode |
 | — | `E_EVIDENCE_STALE` | Files/commits changed since `verify`; re-verify with updated evidence |
 | — | `E_EVIDENCE_INVALID_DECISION` | `decision:<id>` atom — decision ID not found or not accepted/proposed in BRAIN |
 | — | `E_EVIDENCE_GIT_ROOT` | The CLEO root is not a git checkout — a LAYOUT fact, not a failing atom. One child repo, or a `commit:` SHA that exists in exactly one child, resolves automatically. Otherwise declare it: `"evidence": { "gitRoot": "<subdir>" }` in `.cleo/project-context.json`, or `CLEO_EVIDENCE_GIT_ROOT=<repo>` for one invocation |
@@ -362,7 +363,7 @@ All overrides append a line to `.cleo/audit/force-bypass.jsonl`. Use sparingly.
 
 ### Tool resolution + result cache (ADR-061)
 
-`tool:<name>` resolves through `.cleo/project-context.json` / `primaryType` fallbacks. Cache `.cleo/cache/evidence/<key>.json`: `(canonical, cmd, args, HEAD, dirty-tree fingerprint)`. Parallel verifies coalesce; cross-worktree semaphores: `~/.local/share/cleo/locks/tool-<canonical>/`, limit `CLEO_TOOL_CONCURRENCY_<TOOL>=<n>`. Deadlines: **1800000 ms (30 min) for `test` and `build`**, otherwise 300000 ms (5 min). Positive-integer override: `CLEO_TOOL_TIMEOUT_<TOOL>=<ms>`; invalid values explicitly fail with the tool default. Timeouts cache nothing; increase the deadline before an unchanged retry (gh#1221).
+`tool:<name>` resolves through `.cleo/project-context.json`, then the project's `package.json` script of that name (`<pm> run <name>`), then `primaryType` fallbacks. Cache `.cleo/cache/evidence/<key>.json`: `(canonical, cmd, args, HEAD, dirty-tree fingerprint)`. Parallel verifies coalesce; cross-worktree semaphores: `~/.local/share/cleo/locks/tool-<canonical>/`, limit `CLEO_TOOL_CONCURRENCY_<TOOL>=<n>`. Deadlines: **1800000 ms (30 min) for `test` and `build`**, otherwise 300000 ms (5 min). Positive-integer override: `CLEO_TOOL_TIMEOUT_<TOOL>=<ms>`; invalid values explicitly fail with the tool default. Timeouts cache nothing; increase the deadline before an unchanged retry (gh#1221).
 
 ### `pr:<number>` retroactive atom (T9764)
 
