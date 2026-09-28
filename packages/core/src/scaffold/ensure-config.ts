@@ -9,7 +9,6 @@ import { writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ScaffoldResult } from '@cleocode/contracts/scaffold-diagnostics';
-import { generateProjectHash } from '../nexus/hash.js';
 import { getConfigPath, resolveCleoDir } from '../paths.js';
 import { saveJson } from '../store/json.js';
 import { decideProjectIdentity, ensurePortableProjectId } from './project-identity.js';
@@ -489,7 +488,6 @@ export async function ensureProjectInfo(
   const existingCheckoutNonce =
     typeof existing?.['checkoutNonce'] === 'string' ? existing['checkoutNonce'] : undefined;
 
-  const projectHash = generateProjectHash(projectRoot);
   const cleoVersion = getCleoVersion();
   const now = new Date().toISOString();
 
@@ -512,7 +510,8 @@ export async function ensureProjectInfo(
     $schema: './schemas/project-info.schema.json',
     schemaVersion: '1.0.0',
     projectId: identity.projectId,
-    projectHash,
+    // T12557: projectRoot/projectHash are derived from the real root at
+    // runtime. Persisting them only records a value that goes stale on a move.
     name: basename(resolve(projectRoot)),
     ...(remoteUrl && { remoteUrl }),
     cleoVersion,

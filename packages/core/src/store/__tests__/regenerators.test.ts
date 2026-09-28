@@ -100,32 +100,17 @@ describe('T352 regenerators (dry-run init JSON generators)', () => {
     it('content includes required machine-local fields', () => {
       const result = regenerateProjectInfoJson(tmpRoot);
       const content = result.content as Record<string, unknown>;
-      expect(content).toHaveProperty('projectHash');
       expect(content).toHaveProperty('projectId');
       expect(content).toHaveProperty('cleoVersion');
       expect(content).toHaveProperty('lastUpdated');
       expect(content).toHaveProperty('schemas');
     });
 
-    it('projectHash reflects the resolved projectRoot path', () => {
+    it('does not persist path-derived projectHash/projectRoot (T12557)', () => {
       const result = regenerateProjectInfoJson(tmpRoot);
       const content = result.content as Record<string, unknown>;
-      // projectHash must be a non-empty string (SHA-256 prefix)
-      expect(typeof content['projectHash']).toBe('string');
-      expect((content['projectHash'] as string).length).toBeGreaterThan(0);
-    });
-
-    it('produces different projectHash for different projectRoots', () => {
-      const root2 = fs.mkdtempSync(path.join(os.tmpdir(), 'cleo-t352-other-'));
-      try {
-        const a = regenerateProjectInfoJson(tmpRoot);
-        const b = regenerateProjectInfoJson(root2);
-        expect((a.content as Record<string, unknown>)['projectHash']).not.toBe(
-          (b.content as Record<string, unknown>)['projectHash'],
-        );
-      } finally {
-        fs.rmSync(root2, { recursive: true, force: true });
-      }
+      expect(content).not.toHaveProperty('projectHash');
+      expect(content).not.toHaveProperty('projectRoot');
     });
 
     it('schemas block contains config, sqlite, and projectContext keys', () => {
@@ -211,7 +196,7 @@ describe('T352 regenerators (dry-run init JSON generators)', () => {
       try {
         const a = regenerateProjectInfoJson(tmpRoot);
         const b = regenerateProjectInfoJson(root2);
-        // At minimum the projectHash must differ (different paths)
+        // Without a tracked id each root mints its own projectId
         expect(JSON.stringify(a.content)).not.toBe(JSON.stringify(b.content));
       } finally {
         fs.rmSync(root2, { recursive: true, force: true });

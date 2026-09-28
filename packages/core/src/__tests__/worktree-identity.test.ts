@@ -22,6 +22,7 @@ import { join } from 'node:path';
 import { canonicalizePath } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { generateProjectHash } from '../nexus/hash.js';
 import { getCleoDirAbsolute } from '../paths.js';
 import { getProjectInfo, getProjectInfoSync } from '../project-info.js';
 import { spawnWorktree, teardownWorktree } from '../sentient/worktree-dispatch.js';
@@ -640,8 +641,11 @@ describe('worktree identity edge cases', () => {
     writeFileSync(emptyFix.projectInfoPath, '{}');
 
     try {
-      // getProjectInfo should throw because projectHash is missing.
-      await expect(getProjectInfo(emptyFix.projectRoot)).rejects.toThrow('projectHash');
+      // T12557: projectHash is derived from the root when it is not persisted.
+      await expect(getProjectInfo(emptyFix.projectRoot)).resolves.toMatchObject({
+        projectHash: generateProjectHash(emptyFix.projectRoot),
+        projectId: '',
+      });
 
       // But spawnWorktree should still succeed — the worktree gets a
       // copy of whatever the parent has.

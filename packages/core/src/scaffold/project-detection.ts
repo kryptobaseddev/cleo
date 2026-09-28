@@ -227,7 +227,8 @@ export function checkProjectInfo(projectRoot: string): CheckResult {
 
   try {
     const content = JSON.parse(readFileSync(infoPath, 'utf-8'));
-    const requiredFields = ['projectHash', 'cleoVersion', 'lastUpdated'];
+    // T12557: projectHash is derived at runtime and no longer required on disk.
+    const requiredFields = ['cleoVersion', 'lastUpdated'];
     const missing = requiredFields.filter((f) => !(f in content));
 
     if (missing.length > 0) {

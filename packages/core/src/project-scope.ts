@@ -547,7 +547,7 @@ let _legacyFallbackWarned = false;
 
 /** Fields consumed by logging, audit, and correlation subsystems. */
 export interface ProjectInfo {
-  /** 12-char SHA-256 hex of the normalized project path (per-install identity). */
+  /** 12-char SHA-256 hex of the project path: a legacy persisted value, else derived from `projectRoot` (T12557). */
   projectHash: string;
   /** Portable project-local UUID stored with `.cleo/project-info.json`. */
   projectId: string;
@@ -557,15 +557,22 @@ export interface ProjectInfo {
   projectName: string;
 }
 
-/** Decode the existing project metadata contract at a caller-owned root. */
+/**
+ * Decode the existing project metadata contract at a caller-owned root.
+ *
+ * T12557: `projectRoot` always comes from the caller, never the file. A
+ * `projectHash` is no longer written; a legacy persisted value is still
+ * honoured so existing correlation keys stay stable, and it is derived from
+ * the caller's root when absent.
+ */
 function decodeProjectInfo(raw: string, projectRoot: string): ProjectInfo {
   const data = JSON.parse(raw) as Record<string, unknown>;
-  if (typeof data.projectHash !== 'string' || data.projectHash.length === 0) {
-    throw new Error('project-info.json missing required field: projectHash');
-  }
   const segments = projectRoot.replace(/[\\/]+$/, '').split(/[\\/]/);
   return {
-    projectHash: data.projectHash,
+    projectHash:
+      typeof data.projectHash === 'string' && data.projectHash.length > 0
+        ? data.projectHash
+        : generateProjectHash(projectRoot),
     projectId: typeof data.projectId === 'string' ? data.projectId : '',
     projectRoot,
     projectName: segments[segments.length - 1] ?? 'unknown',
@@ -577,7 +584,7 @@ function decodeProjectInfo(raw: string, projectRoot: string): ProjectInfo {
  * @param projectRoot - Captured root used for the returned identity and name.
  * @param cleoDir - Explicit data directory owned by that root.
  * @returns Validated project information, retaining the legacy empty portable ID.
- * @throws When reading, JSON decoding or required-field validation fails.
+ * @throws When reading or JSON decoding fails.
  * @remarks This leaf does not resolve paths or consult ambient environment pins.
  * @example
  * ```ts
@@ -599,7 +606,7 @@ export async function readProjectInfoAtDirectory(
  * @param projectRoot - Captured root used for the returned identity and name.
  * @param cleoDir - Explicit data directory owned by that root.
  * @returns Validated project information, retaining the legacy empty portable ID.
- * @throws When reading, JSON decoding or required-field validation fails.
+ * @throws When reading or JSON decoding fails.
  * @remarks Unlike the legacy public nullable wrapper, this preserves diagnostic failures.
  * @example
  * ```ts

@@ -214,3 +214,66 @@ describe('AC2: --resolve re-keys a conflict to the tracked id without losing row
     expect(existsSync(join(root, '.cleo', 'project-info.json'))).toBe(true);
   });
 });
+
+describe('T12557: persisted path-derived fields are stripped by --resolve', () => {
+  it('reports a legacy /mnt projectRoot/projectHash as a finding; dry-run plans, apply strips', async () => {
+    const root = project('legacy', 'same-id', 'same-id');
+    await ensureGitignore(root);
+    git(root, 'add', '.cleo');
+    git(root, 'commit', '-q', '--no-verify', '-m', 'track id');
+    const infoPath = join(root, '.cleo', 'project-info.json');
+    const contextPath = join(root, '.cleo', 'project-context.json');
+    writeFileSync(
+      infoPath,
+      JSON.stringify({
+        projectId: 'same-id',
+        name: 'legacy',
+        projectRoot: '/mnt/projects/legacy',
+        projectHash: 'a1b2c3d4e5f6',
+      }),
+    );
+    writeFileSync(
+      contextPath,
+      JSON.stringify({ schemaVersion: '1.0.0', projectRoot: '/mnt/projects/legacy' }),
+    );
+
+    const report = inspectProjectIdentity(root);
+    expect(report.state).toBe('ok');
+    expect(report.derivedFields).toEqual([
+      { file: 'project-info.json', field: 'projectRoot', value: '/mnt/projects/legacy' },
+      { file: 'project-info.json', field: 'projectHash', value: 'a1b2c3d4e5f6' },
+      { file: 'project-context.json', field: 'projectRoot', value: '/mnt/projects/legacy' },
+    ]);
+
+    const infoBefore = readFileSync(infoPath, 'utf-8');
+    const plan = await resolveProjectIdentity(root, { dryRun: true });
+    expect(plan.refused).toBeNull();
+    expect(plan.steps.map((s) => s.action)).toEqual(['strip-derived-fields']);
+    expect(plan.steps[0]?.detail).toContain('project-info.json:projectRoot="/mnt/projects/legacy"');
+    expect(readFileSync(infoPath, 'utf-8')).toBe(infoBefore);
+
+    const applied = await resolveProjectIdentity(root);
+    expect(applied.refused).toBeNull();
+    expect(applied.steps.map((s) => s.action)).toEqual(['strip-derived-fields']);
+    expect(JSON.parse(readFileSync(infoPath, 'utf-8'))).toEqual({
+      projectId: 'same-id',
+      name: 'legacy',
+    });
+    expect(JSON.parse(readFileSync(contextPath, 'utf-8'))).toEqual({ schemaVersion: '1.0.0' });
+    expect(inspectProjectIdentity(root)).toMatchObject({ state: 'ok', derivedFields: [] });
+    expect((await resolveProjectIdentity(root)).refused).toBe('Nothing to resolve.');
+  });
+
+  it('a non-git CLEO root gets a remedy with no git commands', () => {
+    const root = join(sandbox, 'plain');
+    mkdirSync(join(root, '.cleo'), { recursive: true });
+    writeFileSync(
+      join(root, '.cleo', 'project-info.json'),
+      JSON.stringify({ projectId: 'local-a', name: 'plain' }),
+    );
+    const report = inspectProjectIdentity(root);
+    expect(report.state).toBe('missing');
+    expect(report.remedy).toContain('cleo doctor project-identity --resolve');
+    expect(report.remedy).not.toContain('git add');
+  });
+});

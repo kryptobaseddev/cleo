@@ -287,11 +287,12 @@ describe('characterization: ensureProjectInfo', () => {
     expect(result.details).toContain('(minted)');
   });
 
-  it('written file contains projectHash and cleoVersion', async () => {
+  it('written file contains cleoVersion and no path-derived fields (T12557)', async () => {
     await ensureProjectInfo(tmpDir);
     const { readFileSync } = await import('node:fs');
     const info = JSON.parse(readFileSync(join(tmpDir, '.cleo', 'project-info.json'), 'utf-8'));
-    expect(info).toHaveProperty('projectHash');
+    expect(info).not.toHaveProperty('projectHash');
+    expect(info).not.toHaveProperty('projectRoot');
     expect(info).toHaveProperty('cleoVersion');
   });
 });

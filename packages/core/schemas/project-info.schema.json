@@ -5,7 +5,7 @@
   "title": "CLEO Project Info Schema",
   "description": "Per-project manifest file (.cleo/project-info.json). Contains project identity, origin provenance, and schema version tracking. Acts as the portable descriptor for the .cleo/ container — when .cleo/ is shared between systems, this file carries the project's identity and origin.",
   "type": "object",
-  "required": ["schemaVersion", "projectHash", "projectId", "schemas"],
+  "required": ["schemaVersion", "projectId", "schemas"],
   "additionalProperties": false,
 
   "properties": {
@@ -31,7 +31,7 @@
     "projectHash": {
       "type": "string",
       "pattern": "^[a-f0-9]{12}$",
-      "description": "Path-derived 12-character hex hash (SHA-256 prefix of absolute project path). Links to global nexus registry entry. Re-computed on project move."
+      "description": "LEGACY (T12557): path-derived 12-character hex hash (SHA-256 prefix of absolute project path). It is derived at runtime and no longer written; a persisted value goes stale on every move. `cleo doctor project-identity --resolve` strips it."
     },
     "name": {
       "type": "string",
