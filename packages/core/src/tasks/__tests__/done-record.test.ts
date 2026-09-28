@@ -507,3 +507,86 @@ describe('one write is all-or-nothing across gates (review test gaps)', () => {
     expect(gatesJsonl()).toBe('');
   });
 });
+
+describe('typed results verified in a worktree complete from main after merge (T12625 round 2)', () => {
+  /** Worker flow: typed gate + task change verified inside the task's worktree. */
+  async function verifiedInWorktree(): Promise<{ id: string; wt: string }> {
+    commitCheckScript();
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    await reqAdd(
+      root,
+      id,
+      parseGateJson(
+        JSON.stringify({
+          kind: 'command',
+          cmd: 'node',
+          args: ['check-a.mjs'],
+          req: 'R1',
+          description: 'a returns 2',
+        }),
+      ),
+      env.accessor,
+    );
+    const wt = join(realpathSync(join(root, '..')), `${id}-wt-${Date.now()}`);
+    git(root, ['worktree', 'add', '-q', '-b', `task/${id}`, wt]);
+    writeFileSync(join(wt, 'src', 'a.ts'), 'export const a = 2;\n');
+    git(wt, ['commit', '-q', '-am', `${id}: change a`]);
+    const before = process.cwd();
+    process.chdir(wt);
+    try {
+      const r = await recordTaskDone(id, opts({ cwd: wt }));
+      expect(r.success, JSON.stringify(r.success ? r.data.recordedGates : r.error)).toBe(true);
+    } finally {
+      process.chdir(before);
+    }
+    const binding = (await env.accessor.loadSingleTask(id))?.verification?.gateResults?.[0]
+      ?.binding;
+    expect(binding?.tree).toMatchObject({ clean: true, cwd: '.' });
+    return { id, wt };
+  }
+
+  async function completeFromMain(id: string): Promise<unknown> {
+    const before = process.cwd();
+    process.chdir(root);
+    try {
+      await completeTask({ taskId: id }, root, env.accessor);
+      return null;
+    } catch (error) {
+      return error;
+    } finally {
+      process.chdir(before);
+    }
+  }
+
+  it('verify in the worktree, merge to main, complete from main: accepted by content', async () => {
+    const { id, wt } = await verifiedInWorktree();
+    git(root, ['merge', '-q', '--no-ff', '-m', 'merge', `task/${id}`]);
+    git(root, ['worktree', 'remove', '--force', wt]); // auto-cleaned after merge
+    expect(await completeFromMain(id)).toBeNull();
+    expect((await env.accessor.loadSingleTask(id))?.status).toBe('done');
+  });
+
+  it('complete from main BEFORE the merge: refused with the exact re-verify command', async () => {
+    const { id, wt } = await verifiedInWorktree();
+    const error = (await completeFromMain(id)) as { message?: string; fix?: string } | null;
+    expect(error?.message).toMatch(/not in .*HEAD/);
+    expect(error?.fix).toBe(
+      `cd '${root}' && cleo verify ${id} --gate testsPassed --evidence 'tool:test;satisfies:${id}#AC1;satisfies:${id}#AC2'`,
+    );
+    expect((await env.accessor.loadSingleTask(id))?.status).not.toBe('done');
+    git(root, ['worktree', 'remove', '--force', wt]);
+  });
+
+  it('inputs changed after the merge: refused', async () => {
+    const { id, wt } = await verifiedInWorktree();
+    git(root, ['merge', '-q', '--no-ff', '-m', 'merge', `task/${id}`]);
+    writeFileSync(
+      join(root, 'check-a.mjs'),
+      `${readFileSync(join(root, 'check-a.mjs'), 'utf-8')}// changed\n`,
+    );
+    git(root, ['commit', '-q', '-am', 'change the harness']);
+    const error = (await completeFromMain(id)) as { message?: string } | null;
+    expect(error?.message).toMatch(/inputs changed since verification/);
+    git(root, ['worktree', 'remove', '--force', wt]);
+  });
+});

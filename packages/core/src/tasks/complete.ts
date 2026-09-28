@@ -57,7 +57,7 @@ import { buildRollupEvidence, isCoordinationParent } from './coordination-parent
 import { createAcceptanceEnforcement } from './enforcement.js';
 import { revalidateEvidence } from './evidence.js';
 import { readAllowCachedGates } from './gate-result-cache.js';
-import { validateTaskGateCompletion } from './gate-runner.js';
+import { TypedRevalidationError, validateTaskGateCompletion } from './gate-runner.js';
 import { validateNexusImpactGate } from './nexus-impact-gate.js';
 import { isTerminalPipelineStage, isValidPipelineStage } from './pipeline-stage.js';
 import {
@@ -870,7 +870,10 @@ export async function completeTask(
         ExitCode.AC_COVERAGE_INCOMPLETE,
         `Typed requirements for ${candidate.id} cannot complete: ${error instanceof Error ? error.message : String(error)}`,
         {
-          fix: `Run explicit verification for ${candidate.id} against current requirement inputs.`,
+          fix:
+            error instanceof TypedRevalidationError
+              ? error.fix
+              : `Run explicit verification for ${candidate.id} against current requirement inputs.`,
         },
       );
     }

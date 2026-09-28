@@ -25,6 +25,7 @@
  * @task T781
  */
 
+import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import {
   constants,
@@ -62,6 +63,7 @@ import type {
   AcceptanceGateBinding,
   AcceptanceGateInvocation,
   AcceptanceGateRunOptions,
+  AcceptanceGateTreeBinding,
   AcceptanceGateVerificationReceipt,
 } from '@cleocode/contracts/acceptance-gate';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
@@ -332,6 +334,13 @@ export async function captureGateInputsHash(
  * root) keeps `projectRoot`, so typed-gate paths written against the CLEO root
  * keep resolving exactly as before.
  *
+ * Known limit (documented, accepted): "linked worktree of this project" is read
+ * from the `.git` gitlink, so a plain directory carrying a forged gitlink that
+ * points into this project's `.git/worktrees/` is treated as a worktree. That
+ * grants nothing a copy of the checkout would not: its typed results are only
+ * carried to another tree by content (tracked inputs must hash identically and
+ * the recorded HEAD must be merged there).
+ *
  * @param projectRoot - CLEO store root (the typed gate's authority).
  * @param cwd - Invocation directory. Defaults to `process.cwd()`.
  * @returns The realpath of the tree typed gates execute in.
@@ -526,6 +535,139 @@ export async function runGates(
   }
 }
 
+/** `git` read in `cwd`; `null` on a non-zero exit or when git is unavailable. */
+function gitOut(cwd: string, args: readonly string[]): string | null {
+  try {
+    return execFileSync('git', args, {
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+/** Digest of a gate's inputs with every path made relative to `tree` (T12625). */
+function treeInputsHash(
+  tree: string,
+  invocation: AcceptanceGateInvocation | undefined,
+  artifacts: readonly AcceptanceGateArtifact[],
+): string {
+  const rel = (path: string): string => relative(tree, path) || '.';
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        invocation: invocation ? { ...invocation, cwd: rel(invocation.cwd) } : null,
+        artifacts: artifacts.map((a) => ({ ...a, path: rel(a.path) })),
+      }),
+    )
+    .digest('hex');
+}
+
+/**
+ * Content binding for a result verified in `tree`, or `undefined` when the tree
+ * is not a git checkout (the result then keeps exact path-bound revalidation).
+ */
+function captureTreeBinding(
+  tree: string,
+  invocation: AcceptanceGateInvocation | undefined,
+  artifacts: readonly AcceptanceGateArtifact[],
+): AcceptanceGateTreeBinding | undefined {
+  const headSha = gitOut(tree, ['rev-parse', 'HEAD']);
+  if (headSha === null || !/^[0-9a-f]{40}$/.test(headSha)) return undefined;
+  const dirty = gitOut(tree, ['status', '--porcelain', '--untracked-files=no']);
+  return {
+    headSha,
+    clean: dirty === '',
+    cwd: invocation ? relative(tree, invocation.cwd) || '.' : '.',
+    inputsHash: treeInputsHash(tree, invocation, artifacts),
+  };
+}
+
+/**
+ * A typed result was verified in another tree of this project and cannot be
+ * accepted from the completing tree. Carries the exact re-verify command.
+ *
+ * @task T12625
+ */
+export class TypedRevalidationError extends Error {
+  /** The command that re-verifies the task's typed gates in the completing tree. */
+  readonly fix: string;
+
+  constructor(message: string, fix: string) {
+    super(message);
+    this.name = 'TypedRevalidationError';
+    this.fix = fix;
+  }
+}
+
+/** Exact command that re-records testsPassed (re-running typed gates) in `tree`. */
+function reverifyCommand(task: Task, tree: string): string {
+  const atoms = (task.verification?.evidence?.testsPassed?.atoms ?? []).flatMap((atom) => {
+    switch (atom.kind) {
+      case 'tool':
+        return [`tool:${atom.tool}`];
+      case 'test-run':
+        return [`test-run:${atom.path}`];
+      case 'satisfies':
+        return [
+          `satisfies:${atom.targetTaskId}#${atom.targetAcAlias ?? atom.resolvedAcUuid ?? ''}`,
+        ];
+      default:
+        return [];
+    }
+  });
+  const evidence = atoms.length > 0 ? atoms.join(';') : 'tool:test';
+  return `cd '${tree.replace(/'/g, `'\\''`)}' && cleo verify ${task.id} --gate testsPassed --evidence '${evidence}'`;
+}
+
+/**
+ * Accept a result bound in ANOTHER tree of this project (T12625): the verified
+ * tree was clean, its HEAD is an ancestor of the completing HEAD (the verified
+ * commit has been merged here), and the inputs recompute to the same
+ * tree-relative digest. The recorded tree itself is never entered — worktrees
+ * are auto-cleaned after merge.
+ */
+function assertTreeEquivalent(
+  task: Task,
+  gateLabel: string,
+  bound: AcceptanceGateTreeBinding,
+  tree: string,
+  projectRoot: string,
+  invocation: AcceptanceGateInvocation | undefined,
+  artifacts: readonly AcceptanceGateArtifact[],
+): void {
+  const fix = reverifyCommand(task, tree);
+  const real = (p: string): string => {
+    try {
+      return realpathSync(p);
+    } catch {
+      return resolve(p);
+    }
+  };
+  if (real(resolveCanonicalProjectRoot(tree)) !== real(projectRoot))
+    throw new TypedRevalidationError(
+      `Typed requirement ${gateLabel}: ${tree} is not a checkout of this project`,
+      fix,
+    );
+  if (!bound.clean)
+    throw new TypedRevalidationError(
+      `Typed requirement ${gateLabel} was verified on a dirty tree at ${bound.headSha.slice(0, 12)}; its result cannot be carried to ${tree}`,
+      fix,
+    );
+  if (gitOut(tree, ['merge-base', '--is-ancestor', bound.headSha, 'HEAD']) === null)
+    throw new TypedRevalidationError(
+      `Typed requirement ${gateLabel} was verified at ${bound.headSha.slice(0, 12)}, which is not in ${tree}'s HEAD — merge the verified commit first, or re-verify here`,
+      fix,
+    );
+  if (treeInputsHash(tree, invocation, artifacts) !== bound.inputsHash)
+    throw new TypedRevalidationError(
+      `Typed requirement ${gateLabel} inputs changed since verification (${tree})`,
+      fix,
+    );
+}
+
 /**
  * Run task requirements with their canonical AC and bounded input snapshots.
  * @param task - Captured task, including its complete mixed acceptance array.
@@ -582,6 +724,8 @@ export async function runTaskGates(
         ...(invocation ? { invocation } : {}),
         artifacts,
       };
+      const treeBinding = captureTreeBinding(tree, invocation, artifacts);
+      if (treeBinding) binding.tree = treeBinding;
       const observed = (
         await runGates([gate], {
           ...options,
@@ -724,13 +868,31 @@ export async function revalidateTaskGateResults(
           `Typed requirement ${gate.req ?? index} binding is stale or belongs to another owner`,
         );
       const invocation = executableInvocation(gate, tree, env);
+      const artifacts = await snapshotGateInputs(task, gate, invocation, execution, tree);
+      const exact =
+        isDeepStrictEqual(binding.invocation, invocation) &&
+        isDeepStrictEqual(binding.artifacts, artifacts);
+      if (exact) continue;
+      // T12625: a result bound in another tree of this project (a worker's
+      // worktree) is accepted by CONTENT, not by path. Pre-T12625 receipts carry
+      // no tree binding and keep the exact path-bound refusals below.
+      if (binding.tree) {
+        assertTreeEquivalent(
+          task,
+          gate.req ?? String(index),
+          binding.tree,
+          tree,
+          root,
+          invocation,
+          artifacts,
+        );
+        continue;
+      }
       if (!isDeepStrictEqual(binding.invocation, invocation))
         throw new Error(`Typed requirement ${gate.req ?? index} invocation or environment changed`);
-      const artifacts = await snapshotGateInputs(task, gate, invocation, execution, tree);
-      if (!isDeepStrictEqual(binding.artifacts, artifacts))
-        throw new Error(
-          `Typed requirement ${gate.req ?? index} input bytes changed after verification`,
-        );
+      throw new Error(
+        `Typed requirement ${gate.req ?? index} input bytes changed after verification`,
+      );
     }
   });
 }

@@ -35,3 +35,14 @@ D11148–D11151), on top of the `cleo done --plan` planner.
   of this project (`resolveTypedGateRoot`), the same tree the evidence tools use.
   From the main checkout, or from any other directory, they still run in the CLEO
   root as before.
+- Typed results are bound to content, not to a path. Each result records its
+  tree-relative cwd, the verified HEAD, whether that tree was clean, and a
+  tree-relative inputs hash.
+- `cleo complete` from another checkout of the same project (for example, the
+  orchestrator on main after the merge) accepts the result when:
+  1. the verified tree was clean;
+  2. its HEAD is an ancestor of the completing HEAD;
+  3. the inputs rehash identically.
+- Otherwise `complete` refuses and gives the exact `cleo verify … --gate testsPassed`
+  command in `fix`. The recorded worktree is never re-entered.
+- Results recorded before this change keep exact path-bound revalidation.
