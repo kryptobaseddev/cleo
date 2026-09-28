@@ -13,10 +13,10 @@
  */
 
 import { exec, spawn as nodeSpawn } from 'node:child_process';
-import { unlink, writeFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/contracts';
 import { getErrorMessage } from '@cleocode/contracts';
+import { removeSpawnPromptFile, writeSpawnPromptFile } from '../shared/prompt-file.js';
 
 const execAsync = promisify(exec);
 
@@ -45,7 +45,7 @@ function getPiCliPath(): string {
  * prompt file as the primary argument as a detached, unref'd child process.
  *
  * @remarks
- * Prompts are written to temporary files under `/tmp/` and cleaned up
+ * Prompts are written to temporary files under a private temp directory (`os.tmpdir()`) and cleaned up
  * after the child process exits. Processes are tracked by instance ID in
  * an in-memory map and verified via `kill(pid, 0)` liveness checks.
  * All failures are best-effort and non-blocking.
@@ -91,8 +91,7 @@ export class PiSpawnProvider implements AdapterSpawnProvider {
     let tmpFile: string | undefined;
 
     try {
-      tmpFile = `/tmp/pi-spawn-${instanceId}.txt`;
-      await writeFile(tmpFile, context.prompt, 'utf-8');
+      tmpFile = await writeSpawnPromptFile('pi-spawn', context.prompt);
 
       const cliPath = getPiCliPath();
       const args = [tmpFile];
@@ -119,11 +118,7 @@ export class PiSpawnProvider implements AdapterSpawnProvider {
       const capturedTmpFile = tmpFile;
       child.on('exit', async () => {
         this.processMap.delete(instanceId);
-        try {
-          await unlink(capturedTmpFile);
-        } catch {
-          // Ignore cleanup errors
-        }
+        await removeSpawnPromptFile(capturedTmpFile);
       });
 
       return {
@@ -137,11 +132,7 @@ export class PiSpawnProvider implements AdapterSpawnProvider {
       console.error(`[PiSpawnProvider] Failed to spawn: ${getErrorMessage(error)}`);
 
       if (tmpFile) {
-        try {
-          await unlink(tmpFile);
-        } catch {
-          // Ignore cleanup errors
-        }
+        await removeSpawnPromptFile(tmpFile);
       }
 
       return {

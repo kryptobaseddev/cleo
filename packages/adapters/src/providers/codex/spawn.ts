@@ -25,10 +25,10 @@
  */
 
 import { exec, spawn as nodeSpawn } from 'node:child_process';
-import { unlink, writeFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/contracts';
 import { getErrorMessage } from '@cleocode/contracts';
+import { removeSpawnPromptFile, writeSpawnPromptFile } from '../shared/prompt-file.js';
 
 const execAsync = promisify(exec);
 
@@ -108,8 +108,7 @@ export class CodexSpawnProvider implements AdapterSpawnProvider {
         // CANT enrichment unavailable — use raw prompt
       }
 
-      tmpFile = `/tmp/codex-spawn-${instanceId}.txt`;
-      await writeFile(tmpFile, enrichedPrompt, 'utf-8');
+      tmpFile = await writeSpawnPromptFile('codex-spawn', enrichedPrompt);
 
       // --full-auto: non-interactive batch mode (auto-approve all actions)
       const args = ['--full-auto', tmpFile];
@@ -136,11 +135,7 @@ export class CodexSpawnProvider implements AdapterSpawnProvider {
       const capturedTmpFile = tmpFile;
       child.on('exit', async () => {
         this.processMap.delete(instanceId);
-        try {
-          await unlink(capturedTmpFile);
-        } catch {
-          // Ignore cleanup errors
-        }
+        await removeSpawnPromptFile(capturedTmpFile);
       });
 
       return {
@@ -154,11 +149,7 @@ export class CodexSpawnProvider implements AdapterSpawnProvider {
       console.error(`[CodexSpawnProvider] Failed to spawn: ${getErrorMessage(error)}`);
 
       if (tmpFile) {
-        try {
-          await unlink(tmpFile);
-        } catch {
-          // Ignore cleanup errors
-        }
+        await removeSpawnPromptFile(tmpFile);
       }
 
       return {

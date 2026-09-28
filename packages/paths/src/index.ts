@@ -15,6 +15,8 @@
  *   {@link resolveWorktreeRootForHash}, {@link resolveTaskWorktreePath},
  *   {@link getCleoWorktreesRoot}, {@link resolveWorktreeIndexPath}
  * - {@link isAbsolutePath} — cross-platform abs-path check
+ * - Executable search: {@link findOnPath}, {@link prependPathEntry},
+ *   {@link splitPathEnv} (PATH delimiter + PATHEXT aware, T12605)
  * - Portable identity: {@link readPortableProjectId} (tracked `.cleo/project-id`, T12325)
  *
  * @packageDocumentation
@@ -42,6 +44,17 @@ export {
   resolveProjectByCwd,
   resolveStableDeviceIdPath,
 } from './cleo-paths.js';
+export {
+  type ExecPathOptions,
+  executableNames,
+  findOnPath,
+  pathDelimiterFor,
+  pathEnvKey,
+  prependPathEntry,
+  type ShellInvocation,
+  shellInvocation,
+  splitPathEnv,
+} from './exec-path.js';
 export {
   type EnforceOptions,
   enforceNodeVersion,

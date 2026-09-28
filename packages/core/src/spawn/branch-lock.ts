@@ -27,10 +27,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  readlinkSync,
   rmSync,
-  symlinkSync,
-  unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { platform } from 'node:os';
@@ -44,7 +41,14 @@ import type {
   WorktreeMergeResult,
   WorktreeSpawnResult,
 } from '@cleocode/contracts';
-import { computeProjectHash, resolveWorktreeRootForHash } from '@cleocode/paths';
+import { installGitShimLaunchers } from '@cleocode/git-shim';
+import {
+  computeProjectHash,
+  findOnPath,
+  pathEnvKey,
+  prependPathEntry,
+  resolveWorktreeRootForHash,
+} from '@cleocode/paths';
 
 // ---------------------------------------------------------------------------
 // Re-exports from @cleocode/worktree
@@ -218,7 +222,7 @@ export function buildWorktreeSpawnResult(
   shimDir: string,
   identity: { sessionId?: string | null; agentId?: string | null } = {},
 ): WorktreeSpawnResult {
-  const currentPath = process.env['PATH'] ?? '';
+  const pathKey = pathEnvKey();
   const envVars: Record<string, string> = {
     CLEO_AGENT_ROLE: 'worker',
     CLEO_AGENT_CWD: worktree.path,
@@ -227,8 +231,10 @@ export function buildWorktreeSpawnResult(
     CLEO_PROJECT_HASH: worktree.projectHash,
     CLEO_BRANCH_PROTECTION: 'strict',
     CLEO_SHIM_MARKER: '.cleo/bin/git-shim',
-    // Prepend the shim directory so `git` resolves to the shim.
-    PATH: `${shimDir}:${currentPath}`,
+    // Prepend the shim directory so `git` resolves to the shim. The platform
+    // delimiter matters: `${shimDir}:${PATH}` on Windows fuses the shim dir
+    // with the first real entry and loses both (T12605).
+    [pathKey]: prependPathEntry(shimDir, process.env[pathKey]),
   };
 
   // T11343 — bind the spawned agent's OWN session + identity into the worker
@@ -827,8 +833,6 @@ export function ensureGitShimDir(projectRoot: string): string {
   const shimDir = join(projectRoot, '.cleo', 'bin', 'git-shim');
   mkdirSync(shimDir, { recursive: true });
 
-  const linkPath = join(shimDir, 'git');
-
   // Resolve the shim binary from @cleocode/git-shim package.
   let shimBinPath: string | null = null;
   try {
@@ -858,30 +862,13 @@ export function ensureGitShimDir(projectRoot: string): string {
     }
   }
 
-  // Create/update the `git` symlink.
-  if (existsSync(linkPath)) {
-    try {
-      const target = readlinkSync(linkPath);
-      if (target === shimBinPath) return shimDir;
-      unlinkSync(linkPath);
-    } catch {
-      try {
-        unlinkSync(linkPath);
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-
+  // Create/update the `git` launcher: a symlink on POSIX; on Windows a
+  // `git.cmd` + sh launcher, since PATHEXT ignores extensionless files and
+  // file symlinks need privileges (T12605).
   try {
-    symlinkSync(shimBinPath, linkPath);
-    try {
-      chmodSync(shimBinPath, 0o755);
-    } catch {
-      /* ignore */
-    }
+    installGitShimLaunchers(shimDir, shimBinPath);
   } catch {
-    // Symlink may fail on some filesystems — non-fatal.
+    // Launcher install may fail on some filesystems — non-fatal.
   }
 
   return shimDir;
@@ -923,20 +910,10 @@ export function detectFsHardenCapabilities(): FsHardenCapabilities {
   let chflags = false;
 
   if (detected === 'linux' || detected === 'wsl') {
-    try {
-      execFileSync('which', ['chattr'], { stdio: 'pipe' });
-      chattr = true;
-    } catch {
-      chattr = false;
-    }
+    chattr = findOnPath('chattr') !== null;
   }
   if (detected === 'macos') {
-    try {
-      execFileSync('which', ['chflags'], { stdio: 'pipe' });
-      chflags = true;
-    } catch {
-      chflags = false;
-    }
+    chflags = findOnPath('chflags') !== null;
   }
 
   return { chmod: true, chattr, chflags, platform: detected };

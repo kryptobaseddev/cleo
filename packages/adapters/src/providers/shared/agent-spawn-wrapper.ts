@@ -162,12 +162,15 @@ export function buildAgentSpawnArgs(
       );
     }
 
-    // pgid fallback: wrap with ulimit -c 0 for core suppression.
+    // pgid fallback: wrap with ulimit -c 0 for core suppression on POSIX.
+    // Windows has no `sh`/`ulimit` and writes no core files, so the command
+    // is spawned directly there (T12604).
     // The caller MUST pass { detached: true } to spawn() so that Node creates
     // a new session+pgid for this child.
+    const posix = process.platform !== 'win32';
     return {
-      command: 'sh',
-      args: ['-c', 'ulimit -c 0; exec "$@"', 'sh', command, ...args],
+      command: posix ? 'sh' : command,
+      args: posix ? ['-c', 'ulimit -c 0; exec "$@"', 'sh', command, ...args] : [...args],
       ownership: {
         mode: 'pgid' as AgentContainmentMode,
         // pgid is populated after spawn; the caller patches it via the

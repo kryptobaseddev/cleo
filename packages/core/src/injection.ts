@@ -20,6 +20,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, delimiter, join } from 'node:path';
 import type { Provider } from '@cleocode/caamp';
+import { findOnPath } from '@cleocode/paths';
 import { getAgentsHome, getCanonicalTemplatesTildePath, getCleoHome } from './paths.js';
 import { getPackageRoot, stripCLEOBlocks } from './scaffold.js';
 import { resolveBridgeMode } from './system/bridge-mode.js';
@@ -290,11 +291,15 @@ export async function ensureInjection(projectRoot: string): Promise<ScaffoldResu
  * Non-blocking best-effort: returns { available: false } on any failure.
  */
 function probeDevCli(devCli: string): { available: boolean; version?: string; error?: string } {
-  const pathDirs = (process.env['PATH'] ?? '').split(':').filter(Boolean);
-  const onPath = pathDirs.some((dir) => existsSync(join(dir, devCli)));
-  if (!onPath) return { available: false, error: 'not on PATH' };
+  if (!findOnPath(devCli)) return { available: false, error: 'not on PATH' };
   try {
-    const version = execFileSync(devCli, ['--version'], { timeout: 5000 }).toString().trim();
+    const version = execFileSync(devCli, ['--version'], {
+      timeout: 5000,
+      // A win32 `.cmd` launcher only runs through cmd.exe (T12605).
+      shell: process.platform === 'win32',
+    })
+      .toString()
+      .trim();
     return { available: true, version };
   } catch (err) {
     return { available: false, error: err instanceof Error ? err.message : String(err) };

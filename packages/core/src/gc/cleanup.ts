@@ -28,6 +28,7 @@ import type { Dirent } from 'node:fs';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { create as tarCreate } from 'tar';
 
 // ---------------------------------------------------------------------------
 // Shared CLEO temp-dir prefix registry
@@ -357,25 +358,21 @@ function quarantineWorktreeDir(
     const archiveName = `${taskId}-${ts}.tar.gz`;
     const archivePath = join(quarantineDir, archiveName);
 
-    // Use tar with --exclude to capture untracked AND ignored files.
-    // We deliberately do NOT exclude anything here: the quarantine must be a
-    // complete snapshot including .env, build artifacts, etc. (T11996 AC).
-    execFileSync(
-      'tar',
-      [
-        '-czf',
-        archivePath,
-        // Dereference symlinks so the archive is self-contained.
-        '--dereference',
-        // Use the parent directory as CWD so the archive root is `<taskId>/`.
-        '-C',
-        join(worktreePath, '..'),
-        taskId,
-      ],
+    // Capture untracked AND ignored files: we deliberately do NOT exclude
+    // anything here — the quarantine must be a complete snapshot including
+    // .env, build artifacts, etc. (T11996 AC). In-process `tar` library, not
+    // the system binary, so quarantine works on every OS (T12604).
+    tarCreate(
       {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        timeout: 120_000,
+        sync: true,
+        gzip: true,
+        file: archivePath,
+        // Dereference symlinks so the archive is self-contained.
+        follow: true,
+        // Use the parent directory as CWD so the archive root is `<taskId>/`.
+        cwd: join(worktreePath, '..'),
       },
+      [taskId],
     );
 
     // Write audit entry
