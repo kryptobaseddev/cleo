@@ -2,7 +2,7 @@
 id: t12558-move-help-refusals
 tasks: [T12558]
 kind: docs
-summary: `cleo project move` help now states it refuses while sessions are active or worktrees exist
+summary: "`cleo project move` help now states it refuses while sessions are active or worktrees exist"
 ---
 
 The move help already covered cross-device and in-project targets. It now also
