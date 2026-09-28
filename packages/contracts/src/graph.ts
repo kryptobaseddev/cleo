@@ -683,6 +683,50 @@ export interface GraphIndexAssessment {
   files: GraphIndexFileReport[];
 }
 
+/** Processing outcome of one assessed file. */
+export type GraphIndexFileStatus = GraphIndexFileReport['status'];
+
+/** Per-status file counts of an assessment; every status is present, zero included. */
+export type GraphIndexFileStatusCounts = Record<GraphIndexFileStatus, number>;
+
+/** One page of an assessment's per-file report, in stored order (T12560). */
+export interface GraphIndexFilePage {
+  /** Rows skipped before this page. */
+  offset: number;
+  /** Requested page size; null when every remaining row was requested. */
+  limit: number | null;
+  /** Only rows with this status were paged; absent when unfiltered. */
+  status?: GraphIndexFileStatus;
+  /** Rows matching the filter, before paging. */
+  total: number;
+  /** Rows in this page. */
+  returned: number;
+  /** Offset of the next page; null when this page reaches the end. */
+  nextOffset: number | null;
+  /** The page itself. */
+  rows: GraphIndexFileReport[];
+}
+
+/**
+ * Bounded status projection of a {@link GraphIndexAssessment} (T12560).
+ *
+ * The per-file list grows with the repository (~635 B per file), so status
+ * reports its counts and one page. `files` is present only when every row was
+ * requested; otherwise `_withheld.files` carries the full list's UTF-8 JSON size.
+ */
+export interface GraphIndexAssessmentProjection extends Omit<GraphIndexAssessment, 'files'> {
+  /** Omitted source fields and their UTF-8 serialized sizes; absent when complete. */
+  _withheld?: Record<string, number>;
+  /** Every file row; present only when the complete list was requested. */
+  files?: GraphIndexFileReport[];
+  /** Number of assessed files, including excluded ones. */
+  fileCount: number;
+  /** Assessed files per processing outcome. */
+  filesByStatus: GraphIndexFileStatusCounts;
+  /** The requested page of file rows; absent when `files` is complete. */
+  filesPage?: GraphIndexFilePage;
+}
+
 /** Validated rows staged before an atomic graph publication. */
 export interface GraphPublicationRows {
   /** Immutable publication identity shared by anonymous symbols, rows and assessment. */
