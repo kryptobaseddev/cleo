@@ -42,6 +42,7 @@ import { ExitCode } from '@cleocode/contracts';
 import { and, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readCheckoutNonce } from '../nexus/checkout-nonce.js';
+import { generateProjectHash } from '../nexus/hash.js';
 import { currentDeviceId } from '../nexus/path-map.js';
 import { nexusRegister } from '../nexus/registry.js';
 import { getCleoHome, recordProjectEncounter } from '../paths.js';
@@ -383,6 +384,51 @@ describe('T12558 — move refuses bad targets before any IO', () => {
     expect(result.error.code).toBe('E_MOVE_BLOCKED');
     expect(result.error.exitCode).toBe(ExitCode.CONCURRENT_MODIFICATION);
     expect(existsSync(source)).toBe(true);
+  });
+});
+
+describe('T12557 alignment — relocation never recomputes projectHash or writes projectRoot', () => {
+  /** A stored hash that is NOT what the raw path would hash to. */
+  const STORED_HASH = 'feedfacecafe';
+
+  function info(root: string): { raw: Buffer; parsed: Record<string, unknown> } {
+    const raw = readFileSync(join(root, '.cleo', 'project-info.json'));
+    return { raw, parsed: JSON.parse(raw.toString()) as Record<string, unknown> };
+  }
+
+  it('move (rename) keeps project-info.json byte-identical: stored hash kept, no projectRoot', async () => {
+    const source = await makeProject(join(testDir, 'hash-move'), 'hash-move-T12557');
+    const target = join(testDir, 'hash-moved');
+    const before = info(source);
+    // Premise: the stored hash differs from both raw-path hashes, so any
+    // recompute on either side of the move would be visible.
+    expect(before.parsed.projectHash).toBe(STORED_HASH);
+    expect(generateProjectHash(source)).not.toBe(STORED_HASH);
+    expect(generateProjectHash(target)).not.toBe(STORED_HASH);
+    expect(before.parsed).not.toHaveProperty('projectRoot');
+
+    expect((await moveProject(target, source)).success).toBe(true);
+
+    const after = info(target);
+    expect(after.raw.equals(before.raw)).toBe(true);
+    expect(after.parsed.projectHash).toBe(STORED_HASH);
+    expect(after.parsed).not.toHaveProperty('projectRoot');
+  });
+
+  it('reroot keeps project-info.json byte-identical: stored hash kept, no projectRoot', async () => {
+    const root = await makeProject(join(testDir, 'hash-reroot'), 'hash-reroot-T12557');
+    const child = join(root, 'app');
+    mkdirSync(child);
+    const before = info(root);
+    expect(before.parsed.projectHash).toBe(STORED_HASH);
+    expect(generateProjectHash(child)).not.toBe(STORED_HASH);
+
+    expect((await rerootProject(child, root)).success).toBe(true);
+
+    const after = info(child);
+    expect(after.raw.equals(before.raw)).toBe(true);
+    expect(after.parsed.projectHash).toBe(STORED_HASH);
+    expect(after.parsed).not.toHaveProperty('projectRoot');
   });
 });
 
