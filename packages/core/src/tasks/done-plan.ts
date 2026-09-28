@@ -76,6 +76,7 @@ const GATE_TOOLS: Readonly<Partial<Record<VerificationGate, readonly string[]>>>
  */
 const DONE_PLAN_BLOCKER_ORDER: readonly DonePlanBlockerCode[] = [
   'git-root',
+  'run-from-worktree',
   'dirty-tree',
   'no-change-set',
   'pr-ambiguous',
@@ -88,6 +89,8 @@ const DONE_PLAN_BLOCKER_ORDER: readonly DonePlanBlockerCode[] = [
   'ac-mapping-needed',
   'manual-gate',
   'epic-rollup',
+  'evidence-refused',
+  'completion-refused',
 ];
 
 /** Options for {@link deriveTaskEvidence}. */
@@ -104,8 +107,13 @@ export interface DeriveTaskEvidenceOptions {
   deps?: ChangeSetDeps;
 }
 
-/** POSIX single-quote a shell word. */
-function shellQuote(word: string): string {
+/**
+ * POSIX single-quote a shell word (bare when it is already safe).
+ *
+ * @param word - Word to quote.
+ * @returns A string the shell reads back as exactly `word`.
+ */
+export function shellQuote(word: string): string {
   return /^[A-Za-z0-9_./:@%+=,-]+$/.test(word) ? word : `'${word.replace(/'/g, `'\\''`)}'`;
 }
 
@@ -565,4 +573,37 @@ export async function planTaskDone(
   } catch (err) {
     return cleoErrorToEngineResult<DonePlan>(err, 'E_DONE_PLAN_FAILED', 'cleo done --plan failed');
   }
+}
+
+/**
+ * Parse the `--satisfies` / `--pr` CLI flags shared by `cleo done` and
+ * `cleo verify --auto` into planner options.
+ *
+ * @param satisfies - Raw `--satisfies` value (`AC1,AC3` or `all`), if given.
+ * @param pr - Raw `--pr` value, if given.
+ * @returns The options, or the refusal text for an invalid PR number.
+ * @example
+ * ```ts
+ * parseDoneOptions('AC1,AC3', '42'); // { ok: true, options: { satisfies: ['AC1','AC3'], prNumber: 42 } }
+ * ```
+ * @task T12625
+ */
+export function parseDoneOptions(
+  satisfies: unknown,
+  pr: unknown,
+):
+  | { ok: true; options: Pick<DeriveTaskEvidenceOptions, 'satisfies' | 'prNumber'> }
+  | { ok: false; message: string } {
+  const raw = typeof satisfies === 'string' ? satisfies.trim() : '';
+  const prNumber = typeof pr === 'string' ? Number(pr) : undefined;
+  if (prNumber !== undefined && !(Number.isInteger(prNumber) && prNumber > 0)) {
+    return { ok: false, message: `--pr must be a positive PR number, got "${String(pr)}"` };
+  }
+  return {
+    ok: true,
+    options: {
+      ...(raw === '' ? {} : { satisfies: raw.toLowerCase() === 'all' ? 'all' : raw.split(',') }),
+      ...(prNumber !== undefined ? { prNumber } : {}),
+    },
+  };
 }

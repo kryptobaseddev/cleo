@@ -68,7 +68,10 @@ export type DonePlanBlockerCode =
   | 'typed-gate-failed'
   | 'ac-mapping-needed'
   | 'manual-gate'
-  | 'epic-rollup';
+  | 'epic-rollup'
+  | 'run-from-worktree'
+  | 'evidence-refused'
+  | 'completion-refused';
 
 /** A reason `cleo done` would stop, with exactly one next step. */
 export interface DonePlanBlocker {
@@ -275,4 +278,54 @@ export interface DonePlan {
   ready: boolean;
   /** The single next step: the first blocker's, or the first command. */
   next: DoneNextStep | null;
+}
+
+/** One tool `cleo done` ran (or reused from the ADR-061 cache) before recording. */
+export interface DoneToolResult {
+  /** Canonical tool name. */
+  tool: string;
+  /** Gate the result satisfies. */
+  gate: VerificationGate;
+  /** Exit code of the run. */
+  exitCode: number | null;
+  /** Whether the result came from the ADR-061 cache. */
+  cacheHit: boolean;
+  /** Wall-clock duration of the run (0 for a cache hit). */
+  durationMs: number;
+}
+
+/**
+ * Successful `cleo done` / `cleo verify --auto` write: every required gate the
+ * task lacked, recorded in one transaction through the existing validators.
+ * Completion (for `cleo done`) is reported by the caller alongside it.
+ */
+export interface DoneRecordResult {
+  /** Task the gates were recorded for. */
+  taskId: string;
+  /** Gates this call recorded, in gate order. */
+  recordedGates: VerificationGate[];
+  /** Required gates that were already passed and left untouched. */
+  alreadyPassed: VerificationGate[];
+  /** Tool runs performed or reused before the write. */
+  toolResults: DoneToolResult[];
+  /** Typed acceptance gates executed before the write (0 when the task has none). */
+  typedGateCount: number;
+  /** Whether all required gates are now passed. */
+  verificationPassed: boolean;
+  /** The plan the write was derived from. */
+  plan: DonePlan;
+}
+
+/** Details of an `E_DONE_BLOCKED` failure: one blocker, one next step. */
+export interface DoneBlockedDetails {
+  /** The blocker that stopped `cleo done`. */
+  blocker: DonePlanBlockerCode;
+  /** Original error code (e.g. `E_EVIDENCE_TOOL_FAILED`), when one exists. */
+  cause?: string;
+  /** The one next step. */
+  next: DoneNextStep;
+  /** Gates already recorded before a completion refusal (empty otherwise). */
+  recordedGates: VerificationGate[];
+  /** The plan, for tooling. */
+  plan: DonePlan;
 }

@@ -314,6 +314,15 @@ export interface GateVerifyParams {
    * refuses the write, before anything is recorded, with `E_GATE_NOT_CACHED`.
    */
   noRun?: boolean;
+  /**
+   * Per-gate evidence for ONE write (T12625 · `cleo done`): each gate's own
+   * atom string goes through the same parse → `validateAtom` → gate minimum →
+   * `checkTaskEvidenceContext` path as `--gate … --evidence …`, and every gate
+   * is persisted in the same transaction. Exclusive with `gate`/`all`/
+   * `evidence`, and refuses `CLEO_OWNER_OVERRIDE` (the override stays a
+   * single-gate, audited `cleo verify` path).
+   */
+  gateEvidence?: Partial<Record<VerificationGate, string>>;
 }
 
 export interface GateVerifyResult {
@@ -431,7 +440,7 @@ export async function validateGateVerify(
     const typedWrite =
       !reset &&
       value !== false &&
-      Boolean(gate || all) &&
+      Boolean(gate || all || params.gateEvidence) &&
       originalAcceptance.some((item) => typeof item !== 'string');
     // T12621: `evidence.allowCachedGates: false` disables reuse, so `--no-run`
     // has nothing it may record from.
@@ -490,8 +499,32 @@ export async function validateGateVerify(
 
     const configGates = await loadRequiredGates(projectRoot);
 
+    // T12625: a multi-gate write names its gates by the keys of gateEvidence.
+    const multiTargets = params.gateEvidence
+      ? VALID_GATES.filter((g) => params.gateEvidence?.[g] !== undefined)
+      : null;
+    if (multiTargets) {
+      const unknown = Object.keys(params.gateEvidence ?? {}).filter(
+        (g) => !VALID_GATES.includes(g as VerificationGate),
+      );
+      if (
+        unknown.length > 0 ||
+        multiTargets.length === 0 ||
+        gate ||
+        all ||
+        reset ||
+        params.evidence
+      )
+        return engineError(
+          'E_INVALID_INPUT',
+          unknown.length > 0
+            ? `Invalid gate(s) in gateEvidence: ${unknown.join(', ')}. Valid: ${VALID_GATES.join(', ')}`
+            : 'gateEvidence needs at least one gate and excludes gate, all, reset and evidence',
+        );
+    }
+
     // View mode (no modifications)
-    if (!gate && !all && !reset) {
+    if (!gate && !all && !reset && !multiTargets) {
       const verification = task.verification ?? initVerification();
       const missing = getMissingGates(verification, configGates);
       return engineSuccess({
@@ -511,7 +544,11 @@ export async function validateGateVerify(
 
     // T9231 / ADR-070: FISE-2 — Lead authorship bypass prevention.
     // Reject implemented gate write from a Lead session without upstream delegation.
-    if (gate === 'implemented' && value !== false && !reset) {
+    if (
+      (gate === 'implemented' || multiTargets?.includes('implemented')) &&
+      value !== false &&
+      !reset
+    ) {
       const { validateSpawnRequest } = await import('../lifecycle/ivtr-loop.js');
       const spawnCheck = await validateSpawnRequest(taskId, 'implemented', sessionId);
       if (!spawnCheck.allowed) {
@@ -524,8 +561,15 @@ export async function validateGateVerify(
 
     // Check if evidence-based requirement applies.  gate failures
     // (value=false) and resets do NOT require evidence.
-    const isWriteRequiringEvidence = (all || (gate && value !== false)) && !reset;
+    const isWriteRequiringEvidence =
+      (all || multiTargets !== null || (gate && value !== false)) && !reset;
     const override = readOverrideState();
+    if (multiTargets && override.override)
+      return engineError(
+        'E_OVERRIDE_NOT_ACCEPTED',
+        'CLEO_OWNER_OVERRIDE is not accepted by a derived multi-gate write (cleo done / verify --auto). ' +
+          'Unset it, or record the gate with `cleo verify <id> --gate <gate> --evidence …`, which keeps the audited override path.',
+      );
 
     // T1501 / P0-5 — per-session CLEO_OWNER_OVERRIDE cap.
     // Enforce before the write proceeds so the error surfaces early.
@@ -573,12 +617,18 @@ export async function validateGateVerify(
     // T1502 / P0-6 — shared-evidence detection.
     let sharedEvidenceAcknowledged = false;
     let sharedAtomWarned = false;
-    if (isWriteRequiringEvidence && !override.override && params.evidence && sessionId) {
+    const evidenceStrings = multiTargets
+      ? multiTargets.map((g) => params.gateEvidence?.[g] as string)
+      : params.evidence
+        ? [params.evidence]
+        : [];
+    for (const evidenceString of evidenceStrings) {
+      if (!isWriteRequiringEvidence || override.override || !sessionId) break;
       const seResult = enforceSharedEvidence(
         projectRoot,
         sessionId,
         taskId,
-        params.evidence,
+        evidenceString,
         params.sharedEvidence === true,
       );
       if (!seResult.allowed) {
@@ -587,8 +637,8 @@ export async function validateGateVerify(
           seResult.errorMessage ?? 'Shared evidence flag required.',
         );
       }
-      sharedEvidenceAcknowledged = seResult.acknowledged === true;
-      sharedAtomWarned = seResult.warned === true;
+      sharedEvidenceAcknowledged ||= seResult.acknowledged === true;
+      sharedAtomWarned ||= seResult.warned === true;
     }
 
     // Modification mode
@@ -599,25 +649,112 @@ export async function validateGateVerify(
     const now = new Date().toISOString();
     let action: GateVerifyResult['action'] = 'view';
     const evidenceStored: EvidenceAtom[] = [];
+    const perGateAtoms = new Map<VerificationGate, EvidenceAtom[]>();
 
     if (reset) {
       verification = initVerification();
       action = 'reset';
     } else if (isWriteRequiringEvidence) {
       // Determine target gates.
-      const targets: VerificationGate[] = all ? configGates : [gate as VerificationGate];
+      const targets: VerificationGate[] =
+        multiTargets ?? (all ? configGates : [gate as VerificationGate]);
       const evidenceContext: EvidenceValidationContext = {
         task,
         gates: targets,
         criteria: await accessor.getAcRows(taskId),
       };
 
-      if (!all && !VALID_GATES.includes(gate as VerificationGate)) {
+      if (!all && !multiTargets && !VALID_GATES.includes(gate as VerificationGate)) {
         return engineError(
           'E_INVALID_INPUT',
           `Invalid gate: ${gate}. Valid: ${VALID_GATES.join(', ')}`,
         );
       }
+
+      // One evidence string, validated for `gates` through the ADR-051 path:
+      // parse → validateAtom → per-gate minimum → label gates. Shared by the
+      // single-gate write and the T12625 multi-gate write, so there is one
+      // validation path, not two.
+      const validateEvidenceFor = async (
+        evidence: string,
+        gates: VerificationGate[],
+      ): Promise<EvidenceAtom[] | EngineResult<GateVerifyResult>> => {
+        const atoms: EvidenceAtom[] = [];
+        let parsed: ReturnType<typeof parseEvidence>;
+        try {
+          parsed = parseEvidence(evidence);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          return engineError('E_EVIDENCE_INVALID', message);
+        }
+
+        // T12107 (gh#1195): a sibling `commit:` atom anchors `files:` paths —
+        // thread its sha so files are resolved against that commit's tree first.
+        const siblingCommitSha = parsed.atoms.find(
+          (a): a is Extract<ParsedAtom, { kind: 'commit' }> => a.kind === 'commit',
+        )?.sha;
+        for (const atom of parsed.atoms.toSorted(
+          (a, b) => Number(b.kind === 'pr') - Number(a.kind === 'pr'),
+        )) {
+          // T9178: pass taskId for branch-scope commit validation
+          const check = await validateEvidenceAtom(atom, projectRoot, taskId, siblingCommitSha, {
+            ...evidenceContext,
+            artifactCommitSha: atoms.find((atom) => atom.kind === 'pr')?.mergeCommitSha,
+          });
+          if (!check.ok) {
+            return engineError(check.codeName, check.reason);
+          }
+          atoms.push(check.atom);
+        }
+
+        // Check each target gate satisfies its minimum.
+        // T9949: surface the rich example-bearing remediation hint via
+        // `engineError({fix:})` so `note:`-only callers see exactly which
+        // alternative atom kind the gate requires (commit/files/decision/pr).
+        // gh#1215: a task whose `implemented` gate was satisfied by a DECISION
+        // with no commit/pr changed no code, so `testsPassed` / `qaPassed` have
+        // nothing to measure. Demanding them made correctly-evidenced audit and
+        // review tasks uncompletable: tool:test is meaningless when nothing
+        // changed, and the owner override is session-capped and rejected on
+        // critical gates. Satisfied by absence, as with the T12083
+        // `notApplicable` tool atom.
+        const decisionOnly = isDecisionOnlyImplementation(verification.evidence?.implemented);
+        for (const targetGate of gates) {
+          if (decisionOnly && DECISION_ONLY_INAPPLICABLE_GATES.includes(targetGate)) continue;
+          const missing = checkGateEvidenceMinimumDetailed(targetGate, atoms);
+          if (missing) {
+            return engineError('E_EVIDENCE_INSUFFICIENT', missing.message, {
+              fix: missing.hint,
+            });
+          }
+        }
+
+        // T1604 — engine-migration label gate.
+        // If the task carries the `engine-migration` label and the `implemented`
+        // gate is among the targets, require a `loc-drop` evidence atom proving
+        // the migrated engine shed ≥ the configured minimum percentage of LOC.
+        const isImplementedTarget = gates.includes('implemented');
+        if (isImplementedTarget && hasEngineMigrationLabel(task.labels ?? [])) {
+          const locDropError = checkEngineMigrationLocDrop(atoms);
+          if (locDropError) {
+            return engineError('E_EVIDENCE_INSUFFICIENT', locDropError);
+          }
+        }
+
+        // T1605 — callsite-coverage label gate.
+        // If the task carries the `callsite-coverage` label and the `implemented`
+        // gate is among the targets, require a `callsite-coverage` evidence atom
+        // proving the exported symbol has ≥1 production callsite outside its
+        // own source file, test files, and dist directories.  Catches the T1601
+        // pattern where a function is shipped but never wired to production.
+        if (isImplementedTarget && hasCallsiteCoverageLabel(task.labels ?? [])) {
+          const callsiteError = checkCallsiteCoverageAtom(atoms);
+          if (callsiteError) {
+            return engineError('E_EVIDENCE_INSUFFICIENT', callsiteError);
+          }
+        }
+        return atoms;
+      };
 
       // Parse evidence if provided.
       let validatedAtoms: EvidenceAtom[] = [];
@@ -711,92 +848,46 @@ export async function validateGateVerify(
         // trail); non-critical gates may still pass with override-only.
         validatedAtoms = [{ kind: 'override', reason: override.reason }, ...overrideAtoms];
       } else {
-        if (!params.evidence) {
-          return engineError(
-            'E_EVIDENCE_MISSING',
-            `Evidence is required. See ADR-051.\n` +
-              `Example: cleo verify ${taskId} --gate implemented --evidence commit:<sha>;files:<path>\n` +
-              `Or set CLEO_OWNER_OVERRIDE=1 with CLEO_OWNER_OVERRIDE_REASON=<reason> for emergency bypass (audited).`,
-          );
-        }
-
-        let parsed: ReturnType<typeof parseEvidence>;
-        try {
-          parsed = parseEvidence(params.evidence);
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          return engineError('E_EVIDENCE_INVALID', message);
-        }
-
-        // T12107 (gh#1195): a sibling `commit:` atom anchors `files:` paths —
-        // thread its sha so files are resolved against that commit's tree first.
-        const siblingCommitSha = parsed.atoms.find(
-          (a): a is Extract<ParsedAtom, { kind: 'commit' }> => a.kind === 'commit',
-        )?.sha;
-        for (const atom of parsed.atoms.toSorted(
-          (a, b) => Number(b.kind === 'pr') - Number(a.kind === 'pr'),
-        )) {
-          // T9178: pass taskId for branch-scope commit validation
-          const check = await validateEvidenceAtom(atom, projectRoot, taskId, siblingCommitSha, {
-            ...evidenceContext,
-            artifactCommitSha: validatedAtoms.find((atom) => atom.kind === 'pr')?.mergeCommitSha,
-          });
-          if (!check.ok) {
-            return engineError(check.codeName, check.reason);
+        if (!multiTargets) {
+          if (!params.evidence) {
+            return engineError(
+              'E_EVIDENCE_MISSING',
+              `Evidence is required. See ADR-051.\n` +
+                `Example: cleo verify ${taskId} --gate implemented --evidence commit:<sha>;files:<path>\n` +
+                `Or set CLEO_OWNER_OVERRIDE=1 with CLEO_OWNER_OVERRIDE_REASON=<reason> for emergency bypass (audited).`,
+            );
           }
-          validatedAtoms.push(check.atom);
-        }
-
-        // Check each target gate satisfies its minimum.
-        // T9949: surface the rich example-bearing remediation hint via
-        // `engineError({fix:})` so `note:`-only callers see exactly which
-        // alternative atom kind the gate requires (commit/files/decision/pr).
-        // gh#1215: a task whose `implemented` gate was satisfied by a DECISION
-        // with no commit/pr changed no code, so `testsPassed` / `qaPassed` have
-        // nothing to measure. Demanding them made correctly-evidenced audit and
-        // review tasks uncompletable: tool:test is meaningless when nothing
-        // changed, and the owner override is session-capped and rejected on
-        // critical gates. Satisfied by absence, as with the T12083
-        // `notApplicable` tool atom.
-        const decisionOnly = isDecisionOnlyImplementation(verification.evidence?.implemented);
-        for (const targetGate of targets) {
-          if (decisionOnly && DECISION_ONLY_INAPPLICABLE_GATES.includes(targetGate)) continue;
-          const missing = checkGateEvidenceMinimumDetailed(targetGate, validatedAtoms);
-          if (missing) {
-            return engineError('E_EVIDENCE_INSUFFICIENT', missing.message, {
-              fix: missing.hint,
-            });
-          }
-        }
-
-        // T1604 — engine-migration label gate.
-        // If the task carries the `engine-migration` label and the `implemented`
-        // gate is among the targets, require a `loc-drop` evidence atom proving
-        // the migrated engine shed ≥ the configured minimum percentage of LOC.
-        const isImplementedTarget = targets.includes('implemented');
-        if (isImplementedTarget && hasEngineMigrationLabel(task.labels ?? [])) {
-          const locDropError = checkEngineMigrationLocDrop(validatedAtoms);
-          if (locDropError) {
-            return engineError('E_EVIDENCE_INSUFFICIENT', locDropError);
-          }
-        }
-
-        // T1605 — callsite-coverage label gate.
-        // If the task carries the `callsite-coverage` label and the `implemented`
-        // gate is among the targets, require a `callsite-coverage` evidence atom
-        // proving the exported symbol has ≥1 production callsite outside its
-        // own source file, test files, and dist directories.  Catches the T1601
-        // pattern where a function is shipped but never wired to production.
-        if (isImplementedTarget && hasCallsiteCoverageLabel(task.labels ?? [])) {
-          const callsiteError = checkCallsiteCoverageAtom(validatedAtoms);
-          if (callsiteError) {
-            return engineError('E_EVIDENCE_INSUFFICIENT', callsiteError);
-          }
+          const checked = await validateEvidenceFor(params.evidence, targets);
+          if (!Array.isArray(checked)) return checked;
+          validatedAtoms = checked;
         }
       }
 
+      // T12625: each gate validates and composes its OWN atoms, in gate order,
+      // so `implemented` is on the record before the decision-only rule for
+      // testsPassed/qaPassed reads it.
+      for (const targetGate of multiTargets ?? []) {
+        const atoms = await validateEvidenceFor(params.gateEvidence?.[targetGate] as string, [
+          targetGate,
+        ]);
+        if (!Array.isArray(atoms)) return atoms;
+        const contextualFailure = checkTaskEvidenceContext(evidenceContext, targetGate, atoms);
+        if (contextualFailure) return engineError('E_EVIDENCE_CONTENT_MISMATCH', contextualFailure);
+        evidenceStored.push(...atoms);
+        perGateAtoms.set(targetGate, atoms);
+        verification.gates[targetGate] = true;
+        verification.evidence![targetGate] = composeGateEvidence(
+          atoms,
+          agentId,
+          undefined,
+          undefined,
+          evidenceContext,
+          targetGate,
+        );
+      }
+
       evidenceStored.push(...validatedAtoms);
-      for (const targetGate of targets) {
+      for (const targetGate of multiTargets ? [] : targets) {
         const contextualFailure =
           override.override && targetGate !== 'implemented' && targetGate !== 'testsPassed'
             ? null
@@ -815,7 +906,7 @@ export async function validateGateVerify(
 
       verification.lastAgent = agent as never;
       verification.lastUpdated = now;
-      action = all ? 'set_all' : 'set_gate';
+      action = all || multiTargets ? 'set_all' : 'set_gate';
     } else if (gate) {
       // Gate failure — no evidence required (failures do not need proof).
       if (!VALID_GATES.includes(gate as VerificationGate)) {
@@ -993,7 +1084,18 @@ export async function validateGateVerify(
       };
 
       try {
-        await appendGateAuditLine(projectRoot, auditRecord);
+        // T12625: a multi-gate write logs one line per gate with that gate's
+        // own atoms, the shape every single-gate write already has.
+        if (multiTargets) {
+          for (const g of multiTargets) {
+            await appendGateAuditLine(projectRoot, {
+              ...auditRecord,
+              gate: g,
+              action: 'set',
+              evidence: composeGateEvidence(perGateAtoms.get(g) ?? [], agentId),
+            });
+          }
+        } else await appendGateAuditLine(projectRoot, auditRecord);
         if (override.override && action !== 'reset') {
           // T1501: include sessionOverrideOrdinal in the force-bypass record.
           // T1504: include workTreeContext when the override was exempt from the cap counter.
@@ -1040,7 +1142,7 @@ export async function validateGateVerify(
     if (action === 'set_gate') {
       result.gateSet = gate;
     } else if (action === 'set_all') {
-      result.gatesSet = configGates;
+      result.gatesSet = multiTargets ?? configGates;
     }
 
     if (evidenceStored.length > 0) {

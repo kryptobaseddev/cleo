@@ -84,6 +84,35 @@ export const completeCommandArgs = {
 } as const;
 
 /**
+ * `tasks.complete` dispatch params from parsed `complete` flags — shared with
+ * `cleo done`, which completes through the same operation (T12625).
+ *
+ * @param args - Parsed values of {@link completeCommandArgs}.
+ * @returns The dispatch params, byte-identical to what `cleo complete` sends.
+ */
+export function completeDispatchParams(args: {
+  taskId: string;
+  [flag: string]: unknown;
+}): Record<string, unknown> {
+  const str = (key: string): string | undefined => args[key] as string | undefined;
+  return {
+    taskId: args.taskId,
+    notes: str('notes'),
+    changeset: str('changeset'),
+    verificationNote: str('verification-note'),
+    acknowledgeRisk: str('acknowledge-risk'),
+    overrideReason: str('override-reason'),
+    // T10509 — AC-coverage gate waiver path
+    waiveAc: str('waive-ac'),
+    waiveReason: str('waive-reason'),
+    // T10538 — cancelled-child waiver (PM-Core V2 agent-trust)
+    cancelledChildWaiverReason: str('waive-cancelled-children'),
+    // T11954 (DHQ-071) — depends-edge waiver for stale/over-specified deps
+    waiveDependsReason: str('waive-depends'),
+  };
+}
+
+/**
  * Complete command — marks the given task as done.
  *
  * `cleo done` (done.ts) delegates here unchanged when `--plan` is absent.
@@ -99,21 +128,7 @@ export const completeCommand = defineCommand({
     // (completion is a status mutation → the task lands at /data/updated/0).
     if (maybeEmitDescribe('mutate', 'tasks', 'complete', { command: 'complete' })) return;
 
-    const response = await dispatchRaw('mutate', 'tasks', 'complete', {
-      taskId: args.taskId,
-      notes: args.notes as string | undefined,
-      changeset: args.changeset as string | undefined,
-      verificationNote: args['verification-note'] as string | undefined,
-      acknowledgeRisk: args['acknowledge-risk'] as string | undefined,
-      overrideReason: args['override-reason'] as string | undefined,
-      // T10509 — AC-coverage gate waiver path
-      waiveAc: args['waive-ac'] as string | undefined,
-      waiveReason: args['waive-reason'] as string | undefined,
-      // T10538 — cancelled-child waiver (PM-Core V2 agent-trust)
-      cancelledChildWaiverReason: args['waive-cancelled-children'] as string | undefined,
-      // T11954 (DHQ-071) — depends-edge waiver for stale/over-specified deps
-      waiveDependsReason: args['waive-depends'] as string | undefined,
-    });
+    const response = await dispatchRaw('mutate', 'tasks', 'complete', completeDispatchParams(args));
 
     if (!response.success) {
       handleRawError(response, { command: 'complete', operation: 'tasks.complete' });

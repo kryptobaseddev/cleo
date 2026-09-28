@@ -519,6 +519,7 @@ export type {
   ChangeSetPrCandidate,
   ChangeSetRootSource,
   ChangeSetSource,
+  DoneBlockedDetails,
   DoneNextStep,
   DonePlan,
   DonePlanAcBasis,
@@ -529,6 +530,8 @@ export type {
   DonePlanToolCacheState,
   DonePlanToolRun,
   DonePlanTypedGate,
+  DoneRecordResult,
+  DoneToolResult,
   TaskChangeSet,
 } from './done-plan.js';
 export type {
