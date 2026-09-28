@@ -81,7 +81,7 @@ describe('auditCleoLink', () => {
     expect(audit.state).toBe('dangling');
     expect(audit.target).toBe('/home/nobody/.local/share/cleo');
     expect(audit.hubReferenceResolves).toBe(false);
-    expect(audit.remedy).toBe('cleo doctor cleo-link --repair');
+    expect(audit.remedy).toBe('cleo doctor global-delivery --repair');
   });
 
   it('classifies canonical, foreign, directory, absent and other', () => {
@@ -183,7 +183,7 @@ describe('global hub delivery after install (AC: the delivered reference exists 
     writeFileSync(link, 'not a link');
     const hub = resolveGlobalHubContent(TEMPLATE, opts());
     expect(hub.mode).toBe('embedded');
-    expect(hub.content).toContain('cleo doctor cleo-link --repair');
+    expect(hub.content).toContain('cleo doctor global-delivery --repair');
     const delivery = await resolveInstructionDelivery(hub.content, home);
     expect(delivery.findings).toEqual([]);
     expect(delivery.content).toContain(ASK_RULE);

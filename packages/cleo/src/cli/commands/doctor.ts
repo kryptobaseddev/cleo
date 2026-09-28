@@ -30,12 +30,12 @@ import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
 import { createDoctorProgress } from '../progress.js';
 import { cliError, cliOutput, humanLine } from '../renderers/index.js';
 import { doctorAcceptanceDriftCommand } from './doctor-acceptance-drift.js';
-import { doctorCleoLinkCommand } from './doctor-cleo-link.js';
 import { doctorCredentialsCommand } from './doctor-credentials.js';
 import { doctorDbSubstrateCommand } from './doctor-db-substrate.js';
 import { doctorExodusCommand } from './doctor-exodus.js';
 import { doctorExodusResidueCommand } from './doctor-exodus-residue.js';
 import { doctorFkCheckCommand } from './doctor-fk-check.js';
+import { doctorGlobalDeliveryCommand } from './doctor-global-delivery.js';
 import { doctorKnowledgeSubcommand } from './doctor-knowledge.js';
 import { doctorLegacyBackupsCommand } from './doctor-legacy-backups.js';
 import { doctorLegacyReaperCommand } from './doctor-legacy-reaper.js';
@@ -262,8 +262,8 @@ export const doctorCommand = defineCommand({
     'memory-guard': doctorMemoryGuardCommand,
     // T12353 — tracked .cleo/project-id vs project-info.json (+ --resolve re-key)
     'project-identity': doctorProjectIdentityCommand,
-    // T12596 — ~/.cleo must link to the OS data dir or the global hub delivers nothing
-    'cleo-link': doctorCleoLinkCommand,
+    // T12596 · T12598 — ~/.cleo, the global hub and every harness skill install must resolve
+    'global-delivery': doctorGlobalDeliveryCommand,
     // T12471 — machine-wide registry integrity: rebind moved by id, flag split/missing/temp
     projects: doctorRegistryCommand,
     // T12329 — import rows only a diverged store copy has, under new ids (dry-run first)

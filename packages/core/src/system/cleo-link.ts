@@ -89,7 +89,7 @@ export interface CleoLinkOptions {
 }
 
 /** Repair command printed in remedies and warnings. */
-export const CLEO_LINK_REPAIR_COMMAND = 'cleo doctor cleo-link --repair';
+export const CLEO_LINK_REPAIR_COMMAND = 'cleo doctor global-delivery --repair';
 
 function sameTarget(a: string, b: string): boolean {
   return normalize(a.replace(/^\\\\\?\\/, '')) === normalize(b);
