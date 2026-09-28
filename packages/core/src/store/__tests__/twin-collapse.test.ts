@@ -223,6 +223,8 @@ describe('schema_meta merge rules', () => {
     setMeta(db, 'schema_meta', SNAPSHOT_GATE_META_KEY, '{"generation":3,"prefixes":{}}');
     setMeta(db, 'tasks_schema_meta', SNAPSHOT_GATE_META_KEY, '{"generation":8,"prefixes":{}}');
     setMeta(db, 'tasks_schema_meta', 'twin_only', 'kept');
+    setMeta(db, 'schema_meta', 'file_meta', '{"generation":12,"lastSessionId":"ses_live"}');
+    setMeta(db, 'tasks_schema_meta', 'file_meta', '{"generation":4,"lastSessionId":"ses_old"}');
     allocateOldPath(db, 2);
 
     const receipt = collapseSchemaMetaTwin(db, dbPath());
@@ -237,6 +239,9 @@ describe('schema_meta merge rules', () => {
     ); // larger generation
     expect(counterOf(metaValue(db, 'tasks_schema_meta', 'task_id_sequence'))).toBe(4); // MAX(2, 4)
     expect(metaValue(db, 'tasks_schema_meta', 'twin_only')).toBe('kept');
+    expect(metaValue(db, 'tasks_schema_meta', 'file_meta')).toBe(
+      '{"generation":12,"lastSessionId":"ses_live"}',
+    ); // larger generation
     expect(metaValue(db, 'tasks_schema_meta', 'backfill:terminal-pipeline-stage')).toBeUndefined();
     // The bare table itself is never modified.
     expect(metaValue(db, 'schema_meta', 'focus_state')).toBe('{"currentTask":"T900"}');
@@ -253,6 +258,8 @@ describe('schema_meta merge rules', () => {
     expect(
       mergeSchemaMetaValue(SNAPSHOT_GATE_META_KEY, '{"generation":2}', '{"generation":2}'),
     ).toBe('bare');
+    expect(mergeSchemaMetaValue('file_meta', '{"generation":3}', '{"generation":9}')).toBe('twin');
+    expect(mergeSchemaMetaValue('file_meta', '{"generation":9}', '{"generation":3}')).toBe('bare');
     expect(mergeSchemaMetaValue('backfill:x', '{}', undefined)).toBe('skip');
     expect(mergeSchemaMetaValue(`${TWIN_COLLAPSE_MARKER_PREFIX}x`, '{}', undefined)).toBe('skip');
     expect(mergeSchemaMetaValue('focus_state:ses_1', 'bare', 'twin')).toBe('bare');

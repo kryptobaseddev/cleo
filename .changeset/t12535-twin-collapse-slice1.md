@@ -11,10 +11,10 @@ the first open after the upgrade, each domain bind now folds the bare rows
 into the twin once, in one transaction, after a `VACUUM INTO` snapshot, and
 the runtime binds only the twin:
 
-- `schema_meta` → `tasks_schema_meta`, key-aware: the task-id sequence and
-  the snapshot-gate generation take the larger value (never summed, never
-  reset); every other key keeps the bare (last-written) value; the `t877`
-  migration guard keys are not carried.
+- `schema_meta` → `tasks_schema_meta`, key-aware: monotonic counters (the
+  task-id sequence, the snapshot-gate generation, `file_meta.generation`) take
+  the larger value, never summed or reset; every other key keeps the bare
+  (last-written) value; the `t877` migration guard keys are not carried.
 - `sticky_tags` → `brain_sticky_tags`: union on `(sticky_id, tag)`; tags of a
   deleted note are not carried.
 

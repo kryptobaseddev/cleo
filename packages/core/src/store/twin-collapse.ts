@@ -36,6 +36,8 @@
  *
  * ## `schema_meta` → `tasks_schema_meta`: key-aware merge
  *
+ * Two rules: a monotonic counter or generation takes MAX(bare, twin); every
+ * other key present in both tables takes the bare (live) value.
  * Until this collapse the bare table was the live one; the twin holds either
  * nothing, the fresh-store seeds, or an exodus copy from before the runtime
  * moved. Per key present in the bare table ({@link mergeSchemaMetaValue}):
@@ -44,9 +46,10 @@
  * |---|---|
  * | `task_id_sequence` (`{counter,lastId,checksum}`, written by `sequence/index.ts`) | the value with the LARGER `counter` wins whole; a tie keeps the twin. Never summed, never reset. A value that does not parse loses to one that does; if neither parses the bare value wins |
  * | `sqlite_snapshot_gate` (`{generation,prefixes}`, `snapshot-gate.ts`) | the value with the LARGER `generation` wins whole (generations are claimed monotonically); a tie keeps the bare value |
+ * | `file_meta` (`FileMeta`; `generation` is bumped on session start/end/resume in `session/engine-ops.ts`) | same: the larger `generation` wins whole, a tie keeps the bare value |
  * | `backfill:*` (the two `t877` migration guard keys) | not carried: the drizzle-tasks lineage re-inserts them into every bare table and nothing reads them |
  * | `twin_collapse:*` | not carried (collapse markers live only in the twin) |
- * | every other key: `schemaVersion`, `version`, `focus_state`, `focus_state:<session>`, `project_meta`, `project`, `file_meta`, `parallel_state`, `activeSession`, `reconcile.<task>.release`, and any unknown key | the BARE value wins (it was the last writer) |
+ * | every other key: `schemaVersion`, `version`, `focus_state`, `focus_state:<session>`, `project_meta`, `project`, `parallel_state`, `activeSession`, `reconcile.<task>.release`, and any unknown key | the BARE value wins (it was the last writer) |
  *
  * A key only the twin holds is kept as is.
  *
@@ -152,7 +155,8 @@ export function mergeSchemaMetaValue(
   if (key.startsWith('backfill:') || key.startsWith(TWIN_COLLAPSE_MARKER_PREFIX)) return 'skip';
   if (twin === undefined) return 'bare';
   if (key === 'task_id_sequence') return maxBy(bare, twin, 'counter', 'twin');
-  if (key === SNAPSHOT_GATE_META_KEY) return maxBy(bare, twin, 'generation', 'bare');
+  if (key === SNAPSHOT_GATE_META_KEY || key === 'file_meta')
+    return maxBy(bare, twin, 'generation', 'bare');
   return 'bare';
 }
 
