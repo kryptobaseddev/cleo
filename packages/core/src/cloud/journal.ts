@@ -37,6 +37,14 @@ const defaultDownloader: Downloader = async (url) => {
   return Buffer.from(await res.arrayBuffer());
 };
 
+/** Response of `GET /v1/streams/:streamId/segments/:seq/blob`: a short-lived presigned download URL. */
+export interface SegmentBlobDownload {
+  url: string;
+  sha256: string;
+  sizeBytes: number;
+  expiresInSeconds: number;
+}
+
 export interface SegmentMeta {
   opCount: number;
   hlcMin: string;
@@ -166,7 +174,7 @@ export class Journal {
     }
     const ciphertext = s.ciphertext
       ? Buffer.from(s.ciphertext, 'base64')
-      : await this.downloadBlob(s.blobSha256 ?? '');
+      : await this.downloadSegmentBlob(s);
     if (sha256Hex(ciphertext) !== s.segmentHash) {
       throw new NexusError(
         'E_BLOB_INTEGRITY',
@@ -279,8 +287,35 @@ export class Journal {
     return sha256;
   }
 
-  private async downloadBlob(sha256: string): Promise<Buffer> {
-    const r = await this.o.http.request<{ url: string }>('GET', `/v1/blobs/${sha256}`);
-    return this.down(r.url);
+  /**
+   * Download a segment stored as a blob. The blob may have been uploaded by another member, so it is
+   * fetched through the stream (`GET …/segments/:seq/blob`), not the caller's own blob scope. The
+   * bytes are checked against the segment's sha256 before anything uses them.
+   */
+  async downloadSegmentBlob(s: Pick<Segment, 'seq' | 'blobSha256'>): Promise<Buffer> {
+    if (!s.blobSha256)
+      throw new NexusError('E_VALIDATION', `segment ${s.seq} is inline, not a blob`, 0, null);
+    const r = await this.o.http.request<SegmentBlobDownload>(
+      'GET',
+      `${this.base}/segments/${s.seq}/blob`,
+    );
+    if (r.sha256 !== s.blobSha256) {
+      throw new NexusError(
+        'E_BLOB_INTEGRITY',
+        `segment ${s.seq} blob download names a different sha256`,
+        0,
+        null,
+      );
+    }
+    const bytes = await this.down(r.url);
+    if (bytes.length !== r.sizeBytes || sha256Hex(bytes) !== s.blobSha256) {
+      throw new NexusError(
+        'E_BLOB_INTEGRITY',
+        `segment ${s.seq} blob does not match its sha256`,
+        0,
+        null,
+      );
+    }
+    return bytes;
   }
 }
