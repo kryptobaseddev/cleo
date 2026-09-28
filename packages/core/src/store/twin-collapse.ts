@@ -96,8 +96,11 @@
  *    same names (unqualified SQL resolves `temp` before `main`), so reads see
  *    bare-authoritative data while `main` stays untouched. Mutating operations
  *    are refused with `E_TWIN_COLLAPSE_FAILED` by the dispatch write guard
- *    ({@link twinCollapseFailureOf}). `cleo doctor twin-collapse --retry` runs
- *    the collapse with `onFailure: 'throw'`.
+ *    ({@link twinCollapseFailureOf}), and the shadows carry TEMP triggers that
+ *    abort any write into them ({@link SHADOW_WRITE_REFUSED}), so a direct SDK
+ *    write fails instead of being lost. `cleo doctor twin-collapse --retry`
+ *    runs the collapse with `onFailure: 'throw'`; on success the shadows and
+ *    their triggers are dropped.
  *
  * ## Gate 28
  *
@@ -666,7 +669,36 @@ function recordFailure(
   }
 }
 
-/** Drop the TEMP shadows of a connection that is no longer degraded. */
+/** Message a write into a sealed shadow aborts with. */
+export const SHADOW_WRITE_REFUSED =
+  'E_TWIN_COLLAPSE_FAILED: store is read-only until the twin collapse succeeds; run cleo doctor twin-collapse';
+
+const SHADOW_WRITE_OPS = ['INSERT', 'UPDATE', 'DELETE'] as const;
+
+/** Remove a shadow's write-refusing triggers (before it is rebuilt). */
+function unsealShadow(db: DatabaseSync, twin: string): void {
+  for (const op of SHADOW_WRITE_OPS) {
+    db.exec(`DROP TRIGGER IF EXISTS temp.${twin}_refuse_${op.toLowerCase()}`);
+  }
+}
+
+/**
+ * Make a shadow refuse writes. A write through the store accessors that
+ * bypasses the dispatch write guard (a direct SDK call) then fails with
+ * {@link SHADOW_WRITE_REFUSED} instead of landing in the shadow and being lost
+ * when the connection closes. The collapse itself writes `main.<twin>`
+ * (schema-qualified), which these TEMP triggers do not cover.
+ */
+function sealShadow(db: DatabaseSync, twin: string): void {
+  for (const op of SHADOW_WRITE_OPS) {
+    db.exec(
+      `CREATE TEMP TRIGGER IF NOT EXISTS ${twin}_refuse_${op.toLowerCase()} BEFORE ${op} ON temp.${twin} ` +
+        `BEGIN SELECT RAISE(ABORT, '${SHADOW_WRITE_REFUSED}'); END`,
+    );
+  }
+}
+
+/** Drop the TEMP shadows (and their triggers) of a connection that is no longer degraded. */
 function clearShadows(db: DatabaseSync): void {
   for (const pair of PAIRS) db.exec(`DROP TABLE IF EXISTS temp.${pair.twin}`);
   degraded.delete(db);
@@ -802,8 +834,11 @@ export function collapseTwinTables(
     // Read-only-for-users mode: serve the merged view from TEMP shadows. If
     // even that cannot be built, reads cannot be served correctly either.
     try {
-      for (const pair of pairs)
+      for (const pair of pairs) {
+        unsealShadow(nativeDb, pair.twin);
         pair.shadow(nativeDb, pair.plan(nativeDb, readState(nativeDb, pair)));
+        sealShadow(nativeDb, pair.twin);
+      }
     } catch (shadowError) {
       throw twinCollapseError(failure, shadowError);
     }

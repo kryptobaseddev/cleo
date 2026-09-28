@@ -69,7 +69,7 @@ import {
   resolveCorePackageMigrationsFolder,
 } from './resolve-migrations-folder.js';
 import { listSqliteBackups } from './sqlite-backup.js';
-import { collapseTwinTables } from './twin-collapse.js';
+import { collapseTwinTables, twinCollapseFailureOf } from './twin-collapse.js';
 import { assertDbPathIsNotWorktreeResident } from './worktree-isolation-guard.js';
 
 // node:sqlite access is isolated in the leaf module sqlite-native.ts to prevent
@@ -601,7 +601,10 @@ function establishTasksSchema(nativeDb: DatabaseSync, store: ProjectStore): Node
     nativeDb.exec('PRAGMA foreign_keys=OFF');
   }
 
-  seedTasksMeta(nativeDb);
+  // A store degraded by a failed twin collapse serves tasks_schema_meta from a
+  // read-only TEMP shadow that already holds the merged values; seeding it
+  // would abort (T12535).
+  if (twinCollapseFailureOf(nativeDb) === undefined) seedTasksMeta(nativeDb);
 
   return db;
 }

@@ -27,6 +27,7 @@ import {
 import { sessionStatus } from '../../session/engine-ops.js';
 import { addSticky } from '../../sticky/create.js';
 import { listStickies } from '../../sticky/list.js';
+import { getBrainAccessor } from '../memory-accessor.js';
 import { getBrainDb } from '../memory-sqlite.js';
 import { getDb, getNativeDb, resetDbState } from '../sqlite.js';
 import { createSqliteDataAccessor } from '../sqlite-data-accessor.js';
@@ -50,6 +51,21 @@ function preMigration(): void {
   db.prepare(
     'INSERT INTO main.schema_meta (key, value) VALUES (\'project_meta\', \'{"name":"live"}\')',
   ).run();
+}
+
+/**
+ * The messages along a rejected write's error chain (drizzle wraps the SQLite
+ * error as `cause`), or `''` when the write succeeded.
+ */
+async function refusal(write: Promise<unknown>): Promise<string> {
+  try {
+    await write;
+    return '';
+  } catch (error) {
+    const messages: string[] = [];
+    for (let e: unknown = error; e instanceof Error; e = e.cause) messages.push(e.message);
+    return messages.join(' <- ');
+  }
 }
 
 /** The next open (a new process) and the error it raises, if any. */
@@ -113,6 +129,35 @@ describe('a blocked backups directory', () => {
       db.prepare("SELECT value FROM main.tasks_schema_meta WHERE key = 'project_meta'").get(),
     ).toBeUndefined();
 
+    // A direct SDK write (store accessors, bypassing the dispatch guard) into
+    // either shadowed table fails loudly; nothing lands anywhere.
+    const focusRows = () =>
+      JSON.stringify([
+        db.prepare("SELECT value FROM main.tasks_schema_meta WHERE key = 'focus_state'").get(),
+        db.prepare("SELECT value FROM temp.tasks_schema_meta WHERE key = 'focus_state'").get(),
+      ]);
+    const focusBefore = focusRows();
+    expect(await refusal(accessor.setMetaValue('focus_state', { currentTask: 'T9' }))).toMatch(
+      /E_TWIN_COLLAPSE_FAILED: store is read-only/,
+    );
+    expect(focusRows()).toBe(focusBefore);
+    const brainAccessor = await getBrainAccessor(projectDir);
+    const tagRows = () =>
+      JSON.stringify(
+        db
+          .prepare(
+            'SELECT tag FROM main.brain_sticky_tags WHERE sticky_id = ? UNION ALL SELECT tag FROM temp.brain_sticky_tags WHERE sticky_id = ?',
+          )
+          .all(note.id, note.id),
+      );
+    const tagsBefore = tagRows();
+    expect(
+      await refusal(
+        brainAccessor.updateStickyNote(note.id, { tagsJson: JSON.stringify(['sdk-tag']) }),
+      ),
+    ).toMatch(/E_TWIN_COLLAPSE_FAILED: store is read-only/);
+    expect(tagRows()).toBe(tagsBefore);
+
     const blocked = await storeWriteBlock(projectDir);
     expect(blocked).toMatchObject({
       code: 55,
@@ -144,6 +189,15 @@ describe('a blocked backups directory', () => {
     const receipts = await retryTwinCollapse(projectDir);
     expect(receipts[0]).toMatchObject({ table: 'schema_meta', status: 'initial' });
     expect(await storeWriteBlock(projectDir)).toBeNull();
+    // After the retry, SDK writes land in the twin.
+    await accessor.setMetaValue('focus_state', { currentTask: 'T9' });
+    expect(
+      db.prepare("SELECT value FROM main.tasks_schema_meta WHERE key = 'focus_state'").get(),
+    ).toEqual({ value: '{"currentTask":"T9"}' });
+    await brainAccessor.updateStickyNote(note.id, { tagsJson: JSON.stringify(['sdk-tag']) });
+    expect(
+      db.prepare('SELECT tag FROM main.brain_sticky_tags WHERE sticky_id = ?').all(note.id),
+    ).toEqual([{ tag: 'sdk-tag' }]);
     expect(await reopen()).toBeUndefined();
     expect(await storeWriteBlock(projectDir)).toBeNull();
     expect(
