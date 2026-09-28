@@ -24,20 +24,32 @@
  *
  * ## What counts as a write site
  *
- * A line of non-test source (`*.ts`, `*.tsx`, `*.mjs`, `*.js`, `*.rs` under
- * `packages/` and `crates/`) carrying an upper-case SQL write keyword directly
- * followed by a classified table name, optionally schema-qualified:
+ * Non-test source (`*.ts`, `*.tsx`, `*.mjs`, `*.js`, `*.rs` under `packages/`
+ * and `crates/`) carrying an SQL write keyword followed by a classified table
+ * name, optionally schema-qualified:
  *
  *   INSERT [OR …] INTO t · REPLACE INTO t · UPDATE [OR …] t · DELETE FROM t
  *
- * Comments are blanked first, keeping line numbers. Drizzle query-builder
- * writes (`db.insert(table)`) are not raw SQL and are not counted. Neither is
- * a dynamic name (`INSERT INTO ${table}`), because it cannot be resolved
- * statically. That is the known blind spot of a text scan.
+ * The match is case-insensitive and whitespace-tolerant, so a lower-case or
+ * multi-line statement counts. Comments are blanked first by a small lexer
+ * that knows strings, template literals, regex literals and (for Rust) raw
+ * strings, nested block comments and char literals, so a string holding `/*`
+ * or `//` never blanks real code. Line numbers survive the blanking.
  *
- * The sanctioned chokepoint modules themselves are exempt (see
- * {@link SANCTIONED}). Migration `.sql` files are DDL history, not runtime
- * writers, and are not scanned.
+ * Drizzle query-builder writes (`db.insert(table)`) are not raw SQL and are
+ * not counted. Neither is a dynamic name (`INSERT INTO ${table}`): it cannot
+ * be resolved statically. That is the known blind spot of a text scan and an
+ * explicit follow-up (T12332 round 2).
+ *
+ * ## The chokepoint is not an offender
+ *
+ * The chokepoint is `openDualScopeDb` and the canonical accessors built on
+ * it: the modules implementing the `@cleocode/contracts` accessor interfaces
+ * ({@link SANCTIONED}). Their raw SQL IS the sanctioned write path, so they
+ * are exempt rather than baselined. A sanctioned path that no longer exists
+ * fails the gate, so the exemption cannot go stale. Files that only carry SQL
+ * words in prose are listed in {@link PROSE_ONLY} with the reason. Migration
+ * `.sql` files are DDL history, not runtime writers, and are not scanned.
  *
  * Modes:
  *   (default) / --check   fail on a new offender or an un-dropped removal
@@ -48,17 +60,42 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
+import { isMain } from './lib/is-main.mjs';
 
 const REPO_ROOT = resolve(import.meta.dirname, '..');
 const BASELINE = resolve(REPO_ROOT, 'scripts/.lint-no-raw-table-writes-baseline.json');
 const REGISTRY = resolve(REPO_ROOT, 'packages/core/src/store/table-classification.ts');
 
-/** The chokepoint modules that ARE the sanctioned write path. */
-const SANCTIONED = new Set([
+/**
+ * The chokepoint: `openDualScopeDb`, the writer lease, and the canonical
+ * accessors built on them (the modules implementing the `@cleocode/contracts`
+ * accessor interfaces: `DataAccessor`, the role sub-accessors, the agent
+ * registry, brain, docs, memory, safety and service-connection accessors).
+ * These ARE the sanctioned write path.
+ */
+export const SANCTIONED = new Set([
   'packages/core/src/store/dual-scope-db.ts',
   'packages/core/src/store/writer-lease.ts',
+  'packages/core/src/store/agent-registry-accessor.ts',
+  'packages/core/src/store/brain-accessor-impl.ts',
+  'packages/core/src/store/data-accessor.ts',
+  'packages/core/src/store/docs-accessor-impl.ts',
+  'packages/core/src/store/memory-accessor.ts',
+  'packages/core/src/store/role-accessors-impl.ts',
+  'packages/core/src/store/safety-data-accessor.ts',
+  'packages/core/src/store/service-connections-accessor.ts',
+  'packages/core/src/store/sqlite-data-accessor.ts',
+  'packages/core/src/store/umbrella-data-accessor.ts',
+]);
+
+/** Files whose SQL words are prose only, never executed. File → reason. */
+export const PROSE_ONLY = new Map([
+  [
+    'packages/contracts/src/dispatch/operations-registry.ts',
+    'operation descriptions ("INSERT/UPDATE releases row …"); the contracts package opens no database',
+  ],
 ]);
 
 const SCAN_GLOBS = ['*.ts', '*.tsx', '*.mjs', '*.js', '*.rs'];
@@ -89,11 +126,190 @@ function registryTables(source) {
   return names;
 }
 
-/** Blank comments with equal-length whitespace so line numbers survive. */
-function stripComments(src) {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
-    .replace(/^(\s*)\/\/.*$/gm, (_m, indent) => indent);
+/** Keywords after which a `/` starts a regex literal, not a division. */
+const REGEX_AFTER_WORD = new Set([
+  'return',
+  'typeof',
+  'instanceof',
+  'in',
+  'of',
+  'new',
+  'delete',
+  'void',
+  'throw',
+  'case',
+  'do',
+  'else',
+  'yield',
+  'await',
+]);
+
+/**
+ * Blank comments with spaces, keeping newlines, so line numbers survive.
+ *
+ * A small lexer, not a regex: it skips string, template and regex literals
+ * (and, for Rust, raw strings, char literals and NESTED block comments), so
+ * `'/*'` inside a string or `/\/\*` inside a regex never swallows code.
+ * String contents are kept verbatim: the SQL lives in them.
+ *
+ * @param {string} src - File contents.
+ * @param {'js' | 'rs'} lang - Lexical rules to apply.
+ * @returns {string} `src` with every comment character except `\n` blanked.
+ */
+export function stripComments(src, lang = 'js') {
+  const out = src.split('');
+  const n = src.length;
+  const blank = (from, to) => {
+    for (let k = from; k < to; k++) if (out[k] !== '\n') out[k] = ' ';
+  };
+  // Template-literal nesting: each entry is the brace depth of a `${` scope.
+  const templates = [];
+  let depth = 0;
+  let prev = ''; // last significant (non-space) code char, for regex detection
+  let prevWord = '';
+  let i = 0;
+
+  const skipQuoted = (q) => {
+    // i is at the opening quote; returns the index after the closing one.
+    let j = i + 1;
+    while (j < n) {
+      const c = src[j];
+      if (c === '\\') j += 2;
+      else if (c === q) return j + 1;
+      else if (c === '\n' && lang === 'js')
+        return j; // unterminated: stop at EOL
+      else j++;
+    }
+    return n;
+  };
+
+  /** Scan template text from i (inside backticks); stop after ` or at `${`. */
+  const scanTemplate = () => {
+    while (i < n) {
+      const c = src[i];
+      if (c === '\\') i += 2;
+      else if (c === '`') {
+        i++;
+        return 'end';
+      } else if (c === '$' && src[i + 1] === '{') {
+        i += 2;
+        templates.push(depth);
+        return 'expr';
+      } else i++;
+    }
+    return 'end';
+  };
+
+  while (i < n) {
+    const c = src[i];
+    const d = src[i + 1];
+    if (c === '/' && d === '/') {
+      let j = i;
+      while (j < n && src[j] !== '\n') j++;
+      blank(i, j);
+      i = j;
+      continue;
+    }
+    if (c === '/' && d === '*') {
+      let j = i + 2;
+      let nest = 1;
+      while (j < n && nest > 0) {
+        if (src[j] === '*' && src[j + 1] === '/') {
+          nest--;
+          j += 2;
+        } else if (lang === 'rs' && src[j] === '/' && src[j + 1] === '*') {
+          nest++;
+          j += 2;
+        } else j++;
+      }
+      blank(i, j);
+      i = j;
+      continue;
+    }
+    if (lang === 'rs') {
+      const raw = /^b?r(#*)"/.exec(src.slice(i, i + 40));
+      if (raw && !/[\w]/.test(src[i - 1] ?? '')) {
+        const close = `"${raw[1]}`;
+        const end = src.indexOf(close, i + raw[0].length);
+        i = end < 0 ? n : end + close.length;
+        prev = '"';
+        continue;
+      }
+      if (c === '"') {
+        i = skipQuoted('"');
+        prev = '"';
+        continue;
+      }
+      if (c === "'") {
+        const ch = /^'(?:\\.[^']*|[^'\\])'/.exec(src.slice(i, i + 12));
+        i += ch ? ch[0].length : 1; // otherwise a lifetime: plain code
+        prev = "'";
+        continue;
+      }
+    } else {
+      if (c === '"' || c === "'") {
+        i = skipQuoted(c);
+        prev = c;
+        prevWord = '';
+        continue;
+      }
+      if (c === '`') {
+        i++;
+        if (scanTemplate() === 'end') prev = '`';
+        else prev = '{';
+        prevWord = '';
+        continue;
+      }
+      if (c === '/') {
+        const regexContext =
+          prev === '' || '(,=:[!&|?{};+-*%<>~^'.includes(prev) || REGEX_AFTER_WORD.has(prevWord);
+        if (regexContext) {
+          let j = i + 1;
+          let inClass = false;
+          while (j < n && src[j] !== '\n') {
+            const r = src[j];
+            if (r === '\\') j += 2;
+            else if (r === '/' && !inClass) break;
+            else {
+              if (r === '[') inClass = true;
+              else if (r === ']') inClass = false;
+              j++;
+            }
+          }
+          i = j + 1;
+          while (i < n && /[a-z]/i.test(src[i])) i++;
+          prev = '/';
+          prevWord = '';
+          continue;
+        }
+      }
+      if (c === '{') depth++;
+      if (c === '}') {
+        if (templates.length > 0 && templates[templates.length - 1] === depth) {
+          templates.pop();
+          i++;
+          if (scanTemplate() === 'end') prev = '`';
+          else prev = '{';
+          continue;
+        }
+        depth--;
+      }
+    }
+    if (/[A-Za-z_$]/.test(c)) {
+      let j = i;
+      while (j < n && /[\w$]/.test(src[j])) j++;
+      prevWord = src.slice(i, j);
+      prev = 'a';
+      i = j;
+      continue;
+    }
+    if (!/\s/.test(c)) {
+      prev = c;
+      prevWord = '';
+    }
+    i++;
+  }
+  return out.join('');
 }
 
 function sourceFiles() {
@@ -108,33 +324,52 @@ function sourceFiles() {
     .filter((f) => !/(^|\/)(__tests__|__fixtures__|tests|test|dist|target|node_modules)\//.test(f))
     .filter((f) => !/\.(test|spec)\.(ts|tsx|mjs|js)$/.test(f))
     .filter((f) => !f.endsWith('.d.ts'))
-    .filter((f) => !SANCTIONED.has(f));
+    .filter((f) => !SANCTIONED.has(f) && !PROSE_ONLY.has(f));
 }
 
 /**
- * Write sites on one line: every (table) named right after a write keyword.
- * The table name must be followed by a non-identifier character, so `tasks`
- * never matches inside `tasks_tasks`.
+ * A write keyword and the table it names. Case-insensitive; `\s+` spans
+ * newlines, so a multi-line statement matches. The name is captured whole
+ * (`\w*` is greedy), so `tasks` never matches inside `tasks_tasks`.
  */
 const WRITE_RE =
-  /\b(?:INSERT(?:\s+OR\s+[A-Z]+)?\s+INTO|REPLACE\s+INTO|UPDATE(?:\s+OR\s+[A-Z]+)?|DELETE\s+FROM)\s+[`"'[]?(?:[A-Za-z_]\w*[`"'\]]?\.[`"'[]?)?([A-Za-z_]\w*)/g;
+  /\b(?:insert(?:\s+or\s+[a-z]+)?\s+into|replace\s+into|update(?:\s+or\s+[a-z]+)?|delete\s+from)\s+[`"'[]?(?:[a-z_]\w*[`"'\]]?\.[`"'[]?)?([a-z_]\w*)/gi;
 
-function writeSites(code, tables) {
+/**
+ * Every write site in comment-stripped code, with its 1-based line (the line
+ * of the write keyword).
+ *
+ * @param {string} code - Output of {@link stripComments}.
+ * @param {Set<string>} tables - Classified physical table names.
+ * @returns {Array<{ line: number, table: string }>}
+ */
+export function writeSites(code, tables) {
   const hits = [];
-  const lines = code.split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    for (const m of lines[i].matchAll(WRITE_RE)) {
-      if (tables.has(m[1])) hits.push({ line: i + 1, table: m[1] });
-    }
+  for (const m of code.matchAll(WRITE_RE)) {
+    const table = m[1].toLowerCase();
+    if (!tables.has(table)) continue;
+    let line = 1;
+    for (let k = 0; k < m.index; k++) if (code.charCodeAt(k) === 10) line++;
+    hits.push({ line, table });
   }
   return hits;
 }
 
 function scan() {
+  const missing = [...SANCTIONED, ...PROSE_ONLY.keys()].filter(
+    (f) => !existsSync(resolve(REPO_ROOT, f)),
+  );
+  if (missing.length > 0) {
+    throw new Error(
+      `lint-no-raw-table-writes: exempt path(s) no longer exist: ${missing.join(', ')}. ` +
+        'Remove them from SANCTIONED / PROSE_ONLY.',
+    );
+  }
   const tables = registryTables(readFileSync(REGISTRY, 'utf-8'));
   const findings = [];
   for (const file of sourceFiles()) {
-    const code = stripComments(readFileSync(resolve(REPO_ROOT, file), 'utf-8'));
+    const lang = file.endsWith('.rs') ? 'rs' : 'js';
+    const code = stripComments(readFileSync(resolve(REPO_ROOT, file), 'utf-8'), lang);
     for (const hit of writeSites(code, tables)) findings.push({ file, ...hit });
   }
   return findings;
@@ -243,9 +478,11 @@ function main() {
       }
     }
     console.error(
-      '\nWrite through the sanctioned path instead: a handle from openDualScopeDb and the\n' +
-        "table's domain accessor. A raw write bypasses the chokepoint that replication\n" +
-        'captures, so the change would never reach another device (Gate A, T12332).\n',
+      '\nMove the write into the canonical accessor for that table (the modules in\n' +
+        'SANCTIONED: sqlite-data-accessor for tasks, agent-registry-accessor, brain /\n' +
+        'docs / memory / role accessors, …), which write through openDualScopeDb. A raw\n' +
+        'write anywhere else bypasses the chokepoint that replication captures, so the\n' +
+        'change would never reach another device (Gate A, T12332).\n',
     );
   }
   if (removed.length > 0) {
@@ -261,4 +498,4 @@ function main() {
   return 1;
 }
 
-process.exit(main());
+if (isMain(import.meta.url)) process.exit(main());

@@ -1,16 +1,13 @@
 {
   "note": "Raw SQL writes on classified cleo.db tables outside the sanctioned accessor (T12332). Counts may only DECREASE, and a decrease must be recorded here. Regenerate with: node scripts/lint-no-raw-table-writes.mjs --update-baseline",
-  "totalFindings": 249,
-  "files": 76,
+  "totalFindings": 227,
+  "files": 73,
   "counts": {
     "crates/cleo-supervisor/src/lease_handler.rs": {
       "_writer_leases": 2
     },
     "packages/cleo/src/cli/commands/doctor.ts": {
       "tasks": 1
-    },
-    "packages/contracts/src/dispatch/operations-registry.ts": {
-      "releases": 1
     },
     "packages/core/src/agents/seed-install.ts": {
       "agent_registry_agents": 1
@@ -197,12 +194,6 @@
       "agent_registry_agent_skills": 2,
       "agent_registry_agents": 2
     },
-    "packages/core/src/store/agent-registry-accessor.ts": {
-      "agent_registry_agent_capabilities": 2,
-      "agent_registry_agent_skills": 2,
-      "agent_registry_agents": 6,
-      "conduit_project_agent_refs": 7
-    },
     "packages/core/src/store/agent-registry-store.ts": {
       "_agent_registry_meta": 1
     },
@@ -249,11 +240,8 @@
     "packages/core/src/store/portable-bundle-import.ts": {
       "nexus_project_registry": 1
     },
-    "packages/core/src/store/role-accessors-impl.ts": {
-      "conduit_messages": 1
-    },
-    "packages/core/src/store/sqlite-data-accessor.ts": {
-      "tasks_tasks": 4
+    "packages/core/src/store/snapshot-gate.ts": {
+      "schema_meta": 1
     },
     "packages/core/src/store/sqlite.ts": {
       "schema_meta": 2
