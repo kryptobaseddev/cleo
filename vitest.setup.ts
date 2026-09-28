@@ -527,21 +527,41 @@ function failOnRealDataWrites(): void {
 }
 
 // `currentTestName` outlives its test, so a later beforeAll/afterAll hit would
-// otherwise be pinned on the previous test. Registered first: this beforeEach
-// runs before the file's, and the afterEach below runs after the file's.
+// otherwise be pinned on the previous test.
 let inTestBody = false;
 guardGlobal[CURRENT_TEST] = () => {
-  const state = expect.getState();
-  const name = inTestBody ? state.currentTestName : undefined;
-  return `${state.testPath ?? '(unknown file)'} > ${name ?? '(beforeAll/afterAll hook)'}`;
+  try {
+    const state = expect.getState();
+    const name = inTestBody ? state.currentTestName : undefined;
+    return `${state.testPath ?? '(unknown file)'} > ${name ?? '(beforeAll/afterAll hook)'}`;
+  } catch {
+    return '(outside the vitest runner)';
+  }
 };
-beforeEach(() => {
-  inTestBody = true;
-});
-afterEach(() => {
-  inTestBody = false;
-  failOnRealDataWrites();
-});
-// Registered first, so it runs after the file's own afterAll hooks: catches
-// hits from beforeAll/afterAll that no afterEach saw.
-afterAll(failOnRealDataWrites);
+
+/**
+ * Hook registration needs a running vitest runner. This file is also imported
+ * by plain `node -e` probes (scripts/__tests__/vitest-project-include.test.mjs
+ * asserts the sandbox with no runner), where `beforeEach` throws "Vitest
+ * failed to find the runner". There the sandbox and fs guard still apply;
+ * only the per-test failure reporting is absent.
+ */
+function registerGuardHooks(): void {
+  // Registered first: this beforeEach runs before the file's, and the
+  // afterEach/afterAll below run after the file's (hooks unwind as a stack),
+  // so afterAll also catches hits from beforeAll/afterAll no afterEach saw.
+  beforeEach(() => {
+    inTestBody = true;
+  });
+  afterEach(() => {
+    inTestBody = false;
+    failOnRealDataWrites();
+  });
+  afterAll(failOnRealDataWrites);
+}
+
+try {
+  registerGuardHooks();
+} catch (err) {
+  if (!/failed to find the runner/i.test(err instanceof Error ? err.message : String(err))) throw err;
+}
