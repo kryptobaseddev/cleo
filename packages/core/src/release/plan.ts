@@ -59,7 +59,7 @@ import { parseChangesetDir } from '../changesets/index.js';
 import { WriterRegistry } from '../docs/writer-registry.js';
 import { getLogger } from '../logger.js';
 import { getProjectRoot, resolveCleoDir } from '../paths.js';
-import { getProjectInfoSync } from '../project-info.js';
+import { getProjectHashKey } from '../project-info.js';
 import { isSagaShape } from '../sagas/enforcement.js';
 import { resolveSagaMemberIds } from '../sagas/storage.js';
 import { atomicWrite } from '../store/atomic.js';
@@ -1330,9 +1330,9 @@ async function upsertReleasesRow(
   projectRoot: string,
 ): Promise<void> {
   const db = await getDb(projectRoot);
-  const projectInfo = getProjectInfoSync(projectRoot);
-  const projectHash = projectInfo?.projectHash ?? null;
-  const id = `${projectHash ?? 'unknown'}:${plan.resolvedVersion}`;
+  // T12557: one key for plan, reconcile and the manifest writers.
+  const projectHash = getProjectHashKey(projectRoot);
+  const id = `${projectHash}:${plan.resolvedVersion}`;
   const scheme = plan.scheme === 'calver-suffix' ? 'calver-suffix' : plan.scheme;
   const releaseKind = plan.releaseKind;
 
@@ -1879,8 +1879,7 @@ export async function releasePlan(
     // Runs AFTER the releases UPSERT so the FK is satisfied. Errors here are
     // logged but non-fatal — the plan file itself is the canonical source of
     // truth; release_changesets is the structured side-table.
-    const projectInfo = getProjectInfoSync(projectRoot);
-    const releaseId = `${projectInfo?.projectHash ?? 'unknown'}:${plan.resolvedVersion}`;
+    const releaseId = `${getProjectHashKey(projectRoot)}:${plan.resolvedVersion}`;
     try {
       await persistReleaseChangesets(releaseId, scopedChangesets.scoped, projectRoot);
     } catch (err: unknown) {
