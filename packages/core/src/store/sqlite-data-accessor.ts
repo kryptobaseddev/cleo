@@ -132,6 +132,46 @@ async function writeMetaValue(cwd: string | undefined, key: string, value: unkno
     .run();
 }
 
+// The other raw `tasks_schema_meta` writers stay outside this accessor on
+// purpose (gate 28 baseline, T12535): `seedTasksMeta` (sqlite.ts), the snapshot
+// gate (snapshot-gate.ts) and the exodus seed delete (exodus/migrate.ts) would
+// each need an import of this module, and this module imports sqlite.ts, which
+// imports sqlite-backup.ts, which imports snapshot-gate.ts — a cycle.
+
+/**
+ * Advance the task-id sequence (`tasks_schema_meta`, key `task_id_sequence`)
+ * on the caller's native handle and read the new counter back.
+ *
+ * Synchronous on purpose: `allocateNextTaskId` calls it inside its own
+ * SAVEPOINT, together with the stored-id inventory that supplies `floor`, so
+ * no other caller can rewind the counter between the two statements.
+ *
+ * @param nativeDb - The project `cleo.db` native handle holding the savepoint.
+ * @param floor - Lower bound for the counter (the highest stored numeric id).
+ * @returns The advanced counter, or `undefined` when the sequence row is missing.
+ * @task T12535
+ */
+export function advanceTaskIdSequence(nativeDb: DatabaseSync, floor: number): number | undefined {
+  nativeDb
+    .prepare(`
+      UPDATE tasks_schema_meta
+      SET value = json_set(value,
+        '$.counter', MAX(json_extract(value, '$.counter'), ?) + 1,
+        '$.lastId', 'T' || printf('%03d', MAX(json_extract(value, '$.counter'), ?) + 1),
+        '$.checksum', 'alloc-' || strftime('%s','now')
+      )
+      WHERE key = 'task_id_sequence'
+    `)
+    .run(floor, floor);
+  const row = nativeDb
+    .prepare(`
+      SELECT json_extract(value, '$.counter') AS counter
+      FROM tasks_schema_meta WHERE key = 'task_id_sequence'
+    `)
+    .get() as { counter: number } | undefined;
+  return row?.counter;
+}
+
 // One queue per shared native handle, independent of accessor identity. These
 // hold coordination state only; the ProjectStore remains the owner of handles.
 const taskTransactionQueue = new WeakMap<DatabaseSync, Promise<void>>();

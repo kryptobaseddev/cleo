@@ -270,6 +270,10 @@ function buildTargetSchema(
         created_at TEXT CHECK ("created_at" IS NULL OR "created_at" GLOB ${ISO_GLOB})
       )`,
     );
+    // tasks_schema_meta: the tasks-domain key/value store every consolidated
+    // project store carries. Exodus drops and re-seeds its `task_id_sequence`
+    // default here (T12535: the runtime reads the prefixed twin).
+    db.exec(`CREATE TABLE "tasks_schema_meta" (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
     // tasks_architecture_decisions: status CHECK enum + decided_at ISO GLOB.
     db.exec(
       `CREATE TABLE "tasks_architecture_decisions" (

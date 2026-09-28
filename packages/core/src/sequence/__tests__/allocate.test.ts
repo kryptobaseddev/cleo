@@ -78,7 +78,7 @@ describe('allocateNextTaskId', () => {
     // Set counter to 5
     nativeDb
       .prepare(`
-      UPDATE schema_meta
+      UPDATE tasks_schema_meta
       SET value = json_set(value, '$.counter', 5, '$.lastId', 'T005')
       WHERE key = 'task_id_sequence'
     `)
@@ -132,7 +132,7 @@ describe('allocateNextTaskId', () => {
     // Set counter to 999
     nativeDb
       .prepare(`
-      UPDATE schema_meta
+      UPDATE tasks_schema_meta
       SET value = json_set(value, '$.counter', 999, '$.lastId', 'T999')
       WHERE key = 'task_id_sequence'
     `)

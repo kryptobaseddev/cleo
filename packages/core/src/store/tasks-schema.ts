@@ -37,6 +37,18 @@ export type {
 } from './schema/chain-schema.js';
 // Re-export WarpChain schema tables so drizzle-kit picks them up for migrations.
 export { warpChainInstances, warpChains } from './schema/chain-schema.js';
+// TWIN COLLAPSE (T12535, slice 1) — `schema_meta` → `tasks_schema_meta`.
+//
+// The bare `schema_meta` was still the live tasks-domain key/value store (the
+// task-id sequence, focus state, project/file meta, the snapshot gate) while
+// its prefixed twin sat frozen. The two tables are physically identical (same
+// columns, types, defaults and PK; no FKs or CHECKs), so this is a pure
+// rebinding: every drizzle `schema.schemaMeta` reader and writer now uses the
+// prefixed table, and the raw-SQL sites (sequence allocation, `seedTasksMeta`,
+// the snapshot gate, exodus, split-brain import) name `tasks_schema_meta` in
+// the same change. `store/twin-collapse.ts` folds the bare rows into the twin
+// (once, atomically, key-aware) in the tasks bind before any read.
+export { tasksSchemaMeta as schemaMeta } from './schema/cleo-project/audit.js';
 export type {
   NewTasksLifecycleEvidenceRow as NewLifecycleEvidenceRow,
   NewTasksLifecycleGateResultRow as NewLifecycleGateResultRow,

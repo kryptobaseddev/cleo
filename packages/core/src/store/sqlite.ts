@@ -69,6 +69,7 @@ import {
   resolveCorePackageMigrationsFolder,
 } from './resolve-migrations-folder.js';
 import { listSqliteBackups } from './sqlite-backup.js';
+import { collapseSchemaMetaTwin } from './twin-collapse.js';
 import { assertDbPathIsNotWorktreeResident } from './worktree-isolation-guard.js';
 
 // node:sqlite access is isolated in the leaf module sqlite-native.ts to prevent
@@ -586,6 +587,11 @@ function establishTasksSchema(nativeDb: DatabaseSync, store: ProjectStore): Node
   // alongside the consolidated `tasks_tasks` tables.
   runMigrations(nativeDb, db, store.dbPath);
 
+  // T12535: fold the bare `schema_meta` into `tasks_schema_meta` (once,
+  // atomically, snapshot first) before any caller reads the twin. Throws —
+  // failing the bind — rather than serve an unmerged task-id counter.
+  collapseSchemaMetaTwin(nativeDb, store.dbPath);
+
   // Migration SQL contains PRAGMA foreign_keys=ON statements. In test
   // environments, disable FKs after migration so fixtures can insert
   // without full referential integrity.
@@ -606,16 +612,16 @@ function establishTasksSchema(nativeDb: DatabaseSync, store: ProjectStore): Node
 export const TASK_ID_SEQUENCE_SEED = '{"counter":0,"lastId":"T000","checksum":"seed"}';
 
 /**
- * Seed the tasks domain's `schema_meta` defaults (no-op for keys already set).
+ * Seed the tasks domain's `tasks_schema_meta` defaults (no-op for keys already set).
  *
  * @param nativeDb - Connection on the project `cleo.db`.
  */
 export function seedTasksMeta(nativeDb: DatabaseSync): void {
   nativeDb.exec(
-    `INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('schemaVersion', '${SCHEMA_VERSION}')`,
+    `INSERT OR IGNORE INTO tasks_schema_meta (key, value) VALUES ('schemaVersion', '${SCHEMA_VERSION}')`,
   );
   nativeDb
-    .prepare("INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('task_id_sequence', ?)")
+    .prepare("INSERT OR IGNORE INTO tasks_schema_meta (key, value) VALUES ('task_id_sequence', ?)")
     .run(TASK_ID_SEQUENCE_SEED);
 }
 

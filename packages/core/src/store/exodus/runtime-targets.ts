@@ -8,9 +8,10 @@
  * the runtime has not cut every table over. It binds the tasks domain through
  * `tasks-schema.ts`, which re-points only part of the legacy family at the
  * prefixed tables; `audit_log`, `token_usage`, `architecture_decisions`,
- * `attachments`, `schema_meta`, … are still read and written BARE. A reconcile
- * that copies a legacy `audit_log` row into `tasks_audit_log` preserves it where
- * no command will ever show it — which is not a reconcile.
+ * `attachments`, … are still read and written BARE (`schema_meta` moved to
+ * `tasks_schema_meta` in T12535). A reconcile that copies a legacy `audit_log`
+ * row into `tasks_audit_log` preserves it where no command will ever show it —
+ * which is not a reconcile.
  *
  * The answer is derived, never hand-written: for every drizzle table object in
  * the legacy bare schema module (`schema/index.ts`, whose physical names are the
