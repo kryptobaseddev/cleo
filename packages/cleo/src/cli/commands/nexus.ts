@@ -1211,7 +1211,7 @@ const analyzeCommand = defineCommand({
     full: {
       type: 'boolean',
       description:
-        'Parse every file instead of reusing unchanged files (default: incremental, falling back to full with a stated reason)',
+        "Parse every file instead of reusing unchanged files (default: incremental, falling back to full with a stated reason). Also re-binds a moved project's graph (same project id, old recorded root) to the live root",
     },
     incremental: {
       type: 'boolean',
@@ -1257,6 +1257,10 @@ const analyzeCommand = defineCommand({
       humanInfo(`[nexus] nexus-bridge.md refreshed at ${repoPath}/.cleo/nexus-bridge.md`);
       humanInfo('[nexus] Project registered/updated in multi-project registry.');
 
+      if (result.rebind)
+        humanInfo(
+          `[nexus] Re-bound graph for ${result.rebind.projectId}: ${result.rebind.oldRoot} -> ${result.rebind.newRoot}`,
+        );
       humanInfo(
         `[nexus] Mode: ${result.summary.mode} — ${result.summary.reason} ` +
           `(parsed ${result.summary.parsedFiles}, reused ${result.summary.reusedFiles})`,
@@ -1274,6 +1278,8 @@ const analyzeCommand = defineCommand({
           fileCount: result.fileCount,
           durationMs: result.durationMs,
           assessment: result.assessment,
+          // T12659: receipt of a moved project's graph re-bound to the live root.
+          ...(result.rebind ? { rebind: result.rebind } : {}),
         },
         {
           command: 'nexus-analyze',

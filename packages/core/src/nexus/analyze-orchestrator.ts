@@ -11,8 +11,9 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import type {
   GraphIndexAssessment,
   GraphIndexFileReport,
@@ -46,7 +47,13 @@ import {
 import { generateProjectHash } from './hash.js';
 import { readKnowledgeIndexAssessment } from './knowledge.js';
 import { resolveSourceRoots } from './source-roots.js';
-import { portableSourceRoots } from './stored-roots.js';
+import {
+  canonicalProjectRoot,
+  describeGraphOwnershipMismatch,
+  type GraphOwnershipMismatch,
+  nexusRebindCommand,
+  portableSourceRoots,
+} from './stored-roots.js';
 
 /**
  * Compare ownership and observed revisions without treating observation time as a change.
@@ -142,47 +149,109 @@ function applyParseCacheUpdate(tx: NodeSQLiteDatabase, update: GraphParseCacheUp
   }
 }
 
-/** Fail closed when a required root observation did not finish successfully. */
-function requireObservedRoots(roots: GraphSourceRootAssessment): void {
+/**
+ * Fail closed when a required root observation did not finish successfully.
+ *
+ * @param roots - Observed roots.
+ * @param remedy - Command that rebuilds without inclusions carried over from
+ *   the previous generation, when they were carried (T12659); named in the error.
+ */
+function requireObservedRoots(
+  roots: GraphSourceRootAssessment,
+  remedy: string | null = null,
+): void {
   const failed = roots.roots.filter(
     (root) => root.status !== 'available' && root.status !== 'unversioned',
   );
   if (failed.length)
     throw new Error(
-      `Source-root observation incomplete; previous graph retained: ${failed.map((root) => `${root.requestedPath}: ${root.diagnostics.join('; ')}`).join(' | ')}`,
+      `Source-root observation incomplete; previous graph retained: ${failed.map((root) => `${root.requestedPath}: ${root.diagnostics.join('; ')}`).join(' | ')}${
+        remedy && failed.some((root) => root.explicitlyIncluded && root.status === 'missing')
+          ? `. Repositories carried over from the previous generation are missing; rebuild without them: ${remedy}`
+          : ''
+      }`,
     );
 }
 
-/** Verify persisted parent identity without promoting a legacy path hash into authority. */
+/** Verified analysis identity, and the root a moved graph is being re-bound from. */
+interface AnalysisIdentity {
+  /** Verified project id the analysis publishes under. */
+  projectId: string;
+  /** Recorded root of a same-id graph being re-bound to the live root, else null. */
+  reboundFrom: string | null;
+}
+
+/**
+ * Verify persisted parent identity without promoting a legacy path hash into authority.
+ *
+ * A stored graph whose recorded root differs from the live root is refused —
+ * previous graph retained — unless `allowRebind` (a `--full` run) is set AND
+ * the stored project id equals the live id read from project-info. That is a
+ * moved project: the full rebuild re-binds the graph to the live root (T12659).
+ * Every refusal names the recorded vs live root and id and the exact remedy.
+ */
 async function readAnalysisIdentity(
   projectRoot: string,
   previousRoots: GraphSourceRootAssessment | undefined,
   projectIdOverride: string | undefined,
-): Promise<string> {
+  allowRebind: boolean,
+): Promise<AnalysisIdentity> {
   const canonicalParent = await realpath(projectRoot);
-  if (previousRoots && previousRoots.projectRoot !== canonicalParent)
-    throw new Error(
-      'Stored graph ownership differs from the current project root; previous graph retained.',
-    );
   let projectId: string | undefined;
+  let verified = false;
   try {
     const info = await getProjectInfo(projectRoot);
     projectId = info.projectId || info.projectHash;
+    verified = Boolean(projectId);
   } catch (error) {
     if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
     projectId = previousRoots?.projectId;
+  }
+  let reboundFrom: string | null = null;
+  if (previousRoots) {
+    const rootMismatch = previousRoots.projectRoot !== canonicalParent;
+    const idMismatch = projectId !== undefined && previousRoots.projectId !== projectId;
+    if (rootMismatch || idMismatch) {
+      const mismatch: GraphOwnershipMismatch = {
+        recordedRoot: previousRoots.projectRoot,
+        recordedProjectId: previousRoots.projectId,
+        liveRoot: canonicalParent,
+        liveProjectId: verified ? projectId : undefined,
+      };
+      if (rootMismatch && !idMismatch && verified && allowRebind) {
+        reboundFrom = previousRoots.projectRoot;
+      } else {
+        throw new Error(
+          `${
+            rootMismatch
+              ? 'Stored graph ownership differs from the current project root'
+              : 'Stored graph identity differs from the current project identity'
+          }; previous graph retained: ${describeGraphOwnershipMismatch(mismatch)}`,
+        );
+      }
+    }
   }
   if (!projectId)
     throw new Error(
       'Stable project identity is unavailable; initialize this project or restore its verified project identity.',
     );
-  if (previousRoots && previousRoots.projectId !== projectId)
-    throw new Error(
-      'Stored graph identity differs from the current project identity; previous graph retained.',
-    );
   if (projectIdOverride !== undefined && projectIdOverride !== projectId)
     throw new Error('Explicit analysis identity differs from the verified project identity.');
-  return projectId;
+  return { projectId, reboundFrom };
+}
+
+/** Receipt of a graph re-bound from a moved project's recorded root to its live root (T12659). */
+export interface NexusGraphRebind {
+  /** Project root the previous graph was recorded under. */
+  oldRoot: string;
+  /** Live project root the rebuilt graph is bound to. */
+  newRoot: string;
+  /** Project id, identical before and after. */
+  projectId: string;
+  /** Graph generation published by the re-binding rebuild. */
+  generation: string | null;
+  /** Previously included repositories absent under the live root, so not carried over. */
+  droppedRepositories: string[];
 }
 
 /**
@@ -440,6 +509,16 @@ export interface NexusAnalysisResult {
    * reference list is reported as `referenceCount` (T12348).
    */
   assessment: GraphIndexAssessment | null;
+  /**
+   * Present when a `--full` run re-bound a moved project's graph (same project
+   * id, different recorded root) to the live root (T12659).
+   */
+  rebind?: NexusGraphRebind;
+  /**
+   * Inclusions carried over from the previous generation that a `--full` run
+   * dropped because they no longer exist under the live source root (T12659).
+   */
+  droppedRepositories?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -513,11 +592,13 @@ async function runScopedNexusAnalysis(
   const db = await getNexusDb(projectRoot);
   const expectedGeneration = graphGeneration(db);
   const previousAssessment = await readKnowledgeIndexAssessment(projectRoot);
-  const projectId = await readAnalysisIdentity(
+  const identity = await readAnalysisIdentity(
     projectRoot,
     previousAssessment?.sourceRoots,
     projectIdOverride,
+    full,
   );
+  const { projectId, reboundFrom } = identity;
   if (execution && execution.identity.projectId !== projectId)
     throw new Error('Analysis identity differs from captured execution scope.');
   const tables = {
@@ -526,8 +607,22 @@ async function runScopedNexusAnalysis(
   };
 
   const requestedSource = resolve(params.repoPath);
+  // Inclusions carried over from the previous generation (none passed): on a
+  // re-bind, by their recorded relative path. A `--full` run drops a carried
+  // inclusion that no longer exists under the live source root — a moved or
+  // re-rooted project (parent -> child) — and reports it, instead of refusing
+  // with nothing left to run (T12659). Explicit inclusions are never dropped.
+  const carried =
+    params.includedRepositories !== undefined
+      ? null
+      : reboundFrom !== null
+        ? [...(previousAssessment?.includedRepositories ?? [])]
+        : includedRepositoryScope(previousAssessment, requestedSource);
+  const droppedRepositories =
+    full && carried ? carried.filter((rel) => !existsSync(join(requestedSource, rel))) : [];
   const includedRepositories =
-    params.includedRepositories ?? includedRepositoryScope(previousAssessment, requestedSource);
+    params.includedRepositories ??
+    (carried ?? []).filter((rel) => !droppedRepositories.includes(rel));
   const rootRequest = {
     projectId,
     projectRoot,
@@ -537,33 +632,41 @@ async function runScopedNexusAnalysis(
     ...(execution ? { deadline: execution.deadlineAt } : {}),
   };
   const sourceRoots = await resolveSourceRoots(rootRequest);
-  requireObservedRoots(sourceRoots);
+  requireObservedRoots(
+    sourceRoots,
+    carried !== null && !full ? nexusRebindCommand(canonicalProjectRoot(projectRoot)) : null,
+  );
   execution?.assertActive();
   const repoPath = sourceRoots.sourceRoot;
   const assessedRevision = sourceRoots.roots[0]?.revision ?? null;
   const unchangedOwnership =
     previousAssessment?.sourceRoots !== undefined &&
     ownershipFingerprint(previousAssessment.sourceRoots) === ownershipFingerprint(sourceRoots);
-  const fullReason = full
-    ? 'full rebuild requested (--full)'
-    : expectedGeneration === null
-      ? 'no previous generation to reuse'
-      : previousAssessment?.sourceRoots === undefined
-        ? 'the previous generation predates source-root provenance'
-        : !unchangedOwnership
-          ? 'source ownership (project root, source root or included repositories) changed since the previous generation'
-          : undefined;
+  const fullReason = reboundFrom
+    ? `full rebuild requested (--full), re-binding the graph from ${reboundFrom} to ${sourceRoots.projectRoot}`
+    : full
+      ? 'full rebuild requested (--full)'
+      : expectedGeneration === null
+        ? 'no previous generation to reuse'
+        : previousAssessment?.sourceRoots === undefined
+          ? 'the previous generation predates source-root provenance'
+          : !unchangedOwnership
+            ? 'source ownership (project root, source root or included repositories) changed since the previous generation'
+            : undefined;
   const useIncremental = fullReason === undefined;
   let committedAssessment: GraphIndexAssessment | null = null;
 
   const recheckRoots = async (): Promise<void> => {
     execution?.assertActive();
     if (
-      (await readAnalysisIdentity(
-        projectRoot,
-        previousAssessment?.sourceRoots,
-        projectIdOverride,
-      )) !== projectId
+      (
+        await readAnalysisIdentity(
+          projectRoot,
+          previousAssessment?.sourceRoots,
+          projectIdOverride,
+          full,
+        )
+      ).projectId !== projectId
     )
       throw new Error('Project identity changed during indexing; previous graph retained.');
     const currentRoots = await resolveSourceRoots(rootRequest);
@@ -729,5 +832,17 @@ async function runScopedNexusAnalysis(
     durationMs: Date.now() - startTime,
     // T12348: the summary; the reference list is detail (`nexus status --references`).
     assessment: reportedAssessment ? assessmentSummary(reportedAssessment) : null,
+    ...(droppedRepositories.length ? { droppedRepositories } : {}),
+    ...(reboundFrom !== null && committedAssessment !== null
+      ? {
+          rebind: {
+            oldRoot: reboundFrom,
+            newRoot: sourceRoots.projectRoot,
+            projectId,
+            generation: graphGeneration(db),
+            droppedRepositories,
+          },
+        }
+      : {}),
   };
 }

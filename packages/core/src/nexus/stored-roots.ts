@@ -215,3 +215,71 @@ export function decodeStoredAssessment<T extends StoredAssessmentRoots>(
     sourceRoots: mapRootPaths(roots, (path) => fromStoredPath(base, path, legacyRoot)),
   };
 }
+
+/**
+ * Command that proves or repairs the live project identity; the remedy when a
+ * stored graph names a different project id (T12659).
+ */
+export const NEXUS_IDENTITY_REMEDY_COMMAND = 'cleo doctor project-identity';
+
+/**
+ * Exact command that re-binds a moved project's graph to its live root: a full
+ * rebuild at that root. Accepted only when the stored project id equals the
+ * live, verified one (T12659).
+ *
+ * @param projectRoot - Canonical live project root.
+ * @returns The runnable command, with the root quoted.
+ * @example
+ * ```ts
+ * nexusRebindCommand('/Users/me/app'); // 'cleo nexus analyze "/Users/me/app" --full'
+ * ```
+ */
+export function nexusRebindCommand(projectRoot: string): string {
+  return `cleo nexus analyze ${JSON.stringify(projectRoot)} --full`;
+}
+
+/** Recorded vs live ownership of a stored graph. */
+export interface GraphOwnershipMismatch {
+  /** Project root the stored graph was built under. */
+  readonly recordedRoot: string;
+  /** Project id the stored graph was built for. */
+  readonly recordedProjectId: string;
+  /** Canonical live project root. */
+  readonly liveRoot: string;
+  /** Verified live project id, when it could be read. */
+  readonly liveProjectId: string | undefined;
+}
+
+/**
+ * The single remedy for a stored graph whose ownership differs from the live
+ * binding: a `--full` re-bind when the project ids match (the project moved),
+ * otherwise the identity check (the graph may belong to another project).
+ *
+ * @param mismatch - Recorded vs live ownership.
+ * @returns The exact command to run.
+ */
+export function graphOwnershipRemedy(mismatch: GraphOwnershipMismatch): string {
+  return mismatch.liveProjectId !== undefined &&
+    mismatch.liveProjectId === mismatch.recordedProjectId
+    ? nexusRebindCommand(mismatch.liveRoot)
+    : NEXUS_IDENTITY_REMEDY_COMMAND;
+}
+
+/**
+ * One-line detail naming the recorded and live root and id plus the remedy.
+ *
+ * @param mismatch - Recorded vs live ownership.
+ * @returns Human-readable detail for an ownership error.
+ */
+export function describeGraphOwnershipMismatch(mismatch: GraphOwnershipMismatch): string {
+  const sameId =
+    mismatch.liveProjectId !== undefined && mismatch.liveProjectId === mismatch.recordedProjectId;
+  const why = sameId
+    ? 'Same project id: the project moved. Re-bind the graph to the live root with a full rebuild'
+    : 'Different project id: this graph may belong to another project. Check the live identity';
+  return (
+    `recorded root ${mismatch.recordedRoot} (project ${mismatch.recordedProjectId}), ` +
+    `live root ${mismatch.liveRoot} (project ${mismatch.liveProjectId ?? 'unknown'}). ` +
+    `${why}: ${graphOwnershipRemedy(mismatch)}`
+  );
+}
