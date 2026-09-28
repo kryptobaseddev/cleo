@@ -67,6 +67,7 @@ import {
   listValidToolNames,
   resolveToolCommand,
 } from './tool-resolver.js';
+import { detectStaticVacuity, probeTscFileCount, VACUOUS_TOOL_FIX } from './tool-vacuity.js';
 
 /**
  * Valid tool names recognised by the `tool:<name>` evidence atom.
@@ -1748,7 +1749,9 @@ async function validateTestRun(path: string, roots: EvidenceRoots): Promise<Atom
 
 async function validateTool(tool: string, roots: EvidenceRoots): Promise<AtomValidation> {
   const { storeRoot: projectRoot, executionRoot } = roots;
-  const resolution = resolveToolCommand(tool, projectRoot);
+  // T12633: project-context lives in the store; package.json scripts and
+  // tsconfig describe the code under test, so they are read where it runs.
+  const resolution = resolveToolCommand(tool, projectRoot, { executionRoot });
 
   // T12083: the project has no such toolchain. This is a fact about the
   // project, not a failure of the work — a plain JavaScript project cannot
@@ -1776,6 +1779,20 @@ async function validateTool(tool: string, roots: EvidenceRoots): Promise<AtomVal
         resolution.codeName === 'E_TOOL_UNKNOWN'
           ? 'E_EVIDENCE_INVALID'
           : 'E_EVIDENCE_TOOL_UNAVAILABLE',
+    };
+  }
+
+  // T12633: a checker that provably checks nothing is not evidence. Decided
+  // BEFORE the cache lookup, so a pass cached for the vacuous command (every
+  // `npx tsc --noEmit` against a references-only tsconfig) is never served.
+  const staticVacuity = detectStaticVacuity(resolution.command, executionRoot);
+  if (staticVacuity !== null) {
+    return {
+      ok: false,
+      reason:
+        `Tool "${tool}" → ${resolution.command.cmd} ${resolution.command.args.join(' ')} ` +
+        `(${resolution.command.source}) is VACUOUS: ${staticVacuity} Fix: ${VACUOUS_TOOL_FIX}`,
+      codeName: 'E_EVIDENCE_TOOL_VACUOUS',
     };
   }
 
@@ -1890,6 +1907,19 @@ async function validateTool(tool: string, roots: EvidenceRoots): Promise<AtomVal
         `Tool "${tool}" exited with code ${result.exitCode}` +
         `${result.cacheHit ? ' (cached)' : ''}. Tail: ${tail}`,
       codeName: 'E_EVIDENCE_TOOL_FAILED',
+    };
+  }
+
+  // T12633: exit 0 from a direct `tsc` run is only a pass if it compiled
+  // something. `--listFilesOnly` answers that without re-checking.
+  if (probeTscFileCount(resolution.command, result.executionRoot) === 0) {
+    return {
+      ok: false,
+      reason:
+        `Tool "${tool}" → ${resolution.command.cmd} ${resolution.command.args.join(' ')} ` +
+        `exited 0 but is VACUOUS: \`--listFilesOnly\` reports 0 project files in ` +
+        `${result.executionRoot}, so it checked nothing. Fix: ${VACUOUS_TOOL_FIX}`,
+      codeName: 'E_EVIDENCE_TOOL_VACUOUS',
     };
   }
 

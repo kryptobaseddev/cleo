@@ -651,6 +651,8 @@ export async function memoryObserve(
      * Passed through to `observeBrain` and stored in `attachments_json`.
      */
     attachmentRefs?: string[];
+    /** T12494: opt in to a System One type choice when `type` is absent (interactive observe only). */
+    askTypeDecision?: boolean;
   },
   projectRoot?: string,
 ): Promise<EngineResult> {
@@ -665,6 +667,7 @@ export async function memoryObserve(
       sourceType: params.sourceType as ObserveBrainParams['sourceType'],
       agent: params.agent,
       attachmentRefs: params.attachmentRefs,
+      ...(params.askTypeDecision ? { askTypeDecision: true } : {}),
     };
 
     // T419: route mental-model observations (agent-tagged, relevant type) through

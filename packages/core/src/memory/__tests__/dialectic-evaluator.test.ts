@@ -22,10 +22,11 @@
  * @epic T1056
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { getCleoStateDir } from '@cleocode/paths';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ============================================================================
 // Module mocks — must be hoisted before any dynamic imports
@@ -64,6 +65,7 @@ import {
   _resetDialecticFailureFingerprintsForTests,
   evaluateDialectic,
   GLOBAL_TRAIT_CONFIDENCE_THRESHOLD,
+  getDialecticFailureStatePath,
   PEER_INSIGHT_CONFIDENCE_THRESHOLD,
 } from '../dialectic-evaluator.js';
 import { resolveLlmBackend } from '../llm-backend-resolver.js';
@@ -107,15 +109,24 @@ function mockBackendUnavailable(): void {
 
 // Isolate the dialectic-failure fingerprint cache to a per-test-run temp dir so
 // warn-once persistence does not leak across test files or developer machines.
+// getCleoStateDir() is $XDG_STATE_HOME/cleo on Linux and <CLEO_HOME>/state on
+// macOS/Windows, so both are pinned to the temp dir (T12602).
 const TEST_STATE_DIR = mkdtempSync(join(tmpdir(), 'cleo-dialectic-test-'));
 const ORIGINAL_XDG_STATE_HOME = process.env['XDG_STATE_HOME'];
+const ORIGINAL_CLEO_HOME = process.env['CLEO_HOME'];
 process.env['XDG_STATE_HOME'] = TEST_STATE_DIR;
+process.env['CLEO_HOME'] = TEST_STATE_DIR;
 
 afterAll(() => {
   if (ORIGINAL_XDG_STATE_HOME === undefined) {
     delete process.env['XDG_STATE_HOME'];
   } else {
     process.env['XDG_STATE_HOME'] = ORIGINAL_XDG_STATE_HOME;
+  }
+  if (ORIGINAL_CLEO_HOME === undefined) {
+    delete process.env['CLEO_HOME'];
+  } else {
+    process.env['CLEO_HOME'] = ORIGINAL_CLEO_HOME;
   }
   rmSync(TEST_STATE_DIR, { recursive: true, force: true });
 });
@@ -125,6 +136,7 @@ beforeEach(() => {
   // Clear filesystem cache between tests so each failure-path test sees a fresh
   // "first occurrence" warn-once decision.
   rmSync(join(TEST_STATE_DIR, 'cleo'), { recursive: true, force: true });
+  rmSync(join(TEST_STATE_DIR, 'state'), { recursive: true, force: true });
   // Clear in-memory fingerprint cache too, since multiple tests reuse the same
   // backend+model+errorCode fingerprint (notably Error.name='Error').
   _resetDialecticFailureFingerprintsForTests();
@@ -375,6 +387,28 @@ describe('evaluateDialectic — telemetry: no backend available', () => {
     await evaluateDialectic(makeTurn({}));
 
     expect(mockLogWarn).not.toHaveBeenCalled();
+  });
+});
+
+describe('dialectic-failure state file location (T12602)', () => {
+  const PLATFORM = Object.getOwnPropertyDescriptor(process, 'platform');
+
+  afterEach(() => {
+    if (PLATFORM) Object.defineProperty(process, 'platform', PLATFORM);
+  });
+
+  it('macOS: persists the fingerprint under getCleoStateDir(), not $XDG_STATE_HOME', async () => {
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+    mockBackendAvailable();
+    (generateObject as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('boom'));
+
+    await evaluateDialectic(makeTurn({ sessionId: 'ses_state_path' }));
+
+    expect(getDialecticFailureStatePath()).toBe(
+      join(TEST_STATE_DIR, 'state', 'dialectic-failures.json'),
+    );
+    expect(existsSync(join(getCleoStateDir(), 'dialectic-failures.json'))).toBe(true);
+    expect(existsSync(join(TEST_STATE_DIR, 'cleo', 'dialectic-failures.json'))).toBe(false);
   });
 });
 

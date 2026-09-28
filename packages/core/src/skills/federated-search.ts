@@ -18,7 +18,7 @@
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { getTopUsed } from '../store/skills-store.js';
 import { type FederationEntry, listFederationPeers } from './federation-store.js';
 import type { SkillTrustLevel } from './skills-guard.js';
@@ -171,7 +171,7 @@ function readSkillName(skillDir: string): string | null {
     const text = readFileSync(skillMd, 'utf8').slice(0, 4096);
     const nameMatch = /^name:\s*["']?([\w\-./@]+)["']?/m.exec(text);
     if (nameMatch?.[1]) return nameMatch[1];
-    return skillDir.split('/').filter(Boolean).pop() ?? null;
+    return basename(skillDir) || null;
   } catch {
     return null;
   }

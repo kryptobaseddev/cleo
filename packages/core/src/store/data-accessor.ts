@@ -9,6 +9,7 @@
  */
 
 import { resolve } from 'node:path';
+import { isEphemeralPath } from '../nexus/registry-hygiene.js';
 import { getProjectRoot, worktreeScope } from '../project-scope.js';
 
 // Re-export the interface and all related types from contracts
@@ -54,15 +55,14 @@ export function assertTestEnv(dbPath: string): void {
     return;
   }
 
-  // Allow paths that are clearly temp/in-memory (OS temp dir, :memory:, test fixtures)
-  const tmpDir = process.env['TMPDIR'] ?? process.env['TMP'] ?? process.env['TEMP'] ?? '/tmp';
+  // Allow paths that are clearly temp/in-memory (OS temp dir, :memory:, test fixtures).
+  // Temp containment is the shared realpath + path.relative check, so the
+  // Windows %TEMP% and the macOS /private/var/folders forms both count (T12606).
   const isTmpPath =
     dbPath === ':memory:' ||
-    dbPath.startsWith(tmpDir) ||
-    dbPath.includes('/tmp/') ||
-    dbPath.includes('\\Temp\\') ||
+    isEphemeralPath(dbPath) ||
     dbPath.includes('.test.') ||
-    dbPath.includes('/test-') ||
+    /[/\\]test-/.test(dbPath) ||
     // vitest uses a unique tmpDir per worker
     dbPath.includes('vitest');
 

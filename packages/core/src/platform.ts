@@ -8,7 +8,6 @@
  * @epic T4454
  */
 
-import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, statSync } from 'node:fs';
 import {
@@ -21,6 +20,7 @@ import {
   totalmem,
 } from 'node:os';
 import { join } from 'node:path';
+import { findOnPath } from '@cleocode/paths';
 
 /** Detected platform. */
 export type Platform = 'linux' | 'macos' | 'windows' | 'unknown';
@@ -42,23 +42,14 @@ export function detectPlatform(): Platform {
 /** Cached platform value. */
 export const PLATFORM: Platform = detectPlatform();
 
-/** Check if a command exists on PATH. */
+/**
+ * Check if a command exists on PATH.
+ *
+ * In-process lookup honouring the platform PATH delimiter and `PATHEXT`
+ * (T12605) — no `which`/`where` child, so it behaves the same on every OS.
+ */
 export function commandExists(command: string): boolean {
-  try {
-    execFileSync('which', [command], { stdio: ['pipe', 'pipe', 'pipe'] });
-    return true;
-  } catch {
-    // On Windows, 'which' may not exist
-    if (PLATFORM === 'windows') {
-      try {
-        execFileSync('where', [command], { stdio: ['pipe', 'pipe', 'pipe'] });
-        return true;
-      } catch {
-        return false;
-      }
-    }
-    return false;
-  }
+  return findOnPath(command) !== null;
 }
 
 /** Require a tool to be available, returning an error message if missing. */

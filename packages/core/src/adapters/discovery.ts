@@ -5,10 +5,10 @@
  * @task T5240
  */
 
-import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { AdapterManifest, DetectionPattern } from '@cleocode/contracts';
+import { findOnPath } from '@cleocode/paths';
 
 /**
  * Scan the packages/adapters/ directory for adapter packages.
@@ -72,14 +72,8 @@ function matchDetectionPattern(pattern: DetectionPattern): boolean {
         (process.env.EDITOR ?? '').toLowerCase().includes(processName)
       );
     }
-    case 'cli': {
-      try {
-        execFileSync('which', [pattern.pattern], { stdio: 'ignore', timeout: 3000 });
-        return true;
-      } catch {
-        return false;
-      }
-    }
+    case 'cli':
+      return findOnPath(pattern.pattern) !== null;
     default:
       return false;
   }

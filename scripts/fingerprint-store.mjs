@@ -28,13 +28,46 @@
  *
  * Integers are read as BigInt, so values above 2^53 hash exactly.
  *
- * Each row hash is sha256 over the canonical values in column-name order.
- * The table digest (`sha256`) is sha256 over the column names plus the SORTED
- * row hashes, so it is independent of the physical row order and equal only
- * for an equal multiset of rows. Replay compares digests (exact set
+ * Each row hash is HMAC-SHA256 over the canonical values in column-name
+ * order. The table digest (`sha256`) is sha256 over the column names plus the
+ * SORTED row hashes, so it is independent of the physical row order and equal
+ * only for an equal multiset of rows. Replay compares digests (exact set
  * equality). Merge needs a subset check, so the row hashes are also written,
  * sorted, to a sidecar file (`--rows`, default `<out>.rows`), one
- * `<table>\t<hash>` line per row. The JSON records only its basename.
+ * `<table>\t<hash>` line per row. The JSON records the sidecar's basename and
+ * its sha256 (`rowsSha256`), so the comparator can bind the two files.
+ *
+ * ## The HMAC key: one per comparison
+ *
+ * An unkeyed row hash is a guessing oracle: a row with few, predictable
+ * values (a dependency edge `T3 → T2`) is recovered by hashing candidates. The
+ * row hash is therefore keyed. Both sides of one comparison MUST use the same
+ * key, and the key must NOT travel with the fingerprints:
+ *
+ *   node scripts/fingerprint-store.mjs --db source.db --out shared/source.json \
+ *     --key-out ~/private/compare.key      # a new random 32-byte key, 0600
+ *   node scripts/fingerprint-store.mjs --db replica.db --out shared/replica.json \
+ *     --key-file ~/private/compare.key
+ *   node scripts/compare-fingerprints.mjs --source shared/source.json \
+ *     --replica shared/replica.json --key-file ~/private/compare.key
+ *
+ * There is no default key location. One of `--key-file` (an existing key) or
+ * `--key-out` (where to create a new one) is required, and `--key-out` is
+ * refused when it would land in the directory of `--out` or of the `.rows`
+ * sidecar: a directory of fingerprints is the thing that gets copied or
+ * shared, and a key inside it would travel with the rows it protects.
+ * `--key-out` never overwrites an existing file.
+ *
+ * The JSON records `keyId`, an HMAC of a fixed label under the key, and
+ * `mac`, an HMAC under the key over the canonical encoding of every other
+ * field (`scripts/lib/fingerprint-mac.mjs`). The comparator verifies both
+ * with `--key-file`, so an edited field (`rowsFile`, `rowsSha256`, a digest,
+ * a count) fails.
+ *
+ * SENSITIVE: the `.rows` sidecar and the key file are written with mode
+ * 0600. Anyone holding both can test guesses against every row, so keep the
+ * key on the machine that runs the comparison, and delete the sidecars and
+ * the key afterwards.
  *
  * Memory: one table's row hashes are held at a time (about 130 bytes per row
  * as hex strings, so ~130 MB for a 1M-row table), then sorted, digested and
@@ -50,6 +83,17 @@
  * `VACUUM INTO` a private temp directory, and the copy is fingerprinted. A live
  * store's snapshot needs its `-shm` to be usable, as it is while a writer runs.
  *
+ * The snapshot is a plaintext copy of the store, so it lives as briefly as
+ * possible. The temp directory is created with mode 0700. As soon as the copy
+ * is open, a `finally` removes the directory; the open handle keeps the pages
+ * readable (POSIX), so no copy stays on disk while the store is hashed. A
+ * SIGINT, SIGTERM or SIGHUP that arrives during the (synchronous) copy is
+ * deferred, not fatal: the script yields to the event loop right after the
+ * copy, and the handler removes the directory and exits with 128 + signal
+ * number before any hashing. An `exit` handler repeats the removal as a last resort (for example
+ * when the directory could not be removed while open). Only SIGKILL or a power
+ * loss during the copy can leave a copy behind.
+ *
  * The fingerprint never records a path: the store is named by `--label`
  * only, and the output is checked for the store's absolute path before it is
  * written. Fingerprints are artifacts that may be shared, and the nexus rule
@@ -62,18 +106,24 @@
  *
  * Usage:
  *   node scripts/fingerprint-store.mjs --db <cleo.db> [--scope project|global]
- *     [--label <name>] [--out <file.json>] [--rows <file.rows>]
+ *     (--key-file <file> | --key-out <file>) [--label <name>] [--out <file.json>]
+ *     [--rows <file.rows>]
  *
  * Companion: scripts/compare-fingerprints.mjs.
  *
  * @task T12332
+ * @task T12613
+ * @task T12636
  */
-import { createHash } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import {
+  chmodSync,
   closeSync,
   existsSync,
+  fchmodSync,
   mkdtempSync,
   openSync,
+  readFileSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -89,6 +139,7 @@ import {
   classifyTable,
   isPortableTableClass,
 } from '../packages/core/src/store/table-classification.ts';
+import { fingerprintMac, parseKey } from './lib/fingerprint-mac.mjs';
 
 const REPO_ROOT = resolve(import.meta.dirname, '..');
 
@@ -99,6 +150,8 @@ const { values } = parseArgs({
     label: { type: 'string', default: 'store' },
     out: { type: 'string' },
     rows: { type: 'string' },
+    'key-file': { type: 'string' },
+    'key-out': { type: 'string' },
   },
 });
 if (!values.db) throw new Error('pass --db <cleo.db>');
@@ -106,6 +159,41 @@ if (!['project', 'global'].includes(values.scope))
   throw new Error('--scope must be project or global');
 const scope = /** @type {'project' | 'global'} */ (values.scope);
 const rowsPath = values.rows ?? (values.out ? `${values.out}.rows` : undefined);
+
+/** Open a file for writing with mode 0600, including when it already exists with wider bits. */
+function openPrivate(file) {
+  const fd = openSync(file, 'w', 0o600);
+  fchmodSync(fd, 0o600);
+  return fd;
+}
+
+// The HMAC key for the row hashes and the JSON MAC: shared by both sides of one comparison.
+if (Boolean(values['key-file']) === Boolean(values['key-out']))
+  throw new Error(
+    'fingerprint-store: pass exactly one of --key-file <existing> or --key-out <new>',
+  );
+let key;
+if (values['key-file']) {
+  key = parseKey(readFileSync(values['key-file'], 'utf8'));
+} else {
+  const keyOut = resolve(values['key-out']);
+  for (const shared of [values.out, rowsPath]) {
+    if (shared && dirname(resolve(shared)) === dirname(keyOut))
+      throw new Error(
+        'fingerprint-store: refusing --key-out in the directory of --out or --rows: sharing that directory would share the key',
+      );
+  }
+  key = randomBytes(32).toString('hex');
+  // wx: never overwrite a key another comparison may still use.
+  const fd = openSync(keyOut, 'wx', 0o600);
+  fchmodSync(fd, 0o600);
+  writeSync(fd, `${key}\n`);
+  closeSync(fd);
+}
+const keyId = createHmac('sha256', key)
+  .update('cleo-fingerprint-key-id')
+  .digest('hex')
+  .slice(0, 16);
 
 /** Load sqlite-vec into a connection; false when it is not installed. */
 function loadVec(conn) {
@@ -128,18 +216,53 @@ const input = resolve(values.db);
 if (!existsSync(input)) throw new Error('fingerprint-store: --db does not exist');
 const walFile = `${input}-wal`;
 let snapshotDir;
-let dbFile = input;
-if (existsSync(walFile) && statSync(walFile).size > 0) {
-  // immutable=1 would ignore the WAL's committed pages: snapshot the store first.
-  snapshotDir = mkdtempSync(join(tmpdir(), 'cleo-fingerprint-'));
-  dbFile = join(snapshotDir, 'snapshot.db');
-  const live = new DatabaseSync(input, { readOnly: true, allowExtension: true });
-  loadVec(live);
-  live.prepare('VACUUM INTO ?').run(dbFile);
-  live.close();
+let snapshotted = false;
+
+/** Remove the plaintext snapshot, if any. Safe to call more than once. */
+function removeSnapshot() {
+  if (!snapshotDir) return;
+  try {
+    rmSync(snapshotDir, { recursive: true, force: true });
+    snapshotDir = undefined;
+  } catch {
+    // Still open where an open file cannot be removed; the exit handler retries.
+  }
+}
+process.on('exit', removeSnapshot);
+for (const [signal, number] of [
+  ['SIGINT', 2],
+  ['SIGHUP', 1],
+  ['SIGTERM', 15],
+]) {
+  process.on(signal, () => {
+    removeSnapshot();
+    process.exit(128 + number);
+  });
 }
 
-const db = openImmutable(dbFile);
+let db;
+if (existsSync(walFile) && statSync(walFile).size > 0) {
+  // immutable=1 would ignore the WAL's committed pages: snapshot the store first.
+  try {
+    snapshotDir = mkdtempSync(join(tmpdir(), 'cleo-fingerprint-'));
+    chmodSync(snapshotDir, 0o700);
+    const dbFile = join(snapshotDir, 'snapshot.db');
+    const live = new DatabaseSync(input, { readOnly: true, allowExtension: true });
+    loadVec(live);
+    live.prepare('VACUUM INTO ?').run(dbFile);
+    live.close();
+    db = openImmutable(dbFile);
+    snapshotted = true;
+  } finally {
+    // The open handle keeps the copy readable; the plaintext file goes now.
+    removeSnapshot();
+  }
+  // The copy is synchronous, so a signal that arrived during it is still pending:
+  // yield once so its handler runs now, before any hashing.
+  await new Promise((done) => setImmediate(done));
+} else {
+  db = openImmutable(input);
+}
 const vecLoaded = loadVec(db);
 
 const q = (sql) => db.prepare(sql).all();
@@ -210,14 +333,17 @@ const result = {
   scope,
   at: new Date().toISOString(),
   vecLoaded,
+  keyId,
   rowsFile: rowsPath ? basename(rowsPath) : null,
+  rowsSha256: null,
   tables: {},
   volumeByClass: {},
   relationships: {},
   invariants: {},
 };
 
-const rowsFd = rowsPath ? openSync(rowsPath, 'w') : undefined;
+const rowsFd = rowsPath ? openPrivate(rowsPath) : undefined;
+const rowsDigest = createHash('sha256');
 for (const t of tables) {
   const { class: cls, status, shareable, overrides } = classOf(t);
   const entry = { class: cls, status, shareable };
@@ -256,7 +382,7 @@ for (const t of tables) {
         }
       }
       hashes.push(
-        createHash('sha256')
+        createHmac('sha256', key)
           .update(cols.map((c) => canon(row[c])).join('\u0001'))
           .digest('hex'),
       );
@@ -266,12 +392,18 @@ for (const t of tables) {
     const h = createHash('sha256').update(cols.join('\u0000'));
     for (const rh of hashes) h.update(`${rh}\n`);
     entry.sha256 = h.digest('hex');
-    if (rowsFd !== undefined && hashes.length > 0)
-      writeSync(rowsFd, `${hashes.map((rh) => `${t}\t${rh}`).join('\n')}\n`);
+    if (rowsFd !== undefined && hashes.length > 0) {
+      const chunk = `${hashes.map((rh) => `${t}\t${rh}`).join('\n')}\n`;
+      writeSync(rowsFd, chunk);
+      rowsDigest.update(chunk);
+    }
   }
   result.tables[t] = entry;
 }
-if (rowsFd !== undefined) closeSync(rowsFd);
+if (rowsFd !== undefined) {
+  closeSync(rowsFd);
+  result.rowsSha256 = rowsDigest.digest('hex');
+}
 
 // Relationship edges that must survive replay. Each counts rows whose reference
 // does not resolve in this store; a replica must reproduce the same count, never more.
@@ -384,8 +516,9 @@ if (scope === 'project') {
   for (const [name, sql] of Object.entries(invariants)) result.invariants[name] = measure(sql);
 }
 db.close();
-if (snapshotDir) rmSync(snapshotDir, { recursive: true, force: true });
+removeSnapshot();
 
+result.mac = fingerprintMac(result, key);
 const json = JSON.stringify(result, null, 1);
 // Never record a path: refuse to write a fingerprint that names the store's location.
 for (const leak of [input, dirname(input), dirname(dirname(input))]) {
@@ -400,7 +533,7 @@ if (values.out) writeFileSync(values.out, `${json}\n`);
 
 const shareable = Object.values(result.tables).filter((e) => e.sha256);
 console.log(
-  `${result.store} (${scope}): ${tables.length} tables, ${shareable.length} fingerprinted, sqlite-vec ${vecLoaded ? 'loaded' : 'NOT loaded'}${snapshotDir ? ', read from a VACUUM INTO snapshot (non-empty WAL)' : ''}`,
+  `${result.store} (${scope}): ${tables.length} tables, ${shareable.length} fingerprinted, sqlite-vec ${vecLoaded ? 'loaded' : 'NOT loaded'}${snapshotted ? ', read from a VACUUM INTO snapshot (non-empty WAL)' : ''}`,
 );
 console.log(`volume by class: ${JSON.stringify(result.volumeByClass)}`);
 if (scope === 'project') console.log(`invariants: ${JSON.stringify(result.invariants)}`);

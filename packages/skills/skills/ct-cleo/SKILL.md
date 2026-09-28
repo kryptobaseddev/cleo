@@ -2,7 +2,7 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.20.9
+  version: 2.21.0
   lastReviewed: 2026-09-28
   stability: stable
 ---
@@ -56,6 +56,9 @@ unreachable, or nexus hits `ENOENT` on an old path, run and report:
 4. `cleo nexus projects clean --orphans --dry-run` — NEVER without `--dry-run`;
    it deletes rows for projects that merely moved.
 5. `cleo doctor credentials` — credentials still keyed by an old path.
+6. `cleo doctor global-delivery` — `~/.cleo`, the global hub reference and every
+   harness CLEO skill install must resolve (a `~/.cleo` link carried by dotfiles from
+   Linux dangles on macOS and silences all of them). `--repair` relinks with a receipt.
 
 Never delete registry rows for projects that may have moved.
 
@@ -94,13 +97,14 @@ applies reviewed input through the same lifecycle; `--fix --actor AGENT` handles
 confirmed stubs. `cleo doctor repair` retains its separate database-recovery semantics.
 
 <!-- thin-pointer: full protocol is in CLEO-INJECTION.md (T9148) -->
-Full protocol content lives in `~/.cleo/templates/CLEO-INJECTION.md`.
-Emit any section with: `cleo briefing inject --section <name>`
+The always-loaded core is `~/.cleo/templates/CLEO-INJECTION.md`; reference sections ship in the
+package's `CLEO-REFERENCE.md` (T12580). Emit any section with: `cleo briefing inject --section <name>`
 
-Supported sections: `session-start` · `work-loop` · `triggers` · `task-creation`
-· `task-discovery` · `task-relationships` · `session-commands` · `memory` · `nexus`
-· `orchestration` · `playbooks` · `documents` · `error-handling` · `pre-complete-gate`
-· `spawn-tiers` · `rules` · `memory-jit` · `escalation`
+Core: `session-start` · `work-loop` · `triggers` · `session-commands` · `output-contract`
+· `error-handling` · `pre-complete-gate` · `rules` · `escalation`. On demand: `task-creation`
+· `task-discovery` · `task-relationships` · `memory` · `memory-jit` · `data-location` · `nexus`
+· `orchestration` · `playbooks` · `documents` · `human-render` · `spawn-tiers` · `evidence`
+· `projection` · `knowledge-repair`
 
 Task find defaults to lexical query terms. Fuzzy character-subsequence matching requires `--fuzzy`; inspect per-row `match.kind` and `match.fields` before inferring related work. `--in` restricts the source field. Matching mode and fuzzy field explanations survive scalar/human output on stderr. Semantic retrieval remains separately identified.
 
@@ -219,7 +223,7 @@ This internal budget contract does not add a `--token-budget` flag to add/update
 
 ## Skill-Specific Extensions
 
-- Task hierarchy, Saga commands, add-batch decomposition, docs policy, and CLI output details live in CLEO-INJECTION.md; emit `task-creation`, `documents`, and `pre-complete-gate` when needed.
+- Task hierarchy, Saga commands, add-batch decomposition, docs policy, and evidence detail live in the on-demand reference; emit `task-creation`, `documents`, and `evidence` when needed.
 - For add-batch input, The top-level JSON MUST be an array of task objects, not an object wrapper like `{ "tasks": [...] }`.
 - Dry-run count semantics: `/data/count` and `/data/wouldCreate` predict writes; `/data/insertedCount` must be `0` for dry-run.
 - Mutation output paths: use `/data/created/0`, `/data/updated/0`, and `/data/deleted/0`; never parse legacy full records. `--output id` emits affected IDs once in created/updated/deleted order from these canonical arrays.

@@ -10,7 +10,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, renameSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { sql } from 'drizzle-orm';
 import { getLogger } from '../logger.js';
 import { getNexusDb } from '../store/nexus-sqlite.js';
@@ -62,7 +62,7 @@ export async function migrateJsonToSqlite(): Promise<number> {
   for (const entry of entries) {
     const projectPath = String(entry['path'] ?? '');
     const projectHash = String(entry['hash'] ?? entry['projectHash'] ?? '');
-    const name = String(entry['name'] ?? projectPath.split('/').pop() ?? 'unknown');
+    const name = String(entry['name'] ?? (basename(projectPath) || 'unknown'));
 
     if (!projectPath || !projectHash) continue;
 

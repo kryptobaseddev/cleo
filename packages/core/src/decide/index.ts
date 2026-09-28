@@ -99,11 +99,14 @@ export {
   type DecisionProviderErrorOptions,
 } from './provider.js';
 export {
+  type AskSiteDecisionInput,
+  askSiteDecision,
   type DecisionSiteMode,
   type DecisionSiteSettings,
   isDecisionSiteMode,
   type ResolveDecisionSiteSettingsInput,
   redactThenClip,
   resolveDecisionSiteSettings,
+  type SiteDecision,
 } from './site.js';
 export { type DecideFetch, type DecideFetchInit, decideFetch } from './transport.js';

@@ -35,7 +35,7 @@
  * @epic T9808
  */
 
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import {
   appendFileSync,
   type Dirent,
@@ -56,6 +56,7 @@ import type {
   WorktreeAnomaly,
 } from '@cleocode/contracts';
 import { computeProjectHash, getCleoWorktreesRoot } from '@cleocode/paths';
+import { create as tarCreate } from 'tar';
 
 /**
  * Maximum directory depth (relative to `.claude/worktrees/`) at which a
@@ -535,35 +536,19 @@ function resolveWithinBoundary(target: string, boundary: string): string | null 
 }
 
 /**
- * Synchronously archive a list of directories into a single `.tar.gz` via
- * the system `tar` binary. Resolves on exit code 0, rejects on non-zero.
+ * Archive a list of directories into a single `.tar.gz`.
  *
- * Uses `-C <projectRoot>` and relative paths so the archive's internal
- * layout stays portable (no leaking of absolute paths from the build
- * machine).
+ * Uses the in-process `tar` library rather than a system `tar` binary, so it
+ * behaves the same on every OS (T12604). Entries are relative to
+ * `projectRoot` so the archive's internal layout stays portable (no leaking
+ * of absolute paths from the build machine).
  */
-function tarGzDirs(archivePath: string, projectRoot: string, dirs: string[]): Promise<void> {
-  return new Promise((resolvePromise, rejectPromise) => {
-    if (dirs.length === 0) {
-      rejectPromise(new Error('tarGzDirs: refusing to write an empty archive'));
-      return;
-    }
-    const relPaths = dirs.map((d) => relative(projectRoot, d));
-    const args = ['-czf', archivePath, '-C', projectRoot, ...relPaths];
-    const child = spawn('tar', args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    let stderr = '';
-    child.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString('utf8');
-    });
-    child.on('error', (err) => rejectPromise(err));
-    child.on('close', (code) => {
-      if (code === 0) {
-        resolvePromise();
-      } else {
-        rejectPromise(new Error(`tar exited ${code}: ${stderr.trim()}`));
-      }
-    });
-  });
+async function tarGzDirs(archivePath: string, projectRoot: string, dirs: string[]): Promise<void> {
+  if (dirs.length === 0) {
+    throw new Error('tarGzDirs: refusing to write an empty archive');
+  }
+  const relPaths = dirs.map((d) => relative(projectRoot, d));
+  await tarCreate({ gzip: true, file: archivePath, cwd: projectRoot }, relPaths);
 }
 
 /**

@@ -24,8 +24,7 @@ import type {
   DependencyReport,
   DependencySpec,
 } from '@cleocode/contracts';
-import { evaluateNodeVersion } from '@cleocode/paths';
-import { PLATFORM } from '../platform.js';
+import { evaluateNodeVersion, findOnPath } from '@cleocode/paths';
 
 /** ESM-safe require function for loading native addons. */
 const _require = createRequire(import.meta.url);
@@ -59,12 +58,10 @@ function tryExec(cmd: string, args: string[], timeoutMs = 3000): string | null {
 /**
  * Resolve the absolute path of a command on PATH, or `null` if absent.
  *
- * Uses `which` on POSIX and `where` on Windows, matching `commandExists()`
- * in `platform.ts`.
+ * Delegates to the shared PATH/PATHEXT-aware {@link findOnPath} (T12605).
  */
 function which(cmd: string): string | null {
-  const tool = PLATFORM === 'windows' ? 'where' : 'which';
-  return tryExec(tool, [cmd]);
+  return findOnPath(cmd);
 }
 
 // ============================================================================

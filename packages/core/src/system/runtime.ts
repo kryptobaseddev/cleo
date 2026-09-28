@@ -4,11 +4,10 @@
  * @epic T4881
  */
 
-import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import { promisify } from 'node:util';
+import { findOnPath } from '@cleocode/paths';
 import { getCleoHome } from '../paths.js';
 
 type RuntimeChannel = 'stable' | 'beta' | 'dev';
@@ -139,16 +138,7 @@ async function getPackageInfo(
 }
 
 async function resolveBinaryPath(name: string): Promise<string | null> {
-  const execFileAsync = promisify(execFile);
-  const resolver = process.platform === 'win32' ? 'where' : 'which';
-
-  try {
-    const { stdout } = await execFileAsync(resolver, [name]);
-    const first = stdout.trim().split(/\r?\n/)[0] ?? '';
-    return first || null;
-  } catch {
-    return null;
-  }
+  return findOnPath(name);
 }
 
 // SSoT-EXEMPT:engine-migration-T1571

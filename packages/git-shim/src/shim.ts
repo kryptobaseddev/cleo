@@ -37,8 +37,9 @@
 
 import { spawnSync } from 'node:child_process';
 import { accessSync, constants, realpathSync, statSync } from 'node:fs';
-import { delimiter, join } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pathEnvKey, splitPathEnv } from '@cleocode/paths';
 import { type AuditRecord, writeAuditRecord } from './audit-log.js';
 import {
   type BoundaryViolation,
@@ -129,14 +130,20 @@ function resolveRealGit(): string | null {
       );
     return candidate;
   }
-  const pathDirs = (process.env['PATH'] ?? '').split(delimiter);
+  const onWindows = process.platform === 'win32';
+  const pathDirs = splitPathEnv(process.env[pathEnvKey()]);
+  // Real Git for Windows is `git.exe`. The shim's own `git.cmd`/sh launchers
+  // (T12605) sit earlier on PATH and must never be taken for real git.
+  const gitName = onWindows ? 'git.exe' : 'git';
 
   for (const dir of pathDirs) {
-    const candidate = candidatePath(join(dir, 'git'));
+    const candidate = candidatePath(join(dir, gitName));
     if (candidate) return candidate;
   }
 
-  const fallbacks = ['/usr/bin/git', '/usr/local/bin/git', '/opt/homebrew/bin/git'];
+  const fallbacks = onWindows
+    ? ['C:\\Program Files\\Git\\cmd\\git.exe']
+    : ['/usr/bin/git', '/usr/local/bin/git', '/opt/homebrew/bin/git'];
   for (const fb of fallbacks) {
     const candidate = candidatePath(fb);
     if (candidate) return candidate;

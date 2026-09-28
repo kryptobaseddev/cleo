@@ -35,6 +35,7 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import type { AgentContainmentMode, AgentSuiteOwnership } from '@cleocode/contracts';
+import { resolveSpawnInvocation } from '@cleocode/paths';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -120,6 +121,11 @@ export interface AgentSpawnArgs {
   /** Full argument list. */
   args: string[];
   /**
+   * Set (`true`) only when win32 launches a `.cmd`/`.bat` CLI through
+   * cmd.exe; pass it to `spawn` so the pre-quoted line is not re-quoted.
+   */
+  windowsVerbatimArguments?: boolean;
+  /**
    * Ownership handle to persist in the session tracking record.
    *
    * Pass this to {@link reapAgentSuite} on session end.
@@ -163,9 +169,22 @@ export function buildAgentSpawnArgs(
       );
     }
 
-    // pgid fallback: wrap with ulimit -c 0 for core suppression.
+    // pgid fallback: wrap with ulimit -c 0 for core suppression on POSIX.
+    // Windows has no `sh`/`ulimit` and writes no core files, so the command
+    // is spawned directly there (T12604).
     // The caller MUST pass { detached: true } to spawn() so that Node creates
     // a new session+pgid for this child.
+    // On win32 the CLI is resolved to its absolute path and a `.cmd` shim is
+    // routed through cmd.exe with injection-safe quoting (T12618).
+    if (process.platform === 'win32') {
+      const inv = resolveSpawnInvocation(command, args);
+      return {
+        command: inv.file,
+        args: inv.args,
+        ...(inv.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
+        ownership: { mode: 'pgid' as AgentContainmentMode },
+      };
+    }
     return {
       command: 'sh',
       args: ['-c', 'ulimit -c 0; exec "$@"', 'sh', command, ...args],

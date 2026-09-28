@@ -1,10 +1,11 @@
 /**
  * Skill installer - canonical + symlink model
  *
- * Skills are stored once in a canonical location (`~/.cleo/skills/<name>/`
- * per architecture-v3 §1, with legacy `~/.local/share/agents/skills/` as a
- * read-only fallback for one release cycle) and symlinked to each target
- * agent's skills directory.
+ * Skills are stored once in a canonical location (`<cleoHome>/skills/<name>/`,
+ * the platform data dir from `resolveSkillsRoot()`; T12598) and linked to each
+ * target agent's skills directory. Every link is verified to resolve after it
+ * is written; where a link cannot be created or does not resolve (Windows
+ * without Developer Mode, filesystems without symlinks) the skill is copied.
  *
  * @task T9659
  * @epic T9571
@@ -335,10 +336,26 @@ export async function installToCanonical(sourcePath: string, skillName: string):
   return targetDir;
 }
 
-/** Whether `linkPath` is already a symlink pointing at `canonicalPath`. */
+/**
+ * Whether `path` resolves to an installed skill directory.
+ *
+ * @remarks
+ * T12598: a link that exists but points nowhere (e.g. through a dangling
+ * `~/.cleo`) is an install that loads nothing. `existsSync` follows links, so
+ * this is true only when the target is actually reachable.
+ */
+export function skillInstallResolves(path: string): boolean {
+  return existsSync(join(path, 'SKILL.md')) || existsSync(path);
+}
+
+/** Whether `linkPath` is already a resolving symlink pointing at `canonicalPath`. */
 function isLinkTo(linkPath: string, canonicalPath: string): boolean {
   try {
-    return lstatSync(linkPath).isSymbolicLink() && readlinkSync(linkPath) === canonicalPath;
+    return (
+      lstatSync(linkPath).isSymbolicLink() &&
+      readlinkSync(linkPath) === canonicalPath &&
+      skillInstallResolves(linkPath)
+    );
   } catch {
     return false;
   }
@@ -379,10 +396,16 @@ async function linkToAgent(
       // replacement is in place. Junction on Windows for compat.
       const stagedPath = siblingPath(linkPath, 'staging');
       const symlinkType = process.platform === 'win32' ? 'junction' : 'dir';
+      let linked = false;
       try {
         await symlink(canonicalPath, stagedPath, symlinkType);
+        // T12598: verify the link resolves before trusting it.
+        linked = skillInstallResolves(stagedPath);
       } catch {
-        // Fallback to copy if symlinks not supported
+        linked = false;
+      }
+      if (!linked) {
+        // Fallback to copy if symlinks are unsupported or do not resolve.
         await rm(stagedPath, { recursive: true, force: true });
         await cp(canonicalPath, stagedPath, { recursive: true });
       }
@@ -391,6 +414,9 @@ async function linkToAgent(
       } catch (err) {
         await rm(stagedPath, { recursive: true, force: true });
         throw err;
+      }
+      if (!skillInstallResolves(linkPath)) {
+        throw new Error(`${linkPath} was written but does not resolve to ${canonicalPath}`);
       }
 
       anySuccess = true;
