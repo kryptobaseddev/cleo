@@ -490,8 +490,18 @@ export const acceptanceGateResultSchema = z
     /** ISO 8601 timestamp. */
     checkedAt: z.string().datetime(),
     checkedBy: z.string().min(1),
+    /** T12621: `executed` in this run, or an authenticated pass reused from the cache. */
+    source: z.enum(['executed', 'cache']).optional(),
+    /** T12621: creation time of the reused cache entry. */
+    cachedAt: z.string().datetime().optional(),
   })
   .superRefine((result, context) => {
+    if ((result.source === 'cache') !== (result.cachedAt !== undefined))
+      context.addIssue({
+        code: 'custom',
+        path: ['cachedAt'],
+        message: 'A cached result carries its cache time, and only a cached result does',
+      });
     const binding = result.binding;
     if (binding) {
       if (binding.identity.actor !== result.checkedBy)

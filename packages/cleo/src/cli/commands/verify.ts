@@ -40,6 +40,7 @@
 import { ExitCode } from '@cleocode/contracts';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { negatedFlag } from '../lib/negated-flag.js';
 import { cliError } from '../renderers/index.js';
 
 /**
@@ -95,7 +96,7 @@ export const verifyCommand = defineCommand({
     run: {
       type: 'boolean',
       description:
-        "Execute the task's typed acceptance gates and report the results. Read-only: nothing is recorded, so use `--evidence` to attest (T12308).",
+        "Execute the task's typed acceptance gates and report the results. Records no verification, so use `--evidence` to attest (T12308); passing results are cached so the attesting write reuses them instead of re-running (T12621). With a write, `--no-run` executes no typed gate and uses only cached passes, refusing with E_GATE_NOT_CACHED when one is missing.",
     },
     'shared-evidence': {
       type: 'boolean',
@@ -159,6 +160,8 @@ export const verifyCommand = defineCommand({
         reset: args.reset as boolean | undefined,
         evidence: args.evidence as string | undefined,
         sharedEvidence: (args['shared-evidence'] as boolean | undefined) ?? false,
+        // T12621: citty turns `--no-run` into `run: false`; read it through the helper.
+        ...(isWrite && negatedFlag(args, 'run') ? { noRun: true } : {}),
       },
       { command: 'verify' },
     );

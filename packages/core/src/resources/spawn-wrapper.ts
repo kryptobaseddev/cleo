@@ -464,7 +464,8 @@ export function buildSpawnArgs(
   const { scopeClass = 'agent', scopeId, resources = {}, noCoreFile = true } = opts;
 
   if (!hasSystemdRun(opts.systemdControl, opts.execution)) {
-    if (!_pgidDemotionLogged) {
+    // T12621: pgid is the expected mode off Linux, so only a Linux debug run hears about it.
+    if (!_pgidDemotionLogged && process.platform === 'linux' && process.env['CLEO_DEBUG']) {
       _pgidDemotionLogged = true;
       process.stderr.write(
         '[cleo:spawn-wrapper] systemd-run unavailable — falling back to plain pgid spawn ' +

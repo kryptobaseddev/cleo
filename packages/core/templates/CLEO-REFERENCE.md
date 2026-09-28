@@ -278,10 +278,10 @@ A merged PR and green CI provide provenance. For `implemented`, pair `pr:<number
 Typed gates (`cleo req add <id> --gate '<json>'`) EXECUTE during any `cleo verify … --gate … --evidence …` write on a task that carries them. To run them without recording anything:
 
 ```bash
-cleo verify T### --run          # executes typed gates, reports results, persists nothing
+cleo verify T### --run          # executes typed gates, records no verification, caches passes
 ```
 
-`--run` is read-only and cannot be combined with `--gate`/`--all`/`--reset`. A `test` gate with `minCount` needs its OWN command to emit a machine-readable report (`--reporter=json` for vitest, `--json` for jest); an exit code carries no count, and a report file from a separate invocation is not bound to this run — record that as `test-run:<path>` evidence instead.
+`--run` records no verification and cannot be combined with `--gate`/`--all`/`--reset`. Passes are cached (HMAC-sealed per machine) by gate + HEAD + dirty tree + inputs, so the next write reuses them, marked `source: cache` on the result and receipt; add `--no-run` to forbid execution. `evidence.allowCachedGates: false` in `.cleo/project-context.json` disables reuse. A `test` gate with `minCount` needs its OWN command to emit a machine-readable report (`--reporter=json` for vitest, `--json` for jest); an exit code carries no count, and a report file from a separate invocation is not bound to this run — record that as `test-run:<path>` evidence instead.
 
 ### Emergency override (audited)
 
