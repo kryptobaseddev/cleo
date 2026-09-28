@@ -291,7 +291,10 @@ async function confirmCandidateCheckout(
   const { getNexusRegistryDb } = await import('../store/nexus-sqlite.js');
   const { confirmProjectLocation } = await import('../nexus/path-map.js');
   const { collectCheckoutEvidence } = await import('../nexus/identity.js');
+  const { ensureCheckoutNonce } = await import('../nexus/checkout-nonce.js');
   const evidence = await collectCheckoutEvidence(candidate.path);
+  // The confirmed checkout gets its own nonce, so a later move is provable.
+  const checkoutNonce = ensureCheckoutNonce(candidate.path);
   const db = await getNexusRegistryDb(cleoHome ?? getCleoHome());
   db.transaction(
     (tx) => {
@@ -300,6 +303,7 @@ async function confirmCandidateCheckout(
         projectPath: candidate.path,
         now: new Date().toISOString(),
         evidence,
+        checkoutNonce,
       });
     },
     { behavior: 'immediate' },

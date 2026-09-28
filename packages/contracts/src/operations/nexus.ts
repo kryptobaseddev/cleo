@@ -647,6 +647,12 @@ export interface NexusPermissionSetResult {
 export interface NexusReconcileParams {
   /** Override project root (defaults to cwd). */
   projectRoot?: string;
+  /**
+   * Rebind the registry row to this checkout even though its previous location
+   * still exists on this device (T12470). Without it such a checkout is only
+   * recorded as a `candidate` — a second checkout or a clone is not a move.
+   */
+  forceRebind?: boolean;
 }
 /** Result of `nexus.reconcile`. */
 export interface NexusReconcileResult {

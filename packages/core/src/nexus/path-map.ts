@@ -73,11 +73,16 @@ export interface ProjectCheckoutRecord {
   /** Device the checkout is on. Defaults to this device's stable id. */
   deviceId?: string;
   /**
-   * Repository evidence for the checkout (T12470). Stored on the location so a
-   * later move can be verified once this directory is gone. Absent fields keep
+   * Repository evidence for the checkout (T12470). DISPLAYED only — never a
+   * proof of identity or of a move (forgeable). Absent fields keep
    * whatever evidence the row already carries.
    */
   evidence?: CheckoutEvidence;
+  /**
+   * The checkout's nonce from its untracked `project-info.json` (T12470) —
+   * the only proof of a move. Recorded on confirmed locations only.
+   */
+  checkoutNonce?: string | null;
 }
 
 /** What {@link recordProjectCheckout} changed besides the recorded location. */
@@ -192,7 +197,7 @@ export function recordProjectCheckout(
   const deviceId = record.deviceId ?? currentDeviceId();
   adoptLocalDeviceRows(db, deviceId);
 
-  const evidence = evidenceColumns(record.evidence);
+  const evidence = confirmedColumns(record);
   db.insert(projectLocations)
     .values({
       projectId: record.projectId,
@@ -270,7 +275,7 @@ export function recordProjectCheckout(
   return { markedMissing, superseded };
 }
 
-/** The non-null evidence fields of a record, as location columns. */
+/** The non-null displayed-evidence fields of a record, as location columns. */
 function evidenceColumns(evidence: CheckoutEvidence | undefined): {
   gitRootCommit?: string;
   gitRemote?: string;
@@ -278,6 +283,18 @@ function evidenceColumns(evidence: CheckoutEvidence | undefined): {
   return {
     ...(evidence?.gitRootCommit ? { gitRootCommit: evidence.gitRootCommit } : {}),
     ...(evidence?.gitRemote ? { gitRemote: evidence.gitRemote } : {}),
+  };
+}
+
+/** A confirmed record's evidence plus its nonce, as location columns. */
+function confirmedColumns(record: ProjectCheckoutRecord): {
+  gitRootCommit?: string;
+  gitRemote?: string;
+  checkoutNonce?: string;
+} {
+  return {
+    ...evidenceColumns(record.evidence),
+    ...(record.checkoutNonce ? { checkoutNonce: record.checkoutNonce } : {}),
   };
 }
 
@@ -291,9 +308,9 @@ function evidenceColumns(evidence: CheckoutEvidence | undefined): {
  *   path: record it as the live location.
  * - `refresh` — this path is already a confirmed (`live`) location of the id
  *   on this device, but the row names another: refresh the location only.
- * - `promote` — a verified move: the row's path was recorded on THIS device,
- *   is gone from disk, and its recorded root commit or remote matches this
- *   checkout's. The row follows the checkout.
+ * - `promote` — a proven move: the row's path was recorded on THIS device,
+ *   is gone from disk, and the nonce recorded there equals the one in this
+ *   checkout's untracked `project-info.json`. The row follows the checkout.
  * - `candidate` — anything else: record an unconfirmed location. The registry
  *   row, its path and its permissions are left untouched.
  */
@@ -338,11 +355,15 @@ export function decideEncounterBinding(
 
   const oldPath = row.projectPath;
   if (isSupersededRegistryPath(oldPath) || existsSync(oldPath)) return 'candidate';
+  // Proof of a move is the checkout's NONCE alone (T12470): local, untracked
+  // state that a real `mv` or a restore of `.cleo/` carries and a clone
+  // cannot have. Root commit and remote are forgeable (a clone shares them, a
+  // bare `git init` can add any remote, `refs/replace` fakes a root commit),
+  // so they are displayed evidence only and never promote.
+  const nonce = record.checkoutNonce ?? null;
+  if (nonce === null) return 'candidate';
   const previous = db
-    .select({
-      gitRootCommit: projectLocations.gitRootCommit,
-      gitRemote: projectLocations.gitRemote,
-    })
+    .select({ checkoutNonce: projectLocations.checkoutNonce })
     .from(projectLocations)
     .where(
       and(
@@ -352,14 +373,7 @@ export function decideEncounterBinding(
       ),
     )
     .all();
-  const evidence = record.evidence;
-  const verified = previous.some(
-    (location) =>
-      (location.gitRootCommit !== null &&
-        location.gitRootCommit === (evidence?.gitRootCommit ?? null)) ||
-      (location.gitRemote !== null && location.gitRemote === (evidence?.gitRemote ?? null)),
-  );
-  return verified ? 'promote' : 'candidate';
+  return previous.some((location) => location.checkoutNonce === nonce) ? 'promote' : 'candidate';
 }
 
 /**
@@ -422,7 +436,7 @@ export function touchProjectLocation(db: PathMapWriter, record: ProjectCheckoutR
   const deviceId = record.deviceId ?? currentDeviceId();
   adoptLocalDeviceRows(db, deviceId);
   db.update(projectLocations)
-    .set({ lastSeen: record.now, ...evidenceColumns(record.evidence) })
+    .set({ lastSeen: record.now, ...confirmedColumns(record) })
     .where(locationKey(record.projectId, deviceId, record.projectPath))
     .run();
 }

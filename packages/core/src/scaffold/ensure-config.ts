@@ -485,6 +485,10 @@ export async function ensureProjectInfo(
       ? existing['createdAt']
       : undefined;
 
+  // T12470: the per-checkout nonce is local state, not derived — keep it.
+  const existingCheckoutNonce =
+    typeof existing?.['checkoutNonce'] === 'string' ? existing['checkoutNonce'] : undefined;
+
   const projectHash = generateProjectHash(projectRoot);
   const cleoVersion = getCleoVersion();
   const now = new Date().toISOString();
@@ -513,6 +517,7 @@ export async function ensureProjectInfo(
     ...(remoteUrl && { remoteUrl }),
     cleoVersion,
     createdAt: existingCreatedAt ?? now,
+    ...(existingCheckoutNonce && { checkoutNonce: existingCheckoutNonce }),
     lastUpdated: now,
     schemas: {
       config: configSchemaVersion,

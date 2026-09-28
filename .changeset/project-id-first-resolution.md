@@ -17,10 +17,22 @@ Because `.cleo/project-id` is committed, any directory can declare any id. The
 per-command encounter therefore never repoints an existing registry row (or its
 permissions) to a new path: the path is recorded in `nexus_project_locations`
 with the new state `candidate`. It is promoted only by `cleo init` /
-`cleo nexus register` / `cleo doctor project-identity --resolve`, or when the
-row's previous path on this device is gone and its recorded git root commit or
-remote matches. Migration `20260928000000_t12470-location-candidates` adds the
-`candidate` state and the `git_root_commit` / `git_remote` evidence columns.
+`cleo nexus register` / `cleo doctor project-identity --resolve`, or by a
+PROVEN move: the row's previous path on this device is gone and this checkout
+carries the same per-checkout nonce. The nonce is random, lives in the
+checkout's untracked `.cleo/project-info.json` (`checkoutNonce`), and is
+recorded on each confirmed location — a real `mv` or a restore of `.cleo/` from
+a backup carries it, a clone cannot. Git root commit and remote are recorded
+for display only (they are forgeable) and are read with `--no-replace-objects`.
+Migration `20260928010000_t12470-location-candidates` adds `checkout_nonce`,
+`git_root_commit` and `git_remote` with `ADD COLUMN` (so a store already
+migrated by T12469 is detected as needing it) and rebuilds the table to allow
+the `candidate` state.
+
+`cleo nexus reconcile` and `cleo init` no longer repoint a row while its
+previous location still exists on this device; they record a candidate unless
+given `--force-rebind`. `cleo upgrade` / `self-update` register through the
+encounter and never move a row.
 
 `nexus analyze` and the startup health check no longer call `nexusRegister` /
 `nexusReconcile`; they record an encounter, which never mints an id or writes

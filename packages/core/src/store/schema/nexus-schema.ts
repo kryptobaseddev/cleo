@@ -222,9 +222,14 @@ export const projectLocations = sqliteTable(
      * project) · `candidate` (declares the id but is not confirmed, T12470).
      */
     state: text('state', { enum: PROJECT_LOCATION_STATES }).notNull().default('live'),
-    /** First (parentless) commit of the checkout's repository, when known (T12470). */
+    /**
+     * Random per-checkout nonce held in the checkout's untracked
+     * `project-info.json` (T12470) — the only evidence that proves a move.
+     */
+    checkoutNonce: text('checkout_nonce'),
+    /** First (parentless) commit — displayed evidence only, never proof (T12470). */
     gitRootCommit: text('git_root_commit'),
-    /** Normalised `origin` URL of the checkout, when known (T12470). */
+    /** Normalised `origin` URL — displayed evidence only, never proof (T12470). */
     gitRemote: text('git_remote'),
   },
   (table) => [

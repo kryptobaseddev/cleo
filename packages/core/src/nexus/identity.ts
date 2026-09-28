@@ -152,9 +152,10 @@ export function normalizeRemoteUrl(url: string | null | undefined): string | nul
 }
 
 /**
- * Evidence of WHICH repository a checkout is, independent of where it lives
- * (T12470). Recorded on confirmed locations so a later move can be verified
- * after the old directory is gone. `null` means unknown and never matches.
+ * Git facts about a checkout, recorded on its location for DISPLAY (T12470).
+ * Never proof: a clone shares both, a bare `git init` can add any remote, and
+ * a root commit can be faked. Moves are proven by the checkout nonce
+ * (`nexus/checkout-nonce.ts`) alone. `null` means unknown.
  */
 export interface CheckoutEvidence {
   /** First (parentless) commit of the repository — the lexically smallest when several. */
@@ -183,7 +184,9 @@ export async function collectCheckoutEvidence(
   execution?.assertActive();
   const rootCommit = async (): Promise<string | null> => {
     try {
-      const { stdout } = await execFileAsync('git', ['rev-list', '--max-parents=0', 'HEAD'], {
+      // --no-replace-objects: `refs/replace` must not be able to fake it.
+      const args = ['--no-replace-objects', 'rev-list', '--max-parents=0', 'HEAD'];
+      const { stdout } = await execFileAsync('git', args, {
         cwd: resolve(fromPath),
         signal: execution?.signal,
         timeout: execution ? Math.max(1, execution.remainingMs()) : undefined,

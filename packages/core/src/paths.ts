@@ -2120,6 +2120,9 @@ export async function registerProjectOnEncounter(
           const { collectCheckoutEvidence, projectPathFingerprint, legacyProjectId } = await import(
             './nexus/identity.js'
           );
+          const { ensureCheckoutNonce, readCheckoutNonce } = await import(
+            './nexus/checkout-nonce.js'
+          );
           const { generateProjectHash } = await import('./nexus/hash.js');
           // Path-derived values are ALIASES of the declared id, never the id (T12470).
           const canonical = await projectPathFingerprint(resolvedPath, execution);
@@ -2148,21 +2151,23 @@ export async function registerProjectOnEncounter(
             (tx) => {
               execution.assertActive();
               const now = new Date().toISOString();
-              const record = {
+              const unconfirmed = {
                 projectId: infoProjectId,
                 projectPath: resolvedPath,
                 projectHash,
                 now,
                 evidence,
+                checkoutNonce: readCheckoutNonce(resolvedPath),
               };
               // T12470: an encounter runs under ANY command, read-only ones
               // included, and the id it sees is committed to git — any
               // directory can declare it. It never repoints an existing row
               // to a new path (nor hands that row's permissions over) unless
-              // the move is verified; otherwise the path is only a candidate.
-              const binding = decideEncounterBinding(tx, record);
+              // the move is PROVEN by this checkout's untracked nonce;
+              // otherwise the path is only a candidate.
+              const binding = decideEncounterBinding(tx, unconfirmed);
               if (binding === 'candidate') {
-                if (!recordCandidateLocation(tx, record)) return;
+                if (!recordCandidateLocation(tx, unconfirmed)) return;
                 const holder = tx
                   .select({ projectPath: projectRegistry.projectPath })
                   .from(projectRegistry)
@@ -2171,6 +2176,12 @@ export async function registerProjectOnEncounter(
                 candidateOf = holder?.projectPath ?? null;
                 return;
               }
+              // Confirmed: make sure the checkout carries a nonce, so a later
+              // move of it can be proven.
+              const record = {
+                ...unconfirmed,
+                checkoutNonce: unconfirmed.checkoutNonce ?? ensureCheckoutNonce(resolvedPath),
+              };
               if (binding === 'refresh') {
                 touchProjectLocation(tx, record);
                 return;
@@ -2252,8 +2263,8 @@ export async function registerProjectOnEncounter(
           if (candidateOf !== null)
             process.stderr.write(
               `[cleo] ${resolvedPath} declares project ${infoProjectId}, which is registered at ${candidateOf}; ` +
-                'recorded as an unconfirmed candidate location. Confirm with `cleo doctor project-identity --resolve` ' +
-                'or `cleo nexus register`.\n',
+                'recorded as an unconfirmed candidate location (nothing proves it is the same checkout). ' +
+                'If it is, confirm with `cleo doctor project-identity --resolve`.\n',
             );
         }),
       execution,

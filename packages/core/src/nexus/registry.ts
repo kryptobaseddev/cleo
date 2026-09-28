@@ -12,6 +12,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { mkdir, readFile, realpath, stat } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import {
@@ -45,9 +46,14 @@ import {
   projectPaths,
   projectRegistry,
 } from '../store/schema/nexus-schema.js';
+import { ensureCheckoutNonce } from './checkout-nonce.js';
 import { generateProjectHash } from './hash.js';
 import { collectCheckoutEvidence, legacyProjectId, projectPathFingerprint } from './identity.js';
-import { isSupersededRegistryPath, recordProjectCheckout } from './path-map.js';
+import {
+  isSupersededRegistryPath,
+  recordCandidateLocation,
+  recordProjectCheckout,
+} from './path-map.js';
 import { registryStorePath } from './registry-hygiene.js';
 
 // ── Domain types ─────────────────────────────────────────────────────
@@ -555,6 +561,7 @@ export async function nexusRegister(
           projectHash,
           now,
           evidence,
+          checkoutNonce: ensureCheckoutNonce(resolvedPath),
         });
         for (const alias of new Set([pathFingerprint.id, legacyAlias])) {
           if (alias === immutableId) continue;
@@ -979,9 +986,9 @@ export async function nexusSetPermission(
  */
 export async function nexusReconcile(
   projectRoot: string,
-  _params: NexusReconcileParams = {},
+  params: NexusReconcileParams = {},
 ): Promise<{
-  status: 'ok' | 'path_updated' | 'auto_registered';
+  status: 'ok' | 'path_updated' | 'auto_registered' | 'candidate';
   oldPath?: string;
   newPath?: string;
 }> {
@@ -1033,6 +1040,7 @@ export async function nexusReconcile(
         projectHash: currentHash,
         now,
         evidence,
+        checkoutNonce: ensureCheckoutNonce(projectRoot),
       });
       await writeNexusAudit({
         action: 'reconcile',
@@ -1052,6 +1060,28 @@ export async function nexusReconcile(
 
     // Scenario 2: path changed — update path, hash, lastSeen, and DB paths
     const oldPath = existing.projectPath;
+    // T12470: even an explicit reconcile never takes the row (and its
+    // permissions) away from a location that still exists on this device —
+    // that is a second checkout or a clone, not a move. It is recorded as a
+    // candidate unless the caller explicitly asks to rebind.
+    if (!params.forceRebind && !isSupersededRegistryPath(oldPath) && existsSync(oldPath)) {
+      recordCandidateLocation(db, {
+        projectId: stableProjectId,
+        projectPath: projectRoot,
+        projectHash: currentHash,
+        now,
+        evidence,
+      });
+      await writeNexusAudit({
+        action: 'reconcile',
+        projectHash: currentHash,
+        projectId: stableProjectId,
+        operation: 'reconcile',
+        success: true,
+        details: { status: 'candidate', oldPath, newPath: projectRoot },
+      });
+      return { status: 'candidate', oldPath, newPath: projectRoot };
+    }
     const newBrainDbPath = registryStorePath(projectRoot);
     const newTasksDbPath = registryStorePath(projectRoot);
     await db
@@ -1070,6 +1100,7 @@ export async function nexusReconcile(
       projectHash: currentHash,
       now,
       evidence,
+      checkoutNonce: ensureCheckoutNonce(projectRoot),
     });
     await writeNexusAudit({
       action: 'reconcile',
@@ -1385,9 +1416,10 @@ export async function nexusSyncProject(name?: string): Promise<EngineResult<unkn
 // SSoT-EXEMPT:engine-migration-T1569
 export async function nexusReconcileProject(
   projectRoot: string,
+  params: NexusReconcileParams = {},
 ): Promise<EngineResult<Awaited<ReturnType<typeof nexusReconcile>>>> {
   try {
-    const result = await nexusReconcile(projectRoot, {});
+    const result = await nexusReconcile(projectRoot, params);
     return engineSuccess(result);
   } catch (error) {
     return caughtToEngineError(error, `Failed to reconcile project: ${projectRoot}`);
