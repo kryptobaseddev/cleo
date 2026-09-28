@@ -119,6 +119,8 @@ const GLOBAL_SECRETS: Readonly<Record<string, string>> = {
     'Global salt for agent API-key derivation. A new salt is generated on first use; every registered agent must re-authenticate (re-issue agent API keys).',
   'llm-credentials.json':
     'Stored LLM provider credentials. Re-run provider login / re-enter API keys.',
+  'decide-credentials.json':
+    'Decision-provider base URL and API key (T12491). Re-run `cleo decide config --url <u> --key-stdin`.',
   'anthropic-oauth.json': 'Anthropic OAuth session. Re-run the Anthropic login.',
   'google_oauth.json': 'Google OAuth session. Re-run the Google login.',
   'anthropic-key': 'Anthropic API key. Re-enter it.',

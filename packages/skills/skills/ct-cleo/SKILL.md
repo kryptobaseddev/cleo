@@ -129,6 +129,10 @@ stderr; `session status` / `briefing` label a guessed session `unbound: true`.
 - Agent-tool subagents inherit the parent's `CLAUDE_CODE_SESSION_ID` and act in
   the parent's session; `cleo orchestrate spawn` gives workers their own.
 
+## Typed decisions (`cleo decide`, T12491)
+
+`decide` answers typed questions (yes/no, choice, score) through a swappable Jev-wire provider and falls back to local heuristics when unconfigured or failing. It needs two settings, an API URL and a key: `printf %s "$KEY" | cleo decide config --url <u> --key-stdin` (optional `--model`; `--clear` removes them). The key is kept in a 0600 file and never printed. `cleo decide status` probes reachability and `cleo decide ask --state <text> --noul <q>` runs one debug question.
+
 ## Quick Reference
 
 | Need | Command |
