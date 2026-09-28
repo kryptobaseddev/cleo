@@ -418,7 +418,9 @@ function readSnapshotObservation(
  * @throws BackupObservationInspectionError - The source, schema, identity or bounds are unproven.
  * @remarks O_NOFOLLOW protects source identity; O_NOATIME is requested as a
  * best effort where the platform defines it (Linux). Elsewhere (macOS) the copy
- * read may itself advance the access time. Access-time changes are reported
+ * read may itself advance the access time, so the result reports
+ * `atimeIsolation: 'unavailable'`, `atimeChanged: null` and a limitation line
+ * instead of attributing the change to another reader. Access-time changes are reported
  * separately from content changes and never restored. Platforms without
  * O_NOFOLLOW (Windows) fail explicitly. Queries are synchronous
  * and are not claimed to be preemptible;
@@ -457,6 +459,7 @@ export async function inspectBackupObservation(
     );
   if (!fs.constants.O_NOFOLLOW)
     inspectionFailure('UNSUPPORTED_SOURCE', 'Snapshot inspection requires O_NOFOLLOW.');
+  const noatime = fs.constants.O_NOATIME;
   let temporary: string | undefined;
   let handle: fs.promises.FileHandle | undefined;
   let snapshot: ReturnType<typeof openCleoDbSnapshot> | undefined;
@@ -475,7 +478,7 @@ export async function inspectBackupObservation(
       inspectionFailure('SOURCE_LIMIT', `Snapshot exceeds ${sourceLimit} bytes.`);
     handle = await fs.promises.open(
       source,
-      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | (fs.constants.O_NOATIME ?? 0),
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | (noatime ?? 0),
     );
     const same = (current: fs.BigIntStats): boolean =>
       ['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs'].every((key) => {
@@ -623,7 +626,8 @@ export async function inspectBackupObservation(
         ctimeNs: before.ctimeNs.toString(),
         atimeNs: before.atimeNs.toString(),
         atimeAfterNs: after.atimeNs.toString(),
-        atimeChanged: after.atimeNs !== before.atimeNs,
+        atimeChanged: noatime ? after.atimeNs !== before.atimeNs : null,
+        atimeIsolation: noatime ? 'noatime' : 'unavailable',
       },
       userVersion: version,
       textEncoding,
@@ -642,6 +646,11 @@ export async function inspectBackupObservation(
         'Synchronous SQLite work is size-bounded, not deadline-preempted; integrity_check does not validate every application invariant.',
         'Payload hash covers the documented lossless value representation, not an original SQLite row byte span.',
         'Access time is observed separately and never restored; a change does not establish which reader caused it or imply a content change.',
+        ...(noatime
+          ? []
+          : [
+              'O_NOATIME is unavailable on this platform: access time may reflect this inspection itself, so atimeChanged is null.',
+            ]),
       ],
     };
   } catch (error) {
