@@ -18,12 +18,13 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DoneBlockedDetails } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import { resetDbState } from '../../store/sqlite.js';
+import { validateGateVerify } from '../../validation/engine-ops.js';
 import { addTask } from '../add.js';
 import type { ChangeSetDeps } from '../change-set.js';
 import { completeTask } from '../complete.js';
@@ -319,6 +320,190 @@ describe('blockers and the validators decide (AC3, AC4)', () => {
     if (r.success) return;
     expect((r.error.details as DoneBlockedDetails).cause).toBe('E_OVERRIDE_NOT_ACCEPTED');
     expect(existsSync(join(root, '.cleo', 'audit', 'force-bypass.jsonl'))).toBe(false);
+    expect(gatesJsonl()).toBe('');
+  });
+});
+
+/** A tracked script that exits 0 only when src/a.ts carries the task's change (`= 2`). */
+function commitCheckScript(): void {
+  writeFileSync(
+    join(root, 'check-a.mjs'),
+    "import { readFileSync } from 'node:fs';\n" +
+      "process.exit(readFileSync('src/a.ts', 'utf8').includes('= 2') ? 0 : 1);\n",
+  );
+  git(root, ['add', 'check-a.mjs']);
+  git(root, ['commit', '-q', '-m', 'check script']);
+  git(root, ['push', '-q', 'origin', 'main']);
+}
+
+describe('the tool tree must contain the change (T12625 review HIGH)', () => {
+  it("run from main while the task's commit sits on an un-checked-out branch: blocked, nothing recorded", async () => {
+    commitCheckScript();
+    // The test fails on the task's code (a = 2) and passes on main (a = 1).
+    const ctxPath = join(root, '.cleo', 'project-context.json');
+    const ctx = JSON.parse(readFileSync(ctxPath, 'utf-8')) as Record<string, unknown>;
+    writeFileSync(
+      ctxPath,
+      JSON.stringify({ ...ctx, testing: { command: 'node check-a.mjs --invert' } }),
+    );
+    writeFileSync(
+      join(root, 'check-a.mjs'),
+      "import { readFileSync } from 'node:fs';\n" +
+        "const two = readFileSync('src/a.ts', 'utf8').includes('= 2');\n" +
+        "process.exit(process.argv.includes('--invert') ? (two ? 1 : 0) : two ? 0 : 1);\n",
+    );
+    git(root, ['commit', '-q', '-am', 'invertible check']);
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    commitOnTaskBranch(id);
+    git(root, ['switch', '-q', 'main']);
+
+    const r = await recordTaskDone(id, opts());
+    expect(r.success).toBe(false);
+    if (r.success) return;
+    const details = r.error.details as DoneBlockedDetails;
+    expect(details.blocker).toBe('checkout-required');
+    expect(details.next.command).toContain(`switch task/${id}`);
+    expect((await env.accessor.loadSingleTask(id))?.verification?.gates?.testsPassed).not.toBe(
+      true,
+    );
+    expect(gatesJsonl()).toBe('');
+  });
+
+  it('a merged PR whose merge commit is not in the checked-out tree: blocked', async () => {
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    const base = git(root, ['rev-parse', 'HEAD']);
+    commitOnTaskBranch(id);
+    git(root, ['switch', '-q', 'main']);
+    git(root, ['merge', '-q', '--squash', `task/${id}`]);
+    git(root, ['commit', '-q', '-m', `${id} (#42)`]);
+    const merge = git(root, ['rev-parse', 'HEAD']);
+    git(root, ['switch', '-q', '--detach', base]);
+    const r = await recordTaskDone(
+      id,
+      opts({
+        deps: {
+          ...deps,
+          listMergedPrs: async () => ({
+            ok: true,
+            prs: [{ number: 42, title: id, body: '', headRefName: `task/${id}` }],
+          }),
+          viewPr: async (n) => ({
+            number: n,
+            title: id,
+            headRefName: `task/${id}`,
+            baseRefName: 'main',
+            state: 'MERGED',
+            mergedAt: '2026-09-28T00:00:00Z',
+            headRefOid: null,
+            mergeCommitSha: merge,
+          }),
+          findPrByHead: async () => null,
+          resolvePr: async (n) => ({
+            ok: true,
+            prNumber: n,
+            mergeCommitSha: merge,
+            mergedAt: '2026-09-28T00:00:00Z',
+            successCount: 1,
+            totalChecks: 1,
+            cacheHit: false,
+            title: id,
+            body: '',
+            headRefName: `task/${id}`,
+            changedPaths: ['src/a.ts'],
+            changedFileCount: 1,
+          }),
+        },
+      }),
+    );
+    expect(r.success).toBe(false);
+    if (r.success) return;
+    const details = r.error.details as DoneBlockedDetails;
+    expect(details.blocker).toBe('checkout-required');
+    expect(details.next.command).toContain(`switch --detach ${merge}`);
+  });
+});
+
+describe('typed gates run in the same tree as the tools (T12625 review MEDIUM)', () => {
+  it("from the task's worktree, the typed gate measures the worktree's code", async () => {
+    commitCheckScript();
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    await reqAdd(
+      root,
+      id,
+      parseGateJson(
+        JSON.stringify({
+          kind: 'command',
+          cmd: 'node',
+          args: ['check-a.mjs'],
+          req: 'R1',
+          description: 'a returns 2',
+        }),
+      ),
+      env.accessor,
+    );
+    const wt = join(realpathSync(join(root, '..')), `${id}-wt-${Date.now()}`);
+    git(root, ['worktree', 'add', '-q', '-b', `task/${id}`, wt]);
+    writeFileSync(join(wt, 'src', 'a.ts'), 'export const a = 2;\n');
+    git(wt, ['commit', '-q', '-am', `${id}: change a`]);
+    const before = process.cwd();
+    process.chdir(wt);
+    try {
+      const r = await recordTaskDone(id, opts({ cwd: wt }));
+      expect(r.success, JSON.stringify(r.success ? r.data.recordedGates : r.error)).toBe(true);
+      if (!r.success) return;
+      expect(r.data.typedGateCount).toBe(1);
+      const results = (await env.accessor.loadSingleTask(id))?.verification?.gateResults ?? [];
+      expect(results.map((g) => [g.req, g.result])).toEqual([['R1', 'pass']]);
+      expect(results[0]?.binding?.invocation?.cwd).toBe(realpathSync(wt));
+    } finally {
+      process.chdir(before);
+      git(root, ['worktree', 'remove', '--force', wt]);
+    }
+  });
+});
+
+describe('one write is all-or-nothing across gates (review test gaps)', () => {
+  async function setup(): Promise<{ id: string; head: string }> {
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    const head = commitOnTaskBranch(id);
+    return { id, head };
+  }
+
+  it('a content mismatch on the SECOND gate refuses the write and records no gate', async () => {
+    const { id, head } = await setup();
+    const r = await validateGateVerify(root, {
+      taskId: id,
+      gateEvidence: {
+        implemented: `commit:${head};files:src/a.ts;satisfies:${id}#AC1`,
+        // No criterion link: the EXISTING checkTaskEvidenceContext refuses it.
+        testsPassed: 'tool:test',
+        qaPassed: `tool:lint;satisfies:${id}#AC1`,
+      },
+    });
+    expect(r.success).toBe(false);
+    expect(!r.success && r.error.code).toBe('E_EVIDENCE_CONTENT_MISMATCH');
+    expect(!r.success && r.error.message).toMatch(/criterion linkage/);
+    const gates = (await env.accessor.loadSingleTask(id))?.verification?.gates;
+    expect(gates?.implemented).not.toBe(true);
+    expect(gates?.testsPassed).not.toBe(true);
+    expect(gatesJsonl()).toBe('');
+  });
+
+  it('a refusal on the THIRD gate leaves the first two unrecorded', async () => {
+    const { id, head } = await setup();
+    const r = await validateGateVerify(root, {
+      taskId: id,
+      gateEvidence: {
+        implemented: `commit:${head};files:src/a.ts;satisfies:${id}#AC1`,
+        testsPassed: `tool:test;satisfies:${id}#AC1`,
+        qaPassed: `note:looked fine;satisfies:${id}#AC1`,
+      },
+    });
+    expect(r.success).toBe(false);
+    expect(!r.success && r.error.code).toBe('E_EVIDENCE_INSUFFICIENT');
+    const gates = (await env.accessor.loadSingleTask(id))?.verification?.gates;
+    expect(gates?.implemented).not.toBe(true);
+    expect(gates?.testsPassed).not.toBe(true);
     expect(gatesJsonl()).toBe('');
   });
 });
