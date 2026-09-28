@@ -18,6 +18,11 @@ exports[`T11578 AC3 — nexus DDL snapshot (post-cutover prefixed shape + FTS5) 
     "type": "table",
   },
   {
+    "name": "nexus_devices",
+    "sql": "CREATE TABLE \`nexus_devices\` ( \`device_id\` text PRIMARY KEY NOT NULL, \`hostname\` text NOT NULL, \`os\` text NOT NULL, \`arch\` text NOT NULL, \`cleo_version\` text NOT NULL, \`first_seen\` text NOT NULL DEFAULT (datetime('now')), \`last_heartbeat_at\` text NOT NULL DEFAULT (datetime('now')), CHECK ("first_seen" IS NULL OR "first_seen" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'), CHECK ("last_heartbeat_at" IS NULL OR "last_heartbeat_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
+    "type": "table",
+  },
+  {
     "name": "nexus_nodes",
     "sql": "CREATE TABLE \`nexus_nodes\` ( \`id\` text PRIMARY KEY, \`project_id\` text NOT NULL, \`kind\` text NOT NULL, \`label\` text NOT NULL, \`name\` text, \`file_path\` text, \`start_line\` integer, \`end_line\` integer, \`language\` text, \`is_exported\` integer DEFAULT false NOT NULL, \`parent_id\` text, \`parameters_json\` text, \`return_type\` text, \`doc_summary\` text, \`community_id\` text, \`meta_json\` text, \`is_external\` integer DEFAULT false NOT NULL, \`indexed_at\` text DEFAULT (datetime('now')) NOT NULL, -- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed CHECK ("kind" IN ('file', 'folder', 'module', 'namespace', 'function', 'method', 'constructor', 'class', 'interface', 'struct', 'trait', 'impl', 'type_alias', 'enum', 'property', 'constant', 'variable', 'static', 'record', 'delegate', 'macro', 'union', 'typedef', 'annotation', 'template', 'community', 'process', 'route', 'tool', 'section', 'import', 'export', 'type')), CHECK ("is_exported" IN (0, 1)), CHECK ("is_external" IN (0, 1)), CHECK ("indexed_at" IS NULL OR "indexed_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
     "type": "table",

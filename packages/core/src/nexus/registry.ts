@@ -19,6 +19,7 @@ import {
   type NexusInitParams,
   type NexusListParams,
   type NexusPermissionSetParams,
+  type NexusProjectCandidate,
   type NexusReconcileParams,
   type NexusRegisterParams,
   type NexusShowParams,
@@ -45,6 +46,7 @@ import {
   projectPaths,
   projectRegistry,
 } from '../store/schema/nexus-schema.js';
+import { listNexusDevices } from './devices.js';
 import { generateProjectHash } from './hash.js';
 import { canonicalProjectId, legacyProjectId } from './identity.js';
 import { isSupersededRegistryPath, recordProjectCheckout } from './path-map.js';
@@ -632,6 +634,54 @@ export async function nexusList(
 }
 
 /**
+ * A project NAME matched more than one registry row (T12510). Names are not
+ * unique — two checkouts or two unrelated projects can share one — so the
+ * lookup refuses to pick one and lists every candidate id instead.
+ *
+ * @example
+ * ```ts
+ * try { await nexusGetProject('', { name: 'api' }); }
+ * catch (e) { if (e instanceof NexusProjectAmbiguityError) console.error(e.candidates); }
+ * ```
+ */
+export class NexusProjectAmbiguityError extends CleoError {
+  /** Stable machine-readable error code. */
+  readonly codeName = 'E_NEXUS_PROJECT_AMBIGUOUS';
+  /** Every matching project, most recently seen first. */
+  readonly candidates: NexusProjectCandidate[];
+
+  /**
+   * @param name - The ambiguous project name.
+   * @param rows - Every registry row with that name.
+   */
+  constructor(name: string, rows: ReadonlyArray<ProjectRegistryRow>) {
+    const candidates = rows.map((r) => ({
+      projectId: r.projectId,
+      name: r.name,
+      path: r.projectPath,
+      lastSeen: r.lastSeen,
+    }));
+    super(
+      ExitCode.INVALID_INPUT,
+      `Project name '${name}' is ambiguous: ${candidates.length} projects match (${candidates
+        .map((c) => c.projectId)
+        .join(', ')}). Use a project id.`,
+      {
+        fix: 'Pass one of the candidate project ids instead of the name.',
+        details: {
+          field: 'name',
+          expected: 'a unique project name, id or hash',
+          actual: name,
+          candidates,
+        },
+      },
+    );
+    this.name = 'NexusProjectAmbiguityError';
+    this.candidates = candidates;
+  }
+}
+
+/**
  * Get a project by name or hash.
  * Returns null if not found.
  */
@@ -648,7 +698,7 @@ export async function nexusGetProject(
   const nameOrHash =
     paramsOrUndefined !== undefined ? paramsOrUndefined.name : projectRootOrNameOrHash;
   try {
-    const { eq, or } = await import('drizzle-orm');
+    const { eq } = await import('drizzle-orm');
     // ADR-090 · T11648: run on a LIVE handle with retry — the registry lives in
     // the GLOBAL ATTACH of the shared project handle, which a concurrent
     // cross-project open can close mid-query.
@@ -663,10 +713,18 @@ export async function nexusGetProject(
         rows = await db
           .select()
           .from(projectRegistry)
-          .where(
-            or(eq(projectRegistry.projectHash, nameOrHash), eq(projectRegistry.name, nameOrHash)),
-          )
+          .where(eq(projectRegistry.projectHash, nameOrHash))
           .orderBy(desc(projectRegistry.lastSeen));
+      }
+      if (rows.length === 0) {
+        // T12510: a name is not unique. One match resolves; several are
+        // ambiguous and the caller must choose by id — never rows[0].
+        rows = await db
+          .select()
+          .from(projectRegistry)
+          .where(eq(projectRegistry.name, nameOrHash))
+          .orderBy(desc(projectRegistry.lastSeen));
+        if (rows.length > 1) throw new NexusProjectAmbiguityError(nameOrHash, rows);
       }
       if (rows.length === 0) {
         // Try alias resolution: legacyId → canonicalId lookup (T11025)
@@ -687,7 +745,8 @@ export async function nexusGetProject(
 
     if (!row) return null;
     return rowToProject(row);
-  } catch {
+  } catch (error) {
+    if (error instanceof NexusProjectAmbiguityError) throw error;
     return null;
   }
 }
@@ -1167,6 +1226,13 @@ export { resetNexusDbState };
  * Convert a caught error to an EngineResult failure.
  */
 function caughtToEngineError<T>(error: unknown, fallbackMsg: string): EngineResult<T> {
+  if (error instanceof NexusProjectAmbiguityError) {
+    return engineError<T>(error.codeName, error.message, {
+      exitCode: error.code,
+      details: error.details,
+      fix: error.fix,
+    });
+  }
   const e = error instanceof Error ? error : null;
   return engineError<T>('E_INTERNAL', e?.message ?? fallbackMsg);
 }
@@ -1351,7 +1417,9 @@ export async function nexusReconcileProject(
 export async function nexusProjectsList(): Promise<EngineResult<unknown>> {
   try {
     const list = await nexusList('', {});
-    return engineSuccess({ projects: list, count: list.length });
+    const { getNexusRegistryDb } = await import('../store/nexus-sqlite.js');
+    const devices = listNexusDevices(await getNexusRegistryDb(getCleoHome()));
+    return engineSuccess({ projects: list, count: list.length, devices });
   } catch (error) {
     return caughtToEngineError(error, 'Failed to list nexus projects');
   }

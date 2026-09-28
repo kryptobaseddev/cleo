@@ -1282,6 +1282,51 @@ export interface NexusProjectsListResult {
   projects: NexusProjectRecord[];
   /** Count of projects returned. */
   count: number;
+  /**
+   * Every device known to the global store (`nexus_devices`, T12510), most
+   * recent heartbeat first. A location's `deviceId` resolves against this list.
+   */
+  devices: NexusDeviceRecord[];
+}
+
+/**
+ * One machine that runs CLEO against the global store (`nexus_devices`, T12510).
+ * `deviceId` is the persisted `<cleoHome>/device-id` UUID that
+ * {@link NexusProjectCheckout.deviceId} carries.
+ */
+export interface NexusDeviceRecord {
+  /** Stable device id (`<cleoHome>/device-id`). */
+  deviceId: string;
+  /** Hostname at the last heartbeat. */
+  hostname: string;
+  /** Operating system (`process.platform`, e.g. `darwin`, `linux`, `win32`). */
+  os: string;
+  /** CPU architecture (`process.arch`, e.g. `arm64`, `x64`). */
+  arch: string;
+  /** CLEO version that sent the last heartbeat. */
+  cleoVersion: string;
+  /** ISO 8601 timestamp of the first heartbeat. */
+  firstSeen: string;
+  /** ISO 8601 timestamp of the most recent heartbeat. */
+  lastHeartbeatAt: string;
+  /** `true` for the device running this command. */
+  current: boolean;
+}
+
+/**
+ * One registry row a project NAME matched when the name is not unique
+ * (T12510). Carried in the `E_NEXUS_PROJECT_AMBIGUOUS` error's
+ * `details.candidates`; select one by its `projectId`.
+ */
+export interface NexusProjectCandidate {
+  /** Immutable project id — pass this instead of the name. */
+  projectId: string;
+  /** Registered project name (shared by every candidate). */
+  name: string;
+  /** Most recently encountered checkout path. */
+  path: string;
+  /** ISO 8601 timestamp the project was last seen. */
+  lastSeen: string;
 }
 
 /** Parameters for `nexus.projects.register`. */
