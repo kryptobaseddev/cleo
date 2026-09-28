@@ -16,7 +16,7 @@ import {
 } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import { isAbsolutePath } from '@cleocode/paths';
@@ -129,27 +129,98 @@ export function captureProjectScope(
 }
 
 /**
- * Report whether `dir` is the root of a linked git checkout: its `.git` is a
- * gitlink FILE (`gitdir: …`) rather than a real repository directory.
+ * Read the `gitdir:` target of a gitlink `.git` FILE in `dir`.
  *
  * @param dir - Directory to inspect.
- * @returns `true` when `<dir>/.git` exists and is a regular file.
- * @remarks Pure `stat` probe that never throws. A missing or unreadable `.git`
- * returns `false`.
+ * @returns The absolute gitdir; `''` when `.git` is a file that cannot be
+ *   parsed; `null` when `.git` is missing or is a directory.
+ */
+function readGitlinkTarget(dir: string): string | null {
+  const gitMarker = join(dir, '.git');
+  try {
+    if (!statSync(gitMarker).isFile()) return null;
+  } catch {
+    return null;
+  }
+  try {
+    const match = readFileSync(gitMarker, 'utf-8').match(/^gitdir:\s*(.+)$/m);
+    // A relative gitdir (`worktree.useRelativePaths`) is relative to the checkout.
+    return match?.[1] ? resolve(dir, match[1].trim()) : '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Return the main checkout root of the linked git worktree at `dir`.
+ *
+ * A linked worktree's gitlink points at `<common>/worktrees/<name>`; the main
+ * checkout is the parent of `<common>` when that is a `.git` directory, or the
+ * `core.worktree` of `<common>` for a worktree of a submodule. A
+ * submodule or `--separate-git-dir` gitlink points elsewhere (for example
+ * `<super>/.git/modules/<name>`) and is its own repository, so it returns
+ * `null` (T12562).
+ *
+ * @param dir - Directory to inspect.
+ * @returns The main checkout root, or `null` when `dir` is not a linked worktree.
+ * @example
+ * ```ts
+ * linkedWorktreeMainRoot('/data/cleo/worktrees/abc/T1'); // '/home/u/project'
+ * linkedWorktreeMainRoot('/home/u/project/vendor/sub'); // null (submodule)
+ * ```
+ * @task T12562
+ */
+export function linkedWorktreeMainRoot(dir: string): string | null {
+  const gitdir = readGitlinkTarget(dir);
+  if (!gitdir || basename(dirname(gitdir)) !== 'worktrees') return null;
+  const commonDir = dirname(dirname(gitdir));
+  if (basename(commonDir) === '.git') return dirname(commonDir);
+  // A worktree of a submodule: the common dir is `<super>/.git/modules/<name>`,
+  // a git-internal path. The checkout is its `core.worktree`; without one,
+  // the main checkout is unknown.
+  return readCoreWorktree(commonDir);
+}
+
+/**
+ * Read `core.worktree` from a git directory's `config`, resolved against it.
+ *
+ * @param gitDir - Absolute git directory.
+ * @returns The absolute work tree, or `null` when unset or unreadable.
+ */
+function readCoreWorktree(gitDir: string): string | null {
+  try {
+    const config = readFileSync(join(gitDir, 'config'), 'utf-8');
+    const core = /^\[core\][^[]*/m.exec(config)?.[0] ?? '';
+    const value = /^\s*worktree\s*=\s*(.+?)\s*$/m.exec(core)?.[1];
+    return value ? resolve(gitDir, value) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Report whether `dir` is the root of a linked git worktree: its `.git` is a
+ * gitlink FILE whose `gitdir` lies under `<common>/worktrees/`.
+ *
+ * @param dir - Directory to inspect.
+ * @returns `true` for a linked worktree, or for a gitlink that cannot be
+ *   parsed (conservatively). `false` for a real repository directory, a
+ *   missing `.git`, or a submodule / `--separate-git-dir` gitlink, which is its
+ *   own repository and may own its own store (T12562).
+ * @remarks Never throws.
  * @example
  * ```ts
  * isGitLinkedCheckout('/home/u/.local/share/cleo/worktrees/abc/T1'); // true
  * isGitLinkedCheckout('/home/u/project'); // false: .git is a directory
  * ```
  * @task T12460
+ * @task T12562
  */
 export function isGitLinkedCheckout(dir: string): boolean {
-  try {
-    const gitMarker = join(dir, '.git');
-    return existsSync(gitMarker) && statSync(gitMarker).isFile();
-  } catch {
-    return false;
-  }
+  const gitdir = readGitlinkTarget(dir);
+  if (gitdir === null) return false;
+  if (gitdir === '') return true;
+  return basename(dirname(gitdir)) === 'worktrees';
 }
 
 /**
@@ -201,6 +272,10 @@ export function _resolveMainRepoFromGitlink(gitlinkDir: string): string | null {
     if (!match) return null;
     // A relative gitdir (`worktree.useRelativePaths`) is relative to the checkout.
     const gitdir = resolve(gitlinkDir, match[1].trim());
+    // T12562: only `<main>/.git/worktrees/<name>` is a linked worktree. A
+    // submodule's `<super>/.git/modules/<name>` stripped the same way named the
+    // superproject, so a submodule shared (and wrote) its parent's store.
+    if (basename(dirname(gitdir)) !== 'worktrees') return null;
     // gitdir is `<main>/.git/worktrees/<name>` → strip last 3 segments.
     const mainRepo = dirname(dirname(dirname(gitdir)));
     if (existsSync(join(mainRepo, '.cleo')) && validateProjectRoot(mainRepo)) {
