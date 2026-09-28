@@ -16,8 +16,9 @@
  * ## What this module provides
  *
  * - {@link classifyReceiptTrait} — the text classifier for status lines and
- *   operation receipts. The evaluator applies it to every global trait
- *   (defence in depth behind the structural `origin` filter).
+ *   operation receipts. REPAIR ONLY: at write time the structural signal
+ *   (`DialecticTurn.origin === 'operation-envelope'`) is the guard, because a
+ *   text rule at write time would also block legitimate preferences.
  * - {@link pruneReceiptTraits} — dry-run / apply repair. Apply writes a
  *   backup file FIRST (a `user_profile.json`-shaped envelope carrying the full
  *   rows), then deletes each row only if it is unchanged since it was read.
@@ -29,10 +30,10 @@
  */
 
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { UserProfileTrait } from '@cleocode/contracts';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { getCleoHome } from '../paths.js';
 import * as nexusSchema from '../store/schema/nexus-schema.js';
@@ -62,23 +63,34 @@ interface ReceiptRule {
  */
 const RECEIPT_RULES: readonly ReceiptRule[] = [
   {
+    // "Operation succeeded in domain 'check'", "Cleo tasks update operation
+    // succeeded". Singular `operation` only: "Operations team review
+    // completed" is prose, not a receipt.
     id: 'operation-status',
     value:
-      /\boperations?\b[^.\n]{0,60}\b(succeeded|successful(ly)?|failed|completed)\b|\b(succeeded|success)\b[^.\n]{0,20}\b(in|for)\b[^.\n]{0,12}\bdomain\b/i,
+      /\boperation\b[^.\n]{0,30}\b(succeeded|was successful|failed)\b|\b(succeeded|success)\b[^.\n]{0,20}\b(in|for)\b[^.\n]{0,12}\bdomain\b/i,
   },
   {
+    // `gate.set-success`, `task-successful`, `succeeded-in-domain-check`.
+    // A leading `success-` followed by other words ("success-criteria-first")
+    // is a preference, not a receipt.
     id: 'success-key',
-    key: /(^|[-_.])(succeed(ed|s)?|success(ful)?|succeeded-in|ops-success)([-_.]|$)/i,
+    key: /(^|[-_.])succeed(ed|s)?([-_.]|$)|[-_.]success(ful)?$|^success(ful)?$|^success-in-|(gate|task|ops|operation)[-_.]success/i,
   },
   {
+    // An echoed dispatch: `cleo tasks update {…}` / "cleo tasks update
+    // request", or "cleo successfully set …". A sentence that merely names a
+    // command ("cleo memory find is used before…") is not an echo.
     id: 'command-echo',
     value:
-      /^\s*cleo\s+[a-z-]+\s+[a-z.-]+\b|\bcleo (successfully|set|completed|executed|interacted)\b/i,
+      /^\s*cleo\s+[a-z-]+\s+[a-z.-]+\s*(\{|request\b|operation\b|$)|\bcleo (successfully|set|completed|executed|interacted)\b/i,
   },
   {
+    // A gate write names a task id or a value ("gate set to true for T122").
+    // "insists every gate is set before complete" names neither.
     id: 'gate-receipt',
     value:
-      /\bgate\b[^.\n]{0,80}\bset\b|\bset\b[^.\n]{0,40}\bgates?\b|\bgate\b[^.\n]{0,60}\b(to )?true\b|\bgate\.(set|implemented)\b/i,
+      /\bgate\b[^.\n]{0,80}\bto true\b|\bgate\b[^.\n]{0,60}\bT\d{2,}\b|\bT\d{2,}\b[^.\n]{0,40}\bgate\b|\bgate\.(set|implemented)\b/i,
   },
   {
     id: 'task-receipt',
@@ -173,7 +185,7 @@ export interface TraitPruneResult {
   /**
    * Unknown-origin rows (`project_id IS NULL`, scope `project`) that this run
    * leaves in place. They are excluded from every spawn prompt and remain
-   * queryable via `cleo nexus profile view`.
+   * queryable via the `nexus.profile.view` operation.
    */
   readonly unknownOriginRetained: number;
   /** Keys actually deleted (apply only). */
@@ -216,6 +228,33 @@ function matchTrait(trait: UserProfileTrait, includeEnvelopeDerived: boolean): s
     return OPERATION_ENVELOPE_RULE;
   }
   return null;
+}
+
+/**
+ * Write `bytes` to a new file and fsync both the file and its directory, so
+ * the backup survives a crash that happens after the deletes commit.
+ *
+ * @param path - New file path (must not exist).
+ * @param dir - Parent directory to fsync.
+ * @param bytes - UTF-8 content.
+ */
+async function writeDurably(path: string, dir: string, bytes: string): Promise<void> {
+  const file = await open(path, 'wx');
+  try {
+    await file.writeFile(bytes, 'utf8');
+    await file.sync();
+  } finally {
+    await file.close();
+  }
+  const dirHandle = await open(dir, 'r');
+  try {
+    await dirHandle.sync();
+  } catch {
+    // Some platforms/filesystems refuse fsync on a directory handle; the file
+    // itself is already synced.
+  } finally {
+    await dirHandle.close();
+  }
 }
 
 /**
@@ -280,7 +319,7 @@ export async function pruneReceiptTraits(
     return { applied: false, after: all.length, ...report };
   }
 
-  // 1. Backup FIRST — nothing is deleted unless the backup is on disk.
+  // 1. Backup FIRST — nothing is deleted unless the backup is durable on disk.
   const removedAt = new Date().toISOString();
   const backupDir = options.backupDir ?? join(getCleoHome(), 'backups', 'user-profile');
   await mkdir(backupDir, { recursive: true });
@@ -292,28 +331,40 @@ export async function pruneReceiptTraits(
     traits: matchedRows.map((m) => m.trait),
   };
   const bytes = `${JSON.stringify(backup, null, 2)}\n`;
-  await writeFile(backupPath, bytes, { encoding: 'utf8', flag: 'wx' });
+  await writeDurably(backupPath, backupDir, bytes);
   const backupSha256 = createHash('sha256').update(bytes).digest('hex');
 
-  // 2. Guarded deletes: only a row unchanged since the read above is removed.
+  // 2. One transaction of guarded deletes: a row is removed only if EVERY
+  //    field the backup captured is unchanged since the read above.
   const removedKeys: string[] = [];
   const changedSkipped: string[] = [];
   const table = nexusSchema.userProfile;
-  for (const { trait } of matchedRows) {
-    const deleted = await nexusDb
-      .delete(table)
-      .where(
-        and(
-          eq(table.traitKey, trait.traitKey),
-          eq(table.traitValue, trait.traitValue),
-          eq(table.source, trait.source),
-          eq(table.lastReinforcedAt, new Date(trait.lastReinforcedAt).toISOString()),
-        ),
-      )
-      .returning({ traitKey: table.traitKey });
-    if (deleted.length > 0) removedKeys.push(trait.traitKey);
-    else changedSkipped.push(trait.traitKey);
-  }
+  nexusDb.transaction((tx) => {
+    for (const { trait } of matchedRows) {
+      const deleted = tx
+        .delete(table)
+        .where(
+          and(
+            eq(table.traitKey, trait.traitKey),
+            eq(table.traitValue, trait.traitValue),
+            eq(table.source, trait.source),
+            eq(table.confidence, trait.confidence),
+            eq(table.scope, trait.scope ?? 'project'),
+            trait.projectId == null
+              ? isNull(table.projectId)
+              : eq(table.projectId, trait.projectId),
+            trait.supersededBy == null
+              ? isNull(table.supersededBy)
+              : eq(table.supersededBy, trait.supersededBy),
+            eq(table.lastReinforcedAt, new Date(trait.lastReinforcedAt).toISOString()),
+          ),
+        )
+        .returning({ traitKey: table.traitKey })
+        .all();
+      if (deleted.length > 0) removedKeys.push(trait.traitKey);
+      else changedSkipped.push(trait.traitKey);
+    }
+  });
 
   const after = (await listUserProfile(nexusDb, { includeSuperseded: true })).length;
   return {
@@ -325,7 +376,7 @@ export async function pruneReceiptTraits(
     removedAt,
     backupPath,
     backupSha256,
-    restoreCommand: `cleo memory prune-traits --restore '${backupPath}'`,
+    restoreCommand: `cleo memory prune-traits --restore '${backupPath}' --sha256 ${backupSha256}`,
   };
 }
 
@@ -350,6 +401,8 @@ export interface TraitRestoreResult {
  *
  * @param nexusDb - Drizzle handle over the database holding `nexus_user_profile`.
  * @param backupPath - Path from the prune receipt's `backupPath`.
+ * @param expectedSha256 - The receipt's `backupSha256`. When given, a backup
+ *   whose bytes differ is refused before anything is written.
  * @returns The restored and skipped keys plus the backup digest.
  *
  * @task T12543
@@ -357,8 +410,15 @@ export interface TraitRestoreResult {
 export async function restorePrunedTraits(
   nexusDb: NexusDb,
   backupPath: string,
+  expectedSha256?: string,
 ): Promise<TraitRestoreResult> {
   const bytes = await readFile(backupPath, 'utf8');
+  const actualSha256 = createHash('sha256').update(bytes).digest('hex');
+  if (expectedSha256 !== undefined && actualSha256 !== expectedSha256.toLowerCase()) {
+    throw new Error(
+      `E_BACKUP_DIGEST_MISMATCH: ${backupPath} has sha256 ${actualSha256}, the receipt says ${expectedSha256}; nothing restored`,
+    );
+  }
   const backup = JSON.parse(bytes) as Partial<TraitPruneBackup>;
   const traits = Array.isArray(backup.traits) ? backup.traits : [];
   const restoredKeys: string[] = [];
@@ -373,7 +433,7 @@ export async function restorePrunedTraits(
   }
   return {
     backupPath,
-    backupSha256: createHash('sha256').update(bytes).digest('hex'),
+    backupSha256: actualSha256,
     restoredKeys,
     skippedExisting,
   };

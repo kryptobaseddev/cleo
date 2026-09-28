@@ -50,7 +50,6 @@ import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { z } from 'zod';
 import { getLogger } from '../logger.js';
 import { resolveTraitProjectId, upsertUserProfileTrait } from '../nexus/user-profile.js';
-import { classifyReceiptTrait } from '../nexus/user-profile-hygiene.js';
 import { observeBrain } from './brain-retrieval.js';
 import { resolveLlmBackend } from './llm-backend-resolver.js';
 import { appendNarrativeDelta } from './session-narrative.js';
@@ -383,6 +382,18 @@ export async function evaluateDialectic(
     return EMPTY;
   }
 
+  // T12543: an operation-envelope turn (the dispatcher hook) carries no user
+  // utterance — only an operation and its result — so it can never yield a
+  // user trait. Skip the model call entirely rather than pay for output that
+  // would be discarded.
+  if (turn.origin === 'operation-envelope') {
+    log.debug(
+      { event: 'dialectic.envelope_turn_skipped', sessionId: turn.sessionId },
+      'evaluateDialectic: operation-envelope turn — no evaluation',
+    );
+    return EMPTY;
+  }
+
   // Warm tier (T11757): prefer the unified `extraction`-role profile + local
   // inference (Ollama → transformers) before escalating to cold/anthropic. This
   // turns the dialectic loop ON wherever a local model or a pinned profile is
@@ -420,13 +431,9 @@ export async function evaluateDialectic(
     // This is the runtime enforcement companion to the prompt guidance —
     // even if the LLM marks a trait with confidence 0.55, it must not reach
     // persistent storage.  See GLOBAL_TRAIT_CONFIDENCE_THRESHOLD for rationale.
-    //
-    // T12543: an operation-envelope turn (the dispatcher hook) carries no user
-    // utterance — only an operation and its result — so it can never yield a
-    // user trait. This is the structural filter; the receipt classifier below
-    // is defence in depth for turns that are conversational but still echo a
-    // status line ("Operation succeeded in domain 'check'").
-    const globalTraits = filterGlobalTraits(object.globalTraits, turn);
+    const globalTraits = object.globalTraits.filter(
+      (trait) => trait.confidence >= GLOBAL_TRAIT_CONFIDENCE_THRESHOLD,
+    );
 
     // Filter peer insights below their (lower) threshold and ensure peerId is set.
     const peerInsights = object.peerInsights
@@ -465,43 +472,6 @@ export async function evaluateDialectic(
     }
     return EMPTY;
   }
-}
-
-/**
- * Drop global traits that must never reach `nexus_user_profile` (T12543).
- *
- * - Every trait from an `operation-envelope` turn (structural: no user
- *   utterance exists to derive a user trait from).
- * - Traits below {@link GLOBAL_TRAIT_CONFIDENCE_THRESHOLD}.
- * - Traits whose key/value is an operation receipt or status line
- *   ({@link classifyReceiptTrait}).
- *
- * @param traits - Raw global traits returned by the model.
- * @param turn - The evaluated turn (its `origin` drives the structural filter).
- * @returns The traits eligible for persistence.
- */
-function filterGlobalTraits(
-  traits: DialecticInsights['globalTraits'],
-  turn: DialecticTurn,
-): DialecticInsights['globalTraits'] {
-  if (turn.origin === 'operation-envelope') {
-    if (traits.length > 0) {
-      log.debug(
-        {
-          event: 'dialectic.envelope_traits_dropped',
-          dropped: traits.length,
-          sessionId: turn.sessionId,
-        },
-        'evaluateDialectic: operation-envelope turn — global traits dropped',
-      );
-    }
-    return [];
-  }
-  return traits.filter(
-    (trait) =>
-      trait.confidence >= GLOBAL_TRAIT_CONFIDENCE_THRESHOLD &&
-      classifyReceiptTrait(trait.key, trait.value) === null,
-  );
 }
 
 /**
@@ -633,8 +603,6 @@ export async function applyInsights(
   // declared identity) records unknown origin — excluded from every prompt.
   const projectId = insights.globalTraits.length > 0 ? resolveTraitProjectId(projectRoot) : null;
   for (const trait of insights.globalTraits) {
-    // Defence in depth for insights not produced by `evaluateDialectic`.
-    if (classifyReceiptTrait(trait.key, trait.value) !== null) continue;
     try {
       await upsertUserProfileTrait(nexusDb, {
         traitKey: trait.key,

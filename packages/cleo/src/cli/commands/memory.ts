@@ -31,6 +31,7 @@
  *   cleo memory reflect     — LLM Observer + Reflector pipeline
  *   cleo memory dedup-scan  — report/merge duplicate entries
  *   cleo memory prune-traits — remove receipt-style user-profile traits (T12543)
+ *   cleo memory set-trait-scope — mark a user-profile trait user-global or project-only
  *   cleo memory import      — migrate MEMORY.md files to brain.db
  *   cleo memory llm-status  — LLM backend resolution status
  *   cleo memory verify      — promote entry to verified=true
@@ -1266,17 +1267,64 @@ const pruneTraitsCommand = defineCommand({
       type: 'string',
       description: 'Re-insert the rows from a prune-traits backup file (never overwrites)',
     },
+    sha256: {
+      type: 'string',
+      description: 'With --restore: the receipt backupSha256; a mismatching backup is refused',
+    },
   },
   async run({ args }) {
     const core = await import('@cleocode/core/internal' as string);
     const nexusDb = await core.getNexusDb(getProjectRoot());
     const result = args.restore
-      ? await core.restorePrunedTraits(nexusDb, String(args.restore))
+      ? await core.restorePrunedTraits(
+          nexusDb,
+          String(args.restore),
+          args.sha256 ? String(args.sha256) : undefined,
+        )
       : await core.pruneReceiptTraits(nexusDb, {
           apply: Boolean(args.apply),
           includeEnvelopeDerived: Boolean(args['envelope-derived']),
         });
     cliOutput(result, { command: 'memory prune-traits', operation: 'memory.prune-traits' });
+  },
+});
+
+/**
+ * `cleo memory set-trait-scope <key> <project|user>` — mark a user-profile
+ * trait user-global (visible in every project's prompts) or project-only
+ * (T12543). The only path that changes a trait's scope; automated writes can
+ * never demote a `user` trait.
+ */
+const setTraitScopeCommand = defineCommand({
+  meta: {
+    name: 'set-trait-scope',
+    description:
+      'Set a user-profile trait scope: "user" = user-global, injected into every project\'s ' +
+      'agent prompts; "project" = only the project it was derived in.',
+  },
+  args: {
+    key: { type: 'positional', description: 'Trait key', required: true },
+    scope: { type: 'positional', description: 'project | user', required: true },
+  },
+  async run({ args }) {
+    const scope = String(args.scope);
+    if (scope !== 'project' && scope !== 'user') {
+      cliError(`scope must be "project" or "user", got "${scope}"`, 'E_VALIDATION', {
+        name: 'E_VALIDATION',
+      });
+      return;
+    }
+    const core = await import('@cleocode/core/internal' as string);
+    const nexusDb = await core.getNexusDb(getProjectRoot());
+    const previous = await core.setUserProfileTraitScope(nexusDb, String(args.key), scope);
+    if (previous === null) {
+      cliError(`No user-profile trait "${args.key}"`, 'E_NOT_FOUND', { name: 'E_NOT_FOUND' });
+      return;
+    }
+    cliOutput(
+      { traitKey: args.key, previousScope: previous, scope },
+      { command: 'memory set-trait-scope', operation: 'memory.set-trait-scope' },
+    );
   },
 });
 
@@ -2316,6 +2364,7 @@ export const memoryCommand = defineCommand({
     'dedup-scan': dedupScanCommand,
     'prune-stubs': pruneStubsCommand,
     'prune-traits': pruneTraitsCommand,
+    'set-trait-scope': setTraitScopeCommand,
     import: importCommand,
     doctor: doctorCommand,
     'llm-status': llmStatusCommand,

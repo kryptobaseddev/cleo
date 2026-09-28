@@ -2585,6 +2585,7 @@ export {
   nexusProfileView,
   reinforceTrait,
   resolveTraitProjectId,
+  setUserProfileTraitScope,
   supersedeTrait,
   upsertUserProfileTrait,
 } from './nexus/user-profile.js';

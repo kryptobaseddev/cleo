@@ -32,7 +32,7 @@ import type {
   UserProfileTrait,
 } from '@cleocode/contracts';
 import { readPortableProjectId } from '@cleocode/paths';
-import { and, asc, desc, eq, gte, isNull, or, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNull, or, type SQL, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getProjectRoot } from '../paths.js';
@@ -168,6 +168,7 @@ export async function getUserProfileTrait(
  * @param nexusDb - Drizzle nexus database handle.
  * `projectId` and `scope` (T12543) default to `null` (unknown origin) and
  * `'project'`; the whole row — value and visibility — is replaced together.
+ * A `project`-scoped write never replaces an existing `user`-scoped row.
  *
  * @param trait   - Trait to insert or replace.  `firstObservedAt` and
  *                  `lastReinforcedAt` should be ISO 8601 strings; they are
@@ -223,7 +224,44 @@ export async function upsertUserProfileTrait(
         projectId: trait.projectId ?? null,
         scope: trait.scope ?? 'project',
       },
+      // T12543: a row the user marked user-global is only ever replaced by a
+      // write that is itself user-global. Dialectic, import and every other
+      // automated `project`-scoped write leaves it untouched — it can neither
+      // demote the scope nor replace the value. Changing the scope explicitly
+      // is `setUserProfileTraitScope` (`cleo memory set-trait-scope`).
+      setWhere: sql`${nexusSchema.userProfile.scope} <> 'user' OR excluded.scope = 'user'`,
     });
+}
+
+/**
+ * Explicitly set the visibility scope of an existing trait (T12543).
+ *
+ * The only path that can promote a trait to user-global (`user`, visible in
+ * every project) or demote one back to `project`. Value, provenance and the
+ * project stamp are unchanged.
+ *
+ * @param nexusDb  - Drizzle nexus database handle.
+ * @param traitKey - Key of the trait to re-scope.
+ * @param scope    - New scope.
+ * @returns The previous scope, or `null` when no such trait exists.
+ *
+ * @example
+ * ```ts
+ * await setUserProfileTraitScope(db, 'prefers-zero-deps', 'user');
+ * ```
+ */
+export async function setUserProfileTraitScope(
+  nexusDb: NexusDb,
+  traitKey: string,
+  scope: UserProfileScope,
+): Promise<UserProfileScope | null> {
+  const existing = await getUserProfileTrait(nexusDb, traitKey);
+  if (!existing) return null;
+  await nexusDb
+    .update(nexusSchema.userProfile)
+    .set({ scope })
+    .where(eq(nexusSchema.userProfile.traitKey, traitKey));
+  return existing.scope ?? 'project';
 }
 
 /**
@@ -431,7 +469,8 @@ export async function nexusProfileUpsert(
     const nexusDb = await getNexusDb();
     const existing = await getUserProfileTrait(nexusDb, trait.traitKey);
     const now = new Date().toISOString();
-    const scope: UserProfileScope = trait.scope ?? 'project';
+    // An upsert without an explicit scope keeps the row's current scope.
+    const scope: UserProfileScope = trait.scope ?? existing?.scope ?? 'project';
     const fullTrait: UserProfileTrait = {
       ...trait,
       scope,

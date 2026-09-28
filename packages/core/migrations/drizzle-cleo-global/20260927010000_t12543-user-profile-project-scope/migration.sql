@@ -8,7 +8,7 @@
 -- 1. `project_id` — the portable project id (`.cleo/project-id`, ADR-094) of
 --    the project the trait was derived in. Nullable: every existing row gets
 --    NULL = unknown origin. The reader excludes unknown-origin rows from spawn
---    prompts; they stay queryable (`cleo nexus profile view`) and the repair
+--    prompts; they stay queryable (the `nexus.profile.view` operation) and the repair
 --    path is `cleo memory prune-traits`.
 -- 2. `scope` — 'project' | 'user'. Existing and new rows default to
 --    'project'; only a trait EXPLICITLY marked 'user' is visible in every

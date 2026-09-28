@@ -35,7 +35,12 @@ import { buildSpawnPrompt } from '../../orchestration/spawn-prompt.js';
 import { _resetDualScopeDbCache, openDualScopeDbAtPath } from '../../store/dual-scope-db.js';
 import { getNexusDb, resetNexusDbState } from '../../store/nexus-sqlite.js';
 import { nexusInit } from '../registry.js';
-import { getUserProfileTrait, listUserProfile, upsertUserProfileTrait } from '../user-profile.js';
+import {
+  getUserProfileTrait,
+  listUserProfile,
+  setUserProfileTraitScope,
+  upsertUserProfileTrait,
+} from '../user-profile.js';
 import {
   classifyReceiptTrait,
   pruneReceiptTraits,
@@ -248,22 +253,41 @@ describe('PSYCHE-MEMORY cold pass is project-scoped', () => {
 // Writer: receipts are never stored
 // ---------------------------------------------------------------------------
 
+/** Legitimate preferences the first classifier draft wrongly blocked (review of PR #1599). */
+const FALSE_POSITIVE_REGRESSIONS = [
+  {
+    key: 'success-criteria-first',
+    value: 'write the success criteria before any code',
+    confidence: 0.9,
+  },
+  {
+    key: 'ops-review-gate',
+    value: 'Operations team review completed before every production deploy',
+    confidence: 0.9,
+  },
+  {
+    key: 'gates-before-complete',
+    value: 'insists every gate is set before complete',
+    confidence: 0.9,
+  },
+  {
+    key: 'memory-first',
+    value: 'cleo memory find is used before starting any task',
+    confidence: 0.9,
+  },
+];
+
 describe('dialectic evaluator never stores operation receipts as traits', () => {
   const backend = { model: {} as never, name: 'anthropic', modelId: 'test-model' };
   const modelOutput = {
     globalTraits: [
       { key: 'task-successful', value: 'Cleo tasks update operation succeeded', confidence: 0.95 },
-      {
-        key: 'succeeded-in-domain-check',
-        value: "Operation succeeded in domain 'check'",
-        confidence: 0.99,
-      },
       { key: 'strict-typescript', value: 'never use any; all types explicit', confidence: 0.95 },
     ],
     peerInsights: [],
   };
 
-  it('drops every global trait of an operation-envelope turn (structural)', async () => {
+  it('never evaluates an operation-envelope turn: no model call, no traits (structural)', async () => {
     vi.mocked(resolveLlmBackend).mockResolvedValue(backend as never);
     vi.mocked(generateObject).mockResolvedValue({ object: modelOutput } as never);
     const insights = await evaluateDialectic({
@@ -274,37 +298,73 @@ describe('dialectic evaluator never stores operation receipts as traits', () => 
       origin: 'operation-envelope',
     });
     expect(insights.globalTraits).toEqual([]);
+    expect(generateObject).not.toHaveBeenCalled();
+    expect(resolveLlmBackend).not.toHaveBeenCalled();
   });
 
-  it('drops receipt-shaped traits from a conversational turn and keeps real ones', async () => {
+  it('keeps legitimate preferences from a conversational turn (no text filter at write time)', async () => {
     vi.mocked(resolveLlmBackend).mockResolvedValue(backend as never);
-    vi.mocked(generateObject).mockResolvedValue({ object: modelOutput } as never);
+    vi.mocked(generateObject).mockResolvedValue({
+      object: { globalTraits: FALSE_POSITIVE_REGRESSIONS, peerInsights: [] },
+    } as never);
     const insights = await evaluateDialectic({
-      userMessage: 'never use any',
-      systemResponse: 'understood',
+      userMessage: 'how I work',
+      systemResponse: 'noted',
       activePeerId: 'global',
       sessionId: 'ses_conv',
     });
-    expect(insights.globalTraits.map((t) => t.key)).toEqual(['strict-typescript']);
+    expect(insights.globalTraits.map((t) => t.key)).toEqual(
+      FALSE_POSITIVE_REGRESSIONS.map((t) => t.key),
+    );
   });
 
-  it('applyInsights refuses receipt traits and stamps the project on the rest', async () => {
+  it('applyInsights stores the regression preferences and stamps the project', async () => {
     const { db } = await openGlobal();
     const project = makeProject('project-w', 'proj-wwww');
-    await applyInsights({ globalTraits: modelOutput.globalTraits, peerInsights: [] }, db, db, {
+    await applyInsights({ globalTraits: FALSE_POSITIVE_REGRESSIONS, peerInsights: [] }, db, db, {
       sessionId: 'ses_w',
       activePeerId: 'global',
       projectRoot: project,
     });
     const rows = await listUserProfile(db);
-    expect(rows.map((t) => [t.traitKey, t.projectId, t.scope])).toEqual([
-      ['strict-typescript', 'proj-wwww', 'project'],
-    ]);
+    expect(rows.map((t) => [t.traitKey, t.projectId, t.scope]).sort()).toEqual(
+      FALSE_POSITIVE_REGRESSIONS.map((t) => [t.key, 'proj-wwww', 'project']).sort(),
+    );
   }, 30_000);
 
-  it('classifies the measured receipt shapes and leaves real preferences alone', () => {
+  it('a dialectic write never overwrites or demotes a user-global trait', async () => {
+    const { db } = await openGlobal();
+    const project = makeProject('project-u', 'proj-uuuu');
+    await upsertUserProfileTrait(
+      db,
+      trait('strict-typescript', { traitValue: 'owner wording', scope: 'user' }),
+    );
+    await applyInsights({ globalTraits: modelOutput.globalTraits, peerInsights: [] }, db, db, {
+      sessionId: 'ses_u',
+      activePeerId: 'global',
+      projectRoot: project,
+    });
+    const kept = await getUserProfileTrait(db, 'strict-typescript');
+    expect(kept?.scope).toBe('user');
+    expect(kept?.traitValue).toBe('owner wording');
+    expect(kept?.source).toBe('manual');
+    // A user-scoped write may still update it; set-scope may demote it.
+    await upsertUserProfileTrait(
+      db,
+      trait('strict-typescript', { traitValue: 'new owner wording', scope: 'user' }),
+    );
+    expect((await getUserProfileTrait(db, 'strict-typescript'))?.traitValue).toBe(
+      'new owner wording',
+    );
+    expect(await setUserProfileTraitScope(db, 'strict-typescript', 'project')).toBe('user');
+    expect((await getUserProfileTrait(db, 'strict-typescript'))?.scope).toBe('project');
+    expect(await setUserProfileTraitScope(db, 'missing-key', 'user')).toBeNull();
+  }, 30_000);
+
+  it('the repair classifier catches the measured receipt shapes and spares real preferences', () => {
     for (const [k, v] of [
       ['succeed-domain', "Operation succeeded in domain 'docs'"],
+      ['task-successful', 'Cleo tasks update operation succeeded'],
       ['gate-set-for-t122', 'Gate for T122 set to testsPassed with evidence from pr:66'],
       ['cleo-tasks-complete', 'completed task T1670'],
       ['independent-work', 'cleo tasks update request'],
@@ -317,6 +377,7 @@ describe('dialectic evaluator never stores operation receipts as traits', () => 
       ['strict-typescript', 'never use any; all types must be explicit'],
       ['requires-tsdoc-on-exports', 'all exported symbols must have TSDoc comments'],
       ['uses-pnpm', '"true"'],
+      ...FALSE_POSITIVE_REGRESSIONS.map((t) => [t.key, t.value]),
     ]) {
       expect(classifyReceiptTrait(k as string, v as string), k).toBeNull();
     }
@@ -391,7 +452,15 @@ describe('cleo memory prune-traits repair', () => {
     expect(receipt.restoreCommand).toContain('--restore');
     expect((await listUserProfile(db)).map((t) => t.traitKey)).toEqual(['prefers-zero-deps']);
 
-    const restored = await restorePrunedTraits(db, receipt.backupPath as string);
+    await expect(
+      restorePrunedTraits(db, receipt.backupPath as string, '0'.repeat(64)),
+    ).rejects.toThrow(/E_BACKUP_DIGEST_MISMATCH/);
+    expect((await listUserProfile(db)).length).toBe(1);
+    const restored = await restorePrunedTraits(
+      db,
+      receipt.backupPath as string,
+      receipt.backupSha256,
+    );
     expect(restored.backupSha256).toBe(receipt.backupSha256);
     expect([...restored.restoredKeys].sort()).toEqual(['payout-hold', 'succeeded-in-tasks-domain']);
     const back = await getUserProfileTrait(db, 'payout-hold');
