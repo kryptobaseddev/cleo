@@ -20,10 +20,20 @@
  *     score <  0.40 → insert
  *     score in [0.40, 0.85) → escalate to Tier 3 (LLM, paid)
  *
- *   Tier 3 — LLM reasoning (max 1 call per cleo add):
- *     are_duplicate=true  → reject
- *     are_duplicate=false → insert
- *     LLM error / timeout → fall back to Tier-1-only decision (never block on error)
+ *   Tier 3 — one batched System One decision (T12492), then the optional
+ *     generative LLM tier:
+ *     - System One: ONE `decide()` request carrying up to {@link MAX_CANDIDATES}
+ *       noul questions ("is the new task the same work as candidate cN?"),
+ *       bounded by {@link DUPLICATE_DECISION_BUDGET_MS} end to end. Mode comes
+ *       from `decide.sites.duplicateDetection` (`off | shadow | on`): `shadow`
+ *       (the default once a provider is configured) records the heuristic and
+ *       decision answers side by side in `.cleo/audit/decisions.jsonl` and acts
+ *       on the heuristic; `on` acts on the decision when one arrives. No
+ *       provider configured → `off`, and no network call is made at all.
+ *     - Generative LLM (T1681, max 1 call): OPT-IN via
+ *       `decide.generativeFallback.duplicateDetection: true`. Off by default,
+ *       so `cleo add` no longer pays its 15 s timeout.
+ *     Fallback on every failure: the Tier-1-only decision (never block on error).
  *
  * Thresholds (original T1633 behavior preserved for the Tier-1 clear-match path):
  *   Tier-1 score >= 0.85 → warning emitted to stderr (non-blocking)
@@ -34,8 +44,9 @@
  * @task T1681
  */
 
-import type { Task } from '@cleocode/contracts';
+import type { DecisionAnswer, DecisionQuestion, DecisionRequest, Task } from '@cleocode/contracts';
 import { z } from 'zod';
+import type { DecideOptions } from '../decide/client.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 
 // ============================================================================
@@ -72,8 +83,40 @@ const MAX_ACTIVE_TASKS_SCAN = 500;
 /** Maximum number of candidates to surface in the warning/rejection message. */
 export const MAX_CANDIDATES = 3;
 
-/** LLM call timeout in milliseconds. */
+/** LLM call timeout in milliseconds (opt-in generative tier only). */
 const LLM_TIMEOUT_MS = 15_000;
+
+/**
+ * End-to-end budget for the System One duplicate decision, in milliseconds:
+ * module load, settings, redaction, the shared request budget and the HTTP
+ * round trip (connection setup included) all fit inside it.
+ *
+ * @task T12492
+ */
+export const DUPLICATE_DECISION_BUDGET_MS = 300;
+
+/**
+ * Minimum confidence EVERY decision answer needs before `on` mode acts on the
+ * decision. Below it the decision is audited but the heuristic acts.
+ */
+export const DUPLICATE_DECISION_MIN_CONFIDENCE = 0.6;
+
+/** Call-site id for the duplicate decision; keys the audit line. */
+export const DUPLICATE_DECISION_SITE = 'tasks.duplicate-detection';
+
+/** Config key selecting the System One mode for duplicate detection. */
+export const DUPLICATE_DECISION_MODE_KEY = 'decide.sites.duplicateDetection';
+
+/** Config key opting in to the generative LLM tier (T1681). Default `false`. */
+export const DUPLICATE_LLM_TIER_KEY = 'decide.generativeFallback.duplicateDetection';
+
+/**
+ * Per-field character caps for the decision state. Four tasks (the new one
+ * plus three candidates) stay near 3 KB of text — inside the ~1024 tokens the
+ * decision model reads.
+ */
+const DECISION_TITLE_MAX_CHARS = 160;
+const DECISION_DESCRIPTION_MAX_CHARS = 440;
 
 /**
  * Maximum candidates that may be scored with local embeddings (T12117).
@@ -139,7 +182,26 @@ export interface DuplicateCheckResult {
    * not BM25 — see the module docblock. Reporting WHICH Tier-1 implementation
    * ran (lexical vs vector) is tracked separately.
    */
-  tier?: 'bm25' | 'jaccard' | 'llm';
+  tier?: 'bm25' | 'jaccard' | 'llm' | 'decision';
+}
+
+/**
+ * System One mode for duplicate detection (T12492).
+ *
+ * - `off`    — no decision request.
+ * - `shadow` — ask, audit both answers, act on the heuristic.
+ * - `on`     — ask, act on the decision; the heuristic acts on any fallback.
+ */
+export type DuplicateDecisionMode = 'off' | 'shadow' | 'on';
+
+/** Optional wiring for {@link checkDuplicates}. Every field defaults from config. */
+export interface DuplicateCheckOptions {
+  /** Force a mode instead of reading {@link DUPLICATE_DECISION_MODE_KEY}. Still `off` when unconfigured. */
+  mode?: DuplicateDecisionMode;
+  /** Force the generative LLM tier on/off instead of reading {@link DUPLICATE_LLM_TIER_KEY}. */
+  llmTier?: boolean;
+  /** Provider, connection, budget, cache and audit wiring forwarded to `decide()`. Tests inject a stub here. */
+  decide?: DecideOptions;
 }
 
 // ============================================================================
@@ -578,6 +640,286 @@ export async function callLlmDuplicateReasoning(
 }
 
 // ============================================================================
+// Tier 3 — batched System One decision (T12492)
+// ============================================================================
+
+/** One Tier-2-ambiguous candidate offered to the decision. */
+interface DecisionCandidate {
+  /** The candidate task. */
+  task: Task;
+  /** Tier-1 score (the one the heuristic fallback acts on). */
+  tier1Score: number;
+  /** Tier-2 word-Jaccard score. */
+  jaccardScore: number;
+}
+
+/** Resolved System One settings for one check. */
+interface DuplicateDecisionSettings {
+  mode: DuplicateDecisionMode;
+  llmTier: boolean;
+}
+
+/** The decision's verdict, when a provider (or its cache) answered. */
+interface DuplicateDecisionVerdict {
+  /** Candidates the decision judged to be duplicates, highest probability first. */
+  duplicates: DuplicateCandidate[];
+  /** Highest duplicate probability across all candidates. */
+  maxProbability: number;
+  /** Whether every answer met {@link DUPLICATE_DECISION_MIN_CONFIDENCE}; only then may `on` act on it. */
+  confident: boolean;
+}
+
+/** Whether every answer is confident enough for `on` mode to act on it. */
+function isConfident(answers: Readonly<Record<string, { readonly confidence: number }>>): boolean {
+  return Object.values(answers).every((a) => a.confidence >= DUPLICATE_DECISION_MIN_CONFIDENCE);
+}
+
+/**
+ * Redact secrets, THEN clip to `max` characters, marking the cut.
+ *
+ * The order matters: clipping first can cut a secret in half, and a partial
+ * secret no longer matches the redaction patterns — `decide()`'s own redaction
+ * would then let the prefix through.
+ */
+function redactThenClip(text: string, max: number, redact: (s: string) => string): string {
+  const safe = redact(text);
+  return safe.length <= max ? safe : `${safe.slice(0, max - 1)}…`;
+}
+
+function isDecisionMode(value: unknown): value is DuplicateDecisionMode {
+  return value === 'off' || value === 'shadow' || value === 'on';
+}
+
+/**
+ * Resolve the System One mode and the generative-tier opt-in.
+ *
+ * Unconfigured (no explicit provider/connection and nothing stored by
+ * `cleo decide config`) always resolves to `off`, whatever the config says,
+ * so an unconfigured `cleo add` never opens a socket.
+ */
+async function resolveDuplicateDecisionSettings(
+  opts: DuplicateCheckOptions,
+  cwd: string | undefined,
+): Promise<DuplicateDecisionSettings> {
+  const wiring = opts.decide ?? {};
+  let configured: boolean;
+  if (wiring.provider) {
+    configured = true;
+  } else if (wiring.connection !== undefined) {
+    configured = wiring.connection !== null && wiring.connection.apiKey.trim() !== '';
+  } else {
+    try {
+      const { loadDecideConnection } = await import('../decide/credentials.js');
+      configured = loadDecideConnection() !== null;
+    } catch {
+      configured = false;
+    }
+  }
+
+  const needConfig = (configured && opts.mode === undefined) || opts.llmTier === undefined;
+  let configMode: unknown;
+  let configLlmTier: unknown;
+  if (needConfig) {
+    try {
+      const { getConfigValue } = await import('../config/registry.js');
+      const { getProjectRoot } = await import('../paths.js');
+      const projectRoot = cwd ?? getProjectRoot();
+      [configMode, configLlmTier] = await Promise.all([
+        getConfigValue(DUPLICATE_DECISION_MODE_KEY, { projectRoot }),
+        getConfigValue(DUPLICATE_LLM_TIER_KEY, { projectRoot }),
+      ]);
+    } catch {
+      // Unreadable config → defaults.
+    }
+  }
+
+  const mode: DuplicateDecisionMode = !configured
+    ? 'off'
+    : (opts.mode ?? (isDecisionMode(configMode) ? configMode : 'shadow'));
+  return { mode, llmTier: opts.llmTier ?? configLlmTier === true };
+}
+
+/** Question name for the candidate at `index` (0-based). */
+function questionName(index: number): string {
+  return `c${index + 1}`;
+}
+
+/**
+ * Build ONE decision request: the new task plus up to {@link MAX_CANDIDATES}
+ * candidates as structured state, and one noul question per candidate.
+ */
+function buildDuplicateDecisionRequest(
+  title: string,
+  description: string,
+  candidates: readonly DecisionCandidate[],
+  redact: (s: string) => string,
+): DecisionRequest {
+  const clip = (text: string, max: number): string => redactThenClip(text, max, redact);
+  const state: Record<string, { id?: string; title: string; description: string }> = {
+    new: {
+      title: clip(title, DECISION_TITLE_MAX_CHARS),
+      description: clip(description, DECISION_DESCRIPTION_MAX_CHARS),
+    },
+  };
+  const questions: Record<string, DecisionQuestion> = {};
+  candidates.forEach((c, i) => {
+    const name = questionName(i);
+    state[name] = {
+      id: c.task.id,
+      title: clip(c.task.title, DECISION_TITLE_MAX_CHARS),
+      description: clip(c.task.description ?? '', DECISION_DESCRIPTION_MAX_CHARS),
+    };
+    questions[name] = {
+      type: 'noul',
+      criteria: `The "new" task describes the same work deliverable as task "${name}" (a semantic duplicate, even if worded differently), not a different scope, deliverable or problem.`,
+    };
+  });
+  return { state, questions };
+}
+
+/**
+ * The heuristic's Tier-3 verdict for one candidate: `warn` when its Tier-1
+ * score reaches {@link DUPLICATE_WARN_THRESHOLD}, else `pass`. Tier-3
+ * candidates are below the reject threshold by construction, so warn/pass is
+ * the only verdict the heuristic can reach here — and the one agreement with
+ * the decision is measured against.
+ */
+function heuristicVerdictFor(c: DecisionCandidate): 'warn' | 'pass' {
+  return c.tier1Score >= DUPLICATE_WARN_THRESHOLD ? 'warn' : 'pass';
+}
+
+/**
+ * The heuristic's answer for one candidate, as a noul answer: `value` is its
+ * warn verdict and `probability` the RAW Tier-1 similarity (uncalibrated — a
+ * warn can sit at 0.85 and a pass at 0.6). Confidence is a flat 0.5: the
+ * heuristic carries no calibration of its own.
+ */
+function heuristicAnswer(c: DecisionCandidate): DecisionAnswer {
+  return {
+    type: 'noul',
+    value: heuristicVerdictFor(c) === 'warn',
+    probability: Math.min(1, Math.max(0, c.tier1Score)),
+    confidence: 0.5,
+  };
+}
+
+/**
+ * Ask System One whether any candidate duplicates the new task.
+ *
+ * Never throws and never waits longer than {@link DUPLICATE_DECISION_BUDGET_MS}
+ * (`decide()` enforces the remaining budget as its deadline). The audit line
+ * carries the heuristic answers and verdict next to the decision answers.
+ *
+ * @returns The decision verdict, or `null` when the heuristic answered (fallback).
+ */
+async function askDuplicateDecision(
+  title: string,
+  description: string,
+  candidates: readonly DecisionCandidate[],
+  heuristicVerdict: string,
+  mode: 'shadow' | 'on',
+  opts: DuplicateCheckOptions,
+  cwd: string | undefined,
+): Promise<DuplicateDecisionVerdict | null> {
+  const started = performance.now();
+  const deadline = AbortSignal.timeout(DUPLICATE_DECISION_BUDGET_MS);
+  try {
+    const { decide } = await import('../decide/client.js');
+    const { auditAnswers, createJsonlDecisionAudit } = await import('../decide/audit.js');
+
+    const { redactContent } = await import('../memory/redaction.js');
+    const req = buildDuplicateDecisionRequest(
+      title,
+      description,
+      candidates,
+      (text) => redactContent(text).content,
+    );
+    const heuristicAnswers: Record<string, DecisionAnswer> = {};
+    const subjects: Record<string, string> = {};
+    const heuristicVerdicts: Record<string, string> = {};
+    const heuristicScores: Record<string, number> = {};
+    candidates.forEach((c, i) => {
+      const name = questionName(i);
+      heuristicAnswers[name] = heuristicAnswer(c);
+      heuristicVerdicts[name] = heuristicVerdictFor(c);
+      heuristicScores[name] = c.tier1Score;
+      subjects[name] = c.task.id;
+    });
+    const heuristicAudit = auditAnswers({
+      answers: heuristicAnswers,
+      source: 'fallback',
+      latencyMs: 0,
+    });
+
+    const wiring = opts.decide ?? {};
+    let sink = wiring.audit;
+    if (sink === undefined) {
+      try {
+        const { getProjectRoot } = await import('../paths.js');
+        sink = createJsonlDecisionAudit(wiring.projectRoot ?? cwd ?? getProjectRoot());
+      } catch {
+        sink = null;
+      }
+    }
+    const base = sink;
+    const audit = base
+      ? {
+          write: (entry: Parameters<typeof base.write>[0]): void => {
+            const answered = entry.source !== 'fallback';
+            base.write({
+              ...entry,
+              shadow: {
+                mode,
+                acted:
+                  mode === 'on' && answered && isConfident(entry.answers)
+                    ? 'decision'
+                    : 'heuristic',
+                heuristicVerdict,
+                heuristicAnswers: heuristicAudit,
+                agree: answered
+                  ? Object.entries(entry.answers).every(
+                      ([name, a]) => a.value === heuristicAnswers[name]?.value,
+                    )
+                  : null,
+                heuristicVerdicts,
+                heuristicScores,
+                subjects,
+              },
+            });
+          },
+        }
+      : null;
+
+    // `decide()` starts its own deadline only after its setup (connection,
+    // redaction, validation). The abort signal pins the budget to THIS
+    // function's start, so that setup is inside it too.
+    const remaining = Math.max(0, DUPLICATE_DECISION_BUDGET_MS - (performance.now() - started));
+    const outcome = await decide(DUPLICATE_DECISION_SITE, req, () => heuristicAnswers, {
+      ...wiring,
+      audit,
+      timeoutMs: Math.min(wiring.timeoutMs ?? remaining, remaining),
+      signal: wiring.signal ? AbortSignal.any([wiring.signal, deadline]) : deadline,
+    });
+    if (outcome.source === 'fallback') return null;
+
+    const duplicates: DuplicateCandidate[] = [];
+    let maxProbability = 0;
+    candidates.forEach((c, i) => {
+      const answer = outcome.answers[questionName(i)];
+      if (answer?.type !== 'noul') return;
+      maxProbability = Math.max(maxProbability, answer.probability);
+      if (answer.value) {
+        duplicates.push({ id: c.task.id, title: c.task.title, score: answer.probability });
+      }
+    });
+    duplicates.sort((a, b) => b.score - a.score);
+    return { duplicates, maxProbability, confident: isConfident(outcome.answers) };
+  } catch {
+    return null;
+  }
+}
+
+// ============================================================================
 // Main Check
 // ============================================================================
 
@@ -601,18 +943,22 @@ export async function callLlmDuplicateReasoning(
  *   - score < JACCARD_ESCALATE_LOW (0.40): clear different → skip LLM.
  *   - score in [0.40, 0.85): ambiguous → escalate to LLM (cost cap: 1 call per invocation).
  *
- * Tier 3 — LLM reasoning (max 1 call per `cleo add`):
- *   Call the daemon provider with both task descriptions and the structured-output schema.
- *   On error/timeout: fall back to the Tier-1 decision for the candidate (never block).
+ * Tier 3 — System One, then the opt-in generative LLM (T12492):
+ *   One `decide()` request with up to 3 candidates as noul questions, bounded by
+ *   DUPLICATE_DECISION_BUDGET_MS. `shadow` audits it and acts on the heuristic; `on`
+ *   acts on it. Then, only when `decide.generativeFallback.duplicateDetection` is true,
+ *   the T1681 LLM call (max 1). On any failure: the Tier-1 decision (never block).
  *
  * @param title - Title of the task being added.
  * @param description - Description of the task being added (empty string if not provided).
  * @param accessor - DataAccessor instance to load active tasks from.
  * @param labels - Labels of the task being added (empty array if not provided).
  * @param cwd - Project root for LLM credential resolution (Tier 3).
+ * @param options - System One mode, generative-tier opt-in and `decide()` wiring (T12492).
  * @returns Duplicate check result with tier provenance.
  * @task T1633
  * @task T1681
+ * @task T12492
  */
 export async function checkDuplicates(
   title: string,
@@ -620,6 +966,7 @@ export async function checkDuplicates(
   accessor: DataAccessor,
   labels?: string[],
   cwd?: string,
+  options: DuplicateCheckOptions = {},
 ): Promise<DuplicateCheckResult> {
   const incomingLabels = labels ?? [];
 
@@ -759,72 +1106,114 @@ export async function checkDuplicates(
     };
   }
 
-  // ---- Tier 3: LLM reasoning (max 1 call per invocation) --------------------
-  // Pick the single highest-Jaccard ambiguous candidate for the LLM call.
-  // Cost cap: only 1 LLM call per `cleo add` invocation.
+  // ---- Tier 3: System One decision, then the opt-in generative LLM ---------
+  // Riskiest candidates first. The heuristic verdict below is what the
+  // existing path does when no model answers: warn on a Tier-1 warn-zone
+  // score, otherwise insert. It is what `shadow` acts on.
 
   if (tier2Ambiguous.length > 0) {
-    // Sort by jaccard score descending to pick the riskiest candidate
     tier2Ambiguous.sort((a, b) => b.jaccardScore - a.jaccardScore);
+    const tier1Of = (id: string): number | undefined =>
+      tier1Ambiguous.find((e) => e.task.id === id)?.tier1Score;
+    const decisionCandidates: DecisionCandidate[] = tier2Ambiguous
+      .slice(0, MAX_CANDIDATES)
+      .map(({ task, jaccardScore }) => ({
+        task,
+        jaccardScore,
+        tier1Score: tier1Of(task.id) ?? jaccardScore,
+      }));
     const topCandidate = tier2Ambiguous[0]!;
 
-    const reasoning = await callLlmDuplicateReasoning(
-      title,
-      description,
-      {
-        id: topCandidate.task.id,
-        title: topCandidate.task.title,
-        score: topCandidate.jaccardScore,
-        description: topCandidate.task.description ?? '',
-      },
-      cwd,
-    );
+    // Tier-1-only fallback for the top candidate. The Tier-1 score is in
+    // [0.5, 0.92), so it warns only when >= DUPLICATE_WARN_THRESHOLD.
+    const fallbackScore = tier1Of(topCandidate.task.id) ?? topCandidate.jaccardScore;
+    const heuristicResult: DuplicateCheckResult | null =
+      fallbackScore >= DUPLICATE_WARN_THRESHOLD
+        ? {
+            maxScore: fallbackScore,
+            candidates: [
+              { id: topCandidate.task.id, title: topCandidate.task.title, score: fallbackScore },
+            ],
+            shouldReject: false,
+            shouldWarn: true,
+            tier: 'bm25',
+          }
+        : null;
 
-    if (reasoning !== null) {
-      // LLM made a decision
-      if (reasoning.are_duplicate) {
-        const candidate: DuplicateCandidate = {
+    const settings = await resolveDuplicateDecisionSettings(options, cwd);
+
+    if (settings.mode !== 'off') {
+      const verdict = await askDuplicateDecision(
+        title,
+        description,
+        decisionCandidates,
+        heuristicResult ? 'warn' : 'insert',
+        settings.mode,
+        options,
+        cwd,
+      );
+      if (settings.mode === 'on' && verdict?.confident) {
+        if (verdict.duplicates.length > 0) {
+          return {
+            maxScore: verdict.duplicates[0]?.score ?? 0,
+            candidates: verdict.duplicates,
+            shouldReject: true,
+            shouldWarn: false,
+            tier: 'decision',
+          };
+        }
+        return {
+          maxScore: topCandidate.jaccardScore,
+          candidates: [],
+          shouldReject: false,
+          shouldWarn: false,
+          tier: 'decision',
+        };
+      }
+    }
+
+    // Generative LLM tier (T1681) — opt-in, max 1 call per invocation.
+    if (settings.llmTier) {
+      const reasoning = await callLlmDuplicateReasoning(
+        title,
+        description,
+        {
           id: topCandidate.task.id,
           title: topCandidate.task.title,
-          score: reasoning.confidence,
-        };
+          score: topCandidate.jaccardScore,
+          description: topCandidate.task.description ?? '',
+        },
+        cwd,
+      );
+
+      if (reasoning !== null) {
+        if (reasoning.are_duplicate) {
+          const candidate: DuplicateCandidate = {
+            id: topCandidate.task.id,
+            title: topCandidate.task.title,
+            score: reasoning.confidence,
+          };
+          return {
+            maxScore: reasoning.confidence,
+            candidates: [candidate],
+            shouldReject: true,
+            shouldWarn: false,
+            tier: 'llm',
+          };
+        }
+        // LLM says not duplicate — insert without rejection
         return {
-          maxScore: reasoning.confidence,
-          candidates: [candidate],
-          shouldReject: true,
+          maxScore: topCandidate.jaccardScore,
+          candidates: [],
+          shouldReject: false,
           shouldWarn: false,
           tier: 'llm',
         };
       }
-      // LLM says not duplicate — insert without rejection
-      return {
-        maxScore: topCandidate.jaccardScore,
-        candidates: [],
-        shouldReject: false,
-        shouldWarn: false,
-        tier: 'llm',
-      };
     }
 
-    // LLM failed/timed out — fall back to a Tier-1-only decision.
-    // The Tier-1 score for the top candidate is in [0.5, 0.92), which means
-    // it's in the warn zone only if >= DUPLICATE_WARN_THRESHOLD.
-    const tier1Entry = tier1Ambiguous.find((e) => e.task.id === topCandidate.task.id);
-    const fallbackScore = tier1Entry?.tier1Score ?? topCandidate.jaccardScore;
-    if (fallbackScore >= DUPLICATE_WARN_THRESHOLD) {
-      const candidate: DuplicateCandidate = {
-        id: topCandidate.task.id,
-        title: topCandidate.task.title,
-        score: fallbackScore,
-      };
-      return {
-        maxScore: fallbackScore,
-        candidates: [candidate],
-        shouldReject: false,
-        shouldWarn: true,
-        tier: 'bm25',
-      };
-    }
+    // No model answer acted on — the Tier-1-only decision.
+    if (heuristicResult) return heuristicResult;
   }
 
   // ---- Collect any Tier-1 warn-zone candidates (non-rejecting) --------------
@@ -850,11 +1239,15 @@ export async function checkDuplicates(
  * Format a human-readable candidate list for warning/rejection messages.
  *
  * @param candidates - Array of duplicate candidates.
+ * @param label - What `score` measures; defaults to the lexical `similarity`.
  * @returns Formatted multi-line string listing candidates.
  */
-export function formatCandidateList(candidates: DuplicateCandidate[]): string {
+export function formatCandidateList(
+  candidates: DuplicateCandidate[],
+  label = 'similarity',
+): string {
   return candidates
-    .map((c) => `  • ${c.id}: "${c.title}" (similarity: ${(c.score * 100).toFixed(0)}%)`)
+    .map((c) => `  • ${c.id}: "${c.title}" (${label}: ${(c.score * 100).toFixed(0)}%)`)
     .join('\n');
 }
 
@@ -875,10 +1268,24 @@ export function buildWarnMessage(candidates: DuplicateCandidate[]): string {
 /**
  * Build a rejection message for candidates above the reject threshold.
  *
+ * A System One rejection (`tier: 'decision'`) is worded as what it is — the
+ * model's duplicate probability — never as a lexical similarity score.
+ *
  * @param candidates - Candidates to include in the message.
+ * @param tier - The tier that decided (from {@link DuplicateCheckResult.tier}).
  * @returns Rejection string (no newline at end).
  */
-export function buildRejectMessage(candidates: DuplicateCandidate[]): string {
+export function buildRejectMessage(
+  candidates: DuplicateCandidate[],
+  tier?: DuplicateCheckResult['tier'],
+): string {
+  if (tier === 'decision') {
+    return (
+      `[BRAIN duplicate-check] Task creation REJECTED — System One judged these active tasks to be the same work:\n` +
+      formatCandidateList(candidates, 'System One duplicate probability') +
+      `\nRun with --force-duplicate to bypass (audited to .cleo/audit/duplicate-bypass.jsonl).`
+    );
+  }
   return (
     `[BRAIN duplicate-check] Task creation REJECTED — very similar active tasks found (score >= ${Math.round(DUPLICATE_REJECT_THRESHOLD * 100)}%):\n` +
     formatCandidateList(candidates) +

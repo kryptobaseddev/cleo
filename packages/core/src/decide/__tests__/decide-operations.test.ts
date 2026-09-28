@@ -20,6 +20,13 @@ import {
   probeDecideProvider,
 } from '../operations.js';
 
+// T12492: the default Jev transport is `decideFetch` (node:http, releases every
+// handle on abort), not the global `fetch`. These tests drive the default
+// provider through a stubbed global `fetch`, so route the transport through it.
+vi.mock('../transport.js', () => ({
+  decideFetch: (url: string, init: RequestInit) => globalThis.fetch(url, init),
+}));
+
 const KEY = 'sk-test-OPSSECRET-4321';
 const URL = 'https://decide.test';
 

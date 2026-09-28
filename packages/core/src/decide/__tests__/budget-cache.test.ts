@@ -40,6 +40,16 @@ describe('memory token bucket', () => {
     now = 6_000;
     expect(await bucket.tryAcquire()).toEqual({ granted: true });
   });
+
+  it('caps a penalty at 60 s, whatever the provider asked for', async () => {
+    let now = 0;
+    const bucket = createMemoryTokenBucket({ now: () => now });
+    await bucket.penalize(999_999_999_000);
+    now = 59_999;
+    expect(await bucket.tryAcquire()).toEqual({ granted: false, reason: 'cooling_down' });
+    now = 60_001;
+    expect((await bucket.tryAcquire()).granted).toBe(true);
+  });
 });
 
 describe('file token bucket', () => {
@@ -71,6 +81,21 @@ describe('file token bucket', () => {
       now: () => 2_000,
     });
     expect(await c.tryAcquire()).toEqual({ granted: false, reason: 'cooling_down' });
+  });
+
+  it('clamps a persisted cool-down beyond the 60 s cap (written by an uncapped version)', async () => {
+    const statePath = join(dir, 'budget.json');
+    writeFileSync(
+      statePath,
+      JSON.stringify({ tokens: 5, updatedAt: 1_000, blockedUntil: 1_000 + 999_999_999_000 }),
+    );
+    const bucket = createFileTokenBucket({
+      statePath,
+      capacity: 5,
+      refillPerMinute: 0,
+      now: () => 1_000 + 60_001,
+    });
+    expect((await bucket.tryAcquire()).granted).toBe(true);
   });
 
   it('fails closed on a corrupt state file', async () => {
