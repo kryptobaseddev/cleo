@@ -63,7 +63,9 @@
  * rulings; the ruling supersedes earlier ones where they conflict (each such
  * entry carries the old reasoning in its `note`). Rows marked
  * `needs-owner-call` are provisional. Tables on the `pending` list have no
- * class and never sync (they are still backed up).
+ * class and never sync (they are still backed up), and the Gate A test fails
+ * while the list is non-empty: pending is a working state, never a merged
+ * one.
  *
  * @task T12332
  * @epic T12322
@@ -149,9 +151,10 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     ],
   },
   agent_error_log: {
-    class: 'local-only',
-    status: 'draft',
-    source: 'table-classification-draft.md',
+    class: 'portable-project',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28 (round 2)',
+    note: 'bare twin of tasks_agent_error_log (exodus map); same ruling',
   },
   agent_instances: {
     class: 'local-only',
@@ -469,10 +472,10 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     note: 'ruling: conduit_* sync (agents need handoff history across devices). No secret column found. Merge scope project (not personal) is my proposal',
   },
   conduit_topic_message_acks: {
-    class: 'local-only',
+    class: 'portable-personal',
     status: 'resolved',
-    source: 'cleo-dev ruling 2026-09-28',
-    note: 'ruling keeps queues/delivery state device-local',
+    source: 'cleo-dev ruling 2026-09-28 (round 2)',
+    note: "supersedes the first ruling (queues device-local): an ack is the owner's read state, and a message acked on one device must not re-deliver on another",
   },
   conduit_topic_messages: {
     class: 'portable-project',
@@ -642,9 +645,10 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     note: 'live bare twin; ruling: pipeline_manifest',
   },
   playbook_approvals: {
-    class: 'local-only',
-    status: 'draft',
-    source: 'table-classification-draft.md',
+    class: 'portable-project',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28 (round 2)',
+    note: 'both twins carry the ruling (the exodus map pairs playbook_approvals with tasks_playbook_approvals)',
     columns: [
       {
         column: 'token',
@@ -653,7 +657,12 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
       },
     ],
   },
-  playbook_runs: { class: 'local-only', status: 'draft', source: 'table-classification-draft.md' },
+  playbook_runs: {
+    class: 'portable-project',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28 (round 2)',
+    note: 'both twins carry the ruling (exodus map: playbook_runs ↔ tasks_playbook_runs)',
+  },
   pr_commits: {
     class: 'local-only',
     status: 'frozen-legacy',
@@ -830,16 +839,16 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     liveTwin: 'tasks_tasks',
   },
   tasks_acceptance_projection_dirty: {
-    class: 'local-only',
-    status: 'needs-owner-call',
-    source: 'cleo-dev ruling 2026-09-28',
-    note: 'projection cache/dirty set. Not in the narrow derived set; cheap to rebuild, so proposed local-only (tier-1 backup only)',
+    class: 'portable-project',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28 (round 2)',
+    note: 'derived only if a deterministic rebuild path exists, and none does: the only writer is the seed INSERT in migrations/drizzle-tasks/20260525000070_t10570-acceptance-projection-state/migration.sql:27; tasks/ac-table.ts:531 rebuildChildProjectionAc rebuilds child_task criterion rows, never this table, and doctor/acceptance-drift.ts:46 documents it as unmaintained since 2026-05-26',
   },
   tasks_acceptance_projection_state: {
-    class: 'local-only',
-    status: 'needs-owner-call',
-    source: 'cleo-dev ruling 2026-09-28',
-    note: 'projection cache/dirty set. Not in the narrow derived set; cheap to rebuild, so proposed local-only (tier-1 backup only)',
+    class: 'portable-project',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28 (round 2)',
+    note: 'derived only if a deterministic rebuild path exists, and none does: the only writer is the seed INSERT in migrations/drizzle-tasks/20260525000070_t10570-acceptance-projection-state/migration.sql:27; tasks/ac-table.ts:531 rebuildChildProjectionAc rebuilds child_task criterion rows, never this table, and doctor/acceptance-drift.ts:46 documents it as unmaintained since 2026-05-26',
   },
   tasks_adr_relations: {
     class: 'portable-project',
@@ -864,9 +873,9 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     ],
   },
   tasks_agent_error_log: {
-    class: 'local-only',
-    status: 'draft',
-    source: 'table-classification-draft.md',
+    class: 'portable-project',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28 (round 2)',
   },
   tasks_agent_instances: {
     class: 'local-only',
@@ -925,10 +934,10 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'table-classification-draft.md',
   },
   tasks_goal: {
-    class: 'local-only',
-    status: 'needs-owner-call',
-    source: 'cleo-dev ruling 2026-09-28',
-    note: 'per-agent goal state (turn budget, verdict). Unclear whether an agent on a new device needs it; writer not reviewed',
+    class: 'portable-project',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28 (round 2)',
+    note: 'per-agent goal state (turn budget, verdict); an agent resuming on another device needs it. No bare `goal` twin exists',
   },
   tasks_lifecycle_evidence: {
     class: 'portable-project',
@@ -956,9 +965,9 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'table-classification-draft.md',
   },
   tasks_playbook_approvals: {
-    class: 'local-only',
-    status: 'draft',
-    source: 'table-classification-draft.md',
+    class: 'portable-project',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28 (round 2)',
     columns: [
       {
         column: 'token',
@@ -968,9 +977,9 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     ],
   },
   tasks_playbook_runs: {
-    class: 'local-only',
-    status: 'draft',
-    source: 'table-classification-draft.md',
+    class: 'portable-project',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28 (round 2)',
   },
   tasks_pr_commits: {
     class: 'portable-project',
@@ -1117,9 +1126,9 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     note: 'ruling: token_usage is portable (cost history). Merge scope personal is my proposal (keyed by session, and sessions are personal)',
   },
   tasks_warp_chain_instances: {
-    class: 'local-only',
-    status: 'draft',
-    source: 'table-classification-draft.md',
+    class: 'portable-project',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28 (round 2)',
   },
   tasks_warp_chains: {
     class: 'portable-project',
@@ -1133,10 +1142,10 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     note: 'live bare twin of tasks_token_usage; same ruling',
   },
   warp_chain_instances: {
-    class: 'local-only',
-    status: 'draft',
-    source: 'draft §2.1 (warp_chains / warp_chain_instances = P / L)',
-    note: 'The JSON seed said portable-project; the draft and its prefixed twin tasks_warp_chain_instances say local-only (running instance state)',
+    class: 'portable-project',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28 (round 2)',
+    note: 'supersedes draft §2.1 (P / L): running chain instances resume on another device. Both twins carry the ruling',
   },
   warp_chains: {
     class: 'portable-project',
@@ -1164,6 +1173,11 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     columns: [
       {
         column: 'secret_enc',
+        class: 'portable-secret',
+        reason: 'credential column (CREDENTIAL_COLUMNS, store/portable-bundle-scan.ts)',
+      },
+      {
+        column: 'refresh_enc',
         class: 'portable-secret',
         reason: 'credential column (CREDENTIAL_COLUMNS, store/portable-bundle-scan.ts)',
       },
@@ -1342,6 +1356,12 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     status: 'draft',
     source: 'draft §3 (same split as project §1.8)',
   },
+  brain_embeddings: {
+    class: 'portable-personal',
+    status: 'optional-transient',
+    source: 'cleo-dev ruling 2026-09-28 (round 2)',
+    note: 'no global binder creates the vec0 table today (store/memory-sqlite.ts initializeBrainVec runs for the project brain only), so this entry is pinned optional-transient by the Gate A test. It exists so a future global vec0 table is portable-personal like its project twin, never derived by a name pattern: embeddings cost money to regenerate',
+  },
   brain_learnings: {
     class: 'portable-personal',
     status: 'draft',
@@ -1475,7 +1495,12 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'cleo-dev ruling 2026-09-28',
     note: 'seeded from models.dev by llm/catalog-seeder.ts; not in the narrow derived set',
   },
-  nexus_audit_log: { class: 'local-only', status: 'draft', source: 'draft §3' },
+  nexus_audit_log: {
+    class: 'portable-personal',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28 (round 2)',
+    note: "the owner's nexus audit history; supersedes draft §3 (local-only)",
+  },
   nexus_code_index: {
     class: 'derived',
     status: 'draft',
@@ -1495,10 +1520,37 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     note: 'orphaned global copy (ADR-090); the graph lives in project scope',
   },
   nexus_project_id_aliases: {
-    class: 'local-only',
-    status: 'needs-owner-call',
-    source: 'draft §3',
-    note: 'legacy ids are path-derived; is any row user-authored?',
+    class: 'portable-personal',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28 (round 2)',
+    note: 'old project ids resolve on every device the owner uses; supersedes draft §3 (local-only)',
+  },
+  nexus_devices: {
+    class: 'portable-personal',
+    status: 'resolved',
+    source:
+      'cleo-dev ruling 2026-09-28 (round 2); drizzle-cleo-global t12510 (T12510, epic T12496)',
+    note: "the owner's device list: one row per machine, so each device sees the others",
+  },
+  nexus_project_git_state: {
+    class: 'portable-personal',
+    status: 'resolved',
+    source: 'drizzle-cleo-global t12511 (T12511)',
+    note: 'per-device probe rows; other-device view requires sync',
+    columns: [
+      {
+        column: 'remote_url',
+        class: 'strip',
+        reason:
+          'cleo-dev ruling 2026-09-28 (round 2): a remote URL can embed credentials (https://user:token@host); stripped from outgoing ops and re-probed on the receiver',
+      },
+    ],
+  },
+  nexus_project_locations: {
+    class: 'portable-personal',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-28 (round 2); drizzle-cleo-global t12469 / t12470 (T12469)',
+    note: "per-device rows keyed (project_id, device_id, path): each device syncs its own rows so the owner can see where a project lives elsewhere; a peer never overwrites this device's path",
   },
   nexus_project_paths: { class: 'local-only', status: 'draft', source: 'draft §3' },
   nexus_project_registry: {
@@ -1661,18 +1713,43 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
   telemetry_schema_meta: { class: 'local-only', status: 'draft', source: 'draft §3' },
 };
 
+/**
+ * FTS5 tables by their explicit base names. A pattern never classifies by a
+ * bare `_fts` suffix: a future table that merely ends in `_fts` must fail
+ * Gate A until someone decides it is really an index. Each base covers the
+ * FTS5 virtual table itself plus its five known shadow tables.
+ */
+const FTS5_BASES = [
+  'brain_decisions_fts',
+  'brain_learnings_fts',
+  'brain_observations_fts',
+  'brain_patterns_fts',
+  'conduit_messages_fts',
+  'nexus_symbols_fts',
+] as const;
+
+/** The FTS5 virtual tables above and their `_config/_content/_data/_docsize/_idx` shadows. */
+const FTS5_RULE: TablePatternRule = {
+  match: `^(${FTS5_BASES.join('|')})(_(config|content|data|docsize|idx))?$`,
+  class: 'derived',
+  reason: 'FTS5 virtual table or shadow; rebuilt by triggers on the replica',
+};
+
+/**
+ * The sqlite-vec (vec0) shadow tables of `brain_embeddings`, by their known
+ * names. The `brain_embeddings` virtual table itself is an explicit
+ * portable-personal entry in both scopes: embeddings are not derived.
+ */
+const VEC0_SHADOW_RULE: TablePatternRule = {
+  match: '^brain_embeddings_(chunks|info|rowids|vector_chunks[0-9]{2})$',
+  class: 'derived',
+  reason: 'sqlite-vec shadow table of brain_embeddings; rebuilt from the virtual table',
+};
+
 /** FTS5 and sqlite-vec shadow families plus exodus recovery scratch (project). */
 const PROJECT_PATTERNS: readonly TablePatternRule[] = [
-  {
-    match: '^[a-z_]+_fts(_(config|data|docsize|idx|content))?$',
-    class: 'derived',
-    reason: 'FTS5 virtual table or shadow; rebuilt by triggers on the replica',
-  },
-  {
-    match: '^brain_embeddings(_.+)?$',
-    class: 'derived',
-    reason: 'sqlite-vec index; recomputed locally',
-  },
+  FTS5_RULE,
+  VEC0_SHADOW_RULE,
   {
     match: '^_exodus_recovery_.+$',
     class: 'local-only',
@@ -1681,37 +1758,13 @@ const PROJECT_PATTERNS: readonly TablePatternRule[] = [
 ];
 
 /** FTS5 and sqlite-vec shadow families (global). */
-const GLOBAL_PATTERNS: readonly TablePatternRule[] = [
-  {
-    match: '^[a-z_]+_fts(_(config|data|docsize|idx|content))?$',
-    class: 'derived',
-    reason: 'FTS5 virtual table or shadow; rebuilt by triggers on the replica',
-  },
-  {
-    match: '^brain_embeddings(_.+)?$',
-    class: 'derived',
-    reason: 'sqlite-vec index; recomputed locally',
-  },
-];
+const GLOBAL_PATTERNS: readonly TablePatternRule[] = [FTS5_RULE, VEC0_SHADOW_RULE];
 
 /** Project tables that exist but await an owner ruling; they have no class. */
 const PROJECT_PENDING: readonly PendingTableClassification[] = [];
 
 /** Global tables that exist but await an owner ruling; they have no class. */
-const GLOBAL_PENDING: readonly PendingTableClassification[] = [
-  {
-    table: 'nexus_devices',
-    source: 'drizzle-cleo-global t12510 (T12510, epic T12496)',
-    question:
-      "One row per machine (hostname, os, arch, heartbeat). Newer than the draft. Portable-personal (the owner's device list) or local-only? PROPOSED: local-only (the ruling keeps paths/locations device-local; per-device rows back up in tier 1).",
-  },
-  {
-    table: 'nexus_project_locations',
-    source: 'drizzle-cleo-global t12469 / t12470 (T12469)',
-    question:
-      'Per-device project locations keyed (project_id, device_id, path). Newer than the draft. Portable-personal with per-device rows, or local-only like nexus_project_paths? PROPOSED: local-only (the ruling keeps paths/locations device-local; per-device rows back up in tier 1).',
-  },
-];
+const GLOBAL_PENDING: readonly PendingTableClassification[] = [];
 
 /**
  * The classification registry for the project `cleo.db`.
