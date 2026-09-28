@@ -18,7 +18,7 @@ import { catalog } from '@cleocode/caamp';
 import type { Task } from '@cleocode/contracts';
 import { discoverAllSkills, findSkill } from './discovery.js';
 import { injectTokens } from './injection/token.js';
-import type { DispatchResult, Skill, SkillProtocolType } from './types.js';
+import type { DispatchResult, FindSkillOptions, Skill, SkillProtocolType } from './types.js';
 
 // ============================================================================
 // Keyword Dispatch Map
@@ -360,6 +360,9 @@ function loadProgressive(content: string): string {
  * The first skill is loaded fully (primary). Secondary skills use progressive
  * disclosure (frontmatter + first section only) to save context budget.
  *
+ * `findOptions` is forwarded to `findSkill` (e.g. `includeBundled` for
+ * prompt builders that may read uninstalled bundled skills, T12646).
+ *
  * @task T4712
  * @epic T4663
  */
@@ -367,6 +370,7 @@ export function prepareSpawnMulti(
   skillNames: string[],
   tokenValues: Record<string, string>,
   cwd?: string,
+  findOptions: FindSkillOptions = {},
 ): MultiSkillComposition {
   if (skillNames.length === 0) {
     throw new Error('At least one skill required for multi-skill composition');
@@ -381,7 +385,7 @@ export function prepareSpawnMulti(
     const skillName = skillNames[i];
     const isPrimary = i === 0;
 
-    const skill = findSkill(skillName, cwd);
+    const skill = findSkill(skillName, cwd, findOptions);
     if (!skill?.content) {
       continue;
     }
