@@ -1791,16 +1791,43 @@ export interface NexusRegistryFinding {
   splitWith?: NexusRegistrySplitPeer[];
 }
 
+/**
+ * An alias key that more than one registered project claims (T12589).
+ *
+ * The legacy project id encodes only the first 24 bytes of a path, so every
+ * project under a long shared prefix derives the same key. Such a key names
+ * no project: resolvers refuse it, and `cleo doctor projects --apply` removes
+ * its alias row under a receipt.
+ */
+export interface NexusRegistryAmbiguousAlias {
+  /** The alias key (`nexus_project_id_aliases.legacy_id`). */
+  legacyId: string;
+  /** The project the alias row currently points at (the first to record it). */
+  canonicalId: string;
+  /** Every registered project that claims the key, sorted. */
+  claimants: string[];
+  /** One-line explanation. */
+  message: string;
+  /** Exact command that removes the row. */
+  remedy: string;
+}
+
 /** One registry change made by `cleo doctor projects --apply` (T12471). */
 export interface NexusRegistryRepairAction {
-  /** `rebind` points the row at `to`; `mark-missing` records the location as `missing`. */
-  action: 'rebind' | 'mark-missing';
-  /** Project the action applies to. */
+  /**
+   * `rebind` points the row at `to`; `mark-missing` records the location as
+   * `missing`; `drop-ambiguous-alias` removes the alias row for `alias`
+   * (T12589).
+   */
+  action: 'rebind' | 'mark-missing' | 'drop-ambiguous-alias';
+  /** Project the action applies to (for an alias, the row's `canonical_id`). */
   projectId: string;
   /** Registered path before the action. */
   from: string;
   /** New registered path (`rebind` only). */
   to?: string;
+  /** Alias key removed (`drop-ambiguous-alias` only). */
+  alias?: string;
   /** `applied`, or `skipped` when the row changed between inspection and apply. */
   outcome: 'applied' | 'skipped';
 }
@@ -1835,6 +1862,8 @@ export interface NexusRegistryIntegrityReport {
   counts: Record<NexusRegistryFindingKind, number>;
   /** Every row whose kind is not `ok`. */
   findings: NexusRegistryFinding[];
+  /** Alias rows whose key more than one project claims (T12589). */
+  ambiguousAliases: NexusRegistryAmbiguousAlias[];
   /** Receipt of the applied changes; absent on a dry run or when nothing applied. */
   receipt?: NexusRegistryRepairReceipt;
 }
@@ -1845,8 +1874,8 @@ export interface NexusRegistryRollbackResult {
   receiptId: string;
   /** `nexus_audit_log.id` of the rollback itself. */
   rollbackReceiptId: string;
-  /** Rows written back per table. */
-  restored: { registry: number; locations: number; paths: number };
+  /** Rows written back per table (`aliases` when the repair removed alias rows). */
+  restored: { registry: number; locations: number; paths: number; aliases?: number };
 }
 
 /** Parameters for `nexus.refresh-bridge`. */

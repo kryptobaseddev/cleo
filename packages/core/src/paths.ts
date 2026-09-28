@@ -1865,7 +1865,7 @@ export async function resolveProjectById(projectId: string): Promise<ProjectRegi
     const { getNexusDb, getNexusRegistryDbPath } = await import('./store/nexus-sqlite.js');
     if (!existsSync(getNexusRegistryDbPath())) return null;
     const { eq } = await import('drizzle-orm');
-    const { projectRegistry, projectIdAliases } = await import('./store/schema/nexus-schema.js');
+    const { projectRegistry } = await import('./store/schema/nexus-schema.js');
     const db = await getNexusDb();
     const directRows = await db
       .select()
@@ -1873,15 +1873,13 @@ export async function resolveProjectById(projectId: string): Promise<ProjectRegi
       .where(eq(projectRegistry.projectId, projectId))
       .limit(1);
     if (directRows.length > 0) return _rowToRegistryEntry(directRows[0]);
-    // Alias lookup (AC4) — gracefully handles missing project_id_aliases table
+    // Alias lookup (AC4) — gracefully handles missing project_id_aliases table.
+    // T12589: an alias shared by several projects resolves to none of them.
     try {
-      const aliasRows = await db
-        .select()
-        .from(projectIdAliases)
-        .where(eq(projectIdAliases.legacyId, projectId))
-        .limit(1);
-      if (aliasRows.length > 0) {
-        const canonicalId = aliasRows[0].canonicalId;
+      const { resolveProjectAlias } = await import('./nexus/legacy-alias.js');
+      const alias = resolveProjectAlias(db, projectId);
+      if (alias.status === 'resolved') {
+        const canonicalId = alias.canonicalId;
         const canonicalRows = await db
           .select()
           .from(projectRegistry)
@@ -2140,6 +2138,7 @@ export async function registerProjectOnEncounter(
             recordProjectCheckout,
             touchProjectLocation,
           } = await import('./nexus/path-map.js');
+          const { registryAliasClaimants } = await import('./nexus/legacy-alias.js');
           const db = await getNexusRegistryDb(capturedHome);
           execution.assertActive();
           const projectHash = generateProjectHash(resolvedPath);
@@ -2232,6 +2231,17 @@ export async function registerProjectOnEncounter(
                   .from(projectIdAliases)
                   .where(eq(projectIdAliases.legacyId, alias))
                   .get();
+                // T12589: the legacy key encodes only 24 path bytes, so every
+                // project under a shared prefix derives it. Shared, it names no
+                // project: never recorded for a second one and never resolved
+                // (legacy-alias.ts). Expected, so not reported.
+                if (
+                  alias === legacyAlias &&
+                  registryAliasClaimants(tx, alias, owner?.canonicalId).some(
+                    (id) => id !== infoProjectId,
+                  )
+                )
+                  continue;
                 const directOwner = tx
                   .select()
                   .from(projectRegistry)
