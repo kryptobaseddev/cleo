@@ -40,7 +40,6 @@ export type ErrorBody = z.infer<typeof ErrorBody>;
 export const ErrorEnvelope = z.object({ success: z.literal(false), error: ErrorBody });
 export type ErrorEnvelope = z.infer<typeof ErrorEnvelope>;
 
-
 export type OkEnvelope<T> = { success: true; data: T; meta: { requestId: string } };
 export type Envelope<T> = OkEnvelope<T> | ErrorEnvelope;
 

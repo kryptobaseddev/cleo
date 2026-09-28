@@ -11,7 +11,10 @@ const SHA256_HEX = /^[0-9a-f]{64}$/;
  */
 export const ProjectId = z
   .string()
-  .refine((s) => UUID.test(s) || LEGACY_PROJECT_ID.test(s), 'expected a UUID or legacy 12-hex project id');
+  .refine(
+    (s) => UUID.test(s) || LEGACY_PROJECT_ID.test(s),
+    'expected a UUID or legacy 12-hex project id',
+  );
 export type ProjectId = z.infer<typeof ProjectId>;
 
 /** A replica is one `cleo.db` store (per store, not per machine; worktree copies are separate replicas). */
@@ -30,9 +33,11 @@ export type Sha256Hex = z.infer<typeof Sha256Hex>;
  */
 export const StreamId = z
   .string()
-  .regex(/^(project:[0-9a-f-]{12,36}|home:[A-Za-z0-9_-]{8,64})$/, 'expected project:<id> or home:<userId>');
+  .regex(
+    /^(project:[0-9a-f-]{12,36}|home:[A-Za-z0-9_-]{8,64})$/,
+    'expected project:<id> or home:<userId>',
+  );
 export type StreamId = z.infer<typeof StreamId>;
-
 
 /**
  * Hybrid logical clock, encoded so that lexical order is causal order:
