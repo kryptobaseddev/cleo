@@ -82,6 +82,12 @@ source stayed live, so the registry could later bind to the stale copy.
   - Each ignored tombstone warns once.
   - `cleo doctor *` is never blocked by the tombstone. At a refused root,
     `doctor project-identity` points to the live root or to `init --here`.
+  - The relocation checks integrate with #1605's init target resolution
+    (T12562). They write nothing and run BEFORE the already-initialized and
+    worktree guards, so a relocated root is never told to use `--force`.
+    `E_PROJECT_MOVED` (exit 9) never collides with the `INIT_ERROR_CODES`
+    refusals (exit 1 with `details.codeName`), and it keeps its code on both
+    the CLI and dispatch init paths.
   - At a relocated root, `cleo init --here` alone is refused. It would adopt
     the live project's id and create a second store for one project.
     `cleo init --here --new-identity` starts a genuinely DIFFERENT project

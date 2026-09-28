@@ -61,9 +61,8 @@ export async function captureDocumentProjection(
     if (!info || typeof info.projectId !== 'string' || !info.projectId.trim()) {
       throw new Error('Canonical project-info lacks a stable projectId');
     }
-    if (info.projectRoot !== undefined && info.projectRoot !== projectRoot) {
-      throw new Error('Canonical project-info root differs from the captured project root');
-    }
+    // T12557: identity is the projectId. A persisted `projectRoot` is a legacy,
+    // path-derived value that goes stale on every move; it is never compared.
     const context = createOperationExecutionContext(
       {
         projectId: info.projectId,

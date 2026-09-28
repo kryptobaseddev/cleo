@@ -31,6 +31,7 @@ import {
   CleoError,
   getWorkflowTemplatesDir as getCoreWorkflowTemplatesDir,
   type InitOptions,
+  initErrorCodeName,
   initProject,
   pushWarning,
   scaffoldWorkflows,
@@ -111,13 +112,8 @@ export const initCommand = defineCommand({
     },
     force: {
       type: 'boolean',
-      description: 'Overwrite existing files',
-      default: false,
-    },
-    here: {
-      type: 'boolean',
       description:
-        'Initialize a store in the current directory even when an ancestor is (or was) a CLEO project root, or when this directory is one a project was rerooted away from — the explicit, audited opt-out from E_PROJECT_MOVED (T12558)',
+        "Re-initialize THIS directory's project: resets .cleo/config.json and project-info.json, rewrites .cleo/.gitignore and the managed git hooks. Snapshots databases and those files to .cleo/backups/sqlite/ first; never targets an ancestor or a worktree.",
       default: false,
     },
     detect: {
@@ -156,10 +152,16 @@ export const initCommand = defineCommand({
         'Point the NEXUS registry at this checkout even though the project is registered at another path that still exists (T12470).',
       default: false,
     },
+    here: {
+      type: 'boolean',
+      description:
+        'Initialize the current directory itself, even inside an ancestor CLEO project (T12562). A directory that is its own git root is targeted without it. At a directory a project was rerooted away from it requires --new-identity (T12558).',
+      default: false,
+    },
     'new-identity': {
       type: 'boolean',
       description:
-        'Mint a new project identity instead of re-linking a registered one (T12325). Never rewrites an existing .cleo/project-id.',
+        "Mint a new project identity instead of re-linking a registered one (T12325). Never rewrites an existing .cleo/project-id — except with --here at a directory a project was rerooted away from, where that project's restored id is retired for the new one (T12558).",
       default: false,
     },
   },
@@ -223,12 +225,9 @@ export const initCommand = defineCommand({
         installSeedAgents: !!args['install-seed-agents'],
         newIdentity: !!args['new-identity'],
         forceRebind: !!args['force-rebind'],
-        adopt: !!args.here,
+        here: !!args.here,
       };
 
-      // T12558: `--here` pins the project root to cwd, so resolution never
-      // walks up to an ancestor project (or a reroot tombstone above it).
-      if (args.here) process.env['CLEO_ROOT'] = process.cwd();
       const result = await initProject(initOpts);
 
       // T11727 — first-run credential nudge. When the credential pool is empty
@@ -258,13 +257,14 @@ export const initCommand = defineCommand({
       );
     } catch (err) {
       if (err instanceof CleoError) {
-        // T12558: keep the typed LAFS code, fix and details (E_PROJECT_MOVED
-        // carries `details.movedTo`), not a blanket E_INTERNAL.
+        // T12562: keep the refusal's stable code and fix instead of E_INTERNAL.
+        // T12558: any other typed CleoError (E_PROJECT_MOVED carries
+        // `details.movedTo`) keeps its own LAFS code.
         cliError(`init failed: ${err.message}`, err.code, {
-          name: err.toLAFSError().code,
-          fix: err.fix,
-          alternatives: err.alternatives,
-          details: err.details,
+          name: initErrorCodeName(err) ?? err.toLAFSError().code,
+          ...(err.fix !== undefined ? { fix: err.fix } : {}),
+          ...(err.alternatives !== undefined ? { alternatives: err.alternatives } : {}),
+          ...(err.details !== undefined ? { details: err.details } : {}),
         });
         process.exit(err.code);
       }

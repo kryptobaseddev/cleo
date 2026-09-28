@@ -6,12 +6,13 @@
  * @task T11010
  */
 
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { EngineResult } from '../engine-result.js';
+import { generateProjectHash } from '../nexus/hash.js';
 import {
   type MoveProjectResult,
   moveProject,
@@ -233,7 +234,31 @@ describe('project-lifecycle', () => {
   // ── renameProject ─────────────────────────────────────────────────
 
   describe('renameProject', () => {
-    it('AC4: updates project name and recomputes projectHash', async () => {
+    it('keeps the stored projectHash byte-identical and adds no projectRoot (T12557)', async () => {
+      const infoPath = join(projectDir, '.cleo', 'project-info.json');
+      const hashBytes = (): string =>
+        /"projectHash":\s*("[^"]*")/.exec(readFileSync(infoPath, 'utf-8'))?.[1] ?? '';
+      // The fixture's stored hash is not the raw-path hash, as after a move.
+      expect(hashBytes()).toBe('"a1b2c3d4e5f6"');
+      expect(generateProjectHash(projectDir)).not.toBe('a1b2c3d4e5f6');
+
+      const data = expectSuccess(await renameProject('renamed', projectDir)) as RenameProjectResult;
+      expect(data.newProjectHash).toBe('a1b2c3d4e5f6');
+      expect(hashBytes()).toBe('"a1b2c3d4e5f6"');
+      const info = JSON.parse(readFileSync(infoPath, 'utf-8')) as Record<string, unknown>;
+      expect(info['name']).toBe('renamed');
+      expect(info).not.toHaveProperty('projectRoot');
+      // The legacy path fact is kept as a receipt, never silently lost.
+      expect(info['strippedFields']).toEqual([
+        expect.objectContaining({
+          file: 'project-info.json',
+          field: 'projectRoot',
+          value: projectDir,
+        }),
+      ]);
+    });
+
+    it('AC4: updates project name and keeps projectHash', async () => {
       const result = await renameProject('new-test-name', projectDir);
       const data = expectSuccess(result) as RenameProjectResult;
 

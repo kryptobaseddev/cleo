@@ -1,7 +1,7 @@
 /** Real canonical-source and durable-pending proofs for optional docs projection. */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
@@ -370,7 +370,6 @@ describe('canonical projection identity capture', () => {
   it.each([
     'missing',
     'malformed',
-    'mismatched',
     'expired',
   ] as const)('reports %s identity or scope without creating optional work', async (mode) => {
     if (mode !== 'missing')
@@ -378,10 +377,7 @@ describe('canonical projection identity capture', () => {
         join(root, '.cleo/project-info.json'),
         mode === 'malformed'
           ? '{bad-json'
-          : JSON.stringify({
-              projectId: 'portable-A',
-              projectRoot: mode === 'mismatched' ? join(root, 'wrong') : root,
-            }),
+          : JSON.stringify({ projectId: 'portable-A', projectRoot: root }),
       );
     const captured = await captureDocumentProjection(
       root,
@@ -397,5 +393,51 @@ describe('canonical projection identity capture', () => {
       expect(captured.outcome.diagnostics.length).toBeGreaterThan(0);
     expect(readPending()).toEqual([]);
     expect((await createAttachmentStore().get(source.sha256, root))?.bytes).toEqual(bytes);
+  });
+
+  // T12557: identity is the projectId. A persisted projectRoot is a legacy
+  // path-derived value (written by `project move`, or `/mnt/...` in old Linux
+  // stores) that goes stale on every move and must never fail the capture.
+  it('captures a legacy stale persisted projectRoot by projectId (T12557)', async () => {
+    await writeFile(
+      join(root, '.cleo/project-info.json'),
+      JSON.stringify({ projectId: 'portable-A', projectRoot: '/mnt/projects/legacy' }),
+    );
+    const captured = await captureDocumentProjection(root, 'foreground', 'invocation', 10000);
+    if (captured.status !== 'ready') throw new Error(captured.outcome.diagnostics.join(' '));
+    try {
+      expect(captured.context.identity).toMatchObject({
+        projectId: 'portable-A',
+        projectRoot: root,
+      });
+    } finally {
+      captured.context.close();
+    }
+  });
+
+  it('projects a doc after the project directory is moved (T12557)', async () => {
+    await writeFile(
+      join(root, '.cleo/project-info.json'),
+      JSON.stringify({ projectId: 'portable-A', projectRoot: root }),
+    );
+    await closeAllDatabases();
+    const moved = `${root}-moved`;
+    await rename(root, moved);
+    root = moved;
+    process.env['CLEO_DIR'] = join(root, '.cleo');
+    process.env['CLEO_HOME'] = join(root, 'global');
+    const captured = await captureDocumentProjection(root, 'foreground', 'after-move', 10000);
+    if (captured.status !== 'ready') throw new Error(captured.outcome.diagnostics.join(' '));
+    try {
+      expect(captured.context.identity).toMatchObject({
+        projectId: 'portable-A',
+        projectRoot: root,
+      });
+      const result = await projectDocumentAttachment(captured.context, source);
+      expect(result).toMatchObject({ status: 'completed', coverage: 'current', projectRoot: root });
+      expect(result.diagnostics).toEqual([]);
+    } finally {
+      captured.context.close();
+    }
   });
 });

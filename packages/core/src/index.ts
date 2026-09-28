@@ -392,7 +392,14 @@ export {
 } from './init/scaffold-workflows.js';
 export type { InitOptions, InitResult } from './init.js';
 // Init
-export { ensureInitialized, getVersion, initProject } from './init.js';
+export {
+  ensureInitialized,
+  getVersion,
+  INIT_ERROR_CODES,
+  initErrorCodeName,
+  initProject,
+  resolveInitTarget,
+} from './init.js';
 // JSON Schema validation
 export { checkSchema, validateAgainstSchema } from './json-schema-validator.js';
 export type { LoggerConfig } from './logger.js';

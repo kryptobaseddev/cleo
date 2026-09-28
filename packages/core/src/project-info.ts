@@ -13,6 +13,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getCleoDirAbsolute, resolveOrCwd } from './paths.js';
 import {
+  computeStableProjectHash,
   type ProjectInfo,
   readProjectInfoAtDirectory,
   readProjectInfoAtDirectorySync,
@@ -51,6 +52,34 @@ export function getProjectInfoSync(cwd?: string): ProjectInfo | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * The project's write-once `projectHash` identity key.
+ *
+ * Every persisted key built from the hash (release ids `<hash>:<version>`,
+ * audit rows, idempotency) MUST come from here, never from
+ * `generateProjectHash(projectRoot)`: a path-derived hash changes when the
+ * project moves and splits those keys (T12557).
+ *
+ * @param cwd - Project root (defaults to the resolved current project).
+ * @returns The persisted hash, or {@link computeStableProjectHash} when the
+ *   project has no readable `project-info.json`.
+ * @example
+ * ```ts
+ * const releaseId = `${getProjectHashKey(root)}:${version}`;
+ * ```
+ * @task T12557
+ */
+export function getProjectHashKey(cwd?: string): string {
+  const projectRoot = resolveOrCwd(cwd);
+  let persisted: string | undefined;
+  try {
+    persisted = getProjectInfoSync(projectRoot)?.projectHash;
+  } catch {
+    // Unresolvable store: fall through to the stable derivation.
+  }
+  return persisted ?? computeStableProjectHash(projectRoot);
 }
 
 /**

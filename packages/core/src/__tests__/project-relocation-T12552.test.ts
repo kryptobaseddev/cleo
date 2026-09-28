@@ -900,7 +900,7 @@ describe('T12558 round 4 — one store per project id; unreadable is not vanishe
     const { initProject } = await import('../init.js');
     let caught: CleoError | undefined;
     try {
-      await initProject({ adopt: true });
+      await initProject({ here: true });
     } catch (err) {
       caught = err as CleoError;
     }
@@ -989,5 +989,60 @@ describe('T12558 round 4 — one store per project id; unreadable is not vanishe
 
     expect(await locationState('low3-T12558', a)).toBe('candidate');
     expect(await registryPath('low3-T12558')).toBe(m);
+  });
+});
+
+describe('T12558 × T12562 — relocation refusals compose with the init refusals', () => {
+  it('the dispatch init path returns E_PROJECT_MOVED (exit 9), not E_INIT_FAILED, at a relocated root', async () => {
+    const root = await makeProject(join(testDir, 'dispatch'), 'dispatch-T12558');
+    mkdirSync(join(root, 'app'));
+    expect((await rerootProject(join(root, 'app'), root)).success).toBe(true);
+    git(root, 'checkout', '--', '.');
+    vi.stubEnv('CLEO_ROOT', undefined);
+    process.chdir(root);
+    const before = treeSnapshot(root);
+
+    const { initProject: initEngine } = await import('../init/engine-ops.js');
+    const result = await initEngine(root);
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('E_PROJECT_MOVED');
+      expect(result.error.exitCode).toBe(ExitCode.PROJECT_MOVED);
+      expect(result.error.fix).toContain('--new-identity');
+    }
+    expect(treeSnapshot(root)).toBe(before);
+  });
+
+  it('at a relocated root with restored tracked files, init says E_PROJECT_MOVED — never "already initialized, use --force"', async () => {
+    const root = await makeProject(join(testDir, 'noforce'), 'noforce-T12558');
+    writeFileSync(join(root, '.cleo', 'config.json'), '{}');
+    git(root, 'add', '.cleo/config.json');
+    git(root, 'commit', '-q', '-m', 'tracked config');
+    mkdirSync(join(root, 'app'));
+    expect((await rerootProject(join(root, 'app'), root)).success).toBe(true);
+    git(root, 'checkout', '--', '.');
+    expect(existsSync(join(root, '.cleo', 'config.json'))).toBe(true);
+    vi.stubEnv('CLEO_ROOT', undefined);
+    process.chdir(root);
+
+    const { initProject } = await import('../init.js');
+    for (const opts of [{}, { force: true }, { here: true }]) {
+      let caught: CleoError | undefined;
+      try {
+        await initProject(opts);
+      } catch (err) {
+        caught = err as CleoError;
+      }
+      expect(caught?.code).toBe(ExitCode.PROJECT_MOVED);
+      expect(caught?.fix).not.toContain('--force');
+    }
+
+    // The restored tracked config.json must not read as "already initialized"
+    // for the one path that may proceed: a genuinely new project.
+    const result = await initProject({ here: true, newIdentity: true });
+    expect(result.initialized).toBe(true);
+    const newId = readFileSync(join(root, '.cleo', 'project-id'), 'utf-8').trim();
+    expect(newId).not.toBe('noforce-T12558');
   });
 });
