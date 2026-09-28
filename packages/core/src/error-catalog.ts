@@ -373,6 +373,21 @@ export const ERROR_CATALOG: ReadonlyMap<number, ErrorDefinition> = new Map<numbe
       ),
     ],
 
+    // === STORE MIGRATION (55-59) ===
+    [
+      ExitCode.TWIN_COLLAPSE_FAILED,
+      def(
+        ExitCode.TWIN_COLLAPSE_FAILED,
+        'TWIN_COLLAPSE_FAILED',
+        'INTERNAL',
+        'Twin-table collapse failed and was rolled back',
+        503,
+        true,
+        'E_TWIN_COLLAPSE_FAILED',
+        "Run 'cleo doctor twin-collapse' for the cause, free the space or fix the backup directory it names, then 'cleo doctor twin-collapse --retry'.",
+      ),
+    ],
+
     // === SESSION ERRORS (30-39) ===
     [
       ExitCode.SESSION_EXISTS,

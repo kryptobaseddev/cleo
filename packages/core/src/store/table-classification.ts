@@ -733,7 +733,7 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'T12535 PR 1 (atomic twin collapse)',
     dropTask: 'T12535',
     liveTwin: 'tasks_schema_meta',
-    note: 'physically identical to its live twin; store/twin-collapse.ts folds its rows there once, at the tasks bind (key-aware merge), and leaves this table unchanged until it is dropped',
+    note: 'physically identical to its live twin; store/twin-collapse.ts carries its rows there at every open (initial collapse, then incremental re-merge while an older build still writes it) and never writes this table',
   },
   selfimprove_dhq: {
     class: 'portable-project',
@@ -790,7 +790,7 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'T12535 PR 1 (atomic twin collapse)',
     dropTask: 'T12535',
     liveTwin: 'brain_sticky_tags',
-    note: 'physically identical to its live twin (was portable-personal while live); store/twin-collapse.ts unions its rows there once, at the brain bind, and leaves this table unchanged until it is dropped',
+    note: 'physically identical to its live twin (was portable-personal while live); store/twin-collapse.ts carries its rows there at every open (initial collapse, then incremental re-merge while an older build still writes it) and never writes this table',
   },
   task_acceptance_criteria: {
     class: 'local-only',

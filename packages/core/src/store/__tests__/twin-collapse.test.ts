@@ -1,36 +1,45 @@
 /**
- * Atomic twin collapses (T12535): `schema_meta` → `tasks_schema_meta` and
- * `sticky_tags` → `brain_sticky_tags`.
+ * Twin collapses (T12535): `schema_meta` → `tasks_schema_meta` and
+ * `sticky_tags` → `brain_sticky_tags`, bare-authoritative, initial collapse
+ * plus incremental re-merge on every open.
  *
  * Every case starts from a fresh migrated store put back into the
- * PRE-MIGRATION shape: the collapse marker removed, and the bare tables
- * written the way the previous release wrote them (the old allocation SQL on
- * bare `schema_meta`, tags in bare `sticky_tags`). The twins hold what an
- * upgraded store holds: a seed or a stale exodus copy.
- *
- * Covered: (a) task-id collision probe across the upgrade, (b) idempotency,
- * (c) failure injection mid-migration, (d) the Gate B subset proof with
- * `scripts/fingerprint-store.mjs` + `scripts/compare-fingerprints.mjs`, and
- * the documented per-key merge rules.
+ * PRE-MIGRATION shape: the markers removed, the bare tables written the way
+ * the 2026.9.20 build writes them (its allocation SQL on bare `schema_meta`,
+ * its tags in bare `sticky_tags`), and the twins holding a seed or a frozen
+ * exodus copy. "Old path" below means those raw writes to the bare tables;
+ * "re-open" drops the bindings so the next `getDb` runs the collapse inside
+ * the bind, as a new CLI process does.
  *
  * @task T12535
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { allocateNextTaskId } from '../../sequence/index.js';
 import { addSticky } from '../../sticky/create.js';
-import { closeBrainDb, getBrainDb, getBrainNativeDb } from '../memory-sqlite.js';
+import { listStickies } from '../../sticky/list.js';
+import { listSystemBackups } from '../../system/backup.js';
+import { getBrainDb, getBrainNativeDb } from '../memory-sqlite.js';
 import { SNAPSHOT_GATE_META_KEY } from '../snapshot-gate.js';
 import { getDb, getNativeDb, resetDbState } from '../sqlite.js';
+import { createSqliteDataAccessor } from '../sqlite-data-accessor.js';
 import {
-  collapseSchemaMetaTwin,
-  collapseStickyTagsTwin,
+  collapseTwinTables,
+  inspectTwinCollapse,
   mergeSchemaMetaValue,
   TWIN_COLLAPSE_MARKER_PREFIX,
 } from '../twin-collapse.js';
@@ -38,8 +47,9 @@ import {
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 const SEQ_MARKER = `${TWIN_COLLAPSE_MARKER_PREFIX}schema_meta`;
 const STICKY_MARKER = `${TWIN_COLLAPSE_MARKER_PREFIX}sticky_tags`;
+const SEED = '{"counter":0,"lastId":"T000","checksum":"seed"}';
 
-/** The allocation statement the previous release ran against BARE `schema_meta`. */
+/** The allocation statement the 2026.9.20 build runs against BARE `schema_meta`. */
 const OLD_ALLOCATE_SQL = `
   UPDATE schema_meta
   SET value = json_set(value,
@@ -52,9 +62,8 @@ const OLD_ALLOCATE_SQL = `
 let root: string;
 let projectDir: string;
 
-function dbPath(): string {
-  return join(projectDir, '.cleo', 'cleo.db');
-}
+const dbPath = (): string => join(projectDir, '.cleo', 'cleo.db');
+const sha = (value: string): string => createHash('sha256').update(value).digest('hex');
 
 function tasksNative(): DatabaseSync {
   const db = getNativeDb(projectDir);
@@ -63,18 +72,28 @@ function tasksNative(): DatabaseSync {
 }
 
 function brainNative(): DatabaseSync {
-  const db = getBrainNativeDb();
+  const db = getBrainNativeDb(projectDir);
   if (!db) throw new Error('brain native handle not bound');
   return db;
 }
 
-/** sha256 over a table's rows in a stable order: the byte-level fingerprint. */
-function tableDigest(db: DatabaseSync, table: string, orderBy: string): string {
-  const rows = db.prepare(`SELECT * FROM main.${table} ORDER BY ${orderBy}`).all();
-  return createHash('sha256').update(JSON.stringify(rows)).digest('hex');
+/** A new CLI process: drop every binding, bind tasks and brain again. */
+async function reopen(): Promise<void> {
+  resetDbState();
+  await getDb(projectDir);
+  await getBrainDb(projectDir);
 }
 
-function metaValue(db: DatabaseSync, table: string, key: string): string | undefined {
+/** sha256 over a table's rows in a stable order: the byte-level fingerprint. */
+function tableDigest(db: DatabaseSync, table: string, orderBy: string, where = '1 = 1'): string {
+  const rows = db.prepare(`SELECT * FROM main.${table} WHERE ${where} ORDER BY ${orderBy}`).all();
+  return sha(JSON.stringify(rows));
+}
+
+/** `tasks_schema_meta` without the failure record a failed attempt leaves. */
+const NO_FAILURE = "key NOT LIKE 'twin_collapse_failed:%'";
+
+function meta(db: DatabaseSync, table: string, key: string): string | undefined {
   return (
     db.prepare(`SELECT value FROM main.${table} WHERE key = ?`).get(key) as
       | { value: string }
@@ -88,16 +107,33 @@ function setMeta(db: DatabaseSync, table: string, key: string, value: string): v
   ).run(key, value);
 }
 
-function counterOf(value: string | undefined): number {
-  return (JSON.parse(value ?? '{}') as { counter: number }).counter;
+const counterOf = (value: string | undefined): number =>
+  (JSON.parse(value ?? '{"counter":-1}') as { counter: number }).counter;
+
+const maxStoredId = (db: DatabaseSync): number =>
+  (
+    db
+      .prepare(
+        "SELECT COALESCE(MAX(CAST(substr(id, 2) AS INTEGER)), 0) AS m FROM tasks_tasks WHERE id GLOB 'T[0-9]*'",
+      )
+      .get() as { m: number }
+  ).m;
+
+/** Allocate through the 2026.9.20 path (bare counter, floored at the stored ids). */
+function allocateOldPath(db: DatabaseSync, store: boolean): string {
+  const floor = maxStoredId(db);
+  db.prepare(OLD_ALLOCATE_SQL).run(floor, floor);
+  const id = `T${String(counterOf(meta(db, 'schema_meta', 'task_id_sequence'))).padStart(3, '0')}`;
+  if (store) db.prepare('INSERT INTO tasks_tasks (id, title) VALUES (?, ?)').run(id, `old ${id}`);
+  return id;
 }
 
-/** Put the tasks side back in the pre-migration shape: no marker, live bare seed. */
+/** Put the tasks side back in the pre-migration shape. */
 function preMigrationTasks(twinCounter: number | null): DatabaseSync {
   const db = tasksNative();
   db.prepare('DELETE FROM main.tasks_schema_meta WHERE key = ?').run(SEQ_MARKER);
-  // The previous release seeded the BARE table on every open.
-  setMeta(db, 'schema_meta', 'task_id_sequence', '{"counter":0,"lastId":"T000","checksum":"seed"}');
+  setMeta(db, 'schema_meta', 'task_id_sequence', SEED); // 2026.9.20 seeds the BARE table
+  setMeta(db, 'schema_meta', 'schemaVersion', '"live"');
   if (twinCounter === null) {
     db.prepare("DELETE FROM main.tasks_schema_meta WHERE key = 'task_id_sequence'").run();
   } else {
@@ -111,18 +147,6 @@ function preMigrationTasks(twinCounter: number | null): DatabaseSync {
   return db;
 }
 
-/** Allocate through the previous release's path (bare table), returning the ids. */
-function allocateOldPath(db: DatabaseSync, n: number): string[] {
-  const ids: string[] = [];
-  for (let i = 0; i < n; i++) {
-    db.prepare(OLD_ALLOCATE_SQL).run(0, 0);
-    ids.push(
-      `T${String(counterOf(metaValue(db, 'schema_meta', 'task_id_sequence'))).padStart(3, '0')}`,
-    );
-  }
-  return ids;
-}
-
 /** Put the brain side back in the pre-migration shape with tagged notes. */
 async function preMigrationSticky(): Promise<{ db: DatabaseSync; a: string; b: string }> {
   const a = (await addSticky({ content: 'a', tags: [] }, projectDir)).id;
@@ -134,16 +158,31 @@ async function preMigrationSticky(): Promise<{ db: DatabaseSync; a: string; b: s
   bare.run(a, 'beta');
   bare.run(b, 'gamma');
   bare.run('SN-gone', 'orphan'); // its note no longer exists
-  // The twin already holds one of them (an exodus copy) and one of its own.
   const twin = db.prepare('INSERT INTO main.brain_sticky_tags (sticky_id, tag) VALUES (?, ?)');
-  twin.run(a, 'alpha');
-  twin.run(b, 'twin-only');
+  twin.run(a, 'alpha'); // exodus copy of a live row
+  twin.run(b, 'frozen'); // exodus copy of a tag the old build removed since
   return { db, a, b };
 }
 
-function snapshots(): string[] {
-  const dir = join(projectDir, '.cleo', 'backups');
-  return existsSync(dir) ? readdirSync(dir).filter((f) => f.startsWith('cleo-pre-t12535-')) : [];
+function twinTags(db: DatabaseSync): string[] {
+  return (
+    db
+      .prepare('SELECT sticky_id, tag FROM main.brain_sticky_tags ORDER BY sticky_id, tag')
+      .all() as Array<{ sticky_id: string; tag: string }>
+  ).map((r) => `${r.sticky_id}:${r.tag}`);
+}
+
+function migrationSnapshots(): string[] {
+  const dir = join(projectDir, '.cleo', 'backups', 'sqlite');
+  return existsSync(dir) ? readdirSync(dir).filter((f) => f.startsWith('cleo.db.migration-')) : [];
+}
+
+function readRows(file: string): string[] {
+  return existsSync(file)
+    ? readFileSync(file, 'utf8')
+        .split('\n')
+        .filter((l) => l.length > 0)
+    : [];
 }
 
 beforeEach(async () => {
@@ -160,33 +199,32 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
-  closeBrainDb();
   resetDbState();
   vi.unstubAllEnvs();
   rmSync(root, { recursive: true, force: true });
 });
 
 describe('fresh store', () => {
-  it('collapses both twins on first bind without a snapshot (nothing to carry)', () => {
-    expect(metaValue(tasksNative(), 'tasks_schema_meta', SEQ_MARKER)).toBeDefined();
-    expect(metaValue(brainNative(), 'brain_schema_meta', STICKY_MARKER)).toBeDefined();
-    expect(snapshots()).toEqual([]);
+  it('collapses both pairs on first bind without a snapshot (nothing to carry)', () => {
+    expect(meta(tasksNative(), 'tasks_schema_meta', SEQ_MARKER)).toBeDefined();
+    expect(meta(brainNative(), 'brain_schema_meta', STICKY_MARKER)).toBeDefined();
+    expect(migrationSnapshots()).toEqual([]);
+    expect(inspectTwinCollapse(tasksNative()).map((s) => s.state)).toEqual([
+      'collapsed',
+      'collapsed',
+    ]);
   });
 });
 
 describe('(a) task-id collision probe across the upgrade', () => {
-  it('ids never repeat, and the counter is MAX(bare, twin) — twin stale', async () => {
+  it('ids never repeat, and the counter is MAX(bare, twin): twin stale', async () => {
     const db = preMigrationTasks(2); // stale exodus copy in the twin
-    // The previous release reserved T001..T005; none of them is stored as a
-    // task (e.g. purged), so only the counter protects them.
-    const before = allocateOldPath(db, 5);
+    // The old build reserves T001..T005 and stores none of them as a task, so
+    // only the counter protects them.
+    const before = [1, 2, 3, 4, 5].map(() => allocateOldPath(db, false));
     expect(before).toEqual(['T001', 'T002', 'T003', 'T004', 'T005']);
-
-    // Upgrade: the next open runs the collapse inside the bind.
-    resetDbState();
-    await getDb(projectDir);
-    expect(counterOf(metaValue(tasksNative(), 'tasks_schema_meta', 'task_id_sequence'))).toBe(5);
-
+    await reopen();
+    expect(counterOf(meta(tasksNative(), 'tasks_schema_meta', 'task_id_sequence'))).toBe(5);
     const after = [
       await allocateNextTaskId(projectDir),
       await allocateNextTaskId(projectDir),
@@ -198,23 +236,60 @@ describe('(a) task-id collision probe across the upgrade', () => {
 
   it('the twin counter wins when it is the larger one', async () => {
     const db = preMigrationTasks(9);
-    allocateOldPath(db, 5);
-    resetDbState();
-    await getDb(projectDir);
-    expect(counterOf(metaValue(tasksNative(), 'tasks_schema_meta', 'task_id_sequence'))).toBe(9);
+    for (let i = 0; i < 5; i++) allocateOldPath(db, false);
+    await reopen();
+    expect(counterOf(meta(tasksNative(), 'tasks_schema_meta', 'task_id_sequence'))).toBe(9);
     expect(await allocateNextTaskId(projectDir)).toBe('T010');
   });
 
-  it('a twin without the key takes the bare counter', async () => {
-    const db = preMigrationTasks(null);
-    allocateOldPath(db, 3);
-    resetDbState();
-    await getDb(projectDir);
-    expect(await allocateNextTaskId(projectDir)).toBe('T004');
+  it('interleaved old and new builds never collide, and the counter never goes down', async () => {
+    preMigrationTasks(null);
+    await reopen();
+    const ids: string[] = [];
+    let lastCounter = 0;
+    for (let round = 0; round < 4; round++) {
+      // Old build: allocate in the bare table; one id stored, one only reserved.
+      ids.push(allocateOldPath(tasksNative(), true));
+      ids.push(allocateOldPath(tasksNative(), false));
+      // New build, in a new process: allocate in the twin and store the task.
+      await reopen();
+      const counter = counterOf(meta(tasksNative(), 'tasks_schema_meta', 'task_id_sequence'));
+      expect(counter).toBeGreaterThanOrEqual(lastCounter);
+      lastCounter = counter;
+      const id = await allocateNextTaskId(projectDir);
+      tasksNative().prepare('INSERT INTO tasks_tasks (id, title) VALUES (?, ?)').run(id, 'new');
+      ids.push(id);
+    }
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });
 
-describe('schema_meta merge rules', () => {
+describe('the bare table is authoritative at the initial collapse (Blocker A)', () => {
+  it('drops frozen twin-only project_meta and file_meta, keeps the counters', async () => {
+    const db = preMigrationTasks(3);
+    setMeta(db, 'tasks_schema_meta', 'project_meta', '{"name":"fixture","currentPhase":"core"}');
+    setMeta(db, 'tasks_schema_meta', 'file_meta', '{"schemaVersion":"2.10.0","generation":7}');
+    setMeta(db, 'tasks_schema_meta', SNAPSHOT_GATE_META_KEY, '{"generation":4,"prefixes":{}}');
+    const [receipt] = collapseTwinTables(db, dbPath());
+    expect(receipt).toMatchObject({ table: 'schema_meta', status: 'initial' });
+    expect(receipt?.dropped).toEqual(['file_meta', 'project_meta']);
+    const accessor = await createSqliteDataAccessor(projectDir);
+    expect(await accessor.getMetaValue('project_meta')).toBeNull(); // "No current phase set"
+    expect(await accessor.getSchemaVersion()).toBeNull(); // no frozen "2.10.0"
+    expect(counterOf(meta(db, 'tasks_schema_meta', 'task_id_sequence'))).toBe(3);
+    expect(meta(db, 'tasks_schema_meta', SNAPSHOT_GATE_META_KEY)).toBeDefined();
+    expect(meta(db, 'schema_meta', 'schemaVersion')).toBe('"live"'); // bare untouched
+  });
+
+  it('keeps the twin whole when the bare table holds no carried key (exodus landed it there)', () => {
+    const db = tasksNative();
+    db.prepare('DELETE FROM main.tasks_schema_meta WHERE key = ?').run(SEQ_MARKER);
+    setMeta(db, 'tasks_schema_meta', 'project_meta', '{"name":"from-legacy"}');
+    const [receipt] = collapseTwinTables(db, dbPath());
+    expect(receipt).toMatchObject({ status: 'initial', dropped: [] });
+    expect(meta(db, 'tasks_schema_meta', 'project_meta')).toBe('{"name":"from-legacy"}');
+  });
+
   it('applies the documented rule per key', () => {
     const db = preMigrationTasks(4);
     setMeta(db, 'schema_meta', 'focus_state', '{"currentTask":"T900"}');
@@ -222,29 +297,21 @@ describe('schema_meta merge rules', () => {
     setMeta(db, 'schema_meta', 'project_meta', '{"name":"live"}');
     setMeta(db, 'schema_meta', SNAPSHOT_GATE_META_KEY, '{"generation":3,"prefixes":{}}');
     setMeta(db, 'tasks_schema_meta', SNAPSHOT_GATE_META_KEY, '{"generation":8,"prefixes":{}}');
-    setMeta(db, 'tasks_schema_meta', 'twin_only', 'kept');
     setMeta(db, 'schema_meta', 'file_meta', '{"generation":12,"lastSessionId":"ses_live"}');
-    setMeta(db, 'tasks_schema_meta', 'file_meta', '{"generation":4,"lastSessionId":"ses_old"}');
-    allocateOldPath(db, 2);
-
-    const receipt = collapseSchemaMetaTwin(db, dbPath());
-    expect(receipt.status).toBe('collapsed');
-    expect(receipt.snapshotPath).not.toBeNull();
-    expect(snapshots()).toHaveLength(1);
-
-    expect(metaValue(db, 'tasks_schema_meta', 'focus_state')).toBe('{"currentTask":"T900"}'); // bare wins
-    expect(metaValue(db, 'tasks_schema_meta', 'project_meta')).toBe('{"name":"live"}'); // carried
-    expect(metaValue(db, 'tasks_schema_meta', SNAPSHOT_GATE_META_KEY)).toBe(
+    setMeta(db, 'tasks_schema_meta', 'file_meta', '{"generation":20,"lastSessionId":"ses_old"}');
+    for (let i = 0; i < 2; i++) allocateOldPath(db, false);
+    const [receipt] = collapseTwinTables(db, dbPath());
+    expect(receipt?.snapshotPath).not.toBeNull();
+    expect(meta(db, 'tasks_schema_meta', 'focus_state')).toBe('{"currentTask":"T900"}');
+    expect(meta(db, 'tasks_schema_meta', 'project_meta')).toBe('{"name":"live"}');
+    expect(meta(db, 'tasks_schema_meta', SNAPSHOT_GATE_META_KEY)).toBe(
       '{"generation":8,"prefixes":{}}',
-    ); // larger generation
-    expect(counterOf(metaValue(db, 'tasks_schema_meta', 'task_id_sequence'))).toBe(4); // MAX(2, 4)
-    expect(metaValue(db, 'tasks_schema_meta', 'twin_only')).toBe('kept');
-    expect(metaValue(db, 'tasks_schema_meta', 'file_meta')).toBe(
-      '{"generation":12,"lastSessionId":"ses_live"}',
-    ); // larger generation
-    expect(metaValue(db, 'tasks_schema_meta', 'backfill:terminal-pipeline-stage')).toBeUndefined();
-    // The bare table itself is never modified.
-    expect(metaValue(db, 'schema_meta', 'focus_state')).toBe('{"currentTask":"T900"}');
+    );
+    expect(meta(db, 'tasks_schema_meta', 'file_meta')).toBe(
+      '{"generation":20,"lastSessionId":"ses_old"}',
+    );
+    expect(counterOf(meta(db, 'tasks_schema_meta', 'task_id_sequence'))).toBe(4);
+    expect(meta(db, 'tasks_schema_meta', 'backfill:terminal-pipeline-stage')).toBeUndefined();
   });
 
   it('mergeSchemaMetaValue: counters take the larger value, never a sum or a reset', () => {
@@ -266,84 +333,137 @@ describe('schema_meta merge rules', () => {
   });
 });
 
-describe('sticky_tags union', () => {
-  it('carries every bare tag whose note exists, keeps twin-only rows, skips orphans', async () => {
+describe('incremental re-merge: the old build keeps writing the bare tables', () => {
+  it('old-path writes after the marker appear in the new build reads', async () => {
+    const db = preMigrationTasks(0);
+    setMeta(db, 'schema_meta', 'focus_state', '{"currentTask":"T1"}');
+    setMeta(db, 'schema_meta', 'parallel_state', '{"active":false}');
+    await reopen();
+    const accessor = await createSqliteDataAccessor(projectDir);
+    // This build writes a key the old build never has.
+    await accessor.setMetaValue('focus_state:ses_new', { currentTask: 'T7' });
+    // The old build changes, adds and deletes keys in the bare table.
+    setMeta(tasksNative(), 'schema_meta', 'focus_state', '{"currentTask":"T2"}');
+    setMeta(tasksNative(), 'schema_meta', 'project_meta', '{"name":"old-build"}');
+    tasksNative().prepare("DELETE FROM main.schema_meta WHERE key = 'parallel_state'").run();
+    expect(inspectTwinCollapse(tasksNative())[0]).toMatchObject({
+      state: 'bare-changed',
+      changedSinceMerge: 3,
+    });
+
+    await reopen();
+    const next = await createSqliteDataAccessor(projectDir);
+    expect(await next.getMetaValue('focus_state')).toEqual({ currentTask: 'T2' });
+    expect(await next.getMetaValue('project_meta')).toEqual({ name: 'old-build' });
+    expect(await next.getMetaValue('parallel_state')).toBeNull(); // the deletion propagated
+    expect(await next.getMetaValue('focus_state:ses_new')).toEqual({ currentTask: 'T7' });
+    expect(inspectTwinCollapse(tasksNative())[0]?.state).toBe('collapsed');
+  });
+
+  it('a bare counter lower than the twin never moves the twin counter down', async () => {
+    preMigrationTasks(0);
+    await reopen();
+    for (let i = 0; i < 6; i++) await allocateNextTaskId(projectDir); // twin → 6
+    allocateOldPath(tasksNative(), false); // bare → 1
+    await reopen();
+    expect(counterOf(meta(tasksNative(), 'tasks_schema_meta', 'task_id_sequence'))).toBe(6);
+  });
+
+  it('a one-shot (v1) marker is upgraded: bare rows carried again, nothing deleted', () => {
+    const db = preMigrationTasks(0);
+    setMeta(db, 'schema_meta', 'focus_state', '{"currentTask":"T5"}');
+    setMeta(db, 'tasks_schema_meta', 'focus_state', '{"currentTask":"T1"}');
+    setMeta(db, 'tasks_schema_meta', 'written_by_new_build', '"keep"');
+    setMeta(db, 'tasks_schema_meta', SEQ_MARKER, '{"task":"T12535","collapsedAt":"2026-09-28"}');
+    const [receipt] = collapseTwinTables(db, dbPath());
+    expect(receipt?.status).toBe('incremental');
+    expect(meta(db, 'tasks_schema_meta', 'focus_state')).toBe('{"currentTask":"T5"}');
+    expect(meta(db, 'tasks_schema_meta', 'written_by_new_build')).toBe('"keep"');
+  });
+});
+
+describe('sticky_tags', () => {
+  it('initial collapse: the twin equals the bare set (frozen tags dropped, orphans skipped)', async () => {
     const { db, a, b } = await preMigrationSticky();
-    const receipt = collapseStickyTagsTwin(db, dbPath());
-    expect(receipt).toMatchObject({ status: 'collapsed', inserted: 2, kept: 1, skipped: 1 });
-    const rows = db
-      .prepare('SELECT sticky_id, tag FROM main.brain_sticky_tags ORDER BY sticky_id, tag')
-      .all();
-    expect(rows).toEqual(
-      [
-        { sticky_id: a, tag: 'alpha' },
-        { sticky_id: a, tag: 'beta' },
-        { sticky_id: b, tag: 'gamma' },
-        { sticky_id: b, tag: 'twin-only' },
-      ].sort((x, y) => (x.sticky_id + x.tag).localeCompare(y.sticky_id + y.tag)),
-    );
+    const receipt = collapseTwinTables(db, dbPath()).find((r) => r.table === 'sticky_tags');
+    expect(receipt).toMatchObject({
+      status: 'initial',
+      inserted: 2,
+      deleted: 1,
+      skipped: 1,
+      dropped: [`${b}\tfrozen`],
+    });
+    expect(twinTags(db)).toEqual([`${a}:alpha`, `${a}:beta`, `${b}:gamma`].sort());
     expect(db.prepare('SELECT COUNT(*) AS c FROM main.sticky_tags').get()).toEqual({ c: 4 });
+  });
+
+  it('incremental: old-build tag changes propagate, and this build’s own tag edits survive', async () => {
+    const { db, a, b } = await preMigrationSticky();
+    collapseTwinTables(db, dbPath());
+    // This build adds a tag to a and removes gamma from b.
+    db.prepare('INSERT INTO main.brain_sticky_tags (sticky_id, tag) VALUES (?, ?)').run(a, 'new');
+    db.prepare("DELETE FROM main.brain_sticky_tags WHERE sticky_id = ? AND tag = 'gamma'").run(b);
+    // The old build removes beta from a and adds delta to b.
+    db.prepare("DELETE FROM main.sticky_tags WHERE sticky_id = ? AND tag = 'beta'").run(a);
+    db.prepare('INSERT INTO main.sticky_tags (sticky_id, tag) VALUES (?, ?)').run(b, 'delta');
+
+    await reopen();
+    expect(twinTags(brainNative())).toEqual([`${a}:alpha`, `${a}:new`, `${b}:delta`].sort());
+    expect((await listStickies({ tags: ['delta'] }, projectDir)).map((n) => n.id)).toEqual([b]);
+    expect(await listStickies({ tags: ['beta'] }, projectDir)).toEqual([]);
   });
 });
 
 describe('(b) idempotency', () => {
-  it('schema_meta: a second run is a no-op, and re-running the merge gives the same table', () => {
+  it('a second run is a no-op for both pairs', async () => {
     const db = preMigrationTasks(2);
     setMeta(db, 'schema_meta', 'focus_state', '{"currentTask":"T900"}');
-    allocateOldPath(db, 3);
-    collapseSchemaMetaTwin(db, dbPath());
-    const first = tableDigest(db, 'tasks_schema_meta', 'key');
-
-    expect(collapseSchemaMetaTwin(db, dbPath()).status).toBe('already-collapsed');
-    expect(tableDigest(db, 'tasks_schema_meta', 'key')).toBe(first);
-
-    // Without the marker, the merge itself converges to the same rows.
-    const withoutMarker = (): string => {
-      const rows = db
-        .prepare('SELECT key, value FROM main.tasks_schema_meta WHERE key <> ? ORDER BY key')
-        .all(SEQ_MARKER);
-      return JSON.stringify(rows);
-    };
-    const merged = withoutMarker();
-    db.prepare('DELETE FROM main.tasks_schema_meta WHERE key = ?').run(SEQ_MARKER);
-    expect(collapseSchemaMetaTwin(db, dbPath()).status).toBe('collapsed');
-    expect(withoutMarker()).toBe(merged);
-  });
-
-  it('sticky_tags: a second run is a no-op, and re-running the merge gives the same table', async () => {
-    const { db } = await preMigrationSticky();
-    collapseStickyTagsTwin(db, dbPath());
-    const first = tableDigest(db, 'brain_sticky_tags', 'sticky_id, tag');
-    expect(collapseStickyTagsTwin(db, dbPath()).status).toBe('already-collapsed');
-    db.prepare('DELETE FROM main.brain_schema_meta WHERE key = ?').run(STICKY_MARKER);
-    expect(collapseStickyTagsTwin(db, dbPath())).toMatchObject({
-      status: 'collapsed',
-      inserted: 0,
-    });
-    expect(tableDigest(db, 'brain_sticky_tags', 'sticky_id, tag')).toBe(first);
+    const { db: brain } = await preMigrationSticky();
+    collapseTwinTables(db, dbPath());
+    const tasks = tableDigest(db, 'tasks_schema_meta', 'key');
+    const sticky = tableDigest(brain, 'brain_sticky_tags', 'sticky_id, tag');
+    const brainKv = tableDigest(brain, 'brain_schema_meta', 'key');
+    expect(collapseTwinTables(db, dbPath()).map((r) => r.status)).toEqual([
+      'unchanged',
+      'unchanged',
+    ]);
+    expect(tableDigest(db, 'tasks_schema_meta', 'key')).toBe(tasks);
+    expect(tableDigest(brain, 'brain_sticky_tags', 'sticky_id, tag')).toBe(sticky);
+    expect(tableDigest(brain, 'brain_schema_meta', 'key')).toBe(brainKv);
+    expect(migrationSnapshots()).toHaveLength(1); // one snapshot for both pairs
   });
 });
 
 describe('(c) failure injection mid-migration', () => {
-  it('schema_meta: both tables stay byte-identical, and the next run completes', () => {
+  it('schema_meta: both tables stay byte-identical, the error is E_TWIN_COLLAPSE_FAILED, retry completes', () => {
     const db = preMigrationTasks(2);
     setMeta(db, 'schema_meta', 'activeSession', '"ses_1"'); // merged first (key order)
     setMeta(db, 'schema_meta', 'project_meta', '{"name":"live"}'); // the injected failure
-    allocateOldPath(db, 3);
     const bare = tableDigest(db, 'schema_meta', 'key');
     const twin = tableDigest(db, 'tasks_schema_meta', 'key');
     db.exec(
       "CREATE TEMP TRIGGER inject_fail BEFORE INSERT ON main.tasks_schema_meta WHEN NEW.key = 'project_meta' BEGIN SELECT RAISE(ABORT, 'injected failure'); END",
     );
-    expect(() => collapseSchemaMetaTwin(db, dbPath())).toThrow(/injected failure/);
-    expect(tableDigest(db, 'schema_meta', 'key')).toBe(bare);
-    expect(tableDigest(db, 'tasks_schema_meta', 'key')).toBe(twin);
+    let caught: unknown;
+    try {
+      collapseTwinTables(db, dbPath());
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toMatchObject({ code: 55, message: expect.stringMatching(/injected failure/) });
     expect(db.isTransaction).toBe(false);
+    expect(tableDigest(db, 'schema_meta', 'key')).toBe(bare);
+    // Only the failure record (written outside the rolled-back transaction) differs.
+    expect(tableDigest(db, 'tasks_schema_meta', 'key', NO_FAILURE)).toBe(twin);
+    expect(inspectTwinCollapse(db)[0]).toMatchObject({
+      state: 'failed',
+      failure: { cause: expect.stringMatching(/injected failure/) },
+    });
 
     db.exec('DROP TRIGGER temp.inject_fail');
-    expect(collapseSchemaMetaTwin(db, dbPath()).status).toBe('collapsed');
-    expect(metaValue(db, 'tasks_schema_meta', 'project_meta')).toBe('{"name":"live"}');
-    expect(counterOf(metaValue(db, 'tasks_schema_meta', 'task_id_sequence'))).toBe(3);
+    expect(collapseTwinTables(db, dbPath())[0]?.status).toBe('initial');
+    expect(meta(db, 'tasks_schema_meta', 'project_meta')).toBe('{"name":"live"}');
+    expect(inspectTwinCollapse(db)[0]?.state).toBe('collapsed'); // failure record cleared
   });
 
   it('sticky_tags: a failure at the marker leaves both tables byte-identical', async () => {
@@ -353,11 +473,117 @@ describe('(c) failure injection mid-migration', () => {
     db.exec(
       `CREATE TEMP TRIGGER inject_fail BEFORE INSERT ON main.brain_schema_meta WHEN NEW.key = '${STICKY_MARKER}' BEGIN SELECT RAISE(ABORT, 'injected failure'); END`,
     );
-    expect(() => collapseStickyTagsTwin(db, dbPath())).toThrow(/injected failure/);
+    expect(() => collapseTwinTables(db, dbPath())).toThrow(/injected failure/);
     expect(tableDigest(db, 'sticky_tags', 'sticky_id, tag')).toBe(bare);
     expect(tableDigest(db, 'brain_sticky_tags', 'sticky_id, tag')).toBe(twin);
+    expect(inspectTwinCollapse(db)[1]?.state).toBe('failed');
     db.exec('DROP TRIGGER temp.inject_fail');
-    expect(collapseStickyTagsTwin(db, dbPath()).status).toBe('collapsed');
+    expect(collapseTwinTables(db, dbPath())[1]?.status).toBe('initial');
+    expect(inspectTwinCollapse(db)[1]?.state).toBe('collapsed');
+  });
+});
+
+describe('verification loop', () => {
+  it('schema_meta: a value altered behind the merge fails verification and rolls back', () => {
+    const db = preMigrationTasks(2);
+    setMeta(db, 'schema_meta', 'project_meta', '{"name":"live"}');
+    const twin = tableDigest(db, 'tasks_schema_meta', 'key');
+    db.exec(
+      "CREATE TEMP TRIGGER tamper AFTER INSERT ON main.tasks_schema_meta WHEN NEW.key = 'project_meta' BEGIN UPDATE main.tasks_schema_meta SET value = 'tampered' WHERE key = 'project_meta'; END",
+    );
+    expect(() => collapseTwinTables(db, dbPath())).toThrow(/did not verify/);
+    db.exec('DROP TRIGGER temp.tamper');
+    expect(tableDigest(db, 'tasks_schema_meta', 'key', NO_FAILURE)).toBe(twin);
+  });
+
+  it('sticky_tags: a row removed behind the merge fails verification and rolls back', async () => {
+    const { db } = await preMigrationSticky();
+    const twin = tableDigest(db, 'brain_sticky_tags', 'sticky_id, tag');
+    db.exec(
+      "CREATE TEMP TRIGGER tamper AFTER INSERT ON main.brain_sticky_tags WHEN NEW.tag = 'beta' BEGIN DELETE FROM main.brain_sticky_tags WHERE tag = 'beta'; END",
+    );
+    expect(() => collapseTwinTables(db, dbPath())).toThrow(/did not verify/);
+    db.exec('DROP TRIGGER temp.tamper');
+    expect(tableDigest(db, 'brain_sticky_tags', 'sticky_id, tag')).toBe(twin);
+  });
+});
+
+describe('concurrency guard: the marker is re-read under the write lock', () => {
+  it('a collapse another process committed while we waited for the lock is not merged again', async () => {
+    const db = preMigrationTasks(2);
+    setMeta(db, 'schema_meta', 'focus_state', '{"currentTask":"T1"}');
+    // The other process holds the write lock and commits its own collapse of
+    // the same bare table, after which its user moved focus to T42 in the
+    // twin. Merging again here would reset focus_state to the bare T1.
+    const seen: Record<string, string> = {};
+    for (const row of db
+      .prepare(
+        "SELECT key, value FROM main.schema_meta WHERE key NOT LIKE 'backfill:%' ORDER BY key",
+      )
+      .all() as Array<{ key: string; value: string }>) {
+      seen[row.key] = sha(row.value);
+    }
+    const marker = JSON.stringify({
+      version: 2,
+      task: 'T12535',
+      collapsedAt: 'x',
+      lastMergedAt: 'x',
+      snapshot: null,
+      seen,
+      dropped: [],
+    });
+    const script = `
+      const { DatabaseSync } = require('node:sqlite');
+      const db = new DatabaseSync(process.argv[1]);
+      db.exec('PRAGMA busy_timeout = 5000');
+      db.exec('BEGIN IMMEDIATE');
+      const up = db.prepare("INSERT INTO tasks_schema_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value");
+      up.run('focus_state', '{"currentTask":"T42"}');
+      up.run(process.argv[2], process.argv[3]);
+      process.stdout.write('locked\\n');
+      setTimeout(() => { db.exec('COMMIT'); db.close(); }, 800);
+    `;
+    const child = spawn(process.execPath, ['-e', script, dbPath(), SEQ_MARKER, marker], {
+      stdio: ['ignore', 'pipe', 'inherit'],
+    });
+    const exited = new Promise<void>((done) => child.once('exit', () => done()));
+    await new Promise<void>((done) => child.stdout.once('data', () => done()));
+    const [receipt] = collapseTwinTables(db, dbPath());
+    await exited;
+    expect(receipt?.status).toBe('unchanged');
+    expect(meta(db, 'tasks_schema_meta', 'focus_state')).toBe('{"currentTask":"T42"}');
+  }, 30_000);
+});
+
+describe('snapshot: inventoried and rotated', () => {
+  it('cleo backup list shows the migration snapshot, and the migration type rotates at 10', () => {
+    const dir = join(projectDir, '.cleo', 'backups', 'sqlite');
+    mkdirSync(dir, { recursive: true });
+    for (let i = 0; i < 10; i++) {
+      const id = `migration-2020010${i}-000000`;
+      const file = join(dir, `cleo.db.${id}`);
+      writeFileSync(file, 'old');
+      utimesSync(file, new Date(2020, 0, i + 1), new Date(2020, 0, i + 1));
+      writeFileSync(
+        join(dir, `${id}.meta.json`),
+        JSON.stringify({
+          backupId: id,
+          type: 'migration',
+          timestamp: `2020-01-0${i + 1}`,
+          files: ['cleo.db'],
+        }),
+      );
+    }
+    const db = preMigrationTasks(2);
+    setMeta(db, 'schema_meta', 'project_meta', '{"name":"live"}');
+    const [receipt] = collapseTwinTables(db, dbPath());
+    const listed = listSystemBackups(projectDir).find((b) =>
+      receipt?.snapshotPath?.endsWith(`cleo.db.${b.backupId}`),
+    );
+    expect(listed).toMatchObject({ type: 'migration', files: ['cleo.db'] });
+    const files = migrationSnapshots();
+    expect(files).toHaveLength(10);
+    expect(files).not.toContain('cleo.db.migration-20200100-000000');
   });
 });
 
@@ -370,8 +596,8 @@ describe('(d) Gate B: bare rows are a subset of the post-merge twin', () => {
     const projection = join(work, 'bare-as-twin.db');
     const post = join(work, 'post.db');
     db.exec(`VACUUM INTO '${pre}'`);
-    // The bare rows under the twin's name, in an otherwise identical store: the
-    // SOURCE side of the subset check (orphans excluded: the rule does not carry them).
+    // The carried bare rows under the twin's name, in an otherwise identical
+    // store: the SOURCE side of the subset check.
     db.exec(`VACUUM INTO '${projection}'`);
     const { DatabaseSync: Sqlite } = await import('node:sqlite');
     const proj = new Sqlite(projection);
@@ -381,7 +607,7 @@ describe('(d) Gate B: bare rows are a subset of the post-merge twin', () => {
     );
     proj.close();
 
-    collapseStickyTagsTwin(db, dbPath());
+    collapseTwinTables(db, dbPath());
     db.exec(`VACUUM INTO '${post}'`);
 
     const fingerprint = (file: string, label: string): string => {
@@ -401,7 +627,7 @@ describe('(d) Gate B: bare rows are a subset of the post-merge twin', () => {
       );
       return out;
     };
-    const compare = (source: string, replica: string): string =>
+    const compare = (source: string, replica: string, allowDeleted?: string): string =>
       execFileSync(
         process.execPath,
         [
@@ -412,19 +638,26 @@ describe('(d) Gate B: bare rows are a subset of the post-merge twin', () => {
           replica,
           '--mode',
           'merge',
+          ...(allowDeleted ? ['--allow-deleted', allowDeleted] : []),
         ],
         { cwd: REPO_ROOT, stdio: 'pipe', encoding: 'utf8' },
       );
     const fpPre = fingerprint(pre, 'pre');
     const fpProjection = fingerprint(projection, 'bare-as-twin');
     const fpPost = fingerprint(post, 'post');
-    // Control: the same check against the PRE-migration twin fails, so the
-    // oracle does see the bare rows the twin lacked.
+    // Control: the same check against the PRE-migration twin fails.
     expect(() => compare(fpProjection, fpPre)).toThrow();
-    // Every bare (carried) row is in the post-merge twin …
+    // Every carried bare row is in the post-merge twin …
     const subset = compare(fpProjection, fpPost);
-    // … and no syncing row of the pre-migration store was lost.
-    const lossless = compare(fpPre, fpPost);
+    // … and the pre-migration store lost exactly one syncing row: the frozen
+    // twin tag the bare-authoritative rule drops, passed as an allowed deletion.
+    const postRows = new Set(readRows(`${fpPost}.rows`));
+    const dropped = readRows(`${fpPre}.rows`).filter((r) => !postRows.has(r));
+    expect(dropped).toHaveLength(1);
+    expect(dropped[0]?.startsWith('brain_sticky_tags\t')).toBe(true);
+    const allowed = join(work, 'allowed-deleted.rows');
+    writeFileSync(allowed, `${dropped.join('\n')}\n`);
+    const lossless = compare(fpPre, fpPost, allowed);
     if (process.env.T12535_GATE_B_OUT)
       writeFileSync(process.env.T12535_GATE_B_OUT, [subset, lossless].join('\n---\n'));
     expect(subset).toMatch(/PASS/);

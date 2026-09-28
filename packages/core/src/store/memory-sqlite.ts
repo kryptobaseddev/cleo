@@ -74,7 +74,7 @@ import {
 } from './ports/domain-binding.js';
 import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
 import * as brainSchema from './schema/memory-schema.js';
-import { collapseStickyTagsTwin } from './twin-collapse.js';
+import { collapseTwinTables } from './twin-collapse.js';
 
 const _require = createRequire(import.meta.url);
 
@@ -520,9 +520,10 @@ export async function bindBrainDomain(
     // (T11522 · T11647)
     establishLegacyBrainSchema(nativeDb, drizzle, store.dbPath);
 
-    // T12535: fold the bare `sticky_tags` into `brain_sticky_tags` (once,
-    // atomically, snapshot first) before the accessor reads the twin.
-    collapseStickyTagsTwin(nativeDb, store.dbPath);
+    // T12535: bring the prefixed twins (brain_sticky_tags among them) up to
+    // date with their bare tables before the accessor reads them. A no-op when
+    // the tasks bind already did it in this open.
+    collapseTwinTables(nativeDb, store.dbPath);
 
     // Create the vec0 virtual table for embeddings if the extension is loaded
     // (T5157). Must run after migrations so the schema is consistent.

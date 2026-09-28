@@ -20,8 +20,8 @@ import { getBrainDb } from './memory-sqlite.js';
 // prefixed `brain_sticky_tags`, not the bare `sticky_tags` twin that
 // `memory-schema.ts` still declares for the legacy drizzle-brain lineage. The
 // two tables are physically identical (columns, PK, FK to `brain_sticky_notes`,
-// tag index); `store/twin-collapse.ts` unions the bare rows into the twin in
-// the brain bind before any read.
+// tag index); `store/twin-collapse.ts` carries the bare rows (and the tag
+// removals an older build makes) into the twin at every open, before any read.
 import { brainStickyTags } from './schema/cleo-shared/brain.js';
 import { jsonbText } from './schema/jsonb.js';
 import type {

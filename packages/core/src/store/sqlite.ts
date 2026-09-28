@@ -69,7 +69,7 @@ import {
   resolveCorePackageMigrationsFolder,
 } from './resolve-migrations-folder.js';
 import { listSqliteBackups } from './sqlite-backup.js';
-import { collapseSchemaMetaTwin } from './twin-collapse.js';
+import { collapseTwinTables } from './twin-collapse.js';
 import { assertDbPathIsNotWorktreeResident } from './worktree-isolation-guard.js';
 
 // node:sqlite access is isolated in the leaf module sqlite-native.ts to prevent
@@ -587,10 +587,11 @@ function establishTasksSchema(nativeDb: DatabaseSync, store: ProjectStore): Node
   // alongside the consolidated `tasks_tasks` tables.
   runMigrations(nativeDb, db, store.dbPath);
 
-  // T12535: fold the bare `schema_meta` into `tasks_schema_meta` (once,
-  // atomically, snapshot first) before any caller reads the twin. Throws —
+  // T12535: bring the prefixed twins up to date with their bare tables (the
+  // initial collapse snapshots first; later opens carry what an older build
+  // wrote since) before any caller reads them. Throws E_TWIN_COLLAPSE_FAILED —
   // failing the bind — rather than serve an unmerged task-id counter.
-  collapseSchemaMetaTwin(nativeDb, store.dbPath);
+  collapseTwinTables(nativeDb, store.dbPath);
 
   // Migration SQL contains PRAGMA foreign_keys=ON statements. In test
   // environments, disable FKs after migration so fixtures can insert

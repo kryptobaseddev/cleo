@@ -9,6 +9,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import type { DependencyReport } from '@cleocode/contracts';
+import { twinCollapseDoctorCheck } from '../doctor/twin-collapse.js';
 import { checkGitHooks, type HookCheckResult } from '../hooks.js';
 import { checkCaampBinary, checkGlobalInstructionDelivery, checkInjection } from '../injection.js';
 import {
@@ -401,6 +402,17 @@ export async function getSystemHealth(
         message: 'No backups directory (created on first write)',
       });
     }
+  }
+
+  // T12535: a failed or pending twin collapse. Read-only and without a domain
+  // bind, so it reports even while every bind fails with E_TWIN_COLLAPSE_FAILED.
+  if (existsSync(cleoDir)) {
+    const twin = twinCollapseDoctorCheck(projectRoot);
+    checks.push({
+      name: twin.check,
+      status: twin.status === 'error' ? 'fail' : twin.status === 'warning' ? 'warn' : 'pass',
+      message: twin.fix ? `${twin.message}. ${twin.fix}` : twin.message,
+    });
   }
 
   // Get version
@@ -975,6 +987,10 @@ export async function coreDoctorReport(projectRoot: string): Promise<DoctorRepor
 
   // Contributor project channel check (ADR-029)
   checks.push(checkContributorChannel(projectRoot));
+
+  // T12535: a failed or pending twin collapse (read-only, no domain bind, so
+  // it reports even while every bind fails with E_TWIN_COLLAPSE_FAILED).
+  checks.push(twinCollapseDoctorCheck(projectRoot));
 
   // Agent definition presence check
   const agentDefPath = join(getAgentsHome(), 'agents', 'cleo-subagent');

@@ -127,6 +127,18 @@ export enum ExitCode {
   CONTEXT_EMERGENCY = 53,
   CONTEXT_STALE = 54,
 
+  // === STORE MIGRATION (55-59) ===
+  /**
+   * A twin collapse (a bare legacy table folded into its prefixed twin in the
+   * project `cleo.db`) could not complete: the pre-migration snapshot could
+   * not be written (backup directory unusable, not enough free space) or the
+   * merge failed and was rolled back. Both tables are unchanged. LAFS code
+   * `E_TWIN_COLLAPSE_FAILED`; details carry the table, the cause, the
+   * snapshot path and the free space needed. `cleo doctor twin-collapse`
+   * reports it and `--retry` re-runs it. @task T12535
+   */
+  TWIN_COLLAPSE_FAILED = 55,
+
   // === ORCHESTRATOR ERRORS (60-68) ===
   PROTOCOL_MISSING = 60,
   INVALID_RETURN_MESSAGE = 61,

@@ -46,8 +46,9 @@ export { warpChainInstances, warpChains } from './schema/chain-schema.js';
 // rebinding: every drizzle `schema.schemaMeta` reader and writer now uses the
 // prefixed table, and the raw-SQL sites (sequence allocation, `seedTasksMeta`,
 // the snapshot gate, exodus, split-brain import) name `tasks_schema_meta` in
-// the same change. `store/twin-collapse.ts` folds the bare rows into the twin
-// (once, atomically, key-aware) in the tasks bind before any read.
+// the same change. `store/twin-collapse.ts` carries the bare rows into the
+// twin (key-aware, atomic) at every open, before any read: the initial
+// collapse, then whatever an older build wrote to the bare table since.
 export { tasksSchemaMeta as schemaMeta } from './schema/cleo-project/audit.js';
 export type {
   NewTasksLifecycleEvidenceRow as NewLifecycleEvidenceRow,

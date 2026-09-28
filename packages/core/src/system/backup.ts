@@ -53,13 +53,13 @@ import {
   readdirSync,
   readFileSync,
   renameSync,
-  statSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import { formatBackupTimestamp, rotateBackupDir } from '../store/backup-sidecar.js';
 import { getBrainNativeDb } from '../store/memory-sqlite.js';
 import { getNativeDb } from '../store/sqlite.js';
 
@@ -117,72 +117,6 @@ function emitLegacyDeprecationWarning(): void {
 /** Internal: reset the once-flag (test seam). */
 export function _resetLegacyWarningOnce(): void {
   _legacyWarningEmitted = false;
-}
-
-/**
- * Format a Date as `YYYYMMDD-HHmmss` (local time) — mirrors the helper of
- * the same name in `sqlite-backup.ts` so both auto-snapshot and manual
- * snapshot files in `.cleo/backups/sqlite/` share one timestamp convention.
- *
- * @task T10315 — unified with `sqlite-backup.ts:formatTimestamp`.
- */
-function formatTimestamp(d: Date): string {
-  const pad = (n: number, len = 2): string => String(n).padStart(len, '0');
-  return (
-    `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}` +
-    `-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
-  );
-}
-
-/**
- * Rotate backups in a directory: delete the oldest files until
- * fewer than `maxSnapshots` non-meta files remain.
- *
- * Only rotates files matching the `createBackup` filename scheme
- * (`<file>.<type>-YYYYMMDD-HHmmss` for the canonical timestamp shape OR
- * `<file>.<type>-<iso-with-dashes>` for backward compatibility) so it never
- * touches files produced by `vacuumIntoBackupAll` in the same directory.
- * Non-fatal — filesystem errors are silently swallowed.
- *
- * @task T9194
- * @task T10315 — added scoping predicate so rotation never reaches
- *                vacuum-snapshot files that share `.cleo/backups/sqlite/`.
- */
-function rotateBackupDir(backupDir: string, maxSnapshots: number, backupType: string): void {
-  try {
-    // Match `<anything>.${backupType}-<timestamp>` where timestamp is either
-    // canonical (`YYYYMMDD-HHmmss`) or legacy-ISO (`YYYY-MM-DDTHH-MM-SS-mmmZ`).
-    // Excludes:
-    //   - `.meta.json` sidecars (filtered explicitly below)
-    //   - `.tmp` partial writes
-    //   - vacuum-snapshot files (`tasks-YYYYMMDD-HHmmss.db`, `brain-...`) —
-    //     those start with the prefix, not `.<file>.${backupType}-`.
-    const escapedType = backupType.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const ownedPattern = new RegExp(`\\.${escapedType}-`);
-    const files = readdirSync(backupDir)
-      .filter((f) => !f.endsWith('.meta.json') && !f.endsWith('.tmp') && ownedPattern.test(f))
-      .map((f) => ({
-        name: f,
-        path: join(backupDir, f),
-        mtimeMs: statSync(join(backupDir, f)).mtimeMs,
-      }))
-      .sort((a, b) => a.mtimeMs - b.mtimeMs); // oldest first
-
-    while (files.length > maxSnapshots) {
-      const oldest = files.shift();
-      if (!oldest) break;
-      try {
-        unlinkSync(oldest.path);
-        // Also delete the corresponding .meta.json sidecar if it exists.
-        const metaPath = `${oldest.path}.meta.json`;
-        if (existsSync(metaPath)) unlinkSync(metaPath);
-      } catch {
-        /* non-fatal */
-      }
-    }
-  } catch {
-    // non-fatal — rotation failures must never block the backup operation
-  }
 }
 
 /** Safe wrapper around VACUUM INTO: flushes WAL then clones the DB. */
@@ -291,7 +225,7 @@ export async function createBackup(
   // Unified `YYYYMMDD-HHmmss` local-time stamp — matches
   // `sqlite-backup.ts:formatTimestamp`. The `type` discriminates manual
   // snapshots from auto-VACUUM-INTO files in the SAME directory.
-  const backupId = `${btype}-${formatTimestamp(now)}`;
+  const backupId = `${btype}-${formatBackupTimestamp(now)}`;
   const backupDir = join(cleoDir, 'backups', CANONICAL_BACKUP_SUBDIR);
 
   if (!existsSync(backupDir)) {
