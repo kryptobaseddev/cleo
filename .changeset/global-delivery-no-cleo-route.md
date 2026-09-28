@@ -40,3 +40,22 @@ resolved to nothing. No harness on the machine loaded any CLEO protocol or skill
   symlink or a copy. Orphans and links owned by other tools are never touched.
   Each run appends one receipt to `<cleoHome>/audit/global-delivery.jsonl`.
   `--dry-run` shows the plan without writing.
+
+**Data safety.**
+- **Intent receipt first.** `--repair` appends an `intent` receipt line before
+  it changes anything. The line names where a preserved `~/.cleo` will go.
+- **Rollback.** If creating the link or junction then fails, the previous entry
+  is put back exactly and a `rolled-back` line is logged. The failure can be a
+  directory, a foreign link or a dangling link, for example on Windows without
+  Developer Mode or admin. The command returns `E_CLEO_LINK_REPAIR_FAILED` with a
+  hint on how to fix it.
+- **Temp-dir guard.** The guard now resolves real paths on both sides and treats
+  `/tmp`, `/private/tmp` and `os.tmpdir()` as temp roots. This keeps a test run
+  from pointing a real `~/.cleo` at a scratch directory.
+- **Unmounted volumes.** A `~/.cleo` that links to an unmounted volume counts as
+  dangling, so `--repair` and bootstrap replace it with the canonical link. Only
+  the link changes. The files on the volume are not touched, and the old target
+  is recorded in the receipt.
+- **Foreign links are never moved automatically.** A live `~/.cleo` that points
+  somewhere else may be intentional. Bootstrap and `install-global` only report
+  it and name `cleo doctor global-delivery --repair`.

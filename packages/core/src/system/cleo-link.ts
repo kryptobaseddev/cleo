@@ -18,10 +18,17 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, existsSync, lstatSync, mkdirSync, readlinkSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readlinkSync,
+  realpathSync,
+} from 'node:fs';
 import { rename, symlink, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join, normalize, resolve, sep } from 'node:path';
+import { basename, dirname, join, normalize, resolve, sep } from 'node:path';
 import { resolveLegacyCleoDir } from '@cleocode/paths';
 import { getCleoHome } from '../paths.js';
 
@@ -78,6 +85,31 @@ export interface CleoLinkRepairReceipt {
   reason: string | null;
   /** JSONL file the receipt was appended to, or null on a dry run. */
   receiptLog: string | null;
+  /**
+   * Lifecycle phase of this receipt line. An `intent` line is appended BEFORE
+   * anything on disk changes, so a crash between the preserve-rename and the
+   * new link still leaves a record of where the old entry went; the final
+   * line is `completed` or `rolled-back`. `planned` receipts (dry run, no-op,
+   * refused) are returned but never written.
+   */
+  phase: 'intent' | 'completed' | 'rolled-back' | 'planned';
+}
+
+/** Thrown when creating the `~/.cleo` link fails; the previous entry has been restored. */
+export class CleoLinkRepairError extends Error {
+  /** Stable error code. */
+  readonly code = 'E_CLEO_LINK_REPAIR_FAILED';
+  /**
+   * @param message - What failed.
+   * @param receipt - The `rolled-back` receipt (also appended to the log).
+   */
+  constructor(
+    message: string,
+    readonly receipt: CleoLinkRepairReceipt,
+  ) {
+    super(message);
+    this.name = 'CleoLinkRepairError';
+  }
 }
 
 /** Options shared by the audit and repair functions (tests inject paths). */
@@ -102,9 +134,33 @@ function sameTarget(a: string, b: string): boolean {
  * never repoint the developer's own `~/.cleo` at a scratch directory.
  */
 export function wouldBindRealHomeToTemp(linkPath: string, target: string): boolean {
-  const tmp = resolve(tmpdir()) + sep;
-  const inTmp = (p: string): boolean => resolve(p).startsWith(tmp);
+  const roots = [...new Set([tmpdir(), '/tmp', '/private/tmp'].map(realPathOf))];
+  const inTmp = (p: string): boolean => {
+    const real = realPathOf(p);
+    return roots.some((root) => real === root || real.startsWith(root + sep));
+  };
   return inTmp(target) && !inTmp(linkPath);
+}
+
+/**
+ * `realpath` of `p`, or of its nearest existing ancestor with the missing tail
+ * re-appended. Paths being repaired often do not exist yet, and a prefix match
+ * on the unresolved form misses `/tmp` → `/private/tmp` and
+ * `os.tmpdir()` → `/private/var/folders/…` on macOS.
+ */
+function realPathOf(p: string): string {
+  let current = resolve(p);
+  const tail: string[] = [];
+  for (;;) {
+    try {
+      return join(realpathSync(current), ...tail.reverse());
+    } catch {
+      const parent = dirname(current);
+      if (parent === current) return resolve(p);
+      tail.push(basename(current));
+      current = parent;
+    }
+  }
 }
 
 /**
@@ -185,6 +241,7 @@ export async function repairCleoLink(
     preservedAt: null,
     reason: null,
     receiptLog: null,
+    phase: 'planned',
   };
 
   const allowed = opts.states ?? ['absent', 'dangling', 'foreign', 'directory'];
@@ -212,17 +269,47 @@ export async function repairCleoLink(
   }
 
   mkdirSync(before.canonicalTarget, { recursive: true });
-  if (before.state === 'dangling') await unlink(before.path);
-  if (receipt.preservedAt) await rename(before.path, receipt.preservedAt);
-  const linkType: 'dir' | 'junction' = process.platform === 'win32' ? 'junction' : 'dir';
-  await symlink(before.canonicalTarget, before.path, linkType);
-
-  const after = auditCleoLink(opts);
-  receipt.after = { state: after.state, target: after.target };
   const logDir = join(before.canonicalTarget, 'audit');
   mkdirSync(logDir, { recursive: true });
   receipt.receiptLog = join(logDir, 'cleo-link-repairs.jsonl');
-  appendFileSync(receipt.receiptLog, `${JSON.stringify(receipt)}\n`, 'utf8');
+  const log = (phase: CleoLinkRepairReceipt['phase']): void => {
+    receipt.phase = phase;
+    appendFileSync(receipt.receiptLog as string, `${JSON.stringify(receipt)}\n`, 'utf8');
+  };
+  // Intent first: if anything below dies, the log still says where the old
+  // entry is (preservedAt) and what it pointed at (before.target).
+  log('intent');
+
+  let unlinkedDangling = false;
+  let preserved = false;
+  try {
+    if (before.state === 'dangling') {
+      await unlink(before.path);
+      unlinkedDangling = true;
+    }
+    if (receipt.preservedAt) {
+      await rename(before.path, receipt.preservedAt);
+      preserved = true;
+    }
+    const linkType: 'dir' | 'junction' = process.platform === 'win32' ? 'junction' : 'dir';
+    await symlink(before.canonicalTarget, before.path, linkType);
+  } catch (err) {
+    // Roll back: put the previous entry exactly where it was.
+    if (preserved && receipt.preservedAt) await rename(receipt.preservedAt, before.path);
+    if (unlinkedDangling && before.target !== null) await symlink(before.target, before.path);
+    receipt.after = { state: before.state, target: before.target };
+    receipt.reason = err instanceof Error ? err.message : String(err);
+    log('rolled-back');
+    throw new CleoLinkRepairError(
+      `Could not link ${before.path} → ${before.canonicalTarget}: ${receipt.reason}. ` +
+        'The previous entry was restored.',
+      receipt,
+    );
+  }
+
+  const after = auditCleoLink(opts);
+  receipt.after = { state: after.state, target: after.target };
+  log('completed');
   return { audit: after, receipt };
 }
 

@@ -17,6 +17,7 @@ import {
   mkdtempSync,
   readFileSync,
   readlinkSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -158,9 +159,46 @@ describe('repairCleoLink', () => {
     expect(readFileSync(link, 'utf-8')).toBe('x');
   });
 
+  it('preserves a real DIRECTORY at ~/.cleo, contents intact, beside the new link', async () => {
+    mkdirSync(link);
+    writeFileSync(join(link, 'user-data.txt'), 'keep me');
+    const { receipt } = await repairCleoLink(opts());
+    expect(receipt.action).toBe('relinked');
+    expect(receipt.before.state).toBe('directory');
+    const preserved = receipt.preservedAt as string;
+    expect(lstatSync(preserved).isDirectory()).toBe(true);
+    expect(readFileSync(join(preserved, 'user-data.txt'), 'utf-8')).toBe('keep me');
+    expect(auditCleoLink(opts()).state).toBe('canonical');
+    const phases = readFileSync(receipt.receiptLog as string, 'utf-8')
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l).phase);
+    expect(phases).toEqual(['intent', 'completed']);
+  });
+
+  it('the temp guard is enforced at the repair call site: nothing is created', async () => {
+    // A non-temp ~/.cleo (absent) whose target is a temp dir: the shape of a
+    // test that overrides CLEO_HOME but not HOME. Must be refused BEFORE any
+    // write — the target dir must not even be created.
+    const realLooking = join('/nonexistent-cleo-guard-t12596', '.cleo');
+    const tempTarget = join(base, 'never-created');
+    const { receipt } = await repairCleoLink({ path: realLooking, canonicalTarget: tempTarget });
+    expect(receipt.action).toBe('refused');
+    expect(receipt.reason).toContain('temporary directory');
+    expect(existsSync(tempTarget)).toBe(false);
+  });
+
   it('never binds a real (non-temp) ~/.cleo to a temp directory', () => {
     expect(wouldBindRealHomeToTemp('/Users/someone/.cleo', join(tmpdir(), 'x'))).toBe(true);
     expect(wouldBindRealHomeToTemp(join(tmpdir(), 'h', '.cleo'), join(tmpdir(), 'x'))).toBe(false);
+    // /tmp and /private/tmp are temp roots too, and realpath is applied to
+    // both sides, so /tmp ↔ /private/tmp and tmpdir() ↔ its realpath match.
+    expect(wouldBindRealHomeToTemp('/Users/someone/.cleo', '/tmp/cleo-x')).toBe(true);
+    expect(wouldBindRealHomeToTemp('/Users/someone/.cleo', '/private/tmp/cleo-x')).toBe(true);
+    expect(wouldBindRealHomeToTemp('/Users/someone/.cleo', join(realpathSync(tmpdir()), 'x'))).toBe(
+      true,
+    );
+    expect(wouldBindRealHomeToTemp('/tmp/h/.cleo', '/private/tmp/cleo-x')).toBe(false);
   });
 });
 

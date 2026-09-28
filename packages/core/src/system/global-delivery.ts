@@ -320,7 +320,11 @@ export async function auditGlobalDelivery(
  * (Windows without Developer Mode; filesystems without links). The old entry
  * is a link, so replacing it discards no data.
  */
-function relinkEntry(entryPath: string, canonicalPath: string): 'symlink' | 'copy' {
+function relinkEntry(
+  entryPath: string,
+  canonicalPath: string,
+  previousTarget: string | null,
+): 'symlink' | 'copy' {
   unlinkSync(entryPath);
   try {
     symlinkSync(canonicalPath, entryPath, process.platform === 'win32' ? 'junction' : 'dir');
@@ -329,8 +333,15 @@ function relinkEntry(entryPath: string, canonicalPath: string): 'symlink' | 'cop
   } catch {
     rmSync(entryPath, { recursive: true, force: true });
   }
-  cpSync(canonicalPath, entryPath, { recursive: true });
-  return 'copy';
+  try {
+    cpSync(canonicalPath, entryPath, { recursive: true });
+    return 'copy';
+  } catch (err) {
+    // Neither a link nor a copy could be made: restore the previous link.
+    rmSync(entryPath, { recursive: true, force: true });
+    if (previousTarget !== null) symlinkSync(previousTarget, entryPath);
+    throw err;
+  }
 }
 
 /**
@@ -365,7 +376,7 @@ export async function repairGlobalDelivery(
     } else if (dryRun) {
       outcome.action = 'symlink';
     } else {
-      outcome.action = relinkEntry(entry.path, canonicalPath);
+      outcome.action = relinkEntry(entry.path, canonicalPath, entry.target);
     }
     outcomes.push(outcome);
   }

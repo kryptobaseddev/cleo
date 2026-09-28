@@ -24,7 +24,7 @@ import {
   repairGlobalDelivery,
 } from '@cleocode/core/system/global-delivery.js';
 import { defineCommand } from '../lib/define-cli-command.js';
-import { cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 /**
  * `cleo doctor global-delivery` subcommand. Exits non-zero while unhealthy.
@@ -55,7 +55,30 @@ export const doctorGlobalDeliveryCommand = defineCommand({
   },
   async run({ args }) {
     const dryRun = args['dry-run'] === true;
-    const result = args.repair === true ? await repairGlobalDelivery({ dryRun }) : null;
+    let result: Awaited<ReturnType<typeof repairGlobalDelivery>> | null = null;
+    if (args.repair === true) {
+      try {
+        result = await repairGlobalDelivery({ dryRun });
+      } catch (err) {
+        // A symlink/junction failure (e.g. Windows without Developer Mode or
+        // admin). The repair rolled the previous entry back before throwing.
+        const message = err instanceof Error ? err.message : String(err);
+        cliError(
+          message,
+          1,
+          {
+            name: 'E_CLEO_LINK_REPAIR_FAILED',
+            fix:
+              'The previous ~/.cleo entry was restored. On Windows enable Developer Mode or run ' +
+              'as administrator, then re-run `cleo doctor global-delivery --repair`. The receipt ' +
+              'log under <cleoHome>/audit records the attempt.',
+          },
+          { operation: 'doctor.global-delivery.run' },
+        );
+        process.exitCode = 1;
+        return;
+      }
+    }
     const audit = result?.audit ?? (await auditGlobalDelivery());
 
     cliOutput(
