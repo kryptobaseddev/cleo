@@ -1,9 +1,11 @@
+import type { Device, PutDeviceWrappedKeyRequest } from '@cleocode/contracts/cloud';
 import {
   constantTimeEqual,
   DecryptError,
   decodeRecoveryKey,
   deriveKey,
   encodeRecoveryKey,
+  hmacSha256,
   type KdfParams,
   type KeyPair,
   newKdfParams,
@@ -14,7 +16,10 @@ import {
   seal,
   sealTo,
   sha256Hex,
+  signEd25519,
+  verifyEd25519,
 } from './crypto.js';
+import { deviceCertificateMessage, deviceGrantMessage } from './signing.js';
 
 /** What the server stores for a user (PutUserKeysRequest). Nothing here opens without a secret. */
 export interface StoredUserKeys {
@@ -125,33 +130,174 @@ export async function rewrapPassphrase(
   };
 }
 
-/** Seal the master key to a device, so that device unlocks without the passphrase. */
-export function sealMasterKeyForDevice(
-  mk: Buffer,
-  userId: string,
-  deviceId: string,
-  devicePublicKey: Uint8Array,
-  keyVersion: number,
-): string {
-  return sealTo(devicePublicKey, mk, deviceContext(userId, deviceId, keyVersion)).toString(
-    'base64',
-  );
+// ---------- device trust (docs/security/e2e-keys.md, "Device trust") ----------
+
+/** A device's public identity, as raw key bytes. */
+export interface DevicePublicKeys {
+  deviceId: string;
+  encryptionPublicKey: Uint8Array;
+  signingPublicKey: Uint8Array;
 }
 
-export function openDeviceSealedMasterKey(
-  device: KeyPair,
+/** A grant or certificate that does not come from a trusted master key holder. Never retry it blindly. */
+export class KeyTrustError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'KeyTrustError';
+  }
+}
+
+const hex = (b: Uint8Array) => Buffer.from(b).toString('hex');
+const certMessage = (userId: string, d: DevicePublicKeys, keyVersion: number) =>
+  deviceCertificateMessage({
+    userId,
+    deviceId: d.deviceId,
+    encryptionPublicKeyHex: hex(d.encryptionPublicKey),
+    signingPublicKeyHex: hex(d.signingPublicKey),
+    keyVersion,
+  });
+
+/**
+ * Certify a device under the master key: HMAC-SHA256 keyed by HKDF(MK, "device-cert"). Only a holder of
+ * the master key can make one, so the server cannot add a device of its own to the set a client trusts.
+ */
+export function deviceCertificate(
+  mk: Uint8Array,
   userId: string,
-  deviceId: string,
-  sealed: string,
+  device: DevicePublicKeys,
   keyVersion: number,
-  stored?: StoredUserKeys,
-): Buffer {
-  const mk = openSealed(
-    device,
-    Buffer.from(sealed, 'base64'),
-    deviceContext(userId, deviceId, keyVersion),
+) {
+  return hmacSha256(deriveKey(mk, 'device-cert'), certMessage(userId, device, keyVersion));
+}
+
+export function verifyDeviceCertificate(
+  mk: Uint8Array,
+  userId: string,
+  device: DevicePublicKeys,
+  keyVersion: number,
+  certificate: Uint8Array,
+): boolean {
+  return constantTimeEqual(deviceCertificate(mk, userId, device, keyVersion), certificate);
+}
+
+/**
+ * The signing keys of the user's devices that the master key certifies, by device id. Build the trusted
+ * signer set for pulls and grants from this, never from the server's device list alone. Revoked devices
+ * are left out; a hidden revocation is covered by rotation (a new key version certifies only live devices).
+ */
+export function certifiedSigners(
+  mk: Uint8Array,
+  userId: string,
+  keyVersion: number,
+  devices: readonly Device[],
+): Map<string, Buffer> {
+  const out = new Map<string, Buffer>();
+  for (const d of devices) {
+    if (d.revokedAt || !d.certificate || d.certificateKeyVersion !== keyVersion) continue;
+    const keys = {
+      deviceId: d.deviceId,
+      encryptionPublicKey: Buffer.from(d.encryptionPublicKey, 'base64'),
+      signingPublicKey: Buffer.from(d.signingPublicKey, 'base64'),
+    };
+    if (
+      verifyDeviceCertificate(mk, userId, keys, keyVersion, Buffer.from(d.certificate, 'base64'))
+    ) {
+      out.set(d.deviceId, keys.signingPublicKey);
+    }
+  }
+  return out;
+}
+
+const grantMessage = (
+  userId: string,
+  recipient: DevicePublicKeys,
+  keyVersion: number,
+  sealed: Uint8Array,
+  certificate: Uint8Array,
+  signerDeviceId: string,
+) =>
+  deviceGrantMessage({
+    userId,
+    recipientDeviceId: recipient.deviceId,
+    recipientEncryptionPublicKeyHex: hex(recipient.encryptionPublicKey),
+    recipientSigningPublicKeyHex: hex(recipient.signingPublicKey),
+    keyVersion,
+    sealedMasterKeyHash: sha256Hex(sealed),
+    certificateHex: hex(certificate),
+    signerDeviceId,
+  });
+
+/**
+ * Grant the master key to a device: seal it to the recipient's X25519 key, certify the recipient under
+ * the master key, and sign the whole grant with the signer's Ed25519 key. The signer must hold the
+ * master key legitimately: a device that unlocked by passphrase or recovery key grants to itself, and a
+ * trusted device grants to another (key rotation). The result is the PUT /v1/devices/:id/key body.
+ */
+export function createDeviceGrant(args: {
+  masterKey: Buffer;
+  userId: string;
+  keyVersion: number;
+  recipient: DevicePublicKeys;
+  signer: { deviceId: string; signing: KeyPair };
+}): PutDeviceWrappedKeyRequest {
+  const { masterKey, userId, keyVersion, recipient, signer } = args;
+  const sealed = sealTo(
+    recipient.encryptionPublicKey,
+    masterKey,
+    deviceContext(userId, recipient.deviceId, keyVersion),
   );
-  return stored ? checkVerifier(mk, stored) : mk;
+  const certificate = deviceCertificate(masterKey, userId, recipient, keyVersion);
+  const signature = signEd25519(
+    signer.signing,
+    grantMessage(userId, recipient, keyVersion, sealed, certificate, signer.deviceId),
+  );
+  return {
+    sealedMasterKey: sealed.toString('base64'),
+    keyVersion,
+    certificate: certificate.toString('base64'),
+    signerDeviceId: signer.deviceId,
+    grantSignature: signature.toString('base64'),
+  };
+}
+
+/**
+ * Open a master key grant made to this device, after checking it came from a trusted signer. The checks,
+ * in order: the signer is in `trustedSigners` (the device's own signing key for a self-grant, or devices
+ * certified under a master key this device already holds); the signature verifies over a message rebuilt
+ * from this device's OWN keys, so a grant made for other keys fails; the sealed box opens; and the key
+ * inside certifies this device, so the key and the signer's intent agree. The server's verifier is not
+ * consulted: it is server-supplied and proves nothing.
+ */
+export function openDeviceGrant(args: {
+  userId: string;
+  device: { deviceId: string; encryption: KeyPair; signingPublicKey: Uint8Array };
+  grant: PutDeviceWrappedKeyRequest;
+  trustedSigners: ReadonlyMap<string, Uint8Array>;
+}): Buffer {
+  const { userId, device, grant, trustedSigners } = args;
+  const signerKey = trustedSigners.get(grant.signerDeviceId);
+  if (!signerKey)
+    throw new KeyTrustError(`key grant is signed by untrusted device ${grant.signerDeviceId}`);
+  const me: DevicePublicKeys = {
+    deviceId: device.deviceId,
+    encryptionPublicKey: device.encryption.publicKey,
+    signingPublicKey: device.signingPublicKey,
+  };
+  const sealed = Buffer.from(grant.sealedMasterKey, 'base64');
+  const certificate = Buffer.from(grant.certificate, 'base64');
+  const msg = grantMessage(userId, me, grant.keyVersion, sealed, certificate, grant.signerDeviceId);
+  if (!verifyEd25519(signerKey, msg, Buffer.from(grant.grantSignature, 'base64'))) {
+    throw new KeyTrustError('key grant signature does not verify');
+  }
+  const mk = openSealed(
+    device.encryption,
+    sealed,
+    deviceContext(userId, device.deviceId, grant.keyVersion),
+  );
+  if (!verifyDeviceCertificate(mk, userId, me, grant.keyVersion, certificate)) {
+    throw new KeyTrustError('granted master key does not certify this device');
+  }
+  return mk;
 }
 
 export const newProjectKey = randomKey;

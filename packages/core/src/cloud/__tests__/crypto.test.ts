@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  checkKdfParams,
   DecryptError,
   decodeRecoveryKey,
   encodeRecoveryKey,
@@ -14,11 +15,14 @@ import {
   verifyEd25519,
 } from '../crypto.js';
 import {
+  certifiedSigners,
+  createDeviceGrant,
   createUserKeys,
+  deviceCertificate,
   homeStreamKey,
+  KeyTrustError,
   newProjectKey,
-  openDeviceSealedMasterKey,
-  sealMasterKeyForDevice,
+  openDeviceGrant,
   unlockWithPassphrase,
   unlockWithRecoveryKey,
   unwrapProjectKey,
@@ -39,7 +43,7 @@ describe('AEAD seal/open', () => {
   });
 
   it.each([
-    ['wrong key', (k: Buffer, e: Buffer) => open(randomKey(), e, 'segment', 'ctx')],
+    ['wrong key', (_k: Buffer, e: Buffer) => open(randomKey(), e, 'segment', 'ctx')],
     [
       'wrong context (moved ciphertext)',
       (k: Buffer, e: Buffer) => open(k, e, 'segment', 'other-ctx'),
@@ -125,15 +129,6 @@ describe('key hierarchy', () => {
       unlockWithPassphrase('user-2', stored, 'a long enough passphrase'),
     ).rejects.toThrow();
 
-    const dev = generateX25519();
-    const sealed = sealMasterKeyForDevice(masterKey, 'user-1', 'dev-1', dev.publicKey, 1);
-    expect(
-      openDeviceSealedMasterKey(dev, 'user-1', 'dev-1', sealed, 1, stored).equals(masterKey),
-    ).toBe(true);
-    expect(() => openDeviceSealedMasterKey(dev, 'user-1', 'dev-2', sealed, 1)).toThrow(
-      DecryptError,
-    );
-
     const pdk = newProjectKey();
     const w = wrapProjectKey(masterKey, pdk, 'proj-1', 1);
     expect(unwrapProjectKey(masterKey, w, 'proj-1', 1).equals(pdk)).toBe(true);
@@ -147,5 +142,160 @@ describe('key hierarchy', () => {
     expect(wire).not.toContain(masterKey.toString('base64'));
     expect(wire).not.toContain(masterKey.toString('hex'));
     expect(wire).not.toContain('another long passphrase');
+  });
+});
+
+describe('KDF parameter bounds (the server supplies them)', () => {
+  const ok = {
+    algorithm: 'argon2id' as const,
+    memoryKiB: 65_536,
+    iterations: 3,
+    parallelism: 1,
+    salt: randomKey().subarray(0, 16).toString('base64'),
+  };
+  it('accepts the defaults and refuses weak or abusive parameters before running Argon2id', async () => {
+    expect(() => checkKdfParams(ok)).not.toThrow();
+    for (const bad of [
+      { ...ok, memoryKiB: 1024 },
+      { ...ok, memoryKiB: 64 * 1024 * 1024 },
+      { ...ok, iterations: 1 },
+      { ...ok, iterations: 1000 },
+      { ...ok, parallelism: 0 },
+      { ...ok, parallelism: 255 },
+      { ...ok, salt: '' },
+    ]) {
+      expect(() => checkKdfParams(bad)).toThrow(RangeError);
+      await expect(
+        unlockWithPassphrase(
+          'u',
+          {
+            passphraseWrappedMasterKey: '',
+            kdf: bad,
+            recoveryWrappedMasterKey: '',
+            masterKeyVerifier: '',
+            keyVersion: 1,
+          },
+          'x'.repeat(12),
+        ),
+      ).rejects.toThrow(RangeError);
+    }
+  });
+});
+
+describe('device trust: signed, certified master key grants', () => {
+  const userId = '0192f1c2-7d3e-4abc-8def-000000000001';
+  const dev = (deviceId: string) => {
+    const encryption = generateX25519();
+    const signing = generateEd25519();
+    return {
+      deviceId,
+      encryption,
+      signing,
+      pub: {
+        deviceId,
+        encryptionPublicKey: encryption.publicKey,
+        signingPublicKey: signing.publicKey,
+      },
+      open: { deviceId, encryption, signingPublicKey: signing.publicKey },
+    };
+  };
+  const mk = randomKey();
+  const a = dev('0192f1c2-7d3e-4abc-8def-00000000000a');
+  const b = dev('0192f1c2-7d3e-4abc-8def-00000000000b');
+  const evil = dev('0192f1c2-7d3e-4abc-8def-00000000000e');
+  const grant = (masterKey: Buffer, signer: ReturnType<typeof dev>, to: ReturnType<typeof dev>) =>
+    createDeviceGrant({
+      masterKey,
+      userId,
+      keyVersion: 1,
+      recipient: to.pub,
+      signer: { deviceId: signer.deviceId, signing: signer.signing },
+    });
+  const trustSelf = (d: ReturnType<typeof dev>) => new Map([[d.deviceId, d.signing.publicKey]]);
+
+  it('opens a self-grant and a grant from a trusted signer', () => {
+    expect(
+      openDeviceGrant({
+        userId,
+        device: b.open,
+        grant: grant(mk, b, b),
+        trustedSigners: trustSelf(b),
+      }).equals(mk),
+    ).toBe(true);
+    expect(
+      openDeviceGrant({
+        userId,
+        device: b.open,
+        grant: grant(mk, a, b),
+        trustedSigners: trustSelf(a),
+      }).equals(mk),
+    ).toBe(true);
+  });
+
+  it('refuses an attacker-chosen key: anonymous sealing is not enough (HIGH 1)', () => {
+    const attackerMk = randomKey();
+    // Signed by a device the recipient does not trust.
+    expect(() =>
+      openDeviceGrant({
+        userId,
+        device: b.open,
+        grant: grant(attackerMk, evil, b),
+        trustedSigners: trustSelf(b),
+      }),
+    ).toThrow(/untrusted device/);
+    // The attacker's key sealed into a grant that was signed over the real sealed box.
+    const real = grant(mk, b, b);
+    const swapped = { ...real, sealedMasterKey: grant(attackerMk, b, b).sealedMasterKey };
+    expect(() =>
+      openDeviceGrant({ userId, device: b.open, grant: swapped, trustedSigners: trustSelf(b) }),
+    ).toThrow(/signature/);
+    // A trusted signer's grant made for other keys (redirected).
+    expect(() =>
+      openDeviceGrant({
+        userId,
+        device: b.open,
+        grant: grant(mk, a, a),
+        trustedSigners: trustSelf(a),
+      }),
+    ).toThrow(/signature/);
+    // A trusted signer whose sealed key does not certify the recipient (the signer's intent and the key disagree).
+    const mismatch = createDeviceGrant({
+      masterKey: attackerMk,
+      userId,
+      keyVersion: 1,
+      recipient: b.pub,
+      signer: { deviceId: a.deviceId, signing: a.signing },
+    });
+    const withRealCert = {
+      ...mismatch,
+      certificate: deviceCertificate(mk, userId, b.pub, 1).toString('base64'),
+    };
+    expect(() =>
+      openDeviceGrant({
+        userId,
+        device: b.open,
+        grant: withRealCert,
+        trustedSigners: trustSelf(a),
+      }),
+    ).toThrow(KeyTrustError);
+  });
+
+  it('certifies only devices the master key vouches for', () => {
+    const row = (d: ReturnType<typeof dev>, key: Buffer, revokedAt: string | null = null) => ({
+      deviceId: d.deviceId,
+      name: 'x',
+      platform: 'linux' as const,
+      encryptionPublicKey: d.encryption.publicKey.toString('base64'),
+      signingPublicKey: d.signing.publicKey.toString('base64'),
+      cliVersion: '1',
+      createdAt: new Date().toISOString(),
+      lastSeenAt: null,
+      revokedAt,
+      certificate: deviceCertificate(key, userId, d.pub, 1).toString('base64'),
+      certificateKeyVersion: 1,
+    });
+    const roster = [row(a, mk), row(b, mk, new Date().toISOString()), row(evil, randomKey())];
+    expect([...certifiedSigners(mk, userId, 1, roster).keys()]).toEqual([a.deviceId]);
+    expect(certifiedSigners(mk, userId, 2, roster).size).toBe(0);
   });
 });

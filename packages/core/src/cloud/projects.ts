@@ -1,4 +1,9 @@
-import type { Project, RegisterProjectRequest, StreamId } from '@cleocode/contracts/cloud';
+import {
+  type Project,
+  type RegisterProjectRequest,
+  RegisterProjectResult,
+  type StreamId,
+} from '@cleocode/contracts/cloud';
 import type { Http } from './http.js';
 
 /**
@@ -11,5 +16,5 @@ export async function registerProject(
   http: Http,
   req: RegisterProjectRequest,
 ): Promise<{ project: Project; streamId: StreamId }> {
-  return http.request<{ project: Project; streamId: StreamId }>('POST', '/v1/projects', req);
+  return http.request('POST', '/v1/projects', RegisterProjectResult, req);
 }

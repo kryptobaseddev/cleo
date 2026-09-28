@@ -3,6 +3,7 @@ import {
   createCipheriv,
   createDecipheriv,
   createHash,
+  createHmac,
   createPrivateKey,
   createPublicKey,
   diffieHellman,
@@ -14,6 +15,7 @@ import {
   timingSafeEqual,
   verify,
 } from 'node:crypto';
+import { KDF_LIMITS } from '@cleocode/contracts/cloud';
 
 /**
  * Cleo Nexus E2E primitives. Spec: docs/security/e2e-keys.md. Uses Node 24 node:crypto only.
@@ -211,7 +213,28 @@ export function newKdfParams(): KdfParams {
   return { algorithm: 'argon2id', ...DEFAULT_KDF, salt: randomBytes(16).toString('base64') };
 }
 
+/**
+ * Refuse KDF parameters outside KDF_LIMITS. They come from the server, which must not be able to weaken
+ * the passphrase stretch or make the client allocate unbounded memory.
+ */
+export function checkKdfParams(p: KdfParams): void {
+  const within = (v: number, b: { min: number; max: number }) =>
+    Number.isInteger(v) && v >= b.min && v <= b.max;
+  const salt = Buffer.from(p.salt, 'base64');
+  if (
+    p.algorithm !== 'argon2id' ||
+    !within(p.memoryKiB, KDF_LIMITS.memoryKiB) ||
+    !within(p.iterations, KDF_LIMITS.iterations) ||
+    !within(p.parallelism, KDF_LIMITS.parallelism) ||
+    salt.length < 16 ||
+    salt.length > 64
+  ) {
+    throw new RangeError('KDF parameters are outside the accepted bounds');
+  }
+}
+
 export function passphraseKey(passphrase: string, p: KdfParams): Promise<Buffer> {
+  checkKdfParams(p);
   return new Promise((resolve, reject) => {
     argon2(
       'argon2id',
@@ -270,3 +293,17 @@ export function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
 }
 
 export const sha256Hex = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
+
+export const hmacSha256 = (key: Uint8Array, message: Uint8Array): Buffer =>
+  createHmac('sha256', key).update(message).digest();
+
+/** A UUIDv7 (RFC 9562 §5.7): 48-bit Unix millis, then random bits. Used to mint checkpoint ids. */
+export function uuidv7(now: number = Date.now()): string {
+  const b = randomBytes(16);
+  const ms = BigInt(Math.max(0, Math.floor(now)));
+  for (let i = 0; i < 6; i++) b[i] = Number((ms >> BigInt(8 * (5 - i))) & 0xffn);
+  b[6] = ((b[6] ?? 0) & 0x0f) | 0x70;
+  b[8] = ((b[8] ?? 0) & 0x3f) | 0x80;
+  const h = b.toString('hex');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
