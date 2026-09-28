@@ -27,3 +27,11 @@ D11148–D11151), on top of the `cleo done --plan` planner.
 - `cleo done` refuses to run from the main checkout when the task's work is in its
   worktree (`run-from-worktree`): the tools must measure that tree.
 - `cleo verify --evidence` and `cleo complete` are unchanged.
+- Before any tool or typed gate runs, the checked-out tree must contain the change
+  `implemented` cites. For a branch change set, the change-set commit must be HEAD.
+  For a PR change set, the merge commit must be an ancestor of HEAD. Otherwise the
+  run stops with `checkout-required` and names the exact `git switch` command.
+- Typed gates now run in, and build their cache key from, the caller's own worktree
+  of this project (`resolveTypedGateRoot`), the same tree the evidence tools use.
+  From the main checkout, or from any other directory, they still run in the CLEO
+  root as before.

@@ -70,6 +70,7 @@ export type DonePlanBlockerCode =
   | 'manual-gate'
   | 'epic-rollup'
   | 'run-from-worktree'
+  | 'checkout-required'
   | 'evidence-refused'
   | 'completion-refused';
 

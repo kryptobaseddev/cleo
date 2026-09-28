@@ -78,6 +78,7 @@ const DONE_PLAN_BLOCKER_ORDER: readonly DonePlanBlockerCode[] = [
   'git-root',
   'run-from-worktree',
   'dirty-tree',
+  'checkout-required',
   'no-change-set',
   'pr-ambiguous',
   'pr-unverified',
