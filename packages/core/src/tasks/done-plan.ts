@@ -43,6 +43,7 @@ import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { getProjectRoot } from '../paths.js';
+import { readCiSatisfies } from '../release/ci-evidence.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { type ChangeSetDeps, deriveTaskChangeSet } from './change-set.js';
 import {
@@ -265,8 +266,10 @@ function toolGateEvidence(
   gate: VerificationGate,
   runs: readonly DonePlanToolRun[],
   decisionOnly: boolean,
+  ciPr: number | null,
 ): string | null {
   if (decisionOnly) return 'note:decision-only implementation, no code changed';
+  if (ciPr !== null) return `ci:${ciPr}`;
   const atoms = runs
     .filter((r) => r.gate === gate && r.cache !== 'unresolved')
     .map((r) => `tool:${r.tool}`);
@@ -482,8 +485,18 @@ export async function deriveTaskEvidence(
   const decisionOnly =
     changeSet.source === 'docs' && (changeSet.implementedEvidence ?? '').startsWith('decision:');
 
+  // T12634 (D11149): a change set from a merged PR (not stacked) proves
+  // testsPassed/qaPassed by its merge-commit CI when the project opts in, so
+  // no local tool run is planned for them.
+  const ciPr =
+    changeSet.source === 'pr' &&
+    changeSet.prNumber !== undefined &&
+    changeSet.stackedOn === undefined &&
+    readCiSatisfies(storeRoot)
+      ? changeSet.prNumber
+      : null;
   const toolRuns: DonePlanToolRun[] = [];
-  if (!decisionOnly) {
+  if (!decisionOnly && ciPr === null) {
     for (const gate of pending) {
       for (const tool of GATE_TOOLS[gate] ?? []) {
         toolRuns.push(await planToolRun(tool, gate, storeRoot, root));
@@ -498,7 +511,7 @@ export async function deriveTaskEvidence(
       gate === 'implemented'
         ? changeSet.implementedEvidence
         : GATE_TOOLS[gate]
-          ? toolGateEvidence(gate, toolRuns, decisionOnly)
+          ? toolGateEvidence(gate, toolRuns, decisionOnly, ciPr)
           : null;
     return {
       gate,

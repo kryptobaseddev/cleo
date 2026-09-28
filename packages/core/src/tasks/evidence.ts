@@ -210,6 +210,17 @@ export type ParsedAtom =
     }
   | {
       /**
+       * Merge-commit CI atom — required checks green on a merged PR's merge
+       * commit (D11149). Accepted only with `evidence.ciSatisfies`.
+       *
+       * @task T12634
+       */
+      kind: 'ci';
+      /** PR number (positive integer). */
+      prNumber: number;
+    }
+  | {
+      /**
        * Cross-task AC-binding atom — references an acceptance criterion on
        * another task in the same Saga (or root Epic when no Saga). The atom
        * carries either the canonical UUIDv4 (`targetAcId`) OR the positional
@@ -422,6 +433,19 @@ export async function validateAtom(
       return validateDecision(parsed.decisionId, roots);
     case 'pr':
       return validatePrAtom(parsed.prNumber, roots, context);
+    case 'ci': {
+      // T12634 (D11149): `gh` runs in the repo (executionRoot); the opt-in,
+      // required-check list and PR cache are CLEO's own records (storeRoot).
+      const { resolveCiEvidenceAtom } = await import('../release/ci-evidence.js');
+      const { loadProjectContext } = await import('../agents/variable-substitution.js');
+      const ctx = loadProjectContext(roots.storeRoot);
+      const result = await resolveCiEvidenceAtom(parsed.prNumber, roots, {
+        projectContext: ctx.loaded ? ctx.context : null,
+      });
+      return result.ok
+        ? { ok: true, atom: result.atom }
+        : { ok: false, reason: result.reason, codeName: result.codeName };
+    }
     case 'satisfies': {
       // ADR-079-r2: 5-check validator pipeline shipped by T10507.
       // Delegates to the dedicated validator module to keep the dispatch
@@ -2396,7 +2420,12 @@ export function checkTaskEvidenceContext(
   if (
     classifyEvidenceTask(context) === 'code' &&
     (gate === 'testsPassed' || gate === 'qaPassed') &&
-    !atoms.some((atom) => atom.kind === 'test-run' || (atom.kind === 'tool' && !atom.notApplicable))
+    !atoms.some(
+      (atom) =>
+        atom.kind === 'test-run' ||
+        atom.kind === 'ci' ||
+        (atom.kind === 'tool' && !atom.notApplicable),
+    )
   ) {
     return `Code task ${context.task.id} requires an actual verification result for ${gate}; absence of a toolchain is not a passing result.`;
   }
@@ -2620,7 +2649,7 @@ export function composeGateEvidence(
         return atom.kind === 'commit' || atom.kind === 'pr' || atom.kind === 'decision'
           ? [index]
           : [];
-      return atom.kind === 'tool' || atom.kind === 'test-run' ? [index] : [];
+      return atom.kind === 'tool' || atom.kind === 'test-run' || atom.kind === 'ci' ? [index] : [];
     });
     result.scope = {
       taskId: context.task.id,
@@ -3019,6 +3048,10 @@ export async function revalidateEvidence(
         // Decision atoms reference brain_decisions rows which are immutable
         // once accepted/proposed. Re-validation is not performed at complete
         // time — the DB row is trusted as captured at verify time.
+        break;
+      case 'ci':
+        // T12634: check conclusions on a merge commit are immutable once
+        // completed; the atom is trusted as captured, like `pr:`.
         break;
       case 'pr':
         // PR atoms capture (prNumber, mergedAt, mergeCommitSha) at verify

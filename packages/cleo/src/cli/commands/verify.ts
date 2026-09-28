@@ -86,7 +86,7 @@ export const verifyCommand = defineCommand({
     evidence: {
       type: 'string',
       description:
-        "Evidence for the gate (T832/ADR-051). Semicolon-separated atoms: 'commit:<sha>', 'files:<p1,p2>', 'test-run:<json>', 'tool:<name>', 'url:<url>', 'note:<text>'.",
+        "Evidence for the gate (T832/ADR-051). Semicolon-separated atoms: 'commit:<sha>', 'files:<p1,p2>', 'test-run:<json>', 'tool:<name>', 'url:<url>', 'note:<text>', 'ci:<pr>' (required CI green on the merged PR's merge commit; testsPassed/qaPassed, opt-in via evidence.ciSatisfies).",
     },
     explain: {
       type: 'boolean',

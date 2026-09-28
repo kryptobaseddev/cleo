@@ -51,5 +51,8 @@
   },
   "release": {
     "prRequiredWorkflows": ["CI", "Lockfile Check", "Contracts Dep Lint"]
+  },
+  "evidence": {
+    "ciSatisfies": true
   }
 }

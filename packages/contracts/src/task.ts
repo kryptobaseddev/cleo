@@ -366,6 +366,25 @@ export type EvidenceAtom =
     }
   | {
       /**
+       * Merge-commit CI result (owner decision D11149): every required check
+       * completed with `success` on the merged PR's actual merge commit.
+       * Satisfies `testsPassed` / `qaPassed` only when the project sets
+       * `evidence.ciSatisfies: true`.
+       *
+       * @task T12634
+       */
+      kind: 'ci';
+      /** PR number (positive integer). */
+      prNumber: number;
+      /** Merge commit SHA (full 40-char hex) the checks ran on. */
+      mergeCommitSha: string;
+      /** The required checks and their conclusions on that commit. */
+      checks: Array<{ name: string; conclusion: string }>;
+      /** Where the required-check list came from (env, project context, branch protection). */
+      requiredSource: string;
+    }
+  | {
+      /**
        * Satisfies atom — cross-task acceptance-criterion binding per
        * ADR-079-r2.
        *

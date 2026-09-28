@@ -273,6 +273,72 @@ describe('zero writes (T12623 AC2)', () => {
   });
 });
 
+describe('merged-PR CI replaces local tool runs when the project opts in (T12634)', () => {
+  async function mergedPrPlan(optIn: boolean) {
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    commitOnTaskBranch(id);
+    git(root, ['switch', '-q', 'main']);
+    git(root, ['merge', '-q', '--squash', `task/${id}`]);
+    git(root, ['commit', '-q', '-m', `${id}: squash (#42)`]);
+    const merge = git(root, ['rev-parse', 'HEAD']);
+    const ctxPath = join(root, '.cleo', 'project-context.json');
+    const ctx = JSON.parse(readFileSync(ctxPath, 'utf-8')) as Record<string, unknown>;
+    writeFileSync(ctxPath, JSON.stringify({ ...ctx, evidence: { ciSatisfies: optIn } }));
+    return deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      satisfies: 'all',
+      deps: {
+        ...deps,
+        listMergedPrs: async () => ({
+          ok: true,
+          prs: [{ number: 42, title: `${id}: work`, body: '', headRefName: `task/${id}` }],
+        }),
+        viewPr: async (n) => ({
+          number: n,
+          title: '',
+          headRefName: `task/${id}`,
+          baseRefName: 'main',
+          state: 'MERGED',
+          mergedAt: '2026-09-28T00:00:00Z',
+          headRefOid: null,
+          mergeCommitSha: merge,
+        }),
+        findPrByHead: async () => null,
+        resolvePr: async (n) => ({
+          ok: true,
+          prNumber: n,
+          mergeCommitSha: merge,
+          mergedAt: '2026-09-28T00:00:00Z',
+          successCount: 1,
+          totalChecks: 1,
+          cacheHit: false,
+          title: '',
+          body: '',
+          headRefName: `task/${id}`,
+          changedPaths: ['src/a.ts'],
+          changedFileCount: 1,
+        }),
+      },
+    });
+  }
+
+  it('with evidence.ciSatisfies, testsPassed and qaPassed plan ci:<pr> and no tool runs', async () => {
+    const plan = await mergedPrPlan(true);
+    expect(plan.changeSet.source).toBe('pr');
+    expect(plan.toolRuns).toEqual([]);
+    const ev = Object.fromEntries(plan.gates.map((g) => [g.gate, g.evidence]));
+    expect(ev['testsPassed']).toBe(`ci:42;satisfies:${plan.taskId}#AC1`);
+    expect(ev['qaPassed']).toBe(`ci:42;satisfies:${plan.taskId}#AC1`);
+  });
+
+  it('without the opt-in, the same PR still plans local tool runs', async () => {
+    const plan = await mergedPrPlan(false);
+    expect(plan.toolRuns.map((r) => r.tool)).toEqual(['test', 'lint', 'typecheck']);
+    expect(plan.gates.find((g) => g.gate === 'testsPassed')?.evidence).toMatch(/^tool:test;/);
+  });
+});
+
 describe('research and no-change-set tasks', () => {
   it('a research task with a doc and a decision plans decision-only gates with no tool runs', async () => {
     const id = await seedTask(['Report the findings'], 'research');
