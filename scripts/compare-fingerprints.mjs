@@ -58,18 +58,23 @@
  * fingerprint-store.mjs). Fingerprints made with different keys cannot be
  * compared and FAIL.
  *
- * ## The replica must be another store's fingerprint
+ * ## The replica must be a separate replica-role run of the same project
  *
  * A genuine, correctly signed fingerprint of the SOURCE passed in as the
  * replica would reproduce the source perfectly. Each fingerprint records a
- * store identity (`identity.projectId`, `identity.nonce`, under the MAC), and
- * the comparison FAILS when:
- *   - either fingerprint has no nonce;
- *   - the nonces are equal: the replica is the source fingerprint or a copy;
- *   - both carry a project id and the ids differ: the replica belongs to
- *     another project.
- * A replica of the same project (same id, its own nonce) compares normally.
- * A project id known on one side only is reported as a note.
+ * run identity (`identity.role`, `identity.projectId`, `identity.nonce`,
+ * under the MAC), and the comparison FAILS when:
+ *   - `--source` is not a `role: source` fingerprint, or `--replica` is not a
+ *     `role: replica` one (a copied source fingerprint, or swapped arguments);
+ *   - either fingerprint has no nonce, or the nonces are equal;
+ *   - either project id is missing (fail closed: a one-sided id is a
+ *     failure, not a note), or the two ids differ.
+ *
+ * LIMIT: this tells fingerprint RUNS apart, not STORES. The source store
+ * fingerprinted a second time with `--role replica` compares as a perfect
+ * replica, because `cleo.db` persists no store-instance id (nor its project
+ * id; that is read from the `project-id` file beside the store). T12675
+ * tracks persisting both, coordinated with T12341.
  *
  * ## Each fingerprint JSON is signed
  *
@@ -116,6 +121,7 @@
  * @task T12613
  * @task T12636
  * @task T12641
+ * @task T12675
  */
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
@@ -274,6 +280,12 @@ function compare(source, replica, mode, rows, key) {
   }
   const sid = source.identity ?? {};
   const rid = replica.identity ?? {};
+  if (sid.role !== 'source' || rid.role !== 'replica')
+    failures.push({
+      gate: 'B',
+      table: '*',
+      reason: `wrong fingerprint roles: --source is ${sid.role ?? 'none'}, --replica is ${rid.role ?? 'none'} (expected source, replica)`,
+    });
   if (!sid.nonce || !rid.nonce)
     failures.push({ gate: 'B', table: '*', reason: 'a fingerprint has no store identity nonce' });
   else if (sid.nonce === rid.nonce)
@@ -283,16 +295,18 @@ function compare(source, replica, mode, rows, key) {
       reason:
         "the replica carries the source's nonce: it is the source fingerprint, or a copy of it",
     });
-  if (sid.projectId && rid.projectId && sid.projectId !== rid.projectId)
+  if (!sid.projectId || !rid.projectId)
+    failures.push({
+      gate: 'B',
+      table: '*',
+      reason: `project id missing (source ${sid.projectId ?? 'none'}, replica ${rid.projectId ?? 'none'}): put the project-id file beside each store`,
+    });
+  else if (sid.projectId !== rid.projectId)
     failures.push({
       gate: 'B',
       table: '*',
       reason: `the replica belongs to another project (${sid.projectId} vs ${rid.projectId})`,
     });
-  else if (Boolean(sid.projectId) !== Boolean(rid.projectId))
-    notes.push(
-      `project id known on one side only (source ${sid.projectId ?? 'none'}, replica ${rid.projectId ?? 'none'})`,
-    );
   if (!source.keyId || source.keyId !== replica.keyId)
     failures.push({
       gate: 'B',

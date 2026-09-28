@@ -66,6 +66,7 @@
  * @task T12613
  * @task T12636
  * @task T12641
+ * @task T12675
  * @epic T12322
  */
 
@@ -88,6 +89,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { isInsideDirectoryTree } from '../../../../../scripts/lib/path-containment.mjs';
 import { bindConduitDomain } from '../conduit-sqlite.js';
 import { _resetDualScopeDbCache, openDualScopeDb } from '../dual-scope-db.js';
 import { getBrainDb } from '../memory-sqlite.js';
@@ -123,6 +125,7 @@ const MUTATIONS = {
 } as const;
 type StoreName = 'source' | keyof typeof MUTATIONS;
 
+const TEST_PROJECT_ID = 'c0ffee000001';
 let testRoot: string;
 let keyRoot: string;
 let keyFile: string;
@@ -149,12 +152,21 @@ interface Fingerprint {
   invariants: Record<string, number>;
 }
 
-/** Fingerprint one store file with the shared key (or other key args); returns the JSON, its path, and the sidecar. */
-function fingerprintFile(dbFile: string, label: string, key = ['--key-file', keyFile]) {
+type Role = 'source' | 'replica';
+
+/** Fingerprint one store file with the shared key (or other key args) in a role; returns the JSON, its path, and the sidecar. */
+function fingerprintFile(
+  dbFile: string,
+  label: string,
+  key = ['--key-file', keyFile],
+  role: Role = 'replica',
+) {
   const file = join(testRoot, `${label}.fp.json`);
-  execFileSync('node', [FINGERPRINT, '--db', dbFile, '--label', label, '--out', file, ...key], {
-    encoding: 'utf8',
-  });
+  execFileSync(
+    'node',
+    [FINGERPRINT, '--db', dbFile, '--label', label, '--out', file, '--role', role, ...key],
+    { encoding: 'utf8' },
+  );
   const raw = readFileSync(file, 'utf8');
   return {
     fp: JSON.parse(raw) as Fingerprint,
@@ -163,7 +175,11 @@ function fingerprintFile(dbFile: string, label: string, key = ['--key-file', key
     rows: readFileSync(`${file}.rows`, 'utf8'),
   };
 }
-const fingerprint = (name: StoreName) => fingerprintFile(db[name], name);
+/** The source store fingerprints as `source`, every other store as `replica`, unless a role is given. */
+function fingerprint(name: StoreName, role: Role = name === 'source' ? 'source' : 'replica') {
+  const usual = name === 'source' ? 'source' : 'replica';
+  return fingerprintFile(db[name], role === usual ? name : `${name}-as-${role}`, undefined, role);
+}
 
 /** Run the comparator; returns its exit code and stdout. */
 function compare(source: string, replica: string, mode: 'replay' | 'merge', extra: string[] = []) {
@@ -191,7 +207,7 @@ function compare(source: string, replica: string, mode: 'replay' | 'merge', extr
   }
 }
 const cmp = (source: StoreName, replica: StoreName, mode: 'replay' | 'merge') =>
-  compare(fingerprint(source).file, fingerprint(replica).file, mode);
+  compare(fingerprint(source, 'source').file, fingerprint(replica, 'replica').file, mode);
 
 /** Open a copy for a raw test mutation, with foreign keys off so a change stays targeted. */
 function openRaw(file: string): DatabaseSync {
@@ -210,6 +226,9 @@ beforeAll(async () => {
   mkdirSync(keyRoot, { recursive: true });
   keyFile = join(testRoot, 'comparison.key');
   writeFileSync(keyFile, `${randomBytes(32).toString('hex')}\n`, { mode: 0o600 });
+  // Every compared store sits beside a project-id file: the comparator fails closed without one.
+  writeFileSync(join(projectDir, '.cleo', 'project-id'), `${TEST_PROJECT_ID}\n`);
+  writeFileSync(join(testRoot, 'project-id'), `${TEST_PROJECT_ID}\n`);
 
   const handle = await openDualScopeDb('project', projectDir);
   await getDb(projectDir);
@@ -319,6 +338,8 @@ describe('fingerprint-store', () => {
           db.copy,
           '--label',
           dirname(db.copy),
+          '--role',
+          'replica',
           '--out',
           out,
           '--key-file',
@@ -739,7 +760,7 @@ describe('T12613: the WAL snapshot never outlives its use', () => {
     return { file, tmp, writer };
   }
   const run = (args: string[], tmp: string) =>
-    spawn('node', [FINGERPRINT, '--key-file', keyFile, ...args], {
+    spawn('node', [FINGERPRINT, '--role', 'replica', '--key-file', keyFile, ...args], {
       env: { ...process.env, TMPDIR: tmp },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -838,7 +859,7 @@ describe('T12613: the WAL snapshot never outlives its use', () => {
 /** Run the fingerprint script expecting a refusal; returns its stderr. */
 function refusedFingerprint(args: string[]): string {
   try {
-    execFileSync('node', [FINGERPRINT, '--db', db.copy, ...args], {
+    execFileSync('node', [FINGERPRINT, '--db', db.copy, '--role', 'replica', ...args], {
       encoding: 'utf8',
       stdio: 'pipe',
     });
@@ -870,7 +891,7 @@ describe('T12636: a per-table cap, and an explicit flag to wipe a table', () => 
       wipe.exec('DELETE FROM tasks_task_dependencies; DELETE FROM tasks_tasks;');
       wipe.close();
     }
-    const s = fingerprintFile(src, 'src404');
+    const s = fingerprintFile(src, 'src404', undefined, 'source');
     const r = fingerprintFile(rep, 'rep404');
     const total = Object.values(s.fp.tables)
       .filter((t) => t.shareable)
@@ -1053,7 +1074,7 @@ describe('T12641: --key-out is refused anywhere inside the --out/--rows tree', (
   });
 });
 
-describe('T12641: each fingerprint is bound to a store identity', () => {
+describe('T12641: each fingerprint is bound to a run identity', () => {
   /** A copy of the source at `<name>/.cleo/cleo.db`, with `.cleo/project-id` when an id is given. */
   function projectStore(name: string, projectId?: string) {
     const cleoDir = join(testRoot, name, '.cleo');
@@ -1080,7 +1101,7 @@ describe('T12641: each fingerprint is bound to a store identity', () => {
   });
 
   it('a replica of the same project compares normally; another project FAILS', () => {
-    const a = fingerprintFile(projectStore('projA', 'a1b2c3d4e5f6'), 'projA');
+    const a = fingerprintFile(projectStore('projA', 'a1b2c3d4e5f6'), 'projA', undefined, 'source');
     const a2 = fingerprintFile(projectStore('projA2', 'a1b2c3d4e5f6'), 'projA2');
     expect(a.fp.identity?.projectId).toBe('a1b2c3d4e5f6');
     expect(a2.fp.identity?.nonce).not.toBe(a.fp.identity?.nonce);
@@ -1098,23 +1119,124 @@ describe('T12641: each fingerprint is bound to a store identity', () => {
 
   it('an operator-supplied nonce reused for the replica FAILS, and a bad project-id is refused', () => {
     const nonce = ['--nonce', 'operator-run-0001'];
-    const a = fingerprintFile(db.source, 'nonceA', ['--key-file', keyFile, ...nonce]);
+    const a = fingerprintFile(db.source, 'nonceA', ['--key-file', keyFile, ...nonce], 'source');
     const b = fingerprintFile(db.copy, 'nonceB', ['--key-file', keyFile, ...nonce]);
     const r = compare(a.file, b.file, 'replay');
     expect(r.code).toBe(1);
     expect(r.out).toContain("the replica carries the source's nonce");
 
-    const bad = join(testRoot, 'bad-project-id');
-    writeFileSync(bad, '../etc\n');
-    expect(
-      refusedFingerprint([
-        '--out',
-        join(testRoot, 'badid.fp.json'),
-        '--key-file',
-        keyFile,
-        '--project-id-file',
-        bad,
-      ]),
-    ).toContain('unusable project-id file');
+    const badDir = join(testRoot, 'badid');
+    mkdirSync(badDir, { recursive: true });
+    copyFileSync(db.source, join(badDir, 'cleo.db'));
+    writeFileSync(join(badDir, 'project-id'), '../etc\n');
+    let stderr = '';
+    try {
+      execFileSync(
+        'node',
+        [
+          FINGERPRINT,
+          '--db',
+          join(badDir, 'cleo.db'),
+          '--role',
+          'replica',
+          '--out',
+          join(testRoot, 'badid.fp.json'),
+          '--key-file',
+          keyFile,
+        ],
+        { encoding: 'utf8', stdio: 'pipe' },
+      );
+    } catch (e) {
+      stderr = (e as { stderr: string }).stderr;
+    }
+    expect(stderr).toContain('unusable project-id file');
   });
+});
+
+describe('T12641 round 2: roles, fail-closed project id, missing nonce', () => {
+  it('swapped --source and --replica FAIL on the recorded roles', () => {
+    const r = compare(fingerprint('copy').file, fingerprint('source').file, 'replay');
+    expect(r.code).toBe(1);
+    expect(r.out).toContain(
+      'GATE B FAIL *: wrong fingerprint roles: --source is replica, --replica is source (expected source, replica)',
+    );
+  });
+
+  it('a replica fingerprint with no nonce FAILS, even when correctly signed', () => {
+    const src = fingerprint('source');
+    const copy = fingerprint('copy');
+    const { nonce: _nonce, ...identity } = copy.fp.identity ?? { nonce: '' };
+    const noNonce = join(testRoot, 'no-nonce.fp.json');
+    writeFileSync(noNonce, signed({ ...copy.fp, identity: identity as Fingerprint['identity'] }));
+    const r = compare(src.file, noNonce, 'replay');
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('GATE B FAIL *: a fingerprint has no store identity nonce');
+    expect(r.out).not.toContain('MAC does not verify');
+  });
+
+  it('a project id on one side only FAILS (fail closed), and so do two missing ids', () => {
+    const noIdDir = join(testRoot, 'noid');
+    mkdirSync(noIdDir, { recursive: true });
+    const noIdDb = join(noIdDir, 'cleo.db');
+    if (!existsSync(noIdDb)) copyFileSync(db.copy, noIdDb);
+    const noId = fingerprintFile(noIdDb, 'noid');
+    expect(noId.fp.identity?.projectId).toBeNull();
+
+    const oneSided = compare(fingerprint('source').file, noId.file, 'replay');
+    expect(oneSided.code).toBe(1);
+    expect(oneSided.out).toContain(
+      `GATE B FAIL *: project id missing (source ${TEST_PROJECT_ID}, replica none)`,
+    );
+
+    const noIdSource = fingerprintFile(noIdDb, 'noid-source', undefined, 'source');
+    const noIdReplica = fingerprintFile(noIdDb, 'noid-replica');
+    const neither = compare(noIdSource.file, noIdReplica.file, 'replay');
+    expect(neither.code).toBe(1);
+    expect(neither.out).toContain('GATE B FAIL *: project id missing (source none, replica none)');
+  });
+});
+
+describe('T12641 round 2: containment compares file identity, not spelling', () => {
+  // A simulated case-insensitive filesystem: names fold to lower case for identity.
+  const folding = {
+    realpath: (p: string) => p,
+    stat: (p: string) => ({ dev: 1, ino: p.toLowerCase() as unknown as number }),
+  };
+  // A simulated case-sensitive filesystem: every spelling is its own directory.
+  const sensitive = {
+    realpath: (p: string) => p,
+    stat: (p: string) => ({ dev: 1, ino: p as unknown as number }),
+  };
+
+  it('a differently cased path to the --out directory is inside it (simulated, host-independent)', () => {
+    expect(isInsideDirectoryTree('/d/out/k1', '/d/Out', folding)).toBe(true);
+    expect(isInsideDirectoryTree('/d/OUT/sub/k1', '/d/Out', folding)).toBe(true);
+    expect(isInsideDirectoryTree('/d/out/k1', '/d/Out', sensitive)).toBe(false);
+    expect(isInsideDirectoryTree('/d/keys/k1', '/d/Out', folding)).toBe(false);
+  });
+
+  it.skipIf(
+    // Real filesystem check: only meaningful where the host folds case (macOS/Windows default).
+    (() => {
+      const probe = join(tmpdir(), `case-probe-${process.pid}-A`);
+      mkdirSync(probe, { recursive: true });
+      const folds = existsSync(probe.replace(/-A$/, '-a'));
+      rmSync(probe, { recursive: true, force: true });
+      return !folds;
+    })(),
+  )(
+    'refuses --key-out <d>/out/k1 when --out is <d>/Out/fp.json on a case-folding filesystem',
+    () => {
+      const d = join(keyRoot, 'casefold');
+      mkdirSync(join(d, 'Out'), { recursive: true });
+      const stderr = refusedFingerprint([
+        '--out',
+        join(d, 'Out', 'fp.json'),
+        '--key-out',
+        join(d, 'out', 'k1'),
+      ]);
+      expect(stderr).toContain('refusing --key-out inside the directory tree of --out or --rows');
+      expect(readdirSync(join(d, 'Out'))).toEqual([]);
+    },
+  );
 });
