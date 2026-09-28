@@ -2117,35 +2117,69 @@ export async function registerProjectOnEncounter(
     const outcome = await trackBackgroundOp(
       () =>
         worktreeScope.run({ ...scope, execution }, async () => {
-          const { projectPathFingerprint, legacyProjectId } = await import('./nexus/identity.js');
+          const { collectCheckoutEvidence, projectPathFingerprint, legacyProjectId } = await import(
+            './nexus/identity.js'
+          );
           const { generateProjectHash } = await import('./nexus/hash.js');
           // Path-derived values are ALIASES of the declared id, never the id (T12470).
           const canonical = await projectPathFingerprint(resolvedPath, execution);
+          const evidence = await collectCheckoutEvidence(resolvedPath, execution);
           execution.assertActive();
           const { getNexusRegistryDb } = await import('./store/nexus-sqlite.js');
           const { eq } = await import('drizzle-orm');
           const { projectRegistry, projectIdAliases } = await import(
             './store/schema/nexus-schema.js'
           );
-          const { recordProjectCheckout } = await import('./nexus/path-map.js');
+          const {
+            decideEncounterBinding,
+            recordCandidateLocation,
+            recordProjectCheckout,
+            touchProjectLocation,
+          } = await import('./nexus/path-map.js');
           const db = await getNexusRegistryDb(capturedHome);
           execution.assertActive();
           const projectHash = generateProjectHash(resolvedPath);
           const legacyAlias = legacyProjectId(resolvedPath);
           const skippedAliases: string[] = [];
+          let candidateOf: string | null = null;
           const aliases = new Set([legacyAlias, canonical.id, ...(canonical.legacyAliases ?? [])]);
           aliases.delete(infoProjectId);
           db.transaction(
             (tx) => {
               execution.assertActive();
-              // T12469: ownership is the immutable id alone. A row at this path
-              // under another id is a stale location, superseded below.
+              const now = new Date().toISOString();
+              const record = {
+                projectId: infoProjectId,
+                projectPath: resolvedPath,
+                projectHash,
+                now,
+                evidence,
+              };
+              // T12470: an encounter runs under ANY command, read-only ones
+              // included, and the id it sees is committed to git — any
+              // directory can declare it. It never repoints an existing row
+              // to a new path (nor hands that row's permissions over) unless
+              // the move is verified; otherwise the path is only a candidate.
+              const binding = decideEncounterBinding(tx, record);
+              if (binding === 'candidate') {
+                if (!recordCandidateLocation(tx, record)) return;
+                const holder = tx
+                  .select({ projectPath: projectRegistry.projectPath })
+                  .from(projectRegistry)
+                  .where(eq(projectRegistry.projectId, infoProjectId))
+                  .get();
+                candidateOf = holder?.projectPath ?? null;
+                return;
+              }
+              if (binding === 'refresh') {
+                touchProjectLocation(tx, record);
+                return;
+              }
               const existing = tx
                 .select()
                 .from(projectRegistry)
                 .where(eq(projectRegistry.projectId, infoProjectId))
                 .get();
-              const now = new Date().toISOString();
               if (existing) {
                 tx.update(projectRegistry)
                   .set({
@@ -2178,13 +2212,8 @@ export async function registerProjectOnEncounter(
                   })
                   .run();
               }
-              // T12354 · T12469: every checkout is a location; the row names the latest.
-              recordProjectCheckout(tx, {
-                projectId: infoProjectId,
-                projectPath: resolvedPath,
-                projectHash,
-                now,
-              });
+              // T12354 · T12469: every confirmed checkout is a live location.
+              recordProjectCheckout(tx, record);
               for (const alias of aliases) {
                 const owner = tx
                   .select()
@@ -2219,6 +2248,12 @@ export async function registerProjectOnEncounter(
           if (skippedAliases.length > 0)
             process.stderr.write(
               `[cleo] Project encounter omitted colliding legacy alias: ${skippedAliases.join(', ')}\n`,
+            );
+          if (candidateOf !== null)
+            process.stderr.write(
+              `[cleo] ${resolvedPath} declares project ${infoProjectId}, which is registered at ${candidateOf}; ` +
+                'recorded as an unconfirmed candidate location. Confirm with `cleo doctor project-identity --resolve` ' +
+                'or `cleo nexus register`.\n',
             );
         }),
       execution,

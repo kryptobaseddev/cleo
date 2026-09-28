@@ -207,8 +207,12 @@ export interface ResolvedProject {
   projectRoot: string;
   /** The `projectId` recorded in `project-info.json`, if present. */
   legacyUUID?: string;
-  /** Which declaration supplied {@link ResolvedProject.projectId}. */
-  source: DeclaredProjectIdentity['source'];
+  /**
+   * Which declaration supplied {@link ResolvedProject.projectId}. Optional so
+   * callers that construct a `ResolvedProject` themselves keep compiling;
+   * {@link resolveProjectByCwd} always sets it.
+   */
+  source?: DeclaredProjectIdentity['source'];
 }
 
 /**
@@ -425,6 +429,10 @@ export function legacyProjectId(repoPath: string): string {
  * project resolves to the same id from any absolute location, mount or device.
  * `projectRoot` is realpath-canonicalized (bind-mounts, macOS `/private/var`).
  *
+ * A `.cleo/` that holds only the tracked id (no `project-info.json`) counts as
+ * a project root only when the directory is a git toplevel (has `.git`), so a
+ * monorepo subdirectory carrying a committed id does not shadow its parent.
+ *
  * @param cwd - Optional working directory to start the ancestor walk from.
  *   Defaults to `process.cwd()`.
  * @returns The resolved project identity, or `null` if no ancestor declares one.
@@ -449,7 +457,11 @@ export function resolveProjectByCwd(cwd?: string): ResolvedProject | null {
   while (true) {
     if (existsSync(join(current, '.cleo'))) {
       const declared = readDeclaredProjectIdentity(current);
-      if (declared !== null) {
+      // A `.cleo/` holding ONLY a committed project-id (no project-info.json)
+      // is a project root only at a git toplevel. Otherwise a monorepo
+      // subdirectory that carries a committed id would shadow its parent.
+      const trackedOnly = declared?.source === 'tracked' && declared.infoProjectId === undefined;
+      if (declared !== null && (!trackedOnly || existsSync(join(current, '.git')))) {
         return {
           projectId: declared.projectId,
           projectRoot: canonicalizePath(current),
@@ -457,8 +469,9 @@ export function resolveProjectByCwd(cwd?: string): ResolvedProject | null {
           source: declared.source,
         };
       }
-      // A `.cleo/` that declares nothing (corrupt / id-less project-info.json)
-      // keeps walking — a higher ancestor may declare one.
+      // A `.cleo/` that declares nothing (corrupt / id-less project-info.json),
+      // or only a tracked id below a git toplevel, keeps walking — a higher
+      // ancestor may declare one.
     }
 
     const parent = dirname(current);

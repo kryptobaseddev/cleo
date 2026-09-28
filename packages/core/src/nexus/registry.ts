@@ -46,7 +46,7 @@ import {
   projectRegistry,
 } from '../store/schema/nexus-schema.js';
 import { generateProjectHash } from './hash.js';
-import { legacyProjectId, projectPathFingerprint } from './identity.js';
+import { collectCheckoutEvidence, legacyProjectId, projectPathFingerprint } from './identity.js';
 import { isSupersededRegistryPath, recordProjectCheckout } from './path-map.js';
 import { registryStorePath } from './registry-hygiene.js';
 
@@ -482,6 +482,7 @@ export async function nexusRegister(
     }
     const declaredId = await adoptDeclaredProjectId(resolvedPath);
     const pathFingerprint = await projectPathFingerprint(resolvedPath);
+    const evidence = await collectCheckoutEvidence(resolvedPath);
     await nexusInit();
     const { getNexusDb } = await import('../store/nexus-sqlite.js');
     // T12469 · T12470: ownership is the DECLARED id alone — never the path or
@@ -553,6 +554,7 @@ export async function nexusRegister(
           projectPath: resolvedPath,
           projectHash,
           now,
+          evidence,
         });
         for (const alias of new Set([pathFingerprint.id, legacyAlias])) {
           if (alias === immutableId) continue;
@@ -865,11 +867,16 @@ export async function nexusUpdateIndexStats(
     let owner = await ownerAt();
 
     if (!owner) {
-      // Not yet registered — auto-register first (best effort)
+      // Not yet registered — record the encounter (best effort). T12470: never
+      // `nexusRegister` here: analyze is not an explicit registration, so it
+      // must neither mint/write `.cleo/project-id` nor repoint an existing
+      // project's row to this path. The encounter records an unconfirmed
+      // checkout as a candidate, which owns no row and gets no stats.
       try {
-        await nexusRegister(projectPath);
+        const { recordProjectEncounter } = await import('../paths.js');
+        await recordProjectEncounter(projectPath);
       } catch {
-        // Already registered or cannot register — ignore
+        // Cannot record — ignore; stats are best effort.
       }
       owner = await ownerAt();
     }
@@ -987,9 +994,18 @@ export async function nexusReconcile(
   const { eq } = await import('drizzle-orm');
   const db = await getNexusDb();
 
-  const projectId = await adoptDeclaredProjectId(projectRoot);
+  // T12470: reconcile never mints or writes an identity — that is `cleo init`
+  // / `cleo nexus register` / `cleo doctor project-identity --resolve`.
+  const projectId = await readProjectId(projectRoot);
+  if (!projectId)
+    throw new CleoError(
+      ExitCode.CONFIG_ERROR,
+      `Project at ${projectRoot} declares no identity (.cleo/project-id or project-info.json projectId); refusing to derive one from its path`,
+      { fix: `Run \`cleo init\` in ${projectRoot} to record the project's identity` },
+    );
   const currentHash = generateProjectHash(projectRoot);
   const pathFingerprint = await projectPathFingerprint(projectRoot);
+  const evidence = await collectCheckoutEvidence(projectRoot);
   // T12470: the declared id alone; the path fingerprint is an alias only.
   const stableProjectId = projectId;
 
@@ -1016,6 +1032,7 @@ export async function nexusReconcile(
         projectPath: projectRoot,
         projectHash: currentHash,
         now,
+        evidence,
       });
       await writeNexusAudit({
         action: 'reconcile',
@@ -1052,6 +1069,7 @@ export async function nexusReconcile(
       projectPath: projectRoot,
       projectHash: currentHash,
       now,
+      evidence,
     });
     await writeNexusAudit({
       action: 'reconcile',

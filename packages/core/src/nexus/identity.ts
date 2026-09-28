@@ -128,6 +128,87 @@ export async function findGitRemoteUrl(
   }
 }
 
+/**
+ * Normalise a git remote URL so `git@host:o/r.git` and `https://host/o/r`
+ * compare equal. Returns `null` for empty input.
+ *
+ * @param url - Raw `git remote get-url` output or a stored `remoteUrl`.
+ * @returns A `host/owner/repo` style key, or `null`.
+ *
+ * @example
+ * ```ts
+ * normalizeRemoteUrl('git@github.com:o/r.git'); // 'github.com/o/r'
+ * ```
+ */
+export function normalizeRemoteUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  let key = url.trim();
+  if (!key) return null;
+  key = key.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
+  key = key.replace(/^[^@/]+@/, '');
+  key = key.replace(/^([^/:]+):(?!\d+\/)/, '$1/');
+  key = key.replace(/\/+$/, '').replace(/\.git$/i, '');
+  return key.toLowerCase() || null;
+}
+
+/**
+ * Evidence of WHICH repository a checkout is, independent of where it lives
+ * (T12470). Recorded on confirmed locations so a later move can be verified
+ * after the old directory is gone. `null` means unknown and never matches.
+ */
+export interface CheckoutEvidence {
+  /** First (parentless) commit of the repository — the lexically smallest when several. */
+  readonly gitRootCommit: string | null;
+  /** Normalised `origin` URL ({@link normalizeRemoteUrl}). */
+  readonly gitRemote: string | null;
+}
+
+/**
+ * Collect {@link CheckoutEvidence} for a checkout. Never throws for an absent
+ * repository, commit or remote — those fields are `null`.
+ *
+ * @param fromPath - Checkout root.
+ * @param execution - Optional captured caller lifetime.
+ * @returns The evidence.
+ *
+ * @example
+ * ```ts
+ * const { gitRootCommit, gitRemote } = await collectCheckoutEvidence(root);
+ * ```
+ */
+export async function collectCheckoutEvidence(
+  fromPath: string,
+  execution?: OperationExecutionContext,
+): Promise<CheckoutEvidence> {
+  execution?.assertActive();
+  const rootCommit = async (): Promise<string | null> => {
+    try {
+      const { stdout } = await execFileAsync('git', ['rev-list', '--max-parents=0', 'HEAD'], {
+        cwd: resolve(fromPath),
+        signal: execution?.signal,
+        timeout: execution ? Math.max(1, execution.remainingMs()) : undefined,
+        killSignal: 'SIGKILL',
+        maxBuffer: 256 * 1024,
+      });
+      execution?.assertActive();
+      const roots = stdout
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => /^[0-9a-f]{40,64}$/.test(line))
+        .sort();
+      return roots[0] ?? null;
+    } catch {
+      execution?.assertActive();
+      return null;
+    }
+  };
+  const results = await Promise.allSettled([rootCommit(), findGitRemoteUrl(fromPath, execution)]);
+  for (const result of results) if (result.status === 'rejected') throw result.reason;
+  const commit = results[0].status === 'fulfilled' ? results[0].value : null;
+  const remote = results[1].status === 'fulfilled' ? results[1].value : null;
+  return { gitRootCommit: commit, gitRemote: normalizeRemoteUrl(remote) };
+}
+
 // ---------------------------------------------------------------------------
 // Project-info.json name
 // ---------------------------------------------------------------------------

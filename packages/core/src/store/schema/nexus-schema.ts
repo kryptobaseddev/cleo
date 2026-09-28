@@ -192,7 +192,7 @@ export type NewProjectPathRow = typeof projectPaths.$inferInsert;
 // === PROJECT_LOCATIONS TABLE (T12469) ===
 
 /** Lifecycle states of one project location (T12469). */
-export const PROJECT_LOCATION_STATES = ['live', 'missing', 'superseded'] as const;
+export const PROJECT_LOCATION_STATES = ['live', 'missing', 'superseded', 'candidate'] as const;
 
 /**
  * Every place a project has been seen, on every device (ADR-094 · T12469).
@@ -217,8 +217,15 @@ export const projectLocations = sqliteTable(
     firstSeen: text('first_seen').notNull().default(sql`(datetime('now'))`),
     /** ISO 8601 timestamp this location was last encountered. */
     lastSeen: text('last_seen').notNull().default(sql`(datetime('now'))`),
-    /** `live` · `missing` (directory gone) · `superseded` (path now holds another project). */
+    /**
+     * `live` · `missing` (directory gone) · `superseded` (path now holds another
+     * project) · `candidate` (declares the id but is not confirmed, T12470).
+     */
     state: text('state', { enum: PROJECT_LOCATION_STATES }).notNull().default('live'),
+    /** First (parentless) commit of the checkout's repository, when known (T12470). */
+    gitRootCommit: text('git_root_commit'),
+    /** Normalised `origin` URL of the checkout, when known (T12470). */
+    gitRemote: text('git_remote'),
   },
   (table) => [
     primaryKey({ columns: [table.projectId, table.deviceId, table.path] }),

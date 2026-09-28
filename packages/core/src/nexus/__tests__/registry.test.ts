@@ -288,6 +288,7 @@ describe('nexusRegister', () => {
     const rootB = join(testDir, 'root-b', 'nested');
     await mkdir(join(rootA, 'proj', '.cleo'), { recursive: true });
     await mkdir(rootB, { recursive: true });
+    await mkdir(join(rootA, 'proj', '.git'), { recursive: true }); // a git toplevel
     await writeFile(join(rootA, 'proj', '.cleo', 'project-id'), 'moving-project-id\n');
     const idA = resolveProjectByCwd(join(rootA, 'proj'))?.projectId;
     await nexusRegister(join(rootA, 'proj'), 'moving');

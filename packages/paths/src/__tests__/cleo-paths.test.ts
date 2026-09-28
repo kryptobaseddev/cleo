@@ -251,6 +251,7 @@ describe('cleo-paths', () => {
     it('resolves a fresh clone that carries only the tracked id (T12470)', () => {
       const cleoDir = join(tempDir, '.cleo');
       mkdirSync(cleoDir, { recursive: true });
+      mkdirSync(join(tempDir, '.git'), { recursive: true }); // a clone is a git toplevel
       writeFileSync(join(cleoDir, 'project-id'), 'c78d09c3a8ee\n');
       const result = resolveProjectByCwd(join(tempDir));
       expect(result?.projectId).toBe('c78d09c3a8ee');
@@ -273,6 +274,7 @@ describe('cleo-paths', () => {
     ])('treats a %s id as opaque (T12470)', (_shape, id) => {
       const cleoDir = join(tempDir, '.cleo');
       mkdirSync(cleoDir, { recursive: true });
+      mkdirSync(join(tempDir, '.git'), { recursive: true });
       writeFileSync(join(cleoDir, 'project-id'), `${id}\n`);
       expect(resolveProjectByCwd(tempDir)?.projectId).toBe(id);
       expect(readDeclaredProjectIdentity(tempDir)?.projectId).toBe(id);
@@ -298,6 +300,33 @@ describe('cleo-paths', () => {
       expect(computePathFingerprintId(join(rootB, 'proj'))).not.toBe(
         computePathFingerprintId(join(rootA, 'proj')),
       );
+    });
+
+    it('a tracked-id-only .cleo below a git toplevel does not shadow the parent (T12470)', () => {
+      mkdirSync(join(tempDir, '.git'), { recursive: true });
+      mkdirSync(join(tempDir, '.cleo'), { recursive: true });
+      writeFileSync(join(tempDir, '.cleo', 'project-id'), 'monorepo-root-id\n');
+      const sub = join(tempDir, 'packages', 'sub');
+      mkdirSync(join(sub, '.cleo'), { recursive: true });
+      writeFileSync(join(sub, '.cleo', 'project-id'), 'committed-sub-id\n');
+      expect(resolveProjectByCwd(sub)?.projectId).toBe('monorepo-root-id');
+      expect(resolveProjectByCwd(sub)?.projectRoot).toBe(tempDir);
+      // The same subdirectory IS a root once it is a git toplevel…
+      mkdirSync(join(sub, '.git'), { recursive: true });
+      expect(resolveProjectByCwd(sub)?.projectId).toBe('committed-sub-id');
+    });
+
+    it('a subdirectory with project-info.json is a root even below a git toplevel (T12470)', () => {
+      mkdirSync(join(tempDir, '.git'), { recursive: true });
+      mkdirSync(join(tempDir, '.cleo'), { recursive: true });
+      writeFileSync(join(tempDir, '.cleo', 'project-id'), 'monorepo-root-id\n');
+      const sub = join(tempDir, 'nested');
+      mkdirSync(join(sub, '.cleo'), { recursive: true });
+      writeFileSync(
+        join(sub, '.cleo', 'project-info.json'),
+        JSON.stringify({ projectId: 'nested-id' }),
+      );
+      expect(resolveProjectByCwd(sub)?.projectId).toBe('nested-id');
     });
 
     it('returns null when no .cleo/project-info.json is found', () => {

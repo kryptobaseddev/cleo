@@ -13,6 +13,7 @@
  * @task T12354
  */
 
+import { execFileSync } from 'node:child_process';
 import { cpSync, mkdirSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -49,9 +50,15 @@ afterEach(async () => {
 });
 
 /** Create an initialised-looking project with an immutable id. */
-function makeProject(root: string, projectId: string): string {
+function makeProject(root: string, projectId: string, remote?: string): string {
   mkdirSync(join(root, '.cleo'), { recursive: true });
-  mkdirSync(join(root, '.git'), { recursive: true });
+  if (remote) {
+    // A real repository, so the checkout carries verifiable evidence (T12470).
+    execFileSync('git', ['init', '-q'], { cwd: root, stdio: 'ignore' });
+    execFileSync('git', ['remote', 'add', 'origin', remote], { cwd: root, stdio: 'ignore' });
+  } else {
+    mkdirSync(join(root, '.git'), { recursive: true });
+  }
   writeFileSync(join(root, '.cleo', 'project-info.json'), JSON.stringify({ projectId }));
   return root;
 }
@@ -83,7 +90,12 @@ async function registryState(
 
 describe('move then an ordinary command (T12354)', () => {
   it('re-points the registry row and path map on the next command after a move', async () => {
-    const before = makeProject(join(testDir, 'before'), 'move-T12354');
+    // T12470: followed because the move is verifiable (old path gone, same remote).
+    const before = makeProject(
+      join(testDir, 'before'),
+      'move-T12354',
+      'https://example.invalid/move.git',
+    );
     expect(await recordProjectEncounter(before)).toBe('recorded');
     expect(await registryState('move-T12354')).toEqual({
       row: before,
@@ -107,25 +119,32 @@ describe('move then an ordinary command (T12354)', () => {
 });
 
 describe('two checkouts of one project on one device (T12354)', () => {
-  it('records both checkouts; the registry row names the latest', async () => {
+  it('records a copy as a candidate until confirmed; the row never flips by encounter (T12470)', async () => {
     const first = makeProject(join(testDir, 'first'), 'twin-T12354');
     await recordProjectEncounter(first);
     const second = join(testDir, 'second');
     cpSync(first, second, { recursive: true });
     await recordProjectEncounter(second);
 
-    const state = await registryState('twin-T12354');
-    expect(state.row).toBe(second);
-    expect(state.paths).toEqual([first, second].sort());
+    // A second checkout that merely declares the id is unconfirmed.
+    let state = await registryState('twin-T12354');
+    expect(state.row).toBe(first);
+    expect(state.paths).toEqual([first]);
+    let checkouts = await listProjectCheckouts('twin-T12354');
+    expect(checkouts.find((c) => c.projectPath === second)?.state).toBe('candidate');
 
-    const checkouts = await listProjectCheckouts('twin-T12354');
-    expect(checkouts.map((c) => c.projectPath).sort()).toEqual([first, second].sort());
+    // Explicit confirmation makes both checkouts live; the row names it.
+    const { resolveProjectIdentity } = await import('../../doctor/project-identity.js');
+    await resolveProjectIdentity(second);
+    state = await registryState('twin-T12354');
+    expect(state).toEqual({ row: second, paths: [first, second].sort(), missing: [] });
+    checkouts = await listProjectCheckouts('twin-T12354');
     expect(checkouts.every((c) => c.exists && c.state === 'live')).toBe(true);
 
-    // Returning to the first checkout re-points the row; both stay mapped.
+    // Returning to the first (confirmed) checkout refreshes it, never repoints.
     expect(await recordProjectEncounter(first)).toBe('recorded');
     expect(await registryState('twin-T12354')).toEqual({
-      row: first,
+      row: second,
       paths: [first, second].sort(),
       missing: [],
     });

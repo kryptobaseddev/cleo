@@ -1363,8 +1363,12 @@ export interface NexusProjectsCleanParams {
   vacuum?: boolean;
 }
 
-/** Lifecycle state of one project location in `nexus_project_locations` (T12469). */
-export type NexusProjectLocationState = 'live' | 'missing' | 'superseded';
+/**
+ * Lifecycle state of one project location in `nexus_project_locations` (T12469).
+ * `candidate` (T12470): the checkout declares the id but was never confirmed —
+ * it holds no registry binding and no permissions until promoted explicitly.
+ */
+export type NexusProjectLocationState = 'live' | 'missing' | 'superseded' | 'candidate';
 
 /** One recorded location (checkout) of a project on a device (T12354 · T12469). */
 export interface NexusProjectCheckout {

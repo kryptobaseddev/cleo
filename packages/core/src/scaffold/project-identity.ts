@@ -39,6 +39,7 @@ import {
   readPortableProjectId,
 } from '@cleocode/paths';
 import { CleoError } from '../errors.js';
+import { normalizeRemoteUrl } from '../nexus/identity.js';
 
 /**
  * Where the identity a scaffold step settled on came from.
@@ -105,23 +106,8 @@ export interface DecideProjectIdentityOptions {
   cleoHome?: string;
 }
 
-/**
- * Normalise a git remote URL so `git@host:o/r.git` and `https://host/o/r`
- * compare equal. Returns `null` for empty input.
- *
- * @param url - Raw `git remote get-url` output or a stored `remoteUrl`.
- * @returns A `host/owner/repo` style key, or `null`.
- */
-export function normalizeRemoteUrl(url: string | null | undefined): string | null {
-  if (!url) return null;
-  let key = url.trim();
-  if (!key) return null;
-  key = key.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
-  key = key.replace(/^[^@/]+@/, '');
-  key = key.replace(/^([^/:]+):(?!\d+\/)/, '$1/');
-  key = key.replace(/\/+$/, '').replace(/\.git$/i, '');
-  return key.toLowerCase() || null;
-}
+/** Re-exported from its home in `nexus/identity` (moved there by T12470). */
+export { normalizeRemoteUrl } from '../nexus/identity.js';
 
 /** Read `remoteUrl` from a checkout's `project-info.json`; null when absent or unusable. */
 function readInfoRemote(projectPath: string): string | null {

@@ -39,11 +39,12 @@
 
 import { existsSync } from 'node:fs';
 import type { NexusProjectCheckout } from '@cleocode/contracts';
-import { and, desc, eq, ne } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { getStableDeviceId } from '../llm/stable-device-id.js';
 import { projectLocations, projectPaths, projectRegistry } from '../store/schema/nexus-schema.js';
 import { generateProjectHash } from './hash.js';
+import type { CheckoutEvidence } from './identity.js';
 import { registryStorePath } from './registry-hygiene.js';
 
 /** A registry handle or an open transaction on one. */
@@ -71,6 +72,12 @@ export interface ProjectCheckoutRecord {
   now: string;
   /** Device the checkout is on. Defaults to this device's stable id. */
   deviceId?: string;
+  /**
+   * Repository evidence for the checkout (T12470). Stored on the location so a
+   * later move can be verified once this directory is gone. Absent fields keep
+   * whatever evidence the row already carries.
+   */
+  evidence?: CheckoutEvidence;
 }
 
 /** What {@link recordProjectCheckout} changed besides the recorded location. */
@@ -185,6 +192,7 @@ export function recordProjectCheckout(
   const deviceId = record.deviceId ?? currentDeviceId();
   adoptLocalDeviceRows(db, deviceId);
 
+  const evidence = evidenceColumns(record.evidence);
   db.insert(projectLocations)
     .values({
       projectId: record.projectId,
@@ -193,10 +201,11 @@ export function recordProjectCheckout(
       firstSeen: record.now,
       lastSeen: record.now,
       state: 'live',
+      ...evidence,
     })
     .onConflictDoUpdate({
       target: [projectLocations.projectId, projectLocations.deviceId, projectLocations.path],
-      set: { lastSeen: record.now, state: 'live' },
+      set: { lastSeen: record.now, state: 'live', ...evidence },
     })
     .run();
 
@@ -259,6 +268,198 @@ export function recordProjectCheckout(
     .run();
 
   return { markedMissing, superseded };
+}
+
+/** The non-null evidence fields of a record, as location columns. */
+function evidenceColumns(evidence: CheckoutEvidence | undefined): {
+  gitRootCommit?: string;
+  gitRemote?: string;
+} {
+  return {
+    ...(evidence?.gitRootCommit ? { gitRootCommit: evidence.gitRootCommit } : {}),
+    ...(evidence?.gitRemote ? { gitRemote: evidence.gitRemote } : {}),
+  };
+}
+
+/**
+ * How a per-command encounter may bind a checkout that declares `projectId`
+ * (T12470). Only explicit commands bind unconditionally; an encounter is a
+ * side effect of ANY command, including read-only ones, and the id it sees is
+ * committed to git — so any directory can declare it.
+ *
+ * - `bind` — no registry row for the id yet, or the row already names this
+ *   path: record it as the live location.
+ * - `refresh` — this path is already a confirmed (`live`) location of the id
+ *   on this device, but the row names another: refresh the location only.
+ * - `promote` — a verified move: the row's path was recorded on THIS device,
+ *   is gone from disk, and its recorded root commit or remote matches this
+ *   checkout's. The row follows the checkout.
+ * - `candidate` — anything else: record an unconfirmed location. The registry
+ *   row, its path and its permissions are left untouched.
+ */
+export type EncounterBinding = 'bind' | 'refresh' | 'promote' | 'candidate';
+
+/**
+ * Decide how an encounter may bind a checkout (see {@link EncounterBinding}).
+ *
+ * @param db - Registry handle or transaction.
+ * @param record - The encountered checkout and its evidence.
+ * @returns The permitted binding.
+ *
+ * @example
+ * ```ts
+ * const binding = decideEncounterBinding(tx, { projectId, projectPath, now, evidence });
+ * ```
+ */
+export function decideEncounterBinding(
+  db: PathMapWriter,
+  record: ProjectCheckoutRecord,
+): EncounterBinding {
+  const deviceId = record.deviceId ?? currentDeviceId();
+  const row = db
+    .select({ projectPath: projectRegistry.projectPath })
+    .from(projectRegistry)
+    .where(eq(projectRegistry.projectId, record.projectId))
+    .get();
+  if (!row || row.projectPath === record.projectPath) return 'bind';
+
+  const here = db
+    .select({ state: projectLocations.state })
+    .from(projectLocations)
+    .where(
+      and(
+        eq(projectLocations.projectId, record.projectId),
+        inArray(projectLocations.deviceId, [deviceId, LOCAL_DEVICE_SENTINEL]),
+        eq(projectLocations.path, record.projectPath),
+      ),
+    )
+    .all();
+  if (here.some((location) => location.state === 'live')) return 'refresh';
+
+  const oldPath = row.projectPath;
+  if (isSupersededRegistryPath(oldPath) || existsSync(oldPath)) return 'candidate';
+  const previous = db
+    .select({
+      gitRootCommit: projectLocations.gitRootCommit,
+      gitRemote: projectLocations.gitRemote,
+    })
+    .from(projectLocations)
+    .where(
+      and(
+        eq(projectLocations.projectId, record.projectId),
+        inArray(projectLocations.deviceId, [deviceId, LOCAL_DEVICE_SENTINEL]),
+        eq(projectLocations.path, oldPath),
+      ),
+    )
+    .all();
+  const evidence = record.evidence;
+  const verified = previous.some(
+    (location) =>
+      (location.gitRootCommit !== null &&
+        location.gitRootCommit === (evidence?.gitRootCommit ?? null)) ||
+      (location.gitRemote !== null && location.gitRemote === (evidence?.gitRemote ?? null)),
+  );
+  return verified ? 'promote' : 'candidate';
+}
+
+/**
+ * Record an UNCONFIRMED location of a project (T12470): the checkout declares
+ * the id, but nothing has confirmed it. The registry row, its path and its
+ * permissions are not touched, and no other project's claim on the path ends.
+ * A location that is already `live` stays `live`.
+ *
+ * @param db - Registry handle or transaction.
+ * @param record - The encountered checkout.
+ * @returns `true` when the candidate was recorded for the first time.
+ *
+ * @example
+ * ```ts
+ * recordCandidateLocation(tx, { projectId, projectPath, now, evidence });
+ * ```
+ */
+export function recordCandidateLocation(db: PathMapWriter, record: ProjectCheckoutRecord): boolean {
+  const deviceId = record.deviceId ?? currentDeviceId();
+  adoptLocalDeviceRows(db, deviceId);
+  const key = locationKey(record.projectId, deviceId, record.projectPath);
+  const existing = db
+    .select({ state: projectLocations.state })
+    .from(projectLocations)
+    .where(key)
+    .get();
+  const evidence = evidenceColumns(record.evidence);
+  if (!existing) {
+    db.insert(projectLocations)
+      .values({
+        projectId: record.projectId,
+        deviceId,
+        path: record.projectPath,
+        firstSeen: record.now,
+        lastSeen: record.now,
+        state: 'candidate',
+        ...evidence,
+      })
+      .run();
+    return true;
+  }
+  db.update(projectLocations)
+    .set({
+      lastSeen: record.now,
+      ...(existing.state === 'live' ? {} : { state: 'candidate' as const }),
+      ...evidence,
+    })
+    .where(key)
+    .run();
+  return false;
+}
+
+/**
+ * Refresh an already-confirmed location without repointing the registry row.
+ *
+ * @param db - Registry handle or transaction.
+ * @param record - The encountered checkout.
+ */
+export function touchProjectLocation(db: PathMapWriter, record: ProjectCheckoutRecord): void {
+  const deviceId = record.deviceId ?? currentDeviceId();
+  adoptLocalDeviceRows(db, deviceId);
+  db.update(projectLocations)
+    .set({ lastSeen: record.now, ...evidenceColumns(record.evidence) })
+    .where(locationKey(record.projectId, deviceId, record.projectPath))
+    .run();
+}
+
+/**
+ * Explicitly confirm a checkout as a project's live location and point the
+ * registry row at it (T12470) — the promotion path for a `candidate` used by
+ * `cleo doctor project-identity --resolve`. Permissions stay on the row.
+ *
+ * @param db - Registry handle or transaction.
+ * @param record - The checkout to confirm.
+ * @returns `false` when the project has no registry row to point.
+ *
+ * @example
+ * ```ts
+ * confirmProjectLocation(tx, { projectId, projectPath, now, evidence });
+ * ```
+ */
+export function confirmProjectLocation(db: PathMapWriter, record: ProjectCheckoutRecord): boolean {
+  const row = db
+    .select({ projectId: projectRegistry.projectId })
+    .from(projectRegistry)
+    .where(eq(projectRegistry.projectId, record.projectId))
+    .get();
+  if (!row) return false;
+  db.update(projectRegistry)
+    .set({
+      projectPath: record.projectPath,
+      projectHash: generateProjectHash(record.projectPath),
+      lastSeen: record.now,
+      brainDbPath: registryStorePath(record.projectPath),
+      tasksDbPath: registryStorePath(record.projectPath),
+    })
+    .where(eq(projectRegistry.projectId, record.projectId))
+    .run();
+  recordProjectCheckout(db, record);
+  return true;
 }
 
 /**

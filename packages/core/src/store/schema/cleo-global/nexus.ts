@@ -214,7 +214,7 @@ export const nexusProjectPaths = sqliteTable(
 );
 
 /** Lifecycle states of one project location (T12469). */
-export const PROJECT_LOCATION_STATES = ['live', 'missing', 'superseded'] as const;
+export const PROJECT_LOCATION_STATES = ['live', 'missing', 'superseded', 'candidate'] as const;
 
 /**
  * `nexus_project_locations` — every place a project has been seen, on every
@@ -238,8 +238,15 @@ export const nexusProjectLocations = sqliteTable(
     firstSeen: text('first_seen').notNull().default(sql`(datetime('now'))`),
     /** ISO-8601 UTC last-encountered instant (canonical TEXT, §4). */
     lastSeen: text('last_seen').notNull().default(sql`(datetime('now'))`),
-    /** `live` · `missing` (directory gone) · `superseded` (path now holds another project). */
+    /**
+     * `live` · `missing` (directory gone) · `superseded` (path now holds another
+     * project) · `candidate` (declares the id but is not confirmed, T12470).
+     */
     state: text('state', { enum: PROJECT_LOCATION_STATES }).notNull().default('live'),
+    /** First (parentless) commit of the checkout's repository, when known (T12470). */
+    gitRootCommit: text('git_root_commit'),
+    /** Normalised `origin` URL of the checkout, when known (T12470). */
+    gitRemote: text('git_remote'),
   },
   (table) => [
     primaryKey({ columns: [table.projectId, table.deviceId, table.path] }),
