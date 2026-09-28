@@ -55,7 +55,24 @@ export interface DialecticTurn {
   activePeerId: string;
   /** Session ID from the CLEO session store (e.g. `ses_20260422131135_5149eb`). */
   sessionId: string;
+  /**
+   * Structural origin of the turn (T12543). Omitted means `'conversation'`.
+   *
+   * `'operation-envelope'` marks a turn synthesised from a dispatched
+   * operation and its result envelope (the CQRS dispatcher hook). Such a turn
+   * carries no user utterance, so it can never yield a user trait: the
+   * evaluator drops every global trait for it and keeps only peer insights
+   * and the narrative delta.
+   */
+  origin?: DialecticTurnOrigin;
 }
+
+/**
+ * Structural origin of a {@link DialecticTurn}.
+ *
+ * @task T12543
+ */
+export type DialecticTurnOrigin = 'conversation' | 'operation-envelope';
 
 /**
  * Structured insights extracted from a single dialectic turn.

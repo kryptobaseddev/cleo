@@ -99,7 +99,7 @@ exports[`T11578 AC3 — nexus DDL snapshot (post-cutover prefixed shape + FTS5) 
   },
   {
     "name": "nexus_user_profile",
-    "sql": "CREATE TABLE \`nexus_user_profile\` ( \`trait_key\` text PRIMARY KEY, \`trait_value\` text NOT NULL, \`confidence\` real NOT NULL, \`source\` text NOT NULL, \`derived_from_message_id\` text, \`first_observed_at\` text NOT NULL, \`last_reinforced_at\` text NOT NULL, \`reinforcement_count\` integer DEFAULT 1 NOT NULL, \`superseded_by\` text, -- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed CHECK ("first_observed_at" IS NULL OR "first_observed_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'), CHECK ("last_reinforced_at" IS NULL OR "last_reinforced_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
+    "sql": "CREATE TABLE \`nexus_user_profile\` ( \`trait_key\` text PRIMARY KEY, \`trait_value\` text NOT NULL, \`confidence\` real NOT NULL, \`source\` text NOT NULL, \`derived_from_message_id\` text, \`first_observed_at\` text NOT NULL, \`last_reinforced_at\` text NOT NULL, \`reinforcement_count\` integer DEFAULT 1 NOT NULL, \`superseded_by\` text, \`project_id\` text, \`scope\` text DEFAULT 'project' NOT NULL CHECK ("scope" IN ('project', 'user')), -- consolidation CHECK constraints (T11363) — derived from schema enum/boolean/timestamp metadata, never hand-typed CHECK ("first_observed_at" IS NULL OR "first_observed_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'), CHECK ("last_reinforced_at" IS NULL OR "last_reinforced_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
     "type": "table",
   },
   {

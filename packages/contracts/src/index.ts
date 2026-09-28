@@ -1275,6 +1275,7 @@ export type {
   ApplyInsightsResult,
   DialecticInsights,
   DialecticTurn,
+  DialecticTurnOrigin,
   EvaluateDialecticParams,
   EvaluateDialecticResult,
 } from './operations/dialectic.js';
@@ -1614,8 +1615,10 @@ export type {
   NexusProfileUpsertResult,
   NexusProfileViewParams,
   NexusProfileViewResult,
+  UserProfileScope,
   UserProfileTrait,
 } from './operations/nexus-user-profile.js';
+export { USER_PROFILE_SCOPES } from './operations/nexus-user-profile.js';
 // Commonly used ops types re-exported at top level for convenience
 export type {
   BrainState,

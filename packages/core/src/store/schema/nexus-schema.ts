@@ -62,6 +62,7 @@
  * @task T11648
  */
 
+import { USER_PROFILE_SCOPES } from '@cleocode/contracts';
 import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
@@ -778,12 +779,31 @@ export const userProfile = sqliteTable(
      * Links into the T1139 supersession graph.
      */
     supersededBy: text('superseded_by'),
+
+    /**
+     * Portable project id (`.cleo/project-id`, ADR-094) of the project this
+     * trait was derived in. `NULL` = unknown origin (rows written before
+     * T12543): excluded from spawn prompts, still queryable.
+     *
+     * @task T12543
+     */
+    projectId: text('project_id'),
+
+    /**
+     * Visibility scope (`project` | `user`). `project` rows are injected only
+     * into prompts for the project in `project_id`; `user` rows are explicitly
+     * user-global. Defaults to `project`.
+     *
+     * @task T12543
+     */
+    scope: text('scope', { enum: USER_PROFILE_SCOPES }).notNull().default('project'),
   },
   (table) => [
     index('idx_nexus_user_profile_confidence').on(table.confidence),
     index('idx_nexus_user_profile_source').on(table.source),
     index('idx_nexus_user_profile_last_reinforced').on(table.lastReinforcedAt),
     index('idx_nexus_user_profile_superseded').on(table.supersededBy),
+    index('idx_nexus_user_profile_project').on(table.projectId, table.scope),
   ],
 );
 

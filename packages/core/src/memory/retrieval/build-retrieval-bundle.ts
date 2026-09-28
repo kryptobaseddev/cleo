@@ -58,21 +58,29 @@ function rankingFields(row: { quality_score?: number | null; citation_count?: nu
 /**
  * Cold pass — fetch user-profile traits and peer instructions from NEXUS.
  *
- * Calls `listUserProfile({ minConfidence: 0.5 })` from Wave 1 (T1078).
+ * Calls `listUserProfile({ minConfidence: 0.5, visibleInProject })` from
+ * Wave 1 (T1078). The user-profile table is GLOBAL; since T12543 only traits
+ * explicitly scoped `user` plus traits derived in THIS project (`projectId`)
+ * are returned — a trait from another project, or of unknown origin, never
+ * reaches this project's prompts.
  * `peerInstructions` is populated from the sigil's `systemPromptFragment`
  * when a sigil exists for `peerId` (Wave 8 — T1148). Falls back to an empty
  * string when no sigil is found or when the sigil has no fragment set.
  *
  * @param peerId   - CANT peer identifier (used to look up the sigil).
  * @param nexusDb  - Drizzle nexus database handle.
+ * @param projectId - Portable id of the project the bundle is built for, or
+ *   `null` when the project declares none (only user-global traits then).
  * @returns Cold-pass bundle slice: userProfile traits + peerInstructions + sigilCard.
  *
  * @task T1090
  * @task T1148
+ * @task T12543
  */
 export async function fetchIdentity(
   peerId: string,
   nexusDb: import('drizzle-orm/node-sqlite').NodeSQLiteDatabase,
+  projectId: string | null,
 ): Promise<{
   userProfile: import('@cleocode/contracts').UserProfileTrait[];
   peerInstructions: string;
@@ -82,7 +90,7 @@ export async function fetchIdentity(
   const { getSigil } = await import('../../nexus/sigil.js');
 
   const [userProfile, sigilCard] = await Promise.all([
-    listUserProfile(nexusDb, { minConfidence: 0.5 }),
+    listUserProfile(nexusDb, { minConfidence: 0.5, visibleInProject: projectId }),
     // Graceful fallback: if sigil lookup fails for any reason, continue without it.
     getSigil(nexusDb, peerId).catch(() => null),
   ]);
@@ -417,8 +425,9 @@ export async function buildRetrievalBundle(
       ? (async () => {
           try {
             const { getNexusDb } = await import('../../store/nexus-sqlite.js');
+            const { resolveTraitProjectId } = await import('../../nexus/user-profile.js');
             const nexusDb = await getNexusDb();
-            return await fetchIdentity(peerId, nexusDb);
+            return await fetchIdentity(peerId, nexusDb, resolveTraitProjectId(projectRoot));
           } catch {
             return { userProfile: [], peerInstructions: '', sigilCard: null };
           }
