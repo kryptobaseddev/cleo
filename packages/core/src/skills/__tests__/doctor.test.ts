@@ -124,6 +124,25 @@ describe('diagnoseSkillStore — T9652 read-only health report', () => {
   // 1. Empty state (fresh install — nothing exists)
   // -------------------------------------------------------------------------
 
+  it('live install (no homeOverride): the canonical root is <cleoHome>/skills and preferred (T12598)', async () => {
+    const saved = { HOME: process.env['HOME'], CLEO_HOME: process.env['CLEO_HOME'] };
+    const cleoHome = join(sandbox.home, 'Library', 'Application Support', 'cleo');
+    process.env['HOME'] = sandbox.home;
+    process.env['CLEO_HOME'] = cleoHome;
+    try {
+      makeSkillDir(join(cleoHome, 'skills'), 'ct-cleo');
+      const report = await diagnoseSkillStore({ dbPathOverride: sandbox.dbPath });
+      expect(report.canonicalRoot.path).toBe(join(cleoHome, 'skills'));
+      expect(report.canonicalRoot.isPreferredSsot).toBe(true);
+      expect(report.canonicalRoot.entryCount).toBe(1);
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  });
+
   it('empty state — reports preferred SSoT path even when nothing exists', async () => {
     const report = await diagnoseSkillStore({
       homeOverride: sandbox.home,

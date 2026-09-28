@@ -56,6 +56,9 @@ unreachable, or nexus hits `ENOENT` on an old path, run and report:
 4. `cleo nexus projects clean --orphans --dry-run` — NEVER without `--dry-run`;
    it deletes rows for projects that merely moved.
 5. `cleo doctor credentials` — credentials still keyed by an old path.
+6. `cleo doctor global-delivery` — `~/.cleo`, the global hub reference and every
+   harness CLEO skill install must resolve (a `~/.cleo` link carried by dotfiles from
+   Linux dangles on macOS and silences all of them). `--repair` relinks with a receipt.
 
 Never delete registry rows for projects that may have moved.
 

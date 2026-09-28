@@ -35,6 +35,7 @@ import { doctorDbSubstrateCommand } from './doctor-db-substrate.js';
 import { doctorExodusCommand } from './doctor-exodus.js';
 import { doctorExodusResidueCommand } from './doctor-exodus-residue.js';
 import { doctorFkCheckCommand } from './doctor-fk-check.js';
+import { doctorGlobalDeliveryCommand } from './doctor-global-delivery.js';
 import { doctorKnowledgeSubcommand } from './doctor-knowledge.js';
 import { doctorLegacyBackupsCommand } from './doctor-legacy-backups.js';
 import { doctorLegacyReaperCommand } from './doctor-legacy-reaper.js';
@@ -261,6 +262,8 @@ export const doctorCommand = defineCommand({
     'memory-guard': doctorMemoryGuardCommand,
     // T12353 — tracked .cleo/project-id vs project-info.json (+ --resolve re-key)
     'project-identity': doctorProjectIdentityCommand,
+    // T12596 · T12598 — ~/.cleo, the global hub and every harness skill install must resolve
+    'global-delivery': doctorGlobalDeliveryCommand,
     // T12471 — machine-wide registry integrity: rebind moved by id, flag split/missing/temp
     projects: doctorRegistryCommand,
     // T12329 — import rows only a diverged store copy has, under new ids (dry-run first)
