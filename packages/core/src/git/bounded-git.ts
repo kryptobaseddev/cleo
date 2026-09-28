@@ -29,7 +29,9 @@
  * prompt (`GIT_TERMINAL_PROMPT=0`, empty `GIT_ASKPASS`/`SSH_ASKPASS`,
  * `SSH_ASKPASS_REQUIRE=never`, `GCM_INTERACTIVE=never`), forbids partial-clone
  * lazy fetches (`GIT_NO_LAZY_FETCH=1`), sets `GIT_OPTIONAL_LOCKS=0`, and drops
- * `GIT_SSH`/`GIT_SSH_COMMAND`/`GIT_PROXY_COMMAND`/`GIT_EXTERNAL_DIFF`.
+ * `GIT_SSH`/`GIT_SSH_COMMAND`/`GIT_PROXY_COMMAND`/`GIT_EXTERNAL_DIFF` and any
+ * inherited `GIT_CONFIG_PARAMETERS`/`GIT_CONFIG_COUNT`/`GIT_CONFIG_GLOBAL`/
+ * `GIT_CONFIG_SYSTEM`.
  *
  * @task T12511
  */
@@ -100,19 +102,34 @@ export function filterConfig(names: Iterable<string>): GitConfigPair[] {
 
 /**
  * Probe environment: no ambient repo, no prompts, no lazy fetch, no optional
- * locks, and `config` appended as command-scope overrides after any the
- * caller's environment already carries (so ours are read last).
+ * locks, no inherited command-scope config (`GIT_CONFIG_PARAMETERS`,
+ * `GIT_CONFIG_COUNT`/`KEY_n`/`VALUE_n`) or alternate config files
+ * (`GIT_CONFIG_GLOBAL`/`GIT_CONFIG_SYSTEM`), and {@link BASE_CONFIG} plus
+ * `config` as the only command-scope overrides.
  *
  * @param config - Overrides beyond {@link BASE_CONFIG}.
  * @returns Environment for a probe git process.
  */
 export function hardenedGitEnv(config: readonly GitConfigPair[] = []): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...discoveryEnv() };
-  for (const key of ['GIT_SSH', 'GIT_SSH_COMMAND', 'GIT_PROXY_COMMAND', 'GIT_EXTERNAL_DIFF']) {
+  // Inherited command-scope config (GIT_CONFIG_PARAMETERS is read AFTER
+  // GIT_CONFIG_COUNT and would beat the hardening) and alternate config files
+  // are dropped, as are ssh/proxy/diff command overrides.
+  for (const key of [
+    'GIT_SSH',
+    'GIT_SSH_COMMAND',
+    'GIT_PROXY_COMMAND',
+    'GIT_EXTERNAL_DIFF',
+    'GIT_CONFIG_PARAMETERS',
+    'GIT_CONFIG_GLOBAL',
+    'GIT_CONFIG_SYSTEM',
+  ]) {
     delete env[key];
   }
-  const inherited = Number(env['GIT_CONFIG_COUNT'] ?? '0');
-  let n = Number.isInteger(inherited) && inherited > 0 ? inherited : 0;
+  for (const key of Object.keys(env)) {
+    if (key === 'GIT_CONFIG_COUNT' || /^GIT_CONFIG_(KEY|VALUE)_\d+$/.test(key)) delete env[key];
+  }
+  let n = 0;
   for (const [key, value] of [...BASE_CONFIG, ...config]) {
     env[`GIT_CONFIG_KEY_${n}`] = key;
     env[`GIT_CONFIG_VALUE_${n}`] = value;

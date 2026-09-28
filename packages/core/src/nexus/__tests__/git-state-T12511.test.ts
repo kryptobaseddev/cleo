@@ -638,3 +638,21 @@ describe('run-wide output budget (T12511 review)', () => {
     expect(rows.some((r) => /output budget/.test(r.probeError ?? ''))).toBe(true);
   });
 });
+
+describe('inherited git config environment (T12511 review round 3)', () => {
+  it('an inherited GIT_CONFIG_PARAMETERS cannot re-enable fsmonitor', async () => {
+    const repo = makeRepo(join(testDir, 'gcp'));
+    const ran = join(testDir, 'gcp-fsmonitor.ran');
+    const script = markerScript('gcp-fsmon.sh', ran);
+    const before = process.env['GIT_CONFIG_PARAMETERS'];
+    process.env['GIT_CONFIG_PARAMETERS'] = `'core.fsmonitor'='${script}'`;
+    try {
+      const row = await probeGitState(target(repo));
+      expect(row.probeErrorCode).toBeNull();
+    } finally {
+      if (before === undefined) delete process.env['GIT_CONFIG_PARAMETERS'];
+      else process.env['GIT_CONFIG_PARAMETERS'] = before;
+    }
+    expect(existsSync(ran)).toBe(false);
+  });
+});
