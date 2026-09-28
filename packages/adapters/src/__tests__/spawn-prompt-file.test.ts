@@ -18,7 +18,8 @@ describe('writeSpawnPromptFile (T12606)', () => {
       expect(readFileSync(file, 'utf-8')).toBe('hello');
       const rel = relative(realpathSync(tmpdir()), realpathSync(dirname(file)));
       expect(rel.startsWith('cleo-claude-spawn-')).toBe(true);
-      expect(file.startsWith('/tmp/')).toBe(tmpdir() === '/tmp');
+      // The dir's parent IS os.tmpdir() (not a hard-coded /tmp), whatever TMPDIR is.
+      expect(realpathSync(dirname(dirname(file)))).toBe(realpathSync(tmpdir()));
     } finally {
       await removeSpawnPromptFile(file);
     }
