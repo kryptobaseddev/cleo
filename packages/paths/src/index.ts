@@ -51,7 +51,10 @@ export {
   pathDelimiterFor,
   pathEnvKey,
   prependPathEntry,
+  quoteCmdArg,
+  resolveSpawnInvocation,
   type ShellInvocation,
+  type SpawnInvocation,
   shellInvocation,
   splitPathEnv,
 } from './exec-path.js';

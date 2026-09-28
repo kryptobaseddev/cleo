@@ -123,6 +123,8 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
       const spawnOpts: Parameters<typeof nodeSpawn>[2] = {
         detached: !isSystemd,
         stdio: ['ignore', 'pipe', 'pipe'],
+        // win32 `.cmd` shim routed through cmd.exe: keep its quoting (T12618).
+        ...(spawnBuild.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
       };
 
       if (context.workingDirectory) {
