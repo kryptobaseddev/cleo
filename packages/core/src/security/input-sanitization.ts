@@ -187,7 +187,17 @@ export const VALID_MANIFEST_STATUSES = MANIFEST_STATUSES;
 
 export const VALID_LIFECYCLE_STAGE_STATUSES = LIFECYCLE_STAGE_STATUSES;
 
-export const ALL_VALID_STATUSES = [...TASK_STATUSES, ...MANIFEST_STATUSES] as const;
+/**
+ * Task and manifest statuses as one set.
+ *
+ * `blocked` and `archived` belong to both vocabularies, so this is a union,
+ * not a concatenation. Concatenating them put each value in the `--status`
+ * rejection message twice, and that message is the only place an agent learns
+ * the allowed set (gh#1458).
+ */
+export const ALL_VALID_STATUSES: readonly string[] = [
+  ...new Set<string>([...TASK_STATUSES, ...MANIFEST_STATUSES]),
+];
 
 export const VALID_PRIORITIES = TASK_PRIORITIES;
 
@@ -454,7 +464,7 @@ export function sanitizeParams(
             ? ['proposed', 'accepted', 'superseded', 'deprecated']
             : isSessionStatus
               ? [...SESSION_STATUSES]
-              : [...TASK_STATUSES, ...MANIFEST_STATUSES],
+              : [...ALL_VALID_STATUSES],
         'status',
       );
       continue;
