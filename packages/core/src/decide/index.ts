@@ -14,6 +14,7 @@ export {
   type DecisionAuditEntry,
   type DecisionAuditSink,
   type DecisionFallbackReason,
+  type DecisionShadowRecord,
 } from './audit.js';
 export {
   type BudgetGrant,

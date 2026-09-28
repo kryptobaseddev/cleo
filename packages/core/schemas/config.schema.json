@@ -1181,6 +1181,38 @@
         }
       }
     },
+    "decide": {
+      "type": "object",
+      "description": "Typed 'System One' decisions (T12486). The provider itself (URL + API key) is stored by `cleo decide config` in <cleoHome>/decide-credentials.json, never here. These keys only choose how each call site uses it.",
+      "additionalProperties": false,
+      "properties": {
+        "sites": {
+          "type": "object",
+          "description": "Per call-site mode.",
+          "additionalProperties": false,
+          "properties": {
+            "duplicateDetection": {
+              "type": "string",
+              "enum": ["off", "shadow", "on"],
+              "default": "shadow",
+              "description": "`cleo add` duplicate detection (T12492). shadow = ask the provider, audit its answers next to the heuristic's in .cleo/audit/decisions.jsonl, act on the heuristic. on = act on the provider's answer. off = never ask. Always off when no provider is configured."
+            }
+          }
+        },
+        "generativeFallback": {
+          "type": "object",
+          "description": "Opt-ins for the older generative-LLM tiers that System One replaces.",
+          "additionalProperties": false,
+          "properties": {
+            "duplicateDetection": {
+              "type": "boolean",
+              "default": false,
+              "description": "Run the T1681 generative-LLM duplicate check (up to 15 s on the `cleo add` write path). Off by default."
+            }
+          }
+        }
+      }
+    },
     "llm": {
       "type": "object",
       "description": "LLM configuration — default provider+model, per-provider API key overrides, and role-based routing. T-LLM-CRED-CENTRALIZATION Phase 4 (T9306).",

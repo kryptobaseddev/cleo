@@ -52,6 +52,32 @@ export interface DecisionAuditAnswer {
   readonly confidence: number;
 }
 
+/**
+ * Shadow-mode comparison attached to an audit line by a call site that asks
+ * the provider while still acting (or able to act) on its own heuristic.
+ *
+ * It puts the heuristic's answers next to the decision answers of the same
+ * line, so agreement can be measured before a site switches to acting on the
+ * decision.
+ */
+export interface DecisionShadowRecord {
+  /** Site mode: `shadow` acts on the heuristic; `on` acts on the decision when one arrived. */
+  readonly mode: 'shadow' | 'on';
+  /** Which answer the site acted on. */
+  readonly acted: 'heuristic' | 'decision';
+  /** The heuristic's overall verdict, in the site's own vocabulary (e.g. `insert`, `warn`). */
+  readonly heuristicVerdict: string;
+  /** The heuristic's answer to every question, in audit form. */
+  readonly heuristicAnswers: Readonly<Record<string, DecisionAuditAnswer>>;
+  /**
+   * Whether every decided value matches the heuristic's value. `null` when no
+   * provider answer was available (fallback), so there was nothing to compare.
+   */
+  readonly agree: boolean | null;
+  /** Question name → the subject it asks about (e.g. a task id). */
+  readonly subjects?: Readonly<Record<string, string>>;
+}
+
 /** One line of `.cleo/audit/decisions.jsonl`. */
 export interface DecisionAuditEntry {
   /** ISO-8601 timestamp. */
@@ -74,6 +100,10 @@ export interface DecisionAuditEntry {
   readonly latencyMs: number;
   /** Provider-reported cost in USD, when known. */
   readonly costUsd?: number;
+  /** Model the request named, when it named one. */
+  readonly model?: string;
+  /** Shadow-mode comparison, when the call site recorded one. */
+  readonly shadow?: DecisionShadowRecord;
 }
 
 /** Destination for audit entries. Implementations never throw. */
