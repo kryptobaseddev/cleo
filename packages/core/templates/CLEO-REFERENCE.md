@@ -248,7 +248,7 @@ Typed `RenderableEnvelope<T>` from `@cleocode/contracts`. `envelope.data.kind` â
 <!-- CLEO-INJECTION:section=spawn-tiers -->
 ## Spawn Prompt Contents (what subagents receive)
 
-`cleo orchestrate spawn <taskId>` embeds a resolved, self-contained prompt; subagents never re-resolve it. Content tiers:
+`cleo orchestrate spawn <taskId>` embeds a resolved prompt. Tier 2 is self-contained; tiers 0-1 carry the core and point subagents at `cleo briefing inject --section <name>` for reference sections. Content tiers:
 
 | Tier | Contents |
 |------|----------|

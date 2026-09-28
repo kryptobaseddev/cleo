@@ -142,6 +142,7 @@ Anti-patterns: completing without running tests · `cleo verify --all` without `
 - No time estimates — use `small`, `medium`, `large` sizing
 - Token budget: avoid `cleo list` without `--parent`; get usage from `cleo <command> --help` (there is no top-level help command)
 - Do not read full task details for tasks you won't work on
+- Never read `.cleo/*.db` directly — the store is `.cleo/cleo.db` (prefixed tables); `tasks.db` and `tasks-*.db` snapshots are decoys. Ask the CLI (`cleo doctor superseded-store`)
 <!-- /CLEO-INJECTION:section=rules -->
 
 <!-- CLEO-INJECTION:section=escalation -->
