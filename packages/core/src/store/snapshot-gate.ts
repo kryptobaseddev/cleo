@@ -12,7 +12,7 @@
  *   1. **Lock** — a cross-process lock ({@link acquireLock}, proper-lockfile)
  *      on `<backupDir>/.snapshot-gate`. At most one snapshot runs per project.
  *   2. **Admission** — gate state lives in the project `cleo.db`
- *      (`schema_meta`, key {@link SNAPSHOT_GATE_META_KEY}) and is re-read
+ *      (`tasks_schema_meta`, key {@link SNAPSHOT_GATE_META_KEY}) and is re-read
  *      under the lock. It holds a monotonic snapshot GENERATION counter,
  *      claimed under the lock when a snapshot starts, and per prefix the
  *      generation and start time of its last satisfied snapshot. Two modes
@@ -69,7 +69,7 @@ export const SNAPSHOT_LOCK_WAIT_RETRIES = 90;
  */
 export const SESSION_END_LOCK_WAIT_RETRIES = 9;
 
-/** `schema_meta` key holding the persisted snapshot gate state. */
+/** `tasks_schema_meta` key holding the persisted snapshot gate state. */
 export const SNAPSHOT_GATE_META_KEY = 'sqlite_snapshot_gate';
 
 /** Basename of the lock target inside the backup directory. */
@@ -184,7 +184,7 @@ export interface SnapshotGateOptions {
  */
 function readGateState(db: DatabaseSync): SnapshotGateState {
   const row = db
-    .prepare('SELECT value FROM schema_meta WHERE key = ?')
+    .prepare('SELECT value FROM tasks_schema_meta WHERE key = ?')
     .get(SNAPSHOT_GATE_META_KEY) as { value: string } | undefined;
   const state: SnapshotGateState = { generation: 0, prefixes: {} };
   if (!row) return state;
@@ -221,7 +221,7 @@ function readGateState(db: DatabaseSync): SnapshotGateState {
 /** Persist the gate state (upsert). */
 function writeGateState(db: DatabaseSync, state: SnapshotGateState): void {
   db.prepare(
-    'INSERT INTO schema_meta (key, value) VALUES (?, ?) ' +
+    'INSERT INTO tasks_schema_meta (key, value) VALUES (?, ?) ' +
       'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
   ).run(SNAPSHOT_GATE_META_KEY, JSON.stringify(state));
 }

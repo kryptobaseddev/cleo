@@ -199,7 +199,7 @@ describe.skipIf(DIST_MISSING)('session-end worker marker (T12508)', { timeout: 1
           ? ['tasks', 'brain', 'conduit', 'llmtxt', 'signaldock-project']
           : ['tasks'];
       db.prepare(
-        'INSERT INTO schema_meta (key, value) VALUES (?, ?) ' +
+        'INSERT INTO tasks_schema_meta (key, value) VALUES (?, ?) ' +
           'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
       ).run(
         'sqlite_snapshot_gate',

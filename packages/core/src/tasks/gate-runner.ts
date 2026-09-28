@@ -25,8 +25,17 @@
  * @task T781
  */
 
+import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { constants, mkdirSync, readFileSync, renameSync, type Stats, writeFileSync } from 'node:fs';
+import {
+  constants,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  type Stats,
+  writeFileSync,
+} from 'node:fs';
 import { lstat, open, realpath, stat } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -54,6 +63,7 @@ import type {
   AcceptanceGateBinding,
   AcceptanceGateInvocation,
   AcceptanceGateRunOptions,
+  AcceptanceGateTreeBinding,
   AcceptanceGateVerificationReceipt,
 } from '@cleocode/contracts/acceptance-gate';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
@@ -61,6 +71,7 @@ import type {
   ProcessCaptureOptions,
   ProcessCaptureResult,
 } from '@cleocode/contracts/resource-governor';
+import { gitToplevel } from '../git/work-tree.js';
 import { getProjectRoot } from '../paths.js';
 import { captureProjectScope, worktreeScope } from '../project-scope.js';
 import { truncateString } from '../render/helpers.js';
@@ -68,6 +79,7 @@ import { captureWrapped } from '../resources/spawn-wrapper.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
 import { registerTeardownAbort } from '../teardown-signal.js';
 import { acItemToText, acTextHash } from './ac-table.js';
+import { resolveCanonicalProjectRoot } from './evidence.js';
 import {
   buildGateCacheEntryBody,
   captureGateCacheState,
@@ -301,9 +313,54 @@ export async function captureGateInputsHash(
   execution: OperationExecutionContext,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<string> {
-  const root = resolve(execution.identity.projectRoot);
-  const invocation = executableInvocation(gate, root, { ...env });
-  return gateInputsHash(invocation, await snapshotGateInputs(task, gate, invocation, execution));
+  const tree = resolveTypedGateRoot(resolve(execution.identity.projectRoot));
+  const invocation = executableInvocation(gate, tree, { ...env });
+  return gateInputsHash(
+    invocation,
+    await snapshotGateInputs(task, gate, invocation, execution, tree),
+  );
+}
+
+/**
+ * The tree a typed gate runs in and is fingerprinted against.
+ *
+ * `projectRoot` is the CLEO store root, which for a git worktree is the MAIN
+ * checkout (all worktrees share one `.cleo/`). Evidence tools already run in the
+ * caller's own worktree (gh#1220); typed gates ran in the store root, so from a
+ * worktree `cleo done` measured the task's code with its tools and the main
+ * checkout with its typed gates (T12625 review). The caller's git toplevel is
+ * used only when it is a linked worktree OF THIS project — any other cwd
+ * (an unrelated repo, a test harness, a declared child repo in a multi-repo
+ * root) keeps `projectRoot`, so typed-gate paths written against the CLEO root
+ * keep resolving exactly as before.
+ *
+ * Known limit (documented, accepted): "linked worktree of this project" is read
+ * from the `.git` gitlink, so a plain directory carrying a forged gitlink that
+ * points into this project's `.git/worktrees/` is treated as a worktree. That
+ * grants nothing a copy of the checkout would not: its typed results are only
+ * carried to another tree by content (tracked inputs must hash identically and
+ * the recorded HEAD must be merged there).
+ *
+ * @param projectRoot - CLEO store root (the typed gate's authority).
+ * @param cwd - Invocation directory. Defaults to `process.cwd()`.
+ * @returns The realpath of the tree typed gates execute in.
+ * @task T12625
+ */
+export function resolveTypedGateRoot(
+  projectRoot: string,
+  cwd: string = process.cwd(), // CWD-OK: the invocation tree is the subject (gh#1220)
+): string {
+  const real = (p: string): string => {
+    try {
+      return realpathSync(p);
+    } catch {
+      return resolve(p);
+    }
+  };
+  const root = real(projectRoot);
+  const top = gitToplevel(cwd);
+  if (top === null || real(top) === root) return projectRoot;
+  return real(resolveCanonicalProjectRoot(top)) === root ? real(top) : projectRoot;
 }
 
 /**
@@ -362,11 +419,13 @@ export async function runGates(
   const maxOutputBytes = options.maxOutputBytes ?? 1_048_576;
   if (!Number.isSafeInteger(maxOutputBytes) || maxOutputBytes < 1)
     throw new RangeError('Gate capture byte limit must be a positive safe integer');
+  // T12625: execute and fingerprint in the caller's worktree of this project.
+  const treeRoot = resolveTypedGateRoot(projectRoot);
   const snapshot = structuredClone(gates);
   const controller = new AbortController();
   const deregister = registerTeardownAbort(controller);
   const batch: ProcessCaptureOptions = {
-    cwd: projectRoot,
+    cwd: treeRoot,
     env: { ...(options.env ?? process.env) },
     execution: {
       deadlineAt: execution?.deadlineAt ?? Date.now() + unownedAdmissionMs(snapshot, options.env),
@@ -387,7 +446,7 @@ export async function runGates(
   // T12621: the repo state is captured only when the policy reads or writes.
   const cacheState =
     cacheMode !== 'off' && TOOL_GATE_KINDS.has(snapshot[0]!.kind)
-      ? await captureGateCacheState(projectRoot)
+      ? await captureGateCacheState(treeRoot)
       : null;
   const cacheKey = cacheState ? loadEvidenceCacheKey() : null;
   const results: AcceptanceGateResult[] = [];
@@ -436,7 +495,14 @@ export async function runGates(
           if (cacheMode === 'only' && TOOL_GATE_KINDS.has(parsed.kind))
             throw new Error(gateNotCachedMessage(parsed, cacheState !== null, cacheKey !== null));
           const observed: AcceptanceGateResult = {
-            ...(await runOneGate(parsed, i, projectRoot, options.skipManual ?? true, batch)),
+            ...(await runOneGate(
+              parsed,
+              i,
+              treeRoot,
+              options.skipManual ?? true,
+              batch,
+              projectRoot,
+            )),
             source: 'executed',
           };
           if (cacheState && cacheKey && cacheMode !== 'only')
@@ -466,6 +532,194 @@ export async function runGates(
     });
   } finally {
     deregister();
+  }
+}
+
+/** `git` read in `cwd`; `null` on a non-zero exit or when git is unavailable. */
+function gitOut(cwd: string, args: readonly string[]): string | null {
+  try {
+    return execFileSync('git', args, {
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+/** Digest of a gate's inputs with every path made relative to `tree` (T12625). */
+function treeInputsHash(
+  tree: string,
+  invocation: AcceptanceGateInvocation | undefined,
+  artifacts: readonly AcceptanceGateArtifact[],
+): string {
+  const rel = (path: string): string => relative(tree, path) || '.';
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        invocation: invocation ? { ...invocation, cwd: rel(invocation.cwd) } : null,
+        artifacts: artifacts.map((a) => ({ ...a, path: rel(a.path) })),
+      }),
+    )
+    .digest('hex');
+}
+
+/**
+ * Content binding for a result verified in `tree`, or `undefined` when the tree
+ * is not a git checkout (the result then keeps exact path-bound revalidation).
+ */
+function captureTreeBinding(
+  tree: string,
+  invocation: AcceptanceGateInvocation | undefined,
+  artifacts: readonly AcceptanceGateArtifact[],
+): AcceptanceGateTreeBinding | undefined {
+  const headSha = gitOut(tree, ['rev-parse', 'HEAD']);
+  if (headSha === null || !/^[0-9a-f]{40}$/.test(headSha)) return undefined;
+  const dirty = gitOut(tree, ['status', '--porcelain', '--untracked-files=no']);
+  const base = originDefault(tree);
+  const baseSha = base ? gitOut(tree, ['merge-base', base, headSha]) : null;
+  return {
+    headSha,
+    clean: dirty === '',
+    cwd: invocation ? relative(tree, invocation.cwd) || '.' : '.',
+    inputsHash: treeInputsHash(tree, invocation, artifacts),
+    ...(baseSha && /^[0-9a-f]{40}$/.test(baseSha) ? { baseSha } : {}),
+  };
+}
+
+/** `origin/<default>` from `origin/HEAD`, else origin/main or origin/master. */
+function originDefault(tree: string): string | null {
+  const symbolic = gitOut(tree, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']);
+  if (symbolic) return symbolic.replace(/^refs\/remotes\//, '');
+  for (const ref of ['origin/main', 'origin/master']) {
+    if (gitOut(tree, ['rev-parse', '--verify', '--quiet', `refs/remotes/${ref}`]) !== null)
+      return ref;
+  }
+  return null;
+}
+
+/**
+ * A typed result was verified in another tree of this project and cannot be
+ * accepted from the completing tree. Carries the exact re-verify command.
+ *
+ * @task T12625
+ */
+export class TypedRevalidationError extends Error {
+  /** The command that re-verifies the task's typed gates in the completing tree. */
+  readonly fix: string;
+
+  constructor(message: string, fix: string) {
+    super(message);
+    this.name = 'TypedRevalidationError';
+    this.fix = fix;
+  }
+}
+
+/** Exact command that re-records testsPassed (re-running typed gates) in `tree`. */
+function reverifyCommand(task: Task, tree: string): string {
+  const atoms = (task.verification?.evidence?.testsPassed?.atoms ?? []).flatMap((atom) => {
+    switch (atom.kind) {
+      case 'tool':
+        return [`tool:${atom.tool}`];
+      case 'test-run':
+        return [`test-run:${atom.path}`];
+      case 'satisfies':
+        return [
+          `satisfies:${atom.targetTaskId}#${atom.targetAcAlias ?? atom.resolvedAcUuid ?? ''}`,
+        ];
+      default:
+        return [];
+    }
+  });
+  const evidence = atoms.length > 0 ? atoms.join(';') : 'tool:test';
+  return `cd '${tree.replace(/'/g, `'\\''`)}' && cleo verify ${task.id} --gate testsPassed --evidence '${evidence}'`;
+}
+
+/**
+ * Accept a result bound in ANOTHER tree of this project (T12625): the verified
+ * tree was clean, its HEAD is an ancestor of the completing HEAD (the verified
+ * commit has been merged here), and the inputs recompute to the same
+ * tree-relative digest. The recorded tree itself is never entered — worktrees
+ * are auto-cleaned after merge.
+ */
+function assertTreeEquivalent(
+  task: Task,
+  gateLabel: string,
+  bound: AcceptanceGateTreeBinding,
+  tree: string,
+  projectRoot: string,
+  invocation: AcceptanceGateInvocation | undefined,
+  artifacts: readonly AcceptanceGateArtifact[],
+): void {
+  const fix = reverifyCommand(task, tree);
+  const real = (p: string): string => {
+    try {
+      return realpathSync(p);
+    } catch {
+      return resolve(p);
+    }
+  };
+  if (real(resolveCanonicalProjectRoot(tree)) !== real(projectRoot))
+    throw new TypedRevalidationError(
+      `Typed requirement ${gateLabel}: ${tree} is not a checkout of this project`,
+      fix,
+    );
+  if (!bound.clean)
+    throw new TypedRevalidationError(
+      `Typed requirement ${gateLabel} was verified on a dirty tree at ${bound.headSha.slice(0, 12)}; its result cannot be carried to ${tree}`,
+      fix,
+    );
+  if (gitOut(tree, ['merge-base', '--is-ancestor', bound.headSha, 'HEAD']) === null)
+    throw new TypedRevalidationError(
+      `Typed requirement ${gateLabel} was verified at ${bound.headSha.slice(0, 12)}, which is not in ${tree}'s HEAD — merge the verified commit first, or re-verify here`,
+      fix,
+    );
+  if (treeInputsHash(tree, invocation, artifacts) !== bound.inputsHash)
+    throw new TypedRevalidationError(
+      `Typed requirement ${gateLabel} inputs changed since verification (${tree})`,
+      fix,
+    );
+  // Round 3: the merge being an ancestor proves the change ARRIVED, not that it
+  // is still there — a later revert leaves the ancestry and the declared gate
+  // inputs intact. Every path the verified change touched must still hold the
+  // verified bytes here. Without a recorded fork point the change set is
+  // unknown, so the result is not carried across trees at all.
+  if (!bound.baseSha)
+    throw new TypedRevalidationError(
+      `Typed requirement ${gateLabel} has no recorded fork point, so the verified change cannot be compared in ${tree}`,
+      fix,
+    );
+  // --no-renames: a rename is listed as the old path's deletion AND the new
+  // path's addition, so a renamed-away path later re-added here is caught.
+  const changed = gitOut(tree, [
+    'diff',
+    '--name-only',
+    '--no-renames',
+    bound.baseSha,
+    bound.headSha,
+  ]);
+  if (changed === null)
+    throw new TypedRevalidationError(
+      `Typed requirement ${gateLabel}: cannot read the verified change ${bound.baseSha.slice(0, 12)}..${bound.headSha.slice(0, 12)} in ${tree}`,
+      fix,
+    );
+  const paths = changed.split('\n').filter(Boolean);
+  if (paths.length > 0) {
+    const drift = gitOut(tree, [
+      'diff',
+      '--name-only',
+      '--no-renames',
+      bound.headSha,
+      'HEAD',
+      '--',
+      ...paths,
+    ]);
+    if (drift === null || drift !== '')
+      throw new TypedRevalidationError(
+        `Typed requirement ${gateLabel}: the verified change was changed on ${tree} since verification: ${(drift ?? 'unreadable').split('\n').join(', ')}`,
+        fix,
+      );
   }
 }
 
@@ -503,14 +757,15 @@ export async function runTaskGates(
   assertCriterionProjection(snapshot, rows);
   const env = { ...(options.env ?? process.env) };
   const verificationId = randomUUID();
+  const tree = resolveTypedGateRoot(root);
   return worktreeScope.run(scope, async () => {
     const results: AcceptanceGateResult[] = [];
     for (const [index, gate] of (snapshot.acceptance ?? []).entries()) {
       if (typeof gate === 'string') continue;
       execution.assertActive();
       const capturedAt = new Date().toISOString();
-      const invocation = executableInvocation(gate, root, env);
-      const artifacts = await snapshotGateInputs(snapshot, gate, invocation, execution);
+      const invocation = executableInvocation(gate, tree, env);
+      const artifacts = await snapshotGateInputs(snapshot, gate, invocation, execution, tree);
       const binding: AcceptanceGateBinding = {
         version: 1,
         verificationId,
@@ -524,6 +779,8 @@ export async function runTaskGates(
         ...(invocation ? { invocation } : {}),
         artifacts,
       };
+      const treeBinding = captureTreeBinding(tree, invocation, artifacts);
+      if (treeBinding) binding.tree = treeBinding;
       const observed = (
         await runGates([gate], {
           ...options,
@@ -537,7 +794,7 @@ export async function runTaskGates(
       )[0]!;
       let result: AcceptanceGateResult = { ...observed, index, binding };
       try {
-        const after = await snapshotGateInputs(snapshot, gate, invocation, execution);
+        const after = await snapshotGateInputs(snapshot, gate, invocation, execution, tree);
         if (!isDeepStrictEqual(after, artifacts))
           throw new Error('Verification inputs changed during execution');
       } catch (error) {
@@ -637,6 +894,7 @@ export async function revalidateTaskGateResults(
   const rows = [...criteria].sort((a, b) => a.ordinal - b.ordinal);
   assertCriterionProjection(task, rows);
   const env = { ...(options.env ?? process.env) };
+  const tree = resolveTypedGateRoot(root);
   await worktreeScope.run(scope, async () => {
     for (const [index, gate] of (task.acceptance ?? []).entries()) {
       if (typeof gate === 'string' || (requirePassing && gate.advisory)) continue;
@@ -664,14 +922,32 @@ export async function revalidateTaskGateResults(
         throw new Error(
           `Typed requirement ${gate.req ?? index} binding is stale or belongs to another owner`,
         );
-      const invocation = executableInvocation(gate, root, env);
+      const invocation = executableInvocation(gate, tree, env);
+      const artifacts = await snapshotGateInputs(task, gate, invocation, execution, tree);
+      const exact =
+        isDeepStrictEqual(binding.invocation, invocation) &&
+        isDeepStrictEqual(binding.artifacts, artifacts);
+      if (exact) continue;
+      // T12625: a result bound in another tree of this project (a worker's
+      // worktree) is accepted by CONTENT, not by path. Pre-T12625 receipts carry
+      // no tree binding and keep the exact path-bound refusals below.
+      if (binding.tree) {
+        assertTreeEquivalent(
+          task,
+          gate.req ?? String(index),
+          binding.tree,
+          tree,
+          root,
+          invocation,
+          artifacts,
+        );
+        continue;
+      }
       if (!isDeepStrictEqual(binding.invocation, invocation))
         throw new Error(`Typed requirement ${gate.req ?? index} invocation or environment changed`);
-      const artifacts = await snapshotGateInputs(task, gate, invocation, execution);
-      if (!isDeepStrictEqual(binding.artifacts, artifacts))
-        throw new Error(
-          `Typed requirement ${gate.req ?? index} input bytes changed after verification`,
-        );
+      throw new Error(
+        `Typed requirement ${gate.req ?? index} input bytes changed after verification`,
+      );
     }
   });
 }
@@ -807,8 +1083,10 @@ async function snapshotGateInputs(
   gate: AcceptanceGate,
   invocation: AcceptanceGateInvocation | undefined,
   execution: OperationExecutionContext,
+  /** T12625: the tree the gate runs in ({@link resolveTypedGateRoot}). */
+  treeRoot: string = resolve(execution.identity.projectRoot),
 ): Promise<AcceptanceGateArtifact[]> {
-  const root = resolve(execution.identity.projectRoot);
+  const root = resolve(treeRoot);
   if (invocation) {
     const cwdRelative = relative(root, invocation.cwd);
     if (cwdRelative === '..' || cwdRelative.startsWith('../') || isAbsolute(cwdRelative))
@@ -927,6 +1205,8 @@ async function runOneGate(
   projectRoot: string,
   skipManual: boolean,
   context: ProcessCaptureOptions,
+  /** CLEO store root for attachment lookups; defaults to `projectRoot`. */
+  storeRoot: string = projectRoot,
 ): Promise<AcceptanceGateResult> {
   const timeout = resolveGateTimeoutMs(gate, context.env ?? process.env);
 
@@ -934,7 +1214,7 @@ async function runOneGate(
     case 'test':
       return runTestGate(gate, index, projectRoot, timeout, context);
     case 'file':
-      return runFileGate(gate, index, projectRoot, context);
+      return runFileGate(gate, index, projectRoot, context, storeRoot);
     case 'command':
       return runCommandGate(gate, index, projectRoot, timeout, context);
     case 'lint':
@@ -1175,6 +1455,7 @@ async function runFileGate(
   index: number,
   projectRoot: string,
   context: ProcessCaptureOptions,
+  storeRoot: string = projectRoot,
 ): Promise<AcceptanceGateResult> {
   const startMs = Date.now();
 
@@ -1182,7 +1463,7 @@ async function runFileGate(
   let filePath: string;
   if (gate.attachmentSha256) {
     const store = createAttachmentStore();
-    const metadata = await store.getMetadata(gate.attachmentSha256, projectRoot);
+    const metadata = await store.getMetadata(gate.attachmentSha256, storeRoot);
     assertGateActive(context);
     if (!metadata)
       return makeResult(
@@ -1198,7 +1479,7 @@ async function runFileGate(
       throw new Error('Attachment gate requires declared byte size for bounded retrieval');
     if (attachment.size > (context.maxOutputBytes ?? 1_048_576))
       throw new Error('Attachment gate exceeds declared byte limit');
-    const result = await store.get(gate.attachmentSha256, projectRoot);
+    const result = await store.get(gate.attachmentSha256, storeRoot);
     assertGateActive(context);
     if (!result)
       throw new Error('Attachment metadata exists but authenticated bytes are unavailable');

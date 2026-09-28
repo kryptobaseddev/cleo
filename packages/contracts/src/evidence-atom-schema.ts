@@ -62,6 +62,7 @@ export const EVIDENCE_ATOM_KINDS = [
   'note',
   'decision',
   'pr',
+  'ci',
   'loc-drop',
   'callsite-coverage',
   'satisfies',
@@ -205,6 +206,21 @@ export const decisionAtomSchema = z.object({
 export const prAtomSchema = z.object({
   kind: z.literal('pr'),
   prNumber: z.number().int().positive('pr atom requires a positive integer PR number'),
+});
+
+/**
+ * `ci:<number>` atom — the required CI checks of a merged PR, judged on the
+ * PR's actual MERGE COMMIT (never its head). Satisfies `testsPassed` and
+ * `qaPassed` only when the project opts in with `evidence.ciSatisfies`
+ * (owner decision D11149).
+ *
+ * Format: `ci:<positive integer>` (e.g. `ci:357`).
+ *
+ * @task T12634
+ */
+export const ciAtomSchema = z.object({
+  kind: z.literal('ci'),
+  prNumber: z.number().int().positive('ci atom requires a positive integer PR number'),
 });
 
 /**
@@ -389,6 +405,7 @@ export const EvidenceAtomSchema = z.discriminatedUnion('kind', [
   noteAtomSchema,
   decisionAtomSchema,
   prAtomSchema,
+  ciAtomSchema,
   locDropAtomSchema,
   callsiteCoverageAtomSchema,
   satisfiesAtomSchema,
@@ -477,8 +494,8 @@ export const GATE_EVIDENCE_REQUIREMENTS: Readonly<
       ['pr', 'files'],
     ],
   },
-  testsPassed: { oneOf: [['test-run'], ['tool']] },
-  qaPassed: { oneOf: [['tool']] },
+  testsPassed: { oneOf: [['test-run'], ['tool'], ['ci']] },
+  qaPassed: { oneOf: [['tool'], ['ci']] },
   documented: { oneOf: [['files'], ['url']] },
   securityPassed: { oneOf: [['tool'], ['note']] },
   cleanupDone: { oneOf: [['note']] },
@@ -542,6 +559,7 @@ const ATOM_EXAMPLES: Readonly<Record<EvidenceAtomKind, string>> = Object.freeze(
   note: 'note:<short description>',
   decision: 'decision:D-arch-001',
   pr: 'pr:357',
+  ci: 'ci:357',
   'loc-drop': 'loc-drop:<fromLines>:<toLines>',
   'callsite-coverage': 'callsite-coverage:<symbolName>:<relativeSourcePath>',
   satisfies: 'satisfies:T1234#AC2',
@@ -831,6 +849,17 @@ export function parseEvidenceString(raw: string): EvidenceAtom[] {
           );
         }
         atoms.push({ kind: 'pr', prNumber });
+        break;
+      }
+      case 'ci': {
+        const prNumber = Number(payload);
+        if (!Number.isInteger(prNumber) || prNumber <= 0) {
+          throw new EvidenceParseError(
+            `ci atom requires a positive integer PR number, got "${payload}" in "${chunk}"`,
+            'Use format: ci:<number> e.g. ci:357',
+          );
+        }
+        atoms.push({ kind: 'ci', prNumber });
         break;
       }
       case 'loc-drop': {

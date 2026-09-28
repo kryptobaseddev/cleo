@@ -70,14 +70,48 @@ export interface ProjectEvidenceContext {
    * `commit:` atom whose SHA exists in exactly one sibling, without help.
    */
   gitRoot?: string;
+  /**
+   * Accept required CI green on a merged PR's merge commit as `testsPassed` /
+   * `qaPassed` evidence (`ci:<pr>` atom, owner decision D11149). Only `true`
+   * enables it.
+   *
+   * @task T12634
+   */
+  ciSatisfies?: boolean;
+  /**
+   * Which required checks attest each gate for `ci:<pr>`. Each list must be a
+   * subset of the required-check list; a gate without a list refuses `ci:`.
+   *
+   * @task T12634
+   */
+  ciChecks?: {
+    tests?: string[];
+    qa?: string[];
+    /** Job-name globs that must have run and succeeded for a code task's gate. */
+    jobs?: { tests?: string[]; qa?: string[] };
+  };
+}
+
+/**
+ * A required check named in `release.prRequiredWorkflows`, optionally pinned to
+ * the GitHub App that must post it and (for a workflow) its workflow file, so a
+ * same-named check from another app never counts (T12634).
+ */
+export interface RequiredCheckPin {
+  /** Check-run (job) or workflow name. */
+  name: string;
+  /** GitHub App slug (e.g. `github-actions`) or numeric app id. */
+  app?: string | number;
+  /** Workflow file path (e.g. `.github/workflows/ci.yml`). */
+  workflow?: string;
 }
 
 /** Release and evidence behavior configured per project. */
 export interface ProjectReleaseContext {
   /** Branches whose reachable commits may satisfy `commit:` evidence atoms. */
   integrationBranches?: string[];
-  /** Required successful checks for `pr:` evidence atoms. */
-  prRequiredWorkflows?: string[];
+  /** Required successful checks for `pr:` / `ci:` evidence atoms; an entry may pin its app/workflow. */
+  prRequiredWorkflows?: Array<string | RequiredCheckPin>;
 }
 
 /** Schema-compliant project context for LLM agent consumption. */

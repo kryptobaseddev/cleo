@@ -454,6 +454,37 @@ export interface AcceptanceGateBinding {
   invocation?: AcceptanceGateInvocation;
   /** Explicit bounded input inventory, including untracked harness/task files. */
   artifacts: AcceptanceGateArtifact[];
+  /**
+   * Content binding of the tree the gate ran in (T12625). Lets a result
+   * verified in a worker's worktree be revalidated from another checkout of
+   * the same project — the orchestrator completing from main after merge —
+   * without re-entering the (often auto-cleaned) worktree. Absent on results
+   * recorded before T12625, which keep exact path-bound revalidation.
+   */
+  tree?: AcceptanceGateTreeBinding;
+}
+
+/**
+ * Tree-independent binding of a typed gate's inputs (T12625).
+ * @remarks Revalidation from another tree of the same project accepts only when
+ * the verified tree was clean, `headSha` is an ancestor of the completing HEAD,
+ * and `inputsHash` recomputes identically there.
+ */
+export interface AcceptanceGateTreeBinding {
+  /** HEAD commit of the tree the gate ran in. */
+  headSha: string;
+  /** True when that tree had no uncommitted tracked changes. */
+  clean: boolean;
+  /** Gate working directory, relative to the tree root (`.` for the root). */
+  cwd: string;
+  /** SHA-256 over command, args, relative cwd, environment hash and repo-relative input bytes. */
+  inputsHash: string;
+  /**
+   * Fork point of the verified commit from origin's default branch at
+   * verification time. `baseSha..headSha` is the change the result attests;
+   * every path it touched must be unchanged in the completing tree.
+   */
+  baseSha?: string;
 }
 
 /**

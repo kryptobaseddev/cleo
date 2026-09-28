@@ -1,7 +1,7 @@
 {
   "note": "Raw SQL writes on classified cleo.db tables outside the sanctioned accessor (T12332). Counts may only DECREASE, and a decrease must be recorded here. Regenerate with: node scripts/lint-no-raw-table-writes.mjs --update-baseline",
-  "totalFindings": 227,
-  "files": 73,
+  "totalFindings": 226,
+  "files": 72,
   "counts": {
     "crates/cleo-supervisor/src/lease_handler.rs": {
       "_writer_leases": 2
@@ -180,9 +180,6 @@
       "tasks_task_labels": 1,
       "tasks_tasks": 1
     },
-    "packages/core/src/sequence/index.ts": {
-      "schema_meta": 1
-    },
     "packages/core/src/sessions/session-memory-bridge.ts": {
       "brain_task_observations": 1
     },
@@ -213,7 +210,7 @@
       "tasks_sessions": 1
     },
     "packages/core/src/store/exodus/migrate.ts": {
-      "schema_meta": 1
+      "tasks_schema_meta": 1
     },
     "packages/core/src/store/exodus/recovery.ts": {
       "_exodus_database_identity": 1,
@@ -241,10 +238,10 @@
       "nexus_project_registry": 1
     },
     "packages/core/src/store/snapshot-gate.ts": {
-      "schema_meta": 1
+      "tasks_schema_meta": 1
     },
     "packages/core/src/store/sqlite.ts": {
-      "schema_meta": 2
+      "tasks_schema_meta": 2
     },
     "packages/core/src/tasks/backfill-child-projections.ts": {
       "task_acceptance_criteria": 2,

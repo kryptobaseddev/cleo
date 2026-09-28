@@ -211,6 +211,17 @@ export type ParsedAtom =
     }
   | {
       /**
+       * Merge-commit CI atom — required checks green on a merged PR's merge
+       * commit (D11149). Accepted only with `evidence.ciSatisfies`.
+       *
+       * @task T12634
+       */
+      kind: 'ci';
+      /** PR number (positive integer). */
+      prNumber: number;
+    }
+  | {
+      /**
        * Cross-task AC-binding atom — references an acceptance criterion on
        * another task in the same Saga (or root Epic when no Saga). The atom
        * carries either the canonical UUIDv4 (`targetAcId`) OR the positional
@@ -423,6 +434,20 @@ export async function validateAtom(
       return validateDecision(parsed.decisionId, roots);
     case 'pr':
       return validatePrAtom(parsed.prNumber, roots, context);
+    case 'ci': {
+      // T12634 (D11149): `gh` runs in the repo (executionRoot); the opt-in,
+      // required-check list and PR cache are CLEO's own records (storeRoot).
+      const { resolveCiEvidenceAtom } = await import('../release/ci-evidence.js');
+      const { loadProjectContext } = await import('../agents/variable-substitution.js');
+      const ctx = loadProjectContext(roots.storeRoot);
+      const result = await resolveCiEvidenceAtom(parsed.prNumber, roots, {
+        projectContext: ctx.loaded ? ctx.context : null,
+        ...(context ? { context } : {}),
+      });
+      return result.ok
+        ? { ok: true, atom: result.atom }
+        : { ok: false, reason: result.reason, codeName: result.codeName };
+    }
     case 'satisfies': {
       // ADR-079-r2: 5-check validator pipeline shipped by T10507.
       // Delegates to the dedicated validator module to keep the dispatch
@@ -2263,6 +2288,52 @@ async function validateDecision(decisionId: string, roots: EvidenceRoots): Promi
 // ---------------------------------------------------------------------------
 
 /**
+ * The task linkage `pr:` provenance requires, shared with `ci:<pr>` (T12634):
+ * the PR's changed-file inventory is complete, and the PR either cites the
+ * task in its title, body or head branch, or its diff intersects the task's
+ * declared files — and when files are declared, the diff MUST intersect them.
+ *
+ * @param prNumber - The PR being linked.
+ * @param pr - The verified PR (title, body, head branch, changed files).
+ * @param context - The task the evidence is being recorded for.
+ * @returns The refusal, or null when the PR is linked to the task.
+ * @task T12634
+ */
+export function checkPrTaskLinkage(
+  prNumber: number,
+  pr: {
+    title: string;
+    body: string;
+    headRefName: string;
+    changedPaths: string[];
+    changedFileCount: number;
+    changedFilesError?: string;
+  },
+  context: EvidenceValidationContext,
+): { ok: false; reason: string; codeName: string } | null {
+  if (pr.changedFileCount !== pr.changedPaths.length || pr.changedPaths.length === 0) {
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_INSUFFICIENT',
+      reason: `PR #${prNumber} changed-file coverage is incomplete or empty (${pr.changedPaths.length}/${pr.changedFileCount})${pr.changedFilesError ? ` — ${pr.changedFilesError}` : ''}; inspect the full diff before recording evidence.`,
+    };
+  }
+  const declaredFiles = context.task.files ?? [];
+  const taskMention = new RegExp(`(^|[^A-Za-z0-9])${context.task.id}([^A-Za-z0-9]|$)`);
+  const explicitlyLinked = taskMention.test(`${pr.title}\n${pr.body}\n${pr.headRefName}`);
+  const scopeIntersects =
+    declaredFiles.length > 0 && diffIntersectsAc(pr.changedPaths, declaredFiles);
+  if ((!explicitlyLinked && !scopeIntersects) || (declaredFiles.length > 0 && !scopeIntersects)) {
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_CONTENT_MISMATCH',
+      reason: `PR #${prNumber} does not establish a relationship to task ${context.task.id}. Changed artifacts: ${pr.changedPaths.join(', ')}. Declare task files or cite the exact task in the PR; declared scope must intersect the diff.`,
+    };
+  }
+  return null;
+}
+
+/**
  * Validate a `pr:<number>` atom by resolving the PR via the `gh` CLI.
  *
  * Delegates to {@link resolvePrEvidenceAtom} so the network round-trip,
@@ -2310,27 +2381,8 @@ async function validatePrAtom(
   if (!result.ok) {
     return { ok: false, reason: result.reason, codeName: result.codeName };
   }
-  if (result.changedFileCount !== result.changedPaths.length || result.changedPaths.length === 0) {
-    return {
-      ok: false,
-      codeName: 'E_EVIDENCE_INSUFFICIENT',
-      reason: `PR #${prNumber} changed-file coverage is incomplete or empty (${result.changedPaths.length}/${result.changedFileCount})${result.changedFilesError ? ` — ${result.changedFilesError}` : ''}; inspect the full diff before recording evidence.`,
-    };
-  }
-  const declaredFiles = context.task.files ?? [];
-  const taskMention = new RegExp(`(^|[^A-Za-z0-9])${context.task.id}([^A-Za-z0-9]|$)`);
-  const explicitlyLinked = taskMention.test(
-    `${result.title}\n${result.body}\n${result.headRefName}`,
-  );
-  const scopeIntersects =
-    declaredFiles.length > 0 && diffIntersectsAc(result.changedPaths, declaredFiles);
-  if ((!explicitlyLinked && !scopeIntersects) || (declaredFiles.length > 0 && !scopeIntersects)) {
-    return {
-      ok: false,
-      codeName: 'E_EVIDENCE_CONTENT_MISMATCH',
-      reason: `PR #${prNumber} does not establish a relationship to task ${context.task.id}. Changed artifacts: ${result.changedPaths.join(', ')}. Declare task files or cite the exact task in the PR; declared scope must intersect the diff.`,
-    };
-  }
+  const unlinked = checkPrTaskLinkage(prNumber, result, context);
+  if (unlinked) return unlinked;
   if (
     context.gates.includes('implemented') &&
     classifyEvidenceTask(context) === 'code' &&
@@ -2357,15 +2409,34 @@ async function validatePrAtom(
   };
 }
 
-function isDocumentArtifact(path: string): boolean {
+/**
+ * Whether a path is a documentation artifact (`.md`/`.mdx`/`.rst`/`.adoc`/`.txt`,
+ * README, LICENSE, CHANGELOG) — the rule `pr:` uses to refuse a docs-only PR
+ * as implementation of a code task.
+ *
+ * @param path - Repo-relative path.
+ * @returns True for a documentation artifact.
+ */
+export function isDocumentArtifact(path: string): boolean {
   return (
     /\.(md|mdx|rst|adoc|txt)$/i.test(path) ||
     /(?:^|\/)(README|LICENSE|CHANGELOG)(?:\.[^/]*)?$/i.test(path)
   );
 }
 
-function classifyEvidenceTask(
-  context: EvidenceValidationContext,
+/**
+ * Classify a task for evidence purposes: `research` (research/spike kind),
+ * `documentation` (docs-only declared files or a docs label) or `code`.
+ *
+ * Exported so the read-only `cleo done --plan` planner chooses the same
+ * documentary path the validators accept — one classification, not two.
+ *
+ * @param context - Task context; only `task` is read.
+ * @returns The evidence classification.
+ * @task T12624
+ */
+export function classifyEvidenceTask(
+  context: Pick<EvidenceValidationContext, 'task'>,
 ): 'code' | 'documentation' | 'research' {
   if (context.task.kind === 'research' || context.task.kind === 'spike') return 'research';
   if (context.task.files?.length && context.task.files.every(isDocumentArtifact))
@@ -2396,6 +2467,9 @@ export function checkTaskEvidenceContext(
   const filePaths = atoms.flatMap((atom) =>
     atom.kind === 'files' ? atom.files.map((file) => file.path) : [],
   );
+  // T12634: a `ci:` result is bound to the task it was validated for, like `pr:`.
+  if (atoms.some((atom) => atom.kind === 'ci' && atom.taskId !== context.task.id))
+    return 'CI evidence lacks verified task linkage; re-verify with current task context.';
   const prAtoms = atoms.filter((atom) => atom.kind === 'pr');
   if (prAtoms.length > 1)
     return 'Record one PR and its merge-pinned artifacts per verification attempt; multiple merge identities are ambiguous.';
@@ -2415,7 +2489,12 @@ export function checkTaskEvidenceContext(
   if (
     classifyEvidenceTask(context) === 'code' &&
     (gate === 'testsPassed' || gate === 'qaPassed') &&
-    !atoms.some((atom) => atom.kind === 'test-run' || (atom.kind === 'tool' && !atom.notApplicable))
+    !atoms.some(
+      (atom) =>
+        atom.kind === 'test-run' ||
+        atom.kind === 'ci' ||
+        (atom.kind === 'tool' && !atom.notApplicable),
+    )
   ) {
     return `Code task ${context.task.id} requires an actual verification result for ${gate}; absence of a toolchain is not a passing result.`;
   }
@@ -2639,7 +2718,7 @@ export function composeGateEvidence(
         return atom.kind === 'commit' || atom.kind === 'pr' || atom.kind === 'decision'
           ? [index]
           : [];
-      return atom.kind === 'tool' || atom.kind === 'test-run' ? [index] : [];
+      return atom.kind === 'tool' || atom.kind === 'test-run' || atom.kind === 'ci' ? [index] : [];
     });
     result.scope = {
       taskId: context.task.id,
@@ -3038,6 +3117,10 @@ export async function revalidateEvidence(
         // Decision atoms reference brain_decisions rows which are immutable
         // once accepted/proposed. Re-validation is not performed at complete
         // time — the DB row is trusted as captured at verify time.
+        break;
+      case 'ci':
+        // T12634: check conclusions on a merge commit are immutable once
+        // completed; the atom is trusted as captured, like `pr:`.
         break;
       case 'pr':
         // PR atoms capture (prNumber, mergedAt, mergeCommitSha) at verify

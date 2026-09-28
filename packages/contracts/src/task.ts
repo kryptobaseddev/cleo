@@ -366,6 +366,45 @@ export type EvidenceAtom =
     }
   | {
       /**
+       * Merge-commit CI result (owner decision D11149): every required check
+       * completed with `success` on the merged PR's actual merge commit.
+       * Satisfies `testsPassed` / `qaPassed` only when the project sets
+       * `evidence.ciSatisfies: true`.
+       *
+       * @task T12634
+       */
+      kind: 'ci';
+      /** PR number (positive integer). */
+      prNumber: number;
+      /** Merge commit SHA (full 40-char hex) the checks ran on. */
+      mergeCommitSha: string;
+      /**
+       * The required checks, their conclusions and the commit each was judged
+       * on: the merge commit itself, or (T12634) the final PR head when its
+       * tree is identical to the merge commit's.
+       */
+      checks: Array<{
+        name: string;
+        conclusion: string;
+        sha: string;
+        /** GitHub App that posted the judged run (slug, else id). */
+        app?: string;
+        /** Workflow file of the judged run, when known. */
+        workflow?: string;
+        /** Event of the judged run (`push`, `pull_request`, …), when known. */
+        event?: string;
+      }>;
+      /** Tree of the merge commit — the content every recorded check tested. */
+      testedTree?: string;
+      /** Task the PR was verified to be linked to (T12634). */
+      taskId?: string;
+      /** Which configured checks attest each gate (`evidence.ciChecks`). */
+      gateChecks?: { testsPassed?: string[]; qaPassed?: string[] };
+      /** Where the required-check list came from (env, project context, branch protection). */
+      requiredSource: string;
+    }
+  | {
+      /**
        * Satisfies atom — cross-task acceptance-criterion binding per
        * ADR-079-r2.
        *
