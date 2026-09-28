@@ -31,8 +31,10 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { readdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, dirname, parse, resolve } from 'node:path';
+import { basename, dirname, join, parse, resolve, sep } from 'node:path';
 import type {
   NexusRegistryFinding,
   NexusRegistryFindingKind,
@@ -46,19 +48,22 @@ import { readDeclaredProjectIdentity } from '@cleocode/paths';
 import { eq, inArray, or } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { readCheckoutNonce } from '../nexus/checkout-nonce.js';
+import { type CheckoutEvidence, collectCheckoutEvidence } from '../nexus/identity.js';
 import {
   confirmProjectLocation,
   currentDeviceId,
   demoteProjectLocation,
+  holdingKey,
   isSupersededRegistryPath,
   LOCAL_DEVICE_SENTINEL,
   type PathMapWriter,
   type ProjectHolding,
   probeProjectHolding,
 } from '../nexus/path-map.js';
-import { walkForCleoBounded } from '../nexus/projects-scan.js';
+import { walkForCleoBounded, withinBudget } from '../nexus/projects-scan.js';
 import { isEphemeralPath } from '../nexus/registry-hygiene.js';
 import { getCleoHome } from '../paths.js';
+import { isStrictlyInsideDir, readValidProjectTombstone } from '../project-tombstone.js';
 import type {
   ProjectLocationRow,
   ProjectPathRow,
@@ -93,6 +98,7 @@ const FINDING_KINDS: readonly NexusRegistryFindingKind[] = [
   'moved',
   'ambiguous',
   'split',
+  'possible-split',
   'missing',
   'temp',
   'root',
@@ -143,6 +149,7 @@ interface LocationView {
   readonly state: string;
   readonly checkoutNonce: string | null;
   readonly gitRemote: string | null;
+  readonly gitRootCommit: string | null;
 }
 
 /** Everything one inspection gathered; apply works from it. */
@@ -237,19 +244,75 @@ async function openRegistry(cleoHome: string) {
   };
 }
 
-/** Scan `roots` and read the id each found project declares. */
+/**
+ * Scan `roots` and read the id each found project declares. Every `.cleo/`
+ * is first read asynchronously within the budget; only a directory that
+ * answered in time is read synchronously, so one hung mount cannot stall the
+ * scan. Projects in a trash directory are never candidates.
+ */
 async function scanRoots(
   roots: readonly string[],
   opts: Required<Pick<ProjectRegistryScanOptions, 'maxDepth' | 'concurrency' | 'timeoutMs'>>,
 ): Promise<{ projects: ScannedProject[]; timedOut: string[]; unreadable: string[] }> {
-  const walked = await walkForCleoBounded(roots, opts);
+  const walked = await walkForCleoBounded(
+    roots.filter((root) => !isTrashPath(root)),
+    opts,
+  );
+  const timedOut = [...walked.timedOut];
+  const unreadable = [...walked.unreadable];
+  const found = walked.found.filter((path) => !isTrashPath(path));
+  const answered = await runWithConcurrency(found, opts.concurrency, async (path) => {
+    const read = await withinBudget(
+      readdir(join(path, '.cleo')).then(
+        () => 'ok' as const,
+        () => 'unreadable' as const,
+      ),
+      opts.timeoutMs,
+    );
+    if (read === 'timeout') timedOut.push(path);
+    else if (read === 'unreadable') unreadable.push(path);
+    return read === 'ok';
+  });
   const projects: ScannedProject[] = [];
-  for (const path of walked.found) {
+  found.forEach((path, index) => {
+    if (!answered[index]) return;
     const declared = readDeclaredProjectIdentity(path);
-    if (!declared) continue;
+    if (!declared) return;
     projects.push({ path, projectId: declared.projectId, nonce: readCheckoutNonce(path) });
-  }
-  return { projects, timedOut: walked.timedOut, unreadable: walked.unreadable };
+  });
+  return { projects, timedOut: timedOut.sort(), unreadable: unreadable.sort() };
+}
+
+/** Path segments that mark a trash directory (macOS, Windows, freedesktop). */
+const TRASH_SEGMENTS: ReadonlySet<string> = new Set(['.trash', '.trashes', '$recycle.bin']);
+
+/**
+ * Whether `path` lies in a trash directory. A project the owner trashed is
+ * never a move target, and its registry row may be cleaned.
+ *
+ * @param path - Absolute path.
+ * @returns `true` inside `.Trash`, `.Trashes`, `$RECYCLE.BIN` or `.local/share/Trash`.
+ *
+ * @example
+ * ```ts
+ * isTrashPath('/Users/me/.Trash/app'); // true
+ * ```
+ */
+export function isTrashPath(path: string): boolean {
+  const segments = resolve(path)
+    .split(sep)
+    .map((segment) => segment.toLowerCase());
+  return segments.some(
+    (segment, i) =>
+      TRASH_SEGMENTS.has(segment) ||
+      (segment === 'trash' && segments[i - 1] === 'share' && segments[i - 2] === '.local'),
+  );
+}
+
+/** `true` when `inner` is strictly inside `outer`, compared lexically. */
+function isLexicallyInside(outer: string, inner: string): boolean {
+  const o = resolve(outer);
+  return resolve(inner).startsWith(o.endsWith(sep) ? o : o + sep);
 }
 
 /**
@@ -268,7 +331,7 @@ function scanRootsFor(paths: readonly string[], extra: readonly string[]): strin
   return [...roots].sort();
 }
 
-/** The remedy for a split identity. */
+/** The remedy for a split proven by shared repository evidence. */
 function splitRemedy(row: RegistryRowView, peer: NexusRegistrySplitPeer): string {
   const keepPeer = `to keep ${peer.projectId}: review \`cleo nexus show ${row.projectId}\`, then \`cleo nexus unregister ${row.projectId}\``;
   const keepRow =
@@ -278,83 +341,151 @@ function splitRemedy(row: RegistryRowView, peer: NexusRegistrySplitPeer): string
   return `Owner decision — CLEO never merges ids. ${keepPeer}; or ${keepRow}.`;
 }
 
-/** Classify one row whose registered path provably no longer holds it. */
-function classifyGone(
-  row: RegistryRowView,
-  ctx: {
-    byId: Map<string, ScannedProject[]>;
-    scanned: readonly ScannedProject[];
-    registered: Map<string, RegistryRowView>;
-    linked: (a: string, b: string) => boolean;
-    recordedNonces: Set<string>;
-    localState: string | null;
-    cleoHome: string;
-  },
-): PlannedFinding {
+/** Why a scanned path that declares a row's id is not a rebind target, or `null`. */
+function ineligibleTarget(
+  target: ScannedProject,
+  mine: readonly LocationView[],
+  cleoHome: string,
+): string | null {
+  if (isTrashPath(target.path)) return 'it is in the trash';
+  if (isLexicallyInside(cleoHome, target.path)) return 'it is inside the CLEO home (a worktree)';
+  if (readValidProjectTombstone(target.path))
+    return 'it holds a valid reroot tombstone (the project was rerooted away from it)';
+  // #1606 reroot geometry: the location was demoted to missing while a
+  // location strictly inside it became the project's home.
+  const here = mine.find((l) => l.path === target.path);
+  if (
+    here?.state === 'missing' &&
+    mine.some((l) => l.path !== target.path && isStrictlyInsideDir(target.path, l.path))
+  )
+    return 'the project was rerooted away from it (its location is recorded missing)';
+  return null;
+}
+
+/** Per-row facts {@link classifyGone} reads. */
+interface GoneContext {
+  readonly byId: Map<string, ScannedProject[]>;
+  readonly scanned: readonly ScannedProject[];
+  readonly registered: Map<string, RegistryRowView>;
+  readonly linked: (a: string, b: string) => boolean;
+  /** This device's locations of the row's id. */
+  readonly mine: readonly LocationView[];
+  /** What the registered path holds now (L4 wording). */
+  readonly gone: 'path' | 'cleo' | { declares: string } | 'sentinel';
+  readonly cleoHome: string;
+  /** Repository evidence of a checkout, bounded by the probe budget. */
+  readonly evidenceOf: (path: string) => Promise<CheckoutEvidence | null>;
+}
+
+/**
+ * Classify one row whose registered path provably no longer holds it.
+ *
+ * A row is rebound only to a path whose untracked checkout NONCE equals one
+ * recorded for the id (T12470 · #1606): the committed id alone is forgeable
+ * (a clone, a copied `.cleo/project-id`), so an id-only match is reported
+ * with the explicit `project-identity --resolve` remedy and never applied.
+ */
+async function classifyGone(row: RegistryRowView, ctx: GoneContext): Promise<PlannedFinding> {
   const base = { projectId: row.projectId, name: row.name, projectPath: row.projectPath };
+  const recordedNonces = new Set(
+    ctx.mine.map((l) => l.checkoutNonce).filter((n): n is string => n !== null),
+  );
   const elsewhere = (ctx.byId.get(row.projectId) ?? []).filter((p) => p.path !== row.projectPath);
-  const provenMoves = elsewhere.filter((p) => p.nonce !== null && ctx.recordedNonces.has(p.nonce));
-  const target =
-    elsewhere.length === 1 ? elsewhere[0] : provenMoves.length === 1 ? provenMoves[0] : null;
+  const excluded = elsewhere
+    .map((p) => ({ p, reason: ineligibleTarget(p, ctx.mine, ctx.cleoHome) }))
+    .filter((x): x is { p: ScannedProject; reason: string } => x.reason !== null);
+  const eligible = elsewhere.filter((p) => !excluded.some((x) => x.p === p));
+  const proven = eligible.filter((p) => p.nonce !== null && recordedNonces.has(p.nonce));
+  const foundAt = elsewhere.map((p) => p.path);
+  const target = proven.length === 1 ? proven[0] : undefined;
   if (target) {
-    const proof =
-      target.nonce !== null && ctx.recordedNonces.has(target.nonce) ? 'nonce' : 'id-only';
     return {
       finding: {
         ...base,
         kind: 'moved',
-        message: `${row.projectId} is no longer at ${row.projectPath}; ${target.path} declares it (${proof === 'nonce' ? 'its checkout nonce matches, a real move' : 'the committed id matches'}).`,
+        message: `${row.projectId} is no longer at ${row.projectPath}; ${target.path} declares it and its checkout nonce matches (a real move).`,
         remedy: `${DOCTOR_COMMAND} --apply   (rebinds the row to ${target.path}; permissions stay with the row)`,
         applicable: true,
-        foundAt: elsewhere.map((p) => p.path),
-        proof,
+        foundAt,
+        proof: 'nonce',
       },
       rebindTo: { path: target.path, nonce: target.nonce },
     };
   }
-  if (elsewhere.length > 1) {
+  if (proven.length > 1) {
     return {
       finding: {
         ...base,
         kind: 'ambiguous',
-        message: `${row.projectId} is no longer at ${row.projectPath}; ${elsewhere.length} paths declare it and none is proven by its checkout nonce.`,
-        remedy: `cd into the checkout to keep and run \`cleo doctor project-identity --resolve\` (candidates: ${elsewhere.map((p) => `"${p.path}"`).join(', ')})`,
+        message: `${row.projectId} is no longer at ${row.projectPath}; ${proven.length} paths carry its checkout nonce (copies of one checkout).`,
+        remedy: `cd into the checkout to keep and run \`cleo doctor project-identity --resolve\` (candidates: ${proven.map((p) => `"${p.path}"`).join(', ')})`,
         applicable: false,
-        foundAt: elsewhere.map((p) => p.path),
+        foundAt,
+        proof: 'nonce',
       },
     };
   }
-  const name = isSupersededRegistryPath(row.projectPath) ? row.name : basename(row.projectPath);
-  const peers: NexusRegistrySplitPeer[] = ctx.scanned
-    .filter(
-      (p) =>
-        p.projectId !== row.projectId &&
-        !ctx.linked(p.projectId, row.projectId) &&
-        (basename(p.path) === name || basename(p.path) === row.name),
-    )
-    .map((p) => ({
-      projectId: p.projectId,
-      projectPath: p.path,
-      registered: ctx.registered.has(p.projectId),
-      matchedBy: 'name' as const,
-    }));
-  const peer = peers[0];
+  if (elsewhere.length > 0) {
+    const why = excluded.map((x) => `${x.p.path}: ${x.reason}`).join('; ');
+    const candidates = eligible.map((p) => `"${p.path}"`).join(', ');
+    return {
+      finding: {
+        ...base,
+        kind: 'moved',
+        message:
+          `${row.projectId} is no longer at ${row.projectPath}. ` +
+          (eligible.length > 0
+            ? `${candidates} declare${eligible.length === 1 ? 's' : ''} the id, but no checkout nonce proves a move (a clone or a copied .cleo/project-id declares it too).`
+            : 'Every path that declares the id is excluded.') +
+          (why ? ` Not a target — ${why}.` : ''),
+        remedy:
+          eligible.length > 0
+            ? `If it IS the project, confirm explicitly: cd into it and run \`cleo doctor project-identity --resolve\` (${candidates}). Never applied automatically.`
+            : `Inspect the paths listed; if the project left this device, the row can stay (\`cleo nexus unregister ${row.projectId}\` only when it is gone for good).`,
+        applicable: false,
+        foundAt,
+        proof: 'id-only',
+      },
+    };
+  }
+
+  const split = await splitPeers(row, ctx);
+  const localState = ctx.mine.find((l) => l.path === row.projectPath)?.state ?? null;
+  const markMissing = ctx.gone !== 'sentinel' && localState !== 'missing';
+  const byEvidence = split.filter((peer) => peer.matchedBy !== 'name');
+  const peer = byEvidence[0];
   if (peer) {
     return {
       finding: {
         ...base,
         kind: 'split',
-        message: `Split identity: ${row.projectId} is gone from ${row.projectPath}, and ${peer.projectPath} holds the same-named project under ${peer.projectId} (a re-minted id).`,
+        message: `Split identity: ${row.projectId} is gone from ${row.projectPath}, and ${peer.projectPath} holds the same repository (${peer.matchedBy === 'remote' ? 'git remote' : 'root commit'}) under ${peer.projectId} (a re-minted id).`,
         remedy: splitRemedy(row, peer),
         applicable: false,
-        splitWith: peers,
+        splitWith: byEvidence,
       },
     };
   }
-  if (
-    !isSupersededRegistryPath(row.projectPath) &&
-    isTempRegistryPath(row.projectPath, ctx.cleoHome)
-  ) {
+  const named = split[0];
+  if (named) {
+    return {
+      finding: {
+        ...base,
+        kind: 'possible-split',
+        message: `${row.projectId} is gone from ${row.projectPath}; ${named.projectPath} has the same name under ${named.projectId}, but no repository evidence ties them — it may be an unrelated project.`,
+        remedy:
+          `Inspect only — compare \`cleo nexus show ${row.projectId}\` with "${named.projectPath}" (its git log and .cleo/project-id). ` +
+          "Never change the other project's id or registry row on a name match alone." +
+          (markMissing
+            ? ` \`${DOCTOR_COMMAND} --apply\` records ${row.projectId}'s location as missing and keeps its row.`
+            : ''),
+        applicable: markMissing,
+        splitWith: split,
+      },
+      markMissing,
+    };
+  }
+  if (ctx.gone === 'path' && isTempRegistryPath(row.projectPath, ctx.cleoHome)) {
     return {
       finding: {
         ...base,
@@ -365,25 +496,62 @@ function classifyGone(
       },
     };
   }
-  const alreadyMissing = ctx.localState === 'missing';
-  const sentinel = isSupersededRegistryPath(row.projectPath);
+  const where =
+    ctx.gone === 'sentinel'
+      ? `${row.projectId} has no live location on this device`
+      : ctx.gone === 'path'
+        ? `${row.projectPath} no longer exists`
+        : ctx.gone === 'cleo'
+          ? `${row.projectPath} exists but has no .cleo/ (the project was moved out of it)`
+          : `${row.projectPath}/.cleo now declares ${ctx.gone.declares}, not ${row.projectId}`;
   return {
     finding: {
       ...base,
       kind: 'missing',
-      message: sentinel
-        ? `${row.projectId} has no live location on this device, and no scanned path declares it.`
-        : `${row.projectPath} no longer exists, and no scanned path declares ${row.projectId}.`,
+      message: `${where}, and no scanned path declares ${row.projectId}.`,
       remedy:
         `If it moved, scan its new parent: \`${DOCTOR_COMMAND} --roots <dir>\`. ` +
         `If it is gone for good: \`cleo nexus unregister ${row.projectId}\`.` +
-        (sentinel || alreadyMissing
-          ? ''
-          : ` \`${DOCTOR_COMMAND} --apply\` records the location as missing and keeps the row.`),
-      applicable: !sentinel && !alreadyMissing,
+        (markMissing
+          ? ` \`${DOCTOR_COMMAND} --apply\` records the location as missing and keeps the row.`
+          : ''),
+      applicable: markMissing,
     },
-    markMissing: !sentinel && !alreadyMissing,
+    markMissing,
   };
+}
+
+/**
+ * Scanned projects with the row's name under another id. A peer whose
+ * repository evidence (git remote or root commit, recorded for the row and
+ * read from the peer) matches is tagged by that evidence; otherwise `name`.
+ */
+async function splitPeers(
+  row: RegistryRowView,
+  ctx: GoneContext,
+): Promise<NexusRegistrySplitPeer[]> {
+  const name = isSupersededRegistryPath(row.projectPath) ? row.name : basename(row.projectPath);
+  const remotes = new Set(ctx.mine.map((l) => l.gitRemote).filter((v): v is string => !!v));
+  const commits = new Set(ctx.mine.map((l) => l.gitRootCommit).filter((v): v is string => !!v));
+  const peers: NexusRegistrySplitPeer[] = [];
+  for (const p of ctx.scanned) {
+    if (p.projectId === row.projectId || ctx.linked(p.projectId, row.projectId)) continue;
+    if (basename(p.path) !== name && basename(p.path) !== row.name) continue;
+    const evidence = remotes.size > 0 || commits.size > 0 ? await ctx.evidenceOf(p.path) : null;
+    const matchedBy =
+      evidence?.gitRemote && remotes.has(evidence.gitRemote)
+        ? 'remote'
+        : evidence?.gitRootCommit && commits.has(evidence.gitRootCommit)
+          ? 'root-commit'
+          : 'name';
+    peers.push({
+      projectId: p.projectId,
+      projectPath: p.path,
+      registered: ctx.registered.has(p.projectId),
+      matchedBy,
+    });
+  }
+  return peers;
 }
 
 /** Classify one row whose registered path still holds it. */
@@ -442,11 +610,7 @@ function classifyHeld(
 /** Gather registry state, probe, scan and classify. Read-only. */
 async function inspect(opts: ProjectRegistryScanOptions): Promise<Inspection> {
   const cleoHome = opts.cleoHome ?? getCleoHome();
-  const budget = {
-    maxDepth: Math.max(0, Math.min(opts.maxDepth ?? DEFAULT_MAX_DEPTH, 20)),
-    concurrency: Math.max(1, opts.concurrency ?? DEFAULT_CONCURRENCY),
-    timeoutMs: Math.max(1, opts.timeoutMs ?? DEFAULT_TIMEOUT_MS),
-  };
+  const budget = scanBudget(opts);
   const { db, storePath, projectRegistry, projectLocations, projectIdAliases } =
     await openRegistry(cleoHome);
   const rows: RegistryRowView[] = db
@@ -465,6 +629,7 @@ async function inspect(opts: ProjectRegistryScanOptions): Promise<Inspection> {
       state: projectLocations.state,
       checkoutNonce: projectLocations.checkoutNonce,
       gitRemote: projectLocations.gitRemote,
+      gitRootCommit: projectLocations.gitRootCommit,
     })
     .from(projectLocations)
     .all();
@@ -480,6 +645,13 @@ async function inspect(opts: ProjectRegistryScanOptions): Promise<Inspection> {
   const linked = (a: string, b: string): boolean =>
     aliasPairs.has(`${a}\u0000${b}`) || aliasPairs.has(`${b}\u0000${a}`);
   const registered = new Map(rows.map((row) => [row.projectId, row]));
+  const localById = new Map<string, LocationView[]>();
+  for (const l of locations) {
+    if (!local(l)) continue;
+    const list = localById.get(l.projectId) ?? [];
+    list.push(l);
+    localById.set(l.projectId, list);
+  }
 
   const roots = scanRootsFor(
     rows.map((row) => row.projectPath),
@@ -493,11 +665,23 @@ async function inspect(opts: ProjectRegistryScanOptions): Promise<Inspection> {
     byId.set(project.projectId, list);
   }
 
-  // Registered rows sharing one git remote on this device are one project under two ids.
+  // Registered rows sharing one git remote on this device are one project
+  // under two ids — unless one is nested inside another registered project
+  // (a fixture project inside a repo shares the repo's remote).
+  const realPaths = rows.filter((r) => !isSupersededRegistryPath(r.projectPath));
+  const nested = new Set(
+    realPaths
+      .filter((r) =>
+        realPaths.some(
+          (o) => o.projectId !== r.projectId && isLexicallyInside(o.projectPath, r.projectPath),
+        ),
+      )
+      .map((r) => r.projectId),
+  );
   const remoteOf = new Map<string, string>();
   for (const l of locations) {
     const row = registered.get(l.projectId);
-    if (l.gitRemote && row && l.path === row.projectPath && local(l))
+    if (l.gitRemote && row && l.path === row.projectPath && local(l) && !nested.has(l.projectId))
       remoteOf.set(l.projectId, l.gitRemote);
   }
 
@@ -510,63 +694,77 @@ async function inspect(opts: ProjectRegistryScanOptions): Promise<Inspection> {
     return probeProjectHolding(row.projectPath, row.projectId, budget.timeoutMs);
   });
 
-  const planned: PlannedFinding[] = rows.map((row, index) => {
-    const holding = holdings[index];
-    const base = { projectId: row.projectId, name: row.name, projectPath: row.projectPath };
-    if (holding === 'other-device') {
-      return {
-        finding: {
-          ...base,
-          kind: 'other-device',
-          message: `${row.projectPath} was recorded on another device; it is not probed here.`,
-          remedy: null,
-          applicable: false,
-        },
-      };
-    }
-    if (holding === 'unknown') {
-      return {
-        finding: {
-          ...base,
-          kind: 'unreadable',
-          message: `${row.projectPath}/.cleo could not be read (permission denied or timed out). Only a missing path proves a project gone, so the row is kept as is.`,
-          remedy: `Check access to "${row.projectPath}" (\`ls -ld "${row.projectPath}/.cleo"\`), then re-run \`${DOCTOR_COMMAND}\``,
-          applicable: false,
-        },
-      };
-    }
-    if (holding === 'yes') {
-      const remote = remoteOf.get(row.projectId);
-      const peers: NexusRegistrySplitPeer[] = remote
-        ? rows
-            .filter(
-              (other) =>
-                other.projectId !== row.projectId &&
-                remoteOf.get(other.projectId) === remote &&
-                !linked(other.projectId, row.projectId),
-            )
-            .map((other) => ({
-              projectId: other.projectId,
-              projectPath: other.projectPath,
-              registered: true,
-              matchedBy: 'remote' as const,
-            }))
-        : [];
-      return classifyHeld(row, peers, cleoHome);
-    }
-    const mine = locations.filter((l) => l.projectId === row.projectId && local(l));
-    return classifyGone(row, {
-      byId,
-      scanned: scan.projects,
-      registered,
-      linked,
-      recordedNonces: new Set(
-        mine.map((l) => l.checkoutNonce).filter((n): n is string => n !== null),
-      ),
-      localState: mine.find((l) => l.path === row.projectPath)?.state ?? null,
-      cleoHome,
-    });
-  });
+  const evidence = new Map<string, Promise<CheckoutEvidence | null>>();
+  const evidenceOf = (path: string): Promise<CheckoutEvidence | null> => {
+    const cached = evidence.get(path);
+    if (cached) return cached;
+    const pending = withinBudget(
+      collectCheckoutEvidence(path).catch(() => null),
+      budget.timeoutMs,
+    ).then((settled) => (settled === 'timeout' ? null : settled));
+    evidence.set(path, pending);
+    return pending;
+  };
+
+  const planned: PlannedFinding[] = await runWithConcurrency(
+    rows,
+    budget.concurrency,
+    async (row, index): Promise<PlannedFinding> => {
+      const holding = holdings[index];
+      const base = { projectId: row.projectId, name: row.name, projectPath: row.projectPath };
+      if (holding === 'other-device') {
+        return {
+          finding: {
+            ...base,
+            kind: 'other-device',
+            message: `${row.projectPath} was recorded on another device; it is not probed here.`,
+            remedy: null,
+            applicable: false,
+          },
+        };
+      }
+      if (holding === 'unknown') {
+        return {
+          finding: {
+            ...base,
+            kind: 'unreadable',
+            message: `${row.projectPath}/.cleo could not be read (permission denied or timed out). Only a missing path proves a project gone, so the row is kept as is.`,
+            remedy: `Check access to "${row.projectPath}" (\`ls -ld "${row.projectPath}/.cleo"\`), then re-run \`${DOCTOR_COMMAND}\``,
+            applicable: false,
+          },
+        };
+      }
+      if (holding === 'yes') {
+        const remote = remoteOf.get(row.projectId);
+        const peers: NexusRegistrySplitPeer[] = remote
+          ? rows
+              .filter(
+                (other) =>
+                  other.projectId !== row.projectId &&
+                  remoteOf.get(other.projectId) === remote &&
+                  !linked(other.projectId, row.projectId),
+              )
+              .map((other) => ({
+                projectId: other.projectId,
+                projectPath: other.projectPath,
+                registered: true,
+                matchedBy: 'remote' as const,
+              }))
+          : [];
+        return classifyHeld(row, peers, cleoHome);
+      }
+      return classifyGone(row, {
+        byId,
+        scanned: scan.projects,
+        registered,
+        linked,
+        mine: localById.get(row.projectId) ?? [],
+        gone: goneShape(row),
+        cleoHome,
+        evidenceOf,
+      });
+    },
+  );
 
   const counts = Object.fromEntries(FINDING_KINDS.map((kind) => [kind, 0])) as Record<
     NexusRegistryFindingKind,
@@ -587,6 +785,29 @@ async function inspect(opts: ProjectRegistryScanOptions): Promise<Inspection> {
       findings: planned.filter((p) => p.finding.kind !== 'ok').map((p) => p.finding),
     },
     planned,
+  };
+}
+
+/**
+ * What a registered path that provably no longer holds its project holds
+ * now. Read only after the bounded probe answered `no`, so these reads hit a
+ * directory that already responded.
+ */
+function goneShape(row: RegistryRowView): GoneContext['gone'] {
+  if (isSupersededRegistryPath(row.projectPath)) return 'sentinel';
+  const declared = readDeclaredProjectIdentity(row.projectPath);
+  if (declared && declared.projectId !== row.projectId) return { declares: declared.projectId };
+  return existsSync(join(row.projectPath, '.cleo')) || existsSync(row.projectPath)
+    ? 'cleo'
+    : 'path';
+}
+
+/** Resolve the scan budget from options. */
+function scanBudget(opts: ProjectRegistryScanOptions) {
+  return {
+    maxDepth: Math.max(0, Math.min(opts.maxDepth ?? DEFAULT_MAX_DEPTH, 20)),
+    concurrency: Math.max(1, opts.concurrency ?? DEFAULT_CONCURRENCY),
+    timeoutMs: Math.max(1, opts.timeoutMs ?? DEFAULT_TIMEOUT_MS),
   };
 }
 
@@ -741,7 +962,51 @@ function repairScope(
       .where(inArray(schema.projectRegistry.projectPath, slice))
       .all())
       ids.add(row.projectId);
+  // Every registry writer re-keys migration-backfilled (`local`) location rows
+  // to this device first (adoptLocalDeviceRows). Those rows belong to ANY
+  // project, so their ids join the scope: the before image keeps them as they
+  // were and a rollback restores them exactly.
+  for (const row of db
+    .select({ projectId: schema.projectLocations.projectId })
+    .from(schema.projectLocations)
+    .where(eq(schema.projectLocations.deviceId, LOCAL_DEVICE_SENTINEL))
+    .all())
+    ids.add(row.projectId);
   return { ids: [...ids].sort(), paths: [...new Set(touchedPaths)].sort() };
+}
+
+/**
+ * Probe, before the write transaction, every local location the writers
+ * would otherwise probe synchronously inside it (T12471): the live locations
+ * of each id in scope. Keyed by {@link holdingKey}.
+ */
+async function preProbe(
+  db: PathMapWriter,
+  schema: RegistrySchema,
+  ids: readonly string[],
+  budget: ReturnType<typeof scanBudget>,
+): Promise<Map<string, ProjectHolding>> {
+  const deviceId = currentDeviceId();
+  const targets: Array<{ projectId: string; path: string }> = [];
+  for (const slice of chunks(ids))
+    for (const l of db
+      .select({
+        projectId: schema.projectLocations.projectId,
+        path: schema.projectLocations.path,
+        deviceId: schema.projectLocations.deviceId,
+        state: schema.projectLocations.state,
+      })
+      .from(schema.projectLocations)
+      .where(inArray(schema.projectLocations.projectId, slice))
+      .all())
+      if (l.state === 'live' && (l.deviceId === deviceId || l.deviceId === LOCAL_DEVICE_SENTINEL))
+        targets.push(l);
+  const holdings = await runWithConcurrency(targets, budget.concurrency, (t) =>
+    probeProjectHolding(t.path, t.projectId, budget.timeoutMs),
+  );
+  return new Map(
+    targets.map((t, i) => [holdingKey(t.projectId, t.path), holdings[i] ?? 'unknown']),
+  );
 }
 
 /**
@@ -785,6 +1050,13 @@ export async function applyProjectRegistryRepair(
   const touchedPaths = work.flatMap((p) =>
     p.rebindTo ? [p.finding.projectPath, p.rebindTo.path] : [p.finding.projectPath],
   );
+  // Probe first, write after: no filesystem access inside the IMMEDIATE tx.
+  const probed = await preProbe(
+    db,
+    schema,
+    repairScope(db, schema, touchedIds, touchedPaths).ids,
+    scanBudget(opts),
+  );
 
   const receipt = db.transaction(
     (tx) => {
@@ -810,6 +1082,7 @@ export async function applyProjectRegistryRepair(
               projectPath: p.rebindTo.path,
               now,
               checkoutNonce: p.rebindTo.nonce,
+              probed,
             });
           actions.push({
             action: 'rebind',
@@ -976,17 +1249,14 @@ export async function locateProjectsElsewhere(
 ): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>();
   if (ids.length === 0) return out;
-  const budget = {
-    maxDepth: Math.max(0, Math.min(opts.maxDepth ?? DEFAULT_MAX_DEPTH, 20)),
-    concurrency: Math.max(1, opts.concurrency ?? DEFAULT_CONCURRENCY),
-    timeoutMs: Math.max(1, opts.timeoutMs ?? DEFAULT_TIMEOUT_MS),
-  };
+  const budget = scanBudget(opts);
   const { db, projectRegistry, projectLocations } = await openRegistry(
     opts.cleoHome ?? getCleoHome(),
   );
   const wanted = new Map(ids.map((i) => [i.projectId, i.projectPath]));
   const add = (id: string, path: string): void => {
-    if (wanted.get(id) === path) return;
+    // A trashed checkout does not keep a row alive.
+    if (wanted.get(id) === path || isTrashPath(path)) return;
     const list = out.get(id) ?? [];
     if (!list.includes(path)) list.push(path);
     out.set(id, list);

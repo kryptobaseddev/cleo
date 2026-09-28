@@ -87,6 +87,29 @@ export interface ProjectCheckoutRecord {
    * the only proof of a move. Recorded on confirmed locations only.
    */
   checkoutNonce?: string | null;
+  /**
+   * Holdings probed BEFORE the write, keyed by {@link holdingKey} (T12471).
+   * A caller that must not touch the filesystem inside its transaction (a
+   * hung mount would hold the registry's write lock) passes them here; any
+   * path not in the map is probed synchronously as before.
+   */
+  probed?: ReadonlyMap<string, ProjectHolding>;
+}
+
+/**
+ * Key of a {@link ProjectCheckoutRecord.probed} entry.
+ *
+ * @param projectId - Project the holding was probed for.
+ * @param path - Probed path.
+ * @returns The map key.
+ *
+ * @example
+ * ```ts
+ * probed.set(holdingKey(id, path), await probeProjectHolding(path, id, 2000));
+ * ```
+ */
+export function holdingKey(projectId: string, path: string): string {
+  return `${projectId}\u0000${path}`;
 }
 
 /** What {@link recordProjectCheckout} changed besides the recorded location. */
@@ -322,14 +345,17 @@ export function recordProjectCheckout(
   for (const sibling of siblings) {
     // Only a PROVABLY vanished location is marked missing; an unreadable one
     // (`unknown`) keeps its state.
-    if (projectHolding(sibling.path, record.projectId) !== 'no') continue;
+    const holding =
+      record.probed?.get(holdingKey(record.projectId, sibling.path)) ??
+      projectHolding(sibling.path, record.projectId);
+    if (holding !== 'no') continue;
     db.update(projectLocations)
       .set({ state: 'missing' })
       .where(locationKey(record.projectId, deviceId, sibling.path))
       .run();
     markedMissing++;
   }
-  rehomeDisplacedRows(db, record.projectId, record.projectPath, deviceId);
+  rehomeDisplacedRows(db, record.projectId, record.projectPath, deviceId, record.probed);
 
   // Legacy path map, dual-written for older binaries (upsert only; see header).
   db.insert(projectPaths)
@@ -669,6 +695,7 @@ export function confirmProjectLocation(db: PathMapWriter, record: ProjectCheckou
  * @param projectId - The project that now holds `projectPath`.
  * @param projectPath - The path that changed hands.
  * @param deviceId - This device's stable id.
+ * @param probed - Holdings probed before the transaction ({@link holdingKey}).
  * @returns Number of registry rows re-homed.
  */
 export function rehomeDisplacedRows(
@@ -676,6 +703,7 @@ export function rehomeDisplacedRows(
   projectId: string,
   projectPath: string,
   deviceId: string,
+  probed?: ReadonlyMap<string, ProjectHolding>,
 ): number {
   const displaced = db
     .select({ projectId: projectRegistry.projectId })
@@ -699,9 +727,15 @@ export function rehomeDisplacedRows(
       .orderBy(desc(projectLocations.lastSeen))
       .all();
     // A candidate must exist on disk and not already name another registry row.
+    // A pre-probed holding answers without touching the filesystem (T12471):
+    // only a location that still holds the displaced project may take its row.
+    const present = (path: string): boolean => {
+      const holding = probed?.get(holdingKey(row.projectId, path));
+      return holding === undefined ? existsSync(path) : holding === 'yes';
+    };
     const home = candidates.find(
       (c) =>
-        existsSync(c.path) &&
+        present(c.path) &&
         db
           .select({ projectId: projectRegistry.projectId })
           .from(projectRegistry)

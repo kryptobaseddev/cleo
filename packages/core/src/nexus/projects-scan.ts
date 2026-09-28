@@ -75,6 +75,15 @@ const SKIP_DIRS = new Set([
   'venv',
   '.tox',
   'vendor',
+  // T12471: never scan the trash, OS/app state, or CLEO's own worktree homes
+  // (`~/Library/Application Support/cleo`, `~/.local/share/cleo`) for projects.
+  '.Trash',
+  '.Trashes',
+  '$RECYCLE.BIN',
+  'Library',
+  '.local',
+  '.npm',
+  '.pnpm-store',
 ]);
 
 /**

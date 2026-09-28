@@ -1570,6 +1570,7 @@ const projectsCleanCommand = defineCommand({
             sample: samplePaths,
             classification,
             ...(preview.relocated ? { relocated: preview.relocated } : {}),
+            ...(preview.unreadable ? { unreadable: preview.unreadable } : {}),
           },
           {
             command: 'nexus-projects-clean-preview',
@@ -1591,6 +1592,7 @@ const projectsCleanCommand = defineCommand({
             classification,
             matchedByReason,
             ...(preview.relocated ? { relocated: preview.relocated } : {}),
+            ...(preview.unreadable ? { unreadable: preview.unreadable } : {}),
           },
           {
             command: 'nexus-projects-clean',
@@ -1658,6 +1660,7 @@ const projectsCleanCommand = defineCommand({
           matchedByReason: result.matchedByReason,
           receipt: result.receipt,
           ...(result.relocated ? { relocated: result.relocated } : {}),
+          ...(result.unreadable ? { unreadable: result.unreadable } : {}),
         },
         {
           command: 'nexus-projects-clean',

@@ -1531,6 +1531,20 @@ export interface NexusProjectsCleanResult {
    * path (T12471): the project moved, it is not an orphan. Absent when none.
    */
   relocated?: NexusProjectsCleanRelocated[];
+  /**
+   * Matched rows that were NOT removed because their path could not be read
+   * (EACCES, EPERM, timeout): only ENOENT/ENOTDIR or a different declared id
+   * prove a project gone (T12471). Absent when none.
+   */
+  unreadable?: NexusProjectsCleanUnreadable[];
+}
+
+/** A registry row `nexus.projects.clean` kept because its path was unreadable (T12471). */
+export interface NexusProjectsCleanUnreadable {
+  /** Immutable registry project ID. */
+  projectId: string;
+  /** Registered path that could not be read. */
+  projectPath: string;
 }
 
 /**
@@ -1552,13 +1566,24 @@ export interface NexusProjectsCleanRelocated {
  * Classification of one registry row by `cleo doctor projects` (T12471).
  *
  * - `ok` — the registered path holds the project.
- * - `moved` — the path provably no longer holds it, and exactly one other
- *   path on this device declares the id. `--apply` rebinds the row there.
- * - `ambiguous` — the path is gone and several paths declare the id; the
- *   operator confirms one with `cleo doctor project-identity --resolve`.
- * - `split` — one project under two ids: the registered path is gone and a
- *   path with the same name holds a different id (a re-minted identity), or
- *   two registered rows share a git remote. Never changed automatically.
+ * - `moved` — the path provably no longer holds it and another path on this
+ *   device declares the id. `--apply` rebinds the row only when that path's
+ *   untracked checkout nonce equals one recorded for the id (`proof:
+ *   'nonce'`); an `id-only` match (a clone, a copied `.cleo/project-id`) is
+ *   reported with the `cleo doctor project-identity --resolve` remedy and
+ *   never applied. Trash, CLEO-home, tombstoned and reroot-demoted paths are
+ *   never targets.
+ * - `ambiguous` — the path is gone and several paths carry the id's nonce;
+ *   the operator confirms one with `cleo doctor project-identity --resolve`.
+ * - `split` — one project under two ids, proven by repository evidence: the
+ *   registered path is gone and a same-named path with the same git remote or
+ *   root commit holds a different id (a re-minted identity), or two registered
+ *   rows, neither nested in another registered project, share a git remote.
+ *   Never changed automatically.
+ * - `possible-split` — the path is gone and a same-named path holds another
+ *   id, with no repository evidence tying them: informational (inspect, never
+ *   rewrite or unregister the other project). `--apply` still records the
+ *   gone location as `missing`.
  * - `missing` — the path is gone and the id was found nowhere. `--apply`
  *   records the location as `missing`; the row is kept.
  * - `temp` — the path is under a temp directory while the registry is
@@ -1573,6 +1598,7 @@ export type NexusRegistryFindingKind =
   | 'moved'
   | 'ambiguous'
   | 'split'
+  | 'possible-split'
   | 'missing'
   | 'temp'
   | 'root'
@@ -1587,8 +1613,8 @@ export interface NexusRegistrySplitPeer {
   projectPath: string;
   /** Whether the other id has its own registry row. */
   registered: boolean;
-  /** What paired the two ids: the directory name, or a shared git remote. */
-  matchedBy: 'name' | 'remote';
+  /** What paired the two ids: a shared git remote or root commit, or the directory name alone. */
+  matchedBy: 'name' | 'remote' | 'root-commit';
 }
 
 /** One registry row as classified by `cleo doctor projects` (T12471). */
@@ -1615,7 +1641,7 @@ export interface NexusRegistryFinding {
    * when only the committed id matches.
    */
   proof?: 'nonce' | 'id-only';
-  /** The other ids of a `split` identity. */
+  /** The other ids of a `split` or `possible-split` identity. */
   splitWith?: NexusRegistrySplitPeer[];
 }
 

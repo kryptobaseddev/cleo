@@ -1511,6 +1511,7 @@ export type {
   NexusProjectsCleanRelocated,
   NexusProjectsCleanRemoval,
   NexusProjectsCleanResult,
+  NexusProjectsCleanUnreadable,
   NexusProjectsListParams,
   NexusProjectsListResult,
   NexusProjectsRegisterParams,
