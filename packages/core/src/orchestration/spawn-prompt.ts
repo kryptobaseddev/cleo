@@ -46,6 +46,10 @@ import type { Task } from '@cleocode/contracts';
 import { normalizeSlug } from '../docs/slug-normalize.js';
 import { provisionIsolatedShell } from '../sdk/isolation.js';
 import { resolveSkillPath } from '../skills/skill-paths.js';
+import {
+  buildBudgetedPsycheMemoryBlock,
+  relevanceContextFromTask,
+} from './psyche-memory-budget.js';
 
 /**
  * Locate `packages/core/templates/CLEO-INJECTION.md` at runtime.
@@ -1524,131 +1528,32 @@ function buildAntiPatternBlock(): string {
  * the spawned agent its user profile, peer memory, and session context.
  * Mirrors the `computeBriefing` path in `briefing.ts` (M1 parity).
  *
+ * T12519: the block is budgeted. Operation receipts and dispatch traces are
+ * excluded. The rest is ranked by relevance to `task` and capped at
+ * `PSYCHE_MEMORY_TOKEN_BUDGET` tokens, admitting whole entries only. See
+ * `psyche-memory-budget.ts`.
+ *
  * Called only when `tier >= 1` and `retrievalBundle` is set.
- * Callers MUST NOT crash if the bundle is empty (all arrays may be empty
- * until T1147 W7 sweep ships in .132).
+ * Callers MUST NOT crash if the bundle is empty.
  *
  * @param bundle - The retrieval bundle from `buildRetrievalBundle`.
+ * @param task - The task being spawned (relevance ranking source).
+ * @param attentionDigestLines - Pre-rendered Tier-2 attention lines (T11374).
  * @returns Markdown string for the `## PSYCHE-MEMORY` section.
  *
  * @task T1260 PSYCHE E3
+ * @task T12519
  */
 function buildPsycheMemoryBlock(
   bundle: import('@cleocode/contracts').RetrievalBundle,
+  task: Task,
   attentionDigestLines?: readonly string[],
 ): string {
-  const lines: string[] = ['## PSYCHE-MEMORY'];
-  lines.push('');
-  lines.push(
-    `> Token budget used: ${bundle.tokenCounts.total} (cold=${bundle.tokenCounts.cold}, warm=${bundle.tokenCounts.warm}, hot=${bundle.tokenCounts.hot})`,
-  );
-
-  // -- Tier-2 attention digest (T11374) — budget-bounded MVI lines from the
-  //    open working-memory jots visible to the spawned task's scope. Empty when
-  //    there are no open items (the empty-attention contract: inject nothing).
-  if (attentionDigestLines && attentionDigestLines.length > 0) {
-    lines.push('');
-    lines.push(...attentionDigestLines);
-  }
-
-  // -- Cold: user profile --
-  if (bundle.cold.userProfile.length > 0) {
-    lines.push('');
-    lines.push('### User Profile');
-    for (const trait of bundle.cold.userProfile) {
-      lines.push(`- **${trait.traitKey}**: ${trait.traitValue}`);
-    }
-  }
-
-  // -- Cold: sigil card (Wave 8 T1148) --
-  if (bundle.cold.sigilCard) {
-    const s = bundle.cold.sigilCard;
-    lines.push('');
-    lines.push('### Active Peer Sigil');
-    if (s.displayName) lines.push(`- **Name**: ${s.displayName}`);
-    if (s.role) lines.push(`- **Role**: ${s.role}`);
-    if (s.cantFile) lines.push(`- **CANT file**: ${s.cantFile}`);
-    if (s.capabilityFlags) lines.push(`- **Capabilities**: ${s.capabilityFlags}`);
-  }
-
-  if (bundle.cold.peerInstructions) {
-    lines.push('');
-    lines.push('### Peer Instructions');
-    lines.push(bundle.cold.peerInstructions);
-  }
-
-  // -- Warm: peer memory --
-  if (bundle.warm.decisions.length > 0) {
-    lines.push('');
-    lines.push('### Key Decisions');
-    for (const d of bundle.warm.decisions) {
-      lines.push(`- [${d.id}] ${d.decision}`);
-    }
-  }
-
-  if (bundle.warm.peerPatterns.length > 0) {
-    lines.push('');
-    lines.push('### Patterns');
-    for (const p of bundle.warm.peerPatterns) {
-      lines.push(`- [${p.id}] ${p.pattern}`);
-    }
-  }
-
-  if (bundle.warm.peerLearnings.length > 0) {
-    lines.push('');
-    lines.push('### Learnings');
-    for (const l of bundle.warm.peerLearnings) {
-      lines.push(`- [${l.id}] ${l.insight}`);
-    }
-  }
-
-  // -- Hot: session state --
-  if (bundle.hot.sessionNarrative) {
-    lines.push('');
-    lines.push('### Session Narrative');
-    lines.push(bundle.hot.sessionNarrative);
-  }
-
-  if (bundle.hot.recentObservations.length > 0) {
-    lines.push('');
-    lines.push('### Recent Observations');
-    for (const o of bundle.hot.recentObservations) {
-      lines.push(`- [${o.id}] ${o.title}`);
-    }
-  }
-
-  if (bundle.hot.activeTasks.length > 0) {
-    lines.push('');
-    lines.push('### Active Tasks');
-    for (const t of bundle.hot.activeTasks) {
-      lines.push(`- ${t.id}: ${t.title} (${t.status})`);
-    }
-  }
-
-  // Empty bundle notice (expected until T1147 W7 sweep ships in .132).
-  // Tier-2 attention lines count as content — if the agent has open jots the
-  // block is non-empty even when the retrieval bundle is bare (T11374).
-  const hasContent =
-    (attentionDigestLines !== undefined && attentionDigestLines.length > 0) ||
-    bundle.cold.userProfile.length > 0 ||
-    bundle.cold.peerInstructions ||
-    bundle.cold.sigilCard !== undefined ||
-    bundle.warm.decisions.length > 0 ||
-    bundle.warm.peerPatterns.length > 0 ||
-    bundle.warm.peerLearnings.length > 0 ||
-    bundle.hot.sessionNarrative ||
-    bundle.hot.recentObservations.length > 0 ||
-    bundle.hot.activeTasks.length > 0;
-
-  if (!hasContent) {
-    lines.push('');
-    lines.push(
-      '> No memory context available. All entries are pending the T1147 W7 sweep (.132) ' +
-        "to promote from 'unswept-pre-T1151' to 'swept-clean'. Proceed without memory context.",
-    );
-  }
-
-  return lines.join('\n');
+  return buildBudgetedPsycheMemoryBlock({
+    bundle,
+    relevance: relevanceContextFromTask(task),
+    ...(attentionDigestLines !== undefined ? { attentionDigestLines } : {}),
+  }).block;
 }
 
 // ============================================================================
@@ -1778,7 +1683,7 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   // the Tier-2 attention digest lines into the same block (budget-bounded).
   if (tier >= 1 && input.retrievalBundle) {
     authoredSections.push(
-      buildPsycheMemoryBlock(input.retrievalBundle, input.attentionDigestLines),
+      buildPsycheMemoryBlock(input.retrievalBundle, input.task, input.attentionDigestLines),
     );
   }
   authoredSections.push(buildFilePathsBlock(taskId, outputDir, rcasdDir, testRunsDir));

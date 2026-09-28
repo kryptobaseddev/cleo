@@ -64,6 +64,7 @@ import { openCleoDbSnapshot } from '../store/open-cleo-db.js';
  */
 export const NEXUS_FALLTHROUGH_TABLES = [
   'nexus_audit_log',
+  'nexus_devices',
   'nexus_project_id_aliases',
   'nexus_project_locations',
   'nexus_project_paths',

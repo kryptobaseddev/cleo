@@ -69,7 +69,13 @@ import type {
   WorktreeHook,
 } from '@cleocode/contracts';
 import { RESOURCE_DEFERRED_CODE } from '@cleocode/contracts';
-import { destroyWorktree, runWorktreeHooks } from '@cleocode/worktree';
+import {
+  acquireWorktreeTaskLock,
+  destroyWorktree,
+  isWorktreeLockedError,
+  releaseWorktreeTaskLock,
+  runWorktreeHooks,
+} from '@cleocode/worktree';
 import { findLeastLoadedAgent } from '../agents/capacity.js';
 import { substituteCantAgentBody } from '../agents/variable-substitution.js';
 import { type EngineResult, engineError } from '../engine-result.js';
@@ -88,6 +94,7 @@ import { provisionIsolatedShell } from '../sdk/isolation.js';
 import { spawnWorktree } from '../sentient/worktree-dispatch.js';
 import { initializeDefaultAdapters, spawnRegistry } from '../spawn/adapter-registry.js';
 import { requireSpawnSession } from '../spawn/agent-identity.js';
+import { resolveSpawnLockHolder } from '../spawn/worktree-lock-holder.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { openAgentRegistryDbForComposer } from './plan.js';
 
@@ -290,6 +297,26 @@ export function toSubagentStopStatus(
     default:
       return 'partial';
   }
+}
+
+/**
+ * Decide whether a failed `spawnWorktree` may be answered with
+ * {@link runTimeoutCleanup} (T12506). Only a worktree the failing call itself
+ * created (`freshWorktreeCreated === true`, set by `createWorktree`) is ours
+ * to destroy; every other failure — including every lock error — is a
+ * refusal that leaves the existing worktree untouched.
+ *
+ * @param err - The error thrown by `spawnWorktree` / `createWorktree`.
+ * @returns True only when cleanup is safe.
+ * @task T12506
+ */
+export function shouldCleanUpFailedProvision(err: unknown): boolean {
+  if (isWorktreeLockedError(err)) return false;
+  return (
+    err !== null &&
+    typeof err === 'object' &&
+    (err as { freshWorktreeCreated?: unknown }).freshWorktreeCreated === true
+  );
 }
 
 export async function runTimeoutCleanup(
@@ -793,6 +820,10 @@ export async function orchestrateSpawnExecute(
     });
   }
 
+  // T12506 — the per-task worktree lock this call took. Released in `finally`
+  // unless the adapter left the agent running (then the agent owns it).
+  let execLock: { projectHash: string; token: string } | undefined;
+  let keepExecLock = false;
   try {
     // Get spawn registry
     await initializeDefaultAdapters();
@@ -932,7 +963,10 @@ export async function orchestrateSpawnExecute(
     let agentWorkingDirectory = cwd;
     let agentEnvOverride: Record<string, string> | undefined;
     try {
-      const worktreeResult = await spawnWorktree(cwd, { taskId });
+      const worktreeResult = await spawnWorktree(cwd, {
+        taskId,
+        holder: resolveSpawnLockHolder({ sessionId: activeSessionId, agentId: spawnAgentId }),
+      });
       // T11343 — bind the spawned agent's OWN session + identity into the
       // isolation shell so `resolveSessionIdFromEnv()` returns the agent's
       // session, never the orchestrator's most-recent active row.
@@ -946,7 +980,26 @@ export async function orchestrateSpawnExecute(
       });
       agentWorkingDirectory = isolation.cwd;
       agentEnvOverride = isolation.env;
-    } catch {
+      if (worktreeResult.lock) {
+        execLock = {
+          projectHash: worktreeResult.projectHash,
+          token: worktreeResult.lock.record.token,
+        };
+      }
+    } catch (wtErr) {
+      // T12506: a live holder owns this task's worktree. Degrading to the
+      // project root would run a SECOND agent on the same task — refuse.
+      if (isWorktreeLockedError(wtErr)) {
+        return {
+          success: false,
+          error: {
+            code: wtErr.code,
+            message: wtErr.message,
+            exitCode: wtErr.exitCode,
+            details: { taskId, holder: wtErr.holder, lockPath: wtErr.lockPath, fix: wtErr.fix },
+          },
+        };
+      }
       // Worktree provisioning failure — spawn continues without isolation.
       // This matches the graceful-degradation policy of orchestrateSpawn.
       getLogger('engine:orchestrate').warn(
@@ -1008,6 +1061,7 @@ export async function orchestrateSpawnExecute(
 
     // Execute spawn
     const result = await adapter.spawn(cleoSpawnContext);
+    keepExecLock = result.status === 'running' || result.status === 'pending';
 
     // Run declarative post-start worktree hooks after the agent is spawned.
     // Best-effort: never block the orchestration on hook failures.
@@ -1153,6 +1207,9 @@ export async function orchestrateSpawnExecute(
       },
     };
   } finally {
+    if (execLock && !keepExecLock) {
+      releaseWorktreeTaskLock(execLock.projectHash, taskId, execLock.token);
+    }
     // Release the agent-session slot once provisioning + dispatch returns.
     await admit.release().catch(() => {
       /* Idempotent release — slot already reaped (e.g. stale recovery). */
@@ -1242,6 +1299,16 @@ export async function orchestrateSpawn(
    */
   const partialState: { worktreePath?: string; worktreeBranch?: string; rootResolved?: string } =
     {};
+
+  /**
+   * T12506 — the per-task worktree lock this invocation holds. If the spawn
+   * fails after provisioning (atomicity refusal, compose error, timeout, ...)
+   * it is released in `finally`, so the orchestrator's retry is not refused
+   * with E_WORKTREE_LOCKED for the whole TTL. On success the lock stays with
+   * the spawned agent.
+   */
+  let spawnLock: { projectHash: string; token: string } | undefined;
+  let spawnSucceeded = false;
 
   /**
    * Build the E_TIMEOUT envelope AND run bounded auto-cleanup on the
@@ -1458,30 +1525,28 @@ export async function orchestrateSpawn(
         );
       }
 
-      // Unlock the worktree if it's locked (resume implies the worktree may
-      // have been left locked by a prior aborted spawn).
+      // T12506 — resume takes the per-task lock like any spawn: a live
+      // holder from another caller is refused, the same caller re-enters, a
+      // dead holder's lock is reclaimed. It never runs `git worktree unlock`
+      // and never registers the worktree for timeout cleanup: a resumed
+      // worktree holds a previous agent's work and is never destroyed.
       try {
-        execFileSync(
-          'git',
-          [
-            'worktree' /* raw-git-worktree-ok: resume fallback unlock until spawn-ops fully routes through worktree SDK */,
-            'unlock',
-            worktreePath,
-          ],
-          {
-            cwd: root,
-            timeout: 5_000,
-            stdio: ['pipe', 'pipe', 'pipe'],
-          },
-        );
-      } catch {
-        // Best-effort — if unlock fails, the worktree might still be usable.
+        const resumeLock = acquireWorktreeTaskLock({
+          projectHash: projectHashForResume,
+          taskId,
+          holder: resolveSpawnLockHolder({ sessionId: activeSessionId, agentId: spawnAgentId }),
+        });
+        spawnLock = { projectHash: projectHashForResume, token: resumeLock.record.token };
+      } catch (lockErr) {
+        if (isWorktreeLockedError(lockErr)) {
+          return engineError(lockErr.code, lockErr.message, {
+            exitCode: lockErr.exitCode,
+            details: { taskId, holder: lockErr.holder, lockPath: lockErr.lockPath },
+            fix: lockErr.fix,
+          });
+        }
+        throw lockErr;
       }
-
-      // Populate the partial state tracker so timeout cleanup can target
-      // this worktree if a later step blows the budget.
-      partialState.worktreePath = worktreePath;
-      partialState.worktreeBranch = worktreeBranch;
 
       // Build a minimal sdkWorktreeResult for downstream envelope consumers.
       sdkWorktreeResult = {
@@ -1540,6 +1605,8 @@ export async function orchestrateSpawn(
             taskId,
             spawnCloneExclude: SPAWN_CLONE_EXCLUDE_PATTERNS,
             ...(spawnScope ? { spawnScope } : {}),
+            // T12506 — recorded in the per-task worktree lock.
+            holder: resolveSpawnLockHolder({ sessionId: activeSessionId, agentId: spawnAgentId }),
           }),
           budgetCtrl.signal,
           'provision-worktree',
@@ -1548,8 +1615,18 @@ export async function orchestrateSpawn(
         worktreeBranch = sdkWorktreeResult.branch;
         // T9545 — record for the timeout supervisor so auto-cleanup can target
         // this exact worktree if a later pipeline step blows the budget.
-        partialState.worktreePath = worktreePath;
-        partialState.worktreeBranch = worktreeBranch;
+        // T12506 — only a worktree THIS spawn created is ours to clean up; a
+        // re-attached one holds a previous holder's work and is never removed.
+        if (!sdkWorktreeResult.reused) {
+          partialState.worktreePath = worktreePath;
+          partialState.worktreeBranch = worktreeBranch;
+        }
+        if (sdkWorktreeResult.lock) {
+          spawnLock = {
+            projectHash: sdkWorktreeResult.projectHash,
+            token: sdkWorktreeResult.lock.record.token,
+          };
+        }
         const extResult =
           sdkWorktreeResult as import('@cleocode/contracts').CreateWorktreeResult & {
             appliedExcludePatterns?: string[];
@@ -1563,6 +1640,33 @@ export async function orchestrateSpawn(
           { taskId, err: wtErr },
           `T1878 worktree provisioning failed for ${taskId}: ${message}`,
         );
+
+        // T12506 — cleanup runs ONLY for a worktree THIS invocation freshly
+        // created (createWorktree flags it). Every other failure — a lock
+        // refusal, a lock I/O error, a dirty branch, an invalid path, a
+        // failure while re-attaching — left a pre-existing, possibly live
+        // worktree behind, and destroyWorktree(force, deleteBranch) would
+        // delete its holder's work.
+        if (!shouldCleanUpFailedProvision(wtErr)) {
+          const refusalCode = (wtErr as { code?: unknown } | null)?.code;
+          const code =
+            typeof refusalCode === 'string' && refusalCode.startsWith('E_')
+              ? refusalCode
+              : 'E_WORKTREE_PROVISION_FAILED';
+          return engineError(code, message, {
+            ...(isWorktreeLockedError(wtErr) ? { exitCode: wtErr.exitCode } : {}),
+            details: {
+              taskId,
+              cleanup: 'skipped — no worktree was created by this spawn; nothing was removed',
+              ...(isWorktreeLockedError(wtErr)
+                ? { holder: wtErr.holder, lockPath: wtErr.lockPath, reason: wtErr.reason }
+                : {}),
+            },
+            fix: isWorktreeLockedError(wtErr)
+              ? wtErr.fix
+              : `Inspect the existing worktree/branch for ${taskId} (\`git worktree list\`, \`git branch --list task/${taskId}\`); nothing was removed.`,
+          });
+        }
 
         // T10078 — best-effort cleanup of any partially-provisioned worktree.
         // If createWorktree partially succeeded (e.g. git worktree add ran but
@@ -1682,6 +1786,7 @@ export async function orchestrateSpawn(
     // Return shape: `prompt` at the top level is the primary payload every
     // caller should consume. `atomicity` + `meta` surface the T932 composer
     // guarantees. `spawnContext` mirrors the prompt for legacy readers.
+    spawnSucceeded = true;
     return {
       success: true,
       data: {
@@ -1726,5 +1831,9 @@ export async function orchestrateSpawn(
   } finally {
     // T9545 — always release the budget timer so the Node event loop can exit.
     clearTimeout(budgetTimer);
+    // T12506 — a failed spawn must not keep the task locked for the TTL.
+    if (spawnLock && !spawnSucceeded) {
+      releaseWorktreeTaskLock(spawnLock.projectHash, taskId, spawnLock.token);
+    }
   }
 }

@@ -226,6 +226,14 @@ const CLEO_ERROR_REGISTRY: CleoRegistryEntry[] = [
     retryable: true,
     httpStatus: 428,
   },
+  {
+    exitCode: ExitCode.WORKTREE_LOCKED,
+    lafsCode: 'E_WORKTREE_LOCKED',
+    category: 'CONFLICT',
+    description: 'Task worktree is locked by a live holder',
+    retryable: true,
+    httpStatus: 409,
+  },
 
   // Session errors (30-39)
   {

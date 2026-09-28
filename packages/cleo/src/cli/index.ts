@@ -522,6 +522,19 @@ async function runMainWithLafsEnvelope(
           `[cleo][debug] Project encounter not recorded: ${error instanceof Error ? error.message : String(error)}\n`,
         );
     }
+    // T12510 — heartbeat this device into `nexus_devices`. Throttled to one
+    // write per minute (a `stat` inside the interval); never fails the command.
+    try {
+      const { heartbeatThisDevice } = await import('@cleocode/core/internal');
+      const outcome = await heartbeatThisDevice();
+      if (process.env['CLEO_DEBUG'])
+        process.stderr.write(`[cleo][debug] Device heartbeat: ${outcome}\n`);
+    } catch (error) {
+      if (process.env['CLEO_DEBUG'])
+        process.stderr.write(
+          `[cleo][debug] Device heartbeat not recorded: ${error instanceof Error ? error.message : String(error)}\n`,
+        );
+    }
     try {
       await runCommand(cmd, { rawArgs });
     } catch (err) {

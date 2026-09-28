@@ -78,6 +78,22 @@ export function getCleoHome(): string {
 }
 
 /**
+ * Path of the persisted stable device id — `<cleoHome>/device-id`.
+ *
+ * Core's `getStableDeviceId()` creates it; `@cleocode/worktree` reads it to
+ * decide whether a worktree lock holder's pid can be probed on this device
+ * (T12506). One path, two readers.
+ *
+ * @returns Absolute path of the device-id file.
+ *
+ * @public
+ * @task T12506
+ */
+export function resolveStableDeviceIdPath(): string {
+  return join(getCleoHome(), 'device-id');
+}
+
+/**
  * Get a cached system information snapshot scoped to CLEO.
  *
  * Includes platform, architecture, hostname, Node version, and resolved
