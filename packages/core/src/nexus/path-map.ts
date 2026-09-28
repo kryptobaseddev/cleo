@@ -38,6 +38,7 @@
  */
 
 import { existsSync, lstatSync, readdirSync } from 'node:fs';
+import { lstat, readdir } from 'node:fs/promises';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import type { NexusProjectCheckout } from '@cleocode/contracts';
 import { canonicalizePath, readDeclaredProjectIdentity } from '@cleocode/paths';
@@ -47,6 +48,7 @@ import { getStableDeviceId } from '../llm/stable-device-id.js';
 import { projectLocations, projectPaths, projectRegistry } from '../store/schema/nexus-schema.js';
 import { generateProjectHash } from './hash.js';
 import type { CheckoutEvidence } from './identity.js';
+import { withinBudget } from './projects-scan.js';
 import { registryStorePath } from './registry-hygiene.js';
 
 /** A registry handle or an open transaction on one. */
@@ -130,6 +132,9 @@ export function isSupersededRegistryPath(projectPath: string): boolean {
   return projectPath.startsWith(SUPERSEDED_PATH_PREFIX);
 }
 
+/** Answer of {@link projectHolding}: `unknown` is never proof of absence. */
+export type ProjectHolding = 'yes' | 'no' | 'unknown';
+
 /**
  * Whether `path` still holds `projectId`:
  *
@@ -141,7 +146,7 @@ export function isSupersededRegistryPath(projectPath: string): boolean {
  *   same-nonce backup copy take its registry row (T12558 round 4).
  * - `yes` — `.cleo/` is there and declares this id (or nothing).
  */
-function projectHolding(path: string, projectId: string): 'yes' | 'no' | 'unknown' {
+export function projectHolding(path: string, projectId: string): ProjectHolding {
   const cleoDir = join(path, '.cleo');
   try {
     lstatSync(cleoDir);
@@ -150,6 +155,45 @@ function projectHolding(path: string, projectId: string): 'yes' | 'no' | 'unknow
     const code = (error as NodeJS.ErrnoException).code;
     return code === 'ENOENT' || code === 'ENOTDIR' ? 'no' : 'unknown';
   }
+  const declared = readDeclaredProjectIdentity(path);
+  return declared === null || declared.projectId === projectId ? 'yes' : 'no';
+}
+
+/**
+ * {@link projectHolding} with a time budget, for machine-wide scans
+ * (T12471): a hung mount answers `unknown` after `timeoutMs` instead of
+ * stalling the caller. Same tri-state rules — only ENOENT/ENOTDIR prove the
+ * project gone.
+ *
+ * @param path - Checkout root to probe.
+ * @param projectId - Id the checkout should hold.
+ * @param timeoutMs - Budget for the directory probe.
+ * @returns `yes`, `no`, or `unknown` (unreadable or timed out).
+ *
+ * @example
+ * ```ts
+ * if ((await probeProjectHolding(row.projectPath, row.projectId, 2000)) === 'no') markGone(row);
+ * ```
+ */
+export async function probeProjectHolding(
+  path: string,
+  projectId: string,
+  timeoutMs: number,
+): Promise<ProjectHolding> {
+  const cleoDir = join(path, '.cleo');
+  const probe = async (): Promise<ProjectHolding | null> => {
+    try {
+      await lstat(cleoDir);
+      await readdir(cleoDir);
+      return null;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      return code === 'ENOENT' || code === 'ENOTDIR' ? 'no' : 'unknown';
+    }
+  };
+  const settled = await withinBudget(probe(), timeoutMs);
+  if (settled === 'timeout') return 'unknown';
+  if (settled !== null) return settled;
   const declared = readDeclaredProjectIdentity(path);
   return declared === null || declared.projectId === projectId ? 'yes' : 'no';
 }

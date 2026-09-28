@@ -9,8 +9,14 @@
  * `nexus_project_id_aliases` rows and a `nexus_audit_log` receipt in ONE
  * transaction on the GLOBAL registry store — the store `--vacuum` compacts.
  *
+ * T12471: a matched row whose path is gone but whose id is found at another
+ * path on this device is a MOVED project, not an orphan. It is never removed
+ * (whatever criterion matched it); it is reported under `relocated` with the
+ * `cleo doctor projects` remedy that rebinds it by id.
+ *
  * @task T1473
  * @task T12324
+ * @task T12471
  */
 
 import { randomUUID } from 'node:crypto';
@@ -20,6 +26,7 @@ import path from 'node:path';
 import type {
   NexusProjectsCleanReason,
   NexusProjectsCleanReceipt,
+  NexusProjectsCleanRelocated,
   NexusProjectsCleanRemoval,
   NexusProjectsCleanResult,
   NexusRegistryClassification,
@@ -252,9 +259,11 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
   };
 
   const matchedByReason: Partial<Record<NexusProjectsCleanReason, number>> = {};
-  const removals: NexusProjectsCleanRemoval[] = [];
+  const matchedRows: NexusProjectsCleanRemoval[] = [];
+  const missingIds = new Set<string>();
   for (const row of allRows) {
     const missing = !existsSync(row.projectPath);
+    if (missing) missingIds.add(row.projectId);
     const temp = isTempPath(row.projectPath);
     const test = isTestPath(row.projectPath);
     if (missing) classification.missingPath++;
@@ -273,14 +282,23 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
     if (opts.matchOrphaned && missing) reasons.push('missing-path');
     if (pollutedIds.has(row.projectId)) reasons.push('path-divergent-duplicate');
     if (reasons.length === 0) continue;
-    for (const reason of reasons) matchedByReason[reason] = (matchedByReason[reason] ?? 0) + 1;
-    removals.push({ projectId: row.projectId, projectPath: row.projectPath, reasons });
+    matchedRows.push({ projectId: row.projectId, projectPath: row.projectPath, reasons });
   }
   classification.retained = classification.total - classification.stale;
+
+  // T12471: a gone path whose id lives on elsewhere is a move, never an orphan.
+  const relocated = await findRelocated(matchedRows.filter((r) => missingIds.has(r.projectId)));
+  const relocatedIds = new Set(relocated.map((r) => r.projectId));
+  const removals = matchedRows.filter((r) => !relocatedIds.has(r.projectId));
+  for (const removal of removals)
+    for (const reason of removal.reasons)
+      matchedByReason[reason] = (matchedByReason[reason] ?? 0) + 1;
 
   const totalCount = allRows.length;
   const matched = removals.length;
   const sample = removals.slice(0, 10).map((r) => path.resolve(r.projectPath));
+
+  const relocatedField = relocated.length > 0 ? { relocated } : {};
 
   if (opts.dryRun || matched === 0) {
     return {
@@ -292,6 +310,7 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
       totalCount,
       classification,
       matchedByReason,
+      ...relocatedField,
     };
   }
 
@@ -451,10 +470,38 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
     classification,
     matchedByReason,
     receipt,
+    ...relocatedField,
     ...(fsRemoved !== undefined ? { fsRemoved } : {}),
     ...(fsFailed !== undefined ? { fsFailed } : {}),
     ...(vacuumBytesFreed !== undefined ? { vacuumBytesFreed } : {}),
   };
+}
+
+/**
+ * Of the matched rows whose path is gone, those whose id is found at another
+ * path on this device, with the remedy that rebinds them (T12471).
+ */
+async function findRelocated(
+  gone: readonly NexusProjectsCleanRemoval[],
+): Promise<NexusProjectsCleanRelocated[]> {
+  if (gone.length === 0) return [];
+  const { locateProjectsElsewhere } = await import('../doctor/projects.js');
+  const found = await locateProjectsElsewhere(gone);
+  return gone.flatMap((row) => {
+    const foundAt = found.get(row.projectId);
+    if (!foundAt || foundAt.length === 0) return [];
+    return [
+      {
+        projectId: row.projectId,
+        projectPath: row.projectPath,
+        foundAt,
+        remedy:
+          foundAt.length === 1
+            ? `cleo doctor projects --dry-run   then   cleo doctor projects --apply   (rebinds ${row.projectId} to ${foundAt[0]} instead of deleting it)`
+            : `cleo doctor projects --dry-run   (several paths declare ${row.projectId}: cd into the one to keep and run \`cleo doctor project-identity --resolve\`)`,
+      },
+    ];
+  });
 }
 
 // SSoT-EXEMPT:engine-migration-T1569

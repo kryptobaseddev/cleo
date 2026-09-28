@@ -43,6 +43,7 @@ import { doctorMemoryGuardCommand } from './doctor-memory-guard.js';
 import { doctorNexusResidencyCommand } from './doctor-nexus-residency.js';
 import { doctorProjectIdentityCommand } from './doctor-project-identity.js';
 import { runDoctorProjects } from './doctor-projects.js';
+import { doctorRegistryCommand } from './doctor-projects-registry.js';
 import { doctorReleaseReadinessCommand } from './doctor-release-readiness.js';
 import { doctorRepairCommand } from './doctor-repair.js';
 import { doctorSplitBrainCommand } from './doctor-split-brain.js';
@@ -260,6 +261,8 @@ export const doctorCommand = defineCommand({
     'memory-guard': doctorMemoryGuardCommand,
     // T12353 — tracked .cleo/project-id vs project-info.json (+ --resolve re-key)
     'project-identity': doctorProjectIdentityCommand,
+    // T12471 — machine-wide registry integrity: rebind moved by id, flag split/missing/temp
+    projects: doctorRegistryCommand,
     // T12329 — import rows only a diverged store copy has, under new ids (dry-run first)
     'split-brain': doctorSplitBrainCommand,
     // T12157 — the two acceptance stores (json column vs text+child rows) must agree

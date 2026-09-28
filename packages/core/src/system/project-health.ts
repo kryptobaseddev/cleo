@@ -371,8 +371,20 @@ async function probeJsonFile(path: string, expectedVersion?: string): Promise<Js
   }
 }
 
-/** Counter-based concurrency limiter. No new dependencies. */
-async function runWithConcurrency<T, R>(
+/**
+ * Counter-based concurrency limiter. No new dependencies.
+ *
+ * @param items - Work items, processed in order across lanes.
+ * @param limit - Maximum workers in flight.
+ * @param worker - Async worker; its results keep the items' order.
+ * @returns Results in the same order as `items`.
+ *
+ * @example
+ * ```ts
+ * const sizes = await runWithConcurrency(paths, 8, async (p) => (await stat(p)).size);
+ * ```
+ */
+export async function runWithConcurrency<T, R>(
   items: readonly T[],
   limit: number,
   worker: (item: T, index: number) => Promise<R>,

@@ -9,6 +9,7 @@
  */
 
 import { existsSync, readdirSync, statSync } from 'node:fs';
+import { readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { listRegistryParentRoots } from './registry-roots.js';
@@ -150,6 +151,146 @@ export function walkForCleo(
   }
 
   return found;
+}
+
+/** Options for {@link walkForCleoBounded}. */
+export interface BoundedWalkOptions {
+  /** Maximum traversal depth below each root (0 = the root only). */
+  maxDepth: number;
+  /** Directories read at once. */
+  concurrency: number;
+  /** Per-directory read budget; a slower directory is reported, not waited on. */
+  timeoutMs: number;
+}
+
+/** Result of {@link walkForCleoBounded}. */
+export interface BoundedWalkResult {
+  /** Absolute project roots (directories containing `.cleo/`), sorted. */
+  found: string[];
+  /** Directories whose read exceeded the budget. */
+  timedOut: string[];
+  /** Directories that could not be read for a reason other than absence. */
+  unreadable: string[];
+}
+
+/**
+ * Settle `promise`, or `'timeout'` after `ms`. The timer never keeps the
+ * process alive. The underlying operation is not cancelled — its result is
+ * simply not waited for.
+ *
+ * @param promise - Operation to wait for.
+ * @param ms - Budget in milliseconds.
+ * @returns The settled value, or `'timeout'`.
+ *
+ * @example
+ * ```ts
+ * const entries = await withinBudget(readdir(dir), 2000);
+ * ```
+ */
+export async function withinBudget<T>(promise: Promise<T>, ms: number): Promise<T | 'timeout'> {
+  let timer: NodeJS.Timeout | undefined;
+  const expiry = new Promise<'timeout'>((resolve) => {
+    timer = setTimeout(() => resolve('timeout'), ms);
+    timer.unref();
+  });
+  try {
+    return await Promise.race([promise, expiry]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Asynchronous {@link walkForCleo} for machine-wide scans (T12471): reads at
+ * most `concurrency` directories at once and gives each read `timeoutMs`, so
+ * one hung mount cannot stall a scan of hundreds of projects. Same rules as
+ * the synchronous walker: no symlinks, no mount crossings, {@link SKIP_DIRS}
+ * skipped. A timed-out or unreadable directory is reported, never treated as
+ * empty proof of absence.
+ *
+ * @param roots - Absolute directories to walk.
+ * @param opts - Depth, concurrency and per-directory budget.
+ * @returns Project roots found, plus the directories that were not read.
+ *
+ * @example
+ * ```ts
+ * const { found } = await walkForCleoBounded(['/home/me/code'], { maxDepth: 2, concurrency: 16, timeoutMs: 2000 });
+ * ```
+ */
+export async function walkForCleoBounded(
+  roots: readonly string[],
+  opts: BoundedWalkOptions,
+): Promise<BoundedWalkResult> {
+  const found = new Set<string>();
+  const timedOut: string[] = [];
+  const unreadable: string[] = [];
+  const seen = new Set<string>();
+  const queue: Array<{ dir: string; depth: number; rootDev: number }> = [];
+  for (const root of roots) {
+    const resolved = path.resolve(root);
+    if (seen.has(resolved)) continue;
+    seen.add(resolved);
+    queue.push({ dir: resolved, depth: 0, rootDev: getDevice(resolved) });
+  }
+
+  const visit = async (item: { dir: string; depth: number; rootDev: number }): Promise<void> => {
+    const entries = await withinBudget(
+      readdir(item.dir, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => error),
+      opts.timeoutMs,
+    );
+    if (entries === 'timeout') {
+      timedOut.push(item.dir);
+      return;
+    }
+    if (entries instanceof Error) {
+      if (entries.code !== 'ENOENT' && entries.code !== 'ENOTDIR') unreadable.push(item.dir);
+      return;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+      if (entry.name === '.cleo') {
+        found.add(item.dir);
+        continue;
+      }
+      if (SKIP_DIRS.has(entry.name) || item.depth >= opts.maxDepth) continue;
+      const child = path.join(item.dir, entry.name);
+      if (seen.has(child)) continue;
+      const childStat = await withinBudget(
+        stat(child).catch(() => null),
+        opts.timeoutMs,
+      );
+      if (childStat === 'timeout') {
+        timedOut.push(child);
+        continue;
+      }
+      if (childStat === null || (item.rootDev !== -1 && childStat.dev !== item.rootDev)) continue;
+      seen.add(child);
+      queue.push({ dir: child, depth: item.depth + 1, rootDev: item.rootDev });
+    }
+  };
+
+  // Lanes pull from the shared queue until it is empty and no lane can refill it.
+  let active = 0;
+  await new Promise<void>((resolve) => {
+    const pump = (): void => {
+      if (queue.length === 0 && active === 0) {
+        resolve();
+        return;
+      }
+      while (active < Math.max(1, opts.concurrency) && queue.length > 0) {
+        const next = queue.shift();
+        if (!next) break;
+        active++;
+        void visit(next).finally(() => {
+          active--;
+          pump();
+        });
+      }
+    };
+    pump();
+  });
+
+  return { found: [...found].sort(), timedOut: timedOut.sort(), unreadable: unreadable.sort() };
 }
 
 /**

@@ -1564,7 +1564,13 @@ const projectsCleanCommand = defineCommand({
       // Show preview in human mode
       if (ctx.format !== 'json') {
         cliOutput(
-          { matched: matchCount, totalCount, sample: samplePaths, classification },
+          {
+            matched: matchCount,
+            totalCount,
+            sample: samplePaths,
+            classification,
+            ...(preview.relocated ? { relocated: preview.relocated } : {}),
+          },
           {
             command: 'nexus-projects-clean-preview',
             operation: 'nexus.projects.clean',
@@ -1584,6 +1590,7 @@ const projectsCleanCommand = defineCommand({
             sample: samplePaths,
             classification,
             matchedByReason,
+            ...(preview.relocated ? { relocated: preview.relocated } : {}),
           },
           {
             command: 'nexus-projects-clean',
@@ -1650,6 +1657,7 @@ const projectsCleanCommand = defineCommand({
           classification: result.classification,
           matchedByReason: result.matchedByReason,
           receipt: result.receipt,
+          ...(result.relocated ? { relocated: result.relocated } : {}),
         },
         {
           command: 'nexus-projects-clean',
