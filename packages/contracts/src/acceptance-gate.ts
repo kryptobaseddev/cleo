@@ -524,6 +524,14 @@ export interface AcceptanceGateResult {
   checkedAt: string;
   /** Agent identifier or `"human"` that ran or attested the gate. */
   checkedBy: string;
+  /**
+   * Where the verdict came from (T12621): `executed` in this run, or `cache` —
+   * an authenticated pass reused from the ADR-061 evidence cache. Absent on
+   * results recorded before T12621.
+   */
+  source?: 'executed' | 'cache';
+  /** When the reused cache entry was created (the original execution); set iff `source` is `cache`. */
+  cachedAt?: string;
 }
 
 /** Canonical typed-verification audit details stored with results in the task transaction. */
@@ -536,4 +544,10 @@ export interface AcceptanceGateVerificationReceipt {
   operation: 'check.gate.verify';
   /** Overall generic-plus-typed verification outcome at this observation. */
   passed: boolean;
+  /**
+   * Results reused from the evidence cache instead of executed (T12621), by
+   * acceptance index, with each cache entry's creation time. Omitted when every
+   * result was executed, so receipts recorded before T12621 stay byte-identical.
+   */
+  cached?: Array<{ index: number; cachedAt: string }>;
 }

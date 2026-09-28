@@ -35,6 +35,7 @@ import type { AcceptanceGateResult, Task, ValidateGateParams } from '@cleocode/c
 import { readProjectInfoAtDirectorySync } from '../project-scope.js';
 import { createOperationExecutionContext } from '../store/background-ops.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { readAllowCachedGates } from './gate-result-cache.js';
 import {
   captureGateInputsHash,
   extractTypedGates,
@@ -134,11 +135,12 @@ export async function previewTaskGates(
     // the attesting `cleo verify --gate … --evidence …` reuses it.
     // A gate whose inputs cannot be captured still runs, uncached; the runner
     // reports its own error for it exactly as before.
+    const allowCachedGates = readAllowCachedGates(root);
     const observed: AcceptanceGateResult[] = [];
     for (const gate of gates) {
-      const cacheInputsHash = await captureGateInputsHash(task, gate, execution).catch(
-        () => undefined,
-      );
+      const cacheInputsHash = allowCachedGates
+        ? await captureGateInputsHash(task, gate, execution).catch(() => undefined)
+        : undefined;
       observed.push(
         ...(await runGates(
           [gate],

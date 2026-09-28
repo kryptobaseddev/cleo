@@ -56,8 +56,10 @@ import {
   validateAtom,
 } from '../tasks/evidence.js';
 import { appendForceBypassLine, appendGateAuditLine } from '../tasks/gate-audit.js';
+import { readAllowCachedGates } from '../tasks/gate-result-cache.js';
 import {
   createTaskGateReceipt,
+  GATE_CACHE_INVALID_PREFIX,
   GATE_NOT_CACHED_PREFIX,
   revalidateTaskGateResults,
   runTaskGates,
@@ -431,6 +433,14 @@ export async function validateGateVerify(
       value !== false &&
       Boolean(gate || all) &&
       originalAcceptance.some((item) => typeof item !== 'string');
+    // T12621: `evidence.allowCachedGates: false` disables reuse, so `--no-run`
+    // has nothing it may record from.
+    const allowCachedGates = readAllowCachedGates(projectRoot);
+    if (typedWrite && params.noRun && !allowCachedGates)
+      return engineError(
+        'E_GATE_CACHE_DISABLED',
+        `--no-run: this project sets evidence.allowCachedGates to false, so typed gates must execute; drop --no-run to verify ${taskId}`,
+      );
     const initialAcRows = typedWrite ? await accessor.getAcRows(taskId) : [];
     let typedExecution: OperationExecutionContext | undefined;
     // T12516: an owned typed lifetime is admitted only when the typed gates are
@@ -841,18 +851,19 @@ export async function validateGateVerify(
         execution: typedExecution,
         // T12621: reuse a pass cached by `cleo verify --run` or an earlier
         // attempt; `--no-run` executes nothing.
-        cache: params.noRun ? 'only' : 'use',
+        cache: allowCachedGates ? (params.noRun ? 'only' : 'use') : 'off',
       });
       // `--no-run` refuses the whole write rather than recording a gate it
       // declined to execute as an `error` result.
-      const notCached = verification.gateResults.filter((result) =>
-        result.errorMessage?.startsWith(GATE_NOT_CACHED_PREFIX),
-      );
-      if (notCached.length > 0)
-        return engineError(
-          'E_GATE_NOT_CACHED',
-          notCached.map((result) => result.errorMessage!.replace('<taskId>', taskId)).join('\n'),
-        );
+      const results = verification.gateResults;
+      const refusedFrom = (prefix: string) =>
+        results
+          .filter((result) => result.errorMessage?.startsWith(prefix))
+          .map((result) => result.errorMessage!.replace('<taskId>', taskId));
+      const invalid = refusedFrom(GATE_CACHE_INVALID_PREFIX);
+      if (invalid.length > 0) return engineError('E_GATE_CACHE_INVALID', invalid.join('\n'));
+      const notCached = refusedFrom(GATE_NOT_CACHED_PREFIX);
+      if (notCached.length > 0) return engineError('E_GATE_NOT_CACHED', notCached.join('\n'));
       typedExecution.assertActive();
       typedPhase = 'persisting the verification';
     }
