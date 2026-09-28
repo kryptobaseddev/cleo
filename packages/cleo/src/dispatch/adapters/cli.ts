@@ -37,6 +37,7 @@ import { createMutateMinimalEnvelope } from '../middleware/mutate-minimal-envelo
 import { createMviRecordProjection } from '../middleware/mvi-record-projection.js';
 import { createSanitizer } from '../middleware/sanitizer.js';
 import { createSessionResolver } from '../middleware/session-resolver.js';
+import { createStoreWriteGuard } from '../middleware/store-write-guard.js';
 import { createTelemetry } from '../middleware/telemetry.js';
 import type { DispatchRequest, DispatchResponse, Gateway } from '../types.js';
 
@@ -64,6 +65,7 @@ const ERROR_CODE_TO_EXIT: Record<string, number> = {
   E_CONFLICT: 23,
   E_SESSION_UNBOUND: 24,
   E_WORKTREE_LOCKED: 25,
+  E_TWIN_COLLAPSE_FAILED: 55,
   E_SESSION_EXISTS: 30,
   E_SESSION_NOT_FOUND: 31,
   E_SCOPE_CONFLICT: 32,
@@ -239,6 +241,9 @@ export function createCliDispatcher(): Dispatcher {
   return new Dispatcher({
     handlers,
     middlewares: [
+      // T12535: refuse mutating ops while the store's twin collapse is failed
+      // (reads stay available, served from the merged TEMP shadows).
+      createStoreWriteGuard(() => getProjectRoot()),
       createSessionResolver(lookupCliSession, warnUnboundMutation), // T4959: session identity first; T12500: warn when unbound
       createSanitizer(() => getProjectRoot()),
       createFieldFilter(),

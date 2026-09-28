@@ -178,6 +178,9 @@ function buildFixture(dir: string): {
           created_at TEXT CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')
         )`,
       );
+      // Every consolidated project store carries the tasks-domain key/value
+      // store; exodus re-seeds its `task_id_sequence` default there (T12535).
+      db.exec(`CREATE TABLE "tasks_schema_meta" (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
       // delta_weight is plain `real NOT NULL` with NO CHECK — the clamped finite
       // value lands (mirrors cleo-shared/brain.ts brainWeightHistory).
       db.exec(

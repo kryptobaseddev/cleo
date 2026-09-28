@@ -534,6 +534,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
       (await import('../commands/doctor-tool-locks.js')).doctorToolLocksCommand as CommandDef,
   },
   {
+    exportName: 'doctorTwinCollapseCommand',
+    name: 'twin-collapse',
+    description:
+      'Report the twin collapses (bare schema_meta / sticky_tags kept in step with their prefixed ',
+    load: async () =>
+      (await import('../commands/doctor-twin-collapse.js')).doctorTwinCollapseCommand as CommandDef,
+  },
+  {
     exportName: 'doctorWorktreeStoresCommand',
     name: 'worktree-stores',
     description:
