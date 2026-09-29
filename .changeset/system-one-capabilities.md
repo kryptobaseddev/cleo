@@ -1,7 +1,7 @@
 ---
 id: system-one-capabilities
 tasks: [T12664]
-kind: feature
+kind: feat
 summary: System One provider capabilities, layahost extensions, a $1/month spend cap, key-limit and overload handling, and a richer `cleo decide status`
 ---
 
