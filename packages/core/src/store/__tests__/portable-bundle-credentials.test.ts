@@ -156,6 +156,7 @@ describe('encrypted bundle carries credentials, never the machine-key', () => {
 
     const result = await importPortableBundle({
       bundlePath: bundle,
+      cwd: '/',
       passphrase: PASSPHRASE,
       target: movedRoot,
       cleoHome: homeB,
@@ -224,6 +225,7 @@ describe('encrypted bundle carries credentials, never the machine-key', () => {
     await expect(
       importPortableBundle({
         bundlePath: bundle,
+        cwd: '/',
         passphrase: 'wrong passphrase',
         target: movedRoot,
         cleoHome: homeB,
@@ -241,6 +243,7 @@ describe('unencrypted bundle', () => {
     const bundle = await exportFromA(false);
     const result = await importPortableBundle({
       bundlePath: bundle,
+      cwd: '/',
       target: movedRoot,
       cleoHome: homeB,
       configHome: path.join(tmp, 'config-b'),

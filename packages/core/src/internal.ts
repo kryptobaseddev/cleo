@@ -878,6 +878,7 @@ export {
   nexusList,
   nexusListProjects,
   nexusMoveProject,
+  nexusProjectsFleet,
   nexusProjectsList,
   nexusProjectsRegister,
   nexusProjectsRemove,

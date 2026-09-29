@@ -16,7 +16,18 @@
  * @task T12346
  */
 
-import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -155,6 +166,78 @@ describe.each(
     expect(
       readdirSync(join(cleoDir, 'backups')).filter((n) => n.startsWith('cleo-pre-t12346-')),
     ).toHaveLength(1);
+  });
+
+  /** Make `<root>/project` a git repo with a linked worktree at `<root>/wt`. */
+  function linkWorktree(): string {
+    const project = realpathSync(join(root, 'project'));
+    const wt = join(realpathSync(root), 'wt');
+    const git = (...args: string[]): void => {
+      execFileSync(
+        'git',
+        [
+          '-c',
+          'user.email=t@example.com',
+          '-c',
+          'user.name=t',
+          '-c',
+          'commit.gpgsign=false',
+          ...args,
+        ],
+        { cwd: project, stdio: 'ignore' },
+      );
+    };
+    writeFileSync(join(project, 'README'), 'x');
+    git('init', '-q', '-b', 'main');
+    git('add', 'README');
+    git('commit', '-qm', 'init', '--no-verify');
+    git('worktree', 'add', '-q', wt);
+    return wt;
+  }
+
+  it('T12708: opened from a linked worktree, rebuilds the OWNER store and audits it', async () => {
+    const wt = linkWorktree();
+    const { getDb, closeDb } = await import('../sqlite.js');
+    await expect(getDb(wt)).resolves.toBeDefined();
+    closeDb();
+
+    expect(scalar(liveDb, "SELECT title FROM tasks_tasks WHERE id='T9'")).toBe('live row');
+    const audit = readFileSync(join(cleoDir, 'audit', 'owner-store-rewrite.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(audit).toContainEqual(
+      expect.objectContaining({
+        operation: 'legacy tasks lineage rebuild',
+        trigger: 'open-time',
+        worktree: wt,
+        cwd: wt,
+      }),
+    );
+  });
+
+  it('T12708: a worktree-resident store is refused with the refusal message and fix, unchanged', async () => {
+    const wt = linkWorktree();
+    const wtCleo = join(wt, '.cleo');
+    mkdirSync(wtCleo);
+    copyFileSync(liveDb, join(wtCleo, 'cleo.db'));
+    process.env.CLEO_DIR = wtCleo;
+    process.env.CLEO_ALLOW_WORKTREE_DB_CREATE = '1';
+    try {
+      const { getDb } = await import('../sqlite.js');
+      const err = await getDb(wt).then(
+        () => null,
+        (e: Error & { fix?: string }) => e,
+      );
+      expect(err?.message).toMatch(
+        /^E_WT_STORE_REWRITE_REFUSED: legacy tasks lineage rebuild run from git worktree /,
+      );
+      expect(err?.fix).toMatch(/nothing was written/);
+      expect(err?.cause).toBeDefined();
+      expect(existsSync(join(wtCleo, 'backups'))).toBe(false);
+    } finally {
+      delete process.env.CLEO_ALLOW_WORKTREE_DB_CREATE;
+    }
   });
 });
 
