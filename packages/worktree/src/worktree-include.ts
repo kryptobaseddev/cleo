@@ -1,8 +1,8 @@
 /**
  * Worktree include-pattern parsing and application.
  *
- * Reads the project's include patterns (gitignore-syntax) and creates symlinks
- * from the worktree back to the project tree for matched paths. The actual
+ * Reads the project's include patterns (gitignore-syntax) and copies the
+ * matched paths from the project tree into the worktree. The actual
  * pattern matching is delegated to `@cleocode/worktree-napi`'s
  * `readWorktreeInclude` which uses `ignore::gitignore` under the hood — a real
  * glob matcher that replaces the prior `existsSync`-on-literal-pattern bug.
@@ -28,7 +28,12 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import type { WorktreeIncludePattern } from '@cleocode/contracts';
-import { readWorktreeInclude as napiReadWorktreeInclude } from './napi-binding.js';
+import {
+  type CopyOptsNapi,
+  type IncludePatternNapi,
+  applyInclude as napiApplyInclude,
+  readWorktreeInclude as napiReadWorktreeInclude,
+} from './napi-binding.js';
 
 const CANONICAL_INCLUDE_FILE = '.worktreeinclude';
 const LEGACY_INCLUDE_FILE_DIR = '.cleo';
@@ -182,44 +187,69 @@ export function applyIncludePatterns(
   if (nonNegated.length === 0) return [];
 
   // Map TS types to the NAPI IncludePatternNapi shape.
-  const napiPatterns: import('./napi-binding.js').IncludePatternNapi[] = nonNegated.map((p) => ({
+  const napiPatterns: IncludePatternNapi[] = nonNegated.map((p) => ({
     pattern: p.pattern,
     isNegation: false,
   }));
 
-  const opts: import('./napi-binding.js').CopyOptsNapi = {
+  const opts: CopyOptsNapi = {
     force: false,
     rootGuard: worktreePath,
     includeSymlinks: true,
   };
 
+  // A literal pattern whose target is already in the worktree is left alone
+  // (`force: false`), so it is not reported as applied. Snapshot before copy.
+  const preexisting = new Set(
+    nonNegated
+      .filter((p) => !hasGlobMagic(p.pattern) && existsSync(resolve(worktreePath, p.pattern)))
+      .map((p) => p.pattern),
+  );
+
   try {
-    const { applyInclude } = require('./napi-binding.js') as typeof import('./napi-binding.js');
-    const result = applyInclude(napiPatterns, projectRoot, worktreePath, opts);
+    // T12685: a static import. This module is ESM, where a bare `require()`
+    // threw "require is not defined" on every call and silently routed every
+    // worktree through the literal-only legacy symlinker below.
+    const result = napiApplyInclude(napiPatterns, projectRoot, worktreePath, opts);
 
-    // Build the applied list — patterns that succeeded (not in failedPaths).
     const failedSet = new Set(result.failedPaths);
-    const applied = nonNegated.filter((p) => !failedSet.has(p.pattern));
-
     if (failedSet.size > 0) {
       process.stderr.write(
-        `[worktree] include-pattern copy failed for: ${[...failedSet].join(', ')}\\n`,
+        `[worktree] include-pattern copy failed for: ${[...failedSet].join(', ')}\n`,
       );
     }
 
-    return applied.map((p) => ({
-      pattern: p.pattern,
-      negated: false,
-    }));
+    // Literal patterns are reported per path. The binding returns counts,
+    // not the matched paths, so a glob is reported as applied when the bulk
+    // copy materialised at least one file and nothing failed.
+    const bulkCopied = result.copiedCount > 0 && failedSet.size === 0;
+    return nonNegated
+      .filter((p) =>
+        hasGlobMagic(p.pattern)
+          ? bulkCopied
+          : !preexisting.has(p.pattern) &&
+            !failedSet.has(p.pattern) &&
+            existsSync(resolve(worktreePath, p.pattern)),
+      )
+      .map((p) => ({ pattern: p.pattern, negated: false }));
   } catch (err) {
-    // NAPI not available (test environment, missing binary, etc.) —
-    // fall back to symlink for backward compatibility.
+    // NAPI not available (missing binary, etc.) — fall back to symlinks.
     const message = err instanceof Error ? err.message : String(err);
     process.stderr.write(
-      `[worktree] napi.applyInclude unavailable, falling back to symlinks: ${message}\\n`,
+      `[worktree] napi.applyInclude unavailable, falling back to symlinks: ${message}\n`,
     );
     return applyIncludePatternsLegacy(patterns, projectRoot, worktreePath);
   }
+}
+
+/**
+ * Whether a `.worktreeinclude` pattern uses gitignore glob syntax rather than
+ * naming one literal path.
+ *
+ * @internal
+ */
+function hasGlobMagic(pattern: string): boolean {
+  return /[*?[\]]/.test(pattern) || pattern.endsWith('/');
 }
 
 /**
@@ -254,7 +284,7 @@ function applyIncludePatternsLegacy(
       mkdirSync(parentDir, { recursive: true });
     } catch {
       process.stderr.write(
-        `[worktree] include-pattern parent-dir creation failed: ${entry.pattern}\\n`,
+        `[worktree] include-pattern parent-dir creation failed: ${entry.pattern}\n`,
       );
       continue;
     }
@@ -263,7 +293,7 @@ function applyIncludePatternsLegacy(
       symlinkSync(sourcePath, targetPath);
       applied.push(entry);
     } catch {
-      process.stderr.write(`[worktree] include-pattern symlink failed: ${entry.pattern}\\n`);
+      process.stderr.write(`[worktree] include-pattern symlink failed: ${entry.pattern}\n`);
     }
   }
 
