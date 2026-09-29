@@ -12,10 +12,22 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { computeNativeSourceHash } from '../native-source-hash.mjs';
+import {
+  computeNativeSourceHash,
+  NATIVE_SOURCE_SETS,
+  pinnedNapiCliVersion,
+} from '../native-source-hash.mjs';
 
 let root;
+
+/** The pinned `pnpm dlx` prefix both addons build with. */
+const PNPM_NAPI = (version) => `pnpm --package=@napi-rs/cli@${version} dlx napi`;
+
+function workflowWithCli(version) {
+  return `jobs:\n  build:\n    steps:\n      - run: ${PNPM_NAPI(version)} build --release\n`;
+}
 
 function write(rel, content) {
   const abs = join(root, rel);
@@ -53,10 +65,12 @@ beforeEach(() => {
     'packages/cant/package.json',
     JSON.stringify({
       version: '1.0.0',
-      scripts: { 'build:napi': 'napi build', test: 'vitest' },
+      scripts: { 'build:napi': `${PNPM_NAPI('3.10.5')} build`, test: 'vitest' },
       napi: { binaryName: 'cant' },
     }),
   );
+  write('packages/caamp/providers/hook-mappings.json', '{"canonicalEvents":{}}\n');
+  write('.github/workflows/worktree-napi-prebuild.yml', workflowWithCli('3.10.5'));
   commitAll();
 });
 
@@ -111,7 +125,7 @@ describe('computeNativeSourceHash', () => {
     expect(computeNativeSourceHash('worktree', root)).toBe(worktree);
 
     const cantManifest = JSON.parse(readFileSync(join(root, 'packages/cant/package.json'), 'utf8'));
-    cantManifest.scripts['build:napi'] = 'napi build --release';
+    cantManifest.scripts['build:napi'] = `${PNPM_NAPI('3.10.5')} build --release`;
     write('packages/cant/package.json', JSON.stringify(cantManifest));
     commitAll();
     expect(computeNativeSourceHash('cant', root)).not.toBe(cant);
@@ -121,6 +135,42 @@ describe('computeNativeSourceHash', () => {
     const before = computeNativeSourceHash('cant', root);
     write('crates/cant-napi/src/lib.rs', 'dirty\n');
     expect(computeNativeSourceHash('cant', root)).toBe(before);
+  });
+
+  it('covers hook-mappings.json, which cant-core/build.rs reads (cant only)', () => {
+    const cant = computeNativeSourceHash('cant', root);
+    const worktree = computeNativeSourceHash('worktree', root);
+    write('packages/caamp/providers/hook-mappings.json', '{"canonicalEvents":{"x":{}}}\n');
+    commitAll();
+    expect(computeNativeSourceHash('cant', root)).not.toBe(cant);
+    expect(computeNativeSourceHash('worktree', root)).toBe(worktree);
+  });
+
+  it('moves when the pinned @napi-rs/cli version changes', () => {
+    const worktree = computeNativeSourceHash('worktree', root);
+    write('.github/workflows/worktree-napi-prebuild.yml', workflowWithCli('3.10.6'));
+    commitAll();
+    expect(computeNativeSourceHash('worktree', root)).not.toBe(worktree);
+  });
+
+  it('refuses a floating or inconsistent @napi-rs/cli pin', () => {
+    write('.github/workflows/worktree-napi-prebuild.yml', workflowWithCli('3'));
+    commitAll();
+    expect(() => computeNativeSourceHash('worktree', root)).toThrow(/exact version/);
+
+    expect(() =>
+      pinnedNapiCliVersion(`${PNPM_NAPI('3.10.5')}\n${PNPM_NAPI('3.10.6')}`, 'f'),
+    ).toThrow(/several versions/);
+    expect(() => pinnedNapiCliVersion('napi build', 'f')).toThrow(/no @napi-rs\/cli/);
+    expect(pinnedNapiCliVersion(PNPM_NAPI('3.10.5'), 'f')).toBe('3.10.5');
+  });
+
+  it('pins the real build to an exact @napi-rs/cli version', () => {
+    const repo = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+    for (const set of Object.values(NATIVE_SOURCE_SETS)) {
+      const text = readFileSync(join(repo, set.napiCli), 'utf8');
+      expect(pinnedNapiCliVersion(text, set.napiCli)).toMatch(/^\d+\.\d+\.\d+$/);
+    }
   });
 
   it('rejects an unknown addon', () => {

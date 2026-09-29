@@ -152,7 +152,7 @@ jobs:
           WORKTREE_NAPI_SOURCE_REV: ${{ needs.source-hash.outputs.hash }}
         run: |
           set -euo pipefail
-          pnpm --package=@napi-rs/cli@3 dlx napi build --release --target ${{ matrix.target }}
+          pnpm --package=@napi-rs/cli@3.10.5 dlx napi build --release --target ${{ matrix.target }}
           # napi build writes worktree-napi.node — rename to triple-suffixed name
           # expected by the loader (`worktree-napi.<triple>.node`).
           if [ -f worktree-napi.node ]; then

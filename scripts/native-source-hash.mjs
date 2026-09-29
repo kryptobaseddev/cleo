@@ -14,6 +14,8 @@
  *
  *   - every tracked file under the addon's crates (`crates/cant-*`, or
  *     `crates/worktree-napi` + its path dependency `crates/worktrunk-core`);
+ *   - files OUTSIDE the crates that a `build.rs` reads: cant-core's build.rs
+ *     generates `events.rs` from `packages/caamp/providers/hook-mappings.json`;
  *   - `Cargo.lock`, the workspace `Cargo.toml` (profiles, workspace deps) and
  *     `rust-toolchain.toml`;
  *   - the workflow that builds the addon (its build flags, `-x`, `--use-cross`,
@@ -23,7 +25,18 @@
  *     it: the `napi` block and the `build:napi*` scripts, plus the WASI glue
  *     versions for cant. The whole manifest is NOT hashed, because the release
  *     rewrites its `version` on every release and the version never reaches
- *     the binary.
+ *     the binary;
+ *   - the EXACT `@napi-rs/cli` version the build runs (`pnpm dlx` fetches it
+ *     fresh on every build, so a floating `@3` would let the CLI change under
+ *     an unchanged hash). The version is read from the file that pins it and
+ *     hashed explicitly; a non-exact pin is an error, not a warning.
+ *
+ * OUT OF SCOPE: the runner image. The C toolchain, glibc (the linux-*-gnu
+ * binaries link against the runner's glibc), cross images and the Rust
+ * components rustup installs for `rust-toolchain.toml` all come from the
+ * GitHub-hosted image, which GitHub updates on its own schedule. A cached
+ * binary is therefore reused across image updates until the source hash
+ * moves. Pin or re-key on the image (`ImageVersion`) if that ever matters.
  *
  * Files are identified by their git blob id from the index (`git ls-files -s`)
  * rather than working-tree bytes, so line-ending conversion and the release's
@@ -51,14 +64,17 @@ const SHARED_PATHS = ['Cargo.lock', 'Cargo.toml', 'rust-toolchain.toml', '.cargo
  *
  * `paths` are git pathspecs; `exclude` removes tracked files whose content is
  * covered by a projection instead; `projections` name a manifest and the keys
- * of it that reach the build.
+ * of it that reach the build; `napiCli` names the file that pins the exact
+ * `@napi-rs/cli` version the build runs.
  *
- * @type {Record<string, { paths: string[]; exclude: string[]; projections: { file: string; pick: (manifest: Record<string, unknown>) => unknown }[] }>}
+ * @type {Record<string, { paths: string[]; exclude: string[]; projections: { file: string; pick: (manifest: Record<string, unknown>) => unknown }[]; napiCli: string }>}
  */
 export const NATIVE_SOURCE_SETS = {
   cant: {
     paths: [
       'crates/cant-*',
+      // Read by crates/cant-core/build.rs to generate `events.rs`.
+      'packages/caamp/providers/hook-mappings.json',
       ...SHARED_PATHS,
       '.github/workflows/cant-napi-build.yml',
       'scripts/native-source-hash.mjs',
@@ -81,6 +97,8 @@ export const NATIVE_SOURCE_SETS = {
         },
       },
     ],
+    // `build:napi` / `build:napi:wasi` run `pnpm --package=@napi-rs/cli@<v> dlx`.
+    napiCli: 'packages/cant/package.json',
   },
   worktree: {
     paths: [
@@ -99,8 +117,43 @@ export const NATIVE_SOURCE_SETS = {
         pick: (m) => ({ napi: m.napi ?? null }),
       },
     ],
+    // The build step runs `pnpm --package=@napi-rs/cli@<v> dlx napi build`.
+    napiCli: '.github/workflows/worktree-napi-prebuild.yml',
   },
 };
+
+/**
+ * Read the `@napi-rs/cli` version pinned in `text` (the file named by a
+ * source set's `napiCli`). Every reference must name the SAME exact
+ * `MAJOR.MINOR.PATCH` version.
+ *
+ * @param {string} text - file contents
+ * @param {string} file - path, for the error message
+ * @returns {string} the pinned version
+ * @throws when there is no reference, a reference is not an exact version, or
+ *   references disagree
+ */
+export function pinnedNapiCliVersion(text, file) {
+  const versions = new Set();
+  for (const match of text.matchAll(/@napi-rs\/cli(?:@([^\s"'`]*))?/g)) {
+    const version = match[1] ?? '';
+    if (!/^\d+\.\d+\.\d+$/.test(version)) {
+      throw new Error(
+        `${file}: @napi-rs/cli must be pinned to an exact version (got '${match[0]}'); ` +
+          'pnpm dlx fetches it on every build, so a range lets the CLI change under an unchanged native source hash',
+      );
+    }
+    versions.add(version);
+  }
+  if (versions.size !== 1) {
+    throw new Error(
+      versions.size === 0
+        ? `${file}: no @napi-rs/cli reference found`
+        : `${file}: @napi-rs/cli pinned to several versions (${[...versions].join(', ')})`,
+    );
+  }
+  return [...versions][0];
+}
 
 /**
  * Compute the native source hash for one addon.
@@ -147,6 +200,11 @@ export function computeNativeSourceHash(addon, root = process.cwd()) {
     const picked = projection.pick(JSON.parse(raw));
     hash.update(`${projection.file}\0${JSON.stringify(picked)}\n`);
   }
+  const napiCliText = execFileSync('git', ['cat-file', 'blob', `:${set.napiCli}`], {
+    cwd: root,
+    encoding: 'utf8',
+  });
+  hash.update(`@napi-rs/cli\0${pinnedNapiCliVersion(napiCliText, set.napiCli)}\n`);
   return hash.digest('hex');
 }
 
