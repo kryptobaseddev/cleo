@@ -55,10 +55,23 @@ on:
           - alpha
           - rc
       skip-tests:
-        description: 'Skip the full test suite in Preflight (use when main CI is already green — avoids the 10min+ timeout). Lint and typecheck still run.'
+        description: 'Skip the Linux test shards in Preflight (use when main CI is already green for this commit — `cleo release open` sets it after checking). Lint, typecheck and build still run.'
         type: boolean
         required: false
         default: false
+      skip-macos-tests:
+        description: 'Skip the macOS test shards in Preflight (set by `cleo release open` only when the nightly macOS run for this exact commit is green).'
+        type: boolean
+        required: false
+        default: false
+      verified-sha:
+        description: 'Commit the skip-tests / skip-macos-tests decisions were verified against. If the run checks out a different commit (main moved after the check), every skip is ignored and all tests run.'
+        type: string
+        required: false
+      skip-reason:
+        description: 'Why the caller skipped test suites; recorded in the run summary.'
+        type: string
+        required: false
 
 # R-202: contents:write (commit + branch), pull-requests:write (gh pr create),
 # id-token:write (signed tags only). MUST NOT request packages:write — npm
@@ -113,8 +126,52 @@ jobs:
     name: Dispatch preconditions
     runs-on: ubuntu-latest
     timeout-minutes: 3
+    outputs:
+      run-linux-tests: ${{ steps.tests.outputs.linux }}
+      run-macos-tests: ${{ steps.tests.outputs.macos }}
     steps:
       - uses: actions/checkout@v4
+      # The ONE place that decides which preflight test suites run, so the
+      # test jobs and the run summary can never disagree. A skip is honoured
+      # only for the commit it was verified against: `cleo release open`
+      # checks CI for main's HEAD, and if main moves between that check and
+      # this checkout, the green result belongs to a different tree.
+      - name: Decide which preflight test suites run
+        id: tests
+        env:
+          SKIP_TESTS: ${{ inputs.skip-tests }}
+          SKIP_MACOS_TESTS: ${{ inputs.skip-macos-tests }}
+          VERIFIED_SHA: ${{ inputs.verified-sha }}
+          SKIP_REASON: ${{ inputs.skip-reason }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          linux=true
+          macos=true
+          note=""
+          if [ -n "$VERIFIED_SHA" ] && [ "$VERIFIED_SHA" != "$HEAD_SHA" ]; then
+            note="Skips were verified against $VERIFIED_SHA, but this run checked out $HEAD_SHA (main moved after the check). Ignoring them: every suite runs."
+          else
+            if [ "$SKIP_TESTS" = "true" ]; then linux=false; fi
+            if [ "$SKIP_MACOS_TESTS" = "true" ]; then macos=false; fi
+          fi
+          echo "linux=$linux" >> "$GITHUB_OUTPUT"
+          echo "macos=$macos" >> "$GITHUB_OUTPUT"
+          describe() { if [ "$1" = "true" ]; then echo "runs"; else echo "skipped"; fi; }
+          {
+            echo "## Preflight test decision"
+            echo ""
+            echo "| suite | decision |"
+            echo "|---|---|"
+            echo "| Linux test shards | $(describe "$linux") |"
+            echo "| macOS test shards | $(describe "$macos") |"
+            echo ""
+            echo "Commit: \`$HEAD_SHA\`"
+            if [ -n "$VERIFIED_SHA" ]; then echo "Skips verified against: \`$VERIFIED_SHA\`"; fi
+            if [ -n "$SKIP_REASON" ]; then echo ""; echo "Reason: $SKIP_REASON"; fi
+            if [ -n "$note" ]; then echo ""; echo "**$note**"; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "linux tests: $(describe "$linux"); macOS tests: $(describe "$macos")"
+          if [ -n "$note" ]; then echo "::warning::$note"; fi
       - name: A scoped dispatch needs a committed plan
         run: |
           if [ -n "${{ inputs.plan-blob-sha256 }}" ]; then
@@ -169,10 +226,11 @@ jobs:
         timeout-minutes: 5
 
   # T11490 — DHQ-042: test shards run in parallel to stay under 10 min.
-  # Skipped when skip-tests=true (e.g. dispatched after a green main CI).
+  # Skipped when skip-tests=true (e.g. dispatched after a green main CI for
+  # this exact commit) — see "Decide which preflight test suites run".
   preflight-test:
     name: Preflight (test shard ${{ matrix.shard }}/2)
-    if: ${{ inputs.skip-tests != true }}
+    if: ${{ needs.dispatch-preconditions.outputs.run-linux-tests == 'true' }}
     needs: [dispatch-preconditions]
     runs-on: ubuntu-latest
     # T12309: the job ceiling has to clear the step ceiling it contains. The
@@ -265,6 +323,76 @@ jobs:
         # could not be prepared from a release-ready commit.
         timeout-minutes: 55
 
+  # macOS runs on nightly + release instead of on every push to main, so the
+  # release is where a macOS regression must be caught before it ships. Runs
+  # even when the Linux shards are skipped, unless the nightly macOS run for
+  # this exact commit is already green (skip-macos-tests, set and verified by
+  # `cleo release open`). macOS runners are ~2x slower than Linux, hence 4
+  # shards and a generous ceiling; retry=2 matches ci.yml's macOS shards.
+  preflight-test-macos:
+    name: Preflight macOS (test shard ${{ matrix.shard }}/4)
+    if: ${{ needs.dispatch-preconditions.outputs.run-macos-tests == 'true' }}
+    needs: [dispatch-preconditions]
+    runs-on: macos-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: true
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+        timeout-minutes: 5
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        timeout-minutes: 2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '{{NODE_VERSION}}'
+        timeout-minutes: 3
+
+      - name: Build worktree-napi native addon BEFORE pnpm install (T9982)
+        # Same reason as the Linux shards: the file: link to crates/worktree-napi
+        # only copies .node artifacts that exist at install time.
+        shell: bash
+        run: |
+          cargo build --release -p worktree-napi
+          triple="darwin-x64"
+          if [[ "$(uname -m)" == "arm64" ]]; then
+            triple="darwin-arm64"
+          fi
+          cp target/release/libworktree_napi.dylib "crates/worktree-napi/worktree-napi.${triple}.node"
+        timeout-minutes: 20
+
+      - name: Install dependencies
+        run: {{INSTALL_CMD}}
+        timeout-minutes: 10
+
+      - name: Install ripgrep (required for T1605 callsite-coverage validator)
+        uses: ./.github/actions/install-ripgrep
+
+      - name: Build cant-napi native addon for CANT tests (T12382)
+        shell: bash
+        run: pnpm --filter @cleocode/cant run build:napi
+        timeout-minutes: 20
+
+      - name: Build packages (required for cross-package imports)
+        run: {{BUILD_CMD}}
+        timeout-minutes: 15
+
+      - name: Generate SvelteKit type stubs (required for studio tests)
+        run: pnpm --filter @cleocode/studio exec svelte-kit sync
+        timeout-minutes: 2
+
+      - name: Test macOS (shard ${{ matrix.shard }}/4)
+        run: pnpm exec vitest run --shard=${{ matrix.shard }}/4 --retry=2
+        timeout-minutes: 75
+
   preflight-build:
     name: Preflight (build)
     runs-on: ubuntu-latest
@@ -303,15 +431,24 @@ jobs:
   # R-205: plan resolution → version bump → CHANGELOG → commit → push → bump-PR.
   # T11490: needs both lint/typecheck and build to pass; test shards are
   # independent (always() used so prepare can run even when tests are skipped).
+  # A skipped suite is accepted only because dispatch-preconditions decided to
+  # skip it; a failed or cancelled one blocks the bump-PR.
   prepare:
     name: Prepare bump-PR
     runs-on: ubuntu-latest
-    needs: [preflight-lint-typecheck, preflight-test, preflight-build]
+    needs:
+      - dispatch-preconditions
+      - preflight-lint-typecheck
+      - preflight-test
+      - preflight-test-macos
+      - preflight-build
     if: |
       always() &&
+      needs.dispatch-preconditions.result == 'success' &&
       needs.preflight-lint-typecheck.result == 'success' &&
       needs.preflight-build.result == 'success' &&
-      (needs.preflight-test.result == 'success' || needs.preflight-test.result == 'skipped')
+      (needs.preflight-test.result == 'success' || needs.preflight-test.result == 'skipped') &&
+      (needs.preflight-test-macos.result == 'success' || needs.preflight-test-macos.result == 'skipped')
     timeout-minutes: 20
     outputs:
       branch: ${{ steps.branch.outputs.name }}
@@ -614,6 +751,7 @@ jobs:
     needs:
       - preflight-lint-typecheck
       - preflight-test
+      - preflight-test-macos
       - preflight-build
       - prepare
     if: failure()
