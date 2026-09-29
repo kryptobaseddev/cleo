@@ -286,6 +286,25 @@ describe('imports: decide ids, then insert', () => {
   });
 });
 
+describe('a renamed duplicate takes its new id from the allocator', () => {
+  it("admin importTasks 'rename': another writer on the allocated id is never overwritten", async () => {
+    otherWriterStores('T001', 'Existing');
+    const file = await importFile('rename.json', [task('T001', 'Renamed copy')]);
+    let collided = '';
+    raceAfterAllocate = {
+      nth: 1,
+      fn: (id) => {
+        collided = id;
+        otherWriterStores(id);
+      },
+    };
+    await expectNoOverwrite(
+      importTasks(env.tempDir, { file, onDuplicate: 'rename' }),
+      () => collided,
+    );
+  });
+});
+
 describe('explicit overwrite still replaces', () => {
   it('coreTaskImport with overwrite replaces a stored task', async () => {
     otherWriterStores('T080');
@@ -336,6 +355,16 @@ describe('an ARCHIVED task still owns its id (review round 1, finding 1)', () =>
     expect(Number(newId.slice(1))).toBeGreaterThan(2);
     expect(storedTitle(newId)).toBe('Again');
     expect(storedTitle('T002')).toBe('Archived, highest id');
+  });
+
+  it('an importFromPackage dry run predicts an id past the archived one', async () => {
+    const preview = await importFromPackage(exportPackage([task('T900', 'Packaged')]), {
+      cwd: env.tempDir,
+      provenance: false,
+      dryRun: true,
+    });
+    expect(Number((preview.idRemap?.T900 ?? '').slice(1))).toBeGreaterThan(2);
+    expect(allocations).toBe(0); // a dry run reserves nothing
   });
 
   it('importSnapshot holding the archived task is idempotent', async () => {
