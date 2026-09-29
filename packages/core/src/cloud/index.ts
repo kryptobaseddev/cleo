@@ -13,6 +13,7 @@ export * from './http.js';
 export * from './journal.js';
 export * from './keys.js';
 export * from './manifest-check.js';
+export * from './presence.js';
 export * from './projects.js';
 export * from './signing.js';
 export * from './streams.js';
