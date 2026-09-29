@@ -9,7 +9,9 @@
 import { constants as fsConstants } from 'node:fs';
 import { access, readFile } from 'node:fs/promises';
 import type { AdminImportParams, Task, TaskPriority, TaskStatus } from '@cleocode/contracts';
+import { allocateNextTaskId } from '../sequence/index.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { queryTasksIncludingArchived } from '../store/import-remap.js';
 
 type DuplicateStrategy = 'skip' | 'overwrite' | 'rename';
 
@@ -69,9 +71,14 @@ export async function importTasks(
   }
 
   const accessor = await getTaskAccessor(projectRoot);
-  const { tasks: existingTasks } = await accessor.queryTasks({});
+  // Duplicates are decided against every stored id, archived included: an
+  // archived task still owns its id (T12724).
+  const storedTasks = await queryTasksIncludingArchived(accessor);
+  const existingTasks = storedTasks.filter((t) => t.status !== 'archived');
 
-  const existingIds = new Set(existingTasks.map((t) => t.id));
+  const existingIds = new Set(storedTasks.map((t) => t.id));
+  // The ids stored before this import (existingIds grows as tasks are queued).
+  const existingTaskIds = new Set(existingIds);
   const duplicateStrategy: DuplicateStrategy = params.onDuplicate ?? 'skip';
   const parentId = params.parent;
   const phase = params.phase;
@@ -96,7 +103,11 @@ export async function importTasks(
           break;
         }
         case 'rename': {
-          const newId = generateTaskId(existingIds);
+          // A dry run predicts; a real import takes the id from the allocator (T12724).
+          const newId = params.dryRun
+            ? generateTaskId(existingIds)
+            : await allocateNextTaskId(projectRoot);
+          existingIds.add(newId);
           idMapping.set(importTask.id, newId);
           renamed.push({ oldId: importTask.id, newId });
           importTask.id = newId;
@@ -143,9 +154,16 @@ export async function importTasks(
     };
   }
 
-  for (const task of imported) {
-    await accessor.upsertSingleTask(task);
-  }
+  // Only the 'overwrite' duplicate strategy may replace a stored task; every
+  // other imported task is new and must not overwrite on an id collision. One
+  // transaction: a collision leaves nothing half-imported (T12724).
+  await accessor.transaction(async (tx) => {
+    for (const task of imported) {
+      if (duplicateStrategy === 'overwrite' && existingTaskIds.has(task.id))
+        await tx.upsertSingleTask(task);
+      else await tx.insertNewTask(task);
+    }
+  });
 
   return {
     imported: imported.length,

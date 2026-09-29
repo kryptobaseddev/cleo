@@ -31,11 +31,15 @@
  *   UNVERIFIED tolerant extras (in the provider docs, not the OpenAPI): a 403
  *   `key_limit_exceeded` (the key's monthly limit, NOT a credential failure;
  *   any other 403 is `unauthorized`) and a 529 (`overloaded`).
- * - Cost (T12664, `jev-wire/2`): `meta.cost_micros` (in the OpenAPI) and
- *   `meta.checkpoint` (in the OpenAPI); `meta.cost_usd` is still read.
- *   UNVERIFIED tolerant extras (docs only, not the OpenAPI): the
- *   `x-layahost-cost-micros` and `x-layahost-balance-micros` headers. A plain
- *   Jev host sends none of them and keeps working.
+ * - Cost (T12664, T12715, `jev-wire/3`): read from the response body only —
+ *   `meta.cost_micros` (integer micro-dollars) and `meta.cost_usd`, both in
+ *   the OpenAPI `SystemOneResponse.meta`; `meta.checkpoint` likewise. When
+ *   only `cost_usd` is present, micros are derived from it. The layahost
+ *   OpenAPI 1.0.0 declares no response headers at all, so the
+ *   `x-layahost-cost-micros` / `x-layahost-balance-micros` headers named in
+ *   the prose docs are NOT read (T12715); the balance comes from
+ *   `GET /v1/usage` (`balance.micros`) instead. A plain Jev host sends no
+ *   `meta` and keeps working.
  * - Extensions, gated by {@link JevProviderOptions.capabilities} (detected by
  *   {@link detectJevCapabilities} from `/v1/usage` and `/v1/templates`
  *   responses, never from the host name): the `lang` and `cache` request
@@ -93,12 +97,6 @@ const USAGE_PATH = '/v1/usage';
 /** Path of the template listing (layahost extension). */
 const TEMPLATES_PATH = '/v1/templates';
 
-/** Header carrying the call's cost in integer micro-dollars. UNVERIFIED: in the provider docs, not its OpenAPI. */
-export const COST_MICROS_HEADER = 'x-layahost-cost-micros';
-
-/** Header carrying the account balance in integer micro-dollars. UNVERIFIED: in the provider docs, not its OpenAPI. */
-export const BALANCE_MICROS_HEADER = 'x-layahost-balance-micros';
-
 /** Byte cap on an error body read to classify a failure. */
 const MAX_ERROR_BODY_BYTES = 8 * 1024;
 
@@ -122,8 +120,10 @@ export const LAYAHOST_EXTENSION_CAPABILITIES: DecisionProviderCapabilities = {
 /**
  * Adapter identity + version; part of every cache key so a mapping change
  * invalidates the cache. `/2`: cost micros, balance and checkpoint are read.
+ * `/3` (T12715): cost is read from `meta` only (no headers); micros are
+ * derived from `meta.cost_usd` when `meta.cost_micros` is absent.
  */
-export const JEV_ADAPTER_VERSION = 'jev-wire/2';
+export const JEV_ADAPTER_VERSION = 'jev-wire/3';
 
 /** One question as the Jev wire expects it. */
 interface JevWireQuestion {
@@ -211,21 +211,6 @@ export function toJevSystemOneBody(
   };
 }
 
-/** Integer micro-dollars from a header value, or undefined when absent or malformed. */
-function microsHeader(value: string | null | undefined): number | undefined {
-  if (value === null || value === undefined || !/^-?\d+$/.test(value.trim())) return undefined;
-  const n = Number(value.trim());
-  return Number.isSafeInteger(n) ? n : undefined;
-}
-
-/** Cost and balance headers of one response. */
-export interface JevResponseHeaders {
-  /** `x-layahost-cost-micros`. */
-  readonly costMicros?: string | null;
-  /** `x-layahost-balance-micros`. */
-  readonly balanceMicros?: string | null;
-}
-
 /** Index of the largest value; ties resolve to the lowest index. */
 function argmax(values: readonly number[]): number {
   let best = 0;
@@ -292,7 +277,6 @@ export function fromJevSystemOneResponse(
   req: DecisionRequest,
   body: unknown,
   latencyMs: number,
-  headers: JevResponseHeaders = {},
 ): DecisionOutcome {
   const parsed = jevResponseSchema.safeParse(body);
   if (!parsed.success) throw invalid('response body does not match the systemone shape');
@@ -311,9 +295,11 @@ export function fromJevSystemOneResponse(
   }
 
   const requestId = wire.meta?.request_id;
-  const costMicros = wire.meta?.cost_micros ?? nonNegative(microsHeader(headers.costMicros));
-  const costUsd = wire.meta?.cost_usd ?? (costMicros !== undefined ? costMicros / 1e6 : undefined);
-  const balanceMicros = microsHeader(headers.balanceMicros);
+  const reportedUsd = wire.meta?.cost_usd;
+  const costMicros =
+    wire.meta?.cost_micros ??
+    (reportedUsd !== undefined ? Math.round(reportedUsd * 1e6) : undefined);
+  const costUsd = reportedUsd ?? (costMicros !== undefined ? costMicros / 1e6 : undefined);
   const checkpoint = wire.meta?.checkpoint;
   const inputTokens = wire.usage?.input_tokens;
   return {
@@ -323,14 +309,9 @@ export function fromJevSystemOneResponse(
     ...(requestId ? { requestId } : {}),
     ...(costUsd !== undefined ? { costUsd } : {}),
     ...(costMicros !== undefined ? { costMicros } : {}),
-    ...(balanceMicros !== undefined ? { balanceMicros } : {}),
     ...(checkpoint ? { checkpoint } : {}),
     ...(inputTokens !== undefined ? { inputTokens } : {}),
   };
-}
-
-function nonNegative(n: number | undefined): number | undefined {
-  return n !== undefined && n >= 0 ? n : undefined;
 }
 
 /**
@@ -541,10 +522,7 @@ export function createJevProvider(
       );
       if (!response.ok) throw await errorForResponse(response);
       const body = await jsonBody(response, signal);
-      return fromJevSystemOneResponse(req, body, Math.max(0, now() - started), {
-        costMicros: response.headers.get(COST_MICROS_HEADER),
-        balanceMicros: response.headers.get(BALANCE_MICROS_HEADER),
-      });
+      return fromJevSystemOneResponse(req, body, Math.max(0, now() - started));
     },
   };
 
@@ -704,6 +682,20 @@ const jevTemplatesSchema = z.looseObject({
 });
 
 /**
+ * Detection failures that say nothing about the provider's capabilities
+ * (network, timeout/abort, 5xx, 503/529, 429): a detection that hit one is
+ * partial, never proof that a capability is absent (T12715).
+ */
+export const TRANSIENT_DETECTION_ERRORS: ReadonlySet<DecisionProviderErrorKind> =
+  new Set<DecisionProviderErrorKind>([
+    'network',
+    'aborted',
+    'server_error',
+    'overloaded',
+    'rate_limited',
+  ]);
+
+/**
  * Detect what a Jev-compatible host supports beyond the Jev minimum, from its
  * responses only (spec §2.2: never from the host name).
  *
@@ -711,6 +703,11 @@ const jevTemplatesSchema = z.looseObject({
  *   ({@link LAYAHOST_EXTENSION_CAPABILITIES}).
  * - `GET /v1/templates` answers 2xx with names → `templates`.
  * - Anything else (404, error, timeout) → the Jev minimum. Never throws.
+ *
+ * A transient failure (see {@link TRANSIENT_DETECTION_ERRORS}) of either
+ * probe is returned as `error`, including when `/v1/usage` succeeded and only
+ * `/v1/templates` failed: such a detection is partial, and callers must not
+ * cache it as "capability absent".
  *
  * Both endpoints count toward the provider's rate limit, so callers cache the
  * result (`cleo decide status` refreshes it at most every 10 minutes).
@@ -754,6 +751,10 @@ export async function detectJevCapabilities(
     };
   }
   let templates: string[] | undefined;
+  // A templates probe that failed transiently (network, abort/timeout, 5xx,
+  // 429) proves nothing about the capability: it is reported as `error` so the
+  // caller treats the detection as partial rather than "no templates" (T12715).
+  let templatesError: DecisionProviderError | undefined;
   try {
     const doFetch: DecideFetch = opts.fetch ?? decideFetch;
     const response = await doFetch(endpointUrl(connection.baseUrl, TEMPLATES_PATH), {
@@ -772,10 +773,21 @@ export async function detectJevCapabilities(
           .slice(0, 64);
       }
     } else {
-      await response.body?.cancel().catch(() => undefined);
+      const err = await errorForResponse(response);
+      if (TRANSIENT_DETECTION_ERRORS.has(err.kind)) templatesError = err;
     }
-  } catch {
+  } catch (err) {
     templates = undefined;
+    if (err instanceof DecisionProviderError) {
+      if (TRANSIENT_DETECTION_ERRORS.has(err.kind)) templatesError = err;
+    } else if (signal.aborted || !(err instanceof SyntaxError)) {
+      // A malformed JSON body is an answer (no usable templates); anything
+      // else thrown here is the transport failing or the probe timing out.
+      const kind = signal.aborted ? 'aborted' : 'network';
+      templatesError = new DecisionProviderError(kind, `templates probe failed (${kind})`, {
+        ...(err instanceof Error ? { cause: err } : {}),
+      });
+    }
   }
   return {
     capabilities: {
@@ -783,6 +795,7 @@ export async function detectJevCapabilities(
       ...(templates && templates.length > 0 ? { templates } : {}),
     },
     usage,
+    ...(templatesError ? { error: templatesError } : {}),
   };
 }
 

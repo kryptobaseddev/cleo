@@ -209,7 +209,11 @@ export interface DecisionOutcome {
   readonly costUsd?: number;
   /** Provider-reported cost in integer micro-dollars, when known (T12664). */
   readonly costMicros?: number;
-  /** Account balance in integer micro-dollars reported with this answer, when known. */
+  /**
+   * Account balance in integer micro-dollars reported with this answer, when
+   * known. The Jev wire adapter never sets it (the layahost OpenAPI reports
+   * balance only via `GET /v1/usage`, T12715); other providers may.
+   */
   readonly balanceMicros?: number;
   /** Provider model checkpoint that answered, when reported. */
   readonly checkpoint?: string;
