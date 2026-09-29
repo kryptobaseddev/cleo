@@ -814,6 +814,7 @@ export type {
   KnowledgeEvidenceRef,
   KnowledgeFileEvidence,
   KnowledgeHealth,
+  KnowledgeHealthSummary,
   KnowledgeRepairAction,
   KnowledgeRepairClass,
   KnowledgeRepairFinding,

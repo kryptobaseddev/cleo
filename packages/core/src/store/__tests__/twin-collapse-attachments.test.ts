@@ -700,7 +700,7 @@ describe('degraded mode: reads served, every docs write refused, retry restores 
     ).toMatch(/E_TWIN_COLLAPSE_FAILED: store is read-only/);
 
     rmSync(backups);
-    const receipts = await retryTwinCollapse(projectDir);
+    const receipts = await retryTwinCollapse(projectDir, { cwd: projectDir });
     expect(receipts[DOCS]).toMatchObject({ table: 'attachments', status: 'initial' });
     expect(await storeWriteBlock(projectDir)).toBeNull();
     await setDisplayAlias(projectDir, { slug: 'spec-a', displayAlias: 9 });
@@ -841,7 +841,7 @@ describe('freeze (option a): older builds can no longer write the bare docs tabl
       dryRun: false,
     });
     // Retry.
-    await expect(retryTwinCollapse(projectDir)).resolves.toBeDefined();
+    await expect(retryTwinCollapse(projectDir, { cwd: projectDir })).resolves.toBeDefined();
     // Schema changes a migration makes: add a column, add an index.
     db.exec('ALTER TABLE attachments ADD COLUMN t12535_probe TEXT');
     db.exec('CREATE INDEX IF NOT EXISTS idx_t12535_probe ON attachments (t12535_probe)');
@@ -992,7 +992,7 @@ describe('freeze (option a): older builds can no longer write the bare docs tabl
       status: 'warning',
       message: expect.stringMatching(/freeze attachments against older CLEO builds are missing/),
     });
-    await retryTwinCollapse(projectDir);
+    await retryTwinCollapse(projectDir, { cwd: projectDir });
     expect(inspectTwinCollapse(tasksNative())[DOCS]).toMatchObject({ guardsIntact: true });
     expect(twinCollapseDoctorCheck(projectDir).status).toBe('ok');
   });
