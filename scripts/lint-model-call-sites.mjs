@@ -24,14 +24,20 @@
  *    `streamObject`) in a file no registry row lists.
  * 3. `registry-file-missing` — a registry row lists a file that does not exist.
  * 4. `on-without-evidence` — a row with `defaultMode: 'on'` whose primary rung
- *    is `system-one` and that has no `goLive` (or whose `evidenceDoc` slug is
- *    absent from `.cleo/docs-publications.json`, when that file exists). The
- *    `cli.decide-ask` debug verb is exempt: nothing acts on its answer.
+ *    is `system-one` and that has no `goLive`, or whose `evidenceDoc` slug
+ *    does not resolve to a TRACKED file: a `docs/**` mirror named
+ *    `<slug>.md`, or a path the docs-publications ledger maps the slug to
+ *    that exists. The ledger itself is untracked, so it can never be the
+ *    only proof (review of #1684). The `cli.decide-ask` debug verb is exempt:
+ *    nothing acts on its answer.
  * 5. `rung-mismatch` — a file registered only by rows with no `generative` or
  *    `agent` rung that calls an LLM entry point.
  * 6. `chokepoint-bypass` — a model reached around the chokepoint: a direct
- *    AI-SDK call (`generateObject(` …), a raw `.messages.create(`, an AI-SDK
- *    provider factory (`createAnthropic(` …) or a raw provider endpoint
+ *    AI-SDK call (`generateObject(` …, also as a member call `m.generateText(`),
+ *    a raw `.messages.create(` or `.chat.completions.create(`, an AI-SDK
+ *    provider factory (`createAnthropic(` …, or any `create*` imported from
+ *    `@ai-sdk/*`), a dynamic `import()` of `ai`, `@ai-sdk/*`, `openai` or
+ *    `@anthropic-ai/sdk`, or a raw provider endpoint built into a URL
  *    (`/v1/messages`, `/chat/completions`). The chokepoint itself
  *    (`model-runner.ts`, `transports/`, `role-resolver.ts`,
  *    `system-resolver.ts`, `api-mode.ts`) is exempt. The known bypasses (spec
@@ -47,8 +53,9 @@
  * write the current counts to `scripts/.lint-model-call-sites-baseline.json`.
  * `--json`: machine output.
  *
- * Per-line opt-out: `// model-site-allowed: <reason>` on the line of the call
- * or on the line directly above it.
+ * Per-line opt-out: `// model-site-allowed: <reason>` (a reason is required)
+ * trailing the call's line, or alone on the line directly above it. A
+ * trailing marker exempts only its own line.
  *
  * @task T12663
  * @epic T12486
@@ -109,11 +116,16 @@ const TEST_SUFFIXES = ['.test.ts', '.test.tsx', '.spec.ts', '.spec.tsx', '.test.
 
 const ENTRY_POINTS =
   'resolveLLMForSystem|resolveLLMForRole|executeForRole|getLlmExecutor|generateObject|generateText|streamText|streamObject';
-const ENTRY_CALL = new RegExp(`(?<![\\w.$])(${ENTRY_POINTS})\\s*\\(`, 'g');
+// A member call (`llm.resolveLLMForRole(`, `m.generateText(`) counts too:
+// only an identifier character right before the name excludes it.
+const ENTRY_CALL = new RegExp(`(?<![\\w$])(${ENTRY_POINTS})\\s*\\(`, 'g');
 const BYPASS_PATTERNS = [
-  /(?<![\w.$])(generateObject|generateText|streamText|streamObject)\s*\(/g,
+  /(?<![\w$])(generateObject|generateText|streamText|streamObject)\s*\(/g,
   /\.messages\.create\s*\(/g,
-  /(?<![\w.$])create(Anthropic|OpenAI|OpenAICompatible|GoogleGenerativeAI)\s*\(/g,
+  /\.chat\.completions\.create\s*\(/g,
+  /(?<![\w$])create(Anthropic|OpenAI|OpenAICompatible|GoogleGenerativeAI)\s*\(/g,
+  // A dynamic import of an LLM SDK reaches a model with no static call to see.
+  /(?<![\w$])import\s*\(\s*['"`](?:ai|openai|@anthropic-ai\/sdk|@ai-sdk\/[\w.-]+)['"`]\s*(?:as\s+[\w<>]+\s*)?\)/g,
   // A provider endpoint built into a URL (template literal); a quoted path
   // alone is data (e.g. generated provider profiles), not a request.
   /(\/v1\/messages|\/chat\/completions)`/g,
@@ -210,13 +222,23 @@ function isDeclaration(code, index) {
   return /(function\s*\*?\s*|async\s+)$/.test(code.slice(Math.max(0, index - 20), index));
 }
 
+/** The opt-out marker with a non-empty reason. */
+const MARKER_WITH_REASON = /\/\/ model-site-allowed:\s*\S/;
+
 /**
- * Whether the call at `index` is opted out: the marker sits on its line or on
- * the line directly above (a formatter may move a trailing comment there).
+ * Whether the call at `index` is opted out: a marker with a reason trailing
+ * its own line, or a marker alone on the line directly above (where a
+ * formatter moves it). A trailing marker on the line above does not count:
+ * it belongs to that line's code.
  */
 function optedOut(lines, text, index) {
   const line = lineOf(text, index);
-  return [lines[line - 1], lines[line - 2]].some((l) => (l ?? '').includes(ALLOW_MARKER));
+  const own = lines[line - 1] ?? '';
+  const above = lines[line - 2] ?? '';
+  return (
+    MARKER_WITH_REASON.test(own) ||
+    (/^\s*\/\/ model-site-allowed:/.test(above) && MARKER_WITH_REASON.test(above))
+  );
 }
 
 /**
@@ -232,6 +254,26 @@ export function isRegisteredSiteArg(arg, known) {
   const member = /^(\w+)\.id$/.exec(arg);
   if (member) return known.constNames.has(member[1]);
   return known.aliases.has(arg);
+}
+
+/**
+ * Local names of `create*` factories imported from an `@ai-sdk/*` package.
+ *
+ * @param code - Comment-blanked source.
+ * @returns Local identifiers (aliases resolved).
+ */
+export function aiSdkFactories(code) {
+  const names = new Set();
+  for (const m of code.matchAll(
+    /import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*['"]@ai-sdk\/[\w.-]+['"]/g,
+  )) {
+    for (const part of m[1].split(',')) {
+      const spec = part.trim().replace(/^type\s+/, '');
+      const alias = /^(\w+)(?:\s+as\s+(\w+))?$/.exec(spec);
+      if (alias && /^create[A-Z]\w*$/.test(alias[1])) names.add(alias[2] ?? alias[1]);
+    }
+  }
+  return names;
 }
 
 /**
@@ -299,6 +341,15 @@ export function scanSource(rel, src, ctx) {
         push('chokepoint-bypass', m.index ?? 0, m[0].trim());
       }
     }
+    // Any provider factory imported from an @ai-sdk/* package (createMistral …),
+    // beyond the four named above.
+    for (const name of aiSdkFactories(code)) {
+      if (/^create(Anthropic|OpenAI|OpenAICompatible|GoogleGenerativeAI)$/.test(name)) continue;
+      for (const m of code.matchAll(new RegExp(`(?<![\\w$])${name}\\s*\\(`, 'g'))) {
+        if (isDeclaration(code, m.index ?? 0)) continue;
+        push('chokepoint-bypass', m.index ?? 0, `${name}(`);
+      }
+    }
   }
   return out;
 }
@@ -337,6 +388,44 @@ function listSources(root) {
 }
 
 /**
+ * A resolver telling whether an evidence slug names a tracked file: a
+ * `docs/**` mirror called `<slug>.md`, or a path the docs-publications ledger
+ * maps the slug to that exists in the checkout.
+ *
+ * @param root - Repository root.
+ * @returns `(slug) => boolean`.
+ */
+export function trackedEvidence(root) {
+  const mirrors = new Set();
+  const walk = (dir) => {
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (e.isDirectory()) walk(join(dir, e.name));
+      else if (e.name.endsWith('.md')) mirrors.add(e.name.slice(0, -3));
+    }
+  };
+  walk(join(root, 'docs'));
+  let ledger = {};
+  try {
+    const parsed = JSON.parse(readFileSync(join(root, '.cleo/docs-publications.json'), 'utf-8'));
+    if (parsed && typeof parsed === 'object') ledger = parsed;
+  } catch {
+    ledger = {};
+  }
+  return (slug) => {
+    if (mirrors.has(slug)) return true;
+    const entry = ledger[slug] ?? ledger.publications?.[slug];
+    const path = typeof entry === 'string' ? entry : (entry?.path ?? entry?.mirrorPath);
+    return typeof path === 'string' && existsSync(join(root, path));
+  };
+}
+
+/**
  * Run every rule over the repository.
  *
  * @param {string} root - Repository root.
@@ -351,8 +440,7 @@ export function scanRepository(root) {
   // Rules 3 and 4 come from the registry itself.
   const regLines = registrySrc.split('\n');
   const idLine = (id) => regLines.findIndex((l) => l.includes(`id: '${id}'`)) + 1;
-  const pubPath = join(root, '.cleo/docs-publications.json');
-  const published = existsSync(pubPath) ? readFileSync(pubPath, 'utf-8') : null;
+  const evidenceExists = trackedEvidence(root);
   for (const row of rows) {
     for (const f of row.files) {
       if (!existsSync(join(root, f))) {
@@ -369,10 +457,7 @@ export function scanRepository(root) {
       row.primaryRung === 'system-one' &&
       !ON_WITHOUT_EVIDENCE_EXEMPT.has(row.id)
     ) {
-      const missing =
-        row.goLive === null ||
-        row.goLive === '' ||
-        (published !== null && !published.includes(`"${row.goLive}"`));
+      const missing = row.goLive === null || row.goLive === '' || !evidenceExists(row.goLive);
       if (missing) {
         violations.push({
           rule: 'on-without-evidence',
