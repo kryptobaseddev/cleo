@@ -117,11 +117,21 @@ export const docsAttachments = sqliteTable(
     ownerVersion: text('owner_version'),
     /** Sequential doc-version counter for this slug; 1 for new rows. */
     docVersion: integer('doc_version').notNull().default(1),
+    /**
+     * Explicit ADR display number (T11875); NULL means "derive from the slug".
+     * Added by the T12535 union-shape migration so the twin carries every
+     * column of the bare `attachments` table.
+     */
+    displayAlias: integer('display_alias'),
   },
   (table) => [
     index('idx_docs_attachments_sha256').on(table.sha256),
     index('idx_docs_attachments_lifecycle_status').on(table.lifecycleStatus),
     index('idx_docs_attachments_supersedes').on(table.supersedes),
+    // T12535 union shape. The UNIQUE `slug` / `sha256` indexes of the bare
+    // table are created by the twin collapse after its merge (twin-collapse.ts).
+    index('idx_docs_attachments_display_alias').on(table.displayAlias),
+    index('idx_docs_attachments_type').on(table.type).where(sql`${table.type} IS NOT NULL`),
   ],
 );
 

@@ -21,8 +21,8 @@ import { join } from 'node:path';
 import { eq, sql } from 'drizzle-orm';
 import { getProjectRoot } from '../paths.js';
 import { CleoBlobStore } from '../store/llmtxt-blob-adapter.js';
-import { attachmentRefs, attachments as attachmentsTable } from '../store/schema/attachments.js';
 import { getDb } from '../store/sqlite.js';
+import { attachmentRefs, attachments as attachmentsTable } from '../store/tasks-schema.js';
 
 export interface ConsolidationStats {
   total: number;

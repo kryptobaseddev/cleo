@@ -29,10 +29,10 @@
       "deriver_queue": 5
     },
     "packages/core/src/docs/display-alias.ts": {
-      "attachments": 1
+      "docs_attachments": 1
     },
     "packages/core/src/docs/supersede.ts": {
-      "attachments": 2
+      "docs_attachments": 2
     },
     "packages/core/src/doctor/knowledge.ts": {
       "_nexus_meta": 2,

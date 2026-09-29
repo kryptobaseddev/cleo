@@ -12,7 +12,7 @@
  *
  * ## Keyed on physical names, not the Drizzle schema
  *
- * The runtime often writes the BARE legacy twin (`attachments`,
+ * The runtime often writes the BARE legacy twin (
  * `architecture_decisions`, `session_narrative`, …) rather than the prefixed
  * table, while other bare twins are frozen copies nobody reads. A registry
  * keyed on the Drizzle schema would classify the frozen copy and miss the
@@ -167,14 +167,20 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'table-classification-draft.md',
   },
   attachment_refs: {
-    class: 'portable-project',
-    status: 'draft',
-    source: 'table-classification-draft.md',
+    class: 'local-only',
+    status: 'frozen-legacy',
+    source: 'T12535 PR 2 (docs/attachments twin collapse)',
+    dropTask: 'T12535',
+    liveTwin: 'docs_attachment_refs',
+    note: 'was the live table while portable-project; physically the same rows as its live twin after the collapse; store/twin-collapse.ts carries its rows there at every open (initial collapse, then incremental re-merge while an older build still writes it) and never writes this table',
   },
   attachments: {
-    class: 'portable-project',
-    status: 'draft',
-    source: 'table-classification-draft.md',
+    class: 'local-only',
+    status: 'frozen-legacy',
+    source: 'T12535 PR 2 (docs/attachments twin collapse)',
+    dropTask: 'T12535',
+    liveTwin: 'docs_attachments',
+    note: 'was the live table while portable-project; physically the same rows as its live twin after the collapse; store/twin-collapse.ts carries its rows there at every open (initial collapse, then incremental re-merge while an older build still writes it) and never writes this table',
   },
   audit_log: {
     class: 'portable-project',

@@ -140,7 +140,7 @@ export async function setMetaValue(
 async function writeMetaValue(cwd: string | undefined, key: string, value: unknown): Promise<void> {
   const db = await getDb(cwd);
   // T12535: fail fast on a store degraded by a failed twin collapse.
-  assertTwinCollapseWritable(getNativeTasksDb(cwd));
+  assertTwinCollapseWritable(getNativeTasksDb(cwd), 'schema_meta');
   const json = JSON.stringify(value);
   await db
     .insert(schema.schemaMeta)
@@ -176,7 +176,7 @@ async function writeMetaValue(cwd: string | undefined, key: string, value: unkno
  * @task T12535
  */
 export function advanceTaskIdSequence(nativeDb: DatabaseSync, floor: number): number | undefined {
-  assertTwinCollapseWritable(nativeDb);
+  assertTwinCollapseWritable(nativeDb, 'schema_meta');
   // T12535: an id the older build reserved in the bare counter is taken too.
   const lowest = Math.max(floor, bareCounterOf(nativeDb, 'task_id_sequence'));
   nativeDb

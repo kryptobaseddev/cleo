@@ -29,8 +29,9 @@
 
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import { assertTwinCollapseWritable } from '../store/twin-collapse.js';
 
-/** Row shape projected from `attachments` during the set-alias transaction. */
+/** Row shape projected from `docs_attachments` during the set-alias transaction. */
 interface AttachmentAliasRow {
   id: string;
   slug: string | null;
@@ -93,7 +94,7 @@ export interface SetDisplayAliasResult {
  *      OTHER `type='adr'` row for the same `display_alias`. Any conflict throws
  *      `E_ALIAS_TAKEN` and the transaction rolls back — numbers are unique among
  *      ADRs. Non-adr kinds skip the uniqueness check (they may reuse numbers).
- *   3. `UPDATE attachments SET display_alias = ? WHERE id = ?`.
+ *   3. `UPDATE docs_attachments SET display_alias = ? WHERE id = ?`.
  *
  * Uniqueness is enforced HERE (dispatch/SDK layer) rather than via a SQL UNIQUE
  * constraint because the constraint is scoped to a single `type` value — the
@@ -140,6 +141,8 @@ export async function setDisplayAlias(
       'docs set-alias: project cleo.db could not be opened (no native handle)',
     );
   }
+  // T12535: fail fast on a store degraded by a failed twin collapse.
+  assertTwinCollapseWritable(db, 'attachments');
 
   const now = new Date().toISOString();
 
@@ -151,7 +154,7 @@ export async function setDisplayAlias(
   let row: AttachmentAliasRow | undefined;
   try {
     row = db
-      .prepare('SELECT id, slug, type, display_alias FROM attachments WHERE slug = ?')
+      .prepare('SELECT id, slug, type, display_alias FROM docs_attachments WHERE slug = ?')
       .get(slug) as AttachmentAliasRow | undefined;
 
     if (!row) {
@@ -162,7 +165,7 @@ export async function setDisplayAlias(
     if (displayAlias !== null && row.type === 'adr') {
       const conflict = db
         .prepare(
-          "SELECT slug FROM attachments WHERE type = 'adr' AND display_alias = ? AND id <> ?",
+          "SELECT slug FROM docs_attachments WHERE type = 'adr' AND display_alias = ? AND id <> ?",
         )
         .get(displayAlias, row.id) as AliasConflictRow | undefined;
       if (conflict) {
@@ -182,7 +185,10 @@ export async function setDisplayAlias(
       }
     }
 
-    db.prepare('UPDATE attachments SET display_alias = ? WHERE id = ?').run(displayAlias, row.id);
+    db.prepare('UPDATE docs_attachments SET display_alias = ? WHERE id = ?').run(
+      displayAlias,
+      row.id,
+    );
 
     db.exec('COMMIT');
   } catch (txErr) {

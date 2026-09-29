@@ -68,13 +68,14 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { blobAttachmentSchema } from '@cleocode/contracts';
 import { and, eq } from 'drizzle-orm';
+import { getDb } from '../../store/sqlite.js';
 import {
   ATTACHMENT_LIFECYCLE_STATUSES,
   type AttachmentLifecycleStatus,
   attachmentRefs,
   attachments,
-} from '../../store/schema/attachments.js';
-import { getDb } from '../../store/sqlite.js';
+} from '../../store/tasks-schema.js';
+import { assertTwinCollapseWritable } from '../../store/twin-collapse.js';
 
 /**
  * Shape of one line in `.cleo/adrs/adr-index.jsonl`.
@@ -252,6 +253,8 @@ export async function backfillAdrIndex(
   }
 
   const db = await getDb(projectRoot);
+  // T12535: fail fast on a store degraded by a failed twin collapse.
+  if (!dryRun) assertTwinCollapseWritable(db, 'attachments');
   const nowIso = new Date().toISOString();
 
   // ── Pass 1: insert/update every attachments row keyed on sha256 ────────────
