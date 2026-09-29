@@ -17,7 +17,12 @@
 import { PassThrough } from 'node:stream';
 import { WizardInterruptError } from '@cleocode/core/setup';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ReadlineWizardIO, StdinClosedError, stripBracketedPaste } from '../readline-wizard-io.js';
+import {
+  ReadlineWizardIO,
+  SECRET_ECHO_REFUSED_MESSAGE,
+  StdinClosedError,
+  stripBracketedPaste,
+} from '../readline-wizard-io.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -378,5 +383,127 @@ describe('select() — happy path', () => {
     input.end();
     await expect(io.select('Choose', [] as const)).rejects.toThrow('option list is empty');
     io.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// secret() — hidden input (T12714)
+// ---------------------------------------------------------------------------
+
+describe('ReadlineWizardIO.secret — the typed key is never echoed (T12714)', () => {
+  const SECRET = 'sk-live-HIDDENKEY-9753';
+
+  /**
+   * A terminal-like session: a TTY input makes readline run in terminal mode,
+   * where it echoes every typed character to its output stream.
+   */
+  function ttyIO(): { io: ReadlineWizardIO; input: PassThrough; written: () => string } {
+    const input = Object.assign(new PassThrough(), { isTTY: true });
+    const output = Object.assign(new PassThrough(), { isTTY: true, columns: 80 });
+    let captured = '';
+    output.on('data', (chunk: Buffer) => {
+      captured += chunk.toString('utf-8');
+    });
+    return { io: new ReadlineWizardIO(input, output), input, written: () => captured };
+  }
+
+  it('control: prompt() on the same terminal output DOES echo the typed characters', async () => {
+    const { io, input, written } = ttyIO();
+    setImmediate(() => input.write(`${SECRET}\r`));
+    expect(await io.prompt('Name:')).toBe(SECRET);
+    io.close();
+    expect(written()).toContain(SECRET);
+  });
+
+  it('secret() writes the question but the muted stream receives no key characters', async () => {
+    const { io, input, written } = ttyIO();
+    // Type the key one character at a time, as a person would.
+    setImmediate(() => {
+      for (const ch of SECRET) input.write(ch);
+      input.write('\r');
+    });
+    const answer = await io.secret('API key:');
+    // The mute is lifted afterwards: a later prompt echoes again.
+    setImmediate(() => input.write('visible\r'));
+    await io.prompt('Next:');
+    io.close();
+
+    expect(answer).toBe(SECRET);
+    const out = written();
+    expect(out).toContain('API key:');
+    expect(out).toContain('visible');
+    expect(out).not.toContain('HIDDENKEY');
+    for (const fragment of ['sk-l', '9753', 'KEY-']) expect(out).not.toContain(fragment);
+  });
+
+  it('strips bracketed-paste markers from a pasted secret', async () => {
+    const { io, input, written } = ttyIO();
+    setImmediate(() => input.write(`\x1b[200~${SECRET}\x1b[201~\r`));
+    expect(await io.secret('API key:')).toBe(SECRET);
+    io.close();
+    expect(written()).not.toContain('HIDDENKEY');
+  });
+
+  it('propagates StdinClosedError when stdin closes before the secret arrives', async () => {
+    const io = makeIO([], true);
+    await expect(io.secret('API key:')).rejects.toThrow(StdinClosedError);
+    io.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// History and terminal mode (PR #1690 review)
+// ---------------------------------------------------------------------------
+
+/** Exposes the protected readline interface's terminal flag and history. */
+class ProbeIO extends ReadlineWizardIO {
+  /** Whether readline runs in terminal mode. */
+  terminalMode(): boolean {
+    return this.rl.terminal;
+  }
+  /** readline's runtime history array (undeclared in @types/node). */
+  history(): readonly string[] {
+    const h: unknown = Reflect.get(this.rl, 'history');
+    return Array.isArray(h) ? h.filter((x): x is string => typeof x === 'string') : [];
+  }
+}
+
+describe('ReadlineWizardIO — secrets never reach history; terminal mode follows stdin', () => {
+  const SECRET = 'sk-live-HISTORYKEY-2468';
+
+  it('a secret is not in readline history after secret() (Up-arrow cannot redraw it)', async () => {
+    const input = Object.assign(new PassThrough(), { isTTY: true });
+    const output = Object.assign(new PassThrough(), { isTTY: true, columns: 80 });
+    output.resume();
+    const io = new ProbeIO(input, output);
+    setImmediate(() => input.write(`${SECRET}\r`));
+    expect(await io.secret('API key:')).toBe(SECRET);
+    const history = io.history();
+    io.close();
+    expect(history.some((line) => line.includes('HISTORYKEY'))).toBe(false);
+  });
+
+  it('terminal mode derives from the INPUT stream, not the output stream', () => {
+    const ttyIn = Object.assign(new PassThrough(), { isTTY: true });
+    const plainOut = new PassThrough();
+    const a = new ProbeIO(ttyIn, plainOut);
+    expect(a.terminalMode()).toBe(true);
+    a.close();
+
+    const plainIn = new PassThrough();
+    const ttyOut = Object.assign(new PassThrough(), { isTTY: true, columns: 80 });
+    const b = new ProbeIO(plainIn, ttyOut);
+    expect(b.terminalMode()).toBe(false);
+    b.close();
+  });
+
+  it('secret() refuses on a TTY stdin when terminal mode is off (the terminal would echo)', async () => {
+    const input = Object.assign(new PassThrough(), { isTTY: true });
+    const io = new ReadlineWizardIO(input, new PassThrough(), { terminal: false });
+    setImmediate(() => input.write(`${SECRET}\n`));
+    await expect(io.secret('API key:')).rejects.toThrow(SECRET_ECHO_REFUSED_MESSAGE);
+    io.close();
+    expect(SECRET_ECHO_REFUSED_MESSAGE).toContain('--key-stdin');
+    expect(SECRET_ECHO_REFUSED_MESSAGE).toContain('--api-key-stdin');
   });
 });

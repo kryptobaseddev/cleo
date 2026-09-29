@@ -9,7 +9,13 @@
  * @epic T12486
  */
 
-import type { DecisionAnswer } from '@cleocode/contracts';
+import {
+  type DecisionAnswer,
+  type DecisionProviderCapabilities,
+  type DecisionProviderKind,
+  type DecisionProviderUsage,
+  JEV_MINIMUM_CAPABILITIES,
+} from '@cleocode/contracts';
 import { getProjectRoot } from '../paths.js';
 import {
   createJsonlDecisionAudit,
@@ -27,8 +33,27 @@ import {
   sameDecideHost,
   saveDecideCredentials,
 } from './credentials.js';
-import { listJevModels } from './jev-wire.js';
+import { detectJevCapabilities, listJevModels } from './jev-wire.js';
 import { DecisionProviderError } from './provider.js';
+import {
+  providerKeyHash,
+  readProviderState,
+  USAGE_REFRESH_MS,
+  writeProviderState,
+} from './provider-state.js';
+import { DECISION_PROVIDER_PRESETS, inferDecisionProviderKind } from './providers.js';
+import { DECIDE_ASK_DECISION_SITE, DECISION_SITES } from './sites/registry.js';
+import {
+  createFileSpendLedger,
+  DEFAULT_MONTHLY_SPEND_CAP_MICROS,
+  inspectSpendLedger,
+  MONTHLY_SPEND_CAP_KEY,
+  resetSpendLedger,
+  type SpendLedger,
+  type SpendLedgerHealth,
+  type SpendResetOptions,
+  type SpendResetReceipt,
+} from './spend.js';
 
 /** Default deadline for the `GET /v1/models` probe, ms. */
 export const DEFAULT_DECIDE_PROBE_TIMEOUT_MS = 3_000;
@@ -40,11 +65,34 @@ export const DEFAULT_DECIDE_ASK_TIMEOUT_MS = 10_000;
  * Reachability of the configured provider.
  *
  * - `reachable`    — `GET /v1/models` answered 2xx.
- * - `unauthorized` — the provider rejected the key (401/403).
+ * - `unauthorized` — the provider rejected the key (401, or a 403 that is not a key limit).
+ * - `key_limit_reached` — the key's monthly decision limit is reached (403
+ *   `key_limit_exceeded`); decisions resume when the UTC month rolls over.
  * - `unconfigured` — no valid base URL + key stored.
  * - `unreachable`  — network failure, timeout, or any other HTTP status.
  */
-export type DecideProviderState = 'reachable' | 'unauthorized' | 'unconfigured' | 'unreachable';
+export type DecideProviderState =
+  | 'reachable'
+  | 'unauthorized'
+  | 'key_limit_reached'
+  | 'unconfigured'
+  | 'unreachable';
+
+/** Month-to-date spend against the CLEO cap (D11159). */
+export interface DecideSpendSummary {
+  /** UTC month, `YYYY-MM`. */
+  readonly month: string;
+  /** Micro-dollars recorded this month. */
+  readonly spentMicros: number;
+  /** Micro-dollars reserved by calls in flight. */
+  readonly reservedMicros: number;
+  /** The cap, micro-dollars (`decide.budget.monthlyMicros`). */
+  readonly capMicros: number;
+  /** Whether sites are degraded to their heuristics because the cap is reached. */
+  readonly capReached: boolean;
+  /** ISO time until which the key's monthly limit stops decisions, when set. */
+  readonly keyLimitedUntil?: string;
+}
 
 /** Result of {@link probeDecideProvider}. */
 export interface DecideProbeResult {
@@ -66,6 +114,16 @@ export interface DecideProbeResult {
   readonly latencyMs?: number;
   /** Secret-free explanation or warning. */
   readonly detail?: string;
+  /** Registered decision sites (T12662). */
+  readonly sites: number;
+  /** What the provider supports beyond the Jev minimum (T12664). */
+  readonly capabilities?: DecisionProviderCapabilities;
+  /** Last usage/balance read (refreshed at most every 10 minutes). */
+  readonly usage?: DecisionProviderUsage & { readonly fetchedAt: string };
+  /** Month-to-date spend against the cap. */
+  readonly spend?: DecideSpendSummary;
+  /** Spend-ledger health; `corrupt` or `unavailable` means every site falls back. */
+  readonly spendLedger?: SpendLedgerHealth;
 }
 
 /** Options for {@link probeDecideProvider}. */
@@ -76,6 +134,64 @@ export interface DecideProbeOptions {
   readonly fetch?: typeof fetch;
   /** Deadline, ms. Default {@link DEFAULT_DECIDE_PROBE_TIMEOUT_MS}. */
   readonly timeoutMs?: number;
+  /** Spend ledger; `null` omits spend. Default: the machine-wide ledger. */
+  readonly spend?: SpendLedger | null;
+  /** Monthly cap, micro-dollars. Default: `decide.budget.monthlyMicros`, else $1. */
+  readonly capMicros?: number;
+  /** Spend-ledger path to inspect. Default: `<cleoHome>/decide/spend.json`. */
+  readonly spendStatePath?: string;
+  /** Provider-state file (capabilities + usage cache). Default: `<cleoHome>/decide/provider-state.json`. */
+  readonly providerStatePath?: string;
+  /** Wall clock, epoch ms. Default `Date.now`. */
+  readonly now?: () => number;
+  /**
+   * Re-detect capabilities even when the cached read is fresh. Set after the
+   * settings change so the provider's extensions apply immediately (T12713).
+   */
+  readonly refreshCapabilities?: boolean;
+}
+
+const KEY_LIMIT_DETAIL =
+  "The key's monthly decision limit is reached (403 key_limit_exceeded). The key itself is fine: decisions resume when the UTC month rolls over, or raise the limit in the provider console.";
+
+/** Message naming the repair for a ledger that cannot be read. */
+export const SPEND_LEDGER_REPAIR_HINT =
+  'The System One spend ledger cannot be read, so every site uses its heuristic (the cap fails closed). Run `cleo decide budget reset` to start a fresh ledger; the old file is kept as a receipt.';
+
+/** `{ detail }` when there is one, else nothing. */
+function optionalDetail(detail: string | undefined): { detail?: string } {
+  return detail ? { detail } : {};
+}
+
+/** Month-to-date spend, or undefined when the ledger is disabled or unreadable. */
+async function spendSummary(opts: DecideProbeOptions): Promise<DecideSpendSummary | undefined> {
+  const ledger = opts.spend === undefined ? createFileSpendLedger() : opts.spend;
+  if (!ledger) return undefined;
+  const status = await ledger.status();
+  if (!status) return undefined;
+  let capMicros = opts.capMicros;
+  if (capMicros === undefined) {
+    try {
+      const { getConfigValue } = await import('../config/registry.js');
+      const value: unknown = await getConfigValue(MONTHLY_SPEND_CAP_KEY, {
+        projectRoot: getProjectRoot(),
+      });
+      capMicros =
+        typeof value === 'number' && value >= 0 ? value : DEFAULT_MONTHLY_SPEND_CAP_MICROS;
+    } catch {
+      capMicros = DEFAULT_MONTHLY_SPEND_CAP_MICROS;
+    }
+  }
+  return {
+    month: status.month,
+    spentMicros: status.spentMicros,
+    reservedMicros: status.reservedMicros,
+    capMicros,
+    capReached: status.spentMicros >= capMicros,
+    ...(status.keyLimitedUntil !== undefined
+      ? { keyLimitedUntil: new Date(status.keyLimitedUntil).toISOString() }
+      : {}),
+  };
 }
 
 const NO_MODEL_WARNING =
@@ -84,6 +200,9 @@ const NO_MODEL_WARNING =
 function stateForError(err: unknown): { state: DecideProviderState; httpStatus?: number } {
   if (err instanceof DecisionProviderError) {
     if (err.kind === 'unauthorized') return { state: 'unauthorized', httpStatus: err.status };
+    if (err.kind === 'key_limit_exceeded') {
+      return { state: 'key_limit_reached', httpStatus: err.status };
+    }
     if (err.kind === 'invalid_response') return { state: 'reachable', httpStatus: err.status };
     return {
       state: 'unreachable',
@@ -103,90 +222,191 @@ function stateForError(err: unknown): { state: DecideProviderState; httpStatus?:
 export async function probeDecideProvider(
   opts: DecideProbeOptions = {},
 ): Promise<DecideProbeResult> {
+  const sites = DECISION_SITES.length;
   const sealed = opts.connection === undefined ? loadDecideConnection() : opts.connection;
+  const spend = await spendSummary(opts);
+  const spendLedger = opts.spend === null ? undefined : inspectSpendLedger(opts.spendStatePath);
+  const ledgerBroken = spendLedger === 'corrupt' || spendLedger === 'unavailable';
+  const withHint = (detail: string | undefined): string | undefined =>
+    ledgerBroken ? [detail, SPEND_LEDGER_REPAIR_HINT].filter(Boolean).join(' ') : detail;
   if (!sealed) {
     return {
       state: 'unconfigured',
       modelsEndpoint: 'skipped',
-      detail: 'Run `cleo decide config`.',
+      detail: withHint('Run `cleo decide config`.'),
+      sites,
+      ...(spend ? { spend } : {}),
+      ...(spendLedger ? { spendLedger } : {}),
     };
   }
   const base = {
     baseUrl: sealed.baseUrl,
     keyPreview: sealed.keyPreview,
     ...(sealed.model ? { model: sealed.model } : {}),
+    sites,
+    ...(spend ? { spend } : {}),
+    ...(spendLedger ? { spendLedger } : {}),
   };
+  const now = opts.now ?? Date.now;
   const started = performance.now();
   const signal = AbortSignal.timeout(opts.timeoutMs ?? DEFAULT_DECIDE_PROBE_TIMEOUT_MS);
+
+  // Capabilities + usage: reuse the cached read unless it is older than 10 minutes.
+  const identity = sealed.connection();
+  const cached = readProviderState(identity, opts.providerStatePath);
+  let state = cached;
+  if (
+    !cached ||
+    opts.refreshCapabilities === true ||
+    now() - cached.detectedAt >= USAGE_REFRESH_MS
+  ) {
+    const detected = await detectJevCapabilities(sealed.connection(), signal, {
+      fetch: opts.fetch,
+    });
+    state = {
+      baseUrl: sealed.baseUrl,
+      keyHash: providerKeyHash(identity.apiKey),
+      detectedAt: now(),
+      capabilities: detected.capabilities,
+      ...(detected.usage ? { usage: detected.usage } : {}),
+    };
+    writeProviderState(state, opts.providerStatePath);
+  }
+  const extras = {
+    capabilities: state?.capabilities ?? JEV_MINIMUM_CAPABILITIES,
+    ...(state?.usage
+      ? { usage: { ...state.usage, fetchedAt: new Date(state.detectedAt).toISOString() } }
+      : {}),
+  };
+
   try {
     const models = await listJevModels(sealed.connection(), signal, { fetch: opts.fetch });
+    const keyLimited = spend?.keyLimitedUntil !== undefined;
     return {
       ...base,
-      state: 'reachable',
+      ...extras,
+      state: keyLimited ? 'key_limit_reached' : 'reachable',
       modelsEndpoint: 'ok',
       models,
       httpStatus: 200,
       latencyMs: Math.round(performance.now() - started),
-      ...(sealed.model ? {} : { detail: NO_MODEL_WARNING }),
+      ...optionalDetail(
+        withHint(keyLimited ? KEY_LIMIT_DETAIL : sealed.model ? undefined : NO_MODEL_WARNING),
+      ),
     };
   } catch (err) {
     const verdict = stateForError(err);
     return {
       ...base,
+      ...extras,
       ...verdict,
       modelsEndpoint: 'failed',
       latencyMs: Math.round(performance.now() - started),
-      detail: err instanceof Error ? err.message : 'probe failed',
+      ...optionalDetail(
+        withHint(
+          verdict.state === 'key_limit_reached'
+            ? KEY_LIMIT_DETAIL
+            : err instanceof Error
+              ? err.message
+              : 'probe failed',
+        ),
+      ),
     };
   }
 }
 
 /** Input for {@link configureDecide}. */
 export interface DecideConfigureInput {
-  /** Provider base URL. Omitted → the stored URL is kept. */
+  /**
+   * Provider kind. Omitted → the stored kind when the host is unchanged,
+   * else inferred from `baseUrl` (the layahost host → `layahost`, any other →
+   * `jev`), else `layahost`.
+   */
+  readonly provider?: DecisionProviderKind;
+  /**
+   * Provider base URL. Omitted → the stored URL for the same provider, else
+   * the provider's preset URL. Required for `jev` when nothing is stored.
+   */
   readonly baseUrl?: string;
   /** API key. Omitted → the stored key is kept. */
   readonly apiKey?: string;
   /**
-   * Default model. Omitted → the stored model is kept when the URL is
-   * unchanged; otherwise resolved from the provider's model listing.
+   * Default model. Omitted → the stored model when the URL is unchanged;
+   * otherwise the preset default (`layahost`), else the first model the
+   * provider lists (`jev`).
    */
   readonly model?: string;
-  /** `fetch` for the model lookup; tests inject a stub. */
+  /** `fetch` for the model lookup and the post-save probe; tests inject a stub. */
   readonly fetch?: typeof fetch;
-  /** Deadline for the model lookup, ms. */
+  /** Deadline for the model lookup and the probe, ms. */
   readonly timeoutMs?: number;
 }
 
 /** Result of {@link configureDecide}. */
 export interface DecideConfigureResult extends DecideCredentialsSummary {
   /** Where the stored model came from. */
-  readonly modelSource: 'flag' | 'stored' | 'provider-listing' | 'none';
+  readonly modelSource: 'flag' | 'stored' | 'preset' | 'provider-listing' | 'none';
+  /** Reachability verdict of the probe run after saving. */
+  readonly providerState: DecideProviderState;
+  /** Capabilities detected after saving (the provider's extensions are active from now on). */
+  readonly capabilities?: DecisionProviderCapabilities;
   /** Secret-free warning, e.g. when no model could be resolved. */
   readonly warning?: string;
 }
 
+/** Resolve the provider kind for {@link configureDecide}. */
+function resolveProviderKind(
+  input: DecideConfigureInput,
+  stored: SealedDecideConnection | null,
+): DecisionProviderKind {
+  if (input.provider) return input.provider;
+  const url = input.baseUrl?.trim();
+  if (!url) return stored?.provider ?? 'layahost';
+  if (stored && sameDecideHost(stored.baseUrl, url)) return stored.provider;
+  return inferDecisionProviderKind(url);
+}
+
+/** Resolve the base URL for {@link configureDecide}; throws when `jev` has none. */
+function resolveBaseUrl(
+  input: DecideConfigureInput,
+  provider: DecisionProviderKind,
+  stored: SealedDecideConnection | null,
+): string {
+  const explicit = input.baseUrl?.trim();
+  if (explicit) return explicit;
+  if (stored && stored.provider === provider) return stored.baseUrl;
+  const preset = DECISION_PROVIDER_PRESETS[provider];
+  if (preset.defaultBaseUrl) return preset.defaultBaseUrl;
+  throw new DecideCredentialsError(
+    `the ${provider} provider needs a base URL: pass --url https://your-provider.example (https, or http only for localhost)`,
+  );
+}
+
 /**
- * Store the provider settings, merging omitted values with the stored ones.
+ * Store the provider settings, merging omitted values with the stored ones,
+ * then probe the provider and re-detect its capabilities so its extensions
+ * apply immediately.
  *
- * The Jev `/v1/systemone` endpoint requires a `model`, and no model literal
- * may be hard-coded in core (arch gate 13). So when no model is given (and
- * none is stored for the same URL), this asks the provider (`GET /v1/models`)
- * and stores the FIRST model it lists — the provider's own ordering; layahost
- * lists its routing default first. When that lookup fails the settings are
- * still stored, without a model, and a warning says how to set one.
+ * A model is always stored when one can be known, because the Jev
+ * `/v1/systemone` endpoint rejects a request without one (422, and every
+ * site silently falls back). The model comes from, in order: the flag; the
+ * stored model (same URL); the provider preset (`layahost` →
+ * `LAYAHOST_DEFAULT_MODEL`); the first model the provider lists. Only a
+ * `jev` provider whose listing fails can end with no model, and then a
+ * warning says how to set one.
  *
- * @param input - URL, key, optional model.
- * @returns Secret-free summary plus the model's provenance.
  * A URL whose host differs from the stored one must come with a fresh key:
  * the stored key is never re-used (or sent in the model probe) for a new host.
  *
- * @throws {DecideCredentialsError} On an invalid URL, blank key, invalid model
- *   name, or a host change without a fresh key.
+ * @param input - Provider, URL, key, optional model.
+ * @returns Secret-free summary plus the model's provenance and the probe verdict.
+ * @throws {DecideCredentialsError} On an invalid URL, `jev` without a URL, a
+ *   blank key, an invalid model name, or a host change without a fresh key.
  */
 export async function configureDecide(input: DecideConfigureInput): Promise<DecideConfigureResult> {
   const stored = loadDecideConnection();
-  const baseUrl = input.baseUrl?.trim() || stored?.baseUrl || '';
+  const provider = resolveProviderKind(input, stored);
+  const baseUrl = resolveBaseUrl(input, provider, stored);
   const freshKey = input.apiKey?.trim();
   if (!freshKey && stored && !sameDecideHost(stored.baseUrl, baseUrl)) {
     throw new DecideCredentialsError(
@@ -194,23 +414,39 @@ export async function configureDecide(input: DecideConfigureInput): Promise<Deci
     );
   }
   const apiKey = freshKey || stored?.connection().apiKey || '';
+  const preset = DECISION_PROVIDER_PRESETS[provider];
   const explicit = input.model?.trim();
+  let model: string | undefined;
+  let modelSource: DecideConfigureResult['modelSource'] = 'none';
   if (explicit) {
-    return {
-      ...(await saveDecideCredentials({ baseUrl, apiKey, model: explicit })),
-      modelSource: 'flag',
-    };
+    model = explicit;
+    modelSource = 'flag';
+  } else if (stored?.model && stored.baseUrl === baseUrl) {
+    model = stored.model;
+    modelSource = 'stored';
+  } else if (preset.defaultModel) {
+    model = preset.defaultModel;
+    modelSource = 'preset';
   }
-  if (stored?.model && stored.baseUrl === baseUrl) {
-    const kept = await saveDecideCredentials({ baseUrl, apiKey, model: stored.model });
-    return { ...kept, modelSource: 'stored' };
-  }
-  const saved = await saveDecideCredentials({ baseUrl, apiKey });
+
+  const saved = await saveDecideCredentials({
+    provider,
+    baseUrl,
+    apiKey,
+    ...(model ? { model } : {}),
+  });
   const probe = await probeDecideProvider({
     connection: loadDecideConnection(),
     fetch: input.fetch,
     timeoutMs: input.timeoutMs,
+    refreshCapabilities: true,
   });
+  const verdict = {
+    providerState: probe.state,
+    ...(probe.capabilities ? { capabilities: probe.capabilities } : {}),
+  };
+  if (model) return { ...saved, modelSource, ...verdict };
+
   const first = probe.models?.[0];
   if (!first) {
     const why =
@@ -218,11 +454,12 @@ export async function configureDecide(input: DecideConfigureInput): Promise<Deci
     return {
       ...saved,
       modelSource: 'none',
+      ...verdict,
       warning: `No model stored (${why}). ${NO_MODEL_WARNING}`,
     };
   }
-  const withModel = await saveDecideCredentials({ baseUrl, apiKey, model: first });
-  return { ...withModel, modelSource: 'provider-listing' };
+  const withModel = await saveDecideCredentials({ provider, baseUrl, apiKey, model: first });
+  return { ...withModel, modelSource: 'provider-listing', ...verdict };
 }
 
 /**
@@ -310,7 +547,7 @@ export async function askDecideDebug(input: DecideAskInput): Promise<DecideAskRe
   const sealed = loadDecideConnection();
   const audit = teeAudit(input.projectRoot);
   const outcome = await decide(
-    'cli.decide-ask',
+    DECIDE_ASK_DECISION_SITE.id,
     { state: input.state, questions: { answer: { type: 'noul', criteria: input.question } } },
     () => ({ answer: NEUTRAL_NOUL }),
     {
@@ -331,4 +568,23 @@ export async function askDecideDebug(input: DecideAskInput): Promise<DecideAskRe
     ...(sealed?.model ? { model: sealed.model } : {}),
     ...(sealed ? { keyPreview: sealed.keyPreview } : {}),
   };
+}
+
+/**
+ * `cleo decide budget reset`: start a fresh spend ledger for this month,
+ * moving the old file aside as a receipt. The repair for a corrupt ledger,
+ * which otherwise keeps every site on its heuristic. A readable ledger is
+ * refused unless `opts.force`, and its month-to-date spend is carried over,
+ * so a reset never lifts a reached cap.
+ *
+ * @param statePath - Ledger path. Default: `<cleoHome>/decide/spend.json`.
+ * @param opts - `force` resets a ledger that is not corrupt.
+ * @returns The receipt: previous health, carried spend and where the old file went.
+ * @throws {SpendResetRefusedError} When the ledger is not corrupt and `force` is not set.
+ */
+export async function resetDecideBudget(
+  statePath?: string,
+  opts: SpendResetOptions = {},
+): Promise<SpendResetReceipt> {
+  return resetSpendLedger(statePath, Date.now(), opts);
 }

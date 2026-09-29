@@ -11,7 +11,12 @@
  * @epic T12486
  */
 
-import type { DecisionAnswer, DecisionOutcomeSource, DecisionRequest } from '@cleocode/contracts';
+import type {
+  DecisionAnswer,
+  DecisionOutcomeSource,
+  DecisionRequest,
+  DecisionSiteModeValue,
+} from '@cleocode/contracts';
 import type { DecisionAuditAnswer, DecisionAuditEntry, DecisionShadowRecord } from './audit.js';
 import type { DecideOptions } from './client.js';
 
@@ -22,7 +27,7 @@ import type { DecideOptions } from './client.js';
  * - `shadow` — ask, audit both answers, act on the heuristic.
  * - `on` — ask and act on the decision when it is confident enough.
  */
-export type DecisionSiteMode = 'off' | 'shadow' | 'on';
+export type DecisionSiteMode = DecisionSiteModeValue;
 
 /** Resolved settings for one call-site invocation. */
 export interface DecisionSiteSettings {
@@ -272,6 +277,8 @@ export async function askSiteDecision(input: AskSiteDecisionInput): Promise<Site
       : null;
 
     const remaining = Math.max(0, input.budgetMs - (performance.now() - started));
+    // Generic plumbing: each caller's siteId is checked at its askSiteDecision call (gate 35).
+    // model-site-allowed: plumbing for every askSiteDecision caller
     const outcome = await decide(input.siteId, req, () => input.heuristicAnswers, {
       ...wiring,
       audit,

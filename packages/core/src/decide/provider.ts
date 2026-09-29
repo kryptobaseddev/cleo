@@ -15,7 +15,14 @@
  * @epic T12486
  */
 
-import type { DecisionOutcome, DecisionProviderConfig, DecisionRequest } from '@cleocode/contracts';
+import type {
+  DecisionBatchItem,
+  DecisionOutcome,
+  DecisionProviderCapabilities,
+  DecisionProviderConfig,
+  DecisionProviderUsage,
+  DecisionRequest,
+} from '@cleocode/contracts';
 
 /**
  * Connection settings for a key-authenticated decision provider: the base URL
@@ -48,17 +55,41 @@ export interface DecisionProvider {
    * @returns An outcome whose `answers` cover every question in `req`.
    */
   decide(req: DecisionRequest, signal: AbortSignal): Promise<DecisionOutcome>;
+  /**
+   * What the provider supports beyond the Jev minimum. Absent → the Jev
+   * minimum (`JEV_MINIMUM_CAPABILITIES`). The client calls an optional method
+   * below only when both the method and its capability exist (T12664).
+   */
+  capabilities?(): DecisionProviderCapabilities;
+  /**
+   * Execute several requests as one provider call (`capabilities().batch`).
+   * Resolves with one item per request, in order; a failed item carries its
+   * error kind instead of throwing. Throws a {@link DecisionProviderError}
+   * only when the call as a whole failed.
+   */
+  decideBatch?(
+    reqs: readonly DecisionRequest[],
+    signal: AbortSignal,
+  ): Promise<readonly DecisionBatchItem[]>;
+  /** Account usage and balance (`capabilities().usage`). */
+  usage?(signal: AbortSignal): Promise<DecisionProviderUsage>;
+  /** A built-in template decision (`capabilities().templates`). Reserved; no site uses it yet. */
+  decideTemplate?(template: string, text: string, signal: AbortSignal): Promise<DecisionOutcome>;
 }
 
 /**
  * Why a provider call failed. Drives the client's fallback reason and, for
  * `rate_limited`, the shared budget cool-down.
  *
- * - `unauthorized`        — 401: bad or missing key.
+ * - `unauthorized`        — 401, or a 403 that is not a key limit: bad or missing key.
  * - `insufficient_credits` — 402: the account is out of credit.
+ * - `key_limit_exceeded`  — 403 `key_limit_exceeded`: the key's monthly decision
+ *   limit is reached. The key is fine; decisions stop until the UTC month ends.
  * - `rate_limited`        — 429: slow down; see `retryAfterMs`.
+ * - `overloaded`          — 529 or 503: the provider is overloaded or unavailable;
+ *   a short circuit-breaker trip honouring `retryAfterMs`.
  * - `invalid_request`     — 422 or another 4xx: the provider rejected the request.
- * - `server_error`        — 5xx.
+ * - `server_error`        — any other 5xx.
  * - `network`             — the request never produced an HTTP response.
  * - `aborted`             — the caller's signal fired (timeout).
  * - `invalid_response`    — a 2xx whose body did not match the expected shape.
@@ -66,7 +97,9 @@ export interface DecisionProvider {
 export type DecisionProviderErrorKind =
   | 'unauthorized'
   | 'insufficient_credits'
+  | 'key_limit_exceeded'
   | 'rate_limited'
+  | 'overloaded'
   | 'invalid_request'
   | 'server_error'
   | 'network'
@@ -77,7 +110,7 @@ export type DecisionProviderErrorKind =
 export interface DecisionProviderErrorOptions {
   /** HTTP status, when the failure came from an HTTP response. */
   readonly status?: number;
-  /** Server-requested back-off in milliseconds (429 `retry-after`). */
+  /** Server-requested back-off in milliseconds (`retry-after` on 429/503/529). */
   readonly retryAfterMs?: number;
   /** Underlying cause, for diagnostics. */
   readonly cause?: Error;

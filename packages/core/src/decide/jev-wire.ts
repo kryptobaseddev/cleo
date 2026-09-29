@@ -21,8 +21,25 @@
  *   `{ score: <expected level>, probabilities: { level: p }, confidence }`.
  *   Score probabilities are keyed by level text (or, defensively, by 0-based
  *   index) and re-aligned to the question's `criteria` order.
- * - Errors: 401, 402 (`insufficient_credits`), 422 (FastAPI validation list),
- *   429 (with `retry-after`), 5xx. All are thrown as {@link DecisionProviderError}.
+ * - Errors, per the layahost OpenAPI 1.0.0 (test fixture
+ *   `__tests__/fixtures/layahost-openapi.trimmed.json`): 401, 402, 422, 429,
+ *   503, each with a Jev-style body `{detail:{error_type,message}}`. 402, and a
+ *   429 whose `error_type` is `insufficient_quota` (empty balance), are credit
+ *   exhaustion (`insufficient_credits`), never `unauthorized` and never a rate
+ *   limit. 503 is `overloaded` (with `retry-after`). The error body is read,
+ *   size-capped, to classify.
+ *   UNVERIFIED tolerant extras (in the provider docs, not the OpenAPI): a 403
+ *   `key_limit_exceeded` (the key's monthly limit, NOT a credential failure;
+ *   any other 403 is `unauthorized`) and a 529 (`overloaded`).
+ * - Cost (T12664, `jev-wire/2`): `meta.cost_micros` (in the OpenAPI) and
+ *   `meta.checkpoint` (in the OpenAPI); `meta.cost_usd` is still read.
+ *   UNVERIFIED tolerant extras (docs only, not the OpenAPI): the
+ *   `x-layahost-cost-micros` and `x-layahost-balance-micros` headers. A plain
+ *   Jev host sends none of them and keeps working.
+ * - Extensions, gated by {@link JevProviderOptions.capabilities} (detected by
+ *   {@link detectJevCapabilities} from `/v1/usage` and `/v1/templates`
+ *   responses, never from the host name): the `lang` and `cache` request
+ *   fields, `POST /v1/systemone/batch` and `GET /v1/usage`.
  *
  * - Model: the provider's OpenAPI marks `SystemOneRequest.model` REQUIRED and
  *   documents no server-side default for `/v1/systemone` (the `laya-auto`
@@ -42,10 +59,14 @@
 
 import {
   type DecisionAnswer,
+  type DecisionBatchItem,
   type DecisionOutcome,
+  type DecisionProviderCapabilities,
+  type DecisionProviderUsage,
   type DecisionQuestion,
   type DecisionRequest,
   decisionAnswerSchema,
+  JEV_MINIMUM_CAPABILITIES,
 } from '@cleocode/contracts';
 import { z } from 'zod';
 import { MAX_RATE_LIMIT_COOLDOWN_MS } from './budget.js';
@@ -53,6 +74,7 @@ import {
   type DecisionProvider,
   type DecisionProviderConnection,
   DecisionProviderError,
+  type DecisionProviderErrorKind,
 } from './provider.js';
 import { type DecideFetch, decideFetch } from './transport.js';
 
@@ -62,8 +84,46 @@ const SYSTEMONE_PATH = '/v1/systemone';
 /** Path of the model-listing endpoint, relative to the base URL. */
 const MODELS_PATH = '/v1/models';
 
-/** Adapter identity + version; part of every cache key so a mapping change invalidates the cache. */
-export const JEV_ADAPTER_VERSION = 'jev-wire/1';
+/** Path of the batch endpoint (layahost extension). */
+const BATCH_PATH = '/v1/systemone/batch';
+
+/** Path of the usage endpoint (layahost extension). */
+const USAGE_PATH = '/v1/usage';
+
+/** Path of the template listing (layahost extension). */
+const TEMPLATES_PATH = '/v1/templates';
+
+/** Header carrying the call's cost in integer micro-dollars. UNVERIFIED: in the provider docs, not its OpenAPI. */
+export const COST_MICROS_HEADER = 'x-layahost-cost-micros';
+
+/** Header carrying the account balance in integer micro-dollars. UNVERIFIED: in the provider docs, not its OpenAPI. */
+export const BALANCE_MICROS_HEADER = 'x-layahost-balance-micros';
+
+/** Byte cap on an error body read to classify a failure. */
+const MAX_ERROR_BODY_BYTES = 8 * 1024;
+
+/** Byte cap on a usage or template listing body. */
+const MAX_EXTENSION_BODY_BYTES = 64 * 1024;
+
+/**
+ * Capabilities of a provider that answers `GET /v1/usage` (layahost): batch
+ * of 64 requests / 256 questions, usage, cache control, lang hint, cost in
+ * micros. Templates are added only when `/v1/templates` lists them.
+ */
+export const LAYAHOST_EXTENSION_CAPABILITIES: DecisionProviderCapabilities = {
+  ...JEV_MINIMUM_CAPABILITIES,
+  batch: { maxRequests: 64, maxQuestions: 256 },
+  usage: true,
+  cacheControl: true,
+  langHint: true,
+  reportsCost: 'micros',
+};
+
+/**
+ * Adapter identity + version; part of every cache key so a mapping change
+ * invalidates the cache. `/2`: cost micros, balance and checkpoint are read.
+ */
+export const JEV_ADAPTER_VERSION = 'jev-wire/2';
 
 /** One question as the Jev wire expects it. */
 interface JevWireQuestion {
@@ -80,6 +140,10 @@ export interface JevSystemOneBody {
   readonly state: DecisionRequest['state'];
   /** Question name → wire question. */
   readonly questions: Readonly<Record<string, JevWireQuestion>>;
+  /** Language hint (only with the `langHint` capability). */
+  readonly lang?: string;
+  /** Provider answer cache (only with the `cacheControl` capability). */
+  readonly cache?: boolean;
 }
 
 /** Loose schema for one wire answer; extra fields (e.g. `legend`) are tolerated. */
@@ -102,6 +166,8 @@ const jevResponseSchema = z.looseObject({
       request_id: z.string().optional(),
       latency_ms: z.number().optional(),
       cost_usd: z.number().nonnegative().optional(),
+      cost_micros: z.number().int().nonnegative().optional(),
+      checkpoint: z.string().min(1).optional(),
       cached: z.boolean().optional(),
     })
     .optional(),
@@ -112,10 +178,18 @@ type JevWireAnswer = z.infer<typeof jevAnswerSchema>;
 /**
  * Map a contract request to the `/v1/systemone` wire body.
  *
+ * `lang` and `cache` are sent only when `capabilities` says the provider
+ * honours them; the default (Jev minimum) sends neither, so a plain Jev host
+ * sees exactly the Jev body.
+ *
  * @param req - Provider-neutral request.
+ * @param capabilities - The provider's capabilities. Default: the Jev minimum.
  * @returns The JSON body to POST.
  */
-export function toJevSystemOneBody(req: DecisionRequest): JevSystemOneBody {
+export function toJevSystemOneBody(
+  req: DecisionRequest,
+  capabilities: DecisionProviderCapabilities = JEV_MINIMUM_CAPABILITIES,
+): JevSystemOneBody {
   const questions: Record<string, JevWireQuestion> = {};
   for (const [name, q] of Object.entries(req.questions)) {
     if (q.type === 'noul') {
@@ -132,7 +206,24 @@ export function toJevSystemOneBody(req: DecisionRequest): JevSystemOneBody {
     ...(req.model !== undefined ? { model: req.model } : {}),
     state: req.state,
     questions,
+    ...(capabilities.langHint === true && req.lang !== undefined ? { lang: req.lang } : {}),
+    ...(capabilities.cacheControl === true && req.cache !== undefined ? { cache: req.cache } : {}),
   };
+}
+
+/** Integer micro-dollars from a header value, or undefined when absent or malformed. */
+function microsHeader(value: string | null | undefined): number | undefined {
+  if (value === null || value === undefined || !/^-?\d+$/.test(value.trim())) return undefined;
+  const n = Number(value.trim());
+  return Number.isSafeInteger(n) ? n : undefined;
+}
+
+/** Cost and balance headers of one response. */
+export interface JevResponseHeaders {
+  /** `x-layahost-cost-micros`. */
+  readonly costMicros?: string | null;
+  /** `x-layahost-balance-micros`. */
+  readonly balanceMicros?: string | null;
 }
 
 /** Index of the largest value; ties resolve to the lowest index. */
@@ -201,6 +292,7 @@ export function fromJevSystemOneResponse(
   req: DecisionRequest,
   body: unknown,
   latencyMs: number,
+  headers: JevResponseHeaders = {},
 ): DecisionOutcome {
   const parsed = jevResponseSchema.safeParse(body);
   if (!parsed.success) throw invalid('response body does not match the systemone shape');
@@ -219,7 +311,10 @@ export function fromJevSystemOneResponse(
   }
 
   const requestId = wire.meta?.request_id;
-  const costUsd = wire.meta?.cost_usd;
+  const costMicros = wire.meta?.cost_micros ?? nonNegative(microsHeader(headers.costMicros));
+  const costUsd = wire.meta?.cost_usd ?? (costMicros !== undefined ? costMicros / 1e6 : undefined);
+  const balanceMicros = microsHeader(headers.balanceMicros);
+  const checkpoint = wire.meta?.checkpoint;
   const inputTokens = wire.usage?.input_tokens;
   return {
     answers,
@@ -227,8 +322,15 @@ export function fromJevSystemOneResponse(
     latencyMs,
     ...(requestId ? { requestId } : {}),
     ...(costUsd !== undefined ? { costUsd } : {}),
+    ...(costMicros !== undefined ? { costMicros } : {}),
+    ...(balanceMicros !== undefined ? { balanceMicros } : {}),
+    ...(checkpoint ? { checkpoint } : {}),
     ...(inputTokens !== undefined ? { inputTokens } : {}),
   };
+}
+
+function nonNegative(n: number | undefined): number | undefined {
+  return n !== undefined && n >= 0 ? n : undefined;
 }
 
 /**
@@ -261,21 +363,82 @@ export function parseRetryAfterMs(
   return Math.round(Math.min(ms, MAX_RATE_LIMIT_COOLDOWN_MS));
 }
 
-/** Classify a non-2xx HTTP status. */
-function errorForStatus(status: number, retryAfterMs: number | undefined): DecisionProviderError {
-  const message = `decision provider returned HTTP ${status}`;
+/** The provider's `error_type` from an error body (`{detail:{error_type}}` or `{error:{type}}`). */
+export function errorTypeOf(body: unknown): string | undefined {
+  const field = (o: unknown, key: string): unknown =>
+    o !== null && typeof o === 'object' && key in o ? Reflect.get(o, key) : undefined;
+  const pick = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
+  return (
+    pick(field(field(body, 'detail'), 'error_type')) ??
+    pick(field(field(body, 'error'), 'type')) ??
+    pick(field(body, 'error_type'))
+  );
+}
+
+/**
+ * Classify a non-2xx response.
+ *
+ * @param status - HTTP status.
+ * @param retryAfterMs - Parsed `retry-after`, when present.
+ * @param errorType - The body's `error_type`, when readable.
+ * @returns The provider error.
+ */
+export function errorForStatus(
+  status: number,
+  retryAfterMs: number | undefined,
+  errorType?: string,
+): DecisionProviderError {
+  const message = `decision provider returned HTTP ${status}${errorType ? ` (${errorType})` : ''}`;
+  const withRetry = { status, ...(retryAfterMs !== undefined ? { retryAfterMs } : {}) };
+  if (status === 403 && errorType === 'key_limit_exceeded') {
+    return new DecisionProviderError(
+      'key_limit_exceeded',
+      "the key's monthly decision limit is reached",
+      { status },
+    );
+  }
   if (status === 401 || status === 403) {
     return new DecisionProviderError('unauthorized', message, { status });
   }
   if (status === 402) return new DecisionProviderError('insufficient_credits', message, { status });
-  if (status === 429) {
-    return new DecisionProviderError('rate_limited', message, {
-      status,
-      ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
-    });
+  // An empty balance answers 429 insufficient_quota (OpenAPI): credit
+  // exhaustion, not a rate limit — backing off for a minute cannot fix it.
+  if (status === 429 && errorType === 'insufficient_quota') {
+    return new DecisionProviderError('insufficient_credits', message, { status });
+  }
+  if (status === 429) return new DecisionProviderError('rate_limited', message, withRetry);
+  if (status === 503 || status === 529) {
+    return new DecisionProviderError('overloaded', message, withRetry);
   }
   if (status >= 500) return new DecisionProviderError('server_error', message, { status });
   return new DecisionProviderError('invalid_request', message, { status });
+}
+
+/** Read a failed response's body (size-capped) and classify it. Never throws a non-provider error. */
+async function errorForResponse(response: Response): Promise<DecisionProviderError> {
+  const retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'));
+  let errorType: string | undefined;
+  try {
+    errorType = errorTypeOf(JSON.parse(await readBoundedText(response, MAX_ERROR_BODY_BYTES)));
+  } catch {
+    await response.body?.cancel().catch(() => undefined);
+  }
+  return errorForStatus(response.status, retryAfterMs, errorType);
+}
+
+/** Map a provider `error_type` string (batch items) to an error kind. */
+function kindForErrorType(
+  status: number | undefined,
+  errorType: string | undefined,
+): DecisionProviderErrorKind {
+  if (status !== undefined) return errorForStatus(status, undefined, errorType).kind;
+  if (errorType === 'insufficient_credits' || errorType === 'insufficient_quota') {
+    return 'insufficient_credits';
+  }
+  if (errorType === 'key_limit_exceeded') return 'key_limit_exceeded';
+  if (errorType === 'rate_limit_error') return 'rate_limited';
+  if (errorType === 'overloaded_error') return 'overloaded';
+  return 'invalid_response';
 }
 
 /** Join a base URL and an absolute endpoint path, tolerating a trailing slash on the base. */
@@ -293,6 +456,11 @@ export interface JevProviderOptions {
   readonly fetch?: DecideFetch;
   /** Monotonic clock in ms; defaults to `performance.now`. */
   readonly now?: () => number;
+  /**
+   * Detected capabilities (see {@link detectJevCapabilities}). Default: the
+   * Jev minimum — no extension is used until detection says it exists.
+   */
+  readonly capabilities?: DecisionProviderCapabilities;
 }
 
 /**
@@ -315,59 +483,306 @@ export function createJevProvider(
 ): DecisionProvider {
   const doFetch: DecideFetch = opts.fetch ?? decideFetch;
   const now = opts.now ?? (() => performance.now());
-  return {
+  const capabilities = opts.capabilities ?? JEV_MINIMUM_CAPABILITIES;
+  const withModel = (req: DecisionRequest): DecisionRequest =>
+    req.model === undefined && connection.model ? { ...req, model: connection.model } : req;
+
+  /** POST/GET with auth; network failures become provider errors. */
+  async function send(
+    path: string,
+    init: { readonly method: 'GET' | 'POST'; readonly body?: string },
+    signal: AbortSignal,
+  ): Promise<Response> {
+    try {
+      return await doFetch(endpointUrl(connection.baseUrl, path), {
+        method: init.method,
+        headers: {
+          authorization: `Bearer ${connection.apiKey}`,
+          accept: 'application/json',
+          ...(init.body !== undefined ? { 'content-type': 'application/json' } : {}),
+        },
+        ...(init.body !== undefined ? { body: init.body } : {}),
+        signal,
+      });
+    } catch (err) {
+      const cause = err instanceof Error ? err : undefined;
+      if (signal.aborted) {
+        throw new DecisionProviderError('aborted', 'decision request aborted', { cause });
+      }
+      throw new DecisionProviderError('network', 'decision request failed before a response', {
+        cause,
+      });
+    }
+  }
+
+  /** Parse a 2xx JSON body; a non-JSON body is `invalid_response` (or `aborted`). */
+  async function jsonBody(response: Response, signal: AbortSignal): Promise<unknown> {
+    try {
+      return await response.json();
+    } catch (err) {
+      if (signal.aborted) {
+        throw new DecisionProviderError('aborted', 'decision request aborted', {
+          cause: err instanceof Error ? err : undefined,
+        });
+      }
+      throw invalid('response body is not JSON');
+    }
+  }
+
+  const provider: DecisionProvider = {
+    capabilities: () => capabilities,
+
     async decide(req: DecisionRequest, signal: AbortSignal): Promise<DecisionOutcome> {
       const started = now();
-      let response: Response;
-      try {
-        response = await doFetch(endpointUrl(connection.baseUrl, SYSTEMONE_PATH), {
-          method: 'POST',
-          headers: {
-            authorization: `Bearer ${connection.apiKey}`,
-            'content-type': 'application/json',
-            accept: 'application/json',
-          },
-          body: JSON.stringify(
-            toJevSystemOneBody(
-              req.model === undefined && connection.model
-                ? { ...req, model: connection.model }
-                : req,
-            ),
-          ),
-          signal,
-        });
-      } catch (err) {
-        const cause = err instanceof Error ? err : undefined;
-        if (signal.aborted) {
-          throw new DecisionProviderError('aborted', 'decision request aborted', { cause });
-        }
-        throw new DecisionProviderError('network', 'decision request failed before a response', {
-          cause,
-        });
-      }
+      const response = await send(
+        SYSTEMONE_PATH,
+        { method: 'POST', body: JSON.stringify(toJevSystemOneBody(withModel(req), capabilities)) },
+        signal,
+      );
+      if (!response.ok) throw await errorForResponse(response);
+      const body = await jsonBody(response, signal);
+      return fromJevSystemOneResponse(req, body, Math.max(0, now() - started), {
+        costMicros: response.headers.get(COST_MICROS_HEADER),
+        balanceMicros: response.headers.get(BALANCE_MICROS_HEADER),
+      });
+    },
+  };
 
-      if (!response.ok) {
-        // Drain the body so the connection can be reused; its content is not needed.
-        await response.body?.cancel().catch(() => undefined);
-        throw errorForStatus(
-          response.status,
-          parseRetryAfterMs(response.headers.get('retry-after')),
+  if (capabilities.batch) {
+    const limits = capabilities.batch;
+    provider.decideBatch = async (reqs, signal): Promise<readonly DecisionBatchItem[]> => {
+      const questions = reqs.reduce((n, r) => n + Object.keys(r.questions).length, 0);
+      if (reqs.length === 0) return [];
+      if (reqs.length > limits.maxRequests || questions > limits.maxQuestions) {
+        throw new DecisionProviderError(
+          'invalid_request',
+          `batch of ${reqs.length} requests / ${questions} questions exceeds ${limits.maxRequests} / ${limits.maxQuestions}`,
         );
       }
+      const started = now();
+      const response = await send(
+        BATCH_PATH,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            requests: reqs.map((r) => toJevSystemOneBody(withModel(r), capabilities)),
+          }),
+        },
+        signal,
+      );
+      if (!response.ok) throw await errorForResponse(response);
+      const parsed = jevBatchSchema.safeParse(await jsonBody(response, signal));
+      if (!parsed.success) throw invalid('batch response does not match the batch shape');
+      // OpenAPI: `{ responses: [{ index, status, body: SystemOneResponse }], request_id }`.
+      // Items are placed by `index`, never by array position.
+      const byIndex = new Map<number, (typeof parsed.data.responses)[number]>();
+      for (const item of parsed.data.responses) {
+        if (item.index < 0 || item.index >= reqs.length || byIndex.has(item.index)) {
+          throw invalid(`batch item index ${item.index} is out of range or repeated`);
+        }
+        byIndex.set(item.index, item);
+      }
+      const latencyMs = Math.max(0, now() - started);
+      return reqs.map((req, index): DecisionBatchItem => {
+        const item = byIndex.get(index);
+        if (!item) return { ok: false, errorKind: 'invalid_response' };
+        if (item.status < 200 || item.status >= 300) {
+          return {
+            ok: false,
+            status: item.status,
+            errorKind: kindForErrorType(item.status, errorTypeOf(item.body)),
+          };
+        }
+        try {
+          // Cost comes from the item body's `meta` (OpenAPI SystemOneResponse).
+          return { ok: true, outcome: fromJevSystemOneResponse(req, item.body, latencyMs) };
+        } catch (err) {
+          return {
+            ok: false,
+            status: item.status,
+            errorKind: err instanceof DecisionProviderError ? err.kind : 'invalid_response',
+          };
+        }
+      });
+    };
+  }
 
+  if (capabilities.usage) {
+    provider.usage = async (signal): Promise<DecisionProviderUsage> => {
+      const response = await send(`${USAGE_PATH}?days=30`, { method: 'GET' }, signal);
+      if (!response.ok) throw await errorForResponse(response);
       let body: unknown;
       try {
-        body = await response.json();
+        body = JSON.parse(await readBoundedText(response, MAX_EXTENSION_BODY_BYTES));
       } catch (err) {
-        if (signal.aborted) {
-          throw new DecisionProviderError('aborted', 'decision request aborted', {
-            cause: err instanceof Error ? err : undefined,
-          });
-        }
-        throw invalid('response body is not JSON');
+        if (err instanceof DecisionProviderError) throw err;
+        throw invalid('usage response is not JSON');
       }
-      return fromJevSystemOneResponse(req, body, Math.max(0, now() - started));
+      return parseJevUsage(body);
+    };
+  }
+
+  return provider;
+}
+
+/** One `/v1/systemone/batch` item (OpenAPI): its request index, HTTP status and body. */
+const jevBatchItemSchema = z.looseObject({
+  index: z.number().int(),
+  status: z.number().int(),
+  body: z.unknown(),
+});
+
+/** The `/v1/systemone/batch` response (OpenAPI). */
+const jevBatchSchema = z.looseObject({
+  responses: z.array(jevBatchItemSchema),
+  request_id: z.string().optional(),
+});
+
+/**
+ * Loose schema for `GET /v1/usage`. The OpenAPI types the body only as an
+ * object ("Balance, plan and daily usage of the account"): every field name
+ * below (`balance.micros`, `balance.decisions_left`, `plan`, `plan.period_end`,
+ * `totals`) is UNVERIFIED, taken from the provider's prose docs, and parsed
+ * tolerantly — an absent or differently named field is simply not reported.
+ */
+const jevUsageSchema = z.looseObject({
+  balance: z
+    .looseObject({
+      micros: z.number().int().optional(),
+      decisions_left: z.number().int().nonnegative().optional(),
+    })
+    .optional(),
+  plan: z
+    .union([
+      z.string(),
+      z.looseObject({ name: z.string().optional(), period_end: z.string().optional() }),
+    ])
+    .optional(),
+  totals: z
+    .looseObject({
+      decisions: z.number().int().nonnegative().optional(),
+      cost_micros: z.number().int().nonnegative().optional(),
+    })
+    .optional(),
+});
+
+/**
+ * Map a `GET /v1/usage` body onto {@link DecisionProviderUsage}. Unknown or
+ * malformed fields are dropped, never guessed.
+ *
+ * @param body - Parsed JSON.
+ * @returns The usage fields the body carried.
+ */
+export function parseJevUsage(body: unknown): DecisionProviderUsage {
+  const parsed = jevUsageSchema.safeParse(body);
+  if (!parsed.success) throw invalid('usage response does not match the usage shape');
+  const u = parsed.data;
+  const plan = typeof u.plan === 'string' ? u.plan : u.plan?.name;
+  const periodEnd = typeof u.plan === 'object' ? u.plan?.period_end : undefined;
+  const totals = u.totals
+    ? {
+        ...(u.totals.decisions !== undefined ? { decisions: u.totals.decisions } : {}),
+        ...(u.totals.cost_micros !== undefined ? { costMicros: u.totals.cost_micros } : {}),
+      }
+    : undefined;
+  return {
+    ...(u.balance?.micros !== undefined ? { balanceMicros: u.balance.micros } : {}),
+    ...(u.balance?.decisions_left !== undefined ? { decisionsLeft: u.balance.decisions_left } : {}),
+    ...(plan ? { plan } : {}),
+    ...(periodEnd ? { periodEnd } : {}),
+    ...(totals && Object.keys(totals).length > 0 ? { totals } : {}),
+  };
+}
+
+/**
+ * `GET /v1/templates` (OpenAPI): `{ templates: [{ template, name, description,
+ * type, options, example }] }`. `template` is the id a request names; `name`
+ * is only a display label.
+ */
+const jevTemplatesSchema = z.looseObject({
+  templates: z.array(z.looseObject({ template: z.string() })),
+});
+
+/**
+ * Detect what a Jev-compatible host supports beyond the Jev minimum, from its
+ * responses only (spec §2.2: never from the host name).
+ *
+ * - `GET /v1/usage` answers 2xx with at least one usage field → the layahost extensions
+ *   ({@link LAYAHOST_EXTENSION_CAPABILITIES}).
+ * - `GET /v1/templates` answers 2xx with names → `templates`.
+ * - Anything else (404, error, timeout) → the Jev minimum. Never throws.
+ *
+ * Both endpoints count toward the provider's rate limit, so callers cache the
+ * result (`cleo decide status` refreshes it at most every 10 minutes).
+ *
+ * @param connection - Base URL + API key.
+ * @param signal - Aborts both probes.
+ * @param opts - Injectable `fetch`.
+ * @returns The detected capabilities and, when read, the usage.
+ */
+export async function detectJevCapabilities(
+  connection: Pick<DecisionProviderConnection, 'baseUrl' | 'apiKey'>,
+  signal: AbortSignal,
+  opts: Pick<JevProviderOptions, 'fetch'> = {},
+): Promise<{
+  capabilities: DecisionProviderCapabilities;
+  usage?: DecisionProviderUsage;
+  error?: DecisionProviderError;
+}> {
+  const probe = createJevProvider(
+    { ...connection },
+    { ...opts, capabilities: LAYAHOST_EXTENSION_CAPABILITIES },
+  );
+  let usage: DecisionProviderUsage;
+  try {
+    if (!probe.usage) return { capabilities: JEV_MINIMUM_CAPABILITIES };
+    usage = await probe.usage(signal);
+    // A 2xx that carries no usage field (a catch-all proxy, a different API)
+    // proves nothing: treat it as the Jev minimum.
+    if (Object.keys(usage).length === 0) return { capabilities: JEV_MINIMUM_CAPABILITIES };
+  } catch (err) {
+    // A key limit or credit stop still proves the endpoint exists.
+    if (
+      err instanceof DecisionProviderError &&
+      (err.kind === 'key_limit_exceeded' || err.kind === 'insufficient_credits')
+    ) {
+      return { capabilities: LAYAHOST_EXTENSION_CAPABILITIES, error: err };
+    }
+    return {
+      capabilities: JEV_MINIMUM_CAPABILITIES,
+      ...(err instanceof DecisionProviderError ? { error: err } : {}),
+    };
+  }
+  let templates: string[] | undefined;
+  try {
+    const doFetch: DecideFetch = opts.fetch ?? decideFetch;
+    const response = await doFetch(endpointUrl(connection.baseUrl, TEMPLATES_PATH), {
+      method: 'GET',
+      headers: { authorization: `Bearer ${connection.apiKey}`, accept: 'application/json' },
+      signal,
+    });
+    if (response.ok) {
+      const parsed = jevTemplatesSchema.safeParse(
+        JSON.parse(await readBoundedText(response, MAX_EXTENSION_BODY_BYTES)),
+      );
+      if (parsed.success) {
+        templates = parsed.data.templates
+          .map((x) => x.template)
+          .filter((id) => isValidDecisionModelName(id))
+          .slice(0, 64);
+      }
+    } else {
+      await response.body?.cancel().catch(() => undefined);
+    }
+  } catch {
+    templates = undefined;
+  }
+  return {
+    capabilities: {
+      ...LAYAHOST_EXTENSION_CAPABILITIES,
+      ...(templates && templates.length > 0 ? { templates } : {}),
     },
+    usage,
   };
 }
 
@@ -458,10 +873,7 @@ export async function listJevModels(
     const kind = signal.aborted ? 'aborted' : 'network';
     throw new DecisionProviderError(kind, `model listing failed (${kind})`, { cause });
   }
-  if (!response.ok) {
-    await response.body?.cancel().catch(() => undefined);
-    throw errorForStatus(response.status, parseRetryAfterMs(response.headers.get('retry-after')));
-  }
+  if (!response.ok) throw await errorForResponse(response);
   let body: unknown;
   try {
     body = JSON.parse(await readBoundedText(response, MAX_MODELS_RESPONSE_BYTES));
