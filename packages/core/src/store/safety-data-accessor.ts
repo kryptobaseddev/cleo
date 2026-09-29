@@ -159,6 +159,17 @@ export class SafetyDataAccessor implements DataAccessor {
     );
   }
 
+  async insertNewTask(task: Task): Promise<void> {
+    this.logVerbose(`Inserting new task ${task.id}`);
+    await safeSingleTaskWrite(
+      this.inner,
+      task.id,
+      () => this.inner.insertNewTask(task),
+      this.cwd,
+      this.getSafetyOptions(),
+    );
+  }
+
   async archiveSingleTask(taskId: string, fields: ArchiveFields): Promise<void> {
     this.logVerbose(`Archiving single task ${taskId}`);
     await safeSingleTaskWrite(

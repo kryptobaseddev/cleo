@@ -225,7 +225,8 @@ export async function importSnapshot(snapshot: Snapshot, cwd?: string): Promise<
         updatedAt: snapshotTask.updatedAt,
         completedAt: snapshotTask.completedAt,
       };
-      await accessor.upsertSingleTask(newTask);
+      // Missing locally: insert, never overwrite a task stored since (T12724).
+      await accessor.insertNewTask(newTask);
       result.added++;
       continue;
     }

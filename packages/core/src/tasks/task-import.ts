@@ -562,8 +562,11 @@ export async function coreTaskImport(
       updatedAt: now,
     };
 
-    // Use targeted upsert per task instead of bulk saveTaskFile
-    await accessor.upsertSingleTask(newTask);
+    // Targeted write per task instead of bulk saveTaskFile. Only an explicit
+    // --overwrite of an existing id may replace a row; a new or remapped id is
+    // inserted and fails with ID_COLLISION rather than overwrite (T12724).
+    if (overwrite && existingIds.has(newId)) await accessor.upsertSingleTask(newTask);
+    else await accessor.insertNewTask(newTask);
 
     allIds.add(newId);
     imported++;

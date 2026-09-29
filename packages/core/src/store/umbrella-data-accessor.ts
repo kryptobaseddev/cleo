@@ -232,6 +232,10 @@ export class UmbrellaDataAccessor implements DataAccessor {
     return (await this.tasks()).upsertSingleTask(task);
   }
 
+  async insertNewTask(task: Task): Promise<void> {
+    return (await this.tasks()).insertNewTask(task);
+  }
+
   async archiveSingleTask(taskId: string, fields: ArchiveFields): Promise<void> {
     return (await this.tasks()).archiveSingleTask(taskId, fields);
   }

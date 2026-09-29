@@ -72,6 +72,8 @@ export async function importTasks(
   const { tasks: existingTasks } = await accessor.queryTasks({});
 
   const existingIds = new Set(existingTasks.map((t) => t.id));
+  // The ids stored before this import (existingIds grows as tasks are queued).
+  const existingTaskIds = new Set(existingIds);
   const duplicateStrategy: DuplicateStrategy = params.onDuplicate ?? 'skip';
   const parentId = params.parent;
   const phase = params.phase;
@@ -143,8 +145,12 @@ export async function importTasks(
     };
   }
 
+  // Only the 'overwrite' duplicate strategy may replace a stored task; every
+  // other imported task is new and must not overwrite on an id collision (T12724).
   for (const task of imported) {
-    await accessor.upsertSingleTask(task);
+    if (duplicateStrategy === 'overwrite' && existingTaskIds.has(task.id))
+      await accessor.upsertSingleTask(task);
+    else await accessor.insertNewTask(task);
   }
 
   return {

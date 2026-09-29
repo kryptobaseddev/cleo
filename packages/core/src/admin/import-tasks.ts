@@ -182,8 +182,9 @@ export async function importFromPackage(
     };
   }
 
+  // Every transformed task has a remapped, new id: insert, never overwrite (T12724).
   for (const task of transformed) {
-    await accessor.upsertSingleTask(task);
+    await accessor.insertNewTask(task);
   }
 
   return {

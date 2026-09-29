@@ -367,6 +367,11 @@ export interface TaskConflictDetails {
  */
 export interface TransactionAccessor {
   upsertSingleTask(task: Task): Promise<void>;
+  /**
+   * Insert a NEW task; never overwrites. Throws `ID_COLLISION` when the id is
+   * already stored (T12724).
+   */
+  insertNewTask(task: Task): Promise<void>;
   archiveSingleTask(taskId: string, fields: ArchiveFields): Promise<void>;
   removeSingleTask(taskId: string): Promise<void>;
   setMetaValue(key: string, value: unknown): Promise<void>;
@@ -503,6 +508,13 @@ export interface DataAccessor {
 
   /** Upsert a single task (targeted write, no full-file reload). */
   upsertSingleTask(task: Task): Promise<void>;
+
+  /**
+   * Insert a NEW task under a freshly allocated or computed id. Never
+   * overwrites: throws `ID_COLLISION` when the id is already stored, and
+   * writes nothing (T12724).
+   */
+  insertNewTask(task: Task): Promise<void>;
 
   /** Archive a single task by ID (sets status='archived' + archive metadata). */
   archiveSingleTask(taskId: string, fields: ArchiveFields): Promise<void>;
