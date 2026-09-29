@@ -1,5 +1,14 @@
 # Changelog
 
+## [2026.9.22] (2026-09-29)
+
+### Fixed
+
+- **Mixed-version task-id collisions.** After the slice-1 twin-table collapse (2026.9.21), a 2026.9.20 or 2026.9.21 process and a newer build sharing one project could allocate the same task id, and `cleo add` could silently overwrite the other agent's task. Allocation now raises the legacy counter to MAX(legacy, new) in the same transaction, and sticky-note tag indexes are recomputed after each merge. **Run one CLEO version per project, and upgrade every agent on a machine together.** _(provenance: [T12709](https://github.com/kryptobaseddev/cleo/search?q=T12709&type=commits), #1669)_
+- Architectural gates 23, 26, 27 (the ask-tool HITL rule) and 28 now run in CI, and gate 20 fails when a bundled gate is run by no workflow _(provenance: [T12658](https://github.com/kryptobaseddev/cleo/search?q=T12658&type=commits))_
+- every focus read that reports the current task goes through readLiveFocus: inject, bootstrap, orchestrator startup, stats, validation, attention and drift never surface a finished task; briefing's stale warning carries W_STALE_FOCUS _(provenance: [T12684](https://github.com/kryptobaseddev/cleo/search?q=T12684&type=commits))_
+- `cleo complete` clears the focus pointer to the completed task, and `cleo current` and the briefing never report a done or cancelled task as current. Handoff suggestions carry their live status _(provenance: [T12660](https://github.com/kryptobaseddev/cleo/search?q=T12660&type=commits))_
+
 ## [2026.9.21] (2026-09-28)
 
 ### Added
