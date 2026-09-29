@@ -86,9 +86,23 @@ describe('focus knowledge assessment', () => {
     expect(result.success).toBe(true);
     expect(result.data).toMatchObject({
       coverage: { status: 'missing' },
-      knowledgeHealth: { coverage: { status: 'missing' } },
+      knowledgeHealth: { coverageRef: '/coverage' },
     });
     expect(runKnowledgeDoctor).toHaveBeenCalledWith('/fixture', { fix: true, budgetMs: 2000 });
+  });
+
+  it('emits the coverage object once and references it from knowledgeHealth (T12522)', async () => {
+    const result = await new FocusHandler().query('show', { id: 'T123' });
+    const data = result.data as Record<string, Record<string, unknown>>;
+    // Coverage-disclosure rule: coverage is present in the envelope...
+    expect(data['coverage']).toMatchObject({ status: 'missing', reasonCount: 1 });
+    // ...exactly once: knowledgeHealth points at it instead of repeating it.
+    expect(data['knowledgeHealth']).not.toHaveProperty('coverage');
+    const ref = data['knowledgeHealth']?.['coverageRef'];
+    expect(ref).toBe('/coverage');
+    // A top-level pointer: its one segment names the envelope key holding coverage.
+    expect(data[String(ref).slice(1)]).toBe(data['coverage']);
+    expect(JSON.stringify(data).match(/"assessedAt"/g)).toHaveLength(1);
   });
 
   it('surfaces a failed memory read independently of graph coverage', async () => {
@@ -133,5 +147,31 @@ describe('focus knowledge assessment', () => {
       'Ready-wave assessment failed.',
       'E_GENERAL: database is not open (fix: retry)',
     ]);
+  });
+
+  it('renders the ready wave in orchestrate.ready order — THE comparator, not a re-sort (T12692)', async () => {
+    vi.mocked(taskShow).mockResolvedValueOnce({
+      success: true,
+      data: {
+        task: { id: 'T123', title: 'Fixture', type: 'task', status: 'pending', parentId: 'T100' },
+      },
+    } as Awaited<ReturnType<typeof taskShow>>);
+    // orchestrate.ready already returns THE comparator's order (D11161); the
+    // focus envelope renders it verbatim — ids deliberately not in id order.
+    const ranked = ['T3', 'T1', 'T2'].map((id, index) => ({
+      id,
+      title: id,
+      priority: ['critical', 'high', 'low'][index] ?? 'low',
+      depends: [],
+    }));
+    vi.mocked(orchestrateReady).mockResolvedValueOnce({
+      success: true,
+      data: { readyTasks: ranked },
+    });
+    const result = await new FocusHandler().query('show', { id: 'T123' });
+    expect(result.success).toBe(true);
+    expect(
+      (result.data as { readyWave?: Array<{ id: string }> }).readyWave?.map((t) => t.id),
+    ).toEqual(['T3', 'T1', 'T2']);
   });
 });

@@ -10,7 +10,7 @@
  */
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { getCleoDirAbsolute, resolveOrCwd } from './paths.js';
 import {
   computeStableProjectHash,
@@ -80,6 +80,38 @@ export function getProjectHashKey(cwd?: string): string {
     // Unresolvable store: fall through to the stable derivation.
   }
   return persisted ?? computeStableProjectHash(projectRoot);
+}
+
+/**
+ * The project's human-readable display name: `project-info.json` `name`
+ * (the schema field `cleo project rename` writes), else the legacy
+ * `projectName`, else the root directory's basename.
+ *
+ * This is the ONE accessor for the name. T12716 moves the name into a
+ * committed `.cleo/project.json` and repoints this function; callers must not
+ * read `project-info.json` for the name themselves.
+ *
+ * @param projectRoot - Project root.
+ * @returns A non-empty display name.
+ * @example
+ * ```ts
+ * const label = getProjectDisplayName('/repo'); // 'repo' unless renamed
+ * ```
+ * @task T12712
+ */
+export function getProjectDisplayName(projectRoot: string): string {
+  try {
+    const data = JSON.parse(
+      readFileSync(join(getCleoDirAbsolute(projectRoot), 'project-info.json'), 'utf-8'),
+    ) as Record<string, unknown>;
+    for (const field of ['name', 'projectName']) {
+      const value = data[field];
+      if (typeof value === 'string' && value.trim()) return value.trim();
+    }
+  } catch {
+    // Missing or unreadable metadata: fall back to the directory name.
+  }
+  return basename(projectRoot);
 }
 
 /**

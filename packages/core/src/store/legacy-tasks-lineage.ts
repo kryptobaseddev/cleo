@@ -8,7 +8,9 @@
  * the legacy `drizzle-tasks` lineage on it. That lineage creates the BARE table
  * family (`tasks`, `sessions`, `architecture_decisions`, `attachments`, …),
  * which is dead for task reads and writes (those use the prefixed
- * `tasks_tasks` family), apart from a few still-live tables such as `attachments`.
+ * `tasks_tasks` family), apart from a few tables older builds still write
+ * (`attachments` and `attachment_refs` are frozen by the T12535 docs collapse:
+ * the runtime uses `docs_attachments` / `docs_attachment_refs`).
  * On a fresh project the lineage runs from scratch on empty tables.
  *
  * Some projects instead carry a `cleo.db` that began life as a copy of their

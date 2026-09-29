@@ -814,12 +814,22 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query' as const,
     domain: 'tasks' as const,
     operation: 'history',
-    description: 'Show task work history (time tracked per task)',
+    description:
+      'Show task work history; with taskId, the task audit trail; with ranking, who changed its priority/severity/kind/depends and why (T12693)',
     tier: 1,
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
-    params: [],
+    params: [
+      { name: 'taskId', type: 'string', required: false, description: 'Task to show history for' },
+      { name: 'limit', type: 'number', required: false, description: 'Maximum entries' },
+      {
+        name: 'ranking',
+        type: 'boolean',
+        required: false,
+        description: 'Only ranking-input changes (actor, session, reason, before/after)',
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'query',
@@ -3062,6 +3072,14 @@ export const OPERATIONS: OperationDef[] = [
         description: 'taskId parameter',
         cli: { positional: true },
       },
+      {
+        name: 'expectedUpdatedAt',
+        type: 'string',
+        required: false,
+        description:
+          'Optimistic-concurrency guard: fail with E_CONFLICT unless the task updatedAt still equals this value',
+        cli: { flag: 'if-match' },
+      },
     ] satisfies ParamDef[],
   },
   {
@@ -3363,6 +3381,33 @@ export const OPERATIONS: OperationDef[] = [
       },
     ] satisfies ParamDef[],
     outputSchema: OUTPUT_CONTRACTS['tasks.assignee'],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'tasks',
+    operation: 'ranking.revert',
+    description:
+      'tasks.ranking.revert (mutate) — undo one recorded ranking change (priority/severity/kind/depends) as a new audited change (T12693, D11161)',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['entryId'],
+    params: [
+      {
+        name: 'entryId',
+        type: 'string',
+        required: true,
+        description: 'ranking_changed audit row id (cleo history ranking <taskId>)',
+        cli: { positional: true },
+      },
+      { name: 'reason', type: 'string', required: false, description: 'Why it is reverted' },
+      {
+        name: 'force',
+        type: 'boolean',
+        required: false,
+        description: 'Revert even though a field changed again since',
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate',
@@ -3711,7 +3756,8 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'start',
-    description: 'tasks.start (mutate)',
+    description:
+      "tasks.start (mutate) — start work and take the caller session's leased claim (E_TASK_CLAIMED when another session holds it)",
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -3723,6 +3769,20 @@ export const OPERATIONS: OperationDef[] = [
         required: true,
         description: 'taskId parameter',
         cli: { positional: true },
+      },
+      {
+        name: 'takeOver',
+        type: 'boolean',
+        required: false,
+        description: "Take over another session's EXPIRED claim lease (audited)",
+        cli: { flag: 'take-over' },
+      },
+      {
+        name: 'forceClaim',
+        type: 'boolean',
+        required: false,
+        description: "Take over another session's LIVE claim lease (audited)",
+        cli: { flag: 'force-claim' },
       },
     ] satisfies ParamDef[],
   },
@@ -3832,11 +3892,12 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'claim',
-    description: 'tasks.claim (mutate) — claim a task by assigning it to the current session',
+    description:
+      "tasks.claim (mutate) — take, renew or override the caller session's leased claim on a task (never the human assignee)",
     tier: 0,
     idempotent: false,
     sessionRequired: true,
-    requiredParams: ['taskId', 'agentId'],
+    requiredParams: ['taskId'],
     params: [
       {
         name: 'taskId',
@@ -3847,8 +3908,27 @@ export const OPERATIONS: OperationDef[] = [
       {
         name: 'agentId',
         type: 'string',
-        required: true,
-        description: 'Agent ID to assign the task to',
+        required: false,
+        description:
+          "Agent ID recorded with the lease (default: the session's agent / CLEO_AGENT_ID)",
+      },
+      {
+        name: 'renew',
+        type: 'boolean',
+        required: false,
+        description: "Renew the caller's own lease",
+      },
+      {
+        name: 'takeOver',
+        type: 'boolean',
+        required: false,
+        description: "Take over another session's EXPIRED lease (audited)",
+      },
+      {
+        name: 'forceClaim',
+        type: 'boolean',
+        required: false,
+        description: "Take over another session's LIVE lease (audited)",
       },
     ],
   },
@@ -3856,7 +3936,8 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'unclaim',
-    description: 'tasks.unclaim (mutate) — unclaim a task by removing the current assignee',
+    description:
+      "tasks.unclaim (mutate) — release the caller session's claim lease (never the human assignee)",
     tier: 0,
     idempotent: false,
     sessionRequired: true,
@@ -3867,6 +3948,12 @@ export const OPERATIONS: OperationDef[] = [
         type: 'string',
         required: true,
         description: 'Task ID to unclaim',
+      },
+      {
+        name: 'forceClaim',
+        type: 'boolean',
+        required: false,
+        description: "Release another session's lease (audited)",
       },
     ],
   },
@@ -4126,6 +4213,20 @@ export const OPERATIONS: OperationDef[] = [
         required: false,
         description:
           'When true (default), adds toTaskId as a dependency on fromTaskId so it cannot complete before the pivot resolves',
+      },
+      {
+        name: 'takeOver',
+        type: 'boolean',
+        required: false,
+        description: "Take over another session's EXPIRED claim on toTaskId (audited)",
+        cli: { flag: 'take-over' },
+      },
+      {
+        name: 'forceClaim',
+        type: 'boolean',
+        required: false,
+        description: "Take over another session's LIVE claim on toTaskId (audited)",
+        cli: { flag: 'force-claim' },
       },
     ],
   },
@@ -6871,6 +6972,80 @@ export const OPERATIONS: OperationDef[] = [
   },
 
   {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'projects.fleet',
+    description:
+      'nexus.projects.fleet (query) — fleet view: every project with its location on each device, last recorded git state (local, and remote as of the last fetch) and staleness; paged, counts first, read-only',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'device',
+        type: 'string',
+        required: false,
+        description: 'Only locations on this device (device id, hostname, or current)',
+      },
+      {
+        name: 'missing',
+        type: 'boolean',
+        required: false,
+        description: 'Only projects with a missing location',
+      },
+      {
+        name: 'dirty',
+        type: 'boolean',
+        required: false,
+        description: 'Only projects with a dirty location',
+      },
+      {
+        name: 'behind',
+        type: 'boolean',
+        required: false,
+        description: 'Only projects with a location behind its upstream (as of the last fetch)',
+      },
+      {
+        name: 'ahead',
+        type: 'boolean',
+        required: false,
+        description: 'Only projects with a location ahead of its upstream (as of the last fetch)',
+      },
+      {
+        name: 'stale',
+        type: 'boolean',
+        required: false,
+        description: 'Only projects with a never-probed, old-probe or old-fetch location',
+      },
+      {
+        name: 'errored',
+        type: 'boolean',
+        required: false,
+        description: 'Only projects whose last probe recorded an error',
+      },
+      {
+        name: 'staleAfterMs',
+        type: 'number',
+        required: false,
+        description: 'Staleness window for probes, fetches and heartbeats (default 24h)',
+      },
+      {
+        name: 'limit',
+        type: 'number',
+        required: false,
+        description: 'Page size in projects (default 50, max 500; 0 = all)',
+      },
+      {
+        name: 'offset',
+        type: 'number',
+        required: false,
+        description: 'Projects skipped before the page',
+      },
+    ],
+  },
+
+  {
     gateway: 'mutate' as const,
     domain: 'nexus',
     operation: 'projects.register',
@@ -8456,6 +8631,7 @@ export const OPERATIONS: OperationDef[] = [
         enum: DOCS_LIFECYCLE_STATUSES,
         description:
           'Override the new lifecycle status. Defaults to "draft" on every update. ' +
+          'Alone (no file or content) it changes only the lifecycle status. ' +
           `Valid: ${DOCS_LIFECYCLE_STATUSES.join('|')}.`,
       },
       {

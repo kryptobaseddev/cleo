@@ -7,12 +7,16 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { BrainState } from '@cleocode/contracts';
+import { focusSessionIdFromRead, readLiveFocus } from '../sessions/focus-state-store.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { resolveSessionForRead } from '../store/session-store.js';
+import { buildRankingContext, rankTasks } from '../task-tools/score-task-priority.js';
 import {
   getReadinessDependencyBlockers,
   loadReadinessDependencyLookup,
 } from '../tasks/dependency-check.js';
+import { resolveRankingPhase } from '../tasks/task-next.js';
 
 /**
  * Build startup state from selected project tasks and explicit dependency evidence.
@@ -45,15 +49,21 @@ export async function buildBrainState(
 
   // --- Session (from SQLite, ADR-006/ADR-020) ---
   const acc = accessor ?? (await getTaskAccessor(projectRoot));
+  // T12500: the caller's bound session; an unbound caller sees the newest
+  // active row labelled `unbound`, never presented as its own. T12501:
+  // resolved once; the focus key below derives from the same resolution.
+  let focusSessionId: string | null = null;
   try {
-    const sessions = await acc.loadSessions();
-    const activeSession = sessions.find((s) => s.status === 'active');
-    if (activeSession) {
+    const read = await resolveSessionForRead(projectRoot);
+    focusSessionId = focusSessionIdFromRead(read);
+    const { session: activeSession, unbound } = read;
+    if (activeSession && activeSession.status === 'active') {
       brain.session = {
         id: activeSession.id,
         name: activeSession.name || activeSession.id,
         status: activeSession.status,
         startedAt: activeSession.startedAt,
+        ...(unbound ? { unbound: true } : {}),
       };
     }
   } catch {
@@ -72,8 +82,9 @@ export async function buildBrainState(
   };
 
   // --- Current Task (from focus or session) ---
-  const focus = await acc.getMetaValue<import('@cleocode/contracts').TaskWorkState>('focus_state');
-  const focusTaskId = focus?.currentTask ?? null;
+  // T12684: a finished task is never bootstrapped as the current task.
+  // T12501: the CALLER's focus key (THE focus-key rule), not an env-only one.
+  const focusTaskId = (await readLiveFocus(acc, focusSessionId)).currentTask;
   if (focusTaskId) {
     const task = tasks.find((t) => t.id === focusTaskId);
     if (task) {
@@ -81,7 +92,7 @@ export async function buildBrainState(
     }
   }
 
-  // --- Next Suggestion (simple: pick first pending task with all deps met) ---
+  // --- Next Suggestion: the best-ranked pending task with all deps met ---
   const dependencyLookup = await loadReadinessDependencyLookup(tasks, acc);
   const blockersByTask = new Map(
     tasks.map((task) => [task.id, getReadinessDependencyBlockers(task.depends, dependencyLookup)]),
@@ -91,14 +102,11 @@ export async function buildBrainState(
   );
 
   if (readyTasks.length > 0) {
-    // Sort by priority
-    const priorityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
-    readyTasks.sort((a, b) => {
-      const aPri = priorityOrder[a.priority ?? 'medium'] ?? 2;
-      const bPri = priorityOrder[b.priority ?? 'medium'] ?? 2;
-      return aPri - bPri;
+    // T12692: THE comparator (D11161) — the same ranking as `cleo next`.
+    const ctx = buildRankingContext(tasks, dependencyLookup, {
+      currentPhase: await resolveRankingPhase(acc, projectRoot),
     });
-    const next = readyTasks[0]!;
+    const next = rankTasks(readyTasks, ctx)[0]!.task;
     brain.nextSuggestion = { id: next.id, title: next.title, score: 1 };
   }
 

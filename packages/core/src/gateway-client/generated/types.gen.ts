@@ -5841,9 +5841,21 @@ export type MutateTasksClaimData = {
          */
         taskId: string;
         /**
-         * Agent ID to assign the task to
+         * Agent ID recorded with the lease (default: the session's agent / CLEO_AGENT_ID)
          */
-        agentId: string;
+        agentId?: string;
+        /**
+         * Renew the caller's own lease
+         */
+        renew?: boolean;
+        /**
+         * Take over another session's EXPIRED lease (audited)
+         */
+        takeOver?: boolean;
+        /**
+         * Take over another session's LIVE lease (audited)
+         */
+        forceClaim?: boolean;
     };
     path?: never;
     query?: never;
@@ -6337,6 +6349,14 @@ export type MutateOrchestratePivotData = {
          * When true (default), adds toTaskId as a dependency on fromTaskId so it cannot complete before the pivot resolves
          */
         blocksFrom?: boolean;
+        /**
+         * Take over another session's EXPIRED claim on toTaskId (audited)
+         */
+        takeOver?: boolean;
+        /**
+         * Take over another session's LIVE claim on toTaskId (audited)
+         */
+        forceClaim?: boolean;
     };
     path?: never;
     query?: never;
@@ -12842,7 +12862,7 @@ export type MutateDocsUpdateData = {
          */
         message?: string;
         /**
-         * Override the new lifecycle status. Defaults to "draft" on every update. Valid: draft|proposed|accepted|superseded|archived|deprecated.
+         * Override the new lifecycle status. Defaults to "draft" on every update. Alone (no file or content) it changes only the lifecycle status. Valid: draft|proposed|accepted|superseded|archived|deprecated.
          */
         status?: 'draft' | 'proposed' | 'accepted' | 'superseded' | 'archived' | 'deprecated';
         /**

@@ -774,6 +774,44 @@ const checkArchCommand = defineCommand({
         script: 'scripts/lint-skill-commands.mjs',
         description: 'Every cleo command a skill teaches exists and is runnable',
       },
+      {
+        // T12124 (gh#1256): skills declare the code they document in
+        // metadata.covers. Here: every core/LOOM skill declares live covers;
+        // CI adds the PR diff check (--base).
+        id: 'gate-32',
+        task: 'T12124',
+        script: 'scripts/lint-skill-coverage.mjs',
+        description: 'Skills declare live metadata.covers (PR diff checked in CI)',
+      },
+      {
+        // T9148 / T12124: ct-cleo stays a thin pointer — ratcheted.
+        id: 'gate-33',
+        task: 'T12124',
+        script: 'scripts/check-ct-cleo-thin.mjs',
+        description: 'ct-cleo SKILL.md does not grow (thin-pointer ratchet)',
+      },
+      {
+        // T12704: an ES module has no `require`. A bare `require()` throws
+        // under Node while vitest supplies one, so tests stay green and the
+        // shipped build fails, usually inside a swallowing `try`: the docs
+        // audit wrote nothing, two doctor checks never ran, and no
+        // .worktreeinclude glob ever copied.
+        id: 'gate-34',
+        task: 'T12704',
+        script: 'scripts/lint-no-esm-bare-require.mjs',
+        description: 'No bare require() in ESM package sources',
+      },
+      {
+        // T12663: every model call site is a registered decision site
+        // (spec system-one-integration §3.5, D11158): decide()/askSiteDecision
+        // name a registry id, LLM entry points live in registered files of a
+        // generative/agent rung, a System One site runs `on` only with go-live
+        // evidence, and chokepoint bypasses are baselined per file.
+        id: 'gate-35',
+        task: 'T12663',
+        script: 'scripts/lint-model-call-sites.mjs',
+        description: 'Every model call site is a registered decision site (ratchet)',
+      },
     ] as const;
 
     const scriptArgs = strict ? ['--strict'] : ['--check'];

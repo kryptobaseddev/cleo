@@ -4,22 +4,86 @@
  * @task T4723
  */
 
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { join, sep } from 'node:path';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { getCleoHome } from '../paths.js';
 import { acquireLock } from '../store/lock.js';
 import { checkStorageMigration } from '../system/storage-preflight.js';
 import { runUpgrade } from '../upgrade.js';
 
-// Each explicit cwd belongs to its synthetic fixture, not the shared setup project.
+/**
+ * runUpgrade writes global state: the CLEO home (cleo.db, templates, skills)
+ * and, through initCoreSkills, every detected harness's skills dir. This
+ * file gives it its own HOME, CLEO_HOME, XDG and harness roots, so nothing
+ * depends on the shared fork sandbox — or on the real dirs, which the
+ * vitest.setup.ts write guard refuses (T12688). The root sits under the fork
+ * sandbox because the SQLite path guard only allows opens there.
+ */
+let isolatedRoot: string;
+
+beforeAll(() => {
+  isolatedRoot = mkdtempSync(join(process.env['CLEO_HOME'] ?? tmpdir(), 'upgrade-test-'));
+});
+
+afterAll(() => {
+  rmSync(isolatedRoot, { recursive: true, force: true });
+});
+
 beforeEach(() => {
+  // Each explicit cwd belongs to its synthetic fixture, not the shared setup project.
   vi.stubEnv('CLEO_ROOT', undefined);
   vi.stubEnv('CLEO_DIR', undefined);
+  const home = join(isolatedRoot, 'home');
+  const roots: Record<string, string> = {
+    HOME: home,
+    USERPROFILE: home,
+    CLEO_HOME: join(isolatedRoot, 'cleo'),
+    XDG_DATA_HOME: join(isolatedRoot, 'data-home'),
+    XDG_CONFIG_HOME: join(isolatedRoot, 'config-home'),
+    XDG_CACHE_HOME: join(isolatedRoot, 'cache-home'),
+    AGENTS_HOME: join(isolatedRoot, 'agents'),
+  };
+  for (const [name, dir] of Object.entries(roots)) {
+    mkdirSync(dir, { recursive: true });
+    vi.stubEnv(name, dir);
+  }
+  // Harness homes then resolve under the isolated HOME.
+  for (const name of [
+    'CLAUDE_HOME',
+    'CLAUDE_CONFIG_DIR',
+    'CODEX_HOME',
+    'HERMES_HOME',
+    'PI_CODING_AGENT_DIR',
+    'PI_HOME',
+  ]) {
+    vi.stubEnv(name, undefined);
+  }
 });
 
 afterEach(() => {
   vi.unstubAllEnvs();
+});
+
+describe('runUpgrade test isolation (T12688)', () => {
+  it("resolves HOME, the CLEO home and the harness dirs inside this file's root", () => {
+    const inside = (path: string) => path.startsWith(`${isolatedRoot}${sep}`);
+    expect(inside(homedir())).toBe(true);
+    expect(inside(getCleoHome())).toBe(true);
+    expect(inside(join(homedir(), '.claude', 'skills'))).toBe(true);
+    expect(process.env['CLAUDE_HOME']).toBeUndefined();
+    expect(process.env['PI_CODING_AGENT_DIR']).toBeUndefined();
+  });
 });
 
 describe('checkStorageMigration', () => {
@@ -427,5 +491,107 @@ describe('runUpgrade structural parity', () => {
     expect(
       result.actions.some((a) => a.action === 'storage_migration' && a.status === 'preview'),
     ).toBe(true);
+  });
+});
+
+describe('runUpgrade storage migration from a linked worktree (T12708)', () => {
+  let tmpDir: string;
+
+  /** A committed scratch repo at `<tmpDir>/main` with a linked worktree at `<tmpDir>/wt`. */
+  function repoWithWorktree(): { main: string; wt: string } {
+    const main = join(tmpDir, 'main');
+    const wt = join(tmpDir, 'wt');
+    mkdirSync(main, { recursive: true });
+    const git = (...args: string[]): void => {
+      execFileSync(
+        'git',
+        [
+          '-c',
+          'user.email=t@example.com',
+          '-c',
+          'user.name=t',
+          '-c',
+          'commit.gpgsign=false',
+          ...args,
+        ],
+        { cwd: main, stdio: 'ignore' },
+      );
+    };
+    git('init', '-q', '-b', 'main');
+    writeFileSync(join(main, 'README'), 'x');
+    git('add', 'README');
+    git('commit', '-qm', 'init', '--no-verify');
+    git('worktree', 'add', '-q', wt);
+    return { main, wt };
+  }
+
+  /** Legacy JSON data that needs the storage migration. */
+  function seedLegacyJson(cleoDir: string): void {
+    mkdirSync(cleoDir, { recursive: true });
+    writeFileSync(
+      join(cleoDir, 'todo.json'),
+      JSON.stringify({
+        tasks: [
+          {
+            id: 'T1',
+            title: 'Test Task',
+            status: 'pending',
+            createdAt: '2026-01-01',
+            size: 'medium',
+          },
+        ],
+        _meta: { schemaVersion: '2.10.0' },
+      }),
+    );
+    writeFileSync(join(cleoDir, 'config.json'), '{}');
+    writeFileSync(join(cleoDir, '.gitignore'), 'tasks.db\ntodo.json\n');
+  }
+
+  beforeEach(() => {
+    tmpDir = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-upgrade-t12708-')));
+  });
+
+  afterEach(async () => {
+    try {
+      const { closeAllDatabases } = await import('../store/sqlite.js');
+      await closeAllDatabases();
+    } catch {
+      /* module may not be loaded */
+    }
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('migrates the OWNER store and audits the run', async () => {
+    const { main, wt } = repoWithWorktree();
+    const cleoDir = join(main, '.cleo');
+    seedLegacyJson(cleoDir);
+    writeFileSync(join(cleoDir, 'project-info.json'), JSON.stringify({ projectId: 'proj-up' }));
+
+    const result = await runUpgrade({ cwd: wt, dryRun: false, autoMigrate: true });
+    const migration = result.actions.find((a) => a.action === 'storage_migration');
+    expect(migration?.status, JSON.stringify(migration)).toBe('applied');
+    expect(existsSync(join(wt, '.cleo', 'tasks.db'))).toBe(false);
+    const audit = readFileSync(join(cleoDir, 'audit', 'owner-store-rewrite.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    // The storage migration, then the exodus first-open fill of the new
+    // consolidated store from the migrated tasks.db: both audited.
+    expect(audit.map((row) => row['operation'])).toEqual(['storage migration', 'exodus migration']);
+    expect(audit[0]).toMatchObject({ trigger: 'open-time', worktree: wt });
+  });
+
+  it('refuses a worktree-resident store', async () => {
+    const { wt } = repoWithWorktree(); // the owner is not a CLEO project
+    seedLegacyJson(join(wt, '.cleo'));
+
+    const result = await runUpgrade({ cwd: wt, dryRun: false, autoMigrate: true });
+    expect(result.success).toBe(false);
+    const migration = result.actions.find((a) => a.action === 'storage_migration');
+    expect(migration?.status).toBe('error');
+    expect(migration?.details).toMatch(
+      /^E_WT_STORE_REWRITE_REFUSED: storage migration run from git worktree/,
+    );
+    expect(existsSync(join(wt, '.cleo', 'tasks.db'))).toBe(false);
   });
 });

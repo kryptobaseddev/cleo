@@ -99,6 +99,7 @@ import {
   taskArchive,
   taskBlockers,
   taskCancel,
+  taskClaim,
   taskComplexityEstimate,
   taskCurrentGet,
   taskDelete,
@@ -187,6 +188,7 @@ describe('TasksHandler', () => {
         'assignee',
         'relates.add',
         'relates.remove',
+        'ranking.revert',
         'start',
         'stop',
         'sync.reconcile',
@@ -1225,7 +1227,45 @@ describe('TasksHandler', () => {
       const result = await handler.mutate('start', { taskId: 'T001' });
 
       expect(result.success).toBe(true);
-      expect(taskStart).toHaveBeenCalledWith('/mock/project', 'T001');
+      expect(taskStart).toHaveBeenCalledWith('/mock/project', 'T001', {
+        takeOver: false,
+        forceClaim: false,
+      });
+    });
+
+    it('start - forwards the claim overrides (T12502)', async () => {
+      vi.mocked(taskStart).mockResolvedValue({
+        success: true,
+        data: { taskId: 'T001', previousTask: null },
+      });
+
+      await handler.mutate('start', { taskId: 'T001', takeOver: true });
+
+      expect(taskStart).toHaveBeenCalledWith('/mock/project', 'T001', {
+        takeOver: true,
+        forceClaim: false,
+      });
+    });
+
+    it('claim - forwards the lease params to taskClaim (T12502)', async () => {
+      vi.mocked(taskClaim).mockResolvedValue({
+        success: true,
+        data: {
+          taskId: 'T001',
+          agentId: null,
+          claim: {
+            sessionId: 'ses-a',
+            agentId: null,
+            claimedAt: '2026-09-29T00:00:00.000Z',
+            leaseExpiresAt: '2026-09-29T00:30:00.000Z',
+          },
+        },
+      });
+
+      const result = await handler.mutate('claim', { taskId: 'T001', renew: true });
+
+      expect(result.success).toBe(true);
+      expect(taskClaim).toHaveBeenCalledWith('/mock/project', { taskId: 'T001', renew: true });
     });
 
     it('stop - delegates to taskStop', async () => {

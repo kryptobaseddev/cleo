@@ -63,6 +63,7 @@ export type {
   ScoreFactor,
   ScoreTaskContext,
   ScoreTaskInput,
+  ScoreTaskKey,
   ScoreTaskResult,
 } from './score-task-priority.js';
 // === Web + browser agent tools (T1742 / T11456) ===

@@ -27,9 +27,16 @@
  */
 
 import { createRequire, syncBuiltinESMExports } from 'node:module';
-import { existsSync, constants as fsConstants, mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
+import {
+  existsSync,
+  constants as fsConstants,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { delimiter, isAbsolute, join, resolve, sep } from 'node:path';
+import { basename, delimiter, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { afterAll, afterEach, beforeEach, expect } from 'vitest';
 
 // We must patch the CommonJS `child_process` module object so every importer
@@ -42,7 +49,10 @@ const child_process: Record<string, unknown> = cjsRequire('node:child_process');
 // Real data dir, captured BEFORE the sandbox below replaces HOME / CLEO_HOME.
 // The write guard at the end of this file refuses every test write under it
 // (T12645: caamp tests left 53 skill fixtures in the real
-// `~/Library/Application Support/cleo/skills`). This setup can run twice in
+// `~/Library/Application Support/cleo/skills`), and every real harness skills
+// dir (T12688: `~/.claude/skills`, `~/.agents/skills`, `~/.gemini`, `~/.kimi`,
+// `<config>/opencode`, Pi's `~/.pi/agent` and the rest of the CAAMP registry's
+// global skills paths). This setup can run twice in
 // one fork (root config + a package config that names it too); the first
 // run's capture is kept, because by the second run HOME is already the
 // sandbox.
@@ -67,6 +77,70 @@ function platformCleoDataDir(home: string): string {
   return join(process.env.XDG_DATA_HOME || join(home, '.local', 'share'), 'cleo');
 }
 
+/**
+ * Environment variables that point a harness at its own home. The code under
+ * test honours them (`CLAUDE_HOME`, `PI_CODING_AGENT_DIR`, ...), so an
+ * inherited value would send writes to the real harness past the HOME
+ * sandbox. Each is captured as a protected root, then removed (T12688).
+ */
+const HARNESS_HOME_ENV = [
+  'CLAUDE_HOME',
+  'CLAUDE_CONFIG_DIR',
+  'CODEX_HOME',
+  'HERMES_HOME',
+  'PI_CODING_AGENT_DIR',
+  'PI_HOME',
+] as const;
+
+/** `~` and a relative value resolve against HOME, never against cwd. */
+function expandHome(value: string, home: string): string {
+  if (value.startsWith('~')) return join(home, value.slice(1));
+  return isAbsolute(value) ? value : join(home, value);
+}
+
+/**
+ * The real harness directories a test must never write (T12688): every
+ * provider's global skills dir from the CAAMP registry, the global dirs CLEO
+ * installs instructions and skills into, and any dir an inherited
+ * harness-home variable selects. A registry path using a template other than
+ * `$HOME` / `$CONFIG` is skipped, as is one that would cover HOME or the
+ * config dir itself.
+ */
+function realHarnessRoots(home: string): string[] {
+  const config =
+    process.platform === 'win32'
+      ? process.env.APPDATA || join(home, 'AppData', 'Roaming')
+      : process.env.XDG_CONFIG_HOME || join(home, '.config');
+  const agentsHome = process.env.AGENTS_HOME?.trim();
+  const roots = [
+    join(home, '.claude', 'skills'),
+    join(home, '.agents', 'skills'),
+    join(home, '.gemini'),
+    join(home, '.kimi'),
+    join(config, 'opencode'),
+    join(home, '.pi', 'agent'),
+  ];
+  if (agentsHome) roots.push(join(expandHome(agentsHome, home), 'skills'));
+  for (const name of HARNESS_HOME_ENV) {
+    const value = process.env[name]?.trim();
+    if (value) roots.push(expandHome(value, home));
+  }
+  try {
+    const registry: { providers?: Record<string, { pathSkills?: string }> } = cjsRequire(
+      './packages/caamp/providers/registry.json',
+    );
+    for (const provider of Object.values(registry.providers ?? {})) {
+      const template = provider.pathSkills;
+      if (!template || /\$(?!HOME\b|CONFIG\b)\w+/.test(template)) continue;
+      roots.push(template.replace(/\$HOME\b/g, home).replace(/\$CONFIG\b/g, config));
+    }
+  } catch {
+    // Registry unreadable: the fixed list above still applies.
+  }
+  const tooBroad = new Set([resolve(home), resolve(config)]);
+  return roots.map((r) => resolve(r)).filter((r) => !tooBroad.has(r));
+}
+
 if (!process.env[PROTECTED_ROOTS_ENV]) {
   const home = homedir();
   const inheritedCleoHome = process.env.CLEO_HOME?.trim();
@@ -75,16 +149,16 @@ if (!process.env[PROTECTED_ROOTS_ENV]) {
     platformCleoDataDir(home),
     // ...the `~/.cleo` convenience alias that links to it...
     join(home, '.cleo'),
+    // ...the real harness skill and config dirs...
+    ...realHarnessRoots(home),
   ]);
   // ...and a data dir the parent shell selected with CLEO_HOME.
-  // Same expansion as @cleocode/paths `resolveHomeOverride`: `~` and a
-  // relative value both resolve against HOME, never against cwd.
-  if (inheritedCleoHome) {
-    if (inheritedCleoHome.startsWith('~')) roots.add(join(home, inheritedCleoHome.slice(1)));
-    else roots.add(isAbsolute(inheritedCleoHome) ? inheritedCleoHome : join(home, inheritedCleoHome));
-  }
+  // Same expansion as @cleocode/paths `resolveHomeOverride`.
+  if (inheritedCleoHome) roots.add(expandHome(inheritedCleoHome, home));
   process.env[PROTECTED_ROOTS_ENV] = [...roots].map((r) => resolve(r)).join(delimiter);
 }
+// Captured above; with them gone, harness homes resolve under the sandbox HOME.
+for (const name of HARNESS_HOME_ENV) delete process.env[name];
 
 // Capture the caller's selected filesystem before sanitizing inherited aliases.
 // Only choose a physical system-temp base, never the arbitrary inherited
@@ -150,6 +224,10 @@ for (const [name, directory] of Object.entries(isolatedRoots)) {
   mkdirSync(directory, { recursive: true });
   process.env[name] = directory;
 }
+// T12687: marks every store below the sandbox as a test fixture, so a CLI child
+// a test spawns (no VITEST in its env) may still migrate it from a worktree
+// build. A temp dir alone is not an exemption: projects can live under /tmp.
+writeFileSync(join(sandbox, '.cleo-test-sandbox'), 'vitest fork sandbox (T12687)\n');
 // A parent process cannot opt an ordinary unit-test fork into a real store.
 // Deliberate integration fixtures may set scoped overrides after setup.
 delete process.env.CLEO_TEST_ALLOW_PROJECT_DB;
@@ -354,10 +432,17 @@ wrap('execFileSync', 1, 2);
 // A root that contains the sandbox or the system temp dir is dropped, so an
 // inherited `CLEO_HOME=/tmp` can never turn every sandbox write into a hit.
 //
+// Each target is checked twice: as written (after `path.resolve`) and
+// physically, with the nearest existing ancestor realpath'd, so a write
+// through an existing link into a root is caught (T12688). The last component
+// is left unresolved where the call acts on the link itself (rm, unlink,
+// rename, the new path of symlink/link). A symlink or hard link whose TARGET
+// lies in a root is refused too. On darwin and win32 (case-insensitive file
+// systems) paths are compared case-folded.
+//
 // Known limits — this is a tripwire for the common leak, not a sandbox:
-// - Paths are compared as TEXT after `path.resolve`. A write through a symlink
-//   other than `~/.cleo` (e.g. a harness skill link pointing into the data
-//   dir) is not resolved and not caught.
+// - A link created before setup ran, or by a child process, is only caught
+//   when a guarded call later writes through it.
 // - Only this process's `node:fs` / `node:fs/promises` exports are guarded.
 //   Child processes, native addons and SQLite (which has its own path guard in
 //   `openNativeDatabase`) write unseen, as do writes to an fd or stream opened
@@ -382,8 +467,46 @@ const guardGlobal = globalThis as GuardGlobal;
 guardGlobal[REAL_DATA_WRITES] ??= [];
 const realDataWrites = guardGlobal[REAL_DATA_WRITES];
 
-const isWithin = (target: string, root: string): boolean =>
-  target === root || target.startsWith(`${root}${sep}`);
+/** Case-fold where the usual file system is case-insensitive (APFS, NTFS). */
+const foldCase =
+  process.platform === 'darwin' || process.platform === 'win32'
+    ? (p: string): string => p.toLowerCase()
+    : (p: string): string => p;
+
+const isWithin = (target: string, root: string): boolean => {
+  const t = foldCase(target);
+  const r = foldCase(root);
+  return t === r || t.startsWith(`${r}${sep}`);
+};
+
+/**
+ * `target` with its nearest existing ancestor realpath'd. With `followFinal`
+ * false the last component is kept as-is (the call acts on it, not through it).
+ */
+function physicalPath(target: string, followFinal: boolean): string {
+  let dir = followFinal ? target : dirname(target);
+  let rest = followFinal ? '' : basename(target);
+  for (;;) {
+    try {
+      return rest ? join(realpathSync(dir), rest) : realpathSync(dir);
+    } catch {
+      const parent = dirname(dir);
+      if (parent === dir) return target;
+      rest = rest ? join(basename(dir), rest) : basename(dir);
+      dir = parent;
+    }
+  }
+}
+
+/** `p` and its realpath, when that differs. */
+function withRealpath(p: string): string[] {
+  try {
+    const real = realpathSync(p);
+    return real === p ? [p] : [p, real];
+  } catch {
+    return [p];
+  }
+}
 
 /** Nearest ancestor of `start` holding `.git` (dir or worktree file), or null. */
 function gitToplevel(start: string): string | null {
@@ -397,10 +520,12 @@ function gitToplevel(start: string): string | null {
 }
 
 const ownCheckout = gitToplevel(process.cwd());
+const ownCheckouts = ownCheckout === null ? [] : withRealpath(ownCheckout);
 
 const protectedRoots = (process.env[PROTECTED_ROOTS_ENV] ?? '')
   .split(delimiter)
   .filter((root) => root.length > 0)
+  .flatMap(withRealpath)
   .filter((root) => !isWithin(sandbox, root) && !isWithin(sandboxParent, root));
 
 function toPathString(value: unknown): string | null {
@@ -410,15 +535,24 @@ function toPathString(value: unknown): string | null {
   return null;
 }
 
-/** The protected root `value` falls under, or null. */
-function protectedRootOf(value: unknown): string | null {
+/**
+ * The protected root `value` falls under — as written or physically — or null.
+ *
+ * @param value - Path argument.
+ * @param followFinal - Resolve the last component too (false when the call
+ *   acts on the entry itself, e.g. unlink).
+ * @param base - Directory a relative path resolves against (a symlink's
+ *   target is relative to the link's directory).
+ */
+function protectedRootOf(value: unknown, followFinal = true, base?: string): string | null {
   const raw = toPathString(value);
   if (raw === null) return null;
-  const target = resolve(raw);
-  for (const root of protectedRoots) {
-    if (!isWithin(target, root)) continue;
-    if (ownCheckout !== null && isWithin(target, ownCheckout)) return null;
-    return root;
+  const target = base === undefined ? resolve(raw) : resolve(base, raw);
+  for (const candidate of new Set([target, physicalPath(target, followFinal)])) {
+    if (ownCheckouts.some((own) => isWithin(candidate, own))) continue;
+    for (const root of protectedRoots) {
+      if (isWithin(candidate, root)) return root;
+    }
   }
   return null;
 }
@@ -439,6 +573,10 @@ interface FsGuardSpec {
   pathArgs: readonly number[];
   /** For `open`: only guard when the flags argument (index 1) writes. */
   openFlags?: boolean;
+  /** Argument positions the call acts on itself: last component not resolved. */
+  noFollow?: readonly number[];
+  /** `symlink`: argument 0 is the link target, relative to argument 1's directory. */
+  linkTarget?: boolean;
 }
 
 const FS_WRITE_SPECS: readonly FsGuardSpec[] = [
@@ -448,19 +586,21 @@ const FS_WRITE_SPECS: readonly FsGuardSpec[] = [
   { name: 'appendFile', pathArgs: [0] },
   { name: 'copyFile', pathArgs: [1] },
   { name: 'cp', pathArgs: [1] },
-  { name: 'rename', pathArgs: [0, 1] },
-  { name: 'symlink', pathArgs: [1] },
-  { name: 'link', pathArgs: [1] },
-  { name: 'rm', pathArgs: [0] },
-  { name: 'rmdir', pathArgs: [0] },
-  { name: 'unlink', pathArgs: [0] },
+  { name: 'rename', pathArgs: [0, 1], noFollow: [0, 1] },
+  // The TARGET is guarded too: a link from the sandbox into a root would let
+  // a later, unguarded-looking write land in the real dir.
+  { name: 'symlink', pathArgs: [0, 1], noFollow: [1], linkTarget: true },
+  { name: 'link', pathArgs: [0, 1], noFollow: [1] },
+  { name: 'rm', pathArgs: [0], noFollow: [0] },
+  { name: 'rmdir', pathArgs: [0], noFollow: [0] },
+  { name: 'unlink', pathArgs: [0], noFollow: [0] },
   { name: 'truncate', pathArgs: [0] },
   { name: 'open', pathArgs: [0], openFlags: true },
 ];
 
 function realDataWriteError(fn: string, target: unknown, root: string): Error {
   const message = [
-    `E_TEST_REAL_DATA_WRITE: ${fn} targets the REAL CLEO data dir.`,
+    `E_TEST_REAL_DATA_WRITE: ${fn} targets a REAL CLEO data or harness skills dir.`,
     `  target: ${toPathString(target)}`,
     `  root:   ${root}`,
     `  sandbox CLEO_HOME: ${process.env.CLEO_HOME}`,
@@ -480,7 +620,10 @@ function guardFsFunction(target: Record<string, unknown>, fnName: string, spec: 
   const guarded: AnyFn = function (this: unknown, ...args: unknown[]) {
     if (!spec.openFlags || isWriteFlag(args[1])) {
       for (const index of spec.pathArgs) {
-        const root = protectedRootOf(args[index]);
+        const linkPath = toPathString(args[1]);
+        const base =
+          spec.linkTarget && index === 0 && linkPath !== null ? dirname(resolve(linkPath)) : undefined;
+        const root = protectedRootOf(args[index], !spec.noFollow?.includes(index), base);
         if (root === null) continue;
         const err = realDataWriteError(fnName, args[index], root);
         if (kind === 'promise') return Promise.reject(err);
@@ -523,7 +666,7 @@ if (!guardGlobal[FS_GUARD_INSTALLED] && protectedRoots.length > 0) {
 function failOnRealDataWrites(): void {
   if (realDataWrites.length === 0) return;
   const writes = realDataWrites.splice(0);
-  throw new Error(`${writes.length} write(s) targeted the real CLEO data dir:\n\n${writes.join('\n\n')}`);
+  throw new Error(`${writes.length} write(s) targeted a real CLEO data or harness skills dir:\n\n${writes.join('\n\n')}`);
 }
 
 // `currentTestName` outlives its test, so a later beforeAll/afterAll hit would

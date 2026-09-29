@@ -41,7 +41,7 @@ import { classifyTable, isPortableTableClass } from '../table-classification.js'
  * follow-up that declares tables lowers it in the same change (spec
  * t12341-uid-scheme §15).
  */
-const PENDING_PINNED: Readonly<Record<TableScope, number>> = { project: 96, global: 43 };
+const PENDING_PINNED: Readonly<Record<TableScope, number>> = { project: 94, global: 43 };
 
 let testRoot: string;
 const stores: Partial<Record<TableScope, DatabaseSync>> = {};

@@ -197,8 +197,10 @@ describe('Orchestrate Engine', () => {
       const result = await orchestrateNext('T100', TEST_ROOT);
       expect(result.success).toBe(true);
       const data = result.data as any;
-      // getNextTask returns first ready task in array order (T102 comes before T103)
-      expect(data.nextTask.id).toBe('T102');
+      // T12692: the first ready task in THE comparator's order (D11161) —
+      // T103 (high) outranks T102 (medium); array order no longer decides.
+      expect(data.nextTask.id).toBe('T103');
+      expect(data.alternatives.map((t: { id: string }) => t.id)).toEqual(['T102']);
     });
   });
 

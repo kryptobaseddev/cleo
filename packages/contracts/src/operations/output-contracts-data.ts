@@ -63,6 +63,26 @@ import {
  * exact shape whose absence produced `cleo show --field /data/title` →
  * `E_FIELD_NOT_FOUND`.
  */
+/**
+ * JSON schema of a {@link TaskClaim} lease (T12502), shared by `tasks.show`,
+ * `tasks.start` and `tasks.claim`.
+ */
+const TASK_CLAIM_SCHEMA = {
+  type: 'object',
+  description:
+    'Agent claim lease (T12502): the holder session, its agent, and when the lease lapses unless renewed. Absent when unclaimed.',
+  required: ['sessionId', 'agentId', 'claimedAt', 'leaseExpiresAt'],
+  properties: {
+    sessionId: { type: 'string', description: 'Session holding the lease.' },
+    agentId: { type: ['string', 'null'], description: 'Agent identity of the holder.' },
+    claimedAt: { type: 'string', description: 'When the lease was taken (ISO-8601 UTC).' },
+    leaseExpiresAt: {
+      type: 'string',
+      description: 'When the lease lapses unless renewed (ISO-8601 UTC).',
+    },
+  },
+} as const;
+
 const tasksShowOutputContract: OperationOutputContract = {
   operation: 'tasks.show',
   shapeNote:
@@ -70,6 +90,8 @@ const tasksShowOutputContract: OperationOutputContract = {
     'Mutation envelopes are FLAT by contrast (/data/created/0, /data/updated/0), which is ' +
     'the asymmetry that produced GH #1225/#1239/#1231. ' +
     '`view` may be null. `acRows` and `relations` are conditional. ' +
+    'The default (MVI) projection withholds each `acRows` UUID and names it once in ' +
+    '`/data/_withheld` as `acRows/*/id` (T12523); cite a criterion by `alias` (AC1..n). ' +
     '`description`, `acceptance` and `verification` are withheld by the default (MVI) ' +
     'projection but `--field` resolves them transparently (T12108) — no `--full` needed. ' +
     'Evidence is NOT a task field: it lives at /data/task/verification/evidence ' +
@@ -92,6 +114,18 @@ const tasksShowOutputContract: OperationOutputContract = {
           priority: { type: 'string' },
           type: { type: 'string' },
           parentId: { type: ['string', 'null'] },
+          // T12503: the optimistic-concurrency version agents pass to --if-match.
+          updatedAt: {
+            type: ['string', 'null'],
+            description:
+              'Task version for optimistic concurrency: pass it to `cleo update|complete --if-match`.',
+          },
+          // T12502: the human assignee and the agent claim lease are separate.
+          assignee: {
+            type: ['string', 'null'],
+            description: 'Human / owner assignee. Separate from `claim`.',
+          },
+          claim: TASK_CLAIM_SCHEMA,
         },
       },
       view: {
@@ -105,7 +139,13 @@ const tasksShowOutputContract: OperationOutputContract = {
       },
       acRows: {
         type: 'array',
-        description: 'Acceptance-criterion rows (id, alias AC<n>, ordinal, text). Optional.',
+        description:
+          'Acceptance-criterion rows (alias AC<n>, ordinal, text; the UUID id only with --full). Optional.',
+      },
+      _withheld: {
+        type: 'object',
+        description:
+          'Fields the default projection withheld from list elements, e.g. `acRows/*/id` → UTF-8 byte total. Absent with --full.',
       },
       relations: {
         type: 'object',
@@ -120,6 +160,14 @@ const tasksShowOutputContract: OperationOutputContract = {
     '/data/task/priority',
     '/data/task/type',
     '/data/task/parentId',
+    // T12503 — the optimistic-concurrency version for `--if-match`; withheld
+    // by the MVI projection, resolved from the full record by `--field`.
+    '/data/task/updatedAt',
+    // T12502 — the agent claim lease (withheld by MVI; resolved by --field).
+    '/data/task/assignee',
+    '/data/task/claim',
+    '/data/task/claim/sessionId',
+    '/data/task/claim/leaseExpiresAt',
     // T12127 (GH #1231) — withheld by the MVI projection but resolvable
     // through `--field` since T12108. They were absent from this list, so the
     // remediation an agent is shown on a failed pointer never mentioned the
@@ -494,6 +542,78 @@ const tasksAssigneeOutputContract: OperationOutputContract = {
   fieldPointers: ['/data/taskId', '/data/assignee', '/data/assigned'],
 };
 
+/**
+ * OUTPUT contract for `tasks.start` (T12502).
+ *
+ * Grounded in `TasksStartQueryResult`: `{ taskId, previousTask, claim }`.
+ */
+const tasksStartOutputContract: OperationOutputContract = {
+  operation: 'tasks.start',
+  shapeNote:
+    'The claim lease this start holds is at /data/claim (null when the caller is not bound to a session). ' +
+    'Another session holding the task fails with E_TASK_CLAIMED (exit 35); error.details.holder names it.',
+  dataSchema: {
+    type: 'object',
+    required: ['taskId', 'previousTask'],
+    additionalProperties: true,
+    properties: {
+      taskId: { type: 'string', description: 'The task now active.' },
+      previousTask: { type: ['string', 'null'], description: 'The task active before, if any.' },
+      claim: { ...TASK_CLAIM_SCHEMA, type: ['object', 'null'] },
+    },
+  },
+  fieldPointers: [
+    '/data/taskId',
+    '/data/previousTask',
+    '/data/claim',
+    '/data/claim/sessionId',
+    '/data/claim/leaseExpiresAt',
+  ],
+};
+
+/**
+ * OUTPUT contract for `tasks.claim` (T12502).
+ *
+ * Grounded in `TasksClaimResult`: `{ taskId, agentId, claim }`.
+ */
+const tasksClaimOutputContract: OperationOutputContract = {
+  operation: 'tasks.claim',
+  shapeNote:
+    'The lease now held by your session is at /data/claim; renew it with --renew. ' +
+    'Another holder fails with E_TASK_CLAIMED (exit 35): --take-over (expired) or --force-claim (live).',
+  dataSchema: {
+    type: 'object',
+    required: ['taskId', 'agentId', 'claim'],
+    additionalProperties: true,
+    properties: {
+      taskId: { type: 'string', description: 'The claimed task.' },
+      agentId: { type: ['string', 'null'], description: 'Agent recorded with the lease.' },
+      claim: TASK_CLAIM_SCHEMA,
+    },
+  },
+  fieldPointers: ['/data/taskId', '/data/agentId', '/data/claim', '/data/claim/leaseExpiresAt'],
+};
+
+/**
+ * OUTPUT contract for `tasks.unclaim` (T12502).
+ *
+ * Grounded in `TasksUnclaimResult`: `{ taskId, released }`.
+ */
+const tasksUnclaimOutputContract: OperationOutputContract = {
+  operation: 'tasks.unclaim',
+  shapeNote: '/data/released is true when a lease was cleared, false when the task was unclaimed.',
+  dataSchema: {
+    type: 'object',
+    required: ['taskId', 'released'],
+    additionalProperties: true,
+    properties: {
+      taskId: { type: 'string', description: 'The released task.' },
+      released: { type: 'boolean', description: 'Whether a lease was cleared.' },
+    },
+  },
+  fieldPointers: ['/data/taskId', '/data/released'],
+};
+
 // ---------------------------------------------------------------------------
 // admin.config.* — config-as-domain (T11917 · M5/AC3 · ConfigManifest cascade)
 // ---------------------------------------------------------------------------
@@ -649,6 +769,10 @@ export const OUTPUT_CONTRACTS: OperationOutputContractRegistry = {
   'tasks.reorder-rank': tasksReorderRankOutputContract,
   'tasks.bulk-move': tasksBulkMoveOutputContract,
   'tasks.assignee': tasksAssigneeOutputContract,
+  // T12502 — leased task claims.
+  'tasks.start': tasksStartOutputContract,
+  'tasks.claim': tasksClaimOutputContract,
+  'tasks.unclaim': tasksUnclaimOutputContract,
   'admin.config.get': adminConfigGetOutputContract,
   'admin.config.list': adminConfigListOutputContract,
   'admin.config.validate': adminConfigValidateOutputContract,

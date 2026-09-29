@@ -197,5 +197,5 @@ cleo list --tree --parent {{EPIC_ID}}      # Show epic subtree
 
 | Token | Default |
 |-------|---------|
-| `{{OUTPUT_DIR}}` | `.cleo/agent-outputs` |
+| `{{OUTPUT_DIR}}` | `.cleo/agent-outputs` (legacy token — do not write there; record output with `cleo docs add`) |
 

@@ -11,10 +11,13 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Task, TaskRef, TaskRefPriority, TaskWorkState } from '@cleocode/contracts';
+import type { Task, TaskRef, TaskRefPriority } from '@cleocode/contracts';
 import { getCleoDirAbsolute } from '../../paths.js';
+import { readLiveFocus, resolveFocusSessionId } from '../../sessions/focus-state-store.js';
 import { getTaskAccessor } from '../../store/data-accessor.js';
 import { resolveBoundSessionId } from '../../store/session-store.js';
+import { orderByRanking, rankTasks } from '../../task-tools/score-task-priority.js';
+import { loadRankingContext } from '../../tasks/task-next.js';
 import type {
   DependencyAnalysis,
   DependencyWave,
@@ -177,8 +180,10 @@ export async function sessionInit(epicId?: string, cwd?: string): Promise<Sessio
   let focusedTask: string | null = null;
 
   try {
-    const focus = await acc.getMetaValue<TaskWorkState>('focus_state');
-    focusedTask = focus?.currentTask ?? null;
+    // T12684: the caller's live focus — never a finished task. T12501: under
+    // THE focus-key rule — the caller's bound session, never the first active
+    // row (another agent's, when this caller is unbound).
+    focusedTask = (await readLiveFocus(acc, await resolveFocusSessionId(cwd))).currentTask;
     hasFocus = !!focusedTask;
   } catch {
     // Focus unavailable
@@ -360,19 +365,24 @@ export async function analyzeDependencies(
   // The `status === 'pending'` check implicitly excludes the Tier-2 proposal
   // queue ('proposed') — those tasks are not part of the Tier-1 execution set
   // (T946 / Round 2 audit §8). See also dependency-check.ts:getReadyTasks.
-  const readyToSpawn = epicTasks
-    .filter((t) => {
+  // T12692: ready candidates in THE comparator's order (D11161), ranked with
+  // the same project context as `cleo next`.
+  const { ctx: ranking } = await loadRankingContext(acc, allTasks);
+  const readyToSpawn = orderByRanking(
+    epicTasks.filter((t) => {
       if (t.status !== 'pending') return false;
       const deps = t.depends ?? [];
       return deps.length === 0 || deps.every((d) => doneIds.has(d) || !epicIds.has(d));
-    })
-    .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority))
-    .map((t) => ({
-      id: t.id,
-      title: t.title,
-      priority: t.priority,
-      wave: waveMap.get(t.id) ?? 0,
-    }));
+    }),
+    (t) => t.id,
+    new Map(epicTasks.map((t) => [t.id, t] as const)),
+    ranking,
+  ).map((t) => ({
+    id: t.id,
+    title: t.title,
+    priority: t.priority,
+    wave: waveMap.get(t.id) ?? 0,
+  }));
 
   // Find blocked tasks (pending-only; 'proposed' Tier-2 queue implicitly excluded).
   const blockedTasks = epicTasks
@@ -474,9 +484,11 @@ export async function generateHitlSummary(
   let focusedTask: string | null = null;
   let progressNote: string | null = null;
   try {
-    const focus = await acc.getMetaValue<TaskWorkState>('focus_state');
-    focusedTask = focus?.currentTask ?? null;
-    progressNote = focus?.sessionNote ?? null;
+    // T12684: the bound session's live focus — never a finished task.
+    // T12501: keyed by THE focus-key rule, like every other focus reader.
+    const focus = await readLiveFocus(acc, await resolveFocusSessionId(cwd));
+    focusedTask = focus.currentTask;
+    progressNote = focus.state?.sessionNote ?? null;
   } catch {
     // Focus unavailable
   }
@@ -502,9 +514,12 @@ export async function generateHitlSummary(
       .filter((t) => t.status === 'done')
       .map((t) => ({ id: t.id, title: t.title }));
 
-    remainingTasks = tasks
-      .filter((t) => t.status !== 'done')
-      .map((t) => ({ id: t.id, title: t.title, status: t.status, priority: t.priority }));
+    // T12692: THE comparator (D11161) orders what remains.
+    const { ctx: ranking } = await loadRankingContext(acc);
+    remainingTasks = rankTasks(
+      tasks.filter((t) => t.status !== 'done'),
+      ranking,
+    ).map(({ task: t }) => ({ id: t.id, title: t.title, status: t.status, priority: t.priority }));
 
     readyToSpawn = await getReadyTasks(epicId, cwd);
   }
@@ -540,9 +555,7 @@ export async function generateHitlSummary(
       percentComplete,
     },
     completedTasks,
-    remainingTasks: remainingTasks.sort(
-      (a, b) => priorityRank(a.priority) - priorityRank(b.priority),
-    ),
+    remainingTasks,
     readyToSpawn,
     handoff: {
       resumeCommand,
@@ -553,21 +566,4 @@ export async function generateHitlSummary(
       ],
     },
   };
-}
-
-// ============================================================================
-// Helpers
-// ============================================================================
-
-function priorityRank(priority?: string): number {
-  switch (priority) {
-    case 'critical':
-      return 0;
-    case 'high':
-      return 1;
-    case 'medium':
-      return 2;
-    default:
-      return 3;
-  }
 }

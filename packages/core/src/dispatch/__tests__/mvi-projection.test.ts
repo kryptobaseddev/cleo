@@ -260,6 +260,65 @@ describe('applyProjectionPlan — the exact `cleo show` path (T12121 · GH #1243
     expect(out.task).not.toHaveProperty(WITHHELD_KEY);
   });
 
+  describe('acRows (T12523)', () => {
+    const uuid = (n: number) => `0e121631-9501-5a9f-a24d-b1ff28e6e${String(n).padStart(3, '0')}`;
+    const acRows = ['First criterion', 'Second criterion', 'Third criterion'].map(
+      (text, index) => ({ id: uuid(index), alias: `AC${index + 1}`, ordinal: index + 1, text }),
+    );
+    const data = {
+      task: { id: 'T1', title: 'ACs', status: 'pending' },
+      view: { gatesStatus: { implemented: false } },
+      attachments: [],
+      acRows,
+    };
+
+    it('omits AC row UUIDs and keeps the AC1..n alias, ordinal and text', () => {
+      const out = applyProjectionPlan(data, 'tasks.show', 'mvi') as {
+        acRows: Record<string, unknown>[];
+      };
+      expect(out.acRows).toEqual([
+        { alias: 'AC1', ordinal: 1, text: 'First criterion' },
+        { alias: 'AC2', ordinal: 2, text: 'Second criterion' },
+        { alias: 'AC3', ordinal: 3, text: 'Third criterion' },
+      ]);
+      expect(JSON.stringify(out)).not.toContain(uuid(0));
+    });
+
+    it('discloses the withheld UUIDs once on the result, with their byte total', () => {
+      const out = applyProjectionPlan(data, 'tasks.show', 'mvi') as Record<string, unknown>;
+      // Protocol rule: a withheld field is named in `_withheld` with its UTF-8
+      // size. One `acRows/*/id` entry states it for every row.
+      expect(out[WITHHELD_KEY]).toEqual({ 'acRows/*/id': 3 * 36 });
+      for (const row of out['acRows'] as Record<string, unknown>[]) {
+        expect(row).not.toHaveProperty(WITHHELD_KEY);
+      }
+      // The gate status an agent acts on is untouched.
+      expect(out['view']).toEqual({ gatesStatus: { implemented: false } });
+    });
+
+    it('--full still returns the UUIDs, unmarked', () => {
+      const out = applyProjectionPlan(data, 'tasks.show', 'full') as Record<string, unknown>;
+      expect(out['acRows']).toEqual(acRows);
+      expect(out).not.toHaveProperty(WITHHELD_KEY);
+    });
+
+    it('costs fewer tokens than the unprojected rows', () => {
+      const estimator = new TokenEstimator();
+      const out = applyProjectionPlan(data, 'tasks.show', 'mvi') as Record<string, unknown>;
+      const projected = estimator.estimate({ _withheld: out[WITHHELD_KEY], acRows: out['acRows'] });
+      expect(projected).toBeLessThan(estimator.estimate({ acRows }));
+    });
+
+    it('leaves a show result without acRows unmarked', () => {
+      const out = applyProjectionPlan(
+        { task: { id: 'T2', title: 'no ACs', status: 'pending' } },
+        'tasks.show',
+        'mvi',
+      );
+      expect(out).not.toHaveProperty(WITHHELD_KEY);
+    });
+  });
+
   it('marks withheld fields on every row of a list, not just single records', () => {
     const data = {
       tasks: [

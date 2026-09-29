@@ -50,6 +50,12 @@ export const doctorRepairCommand = defineCommand({
         'Detect + plan only — report what would be repaired without quarantining/restoring',
       default: false,
     },
+    'confirm-owner-store': {
+      type: 'boolean',
+      description:
+        "From inside a git worktree: allow overwriting the owning project's LIVE store (refused without it)",
+      default: false,
+    },
   },
   run({ args }) {
     const roleArg = typeof args.role === 'string' ? args.role.trim() : '';
@@ -76,6 +82,9 @@ export const doctorRepairCommand = defineCommand({
       roles: roleArg.length > 0 ? [roleArg as DbRole] : undefined,
       dryRun,
       logger: getLogger('doctor-repair'),
+      // T12708: the invocation directory; core never falls back to it.
+      cwd: process.cwd(),
+      confirmOwnerStore: args['confirm-owner-store'] === true,
     });
 
     for (const r of result.roles) {

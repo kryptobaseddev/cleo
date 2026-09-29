@@ -34,9 +34,25 @@ import {
 } from '../../../../../core/src/store/__tests__/test-db-helper.js';
 import { getBrainAccessor } from '../../../../../core/src/store/memory-accessor.js';
 import { closeBrainDb } from '../../../../../core/src/store/memory-sqlite.js';
+import { createSession } from '../../../../../core/src/store/session-store.js';
 import { AttentionHandler } from '../attention.js';
 
 const ENV_KEYS = ['CLEO_SESSION_ID', 'CLEO_SESSION', 'CLEO_AGENT_ID'];
+
+/** T12501: an env session id binds (and keys focus) only when its row exists. */
+async function createBoundSession(id: string, root: string): Promise<void> {
+  await createSession(
+    {
+      id,
+      name: id,
+      status: 'active',
+      scope: { type: 'global' },
+      taskWork: { taskId: null, setAt: null },
+      startedAt: new Date().toISOString(),
+    },
+    root,
+  );
+}
 
 describe('AttentionHandler dispatch (T11373 · Epic T11288)', () => {
   let env: TestDbEnv;
@@ -72,6 +88,7 @@ describe('AttentionHandler dispatch (T11373 · Epic T11288)', () => {
     const sessionId = 'ses_20260530000020_aaaaaa';
     process.env['CLEO_SESSION_ID'] = sessionId;
     process.env['CLEO_AGENT_ID'] = 'agent-alpha';
+    await createBoundSession(sessionId, env.tempDir);
     await writeFocusState(env.accessor, sessionId, { currentTask: 'T001' });
 
     const res = await handler.mutate('add', { content: 'wire the digest' });
@@ -100,6 +117,7 @@ describe('AttentionHandler dispatch (T11373 · Epic T11288)', () => {
     const sessionId = 'ses_20260530000022_cccccc';
     process.env['CLEO_SESSION_ID'] = sessionId;
     process.env['CLEO_AGENT_ID'] = 'agent-beta';
+    await createBoundSession(sessionId, env.tempDir);
     await writeFocusState(env.accessor, sessionId, { currentTask: 'T001' });
 
     await handler.mutate('add', { content: 'first jot', tags: ['x'] });
@@ -121,6 +139,7 @@ describe('AttentionHandler dispatch (T11373 · Epic T11288)', () => {
     const sessionId = 'ses_20260530000023_dddddd';
     process.env['CLEO_SESSION_ID'] = sessionId;
     process.env['CLEO_AGENT_ID'] = 'agent-gamma';
+    await createBoundSession(sessionId, env.tempDir);
     await writeFocusState(env.accessor, sessionId, { currentTask: 'T001' });
 
     const res = await handler.mutate('add', { content: 'saga-wide', scope: 'saga' });

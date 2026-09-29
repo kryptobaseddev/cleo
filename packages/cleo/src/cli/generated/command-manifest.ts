@@ -198,13 +198,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'claimCommand',
     name: 'claim',
-    description: 'Claim a task by assigning it to an agent',
+    description:
+      "Take, renew (--renew) or override (--take-over expired, --force-claim live) your session's leased claim on a task",
     load: async () => (await import('../commands/claim.js')).claimCommand as CommandDef,
   },
   {
     exportName: 'unclaimCommand',
     name: 'unclaim',
-    description: 'Unclaim a task by removing its current assignee',
+    description: "Release your session's claim lease on a task (--force-claim: another session's)",
     load: async () => (await import('../commands/claim.js')).unclaimCommand as CommandDef,
   },
   {
@@ -301,7 +302,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'decideCommand',
     name: 'decide',
     description:
-      'Typed-decision (System One) provider: decide config (API URL + key), decide status (reachability probe), decide ask (one debug question). Unconfigured means heuristics answer.',
+      'System One integration (typed decisions): decide config (provider + API key; wizard on a terminal), decide status (reachability probe), decide ask (one debug question), decide sites (the registered decision sites). Unconfigured means heuristics answer.',
     load: async () => (await import('../commands/decide.js')).decideCommand as CommandDef,
   },
   {
@@ -450,6 +451,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
       'Report task rows whose id is not a valid task identifier — rows that `cleo list` returns ',
     load: async () =>
       (await import('../commands/doctor-malformed-ids.js')).doctorMalformedIdsCommand as CommandDef,
+  },
+  {
+    exportName: 'doctorManifestRowsCommand',
+    name: 'manifest-rows',
+    description:
+      'List manifest rows whose metadata violates the stored field contract. --repair shows the plan (writes nothing); --repair --apply moves each bad field under _malformed (nothing lost) with a receipt; --rollback <receipt> undoes it.',
+    load: async () =>
+      (await import('../commands/doctor-manifest-rows.js')).doctorManifestRowsCommand as CommandDef,
   },
   {
     exportName: 'doctorMemoryGuardCommand',
@@ -790,8 +799,15 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'loginCommand',
     name: 'login',
     description:
-      'Log in to an LLM provider and bind a usable profile in one step. Picks a provider + auth method (browser OAuth or API key), selects a model, binds it, and validates the binding. cleo auth login and cleo llm login resolve to this same flow. Prompts/URLs go to stderr; the result is a human line on a terminal or a JSON envelope when piped / --json.',
+      'Log in to a Cleo Nexus account (cleo login nexus: device code, --api-url, --no-browser) or to an LLM provider, binding a usable profile in one step. The picker lists the Cleo Nexus account first, then the providers. For a provider it picks an auth method (browser OAuth or API key), selects a model, binds it, and validates the binding. cleo auth login and cleo llm login resolve to this same flow. Prompts/URLs go to stderr; the result is a human line on a terminal or a JSON envelope when piped / --json.',
     load: async () => (await import('../commands/login.js')).loginCommand as CommandDef,
+  },
+  {
+    exportName: 'logoutCommand',
+    name: 'logout',
+    description:
+      'Sign out. cleo logout [nexus] revokes the Cleo Nexus session server-side and deletes the stored token; cleo logout <provider> [label] removes an LLM credential exactly like cleo auth remove (the label may be omitted when the provider has one credential).',
+    load: async () => (await import('../commands/logout.js')).logoutCommand as CommandDef,
   },
   {
     exportName: 'manifestCommand',
@@ -887,7 +903,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'projectCommand',
     name: 'project',
-    description: 'Project lifecycle management (move, reroot, rename, re-register).',
+    description: 'Project lifecycle management (move, reroot, rename, re-register, link).',
     load: async () => (await import('../commands/project.js')).projectCommand as CommandDef,
   },
   {
@@ -1062,7 +1078,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'setupCommand',
     name: 'setup',
     description:
-      'Interactive setup wizard — runs all 8 sections in canonical order (identity → llm → sentient → harness → brain → project-conventions → integrations → verification). Use --section <name> for a single section, --non-interactive with section-specific flags to configure without prompts, --config-json for fully scripted setup, or --reset to reconfigure already-set sections.',
+      'Interactive setup wizard — runs every section in canonical order (llm → system-one → models-roles → identity → sentient → project-conventions → harness → brain → integrations → telemetry → verification); system-one is optional. Use --section <name> for a single section, --non-interactive with section-specific flags to configure without prompts, --config-json for fully scripted setup, or --reset to reconfigure already-set sections.',
     load: async () => (await import('../commands/setup.js')).setupCommand as CommandDef,
   },
   {
@@ -1093,7 +1109,8 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'startCommand',
     name: 'start',
-    description: 'Start working on a task (sets it as the current task in the active session)',
+    description:
+      "Start working on a task (sets it as the current task and takes your session's claim lease)",
     load: async () => (await import('../commands/start.js')).startCommand as CommandDef,
   },
   {

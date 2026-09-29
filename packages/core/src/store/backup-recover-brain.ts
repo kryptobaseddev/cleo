@@ -82,6 +82,10 @@ export interface BackupRecoverBrainOptions {
    * When `true`, skip the future `sqlite3 .recover` delta-merge step.
    */
   noDelta?: boolean;
+  /** Directory the recovery was invoked from (T12708). */
+  cwd: string;
+  /** Confirm overwriting the owning project's LIVE store from a worktree (T12708). */
+  confirmOwnerStore?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -141,6 +145,8 @@ export function runBackupRecoverBrain(opts: BackupRecoverBrainOptions): BackupRe
     dryRun: opts.dryRun,
     fromSnapshot: opts.fromSnapshot,
     noDelta: opts.noDelta,
+    cwd: opts.cwd,
+    confirmOwnerStore: opts.confirmOwnerStore,
   });
 
   return {

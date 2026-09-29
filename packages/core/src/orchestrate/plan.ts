@@ -14,7 +14,7 @@ import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import type { AgentTier, ResolvedAgent, Task } from '@cleocode/contracts';
 import type { OrchestratePlanResult } from '@cleocode/contracts/operations/orchestrate';
 import { type EngineResult, engineError } from '../engine-result.js';
-import { getEnrichedWaves } from '../orchestration/waves.js';
+import { getEnrichedWaves, isTerminalWaveStatus } from '../orchestration/waves.js';
 import { getProjectRoot } from '../paths.js';
 import {
   ensureGlobalAgentRegistryDb,
@@ -22,6 +22,7 @@ import {
 } from '../store/agent-registry-store.js';
 import { AgentNotFoundError, resolveAgent } from '../store/agent-resolver.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { installSchemaWriteGuard } from '../store/worktree-build-guard.js';
 import { loadTasks } from './query-ops.js';
 
 // ---------------------------------------------------------------------------
@@ -247,6 +248,7 @@ export async function openAgentRegistryDbForComposer(): Promise<_AgentRegistryDb
   await ensureGlobalAgentRegistryDb();
   const dbPath = getGlobalAgentRegistryDbPath();
   const db = new _DatabaseSyncCtor(dbPath);
+  installSchemaWriteGuard(db); // T12687
   db.exec('PRAGMA foreign_keys = ON');
   return db;
 }
@@ -331,6 +333,7 @@ export async function orchestratePlan(
     await ensureGlobalAgentRegistryDb();
     const dbPath = getGlobalAgentRegistryDbPath();
     const db = new _DatabaseSyncCtor(dbPath);
+    installSchemaWriteGuard(db); // T12687
     db.exec('PRAGMA foreign_keys = ON');
 
     const warnings: PlanWarning[] = [];
@@ -343,7 +346,8 @@ export async function orchestratePlan(
         const workers: PlanWorkerEntry[] = [];
         for (const taskRef of wave.tasks) {
           const task = children.find((c) => c.id === taskRef.id);
-          if (!task) continue;
+          // T12682: finished tasks keep their stable wave but get no worker.
+          if (!task || isTerminalWaveStatus(task.status)) continue;
 
           const classifiedAgentId = classifyTaskToAgent(task);
           const resolved = resolveAgentGraceful(db, classifiedAgentId, preferTier);
@@ -406,6 +410,7 @@ export async function orchestratePlan(
           workers.find((w) => w.role === 'orchestrator') ??
           null;
 
+        if (workers.length === 0) continue;
         plannedWaves.push({
           wave: wave.waveNumber,
           leadTaskId: leadWorker ? leadWorker.taskId : null,

@@ -36,6 +36,7 @@ import type { DecisionAnswer, DecisionQuestion, DecisionRequest } from '@cleocod
 import type { DecisionAuditAnswer, DecisionAuditEntry } from '../decide/audit.js';
 import type { DecideOptions } from '../decide/client.js';
 import { type DecisionSiteMode, redactThenClip } from '../decide/site.js';
+import { DECISION_CONTRADICTION_DECISION_SITE } from '../decide/sites/registry.js';
 
 /**
  * End-to-end budget for the contradiction decision, in milliseconds: module
@@ -50,17 +51,17 @@ export const DECISION_CONTRADICTION_MIN_CONFIDENCE = 0.6;
 export const MAX_CONTRADICTION_CANDIDATES = 3;
 
 /** Call-site id for the contradiction decision; keys the audit line. */
-export const DECISION_CONTRADICTION_SITE = 'memory.decision-contradiction';
+export const DECISION_CONTRADICTION_SITE = DECISION_CONTRADICTION_DECISION_SITE.id;
 
 /** Config key selecting the System One mode for the contradiction check. */
-export const DECISION_CONTRADICTION_MODE_KEY = 'decide.sites.decisionContradiction';
+export const DECISION_CONTRADICTION_MODE_KEY = DECISION_CONTRADICTION_DECISION_SITE.modeKey;
 
 /**
  * Config key for the older generative-LLM contradiction check (T1828).
  * Absent → on in every mode except `on` (unconfigured, `off` and `shadow`
  * keep today's behaviour); only `on` replaces it.
  */
-export const DECISION_CONTRADICTION_LLM_KEY = 'decide.generativeFallback.decisionContradiction';
+export const DECISION_CONTRADICTION_LLM_KEY = DECISION_CONTRADICTION_DECISION_SITE.generativeKey;
 
 /** The relations a candidate can have to the new decision; the `choice` options. */
 export const CONTRADICTION_RELATIONS = [

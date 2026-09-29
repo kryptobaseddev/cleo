@@ -67,6 +67,8 @@ import {
   taskList,
   taskNext,
   taskPlan,
+  taskRankingHistory,
+  taskRankingRevert,
   taskReconcileScope,
   taskRelates,
   taskRelatesAdd,
@@ -326,6 +328,13 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
 
   history: async (params) => {
     const projectRoot = getProjectRoot();
+    if (params.taskId && params.ranking) {
+      // T12693 (D11161): who changed the ranking inputs, and why.
+      return wrapCoreResult(
+        await taskRankingHistory(projectRoot, params.taskId, params.limit),
+        'history',
+      );
+    }
     if (params.taskId) {
       return wrapCoreResult(await taskHistory(projectRoot, params.taskId, params.limit), 'history');
     }
@@ -402,6 +411,8 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
       cancelledChildWaiverReason: params.cancelledChildWaiverReason,
       // T11954 (DHQ-071) — depends-edge waiver for stale/over-specified deps
       waiveDependsReason: params.waiveDependsReason,
+      // T12503 — optimistic concurrency (--if-match)
+      expectedUpdatedAt: params.expectedUpdatedAt,
     });
     // T994: Track memory usage on task completion (fire-and-forget; must not block).
     // SSoT-EXEMPT: fire-and-forget side-effect that must not block the complete flow
@@ -565,6 +576,20 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     );
   },
 
+  'ranking.revert': async (params) => {
+    if (!params.entryId) {
+      return lafsError('E_INVALID_INPUT', 'entryId is required', 'ranking.revert');
+    }
+    return wrapCoreResult(
+      await taskRankingRevert(getProjectRoot(), {
+        entryId: params.entryId,
+        ...(params.reason !== undefined ? { reason: params.reason } : {}),
+        ...(params.force ? { force: true } : {}),
+      }),
+      'ranking.revert',
+    );
+  },
+
   'relates.add-batch': async (params) => {
     const projectRoot = getProjectRoot();
     return wrapCoreResult(await taskRelatesAddBatch(projectRoot, params), 'relates.add-batch');
@@ -583,7 +608,13 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
 
   start: async (params) => {
     const projectRoot = getProjectRoot();
-    return wrapCoreResult(await taskStart(projectRoot, params.taskId), 'start');
+    return wrapCoreResult(
+      await taskStart(projectRoot, params.taskId, {
+        takeOver: params.takeOver === true,
+        forceClaim: params.forceClaim === true,
+      }),
+      'start',
+    );
   },
 
   stop: async (_params) => {
@@ -616,12 +647,12 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
 
   claim: async (params) => {
     const projectRoot = getProjectRoot();
-    return wrapCoreResult(await taskClaim(projectRoot, params.taskId, params.agentId), 'claim');
+    return wrapCoreResult(await taskClaim(projectRoot, params), 'claim');
   },
 
   unclaim: async (params) => {
     const projectRoot = getProjectRoot();
-    return wrapCoreResult(await taskUnclaim(projectRoot, params.taskId), 'unclaim');
+    return wrapCoreResult(await taskUnclaim(projectRoot, params), 'unclaim');
   },
 });
 
@@ -685,6 +716,8 @@ const MUTATE_OPS = new Set<string>([
   // OperationDef registered in @cleocode/contracts operations-registry.
   'relates.add-batch',
   'relates.remove',
+  // T12693 (D11161) — undo one audited ranking change.
+  'ranking.revert',
   'start',
   'stop',
   'sync.reconcile',
@@ -1188,6 +1221,7 @@ export class TasksHandler implements DomainHandler {
         'assignee',
         'relates.add',
         'relates.remove',
+        'ranking.revert',
         'start',
         'stop',
         'sync.reconcile',

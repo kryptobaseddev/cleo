@@ -179,11 +179,41 @@ export function linkedWorktreeMainRoot(dir: string): string | null {
   const gitdir = readGitlinkTarget(dir);
   if (!gitdir || basename(dirname(gitdir)) !== 'worktrees') return null;
   const commonDir = dirname(dirname(gitdir));
-  if (basename(commonDir) === '.git') return dirname(commonDir);
+  const checkout = checkoutOfCommonDir(commonDir);
+  if (checkout !== null) return checkout;
   // A worktree of a submodule: the common dir is `<super>/.git/modules/<name>`,
   // a git-internal path. The checkout is its `core.worktree`; without one,
   // the main checkout is unknown.
   return readCoreWorktree(commonDir);
+}
+
+/**
+ * The checkout that owns a worktree common dir, from the layout alone.
+ *
+ * - `<main>/.git` → `<main>`.
+ * - The bare-worktree layout `/p/.bare` (optionally with a `/p/.git` gitlink
+ *   `gitdir: ./.bare`) → `/p`, the directory that layout dedicates to the
+ *   repository; T12708 keeps it resolving as it did.
+ * - A bare repository that a parent `.git` gitlink names → that parent.
+ * - Any other bare repository (e.g. `/p/app.git`) → `null`: its parent is
+ *   just the directory it happens to sit in.
+ *
+ * @param commonDir - Absolute git common directory.
+ * @returns The owning checkout, or `null`.
+ */
+function checkoutOfCommonDir(commonDir: string): string | null {
+  if (basename(commonDir) === '.git' || basename(commonDir) === '.bare') {
+    return dirname(commonDir);
+  }
+  const parent = dirname(commonDir);
+  const target = readGitlinkTarget(parent);
+  if (!target) return null;
+  if (resolve(target) === resolve(commonDir)) return parent;
+  try {
+    return realpathSync(target) === realpathSync(commonDir) ? parent : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -205,7 +235,15 @@ export function linkedWorktreeMainRoot(dir: string): string | null {
  */
 export function describeWorktreeOwner(dir: string): string {
   const mainRoot = linkedWorktreeMainRoot(dir);
-  if (mainRoot === null) return 'owning repository unknown (unreadable gitlink)';
+  if (mainRoot === null) {
+    // T12680: a bare repository's worktree has a readable gitlink but no main
+    // checkout; say so instead of blaming the gitlink.
+    const bare = bareRepositoryOfWorktree(dir);
+    return bare === null
+      ? 'owning repository unknown (unreadable gitlink)'
+      : `owning repository ${bare} is a bare git repository with no main checkout to hold a CLEO store; ` +
+          'clone it to a regular checkout, run `cleo init` there, and create worktrees from that checkout';
+  }
   let projectId: string | null = null;
   try {
     const parsed: unknown = JSON.parse(
@@ -221,6 +259,34 @@ export function describeWorktreeOwner(dir: string): string {
   return projectId === null
     ? `owning repository ${mainRoot} (not an initialised CLEO project)`
     : `owning project ${mainRoot} (projectId ${projectId})`;
+}
+
+/**
+ * Return the bare repository that owns the linked worktree at `dir`: its
+ * gitlink points at `<bare>/worktrees/<name>` and `<bare>/config` sets
+ * `core.bare = true`.
+ *
+ * @param dir - Directory to inspect.
+ * @returns The bare repository's git directory, or `null` when `dir` is not a
+ *   worktree of a bare repository.
+ * @remarks Never throws.
+ * @example
+ * ```ts
+ * bareRepositoryOfWorktree('/src/app-wt'); // '/src/app.git'
+ * ```
+ * @task T12680
+ */
+export function bareRepositoryOfWorktree(dir: string): string | null {
+  const gitdir = readGitlinkTarget(dir);
+  if (!gitdir || basename(dirname(gitdir)) !== 'worktrees') return null;
+  const commonDir = dirname(dirname(gitdir));
+  try {
+    const config = readFileSync(join(commonDir, 'config'), 'utf-8');
+    const core = /^\[core\][^[]*/m.exec(config)?.[0] ?? '';
+    return /^\s*bare\s*=\s*true\s*$/im.test(core) ? commonDir : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -318,8 +384,12 @@ export function _resolveMainRepoFromGitlink(gitlinkDir: string): string | null {
     // submodule's `<super>/.git/modules/<name>` stripped the same way named the
     // superproject, so a submodule shared (and wrote) its parent's store.
     if (basename(dirname(gitdir)) !== 'worktrees') return null;
-    // gitdir is `<main>/.git/worktrees/<name>` → strip last 3 segments.
-    const mainRepo = dirname(dirname(dirname(gitdir)));
+    // T12708: the owning checkout comes from the common dir (see
+    // checkoutOfCommonDir). Stripping three segments named a bare repo's
+    // PARENT, so `/p/app.git` worktrees bound to `/p`'s store whenever `/p`
+    // was a CLEO project.
+    const mainRepo = checkoutOfCommonDir(dirname(dirname(gitdir)));
+    if (mainRepo === null) return null;
     if (existsSync(join(mainRepo, '.cleo')) && validateProjectRoot(mainRepo)) {
       return mainRepo;
     }

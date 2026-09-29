@@ -50,6 +50,22 @@ export { warpChainInstances, warpChains } from './schema/chain-schema.js';
 // twin (key-aware, atomic) at every open, before any read: the initial
 // collapse, then whatever an older build wrote to the bare table since.
 export { tasksSchemaMeta as schemaMeta } from './schema/cleo-project/audit.js';
+// TWIN COLLAPSE (T12535, PR 2) — `attachments` / `attachment_refs` →
+// `docs_attachments` / `docs_attachment_refs`. The union-shape migration gives
+// the twin the bare table's `display_alias` column, and `store/twin-collapse.ts`
+// carries the bare rows (bare-authoritative) at every open before any read.
+// Direct importers of `schema/attachments.js` were moved to this barrel, so the
+// runtime reads and writes only the twins.
+export type {
+  DocsAttachmentRefRow as AttachmentRefRow,
+  DocsAttachmentRow as AttachmentRow,
+  NewDocsAttachmentRefRow as NewAttachmentRefRow,
+  NewDocsAttachmentRow as NewAttachmentRow,
+} from './schema/cleo-project/docs.js';
+export {
+  docsAttachmentRefs as attachmentRefs,
+  docsAttachments as attachments,
+} from './schema/cleo-project/docs.js';
 export type {
   NewTasksLifecycleEvidenceRow as NewLifecycleEvidenceRow,
   NewTasksLifecycleGateResultRow as NewLifecycleGateResultRow,

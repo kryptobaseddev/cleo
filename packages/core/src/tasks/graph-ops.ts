@@ -7,6 +7,7 @@
  */
 
 import type { Task } from '@cleocode/contracts';
+import { buildRankingContext, rankTasks } from '../task-tools/score-task-priority.js';
 import { topologicalSort } from './dependency-check.js';
 
 /** A wave of parallelizable tasks. */
@@ -78,39 +79,37 @@ export function computeDependencyWaves(tasks: Task[]): DependencyWave[] {
 }
 
 /**
- * Get the next task to work on (highest priority ready task).
+ * Rank tasks with THE comparator (D11161, T12692) over a self-contained
+ * population: dependency statuses and leverage come from `tasks` itself.
+ */
+function rankWithin(candidates: readonly Task[], tasks: readonly Task[]): Task[] {
+  const lookup = new Map(tasks.map((t) => [t.id, t] as const));
+  const ctx = buildRankingContext(tasks, lookup, { currentPhase: null });
+  return rankTasks(candidates, ctx).map((r) => r.task);
+}
+
+/**
+ * Get the next task to work on: an active task first, else the best-ranked
+ * ready task under THE comparator (D11161, T12692).
+ *
+ * @param tasks - The task population.
+ * @returns The next task, or null.
  */
 export function getNextTask(tasks: Task[]): Task | null {
   const completedIds = new Set(
     tasks.filter((t) => t.status === 'done' || t.status === 'cancelled').map((t) => t.id),
   );
 
-  const priorityOrder: Record<string, number> = {
-    critical: 0,
-    high: 1,
-    medium: 2,
-    low: 3,
-  };
+  const ready = tasks.filter((t) => {
+    if (t.status === 'done' || t.status === 'cancelled') return false;
+    if (t.cancelledAt) return false; // Exclude soft-cancelled tasks regardless of status
+    if (t.status === 'active') return true; // Already active = highest priority
+    if (!t.depends?.length) return true;
+    return t.depends.every((d) => completedIds.has(d));
+  });
+  const ranked = rankWithin(ready, tasks);
 
-  const ready = tasks
-    .filter((t) => {
-      if (t.status === 'done' || t.status === 'cancelled') return false;
-      if (t.cancelledAt) return false; // Exclude soft-cancelled tasks regardless of status
-      if (t.status === 'active') return true; // Already active = highest priority
-      if (!t.depends?.length) return true;
-      return t.depends.every((d) => completedIds.has(d));
-    })
-    .sort((a, b) => {
-      // Active tasks first
-      if (a.status === 'active' && b.status !== 'active') return -1;
-      if (b.status === 'active' && a.status !== 'active') return 1;
-      // Then by priority
-      const pa = priorityOrder[a.priority] ?? 2;
-      const pb = priorityOrder[b.priority] ?? 2;
-      return pa - pb;
-    });
-
-  return ready[0] ?? null;
+  return ranked.find((t) => t.status === 'active') ?? ranked[0] ?? null;
 }
 
 /**
@@ -173,23 +172,17 @@ export function getCriticalPath(tasks: Task[]): string[] {
 }
 
 /**
- * Get task ordering by dependency + priority.
+ * Get task ordering: topological, or THE comparator's order on a cycle.
+ *
+ * @param tasks - Tasks to order.
+ * @returns Task ids in order.
  */
 export function getTaskOrder(tasks: Task[]): string[] {
   const sorted = topologicalSort(tasks);
   if (sorted) return sorted;
 
-  // Fallback: sort by priority if cycle detected
-  const priorityOrder: Record<string, number> = {
-    critical: 0,
-    high: 1,
-    medium: 2,
-    low: 3,
-  };
-
-  return [...tasks]
-    .sort((a, b) => (priorityOrder[a.priority] ?? 2) - (priorityOrder[b.priority] ?? 2))
-    .map((t) => t.id);
+  // Fallback on a cycle: THE comparator's order (D11161, T12692).
+  return rankWithin(tasks, tasks).map((t) => t.id);
 }
 
 /**

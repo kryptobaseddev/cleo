@@ -158,6 +158,10 @@ async function preMigrationSticky(): Promise<{ db: DatabaseSync; a: string; b: s
   bare.run(a, 'beta');
   bare.run(b, 'gamma');
   bare.run('SN-gone', 'orphan'); // its note no longer exists
+  // The old build writes each note's tags_json together with its junction.
+  const tagsJson = db.prepare('UPDATE main.brain_sticky_notes SET tags_json = ? WHERE id = ?');
+  tagsJson.run('["alpha","beta"]', a);
+  tagsJson.run('["gamma"]', b);
   const twin = db.prepare('INSERT INTO main.brain_sticky_tags (sticky_id, tag) VALUES (?, ?)');
   twin.run(a, 'alpha'); // exodus copy of a live row
   twin.run(b, 'frozen'); // exodus copy of a tag the old build removed since
@@ -205,11 +209,12 @@ afterEach(() => {
 });
 
 describe('fresh store', () => {
-  it('collapses both pairs on first bind without a snapshot (nothing to carry)', () => {
+  it('collapses every pair on first bind without a snapshot (nothing to carry)', () => {
     expect(meta(tasksNative(), 'tasks_schema_meta', SEQ_MARKER)).toBeDefined();
     expect(meta(brainNative(), 'brain_schema_meta', STICKY_MARKER)).toBeDefined();
     expect(migrationSnapshots()).toEqual([]);
     expect(inspectTwinCollapse(tasksNative()).map((s) => s.state)).toEqual([
+      'collapsed',
       'collapsed',
       'collapsed',
     ]);
@@ -265,17 +270,19 @@ describe('(a) task-id collision probe across the upgrade', () => {
 });
 
 describe('the bare table is authoritative at the initial collapse (Blocker A)', () => {
-  it('drops frozen twin-only project_meta and file_meta, keeps the counters', async () => {
+  it('keeps twin-only project_meta and file_meta (union rule), and the counters', async () => {
     const db = preMigrationTasks(3);
     setMeta(db, 'tasks_schema_meta', 'project_meta', '{"name":"fixture","currentPhase":"core"}');
     setMeta(db, 'tasks_schema_meta', 'file_meta', '{"schemaVersion":"2.10.0","generation":7}');
     setMeta(db, 'tasks_schema_meta', SNAPSHOT_GATE_META_KEY, '{"generation":4,"prefixes":{}}');
     const [receipt] = collapseTwinTables(db, dbPath());
-    expect(receipt).toMatchObject({ table: 'schema_meta', status: 'initial' });
-    expect(receipt?.dropped).toEqual(['file_meta', 'project_meta']);
+    expect(receipt).toMatchObject({ table: 'schema_meta', status: 'initial', dropped: [] });
+    expect(receipt?.kept).toEqual(['file_meta', 'project_meta', SNAPSHOT_GATE_META_KEY]);
     const accessor = await createSqliteDataAccessor(projectDir);
-    expect(await accessor.getMetaValue('project_meta')).toBeNull(); // "No current phase set"
-    expect(await accessor.getSchemaVersion()).toBeNull(); // no frozen "2.10.0"
+    expect(await accessor.getMetaValue('project_meta')).toEqual({
+      name: 'fixture',
+      currentPhase: 'core',
+    });
     expect(counterOf(meta(db, 'tasks_schema_meta', 'task_id_sequence'))).toBe(3);
     expect(meta(db, 'tasks_schema_meta', SNAPSHOT_GATE_META_KEY)).toBeDefined();
     expect(meta(db, 'schema_meta', 'schemaVersion')).toBe('"live"'); // bare untouched
@@ -430,10 +437,14 @@ describe('incremental re-merge: the old build keeps writing the bare tables', ()
   it('a bare counter lower than the twin never moves the twin counter down', async () => {
     preMigrationTasks(0);
     await reopen();
-    for (let i = 0; i < 6; i++) await allocateNextTaskId(projectDir); // twin → 6
-    allocateOldPath(tasksNative(), false); // bare → 1
+    for (let i = 0; i < 6; i++) await allocateNextTaskId(projectDir); // twin → 6, bare raised to 6
+    // A stale bare counter (e.g. restored) lower than the twin: the merge keeps the twin's.
+    setMeta(tasksNative(), 'schema_meta', 'task_id_sequence', SEED);
     await reopen();
     expect(counterOf(meta(tasksNative(), 'tasks_schema_meta', 'task_id_sequence'))).toBe(6);
+    // …and the old build, allocating next, is floored past it by the mirror.
+    await allocateNextTaskId(projectDir); // twin → 7, bare raised to 7
+    expect(allocateOldPath(tasksNative(), false)).toBe('T008');
   });
 
   it('a one-shot (v1) marker is upgraded: bare rows carried again, nothing deleted', () => {
@@ -450,33 +461,44 @@ describe('incremental re-merge: the old build keeps writing the bare tables', ()
 });
 
 describe('sticky_tags', () => {
-  it('initial collapse: the twin equals the bare set (frozen tags dropped, orphans skipped)', async () => {
+  it('initial collapse: bare tags added, twin-only tags kept and listed, the junction then follows tags_json', async () => {
     const { db, a, b } = await preMigrationSticky();
     const receipt = collapseTwinTables(db, dbPath()).find((r) => r.table === 'sticky_tags');
     expect(receipt).toMatchObject({
       status: 'initial',
       inserted: 2,
+      // The kept frozen tag is not in the note's tags_json: the junction sync removes it.
       deleted: 1,
       skipped: 1,
-      dropped: [`${b}\tfrozen`],
+      dropped: [],
+      // b's tags_json does not name it: listed as archived, not kept.
+      kept: [],
+      archived: [`${b}\tfrozen`],
     });
     expect(twinTags(db)).toEqual([`${a}:alpha`, `${a}:beta`, `${b}:gamma`].sort());
     expect(db.prepare('SELECT COUNT(*) AS c FROM main.sticky_tags').get()).toEqual({ c: 4 });
   });
 
-  it('incremental: old-build tag changes propagate; an id both builds changed keeps the twin', async () => {
+  it('incremental: old-build tag changes propagate; an id both builds changed follows its tags_json', async () => {
     const { db, a, b } = await preMigrationSticky();
     collapseTwinTables(db, dbPath());
     // Only the old build touches a: removes beta, adds old-add.
+    const tagsJson = db.prepare('UPDATE main.brain_sticky_notes SET tags_json = ? WHERE id = ?');
     db.prepare("DELETE FROM main.sticky_tags WHERE sticky_id = ? AND tag = 'beta'").run(a);
     db.prepare('INSERT INTO main.sticky_tags (sticky_id, tag) VALUES (?, ?)').run(a, 'old-add');
-    // Both touch b: this build adds mine, the old build adds delta.
+    tagsJson.run('["alpha","old-add"]', a);
+    // Both touch b: this build adds mine, then the old build adds delta (its
+    // tags_json write, from its own view, is the last one).
     db.prepare('INSERT INTO main.brain_sticky_tags (sticky_id, tag) VALUES (?, ?)').run(b, 'mine');
+    tagsJson.run('["gamma","mine"]', b);
     db.prepare('INSERT INTO main.sticky_tags (sticky_id, tag) VALUES (?, ?)').run(b, 'delta');
+    tagsJson.run('["gamma","delta"]', b);
 
     await reopen();
+    // The conflict on b is recorded, and the junction follows the tags_json
+    // every reader displays (no drift between filter and display).
     expect(twinTags(brainNative())).toEqual(
-      [`${a}:alpha`, `${a}:old-add`, `${b}:gamma`, `${b}:mine`].sort(),
+      [`${a}:alpha`, `${a}:old-add`, `${b}:delta`, `${b}:gamma`].sort(),
     );
     expect((await listStickies({ tags: ['old-add'] }, projectDir)).map((n) => n.id)).toEqual([a]);
     expect(await listStickies({ tags: ['beta'] }, projectDir)).toEqual([]); // removal propagated
@@ -485,7 +507,7 @@ describe('sticky_tags', () => {
 });
 
 describe('(b) idempotency', () => {
-  it('a second run is a no-op for both pairs', async () => {
+  it('a second run is a no-op for every pair', async () => {
     const db = preMigrationTasks(2);
     setMeta(db, 'schema_meta', 'focus_state', '{"currentTask":"T900"}');
     const { db: brain } = await preMigrationSticky();
@@ -494,6 +516,7 @@ describe('(b) idempotency', () => {
     const sticky = tableDigest(brain, 'brain_sticky_tags', 'sticky_id, tag');
     const brainKv = tableDigest(brain, 'brain_schema_meta', 'key');
     expect(collapseTwinTables(db, dbPath()).map((r) => r.status)).toEqual([
+      'unchanged',
       'unchanged',
       'unchanged',
     ]);
@@ -633,7 +656,7 @@ describe('concurrency guard: the marker is re-read under the write lock', () => 
 });
 
 describe('snapshot: inventoried and rotated', () => {
-  it('cleo backup list shows the migration snapshot, and the migration type rotates at 10', () => {
+  it('cleo backup list shows the pinned migration snapshot; the other migration backups rotate at 10', () => {
     const dir = join(projectDir, '.cleo', 'backups', 'sqlite');
     mkdirSync(dir, { recursive: true });
     for (let i = 0; i < 10; i++) {
@@ -657,10 +680,13 @@ describe('snapshot: inventoried and rotated', () => {
     const listed = listSystemBackups(projectDir).find((b) =>
       receipt?.snapshotPath?.endsWith(`cleo.db.${b.backupId}`),
     );
-    expect(listed).toMatchObject({ type: 'migration', files: ['cleo.db'] });
+    expect(listed).toMatchObject({ type: 'migration', files: ['cleo.db'], pinned: true });
+    // The pinned collapse snapshot does not count toward the cap: the 10 older
+    // ones stay (rotation would have deleted the oldest before pinning).
     const files = migrationSnapshots();
-    expect(files).toHaveLength(10);
-    expect(files).not.toContain('cleo.db.migration-20200100-000000');
+    expect(files).toHaveLength(11);
+    expect(files).toContain(receipt?.snapshotPath?.split('/').pop());
+    expect(files).toContain('cleo.db.migration-20200100-000000');
   });
 });
 
@@ -692,7 +718,9 @@ describe('(d) Gate B: bare rows are a subset of the post-merge twin', () => {
     const keyDir = join(root, 'gate-b-key');
     mkdirSync(keyDir, { recursive: true });
     const key = join(keyDir, 'compare.key');
-    const fingerprint = (file: string, label: string): string => {
+    // The comparator fails closed without a project id: every store here sits beside one.
+    writeFileSync(join(work, 'project-id'), 'c0ffee00a535\n');
+    const fingerprint = (file: string, label: string, role: 'source' | 'replica'): string => {
       const out = join(work, `${label}.json`);
       execFileSync(
         process.execPath,
@@ -703,6 +731,8 @@ describe('(d) Gate B: bare rows are a subset of the post-merge twin', () => {
           ...(existsSync(key) ? ['--key-file', key] : ['--key-out', key]),
           '--label',
           label,
+          '--role',
+          role,
           '--out',
           out,
         ],
@@ -727,11 +757,19 @@ describe('(d) Gate B: bare rows are a subset of the post-merge twin', () => {
         ],
         { cwd: REPO_ROOT, stdio: 'pipe', encoding: 'utf8' },
       );
-    const fpPre = fingerprint(pre, 'pre');
-    const fpProjection = fingerprint(projection, 'bare-as-twin');
-    const fpPost = fingerprint(post, 'post');
-    // Control: the same check against the PRE-migration twin fails.
-    expect(() => compare(fpProjection, fpPre)).toThrow();
+    const fpPre = fingerprint(pre, 'pre', 'source');
+    const fpPreAsReplica = fingerprint(pre, 'pre-as-replica', 'replica');
+    const fpProjection = fingerprint(projection, 'bare-as-twin', 'source');
+    const fpPost = fingerprint(post, 'post', 'replica');
+    // Control: the same check against the PRE-migration twin fails (on the rows, not the roles).
+    let control = '';
+    try {
+      compare(fpProjection, fpPreAsReplica);
+    } catch (e) {
+      control = String((e as { stdout?: string }).stdout);
+    }
+    expect(control).toMatch(/source row\(s\) missing on replica/);
+    expect(control).not.toMatch(/wrong fingerprint roles|project id missing/);
     // Every carried bare row is in the post-merge twin …
     const subset = compare(fpProjection, fpPost);
     // … and the pre-migration store lost exactly one syncing row: the frozen

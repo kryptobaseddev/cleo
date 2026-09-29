@@ -153,7 +153,9 @@ describe('restoreFromBackup', () => {
 
     // Now restore
     const targetFile = join(tempDir, 'restored.json');
-    const backupPath = await restoreFromBackup('todo.json', backupDir, targetFile);
+    const backupPath = await restoreFromBackup('todo.json', backupDir, targetFile, {
+      cwd: tempDir,
+    });
 
     expect(backupPath).toContain('todo.json.1');
     const content = await readFile(targetFile, 'utf8');
@@ -162,8 +164,8 @@ describe('restoreFromBackup', () => {
 
   it('throws when no backups exist', async () => {
     const targetFile = join(tempDir, 'restored.json');
-    await expect(restoreFromBackup('todo.json', backupDir, targetFile)).rejects.toThrow(
-      /no backups/i,
-    );
+    await expect(
+      restoreFromBackup('todo.json', backupDir, targetFile, { cwd: tempDir }),
+    ).rejects.toThrow(/no backups/i);
   });
 });

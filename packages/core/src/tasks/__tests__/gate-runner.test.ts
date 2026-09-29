@@ -524,6 +524,106 @@ describe('gate runner target verdict and shared execution (T12292)', () => {
 });
 
 /**
+ * A silent, long-running target must be observed to its real exit (T12718).
+ *
+ * `cleo verify --run` recorded PASS in 46 ms for a gate whose command was
+ * `node -e "setTimeout(()=>process.exit(0),6000)"`. The command string was
+ * split on whitespace, so node received the double quotes as part of its
+ * `-e` argument, evaluated a string-literal expression and exited 0 at once.
+ * The exit-1 twin passed the same way. These gates are written exactly as a
+ * task author writes them: a single command string, no `args`.
+ */
+describe('quoted command strings run the command the author wrote (T12718)', () => {
+  // Single-quoted so an interpreter path containing spaces stays one word.
+  const node = `'${process.execPath}'`;
+  const SLEEP_MS = 2000;
+
+  it('fails a silent target that sleeps and then exits 1', async () => {
+    const [result] = await runGates(
+      [
+        {
+          kind: 'test',
+          description: 'silent sleep then exit 1',
+          command: `${node} -e "setTimeout(()=>process.exit(1),${SLEEP_MS})"`,
+          expect: 'exit0',
+        },
+      ],
+      { projectRoot },
+    );
+    expect(result?.result).toBe('fail');
+    expect(result?.execution?.exitCode).toBe(1);
+    expect(result?.durationMs).toBeGreaterThanOrEqual(SLEEP_MS);
+  });
+
+  // The quoted-path cases above also fail the old whitespace split for a
+  // path-quoting reason (ENOENT on `'…/node'`). This one is the reported bug
+  // verbatim: a plain interpreter path, where the old split launched node,
+  // handed it `"setTimeout(...)"` as a string literal, and passed in ms.
+  it.skipIf(/\s/.test(process.execPath))(
+    'fails an UNQUOTED interpreter path that sleeps and then exits 1',
+    async () => {
+      const [result] = await runGates(
+        [
+          {
+            kind: 'test',
+            description: 'unquoted interpreter, silent sleep then exit 1',
+            command: `${process.execPath} -e "setTimeout(()=>process.exit(1),${SLEEP_MS})"`,
+            expect: 'exit0',
+          },
+        ],
+        { projectRoot },
+      );
+      expect(result?.result).toBe('fail');
+      expect(result?.durationMs).toBeGreaterThanOrEqual(SLEEP_MS);
+    },
+  );
+
+  it('passes the exit-0 twin only after the target has actually run', async () => {
+    const [result] = await runGates(
+      [
+        {
+          kind: 'test',
+          description: 'silent sleep then exit 0',
+          command: `${node} -e 'setTimeout(()=>process.exit(0),${SLEEP_MS})'`,
+          expect: 'exit0',
+        },
+      ],
+      { projectRoot },
+    );
+    expect(result?.result).toBe('pass');
+    expect(result?.execution?.exitCode).toBe(0);
+    expect(result?.durationMs).toBeGreaterThanOrEqual(SLEEP_MS);
+  });
+
+  it('refuses shell operators it cannot honour instead of passing them as arguments', async () => {
+    // Without a shell, `&&` would reach `echo` as a literal word: `echo` exits 0
+    // and the `exit 1` the author wrote never runs.
+    const [result] = await runGates(
+      [{ kind: 'test', description: 'shell chain', command: 'echo ok && exit 1', expect: 'exit0' }],
+      { projectRoot },
+    );
+    expect(result?.result).toBe('error');
+    expect(result?.errorMessage).toMatch(/shell/i);
+  });
+
+  it('refuses an unterminated quote', async () => {
+    const [result] = await runGates(
+      [
+        {
+          kind: 'test',
+          description: 'open quote',
+          command: `${node} -e "process.exit(0)`,
+          expect: 'exit0',
+        },
+      ],
+      { projectRoot },
+    );
+    expect(result?.result).toBe('error');
+    expect(result?.errorMessage).toMatch(/quote/i);
+  });
+});
+
+/**
  * `minCount` was declarable and unsatisfiable (T12308).
  *
  * The contract accepted it, `cleo req add` stored it, and the runner rejected
@@ -1090,6 +1190,49 @@ describe('task-bound explicit gate verification (T12292)', () => {
       execution.close();
     }
   });
+
+  it('records a refused command as that gate’s error and still runs the other gates (T12718)', async () => {
+    // One refused gate used to reject all of runTaskGates, which the verify
+    // engine reported as E_GENERAL — discarding the clean gate's verdict.
+    const script = 'bound-refusal-sibling.mjs';
+    await writeFile(join(projectRoot, script), 'process.exit(0);');
+    const { task, rows: baseRows } = taskAndRows(script);
+    const refused: TestGate = {
+      kind: 'test',
+      command: 'echo ok && exit 1',
+      expect: 'exit0',
+      req: 'PARTNER-REFUSED',
+      description: 'Shell chain the runner cannot honour',
+    };
+    task.acceptance = [...task.acceptance!, refused];
+    const rows: AcRow[] = buildFreshAcRows(task.id, task.acceptance).map((row, index) => ({
+      ...baseRows[Math.min(index, baseRows.length - 1)]!,
+      ...row,
+      kind: row.kind ?? 'text',
+      sourceKey: row.sourceKey ?? '',
+      projection: row.projection ?? 'legacy',
+      targetTaskId: row.targetTaskId ?? null,
+      contentHash: row.contentHash ?? null,
+    }));
+    const execution = admitted();
+    try {
+      const results = await runTaskGates(task, rows, { execution });
+      expect(results).toHaveLength(2);
+      expect(results[0]).toMatchObject({ index: 1, result: 'pass' });
+      expect(results[1]).toMatchObject({ index: 2, result: 'error', checkedBy: 'bound-agent' });
+      expect(results[1]!.errorMessage).toMatch(/shell syntax \(&\).*sh -c/);
+      expect(results[1]!.binding).toBeDefined();
+      expect(results[1]!.binding!.invocation).toBeUndefined();
+      // The recorded batch persists: revalidation and the receipt accept it.
+      await expect(
+        revalidateTaskGateResults(task, rows, results, { execution }, false),
+      ).resolves.toBeUndefined();
+      expect(createTaskGateReceipt(results, false).passed).toBe(false);
+    } finally {
+      execution.close();
+    }
+  });
+
   it('rejects authentic runner output with no task binding instead of treating exit0 as completion proof', async () => {
     const script = 'bound-original-runner.mjs';
     await writeFile(join(projectRoot, script), 'process.exit(0);');

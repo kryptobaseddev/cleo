@@ -66,6 +66,8 @@ import { parseStoreTimestamp } from './row-identity.js';
 // which hashes the same birth values; re-exported for existing callers.
 export { parseStoreTimestamp };
 
+import { installSchemaWriteGuard } from './worktree-build-guard.js';
+
 /** A SQLite value as node:sqlite returns it. */
 type SqlValue = string | number | bigint | Uint8Array | null;
 /** One row keyed by column name. */
@@ -301,6 +303,7 @@ export function importSplitBrain(options: SplitBrainImportOptions): SplitBrainRe
   const source = new DatabaseSync(options.sourcePath, { readOnly: true });
   // db-open-allowed: the target is an explicit store file, opened read-only for a dry run
   const target = new DatabaseSync(options.targetPath, { readOnly: dryRun });
+  installSchemaWriteGuard(target); // T12687
   try {
     return runImport(source, target, options, dryRun);
   } finally {

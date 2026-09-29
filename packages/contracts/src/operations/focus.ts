@@ -15,7 +15,7 @@
 import type {
   KnowledgeCoverage,
   KnowledgeDiagnostic,
-  KnowledgeHealth,
+  KnowledgeHealthSummary,
 } from '../knowledge-health.js';
 import type { MviDigest } from '../mvi.js';
 import type { AttentionScopeKind } from './attention.js';
@@ -195,8 +195,12 @@ export interface FocusBrainContext {
 export interface FocusShowResult {
   /** Assessed graph coverage; absence on legacy responses is not healthy coverage. */
   coverage?: KnowledgeCoverage;
-  /** Bounded deterministic maintenance and sourced repair findings for the foreground caller. */
-  knowledgeHealth?: KnowledgeHealth;
+  /**
+   * Bounded deterministic maintenance and sourced repair findings for the
+   * foreground caller. Its coverage is not repeated: `coverageRef` is
+   * `/coverage`, the single coverage object of this result (T12522).
+   */
+  knowledgeHealth?: KnowledgeHealthSummary;
   /** Failed auxiliary reads are distinct from successfully empty sources. */
   sourceDiagnostics?: Record<string, KnowledgeDiagnostic>;
   /** Core identity of the focused entity. */

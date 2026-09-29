@@ -113,6 +113,43 @@ describe('resolveToolCommand — project-context overrides', () => {
       expect(r.command.source).toBe('legacy-alias');
     }
   });
+
+  it('honours sh quoting in testing.command (T12718)', () => {
+    writeProjectContext(dir, {
+      primaryType: 'node',
+      testing: { command: `vitest run -t "my test"` },
+    });
+    const r = resolveToolCommand('test', dir);
+    expect(r.ok && r.command.args).toEqual(['run', '-t', 'my test']);
+  });
+
+  it('refuses a shell-chained testing.command as a config error (T12718)', () => {
+    // Split on whitespace this resolved to `pnpm build` with `&& pnpm test`
+    // as ignored arguments — a build that passes would record tool:test.
+    writeProjectContext(dir, {
+      primaryType: 'node',
+      testing: { command: 'pnpm build && pnpm test' },
+    });
+    const r = resolveToolCommand('test', dir);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.codeName).toBe('E_TOOL_COMMAND_INVALID');
+      expect(r.rawCommand).toBe('pnpm build && pnpm test');
+      expect(r.reason).toMatch(/testing\.command .*shell syntax \(&\).*sh -c/);
+    }
+  });
+
+  it('tool:test evidence for a shell-chained testing.command is refused, not passed (T12718)', async () => {
+    writeProjectContext(dir, {
+      primaryType: 'node',
+      testing: { command: 'node -e 0 && exit 1' },
+    });
+    const { validateAtom } = await import('../evidence.js');
+    const r = await validateAtom({ kind: 'tool', tool: 'test' }, dir);
+    expect(r.ok, JSON.stringify(r)).toBe(false);
+    expect(!r.ok && r.codeName).toBe('E_EVIDENCE_TOOL_UNAVAILABLE');
+    expect(!r.ok && r.reason).toMatch(/testing\.command .*shell syntax/);
+  });
 });
 
 describe('resolveToolCommand — language defaults (no project-context)', () => {

@@ -9,6 +9,7 @@ import type {
   KnowledgeDiagnostic,
   KnowledgeEvidenceRef,
   KnowledgeHealth,
+  KnowledgeHealthSummary,
   KnowledgeReplacement,
 } from '@cleocode/contracts';
 
@@ -56,14 +57,24 @@ function diagnostic(value: KnowledgeDiagnostic): KnowledgeDiagnostic {
 /**
  * Keep independent diagnostic states visible while deferring the repair matrix to its query.
  * @param health - Complete assessment produced by bounded maintenance.
+ * @param coverageRef - JSON Pointer (relative to the envelope `data`) of the
+ *   coverage object the same envelope already carries, e.g. `/coverage`.
  * @returns Compact health retaining the real finding count, never an implied empty healthy result.
  * @remarks State counts distinguish pending work from an assessed empty matrix.
+ *   Coverage is not repeated: the envelope emits it once, at `coverageRef`
+ *   (T12522). `cleo doctor knowledge` returns the full assessment.
  * @example
  * ```ts
- * const summary = compactKnowledgeHealth(health);
+ * const envelope = {
+ *   coverage: compactKnowledgeCoverage(health.coverage),
+ *   knowledgeHealth: compactKnowledgeHealth(health, '/coverage'),
+ * };
  * ```
  */
-export function compactKnowledgeHealth(health: KnowledgeHealth): KnowledgeHealth {
+export function compactKnowledgeHealth(
+  health: KnowledgeHealth,
+  coverageRef: string,
+): KnowledgeHealthSummary {
   const findingStates: NonNullable<KnowledgeHealth['findingStates']> = {};
   for (const finding of health.findings) {
     findingStates[finding.state] = (findingStates[finding.state] ?? 0) + 1;
@@ -72,7 +83,7 @@ export function compactKnowledgeHealth(health: KnowledgeHealth): KnowledgeHealth
     structure: diagnostic(health.structure),
     semantics: diagnostic(health.semantics),
     extraction: diagnostic(health.extraction),
-    coverage: compactKnowledgeCoverage(health.coverage),
+    coverageRef,
     findings: [],
     findingCount: health.findingCount ?? health.findings.length,
     findingStates: health.findingStates ?? findingStates,

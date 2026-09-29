@@ -21,17 +21,29 @@
 
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { Session } from '@cleocode/contracts';
-import { ExitCode } from '@cleocode/contracts';
+import type { Session, TaskClaim, TaskWorkState } from '@cleocode/contracts';
+import { ExitCode, TERMINAL_TASK_STATUSES } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { memoryObserve } from '../memory/engine-compat.js';
 import { getProjectRoot } from '../paths.js';
-import { readFocusState } from '../sessions/focus-state-store.js';
-import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
+import {
+  readFocusState,
+  readLiveFocus,
+  resolveFocusSessionId,
+  writeFocusState,
+} from '../sessions/focus-state-store.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { resolveBoundSession } from '../store/session-store.js';
-import { startTask, stopTask } from '../task-work/index.js';
+import {
+  assertTaskStartable,
+  type Claimant,
+  claimModeFor,
+  releaseOwnClaim,
+  resolveClaimant,
+  startTask,
+  stopTask,
+} from '../task-work/index.js';
 import { logOperation } from '../tasks/add.js';
 import { updateTask } from '../tasks/update.js';
 
@@ -55,6 +67,10 @@ export interface PivotOptions {
   projectRoot?: string;
   /** Optional override for the data accessor (used by tests). */
   accessor?: DataAccessor;
+  /** Take over another session's EXPIRED claim on the `to` task (audited). @task T12502 */
+  takeOver?: boolean;
+  /** Take over another session's LIVE claim on the `to` task (audited). @task T12502 */
+  forceClaim?: boolean;
 }
 
 /**
@@ -141,10 +157,12 @@ function appendPivotAudit(repoRoot: string, row: PivotAuditRow): string {
 async function isTaskActive(
   acc: DataAccessor,
   fromTaskId: string,
+  root: string,
 ): Promise<{ active: boolean; reason: string }> {
-  // T11345 — read the CALLER's per-session focus_state (env-first).
-  const focus = await readFocusState(acc, resolveSessionIdFromEnv());
-  if (focus?.currentTask === fromTaskId) {
+  // T11345/T12501 — the CALLER's focus key (THE focus-key rule). T12698: the
+  // LIVE focus — a stale pointer at a finished task is never "active".
+  const focus = await readLiveFocus(acc, await resolveFocusSessionId(root));
+  if (focus.currentTask === fromTaskId) {
     return { active: true, reason: 'currentFocus' };
   }
   const task = await acc.loadSingleTask(fromTaskId);
@@ -156,6 +174,60 @@ async function isTaskActive(
     active: false,
     reason: `from task '${fromTaskId}' is not the current focus and its pipelineStage is '${stage ?? 'null'}' (must be implementation|verification|test, or be the focus task)`,
   };
+}
+
+/** The state {@link rollbackPivot} restores when a pivot fails after claiming `to`. */
+interface PivotSnapshot {
+  /** The caller's focus state before the pivot. */
+  focus: TaskWorkState | null;
+  /** The lease on `from` before the pivot. */
+  fromClaim: TaskClaim | null;
+  /** The lease on `to` before the pivot (e.g. a holder a force-claim evicted). */
+  toClaim: TaskClaim | null;
+}
+
+/**
+ * Undo a pivot that failed after it claimed `to` (T12502): hand `to` back to
+ * the holder it had (a force-claim evicts one) or release it, and restore the
+ * caller's focus and its lease on `from`. Best-effort — the pivot's own error
+ * is what the caller sees.
+ */
+async function rollbackPivot(
+  acc: DataAccessor,
+  fromTaskId: string,
+  toTaskId: string,
+  claimant: Claimant,
+  focusSessionId: string | null,
+  snapshot: PivotSnapshot,
+): Promise<void> {
+  const own = claimant.sessionId;
+  try {
+    if (own && snapshot.toClaim?.sessionId !== own) {
+      await releaseOwnClaim(acc, toTaskId, own);
+      const evicted = snapshot.toClaim;
+      if (evicted) {
+        await acc.claimTask(toTaskId, {
+          sessionId: evicted.sessionId,
+          agentId: evicted.agentId,
+          mode: 'acquire',
+        });
+      }
+    }
+  } catch {
+    // best-effort — never mask the pivot's own error
+  }
+  try {
+    if (snapshot.focus) await writeFocusState(acc, focusSessionId, snapshot.focus);
+    const fromClaim = snapshot.fromClaim;
+    if (own && fromClaim?.sessionId === own) {
+      const current = await acc.loadSingleTask(fromTaskId);
+      if (!current?.claim) {
+        await acc.claimTask(fromTaskId, { ...claimant, mode: 'acquire' });
+      }
+    }
+  } catch {
+    // best-effort — never mask the pivot's own error
+  }
 }
 
 /**
@@ -228,11 +300,20 @@ export async function pivotTask(
       fix: `Use 'cleo find "${toTaskId}"' to verify the ID`,
     });
   }
+  // T12698: a finished task cannot be paused, and a pivot from it would add a
+  // dependency on work that is already over.
+  if ((TERMINAL_TASK_STATUSES as ReadonlySet<string>).has(fromTask.status)) {
+    throw new CleoError(
+      ExitCode.ACTIVE_TASK_REQUIRED,
+      `pivot rejected: from task '${fromTaskId}' is ${fromTask.status}; a finished task cannot be pivoted away from`,
+      { fix: `cleo start ${toTaskId}  # start the new task directly` },
+    );
+  }
 
   // ---------------------------------------------------------------------------
   // Validate from task is active
   // ---------------------------------------------------------------------------
-  const activeCheck = await isTaskActive(acc, fromTaskId);
+  const activeCheck = await isTaskActive(acc, fromTaskId, root);
   if (!activeCheck.active) {
     throw new CleoError(ExitCode.ACTIVE_TASK_REQUIRED, `pivot rejected: ${activeCheck.reason}`, {
       fix: `Run 'cleo start ${fromTaskId}' before pivoting away from it, or pick a different fromTaskId`,
@@ -244,12 +325,36 @@ export async function pivotTask(
   // ---------------------------------------------------------------------------
   // Stop only if from is the current focus. If from is "active by stage"
   // we leave focus_state alone (there is no focus to clear) before starting to.
-  // T11345 — read the CALLER's per-session focus_state (env-first).
-  const focus = await readFocusState(acc, resolveSessionIdFromEnv());
-  if (focus?.currentTask === fromTaskId) {
-    await stopTask(root, acc);
+  // T12502 — run `to`'s readiness check BEFORE any side effect, then claim
+  // `to` BEFORE touching `from`: the claim (E_TASK_CLAIMED) and the
+  // dependency check (DEPENDENCY_ERROR) are the refusable steps of the start,
+  // so a refusal leaves the caller's focus and its lease on `from` exactly
+  // as they were instead of half-applying the pivot.
+  await assertTaskStartable(acc, toTaskId);
+  const claimFlags = { takeOver: opts.takeOver, forceClaim: opts.forceClaim };
+  const claimant = await resolveClaimant(root);
+  const focusSessionId = await resolveFocusSessionId(root);
+  const snapshot: PivotSnapshot = {
+    focus: await readFocusState(acc, focusSessionId),
+    fromClaim: fromTask.claim ?? null,
+    toClaim: toTask.claim ?? null,
+  };
+  try {
+    await acc.claimTask(toTaskId, { ...claimant, mode: claimModeFor(claimFlags) });
+
+    // T11345 — the CALLER's per-session focus (env-first), live (T12698).
+    if ((await readLiveFocus(acc, focusSessionId)).currentTask === fromTaskId) {
+      await stopTask(root, acc);
+    }
+    // The caller now holds `to`, so this start renews its own lease.
+    await startTask(toTaskId, root, acc);
+  } catch (err) {
+    // Anything that still fails after the claim (a race, a write error) must
+    // not strand `to` leased with no focus — the heartbeat would keep that
+    // lease alive — or leave `from` stopped.
+    await rollbackPivot(acc, fromTaskId, toTaskId, claimant, focusSessionId, snapshot);
+    throw err;
   }
-  await startTask(toTaskId, root, acc);
 
   // ---------------------------------------------------------------------------
   // Optionally add the dependency edge so from cannot complete before to

@@ -4,15 +4,16 @@
  * @epic T4454
  */
 
-import type { ProjectMeta, Task } from '@cleocode/contracts';
+import type { Task } from '@cleocode/contracts';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { formatScoreFactor } from '../task-tools/score-task-priority.js';
 import {
   getReadinessDependencyBlockers,
   loadReadinessDependencyLookup,
 } from './dependency-check.js';
-import { depsReady } from './deps-ready.js';
+import { rankReadyTasks, resolveRankingPhase } from './task-next.js';
 
 type TaskRecord = Task;
 
@@ -63,13 +64,6 @@ export interface PlanResult {
   metrics: PlanMetrics;
 }
 
-const PRIORITY_SCORE: Record<string, number> = {
-  critical: 100,
-  high: 75,
-  medium: 50,
-  low: 25,
-};
-
 /**
  * Calculate leverage score for a task based on how many other tasks depend on it.
  */
@@ -107,15 +101,6 @@ function findEpicId(task: TaskRecord, taskMap: Map<string, TaskRecord>): string 
 
   // Return parentId as fallback, or task's own id
   return task.parentId ?? task.id;
-}
-
-/**
- * Get current phase from tasks.
- */
-async function getCurrentPhase(projectRoot: string): Promise<string | null> {
-  const accessor = await getTaskAccessor(projectRoot);
-  const meta = await accessor.getMetaValue<ProjectMeta>('project_meta');
-  return meta?.currentPhase ?? null;
 }
 
 /**
@@ -176,7 +161,6 @@ export async function coreTaskPlan(projectRoot: string): Promise<PlanResult> {
   const { tasks: allTasks } = await accessor.queryTasks({});
   const dependencyLookup = await loadReadinessDependencyLookup(allTasks, accessor);
   const taskMap = new Map(allTasks.map((t) => [t.id, t]));
-  const currentPhase = await getCurrentPhase(projectRoot);
 
   // ========================================================================
   // 1. In-Progress Epics (epics with active status)
@@ -197,59 +181,20 @@ export async function coreTaskPlan(projectRoot: string): Promise<PlanResult> {
   // ========================================================================
   // 2. Ready Tasks (pending tasks with deps satisfied)
   // ========================================================================
-  const readyTasks: ReadyTask[] = [];
-  const pendingTasks = allTasks.filter((t) => t.status === 'pending');
-
-  for (const task of pendingTasks) {
-    if (depsReady(task.depends, dependencyLookup)) {
-      const leverage = calculateLeverage(task.id, taskMap);
-      const epicId = findEpicId(task, taskMap);
-
-      // Calculate score using same logic as tasks.next
-      const reasons: string[] = [];
-      let score = 0;
-
-      score += PRIORITY_SCORE[task.priority] ?? 50;
-      reasons.push(`priority: ${task.priority} (+${PRIORITY_SCORE[task.priority] ?? 50})`);
-
-      if (currentPhase && task.phase === currentPhase) {
-        score += 20;
-        reasons.push(`phase alignment: ${currentPhase} (+20)`);
-      }
-
-      score += 10;
-      reasons.push('all dependencies satisfied (+10)');
-
-      if (task.createdAt) {
-        const ageMs = Date.now() - new Date(task.createdAt).getTime();
-        const ageDays = ageMs / (1000 * 60 * 60 * 24);
-        if (ageDays > 7) {
-          const ageBonus = Math.min(15, Math.floor(ageDays / 7));
-          score += ageBonus;
-          reasons.push(`age: ${Math.floor(ageDays)} days (+${ageBonus})`);
-        }
-      }
-
-      // Add leverage bonus to score
-      if (leverage > 0) {
-        score += leverage * 5;
-        reasons.push(`leverage: unblocks ${leverage} task(s) (+${leverage * 5})`);
-      }
-
-      readyTasks.push({
-        id: task.id,
-        title: task.title,
-        priority: task.priority,
-        epicId,
-        leverage,
-        score,
-        reasons,
-      });
-    }
-  }
-
-  // Sort by score descending
-  readyTasks.sort((a, b) => b.score - a.score);
+  // T12692: THE comparator (D11161) — the same ranking, candidates and
+  // factors as `cleo next`; this view no longer keeps its own additive score.
+  const { ranked } = await rankReadyTasks(accessor, allTasks, {
+    currentPhase: await resolveRankingPhase(accessor, projectRoot),
+  });
+  const readyTasks: ReadyTask[] = ranked.map(({ task, score, factors }) => ({
+    id: task.id,
+    title: task.title,
+    priority: task.priority,
+    epicId: findEpicId(task, taskMap),
+    leverage: calculateLeverage(task.id, taskMap),
+    score,
+    reasons: factors.map(formatScoreFactor),
+  }));
 
   // ========================================================================
   // 3. Blocked Tasks

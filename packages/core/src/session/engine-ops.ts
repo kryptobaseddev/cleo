@@ -16,9 +16,18 @@ import type { Session, SessionSummaryInput, TaskWorkState } from '@cleocode/cont
 import { ExitCode, SESSION_JOURNAL_SCHEMA_VERSION } from '@cleocode/contracts';
 import type { GlobalInstructionRefreshReport } from '@cleocode/contracts/caamp-markers';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+import { pushWarning } from '../output.js';
 import { paginate } from '../pagination.js';
 import { type ContextInjectionData, injectContext } from '../sessions/context-inject.js';
-import { readFocusState, writeFocusState } from '../sessions/focus-state-store.js';
+import {
+  focusSessionIdFromRead,
+  readFocusState,
+  readLiveFocus,
+  resolveFocusSessionId,
+  type StaleFocusPointer,
+  staleFocusWarning,
+  writeFocusState,
+} from '../sessions/focus-state-store.js';
 import {
   archiveSessions,
   cleanupSessions,
@@ -29,6 +38,7 @@ import {
   type DecisionRecord,
   type FindSessionsParams,
   findSessions,
+  gcSessions,
   getContextDrift,
   getDecisionLog,
   getLastHandoff,
@@ -45,7 +55,7 @@ import {
   suspendSession,
   switchSession,
 } from '../sessions/index.js';
-import { generateSessionId, resolveSessionIdFromEnv } from '../sessions/session-id.js';
+import { generateSessionId } from '../sessions/session-id.js';
 import { appendSessionJournalEntry } from '../sessions/session-journal.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import {
@@ -62,6 +72,7 @@ import {
 import {
   currentTask,
   getTaskHistory,
+  type StartTaskOptions,
   startTask,
   stopTask,
   type TaskWorkHistoryEntry,
@@ -96,9 +107,16 @@ function toEngineError<T>(
   // Map numeric CleoError exit codes to string codes where straightforward.
   // For unrecognised codes fall back to the provided fallbackCode.
   // T12500: an unbound caller must see E_SESSION_UNBOUND, not the fallback.
-  const code = e.code === ExitCode.SESSION_UNBOUND ? 'E_SESSION_UNBOUND' : fallbackCode;
+  // T12502: a claim refusal keeps its typed code and exit code (35).
+  const code =
+    e.code === ExitCode.SESSION_UNBOUND
+      ? 'E_SESSION_UNBOUND'
+      : e.code === ExitCode.TASK_CLAIMED
+        ? 'E_TASK_CLAIMED'
+        : fallbackCode;
   const message = e.message ?? fallbackMessage;
   return engineError<T>(code, message, {
+    ...(e.code === ExitCode.TASK_CLAIMED && { exitCode: ExitCode.TASK_CLAIMED }),
     ...(e.fix !== undefined && { fix: e.fix }),
     ...(e.details !== undefined && { details: e.details }),
     ...(e.alternatives !== undefined && { alternatives: e.alternatives }),
@@ -147,9 +165,17 @@ export async function sessionStatus(projectRoot: string): Promise<
     // spawned agent's `cleo session status` reports ITS own session.
     // T12500 — read-only: an unbound caller may still SEE the newest active
     // row, but the envelope labels it `unbound: true`.
-    const { session: active, unbound } = await resolveSessionForRead(projectRoot);
+    const read = await resolveSessionForRead(projectRoot);
+    const { session: active, unbound } = read;
     // T11345 — read the per-session focus_state key for the resolved session.
-    const focusState = await readFocusState(accessor, active?.id ?? null);
+    // T12684: the live focus — a finished task is reported as staleFocus.
+    // T12501: keyed by THE focus-key rule, the one `cleo start` writes — never
+    // the newest active row's key for an unbound caller. Derived from the one
+    // resolution above (same bound tiers), not resolved twice.
+    const liveFocus = await readLiveFocus(accessor, focusSessionIdFromRead(read));
+    const focusState = liveFocus.state
+      ? { ...liveFocus.state, currentTask: liveFocus.currentTask }
+      : null;
 
     // Surface persisted override count for the active session (T1501).
     let overrideCount = 0;
@@ -161,7 +187,8 @@ export async function sessionStatus(projectRoot: string): Promise<
     return engineSuccess({
       hasActiveSession: !!active && active.status === 'active',
       session: active ?? null,
-      taskWork: focusState ?? null,
+      taskWork: focusState,
+      ...(liveFocus.staleFocus ? { staleFocus: liveFocus.staleFocus } : {}),
       overrideCount,
       ...(unbound ? { unbound: true as const } : {}),
     });
@@ -342,15 +369,37 @@ export async function sessionShow(
  *
  * @task T1573
  */
-export async function taskCurrentGet(
-  projectRoot: string,
-): Promise<EngineResult<{ currentTask: string | null; currentPhase: string | null }>> {
+export async function taskCurrentGet(projectRoot: string): Promise<
+  EngineResult<{
+    currentTask: string | null;
+    currentPhase: string | null;
+    staleFocus?: StaleFocusPointer;
+    nextSuggested?: { id: string; title: string } | null;
+  }>
+> {
   try {
     const accessor = await getTaskAccessor(projectRoot);
     const result = await currentTask(undefined, accessor);
+    if (!result.staleFocus)
+      return engineSuccess({
+        currentTask: result.currentTask,
+        currentPhase: result.currentPhase,
+      });
+    // T12660: a done/cancelled/missing pointer is reported as stale, with the
+    // next ready task in its place — never as the current task.
+    const { coreTaskNext } = await import('../tasks/task-next.js');
+    // T12689: a one-line hint — no brain pattern scoring for `cleo current`.
+    const top = (await coreTaskNext(projectRoot, { count: 1, brain: false })).suggestions[0];
+    const nextSuggested = top ? { id: top.id, title: top.title } : null;
+    pushWarning({
+      code: 'W_STALE_FOCUS',
+      message: staleFocusWarning(result.staleFocus, nextSuggested),
+    });
     return engineSuccess({
-      currentTask: result.currentTask,
+      currentTask: null,
       currentPhase: result.currentPhase,
+      staleFocus: result.staleFocus,
+      nextSuggested,
     });
   } catch {
     return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
@@ -362,28 +411,32 @@ export async function taskCurrentGet(
  *
  * @param projectRoot - Absolute path to the project root
  * @param taskId - Task ID to start working on
- * @returns EngineResult with taskId and previousTask
+ * @param options - Claim overrides: `takeOver` (expired lease), `forceClaim` (live lease)
+ * @returns EngineResult with taskId, previousTask and the claim lease held
  *
  * @task T1573
+ * @task T12502
  */
 export async function taskStart(
   projectRoot: string,
   taskId: string,
+  options: StartTaskOptions = {},
 ): Promise<
   EngineResult<
     Pick<
       import('../task-work/index.js').TaskStartResult,
-      'taskId' | 'previousTask' | 'knowledgeCoverage'
+      'taskId' | 'previousTask' | 'knowledgeCoverage' | 'claim'
     >
   >
 > {
   try {
     const accessor = await getTaskAccessor(projectRoot);
-    const result = await startTask(taskId, projectRoot, accessor);
+    const result = await startTask(taskId, projectRoot, accessor, options);
     return engineSuccess({
       taskId: result.taskId,
       previousTask: result.previousTask,
       knowledgeCoverage: result.knowledgeCoverage,
+      claim: result.claim,
     });
   } catch (err: unknown) {
     return toEngineError(err, 'E_NOT_INITIALIZED', 'Failed to start task');
@@ -818,7 +871,7 @@ export async function sessionEnd(
 
     if (!activeSession) {
       return engineError('E_SESSION_NOT_FOUND', 'No active session to end', {
-        fix: 'Start a session first with: session start --scope <scope> --name <name>',
+        fix: 'Start a session first with: cleo session start --scope global --name "<name>"',
       });
     }
     const sessionId = activeSession.id;
@@ -1073,48 +1126,25 @@ export async function sessionResume(
 /**
  * Garbage collect old sessions.
  *
+ * Delegates to the core {@link gcSessions} SSoT (T12540), so the CLI shares
+ * its rules: an active session is orphaned only when idle — measured from its
+ * `lastActivity` heartbeat, else `startedAt` — for longer than `maxAgeDays`,
+ * and never while it holds a live claim lease (T12502). Ended/orphaned
+ * sessions older than 30 days are removed; journal retention runs afterwards.
+ *
  * @param projectRoot - Absolute path to the project root
- * @param maxAgeDays - Maximum age in days before marking active sessions orphaned
+ * @param maxAgeDays - Maximum idle age in days before marking active sessions orphaned
  * @returns EngineResult with orphaned and removed session IDs
  *
  * @task T1573
+ * @task T12540
  */
 export async function sessionGc(
   projectRoot: string,
   maxAgeDays = 1,
 ): Promise<EngineResult<{ orphaned: string[]; removed: string[] }>> {
   try {
-    const accessor = await getTaskAccessor(projectRoot);
-    const sessions = await accessor.loadSessions();
-
-    const now = Date.now();
-    const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
-    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
-    const orphaned: string[] = [];
-    const removed: string[] = [];
-
-    // Mark stale active sessions as orphaned
-    for (const session of sessions) {
-      if (session.status === 'active') {
-        const lastActive = new Date(session.endedAt ?? session.startedAt).getTime();
-        if (now - lastActive > maxAgeMs) {
-          session.status = 'ended';
-          session.endedAt = new Date().toISOString();
-          orphaned.push(session.id);
-          await accessor.upsertSingleSession(session);
-        }
-      }
-    }
-
-    // Remove very old ended sessions
-    for (const s of sessions) {
-      if (s.status === 'active') continue;
-      const endedAt = s.endedAt ? new Date(s.endedAt).getTime() : new Date(s.startedAt).getTime();
-      if (now - endedAt > thirtyDaysMs) {
-        removed.push(s.id);
-        await accessor.removeSingleSession(s.id);
-      }
-    }
+    const result = await gcSessions(projectRoot, { maxAgeDays });
 
     // T1263: Apply session journal retention policy (best-effort)
     try {
@@ -1124,7 +1154,7 @@ export async function sessionGc(
       // Rotation is best-effort — never block session GC
     }
 
-    return engineSuccess({ orphaned, removed });
+    return engineSuccess(result);
   } catch {
     return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
   }
@@ -1525,10 +1555,12 @@ export async function sessionBriefing(
   },
 ): Promise<EngineResult<SessionBriefing>> {
   try {
-    // T9975: Env-precedence session resolution.
-    // CLEO_SESSION_ID → CLAUDE_SESSION_ID → AIDER_SESSION_ID → most-recent active.
-    // The explicit `sessionId` option takes highest priority (internal callers only).
-    const resolvedSessionId = options?.sessionId ?? resolveSessionIdFromEnv() ?? undefined;
+    // T9975/T12501: the explicit `sessionId` option (internal callers only),
+    // else THE focus-key rule — the caller's BOUND session (connection, env
+    // with a row, terminal binding), so a terminal-bound session's briefing
+    // shows its own focus. Unbound → no id (the legacy key, labelled below).
+    const resolvedSessionId =
+      options?.sessionId ?? (await resolveFocusSessionId(projectRoot)) ?? undefined;
 
     const [briefing, instructionDelivery, unbound] = await Promise.all([
       computeBriefing(projectRoot, {
@@ -1538,6 +1570,18 @@ export async function sessionBriefing(
       refreshGlobalInstructionDelivery(),
       isCallerUnbound(projectRoot, options?.sessionId),
     ]);
+    // T12684: a stale focus pointer is a coded warning on the envelope too.
+    if (briefing.staleFocus) {
+      pushWarning({
+        code: 'W_STALE_FOCUS',
+        message: staleFocusWarning(
+          briefing.staleFocus,
+          briefing.nextTasks[0]
+            ? { id: briefing.nextTasks[0].id, title: briefing.nextTasks[0].title }
+            : null,
+        ),
+      });
+    }
     // T12500 — read-only: the briefing may describe the newest active session
     // for an unbound caller, but says so.
     return engineSuccess({

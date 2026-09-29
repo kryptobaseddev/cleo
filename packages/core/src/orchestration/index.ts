@@ -9,13 +9,15 @@ import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { resolveOrCwd } from '../paths.js';
 import type { DataAccessor } from '../store/data-accessor.js';
+import { orderByRanking } from '../task-tools/score-task-priority.js';
+import { loadRankingContext } from '../tasks/task-next.js';
 import {
   buildSpawnPrompt,
   DEFAULT_SPAWN_TIER,
   type SpawnProtocolPhase,
   type SpawnTier,
 } from './spawn-prompt.js';
-import { type EnrichedWave, getEnrichedWaves } from './waves.js';
+import { type EnrichedWave, getEnrichedWaves, isTerminalWaveStatus } from './waves.js';
 
 export type { CircularDependency, DependencyAnalysis, MissingDependency } from './analyze.js';
 // Re-export new core modules for barrel access
@@ -288,8 +290,8 @@ function projectChildReadiness(children: Task[], waves: EnrichedWave[]): TaskRea
   );
   return children.flatMap((task) => {
     const assessment = assessments.get(task.id);
-    // Terminal children are absent from the canonical execution wave population.
-    if (!assessment) return [];
+    // Terminal children keep their (stable) wave but are not assessed for execution.
+    if (!assessment || isTerminalWaveStatus(task.status)) return [];
     return [
       {
         taskId: task.id,
@@ -335,20 +337,40 @@ export async function getReadyTasks(
 }
 
 /**
- * Get the next task to work on for an epic.
+ * The READY children of an epic in THE comparator's order (D11161, T12692):
+ * band, attested severity, bounded tiebreak, createdAt, id — ranked with the
+ * same project context as `cleo next` ({@link loadRankingContext}).
+ *
+ * @param epicId - Epic whose direct children are assessed.
+ * @param cwd - Explicit project root for the supplied accessor.
+ * @param accessor - Canonical accessor bound to that project.
+ * @returns Ready assessments, best first.
+ * @task T12692
+ */
+export async function getRankedReadyTasks(
+  epicId: string,
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<TaskReadiness[]> {
+  const ready = (await getReadyTasks(epicId, cwd, accessor)).filter((t) => t.ready);
+  if (ready.length < 2) return ready;
+  const { ctx, population } = await loadRankingContext(accessor!);
+  const byId = new Map(population.map((task) => [task.id, task] as const));
+  return orderByRanking(ready, (t) => t.taskId, byId, ctx);
+}
+
+/**
+ * Get the next task to work on for an epic: the first of
+ * {@link getRankedReadyTasks}.
  * @task T4466
+ * @task T12692
  */
 export async function getNextTask(
   epicId: string,
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<TaskReadiness | null> {
-  const readyTasks = await getReadyTasks(epicId, cwd, accessor);
-  const ready = readyTasks.filter((t) => t.ready);
-
-  if (ready.length === 0) return null;
-
-  return ready[0]!;
+  return (await getRankedReadyTasks(epicId, cwd, accessor))[0] ?? null;
 }
 
 /**

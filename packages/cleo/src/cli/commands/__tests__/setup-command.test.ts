@@ -115,6 +115,22 @@ vi.mock('@cleocode/core/setup', async () => {
   };
 });
 
+/** Streams each ReadlineWizardIO was constructed with (PR #1690 review). */
+const ioStreams = vi.hoisted((): unknown[][] => []);
+
+vi.mock('../../lib/readline-wizard-io.js', async () => {
+  const actual = await vi.importActual<typeof import('../../lib/readline-wizard-io.js')>(
+    '../../lib/readline-wizard-io.js',
+  );
+  class RecordingIO extends actual.ReadlineWizardIO {
+    constructor(...args: ConstructorParameters<typeof actual.ReadlineWizardIO>) {
+      super(...args);
+      ioStreams.push(args);
+    }
+  }
+  return { ...actual, ReadlineWizardIO: RecordingIO };
+});
+
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
@@ -707,6 +723,7 @@ describe('T9599 — StdinClosedError propagates out of runSetup', () => {
     // the ReadlineWizardIO behaviour when stdin closes mid-section.
     const eofIo: WizardIO = {
       prompt: () => Promise.reject(new StdinClosedError()),
+      secret: () => Promise.reject(new StdinClosedError()),
       confirm: () => Promise.reject(new StdinClosedError()),
       select: () => Promise.reject(new StdinClosedError()),
       info: () => undefined,
@@ -752,5 +769,48 @@ describe('T9611 — WizardInterruptError import from @cleocode/core/setup', () =
     expect(err.isWizardInterruptError).toBe(true);
     expect(err.message).toBe('user hit ctrl-c');
     expect(err instanceof Error).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PR #1690 review: prompts on stderr; system-one config-json rejected
+// ---------------------------------------------------------------------------
+
+type SetupRunFn = (ctx: { args: Record<string, unknown>; rawArgs: string[] }) => Promise<void>;
+
+describe('cleo setup run() — stream wiring and config-json validation (T12713)', () => {
+  const run = setupCommand.run as SetupRunFn;
+
+  it('builds the wizard IO on stdin + stderr so `cleo setup > out.json` keeps stdout pure JSON', async () => {
+    ioStreams.length = 0;
+    await expect(run({ args: { section: 'no-such-section' }, rawArgs: [] })).rejects.toThrow(
+      /unknown section/,
+    );
+    expect(ioStreams[0]?.[0]).toBe(process.stdin);
+    expect(ioStreams[0]?.[1]).toBe(process.stderr);
+  });
+
+  it('rejects a system-one --config-json block with exit 6 and the decide config fix', async () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((code) => {
+      throw new Error(`exit:${String(code)}`);
+    });
+    const outSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      await expect(
+        run({
+          args: { 'config-json': JSON.stringify({ 'system-one': { apiKey: 'sk-x' } }) },
+          rawArgs: [],
+        }),
+      ).rejects.toThrow('exit:6');
+      const written = [...outSpy.mock.calls, ...errSpy.mock.calls]
+        .map((c) => String(c[0]))
+        .join('');
+      expect(written).toContain('cleo decide config --provider layahost --key-stdin');
+    } finally {
+      exitSpy.mockRestore();
+      outSpy.mockRestore();
+      errSpy.mockRestore();
+    }
   });
 });

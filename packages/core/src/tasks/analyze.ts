@@ -4,12 +4,63 @@
  * @epic T4454
  */
 
-import type { TaskAnalysisResult, TaskWorkState } from '@cleocode/contracts';
+import type { Task, TaskAnalysisResult } from '@cleocode/contracts';
+import { resolveOrCwd } from '../paths.js';
+import {
+  readFocusState,
+  resolveFocusSessionId,
+  writeFocusState,
+} from '../sessions/focus-state-store.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { computeLeverage } from '../task-tools/score-task-priority.js';
+import { rankReadyTasks, resolveRankingPhase } from './task-next.js';
 
 export interface AnalysisResult extends TaskAnalysisResult {
   autoStarted?: boolean;
+}
+
+/** One ranked task as the analyze tiers report it. */
+export interface AnalysisRankedTask {
+  id: string;
+  title: string;
+  /** Open tasks this task unblocks (the scorer's leverage input). */
+  leverage: number;
+  priority: Task['priority'];
+  score: number;
+}
+
+/**
+ * Rank tasks for `cleo analyze` exactly as `cleo next` and the briefing do —
+ * {@link rankReadyTasks} with {@link resolveRankingPhase} and BRAIN patterns —
+ * so all three recommend the same task in the same order (T12661).
+ *
+ * @param accessor - Task data accessor.
+ * @param allTasks - The active task population.
+ * @param opts - Project root (for BRAIN patterns), an optional id scope, and
+ *   `nowMs` (defaults to now) for the age tiebreak.
+ * @returns Ranked ready tasks with their open-dependent leverage.
+ * @task T12661
+ */
+export async function rankForAnalysis(
+  accessor: DataAccessor,
+  allTasks: readonly Task[],
+  opts: { projectRoot?: string; scopeTaskIds?: ReadonlySet<string>; nowMs?: number } = {},
+): Promise<{ ranked: AnalysisRankedTask[] }> {
+  const { ranked, leverage } = await rankReadyTasks(accessor, allTasks, {
+    currentPhase: await resolveRankingPhase(accessor, opts.projectRoot),
+    nowMs: opts.nowMs ?? Date.now(),
+    ...opts,
+  });
+  return {
+    ranked: ranked.map(({ task, score }) => ({
+      id: task.id,
+      title: task.title,
+      leverage: leverage.get(task.id) ?? 0,
+      priority: task.priority,
+      score,
+    })),
+  };
 }
 
 /** Analyze task priority with leverage scoring. */
@@ -24,48 +75,26 @@ export async function analyzeTaskPriority(
   const { tasks } = await acc.queryTasks({});
 
   // Build dependency graph
-  const blocksMap: Record<string, string[]> = {};
-  for (const task of tasks) {
-    if (task.depends) {
-      for (const dep of task.depends) {
-        if (!blocksMap[dep]) blocksMap[dep] = [];
-        blocksMap[dep]!.push(task.id);
-      }
-    }
-  }
-
-  // Calculate leverage for each task
-  const leverageMap: Record<string, number> = {};
-  for (const task of tasks) {
-    leverageMap[task.id] = (blocksMap[task.id] ?? []).length;
-  }
-
-  // Find actionable tasks (pending/active, not blocked)
-  const actionable = tasks.filter((t) => t.status === 'pending' || t.status === 'active');
+  // Open tasks each task unblocks — the same leverage the shared scorer uses (T12661).
+  const openDependents = computeLeverage(tasks);
 
   const blocked = tasks.filter((t) => t.status === 'blocked');
 
   // Bottlenecks (tasks that block the most others)
   const bottlenecks = tasks
-    .filter((t) => (blocksMap[t.id]?.length ?? 0) > 0 && t.status !== 'done')
-    .map((t) => ({ id: t.id, title: t.title, blocksCount: blocksMap[t.id]!.length }))
-    .sort((a, b) => b.blocksCount - a.blocksCount)
+    .filter((t) => (openDependents.get(t.id) ?? 0) > 0 && t.status !== 'done')
+    .map((t) => ({ id: t.id, title: t.title, blocksCount: openDependents.get(t.id) ?? 0 }))
+    .sort((a, b) => b.blocksCount - a.blocksCount || a.id.localeCompare(b.id))
     .slice(0, 5);
 
-  // Tier tasks
-  const scored = actionable.map((t) => ({
-    id: t.id,
-    title: t.title,
-    leverage: leverageMap[t.id] ?? 0,
-    priority: t.priority,
-  }));
-
-  scored.sort((a, b) => {
-    const priorityWeight: Record<string, number> = { critical: 100, high: 50, medium: 20, low: 5 };
-    const aScore = (priorityWeight[a.priority ?? 'medium'] ?? 20) + a.leverage * 10;
-    const bScore = (priorityWeight[b.priority ?? 'medium'] ?? 20) + b.leverage * 10;
-    return bScore - aScore;
+  // Tier tasks — the SAME ranking as `cleo next` and the briefing (T12661):
+  // ready candidates, current phase, BRAIN patterns, shared scorer.
+  const { ranked: scored } = await rankForAnalysis(acc, tasks, {
+    projectRoot: resolveOrCwd(opts.cwd),
   });
+  // The metric keeps its meaning (pending + active); the tiers above rank only
+  // the READY subset, exactly as `cleo next` does.
+  const actionable = tasks.filter((t) => t.status === 'pending' || t.status === 'active');
 
   const critical = scored.filter((t) => t.priority === 'critical');
   const high = scored.filter((t) => t.priority === 'high');
@@ -77,17 +106,21 @@ export async function analyzeTaskPriority(
           id: scored[0]!.id,
           title: scored[0]!.title,
           leverage: scored[0]!.leverage,
-          reason: 'Highest combined priority and leverage score',
+          reason:
+            'Highest score from the shared task ranking (priority, severity, leverage, readiness, age)',
         }
       : null;
 
-  const totalLeverage = Object.values(leverageMap).reduce((s, v) => s + v, 0);
+  const totalLeverage = [...openDependents.values()].reduce((s, v) => s + v, 0);
   const avgLeverage = tasks.length > 0 ? Math.round((totalLeverage / tasks.length) * 100) / 100 : 0;
 
   let autoStarted = false;
   if (opts.autoStart && recommended) {
-    const currentFocus = await acc.getMetaValue<TaskWorkState>('focus_state');
-    await acc.setMetaValue('focus_state', { ...(currentFocus ?? {}), currentTask: recommended.id });
+    // T12660: write through the per-session focus store (the same session
+    // resolution `cleo current` reads with), never the raw legacy global key.
+    const sessionId = await resolveFocusSessionId(opts.cwd);
+    const currentFocus = await readFocusState(acc, sessionId);
+    await writeFocusState(acc, sessionId, { ...(currentFocus ?? {}), currentTask: recommended.id });
     autoStarted = true;
   }
 

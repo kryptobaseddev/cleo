@@ -25,8 +25,13 @@ import type { TaskAnalysisResult, TaskRef } from '../results.js';
  * Common task types (API contract — matches CLI src/types/task.ts)
  */
 import type { TaskStatus } from '../status-registry.js';
-import type { TaskKind, TaskPriority, TaskSeverity, TaskType } from '../task.js';
-import type { MinimalTaskRecord, TaskMatch, TaskRecord } from '../task-record.js';
+import type { TaskClaim, TaskKind, TaskPriority, TaskSeverity, TaskType } from '../task.js';
+import type {
+  MinimalTaskRecord,
+  RecordProjectionDisclosure,
+  TaskMatch,
+  TaskRecord,
+} from '../task-record.js';
 import type { ExternalTask, ExternalTaskLink, ReconcileResult } from '../task-sync.js';
 import type {
   CompletionEvaluateParams,
@@ -285,10 +290,16 @@ export interface TaskShowRelationsEntry {
  * Result of `tasks.show` — the full task record plus its canonical view
  * projection. `view` is null when the task has no lifecycle pipeline.
  *
+ * The inherited `_withheld` marker is set by the default (MVI) projection
+ * when it withholds a field from every `acRows` element: the key
+ * `acRows/*\/id` names the row UUIDs and its value is their UTF-8 byte total
+ * (T12523). `--full` returns the rows unprojected, with no marker.
+ *
  * @task T1703
  * @task T9966 — attachments[] always present (empty array when none)
+ * @task T12523 — `_withheld` for the projected `acRows`
  */
-export interface TasksShowResult {
+export interface TasksShowResult extends RecordProjectionDisclosure {
   /** Full task record (string-widened for dispatch layer serialization). */
   task: TaskRecord;
   /** Canonical task view projection produced by `computeTaskView`. Null when unavailable. */
@@ -307,6 +318,8 @@ export interface TasksShowResult {
    * Acceptance-criterion rows hydrated from the `task_acceptance_criteria`
    * table (T10502). Each entry carries the stable UUID `id`, the
    * `AC<ordinal>` alias, the ordinal itself, and the canonical AC text.
+   * The default (MVI) projection withholds `id` and says so in this result's
+   * `_withheld` (`acRows/*\/id`); `--full` returns it (T12523).
    *
    * Optional — undefined when the task has no rows in the table (e.g.
    * legacy tasks not yet backfilled by T10505). Consumers should fall
@@ -329,8 +342,14 @@ export interface TasksShowResult {
  * @task T10508
  */
 export interface TaskShowAcRowEntry {
-  /** UUIDv4 stable identifier, immutable for the AC's lifetime. */
-  id: string;
+  /**
+   * UUIDv4 stable identifier, immutable for the AC's lifetime.
+   *
+   * Absent under the default (MVI) projection, which cites a criterion by its
+   * `alias` and lists `acRows/*\/id` in the result's `_withheld`; present with
+   * `--full` or a `--field /data/acRows/<i>/id` pointer (T12523).
+   */
+  id?: string;
   /** Display alias derived from ordinal — `AC1`, `AC2`, etc. */
   alias: string;
   /** 1-based ordinal — never reused per task (gaps remain on shrink). */
@@ -921,6 +940,31 @@ export interface TasksComplexityEstimateResult {
 export interface TasksHistoryParams {
   taskId?: string;
   limit?: number;
+  /**
+   * With `taskId`: only ranking-input changes (priority, severity, kind,
+   * depends) — who, which session, why, before/after (T12693, D11161).
+   */
+  ranking?: boolean;
+}
+
+// tasks.ranking.revert
+/** Parameters for `tasks.ranking.revert` (T12693, D11161). */
+export interface TasksRankingRevertParams {
+  /** The `ranking_changed` audit row id to undo (from `cleo history ranking`). */
+  entryId: string;
+  /** Why it is reverted; recorded on the new audit row. */
+  reason?: string;
+  /** Revert even though a field changed again since. */
+  force?: boolean;
+}
+/** Result of `tasks.ranking.revert`. */
+export interface TasksRankingRevertResult {
+  /** Task whose ranking inputs were restored. */
+  taskId: string;
+  /** Fields set back. */
+  fields: string[];
+  /** The values they were set back to. */
+  revertedTo: Record<string, unknown>;
 }
 /**
  * Result of `tasks.history` — audit log entries for a task.
@@ -1655,6 +1699,13 @@ export interface TasksCompleteQueryParams {
    * @task T11954 (DHQ-071)
    */
   waiveDependsReason?: string;
+  /**
+   * Optimistic-concurrency guard (`--if-match`): the task `updatedAt` the
+   * caller read. When the stored version differs, completion fails with
+   * `E_CONFLICT` carrying the current version and the changed fields.
+   * @task T12503
+   */
+  expectedUpdatedAt?: string;
 }
 /**
  * Result of `tasks.complete` — completion confirmation with unblocked tasks.
@@ -1799,51 +1850,91 @@ export interface TasksArchiveQueryResult {
   archivedTasks: Array<{ id: string }>;
 }
 
-// tasks.claim
-export interface TasksClaimParams {
-  taskId: string;
-  agentId: string;
-}
 /**
- * Result of `tasks.claim` — agent claim confirmation.
+ * Params for `tasks.claim` — take, renew or override the caller session's
+ * leased claim on a task (T12502). The human `assignee` is never written.
  *
  * @task T1703
+ * @task T12502
+ */
+export interface TasksClaimParams {
+  /** Task to claim. */
+  taskId: string;
+  /** Agent identity recorded with the lease; defaults to the session's agent / `CLEO_AGENT_ID`. */
+  agentId?: string;
+  /** Renew the caller's own lease instead of taking one (`--renew`). */
+  renew?: boolean;
+  /** Take over an EXPIRED lease held by another session (`--take-over`, audited). */
+  takeOver?: boolean;
+  /** Take over a LIVE lease held by another session (`--force-claim`, audited). */
+  forceClaim?: boolean;
+}
+/**
+ * Result of `tasks.claim` — the lease now held.
+ *
+ * @task T1703
+ * @task T12502
  */
 export interface TasksClaimResult {
   /** The task ID that was claimed. */
   taskId: string;
-  /** The agent ID that now holds the claim. */
-  agentId: string;
+  /** The agent ID recorded with the lease, or `null`. */
+  agentId: string | null;
+  /** The lease held by the caller's session. */
+  claim: TaskClaim;
 }
 
-// tasks.unclaim
+/**
+ * Params for `tasks.unclaim` — release the caller session's lease (T12502).
+ *
+ * @task T12502
+ */
 export interface TasksUnclaimParams {
+  /** Task to release. */
   taskId: string;
+  /** Release a lease held by ANOTHER session (`--force-claim`, audited). */
+  forceClaim?: boolean;
 }
 /**
  * Result of `tasks.unclaim` — agent release confirmation.
  *
  * @task T1703
+ * @task T12502
  */
 export interface TasksUnclaimResult {
   /** The task ID whose claim was released. */
   taskId: string;
+  /** `true` when a lease was cleared; `false` when the task was unclaimed. */
+  released: boolean;
 }
 
-// tasks.start (dispatch-level)
+/**
+ * Params for `tasks.start`. T12502: the start takes the caller session's
+ * claim lease; the flags are the explicit, audited overrides.
+ *
+ * @task T12502
+ */
 export interface TasksStartQueryParams {
+  /** Task to start. */
   taskId: string;
+  /** Take over an EXPIRED lease held by another session (`--take-over`). */
+  takeOver?: boolean;
+  /** Take over a LIVE lease held by another session (`--force-claim`). */
+  forceClaim?: boolean;
 }
 /**
  * Result of `tasks.start` — work-start confirmation.
  *
  * @task T1703
+ * @task T12502
  */
 export interface TasksStartQueryResult {
   /** The task ID that is now active. */
   taskId: string;
   /** The task ID that was previously active (auto-stopped), or null. */
   previousTask: string | null;
+  /** The claim lease this start holds, or `null` for an unbound caller (no lease). */
+  claim?: TaskClaim | null;
 }
 
 // tasks.stop (dispatch-level)
@@ -2277,6 +2368,7 @@ export type TasksOps = {
   readonly 'relates.add': readonly [TasksRelatesAddParams, TasksRelatesAddResult];
   readonly 'relates.add-batch': readonly [TasksRelatesAddBatchParams, TasksRelatesAddBatchResult];
   readonly 'relates.remove': readonly [TasksRelatesRemoveParams, TasksRelatesRemoveResult];
+  readonly 'ranking.revert': readonly [TasksRankingRevertParams, TasksRankingRevertResult];
   readonly start: readonly [TasksStartQueryParams, TasksStartQueryResult];
   readonly stop: readonly [TasksStopQueryParams, TasksStopQueryResult];
   readonly 'sync.reconcile': readonly [TasksSyncReconcileParams, TasksSyncReconcileResult];

@@ -968,7 +968,13 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
         return lafsError('E_INVALID_INPUT', 'backupId is required', 'backup.mutate');
       }
       try {
-        const data = restoreBackup(projectRoot, { backupId, force: params.force });
+        const data = restoreBackup(projectRoot, {
+          backupId,
+          force: params.force,
+          confirmOwnerStore: params.confirmOwnerStore,
+          // T12680: the invocation directory; core never falls back to it.
+          cwd: process.cwd(),
+        });
         return lafsSuccess(data, 'backup.mutate');
       } catch (err) {
         return lafsError(
@@ -985,7 +991,12 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
         return lafsError('E_INVALID_INPUT', 'file is required', 'backup.mutate');
       }
       try {
-        const data = await fileRestore(projectRoot, file, { dryRun: params.dryRun });
+        const data = await fileRestore(projectRoot, file, {
+          dryRun: params.dryRun,
+          confirmOwnerStore: params.confirmOwnerStore,
+          // T12680: the invocation directory; core never falls back to it.
+          cwd: process.cwd(),
+        });
         return lafsSuccess(data, 'backup.mutate');
       } catch (err) {
         return lafsError(

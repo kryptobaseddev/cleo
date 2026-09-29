@@ -260,12 +260,25 @@ const importCommand = defineCommand({
       description:
         'Portable bundles: rewrite project paths <oldPrefix>=<newPrefix> (repeatable; longest prefix wins)',
     },
+    'confirm-owner-store': {
+      type: 'boolean',
+      description:
+        "From inside a git worktree: allow overwriting the owning project's LIVE store (refused without it)",
+      default: false,
+    },
   },
   async run({ args, rawArgs }): Promise<void> {
     const bundlePath = args.bundle;
+    const confirmOwnerStore = args['confirm-owner-store'] === true;
     const { detectBundleFormat } = await import('@cleocode/core/store/portable-bundle-import.js');
     if ((await detectBundleFormat(bundlePath)) === 'v2') {
-      await portableImport(bundlePath, args.target, collectFlagValues(rawArgs, 'map'), args.force);
+      await portableImport(
+        bundlePath,
+        args.target,
+        collectFlagValues(rawArgs, 'map'),
+        args.force,
+        confirmOwnerStore,
+      );
       return;
     }
     const { getProjectRoot, getCleoHome, getCleoVersion } = await import('@cleocode/core');
@@ -280,6 +293,20 @@ const importCommand = defineCommand({
     );
 
     const projectRoot = getProjectRoot();
+
+    // T12708: a legacy import replaces the project's whole store.
+    const { assertOwnerStoreRewriteConfirmed } = await import(
+      '@cleocode/core/store/worktree-isolation-guard.js'
+    );
+    try {
+      assertOwnerStoreRewriteConfirmed('backup import', path.join(projectRoot, '.cleo'), {
+        cwd: process.cwd(),
+        confirmOwnerStore,
+      });
+    } catch (err) {
+      reportBundleError(err, null, 'E_IMPORT_FAILED');
+      return;
+    }
 
     // -----------------------------------------------------------------------
     // Step 1: Pre-check existing data (skip when --force)
@@ -591,6 +618,7 @@ function collectFlagValues(rawArgs: readonly string[], flag: string): string[] {
  * @param target - Optional single-project destination root.
  * @param mapValues - Raw `--map` values.
  * @param force - Overwrite existing live data.
+ * @param confirmOwnerStore - From a worktree, allow overwriting the owner's live store (T12708).
  *
  * @task T12318
  */
@@ -599,6 +627,7 @@ async function portableImport(
   target: string | undefined,
   mapValues: string[],
   force: boolean | undefined,
+  confirmOwnerStore: boolean,
 ): Promise<void> {
   const core = await import('@cleocode/core/store/portable-bundle-import.js');
   const { PortableBundleError } = await import('@cleocode/core/store/portable-bundle.js');
@@ -614,6 +643,9 @@ async function portableImport(
       force: force === true,
       requireLossless: true,
       registerProject: core.registerRelocatedProject,
+      // T12708: the invocation directory; core never falls back to it.
+      cwd: process.cwd(),
+      confirmOwnerStore,
     });
     cliOutput(result, { command: 'backup', operation: 'backup.import' });
   } catch (err) {

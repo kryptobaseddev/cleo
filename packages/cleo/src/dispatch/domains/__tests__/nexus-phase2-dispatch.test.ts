@@ -98,6 +98,7 @@ vi.mock('@cleocode/core/internal', async () => ({
   nexusProjectsScan: vi.fn(),
   nexusProjectsClean: vi.fn(),
   nexusProjectsStatus: vi.fn(),
+  nexusProjectsFleet: vi.fn(),
   nexusRefreshBridge: vi.fn(),
   nexusDiff: vi.fn(),
   nexusQueryCte: vi.fn(),
@@ -115,6 +116,7 @@ import {
   nexusHotNodes,
   nexusHotPaths,
   nexusProjectsClean,
+  nexusProjectsFleet,
   nexusProjectsList,
   nexusProjectsRegister,
   nexusProjectsRemove,
@@ -376,6 +378,71 @@ describe('NexusHandler — Phase 2 T1510 operations', () => {
     });
   });
 
+  describe('query:projects.fleet (T12513)', () => {
+    it('passes typed filters and paging through; drops wrong-typed values', async () => {
+      vi.mocked(nexusProjectsFleet).mockResolvedValueOnce(
+        engineSuccess({
+          total: 0,
+          matched: 0,
+          returned: 0,
+          offset: 0,
+          limit: 50,
+          hasMore: false,
+          staleAfterMs: 86_400_000,
+          generatedAt: '2026-09-29T00:00:00.000Z',
+          currentDeviceId: 'd',
+          summary: {
+            located: 0,
+            locations: 0,
+            missing: 0,
+            dirty: 0,
+            behind: 0,
+            ahead: 0,
+            stale: 0,
+            errored: 0,
+            unprobed: 0,
+          },
+          devices: [],
+          projects: [],
+        }),
+      );
+      const result = await handler.query('projects.fleet', {
+        device: 'desk',
+        dirty: true,
+        behind: 'yes',
+        limit: 20,
+        offset: '5',
+      });
+      expect(result.success).toBe(true);
+      expect(nexusProjectsFleet).toHaveBeenCalledWith(expect.any(String), {
+        device: 'desk',
+        missing: false,
+        dirty: true,
+        behind: false,
+        ahead: false,
+        stale: false,
+        errored: false,
+        staleAfterMs: undefined,
+        limit: 20,
+        offset: undefined,
+      });
+    });
+
+    it('surfaces a registry read failure as its typed code', async () => {
+      vi.mocked(nexusProjectsFleet).mockResolvedValueOnce({
+        success: false,
+        error: {
+          code: 'E_NEXUS_REGISTRY_READ',
+          message: 'Cannot read the project registry',
+          exitCode: 75,
+        },
+      });
+      const result = await handler.query('projects.fleet', {});
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_NEXUS_REGISTRY_READ');
+    });
+  });
+
   describe('query:diff', () => {
     it('returns LAFS envelope with diff result', async () => {
       vi.mocked(nexusDiff).mockResolvedValueOnce(engineSuccess(DIFF_FIXTURE));
@@ -554,6 +621,7 @@ describe('NexusHandler — Phase 2 T1510 operations', () => {
       expect(query).toContain('flows');
       expect(query).toContain('context');
       expect(query).toContain('projects.list');
+      expect(query).toContain('projects.fleet');
       expect(query).toContain('diff');
       expect(query).toContain('query-cte');
       expect(query).toContain('hot-paths');

@@ -6,12 +6,29 @@
  * @task T4530
  */
 
-import type { Task } from '@cleocode/contracts';
+import type { DataAccessor, Task } from '@cleocode/contracts';
+import { TASK_STATUSES } from '@cleocode/contracts';
 
 /** Forward and reverse remap tables. */
 export interface RemapTable {
   forward: Map<string, string>; // source -> new
   reverse: Map<string, string>; // new -> source
+}
+
+/**
+ * Every stored task, ARCHIVED included: the id view an importer must decide
+ * ids against. `queryTasks({})` hides archived tasks, and an archived task
+ * still owns its id, so an importer that read only the live view would pick
+ * an archived task's id and fail on the insert every time (T12724).
+ *
+ * @param accessor - The task accessor.
+ * @returns All stored tasks, whatever their status.
+ * @task T12724
+ */
+export async function queryTasksIncludingArchived(
+  accessor: Pick<DataAccessor, 'queryTasks'>,
+): Promise<Task[]> {
+  return (await accessor.queryTasks({ status: [...TASK_STATUSES] })).tasks;
 }
 
 /**

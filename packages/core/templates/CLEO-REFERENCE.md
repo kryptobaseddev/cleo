@@ -1,6 +1,6 @@
 # CLEO Protocol — on-demand reference
 
-Version: 2.22.0 | Companion to the always-loaded `CLEO-INJECTION.md` core
+Version: 2.24.0 | Companion to the always-loaded `CLEO-INJECTION.md` core
 
 Not injected into agent context. Print one section with `cleo briefing inject --section <name>`; tier-2 spawn prompts embed this whole file. Section names are the `CLEO-INJECTION:section` markers below.
 
@@ -13,7 +13,7 @@ Not injected into agent context. Print one section with `cleo briefing inject --
 <!-- CLEO-INJECTION:section=projection -->
 ## Projections, budgets and mutation receipts
 
-Projection markers include omitted empty/null fields and survive repeated projection. `_withheld` maps omitted fields to UTF-8 content bytes (JSON bytes for structured values). A record without `_withheld` is complete. Budgeting preserves coverage, diagnostic failures, authority corrections and pending repair facts before examples. A read budget too small for mandatory facts fails explicitly; request narrower scope or more budget. Never treat this failure as clean coverage.
+Projection markers include omitted empty/null fields and survive repeated projection. `_withheld` maps omitted fields to UTF-8 content bytes (JSON bytes for structured values). A `list/*/field` key (e.g. `acRows/*/id` on `cleo show`) names a field omitted from every element of that list, with the summed size. A record without `_withheld` is complete. Budgeting preserves coverage, diagnostic failures, authority corrections and pending repair facts before examples. A read budget too small for mandatory facts fails explicitly; request narrower scope or more budget. Never treat this failure as clean coverage.
 
 An impossible internal mutation budget rejects before execution. If a successful mutation's actual receipt exceeds a viable budget, its success and complete receipt remain available with `_budgetEnforcement.withinBudget: false`; overflow does not mean rollback. Inspect the receipt before retrying a mutation.
 
@@ -105,6 +105,8 @@ List/find default to excluding archived rows; `--include-archive` applies the sa
 | `relates` | **Semantic, non-blocking** linkage (`blocks`, `related`, `duplicates`, `absorbs`, `fixes`, `extends`, `supersedes`) | `cleo relates add <from> <to> <type> <reason>` |
 
 **Rule:** `relates` never blocks; `blocked-by` takes a reason, not a task ID. Details: `ct-cleo` → "Task Relationship Systems".
+
+**Ranking inputs (D11161):** agents may change `priority`, `severity`, `kind` and `depends` directly. Every change records actor, session, reason and before/after. Say why with `cleo update <id> --priority high --reason "<why>"`. `cleo history ranking <id>` shows who changed what; `cleo history revert <entryId>` undoes one change.
 <!-- /CLEO-INJECTION:section=task-relationships -->
 
 <!-- CLEO-INJECTION:section=memory -->
@@ -299,7 +301,7 @@ All overrides append a line to `.cleo/audit/force-bypass.jsonl`. Use sparingly.
 
 `pr:` proves merge provenance, not completion. CLEO checks actual `mergeCommit`, task linkage and changed files; incomplete inventories or unavailable merge artifacts remain unverified. Fetch the merge commit before `files:` evidence. Task `files` must intersect its diff; prose mentions cannot establish scope. Explicit research/spike and documentation scope retain documentary evidence.
 
-A task PR merged into an integration branch is a component: `pr:<component>@<integration>` (and `ci:<component>@<integration>`) takes the merge commit and CI from the integration PR that landed it, and the task linkage and changed files from the component PR — only its files that survive the integration merge, never the whole integration diff (T12671). `cleo done` derives this from either PR number.
+A task PR merged into an integration branch is a component: `pr:<component>@<integration>` (and `ci:<component>@<integration>`) takes the merge commit and CI from the integration PR that landed it, and the task linkage and changed files from the component PR — only its files that survive the integration merge, never the whole integration diff (T12671). `cleo done` derives this from either PR number. A file a later change also edited still counts while the component's own hunks apply to the landed version. A component that only deleted files implements with `pr:<component>@<integration>;note:<deleted paths>`, because a deletion has no bytes for `files:`.
 
 Required checks: explicit configuration or target repository protection. `release.prRequiredWorkflows: []` requires no checks; it proves neither testing nor review. `.cleo/cache/evidence/pr-<num>.json` retains provenance and changed files; obsolete versions reject. Use `tool:test` or `test-run:<json>` plus appropriate QA tools, linking each result to verified criteria.
 <!-- /CLEO-INJECTION:section=evidence -->

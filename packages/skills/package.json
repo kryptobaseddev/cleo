@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/skills",
-  "version": "2026.9.21",
+  "version": "2026.9.23",
   "description": "CLEO skill definitions - bundled with CLEO monorepo",
   "main": "index.js",
   "types": "index.d.ts",
@@ -9,7 +9,9 @@
     "profiles",
     "*.json",
     "*.js",
-    "*.d.ts"
+    "*.d.ts",
+    "*.mjs",
+    "*.d.mts"
   ],
   "scripts": {
     "validate:ops": "tsx scripts/validate-operations.ts",

@@ -17,6 +17,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type {
   KnowledgeCoverage,
+  ScoreTaskContext,
   Session,
   SessionHandoffShowParams,
   Task,
@@ -26,6 +27,8 @@ import { CleoError } from '../errors.js';
 import { assessKnowledgeCoverage } from '../nexus/knowledge.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { insertHandoffEntry } from '../store/session-store.js';
+import { rankTasks } from '../task-tools/score-task-priority.js';
+import { loadRankingContext } from '../tasks/task-next.js';
 import { getDecisionLog } from './decisions.js';
 
 const execFileAsync = promisify(execFile);
@@ -127,7 +130,11 @@ export async function computeHandoff(
     tasksCompleted: session.tasksCompleted ?? [],
     tasksCreated: session.tasksCreated ?? [],
     decisionsRecorded: decisions.length,
-    nextSuggested: computeNextSuggested(session, tasks),
+    nextSuggested: computeNextSuggested(
+      session,
+      tasks,
+      (await loadRankingContext(accessor, tasks)).ctx,
+    ),
     openBlockers: findOpenBlockers(tasks, session),
     openBugs: findOpenBugs(tasks, session),
     // GH #1277 — emitted unconditionally. `null` is a recorded answer; an
@@ -143,10 +150,14 @@ export async function computeHandoff(
 }
 
 /**
- * Compute top-3 next suggested tasks.
- * Prioritizes uncompleted tasks within the session scope.
+ * Compute top-3 next suggested tasks: uncompleted tasks within the session
+ * scope, in THE comparator's order (D11161, T12692).
  */
-function computeNextSuggested(session: Session, tasks: Task[]): string[] {
+function computeNextSuggested(
+  session: Session,
+  tasks: Task[],
+  ranking: ScoreTaskContext,
+): string[] {
   // Filter to tasks in scope
   const scopeTaskIds = getScopeTaskIds(session, tasks);
 
@@ -159,23 +170,11 @@ function computeNextSuggested(session: Session, tasks: Task[]): string[] {
       t.status !== 'cancelled',
   );
 
-  // Sort by priority and created date
-  const priorityOrder: Record<string, number> = {
-    critical: 0,
-    high: 1,
-    medium: 2,
-    low: 3,
-  };
-
-  pendingTasks.sort((a, b) => {
-    const priorityDiff =
-      (priorityOrder[a.priority ?? 'medium'] ?? 99) - (priorityOrder[b.priority ?? 'medium'] ?? 99);
-    if (priorityDiff !== 0) return priorityDiff;
-    return (a.createdAt ?? '').localeCompare(b.createdAt ?? '');
-  });
+  // T12692: THE comparator (D11161) — band, severity, tiebreak, createdAt, id.
+  const ranked = rankTasks(pendingTasks, ranking).map((r) => r.task);
 
   // Take top 3
-  return pendingTasks.slice(0, 3).map((t) => t.id);
+  return ranked.slice(0, 3).map((t) => t.id);
 }
 
 /**

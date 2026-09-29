@@ -69,6 +69,7 @@ import {
 } from './resolve-migrations-folder.js';
 import { prepareRowIdentity } from './row-identity.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
+import { explainSchemaWriteDenial, installSchemaWriteGuard } from './worktree-build-guard.js';
 import { assertStorePathIsNotWorktreeResident } from './worktree-isolation-guard.js';
 import {
   makeWriterLeaseIdentity,
@@ -548,6 +549,9 @@ async function openDedicatedDualScopeDb(
   try {
     // T11829: bound per-connection memory for one-shot/CLI opens (full SSoT for daemon).
     applyPerfPragmas(nativeDb, memoryBoundedPragmaOverrides());
+    // T12687: a worktree build may not change a foreign store's schema — deny
+    // every DDL on this handle before any schema code runs.
+    installSchemaWriteGuard(nativeDb);
 
     const drizzle = getDrizzle();
     // biome-ignore lint/suspicious/noExplicitAny: dual-scope handle is untyped at construction; typed via DualScopeDbHandle<TScope>
@@ -618,12 +622,14 @@ async function openDedicatedDualScopeDb(
   } catch (err) {
     // Close the native handle on any failure after construction to avoid
     // leaking a file descriptor. The primary error is rethrown unchanged.
+    // T12687: name the cause of a denied schema change (worktree build).
+    const explained = explainSchemaWriteDenial(nativeDb, err);
     try {
       nativeDb.close();
     } catch {
       // Already closed or never opened — safe to ignore.
     }
-    throw err;
+    throw explained;
   }
 }
 
@@ -833,6 +839,9 @@ export async function openDualScopeDbAtPath(
       // Apply canonical pragma set (specs/sqlite-pragmas.json SSoT), bounding
       // per-connection memory for one-shot/CLI opens (full SSoT for daemon) — T11829.
       applyPerfPragmas(nativeDb, memoryBoundedPragmaOverrides());
+      // T12687: a worktree build may not change a foreign store's schema — deny
+      // every DDL on this handle before any schema code runs.
+      installSchemaWriteGuard(nativeDb);
 
       // Create the Drizzle ORM wrapper.
       const drizzle = getDrizzle();
@@ -1071,12 +1080,14 @@ export async function openDualScopeDbAtPath(
     } catch (err) {
       // Only the unpublished connection belongs exclusively to this initializer.
       // Published handles may already be in use by another caller.
+      // T12687: name the cause of a denied schema change (worktree build).
+      const explained = openingNative ? explainSchemaWriteDenial(openingNative, err) : err;
       try {
         if (!published && openingNative?.isOpen) openingNative.close();
       } catch (closeError) {
         log.warn({ closeError }, 'failed to close unpublished database initializer');
       }
-      initReject!(err);
+      initReject!(explained);
     }
   })();
 

@@ -23,6 +23,7 @@ import path from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import type { PortablePathFinding, PortableRelocationReport } from '@cleocode/contracts';
 import { isAbsolutePath } from '@cleocode/paths';
+import { installSchemaWriteGuard } from './worktree-build-guard.js';
 
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
@@ -211,6 +212,7 @@ export function relocateDatabase(
     if (!isUnderRoot(next, destCleo) && !fs.existsSync(next)) missing.add(location, next);
   };
   const db = new DatabaseSync(dbPath);
+  installSchemaWriteGuard(db); // T12687
   try {
     const tables = db
       .prepare(

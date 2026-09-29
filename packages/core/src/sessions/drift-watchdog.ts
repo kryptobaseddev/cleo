@@ -20,11 +20,10 @@
 import { spawn } from 'node:child_process';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, isAbsolute, join, normalize, relative, sep } from 'node:path';
-import type { Session, Task } from '@cleocode/contracts';
+import type { Task } from '@cleocode/contracts';
 import { getCleoHome } from '@cleocode/paths';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { resolveBoundSession } from '../store/session-store.js';
-import { readFocusState } from './focus-state-store.js';
+import { readLiveFocus, resolveFocusSessionId } from './focus-state-store.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -180,16 +179,6 @@ function normalizeForCompare(path: string, projectRoot: string): string {
 }
 
 /**
- * Resolve the active-task ID for the given session, falling back to the
- * accessor's `focus_state.currentTask` (matching `getContextDrift`'s
- * behaviour) when the session has no task currently bound.
- */
-function resolveActiveTaskId(session: Session | null, focusTask: string | null): string | null {
-  if (session?.taskWork?.taskId) return session.taskWork.taskId;
-  return focusTask;
-}
-
-/**
  * Return the audit-log path for the requested scope.
  * - `local` → `<projectRoot>/.cleo/audit/session-drift.jsonl`
  * - `global` → `<cleoHome>/audit/session-drift.jsonl`
@@ -263,9 +252,13 @@ export async function detectSessionDrift(opts: DetectSessionDriftOptions): Promi
   // current task, not whichever session last touched the DB.
   // T12500: BOUND session only — the report is written to an audit log, so an
   // unbound caller records `sessionId: null` rather than a guessed session.
-  const session = (await resolveBoundSession(projectRoot))?.session ?? null;
-  const focus = await readFocusState(accessor, session?.id ?? null);
-  const activeTaskId = resolveActiveTaskId(session, focus?.currentTask ?? null);
+  // T12501: THE focus-key rule — the same bound tiers, resolved once.
+  const sessionId = await resolveFocusSessionId(projectRoot);
+  // T12684: drift is watched only for a task still being worked. T12501: the
+  // live focus only — the session row's `taskWork` is set at start/spawn,
+  // never updated, and skips the done-task filter.
+  const focus = await readLiveFocus(accessor, sessionId);
+  const activeTaskId = focus.currentTask;
 
   // Always read the modified-files set so a no-task report still reflects
   // ground truth (callers display these even when there is no focus).
@@ -275,7 +268,7 @@ export async function detectSessionDrift(opts: DetectSessionDriftOptions): Promi
   // No active task → no scope to diff against → no drift by definition.
   if (!activeTaskId) {
     return {
-      sessionId: session?.id ?? null,
+      sessionId,
       activeTaskId: null,
       declaredFiles: [],
       modifiedFiles,
@@ -318,7 +311,7 @@ export async function detectSessionDrift(opts: DetectSessionDriftOptions): Promi
     const auditPath = auditPathOverride ?? resolveDriftAuditPath(projectRoot, auditScope);
     const entry: DriftAuditEntry = {
       timestamp: new Date().toISOString(),
-      sessionId: session?.id ?? null,
+      sessionId,
       activeTaskId,
       declaredFiles,
       modifiedFiles,
@@ -330,7 +323,7 @@ export async function detectSessionDrift(opts: DetectSessionDriftOptions): Promi
   }
 
   return {
-    sessionId: session?.id ?? null,
+    sessionId,
     activeTaskId,
     declaredFiles,
     modifiedFiles,

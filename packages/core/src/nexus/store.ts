@@ -21,6 +21,7 @@
  */
 
 import { DatabaseSync } from 'node:sqlite';
+import { installSchemaWriteGuard } from '../store/worktree-build-guard.js';
 
 // ---------------------------------------------------------------------------
 // LRU node
@@ -73,6 +74,7 @@ export class NexusHandlePool {
     }
 
     const db = new DatabaseSync(dbPath, { open: true }); // db-open-allowed: nexus graph files are per-project read/write stores, not CLEO metadata DBs
+    installSchemaWriteGuard(db); // T12687
     const node: LruNode = { key: dbPath, db, prev: null, next: null };
     this.insertHead(node);
     this.map.set(dbPath, node);

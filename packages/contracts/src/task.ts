@@ -187,6 +187,14 @@ export interface CriterionEvidenceLink {
   artifactPaths: string[];
   /** Indices of actual validated result atoms in the containing gate's atoms array. */
   resultAtomIndices: number[];
+  /**
+   * How the `implemented` link is supported (T12689): `files` when a path the
+   * criterion names is among the inspected artifacts; `self-attested` when the
+   * criterion names no path in them, so the link rests on the agent's claim.
+   * Paths parsed from criterion text are advisory (T12118), so this flags
+   * rather than refuses. Absent on other gates and on older receipts.
+   */
+  basis?: 'files' | 'self-attested';
 }
 
 /** Verification failure log entry. */
@@ -390,6 +398,12 @@ export type EvidenceAtom =
        * (T12671): the task is linked through it and its files are the change.
        */
       componentPrNumber?: number;
+      /**
+       * Paths the (component) PR deleted that stay deleted in the landing
+       * commit (T12689). A deletion has no bytes to hash, so a PR whose every
+       * change is a deletion implements with `pr:` + `note:` instead of `files:`.
+       */
+      deletedPaths?: string[];
     }
   | {
       /**
@@ -709,8 +723,21 @@ export interface Task {
    */
   pipelineStage?: string | null;
 
-  /** Agent ID that has claimed/is assigned to this task. Null when unclaimed. @defaultValue undefined */
+  /**
+   * First-class human / owner assignee (`cleo assignee`, Studio boards).
+   * Separate from the agent work lease in {@link Task.claim}: `cleo start`,
+   * `cleo claim` and spawn never write it (T12502). @defaultValue undefined
+   */
   assignee?: string | null;
+
+  /**
+   * The agent work lease held on this task, when one is recorded (T12502).
+   * Absent when the task is unclaimed. Distinct from the human
+   * {@link Task.assignee}. Read-only on the task object: full-row writes
+   * never carry it, only the claim chokepoint changes it.
+   * @defaultValue undefined
+   */
+  claim?: TaskClaim;
 
   /**
    * Abort reason when a worker was stopped due to runaway detection (T1658).
@@ -1005,4 +1032,27 @@ export interface TaskWorkState {
   nextAction?: string | null;
   /** ID of the primary session managing this work state. @defaultValue undefined */
   primarySession?: string | null;
+}
+
+/**
+ * A leased agent claim on a task (T12502 · epic T12497).
+ *
+ * Taken by `cleo start`, `cleo claim` and spawn with a compare-and-set in the
+ * same write transaction; renewed by the holder session's activity or
+ * `cleo claim <id> --renew`; released by `cleo stop`, completion,
+ * cancellation, archive and the holder session ending. A claim whose
+ * `leaseExpiresAt` has passed stays recorded until another session takes it
+ * over explicitly (`--take-over`, audited).
+ *
+ * @task T12502
+ */
+export interface TaskClaim {
+  /** Session holding the lease. */
+  sessionId: string;
+  /** Agent identity of the holder (`CLEO_AGENT_ID` / spawn handle), or `null`. */
+  agentId: string | null;
+  /** ISO-8601 UTC instant the lease was taken. */
+  claimedAt: string;
+  /** ISO-8601 UTC instant the lease lapses unless renewed. */
+  leaseExpiresAt: string;
 }

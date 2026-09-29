@@ -55,6 +55,8 @@ import {
   relocateProjectFiles,
 } from './portable-bundle-relocate.js';
 import { countRows, integrityCheck, KEY_COUNT_TABLES, sha256File } from './portable-bundle-scan.js';
+import { installSchemaWriteGuard } from './worktree-build-guard.js';
+import { assertOwnerStoreRewriteConfirmed } from './worktree-isolation-guard.js';
 
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
@@ -86,6 +88,14 @@ export interface ImportPortableBundleInput {
   configHome?: string;
   /** Overwrite existing live data. */
   force?: boolean;
+  /**
+   * Directory the import was invoked from (T12708); supplied by the CLI layer.
+   * A project section placed into the owning project's store from one of its
+   * worktrees needs {@link ImportPortableBundleInput.confirmOwnerStore}.
+   */
+  cwd: string;
+  /** Confirm overwriting the owning project's LIVE store from a worktree (T12708). */
+  confirmOwnerStore?: boolean;
   /**
    * Throw `E_RESTORE_MISMATCH` (carrying the full report) when any restored
    * table count differs from the manifest, instead of returning `lossless: false`.
@@ -333,6 +343,7 @@ function relocateRegistryRows(
 ): Map<string, NonNullable<PortableImportSectionResult['registry']>> {
   const outcomes = new Map<string, NonNullable<PortableImportSectionResult['registry']>>();
   const db = new DatabaseSync(stagedGlobalDb);
+  installSchemaWriteGuard(db); // T12687
   try {
     for (const move of moves) {
       if (move.from === move.to) {
@@ -590,6 +601,14 @@ export async function importPortableBundle(
     // ----- 3. plan + pre-check -------------------------------------------
     const plans = planPlacements(manifest, input, cleoHome, configHome);
     if (input.force !== true) assertNoLiveData(plans);
+    // T12708: placing a project section replaces that project's whole store.
+    for (const plan of plans) {
+      if (plan.kind !== 'project') continue;
+      assertOwnerStoreRewriteConfirmed('backup import', plan.destDir, {
+        cwd: input.cwd,
+        confirmOwnerStore: input.confirmOwnerStore,
+      });
+    }
 
     // ----- 4. relocate staged copies -------------------------------------
     const relocations = new Map<Placement, PortableRelocationReport>();

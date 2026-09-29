@@ -22,6 +22,7 @@ import { acceptanceItemSchema } from '@cleocode/contracts';
 import { z } from 'zod';
 import { safeParseJson, safeParseJsonArray } from './parsers.js';
 import type { SessionStatus } from './status-registry.js';
+import { claimFromColumns } from './task-claim.js';
 import type { NewTaskRow, SessionRow, TaskRow } from './tasks-schema.js';
 
 // Validate with the canonical stored union, but retain the original values.
@@ -39,6 +40,12 @@ function readStoredAcceptance(row: TaskRow): Task['acceptance'] {
   } catch (cause) {
     throw new Error(`Invalid stored acceptance for task ${row.id}`, { cause });
   }
+}
+
+/** The `claim` entry of a task record: `{ claim }` when leased, else `{}` (T12502). */
+function claimEntry(row: TaskRow): Pick<Task, 'claim'> {
+  const claim = claimFromColumns(row);
+  return claim ? { claim } : {};
 }
 
 /** Convert a database TaskRow to a domain Task object. */
@@ -81,6 +88,9 @@ export function rowToTask(row: TaskRow): Task {
         : undefined,
     pipelineStage: row.pipelineStage ?? undefined,
     assignee: row.assignee ?? undefined,
+    // T12502: the agent claim lease — read-only here; taskToRow never writes it.
+    // Present only when claimed, so an unclaimed task record is unchanged.
+    ...claimEntry(row),
     // T944/T9072: orthogonal axes — kind (intent, DB col 'role') and scope (granularity)
     kind: (row.kind as TaskKind) ?? undefined,
     scope: (row.scope as TaskScope) ?? undefined,
@@ -178,6 +188,8 @@ export function rowToSession(row: SessionRow): Session {
     nextSessionId: row.nextSessionId ?? null,
     // Fork-tree parent edge (T11639)
     parentSessionId: row.parentSessionId ?? null,
+    // Trusted spawn edge (T12502) — read-only: upsertSession never writes it.
+    spawnedBySessionId: row.spawnedBySessionId ?? null,
     agentIdentifier: row.agentIdentifier ?? null,
     handoffConsumedAt: row.handoffConsumedAt ?? null,
     handoffConsumedBy: row.handoffConsumedBy ?? null,

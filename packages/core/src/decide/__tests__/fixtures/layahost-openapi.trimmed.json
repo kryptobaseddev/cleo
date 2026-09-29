@@ -1,0 +1,426 @@
+{
+  "_comment": "Trimmed from layahost openapi.json (info.version 1.0.0, saved 2026-09-28) for T12664 wire tests. Only the paths and schemas the Jev adapter uses. Do not hand-edit shapes: re-trim from the provider spec.",
+  "openapi": "3.1.0",
+  "info": {
+    "title": "layahost API",
+    "version": "1.0.0",
+    "summary": "Typed decisions (choice, yes/no, score) on the open Laya model. Jev-compatible.",
+    "description": "Ask a question about a text and get a typed answer with probabilities. One answered question is one billed decision. Docs: https://layahost.com/docs. Unofficial; not affiliated with Convai Innovations or TypeSafe AI.",
+    "contact": {
+      "email": "support@layahost.com",
+      "url": "https://layahost.com"
+    },
+    "termsOfService": "https://layahost.com/terms"
+  },
+  "paths": {
+    "/v1/systemone": {
+      "post": {
+        "operationId": "systemOne",
+        "summary": "System one (Jev)",
+        "description": "Jev-compatible: several typed questions about one state. Billed per question.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SystemOneRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Answers keyed by question id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemOneResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "402": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/systemone/batch": {
+      "post": {
+        "operationId": "systemOneBatch",
+        "summary": "System one in batch",
+        "description": "Up to 64 Jev requests (256 questions in total), answered in order.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "requests"
+                ],
+                "properties": {
+                  "requests": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/SystemOneRequest"
+                    },
+                    "minItems": 1,
+                    "maxItems": 64
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "One response per request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "responses": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "index": {
+                            "type": "integer"
+                          },
+                          "status": {
+                            "type": "integer"
+                          },
+                          "body": {
+                            "$ref": "#/components/schemas/SystemOneResponse"
+                          }
+                        }
+                      }
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "402": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/templates": {
+      "get": {
+        "operationId": "listTemplates",
+        "summary": "List templates",
+        "description": "Ready-made decisions for /v1/decide. Free.",
+        "responses": {
+          "200": {
+            "description": "Templates.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "templates": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "template": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "choice",
+                              "yes_no",
+                              "score"
+                            ]
+                          },
+                          "options": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "example": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/usage": {
+      "get": {
+        "operationId": "getUsage",
+        "summary": "Get usage",
+        "description": "Balance, plan and daily usage of the account. Free.",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 90,
+              "default": 30
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Usage.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/models": {
+      "get": {
+        "operationId": "listModels",
+        "summary": "List models",
+        "description": "Models this key may use: built-in, public fine-tuned and the account's private models. Free.",
+        "responses": {
+          "200": {
+            "description": "Models.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "models": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          },
+                          "release_date": {
+                            "type": "string"
+                          },
+                          "custom": {
+                            "type": "boolean"
+                          },
+                          "private": {
+                            "type": "boolean"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "SystemOneRequest": {
+        "type": "object",
+        "required": [
+          "state",
+          "model",
+          "questions"
+        ],
+        "properties": {
+          "state": {
+            "description": "Text, or any JSON (object or list)."
+          },
+          "model": {
+            "type": "string",
+            "description": "laya-auto, laya-english, laya-multilingual, a fine-tuned model, or a Jev name (jev-latest maps to laya-auto)."
+          },
+          "questions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "required": [
+                "type"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "choice",
+                    "noul",
+                    "score"
+                  ]
+                },
+                "instructions": {
+                  "description": "The question."
+                },
+                "criteria": {
+                  "description": "choice: {option: description|null}; score: [level, ...] lowest first; noul: {\"true\": ..., \"false\": ...} (optional)."
+                }
+              }
+            }
+          },
+          "lang": {
+            "type": "string"
+          },
+          "cache": {
+            "type": "boolean",
+            "default": true
+          }
+        }
+      },
+      "SystemOneResponse": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "answers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string"
+                },
+                "choice": {
+                  "type": "string"
+                },
+                "noul": {
+                  "type": "number"
+                },
+                "score": {
+                  "type": "number"
+                },
+                "confidence": {
+                  "type": "number"
+                },
+                "probabilities": {
+                  "type": "object"
+                },
+                "legend": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "usage": {
+            "type": "object",
+            "properties": {
+              "input_tokens": {
+                "type": "integer"
+              },
+              "output_tokens": {
+                "type": "integer"
+              }
+            }
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "checkpoint": {
+                "type": "string"
+              },
+              "cached": {
+                "type": "boolean"
+              },
+              "latency_ms": {
+                "type": "number"
+              },
+              "request_id": {
+                "type": "string"
+              },
+              "decisions": {
+                "type": "integer"
+              },
+              "cost_micros": {
+                "type": "integer"
+              },
+              "cost_usd": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "Error": {
+        "description": "Jev-style error: {\"detail\": {\"error_type\", \"message\"}}, or for 422 a list of {\"loc\", \"msg\", \"type\"}.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "detail": {
+                  "description": "An object, or a list for validation errors."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

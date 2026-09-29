@@ -168,8 +168,6 @@ export const ROW_IDENTITY_PENDING_REASONS: Readonly<Record<string, string>> = {
   brain_sticky_tags:
     'twin-collapse slice 1 table: the degraded-mode TEMP shadow tables in store/twin-collapse.ts declare its columns and must carry uid first; that file is being edited by slice 2 (T12535)',
   brain_sticky_notes: 'parent of brain_sticky_tags; declared together with it (same reason)',
-  attachments: 'bare twin still live; twin-collapse slice 2 (T12535) is in flight',
-  attachment_refs: 'bare twin still live; twin-collapse slice 2 (T12535) is in flight',
 };
 
 /**

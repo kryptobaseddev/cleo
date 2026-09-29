@@ -114,6 +114,7 @@ describe('WizardRunner — registration + dispatch', () => {
     const runner = new WizardRunner(sections);
     expect(runner.list().map((s) => s.section)).toEqual([
       'llm',
+      'system-one',
       'models-roles',
       'identity',
       'sentient',
@@ -121,6 +122,7 @@ describe('WizardRunner — registration + dispatch', () => {
       'harness',
       'brain',
       'integrations',
+      'nexus-account',
       'telemetry',
       'verification',
     ]);

@@ -21,9 +21,10 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { inspect } from 'node:util';
-import type { DecisionRequest } from '@cleocode/contracts';
+import { type DecisionRequest, LAYAHOST_BASE_URL } from '@cleocode/contracts';
 import { _resetCleoPlatformPathsCache } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import { createMemoryTokenBucket } from '../budget.js';
 import { _resetDecideDefaultsForTest, decide } from '../client.js';
 import {
@@ -112,6 +113,7 @@ describe('decide credential store', () => {
       expect(s).not.toContain('SECRETVALUE');
     }
     expect(JSON.parse(JSON.stringify(sealed))).toEqual({
+      provider: 'jev',
       baseUrl: URL,
       model: 'm-1',
       keyPreview: '…7890',
@@ -147,6 +149,54 @@ describe('decide credential store', () => {
       : [];
     expect(left).toEqual([]);
     expect(await clearDecideCredentials()).toBe(false);
+  });
+
+  it('T12713: a file without provider infers the kind from its base URL', async () => {
+    const { writeFileSync } = await import('node:fs');
+    writeFileSync(
+      decideCredentialsPath(),
+      JSON.stringify({ version: 1, baseUrl: URL, apiKey: KEY, model: 'm-1' }),
+      { mode: 0o600 },
+    );
+    const sealed = loadDecideConnection();
+    expect(sealed?.provider).toBe('jev');
+    expect(sealed?.connection()).toEqual({ baseUrl: URL, apiKey: KEY, model: 'm-1' });
+    expect(describeDecideCredentials()).toMatchObject({ configured: true, provider: 'jev' });
+
+    // A provider-less file pointing at the layahost origin is layahost, not jev.
+    writeFileSync(
+      decideCredentialsPath(),
+      JSON.stringify({ version: 1, baseUrl: LAYAHOST_BASE_URL, apiKey: KEY }),
+      { mode: 0o600 },
+    );
+    expect(loadDecideConnection()?.provider).toBe('layahost');
+    expect(describeDecideCredentials()).toMatchObject({ configured: true, provider: 'layahost' });
+  });
+
+  it('T12713: writes schema version 1, which the released (pre-provider) schema still parses', async () => {
+    await saveDecideCredentials({ provider: 'layahost', baseUrl: URL, apiKey: KEY, model: 'm-1' });
+    const onDisk: unknown = JSON.parse(readFileSync(decideCredentialsPath(), 'utf-8'));
+    expect(onDisk).toMatchObject({ version: 1, provider: 'layahost', baseUrl: URL });
+    expect(mode(decideCredentialsPath())).toBe(0o600);
+    expect(loadDecideConnection()?.provider).toBe('layahost');
+
+    // Verbatim copy of the store schema released in v2026.9.21 (origin/main,
+    // before T12713). A downgraded CLEO must still read the file.
+    const releasedSchema = z.object({
+      version: z.literal(1),
+      baseUrl: z.string().nullable(),
+      apiKey: z.string().nullable(),
+      model: z.string().nullable().optional(),
+      updatedAt: z.string().optional(),
+    });
+    const parsed = releasedSchema.safeParse(onDisk);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data).toMatchObject({ baseUrl: URL, model: 'm-1' });
+
+    // A cleared store parses under the released schema too.
+    await clearDecideCredentials();
+    const cleared: unknown = JSON.parse(readFileSync(decideCredentialsPath(), 'utf-8'));
+    expect(releasedSchema.safeParse(cleared).success).toBe(true);
   });
 
   it('treats a missing or malformed file as unconfigured', async () => {

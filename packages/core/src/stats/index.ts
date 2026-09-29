@@ -9,6 +9,7 @@ import { ARCHIVE_REASON_TOMBSTONE, ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { resolveOrCwd } from '../paths.js';
 import { getProjectInfoSync } from '../project-info.js';
+import { readLiveFocus, resolveFocusSessionId } from '../sessions/focus-state-store.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 
@@ -316,8 +317,8 @@ export async function getDashboard(
   const project = resolvedName ?? 'Unknown Project';
   const currentPhase = meta?.currentPhase ?? legacyMeta?.currentPhase ?? null;
 
-  const focus = await acc.getMetaValue<import('@cleocode/contracts').TaskWorkState>('focus_state');
-  const focusId = focus?.currentTask ?? null;
+  // T12684: the caller's live focus — a finished task is not "in focus".
+  const focusId = (await readLiveFocus(acc, await resolveFocusSessionId(opts.cwd))).currentTask;
   let focusTask: Task | null = null;
   if (focusId) {
     focusTask = tasks.find((t) => t.id === focusId) ?? null;

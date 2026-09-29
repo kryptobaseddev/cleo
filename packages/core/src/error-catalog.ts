@@ -356,7 +356,7 @@ export const ERROR_CATALOG: ReadonlyMap<number, ErrorDefinition> = new Map<numbe
         428,
         true,
         'E_SESSION_UNBOUND',
-        "Bind a session: run 'cleo session start --scope <scope> --name <name>', 'cleo session resume <id>', or set CLEO_SESSION_ID=<id>.",
+        "Bind a session: run 'cleo session start --scope global --name \"<name>\"', 'cleo session resume <id>', or set CLEO_SESSION_ID=<id>.",
       ),
     ],
     [
@@ -458,7 +458,7 @@ export const ERROR_CATALOG: ReadonlyMap<number, ErrorDefinition> = new Map<numbe
         'Task claimed by another session',
         409,
         false,
-        'E_CLEO_TASK_CLAIMED',
+        'E_TASK_CLAIMED',
       ),
     ],
     [

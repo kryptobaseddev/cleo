@@ -70,7 +70,7 @@ template=$(ti_load_template "skills/ct-research-agent/SKILL.md")
 
 | Token | Default Value |
 |-------|---------------|
-| `{{OUTPUT_DIR}}` | `.cleo/agent-outputs` |
+| `{{OUTPUT_DIR}}` | `.cleo/agent-outputs` (legacy token — do not write there; record output with `cleo docs add`) |
 
 
 ### Task Context Tokens (populated from CLEO task data)
@@ -113,7 +113,7 @@ For fine-grained control over token injection, use `lib/token-inject.sh` directl
 |----------|--------|--------|
 | **Required** | `{{TASK_ID}}`, `{{DATE}}`, `{{TOPIC_SLUG}}` | Must be set before injection |
 | **Task Commands** | `{{TASK_SHOW_CMD}}`, `{{TASK_START_CMD}}`, `{{TASK_COMPLETE_CMD}}`, etc. | CLEO defaults |
-| **Output Paths** | `{{OUTPUT_DIR}}` | CLEO defaults (manifest entries go through `cleo manifest append`) |
+| **Output Paths** | `{{OUTPUT_DIR}}` | Legacy CLEO default — record output with `cleo docs add` and manifest entries with `cleo manifest append` |
 | **Task Context** | `{{TASK_TITLE}}`, `{{TASK_DESCRIPTION}}`, `{{DEPENDS_LIST}}`, etc. | From CLEO task data |
 | **Manifest Context** | `{{MANIFEST_SUMMARIES}}` | From recent pipeline_manifest entries |
 
@@ -155,7 +155,7 @@ echo "$template" | grep -c '{{' && echo "WARNING: Uninjected tokens remain"
 ## Subagent Protocol Tokens
 
 Token defaults (from `skills/_shared/placeholders.json`):
-- `{{OUTPUT_DIR}}` -> `.cleo/agent-outputs`
+- `{{OUTPUT_DIR}}` -> `.cleo/agent-outputs` (legacy token — record output with `cleo docs add`, never raw writes there)
 - The flat manifest path token is retired (ADR-027) — use `cleo manifest append`
 
 ### Inline Protocol Block (when CLI unavailable)
@@ -164,7 +164,7 @@ Token defaults (from `skills/_shared/placeholders.json`):
 ## SUBAGENT PROTOCOL (RFC 2119 - MANDATORY)
 
 OUTPUT REQUIREMENTS:
-1. MUST write findings to: {{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md
+1. MUST record findings with `cleo docs add {{TASK_ID}} --content - --type <kind> --slug {{TOPIC_SLUG}}` (never a raw file under `.cleo/agent-outputs/`)
 2. MUST append ONE entry via `cleo manifest append --entry '<json>'` (writes to pipeline_manifest table per ADR-027/T1093)
 3. MUST return ONLY: "Research complete. Manifest appended to pipeline_manifest."
 4. MUST NOT return research content in response.

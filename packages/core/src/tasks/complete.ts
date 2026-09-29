@@ -43,6 +43,7 @@ import { createOperationExecutionContext, trackBackgroundOp } from '../store/bac
 import type { DataAccessor, TransactionAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { resolveBoundSessionId } from '../store/session-store.js';
+import { assertTaskVersion, nextTaskVersion, taskVersion } from '../store/task-version.js';
 import {
   appendAcCoverageForceBypass,
   appendAcWaiverAudit,
@@ -137,6 +138,16 @@ export interface CompleteTaskOptions {
    * @task T11954 (DHQ-071)
    */
   waiveDependsReason?: string;
+  /**
+   * Optimistic-concurrency guard: the task version (`updatedAt`) the caller
+   * read. It is compared with the stored row inside the completion's write
+   * transaction; a mismatch fails with `E_CONFLICT`. When omitted, the version
+   * this call read first is the expectation, so a completion never overwrites
+   * an edit committed after that read.
+   *
+   * @task T12503
+   */
+  expectedUpdatedAt?: string;
 }
 
 /**
@@ -918,6 +929,19 @@ export async function completeTask(
         // Gate status does not establish which criteria were proved. Require
         // explicit bindings; retain historical auto-coverage rows as history.
         const current = await acc.loadSingleTask(options.taskId);
+        // T12503 — optimistic concurrency. This read holds the write lock, and
+        // the row written below was built from the read before it. Refuse the
+        // write unless BOTH the caller's expected version (--if-match) and the
+        // version of that earlier read still equal the stored one: a matching
+        // --if-match alone would let a row built from an older read clobber
+        // the edit the caller saw.
+        if (!current) {
+          throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${options.taskId}`, {
+            fix: `Use 'cleo find "${options.taskId}"' to search`,
+          });
+        }
+        assertTaskVersion(options.taskId, current, options.expectedUpdatedAt, initialTask);
+        assertTaskVersion(options.taskId, current, taskVersion(initialTask), initialTask);
         const currentCriteria = await tx.getAcRows(options.taskId);
         if (
           (initialTask.acceptance ?? []).some((item) => typeof item !== 'string') ||
@@ -963,7 +987,7 @@ export async function completeTask(
         // Update task
         task.status = 'done';
         task.completedAt = now;
-        task.updatedAt = now;
+        task.updatedAt = nextTaskVersion(current, now);
 
         if (options.notes) {
           const timestampedNote = `${new Date()
@@ -1461,9 +1485,56 @@ interface CompleteEngineSuccess {
    * @task T9548
    */
   worktreeAutoComplete?: AutoCompleteWorktreeResult;
+  /**
+   * `true` when the completed task was a focus pointer (the caller's session
+   * key or the legacy global key) and that pointer was cleared (T12660).
+   */
+  focusCleared?: boolean;
+  /** Next ready task, reported alongside a cleared focus (null when none). */
+  nextSuggested?: { id: string; title: string } | null;
 }
 
 type CompleteEngineResult = EngineResult<CompleteEngineSuccess>;
+
+/**
+ * Clear every focus pointer to a task that is now done — the bound session's
+ * key, the env session's key and the legacy global key — and suggest the next
+ * ready task when one was cleared (T12660). Before this, only `cleo stop` and
+ * session end cleared focus, so `cleo current` reported long-finished tasks.
+ *
+ * Best-effort: a failure here never undoes the completion.
+ *
+ * @param projectRoot - Project root.
+ * @param taskIds - The completed task and any parents auto-completed with it.
+ * @returns `focusCleared`, plus `nextSuggested` when it was.
+ */
+async function clearFinishedFocus(
+  projectRoot: string,
+  taskIds: readonly string[],
+): Promise<Pick<CompleteEngineSuccess, 'focusCleared' | 'nextSuggested'>> {
+  try {
+    const { clearFocusForFinishedTask, resolveFocusSessionId } = await import(
+      '../sessions/focus-state-store.js'
+    );
+    const accessor = await getTaskAccessor(projectRoot);
+    // T12501: the caller's focus key under THE focus-key rule (the legacy key
+    // is always swept for a stale pointer too).
+    const sessions = [await resolveFocusSessionId(projectRoot)];
+    let cleared = 0;
+    for (const taskId of taskIds)
+      cleared += (await clearFocusForFinishedTask(accessor, sessions, taskId)).length;
+    if (cleared === 0) return { focusCleared: false };
+    const { coreTaskNext } = await import('./task-next.js');
+    const top = (await coreTaskNext(projectRoot, { count: 1, brain: false })).suggestions[0];
+    return { focusCleared: true, nextSuggested: top ? { id: top.id, title: top.title } : null };
+  } catch (err) {
+    getLogger('tasks:complete').warn(
+      { taskIds, err: err instanceof Error ? err.message : String(err) },
+      '[T12660] could not clear the focus pointer to the completed task',
+    );
+    return {};
+  }
+}
 
 /**
  * Options forwarded through the EngineResult-returning wrappers.
@@ -1511,6 +1582,12 @@ export interface TaskCompleteEngineOptions {
    * @task T11954 (DHQ-071)
    */
   waiveDependsReason?: string;
+  /**
+   * Optimistic-concurrency guard (`--if-match`).
+   * @see CompleteTaskOptions.expectedUpdatedAt
+   * @task T12503
+   */
+  expectedUpdatedAt?: string;
 }
 
 /**
@@ -1547,6 +1624,7 @@ export async function taskComplete(
         waiveReason: opts.waiveReason,
         cancelledChildWaiverReason: opts.cancelledChildWaiverReason,
         waiveDependsReason: opts.waiveDependsReason,
+        expectedUpdatedAt: opts.expectedUpdatedAt,
       },
       projectRoot,
       accessor,
@@ -1563,11 +1641,16 @@ export async function taskComplete(
         knowledgeCoverage: result.knowledgeCoverage,
         alreadyDone: true,
         note: `Task ${taskId} is already done — complete was a no-op (idempotent).`,
+        // A retry still clears a pointer the timed-out run left behind.
+        ...(await clearFinishedFocus(projectRoot, [taskId])),
       });
     }
 
     // T1222 / CLEO-VALID-27: stamp modified_by + session_id on every successful completion.
     // Best-effort — failure here must not roll back the completion that already landed.
+    // T12503: the stamp advances the task version, so the returned task carries
+    // the post-stamp `updatedAt` — the value a follow-up `--if-match` needs.
+    let completedTask = result.task as TaskRecord;
     try {
       const agentId = process.env['CLEO_AGENT_ID'] ?? 'cleo';
       // T11640 — stamp the CALLER's session (connection-handle → CLEO_SESSION_ID
@@ -1578,6 +1661,8 @@ export async function taskComplete(
       // than the newest active one (another agent's).
       const sessionId = await resolveBoundSessionId(projectRoot);
       await accessor.updateTaskFields(taskId, { modifiedBy: agentId, sessionId });
+      const stamped = await accessor.loadSingleTask(taskId);
+      if (stamped?.updatedAt) completedTask = { ...completedTask, updatedAt: stamped.updatedAt };
     } catch {
       // Provenance write failure is non-fatal.
     }
@@ -1602,10 +1687,11 @@ export async function taskComplete(
 
     return engineSuccess({
       knowledgeCoverage: result.knowledgeCoverage,
-      task: result.task as TaskRecord,
+      task: completedTask,
       ...(result.autoCompleted && { autoCompleted: result.autoCompleted }),
       ...(result.unblockedTasks && { unblockedTasks: result.unblockedTasks }),
       worktreeAutoComplete,
+      ...(await clearFinishedFocus(projectRoot, [taskId, ...(result.autoCompleted ?? [])])),
     });
   } catch (err: unknown) {
     // T10538: preserve CleoError LAFS codes (E_EPIC_HAS_PENDING_CHILDREN,

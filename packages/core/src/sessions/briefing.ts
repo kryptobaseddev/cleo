@@ -26,6 +26,7 @@ import type {
   GlobalInstructionRefreshReport,
   KnowledgeCoverage,
   KnowledgeHealth,
+  KnowledgeHealthSummary,
   KnowledgeReplacement,
   RetrievalBundle,
   SessionBriefingShowParams,
@@ -42,10 +43,15 @@ import { assessKnowledgeCoverage } from '../nexus/knowledge.js';
 import { truncateString } from '../render/helpers.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { depsReady } from '../tasks/deps-ready.js';
-import { readFocusState } from './focus-state-store.js';
+import { rankReadyTasks, resolveRankingPhase } from '../tasks/task-next.js';
+import {
+  readLiveFocus,
+  resolveFocusSessionId,
+  type StaleFocusPointer,
+  staleFocusPointer,
+  staleFocusWarning,
+} from './focus-state-store.js';
 import { getLastHandoff, type HandoffData } from './handoff.js';
-import { resolveSessionIdFromEnv } from './session-id.js';
 import type { TaskWorkStateExt } from './types.js';
 
 /**
@@ -176,6 +182,12 @@ export interface LastSessionInfo {
   handoff: HandoffData;
   /** Handoff content records a previous session and is not current authority. */
   authority?: 'historical';
+  /**
+   * Live status of each `handoff.nextSuggested` id, read now rather than when
+   * the handoff was written: a done, cancelled, archived or missing id is
+   * `stale` and is not current advice (T12660).
+   */
+  nextSuggestedLive?: Array<{ id: string; status: string; stale: boolean }>;
 }
 
 /**
@@ -206,8 +218,12 @@ export interface SessionBriefing {
   instructionDelivery?: GlobalInstructionRefreshReport;
   /** Graph coverage is independent of task state and memory authority. */
   knowledgeCoverage?: KnowledgeCoverage;
-  /** Bounded automatic maintenance and repair matrix for the calling agent. */
-  knowledgeHealth?: KnowledgeHealth;
+  /**
+   * Bounded automatic maintenance and repair matrix for the calling agent.
+   * Its coverage is not repeated: `coverageRef` points at `knowledgeCoverage`
+   * (T12522).
+   */
+  knowledgeHealth?: KnowledgeHealthSummary;
   /** Accepted, currently eligible decisions, separate from historical handoffs. */
   currentGuidance?: BrainCompactHit[];
   /** Receipt-backed corrections presented separately from immutable historical handoffs. */
@@ -231,6 +247,12 @@ export interface SessionBriefing {
   urgentTasks: BriefingUrgentTask[];
   pipelineStage?: PipelineStageInfo;
   warnings?: string[];
+  /**
+   * The focus pointer, when it names a done, cancelled, archived or missing
+   * task (T12684). `currentTask` is then null; the envelope carries a
+   * `W_STALE_FOCUS` warning.
+   */
+  staleFocus?: StaleFocusPointer;
   /** Brain memory context -- decisions/patterns/observations relevant to this scope. */
   memoryContext?: SessionMemoryContext;
   /**
@@ -279,13 +301,6 @@ export interface SessionBriefing {
 /** @deprecated Use SessionBriefingShowParams from @cleocode/contracts. */
 export type BriefingOptions = SessionBriefingShowParams;
 
-const PRIORITY_SCORE: Record<string, number> = {
-  critical: 100,
-  high: 75,
-  medium: 50,
-  low: 25,
-};
-
 /**
  * Compute the complete session briefing.
  * Normalized Core signature: (projectRoot, params) → Result.
@@ -299,16 +314,20 @@ export async function computeBriefing(
   const accessor = await getTaskAccessor(projectRoot);
   const { tasks } = await accessor.queryTasks({});
   // T11345 — read the PER-SESSION focus_state for the briefing's session.
-  // Precedence: explicit params.activeSessionId (env-resolved by the engine-op)
-  // → env-first resolver → legacy global key (backward-compat fallback inside
-  // readFocusState). This scopes the "current task" line to the CALLER's agent.
-  const focusSessionId = params.activeSessionId ?? resolveSessionIdFromEnv();
-  const focus = ((await readFocusState(accessor, focusSessionId)) ?? undefined) as
-    | TaskWorkStateExt
-    | undefined;
-
+  // Precedence: an explicitly named params.activeSessionId → THE focus-key
+  // rule (T12501: the caller's bound session; the legacy key only when
+  // unbound). This scopes the "current task" line to the CALLER's agent.
+  const focusSessionId = params.activeSessionId ?? (await resolveFocusSessionId(projectRoot));
+  // T12684: the one validating focus reader — a pointer to a finished task
+  // (archived included, which the task listing below omits) comes back stale.
   // Build task map for quick lookups
   const taskMap = new Map(tasks.map((t) => [t.id, t]));
+  // T12698: reuse the loaded task map — only an unlisted (archived) pointer
+  // costs a lookup.
+  const liveFocus = await readLiveFocus(accessor, focusSessionId, taskMap);
+  const focus = (
+    liveFocus.state ? { ...liveFocus.state, currentTask: liveFocus.currentTask } : undefined
+  ) as TaskWorkStateExt | undefined;
 
   // Determine scope
   const scopeFilter = await parseScope(params.scope, accessor);
@@ -381,11 +400,12 @@ export async function computeBriefing(
   // 1. Last session handoff
   const lastSession = await computeLastSession(projectRoot, scopeFilter);
 
-  // 2. Current active task
-  const currentTaskInfo = computeCurrentTask(focus, taskMap);
+  // 2. Current active task (a stale pointer is reported as a warning below)
+  const { current: currentTaskInfo } = computeCurrentTask(focus, taskMap);
+  const staleFocus = liveFocus.staleFocus;
 
-  // 3. Next tasks (leverage-scored) — default capped at 3 (T9974)
-  const nextTasks = computeNextTasks(tasks, taskMap, focus, {
+  // 3. Next tasks — the SAME ranking as `cleo next` (T12661), capped at 3 (T9974)
+  const nextTasks = await computeNextTasks(projectRoot, accessor, tasks, {
     maxTasks: params.maxNextTasks ?? 3,
     scopeTaskIds,
   });
@@ -533,6 +553,7 @@ export async function computeBriefing(
         ...lastSession,
         handoff: cleanHandoff(lastSession.handoff),
         authority: 'historical',
+        ...liveNextSuggested(lastSession.handoff, taskMap),
       }
     : null;
 
@@ -552,6 +573,18 @@ export async function computeBriefing(
       `Project identity unavailable: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
+  if (staleFocus) {
+    const next = nextTasks[0] ? { id: nextTasks[0].id, title: nextTasks[0].title } : null;
+    warnings.push(`W_STALE_FOCUS: ${staleFocusWarning(staleFocus, next)}`);
+  }
+  const staleSuggested = cleanedLastSession?.nextSuggestedLive?.filter((entry) => entry.stale);
+  if (staleSuggested?.length) {
+    warnings.push(
+      `Last handoff suggested work that is no longer current: ${staleSuggested
+        .map((entry) => `${entry.id} (${entry.status})`)
+        .join(', ')}`,
+    );
+  }
   if (currentTaskInfo?.blockedBy?.length) {
     warnings.push(
       `Focused task ${currentTaskInfo.id} is blocked by: ${currentTaskInfo.blockedBy.join(', ')}`,
@@ -566,13 +599,14 @@ export async function computeBriefing(
     corrections: compactKnowledgeCorrections(corrections),
     nextTasks,
     lastSession: cleanedLastSession,
-    knowledgeHealth: compactKnowledgeHealth(knowledgeHealth),
+    knowledgeHealth: compactKnowledgeHealth(knowledgeHealth, '/knowledgeCoverage'),
     openBugs,
     blockedTasks,
     activeEpics,
     urgentTasks,
     ...(pipelineStage && { pipelineStage }),
     ...(warnings.length > 0 && { warnings }),
+    ...(staleFocus && { staleFocus }),
     ...(memoryContext && { memoryContext }),
     ...(bundle && { bundle }),
     ...(docsContext && { docsContext }),
@@ -852,14 +886,17 @@ async function resolveHandoffFromDocs(
 function computeCurrentTask(
   focus: TaskWorkStateExt | undefined,
   taskMap: Map<string, unknown>,
-): CurrentTaskInfo | null {
+): { current: CurrentTaskInfo | null; stale: StaleFocusPointer | null } {
   const focusTaskId = focus?.currentTask;
-  if (!focusTaskId) return null;
+  if (!focusTaskId) return { current: null, stale: null };
 
   const task = taskMap.get(focusTaskId) as
     | { id: string; title: string; status: string; depends?: string[] }
     | undefined;
-  if (!task) return null;
+  // T12660: a pointer to a done, cancelled, archived or missing task is stale —
+  // never the current task.
+  const stale = staleFocusPointer(focusTaskId, task?.status);
+  if (!task || stale) return { current: null, stale };
 
   const info: CurrentTaskInfo = {
     id: task.id,
@@ -878,88 +915,33 @@ function computeCurrentTask(
     }
   }
 
-  return info;
+  return { current: info, stale: null };
 }
 
 /**
- * Compute leverage for a task.
+ * Next tasks for the briefing, ranked by the shared scorer through
+ * {@link rankReadyTasks} — the same candidates, phase, weights and tie-break as
+ * `cleo next`, so both name the same tasks in the same order (T12661). Before
+ * this the briefing kept its own weights: no severity axis, an unbounded
+ * leverage bonus, and a deps bonus only for tasks that had dependencies.
  */
-function calculateLeverage(taskId: string, taskMap: Map<string, unknown>): number {
-  let leverage = 0;
-  for (const task of taskMap.values()) {
-    const t = task as { depends?: string[] };
-    if (t.depends?.includes(taskId)) {
-      leverage++;
-    }
-  }
-  return leverage;
-}
-
-/**
- * Compute next tasks sorted by leverage and score.
- */
-function computeNextTasks(
-  tasks: unknown[],
-  taskMap: Map<string, unknown>,
-  focus: TaskWorkStateExt | undefined,
+async function computeNextTasks(
+  projectRoot: string,
+  accessor: DataAccessor,
+  tasks: Task[],
   options: { maxTasks: number; scopeTaskIds?: Set<string> },
-): BriefingTask[] {
-  const pendingTasks = tasks.filter((t) => {
-    const task = t as { id?: string; status?: string };
-    return (
-      task.status === 'pending' && (!options.scopeTaskIds || options.scopeTaskIds.has(task.id!))
-    );
+): Promise<BriefingTask[]> {
+  const { ranked, leverage } = await rankReadyTasks(accessor, tasks, {
+    currentPhase: await resolveRankingPhase(accessor, projectRoot),
+    scopeTaskIds: options.scopeTaskIds,
+    projectRoot,
   });
-
-  const scored: BriefingTask[] = [];
-  const currentPhase = focus?.currentPhase;
-
-  for (const task of pendingTasks) {
-    const t = task as {
-      id: string;
-      title: string;
-      priority?: string;
-      phase?: string;
-      createdAt?: string;
-      depends?: string[];
-    };
-
-    if (!depsReady(t.depends, taskMap)) continue;
-
-    const leverage = calculateLeverage(t.id, taskMap);
-    let score = PRIORITY_SCORE[t.priority || 'medium'] ?? 50;
-
-    // Phase alignment bonus
-    if (currentPhase && t.phase === currentPhase) {
-      score += 20;
-    }
-
-    // Dependencies satisfied bonus
-    if (t.depends && t.depends.length > 0) {
-      score += 10;
-    }
-
-    // Age bonus
-    if (t.createdAt) {
-      const ageMs = Date.now() - new Date(t.createdAt).getTime();
-      const ageDays = ageMs / (1000 * 60 * 60 * 24);
-      if (ageDays > 7) {
-        score += Math.min(15, Math.floor(ageDays / 7));
-      }
-    }
-
-    // Leverage bonus
-    if (leverage > 0) {
-      score += leverage * 5;
-    }
-
-    scored.push({ id: t.id, title: t.title, leverage, score });
-  }
-
-  // Sort by score descending
-  scored.sort((a, b) => b.score - a.score);
-
-  return scored.slice(0, options.maxTasks);
+  return ranked.slice(0, options.maxTasks).map(({ task, score }) => ({
+    id: task.id,
+    title: task.title,
+    leverage: leverage.get(task.id) ?? 0,
+    score,
+  }));
 }
 
 /**
@@ -1312,6 +1294,29 @@ function cleanHandoff(handoff: HandoffData): HandoffData {
     }
   }
   return cleaned as unknown as HandoffData;
+}
+
+/**
+ * Annotate a historical handoff's `nextSuggested` ids with their LIVE status
+ * (T12660). The handoff is a snapshot; without this a done or cancelled id
+ * read as current advice.
+ *
+ * @param handoff - The recorded handoff.
+ * @param taskMap - Live tasks by id.
+ * @returns `{ nextSuggestedLive }`, or `{}` when nothing was suggested.
+ */
+function liveNextSuggested(
+  handoff: HandoffData,
+  taskMap: Map<string, unknown>,
+): Pick<LastSessionInfo, 'nextSuggestedLive'> {
+  const ids = handoff.nextSuggested ?? [];
+  if (ids.length === 0) return {};
+  return {
+    nextSuggestedLive: ids.map((id) => {
+      const status = (taskMap.get(id) as { status?: string } | undefined)?.status;
+      return { id, status: status ?? 'missing', stale: staleFocusPointer(id, status) !== null };
+    }),
+  };
 }
 
 /**

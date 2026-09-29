@@ -117,6 +117,16 @@ function healthyStatus(): Record<string, unknown> {
       lastTickAt: Date.now() - 5000,
       killSwitchActive: false,
     },
+    nexusAccount: [
+      {
+        apiUrl: 'https://api.cleocode.dev',
+        state: 'signed-in',
+        email: 'dev@example.test',
+        organization: 'Personal',
+        expiresAt: null,
+        summary: 'signed in as dev@example.test (Personal)',
+      },
+    ],
   };
 }
 
@@ -182,6 +192,39 @@ describe('cleo status — CLI wiring (T9424)', () => {
     expect(text).not.toContain('[EXPIRED]');
     // No WARNING banner when project config is clean.
     expect(text).not.toContain('WARNING:');
+    // T12712: the Cleo Nexus account row.
+    expect(text).toContain('Cleo Nexus account');
+    expect(text).toContain('signed in as dev@example.test (Personal)');
+  });
+
+  it('human mode shows an expired Nexus session without failing (T12712)', async () => {
+    const snapshot = healthyStatus();
+    snapshot['nexusAccount'] = [
+      {
+        apiUrl: 'https://api.cleocode.dev',
+        state: 'expired',
+        email: 'dev@example.test',
+        organization: null,
+        expiresAt: null,
+        summary: 'session expired; run `cleo login nexus`',
+      },
+    ];
+    mockGetCleoStatus.mockResolvedValue(snapshot);
+    setFormatContext({ format: 'human', source: 'default', quiet: false });
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`__EXIT_${code}__`);
+    }) as never);
+
+    const stdout = captureStdout();
+    try {
+      await runStatus({});
+    } finally {
+      stdout.restore();
+      exitSpy.mockRestore();
+    }
+
+    expect(stdout.lines.join('')).toContain('session expired; run `cleo login nexus`');
+    expect(exitSpy).not.toHaveBeenCalled();
   });
 
   it('human mode shows [EXPIRED] for credentials with isExpired:true', async () => {

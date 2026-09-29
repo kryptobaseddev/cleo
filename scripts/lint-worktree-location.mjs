@@ -13,6 +13,9 @@
  *   Only the sentinel file `<repo>/.cleo/worktrees.json` is allowed; an actual
  *   directory at that path violates the in-project sentinel pattern from D009.
  *
+ * Report-only (T12725): this lint reads `git worktree list` and the
+ * filesystem; it never unlocks, moves or removes a worktree.
+ *
  * Usage:
  *   node scripts/lint-worktree-location.mjs
  *   node scripts/lint-worktree-location.mjs --warn   # exit 0 even on violations
@@ -118,7 +121,8 @@ for (let i = 1; i < entries.length; i++) {
     violations.push(
       `RULE-1: git worktree at non-canonical path: "${worktree}"\n` +
         `  Expected prefix: ${canonicalRoot}\n` +
-        `  Fix: run \`node scripts/migrate-rogue-worktrees.mjs\` to move it.`,
+        `  Fix (owner, manual): preview with \`node scripts/migrate-rogue-worktrees.mjs --dry-run\`,\n` +
+        `  then move with \`--apply\` once no agent is using it. This lint never moves anything.`,
     );
   }
 }

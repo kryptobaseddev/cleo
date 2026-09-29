@@ -30,6 +30,7 @@
  * @epic E-CONFIG-AUTH-UNIFY (E3 §5.3 T-E3-5)
  */
 
+import type { NexusAccountStatus } from '@cleocode/contracts';
 import { getCleoStatus } from '@cleocode/core/status';
 import { defineCommand } from 'citty';
 import { isJsonFormat } from '../format-context.js';
@@ -87,6 +88,7 @@ interface StatusShape {
     lastTickAt: number | null;
     killSwitchActive: boolean;
   };
+  nexusAccount: NexusAccountStatus[];
 }
 
 /**
@@ -215,6 +217,14 @@ function renderStatusHuman(status: StatusShape): string {
     ? `${RED}${BOLD}ACTIVE${NC}`
     : `${DIM}inactive${NC}`;
   lines.push(`  ${DIM}killSwitchActive:${NC} ${killSwitchBadge}`);
+  lines.push('');
+
+  // Cleo Nexus account (T12712)
+  lines.push(`${BOLD}Cleo Nexus account${NC}`);
+  for (const n of status.nexusAccount) {
+    const color = n.state === 'signed-in' ? GREEN : n.state === 'not-signed-in' ? DIM : YELLOW;
+    lines.push(`  ${DIM}${n.apiUrl}:${NC} ${color}${n.summary}${NC}`);
+  }
 
   return lines.join('\n');
 }

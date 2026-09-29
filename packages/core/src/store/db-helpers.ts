@@ -8,8 +8,10 @@
  */
 
 import type { ArchiveReasonValue, Session, Task } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
+import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
 import type { NewTaskRow } from './tasks-schema.js';
 import * as schema from './tasks-schema.js';
@@ -49,6 +51,38 @@ export async function upsertTask(
   row: NewTaskRow,
   archiveFields?: ArchiveFields,
   allowOrphanParent = false,
+): Promise<void> {
+  await writeTaskRow(db, row, archiveFields, allowOrphanParent, false);
+}
+
+/**
+ * Insert a NEW task row. Never overwrites: when a row with the same id is
+ * already stored, it throws `ExitCode.ID_COLLISION` and writes nothing.
+ *
+ * Every path that creates a task under a freshly allocated or computed id
+ * (`cleo add` and `add-batch`, the task imports, snapshot restore of a
+ * missing task) uses this instead of {@link upsertTask}. An id collision (an
+ * older build, or any writer that took the same id between allocation and
+ * insert) must fail loudly, never silently replace a different task. The
+ * existence check gives the typed error; the plain INSERT (no ON CONFLICT)
+ * is the backstop, since the primary key rejects a duplicate the check missed.
+ *
+ * @param db - The tasks Drizzle handle, inside the caller's transaction.
+ * @param row - The new task row.
+ * @throws CleoError `ID_COLLISION` when `row.id` is already stored.
+ * @task T12724
+ */
+export async function insertNewTask(db: DrizzleDb, row: NewTaskRow): Promise<void> {
+  await writeTaskRow(db, row, undefined, false, true);
+}
+
+/** The shared write behind {@link upsertTask} and {@link insertNewTask}. */
+async function writeTaskRow(
+  db: DrizzleDb,
+  row: NewTaskRow,
+  archiveFields: ArchiveFields | undefined,
+  allowOrphanParent: boolean,
+  insertOnly: boolean,
 ): Promise<void> {
   // Validate parentId exists before writing (T5034, T585).
   // In bulk/archive mode (allowOrphanParent=true) we silently null it out to
@@ -91,6 +125,26 @@ export async function upsertTask(
   }
 
   const values = archiveFields ? { ...row, ...archiveFields, status: 'archived' as const } : row;
+  if (insertOnly) {
+    const clash = await db
+      .select({ id: schema.tasks.id, title: schema.tasks.title })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.id, row.id))
+      .limit(1)
+      .all();
+    if (clash.length > 0) {
+      throw new CleoError(
+        ExitCode.ID_COLLISION,
+        `Task id ${row.id} is already taken by "${clash[0]?.title}" (another writer stored it after the id was chosen); nothing was written and no task was overwritten`,
+        {
+          fix: 'Run the command again: the allocator skips every stored id for `cleo add` and for the new ids an import assigns, and imports re-read every stored id, archived included, so the task now holding this id counts as existing (skipped, or replaced only with an explicit overwrite). If `cleo add` repeats this, run `cleo sequence repair`.',
+        },
+      );
+    }
+    await db.insert(schema.tasks).values(values).run();
+    await updateTaskLabels(db, row.id, parseLabels(row.labelsJson));
+    return;
+  }
   // The canonical converter defines the write surface for both INSERT and
   // conflict UPDATE. Destructuring identity prevents an upsert from moving a
   // row; spreading the remaining fields prevents newly accepted fields from
@@ -211,6 +265,10 @@ export async function upsertSession(db: DrizzleDb, session: Session): Promise<vo
     nextSessionId: session.nextSessionId ?? null,
     // Fork-tree parent edge (T11639) — sourced from CLEO_PARENT_SESSION_ID at start.
     parentSessionId: session.parentSessionId ?? null,
+    // `spawnedBySessionId` is deliberately ABSENT (T12502): it is the trusted
+    // spawn edge the claim chokepoint relies on, written only by the spawn
+    // through `setSessionSpawnedBy`. A whole-row upsert from a session record
+    // must neither wipe nor forge it.
     agentIdentifier: session.agentIdentifier ?? null,
     handoffConsumedAt: session.handoffConsumedAt ?? null,
     handoffConsumedBy: session.handoffConsumedBy ?? null,

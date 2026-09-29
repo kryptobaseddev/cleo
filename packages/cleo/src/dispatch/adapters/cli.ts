@@ -31,6 +31,7 @@ import { Dispatcher } from '../dispatcher.js';
 import { createDomainHandlers } from '../domains/index.js';
 import { createAudit } from '../middleware/audit.js';
 import { createBudgetEnforcement } from '../middleware/budget-enforcement.js';
+import { createClaimHeartbeat } from '../middleware/claim-heartbeat.js';
 import { createFieldFilter } from '../middleware/field-filter.js';
 import { createIdempotency } from '../middleware/idempotency.js';
 import { createMutateMinimalEnvelope } from '../middleware/mutate-minimal-envelope.js';
@@ -204,6 +205,22 @@ export async function lookupCliSession(): Promise<string | null> {
 }
 
 /**
+ * Session heartbeat for the CLI (T12502 · T12540): after a bound session's
+ * mutation succeeds, refresh its `lastActivity` (at most once a minute) and
+ * renew every claim lease it holds in the current project — one best-effort
+ * beat, never a second write per command.
+ *
+ * @param _req - The mutation that just succeeded.
+ * @param sessionId - The bound session that made it.
+ * @task T12502
+ * @task T12540
+ */
+export async function heartbeatCliSession(_req: DispatchRequest, sessionId: string): Promise<void> {
+  const { heartbeatProjectSession } = await import('@cleocode/core/internal');
+  await heartbeatProjectSession(getProjectRoot(), sessionId);
+}
+
+/**
  * Warn on stderr when a CLI mutation runs with no bound session (T12500).
  *
  * Without a binding the mutation is attributed to NO session (audit row,
@@ -245,6 +262,7 @@ export function createCliDispatcher(): Dispatcher {
       // (reads stay available, served from the merged TEMP shadows).
       createStoreWriteGuard(() => getProjectRoot()),
       createSessionResolver(lookupCliSession, warnUnboundMutation), // T4959: session identity first; T12500: warn when unbound
+      createClaimHeartbeat(heartbeatCliSession), // T12502 · T12540: a bound session's mutation refreshes lastActivity + renews its leases
       createSanitizer(() => getProjectRoot()),
       createFieldFilter(),
       // T9922 (Saga T9855 / E8.3): MVI record projection default for read ops.
