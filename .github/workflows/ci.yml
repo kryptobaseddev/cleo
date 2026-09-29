@@ -133,6 +133,11 @@ jobs:
               # shipped without the suite it re-bounds ever running.
               - 'vitest.memory-safe.ts'
               - 'build.mjs'
+              # A change to THIS file changes how the build and unit tests run
+              # (shards, shared build artifact, caches). Without this entry a
+              # ci.yml-only PR skipped every job it rewires, so a broken build
+              # or test layout could only surface after merge.
+              - '.github/workflows/ci.yml'
             # gh#1403: `scripts/**` is deliberately NOT in `code` above. The
             # scripts tests are a real vitest project (`scripts/vitest.config.ts`,
             # name `scripts`, listed in the root `projects:` array), but nothing
