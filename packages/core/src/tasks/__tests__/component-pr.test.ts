@@ -207,6 +207,33 @@ describe('a change the integration branch undid does not survive (T12671 review 
     }
   });
 
+  it('a reverted change is not credited when an identical block exists elsewhere (T12689 review MED)', async () => {
+    const r = repoWith();
+    try {
+      const lines = Array.from({ length: 30 }, (_, i) => `line ${i}`);
+      writeFileSync(join(r, 'x.ts'), `${lines.join('\n')}\n`);
+      git(r, ['commit', '-q', '-am', 'thirty lines']);
+      const changed = lines.map((l, i) => (i === 15 ? 'line FIFTEEN' : l));
+      const { merge, landing } = land(
+        r,
+        () => writeFileSync(join(r, 'x.ts'), `${changed.join('\n')}\n`),
+        (m) => {
+          // The integration branch reverts the component…
+          git(r, ['revert', '--no-edit', '-m', '1', m]);
+          // …then a later commit appends a block identical to the changed hunk.
+          const block = changed.slice(12, 19).join('\n');
+          writeFileSync(join(r, 'x.ts'), `${lines.join('\n')}\n${block}\n`);
+          git(r, ['commit', '-q', '-am', 'append an identical block']);
+        },
+      );
+      const res = await resolveComponentPr(10, landing, r, componentView(merge));
+      // Line 15 is back to the original: nothing of the component survives.
+      expect(res.ok).toBe(false);
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+
   it('a deletion-only component is credited with its deletions (T12689)', async () => {
     const r = repoWith();
     try {
