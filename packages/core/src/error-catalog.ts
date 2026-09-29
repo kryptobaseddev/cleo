@@ -458,7 +458,7 @@ export const ERROR_CATALOG: ReadonlyMap<number, ErrorDefinition> = new Map<numbe
         'Task claimed by another session',
         409,
         false,
-        'E_CLEO_TASK_CLAIMED',
+        'E_TASK_CLAIMED',
       ),
     ],
     [

@@ -26,6 +26,8 @@ import { CleoError } from '../errors.js';
 import { generateSessionId } from '../sessions/session-id.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { withLock } from '../store/lock.js';
+import { endSession } from '../store/session-store.js';
+import { claimSpawnedTask } from '../task-work/claims.js';
 
 /**
  * Resolved per-agent spawn identity returned by {@link allocateSpawnSession}.
@@ -165,8 +167,13 @@ export type SpawnSessionResolution =
       readonly exitCode: number;
       readonly message: string;
       readonly fix: string;
-      /** Why allocation failed. */
+      /** Why allocation (or the task claim) failed. */
       readonly cause: string;
+      /**
+       * Structured refusal details — for `E_TASK_CLAIMED`, the
+       * `TaskClaimedDetails` naming the holder and lease expiry (T12502).
+       */
+      readonly details?: Record<string, unknown>;
     };
 
 /**
@@ -181,17 +188,24 @@ export type SpawnSessionResolution =
  *
  * @param projectRoot - Absolute path to the project root.
  * @param taskId - The task being spawned.
+ * T12502: the spawned session then takes the task's claim lease
+ * ({@link claimSpawnedTask}). Another session's claim refuses the spawn with
+ * `E_TASK_CLAIMED` naming the holder, and a session created for this refused
+ * spawn is ended again so it does not leak.
+ *
  * @param allocate - Allocation strategy (defaults to {@link allocateSpawnSession}; tests inject failures).
  * @returns The explicit per-agent identity, or a typed refusal.
  * @task T12500
+ * @task T12502
  */
 export async function requireSpawnSession(
   projectRoot: string,
   taskId: string,
   allocate: (root: string, id: string) => Promise<SpawnAgentIdentity> = allocateSpawnSession,
 ): Promise<SpawnSessionResolution> {
+  let identity: SpawnAgentIdentity;
   try {
-    return { ok: true, identity: await allocate(projectRoot, taskId) };
+    identity = await allocate(projectRoot, taskId);
   } catch (err) {
     const cause = err instanceof Error ? err.message : String(err);
     const cleoDef = err instanceof CleoError ? getErrorDefinition(err.code) : undefined;
@@ -208,4 +222,28 @@ export async function requireSpawnSession(
       cause,
     };
   }
+  try {
+    await claimSpawnedTask(projectRoot, taskId, {
+      sessionId: identity.sessionId,
+      agentId: identity.agentId,
+    });
+  } catch (err) {
+    if (!identity.reused) {
+      await endSession(identity.sessionId, 'spawn refused: task claimed', projectRoot).catch(
+        () => undefined,
+      );
+    }
+    const cause = err instanceof Error ? err.message : String(err);
+    const cleo = err instanceof CleoError ? err : undefined;
+    return {
+      ok: false,
+      code: (cleo && getErrorDefinition(cleo.code)?.lafsCode) ?? 'E_INTERNAL',
+      exitCode: cleo?.code ?? ExitCode.GENERAL_ERROR,
+      message: `Refusing to spawn ${taskId}: ${cause}`,
+      fix: cleo?.fix ?? "Check the task store with 'cleo doctor', then retry the spawn.",
+      cause,
+      ...(cleo?.details ? { details: cleo.details } : {}),
+    };
+  }
+  return { ok: true, identity };
 }

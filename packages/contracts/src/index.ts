@@ -362,6 +362,10 @@ export type {
   QueryTasksResult,
   TaskAuditLogQuery,
   TaskAuditLogRow,
+  TaskClaimedDetails,
+  TaskClaimGuard,
+  TaskClaimMode,
+  TaskClaimRequest,
   TaskConflictChange,
   TaskConflictDetails,
   TaskFieldUpdates,
@@ -2502,6 +2506,7 @@ export type {
   SeverityAttestation,
   SignedSeverityAttestation,
   Task,
+  TaskClaim,
   TaskCreate,
   // T944 new axes (T9072: renamed TaskRole → TaskKind)
   TaskKind,

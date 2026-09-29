@@ -1127,6 +1127,14 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
         reason:
           '§F.14 / PR #1570: evidence resolvedPath is an absolute path on the verifying device (ADR-094)',
       },
+      ...(
+        ['claimed_by_session', 'claimed_by_agent', 'claimed_at', 'lease_expires_at'] as const
+      ).map((column) => ({
+        column,
+        class: 'local-only' as const,
+        reason:
+          'T12502: the agent claim lease names a session on this device and a wall-clock expiry; meaningless on a peer',
+      })),
     ],
   },
   tasks_token_usage: {

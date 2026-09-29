@@ -69,6 +69,7 @@ import {
 import {
   currentTask,
   getTaskHistory,
+  type StartTaskOptions,
   startTask,
   stopTask,
   type TaskWorkHistoryEntry,
@@ -103,9 +104,16 @@ function toEngineError<T>(
   // Map numeric CleoError exit codes to string codes where straightforward.
   // For unrecognised codes fall back to the provided fallbackCode.
   // T12500: an unbound caller must see E_SESSION_UNBOUND, not the fallback.
-  const code = e.code === ExitCode.SESSION_UNBOUND ? 'E_SESSION_UNBOUND' : fallbackCode;
+  // T12502: a claim refusal keeps its typed code and exit code (35).
+  const code =
+    e.code === ExitCode.SESSION_UNBOUND
+      ? 'E_SESSION_UNBOUND'
+      : e.code === ExitCode.TASK_CLAIMED
+        ? 'E_TASK_CLAIMED'
+        : fallbackCode;
   const message = e.message ?? fallbackMessage;
   return engineError<T>(code, message, {
+    ...(e.code === ExitCode.TASK_CLAIMED && { exitCode: ExitCode.TASK_CLAIMED }),
     ...(e.fix !== undefined && { fix: e.fix }),
     ...(e.details !== undefined && { details: e.details }),
     ...(e.alternatives !== undefined && { alternatives: e.alternatives }),
@@ -396,28 +404,32 @@ export async function taskCurrentGet(projectRoot: string): Promise<
  *
  * @param projectRoot - Absolute path to the project root
  * @param taskId - Task ID to start working on
- * @returns EngineResult with taskId and previousTask
+ * @param options - Claim overrides: `takeOver` (expired lease), `forceClaim` (live lease)
+ * @returns EngineResult with taskId, previousTask and the claim lease held
  *
  * @task T1573
+ * @task T12502
  */
 export async function taskStart(
   projectRoot: string,
   taskId: string,
+  options: StartTaskOptions = {},
 ): Promise<
   EngineResult<
     Pick<
       import('../task-work/index.js').TaskStartResult,
-      'taskId' | 'previousTask' | 'knowledgeCoverage'
+      'taskId' | 'previousTask' | 'knowledgeCoverage' | 'claim'
     >
   >
 > {
   try {
     const accessor = await getTaskAccessor(projectRoot);
-    const result = await startTask(taskId, projectRoot, accessor);
+    const result = await startTask(taskId, projectRoot, accessor, options);
     return engineSuccess({
       taskId: result.taskId,
       previousTask: result.previousTask,
       knowledgeCoverage: result.knowledgeCoverage,
+      claim: result.claim,
     });
   } catch (err: unknown) {
     return toEngineError(err, 'E_NOT_INITIALIZED', 'Failed to start task');

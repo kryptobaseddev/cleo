@@ -8,7 +8,7 @@
 // Auto-register hook handlers
 import '../hooks/handlers/index.js';
 
-import type { KnowledgeCoverage, TaskWorkState } from '@cleocode/contracts';
+import type { KnowledgeCoverage, TaskClaim, TaskWorkState } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { assessKnowledgeCoverage } from '../nexus/knowledge.js';
@@ -26,6 +26,23 @@ import { getTaskAccessor } from '../store/data-accessor.js';
 import { logOperation } from '../tasks/add.js';
 import { getUnresolvedDeps } from '../tasks/dependency-check.js';
 import { isValidPipelineStage } from '../tasks/pipeline-stage.js';
+import {
+  type ClaimOverrideFlags,
+  claimModeFor,
+  releaseOwnClaim,
+  resolveClaimant,
+} from './claims.js';
+
+export type { Claimant, ClaimOverrideFlags } from './claims.js';
+export {
+  claimModeFor,
+  claimSpawnedTask,
+  releaseOwnClaim,
+  renewClaimsForSession,
+  renewProjectSessionClaims,
+  renewTaskClaim,
+  resolveClaimant,
+} from './claims.js';
 
 /**
  * Resolve the focus_state session key for the CALLER (T11345 · Epic T11284).
@@ -76,7 +93,18 @@ export interface TaskStartResult {
   taskId: string;
   taskTitle: string;
   previousTask: string | null;
+  /**
+   * The claim lease this start holds on the task, or `null` when the caller
+   * is not bound to a session (no lease is taken). @task T12502
+   */
+  claim: TaskClaim | null;
 }
+
+/**
+ * Options for {@link startTask}: explicit, audited overrides of another
+ * session's claim (T12502).
+ */
+export type StartTaskOptions = ClaimOverrideFlags;
 
 /** Task work history entry. */
 export interface TaskWorkHistoryEntry {
@@ -113,13 +141,27 @@ export async function currentTask(
 
 /**
  * Start working on a specific task.
+ *
+ * T12502: the start takes the caller session's claim lease on the task with a
+ * compare-and-set inside the same write transaction as the focus write. When
+ * another session holds the task the start is refused with `E_TASK_CLAIMED`
+ * naming the holder and lease expiry; `takeOver` takes an expired lease and
+ * `forceClaim` a live one (both audited). The human `assignee` is not touched.
+ * Starting a new task releases the lease this session held on its previous one.
+ *
+ * @param taskId - Task to start.
+ * @param cwd - Project root.
+ * @param accessor - Task accessor (tests inject one).
+ * @param options - Claim overrides (`--take-over`, `--force-claim`).
  * @task T4462
  * @task T4750
+ * @task T12502
  */
 export async function startTask(
   taskId: string,
   cwd?: string,
   accessor?: DataAccessor,
+  options: StartTaskOptions = {},
 ): Promise<TaskStartResult> {
   if (!taskId) {
     throw new CleoError(ExitCode.INVALID_INPUT, 'Task ID is required');
@@ -152,9 +194,11 @@ export async function startTask(
   // Best-effort: if pipelineStage is in planning stages, advance to implementation.
   // This mirrors the lifecycle model: starting work means entering the IVTR phase.
   const currentStage = task.pipelineStage;
-  if (currentStage && isValidPipelineStage(currentStage) && PLANNING_STAGES.has(currentStage)) {
-    await acc.updateTaskFields(taskId, { pipelineStage: 'implementation' });
-  }
+  const advanceStage =
+    !!currentStage && isValidPipelineStage(currentStage) && PLANNING_STAGES.has(currentStage);
+
+  // T12502 — the caller's claim identity: its BOUND session, never a guess.
+  const claimant = await resolveClaimant(cwd);
 
   // T11345 — read/write the CALLER's per-session focus_state key.
   const focusSessionId = resolveFocusSessionId();
@@ -176,12 +220,22 @@ export async function startTask(
   focus.sessionNotes.push(noteEntry);
 
   const projectRoot = resolveOrCwd(cwd);
-  await acc.transaction(async () => {
-    await writeFocusState(acc, focusSessionId, focus);
-    if (!task.assignee) {
-      await acc.updateTaskFields(taskId, { assignee: process.env['CLEO_AGENT_ID'] ?? 'local' });
+  const claim = await acc.transaction(async () => {
+    // T12502: claim first — a refusal rolls back before anything is written.
+    const held = await acc.claimTask(taskId, { ...claimant, mode: claimModeFor(options) });
+    if (advanceStage) {
+      await acc.updateTaskFields(taskId, { pipelineStage: 'implementation' });
     }
-    await logOperation('task_start', taskId, { previousTask, title: task.title }, acc);
+    if (previousTask && previousTask !== taskId) {
+      await releaseOwnClaim(acc, previousTask, claimant.sessionId);
+    }
+    await writeFocusState(acc, focusSessionId, focus);
+    await logOperation(
+      'task_start',
+      taskId,
+      { previousTask, title: task.title, claimedBy: held?.sessionId ?? null },
+      acc,
+    );
     trackBackgroundOp(async () => {
       const { hooks } = await import('../hooks/registry.js');
       await hooks.dispatch('PreToolUse', projectRoot, {
@@ -190,6 +244,7 @@ export async function startTask(
         taskTitle: task.title,
       });
     });
+    return held;
   });
 
   return {
@@ -197,13 +252,16 @@ export async function startTask(
     taskId,
     taskTitle: task.title,
     previousTask,
+    claim,
   };
 }
 
 /**
- * Stop working on the current task.
+ * Stop working on the current task. T12502: releases the claim lease the
+ * caller's session holds on it (a lease held by another session is left).
  * @task T4462
  * @task T4750
+ * @task T12502
  */
 export async function stopTask(
   cwd?: string,
@@ -228,9 +286,11 @@ export async function stopTask(
   focus.nextAction = null;
 
   const now = new Date().toISOString();
+  const claimant = taskId ? await resolveClaimant(cwd) : null;
 
   const projectRoot = resolveOrCwd(cwd);
   await acc.transaction(async () => {
+    if (taskId && claimant) await releaseOwnClaim(acc, taskId, claimant.sessionId);
     await writeFocusState(acc, focusSessionId, focus);
     await logOperation('task_stop', previousTask ?? 'none', { previousTask }, acc);
     if (taskId && task) {

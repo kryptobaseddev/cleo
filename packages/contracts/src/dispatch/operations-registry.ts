@@ -3756,7 +3756,8 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'start',
-    description: 'tasks.start (mutate)',
+    description:
+      "tasks.start (mutate) — start work and take the caller session's leased claim (E_TASK_CLAIMED when another session holds it)",
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -3768,6 +3769,20 @@ export const OPERATIONS: OperationDef[] = [
         required: true,
         description: 'taskId parameter',
         cli: { positional: true },
+      },
+      {
+        name: 'takeOver',
+        type: 'boolean',
+        required: false,
+        description: "Take over another session's EXPIRED claim lease (audited)",
+        cli: { flag: 'take-over' },
+      },
+      {
+        name: 'forceClaim',
+        type: 'boolean',
+        required: false,
+        description: "Take over another session's LIVE claim lease (audited)",
+        cli: { flag: 'force-claim' },
       },
     ] satisfies ParamDef[],
   },
@@ -3877,11 +3892,12 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'claim',
-    description: 'tasks.claim (mutate) — claim a task by assigning it to the current session',
+    description:
+      "tasks.claim (mutate) — take, renew or override the caller session's leased claim on a task (never the human assignee)",
     tier: 0,
     idempotent: false,
     sessionRequired: true,
-    requiredParams: ['taskId', 'agentId'],
+    requiredParams: ['taskId'],
     params: [
       {
         name: 'taskId',
@@ -3892,8 +3908,27 @@ export const OPERATIONS: OperationDef[] = [
       {
         name: 'agentId',
         type: 'string',
-        required: true,
-        description: 'Agent ID to assign the task to',
+        required: false,
+        description:
+          "Agent ID recorded with the lease (default: the session's agent / CLEO_AGENT_ID)",
+      },
+      {
+        name: 'renew',
+        type: 'boolean',
+        required: false,
+        description: "Renew the caller's own lease",
+      },
+      {
+        name: 'takeOver',
+        type: 'boolean',
+        required: false,
+        description: "Take over another session's EXPIRED lease (audited)",
+      },
+      {
+        name: 'forceClaim',
+        type: 'boolean',
+        required: false,
+        description: "Take over another session's LIVE lease (audited)",
       },
     ],
   },
@@ -3901,7 +3936,8 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'unclaim',
-    description: 'tasks.unclaim (mutate) — unclaim a task by removing the current assignee',
+    description:
+      "tasks.unclaim (mutate) — release the caller session's claim lease (never the human assignee)",
     tier: 0,
     idempotent: false,
     sessionRequired: true,
@@ -3912,6 +3948,12 @@ export const OPERATIONS: OperationDef[] = [
         type: 'string',
         required: true,
         description: 'Task ID to unclaim',
+      },
+      {
+        name: 'forceClaim',
+        type: 'boolean',
+        required: false,
+        description: "Release another session's lease (audited)",
       },
     ],
   },

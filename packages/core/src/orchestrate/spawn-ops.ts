@@ -879,7 +879,12 @@ export async function orchestrateSpawnExecute(
           code: spawnSession.code,
           message: spawnSession.message,
           exitCode: spawnSession.exitCode,
-          details: { taskId, cause: spawnSession.cause, fix: spawnSession.fix },
+          details: {
+            ...spawnSession.details,
+            taskId,
+            cause: spawnSession.cause,
+            fix: spawnSession.fix,
+          },
         },
       };
     }
@@ -1439,8 +1444,9 @@ export async function orchestrateSpawn(
     if (!spawnSession.ok) {
       spawnLogger.error({ taskId, cause: spawnSession.cause }, 'spawn session allocation failed');
       return engineError(spawnSession.code, spawnSession.message, {
+        exitCode: spawnSession.exitCode,
         fix: spawnSession.fix,
-        details: { taskId, cause: spawnSession.cause },
+        details: { ...spawnSession.details, taskId, cause: spawnSession.cause },
       });
     }
     const activeSessionId = spawnSession.identity.sessionId;

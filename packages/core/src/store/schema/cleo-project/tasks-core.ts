@@ -177,8 +177,20 @@ export const tasksTasks = sqliteTable(
     }),
     /** Pipeline stage name. */
     pipelineStage: text('pipeline_stage'),
-    /** Assignee agent id. */
+    /** Human / owner assignee — separate from the agent claim lease below (T12502). */
     assignee: text('assignee'),
+    /**
+     * Session holding the agent claim lease (T12502). Plain TEXT, no FK: the
+     * `tasks_sessions` end/delete triggers release the lease instead.
+     * Column class `local-only` (a lease is meaningless off-device).
+     */
+    claimedBySession: text('claimed_by_session'),
+    /** Agent identity of the claim holder (T12502). */
+    claimedByAgent: text('claimed_by_agent'),
+    /** ISO-8601 UTC instant the claim lease was taken (T12502). */
+    claimedAt: text('claimed_at'),
+    /** ISO-8601 UTC instant the claim lease lapses unless renewed (T12502). */
+    leaseExpiresAt: text('lease_expires_at'),
     /** JSON IVTR orchestration state (TEXT per JSON audit). */
     ivtrState: text('ivtr_state'),
     /**
@@ -199,6 +211,7 @@ export const tasksTasks = sqliteTable(
     index('idx_tasks_tasks_session_id').on(table.sessionId),
     index('idx_tasks_tasks_pipeline_stage').on(table.pipelineStage),
     index('idx_tasks_tasks_assignee').on(table.assignee),
+    index('idx_tasks_tasks_claimed_by_session').on(table.claimedBySession),
     index('idx_tasks_tasks_parent_status').on(table.parentId, table.status),
     index('idx_tasks_tasks_status_priority').on(table.status, table.priority),
     index('idx_tasks_tasks_type_phase').on(table.type, table.phase),
