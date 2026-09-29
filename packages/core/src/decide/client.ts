@@ -64,13 +64,14 @@ import {
   DecisionProviderError,
   type DecisionProviderErrorKind,
 } from './provider.js';
-import { cachedCapabilities } from './provider-state.js';
+import { cachedCapabilities, refreshProviderState } from './provider-state.js';
 import {
   createFileSpendLedger,
   DEFAULT_MONTHLY_SPEND_CAP_MICROS,
   MONTHLY_SPEND_CAP_KEY,
   type SpendLedger,
 } from './spend.js';
+import type { DecideFetch } from './transport.js';
 
 /** Default per-site deadline for the budget + provider round trip, in ms. */
 export const DEFAULT_DECISION_TIMEOUT_MS = 300;
@@ -85,6 +86,12 @@ export const DEFAULT_DECISION_TIMEOUT_MS = 300;
  * 300 ms single-decision default would time out every real batch.
  */
 export const DEFAULT_BATCH_DECISION_TIMEOUT_MS = 30_000;
+
+/**
+ * Upper bound on the lazy capability detection {@link decideBatch} runs
+ * before its first batch, in ms (T12715). Also bounded by the batch deadline.
+ */
+export const CAPABILITY_DETECTION_TIMEOUT_MS = 5_000;
 
 /** Circuit-breaker trip after a 503/529 that carried no `retry-after`, ms. */
 export const OVERLOADED_COOLDOWN_MS = 30_000;
@@ -124,6 +131,10 @@ export interface DecideOptions {
   readonly adapterVersion?: string;
   /** Caller cancellation; treated like a timeout (fallback, no throw). */
   readonly signal?: AbortSignal;
+  /** Transport for a provider built from `connection`. Default: the abort-complete `decideFetch`. */
+  readonly fetch?: DecideFetch;
+  /** Provider-state file (detected capabilities). Default: `<cleoHome>/decide/provider-state.json`. */
+  readonly providerStatePath?: string;
 }
 
 let defaultCache: DecisionCache | null = null;
@@ -201,6 +212,17 @@ export function redactDecisionState(state: DecisionState): DecisionState {
   return out;
 }
 
+/** Whether `connection` is usable: a non-blank key and an allowed base URL. */
+function usableConnection(
+  connection: DecisionProviderConnection | null,
+): connection is DecisionProviderConnection {
+  return (
+    connection !== null &&
+    connection.apiKey.trim() !== '' &&
+    decisionProviderConfigSchema.safeParse({ baseUrl: connection.baseUrl }).success
+  );
+}
+
 /** The explicit connection, or — when none was passed — the stored one. */
 function resolveConnection(opts: DecideOptions): DecisionProviderConnection | null {
   if (opts.connection !== undefined) return opts.connection;
@@ -213,10 +235,41 @@ function resolveProvider(
   connection: DecisionProviderConnection | null,
 ): DecisionProvider | null {
   if (opts.provider) return opts.provider;
-  if (!connection || connection.apiKey.trim() === '') return null;
-  if (!decisionProviderConfigSchema.safeParse({ baseUrl: connection.baseUrl }).success) return null;
-  const capabilities = cachedCapabilities(connection);
-  return createJevProvider(connection, capabilities ? { capabilities } : {});
+  if (!usableConnection(connection)) return null;
+  const capabilities = cachedCapabilities(connection, Date.now(), opts.providerStatePath);
+  return createJevProvider(connection, {
+    ...(capabilities ? { capabilities } : {}),
+    ...(opts.fetch ? { fetch: opts.fetch } : {}),
+  });
+}
+
+/**
+ * Lazy capability detection (T12715), run by {@link decideBatch} only: when
+ * the cached provider state is absent or stale, detect it before building the
+ * provider, within `budgetMs` (at most {@link CAPABILITY_DETECTION_TIMEOUT_MS}).
+ * {@link refreshProviderState} limits this to one detection per identity per
+ * refresh interval. Never throws; an injected provider is never probed.
+ *
+ * A single {@link decide} never calls this (see `provider-state.ts`).
+ */
+async function detectLazily(
+  opts: DecideOptions,
+  connection: DecisionProviderConnection | null,
+  budgetMs: number,
+): Promise<void> {
+  if (opts.provider || !usableConnection(connection)) return;
+  const timeout = AbortSignal.timeout(
+    Math.max(0, Math.min(budgetMs, CAPABILITY_DETECTION_TIMEOUT_MS)),
+  );
+  const signal = opts.signal ? AbortSignal.any([timeout, opts.signal]) : timeout;
+  try {
+    await refreshProviderState(connection, signal, {
+      ...(opts.fetch ? { fetch: opts.fetch } : {}),
+      ...(opts.providerStatePath !== undefined ? { path: opts.providerStatePath } : {}),
+    });
+  } catch {
+    /* detection is best effort: the Jev minimum still answers */
+  }
 }
 
 function resolveAudit(opts: DecideOptions): DecisionAuditSink | null {
@@ -606,6 +659,9 @@ export async function decideBatch(
   const remaining = (): number => Math.max(0, deadlineMs - (performance.now() - started));
 
   const connection = resolveConnection(opts);
+  // Batch is the non-latency-critical path, so it may detect capabilities
+  // lazily before its first call; the detection time counts against its deadline.
+  await detectLazily(opts, connection, remaining());
   const provider = resolveProvider(opts, connection);
   const limits = provider?.capabilities?.().batch;
   const questions = entries.reduce((n, e) => n + Object.keys(e.req.questions).length, 0);

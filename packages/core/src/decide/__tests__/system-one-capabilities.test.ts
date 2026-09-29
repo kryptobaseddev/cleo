@@ -47,6 +47,7 @@ import {
   cachedCapabilities,
   providerKeyHash,
   readProviderState,
+  refreshProviderState,
   USAGE_REFRESH_MS,
   writeProviderState,
 } from '../provider-state.js';
@@ -773,6 +774,133 @@ describe('client — spend cap, key limit, circuit breaker, batch', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('lazy capability detection (T12715)', () => {
+  const HEURISTIC: Record<string, DecisionAnswer> = {
+    dup: { type: 'noul', value: false, probability: 0.1, confidence: 1 },
+  };
+  const heuristic = (): Record<string, DecisionAnswer> => HEURISTIC;
+  const sink: DecisionAuditSink = { write: () => undefined };
+  let dir: string;
+  const TWO = [
+    { req: REQUEST, fallback: heuristic },
+    { req: { ...REQUEST, state: 'Another task' }, fallback: heuristic },
+  ];
+  const batchBody = () =>
+    jsonResponse(200, {
+      responses: [
+        { index: 0, status: 200, body: OK_BODY },
+        { index: 1, status: 200, body: OK_BODY },
+      ],
+    });
+  const layahost = () =>
+    routes({
+      '/v1/usage': () => jsonResponse(200, { balance: { micros: 5_000_000 } }),
+      '/v1/systemone': () => jsonResponse(200, OK_BODY),
+      '/v1/systemone/batch': batchBody,
+    });
+  const calls = (stub: ReturnType<typeof routes>, path: string): number =>
+    stub.mock.calls.filter(([u]) => new URL(String(u)).pathname === path).length;
+
+  beforeEach(() => {
+    _resetDecideDefaultsForTest();
+    _resetProviderStateMemoForTest();
+    dir = mkdtempSync(join(tmpdir(), 'decide-lazy-'));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function opts(fetchStub: ReturnType<typeof routes>): DecideOptions {
+    return {
+      connection,
+      fetch: fetchStub,
+      providerStatePath: join(dir, 'state.json'),
+      budget: null,
+      spend: null,
+      cache: null,
+      audit: sink,
+    };
+  }
+
+  it('decideBatch detects on first use, then sends ONE batch call', async () => {
+    const stub = layahost();
+    const out = await decideBatch('s', TWO, opts(stub));
+    expect(out.map((o) => o.source)).toEqual(['provider', 'provider']);
+    expect(calls(stub, '/v1/usage')).toBe(1);
+    expect(calls(stub, '/v1/systemone/batch')).toBe(1);
+    expect(calls(stub, '/v1/systemone')).toBe(0);
+    const state = JSON.parse(readFileSync(join(dir, 'state.json'), 'utf-8'));
+    expect(state.capabilities.batch).toEqual({ maxRequests: 64, maxQuestions: 256 });
+    expect(JSON.stringify(state)).not.toContain(connection.apiKey);
+  });
+
+  it('detects at most once per refresh interval', async () => {
+    const stub = layahost();
+    await decideBatch('s', TWO, opts(stub));
+    _resetProviderStateMemoForTest(); // even a fresh process reuses the file
+    await decideBatch('s', TWO, opts(stub));
+    expect(calls(stub, '/v1/usage')).toBe(1);
+    expect(calls(stub, '/v1/systemone/batch')).toBe(2);
+  });
+
+  it('a single decide never detects: it uses the Jev minimum until a detection is cached', async () => {
+    const stub = layahost();
+    const outcome = await decide('s', REQUEST, heuristic, { ...opts(stub), timeoutMs: 1_000 });
+    expect(outcome.source).toBe('provider');
+    expect(calls(stub, '/v1/usage')).toBe(0);
+    expect(calls(stub, '/v1/templates')).toBe(0);
+    expect(existsSync(join(dir, 'state.json'))).toBe(false);
+  });
+
+  it('a failed detection is not retried within the interval, even when the state cannot be written', async () => {
+    writeFileSync(join(dir, 'blocker'), 'x');
+    const stub = routes({ '/v1/systemone': () => jsonResponse(200, OK_BODY) });
+    // `blocker` is a file, so `<blocker>/state.json` can never be written.
+    const o = { ...opts(stub), providerStatePath: join(dir, 'blocker', 'state.json') };
+    const first = await decideBatch('s', TWO, o);
+    const second = await decideBatch('s', TWO, o);
+    expect([...first, ...second].map((x) => x.source)).toEqual([
+      'provider',
+      'provider',
+      'provider',
+      'provider',
+    ]);
+    expect(calls(stub, '/v1/usage')).toBe(1);
+    expect(calls(stub, '/v1/systemone')).toBe(4);
+  });
+
+  it('a transient detection failure keeps the previous capabilities', async () => {
+    let now = 1_000_000;
+    const path = join(dir, 'state.json');
+    await refreshProviderState(connection, signal(), { fetch: layahost(), path, now: () => now });
+    now += USAGE_REFRESH_MS;
+    _resetProviderStateMemoForTest();
+    const down = routes({ '/v1/usage': () => jsonResponse(503, { detail: {} }) });
+    const state = await refreshProviderState(connection, signal(), {
+      fetch: down,
+      path,
+      now: () => now,
+    });
+    expect(state?.capabilities.batch).toEqual({ maxRequests: 64, maxQuestions: 256 });
+    expect(state?.detectedAt).toBe(now);
+  });
+
+  it('a definitive "no extension" answer downgrades to the Jev minimum', async () => {
+    let now = 1_000_000;
+    const path = join(dir, 'state.json');
+    await refreshProviderState(connection, signal(), { fetch: layahost(), path, now: () => now });
+    now += USAGE_REFRESH_MS;
+    _resetProviderStateMemoForTest();
+    const plainJev = routes({});
+    const state = await refreshProviderState(connection, signal(), {
+      fetch: plainJev,
+      path,
+      now: () => now,
+    });
+    expect(state?.capabilities).toEqual(JEV_MINIMUM_CAPABILITIES);
   });
 });
 

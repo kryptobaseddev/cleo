@@ -7,10 +7,23 @@
  *
  * Detection (`detectJevCapabilities`) calls `GET /v1/usage` and
  * `GET /v1/templates`, both of which count toward the provider's rate limit,
- * so `cleo decide status` refreshes this file at most once every
- * {@link USAGE_REFRESH_MS}. The client reads it (memoised per process) to
- * know which extensions the configured provider supports; with no file, or a
- * file for another base URL or key, the provider is treated as the Jev minimum.
+ * so {@link refreshProviderState} re-detects at most once every
+ * {@link USAGE_REFRESH_MS} per provider identity: a failed detection is
+ * written too (keeping the previous capabilities on a transient failure), and
+ * an in-process attempt memo covers an unwritable state file. The client
+ * reads the file (memoised per process) to know which extensions the
+ * configured provider supports; with no file, or a file for another base URL
+ * or key, the provider is treated as the Jev minimum.
+ *
+ * Who detects (T12715): `cleo decide config` (forced), `cleo decide status`,
+ * and — lazily, on first use — `decideBatch`, whose 30 s deadline is not
+ * latency-critical. A single 300 ms `decide()` NEVER detects: it neither
+ * waits for detection nor starts one in the background, because a pending
+ * detection request would keep a one-shot CLI process alive past its work
+ * (the CLI's success path relies on the event loop draining, T12492). A single
+ * decision therefore uses the Jev minimum until one of the paths above has
+ * written the state; the minimum only omits the optional `lang`/`cache` body
+ * fields, so the answer itself is unaffected.
  *
  * @task T12664
  * @epic T12486
@@ -21,6 +34,9 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { DecisionProviderCapabilities, DecisionProviderUsage } from '@cleocode/contracts';
 import { getCleoHome } from '@cleocode/paths';
+import { detectJevCapabilities } from './jev-wire.js';
+import type { DecisionProviderErrorKind } from './provider.js';
+import type { DecideFetch } from './transport.js';
 
 /** Minimum interval between usage/capability refreshes: 10 minutes. */
 export const USAGE_REFRESH_MS = 10 * 60 * 1000;
@@ -172,10 +188,93 @@ export function cachedCapabilities(
 }
 
 /**
- * Clear the in-process memo. Tests only.
+ * Detection failures that say nothing about the provider's capabilities: the
+ * previous detection is kept rather than downgraded to the Jev minimum.
+ */
+const TRANSIENT_DETECTION_ERRORS: ReadonlySet<DecisionProviderErrorKind> =
+  new Set<DecisionProviderErrorKind>([
+    'network',
+    'aborted',
+    'server_error',
+    'overloaded',
+    'rate_limited',
+  ]);
+
+/** Epoch ms of the last detection attempt per identity, this process. */
+const lastAttempt = new Map<string, number>();
+
+/** Options for {@link refreshProviderState}. */
+export interface RefreshProviderStateOptions {
+  /** Transport for the detection probes; tests inject a stub. */
+  readonly fetch?: DecideFetch;
+  /** Wall clock, epoch ms. Default `Date.now`. */
+  readonly now?: () => number;
+  /** State file. Default {@link defaultProviderStatePath}. */
+  readonly path?: string;
+  /** Detect even when the cached state is fresh (after a settings change). */
+  readonly force?: boolean;
+}
+
+/**
+ * Return the cached provider state, re-detecting it first when it is absent
+ * or older than {@link USAGE_REFRESH_MS} (or when `force` is set).
+ *
+ * At most one detection runs per identity per {@link USAGE_REFRESH_MS}: the
+ * result is written even when detection failed, and a per-process attempt
+ * memo stops a retry loop when the file cannot be written. A transient
+ * failure (network, timeout, 5xx, 429) keeps the previous capabilities and
+ * usage instead of downgrading them. Never throws.
+ *
+ * @param connection - Base URL and API key of the configured provider.
+ * @param signal - Aborts the detection probes.
+ * @param opts - Transport, clock, state path, force.
+ * @returns The fresh or cached state, or `null` when detection was skipped
+ *   (attempted recently in this process) and nothing is cached.
+ */
+export async function refreshProviderState(
+  connection: ProviderStateIdentity,
+  signal: AbortSignal,
+  opts: RefreshProviderStateOptions = {},
+): Promise<ProviderState | null> {
+  const now = opts.now ?? Date.now;
+  const cached = readProviderState(connection, opts.path);
+  if (opts.force !== true && cached && now() - cached.detectedAt < USAGE_REFRESH_MS) {
+    return cached;
+  }
+  const keyHash = providerKeyHash(connection.apiKey);
+  const attemptKey = `${connection.baseUrl}\u0000${keyHash}`;
+  const previousAttempt = lastAttempt.get(attemptKey);
+  if (
+    opts.force !== true &&
+    previousAttempt !== undefined &&
+    now() - previousAttempt < USAGE_REFRESH_MS
+  ) {
+    return cached;
+  }
+  lastAttempt.set(attemptKey, now());
+  const detected = await detectJevCapabilities(connection, signal, {
+    ...(opts.fetch ? { fetch: opts.fetch } : {}),
+  });
+  const transient =
+    detected.error !== undefined && TRANSIENT_DETECTION_ERRORS.has(detected.error.kind);
+  const kept = transient && cached ? cached : undefined;
+  const state: ProviderState = {
+    baseUrl: connection.baseUrl,
+    keyHash,
+    detectedAt: now(),
+    capabilities: kept?.capabilities ?? detected.capabilities,
+    ...(detected.usage ? { usage: detected.usage } : kept?.usage ? { usage: kept.usage } : {}),
+  };
+  writeProviderState(state, opts.path);
+  return state;
+}
+
+/**
+ * Clear the in-process memo and detection-attempt memo. Tests only.
  *
  * @internal
  */
 export function _resetProviderStateMemoForTest(): void {
   memo = null;
+  lastAttempt.clear();
 }

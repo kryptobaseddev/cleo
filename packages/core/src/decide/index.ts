@@ -41,6 +41,7 @@ export {
 } from './cache.js';
 export {
   _resetDecideDefaultsForTest,
+  CAPABILITY_DETECTION_TIMEOUT_MS,
   DECISION_COST_ESTIMATE_MICROS_PER_QUESTION,
   DEFAULT_BATCH_DECISION_TIMEOUT_MS,
   DEFAULT_DECISION_TIMEOUT_MS,
@@ -119,7 +120,9 @@ export {
   type ProviderState,
   type ProviderStateIdentity,
   providerKeyHash,
+  type RefreshProviderStateOptions,
   readProviderState,
+  refreshProviderState,
   USAGE_REFRESH_MS,
   writeProviderState,
 } from './provider-state.js';

@@ -22,3 +22,18 @@ items serially (2–5 s per 64) and the spec requires at least 30 s. When the
 provider has no batch capability and the call degrades to sequential
 decisions, each one is still capped at 300 ms unless the caller set
 `timeoutMs`.
+
+**Lazy capability detection (AC b).** Capabilities were detected only by
+`cleo decide config` and `cleo decide status`. `decideBatch` now detects them
+on first use when the cached provider state is absent or older than 10
+minutes, before it builds the provider, bounded by 5 s and by the batch
+deadline. The shared `refreshProviderState` (also used by `cleo decide
+status`) runs at most one detection per base URL and key hash per 10 minutes:
+it writes a failed detection too, keeps the previous capabilities after a
+transient failure (network, timeout, 5xx, 429), and keeps an in-process
+attempt memo for an unwritable state file. A single 300 ms `decide()` never
+detects, neither in line nor in the background, because a pending background
+request would keep a one-shot CLI process alive past its work. It uses the
+cached state, or the Jev minimum until one exists; the minimum only omits the
+optional `lang` and `cache` body fields. `DecideOptions` gains `fetch` and
+`providerStatePath`.
