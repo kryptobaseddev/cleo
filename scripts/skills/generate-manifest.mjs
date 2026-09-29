@@ -44,7 +44,7 @@
  * @task T12653
  */
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isMain } from '../lib/is-main.mjs';
 import {
@@ -57,6 +57,59 @@ import {
   TIER_NUMBER,
   validateFrontmatter,
 } from './lib/skill-frontmatter.mjs';
+
+/** Repo-relative directory of install profiles (`minimal` → `core` → …). */
+export const PROFILES_DIR = 'packages/skills/profiles';
+
+/**
+ * Check the install profiles against the manifest (T12649). Every skill a
+ * profile names must be a manifest entry with `install: harness`, and the
+ * fully resolved `full` profile must be exactly the harness set — so a
+ * phantom (`loom`), an internal skill, or a harness skill no profile installs
+ * all fail.
+ *
+ * @param {string} root - Repository root.
+ * @param {{ skills: { name: string, install?: string }[] }} manifest - Manifest.
+ * @returns {string[]} Drift descriptions (empty when consistent).
+ */
+export function checkProfiles(root, manifest) {
+  const dir = join(root, PROFILES_DIR);
+  if (!existsSync(dir)) return [];
+  const harness = new Set(
+    manifest.skills.filter((s) => s.install === 'harness').map((s) => s.name),
+  );
+  const profiles = new Map();
+  for (const file of readdirSync(dir).filter((f) => f.endsWith('.json'))) {
+    const p = JSON.parse(readFileSync(join(dir, file), 'utf-8'));
+    profiles.set(p.name, p);
+  }
+  const drift = [];
+  for (const [name, p] of profiles) {
+    for (const skill of p.skills ?? []) {
+      if (!harness.has(skill)) {
+        drift.push(
+          `${PROFILES_DIR}: profile '${name}' names '${skill}', which is not a harness skill in the manifest`,
+        );
+      }
+    }
+  }
+  const resolve = (name, seen = new Set()) => {
+    const p = profiles.get(name);
+    if (!p || seen.has(name)) return [];
+    seen.add(name);
+    return [...(p.extends ? resolve(p.extends, seen) : []), ...(p.skills ?? [])];
+  };
+  if (profiles.has('full')) {
+    const full = new Set(resolve('full'));
+    for (const skill of harness) {
+      if (!full.has(skill))
+        drift.push(
+          `${PROFILES_DIR}: harness skill '${skill}' is in no profile ('full' must install every harness skill)`,
+        );
+    }
+  }
+  return drift;
+}
 
 /** Retired skills indexes that must not come back (T12653). */
 export const LEGACY_INDEXES = ['packages/skills/skills.json'];
@@ -178,6 +231,7 @@ export function checkManifest(root) {
       drift.push(`${legacy}: a second skills index exists; the manifest is the only one (T12653)`);
     }
   }
+  drift.push(...checkProfiles(root, manifest));
   const committedText = readFileSync(join(root, MANIFEST_PATH), 'utf-8');
   const expectedText = serialiseManifest(manifest);
   if (committedText === expectedText) return { problems, drift };

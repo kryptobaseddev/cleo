@@ -166,6 +166,24 @@ describe('lint-skills-manifest goes red on planted defects', () => {
     expect(checkManifest(root).problems[0].problem).toMatch(/top-level loomStage moved/);
   });
 
+  it('fails when a profile names a phantom or omits a harness skill (T12649)', () => {
+    mkdirSync(join(root, 'packages/skills/profiles'), { recursive: true });
+    const profile = (name, skills, ext) =>
+      writeFileSync(
+        join(root, 'packages/skills/profiles', `${name}.json`),
+        JSON.stringify({ name, skills, ...(ext && { extends: ext }) }),
+      );
+    profile('minimal', ['ct-alpha']);
+    profile('full', ['ct-beta'], 'minimal');
+    expect(checkManifest(root).drift).toEqual([]);
+
+    profile('full', ['loom'], 'minimal');
+    expect(checkManifest(root).drift).toEqual([
+      "packages/skills/profiles: profile 'full' names 'loom', which is not a harness skill in the manifest",
+      "packages/skills/profiles: harness skill 'ct-beta' is in no profile ('full' must install every harness skill)",
+    ]);
+  });
+
   it('fails when the manifest lists a skill with no directory', () => {
     const m = JSON.parse(readFileSync(join(root, MANIFEST), 'utf8'));
     m.skills.push({ name: 'loom' });

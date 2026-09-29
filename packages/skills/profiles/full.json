@@ -1,10 +1,14 @@
 {
   "name": "full",
-  "description": "All skills including execution, documentation, quality, and meta",
+  "description": "Every skill installed to harnesses. Equal to recommended: internal skills (ct-grade, ct-skill-author) are never installed (D11157)",
   "extends": "recommended",
-  "skills": [
-    "ct-dev-workflow", "ct-documentor",
-    "ct-contribution"
-  ],
-  "includeProtocols": ["implementation", "contribution", "release", "testing", "artifact-publish", "provenance"]
+  "skills": [],
+  "includeProtocols": [
+    "implementation",
+    "contribution",
+    "release",
+    "testing",
+    "artifact-publish",
+    "provenance"
+  ]
 }
