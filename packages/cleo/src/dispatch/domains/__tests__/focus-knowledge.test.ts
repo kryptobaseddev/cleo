@@ -86,9 +86,23 @@ describe('focus knowledge assessment', () => {
     expect(result.success).toBe(true);
     expect(result.data).toMatchObject({
       coverage: { status: 'missing' },
-      knowledgeHealth: { coverage: { status: 'missing' } },
+      knowledgeHealth: { coverageRef: '/coverage' },
     });
     expect(runKnowledgeDoctor).toHaveBeenCalledWith('/fixture', { fix: true, budgetMs: 2000 });
+  });
+
+  it('emits the coverage object once and references it from knowledgeHealth (T12522)', async () => {
+    const result = await new FocusHandler().query('show', { id: 'T123' });
+    const data = result.data as Record<string, Record<string, unknown>>;
+    // Coverage-disclosure rule: coverage is present in the envelope...
+    expect(data['coverage']).toMatchObject({ status: 'missing', reasonCount: 1 });
+    // ...exactly once: knowledgeHealth points at it instead of repeating it.
+    expect(data['knowledgeHealth']).not.toHaveProperty('coverage');
+    const ref = data['knowledgeHealth']?.['coverageRef'];
+    expect(ref).toBe('/coverage');
+    // A top-level pointer: its one segment names the envelope key holding coverage.
+    expect(data[String(ref).slice(1)]).toBe(data['coverage']);
+    expect(JSON.stringify(data).match(/"assessedAt"/g)).toHaveLength(1);
   });
 
   it('surfaces a failed memory read independently of graph coverage', async () => {

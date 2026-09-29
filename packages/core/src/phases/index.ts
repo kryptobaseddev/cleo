@@ -7,8 +7,11 @@
 import type { PhaseStatus, PhaseTransition, ProjectMeta } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
-import { readFocusState, writeFocusState } from '../sessions/focus-state-store.js';
-import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
+import {
+  readFocusState,
+  resolveFocusSessionId,
+  writeFocusState,
+} from '../sessions/focus-state-store.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { logOperation } from '../tasks/add.js';
 
@@ -462,7 +465,7 @@ export async function advancePhase(
 export async function renamePhase(
   oldName: string,
   newName: string,
-  _cwd?: string,
+  cwd?: string,
   accessor?: DataAccessor,
 ): Promise<RenamePhaseResult> {
   const meta = await accessor!.getMetaValue<ProjectMeta>('project_meta');
@@ -503,7 +506,7 @@ export async function renamePhase(
 
   // Update focus if needed
   // T12660: through the per-session focus store, not the raw legacy key.
-  const focusSessionId = resolveSessionIdFromEnv();
+  const focusSessionId = await resolveFocusSessionId(cwd);
   const focus = await readFocusState(accessor!, focusSessionId);
   if (focus?.currentPhase === oldName) {
     focus.currentPhase = newName;

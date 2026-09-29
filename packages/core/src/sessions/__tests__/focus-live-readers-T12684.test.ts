@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { injectTasks } from '../../inject/index.js';
 import { buildBrainState } from '../../orchestration/bootstrap.js';
 import { type DataAccessor, getTaskAccessor } from '../../store/data-accessor.js';
+import { createSession } from '../../store/session-store.js';
 import { resetDbState } from '../../store/sqlite.js';
 import { currentTask } from '../../task-work/index.js';
 import { taskComplete } from '../../tasks/complete.js';
@@ -91,6 +92,19 @@ describe('readLiveFocus — the one validating focus reader', () => {
 describe("another session's completion", () => {
   it("leaves session B's key untouched, but B is reported stale", async () => {
     const { root, acc } = await scratchProject();
+    // T12501: an env id binds only when its session row exists.
+    for (const id of ['ses_a', 'ses_b'])
+      await createSession(
+        {
+          id,
+          name: id,
+          status: 'active',
+          scope: { type: 'global' },
+          taskWork: { taskId: null, setAt: null },
+          startedAt: new Date().toISOString(),
+        },
+        root,
+      );
     await acc.setMetaValue(focusStateKey('ses_a'), focusOn('T3'));
     await acc.setMetaValue(focusStateKey('ses_b'), focusOn('T3'));
 

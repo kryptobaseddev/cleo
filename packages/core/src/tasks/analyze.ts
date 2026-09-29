@@ -6,8 +6,11 @@
 
 import type { Task, TaskAnalysisResult } from '@cleocode/contracts';
 import { resolveOrCwd } from '../paths.js';
-import { readFocusState, writeFocusState } from '../sessions/focus-state-store.js';
-import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
+import {
+  readFocusState,
+  resolveFocusSessionId,
+  writeFocusState,
+} from '../sessions/focus-state-store.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { computeLeverage } from '../task-tools/score-task-priority.js';
@@ -45,7 +48,7 @@ export async function rankForAnalysis(
   opts: { projectRoot?: string; scopeTaskIds?: ReadonlySet<string>; nowMs?: number } = {},
 ): Promise<{ ranked: AnalysisRankedTask[] }> {
   const { ranked, leverage } = await rankReadyTasks(accessor, allTasks, {
-    currentPhase: await resolveRankingPhase(accessor),
+    currentPhase: await resolveRankingPhase(accessor, opts.projectRoot),
     nowMs: opts.nowMs ?? Date.now(),
     ...opts,
   });
@@ -115,7 +118,7 @@ export async function analyzeTaskPriority(
   if (opts.autoStart && recommended) {
     // T12660: write through the per-session focus store (the same session
     // resolution `cleo current` reads with), never the raw legacy global key.
-    const sessionId = resolveSessionIdFromEnv();
+    const sessionId = await resolveFocusSessionId(opts.cwd);
     const currentFocus = await readFocusState(acc, sessionId);
     await writeFocusState(acc, sessionId, { ...(currentFocus ?? {}), currentTask: recommended.id });
     autoStarted = true;

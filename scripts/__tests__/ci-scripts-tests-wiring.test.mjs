@@ -96,8 +96,9 @@ describe('gh#1403 — the scripts test project is reachable from CI', () => {
   });
 
   it('exports the filter as a job output, or nothing can gate on it', () => {
+    // Forced on for the nightly `schedule` run, which has no diff to filter.
     expect(jobBlock(ci, 'changes')).toMatch(
-      /^\s+scripts: \$\{\{ steps\.filter\.outputs\.scripts \}\}\s*$/m,
+      /^\s+scripts: \$\{\{ github\.event_name == 'schedule' && 'true' \|\| steps\.filter\.outputs\.scripts \}\}\s*$/m,
     );
   });
 
@@ -205,13 +206,21 @@ describe('T12273 package artifact checks reach the required PR and merge-group g
       .map((changedPath) => [changedPath, true])
       .concat([['docs/usage.md', false]]),
   )('evaluates packed verification for the independent input %s as %s', (changedPath, expected) => {
-    const enabled = job.if
+    // The path terms are wrapped in `( ... ) && version_only != 'true'`: the
+    // release bump-PR shape skips packed verification (ci-detect-version-only).
+    const wrapped = /^\((.*)\) && needs\.changes\.outputs\.version_only != 'true'$/.exec(job.if);
+    expect(wrapped, `unsupported gate expression: ${job.if}`).not.toBeNull();
+    const enabled = wrapped[1]
       .split(' || ')
       .map((term) => {
         const parsed = /^needs\.changes\.outputs\.([a-z_]+) == 'true'$/.exec(term);
         expect(parsed, `unsupported gate expression: ${term}`).not.toBeNull();
         const name = parsed[1];
-        expect(changes.outputs[name]).toBe(`\${{ steps.filter.outputs.${name} }}`);
+        // Outside the nightly schedule run (where every path gate is forced
+        // on), each output is exactly the paths-filter result.
+        expect(changes.outputs[name]).toBe(
+          `\${{ github.event_name == 'schedule' && 'true' || steps.filter.outputs.${name} }}`,
+        );
         expect(filters[name]).toBeInstanceOf(Array);
         return filters[name].some((pattern) => path.posix.matchesGlob(changedPath, pattern));
       })

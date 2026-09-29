@@ -21,6 +21,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { writeFocusState } from '../../sessions/focus-state-store.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
+import { createSession } from '../../store/session-store.js';
 import {
   addAttention,
   expireAttention,
@@ -50,6 +51,21 @@ async function asAgent<T>(
       else process.env[k] = saved[k];
     }
   }
+}
+
+/** T12501: an env session id binds (and keys focus) only when its row exists. */
+async function createBoundSession(id: string, root: string): Promise<void> {
+  await createSession(
+    {
+      id,
+      name: id,
+      status: 'active',
+      scope: { type: 'global' },
+      taskWork: { taskId: null, setAt: null },
+      startedAt: new Date().toISOString(),
+    },
+    root,
+  );
 }
 
 describe('attention CRUD (T11372 · Epic T11288)', () => {
@@ -85,6 +101,7 @@ describe('attention CRUD (T11372 · Epic T11288)', () => {
 
   it('resolves the narrowest-default scope chain via E0 identity + parent walk', async () => {
     const sessionId = 'ses_20260530000010_aaaaaa';
+    await createBoundSession(sessionId, env.tempDir);
     await writeFocusState(env.accessor, sessionId, { currentTask: 'T001' });
 
     const identity = await asAgent({ sessionId, agentId: 'agent-x' }, () =>
@@ -104,6 +121,7 @@ describe('attention CRUD (T11372 · Epic T11288)', () => {
 
   it('keys a jot to the NARROWEST scope (agent) by default', async () => {
     const sessionId = 'ses_20260530000011_bbbbbb';
+    await createBoundSession(sessionId, env.tempDir);
     await writeFocusState(env.accessor, sessionId, { currentTask: 'T001' });
 
     const item = await asAgent({ sessionId, agentId: 'agent-x' }, () =>
@@ -117,6 +135,7 @@ describe('attention CRUD (T11372 · Epic T11288)', () => {
 
   it('escalates scope on explicit --scope override (epic)', async () => {
     const sessionId = 'ses_20260530000012_cccccc';
+    await createBoundSession(sessionId, env.tempDir);
     await writeFocusState(env.accessor, sessionId, { currentTask: 'T001' });
 
     const item = await asAgent({ sessionId, agentId: 'agent-x' }, () =>
@@ -128,6 +147,7 @@ describe('attention CRUD (T11372 · Epic T11288)', () => {
 
   it('stores one row per jot (independent items, not a blob aggregate)', async () => {
     const sessionId = 'ses_20260530000013_dddddd';
+    await createBoundSession(sessionId, env.tempDir);
     await writeFocusState(env.accessor, sessionId, { currentTask: 'T001' });
 
     await asAgent({ sessionId, agentId: 'agent-x' }, async () => {
@@ -143,6 +163,7 @@ describe('attention CRUD (T11372 · Epic T11288)', () => {
 
   it('add -> list(open only) -> expire transition (TTL sweep)', async () => {
     const sessionId = 'ses_20260530000014_eeeeee';
+    await createBoundSession(sessionId, env.tempDir);
     await writeFocusState(env.accessor, sessionId, { currentTask: 'T001' });
 
     await asAgent({ sessionId, agentId: 'agent-x' }, async () => {
@@ -178,6 +199,7 @@ describe('attention CRUD (T11372 · Epic T11288)', () => {
 
   it('multi-tag json_each filter returns EXACTLY the contains-ALL matches', async () => {
     const sessionId = 'ses_20260530000015_ffffff';
+    await createBoundSession(sessionId, env.tempDir);
     await writeFocusState(env.accessor, sessionId, { currentTask: 'T001' });
 
     await asAgent({ sessionId, agentId: 'agent-x' }, async () => {
@@ -202,6 +224,7 @@ describe('attention CRUD (T11372 · Epic T11288)', () => {
 
   it('honors the SQL LIMIT even with a tag filter active', async () => {
     const sessionId = 'ses_20260530000016_aabbcc';
+    await createBoundSession(sessionId, env.tempDir);
     await writeFocusState(env.accessor, sessionId, { currentTask: 'T001' });
 
     await asAgent({ sessionId, agentId: 'agent-x' }, async () => {

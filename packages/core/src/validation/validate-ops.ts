@@ -16,8 +16,7 @@ import type { Task } from '@cleocode/contracts';
 import { TASK_STATUSES } from '@cleocode/contracts';
 import { getManifestPath as getCentralManifestPath } from '../paths.js';
 import { resolveToolCommand } from '../sdk/tool-resolver.js';
-import { readLiveFocus } from '../sessions/focus-state-store.js';
-import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
+import { readLiveFocus, resolveFocusSessionId } from '../sessions/focus-state-store.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { computeChecksum } from '../store/json.js';
 import { detectCircularDeps, validateDependencies } from '../tasks/dependency-check.js';
@@ -223,7 +222,7 @@ export async function coreValidateReport(projectRoot: string): Promise<ValidateR
 
   // 10. Focus matches active task
   // T12684: the live focus; a pointer to a finished task is reported stale.
-  const focus = await readLiveFocus(accessor, resolveSessionIdFromEnv());
+  const focus = await readLiveFocus(accessor, await resolveFocusSessionId(projectRoot));
   const focusTask = focus.currentTask;
   const activeTaskId = activeTasks[0]?.id ?? null;
   if (focus.staleFocus) {

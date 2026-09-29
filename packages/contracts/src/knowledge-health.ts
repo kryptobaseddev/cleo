@@ -258,6 +258,28 @@ export interface KnowledgeHealth {
   findings: KnowledgeRepairFinding[];
 }
 
+/**
+ * Orientation summary of {@link KnowledgeHealth} for envelopes that already
+ * carry the coverage object at their top level (`briefing.show`'s
+ * `knowledgeCoverage`, `focus.show`'s `coverage`).
+ *
+ * The coverage object is emitted once per envelope; this summary points at it
+ * through {@link KnowledgeHealthSummary.coverageRef} instead of repeating it
+ * (T12522). Every other field keeps the {@link KnowledgeHealth} meaning. The
+ * full assessment, coverage included, remains available from
+ * `cleo doctor knowledge`.
+ *
+ * @task T12522
+ */
+export interface KnowledgeHealthSummary extends Omit<KnowledgeHealth, 'coverage'> {
+  /**
+   * JSON Pointer, relative to the envelope's `data`, of the coverage object
+   * this summary describes — e.g. `/knowledgeCoverage` (briefing) or
+   * `/coverage` (focus). Prefix `/data` for `cleo ... --field`.
+   */
+  coverageRef: string;
+}
+
 /** Responsibility for resolving a knowledge defect. */
 export type KnowledgeRepairClass = 'automatic' | 'agent-resolvable' | 'owner-decision';
 

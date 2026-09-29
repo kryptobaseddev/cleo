@@ -41,7 +41,7 @@ export type ProjectionMode = 'mvi' | 'full';
  * `'unknown'` is the safe fallback — when the dispatcher cannot identify the
  * record shape, the record is passed through untouched (no field stripping).
  */
-export type ProjectionKind = 'task' | 'epic' | 'saga' | 'doc' | 'unknown';
+export type ProjectionKind = 'task' | 'epic' | 'saga' | 'doc' | 'acRow' | 'unknown';
 
 /**
  * Envelope key naming every field the projection withheld.
@@ -167,7 +167,29 @@ const MVI_FIELDS: Record<Exclude<ProjectionKind, 'unknown'>, ReadonlySet<string>
     'refCount',
     'description',
   ]),
+  // T12523: an acceptance-criterion row keeps what an agent acts on — the
+  // `AC<n>` alias it cites in `satisfies:` evidence, the ordinal and the text.
+  // Its UUID is withheld: see MVI_DENIED_FIELDS.
+  acRow: new Set(['alias', 'ordinal', 'text']),
 };
+
+/** Empty deny-set: the default, under which every truth field is kept. */
+const NO_DENIED_FIELDS: ReadonlySet<string> = new Set();
+
+/**
+ * Truth fields a kind withholds anyway, because a cheaper field already
+ * identifies the record inside its envelope.
+ *
+ * `acRow` (T12523): an acceptance-criterion row is identified by its task and
+ * its `AC<n>` alias (`satisfies:T1234#AC1`), so its UUID `id` — about a third
+ * of every row's tokens — is withheld by default. The row still names `id` in
+ * its `_withheld` marker, and `--full` or a `--field /data/acRows/<i>/id`
+ * pointer returns it.
+ */
+const MVI_DENIED_FIELDS: Partial<Record<Exclude<ProjectionKind, 'unknown'>, ReadonlySet<string>>> =
+  {
+    acRow: new Set(['id']),
+  };
 
 /**
  * Generic identity/routing field allow-list applied to UNKNOWN kinds.
@@ -227,11 +249,12 @@ export function discloseProjection<
 function pickFields<T extends Record<string, unknown>>(
   record: T,
   allow: ReadonlySet<string>,
+  deny: ReadonlySet<string> = NO_DENIED_FIELDS,
 ): { picked: Partial<T>; withheld: Record<string, number> } {
   const picked: Partial<T> = {};
   const withheld = previousWithheld(record);
   for (const key of Object.keys(record)) {
-    if (allow.has(key) || mandatoryFields.has(key)) {
+    if (!deny.has(key) && (allow.has(key) || mandatoryFields.has(key))) {
       // Index assertion is safe: `key` came from Object.keys(record).
       (picked as Record<string, unknown>)[key] = record[key];
       delete withheld[key];
@@ -340,7 +363,7 @@ export function projectMvi<T extends Record<string, unknown>>(
 ): Partial<T> {
   if (kind === 'unknown') return record;
   const allow = MVI_FIELDS[kind];
-  const { picked, withheld } = pickFields(record, allow);
+  const { picked, withheld } = pickFields(record, allow, MVI_DENIED_FIELDS[kind]);
   return withWithheldMarker(picked, withheld);
 }
 
@@ -351,7 +374,7 @@ export function projectMvi<T extends Record<string, unknown>>(
  */
 export interface ProjectMVIOptions {
   /**
-   * Record kind. Known kinds (`task`/`epic`/`saga`/`doc`) use their
+   * Record kind. Known kinds (`task`/`epic`/`saga`/`doc`/`acRow`) use their
    * {@link MVI_FIELDS} allow-list; `'unknown'` (or any unrecognized value)
    * degrades to the {@link GENERIC_MVI_FIELDS} identity/routing set rather than
    * leaking the full record.
@@ -416,11 +439,14 @@ export function projectMVI<T extends Record<string, unknown>>(
   if (mode === 'full') return record;
 
   // Step 1+2+3: field selection (known allow-list or generic fallback).
-  const allow =
-    options.kind === 'unknown' || !(options.kind in MVI_FIELDS)
-      ? GENERIC_MVI_FIELDS
-      : MVI_FIELDS[options.kind as Exclude<ProjectionKind, 'unknown'>];
-  const { picked, withheld } = pickFields(record, allow);
+  const known = options.kind !== 'unknown' && options.kind in MVI_FIELDS;
+  const kind = options.kind as Exclude<ProjectionKind, 'unknown'>;
+  const allow = known ? MVI_FIELDS[kind] : GENERIC_MVI_FIELDS;
+  const { picked, withheld } = pickFields(
+    record,
+    allow,
+    known ? MVI_DENIED_FIELDS[kind] : undefined,
+  );
 
   // Budgeting must retain the same omission provenance as field selection.
   if (options.budget !== undefined) {
@@ -483,11 +509,29 @@ export interface ProjectionPlan {
    * element. When `false`, treat it as a single record.
    */
   list: boolean;
+  /**
+   * Further sibling paths of the same response projected alongside `path`
+   * (T12523 — `tasks.show` also projects its `acRows`). Each entry follows
+   * the same rules as a top-level plan; nested `also` lists are not followed.
+   */
+  also?: readonly ProjectionPlan[];
+  /**
+   * List plans only: move each element's `_withheld` marker onto the
+   * containing object as one `<path>/*\/<field>` entry per field, whose size
+   * is the total across elements (T12523). Use it when every element withholds
+   * the same fields, so one statement replaces a marker per row.
+   */
+  hoistWithheld?: boolean;
 }
 
 /** SSoT for which ops get MVI-projected by default. */
 export const PROJECTION_PLANS: Readonly<Record<string, ProjectionPlan>> = {
-  'tasks.show': { path: 'task', kind: 'task', list: false },
+  'tasks.show': {
+    path: 'task',
+    kind: 'task',
+    list: false,
+    also: [{ path: 'acRows', kind: 'acRow', list: true, hoistWithheld: true }],
+  },
   'tasks.list': { path: 'tasks', kind: 'task', list: true },
   'tasks.find': { path: 'results', kind: 'task', list: true },
   'docs.list': { path: 'attachments', kind: 'doc', list: true },
@@ -519,6 +563,18 @@ export function applyProjectionPlan(
   if (mode === 'full') return data;
   const plan = PROJECTION_PLANS[operation];
   if (!plan) return data;
+  let projected = applySinglePlan(data, plan);
+  for (const sibling of plan.also ?? []) projected = applySinglePlan(projected, sibling);
+  return projected;
+}
+
+/**
+ * Apply one {@link ProjectionPlan} (ignoring its `also` siblings) to a data
+ * payload. Missing or mistyped targets are no-ops.
+ *
+ * @internal
+ */
+function applySinglePlan(data: unknown, plan: ProjectionPlan): unknown {
   if (data === null || data === undefined) return data;
   // `$` targets the data root directly.
   if (plan.path === '$') {
@@ -536,16 +592,45 @@ export function applyProjectionPlan(
   if (target === undefined || target === null) return data;
   if (plan.list) {
     if (!Array.isArray(target)) return data;
-    return {
-      ...container,
-      [plan.path]: projectMviList(target as readonly Record<string, unknown>[], plan.kind),
-    };
+    const rows = projectMviList(target as readonly Record<string, unknown>[], plan.kind);
+    if (plan.hoistWithheld === true) return hoistListWithheld(container, plan.path, rows);
+    return { ...container, [plan.path]: rows };
   }
   if (typeof target !== 'object') return data;
   return {
     ...container,
     [plan.path]: projectMvi(target as Record<string, unknown>, plan.kind),
   };
+}
+
+/**
+ * Replace the per-element `_withheld` markers of a projected list with one
+ * marker on its container (T12523).
+ *
+ * Each withheld element field becomes a `<path>/*\/<field>` key — "this field
+ * was withheld from the elements of `<path>`" — whose size is the UTF-8 byte
+ * total across those elements. The disclosure is the same as a marker per
+ * element; only its location changes. The container keeps any marker it
+ * already carried.
+ *
+ * @internal
+ */
+function hoistListWithheld(
+  container: Record<string, unknown>,
+  path: string,
+  rows: readonly Record<string, unknown>[],
+): Record<string, unknown> {
+  const withheld = previousWithheld(container);
+  const stripped = rows.map((row) => {
+    const marker = previousWithheld(row);
+    for (const [field, bytes] of Object.entries(marker)) {
+      const key = `${path}/*/${field}`;
+      withheld[key] = (withheld[key] ?? 0) + bytes;
+    }
+    const { [WITHHELD_KEY]: _marker, ...rest } = row;
+    return rest;
+  });
+  return withWithheldMarker({ ...container, [path]: stripped }, withheld);
 }
 
 /**

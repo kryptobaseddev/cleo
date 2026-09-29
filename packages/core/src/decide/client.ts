@@ -330,7 +330,30 @@ function coversRequest(outcome: DecisionOutcome, req: DecisionRequest): boolean 
 
 type Attempt =
   | { readonly ok: true; readonly outcome: DecisionOutcome }
-  | { readonly ok: false; readonly reason: DecisionFallbackReason };
+  | {
+      readonly ok: false;
+      readonly reason: DecisionFallbackReason;
+      /** Cost the provider reported for a billed call whose answer was unusable. */
+      readonly billed?: BilledCost;
+    };
+
+/** Provider-reported cost of a billed 2xx, carried onto a fallback outcome. */
+interface BilledCost {
+  readonly costMicros?: number;
+  readonly costUsd?: number;
+}
+
+/**
+ * The reported cost of a billed outcome whose answer the client rejected
+ * (`invalid_response`), so callers that account spend (the T12495
+ * benchmark) see it on the fallback outcome. Empty when nothing was reported.
+ */
+function billedCost(outcome: DecisionOutcome): BilledCost {
+  return {
+    ...(outcome.costMicros !== undefined ? { costMicros: outcome.costMicros } : {}),
+    ...(outcome.costUsd !== undefined ? { costUsd: outcome.costUsd } : {}),
+  };
+}
 
 /** The spend and request gates one provider call passes through. */
 interface Gates {
@@ -465,7 +488,9 @@ async function attempt(
     const outcome = await provider.decide(req, signal);
     // A 2xx is billed even when its body is unusable.
     await settle(gates, gate.reservation, reportedMicros(outcome));
-    if (!coversRequest(outcome, req)) return { ok: false, reason: 'invalid_response' };
+    if (!coversRequest(outcome, req)) {
+      return { ok: false, reason: 'invalid_response', billed: billedCost(outcome) };
+    }
     return { ok: true, outcome };
   } catch (err) {
     // Failed requests are not billed (provider docs), but one aborted after
@@ -564,7 +589,7 @@ export async function decide(
     { ok: false, reason: 'timeout' },
     { ok: false, reason: 'provider_error' },
   );
-  if (!result.ok) return item.useFallback(result.reason);
+  if (!result.ok) return item.useFallback(result.reason, result.billed);
 
   cache?.set(item.key, result.outcome);
   return item.finish({ ...result.outcome, source: 'provider', latencyMs: item.elapsed() });
@@ -583,7 +608,7 @@ interface PreparedDecision {
   /** Audit and return an outcome. */
   readonly finish: (outcome: DecisionOutcome, reason?: DecisionFallbackReason) => DecisionOutcome;
   /** Audit and return the heuristic's answer. */
-  readonly useFallback: (reason: DecisionFallbackReason) => DecisionOutcome;
+  readonly useFallback: (reason: DecisionFallbackReason, billed?: BilledCost) => DecisionOutcome;
 }
 
 /** Redact, validate, key and wire the audit for one request. */
@@ -630,8 +655,11 @@ function prepare(
     key: decisionCacheKey(opts.adapterVersion ?? JEV_ADAPTER_VERSION, sent),
     elapsed,
     finish,
-    useFallback: (reason) =>
-      finish({ answers: fallback(req), source: 'fallback', latencyMs: elapsed() }, reason),
+    useFallback: (reason, billed) =>
+      finish(
+        { answers: fallback(req), source: 'fallback', latencyMs: elapsed(), ...(billed ?? {}) },
+        reason,
+      ),
   };
 }
 
@@ -783,9 +811,13 @@ export async function decideBatch(
           latencyMs: item.elapsed(),
         });
       } else {
-        out[i] = item.useFallback(
-          answered && !answered.ok ? batchItemReason(answered.errorKind) : 'invalid_response',
-        );
+        out[i] =
+          answered && !answered.ok
+            ? item.useFallback(batchItemReason(answered.errorKind))
+            : item.useFallback(
+                'invalid_response',
+                answered?.ok ? billedCost(answered.outcome) : undefined,
+              );
       }
     }
   }

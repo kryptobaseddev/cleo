@@ -650,6 +650,12 @@ export async function callLlmDuplicateReasoning(
 // ============================================================================
 
 /** One Tier-2-ambiguous candidate offered to the decision. */
+/** The part of a candidate the duplicate decision sends: its id, title and description. */
+export interface DuplicateDecisionCandidateText {
+  /** The candidate task (only `id`, `title` and `description` are read). */
+  readonly task: Pick<Task, 'id' | 'title' | 'description'>;
+}
+
 interface DecisionCandidate {
   /** The candidate task. */
   task: Task;
@@ -708,12 +714,20 @@ function questionName(index: number): string {
 
 /**
  * Build ONE decision request: the new task plus up to {@link MAX_CANDIDATES}
- * candidates as structured state, and one noul question per candidate.
+ * candidates as structured state, and one noul question per candidate
+ * (`c1`, `c2`, …). Exported for the T12495 benchmark, which replays the exact
+ * question the site asks.
+ *
+ * @param title - New task title.
+ * @param description - New task description.
+ * @param candidates - Candidate tasks (the Tier-1 score is not sent).
+ * @param redact - Redaction applied to every text field BEFORE clipping.
+ * @returns The request.
  */
-function buildDuplicateDecisionRequest(
+export function buildDuplicateDecisionRequest(
   title: string,
   description: string,
-  candidates: readonly DecisionCandidate[],
+  candidates: readonly DuplicateDecisionCandidateText[],
   redact: (s: string) => string,
 ): DecisionRequest {
   const clip = (text: string, max: number): string => redactThenClip(text, max, redact);
