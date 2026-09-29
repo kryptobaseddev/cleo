@@ -187,6 +187,7 @@ export function twinCollapseDoctorCheck(projectRoot: string): TwinCollapseDoctor
   const pending = report.pairs.filter((p) => p.state === 'pending' && p.wouldChangeTwin);
   const changed = report.pairs.filter((p) => p.state === 'bare-changed');
   const conflicted = report.pairs.filter((p) => p.conflicts.length > 0);
+  const unguarded = report.pairs.filter((p) => p.guardsIntact === false);
   const unpinned = report.pairs.filter((p) => p.snapshotPinned === false);
   const missing = report.pairs.filter((p) => p.snapshotMissing);
   const archived = report.pairs.filter((p) => p.archived.length > 0);
@@ -199,6 +200,7 @@ export function twinCollapseDoctorCheck(projectRoot: string): TwinCollapseDoctor
     pending.length > 0 ||
     changed.length > 0 ||
     conflicted.length > 0 ||
+    unguarded.length > 0 ||
     unpinned.length > 0 ||
     missing.length > 0
   ) {
@@ -214,6 +216,9 @@ export function twinCollapseDoctorCheck(projectRoot: string): TwinCollapseDoctor
           : '',
         conflicted.length > 0
           ? `both builds changed ${conflicted.map((p) => `${p.table}: ${p.conflicts.join(', ')}`).join('; ')} (last merge ${conflicted[0]?.conflictsAt}); the twin value was kept`
+          : '',
+        unguarded.length > 0
+          ? `the triggers that freeze ${unguarded.map((p) => p.table).join(', ')} against older CLEO builds are missing (re-installed at the next open, or run 'cleo doctor twin-collapse --retry')`
           : '',
         unpinned.length > 0
           ? `the pre-collapse snapshot of ${unpinned.map((p) => `${p.table} (${p.snapshotPath})`).join(', ')} is not pinned yet; the next open pins it so rotation never deletes it`

@@ -220,6 +220,15 @@ describe('repairAttachmentStore', () => {
       `${sha256.slice(2)}.txt`,
     );
     await import('node:fs/promises').then((m) => m.unlink(filePath));
+    // A real crash before COMMIT leaves no keep-link either (T12535).
+    await import('node:fs/promises').then((m) =>
+      m.rm(
+        filePath
+          .replace(join('attachments', 'sha256'), join('attachments', 'keep'))
+          .replace(/\.[a-z]+$/, ''),
+        { force: true },
+      ),
+    );
     closeDb();
 
     // Dry-run should detect but not mutate
@@ -259,6 +268,15 @@ describe('repairAttachmentStore', () => {
       `${sha256.slice(2)}.txt`,
     );
     await import('node:fs/promises').then((m) => m.unlink(filePath));
+    // A real crash before COMMIT leaves no keep-link either (T12535).
+    await import('node:fs/promises').then((m) =>
+      m.rm(
+        filePath
+          .replace(join('attachments', 'sha256'), join('attachments', 'keep'))
+          .replace(/\.[a-z]+$/, ''),
+        { force: true },
+      ),
+    );
     closeDb();
 
     const result = await repairAttachmentStore({ cwd: tempDir, dryRun: false });
@@ -373,6 +391,15 @@ describe('repairAttachmentStore', () => {
       `${sha256.slice(2)}.txt`,
     );
     await import('node:fs/promises').then((m) => m.unlink(filePath));
+    // A real crash before COMMIT leaves no keep-link either (T12535).
+    await import('node:fs/promises').then((m) =>
+      m.rm(
+        filePath
+          .replace(join('attachments', 'sha256'), join('attachments', 'keep'))
+          .replace(/\.[a-z]+$/, ''),
+        { force: true },
+      ),
+    );
     closeDb();
 
     const first = await repairAttachmentStore({ cwd: tempDir, dryRun: false });
@@ -487,6 +514,15 @@ describe('attachment store — put ordering', () => {
       `${sha256.slice(2)}.txt`,
     );
     await import('node:fs/promises').then((m) => m.unlink(filePath));
+    // A real crash before COMMIT leaves no keep-link either (T12535).
+    await import('node:fs/promises').then((m) =>
+      m.rm(
+        filePath
+          .replace(join('attachments', 'sha256'), join('attachments', 'keep'))
+          .replace(/\.[a-z]+$/, ''),
+        { force: true },
+      ),
+    );
     closeDb();
 
     // Repair routine should detect exactly 1 orphan
