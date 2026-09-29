@@ -103,21 +103,47 @@ describe('replicaRemoteState — every enum value', () => {
     expect(ReplicaPresence.parse(body)).toEqual(body);
   });
 
-  it('a probe error is unknown, even with no upstream learned', () => {
+  it('a real probe failure is unknown, even with no upstream learned', () => {
     const errored = withRemote(
       { upstream: null, fetchedAt: null, ahead: null, behind: null },
       { probeErrorCode: 'E_PATH_ACCESS', probeError: LOCAL.probeError, dirtyCount: null },
     );
     expect(replicaRemoteState(errored)).toBe('unknown');
+    for (const code of [
+      'E_PATH_MISSING',
+      'E_NOT_GIT_REPO',
+      'E_GIT_TIMEOUT',
+      'E_GIT_FAILED',
+    ] as const) {
+      expect(replicaRemoteState(withRemote({}, { probeErrorCode: code })), code).toBe('unknown');
+    }
+  });
+
+  it('E_FETCH_FAILED (offline --fetch) maps from the last fetch like a no-fetch probe', () => {
     const fetchFailed = withRemote(
       { ahead: 0, behind: 4 },
       { probeErrorCode: 'E_FETCH_FAILED', probeError: 'fetch failed' },
     );
-    expect(replicaRemoteState(fetchFailed)).toBe('unknown');
+    expect(replicaRemoteState(fetchFailed)).toBe('behind');
+    expect(
+      replicaRemoteState(withRemote({}, { probeErrorCode: 'E_FETCH_FAILED', probeError: 'x' })),
+    ).toBe('in-sync');
+    expect(
+      replicaRemoteState(
+        withRemote({ fetchedAt: null }, { probeErrorCode: 'E_FETCH_FAILED', probeError: 'x' }),
+      ),
+    ).toBe('unknown');
   });
 
-  it('null ahead/behind with an upstream and a fetch is in-sync', () => {
-    expect(replicaRemoteState(withRemote({ ahead: null, behind: null }))).toBe('in-sync');
+  it('an upstream with unreported ahead/behind or a gone tracking ref is unknown, never in-sync', () => {
+    // branch.<b>.merge set, the remote branch deleted and pruned: porcelain v2
+    // prints branch.upstream with no branch.ab, and the tracking ref is gone.
+    expect(replicaRemoteState(withRemote({ ahead: null, behind: null, headSha: null }))).toBe(
+      'unknown',
+    );
+    expect(replicaRemoteState(withRemote({ ahead: null, behind: null }))).toBe('unknown');
+    expect(replicaRemoteState(withRemote({ ahead: 0, behind: null }))).toBe('unknown');
+    expect(replicaRemoteState(withRemote({ headSha: null }))).toBe('unknown');
   });
 });
 
@@ -211,6 +237,20 @@ describe('toReplicaPresence derivation', () => {
     expect(() =>
       toReplicaPresence(location(gitSummary()), { ...device, deviceId: 'dev-b' }),
     ).toThrow(/does not hold/);
+  });
+
+  it('refuses an unparseable observation instant instead of sending the raw string', () => {
+    expect(() => toReplicaPresence({ ...location(null), lastSeen: 'yesterday' }, device)).toThrow(
+      /not a valid ISO 8601/,
+    );
+    expect(() =>
+      toReplicaPresence(location(gitSummary({ probedAt: 'not-a-date' })), device),
+    ).toThrow(/not a valid ISO 8601/);
+    // A parseable non-UTC instant is normalized, never passed through raw.
+    expect(
+      toReplicaPresence({ ...location(null), lastSeen: '2026-09-29T08:00:00-07:00' }, device)
+        .observedAt,
+    ).toBe('2026-09-29T15:00:00.000Z');
   });
 });
 

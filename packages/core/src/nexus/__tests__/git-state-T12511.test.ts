@@ -22,8 +22,10 @@ import {
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { NexusFleetGitSummary } from '@cleocode/contracts';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { replicaRemoteState } from '../../cloud/presence.js';
 import { _resetDeviceIdCacheForTests } from '../../llm/stable-device-id.js';
 import { getCleoHome } from '../../paths.js';
 import { awaitBackgroundOps } from '../../store/background-ops.js';
@@ -594,6 +596,44 @@ describe('headCommittedAt (T12721)', () => {
     expect(row.probeErrorCode).toBeNull();
     expect(row.remoteHeadSha).toBeNull();
     expect(row.headCommittedAt).not.toBeNull();
+  });
+
+  it('upstream deleted remotely and pruned: presence remote is unknown, not in-sync', async () => {
+    const { remote, clone } = makeClone('hp');
+    // Remote branch deleted, then a real fetch --prune: FETCH_HEAD is fresh,
+    // branch.main.merge is still set, the tracking ref is gone.
+    git(remote, 'update-ref', '-d', 'refs/heads/main');
+    git(clone, 'fetch', '-q', '--prune');
+    const row = await probeGitState(target(clone));
+    expect(row.probeErrorCode).toBeNull();
+    expect(row.upstream).toBe('origin/main');
+    expect(row.ahead).toBeNull();
+    expect(row.behind).toBeNull();
+    expect(row.remoteHeadSha).toBeNull();
+    expect(row.remoteFetchedAt).not.toBeNull();
+    const summary: NexusFleetGitSummary = {
+      branch: row.branch,
+      headSha: row.headSha,
+      headCommittedAt: row.headCommittedAt,
+      detached: row.detached,
+      dirtyCount: row.dirtyCount,
+      untrackedCount: row.untrackedCount,
+      remote: {
+        name: row.remoteName,
+        url: row.remoteUrl,
+        upstream: row.upstream,
+        headSha: row.remoteHeadSha,
+        ahead: row.ahead,
+        behind: row.behind,
+        fetchedAt: row.remoteFetchedAt,
+        stale: row.remoteStale,
+      },
+      probedAt: row.probedAt,
+      probeStale: false,
+      probeErrorCode: row.probeErrorCode,
+      probeError: row.probeError,
+    };
+    expect(replicaRemoteState(summary)).toBe('unknown');
   });
 
   it('an unborn branch has no date', async () => {

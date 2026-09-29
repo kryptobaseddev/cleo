@@ -49,8 +49,14 @@ export interface ToReplicaPresenceOptions {
 /**
  * Remote tracking state of one probe row, as the presence enum.
  *
- * - probe error → `unknown` (nothing the probe reported can be trusted as whole);
+ * - a real probe failure (path missing or unreadable, not a repo, git error or
+ *   timeout) → `unknown`. `E_FETCH_FAILED` is NOT one: an offline `--fetch`
+ *   still recorded valid local ahead/behind as of the LAST fetch, so it maps
+ *   exactly like a probe that never fetched;
  * - no upstream → `no-upstream`;
+ * - an upstream whose tracking ref is gone (`remote.headSha` null — e.g. the
+ *   branch was deleted remotely and pruned) or whose ahead/behind git did not
+ *   report → `unknown`, never a defaulted `in-sync`;
  * - never fetched (`fetchedAt` null) → `unknown`;
  * - otherwise from ahead/behind as of the last fetch: both → `diverged`,
  *   ahead only → `ahead`, behind only → `behind`, neither → `in-sync`.
@@ -63,11 +69,11 @@ export interface ToReplicaPresenceOptions {
  * ```
  */
 export function replicaRemoteState(git: NexusFleetGitSummary): ReplicaRemoteState {
-  if (git.probeErrorCode !== null) return 'unknown';
-  if (git.remote.upstream === null) return 'no-upstream';
-  if (git.remote.fetchedAt === null) return 'unknown';
-  const ahead = git.remote.ahead ?? 0;
-  const behind = git.remote.behind ?? 0;
+  if (git.probeErrorCode !== null && git.probeErrorCode !== 'E_FETCH_FAILED') return 'unknown';
+  const { upstream, ahead, behind, headSha, fetchedAt } = git.remote;
+  if (upstream === null) return 'no-upstream';
+  if (ahead === null || behind === null || headSha === null) return 'unknown';
+  if (fetchedAt === null) return 'unknown';
   if (ahead > 0 && behind > 0) return 'diverged';
   if (ahead > 0) return 'ahead';
   if (behind > 0) return 'behind';
@@ -93,7 +99,9 @@ export function replicaRemoteState(git: NexusFleetGitSummary): ReplicaRemoteStat
  * @param device - The device holding it (same `deviceId`).
  * @param opts - Branch opt-in and schema version.
  * @returns A path-free presence body.
- * @throws Error when `device.deviceId` differs from `location.deviceId`.
+ * @throws Error when `device.deviceId` differs from `location.deviceId`, or
+ *   when the observation instant (`git.probedAt`, else `lastSeen`) is not a
+ *   parseable timestamp — a raw string is never sent as `observedAt`.
  * @example
  * ```ts
  * const body = toReplicaPresence(loc, device, { includeBranch: false });
@@ -109,13 +117,20 @@ export function toReplicaPresence(
       `toReplicaPresence: device ${device.deviceId} does not hold this location (device ${location.deviceId})`,
     );
   }
+  const observedRaw = location.git?.probedAt ?? location.lastSeen;
+  const observedAt = toUtcIso(observedRaw);
+  if (observedAt === undefined) {
+    throw new Error(
+      `toReplicaPresence: observation instant ${JSON.stringify(observedRaw)} is not a valid ISO 8601 timestamp`,
+    );
+  }
   const presence: ReplicaPresence = {
     cliVersion: truncate(
       device.cleoVersion ?? UNKNOWN_CLI_VERSION,
       REPLICA_PRESENCE_LIMITS.cliVersionMax,
     ),
     schemaVersion: opts.schemaVersion ?? NEXUS_FLEET_SCHEMA_VERSION,
-    observedAt: toUtcIso(location.git?.probedAt ?? location.lastSeen) ?? location.lastSeen,
+    observedAt,
   };
   const git = location.git;
   if (git === null) return presence;

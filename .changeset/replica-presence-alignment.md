@@ -17,10 +17,14 @@ separate `rev-parse @{upstream}`. A repository without an upstream spends one
 `git log` call. Dates are normalized to UTC `Z`.
 
 `toReplicaPresence(location, device, { includeBranch })` (core `cloud`):
-`dirty` = dirty + untracked > 0; `remote` is `unknown` for a probe error,
-`no-upstream` without an upstream, `unknown` when never fetched, otherwise
+`dirty` = dirty + untracked > 0; `remote` is `unknown` for a real probe
+failure (an offline `--fetch`, `E_FETCH_FAILED`, maps from the last fetch
+instead), `no-upstream` without an upstream, `unknown` when the upstream's
+tracking ref is gone or git reported no ahead/behind (a remotely deleted,
+pruned branch is never `in-sync`), `unknown` when never fetched, otherwise
 `diverged` / `ahead` / `behind` / `in-sync` from the last fetch; ahead/behind
-default to 0; `observedAt` is the probe instant; `cliVersion` is the device's
+default to 0; `observedAt` is the probe instant, and an unparseable instant
+throws rather than being sent raw; `cliVersion` is the device's
 CLEO version (40 chars max); `branch` is sent only on opt-in (200 chars max).
 Path, hostname, remote name and URL, upstream, commit shas and probe error
 text never appear in the output.
