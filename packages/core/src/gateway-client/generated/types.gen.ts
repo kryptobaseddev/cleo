@@ -5841,9 +5841,21 @@ export type MutateTasksClaimData = {
          */
         taskId: string;
         /**
-         * Agent ID to assign the task to
+         * Agent ID recorded with the lease (default: the session's agent / CLEO_AGENT_ID)
          */
-        agentId: string;
+        agentId?: string;
+        /**
+         * Renew the caller's own lease
+         */
+        renew?: boolean;
+        /**
+         * Take over another session's EXPIRED lease (audited)
+         */
+        takeOver?: boolean;
+        /**
+         * Take over another session's LIVE lease (audited)
+         */
+        forceClaim?: boolean;
     };
     path?: never;
     query?: never;
