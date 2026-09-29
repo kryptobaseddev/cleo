@@ -43,6 +43,7 @@ import { createOperationExecutionContext, trackBackgroundOp } from '../store/bac
 import type { DataAccessor, TransactionAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { resolveBoundSessionId } from '../store/session-store.js';
+import { assertTaskVersion, nextTaskVersion, taskVersion } from '../store/task-version.js';
 import {
   appendAcCoverageForceBypass,
   appendAcWaiverAudit,
@@ -137,6 +138,16 @@ export interface CompleteTaskOptions {
    * @task T11954 (DHQ-071)
    */
   waiveDependsReason?: string;
+  /**
+   * Optimistic-concurrency guard: the task version (`updatedAt`) the caller
+   * read. It is compared with the stored row inside the completion's write
+   * transaction; a mismatch fails with `E_CONFLICT`. When omitted, the version
+   * this call read first is the expectation, so a completion never overwrites
+   * an edit committed after that read.
+   *
+   * @task T12503
+   */
+  expectedUpdatedAt?: string;
 }
 
 /**
@@ -918,6 +929,17 @@ export async function completeTask(
         // Gate status does not establish which criteria were proved. Require
         // explicit bindings; retain historical auto-coverage rows as history.
         const current = await acc.loadSingleTask(options.taskId);
+        // T12503 — optimistic concurrency. This read holds the write lock, and
+        // the row written below was built from the read before it. Refuse the
+        // write if the task moved on since then (or since the caller's
+        // expected version) instead of overwriting the newer edit.
+        const expectedVersion = options.expectedUpdatedAt ?? taskVersion(initialTask);
+        if (!current) {
+          throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${options.taskId}`, {
+            fix: `Use 'cleo find "${options.taskId}"' to search`,
+          });
+        }
+        assertTaskVersion(options.taskId, current, expectedVersion, initialTask);
         const currentCriteria = await tx.getAcRows(options.taskId);
         if (
           (initialTask.acceptance ?? []).some((item) => typeof item !== 'string') ||
@@ -963,7 +985,7 @@ export async function completeTask(
         // Update task
         task.status = 'done';
         task.completedAt = now;
-        task.updatedAt = now;
+        task.updatedAt = nextTaskVersion(current, now);
 
         if (options.notes) {
           const timestampedNote = `${new Date()
@@ -1557,6 +1579,12 @@ export interface TaskCompleteEngineOptions {
    * @task T11954 (DHQ-071)
    */
   waiveDependsReason?: string;
+  /**
+   * Optimistic-concurrency guard (`--if-match`).
+   * @see CompleteTaskOptions.expectedUpdatedAt
+   * @task T12503
+   */
+  expectedUpdatedAt?: string;
 }
 
 /**
@@ -1593,6 +1621,7 @@ export async function taskComplete(
         waiveReason: opts.waiveReason,
         cancelledChildWaiverReason: opts.cancelledChildWaiverReason,
         waiveDependsReason: opts.waiveDependsReason,
+        expectedUpdatedAt: opts.expectedUpdatedAt,
       },
       projectRoot,
       accessor,

@@ -291,6 +291,65 @@ export interface TaskAuditLogRow {
 export interface TaskWriteGuard {
   /** Version the caller read; the write fails with `E_CONFLICT` if the row moved on. */
   expectedUpdatedAt?: string;
+  /**
+   * The task as the caller read it. Used only to build the conflict summary:
+   * on `E_CONFLICT`, the fields whose stored value differs from this snapshot
+   * are reported in {@link TaskConflictDetails.changedFields}. @task T12503
+   */
+  baseline?: Task;
+}
+
+/**
+ * One field that differs between the caller's read and the stored row, as
+ * reported on an `E_CONFLICT` error. Values are JSON-serialised and truncated
+ * so the envelope stays small; `null` means the field was absent.
+ *
+ * @task T12503
+ */
+export interface TaskConflictChange {
+  /** Task field name (camelCase, as on {@link Task}). */
+  field: string;
+  /** JSON of the value in the caller's read, or `null` when absent. */
+  was: string | null;
+  /** JSON of the value currently stored, or `null` when absent. */
+  now: string | null;
+}
+
+/**
+ * `details` of an `E_CONFLICT` (`ExitCode.VERSION_CONFLICT`) task error: the
+ * version the caller expected, the version now stored, and which fields moved
+ * so an agent can re-read, merge and retry with `--if-match <currentVersion>`.
+ *
+ * `changedFields` is diffed against the caller's read when the write path
+ * holds it (`cleo update`, `cleo complete`, or a guard with `baseline`). When
+ * the caller's read was already older than the one this command made, the
+ * summary covers only changes after that read; `current` always carries the
+ * stored values to merge against.
+ *
+ * @task T12503
+ */
+export interface TaskConflictDetails {
+  /** Always `'updatedAt'`: the version field. */
+  field: 'updatedAt';
+  /** The version the caller expected. */
+  expected: string;
+  /** The version currently stored (same as {@link currentVersion}). */
+  actual: string;
+  /** The version to pass as `--if-match` after merging. */
+  currentVersion: string;
+  /** Names of the fields that differ between the caller's read and the stored row. */
+  changedFields: string[];
+  /** Per-field before/after summary for {@link changedFields}. */
+  changes: TaskConflictChange[];
+  /** Merge-relevant stored values of the task right now. */
+  current: {
+    title: string;
+    status: TaskStatus;
+    priority: TaskPriority;
+    labels: string[];
+    depends: string[];
+    parentId: string | null;
+  } | null;
 }
 
 /**

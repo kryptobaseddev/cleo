@@ -26,6 +26,7 @@ import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/t
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { resetDbState } from '../../store/sqlite.js';
 import { nextTaskVersion, taskVersion } from '../../store/task-version.js';
+import { completeTask } from '../complete.js';
 import { taskUpdate, type UpdateTaskOptions, updateTask } from '../update.js';
 
 /**
@@ -206,6 +207,87 @@ describe('updateTask optimistic concurrency (T12503)', () => {
     expect(result.error?.exitCode).toBe(ExitCode.VERSION_CONFLICT);
     expect(result.error?.details).toMatchObject({ expected: staleVersion });
   });
+
+  it('two writers read version v; A commits; B is refused with E_CONFLICT naming the changed fields', async () => {
+    const v = taskVersion(await accessor.loadSingleTask('T001'));
+    // Writer B (the guarded one) read v; writer A commits between B's read and
+    // B's write transaction.
+    const error = await raceTwoWriters(
+      { taskId: 'T001', title: 'From B', expectedUpdatedAt: v },
+      { taskId: 'T001', title: 'From A', addLabels: ['a-label'], expectedUpdatedAt: v },
+    ).catch((err: Error) => err);
+    expect(error).toBeInstanceOf(CleoError);
+    const conflict = error as CleoError;
+    expect(conflict.code).toBe(ExitCode.VERSION_CONFLICT);
+    expect(conflict.toLAFSError().code).toBe('E_CONFLICT');
+    expect(conflict.fix).toContain('--if-match');
+    const stored = await accessor.loadSingleTask('T001');
+    const details = conflict.details;
+    expect(details?.['currentVersion']).toBe(taskVersion(stored));
+    expect(details?.['changedFields']).toEqual(expect.arrayContaining(['labels', 'title']));
+    expect(details?.['changes']).toEqual(
+      expect.arrayContaining([{ field: 'title', was: '"Target"', now: '"From A"' }]),
+    );
+    expect(details?.['current']).toMatchObject({ title: 'From A', labels: ['a-label'] });
+    // No lost update: A's commit is intact and B wrote nothing.
+    expect(stored?.title).toBe('From A');
+    expect(stored?.labels).toEqual(['a-label']);
+
+    // Retrying with the reported version succeeds.
+    const retried = await updateTask(
+      { taskId: 'T001', title: 'From B', expectedUpdatedAt: String(details?.['currentVersion']) },
+      env.tempDir,
+      accessor,
+    );
+    expect(retried.task.title).toBe('From B');
+    expect(retried.task.labels).toEqual(['a-label']);
+  });
+
+  it('complete --if-match with a stale version is refused and the task stays open', async () => {
+    const stale = taskVersion(await accessor.loadSingleTask('T002'));
+    await updateTask({ taskId: 'T002', addLabels: ['late'] }, env.tempDir, accessor);
+    const error = await completeTask(
+      { taskId: 'T002', expectedUpdatedAt: stale },
+      env.tempDir,
+      accessor,
+    ).catch((err: Error) => err);
+    expect((error as CleoError).code).toBe(ExitCode.VERSION_CONFLICT);
+    expect((error as CleoError).details?.['changedFields']).toEqual([]);
+    const stored = await accessor.loadSingleTask('T002');
+    expect(stored?.status).toBe('pending');
+    expect(stored?.labels).toEqual(['late']);
+  });
+
+  it('an unguarded complete never overwrites an edit committed after its read', async () => {
+    const racing = withInterleavedWriter(accessor, 'T002', () =>
+      updateTask({ taskId: 'T002', addLabels: ['concurrent'] }, env.tempDir, accessor),
+    );
+    const error = await completeTask({ taskId: 'T002' }, env.tempDir, racing).catch(
+      (err: Error) => err,
+    );
+    expect((error as CleoError).code).toBe(ExitCode.VERSION_CONFLICT);
+    expect((error as CleoError).details?.['changedFields']).toEqual(['labels']);
+    const stored = await accessor.loadSingleTask('T002');
+    expect(stored?.labels).toEqual(['concurrent']);
+    expect(stored?.status).toBe('pending');
+
+    // A plain retry completes on top of the concurrent edit.
+    await completeTask({ taskId: 'T002' }, env.tempDir, accessor);
+    const done = await accessor.loadSingleTask('T002');
+    expect(done?.status).toBe('done');
+    expect(done?.labels).toEqual(['concurrent']);
+  });
+
+  it('complete with the current --if-match version succeeds', async () => {
+    const version = taskVersion(await accessor.loadSingleTask('T002'));
+    const result = await completeTask(
+      { taskId: 'T002', expectedUpdatedAt: version },
+      env.tempDir,
+      accessor,
+    );
+    expect(result.task.status).toBe('done');
+    expect(taskVersion(result.task) > version).toBe(true);
+  });
 });
 
 describe('updateTaskFields version guard (T12503)', () => {
@@ -246,6 +328,29 @@ describe('updateTaskFields version guard (T12503)', () => {
       { expectedUpdatedAt: current },
     );
     expect((await env.accessor.loadSingleTask('T001'))?.title).toBe('Guarded');
+  });
+
+  it('a guard with a baseline reports the changed fields and the stored values', async () => {
+    const baseline = await env.accessor.loadSingleTask('T001');
+    if (!baseline) throw new Error('seed missing');
+    await env.accessor.updateTaskFields('T001', { title: 'Concurrent', priority: 'high' });
+
+    const error = await env.accessor
+      .updateTaskFields(
+        'T001',
+        { title: 'Mine' },
+        { expectedUpdatedAt: taskVersion(baseline), baseline },
+      )
+      .catch((err: Error) => err);
+    const conflict = error as CleoError;
+    expect(conflict.code).toBe(ExitCode.VERSION_CONFLICT);
+    expect(conflict.details?.['changedFields']).toEqual(['priority', 'title']);
+    expect(conflict.details?.['current']).toMatchObject({
+      title: 'Concurrent',
+      priority: 'high',
+    });
+    expect(conflict.message).toContain('Changed: priority, title');
+    expect((await env.accessor.loadSingleTask('T001'))?.title).toBe('Concurrent');
   });
 
   it('back-to-back writes always produce a strictly newer version', async () => {
