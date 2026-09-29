@@ -811,9 +811,10 @@ export function computePortableProjectHash(projectId: string): string {
  * registration, encounter, Nexus link and label path uses.
  *
  * Order: the committed `.cleo/project.json` `name`; for a legacy project not
- * yet migrated by `cleo doctor project-identity --resolve`, the `name` in
- * `.cleo/project-info.json` (what `cleo project rename` wrote before T12716);
- * otherwise the directory basename.
+ * yet migrated by `cleo doctor project-identity --resolve`, the
+ * `.cleo/project-info.json` `displayName` (what a legacy rename writes), then
+ * its `name` (the init-time name, or what `cleo project rename` wrote before
+ * T12716); otherwise the directory basename.
  *
  * @param projectRoot - Absolute project root.
  * @returns A non-empty name. Never throws.
@@ -830,8 +831,10 @@ export function getProjectDisplayName(projectRoot: string): string {
     const info = JSON.parse(
       readFileSync(join(projectRoot, '.cleo', 'project-info.json'), 'utf-8'),
     ) as Record<string, unknown>;
-    const name = info['name'];
-    if (typeof name === 'string' && isValidProjectDisplayName(name)) return name;
+    for (const field of ['displayName', 'name'] as const) {
+      const name = info[field];
+      if (typeof name === 'string' && isValidProjectDisplayName(name)) return name;
+    }
   } catch {
     // No readable cache: the basename below.
   }

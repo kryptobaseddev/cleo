@@ -310,14 +310,16 @@ describe('updateProjectName (cleo upgrade --name)', () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  it('writes the `name` field readers use and drops the stray `projectName`', async () => {
+  it('writes the `displayName` field readers use and drops the stray `projectName`', async () => {
     await writeFile(
       infoPath,
       JSON.stringify({ projectId: 'c78d09c3a8ee', name: 'old', projectName: 'stale' }),
     );
     updateProjectName(tempDir, 'renamed');
     const data = JSON.parse(await readFile(infoPath, 'utf-8')) as Record<string, unknown>;
-    expect(data['name']).toBe('renamed');
+    // T12716: `name` is the frozen path-fingerprint alias-key input.
+    expect(data['displayName']).toBe('renamed');
+    expect(data['name']).toBe('old');
     expect(data).not.toHaveProperty('projectName');
     expect(data['projectId']).toBe('c78d09c3a8ee');
   });

@@ -1112,12 +1112,15 @@ export async function renameProject(
     hint = 'Commit .cleo/project.json so every clone shares the new name';
   } else {
     oldName =
+      (typeof info.displayName === 'string' ? info.displayName : '') ||
       (typeof info.name === 'string' ? info.name : '') ||
       (typeof info.projectName === 'string' ? info.projectName : '') ||
       basename(projectRoot);
-    // Legacy project: the pre-T12716 home of the name. projectRoot is a path
-    // fact and is never written back: a legacy value is dropped into the same
-    // `strippedFields` receipt that `cleo doctor project-identity --resolve` keeps.
+    // Legacy project: `displayName`, never `name` — the cached `name` feeds the
+    // path fingerprint alias key and must not move on a rename (T12716).
+    // projectRoot is a path fact and is never written back: a legacy value is
+    // dropped into the same `strippedFields` receipt that
+    // `cleo doctor project-identity --resolve` keeps.
     const now = new Date().toISOString();
     const kept =
       info.projectRoot === undefined
@@ -1130,7 +1133,7 @@ export async function renameProject(
           );
     await writeProjectInfo(projectRoot, {
       ...kept,
-      name,
+      displayName: name,
       projectHash: newProjectHash,
       lastUpdated: now,
     });

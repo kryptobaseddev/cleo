@@ -259,12 +259,17 @@ function gitFileState(
   return 'untracked';
 }
 
-/** The name a migrated `project.json` records: the cached name when valid, else the basename. */
+/**
+ * The name a migrated `project.json` records: the cached `displayName` (a
+ * legacy rename), else the cached `name`, when valid; else the basename.
+ */
 function migrationName(projectRoot: string, info: ReturnType<typeof readInfo>): string {
-  const name = info && info !== 'unparseable' ? info.data['name'] : undefined;
-  return typeof name === 'string' && isValidProjectDisplayName(name)
-    ? name
-    : defaultProjectDisplayName(projectRoot);
+  if (info && info !== 'unparseable')
+    for (const field of ['displayName', 'name'] as const) {
+      const name = info.data[field];
+      if (typeof name === 'string' && isValidProjectDisplayName(name)) return name;
+    }
+  return defaultProjectDisplayName(projectRoot);
 }
 
 /**

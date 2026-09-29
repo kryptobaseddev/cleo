@@ -95,8 +95,10 @@ export function getProjectHashKey(cwd?: string): string {
  *
  * Writes the committed `.cleo/project.json` `name` (id carried over
  * byte-identical) when the project has one; a legacy project without it gets
- * `project-info.json` `name`, the field every legacy reader uses. It once
- * wrote `projectName`, which nothing reads; a stray one is removed.
+ * `project-info.json` `displayName`, which `getProjectDisplayName` reads. The
+ * cached `name` is never touched: it is the frozen input to the path
+ * fingerprint alias key. It once wrote `projectName`, which nothing reads; a
+ * stray one is removed.
  *
  * Programmatic consumers that also want the registry and Nexus labels use
  * `renameProject` (`cleo project rename`, `cleo upgrade --name`).
@@ -121,8 +123,10 @@ export function updateProjectName(cwd: string, name: string): void {
   const infoPath = join(cleoDir, 'project-info.json');
   if (!existsSync(infoPath)) return;
 
+  // Legacy project: `displayName`, never `name` — `name` feeds the path
+  // fingerprint alias key, which must not move on a rename (T12716).
   const data = JSON.parse(readFileSync(infoPath, 'utf-8')) as Record<string, unknown>;
-  data['name'] = newName;
+  data['displayName'] = newName;
   delete data['projectName'];
   data['lastUpdated'] = new Date().toISOString();
   writeFileSync(infoPath, `${JSON.stringify(data, null, 2)}\n`);

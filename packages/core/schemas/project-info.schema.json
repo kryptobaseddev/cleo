@@ -55,11 +55,17 @@
         }
       }
     },
+    "displayName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "description": "Display name of a legacy project (no .cleo/project.json yet), written by `cleo project rename` / `cleo upgrade --name` (T12716). Kept apart from `name` so a rename never moves the path-fingerprint alias key. `cleo doctor project-identity --resolve` carries it into project.json."
+    },
     "name": {
       "type": "string",
       "minLength": 1,
       "maxLength": 128,
-      "description": "Legacy name, written once (the directory basename at init). Kept only as the input to the path-fingerprint alias key older builds recorded. The display name lives in .cleo/project.json (T12716); it is read from here only for a legacy project not yet migrated by `cleo doctor project-identity --resolve`, and `cleo project rename` writes it only for such a project."
+      "description": "Legacy name, written once (the directory basename at init). Kept only as the input to the path-fingerprint alias key older builds recorded. The display name lives in .cleo/project.json (T12716); it is read from here (after `displayName`) only for a legacy project not yet migrated by `cleo doctor project-identity --resolve`. Nothing rewrites it after init."
     },
     "description": {
       "type": "string",
