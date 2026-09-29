@@ -11,7 +11,12 @@
  * @epic T12486
  */
 
-import type { DecisionAnswer, DecisionOutcomeSource, DecisionRequest } from '@cleocode/contracts';
+import type {
+  DecisionAnswer,
+  DecisionOutcomeSource,
+  DecisionRequest,
+  DecisionSiteModeValue,
+} from '@cleocode/contracts';
 import type { DecisionAuditAnswer, DecisionAuditEntry, DecisionShadowRecord } from './audit.js';
 import type { DecideOptions } from './client.js';
 
@@ -22,7 +27,7 @@ import type { DecideOptions } from './client.js';
  * - `shadow` — ask, audit both answers, act on the heuristic.
  * - `on` — ask and act on the decision when it is confident enough.
  */
-export type DecisionSiteMode = 'off' | 'shadow' | 'on';
+export type DecisionSiteMode = DecisionSiteModeValue;
 
 /** Resolved settings for one call-site invocation. */
 export interface DecisionSiteSettings {

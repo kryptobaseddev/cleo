@@ -2924,5 +2924,19 @@ export {
   scoreDecisionAnswerSchema,
   scoreDecisionQuestionSchema,
 } from './decide.js';
+// T12662: decision-site registry (the decision ladder as code).
+export type {
+  DecisionRung,
+  DecisionSiteActivity,
+  DecisionSiteDefinition,
+  DecisionSiteGoLive,
+  DecisionSiteModeValue,
+  DecisionSiteOwnerEscalation,
+  DecisionSiteQuestionType,
+  DecisionSiteSummary,
+  DecisionSitesListResult,
+  DecisionSiteTextClass,
+} from './decide-sites.js';
+export { DECISION_RUNGS, DECISION_SITE_MODES } from './decide-sites.js';
 
 export { isStorableTaskId, isTaskId, TASK_ID_REGEX, type TaskId } from './task-id.js';

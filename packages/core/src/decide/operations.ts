@@ -29,6 +29,7 @@ import {
 } from './credentials.js';
 import { listJevModels } from './jev-wire.js';
 import { DecisionProviderError } from './provider.js';
+import { DECIDE_ASK_DECISION_SITE } from './sites/registry.js';
 
 /** Default deadline for the `GET /v1/models` probe, ms. */
 export const DEFAULT_DECIDE_PROBE_TIMEOUT_MS = 3_000;
@@ -310,7 +311,7 @@ export async function askDecideDebug(input: DecideAskInput): Promise<DecideAskRe
   const sealed = loadDecideConnection();
   const audit = teeAudit(input.projectRoot);
   const outcome = await decide(
-    'cli.decide-ask',
+    DECIDE_ASK_DECISION_SITE.id,
     { state: input.state, questions: { answer: { type: 'noul', criteria: input.question } } },
     () => ({ answer: NEUTRAL_NOUL }),
     {

@@ -37,6 +37,7 @@
 import type { DecisionAnswer, DecisionRequest, Task } from '@cleocode/contracts';
 import type { DecideOptions } from '../decide/client.js';
 import { type DecisionSiteMode, redactThenClip } from '../decide/site.js';
+import { OWNER_DECISION_DECISION_SITE } from '../decide/sites/registry.js';
 import {
   blockedByMentionsOwnerDecision,
   classifyReadiness,
@@ -50,10 +51,10 @@ import {
 export const OWNER_DECISION_BUDGET_MS = 300;
 
 /** Call-site id for the owner-decision question; keys the audit line. */
-export const OWNER_DECISION_SITE = 'orchestration.owner-decision';
+export const OWNER_DECISION_SITE = OWNER_DECISION_DECISION_SITE.id;
 
 /** Config key selecting the System One mode for the owner-decision check. */
-export const OWNER_DECISION_MODE_KEY = 'decide.sites.ownerDecision';
+export const OWNER_DECISION_MODE_KEY = OWNER_DECISION_DECISION_SITE.modeKey;
 
 /** Label that already marks an owner decision; mirrors `classify-readiness.ts`. */
 const OWNER_DECISION_LABEL = 'owner-decision';

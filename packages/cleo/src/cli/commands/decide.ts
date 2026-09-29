@@ -13,17 +13,25 @@
  *   cleo decide config --clear                               — remove settings
  *   cleo decide status                                       — probe GET {url}/v1/models
  *   cleo decide ask --state <text> --noul <question>         — one debug decision
+ *   cleo decide sites [--rung r] [--mode m] [--id s] [--evidence] — list decision sites
  *
  * @task T12491
  * @epic T12486
  */
 
-import { ExitCode } from '@cleocode/contracts';
+import {
+  DECISION_RUNGS,
+  DECISION_SITE_MODES,
+  type DecisionRung,
+  type DecisionSiteModeValue,
+  ExitCode,
+} from '@cleocode/contracts';
 import {
   askDecideDebug,
   clearDecideConfig,
   configureDecide,
   describeDecideCredentials,
+  listDecisionSites,
   probeDecideProvider,
 } from '@cleocode/core/decide/index.js';
 import { defineCommand, showUsage } from '../lib/define-cli-command.js';
@@ -121,6 +129,58 @@ const decideAskCommand = defineCommand({
   },
 });
 
+/** Narrow a flag value to one of `allowed`. */
+function oneOf<T extends string>(value: string | undefined, allowed: readonly T[]): T | undefined {
+  return allowed.find((a) => a === value);
+}
+
+/** `cleo decide sites` */
+const decideSitesCommand = defineCommand({
+  meta: {
+    name: 'sites',
+    description:
+      'List the System One integration decision sites: rung, ladder, fallback, owner escalation, configured and effective mode, go-live evidence and last-7-day activity. A site that uses System One is effectively off while no provider is configured.',
+  },
+  args: {
+    rung: {
+      type: 'string',
+      description: `Only sites with this primary rung (${DECISION_RUNGS.join('|')})`,
+    },
+    mode: {
+      type: 'string',
+      description: `Only sites with this effective mode (${DECISION_SITE_MODES.join('|')})`,
+    },
+    id: { type: 'string', description: 'Only the site with this id' },
+    evidence: { type: 'boolean', description: 'Only sites with recorded go-live evidence' },
+  },
+  async run({ args }) {
+    const op = 'decide.sites';
+    const rung: DecisionRung | undefined = oneOf(args.rung, DECISION_RUNGS);
+    if (args.rung !== undefined && rung === undefined) {
+      return failValidation(
+        `unknown rung '${args.rung}'`,
+        op,
+        `--rung ${DECISION_RUNGS.join('|')}`,
+      );
+    }
+    const mode: DecisionSiteModeValue | undefined = oneOf(args.mode, DECISION_SITE_MODES);
+    if (args.mode !== undefined && mode === undefined) {
+      return failValidation(
+        `unknown mode '${args.mode}'`,
+        op,
+        `--mode ${DECISION_SITE_MODES.join('|')}`,
+      );
+    }
+    const result = await listDecisionSites({
+      rung,
+      mode,
+      id: args.id,
+      evidenceOnly: args.evidence === true,
+    });
+    cliOutput(result, { command: 'decide', operation: op });
+  },
+});
+
 /**
  * `cleo decide` — typed-decision provider setup and debugging.
  *
@@ -130,12 +190,13 @@ export const decideCommand = defineCommand({
   meta: {
     name: 'decide',
     description:
-      'Typed-decision (System One) provider: decide config (API URL + key), decide status (reachability probe), decide ask (one debug question). Unconfigured means heuristics answer.',
+      'System One integration (typed decisions): decide config (API URL + key), decide status (reachability probe), decide ask (one debug question), decide sites (the registered decision sites). Unconfigured means heuristics answer.',
   },
   subCommands: {
     config: decideConfigCommand,
     status: decideStatusCommand,
     ask: decideAskCommand,
+    sites: decideSitesCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));

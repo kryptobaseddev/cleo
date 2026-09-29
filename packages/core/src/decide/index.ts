@@ -109,4 +109,18 @@ export {
   resolveDecisionSiteSettings,
   type SiteDecision,
 } from './site.js';
+export {
+  DECISION_SITE_ACTIVITY_WINDOW_MS,
+  type ListDecisionSitesOptions,
+  listDecisionSites,
+} from './sites/list.js';
+export {
+  DECIDE_ASK_DECISION_SITE,
+  DECISION_CONTRADICTION_DECISION_SITE,
+  DECISION_SITES,
+  DUPLICATE_DETECTION_SITE,
+  getDecisionSite,
+  OBSERVATION_TYPE_DECISION_SITE,
+  OWNER_DECISION_DECISION_SITE,
+} from './sites/registry.js';
 export { type DecideFetch, type DecideFetchInit, decideFetch } from './transport.js';

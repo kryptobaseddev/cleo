@@ -52,6 +52,7 @@ import {
   redactThenClip,
   resolveDecisionSiteSettings,
 } from '../decide/site.js';
+import { DUPLICATE_DETECTION_SITE } from '../decide/sites/registry.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 
 // ============================================================================
@@ -107,13 +108,13 @@ export const DUPLICATE_DECISION_BUDGET_MS = 300;
 export const DUPLICATE_DECISION_MIN_CONFIDENCE = 0.6;
 
 /** Call-site id for the duplicate decision; keys the audit line. */
-export const DUPLICATE_DECISION_SITE = 'tasks.duplicate-detection';
+export const DUPLICATE_DECISION_SITE = DUPLICATE_DETECTION_SITE.id;
 
 /** Config key selecting the System One mode for duplicate detection. */
-export const DUPLICATE_DECISION_MODE_KEY = 'decide.sites.duplicateDetection';
+export const DUPLICATE_DECISION_MODE_KEY = DUPLICATE_DETECTION_SITE.modeKey;
 
 /** Config key opting in to the generative LLM tier (T1681). Default `false`. */
-export const DUPLICATE_LLM_TIER_KEY = 'decide.generativeFallback.duplicateDetection';
+export const DUPLICATE_LLM_TIER_KEY = DUPLICATE_DETECTION_SITE.generativeKey;
 
 /**
  * Per-field character caps for the decision state. Four tasks (the new one

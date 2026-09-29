@@ -301,7 +301,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'decideCommand',
     name: 'decide',
     description:
-      'Typed-decision (System One) provider: decide config (API URL + key), decide status (reachability probe), decide ask (one debug question). Unconfigured means heuristics answer.',
+      'System One integration (typed decisions): decide config (API URL + key), decide status (reachability probe), decide ask (one debug question), decide sites (the registered decision sites). Unconfigured means heuristics answer.',
     load: async () => (await import('../commands/decide.js')).decideCommand as CommandDef,
   },
   {
