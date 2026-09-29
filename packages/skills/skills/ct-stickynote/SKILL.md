@@ -3,7 +3,6 @@ name: ct-stickynote
 description: Quick ephemeral sticky notes for project-wide capture before formal classification
 version: 1.0.0
 category: productivity
-tier: 0
 protocol: null
 tags: [sticky, notes, capture, quick, ephemeral]
 triggers: [note, sticky, jot, capture]
@@ -11,6 +10,11 @@ compatibility: [claude-code, gemini-cli, codex-cli, opencode]
 dependencies: []
 sharedResources: []
 license: MIT
+metadata:
+  version: 1.0.0
+  tier: internal
+  install: internal
+  stability: deprecated
 ---
 
 # Sticky Notes Skill

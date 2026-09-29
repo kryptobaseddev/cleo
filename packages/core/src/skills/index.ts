@@ -264,6 +264,7 @@ export type {
 } from './skill-executor-adapter.js';
 export { defaultSkillRunner, SkillExecutorAdapter } from './skill-executor-adapter.js';
 export type {
+  ResolvedSkillLocation,
   SkillSearchPath as MultiSourceSkillSearchPath,
   SkillSourceMode,
   SkillSourceType,
@@ -274,6 +275,7 @@ export {
   getSkillSourceType,
   resolveProtocolPath,
   resolveSharedPath,
+  resolveSkillLocation,
   resolveSkillPath,
 } from './skill-paths.js';
 // Canonical SSoT path helpers (T9650 — architecture v3 §1, §6)
@@ -338,6 +340,7 @@ export type {
   DependencyWave,
   DispatchResult,
   DispatchStrategy,
+  FindSkillOptions,
   HitlSummary,
   InstalledSkill,
   InstalledSkillsFile,

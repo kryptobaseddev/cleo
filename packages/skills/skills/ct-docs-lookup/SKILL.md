@@ -2,7 +2,6 @@
 name: ct-docs-lookup
 description: This skill should be used when the user asks "how do I configure [library]", "write code using [framework]", "what are the [library] methods", "show me [framework] examples", or mentions libraries like React, Vue, Next.js, Prisma, Supabase, Express, Tailwind, Drizzle, Svelte. Triggers for library setup, configuration, API references, framework code examples, or version-specific docs ("React 19", "Next.js 15").
 version: 1.0.0
-tier: 3
 core: false
 category: composition
 protocol: null
@@ -14,6 +13,11 @@ compatibility:
   - windsurf
   - gemini-cli
 license: MIT
+metadata:
+  version: 1.0.0
+  tier: on-demand
+  install: harness
+  stability: deprecated
 ---
 
 When the user asks about libraries, frameworks, or needs code examples, use Context7 to fetch current documentation instead of relying on training data.

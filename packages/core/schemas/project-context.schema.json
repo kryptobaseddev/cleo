@@ -55,6 +55,11 @@
           "type": "string",
           "description": "Test execution command"
         },
+        "affectedCommand": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Affected-scope test command template for tool:test-affected (D11150). {projects}, {filters} and {packages} expand per affected package, e.g. \"pnpm exec vitest run {projects}\"."
+        },
         "testFilePatterns": {
           "type": "array",
           "items": {

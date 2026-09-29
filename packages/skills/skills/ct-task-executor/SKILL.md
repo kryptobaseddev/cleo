@@ -1,12 +1,7 @@
 ---
 name: ct-task-executor
 description: General implementation task execution for completing assigned CLEO tasks by following instructions and producing concrete deliverables. Handles coding, configuration, documentation work with quality verification against acceptance criteria and progress reporting. Use when executing implementation tasks, completing assigned work, or producing task deliverables. Triggers on implementation tasks, general execution needs, or task completion work.
-version: 2.2.0
-metadata:
-  version: 2.2.0
-  lastReviewed: 2026-09-19
-  stability: stable
-tier: 2
+version: 2.7.0
 core: true
 category: core
 protocol: implementation
@@ -26,7 +21,9 @@ compatibility:
 license: MIT
 metadata:
   version: 2.7.0
-  lastReviewed: 2026-09-18
+  tier: core
+  install: harness
+  lastReviewed: 2026-09-19
   stability: stable
 ---
 

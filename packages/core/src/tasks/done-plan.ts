@@ -36,6 +36,7 @@ import type {
   DonePlanGate,
   DonePlanToolRun,
   DonePlanTypedGate,
+  EvidenceAtom,
   Task,
   TaskChangeSet,
   VerificationGate,
@@ -49,6 +50,7 @@ import { isCiDocumentPath, readCiChecks, readCiSatisfies } from '../release/ci-e
 import { readRequiredCheckPins } from '../release/pr-evidence.js';
 
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { planAffectedTestRun } from './affected-packages.js';
 import { type ChangeSetDeps, deriveTaskChangeSet } from './change-set.js';
 import {
   checkGateEvidenceMinimumDetailed,
@@ -62,7 +64,7 @@ import {
   computeCacheKey,
   readCacheEntry,
 } from './tool-cache.js';
-import { resolveToolCommand } from './tool-resolver.js';
+import { type ResolvedToolCommand, resolveToolCommand } from './tool-resolver.js';
 import { loadVerificationGatePolicy } from './verification-policy.js';
 
 /**
@@ -83,6 +85,14 @@ function ciPlannable(storeRoot: string, needsJobs: boolean, touched: readonly st
   }
   const pins = readRequiredCheckPins(context);
   return !Object.values(pins).some((pin) => pin.workflow && touched.includes(pin.workflow));
+}
+
+/** Recorded testsPassed evidence whose only verification result is an affected-scope run. */
+function isAffectedOnly(atoms: ReadonlyArray<EvidenceAtom>): boolean {
+  const results = atoms.filter(
+    (a) => a.kind === 'tool' || a.kind === 'test-run' || a.kind === 'ci',
+  );
+  return results.length > 0 && results.every((a) => a.kind === 'tool' && a.scope === 'affected');
 }
 
 /** Gates `cleo done` derives evidence for; every other required gate is manual. */
@@ -164,8 +174,11 @@ async function planToolRun(
   gate: VerificationGate,
   storeRoot: string,
   root: string,
+  override?: ResolvedToolCommand,
 ): Promise<DonePlanToolRun> {
-  const resolution = resolveToolCommand(tool, storeRoot);
+  const resolution = override
+    ? { ok: true as const, command: override }
+    : resolveToolCommand(tool, storeRoot);
   if (!resolution.ok) {
     return {
       tool,
@@ -505,7 +518,17 @@ export async function deriveTaskEvidence(
     opts.deps,
   );
   const root = changeSet.executionRoot;
-  const passed = (gate: VerificationGate): boolean => task.verification?.gates?.[gate] === true;
+  // T12635 (D11150): a scope:affected testsPassed only stands before merge.
+  // Once the change set is a merged PR, merged CI or a full run supersedes it.
+  const affectedOnly = isAffectedOnly(task.verification?.evidence?.testsPassed?.atoms ?? []);
+  const superseded = affectedOnly && changeSet.source === 'pr';
+  if (superseded) {
+    changeSet.warnings.push(
+      'testsPassed was recorded from an affected-scope run; the merged change needs merged CI or a full run.',
+    );
+  }
+  const passed = (gate: VerificationGate): boolean =>
+    task.verification?.gates?.[gate] === true && !(gate === 'testsPassed' && superseded);
   const pending = policy.requiredGates.filter((g) => !passed(g));
   const decisionOnly =
     changeSet.source === 'docs' && (changeSet.implementedEvidence ?? '').startsWith('decision:');
@@ -529,7 +552,16 @@ export async function deriveTaskEvidence(
   if (!decisionOnly && ciPr === null) {
     for (const gate of pending) {
       for (const tool of GATE_TOOLS[gate] ?? []) {
-        toolRuns.push(await planToolRun(tool, gate, storeRoot, root));
+        // T12635: before merge, test only the affected packages when declared.
+        const affected =
+          tool === 'test' && changeSet.source === 'branch'
+            ? await planAffectedTestRun(storeRoot, root)
+            : null;
+        toolRuns.push(
+          affected?.ok
+            ? await planToolRun('test-affected', gate, storeRoot, root, affected.command)
+            : await planToolRun(tool, gate, storeRoot, root),
+        );
       }
     }
   }

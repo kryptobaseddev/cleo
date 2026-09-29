@@ -535,6 +535,25 @@ jobs:
       - name: Assert every tracked vitest config bounds fork count and heap
         run: node scripts/lint-vitest-memory-safe.mjs
 
+  skills-metadata:
+    # Gates 29 + 30 (T12648 · D11157). SKILL.md frontmatter is the skills
+    # metadata SSoT: the manifest is generated from it (gate 29), and every
+    # skill code names must be installable (gate 30). Wired here as well as in
+    # `cleo check arch`, because a gate bundled and documented but run by no
+    # workflow is the gh#1354 defect. Pure node, no install needed.
+    name: Skills Metadata SSoT (T12648 · gates 29-30)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Assert the skills manifest is generated from valid frontmatter
+        run: node scripts/lint-skills-manifest.mjs --check
+      - name: Assert every skill code emits is installable
+        run: node scripts/lint-emitted-skills.mjs --check
+
   arch-gate-parity:
     # Gate 20 (T12122) — the gate on the gates. Asserts that the set bundled
     # into `cleo check arch` and the set documented in the AGENTS.md table name
@@ -632,6 +651,7 @@ jobs:
       - vitest-memory-safe
       - postdeploy-budget
       - arch-gate-parity
+      - skills-metadata
       - merge-bar-aggregate
     steps:
       - name: Verify every arch-boundary job passed (or was skipped)

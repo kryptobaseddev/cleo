@@ -16,7 +16,6 @@ description: >-
 version: 2.1.0
 argument-hint: "[mode=scenario|ab|blind] [scenario=s1-s5|all] [runs=N] [session-id=<id>]"
 allowed-tools: ["Bash(python *)", "Bash(cleo-dev *)", "Bash(cleo *)", "Bash(kill *)", "Bash(lsof *)", "Agent", "Read", "Write", "Glob"]
-tier: 2
 core: false
 category: quality
 protocol: null
@@ -28,6 +27,11 @@ compatibility:
   - windsurf
   - gemini-cli
 license: MIT
+metadata:
+  version: 2.1.0
+  tier: internal
+  install: internal
+  stability: stable
 ---
 
 # Session Grading Guide

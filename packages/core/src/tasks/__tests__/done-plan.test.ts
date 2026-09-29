@@ -18,8 +18,17 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 import type { EvidenceAtom, VerificationGate } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
@@ -274,8 +283,9 @@ describe('zero writes (T12623 AC2)', () => {
 });
 
 describe('merged-PR CI replaces local tool runs when the project opts in (T12634)', () => {
-  async function mergedPrPlan(optIn: boolean) {
+  async function mergedPrPlan(optIn: boolean, prepare?: (id: string) => Promise<void>) {
     const id = await seedTask(['Change src/a.ts to return 2']);
+    if (prepare) await prepare(id);
     commitOnTaskBranch(id);
     git(root, ['switch', '-q', 'main']);
     git(root, ['merge', '-q', '--squash', `task/${id}`]);
@@ -345,10 +355,134 @@ describe('merged-PR CI replaces local tool runs when the project opts in (T12634
     expect(ev['qaPassed']).toBe(`ci:42;satisfies:${plan.taskId}#AC1`);
   });
 
+  it('after merge, an affected-scope testsPassed is superseded: re-planned from merged CI (T12635)', async () => {
+    const plan = await mergedPrPlan(true, async (id) => {
+      const verification = {
+        passed: false,
+        round: 1,
+        gates: { testsPassed: true },
+        failureLog: [],
+        lastAgent: null,
+        lastUpdated: null,
+        evidence: {
+          testsPassed: {
+            atoms: [
+              {
+                kind: 'tool',
+                tool: 'test-affected',
+                exitCode: 0,
+                scope: 'affected',
+                affectedPackages: ['@x/a'],
+              },
+            ],
+            capturedAt: '2026-09-28T00:00:00Z',
+            capturedBy: 'test',
+          },
+        },
+      };
+      await env.accessor.updateTaskFields(id, { verificationJson: JSON.stringify(verification) });
+    });
+    const tests = plan.gates.find((g) => g.gate === 'testsPassed');
+    expect(tests?.passed).toBe(false);
+    expect(tests?.evidence).toBe(`ci:42;satisfies:${plan.taskId}#AC1`);
+    expect(plan.changeSet.warnings.join(' ')).toMatch(/affected-scope run/);
+  });
+
   it('without the opt-in, the same PR still plans local tool runs', async () => {
     const plan = await mergedPrPlan(false);
     expect(plan.toolRuns.map((r) => r.tool)).toEqual(['test', 'lint', 'typecheck']);
     expect(plan.gates.find((g) => g.gate === 'testsPassed')?.evidence).toMatch(/^tool:test;/);
+  });
+});
+
+describe('affected-scope test runs (T12635, D11150)', () => {
+  function workspaceWithPackages(withVitest = true): void {
+    writeFileSync(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "pkgs/*"\n');
+    if (withVitest) {
+      // The workspace's own vitest names the projects (a directory glob here).
+      const vitestDir = dirname(createRequire(import.meta.url).resolve('vitest/package.json'));
+      mkdirSync(join(root, 'node_modules'), { recursive: true });
+      symlinkSync(vitestDir, join(root, 'node_modules', 'vitest'), 'dir');
+      writeFileSync(join(root, '.gitignore'), '.cleo/\n.cleo-home/\nnode_modules/\n');
+      writeFileSync(
+        join(root, 'vitest.config.mjs'),
+        "export default { test: { projects: ['pkgs/*'] } };\n",
+      );
+    }
+    for (const [dir, name, deps] of [
+      ['pkgs/a', '@w/a', {}],
+      ['pkgs/b', '@w/b', { '@w/a': 'workspace:*' }],
+      ['pkgs/c', '@w/c', {}],
+    ] as const) {
+      mkdirSync(join(root, dir), { recursive: true });
+      writeFileSync(join(root, dir, 'package.json'), JSON.stringify({ name, dependencies: deps }));
+      writeFileSync(join(root, dir, 'i.ts'), 'export const x = 1;\n');
+    }
+    const ctxPath = join(root, '.cleo', 'project-context.json');
+    const ctx = JSON.parse(readFileSync(ctxPath, 'utf-8')) as { testing: Record<string, unknown> };
+    writeFileSync(
+      ctxPath,
+      JSON.stringify({
+        ...ctx,
+        testing: { ...ctx.testing, affectedCommand: 'pnpm exec vitest run {projects}' },
+      }),
+    );
+    git(root, ['add', '.']);
+    git(root, ['commit', '-q', '-m', 'workspace']);
+    git(root, ['push', '-q', 'origin', 'main']);
+  }
+
+  it('before merge, testsPassed plans tool:test-affected over the changed package and its dependents', async () => {
+    workspaceWithPackages();
+    const id = await seedTask(['Change pkgs/a/i.ts']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    writeFileSync(join(root, 'pkgs', 'a', 'i.ts'), 'export const x = 2;\n');
+    git(root, ['commit', '-q', '-am', `${id}: a`]);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+    });
+    const run = plan.toolRuns.find((r) => r.gate === 'testsPassed');
+    expect(run).toMatchObject({
+      tool: 'test-affected',
+      command: 'pnpm exec vitest run --project @w/a --project @w/b',
+    });
+    expect(plan.gates.find((g) => g.gate === 'testsPassed')?.evidence).toBe(
+      `tool:test-affected;satisfies:${id}#AC1`,
+    );
+  });
+
+  it('when vitest cannot name the projects, testsPassed falls back to the full tool:test', async () => {
+    workspaceWithPackages(false);
+    const id = await seedTask(['Change pkgs/a/i.ts']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    writeFileSync(join(root, 'pkgs', 'a', 'i.ts'), 'export const x = 2;\n');
+    git(root, ['commit', '-q', '-am', `${id}: a`]);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+    });
+    expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')?.tool).toBe('test');
+  });
+
+  it('a workspace-wide change falls back to the full tool:test', async () => {
+    workspaceWithPackages();
+    const id = await seedTask(['Change the lockfile']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    writeFileSync(join(root, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n');
+    git(root, ['add', 'pnpm-lock.yaml']);
+    git(root, ['commit', '-q', '-m', `${id}: lock`]);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+    });
+    expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')?.tool).toBe('test');
   });
 });
 

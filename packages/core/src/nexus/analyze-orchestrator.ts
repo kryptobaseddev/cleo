@@ -11,8 +11,9 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import type {
   GraphIndexAssessment,
   GraphIndexFileReport,
@@ -46,7 +47,15 @@ import {
 import { generateProjectHash } from './hash.js';
 import { readKnowledgeIndexAssessment } from './knowledge.js';
 import { resolveSourceRoots } from './source-roots.js';
-import { portableSourceRoots } from './stored-roots.js';
+import {
+  canonicalProjectRoot,
+  DROP_MISSING_REPOSITORIES_FLAG,
+  describeGraphOwnershipMismatch,
+  type GraphOwnershipMismatch,
+  nexusRebindCommand,
+  portableSourceRoots,
+  shellQuoteArg,
+} from './stored-roots.js';
 
 /**
  * Compare ownership and observed revisions without treating observation time as a change.
@@ -153,36 +162,96 @@ function requireObservedRoots(roots: GraphSourceRootAssessment): void {
     );
 }
 
-/** Verify persisted parent identity without promoting a legacy path hash into authority. */
+/** Verified analysis identity, and the root a moved graph is being re-bound from. */
+interface AnalysisIdentity {
+  /** Verified project id the analysis publishes under. */
+  projectId: string;
+  /** Recorded root of a same-id graph being re-bound to the live root, else null. */
+  reboundFrom: string | null;
+}
+
+/**
+ * Verify persisted parent identity without promoting a legacy path hash into authority.
+ *
+ * A stored graph whose recorded root differs from the live root is refused —
+ * previous graph retained — unless `allowRebind` (a `--full` run) is set AND
+ * the stored project id equals the live `projectId` read from project-info (a
+ * path-derived projectHash never qualifies). That is a
+ * moved project: the full rebuild re-binds the graph to the live root (T12659).
+ * Every refusal names the recorded vs live root and id and the exact remedy.
+ */
 async function readAnalysisIdentity(
   projectRoot: string,
   previousRoots: GraphSourceRootAssessment | undefined,
   projectIdOverride: string | undefined,
-): Promise<string> {
+  allowRebind: boolean,
+): Promise<AnalysisIdentity> {
   const canonicalParent = await realpath(projectRoot);
-  if (previousRoots && previousRoots.projectRoot !== canonicalParent)
-    throw new Error(
-      'Stored graph ownership differs from the current project root; previous graph retained.',
-    );
   let projectId: string | undefined;
+  let verified = false;
   try {
     const info = await getProjectInfo(projectRoot);
     projectId = info.projectId || info.projectHash;
+    // Only a real projectId can authorize a re-bind: a projectHash is derived
+    // from the path, so after a move it would describe the NEW root.
+    verified = Boolean(info.projectId);
   } catch (error) {
     if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
     projectId = previousRoots?.projectId;
+  }
+  let reboundFrom: string | null = null;
+  if (previousRoots) {
+    const rootMismatch = previousRoots.projectRoot !== canonicalParent;
+    const idMismatch = projectId !== undefined && previousRoots.projectId !== projectId;
+    if (rootMismatch || idMismatch) {
+      const mismatch: GraphOwnershipMismatch = {
+        recordedRoot: previousRoots.projectRoot,
+        recordedProjectId: previousRoots.projectId,
+        liveRoot: canonicalParent,
+        liveProjectId: verified ? projectId : undefined,
+      };
+      if (rootMismatch && !idMismatch && verified && allowRebind) {
+        reboundFrom = previousRoots.projectRoot;
+      } else {
+        throw new Error(
+          `${
+            rootMismatch
+              ? 'Stored graph ownership differs from the current project root'
+              : 'Stored graph identity differs from the current project identity'
+          }; previous graph retained: ${describeGraphOwnershipMismatch(mismatch)}`,
+        );
+      }
+    }
   }
   if (!projectId)
     throw new Error(
       'Stable project identity is unavailable; initialize this project or restore its verified project identity.',
     );
-  if (previousRoots && previousRoots.projectId !== projectId)
-    throw new Error(
-      'Stored graph identity differs from the current project identity; previous graph retained.',
-    );
   if (projectIdOverride !== undefined && projectIdOverride !== projectId)
     throw new Error('Explicit analysis identity differs from the verified project identity.');
-  return projectId;
+  return { projectId, reboundFrom };
+}
+
+/** Receipt of a graph re-bound from a moved project's recorded root to its live root (T12659). */
+export interface NexusGraphRebind {
+  /** Project root the previous graph was recorded under. */
+  oldRoot: string;
+  /** Live project root the rebuilt graph is bound to. */
+  newRoot: string;
+  /** Project id, identical before and after. */
+  projectId: string;
+  /** Graph generation published by the re-binding rebuild. */
+  generation: string | null;
+  /** Included repositories dropped because they were missing (only with `dropMissingRepositories`). */
+  droppedRepositories: string[];
+}
+
+/** Included repositories an analysis dropped because they were missing on disk (T12659). */
+export interface NexusDroppedRepositories {
+  /** Relative paths dropped from the index scope. */
+  paths: string[];
+  /** Command that re-includes every dropped path once it exists again. */
+  restoreCommand: string;
 }
 
 /**
@@ -417,6 +486,13 @@ export interface NexusAnalysisParams {
   /** Explicit relative paths of nested repositories authorized for source inclusion. */
   includedRepositories?: readonly string[];
   /**
+   * Drop included repositories (explicit or carried over) that are missing on
+   * disk instead of refusing. Off by default: a missing inclusion refuses and
+   * keeps the previous graph (T12659). Dropped paths are reported with a
+   * restore command in {@link NexusAnalysisResult.droppedRepositories}.
+   */
+  dropMissingRepositories?: boolean;
+  /**
    * Progress callback invoked every 50 files (and on completion).
    * Omit for JSON output mode.
    */
@@ -440,6 +516,17 @@ export interface NexusAnalysisResult {
    * reference list is reported as `referenceCount` (T12348).
    */
   assessment: GraphIndexAssessment | null;
+  /**
+   * Present when a `--full` run re-bound a moved project's graph (same project
+   * id, different recorded root) to the live root (T12659).
+   */
+  rebind?: NexusGraphRebind;
+  /**
+   * Included repositories dropped because they were missing on disk, only with
+   * `dropMissingRepositories` (T12659), and the one command that restores them
+   * once they are back.
+   */
+  droppedRepositories?: NexusDroppedRepositories;
 }
 
 // ---------------------------------------------------------------------------
@@ -513,11 +600,13 @@ async function runScopedNexusAnalysis(
   const db = await getNexusDb(projectRoot);
   const expectedGeneration = graphGeneration(db);
   const previousAssessment = await readKnowledgeIndexAssessment(projectRoot);
-  const projectId = await readAnalysisIdentity(
+  const identity = await readAnalysisIdentity(
     projectRoot,
     previousAssessment?.sourceRoots,
     projectIdOverride,
+    full,
   );
+  const { projectId, reboundFrom } = identity;
   if (execution && execution.identity.projectId !== projectId)
     throw new Error('Analysis identity differs from captured execution scope.');
   const tables = {
@@ -526,8 +615,33 @@ async function runScopedNexusAnalysis(
   };
 
   const requestedSource = resolve(params.repoPath);
-  const includedRepositories =
-    params.includedRepositories ?? includedRepositoryScope(previousAssessment, requestedSource);
+  // Inclusions in effect: the explicit list, else those carried over from the
+  // previous generation (on a re-bind, by their recorded relative path). An
+  // inclusion missing on disk — a moved or re-rooted project, an unmounted
+  // volume, a sub-repo mid-reclone — REFUSES, even on `--full` and on a
+  // re-bind, and the previous graph is kept. It is dropped only with the
+  // explicit `dropMissingRepositories` opt-in, and the result then carries a
+  // one-command restore (T12659).
+  const effective =
+    params.includedRepositories !== undefined
+      ? [...params.includedRepositories]
+      : reboundFrom !== null
+        ? [...(previousAssessment?.includedRepositories ?? [])]
+        : includedRepositoryScope(previousAssessment, requestedSource);
+  const missing = effective.filter((rel) => !existsSync(join(requestedSource, rel)));
+  if (missing.length > 0 && params.dropMissingRepositories !== true) {
+    const liveRoot = canonicalProjectRoot(projectRoot);
+    const remedy =
+      reboundFrom !== null || full
+        ? nexusRebindCommand(liveRoot, [DROP_MISSING_REPOSITORIES_FLAG])
+        : `cleo nexus analyze ${shellQuoteArg(liveRoot)} ${DROP_MISSING_REPOSITORIES_FLAG}`;
+    throw new Error(
+      `Included repositories are missing under ${requestedSource}: ${missing.join(', ')}; previous graph retained. ` +
+        `Restore them (re-clone, mount), or rebuild without them — they stay recorded for a one-command restore: ${remedy}`,
+    );
+  }
+  const droppedRepositories = missing;
+  const includedRepositories = effective.filter((rel) => !droppedRepositories.includes(rel));
   const rootRequest = {
     projectId,
     projectRoot,
@@ -544,26 +658,31 @@ async function runScopedNexusAnalysis(
   const unchangedOwnership =
     previousAssessment?.sourceRoots !== undefined &&
     ownershipFingerprint(previousAssessment.sourceRoots) === ownershipFingerprint(sourceRoots);
-  const fullReason = full
-    ? 'full rebuild requested (--full)'
-    : expectedGeneration === null
-      ? 'no previous generation to reuse'
-      : previousAssessment?.sourceRoots === undefined
-        ? 'the previous generation predates source-root provenance'
-        : !unchangedOwnership
-          ? 'source ownership (project root, source root or included repositories) changed since the previous generation'
-          : undefined;
+  const fullReason = reboundFrom
+    ? `full rebuild requested (--full), re-binding the graph from ${reboundFrom} to ${sourceRoots.projectRoot}`
+    : full
+      ? 'full rebuild requested (--full)'
+      : expectedGeneration === null
+        ? 'no previous generation to reuse'
+        : previousAssessment?.sourceRoots === undefined
+          ? 'the previous generation predates source-root provenance'
+          : !unchangedOwnership
+            ? 'source ownership (project root, source root or included repositories) changed since the previous generation'
+            : undefined;
   const useIncremental = fullReason === undefined;
   let committedAssessment: GraphIndexAssessment | null = null;
 
   const recheckRoots = async (): Promise<void> => {
     execution?.assertActive();
     if (
-      (await readAnalysisIdentity(
-        projectRoot,
-        previousAssessment?.sourceRoots,
-        projectIdOverride,
-      )) !== projectId
+      (
+        await readAnalysisIdentity(
+          projectRoot,
+          previousAssessment?.sourceRoots,
+          projectIdOverride,
+          full,
+        )
+      ).projectId !== projectId
     )
       throw new Error('Project identity changed during indexing; previous graph retained.');
     const currentRoots = await resolveSourceRoots(rootRequest);
@@ -729,5 +848,24 @@ async function runScopedNexusAnalysis(
     durationMs: Date.now() - startTime,
     // T12348: the summary; the reference list is detail (`nexus status --references`).
     assessment: reportedAssessment ? assessmentSummary(reportedAssessment) : null,
+    ...(droppedRepositories.length
+      ? {
+          droppedRepositories: {
+            paths: droppedRepositories,
+            restoreCommand: `cleo nexus analyze ${shellQuoteArg(canonicalProjectRoot(projectRoot))} --include-repositories ${shellQuoteArg(effective.join(','))}`,
+          },
+        }
+      : {}),
+    ...(reboundFrom !== null && committedAssessment !== null
+      ? {
+          rebind: {
+            oldRoot: reboundFrom,
+            newRoot: sourceRoots.projectRoot,
+            projectId,
+            generation: graphGeneration(db),
+            droppedRepositories,
+          },
+        }
+      : {}),
   };
 }

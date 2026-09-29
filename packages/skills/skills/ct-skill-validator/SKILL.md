@@ -3,6 +3,11 @@ name: ct-skill-validator
 description: Validates an existing skill folder against the full CLEO standard and ecosystem. Use when auditing skills for structural compliance, verifying a skill fits into the CLEO ecosystem and constitution, running quality A/B evals, or preparing a skill for distribution. Runs a 3-phase validation loop — structural, ecosystem fit, and quality eval — then presents all findings as an HTML report opened in the user's browser. Iterates until all required phases pass.
 disable-model-invocation: true
 allowed-tools: Bash(python *)
+metadata:
+  version: 1.0.0
+  tier: internal
+  install: internal
+  stability: deprecated
 ---
 
 # CLEO Skill Validator

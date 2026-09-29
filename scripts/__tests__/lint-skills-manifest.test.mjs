@@ -1,0 +1,186 @@
+/**
+ * Tests for `scripts/lint-skills-manifest.mjs` and the generator it checks
+ * (T12648).
+ *
+ * The gate must pass on the real repository and go red on each planted
+ * defect: manifest drift, a directory missing from the manifest, a manifest
+ * entry without a directory, and each invalid-frontmatter class.
+ *
+ * @task T12648
+ */
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { runGate } from '../lint-skills-manifest.mjs';
+import { buildManifest, checkManifest, serialiseManifest } from '../skills/generate-manifest.mjs';
+import { parseFrontmatter } from '../skills/lib/skill-frontmatter.mjs';
+
+const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const SCRIPT = join(REPO, 'scripts', 'lint-skills-manifest.mjs');
+const MANIFEST = 'packages/skills/skills/manifest.json';
+
+/** Frontmatter for a valid fixture skill. */
+function skillMd(name, extra = '') {
+  return [
+    '---',
+    `name: ${name}`,
+    `description: Fixture skill ${name}.`,
+    extra,
+    'metadata:',
+    '  version: 1.0.0',
+    '  tier: on-demand',
+    '  install: harness',
+    '---',
+    '',
+    `# ${name}`,
+    '',
+  ]
+    .filter((l) => l !== '')
+    .join('\n');
+}
+
+describe('lint-skills-manifest on the real repository', () => {
+  it('reports no drift and no invalid frontmatter', () => {
+    expect(checkManifest(REPO)).toEqual({ problems: [], drift: [] });
+  });
+
+  it('exits 0 when run as a script', () => {
+    const run = spawnSync(process.execPath, [SCRIPT, '--check'], { cwd: REPO, encoding: 'utf8' });
+    expect(run.status, run.stderr).toBe(0);
+  });
+});
+
+describe('lint-skills-manifest goes red on planted defects', () => {
+  let root;
+
+  /** Write a fixture skill directory. */
+  const addSkill = (name, text = skillMd(name)) => {
+    mkdirSync(join(root, 'packages/skills/skills', name), { recursive: true });
+    writeFileSync(join(root, 'packages/skills/skills', name, 'SKILL.md'), text);
+  };
+
+  /** Regenerate the fixture manifest so it starts clean. */
+  const regenerate = () => {
+    const { manifest, problems } = buildManifest(root);
+    expect(problems).toEqual([]);
+    writeFileSync(join(root, MANIFEST), serialiseManifest(manifest));
+  };
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'skills-manifest-gate-'));
+    mkdirSync(join(root, 'packages/skills/skills'), { recursive: true });
+    writeFileSync(
+      join(root, MANIFEST),
+      JSON.stringify({ dispatch_matrix: { by_protocol: {} }, skills: [] }),
+    );
+    addSkill('ct-alpha');
+    addSkill('ct-beta');
+    regenerate();
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it('is clean after regeneration', () => {
+    expect(runGate(root)).toBe(0);
+  });
+
+  it('carries curated fields over and overwrites identity fields', () => {
+    const m = JSON.parse(readFileSync(join(root, MANIFEST), 'utf8'));
+    m.skills[0].capabilities = { inputs: ['TASK_ID'] };
+    m.skills[0].version = '9.9.9';
+    writeFileSync(join(root, MANIFEST), serialiseManifest(m));
+    const { manifest } = buildManifest(root);
+    expect(manifest.skills[0].capabilities).toEqual({ inputs: ['TASK_ID'] });
+    expect(manifest.skills[0].version).toBe('1.0.0');
+  });
+
+  it('fails when a manifest identity field is hand-edited', () => {
+    const m = JSON.parse(readFileSync(join(root, MANIFEST), 'utf8'));
+    m.skills[0].version = '9.9.9';
+    writeFileSync(join(root, MANIFEST), serialiseManifest(m));
+    expect(checkManifest(root).drift).toEqual(['ct-alpha: entry differs from frontmatter']);
+  });
+
+  it('fails when a skill directory is missing from the manifest', () => {
+    addSkill('ct-gamma');
+    expect(checkManifest(root).drift[0]).toMatch(/ct-gamma: missing from manifest/);
+  });
+
+  it('fails when the manifest lists a skill with no directory', () => {
+    const m = JSON.parse(readFileSync(join(root, MANIFEST), 'utf8'));
+    m.skills.push({ name: 'loom' });
+    writeFileSync(join(root, MANIFEST), serialiseManifest(m));
+    expect(checkManifest(root).drift).toContain(
+      'loom: listed but no packages/skills/skills/loom/SKILL.md',
+    );
+  });
+
+  it.each([
+    ['name differs from directory', skillMd('ct-other'), /does not equal its directory/],
+    ['top-level tier', skillMd('ct-beta', 'tier: 1'), /top-level tier is not allowed/],
+    [
+      'disagreeing top-level version',
+      skillMd('ct-beta', 'version: 2.0.0'),
+      /disagrees with metadata.version/,
+    ],
+    ['duplicate key', skillMd('ct-beta', 'name: ct-beta'), /duplicate top-level key 'name'/],
+    [
+      'bad tier',
+      skillMd('ct-beta').replace('tier: on-demand', 'tier: recommended'),
+      /metadata.tier/,
+    ],
+    [
+      'bad install',
+      skillMd('ct-beta').replace('install: harness', 'install: global'),
+      /metadata.install/,
+    ],
+    [
+      'internal installed to harness',
+      skillMd('ct-beta').replace('tier: on-demand', 'tier: internal'),
+      /internal cannot have metadata.install harness/,
+    ],
+    [
+      'missing version',
+      skillMd('ct-beta').replace('  version: 1.0.0\n', ''),
+      /metadata.version is missing/,
+    ],
+    [
+      'overlong description',
+      skillMd('ct-beta').replace('Fixture skill ct-beta.', 'x'.repeat(1025)),
+      /max 1024/,
+    ],
+  ])('fails on invalid frontmatter: %s', (_label, text, pattern) => {
+    addSkill('ct-beta', text);
+    const { problems } = checkManifest(root);
+    expect(problems.map((p) => p.problem).join('\n')).toMatch(pattern);
+    expect(runGate(root)).toBe(1);
+  });
+});
+
+describe('parseFrontmatter', () => {
+  it('folds block scalars and reads the metadata map', () => {
+    const fm = parseFrontmatter(
+      [
+        '---',
+        'name: x',
+        'description: >-',
+        '  line one',
+        '  line two',
+        'metadata:',
+        '  version: 1.2.3',
+        '---',
+      ].join('\n'),
+    );
+    expect(fm.fields.description).toBe('line one line two');
+    expect(fm.metadata.version).toBe('1.2.3');
+  });
+
+  it('reports a missing frontmatter block', () => {
+    expect(parseFrontmatter('# no frontmatter').errors).toEqual(['no frontmatter block']);
+  });
+});

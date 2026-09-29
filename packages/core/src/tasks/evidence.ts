@@ -1531,6 +1531,41 @@ export interface EvidenceExecutionRootHints {
 }
 
 /**
+ * `tool:test-affected` (D11150, T12635): run `testing.affectedCommand` over the
+ * packages the branch diff touches plus their dependents, through the same
+ * ADR-061 cache and heavy-tool caps as `tool:test` (canonical `test`, so the
+ * memory and timeout limits apply). The atom records `scope: 'affected'` and
+ * the packages, so a receipt never passes for a full run.
+ */
+async function validateAffectedTests(roots: EvidenceRoots): Promise<AtomValidation> {
+  const { storeRoot, executionRoot } = roots;
+  const { planAffectedTestRun } = await import('./affected-packages.js');
+  const run = await planAffectedTestRun(storeRoot, executionRoot);
+  if (!run.ok) return { ok: false, codeName: run.codeName, reason: run.reason };
+  const result = await runToolCached(run.command, storeRoot, { executionRoot });
+  if (result.exitCode !== 0) {
+    return {
+      ok: false,
+      codeName: result.timedOut ? 'E_EVIDENCE_TOOL_TIMEOUT' : 'E_EVIDENCE_TOOL_FAILED',
+      reason: `tool:test-affected (${[run.command.cmd, ...run.command.args].join(' ')}) exited ${result.exitCode}: ${(result.stderrTail || result.stdoutTail).trim().slice(-300)}`,
+    };
+  }
+  return {
+    ok: true,
+    atom: {
+      kind: 'tool',
+      tool: 'test-affected',
+      exitCode: 0,
+      stdoutTail: result.stdoutTail,
+      scope: 'affected',
+      affectedPackages: run.packages,
+      affectedProjects: run.projects,
+      ...(run.untested.length > 0 ? { untestedPackages: run.untested } : {}),
+    },
+  };
+}
+
+/**
  * Resolve the tree that evidence tools should RUN in, given the CLEO store
  * root.
  *
@@ -1748,6 +1783,7 @@ async function validateTestRun(path: string, roots: EvidenceRoots): Promise<Atom
 }
 
 async function validateTool(tool: string, roots: EvidenceRoots): Promise<AtomValidation> {
+  if (tool === 'test-affected') return validateAffectedTests(roots);
   const { storeRoot: projectRoot, executionRoot } = roots;
   // T12633: project-context lives in the store; package.json scripts and
   // tsconfig describe the code under test, so they are read where it runs.
