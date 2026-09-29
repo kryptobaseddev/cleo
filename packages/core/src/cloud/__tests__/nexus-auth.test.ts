@@ -498,6 +498,11 @@ describe('verification URI validation (T12712 review item 2)', () => {
     ['ESC (terminal injection)', 'https://web.nexus.test/device\u001b[2J'],
     ['carriage return', 'https://web.nexus.test/device\rVisit: https://evil.test'],
     ['C1 control', 'https://web.nexus.test/device\u009b31m'],
+    ['bidi override U+202E', 'https://web.nexus.test/device‮ved.live'],
+    ['bidi isolate U+2066', 'https://web.nexus.test/device⁦x'],
+    ['zero-width space U+200B', 'https://web.nexus.test​/device'],
+    ['zero-width no-break U+FEFF', 'https://web.nexus.test/device﻿'],
+    ['backslash', 'https://web.nexus.test\\@evil.test/device'],
   ];
   for (const [what, uri] of bad) {
     it(`aborts the login on ${what}, before showing or opening anything`, async () => {
@@ -516,6 +521,22 @@ describe('verification URI validation (T12712 review item 2)', () => {
       expect(await store.get(API)).toBeNull();
     });
   }
+
+  it('hands onCode the normalised URL (the exact form that was validated)', async () => {
+    const onCode = vi.fn();
+    const { fetchImpl } = mockNexus({
+      tokenReplies: [approved],
+      verificationUri: 'HTTPS://WEB.Nexus.Test:443/device',
+      verificationUriComplete: 'https://web.nexus.test:443/device?user_code=ABCD-EFGH',
+    });
+    await loginToNexus({ apiUrl: API, store, fetch: fetchImpl, sleep, onCode });
+    expect(onCode).toHaveBeenCalledWith(
+      expect.objectContaining({
+        verificationUri: 'https://web.nexus.test/device',
+        verificationUriComplete: 'https://web.nexus.test/device?user_code=ABCD-EFGH',
+      }),
+    );
+  });
 
   it('accepts the web origin of the production and staging APIs', () => {
     expect(() =>

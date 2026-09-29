@@ -372,7 +372,8 @@ export async function pollForToken(
   const doFetch = fetcherFor(cfg);
 
   const requestTimeoutMs = options?.requestTimeoutMs ?? DEVICE_CODE_REQUEST_TIMEOUT_MS;
-  const deadline = Date.now() + Math.min(expiresIn, MAX_DEVICE_CODE_LIFETIME_SECONDS) * 1000;
+  const lifetime = Math.min(expiresIn, MAX_DEVICE_CODE_LIFETIME_SECONDS);
+  const deadline = Date.now() + lifetime * 1000;
   let currentInterval = Math.max(1, Math.min(interval, POLL_INTERVAL_CAP_SECONDS));
   let consecutiveNetworkErrors = 0;
   const startedAt = Date.now();
@@ -449,7 +450,7 @@ export async function pollForToken(
 
     if (errorCode === 'authorization_pending') {
       const elapsed = Math.round((Date.now() - startedAt) / 1000);
-      onPending?.(elapsed, expiresIn);
+      onPending?.(elapsed, lifetime);
       await sleep(currentInterval * 1000);
       continue;
     }

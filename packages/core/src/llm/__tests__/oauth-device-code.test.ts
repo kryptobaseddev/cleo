@@ -460,6 +460,24 @@ describe('pollForToken — bounded lifetime and per-request timeout (T12712)', (
     expect(polls).toBeLessThanOrEqual(361);
   });
 
+  it('reports the capped lifetime to onPending, not the raw expires_in', async () => {
+    vi.useRealTimers();
+    let calls = 0;
+    const cfg: DeviceCodeConfig = {
+      ...TEST_CONFIG,
+      fetch: async () =>
+        ++calls === 1
+          ? makeResponse(400, { error: 'authorization_pending' })
+          : makeResponse(200, { access_token: 'tok', token_type: 'Bearer' }),
+    };
+    const onPending = vi.fn();
+    await pollForToken(cfg, makeStartResp({ expiresIn: 999_999, interval: 5 }), {
+      sleep: async () => {},
+      onPending,
+    });
+    expect(onPending).toHaveBeenCalledWith(expect.any(Number), 1800);
+  });
+
   it('aborts a hung token request after the per-request timeout instead of waiting forever', async () => {
     vi.useRealTimers();
     let attempts = 0;

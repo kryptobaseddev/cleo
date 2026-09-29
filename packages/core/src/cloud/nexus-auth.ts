@@ -161,8 +161,14 @@ export function nexusDeviceCodeConfig(apiUrl: string, fetchImpl?: FetchLike): De
   };
 }
 
-/** C0 and C1 control characters (ESC, CR, LF, CSI, …) and any whitespace. */
-const UNSAFE_URI_CHARS = /[\u0000-\u0020\u007f-\u009f\s]/;
+/**
+ * C0/C1 control characters (ESC, CR, LF, CSI, …), any whitespace, bidi
+ * embeddings/overrides/isolates (U+202A–202E, U+2066–2069), zero-width
+ * characters (U+200B–200D, U+FEFF) and `\` (which WHATWG URL parsing turns
+ * into `/`, so the host a user reads could differ from the one opened).
+ */
+const UNSAFE_URI_CHARS =
+  /[\u0000-\u0020\u007f-\u009f\s\u202a-\u202e\u2066-\u2069\u200b-\u200d\ufeff\\]/;
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
@@ -181,9 +187,11 @@ const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
  *
  * @param uri - `verification_uri` or `verification_uri_complete` as received.
  * @param apiUrl - Resolved API origin.
+ * @returns The normalised URL (`new URL(uri).href`): the exact form that was
+ *   validated, and the only one to print or open.
  * @throws {NexusAccountError} `E_NEXUS_UNTRUSTED_VERIFICATION_URI`.
  */
-export function assertTrustedVerificationUri(uri: string, apiUrl: string): void {
+export function assertTrustedVerificationUri(uri: string, apiUrl: string): string {
   const refuse = (why: string): never => {
     throw new NexusAccountError(
       'E_NEXUS_UNTRUSTED_VERIFICATION_URI',
@@ -206,6 +214,7 @@ export function assertTrustedVerificationUri(uri: string, apiUrl: string): void 
   if (url.hostname !== web && !url.hostname.endsWith(`.${web}`)) {
     refuse(`host ${url.hostname} is not ${web}`);
   }
+  return url.href;
 }
 
 /**
@@ -287,11 +296,20 @@ export async function loginToNexus(opts: NexusLoginOptions = {}): Promise<NexusL
       'check the API URL and your network, then retry',
     );
   }
-  assertTrustedVerificationUri(start.verificationUri, apiUrl);
-  if (start.verificationUriComplete !== undefined) {
-    assertTrustedVerificationUri(start.verificationUriComplete, apiUrl);
-  }
-  opts.onCode?.(start);
+  // Validate, then show and open only the normalised forms that were checked.
+  const shown: DeviceCodeStartResponse = {
+    ...start,
+    verificationUri: assertTrustedVerificationUri(start.verificationUri, apiUrl),
+    ...(start.verificationUriComplete !== undefined
+      ? {
+          verificationUriComplete: assertTrustedVerificationUri(
+            start.verificationUriComplete,
+            apiUrl,
+          ),
+        }
+      : {}),
+  };
+  opts.onCode?.(shown);
 
   let token: Awaited<ReturnType<typeof pollForToken>>;
   try {
