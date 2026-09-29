@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   BASELINE_PATH,
+  dropNegativeExample,
   findSkillCommandViolations,
   prepareForScan,
   runGate,
@@ -115,6 +116,48 @@ describe('lint-skill-commands goes red on planted defects', () => {
 
     write('packages/skills/skills/ct-extra/SKILL.md', '`cleo show T1`\n');
     expect(runGate(root)).toBe(1);
+  });
+
+  it('fails a positional argument passed to a sub-command that declares none (manifest append)', () => {
+    write(
+      'packages/skills/skills/ct-extra/SKILL.md',
+      "`cleo manifest append '<json>'`\n\n`cleo manifest show <id>`\n\n`cleo session status <id>`\n",
+    );
+    const messages = findSkillCommandViolations(root).map((v) => v.message);
+    expect(messages).toHaveLength(2);
+    expect(messages.join('\n')).toMatch(/cleo manifest append` declares no positional/);
+    expect(messages.join('\n')).toMatch(/cleo session status` declares no positional/);
+  });
+
+  it('accepts a flag form and bracketed usage syntax', () => {
+    write(
+      'packages/skills/skills/ct-extra/SKILL.md',
+      "`cleo manifest append --entry '<json>'`\n\n`cleo research list [--status S]`\n",
+    );
+    expect(findSkillCommandViolations(root)).toEqual([]);
+  });
+
+  it('scopes a named negative-example marker to its command', () => {
+    const line =
+      '| `cleo release ship` | gone | Use `cleo release plan` + `cleo lead rollup`. | <!-- cleo-cmd: negative-example: release ship -->';
+    const kept = dropNegativeExample(line);
+    expect(kept).not.toMatch(/cleo release ship/);
+    expect(kept).toMatch(/cleo release plan/);
+    write('packages/skills/skills/ct-extra/SKILL.md', `${line}\n`);
+    // The unrelated dead command on the same line is still reported.
+    expect(
+      findSkillCommandViolations(root)
+        .map((v) => v.message)
+        .join('\n'),
+    ).toMatch(/no such command: cleo lead/);
+  });
+
+  it('scopes an unnamed marker to the last invocation before it', () => {
+    expect(
+      dropNegativeExample(
+        'run `cleo show T1` then cleo docs add T1 f --titel x # cleo-cmd: negative-example',
+      ),
+    ).toBe('run `cleo show T1` then ');
   });
 
   it('never accepts a baselined finding in a core skill', () => {

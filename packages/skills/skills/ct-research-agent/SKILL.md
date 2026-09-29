@@ -162,7 +162,7 @@ Write to `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`:
 
 ## Manifest Entry Format
 
-Append ONE entry via `cleo manifest append <json>` (writes to pipeline_manifest table per ADR-027):
+Append ONE entry via `cleo manifest append --entry '<json>'` (writes to pipeline_manifest table per ADR-027):
 
 ```json
 {"id":"{{TOPIC_SLUG}}-{{DATE}}","file":"{{DATE}}_{{TOPIC_SLUG}}.md","title":"{{RESEARCH_TITLE}}","date":"{{DATE}}","status":"complete","agent_type":"research","topics":{{TOPICS_JSON}},"key_findings":["Finding 1","Finding 2","Finding 3"],"actionable":true,"needs_followup":[],"linked_tasks":["{{EPIC_ID}}","{{TASK_ID}}"]}

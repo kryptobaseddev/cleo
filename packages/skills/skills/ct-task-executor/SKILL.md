@@ -211,7 +211,7 @@ Record each criterion's changed artifacts and actual verification results. A mer
 
 ## Manifest Entry Format
 
-Append ONE entry via `cleo manifest append <json>` (writes to pipeline_manifest table per ADR-027):
+Append ONE entry via `cleo manifest append --entry '<json>'` (writes to pipeline_manifest table per ADR-027):
 
 ```json
 {"id":"{{TOPIC_SLUG}}-{{DATE}}","file":"{{DATE}}_{{TOPIC_SLUG}}.md","title":"{{TASK_NAME}}","date":"{{DATE}}","status":"complete","agent_type":"implementation","topics":{{TOPICS_JSON}},"key_findings":["Completed: deliverable 1","Completed: deliverable 2","All acceptance criteria passed"],"actionable":false,"needs_followup":[],"linked_tasks":["{{EPIC_ID}}","{{TASK_ID}}"]}

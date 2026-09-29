@@ -118,7 +118,7 @@ HANDOFF CONTENTS:
 cleo docs list --type handoff --project
 
 # 2. Verify session exists
-cleo session status <session_id>
+cleo session show <session_id>
 
 # 3. Check for concurrent modifications
 cleo session list --status active

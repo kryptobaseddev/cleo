@@ -44,9 +44,23 @@ terminal signals has arrived OR its wall-clock budget elapses.
 cleo conduit listen --topic "epic-T9080.wave-2" --since "${SPAWNED_AT}" \
   > /tmp/conduit-drain.json
 
-# Then read authoritative state from manifest (wave index is 0-based)
-cleo orchestrate roll-up T9080 --wave 2 --json > /tmp/rollup.json
+# Then read authoritative state from manifest. Topic wave-2 is waveNumber 2
+# in `cleo orchestrate waves` (1-based); roll-up takes the 0-based index 1.
+cleo orchestrate roll-up T9080 --wave 1 --json > /tmp/rollup.json
 ```
+
+> **Wave numbering.** `cleo orchestrate waves <epic>` numbers waves from 1
+> (`waveNumber`, `waves.ts`), but `cleo orchestrate roll-up --wave` takes a
+> 0-based index into the same list (`lead-rollup.ts`). So
+> `WAVE_INDEX = waveNumber - 1`: wave 2 in `orchestrate waves` is
+> `orchestrate roll-up <epic> --wave 1`.
+>
+> **Known defect (T12682).** Spawned workers currently publish on
+> `epic-<epicId>.wave-<last 4 digits of their own task id>`, not on
+> `epic-<epicId>.wave-<n>`, so a Lead listening on `wave-<n>` hears nothing
+> from them. Until T12682 lands, treat `cleo orchestrate roll-up` as the
+> status source and the wave topic as best-effort.
+
 
 `rollupWaveStatus` returns:
 
@@ -99,7 +113,7 @@ cleo orchestrate fanout T9080 --tasks "$(echo $RETRIABLE | tr ' ' ,)"
 # Re-drain on the retry topic, then roll up again (the manifest holds the
 # latest status of every worker, retries included)
 cleo conduit listen --topic "epic-T9080.wave-2.retry-1" --since "${RETRY_AT}"
-cleo orchestrate roll-up T9080 --wave 2 --json > /tmp/rollup-final.json
+cleo orchestrate roll-up T9080 --wave 1 --json > /tmp/rollup-final.json   # wave 2 → index 1
 ```
 
 After the single retry pass, whatever `rollup-final.json` shows IS the
