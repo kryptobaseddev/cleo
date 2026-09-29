@@ -21,8 +21,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { computeBriefing } from '../../sessions/briefing.js';
 import { getTaskAccessor } from '../../store/data-accessor.js';
 import { resetDbState } from '../../store/sqlite.js';
-import { formatScoreFactor, scoreTask } from '../../task-tools/score-task-priority.js';
+import {
+  formatScoreFactor,
+  parseTimestampMs,
+  rankTasks,
+  scoreTask,
+} from '../../task-tools/score-task-priority.js';
 import { analyzeTaskPriority } from '../analyze.js';
+import { coreTaskAnalyze } from '../task-analyze.js';
 import { coreTaskNext } from '../task-next.js';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -146,9 +152,57 @@ describe('T12661 — every ranker agrees on the axiom fixture', () => {
     expect(briefing.nextTasks.find((t) => t.id === 'T016')?.leverage).toBe(8);
   });
 
-  it('cleo analyze recommends the same top task', async () => {
+  it('cleo analyze (CLI and SDK) recommends the same top task', async () => {
     const root = await axiomFixture();
-    const analysis = await analyzeTaskPriority({ cwd: root });
-    expect(analysis.recommended?.id).toBe('T741');
+    expect((await analyzeTaskPriority({ cwd: root })).recommended?.id).toBe('T741');
+    expect((await coreTaskAnalyze(root)).recommended?.id).toBe('T741');
+  });
+
+  it('with a current phase set, next, briefing and both analyze paths still agree', async () => {
+    const root = await axiomFixture();
+    const acc = await getTaskAccessor(root);
+    // T324 (medium, 40 days) joins the current phase: 50 + phase 20 + deps 10 + age 5 = 85.
+    const t324 = await acc.loadSingleTask('T324');
+    await acc.upsertSingleTask({ ...t324!, phase: 'v2' });
+    await acc.setMetaValue('project_meta', { currentPhase: 'v2' });
+
+    const next = (await coreTaskNext(root, { count: 4 })).suggestions.map((s) => s.id);
+    expect(next).toContain('T324');
+    const briefing = await computeBriefing(root, { scope: 'global', maxNextTasks: 4 });
+    expect(briefing.nextTasks.map((t) => t.id)).toEqual(next);
+
+    const sdk = await analyzeTaskPriority({ cwd: root });
+    const cli = await coreTaskAnalyze(root);
+    expect(sdk.recommended?.id).toBe(next[0]);
+    expect(cli.recommended?.id).toBe(next[0]);
+    // Within each priority tier, analyze lists tasks in next's order.
+    for (const analysis of [sdk, cli]) {
+      for (const tier of [analysis.tiers.critical, analysis.tiers.high, analysis.tiers.normal]) {
+        const ids = tier.map((t) => t.id).filter((id) => next.includes(id));
+        expect(ids).toEqual(next.filter((id) => ids.includes(id)));
+      }
+    }
+  });
+});
+
+describe('T12661 — timestamps are compared as UTC instants', () => {
+  it('reads a zone-less SQLite timestamp as UTC', () => {
+    expect(parseTimestampMs('2026-09-01 10:00:00')).toBe(Date.UTC(2026, 8, 1, 10));
+    expect(parseTimestampMs('2026-09-01T10:00:00Z')).toBe(Date.UTC(2026, 8, 1, 10));
+    expect(parseTimestampMs('2026-09-01T12:00:00+02:00')).toBe(Date.UTC(2026, 8, 1, 10));
+    expect(Number.isNaN(parseTimestampMs('not a date'))).toBe(true);
+  });
+
+  it('breaks score ties by the older instant across mixed formats, then id', () => {
+    const ranked = rankTasks(
+      [
+        // Later instant, but its text sorts first lexically ("2026-09-01 " < "2026-09-01T").
+        { id: 'TA', title: 'a', priority: 'medium', createdAt: '2026-09-01 11:00:00' },
+        { id: 'TB', title: 'b', priority: 'medium', createdAt: '2026-09-01T10:00:00Z' },
+        { id: 'TC', title: 'c', priority: 'medium' },
+      ],
+      { nowMs: Date.UTC(2026, 8, 2) },
+    ).map((r) => r.task.id);
+    expect(ranked).toEqual(['TB', 'TA', 'TC']);
   });
 });

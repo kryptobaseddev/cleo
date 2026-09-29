@@ -4,13 +4,56 @@
  * @epic T4454
  */
 
-import type { TaskAnalysisResult, TaskWorkState } from '@cleocode/contracts';
+import type { Task, TaskAnalysisResult, TaskWorkState } from '@cleocode/contracts';
+import { resolveOrCwd } from '../paths.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { computeLeverage, rankTasks } from '../task-tools/score-task-priority.js';
+import { computeLeverage } from '../task-tools/score-task-priority.js';
+import { rankReadyTasks, resolveRankingPhase } from './task-next.js';
 
 export interface AnalysisResult extends TaskAnalysisResult {
   autoStarted?: boolean;
+}
+
+/** One ranked task as the analyze tiers report it. */
+export interface AnalysisRankedTask {
+  id: string;
+  title: string;
+  /** Open tasks this task unblocks (the scorer's leverage input). */
+  leverage: number;
+  priority: Task['priority'];
+  score: number;
+}
+
+/**
+ * Rank tasks for `cleo analyze` exactly as `cleo next` and the briefing do —
+ * {@link rankReadyTasks} with {@link resolveRankingPhase} and BRAIN patterns —
+ * so all three recommend the same task in the same order (T12661).
+ *
+ * @param accessor - Task data accessor.
+ * @param allTasks - The active task population.
+ * @param opts - Project root (for BRAIN patterns) and an optional id scope.
+ * @returns Ranked ready tasks with their open-dependent leverage.
+ * @task T12661
+ */
+export async function rankForAnalysis(
+  accessor: DataAccessor,
+  allTasks: readonly Task[],
+  opts: { projectRoot?: string; scopeTaskIds?: ReadonlySet<string> } = {},
+): Promise<{ ranked: AnalysisRankedTask[] }> {
+  const { ranked, leverage } = await rankReadyTasks(accessor, allTasks, {
+    currentPhase: await resolveRankingPhase(accessor),
+    ...opts,
+  });
+  return {
+    ranked: ranked.map(({ task, score }) => ({
+      id: task.id,
+      title: task.title,
+      leverage: leverage.get(task.id) ?? 0,
+      priority: task.priority,
+      score,
+    })),
+  };
 }
 
 /** Analyze task priority with leverage scoring. */
@@ -25,47 +68,26 @@ export async function analyzeTaskPriority(
   const { tasks } = await acc.queryTasks({});
 
   // Build dependency graph
-  const blocksMap: Record<string, string[]> = {};
-  for (const task of tasks) {
-    if (task.depends) {
-      for (const dep of task.depends) {
-        if (!blocksMap[dep]) blocksMap[dep] = [];
-        blocksMap[dep]!.push(task.id);
-      }
-    }
-  }
-
-  // Calculate leverage for each task
-  const leverageMap: Record<string, number> = {};
-  for (const task of tasks) {
-    leverageMap[task.id] = (blocksMap[task.id] ?? []).length;
-  }
-
-  // Find actionable tasks (pending/active, not blocked)
-  const actionable = tasks.filter((t) => t.status === 'pending' || t.status === 'active');
+  // Open tasks each task unblocks — the same leverage the shared scorer uses (T12661).
+  const openDependents = computeLeverage(tasks);
 
   const blocked = tasks.filter((t) => t.status === 'blocked');
 
   // Bottlenecks (tasks that block the most others)
   const bottlenecks = tasks
-    .filter((t) => (blocksMap[t.id]?.length ?? 0) > 0 && t.status !== 'done')
-    .map((t) => ({ id: t.id, title: t.title, blocksCount: blocksMap[t.id]!.length }))
-    .sort((a, b) => b.blocksCount - a.blocksCount)
+    .filter((t) => (openDependents.get(t.id) ?? 0) > 0 && t.status !== 'done')
+    .map((t) => ({ id: t.id, title: t.title, blocksCount: openDependents.get(t.id) ?? 0 }))
+    .sort((a, b) => b.blocksCount - a.blocksCount || a.id.localeCompare(b.id))
     .slice(0, 5);
 
-  // Tier tasks — ranked by the shared scorer (T12661), the same weights as
-  // `cleo next` and the briefing (severity, bug kind, bounded leverage and age).
-  const leverage = computeLeverage(tasks);
-  const scored = rankTasks(actionable, {
-    taskStatuses: new Map(tasks.map((t) => [t.id, t.status] as const)),
-    leverage,
-  }).map(({ task, score }) => ({
-    id: task.id,
-    title: task.title,
-    leverage: leverageMap[task.id] ?? 0,
-    priority: task.priority,
-    score,
-  }));
+  // Tier tasks — the SAME ranking as `cleo next` and the briefing (T12661):
+  // ready candidates, current phase, BRAIN patterns, shared scorer.
+  const { ranked: scored } = await rankForAnalysis(acc, tasks, {
+    projectRoot: resolveOrCwd(opts.cwd),
+  });
+  // The metric keeps its meaning (pending + active); the tiers above rank only
+  // the READY subset, exactly as `cleo next` does.
+  const actionable = tasks.filter((t) => t.status === 'pending' || t.status === 'active');
 
   const critical = scored.filter((t) => t.priority === 'critical');
   const high = scored.filter((t) => t.priority === 'high');
@@ -82,7 +104,7 @@ export async function analyzeTaskPriority(
         }
       : null;
 
-  const totalLeverage = Object.values(leverageMap).reduce((s, v) => s + v, 0);
+  const totalLeverage = [...openDependents.values()].reduce((s, v) => s + v, 0);
   const avgLeverage = tasks.length > 0 ? Math.round((totalLeverage / tasks.length) * 100) / 100 : 0;
 
   let autoStarted = false;

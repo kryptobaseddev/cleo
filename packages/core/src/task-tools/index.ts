@@ -25,6 +25,7 @@ export type { RankedTask } from './score-task-priority.js';
 export {
   computeLeverage,
   formatScoreFactor,
+  parseTimestampMs,
   rankTasks,
   scoreTask,
 } from './score-task-priority.js';

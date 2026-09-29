@@ -71,6 +71,25 @@ export const MAX_LEVERAGE_SCORE = 20;
 export const MAX_AGE_SCORE = 10;
 
 /**
+ * Parse a task timestamp to epoch milliseconds, normalised to UTC.
+ *
+ * Stores hold both ISO-8601 with a zone (`2026-09-01T10:00:00Z`) and SQLite's
+ * zone-less `YYYY-MM-DD HH:MM:SS`. `Date.parse` reads the zone-less form as
+ * LOCAL time, so the same instant scored and sorted differently by machine
+ * (T12661 review). A timestamp without a zone is taken as UTC.
+ *
+ * @param value - Timestamp text.
+ * @returns Epoch milliseconds, or `NaN` when unparseable.
+ */
+export function parseTimestampMs(value: string | null | undefined): number {
+  if (!value) return Number.NaN;
+  const text = value.trim();
+  const hasZone = /(?:[zZ]|[+-]\d{2}:?\d{2})$/.test(text);
+  if (hasZone || !/\d{2}:\d{2}/.test(text)) return Date.parse(text);
+  return Date.parse(`${text.replace(' ', 'T')}Z`);
+}
+
+/**
  * Whether every dependency of a task is satisfied, under the same readiness
  * policy as `depsReady` (cancelled work still blocks).
  */
@@ -146,7 +165,7 @@ export function scoreTask(task: ScoreTaskInput, ctx: ScoreTaskContext): ScoreTas
 
   if (task.createdAt) {
     const nowMs = ctx.nowMs ?? Date.now();
-    const ageDays = (nowMs - new Date(task.createdAt).getTime()) / (1000 * 60 * 60 * 24);
+    const ageDays = (nowMs - parseTimestampMs(task.createdAt)) / (1000 * 60 * 60 * 24);
     if (ageDays > 7) {
       add(
         'age',
@@ -209,8 +228,8 @@ export interface RankedTask<T extends ScoreTaskInput> {
 
 /**
  * Score and order tasks: highest score first, ties broken by older
- * `createdAt`, then id — deterministic, so every ranker returns the same
- * order for the same input.
+ * `createdAt` (parsed and normalised to UTC by {@link parseTimestampMs}), then
+ * id — deterministic, so every ranker returns the same order for the same input.
  *
  * @param tasks - Candidate tasks.
  * @param ctx - Shared scoring context.
@@ -220,12 +239,18 @@ export function rankTasks<T extends ScoreTaskInput>(
   tasks: readonly T[],
   ctx: ScoreTaskContext,
 ): RankedTask<T>[] {
+  // Missing or unparseable timestamps sort after every dated task.
+  const created = (task: T): number => {
+    const ms = parseTimestampMs(task.createdAt);
+    return Number.isNaN(ms) ? Number.POSITIVE_INFINITY : ms;
+  };
   return tasks
-    .map((task) => ({ task, ...scoreTask(task, ctx) }))
+    .map((task) => ({ task, ...scoreTask(task, ctx), createdMs: created(task) }))
     .sort(
       (a, b) =>
         b.score - a.score ||
-        (a.task.createdAt ?? '').localeCompare(b.task.createdAt ?? '') ||
+        (a.createdMs === b.createdMs ? 0 : a.createdMs < b.createdMs ? -1 : 1) ||
         a.task.id.localeCompare(b.task.id),
-    );
+    )
+    .map(({ createdMs: _createdMs, ...rest }) => rest);
 }
