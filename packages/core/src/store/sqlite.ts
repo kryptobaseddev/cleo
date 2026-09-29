@@ -24,7 +24,7 @@
 
 import { copyFileSync, existsSync, realpathSync, renameSync, unlinkSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { basename, dirname, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { eq } from 'drizzle-orm';
 // T11280: `drizzle` is loaded LAZILY (see _getDrizzle) rather than via a
 // top-level value import. drizzle-orm/node-sqlite/driver.js statically imports
@@ -34,7 +34,6 @@ import { eq } from 'drizzle-orm';
 // module-load time", T1331). The type import is erased at runtime and is safe.
 import type { drizzle as drizzleFn, NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { getLogger } from '../logger.js';
-import { describeWorktreeOwner, isGitLinkedCheckout } from '../project-scope.js';
 // T11521: dual-scope chokepoint — all tasks.db opens now flow through here.
 // openDualScopeDb manages the DatabaseSync lifecycle, pragmas, and migrations
 // for the consolidated cleo.db. We extract the native handle and re-wrap it
@@ -71,7 +70,11 @@ import {
 import { listSqliteBackups } from './sqlite-backup.js';
 import { collapseTwinTables, twinCollapseFailureOf } from './twin-collapse.js';
 import { isWorktreeBuildSchemaError } from './worktree-build-guard.js';
-import { assertDbPathIsNotWorktreeResident } from './worktree-isolation-guard.js';
+import {
+  assertDbPathIsNotWorktreeResident,
+  invocationDirectory,
+  ownerStoreRewriteRefusal,
+} from './worktree-isolation-guard.js';
 
 // node:sqlite access is isolated in the leaf module sqlite-native.ts to prevent
 // TDZ circular-import failures in the agent-resolver → dispatch-trace →
@@ -296,19 +299,23 @@ function isSameDirectory(a: string, b: string): boolean {
  * land where nothing merges it back (T12460, field report T12677). The
  * message names the project whose store the worktree must use.
  *
+ * T12708: the decision is the shared whole-store rewrite guard
+ * ({@link ownerStoreRewriteRefusal}). Auto-recovery runs implicitly and has no
+ * confirmation flag, so a recovery of the owning project's store reached from
+ * one of its worktrees is refused too; it runs from the project itself.
+ *
  * @param dbPath - Absolute path of the empty store auto-recovery would fill.
- * @returns The refusal message, or null when `dbPath` is not worktree-resident.
+ * @param cwd - The caller's optional working directory (the invocation dir).
+ * @returns The refusal message, or null when auto-recovery may restore.
  * @task T12677
+ * @task T12708
  */
-export function worktreeRecoveryRefusal(dbPath: string): string | null {
-  const storeCleoDir = dirname(dbPath);
-  const root = dirname(storeCleoDir);
-  if (basename(storeCleoDir) !== '.cleo' || !isGitLinkedCheckout(root)) return null;
-  return (
-    `Auto-recovery refused: ${dbPath} lives inside the git worktree ${root}; ` +
-    `${describeWorktreeOwner(root)}. A worktree uses its owning project's store and ` +
-    'never receives a restored copy (T12460, T12677).'
-  );
+export function worktreeRecoveryRefusal(dbPath: string, cwd?: string): string | null {
+  const refusal = ownerStoreRewriteRefusal('auto-recovery', dbPath, {
+    cwd: invocationDirectory(cwd),
+    confirmable: false,
+  });
+  return refusal === null ? null : refusal.message;
 }
 
 /**
@@ -366,7 +373,7 @@ export async function autoRecoverFromBackup(
     // diverged copy; filling it with the parent's newest snapshot (~1.25 GB)
     // made every later write there land in a store nothing merges back.
     const storeCleoDir = dirname(dbPath);
-    const worktreeRefusal = worktreeRecoveryRefusal(dbPath);
+    const worktreeRefusal = worktreeRecoveryRefusal(dbPath, cwd);
     if (worktreeRefusal !== null) {
       log.warn({ dbPath }, worktreeRefusal);
       return false;
@@ -773,6 +780,16 @@ function runMigrations(nativeDb: DatabaseSync, db: NodeSQLiteDatabase, dbPath: s
     // fall through to the rebuild (it snapshots and rewrites the store).
     if (isWorktreeBuildSchemaError(error)) throw error;
     if (isSqliteBusy(error) || !tableExists(nativeDb, 'tasks_tasks')) throw error;
+    // T12708: the rebuild snapshots and rewrites a whole table family; from a
+    // linked worktree it never rewrites the owning project's store.
+    const rebuildRefusal = ownerStoreRewriteRefusal('legacy tasks lineage rebuild', dbPath, {
+      cwd: invocationDirectory(undefined),
+      confirmable: false,
+    });
+    if (rebuildRefusal !== null) {
+      getLogger('sqlite').error({ dbPath }, rebuildRefusal.message);
+      throw error;
+    }
     try {
       rebuildLegacyTasksLineage(
         nativeDb,

@@ -192,6 +192,26 @@ export async function runUpgrade(
         // CRITICAL: Acquire migration lock before any destructive operations
         const cleoDir = resolveCleoDir(options.cwd);
         const dbPath = join(cleoDir, 'tasks.db');
+        // T12708: the storage migration renames a new database over the store
+        // (and restores it on failure). From a linked worktree it never
+        // rewrites the owning project's store or a worktree-resident one.
+        const { invocationDirectory, ownerStoreRewriteRefusal } = await import(
+          './store/worktree-isolation-guard.js'
+        );
+        const rewriteRefusal = ownerStoreRewriteRefusal('storage migration', dbPath, {
+          cwd: invocationDirectory(options.cwd),
+          confirmable: false,
+        });
+        if (rewriteRefusal !== null) {
+          actions.push({
+            action: 'storage_migration',
+            status: 'error',
+            details: rewriteRefusal.message,
+            fix: rewriteRefusal.fix ?? undefined,
+          });
+          errors.push(rewriteRefusal.message);
+          return { success: false, upToDate: false, dryRun: isDryRun, actions, applied: 0, errors };
+        }
         try {
           migrationLock = await acquireLock(dbPath, { stale: 30_000, retries: 0 });
         } catch {

@@ -493,6 +493,24 @@ async function runExodusOnOpen(
     };
   }
 
+  // T12708: the migration fills (and on failure rolls back) the whole project
+  // store. From a linked worktree it never runs against the owning project's
+  // live store, nor against a worktree-resident one; writes refuse
+  // (`aborted`) until it runs from the project itself.
+  if (scope === 'project') {
+    const { invocationDirectory, ownerStoreRewriteRefusal } = await import(
+      '../worktree-isolation-guard.js'
+    );
+    const refusal = ownerStoreRewriteRefusal('exodus migration', dbPath, {
+      cwd: invocationDirectory(cwd),
+      confirmable: false,
+    });
+    if (refusal !== null) {
+      warnStrandedOnce(dbPath, refusal.message);
+      return { outcome: 'aborted', reason: refusal.message };
+    }
+  }
+
   // Single-flight: serialise the first-open migration across processes so two
   // concurrent opens never both migrate (AC6 · T11554 first-run race).
   const lockPath = `${dbPath}.exodus-on-open.lock`;

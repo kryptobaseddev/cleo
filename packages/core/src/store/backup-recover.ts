@@ -29,6 +29,7 @@
 import { copyFileSync, existsSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import type { BackupRecoverResult, DbRole } from '@cleocode/contracts';
+import { CleoError } from '../errors.js';
 import {
   collectSnapshotCandidatesForRole,
   probeSnapshot,
@@ -38,6 +39,11 @@ import {
   resolveRoleBackupDirs,
   resolveRoleDbPath,
 } from './recover-malformed-db.js';
+import {
+  assertOwnerStoreRewriteConfirmed,
+  E_WT_STORE_REWRITE_CONFIRM_REQUIRED,
+  E_WT_STORE_REWRITE_REFUSED,
+} from './worktree-isolation-guard.js';
 
 // ---------------------------------------------------------------------------
 // Internal snapshot candidate shape (mirrors recover-malformed-db.ts)
@@ -109,6 +115,15 @@ export interface BackupRecoverOptions {
    * perform delta-merge.
    */
   noDelta?: boolean;
+  /**
+   * Directory the recovery was invoked from (T12708). Supplied by the CLI
+   * layer; core never falls back to the process directory. A recovery that
+   * would overwrite the owning project's store from one of its worktrees
+   * needs {@link BackupRecoverOptions.confirmOwnerStore}.
+   */
+  cwd: string;
+  /** Confirm overwriting the owning project's LIVE store from a worktree (T12708). */
+  confirmOwnerStore?: boolean;
 }
 
 /**
@@ -333,7 +348,8 @@ export function runBackupRecover(opts: BackupRecoverOptions): BackupRecoverResul
     };
   }
 
-  // Execute mode.
+  // Execute mode. T12708: both paths below replace the whole store file.
+  guardOwnerStoreRewrite(opts, layout.corruptPath);
   if (opts.fromSnapshot) {
     // Pinning path — quarantine the corrupt DB ourselves, then copy the
     // pinned snapshot in place. We deliberately avoid re-implementing
@@ -378,6 +394,27 @@ export function runBackupRecover(opts: BackupRecoverOptions): BackupRecoverResul
     quarantinedTo: result.quarantineDir ?? '',
     dryRun: false,
   };
+}
+
+/**
+ * Apply the shared whole-store rewrite guard to a recovery, reporting a
+ * refusal as a {@link BackupRecoverError} so every recovery surface renders it.
+ *
+ * @internal
+ */
+function guardOwnerStoreRewrite(opts: BackupRecoverOptions, target: string): void {
+  try {
+    assertOwnerStoreRewriteConfirmed(`backup recover ${opts.role}`, target, {
+      cwd: opts.cwd,
+      confirmOwnerStore: opts.confirmOwnerStore,
+    });
+  } catch (err) {
+    if (!(err instanceof CleoError)) throw err;
+    const codeName = err.message.startsWith(E_WT_STORE_REWRITE_REFUSED)
+      ? E_WT_STORE_REWRITE_REFUSED
+      : E_WT_STORE_REWRITE_CONFIRM_REQUIRED;
+    throw new BackupRecoverError(err.message, err.code, codeName, err.fix);
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -354,8 +354,13 @@ export function _resolveMainRepoFromGitlink(gitlinkDir: string): string | null {
     // submodule's `<super>/.git/modules/<name>` stripped the same way named the
     // superproject, so a submodule shared (and wrote) its parent's store.
     if (basename(dirname(gitdir)) !== 'worktrees') return null;
-    // gitdir is `<main>/.git/worktrees/<name>` → strip last 3 segments.
-    const mainRepo = dirname(dirname(dirname(gitdir)));
+    // T12708: only a `.git` common dir has a main checkout as its parent. A
+    // bare repository's gitlink is `<bare>/worktrees/<name>`; stripping three
+    // segments named the bare repo's PARENT, so `/p/app.git` worktrees bound
+    // to `/p`'s store whenever `/p` was a CLEO project.
+    const commonDir = dirname(dirname(gitdir));
+    if (basename(commonDir) !== '.git') return null;
+    const mainRepo = dirname(commonDir);
     if (existsSync(join(mainRepo, '.cleo')) && validateProjectRoot(mainRepo)) {
       return mainRepo;
     }
