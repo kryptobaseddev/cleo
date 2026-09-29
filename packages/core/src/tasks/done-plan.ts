@@ -133,6 +133,12 @@ export interface DeriveTaskEvidenceOptions {
   prNumber?: number;
   /** Injectable change-set I/O (tests). */
   deps?: ChangeSetDeps;
+  /**
+   * Queue for the `test` slot while resolving the affected scope. `cleo done`
+   * does (it runs the tests next); `--plan` never waits and reports
+   * `scope pending: test slot busy` instead (T12656 review).
+   */
+  waitForTestSlot?: boolean;
 }
 
 /**
@@ -545,14 +551,27 @@ export async function deriveTaskEvidence(
     for (const gate of pending) {
       for (const tool of GATE_TOOLS[gate] ?? []) {
         // T12635: before merge, test only the affected packages when declared.
+        // T12656 review: only when the change is KNOWN unmerged — an unknown
+        // merge state (gh unreachable) plans the full run complete accepts.
         const affected =
-          tool === 'test' && changeSet.source === 'branch'
-            ? await planAffectedTestRun(storeRoot, root)
+          tool === 'test' &&
+          changeSet.source === 'branch' &&
+          mergeStateOfChangeSet(changeSet) === 'unmerged'
+            ? await planAffectedTestRun(storeRoot, root, { wait: opts.waitForTestSlot === true })
             : null;
         toolRuns.push(
           affected?.ok
             ? await planToolRun('test-affected', gate, storeRoot, root, affected.command)
-            : await planToolRun(tool, gate, storeRoot, root),
+            : affected?.pending
+              ? {
+                  tool: 'test-affected',
+                  gate,
+                  command: null,
+                  source: 'project-context',
+                  cache: 'miss',
+                  reason: affected.reason,
+                }
+              : await planToolRun(tool, gate, storeRoot, root),
         );
       }
     }

@@ -57,7 +57,9 @@ describe('affectedScopeSupersededReason', () => {
   });
 
   it('fails closed when the merge state is unknown', () => {
-    expect(affectedScopeSupersededReason([affected], 'unknown')).toMatch(/before merge only/);
+    expect(affectedScopeSupersededReason([affected], 'unknown')).toMatch(
+      /before merge only.*gh was unreachable.*gh auth status.*retry, or record tool:test/,
+    );
   });
 
   it('a full tool:test or ci: result keeps testsPassed standing after merge', () => {
@@ -70,6 +72,8 @@ describe('affectedScopeSupersededReason', () => {
     expect(mergeStateOfChangeSet({ source: 'pr' })).toBe('merged');
     expect(mergeStateOfChangeSet({ source: 'branch', prDiscoveryFailed: true })).toBe('unknown');
     expect(mergeStateOfChangeSet({ source: 'branch' })).toBe('unmerged');
+    // What the PR lookup found wins over `source` (T12656 review HIGH).
+    expect(mergeStateOfChangeSet({ source: 'branch', mergeState: 'merged' })).toBe('merged');
   });
 });
 

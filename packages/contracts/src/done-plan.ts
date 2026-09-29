@@ -173,7 +173,17 @@ export interface TaskChangeSet {
    * does not prove the change is unmerged (T12656).
    */
   prDiscoveryFailed?: boolean;
+  /**
+   * Whether the task's PR has merged to the default branch, as the PR lookup
+   * found it — independent of `source` (T12656 review): a merged PR whose
+   * `pr:` check was refused still falls back to the task branch, and the
+   * branch outlives a squash merge. Absent when no PR was examined.
+   */
+  mergeState?: ChangeSetMergeState;
 }
+
+/** Whether a task's change has merged to the default branch. */
+export type ChangeSetMergeState = 'merged' | 'unmerged' | 'unknown';
 
 /** Planned state of one verification gate. */
 export interface DonePlanGate {

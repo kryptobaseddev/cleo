@@ -245,10 +245,26 @@ function resolveOriginDefault(root: string): string | null {
   return null;
 }
 
-/** Default merged-PR discovery: `gh pr list` by search text and by task branch. */
-async function defaultListMergedPrs(
+/**
+ * Deadline for one read-only `gh` query (T12656 review): discovery sits on the
+ * `cleo complete` path, so a hung `gh` must fail — as an unknown merge state —
+ * rather than hang the completion.
+ */
+export const GH_QUERY_TIMEOUT_MS = 30_000;
+
+/**
+ * Default merged-PR discovery: `gh pr list` by search text and by task branch.
+ *
+ * @param taskId - Task whose PRs to find.
+ * @param executionRoot - Repository `gh` runs in.
+ * @param opts - `timeoutMs` per query (default {@link GH_QUERY_TIMEOUT_MS}).
+ * @returns The merged PRs, or why discovery failed (a timeout included).
+ * @task T12624
+ */
+export async function defaultListMergedPrs(
   taskId: string,
   executionRoot: string,
+  opts: { timeoutMs?: number } = {},
 ): Promise<{ ok: true; prs: MergedPrSummary[] } | { ok: false; reason: string }> {
   const { isGhCliAvailable } = await import('../release/github-pr.js');
   if (!isGhCliAvailable()) return { ok: false, reason: 'gh CLI is not available on PATH' };
@@ -263,7 +279,12 @@ async function defaultListMergedPrs(
       const out = execFileSync(
         'gh',
         ['pr', 'list', '--state', 'merged', ...query, '--json', fields, '--limit', '30'],
-        { cwd: executionRoot, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] },
+        {
+          cwd: executionRoot,
+          encoding: 'utf-8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+          timeout: opts.timeoutMs ?? GH_QUERY_TIMEOUT_MS,
+        },
       );
       const parsed: unknown = JSON.parse(out);
       if (!Array.isArray(parsed)) continue;
@@ -306,7 +327,12 @@ function toPrDetails(row: unknown): PrDetails | null {
 function ghJson(args: readonly string[], cwd: string): unknown {
   try {
     return JSON.parse(
-      execFileSync('gh', args, { cwd, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] }),
+      execFileSync('gh', args, {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: GH_QUERY_TIMEOUT_MS,
+      }),
     );
   } catch {
     return null;
@@ -464,6 +490,9 @@ async function deriveStackedChangeSet(
   const baseRef = pr.baseRefName;
   const basePr = await findPrByHead(baseRef, root);
   cs.stackedOn = { baseRef, ...(basePr ? { basePrNumber: basePr.number } : {}) };
+  // Merged into another branch is not merged to the default branch, until
+  // that branch's own PR lands it (below).
+  cs.mergeState = 'unmerged';
   const baseLanded =
     basePr !== null && basePr.state === 'MERGED' && basePr.baseRefName === defaultBranch;
   if (baseLanded && hasCommit(root, pr.mergeCommitSha) && hasCommit(root, basePr.headRefOid)) {
@@ -481,6 +510,7 @@ async function deriveStackedChangeSet(
         (f) => git(root, ['cat-file', '-e', `${baseMerge}:${f}`]) !== null,
       );
       if (surviving.length > 0) {
+        cs.mergeState = 'merged';
         cs.source = 'pr';
         cs.mergeCommitSha = baseMerge;
         cs.files = surviving;
@@ -563,6 +593,7 @@ async function derivePrChangeSet(
   if (!listed.ok) {
     cs.warnings.push(`Merged-PR discovery skipped: ${listed.reason}`);
     cs.prDiscoveryFailed = true;
+    cs.mergeState = 'unknown';
   }
   const citing = (listed.ok ? listed.prs : []).filter((pr) =>
     citesTask(`${pr.title}\n${pr.body}\n${pr.headRefName}`, task.id),
@@ -678,6 +709,9 @@ async function deriveOnePr(
   const { originals, reverts, resolved } = discovery;
   cs.prNumber = prNumber;
   const original = originals.find((pr) => pr.number === prNumber);
+  // T12656 review: a PR discovery listed is merged (the query is --state
+  // merged) — whatever the pr: check later says about its CI.
+  if (original) cs.mergeState = 'merged';
   const revert = reverts.find(
     (r) =>
       r.number !== prNumber &&
@@ -699,6 +733,9 @@ async function deriveOnePr(
   const defaultRef = resolveOriginDefault(root);
   const defaultBranch = defaultRef?.replace(/^origin\//, '') ?? null;
   const detail = await deps.viewPr(prNumber, root);
+  if (!original) {
+    cs.mergeState = detail ? (detail.state === 'MERGED' ? 'merged' : 'unmerged') : 'unknown';
+  }
   if (detail && defaultBranch && detail.baseRefName && detail.baseRefName !== defaultBranch) {
     return deriveStackedChangeSet(cs, task.id, root, detail, defaultBranch, deps.findPrByHead);
   }
