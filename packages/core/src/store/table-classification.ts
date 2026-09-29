@@ -739,7 +739,7 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'T12535 PR 1 (atomic twin collapse)',
     dropTask: 'T12535',
     liveTwin: 'tasks_schema_meta',
-    note: 'physically identical to its live twin; store/twin-collapse.ts carries its rows there at every open (initial collapse, then incremental re-merge while an older build still writes it) and never writes this table',
+    note: 'physically identical to its live twin; store/twin-collapse.ts carries its rows there at every open (initial collapse, then incremental re-merge while an older build still writes it). One sanctioned write-through reaches this table: mirrorCounterToBare raises only the counter field of a counter key (task_id_sequence, sqlite_snapshot_gate, file_meta) to the twin value, in the same transaction as the twin write, so the 2026.9.20 build, which still allocates from this bare counter, cannot reissue an id; nothing else writes it (T12724)',
   },
   selfimprove_dhq: {
     class: 'portable-project',

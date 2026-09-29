@@ -64,16 +64,42 @@ import {
   DecisionProviderError,
   type DecisionProviderErrorKind,
 } from './provider.js';
-import { cachedCapabilities } from './provider-state.js';
+import { cachedCapabilities, refreshProviderState } from './provider-state.js';
 import {
   createFileSpendLedger,
   DEFAULT_MONTHLY_SPEND_CAP_MICROS,
   MONTHLY_SPEND_CAP_KEY,
   type SpendLedger,
 } from './spend.js';
+import type { DecideFetch } from './transport.js';
 
 /** Default per-site deadline for the budget + provider round trip, in ms. */
 export const DEFAULT_DECISION_TIMEOUT_MS = 300;
+
+/**
+ * Default deadline for a whole {@link decideBatch} call, in ms (T12715).
+ *
+ * `POST /v1/systemone/batch` answers its items serially (2–5 s per 64
+ * requests), so the System One integration spec (§1, batch row) requires an
+ * HTTP timeout of at least 30 s. Batch callers are background sites (sweeps,
+ * the T12495 harness replay), never a latency-critical write path, so the
+ * 300 ms single-decision default would time out every real batch.
+ */
+export const DEFAULT_BATCH_DECISION_TIMEOUT_MS = 30_000;
+
+/**
+ * Upper bound on the lazy capability detection {@link decideBatch} runs
+ * before its first batch, in ms (T12715). Also bounded by
+ * {@link CAPABILITY_DETECTION_DEADLINE_SHARE} of the remaining batch deadline.
+ */
+export const CAPABILITY_DETECTION_TIMEOUT_MS = 5_000;
+
+/**
+ * Largest share of the remaining {@link decideBatch} deadline the lazy
+ * capability detection may use (T12715), so a slow detection never leaves the
+ * batch itself without time to run.
+ */
+export const CAPABILITY_DETECTION_DEADLINE_SHARE = 0.4;
 
 /** Circuit-breaker trip after a 503/529 that carried no `retry-after`, ms. */
 export const OVERLOADED_COOLDOWN_MS = 30_000;
@@ -113,6 +139,10 @@ export interface DecideOptions {
   readonly adapterVersion?: string;
   /** Caller cancellation; treated like a timeout (fallback, no throw). */
   readonly signal?: AbortSignal;
+  /** Transport for a provider built from `connection`. Default: the abort-complete `decideFetch`. */
+  readonly fetch?: DecideFetch;
+  /** Provider-state file (detected capabilities). Default: `<cleoHome>/decide/provider-state.json`. */
+  readonly providerStatePath?: string;
 }
 
 let defaultCache: DecisionCache | null = null;
@@ -190,6 +220,17 @@ export function redactDecisionState(state: DecisionState): DecisionState {
   return out;
 }
 
+/** Whether `connection` is usable: a non-blank key and an allowed base URL. */
+function usableConnection(
+  connection: DecisionProviderConnection | null,
+): connection is DecisionProviderConnection {
+  return (
+    connection !== null &&
+    connection.apiKey.trim() !== '' &&
+    decisionProviderConfigSchema.safeParse({ baseUrl: connection.baseUrl }).success
+  );
+}
+
 /** The explicit connection, or — when none was passed — the stored one. */
 function resolveConnection(opts: DecideOptions): DecisionProviderConnection | null {
   if (opts.connection !== undefined) return opts.connection;
@@ -202,10 +243,50 @@ function resolveProvider(
   connection: DecisionProviderConnection | null,
 ): DecisionProvider | null {
   if (opts.provider) return opts.provider;
-  if (!connection || connection.apiKey.trim() === '') return null;
-  if (!decisionProviderConfigSchema.safeParse({ baseUrl: connection.baseUrl }).success) return null;
-  const capabilities = cachedCapabilities(connection);
-  return createJevProvider(connection, capabilities ? { capabilities } : {});
+  if (!usableConnection(connection)) return null;
+  const capabilities = cachedCapabilities(connection, Date.now(), opts.providerStatePath);
+  return createJevProvider(connection, {
+    ...(capabilities ? { capabilities } : {}),
+    ...(opts.fetch ? { fetch: opts.fetch } : {}),
+  });
+}
+
+/**
+ * Lazy capability detection (T12715), run by {@link decideBatch} only: when
+ * the cached provider state is absent or stale, detect it before building the
+ * provider, within {@link CAPABILITY_DETECTION_DEADLINE_SHARE} of
+ * `remainingMs` and at most {@link CAPABILITY_DETECTION_TIMEOUT_MS}.
+ * {@link refreshProviderState} limits this to one detection per identity per
+ * refresh interval. Never throws; an injected provider is never probed.
+ *
+ * A single {@link decide} never calls this (see `provider-state.ts`).
+ */
+async function detectLazily(
+  opts: DecideOptions,
+  connection: DecisionProviderConnection | null,
+  remainingMs: number,
+): Promise<void> {
+  if (opts.provider || !usableConnection(connection)) return;
+  const timeout = AbortSignal.timeout(
+    Math.max(
+      0,
+      Math.floor(
+        Math.min(
+          remainingMs * CAPABILITY_DETECTION_DEADLINE_SHARE,
+          CAPABILITY_DETECTION_TIMEOUT_MS,
+        ),
+      ),
+    ),
+  );
+  const signal = opts.signal ? AbortSignal.any([timeout, opts.signal]) : timeout;
+  try {
+    await refreshProviderState(connection, signal, {
+      ...(opts.fetch ? { fetch: opts.fetch } : {}),
+      ...(opts.providerStatePath !== undefined ? { path: opts.providerStatePath } : {}),
+    });
+  } catch {
+    /* detection is best effort: the Jev minimum still answers */
+  }
 }
 
 function resolveAudit(opts: DecideOptions): DecisionAuditSink | null {
@@ -572,9 +653,16 @@ export interface DecisionBatchEntry {
  * deadline cannot reach fall back with reason `timeout`. Never rejects; each
  * entry is audited like a single decision.
  *
+ * The whole-batch deadline defaults to {@link DEFAULT_BATCH_DECISION_TIMEOUT_MS}
+ * (30 s), not the 300 ms single-decision default. In the sequential
+ * degradation each call is additionally capped at
+ * {@link DEFAULT_DECISION_TIMEOUT_MS} unless the caller set `timeoutMs`, so a
+ * slow provider without the batch capability cannot hold one entry for 30 s.
+ *
  * @param siteId - Stable call-site identifier.
  * @param entries - Requests with their heuristics.
- * @param opts - Same wiring as {@link decide}; `timeoutMs` covers the whole batch.
+ * @param opts - Same wiring as {@link decide}; `timeoutMs` covers the whole batch
+ *   (default {@link DEFAULT_BATCH_DECISION_TIMEOUT_MS}).
  * @returns One outcome per entry, in order.
  */
 export async function decideBatch(
@@ -584,32 +672,37 @@ export async function decideBatch(
 ): Promise<DecisionOutcome[]> {
   if (entries.length === 0) return [];
   const started = performance.now();
-  const deadlineMs = opts.timeoutMs ?? DEFAULT_DECISION_TIMEOUT_MS;
+  const deadlineMs = opts.timeoutMs ?? DEFAULT_BATCH_DECISION_TIMEOUT_MS;
   const remaining = (): number => Math.max(0, deadlineMs - (performance.now() - started));
 
   const connection = resolveConnection(opts);
-  const provider = resolveProvider(opts, connection);
-  const limits = provider?.capabilities?.().batch;
-  const questions = entries.reduce((n, e) => n + Object.keys(e.req.questions).length, 0);
-  const batchable =
-    provider !== null &&
-    provider.decideBatch !== undefined &&
-    limits !== undefined &&
-    entries.length > 1 &&
-    entries.length <= limits.maxRequests &&
-    questions <= limits.maxQuestions;
-
-  if (!batchable || !provider?.decideBatch) {
-    const out: DecisionOutcome[] = [];
-    for (const entry of entries) {
-      const timeoutMs = remaining();
+  /** One decision per entry, each under its own cap (the sequential degradation). */
+  const sequential = async (
+    indices: readonly number[],
+    out: Array<DecisionOutcome | undefined>,
+  ): Promise<void> => {
+    for (const i of indices) {
+      const entry = entries[i];
+      if (entry === undefined) continue;
+      const timeoutMs =
+        opts.timeoutMs === undefined
+          ? Math.min(remaining(), DEFAULT_DECISION_TIMEOUT_MS)
+          : remaining();
       // model-site-allowed: plumbing — the caller's siteId is checked at its decideBatch call (gate 35)
-      const outcome = await decide(siteId, entry.req, entry.fallback, { ...opts, timeoutMs });
-      out.push(outcome);
+      out[i] = await decide(siteId, entry.req, entry.fallback, { ...opts, timeoutMs });
     }
-    return out;
+  };
+  if (!opts.provider && !usableConnection(connection)) {
+    // Unconfigured: every entry falls back (decide() audits each one).
+    const out: Array<DecisionOutcome | undefined> = [];
+    await sequential(
+      entries.map((_, i) => i),
+      out,
+    );
+    return out.flatMap((o) => (o ? [o] : []));
   }
 
+  // Cache first: a batch answered entirely from the cache never detects.
   const audit = resolveAudit(opts);
   const cache = opts.cache === undefined ? processCache() : opts.cache;
   const items = entries.map((e) => prepare(siteId, e.req, e.fallback, opts, audit, connection));
@@ -619,7 +712,29 @@ export async function decideBatch(
     return hit ? item.finish({ ...hit, source: 'cache', latencyMs: item.elapsed() }) : undefined;
   });
   const pending = items.flatMap((item, i) => (out[i] === undefined ? [{ item, i }] : []));
-  if (pending.length > 0) {
+  if (pending.length === 0)
+    return items.map((item, i) => out[i] ?? item.useFallback('provider_error'));
+
+  // Batch is the non-latency-critical path, so it may detect capabilities
+  // lazily before its first call, within a share of the remaining deadline.
+  await detectLazily(opts, connection, remaining());
+  const provider = resolveProvider(opts, connection);
+  const limits = provider?.capabilities?.().batch;
+  const questions = pending.reduce((n, p) => n + Object.keys(p.item.sent.questions).length, 0);
+  const batchable =
+    provider !== null &&
+    provider.decideBatch !== undefined &&
+    limits !== undefined &&
+    pending.length > 1 &&
+    pending.length <= limits.maxRequests &&
+    questions <= limits.maxQuestions;
+
+  if (!batchable || !provider?.decideBatch) {
+    await sequential(
+      pending.map((p) => p.i),
+      out,
+    );
+  } else {
     const gates = await resolveGates(opts);
     const batch = provider.decideBatch.bind(provider);
     type BatchResult =
