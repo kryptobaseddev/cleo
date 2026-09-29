@@ -500,6 +500,9 @@ export const GATE_EVIDENCE_REQUIREMENTS: Readonly<
       ['decision', 'files'],
       ['decision', 'note'],
       ['pr', 'files'],
+      // T12689: a deletion-only PR (no bytes to hash). Contextual validation
+      // accepts this only when every change the PR made is a deletion.
+      ['pr', 'note'],
     ],
   },
   testsPassed: { oneOf: [['test-run'], ['tool'], ['ci']] },

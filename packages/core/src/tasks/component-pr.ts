@@ -20,6 +20,9 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { ghQueryTimeoutMs } from '../release/github-pr.js';
 
 /** One component PR as `gh pr view` reports it. */
@@ -178,6 +181,7 @@ export function componentLandedChanges(
   const deleted: string[] = [];
   const blob = (commit: string, path: string): string | null =>
     git(root, ['rev-parse', '--verify', '--quiet', `${commit}:${path}`]);
+  const stillApplies = hunkChecker(root, componentMerge, landingMerge);
   for (const line of out.split('\n')) {
     const [status, ...rest] = line.split('\t');
     const path = rest.join('\t');
@@ -187,9 +191,74 @@ export function componentLandedChanges(
       continue;
     }
     const own = blob(componentMerge, path);
-    if (own !== null && own === blob(landingMerge, path)) files.push(path);
+    const landed = blob(landingMerge, path);
+    // Identical bytes, or (T12689) a file a later change also edited whose
+    // own hunks the landing version still carries.
+    if (own !== null && landed !== null && (own === landed || stillApplies(path))) files.push(path);
   }
+  stillApplies.dispose();
   return { files: [...new Set(files)], deleted: [...new Set(deleted)] };
+}
+
+/**
+ * Whether the component's hunks for one path are still present in the
+ * landing commit: its first-parent patch reverse-applies cleanly to the
+ * landing tree (checked in a throwaway index, never the working tree). A
+ * revert fails this; a later edit elsewhere in the file does not (T12689).
+ */
+function hunkChecker(
+  root: string,
+  componentMerge: string,
+  landingMerge: string,
+): ((path: string) => boolean) & { dispose: () => void } {
+  let dir: string | null = null;
+  let env: NodeJS.ProcessEnv | null = null;
+  const ready = (): NodeJS.ProcessEnv | null => {
+    if (env) return env;
+    dir = mkdtempSync(join(tmpdir(), 'cleo-component-index-'));
+    const candidate = { ...process.env, GIT_INDEX_FILE: join(dir, 'index') };
+    try {
+      execFileSync('git', ['read-tree', landingMerge], {
+        cwd: root,
+        env: candidate,
+        stdio: ['ignore', 'ignore', 'ignore'],
+      });
+      env = candidate;
+    } catch {
+      env = null;
+    }
+    return env;
+  };
+  const check = (path: string): boolean => {
+    const patch = git(root, [
+      'diff',
+      '--binary',
+      '--no-renames',
+      '--no-color',
+      `${componentMerge}^1`,
+      componentMerge,
+      '--',
+      path,
+    ]);
+    const indexEnv = patch ? ready() : null;
+    if (!patch || !indexEnv) return false;
+    try {
+      execFileSync('git', ['apply', '--cached', '--check', '-R'], {
+        cwd: root,
+        env: indexEnv,
+        input: `${patch}\n`,
+        stdio: ['pipe', 'ignore', 'ignore'],
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  return Object.assign(check, {
+    dispose: () => {
+      if (dir) rmSync(dir, { recursive: true, force: true });
+    },
+  });
 }
 
 /**
