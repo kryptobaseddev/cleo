@@ -133,7 +133,31 @@ export interface ValidateDecisionConflictsOptions {
 }
 
 /** Word-Jaccard score at which a prior decision counts as a near-duplicate collision. */
-const DECISION_COLLISION_THRESHOLD = 0.65;
+export const DECISION_COLLISION_THRESHOLD = 0.65;
+
+/**
+ * The collision heuristic's similarity between two decisions: Jaccard over
+ * the sets of words of 4+ characters in `decision + ' ' + rationale`,
+ * lower-cased. A score at or above {@link DECISION_COLLISION_THRESHOLD} is a
+ * collision. Exported for the T12495 benchmark, which scores the same
+ * heuristic the store path runs.
+ *
+ * @param a - One decision's text and rationale.
+ * @param b - The other decision's text and rationale.
+ * @returns Similarity in [0, 1].
+ */
+export function decisionWordJaccard(
+  a: { readonly decision: string; readonly rationale: string },
+  b: { readonly decision: string; readonly rationale: string },
+): number {
+  const words = (d: { readonly decision: string; readonly rationale: string }): Set<string> =>
+    new Set(`${d.decision.trim()} ${d.rationale.trim()}`.toLowerCase().match(/\b\w{4,}\b/g) ?? []);
+  const aWords = words(a);
+  const bWords = words(b);
+  const intersection = [...aWords].filter((t) => bWords.has(t)).length;
+  const union = new Set([...aWords, ...bWords]).size;
+  return union > 0 ? intersection / union : 0;
+}
 
 /**
  * Bound on the WHOLE generative (T1828) contradiction check, in ms: module
@@ -251,19 +275,9 @@ export async function validateDecisionConflicts(
 
   // --- Pass 1: Detect near-duplicate collisions (deterministic, no LLM) ---
   const scored: Array<{ existing: (typeof existingDecisions)[number]; score: number }> = [];
-  const candidateLower = (params.decision.trim() + ' ' + params.rationale.trim()).toLowerCase();
   for (const existing of existingDecisions) {
-    const existingLower = (
-      existing.decision.trim() +
-      ' ' +
-      existing.rationale.trim()
-    ).toLowerCase();
-    // Simple Jaccard-approximation via shared 4-gram tokens
-    const cTokens = new Set(candidateLower.match(/\b\w{4,}\b/g) ?? []);
-    const eTokens = new Set(existingLower.match(/\b\w{4,}\b/g) ?? []);
-    const intersection = [...cTokens].filter((t) => eTokens.has(t)).length;
-    const union = new Set([...cTokens, ...eTokens]).size;
-    const jaccard = union > 0 ? intersection / union : 0;
+    // Simple Jaccard-approximation via shared 4+-character words
+    const jaccard = decisionWordJaccard(params, existing);
     scored.push({ existing, score: jaccard });
     if (jaccard >= DECISION_COLLISION_THRESHOLD) {
       collisions.push(existing.id);
