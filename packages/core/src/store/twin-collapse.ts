@@ -176,6 +176,7 @@ import { ExitCode } from '@cleocode/contracts';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
+import { getCleoVersion } from '../scaffold/ensure-config.js';
 import { blobFileForRow, pinBlob, restoreBlob } from './blob-keep.js';
 import { planMigrationSnapshot, writeMigrationSnapshot } from './pre-repair-snapshot.js';
 
@@ -960,21 +961,41 @@ const docsGuardTriggers = (): string[] =>
  * `database disk image is malformed`, so none of those words appear (pinned by
  * a test, see {@link DOCS_FROZEN_FORBIDDEN}).
  */
-export function docsFrozenMessage(): string {
+export function docsFrozenMessage(version: string): string {
   return (
-    `CLEO: docs moved to docs_attachments (T12535); this project needs cleo ${DOCS_MIN_VERSION} or newer ` +
+    `CLEO: docs moved to docs_attachments (T12535); this project needs cleo ${version} or newer ` +
     'to write docs, changesets and IVTR playbook provenance. ' +
     'Run: npm i -g @cleocode/cleo@latest'
   );
 }
 
+/** Key recording the version of the build that first froze this store's bare docs tables. */
+export const DOCS_FROZEN_BY_KEY = 'twin_collapse_frozen_by:attachments';
+
 /**
- * The first release that reads and writes `docs_attachments` (this collapse
- * ships in it). Fixed, not the running build's version: a trigger outlives the
- * build that installed it, so the text must name the release an older build
- * has to upgrade to. Changing it re-writes the triggers at the next open.
+ * The version the freeze message names: the build that first installed the
+ * freeze on THIS store, recorded under {@link DOCS_FROZEN_BY_KEY} when it did.
+ *
+ * Why derived and recorded, not a literal: the release that ships the freeze
+ * is not known when the code is written (2026.9.23 shipped without it), and a
+ * literal goes stale with every re-plan. The running build's version at open
+ * is wrong too: a trigger outlives the build that wrote it, and a later
+ * build would keep rewriting the text. The first freezing build's own version
+ * is always a release that carries the freeze, and any build at or above it
+ * can write docs, so "needs <it> or newer" is true for as long as the trigger
+ * lives. (A development build freezing a store records its package version,
+ * the last release; development builds must not open real stores, see the
+ * worktree guard.)
+ *
+ * @param db - The project `cleo.db` connection.
+ * @returns The recorded version, or the running build's when none is recorded.
+ * @task T12535
  */
-export const DOCS_MIN_VERSION = '2026.9.23';
+export function docsFrozenVersion(db: DatabaseSync): string {
+  const recorded = readKv(db, 'tasks_schema_meta', DOCS_FROZEN_BY_KEY);
+  const version = recorded ?? getCleoVersion();
+  return version.replace(/[^0-9A-Za-z.+-]/g, '');
+}
 
 /** Phrases the freeze message must never contain (older builds' retry and recovery matchers). */
 export const DOCS_FROZEN_FORBIDDEN: readonly string[] = [
@@ -1000,6 +1021,8 @@ export const DOCS_FROZEN_FORBIDDEN: readonly string[] = [
  * next open, see {@link repairGuards}).
  */
 function ensureDocsFreeze(db: DatabaseSync): void {
+  if (readKv(db, 'tasks_schema_meta', DOCS_FROZEN_BY_KEY) === undefined)
+    writeKv(db, 'tasks_schema_meta', DOCS_FROZEN_BY_KEY, docsFrozenVersion(db));
   for (const table of DOCS_BARE) {
     for (const op of SHADOW_WRITE_OPS) {
       const name = freezeTrigger(table, op);
@@ -1008,15 +1031,15 @@ function ensureDocsFreeze(db: DatabaseSync): void {
         db.exec(`DROP TRIGGER main.${name}`);
       db.exec(
         `CREATE TRIGGER IF NOT EXISTS main.${name} BEFORE ${op} ON ${table} ` +
-          `BEGIN ${freezeBody()} END`,
+          `BEGIN ${freezeBody(db)} END`,
       );
     }
   }
 }
 
 /** The freeze trigger's body (it carries the message). */
-const freezeBody = (): string =>
-  `SELECT RAISE(ABORT, '${docsFrozenMessage().replace(/'/g, "''")}');`;
+const freezeBody = (db: DatabaseSync): string =>
+  `SELECT RAISE(ABORT, '${docsFrozenMessage(docsFrozenVersion(db)).replace(/'/g, "''")}');`;
 
 /** The stored SQL of a trigger, or `undefined` when it does not exist. */
 function freezeSql(db: DatabaseSync, name: string): string | undefined {
@@ -1030,7 +1053,7 @@ function freezeSql(db: DatabaseSync, name: string): string | undefined {
 /** Whether a freeze trigger exists with the current table, event and message. */
 function freezeUpToDate(db: DatabaseSync, table: string, op: string): boolean {
   const sql = freezeSql(db, freezeTrigger(table, op));
-  return sql?.includes(`BEFORE ${op} ON ${table} `) === true && sql.includes(freezeBody());
+  return sql?.includes(`BEFORE ${op} ON ${table} `) === true && sql.includes(freezeBody(db));
 }
 
 /** Whether every freeze and change trigger is in place. */

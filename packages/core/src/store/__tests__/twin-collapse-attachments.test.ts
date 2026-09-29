@@ -42,8 +42,10 @@ import { getDb, getNativeDb, resetDbState } from '../sqlite.js';
 import { storeWriteBlock } from '../store-write-guard.js';
 import {
   collapseTwinTables,
+  DOCS_FROZEN_BY_KEY,
   DOCS_FROZEN_FORBIDDEN,
   docsFrozenMessage,
+  docsFrozenVersion,
   inspectTwinCollapse,
   TWIN_COLLAPSE_MARKER_PREFIX,
 } from '../twin-collapse.js';
@@ -777,7 +779,7 @@ describe('redirect: docs readers read the prefixed twins', () => {
 
 describe('freeze (option a): older builds can no longer write the bare docs tables', () => {
   const FROZEN =
-    /CLEO: docs moved to docs_attachments \(T12535\); this project needs cleo 2026\.9\.23 or newer to write docs, changesets and IVTR playbook provenance\. Run: npm i -g @cleocode\/cleo@latest/;
+    /CLEO: docs moved to docs_attachments \(T12535\); this project needs cleo \d{4}\.\d+\.\d+\S* or newer to write docs, changesets and IVTR playbook provenance\. Run: npm i -g @cleocode\/cleo@latest/;
   const freezeTriggers = (db: DatabaseSync): string[] =>
     (
       db
@@ -862,7 +864,7 @@ describe('freeze (option a): older builds can no longer write the bare docs tabl
   });
 
   it('the message never reads as contention or corruption to an older build', () => {
-    const message = docsFrozenMessage();
+    const message = docsFrozenMessage('2026.9.24');
     for (const phrase of DOCS_FROZEN_FORBIDDEN)
       expect(message.toLowerCase(), phrase).not.toContain(phrase);
     for (const phrase of ['sqlite_busy', 'database is locked', 'database disk image is malformed'])
@@ -901,7 +903,7 @@ describe('freeze (option a): older builds can no longer write the bare docs tabl
     const db = tasksNative();
     db.exec('DROP TRIGGER main.t12535_freeze_attachments_insert');
     db.exec(
-      "CREATE TRIGGER main.t12535_freeze_attachments_insert BEFORE INSERT ON attachments BEGIN SELECT RAISE(ABORT, 'CLEO: docs moved to docs_attachments (T12535); this project needs cleo 2026.9.21 or newer to write docs. Run: npm i -g @cleocode/cleo@latest'); END",
+      "CREATE TRIGGER main.t12535_freeze_attachments_insert BEFORE INSERT ON attachments BEGIN SELECT RAISE(ABORT, 'CLEO: docs moved to docs_attachments (T12535); this project needs cleo 1999.1.1 or newer to write docs. Run: npm i -g @cleocode/cleo@latest'); END",
     );
     expect(inspectTwinCollapse(db)[DOCS]).toMatchObject({ guardsIntact: false });
     await reopen();
@@ -912,9 +914,43 @@ describe('freeze (option a): older builds can no longer write the bare docs tabl
         )
         .get() as { sql: string }
     ).sql;
-    expect(sql).toContain(docsFrozenMessage());
-    expect(sql).not.toContain('2026.9.21');
+    expect(sql).toContain(docsFrozenMessage(docsFrozenVersion(tasksNative())));
+    expect(sql).not.toContain('1999.1.1');
     expect(inspectTwinCollapse(tasksNative())[DOCS]).toMatchObject({ guardsIntact: true });
+  });
+
+  it('names the version of the build that first froze this store, recorded once and kept', async () => {
+    const { getCleoVersion } = await import('../../scaffold/ensure-config.js');
+    preMigration();
+    await reopen();
+    const recorded = () =>
+      (
+        tasksNative()
+          .prepare(`SELECT value FROM main.tasks_schema_meta WHERE key = '${DOCS_FROZEN_BY_KEY}'`)
+          .get() as { value: string } | undefined
+      )?.value;
+    expect(recorded()).toBe(getCleoVersion());
+    const text = () =>
+      (
+        tasksNative()
+          .prepare(
+            "SELECT sql FROM main.sqlite_master WHERE name = 't12535_freeze_attachment_refs_delete'",
+          )
+          .get() as { sql: string }
+      ).sql;
+    expect(text()).toContain(`needs cleo ${getCleoVersion()} or newer`);
+    // The store was first frozen by release 2026.9.24: every later build keeps
+    // naming it (the triggers follow the record, not the running build).
+    tasksNative()
+      .prepare(
+        `UPDATE main.tasks_schema_meta SET value = '2026.9.24' WHERE key = '${DOCS_FROZEN_BY_KEY}'`,
+      )
+      .run();
+    await reopen();
+    expect(recorded()).toBe('2026.9.24');
+    expect(text()).toContain('needs cleo 2026.9.24 or newer');
+    await reopen();
+    expect(text()).toContain('needs cleo 2026.9.24 or newer');
   });
 
   it('restoring a backup taken before the freeze gets the triggers back on the next open', async () => {
