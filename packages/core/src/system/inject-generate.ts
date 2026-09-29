@@ -5,8 +5,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { readLiveFocus } from '../sessions/focus-state-store.js';
-import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
+import { focusSessionIdFromRead, readLiveFocus } from '../sessions/focus-state-store.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { resolveSessionForRead } from '../store/session-store.js';
@@ -42,28 +41,35 @@ export async function generateInjection(
   let sessionUnbound = false;
 
   const acc = accessor ?? (await getTaskAccessor(projectRoot));
-  // T12684: never generate an injection around a finished task.
-  focusTask = (await readLiveFocus(acc, resolveSessionIdFromEnv())).currentTask;
   const activeSessionMeta = await acc.getMetaValue<string>('activeSession');
   if (activeSessionMeta) {
     activeSessionName = activeSessionMeta;
   }
 
-  // Load active session from SQLite (ADR-006/ADR-020)
-  // T12500: the caller's bound session; an unbound caller's injection names
-  // the newest active row only with an explicit `unbound` label.
+  // Load the CALLER's session from SQLite (ADR-006/ADR-020). T12500: the
+  // caller's bound session; an unbound caller's injection names the newest
+  // active row only with an explicit `unbound` label. T12501: resolved once;
+  // the focus key derives from the same resolution, and the session row's
+  // `taskWork` is never a focus source (it skips the done-task filter).
+  let focusSessionId: string | null = null;
   try {
-    const { session: active, unbound } = await resolveSessionForRead(projectRoot);
-    if (active) {
+    const read = await resolveSessionForRead(projectRoot);
+    focusSessionId = focusSessionIdFromRead(read);
+    const active = read.session;
+    if (active && active.status === 'active') {
       activeSessionName = active.name || active.id;
-      sessionUnbound = unbound;
-      // Another agent's focus is not the caller's — only a bound session's counts.
-      if (!unbound) focusTask = active.taskWork?.taskId ?? focusTask;
+      sessionUnbound = read.unbound;
       sessionScope = `${active.scope?.type}:${active.scope?.rootTaskId}`;
     }
   } catch {
     // fallback to meta-only data
   }
+
+  // T12684: never generate an injection around a finished task. T12501: the
+  // CALLER's focus key (THE focus-key rule) — a terminal-bound session reads
+  // its own key, not the global one — and the ONLY focus source:
+  // `taskWork.taskId` on the session row would bypass the done-task filter.
+  focusTask = (await readLiveFocus(acc, focusSessionId)).currentTask;
 
   // Storage engine is always sqlite (ADR-006)
   const storageEngine = 'sqlite';

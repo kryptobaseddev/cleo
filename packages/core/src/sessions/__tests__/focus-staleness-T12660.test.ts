@@ -19,6 +19,7 @@ import type { TaskWorkState } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { taskCurrentGet } from '../../session/engine-ops.js';
 import { type DataAccessor, getTaskAccessor } from '../../store/data-accessor.js';
+import { createSession } from '../../store/session-store.js';
 import { resetDbState } from '../../store/sqlite.js';
 import { currentTask } from '../../task-work/index.js';
 import { analyzeTaskPriority } from '../../tasks/analyze.js';
@@ -164,6 +165,18 @@ describe('T12660 — a done or cancelled pointer is never current', () => {
 describe('T12660 — analyze --auto-start writes through the focus store', () => {
   it('writes the session-scoped key, never the raw legacy key', async () => {
     const { root, acc } = await scratchProject();
+    // T12501: an env id keys focus only when its session row exists.
+    await createSession(
+      {
+        id: 'ses_analyze',
+        name: 'ses_analyze',
+        status: 'active',
+        scope: { type: 'global' },
+        taskWork: { taskId: null, setAt: null },
+        startedAt: new Date().toISOString(),
+      },
+      root,
+    );
     vi.stubEnv('CLEO_SESSION_ID', 'ses_analyze');
     const result = await analyzeTaskPriority({ autoStart: true, cwd: root }, acc);
     expect(result.recommended?.id).toBe('T3');

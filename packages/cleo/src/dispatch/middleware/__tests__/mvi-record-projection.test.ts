@@ -191,6 +191,21 @@ describe('--field pointer fallback to the full projection (T12108 / gh#1197)', (
     expect(response.meta.projection).toBe('full');
   });
 
+  it('resolves an AC row UUID the MVI projection withholds (T12523)', async () => {
+    const acRows = [
+      { id: '0e121631-9501-5a9f-a24d-b1ff28e6ede2', alias: 'AC1', ordinal: 1, text: 'ac1' },
+    ];
+    setFieldContext({ ...FULL_FIELD_CONTEXT, field: '/data/acRows/0/id' });
+    const mw = createMviRecordProjection();
+    const req = makeRequest('tasks', 'show', { taskId: 'T9922' });
+    const response = await mw(req, async () =>
+      makeSuccessResponse({ task: FULL_TASK, view: null, attachments: [], acRows }),
+    );
+    const data = response.data as { acRows: Record<string, unknown>[] };
+    expect(data.acRows[0]?.['id']).toBe(acRows[0]?.id);
+    expect(response.meta.projection).toBe('full');
+  });
+
   it('keeps the MVI projection when the pointer already resolves in it', async () => {
     setFieldContext({ ...FULL_FIELD_CONTEXT, field: '/data/task/title' });
     const mw = createMviRecordProjection();

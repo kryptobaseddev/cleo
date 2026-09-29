@@ -26,6 +26,7 @@ import type {
   GlobalInstructionRefreshReport,
   KnowledgeCoverage,
   KnowledgeHealth,
+  KnowledgeHealthSummary,
   KnowledgeReplacement,
   RetrievalBundle,
   SessionBriefingShowParams,
@@ -45,12 +46,12 @@ import { getTaskAccessor } from '../store/data-accessor.js';
 import { rankReadyTasks, resolveRankingPhase } from '../tasks/task-next.js';
 import {
   readLiveFocus,
+  resolveFocusSessionId,
   type StaleFocusPointer,
   staleFocusPointer,
   staleFocusWarning,
 } from './focus-state-store.js';
 import { getLastHandoff, type HandoffData } from './handoff.js';
-import { resolveSessionIdFromEnv } from './session-id.js';
 import type { TaskWorkStateExt } from './types.js';
 
 /**
@@ -217,8 +218,12 @@ export interface SessionBriefing {
   instructionDelivery?: GlobalInstructionRefreshReport;
   /** Graph coverage is independent of task state and memory authority. */
   knowledgeCoverage?: KnowledgeCoverage;
-  /** Bounded automatic maintenance and repair matrix for the calling agent. */
-  knowledgeHealth?: KnowledgeHealth;
+  /**
+   * Bounded automatic maintenance and repair matrix for the calling agent.
+   * Its coverage is not repeated: `coverageRef` points at `knowledgeCoverage`
+   * (T12522).
+   */
+  knowledgeHealth?: KnowledgeHealthSummary;
   /** Accepted, currently eligible decisions, separate from historical handoffs. */
   currentGuidance?: BrainCompactHit[];
   /** Receipt-backed corrections presented separately from immutable historical handoffs. */
@@ -309,10 +314,10 @@ export async function computeBriefing(
   const accessor = await getTaskAccessor(projectRoot);
   const { tasks } = await accessor.queryTasks({});
   // T11345 — read the PER-SESSION focus_state for the briefing's session.
-  // Precedence: explicit params.activeSessionId (env-resolved by the engine-op)
-  // → env-first resolver → legacy global key (backward-compat fallback inside
-  // readFocusState). This scopes the "current task" line to the CALLER's agent.
-  const focusSessionId = params.activeSessionId ?? resolveSessionIdFromEnv();
+  // Precedence: an explicitly named params.activeSessionId → THE focus-key
+  // rule (T12501: the caller's bound session; the legacy key only when
+  // unbound). This scopes the "current task" line to the CALLER's agent.
+  const focusSessionId = params.activeSessionId ?? (await resolveFocusSessionId(projectRoot));
   // T12684: the one validating focus reader — a pointer to a finished task
   // (archived included, which the task listing below omits) comes back stale.
   // Build task map for quick lookups
@@ -594,7 +599,7 @@ export async function computeBriefing(
     corrections: compactKnowledgeCorrections(corrections),
     nextTasks,
     lastSession: cleanedLastSession,
-    knowledgeHealth: compactKnowledgeHealth(knowledgeHealth),
+    knowledgeHealth: compactKnowledgeHealth(knowledgeHealth, '/knowledgeCoverage'),
     openBugs,
     blockedTasks,
     activeEpics,
@@ -927,7 +932,7 @@ async function computeNextTasks(
   options: { maxTasks: number; scopeTaskIds?: Set<string> },
 ): Promise<BriefingTask[]> {
   const { ranked, leverage } = await rankReadyTasks(accessor, tasks, {
-    currentPhase: await resolveRankingPhase(accessor),
+    currentPhase: await resolveRankingPhase(accessor, projectRoot),
     scopeTaskIds: options.scopeTaskIds,
     projectRoot,
   });

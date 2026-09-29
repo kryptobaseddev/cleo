@@ -184,7 +184,7 @@ export async function coreTaskPlan(projectRoot: string): Promise<PlanResult> {
   // T12692: THE comparator (D11161) — the same ranking, candidates and
   // factors as `cleo next`; this view no longer keeps its own additive score.
   const { ranked } = await rankReadyTasks(accessor, allTasks, {
-    currentPhase: await resolveRankingPhase(accessor),
+    currentPhase: await resolveRankingPhase(accessor, projectRoot),
   });
   const readyTasks: ReadyTask[] = ranked.map(({ task, score, factors }) => ({
     id: task.id,
