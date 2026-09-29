@@ -1,7 +1,7 @@
 ---
 name: ct-validator
 description: Compliance validation for verifying systems, documents, or code against requirements, schemas, or standards. Performs schema validation, code compliance checks, document validation, and protocol compliance verification with detailed pass/fail reporting. Use when validating compliance, checking schemas, verifying code standards, or auditing protocol implementations. Triggers on validation tasks, compliance checks, or quality verification needs.
-version: 2.0.1
+version: 2.0.2
 protocol: validation
 adrRefs:
   - ADR-051
@@ -17,7 +17,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.0.1
+  version: 2.0.2
   tier: on-demand
   install: harness
   loomStage: validation

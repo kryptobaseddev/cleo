@@ -275,6 +275,16 @@ describe("catalog - the real manifest-only @cleocode/skills package", () => {
     catalog.clearRegisteredLibrary();
   });
 
+  it("resolves every profile to real skills only — no merged or retired ghosts (T12649)", () => {
+    const library = buildLibraryFromFiles(skillsRoot);
+    const names = new Set(library.listSkills());
+    for (const profile of library.listProfiles()) {
+      const ghosts = library.resolveProfile(profile).filter((n) => !names.has(n));
+      expect(ghosts, `profile ${profile}`).toEqual([]);
+    }
+    expect(library.resolveProfile("full")).toContain("ct-lead");
+  });
+
   it("ships no skills.json", () => {
     expect(existsSync(join(skillsRoot, "skills.json"))).toBe(false);
   });

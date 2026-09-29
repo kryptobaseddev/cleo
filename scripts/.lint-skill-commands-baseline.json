@@ -1,45 +1,4 @@
 {
-  "_comment": "Known dead cleo invocations in NON-core skills (scripts/lint-skill-commands.mjs, T12649). Core-tier skills can never be baselined. A new finding fails; an entry that no longer occurs fails until deleted. Every entry here is in a skill that T12649 part 2 merges or retires (docs-review, docs-write, memory, stickynote, skill-validator).",
-  "entries": [
-    {
-      "key": "packages/skills/skills/ct-docs-review/SKILL.md::docs diff",
-      "skill": "ct-docs-review"
-    },
-    {
-      "key": "packages/skills/skills/ct-docs-write/references/audience-targeting.md::release ship",
-      "skill": "ct-docs-write"
-    },
-    {
-      "key": "packages/skills/skills/ct-memory/SKILL.md::cleo nexus search \"pattern\" --scope global",
-      "skill": "ct-memory"
-    },
-    {
-      "key": "packages/skills/skills/ct-skill-validator/references/cleo-ecosystem-rules.md::health",
-      "skill": "ct-skill-validator"
-    },
-    {
-      "key": "packages/skills/skills/ct-skill-validator/references/cleo-ecosystem-rules.md::help",
-      "skill": "ct-skill-validator"
-    },
-    {
-      "key": "packages/skills/skills/ct-skill-validator/references/cleo-ecosystem-rules.md::orchestrator spawn",
-      "skill": "ct-skill-validator"
-    },
-    {
-      "key": "packages/skills/skills/ct-skill-validator/references/cleo-ecosystem-rules.md::orchestrator status",
-      "skill": "ct-skill-validator"
-    },
-    {
-      "key": "packages/skills/skills/ct-skill-validator/references/cleo-ecosystem-rules.md::skill list",
-      "skill": "ct-skill-validator"
-    },
-    {
-      "key": "packages/skills/skills/ct-skill-validator/references/cleo-ecosystem-rules.md::skill show",
-      "skill": "ct-skill-validator"
-    },
-    {
-      "key": "packages/skills/skills/ct-stickynote/SKILL.md::skill install",
-      "skill": "ct-stickynote"
-    }
-  ]
+  "_comment": "Known dead cleo invocations in NON-core skills (scripts/lint-skill-commands.mjs, T12649). Core-tier skills can never be baselined. A new finding fails; an entry that no longer occurs fails until deleted. Emptied by T12649 part 2 (skill merges and retirements).",
+  "entries": []
 }

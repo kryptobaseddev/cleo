@@ -513,16 +513,14 @@ export const SKILL_NAME_MAP: Record<string, string> = {
   DOCS: 'ct-documentor',
   docs: 'ct-documentor',
 
-  // Docs sub-skills
-  'DOCS-LOOKUP': 'ct-docs-lookup',
-  'docs-lookup': 'ct-docs-lookup',
-  'ct-docs-lookup': 'ct-docs-lookup',
-  'DOCS-WRITE': 'ct-docs-write',
-  'docs-write': 'ct-docs-write',
-  'ct-docs-write': 'ct-docs-write',
-  'DOCS-REVIEW': 'ct-docs-review',
-  'docs-review': 'ct-docs-review',
-  'ct-docs-review': 'ct-docs-review',
+  // Docs writing/review guides live in ct-documentor since T12649 (D11157);
+  // ct-docs-lookup was retired (use the Context7 MCP).
+  'DOCS-WRITE': 'ct-documentor',
+  'docs-write': 'ct-documentor',
+  'ct-docs-write': 'ct-documentor',
+  'DOCS-REVIEW': 'ct-documentor',
+  'docs-review': 'ct-documentor',
+  'ct-docs-review': 'ct-documentor',
 
   // Orchestrator
   ORCHESTRATOR: 'ct-orchestrator',
