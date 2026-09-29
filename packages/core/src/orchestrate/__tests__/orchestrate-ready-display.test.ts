@@ -254,7 +254,7 @@ describe('orchestrateWaves — Bug C: wave tasks populated', () => {
     expect(data.totalTasks, 'totalTasks must count all 5 children').toBe(5);
   });
 
-  it('wave 1 task-set matches the orchestrateReady output (same underlying logic)', async () => {
+  it('the ready tasks across the waves match the orchestrateReady output (same underlying logic)', async () => {
     const [readyResult, wavesResult] = await Promise.all([
       orchestrateReady('T800', TEST_ROOT),
       orchestrateWaves('T800', TEST_ROOT),
@@ -265,13 +265,18 @@ describe('orchestrateWaves — Bug C: wave tasks populated', () => {
 
     const readyData = readyResult.data as { readyTasks: Array<{ id: string }> };
     const wavesData = wavesResult.data as {
-      waves: Array<{ waveNumber: number; tasks: Array<{ id: string }> }>;
+      waves: Array<{ waveNumber: number; tasks: Array<{ id: string; ready: boolean }> }>;
     };
 
     const readyIds = readyData.readyTasks.map((t) => t.id).sort();
-    const wave1Ids = (wavesData.waves[0]?.tasks ?? []).map((t) => t.id).sort();
+    // Stable numbering (T12682): finished waves stay listed, so the ready set
+    // is every task the waves mark ready, not "wave 1".
+    const readyInWaves = wavesData.waves
+      .flatMap((w) => w.tasks)
+      .filter((t) => t.ready)
+      .map((t) => t.id)
+      .sort();
 
-    // Wave 1 must contain exactly the same set as the ready set
-    expect(wave1Ids, 'wave 1 task IDs must match orchestrateReady task IDs').toEqual(readyIds);
+    expect(readyInWaves, 'ready tasks in the waves must match orchestrateReady').toEqual(readyIds);
   });
 });

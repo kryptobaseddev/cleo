@@ -774,6 +774,22 @@ const checkArchCommand = defineCommand({
         script: 'scripts/lint-skill-commands.mjs',
         description: 'Every cleo command a skill teaches exists and is runnable',
       },
+      {
+        // T12124 (gh#1256): skills declare the code they document in
+        // metadata.covers. Here: every core/LOOM skill declares live covers;
+        // CI adds the PR diff check (--base).
+        id: 'gate-32',
+        task: 'T12124',
+        script: 'scripts/lint-skill-coverage.mjs',
+        description: 'Skills declare live metadata.covers (PR diff checked in CI)',
+      },
+      {
+        // T9148 / T12124: ct-cleo stays a thin pointer — ratcheted.
+        id: 'gate-33',
+        task: 'T12124',
+        script: 'scripts/check-ct-cleo-thin.mjs',
+        description: 'ct-cleo SKILL.md does not grow (thin-pointer ratchet)',
+      },
     ] as const;
 
     const scriptArgs = strict ? ['--strict'] : ['--check'];

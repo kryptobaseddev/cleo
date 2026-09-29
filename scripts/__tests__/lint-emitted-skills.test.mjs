@@ -257,6 +257,30 @@ describe('lint-emitted-skills goes red on planted defects', () => {
     ]);
   });
 
+  it('resolves a camelCase const skill argument and skips an unbound parameter (T12679)', () => {
+    write(
+      'packages/core/src/orchestration/spawn-prompt.ts',
+      "const leadSkill = 'ct-ghost';\nloadSkillExcerpt(leadSkill, 6000, projectRoot);\nresolveSkillPath(skillName, projectRoot);\n",
+    );
+    expect(findViolations(root).map((v) => v.key)).toEqual([
+      'emitted-missing:ct-ghost',
+      'emitted-not-installed:ct-ghost',
+    ]);
+  });
+
+  it('does not accept an install tripwire that survives only in a string literal (T12679)', () => {
+    write(
+      'packages/core/src/init.ts',
+      [
+        "const manifestPath = join(ctSkillsRoot, 'skills', 'manifest.json');",
+        'const harnessSkills = skills.filter((s) => true);',
+        'log("old filter was s.install === \'harness\'");',
+        "const skillSourceDir = join(ctSkillsRoot, 'skills', skill.name);",
+      ].join('\n'),
+    );
+    expect(findViolations(root).map((v) => v.key)).toEqual(["tripwire:s.install === 'harness'"]);
+  });
+
   it('does not accept an install tripwire that survives only in a comment', () => {
     write(
       'packages/core/src/init.ts',

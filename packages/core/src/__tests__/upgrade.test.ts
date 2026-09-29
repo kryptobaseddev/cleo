@@ -4,22 +4,77 @@
  * @task T4723
  */
 
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { join, sep } from 'node:path';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { getCleoHome } from '../paths.js';
 import { acquireLock } from '../store/lock.js';
 import { checkStorageMigration } from '../system/storage-preflight.js';
 import { runUpgrade } from '../upgrade.js';
 
-// Each explicit cwd belongs to its synthetic fixture, not the shared setup project.
+/**
+ * runUpgrade writes global state: the CLEO home (cleo.db, templates, skills)
+ * and, through initCoreSkills, every detected harness's skills dir. This
+ * file gives it its own HOME, CLEO_HOME, XDG and harness roots, so nothing
+ * depends on the shared fork sandbox — or on the real dirs, which the
+ * vitest.setup.ts write guard refuses (T12688). The root sits under the fork
+ * sandbox because the SQLite path guard only allows opens there.
+ */
+let isolatedRoot: string;
+
+beforeAll(() => {
+  isolatedRoot = mkdtempSync(join(process.env['CLEO_HOME'] ?? tmpdir(), 'upgrade-test-'));
+});
+
+afterAll(() => {
+  rmSync(isolatedRoot, { recursive: true, force: true });
+});
+
 beforeEach(() => {
+  // Each explicit cwd belongs to its synthetic fixture, not the shared setup project.
   vi.stubEnv('CLEO_ROOT', undefined);
   vi.stubEnv('CLEO_DIR', undefined);
+  const home = join(isolatedRoot, 'home');
+  const roots: Record<string, string> = {
+    HOME: home,
+    USERPROFILE: home,
+    CLEO_HOME: join(isolatedRoot, 'cleo'),
+    XDG_DATA_HOME: join(isolatedRoot, 'data-home'),
+    XDG_CONFIG_HOME: join(isolatedRoot, 'config-home'),
+    XDG_CACHE_HOME: join(isolatedRoot, 'cache-home'),
+    AGENTS_HOME: join(isolatedRoot, 'agents'),
+  };
+  for (const [name, dir] of Object.entries(roots)) {
+    mkdirSync(dir, { recursive: true });
+    vi.stubEnv(name, dir);
+  }
+  // Harness homes then resolve under the isolated HOME.
+  for (const name of [
+    'CLAUDE_HOME',
+    'CLAUDE_CONFIG_DIR',
+    'CODEX_HOME',
+    'HERMES_HOME',
+    'PI_CODING_AGENT_DIR',
+    'PI_HOME',
+  ]) {
+    vi.stubEnv(name, undefined);
+  }
 });
 
 afterEach(() => {
   vi.unstubAllEnvs();
+});
+
+describe('runUpgrade test isolation (T12688)', () => {
+  it("resolves HOME, the CLEO home and the harness dirs inside this file's root", () => {
+    const inside = (path: string) => path.startsWith(`${isolatedRoot}${sep}`);
+    expect(inside(homedir())).toBe(true);
+    expect(inside(getCleoHome())).toBe(true);
+    expect(inside(join(homedir(), '.claude', 'skills'))).toBe(true);
+    expect(process.env['CLAUDE_HOME']).toBeUndefined();
+    expect(process.env['PI_CODING_AGENT_DIR']).toBeUndefined();
+  });
 });
 
 describe('checkStorageMigration', () => {
