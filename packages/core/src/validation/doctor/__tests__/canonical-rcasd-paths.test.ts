@@ -4,7 +4,7 @@
  * Both sub-checks called a bare `require('node:fs')`, which throws in the
  * shipped ESM build inside a swallowing `try`, so the check always passed.
  * vitest supplies a `require`, so this test pins the behaviour; the regression
- * itself is caught by arch gate 31 (`scripts/lint-no-esm-bare-require.mjs`).
+ * itself is caught by arch gate 34 (`scripts/lint-no-esm-bare-require.mjs`).
  *
  * @task T12704
  */

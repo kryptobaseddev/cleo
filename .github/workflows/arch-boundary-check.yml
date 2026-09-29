@@ -536,12 +536,13 @@ jobs:
         run: node scripts/lint-vitest-memory-safe.mjs
 
   skills-metadata:
-    # Gates 29 + 30 (T12648 · D11157). SKILL.md frontmatter is the skills
+    # Gates 29, 30 + 31 (T12648, T12649 · D11157). SKILL.md frontmatter is the skills
     # metadata SSoT: the manifest is generated from it (gate 29), and every
-    # skill code names must be installable (gate 30). Wired here as well as in
+    # skill code names must be installable (gate 30), and every cleo command a
+    # skill teaches must exist (gate 31). Wired here as well as in
     # `cleo check arch`, because a gate bundled and documented but run by no
     # workflow is the gh#1354 defect. Pure node, no install needed.
-    name: Skills Metadata SSoT (T12648 · gates 29-30)
+    name: Skills Metadata SSoT (T12648 · T12649 · gates 29-31)
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -553,13 +554,15 @@ jobs:
         run: node scripts/lint-skills-manifest.mjs --check
       - name: Assert every skill code emits is installable
         run: node scripts/lint-emitted-skills.mjs --check
+      - name: Assert every cleo command a skill teaches exists (gate 31, T12649)
+        run: node scripts/lint-skill-commands.mjs --check
 
   esm-bare-require:
-    # Gate 31 (T12704). An ES module has no `require`: a bare call throws
+    # Gate 34 (T12704). An ES module has no `require`: a bare call throws
     # under Node while vitest supplies one, so unit tests cannot catch it.
     # Wired here as well as in `cleo check arch` (gate 20 requires both).
     # Pure node, no install needed.
-    name: No bare require() in ESM (T12704 · gate 31)
+    name: No bare require() in ESM (T12704 · gate 34)
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:

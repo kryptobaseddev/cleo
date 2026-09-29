@@ -114,7 +114,8 @@ const rollupCommand = defineCommand({
     },
     wave: {
       type: 'string',
-      description: 'Filter to a single wave id (0-indexed)',
+      description:
+        'Filter to one wave, numbered from 1 as `cleo orchestrate waves` prints it (the n of topic epic-<id>.wave-<n>)',
     },
     json: {
       type: 'boolean',

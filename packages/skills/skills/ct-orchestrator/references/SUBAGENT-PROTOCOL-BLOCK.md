@@ -9,7 +9,7 @@ Copy and include this block in EVERY subagent prompt spawned via Task tool.
 
 OUTPUT REQUIREMENTS:
 1. MUST write findings to: {{OUTPUT_DIR}}/YYYY-MM-DD_{topic}.md
-2. MUST append ONE entry via `cleo manifest append <json>` (writes to pipeline_manifest table per ADR-027/T1093)
+2. MUST append ONE entry via `cleo manifest append --entry '<json>'` (writes to pipeline_manifest table per ADR-027/T1093)
 3. MUST return ONLY: "Research complete. Manifest appended to pipeline_manifest."
 4. MUST NOT return research content in response.
 
@@ -34,7 +34,7 @@ You are the {ROLE} subagent. Your job is to complete CLEO task {TASK_ID}.
 ## SUBAGENT PROTOCOL (RFC 2119 - MANDATORY)
 OUTPUT REQUIREMENTS:
 1. MUST write findings to: {{OUTPUT_DIR}}/YYYY-MM-DD_{topic}.md
-2. MUST append ONE entry via `cleo manifest append <json>` (writes to pipeline_manifest table per ADR-027/T1093)
+2. MUST append ONE entry via `cleo manifest append --entry '<json>'` (writes to pipeline_manifest table per ADR-027/T1093)
 3. MUST return ONLY: "Research complete. Manifest appended to pipeline_manifest."
 4. MUST NOT return research content in response.
 
