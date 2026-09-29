@@ -115,6 +115,8 @@ interface OrchestrateWavesParams {
    * Traversal mode (gh-390 / ADR-073). See {@link OrchestrateReadyParams.via}.
    */
   via?: 'parent' | 'saga' | 'both';
+  /** Omit finished waves; stable numbers are kept (T12682). */
+  hideCompleted?: boolean;
 }
 
 interface OrchestrateReportParams {
@@ -364,7 +366,10 @@ async function orchestrateContextOp(params: OrchestrateContextParams) {
 }
 
 async function orchestrateWavesOp(params: OrchestrateWavesParams) {
-  return orchestrateWaves(params.epicId, getProjectRoot(), { via: params.via });
+  return orchestrateWaves(params.epicId, getProjectRoot(), {
+    via: params.via,
+    ...(params.hideCompleted === true ? { hideCompleted: true } : {}),
+  });
 }
 
 async function orchestratePlanOp(params: OrchestratePlanParams) {
@@ -691,6 +696,7 @@ export class OrchestrateHandler implements DomainHandler {
           const p: OrchestrateWavesParams = {
             epicId: params.epicId as string,
             ...(wavesVia !== undefined && { via: wavesVia }),
+            ...(params.hideCompleted === true && { hideCompleted: true }),
           };
           return wrapResult(await coreOps.waves(p), 'query', 'orchestrate', operation, startTime);
         }

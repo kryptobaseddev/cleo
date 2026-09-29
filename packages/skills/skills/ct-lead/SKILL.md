@@ -1,10 +1,13 @@
 ---
 name: ct-lead
-description: "Phase Lead orchestration playbook for spawning and supervising a parallel worker swarm in one wave. Use when spawned by ct-orchestrator with role=orchestrator to fan out N leaf workers via delegate_task, drain the epic-<TID>.wave-<n> conduit topic plus pipeline_manifest, await rollupWaveStatus convergence, and return ONE rolled-up contract string to the parent Orchestrator. Triggers: 'phase lead', 'wave lead', 'supervise wave', 'fan out workers', 'aggregate worker results', 'rollup wave', any task with role=orchestrator that is itself a child of another orchestrator. Implements ADR-070 hierarchical orchestration."
+description: "Phase Lead orchestration playbook for spawning and supervising a parallel worker swarm in one wave. Use when spawned by ct-orchestrator with role=orchestrator to fan out N leaf workers via delegate_task, drain the epic-{TID}.wave-{n} conduit topic plus pipeline_manifest, await rollupWaveStatus convergence, and return ONE rolled-up contract string to the parent Orchestrator. Triggers: 'phase lead', 'wave lead', 'supervise wave', 'fan out workers', 'aggregate worker results', 'rollup wave', any task with role=orchestrator that is itself a child of another orchestrator. Implements ADR-070 hierarchical orchestration."
 metadata:
-  version: 1.0.2
+  version: 1.0.5
   tier: core
   install: harness
+  covers:
+    - packages/core/src/orchestration/lead-rollup.ts
+    - packages/core/src/orchestration/waves.ts
   lastReviewed: 2026-09-28
   stability: stable
 ---
@@ -105,11 +108,24 @@ cleo orchestrate roll-up "${EPIC}" --wave "${WAVE}" --json \
 > --wave <n>` takes the same `n` (`--wave 0` is refused with
 > `E_CLEO_VALIDATION`, pointing at `cleo orchestrate waves`).
 >
-> **Read `n` when you subscribe.** Wave numbers are recomputed from the
-> tasks still open, so they shift as earlier waves complete. Take `n` from
-> `cleo orchestrate waves` at the moment you subscribe and spawn; do not
-> hard-code the numbers of future waves until stable numbering (T12683)
-> lands.
+> **What a wave number guarantees (T12683).** A task's wave is its
+> structural dependency depth: 1 plus the deepest wave among its
+> dependencies, whatever their status and whichever epic holds them.
+>
+> - **Stable** when any task's status changes (done, cancelled, archived)
+>   or a task moves between epics. A finished wave stays in `cleo
+>   orchestrate waves` with status `completed`; `--hide-completed` omits
+>   finished waves without renumbering the rest.
+> - **Not stable** when a dependency edge is added or removed anywhere
+>   upstream, including in another epic: downstream waves shift. If you
+>   subscribed ahead to `epic-<epicId>.wave-<n>`, re-read `cleo orchestrate
+>   waves` after any dependency change.
+> - **Numbers can skip, and an epic's first wave can be above 1** (a task
+>   whose external prerequisite sits at depth 3 is in wave 4). Always take
+>   `n` from `cleo orchestrate waves`; never assume the first wave is 1.
+>
+> `orchestrate ready`, `plan` and `parallel start --wave <n>` never re-run
+> finished tasks.
 
 `rollupWaveStatus` (T9082, `packages/core/src/orchestration/lead-rollup.ts`)
 returns `{ wave, total, complete, partial, blocked, failed, workers: [...] }`.

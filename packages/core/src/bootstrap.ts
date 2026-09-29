@@ -515,6 +515,9 @@ export async function installSkillsGlobally(ctx: BootstrapContext): Promise<void
       await initCoreSkills(ctx.created, ctx.warnings);
     } else {
       ctx.created.push('core skills (would install/update)');
+      // T12678: show what an install would prune, deleting nothing.
+      const { previewBundledSkillPrune } = await import('./skills/prune-bundled.js');
+      for (const line of await previewBundledSkillPrune()) ctx.created.push(line);
     }
   } catch (err) {
     ctx.warnings.push(
