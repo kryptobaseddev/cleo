@@ -1068,6 +1068,8 @@ export {
 // Skill-node routing — in-process skill execution + retained subprocess spawn (T11477).
 export type { SkillNodeDispatchInput } from './playbooks/skill-node-executor.js';
 export { ISOLATION_CONTEXT_KEY, runSkillNodeOrSpawn } from './playbooks/skill-node-executor.js';
+// T12733: startup checks stay silent when there is simply no project.
+export { isMissingProjectError } from './project-scope.js';
 // Reconciliation (additional)
 export {
   createLink,
