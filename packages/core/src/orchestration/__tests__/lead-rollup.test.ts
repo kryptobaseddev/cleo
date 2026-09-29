@@ -8,9 +8,17 @@
  * @task T9082
  */
 
+import { existsSync, readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ExtendedManifestEntry } from '../../memory/index.js';
-import { pipelineManifestAppend } from '../../memory/pipeline-manifest-sqlite.js';
+import {
+  listMalformedManifestRows,
+  pipelineManifestAppend,
+  readManifestEntries,
+  repairMalformedManifestRows,
+  rollbackManifestRepair,
+} from '../../memory/pipeline-manifest-sqlite.js';
+import { drainWarnings } from '../../output.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import { bindTasksDomain } from '../../store/sqlite.js';
 import { rollupEpicStatus, rollupWaveStatus } from '../lead-rollup.js';
@@ -196,5 +204,73 @@ describe('lead manifest evidence selection', () => {
         message: expect.stringContaining('no such table: docs_pipeline_manifest'),
       }),
     });
+  });
+
+  /** Corrupt a stored row the way T1171-w2a-10-audit is: actionable is an array. */
+  async function corrupt(id: string, metadata: string): Promise<void> {
+    const { native } = await bindTasksDomain(env.tempDir);
+    native
+      .prepare('UPDATE docs_pipeline_manifest SET metadata_json=? WHERE id=?')
+      .run(metadata, id);
+  }
+
+  it('T12686: roll-up skips a malformed row with a warning naming it and the repair, and reports the rest', async () => {
+    await append('good-one', 'T1', '2026-01-01');
+    await append('T1171-w2a-10-audit', 'T10', '2026-02-01');
+    await corrupt(
+      'T1171-w2a-10-audit',
+      JSON.stringify({ title: 'audit', actionable: ['do x'], linked_tasks: ['T10'] }),
+    );
+    drainWarnings();
+    const wave = await rollupWaveStatus('T0', 1, env.tempDir);
+    expect(wave.workers).toHaveLength(3);
+    expect(wave.workers.find((w) => w.taskId === 'T1')).toMatchObject({
+      latestManifestEntry: 'good-one',
+    });
+    expect(wave.workers.find((w) => w.taskId === 'T10')?.latestManifestEntry).toBeNull();
+    const warning = drainWarnings()?.find((w) => w.code === 'W_MANIFEST_ROW_MALFORMED');
+    expect(warning?.message).toContain("'T1171-w2a-10-audit'");
+    expect(warning?.message).toContain('actionable');
+    expect(warning?.message).toContain('cleo doctor manifest-rows --repair');
+  });
+
+  it('T12686: doctor lists, repairs with a receipt (nothing lost), and rolls back', async () => {
+    await append('bad-field', 'T1', '2026-01-01');
+    await append('bad-json', 'T2', '2026-01-02');
+    await append('fine', 'T10', '2026-01-03');
+    const badField = JSON.stringify({ title: 'x', actionable: ['keep me'], linked_tasks: ['T1'] });
+    await corrupt('bad-field', badField);
+    await corrupt('bad-json', '{not json');
+
+    const listed = await listMalformedManifestRows(env.tempDir);
+    expect(listed.map((r) => [r.entryId, r.reason, r.fields])).toEqual([
+      ['bad-json', 'invalid-json', ['metadata_json']],
+      ['bad-field', 'field-contract', ['actionable']],
+    ]);
+
+    const plan = await repairMalformedManifestRows(env.tempDir, { dryRun: true });
+    expect(plan.receiptPath).toBeNull();
+    expect(await listMalformedManifestRows(env.tempDir)).toHaveLength(2);
+
+    const receipt = await repairMalformedManifestRows(env.tempDir);
+    expect(receipt.changes.map((c) => c.entryId).sort()).toEqual(['bad-field', 'bad-json']);
+    expect(existsSync(receipt.receiptPath ?? '')).toBe(true);
+    expect(JSON.parse(readFileSync(receipt.receiptPath ?? '', 'utf8')).changes).toHaveLength(2);
+    expect(await listMalformedManifestRows(env.tempDir)).toEqual([]);
+    const entries = await readManifestEntries(env.tempDir);
+    expect(entries.find((e) => e.id === 'bad-field')?.linked_tasks).toEqual(['T1']);
+    const after = JSON.parse(
+      receipt.changes.find((c) => c.entryId === 'bad-field')?.after ?? '{}',
+    ) as Record<string, unknown>;
+    expect(after['_malformed']).toEqual({ actionable: ['keep me'] });
+    expect(after['actionable']).toBeUndefined();
+
+    // A row edited after the repair is not rolled back over the later edit.
+    await corrupt('bad-json', JSON.stringify({ title: 'fixed by hand' }));
+    const back = await rollbackManifestRepair(receipt.receiptPath ?? '', env.tempDir);
+    expect(back).toEqual({ restored: ['bad-field'], skipped: ['bad-json'] });
+    expect((await listMalformedManifestRows(env.tempDir)).map((r) => r.entryId)).toEqual([
+      'bad-field',
+    ]);
   });
 });

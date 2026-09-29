@@ -12,11 +12,11 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, renameSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { ManifestWithProvenance } from '@cleocode/contracts/operations/research';
-import { eq, like, or } from 'drizzle-orm';
+import { and, eq, isNull, like, or } from 'drizzle-orm';
 import { z } from 'zod';
 import { createDocsReadModel } from '../docs/docs-read-model.js';
 import { type EngineFailure, type EngineResult, EngineResultError } from '../engine-result.js';
@@ -297,6 +297,271 @@ function readRowMetadata(row: ManifestWithProvenance<typeof pipelineManifest.$in
     });
   }
   return parsed.data;
+}
+
+// ============================================================================
+// Malformed metadata: skip on read, list and repair (T12686)
+// ============================================================================
+
+/** A stored manifest row whose metadata no reader accepts. */
+export interface MalformedManifestRow {
+  /** Manifest entry id. */
+  entryId: string;
+  /** Tables holding the row (`docs_pipeline_manifest`, legacy `pipeline_manifest`). */
+  tables: string[];
+  /** `invalid-json`: unparseable or not an object; `field-contract`: a field has the wrong type. */
+  reason: 'invalid-json' | 'field-contract';
+  /** Offending top-level fields (`metadata_json` for the whole document). */
+  fields: string[];
+  /** What is wrong, per field. */
+  message: string;
+  /** sha256 of the stored metadata bytes. */
+  metadataSha256: string;
+}
+
+/** The command that repairs malformed manifest rows. */
+export const MANIFEST_ROW_REPAIR_COMMAND = 'cleo doctor manifest-rows --repair';
+
+function metadataProblem(
+  row: ManifestWithProvenance<typeof pipelineManifest.$inferSelect>,
+): MalformedManifestRow | null {
+  const base = {
+    entryId: row.id,
+    tables: [...row.provenance.tables],
+    metadataSha256: createHash('sha256')
+      .update(row.metadataJson ?? '')
+      .digest('hex'),
+  };
+  let value: unknown;
+  try {
+    value = row.metadataJson === null ? {} : JSON.parse(row.metadataJson);
+  } catch (error) {
+    return {
+      ...base,
+      reason: 'invalid-json',
+      fields: ['metadata_json'],
+      message: `not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return {
+      ...base,
+      reason: 'invalid-json',
+      fields: ['metadata_json'],
+      message: 'not a JSON object',
+    };
+  }
+  const parsed = manifestMetadataSchema.safeParse(value);
+  if (parsed.success) return null;
+  const fields = [...new Set(parsed.error.issues.map((i) => String(i.path[0] ?? 'metadata_json')))];
+  return {
+    ...base,
+    reason: 'field-contract',
+    fields,
+    message: parsed.error.issues
+      .map((i) => `${i.path.join('.') || 'metadata_json'}: ${i.message}`)
+      .join('; '),
+  };
+}
+
+/**
+ * Read manifest entries, SKIPPING rows whose metadata violates the stored
+ * field contract instead of failing the whole read. For reports that must
+ * still show everything else (orchestrate roll-up); the strict
+ * {@link readManifestEntries} stays the default. Conflicting duplicate ids
+ * and store failures still throw.
+ *
+ * @param projectRoot - Project root.
+ * @returns The readable entries (newest first) and the skipped rows.
+ * @task T12686
+ */
+export async function readManifestEntriesSkippingMalformed(projectRoot?: string): Promise<{
+  entries: Array<ManifestWithProvenance<ExtendedManifestEntry>>;
+  malformed: MalformedManifestRow[];
+}> {
+  const entries: Array<ManifestWithProvenance<ExtendedManifestEntry>> = [];
+  const malformed: MalformedManifestRow[] = [];
+  for (const row of await readRows(projectRoot)) {
+    const problem = metadataProblem(row);
+    if (problem) malformed.push(problem);
+    else entries.push(rowToEntry(row));
+  }
+  return { entries, malformed };
+}
+
+/**
+ * List every stored manifest row (archived included) whose metadata no reader
+ * accepts.
+ *
+ * @param projectRoot - Project root.
+ * @returns The malformed rows.
+ * @task T12686
+ */
+export async function listMalformedManifestRows(
+  projectRoot?: string,
+): Promise<MalformedManifestRow[]> {
+  return (await readRows(projectRoot, true)).flatMap((row) => metadataProblem(row) ?? []);
+}
+
+/** One row a repair rewrote: its metadata before and after. */
+export interface ManifestRepairChange {
+  entryId: string;
+  tables: string[];
+  reason: MalformedManifestRow['reason'];
+  fields: string[];
+  before: string | null;
+  after: string;
+}
+
+/** Receipt of a manifest metadata repair (written before the rows change). */
+export interface ManifestRepairReceipt {
+  kind: 'manifest-metadata-repair';
+  task: 'T12686';
+  createdAt: string;
+  databasePath: string | null;
+  receiptPath: string | null;
+  dryRun: boolean;
+  changes: ManifestRepairChange[];
+}
+
+/**
+ * Rewrite one malformed metadata document so it conforms, keeping every byte:
+ * an offending field moves under `_malformed.<field>`; an unparseable or
+ * non-object document is kept whole as `_malformed_raw`.
+ */
+function repairedMetadata(raw: string | null, problem: MalformedManifestRow): string {
+  if (problem.reason === 'invalid-json') return JSON.stringify({ _malformed_raw: raw ?? '' });
+  const doc = JSON.parse(raw ?? '{}') as Record<string, unknown>;
+  const prior = doc['_malformed'];
+  const moved: Record<string, unknown> =
+    typeof prior === 'object' && prior !== null && !Array.isArray(prior)
+      ? { ...(prior as Record<string, unknown>) }
+      : prior === undefined
+        ? {}
+        : { _previous: prior };
+  for (const field of problem.fields) {
+    moved[field] = doc[field];
+    delete doc[field];
+  }
+  doc['_malformed'] = moved;
+  return JSON.stringify(doc);
+}
+
+/**
+ * Repair every malformed manifest row (T12686): move each offending field
+ * under `_malformed`, so the row reads again and nothing is lost. The receipt
+ * (under `.cleo/backups/manifest-repair/`) is written BEFORE the change and
+ * holds each row's metadata before and after; {@link rollbackManifestRepair}
+ * restores from it. Each update is compare-and-set on the old bytes, in one
+ * immediate transaction; rows in both the canonical and legacy table are
+ * rewritten in both.
+ *
+ * @param projectRoot - Project root.
+ * @param opts - `dryRun` plans without writing (no receipt file).
+ * @returns The receipt.
+ * @task T12686
+ */
+export async function repairMalformedManifestRows(
+  projectRoot?: string,
+  opts: { dryRun?: boolean } = {},
+): Promise<ManifestRepairReceipt> {
+  const binding = await getBinding(projectRoot);
+  const rows = binding.db.transaction(() => readStoredRows(binding, true));
+  const changes: ManifestRepairChange[] = [];
+  for (const row of rows) {
+    const problem = metadataProblem(row);
+    if (!problem) continue;
+    changes.push({
+      entryId: row.id,
+      tables: problem.tables,
+      reason: problem.reason,
+      fields: problem.fields,
+      before: row.metadataJson,
+      after: repairedMetadata(row.metadataJson, problem),
+    });
+  }
+  const createdAt = new Date().toISOString();
+  const receipt: ManifestRepairReceipt = {
+    kind: 'manifest-metadata-repair',
+    task: 'T12686',
+    createdAt,
+    databasePath: binding.store.dbPath ?? null,
+    receiptPath: null,
+    dryRun: opts.dryRun === true,
+    changes,
+  };
+  if (opts.dryRun || changes.length === 0) return receipt;
+  const dir = join(
+    resolveCleoDir(manifestScope(projectRoot).worktreeRoot),
+    'backups',
+    'manifest-repair',
+  );
+  mkdirSync(dir, { recursive: true });
+  receipt.receiptPath = join(dir, `receipt-${createdAt.replace(/[:.]/g, '-')}.json`);
+  writeFileSync(receipt.receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, 'utf8');
+  applyMetadataSwap(binding, changes, 'forward');
+  return receipt;
+}
+
+/**
+ * Undo a {@link repairMalformedManifestRows} run from its receipt: each row
+ * whose metadata is still what the repair wrote gets its old bytes back. A row
+ * changed since is left alone and reported.
+ *
+ * @param receiptPath - The receipt file.
+ * @param projectRoot - Project root.
+ * @returns Restored and skipped entry ids.
+ * @task T12686
+ */
+export async function rollbackManifestRepair(
+  receiptPath: string,
+  projectRoot?: string,
+): Promise<{ restored: string[]; skipped: string[] }> {
+  const receipt = JSON.parse(readFileSync(receiptPath, 'utf8')) as ManifestRepairReceipt;
+  if (receipt.kind !== 'manifest-metadata-repair') {
+    throw new EngineResultError({
+      code: 'E_INVALID_INPUT',
+      message: `${receiptPath} is not a manifest repair receipt`,
+    });
+  }
+  const binding = await getBinding(projectRoot);
+  return applyMetadataSwap(binding, receipt.changes, 'back');
+}
+
+function applyMetadataSwap(
+  binding: Awaited<ReturnType<typeof getBinding>>,
+  changes: ManifestRepairChange[],
+  direction: 'forward' | 'back',
+): { restored: string[]; skipped: string[] } {
+  return binding.db.transaction(
+    () => {
+      const restored: string[] = [];
+      const skipped: string[] = [];
+      for (const change of changes) {
+        const from = direction === 'forward' ? change.before : change.after;
+        const to = direction === 'forward' ? change.after : change.before;
+        let hit = 0;
+        for (const table of [pipelineManifest, legacyManifest]) {
+          const name = table === pipelineManifest ? 'docs_pipeline_manifest' : 'pipeline_manifest';
+          if (!change.tables.includes(name)) continue;
+          const result = binding.db
+            .update(table)
+            .set({ metadataJson: to })
+            .where(
+              and(
+                eq(table.id, change.entryId),
+                from === null ? isNull(table.metadataJson) : eq(table.metadataJson, from),
+              ),
+            )
+            .run();
+          hit += Number(result.changes ?? 0);
+        }
+        (hit > 0 ? restored : skipped).push(change.entryId);
+      }
+      return { restored, skipped };
+    },
+    { behavior: 'immediate' },
+  );
 }
 
 /**
