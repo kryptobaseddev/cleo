@@ -40,7 +40,7 @@
     {
       "id": 4,
       "prompt": "Run the manifest alignment check for ct-skill-author against the CLEO manifest",
-      "expected_output": "Manifest alignment results showing whether ct-skill-author is registered correctly in manifest.json and dispatch-config.json",
+      "expected_output": "Manifest alignment results showing whether ct-skill-author is registered correctly in manifest.json",
       "expectations": [
         "Claude passes --manifest to validate.py (Tier 4 check)",
         "The manifest.json path is correctly resolved",

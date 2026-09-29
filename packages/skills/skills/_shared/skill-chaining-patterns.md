@@ -176,7 +176,7 @@ Subagent MUST NOT return output content in response.
 ### Rule 3: File-Based Details (MUST)
 
 Detailed findings go to output files, not manifest or response:
-- Full analysis → `{{OUTPUT_DIR}}/YYYY-MM-DD_topic.md`
+- Full analysis → `cleo docs add <taskId> --content - --type research --slug <topic>`
 - Summary only → pipeline_manifest key_findings (via `cleo manifest append`)
 
 ### Rule 4: Token Injection (SHOULD)

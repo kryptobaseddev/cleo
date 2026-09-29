@@ -6,7 +6,7 @@ Template for epic creation output files.
 
 ## Output File Location
 
-Write to `{{OUTPUT_DIR}}/{{DATE}}_epic-{{FEATURE_SLUG}}.md`
+Record it with `cleo docs add {{TASK_ID}} --content - --type plan --slug epic-{{FEATURE_SLUG}}` (never a raw file under `.cleo/agent-outputs/`)
 
 ---
 
