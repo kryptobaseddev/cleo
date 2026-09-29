@@ -352,6 +352,7 @@ describe('cleo setup — e2e TTY-simulated (T11983)', () => {
     expect(result.sectionsRun).toContain('harness');
     expect(result.sectionsRun).toContain('brain');
     expect(result.sectionsRun).toContain('integrations');
+    expect(result.sectionsRun).toContain('nexus-account');
     expect(result.sectionsRun).toContain('telemetry');
     expect(result.sectionsRun).toContain('verification');
 
