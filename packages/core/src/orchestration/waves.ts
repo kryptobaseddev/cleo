@@ -142,19 +142,43 @@ function sortWaveTasks(tasks: EnrichedWaveTask[]): EnrichedWaveTask[] {
   });
 }
 
+/** Statuses whose task has finished (it occupies its wave, but runs no more). */
+const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'cancelled', 'archived']);
+
+/**
+ * Whether a task has finished: done, cancelled or archived.
+ *
+ * @param status - Task status.
+ * @returns True for a terminal status.
+ * @task T12682
+ */
+export function isTerminalWaveStatus(status: string): boolean {
+  return TERMINAL_STATUSES.has(status);
+}
+
 /**
  * Compute execution waves using topological sort.
  *
  * @remarks
- * Only done or archived dependencies satisfy readiness. Earlier planned waves
- * establish ordering, not evidence that their tasks have already completed.
- * Missing or unfinished dependencies outside the selected population remain
- * unresolved and are retained in the final pending wave. Terminal tasks are
- * excluded from scheduling; cancelled dependencies still block their dependants.
+ * Wave numbers are STABLE (T12682, owner option A): every selected task keeps
+ * the wave its dependency depth gives it, whatever its status, so a finished
+ * wave keeps its number (status `completed`) and no later wave renumbers when
+ * work completes. Agents subscribe ahead to `epic-<id>.wave-<n>` and reuse
+ * topics safely because n never shifts.
+ *
+ * - A dependency inside the selection orders the plan: it must sit in an
+ *   earlier wave, whatever its status.
+ * - A dependency outside the selection must be done or archived. An
+ *   unfinished or missing one holds the task in the final pending wave; only
+ *   that task moves when the dependency completes. A finished task ignores
+ *   its external dependencies — it already ran.
+ * - Readiness (`ready`, `blockedBy`) is reported per task by the enrichment,
+ *   not by the wave number: an earlier wave establishes ordering, not
+ *   completion.
  *
  * @param tasks - Selected tasks to partition into dependency waves.
  * @param dependencyLookup - Loaded dependency population, including external tasks.
- * @returns Ordered planned waves, with unresolved work retained as pending.
+ * @returns Ordered waves numbered from 1, finished ones included as `completed`.
  *
  * @example
  * ```ts
@@ -167,27 +191,33 @@ export function computeWaves(
 ): Wave[] {
   const waves: Wave[] = [];
   const planned = new Set<string>();
-  let remaining = tasks.filter((task) => !['done', 'cancelled', 'archived'].includes(task.status));
+  const selected = new Set(tasks.map((t) => t.id));
+  let remaining = [...tasks];
   let waveNumber = 1;
   const maxWaves = 50;
 
+  const placeable = (t: Task): boolean =>
+    (t.depends ?? []).every((dep) =>
+      selected.has(dep)
+        ? planned.has(dep)
+        : isTerminalWaveStatus(t.status) ||
+          getReadinessDependencyBlockers([dep], dependencyLookup).length === 0,
+    );
+  const statusOf = (ids: readonly Task[]): Wave['status'] =>
+    ids.every((t) => isTerminalWaveStatus(t.status))
+      ? 'completed'
+      : ids.some((t) => t.status === 'active' || isTerminalWaveStatus(t.status))
+        ? 'in_progress'
+        : 'pending';
+
   while (remaining.length > 0 && waveNumber <= maxWaves) {
-    const waveTasks = remaining.filter((t) => {
-      return getReadinessDependencyBlockers(t.depends, dependencyLookup).every((id) =>
-        planned.has(id),
-      );
-    });
-
+    const waveTasks = remaining.filter(placeable);
     if (waveTasks.length === 0) break;
-
-    const waveStatus: Wave['status'] = waveTasks.some((task) => task.status === 'active')
-      ? 'in_progress'
-      : 'pending';
 
     waves.push({
       waveNumber,
       tasks: waveTasks.map((t) => t.id),
-      status: waveStatus,
+      status: statusOf(waveTasks),
     });
 
     for (const t of waveTasks) {
@@ -202,7 +232,7 @@ export function computeWaves(
     waves.push({
       waveNumber,
       tasks: remaining.map((t) => t.id),
-      status: 'pending',
+      status: statusOf(remaining),
     });
   }
 

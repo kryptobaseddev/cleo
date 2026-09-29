@@ -291,9 +291,8 @@ describe('computeWaves — status computation (T1197 regression)', () => {
       } as Task,
     ];
     const waves = computeWaves(tasks);
-    // Both done → they are pre-seeded into completed set, so no wave is generated
-    // (computeWaves only processes non-done/non-cancelled tasks)
-    expect(waves).toHaveLength(0);
+    // Stable numbering (T12682): finished tasks keep their wave, listed as completed.
+    expect(waves).toEqual([{ waveNumber: 1, tasks: ['W1T1', 'W1T2'], status: 'completed' }]);
   });
 
   it('marks wave in_progress when at least one task is active', () => {
@@ -401,39 +400,37 @@ describe('getEnrichedWaves — real DB integration', () => {
     expect(result.totalTasks).toBeGreaterThan(0);
   });
 
-  it('Wave 1 of enriched result: W2T1+W2T2+EXT1 with status in_progress (T1197 regression)', async () => {
+  it('Waves 1 and 2 of enriched result keep their numbers as work finishes (T1197, T12682)', async () => {
     const result = await getEnrichedWaves(EPIC_ID, env.tempDir);
-    // computeWaves excludes done tasks (W1T1, W1T2) from remaining.
-    // Wave 1 = first non-terminal wave = {W2T1(active,critical), W2T2(medium,pending),
-    //   EXT1(low,pending)} — all have no unresolved deps.
-    // Status = in_progress because W2T1 is active.
-    const firstWave = result.waves[0]!;
-    const taskIds = firstWave.tasks.map((t) => t.id);
-    expect(taskIds).toContain('W2T1');
-    expect(taskIds).toContain('W2T2');
-    expect(taskIds).toContain('EXT1');
-    expect(firstWave.status).toBe('in_progress');
+    // Stable numbering: done W1T1/W1T2 keep wave 1 beside dep-free EXT1
+    // (in_progress: partly finished). Their dependants W2T1(active)/W2T2 stay
+    // in wave 2 (in_progress because W2T1 is active).
+    const [first, second] = result.waves;
+    expect(first!.tasks.map((t) => t.id).sort()).toEqual(['EXT1', 'W1T1', 'W1T2']);
+    expect(first!.status).toBe('in_progress');
+    expect(second!.tasks.map((t) => t.id).sort()).toEqual(['W2T1', 'W2T2']);
+    expect(second!.status).toBe('in_progress');
   });
 
-  it('Wave 2 of enriched result: contains W3T1, W3T2, W3T3', async () => {
+  it('Wave 3 of enriched result: contains W3T1, W3T2, W3T3', async () => {
     const result = await getEnrichedWaves(EPIC_ID, env.tempDir);
-    // Wave 2 = tasks depending on active/pending W2 tasks.
-    expect(result.waves.length).toBeGreaterThanOrEqual(2);
-    const secondWave = result.waves[1]!;
-    const taskIds = secondWave.tasks.map((t) => t.id);
+    // Wave 3 = tasks depending on W2 tasks.
+    expect(result.waves.length).toBeGreaterThanOrEqual(3);
+    const thirdWave = result.waves[2]!;
+    const taskIds = thirdWave.tasks.map((t) => t.id);
     expect(taskIds).toContain('W3T1');
     expect(taskIds).toContain('W3T2');
     expect(taskIds).toContain('W3T3');
-    expect(secondWave.status).toBe('pending');
+    expect(thirdWave.status).toBe('pending');
   });
 
   it('within-wave tasks sorted by priority DESC then open-dep count ASC (T1202)', async () => {
     const result = await getEnrichedWaves(EPIC_ID, env.tempDir);
-    // Wave 2 contains W3T3(critical), W3T2(high, 1 open dep in taskMap), W3T1(medium, 1 open dep)
-    expect(result.waves.length).toBeGreaterThanOrEqual(2);
-    const secondWave = result.waves[1]!;
+    // Wave 3 contains W3T3(critical), W3T2(high, 1 open dep in taskMap), W3T1(medium, 1 open dep)
+    expect(result.waves.length).toBeGreaterThanOrEqual(3);
+    const thirdWave = result.waves[2]!;
 
-    const ids = secondWave.tasks.map((t) => t.id);
+    const ids = thirdWave.tasks.map((t) => t.id);
     const criticalIdx = ids.indexOf('W3T3'); // critical priority
     const highIdx = ids.indexOf('W3T2'); // high priority
     const mediumIdx = ids.indexOf('W3T1'); // medium priority
