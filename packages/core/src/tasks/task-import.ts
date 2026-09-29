@@ -6,7 +6,9 @@
 
 import type { Task } from '@cleocode/contracts';
 import { TASK_STATUSES } from '@cleocode/contracts';
+import { allocateNextTaskId } from '../sequence/index.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { queryTasksIncludingArchived } from '../store/import-remap.js';
 
 /** Task record shape expected from the data layer. */
 type TaskRecord = Task;
@@ -498,8 +500,8 @@ export async function coreTaskImport(
 }> {
   const accessor = await getTaskAccessor(projectRoot);
 
-  // Load all existing task IDs using queryTasks (bulk operation needs full ID set)
-  const { tasks: existingTasks } = await accessor.queryTasks({});
+  // Every stored id, archived included: an archived task still owns its id (T12724).
+  const existingTasks = await queryTasksIncludingArchived(accessor);
 
   let importData: unknown;
   try {
@@ -528,12 +530,7 @@ export async function coreTaskImport(
   let imported = 0;
   let skipped = 0;
   const remapTable: Record<string, string> = {};
-
-  let nextIdNum = 0;
-  for (const t of existingTasks) {
-    const num = parseInt(t.id.replace('T', ''), 10);
-    if (!Number.isNaN(num) && num > nextIdNum) nextIdNum = num;
-  }
+  const writes: Array<{ task: TaskRecord; replace: boolean }> = [];
 
   for (const importTask of importTasks) {
     if (!importTask.id || !importTask.title) {
@@ -549,8 +546,9 @@ export async function coreTaskImport(
 
     let newId = importTask.id;
     if (allIds.has(importTask.id) && !overwrite) {
-      nextIdNum++;
-      newId = `T${String(nextIdNum).padStart(3, '0')}`;
+      // A new id comes from the task id allocator, never from a max+1 over a
+      // read that may be stale or miss archived tasks (T12724).
+      newId = await allocateNextTaskId(projectRoot);
       remapTable[importTask.id] = newId;
     }
 
@@ -562,15 +560,21 @@ export async function coreTaskImport(
       updatedAt: now,
     };
 
-    // Targeted write per task instead of bulk saveTaskFile. Only an explicit
-    // --overwrite of an existing id may replace a row; a new or remapped id is
-    // inserted and fails with ID_COLLISION rather than overwrite (T12724).
-    if (overwrite && existingIds.has(newId)) await accessor.upsertSingleTask(newTask);
-    else await accessor.insertNewTask(newTask);
-
+    // Only an explicit --overwrite of an existing id may replace a row; a new
+    // or remapped id is inserted and fails with ID_COLLISION rather than
+    // overwrite (T12724).
+    writes.push({ task: newTask, replace: overwrite === true && existingIds.has(newId) });
     allIds.add(newId);
     imported++;
   }
+
+  // One transaction: a collision on any task leaves nothing half-imported (T12724).
+  await accessor.transaction(async (tx) => {
+    for (const { task, replace } of writes) {
+      if (replace) await tx.upsertSingleTask(task);
+      else await tx.insertNewTask(task);
+    }
+  });
 
   return {
     imported,

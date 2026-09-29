@@ -15,6 +15,7 @@ import { dirname, join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
 import { resolveCleoDir } from '../paths.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { queryTasksIncludingArchived } from '../store/import-remap.js';
 
 /** Snapshot format version. */
 const SNAPSHOT_FORMAT_VERSION = '1.0.0';
@@ -193,7 +194,9 @@ export function getDefaultSnapshotPath(cwd?: string): string {
 // SSoT-EXEMPT: snapshot fns use file-path/cwd args, not projectRoot+params; distinct from dispatch API signature convention per ADR-057 D1
 export async function importSnapshot(snapshot: Snapshot, cwd?: string): Promise<ImportResult> {
   const accessor = await getTaskAccessor(cwd);
-  const { tasks: localTasks } = await accessor.queryTasks({});
+  // Every stored task, archived included: an archived task is still local, so
+  // re-importing a snapshot that holds it stays idempotent (T12724).
+  const localTasks = await queryTasksIncludingArchived(accessor);
 
   const result: ImportResult = {
     added: 0,
@@ -204,64 +207,67 @@ export async function importSnapshot(snapshot: Snapshot, cwd?: string): Promise<
 
   const localTaskMap = new Map(localTasks.map((t) => [t.id, t]));
 
-  for (const snapshotTask of snapshot.tasks) {
-    const localTask = localTaskMap.get(snapshotTask.id);
+  // One transaction: a collision on any task leaves nothing half-imported (T12724).
+  await accessor.transaction(async (tx) => {
+    for (const snapshotTask of snapshot.tasks) {
+      const localTask = localTaskMap.get(snapshotTask.id);
 
-    if (!localTask) {
-      // New task -- add it
-      const newTask: Task = {
-        id: snapshotTask.id,
-        title: snapshotTask.title,
-        status: snapshotTask.status as Task['status'],
-        priority: snapshotTask.priority as Task['priority'],
-        type: snapshotTask.type as Task['type'],
-        parentId: snapshotTask.parentId,
-        size: snapshotTask.size as Task['size'],
-        phase: snapshotTask.phase,
-        description: snapshotTask.description ?? '',
-        depends: snapshotTask.depends,
-        labels: snapshotTask.labels,
-        createdAt: snapshotTask.createdAt,
-        updatedAt: snapshotTask.updatedAt,
-        completedAt: snapshotTask.completedAt,
-      };
-      // Missing locally: insert, never overwrite a task stored since (T12724).
-      await accessor.insertNewTask(newTask);
-      result.added++;
-      continue;
-    }
+      if (!localTask) {
+        // New task -- add it
+        const newTask: Task = {
+          id: snapshotTask.id,
+          title: snapshotTask.title,
+          status: snapshotTask.status as Task['status'],
+          priority: snapshotTask.priority as Task['priority'],
+          type: snapshotTask.type as Task['type'],
+          parentId: snapshotTask.parentId,
+          size: snapshotTask.size as Task['size'],
+          phase: snapshotTask.phase,
+          description: snapshotTask.description ?? '',
+          depends: snapshotTask.depends,
+          labels: snapshotTask.labels,
+          createdAt: snapshotTask.createdAt,
+          updatedAt: snapshotTask.updatedAt,
+          completedAt: snapshotTask.completedAt,
+        };
+        // Missing locally: insert, never overwrite a task stored since (T12724).
+        await tx.insertNewTask(newTask);
+        result.added++;
+        continue;
+      }
 
-    // Task exists locally -- compare timestamps
-    const localUpdated = localTask.updatedAt ?? localTask.createdAt;
-    const snapshotUpdated = snapshotTask.updatedAt ?? snapshotTask.createdAt;
+      // Task exists locally -- compare timestamps
+      const localUpdated = localTask.updatedAt ?? localTask.createdAt;
+      const snapshotUpdated = snapshotTask.updatedAt ?? snapshotTask.createdAt;
 
-    if (snapshotUpdated > localUpdated) {
-      // Snapshot is newer -- update local via upsert (preserves fields not in snapshot)
-      const updatedTask: Task = {
-        ...localTask,
-        title: snapshotTask.title,
-        status: snapshotTask.status as Task['status'],
-        priority: snapshotTask.priority as Task['priority'],
-        ...(snapshotTask.description != null && { description: snapshotTask.description }),
-        ...(snapshotTask.labels != null && { labels: snapshotTask.labels }),
-        ...(snapshotTask.depends != null && { depends: snapshotTask.depends }),
-        updatedAt: snapshotTask.updatedAt,
-        ...(snapshotTask.completedAt != null && { completedAt: snapshotTask.completedAt }),
-      };
-      await accessor.upsertSingleTask(updatedTask);
-      result.updated++;
-    } else if (snapshotUpdated === localUpdated) {
-      result.skipped++;
-    } else {
-      // Local is newer -- skip but note conflict
-      result.skipped++;
-      if (localTask.title !== snapshotTask.title || localTask.status !== snapshotTask.status) {
-        result.conflicts.push(
-          `${snapshotTask.id}: local is newer (local: ${localUpdated}, snapshot: ${snapshotUpdated})`,
-        );
+      if (snapshotUpdated > localUpdated) {
+        // Snapshot is newer -- update local via upsert (preserves fields not in snapshot)
+        const updatedTask: Task = {
+          ...localTask,
+          title: snapshotTask.title,
+          status: snapshotTask.status as Task['status'],
+          priority: snapshotTask.priority as Task['priority'],
+          ...(snapshotTask.description != null && { description: snapshotTask.description }),
+          ...(snapshotTask.labels != null && { labels: snapshotTask.labels }),
+          ...(snapshotTask.depends != null && { depends: snapshotTask.depends }),
+          updatedAt: snapshotTask.updatedAt,
+          ...(snapshotTask.completedAt != null && { completedAt: snapshotTask.completedAt }),
+        };
+        await tx.upsertSingleTask(updatedTask);
+        result.updated++;
+      } else if (snapshotUpdated === localUpdated) {
+        result.skipped++;
+      } else {
+        // Local is newer -- skip but note conflict
+        result.skipped++;
+        if (localTask.title !== snapshotTask.title || localTask.status !== snapshotTask.status) {
+          result.conflicts.push(
+            `${snapshotTask.id}: local is newer (local: ${localUpdated}, snapshot: ${snapshotUpdated})`,
+          );
+        }
       }
     }
-  }
+  });
 
   return result;
 }

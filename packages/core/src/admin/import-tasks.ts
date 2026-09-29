@@ -11,11 +11,14 @@ import { constants as fsConstants } from 'node:fs';
 import { access, readFile } from 'node:fs/promises';
 import type { AdminImportParams, Task } from '@cleocode/contracts';
 import type { ImportFromPackageOptions, ImportFromPackageResult } from '../nexus/transfer-types.js';
+import { allocateNextTaskId } from '../sequence/index.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import type { ExportPackage } from '../store/export.js';
 import {
   detectDuplicateTitles,
   generateRemapTable,
+  queryTasksIncludingArchived,
+  type RemapTable,
   remapTaskReferences,
   resolveDuplicateTitle,
 } from '../store/import-remap.js';
@@ -61,6 +64,25 @@ export interface ImportTasksResult {
 }
 
 /**
+ * New ids for the source tasks, taken one by one from the task id allocator.
+ *
+ * @param sourceIds - The package's task ids, in import order.
+ * @param cwd - Project root.
+ * @returns The forward and reverse id maps.
+ * @task T12724
+ */
+async function allocateRemapTable(sourceIds: string[], cwd?: string): Promise<RemapTable> {
+  const forward = new Map<string, string>();
+  const reverse = new Map<string, string>();
+  for (const sourceId of sourceIds) {
+    const id = await allocateNextTaskId(cwd);
+    forward.set(sourceId, id);
+    reverse.set(id, sourceId);
+  }
+  return { forward, reverse };
+}
+
+/**
  * Import tasks from an in-memory ExportPackage with ID remapping.
  * Core logic extracted from importTasksPackage for reuse by transfer engine.
  */
@@ -79,7 +101,9 @@ export async function importFromPackage(
   }
 
   const accessor = await getTaskAccessor(options.cwd);
-  const { tasks: existingTasks } = await accessor.queryTasks({});
+  // Ids are decided against every stored task, archived included (T12724).
+  const storedTasks = await queryTasksIncludingArchived(accessor);
+  const existingTasks = storedTasks.filter((t) => t.status !== 'archived');
 
   const onConflict: OnConflict = options.onConflict ?? 'fail';
   const onMissingDep: OnMissingDep = options.onMissingDep === 'fail' ? 'fail' : 'strip';
@@ -98,7 +122,6 @@ export async function importFromPackage(
   }
 
   const sourceIds = exportPkg.tasks.map((t) => t.id);
-  const remapTable = generateRemapTable(sourceIds, existingTasks);
 
   if (!force && onConflict === 'fail') {
     const duplicates = detectDuplicateTitles(exportPkg.tasks, existingTasks);
@@ -108,6 +131,13 @@ export async function importFromPackage(
       );
     }
   }
+
+  // A dry run only predicts ids. A real import takes them from the task id
+  // allocator, which also floors on the older build's counter, so an import
+  // never reuses an id a concurrent `cleo add` has reserved (T12724).
+  const remapTable = options.dryRun
+    ? generateRemapTable(sourceIds, storedTasks)
+    : await allocateRemapTable(sourceIds, options.cwd);
 
   const sortedTasks = topologicalSort(exportPkg.tasks);
 
@@ -182,10 +212,11 @@ export async function importFromPackage(
     };
   }
 
-  // Every transformed task has a remapped, new id: insert, never overwrite (T12724).
-  for (const task of transformed) {
-    await accessor.insertNewTask(task);
-  }
+  // Every transformed task has a remapped, new id: insert, never overwrite, and
+  // all in ONE transaction, so a collision leaves nothing half-imported (T12724).
+  await accessor.transaction(async (tx) => {
+    for (const task of transformed) await tx.insertNewTask(task);
+  });
 
   return {
     imported: transformed.length,

@@ -135,9 +135,9 @@ async function writeTaskRow(
     if (clash.length > 0) {
       throw new CleoError(
         ExitCode.ID_COLLISION,
-        `Task id ${row.id} is already taken by "${clash[0]?.title}"; the new task was not written and nothing was overwritten`,
+        `Task id ${row.id} is already taken by "${clash[0]?.title}" (another writer stored it after the id was chosen); nothing was written and no task was overwritten`,
         {
-          fix: 'Run the command again: the id allocator skips past every stored id. If it repeats, run `cleo sequence repair`.',
+          fix: 'Run the command again: the allocator skips every stored id for `cleo add` and for the new ids an import assigns, and imports re-read every stored id, archived included, so the task now holding this id counts as existing (skipped, or replaced only with an explicit overwrite). If `cleo add` repeats this, run `cleo sequence repair`.',
         },
       );
     }
