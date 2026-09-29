@@ -2906,6 +2906,10 @@ export {
 export type {
   ChoiceDecisionAnswer,
   ChoiceDecisionQuestion,
+  DecideProfileListResult,
+  DecideProfileProbe,
+  DecideProfileSummary,
+  DecideProviderState,
   DecisionAnswer,
   DecisionBatchItem,
   DecisionInstructions,
@@ -2928,6 +2932,7 @@ export type {
 export {
   choiceDecisionAnswerSchema,
   choiceDecisionQuestionSchema,
+  DECIDE_PROFILE_NAME_PATTERN,
   DECISION_OUTCOME_SOURCES,
   DECISION_PROVIDER_KINDS,
   DECISION_QUESTION_TYPES,

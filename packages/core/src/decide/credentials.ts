@@ -29,8 +29,38 @@
  * audit: nothing here logs, and every summary this module returns carries the
  * masked preview only.
  *
+ * ## Named profiles (T12733)
+ *
+ * The store holds any number of named profiles (e.g. `layahost` and `jev`,
+ * each with its own key) and exactly one ACTIVE profile, which everyday
+ * decisions use. The format stays additive on version 1:
+ *
+ * ```json
+ * { "version": 1,
+ *   "provider": "layahost", "baseUrl": "https://layahost.com", "apiKey": "…",
+ *   "model": "laya-auto", "updatedAt": "…",
+ *   "active": "layahost",
+ *   "profiles": { "layahost": { "provider": "layahost", "baseUrl": "…", "apiKey": "…", "model": "…" },
+ *                 "jev": { "provider": "jev", "baseUrl": "https://jev.example", "apiKey": "…", "model": "…" } } }
+ * ```
+ *
+ * - The top-level single-config fields ARE the active profile, so a CLEO
+ *   that predates profiles (9.23) reads the active profile as its one config.
+ *   Every write keeps them equal to `profiles[active]`.
+ * - A file without `profiles` (written before T12733) is one profile named
+ *   after its provider kind, and that profile is active.
+ * - An older CLEO that rewrites the file drops `profiles` and `active` (its
+ *   zod object strips unknown keys and its save replaces the file). When the
+ *   top-level settings then differ from `profiles[active]`, the TOP-LEVEL
+ *   settings are authoritative for the active profile: they replace its
+ *   entry, and {@link listDecideProfiles} reports `reconciled: true`.
+ *   Profiles dropped by such a rewrite cannot be recovered and must be added
+ *   again. Empty top-level settings beside a stored active profile mean the
+ *   older CLEO cleared them: no profile is active.
+ *
  * @task T12491
  * @task T12713
+ * @task T12733
  * @epic T12486
  */
 
@@ -47,6 +77,9 @@ import {
 import { dirname, join } from 'node:path';
 import { inspect } from 'node:util';
 import {
+  DECIDE_PROFILE_NAME_PATTERN,
+  type DecideProfileListResult,
+  type DecideProfileSummary,
   type DecisionProviderKind,
   decisionProviderConfigSchema,
   decisionProviderKindSchema,
@@ -68,7 +101,24 @@ export const DECIDE_CREDENTIALS_FILE = 'decide-credentials.json';
  */
 export const DECIDE_CREDENTIALS_VERSION = 1;
 
-/** On-disk shape of the store. `null` settings mean "not configured". */
+/** On-disk shape of one named profile (T12733). */
+const profileSchema = z.object({
+  provider: decisionProviderKindSchema,
+  baseUrl: z.string(),
+  apiKey: z.string(),
+  model: z.string().nullable().optional(),
+  updatedAt: z.string().optional(),
+});
+
+/** One stored profile. */
+type StoredProfile = z.infer<typeof profileSchema>;
+
+/**
+ * On-disk shape of the store. `null` settings mean "not configured". The
+ * top-level settings are the active profile (T12733); `profiles` and `active`
+ * are additive, and a malformed value for either is ignored rather than
+ * failing the whole file.
+ */
 const storeSchema = z.object({
   version: z.literal(DECIDE_CREDENTIALS_VERSION),
   /** T12713, optional: absent in files written before provider kinds existed. */
@@ -77,6 +127,10 @@ const storeSchema = z.object({
   apiKey: z.string().nullable(),
   model: z.string().nullable().optional(),
   updatedAt: z.string().optional(),
+  /** T12733, optional: every named profile, keyed by name. Entries are validated one by one. */
+  profiles: z.record(z.string(), z.json()).optional().catch(undefined),
+  /** T12733, optional: the name of the active profile. */
+  active: z.string().nullable().optional().catch(undefined),
 });
 
 type DecideCredentialsStore = z.infer<typeof storeSchema>;
@@ -96,6 +150,120 @@ function parseStore(value: unknown): DecideCredentialsStore | null {
   return { ...store, provider: inferDecisionProviderKind(store.baseUrl) };
 }
 
+/**
+ * Whether `name` is a valid profile name: 1-32 characters of `a-z`, `0-9`
+ * and `-`, starting and ending with a letter or digit.
+ *
+ * @param name - Candidate name.
+ * @returns True when the name may be stored.
+ */
+export function isValidDecideProfileName(name: string): boolean {
+  return DECIDE_PROFILE_NAME_PATTERN.test(name);
+}
+
+/** The store as named profiles: what every read and write works on. */
+interface ProfileStore {
+  /** Valid profiles, keyed by name. */
+  readonly profiles: Record<string, StoredProfile>;
+  /** The active profile's name, or `null`. Always a key of `profiles` when set. */
+  readonly active: string | null;
+  /** True when the top-level settings overrode a differing `profiles[active]`. */
+  readonly reconciled: boolean;
+}
+
+/** The top-level settings as a profile, or `null` when no URL + key is stored. */
+function topLevelProfile(store: DecideCredentialsStore): StoredProfile | null {
+  const baseUrl = store.baseUrl?.trim();
+  const apiKey = store.apiKey?.trim();
+  if (!baseUrl || !apiKey) return null;
+  const model = store.model?.trim();
+  return {
+    provider: store.provider ?? inferDecisionProviderKind(baseUrl),
+    baseUrl,
+    apiKey,
+    model: model || null,
+    ...(store.updatedAt ? { updatedAt: store.updatedAt } : {}),
+  };
+}
+
+/** Whether two profiles hold the same settings (timestamps ignored). */
+function sameSettings(a: StoredProfile, b: StoredProfile): boolean {
+  return (
+    a.provider === b.provider &&
+    a.baseUrl.trim() === b.baseUrl.trim() &&
+    a.apiKey.trim() === b.apiKey.trim() &&
+    (a.model?.trim() || null) === (b.model?.trim() || null)
+  );
+}
+
+/**
+ * View the parsed store as named profiles. The top-level settings are
+ * authoritative for the active profile (see the module doc).
+ */
+function toProfileStore(store: DecideCredentialsStore): ProfileStore {
+  const profiles: Record<string, StoredProfile> = {};
+  for (const [name, value] of Object.entries(store.profiles ?? {})) {
+    if (!isValidDecideProfileName(name)) continue;
+    const parsed = profileSchema.safeParse(value);
+    if (parsed.success) profiles[name] = parsed.data;
+  }
+  const named = store.active && isValidDecideProfileName(store.active) ? store.active : null;
+  const top = topLevelProfile(store);
+  if (!top) {
+    // An older CLEO cleared the settings (or nothing was ever configured).
+    return { profiles, active: null, reconciled: named !== null && named in profiles };
+  }
+  const name = named ?? top.provider;
+  const existing = profiles[name];
+  profiles[name] = existing && sameSettings(existing, top) ? existing : top;
+  return {
+    profiles,
+    active: name,
+    reconciled: existing !== undefined && !sameSettings(existing, top),
+  };
+}
+
+/** The shape this module writes: the parsed shape with typed profiles. */
+interface WrittenStore {
+  readonly version: typeof DECIDE_CREDENTIALS_VERSION;
+  readonly provider?: DecisionProviderKind;
+  readonly baseUrl: string | null;
+  readonly apiKey: string | null;
+  readonly model?: string | null;
+  readonly updatedAt?: string;
+  readonly active?: string;
+  readonly profiles?: Readonly<Record<string, StoredProfile>>;
+}
+
+/** The empty store as written. */
+const EMPTY_WRITTEN: WrittenStore = {
+  version: DECIDE_CREDENTIALS_VERSION,
+  baseUrl: null,
+  apiKey: null,
+};
+
+/** Render named profiles back to the on-disk shape (top-level = active profile). */
+function fromProfileStore(ps: ProfileStore): WrittenStore {
+  const names = Object.keys(ps.profiles).sort();
+  if (names.length === 0) return EMPTY_WRITTEN;
+  const active = ps.active ? ps.profiles[ps.active] : undefined;
+  return {
+    version: DECIDE_CREDENTIALS_VERSION,
+    ...(active ? { provider: active.provider } : {}),
+    baseUrl: active?.baseUrl ?? null,
+    apiKey: active?.apiKey ?? null,
+    model: active?.model ?? null,
+    updatedAt: new Date().toISOString(),
+    ...(active && ps.active ? { active: ps.active } : {}),
+    profiles: Object.fromEntries(
+      names.flatMap((n) => {
+        const profile = ps.profiles[n];
+        return profile ? [[n, profile] as const] : [];
+      }),
+    ),
+  };
+}
+
 /** Settings accepted by {@link saveDecideCredentials}. */
 export interface DecideCredentialsInput {
   /** Provider kind. Omitted → `jev` (a custom endpoint). */
@@ -106,6 +274,16 @@ export interface DecideCredentialsInput {
   readonly apiKey: string;
   /** Optional default model; omitted → the request carries no model. */
   readonly model?: string;
+  /**
+   * Profile to add or update (T12733). Omitted → the provider kind's name
+   * (`layahost` or `jev`). Other profiles are kept.
+   */
+  readonly profile?: string;
+  /**
+   * Make the profile the active one. Omitted → true when no profile is active
+   * yet (the first profile) or the profile is already active; else false.
+   */
+  readonly activate?: boolean;
 }
 
 /** Secret-free description of the stored settings. Safe to log and to emit in envelopes. */
@@ -124,6 +302,10 @@ export interface DecideCredentialsSummary {
   readonly keyPreview?: string;
   /** ISO timestamp of the last write, when known. */
   readonly updatedAt?: string;
+  /** Name of the profile described (T12733), when one is stored. */
+  readonly profile?: string;
+  /** Name of the active profile (T12733), when one is active. */
+  readonly activeProfile?: string;
 }
 
 /**
@@ -290,29 +472,132 @@ export function sameDecideHost(a: string, b: string): boolean {
   }
 }
 
-/**
- * Load the stored connection. Synchronous and total: missing, malformed or
- * incomplete settings return `null` (the decision client then falls back to
- * heuristics).
- *
- * @returns The sealed connection, or `null` when unconfigured.
- */
-export function loadDecideConnection(): SealedDecideConnection | null {
-  const store = readStoreSync();
-  const baseUrl = store.baseUrl?.trim();
-  const apiKey = store.apiKey?.trim();
+/** Seal a stored profile, or `null` when its URL or key is unusable. */
+function sealProfile(profile: StoredProfile | undefined): SealedDecideConnection | null {
+  if (!profile) return null;
+  const baseUrl = profile.baseUrl.trim();
+  const apiKey = profile.apiKey.trim();
   if (!baseUrl || !apiKey || !isAllowedDecideBaseUrl(baseUrl)) return null;
-  const model = store.model?.trim();
+  const model = profile.model?.trim();
   return new SealedDecideConnection(
     baseUrl,
     apiKey,
     model && isValidDecisionModelName(model) ? model : undefined,
-    store.provider ?? 'jev',
+    profile.provider,
   );
 }
 
+/** Read the store as named profiles. Never throws. */
+function readProfileStoreSync(path: string = decideCredentialsPath()): ProfileStore {
+  return toProfileStore(readStoreSync(path));
+}
+
+/** Human rule for profile names, used in error messages. */
+const PROFILE_NAME_RULE =
+  '(use 1-32 lowercase letters, digits or -, starting and ending with a letter or digit)';
+
+/** ` (profiles: a, b)`, or ` (no profiles are stored)`. */
+function knownNames(ps: ProfileStore): string {
+  const names = Object.keys(ps.profiles).sort();
+  return names.length ? ` (profiles: ${names.join(', ')})` : ' (no profiles are stored)';
+}
+
 /**
- * Describe the stored settings without the key.
+ * Load the ACTIVE profile's connection: what everyday decisions use. Reads
+ * the top-level settings, which are the active profile. Synchronous and
+ * total: missing, malformed or incomplete settings return `null` (the
+ * decision client then falls back to heuristics).
+ *
+ * @returns The sealed connection, or `null` when unconfigured.
+ */
+export function loadDecideConnection(): SealedDecideConnection | null {
+  const top = topLevelProfile(readStoreSync());
+  return top ? sealProfile(top) : null;
+}
+
+/**
+ * Load a named profile's connection without changing the active profile.
+ * Total: an unknown name or unusable settings return `null`.
+ *
+ * @param name - Profile name.
+ * @returns The sealed connection, or `null`.
+ */
+export function loadDecideProfile(name: string): SealedDecideConnection | null {
+  if (!isValidDecideProfileName(name)) return null;
+  return sealProfile(readProfileStoreSync().profiles[name]);
+}
+
+/**
+ * Resolve a named profile to its connection, for callers (the System One
+ * benchmark) that address a profile by name without switching the active
+ * one. The key stays sealed; call {@link SealedDecideConnection.connection}
+ * where the request is built.
+ *
+ * @param name - Profile name, e.g. `layahost` or `jev`.
+ * @returns The sealed connection.
+ * @throws {DecideCredentialsError} When the name is invalid, unknown, or its
+ *   settings are unusable. The message lists the stored profile names.
+ */
+export function resolveDecideProfile(name: string): SealedDecideConnection {
+  assertProfileName(name);
+  const ps = readProfileStoreSync();
+  const profile = ps.profiles[name];
+  if (!profile) {
+    throw new DecideCredentialsError(`no System One profile named '${name}'${knownNames(ps)}`);
+  }
+  const sealed = sealProfile(profile);
+  if (!sealed) {
+    throw new DecideCredentialsError(
+      `System One profile '${name}' has an unusable URL or key; store it again with: cleo decide config --profile ${name}`,
+    );
+  }
+  return sealed;
+}
+
+/** Secret-free summary of one stored profile. */
+function summarizeProfile(
+  name: string,
+  profile: StoredProfile,
+  active: string | null,
+): DecideProfileSummary {
+  const model = profile.model?.trim();
+  return {
+    name,
+    active: name === active,
+    configured: sealProfile(profile) !== null,
+    provider: profile.provider,
+    baseUrl: withoutUserinfo(profile.baseUrl),
+    ...(model ? { model } : {}),
+    keyPreview: maskApiKey(profile.apiKey),
+    ...(profile.updatedAt ? { updatedAt: profile.updatedAt } : {}),
+  };
+}
+
+/**
+ * List every stored profile, the active one marked, keys masked. The
+ * benchmark uses it to enumerate the profiles it can call by name.
+ *
+ * @returns The profiles sorted by name, the active name, and whether the
+ *   top-level settings overrode a stale active entry (an older CLEO rewrote the file).
+ */
+export function listDecideProfiles(): DecideProfileListResult {
+  const path = decideCredentialsPath();
+  const ps = readProfileStoreSync(path);
+  return {
+    path,
+    active: ps.active,
+    profiles: Object.keys(ps.profiles)
+      .sort()
+      .flatMap((name) => {
+        const profile = ps.profiles[name];
+        return profile ? [summarizeProfile(name, profile, ps.active)] : [];
+      }),
+    reconciled: ps.reconciled,
+  };
+}
+
+/**
+ * Describe the ACTIVE profile's settings without the key.
  *
  * @returns A secret-free summary.
  */
@@ -320,6 +605,7 @@ export function describeDecideCredentials(): DecideCredentialsSummary {
   const path = decideCredentialsPath();
   const store = readStoreSync(path);
   const sealed = loadDecideConnection();
+  const active = toProfileStore(store).active;
   return {
     configured: sealed !== null,
     path,
@@ -328,6 +614,33 @@ export function describeDecideCredentials(): DecideCredentialsSummary {
     ...(store.model ? { model: store.model } : {}),
     ...(store.apiKey ? { keyPreview: maskApiKey(store.apiKey) } : {}),
     ...(store.updatedAt ? { updatedAt: store.updatedAt } : {}),
+    ...(active ? { profile: active, activeProfile: active } : {}),
+  };
+}
+
+/**
+ * Describe one named profile's settings without the key.
+ *
+ * @param name - Profile name.
+ * @returns A secret-free summary; `configured: false` when the profile is unknown.
+ */
+export function describeDecideProfile(name: string): DecideCredentialsSummary {
+  const path = decideCredentialsPath();
+  const ps = readProfileStoreSync(path);
+  const profile = isValidDecideProfileName(name) ? ps.profiles[name] : undefined;
+  const activeProfile = ps.active ? { activeProfile: ps.active } : {};
+  if (!profile) return { configured: false, path, ...activeProfile };
+  const summary = summarizeProfile(name, profile, ps.active);
+  return {
+    configured: summary.configured,
+    path,
+    provider: summary.provider,
+    baseUrl: summary.baseUrl,
+    ...(summary.model ? { model: summary.model } : {}),
+    keyPreview: summary.keyPreview,
+    ...(summary.updatedAt ? { updatedAt: summary.updatedAt } : {}),
+    profile: name,
+    ...activeProfile,
   };
 }
 
@@ -419,13 +732,43 @@ function ensureStoreFile(path: string): void {
 }
 
 /**
- * Store the provider kind, base URL, API key and optional model (0600, locked,
- * atomic). Writes schema version 1 with the optional `provider` field.
+ * Validate a profile name.
  *
- * @param input - Settings to store; replaces any previous settings.
- * @returns Secret-free summary of what is now stored.
+ * @throws {DecideCredentialsError} When the name is invalid.
+ */
+function assertProfileName(name: string): void {
+  if (!isValidDecideProfileName(name)) {
+    throw new DecideCredentialsError(`invalid profile name '${name}' ${PROFILE_NAME_RULE}`);
+  }
+}
+
+/**
+ * Apply `change` to the named profiles under the store lock and write the
+ * result (0600, atomic), keeping the top-level settings equal to the active
+ * profile. `change` may throw a {@link DecideCredentialsError} to abort
+ * without writing.
+ */
+async function mutateProfiles(change: (ps: ProfileStore) => ProfileStore): Promise<void> {
+  const path = decideCredentialsPath();
+  guardWrite(path);
+  ensureStoreFile(path);
+  await withLock<WrittenStore>(
+    path,
+    (current) => fromProfileStore(change(toProfileStore(parseStore(current) ?? EMPTY_STORE))),
+    { mode: 0o600 },
+  );
+}
+
+/**
+ * Store a profile: provider kind, base URL, API key and optional model (0600,
+ * locked, atomic). Adds the profile or replaces that profile's settings;
+ * every other profile is kept. Writes schema version 1 with the active
+ * profile mirrored at the top level.
+ *
+ * @param input - Settings to store, the profile name and whether to activate it.
+ * @returns Secret-free summary of the profile now stored.
  * @throws {DecideCredentialsError} When the URL is not https (or loopback http), the key is
- *   blank, the model name is invalid, or the store or its backups are symlinks.
+ *   blank, the model or profile name is invalid, or the store or its backups are symlinks.
  */
 export async function saveDecideCredentials(
   input: DecideCredentialsInput,
@@ -433,6 +776,9 @@ export async function saveDecideCredentials(
   const baseUrl = input.baseUrl.trim();
   const apiKey = input.apiKey.trim();
   const model = input.model?.trim();
+  const provider = input.provider ?? 'jev';
+  const name = input.profile?.trim() || provider;
+  assertProfileName(name);
   if (hasUserinfo(baseUrl)) {
     throw new DecideCredentialsError(
       'base URL must not contain a username or password (user:pass@host); supply only the URL and the API key',
@@ -451,38 +797,100 @@ export async function saveDecideCredentials(
   if (!apiKey) throw new DecideCredentialsError('API key must not be empty');
   if (/\s/.test(apiKey)) throw new DecideCredentialsError('API key must not contain whitespace');
 
-  const path = decideCredentialsPath();
-  guardWrite(path);
-  ensureStoreFile(path);
-  await withLock<DecideCredentialsStore>(
-    path,
-    () => ({
-      version: DECIDE_CREDENTIALS_VERSION,
-      provider: input.provider ?? 'jev',
+  await mutateProfiles((ps) => {
+    const activate = input.activate ?? (ps.active === null || ps.active === name);
+    const profile: StoredProfile = {
+      provider,
       baseUrl,
       apiKey,
       model: model || null,
       updatedAt: new Date().toISOString(),
-    }),
-    { mode: 0o600 },
-  );
-  return describeDecideCredentials();
+    };
+    return {
+      profiles: { ...ps.profiles, [name]: profile },
+      active: activate ? name : ps.active,
+      reconciled: false,
+    };
+  });
+  return describeDecideProfile(name);
 }
 
 /**
- * Remove the stored settings: the store is overwritten with empty settings
- * and every rotated backup of it (which may hold an old key) is deleted.
+ * Make `name` the active profile: everyday decisions use it from now on.
+ *
+ * @param name - An existing profile.
+ * @returns The profile list after the switch.
+ * @throws {DecideCredentialsError} When the name is invalid or unknown.
+ */
+export async function useDecideProfile(name: string): Promise<DecideProfileListResult> {
+  assertProfileName(name);
+  await mutateProfiles((ps) => {
+    if (!ps.profiles[name]) {
+      throw new DecideCredentialsError(`no System One profile named '${name}'${knownNames(ps)}`);
+    }
+    return { ...ps, active: name, reconciled: false };
+  });
+  return listDecideProfiles();
+}
+
+/**
+ * Remove a profile, then delete every rotated backup of the store (a backup
+ * may hold the removed key). The active profile is removed only when `use`
+ * names another profile to activate in its place.
+ *
+ * @param name - Profile to remove.
+ * @param use - Profile to activate instead; required when `name` is active.
+ * @returns The profile list after the removal.
+ * @throws {DecideCredentialsError} When a name is invalid or unknown, or
+ *   `name` is active and `use` is missing or names it.
+ */
+export async function removeDecideProfile(
+  name: string,
+  use?: string,
+): Promise<DecideProfileListResult> {
+  assertProfileName(name);
+  if (use !== undefined) assertProfileName(use);
+  await mutateProfiles((ps) => {
+    if (!ps.profiles[name]) {
+      throw new DecideCredentialsError(`no System One profile named '${name}'${knownNames(ps)}`);
+    }
+    let active = ps.active;
+    if (use !== undefined) {
+      if (use === name || !ps.profiles[use]) {
+        throw new DecideCredentialsError(`--use must name another stored profile${knownNames(ps)}`);
+      }
+      active = use;
+    }
+    if (active === name) {
+      throw new DecideCredentialsError(
+        `'${name}' is the active profile: name the profile to activate instead with --use <profile>, or remove every profile with --clear`,
+      );
+    }
+    const profiles = Object.fromEntries(
+      Object.entries(ps.profiles).filter(([profileName]) => profileName !== name),
+    );
+    return { profiles, active, reconciled: false };
+  });
+  purgeBackups(decideCredentialsPath());
+  return listDecideProfiles();
+}
+
+/**
+ * Remove every profile: the store is overwritten with empty settings and
+ * every rotated backup of it (which may hold an old key) is deleted.
  *
  * @returns True when settings were present before the call.
  */
 export async function clearDecideCredentials(): Promise<boolean> {
   const path = decideCredentialsPath();
   const before = readStoreSync(path);
-  const hadSettings = Boolean(before.baseUrl || before.apiKey || before.model);
+  const hadSettings = Boolean(
+    before.baseUrl || before.apiKey || before.model || Object.keys(before.profiles ?? {}).length,
+  );
   guardWrite(path);
   if (existsSync(path)) {
     ensureStoreFile(path);
-    await withLock<DecideCredentialsStore>(path, () => EMPTY_STORE, { mode: 0o600 });
+    await withLock<WrittenStore>(path, () => EMPTY_WRITTEN, { mode: 0o600 });
   }
   purgeBackups(path);
   return hadSettings;

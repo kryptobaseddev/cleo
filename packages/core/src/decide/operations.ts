@@ -10,6 +10,10 @@
  */
 
 import {
+  type DecideProfileListResult,
+  type DecideProfileProbe,
+  type DecideProfileSummary,
+  type DecideProviderState as DecideProviderStateContract,
   type DecisionAnswer,
   type DecisionProviderCapabilities,
   type DecisionProviderKind,
@@ -28,7 +32,10 @@ import {
   DecideCredentialsError,
   type DecideCredentialsSummary,
   describeDecideCredentials,
+  isValidDecideProfileName,
+  listDecideProfiles,
   loadDecideConnection,
+  loadDecideProfile,
   type SealedDecideConnection,
   sameDecideHost,
   saveDecideCredentials,
@@ -66,12 +73,7 @@ export const DEFAULT_DECIDE_ASK_TIMEOUT_MS = 10_000;
  * - `unconfigured` — no valid base URL + key stored.
  * - `unreachable`  — network failure, timeout, or any other HTTP status.
  */
-export type DecideProviderState =
-  | 'reachable'
-  | 'unauthorized'
-  | 'key_limit_reached'
-  | 'unconfigured'
-  | 'unreachable';
+export type DecideProviderState = DecideProviderStateContract;
 
 /** Month-to-date spend against the CLEO cap (D11159). */
 export interface DecideSpendSummary {
@@ -311,8 +313,20 @@ export interface DecideConfigureInput {
    * the provider's preset URL. Required for `jev` when nothing is stored.
    */
   readonly baseUrl?: string;
-  /** API key. Omitted → the stored key is kept. */
+  /** API key. Omitted → the profile's stored key is kept. */
   readonly apiKey?: string;
+  /**
+   * Profile to add or update (T12733); other profiles are kept. Omitted →
+   * the `provider` name when one is given, else the active profile, else the
+   * resolved provider kind's name.
+   */
+  readonly profile?: string;
+  /**
+   * Make the profile active. Omitted → true for the first profile or one that
+   * is already active, else false (adding a second key never silently
+   * switches everyday decisions).
+   */
+  readonly activate?: boolean;
   /**
    * Default model. Omitted → the stored model when the URL is unchanged;
    * otherwise the preset default (`layahost`), else the first model the
@@ -327,6 +341,8 @@ export interface DecideConfigureInput {
 
 /** Result of {@link configureDecide}. */
 export interface DecideConfigureResult extends DecideCredentialsSummary {
+  /** Whether the configured profile is now the active one. */
+  readonly active: boolean;
   /** Where the stored model came from. */
   readonly modelSource: 'flag' | 'stored' | 'preset' | 'provider-listing' | 'none';
   /** Reachability verdict of the probe run after saving. */
@@ -381,16 +397,40 @@ function resolveBaseUrl(
  * A URL whose host differs from the stored one must come with a fresh key:
  * the stored key is never re-used (or sent in the model probe) for a new host.
  *
- * @param input - Provider, URL, key, optional model.
+ * Profiles (T12733): the settings go to one named profile (see
+ * {@link DecideConfigureInput.profile}); every other profile is kept, and a
+ * new profile needs its own key. The post-save probe targets that profile,
+ * active or not.
+ *
+ * @param input - Provider, URL, key, optional model, profile and activation.
  * @returns Secret-free summary plus the model's provenance and the probe verdict.
  * @throws {DecideCredentialsError} On an invalid URL, `jev` without a URL, a
- *   blank key, an invalid model name, or a host change without a fresh key.
+ *   blank key, an invalid model or profile name, a new profile without a key, or
+ *   a host change without a fresh key.
  */
 export async function configureDecide(input: DecideConfigureInput): Promise<DecideConfigureResult> {
-  const stored = loadDecideConnection();
-  const provider = resolveProviderKind(input, stored);
+  const explicitName = input.profile?.trim() || undefined;
+  if (explicitName && !isValidDecideProfileName(explicitName)) {
+    throw new DecideCredentialsError(
+      `invalid profile name '${explicitName}' (use 1-32 lowercase letters, digits or -, starting and ending with a letter or digit)`,
+    );
+  }
+  // Which profile: --profile, else --provider's name, else (no new URL) the active one.
+  let name: string | undefined = explicitName ?? input.provider;
+  if (!name && !input.baseUrl?.trim()) name = listDecideProfiles().active ?? undefined;
+  const provider = resolveProviderKind(
+    input,
+    name ? loadDecideProfile(name) : loadDecideConnection(),
+  );
+  const profile = name ?? provider;
+  const stored = loadDecideProfile(profile);
   const baseUrl = resolveBaseUrl(input, provider, stored);
   const freshKey = input.apiKey?.trim();
+  if (!freshKey && !stored) {
+    throw new DecideCredentialsError(
+      `profile '${profile}' has no stored key; pass --key-stdin (keys are never copied between profiles)`,
+    );
+  }
   if (!freshKey && stored && !sameDecideHost(stored.baseUrl, baseUrl)) {
     throw new DecideCredentialsError(
       'changing the provider host requires a fresh key; pass --key-stdin (the stored key is never sent to a new host)',
@@ -417,14 +457,17 @@ export async function configureDecide(input: DecideConfigureInput): Promise<Deci
     baseUrl,
     apiKey,
     ...(model ? { model } : {}),
+    profile,
+    ...(input.activate !== undefined ? { activate: input.activate } : {}),
   });
   const probe = await probeDecideProvider({
-    connection: loadDecideConnection(),
+    connection: loadDecideProfile(profile),
     fetch: input.fetch,
     timeoutMs: input.timeoutMs,
     refreshCapabilities: true,
   });
   const verdict = {
+    active: saved.activeProfile === profile,
     providerState: probe.state,
     ...(probe.capabilities ? { capabilities: probe.capabilities } : {}),
   };
@@ -441,8 +484,63 @@ export async function configureDecide(input: DecideConfigureInput): Promise<Deci
       warning: `No model stored (${why}). ${NO_MODEL_WARNING}`,
     };
   }
-  const withModel = await saveDecideCredentials({ provider, baseUrl, apiKey, model: first });
+  const withModel = await saveDecideCredentials({
+    provider,
+    baseUrl,
+    apiKey,
+    model: first,
+    profile,
+    activate: saved.activeProfile === profile,
+  });
   return { ...withModel, modelSource: 'provider-listing', ...verdict };
+}
+
+/** Options for {@link listDecideProfilesReport}. */
+export interface DecideProfilesReportOptions {
+  /** Probe each profile's `GET /v1/models`. Default false (no network). */
+  readonly probe?: boolean;
+  /** `fetch` for the probes; tests inject a stub. */
+  readonly fetch?: typeof fetch;
+  /** Deadline per probe, ms. Default {@link DEFAULT_DECIDE_PROBE_TIMEOUT_MS}. */
+  readonly timeoutMs?: number;
+  /** Provider-state file for the probes. Default: `<cleoHome>/decide/provider-state.json`. */
+  readonly providerStatePath?: string;
+}
+
+/**
+ * `cleo decide profiles`: every stored profile with the active one marked and
+ * keys masked; with `probe`, each profile's reachability (probed in parallel).
+ * Never throws.
+ *
+ * @param opts - Whether to probe, plus the injectable `fetch` and deadline.
+ * @returns The secret-free profile list.
+ */
+export async function listDecideProfilesReport(
+  opts: DecideProfilesReportOptions = {},
+): Promise<DecideProfileListResult> {
+  const list = listDecideProfiles();
+  if (opts.probe !== true) return list;
+  const profiles = await Promise.all(
+    list.profiles.map(async (summary): Promise<DecideProfileSummary> => {
+      const result = await probeDecideProvider({
+        connection: loadDecideProfile(summary.name),
+        spend: null,
+        ...(opts.fetch ? { fetch: opts.fetch } : {}),
+        ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+        ...(opts.providerStatePath !== undefined
+          ? { providerStatePath: opts.providerStatePath }
+          : {}),
+      });
+      const probe: DecideProfileProbe = {
+        state: result.state,
+        ...(result.httpStatus !== undefined ? { httpStatus: result.httpStatus } : {}),
+        ...(result.latencyMs !== undefined ? { latencyMs: result.latencyMs } : {}),
+        ...(result.detail ? { detail: result.detail } : {}),
+      };
+      return { ...summary, probe };
+    }),
+  );
+  return { ...list, profiles };
 }
 
 /**
@@ -467,6 +565,8 @@ export interface DecideAskInput {
   readonly timeoutMs?: number;
   /** Project root for the audit line. Default: the resolved project root. */
   readonly projectRoot?: string;
+  /** Profile to ask through (T12733). Default: the active profile. */
+  readonly profile?: string;
 }
 
 /** Result of {@link askDecideDebug}. */
@@ -527,7 +627,7 @@ function teeAudit(projectRoot: string | undefined): {
  * @returns The typed answer with source, fallback reason, latency and cost.
  */
 export async function askDecideDebug(input: DecideAskInput): Promise<DecideAskResult> {
-  const sealed = loadDecideConnection();
+  const sealed = input.profile ? loadDecideProfile(input.profile) : loadDecideConnection();
   const audit = teeAudit(input.projectRoot);
   const outcome = await decide(
     DECIDE_ASK_DECISION_SITE.id,

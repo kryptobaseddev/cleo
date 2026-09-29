@@ -241,6 +241,80 @@ export const LAYAHOST_BASE_URL = 'https://layahost.com';
 /** layahost's routing model, the default for a layahost connection. */
 export const LAYAHOST_DEFAULT_MODEL = 'laya-auto';
 
+// ─── Named provider profiles (T12733) ────────────────────────────────────────
+
+/**
+ * A valid profile name: 1-32 characters of lowercase letters, digits and
+ * `-`, starting and ending with a letter or digit (e.g. `layahost`,
+ * `jev-lab`).
+ */
+export const DECIDE_PROFILE_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/;
+
+/**
+ * Reachability of a decision provider, as `GET /v1/models` reports it.
+ *
+ * - `reachable`         — the listing answered 2xx.
+ * - `unauthorized`      — the provider rejected the key.
+ * - `key_limit_reached` — the key's monthly decision limit is reached.
+ * - `unconfigured`      — no valid base URL + key stored.
+ * - `unreachable`       — network failure, timeout, or any other HTTP status.
+ */
+export type DecideProviderState =
+  | 'reachable'
+  | 'unauthorized'
+  | 'key_limit_reached'
+  | 'unconfigured'
+  | 'unreachable';
+
+/** Result of probing one profile (`cleo decide profiles --probe`). Secret-free. */
+export interface DecideProfileProbe {
+  /** Reachability verdict. */
+  readonly state: DecideProviderState;
+  /** HTTP status of the probe, when one was received. */
+  readonly httpStatus?: number;
+  /** Probe latency, ms. */
+  readonly latencyMs?: number;
+  /** Secret-free explanation, when there is one. */
+  readonly detail?: string;
+}
+
+/** One named System One provider profile, as listed. Carries no key, only its masked preview. */
+export interface DecideProfileSummary {
+  /** Profile name. */
+  readonly name: string;
+  /** Whether everyday decisions use this profile. Exactly one profile is active when any is. */
+  readonly active: boolean;
+  /** Whether the profile holds an acceptable base URL and a non-blank key. */
+  readonly configured: boolean;
+  /** Provider kind. */
+  readonly provider: DecisionProviderKind;
+  /** Base URL (userinfo removed). */
+  readonly baseUrl: string;
+  /** Default model, when stored. */
+  readonly model?: string;
+  /** Masked key preview (`…abcd`). */
+  readonly keyPreview: string;
+  /** ISO timestamp of the profile's last write, when known. */
+  readonly updatedAt?: string;
+  /** Reachability, when probed. */
+  readonly probe?: DecideProfileProbe;
+}
+
+/** Result of listing the System One profiles. Secret-free. */
+export interface DecideProfileListResult {
+  /** Absolute path of the credential store. */
+  readonly path: string;
+  /** Name of the active profile, or `null` when none is configured. */
+  readonly active: string | null;
+  /** Every stored profile, sorted by name. */
+  readonly profiles: readonly DecideProfileSummary[];
+  /**
+   * True when the top-level settings disagreed with the active profile's
+   * entry (an older CLEO rewrote the file) and were taken as authoritative.
+   */
+  readonly reconciled: boolean;
+}
+
 /** Connection settings for a decision provider. */
 export interface DecisionProviderConfig {
   /** Absolute base URL of the provider's API (no trailing path to the endpoint). */

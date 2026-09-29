@@ -78,6 +78,7 @@ describe('runDecideWizard', () => {
     const selectSpy = vi.spyOn(StubWizardIO.prototype, 'select');
     const io = new StubWizardIO({
       selects: [LAYA, 'laya-auto'],
+      prompts: [''], // T12733: Enter keeps the provider name as the profile name
       secrets: [KEY],
       confirms: [true],
     });
@@ -114,7 +115,7 @@ describe('runDecideWizard', () => {
     const fetchStub = providerFetch(['jev-a', 'jev-b']);
     const io = new StubWizardIO({
       selects: [JEV, 'jev-b'],
-      prompts: ['http://remote.example', JEV_URL],
+      prompts: ['', 'http://remote.example', JEV_URL],
       secrets: [KEY],
       confirms: [false],
     });
@@ -132,7 +133,7 @@ describe('runDecideWizard', () => {
   it('jev path with an empty listing asks for the model name', async () => {
     const io = new StubWizardIO({
       selects: [JEV],
-      prompts: [JEV_URL, 'custom-model'],
+      prompts: ['', JEV_URL, 'custom-model'],
       secrets: [KEY],
       confirms: [false],
     });
@@ -141,7 +142,12 @@ describe('runDecideWizard', () => {
   });
 
   it('a failed probe asks before saving; declining stores nothing', async () => {
-    const io = new StubWizardIO({ selects: [LAYA], secrets: [KEY], confirms: [false] });
+    const io = new StubWizardIO({
+      selects: [LAYA],
+      prompts: [''],
+      secrets: [KEY],
+      confirms: [false],
+    });
     const result = await runDecideWizard(io, {
       fetch: vi.fn(async () => new Response('{}', { status: 401 })),
     });
@@ -154,7 +160,7 @@ describe('runDecideWizard', () => {
   });
 
   it('an empty key leaves the settings unchanged', async () => {
-    const io = new StubWizardIO({ selects: [LAYA], secrets: [''] });
+    const io = new StubWizardIO({ selects: [LAYA], prompts: [''], secrets: [''] });
     const result = await runDecideWizard(io, { fetch: vi.fn() });
     expect(result).toMatchObject({ configured: false, summary: 'skipped (empty api key)' });
     expect(loadDecideConnection()).toBeNull();
@@ -178,7 +184,12 @@ describe('system-one setup section', () => {
     const declined = await section.run(new StubWizardIO(), {});
     expect(declined).toMatchObject({ changed: false, summary: 'skipped (not now)' });
 
-    const io = new StubWizardIO({ confirms: [true, false], selects: [LAYA], secrets: [KEY] });
+    const io = new StubWizardIO({
+      confirms: [true, false],
+      selects: [LAYA],
+      prompts: [''],
+      secrets: [KEY],
+    });
     const ran = await section.run(io, {});
     expect(ran.changed).toBe(true);
     expect(await section.isConfigured?.({})).toBe(true);
