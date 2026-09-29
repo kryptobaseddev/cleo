@@ -44,10 +44,12 @@ import type {
   VerificationGate,
   WaveRollup,
 } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts';
 import { getConfigValue } from '../config/registry.js';
+import { CleoError } from '../errors.js';
 import { resolveOrCwd } from '../paths.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { computeWaves } from './waves.js';
+import { planEpicWaves } from './waves.js';
 
 /**
  * Optional conduit message used to enrich the rollup with live status
@@ -115,6 +117,24 @@ export async function resolveLeadRollupMode(projectRoot?: string): Promise<LeadR
 }
 
 /**
+ * Refuse a wave number `cleo orchestrate waves` never prints. Roll-up counted
+ * from 0 while the waves listing counts from 1 (T12682); a 0 now fails loudly
+ * instead of silently meaning the first wave.
+ *
+ * @param waveId - Requested wave number.
+ * @throws {CleoError} When it is not an integer of at least 1.
+ */
+function assertWaveNumber(waveId: number): void {
+  if (!Number.isInteger(waveId) || waveId < 1) {
+    throw new CleoError(
+      ExitCode.VALIDATION_ERROR,
+      `Wave ${waveId} does not exist: waves are numbered from 1, as \`cleo orchestrate waves\` prints them.`,
+      { fix: 'cleo orchestrate waves <epicId>' },
+    );
+  }
+}
+
+/**
  * Compute a roll-up for a single wave of an epic.
  *
  * @remarks
@@ -122,18 +142,20 @@ export async function resolveLeadRollupMode(projectRoot?: string): Promise<LeadR
  * Conflicting histories and failed reads reject rather than imply missing evidence.
  *
  * @param epicId - Parent epic ID.
- * @param waveId - Wave number (0 = first wave). Must match `cleo deps waves`
- *   output.
+ * @param waveId - Wave number as `cleo orchestrate waves` prints it (1 =
+ *   first wave, T12682). The same plan numbers the wave topic
+ *   `epic-<epicId>.wave-<waveId>` its workers publish on.
  * @param projectRoot - Optional project root for SDK consumers (test fixtures
  *   pass an explicit root; CLI consumers omit it). Also used to resolve the
  *   `leadRollup.mode` feature flag from the project config cascade.
  * @param options - Optional inputs (conduit messages).
  * @returns A `WaveRollup` shape. Returns an empty wave (`workers: []`) when
  *   the wave has no tasks.
- * @throws If manifest history conflicts or a canonical store read fails.
+ * @throws If manifest history conflicts or a canonical store read fails, or
+ *   `waveId` is not a wave number (from 1).
  * @example
  * ```ts
- * const wave = await rollupWaveStatus("T100", 0, "/project", {});
+ * const wave = await rollupWaveStatus("T100", 1, "/project", {});
  * ```
  */
 export async function rollupWaveStatus(
@@ -142,6 +164,7 @@ export async function rollupWaveStatus(
   projectRoot?: string,
   options: RollupWaveStatusOptions = {},
 ): Promise<WaveRollup> {
+  assertWaveNumber(waveId);
   const mode = await resolveLeadRollupMode(projectRoot);
   const accessor = await getTaskAccessor(projectRoot);
 
@@ -163,12 +186,10 @@ export async function rollupWaveStatus(
       capturedAt: new Date().toISOString(),
     };
   }
-  const children = await accessor.getChildren(epicId);
-
-  // Compute wave structure for this epic. computeWaves expects all child tasks
-  // and groups them by dependency depth.
-  const waves = computeWaves(children);
-  const wave = waves[waveId];
+  // T12682: the plan `cleo orchestrate waves` prints — same dependency
+  // lookup, same 1-based numbers — never a second, differently indexed one.
+  const { children, waves } = await planEpicWaves(epicId, accessor);
+  const wave = waves.find((w) => w.waveNumber === waveId);
   if (!wave) {
     return {
       epicId,
@@ -310,7 +331,8 @@ function applyActiveModeHook(_workers: RollupWorker[], _blockers: RollupBlocker[
  * @param projectRoot - Optional explicit project root.
  * @param options - Optional pre-collected conduit messages.
  * @returns Rollups for every dependency wave and aggregate worker counts.
- * @throws If manifest history conflicts or a canonical store read fails.
+ * @throws If manifest history conflicts or a canonical store read fails, or
+ *   `waveId` is not a wave number (from 1).
  * @example
  * ```ts
  * const epic = await rollupEpicStatus("T100", "/project", {});
@@ -322,12 +344,11 @@ export async function rollupEpicStatus(
   options: RollupWaveStatusOptions = {},
 ): Promise<EpicRollup> {
   const accessor = await getTaskAccessor(projectRoot);
-  const children = await accessor.getChildren(epicId);
-  const waves = computeWaves(children);
+  const { waves } = await planEpicWaves(epicId, accessor);
 
   const waveRollups: WaveRollup[] = [];
-  for (let i = 0; i < waves.length; i++) {
-    waveRollups.push(await rollupWaveStatus(epicId, i, projectRoot, options));
+  for (const wave of waves) {
+    waveRollups.push(await rollupWaveStatus(epicId, wave.waveNumber, projectRoot, options));
   }
 
   const totalWorkers = waveRollups.reduce((sum, w) => sum + w.workers.length, 0);
@@ -368,8 +389,22 @@ async function loadLatestManifestPerTask(
   const out = new Map<string, LatestManifestRow>();
   if (taskIds.length === 0) return out;
 
-  const { readManifestEntries } = await import('../memory/pipeline-manifest-sqlite.js');
-  const entries = await readManifestEntries(projectRoot);
+  // T12686: one malformed stored row must not sink the whole roll-up. Skip
+  // it, name it, and point at the repair.
+  const { MANIFEST_ROW_REPAIR_COMMAND, readManifestEntriesSkippingMalformed } = await import(
+    '../memory/pipeline-manifest-sqlite.js'
+  );
+  const { entries, malformed } = await readManifestEntriesSkippingMalformed(projectRoot);
+  if (malformed.length > 0) {
+    const { pushWarning } = await import('../output.js');
+    for (const row of malformed) {
+      pushWarning({
+        code: 'W_MANIFEST_ROW_MALFORMED',
+        message: `Skipped manifest row '${row.entryId}' (${row.message}); roll-up reports the rest. Repair: ${MANIFEST_ROW_REPAIR_COMMAND}`,
+        severity: 'warn',
+      });
+    }
+  }
   for (const taskId of taskIds) {
     const entry = entries.find((candidate) => candidate.linked_tasks?.includes(taskId));
     if (entry) {

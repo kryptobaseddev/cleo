@@ -70,7 +70,7 @@ import { closeDb, getDb, getNativeTasksDb } from './sqlite.js';
 import { TERMINAL_TASK_STATUSES } from './status-registry.js';
 import { assertTaskVersion, nextTaskVersion } from './task-version.js';
 import * as schema from './tasks-schema.js';
-import { assertTwinCollapseWritable } from './twin-collapse.js';
+import { assertTwinCollapseWritable, bareCounterOf, mirrorCounterToBare } from './twin-collapse.js';
 import { withWriteRetry } from './with-retry.js';
 
 /**
@@ -133,6 +133,10 @@ async function writeMetaValue(cwd: string | undefined, key: string, value: unkno
       set: { value: json },
     })
     .run();
+  // T12535: a counter key (file_meta.generation, …) is raised in the bare row
+  // too, for the older build that still reads it there.
+  const native = getNativeTasksDb(cwd);
+  if (native) mirrorCounterToBare(native, key);
 }
 
 // The other raw `tasks_schema_meta` writers stay outside this accessor on
@@ -156,6 +160,8 @@ async function writeMetaValue(cwd: string | undefined, key: string, value: unkno
  */
 export function advanceTaskIdSequence(nativeDb: DatabaseSync, floor: number): number | undefined {
   assertTwinCollapseWritable(nativeDb);
+  // T12535: an id the older build reserved in the bare counter is taken too.
+  const lowest = Math.max(floor, bareCounterOf(nativeDb, 'task_id_sequence'));
   nativeDb
     .prepare(`
       UPDATE tasks_schema_meta
@@ -166,7 +172,10 @@ export function advanceTaskIdSequence(nativeDb: DatabaseSync, floor: number): nu
       )
       WHERE key = 'task_id_sequence'
     `)
-    .run(floor, floor);
+    .run(lowest, lowest);
+  // T12535: the older build allocates from the bare counter; raise it too, in
+  // this savepoint, so it never re-issues the id reserved here.
+  mirrorCounterToBare(nativeDb, 'task_id_sequence');
   const row = nativeDb
     .prepare(`
       SELECT json_extract(value, '$.counter') AS counter
@@ -480,6 +489,8 @@ async function createOwnedSqliteDataAccessor(
               detailsJson: entry.details ? JSON.stringify(entry.details) : '{}',
               beforeJson: entry.before ? JSON.stringify(entry.before) : null,
               afterJson: entry.after ? JSON.stringify(entry.after) : null,
+              // T12693: the session a ranking change ran in.
+              sessionId: typeof entry.sessionId === 'string' ? entry.sessionId : null,
             })
             .run(),
         );
@@ -489,6 +500,9 @@ async function createOwnedSqliteDataAccessor(
     async queryAuditLog(query: TaskAuditLogQuery): Promise<TaskAuditLogRow[]> {
       const db = await getDb(cwd);
       const conditions = [];
+      if (query.ids && query.ids.length > 0) {
+        conditions.push(inArray(tasksAuditLog.id, [...query.ids]));
+      }
       if (query.taskIds && query.taskIds.length > 0) {
         conditions.push(inArray(tasksAuditLog.taskId, [...query.taskIds]));
       }
@@ -509,6 +523,7 @@ async function createOwnedSqliteDataAccessor(
           detailsJson: tasksAuditLog.detailsJson,
           beforeJson: tasksAuditLog.beforeJson,
           afterJson: tasksAuditLog.afterJson,
+          sessionId: tasksAuditLog.sessionId,
         })
         .from(tasksAuditLog)
         .where(conditions.length > 0 ? and(...conditions) : undefined)
@@ -524,6 +539,7 @@ async function createOwnedSqliteDataAccessor(
         detailsJson: row.detailsJson ?? null,
         beforeJson: row.beforeJson ?? null,
         afterJson: row.afterJson ?? null,
+        sessionId: row.sessionId ?? null,
       }));
     },
 

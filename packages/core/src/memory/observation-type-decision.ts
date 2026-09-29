@@ -27,6 +27,7 @@
 import type { BrainObservationType, DecisionAnswer, DecisionRequest } from '@cleocode/contracts';
 import type { DecideOptions } from '../decide/client.js';
 import { type DecisionSiteMode, redactThenClip } from '../decide/site.js';
+import { OBSERVATION_TYPE_DECISION_SITE } from '../decide/sites/registry.js';
 
 /** Wait budget for the type decision, in ms (module load excluded; see `askSiteDecision`). */
 export const OBSERVATION_TYPE_BUDGET_MS = 300;
@@ -35,10 +36,10 @@ export const OBSERVATION_TYPE_BUDGET_MS = 300;
 export const OBSERVATION_TYPE_MIN_CONFIDENCE = 0.6;
 
 /** Call-site id for the type decision; keys the audit line. */
-export const OBSERVATION_TYPE_SITE = 'memory.observation-type';
+export const OBSERVATION_TYPE_SITE = OBSERVATION_TYPE_DECISION_SITE.id;
 
 /** Config key selecting the System One mode for the observation type. */
-export const OBSERVATION_TYPE_MODE_KEY = 'decide.sites.observationType';
+export const OBSERVATION_TYPE_MODE_KEY = OBSERVATION_TYPE_DECISION_SITE.modeKey;
 
 /** The types offered to the decision: exactly the ones the keyword heuristic can produce. */
 export const OBSERVATION_TYPE_OPTIONS = [

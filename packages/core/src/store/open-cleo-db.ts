@@ -63,6 +63,7 @@ import { getProjectInfoSync } from '../project-info.js';
 import type { DualScope } from './dual-scope-db.js';
 import { openDualScopeDb } from './dual-scope-db.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
+import { installSchemaWriteGuard } from './worktree-build-guard.js';
 import { assertDbPathIsNotWorktreeResident } from './worktree-isolation-guard.js';
 
 /**
@@ -381,6 +382,7 @@ export function openCleoDbSnapshot(
   };
 
   const db = new DatabaseSyncCtor(path, { readOnly });
+  if (!readOnly) installSchemaWriteGuard(db); // T12687
 
   if (applyPragmas) {
     // Read-only handles cannot set journal_mode; suppress WAL when readOnly.

@@ -79,6 +79,7 @@ import {
   resolveDualScopeDbPath,
 } from './dual-scope-db.js';
 import { openNativeDatabase } from './sqlite-native.js';
+import { installSchemaWriteGuard } from './worktree-build-guard.js';
 import {
   assertWriterLeaseActiveIndexPresent,
   WRITER_LEASES_ACTIVE_INDEX,
@@ -1639,6 +1640,7 @@ async function withRequiredColdOpenLease<T>(
     ? Math.max(1, opts.execution.deadlineAt - Date.now())
     : ACQUIRE_DEADLINE_MS;
   const owned = openNativeDatabase(path, { timeout: Math.min(ACQUIRE_DEADLINE_MS, remaining) });
+  installSchemaWriteGuard(owned); // T12687
   try {
     opts.execution?.assertActive();
     const afterOpen = statSync(path, { bigint: true });

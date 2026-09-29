@@ -12842,7 +12842,7 @@ export type MutateDocsUpdateData = {
          */
         message?: string;
         /**
-         * Override the new lifecycle status. Defaults to "draft" on every update. Valid: draft|proposed|accepted|superseded|archived|deprecated.
+         * Override the new lifecycle status. Defaults to "draft" on every update. Alone (no file or content) it changes only the lifecycle status. Valid: draft|proposed|accepted|superseded|archived|deprecated.
          */
         status?: 'draft' | 'proposed' | 'accepted' | 'superseded' | 'archived' | 'deprecated';
         /**

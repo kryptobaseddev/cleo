@@ -2,14 +2,18 @@
 name: ct-consensus-voter
 description: "Runs structured multi-agent voting for decision tasks with confidence scores, conflict detection, and HITL escalation when the threshold is not met. Use when two or more agents must vote on options: architecture choices, tool selection, policy decisions, when a task carries agent_type:analysis, or on phrases like 'reach consensus', 'vote on options', 'resolve the debate', 'pick the best approach'. Produces a voting matrix JSON, enforces the 0.5 threshold, flags ties within 0.1 confidence as contested and escalates to human tiebreak."
 protocol: consensus
-loomStage: consensus
 adrRefs:
   - ADR-015
   - ADR-023
 metadata:
-  version: 1.0.0
+  version: 1.0.2
   tier: on-demand
   install: harness
+  covers:
+    - packages/core/src/validation/protocols/cant/consensus.cant
+    - packages/core/src/validation/protocols/protocols-markdown/consensus.md
+  loomStage: consensus
+  lastReviewed: 2026-09-28
   stability: stable
 ---
 
@@ -134,10 +138,9 @@ On escalation:
 Validate the matrix through `cleo check protocol`:
 
 ```bash
-cleo check protocol \
-  --protocolType consensus \
-  --votingMatrixFile ./.cleo/rcasd/T4797/consensus/T4797-consensus.json \
-  --taskId T4797
+cleo check protocol consensus \
+  --voting-matrix-file ./.cleo/rcasd/T4797/consensus/T4797-consensus.json \
+  --task-id T4797
 ```
 
 Exit code 0 = matrix is valid and verdict is `PROVEN` or `REFUTED`. Exit code 65 = `HANDOFF_REQUIRED` (contested or insufficient evidence). Exit code 61 = `E_PROTOCOL_CONSENSUS` (matrix shape is invalid).
@@ -165,7 +168,7 @@ This skill typically hands off to ct-adr-recorder on a `PROVEN` verdict so the d
 5. Critical-severity conflicts always escalate, regardless of top-option confidence.
 6. Manifest entry MUST set `agent_type: "analysis"` and include the verdict.
 7. On PROVEN, hand off to ct-adr-recorder; on CONTESTED or INSUFFICIENT_EVIDENCE, hand off to HITL.
-8. Always validate via `cleo check protocol --protocolType consensus`.
+8. Always validate via `cleo check protocol consensus`.
 
 ## See also / References
 

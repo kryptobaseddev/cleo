@@ -14,6 +14,7 @@
 import { and, eq, isNotNull, or } from 'drizzle-orm';
 import { getBrainDb } from './memory-sqlite.js';
 import * as brainSchema from './schema/memory-schema.js';
+import { installSchemaWriteGuard } from './worktree-build-guard.js';
 
 /**
  * Clean up brain.db references after a task is deleted from tasks.db.
@@ -515,6 +516,7 @@ export async function agentExistsInAgentRegistryDb(
     const db = new DatabaseSync(dbPath);
     const { applyPerfPragmas } = await import('./sqlite-pragmas.js');
     applyPerfPragmas(db); // apply pragma SSoT (T9023)
+    installSchemaWriteGuard(db); // T12687
     try {
       const row = db
         .prepare('SELECT id FROM agent_registry_agents WHERE agent_id = ?')

@@ -2,14 +2,18 @@
 name: ct-adr-recorder
 description: "Records Architecture Decision Records from accepted consensus verdicts. Use when promoting a consensus outcome to a formal ADR: drafts the document in the proposed-then-accepted HITL lifecycle, links to the originating consensus manifest, persists the decision to the canonical SQLite decisions table, and triggers downstream invalidation when an accepted ADR is later superseded. Triggers on phrases like 'write ADR', 'record architecture decision', 'formalize this decision', 'lock in the choice', 'create ADR-XXX', or when a consensus task reaches completed status and needs formalization."
 protocol: architecture_decision
-loomStage: architecture_decision
 adrRefs:
   - ADR-053
   - ADR-070
 metadata:
-  version: 1.0.0
+  version: 1.0.2
   tier: on-demand
   install: harness
+  covers:
+    - packages/core/src/validation/protocols/cant/architecture-decision.cant
+    - packages/core/src/validation/protocols/protocols-markdown/architecture-decision.md
+  loomStage: architecture_decision
+  lastReviewed: 2026-09-28
   stability: stable
 ---
 
@@ -229,27 +233,24 @@ Validate every ADR manifest entry through `cleo check protocol`:
 
 ```bash
 # Draft reaches proposed: runs inside the skill, before HITL hand-off.
-cleo check protocol \
-  --protocolType architecture-decision \
-  --taskId T4798 \
+cleo check protocol architecture-decision \
+  --task-id T4798 \
   --status proposed \
-  --persistedInDb true \
-  --adrContent "$(cat docs/adr/ADR-0042.md)"
+  --persisted-in-db true \
+  --adr-content "$(cat docs/adr/ADR-0042.md)"
 
 # HITL accepts the ADR: rerun with the review flag.
-cleo check protocol \
-  --protocolType architecture-decision \
-  --taskId T4798 \
+cleo check protocol architecture-decision \
+  --task-id T4798 \
   --status accepted \
-  --hitlReviewed true \
-  --persistedInDb true
+  --hitl-reviewed true \
+  --persisted-in-db true
 
 # Later supersession: include the cascade flag.
-cleo check protocol \
-  --protocolType architecture-decision \
-  --taskId T4798 \
+cleo check protocol architecture-decision \
+  --task-id T4798 \
   --status superseded \
-  --downstreamFlagged true
+  --downstream-flagged true
 ```
 
 Exit code 0 = valid. Exit code 65 = `HANDOFF_REQUIRED`. Exit code 18 = `CASCADE_FAILED`. Exit code 84 = `PROVENANCE_REQUIRED` (attempted ADR without a linked consensus).
@@ -275,7 +276,7 @@ Exit code 0 = valid. Exit code 65 = `HANDOFF_REQUIRED`. Exit code 18 = `CASCADE_
 5. The manifest entry MUST set `agent_type: "decision"` and reference the output markdown file.
 6. Superseding an accepted ADR MUST trigger the downstream cascade over linked specs, decomps, and impls.
 7. Agents MUST NOT retry the HITL handoff on a loop; wait for the human reviewer.
-8. Always validate via `cleo check protocol --protocolType architecture-decision` before exiting.
+8. Always validate via `cleo check protocol architecture-decision` before exiting.
 
 ## See also / References
 

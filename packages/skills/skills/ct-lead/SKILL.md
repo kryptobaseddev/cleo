@@ -1,10 +1,14 @@
 ---
 name: ct-lead
-description: "Phase Lead orchestration playbook for spawning and supervising a parallel worker swarm in one wave. Use when spawned by ct-orchestrator with role=orchestrator to fan out N leaf workers via delegate_task, drain the epic-<TID>.wave-<n> conduit topic plus pipeline_manifest, await rollupWaveStatus convergence, and return ONE rolled-up contract string to the parent Orchestrator. Triggers: 'phase lead', 'wave lead', 'supervise wave', 'fan out workers', 'aggregate worker results', 'rollup wave', any task with role=orchestrator that is itself a child of another orchestrator. Implements ADR-070 hierarchical orchestration."
+description: "Phase Lead orchestration playbook for spawning and supervising a parallel worker swarm in one wave. Use when spawned by ct-orchestrator with role=orchestrator to fan out N leaf workers via delegate_task, drain the epic-{TID}.wave-{n} conduit topic plus pipeline_manifest, await rollupWaveStatus convergence, and return ONE rolled-up contract string to the parent Orchestrator. Triggers: 'phase lead', 'wave lead', 'supervise wave', 'fan out workers', 'aggregate worker results', 'rollup wave', any task with role=orchestrator that is itself a child of another orchestrator. Implements ADR-070 hierarchical orchestration."
 metadata:
-  version: 1.0.0
+  version: 1.0.6
   tier: core
   install: harness
+  covers:
+    - packages/core/src/orchestration/lead-rollup.ts
+    - packages/core/src/orchestration/waves.ts
+  lastReviewed: 2026-09-28
   stability: stable
 ---
 
@@ -33,7 +37,7 @@ exactly ONE aggregated summary.
 |----|------|-------------------|
 | LEAD-005 | Subscribe BEFORE spawn | Subscribe to `epic-<TID>.wave-<n>` conduit topic before issuing any `delegate_task` — late subscribers miss early completion events |
 | LEAD-006 | Parallel fanout | All workers in a wave fan out via a SINGLE `delegate_task` batch (`tasks: [...]`) — never sequential per-worker calls |
-| LEAD-007 | Bounded by `delegation.max_concurrent_children` | Wave width MUST NOT exceed the configured cap (default 10); split into multiple waves if larger |
+| LEAD-007 | Bounded by `maxConcurrent` (default 10) | Wave width MUST NOT exceed it; split into multiple waves if larger. No config key or runtime check enforces this yet (`delegation.max_concurrent_children` is not read by CLEO) — the Lead enforces it |
 | LEAD-008 | Convergence over polling | Wait on conduit signals + `rollupWaveStatus`; do not poll task status in a busy loop |
 | LEAD-009 | Roll up via `rollupWaveStatus` | Always call `rollupWaveStatus(epicId, waveId)` before returning — never hand-aggregate manifest rows |
 | LEAD-010 | One summary upstream | Return ONE contract string to parent Orchestrator; detail lives in pipeline_manifest under your wave's roll-up entry |
@@ -49,7 +53,7 @@ The parent Orchestrator spawns you with a resolved prompt containing:
 | `waveId` | Wave index within the epic (e.g., `wave-2`) |
 | `workerTasks[]` | Pre-resolved leaf task IDs in this wave (deps already satisfied) |
 | `conduitTopic` | `epic-<epicId>.wave-<waveId>` — your subscription topic |
-| `maxConcurrent` | Effective `delegation.max_concurrent_children` |
+| `maxConcurrent` | Wave width cap passed by the parent (default 10) |
 | `subagentTimeoutSeconds` | Default 600 — wall-clock budget per worker |
 
 ## Workflow
@@ -58,10 +62,11 @@ The parent Orchestrator spawns you with a resolved prompt containing:
 
 ```bash
 # Subscribe FIRST — race-free (LEAD-005)
-cleo conduit subscribe "epic-${EPIC}.wave-${WAVE}" --as-lead
+cleo conduit subscribe --topic "epic-${EPIC}.wave-${WAVE}"
 
-# Verify the wave is well-formed
-cleo orchestrate ready --epic "${EPIC}" --wave "${WAVE}" --json
+# Verify the wave is well-formed: ready tasks and the computed wave plan
+cleo orchestrate ready "${EPIC}"
+cleo orchestrate waves "${EPIC}"
 ```
 
 ### 2. Parallel Fanout (one batch)
@@ -85,18 +90,52 @@ delegate_task({
 ### 3. Convergence (drain conduit + manifest)
 
 ```bash
-# Block on conduit signals — fires on every worker terminal status
-cleo conduit await "epic-${EPIC}.wave-${WAVE}" \
-  --expect "${WORKER_COUNT}" \
-  --timeout 600
+# WAVE = the wave number `cleo orchestrate waves` prints now (1-based);
+# topic and roll-up use the same number.
+
+# Read worker terminal signals on the wave topic. There is no blocking
+# await: poll with --since between checks, bounded by the wave budget.
+cleo conduit listen --topic "epic-${EPIC}.wave-${WAVE}" --since "${SPAWNED_AT}"
 
 # Roll up authoritative status from pipeline_manifest
-cleo lead rollup --epic "${EPIC}" --wave "${WAVE}" --json \
+cleo orchestrate roll-up "${EPIC}" --wave "${WAVE}" --json \
   > /tmp/rollup-${EPIC}-${WAVE}.json
 ```
 
+> **Wave contract (T12682).** One wave number `n` names everything: it is
+> the 1-based number `cleo orchestrate waves <epic>` prints, spawned workers
+> publish on `epic-<epicId>.wave-<n>`, and `cleo orchestrate roll-up <epic>
+> --wave <n>` takes the same `n` (`--wave 0` is refused with
+> `E_CLEO_VALIDATION`, pointing at `cleo orchestrate waves`).
+>
+> **What a wave number guarantees (T12683).** A task's wave is its
+> structural dependency depth: 1 plus the deepest wave among its
+> dependencies, whatever their status and whichever epic holds them.
+>
+> - **Stable** when any task's status changes (done, cancelled, archived)
+>   or a task moves between epics. A finished wave stays in `cleo
+>   orchestrate waves` with status `completed`; `--hide-completed` omits
+>   finished waves without renumbering the rest.
+> - **Not stable** when a dependency edge is added or removed anywhere
+>   upstream, including in another epic: downstream waves shift. If you
+>   subscribed ahead to `epic-<epicId>.wave-<n>`, re-read `cleo orchestrate
+>   waves` after any dependency change.
+> - **Numbers can skip, and an epic's first wave can be above 1** (a task
+>   whose external prerequisite sits at depth 3 is in wave 4). Always take
+>   `n` from `cleo orchestrate waves`; never assume the first wave is 1.
+>
+> `orchestrate ready`, `plan` and `parallel start --wave <n>` never re-run
+> finished tasks.
+
 `rollupWaveStatus` (T9082, `packages/core/src/orchestration/lead-rollup.ts`)
 returns `{ wave, total, complete, partial, blocked, failed, workers: [...] }`.
+
+A stored manifest row with malformed metadata no longer fails the roll-up
+(T12686): it is skipped, every other worker is still reported, and a
+`W_MANIFEST_ROW_MALFORMED` warning names the row, the bad field and the
+repair. Treat that warning as missing coverage, not a clean wave: run
+`cleo doctor manifest-rows` to list such rows, `--repair` to see the plan,
+and `--repair --apply` to rewrite them with a receipt.
 
 ### 4. Decide: retry / escalate / return
 
@@ -133,7 +172,7 @@ cleo manifest append \
 - **Sequential fanout**: spawning workers one-by-one defeats parallelism and breaks the wave model — use ONE batch (LEAD-006).
 - **Recursive Leads**: do NOT spawn a Lead from within a Lead — escalate to parent Orchestrator with a `blocked` contract instead (LEAD-003).
 - **Forwarding raw outputs**: never paste worker manifest entries upstream — parent's context budget assumes ONE rollup string per wave (LEAD-004).
-- **Polling**: do not `while true; sleep` on task status — use `cleo conduit await` (LEAD-008).
+- **Polling task status**: do not `while true; sleep` on `cleo show` — read the wave topic with `cleo conduit listen --topic … --since …` and aggregate with `cleo orchestrate roll-up` (LEAD-008).
 - **Unbounded retries**: cap local retry at 1 per worker — repeated failure escalates to parent.
 
 ## Cross-references

@@ -1,7 +1,33 @@
 {
   "name": "recommended",
-  "description": "Full LOOM (RCASD-IVTR+C pipeline) skills for epic-driven development",
+  "description": "Core plus the on-demand skills: every LOOM (RCASD-IVTR+C) stage skill, council and codebase mapping",
   "extends": "core",
-  "skills": ["ct-council", "ct-epic-architect", "ct-research-agent", "ct-spec-writer", "ct-validator", "loom"],
-  "includeProtocols": ["research", "consensus", "specification", "decomposition", "validation", "adr"]
+  "skills": [
+    "ct-research-agent",
+    "ct-consensus-voter",
+    "ct-adr-recorder",
+    "ct-spec-writer",
+    "ct-epic-architect",
+    "ct-validator",
+    "ct-ivt-looper",
+    "ct-release-orchestrator",
+    "ct-contribution",
+    "ct-artifact-publisher",
+    "ct-provenance-keeper",
+    "ct-council",
+    "ct-codebase-mapper"
+  ],
+  "includeProtocols": [
+    "research",
+    "consensus",
+    "specification",
+    "decomposition",
+    "validation",
+    "adr",
+    "testing",
+    "release",
+    "contribution",
+    "artifact-publish",
+    "provenance"
+  ]
 }

@@ -19,7 +19,14 @@
  */
 
 import { createHmac, randomBytes } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -141,7 +148,6 @@ function getCheckpointSecret(projectRoot: string): Buffer {
   const secret = randomBytes(CHECKPOINT_SECRET_BYTES);
   // Atomically write: tmp → rename
   const tmpPath = join(auditDir, '.audit-secret.tmp');
-  const { writeFileSync } = require('node:fs');
   writeFileSync(tmpPath, secret.toString('hex'), { encoding: 'utf-8', mode: 0o600 });
   renameSync(tmpPath, secretPath);
   return secret;

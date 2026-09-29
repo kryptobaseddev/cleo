@@ -25,14 +25,18 @@ import { depsReady } from './deps-ready.js';
  * @param params - Optional scoring configuration
  * @param params.count - Number of suggestions to return (default: 1)
  * @param params.explain - When true, include scoring reasons in each suggestion
+ * @param params.brain - Brain pattern scoring (default true). A one-line
+ *   "next ready task" hint (stale `cleo current`, a completion's
+ *   `nextSuggested`) passes false: no brain store is opened (T12689).
  * @returns Ranked suggestions with scores and the total number of eligible candidates
  *
  * @remarks
  * Ranks through the shared {@link scoreTask} (via {@link rankReadyTasks}):
- * priority, severity (a `kind=bug` with no severity counts as P2), phase
- * alignment, dependency readiness, bounded leverage, the bounded
- * anti-starvation age bonus and BRAIN patterns. `explain` returns every
- * factor. The briefing's `nextTasks` uses the same ranking (T12661).
+ * the lexicographic D11161 key — priority band, then attested severity (an
+ * unset severity is unknown; nothing is imputed from `kind`), then a bounded
+ * tiebreak (dependency readiness, phase alignment, leverage, age), then
+ * `createdAt`, then id. BRAIN patterns are informational factors only.
+ * `explain` returns every factor. The briefing's `nextTasks` uses the same ranking (T12661).
  * Candidates retain the active query population; a separate canonical lookup
  * resolves explicit dependencies, including archived records. Missing/cancelled
  * prerequisites block selection, and required dependency-read failures propagate.
@@ -49,7 +53,7 @@ import { depsReady } from './deps-ready.js';
  */
 export async function coreTaskNext(
   projectRoot: string,
-  params?: { count?: number; explain?: boolean },
+  params?: { count?: number; explain?: boolean; brain?: boolean },
 ): Promise<{
   suggestions: Array<{
     id: string;
@@ -65,7 +69,8 @@ export async function coreTaskNext(
   const { tasks: allTasks } = await accessor.queryTasks({});
   const { ranked, totalCandidates } = await rankReadyTasks(accessor, allTasks, {
     currentPhase: await resolveRankingPhase(accessor),
-    projectRoot,
+    // T12689: a one-line hint (`brain: false`) opens no brain store.
+    ...(params?.brain !== false && { projectRoot }),
   });
 
   const count = Math.min(params?.count || 1, ranked.length);

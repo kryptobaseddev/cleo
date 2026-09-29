@@ -20,6 +20,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { getCleoHome } from '../../paths.js';
 import { resolveDualScopeDbPath } from '../../store/dual-scope-db.js';
+import { installSchemaWriteGuard } from '../../store/worktree-build-guard.js';
 import { withWriterLease } from '../../store/writer-lease.js';
 
 // ---------------------------------------------------------------------------
@@ -107,6 +108,7 @@ export async function migrateToSplit(
   }
 
   const legacyDb = new DatabaseSync(legacyDbPath, { open: true }); // db-open-allowed: one-shot migration reads legacy nexus.db (not a CLEO metadata DB)
+  installSchemaWriteGuard(legacyDb); // T12687
 
   // Read all project IDs from legacy DB
   type ProjectRow = { project_id: string };
@@ -133,6 +135,7 @@ export async function migrateToSplit(
       // Step 2: Create nexus-registry.db
       await mkdir(graphDir, { recursive: true });
       const registryDb = new DatabaseSync(registryDbPath, { open: true }); // db-open-allowed: one-shot migration creates nexus-registry.db (not a CLEO metadata DB)
+      installSchemaWriteGuard(registryDb); // T12687
       registryDb.exec(`ATTACH DATABASE '${legacyDbPath}' AS legacy`);
       // Copy registry tables
       for (const table of [
@@ -169,6 +172,7 @@ export async function migrateToSplit(
       for (const { project_id: projectId } of projects) {
         const graphDbPath = join(graphDir, `${projectId}.db`);
         const graphDb = new DatabaseSync(graphDbPath, { open: true }); // db-open-allowed: one-shot migration creates per-project graph DB (not a CLEO metadata DB)
+        installSchemaWriteGuard(graphDb); // T12687
         graphDb.exec(`ATTACH DATABASE '${legacyDbPath}' AS legacy`);
         for (const table of ['nexus_nodes', 'nexus_relations', 'nexus_contracts']) {
           const schemaRow = legacyDb

@@ -8,7 +8,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -184,6 +184,71 @@ describe('a change the integration branch undid does not survive (T12671 review 
     }
   });
 
+  it('a file a later change also edited is credited while its own hunks still apply (T12689)', async () => {
+    const r = repoWith();
+    try {
+      const long = Array.from({ length: 20 }, (_, i) => `line ${i}`).join('\n');
+      writeFileSync(join(r, 'x.ts'), `${long}\n`);
+      git(r, ['commit', '-q', '-am', 'long x.ts']);
+      const { merge, landing } = land(
+        r,
+        () => writeFileSync(join(r, 'x.ts'), `${long.replace('line 1\n', 'line ONE\n')}\n`),
+        () => {
+          // Another component edits the far end of the same file.
+          const now = readFileSync(join(r, 'x.ts'), 'utf-8');
+          writeFileSync(join(r, 'x.ts'), now.replace('line 19', 'line NINETEEN'));
+          git(r, ['commit', '-q', '-am', 'later edit to x.ts']);
+        },
+      );
+      const res = await resolveComponentPr(10, landing, r, componentView(merge));
+      expect(res.ok && res.files).toEqual(['x.ts']);
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+
+  it('a reverted change is not credited when an identical block exists elsewhere (T12689 review MED)', async () => {
+    const r = repoWith();
+    try {
+      const lines = Array.from({ length: 30 }, (_, i) => `line ${i}`);
+      writeFileSync(join(r, 'x.ts'), `${lines.join('\n')}\n`);
+      git(r, ['commit', '-q', '-am', 'thirty lines']);
+      const changed = lines.map((l, i) => (i === 15 ? 'line FIFTEEN' : l));
+      const { merge, landing } = land(
+        r,
+        () => writeFileSync(join(r, 'x.ts'), `${changed.join('\n')}\n`),
+        (m) => {
+          // The integration branch reverts the component…
+          git(r, ['revert', '--no-edit', '-m', '1', m]);
+          // …then a later commit appends a block identical to the changed hunk.
+          const block = changed.slice(12, 19).join('\n');
+          writeFileSync(join(r, 'x.ts'), `${lines.join('\n')}\n${block}\n`);
+          git(r, ['commit', '-q', '-am', 'append an identical block']);
+        },
+      );
+      const res = await resolveComponentPr(10, landing, r, componentView(merge));
+      // Line 15 is back to the original: nothing of the component survives.
+      expect(res.ok).toBe(false);
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+
+  it('a deletion-only component is credited with its deletions (T12689)', async () => {
+    const r = repoWith();
+    try {
+      const { merge, landing } = land(
+        r,
+        () => git(r, ['rm', '-q', 'y.ts']),
+        () => undefined,
+      );
+      const res = await resolveComponentPr(10, landing, r, componentView(merge));
+      expect(res).toMatchObject({ ok: true, files: [], deleted: ['y.ts'] });
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+
   it('a change a later commit overwrote is not counted; the untouched one is', async () => {
     const r = repoWith();
     try {
@@ -240,7 +305,9 @@ describe('linkedPrChange: the task links through the component, not the integrat
       view(),
     );
     expect(linked.ok).toBe(true);
-    expect(linked.ok && linked.pr.changedPaths).toEqual(['a.ts']);
+    // The component's surviving file plus its deletion (T12689: deletions are changes).
+    expect(linked.ok && linked.pr.changedPaths).toEqual(['a.ts', 'old.ts']);
+    expect(linked.ok && linked.pr.deletedPaths).toEqual(['old.ts']);
     expect(linked.ok && checkPrTaskLinkage(linked.prNumber, linked.pr, ctx)).toBeNull();
   });
 });

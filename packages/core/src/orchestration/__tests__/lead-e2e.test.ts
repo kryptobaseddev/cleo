@@ -130,10 +130,10 @@ describe('lead-e2e — 3-tier orchestration swarm pattern (T9085)', () => {
   });
 
   it('rollupWaveStatus returns 3 workers, 0 blockers, readyToAdvance=true, all verificationPassed', async () => {
-    const wave = await rollupWaveStatus(EPIC_ID, 0, env.tempDir);
+    const wave = await rollupWaveStatus(EPIC_ID, 1, env.tempDir);
 
     expect(wave.epicId).toBe(EPIC_ID);
-    expect(wave.waveId).toBe(0);
+    expect(wave.waveId).toBe(1);
     expect(wave.workers).toHaveLength(3);
     expect(wave.blockers).toHaveLength(0);
     expect(wave.readyToAdvance).toBe(true);
@@ -155,7 +155,7 @@ describe('lead-e2e — 3-tier orchestration swarm pattern (T9085)', () => {
   });
 
   it('each worker has a linked manifest entry', async () => {
-    const wave = await rollupWaveStatus(EPIC_ID, 0, env.tempDir);
+    const wave = await rollupWaveStatus(EPIC_ID, 1, env.tempDir);
 
     for (const worker of wave.workers) {
       expect(worker.latestManifestEntry).not.toBeNull();

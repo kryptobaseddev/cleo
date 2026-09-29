@@ -179,7 +179,9 @@ describe('cross-epic readiness uses persisted global prerequisites', () => {
       readyTasks: ['T121'],
       blockedTasks: [],
       completedTasks: [],
-      waves: [{ wave: 1, tasks: [{ id: 'T121', title: 'Task T121', status: 'pending' }] }],
+      // Stable structural depth (T12683): T121 sits after its external
+      // prerequisite T111 (depth 1) whatever T111's status — wave 2.
+      waves: [{ wave: 2, tasks: [{ id: 'T121', title: 'Task T121', status: 'pending' }] }],
     });
     expect(await getNextTask('T100', env.tempDir, accessor)).toMatchObject({
       taskId: 'T121',

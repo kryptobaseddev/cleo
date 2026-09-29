@@ -72,6 +72,7 @@ import {
 import { getCleoHome } from '../paths.js';
 import { openAgentApiKey, sealAgentApiKey } from './agent-api-key.js';
 import { decryptBundle, encryptBundle } from './backup-crypto.js';
+import { installSchemaWriteGuard } from './worktree-build-guard.js';
 
 // ---------------------------------------------------------------------------
 // node:sqlite interop (createRequire — Vitest strips `node:` prefix)
@@ -262,6 +263,7 @@ function withDb<T>(dbPath: string | undefined, fallback: T, fn: (db: DatabaseSyn
   if (dbPath === undefined || !fs.existsSync(dbPath)) return fallback;
   const db = new DatabaseSync(dbPath);
   try {
+    installSchemaWriteGuard(db); // T12687
     return fn(db);
   } finally {
     db.close();

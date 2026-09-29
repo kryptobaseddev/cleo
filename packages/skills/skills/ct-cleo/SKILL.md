@@ -2,9 +2,13 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.21.0
+  version: 2.23.0
   tier: core
   install: harness
+  covers:
+    - packages/cleo/src/cli/commands/session.ts
+    - packages/cleo/src/cli/commands/focus.ts
+    - packages/cleo/src/cli/commands/sticky.ts
   lastReviewed: 2026-09-28
   stability: stable
 ---
@@ -139,7 +143,7 @@ stderr; `session status` / `briefing` label a guessed session `unbound: true`.
 
 ## Typed decisions (`cleo decide`, T12491)
 
-`decide` answers typed questions (yes/no, choice, score) through a swappable Jev-wire provider and falls back to local heuristics when unconfigured or failing. It needs two settings, an API URL and a key: `printf %s "$KEY" | cleo decide config --url <u> --key-stdin` (optional `--model`; `--clear` removes them). The key is kept in a 0600 file and never printed. `cleo decide status` probes reachability and `cleo decide ask --state <text> --noul <q>` runs one debug question.
+`decide` answers typed questions (yes/no, choice, score) through a swappable Jev-wire provider and falls back to local heuristics when unconfigured or failing. Pick a provider and supply its key: `printf %s "$KEY" | cleo decide config --provider layahost --key-stdin` (layahost, the default, needs only the key and uses model `laya-auto`); a custom endpoint is `--provider jev --url <u>`. `--model` overrides the model and `--clear` removes the settings. On a terminal, `cleo decide config` with no flags runs a setup wizard that reads the key hidden. The key is kept in a 0600 file and never printed. `cleo decide status` probes reachability and `cleo decide ask --state <text> --noul <q>` runs one debug question.
 
 ## Quick Reference
 
@@ -224,6 +228,17 @@ Inspect the receipt before retrying; overflow is not rollback or clean coverage.
 This internal budget contract does not add a `--token-budget` flag to add/update.
 
 ## Skill-Specific Extensions
+
+### Reference files
+
+| File | Load it when you |
+|------|------------------|
+| `references/session-protocol.md` | start, resume or end sessions; pick skills |
+| `references/orchestrator-constraints.md` | spawn subagents from an orchestrator |
+| `references/loom-lifecycle.md` | move an epic through the LOOM stages |
+| `references/anti-patterns.md` | check a plan against known mistakes |
+| `references/memory.md` | recall or record BRAIN memory (progressive disclosure) |
+| `references/sticky-notes.md` | capture a thought before it is a task: `cleo sticky jot "..."`, then `cleo sticky convert <id> --to-task` |
 
 - Task hierarchy, Saga commands, add-batch decomposition, docs policy, and evidence detail live in the on-demand reference; emit `task-creation`, `documents`, and `evidence` when needed.
 - For add-batch input, The top-level JSON MUST be an array of task objects, not an object wrapper like `{ "tasks": [...] }`.
@@ -390,11 +405,12 @@ and planning document generation (T10634):
 
 Example — dry-run a scaffold before applying:
 ```bash
-# Validate scaffold payload
-cleo workgraph validate --file scaffold.json --dry-run
+# Validate scaffold payload (read-only)
+cleo workgraph validate scaffold.json
 
-# Apply validated scaffold atomically
-cleo workgraph apply --file scaffold.json
+# Preview, then apply the validated scaffold atomically
+cleo workgraph apply scaffold.json --dry-run
+cleo workgraph apply scaffold.json
 ```
 
 ## Task Context (PM-Core V2 — T10629/T10630/T10631)
@@ -428,11 +444,11 @@ cite decisions by durable BRAIN decision IDs.
 
 | Need | Command |
 |------|---------|
-| Store a decision | `cleo memory store --type decision --content "..." --title "..."` |
+| Store a decision | `cleo memory decision-store --decision "..." --rationale "..."` |
 | Search decisions | `cleo memory decision-find --query <term>` |
 | Find by type | `cleo memory find <term> --type decision` |
 | Fetch full record | `cleo memory fetch <decisionId>` |
-| List by epic | `cleo memory decision-find --epic <epicId>` |
+| Find by epic | `cleo memory decision-find "<epicId>"` (no epic filter — query text, then verify `source_table`/`source_rowid`) |
 | Check status | `cleo memory fetch <id>` → check `confirmation_state` field |
 
 **Why BRAIN decisions over markdown ledgers:**
@@ -443,7 +459,8 @@ cite decisions by durable BRAIN decision IDs.
 
 **Migration rule:** When you encounter a decision ONLY in a markdown ledger
 (`.cleo/adrs/`, `.cleo/agent-outputs/`), store it in the BRAIN with
-`cleo memory store --type decision` and cite the BRAIN ID going forward.
+`cleo memory decision-store --decision "..." --rationale "..."` and cite the
+BRAIN ID going forward.
 
 ## Evidence must prove task criteria
 

@@ -715,7 +715,9 @@ export type DocsLifecycleStatus = (typeof DOCS_LIFECYCLE_STATUSES)[number];
  * {@link DocsSupersedeParams}-style flows, NO supersession edge is created
  * (callers wanting an explicit lineage edge should use `cleo docs supersede`).
  *
- * Exactly one of `file` or `content` MUST be provided.
+ * At most one of `file` or `content` may be provided. With neither, `status`
+ * is required and the update changes only the lifecycle status, keeping the
+ * stored bytes (T12654).
  *
  * @task T10161 (Epic T10157 / Saga T9855 — E12.C4)
  */
@@ -738,7 +740,8 @@ export interface DocsUpdateParams {
   /**
    * Override the new lifecycle status. Defaults to `'draft'` on every update
    * so an explicit `accepted` doc gets back-pressured to draft on edit. Pass
-   * `--status accepted` (or any other valid status) to override.
+   * `--status accepted` (or any other valid status) to override. Passed alone
+   * (no `file`/`content`), it changes only the lifecycle status.
    */
   status?: DocsLifecycleStatus;
   /** Validate/preflight only; do not mutate attachment rows, blob storage, or audit logs. */

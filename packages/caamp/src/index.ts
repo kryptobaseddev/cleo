@@ -336,6 +336,7 @@ export {
 // Skills library loaders
 export {
   buildLibraryFromFiles,
+  catalogEntryFromManifest,
   loadLibraryFromModule,
 } from './core/skills/library-loader.js';
 // Skills lock

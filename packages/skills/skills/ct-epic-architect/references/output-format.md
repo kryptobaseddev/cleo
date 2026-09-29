@@ -6,7 +6,7 @@ Template for epic creation output files.
 
 ## Output File Location
 
-Write to `{{OUTPUT_DIR}}/{{DATE}}_epic-{{FEATURE_SLUG}}.md`
+Record it with `cleo docs add {{TASK_ID}} --content - --type plan --slug epic-{{FEATURE_SLUG}}` (never a raw file under `.cleo/agent-outputs/`)
 
 ---
 
@@ -85,7 +85,7 @@ Write to `{{OUTPUT_DIR}}/{{DATE}}_epic-{{FEATURE_SLUG}}.md`
 
 ## Manifest Entry Format
 
-Append ONE line (no pretty-printing) to `{{MANIFEST_PATH}}`:
+Record it with `cleo manifest append --entry '<entry JSON>'` (the flat manifest file is retired, ADR-027):
 
 ```json
 {"id":"epic-{{FEATURE_SLUG}}-{{DATE}}","file":"{{DATE}}_epic-{{FEATURE_SLUG}}.md","title":"Epic Created: {{FEATURE_NAME}}","date":"{{DATE}}","status":"complete","topics":["epic","planning","{{DOMAIN}}"],"key_findings":["Created Epic {{EPIC_ID}} with {{N}} child tasks","Dependency chain: {{T1}} -> {{T2}}/{{T3}} -> {{T4}} -> {{T5}}","Wave 0 (parallel start): [{{T1_ID}}]","Wave 1 (parallel): [{{T2_ID}}, {{T3_ID}}]","Critical path: {{T1}} -> {{T2}} -> {{T4}} -> {{T5}}","Session started: {{SESSION_ID}}"],"actionable":true,"needs_followup":["{{FIRST_READY_TASK_ID}}"],"linked_tasks":["{{EPIC_ID}}","{{ALL_TASK_IDS}}"]}

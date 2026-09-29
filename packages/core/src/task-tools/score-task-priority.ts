@@ -122,7 +122,11 @@ export function scoreTask(task: ScoreTaskInput, ctx: ScoreTaskContext): ScoreTas
   const factors: ScoreFactor[] = [];
 
   const priority = task.priority ?? 'medium';
-  const band = PRIORITY_BAND[priority] ?? PRIORITY_BAND['medium']!;
+  // Own-property lookups only: an unvalidated value such as `toString` must
+  // fall back, never yield a prototype member (which would fold to NaN).
+  const band = Object.hasOwn(PRIORITY_BAND, priority)
+    ? PRIORITY_BAND[priority]!
+    : PRIORITY_BAND['medium']!;
   factors.push({
     name: 'band',
     delta: band * BAND_WEIGHT,
@@ -130,7 +134,8 @@ export function scoreTask(task: ScoreTaskInput, ctx: ScoreTaskContext): ScoreTas
     tier: 1,
   });
 
-  const severity = task.severity ? (SEVERITY_RANK[task.severity] ?? 0) : 0;
+  const severity =
+    task.severity && Object.hasOwn(SEVERITY_RANK, task.severity) ? SEVERITY_RANK[task.severity] : 0;
   factors.push({
     name: 'severity',
     delta: severity * SEVERITY_WEIGHT,

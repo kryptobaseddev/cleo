@@ -247,7 +247,7 @@ export function createLlmSection(deps: LlmSectionDeps = {}): WizardSectionRunner
       // 4. Interactive API-key entry.
       const label =
         (await io.prompt('Label for this credential [default: cli-input]:')) || 'cli-input';
-      const rawApiKey = (await io.prompt('API key (input not echoed in production):')).trim();
+      const rawApiKey = (await io.secret('API key (input hidden):')).trim();
       // LLM-4: strip bracketed paste sequences.
       const apiKey = stripBracketedPaste(rawApiKey);
       if (apiKey === '') {

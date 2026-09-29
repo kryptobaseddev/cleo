@@ -18,12 +18,17 @@
  * `name`, `version` (metadata.version), `description`, `path`, `tier`
  * (numeric, derived from metadata.tier for existing numeric readers),
  * `deliveryTier` (metadata.tier), `install` (metadata.install), `status`
- * (`deprecated` when metadata.stability is deprecated, else `active`) and
- * `loomStage` (when the frontmatter declares one).
+ * (`deprecated` when metadata.stability is deprecated, else `active`),
+ * `core` and `category` (both derived from metadata.tier) and `loomStage`
+ * (when the frontmatter declares one).
  *
- * Curated routing data that has no frontmatter home yet (`capabilities`,
- * `constraints`, `references`, `token_budget`, `tags`, `adrRefs`, `protocol`
- * and the top-level `dispatch_matrix`) is carried over unchanged. Entries for
+ * Curated data that has no frontmatter home yet (`capabilities`,
+ * `constraints`, `references`, `token_budget`, `tags`, `adrRefs`, `protocol`,
+ * `dependencies`, `sharedResources`, `compatibility`, `license` and the
+ * top-level `dispatch_matrix`) is carried over unchanged; the catalogue
+ * fields default when absent, so every entry is a complete CAAMP
+ * `SkillLibraryEntry`. The manifest is the only skills index: `skills.json`
+ * was removed in T12653. Entries for
  * directories that no longer exist are dropped, and every directory without
  * an entry gains one, so the entry set always equals the directory set.
  *
@@ -36,19 +41,194 @@
  * skill is reported and nothing is written.
  *
  * @task T12648
+ * @task T12653
  */
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isMain } from '../lib/is-main.mjs';
 import {
+  CATEGORY_FOR_TIER,
   listSkillDirs,
+  loadLoomStages,
   MANIFEST_PATH,
   readSkillFrontmatter,
   SKILLS_DIR,
   TIER_NUMBER,
   validateFrontmatter,
 } from './lib/skill-frontmatter.mjs';
+
+/** Repo-relative directory of install profiles (`minimal` → `core` → …). */
+export const PROFILES_DIR = 'packages/skills/profiles';
+
+/**
+ * Check the install profiles against the manifest (T12649). Every skill a
+ * profile names must be a manifest entry with `install: harness`, and the
+ * fully resolved `full` profile must be exactly the harness set — so a
+ * phantom (`loom`), an internal skill, or a harness skill no profile installs
+ * all fail.
+ *
+ * @param {string} root - Repository root.
+ * @param {{ skills: { name: string, install?: string }[] }} manifest - Manifest.
+ * @returns {string[]} Drift descriptions (empty when consistent).
+ */
+export function checkProfiles(root, manifest) {
+  const dir = join(root, PROFILES_DIR);
+  if (!existsSync(dir)) return [];
+  const harness = new Set(
+    manifest.skills.filter((s) => s.install === 'harness').map((s) => s.name),
+  );
+  const profiles = new Map();
+  for (const file of readdirSync(dir).filter((f) => f.endsWith('.json'))) {
+    const p = JSON.parse(readFileSync(join(dir, file), 'utf-8'));
+    profiles.set(p.name, p);
+  }
+  const drift = [];
+  for (const [name, p] of profiles) {
+    for (const skill of p.skills ?? []) {
+      if (!harness.has(skill)) {
+        drift.push(
+          `${PROFILES_DIR}: profile '${name}' names '${skill}', which is not a harness skill in the manifest`,
+        );
+      }
+    }
+  }
+  const resolve = (name, seen = new Set()) => {
+    const p = profiles.get(name);
+    if (!p || seen.has(name)) return [];
+    seen.add(name);
+    return [...(p.extends ? resolve(p.extends, seen) : []), ...(p.skills ?? [])];
+  };
+  // The dependency closure CAAMP's resolveProfile installs (T12649).
+  const deps = new Map(manifest.skills.map((s) => [s.name, s.dependencies ?? []]));
+  const closure = (skills) => {
+    const out = new Set();
+    const queue = [...skills];
+    while (queue.length > 0) {
+      const n = queue.shift();
+      if (out.has(n)) continue;
+      out.add(n);
+      queue.push(...(deps.get(n) ?? []));
+    }
+    return out;
+  };
+  for (const name of profiles.keys()) {
+    const direct = new Set(resolve(name));
+    for (const skill of closure(direct)) {
+      // Directly named non-harness skills are already reported above.
+      if (!direct.has(skill) && !harness.has(skill)) {
+        drift.push(
+          `${PROFILES_DIR}: profile '${name}' installs '${skill}' (via dependencies), which is not a harness skill`,
+        );
+      }
+    }
+  }
+  if (profiles.has('full')) {
+    const full = new Set(resolve('full'));
+    for (const skill of harness) {
+      if (!full.has(skill))
+        drift.push(
+          `${PROFILES_DIR}: harness skill '${skill}' is in no profile ('full' must install every harness skill)`,
+        );
+    }
+  }
+  return drift;
+}
+
+/**
+ * Check that every skill name and file a manifest entry points at exists
+ * (T12649): `dependencies`, `capabilities.dependencies`,
+ * `capabilities.chains_to` must name manifest entries, and every
+ * `references` path must be a file in the skills package. A merged or
+ * retired skill otherwise survives as a ghost that `resolveProfile` returns
+ * and `caamp skills install --profile` fails on.
+ *
+ * @param {string} root - Repository root.
+ * @param {{ skills: object[] }} manifest - Manifest.
+ * @returns {string[]} Drift descriptions (empty when consistent).
+ */
+export function checkCrossReferences(root, manifest) {
+  const names = new Set(manifest.skills.map((s) => s.name));
+  const drift = [];
+  // T12678: retiredSkills drives install pruning; a retired name must not
+  // also be a live skill, or install would add and prune it every run.
+  for (const retired of manifest.retiredSkills ?? []) {
+    if (names.has(retired)) drift.push(`retiredSkills lists '${retired}', which is still a skill`);
+  }
+  for (const s of manifest.skills) {
+    const lists = [
+      ['dependencies', s.dependencies],
+      ['capabilities.dependencies', s.capabilities?.dependencies],
+      ['capabilities.chains_to', s.capabilities?.chains_to],
+    ];
+    for (const [field, list] of lists) {
+      for (const dep of list ?? []) {
+        if (!names.has(dep)) drift.push(`${s.name}: ${field} names '${dep}', which is not a skill`);
+      }
+    }
+    for (const ref of s.references ?? []) {
+      if (!existsSync(join(root, 'packages/skills', ref))) {
+        drift.push(`${s.name}: references '${ref}', which does not exist`);
+      }
+    }
+  }
+  return drift;
+}
+
+/**
+ * Protocol templates whose `Version:` line must equal ct-cleo's
+ * `metadata.version` (the skill documents that protocol; T12648).
+ */
+export const PROTOCOL_TEMPLATES = [
+  'packages/core/templates/CLEO-INJECTION.md',
+  'packages/core/templates/CLEO-REFERENCE.md',
+];
+
+/**
+ * ct-cleo's version and the protocol templates' `Version:` line move
+ * together. `injection-mvi-tiers.test.ts` asserts the same equality, but only
+ * in the unit-test shard; checking it here fails fast, locally.
+ *
+ * @param {string} root - Repository root.
+ * @param {{ skills: object[] }} manifest - Manifest.
+ * @returns {string[]} Drift descriptions (empty when consistent).
+ */
+export function checkProtocolVersion(root, manifest) {
+  const version = manifest.skills.find((s) => s.name === 'ct-cleo')?.version;
+  if (!version) return [];
+  const drift = [];
+  for (const rel of PROTOCOL_TEMPLATES) {
+    const path = join(root, rel);
+    if (!existsSync(path)) continue;
+    const declared = /^Version: (\S+) \|/m.exec(readFileSync(path, 'utf-8'))?.[1];
+    if (declared !== version) {
+      drift.push(
+        `${rel}: Version ${declared ?? '(missing)'} must equal ct-cleo metadata.version ${version}`,
+      );
+    }
+  }
+  return drift;
+}
+
+/** Retired skills indexes that must not come back (T12653). */
+export const LEGACY_INDEXES = ['packages/skills/skills.json'];
+
+/**
+ * Catalogue fields every entry carries so the manifest alone satisfies
+ * CAAMP's `SkillLibraryEntry` (T12653). Curated values already in the
+ * manifest win over these defaults.
+ *
+ * @returns {{ references: string[], protocol: null, sharedResources: string[], compatibility: string[], license: string }}
+ */
+function catalogDefaults() {
+  return {
+    references: [],
+    protocol: null,
+    sharedResources: [],
+    compatibility: [],
+    license: 'MIT',
+  };
+}
 
 /**
  * Build the manifest object the frontmatter implies.
@@ -62,10 +242,13 @@ export function buildManifest(root) {
   const existing = new Map((current.skills ?? []).map((s) => [s.name, s]));
   const problems = [];
   const skills = [];
+  const loomStages = loadLoomStages(root);
 
   for (const name of listSkillDirs(root)) {
     const fm = readSkillFrontmatter(root, name);
-    for (const problem of validateFrontmatter(fm)) problems.push({ skill: name, problem });
+    for (const problem of validateFrontmatter(fm, { loomStages })) {
+      problems.push({ skill: name, problem });
+    }
     const md = fm.metadata;
     const prior = existing.get(name) ?? {};
     const {
@@ -78,6 +261,9 @@ export function buildManifest(root) {
       install: _i,
       status: _s,
       loomStage: _l,
+      core: _c,
+      category: _cat,
+      dependencies: _deps,
       ...curated
     } = prior;
     const entry = {
@@ -89,10 +275,15 @@ export function buildManifest(root) {
       deliveryTier: md.tier,
       install: md.install,
       status: md.stability === 'deprecated' ? 'deprecated' : 'active',
+      core: md.tier === 'core',
+      category: CATEGORY_FOR_TIER[md.tier],
+      // T12649: frontmatter owns dependencies; CAAMP resolves profile
+      // install closures through this field.
+      dependencies: fm.lists.dependencies ?? [],
     };
-    const loomStage = fm.fields.loomStage ?? _l;
+    const loomStage = md.loomStage;
     if (loomStage) entry.loomStage = loomStage;
-    skills.push({ ...entry, ...curated });
+    skills.push({ ...entry, ...catalogDefaults(), ...curated });
   }
 
   if (problems.length > 0) return { manifest: null, problems };
@@ -134,13 +325,24 @@ export function serialiseManifest(manifest) {
 export function checkManifest(root) {
   const { manifest, problems } = buildManifest(root);
   if (!manifest) return { problems, drift: [] };
+  const drift = [];
+  // T12653: the manifest is the only skills index. A second, hand-edited
+  // catalogue is how versions drifted before, so its return fails.
+  for (const legacy of LEGACY_INDEXES) {
+    if (existsSync(join(root, legacy))) {
+      drift.push(`${legacy}: a second skills index exists; the manifest is the only one (T12653)`);
+    }
+  }
+  drift.push(...checkProfiles(root, manifest));
+  drift.push(...checkCrossReferences(root, manifest));
+  drift.push(...checkProtocolVersion(root, manifest));
   const committedText = readFileSync(join(root, MANIFEST_PATH), 'utf-8');
   const expectedText = serialiseManifest(manifest);
-  if (committedText === expectedText) return { problems, drift: [] };
+  if (committedText === expectedText) return { problems, drift };
 
+  const before = drift.length;
   const committed = JSON.parse(committedText);
   const byName = new Map((committed.skills ?? []).map((s) => [s.name, s]));
-  const drift = [];
   for (const s of manifest.skills) {
     const c = byName.get(s.name);
     if (!c)
@@ -151,7 +353,7 @@ export function checkManifest(root) {
   }
   for (const name of byName.keys())
     drift.push(`${name}: listed but no ${SKILLS_DIR}/${name}/SKILL.md`);
-  if (drift.length === 0) drift.push('<manifest>: formatting, ordering or _meta differs');
+  if (drift.length === before) drift.push('<manifest>: formatting, ordering or _meta differs');
   return { problems, drift };
 }
 

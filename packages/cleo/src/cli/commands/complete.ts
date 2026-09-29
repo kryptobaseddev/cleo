@@ -190,6 +190,9 @@ export const completeCommand = defineCommand({
     // envelope so the operator can see what happened to the worktree (merged,
     // noop, env-disabled, conflict, etc.). The field is always present when
     // task completion succeeded; it's omitted on failure paths.
+    // T12660 — completing the focused task clears the pointer.
+    if (typeof data?.focusCleared === 'boolean') output['focusCleared'] = data.focusCleared;
+    if (data?.nextSuggested !== undefined) output['nextSuggested'] = data.nextSuggested;
     const worktreeAutoComplete = data?.worktreeAutoComplete;
     if (worktreeAutoComplete && typeof worktreeAutoComplete === 'object') {
       output['worktreeAutoComplete'] = worktreeAutoComplete;

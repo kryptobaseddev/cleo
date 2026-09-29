@@ -41,7 +41,7 @@ The orchestrator delegates work to a subagent via `orchestrate.spawn` with skill
 
 ```bash
 # Generate fully-resolved spawn prompt
-cleo orchestrator spawn T1234 --json
+cleo orchestrate spawn T1234 --json
 
 # Provider adapter executes the prompt using its native mechanism
 #    - Claude Code: Task tool with cleo-subagent type
@@ -84,14 +84,10 @@ A skill invokes other skills to complete workflow phases. The loaded skill maint
 
 ```markdown
 # Via Skill tool (programmatic)
-Skill(skill="ct-docs-lookup")
-Skill(skill="ct-docs-write")
-Skill(skill="ct-docs-review")
+Skill(skill="ct-documentor")   # writing + review references
 
 # Via slash command (user-facing)
-/ct-docs-lookup
-/ct-docs-write
-/ct-docs-review
+/ct-documentor
 ```
 
 ### When to Use Skill Chaining
@@ -180,7 +176,7 @@ Subagent MUST NOT return output content in response.
 ### Rule 3: File-Based Details (MUST)
 
 Detailed findings go to output files, not manifest or response:
-- Full analysis → `{{OUTPUT_DIR}}/YYYY-MM-DD_topic.md`
+- Full analysis → `cleo docs add <taskId> --content - --type research --slug <topic>`
 - Summary only → pipeline_manifest key_findings (via `cleo manifest append`)
 
 ### Rule 4: Token Injection (SHOULD)
@@ -213,7 +209,7 @@ TOPIC_SLUG    # URL-safe topic name
 Before spawning subagent:
 - [ ] Identify appropriate skill for task type
 - [ ] Prepare token context (TASK_ID, DATE, TOPIC_SLUG)
-- [ ] `cleo orchestrator spawn <taskId> --json`
+- [ ] `cleo orchestrate spawn <taskId> --json`
 - [ ] Verify token resolution is complete (`tokenResolution.fullyResolved`)
 
 Before chaining to another skill:

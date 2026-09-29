@@ -26,6 +26,7 @@ import { migrateSanitized } from './migration-manager.js';
 import { dbExists, getDb, openNativeDatabase, resolveMigrationsFolder } from './sqlite.js';
 import type { SessionStatus } from './status-registry.js';
 import * as schema from './tasks-schema.js';
+import { installSchemaWriteGuard } from './worktree-build-guard.js';
 
 /**
  * Normalise an imported archive-reason string to a valid {@link ArchiveReasonValue}.
@@ -207,6 +208,7 @@ export async function migrateJsonToSqliteAtomic(
     // Create temp directory and open file-backed database at temp path
     mkdirSync(dirname(tempDbPath), { recursive: true });
     const nativeDb = openNativeDatabase(tempDbPath, { enableWal: true });
+    installSchemaWriteGuard(nativeDb); // T12687
     const db = drizzle({ client: nativeDb });
 
     // Run migrations to create tables.

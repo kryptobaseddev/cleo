@@ -1217,6 +1217,19 @@
             }
           }
         },
+        "budget": {
+          "type": "object",
+          "description": "CLEO-enforced System One spend cap (D11159, T12664). Tracked across processes in <cleoHome>/decide/spend.json.",
+          "additionalProperties": false,
+          "properties": {
+            "monthlyMicros": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 1000000,
+              "description": "Monthly cost cap in micro-dollars (1000000 = $1). Once the month-to-date spend reported by the provider reaches it, every site degrades to its heuristic (fallback reason `budget`) until the UTC month rolls over; no command fails. The per-key monthly decision limit set in the provider console is a separate server-side cap."
+            }
+          }
+        },
         "generativeFallback": {
           "type": "object",
           "description": "Opt-ins for the older generative-LLM tiers that System One replaces.",

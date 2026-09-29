@@ -58,6 +58,28 @@
  * fingerprint-store.mjs). Fingerprints made with different keys cannot be
  * compared and FAIL.
  *
+ * ## The replica must be a separate replica-role run of the same project
+ *
+ * A genuine, correctly signed fingerprint of the SOURCE passed in as the
+ * replica would reproduce the source perfectly. Each fingerprint records a
+ * run identity (`identity.role`, `identity.projectId`, `identity.nonce`,
+ * under the MAC), and the comparison FAILS when:
+ *   - `--source` is not a `role: source` fingerprint, or `--replica` is not a
+ *     `role: replica` one (a copied source fingerprint, or swapped arguments);
+ *   - either fingerprint has no nonce, or the nonces are equal;
+ *   - the two fingerprints have different `scope`s: a project store never
+ *     compares against the global store;
+ *   - for project scope, either project id is missing (fail closed: a
+ *     one-sided id is a failure, not a note), or the two ids differ. Two
+ *     GLOBAL fingerprints are exempt: the global store belongs to no project
+ *     and has no project-id file, and it is backed up like every store.
+ *
+ * LIMIT: this tells fingerprint RUNS apart, not STORES. The source store
+ * fingerprinted a second time with `--role replica` compares as a perfect
+ * replica, because `cleo.db` persists no store-instance id (nor its project
+ * id; that is read from the `project-id` file beside the store). T12675
+ * tracks persisting both, coordinated with T12341.
+ *
  * ## Each fingerprint JSON is signed
  *
  * `--key-file` (the comparison key) is required: every fingerprint carries a
@@ -102,6 +124,8 @@
  * @task T12332
  * @task T12613
  * @task T12636
+ * @task T12641
+ * @task T12675
  */
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
@@ -258,6 +282,43 @@ function compare(source, replica, mode, rows, key) {
         });
     }
   }
+  const sid = source.identity ?? {};
+  const rid = replica.identity ?? {};
+  if (sid.role !== 'source' || rid.role !== 'replica')
+    failures.push({
+      gate: 'B',
+      table: '*',
+      reason: `wrong fingerprint roles: --source is ${sid.role ?? 'none'}, --replica is ${rid.role ?? 'none'} (expected source, replica)`,
+    });
+  if (!sid.nonce || !rid.nonce)
+    failures.push({ gate: 'B', table: '*', reason: 'a fingerprint has no store identity nonce' });
+  else if (sid.nonce === rid.nonce)
+    failures.push({
+      gate: 'B',
+      table: '*',
+      reason:
+        "the replica carries the source's nonce: it is the source fingerprint, or a copy of it",
+    });
+  const bothGlobal = source.scope === 'global' && replica.scope === 'global';
+  if (source.scope !== replica.scope || !['project', 'global'].includes(source.scope))
+    failures.push({
+      gate: 'B',
+      table: '*',
+      reason: `scopes differ or are unknown (source ${source.scope ?? 'none'}, replica ${replica.scope ?? 'none'}): a project store never compares against the global store`,
+    });
+  // Two global fingerprints carry no project id: their identity is scope, role and nonce.
+  if (!bothGlobal && (!sid.projectId || !rid.projectId))
+    failures.push({
+      gate: 'B',
+      table: '*',
+      reason: `project id missing (source ${sid.projectId ?? 'none'}, replica ${rid.projectId ?? 'none'}): put the project-id file beside each store`,
+    });
+  else if (!bothGlobal && sid.projectId !== rid.projectId)
+    failures.push({
+      gate: 'B',
+      table: '*',
+      reason: `the replica belongs to another project (${sid.projectId} vs ${rid.projectId})`,
+    });
   if (!source.keyId || source.keyId !== replica.keyId)
     failures.push({
       gate: 'B',

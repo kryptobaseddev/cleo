@@ -204,6 +204,7 @@ export function openNativeDatabase(
   assertVitestSafePath(path);
   const DatabaseSyncCtor = getDbSyncConstructor();
   const db = new DatabaseSyncCtor(path, {
+    // schema-guard-exempt: the native chokepoint; every writable caller installs the guard
     enableForeignKeyConstraints: true,
     readOnly: options?.readonly ?? false,
     // Default handle-open lock timeout mirrors the SSoT busy_timeout

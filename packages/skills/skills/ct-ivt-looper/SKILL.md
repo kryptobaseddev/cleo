@@ -2,14 +2,18 @@
 name: ct-ivt-looper
 description: "Runs a project-agnostic autonomous Implement-then-Validate-then-Test compliance loop on any git worktree. Detects the project's test framework (vitest, jest, mocha, pytest, unittest, go-test, cargo-test, rspec, phpunit, bats, or other) and iterates until the implementation satisfies its specification, recording convergence metrics to the manifest. Use when given an implementation task that must ship verified: the IVT loop is the autonomous compliance layer enforced before any release or PR. Triggers on phrases like 'implement and verify', 'run the IVT loop', 'ship this task', 'complete implementation with tests', 'verify against spec', or any implementation task with acceptance criteria. Works in any git worktree regardless of language or framework, never hardcoded to one project's tooling."
 protocol: testing
-loomStage: testing
 adrRefs:
   - ADR-051
   - ADR-061
 metadata:
-  version: 1.0.0
+  version: 1.0.2
   tier: on-demand
   install: harness
+  covers:
+    - packages/core/src/validation/protocols/cant/testing.cant
+    - packages/core/src/validation/protocols/protocols-markdown/testing.md
+  loomStage: testing
+  lastReviewed: 2026-09-28
   stability: stable
 ---
 
@@ -152,24 +156,22 @@ Record the loop outcome through `cleo check protocol`:
 
 ```bash
 # Success case: loop converged on iteration 3.
-cleo check protocol \
-  --protocolType testing \
+cleo check protocol testing \
   --framework vitest \
-  --testsRun 142 \
-  --testsPassed 142 \
-  --testsFailed 0 \
-  --ivtLoopConverged true \
-  --ivtLoopIterations 3
+  --tests-run 142 \
+  --tests-passed 142 \
+  --tests-failed 0 \
+  --ivt-loop-converged true \
+  --ivt-loop-iterations 3
 
 # Failure case: loop exhausted iterations, HITL escalation.
-cleo check protocol \
-  --protocolType testing \
+cleo check protocol testing \
   --framework pytest \
-  --testsRun 87 \
-  --testsPassed 84 \
-  --testsFailed 3 \
-  --ivtLoopConverged false \
-  --ivtLoopIterations 5
+  --tests-run 87 \
+  --tests-passed 84 \
+  --tests-failed 3 \
+  --ivt-loop-converged false \
+  --ivt-loop-iterations 5
 ```
 
 Exit code 0 = loop converged and protocol is valid. Exit code 65 = `HANDOFF_REQUIRED` (non-convergence).
@@ -177,11 +179,10 @@ Exit code 0 = loop converged and protocol is valid. Exit code 65 = `HANDOFF_REQU
 This skill MUST also chain a validation check against the spec before its own testing check:
 
 ```bash
-cleo check protocol \
-  --protocolType validation \
-  --specMatchConfirmed true \
-  --testSuitePassed true \
-  --protocolComplianceChecked true
+cleo check protocol validation \
+  --spec-match-confirmed true \
+  --test-suite-passed true \
+  --protocol-compliance-checked true
 ```
 
 ## Anti-Patterns
@@ -206,7 +207,7 @@ cleo check protocol \
 5. Never run on `main`, `master`, or `trunk` — stop and request a feature branch.
 6. Record `framework`, `testsRun`, `testsPassed`, `testsFailed`, `ivtLoopConverged`, `ivtLoopIterations` in the manifest.
 7. On non-convergence, exit 65 and leave the worktree untouched.
-8. Validate every run via `cleo check protocol --protocolType testing`.
+8. Validate every run via `cleo check protocol testing`.
 
 ## See also / References
 

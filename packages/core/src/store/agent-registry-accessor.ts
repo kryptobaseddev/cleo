@@ -63,6 +63,7 @@ import {
 } from './agent-registry-store.js';
 import { ensureConduitDb, getConduitDbPath } from './conduit-sqlite.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
+import { installSchemaWriteGuard } from './worktree-build-guard.js';
 
 // ---------------------------------------------------------------------------
 // node:sqlite interop (createRequire for ESM / Vitest compat)
@@ -354,6 +355,7 @@ function openConduitDb(projectRoot: string): DatabaseSync {
   const dbPath = getConduitDbPath(projectRoot);
   const db = new DatabaseSync(dbPath);
   applyPerfPragmas(db); // replaces inline PRAGMA calls with SSoT set (T9023)
+  installSchemaWriteGuard(db); // T12687
   return db;
 }
 

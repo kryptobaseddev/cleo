@@ -75,6 +75,12 @@
  *   the twin's set for that id is unchanged since the last merge, the twin
  *   set is made equal to the bare set (additions AND removals propagate);
  *   if the twin set changed too, the twin wins and a conflict is recorded.
+ * - After every merge the junction is recomputed from each note's
+ *   `tags_json` ({@link syncStickyJunction}). Both builds write `tags_json`
+ *   (on the shared `brain_sticky_notes` row) together with their own junction,
+ *   so it is the one value both see; the junction is derived from it, and the
+ *   tag filter can never disagree with the displayed tags. A conflict is still
+ *   recorded for `cleo doctor`.
  *
  * ## Contract
  *
@@ -87,7 +93,14 @@
  *    Any failure rolls back: both tables byte-identical.
  * 3. **Verified.** Every row the merge decided is re-read and compared before
  *    the marker is written; a mismatch rolls back.
- * 4. **The bare table is never written.**
+ * 4. **The bare table is never written**, with one sanctioned exception:
+ *    {@link mirrorCounterToBare}. When this build writes a counter key
+ *    (`task_id_sequence`, `sqlite_snapshot_gate`, `file_meta`) it raises the
+ *    bare row's counter field to the twin's in the same transaction, and the
+ *    allocation floors on the bare counter ({@link bareCounterOf}). The
+ *    2026.9.20 build still allocates ids from the bare counter; without the
+ *    mirror, an id one build reserved but had not stored yet could be issued
+ *    by the other.
  * 5. **Never locked out** (inside a domain bind, `onFailure: 'degrade'`). A
  *    failed or impossible collapse does not fail the bind. The failure is
  *    recorded (`twin_collapse_failed:<table>`), and the connection is put in a
@@ -118,7 +131,6 @@ import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
 import { planMigrationSnapshot, writeMigrationSnapshot } from './pre-repair-snapshot.js';
-import { SNAPSHOT_GATE_META_KEY } from './snapshot-gate.js';
 
 const log = getLogger('twin-collapse');
 
@@ -128,17 +140,24 @@ export const TWIN_COLLAPSE_MARKER_PREFIX = 'twin_collapse:';
 /** Prefix of the key recording a pair's last failed collapse. */
 export const TWIN_COLLAPSE_FAILURE_PREFIX = 'twin_collapse_failed:';
 
+/**
+ * The snapshot gate's key (`SNAPSHOT_GATE_META_KEY` in `snapshot-gate.ts`),
+ * spelled out: `snapshot-gate.ts` imports this module to mirror its counter,
+ * so importing it back would be a cycle.
+ */
+const SNAPSHOT_GATE_KEY = 'sqlite_snapshot_gate';
+
 /** `schema_meta` keys whose named field is a monotonic counter (merged as max). */
 export const SCHEMA_META_COUNTER_FIELDS: Readonly<Record<string, string>> = {
   task_id_sequence: 'counter',
-  [SNAPSHOT_GATE_META_KEY]: 'generation',
+  [SNAPSHOT_GATE_KEY]: 'generation',
   file_meta: 'generation',
 };
 
 /** `schema_meta` keys never deleted from the twin (a counter never moves back). */
 export const SCHEMA_META_NEVER_DELETED: ReadonlySet<string> = new Set([
   'task_id_sequence',
-  SNAPSHOT_GATE_META_KEY,
+  SNAPSHOT_GATE_KEY,
 ]);
 
 /** Most conflicts kept in the marker (the doctor warning lists them). */
@@ -350,6 +369,54 @@ export function mergeSchemaMetaValue(
   return field === undefined ? bare : withMaxCounter(bare, twin, field);
 }
 
+/**
+ * Raise the BARE `schema_meta` row of a counter key to the twin's counter,
+ * right after this build wrote the twin row, on the same connection (so inside
+ * the writer's transaction).
+ *
+ * The one sanctioned write to a bare table (T12535): the 2026.9.20 build still
+ * allocates task ids from the bare `task_id_sequence` and reads the bare
+ * snapshot-gate and `file_meta` generations. Without this, an id this build
+ * reserved but has not stored yet (the counter is advanced before the task
+ * row is inserted) could be issued again by the older build. Only the counter
+ * field moves (the bare row keeps its other fields, see
+ * {@link mergeSchemaMetaValue}); a missing bare row gets the twin value. A
+ * non-counter key, or a store without the bare table, is left alone. The
+ * collapse treats the resulting bare change like any other: a counter key is
+ * never a conflict.
+ *
+ * @param db - The project `cleo.db` connection that wrote the twin row.
+ * @param key - The `schema_meta` key just written.
+ * @task T12535
+ */
+export function mirrorCounterToBare(db: DatabaseSync, key: string): void {
+  if (SCHEMA_META_COUNTER_FIELDS[key] === undefined) return;
+  if (!hasMainTable(db, 'schema_meta')) return;
+  const twin = readKv(db, 'tasks_schema_meta', key);
+  if (twin === undefined) return;
+  const bare = readKv(db, 'schema_meta', key);
+  const next = bare === undefined ? twin : mergeSchemaMetaValue(key, bare, twin);
+  if (next === null || next === bare) return;
+  writeKv(db, 'schema_meta', key, next);
+}
+
+/**
+ * The counter of a key's BARE `schema_meta` row (the older build's), or 0.
+ * This build's allocation floors on it, so an id the older build reserved but
+ * has not stored yet is never issued here either.
+ *
+ * @param db - The project `cleo.db` connection.
+ * @param key - A counter key.
+ * @returns The bare counter field, or 0 when absent.
+ * @task T12535
+ */
+export function bareCounterOf(db: DatabaseSync, key: string): number {
+  const name = SCHEMA_META_COUNTER_FIELDS[key];
+  if (name === undefined || !hasMainTable(db, 'schema_meta')) return 0;
+  const bare = readKv(db, 'schema_meta', key);
+  return (bare === undefined ? undefined : counterOf(bare, name)) ?? 0;
+}
+
 function kvRows(db: DatabaseSync, table: string, schema = 'main'): Map<string, string> {
   const rows = db.prepare(`SELECT key, value FROM ${schema}.${table}`).all() as Array<{
     key: string;
@@ -546,6 +613,61 @@ function applyStickyRows(db: DatabaseSync, schema: string, plan: Plan) {
   return { inserted, replaced: 0, deleted };
 }
 
+/** A note's tags as the accessor reads `tags_json` (strings, non-empty, deduplicated). */
+function tagsOf(tagsJson: string | null): string[] {
+  if (!tagsJson) return [];
+  try {
+    const parsed: unknown = JSON.parse(tagsJson);
+    if (!Array.isArray(parsed)) return [];
+    return [...new Set(parsed.filter((t): t is string => typeof t === 'string' && t.length > 0))];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Make the junction in `schema` equal every note's `tags_json`.
+ *
+ * `tags_json` lives on the shared `brain_sticky_notes` row, which both builds
+ * write together with their own junction; the junction is derived from it.
+ * Recomputing it after every merge keeps the tag filter (the junction) and the
+ * displayed tags (`tags_json`) from disagreeing when both builds retag one
+ * note (the merge's twin-wins rule would otherwise keep a stale set).
+ *
+ * @returns Junction rows added and removed.
+ */
+function syncStickyJunction(
+  db: DatabaseSync,
+  schema: string,
+): { inserted: number; deleted: number } {
+  const notes = db.prepare('SELECT id, tags_json FROM main.brain_sticky_notes').all() as Array<{
+    id: string;
+    tags_json: string | null;
+  }>;
+  const have = new Map<string, Set<string>>();
+  for (const r of db
+    .prepare(`SELECT sticky_id, tag FROM ${schema}.brain_sticky_tags`)
+    .all() as Array<{ sticky_id: string; tag: string }>) {
+    const set = have.get(r.sticky_id) ?? new Set<string>();
+    set.add(r.tag);
+    have.set(r.sticky_id, set);
+  }
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO ${schema}.brain_sticky_tags (sticky_id, tag) VALUES (?, ?)`,
+  );
+  const del = db.prepare(`DELETE FROM ${schema}.brain_sticky_tags WHERE sticky_id = ? AND tag = ?`);
+  let inserted = 0;
+  let deleted = 0;
+  for (const note of notes) {
+    const want = new Set(tagsOf(note.tags_json));
+    const current = have.get(note.id) ?? new Set<string>();
+    for (const tag of want)
+      if (!current.has(tag)) inserted += Number(insert.run(note.id, tag).changes);
+    for (const tag of current) if (!want.has(tag)) deleted += Number(del.run(note.id, tag).changes);
+  }
+  return { inserted, deleted };
+}
+
 const STICKY_TAGS: TwinPair = {
   table: 'sticky_tags',
   twin: 'brain_sticky_tags',
@@ -569,7 +691,12 @@ const STICKY_TAGS: TwinPair = {
       throw new Error(
         `sticky_tags collapse did not verify: ${missing} missing, ${lingering} not removed`,
       );
-    return counts;
+    const synced = syncStickyJunction(db, 'main');
+    return {
+      inserted: counts.inserted + synced.inserted,
+      replaced: 0,
+      deleted: counts.deleted + synced.deleted,
+    };
   },
   shadow(db, plan) {
     db.exec(
@@ -580,6 +707,7 @@ const STICKY_TAGS: TwinPair = {
       'INSERT INTO temp.brain_sticky_tags (sticky_id, tag) SELECT sticky_id, tag FROM main.brain_sticky_tags',
     );
     applyStickyRows(db, 'temp', plan);
+    syncStickyJunction(db, 'temp');
   },
 };
 
