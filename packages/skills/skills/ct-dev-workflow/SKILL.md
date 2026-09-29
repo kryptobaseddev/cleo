@@ -1,9 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.0
-core: false
-category: specialist
+version: 3.1.3
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -16,10 +14,12 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.0
+  version: 3.1.3
   tier: core
   install: harness
-  lastReviewed: 2026-09-18
+  covers:
+    - .github/workflows/release-prepare.yml
+  lastReviewed: 2026-09-28
   stability: stable
 ---
 
@@ -338,8 +338,8 @@ cleo session end --note "Completed X, Y, Z"
 
 ### Output Requirements
 
-1. MUST write workflow summary to: `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`
-2. MUST append ONE line to: `{{MANIFEST_PATH}}`
+1. MUST record workflow summary with `cleo docs add {{TASK_ID}} --content - --type note --slug {{TOPIC_SLUG}}` (never a raw file under `.cleo/agent-outputs/`)
+2. MUST record ONE manifest entry: `cleo manifest append --entry '<entry JSON>'` (the flat manifest file is retired, ADR-027)
 3. MUST return ONLY: "Workflow complete. Manifest appended to pipeline_manifest."
 4. MUST NOT return full commit/release details in response
 

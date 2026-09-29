@@ -114,7 +114,8 @@ const rollupCommand = defineCommand({
     },
     wave: {
       type: 'string',
-      description: 'Filter to a single wave id (0-indexed)',
+      description:
+        'Filter to one wave, numbered from 1 as `cleo orchestrate waves` prints it (the n of topic epic-<id>.wave-<n>)',
     },
     json: {
       type: 'boolean',
@@ -366,7 +367,7 @@ const wavesCommand = defineCommand({
   meta: {
     name: 'waves',
     description:
-      "Compute dependency waves for an epic. When the epic is a Saga (label='saga', ADR-073), per-member wave plans are merged by index (wave N across all members → one unified wave N).",
+      "Compute dependency waves for an epic. Wave numbers are stable: a finished wave keeps its number and is listed as completed (--hide-completed omits it). When the epic is a Saga (label='saga', ADR-073), per-member wave plans are merged by index (wave N across all members → one unified wave N).",
   },
   args: {
     epicId: {
@@ -379,6 +380,11 @@ const wavesCommand = defineCommand({
       description:
         "Traversal mode (gh-390/ADR-073): 'parent' walks parentId only, 'saga' walks task_relations.type='groups' only, 'both' (default) auto-detects saga-labeled epics.",
     },
+    'hide-completed': {
+      type: 'boolean',
+      description:
+        'Omit finished waves. Wave numbers are stable, so the remaining waves keep their numbers (the n of topic epic-<id>.wave-<n>)',
+    },
   },
   async run({ args }) {
     await dispatchFromCli(
@@ -388,6 +394,7 @@ const wavesCommand = defineCommand({
       {
         epicId: args.epicId,
         ...(args.via !== undefined && { via: args.via }),
+        ...(args['hide-completed'] === true && { hideCompleted: true }),
       },
       { command: 'orchestrate' },
     );

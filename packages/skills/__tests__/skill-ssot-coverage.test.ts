@@ -23,9 +23,14 @@ import { describe, expect, it } from 'vitest';
 const thisFile = fileURLToPath(import.meta.url);
 const skillsRoot = resolve(dirname(thisFile), '..', 'skills');
 
-/** Read SKILL.md for a given skill name (e.g. "ct-documentor"). */
+/**
+ * Read a skill file: `ct-documentor` reads its SKILL.md, and
+ * `ct-documentor/references/writing.md` reads that file (T12649 merged
+ * ct-docs-write and ct-docs-review into ct-documentor references).
+ */
 function readSkill(name: string): string {
-  return readFileSync(join(skillsRoot, name, 'SKILL.md'), 'utf-8');
+  const rel = name.endsWith('.md') ? name : join(name, 'SKILL.md');
+  return readFileSync(join(skillsRoot, rel), 'utf-8');
 }
 
 /** Count distinct `cleo docs <verb>` references in a skill body. */
@@ -41,14 +46,14 @@ function countDocsRefs(content: string): number {
 describe('SSoT coverage — every doc-related skill references `cleo docs *`', () => {
   const docSkills = [
     'ct-documentor',
-    'ct-docs-write',
-    'ct-docs-review',
+    'ct-documentor/references/writing.md',
+    'ct-documentor/references/reviewing.md',
     'ct-spec-writer',
     'ct-adr-recorder',
   ] as const;
 
   for (const skill of docSkills) {
-    it(`${skill}/SKILL.md references \`cleo docs *\` at least 3 times`, () => {
+    it(`${skill} references \`cleo docs *\` at least 3 times`, () => {
       const content = readSkill(skill);
       const count = countDocsRefs(content);
       expect(count, `${skill} has only ${count} \`cleo docs *\` references`).toBeGreaterThanOrEqual(
@@ -86,12 +91,12 @@ describe('ct-documentor — coordinator contract (T9794)', () => {
     );
   });
 
-  it('coordinates ct-docs-write for note/llm-readme content', () => {
-    expect(content).toContain('ct-docs-write');
+  it('routes note/llm-readme content through its writing reference (T12649)', () => {
+    expect(content).toContain('references/writing.md');
   });
 
-  it('coordinates ct-docs-review for quality validation', () => {
-    expect(content).toContain('ct-docs-review');
+  it('routes quality validation through its reviewing reference (T12649)', () => {
+    expect(content).toContain('references/reviewing.md');
   });
 
   it('coordinates ct-spec-writer for REQ-XXX specifications', () => {
@@ -107,9 +112,9 @@ describe('ct-documentor — coordinator contract (T9794)', () => {
     const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
     expect(frontmatterMatch, 'frontmatter missing').toBeTruthy();
     const frontmatter = frontmatterMatch?.[1] ?? '';
-    expect(frontmatter).toMatch(/dependencies:[\s\S]*?- ct-docs-lookup/);
-    expect(frontmatter).toMatch(/dependencies:[\s\S]*?- ct-docs-write/);
-    expect(frontmatter).toMatch(/dependencies:[\s\S]*?- ct-docs-review/);
+    // ct-docs-lookup is retired and ct-docs-write/ct-docs-review are now
+    // references of this skill (T12649, D11157), so they are not dependencies.
+    expect(frontmatter).not.toMatch(/- ct-docs-(lookup|write|review)/);
     expect(frontmatter).toMatch(/dependencies:[\s\S]*?- ct-spec-writer/);
     expect(frontmatter).toMatch(/dependencies:[\s\S]*?- ct-adr-recorder/);
   });

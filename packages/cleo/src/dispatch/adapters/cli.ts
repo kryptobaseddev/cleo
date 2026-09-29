@@ -102,7 +102,7 @@ function ensureCaampLibrary(): void {
       const req = createRequire(import.meta.url);
       const skillsPkgJson = req.resolve('@cleocode/skills/package.json');
       const candidate = dirname(skillsPkgJson);
-      if (existsSync(join(candidate, 'skills.json'))) {
+      if (existsSync(join(candidate, 'skills', 'manifest.json'))) {
         skillsRoot = candidate;
       }
     } catch {
@@ -114,7 +114,7 @@ function ensureCaampLibrary(): void {
       const thisFile = fileURLToPath(import.meta.url);
       const packageRoot = join(dirname(thisFile), '..', '..', '..', '..', '..');
       const candidate = join(packageRoot, 'packages', 'skills');
-      if (existsSync(join(candidate, 'skills.json'))) {
+      if (existsSync(join(candidate, 'skills', 'manifest.json'))) {
         skillsRoot = candidate;
       }
     }

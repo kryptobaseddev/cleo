@@ -14,6 +14,7 @@ import type {
   SkillLibraryDispatchMatrix,
   SkillLibraryEntry,
   SkillLibraryManifest,
+  SkillLibraryManifestSkill,
   SkillLibraryProfile,
   SkillLibraryValidationIssue,
   SkillLibraryValidationResult,
@@ -93,12 +94,82 @@ export function loadLibraryFromModule(root: string): SkillLibrary {
   return mod as unknown as SkillLibrary;
 }
 
+/** Catalogue categories a manifest entry may carry. */
+const CATALOG_CATEGORIES: ReadonlySet<SkillLibraryEntry['category']> = new Set([
+  'core',
+  'recommended',
+  'specialist',
+  'composition',
+  'meta',
+]);
+
+/**
+ * Derive a catalog entry from a `skills/manifest.json` entry.
+ *
+ * @remarks
+ * The CLEO skills package ships no `skills.json` (T12653): its manifest is
+ * generated from SKILL.md frontmatter and carries every catalog field. The
+ * manifest `path` names the skill directory, so the catalog path appends
+ * `SKILL.md`. `core` falls back to `deliveryTier === 'core'` and absent list
+ * fields default to empty, so an older manifest still maps.
+ *
+ * @param skill - One manifest skill entry.
+ * @returns The equivalent catalog entry.
+ *
+ * @public
+ */
+export function catalogEntryFromManifest(skill: SkillLibraryManifestSkill): SkillLibraryEntry {
+  const path = skill.path.endsWith('SKILL.md') ? skill.path : `${skill.path}/SKILL.md`;
+  const category =
+    skill.category !== undefined && CATALOG_CATEGORIES.has(skill.category)
+      ? skill.category
+      : 'recommended';
+  return {
+    name: skill.name,
+    description: skill.description,
+    version: skill.version,
+    path,
+    references: skill.references ?? [],
+    core: skill.core ?? skill.deliveryTier === 'core',
+    category,
+    tier: skill.tier,
+    protocol: skill.protocol ?? null,
+    dependencies: skill.dependencies ?? [],
+    sharedResources: skill.sharedResources ?? [],
+    compatibility: skill.compatibility ?? [],
+    license: skill.license ?? 'MIT',
+    metadata: {
+      ...(skill.deliveryTier !== undefined && { deliveryTier: skill.deliveryTier }),
+      ...(skill.install !== undefined && { install: skill.install }),
+    },
+  };
+}
+
+/**
+ * Read `version` from `<root>/package.json`, or `'0.0.0'` when absent.
+ *
+ * @param root - Library root directory.
+ * @returns The package version string.
+ */
+function readPackageVersion(root: string): string {
+  const pkgPath = join(root, 'package.json');
+  if (!existsSync(pkgPath)) return '0.0.0';
+  try {
+    const pkg: { version?: string } = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+    return pkg.version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
 /**
  * Build a SkillLibrary from raw files in a directory.
  *
  * @remarks
  * Constructs a full SkillLibrary implementation by reading:
- * - `skills.json` for catalog entries
+ * - `skills.json` for catalog entries, when present (legacy and third-party
+ *   libraries); otherwise the catalog is derived from `skills/manifest.json`
+ *   entries via {@link catalogEntryFromManifest} (T12653)
  * - `skills/manifest.json` for dispatch matrix
  * - `profiles/*.json` for profile definitions
  * - `skills/<name>/SKILL.md` for skill content
@@ -107,7 +178,7 @@ export function loadLibraryFromModule(root: string): SkillLibrary {
  *
  * @param root - Absolute path to the library root directory
  * @returns A SkillLibrary instance backed by filesystem reads
- * @throws If skills.json is not found at the root
+ * @throws If neither skills.json nor skills/manifest.json is found at the root
  *
  * @example
  * ```typescript
@@ -120,16 +191,12 @@ export function loadLibraryFromModule(root: string): SkillLibrary {
  */
 export function buildLibraryFromFiles(root: string): SkillLibrary {
   const catalogPath = join(root, 'skills.json');
-  if (!existsSync(catalogPath)) {
-    throw new Error(`No skills.json found at ${root}`);
+  const manifestPath = join(root, 'skills', 'manifest.json');
+  if (!existsSync(catalogPath) && !existsSync(manifestPath)) {
+    throw new Error(`No skills.json or skills/manifest.json found at ${root}`);
   }
 
-  const catalogData = JSON.parse(readFileSync(catalogPath, 'utf-8'));
-  const entries: SkillLibraryEntry[] = catalogData.skills ?? [];
-  const version: string = catalogData.version ?? '0.0.0';
-
   // Load manifest
-  const manifestPath = join(root, 'skills', 'manifest.json');
   let manifest: SkillLibraryManifest;
   if (existsSync(manifestPath)) {
     manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
@@ -140,6 +207,17 @@ export function buildLibraryFromFiles(root: string): SkillLibrary {
       dispatch_matrix: { by_task_type: {}, by_keyword: {}, by_protocol: {} },
       skills: [],
     };
+  }
+
+  let entries: SkillLibraryEntry[];
+  let version: string;
+  if (existsSync(catalogPath)) {
+    const catalogData = JSON.parse(readFileSync(catalogPath, 'utf-8'));
+    entries = catalogData.skills ?? [];
+    version = catalogData.version ?? '0.0.0';
+  } else {
+    entries = manifest.skills.map(catalogEntryFromManifest);
+    version = readPackageVersion(root);
   }
 
   // Load profiles

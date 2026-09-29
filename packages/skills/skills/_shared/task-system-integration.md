@@ -133,24 +133,24 @@ Sessions persist across Claude conversations and support long-running work.
 - Sessions receive timeout warning after **72 hours** of inactivity
 - Active sessions are auto-ended after **7 days** (configurable via `retention.autoEndActiveAfterDays`)
 - Ended/suspended sessions can be cleaned up with `cleo session gc`
-- Stale active sessions (72h+) cleaned with `cleo session gc --include-active`
+- Stale active sessions cleaned with `cleo session gc --max-age <days>`
 
 **Session Commands**:
 
 | Command | Purpose |
 |---------|---------|
-| `cleo session start --scope epic:{{EPIC_ID}}` | Begin scoped session |
+| `cleo session start --scope epic:{{EPIC_ID}} --name "..."` | Begin scoped session (`--name` is required) |
 | `cleo session end --note "summary"` | End session properly |
 | `cleo session list` | Check existing sessions |
 | `cleo session resume <id>` | Resume previous session |
 | `cleo session gc` | Clean up ended/suspended sessions |
-| `cleo session gc --include-active` | Also clean stale active sessions |
+| `cleo session gc --max-age <days>` | Also end active sessions older than N days |
 
 **Best Practices**:
 - **MUST** check `cleo session list` before starting new sessions
 - **SHOULD** end sessions properly with `cleo session end --note "summary"` to avoid accumulation
 - **SHOULD** use `cleo session gc` periodically to clean up old ended/suspended sessions
-- **MAY** use `cleo session gc --include-active` to clean stale active sessions (72h+ inactive)
+- **MAY** use `cleo session gc --max-age <days>` to end stale active sessions
 - Long-running sessions (multi-day work) are expected and supported
 
 ---
@@ -168,7 +168,7 @@ When tokens are not explicitly configured, assume CLEO defaults:
 | `{{TASK_LIST_CMD}}` | `cleo list` |
 | `{{TASK_FIND_CMD}}` | `cleo find` |
 | `{{TASK_ADD_CMD}}` | `cleo add` |
-| `{{OUTPUT_DIR}}` | `.cleo/agent-outputs` |
+| `{{OUTPUT_DIR}}` | `.cleo/agent-outputs` (legacy token — do not write there; record output with `cleo docs add`) |
 
 
 ---

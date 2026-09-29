@@ -13,11 +13,9 @@ description: >-
   analysis and comparative report. Triggers on: grade session, evaluate agent behavior,
   A/B test CLEO configurations, run grade scenario, token usage analysis, behavioral rubric,
   protocol compliance scoring.
-version: 2.1.0
+version: 2.1.1
 argument-hint: "[mode=scenario|ab|blind] [scenario=s1-s5|all] [runs=N] [session-id=<id>]"
 allowed-tools: ["Bash(python *)", "Bash(cleo-dev *)", "Bash(cleo *)", "Bash(kill *)", "Bash(lsof *)", "Agent", "Read", "Write", "Glob"]
-core: false
-category: quality
 protocol: null
 dependencies: []
 sharedResources: []
@@ -28,9 +26,10 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.1.0
+  version: 2.1.1
   tier: internal
   install: internal
+  lastReviewed: 2026-09-28
   stability: stable
 ---
 
