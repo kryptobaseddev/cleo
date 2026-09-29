@@ -21,6 +21,7 @@ import { dirname, join } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { applyPerfPragmas } from '@cleocode/core';
 import { openCleoDbSnapshot } from '@cleocode/core/store/open-cleo-db';
+import { installSchemaWriteGuard } from '@cleocode/core/store/worktree-build-guard';
 import { dbExists, getAgentRegistryDbPath, getNexusDbPath } from '../cleo-home.js';
 import type { ProjectContext } from '../project-context.js';
 
@@ -53,6 +54,7 @@ export function getNexusDb(): DatabaseSync | null {
   const path = getNexusDbPath();
   if (!dbExists(path)) return null;
   nexusDb = new DatabaseSync(path, { open: true });
+  installSchemaWriteGuard(nexusDb); // T12687
   applyPerfPragmas(nexusDb); // apply pragma SSoT (T9045)
   return nexusDb;
 }
@@ -66,6 +68,7 @@ export function getAgentRegistryDb(): DatabaseSync | null {
   const path = getAgentRegistryDbPath();
   if (!dbExists(path)) return null;
   signaldockDb = new DatabaseSync(path, { open: true });
+  installSchemaWriteGuard(signaldockDb); // T12687
   applyPerfPragmas(signaldockDb); // apply pragma SSoT (T9045)
   return signaldockDb;
 }
@@ -89,6 +92,7 @@ export function getBrainDb(ctx: ProjectContext): DatabaseSync | null {
   const path = ctx.brainDbPath;
   if (!existsSync(path)) return null;
   const __db = new DatabaseSync(path, { open: true });
+  installSchemaWriteGuard(__db); // T12687
   applyPerfPragmas(__db);
   return __db;
 }
@@ -105,6 +109,7 @@ export function getTasksDb(ctx: ProjectContext): DatabaseSync | null {
   const path = ctx.tasksDbPath;
   if (!existsSync(path)) return null;
   const __db = new DatabaseSync(path, { open: true });
+  installSchemaWriteGuard(__db); // T12687
   applyPerfPragmas(__db);
   return __db;
 }
@@ -124,6 +129,7 @@ export function getConduitDb(ctx: ProjectContext): DatabaseSync | null {
   const path = join(dirname(ctx.brainDbPath), 'conduit.db');
   if (!existsSync(path)) return null;
   const __db = new DatabaseSync(path, { open: true });
+  installSchemaWriteGuard(__db); // T12687
   applyPerfPragmas(__db);
   return __db;
 }

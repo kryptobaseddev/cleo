@@ -20,6 +20,7 @@ import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { migrateSync } from 'drizzle-orm/sqlite-core';
 import { getLogger } from '../logger.js';
 import { isSqliteBusy } from './with-retry.js';
+import { assertNoPendingMigrationsForWorktreeBuild } from './worktree-build-guard.js';
 
 /**
  * Re-export {@link isSqliteBusy} from its canonical home so existing
@@ -538,6 +539,24 @@ function readSiblingMigrationHashes(siblingFolder: string): Set<string> {
 }
 
 /**
+ * Newest migration timestamp (`folderMillis`) declared by a sibling lineage
+ * folder — part of the "is this row from a NEWER build?" test (T12687).
+ *
+ * @param siblingFolder - Absolute path to a sibling drizzle migrations folder.
+ * @returns The newest timestamp, or 0 when the folder is unreadable or empty.
+ */
+function readSiblingNewestMillis(siblingFolder: string): number {
+  try {
+    return Math.max(
+      0,
+      ...readMigrationFiles({ migrationsFolder: siblingFolder }).map((m) => m.folderMillis),
+    );
+  } catch {
+    return 0;
+  }
+}
+
+/**
  * Ensure a UNIQUE index on `__drizzle_migrations(hash)` exists so the shared
  * consolidated journal converges idempotently (T11829).
  *
@@ -695,6 +714,10 @@ export function reconcileJournal(
   logSubsystem: string,
   siblingMigrationsFolders: readonly string[] = [],
 ): void {
+  // T12687: a worktree build with pending (possibly unreleased) migrations
+  // never touches the journal of a store outside its worktree: it fails fast.
+  assertNoPendingMigrationsForWorktreeBuild(nativeDb, readMigrationFiles({ migrationsFolder }));
+
   // bug #2 (T11553): pre-compute the tables this lineage CREATEs and a LATER
   // migration permanently ELIMINATES (DROP TABLE, no recreate — e.g.
   // `release_manifests`, dropped by t9686b2). The DDL probe treats a CREATE of an
@@ -780,15 +803,30 @@ export function reconcileJournal(
         knownHashes.add(m);
       }
     }
+    // T12687: the newest migration timestamp this install knows, across every
+    // lineage sharing the journal. A row stamped LATER was written by a newer
+    // build (a later release, or a worktree build's unreleased migration): it
+    // is not an orphan. Deleting it made that build re-run its `ADD COLUMN` on
+    // the next open and fail.
+    const newestKnownMillis = Math.max(
+      0,
+      ...localMigrations.map((m) => m.folderMillis),
+      ...siblingMigrationsFolders
+        .filter((folder) => folder !== migrationsFolder)
+        .map(readSiblingNewestMillis),
+    );
 
-    type JournalRow = { id: number; hash: string };
+    type JournalRow = { id: number; hash: string; created_at: number | string | null };
     const dbEntries = nativeDb
-      .prepare('SELECT id, hash FROM "__drizzle_migrations"')
+      .prepare('SELECT id, hash, created_at FROM "__drizzle_migrations"')
       .all() as JournalRow[];
 
     // A row is an orphan ONLY when its hash is unknown to THIS lineage AND every
-    // sibling lineage sharing this journal (T11829 cross-lineage guard).
-    const orphanedEntries = dbEntries.filter((e) => !knownHashes.has(e.hash));
+    // sibling lineage sharing this journal (T11829 cross-lineage guard) AND it
+    // is not newer than everything this install knows (T12687).
+    const orphanedEntries = dbEntries.filter(
+      (e) => !knownHashes.has(e.hash) && !(Number(e.created_at) > newestKnownMillis),
+    );
     const hasOrphanedEntries = orphanedEntries.length > 0;
 
     if (hasOrphanedEntries) {
@@ -1346,6 +1384,11 @@ export function migrateSanitized(
   config: MigrationConfig,
 ): void {
   const raw = readMigrationFiles(config);
+  // T12687: a CLI built inside a linked worktree never applies its (possibly
+  // unreleased) migrations to a store outside that worktree — it fails fast.
+  // `drizzle()` attaches the native handle as `$client`; the declared type omits it.
+  const client = (db as { $client?: DatabaseSync }).$client;
+  if (client) assertNoPendingMigrationsForWorktreeBuild(client, raw);
   const sanitized = sanitizeMigrationStatements(raw);
   migrateSync(sanitized, db._.session, config);
 }

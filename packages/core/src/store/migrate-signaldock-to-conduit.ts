@@ -31,6 +31,7 @@ import { ensureGlobalAgentRegistryDb } from './agent-registry-store.js';
 import { ensureConduitDb, getConduitDbPath } from './conduit-sqlite.js';
 import { getGlobalSalt } from './global-salt.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
+import { installSchemaWriteGuard } from './worktree-build-guard.js';
 
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
@@ -450,6 +451,7 @@ export async function migrateSignaldockToConduit(projectRoot: string): Promise<M
     // Open a direct handle for migration writes (ensureConduitDb returns singleton;
     // we open a fresh handle to avoid interfering with any singleton state).
     conduit = new DatabaseSync(ensureResult.path);
+    installSchemaWriteGuard(conduit); // T12687
     applyPerfPragmas(conduit, { enableForeignKeys: false }); // FK off during bulk copy (T9023)
     // Explicitly disable FK for this handle: node:sqlite preserves PRAGMA foreign_keys
     // state across connections within a process (per-file internal cache), so simply
@@ -606,6 +608,7 @@ export async function migrateSignaldockToConduit(projectRoot: string): Promise<M
       mkdirSync(cleoHome, { recursive: true });
     }
     globalDb = new DatabaseSync(globalSignaldockPath);
+    installSchemaWriteGuard(globalDb); // T12687
     applyPerfPragmas(globalDb, { enableForeignKeys: false }); // FK off during bulk copy (T9023)
     globalDb.exec('PRAGMA foreign_keys = OFF'); // Explicit OFF — same node:sqlite per-file FK cache issue (T9023)
   } catch (err) {

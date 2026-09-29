@@ -15,6 +15,7 @@
 
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
+import { installSchemaWriteGuard } from '../store/worktree-build-guard.js';
 import { withWriterLease } from '../store/writer-lease.js';
 import {
   auditChildProjectionAcRows,
@@ -100,12 +101,14 @@ export async function backfillChildProjections(
 
   const tasksDbPath = resolve(projectRoot, '.cleo', 'tasks.db');
   const { DatabaseSync } = _require('node:sqlite') as {
-    DatabaseSync: new (path: string) => NativeDb;
+    DatabaseSync: new (path: string) => import('node:sqlite').DatabaseSync;
   };
 
   // db-open-allowed — T10648 backfill is a one-shot maintenance script
   // that must write directly to tasks.db outside the openCleoDb chokepoint.
-  const db = new DatabaseSync(tasksDbPath) as NativeDb; // db-open-allowed: T10648 one-shot CLI
+  const raw = new DatabaseSync(tasksDbPath); // db-open-allowed: T10648 one-shot CLI
+  installSchemaWriteGuard(raw); // T12687
+  const db = raw as NativeDb;
 
   try {
     // Query all parent tasks with children

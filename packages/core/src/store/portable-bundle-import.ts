@@ -55,6 +55,7 @@ import {
   relocateProjectFiles,
 } from './portable-bundle-relocate.js';
 import { countRows, integrityCheck, KEY_COUNT_TABLES, sha256File } from './portable-bundle-scan.js';
+import { installSchemaWriteGuard } from './worktree-build-guard.js';
 
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
@@ -333,6 +334,7 @@ function relocateRegistryRows(
 ): Map<string, NonNullable<PortableImportSectionResult['registry']>> {
   const outcomes = new Map<string, NonNullable<PortableImportSectionResult['registry']>>();
   const db = new DatabaseSync(stagedGlobalDb);
+  installSchemaWriteGuard(db); // T12687
   try {
     for (const move of moves) {
       if (move.from === move.to) {

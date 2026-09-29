@@ -118,7 +118,7 @@ export function getNexusDb(): DatabaseSync | null {
   if (nexusDb) return nexusDb;
   const path = getNexusDbPath();
   if (!dbExists(path)) return null;
-  nexusDb = new DatabaseSync(path, { open: true }); // db-open-allowed: E4-T5 coexistence — adapters target legacy nexus.db schema; full exodus in E6 (T11249)
+  nexusDb = new DatabaseSync(path, { open: true }); // db-open-allowed: E4-T5 coexistence (schema-guard-exempt: legacy read adapters run no schema code) — adapters target legacy nexus.db schema; full exodus in E6 (T11249)
   applyPerfPragmas(nexusDb);
   return nexusDb;
 }
@@ -136,7 +136,7 @@ export function getAgentRegistryDb(): DatabaseSync | null {
   if (signaldockDb) return signaldockDb;
   const path = getAgentRegistryDbPath();
   if (!dbExists(path)) return null;
-  signaldockDb = new DatabaseSync(path, { open: true }); // db-open-allowed: E4-T5 coexistence — adapters target legacy signaldock.db schema; full exodus in E6 (T11249)
+  signaldockDb = new DatabaseSync(path, { open: true }); // db-open-allowed: E4-T5 coexistence (schema-guard-exempt: legacy read adapters run no schema code) — adapters target legacy signaldock.db schema; full exodus in E6 (T11249)
   applyPerfPragmas(signaldockDb);
   return signaldockDb;
 }
@@ -184,7 +184,7 @@ export function getBrainDb(ctx: ProjectContext): DatabaseSync | null {
   const path = ctx.brainDbPath;
   if (!existsSync(path)) return null;
   try {
-    const __db = new DatabaseSync(path, { open: true }); // db-open-allowed: E4-T5 coexistence — adapters target legacy brain.db schema; full exodus in E6 (T11249)
+    const __db = new DatabaseSync(path, { open: true }); // db-open-allowed: E4-T5 coexistence (schema-guard-exempt: legacy read adapters run no schema code) — adapters target legacy brain.db schema; full exodus in E6 (T11249)
     applyPerfPragmas(__db);
     return __db;
   } catch (err) {
@@ -209,7 +209,7 @@ export function getBrainDb(ctx: ProjectContext): DatabaseSync | null {
 export function getTasksDb(ctx: ProjectContext): DatabaseSync | null {
   const path = ctx.tasksDbPath;
   if (!existsSync(path)) return null;
-  const __db = new DatabaseSync(path, { open: true }); // db-open-allowed: E4-T5 coexistence — adapters target legacy tasks.db schema; full exodus in E6 (T11249)
+  const __db = new DatabaseSync(path, { open: true }); // db-open-allowed: E4-T5 coexistence (schema-guard-exempt: legacy read adapters run no schema code) — adapters target legacy tasks.db schema; full exodus in E6 (T11249)
   applyPerfPragmas(__db);
   return __db;
 }
@@ -233,7 +233,7 @@ export function getTasksDb(ctx: ProjectContext): DatabaseSync | null {
 export function getConduitDb(ctx: ProjectContext): DatabaseSync | null {
   const path = join(dirname(ctx.brainDbPath), 'conduit.db');
   if (!existsSync(path)) return null;
-  const __db = new DatabaseSync(path, { open: true }); // db-open-allowed: E4-T5 coexistence — adapters target legacy conduit.db schema; full exodus in E6 (T11249)
+  const __db = new DatabaseSync(path, { open: true }); // db-open-allowed: E4-T5 coexistence (schema-guard-exempt: legacy read adapters run no schema code) — adapters target legacy conduit.db schema; full exodus in E6 (T11249)
   applyPerfPragmas(__db);
   return __db;
 }
