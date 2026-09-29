@@ -39,6 +39,7 @@ import {
   type WorktreeScope,
   worktreeScope,
 } from '../project-scope.js';
+import { acTextHash } from '../tasks/ac-table.js';
 import { withBackgroundOpCommitBoundary } from './background-ops.js';
 import { archivedTaskToRow, rowToSession, rowToTask, taskToRow } from './converters.js';
 import { cleanupBrainRefsOnSessionDelete } from './cross-db-cleanup.js';
@@ -97,7 +98,10 @@ function generateAuditLogId(): string {
  * A binding is matched through the criterion's uid (`ac_uid`), which survives
  * an AC edit, and falls back to `ac_id` for a binding whose uid is not filled.
  * A binding recorded against an older text of a criterion is reported under
- * the criterion's current id, so callers keyed by AC id keep working.
+ * the criterion's current id, so callers keyed by AC id keep working, and is
+ * marked `stale` when the text hash it recorded (`ac_text_hash`) differs from
+ * the criterion's current text: evidence for different text never satisfies a
+ * gate (spec §8.2).
  */
 async function selectAcBindings(
   db: Awaited<ReturnType<typeof getDb>>,
@@ -109,6 +113,7 @@ async function selectAcBindings(
     acId: string;
     bindingType: 'direct' | 'satisfies' | 'coverage';
     createdAt: string;
+    stale?: boolean;
   }>
 > {
   if (acIds.length === 0) return [];
@@ -120,6 +125,8 @@ async function selectAcBindings(
     evidenceAtomId: b.evidenceAtomId,
     acId: b.acId,
     currentAcId: ac.id,
+    currentAcText: ac.text,
+    recordedTextHash: b.acTextHash,
     bindingType: b.bindingType,
     createdAt: b.createdAt,
   };
@@ -144,12 +151,17 @@ async function selectAcBindings(
   for (const r of rows) {
     if (seen.has(r.id)) continue;
     seen.add(r.id);
+    const stale =
+      r.recordedTextHash !== null &&
+      r.currentAcText !== null &&
+      acTextHash(r.currentAcText) !== r.recordedTextHash;
     out.push({
       id: r.id,
       evidenceAtomId: r.evidenceAtomId,
       acId: r.currentAcId && wanted.has(r.currentAcId) ? r.currentAcId : r.acId,
       bindingType: r.bindingType,
       createdAt: r.createdAt,
+      ...(stale ? { stale: true } : {}),
     });
   }
   return out;

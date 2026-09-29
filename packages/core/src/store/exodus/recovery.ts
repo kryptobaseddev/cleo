@@ -221,6 +221,18 @@ function inspectEffects(
         (name === `${table}_fts` || name.startsWith(`${table}_fts_`))
       )
         return constants.SQLITE_OK;
+      // T12341: deleting an acceptance criterion records its uid in the
+      // local-only AC uid graveyard (pure-SQL trigger), repair scratch that the
+      // next open consumes and empties. Not replicated, so no receipt.
+      if (
+        trigger &&
+        action === constants.SQLITE_DELETE &&
+        code === constants.SQLITE_INSERT &&
+        dbName === schema &&
+        table === 'tasks_task_acceptance_criteria' &&
+        name === 'tasks_ac_uid_graveyard'
+      )
+        return constants.SQLITE_OK;
       refusal = `untracked trigger side effects: ${String(dbName)}.${String(name)} ${String(column)}`;
       return constants.SQLITE_DENY;
     }

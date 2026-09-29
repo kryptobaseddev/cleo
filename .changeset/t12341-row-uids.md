@@ -20,13 +20,24 @@ tables now also carries `uid`, the key a merge compares:
   derive the same uids, while the same `T####` created twice gets two.
   Dependencies, relations and labels get a uid derived from the uids at both
   ends. Nothing about the existing columns changes.
+- **Collisions are detected, never merged.** Every row with a locally
+  allocated key also stores a birth fingerprint (`birth_fp`: its creation
+  time at full precision plus facts no edit changes). The same uid with a
+  different fingerprint is a collision: the loser gets a new uid and the old
+  one is kept in `tasks_uid_aliases`.
 - **Acceptance criteria** keep their uid when edited (same text, else same
-  position). Evidence bindings record the criterion's uid (`ac_uid`) and are
-  resolved through it, so editing a criterion no longer orphans its evidence.
-- **Display-id collisions**: `store/display-id-alias.ts` re-mints the later
-  row of a colliding pair and records the old id in
-  `tasks_display_id_aliases`; an id claimed by more than one row resolves as
-  ambiguous, never to a guess.
-- `CLEO_DISABLE_ROW_UID_FILL=1` skips the fill. Gate B:
-  `fingerprint-store.mjs --omit-row-identity` compares a store with its
-  pre-migration copy.
+  position). Each evidence binding records the criterion's uid (`ac_uid`) and
+  the hash of the text it was recorded against (`ac_text_hash`). Evidence for
+  a different text is shown as stale and does not satisfy a gate until it is
+  re-verified. An older build that recreates criteria is repaired at the next
+  open (the uid is recovered from a small deletion log).
+- **Labels and dependencies** are now written as diffs: saving a task no
+  longer deletes and re-inserts the edges it keeps.
+- **Display-id collisions**: only one authority (the sync server, or the
+  device that created the losing row) gives the loser a new `T####` and
+  publishes it; other devices keep it under a provisional id until then. The
+  old id stays in `tasks_display_id_aliases`: a live id always wins, one alias
+  resolves, several aliases are reported as ambiguous.
+- `cleo doctor` gains a `row_identity` check. `CLEO_DISABLE_ROW_UID_FILL=1`
+  skips the fill. Gate B: `fingerprint-store.mjs --omit-row-identity`
+  compares a store with its pre-migration copy.

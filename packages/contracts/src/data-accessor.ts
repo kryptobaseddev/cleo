@@ -257,6 +257,12 @@ export interface AcBindingRow {
   bindingType: 'direct' | 'satisfies' | 'coverage';
   /** ISO-8601 timestamp of binding creation. */
   createdAt: string;
+  /**
+   * The evidence was recorded against a different text of this criterion
+   * (T12341): the criterion kept its identity through an edit, but no gate may
+   * count this binding until the evidence is re-verified. Absent means valid.
+   */
+  stale?: boolean;
 }
 
 /** Query options for bounded reads from the append-only task audit log. @task T10594 */

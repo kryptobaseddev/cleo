@@ -19,10 +19,22 @@
 -- non-deterministic. Rows an older build inserts keep a NULL uid until the next
 -- open by this build fills them.
 --
--- `tasks_display_id_aliases` follows the ADR-094 alias pattern: a displaced
--- display id keeps resolving to the row that carried it, and an id claimed by
--- more than one row is ambiguous and never resolves. Runtime infrastructure
--- written by store/display-id-alias.ts, not part of the exodus target shape.
+-- `birth_fp` (minted tables) is the birth fingerprint: a hash of creation
+-- facts no edit changes, captured when the uid is assigned. Same uid with a
+-- different birth_fp is a uid COLLISION the merge never merges (spec §6.4).
+-- `ac_text_hash` on bindings is the hash of the AC text the evidence was
+-- recorded against; a mismatch with the current text is stale evidence.
+--
+-- `tasks_display_id_aliases` follows the ADR-094 alias pattern (a live display
+-- id always wins; an alias resolves only when no live row holds the id;
+-- several aliases are an error). `tasks_uid_aliases` records uid re-keys after
+-- a collision. Both are runtime infrastructure written by
+-- store/display-id-alias.ts, not part of the exodus target shape.
+--
+-- `tasks_ac_uid_graveyard` and its PURE-SQL delete trigger record the uid of a
+-- deleted acceptance criterion, so the next open by this build can re-link a
+-- criterion an older build deleted and recreated without carrying its uid
+-- (spec §6.5). The trigger calls no function, so older builds run it as is.
 --
 -- @task T12341
 -- @epic T12323
@@ -47,6 +59,18 @@ ALTER TABLE `tasks_task_relations` ADD COLUMN `uid` TEXT;
 --> statement-breakpoint
 ALTER TABLE `tasks_task_labels` ADD COLUMN `uid` TEXT;
 --> statement-breakpoint
+ALTER TABLE `tasks_tasks` ADD COLUMN `birth_fp` TEXT;
+--> statement-breakpoint
+ALTER TABLE `tasks_task_acceptance_criteria` ADD COLUMN `birth_fp` TEXT;
+--> statement-breakpoint
+ALTER TABLE `tasks_task_acceptance_criteria_history` ADD COLUMN `birth_fp` TEXT;
+--> statement-breakpoint
+ALTER TABLE `tasks_evidence_ac_bindings` ADD COLUMN `birth_fp` TEXT;
+--> statement-breakpoint
+ALTER TABLE `tasks_evidence_ac_bindings` ADD COLUMN `ac_text_hash` TEXT;
+--> statement-breakpoint
+ALTER TABLE `tasks_sessions` ADD COLUMN `birth_fp` TEXT;
+--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS `uq_tasks_tasks_uid` ON `tasks_tasks` (`uid`);
 --> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS `uq_tasks_task_acceptance_criteria_uid` ON `tasks_task_acceptance_criteria` (`uid`);
@@ -58,6 +82,8 @@ CREATE INDEX IF NOT EXISTS `idx_tasks_task_acceptance_criteria_history_ac_uid` O
 CREATE UNIQUE INDEX IF NOT EXISTS `uq_tasks_evidence_ac_bindings_uid` ON `tasks_evidence_ac_bindings` (`uid`);
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `idx_tasks_evidence_ac_bindings_ac_uid` ON `tasks_evidence_ac_bindings` (`ac_uid`);
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_tasks_evidence_ac_bindings_ac_text_hash` ON `tasks_evidence_ac_bindings` (`ac_text_hash`);
 --> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS `uq_tasks_sessions_uid` ON `tasks_sessions` (`uid`);
 --> statement-breakpoint
@@ -74,9 +100,43 @@ CREATE TABLE IF NOT EXISTS `tasks_display_id_aliases` (
   `entity_uid` TEXT NOT NULL,
   `reason` TEXT NOT NULL,
   `origin` TEXT,
+  `displaced_hlc` TEXT,
   `created_at` TEXT NOT NULL
 );
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `idx_tasks_display_id_aliases_lookup` ON `tasks_display_id_aliases` (`entity_table`, `display_id`);
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `idx_tasks_display_id_aliases_entity` ON `tasks_display_id_aliases` (`entity_uid`);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `tasks_uid_aliases` (
+  `uid` TEXT PRIMARY KEY NOT NULL,
+  `entity_table` TEXT NOT NULL,
+  `old_uid` TEXT NOT NULL,
+  `old_birth_fp` TEXT NOT NULL,
+  `new_uid` TEXT NOT NULL,
+  `origin` TEXT,
+  `displaced_hlc` TEXT,
+  `created_at` TEXT NOT NULL
+);
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_tasks_uid_aliases_old` ON `tasks_uid_aliases` (`entity_table`, `old_uid`);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `tasks_ac_uid_graveyard` (
+  `seq` INTEGER PRIMARY KEY AUTOINCREMENT,
+  `ac_id` TEXT NOT NULL,
+  `uid` TEXT NOT NULL,
+  `task_id` TEXT NOT NULL,
+  `ordinal` INTEGER NOT NULL,
+  `text` TEXT NOT NULL,
+  `deleted_at` TEXT NOT NULL
+);
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_tasks_ac_uid_graveyard_task` ON `tasks_ac_uid_graveyard` (`task_id`);
+--> statement-breakpoint
+CREATE TRIGGER IF NOT EXISTS `trg_tasks_ac_uid_graveyard`
+AFTER DELETE ON `tasks_task_acceptance_criteria`
+WHEN OLD.`uid` IS NOT NULL
+BEGIN
+  INSERT INTO `tasks_ac_uid_graveyard` (`ac_id`, `uid`, `task_id`, `ordinal`, `text`, `deleted_at`)
+  VALUES (OLD.`id`, OLD.`uid`, OLD.`task_id`, OLD.`ordinal`, OLD.`text`, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+END;

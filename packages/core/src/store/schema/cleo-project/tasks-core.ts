@@ -197,6 +197,8 @@ export const tasksTasks = sqliteTable(
      * (`store/row-identity.ts`). Never updated once set.
      */
     uid: text('uid').$defaultFn(uuidv7),
+    /** Birth fingerprint (T12341): creation facts hashed once with the uid; never updated. */
+    birthFp: text('birth_fp'),
   },
   (table) => [
     index('idx_tasks_tasks_status').on(table.status),
@@ -259,6 +261,8 @@ export const tasksTaskAcceptanceCriteria = sqliteTable(
      * with the criterion across edits, so evidence bindings follow it.
      */
     uid: text('uid').$defaultFn(uuidv7),
+    /** Birth fingerprint (T12341): creation facts hashed once with the uid; never updated. */
+    birthFp: text('birth_fp'),
   },
   (table) => [
     index('idx_tasks_task_acceptance_criteria_task_id').on(table.taskId),
@@ -497,6 +501,8 @@ export const tasksSessions = sqliteTable(
      * (`store/row-identity.ts`). Never updated once set.
      */
     uid: text('uid').$defaultFn(uuidv7),
+    /** Birth fingerprint (T12341): creation facts hashed once with the uid; never updated. */
+    birthFp: text('birth_fp'),
   },
   (table) => [
     index('idx_tasks_sessions_status').on(table.status),
@@ -589,6 +595,8 @@ export const tasksTaskAcceptanceCriteriaHistory = sqliteTable(
      * (`store/row-identity.ts`). Never updated once set.
      */
     uid: text('uid').$defaultFn(uuidv7),
+    /** Birth fingerprint (T12341): creation facts hashed once with the uid; never updated. */
+    birthFp: text('birth_fp'),
     /** Uid of the criterion this row records (T12341); stays joined across edits. */
     acUid: text('ac_uid'),
   },

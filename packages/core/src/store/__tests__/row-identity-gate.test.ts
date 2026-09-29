@@ -31,6 +31,7 @@ import { _resetDualScopeDbCache, openDualScopeDb } from '../dual-scope-db.js';
 import { getBrainDb } from '../memory-sqlite.js';
 import { getNexusDb } from '../nexus-sqlite.js';
 import { ROW_IDENTITY, rowIdentityColumns, UID_COLUMN } from '../row-identity.js';
+import { ROW_IDENTITY_PENDING_REASONS } from '../row-identity-registry.js';
 import { openSkillsDb } from '../skills-db.js';
 import { getDb } from '../sqlite.js';
 import { classifyTable, isPortableTableClass } from '../table-classification.js';
@@ -146,6 +147,16 @@ describe.each(['project', 'global'] as const)('row identity: %s store', (scope) 
             .join(',') === UID_COLUMN,
       );
       expect(uidIsPk || uniqueOnUid, `${spec.table}: uid must be unique`).toBe(true);
+    }
+  });
+
+  it('names only undeclared syncing tables as pending with a reason', () => {
+    if (scope !== 'project') return;
+    const syncing = new Set(syncingTables(scope, store(scope)));
+    const declared = new Set(ROW_IDENTITY[scope].map((s) => s.table));
+    for (const table of Object.keys(ROW_IDENTITY_PENDING_REASONS)) {
+      expect(syncing.has(table), `${table} is not a syncing table`).toBe(true);
+      expect(declared.has(table), `${table} is declared; drop its pending reason`).toBe(false);
     }
   });
 

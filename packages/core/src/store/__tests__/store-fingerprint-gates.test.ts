@@ -89,12 +89,17 @@ import { _resetDualScopeDbCache, openDualScopeDb } from '../dual-scope-db.js';
 import { getBrainDb } from '../memory-sqlite.js';
 import { getNexusDb } from '../nexus-sqlite.js';
 import { prepareRowIdentity, ROW_IDENTITY, rowIdentityColumns } from '../row-identity.js';
+import { ROW_IDENTITY_TABLES } from '../row-identity-registry.js';
 import { getDb } from '../sqlite.js';
 import { classifyTable, isPortableTableClass } from '../table-classification.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 const FINGERPRINT = join(REPO_ROOT, 'scripts', 'fingerprint-store.mjs');
 const COMPARE = join(REPO_ROOT, 'scripts', 'compare-fingerprints.mjs');
+const UID_MIGRATION = join(
+  REPO_ROOT,
+  'packages/core/migrations/drizzle-cleo-project/20260928120000_t12341-row-uids/migration.sql',
+);
 
 /** One targeted change per copy of the source store. */
 const MUTATIONS = {
@@ -1003,16 +1008,15 @@ describe('T12636: a new key never lands beside the fingerprints', () => {
 });
 
 describe('T12341: row uids', () => {
-  /** A copy of the source as it was before the uid migration: no uid columns or indexes. */
+  /** A copy of the source as it was before the uid migration: no identity columns, tables or trigger. */
   function preMigrationCopy(label: string): string {
     const file = join(testRoot, `${label}.db`);
     copyFileSync(db.source, file);
     const conn = openRaw(file);
+    conn.exec('DROP TRIGGER IF EXISTS trg_tasks_ac_uid_graveyard');
+    for (const table of ROW_IDENTITY_TABLES.project) conn.exec(`DROP TABLE IF EXISTS "${table}"`);
     for (const spec of ROW_IDENTITY.project) {
-      if (spec.table === 'tasks_display_id_aliases') {
-        conn.exec('DROP TABLE tasks_display_id_aliases');
-        continue;
-      }
+      if (ROW_IDENTITY_TABLES.project.includes(spec.table)) continue;
       conn.exec(`DROP INDEX IF EXISTS "uq_${spec.table}_uid"`);
       for (const column of rowIdentityColumns('project', spec.table)) {
         conn.exec(`DROP INDEX IF EXISTS "idx_${spec.table}_${column}"`);
@@ -1023,14 +1027,14 @@ describe('T12341: row uids', () => {
     return file;
   }
 
-  /** Run the uid migration's open pass on a store file, as the first open of this build does. */
+  /** Apply the uid migration's SQL, then the open pass, as the first open of this build does. */
   function migrate(file: string): void {
     const conn = openRaw(file);
     try {
-      conn.exec(`CREATE TABLE IF NOT EXISTS tasks_display_id_aliases (
-        uid TEXT PRIMARY KEY NOT NULL, entity_table TEXT NOT NULL, display_id TEXT NOT NULL,
-        entity_uid TEXT NOT NULL, reason TEXT NOT NULL, origin TEXT, created_at TEXT NOT NULL)`);
-      expect(prepareRowIdentity(conn, 'project')?.healed.length).toBeGreaterThan(0);
+      for (const stmt of readFileSync(UID_MIGRATION, 'utf8').split('--> statement-breakpoint')) {
+        conn.exec(stmt);
+      }
+      expect(prepareRowIdentity(conn, 'project')?.filled.tasks_tasks).toBeGreaterThan(0);
     } finally {
       conn.close();
     }

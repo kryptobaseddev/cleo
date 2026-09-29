@@ -44,6 +44,8 @@ function aliasFor(row: AcRow): string {
 function bindingsByAcId(bindings: readonly AcBindingRow[]): Map<string, AcBindingRow[]> {
   const map = new Map<string, AcBindingRow[]>();
   for (const binding of bindings) {
+    // T12341: evidence recorded against an earlier text never counts.
+    if (binding.stale) continue;
     const existing = map.get(binding.acId) ?? [];
     existing.push(binding);
     map.set(binding.acId, existing);

@@ -1,12 +1,13 @@
 /**
  * Two stores created offline merge without uid collisions; display-id
- * collisions are re-minted deterministically and keep resolving through an
- * alias (T12341 AC2, AC3).
+ * collisions are re-minted by a single authority and converge (T12341 AC2,
+ * AC3; spec §9).
  *
- * The merge engine itself is T12344. The harness below does what the spec
- * (§7, §9) says it must: match rows by uid, resolve a display-id collision
- * with {@link collisionLoser}, re-mint or re-place the loser, and translate
- * edge endpoints through uids.
+ * The merge engine itself is T12344. The harness below follows the contract
+ * the spec gives it: rows match by uid; on a display-id collision every
+ * replica agrees on the loser (the greater uid), only the replica that
+ * ORIGINATED the loser re-mints it and publishes the op, and every other
+ * replica keeps the loser under a provisional id until the op arrives.
  *
  * @task T12341
  * @epic T12323
@@ -17,8 +18,10 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  allocateTaskDisplayId,
+  applyRemintOp,
   collisionLoser,
+  provisionalDisplayId,
+  type RemintOp,
   recordDisplayIdAlias,
   remintTaskDisplayId,
   resolveDisplayId,
@@ -30,31 +33,34 @@ import { createTestDb, seedTasks, type TestDbEnv } from './test-db-helper.js';
 interface TaskRow {
   id: string;
   uid: string;
+  birth_fp: string;
   title: string;
   type: string | null;
-  parent_id: string | null;
   created_at: string;
+}
+
+/** One device: its store, its replica name, and the rows it originated. */
+interface Replica {
+  readonly name: string;
+  readonly db: DatabaseSync;
+  readonly originated: Set<string>;
 }
 
 const tasksOf = (db: DatabaseSync): TaskRow[] =>
   db
-    .prepare('SELECT id, uid, title, type, parent_id, created_at FROM tasks_tasks ORDER BY id')
+    .prepare('SELECT id, uid, birth_fp, title, type, created_at FROM tasks_tasks ORDER BY id')
     .all() as unknown as TaskRow[];
 
-const depsOf = (db: DatabaseSync) =>
-  db
-    .prepare(
-      `SELECT d.uid AS uid, a.uid AS fromUid, b.uid AS toUid
-         FROM tasks_task_dependencies d
-         JOIN tasks_tasks a ON a.id = d.task_id
-         JOIN tasks_tasks b ON b.id = d.depends_on`,
-    )
-    .all() as unknown as { uid: string; fromUid: string; toUid: string }[];
+const idByTitle = (db: DatabaseSync) => new Map(tasksOf(db).map((r) => [r.title, r.id]));
 
-function addTask(db: DatabaseSync, id: string, title: string, createdAt: string): void {
-  db.prepare(
-    "INSERT INTO tasks_tasks (id, title, status, priority, type, created_at) VALUES (?, ?, 'pending', 'medium', 'task', ?)",
-  ).run(id, title, createdAt);
+function addTask(r: Replica, id: string, title: string, createdAt: string): void {
+  r.db
+    .prepare(
+      "INSERT INTO tasks_tasks (id, title, status, priority, type, created_at) VALUES (?, ?, 'pending', 'medium', 'task', ?)",
+    )
+    .run(id, title, createdAt);
+  const row = r.db.prepare('SELECT uid FROM tasks_tasks WHERE id = ?').get(id) as { uid: string };
+  r.originated.add(row.uid);
 }
 
 function addDep(db: DatabaseSync, taskId: string, dependsOn: string): void {
@@ -64,50 +70,81 @@ function addDep(db: DatabaseSync, taskId: string, dependsOn: string): void {
   );
 }
 
-/** Merge every task and dependency of `remote` into `local`, keyed by uid. */
-function mergeByUid(local: DatabaseSync, remote: DatabaseSync, origin: string): void {
-  local.exec('BEGIN IMMEDIATE');
+/**
+ * Pull `remote`'s tasks into `local`, keyed by uid. Returns the re-mint ops
+ * `local` authored (it originated the loser), to publish to everyone.
+ */
+function pull(local: Replica, remote: Replica): RemintOp[] {
+  const ops: RemintOp[] = [];
+  local.db.exec('BEGIN IMMEDIATE');
   try {
-    const known = new Set(tasksOf(local).map((t) => t.uid));
-    for (const incoming of tasksOf(remote)) {
+    const known = new Set(tasksOf(local.db).map((t) => t.uid));
+    for (const incoming of tasksOf(remote.db)) {
       if (known.has(incoming.uid)) continue;
-      const holder = local.prepare('SELECT uid FROM tasks_tasks WHERE id = ?').get(incoming.id) as
-        | { uid: string }
-        | undefined;
+      const holder = local.db
+        .prepare('SELECT uid FROM tasks_tasks WHERE id = ?')
+        .get(incoming.id) as { uid: string } | undefined;
       let id = incoming.id;
       if (holder) {
-        if (collisionLoser(holder.uid, incoming.uid) === holder.uid) {
-          remintTaskDisplayId(local, incoming.id, { reason: 'collision-remint', origin });
+        const loser = collisionLoser(holder.uid, incoming.uid);
+        if (loser === holder.uid && local.originated.has(loser)) {
+          // The local row loses and this replica originated it: the authority.
+          ops.push(
+            remintTaskDisplayId(local.db, incoming.id, {
+              reason: 'collision-remint',
+              origin: local.name,
+            }),
+          );
+        } else if (loser === incoming.uid) {
+          // The remote row loses; its origin re-mints. Keep it provisional here.
+          id = provisionalDisplayId(incoming.id, incoming.uid);
         } else {
-          id = allocateTaskDisplayId(local);
-          recordDisplayIdAlias(local, {
-            table: 'tasks_tasks',
-            displayId: incoming.id,
-            entityUid: incoming.uid,
-            reason: 'collision-remint',
-            origin,
-          });
+          throw new Error('harness: the local loser was originated elsewhere');
         }
       }
-      local
+      local.db
         .prepare(
-          "INSERT INTO tasks_tasks (id, uid, title, status, priority, type, created_at) VALUES (?, ?, ?, 'pending', 'medium', ?, ?)",
+          "INSERT INTO tasks_tasks (id, uid, birth_fp, title, status, priority, type, created_at) VALUES (?, ?, ?, ?, 'pending', 'medium', ?, ?)",
         )
-        .run(id, incoming.uid, incoming.title, incoming.type, incoming.created_at);
+        .run(
+          id,
+          incoming.uid,
+          incoming.birth_fp,
+          incoming.title,
+          incoming.type,
+          incoming.created_at,
+        );
     }
-    const knownEdges = new Set(depsOf(local).map((d) => d.uid));
-    const idOf = local.prepare('SELECT id FROM tasks_tasks WHERE uid = ?');
-    for (const edge of depsOf(remote)) {
-      if (knownEdges.has(edge.uid)) continue;
-      const from = idOf.get(edge.fromUid) as { id: string };
-      const to = idOf.get(edge.toUid) as { id: string };
-      addDep(local, from.id, to.id);
-    }
-    local.exec('COMMIT');
+    local.db.exec('COMMIT');
   } catch (error) {
-    local.exec('ROLLBACK');
+    local.db.exec('ROLLBACK');
     throw error;
   }
+  return ops;
+}
+
+/**
+ * Apply published ops. A conflict (the new number is taken here) is a new
+ * collision: when this replica originated its loser, it re-mints again and
+ * returns the new op; otherwise the op's row waits for its own origin.
+ */
+function apply(r: Replica, ops: readonly RemintOp[]): RemintOp[] {
+  const next: RemintOp[] = [];
+  for (const op of ops) {
+    const result = applyRemintOp(r.db, op);
+    if (result.status !== 'conflict') continue;
+    const loser = collisionLoser(result.holderUid ?? '', op.uid);
+    if (loser === result.holderUid && r.originated.has(loser)) {
+      next.push(
+        remintTaskDisplayId(r.db, op.newId, {
+          reason: 'collision-remint',
+          origin: r.name,
+        }),
+      );
+      expect(applyRemintOp(r.db, op).status).toBe('applied');
+    }
+  }
+  return next;
 }
 
 describe('collisionLoser', () => {
@@ -121,8 +158,8 @@ describe('collisionLoser', () => {
 
 describe('two stores created offline (AC2, AC3)', () => {
   let env: TestDbEnv;
-  let a: DatabaseSync;
-  let b: DatabaseSync;
+  let a: Replica;
+  let b: Replica;
   let bPath: string;
 
   beforeEach(async () => {
@@ -140,102 +177,151 @@ describe('two stores created offline (AC2, AC3)', () => {
     ]);
     const native = getNativeTasksDb(env.tempDir);
     if (!native) throw new Error('no native handle');
-    a = native;
     // Device B starts from a copy of the same history, then both go offline.
     bPath = join(env.tempDir, 'device-b.db');
-    a.exec(`VACUUM INTO '${bPath}'`);
-    b = new DatabaseSync(bPath);
-    prepareRowIdentity(b, 'project');
+    native.exec(`VACUUM INTO '${bPath}'`);
+    const bDb = new DatabaseSync(bPath);
+    prepareRowIdentity(bDb, 'project');
+    a = { name: 'device-a', db: native, originated: new Set() };
+    b = { name: 'device-b', db: bDb, originated: new Set() };
 
     addTask(a, 'T004', 'alpha (A)', '2026-09-25T10:00:00.000Z');
-    addDep(a, 'T004', 'T001');
+    addDep(a.db, 'T004', 'T001');
     addTask(a, 'T005', 'delta (A)', '2026-09-25T12:00:00.000Z');
     addTask(b, 'T004', 'beta (B)', '2026-09-25T09:00:00.000Z');
     addTask(b, 'T005', 'gamma (B)', '2026-09-25T13:00:00.000Z');
-    addDep(b, 'T005', 'T004');
   });
 
   afterEach(async () => {
-    b.close();
+    b.db.close();
     rmSync(bPath, { force: true });
     await env.cleanup();
   });
 
   it('gives shared history the same uids and new work distinct ones', () => {
     const byId = (rows: TaskRow[]) => new Map(rows.map((r) => [r.id, r.uid]));
-    const ua = byId(tasksOf(a));
-    const ub = byId(tasksOf(b));
+    const ua = byId(tasksOf(a.db));
+    const ub = byId(tasksOf(b.db));
     for (const id of ['T001', 'T002', 'T003']) expect(ua.get(id)).toBe(ub.get(id));
     for (const id of ['T004', 'T005']) expect(ua.get(id)).not.toBe(ub.get(id));
-    const all = [...ua.values(), ...ub.values()];
-    expect(new Set(all).size).toBe(3 + 2 + 2);
-    const sharedEdge = depsOf(a).find((d) => d.fromUid === ua.get('T002'));
-    expect(depsOf(b).map((d) => d.uid)).toContain(sharedEdge?.uid);
+    expect(new Set([...ua.values(), ...ub.values()]).size).toBe(3 + 2 + 2);
   });
 
-  it('merges by uid, re-mints the later row of each collision, and aliases the old id', () => {
-    const before = new Map(tasksOf(a).map((r) => [r.title, r.uid]));
-    const remote = new Map(tasksOf(b).map((r) => [r.title, r.uid]));
-    mergeByUid(a, b, 'device-b');
+  it('re-mints only at the origin of each loser, and converges', () => {
+    // alpha (A) loses T004 to the older beta (B): only A, its origin, re-mints
+    // it. gamma (B) loses T005 to the older delta (A): only B re-mints it. Each
+    // side keeps the other's loser provisional until the op arrives.
+    const originOf = new Map<string, string>();
+    for (const r of [a, b]) for (const uid of r.originated) originOf.set(uid, r.name);
+    const opsA = pull(a, b);
+    const opsB = pull(b, a);
+    expect(opsA.map((op) => op.oldId)).toEqual(['T004']);
+    expect(opsB.map((op) => op.oldId)).toContain('T005');
+    // Publish until quiet. Offline authorities allocate from their own
+    // counters, so a published number can collide again; each new collision
+    // is again re-minted only by its loser's origin, and it settles.
+    let pending = [...opsA, ...opsB];
+    const authored = [...pending];
+    for (let round = 0; pending.length > 0; round++) {
+      expect(round, 'converges in a few rounds').toBeLessThan(5);
+      const next = [...apply(a, pending), ...apply(b, pending)];
+      authored.push(...next);
+      pending = next;
+    }
+    for (const op of authored) expect(op.origin).toBe(originOf.get(op.uid));
 
-    const after = tasksOf(a);
-    expect(after).toHaveLength(7);
-    const byTitle = new Map(after.map((r) => [r.title, r]));
-    // Every uid survived, none duplicated.
-    for (const [title, uid] of [...before, ...remote]) expect(byTitle.get(title)?.uid).toBe(uid);
+    // Converged: the same display id for every uid on both devices.
+    const view = (db: DatabaseSync) =>
+      tasksOf(db)
+        .map((r) => `${r.uid}=${r.id}`)
+        .sort();
+    expect(view(a.db)).toEqual(view(b.db));
+    const ids = idByTitle(a.db);
+    expect(ids.get('beta (B)')).toBe('T004');
+    expect(ids.get('delta (A)')).toBe('T005');
+    expect(ids.get('alpha (A)')).not.toBe('T004');
+    expect(ids.get('gamma (B)')).not.toBe('T005');
+    for (const id of ids.values()) expect(id).toMatch(/^T\d+$/);
 
-    // T004: B's row is older, so A's local row was re-minted and its edge followed it.
-    expect(byTitle.get('beta (B)')?.id).toBe('T004');
-    const alpha = byTitle.get('alpha (A)');
-    expect(alpha?.id).not.toBe('T004');
-    const alphaDep = a
-      .prepare('SELECT depends_on, uid FROM tasks_task_dependencies WHERE task_id = ?')
-      .get(alpha?.id ?? '') as { depends_on: string; uid: string };
-    expect(alphaDep.depends_on).toBe('T001');
-    expect(alphaDep.uid).toBe(
-      naturalRowUid('project', 'tasks_task_dependencies', [
-        alpha?.uid ?? '',
-        before.get('Shared epic') ?? '',
-      ]),
-    );
-
-    // T005: B's row is newer, so it came in under a new id; A's keeps T005.
-    expect(byTitle.get('delta (A)')?.id).toBe('T005');
-    const gamma = byTitle.get('gamma (B)');
-    expect(gamma?.id).not.toBe('T005');
-    // B's edge gamma → beta arrived translated through uids.
+    // alpha's dependency followed its re-mint; the edge uid did not change.
+    const alpha = tasksOf(a.db).find((r) => r.title === 'alpha (A)');
+    const epic = tasksOf(a.db).find((r) => r.title === 'Shared epic');
     expect(
-      a
-        .prepare('SELECT depends_on FROM tasks_task_dependencies WHERE task_id = ?')
-        .get(gamma?.id ?? ''),
-    ).toEqual({ depends_on: 'T004' });
-
-    expect(a.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
-
-    // Both displaced ids still resolve: to their live holder AND the aliased row, so ambiguous.
-    const t004 = resolveDisplayId(a, 'tasks_tasks', 'T004');
-    expect(t004.status).toBe('ambiguous');
-    expect(t004.status === 'ambiguous' && t004.claimants.map((c) => [c.via, c.currentId])).toEqual([
-      ['live', 'T004'],
-      ['alias', alpha?.id],
-    ]);
-    expect(resolveDisplayId(a, 'tasks_tasks', 'T001')).toEqual({
-      status: 'resolved',
-      claimant: { uid: before.get('Shared epic'), currentId: 'T001', via: 'live' },
+      a.db
+        .prepare('SELECT depends_on, uid FROM tasks_task_dependencies WHERE task_id = ?')
+        .get(alpha?.id ?? ''),
+    ).toEqual({
+      depends_on: 'T001',
+      uid: naturalRowUid('project', 'tasks_task_dependencies', [alpha?.uid ?? '', epic?.uid ?? '']),
     });
-    expect(resolveDisplayId(a, 'tasks_tasks', 'T999')).toEqual({ status: 'none' });
+    expect(a.db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    expect(b.db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+
+    // The live id wins; the displaced row comes back as history with its origin.
+    const t004 = resolveDisplayId(a.db, 'tasks_tasks', 'T004');
+    expect(t004.status).toBe('resolved');
+    if (t004.status === 'resolved') {
+      expect(t004.claimant.currentId).toBe('T004');
+      expect(t004.alsoKnownAs.map((c) => [c.currentId, c.origin])).toEqual([
+        [alpha?.id, 'device-a'],
+      ]);
+    }
   });
 
-  it('resolves a re-minted id that nobody else holds to its row', () => {
-    const uid = (
-      a.prepare("SELECT uid FROM tasks_tasks WHERE id = 'T003'").get() as { uid: string }
-    ).uid;
-    const receipt = remintTaskDisplayId(a, 'T003', { reason: 'manual' });
+  it('an alias resolves only when no live row holds the id; several aliases are ambiguous', () => {
+    const t003 = a.db.prepare("SELECT uid FROM tasks_tasks WHERE id = 'T003'").get() as {
+      uid: string;
+    };
+    const receipt = remintTaskDisplayId(a.db, 'T003', { reason: 'manual', origin: 'device-a' });
     expect(receipt.rewritten['tasks_task_dependencies.depends_on']).toBe(1);
-    expect(resolveDisplayId(a, 'tasks_tasks', 'T003')).toEqual({
+    expect(resolveDisplayId(a.db, 'tasks_tasks', 'T003')).toEqual({
       status: 'resolved',
-      claimant: { uid, currentId: receipt.newId, via: 'alias' },
+      claimant: {
+        uid: t003.uid,
+        currentId: receipt.newId,
+        via: 'alias',
+        origin: 'device-a',
+        displacedHlc: null,
+      },
+      alsoKnownAs: [],
     });
-    expect(a.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    const t005 = a.db.prepare("SELECT uid FROM tasks_tasks WHERE id = 'T005'").get() as {
+      uid: string;
+    };
+    recordDisplayIdAlias(a.db, {
+      table: 'tasks_tasks',
+      displayId: 'T003',
+      entityUid: t005.uid,
+      reason: 'manual',
+      origin: 'device-b',
+    });
+    const both = resolveDisplayId(a.db, 'tasks_tasks', 'T003');
+    expect(both.status).toBe('ambiguous');
+    if (both.status === 'ambiguous') {
+      expect(both.candidates.map((c) => c.uid).sort()).toEqual([t003.uid, t005.uid].sort());
+    }
+    expect(resolveDisplayId(a.db, 'tasks_tasks', 'T999')).toEqual({ status: 'none' });
+    expect(a.db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+  });
+
+  it('a non-authority never allocates: it applies the op, or reports a conflict', () => {
+    const alphaUid = [...a.originated][0] ?? '';
+    // B originated gamma only, so its pull authors exactly one re-mint.
+    expect(pull(b, a).map((o) => o.oldId)).toEqual(['T005']);
+    expect(idByTitle(b.db).get('alpha (A)')).toBe(provisionalDisplayId('T004', alphaUid));
+    const op = (newId: string, uid = alphaUid): RemintOp => ({
+      uid,
+      oldId: 'T004',
+      newId,
+      origin: 'device-a',
+      displacedHlc: null,
+    });
+    expect(applyRemintOp(b.db, op('T900', '00000000-0000-7000-8000-000000000000')).status).toBe(
+      'unknown-row',
+    );
+    expect(applyRemintOp(b.db, op('T001')).status).toBe('conflict');
+    expect(applyRemintOp(b.db, op('T900')).status).toBe('applied');
+    expect(idByTitle(b.db).get('alpha (A)')).toBe('T900');
+    expect(applyRemintOp(b.db, op('T900')).status).toBe('already-applied');
   });
 });

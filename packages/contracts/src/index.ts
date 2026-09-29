@@ -2275,6 +2275,7 @@ export type {
   RowIdentityRef,
   RowIdentitySpec,
   StoredRefUid,
+  SymmetricEdge,
 } from './row-identity.js';
 // === Scaffold + Diagnostic Result Types (SG-ARCH-SOLID T9831 / E-CONTRACTS-FOUNDATION T9832) ===
 export type {

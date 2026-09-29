@@ -15,6 +15,9 @@ import type { RowIdentityRef, RowIdentitySpec, TableScope } from '@cleocode/cont
 /** Physical name of every uid column. */
 export const UID_COLUMN = 'uid';
 
+/** Physical name of the birth fingerprint column of every minted table. */
+export const BIRTH_FP_COLUMN = 'birth_fp';
+
 const TASKS: RowIdentityRef['table'] = 'tasks_tasks';
 const SESSIONS: RowIdentityRef['table'] = 'tasks_sessions';
 const ACS: RowIdentityRef['table'] = 'tasks_task_acceptance_criteria';
@@ -27,6 +30,9 @@ const ACS: RowIdentityRef['table'] = 'tasks_task_acceptance_criteria';
  *
  * Tables whose bare twin is still the live write target (attachments, ADRs,
  * token usage, …) are declared when their twin collapse lands (spec §10).
+ *
+ * `content` and `birthFacts` lists are FROZEN for recipe v1: changing one is a
+ * new recipe version, never an edit here.
  */
 export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[]>> = {
   project: [
@@ -35,6 +41,7 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       kind: 'minted',
       key: ['id'],
       birth: 'created_at',
+      birthFacts: ['@auditTitle', 'type'],
       displayId: true,
       refs: [
         { column: 'parent_id', table: TASKS },
@@ -47,6 +54,7 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       kind: 'minted',
       key: ['id'],
       birth: 'started_at',
+      birthFacts: ['name'],
       refs: [
         { column: 'current_task', table: TASKS },
         { column: 'previous_session_id', table: SESSIONS },
@@ -64,6 +72,7 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       kind: 'minted',
       key: ['id'],
       birth: 'created_at',
+      birthFacts: ['text', '@owner:task_id'],
       owners: [{ column: 'task_id', table: TASKS }],
       refs: [{ column: 'target_task_id', table: TASKS }],
       task: 'T12341',
@@ -74,6 +83,7 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       key: ['id'],
       birth: 'recorded_at',
       content: ['ac_id', 'previous_text', 'reason'],
+      birthFacts: ['ac_id', 'previous_text', 'reason'],
       storedRefUids: [{ column: 'ac_uid', from: 'ac_id', table: ACS }],
       task: 'T12341',
     },
@@ -82,7 +92,11 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       kind: 'minted',
       key: ['id'],
       birth: 'created_at',
-      storedRefUids: [{ column: 'ac_uid', from: 'ac_id', table: ACS }],
+      birthFacts: ['evidence_atom_id', 'binding_type', 'ac_text_hash'],
+      storedRefUids: [
+        { column: 'ac_uid', from: 'ac_id', table: ACS },
+        { column: 'ac_text_hash', from: 'ac_id', table: ACS, source: 'text_hash' },
+      ],
       task: 'T12341',
     },
     {
@@ -103,6 +117,10 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
         { column: 'task_id', table: TASKS },
         { column: 'related_to', table: TASKS },
       ],
+      // TASK_RELATION_TYPES (contracts/src/enums.ts): only `related` is a
+      // symmetric association; blocks, duplicates, absorbs, fixes, extends,
+      // supersedes and groups (grouper → member) are directional.
+      symmetric: { column: 'relation_type', values: ['related'] },
       task: 'T12341',
     },
     {
@@ -119,6 +137,13 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       key: ['entity_table', 'display_id', 'entity_uid'],
       task: 'T12341',
     },
+    {
+      // The uid IS the primary key: display-id-alias.ts computes it on write.
+      table: 'tasks_uid_aliases',
+      kind: 'natural',
+      key: ['entity_table', 'old_uid', 'old_birth_fp'],
+      task: 'T12341',
+    },
   ],
   global: [],
 };
@@ -126,11 +151,25 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
 /**
  * Tables that exist only to support row identity (added by the uid migration
  * itself). A replay of a store from before that migration leaves them out,
- * with the uid columns (`fingerprint-store.mjs --omit-row-identity`).
+ * with the identity columns (`fingerprint-store.mjs --omit-row-identity`).
+ * Includes the local-only AC uid graveyard (spec §6.5).
  */
 export const ROW_IDENTITY_TABLES: Readonly<Record<TableScope, readonly string[]>> = {
-  project: ['tasks_display_id_aliases'],
+  project: ['tasks_display_id_aliases', 'tasks_uid_aliases', 'tasks_ac_uid_graveyard'],
   global: [],
+};
+
+/**
+ * Named syncing tables that are deliberately NOT declared yet, and why. The
+ * row-identity gate counts every undeclared syncing table as pending; these
+ * are the ones with a reason beyond "not reached yet".
+ */
+export const ROW_IDENTITY_PENDING_REASONS: Readonly<Record<string, string>> = {
+  brain_sticky_tags:
+    'twin-collapse slice 1 table: the degraded-mode TEMP shadow tables in store/twin-collapse.ts declare its columns and must carry uid first; that file is being edited by slice 2 (T12535)',
+  brain_sticky_notes: 'parent of brain_sticky_tags; declared together with it (same reason)',
+  attachments: 'bare twin still live; twin-collapse slice 2 (T12535) is in flight',
+  attachment_refs: 'bare twin still live; twin-collapse slice 2 (T12535) is in flight',
 };
 
 /**
@@ -145,9 +184,9 @@ export function rowIdentitySpec(scope: TableScope, table: string): RowIdentitySp
 }
 
 /**
- * The identity columns of a table: `uid` plus its stored reference uids.
- * Replay comparisons of a store before and after the uid migration leave
- * these out (`fingerprint-store.mjs --omit-row-identity`).
+ * The identity columns of a table: `uid`, `birth_fp` (minted tables) and its
+ * stored reference facts. Replay comparisons of a store before and after the
+ * uid migration leave these out (`fingerprint-store.mjs --omit-row-identity`).
  *
  * @param scope - Store scope.
  * @param table - Physical table name.
@@ -156,5 +195,9 @@ export function rowIdentitySpec(scope: TableScope, table: string): RowIdentitySp
 export function rowIdentityColumns(scope: TableScope, table: string): string[] {
   const spec = rowIdentitySpec(scope, table);
   if (!spec) return [];
-  return [UID_COLUMN, ...(spec.storedRefUids ?? []).map((ref) => ref.column)];
+  return [
+    UID_COLUMN,
+    ...(spec.kind === 'minted' ? [BIRTH_FP_COLUMN] : []),
+    ...(spec.storedRefUids ?? []).map((ref) => ref.column),
+  ];
 }

@@ -46,18 +46,36 @@ export interface RowIdentityRef {
 }
 
 /**
- * A stored copy of a referenced row's uid, kept because the local key it
- * mirrors is not stable (an AC id is derived from the AC text).
+ * A stored copy of a fact about a referenced row, taken when the row is
+ * written: its uid (`ac_uid`, kept because an AC id is derived from the AC
+ * text and changes on edit), or the hash of its text (`ac_text_hash`, the
+ * text the evidence was recorded against).
  *
  * @task T12341
  */
 export interface StoredRefUid {
-  /** Physical column holding the referenced uid (e.g. `ac_uid`). */
+  /** Physical column holding the copied fact (e.g. `ac_uid`). */
   readonly column: string;
   /** Column holding the referenced local key (e.g. `ac_id`). */
   readonly from: string;
   /** Referenced table. */
   readonly table: string;
+  /** What is copied: the referenced row's uid (default) or the hash of its `text`. */
+  readonly source?: 'uid' | 'text_hash';
+}
+
+/**
+ * A relation table whose rows are symmetric for some values of a type column:
+ * the endpoint uids are hashed in sorted order, so `A related B` and
+ * `B related A` are one edge.
+ *
+ * @task T12341
+ */
+export interface SymmetricEdge {
+  /** Column holding the relation type. */
+  readonly column: string;
+  /** Type values that are symmetric; every other value keeps direction. */
+  readonly values: readonly string[];
 }
 
 /**
@@ -83,6 +101,21 @@ export interface RowIdentitySpec {
   readonly content?: readonly string[];
   /** `natural`: key columns that reference rows; their target uid is hashed. */
   readonly keyRefs?: readonly RowIdentityRef[];
+  /**
+   * `minted`: facts of the row's creation hashed into its birth fingerprint
+   * (`birth_fp`), besides the raw birth. Each entry is a column name, or
+   * `@owner:<column>` (the uid of the owner that column references), or
+   * `@auditTitle` (the title of the task's earliest `task_created` audit
+   * event, else its current title). Frozen per recipe version.
+   */
+  readonly birthFacts?: readonly string[];
+  /** `natural` relation tables: the symmetric relation types. */
+  readonly symmetric?: SymmetricEdge;
+  /**
+   * `minted`: every uid is random, never derived from content, including for
+   * existing rows. Required for `portable-secret` tables.
+   */
+  readonly randomOnly?: boolean;
   /** Other references, translated to uids on the wire (not hashed). */
   readonly refs?: readonly RowIdentityRef[];
   /** JSON-array columns of referenced keys, translated element by element. */

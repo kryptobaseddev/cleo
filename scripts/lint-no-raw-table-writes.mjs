@@ -98,6 +98,11 @@ export const SANCTIONED = new Set([
   // the split-brain import), rewriting every local reference to a re-minted
   // task id in one savepoint.
   'packages/core/src/store/display-id-alias.ts',
+  // T12341: the row-uid open pass. It runs on the chokepoint handle inside the
+  // cold-open lease (openDualScopeDb), filling identity columns and re-linking
+  // acceptance-criterion uids an older build dropped; no accessor exists yet
+  // at that point of the open.
+  'packages/core/src/store/row-identity.ts',
 ]);
 
 /** Files whose SQL words are prose only, never executed. File → reason. */

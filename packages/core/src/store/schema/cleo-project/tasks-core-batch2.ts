@@ -185,11 +185,19 @@ export const tasksEvidenceAcBindings = sqliteTable(
      * (`store/row-identity.ts`). Never updated once set.
      */
     uid: text('uid').$defaultFn(uuidv7),
+    /** Birth fingerprint (T12341): creation facts hashed once with the uid; never updated. */
+    birthFp: text('birth_fp'),
     /**
      * Uid of the bound criterion (T12341). Readers resolve bindings through it,
      * so an AC edit (which changes `ac_id`) no longer orphans the binding.
      */
     acUid: text('ac_uid'),
+    /**
+     * Hash of the AC text this evidence was recorded against (T12341). When it
+     * differs from the criterion's current text the evidence is STALE: shown,
+     * never counted by a gate until re-verified.
+     */
+    acTextHash: text('ac_text_hash'),
   },
   (table) => [
     uniqueIndex('uq_tasks_evidence_ac_bindings_atom_ac_type').on(
@@ -201,6 +209,7 @@ export const tasksEvidenceAcBindings = sqliteTable(
     index('idx_tasks_evidence_ac_bindings_evidence_atom_id').on(table.evidenceAtomId),
     uniqueIndex('uq_tasks_evidence_ac_bindings_uid').on(table.uid),
     index('idx_tasks_evidence_ac_bindings_ac_uid').on(table.acUid),
+    index('idx_tasks_evidence_ac_bindings_ac_text_hash').on(table.acTextHash),
   ],
 );
 

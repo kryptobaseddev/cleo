@@ -1419,6 +1419,15 @@
       "updated_at",
       "verification_json"
     ],
+    "tasks_ac_uid_graveyard": [
+      "ac_id",
+      "deleted_at",
+      "ordinal",
+      "seq",
+      "task_id",
+      "text",
+      "uid"
+    ],
     "tasks_acceptance_projection_dirty": [
       "payload_json",
       "projection_key",
@@ -1578,6 +1587,7 @@
     ],
     "tasks_display_id_aliases": [
       "created_at",
+      "displaced_hlc",
       "display_id",
       "entity_table",
       "entity_uid",
@@ -1587,8 +1597,10 @@
     ],
     "tasks_evidence_ac_bindings": [
       "ac_id",
+      "ac_text_hash",
       "ac_uid",
       "binding_type",
+      "birth_fp",
       "created_at",
       "evidence_atom_id",
       "id",
@@ -1839,6 +1851,7 @@
       "agent",
       "agent_handle",
       "agent_identifier",
+      "birth_fp",
       "current_task",
       "debrief_json",
       "ended_at",
@@ -1875,6 +1888,7 @@
       "namespace"
     ],
     "tasks_task_acceptance_criteria": [
+      "birth_fp",
       "content_hash",
       "created_at",
       "id",
@@ -1891,6 +1905,7 @@
     "tasks_task_acceptance_criteria_history": [
       "ac_id",
       "ac_uid",
+      "birth_fp",
       "id",
       "previous_text",
       "reason",
@@ -1933,6 +1948,7 @@
       "archive_reason",
       "archived_at",
       "assignee",
+      "birth_fp",
       "blocked_by",
       "cancellation_reason",
       "cancelled_at",
@@ -1991,6 +2007,16 @@
       "task_id",
       "total_tokens",
       "transport"
+    ],
+    "tasks_uid_aliases": [
+      "created_at",
+      "displaced_hlc",
+      "entity_table",
+      "new_uid",
+      "old_birth_fp",
+      "old_uid",
+      "origin",
+      "uid"
     ],
     "tasks_warp_chain_instances": [
       "chain_id",

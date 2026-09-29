@@ -933,6 +933,12 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'T12341 (row uids; spec t12341-uid-scheme §9)',
     note: 'displaced display ids (a T#### re-minted on a merge collision) must resolve on every device and for every collaborator; ADR-094 alias pattern',
   },
+  tasks_ac_uid_graveyard: {
+    class: 'local-only',
+    status: 'resolved',
+    source: 'T12341 (row uids; spec t12341-uid-scheme §6.5)',
+    note: 'repair scratch: uids of deleted acceptance criteria, so the next open re-links a criterion an older build recreated; pruned at every open',
+  },
   tasks_evidence_ac_bindings: {
     class: 'portable-project',
     status: 'draft',
@@ -1140,6 +1146,12 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     status: 'needs-owner-call',
     source: 'cleo-dev ruling 2026-09-28',
     note: 'ruling: token_usage is portable (cost history). Merge scope personal is my proposal (keyed by session, and sessions are personal)',
+  },
+  tasks_uid_aliases: {
+    class: 'portable-project',
+    status: 'resolved',
+    source: 'T12341 (row uids; spec t12341-uid-scheme §6.4)',
+    note: 'uid re-keys after a detected uid collision; every device must resolve the old uid',
   },
   tasks_warp_chain_instances: {
     class: 'portable-project',
