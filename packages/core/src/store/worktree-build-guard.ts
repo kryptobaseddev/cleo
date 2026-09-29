@@ -1,72 +1,95 @@
 /**
- * Worktree-build migration guard (T12687).
+ * Worktree-build schema-write guard (T12687).
  *
  * A CLI built inside a linked git worktree carries that branch's UNRELEASED
- * migrations. Path resolution maps a worktree to its parent project's store
- * (T12460), so running that build — `cleo check arch`, an unsandboxed CLI
- * test, a reviewer trying a PR build — migrated the LIVE main-checkout store.
- * Incident 2026-09-29: cleo-nexus's slice-2 build wrote `__drizzle_migrations`
- * row 114 into the live cleocode store; the released CLI then deleted the
- * unknown row as an orphan and the next slice-2 open re-ran `ADD COLUMN` and
- * failed.
+ * migrations and schema code. Path resolution maps a worktree to its parent
+ * project's store (T12460), so running that build — `cleo check arch`, an
+ * unsandboxed CLI test, a reviewer trying a PR build — changed the schema of
+ * the LIVE main-checkout store. Incident 2026-09-29: cleo-nexus's slice-2
+ * build wrote `__drizzle_migrations` row 114 into the live cleocode store; the
+ * released CLI then deleted the unknown row as an orphan and the next slice-2
+ * open re-ran `ADD COLUMN` and failed.
  *
- * The guard: when the running code lives inside a linked worktree and the
- * store it would migrate lies outside that worktree, pending migrations are
- * NOT applied (and the journal is not reconciled) unless
- * `CLEO_ALLOW_WORKTREE_BUILD_MIGRATIONS=1`. The store still opens, so
- * read-only commands keep working against the owning store.
+ * ## One decision per store, enforced on the handle
  *
- * Unaffected:
- * - installed builds (the code path contains a `node_modules` segment);
- * - builds in a main checkout or any non-worktree directory;
- * - stores inside the build's own worktree, and stores under a temp dir or a
- *   declared test sandbox root (`CLEO_TEST_ALLOWED_DB_ROOTS`);
- * - stores with no pending migration (nothing would be written).
+ * {@link schemaWriteRefusal} decides, once per store path, whether this build
+ * may change that store's schema. When it may not,
+ * {@link installSchemaWriteGuard} installs a SQLite authorizer on the handle
+ * that DENIES every schema change — `ALTER`, `DROP`, and any `CREATE` of an
+ * object that does not already exist (a `CREATE … IF NOT EXISTS` of an
+ * existing object is a no-op and stays allowed). That covers every DDL site
+ * at once — drizzle migrations, `ensureColumns`, raw `ALTER`s, table
+ * rebuilds, twin collapse, exodus — including sites added later. Migration
+ * sites additionally fail fast with {@link WorktreeBuildSchemaError} when the
+ * build has pending migrations: the store would not match what this build
+ * reads, so it refuses rather than failing later with `no such column`.
+ *
+ * ## Who is a dev build
+ *
+ * The build stamp `dist/build-provenance.json` (written at build time) names
+ * the linked worktree the build was made in, or null for a main checkout / CI
+ * clone — how released packages are built. The stamp travels with the build,
+ * so an `npm pack`ed worktree build installed globally, or a `dist` copied
+ * outside any checkout, is still recognised. Without a stamp (running from
+ * source), the running file's own location decides, and a path under
+ * `node_modules` counts as installed.
+ *
+ * Allowed without an opt-in: stores inside the build's own worktree, and the
+ * test harness (`VITEST`, or a store below a {@link TEST_SANDBOX_MARKER} for CLI
+ * children a test spawns). A temp directory alone is NOT an exemption — a
+ * project cloned under `/tmp` is a real store. Everything else needs
+ * `CLEO_ALLOW_WORKTREE_BUILD_MIGRATIONS=1`.
  *
  * @task T12687
  */
 
-import { realpathSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { delimiter, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
+import { ExitCode } from '@cleocode/contracts';
 import type { MigrationMeta } from 'drizzle-orm/migrator';
+import { CleoError } from '../errors.js';
 import { isGitLinkedCheckout } from '../project-scope.js';
 
-/** Opt-in that lets a worktree build migrate a store outside its worktree. */
+/** Opt-in that lets a worktree build change the schema of a store outside its worktree. */
 export const ALLOW_WORKTREE_BUILD_MIGRATIONS_ENV = 'CLEO_ALLOW_WORKTREE_BUILD_MIGRATIONS';
 
-/** Inputs of {@link worktreeBuildMigrationRefusal}; defaults describe this process. */
+/**
+ * File the test harness (`vitest.setup.ts`) writes at the root of each fork's
+ * sandbox. A store below it is a fixture — including one opened by a CLI child
+ * process the test spawned, which does not inherit `VITEST`.
+ */
+export const TEST_SANDBOX_MARKER = '.cleo-test-sandbox';
+
+/** Error code of {@link WorktreeBuildSchemaError}. */
+export const E_WORKTREE_BUILD_SCHEMA = 'E_WORKTREE_BUILD_SCHEMA';
+
+/** Build stamp written by `scripts/write-build-provenance.mjs`. */
+export interface BuildProvenance {
+  /** Linked worktree the build was made in, or null (main checkout / CI clone). */
+  linkedWorktree: string | null;
+}
+
+/** Inputs of {@link schemaWriteRefusal}; defaults describe this process. */
 export interface WorktreeBuildGuardOptions {
   /** A file of the running build. Defaults to this module. */
   codePath: string;
-  /** Environment consulted for the opt-in. Defaults to `process.env`. */
+  /** The build stamp; `undefined` reads it from beside the build, `null` means none. */
+  provenance: BuildProvenance | null | undefined;
+  /** Environment consulted for the opt-in and the test harness. */
   env: NodeJS.ProcessEnv;
-  /** Directories whose stores are always allowed (scratch). Defaults to the temp dirs. */
-  tmpRoots: readonly string[];
-}
-
-/**
- * Where scratch stores live: the temp dir of this process, the platform temp
- * bases (a child process may see a different TMPDIR than the fixture that
- * created its store), and the test sandbox roots vitest.setup.ts declares.
- * No live project store lives under these.
- */
-function scratchRoots(): string[] {
-  const bases = [tmpdir(), '/tmp', '/var/tmp'];
-  if (process.platform === 'darwin') bases.push('/private/var/folders');
-  return [
-    ...bases,
-    ...(process.env['CLEO_TEST_ALLOWED_DB_ROOTS'] ?? '').split(delimiter).filter(Boolean),
-  ];
+  /** Honour {@link TEST_SANDBOX_MARKER} (default true; guard tests turn it off). */
+  honourTestSandbox: boolean;
 }
 
 let overrides: Partial<WorktreeBuildGuardOptions> | null = null;
+const decisions = new Map<string, string | null>();
 
 /**
  * Replace the guard's view of the running build (tests only: a test process
- * runs from source, so it cannot move its own code into a fixture worktree).
+ * runs from source inside the harness, so it cannot be a dev build itself).
  *
  * @param next - Partial options, or null to restore the defaults.
  * @internal
@@ -75,6 +98,7 @@ export function setWorktreeBuildGuardForTests(
   next: Partial<WorktreeBuildGuardOptions> | null,
 ): void {
   overrides = next;
+  decisions.clear();
 }
 
 function realOrResolved(path: string): string {
@@ -90,6 +114,17 @@ function isWithin(root: string, path: string): boolean {
   return local === '' || (!isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`));
 }
 
+/** Whether a {@link TEST_SANDBOX_MARKER} sits in `path` or an ancestor. */
+function insideTestSandbox(path: string): boolean {
+  let dir = dirname(path);
+  for (;;) {
+    if (existsSync(join(dir, TEST_SANDBOX_MARKER))) return true;
+    const parent = dirname(dir);
+    if (parent === dir) return false;
+    dir = parent;
+  }
+}
+
 /**
  * Root of the linked git worktree containing `path`, or null when the nearest
  * enclosing checkout is a main checkout (or there is none).
@@ -101,12 +136,7 @@ export function linkedWorktreeRootOf(path: string): string | null {
   let dir = realOrResolved(path);
   for (;;) {
     if (isGitLinkedCheckout(dir)) return dir;
-    try {
-      // A `.git` directory: a main checkout — not a worktree build.
-      if (realpathSync(`${dir}${sep}.git`)) return null;
-    } catch {
-      // No `.git` here — keep walking up.
-    }
+    if (existsSync(join(dir, '.git'))) return null; // a main checkout
     const parent = dirname(dir);
     if (parent === dir) return null;
     dir = parent;
@@ -114,38 +144,243 @@ export function linkedWorktreeRootOf(path: string): string | null {
 }
 
 /**
- * Why migrations must not be applied to `dbPath` from this build, or null
- * when they may.
+ * The build stamp beside the running build: the nearest `build-provenance.json`
+ * walking up from `codePath`, stopping at the package root.
  *
- * @param dbPath - Store about to be migrated.
+ * @param codePath - A file of the running build.
+ * @returns The stamp, or null when there is none (running from source).
+ */
+export function readBuildProvenance(codePath: string): BuildProvenance | null {
+  let dir = dirname(codePath);
+  for (;;) {
+    const stamp = join(dir, 'build-provenance.json');
+    if (existsSync(stamp)) {
+      try {
+        const parsed: unknown = JSON.parse(readFileSync(stamp, 'utf8'));
+        if (typeof parsed === 'object' && parsed !== null && 'linkedWorktree' in parsed) {
+          const value = (parsed as { linkedWorktree: unknown }).linkedWorktree;
+          return { linkedWorktree: typeof value === 'string' ? value : null };
+        }
+      } catch {
+        // An unreadable stamp decides nothing; fall back to the path.
+      }
+      return null;
+    }
+    if (existsSync(join(dir, 'package.json'))) return null;
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+/**
+ * The linked worktree this build came from, or null for a released build.
+ *
  * @param options - Injection points; defaults describe this process.
- * @returns The refusal naming the build's worktree and the store, or null.
+ * @returns The worktree root, or null.
+ */
+export function devBuildWorktree(options: Partial<WorktreeBuildGuardOptions> = {}): string | null {
+  const codePath = options.codePath ?? overrides?.codePath ?? fileURLToPath(import.meta.url);
+  const provenance =
+    options.provenance !== undefined
+      ? options.provenance
+      : overrides?.provenance !== undefined
+        ? overrides.provenance
+        : readBuildProvenance(codePath);
+  if (provenance) return provenance.linkedWorktree;
+  if (codePath.split(/[\\/]/).includes('node_modules')) return null;
+  return linkedWorktreeRootOf(codePath);
+}
+
+/**
+ * Why this build must not change the schema of `dbPath`, or null when it may.
+ *
+ * @param dbPath - Store path.
+ * @param options - Injection points; defaults describe this process.
+ * @returns The refusal naming the build's worktree, the store and the opt-in.
  * @task T12687
  */
-export function worktreeBuildMigrationRefusal(
+export function schemaWriteRefusal(
   dbPath: string,
   options: Partial<WorktreeBuildGuardOptions> = {},
 ): string | null {
-  const opts: WorktreeBuildGuardOptions = {
-    codePath: fileURLToPath(import.meta.url),
-    env: process.env,
-    tmpRoots: scratchRoots(),
-    ...overrides,
-    ...options,
-  };
-  if (opts.codePath.split(/[\\/]/).includes('node_modules')) return null;
-  const buildWorktree = linkedWorktreeRootOf(opts.codePath);
+  const env = options.env ?? overrides?.env ?? process.env;
+  const buildWorktree = devBuildWorktree(options);
   if (buildWorktree === null) return null;
   const store = realOrResolved(dbPath);
-  if (isWithin(buildWorktree, store)) return null;
-  if (opts.tmpRoots.some((root) => isWithin(realOrResolved(root), store))) return null;
-  if (opts.env[ALLOW_WORKTREE_BUILD_MIGRATIONS_ENV] === '1') return null;
+  if (isWithin(realOrResolved(buildWorktree), store)) return null;
+  if (env['VITEST']) return null; // the test harness owns its fixture stores
+  const honourTestSandbox = options.honourTestSandbox ?? overrides?.honourTestSandbox ?? true;
+  if (honourTestSandbox && insideTestSandbox(store)) return null;
+  if (env[ALLOW_WORKTREE_BUILD_MIGRATIONS_ENV] === '1') return null;
   return (
-    `Refusing to migrate ${store}: this CLI was built inside the git worktree ${buildWorktree}, ` +
-    'and its migrations may be unreleased. The store opened without them, so read-only commands ' +
-    'still work. Run the released `cleo` against this store, or opt in with ' +
-    `${ALLOW_WORKTREE_BUILD_MIGRATIONS_ENV}=1 (T12687).`
+    `Refusing to change the schema of ${store}: this CLI was built inside the git worktree ` +
+    `${buildWorktree}, and its schema may be unreleased. Run the released \`cleo\` against this ` +
+    `store, or opt in with ${ALLOW_WORKTREE_BUILD_MIGRATIONS_ENV}=1 (T12687).`
   );
+}
+
+/** Backwards-compatible alias of {@link schemaWriteRefusal}. */
+export const worktreeBuildMigrationRefusal = schemaWriteRefusal;
+
+/**
+ * The per-store decision, memoised for the process (one decision per store).
+ *
+ * @param dbPath - Store path.
+ * @returns The refusal, or null when schema writes are allowed.
+ */
+function decisionFor(dbPath: string): string | null {
+  const key = realOrResolved(dbPath);
+  if (!decisions.has(key)) decisions.set(key, schemaWriteRefusal(key));
+  return decisions.get(key) ?? null;
+}
+
+/**
+ * Whether this build may change the schema of the store behind `nativeDb`.
+ *
+ * @param nativeDb - Store handle (`location()` is its path; in-memory is always allowed).
+ * @returns `true` when schema writes are allowed.
+ */
+export function schemaWritesAllowed(nativeDb: DatabaseSync): boolean {
+  const dbPath = nativeDb.location();
+  return !dbPath || decisionFor(dbPath) === null;
+}
+
+/** Refusal raised when a dev build would change a foreign store's schema (T12687). */
+export class WorktreeBuildSchemaError extends CleoError {
+  constructor(message: string) {
+    super(ExitCode.CONFIG_ERROR, `${E_WORKTREE_BUILD_SCHEMA}: ${message}`, {
+      fix:
+        'Use the released `cleo` for this store, run the build against a store inside its own ' +
+        `worktree, or set ${ALLOW_WORKTREE_BUILD_MIGRATIONS_ENV}=1 to accept the schema change.`,
+    });
+  }
+}
+
+/** Whether `error` is (or wraps) a {@link WorktreeBuildSchemaError}. */
+export function isWorktreeBuildSchemaError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes(E_WORKTREE_BUILD_SCHEMA);
+}
+
+type SqliteConstants = typeof import('node:sqlite').constants;
+
+/**
+ * SQLite action codes, loaded on first use: `node:sqlite` must not load at
+ * module-init time (sqlite.ts imports this module; T1331 lazy-init contract).
+ */
+let authorizerCodes:
+  | {
+      sqlite: SqliteConstants;
+      creates: Map<number, 'table' | 'index' | 'trigger' | 'view'>;
+      changes: Set<number>;
+    }
+  | undefined;
+
+function codes(): NonNullable<typeof authorizerCodes> {
+  if (authorizerCodes) return authorizerCodes;
+  const sqlite = (createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite'))
+    .constants;
+  authorizerCodes = {
+    sqlite,
+    creates: new Map([
+      [sqlite.SQLITE_CREATE_TABLE, 'table'],
+      [sqlite.SQLITE_CREATE_VTABLE, 'table'],
+      [sqlite.SQLITE_CREATE_INDEX, 'index'],
+      [sqlite.SQLITE_CREATE_TRIGGER, 'trigger'],
+      [sqlite.SQLITE_CREATE_VIEW, 'view'],
+    ]),
+    changes: new Set([
+      sqlite.SQLITE_ALTER_TABLE,
+      sqlite.SQLITE_DROP_TABLE,
+      sqlite.SQLITE_DROP_INDEX,
+      sqlite.SQLITE_DROP_TRIGGER,
+      sqlite.SQLITE_DROP_VIEW,
+      sqlite.SQLITE_DROP_VTABLE,
+    ]),
+  };
+  return authorizerCodes;
+}
+
+/** Existing schema objects per schema name, captured when the guard is installed. */
+const snapshots = new WeakMap<DatabaseSync, Map<string, Set<string>>>();
+/** The most recent denied schema change per handle, for the error explanation. */
+const lastDenied = new WeakMap<DatabaseSync, string>();
+
+function snapshotSchema(nativeDb: DatabaseSync): Map<string, Set<string>> {
+  const snapshot = new Map<string, Set<string>>();
+  const schemas = nativeDb.prepare('PRAGMA database_list').all() as Array<{ name: string }>;
+  for (const { name } of schemas) {
+    if (name === 'temp') continue;
+    const rows = nativeDb
+      .prepare(`SELECT type, name FROM "${name.replaceAll('"', '""')}".sqlite_master`)
+      .all() as Array<{ type: string; name: string }>;
+    snapshot.set(name, new Set(rows.map((r) => `${r.type}:${r.name}`)));
+  }
+  return snapshot;
+}
+
+/**
+ * Deny every schema change on `nativeDb` when this build may not change the
+ * store's schema. No-op otherwise. Call on every writable handle of a CLEO
+ * store right after opening it, before any schema code runs.
+ *
+ * @param nativeDb - Freshly opened writable handle.
+ * @returns `true` when the guard was installed.
+ * @task T12687
+ */
+export function installSchemaWriteGuard(nativeDb: DatabaseSync): boolean {
+  if (schemaWritesAllowed(nativeDb)) return false;
+  if (typeof nativeDb.setAuthorizer !== 'function') {
+    // No authorizer in this Node: refuse the open outright rather than leave
+    // schema code unguarded.
+    throw new WorktreeBuildSchemaError(decisionFor(nativeDb.location() ?? '') ?? '');
+  }
+  snapshots.set(nativeDb, snapshotSchema(nativeDb));
+  const { sqlite, creates, changes } = codes();
+  nativeDb.setAuthorizer((action, arg1, arg2, dbName) => {
+    const schema = dbName ?? 'main';
+    if (schema === 'temp') return sqlite.SQLITE_OK;
+    const createType = creates.get(action);
+    if (createType !== undefined) {
+      const known = snapshots.get(nativeDb)?.get(schema);
+      // CREATE … IF NOT EXISTS of an existing object is a no-op.
+      if (known?.has(`${createType}:${arg1}`)) return sqlite.SQLITE_OK;
+      lastDenied.set(nativeDb, `CREATE ${createType} ${schema}.${arg1}`);
+      return sqlite.SQLITE_DENY;
+    }
+    if (changes.has(action)) {
+      lastDenied.set(nativeDb, `schema change on ${schema}.${arg1 ?? arg2 ?? ''}`);
+      return sqlite.SQLITE_DENY;
+    }
+    return sqlite.SQLITE_OK;
+  });
+  return true;
+}
+
+/**
+ * Re-capture the existing-object snapshot after an `ATTACH`, so no-op
+ * `CREATE … IF NOT EXISTS` statements on the attached schema stay allowed.
+ *
+ * @param nativeDb - A guarded handle.
+ */
+export function refreshSchemaWriteGuard(nativeDb: DatabaseSync): void {
+  if (snapshots.has(nativeDb)) snapshots.set(nativeDb, snapshotSchema(nativeDb));
+}
+
+/**
+ * Turn SQLite's bare `not authorized` from a guarded handle into the refusal
+ * that says why and what to do. Other errors are returned unchanged.
+ *
+ * @param nativeDb - The handle the error came from.
+ * @param error - The caught error.
+ * @returns The error to rethrow.
+ */
+export function explainSchemaWriteDenial(nativeDb: DatabaseSync, error: unknown): unknown {
+  if (!(error instanceof Error) || !/not authorized/i.test(error.message)) return error;
+  const refusal = decisionFor(nativeDb.location() ?? '');
+  if (refusal === null) return error;
+  const denied = lastDenied.get(nativeDb);
+  return new WorktreeBuildSchemaError(`${refusal}${denied ? ` Denied: ${denied}.` : ''}`);
 }
 
 /**
@@ -166,7 +401,7 @@ export function pendingMigrations(
   const applied = hasJournal
     ? new Set(
         (
-          nativeDb.prepare('SELECT hash FROM "__drizzle_migrations"').all() as Array<{
+          nativeDb.prepare('SELECT hash FROM main."__drizzle_migrations"').all() as Array<{
             hash: string;
           }>
         ).map((row) => row.hash),
@@ -175,31 +410,27 @@ export function pendingMigrations(
   return migrations.filter((m) => !applied.has(m.hash)).map((m) => m.name ?? m.hash);
 }
 
-const warned = new Set<string>();
-
 /**
- * The guard at a migration site: when this build must not migrate the store
- * and something is pending, report once per store and return `true` (skip).
+ * The guard at a migration site: when this build may not change the store's
+ * schema and the lineage has pending migrations, FAIL FAST — the store does
+ * not match what this build reads, so continuing would only fail later with
+ * `no such column`.
  *
- * @param nativeDb - Store handle (its `location()` is the store path).
+ * @param nativeDb - Store handle.
  * @param migrations - The lineage's local migrations.
- * @returns `true` when the caller must skip reconciliation and migration.
+ * @throws {WorktreeBuildSchemaError} naming the build worktree, the store,
+ *   the pending migrations and the opt-in.
  * @task T12687
  */
-export function skipMigrationsForWorktreeBuild(
+export function assertNoPendingMigrationsForWorktreeBuild(
   nativeDb: DatabaseSync,
   migrations: readonly MigrationMeta[],
-): boolean {
+): void {
   const dbPath = nativeDb.location();
-  if (!dbPath) return false; // in-memory
-  const refusal = worktreeBuildMigrationRefusal(dbPath);
-  if (refusal === null) return false;
+  if (!dbPath) return;
+  const refusal = decisionFor(dbPath);
+  if (refusal === null) return;
   const pending = pendingMigrations(nativeDb, migrations);
-  if (pending.length === 0) return false;
-  const key = `${dbPath}\0${pending.join(',')}`;
-  if (!warned.has(key)) {
-    warned.add(key);
-    process.stderr.write(`[cleo] ${refusal} Pending: ${pending.join(', ')}\n`);
-  }
-  return true;
+  if (pending.length === 0) return;
+  throw new WorktreeBuildSchemaError(`${refusal} Pending migrations: ${pending.join(', ')}.`);
 }

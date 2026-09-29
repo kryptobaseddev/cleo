@@ -443,7 +443,7 @@
     }
   },
   "scripts": {
-    "build": "tsc && node scripts/copy-selfimprove-fixtures.mjs",
+    "build": "tsc && node scripts/copy-selfimprove-fixtures.mjs && node scripts/write-build-provenance.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:integration": "cd ../.. && vitest run --config packages/core/vitest.integration.config.ts",

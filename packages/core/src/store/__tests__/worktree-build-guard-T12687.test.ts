@@ -1,13 +1,15 @@
 /**
- * T12687 — a worktree-built CLI never migrates a store outside its worktree,
- * and an older build never deletes a newer build's journal rows.
+ * T12687 — a worktree build never changes the schema of a store outside its
+ * worktree, and an older build never deletes a newer build's journal rows.
  *
  * Incident 2026-09-29: cleo-nexus's slice-2 build (inside a linked worktree)
  * wrote `__drizzle_migrations` row 114 into the LIVE cleocode store; the
  * released CLI then deleted the unknown row as an orphan and the next slice-2
  * open re-ran `ADD COLUMN` and failed.
  *
- * Everything here runs on scratch repos and scratch stores in the sandbox.
+ * Everything here runs on scratch repos and scratch stores. The test harness
+ * itself is exempt (`VITEST`), so each case describes the build it simulates
+ * through `setWorktreeBuildGuardForTests` with an explicit, VITEST-free `env`.
  *
  * @task T12687
  */
@@ -18,12 +20,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { migrateSanitized, reconcileJournal } from '../migration-manager.js';
+import { afterEach, describe, expect, it } from 'vitest';
+import { _resetDualScopeDbCache, openDualScopeDbAtPath } from '../dual-scope-db.js';
+import { ensureColumns, migrateSanitized, reconcileJournal } from '../migration-manager.js';
 import {
   ALLOW_WORKTREE_BUILD_MIGRATIONS_ENV,
+  E_WORKTREE_BUILD_SCHEMA,
+  installSchemaWriteGuard,
+  schemaWriteRefusal,
   setWorktreeBuildGuardForTests,
-  worktreeBuildMigrationRefusal,
 } from '../worktree-build-guard.js';
 
 const roots: string[] = [];
@@ -62,6 +67,16 @@ function scratchRepos(): { main: string; worktree: string; store: string; build:
   return { main, worktree, store: join(main, '.cleo', 'cleo.db'), build };
 }
 
+/** Simulate running as the worktree build, outside the test harness. */
+function asWorktreeBuild(build: string, env: NodeJS.ProcessEnv = {}): void {
+  setWorktreeBuildGuardForTests({
+    codePath: build,
+    provenance: null,
+    env,
+    honourTestSandbox: false,
+  });
+}
+
 /** A migration lineage folder in drizzle's `<ts>_<name>/migration.sql` layout. */
 function lineage(dir: string, migrations: Array<[string, string]>): string {
   for (const [name, sql] of migrations) {
@@ -91,19 +106,22 @@ function journal(store: string): Array<{ hash: string; created_at: number }> {
   }
 }
 
-function columns(store: string): string[] {
+function columns(store: string, table = 't'): string[] {
   const db = new DatabaseSync(store, { readOnly: true });
   try {
-    return (db.prepare('PRAGMA table_info(t)').all() as Array<{ name: string }>).map((c) => c.name);
+    return (db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(
+      (c) => c.name,
+    );
   } finally {
     db.close();
   }
 }
 
-/** Open, reconcile and migrate one lineage the way every store open does. */
+/** Open, guard, reconcile and migrate one lineage the way every store open does. */
 function openAndMigrate(store: string, folder: string): void {
   const native = new DatabaseSync(store);
   try {
+    installSchemaWriteGuard(native);
     reconcileJournal(native, folder, 't', 'test');
     migrateSanitized(drizzle({ client: native }), { migrationsFolder: folder });
   } finally {
@@ -113,41 +131,119 @@ function openAndMigrate(store: string, folder: string): void {
 
 afterEach(() => {
   setWorktreeBuildGuardForTests(null);
-  vi.unstubAllEnvs();
-  vi.restoreAllMocks();
+  _resetDualScopeDbCache();
   for (const dir of roots.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-describe('T12687 — worktreeBuildMigrationRefusal', () => {
-  it('refuses a worktree build migrating a store outside the worktree, naming both paths', () => {
+describe('T12687 — who may change a store schema', () => {
+  it('refuses a worktree build on a store outside its worktree, naming both paths and the opt-in', () => {
     const r = scratchRepos();
-    const refusal = worktreeBuildMigrationRefusal(r.store, { codePath: r.build, tmpRoots: [] });
-    expect(refusal).toContain(`Refusing to migrate ${r.store}`);
+    const refusal = schemaWriteRefusal(r.store, {
+      codePath: r.build,
+      provenance: null,
+      env: {},
+      honourTestSandbox: false,
+    });
+    expect(refusal).toContain(`Refusing to change the schema of ${r.store}`);
     expect(refusal).toContain(`built inside the git worktree ${r.worktree}`);
     expect(refusal).toContain(ALLOW_WORKTREE_BUILD_MIGRATIONS_ENV);
   });
 
-  it('allows: installed builds, main-checkout builds, own-worktree stores, scratch stores, opt-in', () => {
+  it('a project store under the temp dir is a real store: no temp exemption outside the harness', () => {
+    const r = scratchRepos(); // the whole fixture lives under the temp dir
+    expect(
+      schemaWriteRefusal(r.store, {
+        codePath: r.build,
+        provenance: null,
+        env: {},
+        honourTestSandbox: false,
+      }),
+    ).not.toBeNull();
+  });
+
+  it('the build stamp travels: an npm-packed worktree build under node_modules is refused', () => {
     const r = scratchRepos();
-    const opts = { codePath: r.build, tmpRoots: [] as string[] };
-    const installed = join(r.worktree, 'node_modules', '@cleocode', 'core', 'dist', 'x.js');
-    expect(worktreeBuildMigrationRefusal(r.store, { ...opts, codePath: installed })).toBeNull();
+    const installed = join(r.main, 'node_modules', '@cleocode', 'core', 'dist', 'store', 'x.js');
     expect(
-      worktreeBuildMigrationRefusal(r.store, { ...opts, codePath: join(r.main, 'dist', 'x.js') }),
+      schemaWriteRefusal(r.store, {
+        codePath: installed,
+        provenance: { linkedWorktree: r.worktree },
+        env: {},
+        honourTestSandbox: false,
+      }),
+    ).toContain(`built inside the git worktree ${r.worktree}`);
+    // A dist copied outside any checkout, stamped with its worktree, is refused too.
+    expect(
+      schemaWriteRefusal(r.store, {
+        codePath: join(tmpdir(), 'copied', 'dist', 'x.js'),
+        provenance: { linkedWorktree: r.worktree },
+        env: {},
+        honourTestSandbox: false,
+      }),
+    ).not.toBeNull();
+  });
+
+  it('allows released builds, own-worktree stores, the test harness and the explicit opt-in', () => {
+    const r = scratchRepos();
+    const base = { codePath: r.build, provenance: null, env: {}, honourTestSandbox: false };
+    const installed = join(r.main, 'node_modules', '@cleocode', 'core', 'dist', 'x.js');
+    // Released: a stamp with no worktree, or an unstamped install.
+    expect(
+      schemaWriteRefusal(r.store, { ...base, provenance: { linkedWorktree: null } }),
     ).toBeNull();
-    expect(worktreeBuildMigrationRefusal(join(r.worktree, '.cleo', 'cleo.db'), opts)).toBeNull();
-    expect(worktreeBuildMigrationRefusal(r.store, { codePath: r.build })).toBeNull(); // under tmp
+    expect(schemaWriteRefusal(r.store, { ...base, codePath: installed })).toBeNull();
     expect(
-      worktreeBuildMigrationRefusal(r.store, {
-        ...opts,
+      schemaWriteRefusal(r.store, { ...base, codePath: join(r.main, 'dist', 'x.js') }),
+    ).toBeNull();
+    expect(schemaWriteRefusal(join(r.worktree, '.cleo', 'cleo.db'), base)).toBeNull();
+    expect(schemaWriteRefusal(r.store, { ...base, env: { VITEST: 'true' } })).toBeNull();
+    // A store below the fork sandbox marker (a CLI child a test spawned, no VITEST).
+    expect(schemaWriteRefusal(r.store, { ...base, honourTestSandbox: true })).toBeNull();
+    expect(
+      schemaWriteRefusal(r.store, {
+        ...base,
         env: { [ALLOW_WORKTREE_BUILD_MIGRATIONS_ENV]: '1' },
       }),
     ).toBeNull();
   });
 });
 
-describe('T12687 — a worktree build leaves the main store journal unchanged', () => {
-  it('skips reconcile + migrate for pending migrations, but still lets the store open', () => {
+describe('T12687 — the guarded handle denies every schema change', () => {
+  it('denies ALTER, DROP and new CREATEs; allows no-op CREATE IF NOT EXISTS and data writes', () => {
+    const r = scratchRepos();
+    const seed = new DatabaseSync(r.store);
+    seed.exec('CREATE TABLE t (id INTEGER PRIMARY KEY); CREATE TABLE attachments (id TEXT)');
+    seed.close();
+
+    asWorktreeBuild(r.build);
+    const native = new DatabaseSync(r.store);
+    try {
+      expect(installSchemaWriteGuard(native)).toBe(true);
+      // The open paths' own DDL: ensureColumns, the raw attachments ALTERs, rebuilds.
+      expect(() => ensureColumns(native, 't', [{ name: 'shape', ddl: 'text' }], 'test')).toThrow(
+        /not authorized/,
+      );
+      try {
+        native.exec('ALTER TABLE attachments ADD COLUMN owner_version TEXT');
+      } catch {
+        /* sqlite.ts swallows this one; the column must still not appear */
+      }
+      expect(() => native.exec('DROP TABLE t')).toThrow(/not authorized/);
+      expect(() => native.exec('CREATE TABLE t_new (id INTEGER)')).toThrow(/not authorized/);
+      expect(() => native.exec('CREATE INDEX t_idx ON t (id)')).toThrow(/not authorized/);
+      native.exec('CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY)');
+      native.exec('INSERT INTO t (id) VALUES (1)');
+      native.exec('CREATE TEMP TABLE scratch (x)');
+    } finally {
+      native.close();
+    }
+    expect(columns(r.store)).toEqual(['id']);
+    expect(columns(r.store, 'attachments')).toEqual(['id']);
+  });
+});
+
+describe('T12687 — a worktree build fails fast on pending migrations', () => {
+  it('leaves the main store journal unchanged and names the pending migrations', () => {
     const r = scratchRepos();
     const released = lineage(join(r.main, '..', 'released'), [BASE]);
     const worktreeBuild = lineage(join(r.worktree, 'migrations'), [BASE, SLICE2]);
@@ -156,21 +252,39 @@ describe('T12687 — a worktree build leaves the main store journal unchanged', 
     const before = journal(r.store);
     expect(before).toHaveLength(1);
 
-    setWorktreeBuildGuardForTests({ codePath: r.build, tmpRoots: [] });
-    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    openAndMigrate(r.store, worktreeBuild);
-
+    asWorktreeBuild(r.build);
+    expect(() => openAndMigrate(r.store, worktreeBuild)).toThrow(
+      new RegExp(
+        `${E_WORKTREE_BUILD_SCHEMA}.*Pending migrations: 20260929000000_slice-2-union-shape`,
+      ),
+    );
     expect(journal(r.store)).toEqual(before);
     expect(columns(r.store)).toEqual(['id']);
-    expect(stderr.mock.calls.map(([line]) => String(line)).join('')).toContain(
-      `Refusing to migrate ${r.store}`,
-    );
 
     // With the explicit opt-in the same build migrates.
-    vi.stubEnv(ALLOW_WORKTREE_BUILD_MIGRATIONS_ENV, '1');
+    asWorktreeBuild(r.build, { [ALLOW_WORKTREE_BUILD_MIGRATIONS_ENV]: '1' });
     openAndMigrate(r.store, worktreeBuild);
     expect(journal(r.store)).toHaveLength(2);
     expect(columns(r.store)).toEqual(['id', 'shape']);
+  });
+
+  it('the real store chokepoint refuses with the named error, not a bare SQL error', async () => {
+    const r = scratchRepos();
+    asWorktreeBuild(r.build);
+    await expect(openDualScopeDbAtPath('project', r.store)).rejects.toThrow(
+      E_WORKTREE_BUILD_SCHEMA,
+    );
+    // Nothing was migrated into the fresh store.
+    const db = new DatabaseSync(r.store, { readOnly: true });
+    try {
+      expect(
+        db
+          .prepare("SELECT count(*) AS n FROM sqlite_master WHERE name = '__drizzle_migrations'")
+          .get(),
+      ).toEqual({ n: 0 });
+    } finally {
+      db.close();
+    }
   });
 });
 

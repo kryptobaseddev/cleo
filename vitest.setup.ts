@@ -27,7 +27,14 @@
  */
 
 import { createRequire, syncBuiltinESMExports } from 'node:module';
-import { existsSync, constants as fsConstants, mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
+import {
+  existsSync,
+  constants as fsConstants,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, isAbsolute, join, resolve, sep } from 'node:path';
 import { afterAll, afterEach, beforeEach, expect } from 'vitest';
@@ -150,6 +157,10 @@ for (const [name, directory] of Object.entries(isolatedRoots)) {
   mkdirSync(directory, { recursive: true });
   process.env[name] = directory;
 }
+// T12687: marks every store below the sandbox as a test fixture, so a CLI child
+// a test spawns (no VITEST in its env) may still migrate it from a worktree
+// build. A temp dir alone is not an exemption: projects can live under /tmp.
+writeFileSync(join(sandbox, '.cleo-test-sandbox'), 'vitest fork sandbox (T12687)\n');
 // A parent process cannot opt an ordinary unit-test fork into a real store.
 // Deliberate integration fixtures may set scoped overrides after setup.
 delete process.env.CLEO_TEST_ALLOW_PROJECT_DB;

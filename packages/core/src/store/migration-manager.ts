@@ -20,7 +20,7 @@ import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { migrateSync } from 'drizzle-orm/sqlite-core';
 import { getLogger } from '../logger.js';
 import { isSqliteBusy } from './with-retry.js';
-import { skipMigrationsForWorktreeBuild } from './worktree-build-guard.js';
+import { assertNoPendingMigrationsForWorktreeBuild } from './worktree-build-guard.js';
 
 /**
  * Re-export {@link isSqliteBusy} from its canonical home so existing
@@ -715,8 +715,8 @@ export function reconcileJournal(
   siblingMigrationsFolders: readonly string[] = [],
 ): void {
   // T12687: a worktree build with pending (possibly unreleased) migrations
-  // leaves the journal of a store outside its worktree untouched.
-  if (skipMigrationsForWorktreeBuild(nativeDb, readMigrationFiles({ migrationsFolder }))) return;
+  // never touches the journal of a store outside its worktree: it fails fast.
+  assertNoPendingMigrationsForWorktreeBuild(nativeDb, readMigrationFiles({ migrationsFolder }));
 
   // bug #2 (T11553): pre-compute the tables this lineage CREATEs and a LATER
   // migration permanently ELIMINATES (DROP TABLE, no recreate — e.g.
@@ -1385,10 +1385,10 @@ export function migrateSanitized(
 ): void {
   const raw = readMigrationFiles(config);
   // T12687: a CLI built inside a linked worktree never applies its (possibly
-  // unreleased) migrations to a store outside that worktree.
+  // unreleased) migrations to a store outside that worktree — it fails fast.
   // `drizzle()` attaches the native handle as `$client`; the declared type omits it.
   const client = (db as { $client?: DatabaseSync }).$client;
-  if (client && skipMigrationsForWorktreeBuild(client, raw)) return;
+  if (client) assertNoPendingMigrationsForWorktreeBuild(client, raw);
   const sanitized = sanitizeMigrationStatements(raw);
   migrateSync(sanitized, db._.session, config);
 }
