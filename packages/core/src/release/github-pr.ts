@@ -94,7 +94,8 @@ export function ghTimeoutReason(what: string): string {
  */
 export function isGhCliAvailable(): boolean {
   try {
-    execFileSync('gh', ['--version'], { stdio: 'pipe' });
+    // T12689: bounded like every evidence gh query — a hung gh is "unavailable".
+    execFileSync('gh', ['--version'], { stdio: 'pipe', timeout: ghQueryTimeoutMs() });
     return true;
   } catch {
     return false;

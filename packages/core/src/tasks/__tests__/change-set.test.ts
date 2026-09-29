@@ -502,6 +502,46 @@ describe('stacked and reverted PRs', () => {
     expect(cs.blockers[0]?.next.why).toContain('#41');
   });
 
+  it('a deletion-only component on the stacked path is credited by a note naming its deletions (T12689)', async () => {
+    const repo = repoWithOrigin(base, 'repo');
+    git(repo, ['switch', '-q', '-c', 'task/T940-base']);
+    writeFileSync(join(repo, 'base.ts'), 'export const b = 1;\n');
+    git(repo, ['add', '-A']);
+    git(repo, ['commit', '-q', '-m', 'base work']);
+    git(repo, ['switch', '-q', '-c', 'task/T940']);
+    git(repo, ['rm', '-q', 'old.ts']);
+    git(repo, ['commit', '-q', '-m', 'T940: drop old.ts']);
+    git(repo, ['switch', '-q', 'task/T940-base']);
+    git(repo, ['merge', '-q', '--no-ff', '-m', 'Merge #42 T940 into base', 'task/T940']);
+    const stackedMerge = git(repo, ['rev-parse', 'HEAD']);
+    git(repo, ['switch', '-q', 'main']);
+    git(repo, ['merge', '-q', '--squash', 'task/T940-base']);
+    git(repo, ['commit', '-q', '-m', 'base (#41)']);
+    const baseMerge = git(repo, ['rev-parse', 'HEAD']);
+
+    const cs = await deriveTaskChangeSet(
+      { task: task('T940'), storeRoot: repo, cwd: repo },
+      {
+        listMergedPrs: citing,
+        viewPr: async (n) =>
+          details(n, { baseRefName: 'task/T940-base', mergeCommitSha: stackedMerge }),
+        findPrByHead: async () =>
+          details(41, {
+            headRefName: 'task/T940-base',
+            headRefOid: stackedMerge,
+            mergeCommitSha: baseMerge,
+          }),
+        ...noDocs,
+        env: {},
+      },
+    );
+    expect(cs.blockers).toEqual([]);
+    expect(cs.stackedOn).toBeUndefined();
+    expect(cs.files).toEqual([]);
+    expect(cs.deletedFiles).toEqual(['old.ts']);
+    expect(cs.implementedEvidence).toBe('pr:42@41;note:Component PR #42 only deleted: old.ts');
+  });
+
   it('once the base PR merged to main and contains the stacked commits, the component is not stacked: pr:<component>@<integration> (T12671/T12672)', async () => {
     const repo = repoWithOrigin(base, 'repo');
     const { stackedMerge, baseTip } = stackedFixture(repo);

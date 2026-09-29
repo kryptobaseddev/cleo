@@ -684,7 +684,8 @@ describe('formatGateRequirement (T10337)', () => {
     expect(s).toContain('[decision AND note]');
     expect(s).toContain('[pr AND files]');
     // Joiner between combinations is ' OR '.
-    expect(s.split(' OR ').length).toBe(5);
+    // T12689: + [pr AND note] for a deletion-only PR.
+    expect(s.split(' OR ').length).toBe(6);
   });
 
   it('formats single-element combination without AND', () => {
@@ -759,7 +760,7 @@ describe('validateEvidenceForGate failure surface (T9949)', () => {
     if (!r.ok) {
       // Error includes the same artifact requirement as the validator.
       expect(r.message).toBe(
-        "Gate 'implemented' requires evidence: [commit AND files] OR [commit AND note] OR [decision AND files] OR [decision AND note] OR [pr AND files]",
+        "Gate 'implemented' requires evidence: [commit AND files] OR [commit AND note] OR [decision AND files] OR [decision AND note] OR [pr AND files] OR [pr AND note]",
       );
       // New rich hint includes the same content as formatGateRequirementHint.
       expect(r.hint).toBe(formatGateRequirementHint('implemented'));
