@@ -74,7 +74,7 @@ async function runConfigWizard(op: string): Promise<void> {
   } catch (err) {
     // Ctrl-C is a cancel, not a validation failure: exit 130 (SIGINT convention).
     if (err instanceof WizardInterruptError) {
-      process.stderr.write('System One setup cancelled.\n');
+      process.stderr.write('System One setup cancelled.\n'); // json-stream-hygiene-allowed: interactive wizard cancel notice on a TTY
       process.exitCode = 130;
       return;
     }
