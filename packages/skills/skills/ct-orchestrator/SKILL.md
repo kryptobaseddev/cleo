@@ -202,11 +202,12 @@ cleo orchestrate start T1575  # Full state: session, pipeline, next task
 ### 3. IVTR — Execute the Work
 
 ```
-1. Identify Wave 0: cleo orchestrate ready T1575
-2. Spawn Workers in parallel for each Wave 0 task
+1. Read the waves: cleo orchestrate waves T1575 (take each wave n from here;
+   numbers can skip and the first need not be 1), then cleo orchestrate ready T1575
+2. Spawn Workers in parallel for each ready task in the first incomplete wave
 3. On completion: read manifest, check acceptance criteria
 4. If criteria NOT met → re-spawn worker with feedback (IVTR loop)
-5. Advance to Wave 1 (tasks whose deps are now done)
+5. Advance to the next wave cleo orchestrate waves lists (its deps are now done)
 6. Repeat until all tasks complete
 7. Final validation with Lead across the full epic
 ```
