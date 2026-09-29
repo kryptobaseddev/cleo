@@ -473,6 +473,15 @@ export const NEXUS_SCOPE_MAP = {
     stores: ['nexus-registry'],
     requiresProject: false,
   },
+  'projects.fleet': {
+    op: 'projects.fleet',
+    description:
+      'Fleet view: every project, where it lives on each device, and its last recorded git state (read-only).',
+    scope: 'global',
+    effect: 'read',
+    stores: ['nexus-registry'],
+    requiresProject: false,
+  },
   'projects.register': {
     op: 'projects.register',
     description: 'Register a project (alias: register).',

@@ -144,6 +144,11 @@ export const STRING_TO_EXIT: Record<string, number> = {
   E_NEXUS_INVALID_SYNTAX: 73,
   E_NEXUS_SYNC_FAILED: 74,
   E_NEXUS_REGISTRY_CORRUPT: 75,
+  // T12512: the registry could not be read (unreadable, locked, missing table).
+  // Shares 75 with E_NEXUS_REGISTRY_CORRUPT: both mean "registry unusable".
+  E_NEXUS_REGISTRY_READ: 75,
+  // T12513: a fleet `--device` filter named no known device.
+  E_NEXUS_DEVICE_NOT_FOUND: 4,
   E_NEXUS_PROJECT_EXISTS: 76,
   E_NEXUS_QUERY_FAILED: 77,
   E_NEXUS_GRAPH_ERROR: 78,

@@ -119,6 +119,16 @@ export const projectRegistry = sqliteTable(
     lastIndexed: text('last_indexed'),
     /** JSON object with per-project code intelligence stats (node_count, relation_count, file_count). */
     statsJson: text('stats_json').notNull().default('{}'),
+    /**
+     * ISO 8601 instant of the last health check, `nexus sync` or git state
+     * probe (T12512). Never evidence of use; NULL until first probed.
+     */
+    lastProbedAt: text('last_probed_at'),
+    /**
+     * ISO 8601 instant of the last real CLI use inside the project (T12512),
+     * written at most once a minute. NULL until first opened.
+     */
+    lastOpenedAt: text('last_opened_at'),
   },
   (table) => [
     index('idx_nexus_project_registry_hash').on(table.projectHash),
@@ -126,6 +136,7 @@ export const projectRegistry = sqliteTable(
     index('idx_nexus_project_registry_health').on(table.healthStatus),
     index('idx_nexus_project_registry_name').on(table.name),
     index('idx_nexus_project_registry_last_indexed').on(table.lastIndexed),
+    index('idx_nexus_project_registry_last_opened').on(table.lastOpenedAt),
   ],
 );
 

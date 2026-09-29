@@ -38,6 +38,7 @@ import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getLogger } from '../logger.js';
+import { projectLastActivity } from '../nexus/project-activity.js';
 import { nexusList, nexusUnregister } from '../nexus/registry.js';
 import { getCleoHome } from '../paths.js';
 import { pruneOrphanedWorktrees } from '../spawn/branch-lock.js';
@@ -85,7 +86,10 @@ export interface TempGcCandidate {
   projectPath: string;
   /** Project name from the registry. */
   projectName: string;
-  /** ISO-8601 timestamp of the last recorded activity (lastSeen). */
+  /**
+   * ISO-8601 last activity: max(last_seen, last_opened_at, last_probed_at)
+   * (T12512). Field name kept for audit-log compatibility.
+   */
   lastSeen: string;
   /** Reason the project was flagged. */
   reason: string;
@@ -356,11 +360,14 @@ export async function runNexusIntegrityCheck(): Promise<NexusIntegrityResult> {
  *
  * A project is a GC candidate if ALL of:
  *   (a) No `.git` directory at the project root.
- *   (b) `lastSeen` in the nexus registry is older than {@link TEMP_GC_INACTIVITY_DAYS} days.
+ *   (b) its last activity is older than {@link TEMP_GC_INACTIVITY_DAYS} days.
  *
- * The `lastSeen` field in the NEXUS registry is the authoritative activity timestamp —
- * it is bumped on every `cleo nexus sync`, health check, and task completion. Projects
- * with no `.git` AND inactive for > 30 days are temp scratch trees safe to remove.
+ * Last activity is `projectLastActivity` (T12512): the newest of `last_seen`
+ * (registration / location writes), `last_opened_at` (real CLI use, at most
+ * once a minute) and `last_probed_at` (health, sync, git probe). No single
+ * column is enough: `last_seen` is not bumped on every command, so a project
+ * used daily can carry an old `last_seen`. Projects with no `.git` AND no
+ * activity for > 30 days are temp scratch trees safe to remove.
  *
  * Candidates are audited to {@link getTempGcAuditPath()} in JSONL format.
  * Auto-delete is NOT performed — owner must call `cleo daemon hygiene apply <batchId>`.
@@ -374,14 +381,15 @@ export async function runTempProjectGc(): Promise<TempGcResult> {
   const candidates: TempGcCandidate[] = [];
   const cutoffMs = Date.now() - TEMP_GC_INACTIVITY_DAYS * 24 * 60 * 60 * 1000;
 
-  let projects: Array<{ hash: string; path: string; name: string; lastSeen: string }> = [];
+  let projects: Array<{ hash: string; path: string; name: string; lastActivity: string | null }> =
+    [];
   try {
     const rows = await nexusList();
     projects = rows.map((r) => ({
       hash: r.hash,
       path: r.path,
       name: r.name,
-      lastSeen: r.lastSeen,
+      lastActivity: projectLastActivity(r),
     }));
   } catch (err) {
     log.warn({ err }, `${LOG}: step2 — failed to load nexus registry`);
@@ -394,16 +402,16 @@ export async function runTempProjectGc(): Promise<TempGcResult> {
       const gitDir = join(proj.path, '.git');
       if (existsSync(gitDir)) continue;
 
-      // (b) lastSeen older than cutoff — the registry tracks all CLEO activity.
-      const lastSeenMs = new Date(proj.lastSeen).getTime();
-      if (Number.isNaN(lastSeenMs) || lastSeenMs > cutoffMs) continue;
+      // (b) last activity older than cutoff — seen, opened or probed (T12512).
+      if (proj.lastActivity === null) continue;
+      if (Date.parse(proj.lastActivity) > cutoffMs) continue;
 
       candidates.push({
         projectHash: proj.hash,
         projectPath: proj.path,
         projectName: proj.name,
-        lastSeen: proj.lastSeen,
-        reason: `no .git, last activity > ${TEMP_GC_INACTIVITY_DAYS}d ago (lastSeen=${proj.lastSeen})`,
+        lastSeen: proj.lastActivity,
+        reason: `no .git, last activity > ${TEMP_GC_INACTIVITY_DAYS}d ago (lastActivity=${proj.lastActivity})`,
       });
     } catch (err) {
       log.warn({ err, projectPath: proj.path }, `${LOG}: step2 — error scanning project`);

@@ -2753,6 +2753,8 @@
       "health_status",
       "labels_json",
       "last_indexed",
+      "last_opened_at",
+      "last_probed_at",
       "last_seen",
       "last_sync",
       "name",
