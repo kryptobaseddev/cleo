@@ -696,6 +696,7 @@ jobs:
       - arch-gate-parity
       - skills-metadata
       - agent-surface-gates
+      - esm-bare-require
       - merge-bar-aggregate
     steps:
       - name: Verify every arch-boundary job passed (or was skipped)
