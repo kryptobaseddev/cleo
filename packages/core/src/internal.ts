@@ -1517,10 +1517,14 @@ export {
   resolveCurrentSession,
   resolveCurrentSessionId,
   resolveSessionForRead,
+  SESSION_ACTIVITY_THROTTLE_MS,
+  SESSION_LIVE_TTL_MS,
   SESSION_UNBOUND_ALTERNATIVES,
   SESSION_UNBOUND_FIX,
   sessionAdoptedEndMessage,
+  sessionLastSeenMs,
   sessionUnboundMessage,
+  touchSessionActivity,
 } from './store/session-store.js';
 export type {
   SnapshotGateMode,
@@ -1640,7 +1644,11 @@ export type {
 export { quarantineRogueCleoDir, scanRogueCleoDirs } from './system/rogue-cleo-detector.js';
 // Task work (additional)
 export type { TaskWorkHistoryEntry } from './task-work/index.js';
-export { getTaskHistory, renewProjectSessionClaims } from './task-work/index.js';
+export {
+  getTaskHistory,
+  heartbeatProjectSession,
+  renewProjectSessionClaims,
+} from './task-work/index.js';
 // Tasks (additional)
 export { validateLabels } from './tasks/add.js';
 // Canonical task view — unified derivation (T943)

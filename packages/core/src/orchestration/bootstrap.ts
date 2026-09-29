@@ -11,6 +11,7 @@ import { readLiveFocus } from '../sessions/focus-state-store.js';
 import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { resolveSessionForRead } from '../store/session-store.js';
 import { buildRankingContext, rankTasks } from '../task-tools/score-task-priority.js';
 import {
   getReadinessDependencyBlockers,
@@ -49,15 +50,17 @@ export async function buildBrainState(
 
   // --- Session (from SQLite, ADR-006/ADR-020) ---
   const acc = accessor ?? (await getTaskAccessor(projectRoot));
+  // T12500: the caller's bound session; an unbound caller sees the newest
+  // active row labelled `unbound`, never presented as its own.
   try {
-    const sessions = await acc.loadSessions();
-    const activeSession = sessions.find((s) => s.status === 'active');
+    const { session: activeSession, unbound } = await resolveSessionForRead(projectRoot);
     if (activeSession) {
       brain.session = {
         id: activeSession.id,
         name: activeSession.name || activeSession.id,
         status: activeSession.status,
         startedAt: activeSession.startedAt,
+        ...(unbound ? { unbound: true } : {}),
       };
     }
   } catch {

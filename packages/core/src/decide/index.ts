@@ -41,7 +41,10 @@ export {
 } from './cache.js';
 export {
   _resetDecideDefaultsForTest,
+  CAPABILITY_DETECTION_DEADLINE_SHARE,
+  CAPABILITY_DETECTION_TIMEOUT_MS,
   DECISION_COST_ESTIMATE_MICROS_PER_QUESTION,
+  DEFAULT_BATCH_DECISION_TIMEOUT_MS,
   DEFAULT_DECISION_TIMEOUT_MS,
   type DecideOptions,
   type DecisionBatchEntry,
@@ -68,8 +71,6 @@ export {
   saveDecideCredentials,
 } from './credentials.js';
 export {
-  BALANCE_MICROS_HEADER,
-  COST_MICROS_HEADER,
   createJevProvider,
   DECISION_MODEL_NAME_PATTERN,
   detectJevCapabilities,
@@ -79,7 +80,6 @@ export {
   isValidDecisionModelName,
   JEV_ADAPTER_VERSION,
   type JevProviderOptions,
-  type JevResponseHeaders,
   type JevSystemOneBody,
   LAYAHOST_EXTENSION_CAPABILITIES,
   listJevModels,
@@ -87,6 +87,7 @@ export {
   MAX_MODELS_RESPONSE_BYTES,
   parseJevUsage,
   parseRetryAfterMs,
+  TRANSIENT_DETECTION_ERRORS,
   toJevSystemOneBody,
 } from './jev-wire.js';
 export {
@@ -121,7 +122,10 @@ export {
   type ProviderState,
   type ProviderStateIdentity,
   providerKeyHash,
+  type RefreshProviderStateOptions,
   readProviderState,
+  refreshProviderState,
+  TRANSIENT_DETECTION_RETRY_MS,
   USAGE_REFRESH_MS,
   writeProviderState,
 } from './provider-state.js';
