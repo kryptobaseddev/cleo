@@ -105,6 +105,8 @@ export interface DecideSpendSummary {
 export interface DecideProbeResult {
   /** Reachability verdict. */
   readonly state: DecideProviderState;
+  /** Profile id probed (`<provider>/<name>`, T12733), when known. */
+  readonly profile?: string;
   /** Configured base URL. */
   readonly baseUrl?: string;
   /** Masked key preview. */
@@ -247,6 +249,7 @@ export async function probeDecideProvider(
     };
   }
   const base = {
+    ...(sealed.profile ? { profile: sealed.profile } : {}),
     baseUrl: sealed.baseUrl,
     keyPreview: sealed.keyPreview,
     ...(sealed.model ? { model: sealed.model } : {}),
@@ -589,6 +592,8 @@ export interface DecideAskInput {
 export interface DecideAskResult {
   /** The yes/no question that was asked (so a human render can show it). */
   readonly question?: string;
+  /** The state that was judged (echoed for the human render). */
+  readonly state?: string;
   /** Id of the profile asked through, when one was configured (T12733). */
   readonly profile?: string;
   /** The typed answer. */
@@ -666,6 +671,7 @@ export async function askDecideDebug(input: DecideAskInput): Promise<DecideAskRe
   const reason = audit.last()?.fallbackReason;
   return {
     question: input.question,
+    state: input.state,
     ...(sealed && profile ? { profile } : {}),
     answer: outcome.answers['answer'] ?? NEUTRAL_NOUL,
     source: outcome.source,

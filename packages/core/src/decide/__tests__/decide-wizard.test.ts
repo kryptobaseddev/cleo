@@ -106,6 +106,7 @@ describe('runDecideWizard', () => {
       baseUrl: LAYAHOST_BASE_URL,
       apiKey: KEY,
       model: 'laya-auto',
+      profile: 'layahost/default',
     });
     expectKeyNeverShown(io, result);
     selectSpy.mockRestore();

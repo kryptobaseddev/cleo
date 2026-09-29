@@ -326,6 +326,28 @@ export interface DecideProfileSummary {
   readonly probe?: DecideProfileProbe;
 }
 
+/**
+ * A profile resolved for use (`resolveDecideProfile`): its id, provider, base
+ * URL (a stored `default` already resolved to the preset), plaintext API key
+ * and default model. Contains the key: pass it to the wire and never log or
+ * emit it. `profile` repeats `name` so the value can be used directly as a
+ * decision connection whose provider state is cached per profile.
+ */
+export interface DecideProfileConnection {
+  /** Profile id, `<provider>/<name>`. */
+  readonly name: string;
+  /** Same as {@link DecideProfileConnection.name}. */
+  readonly profile: string;
+  /** Provider kind. */
+  readonly provider: DecisionProviderKind;
+  /** Resolved base URL. */
+  readonly baseUrl: string;
+  /** Plaintext API key. SECRET. */
+  readonly apiKey: string;
+  /** Default model, when stored. */
+  readonly model?: string;
+}
+
 /** Result of listing the System One profiles. Secret-free. */
 export interface DecideProfileListResult {
   /** Absolute path of the credential store. */

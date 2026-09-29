@@ -2906,6 +2906,7 @@ export {
 export type {
   ChoiceDecisionAnswer,
   ChoiceDecisionQuestion,
+  DecideProfileConnection,
   DecideProfileListResult,
   DecideProfileProbe,
   DecideProfileSummary,

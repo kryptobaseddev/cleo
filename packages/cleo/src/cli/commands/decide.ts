@@ -7,7 +7,9 @@
  * (`<provider>/<name>`, several per provider) and supplies the key, plus an
  * optional default model. Logic lives in `@cleocode/core/decide/`; these handlers only parse
  * flags and render (arch gate 6). No output ever carries the key — at most a
- * masked last-4 preview.
+ * masked last-4 preview. On an interactive terminal `config`, `status`, `ask`,
+ * `profiles` and `use` print a human block (renderers in
+ * `@cleocode/core/render/decide`); `--json` or a pipe keeps the LAFS envelope.
  *
  * Subcommands:
  *   cleo decide config                                       — TTY: setup wizard (hidden key input); else show settings
@@ -20,7 +22,7 @@
  *   cleo decide use <provider>/<name>                        — switch the active profile
  *   cleo decide profiles [--probe]                           — list profiles (active marked, keys masked)
  *   cleo decide status                                       — probe GET {url}/v1/models
- *   cleo decide ask --state <text> --noul <question>         — one debug decision
+ *   cleo decide ask --state <text> --question <q> [--profile p] — one debug decision (--noul: alias)
  *   cleo decide sites [--rung r] [--mode m] [--id s] [--evidence] — list decision sites
  *   cleo decide budget reset [--force]                       — repair a corrupt spend ledger
  *
@@ -78,11 +80,13 @@ const CONFIG_FIX = 'printf %s "$KEY" | cleo decide config --provider layahost --
 
 const PROFILES_FIX = 'cleo decide profiles';
 
+const ASK_FIX = 'cleo decide ask --state "<text>" --question "<yes/no question>"';
+
 /** Run the interactive setup wizard on the terminal (stderr prompts, hidden key). */
 async function runConfigWizard(op: string): Promise<void> {
   const io = new ReadlineWizardIO(process.stdin, process.stderr);
   try {
-    cliOutput(await runDecideWizard(io), { command: 'decide', operation: op });
+    cliOutput(await runDecideWizard(io), { command: 'decide-config', operation: op });
   } catch (err) {
     // Ctrl-C is a cancel, not a validation failure: exit 130 (SIGINT convention).
     if (err instanceof WizardInterruptError) {
@@ -147,11 +151,11 @@ const decideConfigCommand = defineCommand({
   async run({ args }) {
     const op = 'decide.config';
     if (args.clear === true)
-      return cliOutput(await clearDecideConfig(), { command: 'decide', operation: op });
+      return cliOutput(await clearDecideConfig(), { command: 'decide-config', operation: op });
     if (args.remove !== undefined) {
       try {
         const result = await removeDecideProfile(args.remove, args.use);
-        return cliOutput(result, { command: 'decide', operation: 'decide.config.remove' });
+        return cliOutput(result, { command: 'decide-config', operation: 'decide.config.remove' });
       } catch (err) {
         if (!(err instanceof DecideCredentialsError)) throw err;
         return failValidation(err.message, op, PROFILES_FIX);
@@ -173,7 +177,7 @@ const decideConfigCommand = defineCommand({
       args.activate === undefined;
     if (noSettings && process.stdin.isTTY && process.stderr.isTTY) return runConfigWizard(op);
     if (noSettings) {
-      return cliOutput(describeDecideCredentials(), { command: 'decide', operation: op });
+      return cliOutput(describeDecideCredentials(), { command: 'decide-config', operation: op });
     }
     try {
       const result = await configureDecide({
@@ -184,7 +188,7 @@ const decideConfigCommand = defineCommand({
         profile: args.profile,
         ...(args.activate === true ? { activate: true } : {}),
       });
-      cliOutput(result, { command: 'decide', operation: op });
+      cliOutput(result, { command: 'decide-config', operation: op });
     } catch (err) {
       failValidation(err instanceof Error ? err.message : 'invalid settings', op, CONFIG_FIX);
     }
@@ -208,7 +212,10 @@ const decideUseCommand = defineCommand({
   async run({ args }) {
     const op = 'decide.use';
     try {
-      cliOutput(await useDecideProfile(args.profile), { command: 'decide', operation: op });
+      cliOutput(await useDecideProfile(args.profile), {
+        command: 'decide-profiles',
+        operation: op,
+      });
     } catch (err) {
       if (!(err instanceof DecideCredentialsError)) throw err;
       failValidation(err.message, op, PROFILES_FIX);
@@ -230,7 +237,7 @@ const decideProfilesCommand = defineCommand({
   async run({ args }) {
     const timeoutMs = args['timeout-ms'] ? Number(args['timeout-ms']) : undefined;
     const result = await listDecideProfilesReport({ probe: args.probe === true, timeoutMs });
-    cliOutput(result, { command: 'decide', operation: 'decide.profiles' });
+    cliOutput(result, { command: 'decide-profiles', operation: 'decide.profiles' });
   },
 });
 
@@ -247,7 +254,7 @@ const decideStatusCommand = defineCommand({
   async run({ args }) {
     const timeoutMs = args['timeout-ms'] ? Number(args['timeout-ms']) : undefined;
     const result = await probeDecideProvider({ timeoutMs });
-    cliOutput(result, { command: 'decide', operation: 'decide.status' });
+    cliOutput(result, { command: 'decide-status', operation: 'decide.status' });
     if (result.state !== 'reachable' && (process.exitCode ?? 0) === 0) process.exitCode = 1;
   },
 });
@@ -260,8 +267,9 @@ const decideAskCommand = defineCommand({
       'Debug: ask one yes/no question about a state through the configured provider. Shows the typed answer, source (provider or fallback), latency and cost.',
   },
   args: {
-    state: { type: 'string', description: 'The state (text) to judge', required: true },
-    noul: { type: 'string', description: 'The yes/no question', required: true },
+    state: { type: 'string', description: 'The state (text) to judge' },
+    question: { type: 'string', description: 'The yes/no question' },
+    noul: { type: 'string', description: 'Alias of --question' },
     'timeout-ms': { type: 'string', description: 'Deadline in ms (default 10000)' },
     profile: {
       type: 'string',
@@ -269,14 +277,22 @@ const decideAskCommand = defineCommand({
     },
   },
   async run({ args }) {
+    const question = args.question ?? args.noul;
+    if (!args.state || !question) {
+      return failValidation(
+        'cleo decide ask needs a state and a yes/no question',
+        'decide.ask',
+        ASK_FIX,
+      );
+    }
     const timeoutMs = args['timeout-ms'] ? Number(args['timeout-ms']) : undefined;
     const result = await askDecideDebug({
       state: args.state,
-      question: args.noul,
+      question,
       timeoutMs,
       ...(args.profile ? { profile: args.profile } : {}),
     });
-    cliOutput(result, { command: 'decide', operation: 'decide.ask' });
+    cliOutput(result, { command: 'decide-ask', operation: 'decide.ask' });
   },
 });
 

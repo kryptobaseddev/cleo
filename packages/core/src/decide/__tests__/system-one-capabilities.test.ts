@@ -833,9 +833,10 @@ describe('lazy capability detection (T12715)', () => {
     expect(calls(stub, '/v1/usage')).toBe(1);
     expect(calls(stub, '/v1/systemone/batch')).toBe(1);
     expect(calls(stub, '/v1/systemone')).toBe(0);
-    const state = JSON.parse(readFileSync(join(dir, 'state.json'), 'utf-8'));
-    expect(state.capabilities.batch).toEqual({ maxRequests: 64, maxQuestions: 256 });
-    expect(JSON.stringify(state)).not.toContain(connection.apiKey);
+    // T12733: the file maps state keys to states; read it through the accessor.
+    const state = readProviderState(connection, join(dir, 'state.json'));
+    expect(state?.capabilities.batch).toEqual({ maxRequests: 64, maxQuestions: 256 });
+    expect(readFileSync(join(dir, 'state.json'), 'utf-8')).not.toContain(connection.apiKey);
   });
 
   it('detects at most once per refresh interval', async () => {

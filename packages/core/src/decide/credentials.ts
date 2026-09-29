@@ -88,6 +88,7 @@ import {
   DECIDE_PROFILE_DEFAULT_URL,
   DECIDE_PROFILE_NAME_PATTERN,
   DECISION_PROVIDER_KINDS,
+  type DecideProfileConnection,
   type DecideProfileListResult,
   type DecideProfileSummary,
   type DecideProfileUrlSource,
@@ -451,6 +452,8 @@ export class SealedDecideConnection {
   readonly model?: string;
   /** Masked key preview (`…abcd`). */
   readonly keyPreview: string;
+  /** Profile id (`<provider>/<name>`, T12733), when resolved from a profile. */
+  readonly profile?: string;
   readonly #apiKey: string;
 
   /**
@@ -458,30 +461,34 @@ export class SealedDecideConnection {
    * @param apiKey - Plaintext key; captured privately.
    * @param model - Optional default model.
    * @param provider - Provider kind. Default `jev`.
+   * @param profile - Profile id, when known.
    */
   constructor(
     baseUrl: string,
     apiKey: string,
     model?: string,
     provider: DecisionProviderKind = 'jev',
+    profile?: string,
   ) {
     this.provider = provider;
     this.baseUrl = baseUrl;
     this.#apiKey = apiKey;
     this.keyPreview = maskApiKey(apiKey);
     if (model) this.model = model;
+    if (profile) this.profile = profile;
   }
 
   /**
    * Materialise the wire connection. Call only where the request is built.
    *
-   * @returns Base URL, plaintext key and optional model.
+   * @returns Base URL, plaintext key, optional model and the profile id when known.
    */
   connection(): DecisionProviderConnection {
     return {
       baseUrl: this.baseUrl,
       apiKey: this.#apiKey,
       ...(this.model ? { model: this.model } : {}),
+      ...(this.profile ? { profile: this.profile } : {}),
     };
   }
 
@@ -491,12 +498,14 @@ export class SealedDecideConnection {
     baseUrl: string;
     model?: string;
     keyPreview: string;
+    profile?: string;
   } {
     return {
       provider: this.provider,
       baseUrl: this.baseUrl,
       ...(this.model ? { model: this.model } : {}),
       keyPreview: this.keyPreview,
+      ...(this.profile ? { profile: this.profile } : {}),
     };
   }
 
@@ -588,6 +597,7 @@ function sealSettings(
   baseUrl: string | undefined,
   apiKey: string,
   model: string | null | undefined,
+  profile: string | null,
 ): SealedDecideConnection | null {
   const url = baseUrl?.trim();
   const key = apiKey.trim();
@@ -598,13 +608,20 @@ function sealSettings(
     key,
     m && isValidDecisionModelName(m) ? m : undefined,
     provider,
+    profile ?? undefined,
   );
 }
 
 /** Seal a stored profile (URL resolved), or `null` when unusable. */
 function sealProfile(profile: StoredProfile | undefined): SealedDecideConnection | null {
   if (!profile) return null;
-  return sealSettings(profile.provider, resolveProfileUrl(profile), profile.apiKey, profile.model);
+  return sealSettings(
+    profile.provider,
+    resolveProfileUrl(profile),
+    profile.apiKey,
+    profile.model,
+    decideProfileId(profile.provider, profile.name),
+  );
 }
 
 /** Read the store as profiles. Never throws. */
@@ -641,8 +658,16 @@ function requireProfileRef(ref: string): DecideProfileRef {
  * @returns The sealed connection, or `null` when unconfigured.
  */
 export function loadDecideConnection(): SealedDecideConnection | null {
-  const top = topLevelSettings(readStoreSync());
-  return top ? sealSettings(top.provider, top.baseUrl, top.apiKey, top.model) : null;
+  const store = readStoreSync();
+  const top = topLevelSettings(store);
+  if (!top) return null;
+  return sealSettings(
+    top.provider,
+    top.baseUrl,
+    top.apiKey,
+    top.model,
+    toProfileStore(store).active,
+  );
 }
 
 /**
@@ -660,16 +685,16 @@ export function loadDecideProfile(ref: string): SealedDecideConnection | null {
 /**
  * Resolve a profile to its connection, for callers (the System One
  * benchmark) that address a profile by name without switching the active
- * one. A `default` URL resolves to the provider's current preset. The key
- * stays sealed; call {@link SealedDecideConnection.connection} where the
- * request is built.
+ * one. A `default` URL is resolved to the provider's current preset. The
+ * result CONTAINS THE PLAINTEXT KEY: pass it to the wire, never log or emit
+ * it. For a secret-safe handle use {@link loadDecideProfile}.
  *
  * @param ref - `<provider>/<name>` (e.g. `layahost/work`), or a bare provider for `<provider>/default`.
- * @returns The sealed connection.
+ * @returns `{ name, profile, provider, baseUrl, apiKey, model }`, `name` and `profile` being the id.
  * @throws {DecideCredentialsError} When the reference is invalid or unknown,
  *   or the profile's settings are unusable. The message lists the stored ids.
  */
-export function resolveDecideProfile(ref: string): SealedDecideConnection {
+export function resolveDecideProfile(ref: string): DecideProfileConnection {
   const { id } = requireProfileRef(ref);
   const ps = readProfileStoreSync();
   const profile = ps.profiles[id];
@@ -682,7 +707,15 @@ export function resolveDecideProfile(ref: string): SealedDecideConnection {
       `System One profile '${id}' has an unusable URL or key; store it again with: cleo decide config --profile ${id}`,
     );
   }
-  return sealed;
+  const wire = sealed.connection();
+  return {
+    name: id,
+    profile: id,
+    provider: sealed.provider,
+    baseUrl: wire.baseUrl,
+    apiKey: wire.apiKey,
+    ...(wire.model ? { model: wire.model } : {}),
+  };
 }
 
 /** Secret-free summary of one stored profile. */

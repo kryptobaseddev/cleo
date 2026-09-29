@@ -134,6 +134,7 @@ export {
   type ProviderState,
   type ProviderStateIdentity,
   providerKeyHash,
+  providerStateKey,
   type RefreshProviderStateOptions,
   readProviderState,
   refreshProviderState,

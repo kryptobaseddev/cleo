@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import {
   decisionProviderKindSchema,
   JEV_DEFAULT_BASE_URL,
+  JEV_MINIMUM_CAPABILITIES,
   LAYAHOST_BASE_URL,
   LAYAHOST_DEFAULT_MODEL,
 } from '@cleocode/contracts';
@@ -37,6 +38,14 @@ import {
   useDecideProfile,
 } from '../credentials.js';
 import { askDecideDebug, configureDecide, listDecideProfilesReport } from '../operations.js';
+import {
+  _resetProviderStateMemoForTest,
+  cachedCapabilities,
+  defaultProviderStatePath,
+  providerKeyHash,
+  readProviderState,
+  writeProviderState,
+} from '../provider-state.js';
 import { DECISION_PROVIDER_PRESETS } from '../providers.js';
 import { runDecideWizard } from '../wizard.js';
 
@@ -188,12 +197,18 @@ describe('profiles: add, switch, remove', () => {
 
   it('resolveDecideProfile addresses any profile without switching the active one', async () => {
     await addProfiles();
-    expect(resolveDecideProfile('layahost/personal').connection()).toEqual({
+    expect(resolveDecideProfile('layahost/personal')).toEqual({
+      name: 'layahost/personal',
+      profile: 'layahost/personal',
+      provider: 'layahost',
       baseUrl: LAYAHOST_BASE_URL,
       apiKey: HOME_KEY,
       model: LAYAHOST_DEFAULT_MODEL,
     });
-    expect(resolveDecideProfile('jev/team').connection()).toEqual({
+    expect(resolveDecideProfile('jev/team')).toEqual({
+      name: 'jev/team',
+      profile: 'jev/team',
+      provider: 'jev',
       baseUrl: TEAM_URL,
       apiKey: JEV_KEY,
       model: 'jev-model',
@@ -203,7 +218,7 @@ describe('profiles: add, switch, remove', () => {
       /no System One profile 'layahost\/nope'.*jev\/team, layahost\/personal, layahost\/work/,
     );
     expect(() => resolveDecideProfile('Bad Name')).toThrow(DecideCredentialsError);
-    expectNoKeys(`${resolveDecideProfile('jev/team')}`);
+    expectNoKeys([`${loadDecideProfile('jev/team')}`, loadDecideProfile('jev/team')]);
   });
 
   it('use switches the active profile and keeps the top level in sync', async () => {
@@ -344,7 +359,7 @@ describe('downgrade to 9.23 and rewrites by 9.23', () => {
     const list = listDecideProfiles();
     expect(list).toMatchObject({ active: 'layahost/default', reconciled: false });
     expect(list.profiles).toEqual([expect.objectContaining({ urlSource: 'default' })]);
-    expect(resolveDecideProfile('layahost').connection().apiKey).toBe(WORK_KEY);
+    expect(resolveDecideProfile('layahost').apiKey).toBe(WORK_KEY);
   });
 
   it('a 9.23 custom jev URL becomes jev/default with that URL as an override', () => {
@@ -369,8 +384,8 @@ describe('downgrade to 9.23 and rewrites by 9.23', () => {
     await useDecideProfile('layahost/personal');
     await useDecideProfile('layahost/work');
     expect(listDecideProfiles().reconciled).toBe(false);
-    expect(resolveDecideProfile('layahost/work').connection().apiKey).toBe('sk-laya-ROTATED-9999');
-    expect(resolveDecideProfile('jev/team').connection().apiKey).toBe(JEV_KEY);
+    expect(resolveDecideProfile('layahost/work').apiKey).toBe('sk-laya-ROTATED-9999');
+    expect(resolveDecideProfile('jev/team').apiKey).toBe(JEV_KEY);
   });
 
   it('a 9.23 provider switch becomes <new provider>/<active name>', async () => {
@@ -379,7 +394,7 @@ describe('downgrade to 9.23 and rewrites by 9.23', () => {
     writeRaw({ ...raw, version: 1, provider: 'jev', baseUrl: TEAM_URL, apiKey: JEV_KEY });
     const list = listDecideProfiles();
     expect(list).toMatchObject({ active: 'jev/work', reconciled: true });
-    expect(resolveDecideProfile('layahost/work').connection().apiKey).toBe(WORK_KEY);
+    expect(resolveDecideProfile('layahost/work').apiKey).toBe(WORK_KEY);
   });
 
   it('a 9.23 save that dropped profiles leaves its one config active; adding more keeps it', async () => {
@@ -406,6 +421,68 @@ describe('downgrade to 9.23 and rewrites by 9.23', () => {
     expect(loadDecideConnection()).toBeNull();
     expect(listDecideProfiles()).toMatchObject({ active: null, reconciled: true });
     expect(loadDecideProfile('jev/team')).not.toBeNull();
+  });
+});
+
+describe('provider state is kept per profile (two accounts on one URL)', () => {
+  const BATCHING = {
+    ...JEV_MINIMUM_CAPABILITIES,
+    batch: { maxRequests: 8, maxQuestions: 256 },
+    cacheControl: true,
+  };
+
+  it('two layahost profiles with different keys never overwrite each other', async () => {
+    await addProfiles();
+    _resetProviderStateMemoForTest();
+    const work = loadDecideProfile('layahost/work')?.connection();
+    const personal = loadDecideProfile('layahost/personal')?.connection();
+    if (!work || !personal) throw new Error('profiles not stored');
+    expect(work.baseUrl).toBe(personal.baseUrl);
+    const now = Date.now();
+    writeProviderState(
+      {
+        baseUrl: work.baseUrl,
+        keyHash: providerKeyHash(WORK_KEY),
+        detectedAt: now,
+        capabilities: BATCHING,
+      },
+      defaultProviderStatePath(),
+      'layahost/work',
+    );
+    writeProviderState(
+      {
+        baseUrl: personal.baseUrl,
+        keyHash: providerKeyHash(HOME_KEY),
+        detectedAt: now,
+        capabilities: JEV_MINIMUM_CAPABILITIES,
+      },
+      defaultProviderStatePath(),
+      'layahost/personal',
+    );
+    // Before T12733 the second write replaced the first: work lost batching.
+    expect(readProviderState(work)?.capabilities.batch).toEqual(BATCHING.batch);
+    expect(cachedCapabilities(work)?.cacheControl).toBe(true);
+    expect(cachedCapabilities(personal)?.batch).toBeUndefined();
+    // The key hash still guards: the work profile with another key reads nothing.
+    expect(readProviderState({ ...work, apiKey: HOME_KEY })).toBeNull();
+    // No key is ever written to the state file.
+    expectNoKeys(readFileSync(defaultProviderStatePath(), 'utf-8'));
+  });
+
+  it('still reads a pre-T12733 single-state file, guarded by URL and key', async () => {
+    await addProfiles();
+    _resetProviderStateMemoForTest();
+    const work = loadDecideProfile('layahost/work')?.connection();
+    if (!work) throw new Error('profile not stored');
+    const legacy = {
+      baseUrl: work.baseUrl,
+      keyHash: providerKeyHash(WORK_KEY),
+      detectedAt: Date.now(),
+      capabilities: BATCHING,
+    };
+    writeFileSync(defaultProviderStatePath(), JSON.stringify(legacy));
+    expect(readProviderState(work)?.capabilities.batch).toEqual(BATCHING.batch);
+    expect(readProviderState({ ...work, apiKey: HOME_KEY })).toBeNull();
   });
 });
 
