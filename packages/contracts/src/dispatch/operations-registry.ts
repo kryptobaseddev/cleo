@@ -3072,6 +3072,14 @@ export const OPERATIONS: OperationDef[] = [
         description: 'taskId parameter',
         cli: { positional: true },
       },
+      {
+        name: 'expectedUpdatedAt',
+        type: 'string',
+        required: false,
+        description:
+          'Optimistic-concurrency guard: fail with E_CONFLICT unless the task updatedAt still equals this value',
+        cli: { flag: 'if-match' },
+      },
     ] satisfies ParamDef[],
   },
   {

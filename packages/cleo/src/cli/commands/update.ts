@@ -258,6 +258,11 @@ export const updateCommand = defineCommand({
       description:
         'Fail with E_CONFLICT unless the task updatedAt still equals this value (optimistic concurrency; T12503)',
     },
+    'if-match': {
+      type: 'string',
+      description:
+        'Fail with E_CONFLICT unless the task updatedAt still equals this version (from cleo show). Same as --expected-updated-at.',
+    },
     'depends-waiver': {
       type: 'string',
       description:
@@ -528,8 +533,8 @@ export const updateCommand = defineCommand({
 
     // Core checks the effective dependency set and persists authorization atomically.
     if (args['depends-waiver'] !== undefined) params['dependsWaiver'] = args['depends-waiver'];
-    if (args['expected-updated-at'] !== undefined)
-      params['expectedUpdatedAt'] = args['expected-updated-at'];
+    const ifMatch = args['if-match'] ?? args['expected-updated-at'];
+    if (ifMatch !== undefined) params['expectedUpdatedAt'] = ifMatch;
 
     await dispatchFromCli('mutate', 'tasks', 'update', params, { command: 'update' });
   },

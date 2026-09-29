@@ -1680,6 +1680,13 @@ export interface TasksCompleteQueryParams {
    * @task T11954 (DHQ-071)
    */
   waiveDependsReason?: string;
+  /**
+   * Optimistic-concurrency guard (`--if-match`): the task `updatedAt` the
+   * caller read. When the stored version differs, completion fails with
+   * `E_CONFLICT` carrying the current version and the changed fields.
+   * @task T12503
+   */
+  expectedUpdatedAt?: string;
 }
 /**
  * Result of `tasks.complete` — completion confirmation with unblocked tasks.

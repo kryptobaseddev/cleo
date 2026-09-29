@@ -92,6 +92,12 @@ const tasksShowOutputContract: OperationOutputContract = {
           priority: { type: 'string' },
           type: { type: 'string' },
           parentId: { type: ['string', 'null'] },
+          // T12503: the optimistic-concurrency version agents pass to --if-match.
+          updatedAt: {
+            type: ['string', 'null'],
+            description:
+              'Task version for optimistic concurrency: pass it to `cleo update|complete --if-match`.',
+          },
         },
       },
       view: {
@@ -120,6 +126,9 @@ const tasksShowOutputContract: OperationOutputContract = {
     '/data/task/priority',
     '/data/task/type',
     '/data/task/parentId',
+    // T12503 — the optimistic-concurrency version for `--if-match`; withheld
+    // by the MVI projection, resolved from the full record by `--field`.
+    '/data/task/updatedAt',
     // T12127 (GH #1231) — withheld by the MVI projection but resolvable
     // through `--field` since T12108. They were absent from this list, so the
     // remediation an agent is shown on a failed pointer never mentioned the
