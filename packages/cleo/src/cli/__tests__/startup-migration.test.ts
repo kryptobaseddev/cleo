@@ -32,6 +32,7 @@ const {
   getLoggerMock,
   isCleanupMarkerSetMock,
   setCleanupMarkerMock,
+  isMissingProjectErrorMock,
 } = vi.hoisted(() => {
   const logInstance = {
     info: vi.fn(),
@@ -62,6 +63,12 @@ const {
     // existing tests continue to exercise the cleanup code path.
     isCleanupMarkerSetMock: vi.fn().mockReturnValue(false),
     setCleanupMarkerMock: vi.fn(),
+    // T12733: startup classifies "no project here" through this predicate.
+    // Its full rule set is covered in core's missing-project-error.test.ts;
+    // here it recognises the E_NO_PROJECT signal these tests throw.
+    isMissingProjectErrorMock: vi.fn(
+      (err: unknown): boolean => err instanceof Error && err.message.includes('E_NO_PROJECT'),
+    ),
   };
 });
 
@@ -79,6 +86,7 @@ vi.mock('@cleocode/core/internal', () => ({
   // T9028: one-shot cleanup marker helpers
   isCleanupMarkerSet: isCleanupMarkerSetMock,
   setCleanupMarker: setCleanupMarkerMock,
+  isMissingProjectError: isMissingProjectErrorMock,
   // T1873: env→ALS bridge added in cleo CLI entrypoint. Test doesn't exercise
   // worktree paths, so stub passthrough that just invokes the callback.
   runWithWorktreeScopeFromEnv: <T>(fn: () => T): T => fn(),
@@ -324,6 +332,8 @@ describe('CLI startup: T310 migration hook (T360)', () => {
     await expect(runStartupMaintenance()).resolves.not.toThrow();
     // Migration should not be called when getProjectRoot throws
     expect(migrateSignaldockToConduitMock).not.toHaveBeenCalled();
+    // The throw is classified as "no project", not an unexpected failure.
+    expect(isMissingProjectErrorMock).toHaveReturnedWith(true);
   });
 
   it('T9029: migration check runs; ensureConduitDb NOT called during startup (deferred DB open)', async () => {

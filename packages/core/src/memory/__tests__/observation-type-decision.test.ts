@@ -18,6 +18,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import type { DecisionAuditEntry, DecisionAuditSink } from '../../decide/audit.js';
 import { createMemoryTokenBucket } from '../../decide/budget.js';
 import type { DecideOptions } from '../../decide/client.js';
+import { createMemorySpendLedger, DEFAULT_MONTHLY_SPEND_CAP_MICROS } from '../../decide/spend.js';
 
 const enqueued: ObserveBrainParams[] = [];
 vi.mock('../brain-writer-thread.js', () => ({
@@ -97,10 +98,19 @@ function memoryAudit(): DecisionAuditSink & { entries: DecisionAuditEntry[] } {
   return { entries, write: (e) => entries.push(e) };
 }
 
+/**
+ * Stub-provider wiring with an in-memory request budget and spend ledger. The
+ * spend gate runs inside the site's wait budget, so the process default (a
+ * lock-guarded file ledger) let disk I/O on a loaded CI runner exhaust the
+ * 300 ms budget before the stub answered: the heuristic acted with no
+ * `rejected` mark, and the site under test was never exercised.
+ */
 function stubWiring(audit: DecisionAuditSink): DecideOptions {
   return {
     connection: { baseUrl, apiKey: 'sk-test-SECRET-1234', model: 'stub-model' },
     budget: createMemoryTokenBucket(),
+    spend: createMemorySpendLedger(),
+    spendCapMicros: DEFAULT_MONTHLY_SPEND_CAP_MICROS,
     cache: null,
     audit,
   };
