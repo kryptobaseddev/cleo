@@ -16,6 +16,7 @@ import { resolveOrCwd } from '../paths.js';
 import {
   readFocusState,
   readLiveFocus,
+  releaseLegacyPointer,
   resolveFocusSessionId,
   type StaleFocusPointer,
   writeFocusState,
@@ -309,6 +310,9 @@ export async function stopTask(
       });
     }
   });
+  // T12501: a bound caller's stop also releases a pre-upgrade legacy pointer
+  // to the same task, so unbound callers do not inherit a stopped focus.
+  if (taskId && focusSessionId) await releaseLegacyPointer(acc, taskId);
 
   return { previousTask };
 }

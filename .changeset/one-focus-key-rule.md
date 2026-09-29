@@ -16,10 +16,18 @@ summary: "every focus read and write resolves the caller's session through one f
   terminal shared. Session status meanwhile read the newest active session's
   key.
 - **Legacy key.** The global `focus_state` key is now the focus of an unbound
-  caller only. A bound session never reads it as its own focus and never
-  writes focus to it. The one exception is completion, which still clears a
-  pointer to the finished task wherever it is. An env session id with no
-  session row no longer keys focus.
+  caller only. A bound session never writes focus to it. On upgrade, a bound
+  session with no focus key of its own adopts a live legacy pointer once: the
+  blob moves to the session key and the legacy pointer is cleared with a
+  compare-and-set, so a second session cannot adopt it too. A pointer at a
+  done task is not adopted. A bound `cleo stop` also clears a legacy pointer
+  to the task it stopped, and completion still clears a pointer to the
+  finished task wherever it is. An env session id with no session row no
+  longer keys focus. The SDK `startSession` now writes the new session's
+  focus key, like `session start`.
+- **`cleo status` and the drift watchdog** take the focused task from the
+  caller's live focus, not from the session row's `taskWork`, which is set at
+  start and never updated.
 - **Inject and bootstrap (T12731).** Both read focus under the same rule, not
   env-only. `inject-generate` no longer takes the focus from the session row's
   `taskWork`, which skipped the done-task filter. Both now show the caller's

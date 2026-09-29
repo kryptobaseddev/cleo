@@ -34,6 +34,7 @@ import { injectTasks } from '../../inject/index.js';
 import { buildBrainState } from '../../orchestration/bootstrap.js';
 import { sessionStart, sessionStatus } from '../../session/engine-ops.js';
 import { getTaskAccessor } from '../../store/data-accessor.js';
+import { bindTerminalToSession, createSession } from '../../store/session-store.js';
 import { generateInjection } from '../../system/inject-generate.js';
 import { currentTask, startTask, stopTask } from '../../task-work/index.js';
 import { computeBriefing } from '../briefing.js';
@@ -231,5 +232,71 @@ describe('a done task is never the current focus through inject or bootstrap (T1
       injectTasks({ focusedOnly: true, cwd: root }),
     )) as { tasks: Array<{ id: string }> };
     expect(inj.tasks.map((t) => t.id)).not.toContain('T1');
+  });
+});
+
+/**
+ * A session that predates per-session focus: a row and a terminal binding,
+ * but no `focus_state:<id>` key (session start would write a fresh one).
+ */
+async function preUpgradeSessionIn(vars: Record<string, string>, id: string): Promise<void> {
+  await createSession(
+    {
+      id,
+      name: id,
+      status: 'active',
+      scope: { type: 'global' },
+      taskWork: { taskId: null, setAt: null },
+      startedAt: new Date().toISOString(),
+    },
+    root,
+  );
+  await inTerminal(vars, () => bindTerminalToSession(id, root));
+}
+
+describe('upgrade: a bound session adopts the legacy focus once (T12501)', () => {
+  const SES_A = 'ses_20260929000001_aaaaaa';
+  const SES_B = 'ses_20260929000002_bbbbbb';
+
+  it('adopts a live legacy pointer once; a second session cannot adopt it', async () => {
+    const acc = await getTaskAccessor(root);
+    await acc.setMetaValue(LEGACY_FOCUS_STATE_KEY, { currentTask: 'T1', sessionNote: 'pre' });
+    await preUpgradeSessionIn(TERMINAL_A, SES_A);
+    await preUpgradeSessionIn(TERMINAL_B, SES_B);
+
+    expect((await inTerminal(TERMINAL_A, () => currentTask(root))).currentTask).toBe('T1');
+    const own = await acc.getMetaValue<TaskWorkState>(focusStateKey(SES_A));
+    expect(own).toMatchObject({ currentTask: 'T1', sessionNote: 'pre' });
+    expect((await acc.getMetaValue<TaskWorkState>(LEGACY_FOCUS_STATE_KEY))?.currentTask).toBeNull();
+
+    // B finds no pointer left to adopt, and A keeps its focus.
+    expect((await inTerminal(TERMINAL_B, () => currentTask(root))).currentTask).toBeNull();
+    expect(await acc.getMetaValue(focusStateKey(SES_B))).toBeNull();
+    expect((await inTerminal(TERMINAL_A, () => currentTask(root))).currentTask).toBe('T1');
+  });
+
+  it('does not adopt a legacy pointer at a done task', async () => {
+    const acc = await getTaskAccessor(root);
+    await acc.updateTaskFields('T1', { status: 'done', pipelineStage: 'contribution' });
+    await acc.setMetaValue(LEGACY_FOCUS_STATE_KEY, { currentTask: 'T1' });
+    await preUpgradeSessionIn(TERMINAL_A, SES_A);
+
+    expect((await inTerminal(TERMINAL_A, () => currentTask(root))).currentTask).toBeNull();
+    expect(await acc.getMetaValue(focusStateKey(SES_A))).toBeNull();
+    expect((await acc.getMetaValue<TaskWorkState>(LEGACY_FOCUS_STATE_KEY))?.currentTask).toBe('T1');
+  });
+
+  it('a bound stop clears a legacy pointer to the stopped task', async () => {
+    const acc = await getTaskAccessor(root);
+    const sessionA = await startIn(TERMINAL_A, 'agent-a');
+    await inTerminal(TERMINAL_A, () => startTask('T1', root));
+    // A pre-upgrade pointer to the same task, left in the legacy key.
+    await acc.setMetaValue(LEGACY_FOCUS_STATE_KEY, { currentTask: 'T1' });
+
+    await inTerminal(TERMINAL_A, () => stopTask(root));
+    expect(
+      (await acc.getMetaValue<TaskWorkState>(focusStateKey(sessionA)))?.currentTask,
+    ).toBeNull();
+    expect((await acc.getMetaValue<TaskWorkState>(LEGACY_FOCUS_STATE_KEY))?.currentTask).toBeNull();
   });
 });

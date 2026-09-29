@@ -5,7 +5,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { readLiveFocus, resolveFocusSessionId } from '../sessions/focus-state-store.js';
+import { focusSessionIdFromRead, readLiveFocus } from '../sessions/focus-state-store.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 
@@ -39,21 +39,20 @@ export async function generateInjection(
   let sessionScope: string | null = null;
 
   const acc = accessor ?? (await getTaskAccessor(projectRoot));
-  // T12684: never generate an injection around a finished task. T12501: the
-  // CALLER's focus key (THE focus-key rule) — a terminal-bound session reads
-  // its own key, not the global one.
-  focusTask = (await readLiveFocus(acc, await resolveFocusSessionId(projectRoot))).currentTask;
   const activeSessionMeta = await acc.getMetaValue<string>('activeSession');
   if (activeSessionMeta) {
     activeSessionName = activeSessionMeta;
   }
 
   // Load the CALLER's session from SQLite (ADR-006/ADR-020). T12501: the
-  // read resolver (bound first), not the first active row; the focus above is
-  // the only focus source — `taskWork.taskId` would bypass the done-task filter.
+  // read resolver (bound first), not the first active row — resolved once;
+  // the focus key derives from the same resolution.
+  let focusSessionId: string | null = null;
   try {
     const { resolveSessionForRead } = await import('../store/session-store.js');
-    const { session: active } = await resolveSessionForRead(projectRoot);
+    const read = await resolveSessionForRead(projectRoot);
+    focusSessionId = focusSessionIdFromRead(read);
+    const active = read.session;
     if (active && active.status === 'active') {
       activeSessionName = active.name || active.id;
       sessionScope = `${active.scope?.type}:${active.scope?.rootTaskId}`;
@@ -61,6 +60,12 @@ export async function generateInjection(
   } catch {
     // fallback to meta-only data
   }
+
+  // T12684: never generate an injection around a finished task. T12501: the
+  // CALLER's focus key (THE focus-key rule) — a terminal-bound session reads
+  // its own key, not the global one — and the ONLY focus source:
+  // `taskWork.taskId` on the session row would bypass the done-task filter.
+  focusTask = (await readLiveFocus(acc, focusSessionId)).currentTask;
 
   // Storage engine is always sqlite (ADR-006)
   const storageEngine = 'sqlite';

@@ -20,6 +20,7 @@ import { pushWarning } from '../output.js';
 import { paginate } from '../pagination.js';
 import { type ContextInjectionData, injectContext } from '../sessions/context-inject.js';
 import {
+  focusSessionIdFromRead,
   readFocusState,
   readLiveFocus,
   resolveFocusSessionId,
@@ -163,12 +164,14 @@ export async function sessionStatus(projectRoot: string): Promise<
     // spawned agent's `cleo session status` reports ITS own session.
     // T12500 — read-only: an unbound caller may still SEE the newest active
     // row, but the envelope labels it `unbound: true`.
-    const { session: active, unbound } = await resolveSessionForRead(projectRoot);
+    const read = await resolveSessionForRead(projectRoot);
+    const { session: active, unbound } = read;
     // T11345 — read the per-session focus_state key for the resolved session.
     // T12684: the live focus — a finished task is reported as staleFocus.
     // T12501: keyed by THE focus-key rule, the one `cleo start` writes — never
-    // the newest active row's key for an unbound caller.
-    const liveFocus = await readLiveFocus(accessor, await resolveFocusSessionId(projectRoot));
+    // the newest active row's key for an unbound caller. Derived from the one
+    // resolution above (same bound tiers), not resolved twice.
+    const liveFocus = await readLiveFocus(accessor, focusSessionIdFromRead(read));
     const focusState = liveFocus.state
       ? { ...liveFocus.state, currentTask: liveFocus.currentTask }
       : null;

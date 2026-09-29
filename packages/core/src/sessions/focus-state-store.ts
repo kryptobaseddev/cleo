@@ -27,9 +27,11 @@ import { TERMINAL_TASK_STATUSES } from '@cleocode/contracts';
  * UNBOUND CALLERS ONLY (T12501): it is the focus of a caller that is bound to
  * no session — {@link resolveFocusSessionId} returned `null`. A caller bound
  * to a session never reads or writes it: its focus lives only under
- * `focus_state:<sessionId>`. The one exception is
- * {@link clearFocusForFinishedTask}, which clears a pointer to a finished task
- * wherever it is.
+ * `focus_state:<sessionId>`. The exceptions only ever CLEAR its pointer: a
+ * bound session with no key yet adopts a live legacy pointer once on upgrade
+ * ({@link readFocusState}), a bound `cleo stop` releases it
+ * ({@link releaseLegacyPointer}), and {@link clearFocusForFinishedTask} clears
+ * a pointer to a finished task wherever it is.
  *
  * @task T11345
  * @task T12501
@@ -113,18 +115,85 @@ export function focusStateKey(sessionId: string | null | undefined): string {
 }
 
 /**
+ * The focus session id for a caller already resolved by the read resolver
+ * (`resolveSessionForRead`): its own session when bound, `null` when the row
+ * is only the newest active one. Equal to {@link resolveFocusSessionId} — the
+ * read resolver tries the same bound tiers first — so a surface that needs
+ * both the session row and the focus key resolves once (T12501).
+ *
+ * @param read - The read resolution: the session and its `unbound` label.
+ * @returns The bound session id, or `null` for an unbound caller.
+ * @example
+ * ```ts
+ * const read = await resolveSessionForRead(root);
+ * const focus = await readLiveFocus(acc, focusSessionIdFromRead(read));
+ * ```
+ * @task T12501
+ */
+export function focusSessionIdFromRead(read: {
+  readonly session: { readonly id: string } | null;
+  readonly unbound: boolean;
+}): string | null {
+  return read.unbound ? null : (read.session?.id ?? null);
+}
+
+/** Whether the accessor can look a task up (a {@link LiveFocusAccessor}). */
+function hasTaskLookup(accessor: FocusStateMetaAccessor): accessor is LiveFocusAccessor {
+  return 'loadSingleTask' in accessor;
+}
+
+/**
+ * Upgrade path (T12501): a bound session with no focus key yet adopts the
+ * pre-upgrade focus held in the legacy global key — once.
+ *
+ * Only a live pointer is adopted (a done, cancelled, archived or missing task
+ * is not). The blob is copied to the session key and the legacy pointer is
+ * cleared with a compare-and-set on that pointer, inside one transaction when
+ * the store offers one, so exactly one bound session can adopt it.
+ *
+ * @returns The adopted (or concurrently written) blob, or `null`.
+ */
+async function adoptLegacyFocus(
+  accessor: FocusStateMetaAccessor,
+  sessionId: string,
+): Promise<TaskWorkState | null> {
+  if (!hasTaskLookup(accessor)) return null;
+  const legacy = await accessor.getMetaValue<TaskWorkState>(LEGACY_FOCUS_STATE_KEY);
+  const pointer = legacy?.currentTask ?? null;
+  if (!pointer) return null;
+  if (staleFocusPointer(pointer, (await accessor.loadSingleTask(pointer))?.status)) return null;
+  const key = focusStateKey(sessionId);
+  const adopt = async (
+    set: (k: string, v: TaskWorkState) => Promise<void>,
+  ): Promise<TaskWorkState | null> => {
+    const own = await accessor.getMetaValue<TaskWorkState>(key);
+    if (own) return own; // written meanwhile — the session's own focus wins
+    const now = await accessor.getMetaValue<TaskWorkState>(LEGACY_FOCUS_STATE_KEY);
+    if (!now || now.currentTask !== pointer) return null; // another session adopted it
+    await set(key, now);
+    await set(LEGACY_FOCUS_STATE_KEY, { ...now, currentTask: null });
+    return now;
+  };
+  return accessor.transaction
+    ? accessor.transaction((tx) => adopt((k, v) => tx.setMetaValue(k, v)))
+    : adopt((k, v) => accessor.setMetaValue(k, v));
+}
+
+/**
  * Read the RAW focus_state blob for a session id — for read-modify-write
  * only. Anything that reports or acts on the current task reads
  * {@link readLiveFocus}, which never returns a finished task (T12684).
  *
- * Reads exactly one key, {@link focusStateKey}. A bound session with no focus
- * yet has none: it does NOT fall back to the legacy global key, which holds
- * an unbound caller's focus, not this session's (T12501).
+ * Reads {@link focusStateKey}. The legacy global key is an unbound caller's
+ * focus, never read as a bound session's — except once, on upgrade: when the
+ * session's key is ABSENT (not merely `currentTask: null`) and the legacy key
+ * holds a live pointer, the session adopts it and the legacy pointer is
+ * cleared, so no second session can adopt it too (T12501).
  *
  * @param accessor  - Metadata accessor.
  * @param sessionId - Session id from {@link resolveFocusSessionId}, or `null`
  *   for an unbound caller (the legacy key).
- * @returns The focus_state blob, or `null` when the key has no value.
+ * @returns The focus_state blob, or `null` when there is none.
  * @task T11345
  * @task T12501
  */
@@ -132,15 +201,44 @@ export async function readFocusState(
   accessor: FocusStateMetaAccessor,
   sessionId: string | null | undefined,
 ): Promise<TaskWorkState | null> {
-  return accessor.getMetaValue<TaskWorkState>(focusStateKey(sessionId));
+  const own = await accessor.getMetaValue<TaskWorkState>(focusStateKey(sessionId));
+  if (own || !sessionId) return own;
+  return adoptLegacyFocus(accessor, sessionId);
+}
+
+/**
+ * Clear the legacy global pointer when it names `taskId` — for a BOUND
+ * caller's `cleo stop`, so a pre-upgrade pointer to the task it stopped is not
+ * left behind for unbound callers (T12501). Compare-and-set on the pointer.
+ *
+ * @param accessor - Metadata accessor.
+ * @param taskId - The task being stopped.
+ * @returns `true` when the legacy pointer was cleared.
+ * @task T12501
+ */
+export async function releaseLegacyPointer(
+  accessor: FocusStateMetaAccessor,
+  taskId: string,
+): Promise<boolean> {
+  const clear = async (set: (k: string, v: TaskWorkState) => Promise<void>): Promise<boolean> => {
+    const legacy = await accessor.getMetaValue<TaskWorkState>(LEGACY_FOCUS_STATE_KEY);
+    if (legacy?.currentTask !== taskId) return false;
+    await set(LEGACY_FOCUS_STATE_KEY, { ...legacy, currentTask: null });
+    return true;
+  };
+  return accessor.transaction
+    ? accessor.transaction((tx) => clear((k, v) => tx.setMetaValue(k, v)))
+    : clear((k, v) => accessor.setMetaValue(k, v));
 }
 
 /**
  * Write the focus_state blob for a session id.
  *
  * A bound session writes only its own key, so concurrent sessions never
- * clobber each other and never touch the legacy global key; only an unbound
- * caller (`sessionId` null) writes the legacy key (T12501).
+ * clobber each other; only an unbound caller (`sessionId` null) writes the
+ * legacy key. (A bound session touches the legacy key only to clear a pointer:
+ * adoption on upgrade, {@link releaseLegacyPointer} and
+ * {@link clearFocusForFinishedTask}.) (T12501)
  *
  * @param accessor  - Metadata accessor.
  * @param sessionId - Session id from {@link resolveFocusSessionId}, or `null`

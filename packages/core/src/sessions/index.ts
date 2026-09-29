@@ -29,6 +29,7 @@ import {
 import { sessionsHoldingLiveClaims } from '../task-work/claims.js';
 import type { AgentSessionHandle } from './agent-session-adapter.js';
 import { closeAgentSession, openAgentSession } from './agent-session-adapter.js';
+import { writeFocusState } from './focus-state-store.js';
 import { resolveParentSessionIdFromEnv } from './session-id.js';
 
 // Auto-register hook handlers
@@ -189,6 +190,19 @@ export async function startSession(
 
   sessions.push(session);
   await accessor.upsertSingleSession(session);
+  // T12501: a fresh per-session focus key, so the start task is the session's
+  // focus under THE focus-key rule (as `sessionStart` in engine-ops does) —
+  // readers never take it from `taskWork`, and the session never adopts the
+  // legacy global focus.
+  await writeFocusState(accessor, session.id, {
+    currentTask: params.startTask ?? null,
+    currentPhase: null,
+    blockedUntil: null,
+    sessionNote: null,
+    sessionNotes: [],
+    nextAction: null,
+    primarySession: session.id,
+  });
   // T12500: the terminal that starts a session is bound to it, so the SDK's
   // `sessions.end()` from this terminal resolves THIS session.
   await bindCallingTerminal(session.id, projectRoot);
@@ -676,10 +690,12 @@ export type {
   LiveFocusAccessor,
 } from './focus-state-store.js';
 export {
+  focusSessionIdFromRead,
   focusStateKey,
   LEGACY_FOCUS_STATE_KEY,
   readFocusState,
   readLiveFocus,
+  releaseLegacyPointer,
   resolveFocusSessionId,
   writeFocusState,
 } from './focus-state-store.js';

@@ -7,7 +7,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { BrainState } from '@cleocode/contracts';
-import { readLiveFocus, resolveFocusSessionId } from '../sessions/focus-state-store.js';
+import { focusSessionIdFromRead, readLiveFocus } from '../sessions/focus-state-store.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { buildRankingContext, rankTasks } from '../task-tools/score-task-priority.js';
@@ -48,10 +48,14 @@ export async function buildBrainState(
 
   // --- Session (from SQLite, ADR-006/ADR-020) ---
   const acc = accessor ?? (await getTaskAccessor(projectRoot));
+  // T12501: the CALLER's session (bound first), not the first active row —
+  // resolved once; the focus key below derives from the same resolution.
+  let focusSessionId: string | null = null;
   try {
-    // T12501: the CALLER's session (bound first), not the first active row.
     const { resolveSessionForRead } = await import('../store/session-store.js');
-    const { session: activeSession } = await resolveSessionForRead(projectRoot);
+    const read = await resolveSessionForRead(projectRoot);
+    focusSessionId = focusSessionIdFromRead(read);
+    const activeSession = read.session;
     if (activeSession && activeSession.status === 'active') {
       brain.session = {
         id: activeSession.id,
@@ -78,8 +82,7 @@ export async function buildBrainState(
   // --- Current Task (from focus or session) ---
   // T12684: a finished task is never bootstrapped as the current task.
   // T12501: the CALLER's focus key (THE focus-key rule), not an env-only one.
-  const focusTaskId = (await readLiveFocus(acc, await resolveFocusSessionId(projectRoot)))
-    .currentTask;
+  const focusTaskId = (await readLiveFocus(acc, focusSessionId)).currentTask;
   if (focusTaskId) {
     const task = tasks.find((t) => t.id === focusTaskId);
     if (task) {
