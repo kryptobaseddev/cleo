@@ -5,8 +5,7 @@
  */
 
 import type { ProjectMeta, ScoreTaskContext, Task } from '@cleocode/contracts';
-import { readFocusState } from '../sessions/focus-state-store.js';
-import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
+import { readFocusState, resolveFocusSessionId } from '../sessions/focus-state-store.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import {
@@ -68,7 +67,7 @@ export async function coreTaskNext(
   const accessor = await getTaskAccessor(projectRoot);
   const { tasks: allTasks } = await accessor.queryTasks({});
   const { ranked, totalCandidates } = await rankReadyTasks(accessor, allTasks, {
-    currentPhase: await resolveRankingPhase(accessor),
+    currentPhase: await resolveRankingPhase(accessor, projectRoot),
     // T12689: a one-line hint (`brain: false`) opens no brain store.
     ...(params?.brain !== false && { projectRoot }),
   });
@@ -97,10 +96,13 @@ export async function coreTaskNext(
  * @returns The phase slug, or null.
  * @task T12661
  */
-export async function resolveRankingPhase(accessor: DataAccessor): Promise<string | null> {
+export async function resolveRankingPhase(
+  accessor: DataAccessor,
+  cwd?: string,
+): Promise<string | null> {
   // Only the focus PHASE is read here, never the task pointer, so the stale-
   // pointer check in readLiveFocus (and its task load) does not apply.
-  const focus = await readFocusState(accessor, resolveSessionIdFromEnv());
+  const focus = await readFocusState(accessor, await resolveFocusSessionId(cwd));
   if (focus?.currentPhase) return focus.currentPhase;
   const projectMeta = await accessor.getMetaValue<ProjectMeta>('project_meta');
   return projectMeta?.currentPhase ?? null;

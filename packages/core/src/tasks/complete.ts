@@ -1513,12 +1513,13 @@ async function clearFinishedFocus(
   taskIds: readonly string[],
 ): Promise<Pick<CompleteEngineSuccess, 'focusCleared' | 'nextSuggested'>> {
   try {
-    const [{ clearFocusForFinishedTask }, { resolveSessionIdFromEnv }] = await Promise.all([
-      import('../sessions/focus-state-store.js'),
-      import('../sessions/session-id.js'),
-    ]);
+    const { clearFocusForFinishedTask, resolveFocusSessionId } = await import(
+      '../sessions/focus-state-store.js'
+    );
     const accessor = await getTaskAccessor(projectRoot);
-    const sessions = [await resolveBoundSessionId(projectRoot), resolveSessionIdFromEnv()];
+    // T12501: the caller's focus key under THE focus-key rule (the legacy key
+    // is always swept for a stale pointer too).
+    const sessions = [await resolveFocusSessionId(projectRoot)];
     let cleared = 0;
     for (const taskId of taskIds)
       cleared += (await clearFocusForFinishedTask(accessor, sessions, taskId)).length;

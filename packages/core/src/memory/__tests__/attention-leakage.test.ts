@@ -31,6 +31,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { writeFocusState } from '../../sessions/focus-state-store.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
+import { createSession } from '../../store/session-store.js';
 import { addAttention, buildAttentionDigest, listAttention } from '../attention.js';
 
 const ENV_KEYS = ['CLEO_SESSION_ID', 'CLEO_SESSION', 'CLEO_AGENT_ID'];
@@ -59,6 +60,21 @@ async function asAgent<T>(
   }
 }
 
+/** T12501: an env session id binds (and keys focus) only when its row exists. */
+async function createBoundSession(id: string, root: string): Promise<void> {
+  await createSession(
+    {
+      id,
+      name: id,
+      status: 'active',
+      scope: { type: 'global' },
+      taskWork: { taskId: null, setAt: null },
+      startedAt: new Date().toISOString(),
+    },
+    root,
+  );
+}
+
 describe('cross-agent attention leakage impossibility (T11375 · Epic T11288)', () => {
   let env: TestDbEnv;
   const savedEnv: Record<string, string | undefined> = {};
@@ -81,6 +97,8 @@ describe('cross-agent attention leakage impossibility (T11375 · Epic T11288)', 
     ]);
 
     // Each agent's per-session focus_state points at its own task.
+    await createBoundSession(AGENT_A.sessionId, env.tempDir);
+    await createBoundSession(AGENT_B.sessionId, env.tempDir);
     await writeFocusState(env.accessor, AGENT_A.sessionId, { currentTask: AGENT_A.taskId });
     await writeFocusState(env.accessor, AGENT_B.sessionId, { currentTask: AGENT_B.taskId });
   });

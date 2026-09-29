@@ -11,7 +11,7 @@ import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { resolveCurrentSession } from '../store/session-store.js';
-import { readLiveFocus } from './focus-state-store.js';
+import { readLiveFocus, resolveFocusSessionId } from './focus-state-store.js';
 
 export interface ContextDriftResult {
   score: number;
@@ -70,7 +70,12 @@ export async function getContextDrift(
 
   // T11345 — read the resolved session's per-session focus_state.
   // T12684: a finished task is not the focus drift is measured against.
-  const live = await readLiveFocus(accessor, session?.id ?? null);
+  // T12501: a named session reads its own key; otherwise THE focus-key rule
+  // (never the newest active row's key for an unbound caller).
+  const live = await readLiveFocus(
+    accessor,
+    params.sessionId ? (session?.id ?? null) : await resolveFocusSessionId(projectRoot),
+  );
   const current = {
     tasks,
     focus: live.state ? { ...live.state, currentTask: live.currentTask } : undefined,
