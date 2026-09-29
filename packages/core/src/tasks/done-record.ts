@@ -423,7 +423,7 @@ export async function recordTasksDone(
     throw new CleoError(
       ExitCode.INVALID_INPUT,
       '--if-match applies to one task; it cannot be used with several task ids',
-      { fix: 'Run cleo done <id> --if-match <updatedAt> once per task' },
+      { fix: 'Pass one task id per call: cleo done <id> --if-match <updatedAt>' },
     );
   }
   const runTool = sharedToolRunner(opts.steps?.runTool ?? defaultRunTool);

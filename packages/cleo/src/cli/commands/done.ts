@@ -88,6 +88,11 @@ export const doneCommand = defineCommand({
   },
   args: {
     ...completeCommandArgs,
+    'if-match': {
+      type: 'string',
+      description:
+        'Refuse with E_CONFLICT, before recording any gate, unless the task updatedAt still equals this version (from cleo show). One task id only.',
+    },
     plan: {
       type: 'boolean',
       description:
@@ -132,7 +137,7 @@ export const doneCommand = defineCommand({
         '--if-match applies to one task; it cannot be used with several task ids',
         'E_INVALID_INPUT',
         {
-          fix: 'Run cleo done <id> --if-match <updatedAt> once per task',
+          fix: 'Pass one task id per call: cleo done <id> --if-match <updatedAt>',
         },
       );
       process.exitCode = 2;
