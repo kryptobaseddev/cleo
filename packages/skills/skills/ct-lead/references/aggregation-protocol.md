@@ -54,11 +54,14 @@ cleo orchestrate roll-up T9080 --wave 2 --json > /tmp/rollup.json
 > --wave <n>` takes the same `n` (`--wave 0` is refused with
 > `E_CLEO_VALIDATION`, pointing at `cleo orchestrate waves`).
 >
-> **Read `n` when you subscribe.** Wave numbers are recomputed from the
-> tasks still open, so they shift as earlier waves complete. Take `n` from
-> `cleo orchestrate waves` at the moment you subscribe and spawn; do not
-> hard-code the numbers of future waves until stable numbering (T12683)
-> lands.
+> **Wave numbers are stable (T12683).** Every task keeps the wave its
+> dependency depth gives it, whatever its status: a finished wave stays in
+> `cleo orchestrate waves` with status `completed`, and no later wave is
+> renumbered when work completes. So subscribing ahead to
+> `epic-<epicId>.wave-<n>` for a future wave is safe, and a topic can be
+> reused. The `--hide-completed` option of `orchestrate waves` omits finished
+> waves; the rest keep their numbers. `orchestrate ready`, `plan` and
+> `parallel start --wave <n>` never re-run finished tasks.
 
 
 `rollupWaveStatus` returns:

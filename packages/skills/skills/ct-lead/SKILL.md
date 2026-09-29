@@ -2,7 +2,7 @@
 name: ct-lead
 description: "Phase Lead orchestration playbook for spawning and supervising a parallel worker swarm in one wave. Use when spawned by ct-orchestrator with role=orchestrator to fan out N leaf workers via delegate_task, drain the epic-<TID>.wave-<n> conduit topic plus pipeline_manifest, await rollupWaveStatus convergence, and return ONE rolled-up contract string to the parent Orchestrator. Triggers: 'phase lead', 'wave lead', 'supervise wave', 'fan out workers', 'aggregate worker results', 'rollup wave', any task with role=orchestrator that is itself a child of another orchestrator. Implements ADR-070 hierarchical orchestration."
 metadata:
-  version: 1.0.3
+  version: 1.0.4
   tier: core
   install: harness
   covers:
@@ -108,11 +108,14 @@ cleo orchestrate roll-up "${EPIC}" --wave "${WAVE}" --json \
 > --wave <n>` takes the same `n` (`--wave 0` is refused with
 > `E_CLEO_VALIDATION`, pointing at `cleo orchestrate waves`).
 >
-> **Read `n` when you subscribe.** Wave numbers are recomputed from the
-> tasks still open, so they shift as earlier waves complete. Take `n` from
-> `cleo orchestrate waves` at the moment you subscribe and spawn; do not
-> hard-code the numbers of future waves until stable numbering (T12683)
-> lands.
+> **Wave numbers are stable (T12683).** Every task keeps the wave its
+> dependency depth gives it, whatever its status: a finished wave stays in
+> `cleo orchestrate waves` with status `completed`, and no later wave is
+> renumbered when work completes. So subscribing ahead to
+> `epic-<epicId>.wave-<n>` for a future wave is safe, and a topic can be
+> reused. The `--hide-completed` option of `orchestrate waves` omits finished
+> waves; the rest keep their numbers. `orchestrate ready`, `plan` and
+> `parallel start --wave <n>` never re-run finished tasks.
 
 `rollupWaveStatus` (T9082, `packages/core/src/orchestration/lead-rollup.ts`)
 returns `{ wave, total, complete, partial, blocked, failed, workers: [...] }`.
