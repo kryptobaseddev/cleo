@@ -335,6 +335,16 @@ describe('releaseOpen — workflow input schema parity (T10105)', () => {
           if (endpoint.includes('event=schedule')) {
             return JSON.stringify({ workflow_runs: [run(2, 'schedule')] });
           }
+          if (endpoint.includes('/actions/runs/1/jobs')) {
+            // A green push run skips Linux tests only if its Linux Unit Tests
+            // shards actually ran (a docs-only push is green with none).
+            return JSON.stringify({
+              jobs: [
+                { name: 'Unit Tests (ubuntu-latest, shard 1)', conclusion: 'success' },
+                { name: 'Unit Tests (ubuntu-latest, shard 2)', conclusion: 'success' },
+              ],
+            });
+          }
           if (endpoint.includes('/actions/runs/2/jobs')) {
             return JSON.stringify({
               jobs: [{ name: 'Unit Tests (macos-latest, shard 1)', conclusion: 'success' }],
