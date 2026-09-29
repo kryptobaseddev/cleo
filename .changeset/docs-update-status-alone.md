@@ -2,7 +2,7 @@
 id: docs-update-status-alone
 tasks: [T12654]
 kind: fix
-summary: `cleo docs update <slug> --status <s>` works for every status --help lists, and --status alone changes only the lifecycle
+summary: "`cleo docs update <slug> --status <s>` works for every status --help lists, and --status alone changes only the lifecycle"
 ---
 
 `cleo docs update --help` advertises six lifecycle statuses for `--status`:

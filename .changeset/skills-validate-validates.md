@@ -2,7 +2,7 @@
 id: skills-validate-validates
 tasks: [T12655]
 kind: fix
-summary: `cleo skills validate` now validates the SKILL.md and exits non-zero with findings
+summary: "`cleo skills validate` now validates the SKILL.md and exits non-zero with findings"
 ---
 
 `cleo skills validate <name>` dispatched `tools.skill.verify`, which only
