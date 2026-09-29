@@ -6349,6 +6349,14 @@ export type MutateOrchestratePivotData = {
          * When true (default), adds toTaskId as a dependency on fromTaskId so it cannot complete before the pivot resolves
          */
         blocksFrom?: boolean;
+        /**
+         * Take over another session's EXPIRED claim on toTaskId (audited)
+         */
+        takeOver?: boolean;
+        /**
+         * Take over another session's LIVE claim on toTaskId (audited)
+         */
+        forceClaim?: boolean;
     };
     path?: never;
     query?: never;
