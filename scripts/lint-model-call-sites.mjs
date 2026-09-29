@@ -28,8 +28,9 @@
  *    does not resolve to a TRACKED file: a `docs/**` mirror named
  *    `<slug>.md`, or a path the docs-publications ledger maps the slug to
  *    that exists. The ledger itself is untracked, so it can never be the
- *    only proof (review of #1684). The `cli.decide-ask` debug verb is exempt:
- *    nothing acts on its answer.
+ *    only proof (review of #1684). The `cli.decide-ask` debug verb and the
+ *    `cli.decide-bench` benchmark verb (T12495) are exempt: nothing acts on
+ *    their answers.
  * 5. `rung-mismatch` — a file registered only by rows with no `generative` or
  *    `agent` rung that calls an LLM entry point.
  * 6. `chokepoint-bypass` — a model reached around the chokepoint: a direct
@@ -87,6 +88,10 @@ export const ALLOW_MARKER = '// model-site-allowed';
 /** Sites exempt from `on-without-evidence`, with the reason. */
 export const ON_WITHOUT_EVIDENCE_EXEMPT = new Map([
   ['cli.decide-ask', 'debug verb: the operator reads the answer, nothing acts on it'],
+  [
+    'cli.decide-bench',
+    'benchmark verb (T12495): answers are scored against labels, never acted on',
+  ],
 ]);
 
 /** The chokepoint: exempt from `unregistered-model-site` and `chokepoint-bypass`. */

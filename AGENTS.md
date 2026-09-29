@@ -96,7 +96,7 @@ Full rationale per gate: `cleo docs fetch arch-gates-rationale` (git mirror: `do
 | 32 | Skill coverage (T12124 · gh#1256 · D11157) | `scripts/lint-skill-coverage.mjs` | none (zero-tolerance) | Every core and LOOM-stage skill declares `metadata.covers`, and every covers glob matches a tracked file. PR mode (`--base <ref>`, run in CI): a changed covered path requires a change to that skill (on-demand skills accept a `Skill-Drift-Reviewed: <skill>: <reason>` trailer; core skills never do), and a changed skill requires a `metadata.version` bump. |
 | 33 | ct-cleo thin pointer (T9148 · T12124) | `scripts/check-ct-cleo-thin.mjs` | `scripts/.check-ct-cleo-thin-baseline.json` | ct-cleo SKILL.md may not grow: non-blank lines must not rise above the baseline, no new `## ` section outside Quick Reference / Skill-Specific Extensions, the thin-pointer marker stays. Target 50 lines (`--strict`). |
 | 34 | No bare `require()` in ESM (T12704) | `scripts/lint-no-esm-bare-require.mjs` | inline (`BASELINE`, 1 entry: `worktree-include.ts`, owned by PR #1679) | No bare `require(` in `packages/<pkg>/src/` of a `"type": "module"` package — it throws under Node while vitest supplies one. Use `import`/`await import()` or bind `const require = createRequire(import.meta.url)`. |
-| 35 | Model call sites registered (T12663 · D11158) | `scripts/lint-model-call-sites.mjs` | `scripts/.lint-model-call-sites-baseline.json` (per rule, per file) | Every `decide()`/`askSiteDecision` site id and every file calling an LLM entry point is a row of `packages/core/src/decide/sites/registry.ts` with a generative/agent rung; a System One site runs `on` only with go-live evidence (debug verb exempt); chokepoint bypasses are baselined per file and may only fall. A System One site's go-live `evidenceDoc` must resolve to a tracked `docs/**/<slug>.md` mirror. Opt-out `// model-site-allowed: <reason>` (reason required) trailing the line or alone on the line above. |
+| 35 | Model call sites registered (T12663 · D11158) | `scripts/lint-model-call-sites.mjs` | `scripts/.lint-model-call-sites-baseline.json` (per rule, per file) | Every `decide()`/`askSiteDecision` site id and every file calling an LLM entry point is a row of `packages/core/src/decide/sites/registry.ts` with a generative/agent rung; a System One site runs `on` only with go-live evidence (debug and benchmark verbs exempt); chokepoint bypasses are baselined per file and may only fall. A System One site's go-live `evidenceDoc` must resolve to a tracked `docs/**/<slug>.md` mirror. Opt-out `// model-site-allowed: <reason>` (reason required) trailing the line or alone on the line above. |
 
 **Common modes (all gates):** `--strict` zero-tolerance · `--baseline` regenerate · default fail-on-net-add.
 
@@ -213,7 +213,7 @@ This frontmatter is the metadata SSoT: gate 29 fails when `packages/skills/skill
 
 PR-gated pipeline. **NO direct pushes to `main`.** All PRs target `main` through GitHub Merge Queue.
 
-> Deliberate exception (T12152): branch protection sets `enforce_admins: false`, so a repo admin CAN merge without `CI` — the owner's intended escape hatch, not a vulnerability or evidence the pipeline is broken. Force-pushes and deletions stay blocked; `required_status_checks.strict: true`.
+> Deliberate exception (T12152): branch protection sets `enforce_admins: false`, so a repo admin CAN merge without `CI` — the owner's intended escape hatch, not a vulnerability or evidence the pipeline is broken. Force-pushes and deletions stay blocked; `required_status_checks.strict: false` (owner decision 2026-09-29): a PR merges once its own `CI` is green without re-running after every other merge, and main-push CI catches any break from combining PRs.
 
 **Verbs:** `plan` → `open` → `reconcile` (or `rollback`). The legacy `start`/`verify`/`publish` verbs were removed in T9540; the `ship` shim was deleted in T10103.
 
@@ -238,7 +238,7 @@ cleo release reconcile v2026.MM.N                # backfills provenance tables
 
 ```bash
 gh api -X PUT repos/:owner/:repo/branches/main/protection \
-  -f required_status_checks[strict]=true \
+  -f required_status_checks[strict]=false \
   -f required_status_checks[contexts][]=CI \
   -f required_status_checks[contexts][]="Lockfile Check" \
   -f required_status_checks[contexts][]="Contracts Dep Lint" \
