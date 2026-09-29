@@ -117,7 +117,7 @@ Before creating epics, ct-epic-architect SHOULD check existing research:
 
 When ct-epic-architect creates an epic, it follows the subagent protocol:
 
-1. **Write output file**: `{{OUTPUT_DIR}}/{{DATE}}_epic-{{FEATURE_SLUG}}.md`
+1. **Record output**: `cleo docs add {{TASK_ID}} --content - --type plan --slug {{TOPIC_SLUG}}`
 2. **Record manifest entry**: `cleo manifest append --entry '<entry JSON>'` (the flat manifest file is retired, ADR-027)
 3. **Return summary only**: "Epic created. Manifest appended to pipeline_manifest."
 

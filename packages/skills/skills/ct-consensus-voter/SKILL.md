@@ -6,9 +6,12 @@ adrRefs:
   - ADR-015
   - ADR-023
 metadata:
-  version: 1.0.1
+  version: 1.0.2
   tier: on-demand
   install: harness
+  covers:
+    - packages/core/src/validation/protocols/cant/consensus.cant
+    - packages/core/src/validation/protocols/protocols-markdown/consensus.md
   loomStage: consensus
   lastReviewed: 2026-09-28
   stability: stable

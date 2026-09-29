@@ -9,8 +9,8 @@ The CLEO Skill Validator enforces compliance across five tiers of increasing dep
 1. **Structure** — Does the skill have the required files and valid frontmatter?
 2. **Frontmatter Quality** — Are all frontmatter fields correct, well-formed, and non-contradictory?
 3. **Body Quality** — Is the body content complete, concise, and free of placeholders?
-4. **CLEO Integration** — Does the skill align with manifest.json and dispatch-config.json?
-5. **Provider Compatibility** — Is the skill referenced in the provider-skills-map?
+4. **CLEO Integration** — Does the skill align with manifest.json (and dispatch-config.json, for external libraries that ship one)?
+5. **Provider Compatibility** — Is the skill referenced in the provider-skills-map (external libraries only; CLEO's was removed in T12679)?
 
 Tiers 1-3 run on every validation. Tiers 4-5 are opt-in via CLI flags.
 

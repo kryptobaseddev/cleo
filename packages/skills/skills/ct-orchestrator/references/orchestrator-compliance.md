@@ -240,7 +240,7 @@ if (( $(echo "$compliance_pass_rate < $COMPLIANCE_THRESHOLD" | bc -l) )); then
     stricter_prompt="$original_prompt
 
 ## COMPLIANCE CHECKLIST (VERIFY BEFORE RETURNING)
-- [ ] Output file exists at {{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md
+- [ ] Output recorded with `cleo docs add` (`cleo docs fetch <slug>` returns it)
 - [ ] pipeline_manifest entry appended via `cleo manifest append`
 - [ ] Return message is EXACTLY: 'Research complete. Manifest appended to pipeline_manifest.'
 - [ ] Task linked via: {{TASK_LINK_CMD}} {{TASK_ID}} <research-id>
