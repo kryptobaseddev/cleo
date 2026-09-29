@@ -73,6 +73,11 @@ export interface BundledLedger {
   version: 2;
   /** Skill name → record. */
   skills: Record<string, BundledLedgerEntry>;
+  /**
+   * Names the user restored from quarantine. The user chose to keep them, so
+   * prune never takes them again.
+   */
+  kept?: string[];
 }
 
 /** What happened to one path. */
@@ -236,9 +241,13 @@ export function readBundledLedger(skillsRoot: string): BundledLedger {
     const data = JSON.parse(readFileSync(join(skillsRoot, BUNDLED_LEDGER_FILE), 'utf-8')) as {
       version?: number;
       skills?: Record<string, BundledLedgerEntry>;
+      kept?: unknown;
     };
     if (data.version === 2 && data.skills && typeof data.skills === 'object') {
-      return { version: 2, skills: data.skills };
+      const kept = Array.isArray(data.kept)
+        ? data.kept.filter((n): n is string => typeof n === 'string')
+        : [];
+      return { version: 2, skills: data.skills, ...(kept.length > 0 ? { kept } : {}) };
     }
   } catch {
     // absent or unreadable
@@ -359,22 +368,35 @@ export async function pruneBundledSkills(
   const keep = (name: string, path: string, reason: string): void => {
     actions.push({ name, path, action: 'kept', reason });
   };
+  /**
+   * Write quarantine.json. Called BEFORE each change it describes, so a crash
+   * mid-run never leaves a moved path, removed lock entry or archived row
+   * without a record; restore skips a recorded move that never happened.
+   */
+  const persist = async (): Promise<void> => {
+    await mkdir(qroot, { recursive: true });
+    await writeFile(join(qroot, 'quarantine.json'), `${JSON.stringify(record, null, 2)}\n`);
+  };
   const take = async (name: string, path: string, reason: string): Promise<boolean> => {
     if (dryRun) {
       actions.push({ name, path, action: 'would-quarantine', reason });
       return true;
     }
     const to = join(qroot, 'files', String(record.moves.length), name);
+    record.moves.push({ name, from: path, to });
     try {
+      await persist();
       await movePath(path, to);
-      record.moves.push({ name, from: path, to });
       actions.push({ name, path, action: 'quarantined', reason });
       return true;
     } catch (err) {
+      record.moves.pop();
+      await persist().catch(() => undefined);
       errors.push(`${path}: ${err instanceof Error ? err.message : String(err)}`);
       return false;
     }
   };
+  const keptByUser = new Set(ledger.kept ?? []);
 
   for (const name of candidates) {
     const canonical = join(opts.skillsRoot, name);
@@ -382,6 +404,10 @@ export async function pruneBundledSkills(
     const present = [...(existsSync(canonical) ? [canonical] : []), ...harness];
     if (present.length === 0) continue;
 
+    if (keptByUser.has(name)) {
+      for (const p of present) keep(name, p, 'restored from quarantine by the user');
+      continue;
+    }
     const entry = ledger.skills[name];
     if (!entry) {
       for (const p of present) {
@@ -439,22 +465,20 @@ export async function pruneBundledSkills(
     const moved = await take(name, canonical, 'unmodified CLEO install (ledger hashes match)');
     if (!moved || dryRun) continue;
     delete ledger.skills[name];
+    await writeLedger(opts.skillsRoot, ledger);
     if (lock) {
-      await opts.registry.removeLockEntry(name);
       record.lockEntries.push({ name, entry: lock });
+      await persist();
+      await opts.registry.removeLockEntry(name);
     }
     if (row) {
-      await opts.registry.setLifecycleState(name, 'archived', canonical);
       record.rows.push({ name, priorState: row.lifecycleState });
+      await persist();
+      await opts.registry.setLifecycleState(name, 'archived', canonical);
     }
   }
 
   const movedAny = record.moves.length > 0;
-  if (movedAny) {
-    await mkdir(qroot, { recursive: true });
-    await writeFile(join(qroot, 'quarantine.json'), `${JSON.stringify(record, null, 2)}\n`);
-    await writeLedger(opts.skillsRoot, ledger);
-  }
   const receipt: BundledSkillPruneReceipt = {
     at,
     dryRun,
@@ -486,7 +510,10 @@ export function listQuarantines(quarantineRoot: string): string[] {
 
 /**
  * Put back everything one quarantine run moved: files and links, CAAMP lock
- * entries, skills.db lifecycle states, and ledger records.
+ * entries and skills.db lifecycle states. A skill whose path is occupied again
+ * (the user reinstalled it) is reported as a conflict, and its lock entry and
+ * row are left alone. Every cleanly restored skill joins the ledger's `kept`
+ * list, so later prunes leave it in place.
  *
  * @param opts - Quarantine root and id, skills root, registry.
  * @returns What was restored and what could not be (destination occupied).
@@ -501,27 +528,39 @@ export async function restoreQuarantine(opts: {
   const record: QuarantineRecord = JSON.parse(readFileSync(join(dir, 'quarantine.json'), 'utf-8'));
   const restored: string[] = [];
   const conflicts: string[] = [];
+  const conflicted = new Set<string>();
   for (const m of [...record.moves].reverse()) {
+    // Recorded before the move; a crash in between means it never happened.
+    if (!exists(m.to)) continue;
     if (exists(m.from)) {
       conflicts.push(m.from);
+      conflicted.add(m.name);
       continue;
     }
     await movePath(m.to, m.from);
     restored.push(m.from);
   }
-  for (const l of record.lockEntries) await opts.registry.restoreLockEntry(l.name, l.entry);
+  // A conflict means the user reinstalled the skill since the prune; its
+  // lock entry and skills.db row now describe that install, so leave them.
+  for (const l of record.lockEntries) {
+    if (!conflicted.has(l.name)) await opts.registry.restoreLockEntry(l.name, l.entry);
+  }
   for (const r of record.rows) {
+    if (conflicted.has(r.name)) continue;
     const prior: PruneLifecycleState =
       r.priorState === 'stale' || r.priorState === 'archived' ? r.priorState : 'active';
     await opts.registry.setLifecycleState(r.name, prior);
   }
+  // Restoring is the user choosing to keep the skill: mark it kept rather
+  // than re-recording CLEO ownership, or the next prune would take it again.
   const ledger = readBundledLedger(opts.skillsRoot);
+  const kept = new Set(ledger.kept ?? []);
   for (const name of new Set(record.moves.map((m) => m.name))) {
-    const canonical = join(opts.skillsRoot, name);
-    if (restored.includes(canonical)) {
-      ledger.skills[name] = { installedAt: record.at, files: hashTree(canonical) };
-    }
+    if (conflicted.has(name)) continue;
+    kept.add(name);
+    delete ledger.skills[name];
   }
+  ledger.kept = [...kept].sort();
   await writeLedger(opts.skillsRoot, ledger);
   if (conflicts.length === 0) await rm(dir, { recursive: true, force: true });
   return { restored, conflicts };
