@@ -3,14 +3,32 @@ name: worktree-napi prebuild
 # @task T10178
 # @task T11127 — gate job added to aggregate all 4 platform builds into a
 #   single pass/fail signal consumed by CI's worktree-napi-gate.
-# Cross-platform dogfood prebuild of the worktree-napi addon for PR/path
-# validation. Release publishing no longer consumes artifacts from this
-# workflow; release.yml has its own in-run prebuild job (T10434 / T10438).
+#
+# Cross-platform prebuild of the worktree-napi addon. Two callers:
+#   1. release.yml calls this workflow (`workflow_call`) and bundles the
+#      `worktree-napi-*` artifacts into @cleocode/worktree/native.
+#   2. PRs / pushes touching the addon run it directly (dogfood validation,
+#      read by CI's Worktree NAPI Prebuild Gate). A push to main also warms
+#      the cache a release restores from (a tag run can read main's caches).
+#
+# Stamped and cached by NATIVE SOURCE, not by commit. Every binary carries
+# `worktree-napi-source-rev:<hash>`, where <hash> is
+# `node scripts/native-source-hash.mjs worktree` — a hash over
+# crates/worktree-napi, crates/worktrunk-core, Cargo.lock, Cargo.toml,
+# rust-toolchain.toml, this workflow and the napi build config. The `gate` job
+# saves the verified 4-triple bundle to the Actions cache under that hash; a
+# run whose native source is unchanged restores it and skips the build matrix.
+# The release recomputes the hash from the tagged commit and refuses any
+# binary that does not carry it.
 
 on:
+  workflow_call:
+    outputs:
+      source-hash:
+        description: 'Native source hash every worktree-napi binary in this run is stamped with'
+        value: ${{ jobs.source-hash.outputs.hash }}
   push:
     branches: [main]
-    tags: ['v*']
     paths:
       - 'crates/worktree-napi/**'
       - 'crates/worktrunk-core/**'
@@ -18,7 +36,10 @@ on:
       - 'packages/contracts/**'
       - 'packages/worktree-napi-*/**'
       - 'rust-toolchain.toml'
+      - 'Cargo.lock'
+      - 'Cargo.toml'
       - 'pnpm-lock.yaml'
+      - 'scripts/native-source-hash.mjs'
       - '.github/workflows/worktree-napi-prebuild.yml'
   pull_request:
     paths:
@@ -28,15 +49,55 @@ on:
       - 'packages/contracts/**'
       - 'packages/worktree-napi-*/**'
       - 'rust-toolchain.toml'
+      - 'Cargo.lock'
+      - 'Cargo.toml'
       - 'pnpm-lock.yaml'
+      - 'scripts/native-source-hash.mjs'
       - '.github/workflows/worktree-napi-prebuild.yml'
   workflow_dispatch:
   merge_group:
 
+permissions:
+  contents: read
+
 jobs:
+  source-hash:
+    name: native source hash
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      hash: ${{ steps.hash.outputs.hash }}
+      hit: ${{ steps.probe.outputs.cache-hit }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compute the worktree-napi native source hash
+        id: hash
+        run: |
+          set -euo pipefail
+          hash="$(node scripts/native-source-hash.mjs worktree)"
+          echo "hash=$hash" >> "$GITHUB_OUTPUT"
+          echo "worktree-napi native source hash: $hash"
+      - name: Look up a verified bundle for this source
+        id: probe
+        uses: actions/cache/restore@v4
+        with:
+          path: native-bundle/worktree-napi
+          key: worktree-napi-bundle-v1-${{ steps.hash.outputs.hash }}
+          lookup-only: true
+      - name: Record the decision
+        run: |
+          if [ "${{ steps.probe.outputs.cache-hit }}" = "true" ]; then
+            echo "::notice::worktree-napi source ${{ steps.hash.outputs.hash }} already built and verified — reusing the cached bundle, skipping the build matrix."
+          else
+            echo "::notice::worktree-napi source ${{ steps.hash.outputs.hash }} not in the cache — building all 4 triples."
+          fi
+
   build:
     name: ${{ matrix.triple }}
+    needs: source-hash
+    if: needs.source-hash.outputs.hit != 'true'
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -44,53 +105,54 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-latest
             triple: linux-x64-gnu
-            cross: false
+          # Native arm64 runner — replaces `cargo install cross` + Docker.
           - target: aarch64-unknown-linux-gnu
-            runner: ubuntu-latest
+            runner: ubuntu-24.04-arm
             triple: linux-arm64-gnu
-            cross: true
           - target: aarch64-apple-darwin
             runner: macos-14
             triple: darwin-arm64
-            cross: false
           - target: x86_64-pc-windows-msvc
             runner: windows-latest
             triple: win32-x64-msvc
-            cross: false
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust toolchain (${{ matrix.target }})
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - name: Install cross (Linux arm64)
-        if: matrix.cross == true
+      # rust-toolchain.toml pins the channel; every target here is the host
+      # triple of its runner, so no extra rustup target is needed.
+      - name: Install pinned Rust toolchain
         shell: bash
-        run: cargo install cross --locked
+        run: |
+          set -euo pipefail
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup show active-toolchain || rustup toolchain install
+          rustup target add ${{ matrix.target }}
+
+      - name: Cache cargo registry + target (${{ matrix.triple }})
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: worktree-napi-${{ matrix.triple }}
 
       - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
 
-      - name: Install workspace dependencies
-        shell: bash
-        run: pnpm install --frozen-lockfile --filter '!@cleocode/studio'
-
+      # `napi build` needs only cargo and the napi CLI (fetched by dlx) plus
+      # crates/worktree-napi/package.json; no workspace install is required.
       - name: Build napi binding (${{ matrix.target }})
         working-directory: crates/worktree-napi
         shell: bash
+        env:
+          WORKTREE_NAPI_SOURCE_REV: ${{ needs.source-hash.outputs.hash }}
         run: |
           set -euo pipefail
-          if [ "${{ matrix.cross }}" = "true" ]; then
-            pnpm --package=@napi-rs/cli@3 dlx napi build --release --target ${{ matrix.target }} --use-cross
-          else
-            pnpm --package=@napi-rs/cli@3 dlx napi build --release --target ${{ matrix.target }}
-          fi
+          pnpm --package=@napi-rs/cli@3 dlx napi build --release --target ${{ matrix.target }}
           # napi build writes worktree-napi.node — rename to triple-suffixed name
           # expected by the loader (`worktree-napi.<triple>.node`).
           if [ -f worktree-napi.node ]; then
@@ -98,31 +160,93 @@ jobs:
           fi
           ls -la *.node
 
+      - name: Assert the binary carries this source's stamp
+        shell: bash
+        env:
+          SOURCE_HASH: ${{ needs.source-hash.outputs.hash }}
+        run: |
+          set -euo pipefail
+          file="crates/worktree-napi/worktree-napi.${{ matrix.triple }}.node"
+          test -s "$file" || { echo "::error::missing or empty $file"; exit 1; }
+          if ! LC_ALL=C grep -aq "worktree-napi-source-rev:${SOURCE_HASH}" "$file"; then
+            echo "::error::$file lacks the source stamp for ${SOURCE_HASH}"
+            exit 1
+          fi
+          echo "OK: $file ($(wc -c < "$file") bytes)"
+
       - name: Upload prebuilt artifact
         uses: actions/upload-artifact@v4
         with:
           name: worktree-napi-${{ matrix.triple }}
-          path: crates/worktree-napi/worktree-napi.*.node
+          path: crates/worktree-napi/worktree-napi.${{ matrix.triple }}.node
           if-no-files-found: error
           retention-days: 14
 
+  # The single verdict, and the only place a bundle enters or leaves the cache
+  # (same contract as cant-napi-build.yml's gate).
   gate:
     name: gate
-    needs: build
+    needs: [source-hash, build]
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    timeout-minutes: 10
     if: always()
+    env:
+      SOURCE_HASH: ${{ needs.source-hash.outputs.hash }}
+      HIT: ${{ needs.source-hash.outputs.hit }}
     steps:
-      - name: Verify all 4 platform builds passed
+      - name: Verify all 4 platform builds passed (or a verified bundle exists)
         shell: bash
         run: |
+          if [[ "${{ needs.source-hash.result }}" != "success" ]]; then
+            echo "✗ could not compute the worktree-napi native source hash"
+            exit 1
+          fi
+          if [[ "${HIT}" == "true" ]]; then
+            echo "✓ verified bundle for ${SOURCE_HASH} found in the cache — build matrix skipped"
+            exit 0
+          fi
           if [[ "${{ needs.build.result }}" == "success" ]]; then
             echo "✓ worktree-napi prebuild passed on all 4 platform targets"
             exit 0
-          elif [[ "${{ needs.build.result }}" == "skipped" ]]; then
-            echo "○ No matching paths — gate is not applicable"
-            exit 0
-          else
-            echo "✗ worktree-napi prebuild failed (result: ${{ needs.build.result }})"
-            exit 1
           fi
+          echo "✗ worktree-napi prebuild failed (result: ${{ needs.build.result }})"
+          exit 1
+      - name: Restore the verified bundle (cache hit)
+        if: env.HIT == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: native-bundle/worktree-napi
+          key: worktree-napi-bundle-v1-${{ env.SOURCE_HASH }}
+          fail-on-cache-miss: true
+      - name: Download this run's binaries (cache miss)
+        if: env.HIT != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          path: native-bundle/worktree-napi
+          pattern: worktree-napi-*
+          merge-multiple: true
+      - name: Every triple present and stamped with this native source
+        shell: bash
+        run: |
+          set -euo pipefail
+          for triple in linux-x64-gnu linux-arm64-gnu darwin-arm64 win32-x64-msvc; do
+            file="native-bundle/worktree-napi/worktree-napi.${triple}.node"
+            test -s "$file" || { echo "::error::missing or empty $file"; exit 1; }
+            LC_ALL=C grep -aq "worktree-napi-source-rev:${SOURCE_HASH}" "$file" \
+              || { echo "::error::$file lacks the source stamp for ${SOURCE_HASH}"; exit 1; }
+            echo "OK: $file"
+          done
+      - name: Save the verified bundle under its source hash
+        if: env.HIT != 'true' && github.event_name != 'pull_request'
+        uses: actions/cache/save@v4
+        with:
+          path: native-bundle/worktree-napi
+          key: worktree-napi-bundle-v1-${{ env.SOURCE_HASH }}
+      - name: Publish the cached bundle as this run's artifact
+        if: env.HIT == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: worktree-napi-bundle
+          path: native-bundle/worktree-napi/worktree-napi.*.node
+          if-no-files-found: error
+          retention-days: 14
