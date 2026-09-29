@@ -9,6 +9,7 @@ import { readLiveFocus } from '../sessions/focus-state-store.js';
 import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { resolveSessionForRead } from '../store/session-store.js';
 
 export interface InjectGenerateResult {
   injection: string;
@@ -38,6 +39,7 @@ export async function generateInjection(
   let activeSessionName: string | null = null;
   let focusTask: string | null = null;
   let sessionScope: string | null = null;
+  let sessionUnbound = false;
 
   const acc = accessor ?? (await getTaskAccessor(projectRoot));
   // T12684: never generate an injection around a finished task.
@@ -48,12 +50,15 @@ export async function generateInjection(
   }
 
   // Load active session from SQLite (ADR-006/ADR-020)
+  // T12500: the caller's bound session; an unbound caller's injection names
+  // the newest active row only with an explicit `unbound` label.
   try {
-    const sessions = await acc.loadSessions();
-    const active = sessions.find((s) => s.status === 'active');
+    const { session: active, unbound } = await resolveSessionForRead(projectRoot);
     if (active) {
       activeSessionName = active.name || active.id;
-      focusTask = active.taskWork?.taskId ?? focusTask;
+      sessionUnbound = unbound;
+      // Another agent's focus is not the caller's — only a bound session's counts.
+      if (!unbound) focusTask = active.taskWork?.taskId ?? focusTask;
       sessionScope = `${active.scope?.type}:${active.scope?.rootTaskId}`;
     }
   } catch {
@@ -70,6 +75,7 @@ export async function generateInjection(
     activeSessionName,
     focusTask,
     sessionScope,
+    sessionUnbound,
   });
 
   const sizeBytes = Buffer.byteLength(mvi, 'utf-8');
@@ -88,9 +94,12 @@ function buildMviMarkdown(state: {
   activeSessionName: string | null;
   focusTask: string | null;
   sessionScope: string | null;
+  sessionUnbound: boolean;
 }): string {
+  // T12500: an unbound generator only saw the newest active row — say so.
+  const unboundNote = state.sessionUnbound ? ' — unbound: newest active, may be another agent' : '';
   const sessionLine = state.activeSessionName
-    ? `| Session | \`${state.activeSessionName}\` (${state.sessionScope || 'unknown'}) |`
+    ? `| Session | \`${state.activeSessionName}\` (${state.sessionScope || 'unknown'})${unboundNote} |`
     : '| Session | none |';
   const focusLine = state.focusTask ? `| Focus | \`${state.focusTask}\` |` : '| Focus | none |';
 

@@ -33,10 +33,16 @@ import {
   resolveClaimant,
 } from './claims.js';
 
-export type { Claimant, ClaimOverrideFlags, SpawnClaimReceipt } from './claims.js';
+export type {
+  Claimant,
+  ClaimOverrideFlags,
+  SessionHeartbeatResult,
+  SpawnClaimReceipt,
+} from './claims.js';
 export {
   claimModeFor,
   claimSpawnedTask,
+  heartbeatProjectSession,
   releaseOwnClaim,
   releaseSpawnClaim,
   renewClaimsForSession,

@@ -20,6 +20,7 @@ import {
   getSession,
   resolveBoundSession,
   setSessionSpawnedBy,
+  touchSessionActivity,
   updateSession,
 } from '../store/session-store.js';
 import { getDb } from '../store/sqlite.js';
@@ -150,6 +151,48 @@ export async function renewProjectSessionClaims(
   sessionId: string,
 ): Promise<number> {
   return renewClaimsForSession(await getTaskAccessor(projectRoot), sessionId);
+}
+
+/** What one session heartbeat did (T12540). */
+export interface SessionHeartbeatResult {
+  /** `true` when the session's `lastActivity` was written (not throttled or skipped). */
+  readonly activityTouched: boolean;
+  /** Claim leases extended. */
+  readonly leasesRenewed: number;
+}
+
+/**
+ * The ONE activity heartbeat a bound session's successful mutation triggers
+ * (T12540 · T12502): refresh the session's `lastActivity` (throttled to once
+ * per `SESSION_ACTIVITY_THROTTLE_MS`) and extend its claim leases. Both halves
+ * are best-effort, cheap in the common case (an indexed read, no write lock),
+ * and skip rather than wait on a contended lock; a failure of one never stops
+ * the other.
+ *
+ * @param projectRoot - Project root.
+ * @param sessionId - The session that just did work.
+ * @param nowMs - Clock override for tests.
+ * @returns What the beat did.
+ * @example
+ * ```ts
+ * await heartbeatProjectSession(projectRoot, req.sessionId);
+ * ```
+ * @task T12540
+ */
+export async function heartbeatProjectSession(
+  projectRoot: string,
+  sessionId: string,
+  nowMs: number = Date.now(),
+): Promise<SessionHeartbeatResult> {
+  const activityTouched = await touchSessionActivity(sessionId, projectRoot, nowMs).catch(
+    () => false,
+  );
+  const leasesRenewed = await renewClaimsForSession(
+    await getTaskAccessor(projectRoot),
+    sessionId,
+    new Date(nowMs).toISOString(),
+  );
+  return { activityTouched, leasesRenewed };
 }
 
 /**

@@ -89,7 +89,7 @@ import {
 import { nextTaskVersion, taskConflictError, taskVersion } from './task-version.js';
 import * as schema from './tasks-schema.js';
 import { assertTwinCollapseWritable, bareCounterOf, mirrorCounterToBare } from './twin-collapse.js';
-import { isSqliteBusy, withWriteRetry } from './with-retry.js';
+import { runHeartbeatWrite, withWriteRetry } from './with-retry.js';
 
 /**
  * Per-process monotonic counter for unique nested SAVEPOINT names (T9814).
@@ -261,13 +261,6 @@ async function scheduleTaskBackground(
  * ```
  */
 export { captureProjectScope as captureTaskAccessorScope } from '../project-scope.js';
-
-/**
- * How long a lease renewal waits for another connection's write lock, in
- * milliseconds (T12502). Renewal is a best-effort heartbeat: a beat that
- * would wait longer is skipped and the next mutation renews instead.
- */
-const CLAIM_RENEW_BUSY_TIMEOUT_MS = 50;
 
 /** The claim lease columns, selected alongside a row's version (T12502). */
 const CLAIM_COLUMNS = {
@@ -1927,32 +1920,19 @@ async function createOwnedSqliteDataAccessor(
         .limit(1)
         .all();
       if (!held) return 0;
-      const native = getNativeTasksDb(cwd);
-      // A connection mid-transaction belongs to another caller: joining it
-      // would commit or roll back with that caller's work. Skip — renewal is
-      // best-effort and the next mutation renews.
-      if (!native || native.isTransaction) return 0;
-      // node:sqlite is SYNCHRONOUS: a write stuck behind another connection's
-      // lock waits the full busy_timeout (30 s) ON the event loop, where no
-      // timer can interrupt it. So the renewal lowers busy_timeout for its one
-      // statement and treats SQLITE_BUSY as "skip this beat". The single
-      // UPDATE autocommits atomically, and set → run → restore runs with no
-      // await in between, so no other caller ever sees the short timeout.
-      const previous = db.get<{ timeout: number }>(sql`PRAGMA busy_timeout`).timeout;
-      db.run(sql.raw(`PRAGMA busy_timeout=${CLAIM_RENEW_BUSY_TIMEOUT_MS}`));
-      try {
-        const result = db
-          .update(schema.tasks)
-          .set({ leaseExpiresAt })
-          .where(eq(schema.tasks.claimedBySession, sessionId))
-          .run();
-        return Number(result.changes);
-      } catch (err) {
-        if (isSqliteBusy(err) || (err instanceof Error && isSqliteBusy(err.cause))) return 0;
-        throw err;
-      } finally {
-        db.run(sql.raw(`PRAGMA busy_timeout=${previous}`));
-      }
+      // Bounded lock wait, skipped on SQLITE_BUSY or inside another caller's
+      // transaction — see runHeartbeatWrite. The next mutation renews.
+      return (
+        runHeartbeatWrite(db, getNativeTasksDb(cwd), () =>
+          Number(
+            db
+              .update(schema.tasks)
+              .set({ leaseExpiresAt })
+              .where(eq(schema.tasks.claimedBySession, sessionId))
+              .run().changes,
+          ),
+        ) ?? 0
+      );
     },
   };
 
