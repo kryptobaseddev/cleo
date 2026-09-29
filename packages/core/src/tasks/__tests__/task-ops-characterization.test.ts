@@ -99,6 +99,9 @@ function setupAccessor(tasks: Task[], extraMethods: Record<string, unknown> = {}
     appendLog: vi.fn().mockResolvedValue(undefined),
     claimTask: vi.fn().mockResolvedValue(undefined),
     unclaimTask: vi.fn().mockResolvedValue(undefined),
+    // T12724: new tasks are inserted (never upserted), in one transaction.
+    insertNewTask: vi.fn().mockResolvedValue(undefined),
+    transaction: vi.fn(async (fn: (tx: object) => Promise<unknown>) => fn(mockImpl)),
     ...extraMethods,
   };
   (getTaskAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(mockImpl);
