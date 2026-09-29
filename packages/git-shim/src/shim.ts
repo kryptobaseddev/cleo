@@ -36,8 +36,16 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { accessSync, constants, realpathSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import {
+  accessSync,
+  closeSync,
+  constants,
+  openSync,
+  readSync,
+  realpathSync,
+  statSync,
+} from 'node:fs';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pathEnvKey, splitPathEnv } from '@cleocode/paths';
 import { type AuditRecord, writeAuditRecord } from './audit-log.js';
@@ -77,6 +85,55 @@ function fileIdentity(path: string): string {
   return `${stat.dev}:${stat.ino}`;
 }
 
+/** Launcher scripts are small; anything larger is not a package-manager wrapper. */
+const MAX_LAUNCHER_BYTES = 64 * 1024;
+
+/** Directory variables package-manager launchers use for "the dir I live in". */
+const LAUNCHER_DIR_VARIABLE = /^(?:\$basedir|\$\{basedir\}|\$PSScriptRoot|%~dp0|%dp0%)[\\/]?/;
+
+/**
+ * Scripts that a launcher at `listedPath` would run: every quoted `.js` /
+ * `.mjs` / `.cjs` path in a small text file, with the launcher-directory
+ * variable (`$basedir`, `%~dp0`, `%dp0%`, `$PSScriptRoot`) expanded to the
+ * directory the launcher was FOUND in. Binaries (a NUL byte) and large files
+ * yield nothing.
+ *
+ * pnpm and npm install `.bin/git` for a package whose `bin` is `git` as a
+ * shell (`git`), cmd (`git.cmd`) or PowerShell (`git.ps1`) wrapper that execs
+ * `node "$basedir/../@cleocode/git-shim/dist/shim.js"` — a regular file with
+ * its own inode, so neither the realpath nor the inode check recognises it as
+ * this shim (T12652).
+ *
+ * @param listedPath - The candidate as spelled on PATH (its dir anchors `$basedir`).
+ * @param canonical - The candidate's real path (the bytes that are read).
+ * @returns Absolute script paths the launcher delegates to.
+ */
+function launcherTargets(listedPath: string, canonical: string): string[] {
+  let fd: number | null = null;
+  const buffer = Buffer.alloc(MAX_LAUNCHER_BYTES + 1);
+  let length: number;
+  try {
+    fd = openSync(canonical, 'r');
+    length = readSync(fd, buffer, 0, buffer.length, 0);
+  } catch {
+    return [];
+  } finally {
+    if (fd !== null) closeSync(fd);
+  }
+  if (length > MAX_LAUNCHER_BYTES) return [];
+  const bytes = buffer.subarray(0, length);
+  if (bytes.includes(0)) return [];
+  const text = bytes.toString('utf8');
+  const targets: string[] = [];
+  for (const match of text.matchAll(/["']([^"'\r\n]+\.[cm]?js)["']/g)) {
+    const raw = match[1] as string;
+    const expanded = raw.replace(LAUNCHER_DIR_VARIABLE, '');
+    if (expanded !== raw) targets.push(resolve(dirname(listedPath), expanded));
+    else if (isAbsolute(raw)) targets.push(raw);
+  }
+  return targets;
+}
+
 /**
  * Resolve executable Git while excluding this shim and prior delegating copies.
  *
@@ -85,7 +142,9 @@ function fileIdentity(path: string): string {
  * The bounded chain is propagated to children so distinct shim copies cannot
  * delegate indefinitely. Continuity requires the immediately delegating parent;
  * Git hooks invoking Git again start a fresh chain after the real Git boundary.
- * This is recursion protection, not a trust boundary.
+ * This is recursion protection, not a trust boundary. Launcher scripts that
+ * delegate to the shim (pnpm/npm `.bin/git` wrappers) are excluded by their
+ * target, see {@link launcherTargets}.
  *
  * @returns Absolute path to real git, or null if not found.
  */
@@ -113,6 +172,16 @@ function resolveRealGit(): string | null {
       if (canonical === self || excluded.has(fileIdentity(canonical))) return null;
       if (!statSync(canonical).isFile()) return null;
       accessSync(canonical, constants.X_OK);
+      // A package-manager launcher that runs this shim (or a copy already in
+      // the chain) is the shim, not Git.
+      for (const target of launcherTargets(path, canonical)) {
+        try {
+          const script = realpathSync(target);
+          if (script === self || excluded.has(fileIdentity(script))) return null;
+        } catch {
+          // A launcher target that does not exist cannot be this shim.
+        }
+      }
       return canonical;
     } catch {
       // Missing, inaccessible, and non-executable PATH entries are not Git.
