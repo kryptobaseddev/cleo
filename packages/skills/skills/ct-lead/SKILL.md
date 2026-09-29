@@ -2,7 +2,7 @@
 name: ct-lead
 description: "Phase Lead orchestration playbook for spawning and supervising a parallel worker swarm in one wave. Use when spawned by ct-orchestrator with role=orchestrator to fan out N leaf workers via delegate_task, drain the epic-<TID>.wave-<n> conduit topic plus pipeline_manifest, await rollupWaveStatus convergence, and return ONE rolled-up contract string to the parent Orchestrator. Triggers: 'phase lead', 'wave lead', 'supervise wave', 'fan out workers', 'aggregate worker results', 'rollup wave', any task with role=orchestrator that is itself a child of another orchestrator. Implements ADR-070 hierarchical orchestration."
 metadata:
-  version: 1.0.1
+  version: 1.0.2
   tier: core
   install: harness
   lastReviewed: 2026-09-28
@@ -87,30 +87,29 @@ delegate_task({
 ### 3. Convergence (drain conduit + manifest)
 
 ```bash
-# WAVE = waveNumber from `cleo orchestrate waves` (1-based);
-# WAVE_INDEX = WAVE - 1 (roll-up is 0-based).
-WAVE_INDEX=$((WAVE - 1))
+# WAVE = the wave number `cleo orchestrate waves` prints now (1-based);
+# topic and roll-up use the same number.
 
 # Read worker terminal signals on the wave topic. There is no blocking
 # await: poll with --since between checks, bounded by the wave budget.
 cleo conduit listen --topic "epic-${EPIC}.wave-${WAVE}" --since "${SPAWNED_AT}"
 
 # Roll up authoritative status from pipeline_manifest
-cleo orchestrate roll-up "${EPIC}" --wave "${WAVE_INDEX}" --json \
+cleo orchestrate roll-up "${EPIC}" --wave "${WAVE}" --json \
   > /tmp/rollup-${EPIC}-${WAVE}.json
 ```
 
-> **Wave numbering.** `cleo orchestrate waves <epic>` numbers waves from 1
-> (`waveNumber`, `waves.ts`), but `cleo orchestrate roll-up --wave` takes a
-> 0-based index into the same list (`lead-rollup.ts`). So
-> `WAVE_INDEX = waveNumber - 1`: wave 2 in `orchestrate waves` is
-> `orchestrate roll-up <epic> --wave 1`.
+> **Wave contract (T12682).** One wave number `n` names everything: it is
+> the 1-based number `cleo orchestrate waves <epic>` prints, spawned workers
+> publish on `epic-<epicId>.wave-<n>`, and `cleo orchestrate roll-up <epic>
+> --wave <n>` takes the same `n` (`--wave 0` is refused with
+> `E_CLEO_VALIDATION`, pointing at `cleo orchestrate waves`).
 >
-> **Known defect (T12682).** Spawned workers currently publish on
-> `epic-<epicId>.wave-<last 4 digits of their own task id>`, not on
-> `epic-<epicId>.wave-<n>`, so a Lead listening on `wave-<n>` hears nothing
-> from them. Until T12682 lands, treat `cleo orchestrate roll-up` as the
-> status source and the wave topic as best-effort.
+> **Read `n` when you subscribe.** Wave numbers are recomputed from the
+> tasks still open, so they shift as earlier waves complete. Take `n` from
+> `cleo orchestrate waves` at the moment you subscribe and spawn; do not
+> hard-code the numbers of future waves until stable numbering (T12683)
+> lands.
 
 `rollupWaveStatus` (T9082, `packages/core/src/orchestration/lead-rollup.ts`)
 returns `{ wave, total, complete, partial, blocked, failed, workers: [...] }`.
