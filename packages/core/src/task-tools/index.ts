@@ -23,8 +23,10 @@ export { describeSchema, describeSchemaRegistered } from './describe-schema.js';
 export { renderTaskTreeMermaid, renderTaskTreeText } from './render-task-tree.js';
 export type { RankedTask } from './score-task-priority.js';
 export {
+  buildRankingContext,
   computeLeverage,
   formatScoreFactor,
+  orderByRanking,
   parseTimestampMs,
   rankTasks,
   scoreTask,
