@@ -314,7 +314,7 @@ if (klass === 'pending') {
 if (klass === 'defect') {
   const why =
     RELEASE_RESULT !== 'success'
-      ? `the Build & Publish job concluded "${RELEASE_RESULT}"`
+      ? `the Build & Verify / Publish jobs concluded "${RELEASE_RESULT}"`
       : `a package is missing or serves the wrong version`;
   summary(`## ❌ v${VERSION} — PUBLISH DEFECT`);
   summary('');

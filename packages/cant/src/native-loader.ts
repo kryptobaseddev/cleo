@@ -216,7 +216,8 @@ export function cantAddonBackend(): CantAddonBackend | null {
 
 /**
  * Return the source-revision stamp compiled into the loaded addon, e.g.
- * `"cant-napi-source-rev:<git sha>"` (`"…:unversioned"` for local builds).
+ * `"cant-napi-source-rev:<native source hash>"` (`"…:unversioned"` for local builds;
+ * the hash is `node scripts/native-source-hash.mjs cant`).
  *
  * @returns The stamp, or `null` when the addon could not be loaded.
  */

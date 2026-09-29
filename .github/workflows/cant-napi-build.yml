@@ -12,20 +12,35 @@ name: cant-napi build
 #     no native binary matches the host (`NAPI_RS_FORCE_WASI=error` forces it).
 #
 # Everything is bundled into the ONE existing package, @cleocode/cant (no new
-# npm packages; arch gate 9). Nothing is committed (arch gate 24): every
-# binary is stamped with `cant-napi-source-rev:<github.sha>` by
-# crates/cant-napi/build.rs so the release can prove it packs fresh binaries.
+# npm packages; arch gate 9). Nothing is committed (arch gate 24).
+#
+# Stamped and cached by NATIVE SOURCE, not by commit. Every binary carries
+# `cant-napi-source-rev:<hash>`, where <hash> is
+# `node scripts/native-source-hash.mjs cant` — a hash over crates/cant-*,
+# Cargo.lock, Cargo.toml, rust-toolchain.toml, this workflow and the napi
+# build config (see that script). Once a bundle has been built, loaded on
+# every platform and proven at native/WASI parity, the `gate` job saves it to
+# the Actions cache under that hash. A later run whose native source is
+# byte-identical restores the verified bundle and skips build, runtime and
+# parity entirely. The release recomputes the hash from the tagged commit and
+# refuses any binary that does not carry it, which keeps T12382's guarantee:
+# the published binary was built from THIS release's native source.
 #
 # Two callers:
-#   1. release.yml calls this workflow (`workflow_call`); its release job then
+#   1. release.yml calls this workflow (`workflow_call`); its publish job then
 #      downloads the `cant-napi-*` artifacts into packages/cant/napi/ and fails
-#      unless every triple is present and stamped with the released commit.
+#      unless every triple is present and stamped with the release's source hash.
 #   2. PRs / pushes touching the addon run it directly, so the whole matrix,
 #      the per-platform runtime load and the native-vs-WASI parity are proven
-#      before anything reaches a tag.
+#      before anything reaches a tag. A push to main is also what warms the
+#      cache a release restores from (a tag run can read main's caches).
 
 on:
   workflow_call:
+    outputs:
+      source-hash:
+        description: 'Native source hash every cant binary in this run is stamped with'
+        value: ${{ jobs.source-hash.outputs.hash }}
   workflow_dispatch:
   push:
     branches: [main]
@@ -33,9 +48,12 @@ on:
       - 'crates/cant-core/**'
       - 'crates/cant-runtime/**'
       - 'crates/cant-napi/**'
+      - 'packages/caamp/providers/hook-mappings.json'
       - 'packages/cant/**'
       - 'Cargo.lock'
+      - 'Cargo.toml'
       - 'rust-toolchain.toml'
+      - 'scripts/native-source-hash.mjs'
       - 'scripts/lint-no-committed-native-binaries.mjs'
       - '.github/workflows/cant-napi-build.yml'
   pull_request:
@@ -43,9 +61,12 @@ on:
       - 'crates/cant-core/**'
       - 'crates/cant-runtime/**'
       - 'crates/cant-napi/**'
+      - 'packages/caamp/providers/hook-mappings.json'
       - 'packages/cant/**'
       - 'Cargo.lock'
+      - 'Cargo.toml'
       - 'rust-toolchain.toml'
+      - 'scripts/native-source-hash.mjs'
       - 'scripts/lint-no-committed-native-binaries.mjs'
       - '.github/workflows/cant-napi-build.yml'
 
@@ -53,8 +74,43 @@ permissions:
   contents: read
 
 jobs:
+  # Names the native source and asks the cache whether a VERIFIED bundle for
+  # it already exists. `lookup-only` downloads nothing.
+  source-hash:
+    name: native source hash
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      hash: ${{ steps.hash.outputs.hash }}
+      hit: ${{ steps.probe.outputs.cache-hit }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compute the cant native source hash
+        id: hash
+        run: |
+          set -euo pipefail
+          hash="$(node scripts/native-source-hash.mjs cant)"
+          echo "hash=$hash" >> "$GITHUB_OUTPUT"
+          echo "cant native source hash: $hash"
+      - name: Look up a verified bundle for this source
+        id: probe
+        uses: actions/cache/restore@v4
+        with:
+          path: packages/cant/napi
+          key: cant-napi-bundle-v1-${{ steps.hash.outputs.hash }}
+          lookup-only: true
+      - name: Record the decision
+        run: |
+          if [ "${{ steps.probe.outputs.cache-hit }}" = "true" ]; then
+            echo "::notice::cant-napi source ${{ steps.hash.outputs.hash }} already built and verified — reusing the cached bundle, skipping build/runtime/parity."
+          else
+            echo "::notice::cant-napi source ${{ steps.hash.outputs.hash }} not in the cache — building all 8 triples + WASI."
+          fi
+
   build:
     name: build ${{ matrix.triple }}
+    needs: source-hash
+    if: needs.source-hash.outputs.hit != 'true'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     strategy:
@@ -65,11 +121,11 @@ jobs:
             runner: ubuntu-latest
             triple: linux-x64-gnu
             mode: native
-          # Same `cross` path as the worktree-napi prebuild (release.yml).
+          # Native arm64 runner — no `cross`/Docker, no `cargo install cross`.
           - target: aarch64-unknown-linux-gnu
-            runner: ubuntu-latest
+            runner: ubuntu-24.04-arm
             triple: linux-arm64-gnu
-            mode: cross
+            mode: native
           # musl: napi-rs builds through cargo-zigbuild (`-x`) and adds
           # `-C target-feature=-crt-static` so a cdylib can be produced.
           - target: x86_64-unknown-linux-musl
@@ -80,17 +136,14 @@ jobs:
             runner: ubuntu-latest
             triple: linux-arm64-musl
             mode: zig
-          - target: aarch64-apple-darwin
+          # Both darwin triples on ONE Apple Silicon job: darwin-x64 is
+          # cross-compiled by Xcode (the macos-13 Intel pool queues
+          # indefinitely, T10479). One macOS job instead of two halves the
+          # macOS queue exposure of every release.
+          - target: aarch64-apple-darwin x86_64-apple-darwin
             runner: macos-14
-            triple: darwin-arm64
-            mode: native
-          # darwin-x64 is cross-compiled on the Apple Silicon runner. The
-          # macos-13 Intel pool queues indefinitely (T10479), which is why
-          # worktree-napi dropped this triple; Xcode cross-compiles it fine.
-          - target: x86_64-apple-darwin
-            runner: macos-14
-            triple: darwin-x64
-            mode: native
+            triple: darwin
+            mode: darwin
           - target: x86_64-pc-windows-msvc
             runner: windows-latest
             triple: win32-x64-msvc
@@ -115,13 +168,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
           rustup show active-toolchain || rustup toolchain install
           rustup target add ${{ matrix.target }}
 
-      - name: Install cross (linux arm64 gnu)
-        if: matrix.mode == 'cross'
-        shell: bash
-        run: cargo install cross --locked
+      # Only on a cache MISS of the verified bundle does this job run at all;
+      # rust-cache then makes the rebuild incremental.
+      - name: Cache cargo registry + target (${{ matrix.triple }})
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: cant-napi-${{ matrix.triple }}
 
       - name: Install zig + cargo-zigbuild (musl)
         if: matrix.mode == 'zig'
@@ -130,7 +190,7 @@ jobs:
           set -euo pipefail
           # cargo-zigbuild runs `python3 -m ziglang` when no `zig` is on PATH.
           python3 -m pip install --user --break-system-packages ziglang==0.14.1
-          cargo install cargo-zigbuild --locked
+          command -v cargo-zigbuild >/dev/null 2>&1 || cargo install cargo-zigbuild --locked
 
       - uses: pnpm/action-setup@v4
         with:
@@ -152,10 +212,7 @@ jobs:
         working-directory: packages/cant
         shell: bash
         env:
-          CANT_NAPI_SOURCE_REV: ${{ github.sha }}
-          # `cross` builds inside Docker and forwards only listed variables;
-          # without this the arm64-gnu binary is stamped `unversioned`.
-          CROSS_BUILD_ENV_PASSTHROUGH: CANT_NAPI_SOURCE_REV
+          CANT_NAPI_SOURCE_REV: ${{ needs.source-hash.outputs.hash }}
         run: |
           set -euo pipefail
           case "${{ matrix.mode }}" in
@@ -165,37 +222,62 @@ jobs:
               export RUSTC="$(rustup which rustc)"
               pnpm run build:napi:wasi
               ;;
-            cross) pnpm run build:napi --target ${{ matrix.target }} --use-cross ;;
+            darwin)
+              pnpm run build:napi --target aarch64-apple-darwin
+              pnpm run build:napi --target x86_64-apple-darwin
+              ;;
             zig) pnpm run build:napi --target ${{ matrix.target }} -x ;;
             *) pnpm run build:napi --target ${{ matrix.target }} ;;
           esac
           ls -la napi
 
-      - name: Assert the artifact exists and carries this commit's stamp
+      - name: Assert every artifact exists and carries this source's stamp
         shell: bash
+        env:
+          SOURCE_HASH: ${{ needs.source-hash.outputs.hash }}
         run: |
           set -euo pipefail
-          if [ "${{ matrix.mode }}" = "wasi" ]; then
-            file="packages/cant/napi/cant.wasm32-wasi.wasm"
-          else
-            file="packages/cant/napi/cant.${{ matrix.triple }}.node"
-          fi
-          test -s "$file" || { echo "::error::missing or empty $file"; exit 1; }
-          # LC_ALL=C: macOS grep in a UTF-8 locale skips binary "lines" that are
-          # not valid UTF-8, so the stamp can be missed next to other bytes.
-          if ! LC_ALL=C grep -aq "cant-napi-source-rev:${{ github.sha }}" "$file"; then
-            found="$(LC_ALL=C grep -ao 'cant-napi-source-rev:[A-Za-z0-9]*' "$file" | sort -u | tr '\n' ' ')"
-            echo "::error::$file lacks the source-rev stamp for ${{ github.sha }} (found: ${found:-none})"
-            exit 1
-          fi
-          echo "OK: $file ($(wc -c < "$file") bytes)"
+          case "${{ matrix.mode }}" in
+            wasi) files="packages/cant/napi/cant.wasm32-wasi.wasm" ;;
+            darwin) files="packages/cant/napi/cant.darwin-arm64.node packages/cant/napi/cant.darwin-x64.node" ;;
+            *) files="packages/cant/napi/cant.${{ matrix.triple }}.node" ;;
+          esac
+          for file in $files; do
+            test -s "$file" || { echo "::error::missing or empty $file"; exit 1; }
+            # LC_ALL=C: macOS grep in a UTF-8 locale skips binary "lines" that are
+            # not valid UTF-8, so the stamp can be missed next to other bytes.
+            if ! LC_ALL=C grep -aq "cant-napi-source-rev:${SOURCE_HASH}" "$file"; then
+              found="$(LC_ALL=C grep -ao 'cant-napi-source-rev:[A-Za-z0-9]*' "$file" | sort -u | tr '\n' ' ')"
+              echo "::error::$file lacks the source stamp for ${SOURCE_HASH} (found: ${found:-none})"
+              exit 1
+            fi
+            echo "OK: $file ($(wc -c < "$file") bytes)"
+          done
 
       - name: Upload native binary
-        if: matrix.mode != 'wasi'
+        if: matrix.mode != 'wasi' && matrix.mode != 'darwin'
         uses: actions/upload-artifact@v4
         with:
           name: cant-napi-${{ matrix.triple }}
           path: packages/cant/napi/cant.${{ matrix.triple }}.node
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload darwin-arm64 binary
+        if: matrix.mode == 'darwin'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cant-napi-darwin-arm64
+          path: packages/cant/napi/cant.darwin-arm64.node
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload darwin-x64 binary
+        if: matrix.mode == 'darwin'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cant-napi-darwin-x64
+          path: packages/cant/napi/cant.darwin-x64.node
           if-no-files-found: error
           retention-days: 14
 
@@ -220,7 +302,7 @@ jobs:
   # stamp-checked above, and WASI covers it if the binary is ever unusable.
   runtime:
     name: load ${{ matrix.triple }}
-    needs: build
+    needs: [source-hash, build]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     strategy:
@@ -248,13 +330,13 @@ jobs:
       - name: Probe the loader (host)
         if: matrix.container == ''
         shell: bash
-        run: node packages/cant/tests/fixtures/cant-native-smoke.cjs native "${{ github.sha }}"
+        run: node packages/cant/tests/fixtures/cant-native-smoke.cjs native "${{ needs.source-hash.outputs.hash }}"
       - name: Probe the loader (${{ matrix.container }})
         if: matrix.container != ''
         shell: bash
         run: >-
           docker run --rm -v "$PWD:/w" -w /w ${{ matrix.container }}
-          node packages/cant/tests/fixtures/cant-native-smoke.cjs native "${{ github.sha }}"
+          node packages/cant/tests/fixtures/cant-native-smoke.cjs native "${{ needs.source-hash.outputs.hash }}"
 
   # Stage exactly what the release stages, run the release's packed check,
   # then prove native == WASI over every .cant/.cantbook file and that the
@@ -262,11 +344,12 @@ jobs:
   # NAPI_RS_FORCE_WASI=error.
   parity:
     name: stage + native/WASI parity
-    needs: build
+    needs: [source-hash, build]
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
       NODE_OPTIONS: --max-old-space-size=4096
+      SOURCE_HASH: ${{ needs.source-hash.outputs.hash }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -282,10 +365,14 @@ jobs:
           path: packages/cant/napi
           pattern: cant-napi-*
           merge-multiple: true
-      - name: Packed @cleocode/cant ships all 8 triples + WASI, fresh from this commit
-        run: node scripts/lint-no-committed-native-binaries.mjs --packed packages/cant --expect-rev "${GITHUB_SHA}"
+      - name: Packed @cleocode/cant ships all 8 triples + WASI, built from this native source
+        run: node scripts/lint-no-committed-native-binaries.mjs --packed packages/cant --expect-source-hash "${SOURCE_HASH}"
       # worktree-napi is a workspace dependency of the CLI the consumer test
       # launches; build it for the host BEFORE install, exactly as ci.yml does.
+      - name: Cache cargo registry + target (worktree-napi host)
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: cant-parity-worktree-host
       - name: Build worktree-napi (host)
         run: |
           cargo build --release -p worktree-napi
@@ -295,7 +382,7 @@ jobs:
       # After install: the WASI glue needs @napi-rs/wasm-runtime and
       # @emnapi/*, which are runtime dependencies of @cleocode/cant.
       - name: Probe WASI under NAPI_RS_FORCE_WASI=error
-        run: NAPI_RS_FORCE_WASI=error node packages/cant/tests/fixtures/cant-native-smoke.cjs wasi "${GITHUB_SHA}"
+        run: NAPI_RS_FORCE_WASI=error node packages/cant/tests/fixtures/cant-native-smoke.cjs wasi "${SOURCE_HASH}"
       - name: Build packages
         run: pnpm run build
       - name: Native vs WASI parity + consumers without a native binary
@@ -306,20 +393,81 @@ jobs:
           packages/cant/tests/native-wasi-parity.test.ts
           packages/cant/tests/wasi-fallback-consumers.test.ts
 
+  # The single verdict, and the only place a bundle enters or leaves the cache.
+  #
+  #   cache MISS: build/runtime/parity must all have passed. Download every
+  #     artifact, re-check the packed pack against the source hash, then save
+  #     the VERIFIED bundle under that hash (never from a pull_request run,
+  #     whose cache scope no release can read anyway).
+  #   cache HIT: build/runtime/parity were skipped. Restore the bundle, run the
+  #     same packed check against the source hash, and publish it as the
+  #     `cant-napi-bundle` artifact — which matches the `cant-napi-*` pattern
+  #     every consumer already downloads.
   gate:
     name: gate
-    needs: [build, runtime, parity]
+    needs: [source-hash, build, runtime, parity]
     if: always()
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 10
+    env:
+      SOURCE_HASH: ${{ needs.source-hash.outputs.hash }}
+      HIT: ${{ needs.source-hash.outputs.hit }}
     steps:
-      - name: Every triple built, loaded and matched WASI
+      - name: Every triple built, loaded and matched WASI (or a verified bundle exists)
         env:
-          RESULTS: ${{ join(needs.*.result, ',') }}
+          HASH_RESULT: ${{ needs.source-hash.result }}
+          RESULTS: ${{ needs.build.result }},${{ needs.runtime.result }},${{ needs.parity.result }}
         run: |
-          echo "Upstream results: ${RESULTS}"
+          echo "source-hash: ${HASH_RESULT} | build,runtime,parity: ${RESULTS} | cache hit: ${HIT:-false}"
+          if [ "${HASH_RESULT}" != "success" ]; then
+            echo "::error::could not compute the cant native source hash."
+            exit 1
+          fi
+          if [ "${HIT}" = "true" ]; then
+            echo "Verified bundle for ${SOURCE_HASH} found in the cache; build/runtime/parity skipped."
+            exit 0
+          fi
           if printf '%s' "${RESULTS}" | tr ',' '\n' | grep -qvE '^success$'; then
             echo "::error::cant-napi build, runtime load or parity failed (see upstream jobs)."
             exit 1
           fi
           echo "cant-napi: 8 native triples + WASI built, loaded and at parity."
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+      - name: Restore the verified bundle (cache hit)
+        if: env.HIT == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: packages/cant/napi
+          key: cant-napi-bundle-v1-${{ env.SOURCE_HASH }}
+          fail-on-cache-miss: true
+      - name: Download this run's binaries (cache miss)
+        if: env.HIT != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          path: packages/cant/napi
+          pattern: cant-napi-*
+          merge-multiple: true
+      - name: Packed @cleocode/cant is complete and stamped with this native source
+        run: node scripts/lint-no-committed-native-binaries.mjs --packed packages/cant --expect-source-hash "${SOURCE_HASH}"
+      - name: Save the verified bundle under its source hash
+        if: env.HIT != 'true' && github.event_name != 'pull_request'
+        uses: actions/cache/save@v4
+        with:
+          path: packages/cant/napi
+          key: cant-napi-bundle-v1-${{ env.SOURCE_HASH }}
+      - name: Publish the cached bundle as this run's artifact
+        if: env.HIT == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cant-napi-bundle
+          path: |
+            packages/cant/napi/cant.*.node
+            packages/cant/napi/cant.wasm32-wasi.wasm
+            packages/cant/napi/cant.wasi.cjs
+            packages/cant/napi/wasi-worker.mjs
+            packages/cant/napi/index.cjs
+          if-no-files-found: error
+          retention-days: 14

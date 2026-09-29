@@ -11,9 +11,11 @@ fn main() {
 
     // T12382: every binary carries the literal `cant-napi-source-rev:<rev>`,
     // so the release can prove each packed `.node`/`.wasm` was built from the
-    // commit being released and is not a stale leftover
+    // native SOURCE being released and is not a stale leftover
     // (`scripts/lint-no-committed-native-binaries.mjs --packed`). CI sets the
-    // revision; local builds are stamped `unversioned`.
+    // value to `node scripts/native-source-hash.mjs cant`, which lets a
+    // verified bundle be reused while that source is unchanged; local builds
+    // are stamped `unversioned`.
     let rev = env::var("CANT_NAPI_SOURCE_REV").unwrap_or_else(|_| "unversioned".to_string());
     println!("cargo:rerun-if-env-changed=CANT_NAPI_SOURCE_REV");
     println!("cargo:rustc-env=CANT_NAPI_SOURCE_REV={rev}");

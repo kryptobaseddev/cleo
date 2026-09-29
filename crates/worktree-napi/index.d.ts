@@ -573,6 +573,12 @@ export interface SyncWorktreeResult {
 }
 
 /**
+ * Return the native source this binary was built from, e.g.
+ * `"worktree-napi-source-rev:0a1b2c…"` (`"…:unversioned"` for local builds).
+ */
+export declare function worktreeBuildInfo(): string
+
+/**
  * JS-facing handle returned from [`provision_worktree`].
  *
  * Mirrors [`worktrunk_core::git_wt::WorktreeHandle`] with `path` rendered as

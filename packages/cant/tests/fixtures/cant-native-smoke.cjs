@@ -3,7 +3,7 @@
  * Per-platform smoke probe for the cant-napi addon (T12382), run by
  * .github/workflows/cant-napi-build.yml on each triple's own hardware.
  *
- * usage: node cant-native-smoke.cjs <expected-backend: native|wasi> <expected-rev>
+ * usage: node cant-native-smoke.cjs <expected-backend: native|wasi> <expected-source-hash>
  *
  * Loads packages/cant/napi/index.cjs (the napi-rs generated loader) and fails
  * unless the EXPECTED backend served the call (so a native job cannot pass by

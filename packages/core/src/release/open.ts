@@ -51,6 +51,7 @@ import { getProjectRoot } from '../paths.js';
 import { getDb } from '../store/sqlite.js';
 import { releases } from '../store/tasks-schema.js';
 import { runGitWithLockRetry } from './engine-ops.js';
+import { decidePreflightSkips, type PreflightSkipDecision } from './preflight-skip.js';
 
 const log = getLogger('release:open');
 
@@ -151,6 +152,12 @@ export interface ReleaseOpenResult {
    * HTTP 422 "Unexpected inputs provided" during the v2026.5.100 ship.
    */
   planBlobSha256: string;
+  /**
+   * Which `release-prepare` preflight test suites this dispatch asked the
+   * workflow to skip, the commit that decision was verified against, and why.
+   * Absent on an idempotent no-op (nothing was dispatched).
+   */
+  preflight?: PreflightSkipDecision;
 }
 
 // ---------------------------------------------------------------------------
@@ -164,8 +171,11 @@ export interface ReleaseOpenResult {
  * @internal
  */
 export interface ReleaseOpenRunner {
-  /** Run `gh <args>` and return trimmed stdout. Throws on non-zero exit. */
-  runGh: (args: readonly string[], cwd: string) => string;
+  /**
+   * Run `gh <args>` and return trimmed stdout. Throws on non-zero exit or when
+   * `timeoutMs` (default 60s) elapses.
+   */
+  runGh: (args: readonly string[], cwd: string, timeoutMs?: number) => string;
   /** Test whether `gh auth status` exits 0. Returns the boolean directly. */
   checkGhAuth: (cwd: string) => boolean;
 }
@@ -177,12 +187,12 @@ export interface ReleaseOpenRunner {
  */
 function makeDefaultRunner(): ReleaseOpenRunner {
   return {
-    runGh: (args, cwd) =>
+    runGh: (args, cwd, timeoutMs) =>
       execFileSync('gh', [...args], {
         cwd,
         encoding: 'utf-8',
         stdio: ['ignore', 'pipe', 'pipe'],
-        timeout: SUBPROCESS_TIMEOUT_MS,
+        timeout: timeoutMs ?? SUBPROCESS_TIMEOUT_MS,
         maxBuffer: 16 * 1024 * 1024,
       }).trim(),
     checkGhAuth: (cwd) => {
@@ -684,6 +694,9 @@ export async function releaseOpen(
   // Keep this `--field` set in lockstep with the YAML inputs declaration and
   // the `release-open-field-schema.test.ts` parity check.
   const dispatchFields = ['--field', `version=${opts.version}`];
+  // Resolved once, by the plan guard below when it runs, else for the
+  // preflight-skip check.
+  let dispatchBranch: string | null = null;
   // T12092: forward the plan hash ONLY when the plan was committed. The
   // workflow's verify branch reads the plan FILE from its checkout, so the hash
   // is meaningful exactly when the file is present there — and committing is a
@@ -704,7 +717,7 @@ export async function releaseOpen(
     // proxy for it (that a commit command exited 0). The two differ exactly in
     // the case that has been failing.
     const relPath = toRepoRelative(planPath, projectRoot);
-    const dispatchBranch = resolveDispatchBranch(runner, projectRoot);
+    dispatchBranch = resolveDispatchBranch(runner, projectRoot);
     if (dispatchBranch === null) {
       return engineError<ReleaseOpenResult>(
         E_INVALID_STATE,
@@ -768,6 +781,35 @@ export async function releaseOpen(
   if (opts.tasks !== undefined && opts.tasks !== '') {
     dispatchFields.push('--field', `tasks=${opts.tasks}`);
   }
+
+  // Skip preflight test suites whose result GitHub already holds for the
+  // commit the workflow will check out (main's HEAD): the Linux shards when
+  // main's push CI for that SHA is green, the macOS shards when the nightly
+  // macOS jobs for that SHA are green. The SHA rides along as `verified-sha`,
+  // and the workflow ignores every skip if it checks out a different commit.
+  // Any doubt (gh error, timeout, run in progress) means the tests run.
+  const preflightBranch = dispatchBranch ?? resolveDispatchBranch(runner, projectRoot);
+  const preflight: PreflightSkipDecision =
+    preflightBranch === null
+      ? {
+          verifiedSha: null,
+          skipTests: false,
+          skipMacosTests: false,
+          reason: 'Could not determine the dispatch branch; running every preflight suite.',
+        }
+      : decidePreflightSkips(
+          (args, cwd, timeoutMs) => runner.runGh(args, cwd, timeoutMs),
+          projectRoot,
+          preflightBranch,
+        );
+  if (preflight.verifiedSha !== null) {
+    if (preflight.skipTests) dispatchFields.push('--field', 'skip-tests=true');
+    if (preflight.skipMacosTests) dispatchFields.push('--field', 'skip-macos-tests=true');
+    dispatchFields.push('--field', `verified-sha=${preflight.verifiedSha}`);
+    dispatchFields.push('--field', `skip-reason=${preflight.reason}`);
+  }
+  log.info({ version: opts.version, preflight }, 'release.open: preflight test decision');
+
   try {
     runner.runGh(['workflow', 'run', workflow, ...dispatchFields], projectRoot);
   } catch (err) {
@@ -817,6 +859,7 @@ export async function releaseOpen(
     workflowRunUrl: runUrl,
     watching: watch,
     planBlobSha256,
+    preflight,
   });
 }
 
