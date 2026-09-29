@@ -334,9 +334,11 @@ export async function startDeviceCodeFlow(cfg: DeviceCodeConfig): Promise<Device
  * Poll the token endpoint until the user approves, the code expires, or an
  * unrecoverable error is received (RFC 8628 §3.4).
  *
- * Handles the two recoverable error codes:
+ * Handles the recoverable answers:
  *   - `authorization_pending` — user has not yet approved; continue polling.
- *   - `slow_down` — increase the polling interval by 1 second, then continue.
+ *   - `slow_down` — increase the polling interval by 5 seconds, then continue.
+ *   - HTTP 429 (a rate limiter in front of the endpoint, whose body is not in
+ *     OAuth form) — treated like `slow_down`.
  *
  * Network errors are retried up to `MAX_NETWORK_RETRIES` times before being
  * re-thrown.
@@ -416,6 +418,13 @@ export async function pollForToken(
         expiresIn: typeof data['expires_in'] === 'number' ? data['expires_in'] : undefined,
         tokenType: typeof data['token_type'] === 'string' ? data['token_type'] : 'bearer',
       };
+    }
+
+    // A rate limiter answered, not the OAuth endpoint: back off like slow_down.
+    if (resp.status === 429) {
+      currentInterval = Math.min(currentInterval + 5, POLL_INTERVAL_CAP_SECONDS);
+      await sleep(currentInterval * 1000);
+      continue;
     }
 
     // Non-200 — parse the error payload.

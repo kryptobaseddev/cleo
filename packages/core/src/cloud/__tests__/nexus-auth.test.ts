@@ -11,6 +11,7 @@
  */
 
 import {
+  chmodSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -182,6 +183,15 @@ describe('loginToNexus — every poll branch', () => {
     expect(sleeps).toEqual([10_000, 15_000, 15_000]);
   });
 
+  it('a 429 from a rate limiter is treated like slow_down', async () => {
+    const { fetchImpl } = mockNexus({
+      tokenReplies: [{ status: 429, body: { message: 'Too many requests' } }, approved],
+    });
+    await loginToNexus({ apiUrl: API, store, fetch: fetchImpl, sleep });
+    expect(sleeps).toEqual([10_000]);
+    expect((await store.get(API))?.bearer()).toBe(TOKEN);
+  });
+
   it('expired_token maps to E_NEXUS_DEVICE_CODE_EXPIRED and stores nothing', async () => {
     const { fetchImpl } = mockNexus({
       tokenReplies: [
@@ -289,6 +299,13 @@ describe('token store — 0600 and never printed', () => {
     expect(JSON.stringify(session)).toContain('tokenPreview');
     // It is on disk, where it belongs.
     expect(readFileSync(store.location, 'utf-8')).toContain(TOKEN);
+  });
+
+  it('refuses to read a store that group or others can access', async () => {
+    const { fetchImpl } = mockNexus({ tokenReplies: [approved] });
+    await loginToNexus({ apiUrl: API, store, fetch: fetchImpl, sleep });
+    chmodSync(store.location, 0o644);
+    await expect(store.get(API)).rejects.toThrow(/mode 0600/);
   });
 
   it('refuses to write through a symlinked store', async () => {

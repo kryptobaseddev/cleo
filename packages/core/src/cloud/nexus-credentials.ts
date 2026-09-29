@@ -27,6 +27,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -258,8 +259,13 @@ export class FileNexusTokenStore implements NexusTokenStore {
       .map(([key, record]) => new SealedNexusSession(key, record));
   }
 
-  /** Read and validate the file; a missing or malformed file reads as empty. */
+  /**
+   * Read and validate the file; a missing or malformed file reads as empty. A
+   * file readable or writable by group/others, or owned by another user, is
+   * refused: its token may already be exposed or planted.
+   */
   private read(): NexusCredentialsFile {
+    this.assertPrivate();
     let raw: string;
     try {
       raw = readFileSync(this.location, 'utf-8');
@@ -295,6 +301,22 @@ export class FileNexusTokenStore implements NexusTokenStore {
       },
       { mode: 0o600 },
     );
+  }
+
+  /** Throw when the store exists with a mode wider than 0600 or another owner. */
+  private assertPrivate(): void {
+    let st: ReturnType<typeof statSync>;
+    try {
+      st = statSync(this.location);
+    } catch {
+      return; // absent: created 0600 on first write
+    }
+    const uid = typeof process.getuid === 'function' ? process.getuid() : null;
+    if ((st.mode & 0o077) !== 0 || (uid !== null && st.uid !== uid)) {
+      throw new NexusCredentialsError(
+        `refusing to read ${this.location}: it must be owned by you with mode 0600 (it is ${(st.mode & 0o777).toString(8)}). Run: chmod 600 ${this.location}`,
+      );
+    }
   }
 
   /** Refuse to write a token through a symlink (it could point anywhere). */
