@@ -13,6 +13,7 @@
 
 import type { Task } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
+import { getReadyTasks } from '../index.js';
 import { type EnrichedWaveTask, getEnrichedWaves } from '../waves.js';
 
 // ---------------------------------------------------------------------------
@@ -273,15 +274,30 @@ describe('getEnrichedWaves — wave structure (T1202 regression)', () => {
     expect(result.totalTasks).toBe(3);
   });
 
-  it('excludes done tasks from waves (pre-seeded into completed)', async () => {
+  it('keeps a done task in its wave as completed; its dependant stays in wave 2 (T12682)', async () => {
     const tasks: Task[] = [
       makeTask('T001', 'done'),
       makeTask('T002', 'pending', { depends: ['T001'] }),
     ];
 
     const result = await getEnrichedWaves('EPIC', undefined, makeAccessor(tasks) as never);
-    // T001 done → wave 1 contains only T002
-    expect(result.waves).toHaveLength(1);
-    expect(result.waves[0]!.tasks.map((t) => t.id)).toEqual(['T002']);
+    expect(result.waves.map((w) => [w.waveNumber, w.status, w.tasks.map((t) => t.id)])).toEqual([
+      [1, 'completed', ['T001']],
+      [2, 'pending', ['T002']],
+    ]);
+    // The dependant is ready: its prerequisite is done.
+    expect(result.waves[1]!.tasks[0]).toMatchObject({ id: 'T002', ready: true, blockedBy: [] });
+  });
+});
+
+describe('getReadyTasks — finished children keep their wave but are not assessed (T12682)', () => {
+  it('assesses only unfinished children', async () => {
+    const tasks: Task[] = [
+      makeTask('T001', 'done'),
+      makeTask('T002', 'pending', { depends: ['T001'] }),
+      makeTask('T003', 'cancelled'),
+    ];
+    const readiness = await getReadyTasks('EPIC', undefined, makeAccessor(tasks) as never);
+    expect(readiness.map((r) => [r.taskId, r.ready])).toEqual([['T002', true]]);
   });
 });

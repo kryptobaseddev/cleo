@@ -208,20 +208,18 @@ describe('orchestrateWaves — taskIds population', () => {
       totalTasks: number;
     };
 
-    // Must produce exactly 2 waves
-    expect(data.waves.length, 'must produce exactly 2 waves').toBe(2);
-
-    // Wave 1: T902, T903, T905 — all pending, all unblocked
-    const wave1 = data.waves[0]!;
-    expect(wave1.taskIds.length, 'wave 1 taskIds must be non-empty').toBeGreaterThan(0);
-    expect(wave1.taskIds.sort(), 'wave 1 must contain T902, T903, T905').toEqual(
-      ['T902', 'T903', 'T905'].sort(),
-    );
-
-    // Wave 2: T904 — blocked until T902+T903 done
-    const wave2 = data.waves[1]!;
-    expect(wave2.taskIds.length, 'wave 2 taskIds must be non-empty').toBeGreaterThan(0);
-    expect(wave2.taskIds, 'wave 2 must contain T904').toContain('T904');
+    // Stable numbering (T12682): done T901 keeps wave 1, so its dependants
+    // T902/T903 stay in wave 2 and T904 in wave 3 — nothing renumbers.
+    expect(data.waves.length, 'must produce exactly 3 waves').toBe(3);
+    expect(data.waves[0]!.taskIds.sort(), 'wave 1: done T901 and unblocked T905').toEqual([
+      'T901',
+      'T905',
+    ]);
+    expect(data.waves[1]!.taskIds.sort(), 'wave 2: T902, T903 (after T901)').toEqual([
+      'T902',
+      'T903',
+    ]);
+    expect(data.waves[2]!.taskIds, 'wave 3: T904 (after T902 + T903)').toEqual(['T904']);
   });
 
   it('taskIds exactly mirrors tasks.map(t => t.id) for every wave', async () => {
@@ -240,7 +238,7 @@ describe('orchestrateWaves — taskIds population', () => {
     }
   });
 
-  it('sum of all wave taskIds equals total pending task count', async () => {
+  it('sum of all wave taskIds equals the total task count: finished tasks keep their wave (T12682)', async () => {
     const result = await orchestrateWaves('T900', TEST_ROOT);
     expect(result.success).toBe(true);
 
@@ -249,9 +247,9 @@ describe('orchestrateWaves — taskIds population', () => {
       totalTasks: number;
     };
 
-    // T901 is done; pending = T902, T903, T904, T905 = 4 tasks across 2 waves
+    // T901 is done and keeps its wave; all 5 children across 2 waves.
     const allIds = data.waves.flatMap((w) => w.taskIds);
-    expect(allIds.length, 'sum of wave taskIds must equal pending task count (4)').toBe(4);
+    expect(allIds.length, 'sum of wave taskIds must equal the task count (5)').toBe(5);
 
     // totalTasks counts ALL children including done T901 = 5
     expect(data.totalTasks, 'totalTasks must count all 5 children').toBe(5);
@@ -263,20 +261,23 @@ describe('orchestrateWaves — taskIds population', () => {
 // ---------------------------------------------------------------------------
 
 describe('orchestrateWaves — empty and all-done epics', () => {
-  it('returns empty wave list when all children are done', async () => {
+  it('lists an all-done epic as completed waves; --hide-completed omits them (T12682)', async () => {
     await seedAllDoneEpic(TEST_ROOT);
 
     const result = await orchestrateWaves('T910', TEST_ROOT);
     expect(result.success).toBe(true);
-
     const data = result.data as {
-      waves: Array<{ taskIds: string[] }>;
+      waves: Array<{ taskIds: string[]; status: string }>;
       totalWaves: number;
     };
+    // Stable numbering: finished waves keep their number, listed as completed.
+    expect(data.waves.length).toBeGreaterThan(0);
+    expect(data.waves.every((w) => w.status === 'completed')).toBe(true);
 
-    // computeWaves only processes non-terminal tasks; if all done, no waves
-    expect(data.waves.length, 'wave list must be empty for all-done epic').toBe(0);
-    expect(data.totalWaves, 'totalWaves must be 0 for all-done epic').toBe(0);
+    const hidden = await orchestrateWaves('T910', TEST_ROOT, { hideCompleted: true });
+    const hiddenData = hidden.data as { waves: unknown[]; totalWaves: number };
+    expect(hiddenData.waves).toEqual([]);
+    expect(hiddenData.totalWaves, 'totalWaves still counts every wave').toBe(data.totalWaves);
   });
 });
 
@@ -336,12 +337,20 @@ describe('orchestrateWaves — global hard dependencies (T12293)', () => {
       issues: [expect.objectContaining({ code: 'V_UNMET_DEP' })],
     });
     await accessor.updateTaskFields('T111', { status: 'done', pipelineStage: 'contribution' });
+    // T12682: T121 keeps wave 2 once T111 finishes — no renumbering.
     expect(await orchestrateWaves('T100', TEST_ROOT)).toMatchObject({
       success: true,
       data: {
         totalTasks: 2,
-        totalWaves: 1,
-        waves: [{ taskIds: ['T121'], tasks: [{ id: 'T121', ready: true, blockedBy: [] }] }],
+        totalWaves: 2,
+        waves: [
+          { waveNumber: 1, status: 'completed', taskIds: ['T111'] },
+          {
+            waveNumber: 2,
+            taskIds: ['T121'],
+            tasks: [{ id: 'T121', ready: true, blockedBy: [] }],
+          },
+        ],
         admission: { admitted: ['T121'], deferred: [] },
       },
     });
@@ -397,15 +406,25 @@ describe('orchestrateWaves — global hard dependencies (T12293)', () => {
     await seedCrossEpicTasks();
     const accessor = await taskAccessors.getTaskAccessor(TEST_ROOT);
     await accessor.updateTaskFields('T111', { status: 'cancelled', pipelineStage: 'cancelled' });
-    for (const id of ['T100', 'T120']) {
-      expect(await orchestrateWaves(id, TEST_ROOT)).toMatchObject({
-        success: true,
-        data: {
-          waves: [{ taskIds: ['T121'], tasks: [{ blockedBy: ['T111'], ready: false }] }],
-          admission: { admitted: [], deferred: [] },
-        },
-      });
-    }
+    // Saga view: cancelled T111 keeps wave 1 (completed); T121 stays blocked.
+    expect(await orchestrateWaves('T100', TEST_ROOT)).toMatchObject({
+      success: true,
+      data: {
+        waves: [
+          { waveNumber: 1, status: 'completed', taskIds: ['T111'] },
+          { waveNumber: 2, taskIds: ['T121'], tasks: [{ blockedBy: ['T111'], ready: false }] },
+        ],
+        admission: { admitted: [], deferred: [] },
+      },
+    });
+    // Epic view: the cancelled prerequisite is external, so T121 is held.
+    expect(await orchestrateWaves('T120', TEST_ROOT)).toMatchObject({
+      success: true,
+      data: {
+        waves: [{ taskIds: ['T121'], tasks: [{ blockedBy: ['T111'], ready: false }] }],
+        admission: { admitted: [], deferred: [] },
+      },
+    });
     expect(await validateSpawnReadiness('T121', TEST_ROOT, accessor)).toMatchObject({
       ready: false,
       issues: [expect.objectContaining({ code: 'V_UNMET_DEP' })],

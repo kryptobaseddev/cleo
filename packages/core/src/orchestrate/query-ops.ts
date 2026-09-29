@@ -616,6 +616,11 @@ export async function orchestrateNext(epicId: string, projectRoot?: string): Pro
  */
 export interface OrchestrateWavesOptions {
   /**
+   * Omit finished (`completed`) waves from the listing. Wave numbers are
+   * stable, so the remaining waves keep theirs (T12682).
+   */
+  hideCompleted?: boolean;
+  /**
    * Traversal mode for resolving the epic's children — see
    * {@link OrchestrateTraversal}. Default is auto-detect.
    *
@@ -640,7 +645,7 @@ export interface OrchestrateWavesOptions {
  *
  * @param epicId - Epic to compute waves for.
  * @param projectRoot - Optional project root path.
- * @param _opts - Deprecated traversal options (ignored since T10966).
+ * @param opts - `hideCompleted` omits finished waves; `via` is deprecated (ignored since T10966).
  * @returns Engine result with wave data.
  * @task T4478
  * @bug gh-390
@@ -649,7 +654,7 @@ export interface OrchestrateWavesOptions {
 export async function orchestrateWaves(
   epicId: string,
   projectRoot?: string,
-  _opts?: OrchestrateWavesOptions,
+  opts?: OrchestrateWavesOptions,
 ): Promise<EngineResult> {
   try {
     const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
@@ -680,7 +685,12 @@ export async function orchestrateWaves(
         const admission = await computeAgentAdmission(firstActionableWaveTaskIds(result.waves));
         return {
           success: true,
-          data: { ...result, via: 'parent' as const, admission },
+          data: {
+            ...result,
+            waves: visibleWaves(result.waves, opts),
+            via: 'parent' as const,
+            admission,
+          },
         };
       }
 
@@ -707,7 +717,7 @@ export async function orchestrateWaves(
         success: true,
         data: {
           epicId,
-          waves: result.waves,
+          waves: visibleWaves(result.waves, opts),
           totalWaves: result.totalWaves,
           totalTasks: result.totalTasks,
           via: 'saga' as const,
@@ -731,6 +741,14 @@ export async function orchestrateWaves(
  *
  * @task T12000
  */
+/** The listed waves: all, or without finished ones under `hideCompleted` (numbers unchanged). */
+function visibleWaves(
+  waves: EnrichedWave[],
+  opts: OrchestrateWavesOptions | undefined,
+): EnrichedWave[] {
+  return opts?.hideCompleted ? waves.filter((w) => w.status !== 'completed') : waves;
+}
+
 function firstActionableWaveTaskIds(waves: readonly EnrichedWave[]): string[] {
   const actionable = waves.find((w) => w.status !== 'completed');
   return actionable ? actionable.tasks.filter((task) => task.ready).map((task) => task.id) : [];

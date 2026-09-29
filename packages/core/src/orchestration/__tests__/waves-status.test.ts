@@ -41,22 +41,34 @@ describe('computeWaves — wave status (T1197)', () => {
     expect(waves[0]!.status).toBe('pending');
   });
 
-  it('excludes done/cancelled tasks from waves entirely', () => {
+  it('keeps a finished task in its wave, as completed: numbers never shift (T12682)', () => {
     const tasks: Task[] = [
       makeTask('T001', 'done'),
       makeTask('T002', 'pending', { depends: ['T001'] }),
     ];
     const waves = computeWaves(tasks);
-    // Wave 1 contains only T002 (T001 is pre-completed and excluded)
-    expect(waves).toHaveLength(1);
-    expect(waves[0]!.tasks).toContain('T002');
-    expect(waves[0]!.tasks).not.toContain('T001');
+    expect(waves.map((w) => [w.waveNumber, w.tasks, w.status])).toEqual([
+      [1, ['T001'], 'completed'],
+      [2, ['T002'], 'pending'],
+    ]);
   });
 
-  it('returns empty array when all tasks are done', () => {
+  it('lists an all-finished epic as completed waves', () => {
     const tasks: Task[] = [makeTask('T001', 'done'), makeTask('T002', 'cancelled')];
     const waves = computeWaves(tasks);
-    expect(waves).toHaveLength(0);
+    expect(waves).toEqual([{ waveNumber: 1, tasks: ['T001', 'T002'], status: 'completed' }]);
+  });
+
+  it('a wave number is the same before and after earlier work completes (T12682)', () => {
+    const plan = (s1: Task['status'], s2: Task['status']) =>
+      computeWaves([
+        makeTask('T001', s1),
+        makeTask('T002', s2, { depends: ['T001'] }),
+        makeTask('T003', 'pending', { depends: ['T002'] }),
+      ]).map((w) => [w.waveNumber, w.tasks]);
+    const before = plan('pending', 'pending');
+    expect(plan('done', 'pending')).toEqual(before);
+    expect(plan('done', 'done')).toEqual(before);
   });
 
   it('correctly separates tasks into sequential waves by dependency', () => {
