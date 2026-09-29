@@ -50,6 +50,7 @@ import { isMain } from '../lib/is-main.mjs';
 import {
   CATEGORY_FOR_TIER,
   listSkillDirs,
+  loadLoomStages,
   MANIFEST_PATH,
   readSkillFrontmatter,
   SKILLS_DIR,
@@ -90,10 +91,13 @@ export function buildManifest(root) {
   const existing = new Map((current.skills ?? []).map((s) => [s.name, s]));
   const problems = [];
   const skills = [];
+  const loomStages = loadLoomStages(root);
 
   for (const name of listSkillDirs(root)) {
     const fm = readSkillFrontmatter(root, name);
-    for (const problem of validateFrontmatter(fm)) problems.push({ skill: name, problem });
+    for (const problem of validateFrontmatter(fm, { loomStages })) {
+      problems.push({ skill: name, problem });
+    }
     const md = fm.metadata;
     const prior = existing.get(name) ?? {};
     const {
@@ -122,7 +126,7 @@ export function buildManifest(root) {
       core: md.tier === 'core',
       category: CATEGORY_FOR_TIER[md.tier],
     };
-    const loomStage = fm.fields.loomStage ?? _l;
+    const loomStage = md.loomStage;
     if (loomStage) entry.loomStage = loomStage;
     skills.push({ ...entry, ...catalogDefaults(), ...curated });
   }

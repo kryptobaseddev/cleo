@@ -6,9 +6,8 @@ description: >-
   "consensus workflow", "multi-agent decision", "create contribution",
   "contribution start", "contribution submit", "detect conflicts",
   "weighted consensus", "decision tracking", "conflict resolution".
-version: 1.0.0
+version: 1.0.1
 protocol: contribution
-loomStage: contribution
 adrRefs:
   - ADR-015
   - ADR-053
@@ -22,9 +21,11 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 1.0.0
+  version: 1.0.1
   tier: on-demand
   install: harness
+  loomStage: contribution
+  lastReviewed: 2026-09-28
   stability: stable
 ---
 

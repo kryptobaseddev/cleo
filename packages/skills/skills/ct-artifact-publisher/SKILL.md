@@ -2,9 +2,10 @@
 name: ct-artifact-publisher
 description: "Builds and publishes artifacts to registries (npm, PyPI, cargo, docker, GitHub releases, generic tarballs) following the validate, then dry-run, then build, then publish, then record-provenance pipeline. Invoked by ct-release-orchestrator as a sub-skill when a release has artifact config. Never stores credentials in output or manifest (ARTP-008), always dry-runs first (ARTP-002), halts and attempts rollback on failure (ARTP-009). Triggers when a release config has at least one enabled artifact handler."
 metadata:
-  version: 1.0.0
+  version: 1.0.1
   tier: on-demand
   install: harness
+  lastReviewed: 2026-09-28
   stability: stable
 ---
 
@@ -114,11 +115,10 @@ Missing credentials exit 90 (`E_PROVENANCE_CONFIG_INVALID` bubbled from provenan
 Validate the sub-protocol entry through `cleo check protocol`:
 
 ```bash
-cleo check protocol \
-  --protocolType artifact-publish \
-  --taskId T4901 \
-  --artifactType npm-package \
-  --buildPassed true
+cleo check protocol artifact-publish \
+  --task-id T4901 \
+  --artifact-type npm-package \
+  --build-passed true
 ```
 
 Exit code 0 = artifact published successfully. Exit code 85 = unknown artifact type. Exit code 86 = validation failed. Exit code 87 = build failed. Exit code 88 = publish failed, rollback attempted. Exit code 89 = rollback failed, dirty state.
@@ -148,4 +148,4 @@ This skill always hands off to ct-provenance-keeper after publish, before writin
 5. SHA-256 checksums are mandatory for every build output.
 6. Provenance MUST be recorded via `record_release()` after publish, via ct-provenance-keeper.
 7. On first publish failure, halt and attempt rollback; exit 88 on clean rollback, 89 on dirty.
-8. Validate every run via `cleo check protocol --protocolType artifact-publish`.
+8. Validate every run via `cleo check protocol artifact-publish`.
