@@ -41,7 +41,7 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       kind: 'minted',
       key: ['id'],
       birth: 'created_at',
-      birthFacts: ['@auditTitle', 'type'],
+      birthFacts: ['title', 'type'],
       displayId: true,
       refs: [
         { column: 'parent_id', table: TASKS },
@@ -72,7 +72,7 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       kind: 'minted',
       key: ['id'],
       birth: 'created_at',
-      birthFacts: ['text', '@owner:task_id'],
+      birthFacts: ['text', '@ownerFp:task_id'],
       owners: [{ column: 'task_id', table: TASKS }],
       refs: [{ column: 'target_task_id', table: TASKS }],
       task: 'T12341',
@@ -155,7 +155,12 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
  * Includes the local-only AC uid graveyard (spec §6.5).
  */
 export const ROW_IDENTITY_TABLES: Readonly<Record<TableScope, readonly string[]>> = {
-  project: ['tasks_display_id_aliases', 'tasks_uid_aliases', 'tasks_ac_uid_graveyard'],
+  project: [
+    'tasks_display_id_aliases',
+    'tasks_uid_aliases',
+    'tasks_ac_uid_graveyard',
+    'tasks_row_identity_meta',
+  ],
   global: [],
 };
 

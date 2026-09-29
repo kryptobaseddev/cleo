@@ -265,14 +265,35 @@ export function naturalRowUid(
  */
 function birthToken(birth: UidInput): string {
   if (birth === null) return 'birth:unknown';
-  if (typeof birth === 'string' && parseStoreTimestamp(birth) !== null) return birth;
-  return `birth:unparseable:${String(birth)}`;
+  const ms = parseStoreTimestamp(birth);
+  if (ms !== null) return `ms:${ms}`;
+  return `birth:unparseable:${canonicalText(String(birth))}`;
 }
 
 /**
- * A minted row's birth fingerprint: 128 bits of SHA-256 over the stored birth
- * (full precision, not canonicalised) and the table's frozen birth facts.
- * Computed once, with the uid; never updated.
+ * Canonical form of a text input to a birth fingerprint: Unicode NFC, line
+ * endings as LF, surrounding whitespace trimmed. Two stores that hold the same
+ * text in different normal forms fingerprint it identically.
+ *
+ * @param text - Stored text.
+ * @returns The canonical text.
+ */
+export function canonicalText(text: string): string {
+  return text.normalize('NFC').replace(/\r\n?/g, '\n').trim();
+}
+
+/** Canonicalise one birth-fact value (text as {@link canonicalText}; others as stored). */
+function canonicalFact(value: UidInput): UidInput {
+  return typeof value === 'string' ? canonicalText(value) : value;
+}
+
+/**
+ * A minted row's birth fingerprint: 128 bits of SHA-256 over the canonical
+ * birth (epoch ms when it parses, so a format-only difference fingerprints
+ * alike; a flagged token otherwise) and the table's frozen birth facts, each
+ * canonicalised ({@link canonicalText}). Computed ONCE, when the row first
+ * gets its identity, from the row as it is then; never recomputed. It is
+ * write-once and syncs with the row: a receiver stores the value it receives.
  *
  * @param table - Physical table name.
  * @param birth - Stored birth value.
@@ -285,7 +306,9 @@ export function birthFingerprint(
   facts: readonly UidInput[],
 ): string {
   return createHash('sha256')
-    .update(encodeUidInputs([ROW_BIRTH_DOMAIN, table, birthToken(birth), ...facts]))
+    .update(
+      encodeUidInputs([ROW_BIRTH_DOMAIN, table, birthToken(birth), ...facts.map(canonicalFact)]),
+    )
     .digest('hex')
     .slice(0, 32);
 }
@@ -450,41 +473,23 @@ function uidFromArgs(
 }
 
 /** SQL for one birth fact of a minted table. */
-function birthFactSql(
-  db: DatabaseSync,
-  scope: TableScope,
-  spec: RowIdentitySpec,
-  fact: string,
-  row: string,
-): string {
-  if (fact === '@auditTitle') {
-    // `+` keeps the planner on the task_id index: on the action or timestamp
-    // index this lookup scans the audit log once per task (11 s on cleocode).
-    if (!hasTable(db, 'tasks_audit_log')) return `${row}.${q('title')}`;
-    return (
-      `COALESCE((SELECT json_extract(_a.details_json, '$.title') FROM main.tasks_audit_log AS _a ` +
-      `WHERE _a.task_id = ${row}.${q('id')} AND +_a.action = 'task_created' AND json_valid(_a.details_json) ` +
-      `ORDER BY +_a.timestamp, +_a.id LIMIT 1), ${row}.${q('title')})`
-    );
-  }
-  if (fact.startsWith('@owner:')) {
-    const column = fact.slice('@owner:'.length);
+function birthFactSql(scope: TableScope, spec: RowIdentitySpec, fact: string, row: string): string {
+  if (fact.startsWith('@ownerFp:')) {
+    const column = fact.slice('@ownerFp:'.length);
     const ref = spec.owners?.find((r) => r.column === column);
     if (!ref) throw new Error(`row identity: ${spec.table} birth fact ${fact} names no owner`);
-    return refUidSql(scope, ref, row);
+    return (
+      `(SELECT _r.${q(BIRTH_FP_COLUMN)} FROM main.${q(ref.table)} AS _r ` +
+      `WHERE _r.${q(targetKey(scope, ref.table))} = ${row}.${q(ref.column)})`
+    );
   }
   return `${row}.${q(fact)}`;
 }
 
 /** SQL call of the birth-fingerprint function for one minted table. */
-function birthFpCallSql(
-  db: DatabaseSync,
-  scope: TableScope,
-  spec: RowIdentitySpec,
-  row: string,
-): string {
+function birthFpCallSql(scope: TableScope, spec: RowIdentitySpec, row: string): string {
   const birth = spec.birth ? `${row}.${q(spec.birth)}` : 'NULL';
-  const facts = (spec.birthFacts ?? []).map((f) => birthFactSql(db, scope, spec, f, row));
+  const facts = (spec.birthFacts ?? []).map((f) => birthFactSql(scope, spec, f, row));
   return `${ROW_BIRTH_FP_SQL_FUNCTION}(${[`'${spec.table}'`, birth, ...facts].join(', ')})`;
 }
 
@@ -526,7 +531,7 @@ export function registerRowUidFunction(db: DatabaseSync, scope: TableScope): voi
     (table, birth, ...facts) => {
       if (typeof table !== 'string') throw new Error('row identity: table name must be text');
       const spec = rowIdentitySpec(scope, table);
-      const ownerFacts = (spec?.birthFacts ?? []).map((f) => f.startsWith('@owner:'));
+      const ownerFacts = (spec?.birthFacts ?? []).map((f) => f.startsWith('@ownerFp:'));
       if (facts.some((v, k) => ownerFacts[k] && v === null)) return null;
       return birthFingerprint(table, birth as UidInput, facts as UidInput[]);
     },
@@ -660,6 +665,13 @@ export interface RowUidFillReport {
   readonly findings: RowIdentityFindings;
   /** Schema statements the pass had to re-run. */
   readonly healed: readonly string[];
+  /**
+   * Pre-release identity values: `none` (the recipe marker is current, or
+   * there were no values), `cleared` (values without the current recipe
+   * marker were cleared and refilled), or `refused` (they were kept because
+   * uids have already synced; spec §12.1).
+   */
+  readonly refill: 'none' | 'cleared' | 'refused';
 }
 
 /** Count of rows with a NULL value in `column`. */
@@ -755,7 +767,7 @@ function fillBirthFp(db: DatabaseSync, scope: TableScope, spec: RowIdentitySpec)
   if (before === 0) return 0;
   const table = `main.${q(spec.table)}`;
   db.exec(
-    `UPDATE ${table} SET ${q(BIRTH_FP_COLUMN)} = ${birthFpCallSql(db, scope, spec, table)} WHERE ${q(BIRTH_FP_COLUMN)} IS NULL`,
+    `UPDATE ${table} SET ${q(BIRTH_FP_COLUMN)} = ${birthFpCallSql(scope, spec, table)} WHERE ${q(BIRTH_FP_COLUMN)} IS NULL`,
   );
   return before - nullCount(db, spec.table, BIRTH_FP_COLUMN);
 }
@@ -895,7 +907,7 @@ export function rowIdentityFindings(db: DatabaseSync, scope: TableScope): RowIde
 export function fillRowUids(
   db: DatabaseSync,
   scope: TableScope,
-): Omit<RowUidFillReport, 'healed' | 'findings'> {
+): Omit<RowUidFillReport, 'healed' | 'findings' | 'refill'> {
   const filled: Record<string, number> = {};
   const refsFilled: Record<string, number> = {};
   const fingerprinted: Record<string, number> = {};
@@ -960,7 +972,7 @@ export function installRowUidTriggers(db: DatabaseSync, scope: TableScope): void
     if (spec.kind === 'minted') {
       // Reads the row as stored, so the facts filled above (ac_text_hash) count.
       steps.push(
-        `UPDATE ${table} SET ${q(BIRTH_FP_COLUMN)} = ${birthFpCallSql(db, scope, spec, table)} ` +
+        `UPDATE ${table} SET ${q(BIRTH_FP_COLUMN)} = ${birthFpCallSql(scope, spec, table)} ` +
           `WHERE rowid = NEW.rowid AND ${q(BIRTH_FP_COLUMN)} IS NULL;`,
       );
     }
@@ -983,6 +995,171 @@ export function installRowUidTriggers(db: DatabaseSync, scope: TableScope): void
  *   an opaque function, so its rows are filled at the next open instead).
  * @returns The fill report, or `null` when skipped or failed.
  */
+/**
+ * Version of every identity recipe this build derives (uid, natural uid,
+ * birth fingerprint, encoding). Written to {@link ROW_IDENTITY_META_TABLE} under
+ * {@link ROW_IDENTITY_RECIPE_KEY} by the first fill; bumped by any change to a
+ * recipe, a frozen content or birth-fact list, or the encoding.
+ */
+export const ROW_IDENTITY_RECIPE = 'cleo/row-identity/v1';
+
+/**
+ * Local-only key/value table of the row-identity layer. Not
+ * `tasks_schema_meta`: the twin collapse drops twin-only keys of that table on
+ * its first run (T12535), which would lose the marker.
+ */
+export const ROW_IDENTITY_META_TABLE = 'tasks_row_identity_meta';
+
+/** Key holding the recipe version the store's identity values were derived with. */
+export const ROW_IDENTITY_RECIPE_KEY = 'row_identity_recipe';
+
+/**
+ * Key the sync layer (T12342/T12343) writes BEFORE the
+ * first uid leaves the device. Once present, identity values are shared and
+ * are never cleared locally.
+ */
+export const ROW_IDENTITY_SYNCED_KEY = 'row_identity_synced';
+
+/** Tables the uid migration creates, as `CREATE … IF NOT EXISTS` (kept equal to its SQL). */
+const IDENTITY_TABLE_DDL: Readonly<Record<string, readonly string[]>> = {
+  [ROW_IDENTITY_META_TABLE]: [
+    `CREATE TABLE IF NOT EXISTS main.${ROW_IDENTITY_META_TABLE} (
+      key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)`,
+  ],
+  tasks_display_id_aliases: [
+    `CREATE TABLE IF NOT EXISTS main.tasks_display_id_aliases (
+      uid TEXT PRIMARY KEY NOT NULL, entity_table TEXT NOT NULL, display_id TEXT NOT NULL,
+      entity_uid TEXT NOT NULL, reason TEXT NOT NULL, origin TEXT, displaced_hlc TEXT,
+      created_at TEXT NOT NULL)`,
+    'CREATE INDEX IF NOT EXISTS main.idx_tasks_display_id_aliases_lookup ON tasks_display_id_aliases (entity_table, display_id)',
+    'CREATE INDEX IF NOT EXISTS main.idx_tasks_display_id_aliases_entity ON tasks_display_id_aliases (entity_uid)',
+  ],
+  tasks_uid_aliases: [
+    `CREATE TABLE IF NOT EXISTS main.tasks_uid_aliases (
+      uid TEXT PRIMARY KEY NOT NULL, entity_table TEXT NOT NULL, old_uid TEXT NOT NULL,
+      old_birth_fp TEXT NOT NULL, new_uid TEXT NOT NULL, origin TEXT, displaced_hlc TEXT,
+      created_at TEXT NOT NULL)`,
+    'CREATE INDEX IF NOT EXISTS main.idx_tasks_uid_aliases_old ON tasks_uid_aliases (entity_table, old_uid)',
+  ],
+  [AC_UID_GRAVEYARD]: [
+    `CREATE TABLE IF NOT EXISTS main.${AC_UID_GRAVEYARD} (
+      seq INTEGER PRIMARY KEY AUTOINCREMENT, ac_id TEXT NOT NULL, uid TEXT NOT NULL,
+      task_id TEXT NOT NULL, ordinal INTEGER NOT NULL, text TEXT NOT NULL, deleted_at TEXT NOT NULL)`,
+    `CREATE INDEX IF NOT EXISTS main.idx_${AC_UID_GRAVEYARD}_task ON ${AC_UID_GRAVEYARD} (task_id)`,
+  ],
+};
+
+/** The graveyard's pure-SQL delete trigger (kept equal to the migration's). */
+const AC_UID_GRAVEYARD_TRIGGER = `CREATE TRIGGER IF NOT EXISTS main.trg_tasks_ac_uid_graveyard
+AFTER DELETE ON tasks_task_acceptance_criteria
+WHEN OLD.uid IS NOT NULL
+BEGIN
+  INSERT INTO ${AC_UID_GRAVEYARD} (ac_id, uid, task_id, ordinal, text, deleted_at)
+  VALUES (OLD.id, OLD.uid, OLD.task_id, OLD.ordinal, OLD.text, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+END`;
+
+/** Whether a schema object of `type` named `name` exists in `main`. */
+function hasObject(db: DatabaseSync, type: string, name: string): boolean {
+  return (
+    db.prepare('SELECT 1 FROM main.sqlite_master WHERE type = ? AND name = ?').get(type, name) !==
+    undefined
+  );
+}
+
+/**
+ * Re-create the tables, trigger and columns the uid migration adds when they
+ * are missing: a store the journal probe stamped as migrated after only its
+ * ADD COLUMNs had run (Scenario 3, Case A) otherwise never gets them.
+ * Idempotent.
+ *
+ * @param db - Connection on the project `cleo.db`.
+ * @returns Statements that had to be run.
+ */
+export function ensureIdentityTables(db: DatabaseSync): string[] {
+  if (!hasTable(db, 'tasks_task_acceptance_criteria')) return [];
+  const healed: string[] = [];
+  for (const [table, ddl] of Object.entries(IDENTITY_TABLE_DDL)) {
+    const tableExisted = hasTable(db, table);
+    for (const stmt of ddl) {
+      const index = /INDEX IF NOT EXISTS main\.(\w+)/.exec(stmt)?.[1];
+      if (index ? hasObject(db, 'index', index) : tableExisted) continue;
+      db.exec(stmt);
+      healed.push(stmt);
+    }
+  }
+  if (!columnsOf(db, 'tasks_display_id_aliases').has('displaced_hlc')) {
+    const stmt = 'ALTER TABLE main.tasks_display_id_aliases ADD COLUMN displaced_hlc TEXT';
+    db.exec(stmt);
+    healed.push(stmt);
+  }
+  if (!hasObject(db, 'trigger', 'trg_tasks_ac_uid_graveyard')) {
+    db.exec(AC_UID_GRAVEYARD_TRIGGER);
+    healed.push(AC_UID_GRAVEYARD_TRIGGER);
+  }
+  return healed;
+}
+
+/** A row-identity meta value, or `undefined` (also when the table is absent). */
+function readMeta(db: DatabaseSync, key: string): string | undefined {
+  if (!hasTable(db, ROW_IDENTITY_META_TABLE)) return undefined;
+  const row = db
+    .prepare(`SELECT value FROM main.${ROW_IDENTITY_META_TABLE} WHERE key = ?`)
+    .get(key) as { value: string } | undefined;
+  return row?.value;
+}
+
+/**
+ * Identity values derived before the current recipe marker (a pre-release
+ * build filled them, e.g. a worktree CLI that opened a live store) are
+ * cleared so the fill re-derives them with the release recipe, deterministic
+ * with every other store. Safe ONLY while no uid has ever synced: once the
+ * sync layer has written {@link ROW_IDENTITY_SYNCED_KEY}, the values are
+ * shared identity and are kept (`refused`).
+ */
+function resetStaleIdentity(db: DatabaseSync, scope: TableScope): RowUidFillReport['refill'] {
+  if (!hasTable(db, ROW_IDENTITY_META_TABLE)) return 'none';
+  if (readMeta(db, ROW_IDENTITY_RECIPE_KEY) === ROW_IDENTITY_RECIPE) return 'none';
+  const present = ROW_IDENTITY[scope].filter((spec) => hasTable(db, spec.table));
+  const hasValues = present.some(
+    (spec) =>
+      db
+        .prepare(`SELECT 1 FROM main.${q(spec.table)} WHERE ${q(UID_COLUMN)} IS NOT NULL LIMIT 1`)
+        .get() !== undefined,
+  );
+  if (!hasValues) return 'none';
+  if (readMeta(db, ROW_IDENTITY_SYNCED_KEY) !== undefined) return 'refused';
+  db.exec('SAVEPOINT row_identity_reset');
+  try {
+    for (const spec of present) {
+      const aliasTable = uidIsPrimaryKey(db, spec.table);
+      if (aliasTable) {
+        db.exec(`DELETE FROM main.${q(spec.table)}`);
+        continue;
+      }
+      const cols = rowIdentityColumns(scope, spec.table).filter((c) =>
+        columnsOf(db, spec.table).has(c),
+      );
+      db.exec(`UPDATE main.${q(spec.table)} SET ${cols.map((c) => `${q(c)} = NULL`).join(', ')}`);
+    }
+    if (hasTable(db, AC_UID_GRAVEYARD)) db.exec(`DELETE FROM main.${AC_UID_GRAVEYARD}`);
+    db.exec('RELEASE SAVEPOINT row_identity_reset');
+  } catch (error) {
+    db.exec('ROLLBACK TO SAVEPOINT row_identity_reset');
+    db.exec('RELEASE SAVEPOINT row_identity_reset');
+    throw error;
+  }
+  return 'cleared';
+}
+
+/** Record that the store's identity values follow {@link ROW_IDENTITY_RECIPE}. */
+function writeRecipeMarker(db: DatabaseSync): void {
+  if (!hasTable(db, ROW_IDENTITY_META_TABLE)) return;
+  db.prepare(
+    `INSERT INTO main.${ROW_IDENTITY_META_TABLE} (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+  ).run(ROW_IDENTITY_RECIPE_KEY, ROW_IDENTITY_RECIPE);
+}
+
 export function prepareRowIdentity(
   db: DatabaseSync,
   scope: TableScope,
@@ -992,11 +1169,22 @@ export function prepareRowIdentity(
   if (process.env[ROW_UID_FILL_KILL_SWITCH] === '1') return null;
   const log = getLogger('row-identity');
   try {
-    const healed = ensureRowIdentitySchema(db, scope);
+    const healed = [
+      ...(scope === 'project' ? ensureIdentityTables(db) : []),
+      ...ensureRowIdentitySchema(db, scope),
+    ];
     registerRowUidFunction(db, scope);
+    const refill = resetStaleIdentity(db, scope);
+    if (refill === 'refused') {
+      log.error(
+        { scope, marker: readMeta(db, ROW_IDENTITY_RECIPE_KEY) },
+        'identity values predate the current recipe but uids have synced; kept as they are',
+      );
+    }
     const filled = fillRowUids(db, scope);
+    if (refill !== 'refused') writeRecipeMarker(db);
     const findings = rowIdentityFindings(db, scope);
-    const report: RowUidFillReport = { ...filled, findings, healed };
+    const report: RowUidFillReport = { ...filled, findings, healed, refill };
     if (options.triggers !== false) installRowUidTriggers(db, scope);
     if (Object.keys(report.unfilled).length > 0) {
       log.warn(

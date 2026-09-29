@@ -13,16 +13,20 @@
  * @epic T12323
  */
 
-import { rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   applyRemintOp,
   collisionLoser,
+  PROVISIONAL_ID_PREFIX,
   provisionalDisplayId,
+  REMINT_TAKEOVER_MS,
   type RemintOp,
   recordDisplayIdAlias,
+  remintAuthority,
   remintTaskDisplayId,
   resolveDisplayId,
 } from '../display-id-alias.js';
@@ -97,7 +101,7 @@ function pull(local: Replica, remote: Replica): RemintOp[] {
           );
         } else if (loser === incoming.uid) {
           // The remote row loses; its origin re-mints. Keep it provisional here.
-          id = provisionalDisplayId(incoming.id, incoming.uid);
+          id = provisionalDisplayId(incoming.uid);
         } else {
           throw new Error('harness: the local loser was originated elsewhere');
         }
@@ -308,7 +312,7 @@ describe('two stores created offline (AC2, AC3)', () => {
     const alphaUid = [...a.originated][0] ?? '';
     // B originated gamma only, so its pull authors exactly one re-mint.
     expect(pull(b, a).map((o) => o.oldId)).toEqual(['T005']);
-    expect(idByTitle(b.db).get('alpha (A)')).toBe(provisionalDisplayId('T004', alphaUid));
+    expect(idByTitle(b.db).get('alpha (A)')).toBe(provisionalDisplayId(alphaUid));
     const op = (newId: string, uid = alphaUid): RemintOp => ({
       uid,
       oldId: 'T004',
@@ -323,5 +327,114 @@ describe('two stores created offline (AC2, AC3)', () => {
     expect(applyRemintOp(b.db, op('T900')).status).toBe('applied');
     expect(idByTitle(b.db).get('alpha (A)')).toBe('T900');
     expect(applyRemintOp(b.db, op('T900')).status).toBe('already-applied');
+  });
+});
+
+describe('provisional display ids (spec §9.2)', () => {
+  const REPO = resolve(import.meta.dirname, '../../../../..');
+  const uids = [
+    '0192d0c0-0000-7000-8000-000000000000',
+    '0192d0c0-1234-7abc-9def-123456789abc',
+    // Same millisecond as the first: the provisional id must still differ.
+    '0192d0c0-0000-7fff-bfff-ffffffffffff',
+  ];
+
+  /** Every regex literal in non-test source that looks for a `T` followed by a digit. */
+  function taskIdRegexes(): RegExp[] {
+    const found: RegExp[] = [];
+    const walk = (dir: string): void => {
+      for (const name of readdirSync(dir)) {
+        const path = join(dir, name);
+        if (name === 'node_modules' || name === 'dist' || name === '__tests__') continue;
+        if (statSync(path).isDirectory()) walk(path);
+        else if (/\.(ts|mjs)$/.test(name) && !name.endsWith('.d.ts')) {
+          const text = readFileSync(path, 'utf8');
+          for (const m of text.matchAll(
+            /\/((?:[^/\\\n]|\\.)*T\\d(?:[^/\\\n]|\\.)*)\/([gimsuy]*)/g,
+          )) {
+            try {
+              found.push(new RegExp(m[1] as string, (m[2] ?? '').replace('g', '')));
+            } catch {
+              // Not a regex literal (a path or a comment); skip it.
+            }
+          }
+        }
+      }
+    };
+    for (const pkg of readdirSync(join(REPO, 'packages'))) {
+      const src = join(REPO, 'packages', pkg, 'src');
+      try {
+        if (statSync(src).isDirectory()) walk(src);
+      } catch {
+        // A package without src/.
+      }
+    }
+    return found;
+  }
+
+  it('no T#### parser in the code base reads a provisional id as a task id', () => {
+    const regexes = taskIdRegexes();
+    // The parsers named in the review, plus every other one the scan finds.
+    expect(regexes.length).toBeGreaterThan(40);
+    for (const re of [/\bT\d{1,5}\b/, /(T\d+)/, /^T\d+$/i, /\bT\d+\b/, ...regexes]) {
+      for (const uid of uids) {
+        const id = provisionalDisplayId(uid);
+        expect(re.test(id), `${re} matched ${id}`).toBe(false);
+        expect(re.test(`task/${id}`), `${re} matched task/${id}`).toBe(false);
+      }
+    }
+  });
+
+  it('is a valid git ref component and never reuses the uid timestamp', () => {
+    for (const uid of uids) {
+      const id = provisionalDisplayId(uid);
+      expect(id.startsWith(PROVISIONAL_ID_PREFIX)).toBe(true);
+      expect(() =>
+        execFileSync('git', ['check-ref-format', `refs/heads/task/${id}`], { stdio: 'pipe' }),
+      ).not.toThrow();
+    }
+    // Two uids minted in the same millisecond still get distinct provisional ids.
+    expect(provisionalDisplayId(uids[0] ?? '')).not.toBe(provisionalDisplayId(uids[2] ?? ''));
+  });
+});
+
+describe('remintAuthority (spec §9.2)', () => {
+  const replicas = [{ id: 'dev-c' }, { id: 'dev-a', retired: true }, { id: 'dev-b' }];
+  const base = { cloudSynced: false, replicas, provisionalSinceMs: 0, nowMs: 1000 };
+
+  it('the server when the project syncs', () => {
+    expect(remintAuthority({ ...base, cloudSynced: true, origin: 'dev-c' })).toEqual({
+      authority: 'server',
+      reason: 'server',
+    });
+  });
+
+  it('the origin while it is active and inside the takeover window', () => {
+    expect(remintAuthority({ ...base, origin: 'dev-c' })).toEqual({
+      authority: 'dev-c',
+      reason: 'origin',
+    });
+  });
+
+  it('the lowest active replica for a row with no origin, a retired origin, or after the timeout', () => {
+    expect(remintAuthority({ ...base, origin: null })).toEqual({
+      authority: 'dev-b',
+      reason: 'no-origin',
+    });
+    expect(remintAuthority({ ...base, origin: 'dev-a' })).toEqual({
+      authority: 'dev-b',
+      reason: 'origin-retired',
+    });
+    expect(remintAuthority({ ...base, origin: 'dev-c', nowMs: REMINT_TAKEOVER_MS })).toEqual({
+      authority: 'dev-b',
+      reason: 'takeover',
+    });
+  });
+
+  it('is the same on every replica for the same inputs', () => {
+    const shuffled = [...replicas].reverse();
+    expect(remintAuthority({ ...base, origin: null, replicas: shuffled })).toEqual(
+      remintAuthority({ ...base, origin: null }),
+    );
   });
 });

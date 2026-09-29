@@ -1838,6 +1838,10 @@
       "version",
       "workflow_run_url"
     ],
+    "tasks_row_identity_meta": [
+      "key",
+      "value"
+    ],
     "tasks_schema_meta": [
       "key",
       "value"

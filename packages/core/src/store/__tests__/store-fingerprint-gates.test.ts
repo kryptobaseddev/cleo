@@ -1116,6 +1116,58 @@ describe('T12341: row uids', () => {
   });
 });
 
+describe('T12341: pre-release identity values are cleared and re-derived', () => {
+  it('a store filled by a pre-release build (no recipe marker) refills deterministically, changing nothing else', () => {
+    // A copy of the source as a pre-release build left it: other uid and
+    // fingerprint values, no recipe marker.
+    const stale = (label: string) => {
+      const file = join(testRoot, `${label}.db`);
+      copyFileSync(db.source, file);
+      const conn = openRaw(file);
+      conn.exec(`UPDATE tasks_tasks SET uid = lower(hex(randomblob(16))), birth_fp = 'pre-release';
+        DELETE FROM tasks_row_identity_meta;`);
+      conn.close();
+      return file;
+    };
+    const refill = (file: string) => {
+      const conn = openRaw(file);
+      try {
+        expect(prepareRowIdentity(conn, 'project')?.refill).toBe('cleared');
+      } finally {
+        conn.close();
+      }
+    };
+    const one = stale('staleOne');
+    const two = stale('staleTwo');
+    const pre = fingerprintFile(
+      one,
+      'staleOnePre',
+      ['--key-file', keyFile, '--omit-row-identity'],
+      'source',
+    );
+    refill(one);
+    refill(two);
+    // Nothing but identity changed.
+    const post = fingerprintFile(one, 'staleOnePost', [
+      '--key-file',
+      keyFile,
+      '--omit-row-identity',
+    ]);
+    const same = compare(pre.file, post.file, 'replay');
+    expect(same.out).toContain('PASS (replay)');
+    expect(same.code).toBe(0);
+    // Two independent refills agree, and match a store that never had stale values.
+    const a = fingerprintFile(one, 'refilledOne', undefined, 'source');
+    const b = fingerprintFile(two, 'refilledTwo');
+    const det = compare(a.file, b.file, 'replay');
+    expect(det.out).toContain('PASS (replay)');
+    expect(det.code).toBe(0);
+    const fresh = compare(a.file, fingerprint('copy').file, 'replay');
+    expect(fresh.out).toContain('PASS (replay)');
+    expect(fresh.code).toBe(0);
+  });
+});
+
 describe('T12641: --key-out is refused anywhere inside the --out/--rows tree', () => {
   it('refuses a key in a subdirectory of the --out directory', () => {
     const sub = join(testRoot, 'sub', 'deeper');

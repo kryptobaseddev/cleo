@@ -22,7 +22,8 @@ tables now also carries `uid`, the key a merge compares:
   ends. Nothing about the existing columns changes.
 - **Collisions are detected, never merged.** Every row with a locally
   allocated key also stores a birth fingerprint (`birth_fp`: its creation
-  time at full precision plus facts no edit changes). The same uid with a
+  time and a few facts of the row, canonicalised, taken once and never
+  recomputed). The same uid with a
   different fingerprint is a collision: the loser gets a new uid and the old
   one is kept in `tasks_uid_aliases`.
 - **Acceptance criteria** keep their uid when edited (same text, else same
@@ -35,9 +36,15 @@ tables now also carries `uid`, the key a merge compares:
   longer deletes and re-inserts the edges it keeps.
 - **Display-id collisions**: only one authority (the sync server, or the
   device that created the losing row) gives the loser a new `T####` and
-  publishes it; other devices keep it under a provisional id until then. The
+  publishes it (with no origin, a retired one, or after 72 hours, the
+  lowest-id active device); other devices keep it under a provisional id
+  (`prov-<12 hex>`, which no `T####` parser reads) until then. The
   old id stays in `tasks_display_id_aliases`: a live id always wins, one alias
   resolves, several aliases are reported as ambiguous.
+- A store whose identity columns were filled by a pre-release build is
+  healed at the next open: missing tables and the trigger are re-created, and
+  values without the current recipe marker are cleared and re-derived (never
+  once uids have synced).
 - `cleo doctor` gains a `row_identity` check. `CLEO_DISABLE_ROW_UID_FILL=1`
   skips the fill. Gate B: `fingerprint-store.mjs --omit-row-identity`
   compares a store with its pre-migration copy.

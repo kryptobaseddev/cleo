@@ -1073,6 +1073,12 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     status: 'draft',
     source: 'table-classification-draft.md',
   },
+  tasks_row_identity_meta: {
+    class: 'local-only',
+    status: 'resolved',
+    source: 'T12341 (row uids; spec t12341-uid-scheme §12.1)',
+    note: 'the identity recipe version this store derived its uids with, and the sync layer marker; per-store state',
+  },
   tasks_session_handoff_entries: {
     class: 'portable-personal',
     status: 'draft',

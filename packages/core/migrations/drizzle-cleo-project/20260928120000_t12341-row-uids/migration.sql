@@ -31,6 +31,10 @@
 -- a collision. Both are runtime infrastructure written by
 -- store/display-id-alias.ts, not part of the exodus target shape.
 --
+-- `tasks_row_identity_meta` (local-only) holds the identity recipe version the
+-- store's values were derived with, and the sync layer's "uids have synced"
+-- marker (spec §12.1).
+--
 -- `tasks_ac_uid_graveyard` and its PURE-SQL delete trigger record the uid of a
 -- deleted acceptance criterion, so the next open by this build can re-link a
 -- criterion an older build deleted and recreated without carrying its uid
@@ -140,3 +144,8 @@ BEGIN
   INSERT INTO `tasks_ac_uid_graveyard` (`ac_id`, `uid`, `task_id`, `ordinal`, `text`, `deleted_at`)
   VALUES (OLD.`id`, OLD.`uid`, OLD.`task_id`, OLD.`ordinal`, OLD.`text`, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
 END;
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `tasks_row_identity_meta` (
+  `key` TEXT PRIMARY KEY NOT NULL,
+  `value` TEXT NOT NULL
+);

@@ -103,10 +103,11 @@ export interface RowIdentitySpec {
   readonly keyRefs?: readonly RowIdentityRef[];
   /**
    * `minted`: facts of the row's creation hashed into its birth fingerprint
-   * (`birth_fp`), besides the raw birth. Each entry is a column name, or
-   * `@owner:<column>` (the uid of the owner that column references), or
-   * `@auditTitle` (the title of the task's earliest `task_created` audit
-   * event, else its current title). Frozen per recipe version.
+   * (`birth_fp`), besides the canonical birth. Each entry is a column name,
+   * or `@ownerFp:<column>` (the birth fingerprint of the owner that column
+   * references, so the children of two colliding owners fingerprint apart).
+   * Read from the row as it is when its identity is first assigned; frozen
+   * per recipe version.
    */
   readonly birthFacts?: readonly string[];
   /** `natural` relation tables: the symmetric relation types. */

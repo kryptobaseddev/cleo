@@ -19,6 +19,7 @@ import { applyAcPlan, planAcUpdate } from '../../tasks/ac-table.js';
 import { rekeyRowUid } from '../display-id-alias.js';
 import {
   birthFingerprint,
+  canonicalText,
   classifyUidMatch,
   encodeUidInputs,
   ensureRowIdentitySchema,
@@ -28,6 +29,9 @@ import {
   naturalRowUid,
   prepareRowIdentity,
   ROW_IDENTITY,
+  ROW_IDENTITY_RECIPE,
+  ROW_IDENTITY_RECIPE_KEY,
+  ROW_IDENTITY_SYNCED_KEY,
   rowIdentityColumns,
 } from '../row-identity.js';
 import { getNativeTasksDb } from '../sqlite.js';
@@ -95,12 +99,10 @@ describe('uid recipes', () => {
     );
   });
 
-  it('fingerprints the birth at full precision and flags an unknown one', () => {
+  it('fingerprints the birth and its facts, and flags an unknown birth', () => {
     const fp = birthFingerprint('tasks_tasks', '2026-09-24 17:59:09', ['Title', 'task']);
     expect(fp).toMatch(/^[0-9a-f]{32}$/);
-    expect(birthFingerprint('tasks_tasks', '2026-09-24T17:59:09.000Z', ['Title', 'task'])).not.toBe(
-      fp,
-    );
+    expect(birthFingerprint('tasks_tasks', '2026-09-24 17:59:10', ['Title', 'task'])).not.toBe(fp);
     expect(birthFingerprint('tasks_tasks', '2026-09-24 17:59:09', ['Other', 'task'])).not.toBe(fp);
     expect(birthFingerprint('tasks_tasks', null, [])).toBe(
       birthFingerprint('tasks_tasks', null, []),
@@ -108,6 +110,19 @@ describe('uid recipes', () => {
     expect(birthFingerprint('tasks_tasks', null, [])).not.toBe(
       birthFingerprint('tasks_tasks', 'garbage', []),
     );
+  });
+
+  it('canonicalises every birth-fingerprint input', () => {
+    const facts = ['Title', 'task'];
+    const fp = birthFingerprint('tasks_tasks', '2026-09-24 17:59:09', facts);
+    // A format-only difference of the birth is not a different birth.
+    expect(birthFingerprint('tasks_tasks', '2026-09-24T17:59:09.000Z', facts)).toBe(fp);
+    // Unicode normal form, line endings and surrounding whitespace do not count.
+    const nfc = birthFingerprint('tasks_tasks', '2026-09-24 17:59:09', ['Caf\u00e9\r\nx', 'task']);
+    expect(
+      birthFingerprint('tasks_tasks', '2026-09-24 17:59:09', ['  Cafe\u0301\nx ', 'task']),
+    ).toBe(nfc);
+    expect(canonicalText(' a\r\nb ')).toBe('a\nb');
   });
 
   it('classifies two rows with one uid by their birth fingerprints', () => {
@@ -444,6 +459,74 @@ describe('uid fill through the open path', () => {
     expect(after.message).toContain('tasks_task_dependencies (1)');
   });
 
+  it('re-creates the tables, trigger and column a probe-stamped migration never created', () => {
+    const shape = () =>
+      Object.fromEntries(
+        ['tasks_display_id_aliases', 'tasks_uid_aliases', 'tasks_ac_uid_graveyard'].map((t) => [
+          t,
+          (db.prepare('SELECT name, type, pk FROM pragma_table_info(?)').all(t) as object[]).map(
+            (c) => JSON.stringify(c),
+          ),
+        ]),
+      );
+    const before = shape();
+    // The live-cleocode state: an early build's alias table (no displaced_hlc),
+    // no uid-alias table, no graveyard, no trigger; the journal says migrated.
+    db.exec(`DROP TRIGGER trg_tasks_ac_uid_graveyard;
+      DROP TABLE tasks_uid_aliases; DROP TABLE tasks_ac_uid_graveyard;
+      ALTER TABLE tasks_display_id_aliases DROP COLUMN displaced_hlc;`);
+    const report = prepareRowIdentity(db, 'project');
+    expect(report?.healed.join('\n')).toContain('tasks_uid_aliases');
+    expect(report?.healed.join('\n')).toContain('displaced_hlc');
+    expect(report?.healed.join('\n')).toContain('trg_tasks_ac_uid_graveyard');
+    const after = shape();
+    expect(Object.keys(after)).toEqual(Object.keys(before));
+    for (const t of Object.keys(before)) {
+      expect(new Set(after[t]), t).toEqual(new Set(before[t]));
+    }
+    expect(
+      one(
+        "SELECT 1 AS x FROM sqlite_master WHERE type = 'trigger' AND name = 'trg_tasks_ac_uid_graveyard'",
+      ),
+    ).toEqual({ x: 1 });
+    expect(prepareRowIdentity(db, 'project')?.healed).toEqual([]);
+  });
+
+  it('clears and re-derives identity values a pre-release build filled (no recipe marker)', () => {
+    const born = one("SELECT created_at FROM tasks_tasks WHERE id = 'T001'")?.created_at ?? null;
+    // A pre-release build: other uid and fingerprint values, no marker.
+    db.exec(`UPDATE tasks_tasks SET uid = lower(hex(randomblob(16))), birth_fp = 'stale' WHERE id = 'T001';
+      DELETE FROM tasks_row_identity_meta WHERE key = '${ROW_IDENTITY_RECIPE_KEY}';`);
+    const report = prepareRowIdentity(db, 'project');
+    expect(report?.refill).toBe('cleared');
+    expect(uidOf('tasks_tasks', 'id = ?', 'T001')).toBe(
+      mintedRowUid('project', 'tasks_tasks', ['T001'], born),
+    );
+    expect(one("SELECT birth_fp FROM tasks_tasks WHERE id = 'T001'")?.birth_fp).not.toBe('stale');
+    expect(
+      one(`SELECT value FROM tasks_row_identity_meta WHERE key = '${ROW_IDENTITY_RECIPE_KEY}'`)
+        ?.value,
+    ).toBe(ROW_IDENTITY_RECIPE);
+    // Every row is back, every value re-derived by the release recipe.
+    expect(
+      one('SELECT count(*) AS n FROM tasks_tasks WHERE uid IS NULL OR birth_fp IS NULL')?.n,
+    ).toBe(0);
+    expect(prepareRowIdentity(db, 'project')?.refill).toBe('none');
+  });
+
+  it('refuses the clear-and-refill once uids have synced', () => {
+    db.exec(`UPDATE tasks_tasks SET birth_fp = 'synced-value' WHERE id = 'T001';
+      DELETE FROM tasks_row_identity_meta WHERE key = '${ROW_IDENTITY_RECIPE_KEY}';
+      INSERT INTO tasks_row_identity_meta (key, value) VALUES ('${ROW_IDENTITY_SYNCED_KEY}', '2026-09-29');`);
+    const uid = uidOf('tasks_tasks', 'id = ?', 'T001');
+    const report = prepareRowIdentity(db, 'project');
+    expect(report?.refill).toBe('refused');
+    expect(uidOf('tasks_tasks', 'id = ?', 'T001')).toBe(uid);
+    expect(one("SELECT birth_fp FROM tasks_tasks WHERE id = 'T001'")?.birth_fp).toBe(
+      'synced-value',
+    );
+  });
+
   it('re-creates a missing uid index (a migration stamped without its index DDL)', () => {
     db.exec('DROP INDEX uq_tasks_tasks_uid');
     const healed = ensureRowIdentitySchema(db, 'project');
@@ -508,6 +591,73 @@ describe('identity versus collision across stores (spec §3)', () => {
       } finally {
         a2.close();
       }
+    } finally {
+      a.close();
+      b.close();
+    }
+  });
+
+  it('a collision re-key cascades to every descendant whose uid hashed the old owner uid', () => {
+    const a = copyStore('a');
+    const b = copyStore('b');
+    const writeFamily = (db: DatabaseSync, title: string) => {
+      db.prepare(
+        "INSERT INTO tasks_tasks (id, title, status, priority, type, created_at) VALUES ('T100', ?, 'pending', 'medium', 'task', '2026-09-28 12:00:00')",
+      ).run(title);
+      db.exec(`INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, text, kind, source_key, created_at)
+          VALUES ('ac-t100-1', 'T100', 1, 'tests pass', 'text', 'text:1:x', '2026-09-28 12:00:00');
+        INSERT INTO tasks_task_labels (task_id, label) VALUES ('T100', 'bug');`);
+      prepareRowIdentity(db, 'project');
+    };
+    const family = (db: DatabaseSync) => ({
+      task: identity(db, 'T100'),
+      ac: db
+        .prepare(
+          "SELECT uid, birth_fp AS fp FROM tasks_task_acceptance_criteria WHERE id = 'ac-t100-1'",
+        )
+        .get() as { uid: string; fp: string },
+      label: (
+        db
+          .prepare("SELECT uid FROM tasks_task_labels WHERE task_id = 'T100' AND label = 'bug'")
+          .get() as {
+          uid: string;
+        }
+      ).uid,
+    });
+    try {
+      writeFamily(a, 'Work done on device A');
+      writeFamily(b, 'Different work on device B');
+      const fa = family(a);
+      const fb = family(b);
+      // Before: the owner AND its children coincide on uid.
+      expect(fa.task.uid).toBe(fb.task.uid);
+      expect(fa.ac.uid).toBe(fb.ac.uid);
+      expect(fa.label).toBe(fb.label);
+      // The children's fingerprints carry the owner's, so they are detected too.
+      expect(classifyUidMatch(fa.task.fp, fb.task.fp)).toBe('collision');
+      expect(classifyUidMatch(fa.ac.fp, fb.ac.fp)).toBe('collision');
+
+      // Owners first: re-keying the losing T100 re-derives its descendants.
+      const [loserDb, winner] = fa.task.fp > fb.task.fp ? [a, fb] : [b, fa];
+      const receipt = rekeyRowUid(loserDb, 'tasks_tasks', winner.task.uid, { origin: 'device' });
+      expect(receipt.cascaded.map((c) => [c.table, c.oldUid])).toEqual([
+        ['tasks_task_acceptance_criteria', winner.ac.uid],
+      ]);
+      const after = family(loserDb);
+      expect(after.task.uid).toBe(receipt.newUid);
+      expect(after.ac.uid).not.toBe(winner.ac.uid);
+      expect(after.label).not.toBe(winner.label);
+      expect(after.label).toBe(
+        naturalRowUid('project', 'tasks_task_labels', [receipt.newUid, 'bug']),
+      );
+      // Fingerprints never change; each re-keyed minted row has an alias.
+      expect(after.ac.fp).toBe(loserDb === a ? fa.ac.fp : fb.ac.fp);
+      expect(
+        loserDb
+          .prepare('SELECT count(*) AS n FROM tasks_uid_aliases WHERE old_uid IN (?, ?)')
+          .get(winner.task.uid, winner.ac.uid),
+      ).toEqual({ n: 2 });
+      expect(loserDb.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
     } finally {
       a.close();
       b.close();
