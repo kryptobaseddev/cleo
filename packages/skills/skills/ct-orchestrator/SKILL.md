@@ -2,13 +2,13 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.0.4
+  version: 4.0.5
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/orchestrate.ts
     - packages/core/src/orchestration/spawn-prompt.ts
-  lastReviewed: 2026-09-28
+  lastReviewed: 2026-09-29
   stability: stable
 ---
 
@@ -159,6 +159,14 @@ Agent({
   prompt: "<resolved prompt from step 1>"
 })
 ```
+
+**Task claims (T12502)**: spawn gives the task's claim lease to the worker's own
+session and records your session as its parent, so the lease moves between you
+and your worker without an override. A task another session holds refuses the
+spawn with `E_TASK_CLAIMED`; a failed spawn hands the lease back to you. The
+prompt tells the worker to begin every Bash call with
+`cd <worktree> && export CLEO_SESSION_ID=… CLEO_AGENT_ID=… || exit 1`, since
+harness shells keep neither cwd nor env between calls. Do not strip that line.
 
 **Other harnesses**: Pass the resolved prompt to whatever "give this prompt to an agent" mechanism the runtime provides. Results flow back through pipeline_manifest (via `cleo manifest append`) — the universal handoff medium.
 
