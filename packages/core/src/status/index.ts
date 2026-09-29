@@ -3,8 +3,10 @@
  *
  * Implements the data layer for `cleo status`: aggregates identity,
  * credentials, config-tier state, session, harness, and sentient-daemon
- * state into a single typed envelope without performing any network calls
- * or credential seeding. Read-only; safe to invoke on every CLI tick.
+ * state into a single typed envelope without credential seeding. The only
+ * network call is the Cleo Nexus session check, made only when a Nexus token
+ * is stored and bounded by a short timeout (T12712). Read-only; safe to
+ * invoke on every CLI tick.
  *
  * Spec: `docs/plans/E-CONFIG-AUTH-UNIFY.md` §3.3.6 (`CleoStatus` interface)
  * and §5.3 T-E3-4 (acceptance criteria).
@@ -19,6 +21,8 @@
  */
 
 import { existsSync } from 'node:fs';
+import type { NexusAccountStatus } from '@cleocode/contracts';
+import { getNexusAccountStatus } from '../cloud/nexus-auth.js';
 import { getCleoIdentityPath } from '../identity/cleo-identity.js';
 import { getCredentialPool } from '../llm/credential-pool.js';
 import type { SeederSourceId } from '../llm/credential-seeders/index.js';
@@ -102,6 +106,11 @@ export interface CleoStatus {
     lastTickAt: number | null;
     killSwitchActive: boolean;
   };
+  /**
+   * Cleo Nexus account sessions: one row per stored API origin, or one
+   * "not signed in" row. A 401 from the API reads as `expired` (T12712).
+   */
+  nexusAccount: NexusAccountStatus[];
 }
 
 // ---------------------------------------------------------------------------
@@ -405,6 +414,21 @@ async function buildDaemonBlock(projectRoot: string): Promise<CleoStatus['daemon
   }
 }
 
+/**
+ * Build the {@link CleoStatus.nexusAccount} block. Checks stored sessions live
+ * (bounded by `NEXUS_STATUS_TIMEOUT_MS`); with no stored token it makes no
+ * network call. Never throws.
+ *
+ * @internal
+ */
+async function buildNexusAccountBlock(): Promise<NexusAccountStatus[]> {
+  try {
+    return await getNexusAccountStatus();
+  } catch {
+    return [];
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
@@ -414,7 +438,8 @@ async function buildDaemonBlock(projectRoot: string): Promise<CleoStatus['daemon
  *
  * Reads identity, credentials, config-tier state, session, harness, and
  * sentient-daemon state in parallel and folds them into one envelope. No
- * network calls; no credential seeding (the pool's `list()` is pure-read).
+ * credential seeding (the pool's `list()` is pure-read); the only network
+ * call is the bounded Nexus session check, made only when a token is stored.
  * Sub-blocks degrade independently — a broken session store does not
  * suppress the credentials block, etc.
  *
@@ -441,14 +466,17 @@ async function buildDaemonBlock(projectRoot: string): Promise<CleoStatus['daemon
 export async function getCleoStatus(): Promise<CleoStatus> {
   const projectRoot = getProjectRoot();
 
-  const [identity, credentials, config, session, harness, daemon] = await Promise.all([
-    buildIdentityBlock(projectRoot),
-    buildCredentialsBlock(),
-    buildConfigBlock(projectRoot),
-    buildSessionBlock(projectRoot),
-    detectHarness(),
-    buildDaemonBlock(projectRoot),
-  ]);
+  const [identity, credentials, config, session, harness, daemon, nexusAccount] = await Promise.all(
+    [
+      buildIdentityBlock(projectRoot),
+      buildCredentialsBlock(),
+      buildConfigBlock(projectRoot),
+      buildSessionBlock(projectRoot),
+      detectHarness(),
+      buildDaemonBlock(projectRoot),
+      buildNexusAccountBlock(),
+    ],
+  );
 
   return {
     identity,
@@ -457,5 +485,6 @@ export async function getCleoStatus(): Promise<CleoStatus> {
     session,
     harness,
     daemon,
+    nexusAccount,
   };
 }

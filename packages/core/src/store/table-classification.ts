@@ -1613,6 +1613,16 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
         class: 'local-only',
         reason: 'draft §3: path, host or per-device health/counter value',
       },
+      {
+        column: 'last_probed_at',
+        class: 'local-only',
+        reason: 'T12512: per-device probe instant (health, sync, git probe)',
+      },
+      {
+        column: 'last_opened_at',
+        class: 'local-only',
+        reason: 'T12512: per-device instant of the last real CLI use',
+      },
     ],
   },
   nexus_relations: {

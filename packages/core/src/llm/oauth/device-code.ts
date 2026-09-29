@@ -7,14 +7,17 @@
  *   2. Poll the token endpoint every `interval` seconds until the user
  *      approves, the code expires, or a non-recoverable error is returned.
  *
- * ## Provider scope
+ * ## Scope
  *
- * Device-code OAuth is used by **kimi-code** only. Anthropic uses RFC 7636
- * PKCE (see `pkce.ts` and `builtin/anthropic.ts`). The `anthropic` preset
- * was removed in T9326 — PKCE is the canonical Anthropic OAuth path per T9302.
+ * The runner is provider-neutral. Among LLM providers, device-code OAuth is
+ * used by **kimi-code** only; Anthropic uses RFC 7636 PKCE (see `pkce.ts` and
+ * `builtin/anthropic.ts`). The `anthropic` preset was removed in T9326 — PKCE
+ * is the canonical Anthropic OAuth path per T9302. The Cleo Nexus account
+ * login (`cloud/nexus-auth.ts`, T12712) drives the same runner.
  *
  * @module llm/oauth/device-code
  * @task T9321
+ * @task T12712
  * @epic T9261 T-LLM-CRED-CENTRALIZATION
  */
 
@@ -59,6 +62,8 @@ export interface DeviceCodeConfig {
    * `anthropic-version`).
    */
   defaultHeaders?: Record<string, string>;
+  /** `fetch` override for tests and custom transports. Defaults to the global `fetch`. */
+  fetch?: (input: string, init?: RequestInit) => Promise<Response>;
 }
 
 /**
@@ -216,6 +221,15 @@ export function getKimiCodeDeviceCodeConfig(): DeviceCodeConfig {
 /** Maximum number of consecutive network-error retries during polling. */
 const MAX_NETWORK_RETRIES = 3;
 
+/**
+ * Cap on how long polling runs (seconds), whatever `expires_in` the server
+ * claims: a hostile or broken server cannot keep the CLI polling for days.
+ */
+export const MAX_DEVICE_CODE_LIFETIME_SECONDS = 1800;
+
+/** Default time budget for one token request before it is aborted and retried. */
+export const DEVICE_CODE_REQUEST_TIMEOUT_MS = 15_000;
+
 /** Cap on the polling interval (seconds), regardless of `slow_down` growth. */
 const POLL_INTERVAL_CAP_SECONDS = 30;
 
@@ -239,6 +253,13 @@ function encodeForm(params: Record<string, string>): string {
   return new URLSearchParams(params).toString();
 }
 
+/** The config's `fetch`, else the global one. */
+function fetcherFor(
+  cfg: DeviceCodeConfig,
+): (input: string, init?: RequestInit) => Promise<Response> {
+  return cfg.fetch ?? ((input, init) => fetch(input, init));
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -257,7 +278,7 @@ export async function startDeviceCodeFlow(cfg: DeviceCodeConfig): Promise<Device
   const body: Record<string, string> = { client_id: cfg.clientId };
   if (cfg.scope) body['scope'] = cfg.scope;
 
-  const resp = await fetch(cfg.deviceCodeUrl, {
+  const resp = await fetcherFor(cfg)(cfg.deviceCodeUrl, {
     method: 'POST',
     headers: buildHeaders(cfg),
     body: encodeForm(body),
@@ -310,9 +331,11 @@ export async function startDeviceCodeFlow(cfg: DeviceCodeConfig): Promise<Device
  * Poll the token endpoint until the user approves, the code expires, or an
  * unrecoverable error is received (RFC 8628 §3.4).
  *
- * Handles the two recoverable error codes:
+ * Handles the recoverable answers:
  *   - `authorization_pending` — user has not yet approved; continue polling.
- *   - `slow_down` — increase the polling interval by 1 second, then continue.
+ *   - `slow_down` — increase the polling interval by 5 seconds, then continue.
+ *   - HTTP 429 (a rate limiter in front of the endpoint, whose body is not in
+ *     OAuth form) — treated like `slow_down`.
  *
  * Network errors are retried up to `MAX_NETWORK_RETRIES` times before being
  * re-thrown.
@@ -324,6 +347,10 @@ export async function startDeviceCodeFlow(cfg: DeviceCodeConfig): Promise<Device
  *   iteration with `(elapsedSeconds, totalExpiresIn)`. Used by the CLI to
  *   print a live progress counter.
  * @param options.signal - Optional `AbortSignal` for cooperative cancellation.
+ * @param options.sleep - Optional wait override (tests); defaults to `setTimeout`.
+ * @param options.requestTimeoutMs - Per-request budget; a request that takes
+ *   longer is aborted and counted as a network error. Default
+ *   {@link DEVICE_CODE_REQUEST_TIMEOUT_MS}.
  *
  * @throws {DeviceCodeTimeoutError} When `expiresIn` is reached without approval.
  * @throws {DeviceCodeAuthError} When the provider returns a non-recoverable error.
@@ -335,12 +362,18 @@ export async function pollForToken(
   options?: {
     onPending?: (elapsed: number, expiresIn: number) => void;
     signal?: AbortSignal;
+    sleep?: (ms: number) => Promise<void>;
+    requestTimeoutMs?: number;
   },
 ): Promise<DeviceCodeTokenResponse> {
   const { deviceCode, expiresIn, interval } = startResp;
   const { onPending, signal } = options ?? {};
+  const sleep = options?.sleep ?? defaultSleep;
+  const doFetch = fetcherFor(cfg);
 
-  const deadline = Date.now() + expiresIn * 1000;
+  const requestTimeoutMs = options?.requestTimeoutMs ?? DEVICE_CODE_REQUEST_TIMEOUT_MS;
+  const lifetime = Math.min(expiresIn, MAX_DEVICE_CODE_LIFETIME_SECONDS);
+  const deadline = Date.now() + lifetime * 1000;
   let currentInterval = Math.max(1, Math.min(interval, POLL_INTERVAL_CAP_SECONDS));
   let consecutiveNetworkErrors = 0;
   const startedAt = Date.now();
@@ -352,7 +385,7 @@ export async function pollForToken(
 
     let resp: Response;
     try {
-      resp = await fetch(cfg.tokenUrl, {
+      resp = await doFetch(cfg.tokenUrl, {
         method: 'POST',
         headers: buildHeaders(cfg),
         body: encodeForm({
@@ -360,7 +393,9 @@ export async function pollForToken(
           client_id: cfg.clientId,
           device_code: deviceCode,
         }),
-        signal,
+        signal: signal
+          ? AbortSignal.any([signal, AbortSignal.timeout(requestTimeoutMs)])
+          : AbortSignal.timeout(requestTimeoutMs),
       });
       // Reset retry counter on any HTTP response (even error responses).
       consecutiveNetworkErrors = 0;
@@ -390,6 +425,13 @@ export async function pollForToken(
       };
     }
 
+    // A rate limiter answered, not the OAuth endpoint: back off like slow_down.
+    if (resp.status === 429) {
+      currentInterval = Math.min(currentInterval + 5, POLL_INTERVAL_CAP_SECONDS);
+      await sleep(currentInterval * 1000);
+      continue;
+    }
+
     // Non-200 — parse the error payload.
     let errorPayload: Record<string, unknown>;
     try {
@@ -408,7 +450,7 @@ export async function pollForToken(
 
     if (errorCode === 'authorization_pending') {
       const elapsed = Math.round((Date.now() - startedAt) / 1000);
-      onPending?.(elapsed, expiresIn);
+      onPending?.(elapsed, lifetime);
       await sleep(currentInterval * 1000);
       continue;
     }
@@ -437,6 +479,6 @@ export async function pollForToken(
  *
  * @internal
  */
-function sleep(ms: number): Promise<void> {
+function defaultSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

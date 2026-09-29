@@ -84,6 +84,19 @@ export class Http {
     schema: ResponseSchema<T>,
     body?: unknown,
   ): Promise<T> {
+    return (await this.requestWithStatus(method, path, schema, body)).data;
+  }
+
+  /**
+   * {@link Http.request}, plus the HTTP status of the successful response, for routes whose
+   * status carries meaning (e.g. `POST /v1/projects`: 201 created, 200 already registered).
+   */
+  async requestWithStatus<T>(
+    method: string,
+    path: string,
+    schema: ResponseSchema<T>,
+    body?: unknown,
+  ): Promise<{ data: T; status: number }> {
     const attempts = this.o.maxAttempts ?? 4;
     let lastErr: NexusError | undefined;
     for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -126,7 +139,7 @@ export class Http {
             requestId,
           );
         }
-        return parsed.data as T;
+        return { data: parsed.data as T, status: res.status };
       }
       const e = json && json.success === false ? json.error : null;
       lastErr = new NexusError(

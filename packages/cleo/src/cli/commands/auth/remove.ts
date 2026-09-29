@@ -20,10 +20,18 @@
  * across `seed()` re-runs (env / claude-code / cleo-pkce / etc. would
  * otherwise re-discover the credential and re-seed it on the next call).
  *
+ * The flow lives in core (`removeLlmCredential`, T12712) so `cleo logout
+ * <provider> [label]` runs the identical removal.
+ *
  * @task T9416
+ * @task T12712
  * @epic E-CONFIG-AUTH-UNIFY (E2b)
  */
 
+import type {
+  LlmCredentialRemoval,
+  LlmCredentialRemovalOutcome,
+} from '@cleocode/core/llm/credential-remove-entry.js';
 import { defineCommand } from 'citty';
 import { cliError, cliOutput } from '../../renderers/index.js';
 
@@ -40,21 +48,32 @@ import { cliError, cliOutput } from '../../renderers/index.js';
  *
  * @task T9416
  */
-export interface AuthRemoveResult {
-  /** Provider whose entry was removed. */
-  provider: string;
-  /** Label of the removed entry. */
-  label: string;
-  /** Source id the entry came from (e.g. `claude-code`). */
-  source: string;
-  /** `true` if the entry was actually present in the store. */
-  removed: boolean;
-  /** Absolute filesystem paths the removal step mutated / deleted. */
-  cleaned: string[];
-  /** Operator-facing follow-up hints surfaced by the removal step. */
-  hints: string[];
-  /** `true` if `(provider, source)` was added to the suppression list. */
-  suppressed: boolean;
+export type AuthRemoveResult = LlmCredentialRemoval;
+
+/**
+ * Emit a pool-credential removal outcome: the failure envelope and exit code,
+ * or the per-source side effects on stderr and the result envelope on stdout.
+ * Shared by `cleo auth remove` and `cleo logout <provider>`.
+ *
+ * @param outcome - Result of `removeLlmCredential`.
+ * @param command - Renderer command id.
+ * @param operation - LAFS operation id.
+ * @task T12712
+ */
+export function emitLlmCredentialRemoval(
+  outcome: LlmCredentialRemovalOutcome,
+  command: string,
+  operation: string,
+): void {
+  if (!outcome.ok) {
+    cliError(outcome.message, outcome.exitCode, { name: outcome.code, fix: outcome.fix });
+    process.exit(outcome.exitCode);
+  }
+  // Side effects go to stderr so --json consumers get only the envelope on
+  // stdout while still seeing the human-facing guidance.
+  for (const path of outcome.result.cleaned) process.stderr.write(`cleaned: ${path}\n`);
+  for (const hint of outcome.result.hints) process.stderr.write(`hint: ${hint}\n`);
+  cliOutput(outcome.result, { command, operation });
 }
 
 // ---------------------------------------------------------------------------
@@ -62,7 +81,7 @@ export interface AuthRemoveResult {
 // ---------------------------------------------------------------------------
 
 /**
- * `cleo auth remove <provider> <label>` — see file-level docstring.
+ * `cleo auth remove <provider> <label>` — remove a single credential.
  *
  * @task T9416
  */
@@ -104,95 +123,14 @@ export const authRemoveCommand = defineCommand({
       process.exit(6);
     }
 
-    // Lazy import — same rationale as `cleo auth list`.
-    const { getCredentialPool } = await import(
-      /* webpackIgnore: true */ '@cleocode/core/llm/credential-pool.js'
+    // Lazy import — keeps `--help` fast (same rationale as `cleo auth list`).
+    const { removeLlmCredential } = await import(
+      /* webpackIgnore: true */ '@cleocode/core/llm/credential-remove-entry.js'
     );
-    const { REMOVAL_REGISTRY, addSuppression } = await import(
-      /* webpackIgnore: true */ '@cleocode/core/llm/credential-removal.js'
+    emitLlmCredentialRemoval(
+      await removeLlmCredential(provider, label),
+      'auth-remove',
+      'auth.remove',
     );
-    const { removeCredential } = await import(
-      /* webpackIgnore: true */ '@cleocode/core/llm/credentials-store.js'
-    );
-
-    const pool = getCredentialPool();
-    const entries = await pool.list();
-    const entry = entries.find((c) => c.provider === provider && c.label === label);
-
-    if (!entry) {
-      cliError(`No credential found for provider='${provider}' label='${label}'`, 4, {
-        name: 'E_NOT_FOUND',
-        fix: `Run 'cleo auth list' to see active credentials.`,
-      });
-      process.exit(4);
-    }
-
-    // Step 1 — dispatch to the per-source RemovalStep. `source` falls back to
-    // `'manual'` because legacy entries written before the seeder migration
-    // lack a `source` field; the MANUAL_REMOVAL_STEP handles those.
-    const sourceId = (entry.source ?? 'manual') as
-      | 'env'
-      | 'claude-code'
-      | 'cleo-pkce'
-      | 'codex-cli'
-      | 'gemini-cli'
-      | 'gh-cli'
-      | 'manual';
-    const step = REMOVAL_REGISTRY.find(sourceId);
-
-    if (!step) {
-      cliError(
-        `No RemovalStep registered for source='${sourceId}' — cannot safely remove '${provider}/${label}'.`,
-        2,
-        {
-          name: 'E_REMOVAL_NOT_REGISTERED',
-          fix: `Open an issue: a credential was seeded from an unknown source.`,
-        },
-      );
-      process.exit(2);
-    }
-
-    const stepResult = await step.remove({ provider, label });
-
-    // Step 2 — surface the per-source side-effects (`cleaned` + `hints`) on
-    // stderr. We deliberately route these through stderr so JSON consumers
-    // (--json) get the structured envelope on stdout while still seeing the
-    // human-facing guidance interleaved with their tool's output.
-    for (const path of stepResult.cleaned) {
-      process.stderr.write(`cleaned: ${path}\n`);
-    }
-    for (const hint of stepResult.hints) {
-      process.stderr.write(`hint: ${hint}\n`);
-    }
-
-    // Step 3 — persist suppression if the removal step asked for it.
-    let suppressed = false;
-    if (stepResult.suppress) {
-      addSuppression(provider, sourceId);
-      suppressed = true;
-    }
-
-    // Step 4 — drop the entry from `llm-credentials.json`. This is what makes
-    // the very next `cleo auth list` reflect the change without waiting for
-    // the 60s seed cache to expire.
-    const removed = await removeCredential(
-      entry.provider, // ModelTransport
-      label,
-    );
-
-    const result: AuthRemoveResult = {
-      provider,
-      label,
-      source: sourceId,
-      removed,
-      cleaned: stepResult.cleaned,
-      hints: stepResult.hints,
-      suppressed,
-    };
-
-    cliOutput(result, {
-      command: 'auth-remove',
-      operation: 'auth.remove',
-    });
   },
 });

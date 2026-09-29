@@ -275,6 +275,47 @@ describe('runTempProjectGc', () => {
     expect(result.candidates).toHaveLength(0);
   });
 
+  // T12512 regression: last_seen is not bumped on every command, so a project
+  // used daily can carry an old last_seen. Activity is max(seen, opened, probed).
+  it('skips a non-git project opened recently even when lastSeen is > 30d old', async () => {
+    const root = await makeProject(tmp, 'daily-notes');
+    vi.spyOn(nexusRegistry, 'nexusList').mockResolvedValueOnce([
+      {
+        ...mockProject('iii999', root, 'daily-notes', oldDate),
+        lastOpenedAt: new Date().toISOString(),
+      },
+    ]);
+
+    const result = await runTempProjectGc();
+    expect(result.candidates).toHaveLength(0);
+  });
+
+  it('skips a non-git project probed recently even when lastSeen is > 30d old', async () => {
+    const root = await makeProject(tmp, 'probed-proj');
+    vi.spyOn(nexusRegistry, 'nexusList').mockResolvedValueOnce([
+      {
+        ...mockProject('jjj000', root, 'probed-proj', oldDate),
+        lastProbedAt: new Date().toISOString(),
+      },
+    ]);
+
+    const result = await runTempProjectGc();
+    expect(result.candidates).toHaveLength(0);
+  });
+
+  it('reports last activity, not last_seen, when every timestamp is old', async () => {
+    const root = await makeProject(tmp, 'stale-proj');
+    const opened = new Date(Date.now() - (TEMP_GC_INACTIVITY_DAYS + 1) * 86_400_000).toISOString();
+    vi.spyOn(nexusRegistry, 'nexusList').mockResolvedValueOnce([
+      { ...mockProject('kkk111', root, 'stale-proj', oldDate), lastOpenedAt: opened },
+    ]);
+
+    const result = await runTempProjectGc();
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]?.lastSeen).toBe(opened);
+    expect(result.candidates[0]?.reason).toContain(`lastActivity=${opened}`);
+  });
+
   it('writes a pending_approval record to the audit JSONL', async () => {
     const root = await makeProject(tmp, 'audit-proj');
     vi.spyOn(nexusRegistry, 'nexusList').mockResolvedValueOnce([

@@ -53,6 +53,9 @@ describe('cleo-gitignore template', () => {
     // repository level.
     expect(content).toMatch(/^config\.json$/m);
     expect(content).toMatch(/^project-info\.json$/m);
+    // T12712: the machine-local Nexus project link is denied explicitly.
+    expect(content).toMatch(/^nexus-link\.json$/m);
+    expect(content).not.toMatch(/^!nexus-link\.json$/m);
   });
 
   it('template does NOT re-include config.json or project-info.json', async () => {

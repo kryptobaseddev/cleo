@@ -37,7 +37,6 @@
  * @epic T-LLM-CRED-CENTRALIZATION
  */
 
-import type { OnboardingResult } from '@cleocode/contracts';
 import { pushWarning } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
@@ -45,7 +44,7 @@ import { cliError, cliOutput, humanLine, isHumanOutput } from '../renderers/inde
 import { costCommand } from './llm-cost.js';
 import { runLlmRefreshCatalog } from './llm-refresh-catalog.js';
 import { streamCommand } from './llm-stream.js';
-import { emitLoginResult, LOGIN_ARGS, runLoginFrontDoor } from './login.js';
+import { LOGIN_ARGS, runLoginCommand } from './login.js';
 
 // Lazy import — avoids circular deps and keeps startup fast.
 // Resolved on first call to `cleo llm list-providers`.
@@ -608,7 +607,7 @@ const contextEnginesCommand = defineCommand({
 /**
  * cleo llm login <provider> — onboarding front door (alias of `cleo login`).
  *
- * Dispatches to the SAME shared handler ({@link runLoginFrontDoor}) and the
+ * Dispatches to the SAME shared handler ({@link runLoginCommand}) and the
  * SAME core engine as `cleo login` / `cleo auth login` (T11725 · AC2). The
  * front-door orchestrator picks a provider + auth method (browser OAuth or API
  * key), runs the OAuth dance when needed, then connect → select → bind →
@@ -619,9 +618,13 @@ const contextEnginesCommand = defineCommand({
  * unified; `cleo llm add <provider> --api-key-stdin` remains the bare
  * credential-only path for non-OAuth providers.
  *
+ * `cleo llm login nexus` also works: the shared handler checks the reserved
+ * `nexus` target first and signs in to a Cleo Nexus account (T12712).
+ *
  * @task T9266
  * @task T11669
  * @task T11725
+ * @task T12712
  */
 const loginCommand = defineCommand({
   meta: {
@@ -634,19 +637,7 @@ const loginCommand = defineCommand({
   },
   args: LOGIN_ARGS,
   async run({ args }) {
-    let result: OnboardingResult;
-    try {
-      result = await runLoginFrontDoor(args as Record<string, unknown>);
-    } catch (err) {
-      cliError(
-        err instanceof Error ? err.message : String(err),
-        1,
-        { name: 'E_LOGIN_FAILED' },
-        { operation: 'llm.login' },
-      );
-      process.exit(1);
-    }
-    emitLoginResult(result, 'llm.login');
+    await runLoginCommand(args as Record<string, unknown>, 'llm.login');
   },
 });
 
