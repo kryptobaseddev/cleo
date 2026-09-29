@@ -82,7 +82,7 @@ describe('assessPackedCant (packed mode)', () => {
     const readFile = (path) =>
       path === 'napi/cant.darwin-x64.node' ? Buffer.from(`${SOURCE_REV_PREFIX}oldrev`) : stamped;
     expect(assessPackedCant({ packedFiles: completePack, readFile, expectRev: rev })).toEqual([
-      `stale binary (not built from ${rev}): napi/cant.darwin-x64.node`,
+      `stale binary (not built from native source ${rev}): napi/cant.darwin-x64.node`,
     ]);
   });
 
