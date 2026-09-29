@@ -19,7 +19,23 @@ the same check `caamp skills validate` runs:
 - `name` and `description` must be present and well-formed;
 - the name must not be reserved.
 
-`name` must also equal its directory. Any error-level finding fails with
+`name` must also equal its directory.
+
+A CLEO bundled skill must also meet the frontmatter contract gate 29
+enforces. That covers a skill under `packages/skills/skills` and an
+installed copy of a skill the bundled manifest lists. The contract:
+
+- `metadata.version` is X.Y.Z;
+- `metadata.tier` and `metadata.install` are set;
+- there is no top-level `tier`, `core` or `category`.
+
+Gate 29 and `validate` load these rules from one module,
+`@cleocode/skills/frontmatter.mjs`. Gate 29 now also rejects tag-like text
+in `name` and `description`, as the Agent Skills standard does, so the two
+checks cannot disagree. ct-lead's description now writes its topic as
+`epic-{TID}.wave-{n}`.
+
+Any error-level finding fails with
 `E_VALIDATION` (exit 6), with every finding in `error.details`. An unresolvable
 target fails with `E_NOT_FOUND`. The result still reports `installed`,
 `inCatalog` and `installPath`.

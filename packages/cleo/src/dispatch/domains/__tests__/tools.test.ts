@@ -58,6 +58,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@cleocode/core/skills/skill-root.js', () => ({
   resolveSkillsRoot: mocks.resolveSkillsRoot,
+  resolveBundledSkillsDir: () => null,
 }));
 
 vi.mock('@cleocode/caamp', () => ({

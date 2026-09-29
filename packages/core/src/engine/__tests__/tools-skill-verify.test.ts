@@ -9,10 +9,10 @@
  * @task T12655
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { resolveSkillsRoot } from '../../skills/skill-root.js';
+import { resolveBundledSkillsDir, resolveSkillsRoot } from '../../skills/skill-root.js';
 import { toolsSkillVerify } from '../engine-ops.js';
 
 let root: string;
@@ -103,5 +103,55 @@ describe('toolsSkillVerify (cleo skills validate)', () => {
     const result = await toolsSkillVerify(join(root, 'missing', 'SKILL.md'));
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error.code).toBe('E_NOT_FOUND');
+  });
+
+  it('keeps a third-party skill on the Agent Skills rules only', async () => {
+    const result = await toolsSkillVerify(
+      plant('ct-thirdparty', `name: ct-thirdparty\n${GOOD_DESCRIPTION}`),
+    );
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.rules).toBe('agent-skills');
+  });
+
+  it('applies the gate-29 contract to a CLEO bundled skill (packages/skills/skills)', async () => {
+    const dir = plant(
+      'packages/skills/skills/ct-bundled',
+      `name: ct-bundled\n${GOOD_DESCRIPTION}\ntier: 0\nmetadata:\n  version: 1.0`,
+    );
+    const result = await toolsSkillVerify(dir);
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    const details = result.error.details as { rules: string; issues: { message: string }[] };
+    expect(details.rules).toBe('cleo');
+    const messages = details.issues.map((i) => i.message).join('\n');
+    expect(messages).toMatch(/top-level tier is not allowed/);
+    expect(messages).toMatch(/metadata.version '1.0' is not X.Y.Z/);
+    expect(messages).toMatch(/metadata.tier '' must be one of/);
+    expect(messages).toMatch(/metadata.install '' must be one of/);
+  });
+});
+
+describe('every bundled skill passes cleo skills validate (T12655)', () => {
+  const bundled = resolveBundledSkillsDir();
+  const names = bundled
+    ? readdirSync(bundled, { withFileTypes: true })
+        .filter((e) => e.isDirectory() && !e.name.startsWith('_'))
+        .map((e) => e.name)
+    : [];
+
+  it('finds the bundled skills', () => {
+    expect(names.length).toBeGreaterThan(10);
+  });
+
+  it.each(names)('%s validates with zero errors under the CLEO rules', async (name) => {
+    const result = await toolsSkillVerify(join(bundled ?? '', name));
+    const errors = result.success
+      ? []
+      : (
+          (result.error.details as { issues?: { level: string }[] } | undefined)?.issues ?? []
+        ).filter((i) => i.level === 'error');
+    expect(result.success ? '' : result.error.message).toBe('');
+    expect(errors).toEqual([]);
+    if (result.success) expect(result.data.rules).toBe('cleo');
   });
 });

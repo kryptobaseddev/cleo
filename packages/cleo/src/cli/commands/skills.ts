@@ -140,7 +140,7 @@ const validateCommand = defineCommand({
   meta: {
     name: 'validate',
     description:
-      'Validate a SKILL.md (frontmatter, name, description); exits non-zero with findings',
+      'Validate a SKILL.md; exits non-zero with findings. Every skill is checked against the Agent Skills standard (valid YAML; name and description present, well-formed, no tags). A CLEO bundled skill (packages/skills/skills, or an installed copy of one) must also meet the CLEO frontmatter contract gate 29 enforces: metadata.version X.Y.Z, metadata.tier, metadata.install, no top-level tier/core/category, name equal to its directory.',
   },
   args: {
     'skill-name': {

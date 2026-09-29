@@ -18,7 +18,7 @@
  * @epic T1566
  */
 
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import {
   buildInjectionContent,
@@ -60,7 +60,7 @@ import {
   renderDoctorDiagnoseReport,
 } from '../skills/doctor.js';
 import type { MigrationOptions } from '../skills/migration.js';
-import { resolveSkillsRoot } from '../skills/skill-root.js';
+import { resolveBundledSkillsDir, resolveSkillsRoot } from '../skills/skill-root.js';
 import { upsertSkillRow } from '../store/skills-db.js';
 
 /** Shape for provider hook info returned by queryHookProviders. */
@@ -278,6 +278,38 @@ export interface SkillVerifyReport {
   inCatalog: boolean;
   /** Canonical install directory, when installed. */
   installPath: string | null;
+  /**
+   * Which rules applied: `cleo` (a CLEO bundled skill: the Agent Skills
+   * standard plus gate 29's frontmatter contract) or `agent-skills` (any other
+   * skill: the Agent Skills standard only).
+   */
+  rules: 'cleo' | 'agent-skills';
+}
+
+/**
+ * Whether `file` is a CLEO bundled skill: a SKILL.md in the bundled skills
+ * package (or a `packages/skills/skills` checkout), or the installed canonical
+ * copy of a skill the bundled manifest lists.
+ *
+ * @param file - Absolute SKILL.md path.
+ * @returns True when gate 29's rules apply.
+ */
+function isBundledSkillFile(file: string): boolean {
+  const dir = dirname(file);
+  const name = basename(dir);
+  if (/[\\/]packages[\\/]skills[\\/]skills$/.test(dirname(dir))) return true;
+  const bundled = resolveBundledSkillsDir();
+  if (!bundled) return false;
+  if (resolve(dirname(dir)) === resolve(bundled)) return true;
+  if (resolve(dirname(dir)) !== resolve(resolveSkillsRoot())) return false;
+  try {
+    const manifest = JSON.parse(readFileSync(join(bundled, 'manifest.json'), 'utf-8')) as {
+      skills?: Array<{ name?: string }>;
+    };
+    return (manifest.skills ?? []).some((s) => s.name === name);
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -334,7 +366,17 @@ export async function toolsSkillVerify(target: string): Promise<EngineResult<Ski
     const issues = [...result.issues];
     const dirName = basename(dirname(file));
     const declared = typeof result.metadata?.['name'] === 'string' ? result.metadata['name'] : null;
-    if (basename(file) === 'SKILL.md' && declared !== null && declared !== dirName) {
+    const bundled = basename(file) === 'SKILL.md' && isBundledSkillFile(file);
+    if (bundled) {
+      // The exact rules gate 29 applies, from the one shared module.
+      const { parseFrontmatter, validateFrontmatter } = await import(
+        '@cleocode/skills/frontmatter.mjs'
+      );
+      const fm = parseFrontmatter(readFileSync(file, 'utf-8'));
+      for (const problem of validateFrontmatter({ ...fm, name: dirName })) {
+        issues.push({ level: 'error', field: 'cleo-frontmatter', message: problem });
+      }
+    } else if (basename(file) === 'SKILL.md' && declared !== null && declared !== dirName) {
       issues.push({
         level: 'error',
         field: 'name',
@@ -352,6 +394,7 @@ export async function toolsSkillVerify(target: string): Promise<EngineResult<Ski
       installed,
       inCatalog: catalog.isCatalogAvailable() && !!catalog.getSkill(skill),
       installPath: installed ? installDir : null,
+      rules: bundled ? 'cleo' : 'agent-skills',
     };
     if (!report.valid) {
       const errors = issues.filter((i) => i.level === 'error');

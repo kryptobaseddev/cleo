@@ -241,6 +241,21 @@ describe('lint-skills-manifest goes red on planted defects', () => {
     expect(runGate(root)).toBe(0);
   });
 
+  it('fails on tag-like text in description, as cleo skills validate does (T12655)', () => {
+    addSkill(
+      'ct-alpha',
+      skillMd('ct-alpha').replace(
+        /^description: .*$/m,
+        'description: Publishes on epic-<TID>.wave-<n>',
+      ),
+    );
+    expect(checkManifest(root).problems).toContainEqual({
+      skill: 'ct-alpha',
+      problem:
+        'description contains angle-bracket (XML/HTML tag) text; write placeholders as {name}',
+    });
+  });
+
   it('fails when retiredSkills names a live skill (T12678)', () => {
     const m = JSON.parse(readFileSync(join(root, MANIFEST), 'utf8'));
     m.retiredSkills = ['ct-alpha', 'ct-gone'];
