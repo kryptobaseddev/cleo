@@ -32,17 +32,19 @@ export interface AnalysisRankedTask {
  *
  * @param accessor - Task data accessor.
  * @param allTasks - The active task population.
- * @param opts - Project root (for BRAIN patterns) and an optional id scope.
+ * @param opts - Project root (for BRAIN patterns), an optional id scope, and
+ *   `nowMs` (defaults to now) for the age tiebreak.
  * @returns Ranked ready tasks with their open-dependent leverage.
  * @task T12661
  */
 export async function rankForAnalysis(
   accessor: DataAccessor,
   allTasks: readonly Task[],
-  opts: { projectRoot?: string; scopeTaskIds?: ReadonlySet<string> } = {},
+  opts: { projectRoot?: string; scopeTaskIds?: ReadonlySet<string>; nowMs?: number } = {},
 ): Promise<{ ranked: AnalysisRankedTask[] }> {
   const { ranked, leverage } = await rankReadyTasks(accessor, allTasks, {
     currentPhase: await resolveRankingPhase(accessor),
+    nowMs: opts.nowMs ?? Date.now(),
     ...opts,
   });
   return {

@@ -30,9 +30,9 @@ describe('scoreTask', () => {
     const lowResult = scoreTask(LOW_TASK, ctx);
 
     expect(highResult.score).toBeGreaterThan(lowResult.score);
-    // High priority baseline is 75, low is 25 (both get age bonus check separately)
-    expect(highResult.score).toBeGreaterThanOrEqual(75);
-    expect(lowResult.score).toBe(25); // priority only — no other bonuses apply
+    // T12691: tier 1 is the priority band (high 3 > low 1); nothing else applies to LOW.
+    expect(highResult.key?.band).toBe(3);
+    expect(lowResult.key).toEqual({ band: 1, severity: 0, tiebreak: 0 });
   });
 
   it('adds phase alignment bonus when task phase matches currentPhase', () => {
@@ -83,8 +83,18 @@ describe('scoreTask', () => {
       failurePatterns: [{ pattern: 'migration' }],
     });
 
-    expect(withSuccess.score).toBe(50 + 10); // medium + success bonus
-    expect(withFailure.score).toBe(50 - 5); // medium - failure penalty
+    // T12691 (D11161): BRAIN patterns are informational — they never move the order.
+    const plain = scoreTask(task, noDepCtx);
+    expect(withSuccess.score).toBe(plain.score);
+    expect(withFailure.score).toBe(plain.score);
+    expect(withSuccess.factors.find((f) => f.name === 'brainSuccess')).toMatchObject({
+      delta: 0,
+      tier: null,
+    });
+    expect(withFailure.factors.find((f) => f.name === 'brainFailure')).toMatchObject({
+      delta: 0,
+      tier: null,
+    });
   });
 
   it('returns all factor names in result', () => {
@@ -95,7 +105,8 @@ describe('scoreTask', () => {
     });
 
     const names = result.factors.map((f) => f.name);
-    expect(names).toContain('priority');
+    expect(names).toContain('band');
+    expect(names).toContain('severity');
     expect(names).toContain('phaseAlignment');
     expect(names).toContain('depsReady');
   });

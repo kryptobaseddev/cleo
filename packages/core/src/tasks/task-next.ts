@@ -107,15 +107,22 @@ export async function resolveRankingPhase(accessor: DataAccessor): Promise<strin
  *
  * @param accessor - Task data accessor (for dependency records outside `allTasks`).
  * @param allTasks - The active task population.
- * @param opts - Current phase, optional id scope, and `projectRoot` to add
- *   BRAIN success/failure pattern scoring (best-effort).
+ * @param opts - Current phase, optional id scope, `nowMs`, and `projectRoot`
+ *   to attach BRAIN success/failure patterns as informational factors
+ *   (best-effort; they are not part of the order).
  * @returns Ranked candidates, how many there were, and the leverage map used.
  * @task T12661
  */
 export async function rankReadyTasks(
   accessor: DataAccessor,
   allTasks: readonly Task[],
-  opts: { currentPhase: string | null; scopeTaskIds?: ReadonlySet<string>; projectRoot?: string },
+  opts: {
+    currentPhase: string | null;
+    scopeTaskIds?: ReadonlySet<string>;
+    projectRoot?: string;
+    /** Clock for the age tiebreak; one instant for the whole ranking. */
+    nowMs?: number;
+  },
 ): Promise<{
   ranked: RankedTask<Task>[];
   totalCandidates: number;
@@ -134,6 +141,7 @@ export async function rankReadyTasks(
 
   const ctx: ScoreTaskContext = {
     currentPhase: opts.currentPhase,
+    nowMs: opts.nowMs ?? Date.now(),
     taskStatuses: new Map(
       [...dependencyLookup.values()].map((task) => [task.id, task.status] as const),
     ),

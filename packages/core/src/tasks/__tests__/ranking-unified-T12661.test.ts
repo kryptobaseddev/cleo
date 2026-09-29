@@ -114,29 +114,63 @@ describe('T12661 — shared scorer', () => {
       { nowMs: NOW },
     );
     const feature = scoreTask(
-      { id: 'T016', title: 'Old feature', priority: 'medium', createdAt: daysAgo(93) },
-      { nowMs: NOW, leverage: new Map([['T016', 8]]) },
+      // Phase-aligned too: every tiebreak bonus the medium feature can earn.
+      {
+        id: 'T016',
+        title: 'Old feature',
+        priority: 'medium',
+        phase: 'impl',
+        createdAt: daysAgo(93),
+      },
+      { nowMs: NOW, currentPhase: 'impl', leverage: new Map([['T016', 8]]) },
     );
     expect(bug.score).toBeGreaterThan(feature.score);
+    expect(bug.key?.band).toBeGreaterThan(feature.key?.band ?? 0);
 
-    // Every factor is named; the bug default and the bounded age bonus say so.
-    expect(bug.factors.map(formatScoreFactor)).toContain(
-      'severity: kind=bug with no severity, scored as P2 (+10)',
-    );
+    // --explain names every tier; an unset severity is unknown, never imputed.
+    expect(bug.factors.map(formatScoreFactor)).toContain('tier 2 severity: unknown (not set)');
     const reasons = feature.factors.map(formatScoreFactor);
-    expect(reasons).toContain('age: anti-starvation: 93 days old (capped at +10) (+10)');
-    expect(reasons).toContain('leverage: unblocks 8 open task(s) (capped at +20) (+20)');
+    expect(reasons).toContain('tier 1 band: priority medium');
+    expect(reasons).toContain('tier 3 age: anti-starvation: 93 days old (capped at +10) (+10)');
+    expect(reasons).toContain('tier 3 leverage: unblocks 8 open task(s) (capped at +20) (+20)');
   });
 
-  it('an explicit severity wins over the bug default, and applies to any kind', () => {
-    const p0 = scoreTask({ id: 'A', title: 'a', priority: 'medium', severity: 'P0' }, {});
-    expect(p0.factors.find((f) => f.name === 'severity')).toEqual({
-      name: 'severity',
-      delta: 30,
-      detail: 'P0',
-    });
-    const work = scoreTask({ id: 'B', title: 'b', priority: 'medium', kind: 'work' }, {});
-    expect(work.factors.some((f) => f.name === 'severity')).toBe(false);
+  it('severity is attested only: P0 > P1 > P2 > P3 > unknown, and a bug gets no imputed severity', () => {
+    const at = (severity?: 'P0' | 'P1' | 'P2' | 'P3', kind?: 'bug' | 'work') =>
+      scoreTask({ id: 'X', title: 'x', priority: 'medium', severity, kind }, {}).key?.severity;
+    expect([at('P0'), at('P1'), at('P2'), at('P3'), at()]).toEqual([4, 3, 2, 1, 0]);
+    expect(at(undefined, 'bug')).toBe(0);
+    expect(at('P0', 'work')).toBe(4);
+  });
+
+  it('severity decides within a band; the tiebreak never crosses severity or band', () => {
+    const ctx = { nowMs: NOW, currentPhase: 'impl', leverage: new Map([['B', 8]]) };
+    const ranked = rankTasks(
+      [
+        // Every tiebreak bonus, no severity.
+        { id: 'B', title: 'b', priority: 'high', phase: 'impl', createdAt: daysAgo(400) },
+        { id: 'A', title: 'a', priority: 'high', severity: 'P3', createdAt: daysAgo(0) },
+        { id: 'C', title: 'c', priority: 'critical', createdAt: daysAgo(0) },
+      ],
+      ctx,
+    ).map((r) => r.task.id);
+    expect(ranked).toEqual(['C', 'A', 'B']);
+  });
+
+  it('BRAIN patterns are informational: shown in --explain, never part of the order', () => {
+    const ctx = { successPatterns: [{ pattern: 'auth' }], failurePatterns: [{ pattern: 'flaky' }] };
+    const ranked = rankTasks(
+      [
+        { id: 'T2', title: 'flaky thing', priority: 'medium', createdAt: daysAgo(1) },
+        { id: 'T1', title: 'auth win', priority: 'medium', createdAt: daysAgo(0) },
+      ],
+      ctx,
+    );
+    // Same key: older createdAt wins despite the patterns.
+    expect(ranked.map((r) => r.task.id)).toEqual(['T2', 'T1']);
+    expect(ranked[1]?.factors.map(formatScoreFactor)).toContain(
+      'info brainSuccess: success pattern "auth" (not in the order)',
+    );
   });
 
   it('bounds the age bonus', () => {
@@ -149,14 +183,17 @@ describe('T12661 — shared scorer', () => {
 });
 
 describe('T12661 — every ranker agrees on the axiom fixture', () => {
-  it('cleo next ranks T741 first and explains every factor', async () => {
+  it('cleo next puts the fresh high bug T741 above every medium task and explains the tier keys', async () => {
     const root = await axiomFixture();
-    const next = await coreTaskNext(root, { count: 3, explain: true });
-    expect(next.suggestions[0]?.id).toBe('T741');
-    expect(next.suggestions[0]?.reasons).toEqual([
-      'priority: high (+75)',
-      'severity: kind=bug with no severity, scored as P2 (+10)',
-      'depsReady: all dependencies satisfied (+10)',
+    const next = await coreTaskNext(root, { count: 20, explain: true });
+    const ids = next.suggestions.map((s) => s.id);
+    // The 136-of-385 incident: the band alone lifts T741 above every medium task.
+    for (const medium of ['T016', 'T324'])
+      expect(ids.indexOf('T741')).toBeLessThan(ids.indexOf(medium));
+    expect(next.suggestions.find((s) => s.id === 'T741')?.reasons).toEqual([
+      'tier 1 band: priority high',
+      'tier 2 severity: unknown (not set)',
+      'tier 3 depsReady: all dependencies satisfied (+10)',
     ]);
   });
 
@@ -164,18 +201,20 @@ describe('T12661 — every ranker agrees on the axiom fixture', () => {
     const root = await axiomFixture();
     const next = await coreTaskNext(root, { count: 3 });
     const briefing = await computeBriefing(root, { scope: 'global', maxNextTasks: 3 });
-    // T741 95 (75 + bug P2 10 + deps 10), T016 90 (50 + deps 10 + leverage cap 20
-    // + age cap 10), T698 85 (75 + deps 10).
-    expect(next.suggestions.map((s) => s.id)).toEqual(['T741', 'T016', 'T698']);
-    expect(briefing.nextTasks.map((t) => t.id)).toEqual(['T741', 'T016', 'T698']);
+    // Band high: T698 and T741 tie on severity (unknown) and tiebreak (deps +10);
+    // the older T698 wins. Band medium: T016 (tiebreak 10 + 20 + 10 = 40).
+    expect(next.suggestions.map((s) => s.id)).toEqual(['T698', 'T741', 'T016']);
+    expect(briefing.nextTasks.map((t) => t.id)).toEqual(['T698', 'T741', 'T016']);
     expect(briefing.nextTasks.map((t) => t.score)).toEqual(next.suggestions.map((s) => s.score));
     expect(briefing.nextTasks.find((t) => t.id === 'T016')?.leverage).toBe(8);
   });
 
   it('cleo analyze (CLI and SDK) recommends the same top task', async () => {
     const root = await axiomFixture();
-    expect((await analyzeTaskPriority({ cwd: root })).recommended?.id).toBe('T741');
-    expect((await coreTaskAnalyze(root)).recommended?.id).toBe('T741');
+    const top = (await coreTaskNext(root)).suggestions[0]?.id;
+    expect(top).toBe('T698');
+    expect((await analyzeTaskPriority({ cwd: root })).recommended?.id).toBe(top);
+    expect((await coreTaskAnalyze(root)).recommended?.id).toBe(top);
   });
 
   it('with a current phase set, next, briefing and both analyze paths still agree', async () => {

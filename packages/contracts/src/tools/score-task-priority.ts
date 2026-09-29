@@ -54,12 +54,32 @@ export interface ScoreFactor {
   delta: number;
   /** Human-readable explanation. */
   detail: string;
+  /**
+   * Comparator tier the factor belongs to (T12691): 1 priority band, 2 severity,
+   * 3 bounded tiebreak; `null` for an informational factor outside the order.
+   */
+  tier?: 1 | 2 | 3 | null;
+}
+
+/** The lexicographic sort key of a scored task (T12691); higher sorts first. */
+export interface ScoreTaskKey {
+  /** Owner priority band: critical 4, high 3, medium 2, low 1. */
+  band: number;
+  /** Attested severity: P0 4, P1 3, P2 2, P3 1, unknown 0. */
+  severity: number;
+  /** Bounded computed tiebreak (deps, phase, leverage, age). */
+  tiebreak: number;
 }
 
 /** Result of scoreTask. */
 export interface ScoreTaskResult {
-  /** Final computed score. */
+  /**
+   * The key as one number that sorts identically (band × 10000 + severity ×
+   * 1000 + tiebreak), for display and single-number consumers.
+   */
   score: number;
-  /** Individual scoring factors. */
+  /** Individual scoring factors, each tagged with its comparator tier. */
   factors: ScoreFactor[];
+  /** The lexicographic sort key (T12691). */
+  key?: ScoreTaskKey;
 }
