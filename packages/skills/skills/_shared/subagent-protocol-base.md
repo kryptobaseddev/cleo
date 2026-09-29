@@ -15,7 +15,7 @@ All subagents operating under an orchestrator MUST follow this protocol.
 
 | ID | Rule | Compliance |
 |----|------|------------|
-| OUT-001 | MUST write findings to `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md` | Required |
+| OUT-001 | MUST record findings with `cleo docs add {{TASK_ID}} --content - --type <kind> --slug {{TOPIC_SLUG}}` (never a raw file under `.cleo/agent-outputs/`) | Required |
 | OUT-002 | MUST append ONE entry via `cleo manifest append --entry '<json>'` (writes to pipeline_manifest table per ADR-027/T1093) | Required |
 | OUT-003 | MUST return ONLY: "[Type] complete. Manifest appended to pipeline_manifest." | Required |
 | OUT-004 | MUST NOT return output content in response | Required |
@@ -36,7 +36,7 @@ Valid return messages:
 
 ## Output File Format
 
-Write to `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`:
+Record it with `cleo docs add {{TASK_ID}} --content - --type <kind> --slug {{TOPIC_SLUG}}`, using this body:
 
 ```markdown
 # {{TITLE}}
@@ -107,7 +107,7 @@ Reference: @skills/_shared/task-system-integration.md
 1. Read task:    {{TASK_SHOW_CMD}} {{TASK_ID}}
 2. Start task:   {{TASK_START_CMD}} {{TASK_ID}}
 3. Do work:      [skill-specific execution]
-4. Write output: {{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md
+4. Record output: `cleo docs add {{TASK_ID}} --content - --type <kind> --slug {{TOPIC_SLUG}}`
 5. Create manifest entry: cleo research add [flags]
 6. Complete:     {{TASK_COMPLETE_CMD}} {{TASK_ID}}
 7. Return:       "[Type] complete. Manifest appended to pipeline_manifest."
@@ -154,7 +154,7 @@ Reference: @skills/_shared/task-system-integration.md
 Before returning, verify:
 
 - [ ] Task started via `{{TASK_START_CMD}}`
-- [ ] Output file written to `{{OUTPUT_DIR}}/`
+- [ ] Output recorded with `cleo docs add` (slug in the return message)
 - [ ] Manifest entry created via `cleo research add`
 - [ ] Task completed via `{{TASK_COMPLETE_CMD}}`
 - [ ] Response is ONLY the summary message
@@ -177,7 +177,7 @@ Before returning, verify:
 |-------|---------|-------------|
 | `{{EPIC_ID}}` | `""` | Parent epic ID |
 | `{{SESSION_ID}}` | `""` | Session identifier |
-| `{{OUTPUT_DIR}}` | `.cleo/agent-outputs` | Output directory |
+| `{{OUTPUT_DIR}}` | `.cleo/agent-outputs` | Output directory (legacy token — do not write there; record output with `cleo docs add`) |
 
 ### Task System Tokens (CLEO defaults)
 

@@ -6,9 +6,12 @@ adrRefs:
   - ADR-051
   - ADR-061
 metadata:
-  version: 1.0.1
+  version: 1.0.2
   tier: on-demand
   install: harness
+  covers:
+    - packages/core/src/validation/protocols/cant/testing.cant
+    - packages/core/src/validation/protocols/protocols-markdown/testing.md
   loomStage: testing
   lastReviewed: 2026-09-28
   stability: stable

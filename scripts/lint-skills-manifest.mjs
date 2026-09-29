@@ -21,7 +21,9 @@
  *    `metadata.tier` (core|on-demand|internal) and `metadata.install`
  *    (harness|internal). A top-level `version`, where kept for older readers,
  *    must equal `metadata.version`.
- * 2. `packages/skills/skills/manifest.json` is byte-identical to what
+ * 2. ct-cleo's `metadata.version` equals the `Version:` line of
+ *    `CLEO-INJECTION.md` and `CLEO-REFERENCE.md`, the protocol it documents.
+ * 3. `packages/skills/skills/manifest.json` is byte-identical to what
  *    `scripts/skills/generate-manifest.mjs` produces — so every directory is
  *    listed, no entry lacks a directory, and no identity field is hand-edited.
  *
