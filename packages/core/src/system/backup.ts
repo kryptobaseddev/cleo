@@ -458,7 +458,7 @@ export function listSystemBackups(projectRoot: string): BackupEntry[] {
  */
 export function restoreBackup(
   projectRoot: string,
-  params: { backupId: string; force?: boolean; confirmOwnerStore?: boolean; cwd?: string },
+  params: { backupId: string; force?: boolean; confirmOwnerStore?: boolean; cwd: string },
 ): RestoreResult {
   if (!params.backupId) {
     throw new CleoError(ExitCode.INVALID_INPUT, 'backupId is required');
@@ -557,7 +557,7 @@ export interface FileRestoreResult {
  *
  * @param projectRoot - Absolute path to the project root
  * @param fileName - File to restore: 'tasks.db' or 'config.json'
- * @param opts - Optional restore flags
+ * @param opts - Restore flags; `cwd` (the invocation directory) is required (T12680)
  * @returns Result of the restore operation
  *
  * @task T5329
@@ -567,7 +567,7 @@ export interface FileRestoreResult {
 export async function fileRestore(
   projectRoot: string,
   fileName: string,
-  opts?: { dryRun?: boolean; confirmOwnerStore?: boolean; cwd?: string },
+  opts: { dryRun?: boolean; confirmOwnerStore?: boolean; cwd: string },
 ): Promise<FileRestoreResult> {
   const { getTaskPath, getConfigPath, getBackupDir } = await import('../paths.js');
   const { listBackups, restoreFromBackup } = await import('../store/backup.js');
@@ -591,7 +591,7 @@ export async function fileRestore(
     throw new Error(`No backups found for ${fileName}`);
   }
 
-  if (opts?.dryRun) {
+  if (opts.dryRun) {
     return { restored: false, file: fileName, from: backups[0]!, targetPath, dryRun: true };
   }
 

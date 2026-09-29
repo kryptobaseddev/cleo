@@ -972,6 +972,8 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
           backupId,
           force: params.force,
           confirmOwnerStore: params.confirmOwnerStore,
+          // T12680: the invocation directory; core never falls back to it.
+          cwd: process.cwd(),
         });
         return lafsSuccess(data, 'backup.mutate');
       } catch (err) {
@@ -992,6 +994,8 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
         const data = await fileRestore(projectRoot, file, {
           dryRun: params.dryRun,
           confirmOwnerStore: params.confirmOwnerStore,
+          // T12680: the invocation directory; core never falls back to it.
+          cwd: process.cwd(),
         });
         return lafsSuccess(data, 'backup.mutate');
       } catch (err) {

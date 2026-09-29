@@ -95,15 +95,16 @@ export async function listBackups(fileName: string, backupDir: string): Promise<
  * @param fileName - File to restore.
  * @param backupDir - Directory holding its numbered backups.
  * @param targetPath - Where to write it.
- * @param opts - Invocation directory, and confirmation to overwrite the
- *   owning project's live store from a worktree.
+ * @param opts - Invocation directory (required: core never falls back to
+ *   `process.cwd()`), and confirmation to overwrite the owning project's live
+ *   store from a worktree.
  * @returns The backup file restored from.
  */
 export async function restoreFromBackup(
   fileName: string,
   backupDir: string,
   targetPath: string,
-  opts: { confirmOwnerStore?: boolean | undefined; cwd?: string | undefined } = {},
+  opts: { confirmOwnerStore?: boolean | undefined; cwd: string },
 ): Promise<string> {
   const backups = await listBackups(fileName, backupDir);
   if (backups.length === 0) {

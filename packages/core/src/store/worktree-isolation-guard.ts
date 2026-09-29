@@ -133,8 +133,9 @@ function enclosingCheckout(dir: string): string | null {
  * refused outright.
  *
  * @param storeRoot - Project root whose `.cleo/` the restore writes.
- * @param opts - `cwd` the restore was invoked from (default `process.cwd()`),
- *   and `confirmOwnerStore` to allow overwriting the owner's live store.
+ * @param opts - `cwd` the restore was invoked from (required: core never
+ *   falls back to `process.cwd()`; the CLI layer supplies it), and
+ *   `confirmOwnerStore` to allow overwriting the owner's live store.
  * @throws `CleoError` `E_WT_RESTORE_REFUSED` when the owner cannot hold the
  *   store, or `E_WT_RESTORE_CONFIRM_REQUIRED` when confirmation is missing.
  * @example
@@ -145,9 +146,9 @@ function enclosingCheckout(dir: string): string | null {
  */
 export function assertRestoreTargetConfirmed(
   storeRoot: string,
-  opts: { cwd?: string | undefined; confirmOwnerStore?: boolean | undefined } = {},
+  opts: { cwd: string; confirmOwnerStore?: boolean | undefined },
 ): void {
-  const checkout = enclosingCheckout(opts.cwd ?? process.cwd());
+  const checkout = enclosingCheckout(opts.cwd);
   const worktree = isGitLinkedCheckout(storeRoot)
     ? storeRoot
     : checkout !== null && isGitLinkedCheckout(checkout)
