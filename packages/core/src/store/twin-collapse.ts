@@ -112,6 +112,15 @@
  *   else writable) and `cleo doctor twin-collapse` shows the cause.
  * - Blobs: after each merge every twin doc's blob gets a keep-link (and is
  *   restored from it if the older build unlinked it), see `blob-keep.ts`.
+ * - Freeze (option (a), D11160): every merge installs BEFORE
+ *   INSERT/UPDATE/DELETE triggers on the bare docs tables that abort an
+ *   older build's write with the upgrade message ({@link docsFrozenMessage}).
+ *   This build never writes them; a path that must runs inside
+ *   {@link withBareDocsWritable} (the unfreeze row lives inside one savepoint,
+ *   invisible to other connections). Every open checks the freeze and change
+ *   triggers and re-installs missing ones (a rebuild or restore drops them);
+ *   `cleo doctor` reports them missing. The (b) defences above cover the time
+ *   a freeze is missing.
  *
  * ## Contract
  *
@@ -156,6 +165,7 @@ import { ExitCode } from '@cleocode/contracts';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
+import { getCleoVersion } from '../scaffold/ensure-config.js';
 import { blobFileForRow, pinBlob, restoreBlob } from './blob-keep.js';
 import { planMigrationSnapshot, writeMigrationSnapshot } from './pre-repair-snapshot.js';
 import { SNAPSHOT_GATE_META_KEY } from './snapshot-gate.js';
@@ -293,6 +303,10 @@ interface TwinPair {
   changeSeq?(db: DatabaseSync): string | undefined;
   /** Work outside the database after a merge committed (best effort). */
   afterCommit?(db: DatabaseSync, plan: Plan, dbPath: string): void;
+  /** Whether the pair's triggers on the bare tables are all in place. */
+  guardsIntact?(db: DatabaseSync): boolean;
+  /** Re-install those triggers (idempotent). */
+  installGuards?(db: DatabaseSync): void;
 }
 
 const sha = (value: string): string => createHash('sha256').update(value).digest('hex');
@@ -800,6 +814,103 @@ function ensureDocsTracking(db: DatabaseSync): void {
   }
 }
 
+/** Key whose presence (inside one transaction only) lets this build write the frozen bare docs tables. */
+export const DOCS_UNFREEZE_KEY = 'twin_collapse_unfreeze:attachments';
+
+/** The freeze-trigger name for one bare table and operation. */
+const freezeTrigger = (table: string, op: string): string =>
+  `t12535_freeze_${table}_${op.toLowerCase()}`;
+
+/** Every freeze and change trigger the docs pair keeps on the bare tables. */
+const docsGuardTriggers = (): string[] =>
+  DOCS_BARE.flatMap((t) =>
+    SHADOW_WRITE_OPS.flatMap((op) => [freezeTrigger(t, op), trackTrigger(t, op)]),
+  );
+
+/**
+ * The message an older build's write to a frozen bare docs table aborts with:
+ * it names the release that moved the docs and the upgrade command.
+ */
+export function docsFrozenMessage(): string {
+  const version = getCleoVersion().replace(/[^0-9A-Za-z.+-]/g, '');
+  return (
+    `CLEO: docs moved to docs_attachments (T12535); this project needs cleo ${version} or newer ` +
+    'to write docs. Run: npm i -g @cleocode/cleo@latest'
+  );
+}
+
+/**
+ * BEFORE INSERT/UPDATE/DELETE triggers on the bare docs tables that abort
+ * every write with {@link docsFrozenMessage} (option (a), owner decision
+ * D11160). SQLite enforces them whatever build writes, so the 2026.9.20 build
+ * can no longer write rows this build treats as frozen: no duplicate content
+ * or slug, no split ref counts, no stale-read deletes, no ADR number reuse.
+ * Its reads keep working (they show the frozen docs).
+ *
+ * This build never writes the bare tables. A path that must (a future data
+ * fix) runs inside {@link withBareDocsWritable}; a migration that rebuilds or
+ * drops the tables is not affected (DDL does not fire DML triggers; the
+ * triggers go with a renamed or dropped table and are re-installed at the next
+ * open, see {@link ensureDocsGuards}).
+ */
+function ensureDocsFreeze(db: DatabaseSync): void {
+  const message = docsFrozenMessage().replace(/'/g, "''");
+  for (const table of DOCS_BARE) {
+    for (const op of SHADOW_WRITE_OPS) {
+      db.exec(
+        `CREATE TRIGGER IF NOT EXISTS main.${freezeTrigger(table, op)} BEFORE ${op} ON ${table} ` +
+          `WHEN NOT EXISTS (SELECT 1 FROM tasks_schema_meta WHERE key = '${DOCS_UNFREEZE_KEY}') ` +
+          `BEGIN SELECT RAISE(ABORT, '${message}'); END`,
+      );
+    }
+  }
+}
+
+/** Whether every freeze and change trigger is in place. */
+function docsGuardsIntact(db: DatabaseSync): boolean {
+  const names = docsGuardTriggers();
+  const present = (
+    db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM main.sqlite_master WHERE type = 'trigger' AND name IN (${names.map(() => '?').join(', ')})`,
+      )
+      .get(...names) as { n: number }
+  ).n;
+  return present === names.length;
+}
+
+/** Install the freeze and change triggers (idempotent). */
+function ensureDocsGuards(db: DatabaseSync): void {
+  ensureDocsFreeze(db);
+  ensureDocsTracking(db);
+}
+
+/**
+ * Run `fn` with the bare docs tables writable for THIS connection only: the
+ * unfreeze row is inserted and deleted inside one savepoint, so no other
+ * connection (an older build) ever sees it.
+ *
+ * @param db - The project `cleo.db` connection.
+ * @param fn - The work that must write `attachments` / `attachment_refs`.
+ * @returns What `fn` returns.
+ * @task T12535
+ */
+export function withBareDocsWritable<T>(db: DatabaseSync, fn: () => T): T {
+  const name = `t12535_unfreeze_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  db.exec(`SAVEPOINT ${name}`);
+  try {
+    writeKv(db, 'tasks_schema_meta', DOCS_UNFREEZE_KEY, '1');
+    const result = fn();
+    db.prepare('DELETE FROM main.tasks_schema_meta WHERE key = ?').run(DOCS_UNFREEZE_KEY);
+    db.exec(`RELEASE ${name}`);
+    return result;
+  } catch (error) {
+    db.exec(`ROLLBACK TO ${name}`);
+    db.exec(`RELEASE ${name}`);
+    throw error;
+  }
+}
+
 /** The bare side's change counter, or `undefined` when a change trigger is missing. */
 function docsChangeSeq(db: DatabaseSync): string | undefined {
   const names = DOCS_BARE.flatMap((t) => SHADOW_WRITE_OPS.map((op) => trackTrigger(t, op)));
@@ -1072,6 +1183,8 @@ const DOCS: TwinPair = {
   bareHashes: (db) => docsHashes(db, 'bare'),
   twinHashes: (db) => docsHashes(db, 'twin'),
   changeSeq: docsChangeSeq,
+  guardsIntact: docsGuardsIntact,
+  installGuards: ensureDocsGuards,
   plan: planDocs,
   apply(db, plan) {
     // Rows may reference each other (self foreign keys); check at COMMIT.
@@ -1083,7 +1196,7 @@ const DOCS: TwinPair = {
       db.exec(`CREATE UNIQUE INDEX main.${quoteIdent(index.name)} ON docs_attachments ${index.on}`);
     if (plan.aliases !== undefined)
       writeKv(db, 'tasks_schema_meta', DOCS_ALIAS_KEY, JSON.stringify(plan.aliases));
-    ensureDocsTracking(db);
+    ensureDocsGuards(db);
     const after = docsSide(db, 'twin');
     for (const [key, json] of plan.set) {
       const got = key.startsWith('d:')
@@ -1381,6 +1494,27 @@ function collapsePair(
   }
 }
 
+/**
+ * Re-install a collapsed pair's bare-table triggers when something removed
+ * them (a table rebuild, a restore, a journal probe that skipped a migration:
+ * the T12541 class). One `sqlite_master` read per open; a write only when a
+ * trigger is missing. Best effort: a failure is logged and `cleo doctor`
+ * reports the missing triggers.
+ */
+function repairGuards(db: DatabaseSync, pair: TwinPair): void {
+  if (!pair.guardsIntact || !pair.installGuards || pair.guardsIntact(db)) return;
+  if (db.isTransaction || degraded.has(db)) return;
+  try {
+    db.exec('BEGIN IMMEDIATE');
+    pair.installGuards(db);
+    db.exec('COMMIT');
+    log.warn({ table: pair.table }, `re-installed the bare ${pair.table} triggers (T12535)`);
+  } catch (error) {
+    if (db.isTransaction) db.exec('ROLLBACK');
+    log.warn({ err: error, table: pair.table }, `could not re-install the bare triggers (T12535)`);
+  }
+}
+
 /** Options for {@link collapseTwinTables}. */
 export interface CollapseTwinTablesOptions {
   /**
@@ -1425,7 +1559,10 @@ export function collapseTwinTables(
     }
     const state = readState(nativeDb, pair);
     if (bareChanged(nativeDb, pair, state)) pending.push(pair);
-    else byTable.set(pair.table, receipt(pair, 'unchanged', state?.snapshot ?? null));
+    else {
+      if (state !== undefined) repairGuards(nativeDb, pair);
+      byTable.set(pair.table, receipt(pair, 'unchanged', state?.snapshot ?? null));
+    }
   }
   if (pending.length === 0) {
     if (degraded.has(nativeDb)) clearShadows(nativeDb);
@@ -1552,6 +1689,12 @@ export interface TwinCollapseStatus {
   readonly merged: readonly string[];
   /** Docs: rows the last merge carried under a free slug. */
   readonly renamed: readonly string[];
+  /**
+   * Whether the pair's triggers on the bare tables (the freeze against older
+   * builds, the change counter) are all in place; `null` when the pair has
+   * none or is not collapsed yet. Missing ones are re-installed at the next open.
+   */
+  readonly guardsIntact: boolean | null;
   /** The recorded failure, when the last attempt failed. */
   readonly failure: TwinCollapseFailure | null;
 }
@@ -1577,6 +1720,7 @@ export function inspectTwinCollapse(db: DatabaseSync): TwinCollapseStatus[] {
       conflictsAt: null,
       merged: [],
       renamed: [],
+      guardsIntact: null,
       failure: null,
     };
     if (!pair.tables.every((t) => hasMainTable(db, t))) return { ...empty, state: 'no-bare-table' };
@@ -1618,6 +1762,8 @@ export function inspectTwinCollapse(db: DatabaseSync): TwinCollapseStatus[] {
       conflictsAt: state?.conflictsAt ?? null,
       merged: state?.merged ?? [],
       renamed: state?.renamed ?? [],
+      guardsIntact:
+        state === undefined || pair.guardsIntact === undefined ? null : pair.guardsIntact(db),
       failure,
     };
   });

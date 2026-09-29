@@ -42,8 +42,10 @@ import { getDb, getNativeDb, resetDbState } from '../sqlite.js';
 import { storeWriteBlock } from '../store-write-guard.js';
 import {
   collapseTwinTables,
+  DOCS_UNFREEZE_KEY,
   inspectTwinCollapse,
   TWIN_COLLAPSE_MARKER_PREFIX,
+  withBareDocsWritable,
 } from '../twin-collapse.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
@@ -154,9 +156,22 @@ function writeBlob(content: string): string {
   return hash;
 }
 
+/**
+ * Drop the freeze triggers (as a table rebuild or a restore would: the
+ * T12541 class), so a 2026.9.20 write lands in the bare tables. The (b)
+ * defences are what these tests prove; the freeze itself has its own tests,
+ * and the next open re-installs it.
+ */
+function thaw(db: DatabaseSync = tasksNative()): void {
+  for (const table of ['attachments', 'attachment_refs'])
+    for (const op of ['insert', 'update', 'delete'])
+      db.exec(`DROP TRIGGER IF EXISTS main.t12535_freeze_${table}_${op}`);
+}
+
 /** A doc row (and its refs) written the way the 2026.9.20 build writes it, into `table`. */
 function writeDoc(db: DatabaseSync, table: 'attachments' | 'docs_attachments', doc: Doc): void {
   const refsTable = table === 'attachments' ? 'attachment_refs' : 'docs_attachment_refs';
+  if (table === 'attachments') thaw(db);
   const content = doc.content ?? `content of ${doc.id}`;
   const hash = sha(content);
   if (doc.blob) writeBlob(content);
@@ -445,8 +460,11 @@ describe('uniqueness and collisions', () => {
     const db = preMigration();
     collapseTwinTables(db, dbPath());
     db.exec('BEGIN');
+    thaw();
     db.exec("UPDATE main.attachments SET slug = 'swap-tmp' WHERE id = 'att-adr-001'");
+    thaw();
     db.exec("UPDATE main.attachments SET slug = 'adr-001' WHERE id = 'att-adr-002'");
+    thaw();
     db.exec("UPDATE main.attachments SET slug = 'adr-002' WHERE id = 'att-adr-001'");
     db.exec('COMMIT');
     expect(collapseTwinTables(db, dbPath())[DOCS]).toMatchObject({
@@ -487,8 +505,11 @@ describe('incremental re-merge: the old build keeps writing the bare tables', ()
       type: 'spec',
       refs: [['task', 'T105']],
     });
+    thaw();
     db.exec("UPDATE main.attachments SET summary = 'Spec A, revised' WHERE id = 'att-spec-a'");
+    thaw();
     db.exec("DELETE FROM main.attachment_refs WHERE attachment_id = 'att-note-2'");
+    thaw();
     db.exec("DELETE FROM main.attachments WHERE id = 'att-note-2'");
 
     await reopen();
@@ -510,9 +531,11 @@ describe('incremental re-merge: the old build keeps writing the bare tables', ()
     preMigration();
     await reopen();
     await setDisplayAlias(projectDir, { slug: 'spec-a', displayAlias: 7 }); // this build
+    thaw();
     tasksNative().exec(
       "UPDATE main.attachments SET summary = 'old build edit' WHERE id = 'att-spec-a'",
     ); // the old build, same row
+    thaw();
     tasksNative().exec(
       "UPDATE main.attachments SET summary = 'old build only' WHERE id = 'att-note-1'",
     ); // the old build alone: no conflict
@@ -743,6 +766,128 @@ describe('redirect: docs readers read the prefixed twins', () => {
   });
 });
 
+describe('freeze (option a): older builds can no longer write the bare docs tables', () => {
+  const FROZEN =
+    /CLEO: docs moved to docs_attachments \(T12535\); this project needs cleo \d{4}\.\d+\.\d+\S* or newer to write docs\. Run: npm i -g @cleocode\/cleo@latest/;
+  const freezeTriggers = (db: DatabaseSync): string[] =>
+    (
+      db
+        .prepare(
+          "SELECT name FROM main.sqlite_master WHERE type = 'trigger' AND name LIKE 't12535_freeze_%' ORDER BY name",
+        )
+        .all() as Array<{ name: string }>
+    ).map((r) => r.name);
+  const bareDigests = (db: DatabaseSync) =>
+    [digest(db, 'attachments'), digest(db, 'attachment_refs')].join();
+
+  it('the initial collapse installs the triggers in its transaction; every older-build write aborts with the upgrade message', async () => {
+    const db = preMigration();
+    collapseTwinTables(db, dbPath());
+    expect(freezeTriggers(db)).toEqual([
+      't12535_freeze_attachment_refs_delete',
+      't12535_freeze_attachment_refs_insert',
+      't12535_freeze_attachment_refs_update',
+      't12535_freeze_attachments_delete',
+      't12535_freeze_attachments_insert',
+      't12535_freeze_attachments_update',
+    ]);
+    const before = bareDigests(db);
+    const writes = [
+      "INSERT INTO attachments (id, sha256, attachment_json, created_at) VALUES ('att-920-new', 'ffff', '{}', '2026-09-29T00:00:00.000Z')",
+      "UPDATE attachments SET summary = 'x' WHERE id = 'att-spec-a'",
+      "DELETE FROM attachments WHERE id = 'att-note-2'",
+      "INSERT INTO attachment_refs (attachment_id, owner_type, owner_id, attached_at) VALUES ('att-spec-a', 'task', 'T999', '2026-09-29T00:00:00.000Z')",
+      "UPDATE attachment_refs SET attached_by = 'x'",
+      "DELETE FROM attachment_refs WHERE attachment_id = 'att-note-2'",
+    ];
+    for (const sql of writes) expect(await refusal(() => db.exec(sql)), sql).toMatch(FROZEN);
+    expect(bareDigests(db)).toBe(before);
+    // Reads keep working for the older build.
+    expect(db.prepare('SELECT COUNT(*) AS n FROM attachments').get()).toEqual({ n: 5 });
+  });
+
+  it('never blocks this build: docs writers, repair, retry, heal script, DDL and a table rebuild', async () => {
+    preMigration();
+    await reopen();
+    const db = tasksNative();
+    expect(freezeTriggers(db)).toHaveLength(6);
+    // Docs writers (twin only).
+    const mine = await createAttachmentStore().put(
+      Buffer.from('new doc'),
+      blob(7),
+      'task',
+      'T500',
+      'agent',
+      projectDir,
+      { slug: 'new-doc', type: 'note' },
+    );
+    await supersedeDoc(projectDir, { oldSlug: 'spec-a', newSlug: 'new-doc' });
+    await createAttachmentStore().deref(mine.id, 'task', 'T500', projectDir);
+    // Repair.
+    const { repairAttachmentStore } = await import('../attachment-repair.js');
+    await expect(repairAttachmentStore({ cwd: projectDir })).resolves.toMatchObject({
+      dryRun: false,
+    });
+    // Retry.
+    await expect(retryTwinCollapse(projectDir)).resolves.toBeDefined();
+    // Schema changes a migration makes: add a column, add an index.
+    db.exec('ALTER TABLE attachments ADD COLUMN t12535_probe TEXT');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_t12535_probe ON attachments (t12535_probe)');
+    // A data fix of ours runs through the unfreeze helper; the freeze holds afterwards.
+    withBareDocsWritable(db, () =>
+      db.exec("UPDATE attachments SET t12535_probe = 'fixed' WHERE id = 'att-spec-a'"),
+    );
+    expect(
+      db.prepare("SELECT t12535_probe AS p FROM attachments WHERE id = 'att-spec-a'").get(),
+    ).toEqual({ p: 'fixed' });
+    expect(
+      db.prepare(`SELECT 1 FROM main.tasks_schema_meta WHERE key = '${DOCS_UNFREEZE_KEY}'`).get(),
+    ).toBeUndefined();
+    expect(await refusal(() => db.exec("UPDATE attachments SET summary = 'x'"))).toMatch(FROZEN);
+    // A table-rebuild migration (rename, create, copy, drop) with the triggers present.
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec('BEGIN');
+    db.exec('ALTER TABLE attachment_refs RENAME TO attachment_refs_old');
+    db.exec(
+      'CREATE TABLE attachment_refs (attachment_id TEXT NOT NULL, owner_type TEXT NOT NULL, owner_id TEXT NOT NULL, attached_at TEXT NOT NULL, attached_by TEXT, PRIMARY KEY (attachment_id, owner_type, owner_id))',
+    );
+    db.exec('INSERT INTO attachment_refs SELECT * FROM attachment_refs_old');
+    db.exec('DROP TABLE attachment_refs_old');
+    db.exec('COMMIT');
+    expect(freezeTriggers(db)).toHaveLength(3); // the rebuilt table's went with the old one
+    // The next open re-installs them (T12541 class), without a merge.
+    await reopen();
+    expect(freezeTriggers(tasksNative())).toHaveLength(6);
+  });
+
+  it('missing triggers are reported by doctor and re-installed by the retry', async () => {
+    preMigration();
+    await reopen();
+    thaw();
+    expect(inspectTwinCollapse(tasksNative())[DOCS]).toMatchObject({ guardsIntact: false });
+    expect(twinCollapseDoctorCheck(projectDir)).toMatchObject({
+      status: 'warning',
+      message: expect.stringMatching(/freeze attachments against older CLEO builds are missing/),
+    });
+    await retryTwinCollapse(projectDir);
+    expect(inspectTwinCollapse(tasksNative())[DOCS]).toMatchObject({ guardsIntact: true });
+    expect(twinCollapseDoctorCheck(projectDir).status).toBe('ok');
+  });
+
+  it('an older build deleting the migration journal row (orphan cleanup) is reconciled on the next open', async () => {
+    const db = tasksNative();
+    db.prepare('DELETE FROM main.__drizzle_migrations WHERE name = ?').run(
+      '20260929000000_t12535-docs-attachments-union-shape',
+    );
+    expect(await refusal(() => reopen())).toBe('');
+    expect(
+      tasksNative()
+        .prepare('SELECT 1 AS ok FROM main.__drizzle_migrations WHERE name = ?')
+        .get('20260929000000_t12535-docs-attachments-union-shape'),
+    ).toEqual({ ok: 1 });
+  });
+});
+
 describe('mixed versions: the 2026.9.20 build writes after the collapse', () => {
   const store = () => createAttachmentStore();
   const refsOf = (id: string): string[] =>
@@ -787,7 +932,9 @@ describe('mixed versions: the 2026.9.20 build writes after the collapse', () => 
     expect(refCount(mine.id)).toBe(2);
     expect(uniqueIndexes(db)).toEqual(UNIQUE_INDEXES);
     // 9.20 later drops its ref (and its bare row): the remapped ref goes, the doc stays.
+    thaw();
     db.exec("DELETE FROM main.attachment_refs WHERE attachment_id = 'att-920-dup'");
+    thaw();
     db.exec("DELETE FROM main.attachments WHERE id = 'att-920-dup'");
     await reopen();
     expect(refsOf(mine.id)).toEqual(['task:T200']);
@@ -853,9 +1000,11 @@ describe('mixed versions: the 2026.9.20 build writes after the collapse', () => 
     await store().ref('att-spec-a', 'task', 'T201', 'agent', projectDir); // this build: 2 refs
     const db = tasksNative();
     // 9.20 adds a ref in the bare tables and bumps ITS count.
+    thaw();
     db.prepare(
       "INSERT INTO main.attachment_refs (attachment_id, owner_type, owner_id, attached_at, attached_by) VALUES ('att-spec-a', 'task', 'T902', '2026-09-28T10:00:00.000Z', 'agent')",
     ).run();
+    thaw();
     db.exec("UPDATE main.attachments SET ref_count = 2 WHERE id = 'att-spec-a'");
     await reopen();
     expect(refsOf('att-spec-a')).toEqual(['task:T101', 'task:T201', 'task:T902']);
@@ -884,7 +1033,9 @@ describe('mixed versions: the 2026.9.20 build writes after the collapse', () => 
     await reopen();
     await store().ref('att-spec-a', 'task', 'T201', 'agent', projectDir);
     // 9.20 derefs its last bare ref: deletes the ref, the row, then the blob file.
+    thaw();
     tasksNative().exec("DELETE FROM main.attachment_refs WHERE attachment_id = 'att-spec-a'");
+    thaw();
     tasksNative().exec("DELETE FROM main.attachments WHERE id = 'att-spec-a'");
     rmSync(blobFile(hash));
     void db;
@@ -946,6 +1097,7 @@ describe('mixed versions: the 2026.9.20 build writes after the collapse', () => 
     writeDoc(tasksNative(), 'attachments', { id: 'att-920-same', content: 'short-lived' });
     await repairAttachmentStore({ cwd: projectDir, gracePeriodMs: 0 });
     expect(existsSync(file)).toBe(true);
+    thaw();
     tasksNative().exec("DELETE FROM main.attachments WHERE id = 'att-920-same'");
     await repairAttachmentStore({ cwd: projectDir, gracePeriodMs: 0 });
     expect(existsSync(file)).toBe(false);
@@ -978,6 +1130,7 @@ describe('mixed versions: the 2026.9.20 build writes after the collapse', () => 
     expect(inspectTwinCollapse(tasksNative())[DOCS]?.lastMergedAt).toBe(before);
     expect(digest(tasksNative(), 'docs_attachments')).toBe(twin);
     // A bare write moves the counter and is carried on the next open.
+    thaw();
     tasksNative().exec("UPDATE main.attachments SET summary = 'moved' WHERE id = 'att-note-1'");
     await reopen();
     expect(
