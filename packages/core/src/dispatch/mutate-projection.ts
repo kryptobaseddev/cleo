@@ -327,6 +327,10 @@ export const MUTATE_PROJECTION_PLANS: Readonly<Record<string, MutateProjectionPl
       if (Array.isArray(autoCompleted) && autoCompleted.length > 0) {
         envelope['autoCompleted'] = autoCompleted;
       }
+      // T12660: a cleared focus pointer and what to work on next.
+      if (typeof data['focusCleared'] === 'boolean')
+        envelope['focusCleared'] = data['focusCleared'];
+      if (data['nextSuggested'] !== undefined) envelope['nextSuggested'] = data['nextSuggested'];
       return envelope;
     },
   },
