@@ -207,6 +207,10 @@ describe('focus ≤1500 + briefing budgets enforced via live chokepoint (T11352)
         extraction: { status: 'unavailable' },
       },
     });
+    // T12522: coverage appears once — knowledgeHealth references it by pointer.
+    const data = result.data as Record<string, Record<string, unknown>>;
+    expect(data['knowledgeHealth']).not.toHaveProperty('coverage');
+    expect(data['knowledgeHealth']?.['coverageRef']).toBe('/knowledgeCoverage');
     expect(report.health.coverage.reasons).toHaveLength(500);
     expect(receipt.verificationEvidence[0]?.excerpt).toHaveLength(40000);
     expect(result.meta['_budgetEnforcement']).toMatchObject({
