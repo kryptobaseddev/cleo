@@ -203,6 +203,72 @@ describe('lint-emitted-skills goes red on planted defects', () => {
     expect(names).toEqual(['ct-research', 'ct-core']);
   });
 
+  it('fails when STAGE_SKILL_MAP is renamed, even with a phantom planted (review of #1651)', () => {
+    write(
+      'packages/core/src/lifecycle/stage-guidance.ts',
+      [
+        'export const STAGE_SKILL_MAP_RENAMED: Record<Stage, string> = {',
+        "  research: 'ct-ghost',",
+        '};',
+        "export const TIER_0_SKILLS: readonly string[] = ['ct-core'];",
+      ].join('\n'),
+    );
+    const keys = findViolations(root).map((v) => v.key);
+    expect(keys).toContain(
+      'source-empty:STAGE_SKILL_MAP (packages/core/src/lifecycle/stage-guidance.ts)',
+    );
+    expect(runGate(root)).toBe(1);
+  });
+
+  it.each([
+    [
+      'TIER_0_SKILLS',
+      'packages/core/src/lifecycle/stage-guidance.ts',
+      "export const STAGE_SKILL_MAP = { research: 'ct-research' };\n",
+    ],
+    ['SKILL_NAME_MAP', 'packages/core/src/skills/types.ts', 'export const NAME_MAP = {};\n'],
+    ['skill:', 'packages/core/src/skills/dispatch.ts', 'const r = {};\n'],
+    [
+      'loadSkillExcerpt/resolveSkillPath',
+      'packages/core/src/orchestration/spawn-prompt.ts',
+      'const x = 1;\n',
+    ],
+  ])('fails when the %s source yields no names', (label, file, text) => {
+    write(file, text);
+    expect(
+      findViolations(root)
+        .map((v) => v.key)
+        .some((k) => k.startsWith(`source-empty:${label}`)),
+    ).toBe(true);
+  });
+
+  it('resolves a CONSTANT_CASE skill argument, and fails when it cannot', () => {
+    write(
+      'packages/core/src/orchestration/spawn-prompt.ts',
+      "const LEAD_SKILL = 'ct-lead';\nloadSkillExcerpt(LEAD_SKILL, 6000, projectRoot);\n",
+    );
+    expect(findViolations(root)).toEqual([]);
+    write(
+      'packages/core/src/orchestration/spawn-prompt.ts',
+      "loadSkillExcerpt('ct-lead', 1);\nloadSkillExcerpt(MISSING_SKILL, 6000, projectRoot);\n",
+    );
+    expect(findViolations(root).map((v) => v.key)).toEqual([
+      'unresolved-constant:MISSING_SKILL (packages/core/src/orchestration/spawn-prompt.ts)',
+    ]);
+  });
+
+  it('does not accept an install tripwire that survives only in a comment', () => {
+    write(
+      'packages/core/src/init.ts',
+      [
+        "const manifestPath = join(ctSkillsRoot, 'skills', 'manifest.json');",
+        "const harnessSkills = skills.filter((s) => true); // s.install === 'harness'",
+        "const skillSourceDir = join(ctSkillsRoot, 'skills', skill.name);",
+      ].join('\n'),
+    );
+    expect(findViolations(root).map((v) => v.key)).toEqual(["tripwire:s.install === 'harness'"]);
+  });
+
   it('fails when install stops matching the mirror', () => {
     write('packages/core/src/init.ts', "const catalogPath = join(ctSkillsRoot, 'skills.json');\n");
     expect(findViolations(root).map((v) => v.key)).toEqual([
