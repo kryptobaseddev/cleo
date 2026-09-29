@@ -323,6 +323,14 @@ export interface GateVerifyParams {
    * single-gate, audited `cleo verify` path).
    */
   gateEvidence?: Partial<Record<VerificationGate, string | readonly string[]>>;
+  /**
+   * Validate `gateEvidence` exactly as the write would, then stop before
+   * typed gates and persistence (T12672): `cleo done --plan` and `cleo done`
+   * share one readiness check. `tool:` atoms are not executed (their result is
+   * not plan-visible) and shared-evidence tracking, which records reuse, is
+   * skipped.
+   */
+  preview?: boolean;
 }
 
 export interface GateVerifyResult {
@@ -338,7 +346,7 @@ export interface GateVerifyResult {
   round: number;
   requiredGates: VerificationGate[];
   missingGates: VerificationGate[];
-  action?: 'view' | 'set_gate' | 'set_all' | 'reset';
+  action?: 'view' | 'set_gate' | 'set_all' | 'reset' | 'preview';
   gateSet?: string;
   gatesSet?: VerificationGate[];
   /** Evidence atoms validated and persisted for this write (T832). */
@@ -623,7 +631,7 @@ export async function validateGateVerify(
         ? [params.evidence]
         : [];
     for (const evidenceString of evidenceStrings) {
-      if (!isWriteRequiringEvidence || override.override || !sessionId) break;
+      if (!isWriteRequiringEvidence || override.override || !sessionId || params.preview) break;
       const seResult = enforceSharedEvidence(
         projectRoot,
         sessionId,
@@ -696,10 +704,17 @@ export async function validateGateVerify(
         for (const atom of parsed.atoms.toSorted(
           (a, b) => Number(b.kind === 'pr') - Number(a.kind === 'pr'),
         )) {
+          // T12672: a preview validates everything plan-visible; a tool's
+          // result is not, so the atom stands in for the run it will make.
+          if (params.preview && atom.kind === 'tool') {
+            atoms.push({ kind: 'tool', tool: atom.tool, exitCode: 0 });
+            continue;
+          }
           // T9178: pass taskId for branch-scope commit validation
           const check = await validateEvidenceAtom(atom, projectRoot, taskId, siblingCommitSha, {
             ...evidenceContext,
             artifactCommitSha: atoms.find((atom) => atom.kind === 'pr')?.mergeCommitSha,
+            ...(params.preview ? { readOnly: true } : {}),
           });
           if (!check.ok) {
             return engineError(check.codeName, check.reason);
@@ -915,6 +930,22 @@ export async function validateGateVerify(
         );
       }
 
+      if (params.preview) {
+        return engineSuccess({
+          taskId,
+          title: task.title,
+          status: task.status,
+          type: task.type ?? 'task',
+          verification: task.verification ?? initVerification(),
+          verificationStatus: task.verification?.passed ? 'passed' : 'pending',
+          passed: task.verification?.passed === true,
+          round: task.verification?.round ?? 0,
+          requiredGates: configGates,
+          missingGates: getMissingGates(task.verification ?? initVerification(), configGates),
+          action: 'preview',
+          evidenceStored,
+        });
+      }
       verification.lastAgent = agent as never;
       verification.lastUpdated = now;
       action = all || multiTargets ? 'set_all' : 'set_gate';
