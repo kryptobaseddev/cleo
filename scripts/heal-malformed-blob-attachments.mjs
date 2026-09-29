@@ -19,7 +19,11 @@
  *
  * The heal:
  *
- *   1. Open `.cleo/tasks.db` directly (read+write).
+ *   1. Open the store directly (read+write): `.cleo/cleo.db` when it exists,
+ *      else the legacy `.cleo/tasks.db`. In a `cleo.db` the live docs table is
+ *      `docs_attachments` (T12535: the bare `attachments` table is a frozen
+ *      copy the collapse folds in, and this build never writes it); a legacy
+ *      `tasks.db` only has `attachments`.
  *   2. SELECT rows WHERE `kind = 'blob'` AND `storageKey` is missing OR empty.
  *   3. For each row:
  *      - if a `blobId` field is present, use it as `sha256`
@@ -37,7 +41,7 @@
  * Usage:
  *   node scripts/heal-malformed-blob-attachments.mjs           # heal in-place
  *   node scripts/heal-malformed-blob-attachments.mjs --dry-run # report only
- *   node scripts/heal-malformed-blob-attachments.mjs --db <path-to-tasks.db>
+ *   node scripts/heal-malformed-blob-attachments.mjs --db <path-to-cleo.db-or-tasks.db>
  *
  * @task T11262
  * @saga T11242
@@ -78,14 +82,14 @@ function extFromMime(mime) {
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
 const dbArgIndex = args.indexOf('--db');
-const dbPath =
-  dbArgIndex >= 0 && args[dbArgIndex + 1]
-    ? resolve(args[dbArgIndex + 1])
-    : resolve(process.cwd(), '.cleo/tasks.db');
+const defaultDb = existsSync(resolve(process.cwd(), '.cleo/cleo.db'))
+  ? resolve(process.cwd(), '.cleo/cleo.db')
+  : resolve(process.cwd(), '.cleo/tasks.db');
+const dbPath = dbArgIndex >= 0 && args[dbArgIndex + 1] ? resolve(args[dbArgIndex + 1]) : defaultDb;
 
 if (!existsSync(dbPath)) {
-  console.error(`tasks.db not found at: ${dbPath}`);
-  console.error('Pass --db <path-to-tasks.db> or run from a CLEO project root.');
+  console.error(`store not found at: ${dbPath}`);
+  console.error('Pass --db <path-to-cleo.db-or-tasks.db> or run from a CLEO project root.');
   process.exit(1);
 }
 
@@ -93,6 +97,16 @@ console.log(`[heal-malformed-blob-attachments] db: ${dbPath}`);
 console.log(`[heal-malformed-blob-attachments] mode: ${dryRun ? 'DRY-RUN' : 'WRITE'}`);
 
 const db = new DatabaseSync(dbPath);
+
+// T12535: heal the table the runtime reads. A consolidated `cleo.db` carries
+// `docs_attachments` (live) beside the frozen bare `attachments`; a legacy
+// `tasks.db` only has `attachments`.
+const hasDocsTwin =
+  db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'docs_attachments'")
+    .get() !== undefined;
+const table = hasDocsTwin ? 'docs_attachments' : 'attachments';
+console.log(`[heal-malformed-blob-attachments] table: ${table}`);
 
 // Select rows that need healing: storageKey is NULL — these are the rows
 // that break `cleo docs fetch` / `cleo docs list` with the
@@ -107,7 +121,7 @@ const db = new DatabaseSync(dbPath);
 // rows only — broader migration is tracked separately if needed.
 const selectStmt = db.prepare(
   `SELECT id, sha256 AS row_sha256, attachment_json
-     FROM attachments
+     FROM ${table}
     WHERE json_extract(attachment_json, '$.kind') = 'blob'
       AND json_extract(attachment_json, '$.storageKey') IS NULL`,
 );
@@ -124,7 +138,7 @@ if (rows.length === 0) {
 let updated = 0;
 let skipped = 0;
 
-const updateStmt = db.prepare(`UPDATE attachments SET attachment_json = ? WHERE id = ?`);
+const updateStmt = db.prepare(`UPDATE ${table} SET attachment_json = ? WHERE id = ?`);
 
 if (!dryRun) {
   db.exec('BEGIN IMMEDIATE');

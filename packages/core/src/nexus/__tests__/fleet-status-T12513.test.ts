@@ -15,7 +15,7 @@ import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { NexusProjectsFleetResult } from '@cleocode/contracts';
+import { NEXUS_FLEET_SCHEMA_VERSION, type NexusProjectsFleetResult } from '@cleocode/contracts';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { _resetDeviceIdCacheForTests } from '../../llm/stable-device-id.js';
@@ -430,6 +430,12 @@ describe('refresh — the bounded probe writes rows the fleet view then reads', 
       stale: true,
     });
     expect(loc?.flags).toEqual(['dirty', 'stale']);
+    // T12721: HEAD's commit instant, no replica id yet, a presence schema version.
+    expect(loc?.git?.headCommittedAt).toBe(
+      new Date(git(clone, 'log', '-1', '--format=%cI')).toISOString(),
+    );
+    expect(loc?.replicaId).toBeNull();
+    expect(noFetch.schemaVersion).toBe(NEXUS_FLEET_SCHEMA_VERSION);
 
     // Fetch: behind is now 1, with a fresh fetchedAt.
     await runProjectsGitStatus(db, { fetch: true }, { deviceId: 'dev-a' });

@@ -137,8 +137,15 @@ describe('SafetyDataAccessor', () => {
       async getAgentInstance() {
         return null;
       },
-      async claimTask() {},
-      async unclaimTask() {},
+      async claimTask() {
+        return null;
+      },
+      async unclaimTask() {
+        return false;
+      },
+      async renewSessionClaims() {
+        return 0;
+      },
     };
   }
 

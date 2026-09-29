@@ -17,8 +17,10 @@ import type { DatabaseSync } from 'node:sqlite';
 import {
   ARCHIVE_REASON_TOMBSTONE,
   type ArchiveReasonValue,
+  ExitCode,
   type Session,
   type Task,
+  type TaskClaim,
   type TaskStatus,
 } from '@cleocode/contracts';
 import {
@@ -28,11 +30,14 @@ import {
   inArray,
   isNull,
   like,
+  lte,
   ne,
   notInArray,
   or,
+  type SQL,
   sql,
 } from 'drizzle-orm';
+import { CleoError } from '../errors.js';
 import {
   captureProjectScope as captureTaskAccessorScope,
   getProjectRoot,
@@ -48,6 +53,8 @@ import type {
   QueryTasksResult,
   TaskAuditLogQuery,
   TaskAuditLogRow,
+  TaskClaimGuard,
+  TaskClaimRequest,
   TaskFieldUpdates,
   TaskQueryFilters,
   TaskWriteGuard,
@@ -69,10 +76,20 @@ import { tasksAuditLog } from './schema/cleo-project/audit.js';
 import { resolveCurrentSession } from './session-store.js';
 import { closeDb, getDb, getNativeTasksDb } from './sqlite.js';
 import { TERMINAL_TASK_STATUSES } from './status-registry.js';
+import {
+  claimAllows,
+  claimColumnsOf,
+  claimFromColumns,
+  isClaimExpired,
+  leaseExpiresAtFrom,
+  type TaskClaimColumns,
+  taskClaimedError,
+  taskClaimLeaseMs,
+} from './task-claim.js';
 import { nextTaskVersion, taskConflictError, taskVersion } from './task-version.js';
 import * as schema from './tasks-schema.js';
 import { assertTwinCollapseWritable, bareCounterOf, mirrorCounterToBare } from './twin-collapse.js';
-import { withWriteRetry } from './with-retry.js';
+import { isSqliteBusy, withWriteRetry } from './with-retry.js';
 
 /**
  * Per-process monotonic counter for unique nested SAVEPOINT names (T9814).
@@ -124,7 +141,7 @@ export async function setMetaValue(
 async function writeMetaValue(cwd: string | undefined, key: string, value: unknown): Promise<void> {
   const db = await getDb(cwd);
   // T12535: fail fast on a store degraded by a failed twin collapse.
-  assertTwinCollapseWritable(getNativeTasksDb(cwd));
+  assertTwinCollapseWritable(getNativeTasksDb(cwd), 'schema_meta');
   const json = JSON.stringify(value);
   await db
     .insert(schema.schemaMeta)
@@ -160,7 +177,7 @@ async function writeMetaValue(cwd: string | undefined, key: string, value: unkno
  * @task T12535
  */
 export function advanceTaskIdSequence(nativeDb: DatabaseSync, floor: number): number | undefined {
-  assertTwinCollapseWritable(nativeDb);
+  assertTwinCollapseWritable(nativeDb, 'schema_meta');
   // T12535: an id the older build reserved in the bare counter is taken too.
   const lowest = Math.max(floor, bareCounterOf(nativeDb, 'task_id_sequence'));
   nativeDb
@@ -244,6 +261,104 @@ async function scheduleTaskBackground(
  * ```
  */
 export { captureProjectScope as captureTaskAccessorScope } from '../project-scope.js';
+
+/**
+ * How long a lease renewal waits for another connection's write lock, in
+ * milliseconds (T12502). Renewal is a best-effort heartbeat: a beat that
+ * would wait longer is skipped and the next mutation renews instead.
+ */
+const CLAIM_RENEW_BUSY_TIMEOUT_MS = 50;
+
+/** The claim lease columns, selected alongside a row's version (T12502). */
+const CLAIM_COLUMNS = {
+  claimedBySession: schema.tasks.claimedBySession,
+  claimedByAgent: schema.tasks.claimedByAgent,
+  claimedAt: schema.tasks.claimedAt,
+  leaseExpiresAt: schema.tasks.leaseExpiresAt,
+} as const;
+
+/**
+ * The claim compare-and-set predicate for an UPDATE's WHERE clause (T12502).
+ * The SQL mirror of `claimAllows`; `force` adds no predicate.
+ *
+ * @param guard - The claim guard.
+ * @param allowedHolders - Holders `acquire` / `take-over` may replace even
+ *   while live (hand-off source, spawn-edge parent and children).
+ */
+function claimPredicate(guard: TaskClaimGuard, allowedHolders: readonly string[]): SQL | undefined {
+  const holder = schema.tasks.claimedBySession;
+  if (guard.mode === 'force') return undefined;
+  const mine = guard.sessionId === null ? undefined : eq(holder, guard.sessionId);
+  if (guard.mode === 'renew' || guard.mode === 'release') return mine ?? sql`0`;
+  const related = allowedHolders.length > 0 ? inArray(holder, [...allowedHolders]) : undefined;
+  const expired =
+    guard.mode === 'take-over'
+      ? or(isNull(schema.tasks.leaseExpiresAt), lte(schema.tasks.leaseExpiresAt, guard.now))
+      : undefined;
+  return or(isNull(holder), mine, related, expired);
+}
+
+/** Throw `E_TASK_CLAIMED` when the stored holder refuses this claim write. */
+function assertClaimAllowed(
+  taskId: string,
+  row: TaskClaimColumns,
+  guard: TaskClaimGuard,
+  allowedHolders: readonly string[],
+): void {
+  const stored = claimFromColumns(row);
+  if (claimAllows(stored, guard.mode, guard.sessionId, guard.now, allowedHolders)) return;
+  if (!stored) {
+    throw new CleoError(
+      ExitCode.NOT_FOUND,
+      `Task ${taskId} has no claim held by session ${guard.sessionId ?? '(unbound)'} to ${guard.mode}`,
+      { fix: `Take the claim first: cleo claim ${taskId}` },
+    );
+  }
+  throw taskClaimedError(taskId, stored, { sessionId: guard.sessionId, agentId: null }, guard.now);
+}
+
+/**
+ * The holders an `acquire` / `take-over` claim write may replace even while
+ * their lease is live (T12502): the explicit hand-off source, plus the
+ * caller's claim family — the session that spawned it and the sessions it
+ * spawned (`tasks_sessions.spawned_by_session_id`, written only by the spawn
+ * itself). The self-declared `parent_session_id` (from
+ * `CLEO_PARENT_SESSION_ID` at `session start`) is NOT trusted here: any
+ * process can name any parent, so honouring it would let a forged child take
+ * a live lease silently. A spawned worker whose calls
+ * resolve to its orchestrator's session, or an orchestrator taking a task
+ * back from its own worker, is a hand-off, not a conflict.
+ *
+ * @param db - The project DB handle (inside the write transaction).
+ * @param guard - The claim guard.
+ * @returns Distinct session ids other than the caller's.
+ */
+async function claimAllowedHolders(
+  db: Awaited<ReturnType<typeof getDb>>,
+  guard: TaskClaimGuard,
+): Promise<string[]> {
+  if (guard.mode !== 'acquire' && guard.mode !== 'take-over') return [];
+  const holders = new Set<string>();
+  if (guard.handoffFrom) holders.add(guard.handoffFrom);
+  const sessionId = guard.sessionId;
+  if (sessionId) {
+    const [self] = await db
+      .select({ parent: schema.sessions.spawnedBySessionId })
+      .from(schema.sessions)
+      .where(eq(schema.sessions.id, sessionId))
+      .limit(1)
+      .all();
+    if (self?.parent) holders.add(self.parent);
+    const children = await db
+      .select({ id: schema.sessions.id })
+      .from(schema.sessions)
+      .where(eq(schema.sessions.spawnedBySessionId, sessionId))
+      .all();
+    for (const child of children) holders.add(child.id);
+    holders.delete(sessionId);
+  }
+  return [...holders];
+}
 
 /**
  * Bind all asynchronous accessor methods, including transaction ports, to one project.
@@ -1223,12 +1338,22 @@ async function createOwnedSqliteDataAccessor(
         // E_CONFLICT, and advance the version strictly so a same-millisecond
         // write can never reproduce a version a stale reader already holds.
         const [current] = await db
-          .select({ updatedAt: schema.tasks.updatedAt, createdAt: schema.tasks.createdAt })
+          .select({
+            updatedAt: schema.tasks.updatedAt,
+            createdAt: schema.tasks.createdAt,
+            ...CLAIM_COLUMNS,
+          })
           .from(schema.tasks)
           .where(eq(schema.tasks.id, taskId))
           .limit(1)
           .all();
         if (!current) throw new Error(`Task not found: ${taskId}`);
+        // T12502: refuse a claim write the stored holder does not allow before
+        // touching anything, with the holder named. The WHERE clause below
+        // repeats the predicate, so the write itself is the compare-and-set.
+        const claimGuard = guard?.claim;
+        const allowedHolders = claimGuard ? await claimAllowedHolders(db, claimGuard) : [];
+        if (claimGuard) assertClaimAllowed(taskId, current, claimGuard, allowedHolders);
         const expected = guard?.expectedUpdatedAt;
         if (expected !== undefined && taskVersion(current) !== expected) {
           throw taskConflictError(
@@ -1240,7 +1365,8 @@ async function createOwnedSqliteDataAccessor(
         }
         const updateRow = {
           ...fields,
-          updatedAt: fields.updatedAt ?? nextTaskVersion(current),
+          updatedAt:
+            fields.updatedAt ?? (guard?.keepVersion ? current.updatedAt : nextTaskVersion(current)),
         };
 
         // T12503: a guarded write is a compare-and-set in SQL — the UPDATE
@@ -1252,9 +1378,11 @@ async function createOwnedSqliteDataAccessor(
             : current.updatedAt === null
               ? isNull(schema.tasks.updatedAt)
               : eq(schema.tasks.updatedAt, current.updatedAt);
-        const where = versionMatch
-          ? and(eq(schema.tasks.id, taskId), versionMatch)
-          : eq(schema.tasks.id, taskId);
+        const where = and(
+          eq(schema.tasks.id, taskId),
+          versionMatch,
+          claimGuard ? claimPredicate(claimGuard, allowedHolders) : undefined,
+        );
 
         // gh#391: this is the chokepoint for `cleo update <id> --add-labels`.
         // Parallel invocations from a single shell used to lose ~50% of writes
@@ -1265,6 +1393,9 @@ async function createOwnedSqliteDataAccessor(
         if (Number(result.changes) !== 1) {
           const stored = await accessor.loadSingleTask(taskId);
           if (!stored) throw new Error(`Task not found: ${taskId}`);
+          if (claimGuard) {
+            assertClaimAllowed(taskId, claimColumnsOf(stored.claim), claimGuard, allowedHolders);
+          }
           throw taskConflictError(
             taskId,
             expected ?? taskVersion(current),
@@ -1672,63 +1803,156 @@ async function createOwnedSqliteDataAccessor(
       return getAgent(agentId, cwd);
     },
 
-    // ---- Agent task claiming ----
+    // ---- Agent task claiming (leased, T12502) ----
 
-    async claimTask(taskId: string, agentId: string): Promise<void> {
+    async claimTask(taskId: string, request: TaskClaimRequest): Promise<TaskClaim | null> {
+      const now = request.now ?? new Date().toISOString();
+      const guard: TaskClaimGuard = {
+        sessionId: request.sessionId,
+        mode: request.mode,
+        now,
+        handoffFrom: request.handoffFrom ?? null,
+      };
       return accessor.transaction(async () => {
-        const nativeDb = await requireNativeDb();
-        if (!nativeDb) {
-          throw new Error('Native database not initialized');
+        const task = await accessor.loadSingleTask(taskId);
+        if (!task) throw new Error(`Task not found: ${taskId}`);
+        const before = task.claim;
+        if (request.sessionId === null) {
+          // An override names who takes the task; an unbound caller has no
+          // session to record, so it is refused rather than silently ignored.
+          if (request.mode === 'take-over' || request.mode === 'force') {
+            const flag = request.mode === 'force' ? '--force-claim' : '--take-over';
+            throw new CleoError(
+              ExitCode.SESSION_UNBOUND,
+              `Cannot ${flag} task ${taskId}: this caller is not bound to a session, so there is no session to hand the claim to.`,
+              {
+                fix: `Bind a session first (cleo session start --scope global --name "<work>", cleo session resume <id>, or export CLEO_SESSION_ID=<id>), then retry with ${flag}.`,
+              },
+            );
+          }
+          // An unbound caller holds no lease; the guarded no-op write still
+          // proves, under the write lock, that no other session holds it.
+          await accessor.updateTaskFields(taskId, {}, { claim: guard, keepVersion: true });
+          return null;
         }
-
-        // Verify the task exists first
-        const existsRow = nativeDb
-          .prepare('SELECT assignee FROM tasks_tasks WHERE id = ?')
-          .get(taskId) as { assignee: string | null } | undefined;
-        if (!existsRow) {
-          throw new Error(`Task not found: ${taskId}`);
+        const renewing = before?.sessionId === request.sessionId;
+        const lease: TaskClaim = {
+          sessionId: request.sessionId,
+          agentId: request.agentId ?? (renewing ? (before?.agentId ?? null) : null),
+          claimedAt: renewing && before ? before.claimedAt : now,
+          leaseExpiresAt: leaseExpiresAtFrom(now, request.leaseMs ?? taskClaimLeaseMs()),
+        };
+        await accessor.updateTaskFields(
+          taskId,
+          {
+            claimedBySession: lease.sessionId,
+            claimedByAgent: lease.agentId,
+            claimedAt: lease.claimedAt,
+            leaseExpiresAt: lease.leaseExpiresAt,
+          },
+          // Renewing one's own lease is bookkeeping, not an edit: it must not
+          // move the version another writer holds for --if-match.
+          { claim: guard, keepVersion: renewing },
+        );
+        const replaced = before && before.sessionId !== request.sessionId ? before : undefined;
+        if (replaced) {
+          // A write the predicate allowed over a LIVE lease without `force` is
+          // a claim-family hand-off (spawn source, spawn-edge parent or child).
+          const handoff = request.mode !== 'force' && !isClaimExpired(replaced, now);
+          await accessor.appendLog({
+            action: handoff
+              ? 'task_claim_handoff'
+              : request.mode === 'force'
+                ? 'task_claim_force'
+                : 'task_claim_takeover',
+            taskId,
+            actor: request.agentId ?? request.sessionId,
+            sessionId: request.sessionId,
+            timestamp: now,
+            details: {
+              mode: request.mode,
+              leaseExpired: replaced.leaseExpiresAt <= now,
+            },
+            before: replaced,
+            after: lease,
+          });
         }
-
-        // Atomic claim: only succeeds if assignee IS NULL or already claimed by this agent.
-        // This prevents race conditions between concurrent agents.
-        const result = nativeDb
-          .prepare(
-            'UPDATE tasks_tasks SET assignee = ?, updated_at = ? WHERE id = ? AND (assignee IS NULL OR assignee = ?)',
-          )
-          .run(agentId, new Date().toISOString(), taskId, agentId) as { changes: number };
-
-        if (result.changes === 0) {
-          // Row was not updated — task is claimed by a different agent
-          const currentRow = nativeDb
-            .prepare('SELECT assignee FROM tasks_tasks WHERE id = ?')
-            .get(taskId) as { assignee: string | null } | undefined;
-          throw new Error(
-            `Task ${taskId} is already claimed by agent: ${currentRow?.assignee ?? 'unknown'}`,
-          );
-        }
+        return lease;
       });
     },
 
-    async unclaimTask(taskId: string): Promise<void> {
+    async unclaimTask(
+      taskId: string,
+      release: { sessionId: string | null; force?: boolean },
+    ): Promise<boolean> {
+      const now = new Date().toISOString();
       return accessor.transaction(async () => {
-        const nativeDb = await requireNativeDb();
-        if (!nativeDb) {
-          throw new Error('Native database not initialized');
+        const task = await accessor.loadSingleTask(taskId);
+        if (!task) throw new Error(`Task not found: ${taskId}`);
+        const held = task.claim;
+        if (!held) return false;
+        await accessor.updateTaskFields(
+          taskId,
+          { claimedBySession: null, claimedByAgent: null, claimedAt: null, leaseExpiresAt: null },
+          {
+            claim: { sessionId: release.sessionId, mode: release.force ? 'force' : 'release', now },
+            keepVersion: true,
+          },
+        );
+        if (held.sessionId !== release.sessionId) {
+          await accessor.appendLog({
+            action: 'task_claim_force_release',
+            taskId,
+            actor: release.sessionId ?? 'unbound',
+            sessionId: release.sessionId,
+            timestamp: now,
+            details: { mode: 'force', leaseExpired: held.leaseExpiresAt <= now },
+            before: held,
+          });
         }
-
-        // Verify the task exists
-        const existsRow = nativeDb.prepare('SELECT id FROM tasks_tasks WHERE id = ?').get(taskId) as
-          | { id: string }
-          | undefined;
-        if (!existsRow) {
-          throw new Error(`Task not found: ${taskId}`);
-        }
-
-        // Clear the assignee — no-op if already null
-        nativeDb
-          .prepare('UPDATE tasks_tasks SET assignee = NULL, updated_at = ? WHERE id = ?')
-          .run(new Date().toISOString(), taskId);
+        return true;
       });
+    },
+
+    async renewSessionClaims(sessionId: string, leaseExpiresAt: string): Promise<number> {
+      // The heartbeat follows EVERY mutation of a bound session, and almost no
+      // session holds a lease. Probe the claimed_by_session index first and
+      // write only when there is a lease to extend, so the common case costs
+      // one indexed read and no lock.
+      const db = await getDb(cwd);
+      const [held] = await db
+        .select({ id: schema.tasks.id })
+        .from(schema.tasks)
+        .where(eq(schema.tasks.claimedBySession, sessionId))
+        .limit(1)
+        .all();
+      if (!held) return 0;
+      const native = getNativeTasksDb(cwd);
+      // A connection mid-transaction belongs to another caller: joining it
+      // would commit or roll back with that caller's work. Skip — renewal is
+      // best-effort and the next mutation renews.
+      if (!native || native.isTransaction) return 0;
+      // node:sqlite is SYNCHRONOUS: a write stuck behind another connection's
+      // lock waits the full busy_timeout (30 s) ON the event loop, where no
+      // timer can interrupt it. So the renewal lowers busy_timeout for its one
+      // statement and treats SQLITE_BUSY as "skip this beat". The single
+      // UPDATE autocommits atomically, and set → run → restore runs with no
+      // await in between, so no other caller ever sees the short timeout.
+      const previous = db.get<{ timeout: number }>(sql`PRAGMA busy_timeout`).timeout;
+      db.run(sql.raw(`PRAGMA busy_timeout=${CLAIM_RENEW_BUSY_TIMEOUT_MS}`));
+      try {
+        const result = db
+          .update(schema.tasks)
+          .set({ leaseExpiresAt })
+          .where(eq(schema.tasks.claimedBySession, sessionId))
+          .run();
+        return Number(result.changes);
+      } catch (err) {
+        if (isSqliteBusy(err) || (err instanceof Error && isSqliteBusy(err.cause))) return 0;
+        throw err;
+      } finally {
+        db.run(sql.raw(`PRAGMA busy_timeout=${previous}`));
+      }
     },
   };
 

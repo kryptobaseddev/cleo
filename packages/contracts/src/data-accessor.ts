@@ -17,6 +17,7 @@ import type { ArchivedTask } from './archive.js';
 import type { Session } from './session.js';
 import type {
   Task,
+  TaskClaim,
   TaskKind,
   TaskPriority,
   TaskSeverity,
@@ -150,6 +151,18 @@ export interface TaskFieldUpdates {
   updatedAt?: string | null;
   assignee?: string | null;
   pipelineStage?: string | null;
+  /**
+   * Agent claim lease columns (T12502). Change them through
+   * `DataAccessor.claimTask` / `unclaimTask`, which pair them with a
+   * {@link TaskClaimGuard} so the write is a compare-and-set on the holder.
+   */
+  claimedBySession?: string | null;
+  /** Agent identity of the lease holder (T12502). */
+  claimedByAgent?: string | null;
+  /** ISO-8601 UTC instant the lease was taken (T12502). */
+  claimedAt?: string | null;
+  /** ISO-8601 UTC instant the lease lapses unless renewed (T12502). */
+  leaseExpiresAt?: string | null;
 }
 
 /**
@@ -299,6 +312,87 @@ export interface TaskWriteGuard {
    * are reported in {@link TaskConflictDetails.changedFields}. @task T12503
    */
   baseline?: Task;
+  /**
+   * Compare-and-set on the claim lease columns (T12502). The write matches
+   * only while the stored holder satisfies {@link TaskClaimGuard.mode}; when
+   * it does not, the write fails with `E_TASK_CLAIMED`
+   * ({@link TaskClaimedDetails}) instead of `E_CONFLICT`.
+   */
+  claim?: TaskClaimGuard;
+  /**
+   * Leave the task version (`updatedAt`) unchanged. For lease bookkeeping
+   * (renew, release) that must not invalidate another writer's `--if-match`.
+   * @task T12502
+   */
+  keepVersion?: boolean;
+}
+
+/**
+ * How a claim write treats the lease already stored on the task (T12502).
+ *
+ * - `acquire`: succeeds when the task is unclaimed, already held by the
+ *   caller's session, or held by `handoffFrom` (an orchestrator handing the
+ *   task to the agent it spawns). An expired lease still blocks: taking it is
+ *   explicit.
+ * - `take-over`: `acquire`, or the stored lease has expired. Audited.
+ * - `force`: unconditional, even over a live lease. Audited.
+ * - `renew`: only the holder session may extend its lease.
+ * - `release`: only the holder session may clear its lease.
+ */
+export type TaskClaimMode = 'acquire' | 'take-over' | 'force' | 'renew' | 'release';
+
+/**
+ * Claim predicate for a guarded task write (T12502). Evaluated in the
+ * UPDATE's WHERE clause, inside the write transaction.
+ */
+export interface TaskClaimGuard {
+  /** The caller's session, or `null` for an unbound caller (holds no lease). */
+  sessionId: string | null;
+  /** Which stored holders the write may replace. */
+  mode: TaskClaimMode;
+  /** ISO-8601 UTC "now" used for the lease-expiry comparison. */
+  now: string;
+  /** A session whose live lease `acquire` may take over (spawn hand-off). */
+  handoffFrom?: string | null;
+}
+
+/**
+ * A request to take, renew or override the claim lease on a task (T12502).
+ */
+export interface TaskClaimRequest {
+  /** The claiming session; `null` checks the claim without taking a lease. */
+  sessionId: string | null;
+  /** Agent identity recorded with the lease, or `null`. */
+  agentId: string | null;
+  /** How to treat a stored lease (see {@link TaskClaimMode}); never `release`. */
+  mode: Exclude<TaskClaimMode, 'release'>;
+  /** Lease length in milliseconds; defaults to the core lease TTL. */
+  leaseMs?: number;
+  /** Clock override (ISO-8601 UTC) for tests. */
+  now?: string;
+  /** A session whose live lease `acquire` may take over (spawn hand-off). */
+  handoffFrom?: string | null;
+}
+
+/**
+ * `details` of an `E_TASK_CLAIMED` (`ExitCode.TASK_CLAIMED`) error: who holds
+ * the task, until when, and which explicit, audited override applies.
+ *
+ * @task T12502
+ */
+export interface TaskClaimedDetails {
+  /** Always `'claimedBySession'`: the lease-holder column the claim compared. */
+  field: 'claimedBySession';
+  /** The claimed task. */
+  taskId: string;
+  /** The lease currently stored on the task. */
+  holder: TaskClaim;
+  /** `true` when the holder's lease has lapsed (take it with `--take-over`). */
+  expired: boolean;
+  /** The refused caller. */
+  requester: { sessionId: string | null; agentId: string | null };
+  /** The flag that would override: `--take-over` (expired) or `--force-claim` (live). */
+  override: '--take-over' | '--force-claim';
 }
 
 /**
@@ -659,29 +753,50 @@ export interface DataAccessor {
   /** Get a single agent instance by ID. Returns null if not found. */
   getAgentInstance(agentId: string): Promise<DataAccessorAgentInstance | null>;
 
-  // ---- Agent task claiming ----
+  // ---- Agent task claiming (leased, T12502) ----
 
   /**
-   * Atomically claim a task for an agent.
+   * Take, renew or override the claim lease on a task in one compare-and-set
+   * write (`updateTaskFields` with a {@link TaskClaimGuard}). The human
+   * `assignee` is never touched.
    *
-   * Uses `UPDATE ... WHERE assignee IS NULL OR assignee = agentId` to prevent
-   * race conditions. Throws if the task is already claimed by a different agent.
+   * With `sessionId: null` no lease is written; the call only verifies, in
+   * the same way, that no other session holds the task.
    *
    * @param taskId - ID of the task to claim.
-   * @param agentId - Agent identifier claiming the task.
-   * @throws {Error} When the task is not found or is already claimed by another agent.
+   * @param request - Claimant, mode and lease length.
+   * @returns The lease now held, or `null` when `sessionId` is `null`.
+   * @throws {Error} When the task is not found.
+   * @throws CleoError `E_TASK_CLAIMED` with {@link TaskClaimedDetails} when
+   *   another session holds the task and `mode` does not allow replacing it.
    */
-  claimTask(taskId: string, agentId: string): Promise<void>;
+  claimTask(taskId: string, request: TaskClaimRequest): Promise<TaskClaim | null>;
 
   /**
-   * Release a claimed task, clearing its assignee.
+   * Release the claim lease on a task. Without `force`, only the holder
+   * session's lease is cleared; with `force` any lease is cleared.
    *
-   * No-op if the task is not currently claimed.
-   *
-   * @param taskId - ID of the task to unclaim.
+   * @param taskId - ID of the task to release.
+   * @param release - The releasing session and whether to force.
+   * @returns `true` when a lease was cleared, `false` when there was none to clear.
    * @throws {Error} When the task is not found.
+   * @throws CleoError `E_TASK_CLAIMED` when another session holds the lease and `force` is not set.
    */
-  unclaimTask(taskId: string): Promise<void>;
+  unclaimTask(
+    taskId: string,
+    release: { sessionId: string | null; force?: boolean },
+  ): Promise<boolean>;
+
+  /**
+   * Heartbeat: extend every lease held by `sessionId` to `leaseExpiresAt`,
+   * without changing any task version (T12502). A session holding no lease
+   * costs one indexed read and takes no write lock.
+   *
+   * @param sessionId - The holder session.
+   * @param leaseExpiresAt - New lease expiry (ISO-8601 UTC).
+   * @returns Number of leases renewed.
+   */
+  renewSessionClaims(sessionId: string, leaseExpiresAt: string): Promise<number>;
 }
 
 // Factory functions (createDataAccessor, getTaskAccessor) live in @cleocode/core,

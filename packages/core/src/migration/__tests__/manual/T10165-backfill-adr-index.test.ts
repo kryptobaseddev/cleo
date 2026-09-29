@@ -152,7 +152,7 @@ describe('T10165 backfillAdrIndex end-to-end', () => {
     expect(result.unresolvedEdges).toBe(0);
 
     const { getDb } = await import('../../../store/sqlite.js');
-    const { attachments } = await import('../../../store/schema/attachments.js');
+    const { attachments } = await import('../../../store/tasks-schema.js');
     const { eq } = await import('drizzle-orm');
 
     const db = await getDb(projectRoot);
@@ -252,7 +252,7 @@ describe('T10165 backfillAdrIndex end-to-end', () => {
     expect(result.inserted).toBe(1);
 
     const { getDb } = await import('../../../store/sqlite.js');
-    const { attachments } = await import('../../../store/schema/attachments.js');
+    const { attachments } = await import('../../../store/tasks-schema.js');
     const db = await getDb(projectRoot);
     const rows = await db.select().from(attachments).all();
     expect(rows).toEqual([]);

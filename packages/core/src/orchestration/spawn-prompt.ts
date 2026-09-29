@@ -666,7 +666,7 @@ function buildWorktreeSetupBlock(
     '',
     `Authorized only within this worktree (branch \`${worktreeBranch}\`, task \`${taskId}\`). Never read or write the main checkout or any path outside the worktree in Edit/Write.`,
     '',
-    '**FIRST ACTION**: run the block below. Each Bash call starts a new shell and cwd does NOT persist between Bash calls, so begin EVERY Bash call with its `cd ... || exit 1` line.',
+    "**FIRST ACTION**: run the block below. Each Bash call starts a new shell and neither cwd nor env persists between Bash calls, so begin EVERY Bash call with its Step 1 line (`cd ... && export CLEO_SESSION_ID=... CLEO_AGENT_ID=... CLEO_AGENT_ROLE=... || exit 1`). It re-enters the worktree AND re-binds your own session and the role the git shim enforces; without it `cleo` resolves to the orchestrator's session and refuses your own task with E_TASK_CLAIMED.",
     '',
     '```bash',
     isolation.preamble.trimEnd(),

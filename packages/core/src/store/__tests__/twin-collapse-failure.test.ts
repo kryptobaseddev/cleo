@@ -197,7 +197,7 @@ describe('a blocked backups directory', () => {
       },
     });
     expect(String(blocked?.message)).toMatch(
-      /writes are refused.*Snapshot would be written to .*cleo\.db\.migration-/,
+      /writes to them are refused.*Snapshot would be written to .*cleo\.db\.migration-/,
     );
 
     const report = inspectProjectTwinCollapse(projectDir);

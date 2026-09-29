@@ -27,6 +27,8 @@ import type {
   Task,
   TaskAuditLogQuery,
   TaskAuditLogRow,
+  TaskClaim,
+  TaskClaimRequest,
   TaskFieldUpdates,
   TaskQueryFilters,
   TaskWriteGuard,
@@ -386,11 +388,18 @@ export class UmbrellaDataAccessor implements DataAccessor {
     return (await this.tasks()).getAgentInstance(agentId);
   }
 
-  async claimTask(taskId: string, agentId: string): Promise<void> {
-    return (await this.tasks()).claimTask(taskId, agentId);
+  async claimTask(taskId: string, request: TaskClaimRequest): Promise<TaskClaim | null> {
+    return (await this.tasks()).claimTask(taskId, request);
   }
 
-  async unclaimTask(taskId: string): Promise<void> {
-    return (await this.tasks()).unclaimTask(taskId);
+  async unclaimTask(
+    taskId: string,
+    release: { sessionId: string | null; force?: boolean },
+  ): Promise<boolean> {
+    return (await this.tasks()).unclaimTask(taskId, release);
+  }
+
+  async renewSessionClaims(sessionId: string, leaseExpiresAt: string): Promise<number> {
+    return (await this.tasks()).renewSessionClaims(sessionId, leaseExpiresAt);
   }
 }

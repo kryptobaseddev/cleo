@@ -20,7 +20,7 @@
  */
 
 import type { EngineResult } from '@cleocode/core';
-import { getLogger, getProjectRoot, pivotTask } from '@cleocode/core/internal';
+import { CleoError, getLogger, getProjectRoot, pivotTask } from '@cleocode/core/internal';
 import {
   CLEO_DIR_NAME,
   orchestrateAnalyze,
@@ -195,6 +195,10 @@ interface OrchestratePivotParams {
   toTaskId: string;
   reason: string;
   blocksFrom?: boolean;
+  /** T12502 — take over an expired claim on `toTaskId`. */
+  takeOver?: boolean;
+  /** T12502 — take over a live claim on `toTaskId`. */
+  forceClaim?: boolean;
 }
 
 interface OrchestrateWorktreeCompleteParams {
@@ -450,6 +454,8 @@ async function orchestratePivotOp(params: OrchestratePivotParams) {
       reason: params.reason,
       blocksFrom: params.blocksFrom,
       projectRoot: getProjectRoot(),
+      takeOver: params.takeOver === true,
+      forceClaim: params.forceClaim === true,
     });
     return { success: true, data: result };
   } catch (err) {
@@ -461,9 +467,18 @@ async function orchestratePivotOp(params: OrchestratePivotParams) {
     else if (code === 4) errorCode = 'E_NOT_FOUND';
     else if (code === 6) errorCode = 'E_VALIDATION';
     else if (code === 38) errorCode = 'E_NOT_ACTIVE';
+    else if (code === 35) errorCode = 'E_TASK_CLAIMED';
+    else if (code === 24) errorCode = 'E_SESSION_UNBOUND';
+    const cleo = err instanceof CleoError ? err : undefined;
     return {
       success: false,
-      error: { code: errorCode, message },
+      error: {
+        code: errorCode,
+        message,
+        ...(typeof code === 'number' && code !== 0 ? { exitCode: code } : {}),
+        ...(cleo?.fix ? { fix: cleo.fix } : {}),
+        ...(cleo?.details ? { details: cleo.details } : {}),
+      },
     };
   }
 }
@@ -941,6 +956,8 @@ export class OrchestrateHandler implements DomainHandler {
             toTaskId: params.toTaskId as string,
             reason: params.reason as string,
             blocksFrom: params.blocksFrom as boolean | undefined,
+            takeOver: params.takeOver === true,
+            forceClaim: params.forceClaim === true,
           };
           return wrapResult(
             (await coreOps.pivot(p)) as EngineResult<unknown>,

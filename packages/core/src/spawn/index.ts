@@ -19,6 +19,7 @@ export {
 // Per-agent spawn identity (T11343 · Epic T11284)
 export type { SpawnAgentIdentity, SpawnSessionResolution } from './agent-identity.js';
 export {
+  abandonSpawnSession,
   allocateSpawnSession,
   deriveAgentHandle,
   requireSpawnSession,

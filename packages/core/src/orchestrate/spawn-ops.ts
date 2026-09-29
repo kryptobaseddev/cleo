@@ -93,7 +93,15 @@ import { governor } from '../resources/governor.js';
 import { provisionIsolatedShell } from '../sdk/isolation.js';
 import { spawnWorktree } from '../sentient/worktree-dispatch.js';
 import { initializeDefaultAdapters, spawnRegistry } from '../spawn/adapter-registry.js';
-import { requireSpawnSession } from '../spawn/agent-identity.js';
+import {
+  abandonSpawnSession,
+  requireSpawnSession,
+  type SpawnSessionResolution,
+} from '../spawn/agent-identity.js';
+
+/** A successful spawn-session resolution (session allocated, task claimed). */
+type SpawnSessionClaimed = Extract<SpawnSessionResolution, { ok: true }>;
+
 import { resolveSpawnLockHolder } from '../spawn/worktree-lock-holder.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { openAgentRegistryDbForComposer } from './plan.js';
@@ -824,6 +832,9 @@ export async function orchestrateSpawnExecute(
   // unless the adapter left the agent running (then the agent owns it).
   let execLock: { projectHash: string; token: string } | undefined;
   let keepExecLock = false;
+  /** T12502 — the task claim + session this spawn took; undone unless dispatched. */
+  let execClaim: SpawnSessionClaimed | undefined;
+  let dispatched = false;
   try {
     // Get spawn registry
     await initializeDefaultAdapters();
@@ -879,10 +890,16 @@ export async function orchestrateSpawnExecute(
           code: spawnSession.code,
           message: spawnSession.message,
           exitCode: spawnSession.exitCode,
-          details: { taskId, cause: spawnSession.cause, fix: spawnSession.fix },
+          details: {
+            ...spawnSession.details,
+            taskId,
+            cause: spawnSession.cause,
+            fix: spawnSession.fix,
+          },
         },
       };
     }
+    execClaim = spawnSession;
     const activeSessionId = spawnSession.identity.sessionId;
     const spawnAgentId = spawnSession.identity.agentId;
 
@@ -1061,6 +1078,10 @@ export async function orchestrateSpawnExecute(
 
     // Execute spawn
     const result = await adapter.spawn(cleoSpawnContext);
+    // T12502 — an adapter may REPORT a failure (status `failed`) instead of
+    // throwing: the child never ran, so the claim goes back exactly as for a
+    // throw (the `finally` abandons the spawn session).
+    dispatched = result.status !== 'failed';
     keepExecLock = result.status === 'running' || result.status === 'pending';
 
     // Run declarative post-start worktree hooks after the agent is spawned.
@@ -1210,6 +1231,11 @@ export async function orchestrateSpawnExecute(
     if (execLock && !keepExecLock) {
       releaseWorktreeTaskLock(execLock.projectHash, taskId, execLock.token);
     }
+    // T12502 — a spawn that never reached the adapter, or that the adapter
+    // reported as failed, hands the claim back.
+    if (execClaim && !dispatched) {
+      await abandonSpawnSession(cwd, taskId, execClaim);
+    }
     // Release the agent-session slot once provisioning + dispatch returns.
     await admit.release().catch(() => {
       /* Idempotent release — slot already reaped (e.g. stale recovery). */
@@ -1309,6 +1335,8 @@ export async function orchestrateSpawn(
    */
   let spawnLock: { projectHash: string; token: string } | undefined;
   let spawnSucceeded = false;
+  /** T12502 — the task claim + session this spawn took; undone in `finally` on failure. */
+  let spawnClaim: { root: string; resolution: SpawnSessionClaimed } | undefined;
 
   /**
    * Build the E_TIMEOUT envelope AND run bounded auto-cleanup on the
@@ -1439,10 +1467,12 @@ export async function orchestrateSpawn(
     if (!spawnSession.ok) {
       spawnLogger.error({ taskId, cause: spawnSession.cause }, 'spawn session allocation failed');
       return engineError(spawnSession.code, spawnSession.message, {
+        exitCode: spawnSession.exitCode,
         fix: spawnSession.fix,
-        details: { taskId, cause: spawnSession.cause },
+        details: { ...spawnSession.details, taskId, cause: spawnSession.cause },
       });
     }
+    spawnClaim = { root, resolution: spawnSession };
     const activeSessionId = spawnSession.identity.sessionId;
     const spawnAgentId = spawnSession.identity.agentId;
 
@@ -1825,6 +1855,10 @@ export async function orchestrateSpawn(
     // T12506 — a failed spawn must not keep the task locked for the TTL.
     if (spawnLock && !spawnSucceeded) {
       releaseWorktreeTaskLock(spawnLock.projectHash, taskId, spawnLock.token);
+    }
+    // T12502 — a failed spawn must not strand the task claim or the session.
+    if (spawnClaim && !spawnSucceeded) {
+      await abandonSpawnSession(spawnClaim.root, taskId, spawnClaim.resolution);
     }
   }
 }
