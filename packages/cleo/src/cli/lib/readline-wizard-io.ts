@@ -47,12 +47,15 @@
  * `@cleocode/core/setup`).  The matching `setup.ts` catch block prints
  * `"Setup interrupted. Run 'cleo setup' to continue."` and exits 130.
  *
- * ## Hidden secret input (T12714)
+ * ## Masked secret input (T12714 · T12733)
  *
  * {@link ReadlineWizardIO.secret} writes its question, then mutes the
  * {@link MutableOutput} stream readline echoes into until the answer is
  * submitted, so the characters of a typed or pasted API key never reach the
- * terminal. The interface keeps no history (`historySize: 0`) and a secret is
+ * terminal. Instead it echoes one {@link SECRET_MASK_CHAR} per character in
+ * the line (and erases one per deleted character), computed from the line
+ * LENGTH after each keypress, so the user sees their typing progress and the
+ * key itself is never written. The interface keeps no history (`historySize: 0`) and a secret is
  * also scrubbed from any history after it is read, so an Up-arrow can never
  * redraw a key. Terminal mode follows the INPUT stream: when stdin is a TTY
  * the terminal itself would echo a key typed with terminal mode off, so
@@ -63,6 +66,7 @@
  * @task T9599
  * @task T9612
  * @task T12714
+ * @task T12733
  * @epic E-CONFIG-AUTH-UNIFY (E3 §5.3 T-E3-2)
  * @epic E-CLEO-SETUP-V2 (§3.5 T-SETUP-V2-6)
  */
@@ -155,6 +159,14 @@ export const SECRET_ECHO_REFUSED_MESSAGE =
   'Refusing to read a secret: stdin is a terminal but terminal mode is off, so the key would be echoed. ' +
   'Pipe it instead: printf %s "$KEY" | cleo decide config --provider layahost --key-stdin ' +
   '(or cleo llm add <provider> --api-key-stdin).';
+
+/**
+ * The character {@link ReadlineWizardIO.secret} echoes for each character of a
+ * secret being typed.
+ *
+ * @task T12733
+ */
+export const SECRET_MASK_CHAR = '•';
 
 /**
  * Options for {@link ReadlineWizardIO}.
@@ -275,6 +287,8 @@ export class ReadlineWizardIO implements WizardIO {
   private readonly output: MutableOutput;
   /** Whether the input stream is a TTY (the terminal echoes unless readline owns it). */
   private readonly inputIsTTY: boolean;
+  /** The input stream (its keypress events drive the secret mask). */
+  private readonly inStream: NodeJS.ReadableStream;
   /** AbortController aborted when stdin closes — surfaced as {@link StdinClosedError}. */
   private readonly eofController: AbortController;
   /**
@@ -303,6 +317,7 @@ export class ReadlineWizardIO implements WizardIO {
   ) {
     this.eofController = new AbortController();
     this.output = new MutableOutput(outStream);
+    this.inStream = inStream;
     this.inputIsTTY = streamIsTTY(inStream);
     this.rl = readline.createInterface({
       input: inStream,
@@ -392,6 +407,7 @@ export class ReadlineWizardIO implements WizardIO {
     if (this.inputIsTTY && !this.rl.terminal) throw new Error(SECRET_ECHO_REFUSED_MESSAGE);
     this.output.writeUnmuted(`${question} `);
     this.output.muted = true;
+    const stopMask = this.echoMask();
     let raw: string | undefined;
     try {
       raw = await this.rl.question('', { signal: this.eofController.signal });
@@ -399,10 +415,36 @@ export class ReadlineWizardIO implements WizardIO {
     } catch (err) {
       return this.rethrowEof(err);
     } finally {
+      stopMask();
       this.output.muted = false;
       this.output.writeUnmuted('\n');
       if (raw !== undefined) this.scrubHistory(raw);
     }
+  }
+
+  /**
+   * While a secret is typed (readline's echo muted), echo one
+   * {@link SECRET_MASK_CHAR} per character in the line and erase one per
+   * deleted character. Runs after readline's own keypress handler (registered
+   * first), so `rl.line` is already updated; only its LENGTH is read. The
+   * submitting key (Enter) is ignored, since readline clears the line then.
+   *
+   * @returns A function that stops the echo.
+   */
+  private echoMask(): () => void {
+    if (!this.rl.terminal) return () => {};
+    let shown = 0;
+    const onKeypress = (_str: string | undefined, key: { name?: string } | undefined): void => {
+      if (key?.name === 'return' || key?.name === 'enter') return;
+      const length = this.rl.line.length;
+      if (length > shown) this.output.writeUnmuted(SECRET_MASK_CHAR.repeat(length - shown));
+      else if (length < shown) this.output.writeUnmuted('\b \b'.repeat(shown - length));
+      shown = length;
+    };
+    this.inStream.on('keypress', onKeypress);
+    return () => {
+      this.inStream.off('keypress', onKeypress);
+    };
   }
 
   /**

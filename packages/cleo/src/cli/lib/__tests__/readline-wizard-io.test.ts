@@ -20,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ReadlineWizardIO,
   SECRET_ECHO_REFUSED_MESSAGE,
+  SECRET_MASK_CHAR,
   StdinClosedError,
   stripBracketedPaste,
 } from '../readline-wizard-io.js';
@@ -434,6 +435,45 @@ describe('ReadlineWizardIO.secret — the typed key is never echoed (T12714)', (
     expect(out).toContain('visible');
     expect(out).not.toContain('HIDDENKEY');
     for (const fragment of ['sk-l', '9753', 'KEY-']) expect(out).not.toContain(fragment);
+  });
+
+  it('echoes only mask characters, one per key character (T12733)', async () => {
+    const { io, input, written } = ttyIO();
+    setImmediate(() => {
+      for (const ch of SECRET) input.write(ch);
+      input.write('\r');
+    });
+    expect(await io.secret('API key:')).toBe(SECRET);
+    io.close();
+    const out = written();
+    const echoed = out.slice(out.indexOf('API key: ') + 'API key: '.length, out.lastIndexOf('\n'));
+    expect(echoed).toBe(SECRET_MASK_CHAR.repeat(SECRET.length));
+    expect([...out].filter((c) => c === SECRET_MASK_CHAR)).toHaveLength(SECRET.length);
+    expect(out).not.toContain('HIDDENKEY');
+  });
+
+  it('backspace erases one mask character and the answer drops the deleted character', async () => {
+    const { io, input, written } = ttyIO();
+    setImmediate(() => {
+      for (const ch of 'abcX') input.write(ch);
+      input.write('\x7f'); // backspace
+      input.write('d\r');
+    });
+    expect(await io.secret('API key:')).toBe('abcd');
+    io.close();
+    const out = written();
+    const echoed = out.slice(out.indexOf('API key: ') + 'API key: '.length, out.lastIndexOf('\n'));
+    const m = SECRET_MASK_CHAR;
+    expect(echoed).toBe(`${m}${m}${m}${m}\b \b${m}`);
+  });
+
+  it('a pasted secret echoes one mask character per character', async () => {
+    const { io, input, written } = ttyIO();
+    setImmediate(() => input.write(`${SECRET}\r`));
+    expect(await io.secret('API key:')).toBe(SECRET);
+    io.close();
+    expect([...written()].filter((c) => c === SECRET_MASK_CHAR)).toHaveLength(SECRET.length);
+    expect(written()).not.toContain('HIDDENKEY');
   });
 
   it('strips bracketed-paste markers from a pasted secret', async () => {
