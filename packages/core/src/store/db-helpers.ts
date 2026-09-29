@@ -8,7 +8,7 @@
  */
 
 import type { ArchiveReasonValue, Session, Task } from '@cleocode/contracts';
-import { eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { getLogger } from '../logger.js';
 import type { NewTaskRow } from './tasks-schema.js';
@@ -141,12 +141,16 @@ export function parseLabels(labelsJson: string | null | undefined): string[] {
 }
 
 /**
- * Replace the {@link schema.taskLabels} junction rows for one task so they
- * exactly mirror its label set (T11356).
+ * Make the {@link schema.taskLabels} junction rows for one task exactly mirror
+ * its label set (T11356).
  *
- * Delete-then-insert keeps the junction authoritative without read-modify-write
- * races: the prior label set is dropped and the supplied set re-inserted. Called
- * from {@link upsertTask} and from raw-SQL proposal inserters that bypass it.
+ * A diff write (T12341): only labels that left the set are deleted and only
+ * new ones inserted, so a save that keeps the set writes nothing. Deleting and
+ * re-inserting a kept label would replicate as a tombstone plus a re-insert of
+ * the same row uid, which lets a stale save resurrect a label another device
+ * removed. Callers run inside the task transaction, so the read and the writes
+ * see one state. Called from {@link upsertTask} and from raw-SQL proposal
+ * inserters that bypass it.
  *
  * @param db - Drizzle tasks.db handle.
  * @param taskId - The owning task id.
@@ -157,11 +161,28 @@ export async function updateTaskLabels(
   taskId: string,
   labels: string[],
 ): Promise<void> {
-  await db.delete(schema.taskLabels).where(eq(schema.taskLabels.taskId, taskId)).run();
-  if (labels.length === 0) return;
+  const want = new Set(labels);
+  const current = new Set(
+    (
+      await db
+        .select({ label: schema.taskLabels.label })
+        .from(schema.taskLabels)
+        .where(eq(schema.taskLabels.taskId, taskId))
+        .all()
+    ).map((row) => row.label),
+  );
+  const removed = [...current].filter((label) => !want.has(label));
+  const added = [...want].filter((label) => !current.has(label));
+  if (removed.length > 0) {
+    await db
+      .delete(schema.taskLabels)
+      .where(and(eq(schema.taskLabels.taskId, taskId), inArray(schema.taskLabels.label, removed)))
+      .run();
+  }
+  if (added.length === 0) return;
   await db
     .insert(schema.taskLabels)
-    .values(labels.map((label) => ({ taskId, label })))
+    .values(added.map((label) => ({ taskId, label })))
     .onConflictDoNothing()
     .run();
 }
@@ -271,8 +292,10 @@ export async function appendSessionListItem(
 }
 
 /**
- * Update dependencies for a task: delete existing, then re-insert.
- * Optionally filters by a set of valid IDs.
+ * Make a task's dependency rows equal `depends` (optionally filtered by a set
+ * of valid IDs) with a diff write (T12341): only removed edges are deleted and
+ * only new ones inserted, so an unchanged set writes nothing and a kept edge is
+ * never deleted and re-inserted (see {@link updateTaskLabels}).
  */
 export async function updateDependencies(
   db: DrizzleDb,
@@ -280,23 +303,14 @@ export async function updateDependencies(
   depends: string[],
   validIds?: Set<string>,
 ): Promise<void> {
-  await db.delete(schema.taskDependencies).where(eq(schema.taskDependencies.taskId, taskId)).run();
-  for (const depId of depends) {
-    if (!validIds || validIds.has(depId)) {
-      await db
-        .insert(schema.taskDependencies)
-        .values({ taskId, dependsOn: depId })
-        .onConflictDoNothing()
-        .run();
-    }
-  }
+  await batchUpdateDependencies(db, [{ taskId, deps: depends }], validIds);
 }
 
 /**
- * Batch-update dependencies for multiple tasks in two bulk SQL operations.
- * Replaces per-task updateDependencies() loops with:
- * 1. Single DELETE for all task IDs
- * 2. Single INSERT for all dependency rows
+ * Batch-update dependencies for multiple tasks with one read and bulk writes.
+ * A diff write (T12341): one SELECT of the current edges of these tasks, then
+ * one DELETE per task for the edges that left its set, and one INSERT for all
+ * new edges. Edges kept in the set are never touched.
  *
  * Callers are responsible for wrapping this in a transaction if needed.
  */
@@ -308,26 +322,41 @@ export async function batchUpdateDependencies(
   if (tasks.length === 0) return;
 
   const allTaskIds = tasks.map((t) => t.taskId);
-
-  // Single DELETE: remove all existing dependencies for these tasks
-  await db
-    .delete(schema.taskDependencies)
+  const current = new Map<string, Set<string>>();
+  for (const row of await db
+    .select({
+      taskId: schema.taskDependencies.taskId,
+      dependsOn: schema.taskDependencies.dependsOn,
+    })
+    .from(schema.taskDependencies)
     .where(inArray(schema.taskDependencies.taskId, allTaskIds))
-    .run();
-
-  // Collect all valid dependency rows
-  const allDepRows: Array<{ taskId: string; dependsOn: string }> = [];
-  for (const { taskId, deps } of tasks) {
-    for (const depId of deps) {
-      if (!validIds || validIds.has(depId)) {
-        allDepRows.push({ taskId, dependsOn: depId });
-      }
-    }
+    .all()) {
+    const set = current.get(row.taskId) ?? new Set<string>();
+    set.add(row.dependsOn);
+    current.set(row.taskId, set);
   }
 
-  // Single INSERT for all dependency rows
-  if (allDepRows.length > 0) {
-    await db.insert(schema.taskDependencies).values(allDepRows).onConflictDoNothing().run();
+  const added: Array<{ taskId: string; dependsOn: string }> = [];
+  for (const { taskId, deps } of tasks) {
+    const want = new Set(deps.filter((depId) => !validIds || validIds.has(depId)));
+    const have = current.get(taskId) ?? new Set<string>();
+    const removed = [...have].filter((depId) => !want.has(depId));
+    if (removed.length > 0) {
+      await db
+        .delete(schema.taskDependencies)
+        .where(
+          and(
+            eq(schema.taskDependencies.taskId, taskId),
+            inArray(schema.taskDependencies.dependsOn, removed),
+          ),
+        )
+        .run();
+    }
+    for (const depId of want) if (!have.has(depId)) added.push({ taskId, dependsOn: depId });
+  }
+
+  if (added.length > 0) {
+    await db.insert(schema.taskDependencies).values(added).onConflictDoNothing().run();
   }
 }
 
