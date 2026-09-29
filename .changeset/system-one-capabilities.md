@@ -51,14 +51,25 @@ fallback reason `budget`, and no command fails.
 
 Each call reserves its estimated cost under the same lock as the cap check,
 then commits the reported cost, so concurrent callers cannot overshoot the
-cap. The lock waits about a second, so no concurrent cost is lost.
+cap. The lock waits about a second, so no concurrent cost is lost. A call
+aborted after it was sent (deadline or caller) may still be billed, so its
+estimate is committed; only a failure before send or an error response
+releases it. A reservation still pending after 60 seconds (its process exited
+first) is charged at its estimate, not dropped.
 
 A corrupt ledger fails closed. `cleo decide status` names the repair,
-`cleo decide budget reset`, which moves the old file aside as a receipt. The
+`cleo decide budget reset`, which moves the old file aside as a receipt. It
+refuses a readable ledger unless `--force` is given, and a forced reset keeps
+the month-to-date spend, so a reset never lifts a reached cap. The
 request-rate token bucket stays in place.
 
 **`decideBatch()`** in the client sends one batch call when the provider has
 the capability. Otherwise it makes sequential calls that share the deadline.
+A failed batch item has the same effect on the gates as a failed single call
+(key-limit stop, rate-limit and overload back-off).
+
+Cached provider capabilities are keyed by base URL and a truncated sha256 of
+the API key; the key itself is never stored.
 
 **`cleo decide status`** reports:
 
