@@ -1,8 +1,8 @@
 ---
 id: skills-unkeep
 tasks: [T12699]
-kind: feature
-summary: `cleo skills doctor restore --unkeep <name>` hands a restored (kept) skill back to CLEO when it is unchanged
+kind: feat
+summary: "`cleo skills doctor restore --unkeep <name>` hands a restored (kept) skill back to CLEO when it is unchanged"
 ---
 
 A skill restored from quarantine is marked kept, so `cleo skills doctor
