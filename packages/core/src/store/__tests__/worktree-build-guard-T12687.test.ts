@@ -403,4 +403,28 @@ describe('T12687 review — stamp fails closed, marker scoping, attached schemas
     }
     expect(columns(r.store)).toEqual(['id']);
   });
+
+  it('DETACH then re-ATTACH of a foreign store under an allowed alias is guarded (review HIGH)', () => {
+    const r = scratchRepos();
+    const seed = new DatabaseSync(r.store);
+    seed.exec('CREATE TABLE t (id INTEGER PRIMARY KEY)');
+    seed.close();
+
+    asWorktreeBuild(r.build);
+    const mem = new DatabaseSync(':memory:');
+    try {
+      installSchemaWriteGuard(mem);
+      mem.exec(`ATTACH DATABASE ':memory:' AS a`);
+      refreshSchemaWriteGuard(mem); // `a` is now mapped as allowed (in-memory)
+      mem.exec('DETACH DATABASE a');
+      mem.exec(`ATTACH DATABASE '${r.store}' AS a`);
+      // No refresh: the stale allowed policy for `a` must not apply.
+      expect(() => mem.exec('ALTER TABLE a.t ADD COLUMN probe TEXT')).toThrow(/not authorized/);
+      refreshSchemaWriteGuard(mem);
+      expect(() => mem.exec('ALTER TABLE a.t ADD COLUMN probe TEXT')).toThrow(/not authorized/);
+    } finally {
+      mem.close();
+    }
+    expect(columns(r.store)).toEqual(['id']);
+  });
 });

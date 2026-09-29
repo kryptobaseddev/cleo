@@ -338,6 +338,12 @@ interface HandleGuard {
    * yet mapped: DDL on any unmapped schema is denied while it is set.
    */
   unmappedAttachRefusal: string | null;
+  /**
+   * Aliases DETACHed since the last refresh. Their mapped policy may describe
+   * a store that is gone: the alias can be re-ATTACHed to a different file,
+   * and SQLite's ATTACH callback carries the filename but not the alias.
+   */
+  detached: Set<string>;
   /** The most recent denial, for the error explanation. */
   lastDenied: { what: string; refusal: string } | null;
 }
@@ -403,6 +409,7 @@ export function installSchemaWriteGuard(nativeDb: DatabaseSync): boolean {
   const state: HandleGuard = {
     schemas: readSchemas(nativeDb),
     unmappedAttachRefusal: null,
+    detached: new Set(),
     lastDenied: null,
   };
   guards.set(nativeDb, state);
@@ -413,14 +420,24 @@ export function installSchemaWriteGuard(nativeDb: DatabaseSync): boolean {
       if (refusal && !state.unmappedAttachRefusal) state.unmappedAttachRefusal = refusal;
       return sqlite.SQLITE_OK;
     }
+    if (action === sqlite.SQLITE_DETACH) {
+      if (arg1) state.detached.add(arg1);
+      return sqlite.SQLITE_OK;
+    }
     const createType = creates.get(action);
     if (createType === undefined && !changes.has(action)) return sqlite.SQLITE_OK;
     // SQLITE_ALTER_TABLE passes (schema, table) in arg1/arg2 and no dbName;
     // every other action passes the schema as dbName.
     const schema = (action === sqlite.SQLITE_ALTER_TABLE ? arg1 : dbName) ?? 'main';
     if (schema === 'temp') return sqlite.SQLITE_OK;
-    const policy = state.schemas.get(schema);
-    const refusal = policy ? policy.refusal : state.unmappedAttachRefusal;
+    // A DETACHed alias is unmapped until refresh. Its old refusal still
+    // applies, because the DETACH itself may have failed after authorization.
+    const stale = state.detached.has(schema);
+    const mapped = state.schemas.get(schema);
+    const policy = stale ? undefined : mapped;
+    const refusal = policy
+      ? policy.refusal
+      : (mapped?.refusal ?? null) || state.unmappedAttachRefusal;
     if (refusal === null) return sqlite.SQLITE_OK;
     // CREATE … IF NOT EXISTS of an existing object is a no-op.
     if (createType !== undefined && policy?.objects.has(`${createType}:${arg1}`)) {
@@ -449,6 +466,7 @@ export function refreshSchemaWriteGuard(nativeDb: DatabaseSync): void {
   if (!state) return;
   state.schemas = readSchemas(nativeDb);
   state.unmappedAttachRefusal = null;
+  state.detached.clear();
 }
 
 /**
