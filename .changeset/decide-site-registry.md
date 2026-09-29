@@ -1,7 +1,7 @@
 ---
 id: decide-site-registry
 tasks: [T12662]
-kind: feature
+kind: feat
 summary: A typed decision-site registry and `cleo decide sites` list every place CLEO makes a judgement, with its rung, ladder, fallback, owner escalation and mode
 ---
 
