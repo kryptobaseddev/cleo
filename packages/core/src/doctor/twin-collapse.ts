@@ -188,13 +188,19 @@ export function twinCollapseDoctorCheck(projectRoot: string): TwinCollapseDoctor
   const changed = report.pairs.filter((p) => p.state === 'bare-changed');
   const conflicted = report.pairs.filter((p) => p.conflicts.length > 0);
   const unpinned = report.pairs.filter((p) => p.snapshotPinned === false);
+  const missing = report.pairs.filter((p) => p.snapshotMissing);
   const archived = report.pairs.filter((p) => p.archived.length > 0);
+  // Informational only (not a warning): archived twin values are kept, not lost.
+  const info =
+    archived.length > 0
+      ? `the initial collapse archived the twin's own values of ${archived.map((p) => `${p.table}: ${p.archived.join(', ')}`).join('; ')} under twin_collapse_archive:<key> (the bare value won; nothing was lost)`
+      : '';
   if (
     pending.length > 0 ||
     changed.length > 0 ||
     conflicted.length > 0 ||
     unpinned.length > 0 ||
-    archived.length > 0
+    missing.length > 0
   ) {
     return {
       check: 'twin_collapse',
@@ -209,12 +215,13 @@ export function twinCollapseDoctorCheck(projectRoot: string): TwinCollapseDoctor
         conflicted.length > 0
           ? `both builds changed ${conflicted.map((p) => `${p.table}: ${p.conflicts.join(', ')}`).join('; ')} (last merge ${conflicted[0]?.conflictsAt}); the twin value was kept`
           : '',
-        archived.length > 0
-          ? `the initial collapse archived the twin's own values of ${archived.map((p) => `${p.table}: ${p.archived.join(', ')}`).join('; ')} under twin_collapse_archive:<key> (the bare value won; nothing was lost)`
-          : '',
         unpinned.length > 0
           ? `the pre-collapse snapshot of ${unpinned.map((p) => `${p.table} (${p.snapshotPath})`).join(', ')} is not pinned yet; the next open pins it so rotation never deletes it`
           : '',
+        missing.length > 0
+          ? `the pre-collapse snapshot of ${missing.map((p) => `${p.table} (${p.snapshotPath})`).join(', ')} is missing: the store before the collapse can no longer be recovered from it`
+          : '',
+        info,
       ]
         .filter(Boolean)
         .join('; '),
@@ -224,7 +231,9 @@ export function twinCollapseDoctorCheck(projectRoot: string): TwinCollapseDoctor
   return {
     check: 'twin_collapse',
     status: 'ok',
-    message: report.storeExists ? 'twin tables collapsed and in step' : 'no project store yet',
+    message: report.storeExists
+      ? ['twin tables collapsed and in step', info].filter(Boolean).join('; ')
+      : 'no project store yet',
     details,
   };
 }

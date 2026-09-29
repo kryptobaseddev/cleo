@@ -149,6 +149,33 @@ describe('union: the initial collapse never drops a twin-only row', () => {
   });
 });
 
+describe('sticky: a twin-only tag the note does not name', () => {
+  it('is listed as archived (not kept), leaves the junction, and is recorded under the archive key', async () => {
+    const note = await addSticky({ content: 'n', tags: [] }, projectDir);
+    db()
+      .prepare('DELETE FROM main.brain_schema_meta WHERE key = ?')
+      .run(`${TWIN_COLLAPSE_MARKER_PREFIX}sticky_tags`);
+    db()
+      .prepare('UPDATE main.brain_sticky_notes SET tags_json = ? WHERE id = ?')
+      .run('["alpha"]', note.id);
+    db()
+      .prepare('INSERT INTO main.sticky_tags (sticky_id, tag) VALUES (?, ?)')
+      .run(note.id, 'alpha');
+    db()
+      .prepare('INSERT INTO main.brain_sticky_tags (sticky_id, tag) VALUES (?, ?)')
+      .run(note.id, 'stale');
+    const receipt = collapseTwinTables(db(), dbPath()).find((r) => r.table === 'sticky_tags');
+    expect(receipt).toMatchObject({ kept: [], archived: [`${note.id}\tstale`], dropped: [] });
+    expect(
+      db().prepare('SELECT tag FROM main.brain_sticky_tags WHERE sticky_id = ?').all(note.id),
+    ).toEqual([{ tag: 'alpha' }]);
+    const archive = db()
+      .prepare('SELECT value FROM main.brain_schema_meta WHERE key = ?')
+      .get('twin_collapse_archive:sticky_tags') as { value: string };
+    expect(JSON.parse(archive.value)).toEqual([`${note.id}\tstale`]);
+  });
+});
+
 describe('replaced twin values: focus_state history merged, everything else archived', () => {
   /** A session-note list like the live stores carry. */
   const notes = (from: number, count: number, prefix: string) =>
@@ -222,12 +249,81 @@ describe('replaced twin values: focus_state history merged, everything else arch
     expect(inspectTwinCollapse(db())[0]).toMatchObject({
       archived: expect.arrayContaining(['focus_state', 'project_meta']),
     });
+    // Informational, not a warning: nothing was lost.
     expect(twinCollapseDoctorCheck(projectDir)).toMatchObject({
-      status: 'warning',
+      status: 'ok',
       message: expect.stringMatching(
         /archived the twin's own values of schema_meta: .*focus_state/,
       ),
     });
+  });
+
+  it('a second open changes nothing: no re-merge, no duplicate notes, the archive untouched', async () => {
+    preMigrationMeta();
+    setMeta(
+      'tasks_schema_meta',
+      'focus_state',
+      JSON.stringify({ currentTask: null, sessionNotes: notes(0, 50, 'history') }),
+    );
+    setMeta(
+      'schema_meta',
+      'focus_state',
+      JSON.stringify({ currentTask: 'T1', sessionNotes: notes(49, 3, 'history') }),
+    );
+    collapseTwinTables(db(), dbPath());
+    const all = () =>
+      JSON.stringify(
+        db().prepare('SELECT key, value FROM main.tasks_schema_meta ORDER BY key').all(),
+      );
+    const first = all();
+    const noteCount = () =>
+      JSON.parse(meta('tasks_schema_meta', 'focus_state') ?? '{}').sessionNotes.length;
+    expect(noteCount()).toBe(52);
+    for (let i = 0; i < 2; i++) {
+      await reopen();
+      expect(collapseTwinTables(db(), dbPath())[0]?.status).toBe('unchanged');
+      expect(noteCount()).toBe(52);
+    }
+    expect(all()).toBe(first);
+  });
+
+  it('malformed focus_state or a non-array sessionNotes: the bare value wins and the twin value is archived', () => {
+    const cases: Array<[string, string]> = [
+      ['{not json', JSON.stringify({ sessionNotes: notes(0, 2, 'x') })],
+      [JSON.stringify({ currentTask: 'T2', sessionNotes: [] }), '{"sessionNotes": "not an array"}'],
+      [JSON.stringify({ currentTask: 'T3' }), 'also not json'],
+    ];
+    for (const [bare, twin] of cases) {
+      db().prepare("DELETE FROM main.tasks_schema_meta WHERE key LIKE 'twin_collapse%'").run();
+      setMeta('schema_meta', 'schemaVersion', '"live"');
+      setMeta('schema_meta', 'focus_state', bare);
+      setMeta('tasks_schema_meta', 'focus_state', twin);
+      const [receipt] = collapseTwinTables(db(), dbPath());
+      expect(meta('tasks_schema_meta', 'focus_state'), bare).toBe(bare);
+      expect(meta('tasks_schema_meta', 'twin_collapse_archive:focus_state')).toBe(twin);
+      expect(receipt?.archived).toContain('focus_state');
+    }
+  });
+
+  it('notes with the same timestamp and different text are both kept', () => {
+    preMigrationMeta();
+    const at = '2026-01-01T10:00:00.000Z';
+    setMeta(
+      'tasks_schema_meta',
+      'focus_state',
+      JSON.stringify({ sessionNotes: [{ note: 'twin', timestamp: at }] }),
+    );
+    setMeta(
+      'schema_meta',
+      'focus_state',
+      JSON.stringify({ currentTask: 'T4', sessionNotes: [{ note: 'bare', timestamp: at }] }),
+    );
+    collapseTwinTables(db(), dbPath());
+    const merged = JSON.parse(meta('tasks_schema_meta', 'focus_state') ?? '{}');
+    expect(merged.sessionNotes.map((n: { note: string }) => n.note).sort()).toEqual([
+      'bare',
+      'twin',
+    ]);
   });
 
   it('an unchanged twin value (the same as the result) is not archived', () => {
@@ -254,6 +350,45 @@ describe('pinning: the pre-collapse snapshot is never rotated', () => {
       pinnedReason: expect.stringContaining('T12535'),
     });
     expect(inspectTwinCollapse(db())[0]).toMatchObject({ snapshotPinned: true });
+  });
+
+  it('a marker whose snapshot is gone is reported by doctor', () => {
+    preMigrationMeta();
+    setMeta('tasks_schema_meta', 'project_meta', '{"name":"x"}');
+    const [receipt] = collapseTwinTables(db(), dbPath());
+    rmSync(receipt?.snapshotPath as string);
+    expect(inspectTwinCollapse(db())[0]).toMatchObject({
+      snapshotMissing: true,
+      snapshotPinned: null,
+    });
+    expect(twinCollapseDoctorCheck(projectDir)).toMatchObject({
+      status: 'warning',
+      message: expect.stringMatching(/pre-collapse snapshot of schema_meta .* is missing/),
+    });
+  });
+
+  it('a malformed sidecar never pins a backup, even if it says pinned: true', () => {
+    mkdirSync(backupDir(), { recursive: true });
+    const ids: string[] = [];
+    for (let i = 0; i < 11; i++) {
+      const id = `migration-20260102-0000${String(i).padStart(2, '0')}`;
+      const file = join(backupDir(), `cleo.db.${id}`);
+      writeFileSync(file, `snapshot ${i}`);
+      const at = new Date(Date.UTC(2026, 0, 2, 0, 0, i));
+      utimesSync(file, at, at);
+      writeFileSync(
+        join(backupDir(), `${id}.meta.json`),
+        JSON.stringify({
+          backupId: id,
+          type: 'migration',
+          timestamp: at.toISOString(),
+          ...(i === 0 ? { pinned: true, files: 'cleo.db' } : { files: ['cleo.db'] }),
+        }),
+      );
+      ids.push(id);
+    }
+    rotateBackupDir(backupDir(), 10, 'migration');
+    expect(existsSync(join(backupDir(), `cleo.db.${ids[0]}`))).toBe(false);
   });
 
   it('rotation skips a pinned backup, and it does not count toward the cap', () => {

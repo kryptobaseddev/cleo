@@ -72,10 +72,13 @@
  * `sticky_tags` → `brain_sticky_tags` (rows are `(sticky_id, tag)`, both the
  * key, so a collision is two identical rows and one is kept):
  *
- * - Initial collapse: bare tags are added and twin-only tags are kept (listed
- *   as `kept`); the junction then follows each note's `tags_json` (below). A
- *   bare tag whose note no longer exists is not carried (`skipped`; it stays in
- *   the bare table).
+ * - Initial collapse: bare tags are added. A twin-only tag the note's
+ *   `tags_json` names is kept (listed as `kept`). One it does not name leaves
+ *   the junction (which follows `tags_json`, the value every reader displays)
+ *   and is recorded under `twin_collapse_archive:sticky_tags` in
+ *   `brain_schema_meta` (listed as `archived`); adding it to `tags_json` would
+ *   change the tags the user sees. A bare tag whose note no longer exists is
+ *   not carried (`skipped`; it stays in the bare table).
  * - Incremental re-merge, per sticky id whose bare tag-set hash changed: if
  *   the twin's set for that id is unchanged since the last merge, the twin
  *   set is made equal to the bare set (additions AND removals propagate);
@@ -671,9 +674,12 @@ function planSticky(db: DatabaseSync, state: CollapseState | undefined): Plan {
     }
   };
   if (state === undefined) {
-    // The union rule: bare tags are added, twin-only tags are kept (listed).
-    // The junction is then recomputed from each note's tags_json, the value
-    // both builds write, so a kept tag stays exactly when the note names it.
+    // The union rule: bare tags are added. A twin-only tag the note's
+    // tags_json names is kept (listed as kept). One tags_json does not name is
+    // listed as archived: the junction follows tags_json (the value both
+    // builds write and every reader displays), so it leaves the junction, and
+    // its row is recorded under `twin_collapse_archive:sticky_tags`.
+    const tagsJson = db.prepare('SELECT tags_json FROM main.brain_sticky_notes WHERE id = ?');
     for (const id of [...new Set([...bare.keys(), ...twin.keys()])].sort()) {
       const b = new Set(bare.get(id) ?? []);
       const t = new Set(twin.get(id) ?? []);
@@ -682,7 +688,14 @@ function planSticky(db: DatabaseSync, state: CollapseState | undefined): Plan {
         if (!alive) plan.skipped++;
         else if (!t.has(tag)) plan.set.set(`${id}\t${tag}`, '');
       }
-      for (const tag of t) if (!b.has(tag)) plan.kept.push(`${id}\t${tag}`);
+      const named = new Set(
+        tagsOf((tagsJson.get(id) as { tags_json: string | null } | undefined)?.tags_json ?? null),
+      );
+      for (const tag of t) {
+        if (b.has(tag)) continue;
+        if (named.has(tag)) plan.kept.push(`${id}\t${tag}`);
+        else plan.archived.push(`${id}\t${tag}`);
+      }
     }
     return plan;
   }
@@ -794,6 +807,12 @@ const STICKY_TAGS: TwinPair = {
       throw new Error(
         `sticky_tags collapse did not verify: ${missing} missing, ${lingering} not removed`,
       );
+    if (plan.archived.length > 0) {
+      const key = `${TWIN_COLLAPSE_ARCHIVE_PREFIX}sticky_tags`;
+      const previous = parseJson(readKv(db, 'brain_schema_meta', key) ?? '[]');
+      const rows = new Set([...(Array.isArray(previous) ? previous : []), ...plan.archived]);
+      writeKv(db, 'brain_schema_meta', key, JSON.stringify([...rows].sort()));
+    }
     const synced = syncStickyJunction(db, 'main');
     return {
       inserted: counts.inserted + synced.inserted,
@@ -1215,6 +1234,11 @@ export interface TwinCollapseStatus {
    * is no snapshot on disk.
    */
   readonly snapshotPinned: boolean | null;
+  /**
+   * `true` when the marker names a pre-collapse snapshot that is no longer on
+   * disk: the only copy of the store before the collapse is gone.
+   */
+  readonly snapshotMissing: boolean;
   /** The recorded failure, when the last attempt failed. */
   readonly failure: TwinCollapseFailure | null;
 }
@@ -1247,6 +1271,7 @@ export function inspectTwinCollapse(db: DatabaseSync): TwinCollapseStatus[] {
       kept: [],
       archived: [],
       snapshotPinned: null,
+      snapshotMissing: false,
       failure: null,
     };
     if (!pair.tables.every((t) => hasMainTable(db, t))) return { ...empty, state: 'no-bare-table' };
@@ -1289,6 +1314,7 @@ export function inspectTwinCollapse(db: DatabaseSync): TwinCollapseStatus[] {
       kept: state?.kept ?? [],
       archived: state?.archived ?? [],
       snapshotPinned: snapshotPinnedOf(state?.snapshot ?? null),
+      snapshotMissing: typeof state?.snapshot === 'string' && !existsSync(state.snapshot),
       failure,
     };
   });

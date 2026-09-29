@@ -24,6 +24,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
+import { z } from 'zod';
 
 /**
  * Format a Date as `YYYYMMDD-HHmmss` (local time) — mirrors the helper of
@@ -138,12 +139,30 @@ function backupIdOf(fileName: string, backupType: string): string | null {
   return at < 0 ? null : fileName.slice(at + 1);
 }
 
-/** Read a backup's sidecar, or `null` when it is missing or unreadable. */
+/**
+ * Shape of a `.meta.json` sidecar as read back from disk. Unknown fields are
+ * kept (older and newer builds add their own); a sidecar that does not match
+ * reads as absent, so a malformed file can never pin (or unpin) a backup.
+ */
+const backupSidecarSchema = z
+  .object({
+    backupId: z.string().min(1),
+    type: z.string().min(1),
+    timestamp: z.string().min(1),
+    note: z.string().optional(),
+    files: z.array(z.string()),
+    pinned: z.boolean().optional(),
+    pinnedReason: z.string().optional(),
+  })
+  .passthrough();
+
+/** Read a backup's sidecar, or `null` when it is missing, unreadable or malformed. */
 function readSidecar(backupDir: string, backupId: string): BackupSidecar | null {
   try {
-    return JSON.parse(
-      readFileSync(join(backupDir, `${backupId}.meta.json`), 'utf-8'),
-    ) as BackupSidecar;
+    const parsed = backupSidecarSchema.safeParse(
+      JSON.parse(readFileSync(join(backupDir, `${backupId}.meta.json`), 'utf-8')),
+    );
+    return parsed.success ? (parsed.data as BackupSidecar) : null;
   } catch {
     return null;
   }

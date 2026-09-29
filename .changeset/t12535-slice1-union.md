@@ -15,3 +15,10 @@ deduplicated and sorted. The snapshot a twin collapse takes before changing the
 store is pinned: backup rotation never deletes it, `cleo backup list` marks it,
 and snapshots taken unpinned by 2026.9.21 are pinned at the next open. The first
 2026.9.24 open of each store applies all of this.
+
+**Upgrade every agent on a machine together.** CLEO 2026.9.21 to 2026.9.23
+rotate migration snapshots without honouring the new pin, and when they
+re-merge they rewrite the collapse marker without the `kept` and `archived`
+lists. A machine that keeps running those builds next to 2026.9.24 can lose
+the pinned pre-collapse snapshot and the lists that point at the archived
+values.

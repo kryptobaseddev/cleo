@@ -470,7 +470,9 @@ describe('sticky_tags', () => {
       deleted: 1,
       skipped: 1,
       dropped: [],
-      kept: [`${b}\tfrozen`],
+      // b's tags_json does not name it: listed as archived, not kept.
+      kept: [],
+      archived: [`${b}\tfrozen`],
     });
     expect(twinTags(db)).toEqual([`${a}:alpha`, `${a}:beta`, `${b}:gamma`].sort());
     expect(db.prepare('SELECT COUNT(*) AS c FROM main.sticky_tags').get()).toEqual({ c: 4 });
