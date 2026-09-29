@@ -5,7 +5,7 @@
  */
 
 import type { ProjectMeta, ScoreTaskContext, Task } from '@cleocode/contracts';
-import { readLiveFocus } from '../sessions/focus-state-store.js';
+import { readFocusState } from '../sessions/focus-state-store.js';
 import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
@@ -98,7 +98,9 @@ export async function coreTaskNext(
  * @task T12661
  */
 export async function resolveRankingPhase(accessor: DataAccessor): Promise<string | null> {
-  const { state: focus } = await readLiveFocus(accessor, resolveSessionIdFromEnv());
+  // Only the focus PHASE is read here, never the task pointer, so the stale-
+  // pointer check in readLiveFocus (and its task load) does not apply.
+  const focus = await readFocusState(accessor, resolveSessionIdFromEnv());
   if (focus?.currentPhase) return focus.currentPhase;
   const projectMeta = await accessor.getMetaValue<ProjectMeta>('project_meta');
   return projectMeta?.currentPhase ?? null;
