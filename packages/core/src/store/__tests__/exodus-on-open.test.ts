@@ -23,7 +23,16 @@
  * @saga T11242
  */
 
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -633,6 +642,80 @@ describe('exodus-on-open data-continuity (T11553)', () => {
       if (prevCleoDir === undefined) delete process.env.CLEO_DIR;
       else process.env.CLEO_DIR = prevCleoDir;
     }
+  });
+
+  /** A committed scratch repo at `<tmpDir>/main` with a linked worktree at `<tmpDir>/wt`. */
+  function repoWithWorktree(): { main: string; wt: string } {
+    const main = join(realpathSync(tmpDir), 'main');
+    const wt = join(realpathSync(tmpDir), 'wt');
+    mkdirSync(main);
+    const git = (cwd: string, ...args: string[]): void => {
+      execFileSync(
+        'git',
+        [
+          '-c',
+          'user.email=t@example.com',
+          '-c',
+          'user.name=t',
+          '-c',
+          'commit.gpgsign=false',
+          ...args,
+        ],
+        { cwd, stdio: 'ignore' },
+      );
+    };
+    git(main, 'init', '-q', '-b', 'main');
+    writeFileSync(join(main, 'README'), 'x');
+    git(main, 'add', 'README');
+    git(main, 'commit', '-qm', 'init', '--no-verify');
+    git(main, 'worktree', 'add', '-q', wt);
+    return { main, wt };
+  }
+
+  it('T12708: run from a linked worktree, migrates the OWNER store and audits it', async () => {
+    const { main, wt } = repoWithWorktree();
+    const cleoDir = join(main, '.cleo');
+    mkdirSync(cleoDir);
+    const { fx, projectDb, globalDb } = await armFixture(cleoDir);
+    openProjectDb = projectDb;
+    openGlobalDb = globalDb;
+
+    const { maybeRunExodusOnOpen } = await import('../exodus/on-open.js');
+    const result = await maybeRunExodusOnOpen('project', fx.projectDbPath, projectDb, wt);
+    expect(result.outcome, `unexpected outcome: ${result.reason}`).toBe('migrated');
+    expect(countRows(fx.projectDbPath, 'tasks_tasks')).toBe(FIXTURE_EXPECTED_ROWS.tasks_tasks);
+
+    const audit = readFileSync(join(cleoDir, 'audit', 'owner-store-rewrite.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(audit).toEqual([
+      expect.objectContaining({
+        operation: 'exodus migration',
+        trigger: 'open-time',
+        worktree: wt,
+        store: fx.projectDbPath,
+      }),
+    ]);
+  });
+
+  it('T12708: a worktree-resident target is refused (aborted) and the handle is released', async () => {
+    const { wt } = repoWithWorktree();
+    const cleoDir = join(wt, '.cleo');
+    mkdirSync(cleoDir);
+    const { fx, projectDb, globalDb } = await armFixture(cleoDir);
+    openProjectDb = projectDb;
+    openGlobalDb = globalDb;
+
+    const { maybeRunExodusOnOpen } = await import('../exodus/on-open.js');
+    const result = await maybeRunExodusOnOpen('project', fx.projectDbPath, projectDb, wt);
+    expect(result.outcome).toBe('aborted');
+    expect(result.reason).toMatch(
+      /^E_WT_STORE_REWRITE_REFUSED: exodus migration run from git worktree/,
+    );
+    expect(projectDb.isOpen).toBe(false);
+    expect(countRows(fx.projectDbPath, 'tasks_tasks')).toBe(0);
+    expect(countRows(fx.tasksDbPath, 'tasks')).toBe(FIXTURE_EXPECTED_ROWS.tasks_tasks);
   });
 });
 
