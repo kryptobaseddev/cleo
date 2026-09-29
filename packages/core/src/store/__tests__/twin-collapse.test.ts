@@ -158,6 +158,10 @@ async function preMigrationSticky(): Promise<{ db: DatabaseSync; a: string; b: s
   bare.run(a, 'beta');
   bare.run(b, 'gamma');
   bare.run('SN-gone', 'orphan'); // its note no longer exists
+  // The old build writes each note's tags_json together with its junction.
+  const tagsJson = db.prepare('UPDATE main.brain_sticky_notes SET tags_json = ? WHERE id = ?');
+  tagsJson.run('["alpha","beta"]', a);
+  tagsJson.run('["gamma"]', b);
   const twin = db.prepare('INSERT INTO main.brain_sticky_tags (sticky_id, tag) VALUES (?, ?)');
   twin.run(a, 'alpha'); // exodus copy of a live row
   twin.run(b, 'frozen'); // exodus copy of a tag the old build removed since
@@ -430,10 +434,14 @@ describe('incremental re-merge: the old build keeps writing the bare tables', ()
   it('a bare counter lower than the twin never moves the twin counter down', async () => {
     preMigrationTasks(0);
     await reopen();
-    for (let i = 0; i < 6; i++) await allocateNextTaskId(projectDir); // twin → 6
-    allocateOldPath(tasksNative(), false); // bare → 1
+    for (let i = 0; i < 6; i++) await allocateNextTaskId(projectDir); // twin → 6, bare raised to 6
+    // A stale bare counter (e.g. restored) lower than the twin: the merge keeps the twin's.
+    setMeta(tasksNative(), 'schema_meta', 'task_id_sequence', SEED);
     await reopen();
     expect(counterOf(meta(tasksNative(), 'tasks_schema_meta', 'task_id_sequence'))).toBe(6);
+    // …and the old build, allocating next, is floored past it by the mirror.
+    await allocateNextTaskId(projectDir); // twin → 7, bare raised to 7
+    expect(allocateOldPath(tasksNative(), false)).toBe('T008');
   });
 
   it('a one-shot (v1) marker is upgraded: bare rows carried again, nothing deleted', () => {
@@ -464,19 +472,26 @@ describe('sticky_tags', () => {
     expect(db.prepare('SELECT COUNT(*) AS c FROM main.sticky_tags').get()).toEqual({ c: 4 });
   });
 
-  it('incremental: old-build tag changes propagate; an id both builds changed keeps the twin', async () => {
+  it('incremental: old-build tag changes propagate; an id both builds changed follows its tags_json', async () => {
     const { db, a, b } = await preMigrationSticky();
     collapseTwinTables(db, dbPath());
     // Only the old build touches a: removes beta, adds old-add.
+    const tagsJson = db.prepare('UPDATE main.brain_sticky_notes SET tags_json = ? WHERE id = ?');
     db.prepare("DELETE FROM main.sticky_tags WHERE sticky_id = ? AND tag = 'beta'").run(a);
     db.prepare('INSERT INTO main.sticky_tags (sticky_id, tag) VALUES (?, ?)').run(a, 'old-add');
-    // Both touch b: this build adds mine, the old build adds delta.
+    tagsJson.run('["alpha","old-add"]', a);
+    // Both touch b: this build adds mine, then the old build adds delta (its
+    // tags_json write, from its own view, is the last one).
     db.prepare('INSERT INTO main.brain_sticky_tags (sticky_id, tag) VALUES (?, ?)').run(b, 'mine');
+    tagsJson.run('["gamma","mine"]', b);
     db.prepare('INSERT INTO main.sticky_tags (sticky_id, tag) VALUES (?, ?)').run(b, 'delta');
+    tagsJson.run('["gamma","delta"]', b);
 
     await reopen();
+    // The conflict on b is recorded, and the junction follows the tags_json
+    // every reader displays (no drift between filter and display).
     expect(twinTags(brainNative())).toEqual(
-      [`${a}:alpha`, `${a}:old-add`, `${b}:gamma`, `${b}:mine`].sort(),
+      [`${a}:alpha`, `${a}:old-add`, `${b}:delta`, `${b}:gamma`].sort(),
     );
     expect((await listStickies({ tags: ['old-add'] }, projectDir)).map((n) => n.id)).toEqual([a]);
     expect(await listStickies({ tags: ['beta'] }, projectDir)).toEqual([]); // removal propagated
