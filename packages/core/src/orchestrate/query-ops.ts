@@ -23,17 +23,19 @@ import { loadConfig } from '../config.js';
 import { type EngineResult, engineError } from '../engine-result.js';
 import { analyzeDependencies } from '../orchestration/analyze.js';
 import { estimateContext } from '../orchestration/context.js';
-import { analyzeEpic, getNextTask, getReadyTasks } from '../orchestration/index.js';
+import { analyzeEpic, getRankedReadyTasks, getReadyTasks } from '../orchestration/index.js';
 import { computeEpicStatus, computeOverallStatus } from '../orchestration/status.js';
 import { validateSpawnReadiness } from '../orchestration/validate-spawn.js';
 import type { EnrichedWave } from '../orchestration/waves.js';
-import { getEnrichedWaves } from '../orchestration/waves.js';
+import { getEnrichedWaves, planEpicWaves } from '../orchestration/waves.js';
 import { captureProjectScope, getProjectRoot, worktreeScope } from '../project-scope.js';
 import { isSagaShape } from '../sagas/enforcement.js';
 import { resolveSagaMemberIds } from '../sagas/storage.js';
 import { type DataAccessor, getTaskAccessor } from '../store/data-accessor.js';
+import { orderByRanking } from '../task-tools/score-task-priority.js';
 import type { DepGraphIssue } from '../tasks/dep-graph-validator.js';
 import { runValidation } from '../tasks/dep-graph-validator.js';
+import { loadRankingContext } from '../tasks/task-next.js';
 import { computeAgentAdmission } from './admission.js';
 
 // ---------------------------------------------------------------------------
@@ -189,7 +191,9 @@ export async function orchestrateStatus(
         }
 
         const children = tasks.filter((t) => t.parentId === epicId);
-        const status = computeEpicStatus(epicId, epic.title, children);
+        // T12683: the same plan `orchestrate waves` prints.
+        const { waves } = await planEpicWaves(epicId, await getTaskAccessor(root));
+        const status = computeEpicStatus(epicId, epic.title, children, waves);
 
         return { success: true, data: status };
       }
@@ -414,6 +418,15 @@ export async function orchestrateReady(
         depends: string[];
       };
 
+      // One ranking context for the whole call — the project context `cleo next`
+      // ranks with (T12692), so the ready set and the focus ready wave match it.
+      const rankReadyOut = async (items: ReadyTaskOut[]): Promise<ReadyTaskOut[]> => {
+        if (items.length < 2) return items;
+        const { ctx } = await loadRankingContext(accessor, tasks);
+        const byId = new Map(tasks.map((task) => [task.id, task] as const));
+        return orderByRanking(items, (t) => t.id, byId, ctx);
+      };
+
       if (sagaShaped) {
         // T10966: use canonical resolveSagaMemberIds (with type-checking).
         const memberIds = await resolveSagaMemberIds(accessor, epicId);
@@ -454,22 +467,11 @@ export async function orchestrateReady(
           }
         }
 
-        // Preserve priority ordering (critical → high → medium → low) then ID.
-        const priorityWeight: Record<string, number> = {
-          critical: 4,
-          high: 3,
-          medium: 2,
-          low: 1,
-        };
-        aggregated.sort((a, b) => {
-          const wa = priorityWeight[a.priority] ?? 0;
-          const wb = priorityWeight[b.priority] ?? 0;
-          if (wa !== wb) return wb - wa;
-          return a.id.localeCompare(b.id);
-        });
+        // T12692: THE comparator (D11161), the same ranking as `cleo next`.
+        const sagaReady = await rankReadyOut(aggregated);
 
         let reason: string | undefined;
-        if (aggregated.length === 0) {
+        if (sagaReady.length === 0) {
           if (members.length === 0) {
             reason = 'saga has no member epics';
           } else if (aggregatedAllCount === 0) {
@@ -483,14 +485,14 @@ export async function orchestrateReady(
 
         // T12000: annotate which ready tasks are admittable now vs deferred so
         // orchestrators size their fan-out to host capacity (Never-OOM).
-        const admission = await computeAgentAdmission(aggregated.map((t) => t.id));
+        const admission = await computeAgentAdmission(sagaReady.map((t) => t.id));
 
         return {
           success: true,
           data: {
             epicId,
-            readyTasks: aggregated,
-            total: aggregated.length,
+            readyTasks: sagaReady,
+            total: sagaReady.length,
             via: 'saga' as const,
             sagaMembers: members,
             admission,
@@ -520,12 +522,15 @@ export async function orchestrateReady(
         }
       }
 
-      const readyOut = ready.map((t) => ({
-        id: t.taskId,
-        title: t.title,
-        priority: t.priority,
-        depends: t.depends,
-      }));
+      // T12692: THE comparator (D11161), the same ranking as `cleo next`.
+      const readyOut = await rankReadyOut(
+        ready.map((t) => ({
+          id: t.taskId,
+          title: t.title,
+          priority: t.priority,
+          depends: t.depends,
+        })),
+      );
       // T12000: annotate which ready tasks are admittable now vs deferred so
       // orchestrators size their fan-out to host capacity (Never-OOM).
       const admission = await computeAgentAdmission(readyOut.map((t) => t.id));
@@ -567,7 +572,9 @@ export async function orchestrateNext(epicId: string, projectRoot?: string): Pro
 
       const root = scope.worktreeRoot;
       const accessor = await getTaskAccessor(root);
-      const nextTask = await getNextTask(epicId, root, accessor);
+      // T12692: THE comparator (D11161) — the same order as `cleo next`.
+      const ready = await getRankedReadyTasks(epicId, root, accessor);
+      const nextTask = ready[0];
 
       if (!nextTask) {
         return {
@@ -579,10 +586,6 @@ export async function orchestrateNext(epicId: string, projectRoot?: string): Pro
           },
         };
       }
-
-      // Get all ready tasks for alternatives
-      const readyTasks = await getReadyTasks(epicId, root, accessor);
-      const ready = readyTasks.filter((t) => t.ready);
 
       return {
         success: true,
@@ -616,6 +619,11 @@ export async function orchestrateNext(epicId: string, projectRoot?: string): Pro
  */
 export interface OrchestrateWavesOptions {
   /**
+   * Omit finished (`completed`) waves from the listing. Wave numbers are
+   * stable, so the remaining waves keep theirs (T12682).
+   */
+  hideCompleted?: boolean;
+  /**
    * Traversal mode for resolving the epic's children — see
    * {@link OrchestrateTraversal}. Default is auto-detect.
    *
@@ -640,7 +648,7 @@ export interface OrchestrateWavesOptions {
  *
  * @param epicId - Epic to compute waves for.
  * @param projectRoot - Optional project root path.
- * @param _opts - Deprecated traversal options (ignored since T10966).
+ * @param opts - `hideCompleted` omits finished waves; `via` is deprecated (ignored since T10966).
  * @returns Engine result with wave data.
  * @task T4478
  * @bug gh-390
@@ -649,7 +657,7 @@ export interface OrchestrateWavesOptions {
 export async function orchestrateWaves(
   epicId: string,
   projectRoot?: string,
-  _opts?: OrchestrateWavesOptions,
+  opts?: OrchestrateWavesOptions,
 ): Promise<EngineResult> {
   try {
     const scope = captureProjectScope(projectRoot ?? getProjectRoot(), worktreeScope.getStore());
@@ -671,16 +679,24 @@ export async function orchestrateWaves(
       // After T10638, sagas use `type='saga'` with `parent_id` containment.
       // T10331 (Saga T10326 W2.B): dual-shape saga detection via isSagaShape.
       const sagaShaped = isSagaShape(epic);
+      // T12692: members of each wave in THE comparator's order, ranked with the
+      // same project context as `cleo next`. Wave numbers stay structural.
+      const { ctx: ranking } = await loadRankingContext(accessor);
 
       if (!sagaShaped) {
-        const result = await getEnrichedWaves(epicId, root, accessor);
+        const result = await getEnrichedWaves(epicId, root, accessor, [epicId], ranking);
         // T12000: admission over the first actionable (non-completed) wave —
         // the tasks an orchestrator would spawn next — so the fan-out is sized
         // to host capacity (Never-OOM).
         const admission = await computeAgentAdmission(firstActionableWaveTaskIds(result.waves));
         return {
           success: true,
-          data: { ...result, via: 'parent' as const, admission },
+          data: {
+            ...result,
+            waves: visibleWaves(result.waves, opts),
+            via: 'parent' as const,
+            admission,
+          },
         };
       }
 
@@ -700,14 +716,14 @@ export async function orchestrateWaves(
         selectedMembers.push(memberId);
       }
 
-      const result = await getEnrichedWaves(epicId, root, accessor, selectedMembers);
+      const result = await getEnrichedWaves(epicId, root, accessor, selectedMembers, ranking);
       const admission = await computeAgentAdmission(firstActionableWaveTaskIds(result.waves));
 
       return {
         success: true,
         data: {
           epicId,
-          waves: result.waves,
+          waves: visibleWaves(result.waves, opts),
           totalWaves: result.totalWaves,
           totalTasks: result.totalTasks,
           via: 'saga' as const,
@@ -731,6 +747,14 @@ export async function orchestrateWaves(
  *
  * @task T12000
  */
+/** The listed waves: all, or without finished ones under `hideCompleted` (numbers unchanged). */
+function visibleWaves(
+  waves: EnrichedWave[],
+  opts: OrchestrateWavesOptions | undefined,
+): EnrichedWave[] {
+  return opts?.hideCompleted ? waves.filter((w) => w.status !== 'completed') : waves;
+}
+
 function firstActionableWaveTaskIds(waves: readonly EnrichedWave[]): string[] {
   const actionable = waves.find((w) => w.status !== 'completed');
   return actionable ? actionable.tasks.filter((task) => task.ready).map((task) => task.id) : [];

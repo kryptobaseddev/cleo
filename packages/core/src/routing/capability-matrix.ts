@@ -219,6 +219,13 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
     mode: 'native',
     preferredChannel: 'either',
   },
+  {
+    domain: 'tasks',
+    operation: 'ranking.revert',
+    gateway: 'mutate',
+    mode: 'native',
+    preferredChannel: 'either',
+  },
   // Saga sub-domain (ADR-073)
   {
     domain: 'tasks',

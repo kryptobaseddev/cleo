@@ -6,6 +6,8 @@
 
 import type { Task, TaskAnalysisResult } from '@cleocode/contracts';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { computeLeverage } from '../task-tools/score-task-priority.js';
+import { rankForAnalysis } from './analyze.js';
 
 /** Task record shape expected from the data layer. */
 type TaskRecord = Task;
@@ -79,50 +81,34 @@ export async function coreTaskAnalyze(
   taskId?: string,
   params?: { tierLimit?: number },
 ): Promise<TaskAnalysisResult & { tierLimit: number }> {
-  const allTasks = await loadAllTasks(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
+  const { tasks: allTasks } = await accessor.queryTasks({});
   const effectiveTierLimit = params?.tierLimit ?? 10;
 
   const tasks = taskId
     ? allTasks.filter((t) => t.id === taskId || t.parentId === taskId)
     : allTasks;
 
-  const blocksMap: Record<string, string[]> = {};
-  for (const task of tasks) {
-    if (task.depends) {
-      for (const dep of task.depends) {
-        if (!blocksMap[dep]) blocksMap[dep] = [];
-        blocksMap[dep]!.push(task.id);
-      }
-    }
-  }
+  // Open tasks each task unblocks — the same leverage the shared scorer uses (T12661).
+  const openDependents = computeLeverage(tasks);
 
-  const leverageMap: Record<string, number> = {};
-  for (const task of tasks) {
-    leverageMap[task.id] = (blocksMap[task.id] ?? []).length;
-  }
-
-  const actionable = tasks.filter((t) => t.status === 'pending' || t.status === 'active');
   const blocked = tasks.filter((t) => t.status === 'blocked');
 
   const bottlenecks = tasks
-    .filter((t) => (blocksMap[t.id]?.length ?? 0) > 0 && t.status !== 'done')
-    .map((t) => ({ id: t.id, title: t.title, blocksCount: blocksMap[t.id]!.length }))
-    .sort((a, b) => b.blocksCount - a.blocksCount)
+    .filter((t) => (openDependents.get(t.id) ?? 0) > 0 && t.status !== 'done')
+    .map((t) => ({ id: t.id, title: t.title, blocksCount: openDependents.get(t.id) ?? 0 }))
+    .sort((a, b) => b.blocksCount - a.blocksCount || a.id.localeCompare(b.id))
     .slice(0, 5);
 
-  const scored = actionable.map((t) => ({
-    id: t.id,
-    title: t.title,
-    leverage: leverageMap[t.id] ?? 0,
-    priority: t.priority,
-  }));
-
-  scored.sort((a, b) => {
-    const priorityWeight: Record<string, number> = { critical: 100, high: 50, medium: 20, low: 5 };
-    const aScore = (priorityWeight[a.priority ?? 'medium'] ?? 20) + a.leverage * 10;
-    const bScore = (priorityWeight[b.priority ?? 'medium'] ?? 20) + b.leverage * 10;
-    return bScore - aScore;
+  // T12661: the same ranking as `cleo next` and the briefing (ready candidates,
+  // current phase, BRAIN patterns, shared scorer), scoped to `taskId` when given.
+  const { ranked: scored } = await rankForAnalysis(accessor, allTasks, {
+    projectRoot,
+    ...(taskId ? { scopeTaskIds: new Set(tasks.map((t) => t.id)) } : {}),
   });
+  // The metric keeps its meaning (pending + active); the tiers above rank only
+  // the READY subset, exactly as `cleo next` does.
+  const actionable = tasks.filter((t) => t.status === 'pending' || t.status === 'active');
 
   const critical = scored.filter((t) => t.priority === 'critical');
   const high = scored.filter((t) => t.priority === 'high');
@@ -134,11 +120,11 @@ export async function coreTaskAnalyze(
           id: scored[0]!.id,
           title: scored[0]!.title,
           leverage: scored[0]!.leverage,
-          reason: 'Highest combined priority and leverage score',
+          reason: 'Top of the shared task ranking — the same order as `cleo next`',
         }
       : null;
 
-  const totalLeverage = Object.values(leverageMap).reduce((s, v) => s + v, 0);
+  const totalLeverage = [...openDependents.values()].reduce((s, v) => s + v, 0);
   const avgLeverage = tasks.length > 0 ? Math.round((totalLeverage / tasks.length) * 100) / 100 : 0;
 
   return {

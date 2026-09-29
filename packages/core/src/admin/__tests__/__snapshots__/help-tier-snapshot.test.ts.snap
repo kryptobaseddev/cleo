@@ -776,6 +776,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1
       "reorder-rank",
       "bulk-move",
       "assignee",
+      "ranking.revert",
       "relates.add",
       "relates.add-batch",
       "relates.remove",
@@ -868,7 +869,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1
 }
 `;
 
-exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1 — operation count snapshot > tier-1-operationCount 1`] = `329`;
+exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1 — operation count snapshot > tier-1-operationCount 1`] = `330`;
 
 exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — domain-grouped operations snapshot > tier-2-groupedOperations 1`] = `
 {
@@ -1398,6 +1399,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
       "reorder-rank",
       "bulk-move",
       "assignee",
+      "ranking.revert",
       "relates.add",
       "relates.add-batch",
       "relates.remove",
@@ -1509,4 +1511,4 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
 }
 `;
 
-exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — operation count snapshot (full surface) > tier-2-operationCount 1`] = `463`;
+exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — operation count snapshot (full surface) > tier-2-operationCount 1`] = `464`;

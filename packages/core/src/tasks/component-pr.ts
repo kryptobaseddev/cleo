@@ -20,6 +20,9 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { ghQueryTimeoutMs } from '../release/github-pr.js';
 
 /** One component PR as `gh pr view` reports it. */
@@ -178,18 +181,100 @@ export function componentLandedChanges(
   const deleted: string[] = [];
   const blob = (commit: string, path: string): string | null =>
     git(root, ['rev-parse', '--verify', '--quiet', `${commit}:${path}`]);
-  for (const line of out.split('\n')) {
-    const [status, ...rest] = line.split('\t');
-    const path = rest.join('\t');
-    if (!status || !path) continue;
-    if (status.startsWith('D')) {
-      if (blob(landingMerge, path) === null) deleted.push(path);
-      continue;
+  const stillApplies = hunkChecker(root, componentMerge, landingMerge);
+  try {
+    for (const line of out.split('\n')) {
+      const [status, ...rest] = line.split('\t');
+      const path = rest.join('\t');
+      if (!status || !path) continue;
+      if (status.startsWith('D')) {
+        if (blob(landingMerge, path) === null) deleted.push(path);
+        continue;
+      }
+      const own = blob(componentMerge, path);
+      const landed = blob(landingMerge, path);
+      // Identical bytes, or (T12689) a file a later change also edited whose
+      // own hunks the landing version still carries.
+      if (own !== null && landed !== null && (own === landed || stillApplies(path)))
+        files.push(path);
     }
-    const own = blob(componentMerge, path);
-    if (own !== null && own === blob(landingMerge, path)) files.push(path);
+  } finally {
+    stillApplies.dispose();
   }
   return { files: [...new Set(files)], deleted: [...new Set(deleted)] };
+}
+
+/**
+ * Whether the component's hunks for one path are still present in the
+ * landing commit: its first-parent patch reverse-applies cleanly to the
+ * landing tree (checked in a throwaway index, never the working tree). A
+ * revert fails this; a later edit elsewhere in the file does not (T12689).
+ */
+function hunkChecker(
+  root: string,
+  componentMerge: string,
+  landingMerge: string,
+): ((path: string) => boolean) & { dispose: () => void } {
+  let dir: string | null = null;
+  let env: NodeJS.ProcessEnv | null = null;
+  let failed = false;
+  const ready = (): NodeJS.ProcessEnv | null => {
+    if (env || failed) return env;
+    dir = mkdtempSync(join(tmpdir(), 'cleo-component-index-'));
+    const candidate = { ...process.env, GIT_INDEX_FILE: join(dir, 'index') };
+    try {
+      execFileSync('git', ['read-tree', landingMerge], {
+        cwd: root,
+        env: candidate,
+        stdio: ['ignore', 'ignore', 'ignore'],
+      });
+      env = candidate;
+    } catch {
+      // No index, no credit — and no retry leaving another temp dir behind.
+      failed = true;
+      rmSync(dir, { recursive: true, force: true });
+      dir = null;
+    }
+    return env;
+  };
+  const applies = (patch: string, indexEnv: NodeJS.ProcessEnv, reverse: boolean): boolean => {
+    try {
+      execFileSync('git', ['apply', '--cached', '--check', ...(reverse ? ['-R'] : [])], {
+        cwd: root,
+        env: indexEnv,
+        input: `${patch}\n`,
+        stdio: ['pipe', 'ignore', 'ignore'],
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const check = (path: string): boolean => {
+    const patch = git(root, [
+      'diff',
+      '--binary',
+      '--no-renames',
+      '--no-color',
+      `${componentMerge}^1`,
+      componentMerge,
+      '--',
+      path,
+    ]);
+    const indexEnv = patch ? ready() : null;
+    if (!patch || !indexEnv) return false;
+    // `git apply` finds a hunk at ANY offset (T12689 review MED): the reverse
+    // patch can match an identical block elsewhere while the component's own
+    // lines were reverted. So the change must also NOT be re-applicable — a
+    // reverted change is, at its original spot. When both could match the
+    // file is not credited (fails closed).
+    return applies(patch, indexEnv, true) && !applies(patch, indexEnv, false);
+  };
+  return Object.assign(check, {
+    dispose: () => {
+      if (dir) rmSync(dir, { recursive: true, force: true });
+    },
+  });
 }
 
 /**

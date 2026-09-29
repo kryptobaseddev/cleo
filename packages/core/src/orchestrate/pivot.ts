@@ -22,11 +22,11 @@
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { Session } from '@cleocode/contracts';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode, TERMINAL_TASK_STATUSES } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { memoryObserve } from '../memory/engine-compat.js';
 import { getProjectRoot } from '../paths.js';
-import { readFocusState } from '../sessions/focus-state-store.js';
+import { readLiveFocus } from '../sessions/focus-state-store.js';
 import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
@@ -142,9 +142,10 @@ async function isTaskActive(
   acc: DataAccessor,
   fromTaskId: string,
 ): Promise<{ active: boolean; reason: string }> {
-  // T11345 — read the CALLER's per-session focus_state (env-first).
-  const focus = await readFocusState(acc, resolveSessionIdFromEnv());
-  if (focus?.currentTask === fromTaskId) {
+  // T11345 — the CALLER's per-session focus (env-first). T12698: the LIVE
+  // focus — a stale pointer at a finished task is never "active".
+  const focus = await readLiveFocus(acc, resolveSessionIdFromEnv());
+  if (focus.currentTask === fromTaskId) {
     return { active: true, reason: 'currentFocus' };
   }
   const task = await acc.loadSingleTask(fromTaskId);
@@ -228,6 +229,15 @@ export async function pivotTask(
       fix: `Use 'cleo find "${toTaskId}"' to verify the ID`,
     });
   }
+  // T12698: a finished task cannot be paused, and a pivot from it would add a
+  // dependency on work that is already over.
+  if ((TERMINAL_TASK_STATUSES as ReadonlySet<string>).has(fromTask.status)) {
+    throw new CleoError(
+      ExitCode.ACTIVE_TASK_REQUIRED,
+      `pivot rejected: from task '${fromTaskId}' is ${fromTask.status}; a finished task cannot be pivoted away from`,
+      { fix: `cleo start ${toTaskId}  # start the new task directly` },
+    );
+  }
 
   // ---------------------------------------------------------------------------
   // Validate from task is active
@@ -244,9 +254,8 @@ export async function pivotTask(
   // ---------------------------------------------------------------------------
   // Stop only if from is the current focus. If from is "active by stage"
   // we leave focus_state alone (there is no focus to clear) before starting to.
-  // T11345 — read the CALLER's per-session focus_state (env-first).
-  const focus = await readFocusState(acc, resolveSessionIdFromEnv());
-  if (focus?.currentTask === fromTaskId) {
+  // T11345 — the CALLER's per-session focus (env-first), live (T12698).
+  if ((await readLiveFocus(acc, resolveSessionIdFromEnv())).currentTask === fromTaskId) {
     await stopTask(root, acc);
   }
   await startTask(toTaskId, root, acc);

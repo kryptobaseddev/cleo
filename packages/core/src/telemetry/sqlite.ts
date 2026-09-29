@@ -17,6 +17,7 @@ import { getCleoHome } from '../paths.js';
 import { ensureColumns, migrateWithRetry, reconcileJournal } from '../store/migration-manager.js';
 import { resolveCorePackageMigrationsFolder } from '../store/resolve-migrations-folder.js';
 import { openNativeDatabase } from '../store/sqlite.js';
+import { installSchemaWriteGuard } from '../store/worktree-build-guard.js';
 
 /** Database file name in the global CLEO home directory. */
 const DB_FILENAME = 'telemetry.db';
@@ -128,6 +129,7 @@ export async function getTelemetryDb(): Promise<NodeSQLiteDatabase> {
     mkdirSync(dirname(dbPath), { recursive: true });
 
     const nativeDb = openNativeDatabase(dbPath);
+    installSchemaWriteGuard(nativeDb); // T12687
     _nativeDb = nativeDb;
 
     const db = drizzle({ client: nativeDb });

@@ -353,15 +353,24 @@ export async function updateDocBySlug(
     return { ok: false, error: { code: 'E_INVALID_INPUT', message: 'slug is required' } };
   }
 
-  // Exactly one of file or content must be provided.
+  // At most one of file or content. With neither, `status` alone is a
+  // lifecycle-only transition that keeps the current bytes (T12654) — the
+  // only way to accept a doc without re-supplying its content.
   const hasFile = typeof params.file === 'string' && params.file.length > 0;
   const hasContent = typeof params.content === 'string';
-  if (hasFile === hasContent) {
+  if (hasFile && hasContent) {
+    return {
+      ok: false,
+      error: { code: 'E_INVALID_INPUT', message: 'file and content are mutually exclusive' },
+    };
+  }
+  const statusOnly = !hasFile && !hasContent;
+  if (statusOnly && params.status === undefined) {
     return {
       ok: false,
       error: {
         code: 'E_INVALID_INPUT',
-        message: 'Provide exactly one of file or content',
+        message: 'Provide file or content, or status alone for a lifecycle-only change',
       },
     };
   }
@@ -369,8 +378,11 @@ export async function updateDocBySlug(
   // Read the file bytes when `file` was supplied; otherwise use the inline
   // UTF-8 content as-is. The dispatch handler resolves relative paths to
   // absolute before invoking this function (worktree-routing discipline).
-  let buf: Buffer;
-  if (hasFile) {
+  // A status-only update reads nothing: the bytes stay as stored.
+  let buf: Buffer | null = null;
+  if (statusOnly) {
+    // lifecycle-only: resolved against the stored row below
+  } else if (hasFile) {
     const { readFile } = await import('node:fs/promises');
     try {
       buf = await readFile(params.file as string);
@@ -399,7 +411,6 @@ export async function updateDocBySlug(
     };
   }
 
-  const newSha256 = sha256Of(buf);
   const now = new Date();
   const nowIso = now.toISOString();
   const attachedBy = params.attachedBy ?? 'human';
@@ -423,9 +434,12 @@ export async function updateDocBySlug(
 
   const previousAttachmentId = oldRow.id;
   const previousSha256 = oldRow.sha256;
+  const newSha256 = buf === null ? previousSha256 : sha256Of(buf);
   const wouldChange = newSha256 !== previousSha256 || oldRow.lifecycleStatus !== status;
 
-  if (oldRow.type !== null && oldRow.type !== undefined) {
+  // The body schema is checked on new bytes; a lifecycle-only change keeps
+  // the stored body, which was checked when it was written.
+  if (buf !== null && oldRow.type !== null && oldRow.type !== undefined) {
     const check = validateDocBody(oldRow.type, buf.toString('utf-8'));
     if (!check.ok) {
       const missingList = check.missing.join(', ');
@@ -476,8 +490,9 @@ export async function updateDocBySlug(
 
   // NOOP fast-path: identical content. Still surface the lifecycle status
   // update if the caller asked for one, and still write an audit entry so
-  // operators can see the noop attempt.
-  if (newSha256 === previousSha256) {
+  // operators can see the noop attempt. A lifecycle-only update (no new
+  // bytes, T12654) always takes this path.
+  if (buf === null || newSha256 === previousSha256) {
     // Only touch lifecycle_status if it actually changes.
     if (oldRow.lifecycleStatus !== status) {
       await db

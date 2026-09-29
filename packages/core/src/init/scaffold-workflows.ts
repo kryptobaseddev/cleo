@@ -48,6 +48,7 @@ import { appendFile, mkdir, readdir, readFile, rename, stat, writeFile } from 'n
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { joinCommandLine } from '../tasks/command-line.js';
 import { resolveToolCommand } from '../tasks/tool-resolver.js';
 import { getTemplatesByKind, resolveSourcePathAbsolute } from '../templates/registry.js';
 
@@ -297,9 +298,11 @@ function resolveToolLine(
   fallback: string,
 ): string {
   const result = resolveToolCommand(canonical, projectRoot);
-  if (!result.ok) return fallback;
-  const { cmd, args } = result.command;
-  return args.length > 0 ? `${cmd} ${args.join(' ')}` : cmd;
+  // T12718: a workflow `run:` step IS a shell. A declared command the evidence
+  // runner refuses for its shell syntax is rendered verbatim here, and resolved
+  // argv is re-quoted rather than joined bare, so quoted words survive.
+  if (!result.ok) return result.rawCommand ?? fallback;
+  return joinCommandLine([result.command.cmd, ...result.command.args]);
 }
 
 /**

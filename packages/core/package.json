@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/core",
-  "version": "2026.9.21",
+  "version": "2026.9.23",
   "description": "CLEO core business logic kernel — tasks, sessions, memory, orchestration, lifecycle, with bundled SQLite store",
   "type": "module",
   "main": "./dist/index.js",
@@ -443,7 +443,7 @@
     }
   },
   "scripts": {
-    "build": "tsc && node scripts/copy-selfimprove-fixtures.mjs",
+    "build": "tsc && node scripts/copy-selfimprove-fixtures.mjs && node scripts/write-build-provenance.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:integration": "cd ../.. && vitest run --config packages/core/vitest.integration.config.ts",

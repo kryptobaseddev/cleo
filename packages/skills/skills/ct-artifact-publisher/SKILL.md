@@ -2,9 +2,12 @@
 name: ct-artifact-publisher
 description: "Builds and publishes artifacts to registries (npm, PyPI, cargo, docker, GitHub releases, generic tarballs) following the validate, then dry-run, then build, then publish, then record-provenance pipeline. Invoked by ct-release-orchestrator as a sub-skill when a release has artifact config. Never stores credentials in output or manifest (ARTP-008), always dry-runs first (ARTP-002), halts and attempts rollback on failure (ARTP-009). Triggers when a release config has at least one enabled artifact handler."
 metadata:
-  version: 1.0.1
+  version: 1.0.2
   tier: on-demand
   install: harness
+  covers:
+    - packages/core/src/validation/protocols/cant/artifact-publish.cant
+    - packages/core/src/validation/protocols/protocols-markdown/artifact-publish.md
   lastReviewed: 2026-09-28
   stability: stable
 ---

@@ -252,6 +252,8 @@ describe('persisted contextual gate evidence', () => {
         criterionHash: createHash('sha256').update('Reject unrelated proof').digest('hex'),
         artifactPaths: ['src/fix.ts'],
         resultAtomIndices: [0],
+        // T12689: the criterion names no inspected path — the link is the agent's claim.
+        basis: 'self-attested',
       },
     ]);
     expect((await accessor.getAcBindings([criterionId])).length).toBe(1);

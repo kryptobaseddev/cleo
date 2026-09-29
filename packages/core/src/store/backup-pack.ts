@@ -346,7 +346,7 @@ function vacuumIntoStaging(srcPath: string, destPath: string): boolean {
   }
   let db: DatabaseSync | null = null;
   try {
-    db = new DatabaseSync(srcPath);
+    db = new DatabaseSync(srcPath); // schema-guard-exempt: snapshot source: checkpoint + VACUUM INTO only, no schema change
     applyPerfPragmas(db); // full pragma set for writer (T9022)
     db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
     db.exec(`VACUUM INTO '${destPath.replace(/'/g, "''")}'`);

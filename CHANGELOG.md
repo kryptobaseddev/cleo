@@ -1,5 +1,37 @@
 # Changelog
 
+## [2026.9.23] (2026-09-29)
+
+### Added
+
+- every change to a task's priority, severity, kind or depends records actor, session, reason and before/after; cleo history ranking <id> shows them and cleo history revert <entryId> undoes one (D11161) _(provenance: [T12693](https://github.com/kryptobaseddev/cleo/search?q=T12693&type=commits))_
+- `cleo skills doctor restore --unkeep <name>` hands a restored (kept) skill back to CLEO when it is unchanged _(provenance: [T12699](https://github.com/kryptobaseddev/cleo/search?q=T12699&type=commits))_
+- System One setup wizard with provider presets (layahost by default, jev for a custom URL), an always-stored model, and hidden API-key input in every wizard _(provenance: [T12713](https://github.com/kryptobaseddev/cleo/search?q=T12713&type=commits), [T12714](https://github.com/kryptobaseddev/cleo/search?q=T12714&type=commits))_
+- **System One decision provider, end to end.** `cleo decide config` runs a setup wizard: layahost (built-in URL; bring only the API key) or any Jev-compatible server (custom URL). It adds a decision-site registry (`cleo decide sites`), detection of provider capabilities and layahost extensions, and a monthly spend ledger with a cap (`decide.budget.monthlyMicros`, `cleo decide budget reset` refuses on a healthy ledger). `cleo setup` gains a `system-one` section _(provenance: [T12662](https://github.com/kryptobaseddev/cleo/search?q=T12662&type=commits), [T12664](https://github.com/kryptobaseddev/cleo/search?q=T12664&type=commits), #1694)_
+- Architectural gate 35: every model call site is a registered decision site _(provenance: [T12663](https://github.com/kryptobaseddev/cleo/search?q=T12663&type=commits))_
+
+### Fixed
+
+- **A CLI built inside a git worktree no longer migrates the live store.** A SQLite authorizer on every writable open refuses schema changes from an unreleased worktree build (`E_WORKTREE_BUILD_SCHEMA`); `CLEO_ALLOW_WORKTREE_BUILD_MIGRATIONS=1` opts in _(provenance: [T12687](https://github.com/kryptobaseddev/cleo/search?q=T12687&type=commits), #1664)_
+- `.worktreeinclude` copies its files into new worktrees again (an ESM `require()` fallback had made it copy nothing) _(provenance: [T12685](https://github.com/kryptobaseddev/cleo/search?q=T12685&type=commits))_
+- component PRs are credited for files a later change also edited and for deletion-only changes; gh --version is bounded; criterion links record whether a named path supports them _(provenance: [T12689](https://github.com/kryptobaseddev/cleo/search?q=T12689&type=commits))_
+- completion's focus clear is an atomic compare-and-clear; a stale cleo current names the next task without brain pattern scoring _(provenance: [T12689](https://github.com/kryptobaseddev/cleo/search?q=T12689&type=commits))_
+- pivot refuses a finished from-task and reads the live focus; the focus-reader guard is a per-call AST scan over core, cleo and studio; briefing reuses its task map for the live check _(provenance: [T12698](https://github.com/kryptobaseddev/cleo/search?q=T12698&type=commits))_
+- orchestrate roll-up skips a manifest row whose metadata breaks the stored field contract (warning W_MANIFEST_ROW_MALFORMED names it and the repair) instead of failing; new cleo doctor manifest-rows lists such rows, plans a repair (--repair), applies it with a receipt (--apply) and rolls it back _(provenance: [T12686](https://github.com/kryptobaseddev/cleo/search?q=T12686&type=commits))_
+- cleo restore backup (and admin.backup restore) run from inside a git worktree now names the store it would overwrite and needs --confirm-owner-store; it refuses when the store would land in the worktree itself; bare-repo worktrees get an accurate message instead of 'unreadable gitlink' _(provenance: [T12680](https://github.com/kryptobaseddev/cleo/search?q=T12680&type=commits))_
+- Bare require() calls in ESM sources threw under Node while vitest hid them; they now use static imports, and a new arch gate blocks new ones _(provenance: [T12704](https://github.com/kryptobaseddev/cleo/search?q=T12704&type=commits))_
+- Test-gate commands and the tool:test / tool:test-affected commands honour shell quoting and refuse shell syntax, so neither can false-PASS _(provenance: [T12718](https://github.com/kryptobaseddev/cleo/search?q=T12718&type=commits))_
+- `cleo next`, the briefing's nextTasks and both `cleo analyze` paths rank through one tiered comparator: priority band, then attested severity, then a bounded tiebreak. `--explain` shows each tier _(provenance: [T12661](https://github.com/kryptobaseddev/cleo/search?q=T12661&type=commits), [T12691](https://github.com/kryptobaseddev/cleo/search?q=T12691&type=commits))_
+
+## [2026.9.22] (2026-09-29)
+
+### Fixed
+
+- **Mixed-version task-id collisions.** After the slice-1 twin-table collapse (2026.9.21), a 2026.9.20 or 2026.9.21 process and a newer build sharing one project could allocate the same task id, and `cleo add` could silently overwrite the other agent's task. Allocation now raises the legacy counter to MAX(legacy, new) in the same transaction, and sticky-note tag indexes are recomputed after each merge. **Run one CLEO version per project, and upgrade every agent on a machine together.** _(provenance: [T12709](https://github.com/kryptobaseddev/cleo/search?q=T12709&type=commits), #1669)_
+- Architectural gates 23, 26, 27 (the ask-tool HITL rule) and 28 now run in CI, and gate 20 fails when a bundled gate is run by no workflow _(provenance: [T12658](https://github.com/kryptobaseddev/cleo/search?q=T12658&type=commits))_
+- every focus read that reports the current task goes through readLiveFocus: inject, bootstrap, orchestrator startup, stats, validation, attention and drift never surface a finished task; briefing's stale warning carries W_STALE_FOCUS _(provenance: [T12684](https://github.com/kryptobaseddev/cleo/search?q=T12684&type=commits))_
+- `cleo complete` clears the focus pointer to the completed task, and `cleo current` and the briefing never report a done or cancelled task as current. Handoff suggestions carry their live status _(provenance: [T12660](https://github.com/kryptobaseddev/cleo/search?q=T12660&type=commits))_
+
 ## [2026.9.21] (2026-09-28)
 
 ### Added

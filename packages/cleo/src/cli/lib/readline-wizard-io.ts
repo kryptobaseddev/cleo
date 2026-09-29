@@ -47,15 +47,29 @@
  * `@cleocode/core/setup`).  The matching `setup.ts` catch block prints
  * `"Setup interrupted. Run 'cleo setup' to continue."` and exits 130.
  *
+ * ## Hidden secret input (T12714)
+ *
+ * {@link ReadlineWizardIO.secret} writes its question, then mutes the
+ * {@link MutableOutput} stream readline echoes into until the answer is
+ * submitted, so the characters of a typed or pasted API key never reach the
+ * terminal. The interface keeps no history (`historySize: 0`) and a secret is
+ * also scrubbed from any history after it is read, so an Up-arrow can never
+ * redraw a key. Terminal mode follows the INPUT stream: when stdin is a TTY
+ * the terminal itself would echo a key typed with terminal mode off, so
+ * {@link ReadlineWizardIO.secret} refuses in that state and points to the
+ * `--key-stdin` / `--api-key-stdin` flags instead.
+ *
  * @task T9421
  * @task T9599
  * @task T9612
+ * @task T12714
  * @epic E-CONFIG-AUTH-UNIFY (E3 §5.3 T-E3-2)
  * @epic E-CLEO-SETUP-V2 (§3.5 T-SETUP-V2-6)
  */
 
 import { stdin as input, stdout as output } from 'node:process';
 import * as readline from 'node:readline/promises';
+import { Writable } from 'node:stream';
 import type { WizardIO } from '@cleocode/core/setup';
 import { WizardFatalError, WizardInterruptError } from '@cleocode/core/setup';
 
@@ -130,6 +144,93 @@ export class StdinClosedError extends WizardFatalError {
   }
 }
 
+/**
+ * Message of the error {@link ReadlineWizardIO.secret} throws when stdin is a
+ * terminal but readline runs with terminal mode off (the terminal's own echo
+ * would then print the key).
+ *
+ * @task T12714
+ */
+export const SECRET_ECHO_REFUSED_MESSAGE =
+  'Refusing to read a secret: stdin is a terminal but terminal mode is off, so the key would be echoed. ' +
+  'Pipe it instead: printf %s "$KEY" | cleo decide config --provider layahost --key-stdin ' +
+  '(or cleo llm add <provider> --api-key-stdin).';
+
+/**
+ * Options for {@link ReadlineWizardIO}.
+ *
+ * @task T12714
+ */
+export interface ReadlineWizardIOOptions {
+  /**
+   * Force readline's terminal mode. Defaults to the INPUT stream's `isTTY`,
+   * because echo and line editing are properties of the keyboard side.
+   */
+  readonly terminal?: boolean;
+}
+
+/**
+ * Whether a stream reports itself as a TTY.
+ *
+ * @param stream - Any Node stream.
+ * @returns `true` only when `stream.isTTY === true`.
+ */
+function streamIsTTY(stream: NodeJS.ReadableStream | NodeJS.WritableStream): boolean {
+  return 'isTTY' in stream && stream.isTTY === true;
+}
+
+// ---------------------------------------------------------------------------
+// Muted output (T12714)
+// ---------------------------------------------------------------------------
+
+/**
+ * Output stream readline echoes into. While {@link MutableOutput.muted} is
+ * true every write is dropped, so a secret being typed is never echoed.
+ * Otherwise writes pass through to the wrapped stream. `isTTY` and `columns`
+ * mirror the wrapped stream so readline keeps its terminal behaviour.
+ *
+ * @task T12714
+ */
+export class MutableOutput extends Writable {
+  /** When true, writes are dropped. */
+  muted = false;
+  /** Mirrors the wrapped stream: readline enables terminal mode (and echo) from it. */
+  readonly isTTY: boolean;
+
+  /** @param target - Stream that receives writes while unmuted. */
+  constructor(private readonly target: NodeJS.WritableStream) {
+    super();
+    this.isTTY = 'isTTY' in target && target.isTTY === true;
+  }
+
+  /** Terminal width of the wrapped stream, when it reports one. */
+  get columns(): number | undefined {
+    return 'columns' in this.target && typeof this.target.columns === 'number'
+      ? this.target.columns
+      : undefined;
+  }
+
+  /** Forward a chunk unless muted. */
+  override _write(
+    chunk: Buffer | string,
+    encoding: BufferEncoding,
+    callback: (error?: Error | null) => void,
+  ): void {
+    if (this.muted) {
+      callback();
+      return;
+    }
+    const done = (): void => callback();
+    if (typeof chunk === 'string') this.target.write(chunk, encoding, done);
+    else this.target.write(chunk, done);
+  }
+
+  /** Write straight to the wrapped stream, bypassing the mute. */
+  writeUnmuted(text: string): void {
+    this.target.write(text);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // ReadlineWizardIO
 // ---------------------------------------------------------------------------
@@ -170,6 +271,10 @@ export class ReadlineWizardIO implements WizardIO {
    * @internal
    */
   protected readonly rl: readline.Interface;
+  /** The stream readline echoes into; muted while a secret is typed. */
+  private readonly output: MutableOutput;
+  /** Whether the input stream is a TTY (the terminal echoes unless readline owns it). */
+  private readonly inputIsTTY: boolean;
   /** AbortController aborted when stdin closes — surfaced as {@link StdinClosedError}. */
   private readonly eofController: AbortController;
   /**
@@ -186,11 +291,26 @@ export class ReadlineWizardIO implements WizardIO {
    *
    * @param inStream - Input stream; defaults to `process.stdin`.
    * @param outStream - Output stream passed to readline for terminal-echo
-   *   purposes only; informational output goes to stderr.
+   *   purposes only; informational output goes to stderr. CLI commands pass
+   *   `process.stderr` so prompts never reach a redirected stdout.
+   * @param options - See {@link ReadlineWizardIOOptions}; terminal mode
+   *   defaults to the input stream's `isTTY`.
    */
-  constructor(inStream: NodeJS.ReadableStream = input, outStream: NodeJS.WritableStream = output) {
+  constructor(
+    inStream: NodeJS.ReadableStream = input,
+    outStream: NodeJS.WritableStream = output,
+    options: ReadlineWizardIOOptions = {},
+  ) {
     this.eofController = new AbortController();
-    this.rl = readline.createInterface({ input: inStream, output: outStream });
+    this.output = new MutableOutput(outStream);
+    this.inputIsTTY = streamIsTTY(inStream);
+    this.rl = readline.createInterface({
+      input: inStream,
+      output: this.output,
+      terminal: options.terminal ?? this.inputIsTTY,
+      // No history: a secret must never be recallable with Up-arrow.
+      historySize: 0,
+    });
     // When stdin closes, abort the controller so all pending question()
     // calls throw an AbortError that we wrap into StdinClosedError.
     this.rl.on('close', () => {
@@ -253,6 +373,50 @@ export class ReadlineWizardIO implements WizardIO {
       return stripBracketedPaste(raw);
     } catch (err) {
       this.rethrowEof(err);
+    }
+  }
+
+  /**
+   * Ask for a secret without echoing it: the question is written, then the
+   * output stream is muted until the answer is submitted. Bracketed-paste
+   * markers are stripped like {@link prompt}. The answer is removed from
+   * readline's history afterwards.
+   *
+   * @param question - The question, e.g. `API key:`.
+   * @returns The trimmed answer; `''` when none was given.
+   * @throws Error with {@link SECRET_ECHO_REFUSED_MESSAGE} when stdin is a
+   *   terminal but terminal mode is off (the terminal would echo the key).
+   * @task T12714
+   */
+  async secret(question: string): Promise<string> {
+    if (this.inputIsTTY && !this.rl.terminal) throw new Error(SECRET_ECHO_REFUSED_MESSAGE);
+    this.output.writeUnmuted(`${question} `);
+    this.output.muted = true;
+    let raw: string | undefined;
+    try {
+      raw = await this.rl.question('', { signal: this.eofController.signal });
+      return stripBracketedPaste(raw);
+    } catch (err) {
+      return this.rethrowEof(err);
+    } finally {
+      this.output.muted = false;
+      this.output.writeUnmuted('\n');
+      if (raw !== undefined) this.scrubHistory(raw);
+    }
+  }
+
+  /**
+   * Remove every history entry equal to `line`. `history` is a runtime field
+   * of `readline.Interface` that `@types/node` does not declare, so it is
+   * read reflectively and checked before use.
+   *
+   * @param line - The exact line readline recorded.
+   */
+  private scrubHistory(line: string): void {
+    const history: unknown = Reflect.get(this.rl, 'history');
+    if (!Array.isArray(history)) return;
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (history[i] === line) history.splice(i, 1);
     }
   }
 

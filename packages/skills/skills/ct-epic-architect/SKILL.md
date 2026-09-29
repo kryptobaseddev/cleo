@@ -1,7 +1,7 @@
 ---
 name: ct-epic-architect
 description: Epic planning and task decomposition for breaking down large initiatives into atomic, executable tasks. Provides dependency analysis, wave-based parallel execution planning, hierarchy management, and research linking. Use when creating epics, decomposing initiatives into task trees, planning parallel workflows, or analyzing task dependencies. Triggers on epic creation, task decomposition requests, or planning phase work.
-version: 3.0.1
+version: 3.0.3
 protocol: decomposition
 adrRefs:
   - ADR-066
@@ -17,9 +17,12 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.0.1
+  version: 3.0.3
   tier: on-demand
   install: harness
+  covers:
+    - packages/core/src/validation/protocols/cant/decomposition.cant
+    - packages/core/src/validation/protocols/protocols-markdown/decomposition.md
   loomStage: decomposition
   lastReviewed: 2026-09-28
   stability: stable
@@ -282,7 +285,7 @@ Recommendation: [Your recommendation]
 
 ### Output Requirements
 
-1. MUST write decomposition to: `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`
+1. MUST record decomposition with `cleo docs add {{TASK_ID}} --content - --type plan --slug {{TOPIC_SLUG}}` (never a raw file under `.cleo/agent-outputs/`)
 2. MUST record ONE manifest entry: `cleo manifest append --entry '<entry JSON>'` (the flat manifest file is retired, ADR-027)
 3. MUST return ONLY: "Decomposition complete. Manifest appended to pipeline_manifest."
 4. MUST NOT return full decomposition in response

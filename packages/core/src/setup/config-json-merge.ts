@@ -30,6 +30,7 @@ import type { WizardOptions } from './wizard.js';
  */
 export const WIZARD_SECTION_IDS: ReadonlySet<string> = new Set<string>([
   'llm',
+  'system-one',
   'models-roles',
   'identity',
   'harness',
@@ -40,6 +41,53 @@ export const WIZARD_SECTION_IDS: ReadonlySet<string> = new Set<string>([
   'telemetry',
   'verification',
 ]);
+
+/**
+ * The scripted way to configure System One. `--config-json` cannot carry it:
+ * the `system-one` section reads no options, and its key must not reach the
+ * shared `apiKey` field the `llm` section consumes.
+ *
+ * @public
+ * @task T12713
+ */
+export const SYSTEM_ONE_CONFIG_FIX =
+  'printf %s "$KEY" | cleo decide config --provider layahost --key-stdin';
+
+/**
+ * Thrown by {@link mergeConfigJson} when the bag holds settings the wizard
+ * cannot apply. The CLI renders it as an `E_VALIDATION` envelope.
+ *
+ * @public
+ * @task T12713
+ */
+export class SetupConfigJsonError extends Error {
+  /** LAFS error code name. */
+  readonly codeName = 'E_VALIDATION' as const;
+
+  /**
+   * @param message - What is wrong with the bag.
+   * @param fix - The command that does what the bag attempted.
+   */
+  constructor(
+    message: string,
+    readonly fix: string,
+  ) {
+    super(message);
+    this.name = 'SetupConfigJsonError';
+  }
+}
+
+/**
+ * Whether a config-json section value carries any settings.
+ *
+ * @param value - The value under a section key.
+ * @returns `false` for `null`, `undefined` and `{}`; `true` otherwise.
+ */
+function hasSettings(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'object' && !Array.isArray(value)) return Object.keys(value).length > 0;
+  return true;
+}
 
 /**
  * Merge a per-section config-json bag into the flat {@link WizardOptions} bag.
@@ -55,6 +103,8 @@ export const WIZARD_SECTION_IDS: ReadonlySet<string> = new Set<string>([
  *
  * @param parsed - Already-parsed JSON object (caller ensures this is an object).
  * @param out    - Mutable WizardOptions being assembled — merged into here.
+ * @throws {@link SetupConfigJsonError} when a non-empty `system-one` block is
+ *   given (use {@link SYSTEM_ONE_CONFIG_FIX} instead).
  *
  * @public
  * @task T9985
@@ -63,6 +113,15 @@ export function mergeConfigJson(
   parsed: Record<string, Record<string, unknown>>,
   out: WizardOptions,
 ): void {
+  // System One takes no config-json options; silently merging a block would
+  // drop it, or worse, route its key into the llm section's `apiKey`.
+  if (hasSettings(parsed['system-one'])) {
+    throw new SetupConfigJsonError(
+      `--config-json does not configure the 'system-one' section. Run: ${SYSTEM_ONE_CONFIG_FIX}`,
+      SYSTEM_ONE_CONFIG_FIX,
+    );
+  }
+
   // Store the raw bag so sections / downstream code can inspect it.
   out.configJson = parsed;
 

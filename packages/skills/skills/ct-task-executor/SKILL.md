@@ -1,7 +1,7 @@
 ---
 name: ct-task-executor
 description: General implementation task execution for completing assigned CLEO tasks by following instructions and producing concrete deliverables. Handles coding, configuration, documentation work with quality verification against acceptance criteria and progress reporting. Use when executing implementation tasks, completing assigned work, or producing task deliverables. Triggers on implementation tasks, general execution needs, or task completion work.
-version: 2.7.1
+version: 2.7.4
 protocol: implementation
 adrRefs:
   - ADR-070
@@ -17,11 +17,16 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.7.1
+  version: 2.7.4
   tier: core
   install: harness
+  covers:
+    - packages/cleo/src/cli/commands/verify.ts
+    - packages/cleo/src/cli/commands/complete.ts
+    - packages/core/src/validation/protocols/cant/implementation.cant
+    - packages/core/src/validation/protocols/protocols-markdown/implementation.md
   loomStage: implementation
-  lastReviewed: 2026-09-28
+  lastReviewed: 2026-09-29
   stability: stable
 ---
 
@@ -94,7 +99,7 @@ Context injection for implementation tasks spawned via cleo-subagent. Provides d
 2. Focus already set by orchestrator (set if working standalone)
 3. Execute instructions (see Methodology below)
 4. Verify deliverables against acceptance criteria
-5. Write output: `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`
+5. Record output: `cleo docs add {{TASK_ID}} --content - --type note --slug {{TOPIC_SLUG}}`
 6. Record the manifest entry: `cleo manifest append --task {{TASK_ID}} --type implementation --content "<one-paragraph summary>"`
 7. Complete task: `{{TASK_COMPLETE_CMD}} {{TASK_ID}}`
 8. Return summary message
@@ -154,7 +159,7 @@ The routing prints a one-line info message to stderr (suppress with
 
 ### Output Requirements
 
-1. MUST write findings to: `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`
+1. MUST record findings with `cleo docs add {{TASK_ID}} --content - --type note --slug {{TOPIC_SLUG}}` (never a raw file under `.cleo/agent-outputs/`)
 2. MUST record ONE manifest entry: `cleo manifest append --entry '<entry JSON>'` (the flat manifest file is retired, ADR-027)
 3. MUST return ONLY: "Implementation complete. Manifest appended to pipeline_manifest."
 4. MUST NOT return implementation details in response
@@ -163,7 +168,7 @@ The routing prints a one-line info message to stderr (suppress with
 
 ## Output File Format
 
-Write to `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`:
+Record it with `cleo docs add {{TASK_ID}} --content - --type note --slug {{TOPIC_SLUG}}`, using this body:
 
 ```markdown
 # {{TASK_NAME}}
@@ -235,7 +240,7 @@ Append ONE entry via `cleo manifest append --entry '<json>'` (writes to pipeline
 - [ ] All instructions executed
 - [ ] All deliverables produced
 - [ ] Acceptance criteria verified
-- [ ] Output file written to `{{OUTPUT_DIR}}/`
+- [ ] Output recorded with `cleo docs add` (slug in the return message)
 - [ ] Manifest entry appended (single line, valid JSON)
 - [ ] Task completed via `{{TASK_COMPLETE_CMD}}`
 - [ ] Session ended with summary note (if executor owns session)
@@ -275,6 +280,23 @@ If deliverables don't pass acceptance criteria:
 3. Add remediation suggestions to `needs_followup`
 4. Complete task only if failure is documented and understood
 5. Return appropriate status message
+
+### Concurrent Edits (`E_CONFLICT`, exit 23)
+
+Another agent may edit the same task while you work. `cleo update` and
+`cleo complete` refuse a write based on a stale read with `E_CONFLICT`; nothing
+was written. `error.details` carries `currentVersion`, `changedFields`,
+per-field `changes` (`was`/`now`) and the stored `current` values. Re-read the
+task, merge your change onto it, then retry. To guard a write explicitly, pass
+the version you read:
+
+```bash
+cleo show T1234 --field /data/task/updatedAt   # the version you read
+cleo update T1234 --title "New title" --if-match <updatedAt>
+cleo complete T1234 --if-match <updatedAt>
+```
+
+`--add-labels`, `--add-depends` and `--add-files` merge with concurrent writers and never need a retry.
 
 ---
 

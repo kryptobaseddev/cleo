@@ -3,13 +3,15 @@
  * @task T4784
  */
 
-import type { Task, TaskPriority, TaskRef } from '@cleocode/contracts';
+import type { ScoreTaskContext, Task, TaskPriority, TaskRef } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { orderByRanking } from '../task-tools/score-task-priority.js';
 import {
   getReadinessDependencyBlockers,
   loadReadinessDependencyLookup,
 } from '../tasks/dependency-check.js';
+import { loadRankingContext } from '../tasks/task-next.js';
 
 /** Basic execution wave: task IDs grouped by dependency depth. */
 export interface Wave {
@@ -54,14 +56,13 @@ export interface EnrichedWaveTask extends TaskRef {
 /**
  * Enriched execution wave carrying per-task metadata for rendering.
  *
- * All tasks within the wave are sorted by priority (critical → high → medium →
- * low) descending, then by open-dependency count ascending, then by ID for
- * deterministic stability.
+ * Tasks within the wave are in THE comparator's order (D11161, T12692):
+ * priority band, attested severity, bounded tiebreak, createdAt, id.
  */
 export interface EnrichedWave {
   /** 1-based wave number. */
   waveNumber: number;
-  /** Enriched, priority-sorted tasks for this wave. */
+  /** Enriched tasks for this wave, in comparator order. */
   tasks: EnrichedWaveTask[];
   /**
    * Plain task ID list — convenience alias for `tasks.map(t => t.id)`.
@@ -85,14 +86,6 @@ export interface EnrichedWave {
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
-
-/** Numeric sort weight for each priority level (higher = sort first). */
-const PRIORITY_WEIGHT: Record<string, number> = {
-  critical: 4,
-  high: 3,
-  medium: 2,
-  low: 1,
-};
 
 /**
  * Enrich a task ID into an {@link EnrichedWaveTask}.
@@ -118,43 +111,66 @@ function enrichTask(id: string, taskMap: Map<string, Task>): EnrichedWaveTask {
 }
 
 /**
- * Sort enriched wave tasks by priority DESC → open-dep count ASC → ID ASC.
+ * Order each wave's members by THE comparator (D11161, T12692). Only the
+ * order WITHIN a wave moves; wave numbers stay structural depth (T12683).
  *
- * Within a wave, tasks that are higher priority and have fewer open blockers
- * appear first, making the most actionable work immediately visible.
- *
- * @param tasks - Enriched tasks to sort (mutates the array in-place and returns it).
+ * @param waves - Waves in structural order.
+ * @param taskMap - Dependency closure the waves were computed over.
+ * @param ranking - The project-wide ranking context (see `loadRankingContext`).
+ * @returns The same waves with members in ranked order.
  */
-function sortWaveTasks(tasks: EnrichedWaveTask[]): EnrichedWaveTask[] {
-  return tasks.sort((a, b) => {
-    // 1. Priority descending (critical > high > medium > low)
-    const pa = PRIORITY_WEIGHT[a.priority] ?? 2;
-    const pb = PRIORITY_WEIGHT[b.priority] ?? 2;
-    if (pa !== pb) return pb - pa;
+function orderWaveMembers(
+  waves: Wave[],
+  taskMap: ReadonlyMap<string, Task>,
+  ranking: ScoreTaskContext,
+): Wave[] {
+  return waves.map((w) => ({
+    ...w,
+    tasks: orderByRanking(w.tasks, (id) => id, taskMap, ranking),
+  }));
+}
 
-    // 2. Open-dependency count ascending (fewer blockers = more actionable)
-    const ba = a.blockedBy.length;
-    const bb = b.blockedBy.length;
-    if (ba !== bb) return ba - bb;
+/** Statuses whose task has finished (it occupies its wave, but runs no more). */
+const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'cancelled', 'archived']);
 
-    // 3. ID ascending for deterministic stability
-    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-  });
+/**
+ * Whether a task has finished: done, cancelled or archived.
+ *
+ * @param status - Task status.
+ * @returns True for a terminal status.
+ * @task T12682
+ */
+export function isTerminalWaveStatus(status: string): boolean {
+  return TERMINAL_STATUSES.has(status);
 }
 
 /**
- * Compute execution waves using topological sort.
+ * Compute execution waves: each task's wave is its STRUCTURAL DEPTH in the
+ * dependency graph (T12682, T12683 — owner option A).
  *
  * @remarks
- * Only done or archived dependencies satisfy readiness. Earlier planned waves
- * establish ordering, not evidence that their tasks have already completed.
- * Missing or unfinished dependencies outside the selected population remain
- * unresolved and are retained in the final pending wave. Terminal tasks are
- * excluded from scheduling; cancelled dependencies still block their dependants.
+ * `wave(t) = 1 + max(wave(d))` over every dependency `d` the lookup knows,
+ * whatever `d`'s status and whichever epic holds it; 1 when there is none.
+ * A wave number therefore never changes when work completes, a finished task
+ * is archived, a dependency is re-parented to another epic, or an external
+ * dependency finishes — only an edit to the dependency edges themselves can
+ * move a task. Numbers can skip (a task whose external prerequisite sits at
+ * depth 3 is in wave 4 even if waves 2–3 hold nothing of this epic); the
+ * listing shows the waves that hold tasks, each under its own number.
+ *
+ * - A finished wave (every task done, cancelled or archived) is `completed`;
+ *   a partly finished one, or one with an active task, is `in_progress`.
+ * - A dependency the lookup does not know contributes nothing to depth;
+ *   readiness still reports it as a blocker.
+ * - Tasks on a dependency cycle have no depth; they share a final wave after
+ *   the deepest one.
+ * - Readiness (`ready`, `blockedBy`) is per task, not per wave: an earlier
+ *   wave is ordering, not completion.
  *
  * @param tasks - Selected tasks to partition into dependency waves.
- * @param dependencyLookup - Loaded dependency population, including external tasks.
- * @returns Ordered planned waves, with unresolved work retained as pending.
+ * @param dependencyLookup - Dependency population: the selection plus every
+ *   task reachable through `depends` (see {@link planEpicWaves}).
+ * @returns Waves ordered by number, finished ones included as `completed`.
  *
  * @example
  * ```ts
@@ -165,48 +181,109 @@ export function computeWaves(
   tasks: Task[],
   dependencyLookup: ReadonlyMap<string, Task> = new Map(tasks.map((task) => [task.id, task])),
 ): Wave[] {
-  const waves: Wave[] = [];
-  const planned = new Set<string>();
-  let remaining = tasks.filter((task) => !['done', 'cancelled', 'archived'].includes(task.status));
-  let waveNumber = 1;
-  const maxWaves = 50;
+  const depth = new Map<string, number>();
+  const cyclic = new Set<string>();
+  const visiting = new Set<string>();
+  const lookup = (id: string): Task | undefined =>
+    dependencyLookup.get(id) ?? tasks.find((t) => t.id === id);
 
-  while (remaining.length > 0 && waveNumber <= maxWaves) {
-    const waveTasks = remaining.filter((t) => {
-      return getReadinessDependencyBlockers(t.depends, dependencyLookup).every((id) =>
-        planned.has(id),
-      );
-    });
-
-    if (waveTasks.length === 0) break;
-
-    const waveStatus: Wave['status'] = waveTasks.some((task) => task.status === 'active')
-      ? 'in_progress'
-      : 'pending';
-
-    waves.push({
-      waveNumber,
-      tasks: waveTasks.map((t) => t.id),
-      status: waveStatus,
-    });
-
-    for (const t of waveTasks) {
-      planned.add(t.id);
+  // Iterative post-order DFS: no recursion limit, no wave cap.
+  const depthOf = (root: string): number | null => {
+    const stack: Array<{ id: string; next: number; best: number }> = [
+      { id: root, next: 0, best: 1 },
+    ];
+    visiting.add(root);
+    let result: number | null = null;
+    while (stack.length > 0) {
+      const frame = stack[stack.length - 1] as { id: string; next: number; best: number };
+      const deps = lookup(frame.id)?.depends ?? [];
+      if (frame.next < deps.length) {
+        const dep = deps[frame.next++] as string;
+        if (!lookup(dep)) continue; // unknown: no depth contribution
+        if (cyclic.has(dep) || visiting.has(dep)) {
+          for (const f of stack) cyclic.add(f.id);
+          continue;
+        }
+        const known = depth.get(dep);
+        if (known !== undefined) {
+          frame.best = Math.max(frame.best, known + 1);
+          continue;
+        }
+        visiting.add(dep);
+        stack.push({ id: dep, next: 0, best: 1 });
+        continue;
+      }
+      stack.pop();
+      visiting.delete(frame.id);
+      const value = cyclic.has(frame.id) ? null : frame.best;
+      if (value !== null) depth.set(frame.id, value);
+      const parent = stack[stack.length - 1];
+      if (parent && value !== null) parent.best = Math.max(parent.best, value + 1);
+      if (stack.length === 0) result = value;
     }
+    return result;
+  };
 
-    remaining = remaining.filter((t) => !waveTasks.some((wt) => wt.id === t.id));
-    waveNumber++;
+  const byWave = new Map<number, Task[]>();
+  const unplaced: Task[] = [];
+  for (const task of tasks) {
+    const d = depth.get(task.id) ?? (cyclic.has(task.id) ? null : depthOf(task.id));
+    if (d === null) unplaced.push(task);
+    else byWave.set(d, [...(byWave.get(d) ?? []), task]);
   }
 
-  if (remaining.length > 0) {
-    waves.push({
+  const statusOf = (members: readonly Task[]): Wave['status'] =>
+    members.every((t) => isTerminalWaveStatus(t.status))
+      ? 'completed'
+      : members.some((t) => t.status === 'active' || isTerminalWaveStatus(t.status))
+        ? 'in_progress'
+        : 'pending';
+
+  const waves: Wave[] = [...byWave.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([waveNumber, members]) => ({
       waveNumber,
-      tasks: remaining.map((t) => t.id),
-      status: 'pending',
+      tasks: members.map((t) => t.id),
+      status: statusOf(members),
+    }));
+  if (unplaced.length > 0) {
+    waves.push({
+      waveNumber: (waves[waves.length - 1]?.waveNumber ?? 0) + 1,
+      tasks: unplaced.map((t) => t.id),
+      status: statusOf(unplaced),
     });
   }
-
   return waves;
+}
+
+/**
+ * The selection plus every task reachable from it through `depends`, loaded
+ * by identity (archived and other-epic tasks included), so structural depth
+ * sees the whole dependency graph (T12683).
+ *
+ * @param selected - Selected tasks.
+ * @param accessor - Task accessor.
+ * @returns Identity lookup of the dependency closure.
+ * @task T12683
+ */
+async function loadDependencyClosure(
+  selected: readonly Task[],
+  accessor: DataAccessor,
+): Promise<Map<string, Task>> {
+  const closure = await loadReadinessDependencyLookup(selected, accessor);
+  let frontier = [...closure.values()].filter((t) => !selected.some((s) => s.id === t.id));
+  const asked = new Set(closure.keys());
+  while (frontier.length > 0) {
+    const missing = [...new Set(frontier.flatMap((t) => t.depends ?? []))].filter(
+      (id) => !asked.has(id),
+    );
+    for (const id of missing) asked.add(id);
+    if (missing.length === 0) break;
+    const loaded = await accessor.loadTasks(missing);
+    for (const task of loaded) closure.set(task.id, task);
+    frontier = loaded;
+  }
+  return closure;
 }
 
 /**
@@ -215,24 +292,38 @@ export function computeWaves(
  * listing, `orchestrate roll-up --wave`, and the wave topic a spawned worker
  * publishes on — so a wave number means the same wave everywhere (T12682).
  *
+ * Members of each wave are in THE comparator's order (D11161, T12692); the
+ * wave numbers are structural depth and never depend on the ranking.
+ *
  * @param epicId - Epic whose direct children are planned.
  * @param accessor - Task accessor.
  * @param parentIds - Containment parents to select; defaults to the epic.
+ * @param ranking - Shared ranking context; when absent, the project-wide one
+ *   `cleo next` and `orchestrate waves` use is loaded once (`loadRankingContext`),
+ *   so every wave surface orders members identically (T12692). Pass it in when
+ *   planning several waves or epics in one call.
  * @returns The selected children, the dependency lookup and the waves.
  * @task T12682
+ * @task T12692
  */
 export async function planEpicWaves(
   epicId: string,
   accessor: DataAccessor,
   parentIds: readonly string[] = [epicId],
+  ranking?: ScoreTaskContext,
 ): Promise<{ children: Task[]; taskMap: Map<string, Task>; waves: Wave[] }> {
   const selected = new Map<string, Task>();
   for (const parentId of new Set(parentIds)) {
     for (const task of await accessor.getChildren(parentId)) selected.set(task.id, task);
   }
   const children = [...selected.values()];
-  const taskMap = await loadReadinessDependencyLookup(children, accessor);
-  return { children, taskMap, waves: computeWaves(children, taskMap) };
+  const taskMap = await loadDependencyClosure(children, accessor);
+  const ctx = ranking ?? (await loadRankingContext(accessor)).ctx;
+  return {
+    children,
+    taskMap,
+    waves: orderWaveMembers(computeWaves(children, taskMap), taskMap, ctx),
+  };
 }
 
 /**
@@ -240,14 +331,18 @@ export async function planEpicWaves(
  *
  * @remarks
  * Resolves the selected parents' direct children, computes one topological plan, enriches
- * each wave's task list with dependency metadata, sorts tasks within each wave
- * by priority descending then open-dep count ascending, and attaches a
- * `completedAt` timestamp to completed waves.
+ * each wave's task list with dependency metadata, keeps each wave's members in
+ * the comparator order of {@link planEpicWaves} (D11161, T12692), and attaches
+ * a `completedAt` timestamp to completed waves.
  *
  * @param epicId   - The epic task ID to compute waves for.
  * @param cwd      - Optional project root (falls back to `getTaskAccessor` default).
  * @param accessor - Optional pre-constructed data accessor (useful in tests).
  * @param parentIds - Containment parents to select; defaults to the requested epic.
+ * @param ranking - Shared ranking context; when absent, the project-wide one
+ *   `cleo next` and `orchestrate waves` use is loaded once (`loadRankingContext`),
+ *   so every wave surface orders members identically (T12692). Pass it in when
+ *   planning several waves or epics in one call.
  * @returns Selected task counts and waves with current dependency readiness.
  *
  * @example
@@ -260,12 +355,13 @@ export async function getEnrichedWaves(
   cwd?: string,
   accessor?: DataAccessor,
   parentIds: readonly string[] = [epicId],
+  ranking?: ScoreTaskContext,
 ): Promise<{ epicId: string; waves: EnrichedWave[]; totalWaves: number; totalTasks: number }> {
   const acc = accessor ?? (await getTaskAccessor(cwd));
-  const { children, taskMap, waves } = await planEpicWaves(epicId, acc, parentIds);
+  const { children, taskMap, waves } = await planEpicWaves(epicId, acc, parentIds, ranking);
 
   const enrichedWaves: EnrichedWave[] = waves.map((w) => {
-    const enrichedTasks = sortWaveTasks(w.tasks.map((id) => enrichTask(id, taskMap)));
+    const enrichedTasks = w.tasks.map((id) => enrichTask(id, taskMap));
 
     const wave: EnrichedWave = {
       waveNumber: w.waveNumber,

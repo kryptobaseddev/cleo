@@ -542,11 +542,15 @@ jobs:
     # skill teaches must exist (gate 31). Wired here as well as in
     # `cleo check arch`, because a gate bundled and documented but run by no
     # workflow is the gh#1354 defect. Pure node, no install needed.
-    name: Skills Metadata SSoT (T12648 · T12649 · gates 29-31)
+    name: Skills Metadata SSoT (T12648 · T12649 · T12124 · gates 29-33)
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Gate 32's PR mode diffs against the base branch and reads commit
+          # trailers, so it needs history.
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -556,6 +560,34 @@ jobs:
         run: node scripts/lint-emitted-skills.mjs --check
       - name: Assert every cleo command a skill teaches exists (gate 31, T12649)
         run: node scripts/lint-skill-commands.mjs --check
+      - name: Assert ct-cleo stays a thin pointer (gate 33, T12124)
+        run: node scripts/check-ct-cleo-thin.mjs --check
+      - name: Assert skills declare live coverage (gate 32, T12124)
+        if: github.event_name != 'pull_request'
+        run: node scripts/lint-skill-coverage.mjs --check
+      - name: Assert covered changes update their skill (gate 32 PR mode, T12124)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags origin "$BASE_REF"
+          node scripts/lint-skill-coverage.mjs --check --base "origin/$BASE_REF"
+
+  esm-bare-require:
+    # Gate 34 (T12704). An ES module has no `require`: a bare call throws
+    # under Node while vitest supplies one, so unit tests cannot catch it.
+    # Wired here as well as in `cleo check arch` (gate 20 requires both).
+    # Pure node, no install needed.
+    name: No bare require() in ESM (T12704 · gate 34)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Assert no ESM package source calls a bare require()
+        run: node scripts/lint-no-esm-bare-require.mjs --check
 
   arch-gate-parity:
     # Gate 20 (T12122) — the gate on the gates. Asserts that the set bundled
@@ -596,6 +628,25 @@ jobs:
         run: node scripts/lint-hitl-rule-delivery.mjs
       - name: Assert no new raw write on a classified cleo.db table (gate 28 · T12332)
         run: node scripts/lint-no-raw-table-writes.mjs
+
+  model-call-sites:
+    # Gate 35 (T12663 · spec system-one-integration §3.5 · D11158). Every
+    # model call site is a registered decision site: decide()/askSiteDecision
+    # name a registry id, files calling an LLM entry point are registry rows
+    # with a generative/agent rung, a System One site runs `on` only with
+    # go-live evidence, and chokepoint bypasses are baselined per file (they
+    # may only fall). Wired here as well as in `cleo check arch` so CI blocks
+    # on it (gh#1354). Pure node, no install needed.
+    name: Model Call Sites Registered (T12663 · gate 35)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Assert every model call site is a registered decision site
+        run: node scripts/lint-model-call-sites.mjs --check
 
   merge-bar-aggregate:
     # T11955 · DHQ-072 · Epic T11679 (DHQ burn-down)
@@ -680,6 +731,8 @@ jobs:
       - arch-gate-parity
       - skills-metadata
       - agent-surface-gates
+      - esm-bare-require
+      - model-call-sites
       - merge-bar-aggregate
     steps:
       - name: Verify every arch-boundary job passed (or was skipped)

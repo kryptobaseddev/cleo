@@ -34,6 +34,7 @@ import {
   pipelineManifestSuperseded,
   pipelineManifestValidate,
   readManifestEntries,
+  repairMalformedManifestRows,
 } from '../pipeline-manifest-sqlite.js';
 
 // ---------------------------------------------------------------------------
@@ -566,6 +567,63 @@ describe('pipeline-manifest-sqlite', () => {
         },
       });
       expect(native.prepare('SELECT * FROM pipeline_manifest').all()).toEqual(before);
+    });
+
+    /** Store metadata whose `actionable` is an array (the T1171-w2a-10-audit shape). */
+    const malformedMetadata = (id: string) =>
+      JSON.stringify({ ...ENTRY_A, id, actionable: ['keep me'] });
+
+    it('T12686: aborts the repair when only the legacy copy of a two-table row changed concurrently', async () => {
+      const native = await seedHistory('pipeline_manifest', 'copied');
+      native.exec('INSERT INTO docs_pipeline_manifest SELECT * FROM pipeline_manifest');
+      const bad = malformedMetadata('copied');
+      native.prepare('UPDATE pipeline_manifest SET metadata_json=? WHERE id=?').run(bad, 'copied');
+      native
+        .prepare('UPDATE docs_pipeline_manifest SET metadata_json=? WHERE id=?')
+        .run(bad, 'copied');
+      // A concurrent writer touches the legacy copy between the read and the
+      // legacy-table compare-and-set.
+      native.exec(`CREATE TRIGGER concurrent_legacy_write AFTER UPDATE ON docs_pipeline_manifest
+        BEGIN UPDATE pipeline_manifest SET metadata_json='{"title":"concurrent"}' WHERE id=NEW.id; END`);
+
+      await expect(repairMalformedManifestRows(testRoot)).rejects.toMatchObject({
+        code: 'E_MANIFEST_CONCURRENT_CHANGE',
+      });
+      native.exec('DROP TRIGGER concurrent_legacy_write');
+      // The transaction rolled back: both copies still hold the original bytes.
+      for (const table of ['docs_pipeline_manifest', 'pipeline_manifest']) {
+        expect(
+          native.prepare(`SELECT metadata_json AS m FROM ${table} WHERE id='copied'`).get(),
+        ).toEqual({ m: bad });
+      }
+    });
+
+    it('T12686: reports a row changed after the read as skipped, not as changed', async () => {
+      const native = await seedHistory('docs_pipeline_manifest', 'row-a');
+      await seedHistory('docs_pipeline_manifest', 'row-b');
+      for (const id of ['row-a', 'row-b']) {
+        native
+          .prepare('UPDATE docs_pipeline_manifest SET metadata_json=? WHERE id=?')
+          .run(malformedMetadata(id), id);
+      }
+      // Whichever row is repaired first rewrites the other behind the repair's back.
+      native.exec(`CREATE TRIGGER concurrent_other_write AFTER UPDATE ON docs_pipeline_manifest
+        WHEN NEW.metadata_json LIKE '%_malformed%'
+        BEGIN UPDATE docs_pipeline_manifest SET metadata_json='{"title":"concurrent"}'
+          WHERE id IN ('row-a','row-b') AND id <> NEW.id; END`);
+
+      const receipt = await repairMalformedManifestRows(testRoot);
+      native.exec('DROP TRIGGER concurrent_other_write');
+      expect(receipt.applied?.restored).toHaveLength(1);
+      expect(receipt.applied?.skipped).toHaveLength(1);
+      const [restored] = receipt.applied?.restored ?? [];
+      expect(receipt.changes.map((c) => c.entryId)).toEqual([restored]);
+      const onDisk = JSON.parse(readFileSync(receipt.receiptPath ?? '', 'utf8')) as {
+        changes: Array<{ entryId: string }>;
+        applied: { restored: string[]; skipped: string[] };
+      };
+      expect(onDisk.changes.map((c) => c.entryId)).toEqual([restored]);
+      expect(onDisk.applied).toEqual(receipt.applied);
     });
 
     it('deduplicates identical persisted rows only and discloses both sources', async () => {

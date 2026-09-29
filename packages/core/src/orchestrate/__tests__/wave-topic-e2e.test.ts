@@ -164,6 +164,32 @@ describe('wave topic: spawned worker → Lead (T12682)', () => {
     expect(wave.workers.map((w) => w.taskId)).toEqual(['T701']);
   });
 
+  it('a Lead that subscribes AHEAD still hears its worker: wave numbers never shift (T12682, option A)', async () => {
+    // Plan time: wave 1 is still pending, and the Lead subscribes to wave 2 now.
+    const ahead = await getEnrichedWaves(EPIC, root);
+    const n = ahead.waves.find((w) => w.taskIds.includes('T701'))?.waveNumber;
+    expect(n).toBe(2);
+    const leadTopic = `epic-${EPIC}.wave-${n}`;
+
+    // Wave 1 finishes; T701 becomes spawnable and is spawned.
+    const { getTaskAccessor } = await import('@cleocode/core/internal');
+    await (await getTaskAccessor(root)).updateTaskFields('T700A', {
+      status: 'done',
+      pipelineStage: 'contribution',
+    });
+    const spawned = await orchestrateSpawn('T701', undefined, root, 1, true);
+    expect(spawned.success, JSON.stringify(spawned.error)).toBe(true);
+    const prompt = (spawned.data as { prompt: string }).prompt;
+    expect(/Your wave topic: `([^`]+)`/.exec(prompt)?.[1]).toBe(leadTopic);
+
+    // The finished wave is still listed, under its number.
+    const after = await getEnrichedWaves(EPIC, root);
+    expect(after.waves.map((w) => [w.waveNumber, w.status])).toEqual([
+      [1, 'completed'],
+      [2, 'pending'],
+    ]);
+  });
+
   it('roll-up numbers waves as `orchestrate waves` does: 0 is refused, 1 is the first wave', async () => {
     const first = await rollupWaveStatus(EPIC, 1, root);
     expect(first.workers.map((w) => w.taskId)).toEqual(['T700A']);
