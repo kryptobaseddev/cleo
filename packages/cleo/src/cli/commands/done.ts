@@ -32,7 +32,7 @@ async function batchEntry(
     const { code, message, fix } = result.error;
     return { taskId, completed: false, error: code, message, next: fix };
   }
-  const params = completeDispatchParams({ ...args, taskId });
+  const params = completeDispatchParams({ ...args, taskId, 'if-match': undefined });
   const done = await dispatchRaw('mutate', 'tasks', 'complete', params);
   const recordedGates = result.data.recordedGates;
   if (done.success) return { taskId, recordedGates, completed: true };
@@ -125,6 +125,19 @@ export const doneCommand = defineCommand({
       return;
     }
     const taskIds = requested;
+    // T12503: a version describes one task; `done T1 T2 --if-match v` is refused.
+    const ifMatch = typeof args['if-match'] === 'string' ? args['if-match'] : undefined;
+    if (ifMatch !== undefined && taskIds.length > 1) {
+      cliError(
+        '--if-match applies to one task; it cannot be used with several task ids',
+        'E_INVALID_INPUT',
+        {
+          fix: 'Run cleo done <id> --if-match <updatedAt> once per task',
+        },
+      );
+      process.exitCode = 2;
+      return;
+    }
     if (taskIds.length > 1) {
       await runBatchDone(taskIds, args, options, args.plan === true);
       return;
@@ -140,7 +153,12 @@ export const doneCommand = defineCommand({
       return;
     }
     const { recordTaskDone } = await import('@cleocode/core/tasks/done-record.js');
-    const recorded = await recordTaskDone(args.taskId, options);
+    // T12503: --if-match is checked before anything is recorded. Recording the
+    // gates advances the version, so completion uses its own post-record read.
+    const recorded = await recordTaskDone(args.taskId, {
+      ...options,
+      ...(ifMatch !== undefined ? { expectedUpdatedAt: ifMatch } : {}),
+    });
     if (!recorded.success) {
       cliError(recorded.error.message, recorded.error.code, {
         fix: recorded.error.fix,
@@ -153,7 +171,7 @@ export const doneCommand = defineCommand({
       'mutate',
       'tasks',
       'complete',
-      completeDispatchParams(args),
+      completeDispatchParams({ ...args, 'if-match': undefined }),
     );
     if (!completed.success) {
       const details: Omit<DoneBlockedDetails, 'plan'> = {

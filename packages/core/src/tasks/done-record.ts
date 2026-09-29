@@ -32,15 +32,17 @@
  * @task T12625
  */
 
-import type {
-  DoneBlockedDetails,
-  DonePlan,
-  DonePlanBlocker,
-  DoneRecordResult,
-  DoneToolResult,
-  VerificationGate,
+import {
+  type DoneBlockedDetails,
+  type DonePlan,
+  type DonePlanBlocker,
+  type DoneRecordResult,
+  type DoneToolResult,
+  ExitCode,
+  type VerificationGate,
 } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { getProjectRoot } from '../paths.js';
 import { type DeriveTaskEvidenceOptions, deriveTaskEvidence, shellQuote } from './done-plan.js';
@@ -85,6 +87,40 @@ export interface RecordTaskDoneOptions extends DeriveTaskEvidenceOptions {
   sessionId?: string;
   /** Injectable slow steps (tests assert their order). */
   steps?: { runTool?: DoneToolRunner; runTypedGates?: DoneTypedGateRunner; write?: DoneGateWriter };
+  /**
+   * `cleo done --if-match`: the task version (`updatedAt`) the caller read.
+   * Checked before anything is recorded — once on entry and again right
+   * before the gate write — and a mismatch returns `E_CONFLICT` with nothing
+   * written. Recording the gates advances the version, so the completion that
+   * follows uses its own post-record read, never this value. A single-task
+   * guard: {@link recordTasksDone} refuses it.
+   *
+   * @task T12503
+   */
+  expectedUpdatedAt?: string;
+}
+
+/**
+ * Return `E_CONFLICT` when the task no longer has the caller's expected
+ * version (`cleo done --if-match`), or null when it matches or no version was
+ * given.
+ */
+async function versionConflict(
+  storeRoot: string,
+  taskId: string,
+  expectedUpdatedAt: string | undefined,
+): Promise<EngineResult<DoneRecordResult> | null> {
+  if (expectedUpdatedAt === undefined) return null;
+  const { getTaskAccessor } = await import('../store/data-accessor.js');
+  const { assertTaskVersion } = await import('../store/task-version.js');
+  const task = await (await getTaskAccessor(storeRoot)).loadSingleTask(taskId);
+  if (!task) return null; // deriveTaskEvidence reports the missing task.
+  try {
+    assertTaskVersion(taskId, task, expectedUpdatedAt);
+    return null;
+  } catch (err) {
+    return cleoErrorToEngineResult<DoneRecordResult>(err, 'E_CONFLICT', 'Task version conflict');
+  }
 }
 
 /** Default tool runner: resolve through ADR-061 and run through its cache. */
@@ -236,6 +272,8 @@ export async function recordTaskDone(
   opts: RecordTaskDoneOptions = {},
 ): Promise<EngineResult<DoneRecordResult>> {
   const storeRoot = opts.projectRoot ?? getProjectRoot();
+  const staleOnEntry = await versionConflict(storeRoot, taskId, opts.expectedUpdatedAt);
+  if (staleOnEntry) return staleOnEntry;
   let plan: DonePlan;
   try {
     // It will run the tests anyway, so it may queue for the test slot.
@@ -290,6 +328,10 @@ export async function recordTaskDone(
         gateEvidence.implemented as string,
       ];
     }
+    // T12503: the tools may have run for minutes — re-check the caller's
+    // version immediately before the first write.
+    const staleBeforeWrite = await versionConflict(storeRoot, taskId, opts.expectedUpdatedAt);
+    if (staleBeforeWrite) return staleBeforeWrite;
     const written = await (steps.write ?? defaultWrite)(storeRoot, {
       taskId,
       gateEvidence,
@@ -364,6 +406,8 @@ export interface BatchDoneEntry {
  * @param taskIds - Tasks to record, in order.
  * @param opts - Shared options (`prNumber`, `satisfies`, roots, author, steps).
  * @returns One entry per task, in the given order.
+ * @throws {CleoError} `ExitCode.INVALID_INPUT` when `expectedUpdatedAt` is set
+ *   for more than one task (T12503).
  * @example
  * ```ts
  * const entries = await recordTasksDone(['T1', 'T2', 'T3'], { prNumber: 42 });
@@ -374,6 +418,14 @@ export async function recordTasksDone(
   taskIds: readonly string[],
   opts: RecordTaskDoneOptions = {},
 ): Promise<BatchDoneEntry[]> {
+  // T12503: one version cannot describe several tasks.
+  if (opts.expectedUpdatedAt !== undefined && taskIds.length > 1) {
+    throw new CleoError(
+      ExitCode.INVALID_INPUT,
+      '--if-match applies to one task; it cannot be used with several task ids',
+      { fix: 'Run cleo done <id> --if-match <updatedAt> once per task' },
+    );
+  }
   const runTool = sharedToolRunner(opts.steps?.runTool ?? defaultRunTool);
   const entries: BatchDoneEntry[] = [];
   for (const taskId of taskIds) {

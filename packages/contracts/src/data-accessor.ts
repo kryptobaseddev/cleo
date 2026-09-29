@@ -281,10 +281,12 @@ export interface TaskAuditLogRow {
  * Optimistic-concurrency guard for a single-task write (T12503).
  *
  * A task's version is its `updatedAt` timestamp (falling back to `createdAt`
- * for a row that was never updated). Writers keep it strictly increasing, so a
- * caller that read version `v` and passes `expectedUpdatedAt: v` either writes
- * against exactly the row it read or fails with `E_CONFLICT`
- * (`ExitCode.VERSION_CONFLICT`) carrying the current version. The comparison
+ * for a row that was never updated). The update, complete and field-update
+ * paths advance it strictly, so a caller that read version `v` and passes
+ * `expectedUpdatedAt: v` either writes against exactly the row it read or
+ * fails with `E_CONFLICT` (`ExitCode.VERSION_CONFLICT`) carrying the current
+ * version. Some other writers still stamp it from the clock, leaving a narrow
+ * same-millisecond window (T12720). The comparison
  * runs inside the write transaction, after `BEGIN IMMEDIATE` holds the lock.
  * Omitting the guard keeps last-writer-wins semantics.
  */
@@ -341,13 +343,20 @@ export interface TaskConflictDetails {
   changedFields: string[];
   /** Per-field before/after summary for {@link changedFields}. */
   changes: TaskConflictChange[];
-  /** Merge-relevant stored values of the task right now. */
+  /**
+   * Merge-relevant stored values of the task right now, bounded so the
+   * envelope stays small: `title` is cut at 200 characters and `labels` /
+   * `depends` hold at most the first 50 entries, with the full counts in
+   * `labelsTotal` / `dependsTotal`.
+   */
   current: {
     title: string;
     status: TaskStatus;
     priority: TaskPriority;
     labels: string[];
+    labelsTotal: number;
     depends: string[];
+    dependsTotal: number;
     parentId: string | null;
   } | null;
 }

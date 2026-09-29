@@ -19,9 +19,23 @@ with `--if-match <currentVersion>`.
 `cleo complete` used to write the whole row from a read taken before its write
 transaction, so a label or field added by another process in between was
 silently reverted. Completion now compares the version inside the transaction
-(against `--if-match`, or else the version it read) and fails with a retryable
-`E_CONFLICT` instead; a plain retry completes on top of the concurrent edit.
+(the version it read, and `--if-match` too when given) and fails with a
+retryable `E_CONFLICT` instead; a plain retry completes on top of the
+concurrent edit. The task `cleo complete` returns carries the final version,
+so it can be passed straight to a follow-up `--if-match`.
+
+`cleo done --if-match` checks the version before recording any gate (and again
+right before the gate write); recording advances the version, so the
+completion that follows uses its own read. `--if-match` with several task ids
+is refused.
+
+`E_CONFLICT` details are bounded: `current.title` is cut at 200 characters and
+`current.labels` / `current.depends` hold the first 50 entries with
+`labelsTotal` / `dependsTotal` counts.
 
 The guarded `updateTaskFields` chokepoint is a single SQL compare-and-set
 (`UPDATE … WHERE id = ? AND updated_at = ?`). No schema change: the version is
-the strictly-advancing `updatedAt`.
+`updatedAt`. The update, complete and field-update paths advance it strictly
+(`nextTaskVersion`); some other writers (parent/saga roll-ups, gate records,
+raw `new Date()` stamps) still set it from the clock, leaving a narrow
+same-millisecond window tracked in T12720.

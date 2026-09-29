@@ -19,14 +19,14 @@
 
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode, type Task, type TaskConflictDetails } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CleoError } from '../../errors.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { resetDbState } from '../../store/sqlite.js';
-import { nextTaskVersion, taskVersion } from '../../store/task-version.js';
-import { completeTask } from '../complete.js';
+import { nextTaskVersion, taskConflictError, taskVersion } from '../../store/task-version.js';
+import { type CompleteTaskOptions, completeTask, taskComplete } from '../complete.js';
 import { taskUpdate, type UpdateTaskOptions, updateTask } from '../update.js';
 
 /**
@@ -278,6 +278,34 @@ describe('updateTask optimistic concurrency (T12503)', () => {
     expect(done?.labels).toEqual(['concurrent']);
   });
 
+  it('complete read V0, another writer commits V1, --if-match V1 still cannot clobber the V1 edit', async () => {
+    const options: CompleteTaskOptions = { taskId: 'T002' };
+    // complete's own first read returns V0; V1 commits in between, and the
+    // caller (who saw V1) passes --if-match V1.
+    const racing = withInterleavedWriter(accessor, 'T002', async () => {
+      await updateTask({ taskId: 'T002', addLabels: ['v1-edit'] }, env.tempDir, accessor);
+      options.expectedUpdatedAt = taskVersion(await accessor.loadSingleTask('T002'));
+    });
+    const error = await completeTask(options, env.tempDir, racing).catch((err: Error) => err);
+    expect((error as CleoError).code).toBe(ExitCode.VERSION_CONFLICT);
+    const stored = await accessor.loadSingleTask('T002');
+    expect(stored?.labels).toEqual(['v1-edit']);
+    expect(stored?.status).toBe('pending');
+  });
+
+  it('taskComplete returns the final version: feeding it to update --if-match succeeds', async () => {
+    const result = await taskComplete(env.tempDir, 'T002');
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    const returned = result.success ? taskVersion(result.data.task) : '';
+    expect(returned).toBe(taskVersion(await accessor.loadSingleTask('T002')));
+    const updated = await updateTask(
+      { taskId: 'T002', addLabels: ['after-complete'], expectedUpdatedAt: returned },
+      env.tempDir,
+      accessor,
+    );
+    expect(updated.task.labels).toEqual(['after-complete']);
+  });
+
   it('complete with the current --if-match version succeeds', async () => {
     const version = taskVersion(await accessor.loadSingleTask('T002'));
     const result = await completeTask(
@@ -360,6 +388,30 @@ describe('updateTaskFields version guard (T12503)', () => {
       versions.push(taskVersion(await env.accessor.loadSingleTask('T001')));
     }
     expect(new Set(versions).size).toBe(versions.length);
+  });
+});
+
+describe('taskConflictError details are bounded (T12503)', () => {
+  it('truncates the title and caps labels/depends with full counts', () => {
+    const labels = Array.from({ length: 60 }, (_, i) => `l${i}`);
+    const depends = Array.from({ length: 55 }, (_, i) => `T${i + 100}`);
+    const current: Task = {
+      id: 'T001',
+      title: 'x'.repeat(500),
+      status: 'pending',
+      priority: 'medium',
+      createdAt: '2026-09-01T00:00:00.000Z',
+      updatedAt: '2026-09-02T00:00:00.000Z',
+      labels,
+      depends,
+    };
+    const details = taskConflictError('T001', '2026-09-01T00:00:00.000Z', current).details;
+    const summary = details?.['current'] as TaskConflictDetails['current'];
+    expect(summary?.title.length).toBe(200);
+    expect(summary?.labels).toHaveLength(50);
+    expect(summary?.labelsTotal).toBe(60);
+    expect(summary?.depends).toHaveLength(50);
+    expect(summary?.dependsTotal).toBe(55);
   });
 });
 

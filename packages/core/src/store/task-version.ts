@@ -85,6 +85,14 @@ export function nextTaskVersion(
 /** Longest JSON summary of one field value carried on a conflict error. */
 const CONFLICT_VALUE_MAX = 200;
 
+/** Most entries of `current.labels` / `current.depends` carried on a conflict error. */
+const CONFLICT_LIST_MAX = 50;
+
+/** Cut a string to {@link CONFLICT_VALUE_MAX} characters, marking the cut. */
+function truncate(text: string): string {
+  return text.length <= CONFLICT_VALUE_MAX ? text : `${text.slice(0, CONFLICT_VALUE_MAX - 1)}…`;
+}
+
 /** Fields never reported as "changed": the version itself. */
 const CONFLICT_IGNORED_FIELDS: ReadonlySet<string> = new Set(['updatedAt']);
 
@@ -93,8 +101,7 @@ function summarizeValue(value: unknown): string | null {
   if (value === undefined || value === null) return null;
   const json = JSON.stringify(value);
   if (json === undefined) return null;
-  if (json.length <= CONFLICT_VALUE_MAX) return json;
-  return `${json.slice(0, CONFLICT_VALUE_MAX - 1)}…`;
+  return truncate(json);
 }
 
 /** Narrow a version source to a full task row. */
@@ -164,11 +171,13 @@ export function taskConflictError(
     changes,
     current: full
       ? {
-          title: full.title,
+          title: truncate(full.title),
           status: full.status,
           priority: full.priority,
-          labels: [...(full.labels ?? [])],
-          depends: [...(full.depends ?? [])],
+          labels: (full.labels ?? []).slice(0, CONFLICT_LIST_MAX),
+          labelsTotal: full.labels?.length ?? 0,
+          depends: (full.depends ?? []).slice(0, CONFLICT_LIST_MAX),
+          dependsTotal: full.depends?.length ?? 0,
           parentId: full.parentId ?? null,
         }
       : null,
