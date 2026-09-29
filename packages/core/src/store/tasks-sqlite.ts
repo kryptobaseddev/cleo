@@ -145,7 +145,7 @@ export async function updateTask(
     return accessor.transaction(async (tx) => {
       const existing = await getTask(taskId, cwd);
       if (!existing) return null;
-      assertTaskVersion(taskId, existing, guard?.expectedUpdatedAt);
+      assertTaskVersion(taskId, existing, guard?.expectedUpdatedAt, guard?.baseline);
       const provided = { ...updates };
       for (const [key, value] of Object.entries(provided)) {
         if (value === undefined) Reflect.deleteProperty(provided, key);

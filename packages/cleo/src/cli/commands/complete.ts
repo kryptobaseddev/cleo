@@ -81,6 +81,12 @@ export const completeCommandArgs = {
     description:
       'Reason for completing a task whose own work is done but whose depends edges point at not-yet-terminal tasks (stale/over-specified). Audited to .cleo/audit/depends-waiver.jsonl.',
   },
+  // T12503 — optimistic concurrency
+  'if-match': {
+    type: 'string',
+    description:
+      'Fail with E_CONFLICT unless the task updatedAt still equals this version (from cleo show). Guards against completing over a concurrent edit.',
+  },
 } as const;
 
 /**
@@ -109,6 +115,8 @@ export function completeDispatchParams(args: {
     cancelledChildWaiverReason: str('waive-cancelled-children'),
     // T11954 (DHQ-071) — depends-edge waiver for stale/over-specified deps
     waiveDependsReason: str('waive-depends'),
+    // T12503 — optimistic concurrency
+    expectedUpdatedAt: str('if-match'),
   };
 }
 
