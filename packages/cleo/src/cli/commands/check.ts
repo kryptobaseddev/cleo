@@ -766,6 +766,17 @@ const checkArchCommand = defineCommand({
         script: 'scripts/lint-emitted-skills.mjs',
         description: 'Every skill code emits is installable (ratchet)',
       },
+      {
+        // T12663: every model call site is a registered decision site
+        // (spec system-one-integration §3.5, D11158): decide()/askSiteDecision
+        // name a registry id, LLM entry points live in registered files of a
+        // generative/agent rung, a System One site runs `on` only with go-live
+        // evidence, and chokepoint bypasses are baselined per file.
+        id: 'gate-35',
+        task: 'T12663',
+        script: 'scripts/lint-model-call-sites.mjs',
+        description: 'Every model call site is a registered decision site (ratchet)',
+      },
     ] as const;
 
     const scriptArgs = strict ? ['--strict'] : ['--check'];

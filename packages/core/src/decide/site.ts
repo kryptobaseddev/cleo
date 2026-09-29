@@ -277,6 +277,8 @@ export async function askSiteDecision(input: AskSiteDecisionInput): Promise<Site
       : null;
 
     const remaining = Math.max(0, input.budgetMs - (performance.now() - started));
+    // Generic plumbing: each caller's siteId is checked at its askSiteDecision call (gate 35).
+    // model-site-allowed: plumbing for every askSiteDecision caller
     const outcome = await decide(input.siteId, req, () => input.heuristicAnswers, {
       ...wiring,
       audit,

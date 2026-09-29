@@ -339,6 +339,25 @@ const GENERATIVE_SITES = [
     sends: ['task-text'],
     task: 'T12662',
   },
+  {
+    id: 'harness.sdk-spawn',
+    title: 'Harness SDK adapters (Claude, OpenAI, Kimi)',
+    files: [
+      'packages/adapters/src/providers/claude-sdk/spawn.ts',
+      'packages/adapters/src/providers/openai-sdk/spawn.ts',
+      'packages/adapters/src/providers/kimi/spawn.ts',
+    ],
+    questionType: 'multi-step',
+    primaryRung: 'agent',
+    ladder: [],
+    fallback: 'none',
+    ownerEscalation: 'never',
+    defaultMode: 'on',
+    writePath: false,
+    sends: ['task-text'],
+    task: 'T12663',
+    note: 'Agent-rung transports (spec §6.4): registered, exempt from the rung check.',
+  },
 ] as const satisfies readonly DecisionSiteDefinition[];
 
 /**
