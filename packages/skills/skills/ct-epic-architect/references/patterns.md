@@ -56,8 +56,8 @@ Each research task SHOULD address exactly ONE research question:
 
 ### Research Output Integration
 
-- Subagents write findings to `{{OUTPUT_DIR}}/`
-- Subagents append entry to `{{MANIFEST_PATH}}` with `linked_tasks: ["{{TASK_ID}}"]`
+- Subagents record findings with `cleo docs add` (never raw files under `.cleo/agent-outputs/`)
+- Subagents record an entry with `cleo manifest append --task {{TASK_ID}}` (its `linked_tasks` starts with the task)
 - Orchestrator reads only manifest summaries (key_findings) for context efficiency
 - Use `{{TASK_RESEARCH_INJECT_CMD}}` to get subagent protocol block
 

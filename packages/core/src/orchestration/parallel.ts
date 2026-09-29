@@ -7,7 +7,7 @@ import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { computeWaves } from './waves.js';
+import { isTerminalWaveStatus, planEpicWaves } from './waves.js';
 
 interface ParallelState {
   active: boolean;
@@ -56,8 +56,9 @@ export async function startParallelExecution(
     throw new CleoError(ExitCode.NOT_FOUND, `Epic ${epicId} not found`);
   }
 
-  const children = await acc.getChildren(epicId);
-  const waves = computeWaves(children);
+  // T12682: the same stable plan `orchestrate waves` prints; the wave's
+  // finished tasks keep their number but are not run again.
+  const { children, waves } = await planEpicWaves(epicId, acc);
   const targetWave = waves.find((w) => w.waveNumber === wave);
 
   if (!targetWave) {
@@ -65,23 +66,15 @@ export async function startParallelExecution(
   }
 
   const startedAt = new Date().toISOString();
-  const state: ParallelState = {
-    active: true,
-    epicId,
-    wave,
-    startedAt,
-    tasks: targetWave.tasks,
-  };
+  const tasks = targetWave.tasks.filter((id) => {
+    const status = children.find((c) => c.id === id)?.status;
+    return status === undefined || !isTerminalWaveStatus(status);
+  });
+  const state: ParallelState = { active: true, epicId, wave, startedAt, tasks };
 
   await writeParallelState(state, acc);
 
-  return {
-    epicId,
-    wave,
-    tasks: targetWave.tasks,
-    taskCount: targetWave.tasks.length,
-    startedAt,
-  };
+  return { epicId, wave, tasks, taskCount: tasks.length, startedAt };
 }
 
 /** End parallel execution for a wave. */

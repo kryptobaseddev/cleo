@@ -46,6 +46,49 @@ function execStderr(err: unknown): string {
 // --- Functions (all exported) ---
 
 /**
+ * Default deadline for one read-only `gh` query on an evidence path (T12656,
+ * T12671 reviews): discovery and `pr:`/`ci:` lookups sit on the `cleo done`
+ * and `cleo complete` paths, so a hung `gh` must fail, never hang them.
+ */
+export const GH_QUERY_TIMEOUT_MS = 30_000;
+
+/**
+ * The deadline for one evidence `gh` query: `CLEO_GH_TIMEOUT_MS` when it is a
+ * positive integer, else {@link GH_QUERY_TIMEOUT_MS}.
+ *
+ * @returns Milliseconds.
+ * @task T12671
+ */
+export function ghQueryTimeoutMs(): number {
+  const raw = Number(process.env['CLEO_GH_TIMEOUT_MS']);
+  return Number.isInteger(raw) && raw > 0 ? raw : GH_QUERY_TIMEOUT_MS;
+}
+
+/**
+ * Whether a failed `execFileSync('gh', …)` was its deadline firing.
+ *
+ * @param err - The caught error.
+ * @returns True for a timeout kill.
+ * @task T12671
+ */
+export function isGhTimeout(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const e = err as { code?: unknown; signal?: unknown };
+  return e.code === 'ETIMEDOUT' || e.signal === 'SIGTERM';
+}
+
+/**
+ * A `gh`-named timeout reason for evidence refusals.
+ *
+ * @param what - The query that timed out, e.g. `gh pr view 42`.
+ * @returns The reason text.
+ * @task T12671
+ */
+export function ghTimeoutReason(what: string): string {
+  return `${what} timed out after ${ghQueryTimeoutMs()}ms; check the network and \`gh auth status\`, then retry.`;
+}
+
+/**
  * Check if the `gh` CLI is available by attempting to run `gh --version`.
  * Does NOT use `which` to remain cross-platform.
  */

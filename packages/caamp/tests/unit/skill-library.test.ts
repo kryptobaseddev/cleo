@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildLibraryFromFiles } from "../../src/core/skills/library-loader.js";
+import { buildLibraryFromFiles, catalogEntryFromManifest } from "../../src/core/skills/library-loader.js";
 import type { SkillLibrary } from "../../src/core/skills/skill-library.js";
 
 describe("SkillLibrary via buildLibraryFromFiles", () => {
@@ -417,12 +417,133 @@ describe("SkillLibrary protocol path discovery", () => {
 });
 
 describe("buildLibraryFromFiles error cases", () => {
-  it("throws when skills.json is missing", () => {
+  it("throws when neither skills.json nor skills/manifest.json exists", () => {
     const noSkillsDir = join(tmpdir(), `caamp-no-skills-${Date.now()}`);
     mkdirSync(noSkillsDir, { recursive: true });
 
-    expect(() => buildLibraryFromFiles(noSkillsDir)).toThrow("No skills.json found");
+    expect(() => buildLibraryFromFiles(noSkillsDir)).toThrow(
+      "No skills.json or skills/manifest.json found",
+    );
 
     rmSync(noSkillsDir, { recursive: true, force: true });
+  });
+});
+
+// T12653: @cleocode/skills ships no skills.json — the catalog is derived from
+// the generated skills/manifest.json.
+describe("buildLibraryFromFiles with a manifest-only library", () => {
+  let root: string;
+
+  beforeEach(() => {
+    root = join(tmpdir(), `caamp-manifest-only-${Date.now()}`);
+    mkdirSync(join(root, "skills", "ct-core"), { recursive: true });
+    mkdirSync(join(root, "skills", "ct-extra"), { recursive: true });
+    writeFileSync(join(root, "skills", "ct-core", "SKILL.md"), "---\nname: ct-core\n---\n# Core\n");
+    writeFileSync(join(root, "skills", "ct-extra", "SKILL.md"), "---\nname: ct-extra\n---\n# Extra\n");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ version: "2026.9.1" }));
+    writeFileSync(
+      join(root, "skills", "manifest.json"),
+      JSON.stringify({
+        $schema: "",
+        _meta: {},
+        dispatch_matrix: { by_task_type: {}, by_keyword: {}, by_protocol: {} },
+        skills: [
+          {
+            name: "ct-core",
+            version: "1.2.0",
+            description: "Core skill",
+            path: "skills/ct-core",
+            tier: 0,
+            deliveryTier: "core",
+            install: "harness",
+            core: true,
+            category: "core",
+            dependencies: ["ct-extra"],
+            sharedResources: ["task-system-integration"],
+            compatibility: ["claude-code"],
+            license: "MIT",
+          },
+          {
+            name: "ct-extra",
+            version: "1.0.0",
+            description: "Extra skill with an older manifest shape",
+            path: "skills/ct-extra",
+            tier: 1,
+            deliveryTier: "on-demand",
+          },
+        ],
+      }),
+    );
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("derives catalog entries from the manifest", () => {
+    const library = buildLibraryFromFiles(root);
+    expect(library.version).toBe("2026.9.1");
+    expect(library.listSkills()).toEqual(["ct-core", "ct-extra"]);
+    expect(library.getCoreSkills().map((s) => s.name)).toEqual(["ct-core"]);
+    expect(library.getSkillDependencies("ct-core")).toEqual(["ct-extra"]);
+    expect(library.resolveDependencyTree(["ct-core"])).toEqual(["ct-extra", "ct-core"]);
+    expect(library.readSkillContent("ct-core")).toContain("# Core");
+    expect(library.getSkillDir("ct-extra")).toBe(join(root, "skills", "ct-extra"));
+  });
+
+  it("fills catalog defaults for an entry without catalog fields", () => {
+    const library = buildLibraryFromFiles(root);
+    expect(library.getSkill("ct-extra")).toEqual({
+      name: "ct-extra",
+      description: "Extra skill with an older manifest shape",
+      version: "1.0.0",
+      path: "skills/ct-extra/SKILL.md",
+      references: [],
+      core: false,
+      category: "recommended",
+      tier: 1,
+      protocol: null,
+      dependencies: [],
+      sharedResources: [],
+      compatibility: [],
+      license: "MIT",
+      metadata: { deliveryTier: "on-demand" },
+    });
+  });
+
+  it("keeps skills.json authoritative when a library ships one", () => {
+    writeFileSync(
+      join(root, "skills.json"),
+      JSON.stringify({ version: "9.9.9", skills: [] }),
+    );
+    const library = buildLibraryFromFiles(root);
+    expect(library.version).toBe("9.9.9");
+    expect(library.listSkills()).toEqual([]);
+  });
+
+  it("maps a SKILL.md path unchanged and an unknown category to recommended", () => {
+    const entry = catalogEntryFromManifest({
+      name: "x",
+      version: "1.0.0",
+      description: "d",
+      path: "skills/x/SKILL.md",
+      tags: [],
+      status: "active",
+      tier: 1,
+      token_budget: 0,
+      references: [],
+      capabilities: {
+        inputs: [],
+        outputs: [],
+        dependencies: [],
+        dispatch_triggers: [],
+        compatible_subagent_types: [],
+        chains_to: [],
+        dispatch_keywords: { primary: [], secondary: [] },
+      },
+      constraints: { max_context_tokens: 0, requires_session: false, requires_epic: false },
+    });
+    expect(entry.path).toBe("skills/x/SKILL.md");
+    expect(entry.category).toBe("recommended");
   });
 });

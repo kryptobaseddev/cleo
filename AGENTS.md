@@ -81,7 +81,7 @@ Full rationale per gate: `cleo docs fetch arch-gates-rationale` (git mirror: `do
 | 17 | Per-domain DB singleton (T12041) | `scripts/lint-no-domain-db-singleton.mjs` | inline (8-violation baseline) | No net-new per-domain DB handle cache — bind through the `ProjectStore`/`GlobalStore` ports. |
 | 18 | Vitest memory safety (T12087) | `scripts/lint-vitest-memory-safe.mjs` | none (zero-tolerance) | Every `vitest.config.*` MUST spread `MEMORY_SAFE_TEST_DEFAULTS`. |
 | 19 | CLI startup barrel imports (T12076) | `scripts/lint-cli-startup-barrel-imports.mjs` | inline (106-import ratchet) | Repo-wide ratchet: static `@cleocode/core` barrel imports in the CLI may fall, never rise. |
-| 20 | Arch-gate parity (T12122) | `scripts/lint-arch-gate-parity.mjs` | none (zero-tolerance) | The gates bundled in `cleo check arch` and THIS table name the same scripts, joined on script path. |
+| 20 | Arch-gate parity (T12122) | `scripts/lint-arch-gate-parity.mjs` | none (zero-tolerance) | The gates bundled in `cleo check arch` and THIS table name the same scripts, joined on script path, and every bundled gate is run by a `node scripts/<gate>.mjs` step in `.github/workflows/` (T12658). |
 | 21 | Dual-scope unqualified reads (T12156) | `scripts/lint-dual-scope-unqualified-reads.mjs` | `scripts/.lint-dual-scope-unqualified-reads-baseline.json` | Tables resident in BOTH project and global `cleo.db` MUST be schema-qualified in SQL. |
 | 22 | AI SDK surface inventory (T12169) | `scripts/lint-ai-sdk-surface.mjs` | `scripts/.lint-ai-sdk-surface-baseline.json` | No net-new module reaching the AI SDK at runtime (type-only imports do not count). |
 | 23 | Agent-prompt command existence (T12308) | `scripts/lint-agent-prompt-commands.mjs` | none (zero-tolerance) | Every `cleo` command the spawn prompt emits resolves against the manifest. |
@@ -90,8 +90,11 @@ Full rationale per gate: `cleo docs fetch arch-gates-rationale` (git mirror: `do
 | 26 | No raw negated-flag reads (T12528) | `scripts/lint-no-negated-flag-reads.mjs` | inline (`BASELINE`, 1 entry: `orchestrate.ts`, owned by PR #1577) | Read `--no-<flag>` only via `negatedFlag(args, '<name>')`, never `args['no-<flag>']`/`args.noFoo` under `packages/cleo/src/`. |
 | 27 | HITL ask-tool rule delivery (T12483) | `scripts/lint-hitl-rule-delivery.mjs` | none (zero-tolerance) | The ask-tool owner-decision rule stays present on every agent surface: CLEO-INJECTION.md, `ct-cleo`, `ct-orchestrator`, and the spawn-prompt Return Format Contract. |
 | 28 | Raw table writers — Gate A ratchet (T12332) | `scripts/lint-no-raw-table-writes.mjs` | `scripts/.lint-no-raw-table-writes-baseline.json` (226 sites / 72 files) | No net-new raw `INSERT`/`UPDATE`/`DELETE`/`REPLACE` on a classified `cleo.db` table outside the chokepoint (`openDualScopeDb` + the canonical accessors); write through the table's accessor. |
-| 29 | Skills manifest SSoT (T12648 · D11157) | `scripts/lint-skills-manifest.mjs` | none (zero-tolerance) | SKILL.md frontmatter is the skills metadata SSoT: `name` = directory, description ≤ 1024 chars, no duplicate keys or top-level `tier`, and `metadata.version`/`tier` (core\|on-demand\|internal)/`install` (harness\|internal). `packages/skills/skills/manifest.json` MUST equal `node scripts/skills/generate-manifest.mjs` output — never hand-edit it. |
-| 30 | Emitted-skill installability (T12648 · D11157) | `scripts/lint-emitted-skills.mjs` | `scripts/.lint-emitted-skills-baseline.json` | Every skill named by `stage-guidance.ts`, `spawn-prompt.ts` (`loadSkillExcerpt`/`resolveSkillPath`) or a `.cant` `skillRef:` exists, is `metadata.install: harness` and is actually installed; `metadata.install` matches what `initCoreSkills` installs. Stale baseline entries fail. |
+| 29 | Skills manifest SSoT (T12648 · T12653 · D11157) | `scripts/lint-skills-manifest.mjs` | none (zero-tolerance) | SKILL.md frontmatter is the skills metadata SSoT: `name` = directory, description ≤ 1024 chars, no duplicate keys, no top-level `tier`/`core`/`category`, and `metadata.version`/`tier` (core\|on-demand\|internal)/`install` (harness\|internal). `packages/skills/skills/manifest.json` MUST equal `node scripts/skills/generate-manifest.mjs` output — never hand-edit it — and is the ONLY skills index (a `packages/skills/skills.json` fails). |
+| 30 | Emitted-skill installability (T12648 · T12653 · D11157) | `scripts/lint-emitted-skills.mjs` | `scripts/.lint-emitted-skills-baseline.json` (empty) | Every skill named by `stage-guidance.ts`, `spawn-prompt.ts` (`loadSkillExcerpt`/`resolveSkillPath`), `SKILL_NAME_MAP` in `skills/types.ts`, `skill:` in `skills/dispatch.ts`, or a `.cant` `skillRef:` exists, is `metadata.install: harness` and is installed — `initCoreSkills` installs exactly the manifest's `install: harness` entries, and a tripwire fails the gate if that selection changes. Stale baseline entries fail. |
+| 31 | Skill command existence (T12649 · D11157) | `scripts/lint-skill-commands.mjs` | `scripts/.lint-skill-commands-baseline.json` (empty; non-core only) | Gate 14's rules applied to every `*.md` under `packages/skills/skills/`: each `cleo <verb> [<sub>]` exists, every flag is declared, partially-flagged invocations carry required flags, `--field` pointers resolve. Core-tier skills are zero-tolerance and can never be baselined; other skills ratchet (stale entries fail). A deliberately wrong example opts out with a trailing `# cleo-cmd: negative-example`. Frontmatter is not scanned. |
+| 32 | Skill coverage (T12124 · gh#1256 · D11157) | `scripts/lint-skill-coverage.mjs` | none (zero-tolerance) | Every core and LOOM-stage skill declares `metadata.covers`, and every covers glob matches a tracked file. PR mode (`--base <ref>`, run in CI): a changed covered path requires a change to that skill (on-demand skills accept a `Skill-Drift-Reviewed: <skill>: <reason>` trailer; core skills never do), and a changed skill requires a `metadata.version` bump. |
+| 33 | ct-cleo thin pointer (T9148 · T12124) | `scripts/check-ct-cleo-thin.mjs` | `scripts/.check-ct-cleo-thin-baseline.json` | ct-cleo SKILL.md may not grow: non-blank lines must not rise above the baseline, no new `## ` section outside Quick Reference / Skill-Specific Extensions, the thin-pointer marker stays. Target 50 lines (`--strict`). |
 
 **Common modes (all gates):** `--strict` zero-tolerance · `--baseline` regenerate · default fail-on-net-add.
 
@@ -181,13 +184,13 @@ After adoption: surfaces in `cleo worktree list` tagged `source: claude-agent`, 
 
 Canonical `ct-*` skills under `packages/skills/skills/` describe how CLEO works to every spawned agent; stale skill text means agents act on stale instructions.
 
-**Convention:** when you edit a path declared in the coverage map (`packages/skills/internal/skill-coverage.yml`), update the corresponding skill in the same PR — or acknowledge via commit trailer `Skill-Drift-Acknowledged: <reason>`.
+**Enforced (gate 32, `scripts/lint-skill-coverage.mjs`, T12124):** each skill declares the code it documents in `metadata.covers` (repo globs). A PR that changes a covered path must change that skill's directory, and a changed skill must bump `metadata.version`. CI runs the PR check against the PR base; `cleo check arch` checks that every core and LOOM-stage skill declares covers and that every glob matches a tracked file.
 
-> ⚠️ **NOT ENFORCED — convention, not a gate (T12124 · GH #1256).** No script or workflow reads the coverage map, and the tier-0 skills have no coverage entries. **Treat skill updates as a manual responsibility on every PR** (history: `cleo docs fetch arch-gates-rationale`, appendix).
+**Core skills (`metadata.tier: core`) — no override:** `ct-cleo` · `ct-orchestrator` · `ct-lead` · `ct-task-executor` · `ct-dev-workflow` · `ct-documentor` (D11157). A covered change must update the skill.
 
-**Tier-0 skills — trailer override is not permitted BY CONVENTION (unenforced):** `ct-cleo` (CLI protocol + session lifecycle) · `ct-orchestrator` (spawn/delegation contract) · `ct-task-executor` (worker contract) · `ct-dev-workflow` (commit / branch / release flow) · `ct-documentor` (docs SSoT routing) · `CLEO-INJECTION.md` (protocol injected into every spawn prompt).
+**On-demand skills** (the LOOM-stage skills in `packages/core/src/validation/protocols/`, ct-council, ct-codebase-mapper) accept a commit trailer instead: `Skill-Drift-Reviewed: <skill>: <why no update is needed>`.
 
-**Tier-1 LOOM-stage skills** (one per stage in `packages/core/src/validation/protocols/`): trailer override permitted.
+`CLEO-INJECTION.md` / `CLEO-REFERENCE.md` changes are covered by `ct-cleo`. ct-cleo's own size is ratcheted by gate 33 (`scripts/check-ct-cleo-thin.mjs`, baseline `scripts/.check-ct-cleo-thin-baseline.json`).
 
 Every `SKILL.md` ships with metadata (enforced by gate 29):
 
@@ -196,6 +199,8 @@ metadata:
   version: 2.0.0           # bump on every material change
   tier: core               # core | on-demand | internal (D11157)
   install: harness         # harness | internal
+  covers:                  # code this skill documents (gate 32)
+    - packages/cleo/src/cli/commands/example.ts
   lastReviewed: 2026-05-21 # ISO date
   stability: stable        # experimental | stable | deprecated
 ```

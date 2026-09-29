@@ -37,7 +37,7 @@ research_id="${topic_slug}-${date}"  # e.g., "auth-research-2026-01-21"
 # 2. Verify manifest entry exists
 cleo research show "$research_id"
 # OR
-jq -s '.[] | select(.id == "'$research_id'")' "{{MANIFEST_PATH}}"
+cleo manifest show "$research_id"
 
 # 3. Block on missing manifest - DO NOT spawn next agent until confirmed
 if ! cleo research show "$research_id" &>/dev/null; then
@@ -91,7 +91,7 @@ fi
 
 | Violation | Detection | Recovery |
 |-----------|-----------|----------|
-| Missing protocol block | `grep -q "SUBAGENT PROTOCOL"` fails | Re-inject via `cleo research inject` |
+| Missing protocol block | `grep -q "SUBAGENT PROTOCOL"` fails | Regenerate the prompt with `cleo orchestrate spawn <taskId>` (it embeds the protocol) |
 | Invalid return message | Not in allowed format list | Mark as violation, re-spawn |
 | No manifest entry | `cleo research show` returns error | Re-spawn with explicit manifest requirement |
 | No research link | `jq '.task.linkedResearch'` empty | Orchestrator links via `cleo research link` |
@@ -240,7 +240,7 @@ if (( $(echo "$compliance_pass_rate < $COMPLIANCE_THRESHOLD" | bc -l) )); then
     stricter_prompt="$original_prompt
 
 ## COMPLIANCE CHECKLIST (VERIFY BEFORE RETURNING)
-- [ ] Output file exists at {{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md
+- [ ] Output recorded with `cleo docs add` (`cleo docs fetch <slug>` returns it)
 - [ ] pipeline_manifest entry appended via `cleo manifest append`
 - [ ] Return message is EXACTLY: 'Research complete. Manifest appended to pipeline_manifest.'
 - [ ] Task linked via: {{TASK_LINK_CMD}} {{TASK_ID}} <research-id>

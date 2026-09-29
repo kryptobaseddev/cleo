@@ -13,6 +13,7 @@
  */
 
 import {
+  DOCS_LIFECYCLE_STATUSES,
   LIFECYCLE_STAGE_STATUSES,
   MANIFEST_STATUSES,
   SESSION_STATUSES,
@@ -455,6 +456,11 @@ export function sanitizeParams(
         context?.domain === 'pipeline' && context?.operation === 'stage.record';
       const isAdrStatus = context?.domain === 'admin' && context?.operation?.startsWith('adr.');
       const isSessionStatus = context?.domain === 'session';
+      // T12654: a docs status is a doc lifecycle status (draft … deprecated),
+      // not a task status. Checked against the task set, `docs update
+      // --status draft|accepted|superseded|deprecated` was rejected here,
+      // before the handler, although --help advertises all six.
+      const isDocsStatus = context?.domain === 'docs';
 
       sanitized[key] = validateEnum(
         value,
@@ -464,7 +470,9 @@ export function sanitizeParams(
             ? ['proposed', 'accepted', 'superseded', 'deprecated']
             : isSessionStatus
               ? [...SESSION_STATUSES]
-              : [...ALL_VALID_STATUSES],
+              : isDocsStatus
+                ? [...DOCS_LIFECYCLE_STATUSES]
+                : [...ALL_VALID_STATUSES],
         'status',
       );
       continue;

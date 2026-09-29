@@ -536,16 +536,21 @@ jobs:
         run: node scripts/lint-vitest-memory-safe.mjs
 
   skills-metadata:
-    # Gates 29 + 30 (T12648 · D11157). SKILL.md frontmatter is the skills
+    # Gates 29, 30 + 31 (T12648, T12649 · D11157). SKILL.md frontmatter is the skills
     # metadata SSoT: the manifest is generated from it (gate 29), and every
-    # skill code names must be installable (gate 30). Wired here as well as in
+    # skill code names must be installable (gate 30), and every cleo command a
+    # skill teaches must exist (gate 31). Wired here as well as in
     # `cleo check arch`, because a gate bundled and documented but run by no
     # workflow is the gh#1354 defect. Pure node, no install needed.
-    name: Skills Metadata SSoT (T12648 · gates 29-30)
+    name: Skills Metadata SSoT (T12648 · T12649 · T12124 · gates 29-33)
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Gate 32's PR mode diffs against the base branch and reads commit
+          # trailers, so it needs history.
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -553,6 +558,20 @@ jobs:
         run: node scripts/lint-skills-manifest.mjs --check
       - name: Assert every skill code emits is installable
         run: node scripts/lint-emitted-skills.mjs --check
+      - name: Assert every cleo command a skill teaches exists (gate 31, T12649)
+        run: node scripts/lint-skill-commands.mjs --check
+      - name: Assert ct-cleo stays a thin pointer (gate 33, T12124)
+        run: node scripts/check-ct-cleo-thin.mjs --check
+      - name: Assert skills declare live coverage (gate 32, T12124)
+        if: github.event_name != 'pull_request'
+        run: node scripts/lint-skill-coverage.mjs --check
+      - name: Assert covered changes update their skill (gate 32 PR mode, T12124)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags origin "$BASE_REF"
+          node scripts/lint-skill-coverage.mjs --check --base "origin/$BASE_REF"
 
   arch-gate-parity:
     # Gate 20 (T12122) — the gate on the gates. Asserts that the set bundled
@@ -569,6 +588,30 @@ jobs:
           node-version: '24'
       - name: Assert the runner's gate list matches the documented one
         run: node scripts/lint-arch-gate-parity.mjs
+
+  agent-surface-gates:
+    # Gates 23, 26, 27, 28 (T12658). Each was bundled into `cleo check arch`
+    # and documented in the AGENTS.md table, and NO WORKFLOW RAN IT — the
+    # gh#1354 defect again, measured 2026-09-28. Gate 20 now also fails when a
+    # bundled gate is run by no workflow, so this cannot recur silently.
+    # Pure node, no install needed; each runs in its default mode (baseline
+    # where it has one), exactly as `cleo check arch` does.
+    name: Agent Surface + Write Chokepoint Gates (T12658 · gates 23, 26-28)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Assert every cleo command an agent prompt emits exists (gate 23 · T12308)
+        run: node scripts/lint-agent-prompt-commands.mjs
+      - name: Assert no raw negated-flag reads in the CLI (gate 26 · T12528)
+        run: node scripts/lint-no-negated-flag-reads.mjs
+      - name: Assert the HITL ask-tool rule reaches every agent surface (gate 27 · T12483)
+        run: node scripts/lint-hitl-rule-delivery.mjs
+      - name: Assert no new raw write on a classified cleo.db table (gate 28 · T12332)
+        run: node scripts/lint-no-raw-table-writes.mjs
 
   merge-bar-aggregate:
     # T11955 · DHQ-072 · Epic T11679 (DHQ burn-down)
@@ -652,6 +695,7 @@ jobs:
       - postdeploy-budget
       - arch-gate-parity
       - skills-metadata
+      - agent-surface-gates
       - merge-bar-aggregate
     steps:
       - name: Verify every arch-boundary job passed (or was skipped)

@@ -2,9 +2,12 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.0.0
+  version: 4.0.4
   tier: core
   install: harness
+  covers:
+    - packages/cleo/src/cli/commands/orchestrate.ts
+    - packages/core/src/orchestration/spawn-prompt.ts
   lastReviewed: 2026-09-28
   stability: stable
 ---
@@ -94,7 +97,7 @@ Runs **autonomously on every incoming issue**. Decomposes ideas into executable 
 | **Specification** | Write formal spec with RFC 2119 language, acceptance criteria | Lead (reasoning) |
 | **Decomposition** | Break into atomic tasks with deps under epic(s) | Lead (reasoning) |
 
-**RCASD output**: Epic(s) with child tasks, spec documents attached, dependency graph defined, acceptance criteria on every task. Architecture decisions stored in BRAIN decision-store via `cleo memory store --type decision`, not in adrs markdown blobs.
+**RCASD output**: Epic(s) with child tasks, spec documents attached, dependency graph defined, acceptance criteria on every task. Architecture decisions stored in BRAIN decision-store via `cleo memory decision-store --decision "..." --rationale "..."`, not in adrs markdown blobs.
 
 ### IVTR Phase (Execution)
 
@@ -137,7 +140,7 @@ Spawning is a **two-step pattern** — CLEO prepares the prompt, then the provid
 
 ```bash
 # Get next dependency-safe task
-cleo orchestrate ready --epic T1575
+cleo orchestrate ready T1575
 
 # Generate fully-resolved spawn prompt
 cleo orchestrate spawn T1586 --json
@@ -178,7 +181,7 @@ After successful verification, subagents MUST return exactly one of:
 cleo session status              # Resume existing?
 cleo dash                        # Project overview
 cleo current                     # Active task?
-cleo orchestrate start --epic T1575  # Full state: session, pipeline, next task
+cleo orchestrate start T1575  # Full state: session, pipeline, next task
 ```
 
 ### 2. RCASD — Plan the Work
@@ -199,11 +202,12 @@ cleo orchestrate start --epic T1575  # Full state: session, pipeline, next task
 ### 3. IVTR — Execute the Work
 
 ```
-1. Identify Wave 0: cleo orchestrate ready --epic T1575
-2. Spawn Workers in parallel for each Wave 0 task
+1. Read the waves: cleo orchestrate waves T1575 (take each wave n from here;
+   numbers can skip and the first need not be 1), then cleo orchestrate ready T1575
+2. Spawn Workers in parallel for each ready task in the first incomplete wave
 3. On completion: read manifest, check acceptance criteria
 4. If criteria NOT met → re-spawn worker with feedback (IVTR loop)
-5. Advance to Wave 1 (tasks whose deps are now done)
+5. Advance to the next wave cleo orchestrate waves lists (its deps are now done)
 6. Repeat until all tasks complete
 7. Final validation with Lead across the full epic
 ```
@@ -281,10 +285,10 @@ When operating without continuous HITL oversight, additional constraints apply: 
 
 | Command | Purpose |
 |---------|---------|
-| `cleo orchestrate start --epic T1575` | Full startup: session + pipeline + next task |
-| `cleo orchestrate ready --epic T1575` | Parallel-safe tasks in current wave |
+| `cleo orchestrate start T1575` | Full startup: session + pipeline + next task |
+| `cleo orchestrate ready T1575` | Parallel-safe tasks in current wave |
 | `cleo orchestrate spawn T1586 --json` | Generate resolved spawn prompt |
-| `cleo orchestrate next --epic T1575` | Suggest next task |
+| `cleo orchestrate next T1575` | Suggest next task |
 | `cleo saga rollup <sagaId>` | Cross-Epic status aggregation when orchestrating a multi-Epic Saga (ADR-073) |
 | `cleo saga members <sagaId>` | Member Epics of a Saga (parent_id containment — NOT `task_relations.groups`) |
 | `cleo pipeline stage.status --epic T1575` | Current pipeline stage |

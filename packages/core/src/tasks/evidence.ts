@@ -53,6 +53,7 @@ import {
 } from '../git/work-tree.js';
 import { pushWarning } from '../output.js';
 import { getEffectiveHead } from '../worktree/effective-head.js';
+import type { ViewComponentPr } from './component-pr.js';
 import { loadRecordedProjectRoots, rebaseLegacyEvidencePath } from './evidence-paths.js';
 import { DISABLE_ENV, describeMemoryLimit } from './heavy-tool-limit.js';
 import {
@@ -206,8 +207,10 @@ export type ParsedAtom =
        * @task T9838
        */
       kind: 'pr';
-      /** PR number (positive integer). */
+      /** PR number (positive integer); the integration PR in `pr:<c>@<i>`. */
       prNumber: number;
+      /** Component PR the integration PR landed (`pr:<component>@<integration>`, T12671). */
+      componentPrNumber?: number;
     }
   | {
       /**
@@ -217,8 +220,10 @@ export type ParsedAtom =
        * @task T12634
        */
       kind: 'ci';
-      /** PR number (positive integer). */
+      /** PR number (positive integer); the integration PR in `ci:<c>@<i>`. */
       prNumber: number;
+      /** Component PR the integration PR landed (`ci:<component>@<integration>`, T12671). */
+      componentPrNumber?: number;
     }
   | {
       /**
@@ -433,7 +438,7 @@ export async function validateAtom(
       // db, which is CLEO's own record, not the repository's.
       return validateDecision(parsed.decisionId, roots);
     case 'pr':
-      return validatePrAtom(parsed.prNumber, roots, context);
+      return validatePrAtom(parsed.prNumber, roots, context, parsed.componentPrNumber);
     case 'ci': {
       // T12634 (D11149): `gh` runs in the repo (executionRoot); the opt-in,
       // required-check list and PR cache are CLEO's own records (storeRoot).
@@ -443,6 +448,10 @@ export async function validateAtom(
       const result = await resolveCiEvidenceAtom(parsed.prNumber, roots, {
         projectContext: ctx.loaded ? ctx.context : null,
         ...(context ? { context } : {}),
+        ...(parsed.componentPrNumber !== undefined
+          ? { componentPrNumber: parsed.componentPrNumber }
+          : {}),
+        ...(context?.readOnly ? { readOnly: true } : {}),
       });
       return result.ok
         ? { ok: true, atom: result.atom }
@@ -1540,7 +1549,7 @@ export interface EvidenceExecutionRootHints {
 async function validateAffectedTests(roots: EvidenceRoots): Promise<AtomValidation> {
   const { storeRoot, executionRoot } = roots;
   const { planAffectedTestRun } = await import('./affected-packages.js');
-  const run = await planAffectedTestRun(storeRoot, executionRoot);
+  const run = await planAffectedTestRun(storeRoot, executionRoot, { wait: true });
   if (!run.ok) return { ok: false, codeName: run.codeName, reason: run.reason };
   const result = await runToolCached(run.command, storeRoot, { executionRoot });
   if (result.exitCode !== 0) {
@@ -2386,6 +2395,7 @@ async function validatePrAtom(
   prNumber: number,
   roots: EvidenceRoots,
   context?: EvidenceValidationContext,
+  componentPrNumber?: number,
 ): Promise<AtomValidation> {
   if (!context) {
     return {
@@ -2413,21 +2423,28 @@ async function validatePrAtom(
   // atom needs BOTH roots, and a swap would be as wrong as the original.
   const result = await resolvePrEvidenceAtom(prNumber, roots, {
     projectContext: ctx.loaded ? ctx.context : null,
+    ...(context.readOnly ? { readOnly: true } : {}),
   });
   if (!result.ok) {
     return { ok: false, reason: result.reason, codeName: result.codeName };
   }
-  const unlinked = checkPrTaskLinkage(prNumber, result, context);
+  // T12671: `pr:<component>@<integration>` — the integration PR is the
+  // provenance (merge commit, required workflows); the component PR is the
+  // task's link and its change. Both are verified, both are recorded.
+  const linked = await linkedPrChange(prNumber, result, roots, componentPrNumber);
+  if (!linked.ok) return linked;
+  const unlinked = checkPrTaskLinkage(linked.prNumber, linked.pr, context);
   if (unlinked) return unlinked;
+  const changedPaths = linked.pr.changedPaths;
   if (
     context.gates.includes('implemented') &&
     classifyEvidenceTask(context) === 'code' &&
-    result.changedPaths.every(isDocumentArtifact)
+    changedPaths.every(isDocumentArtifact)
   ) {
     return {
       ok: false,
       codeName: 'E_EVIDENCE_CONTENT_MISMATCH',
-      reason: `PR #${prNumber} changes only documentation and cannot implement code task ${context.task.id}. Changed artifacts: ${result.changedPaths.join(', ')}.`,
+      reason: `PR #${linked.prNumber} changes only documentation and cannot implement code task ${context.task.id}. Changed artifacts: ${changedPaths.join(', ')}.`,
     };
   }
   return {
@@ -2439,8 +2456,77 @@ async function validatePrAtom(
       mergedAt: result.mergedAt,
       successCount: result.successCount,
       totalChecks: result.totalChecks,
-      changedPaths: result.changedPaths,
+      changedPaths,
       taskId: context.task.id,
+      ...(componentPrNumber !== undefined ? { componentPrNumber } : {}),
+    },
+  };
+}
+
+/** The PR whose text and change link a task: the PR itself, or its component. */
+type LinkedPr = {
+  title: string;
+  body: string;
+  headRefName: string;
+  changedPaths: string[];
+  changedFileCount: number;
+  changedFilesError?: string;
+};
+
+/**
+ * For `pr:`/`ci:` evidence, the PR a task is linked through (T12671): the PR
+ * itself, or — with a component — the component PR verified as landed by the
+ * integration PR, carrying the component's surviving files only.
+ *
+ * @param prNumber - The (integration) PR the atom names.
+ * @param landing - Its verified resolution.
+ * @param roots - Evidence roots (git runs in the execution root).
+ * @param componentPrNumber - Component PR, when the atom names one.
+ * @param view - Component PR reader (tests inject; defaults to `gh pr view`).
+ * @returns The linkage subject, or the refusal.
+ * @task T12671
+ */
+export async function linkedPrChange(
+  prNumber: number,
+  landing: {
+    title: string;
+    body: string;
+    headRefName: string;
+    headRefOid?: string;
+    mergeCommitSha: string;
+    changedPaths: string[];
+    changedFileCount: number;
+    changedFilesError?: string;
+  },
+  roots: EvidenceRoots,
+  componentPrNumber?: number,
+  view?: ViewComponentPr,
+): Promise<
+  { ok: true; prNumber: number; pr: LinkedPr } | { ok: false; reason: string; codeName: string }
+> {
+  if (componentPrNumber === undefined) return { ok: true, prNumber, pr: landing };
+  const { resolveComponentPr } = await import('./component-pr.js');
+  const c = await resolveComponentPr(
+    componentPrNumber,
+    {
+      prNumber,
+      headRefName: landing.headRefName,
+      headRefOid: landing.headRefOid,
+      mergeCommitSha: landing.mergeCommitSha,
+    },
+    roots.executionRoot,
+    view,
+  );
+  if (!c.ok) return { ok: false, reason: c.reason, codeName: c.codeName };
+  return {
+    ok: true,
+    prNumber: componentPrNumber,
+    pr: {
+      title: c.title,
+      body: c.body,
+      headRefName: c.headRefName,
+      changedPaths: c.files,
+      changedFileCount: c.files.length,
     },
   };
 }
