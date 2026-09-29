@@ -207,10 +207,13 @@ learned. Both are recorded where an operator can see them.
 
 - **Preflight test skips.** `cleo release open` checks main's HEAD SHA with
   `gh` (each call bounded to 15s). If the `ci.yml` push run for that exact SHA
-  is green it dispatches `release-prepare` with `skip-tests=true`; if every
+  is green AND its Linux `Unit Tests` shards all ran and succeeded (a green
+  docs-only push skips them, and does not qualify) it dispatches
+  `release-prepare` with `skip-tests=true`; if every
   macOS job of the nightly (or push) run for that SHA is green it adds
   `skip-macos-tests=true`. The SHA goes along as `verified-sha`, and the
-  workflow ignores every skip if it checked out a different commit. The
+  workflow ignores every skip if it checked out a different commit, or if
+  `verified-sha` is empty (a skip must name the commit it was verified on). The
   decision and its reason are in the "Preflight test decision" block of the
   run summary and in `cleo release open`'s result (`preflight`). Any `gh`
   error or unfinished run means the tests run. To force the full preflight,

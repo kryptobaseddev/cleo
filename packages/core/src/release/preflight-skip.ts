@@ -44,7 +44,7 @@ export type PreflightGhRunner = (args: readonly string[], cwd: string, timeoutMs
 export interface PreflightSkipDecision {
   /** Commit every check was made against (main's HEAD), or `null` if unresolved. */
   verifiedSha: string | null;
-  /** True iff main's push CI for {@link verifiedSha} concluded `success`. */
+  /** True iff main's push CI for {@link verifiedSha} is green AND ran every Linux Unit Tests shard green. */
   skipTests: boolean;
   /** True iff every macOS job of a nightly (or push) run for {@link verifiedSha} succeeded. */
   skipMacosTests: boolean;
@@ -104,10 +104,18 @@ function parseRuns(raw: string): WorkflowRunSummary[] {
   return runs.sort((a, b) => b.id - a.id);
 }
 
-/** Extract `jobs[]` from a run-jobs response, dropping malformed rows. */
-function parseJobs(raw: string): JobSummary[] {
+/**
+ * Extract `jobs[]` from a run-jobs response, dropping malformed rows.
+ *
+ * Returns `null` when the body is not a jobs page or when `total_count` says
+ * the page is incomplete (more jobs than one `per_page=100` page holds), so a
+ * caller can never judge a run from a partial job list.
+ */
+function parseJobs(raw: string): JobSummary[] | null {
   const body = parseJson(raw);
-  if (!isRecord(body) || !Array.isArray(body['jobs'])) return [];
+  if (!isRecord(body) || !Array.isArray(body['jobs'])) return null;
+  const total = body['total_count'];
+  if (typeof total === 'number' && total > body['jobs'].length) return null;
   const jobs: JobSummary[] = [];
   for (const row of body['jobs']) {
     if (!isRecord(row) || typeof row['name'] !== 'string') continue;
@@ -120,9 +128,44 @@ function parseJobs(raw: string): JobSummary[] {
   return jobs;
 }
 
+/** A `Unit Tests (<os>, shard <n>)` job from {@link MAIN_CI_WORKFLOW}, any OS. */
+function isUnitTestJob(name: string): boolean {
+  return /^Unit Tests\b/.test(name);
+}
+
 /** A job that ran the test suite on macOS, by the name GitHub renders for it. */
 function isMacosJob(name: string): boolean {
   return /mac\s*os/i.test(name);
+}
+
+/**
+ * Judge whether a run's Linux `Unit Tests` shards prove the tree was tested.
+ * Returns `null` when they do, otherwise why not (for the run summary).
+ *
+ * Requires at least one Linux shard, every one concluded `success`, and the
+ * shard numbers form the complete set `1..N` (a missing shard is not a pass).
+ */
+function judgeLinuxUnitTests(jobs: JobSummary[] | null): string | null {
+  if (jobs === null) return 'its job list could not be read';
+  const linux = jobs.filter((j) => isUnitTestJob(j.name) && !isMacosJob(j.name));
+  if (linux.length === 0) return 'it ran no Linux Unit Tests jobs';
+  const notGreen = linux.filter((j) => j.conclusion !== 'success');
+  if (notGreen.length > 0) {
+    return `${notGreen.length} Linux Unit Tests job(s) did not succeed (${notGreen
+      .map((j) => `${j.name}: ${j.conclusion ?? 'no conclusion'}`)
+      .join(', ')})`;
+  }
+  const shards = new Set<number>();
+  for (const job of linux) {
+    const match = /shard\s+(\d+)/i.exec(job.name);
+    if (match === null) return `Linux job "${job.name}" names no shard`;
+    shards.add(Number(match[1]));
+  }
+  const max = Math.max(...shards);
+  for (let n = 1; n <= max; n++) {
+    if (!shards.has(n)) return `Linux Unit Tests shard ${n} of ${max} is missing`;
+  }
+  return null;
 }
 
 function shortSha(sha: string): string {
@@ -134,7 +177,9 @@ function shortSha(sha: string): string {
  * `release-prepare` preflight test suites may be skipped.
  *
  * - Linux: skipped iff the newest `push` run of {@link MAIN_CI_WORKFLOW} on
- *   `branch` for HEAD's SHA is `completed` + `success`.
+ *   `branch` for HEAD's SHA is `completed` + `success` AND its Linux
+ *   `Unit Tests` jobs exist, cover shards `1..N`, and all succeeded. A green
+ *   run whose tests were skipped (docs-only push) does not qualify.
  * - macOS: skipped iff a completed `schedule` (nightly) run — or the push run
  *   above — for HEAD's SHA has at least one macOS job and every macOS job
  *   concluded `success`.
@@ -194,8 +239,22 @@ export function decidePreflightSkips(
   } else if (pushRun.conclusion !== 'success') {
     linuxReason = `Linux tests run: ${MAIN_CI_WORKFLOW} push run for ${shortSha(sha)} concluded ${pushRun.conclusion ?? 'without a conclusion'} (${pushRun.url}).`;
   } else {
-    skipTests = true;
-    linuxReason = `Linux tests skipped: ${MAIN_CI_WORKFLOW} push run for ${shortSha(sha)} is green (${pushRun.url}).`;
+    // A green run is not a tested run: a docs-only push skips `Unit Tests`
+    // (the `changes` gate) and still concludes `success`. Only green Linux
+    // `Unit Tests` jobs — every shard present and successful — prove the
+    // tree was tested.
+    const jobsRaw = gh([
+      'api',
+      `repos/{owner}/{repo}/actions/runs/${pushRun.id}/jobs?per_page=100`,
+    ]);
+    const jobs = jobsRaw === null ? null : parseJobs(jobsRaw);
+    const verdict = judgeLinuxUnitTests(jobs);
+    if (verdict === null) {
+      skipTests = true;
+      linuxReason = `Linux tests skipped: every Linux Unit Tests shard of the ${MAIN_CI_WORKFLOW} push run for ${shortSha(sha)} is green (${pushRun.url}).`;
+    } else {
+      linuxReason = `Linux tests run: ${MAIN_CI_WORKFLOW} push run for ${shortSha(sha)} is green but ${verdict} (${pushRun.url}).`;
+    }
   }
 
   // ── macOS: nightly (schedule) runs, or the push run, for this commit ─────
@@ -212,8 +271,9 @@ export function decidePreflightSkips(
   let macosReason = `macOS tests run: no completed nightly run with macOS jobs for ${shortSha(sha)}.`;
   for (const run of candidates) {
     const jobsRaw = gh(['api', `repos/{owner}/{repo}/actions/runs/${run.id}/jobs?per_page=100`]);
-    if (jobsRaw === null) continue;
-    const macosJobs = parseJobs(jobsRaw).filter((j) => isMacosJob(j.name));
+    const jobs = jobsRaw === null ? null : parseJobs(jobsRaw);
+    if (jobs === null) continue;
+    const macosJobs = jobs.filter((j) => isMacosJob(j.name));
     if (macosJobs.length === 0) continue;
     const failed = macosJobs.filter((j) => j.conclusion !== 'success');
     if (failed.length === 0) {

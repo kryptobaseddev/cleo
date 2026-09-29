@@ -30,7 +30,15 @@ interface StubOptions {
   pushRuns?: RunFixture[] | Error;
   scheduleRuns?: RunFixture[] | Error;
   jobs?: Record<number, Array<{ name: string; conclusion: string | null }>>;
+  /** Override `total_count` per run id (default: the number of jobs). */
+  jobTotals?: Record<number, number>;
 }
+
+/** Every Linux Unit Tests shard green — what a push run that TESTED the tree carries. */
+const LINUX_GREEN = [1, 2, 3, 4].map((n) => ({
+  name: `Unit Tests (ubuntu-latest, shard ${n})`,
+  conclusion: 'success',
+}));
 
 function runsBody(runs: RunFixture[]): string {
   return JSON.stringify({
@@ -69,7 +77,9 @@ function makeGh(opts: StubOptions): PreflightGhRunner & { calls: string[][]; tim
     }
     const jobsMatch = /actions\/runs\/(\d+)\/jobs/.exec(endpoint);
     if (jobsMatch) {
-      return JSON.stringify({ jobs: opts.jobs?.[Number(jobsMatch[1])] ?? [] });
+      const id = Number(jobsMatch[1]);
+      const jobs = opts.jobs?.[id] ?? [];
+      return JSON.stringify({ total_count: opts.jobTotals?.[id] ?? jobs.length, jobs });
     }
     throw new Error(`unexpected gh call: ${args.join(' ')}`);
   };
@@ -78,7 +88,7 @@ function makeGh(opts: StubOptions): PreflightGhRunner & { calls: string[][]; tim
 
 describe('decidePreflightSkips — Linux shards', () => {
   it('skips when main push CI for the SAME sha is green, and says so', () => {
-    const gh = makeGh({ pushRuns: [{ id: 10 }] });
+    const gh = makeGh({ pushRuns: [{ id: 10 }], jobs: { 10: LINUX_GREEN } });
     const d = decidePreflightSkips(gh, '/repo', 'main');
     expect(d.verifiedSha).toBe(SHA);
     expect(d.skipTests).toBe(true);
@@ -102,6 +112,39 @@ describe('decidePreflightSkips — Linux shards', () => {
       expect(d.skipTests, JSON.stringify(pushRuns)).toBe(false);
       expect(d.reason).toContain('Linux tests run');
     }
+  });
+
+  it('runs when the green push run did not actually run every Linux shard green', () => {
+    const cases: Array<[string, Array<{ name: string; conclusion: string | null }>]> = [
+      // Docs-only push: `changes` gated Unit Tests off, the run is still green.
+      ['no Unit Tests jobs', [{ name: 'Lint & Format', conclusion: 'success' }]],
+      ['skipped matrix', [{ name: 'Unit Tests (, shard )', conclusion: 'skipped' }]],
+      [
+        'one shard skipped',
+        LINUX_GREEN.map((j, i) => (i === 2 ? { ...j, conclusion: 'skipped' } : j)),
+      ],
+      ['a shard missing', LINUX_GREEN.filter((_, i) => i !== 1)],
+      ['only macOS ran', [{ name: 'Unit Tests (macos-latest, shard 1)', conclusion: 'success' }]],
+    ];
+    for (const [label, jobs] of cases) {
+      const d = decidePreflightSkips(
+        makeGh({ pushRuns: [{ id: 10 }], jobs: { 10: jobs } }),
+        '/repo',
+        'main',
+      );
+      expect(d.skipTests, label).toBe(false);
+      expect(d.reason, label).toContain('Linux tests run');
+    }
+  });
+
+  it('runs when the job list is partial (total_count exceeds the page)', () => {
+    const d = decidePreflightSkips(
+      makeGh({ pushRuns: [{ id: 10 }], jobs: { 10: LINUX_GREEN }, jobTotals: { 10: 150 } }),
+      '/repo',
+      'main',
+    );
+    expect(d.skipTests).toBe(false);
+    expect(d.reason).toContain('could not be read');
   });
 
   it('judges the NEWEST run for the sha (a failed re-run supersedes a green one)', () => {
@@ -169,7 +212,12 @@ describe('decidePreflightSkips — macOS shards', () => {
     const d = decidePreflightSkips(
       makeGh({
         pushRuns: [{ id: 10 }],
-        jobs: { 10: [{ name: 'Unit Tests (macos-latest, shard 1)', conclusion: 'success' }] },
+        jobs: {
+          10: [
+            ...LINUX_GREEN,
+            { name: 'Unit Tests (macos-latest, shard 1)', conclusion: 'success' },
+          ],
+        },
       }),
       '/repo',
       'main',
@@ -211,7 +259,7 @@ describe('decidePreflightSkips — failure is never a skip', () => {
   });
 
   it('bounds every gh call with the preflight timeout', () => {
-    const gh = makeGh({ pushRuns: [{ id: 10 }] });
+    const gh = makeGh({ pushRuns: [{ id: 10 }], jobs: { 10: LINUX_GREEN } });
     decidePreflightSkips(gh, '/repo', 'main');
     expect(gh.timeouts.length).toBeGreaterThan(0);
     expect(new Set(gh.timeouts)).toEqual(new Set([PREFLIGHT_CHECK_TIMEOUT_MS]));

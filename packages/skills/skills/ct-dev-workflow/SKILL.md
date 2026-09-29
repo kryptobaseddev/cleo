@@ -278,9 +278,11 @@ git push origin HEAD
 
 **Release preflight (`release-prepare.yml`).** `cleo release open <version>`
 checks main's HEAD SHA and dispatches with `skip-tests=true` when the `ci.yml`
-push run for that SHA is green, and `skip-macos-tests=true` when the nightly
-macOS jobs for that SHA are green; the SHA travels as `verified-sha`, and the
-workflow ignores the skips if it checks out another commit. Otherwise the 4
+push run for that SHA is green AND ran every Linux `Unit Tests` shard green (a
+docs-only push that skipped the tests does not count), and
+`skip-macos-tests=true` when the nightly macOS jobs for that SHA are green; the
+SHA travels as `verified-sha`, and the workflow ignores the skips if it checks
+out another commit or `verified-sha` is empty. Otherwise the 4
 Linux and 4 macOS test shards run. The decision is in the run summary.
 
 **Bump-PR merge.** Its `pull_request` runs stay `action_required` (no GitHub

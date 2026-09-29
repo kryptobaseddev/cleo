@@ -65,7 +65,7 @@ on:
         required: false
         default: false
       verified-sha:
-        description: 'Commit the skip-tests / skip-macos-tests decisions were verified against. If the run checks out a different commit (main moved after the check), every skip is ignored and all tests run.'
+        description: 'Commit the skip-tests / skip-macos-tests decisions were verified against. REQUIRED for any skip: when empty, or when the run checks out a different commit (main moved after the check), every skip is ignored and all tests run.'
         type: string
         required: false
       skip-reason:
@@ -148,7 +148,14 @@ jobs:
           linux=true
           macos=true
           note=""
-          if [ -n "$VERIFIED_SHA" ] && [ "$VERIFIED_SHA" != "$HEAD_SHA" ]; then
+          skip_requested=false
+          if [ "$SKIP_TESTS" = "true" ] || [ "$SKIP_MACOS_TESTS" = "true" ]; then skip_requested=true; fi
+          if [ "$skip_requested" = "true" ] && [ -z "$VERIFIED_SHA" ]; then
+            # A skip is a claim that CI already tested THIS tree. Without the
+            # commit it was verified against, nothing ties the claim to what
+            # this run checked out, so it is refused rather than trusted.
+            note="A test skip was requested without verified-sha, so it cannot be tied to the commit this run checked out ($HEAD_SHA). Ignoring it: every suite runs."
+          elif [ -n "$VERIFIED_SHA" ] && [ "$VERIFIED_SHA" != "$HEAD_SHA" ]; then
             note="Skips were verified against $VERIFIED_SHA, but this run checked out $HEAD_SHA (main moved after the check). Ignoring them: every suite runs."
           else
             if [ "$SKIP_TESTS" = "true" ]; then linux=false; fi
