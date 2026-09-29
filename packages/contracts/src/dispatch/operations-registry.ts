@@ -814,12 +814,22 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query' as const,
     domain: 'tasks' as const,
     operation: 'history',
-    description: 'Show task work history (time tracked per task)',
+    description:
+      'Show task work history; with taskId, the task audit trail; with ranking, who changed its priority/severity/kind/depends and why (T12693)',
     tier: 1,
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
-    params: [],
+    params: [
+      { name: 'taskId', type: 'string', required: false, description: 'Task to show history for' },
+      { name: 'limit', type: 'number', required: false, description: 'Maximum entries' },
+      {
+        name: 'ranking',
+        type: 'boolean',
+        required: false,
+        description: 'Only ranking-input changes (actor, session, reason, before/after)',
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'query',
@@ -3363,6 +3373,33 @@ export const OPERATIONS: OperationDef[] = [
       },
     ] satisfies ParamDef[],
     outputSchema: OUTPUT_CONTRACTS['tasks.assignee'],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'tasks',
+    operation: 'ranking.revert',
+    description:
+      'tasks.ranking.revert (mutate) — undo one recorded ranking change (priority/severity/kind/depends) as a new audited change (T12693, D11161)',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['entryId'],
+    params: [
+      {
+        name: 'entryId',
+        type: 'string',
+        required: true,
+        description: 'ranking_changed audit row id (cleo history ranking <taskId>)',
+        cli: { positional: true },
+      },
+      { name: 'reason', type: 'string', required: false, description: 'Why it is reverted' },
+      {
+        name: 'force',
+        type: 'boolean',
+        required: false,
+        description: 'Revert even though a field changed again since',
+      },
+    ] satisfies ParamDef[],
   },
   {
     gateway: 'mutate',

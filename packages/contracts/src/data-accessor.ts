@@ -255,6 +255,8 @@ export interface AcBindingRow {
 
 /** Query options for bounded reads from the append-only task audit log. @task T10594 */
 export interface TaskAuditLogQuery {
+  /** Exact audit row ids (T12693: revert one ranking change). */
+  ids?: readonly string[];
   taskIds?: readonly string[];
   actions?: readonly string[];
   since?: string;
@@ -271,6 +273,8 @@ export interface TaskAuditLogRow {
   detailsJson: string | null;
   beforeJson: string | null;
   afterJson: string | null;
+  /** Session the mutation ran in, when recorded (T12693). */
+  sessionId?: string | null;
 }
 
 /**

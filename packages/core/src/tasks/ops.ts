@@ -367,6 +367,7 @@ export declare const tasksCoreOps: {
   readonly 'relates.add': TaskCoreOperation<'relates.add'>;
   readonly 'relates.add-batch': TaskCoreOperation<'relates.add-batch'>;
   readonly 'relates.remove': TaskCoreOperation<'relates.remove'>;
+  readonly 'ranking.revert': TaskCoreOperation<'ranking.revert'>;
   readonly start: TaskCoreOperation<'start'>;
   readonly stop: TaskCoreOperation<'stop'>;
   readonly 'sync.reconcile': TaskCoreOperation<'sync.reconcile'>;
