@@ -161,13 +161,16 @@ describe('loginToNexus — every poll branch', () => {
     expect(result.warnings).toEqual([]);
     expect((await store.get(API))?.bearer()).toBe(TOKEN);
 
-    // The device endpoints get JSON (better-auth's token route refuses a form body)
-    // and the only allowed client id.
+    // RFC 8628 form bodies on both device endpoints (cleo-nexus #11 accepts
+    // them), with the only allowed client id.
+    const form = (body: string | null | undefined) =>
+      Object.fromEntries(new URLSearchParams(body ?? ''));
     const start = calls.find((c) => c.url.endsWith('/api/auth/device/code'));
     const poll = calls.find((c) => c.url.endsWith('/api/auth/device/token'));
-    expect(start?.headers['content-type']).toBe('application/json');
-    expect(JSON.parse(start?.body ?? '{}')).toEqual({ client_id: 'cleo-cli' });
-    expect(JSON.parse(poll?.body ?? '{}')).toEqual({
+    expect(start?.headers['content-type']).toBe('application/x-www-form-urlencoded');
+    expect(poll?.headers['content-type']).toBe('application/x-www-form-urlencoded');
+    expect(form(start?.body)).toEqual({ client_id: 'cleo-cli' });
+    expect(form(poll?.body)).toEqual({
       grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
       client_id: 'cleo-cli',
       device_code: 'dev-code-1',

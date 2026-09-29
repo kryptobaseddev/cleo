@@ -13,8 +13,7 @@
  * used by **kimi-code** only; Anthropic uses RFC 7636 PKCE (see `pkce.ts` and
  * `builtin/anthropic.ts`). The `anthropic` preset was removed in T9326 — PKCE
  * is the canonical Anthropic OAuth path per T9302. The Cleo Nexus account
- * login (`cloud/nexus-auth.ts`, T12712) drives the same runner with
- * `bodyEncoding: 'json'`.
+ * login (`cloud/nexus-auth.ts`, T12712) drives the same runner.
  *
  * @module llm/oauth/device-code
  * @task T9321
@@ -63,13 +62,6 @@ export interface DeviceCodeConfig {
    * `anthropic-version`).
    */
   defaultHeaders?: Record<string, string>;
-  /**
-   * Request body encoding. RFC 8628 specifies `form`
-   * (`application/x-www-form-urlencoded`), the default. Servers that accept
-   * only JSON on the token endpoint (better-auth, used by Cleo Nexus) set
-   * `json`.
-   */
-  bodyEncoding?: 'form' | 'json';
   /** `fetch` override for tests and custom transports. Defaults to the global `fetch`. */
   fetch?: (input: string, init?: RequestInit) => Promise<Response>;
 }
@@ -239,21 +231,17 @@ const POLL_INTERVAL_CAP_SECONDS = 30;
  */
 function buildHeaders(cfg: DeviceCodeConfig): Record<string, string> {
   return {
-    'Content-Type':
-      cfg.bodyEncoding === 'json' ? 'application/json' : 'application/x-www-form-urlencoded',
+    'Content-Type': 'application/x-www-form-urlencoded',
     Accept: 'application/json',
     ...cfg.defaultHeaders,
   };
 }
 
 /**
- * Encode a plain record per `cfg.bodyEncoding`: `application/x-www-form-urlencoded`
- * by default, JSON when the config asks for it.
+ * Encode a plain record as `application/x-www-form-urlencoded`.
  */
-function encodeBody(cfg: DeviceCodeConfig, params: Record<string, string>): string {
-  return cfg.bodyEncoding === 'json'
-    ? JSON.stringify(params)
-    : new URLSearchParams(params).toString();
+function encodeForm(params: Record<string, string>): string {
+  return new URLSearchParams(params).toString();
 }
 
 /** The config's `fetch`, else the global one. */
@@ -284,7 +272,7 @@ export async function startDeviceCodeFlow(cfg: DeviceCodeConfig): Promise<Device
   const resp = await fetcherFor(cfg)(cfg.deviceCodeUrl, {
     method: 'POST',
     headers: buildHeaders(cfg),
-    body: encodeBody(cfg, body),
+    body: encodeForm(body),
   });
 
   if (!resp.ok) {
@@ -385,7 +373,7 @@ export async function pollForToken(
       resp = await doFetch(cfg.tokenUrl, {
         method: 'POST',
         headers: buildHeaders(cfg),
-        body: encodeBody(cfg, {
+        body: encodeForm({
           grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
           client_id: cfg.clientId,
           device_code: deviceCode,

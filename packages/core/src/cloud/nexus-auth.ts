@@ -4,9 +4,8 @@
  * The Nexus API is a better-auth app (cleo-nexus `apps/api/src/auth.ts`):
  *
  * - `POST /api/auth/device/code` and `POST /api/auth/device/token` run the
- *   RFC 8628 grant for the single allowed client id `cleo-cli`. The token
- *   endpoint accepts JSON only, so the shared runner is driven with
- *   `bodyEncoding: 'json'`. The access token it returns is a better-auth
+ *   RFC 8628 grant for the single allowed client id `cleo-cli`, with RFC form
+ *   bodies (cleo-nexus #11). The access token it returns is a better-auth
  *   session token.
  * - The bearer plugin accepts that token as `Authorization: Bearer <token>` on
  *   every `/v1` route and on `POST /api/auth/sign-out`, which deletes the
@@ -149,7 +148,6 @@ export function nexusDeviceCodeConfig(apiUrl: string, fetchImpl?: FetchLike): De
     deviceCodeUrl: `${apiUrl}/api/auth/device/code`,
     tokenUrl: `${apiUrl}/api/auth/device/token`,
     clientId: NEXUS_CLI_CLIENT_ID,
-    bodyEncoding: 'json',
     ...(fetchImpl ? { fetch: fetchImpl } : {}),
   };
 }
