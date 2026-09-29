@@ -50,7 +50,7 @@ import type {
 } from '@cleocode/contracts/operations/attention';
 import type { AttentionDigestPreviewItem } from '@cleocode/contracts/operations/focus';
 import { resolveSagaMemberIds } from '../sagas/storage.js';
-import { readFocusState } from '../sessions/focus-state-store.js';
+import { readLiveFocus } from '../sessions/focus-state-store.js';
 import { resolveAgentIdFromEnv, resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { getBrainAccessor } from '../store/memory-accessor.js';
@@ -157,8 +157,7 @@ export async function resolveAttentionIdentity(
   // dual-scope chokepoint.
   const accessor = await getTaskAccessor(projectRoot);
   // Current task: explicit override (spawn) wins; else per-session focus_state.
-  const currentTaskId =
-    options.taskId ?? (await readFocusState(accessor, sessionId))?.currentTask ?? null;
+  const currentTaskId = options.taskId ?? (await readLiveFocus(accessor, sessionId)).currentTask;
 
   const chain: AttentionScope[] = [];
 

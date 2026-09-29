@@ -4,7 +4,9 @@
  * @epic T4454
  */
 
-import type { TaskAnalysisResult, TaskWorkState } from '@cleocode/contracts';
+import type { TaskAnalysisResult } from '@cleocode/contracts';
+import { readFocusState, writeFocusState } from '../sessions/focus-state-store.js';
+import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 
@@ -86,8 +88,11 @@ export async function analyzeTaskPriority(
 
   let autoStarted = false;
   if (opts.autoStart && recommended) {
-    const currentFocus = await acc.getMetaValue<TaskWorkState>('focus_state');
-    await acc.setMetaValue('focus_state', { ...(currentFocus ?? {}), currentTask: recommended.id });
+    // T12660: write through the per-session focus store (the same session
+    // resolution `cleo current` reads with), never the raw legacy global key.
+    const sessionId = resolveSessionIdFromEnv();
+    const currentFocus = await readFocusState(acc, sessionId);
+    await writeFocusState(acc, sessionId, { ...(currentFocus ?? {}), currentTask: recommended.id });
     autoStarted = true;
   }
 
