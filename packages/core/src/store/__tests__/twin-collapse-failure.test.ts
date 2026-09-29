@@ -111,6 +111,10 @@ describe('a blocked backups directory', () => {
     brain
       .prepare('INSERT INTO main.sticky_tags (sticky_id, tag) VALUES (?, ?)')
       .run(note.id, 'bare-only');
+    // The old build writes the note's tags_json together with its junction.
+    brain
+      .prepare('UPDATE main.brain_sticky_notes SET tags_json = ? WHERE id = ?')
+      .run('["bare-only"]', note.id);
     const backups = join(projectDir, '.cleo', 'backups');
     writeFileSync(backups, 'not a directory');
 

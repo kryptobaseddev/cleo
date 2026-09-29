@@ -149,6 +149,7 @@ function setupMockAccessor(tasks: unknown[] = makeMockTasks(), meta: Record<stri
     upsertSingleSession: vi.fn().mockResolvedValue(undefined),
     removeSingleSession: vi.fn().mockResolvedValue(undefined),
     queryTasks: vi.fn().mockImplementation(() => Promise.resolve({ tasks, total: tasks.length })),
+    loadSingleTask: vi.fn((id: string) => Promise.resolve(tasks.find((t) => t.id === id) ?? null)),
     getMetaValue: vi
       .fn()
       .mockImplementation((key: string) => Promise.resolve(metaStore[key] ?? null)),
@@ -325,6 +326,9 @@ describe('computeBriefing scope filtering', () => {
       upsertSingleSession: vi.fn().mockResolvedValue(undefined),
       removeSingleSession: vi.fn().mockResolvedValue(undefined),
       queryTasks: vi.fn().mockImplementation(() => Promise.resolve({ tasks, total: tasks.length })),
+      loadSingleTask: vi.fn((id: string) =>
+        Promise.resolve(tasks.find((t) => t.id === id) ?? null),
+      ),
       getMetaValue: vi
         .fn()
         .mockImplementation((key: string) => Promise.resolve(inlineMetaStore[key] ?? null)),
@@ -362,6 +366,9 @@ describe('computeBriefing scope filtering', () => {
     const mockAccessor = {
       loadSessions: vi.fn().mockResolvedValue([]),
       queryTasks: vi.fn().mockResolvedValue({ tasks, total: tasks.length }),
+      loadSingleTask: vi.fn((id: string) =>
+        Promise.resolve(tasks.find((t) => t.id === id) ?? null),
+      ),
       getMetaValue: vi
         .fn()
         .mockImplementation((key: string) => Promise.resolve(metaStore[key] ?? null)),

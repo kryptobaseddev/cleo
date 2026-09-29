@@ -43,6 +43,7 @@
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { acquireLock, type ReleaseFn } from './lock.js';
+import { mirrorCounterToBare } from './twin-collapse.js';
 
 /** Minimum interval between two `routine` snapshot starts of a prefix, per project. */
 export const SNAPSHOT_DEBOUNCE_MS = 5 * 60_000;
@@ -224,6 +225,8 @@ function writeGateState(db: DatabaseSync, state: SnapshotGateState): void {
     'INSERT INTO tasks_schema_meta (key, value) VALUES (?, ?) ' +
       'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
   ).run(SNAPSHOT_GATE_META_KEY, JSON.stringify(state));
+  // T12535: the older build reads the generation from the bare row; raise it too.
+  mirrorCounterToBare(db, SNAPSHOT_GATE_META_KEY);
 }
 
 /** Read the state, or `null` when there is no usable state store. */

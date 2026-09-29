@@ -37,6 +37,7 @@ function setupMockAccessor(
     upsertSingleSession: vi.fn().mockResolvedValue(undefined),
     removeSingleSession: vi.fn().mockResolvedValue(undefined),
     queryTasks: vi.fn().mockImplementation(() => Promise.resolve({ tasks, total: tasks.length })),
+    loadSingleTask: vi.fn((id: string) => Promise.resolve(tasks.find((t) => t.id === id) ?? null)),
     getMetaValue: vi.fn().mockImplementation((key: string) => Promise.resolve(meta[key] ?? null)),
     setMetaValue: vi.fn().mockImplementation((key: string, value: unknown) => {
       meta[key] = value;
