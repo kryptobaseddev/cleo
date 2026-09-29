@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.17.2
+version: 3.17.3
 protocol: null
 dependencies:
   - ct-spec-writer
@@ -16,7 +16,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.17.2
+  version: 3.17.3
   tier: core
   install: harness
   covers:
@@ -157,6 +157,7 @@ Before adding a new doc, ALWAYS ask: is this **a new doc**, **a change to an exi
 ### Examples
 
 - **"Fix a typo in ADR-076 saga-first-class"** - `cleo docs update adr-076-saga-first-class --file /tmp/fixed.md --message "fix typo in §2"` (canonical - T10161). NOT a new doc. NOT a supersession. Just patch in place; T10161 squashes patches within a 5-minute window so consecutive typo fixes don't bloat the audit log.
+- **"Accept a spec that review signed off"** - `cleo docs update <slug> --status accepted` (T12654). `--status` alone changes only the lifecycle status (draft, proposed, accepted, superseded, archived, deprecated); the stored bytes are kept, so there is no need to re-supply `--file` or `--content`. Any content edit without `--status` resets the doc to `draft`.
 
 - **"Replace the entire saga-orchestration model with v2" (ADVANCED)** - `cleo docs add T9999 v2.md --type adr --slug adr-080-saga-orchestration-v2` followed by `cleo docs supersede adr-073-above-epic-naming adr-080-saga-orchestration-v2 --reason "v2 canonicalizes the SG- prefix + 4-tier hierarchy"`. Both rows survive in the attachments table; readers see `lifecycle_status=superseded` on v1 and `supersedes=adr-073` on v2.
 
