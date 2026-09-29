@@ -9,7 +9,7 @@ metadata:
     - packages/cleo/src/cli/commands/session.ts
     - packages/cleo/src/cli/commands/focus.ts
     - packages/cleo/src/cli/commands/sticky.ts
-  lastReviewed: 2026-09-28
+  lastReviewed: 2026-09-29
   stability: stable
 ---
 
@@ -213,7 +213,7 @@ Dry-run creates no committed attestation; failed writes leave no committed recei
 
 Use `cleo show <id> --full` to inspect task fields before editing them. Compact
 records name every omitted field in `_withheld`, including empty or null values;
-the size is UTF-8 content bytes for strings and serialized JSON bytes otherwise.
+the size is UTF-8 content bytes for strings and serialized JSON bytes otherwise. A `list/*/field` key (`acRows/*/id`) names a field omitted from every element, summed.
 Repeated projection retains earlier omissions. A record without `_withheld` is
 complete at the record projection boundary; an envelope can separately report
 omitted records or fields. Never overwrite a field because a compact read omitted it.

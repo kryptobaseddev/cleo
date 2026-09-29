@@ -432,8 +432,12 @@ export interface OrchestrateBootstrapParams {
   speed?: 'fast' | 'full' | 'complete';
 }
 export interface BrainState {
-  /** Currently active session summary. @task T963 */
-  session?: { id: string; name: string; status: string; startedAt: string };
+  /**
+   * Session summary: the caller's bound session, else the newest active row.
+   * `unbound: true` marks the latter, which may be another agent's (T12500).
+   * @task T963
+   */
+  session?: { id: string; name: string; status: string; startedAt: string; unbound?: boolean };
   /** Current task context. @task T963 */
   currentTask?: { id: string; title: string; status: string };
   /** Suggested next task with score. @task T963 */

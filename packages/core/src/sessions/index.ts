@@ -25,10 +25,12 @@ import {
   bindCallingTerminal,
   requireOwnedSessionForEnd,
   resolveBoundSession,
+  sessionLastSeenMs,
 } from '../store/session-store.js';
 import { sessionsHoldingLiveClaims } from '../task-work/claims.js';
 import type { AgentSessionHandle } from './agent-session-adapter.js';
 import { closeAgentSession, openAgentSession } from './agent-session-adapter.js';
+import { writeFocusState } from './focus-state-store.js';
 import { resolveParentSessionIdFromEnv } from './session-id.js';
 
 // Auto-register hook handlers
@@ -189,6 +191,19 @@ export async function startSession(
 
   sessions.push(session);
   await accessor.upsertSingleSession(session);
+  // T12501: a fresh per-session focus key, so the start task is the session's
+  // focus under THE focus-key rule (as `sessionStart` in engine-ops does) —
+  // readers never take it from `taskWork`, and the session never adopts the
+  // legacy global focus.
+  await writeFocusState(accessor, session.id, {
+    currentTask: params.startTask ?? null,
+    currentPhase: null,
+    blockedUntil: null,
+    sessionNote: null,
+    sessionNotes: [],
+    nextAction: null,
+    primarySession: session.id,
+  });
   // T12500: the terminal that starts a session is bound to it, so the SDK's
   // `sessions.end()` from this terminal resolves THIS session.
   await bindCallingTerminal(session.id, projectRoot);
@@ -548,7 +563,9 @@ export async function listSessions(
 
 /**
  * Garbage collect old sessions.
- * Marks orphaned sessions that have been active too long.
+ * Marks orphaned the active sessions idle for longer than `maxAgeDays` —
+ * measured from `lastActivity`, else `startedAt` (T12540) — unless they hold
+ * a live claim lease (T12502). Removes ended/orphaned sessions older than 30 days.
  * Normalized Core signature: (projectRoot, params) → Result.
  * @task T1450
  */
@@ -568,9 +585,12 @@ export async function gcSessions(
   // session whose claim lease is still live renewed it within one lease
   // length (every mutation it makes is a heartbeat), so it is working, not
   // abandoned, however long ago it started.
+  // T12540 — idleness is measured from the session's last heartbeat
+  // (`lastActivity`, refreshed by every bound mutation), falling back to
+  // `startedAt` for a session that never beat.
   const staleCandidates = sessions
     .filter((s: Session) => s.status === 'active')
-    .filter((s: Session) => now - new Date(s.startedAt).getTime() > maxAgeMs)
+    .filter((s: Session) => now - sessionLastSeenMs(s) > maxAgeMs)
     .map((s: Session) => s.id);
   const working = await sessionsHoldingLiveClaims(
     projectRoot,
@@ -580,8 +600,8 @@ export async function gcSessions(
 
   for (const session of sessions) {
     if (session.status === 'active' && !working.has(session.id)) {
-      const age = now - new Date(session.startedAt).getTime();
-      if (age > maxAgeMs) {
+      const idleMs = now - sessionLastSeenMs(session);
+      if (idleMs > maxAgeMs) {
         session.status = 'orphaned';
         session.endedAt = new Date().toISOString();
         orphaned.push(session.id);
@@ -676,10 +696,13 @@ export type {
   LiveFocusAccessor,
 } from './focus-state-store.js';
 export {
+  focusSessionIdFromRead,
   focusStateKey,
   LEGACY_FOCUS_STATE_KEY,
   readFocusState,
   readLiveFocus,
+  releaseLegacyPointer,
+  resolveFocusSessionId,
   writeFocusState,
 } from './focus-state-store.js';
 export type {

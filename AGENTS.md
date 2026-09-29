@@ -77,7 +77,7 @@ Full rationale per gate: `cleo docs fetch arch-gates-rationale` (git mirror: `do
 | 13 | LLM Chokepoint Guard (T11783) | `scripts/lint-llm-chokepoint.mjs` | `scripts/.lint-llm-chokepoint-baseline.json` | LLM resolution and client/transport construction live only in the chokepoint (`resolveLLMForSystem`/`role-resolver.ts`/`api-mode.ts`/`model-runner.ts`/`transports/**`); opt-out `// llm-resolve-allowed: <reason>`. |
 | 14 | Injection Command Existence (T12069) | `scripts/lint-injection-commands.mjs` | inline (`RETIRED_COMMAND_ALLOWLIST`) | Every `cleo <verb> [<sub>]` in `packages/core/templates/CLEO-INJECTION.md` resolves against the CLI command manifest. |
 | 15 | Workflow Command Existence (T12093) | `scripts/lint-workflow-cleo-commands.mjs` | none (zero-tolerance) | Every `cleo <verb> [<sub>]` in a `run:` block of `.github/workflows/*.yml` or `packages/core/templates/workflows/*.yml.tmpl` resolves against the manifest. |
-| 16 | Bare `getActiveSession()` (T11640) | `scripts/lint-no-bare-get-active-session.mjs` | `scripts/.lint-no-bare-get-active-session-baseline.json` (4-callsite baseline, T12500) | No net-new bare `getActiveSession()` or inline newest-active selection — mutations use `resolveBoundSession`/`requireBoundSession`, reads `resolveSessionForRead` (opt-out `// get-active-session-allowed: <reason>`). |
+| 16 | Bare `getActiveSession()` (T11640) | `scripts/lint-no-bare-get-active-session.mjs` | `scripts/.lint-no-bare-get-active-session-baseline.json` (0-callsite baseline, T12500) | No net-new bare `getActiveSession()` or inline newest-active selection — mutations use `resolveBoundSession`/`requireBoundSession`, reads `resolveSessionForRead` (opt-out `// get-active-session-allowed: <reason>`). |
 | 17 | Per-domain DB singleton (T12041) | `scripts/lint-no-domain-db-singleton.mjs` | inline (8-violation baseline) | No net-new per-domain DB handle cache — bind through the `ProjectStore`/`GlobalStore` ports. |
 | 18 | Vitest memory safety (T12087) | `scripts/lint-vitest-memory-safe.mjs` | none (zero-tolerance) | Every `vitest.config.*` MUST spread `MEMORY_SAFE_TEST_DEFAULTS`. |
 | 19 | CLI startup barrel imports (T12076) | `scripts/lint-cli-startup-barrel-imports.mjs` | inline (106-import ratchet) | Repo-wide ratchet: static `@cleocode/core` barrel imports in the CLI may fall, never rise. |
@@ -213,7 +213,7 @@ This frontmatter is the metadata SSoT: gate 29 fails when `packages/skills/skill
 
 PR-gated pipeline. **NO direct pushes to `main`.** All PRs target `main` through GitHub Merge Queue.
 
-> Deliberate exception (T12152): branch protection sets `enforce_admins: false`, so a repo admin CAN merge without `CI` — the owner's intended escape hatch, not a vulnerability or evidence the pipeline is broken. Force-pushes and deletions stay blocked; `required_status_checks.strict: true`.
+> Deliberate exception (T12152): branch protection sets `enforce_admins: false`, so a repo admin CAN merge without `CI` — the owner's intended escape hatch, not a vulnerability or evidence the pipeline is broken. Force-pushes and deletions stay blocked; `required_status_checks.strict: false` (owner decision 2026-09-29): a PR merges once its own `CI` is green without re-running after every other merge, and main-push CI catches any break from combining PRs.
 
 **Verbs:** `plan` → `open` → `reconcile` (or `rollback`). The legacy `start`/`verify`/`publish` verbs were removed in T9540; the `ship` shim was deleted in T10103.
 
@@ -238,7 +238,7 @@ cleo release reconcile v2026.MM.N                # backfills provenance tables
 
 ```bash
 gh api -X PUT repos/:owner/:repo/branches/main/protection \
-  -f required_status_checks[strict]=true \
+  -f required_status_checks[strict]=false \
   -f required_status_checks[contexts][]=CI \
   -f required_status_checks[contexts][]="Lockfile Check" \
   -f required_status_checks[contexts][]="Contracts Dep Lint" \

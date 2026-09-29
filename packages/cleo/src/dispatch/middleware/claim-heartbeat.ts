@@ -1,11 +1,14 @@
 /**
- * Claim heartbeat middleware (T12502 · epic T12497).
+ * Session activity heartbeat middleware (T12502 · T12540 · epic T12497).
  *
- * A task claim is a lease: it lapses unless the holder keeps working. Every
- * successful MUTATION by a bound session is that session's activity, so after
- * one succeeds this middleware extends every lease the session holds. A
- * crashed or abandoned agent stops mutating, its leases expire, and another
- * session may then take the task over explicitly (`--take-over`).
+ * Every successful MUTATION by a bound session is that session's activity, so
+ * after one succeeds this middleware runs ONE heartbeat for the session: it
+ * refreshes the session's `lastActivity` (throttled to once a minute, T12540)
+ * and extends every claim lease the session holds (T12502). A task claim is a
+ * lease that lapses unless the holder keeps working; a crashed or abandoned
+ * agent stops mutating, its leases expire and its `lastActivity` goes stale,
+ * so liveness checks and `session gc` can tell it from a long-running agent
+ * that is still working.
  *
  * Reads never renew (a heartbeat is a write). A failed renewal never fails
  * the command it followed.
@@ -14,7 +17,7 @@
  * stuck behind another connection's lock blocks the event loop, so no timer
  * here can interrupt it. The real bound therefore lives in the store: the
  * renewal lowers `busy_timeout` to a few tens of milliseconds for its one
- * statement and skips the beat on `SQLITE_BUSY` (`renewSessionClaims`).
+ * statement and skips the beat on `SQLITE_BUSY` (`runHeartbeatWrite`).
  * The budget below only caps ASYNCHRONOUS waits (e.g. opening the store).
  *
  * @task T12502
@@ -33,7 +36,7 @@ export const CLAIM_HEARTBEAT_BUDGET_MS = 250;
 /**
  * Create the claim heartbeat.
  *
- * @param renew - Renews the session's leases in the request's project.
+ * @param renew - Runs the session's heartbeat (activity + leases) in the request's project.
  * @param budgetMs - Upper bound on how long the response waits for the renewal.
  * @returns A middleware that renews the caller's claim leases after a successful mutation.
  * @task T12502

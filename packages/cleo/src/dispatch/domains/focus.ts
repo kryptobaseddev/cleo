@@ -502,7 +502,7 @@ async function buildFocusEnvelope(
     ...(brainContext != null ? { brainContext } : {}),
     blockers,
     ...(readyWave != null ? { readyWave } : {}),
-    knowledgeHealth: compactKnowledgeHealth(knowledge.health),
+    knowledgeHealth: compactKnowledgeHealth(knowledge.health, '/coverage'),
     sourceDiagnostics,
     ...(members != null ? { members } : {}),
     ...(attachedDocs != null ? { attachedDocs } : {}),

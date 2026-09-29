@@ -1704,8 +1704,9 @@ export async function addTask(
       await dataAccessor.shiftPositions(parentId, options.position, 1);
     }
 
-    // Insert the new task
-    await tx.upsertSingleTask(task);
+    // Insert the new task. Never an upsert: an id collision must fail loudly
+    // with ID_COLLISION, not overwrite a different task (T12724).
+    await tx.insertNewTask(task);
 
     // T10508 — DUAL WRITE: also persist AC rows into the new
     // task_acceptance_criteria table (T10502). The legacy

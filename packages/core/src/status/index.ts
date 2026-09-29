@@ -385,10 +385,31 @@ async function buildSessionBlock(projectRoot: string): Promise<CleoStatus['sessi
     return {
       active: true,
       sessionId: active.id,
-      focusedTask: active.taskWork?.taskId ?? null,
+      focusedTask: await readCallerFocus(projectRoot),
     };
   } catch {
     return { active: false, sessionId: null, focusedTask: null };
+  }
+}
+
+/**
+ * The caller's live focused task (T12501): THE focus-key rule plus the
+ * done-task filter. Never the session row's `taskWork`, which is set at
+ * start/spawn, never updated, and skips the filter (T12684). `null` when the
+ * focus cannot be read.
+ *
+ * @internal
+ */
+async function readCallerFocus(projectRoot: string): Promise<string | null> {
+  try {
+    const [{ getTaskAccessor }, { readLiveFocus, resolveFocusSessionId }] = await Promise.all([
+      import('../store/data-accessor.js'),
+      import('../sessions/focus-state-store.js'),
+    ]);
+    const acc = await getTaskAccessor(projectRoot);
+    return (await readLiveFocus(acc, await resolveFocusSessionId(projectRoot))).currentTask;
+  } catch {
+    return null;
   }
 }
 

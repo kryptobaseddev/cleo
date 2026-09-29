@@ -213,7 +213,7 @@ describe('a blocked backups directory', () => {
     });
 
     rmSync(backups);
-    const receipts = await retryTwinCollapse(projectDir);
+    const receipts = await retryTwinCollapse(projectDir, { cwd: projectDir });
     expect(receipts[0]).toMatchObject({ table: 'schema_meta', status: 'initial' });
     expect(await storeWriteBlock(projectDir)).toBeNull();
     // After the retry, SDK writes land in the twin.
@@ -236,6 +236,42 @@ describe('a blocked backups directory', () => {
   });
 });
 
+describe('the degraded sticky shadow follows tags_json', () => {
+  it('recomputes the TEMP junction from each note tags_json, not from the merge plan alone (T12724)', async () => {
+    // The bare junction and the note's tags_json disagree: the merge plan
+    // carries the bare tag, but tags_json (the one value both builds write)
+    // says otherwise, so the shadow junction must be recomputed from it.
+    const note = await addSticky({ content: 'n', tags: [] }, projectDir);
+    const brain = getNativeDb(projectDir) as DatabaseSync;
+    brain
+      .prepare('DELETE FROM main.brain_schema_meta WHERE key = ?')
+      .run(`${TWIN_COLLAPSE_MARKER_PREFIX}sticky_tags`);
+    brain
+      .prepare('INSERT INTO main.sticky_tags (sticky_id, tag) VALUES (?, ?)')
+      .run(note.id, 'bare-stale');
+    brain
+      .prepare('UPDATE main.brain_sticky_notes SET tags_json = ? WHERE id = ?')
+      .run('["from-json"]', note.id);
+    writeFileSync(join(projectDir, '.cleo', 'backups'), 'not a directory');
+
+    expect(await reopen()).toBeUndefined();
+    await getBrainDb(projectDir);
+    const db = getNativeDb(projectDir) as DatabaseSync;
+    expect(await storeWriteBlock(projectDir)).toMatchObject({ code: 55 }); // degraded
+    expect(
+      db.prepare('SELECT tag FROM temp.brain_sticky_tags WHERE sticky_id = ?').all(note.id),
+    ).toEqual([{ tag: 'from-json' }]);
+    expect((await listStickies({ tags: ['from-json'] }, projectDir)).map((n) => n.id)).toEqual([
+      note.id,
+    ]);
+    expect(await listStickies({ tags: ['bare-stale'] }, projectDir)).toEqual([]);
+    // main is untouched while degraded.
+    expect(
+      db.prepare('SELECT tag FROM main.brain_sticky_tags WHERE sticky_id = ?').all(note.id),
+    ).toEqual([]);
+  });
+});
+
 describe('not enough free space', () => {
   it('fails BEFORE writing the snapshot, names the space needed, reads stay available, retry succeeds once space is free', async () => {
     vi.mocked(fs.statfsSync).mockImplementation(
@@ -254,7 +290,7 @@ describe('not enough free space', () => {
     expect(twinCollapseDoctorCheck(projectDir).status).toBe('error');
 
     vi.mocked(fs.statfsSync).mockRestore();
-    expect((await retryTwinCollapse(projectDir))[0]?.status).toBe('initial');
+    expect((await retryTwinCollapse(projectDir, { cwd: projectDir }))[0]?.status).toBe('initial');
     expect(await storeWriteBlock(projectDir)).toBeNull();
     expect(twinCollapseDoctorCheck(projectDir).status).toBe('ok');
   });
