@@ -1483,7 +1483,7 @@ async function clearFinishedFocus(
       cleared += (await clearFocusForFinishedTask(accessor, sessions, taskId)).length;
     if (cleared === 0) return { focusCleared: false };
     const { coreTaskNext } = await import('./task-next.js');
-    const top = (await coreTaskNext(projectRoot, { count: 1 })).suggestions[0];
+    const top = (await coreTaskNext(projectRoot, { count: 1, brain: false })).suggestions[0];
     return { focusCleared: true, nextSuggested: top ? { id: top.id, title: top.title } : null };
   } catch (err) {
     getLogger('tasks:complete').warn(

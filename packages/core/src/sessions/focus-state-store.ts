@@ -41,6 +41,14 @@ export const LEGACY_FOCUS_STATE_KEY = 'focus_state' as const;
 export interface FocusStateMetaAccessor {
   getMetaValue<T>(key: string): Promise<T | null>;
   setMetaValue(key: string, value: unknown): Promise<void>;
+  /**
+   * Run a read-modify-write atomically (the store's write transaction). When
+   * present, {@link clearFocusForFinishedTask} compares and clears each key
+   * inside it, so a concurrent focus write is never overwritten (T12689).
+   */
+  transaction?<T>(
+    fn: (tx: { setMetaValue(key: string, value: unknown): Promise<void> }) => Promise<T>,
+  ): Promise<T>;
 }
 
 /**
@@ -135,10 +143,18 @@ export async function clearFocusForFinishedTask(
   for (const id of sessionIds) if (id) keys.add(focusStateKey(id));
   const cleared: string[] = [];
   for (const key of keys) {
-    const state = await accessor.getMetaValue<TaskWorkState>(key);
-    if (state?.currentTask !== taskId) continue;
-    await accessor.setMetaValue(key, { ...state, currentTask: null });
-    cleared.push(key);
+    // T12689: compare-and-clear in one transaction when the store offers one —
+    // a pointer another session re-set between the read and the write stays.
+    const clearOne = async (set: (k: string, v: unknown) => Promise<void>): Promise<boolean> => {
+      const state = await accessor.getMetaValue<TaskWorkState>(key);
+      if (state?.currentTask !== taskId) return false;
+      await set(key, { ...state, currentTask: null });
+      return true;
+    };
+    const done = accessor.transaction
+      ? await accessor.transaction((tx) => clearOne((k, v) => tx.setMetaValue(k, v)))
+      : await clearOne((k, v) => accessor.setMetaValue(k, v));
+    if (done) cleared.push(key);
   }
   return cleared;
 }

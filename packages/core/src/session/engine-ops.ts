@@ -373,7 +373,8 @@ export async function taskCurrentGet(projectRoot: string): Promise<
     // T12660: a done/cancelled/missing pointer is reported as stale, with the
     // next ready task in its place — never as the current task.
     const { coreTaskNext } = await import('../tasks/task-next.js');
-    const top = (await coreTaskNext(projectRoot, { count: 1 })).suggestions[0];
+    // T12689: a one-line hint — no brain pattern scoring for `cleo current`.
+    const top = (await coreTaskNext(projectRoot, { count: 1, brain: false })).suggestions[0];
     const nextSuggested = top ? { id: top.id, title: top.title } : null;
     pushWarning({
       code: 'W_STALE_FOCUS',
