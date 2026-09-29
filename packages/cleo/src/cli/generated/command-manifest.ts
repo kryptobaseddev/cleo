@@ -452,6 +452,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
       (await import('../commands/doctor-malformed-ids.js')).doctorMalformedIdsCommand as CommandDef,
   },
   {
+    exportName: 'doctorManifestRowsCommand',
+    name: 'manifest-rows',
+    description:
+      'List manifest rows whose metadata violates the stored field contract. --repair moves each ',
+    load: async () =>
+      (await import('../commands/doctor-manifest-rows.js')).doctorManifestRowsCommand as CommandDef,
+  },
+  {
     exportName: 'doctorMemoryGuardCommand',
     name: 'memory-guard',
     description:
