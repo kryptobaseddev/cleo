@@ -213,7 +213,7 @@ describe('a blocked backups directory', () => {
     });
 
     rmSync(backups);
-    const receipts = await retryTwinCollapse(projectDir);
+    const receipts = await retryTwinCollapse(projectDir, { cwd: projectDir });
     expect(receipts[0]).toMatchObject({ table: 'schema_meta', status: 'initial' });
     expect(await storeWriteBlock(projectDir)).toBeNull();
     // After the retry, SDK writes land in the twin.
@@ -254,7 +254,7 @@ describe('not enough free space', () => {
     expect(twinCollapseDoctorCheck(projectDir).status).toBe('error');
 
     vi.mocked(fs.statfsSync).mockRestore();
-    expect((await retryTwinCollapse(projectDir))[0]?.status).toBe('initial');
+    expect((await retryTwinCollapse(projectDir, { cwd: projectDir }))[0]?.status).toBe('initial');
     expect(await storeWriteBlock(projectDir)).toBeNull();
     expect(twinCollapseDoctorCheck(projectDir).status).toBe('ok');
   });

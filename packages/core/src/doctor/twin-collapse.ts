@@ -46,12 +46,19 @@ import {
   applyTwinCollapseRecovery,
   collapseTwinTables,
   inspectTwinCollapse,
+  missingSnapshot,
   planTwinCollapseRecovery,
+  rollbackTwinCollapseRecovery,
   type TwinCollapseReceipt,
   type TwinCollapseRecoveryPlan,
   type TwinCollapseRecoveryReceipt,
+  type TwinCollapseRecoveryRollback,
   type TwinCollapseStatus,
 } from '../store/twin-collapse.js';
+import {
+  assertOwnerStoreRewriteConfirmed,
+  type OwnerStoreRewriteOptions,
+} from '../store/worktree-isolation-guard.js';
 
 /** Preflight of the snapshot a pending initial collapse needs. */
 export interface TwinCollapsePreflight {
@@ -139,7 +146,15 @@ export function inspectProjectTwinCollapse(projectRoot: string): TwinCollapseRep
  * @throws {CleoError} `E_TWIN_COLLAPSE_FAILED` when it fails again.
  * @task T12535
  */
-export async function retryTwinCollapse(projectRoot: string): Promise<TwinCollapseReceipt[]> {
+export async function retryTwinCollapse(
+  projectRoot: string,
+  options: OwnerStoreRewriteOptions,
+): Promise<TwinCollapseReceipt[]> {
+  assertOwnerStoreRewriteConfirmed(
+    'doctor twin-collapse --retry',
+    resolveDualScopeDbPath('project', projectRoot),
+    options,
+  );
   const handle = await openDualScopeDb('project', projectRoot);
   return collapseTwinTables(getDualScopeNativeDb(handle), handle.dbPath);
 }
@@ -150,10 +165,29 @@ export interface TwinCollapseRecoveryResult {
   readonly dbPath: string;
   /** `true`: only planned, nothing written. */
   readonly dryRun: boolean;
-  /** What the snapshot holds that the live store lacks. */
+  /** What the snapshot holds that the live store lacks (for an apply: what was applied). */
   readonly plan: TwinCollapseRecoveryPlan;
   /** The receipt of this apply, or `null` (dry run, or nothing to recover). */
   readonly receipt: TwinCollapseRecoveryReceipt | null;
+}
+
+/** Options of {@link recoverTwinCollapse} and {@link rollbackTwinCollapse}. */
+export interface TwinCollapseRecoveryOptions extends OwnerStoreRewriteOptions {
+  /** Plan only; the live store is opened read-only. */
+  readonly dryRun?: boolean;
+}
+
+/** Open the live store's snapshot read-only around `fn`; `null` when none is recorded. */
+function withRecoverySnapshot<T>(live: DatabaseSync, fn: (plan: TwinCollapseRecoveryPlan) => T): T {
+  const probe = planTwinCollapseRecovery(live, null);
+  if (probe.snapshot === null) return fn(probe); // never collapsed: nothing to recover
+  if (!existsSync(probe.snapshot)) throw missingSnapshot(probe.snapshot);
+  const snap = openCleoDbSnapshot(probe.snapshot, { readOnly: true, applyPragmas: false });
+  try {
+    return fn(planTwinCollapseRecovery(live, snap.db));
+  } finally {
+    snap.close();
+  }
 }
 
 /**
@@ -163,51 +197,65 @@ export interface TwinCollapseRecoveryResult {
  * Reads the pre-collapse snapshot recorded in the `schema_meta` marker
  * READ-ONLY (it is never modified) and restores every dropped or replaced twin
  * value into `twin_collapse_archive:*`, merging the `focus_state` session
- * notes into the live value (see `planTwinCollapseRecovery`). A dry run opens
- * the live store read-only and writes nothing. An apply writes in one
- * transaction and records a receipt; a second apply finds nothing to do. A
- * missing snapshot is reported and nothing is written. No network.
+ * notes into the live value once (see `planTwinCollapseRecovery`). A dry run
+ * opens the live store read-only and writes nothing. An apply re-plans under
+ * the write lock, writes in one transaction and records a receipt that
+ * `--rollback` undoes; a second apply finds nothing to do. A store never
+ * collapsed has nothing to recover. No network.
  *
  * @param projectRoot - Project directory.
- * @param options - `dryRun`: plan only.
+ * @param options - `cwd` the command runs from (a worktree needs
+ *   `confirmOwnerStore` to write the owner's store), `dryRun`.
  * @returns The plan and, for an apply, the receipt.
- * @throws {Error} When the store is missing, or (apply) when the snapshot is missing.
+ * @throws {CleoError} `E_TWIN_COLLAPSE_RECOVER` when the recorded snapshot is
+ *   missing, and the owner-store guard's errors; nothing is written.
  * @task T12727
  */
 export async function recoverTwinCollapse(
   projectRoot: string,
-  options: { readonly dryRun?: boolean } = {},
+  options: TwinCollapseRecoveryOptions,
 ): Promise<TwinCollapseRecoveryResult> {
   const dryRun = options.dryRun === true;
   const dbPath = resolveDualScopeDbPath('project', projectRoot);
   if (!existsSync(dbPath)) throw new Error(`no project store at ${dbPath}`);
-  const withSnapshot = <T>(live: DatabaseSync, fn: (plan: TwinCollapseRecoveryPlan) => T): T => {
-    const probe = planTwinCollapseRecovery(live, null);
-    const snapshotPath = probe.snapshot;
-    if (snapshotPath === null || !existsSync(snapshotPath)) return fn(probe);
-    const snap = openCleoDbSnapshot(snapshotPath, { readOnly: true, applyPragmas: false });
-    try {
-      return fn(planTwinCollapseRecovery(live, snap.db));
-    } finally {
-      snap.close();
-    }
-  };
   if (dryRun) {
     const live = openCleoDbSnapshot(dbPath, { readOnly: true });
     try {
-      return withSnapshot(live.db, (plan) => ({ dbPath, dryRun, plan, receipt: null }));
+      return withRecoverySnapshot(live.db, (plan) => ({ dbPath, dryRun, plan, receipt: null }));
     } finally {
       live.close();
     }
   }
+  assertOwnerStoreRewriteConfirmed('doctor twin-collapse --recover', dbPath, options);
   const handle = await openDualScopeDb('project', projectRoot);
   const live = getDualScopeNativeDb(handle);
-  return withSnapshot(live, (plan) => ({
+  return withRecoverySnapshot(live, (preview) => ({
     dbPath,
     dryRun,
-    plan,
-    receipt: applyTwinCollapseRecovery(live, plan),
+    ...applyTwinCollapseRecovery(live, preview),
   }));
+}
+
+/**
+ * Undo one recovery apply: `cleo doctor twin-collapse --rollback <receiptId>`
+ * (see `rollbackTwinCollapseRecovery`). The snapshot is not needed.
+ *
+ * @param projectRoot - Project directory.
+ * @param id - The receipt key (`twin_collapse_recovery:<recoveredAt>`).
+ * @param options - `cwd` and `confirmOwnerStore`, as for {@link recoverTwinCollapse}.
+ * @returns What was undone.
+ * @task T12727
+ */
+export async function rollbackTwinCollapse(
+  projectRoot: string,
+  id: string,
+  options: OwnerStoreRewriteOptions,
+): Promise<TwinCollapseRecoveryRollback> {
+  const dbPath = resolveDualScopeDbPath('project', projectRoot);
+  if (!existsSync(dbPath)) throw new Error(`no project store at ${dbPath}`);
+  assertOwnerStoreRewriteConfirmed('doctor twin-collapse --rollback', dbPath, options);
+  const handle = await openDualScopeDb('project', projectRoot);
+  return rollbackTwinCollapseRecovery(getDualScopeNativeDb(handle), id);
 }
 
 /** One row of the default `cleo doctor` report (the `DoctorCheck` shape). */

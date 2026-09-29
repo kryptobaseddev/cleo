@@ -18,6 +18,7 @@ import {
   inspectProjectTwinCollapse,
   recoverTwinCollapse,
   retryTwinCollapse,
+  rollbackTwinCollapse,
 } from '@cleocode/core/doctor/twin-collapse.js';
 import { CleoError } from '@cleocode/core/errors';
 import { getProjectRoot } from '@cleocode/core/paths.js';
@@ -52,51 +53,54 @@ export const doctorTwinCollapseCommand = defineCommand({
       type: 'boolean',
       description: 'With --recover: print the plan, write nothing',
     },
+    rollback: {
+      type: 'string',
+      description:
+        'Undo one --recover apply by its receipt id (twin_collapse_recovery:<recoveredAt>)',
+    },
+    'confirm-owner-store': {
+      type: 'boolean',
+      description:
+        "From a git worktree: allow --recover, --rollback or --retry to write the owning project's live store",
+    },
     json: { type: 'boolean', description: 'Output as JSON' },
     human: { type: 'boolean', description: 'Force human-readable output' },
     quiet: { type: 'boolean', description: 'Suppress non-essential output' },
   },
   async run({ args }) {
     const projectRoot = getProjectRoot();
-    if (args.recover === true) {
-      try {
+    // T12708: the invocation directory; core never falls back to it.
+    const guard = { cwd: process.cwd(), confirmOwnerStore: args['confirm-owner-store'] === true };
+    try {
+      if (typeof args.rollback === 'string' && args.rollback.length > 0) {
+        const result = await rollbackTwinCollapse(projectRoot, args.rollback, guard);
+        cliOutput(
+          { kind: 'generic', ...result },
+          { command: 'doctor', operation: 'doctor.twin-collapse.rollback' },
+        );
+        return;
+      }
+      if (args.recover === true) {
         const result = await recoverTwinCollapse(projectRoot, {
+          ...guard,
           dryRun: args['dry-run'] === true,
         });
         cliOutput(
           { kind: 'generic', ...result },
           { command: 'doctor', operation: 'doctor.twin-collapse.recover' },
         );
-        if (!result.plan.snapshotExists) process.exitCode = 1;
-      } catch (error) {
-        cliError(
-          error instanceof Error ? error.message : String(error),
-          'E_TWIN_COLLAPSE_RECOVER',
-          {
-            name: 'Error',
-            fix: 'cleo doctor twin-collapse --recover --dry-run  # shows the snapshot path and plan',
-          },
-        );
-        process.exitCode = 1;
+        return;
       }
-      return;
-    }
-    if (args.retry === true) {
-      try {
-        const receipts = await retryTwinCollapse(projectRoot);
+      if (args.retry === true) {
+        const receipts = await retryTwinCollapse(projectRoot, guard);
         cliOutput(
           { kind: 'generic', receipts },
           { command: 'doctor', operation: 'doctor.twin-collapse.retry' },
         );
-      } catch (error) {
-        if (!(error instanceof CleoError)) throw error;
-        cliError(error.message, 'E_TWIN_COLLAPSE_FAILED', {
-          name: 'CleoError',
-          fix: error.fix,
-          details: error.details,
-        });
-        process.exitCode = error.code;
+        return;
       }
+    } catch (error) {
+      reportTwinCollapseError(error, args.retry === true);
       return;
     }
     const report = inspectProjectTwinCollapse(projectRoot);
@@ -107,3 +111,21 @@ export const doctorTwinCollapseCommand = defineCommand({
     }
   },
 });
+
+/**
+ * Render a failed `--recover` / `--rollback` / `--retry`: the error code the
+ * message names (`E_…:` prefix), else `E_TWIN_COLLAPSE_FAILED` for `--retry`
+ * and `E_TWIN_COLLAPSE_RECOVER` otherwise.
+ */
+function reportTwinCollapseError(error: unknown, retry: boolean): void {
+  if (retry && !(error instanceof CleoError)) throw error;
+  const message = error instanceof Error ? error.message : String(error);
+  const named = /^(E_[A-Z_]+):/.exec(message)?.[1];
+  const code = named ?? (retry ? 'E_TWIN_COLLAPSE_FAILED' : 'E_TWIN_COLLAPSE_RECOVER');
+  cliError(message, code, {
+    name: error instanceof CleoError ? 'CleoError' : 'Error',
+    fix: error instanceof CleoError ? error.fix : undefined,
+    details: error instanceof CleoError ? error.details : undefined,
+  });
+  process.exitCode = error instanceof CleoError ? error.code : 1;
+}
