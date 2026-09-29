@@ -24,6 +24,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   BUNDLED_LEDGER_FILE,
+  listQuarantines,
   type PruneLockEntry,
   type PruneRegistry,
   pruneBundledSkills,
@@ -184,7 +185,8 @@ describe('pruneBundledSkills — CLEO-owned, unmodified', () => {
     expect(locks.get('ct-grade')?.source).toBe('library:ct-grade');
     expect(rows.get('ct-grade')?.lifecycleState).toBe('active');
     const ledger = JSON.parse(readFileSync(join(skillsRoot, BUNDLED_LEDGER_FILE), 'utf8'));
-    expect(Object.keys(ledger.skills)).toContain('ct-grade');
+    expect(ledger.kept).toEqual(['ct-grade']);
+    expect(Object.keys(ledger.skills)).not.toContain('ct-grade');
   });
 
   it('restore reports a conflict instead of overwriting a re-created path', async () => {
@@ -199,6 +201,78 @@ describe('pruneBundledSkills — CLEO-owned, unmodified', () => {
     });
     expect(restored.conflicts).toEqual([join(skillsRoot, 'ct-grade')]);
     expect(readFileSync(join(skillsRoot, 'ct-grade', 'SKILL.md'), 'utf8')).toContain('new');
+  });
+});
+
+describe('restoreQuarantine — review of the #1660 fix', () => {
+  it('a conflicting restore leaves the lock entry and skills.db row of the reinstall alone', async () => {
+    await cleoInstall('ct-grade');
+    locks.set('ct-grade', { source: 'library:ct-grade', sourceType: 'library' });
+    rows.set('ct-grade', { sourceType: 'canonical', lifecycleState: 'active' });
+    const receipt = await run();
+    // The user reinstalls from their own source after the prune.
+    skillDir(join(skillsRoot, 'ct-grade'), 'ct-grade', 'mine\n');
+    locks.set('ct-grade', { source: 'github:me/ct-grade', sourceType: 'github' });
+    rows.set('ct-grade', { sourceType: 'github', lifecycleState: 'active' });
+
+    const restored = await restoreQuarantine({
+      quarantineRoot,
+      id: receipt.quarantineId ?? '',
+      skillsRoot,
+      registry,
+    });
+    expect(restored.conflicts).toEqual([join(skillsRoot, 'ct-grade')]);
+    expect(locks.get('ct-grade')?.source).toBe('github:me/ct-grade');
+    expect(rows.get('ct-grade')).toEqual({ sourceType: 'github', lifecycleState: 'active' });
+  });
+
+  it('a clean restore sticks: the next prune keeps the restored skill', async () => {
+    await cleoInstall('ct-grade');
+    const receipt = await run();
+    await restoreQuarantine({
+      quarantineRoot,
+      id: receipt.quarantineId ?? '',
+      skillsRoot,
+      registry,
+    });
+    const again = await run();
+    expect(again.quarantineId).toBeNull();
+    expect(existsSync(join(skillsRoot, 'ct-grade', 'SKILL.md'))).toBe(true);
+    expect(present(join(claude, 'ct-grade'))).toBe(true);
+    expect(again.actions.every((a) => a.action === 'kept')).toBe(true);
+  });
+
+  it('a crash mid-run still leaves a quarantine record for every moved path', async () => {
+    await cleoInstall('ct-grade');
+    locks.set('ct-grade', { source: 'library:ct-grade', sourceType: 'library' });
+    const crashing: PruneRegistry = {
+      ...registry,
+      async removeLockEntry() {
+        throw new Error('simulated crash');
+      },
+    };
+    await expect(
+      pruneBundledSkills({
+        bundledSkillsDir: bundled,
+        skillsRoot,
+        providerSkillDirs: [claude],
+        registry: crashing,
+        quarantineRoot,
+      }),
+    ).rejects.toThrow('simulated crash');
+    // Both paths already moved; the record on disk must say so.
+    expect(existsSync(join(skillsRoot, 'ct-grade'))).toBe(false);
+    const ids = listQuarantines(quarantineRoot);
+    expect(ids).toHaveLength(1);
+    const restored = await restoreQuarantine({
+      quarantineRoot,
+      id: ids[0] ?? '',
+      skillsRoot,
+      registry,
+    });
+    expect(restored.conflicts).toEqual([]);
+    expect(existsSync(join(skillsRoot, 'ct-grade', 'SKILL.md'))).toBe(true);
+    expect(present(join(claude, 'ct-grade'))).toBe(true);
   });
 });
 
