@@ -1,7 +1,7 @@
 ---
 name: ct-research-agent
 description: Multi-source research and investigation combining web search, documentation lookup via Context7, and codebase analysis. Synthesizes findings into actionable recommendations with proper citation and task traceability. Use when conducting research, investigating best practices, gathering technical information, or analyzing existing implementations. Triggers on research tasks, investigation needs, or information discovery requests.
-version: 2.0.3
+version: 2.0.4
 protocol: research
 adrRefs:
   - ADR-023
@@ -17,7 +17,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.0.3
+  version: 2.0.4
   tier: on-demand
   install: harness
   covers:
@@ -76,7 +76,7 @@ Context injection for research and investigation tasks spawned via cleo-subagent
 1. Read task: `{{TASK_SHOW_CMD}} {{TASK_ID}}`
 2. Focus already set by orchestrator (skip if working standalone, set if needed)
 3. Conduct research (see Methodology below)
-4. Write output: `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`
+4. Record output: `cleo docs add {{TASK_ID}} --content - --type research --slug {{TOPIC_SLUG}}`
 5. Record the manifest entry: `cleo manifest append --task {{TASK_ID}} --type research --content "<one-paragraph summary>"`
 6. Complete task: `{{TASK_COMPLETE_CMD}} {{TASK_ID}}`
 7. Return summary message
@@ -115,7 +115,7 @@ Context injection for research and investigation tasks spawned via cleo-subagent
 
 ### Output Requirements
 
-1. MUST write findings to: `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`
+1. MUST record findings with `cleo docs add {{TASK_ID}} --content - --type research --slug {{TOPIC_SLUG}}` (never a raw file under `.cleo/agent-outputs/`)
 2. MUST record ONE manifest entry: `cleo manifest append --entry '<entry JSON>'` (the flat manifest file is retired, ADR-027)
 3. MUST return ONLY: "Research complete. Manifest appended to pipeline_manifest."
 4. MUST NOT return research content in response
@@ -124,7 +124,7 @@ Context injection for research and investigation tasks spawned via cleo-subagent
 
 ## Output File Format
 
-Write to `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`:
+Record it with `cleo docs add {{TASK_ID}} --content - --type research --slug {{TOPIC_SLUG}}`, using this body:
 
 ```markdown
 # {{RESEARCH_TITLE}}
@@ -187,7 +187,7 @@ Append ONE entry via `cleo manifest append --entry '<json>'` (writes to pipeline
 - [ ] Task details read via `{{TASK_SHOW_CMD}}`
 - [ ] Research conducted across multiple sources
 - [ ] Findings synthesized with recommendations
-- [ ] Output file written to `{{OUTPUT_DIR}}/`
+- [ ] Output recorded with `cleo docs add` (slug in the return message)
 - [ ] Manifest entry appended (single line, valid JSON)
 - [ ] Task completed via `{{TASK_COMPLETE_CMD}}`
 - [ ] Response is ONLY the summary message

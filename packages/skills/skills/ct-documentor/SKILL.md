@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.17.1
+version: 3.17.2
 protocol: null
 dependencies:
   - ct-spec-writer
@@ -16,7 +16,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.17.1
+  version: 3.17.2
   tier: core
   install: harness
   covers:
@@ -870,14 +870,14 @@ cleo research link {TASK_ID} {RESEARCH_ID}
 
 ### Output Requirements
 
-1. MUST write documentation output to: `{{OUTPUT_DIR}}/`
+1. MUST record documentation output with `cleo docs add {{TASK_ID}} --content - --type <kind> --slug {{TOPIC_SLUG}}` (never a raw file under `.cleo/agent-outputs/`)
 2. MUST record ONE manifest entry: `cleo manifest append --entry '<entry JSON>'` (the flat manifest file is retired, ADR-027)
 3. MUST return ONLY: "Documentation complete. Manifest appended to pipeline_manifest."
 4. MUST NOT return documentation content in response
 
 ### Output File Format
 
-Write to `{{OUTPUT_DIR}}/`:
+Record it with `cleo docs add {{TASK_ID}} --content - --type <kind> --slug {{TOPIC_SLUG}}`, using this body:
 
 ```markdown
 # Documentation Update: {TITLE}
