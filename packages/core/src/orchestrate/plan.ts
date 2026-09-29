@@ -22,6 +22,7 @@ import {
 } from '../store/agent-registry-store.js';
 import { AgentNotFoundError, resolveAgent } from '../store/agent-resolver.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { installSchemaWriteGuard } from '../store/worktree-build-guard.js';
 import { loadTasks } from './query-ops.js';
 
 // ---------------------------------------------------------------------------
@@ -247,6 +248,7 @@ export async function openAgentRegistryDbForComposer(): Promise<_AgentRegistryDb
   await ensureGlobalAgentRegistryDb();
   const dbPath = getGlobalAgentRegistryDbPath();
   const db = new _DatabaseSyncCtor(dbPath);
+  installSchemaWriteGuard(db); // T12687
   db.exec('PRAGMA foreign_keys = ON');
   return db;
 }
@@ -331,6 +333,7 @@ export async function orchestratePlan(
     await ensureGlobalAgentRegistryDb();
     const dbPath = getGlobalAgentRegistryDbPath();
     const db = new _DatabaseSyncCtor(dbPath);
+    installSchemaWriteGuard(db); // T12687
     db.exec('PRAGMA foreign_keys = ON');
 
     const warnings: PlanWarning[] = [];

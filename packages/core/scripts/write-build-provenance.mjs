@@ -13,7 +13,8 @@
  *
  * `linkedWorktree` is the worktree's top-level directory when the git dir and
  * the common git dir differ (a linked worktree), else null — a main checkout or
- * a CI clone, which is how released packages are built.
+ * a CI clone, which is how released packages are built. It is omitted when git
+ * cannot tell, so the runtime falls back to the build's path.
  *
  * @module write-build-provenance
  * @task T12687
@@ -36,15 +37,15 @@ function git(...args) {
 
 const gitDir = git('rev-parse', '--path-format=absolute', '--git-dir');
 const commonDir = git('rev-parse', '--path-format=absolute', '--git-common-dir');
-const linkedWorktree =
-  gitDir && commonDir && resolve(gitDir) !== resolve(commonDir) ? git('rev-parse', '--show-toplevel') : null;
 
-const stamp = {
-  schema: 1,
-  linkedWorktree,
-  gitHead: git('rev-parse', 'HEAD'),
-  builtAt: new Date().toISOString(),
-};
+// Fail closed: when git cannot answer (no git, git < 2.31 without
+// --path-format, safe.directory refusal), OMIT linkedWorktree. The runtime
+// then decides from the build's path instead of trusting a guessed null.
+const stamp = { schema: 1, gitHead: git('rev-parse', 'HEAD'), builtAt: new Date().toISOString() };
+if (gitDir && commonDir) {
+  stamp.linkedWorktree =
+    resolve(gitDir) !== resolve(commonDir) ? git('rev-parse', '--show-toplevel') : null;
+}
 
 const out = resolve(packageRoot, 'dist', 'build-provenance.json');
 mkdirSync(dirname(out), { recursive: true });

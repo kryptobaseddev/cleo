@@ -59,7 +59,10 @@ export const ALLOW_WORKTREE_BUILD_MIGRATIONS_ENV = 'CLEO_ALLOW_WORKTREE_BUILD_MI
 /**
  * File the test harness (`vitest.setup.ts`) writes at the root of each fork's
  * sandbox. A store below it is a fixture — including one opened by a CLI child
- * process the test spawned, which does not inherit `VITEST`.
+ * process the test spawned: such a child carries `VITEST` only when the test
+ * passes its own environment through, and many build an explicit `env`.
+ * A marker inside a git checkout is ignored: the sandbox is never in one, so a
+ * marker there was committed or planted in a real project.
  */
 export const TEST_SANDBOX_MARKER = '.cleo-test-sandbox';
 
@@ -68,7 +71,11 @@ export const E_WORKTREE_BUILD_SCHEMA = 'E_WORKTREE_BUILD_SCHEMA';
 
 /** Build stamp written by `scripts/write-build-provenance.mjs`. */
 export interface BuildProvenance {
-  /** Linked worktree the build was made in, or null (main checkout / CI clone). */
+  /**
+   * Linked worktree the build was made in, or null (main checkout / CI clone).
+   * Absent when git could not tell at build time — the guard then decides from
+   * the build's path instead of trusting the stamp.
+   */
   linkedWorktree: string | null;
 }
 
@@ -114,11 +121,25 @@ function isWithin(root: string, path: string): boolean {
   return local === '' || (!isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`));
 }
 
-/** Whether a {@link TEST_SANDBOX_MARKER} sits in `path` or an ancestor. */
+/** Whether `dir` or an ancestor is a git checkout (has `.git`). */
+function insideGitCheckout(dir: string): boolean {
+  let current = dir;
+  for (;;) {
+    if (existsSync(join(current, '.git'))) return true;
+    const parent = dirname(current);
+    if (parent === current) return false;
+    current = parent;
+  }
+}
+
+/**
+ * Whether a {@link TEST_SANDBOX_MARKER} sits in `path` or an ancestor, outside
+ * any git checkout (a marker inside a checkout is refused).
+ */
 function insideTestSandbox(path: string): boolean {
   let dir = dirname(path);
   for (;;) {
-    if (existsSync(join(dir, TEST_SANDBOX_MARKER))) return true;
+    if (existsSync(join(dir, TEST_SANDBOX_MARKER))) return !insideGitCheckout(dir);
     const parent = dirname(dir);
     if (parent === dir) return false;
     dir = parent;
@@ -159,7 +180,8 @@ export function readBuildProvenance(codePath: string): BuildProvenance | null {
         const parsed: unknown = JSON.parse(readFileSync(stamp, 'utf8'));
         if (typeof parsed === 'object' && parsed !== null && 'linkedWorktree' in parsed) {
           const value = (parsed as { linkedWorktree: unknown }).linkedWorktree;
-          return { linkedWorktree: typeof value === 'string' ? value : null };
+          // Only an explicit null or a path is trusted; anything else falls back.
+          if (value === null || typeof value === 'string') return { linkedWorktree: value };
         }
       } catch {
         // An unreadable stamp decides nothing; fall back to the path.
@@ -301,70 +323,132 @@ function codes(): NonNullable<typeof authorizerCodes> {
   return authorizerCodes;
 }
 
-/** Existing schema objects per schema name, captured when the guard is installed. */
-const snapshots = new WeakMap<DatabaseSync, Map<string, Set<string>>>();
-/** The most recent denied schema change per handle, for the error explanation. */
-const lastDenied = new WeakMap<DatabaseSync, string>();
+/** Per-schema policy on a guarded handle: its refusal (null = allowed) and existing objects. */
+interface SchemaPolicy {
+  refusal: string | null;
+  objects: Set<string>;
+}
 
-function snapshotSchema(nativeDb: DatabaseSync): Map<string, Set<string>> {
-  const snapshot = new Map<string, Set<string>>();
-  const schemas = nativeDb.prepare('PRAGMA database_list').all() as Array<{ name: string }>;
-  for (const { name } of schemas) {
+/** Guard state per handle. */
+interface HandleGuard {
+  /** Policy per schema name, from `PRAGMA database_list` at install/refresh. */
+  schemas: Map<string, SchemaPolicy>;
+  /**
+   * Refusal for a store ATTACHed since the last refresh, whose alias is not
+   * yet mapped: DDL on any unmapped schema is denied while it is set.
+   */
+  unmappedAttachRefusal: string | null;
+  /** The most recent denial, for the error explanation. */
+  lastDenied: { what: string; refusal: string } | null;
+}
+
+const guards = new WeakMap<DatabaseSync, HandleGuard>();
+
+function readSchemas(nativeDb: DatabaseSync): Map<string, SchemaPolicy> {
+  const schemas = new Map<string, SchemaPolicy>();
+  const list = nativeDb.prepare('PRAGMA database_list').all() as Array<{
+    name: string;
+    file: string;
+  }>;
+  for (const { name, file } of list) {
     if (name === 'temp') continue;
     const rows = nativeDb
       .prepare(`SELECT type, name FROM "${name.replaceAll('"', '""')}".sqlite_master`)
       .all() as Array<{ type: string; name: string }>;
-    snapshot.set(name, new Set(rows.map((r) => `${r.type}:${r.name}`)));
+    schemas.set(name, {
+      refusal: file ? decisionFor(file) : null, // '' = in-memory
+      objects: new Set(rows.map((r) => `${r.type}:${r.name}`)),
+    });
   }
-  return snapshot;
+  return schemas;
+}
+
+let processBuildWorktree: string | null | undefined;
+
+/** Whether this process is a dev build outside the test harness (the guard's precondition). */
+function guardActive(): boolean {
+  const env = overrides?.env ?? process.env;
+  if (env['VITEST']) return false;
+  if (overrides) return devBuildWorktree() !== null;
+  if (processBuildWorktree === undefined) processBuildWorktree = devBuildWorktree();
+  return processBuildWorktree !== null;
 }
 
 /**
- * Deny every schema change on `nativeDb` when this build may not change the
- * store's schema. No-op otherwise. Call on every writable handle of a CLEO
- * store right after opening it, before any schema code runs.
+ * Install the schema-write guard on a freshly opened writable handle. Call it
+ * right after opening, before any schema code runs.
+ *
+ * Only a dev build (outside the test harness) installs anything; released
+ * builds pay nothing. The authorizer then applies, PER SCHEMA, the decision
+ * for that schema's file: on a refused schema it denies `ALTER`, `DROP` and
+ * any `CREATE` of an object that does not already exist. That covers the main
+ * schema and any store ATTACHed later — an exempt handle (in-memory or inside
+ * the build's own worktree) that attaches a foreign store is guarded on the
+ * attached schema too.
  *
  * @param nativeDb - Freshly opened writable handle.
- * @returns `true` when the guard was installed.
+ * @returns `true` when the main schema itself is refused.
  * @task T12687
  */
 export function installSchemaWriteGuard(nativeDb: DatabaseSync): boolean {
-  if (schemaWritesAllowed(nativeDb)) return false;
+  if (!guardActive()) return false;
+  const location = nativeDb.location();
+  const mainRefusal = location ? decisionFor(location) : null; // in-memory is always allowed
   if (typeof nativeDb.setAuthorizer !== 'function') {
-    // No authorizer in this Node: refuse the open outright rather than leave
-    // schema code unguarded.
-    throw new WorktreeBuildSchemaError(decisionFor(nativeDb.location() ?? '') ?? '');
+    // No authorizer in this Node: refuse a refused store outright rather than
+    // leave schema code unguarded.
+    if (mainRefusal) throw new WorktreeBuildSchemaError(mainRefusal);
+    return false;
   }
-  snapshots.set(nativeDb, snapshotSchema(nativeDb));
+  const state: HandleGuard = {
+    schemas: readSchemas(nativeDb),
+    unmappedAttachRefusal: null,
+    lastDenied: null,
+  };
+  guards.set(nativeDb, state);
   const { sqlite, creates, changes } = codes();
   nativeDb.setAuthorizer((action, arg1, arg2, dbName) => {
-    const schema = dbName ?? 'main';
-    if (schema === 'temp') return sqlite.SQLITE_OK;
+    if (action === sqlite.SQLITE_ATTACH) {
+      const refusal = arg1 ? decisionFor(arg1) : null;
+      if (refusal && !state.unmappedAttachRefusal) state.unmappedAttachRefusal = refusal;
+      return sqlite.SQLITE_OK;
+    }
     const createType = creates.get(action);
-    if (createType !== undefined) {
-      const known = snapshots.get(nativeDb)?.get(schema);
-      // CREATE … IF NOT EXISTS of an existing object is a no-op.
-      if (known?.has(`${createType}:${arg1}`)) return sqlite.SQLITE_OK;
-      lastDenied.set(nativeDb, `CREATE ${createType} ${schema}.${arg1}`);
-      return sqlite.SQLITE_DENY;
+    if (createType === undefined && !changes.has(action)) return sqlite.SQLITE_OK;
+    // SQLITE_ALTER_TABLE passes (schema, table) in arg1/arg2 and no dbName;
+    // every other action passes the schema as dbName.
+    const schema = (action === sqlite.SQLITE_ALTER_TABLE ? arg1 : dbName) ?? 'main';
+    if (schema === 'temp') return sqlite.SQLITE_OK;
+    const policy = state.schemas.get(schema);
+    const refusal = policy ? policy.refusal : state.unmappedAttachRefusal;
+    if (refusal === null) return sqlite.SQLITE_OK;
+    // CREATE … IF NOT EXISTS of an existing object is a no-op.
+    if (createType !== undefined && policy?.objects.has(`${createType}:${arg1}`)) {
+      return sqlite.SQLITE_OK;
     }
-    if (changes.has(action)) {
-      lastDenied.set(nativeDb, `schema change on ${schema}.${arg1 ?? arg2 ?? ''}`);
-      return sqlite.SQLITE_DENY;
-    }
-    return sqlite.SQLITE_OK;
+    state.lastDenied = {
+      what:
+        createType !== undefined
+          ? `CREATE ${createType} ${schema}.${arg1}`
+          : `schema change on ${schema}.${(action === sqlite.SQLITE_ALTER_TABLE ? arg2 : arg1) ?? ''}`,
+      refusal,
+    };
+    return sqlite.SQLITE_DENY;
   });
-  return true;
+  return mainRefusal !== null;
 }
 
 /**
- * Re-capture the existing-object snapshot after an `ATTACH`, so no-op
- * `CREATE … IF NOT EXISTS` statements on the attached schema stay allowed.
+ * Re-read the schema map after an `ATTACH`, so the attached schema gets its own
+ * decision and no-op `CREATE … IF NOT EXISTS` statements on it stay allowed.
  *
- * @param nativeDb - A guarded handle.
+ * @param nativeDb - A handle passed to {@link installSchemaWriteGuard}.
  */
 export function refreshSchemaWriteGuard(nativeDb: DatabaseSync): void {
-  if (snapshots.has(nativeDb)) snapshots.set(nativeDb, snapshotSchema(nativeDb));
+  const state = guards.get(nativeDb);
+  if (!state) return;
+  state.schemas = readSchemas(nativeDb);
+  state.unmappedAttachRefusal = null;
 }
 
 /**
@@ -377,10 +461,9 @@ export function refreshSchemaWriteGuard(nativeDb: DatabaseSync): void {
  */
 export function explainSchemaWriteDenial(nativeDb: DatabaseSync, error: unknown): unknown {
   if (!(error instanceof Error) || !/not authorized/i.test(error.message)) return error;
-  const refusal = decisionFor(nativeDb.location() ?? '');
-  if (refusal === null) return error;
-  const denied = lastDenied.get(nativeDb);
-  return new WorktreeBuildSchemaError(`${refusal}${denied ? ` Denied: ${denied}.` : ''}`);
+  const denied = guards.get(nativeDb)?.lastDenied;
+  if (!denied) return error;
+  return new WorktreeBuildSchemaError(`${denied.refusal} Denied: ${denied.what}.`);
 }
 
 /**

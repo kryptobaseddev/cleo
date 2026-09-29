@@ -221,3 +221,6 @@ packages/cleo/studio-dist/
 # T12558: `cleo project reroot` tombstone — local state, never committed
 # (a committed tombstone would travel into every clone).
 /.cleo-moved.json
+
+# T12687: vitest fork-sandbox marker; never commit one into a checkout
+.cleo-test-sandbox

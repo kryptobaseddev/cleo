@@ -17,8 +17,10 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const packages = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
-const ROOTS = ['core/src', 'brain/src', 'cleo/src', 'nexus/src'].map((p) => join(packages, p));
-const OPEN = /new (?:DatabaseSync|DatabaseSyncCtor)\(|openNativeDatabase\(/;
+const ROOTS = ['core/src', 'brain/src', 'cleo/src', 'nexus/src', 'studio/src'].map((p) =>
+  join(packages, p),
+);
+const OPEN = /new \w*DatabaseSync\w*\s*\(|openNativeDatabase\(/;
 const SKIP_FILE = /__tests__|__fixtures__|\.test\.ts$|\.spec\.ts$/;
 
 function sourceFiles(dir: string): string[] {

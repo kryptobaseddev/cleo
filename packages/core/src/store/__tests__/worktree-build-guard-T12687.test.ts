@@ -15,20 +15,33 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { fileURLToPath } from 'node:url';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
 import { _resetDualScopeDbCache, openDualScopeDbAtPath } from '../dual-scope-db.js';
 import { ensureColumns, migrateSanitized, reconcileJournal } from '../migration-manager.js';
 import {
   ALLOW_WORKTREE_BUILD_MIGRATIONS_ENV,
+  devBuildWorktree,
   E_WORKTREE_BUILD_SCHEMA,
   installSchemaWriteGuard,
+  readBuildProvenance,
+  refreshSchemaWriteGuard,
   schemaWriteRefusal,
   setWorktreeBuildGuardForTests,
+  TEST_SANDBOX_MARKER,
 } from '../worktree-build-guard.js';
 
 const roots: string[] = [];
@@ -317,5 +330,77 @@ describe('T12687 — an older build preserves a newer build journal row', () => 
     const after = journal(r.store).map((row) => row.hash);
     expect(after).toContain(slice2Row!.hash);
     expect(after).not.toContain('dead-hash');
+  });
+});
+
+describe('T12687 review — stamp fails closed, marker scoping, attached schemas', () => {
+  it('a stamp without linkedWorktree (git could not tell) falls back to the build path', () => {
+    const r = scratchRepos();
+    const dist = join(r.worktree, 'packages', 'core', 'dist');
+    writeFileSync(
+      join(dist, 'build-provenance.json'),
+      JSON.stringify({ schema: 1, gitHead: null }),
+    );
+    expect(readBuildProvenance(r.build)).toBeNull();
+    expect(devBuildWorktree({ codePath: r.build })).toBe(r.worktree);
+    // A non-null, non-string value is not trusted either.
+    writeFileSync(join(dist, 'build-provenance.json'), JSON.stringify({ linkedWorktree: 0 }));
+    expect(devBuildWorktree({ codePath: r.build })).toBe(r.worktree);
+  });
+
+  it('the stamp script omits linkedWorktree when git cannot answer', () => {
+    const r = scratchRepos();
+    // A package outside any git checkout: git rev-parse fails there.
+    const pkg = join(dirname(r.main), 'loose-pkg');
+    mkdirSync(join(pkg, 'scripts'), { recursive: true });
+    const script = fileURLToPath(
+      new URL('../../../scripts/write-build-provenance.mjs', import.meta.url),
+    );
+    copyFileSync(script, join(pkg, 'scripts', 'write-build-provenance.mjs'));
+    execFileSync(process.execPath, [join(pkg, 'scripts', 'write-build-provenance.mjs')], {
+      env: { ...process.env, GIT_CEILING_DIRECTORIES: dirname(r.main) },
+    });
+    const stamp = JSON.parse(readFileSync(join(pkg, 'dist', 'build-provenance.json'), 'utf8'));
+    expect('linkedWorktree' in stamp).toBe(false);
+  });
+
+  it('a sandbox marker inside a git checkout is refused', () => {
+    const r = scratchRepos();
+    writeFileSync(join(r.main, TEST_SANDBOX_MARKER), 'planted');
+    expect(
+      schemaWriteRefusal(r.store, {
+        codePath: r.build,
+        provenance: null,
+        env: {},
+        honourTestSandbox: true,
+      }),
+    ).not.toBeNull();
+  });
+
+  it('an exempt (in-memory) handle that ATTACHes a foreign store is guarded on that schema', () => {
+    const r = scratchRepos();
+    const seed = new DatabaseSync(r.store);
+    seed.exec('CREATE TABLE t (id INTEGER PRIMARY KEY)');
+    seed.close();
+
+    asWorktreeBuild(r.build);
+    const mem = new DatabaseSync(':memory:');
+    try {
+      expect(installSchemaWriteGuard(mem)).toBe(false); // main itself is allowed
+      mem.exec('CREATE TABLE local_only (x)');
+      mem.exec(`ATTACH DATABASE '${r.store}' AS foreign_store`);
+      // Unmapped attached schema: denied until the map is refreshed.
+      expect(() => mem.exec('CREATE TABLE foreign_store.added (x)')).toThrow(/not authorized/);
+      refreshSchemaWriteGuard(mem);
+      expect(() => mem.exec('ALTER TABLE foreign_store.t ADD COLUMN shape TEXT')).toThrow(
+        /not authorized/,
+      );
+      mem.exec('CREATE TABLE IF NOT EXISTS foreign_store.t (id INTEGER PRIMARY KEY)');
+      mem.exec('INSERT INTO foreign_store.t (id) VALUES (7)');
+      mem.exec('CREATE TABLE local_two (x)');
+    } finally {
+      mem.close();
+    }
+    expect(columns(r.store)).toEqual(['id']);
   });
 });

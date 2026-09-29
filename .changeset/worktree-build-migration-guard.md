@@ -20,8 +20,11 @@ slice-2 open re-ran `ADD COLUMN` and failed.
   covers every DDL site on the handle at once: drizzle migrations,
   `ensureColumns`, the raw `attachments` ALTERs, table rebuilds, twin
   collapse and exodus. A no-op `CREATE … IF NOT EXISTS` and data writes stay
-  allowed. A coverage test fails on any writable open that neither installs
-  the guard nor carries a `schema-guard-exempt:` reason.
+  allowed. The decision is made per schema, so a store ATTACHed to an exempt
+  handle (in-memory, or inside the build's own worktree) is guarded too.
+  Released builds install nothing. A coverage test fails on any writable open
+  (any `new …DatabaseSync…(` in core, brain, cleo, nexus or studio) that
+  neither installs the guard nor carries a `schema-guard-exempt:` reason.
 - **Fail fast, not later.** With pending migrations, `reconcileJournal` and
   `migrateSanitized` throw `E_WORKTREE_BUILD_SCHEMA`. The error names the
   build worktree, the store, the pending migrations and the opt-in. A denied
@@ -37,7 +40,8 @@ slice-2 open re-ran `ADD COLUMN` and failed.
 - **Narrow exemptions.** Only stores inside the build's own worktree and the
   test harness are exempt. The harness is identified by `VITEST`, or by the
   `.cleo-test-sandbox` marker `vitest.setup.ts` writes at each fork sandbox,
-  for CLI children that tests spawn. A temp directory alone is not exempt.
+  for CLI children that tests spawn. The marker is gitignored and ignored
+  inside a git checkout. A temp directory alone is not exempt.
 - **Older builds keep newer journal rows.** `reconcileJournal` no longer
   deletes a journal row stamped later than every migration the install
   knows, across the lineages sharing the journal. Such a row came from a
