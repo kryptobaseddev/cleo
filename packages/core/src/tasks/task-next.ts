@@ -10,7 +10,7 @@ import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import {
-  computeLeverage,
+  buildRankingContext,
   formatScoreFactor,
   type RankedTask,
   rankTasks,
@@ -143,17 +143,13 @@ export async function rankReadyTasks(
       (!opts.scopeTaskIds || opts.scopeTaskIds.has(t.id)) &&
       depsReady(t.depends, dependencyLookup),
   );
-  const leverage = computeLeverage(allTasks);
+  const ctx = buildRankingContext(allTasks, dependencyLookup, {
+    currentPhase: opts.currentPhase,
+    nowMs: opts.nowMs,
+  });
+  const { leverage } = ctx;
   if (candidates.length === 0) return { ranked: [], totalCandidates: 0, leverage };
 
-  const ctx: ScoreTaskContext = {
-    currentPhase: opts.currentPhase,
-    nowMs: opts.nowMs ?? Date.now(),
-    taskStatuses: new Map(
-      [...dependencyLookup.values()].map((task) => [task.id, task.status] as const),
-    ),
-    leverage,
-  };
   if (opts.projectRoot) {
     try {
       const { searchPatterns } = await import('../memory/patterns.js');
@@ -168,4 +164,36 @@ export async function rankReadyTasks(
     }
   }
   return { ranked: rankTasks(candidates, ctx), totalCandidates: candidates.length, leverage };
+}
+
+/**
+ * The ranking context of the live project (T12692): the SAME context
+ * {@link rankReadyTasks} ranks `cleo next` with — dependency statuses from the
+ * canonical lookup, leverage over the active population and the ranking phase
+ * from {@link resolveRankingPhase}. `cleo orchestrate ready` (and so the focus
+ * ready wave), `cleo orchestrate next`, the wave listing, the bootstrap
+ * suggestion, `cleo plan` and the handoff build theirs here, so one fixture
+ * ranks identically on every surface.
+ *
+ * @param accessor - Task data accessor.
+ * @param population - The active task population (`queryTasks({})`); loaded when omitted.
+ * @param opts - Optional phase override and clock.
+ * @returns The scoring context and the dependency lookup it was built from.
+ * @task T12692
+ */
+export async function loadRankingContext(
+  accessor: DataAccessor,
+  population?: readonly Task[],
+  opts?: { currentPhase?: string | null; nowMs?: number },
+): Promise<{
+  ctx: ScoreTaskContext;
+  dependencyLookup: Map<string, Task>;
+  population: readonly Task[];
+}> {
+  const tasks = population ?? (await accessor.queryTasks({})).tasks;
+  const dependencyLookup = await loadReadinessDependencyLookup(tasks, accessor);
+  const currentPhase =
+    opts?.currentPhase !== undefined ? opts.currentPhase : await resolveRankingPhase(accessor);
+  const ctx = buildRankingContext(tasks, dependencyLookup, { currentPhase, nowMs: opts?.nowMs });
+  return { ctx, dependencyLookup, population: tasks };
 }

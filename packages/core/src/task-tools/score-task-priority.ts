@@ -279,3 +279,67 @@ export function rankTasks<T extends ScoreTaskInput>(
     })
     .map(({ createdMs: _createdMs, ...rest }) => rest);
 }
+
+/**
+ * Build the {@link ScoreTaskContext} every ordering surface shares (T12692):
+ * dependency statuses from the canonical readiness lookup, leverage over the
+ * population, the ranking phase and one clock instant. `cleo next`,
+ * `cleo orchestrate ready`, the focus ready wave and the wave listing all
+ * build their context here, so the same tasks rank the same way everywhere.
+ *
+ * @param population - Tasks whose open dependents count as leverage.
+ * @param dependencyLookup - Canonical dependency records (archived included).
+ * @param opts - Ranking phase and optional clock.
+ * @returns The scoring context.
+ * @task T12692
+ */
+export function buildRankingContext(
+  population: Iterable<{ depends?: string[]; status?: string }>,
+  dependencyLookup: ReadonlyMap<string, { id: string; status: string }>,
+  opts: { currentPhase: string | null; nowMs?: number },
+): ScoreTaskContext & { leverage: ReadonlyMap<string, number> } {
+  return {
+    currentPhase: opts.currentPhase,
+    nowMs: opts.nowMs ?? Date.now(),
+    taskStatuses: new Map(
+      [...dependencyLookup.values()].map((task) => [task.id, task.status] as const),
+    ),
+    leverage: computeLeverage([...population]),
+  };
+}
+
+/**
+ * Reorder items by THE comparator ({@link rankTasks}, D11161): band,
+ * severity, bounded tiebreak, createdAt, id. Items whose task record is not
+ * in `tasksById` keep their input order after every ranked item.
+ *
+ * @param items - Items to order (not mutated).
+ * @param idOf - Task id of an item.
+ * @param tasksById - Task records to rank the items by.
+ * @param ctx - Shared scoring context (see {@link buildRankingContext}).
+ * @returns A new array in ranked order.
+ * @task T12692
+ */
+export function orderByRanking<T>(
+  items: readonly T[],
+  idOf: (item: T) => string,
+  tasksById: ReadonlyMap<string, ScoreTaskInput>,
+  ctx: ScoreTaskContext,
+): T[] {
+  const known: ScoreTaskInput[] = [];
+  const seen = new Set<string>();
+  for (const item of items) {
+    const id = idOf(item);
+    const task = tasksById.get(id);
+    if (task && !seen.has(id)) {
+      seen.add(id);
+      known.push(task);
+    }
+  }
+  const position = new Map(rankTasks(known, ctx).map((r, index) => [r.task.id, index] as const));
+  const rank = (item: T): number => position.get(idOf(item)) ?? Number.POSITIVE_INFINITY;
+  return items
+    .map((item, index) => ({ item, index, rank: rank(item) }))
+    .sort((a, b) => (a.rank === b.rank ? a.index - b.index : a.rank < b.rank ? -1 : 1))
+    .map(({ item }) => item);
+}
