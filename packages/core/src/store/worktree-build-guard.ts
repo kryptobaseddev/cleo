@@ -35,16 +35,19 @@
  * `node_modules` counts as installed.
  *
  * Allowed without an opt-in: stores inside the build's own worktree, and the
- * test harness (`VITEST`, or a store below a {@link TEST_SANDBOX_MARKER} for CLI
- * children a test spawns). A temp directory alone is NOT an exemption — a
- * project cloned under `/tmp` is a real store. Everything else needs
- * `CLEO_ALLOW_WORKTREE_BUILD_MIGRATIONS=1`.
+ * test harness's fixtures (under `VITEST`, a store below `os.tmpdir()` — the
+ * fork sandbox; or a store below a {@link TEST_SANDBOX_MARKER} for CLI
+ * children a test spawns). `VITEST` alone is NOT an exemption: a test that
+ * reaches a real checkout's store is refused (T12737). Outside the harness a
+ * temp directory alone is not one either — a project cloned under `/tmp` is a
+ * real store. Everything else needs `CLEO_ALLOW_WORKTREE_BUILD_MIGRATIONS=1`.
  *
  * @task T12687
  */
 
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
@@ -89,6 +92,13 @@ export interface WorktreeBuildGuardOptions {
   env: NodeJS.ProcessEnv;
   /** Honour {@link TEST_SANDBOX_MARKER} (default true; guard tests turn it off). */
   honourTestSandbox: boolean;
+  /**
+   * Directories whose stores the test harness (`VITEST`) may migrate from a
+   * worktree build. Defaults to `[os.tmpdir()]` — inside vitest, the fork
+   * sandbox's temp directory. A store anywhere else (a real checkout's
+   * `.cleo/cleo.db`) is refused even under `VITEST` (T12737).
+   */
+  fixtureRoots: readonly string[];
 }
 
 let overrides: Partial<WorktreeBuildGuardOptions> | null = null;
@@ -231,7 +241,13 @@ export function schemaWriteRefusal(
   if (buildWorktree === null) return null;
   const store = realOrResolved(dbPath);
   if (isWithin(realOrResolved(buildWorktree), store)) return null;
-  if (env['VITEST']) return null; // the test harness owns its fixture stores
+  // The test harness owns its FIXTURE stores — those under a temp root — and
+  // nothing else: an unconditional VITEST exemption let a test run from a
+  // worktree migrate the live main-checkout store (T12737).
+  if (env['VITEST']) {
+    const fixtureRoots = options.fixtureRoots ?? overrides?.fixtureRoots ?? [tmpdir()];
+    if (fixtureRoots.some((root) => isWithin(realOrResolved(root), store))) return null;
+  }
   const honourTestSandbox = options.honourTestSandbox ?? overrides?.honourTestSandbox ?? true;
   if (honourTestSandbox && insideTestSandbox(store)) return null;
   if (env[ALLOW_WORKTREE_BUILD_MIGRATIONS_ENV] === '1') return null;
@@ -397,10 +413,13 @@ function readSchemas(nativeDb: DatabaseSync): Map<string, SchemaPolicy> {
 
 let processBuildWorktree: string | null | undefined;
 
-/** Whether this process is a dev build outside the test harness (the guard's precondition). */
+/**
+ * Whether this process is a dev build (the guard's precondition). The test
+ * harness is not exempt here: {@link schemaWriteRefusal} exempts its fixture
+ * stores per store, so a test run from a worktree that reaches a real store is
+ * still guarded (T12737).
+ */
 function guardActive(): boolean {
-  const env = overrides?.env ?? process.env;
-  if (env['VITEST']) return false;
   if (overrides) return devBuildWorktree() !== null;
   if (processBuildWorktree === undefined) processBuildWorktree = devBuildWorktree();
   return processBuildWorktree !== null;

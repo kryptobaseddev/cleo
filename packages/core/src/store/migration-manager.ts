@@ -14,10 +14,12 @@
 import { copyFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import { ExitCode } from '@cleocode/contracts';
 import type { MigrationConfig, MigrationMeta } from 'drizzle-orm/migrator';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { migrateSync } from 'drizzle-orm/sqlite-core';
+import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
 import { isSqliteBusy } from './with-retry.js';
 import { assertNoPendingMigrationsForWorktreeBuild } from './worktree-build-guard.js';
@@ -223,6 +225,104 @@ function isAtOrBeforeCutover(migrationName: string | undefined, cutoverPrefix: s
   // post-consolidation migrations always carry a valid prefix.
   if (prefix.length < MIGRATION_TIMESTAMP_PREFIX_LEN) return true;
   return prefix <= cutoverPrefix;
+}
+
+/** Error code of {@link MigrationHashDriftError}. */
+export const E_MIGRATION_HASH_DRIFT = 'E_MIGRATION_HASH_DRIFT';
+
+/**
+ * Opt-in that lets {@link reconcileJournal} re-journal a post-consolidation
+ * migration whose SQL changed after the store applied it (the pre-T12737
+ * delete-and-re-probe behaviour). Set it once, only after confirming the store's
+ * schema matches this build's `migration.sql`.
+ */
+export const ALLOW_MIGRATION_HASH_DRIFT_ENV = 'CLEO_ALLOW_MIGRATION_HASH_DRIFT';
+
+/** A journal row whose migration name this install ships with a different hash. */
+export interface MigrationHashDrift {
+  /** Migration folder name, e.g. `20260929120000_t12502-task-claim-leases`. */
+  name: string;
+  /** Hash recorded in the store's `__drizzle_migrations` journal. */
+  journalHash: string;
+  /** Hash of this install's `migration.sql` for the same name. */
+  localHash: string;
+}
+
+/**
+ * Refusal raised when a post-consolidation migration's journal row carries a
+ * different hash than this install's migration of the same name (T12737).
+ *
+ * Post-consolidation migrations are immutable once released, so the drift means
+ * the store was migrated by a pre-release build whose SQL later changed. The old
+ * behaviour deleted the row as an orphan and re-stamped the new hash when the
+ * new migration's columns existed — without running the statements the two
+ * versions differ in (CHECKs, indexes, triggers), leaving the store silently
+ * half-migrated.
+ */
+export class MigrationHashDriftError extends CleoError {
+  /** The drifted rows. */
+  readonly drift: readonly MigrationHashDrift[];
+
+  /**
+   * @param drift - The drifted journal rows.
+   * @param dbPath - Store path, for the message.
+   */
+  constructor(drift: readonly MigrationHashDrift[], dbPath: string) {
+    const list = drift
+      .map(
+        (d) =>
+          `${d.name} (journal hash ${d.journalHash.slice(0, 12)}, local hash ${d.localHash.slice(0, 12)})`,
+      )
+      .join('; ');
+    super(
+      ExitCode.CONFIG_ERROR,
+      `${E_MIGRATION_HASH_DRIFT}: ${dbPath || 'the store'} recorded ${list}. The migration changed ` +
+        'after this store applied it (a pre-release build), so its constraints, indexes or triggers ' +
+        'may not match this build. Refusing to re-journal it without running it (T12737).',
+      {
+        fix:
+          'Restore the store from a backup taken before the pre-release build (`cleo backup list`, ' +
+          '`cleo restore backup`), or apply the difference by hand and then set ' +
+          `${ALLOW_MIGRATION_HASH_DRIFT_ENV}=1 once to re-journal the migration.`,
+      },
+    );
+    this.drift = drift;
+  }
+}
+
+/**
+ * Journal rows about to be deleted as orphans that are really HASH DRIFT: the
+ * same migration name as a local post-consolidation migration, a different hash.
+ *
+ * Pre-consolidation migrations (at/before the cutover) are excluded: several
+ * were edited across releases (e.g. t033, the consolidation baselines), and
+ * their delete-and-re-probe path is the released upgrade path. No
+ * post-consolidation `migration.sql` differs between any two release tags.
+ *
+ * @param orphans - Journal rows classified as orphans (`name` may be null).
+ * @param localMigrations - This lineage's migrations.
+ * @param cutoverPrefix - The consolidation cutover prefix.
+ * @returns The drifted rows (empty when none).
+ * @task T12737
+ */
+export function findPostCutoverHashDrift(
+  orphans: ReadonlyArray<{ hash: string; name: string | null }>,
+  localMigrations: ReadonlyArray<{ hash: string; name?: string }>,
+  cutoverPrefix: string,
+): MigrationHashDrift[] {
+  const localByName = new Map<string, string>();
+  for (const m of localMigrations) {
+    if (m.name && !isAtOrBeforeCutover(m.name, cutoverPrefix)) localByName.set(m.name, m.hash);
+  }
+  const drift: MigrationHashDrift[] = [];
+  for (const row of orphans) {
+    if (!row.name) continue;
+    const localHash = localByName.get(row.name);
+    if (localHash !== undefined && localHash !== row.hash) {
+      drift.push({ name: row.name, journalHash: row.hash, localHash });
+    }
+  }
+  return drift;
 }
 
 /**
@@ -786,6 +886,11 @@ export function reconcileJournal(
   // forward migrations (v1.0.0-rc.3 contract, E6 L1-L7). Migrations are no
   // longer edited post-release, so name-matched hash drift can no longer occur;
   // any remaining orphan is a true orphan handled by Sub-case B below.
+  //
+  // T12737: pre-release builds DO edit an unreleased migration. Sub-case B
+  // therefore refuses (MigrationHashDriftError) when an orphan carries the NAME
+  // of a local post-consolidation migration with a different hash, instead of
+  // deleting it and stamping the new hash without running the new SQL.
   if (tableExists(nativeDb, '__drizzle_migrations') && tableExists(nativeDb, existenceTable)) {
     const localMigrations = readMigrationFiles({ migrationsFolder });
     const localHashes = new Set(localMigrations.map((m) => m.hash));
@@ -816,9 +921,20 @@ export function reconcileJournal(
         .map(readSiblingNewestMillis),
     );
 
-    type JournalRow = { id: number; hash: string; created_at: number | string | null };
+    type JournalRow = {
+      id: number;
+      hash: string;
+      created_at: number | string | null;
+      name: string | null;
+    };
+    // `name` arrived with drizzle v1; an older journal has no such column.
+    const journalHasName = (
+      nativeDb.prepare('PRAGMA table_info("__drizzle_migrations")').all() as Array<{ name: string }>
+    ).some((c) => c.name === 'name');
     const dbEntries = nativeDb
-      .prepare('SELECT id, hash, created_at FROM "__drizzle_migrations"')
+      .prepare(
+        `SELECT id, hash, created_at, ${journalHasName ? 'name' : 'NULL AS name'} FROM "__drizzle_migrations"`,
+      )
       .all() as JournalRow[];
 
     // A row is an orphan ONLY when its hash is unknown to THIS lineage AND every
@@ -846,6 +962,20 @@ export function reconcileJournal(
         // Sub-case B: TRUE ORPHANS — entries whose hash matches NO known lineage
         // (this one or any sibling sharing the journal). Delete them and re-probe
         // local migrations via DDL.
+        // T12737: a row with a local post-consolidation migration's NAME but a
+        // different hash is not an orphan — it is a pre-release build's version
+        // of that migration. Deleting it and re-probing stamps the new hash
+        // without running the statements the two versions differ in.
+        const drift = findPostCutoverHashDrift(orphanedEntries, localMigrations, cutoverPrefix);
+        if (drift.length > 0) {
+          if (process.env[ALLOW_MIGRATION_HASH_DRIFT_ENV] !== '1') {
+            throw new MigrationHashDriftError(drift, nativeDb.location() ?? '');
+          }
+          log.error(
+            { drift },
+            `${E_MIGRATION_HASH_DRIFT}: re-journaling ${drift.length} drifted migration(s) because ${ALLOW_MIGRATION_HASH_DRIFT_ENV}=1.`,
+          );
+        }
         log.warn(
           { orphaned: orphanedEntries.length },
           `Detected ${orphanedEntries.length} true-orphan journal entries from a previous CLEO lineage. Reconciling via DDL probe.`,
@@ -998,9 +1128,12 @@ export function reconcileJournal(
       // Case A: All ALTER targets already exist — mark as applied (original behaviour).
       if (missingColumns.length === 0) {
         const log = getLogger(logSubsystem);
-        log.warn(
+        // T12737: error level — the stamp does not run the migration's SQL, so
+        // anything beyond the column names (a column CHECK, an index, a trigger)
+        // is taken on trust.
+        log.error(
           { migration: migration.name, columns: alterMatches },
-          `Detected partially-applied migration ${migration.name} — columns exist but journal entry missing. Auto-reconciling.`,
+          `Detected partially-applied migration ${migration.name} — columns exist but journal entry missing. Stamping it applied WITHOUT running its SQL; its constraints, indexes and triggers are not verified.`,
         );
         insertJournalEntry(nativeDb, migration.hash, migration.folderMillis, migration.name ?? '');
         continue;
@@ -1017,13 +1150,15 @@ export function reconcileJournal(
       // ensureColumns call in memory-sqlite.ts provides any remaining structural safety net.
       if (existingColumns.length > 0 && missingColumns.length > 0) {
         const log = getLogger(logSubsystem);
-        log.warn(
+        // T12737: error level — only the missing columns are added; the rest of
+        // the migration's SQL (indexes, triggers, …) never runs.
+        log.error(
           {
             migration: migration.name,
             existingColumns: existingColumns.map((c) => `${c.table}.${c.column}`),
             missingColumns: missingColumns.map((c) => `${c.table}.${c.column}`),
           },
-          `T920: Detected partial migration ${migration.name} — some ALTER columns exist, some missing. Adding missing columns and marking applied.`,
+          `T920: Detected partial migration ${migration.name} — some ALTER columns exist, some missing. Adding missing columns and stamping it applied WITHOUT running the rest of its SQL.`,
         );
 
         // Add each missing column only if its table exists (guard against DROP TABLE
