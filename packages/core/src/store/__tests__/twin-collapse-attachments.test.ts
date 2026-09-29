@@ -42,10 +42,10 @@ import { getDb, getNativeDb, resetDbState } from '../sqlite.js';
 import { storeWriteBlock } from '../store-write-guard.js';
 import {
   collapseTwinTables,
-  DOCS_UNFREEZE_KEY,
+  DOCS_FROZEN_FORBIDDEN,
+  docsFrozenMessage,
   inspectTwinCollapse,
   TWIN_COLLAPSE_MARKER_PREFIX,
-  withBareDocsWritable,
 } from '../twin-collapse.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
@@ -367,7 +367,7 @@ describe('union-shape migration (T12541: a migration must really run)', () => {
 });
 
 describe('initial collapse: the bare tables are authoritative', () => {
-  it('carries every live row and ref, drops the frozen twin-only ones, snapshots first', async () => {
+  it('carries every live row and ref, keeps the twin-only history (never drops), snapshots first', async () => {
     const db = preMigration();
     const bareDocs = rows(db, 'attachments');
     const bareRefs = rows(db, 'attachment_refs');
@@ -375,16 +375,25 @@ describe('initial collapse: the bare tables are authoritative', () => {
     expect(receipts[DOCS]).toMatchObject({
       table: 'attachments',
       status: 'initial',
-      // 4 docs + 6 refs inserted; att-adr-001 existed (stale) and is replaced;
-      // the frozen doc and its ref are deleted.
+      // 4 docs + 6 refs inserted; att-adr-001 existed (stale) and is replaced by
+      // the bare row; att-frozen is kept, carried under a free slug (spec-a is
+      // the live doc's).
       inserted: 10,
-      replaced: 1,
-      deleted: 2,
-      dropped: ['["att-frozen"]', '["att-frozen","task","T101"]'],
+      replaced: 2,
+      deleted: 0,
+      dropped: [],
+      renamed: ['att-frozen: spec-a -> spec-a-2'],
       snapshotPath: expect.stringContaining('cleo.db.migration-'),
     });
-    expect(rows(db, 'docs_attachments')).toEqual(bareDocs);
-    expect(rows(db, 'docs_attachment_refs')).toEqual(bareRefs);
+    const twinDocs = rows(db, 'docs_attachments');
+    for (const row of bareDocs) expect(twinDocs).toContain(row);
+    expect(twinDocs).toHaveLength(bareDocs.length + 1);
+    expect(
+      db.prepare("SELECT slug FROM main.docs_attachments WHERE id = 'att-frozen'").get(),
+    ).toEqual({ slug: 'spec-a-2' });
+    const twinRefs = rows(db, 'docs_attachment_refs');
+    for (const row of bareRefs) expect(twinRefs).toContain(row);
+    expect(twinRefs).toHaveLength(bareRefs.length + 1); // (att-frozen, task, T101) kept
     expect(migrationSnapshots()).toHaveLength(1); // one snapshot for every pair
 
     // The docs read APIs (on the redirected barrel) serve the live set.
@@ -768,7 +777,7 @@ describe('redirect: docs readers read the prefixed twins', () => {
 
 describe('freeze (option a): older builds can no longer write the bare docs tables', () => {
   const FROZEN =
-    /CLEO: docs moved to docs_attachments \(T12535\); this project needs cleo \d{4}\.\d+\.\d+\S* or newer to write docs\. Run: npm i -g @cleocode\/cleo@latest/;
+    /CLEO: docs moved to docs_attachments \(T12535\); this project needs cleo \d{4}\.\d+\.\d+\S* or newer to write docs, changesets and IVTR playbook provenance\. Run: npm i -g @cleocode\/cleo@latest/;
   const freezeTriggers = (db: DatabaseSync): string[] =>
     (
       db
@@ -833,16 +842,8 @@ describe('freeze (option a): older builds can no longer write the bare docs tabl
     // Schema changes a migration makes: add a column, add an index.
     db.exec('ALTER TABLE attachments ADD COLUMN t12535_probe TEXT');
     db.exec('CREATE INDEX IF NOT EXISTS idx_t12535_probe ON attachments (t12535_probe)');
-    // A data fix of ours runs through the unfreeze helper; the freeze holds afterwards.
-    withBareDocsWritable(db, () =>
-      db.exec("UPDATE attachments SET t12535_probe = 'fixed' WHERE id = 'att-spec-a'"),
-    );
-    expect(
-      db.prepare("SELECT t12535_probe AS p FROM attachments WHERE id = 'att-spec-a'").get(),
-    ).toEqual({ p: 'fixed' });
-    expect(
-      db.prepare(`SELECT 1 FROM main.tasks_schema_meta WHERE key = '${DOCS_UNFREEZE_KEY}'`).get(),
-    ).toBeUndefined();
+    // There is no bypass: DML on the bare tables is refused for this build too
+    // (it never needs it).
     expect(await refusal(() => db.exec("UPDATE attachments SET summary = 'x'"))).toMatch(FROZEN);
     // A table-rebuild migration (rename, create, copy, drop) with the triggers present.
     db.exec('PRAGMA foreign_keys = OFF');
@@ -858,6 +859,62 @@ describe('freeze (option a): older builds can no longer write the bare docs tabl
     // The next open re-installs them (T12541 class), without a merge.
     await reopen();
     expect(freezeTriggers(tasksNative())).toHaveLength(6);
+  });
+
+  it('the message never reads as contention or corruption to an older build', () => {
+    const message = docsFrozenMessage();
+    for (const phrase of DOCS_FROZEN_FORBIDDEN)
+      expect(message.toLowerCase(), phrase).not.toContain(phrase);
+    for (const phrase of ['sqlite_busy', 'database is locked', 'database disk image is malformed'])
+      expect(DOCS_FROZEN_FORBIDDEN).toContain(phrase);
+    expect(message).toMatch(/IVTR playbook provenance/);
+  });
+
+  it('has no bypass: the trigger has no condition, and another connection (the older build) is refused', async () => {
+    preMigration();
+    await reopen();
+    const sqls = (
+      tasksNative()
+        .prepare("SELECT sql FROM main.sqlite_master WHERE name LIKE 't12535_freeze_%'")
+        .all() as Array<{ sql: string }>
+    ).map((r) => r.sql);
+    expect(sqls).toHaveLength(6);
+    for (const sql of sqls) expect(sql).not.toMatch(/\bWHEN\b/i);
+    const { DatabaseSync: Sqlite } = await import('node:sqlite');
+    const other = new Sqlite(dbPath());
+    try {
+      expect(
+        await refusal(() =>
+          other.exec(
+            "INSERT INTO attachment_refs (attachment_id, owner_type, owner_id, attached_at) VALUES ('att-spec-a', 'task', 'T920', '2026-09-29T00:00:00.000Z')",
+          ),
+        ),
+      ).toMatch(FROZEN);
+    } finally {
+      other.close();
+    }
+  });
+
+  it('restoring a backup taken before the freeze gets the triggers back on the next open', async () => {
+    preMigration();
+    await reopen();
+    // A backup from a build that collapsed but did not freeze (or any restore
+    // path that loses the triggers): marker present, no freeze.
+    thaw();
+    const backup = join(root, 'pre-freeze.db');
+    tasksNative().exec(`VACUUM INTO '${backup}'`);
+    resetDbState();
+    rmSync(`${dbPath()}-wal`, { force: true });
+    rmSync(`${dbPath()}-shm`, { force: true });
+    writeFileSync(dbPath(), readFileSync(backup));
+    await getDb(projectDir);
+    expect(inspectTwinCollapse(tasksNative())[DOCS]).toMatchObject({
+      state: 'collapsed',
+      guardsIntact: true,
+    });
+    expect(
+      await refusal(() => tasksNative().exec("DELETE FROM attachments WHERE id = 'att-note-2'")),
+    ).toMatch(FROZEN);
   });
 
   it('missing triggers are reported by doctor and re-installed by the retry', async () => {
@@ -1178,21 +1235,86 @@ describe('heal-malformed-blob-attachments.mjs', () => {
 });
 
 describe('initial collapse with an empty bare table', () => {
-  it('drops the frozen twin rows (never shown by the old build), snapshot first', () => {
+  it('keeps the twin-only rows (the docs history): nothing to carry, nothing dropped', () => {
     const db = tasksNative();
     for (const marker of MARKERS)
       db.prepare('DELETE FROM main.tasks_schema_meta WHERE key = ?').run(marker);
-    writeDoc(db, 'docs_attachments', { id: 'att-frozen', slug: 'frozen', refs: [['task', 'T1']] });
+    writeDoc(db, 'docs_attachments', {
+      id: 'att-history',
+      slug: 'history',
+      refs: [['task', 'T1']],
+    });
+    const receipt = collapseTwinTables(db, dbPath())[DOCS];
+    expect(receipt).toMatchObject({ status: 'initial', dropped: [], deleted: 0 });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM main.docs_attachments').get()).toEqual({ n: 1 });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM main.docs_attachment_refs').get()).toEqual({
+      n: 1,
+    });
+  });
+});
+
+describe('initial collapse: the union never drops content (the live cleocode shape)', () => {
+  it('keeps unique twin-only docs, merges same-content duplicates into the bare row, renames slug collisions, keeps and remaps refs', async () => {
+    const db = preMigration();
+    // The docs history only the twin holds (as on the live store: 2749 such rows).
+    writeDoc(db, 'docs_attachments', {
+      id: 'att-hist-adr',
+      slug: 'adr-005-migration-safety',
+      type: 'adr',
+      content: 'historic ADR 5',
+      blob: true,
+      refs: [
+        ['task', 'T100'], // a live task
+        ['task', 'T404'], // a task that is gone: kept all the same
+      ],
+    });
+    // The same bytes as a bare doc under another id, superseded by a history doc.
+    writeDoc(db, 'docs_attachments', {
+      id: 'att-hist-dup',
+      content: 'content of att-note-1',
+      refs: [['task', 'T777']],
+    });
+    writeDoc(db, 'docs_attachments', {
+      id: 'att-hist-next',
+      slug: 'note-next',
+      content: 'next note',
+      supersedes: 'att-hist-dup',
+    });
+    // A second frozen copy of historic content (the frozen twin had no UNIQUE sha256).
+    writeDoc(db, 'docs_attachments', { id: 'att-hist-zdup', content: 'historic ADR 5' });
     const receipt = collapseTwinTables(db, dbPath())[DOCS];
     expect(receipt).toMatchObject({
       status: 'initial',
-      dropped: ['["att-frozen"]', '["att-frozen","task","T1"]'],
+      dropped: [],
+      merged: ['att-hist-dup -> att-note-1', 'att-hist-zdup -> att-hist-adr'],
+      renamed: ['att-frozen: spec-a -> spec-a-2'],
     });
-    expect(db.prepare('SELECT COUNT(*) AS n FROM main.docs_attachments').get()).toEqual({ n: 0 });
-    expect(db.prepare('SELECT COUNT(*) AS n FROM main.docs_attachment_refs').get()).toEqual({
-      n: 0,
+    const store = createAttachmentStore();
+    expect(await store.findBySlug('adr-005-migration-safety', projectDir)).toMatchObject({
+      metadata: { id: 'att-hist-adr' },
     });
-    expect(migrationSnapshots()).toHaveLength(1);
+    expect((await store.listByOwner('task', 'T100', projectDir)).map((m) => m.id).sort()).toEqual([
+      'att-adr-001',
+      'att-adr-002',
+      'att-hist-adr',
+    ]);
+    expect((await store.listRefs('att-hist-adr', projectDir)).length).toBe(2);
+    // The duplicate's ref and the supersedes link moved onto the bare row.
+    expect((await store.listByOwner('task', 'T777', projectDir)).map((m) => m.id)).toEqual([
+      'att-note-1',
+    ]);
+    expect(
+      db.prepare("SELECT supersedes FROM main.docs_attachments WHERE id = 'att-hist-next'").get(),
+    ).toEqual({ supersedes: 'att-note-1' });
+    expect(await store.getMetadata('att-hist-dup', projectDir)).toBeNull();
+    // ref_count follows the refs; the UNIQUE indexes hold; the blob is readable.
+    expect(
+      db.prepare("SELECT ref_count FROM main.docs_attachments WHERE id = 'att-note-1'").get(),
+    ).toEqual({ ref_count: 3 });
+    expect(uniqueIndexes(db)).toEqual(UNIQUE_INDEXES);
+    expect((await store.get(sha('historic ADR 5'), projectDir))?.bytes.toString()).toBe(
+      'historic ADR 5',
+    );
   });
 });
 
@@ -1285,10 +1407,11 @@ describe('Gate B: bare rows are a subset of the post-merge twin', () => {
     // bare-authoritative rule replaces or drops, passed as allowed deletions.
     const postRows = new Set(readRows(`${fpPost}.rows`));
     const dropped = readRows(`${fpPre}.rows`).filter((r) => !postRows.has(r));
+    // Only replaced row versions: the stale att-adr-001 (the bare row wins) and
+    // att-frozen before its slug moved to spec-a-2. No row is dropped.
     expect(dropped.map((r) => r.split('\t')[0]).sort()).toEqual([
-      'docs_attachment_refs', // (att-frozen, task, T101)
-      'docs_attachments', // att-adr-001, stale version
-      'docs_attachments', // att-frozen
+      'docs_attachments',
+      'docs_attachments',
     ]);
     const allowed = join(work, 'allowed-deleted.rows');
     writeFileSync(allowed, `${dropped.join('\n')}\n`);

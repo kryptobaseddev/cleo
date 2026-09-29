@@ -115,9 +115,7 @@
  * - Freeze (option (a), D11160): every merge installs BEFORE
  *   INSERT/UPDATE/DELETE triggers on the bare docs tables that abort an
  *   older build's write with the upgrade message ({@link docsFrozenMessage}).
- *   This build never writes them; a path that must runs inside
- *   {@link withBareDocsWritable} (the unfreeze row lives inside one savepoint,
- *   invisible to other connections). Every open checks the freeze and change
+ *   This build never writes them, so there is no bypass. Every open checks the freeze and change
  *   triggers and re-installs missing ones (a rebuild or restore drops them);
  *   `cleo doctor` reports them missing. The (b) defences above cover the time
  *   a freeze is missing.
@@ -814,9 +812,6 @@ function ensureDocsTracking(db: DatabaseSync): void {
   }
 }
 
-/** Key whose presence (inside one transaction only) lets this build write the frozen bare docs tables. */
-export const DOCS_UNFREEZE_KEY = 'twin_collapse_unfreeze:attachments';
-
 /** The freeze-trigger name for one bare table and operation. */
 const freezeTrigger = (table: string, op: string): string =>
   `t12535_freeze_${table}_${op.toLowerCase()}`;
@@ -828,16 +823,34 @@ const docsGuardTriggers = (): string[] =>
   );
 
 /**
- * The message an older build's write to a frozen bare docs table aborts with:
- * it names the release that moved the docs and the upgrade command.
+ * The message an older build's write to a frozen bare docs table aborts with.
+ * It names the release that moved the docs, what fails (docs, changesets, and
+ * the IVTR playbook provenance an older build attaches when a playbook run
+ * finalises), and the upgrade command.
+ *
+ * It must never read as contention or corruption to an older build: those
+ * retry on `sqlite_busy` / `database is locked` and restore backups on
+ * `database disk image is malformed`, so none of those words appear (pinned by
+ * a test, see {@link DOCS_FROZEN_FORBIDDEN}).
  */
 export function docsFrozenMessage(): string {
   const version = getCleoVersion().replace(/[^0-9A-Za-z.+-]/g, '');
   return (
     `CLEO: docs moved to docs_attachments (T12535); this project needs cleo ${version} or newer ` +
-    'to write docs. Run: npm i -g @cleocode/cleo@latest'
+    'to write docs, changesets and IVTR playbook provenance. ' +
+    'Run: npm i -g @cleocode/cleo@latest'
   );
 }
+
+/** Phrases the freeze message must never contain (older builds' retry and recovery matchers). */
+export const DOCS_FROZEN_FORBIDDEN: readonly string[] = [
+  'sqlite_busy',
+  'database is locked',
+  'database disk image is malformed',
+  'malformed',
+  'corrupt',
+  'not a database',
+];
 
 /**
  * BEFORE INSERT/UPDATE/DELETE triggers on the bare docs tables that abort
@@ -847,11 +860,10 @@ export function docsFrozenMessage(): string {
  * or slug, no split ref counts, no stale-read deletes, no ADR number reuse.
  * Its reads keep working (they show the frozen docs).
  *
- * This build never writes the bare tables. A path that must (a future data
- * fix) runs inside {@link withBareDocsWritable}; a migration that rebuilds or
- * drops the tables is not affected (DDL does not fire DML triggers; the
- * triggers go with a renamed or dropped table and are re-installed at the next
- * open, see {@link ensureDocsGuards}).
+ * There is no bypass: this build never writes the bare tables. A migration
+ * that rebuilds or drops them is not affected (DDL does not fire DML triggers;
+ * the triggers go with a renamed or dropped table and are re-installed at the
+ * next open, see {@link repairGuards}).
  */
 function ensureDocsFreeze(db: DatabaseSync): void {
   const message = docsFrozenMessage().replace(/'/g, "''");
@@ -859,7 +871,6 @@ function ensureDocsFreeze(db: DatabaseSync): void {
     for (const op of SHADOW_WRITE_OPS) {
       db.exec(
         `CREATE TRIGGER IF NOT EXISTS main.${freezeTrigger(table, op)} BEFORE ${op} ON ${table} ` +
-          `WHEN NOT EXISTS (SELECT 1 FROM tasks_schema_meta WHERE key = '${DOCS_UNFREEZE_KEY}') ` +
           `BEGIN SELECT RAISE(ABORT, '${message}'); END`,
       );
     }
@@ -883,32 +894,6 @@ function docsGuardsIntact(db: DatabaseSync): boolean {
 function ensureDocsGuards(db: DatabaseSync): void {
   ensureDocsFreeze(db);
   ensureDocsTracking(db);
-}
-
-/**
- * Run `fn` with the bare docs tables writable for THIS connection only: the
- * unfreeze row is inserted and deleted inside one savepoint, so no other
- * connection (an older build) ever sees it.
- *
- * @param db - The project `cleo.db` connection.
- * @param fn - The work that must write `attachments` / `attachment_refs`.
- * @returns What `fn` returns.
- * @task T12535
- */
-export function withBareDocsWritable<T>(db: DatabaseSync, fn: () => T): T {
-  const name = `t12535_unfreeze_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-  db.exec(`SAVEPOINT ${name}`);
-  try {
-    writeKv(db, 'tasks_schema_meta', DOCS_UNFREEZE_KEY, '1');
-    const result = fn();
-    db.prepare('DELETE FROM main.tasks_schema_meta WHERE key = ?').run(DOCS_UNFREEZE_KEY);
-    db.exec(`RELEASE ${name}`);
-    return result;
-  } catch (error) {
-    db.exec(`ROLLBACK TO ${name}`);
-    db.exec(`RELEASE ${name}`);
-    throw error;
-  }
 }
 
 /** The bare side's change counter, or `undefined` when a change trigger is missing. */
@@ -935,11 +920,101 @@ function freeSlug(slug: string, owners: ReadonlyMap<string, string>, id: string)
 }
 
 /**
+ * The initial docs collapse: a union that never drops content.
+ *
+ * - A row whose id the bare table has: the bare row is authoritative.
+ * - A twin-only row whose sha256 a bare row (or an earlier kept twin-only
+ *   row) holds, i.e. the same content under another id: merged into that row
+ *   (listed as merged), its refs and any supersedes link moved onto it.
+ * - Any other twin-only row: kept under its own id. When a bare row holds its
+ *   slug, the bare (live) doc keeps the slug and this one is carried as
+ *   `<slug>-<n>` (listed as renamed).
+ * - Refs: every bare ref and every twin ref (remapped onto merged ids) is kept.
+ */
+function planInitialDocs(
+  db: DatabaseSync,
+  plan: Plan,
+  bare: { docs: Map<string, CarriedRow>; refs: Map<string, CarriedRow> },
+  twin: { docs: Map<string, CarriedRow>; refs: Map<string, CarriedRow> },
+): Plan {
+  const columns = docColumns(db);
+  const refCols = refColumns(db);
+  const idAt = refCols.indexOf('attachment_id');
+  const bareBySha = new Map<string, string>();
+  const slugOwner = new Map<string, string>();
+  for (const [id, row] of bare.docs) {
+    bareBySha.set(String(row.values.sha256), id);
+    if (typeof row.values.slug === 'string') slugOwner.set(row.values.slug, id);
+  }
+  for (const [id, row] of bare.docs)
+    if (twin.docs.get(id)?.json !== row.json) plan.set.set(`d:${id}`, row.json);
+  // Twin-only rows: merge same-content duplicates into the bare row, keep the rest.
+  const mergedInto = new Map<string, string>();
+  const kept: string[] = [];
+  for (const id of [...twin.docs.keys()].sort()) {
+    if (bare.docs.has(id)) continue;
+    const row = twin.docs.get(id) as CarriedRow;
+    const content = String(row.values.sha256);
+    // The same content in a bare row, or in a twin-only row kept already
+    // (a frozen twin had no UNIQUE sha256 index).
+    const owner = bareBySha.get(content);
+    if (owner !== undefined) {
+      mergedInto.set(id, owner);
+      plan.del.push(`d:${id}`);
+      plan.merged.push(`${id} -> ${owner}`);
+    } else {
+      bareBySha.set(content, id);
+      kept.push(id);
+    }
+  }
+  for (const id of kept) {
+    const row = twin.docs.get(id) as CarriedRow;
+    const values: Record<string, unknown> = { ...row.values };
+    let changed = false;
+    if (typeof values.slug === 'string') {
+      const holder = slugOwner.get(values.slug);
+      if (holder !== undefined && holder !== id) {
+        const next = freeSlug(values.slug, slugOwner, id);
+        plan.renamed.push(`${id}: ${values.slug} -> ${next}`);
+        values.slug = next;
+        changed = true;
+      }
+      slugOwner.set(values.slug as string, id);
+    }
+    for (const col of ['supersedes', 'superseded_by']) {
+      const target = values[col];
+      if (typeof target === 'string' && mergedInto.has(target)) {
+        values[col] = mergedInto.get(target);
+        changed = true;
+      }
+    }
+    if (changed) plan.set.set(`d:${id}`, JSON.stringify(columns.map((c) => values[c] ?? null)));
+  }
+  // Refs: the union, twin refs remapped onto merged ids.
+  for (const [key, row] of bare.refs)
+    if (twin.refs.get(key)?.json !== row.json) plan.set.set(`r:${key}`, row.json);
+  for (const [key, row] of twin.refs) {
+    const [attachmentId, ownerType, ownerId] = JSON.parse(key) as [string, string, string];
+    const target = mergedInto.get(attachmentId);
+    if (target === undefined) continue; // kept as it is
+    plan.del.push(`r:${key}`);
+    const moved = JSON.stringify([target, ownerType, ownerId]);
+    if (bare.refs.has(moved) || plan.set.has(`r:${moved}`)) continue;
+    const values = JSON.parse(row.json) as unknown[];
+    values[idAt] = target;
+    plan.set.set(`r:${moved}`, JSON.stringify(values));
+  }
+  return plan;
+}
+
+/**
  * Plan the docs merge. Keys: `d:<twin id>` (doc rows) and `r:<JSON key>` (refs).
  *
- * Initial collapse: the twins are made equal to the bare tables (frozen
- * twin-only rows dropped), even when the bare tables are empty: the older
- * build never showed a twin-only row.
+ * Initial collapse, a union that never drops content ({@link planInitialDocs}):
+ * bare rows are authoritative for their ids; twin-only rows are kept (on the
+ * live cleocode store they are the whole docs history before 2026-06-03: ADRs,
+ * specs, research, with live task refs), except a twin-only row whose content
+ * a bare row holds, which is merged into that bare row; refs are united.
  *
  * Incremental re-merge, per bare doc whose row hash moved since the last merge
  * (its id translated through the aliases):
@@ -959,23 +1034,7 @@ function planDocs(db: DatabaseSync, state: CollapseState | undefined): Plan {
   const plan = emptyPlan();
   const bare = docsSide(db, 'bare');
   const twin = docsSide(db, 'twin');
-  if (state === undefined) {
-    for (const id of [...twin.docs.keys()].sort()) {
-      if (bare.docs.has(id)) continue;
-      plan.del.push(`d:${id}`);
-      plan.dropped.push(JSON.stringify([id]));
-    }
-    for (const [id, row] of bare.docs)
-      if (twin.docs.get(id)?.json !== row.json) plan.set.set(`d:${id}`, row.json);
-    for (const key of [...twin.refs.keys()].sort()) {
-      if (bare.refs.has(key)) continue;
-      plan.del.push(`r:${key}`);
-      plan.dropped.push(key);
-    }
-    for (const [key, row] of bare.refs)
-      if (twin.refs.get(key)?.json !== row.json) plan.set.set(`r:${key}`, row.json);
-    return plan;
-  }
+  if (state === undefined) return planInitialDocs(db, plan, bare, twin);
 
   const last = lastHashes(db, DOCS, state);
   const aliases = { ...readAliases(db) };
