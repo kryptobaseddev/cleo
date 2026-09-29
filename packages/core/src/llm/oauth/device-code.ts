@@ -221,6 +221,15 @@ export function getKimiCodeDeviceCodeConfig(): DeviceCodeConfig {
 /** Maximum number of consecutive network-error retries during polling. */
 const MAX_NETWORK_RETRIES = 3;
 
+/**
+ * Cap on how long polling runs (seconds), whatever `expires_in` the server
+ * claims: a hostile or broken server cannot keep the CLI polling for days.
+ */
+export const MAX_DEVICE_CODE_LIFETIME_SECONDS = 1800;
+
+/** Default time budget for one token request before it is aborted and retried. */
+export const DEVICE_CODE_REQUEST_TIMEOUT_MS = 15_000;
+
 /** Cap on the polling interval (seconds), regardless of `slow_down` growth. */
 const POLL_INTERVAL_CAP_SECONDS = 30;
 
@@ -339,6 +348,9 @@ export async function startDeviceCodeFlow(cfg: DeviceCodeConfig): Promise<Device
  *   print a live progress counter.
  * @param options.signal - Optional `AbortSignal` for cooperative cancellation.
  * @param options.sleep - Optional wait override (tests); defaults to `setTimeout`.
+ * @param options.requestTimeoutMs - Per-request budget; a request that takes
+ *   longer is aborted and counted as a network error. Default
+ *   {@link DEVICE_CODE_REQUEST_TIMEOUT_MS}.
  *
  * @throws {DeviceCodeTimeoutError} When `expiresIn` is reached without approval.
  * @throws {DeviceCodeAuthError} When the provider returns a non-recoverable error.
@@ -351,6 +363,7 @@ export async function pollForToken(
     onPending?: (elapsed: number, expiresIn: number) => void;
     signal?: AbortSignal;
     sleep?: (ms: number) => Promise<void>;
+    requestTimeoutMs?: number;
   },
 ): Promise<DeviceCodeTokenResponse> {
   const { deviceCode, expiresIn, interval } = startResp;
@@ -358,7 +371,8 @@ export async function pollForToken(
   const sleep = options?.sleep ?? defaultSleep;
   const doFetch = fetcherFor(cfg);
 
-  const deadline = Date.now() + expiresIn * 1000;
+  const requestTimeoutMs = options?.requestTimeoutMs ?? DEVICE_CODE_REQUEST_TIMEOUT_MS;
+  const deadline = Date.now() + Math.min(expiresIn, MAX_DEVICE_CODE_LIFETIME_SECONDS) * 1000;
   let currentInterval = Math.max(1, Math.min(interval, POLL_INTERVAL_CAP_SECONDS));
   let consecutiveNetworkErrors = 0;
   const startedAt = Date.now();
@@ -378,7 +392,9 @@ export async function pollForToken(
           client_id: cfg.clientId,
           device_code: deviceCode,
         }),
-        signal,
+        signal: signal
+          ? AbortSignal.any([signal, AbortSignal.timeout(requestTimeoutMs)])
+          : AbortSignal.timeout(requestTimeoutMs),
       });
       // Reset retry counter on any HTTP response (even error responses).
       consecutiveNetworkErrors = 0;

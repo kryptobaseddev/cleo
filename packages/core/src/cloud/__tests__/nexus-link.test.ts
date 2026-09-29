@@ -11,11 +11,12 @@
  */
 
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getProjectDisplayName } from '../../project-info.js';
+import { withLock } from '../../store/file-utils.js';
 import { FileNexusTokenStore } from '../nexus-credentials.js';
 import {
   linkProjectToNexus,
@@ -23,6 +24,11 @@ import {
   readNexusProjectLink,
   validateNexusProjectLabel,
 } from '../nexus-link.js';
+
+vi.mock('../../store/file-utils.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../store/file-utils.js')>();
+  return { ...real, withLock: vi.fn(real.withLock) };
+});
 
 const API = 'https://api.nexus.test';
 const TOKEN = 'tok_SECRET_link_token_0123456789abcdef';
@@ -243,5 +249,78 @@ describe('linkProjectToNexus', () => {
       code: 'E_NEXUS_REQUEST_FAILED',
       fix: 'ask the owner to share the project',
     });
+  });
+});
+
+describe('label privacy (T12712 review item 8)', () => {
+  it('refuses drive-letter and Unicode look-alike slash labels', async () => {
+    const { fetchImpl, bodies } = mockProjects();
+    for (const bad of [
+      'C:foo',
+      'c:',
+      'a\uFF0Fb',
+      'a\u2215b',
+      'a\u29F8b',
+      'a\u2044b',
+      'a\uFF3Cb',
+      'a\u29F9b',
+    ]) {
+      await expect(
+        linkProjectToNexus({ apiUrl: API, store, projectRoot, label: bad, fetch: fetchImpl }),
+      ).rejects.toMatchObject({ code: 'E_NEXUS_INVALID_LABEL' });
+    }
+    expect(bodies).toHaveLength(0);
+  });
+
+  it('refuses the OS username as a label (it would leak the account name)', async () => {
+    const username = userInfo().username;
+    const { fetchImpl, bodies } = mockProjects();
+    await expect(
+      linkProjectToNexus({ apiUrl: API, store, projectRoot, label: username, fetch: fetchImpl }),
+    ).rejects.toMatchObject({
+      code: 'E_NEXUS_INVALID_LABEL',
+      fix: expect.stringContaining('--label'),
+    });
+    writeInfo({ name: username });
+    await expect(
+      linkProjectToNexus({ apiUrl: API, store, projectRoot, fetch: fetchImpl }),
+    ).rejects.toMatchObject({ code: 'E_NEXUS_INVALID_LABEL' });
+    expect(bodies).toHaveLength(0);
+  });
+
+  it('refuses a default label when the project root is the home directory', async () => {
+    const savedHome = process.env['HOME'];
+    process.env['HOME'] = projectRoot;
+    try {
+      const { fetchImpl, bodies } = mockProjects();
+      await expect(
+        linkProjectToNexus({ apiUrl: API, store, projectRoot, fetch: fetchImpl }),
+      ).rejects.toMatchObject({
+        code: 'E_NEXUS_INVALID_LABEL',
+        fix: expect.stringContaining('--label'),
+      });
+      expect(bodies).toHaveLength(0);
+      // An explicit label is the user's choice and goes through.
+      await linkProjectToNexus({
+        apiUrl: API,
+        store,
+        projectRoot,
+        label: 'Board',
+        fetch: fetchImpl,
+      });
+      expect(bodies).toEqual([{ projectId: PROJECT_ID, label: 'Board' }]);
+    } finally {
+      if (savedHome === undefined) delete process.env['HOME'];
+      else process.env['HOME'] = savedHome;
+    }
+  });
+});
+
+describe('link file concurrency (T12712 review item 9)', () => {
+  it('reads and writes nexus-link.json under the file lock', async () => {
+    const { fetchImpl } = mockProjects();
+    vi.mocked(withLock).mockClear();
+    const result = await linkProjectToNexus({ apiUrl: API, store, projectRoot, fetch: fetchImpl });
+    expect(vi.mocked(withLock).mock.calls.map((c) => c[0])).toContain(result.linkPath);
   });
 });

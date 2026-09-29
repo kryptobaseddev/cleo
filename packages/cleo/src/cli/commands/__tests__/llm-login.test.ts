@@ -29,7 +29,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // spawn('xdg-open', [url], ...) and actually opens a browser window during
 // test runs (regression fixed in T9579).
 vi.mock('node:child_process', () => ({
-  spawn: vi.fn(() => ({ unref: vi.fn() })),
+  spawn: vi.fn(() => ({ unref: vi.fn(), on: vi.fn() })),
 }));
 
 const m = vi.hoisted(() => ({
@@ -108,7 +108,7 @@ vi.mock('@cleocode/core/llm/oauth/pkce.js', async (importOriginal) => {
 // ---------------------------------------------------------------------------
 
 import { spawn } from 'node:child_process';
-import { runLlmLogin } from '../llm-login.js';
+import { _tryOpenBrowser, runLlmLogin } from '../llm-login.js';
 
 // Typed reference to the mocked spawn for assertions.
 const spawnMock = vi.mocked(spawn);
@@ -743,9 +743,9 @@ describe('runLlmLogin — T11774: redirect_uri consistency (Anthropic paste-back
     expect(server.listening).toBe(false);
     expect(stdinSpy).not.toHaveBeenCalled();
     expect(spawnMock).toHaveBeenCalledWith(
-      expect.stringMatching(/^(open|start|xdg-open)$/),
-      ['https://claude.ai/oauth/authorize?code_challenge=test'],
-      { detached: true, stdio: 'ignore' },
+      expect.stringMatching(/^(open|rundll32|xdg-open)$/),
+      expect.arrayContaining(['https://claude.ai/oauth/authorize?code_challenge=test']),
+      expect.objectContaining({ detached: true, stdio: 'ignore' }),
     );
     expect(spawnMock.mock.results[0]?.value.unref).toHaveBeenCalledOnce();
 
@@ -1033,5 +1033,65 @@ describe('runLlmLogin — T12010: stdin paused after headless paste-back (no eve
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_PKCE_INVALID_CALLBACK');
     expect(pauseCalled).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Shared browser opener (T12712 review item 4)
+// ---------------------------------------------------------------------------
+
+describe('_tryOpenBrowser', () => {
+  const URL_OK = 'https://cleocode.dev/device?user_code=ABCD-EFGH&x=%41';
+
+  function withPlatform(platform: NodeJS.Platform, fn: () => void): void {
+    const saved = Object.getOwnPropertyDescriptor(process, 'platform');
+    Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+    try {
+      fn();
+    } finally {
+      if (saved) Object.defineProperty(process, 'platform', saved);
+    }
+  }
+
+  it('on win32 hands the URL to rundll32 (no cmd.exe parsing) and survives a spawn error', async () => {
+    const { EventEmitter } = await import('node:events');
+    const child = Object.assign(new EventEmitter(), { unref: vi.fn() });
+    spawnMock.mockClear();
+    spawnMock.mockImplementationOnce((() => child) as unknown as typeof spawn);
+    withPlatform('win32', () => _tryOpenBrowser(URL_OK));
+    expect(spawnMock).toHaveBeenCalledWith(
+      'rundll32',
+      ['url.dll,FileProtocolHandler', URL_OK],
+      expect.objectContaining({ detached: true, stdio: 'ignore' }),
+    );
+    // ENOENT (no opener) arrives as an 'error' event: it must not crash the poll.
+    expect(() =>
+      child.emit('error', Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' })),
+    ).not.toThrow();
+  });
+
+  it('attaches an error listener on every platform (xdg-open missing must not crash)', async () => {
+    const { EventEmitter } = await import('node:events');
+    const child = Object.assign(new EventEmitter(), { unref: vi.fn() });
+    spawnMock.mockClear();
+    spawnMock.mockImplementationOnce((() => child) as unknown as typeof spawn);
+    withPlatform('linux', () => _tryOpenBrowser(URL_OK));
+    expect(spawnMock).toHaveBeenCalledWith('xdg-open', [URL_OK], expect.anything());
+    expect(() => child.emit('error', new Error('spawn xdg-open ENOENT'))).not.toThrow();
+  });
+
+  it('never spawns for an option-like or control-character URL', () => {
+    spawnMock.mockClear();
+    for (const bad of [
+      '-x',
+      '--help',
+      'https://a.test/\u001b[2J',
+      'https://a.test/\rX',
+      'https://a.test/ x',
+    ]) {
+      withPlatform('linux', () => _tryOpenBrowser(bad));
+      withPlatform('win32', () => _tryOpenBrowser(bad));
+    }
+    expect(spawnMock).not.toHaveBeenCalled();
   });
 });

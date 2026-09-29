@@ -54,6 +54,9 @@ import {
 /** Environment override for the default API origin (e.g. staging). */
 export const NEXUS_API_URL_ENV = 'CLEO_NEXUS_API_URL';
 
+/** Default time budget for the server-side revocation at logout. */
+export const NEXUS_REVOKE_TIMEOUT_MS = 5_000;
+
 /** Default time budget for a live status check. */
 export const NEXUS_STATUS_TIMEOUT_MS = 1_500;
 
@@ -82,6 +85,12 @@ export interface NexusFlowOptions {
   store?: NexusTokenStore;
   /** `fetch` override. */
   fetch?: FetchLike;
+}
+
+/** Options for {@link logoutFromNexus}. */
+export interface NexusLogoutOptions extends NexusFlowOptions {
+  /** Budget for the revocation call; default {@link NEXUS_REVOKE_TIMEOUT_MS}. */
+  revokeTimeoutMs?: number;
 }
 
 /** Options for {@link loginToNexus}. */
@@ -150,6 +159,53 @@ export function nexusDeviceCodeConfig(apiUrl: string, fetchImpl?: FetchLike): De
     clientId: NEXUS_CLI_CLIENT_ID,
     ...(fetchImpl ? { fetch: fetchImpl } : {}),
   };
+}
+
+/** C0 and C1 control characters (ESC, CR, LF, CSI, …) and any whitespace. */
+const UNSAFE_URI_CHARS = /[\u0000-\u0020\u007f-\u009f\s]/;
+
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/**
+ * Refuse a server-supplied verification URL unless it is safe to print and to
+ * hand to the OS browser opener:
+ *
+ * - no control characters or whitespace (terminal injection: ESC, CR, LF, CSI);
+ * - no leading `-` (option injection into `open` / `xdg-open`);
+ * - `https:` (plain `http:` only when the API itself is a loopback http origin);
+ * - no `user:pass@`;
+ * - the host is the API's web origin or a subdomain of it: the API host minus a
+ *   leading `api.` label (`api.cleocode.dev` → `cleocode.dev`,
+ *   `api.staging.cleocode.dev` → `staging.cleocode.dev`). A phishing host, a
+ *   `file:` URL or a custom scheme never reaches the screen or the opener.
+ *
+ * @param uri - `verification_uri` or `verification_uri_complete` as received.
+ * @param apiUrl - Resolved API origin.
+ * @throws {NexusAccountError} `E_NEXUS_UNTRUSTED_VERIFICATION_URI`.
+ */
+export function assertTrustedVerificationUri(uri: string, apiUrl: string): void {
+  const refuse = (why: string): never => {
+    throw new NexusAccountError(
+      'E_NEXUS_UNTRUSTED_VERIFICATION_URI',
+      `the server sent an untrusted verification URL (${why}); the login was stopped`,
+      'check --api-url; only sign in through the Cleo Nexus web app',
+    );
+  };
+  if (UNSAFE_URI_CHARS.test(uri)) refuse('control characters or whitespace');
+  if (uri.startsWith('-')) refuse('leading "-"');
+  const url = URL.canParse(uri) ? new URL(uri) : refuse('not a URL');
+  const api = new URL(apiUrl);
+  const loopbackHttp =
+    url.protocol === 'http:' &&
+    api.protocol === 'http:' &&
+    LOOPBACK_HOSTS.has(url.hostname) &&
+    LOOPBACK_HOSTS.has(api.hostname);
+  if (url.protocol !== 'https:' && !loopbackHttp) refuse(`scheme ${url.protocol}`);
+  if (url.username || url.password) refuse('credentials in the URL');
+  const web = api.hostname.startsWith('api.') ? api.hostname.slice(4) : api.hostname;
+  if (url.hostname !== web && !url.hostname.endsWith(`.${web}`)) {
+    refuse(`host ${url.hostname} is not ${web}`);
+  }
 }
 
 /**
@@ -231,6 +287,10 @@ export async function loginToNexus(opts: NexusLoginOptions = {}): Promise<NexusL
       'check the API URL and your network, then retry',
     );
   }
+  assertTrustedVerificationUri(start.verificationUri, apiUrl);
+  if (start.verificationUriComplete !== undefined) {
+    assertTrustedVerificationUri(start.verificationUriComplete, apiUrl);
+  }
   opts.onCode?.(start);
 
   let token: Awaited<ReturnType<typeof pollForToken>>;
@@ -278,14 +338,17 @@ export async function loginToNexus(opts: NexusLoginOptions = {}): Promise<NexusL
 }
 
 /**
- * Sign out: revoke the session server-side (`POST /api/auth/sign-out` with the
- * bearer token), then delete it locally. The local token is deleted even when
- * revocation fails, and the failure is reported.
+ * Sign out: delete the session locally FIRST, then revoke it server-side
+ * (`POST /api/auth/sign-out` with the bearer token) within
+ * {@link NEXUS_REVOKE_TIMEOUT_MS}. A slow or hung server can delay logout by
+ * at most that budget and can never keep the token on disk; a failed
+ * revocation is reported. The delete only removes the session that was read,
+ * so a login that finished concurrently for the same origin survives.
  *
- * @param opts - API URL, store and test overrides.
+ * @param opts - API URL, store, revoke budget and test overrides.
  * @returns The logout result.
  */
-export async function logoutFromNexus(opts: NexusFlowOptions = {}): Promise<NexusLogoutResult> {
+export async function logoutFromNexus(opts: NexusLogoutOptions = {}): Promise<NexusLogoutResult> {
   const apiUrl = resolveNexusApiUrl(opts.apiUrl);
   const store = opts.store ?? new FileNexusTokenStore();
   const session = await store.get(apiUrl);
@@ -293,24 +356,30 @@ export async function logoutFromNexus(opts: NexusFlowOptions = {}): Promise<Nexu
     return { apiUrl, removedLocally: false, revocation: 'skipped', warnings: [] };
   }
 
+  const removedLocally = await store.delete(apiUrl, session);
   const warnings: string[] = [];
   let revocation: NexusLogoutResult['revocation'];
   try {
-    revocation = await revokeSession(apiUrl, session, opts.fetch);
+    revocation = await revokeSession(
+      apiUrl,
+      session,
+      opts.revokeTimeoutMs ?? NEXUS_REVOKE_TIMEOUT_MS,
+      opts.fetch,
+    );
   } catch (err) {
     revocation = 'failed';
     warnings.push(
       `server-side sign-out failed (${err instanceof Error ? err.message : String(err)}); the local token was deleted`,
     );
   }
-  const removedLocally = await store.delete(apiUrl);
   return { apiUrl, removedLocally, revocation, warnings };
 }
 
-/** `POST /api/auth/sign-out` with the bearer token. Never follows redirects. */
+/** `POST /api/auth/sign-out` with the bearer token, within `timeoutMs`. Never follows redirects. */
 async function revokeSession(
   apiUrl: string,
   session: SealedNexusSession,
+  timeoutMs: number,
   fetchImpl?: FetchLike,
 ): Promise<'revoked' | 'already-invalid'> {
   const doFetch = fetchImpl ?? ((input: string, init?: RequestInit) => fetch(input, init));
@@ -323,6 +392,7 @@ async function revokeSession(
     },
     body: '{}',
     redirect: 'error',
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (res.status === 401) return 'already-invalid';
   if (!res.ok) throw new Error(`HTTP ${res.status}`);

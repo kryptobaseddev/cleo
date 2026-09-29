@@ -120,8 +120,9 @@ const mockFetch = vi.fn(async (url: string, init?: RequestInit): Promise<Respons
       return reply(200, {
         device_code: 'dev-1',
         user_code: 'WXYZ-1234',
-        verification_uri: 'https://web.nexus.test/device',
-        verification_uri_complete: 'https://web.nexus.test/device?user_code=WXYZ-1234',
+        // The web app lives on the API's domain (api.X -> web.X), as in production.
+        verification_uri: `https://${new URL(url).hostname.replace(/^api\./, 'web.')}/device`,
+        verification_uri_complete: `https://${new URL(url).hostname.replace(/^api\./, 'web.')}/device?user_code=WXYZ-1234`,
         expires_in: 900,
         interval: 5,
       });

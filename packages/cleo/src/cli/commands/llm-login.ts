@@ -630,9 +630,23 @@ function _findFreePort(): Promise<number> {
   });
 }
 
+/** Control characters, whitespace, or a leading `-` (option injection into the opener). */
+const UNSAFE_OPEN_URL = /^-|[\u0000-\u0020\u007f-\u009f\s]/;
+
 /**
- * Attempt to open a URL in the default browser using the OS `open` / `xdg-open`
- * command. Silently swallows errors — headless environments are expected to fail.
+ * Attempt to open a URL in the default browser. Silently does nothing when it
+ * cannot: headless environments are expected to fail, and the user always has
+ * the URL on stderr.
+ *
+ * - `open` (macOS), `xdg-open` (Linux), and on Windows
+ *   `rundll32 url.dll,FileProtocolHandler <url>`, which hands the URL to the
+ *   shell's protocol handler without cmd.exe parsing (`start` is a cmd builtin,
+ *   so spawning it directly fails with ENOENT, and `cmd /c start` would
+ *   interpret `&|^<>%` in the URL).
+ * - A URL with control characters, whitespace or a leading `-` is never
+ *   spawned.
+ * - An `'error'` listener swallows a missing opener (ENOENT), which would
+ *   otherwise crash the process mid-poll.
  *
  * Tests must mock `node:child_process` before importing this module. Spying on
  * this export does not replace calls through the local function binding.
@@ -640,11 +654,20 @@ function _findFreePort(): Promise<number> {
  * @internal
  */
 export function _tryOpenBrowser(url: string): void {
-  const cmd =
-    process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
+  if (UNSAFE_OPEN_URL.test(url)) return;
+  const [cmd, args]: [string, string[]] =
+    process.platform === 'darwin'
+      ? ['open', [url]]
+      : process.platform === 'win32'
+        ? ['rundll32', ['url.dll,FileProtocolHandler', url]]
+        : ['xdg-open', [url]];
 
   try {
-    spawn(cmd, [url], { detached: true, stdio: 'ignore' }).unref();
+    const child = spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: true });
+    child.on('error', () => {
+      /* no opener available — the user sees the URL on stderr */
+    });
+    child.unref();
   } catch {
     /* silently ignore — user sees the URL on stderr */
   }

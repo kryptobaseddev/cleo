@@ -34,14 +34,15 @@
  * @epic T12322
  */
 
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { homedir, userInfo } from 'node:os';
+import { join, resolve } from 'node:path';
 import type { NexusProjectLink, NexusProjectLinkResult } from '@cleocode/contracts';
 import { readDeclaredProjectIdentity } from '@cleocode/paths';
 import { z } from 'zod';
 import { getCleoDirAbsolute, resolveOrCwd } from '../paths.js';
 import { getProjectDisplayName } from '../project-info.js';
-import { writeJsonFileAtomic } from '../store/file-utils.js';
+import { withLock } from '../store/file-utils.js';
 import { Http, NexusError } from './http.js';
 import {
   NexusAccountError,
@@ -84,9 +85,27 @@ export interface NexusLinkOptions extends NexusFlowOptions {
 }
 
 /**
- * Validate a project label: 1-120 characters, no path separators, no
- * home-directory shorthand, no control characters. A label is a name, never a
- * path.
+ * Path separators and their look-alikes: `/`, `\`, fullwidth ／ ＼, division
+ * slash ∕, set minus ∖, fraction slash ⁄, big solidi ⧸ ⧹, small reverse
+ * solidus ﹨. Plus C0/C1 control characters.
+ */
+const LABEL_FORBIDDEN =
+  /[/\\\uFF0F\uFF3C\u2215\u2216\u2044\u29F8\u29F9\uFE68\u0000-\u001f\u007f-\u009f]/;
+
+/** The OS account name, or `null` when the platform cannot say. */
+function osUsername(): string | null {
+  try {
+    return userInfo().username || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Validate a project label: 1-120 characters; no path separator or look-alike
+ * slash, no drive letter (`C:`), no leading `~`, no control characters; and
+ * not the OS username, which would leak the account name. A label is a name,
+ * never a path.
  *
  * @param raw - Candidate label.
  * @returns The trimmed label.
@@ -94,15 +113,40 @@ export interface NexusLinkOptions extends NexusFlowOptions {
  */
 export function validateNexusProjectLabel(raw: string): string {
   const label = raw.trim();
-  const invalid = /[/\\\u0000-\u001f\u007f]/.test(label) || label.startsWith('~');
-  if (!label || label.length > NEXUS_LABEL_MAX || invalid) {
+  const pathLike = LABEL_FORBIDDEN.test(label) || label.startsWith('~') || /^[A-Za-z]:/.test(label);
+  if (!label || label.length > NEXUS_LABEL_MAX || pathLike) {
     throw new NexusAccountError(
       'E_NEXUS_INVALID_LABEL',
-      `invalid project label "${label}": use 1-${NEXUS_LABEL_MAX} characters with no "/", "\\" or leading "~" (a name, not a path)`,
+      `invalid project label "${label}": use 1-${NEXUS_LABEL_MAX} characters with no slash or backslash (or look-alike), drive letter or leading "~" (a name, not a path)`,
       'pass `--label <name>`',
     );
   }
+  const username = osUsername();
+  if (username !== null && label.toLowerCase() === username.toLowerCase()) {
+    throw new NexusAccountError(
+      'E_NEXUS_INVALID_LABEL',
+      'the project label equals your OS username, which would reveal it to the server',
+      'pass `--label <name>` with a different name',
+    );
+  }
   return label;
+}
+
+/**
+ * The label to send: `--label`, else the project's display name. A project
+ * rooted at the home directory has no meaningful name (its basename is the
+ * account name), so it must be labelled explicitly.
+ */
+function resolveLinkLabel(projectRoot: string, explicit: string | undefined): string {
+  if (explicit !== undefined) return validateNexusProjectLabel(explicit);
+  if (resolve(projectRoot) === resolve(homedir())) {
+    throw new NexusAccountError(
+      'E_NEXUS_INVALID_LABEL',
+      'this project is your home directory; its name would reveal your account name',
+      'pass `--label <name>`',
+    );
+  }
+  return validateNexusProjectLabel(getProjectDisplayName(projectRoot));
 }
 
 /**
@@ -188,7 +232,7 @@ export async function linkProjectToNexus(
     );
   }
   const projectId = identity.projectId;
-  const label = validateNexusProjectLabel(opts.label ?? getProjectDisplayName(projectRoot));
+  const label = resolveLinkLabel(projectRoot, opts.label);
 
   const http = new Http({
     baseUrl: apiUrl,
@@ -203,7 +247,6 @@ export async function linkProjectToNexus(
   }
 
   const linkPath = nexusLinkPath(projectRoot);
-  const file = readLinkFile(linkPath);
   const link: NexusProjectLink = {
     apiUrl,
     localProjectId: projectId,
@@ -213,7 +256,19 @@ export async function linkProjectToNexus(
     streamId: registered.streamId,
     linkedAt: new Date().toISOString(),
   };
-  writeJsonFileAtomic(linkPath, { version: 1, links: { ...file.links, [apiUrl]: link } });
+  // Locked read-modify-write: concurrent links (other origins, other shells)
+  // never drop each other's entries. withLock needs a parseable file to read,
+  // so seed an empty one exclusively ('wx') when there is none.
+  try {
+    writeFileSync(linkPath, `${JSON.stringify({ version: 1, links: {} })}\n`, { flag: 'wx' });
+  } catch (err) {
+    if (!(err instanceof Error && 'code' in err && err.code === 'EEXIST')) throw err;
+  }
+  await withLock<NexusLinkFile>(linkPath, (current) => {
+    const parsed = linkFileSchema.safeParse(current);
+    const links = parsed.success ? parsed.data.links : {};
+    return { version: 1, links: { ...links, [apiUrl]: link } };
+  });
 
   return {
     link,

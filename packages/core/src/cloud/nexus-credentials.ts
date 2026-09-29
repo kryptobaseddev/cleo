@@ -22,14 +22,16 @@
  */
 
 import {
-  existsSync,
+  closeSync,
+  constants as fsConstants,
   lstatSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
   statSync,
   unlinkSync,
-  writeFileSync,
+  writeSync,
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { inspect } from 'node:util';
@@ -64,6 +66,9 @@ type NexusCredentialsFile = z.infer<typeof storeSchema>;
 
 const EMPTY_STORE: NexusCredentialsFile = { version: 1, sessions: {} };
 
+/** `O_NOFOLLOW` where the platform has it (not on Windows). */
+const NO_FOLLOW = fsConstants.O_NOFOLLOW ?? 0;
+
 /** A session to store. The token is the only secret. */
 export interface NexusSessionInput {
   /** Bearer session token issued by the device-code grant. */
@@ -91,8 +96,13 @@ export interface NexusTokenStore {
   get(apiUrl: string): Promise<SealedNexusSession | null>;
   /** Store (replace) the session for `apiUrl`'s origin. */
   put(apiUrl: string, session: NexusSessionInput): Promise<void>;
-  /** Delete the session for `apiUrl`'s origin. Returns `true` when one existed. */
-  delete(apiUrl: string): Promise<boolean>;
+  /**
+   * Delete the session for `apiUrl`'s origin. With `expected`, delete only if
+   * the stored token is still that session's token (checked under the store's
+   * lock), so a login that finished meanwhile is not wiped. Returns `true` when
+   * a session was deleted.
+   */
+  delete(apiUrl: string, expected?: SealedNexusSession): Promise<boolean>;
   /** Every stored session. */
   list(): Promise<SealedNexusSession[]>;
 }
@@ -238,11 +248,16 @@ export class FileNexusTokenStore implements NexusTokenStore {
     }));
   }
 
-  async delete(apiUrl: string): Promise<boolean> {
+  async delete(apiUrl: string, expected?: SealedNexusSession): Promise<boolean> {
     const key = nexusOriginKey(apiUrl);
-    const existed = key in this.read().sessions;
-    if (existed) {
+    let deleted = false;
+    if (key in this.read().sessions) {
       await this.write((current) => {
+        const stored = current.sessions[key];
+        if (!stored || (expected !== undefined && stored.token !== expected.bearer())) {
+          return current;
+        }
+        deleted = true;
         const sessions = { ...current.sessions };
         delete sessions[key];
         return { version: 1, sessions };
@@ -250,7 +265,7 @@ export class FileNexusTokenStore implements NexusTokenStore {
     }
     // Rotated backups hold earlier copies of the file, and so of the token.
     this.purgeBackups();
-    return existed;
+    return deleted;
   }
 
   async list(): Promise<SealedNexusSession[]> {
@@ -286,13 +301,7 @@ export class FileNexusTokenStore implements NexusTokenStore {
     transform: (current: NexusCredentialsFile) => NexusCredentialsFile,
   ): Promise<void> {
     this.assertNoSymlinks();
-    if (!existsSync(this.location) || !readFileSync(this.location, 'utf-8').trim()) {
-      mkdirSync(dirname(this.location), { recursive: true, mode: 0o700 });
-      writeFileSync(this.location, `${JSON.stringify(EMPTY_STORE)}\n`, {
-        encoding: 'utf-8',
-        mode: 0o600,
-      });
-    }
+    this.seed();
     await withLock<NexusCredentialsFile>(
       this.location,
       (current) => {
@@ -303,8 +312,48 @@ export class FileNexusTokenStore implements NexusTokenStore {
     );
   }
 
-  /** Throw when the store exists with a mode wider than 0600 or another owner. */
+  /**
+   * Create the store file owner-only if it does not exist. `O_EXCL` plus
+   * `O_NOFOLLOW` close the window between the symlink check and the create: a
+   * symlink planted meanwhile makes the open fail instead of being followed.
+   * On `EEXIST` the existing entry is re-opened with `O_NOFOLLOW`, which fails
+   * (`ELOOP`) on a symlink, so a planted link is refused before the locked
+   * write can touch it.
+   */
+  private seed(): void {
+    mkdirSync(dirname(this.location), { recursive: true, mode: 0o700 });
+    let fd: number;
+    try {
+      fd = openSync(
+        this.location,
+        fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY | NO_FOLLOW,
+        0o600,
+      );
+    } catch (err) {
+      if (!(err instanceof Error && 'code' in err && err.code === 'EEXIST')) throw err;
+      try {
+        closeSync(openSync(this.location, fsConstants.O_RDONLY | NO_FOLLOW));
+      } catch {
+        throw new NexusCredentialsError(
+          `refusing to write Nexus credentials through a symlink: ${this.location}`,
+        );
+      }
+      return;
+    }
+    try {
+      writeSync(fd, `${JSON.stringify(EMPTY_STORE)}\n`);
+    } finally {
+      closeSync(fd);
+    }
+  }
+
+  /**
+   * Throw when the store exists with a mode wider than 0600 or another owner.
+   * Skipped on Windows, where Node reports every file as 0o666 and uids do not
+   * apply; the file lives in the user's profile, protected by its ACL.
+   */
   private assertPrivate(): void {
+    if (process.platform === 'win32') return;
     let st: ReturnType<typeof statSync>;
     try {
       st = statSync(this.location);

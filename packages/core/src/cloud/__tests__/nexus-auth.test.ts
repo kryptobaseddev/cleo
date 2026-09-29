@@ -24,6 +24,7 @@ import { join } from 'node:path';
 import { inspect } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  assertTrustedVerificationUri,
   getNexusAccountStatus,
   loginToNexus,
   logoutFromNexus,
@@ -46,7 +47,13 @@ type TokenReply = { status: number; body: Record<string, unknown> };
 
 /** A mock Nexus API. `tokenReplies` is consumed one per poll; the last repeats. */
 function mockNexus(
-  opts: { tokenReplies?: TokenReply[]; me?: 'ok' | 401 | 'network'; signOut?: number } = {},
+  opts: {
+    tokenReplies?: TokenReply[];
+    me?: 'ok' | 401 | 'network';
+    signOut?: number | 'hang';
+    verificationUri?: string;
+    verificationUriComplete?: string | null;
+  } = {},
 ) {
   const calls: Recorded[] = [];
   const tokenReplies = [...(opts.tokenReplies ?? [])];
@@ -68,8 +75,13 @@ function mockNexus(
       return json(200, {
         device_code: 'dev-code-1',
         user_code: 'ABCD-EFGH',
-        verification_uri: 'https://web.nexus.test/device',
-        verification_uri_complete: 'https://web.nexus.test/device?user_code=ABCD-EFGH',
+        verification_uri: opts.verificationUri ?? 'https://web.nexus.test/device',
+        ...(opts.verificationUriComplete === null
+          ? {}
+          : {
+              verification_uri_complete:
+                opts.verificationUriComplete ?? 'https://web.nexus.test/device?user_code=ABCD-EFGH',
+            }),
         expires_in: 900,
         interval: 5,
       });
@@ -101,6 +113,11 @@ function mockNexus(
       });
     }
     if (path === '/api/auth/sign-out') {
+      if (opts.signOut === 'hang') {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+        });
+      }
       return json(opts.signOut ?? 200, { success: true });
     }
     return json(404, { success: false, error: { code: 'E_NOT_FOUND', message: 'no route' } });
@@ -467,4 +484,120 @@ describe('resolveNexusApiUrl', () => {
       else process.env['CLEO_NEXUS_API_URL'] = saved;
     }
   });
+});
+
+describe('verification URI validation (T12712 review item 2)', () => {
+  const bad: Array<[string, string]> = [
+    ['phishing host', 'https://cleocode-login.evil.test/device'],
+    ['lookalike suffix', 'https://web.nexus.test.evil.test/device'],
+    ['file scheme', 'file:///etc/passwd'],
+    ['custom scheme', 'cleo-evil://device'],
+    ['javascript scheme', 'javascript:alert(1)'],
+    ['plain http', 'http://web.nexus.test/device'],
+    ['leading dash (option injection)', '-x'],
+    ['ESC (terminal injection)', 'https://web.nexus.test/device\u001b[2J'],
+    ['carriage return', 'https://web.nexus.test/device\rVisit: https://evil.test'],
+    ['C1 control', 'https://web.nexus.test/device\u009b31m'],
+  ];
+  for (const [what, uri] of bad) {
+    it(`aborts the login on ${what}, before showing or opening anything`, async () => {
+      const onCode = vi.fn();
+      for (const variant of [
+        { verificationUri: uri, verificationUriComplete: null },
+        { verificationUriComplete: uri },
+      ]) {
+        const { fetchImpl, calls } = mockNexus({ tokenReplies: [approved], ...variant });
+        await expect(
+          loginToNexus({ apiUrl: API, store, fetch: fetchImpl, sleep, onCode }),
+        ).rejects.toMatchObject({ code: 'E_NEXUS_UNTRUSTED_VERIFICATION_URI' });
+        expect(calls.some((c) => c.url.endsWith('/api/auth/device/token'))).toBe(false);
+      }
+      expect(onCode).not.toHaveBeenCalled();
+      expect(await store.get(API)).toBeNull();
+    });
+  }
+
+  it('accepts the web origin of the production and staging APIs', () => {
+    expect(() =>
+      assertTrustedVerificationUri(
+        'https://cleocode.dev/device?user_code=AB',
+        'https://api.cleocode.dev',
+      ),
+    ).not.toThrow();
+    expect(() =>
+      assertTrustedVerificationUri(
+        'https://staging.cleocode.dev/device',
+        'https://api.staging.cleocode.dev',
+      ),
+    ).not.toThrow();
+    expect(() =>
+      assertTrustedVerificationUri(
+        'https://cleocode.dev/device',
+        'https://api.staging.cleocode.dev',
+      ),
+    ).toThrow(NexusAccountError);
+    expect(() =>
+      assertTrustedVerificationUri('http://localhost:5173/device', 'http://localhost:8787'),
+    ).not.toThrow();
+  });
+});
+
+describe('logout robustness (T12712 review items 3 and 7)', () => {
+  const session = (token: string) => ({
+    token,
+    tokenType: 'Bearer',
+    expiresAt: null,
+    user: null,
+    organization: null,
+  });
+
+  it('deletes locally first and gives up on a hanging revoke within the timeout', async () => {
+    await store.put(API, session(TOKEN));
+    const { fetchImpl } = mockNexus({ signOut: 'hang' });
+    const started = Date.now();
+    const result = await logoutFromNexus({
+      apiUrl: API,
+      store,
+      fetch: fetchImpl,
+      revokeTimeoutMs: 50,
+    });
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(result).toMatchObject({ removedLocally: true, revocation: 'failed' });
+    expect(await store.get(API)).toBeNull();
+  }, 5_000);
+
+  it('does not delete a session a concurrent login stored after logout read the old one', async () => {
+    await store.put(API, session(TOKEN));
+    const newer = 'tok_NEWER_concurrent_login_0123456789';
+    const racing: typeof store = Object.create(store);
+    racing.get = async (apiUrl: string) => {
+      const old = await store.get(apiUrl);
+      await store.put(apiUrl, session(newer)); // a login finishes in between
+      return old;
+    };
+    const { fetchImpl } = mockNexus();
+    const result = await logoutFromNexus({ apiUrl: API, store: racing, fetch: fetchImpl });
+    expect(result.removedLocally).toBe(false);
+    expect((await store.get(API))?.bearer()).toBe(newer);
+  });
+});
+
+describe('token store on win32 (T12712 review item 1)', () => {
+  it('skips the POSIX mode/owner check, since Windows reports 0o666', async () => {
+    await store.put(API, session0());
+    chmodSync(store.location, 0o666);
+    const saved = Object.getOwnPropertyDescriptor(process, 'platform');
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+    try {
+      expect((await store.get(API))?.bearer()).toBe(TOKEN);
+      expect(await store.list()).toHaveLength(1);
+      expect(await store.delete(API)).toBe(true);
+    } finally {
+      if (saved) Object.defineProperty(process, 'platform', saved);
+    }
+  });
+
+  function session0() {
+    return { token: TOKEN, tokenType: 'Bearer', expiresAt: null, user: null, organization: null };
+  }
 });
