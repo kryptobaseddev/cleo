@@ -70,6 +70,9 @@ const BASE_DATA_FIELDS = new Set([
   'duplicate',
   'acceptanceCriteriaIds',
   'autoCompleted',
+  // T12660: `cleo complete` reports a cleared focus pointer + next ready task.
+  'focusCleared',
+  'nextSuggested',
   'cascadeDeleted',
   // T10599 add-batch dry-run semantics exposed by the projected mutate
   // envelope. Keep these pointer-addressable for --field consumers.

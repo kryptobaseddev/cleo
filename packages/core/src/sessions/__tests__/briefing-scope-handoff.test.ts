@@ -148,6 +148,7 @@ function setupMockAccessor(tasks = makeEpicTaskList(), focusTaskId: string | nul
     upsertSingleSession: vi.fn().mockResolvedValue(undefined),
     removeSingleSession: vi.fn().mockResolvedValue(undefined),
     queryTasks: vi.fn().mockResolvedValue({ tasks, total: tasks.length }),
+    loadSingleTask: vi.fn((id: string) => Promise.resolve(tasks.find((t) => t.id === id) ?? null)),
     getMetaValue: vi.fn().mockImplementation((key: string) => {
       if (key === 'focus_state')
         return Promise.resolve(
