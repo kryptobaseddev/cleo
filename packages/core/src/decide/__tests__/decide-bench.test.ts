@@ -301,9 +301,9 @@ describe('profile adapter (until T12733 lands)', () => {
     expect(laya?.apiKey).toBe('k1');
     expect(jev).toMatchObject({ name: 'jev', provider: 'jev', baseUrl: 'http://127.0.0.1:9' });
     expect(() => resolveBenchProfiles(['ghost'], resolver)).toThrow(/ghost/);
-    // A non-layahost profile without a URL does not resolve.
+    // A non-layahost profile without a URL is a configuration error.
     const noUrl = createInterimProfileResolver({ CLEO_DECIDE_PROFILE_JEV_KEY: 'k' }, () => null);
-    expect(noUrl.resolve('jev')).toBeNull();
+    expect(() => noUrl.resolve('jev')).toThrow(/no URL/);
   });
 });
 
@@ -372,6 +372,12 @@ function answer(request: Json): Json {
   return { answers, meta: { cost_micros: 5, request_id: 'r' } };
 }
 
+/** {@link answer} with a different reported cost. */
+function pricedAnswer(request: Json, micros: number): { [k: string]: Json } {
+  const a = answer(request);
+  return isObject(a) ? { ...a, meta: { cost_micros: micros } } : {};
+}
+
 let server: Server;
 let baseUrl: string;
 const calls: Call[] = [];
@@ -391,18 +397,33 @@ beforeAll(async () => {
         const parsed: Json = JSON.parse(body);
         const requests =
           isObject(parsed) && Array.isArray(parsed['requests']) ? parsed['requests'] : [];
-        // The "jev" key fails every third item with a 500.
+        // The "jev" key fails every third item with a 500; "bad" answers
+        // every item with a billed but malformed 2xx; "pricey" costs 100 µ$.
         const flaky = auth === 'Bearer jev-key';
+        const bad = auth === 'Bearer bad-key';
+        const pricey = auth === 'Bearer pricey-key';
         return send(200, {
           responses: requests.map((r, index) =>
-            flaky && index % 3 === 2
-              ? { index, status: 500, body: { error: { type: 'server_error' } } }
-              : { index, status: 200, body: answer(r) },
+            bad
+              ? { index, status: 200, body: { answers: {}, meta: { cost_micros: 5 } } }
+              : flaky && index % 3 === 2
+                ? { index, status: 500, body: { error: { type: 'server_error' } } }
+                : {
+                    index,
+                    status: 200,
+                    body: pricey ? { ...pricedAnswer(r, 100) } : answer(r),
+                  },
           ),
           request_id: 'b',
         });
       }
-      if (path === '/v1/systemone') return send(200, answer(JSON.parse(body)));
+      if (path === '/v1/systemone') {
+        const malformed = auth === 'Bearer bad-key';
+        return send(
+          200,
+          malformed ? { answers: {}, meta: { cost_micros: 5 } } : answer(JSON.parse(body)),
+        );
+      }
       return send(404, { error: { type: 'not_found' } });
     });
   });
@@ -520,6 +541,120 @@ describe('runDecideBench against a fake Jev server', () => {
     expect(results.spend.batchesSent).toBeLessThan(results.spend.batchesPlanned);
     expect(results.runs.at(-1)?.complete).toBe(false);
     expect(renderBenchReport(results)).toContain('Stopped at the cap');
+  });
+});
+
+describe('billed but unusable answers and pricier models (review of #1715)', () => {
+  it('caps a model that keeps answering in the wrong shape', async () => {
+    const rows = await buildBenchDataset(fixtureSource());
+    const results = await runDecideBench({
+      rows,
+      connections: [{ name: 'bad', provider: 'jev', baseUrl, apiKey: 'bad-key' }],
+      runs: 50,
+      batchSize: 4,
+      maxMicros: 200,
+      spendLedger: null,
+      providerStateDir: join(dir, 'state'),
+    });
+    expect(results.spend.capReached).toBe(true);
+    expect(results.spend.spentMicros).toBeGreaterThan(0);
+    expect(results.spend.spentMicros).toBeLessThanOrEqual(200);
+    const dup = results.runs[0]?.providers[0]?.sites.find((s) => s.site === 'duplicateDetection');
+    expect(dup?.fallbacks['invalid_response']).toBeGreaterThan(0);
+    expect(dup?.answered).toBe(0);
+  });
+
+  it('carries the reported cost onto an invalid_response fallback', async () => {
+    const { decide } = await import('../client.js');
+    const req = {
+      state: 'x',
+      questions: { q: { type: 'noul' as const, criteria: 'is it?' } },
+    };
+    const outcome = await decide(
+      'cli.decide-bench',
+      req,
+      () => ({ q: { type: 'noul', value: false, probability: 0.1, confidence: 0.5 } }),
+      {
+        provider: {
+          decide: async () => ({
+            // A choice answer to a noul question: billed, then rejected.
+            answers: {
+              q: { type: 'choice', value: 'a', probabilities: { a: 1 }, confidence: 1 },
+            },
+            source: 'provider',
+            latencyMs: 1,
+            costMicros: 40,
+          }),
+        },
+        cache: null,
+        budget: null,
+        spend: null,
+        audit: null,
+      },
+    );
+    expect(outcome.source).toBe('fallback');
+    expect(outcome.costMicros).toBe(40);
+  });
+
+  it('estimates the next batch from the observed cost, so a pricier model stops in time', async () => {
+    const rows = await buildBenchDataset(fixtureSource());
+    const results = await runDecideBench({
+      rows,
+      connections: [{ name: 'pricey', provider: 'jev', baseUrl, apiKey: 'pricey-key' }],
+      batchSize: 4,
+      maxMicros: 1_000,
+      spendLedger: null,
+      providerStateDir: join(dir, 'state'),
+    });
+    // 4 rows × 100 µ$ = 400 per batch: two batches fit, the third would not.
+    expect(results.spend.spentMicros).toBe(800);
+    expect(results.spend.stoppedAt?.estimateMicros).toBe(400);
+  });
+});
+
+describe('leakage and profile validation (review of #1715)', () => {
+  it('drops pair rows whose text gives the label away', async () => {
+    const task = (id: string, title: string, description: string) => ({
+      id,
+      title,
+      description,
+      status: 'pending',
+      parentId: 'T1',
+      notes: [],
+      relates: [] as { taskId: string; type: string }[],
+    });
+    const source: BenchSource = {
+      tasks: async () => [
+        {
+          ...task('T10', 'Search pagination', 'Duplicate of T11, closing'),
+          relates: [{ taskId: 'T11', type: 'duplicates' }],
+        },
+        task('T11', 'Paginate search', 'cursor based'),
+        {
+          ...task('T12', 'Retry writer', 'retries'),
+          relates: [{ taskId: 'T13', type: 'duplicates' }],
+        },
+        task('T13', 'Writer retries', 'backoff'),
+      ],
+      observations: async () => [],
+      decisions: async () => [],
+    };
+    const rows = await buildBenchDataset(source, { sites: ['duplicateDetection'] });
+    const ids = rows.filter((r) => r.label === 'duplicate').map((r) => r.id);
+    expect(ids).toEqual(['duplicateDetection:T12+T13']);
+  });
+
+  it('reports an invalid URL or model instead of an unknown profile', () => {
+    const badUrl = createInterimProfileResolver(
+      { CLEO_DECIDE_PROFILE_JEV_KEY: 'k', CLEO_DECIDE_PROFILE_JEV_URL: 'http://example.com' },
+      () => null,
+    );
+    expect(() => badUrl.resolve('jev')).toThrow(/invalid URL/);
+    const badModel = createInterimProfileResolver(
+      { CLEO_DECIDE_PROFILE_LAYAHOST_KEY: 'k', CLEO_DECIDE_PROFILE_LAYAHOST_MODEL: 'bad model!' },
+      () => null,
+    );
+    expect(() => resolveBenchProfiles(['layahost'], badModel)).toThrow(/invalid model/);
   });
 });
 

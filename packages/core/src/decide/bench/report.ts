@@ -80,6 +80,12 @@ export function renderBenchReport(
     "- **Control group: CLEO's own history.** Duplicate pairs come from `duplicates` relations, tasks cancelled as a duplicate of a named task and duplicate notes; distinct pairs are same-parent tasks with no relation. Observation types are those a caller set explicitly (the stored type differs from both keyword defaults). Contradiction positives are supersedes edges; negatives are random pairs with no supersedes edge.",
   );
   lines.push(
+    '- Pair rows whose text gives the label away (one side names the other\'s id, or says "duplicate of T123" / "supersedes D12") are dropped.',
+  );
+  lines.push(
+    '- The dataset and the owner spot-check sample (`dataset.jsonl`, `spot-check.json`) stay local and are never published: they hold redacted project text. Only this aggregate report is shared.',
+  );
+  lines.push(
     '- Every row is the exact question the site asks (the site request builders), redacted with the same patterns System One uses, sent through `decideBatch` with the provider cache off (`cache: false`).',
   );
   lines.push(

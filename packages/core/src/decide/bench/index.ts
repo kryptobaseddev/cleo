@@ -18,6 +18,7 @@ export {
   buildBenchDataset,
   DEFAULT_BENCH_MAX_ROWS_PER_SITE,
   DEFAULT_BENCH_NEGATIVES_PER_POSITIVE,
+  leaksBenchLabel,
   legacyKeywordObservationType,
   MIN_BENCH_NEGATIVES,
   parseBenchDataset,
@@ -44,6 +45,7 @@ export {
 } from './operation.js';
 export {
   BenchProfileError,
+  BenchProfileInvalidError,
   type BenchProfileResolver,
   benchProfileEnvPrefix,
   createInterimProfileResolver,

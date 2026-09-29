@@ -8,10 +8,13 @@
  * - One batch deadline of at least {@link MIN_BENCH_TIMEOUT_MS} (spec §1: the
  *   batch endpoint answers its items serially).
  * - A hard total spend cap across all providers and runs, SEPARATE from the
- *   everyday monthly cap: before each batch the spend estimate
- *   ({@link DECISION_COST_ESTIMATE_MICROS_PER_QUESTION} per question) is
- *   added to what was spent so far, and the run stops cleanly when that would
- *   pass the cap. The monthly cap does not gate the benchmark
+ *   everyday monthly cap: before each batch the spend estimate (per
+ *   question, the larger of {@link DECISION_COST_ESTIMATE_MICROS_PER_QUESTION}
+ *   and the connection's observed mean reported cost) is added to what was
+ *   spent so far, and the run stops cleanly when that would pass the cap.
+ *   Billed answers the client rejected (`invalid_response`) count at their
+ *   reported cost (else the estimate), so a model that keeps answering in
+ *   the wrong shape is still capped. The monthly cap does not gate the benchmark
  *   (`spend: null` on the calls), but every batch's spend is still recorded
  *   in the monthly ledger so month-to-date spend stays true.
  * - Providers take turns batch by batch, so a cap stop leaves them with the
@@ -263,6 +266,28 @@ function finishCollector(site: BenchSite, c: Collector): BenchSiteResult {
   };
 }
 
+/** Reported micro-dollars and the questions they paid for. */
+interface ObservedCost {
+  micros: number;
+  questions: number;
+}
+
+/**
+ * Estimated cost per question for the pre-batch cap check: the client's
+ * reservation estimate, or the connection's observed mean when a pricier
+ * model has reported more, so one batch cannot overshoot the cap by much.
+ */
+function perQuestionEstimate(seen: ObservedCost | undefined): number {
+  const mean = seen && seen.questions > 0 ? Math.ceil(seen.micros / seen.questions) : 0;
+  return Math.max(DECISION_COST_ESTIMATE_MICROS_PER_QUESTION, mean);
+}
+
+/** Provider-reported cost of an outcome in micros (`costMicros`, else `costUsd`). */
+function reportedCostMicros(outcome: DecisionOutcome): number | undefined {
+  if (outcome.costMicros !== undefined) return outcome.costMicros;
+  return outcome.costUsd !== undefined ? Math.round(outcome.costUsd * 1e6) : undefined;
+}
+
 /** A profile name made safe for a file name. */
 function safeFileName(name: string): string {
   return name.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 64) || 'profile';
@@ -408,6 +433,8 @@ export async function runDecideBench(opts: RunDecideBenchOptions): Promise<Bench
   let recordedInMonthlyLedger = true;
   let stoppedAt: BenchSpendSummary['stoppedAt'];
   const runRecords: BenchRunRecord[] = [];
+  /** Reported cost per connection so far, for the pre-batch estimate. */
+  const observed = new Map<string, ObservedCost>();
 
   runLoop: for (let run = 1; run <= runs; run++) {
     const collectors = new Map<string, Map<BenchSite, Collector>>();
@@ -431,7 +458,7 @@ export async function runDecideBench(opts: RunDecideBenchOptions): Promise<Bench
             (n, x) => n + Object.keys(x.q.req.questions).length,
             0,
           );
-          const estimate = questionCount * DECISION_COST_ESTIMATE_MICROS_PER_QUESTION;
+          const estimate = questionCount * perQuestionEstimate(observed.get(conn.name));
           if (spentMicros + estimate > capMicros) {
             stoppedAt = { run, site, provider: conn.name, batch: b + 1, estimateMicros: estimate };
             runRecords.push(record(false));
@@ -463,25 +490,32 @@ export async function runDecideBench(opts: RunDecideBenchOptions): Promise<Bench
           batchesSent++;
           const col = collectors.get(conn.name)?.get(site) ?? newCollector();
           let batchSpend = 0;
-          const perQuestion = DECISION_COST_ESTIMATE_MICROS_PER_QUESTION;
+          const perQuestion = perQuestionEstimate(observed.get(conn.name));
+          const seen = observed.get(conn.name) ?? { micros: 0, questions: 0 };
           for (const [i, { row, q }] of batch.entries()) {
             const outcome = outcomes[i];
             col.attempted++;
             const questionsHere = Object.keys(q.req.questions).length;
+            const reported = outcome ? reportedCostMicros(outcome) : undefined;
+            if (reported !== undefined) {
+              col.costReported = true;
+              reportedMicros += reported;
+              seen.micros += reported;
+              seen.questions += questionsHere;
+            }
             if (!outcome || outcome.source !== 'provider') {
               const reason = reasons.take(auditKey(q)) ?? 'unknown';
               col.fallbacks[reason] = (col.fallbacks[reason] ?? 0) + 1;
-              // A call that timed out after send may still have been billed.
-              if (reason === 'timeout') batchSpend += questionsHere * perQuestion;
+              // Billed without a usable answer: a 2xx the client rejected
+              // (`invalid_response`, at its reported cost), or a call that
+              // timed out after send. Other failures are error responses,
+              // which the provider does not bill (layahost docs).
+              if (reason === 'invalid_response' || reason === 'timeout') {
+                batchSpend += reported ?? questionsHere * perQuestion;
+              }
               continue;
             }
-            if (outcome.costMicros !== undefined) {
-              col.costReported = true;
-              reportedMicros += outcome.costMicros;
-              batchSpend += outcome.costMicros;
-            } else {
-              batchSpend += questionsHere * perQuestion;
-            }
+            batchSpend += reported ?? questionsHere * perQuestion;
             col.latencies.push(outcome.latencyMs);
             const predicted = q.predict(outcome.answers);
             if (predicted === null) {
@@ -490,6 +524,7 @@ export async function runDecideBench(opts: RunDecideBenchOptions): Promise<Bench
             }
             col.predictions.push({ gold: row.label, predicted });
           }
+          observed.set(conn.name, seen);
           col.costMicros += batchSpend;
           spentMicros += batchSpend;
           if (ledger && batchSpend > 0) {

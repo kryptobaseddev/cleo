@@ -204,7 +204,7 @@ export async function runDecideBenchOperation(
       connections = resolveBenchProfiles(profiles, input.resolver);
     } catch (err) {
       throw new DecideBenchInputError(
-        err instanceof Error ? err.message : 'unknown profile',
+        err instanceof Error ? err.message : 'profile resolution failed',
         'CLEO_DECIDE_PROFILE_<NAME>_KEY=… (and _URL for a non-layahost host)',
       );
     }

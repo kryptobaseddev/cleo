@@ -19,6 +19,7 @@
 
 import { DECISION_PROVIDER_KINDS } from '@cleocode/contracts';
 import { isAllowedDecideBaseUrl, loadDecideConnection } from '../credentials.js';
+import { isValidDecisionModelName } from '../jev-wire.js';
 import { DECISION_PROVIDER_PRESETS, parseDecisionProviderKind } from '../providers.js';
 import type { BenchConnection } from './types.js';
 
@@ -27,6 +28,7 @@ export interface BenchProfileResolver {
   /**
    * @param name - Profile name.
    * @returns The connection, or `null` when no profile has that name.
+   * @throws BenchProfileInvalidError when the profile exists but is misconfigured.
    */
   resolve(name: string): BenchConnection | null;
 }
@@ -48,7 +50,28 @@ export class BenchProfileError extends Error {
   }
 }
 
-/** Environment variable prefix for one profile. */
+/** A profile that exists but is misconfigured (bad URL or model). */
+export class BenchProfileInvalidError extends Error {
+  /** The profile name. */
+  readonly profile: string;
+
+  /**
+   * @param profile - Profile name.
+   * @param problem - What is wrong, e.g. `invalid URL "…"`.
+   */
+  constructor(profile: string, problem: string) {
+    super(`decide profile '${profile}': ${problem}`);
+    this.name = 'BenchProfileInvalidError';
+    this.profile = profile;
+  }
+}
+
+/**
+ * Environment variable prefix for one profile.
+ *
+ * @param name - Profile name.
+ * @returns `CLEO_DECIDE_PROFILE_<NAME>` (upper-cased, non-alphanumerics as `_`).
+ */
 export function benchProfileEnvPrefix(name: string): string {
   return `CLEO_DECIDE_PROFILE_${name.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`;
 }
@@ -75,8 +98,19 @@ export function createInterimProfileResolver(
           'jev';
         const preset = DECISION_PROVIDER_PRESETS[kind];
         const baseUrl = env[`${prefix}_URL`]?.trim() || preset.defaultBaseUrl;
-        if (!baseUrl || !isAllowedDecideBaseUrl(baseUrl)) return null;
+        if (!baseUrl) {
+          throw new BenchProfileInvalidError(name, `no URL (set ${prefix}_URL)`);
+        }
+        if (!isAllowedDecideBaseUrl(baseUrl)) {
+          throw new BenchProfileInvalidError(
+            name,
+            `invalid URL in ${prefix}_URL (https://, or http:// to a loopback host)`,
+          );
+        }
         const model = env[`${prefix}_MODEL`]?.trim() || preset.defaultModel;
+        if (model !== undefined && !isValidDecisionModelName(model)) {
+          throw new BenchProfileInvalidError(name, `invalid model name in ${prefix}_MODEL`);
+        }
         return { name, provider: kind, baseUrl, apiKey: key, ...(model ? { model } : {}) };
       }
       const sealed = stored();
@@ -104,6 +138,7 @@ export function createInterimProfileResolver(
  * @param resolver - Resolver. Default: {@link createInterimProfileResolver}.
  * @returns One connection per name.
  * @throws BenchProfileError when any name is unknown.
+ * @throws BenchProfileInvalidError when a profile has a bad URL or model.
  */
 export function resolveBenchProfiles(
   names: readonly string[],

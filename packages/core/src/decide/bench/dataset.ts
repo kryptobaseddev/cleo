@@ -17,6 +17,10 @@
  *   (newer → older). Negatives: random pairs with no supersedes edge between
  *   them. The newer decision's declared `supersedes` is never sent.
  *
+ * Pair rows whose text gives the label away (one side names the other's id,
+ * or says "duplicate of T123" / "supersedes D12") are dropped
+ * ({@link leaksBenchLabel}).
+ *
  * Every text field is redacted with the memory redaction patterns System One
  * uses (`redactContent`) and clipped before it is stored, so the dataset file
  * never holds a secret the provider would not have been sent anyway.
@@ -115,6 +119,38 @@ const DUPLICATE_WORDS = /\b(duplicat\w*|dup(?:e)?s?|dedup\w*|same as)\b/i;
 /** Task ids named in `text`. */
 function taskIdsIn(text: string): string[] {
   return [...new Set(text.match(/\bT\d{2,}\b/g) ?? [])];
+}
+
+/** A verdict word followed closely by a task or decision id: "duplicate of T123". */
+const GIVEAWAY =
+  /\b(duplicat\w*|dup(?:e)?s?|dedup\w*|same as|supersed\w*|replac\w*|obsolete\w*)\b[^\n]{0,40}?\b[TD]\d{2,}\b/i;
+
+/**
+ * Whether a pair row's text gives its label away: either side names the
+ * other's id, or says "duplicate of T123" / "supersedes D12". Such rows are
+ * dropped, so a provider is never scored on reading the answer off the text.
+ *
+ * @param row - A dataset row.
+ * @returns True when the text leaks the label.
+ */
+export function leaksBenchLabel(row: BenchRow): boolean {
+  if (row.site === 'observationType') return false;
+  const [x, y] =
+    row.site === 'duplicateDetection'
+      ? [row.input.a, row.input.b]
+      : [row.input.newer, row.input.older];
+  const textOf = (side: typeof x): string =>
+    'title' in side ? `${side.title}\n${side.description}` : `${side.decision}\n${side.rationale}`;
+  const mentions = (text: string, id: string): boolean =>
+    new RegExp(`\\b${id.replace(/[^\w]/g, '')}\\b`).test(text);
+  const xt = textOf(x);
+  const yt = textOf(y);
+  return mentions(xt, y.id) || mentions(yt, x.id) || GIVEAWAY.test(xt) || GIVEAWAY.test(yt);
+}
+
+/** Rows kept: those whose text does not leak the label. */
+function fair(row: BenchRow): boolean {
+  return !leaksBenchLabel(row);
 }
 
 /** Unordered pair key. */
@@ -279,7 +315,12 @@ function duplicateRows(
       },
     });
   }
-  return capBalanced([...positives.values()], [...negatives.values()], opts.maxRowsPerSite, random);
+  return capBalanced(
+    [...positives.values()].filter(fair),
+    [...negatives.values()].filter(fair),
+    opts.maxRowsPerSite,
+    random,
+  );
 }
 
 /** Whether `value` is one of the offered observation types. */
@@ -396,7 +437,12 @@ function contradictionRows(
       },
     });
   }
-  return capBalanced(positives, [...negatives.values()], opts.maxRowsPerSite, random);
+  return capBalanced(
+    positives.filter(fair),
+    [...negatives.values()].filter(fair),
+    opts.maxRowsPerSite,
+    random,
+  );
 }
 
 /**

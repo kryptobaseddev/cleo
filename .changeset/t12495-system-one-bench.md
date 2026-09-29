@@ -21,7 +21,10 @@ The dataset is read through the task and brain accessors, redacted with the
 System One redaction, and written as JSONL with per-row provenance.
 `--sample-only` builds it and a stratified ~30-item spot-check file without
 contacting any provider; `--corrections <file>` applies the owner's answers
-and marks those rows owner-verified.
+and marks those rows owner-verified. Pair rows whose text names the other
+side's id (or says "duplicate of T123") are dropped so the label cannot be
+read off the text. `dataset.jsonl` and `spot-check.json` stay local and are
+never published; only the aggregate report is meant for sharing.
 
 A run sends every row to every profile with the provider cache off and a
 deadline of at least 30 s, and reports n, accuracy, precision, recall, F1,
