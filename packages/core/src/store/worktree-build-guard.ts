@@ -339,16 +339,22 @@ interface HandleGuard {
    */
   unmappedAttachRefusal: string | null;
   /**
-   * Aliases DETACHed since the last refresh. Their mapped policy may describe
-   * a store that is gone: the alias can be re-ATTACHed to a different file,
-   * and SQLite's ATTACH callback carries the filename but not the alias.
+   * Whether any DETACH ran since the last refresh. The DETACH callback's alias
+   * cannot be trusted (it may be `?` or another case), and the ATTACH callback
+   * carries no alias at all, so after any DETACH every mapped policy may name
+   * a store that is gone: all schemas count as unmapped until refresh.
    */
-  detached: Set<string>;
+  stale: boolean;
   /** The most recent denial, for the error explanation. */
   lastDenied: { what: string; refusal: string } | null;
 }
 
 const guards = new WeakMap<DatabaseSync, HandleGuard>();
+
+/** Refusal for an ATTACH whose filename SQLite could not report (bound or computed). */
+const UNKNOWN_ATTACH_REFUSAL =
+  'a store was ATTACHed by a bound or computed filename, so this build cannot tell whose ' +
+  'store it is; schema changes on unmapped schemas are refused until the guard is refreshed';
 
 function readSchemas(nativeDb: DatabaseSync): Map<string, SchemaPolicy> {
   const schemas = new Map<string, SchemaPolicy>();
@@ -361,7 +367,7 @@ function readSchemas(nativeDb: DatabaseSync): Map<string, SchemaPolicy> {
     const rows = nativeDb
       .prepare(`SELECT type, name FROM "${name.replaceAll('"', '""')}".sqlite_master`)
       .all() as Array<{ type: string; name: string }>;
-    schemas.set(name, {
+    schemas.set(name.toLowerCase(), {
       refusal: file ? decisionFor(file) : null, // '' = in-memory
       objects: new Set(rows.map((r) => `${r.type}:${r.name}`)),
     });
@@ -409,32 +415,34 @@ export function installSchemaWriteGuard(nativeDb: DatabaseSync): boolean {
   const state: HandleGuard = {
     schemas: readSchemas(nativeDb),
     unmappedAttachRefusal: null,
-    detached: new Set(),
+    stale: false,
     lastDenied: null,
   };
   guards.set(nativeDb, state);
   const { sqlite, creates, changes } = codes();
   nativeDb.setAuthorizer((action, arg1, arg2, dbName) => {
     if (action === sqlite.SQLITE_ATTACH) {
-      const refusal = arg1 ? decisionFor(arg1) : null;
+      // arg1 is the filename only when it is a string literal; a bound or
+      // computed filename arrives as null and is refused until refresh.
+      const refusal = typeof arg1 === 'string' ? decisionFor(arg1) : UNKNOWN_ATTACH_REFUSAL;
       if (refusal && !state.unmappedAttachRefusal) state.unmappedAttachRefusal = refusal;
       return sqlite.SQLITE_OK;
     }
     if (action === sqlite.SQLITE_DETACH) {
-      if (arg1) state.detached.add(arg1);
+      state.stale = true;
       return sqlite.SQLITE_OK;
     }
     const createType = creates.get(action);
     if (createType === undefined && !changes.has(action)) return sqlite.SQLITE_OK;
     // SQLITE_ALTER_TABLE passes (schema, table) in arg1/arg2 and no dbName;
     // every other action passes the schema as dbName.
-    const schema = (action === sqlite.SQLITE_ALTER_TABLE ? arg1 : dbName) ?? 'main';
+    // Schema names are case-insensitive in SQLite; the map is keyed lower-case.
+    const schema = ((action === sqlite.SQLITE_ALTER_TABLE ? arg1 : dbName) ?? 'main').toLowerCase();
     if (schema === 'temp') return sqlite.SQLITE_OK;
-    // A DETACHed alias is unmapped until refresh. Its old refusal still
-    // applies, because the DETACH itself may have failed after authorization.
-    const stale = state.detached.has(schema);
+    // After a DETACH every schema is unmapped until refresh. Its old refusal
+    // still applies, because the DETACH may have failed after authorization.
     const mapped = state.schemas.get(schema);
-    const policy = stale ? undefined : mapped;
+    const policy = state.stale ? undefined : mapped;
     const refusal = policy
       ? policy.refusal
       : (mapped?.refusal ?? null) || state.unmappedAttachRefusal;
@@ -466,7 +474,7 @@ export function refreshSchemaWriteGuard(nativeDb: DatabaseSync): void {
   if (!state) return;
   state.schemas = readSchemas(nativeDb);
   state.unmappedAttachRefusal = null;
-  state.detached.clear();
+  state.stale = false;
 }
 
 /**
