@@ -30,8 +30,14 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { EvidenceAtom, EvidenceValidationContext } from '@cleocode/contracts';
 import { isGitWorkTree } from '../git/work-tree.js';
-import { checkPrTaskLinkage, type EvidenceRoots, isDocumentArtifact } from '../tasks/evidence.js';
-import { isGhCliAvailable } from './github-pr.js';
+import type { ViewComponentPr } from '../tasks/component-pr.js';
+import {
+  checkPrTaskLinkage,
+  type EvidenceRoots,
+  isDocumentArtifact,
+  linkedPrChange,
+} from '../tasks/evidence.js';
+import { ghQueryTimeoutMs, isGhCliAvailable } from './github-pr.js';
 import {
   describeRequiredWorkflowsSource,
   type PrAtomResolution,
@@ -131,6 +137,15 @@ export interface ResolveCiEvidenceOptions {
    * `origin/HEAD` (else origin/main, origin/master) and `merge-base --is-ancestor`.
    */
   onDefaultBranch?: (sha: string, cwd: string) => { ref: string | null; landed: boolean };
+  /**
+   * Component PR the task is linked through (`ci:<component>@<integration>`,
+   * T12671): the integration PR's CI is judged; the component supplies the link.
+   */
+  componentPrNumber?: number;
+  /** Component PR reader; defaults to `gh pr view`. */
+  viewComponentPr?: ViewComponentPr;
+  /** Persist nothing: no PR-result or branch-protection cache writes (the `--plan` preview). */
+  readOnly?: boolean;
 }
 
 /** Parsed `.cleo/project-context.json` of the store root, or null. */
@@ -477,7 +492,7 @@ function ghDefaultBranch(cwd: string): string | null {
     const name = execFileSync(
       'gh',
       ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'],
-      { cwd, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] },
+      { cwd, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'], timeout: ghQueryTimeoutMs() },
     ).trim();
     return /^[A-Za-z0-9._/-]+$/.test(name) ? name : null;
   } catch {
@@ -510,6 +525,7 @@ function ghApi(path: string, cwd: string): unknown {
         encoding: 'utf-8',
         stdio: ['ignore', 'pipe', 'pipe'],
         maxBuffer: 32 * 1024 * 1024,
+        timeout: ghQueryTimeoutMs(),
       }),
     );
   } catch {
@@ -645,13 +661,31 @@ export async function resolveCiEvidenceAtom(
   }
 
   const projectContext = opts.projectContext ?? null;
-  const pr = await (opts.resolvePr ?? ((n, r) => resolvePrEvidenceAtom(n, r, { projectContext })))(
-    prNumber,
-    roots,
-  );
+  const readOnly = opts.readOnly === true;
+  const pr = await (
+    opts.resolvePr ?? ((n, r) => resolvePrEvidenceAtom(n, r, { projectContext, readOnly }))
+  )(prNumber, roots);
   if (!pr.ok) return { ok: false, reason: pr.reason, codeName: pr.codeName };
-  // T12634: the same task linkage `pr:` enforces — never any merged PR for any task.
-  const unlinked = checkPrTaskLinkage(prNumber, pr, context);
+  // T12634: the same task linkage `pr:` enforces — never any merged PR for any
+  // task. T12671: through the component PR when the atom names one.
+  const linked = await linkedPrChange(
+    prNumber,
+    pr,
+    roots,
+    opts.componentPrNumber,
+    opts.viewComponentPr,
+  );
+  if (!linked.ok) {
+    return {
+      ok: false,
+      reason: linked.reason,
+      codeName:
+        linked.codeName === 'E_EVIDENCE_CONTENT_MISMATCH'
+          ? 'E_EVIDENCE_CONTENT_MISMATCH'
+          : 'E_EVIDENCE_INSUFFICIENT',
+    };
+  }
+  const unlinked = checkPrTaskLinkage(linked.prNumber, linked.pr, context);
   if (unlinked) {
     return {
       ok: false,
@@ -685,7 +719,7 @@ export async function resolveCiEvidenceAtom(
     };
   }
 
-  const required = await resolveRequiredWorkflowsDetailed(roots, { projectContext });
+  const required = await resolveRequiredWorkflowsDetailed(roots, { projectContext, readOnly });
   if (required.source.tier === 'unknown') {
     return {
       ok: false,
@@ -846,6 +880,9 @@ export async function resolveCiEvidenceAtom(
       requiredSource: required.source.tier,
       taskId: context.task.id,
       gateChecks,
+      ...(opts.componentPrNumber !== undefined
+        ? { componentPrNumber: opts.componentPrNumber }
+        : {}),
     },
   };
 }
