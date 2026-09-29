@@ -296,7 +296,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 0
   },
   {
     "costHint": "minimal",
-    "description": "tasks.start (mutate)",
+    "description": "tasks.start (mutate) — start work and take the caller session's leased claim (E_TASK_CLAIMED when another session holds it)",
     "domain": "tasks",
     "gateway": "mutate",
     "operation": "start",
@@ -310,14 +310,14 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 0
   },
   {
     "costHint": "minimal",
-    "description": "tasks.claim (mutate) — claim a task by assigning it to the current session",
+    "description": "tasks.claim (mutate) — take, renew or override the caller session's leased claim on a task (never the human assignee)",
     "domain": "tasks",
     "gateway": "mutate",
     "operation": "claim",
   },
   {
     "costHint": "minimal",
-    "description": "tasks.unclaim (mutate) — unclaim a task by removing the current assignee",
+    "description": "tasks.unclaim (mutate) — release the caller session's claim lease (never the human assignee)",
     "domain": "tasks",
     "gateway": "mutate",
     "operation": "unclaim",
@@ -617,6 +617,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1
       "flows",
       "context",
       "projects.list",
+      "projects.fleet",
       "diff",
       "query-cte",
       "hot-paths",
@@ -869,7 +870,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1
 }
 `;
 
-exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1 — operation count snapshot > tier-1-operationCount 1`] = `330`;
+exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1 — operation count snapshot > tier-1-operationCount 1`] = `331`;
 
 exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — domain-grouped operations snapshot > tier-2-groupedOperations 1`] = `
 {
@@ -1174,6 +1175,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
       "flows",
       "context",
       "projects.list",
+      "projects.fleet",
       "diff",
       "query-cte",
       "hot-paths",
@@ -1511,4 +1513,4 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
 }
 `;
 
-exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — operation count snapshot (full surface) > tier-2-operationCount 1`] = `464`;
+exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — operation count snapshot (full surface) > tier-2-operationCount 1`] = `465`;

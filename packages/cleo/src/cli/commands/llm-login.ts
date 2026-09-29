@@ -57,6 +57,12 @@ import {
 } from '@cleocode/core/llm/oauth/pkce.js';
 import { getKimiCodeMshHeaders } from '@cleocode/core/llm/provider-registry/builtin/kimi-code.js';
 import { getProviderProfile, listProviders } from '@cleocode/core/llm/provider-registry/index.js';
+import {
+  writeDeviceCodeApproved,
+  writeDeviceCodeInterrupted,
+  writeDeviceCodePending,
+  writeDeviceCodePrompt,
+} from '../lib/device-code-prompt.js';
 
 // Re-export for tests that need to mock it.
 export { refreshPkceToken };
@@ -526,27 +532,13 @@ async function _runKimiCodeLogin(
     );
   }
 
-  process.stderr.write('\n');
-  process.stderr.write(
-    `  Visit:      ${startResp.verificationUriComplete ?? startResp.verificationUri}\n`,
-  );
-  process.stderr.write(`  Enter code: ${startResp.userCode}\n`);
-  process.stderr.write('\n');
-  process.stderr.write(
-    `  Waiting for Kimi Code authorization (up to ${Math.round(startResp.expiresIn / 60)} min)...\n`,
-  );
+  writeDeviceCodePrompt(startResp, 'Kimi Code');
 
   let tokenResp: Awaited<ReturnType<typeof pollForToken>>;
   try {
-    tokenResp = await pollForToken(cfg, startResp, {
-      onPending: (elapsed: number) => {
-        // In-place progress during device-code polling; stderr per ADR-086,
-        // and the sanctioned handle is stdout-only. See the note above.
-        process.stderr.write(`\r  Polling... ${elapsed}s elapsed`); // raw-cr-allowed
-      },
-    });
+    tokenResp = await pollForToken(cfg, startResp, { onPending: writeDeviceCodePending });
   } catch (err: unknown) {
-    process.stderr.write('\n');
+    writeDeviceCodeInterrupted();
 
     if (err instanceof DeviceCodeTimeoutError) {
       return _errorResult('E_DEVICE_CODE_TIMEOUT', err.message, meta);
@@ -562,8 +554,7 @@ async function _runKimiCodeLogin(
     );
   }
 
-  // Clears the `Polling...` line above; stderr per ADR-086.
-  process.stderr.write('\r  Kimi Code authorization approved.              \n\n'); // raw-cr-allowed
+  writeDeviceCodeApproved('Kimi Code');
 
   const label = opts.label ?? 'oauth-login';
   const expiresAt =
@@ -639,9 +630,23 @@ function _findFreePort(): Promise<number> {
   });
 }
 
+/** Control characters, whitespace, or a leading `-` (option injection into the opener). */
+const UNSAFE_OPEN_URL = /^-|[\u0000-\u0020\u007f-\u009f\s]/;
+
 /**
- * Attempt to open a URL in the default browser using the OS `open` / `xdg-open`
- * command. Silently swallows errors — headless environments are expected to fail.
+ * Attempt to open a URL in the default browser. Silently does nothing when it
+ * cannot: headless environments are expected to fail, and the user always has
+ * the URL on stderr.
+ *
+ * - `open` (macOS), `xdg-open` (Linux), and on Windows
+ *   `rundll32 url.dll,FileProtocolHandler <url>`, which hands the URL to the
+ *   shell's protocol handler without cmd.exe parsing (`start` is a cmd builtin,
+ *   so spawning it directly fails with ENOENT, and `cmd /c start` would
+ *   interpret `&|^<>%` in the URL).
+ * - A URL with control characters, whitespace or a leading `-` is never
+ *   spawned.
+ * - An `'error'` listener swallows a missing opener (ENOENT), which would
+ *   otherwise crash the process mid-poll.
  *
  * Tests must mock `node:child_process` before importing this module. Spying on
  * this export does not replace calls through the local function binding.
@@ -649,11 +654,20 @@ function _findFreePort(): Promise<number> {
  * @internal
  */
 export function _tryOpenBrowser(url: string): void {
-  const cmd =
-    process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
+  if (UNSAFE_OPEN_URL.test(url)) return;
+  const [cmd, args]: [string, string[]] =
+    process.platform === 'darwin'
+      ? ['open', [url]]
+      : process.platform === 'win32'
+        ? ['rundll32', ['url.dll,FileProtocolHandler', url]]
+        : ['xdg-open', [url]];
 
   try {
-    spawn(cmd, [url], { detached: true, stdio: 'ignore' }).unref();
+    const child = spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: true });
+    child.on('error', () => {
+      /* no opener available — the user sees the URL on stderr */
+    });
+    child.unref();
   } catch {
     /* silently ignore — user sees the URL on stderr */
   }

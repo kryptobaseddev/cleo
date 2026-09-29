@@ -190,6 +190,10 @@ export async function upsertSession(db: DrizzleDb, session: Session): Promise<vo
     nextSessionId: session.nextSessionId ?? null,
     // Fork-tree parent edge (T11639) — sourced from CLEO_PARENT_SESSION_ID at start.
     parentSessionId: session.parentSessionId ?? null,
+    // `spawnedBySessionId` is deliberately ABSENT (T12502): it is the trusted
+    // spawn edge the claim chokepoint relies on, written only by the spawn
+    // through `setSessionSpawnedBy`. A whole-row upsert from a session record
+    // must neither wipe nor forge it.
     agentIdentifier: session.agentIdentifier ?? null,
     handoffConsumedAt: session.handoffConsumedAt ?? null,
     handoffConsumedBy: session.handoffConsumedBy ?? null,

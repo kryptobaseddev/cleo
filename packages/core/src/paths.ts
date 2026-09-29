@@ -2021,14 +2021,22 @@ export type ProjectEncounterOutcome =
  * holds it, the call is one indexed read; only a new or moved checkout pays
  * for the full registration.
  *
+ * With `markOpened`, the project's `last_opened_at` is also refreshed (at most
+ * once a minute, T12512). Only real CLI use passes it: health checks, sync and
+ * probes record `last_probed_at` instead.
+ *
  * @param cwd - Directory to resolve the project from; defaults to the ambient project root.
+ * @param options - `markOpened`: this call is real use of the project (T12512).
  * @returns What was done; never throws for an unregistrable context.
  * @example
  * ```ts
- * await recordProjectEncounter();
+ * await recordProjectEncounter(undefined, { markOpened: true });
  * ```
  */
-export async function recordProjectEncounter(cwd?: string): Promise<ProjectEncounterOutcome> {
+export async function recordProjectEncounter(
+  cwd?: string,
+  options: { markOpened?: boolean } = {},
+): Promise<ProjectEncounterOutcome> {
   if (isShuttingDown()) return 'shutting-down';
   if (process.env['CLEO_DISABLE_PROJECT_AUTOREGISTER'] === '1') return 'disabled';
   let start: string;
@@ -2068,13 +2076,25 @@ export async function recordProjectEncounter(cwd?: string): Promise<ProjectEncou
         ),
       )
       .get();
-    if (row?.projectPath === checkout && located?.state === 'live') return 'current';
+    if (row?.projectPath === checkout && located?.state === 'live') {
+      if (options.markOpened === true) await markEncounterOpened(cleoHome, infoProjectId);
+      return 'current';
+    }
   }
 
   const key = `${cleoHome}\u0000${infoProjectId}\u0000${project.projectRoot}`;
   _encountersScheduled.set(key, Date.now());
   await startProjectEncounter(key, project.projectRoot, infoProjectId);
+  if (options.markOpened === true) await markEncounterOpened(cleoHome, infoProjectId);
   return 'recorded';
+}
+
+/** Refresh `last_opened_at` for real CLI use (T12512); throttled, one PK read when fresh. */
+async function markEncounterOpened(cleoHome: string, projectId: string): Promise<void> {
+  const { getNexusRegistryDb, getNexusRegistryDbPath } = await import('./store/nexus-sqlite.js');
+  if (!existsSync(getNexusRegistryDbPath(cleoHome))) return;
+  const { markProjectOpened } = await import('./nexus/project-activity.js');
+  markProjectOpened(await getNexusRegistryDb(cleoHome), projectId);
 }
 
 /**

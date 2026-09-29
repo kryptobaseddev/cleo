@@ -12,7 +12,7 @@
  *
  * ## Keyed on physical names, not the Drizzle schema
  *
- * The runtime often writes the BARE legacy twin (`attachments`,
+ * The runtime often writes the BARE legacy twin (
  * `architecture_decisions`, `session_narrative`, …) rather than the prefixed
  * table, while other bare twins are frozen copies nobody reads. A registry
  * keyed on the Drizzle schema would classify the frozen copy and miss the
@@ -167,14 +167,20 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'table-classification-draft.md',
   },
   attachment_refs: {
-    class: 'portable-project',
-    status: 'draft',
-    source: 'table-classification-draft.md',
+    class: 'local-only',
+    status: 'frozen-legacy',
+    source: 'T12535 PR 2 (docs/attachments twin collapse)',
+    dropTask: 'T12535',
+    liveTwin: 'docs_attachment_refs',
+    note: 'was the live table while portable-project; physically the same rows as its live twin after the collapse; store/twin-collapse.ts carries its rows there at every open (initial collapse, then incremental re-merge while an older build still writes it) and never writes this table',
   },
   attachments: {
-    class: 'portable-project',
-    status: 'draft',
-    source: 'table-classification-draft.md',
+    class: 'local-only',
+    status: 'frozen-legacy',
+    source: 'T12535 PR 2 (docs/attachments twin collapse)',
+    dropTask: 'T12535',
+    liveTwin: 'docs_attachments',
+    note: 'was the live table while portable-project; physically the same rows as its live twin after the collapse; store/twin-collapse.ts carries its rows there at every open (initial collapse, then incremental re-merge while an older build still writes it) and never writes this table',
   },
   audit_log: {
     class: 'portable-project',
@@ -1127,6 +1133,14 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
         reason:
           '§F.14 / PR #1570: evidence resolvedPath is an absolute path on the verifying device (ADR-094)',
       },
+      ...(
+        ['claimed_by_session', 'claimed_by_agent', 'claimed_at', 'lease_expires_at'] as const
+      ).map((column) => ({
+        column,
+        class: 'local-only' as const,
+        reason:
+          'T12502: the agent claim lease names a session on this device and a wall-clock expiry; meaningless on a peer',
+      })),
     ],
   },
   tasks_token_usage: {
@@ -1554,6 +1568,12 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
         reason:
           'cleo-dev ruling 2026-09-28 (round 2): a remote URL can embed credentials (https://user:token@host); stripped from outgoing ops and re-probed on the receiver',
       },
+      {
+        column: 'head_committed_at',
+        class: 'local-only',
+        reason:
+          'T12721 (drizzle-cleo-global t12721): per-device probe observation; the cloud receives it only as ReplicaPresence.git.lastCommitAt through the path-free presence mapper, never through store sync',
+      },
     ],
   },
   nexus_project_locations: {
@@ -1612,6 +1632,16 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
         column: 'task_count',
         class: 'local-only',
         reason: 'draft §3: path, host or per-device health/counter value',
+      },
+      {
+        column: 'last_probed_at',
+        class: 'local-only',
+        reason: 'T12512: per-device probe instant (health, sync, git probe)',
+      },
+      {
+        column: 'last_opened_at',
+        class: 'local-only',
+        reason: 'T12512: per-device instant of the last real CLI use',
       },
     ],
   },

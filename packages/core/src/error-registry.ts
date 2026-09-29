@@ -294,7 +294,7 @@ const CLEO_ERROR_REGISTRY: CleoRegistryEntry[] = [
   },
   {
     exitCode: ExitCode.TASK_CLAIMED,
-    lafsCode: 'E_CLEO_TASK_CLAIMED',
+    lafsCode: 'E_TASK_CLAIMED',
     category: 'CONFLICT',
     description: 'Task claimed by another session',
     retryable: false,

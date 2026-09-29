@@ -31,6 +31,7 @@ import { Dispatcher } from '../dispatcher.js';
 import { createDomainHandlers } from '../domains/index.js';
 import { createAudit } from '../middleware/audit.js';
 import { createBudgetEnforcement } from '../middleware/budget-enforcement.js';
+import { createClaimHeartbeat } from '../middleware/claim-heartbeat.js';
 import { createFieldFilter } from '../middleware/field-filter.js';
 import { createIdempotency } from '../middleware/idempotency.js';
 import { createMutateMinimalEnvelope } from '../middleware/mutate-minimal-envelope.js';
@@ -204,6 +205,22 @@ export async function lookupCliSession(): Promise<string | null> {
 }
 
 /**
+ * Claim heartbeat for the CLI (T12502): renew every claim lease the request's
+ * bound session holds in the current project.
+ *
+ * @param _req - The mutation that just succeeded.
+ * @param sessionId - The bound session that made it.
+ * @task T12502
+ */
+export async function renewCliSessionClaims(
+  _req: DispatchRequest,
+  sessionId: string,
+): Promise<void> {
+  const { renewProjectSessionClaims } = await import('@cleocode/core/internal');
+  await renewProjectSessionClaims(getProjectRoot(), sessionId);
+}
+
+/**
  * Warn on stderr when a CLI mutation runs with no bound session (T12500).
  *
  * Without a binding the mutation is attributed to NO session (audit row,
@@ -245,6 +262,7 @@ export function createCliDispatcher(): Dispatcher {
       // (reads stay available, served from the merged TEMP shadows).
       createStoreWriteGuard(() => getProjectRoot()),
       createSessionResolver(lookupCliSession, warnUnboundMutation), // T4959: session identity first; T12500: warn when unbound
+      createClaimHeartbeat(renewCliSessionClaims), // T12502: a bound session's mutation renews its claim leases
       createSanitizer(() => getProjectRoot()),
       createFieldFilter(),
       // T9922 (Saga T9855 / E8.3): MVI record projection default for read ops.

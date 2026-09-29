@@ -198,13 +198,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'claimCommand',
     name: 'claim',
-    description: 'Claim a task by assigning it to an agent',
+    description:
+      "Take, renew (--renew) or override (--take-over expired, --force-claim live) your session's leased claim on a task",
     load: async () => (await import('../commands/claim.js')).claimCommand as CommandDef,
   },
   {
     exportName: 'unclaimCommand',
     name: 'unclaim',
-    description: 'Unclaim a task by removing its current assignee',
+    description: "Release your session's claim lease on a task (--force-claim: another session's)",
     load: async () => (await import('../commands/claim.js')).unclaimCommand as CommandDef,
   },
   {
@@ -798,8 +799,15 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'loginCommand',
     name: 'login',
     description:
-      'Log in to an LLM provider and bind a usable profile in one step. Picks a provider + auth method (browser OAuth or API key), selects a model, binds it, and validates the binding. cleo auth login and cleo llm login resolve to this same flow. Prompts/URLs go to stderr; the result is a human line on a terminal or a JSON envelope when piped / --json.',
+      'Log in to a Cleo Nexus account (cleo login nexus: device code, --api-url, --no-browser) or to an LLM provider, binding a usable profile in one step. The picker lists the Cleo Nexus account first, then the providers. For a provider it picks an auth method (browser OAuth or API key), selects a model, binds it, and validates the binding. cleo auth login and cleo llm login resolve to this same flow. Prompts/URLs go to stderr; the result is a human line on a terminal or a JSON envelope when piped / --json.',
     load: async () => (await import('../commands/login.js')).loginCommand as CommandDef,
+  },
+  {
+    exportName: 'logoutCommand',
+    name: 'logout',
+    description:
+      'Sign out. cleo logout [nexus] revokes the Cleo Nexus session server-side and deletes the stored token; cleo logout <provider> [label] removes an LLM credential exactly like cleo auth remove (the label may be omitted when the provider has one credential).',
+    load: async () => (await import('../commands/logout.js')).logoutCommand as CommandDef,
   },
   {
     exportName: 'manifestCommand',
@@ -895,7 +903,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'projectCommand',
     name: 'project',
-    description: 'Project lifecycle management (move, reroot, rename, re-register).',
+    description: 'Project lifecycle management (move, reroot, rename, re-register, link).',
     load: async () => (await import('../commands/project.js')).projectCommand as CommandDef,
   },
   {
@@ -1101,7 +1109,8 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'startCommand',
     name: 'start',
-    description: 'Start working on a task (sets it as the current task in the active session)',
+    description:
+      "Start working on a task (sets it as the current task and takes your session's claim lease)",
     load: async () => (await import('../commands/start.js')).startCommand as CommandDef,
   },
   {

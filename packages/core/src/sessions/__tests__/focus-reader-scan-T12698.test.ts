@@ -34,6 +34,9 @@ const RAW_READ_ALLOWED = new Set([
   // T12661: reads only focus.currentPhase for the ranking tiebreak, never the
   // task pointer; readLiveFocus would load the pointed task for nothing.
   'packages/core/src/tasks/task-next.ts#resolveRankingPhase',
+  // T12502: pivot snapshots the from-task focus so a failed switch restores it
+  // verbatim (read-modify-write, like the writers above).
+  'packages/core/src/orchestrate/pivot.ts#pivotTask',
 ]);
 
 /** Violations in one source file, keyed `path#function: what`. */

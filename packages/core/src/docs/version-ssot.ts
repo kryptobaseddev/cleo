@@ -152,7 +152,7 @@ export async function auditVersionFields(
 
   try {
     const { getDb } = await import('../store/sqlite.js');
-    const { attachments } = await import('../store/schema/attachments.js');
+    const { attachments } = await import('../store/tasks-schema.js');
 
     const db = await getDb(projectRoot);
     const rows = await db.select().from(attachments).all();

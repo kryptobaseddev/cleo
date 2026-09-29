@@ -388,9 +388,9 @@ describe('createBuiltinSections() — integrations placement', () => {
     expect(sections[8]?.section).toBe('integrations');
   });
 
-  it('has 11 built-in sections after T12713 (system-one added after llm)', () => {
+  it('has 12 built-in sections (system-one after llm, T12713; nexus-account after integrations, T12712)', () => {
     const sections = createBuiltinSections();
-    expect(sections).toHaveLength(11);
+    expect(sections).toHaveLength(12);
   });
 
   it('section ids are in the expected canonical order', () => {
@@ -405,6 +405,7 @@ describe('createBuiltinSections() — integrations placement', () => {
       'harness',
       'brain',
       'integrations',
+      'nexus-account',
       'telemetry',
       'verification',
     ]);

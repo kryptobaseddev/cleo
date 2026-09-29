@@ -1,14 +1,14 @@
 /**
- * Tests for tasks.assignee column: claimTask / unclaimTask (B.1).
+ * Tests for the tasks.assignee column (B.1) and its separation from the
+ * agent claim lease (T12502 AC3).
  *
  * Covers:
- * - Claim sets assignee on a previously unclaimed task
- * - Claim is idempotent for the same agent
- * - Claim fails when task is already claimed by a different agent
- * - Unclaim clears the assignee
- * - Unclaim is a no-op on an already unclaimed task
+ * - claimTask / unclaimTask write the lease columns, never `assignee`
  * - claimTask / unclaimTask throw on non-existent task IDs
- * - Assignee persists through rowToTask round-trip
+ * - Assignee is set and cleared through updateTaskFields
+ *
+ * Lease semantics (holders, expiry, take-over, release) live in
+ * `task-work/__tests__/task-claims.test.ts`.
  */
 
 import { writeFile } from 'node:fs/promises';
@@ -28,7 +28,7 @@ const NO_ENFORCEMENT_CONFIG = JSON.stringify({
   verification: { enabled: false },
 });
 
-describe('claimTask', () => {
+describe('agent claim is separate from the human assignee (T12502 AC3)', () => {
   let env: TestDbEnv;
   let accessor: DataAccessor;
 
@@ -36,8 +36,6 @@ describe('claimTask', () => {
     env = await createTestDb();
     accessor = env.accessor;
     await writeFile(join(env.cleoDir, 'config.json'), NO_ENFORCEMENT_CONFIG);
-
-    // Seed a single task used by most tests
     await addTask(
       {
         title: 'Claim test task',
@@ -53,85 +51,36 @@ describe('claimTask', () => {
     await env.cleanup();
   });
 
-  it('sets assignee on an unclaimed task', async () => {
-    await accessor.claimTask('T001', 'agent-alpha');
+  it('claimTask records a lease and never writes assignee', async () => {
+    await accessor.updateTaskFields('T001', { assignee: 'owner-human' });
+    const claim = await accessor.claimTask('T001', {
+      sessionId: 'ses-alpha',
+      agentId: 'agent-alpha',
+      mode: 'acquire',
+    });
+    expect(claim).toMatchObject({ sessionId: 'ses-alpha', agentId: 'agent-alpha' });
     const task = await accessor.loadSingleTask('T001');
-    expect(task?.assignee).toBe('agent-alpha');
+    expect(task?.assignee).toBe('owner-human');
+    expect(task?.claim?.agentId).toBe('agent-alpha');
   });
 
-  it('is idempotent — same agent can claim again', async () => {
-    await accessor.claimTask('T001', 'agent-alpha');
-    // Second claim by same agent must not throw
-    await expect(accessor.claimTask('T001', 'agent-alpha')).resolves.toBeUndefined();
+  it('unclaimTask clears the lease and never clears assignee', async () => {
+    await accessor.updateTaskFields('T001', { assignee: 'owner-human' });
+    await accessor.claimTask('T001', { sessionId: 'ses-alpha', agentId: null, mode: 'acquire' });
+    expect(await accessor.unclaimTask('T001', { sessionId: 'ses-alpha' })).toBe(true);
     const task = await accessor.loadSingleTask('T001');
-    expect(task?.assignee).toBe('agent-alpha');
+    expect(task?.claim).toBeUndefined();
+    expect(task?.assignee).toBe('owner-human');
+    expect(await accessor.unclaimTask('T001', { sessionId: 'ses-alpha' })).toBe(false);
   });
 
-  it('throws when task is claimed by a different agent', async () => {
-    await accessor.claimTask('T001', 'agent-alpha');
-    await expect(accessor.claimTask('T001', 'agent-beta')).rejects.toThrow('already claimed');
-  });
-
-  it('throws when task does not exist', async () => {
-    await expect(accessor.claimTask('T999', 'agent-alpha')).rejects.toThrow('not found');
-  });
-
-  it('persists assignee through round-trip load', async () => {
-    await accessor.claimTask('T001', 'agent-round-trip');
-    const loaded = await accessor.loadSingleTask('T001');
-    expect(loaded?.assignee).toBe('agent-round-trip');
-  });
-});
-
-describe('unclaimTask', () => {
-  let env: TestDbEnv;
-  let accessor: DataAccessor;
-
-  beforeEach(async () => {
-    env = await createTestDb();
-    accessor = env.accessor;
-    await writeFile(join(env.cleoDir, 'config.json'), NO_ENFORCEMENT_CONFIG);
-
-    await addTask(
-      {
-        title: 'Unclaim test task',
-        description: 'Task for unclaim tests',
-        skipContainmentInvariant: true,
-      },
-      env.tempDir,
-      accessor,
+  it('claimTask / unclaimTask throw on non-existent task IDs', async () => {
+    await expect(
+      accessor.claimTask('T999', { sessionId: 'ses-alpha', agentId: null, mode: 'acquire' }),
+    ).rejects.toThrow('not found');
+    await expect(accessor.unclaimTask('T999', { sessionId: 'ses-alpha' })).rejects.toThrow(
+      'not found',
     );
-  });
-
-  afterEach(async () => {
-    await env.cleanup();
-  });
-
-  it('clears assignee after a claim', async () => {
-    await accessor.claimTask('T001', 'agent-alpha');
-    await accessor.unclaimTask('T001');
-    const task = await accessor.loadSingleTask('T001');
-    expect(task?.assignee).toBeUndefined();
-  });
-
-  it('is a no-op on an already-unclaimed task', async () => {
-    // Task was never claimed — unclaimTask should not throw
-    await expect(accessor.unclaimTask('T001')).resolves.toBeUndefined();
-    const task = await accessor.loadSingleTask('T001');
-    expect(task?.assignee).toBeUndefined();
-  });
-
-  it('allows re-claim after unclaim', async () => {
-    await accessor.claimTask('T001', 'agent-alpha');
-    await accessor.unclaimTask('T001');
-    // A different agent may now claim it
-    await accessor.claimTask('T001', 'agent-beta');
-    const task = await accessor.loadSingleTask('T001');
-    expect(task?.assignee).toBe('agent-beta');
-  });
-
-  it('throws when task does not exist', async () => {
-    await expect(accessor.unclaimTask('T999')).rejects.toThrow('not found');
   });
 });
 

@@ -20,7 +20,7 @@
  *      `docs/adr/` publish dir).
  *   3. Calls {@link reserveSlug} (the T10392 central allocator
  *      chokepoint) so the slug is reserved in the in-process Mutex
- *      map AND probed against the `uniq_attachments_slug` partial
+ *      map AND probed against the `uniq_docs_attachments_slug` partial
  *      UNIQUE INDEX in a single chokepoint.
  *   4. On `E_SLUG_RESERVED` (rare — two agents racing for the same
  *      number despite the per-slug Mutex), retries with `N+1`,
@@ -171,12 +171,26 @@ const ADR_SLUG_PATTERN = /^adr-(\d+)-/;
 export async function findHighestAdrNumber(cwd?: string): Promise<number> {
   const db = await getDb(cwd);
   // Raw SELECT keeps the query independent of the Drizzle schema barrel —
-  // we only need the slug strings, not full row objects.
+  // we only need the slug strings, not full row objects. The live docs table
+  // is the prefixed twin since the T12535 collapse; the bare `attachments`
+  // table is read too, because an older CLEO build may still write ADRs there
+  // that the next open has not merged yet (never reuse their numbers).
   const rows = await db
     .select({ slug: sql<string>`slug` })
-    .from(sql`attachments`)
+    .from(sql`docs_attachments`)
     .where(sql`slug LIKE 'adr-%-%'`)
     .all();
+  try {
+    rows.push(
+      ...(await db
+        .select({ slug: sql<string>`slug` })
+        .from(sql`attachments`)
+        .where(sql`slug LIKE 'adr-%-%'`)
+        .all()),
+    );
+  } catch {
+    // No bare table (a store created after it was dropped): nothing to add.
+  }
 
   let highest = 0;
   for (const row of rows) {
@@ -204,7 +218,7 @@ export async function findHighestAdrNumber(cwd?: string): Promise<number> {
  *
  * `title` is slugified via the shared {@link slugify} helper so the
  * shape matches existing T9636 conventions and the
- * `uniq_attachments_slug` regex constraints.
+ * `uniq_docs_attachments_slug` regex constraints.
  *
  * @param number - The ADR number (>= 1).
  * @param title - Raw human-readable title (e.g. "Adopt Drizzle v1 beta").

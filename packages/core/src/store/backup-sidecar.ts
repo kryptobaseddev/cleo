@@ -14,8 +14,17 @@
  * @task T12535 — extracted from `system/backup.ts`
  */
 
-import { existsSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { basename, dirname, join } from 'node:path';
+import { z } from 'zod';
 
 /**
  * Format a Date as `YYYYMMDD-HHmmss` (local time) — mirrors the helper of
@@ -59,6 +68,8 @@ export function rotateBackupDir(backupDir: string, maxSnapshots: number, backupT
     const ownedPattern = new RegExp(`\\.${escapedType}-`);
     const files = readdirSync(backupDir)
       .filter((f) => !f.endsWith('.meta.json') && !f.endsWith('.tmp') && ownedPattern.test(f))
+      // A pinned backup (T12535) is never rotated and does not count toward the cap.
+      .filter((f) => !isPinnedBackup(backupDir, f, backupType))
       .map((f) => ({
         name: f,
         path: join(backupDir, f),
@@ -95,6 +106,14 @@ export interface BackupSidecar {
   readonly note?: string;
   /** Files captured, each stored as `<file>.<backupId>` next to the sidecar. */
   readonly files: readonly string[];
+  /**
+   * Never rotated (T12535): the snapshot a twin collapse took before it
+   * changed the store. It is the only copy of any row the collapse replaced,
+   * so it outlives the rotation cap until an owner removes it.
+   */
+  readonly pinned?: boolean;
+  /** Why it is pinned (shown by `cleo backup list`). */
+  readonly pinnedReason?: string;
 }
 
 /**
@@ -109,4 +128,91 @@ export function writeBackupSidecar(backupDir: string, sidecar: BackupSidecar): v
   const tmp = `${dest}.${process.pid}.${Date.now()}.tmp`;
   writeFileSync(tmp, JSON.stringify(sidecar, null, 2));
   renameSync(tmp, dest);
+}
+
+/**
+ * The backup id (`<type>-<timestamp>`) of a backup file named
+ * `<file>.<type>-<timestamp>`, or `null` when the name has no such suffix.
+ */
+function backupIdOf(fileName: string, backupType: string): string | null {
+  const at = fileName.indexOf(`.${backupType}-`);
+  return at < 0 ? null : fileName.slice(at + 1);
+}
+
+/**
+ * Shape of a `.meta.json` sidecar as read back from disk. Unknown fields are
+ * kept (older and newer builds add their own); a sidecar that does not match
+ * reads as absent, so a malformed file can never pin (or unpin) a backup.
+ */
+const backupSidecarSchema = z
+  .object({
+    backupId: z.string().min(1),
+    type: z.string().min(1),
+    timestamp: z.string().min(1),
+    note: z.string().optional(),
+    files: z.array(z.string()),
+    pinned: z.boolean().optional(),
+    pinnedReason: z.string().optional(),
+  })
+  .passthrough();
+
+/** Read a backup's sidecar, or `null` when it is missing, unreadable or malformed. */
+function readSidecar(backupDir: string, backupId: string): BackupSidecar | null {
+  try {
+    const parsed = backupSidecarSchema.safeParse(
+      JSON.parse(readFileSync(join(backupDir, `${backupId}.meta.json`), 'utf-8')),
+    );
+    return parsed.success ? (parsed.data as BackupSidecar) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether a backup file is pinned (its sidecar says `pinned: true`).
+ *
+ * @param backupDir - The backup directory.
+ * @param fileName - The backup file (`<file>.<type>-<timestamp>`).
+ * @param backupType - Its backup type.
+ * @returns `true` when pinned.
+ * @task T12535
+ */
+export function isPinnedBackup(backupDir: string, fileName: string, backupType: string): boolean {
+  const id = backupIdOf(fileName, backupType);
+  return id !== null && readSidecar(backupDir, id)?.pinned === true;
+}
+
+/**
+ * Pin the backup a file belongs to, so rotation never deletes it. Writes the
+ * sidecar (`pinned: true`, `pinnedReason`), creating it for a snapshot that has
+ * none. Idempotent and best effort: returns whether the backup is pinned now.
+ *
+ * @param snapshotPath - The backup file (`<dir>/<file>.<type>-<timestamp>`).
+ * @param backupType - Its backup type (`migration` for twin-collapse snapshots).
+ * @param reason - Why it is pinned.
+ * @returns `true` when the backup is pinned after the call.
+ * @task T12535
+ */
+export function pinBackup(snapshotPath: string, backupType: string, reason: string): boolean {
+  try {
+    if (!existsSync(snapshotPath)) return false;
+    const backupDir = dirname(snapshotPath);
+    const file = basename(snapshotPath);
+    const id = backupIdOf(file, backupType);
+    if (id === null) return false;
+    const current = readSidecar(backupDir, id);
+    if (current?.pinned === true) return true;
+    writeBackupSidecar(backupDir, {
+      backupId: id,
+      type: current?.type ?? backupType,
+      timestamp: current?.timestamp ?? statSync(snapshotPath).mtime.toISOString(),
+      ...(current?.note !== undefined ? { note: current.note } : {}),
+      files: current?.files ?? [file.slice(0, file.length - id.length - 1)],
+      pinned: true,
+      pinnedReason: reason,
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }

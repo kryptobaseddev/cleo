@@ -13,7 +13,7 @@ import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { negatedFlag } from '../lib/negated-flag.js';
 
 /**
- * `cleo pivot <fromTaskId> <toTaskId> --reason "<text>" [--no-blocks-from]`.
+ * `cleo pivot <fromTaskId> <toTaskId> --reason "<text>" [--no-blocks-from] [--take-over | --force-claim]`.
  */
 export const pivotCommand = defineCommand({
   meta: {
@@ -42,6 +42,14 @@ export const pivotCommand = defineCommand({
       description:
         'Skip adding toTaskId as a dependency on fromTaskId (advisory pivot — default is to block)',
     },
+    'take-over': {
+      type: 'boolean',
+      description: "Take over another session's EXPIRED claim on toTaskId (audited)",
+    },
+    'force-claim': {
+      type: 'boolean',
+      description: "Take over another session's LIVE claim on toTaskId (audited)",
+    },
   },
   async run({ args }) {
     await dispatchFromCli(
@@ -53,6 +61,8 @@ export const pivotCommand = defineCommand({
         toTaskId: args.toTaskId,
         reason: args.reason,
         blocksFrom: !negatedFlag(args, 'blocks-from'),
+        ...(args['take-over'] === true ? { takeOver: true } : {}),
+        ...(args['force-claim'] === true ? { forceClaim: true } : {}),
       },
       { command: 'pivot' },
     );

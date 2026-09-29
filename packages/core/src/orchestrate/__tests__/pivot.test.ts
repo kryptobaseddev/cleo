@@ -110,6 +110,126 @@ describe('pivotTask', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Claims (T12502)
+  // ---------------------------------------------------------------------------
+
+  it('a pivot to a task another session holds is refused and leaves `from` focused and leased (T12502)', async () => {
+    const sesA = 'ses_20260929000001_aaaaaa';
+    const sesB = 'ses_20260929000002_bbbbbb';
+    const now = new Date().toISOString();
+    for (const id of [sesA, sesB]) {
+      await accessor.upsertSingleSession({
+        id,
+        name: id,
+        status: 'active',
+        scope: { type: 'global' },
+        taskWork: { taskId: null, setAt: null },
+        startedAt: now,
+      });
+    }
+    await seedTasks(accessor, [
+      { id: 'T001', title: 'From', status: 'pending', priority: 'medium' },
+      { id: 'T002', title: 'To', status: 'pending', priority: 'medium' },
+    ]);
+    vi.stubEnv('CLEO_SESSION_ID', sesB);
+    await startTask('T002', env.tempDir, accessor);
+    vi.stubEnv('CLEO_SESSION_ID', sesA);
+    await startTask('T001', env.tempDir, accessor);
+
+    await expect(
+      pivotTask('T001', 'T002', { reason: 'blocked', projectRoot: env.tempDir, accessor }),
+    ).rejects.toMatchObject({ code: ExitCode.TASK_CLAIMED });
+
+    const { readFocusState } = await import('../../sessions/focus-state-store.js');
+    expect((await readFocusState(accessor, sesA))?.currentTask).toBe('T001');
+    expect((await accessor.loadSingleTask('T001'))?.claim?.sessionId).toBe(sesA);
+    expect((await accessor.loadSingleTask('T002'))?.claim?.sessionId).toBe(sesB);
+
+    // The explicit override applies to `to` and completes the pivot.
+    await pivotTask('T001', 'T002', {
+      reason: 'blocked',
+      projectRoot: env.tempDir,
+      accessor,
+      forceClaim: true,
+    });
+    expect((await accessor.loadSingleTask('T002'))?.claim?.sessionId).toBe(sesA);
+    expect((await accessor.loadSingleTask('T001'))?.claim).toBeUndefined();
+  });
+
+  /** Two active sessions; `sesA` focused and leased on T001 (T12502 helper). */
+  async function twoSessionsWithAOnT001(extra: Parameters<typeof seedTasks>[1] = []) {
+    const sesA = 'ses_20260929000001_aaaaaa';
+    const sesB = 'ses_20260929000002_bbbbbb';
+    const now = new Date().toISOString();
+    for (const id of [sesA, sesB]) {
+      await accessor.upsertSingleSession({
+        id,
+        name: id,
+        status: 'active',
+        scope: { type: 'global' },
+        taskWork: { taskId: null, setAt: null },
+        startedAt: now,
+      });
+    }
+    await seedTasks(accessor, [
+      { id: 'T001', title: 'From', status: 'pending', priority: 'medium' },
+      { id: 'T002', title: 'To', status: 'pending', priority: 'medium' },
+      ...extra,
+    ]);
+    vi.stubEnv('CLEO_SESSION_ID', sesA);
+    await startTask('T001', env.tempDir, accessor);
+    return { sesA, sesB };
+  }
+
+  it('a pivot to a task with an open dependency leaves `from` focused and leased and `to` unclaimed (T12502)', async () => {
+    const { sesA } = await twoSessionsWithAOnT001([
+      { id: 'T003', title: 'Blocked', status: 'pending', priority: 'medium', depends: ['T002'] },
+    ]);
+    await expect(
+      pivotTask('T001', 'T003', { reason: 'sidetrack', projectRoot: env.tempDir, accessor }),
+    ).rejects.toMatchObject({ code: ExitCode.DEPENDENCY_ERROR });
+
+    const { readFocusState } = await import('../../sessions/focus-state-store.js');
+    expect((await readFocusState(accessor, sesA))?.currentTask).toBe('T001');
+    expect((await accessor.loadSingleTask('T001'))?.claim?.sessionId).toBe(sesA);
+    expect((await accessor.loadSingleTask('T003'))?.claim).toBeUndefined();
+  });
+
+  it('a pivot that fails after claiming `to` hands it back to the evicted holder and restores `from` (T12502)', async () => {
+    const { sesA, sesB } = await twoSessionsWithAOnT001();
+    vi.stubEnv('CLEO_SESSION_ID', sesB);
+    await startTask('T002', env.tempDir, accessor);
+    vi.stubEnv('CLEO_SESSION_ID', sesA);
+
+    // The start of `to` fails after the force-claim evicted B and `from` was
+    // stopped: the write transaction opened by `startTask` throws once.
+    const realTransaction = accessor.transaction.bind(accessor);
+    let failed = false;
+    vi.spyOn(accessor, 'transaction').mockImplementation(async (fn) => {
+      if (!failed && new Error().stack?.includes('startTask')) {
+        failed = true;
+        throw new Error('simulated write failure');
+      }
+      return realTransaction(fn);
+    });
+    await expect(
+      pivotTask('T001', 'T002', {
+        reason: 'sidetrack',
+        projectRoot: env.tempDir,
+        accessor,
+        forceClaim: true,
+      }),
+    ).rejects.toThrow('simulated write failure');
+    vi.restoreAllMocks();
+    expect(failed).toBe(true);
+
+    const { readFocusState } = await import('../../sessions/focus-state-store.js');
+    expect((await readFocusState(accessor, sesA))?.currentTask).toBe('T001');
+    expect((await accessor.loadSingleTask('T001'))?.claim?.sessionId).toBe(sesA);
+    expect((await accessor.loadSingleTask('T002'))?.claim?.sessionId).toBe(sesB);
+  });
+
+  // ---------------------------------------------------------------------------
   // Active-task gate
   // ---------------------------------------------------------------------------
 

@@ -15,6 +15,7 @@
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { getProjectDisplayName, getProjectInfoSync } from '@cleocode/core';
+import { projectLastActivitySqlText } from '@cleocode/core/nexus/project-activity.js';
 import { openCleoDbSnapshot } from '@cleocode/core/store/open-cleo-db';
 import type { Cookies } from '@sveltejs/kit';
 import {
@@ -199,6 +200,17 @@ export function listRegisteredProjects(): Array<{
   // is read-only from Studio context — writes happen via the CLI.
   const snap = openCleoDbSnapshot(globalDbPath, { readOnly: true, applyPragmas: false });
   try {
+    // T12512: order by last ACTIVITY (seen, opened or probed), not last_seen
+    // alone; only columns this store has are used (Studio never migrates).
+    const columns = new Set(
+      (
+        snap.db
+          .prepare("SELECT name FROM pragma_table_info('nexus_project_registry')")
+          .all() as Array<{
+          name: string;
+        }>
+      ).map((c) => c.name),
+    );
     const rows = snap.db
       .prepare(
         `SELECT
@@ -211,7 +223,7 @@ export function listRegisteredProjects(): Array<{
           last_seen,
           health_status
         FROM nexus_project_registry
-        ORDER BY last_seen DESC`,
+        ORDER BY ${projectLastActivitySqlText(columns)} DESC`,
       )
       .all() as Array<{
       project_id: string;

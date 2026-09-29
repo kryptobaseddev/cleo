@@ -34,8 +34,9 @@ import {
 import { and, eq } from 'drizzle-orm';
 import { pushWarning } from '../output.js';
 import { getCleoDirAbsolute } from '../paths.js';
-import { attachmentRefs, attachments } from '../store/schema/attachments.js';
 import { getDb, getNativeTasksDb } from '../store/sqlite.js';
+import { attachmentRefs, attachments } from '../store/tasks-schema.js';
+import { assertTwinCollapseWritable } from '../store/twin-collapse.js';
 import { validateDocBody } from './validate-body.js';
 import { getCanonicalCleoVersion } from './version-ssot.js';
 
@@ -415,6 +416,9 @@ export async function updateDocBySlug(
   const attachedBy = params.attachedBy ?? 'human';
 
   const db = await getDb(projectRoot);
+  // T12535: fail fast on a store degraded by a failed twin collapse (a dry
+  // run only reads, so it is still served).
+  if (params.dryRun !== true) assertTwinCollapseWritable(db, 'attachments');
 
   // Look up the existing row by slug.
   const oldRow = await db.select().from(attachments).where(eq(attachments.slug, slug)).get();

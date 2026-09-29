@@ -82,6 +82,10 @@
 config.json
 project-info.json
 
+# Cleo Nexus project link (T12712): machine-local binding of this project to
+# a Nexus account's organization. Each clone links itself; NEVER track.
+nexus-link.json
+
 # Logs — NEVER track (append-only runtime data)
 log.json
 tasks-log.jsonl

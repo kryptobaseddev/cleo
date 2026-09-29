@@ -68,6 +68,7 @@ import {
   projectRegistry,
 } from '../store/schema/nexus-schema.js';
 import { adoptLocalDeviceRows, currentDeviceId } from './path-map.js';
+import { markProjectsProbed } from './project-activity.js';
 
 /** Defaults and limits for the git state probe. */
 export const GIT_STATE_DEFAULTS = {
@@ -269,6 +270,31 @@ async function newestMtime(paths: readonly string[]): Promise<Date | null> {
   return newest;
 }
 
+/**
+ * Parse `git log --no-walk=unsorted --format='%H %cI' <revs>` output into a
+ * map of commit sha → ISO 8601 UTC committer instant. A date git printed with
+ * an offset (`%cI`) is normalized to `Z`, so stored instants sort and compare
+ * as text (§4 canonical TEXT). An unparsable date maps to `null` (the sha is
+ * still listed).
+ *
+ * @param raw - `git log` stdout, one `<sha> <date>` line per distinct commit.
+ * @returns Committer instants keyed by sha, in output order.
+ * @example
+ * ```ts
+ * parseCommitDates('abc 2026-09-29T08:07:21-07:00\n').get('abc'); // '2026-09-29T15:07:21.000Z'
+ * ```
+ */
+export function parseCommitDates(raw: string): Map<string, string | null> {
+  const out = new Map<string, string | null>();
+  for (const line of raw.split('\n')) {
+    const sp = line.indexOf(' ');
+    if (sp <= 0) continue;
+    const ms = Date.parse(line.slice(sp + 1).trim());
+    out.set(line.slice(0, sp), Number.isNaN(ms) ? null : new Date(ms).toISOString());
+  }
+  return out;
+}
+
 /** First meaningful line of git's stderr, for a row's `probeError`. */
 function gitMessage(run: BoundedGitRun, fallback: string): string {
   const line = run.stderr
@@ -316,6 +342,7 @@ export async function probeGitState(
     gitRoot: null,
     branch: null,
     headSha: null,
+    headCommittedAt: null,
     detached: false,
     shallow: false,
     dirtyCount: null,
@@ -489,8 +516,39 @@ export async function probeGitState(
   // Never store or share a token or password embedded in the URL.
   row.remoteUrl = url === undefined ? null : redactRemoteUrl(url);
 
-  // 6. Upstream tracking-ref commit (as of the last fetch).
-  if (parsed.upstream !== null) {
+  // 6. HEAD's committer date and the upstream tracking-ref commit (as of the
+  //    last fetch) in ONE git call: `--no-walk=unsorted` prints each named
+  //    commit once, in argument order, so HEAD == upstream yields one line.
+  //    No `--show-signature`: a date never needs gpg.
+  if (parsed.headSha !== null) {
+    const logArgs = (revs: readonly string[]): string[] => [
+      'log',
+      '--no-walk=unsorted',
+      '--no-show-signature',
+      '--format=%H %cI',
+      ...revs,
+      '--',
+    ];
+    let withUpstream = parsed.upstream !== null;
+    let log = await git(logArgs(withUpstream ? ['HEAD', '@{upstream}'] : ['HEAD']), runDir);
+    if (log.timedOut || log.overflowed) return failRun(log, 'git log');
+    if (log.code !== 0 && withUpstream) {
+      // Upstream configured but its tracking ref is gone: HEAD alone, and
+      // `remoteHeadSha` stays null (as `rev-parse --verify` would have).
+      withUpstream = false;
+      log = await git(logArgs(['HEAD']), runDir);
+      if (log.timedOut || log.overflowed) return failRun(log, 'git log');
+    }
+    if (log.code === 0) {
+      const dates = parseCommitDates(log.stdout);
+      row.headCommittedAt = dates.get(parsed.headSha) ?? null;
+      if (withUpstream && dates.size > 0) {
+        const other = [...dates.keys()].find((sha) => sha !== parsed.headSha);
+        row.remoteHeadSha = other ?? parsed.headSha;
+      }
+    }
+  } else if (parsed.upstream !== null) {
+    // Unborn HEAD with an upstream configured: only the tracking ref to read.
     const up = await git(['rev-parse', '--verify', '--quiet', '@{upstream}'], runDir);
     if (up.timedOut || up.overflowed) return failRun(up, 'git rev-parse @{upstream}');
     // exit 1: upstream configured but its tracking ref is gone — leave null.
@@ -644,6 +702,7 @@ export function recordGitStates(
         gitRoot: r.gitRoot,
         branch: r.branch,
         headSha: r.headSha,
+        headCommittedAt: r.headCommittedAt,
         detached: r.detached,
         shallow: r.shallow,
         dirtyCount: r.dirtyCount,
@@ -716,6 +775,7 @@ function storedToState(
     gitRoot: row.gitRoot,
     branch: row.branch,
     headSha: row.headSha,
+    headCommittedAt: row.headCommittedAt,
     detached: row.detached,
     shallow: row.shallow,
     dirtyCount: row.dirtyCount,
@@ -812,6 +872,12 @@ export async function runProjectsGitStatus(
     gitBin: overrides.gitBin,
   });
   recordGitStates(db, rows, { pruneDeviceId: deviceId });
+  // T12512: a probe is not use — it moves last_probed_at, never last_opened_at.
+  markProjectsProbed(
+    db,
+    rows.map((r) => r.projectId),
+    overrides.now?.() ?? new Date(),
+  );
   const otherDevices = listGitStates(db, {
     excludeDeviceId: deviceId,
     now: overrides.now?.(),

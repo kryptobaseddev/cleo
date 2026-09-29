@@ -48,7 +48,7 @@ describe('error-catalog', () => {
       }
     });
 
-    it('every entry has a LAFS code starting with E_CLEO_ (except the named E_CONFLICT / E_SESSION_UNBOUND / E_WORKTREE_LOCKED)', () => {
+    it('every entry has a LAFS code starting with E_CLEO_ (except the named E_CONFLICT / E_SESSION_UNBOUND / E_WORKTREE_LOCKED / E_TASK_CLAIMED)', () => {
       // T12503: the optimistic-concurrency conflict is the one deliberately
       // un-namespaced code — its contract (task T12503, epic T12497) names it
       // `E_CONFLICT`. Any other entry must keep the E_CLEO_ prefix.
@@ -70,6 +70,11 @@ describe('error-catalog', () => {
         if (entry.code === ExitCode.TWIN_COLLAPSE_FAILED) {
           // T12535: named `E_TWIN_COLLAPSE_FAILED` by the twin-collapse review.
           expect(entry.lafsCode).toBe('E_TWIN_COLLAPSE_FAILED');
+          continue;
+        }
+        if (entry.code === ExitCode.TASK_CLAIMED) {
+          // T12502: named `E_TASK_CLAIMED` by its contract (epic T12497).
+          expect(entry.lafsCode).toBe('E_TASK_CLAIMED');
           continue;
         }
         if (entry.code === ExitCode.WORKTREE_LOCKED) {

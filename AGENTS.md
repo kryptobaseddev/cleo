@@ -157,7 +157,7 @@ Agents MUST NOT navigate/read/write these directly — use `cleo docs add|fetch|
 
 - **Runtime:** `packages/worktree/src/worktree-create.ts` throws `E_WT_LOCATION_FORBIDDEN` before `git worktree add`.
 - **CI gate:** `scripts/lint-worktree-location.mjs` (`Worktree Location Lint`) — also rejects a `worktrees/` directory under `<repo>/.cleo/` (only the sentinel file `.cleo/worktrees.json` is allowed there).
-- **Migration:** `scripts/migrate-rogue-worktrees.mjs` (`--dry-run` first).
+- **Repair (manual, owner-invoked — NOT a gate; never run it in a loop over scripts):** `scripts/migrate-rogue-worktrees.mjs` moves rogue worktrees to the canonical path. It is dry-run by default: run `--dry-run` first, then `--apply`. It refuses unknown flags (including `--check`) and never unlocks or moves a locked or in-use worktree (T12725).
 
 See Epic T9809 (`E-WT-PROVISIONING-LOCATION-GUARDS`).
 

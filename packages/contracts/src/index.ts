@@ -362,6 +362,10 @@ export type {
   QueryTasksResult,
   TaskAuditLogQuery,
   TaskAuditLogRow,
+  TaskClaimedDetails,
+  TaskClaimGuard,
+  TaskClaimMode,
+  TaskClaimRequest,
   TaskConflictChange,
   TaskConflictDetails,
   TaskFieldUpdates,
@@ -1494,6 +1498,12 @@ export type {
   NexusDiscoverHit,
   NexusDiscoverParams,
   NexusDiscoverResult,
+  NexusFleetDevice,
+  NexusFleetDeviceSummary,
+  NexusFleetFlag,
+  NexusFleetGitSummary,
+  NexusFleetLocation,
+  NexusFleetProject,
   NexusFlowEntry,
   NexusFlowsParams,
   NexusFlowsResult,
@@ -1543,6 +1553,8 @@ export type {
   NexusProjectsCleanRemoval,
   NexusProjectsCleanResult,
   NexusProjectsCleanUnreadable,
+  NexusProjectsFleetParams,
+  NexusProjectsFleetResult,
   NexusProjectsListParams,
   NexusProjectsListResult,
   NexusProjectsRegisterParams,
@@ -1623,6 +1635,7 @@ export type {
   NexusWhyResult,
   NexusWikiParams,
 } from './operations/nexus.js';
+export { NEXUS_FLEET_SCHEMA_VERSION } from './operations/nexus.js';
 // === Nexus Scope Contracts (T9145 + T9146) ===
 export type {
   MetaWithNexusScope,
@@ -2502,6 +2515,7 @@ export type {
   SeverityAttestation,
   SignedSeverityAttestation,
   Task,
+  TaskClaim,
   TaskCreate,
   // T944 new axes (T9072: renamed TaskRole → TaskKind)
   TaskKind,
@@ -2951,4 +2965,25 @@ export type {
 } from './decide-sites.js';
 export { DECISION_RUNGS, DECISION_SITE_MODES } from './decide-sites.js';
 
+export type {
+  NexusAccountErrorCode,
+  NexusAccountMe,
+  NexusAccountOrganization,
+  NexusAccountStatus,
+  NexusAccountUser,
+  NexusLoginResult,
+  NexusLogoutResult,
+  NexusProjectLink,
+  NexusProjectLinkResult,
+  NexusSessionState,
+} from './nexus-account.js';
+export {
+  NEXUS_ACCOUNT_ERROR_CODES,
+  NEXUS_CLI_CLIENT_ID,
+  NEXUS_DEFAULT_API_URL,
+  NEXUS_LOGIN_TARGET,
+  nexusAccountMeSchema,
+  nexusAccountOrganizationSchema,
+  nexusAccountUserSchema,
+} from './nexus-account.js';
 export { isStorableTaskId, isTaskId, TASK_ID_REGEX, type TaskId } from './task-id.js';
