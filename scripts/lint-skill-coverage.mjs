@@ -137,17 +137,38 @@ export function checkDeclarations(root, tracked = git(root, ['ls-files'])) {
 }
 
 /**
+ * Whether semver `a` is strictly greater than `b` (X.Y.Z; anything
+ * unparseable is never greater).
+ *
+ * @param {string | undefined} a - Candidate version.
+ * @param {string} b - Base version.
+ * @returns {boolean}
+ */
+export function semverGreater(a, b) {
+  const pa = /^(\d+)\.(\d+)\.(\d+)$/.exec(a ?? '');
+  const pb = /^(\d+)\.(\d+)\.(\d+)$/.exec(b);
+  if (!pa || !pb) return false;
+  for (let i = 1; i <= 3; i++) {
+    if (Number(pa[i]) !== Number(pb[i])) return Number(pa[i]) > Number(pb[i]);
+  }
+  return false;
+}
+
+/**
  * PR checks against a base ref.
  *
  * @param {string} root - Repository root.
  * @param {string} base - Base ref (e.g. `origin/main`).
- * @param {{ changed?: string[], trailers?: string, baseSkillMd?: (name: string) => string | null }} [io]
- *   Injectable git reads (tests).
+ * @param {{ changed?: string[], messagesTouching?: (file: string) => string, baseSkillMd?: (name: string) => string | null }} [io]
+ *   Injectable git reads (tests). `messagesTouching(file)` returns the
+ *   bodies of the commits in base..HEAD that touch `file`.
  * @returns {string[]} Problems.
  */
 export function checkPullRequest(root, base, io = {}) {
   const changed = io.changed ?? git(root, ['diff', '--name-only', `${base}...HEAD`]);
-  const messages = io.trailers ?? git(root, ['log', '--format=%B', `${base}..HEAD`]).join('\n');
+  const messagesTouching =
+    io.messagesTouching ??
+    ((file) => git(root, ['log', '--format=%B', `${base}..HEAD`, '--', file]).join('\n'));
   const baseSkillMd =
     io.baseSkillMd ??
     ((name) => {
@@ -162,10 +183,15 @@ export function checkPullRequest(root, base, io = {}) {
       }
     });
 
-  const reviewed = new Map();
-  for (const m of messages.matchAll(new RegExp(`^${TRAILER}:\\s*([\\w-]+)\\s*:\\s*(.+)$`, 'gm'))) {
-    reviewed.set(m[1], m[2].trim());
-  }
+  /**
+   * Whether every covered file that changed was touched by a commit carrying
+   * `Skill-Drift-Reviewed: <skill>: <reason>` for this skill — a trailer on
+   * an unrelated commit (say one merged in from another PR) does not count.
+   */
+  const reviewedFor = (skill, files) =>
+    files.every((f) =>
+      new RegExp(`^${TRAILER}:\\s*${skill}\\s*:\\s*\\S.*$`, 'm').test(messagesTouching(f)),
+    );
 
   const problems = [];
   for (const s of loadSkillCoverage(root)) {
@@ -178,9 +204,9 @@ export function checkPullRequest(root, base, io = {}) {
         problems.push(
           `${s.name} (core) documents ${hits.join(', ')}, which changed; update the skill — core skills do not accept ${TRAILER}`,
         );
-      } else if (!reviewed.has(s.name)) {
+      } else if (!reviewedFor(s.name, hits)) {
         problems.push(
-          `${s.name} documents ${hits.join(', ')}, which changed; update the skill or add a commit trailer "${TRAILER}: ${s.name}: <why no update is needed>"`,
+          `${s.name} documents ${hits.join(', ')}, which changed; update the skill, or add "${TRAILER}: ${s.name}: <why no update is needed>" to a commit that touches each of those files`,
         );
       }
     }
@@ -188,9 +214,9 @@ export function checkPullRequest(root, base, io = {}) {
     if (skillChanged) {
       const before = baseSkillMd(s.name);
       const baseVersion = before ? parseFrontmatter(before).metadata.version : undefined;
-      if (baseVersion !== undefined && baseVersion === s.version) {
+      if (baseVersion !== undefined && !semverGreater(s.version, baseVersion)) {
         problems.push(
-          `${s.name} changed but metadata.version is still ${s.version}; bump it (then run node scripts/skills/generate-manifest.mjs)`,
+          `${s.name} changed but metadata.version ${s.version} is not greater than ${baseVersion}; bump it (then run node scripts/skills/generate-manifest.mjs)`,
         );
       }
     }

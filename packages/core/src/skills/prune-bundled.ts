@@ -1,30 +1,47 @@
 /**
- * Prune bundled skills that CLEO no longer installs (T12678).
+ * Prune bundled skills that CLEO no longer installs — quarantining only what
+ * CLEO provably wrote (T12678).
  *
  * `initCoreSkills` installs every `@cleocode/skills` manifest entry declared
- * `metadata.install: harness`, but it never removed anything. A skill later
- * declared `internal` (ct-grade) or retired (ct-docs-lookup, ct-docs-write,
- * …) stayed linked into every harness on machines that installed it earlier.
+ * `metadata.install: harness` but never removed anything, so a skill later
+ * declared `internal` (ct-grade) or retired (ct-docs-lookup, …) stayed in
+ * every harness.
  *
- * Candidates are names the bundled manifest says CLEO must NOT install: its
- * non-harness entries plus its `retiredSkills` list. A candidate is removed
- * only where CLEO can prove it put it there — never by name alone:
+ * ## Ownership — never inferred
  *
- * - a harness entry that is a symlink resolving into CLEO's canonical skills
- *   root (`resolveSkillsRoot()`), which is where CLEO's installer links from;
- * - a harness entry that is a byte-identical copy of CLEO's canonical copy
- *   (copy-mode harnesses such as Pi);
- * - the canonical copy itself, when the bundled-install ledger
- *   (`<skillsRoot>/.cleo-bundled.json`, written by `initCoreSkills`) records
- *   it, or when at least one harness symlink proves CLEO linked it.
+ * The canonical skills root (`resolveSkillsRoot()`) is shared: CAAMP
+ * installs every user skill there too, so "it is in the root" or "a harness
+ * link points into the root" proves only that CAAMP put it there. The ONLY
+ * proof CLEO accepts is its own **bundled-install ledger**
+ * (`<skillsRoot>/.cleo-bundled.json`), written by `initCoreSkills` at install
+ * time with a SHA-256 for every file it wrote. A skill is quarantined only
+ * when:
  *
- * Real directories in harness skill dirs (user-owned or hand-copied) and
- * canonical copies with no ownership evidence are left alone and reported as
- * skipped. Every non-dry run appends a JSON receipt line.
+ * - it is a prune candidate (a non-harness manifest entry, or listed in the
+ *   manifest's `retiredSkills`);
+ * - the ledger records it;
+ * - its CAAMP lock entry, if any, has source `library:<name>`, and its
+ *   skills.db row, if any, is `canonical` — anything else means a user
+ *   installed it;
+ * - the files on disk still hash exactly to what the ledger recorded (a
+ *   user-edited copy is kept).
+ *
+ * A harness symlink is taken only when it points exactly at that skill's
+ * canonical path; a harness copy only when it hashes to the ledger. Skills
+ * installed before the ledger existed have no record and are reported, not
+ * pruned.
+ *
+ * ## Reversible
+ *
+ * Nothing is deleted. Owned paths are moved into
+ * `<cleoHome>/skills-quarantine/<id>/` with a `quarantine.json` describing
+ * every move, the lock entry removed and the skills.db state changed;
+ * {@link restoreQuarantine} puts all of it back.
  *
  * @task T12678
  */
 
+import { createHash, randomBytes } from 'node:crypto';
 import {
   existsSync,
   lstatSync,
@@ -33,35 +50,95 @@ import {
   readlinkSync,
   realpathSync,
 } from 'node:fs';
-import { appendFile, mkdir, rm, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
+import { appendFile, cp, mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 
-/** File under the canonical skills root listing skills CLEO installed from the bundle. */
+/** File under the canonical skills root recording what CLEO installed. */
 export const BUNDLED_LEDGER_FILE = '.cleo-bundled.json';
 
-/** What happened to one path during a prune. */
+/** Directory name, beside the skills root, holding quarantined skills. */
+export const QUARANTINE_DIR = 'skills-quarantine';
+
+/** One ledger record: the files CLEO wrote for a skill, by SHA-256. */
+export interface BundledLedgerEntry {
+  /** ISO timestamp of the install that wrote these files. */
+  installedAt: string;
+  /** Relative file path → hex SHA-256. */
+  files: Record<string, string>;
+}
+
+/** The bundled-install ledger. */
+export interface BundledLedger {
+  /** Format version. */
+  version: 2;
+  /** Skill name → record. */
+  skills: Record<string, BundledLedgerEntry>;
+}
+
+/** What happened to one path. */
 export interface BundledSkillPruneAction {
   /** Skill name. */
   name: string;
-  /** Absolute path acted on. */
+  /** Absolute path considered. */
   path: string;
-  /** `removed`, `would-remove` (dry run) or `skipped` (not provably CLEO-owned). */
-  action: 'removed' | 'would-remove' | 'skipped';
-  /** Why this path was (or was not) treated as CLEO-owned. */
+  /** `quarantined`, `would-quarantine` (dry run) or `kept`. */
+  action: 'quarantined' | 'would-quarantine' | 'kept';
+  /** Why. */
   reason: string;
+}
+
+/** A CAAMP lock entry, as far as pruning needs it. */
+export interface PruneLockEntry {
+  /** Original source string (`library:<name>` for bundled installs). */
+  source: string;
+  /** Every other lock field, preserved for restore. */
+  [key: string]: unknown;
+}
+
+/** skills.db lifecycle states. */
+export type PruneLifecycleState = 'active' | 'stale' | 'archived';
+
+/** Registry access the prune needs (injectable for tests). */
+export interface PruneRegistry {
+  /** CAAMP lock entry for a skill, or null. */
+  lockEntry(name: string): Promise<PruneLockEntry | null>;
+  /** Remove a skill's CAAMP lock entry. */
+  removeLockEntry(name: string): Promise<void>;
+  /** Put a removed lock entry back. */
+  restoreLockEntry(name: string, entry: PruneLockEntry): Promise<void>;
+  /** skills.db source type and lifecycle state, or null when no row. */
+  skillRow(name: string): Promise<{ sourceType: string; lifecycleState: string } | null>;
+  /** Set a skills.db row's lifecycle state. */
+  setLifecycleState(name: string, state: PruneLifecycleState, from?: string): Promise<void>;
+}
+
+/** Everything one quarantine run changed, so it can be restored. */
+export interface QuarantineRecord {
+  /** Quarantine id (directory name). */
+  id: string;
+  /** ISO timestamp. */
+  at: string;
+  /** Moves performed, in order. */
+  moves: Array<{ name: string; from: string; to: string }>;
+  /** Lock entries removed. */
+  lockEntries: Array<{ name: string; entry: PruneLockEntry }>;
+  /** skills.db rows archived, with their prior state. */
+  rows: Array<{ name: string; priorState: string }>;
 }
 
 /** Receipt for one prune run. */
 export interface BundledSkillPruneReceipt {
   /** ISO timestamp. */
   at: string;
-  /** True when nothing was deleted. */
+  /** True when nothing was moved. */
   dryRun: boolean;
   /** Names the bundled manifest says CLEO must not install. */
   candidates: string[];
   /** Per-path outcomes. */
   actions: BundledSkillPruneAction[];
-  /** Removal failures (`path: message`). */
+  /** Quarantine id, when anything was moved. */
+  quarantineId: string | null;
+  /** Failures (`path: message`). */
   errors: string[];
 }
 
@@ -69,13 +146,17 @@ export interface BundledSkillPruneReceipt {
 export interface PruneBundledSkillsOptions {
   /** `<@cleocode/skills>/skills` — holds `manifest.json`. */
   bundledSkillsDir: string;
-  /** CLEO's canonical skills root (`resolveSkillsRoot()`). */
+  /** CLEO's canonical skills root. */
   skillsRoot: string;
-  /** Every harness skills directory CLEO installs into. */
+  /** Harness skills directories. */
   providerSkillDirs: string[];
-  /** Report only; delete nothing. */
+  /** Lock and skills.db access. */
+  registry: PruneRegistry;
+  /** Report only. */
   dryRun?: boolean;
-  /** JSONL file the receipt is appended to on a non-dry run. */
+  /** Quarantine root; defaults to `<dirname(skillsRoot)>/skills-quarantine`. */
+  quarantineRoot?: string;
+  /** JSONL receipt log; appended on a non-dry run that moved anything. */
   receiptPath?: string;
 }
 
@@ -101,129 +182,162 @@ export function pruneCandidates(manifest: BundledManifest): string[] {
 }
 
 /**
- * Read the bundled-install ledger (names CLEO installed from the bundle).
+ * SHA-256 of every file under `dir` (relative POSIX paths), skipping
+ * `__pycache__`. Empty when `dir` is missing.
  *
- * @param skillsRoot - Canonical skills root.
- * @returns The recorded names (empty when absent or unreadable).
+ * @param dir - Directory to hash.
+ * @returns Relative path → hex digest.
  */
-export function readBundledLedger(skillsRoot: string): Set<string> {
+export function hashTree(dir: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  const walk = (abs: string, rel: string): void => {
+    for (const e of readdirSync(abs, { withFileTypes: true })) {
+      if (e.name === '__pycache__') continue;
+      const childAbs = join(abs, e.name);
+      const childRel = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) walk(childAbs, childRel);
+      else if (e.isFile()) {
+        out[childRel] = createHash('sha256').update(readFileSync(childAbs)).digest('hex');
+      }
+    }
+  };
   try {
-    const data: { skills?: unknown } = JSON.parse(
-      readFileSync(join(skillsRoot, BUNDLED_LEDGER_FILE), 'utf-8'),
-    );
-    return new Set(
-      Array.isArray(data.skills) ? data.skills.filter((s) => typeof s === 'string') : [],
-    );
+    walk(dir, '');
   } catch {
-    return new Set();
+    return {};
   }
+  return out;
 }
 
 /**
- * Record the skills CLEO installed from the bundle, so a later prune can
- * prove ownership of their canonical copies.
+ * Whether a directory still holds exactly the files the ledger recorded.
+ *
+ * @param dir - Directory on disk.
+ * @param files - Ledger file hashes.
+ * @returns `true` on an exact match (same paths, same bytes).
+ */
+function matchesLedger(dir: string, files: Record<string, string>): boolean {
+  const actual = hashTree(dir);
+  const want = Object.keys(files).sort();
+  const have = Object.keys(actual).sort();
+  if (want.length === 0 || want.join('\n') !== have.join('\n')) return false;
+  return want.every((f) => actual[f] === files[f]);
+}
+
+/**
+ * Read the bundled-install ledger; an absent, unreadable or older-format
+ * ledger yields an empty one (nothing is then provably CLEO's).
+ *
+ * @param skillsRoot - Canonical skills root.
+ * @returns The ledger.
+ */
+export function readBundledLedger(skillsRoot: string): BundledLedger {
+  try {
+    const data = JSON.parse(readFileSync(join(skillsRoot, BUNDLED_LEDGER_FILE), 'utf-8')) as {
+      version?: number;
+      skills?: Record<string, BundledLedgerEntry>;
+    };
+    if (data.version === 2 && data.skills && typeof data.skills === 'object') {
+      return { version: 2, skills: data.skills };
+    }
+  } catch {
+    // absent or unreadable
+  }
+  return { version: 2, skills: {} };
+}
+
+/**
+ * Write the ledger.
+ *
+ * @param skillsRoot - Canonical skills root.
+ * @param ledger - Ledger to write.
+ */
+async function writeLedger(skillsRoot: string, ledger: BundledLedger): Promise<void> {
+  await mkdir(skillsRoot, { recursive: true });
+  await writeFile(join(skillsRoot, BUNDLED_LEDGER_FILE), `${JSON.stringify(ledger, null, 2)}\n`);
+}
+
+/**
+ * Record the skills CLEO just installed from the bundle, hashing the files
+ * it wrote into each canonical copy.
  *
  * @param skillsRoot - Canonical skills root.
  * @param names - Skills installed by this run.
  */
-export async function writeBundledLedger(skillsRoot: string, names: string[]): Promise<void> {
-  const merged = new Set([...readBundledLedger(skillsRoot), ...names]);
-  await mkdir(skillsRoot, { recursive: true });
-  await writeFile(
-    join(skillsRoot, BUNDLED_LEDGER_FILE),
-    `${JSON.stringify({ skills: [...merged].sort(), updatedAt: new Date().toISOString() }, null, 2)}\n`,
-  );
+export async function recordBundledInstalls(skillsRoot: string, names: string[]): Promise<void> {
+  const ledger = readBundledLedger(skillsRoot);
+  const now = new Date().toISOString();
+  for (const name of names) {
+    const files = hashTree(join(skillsRoot, name));
+    if (Object.keys(files).length > 0) ledger.skills[name] = { installedAt: now, files };
+  }
+  await writeLedger(skillsRoot, ledger);
 }
 
 /**
- * Resolve where a symlink points, even when its target no longer exists.
+ * Where a symlink points, even when the target is gone.
  *
- * @param linkPath - Path of the symlink.
- * @returns Absolute target path.
+ * @param linkPath - Symlink path.
+ * @returns Absolute target.
  */
 function linkTarget(linkPath: string): string {
+  const raw = readlinkSync(linkPath);
+  return isAbsolute(raw) ? raw : resolve(dirname(linkPath), raw);
+}
+
+/**
+ * Real path when it exists, otherwise the resolved path.
+ *
+ * @param p - Path.
+ * @returns Canonical path for equality checks.
+ */
+function realOrResolved(p: string): string {
   try {
-    return realpathSync(linkPath);
+    return realpathSync(p);
   } catch {
-    const raw = readlinkSync(linkPath);
-    return isAbsolute(raw) ? raw : resolve(dirname(linkPath), raw);
+    return resolve(p);
   }
 }
 
 /**
- * Whether two paths resolve to the same real location.
+ * Whether anything (including a dangling symlink) exists at `p`.
  *
- * @param a - First path.
- * @param b - Second path.
- * @returns `true` when both exist and share a real path.
+ * @param p - Path.
+ * @returns `true` when lstat succeeds.
  */
-function sameRealPath(a: string, b: string): boolean {
+function exists(p: string): boolean {
   try {
-    return realpathSync(a) === realpathSync(b);
-  } catch {
-    return false;
-  }
-}
-
-/**
- * List every file under `dir`, relative, sorted (`__pycache__` ignored).
- *
- * @param dir - Directory to walk.
- * @param base - Prefix accumulated during recursion.
- * @returns Relative file paths.
- */
-function listFiles(dir: string, base = ''): string[] {
-  const out: string[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (entry.name === '__pycache__') continue;
-    const rel = base ? `${base}/${entry.name}` : entry.name;
-    if (entry.isDirectory()) out.push(...listFiles(join(dir, entry.name), rel));
-    else if (entry.isFile()) out.push(rel);
-  }
-  return out.sort();
-}
-
-/**
- * Whether a harness copy is byte-identical to CLEO's canonical copy — the
- * proof that CLEO's copy-mode installer (Pi) put it there.
- *
- * @param copy - Directory in a harness skills dir.
- * @param canonical - CLEO's canonical copy.
- * @returns `true` when both trees hold the same files with the same bytes.
- */
-function sameTree(copy: string, canonical: string): boolean {
-  try {
-    const a = listFiles(copy);
-    const b = listFiles(canonical);
-    if (a.length === 0 || a.join('\n') !== b.join('\n')) return false;
-    return a.every((f) => readFileSync(join(copy, f)).equals(readFileSync(join(canonical, f))));
+    lstatSync(p);
+    return true;
   } catch {
     return false;
   }
 }
 
 /**
- * Canonical form of the skills root for prefix checks.
+ * Move a path, falling back to copy + remove across devices.
  *
- * @param skillsRoot - Canonical skills root.
- * @returns Real path with a trailing separator.
+ * @param from - Source.
+ * @param to - Destination (must not exist).
  */
-function rootPrefix(skillsRoot: string): string {
-  let real = skillsRoot;
+async function movePath(from: string, to: string): Promise<void> {
+  await mkdir(dirname(to), { recursive: true });
   try {
-    real = realpathSync(skillsRoot);
-  } catch {
-    // Root missing — fall back to the given path.
+    await rename(from, to);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
+    await cp(from, to, { recursive: true, verbatimSymlinks: true });
+    await rm(from, { recursive: true, force: true });
   }
-  return real.endsWith(sep) ? real : `${real}${sep}`;
 }
 
 /**
- * Remove harness links and canonical copies of skills CLEO no longer
- * installs, where CLEO can prove it owns them. See the module doc.
+ * Quarantine harness entries and canonical copies of skills CLEO no longer
+ * installs, where the ledger proves CLEO wrote them and they are unmodified.
+ * See the module doc.
  *
- * @param opts - Paths, dry-run flag and receipt location.
- * @returns The receipt (also appended to `receiptPath` on a non-dry run).
+ * @param opts - Paths, registry, dry-run flag.
+ * @returns The receipt.
  */
 export async function pruneBundledSkills(
   opts: PruneBundledSkillsOptions,
@@ -234,108 +348,122 @@ export async function pruneBundledSkills(
   );
   const candidates = pruneCandidates(manifest);
   const ledger = readBundledLedger(opts.skillsRoot);
-  const prefix = rootPrefix(opts.skillsRoot);
+  const providerDirs = [...new Set(opts.providerSkillDirs)];
   const actions: BundledSkillPruneAction[] = [];
   const errors: string[] = [];
+  const at = new Date().toISOString();
+  const id = `${at.replace(/[:.]/g, '-')}-${randomBytes(3).toString('hex')}`;
+  const qroot = join(opts.quarantineRoot ?? join(dirname(opts.skillsRoot), QUARANTINE_DIR), id);
+  const record: QuarantineRecord = { id, at, moves: [], lockEntries: [], rows: [] };
 
-  /** Delete (or plan to delete) one path. */
-  const remove = async (name: string, path: string, reason: string): Promise<void> => {
+  const keep = (name: string, path: string, reason: string): void => {
+    actions.push({ name, path, action: 'kept', reason });
+  };
+  const take = async (name: string, path: string, reason: string): Promise<boolean> => {
     if (dryRun) {
-      actions.push({ name, path, action: 'would-remove', reason });
-      return;
+      actions.push({ name, path, action: 'would-quarantine', reason });
+      return true;
     }
+    const to = join(qroot, 'files', String(record.moves.length), name);
     try {
-      await rm(path, { recursive: true, force: true });
-      actions.push({ name, path, action: 'removed', reason });
+      await movePath(path, to);
+      record.moves.push({ name, from: path, to });
+      actions.push({ name, path, action: 'quarantined', reason });
+      return true;
     } catch (err) {
       errors.push(`${path}: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
     }
   };
 
-  // Several providers share a directory (~/.agents/skills); visit each once.
-  const providerDirs = [...new Set(opts.providerSkillDirs)];
   for (const name of candidates) {
     const canonical = join(opts.skillsRoot, name);
-    let linkedByCleo = false;
+    const harness = providerDirs.map((d) => join(d, name)).filter(exists);
+    const present = [...(existsSync(canonical) ? [canonical] : []), ...harness];
+    if (present.length === 0) continue;
 
-    for (const dir of providerDirs) {
-      const entry = join(dir, name);
-      let stat: ReturnType<typeof lstatSync>;
-      try {
-        stat = lstatSync(entry);
-      } catch {
-        continue; // absent
-      }
-      if (stat.isSymbolicLink()) {
-        const target = linkTarget(entry);
-        if (`${target}${sep}`.startsWith(prefix)) {
-          linkedByCleo = true;
-          await remove(name, entry, 'symlink into the CLEO canonical skills root');
-          continue;
-        }
-        actions.push({
+    const entry = ledger.skills[name];
+    if (!entry) {
+      for (const p of present) {
+        keep(
           name,
-          path: entry,
-          action: 'skipped',
-          reason: `symlink points outside the CLEO skills root (${target})`,
-        });
-        continue;
-      }
-      if (sameRealPath(entry, canonical)) continue; // the canonical copy itself, handled below
-      if (sameTree(entry, canonical)) {
-        linkedByCleo = true;
-        await remove(name, entry, 'byte-identical copy of the CLEO canonical copy');
-        continue;
-      }
-      actions.push({
-        name,
-        path: entry,
-        action: 'skipped',
-        reason: 'real directory in a harness skills dir — no proof CLEO owns it',
-      });
-    }
-
-    if (existsSync(canonical)) {
-      if (ledger.has(name) || linkedByCleo) {
-        await remove(
-          name,
-          canonical,
-          ledger.has(name)
-            ? 'recorded in the bundled-install ledger'
-            : 'CLEO harness links point to it',
+          p,
+          'no bundled-install ledger record (installed before the ledger, or by the user)',
         );
-      } else {
-        actions.push({
-          name,
-          path: canonical,
-          action: 'skipped',
-          reason: 'canonical copy with no ledger record or CLEO link — may be user-installed',
-        });
       }
+      continue;
+    }
+    const lock = await opts.registry.lockEntry(name);
+    if (lock && lock.source !== `library:${name}`) {
+      for (const p of present)
+        keep(name, p, `CAAMP lock says it was installed from ${lock.source}`);
+      continue;
+    }
+    const row = await opts.registry.skillRow(name);
+    if (row && row.sourceType !== 'canonical') {
+      for (const p of present) keep(name, p, `skills.db records a ${row.sourceType} install`);
+      continue;
+    }
+
+    const canonicalReal = realOrResolved(canonical);
+    const canonicalOwned = existsSync(canonical) && matchesLedger(canonical, entry.files);
+    if (existsSync(canonical) && !canonicalOwned) {
+      keep(name, canonical, 'modified since CLEO installed it (hashes differ from the ledger)');
+    }
+
+    for (const p of harness) {
+      if (lstatSync(p).isSymbolicLink()) {
+        const target = realOrResolved(linkTarget(p));
+        const pointsAtCanonical = target === canonicalReal || target === resolve(canonical);
+        if (pointsAtCanonical && (canonicalOwned || !existsSync(canonical))) {
+          await take(name, p, 'CLEO link to its unmodified canonical copy');
+        } else {
+          keep(
+            name,
+            p,
+            pointsAtCanonical
+              ? 'links to a modified canonical copy'
+              : `links elsewhere (${target})`,
+          );
+        }
+      } else if (realOrResolved(p) === canonicalReal) {
+        // The canonical copy reached through a linked harness dir — handled below.
+      } else if (matchesLedger(p, entry.files)) {
+        await take(name, p, 'copy identical to what CLEO installed');
+      } else {
+        keep(name, p, 'directory differs from what CLEO installed');
+      }
+    }
+
+    if (!canonicalOwned) continue;
+    const moved = await take(name, canonical, 'unmodified CLEO install (ledger hashes match)');
+    if (!moved || dryRun) continue;
+    delete ledger.skills[name];
+    if (lock) {
+      await opts.registry.removeLockEntry(name);
+      record.lockEntries.push({ name, entry: lock });
+    }
+    if (row) {
+      await opts.registry.setLifecycleState(name, 'archived', canonical);
+      record.rows.push({ name, priorState: row.lifecycleState });
     }
   }
 
-  // A pruned canonical copy is no longer CLEO's: drop it from the ledger so a
-  // later user install of the same name is never mistaken for a bundled one.
-  const prunedCanonical = actions
-    .filter((a) => a.action === 'removed' && a.path === join(opts.skillsRoot, a.name))
-    .map((a) => a.name);
-  if (prunedCanonical.length > 0) {
-    const kept = [...ledger].filter((n) => !prunedCanonical.includes(n));
-    await writeFile(
-      join(opts.skillsRoot, BUNDLED_LEDGER_FILE),
-      `${JSON.stringify({ skills: kept.sort(), updatedAt: new Date().toISOString() }, null, 2)}\n`,
-    );
+  const movedAny = record.moves.length > 0;
+  if (movedAny) {
+    await mkdir(qroot, { recursive: true });
+    await writeFile(join(qroot, 'quarantine.json'), `${JSON.stringify(record, null, 2)}\n`);
+    await writeLedger(opts.skillsRoot, ledger);
   }
-
   const receipt: BundledSkillPruneReceipt = {
-    at: new Date().toISOString(),
+    at,
     dryRun,
     candidates,
     actions,
+    quarantineId: movedAny ? id : null,
     errors,
   };
-  if (!dryRun && opts.receiptPath && actions.some((a) => a.action === 'removed')) {
+  if (movedAny && opts.receiptPath) {
     await mkdir(dirname(opts.receiptPath), { recursive: true });
     await appendFile(opts.receiptPath, `${JSON.stringify(receipt)}\n`);
   }
@@ -343,29 +471,186 @@ export async function pruneBundledSkills(
 }
 
 /**
- * Dry-run the prune `initCoreSkills` would perform, against the real
- * bundled manifest, canonical root and installed harnesses (T12678).
+ * List quarantine ids, newest first.
  *
- * @returns One human-readable line per path that would be removed or is
- *   skipped as not provably CLEO-owned; empty when nothing applies or the
- *   bundled skills cannot be located.
+ * @param quarantineRoot - Quarantine root.
+ * @returns Ids that carry a `quarantine.json`.
  */
-export async function previewBundledSkillPrune(): Promise<string[]> {
+export function listQuarantines(quarantineRoot: string): string[] {
+  if (!existsSync(quarantineRoot)) return [];
+  return readdirSync(quarantineRoot)
+    .filter((d) => existsSync(join(quarantineRoot, d, 'quarantine.json')))
+    .sort()
+    .reverse();
+}
+
+/**
+ * Put back everything one quarantine run moved: files and links, CAAMP lock
+ * entries, skills.db lifecycle states, and ledger records.
+ *
+ * @param opts - Quarantine root and id, skills root, registry.
+ * @returns What was restored and what could not be (destination occupied).
+ */
+export async function restoreQuarantine(opts: {
+  quarantineRoot: string;
+  id: string;
+  skillsRoot: string;
+  registry: PruneRegistry;
+}): Promise<{ restored: string[]; conflicts: string[] }> {
+  const dir = join(opts.quarantineRoot, opts.id);
+  const record: QuarantineRecord = JSON.parse(readFileSync(join(dir, 'quarantine.json'), 'utf-8'));
+  const restored: string[] = [];
+  const conflicts: string[] = [];
+  for (const m of [...record.moves].reverse()) {
+    if (exists(m.from)) {
+      conflicts.push(m.from);
+      continue;
+    }
+    await movePath(m.to, m.from);
+    restored.push(m.from);
+  }
+  for (const l of record.lockEntries) await opts.registry.restoreLockEntry(l.name, l.entry);
+  for (const r of record.rows) {
+    const prior: PruneLifecycleState =
+      r.priorState === 'stale' || r.priorState === 'archived' ? r.priorState : 'active';
+    await opts.registry.setLifecycleState(r.name, prior);
+  }
+  const ledger = readBundledLedger(opts.skillsRoot);
+  for (const name of new Set(record.moves.map((m) => m.name))) {
+    const canonical = join(opts.skillsRoot, name);
+    if (restored.includes(canonical)) {
+      ledger.skills[name] = { installedAt: record.at, files: hashTree(canonical) };
+    }
+  }
+  await writeLedger(opts.skillsRoot, ledger);
+  if (conflicts.length === 0) await rm(dir, { recursive: true, force: true });
+  return { restored, conflicts };
+}
+
+/**
+ * The real registry: CAAMP's lock file and CLEO's skills.db.
+ *
+ * @returns A {@link PruneRegistry}.
+ */
+export async function defaultPruneRegistry(): Promise<PruneRegistry> {
+  const caamp = await import('@cleocode/caamp');
+  const db = await import('../store/skills-db.js');
+  type SourceType = Parameters<typeof caamp.recordSkillInstall>[3];
+  return {
+    async lockEntry(name) {
+      const e = (await caamp.getTrackedSkills())[name];
+      return e ? { ...e } : null;
+    },
+    async removeLockEntry(name) {
+      await caamp.removeSkillFromLock(name);
+    },
+    async restoreLockEntry(name, entry) {
+      await caamp.recordSkillInstall(
+        name,
+        typeof entry['scopedName'] === 'string' ? entry['scopedName'] : name,
+        entry.source,
+        entry['sourceType'] as SourceType,
+        Array.isArray(entry['agents']) ? entry['agents'].filter((a) => typeof a === 'string') : [],
+        typeof entry['canonicalPath'] === 'string' ? entry['canonicalPath'] : '',
+        entry['isGlobal'] !== false,
+        typeof entry['projectDir'] === 'string' ? entry['projectDir'] : undefined,
+        typeof entry['version'] === 'string' ? entry['version'] : undefined,
+      );
+    },
+    async skillRow(name) {
+      try {
+        const row = await db.getSkillRow(name);
+        return row ? { sourceType: row.sourceType, lifecycleState: row.lifecycleState } : null;
+      } catch {
+        return null;
+      }
+    },
+    async setLifecycleState(name, state, from) {
+      await db.setSkillLifecycleState(name, state, from);
+    },
+  };
+}
+
+/**
+ * Real paths for the installed CLEO: bundle dir, canonical root, harness
+ * dirs, quarantine root.
+ *
+ * @returns Resolved context, or `null` when the bundled skills are missing.
+ */
+async function realPruneContext(): Promise<{
+  bundledSkillsDir: string;
+  skillsRoot: string;
+  providerSkillDirs: string[];
+  quarantineRoot: string;
+} | null> {
   const { getInstalledProviders, resolveProviderSkillsDirs } = await import('@cleocode/caamp');
   const { resolveBundledSkillsDir, resolveSkillsRoot } = await import('./skill-root.js');
   const bundledSkillsDir = resolveBundledSkillsDir();
-  if (!bundledSkillsDir) return [];
-  const receipt = await pruneBundledSkills({
+  if (!bundledSkillsDir) return null;
+  const skillsRoot = resolveSkillsRoot();
+  return {
     bundledSkillsDir,
-    skillsRoot: resolveSkillsRoot(),
+    skillsRoot,
     providerSkillDirs: getInstalledProviders().flatMap((p) =>
       resolveProviderSkillsDirs(p, 'global'),
     ),
-    dryRun: true,
+    quarantineRoot: join(dirname(skillsRoot), QUARANTINE_DIR),
+  };
+}
+
+/**
+ * Run the bundled-skill prune against this machine (`cleo skills doctor
+ * prune`).
+ *
+ * @param opts - `dryRun` reports without moving anything.
+ * @returns The receipt, or `null` when the bundled skills cannot be found.
+ */
+export async function runBundledSkillPrune(opts: {
+  dryRun?: boolean;
+}): Promise<BundledSkillPruneReceipt | null> {
+  const ctx = await realPruneContext();
+  if (!ctx) return null;
+  return pruneBundledSkills({
+    ...ctx,
+    registry: await defaultPruneRegistry(),
+    dryRun: opts.dryRun === true,
+    receiptPath: join(ctx.skillsRoot, '.prune-receipts.jsonl'),
   });
+}
+
+/**
+ * List quarantines, or restore one (`cleo skills doctor restore [id]`).
+ *
+ * @param id - Quarantine id; omit to list.
+ * @returns The ids, or the restore outcome.
+ */
+export async function restoreBundledSkillQuarantine(
+  id?: string,
+): Promise<{ quarantines: string[] } | { restored: string[]; conflicts: string[] }> {
+  const { resolveSkillsRoot } = await import('./skill-root.js');
+  const skillsRoot = resolveSkillsRoot();
+  const quarantineRoot = join(dirname(skillsRoot), QUARANTINE_DIR);
+  if (!id) return { quarantines: listQuarantines(quarantineRoot) };
+  return restoreQuarantine({
+    quarantineRoot,
+    id,
+    skillsRoot,
+    registry: await defaultPruneRegistry(),
+  });
+}
+
+/**
+ * Dry-run the prune `initCoreSkills` would perform against the real bundle,
+ * canonical root, harnesses and registries.
+ *
+ * @returns One line per path that would be quarantined or kept.
+ */
+export async function previewBundledSkillPrune(): Promise<string[]> {
+  const receipt = await runBundledSkillPrune({ dryRun: true });
+  if (!receipt) return [];
   return receipt.actions.map((a) =>
-    a.action === 'would-remove'
-      ? `skills: would prune ${a.path} (${a.reason})`
+    a.action === 'would-quarantine'
+      ? `skills: would quarantine ${a.path} (${a.reason})`
       : `skills: would keep ${a.path} (${a.reason})`,
   );
 }

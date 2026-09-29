@@ -14,6 +14,7 @@ import {
   checkPullRequest,
   globToRegExp,
   runGate,
+  semverGreater,
 } from '../lint-skill-coverage.mjs';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -113,6 +114,20 @@ describe('lint-skill-coverage in a git repository (PR mode)', () => {
     expect(checkPullRequest(root, 'base')).toEqual([]);
   });
 
+  it('ignores a trailer that names a different skill', () => {
+    write('src/ct-extra.ts', 'b\n');
+    commit('change\n\nSkill-Drift-Reviewed: ct-other: wrong skill');
+    expect(checkPullRequest(root, 'base').join('\n')).toMatch(/ct-extra documents/);
+  });
+
+  it('ignores a trailer on a commit that does not touch the covered file', () => {
+    write('src/ct-extra.ts', 'b\n');
+    commit('change');
+    write('unrelated.txt', 'x\n');
+    commit('other\n\nSkill-Drift-Reviewed: ct-extra: rename only');
+    expect(checkPullRequest(root, 'base').join('\n')).toMatch(/ct-extra documents/);
+  });
+
   it('rejects the trailer for a core skill', () => {
     write('src/ct-core.ts', 'b\n');
     commit('change\n\nSkill-Drift-Reviewed: ct-core: trying');
@@ -127,8 +142,17 @@ describe('lint-skill-coverage in a git repository (PR mode)', () => {
     );
     commit('change');
     expect(checkPullRequest(root, 'base')).toEqual([
-      'ct-core changed but metadata.version is still 1.0.0; bump it (then run node scripts/skills/generate-manifest.mjs)',
+      'ct-core changed but metadata.version 1.0.0 is not greater than 1.0.0; bump it (then run node scripts/skills/generate-manifest.mjs)',
     ]);
+
+    write(
+      'packages/skills/skills/ct-core/SKILL.md',
+      `${skill('ct-core', 'core', '0.9.9')}\nnew text\n`,
+    );
+    commit('downgrade');
+    expect(checkPullRequest(root, 'base').join('\n')).toMatch(
+      /0\.9\.9 is not greater than 1\.0\.0/,
+    );
 
     write(
       'packages/skills/skills/ct-core/SKILL.md',
@@ -136,6 +160,17 @@ describe('lint-skill-coverage in a git repository (PR mode)', () => {
     );
     commit('bump');
     expect(checkPullRequest(root, 'base')).toEqual([]);
+  });
+
+  it.each([
+    ['1.0.1', '1.0.0', true],
+    ['1.10.0', '1.9.9', true],
+    ['2.0.0', '1.99.99', true],
+    ['1.0.0', '1.0.0', false],
+    ['0.9.9', '1.0.0', false],
+    ['1.0', '1.0.0', false],
+  ])('semverGreater(%s, %s) → %s', (a, b, want) => {
+    expect(semverGreater(a, b)).toBe(want);
   });
 
   it('flags a core or LOOM skill without covers and a dead glob', () => {
