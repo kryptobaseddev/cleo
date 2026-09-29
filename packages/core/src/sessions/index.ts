@@ -655,11 +655,16 @@ export {
 export type { FindSessionsParams, MinimalSessionRecord } from './find.js';
 export { findSessions } from './find.js';
 // T11345 — per-session focus_state keying (single SSoT helper)
-export type { FocusStateMetaAccessor } from './focus-state-store.js';
+export type {
+  FocusStateMetaAccessor,
+  LiveFocus,
+  LiveFocusAccessor,
+} from './focus-state-store.js';
 export {
   focusStateKey,
   LEGACY_FOCUS_STATE_KEY,
   readFocusState,
+  readLiveFocus,
   writeFocusState,
 } from './focus-state-store.js';
 export type {

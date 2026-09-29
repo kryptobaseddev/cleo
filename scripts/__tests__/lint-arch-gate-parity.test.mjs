@@ -13,7 +13,12 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { bundledScripts, documentedScripts } from '../lint-arch-gate-parity.mjs';
+import {
+  bundledScripts,
+  documentedScripts,
+  readWorkflows,
+  workflowScripts,
+} from '../lint-arch-gate-parity.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -38,6 +43,17 @@ describe('lint-arch-gate-parity — live repo', () => {
 
     const unbundled = [...documented].filter((s) => !bundled.has(s)).sort();
     expect(unbundled).toEqual([]);
+  });
+
+  it('every gate bundled in `cleo check arch` is run by a workflow (T12658)', () => {
+    // gh#1354 and T12658: gates 18, 20, 23, 26, 27 and 28 were each bundled
+    // and documented while no workflow ran them, so CI never blocked on them.
+    const bundled = bundledScripts(
+      readFileSync(join(REPO_ROOT, 'packages/cleo/src/cli/commands/check.ts'), 'utf-8'),
+    );
+    const run = workflowScripts(readWorkflows(join(REPO_ROOT, '.github/workflows')));
+    const unrun = [...bundled].filter((s) => !run.has(s)).sort();
+    expect(unrun).toEqual([]);
   });
 
   it('finds a non-trivial number of gates (guards against a parser that matches nothing)', () => {
@@ -67,6 +83,32 @@ describe('bundledScripts', () => {
     const source = `// see scripts/lint-unrelated.mjs for details
       { id: 'gate-1', script: 'scripts/lint-a.mjs' },`;
     expect([...bundledScripts(source)]).toEqual(['scripts/lint-a.mjs']);
+  });
+});
+
+describe('workflowScripts', () => {
+  it('reads `node [flags] scripts/<gate>.mjs` from run lines, single- and multi-line', () => {
+    const yml = [
+      'jobs:',
+      '  a:',
+      '    steps:',
+      '      - run: node scripts/lint-a.mjs --check',
+      '      - run: |',
+      '          node --no-warnings scripts/lint-b.mjs',
+    ].join('\n');
+    expect([...workflowScripts([yml])].sort()).toEqual([
+      'scripts/lint-a.mjs',
+      'scripts/lint-b.mjs',
+    ]);
+  });
+
+  it('does not count a gate named only in a comment, a step name or a trailing comment', () => {
+    const yml = [
+      '    # run: node scripts/lint-commented.mjs',
+      '      - name: Assert scripts/lint-named.mjs holds',
+      '        run: echo ok # node scripts/lint-trailing.mjs',
+    ].join('\n');
+    expect([...workflowScripts([yml])]).toEqual([]);
   });
 });
 
