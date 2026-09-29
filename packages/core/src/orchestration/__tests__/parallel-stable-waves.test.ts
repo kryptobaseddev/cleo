@@ -30,6 +30,10 @@ function accessor(tasks: Task[]) {
     async loadSingleTask(id: string): Promise<Task | null> {
       return id === 'E1' ? task('E1', 'active') : (tasks.find((t) => t.id === id) ?? null);
     },
+    // T12692: planEpicWaves loads the project-wide ranking context.
+    async queryTasks(): Promise<{ tasks: Task[]; total: number }> {
+      return { tasks, total: tasks.length };
+    },
     async loadTasks(ids: readonly string[]): Promise<Task[]> {
       return tasks.filter((t) => ids.includes(t.id));
     },

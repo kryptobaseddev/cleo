@@ -42,6 +42,16 @@ function makeAccessor(tasks: Task[]) {
     async getChildren(_epicId: string): Promise<Task[]> {
       return tasks;
     },
+    // T12692: planEpicWaves loads the project-wide ranking context.
+    async queryTasks(): Promise<{ tasks: Task[]; total: number }> {
+      return { tasks, total: tasks.length };
+    },
+    async loadTasks(ids: readonly string[]): Promise<Task[]> {
+      return tasks.filter((t) => ids.includes(t.id));
+    },
+    async getMetaValue<T>(_key: string): Promise<T | null> {
+      return null;
+    },
   };
 }
 

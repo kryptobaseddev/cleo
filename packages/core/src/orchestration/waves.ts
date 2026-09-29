@@ -6,11 +6,12 @@
 import type { ScoreTaskContext, Task, TaskPriority, TaskRef } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { buildRankingContext, orderByRanking } from '../task-tools/score-task-priority.js';
+import { orderByRanking } from '../task-tools/score-task-priority.js';
 import {
   getReadinessDependencyBlockers,
   loadReadinessDependencyLookup,
 } from '../tasks/dependency-check.js';
+import { loadRankingContext } from '../tasks/task-next.js';
 
 /** Basic execution wave: task IDs grouped by dependency depth. */
 export interface Wave {
@@ -115,17 +116,18 @@ function enrichTask(id: string, taskMap: Map<string, Task>): EnrichedWaveTask {
  *
  * @param waves - Waves in structural order.
  * @param taskMap - Dependency closure the waves were computed over.
- * @param ranking - Shared ranking context; when absent, a local one is built
- *   from the closure (no phase, leverage within the closure).
+ * @param ranking - The project-wide ranking context (see `loadRankingContext`).
  * @returns The same waves with members in ranked order.
  */
 function orderWaveMembers(
   waves: Wave[],
   taskMap: ReadonlyMap<string, Task>,
-  ranking?: ScoreTaskContext,
+  ranking: ScoreTaskContext,
 ): Wave[] {
-  const ctx = ranking ?? buildRankingContext(taskMap.values(), taskMap, { currentPhase: null });
-  return waves.map((w) => ({ ...w, tasks: orderByRanking(w.tasks, (id) => id, taskMap, ctx) }));
+  return waves.map((w) => ({
+    ...w,
+    tasks: orderByRanking(w.tasks, (id) => id, taskMap, ranking),
+  }));
 }
 
 /** Statuses whose task has finished (it occupies its wave, but runs no more). */
@@ -296,8 +298,10 @@ async function loadDependencyClosure(
  * @param epicId - Epic whose direct children are planned.
  * @param accessor - Task accessor.
  * @param parentIds - Containment parents to select; defaults to the epic.
- * @param ranking - Shared ranking context (see `loadRankingContext`); when
- *   absent, a local one is built from the dependency closure.
+ * @param ranking - Shared ranking context; when absent, the project-wide one
+ *   `cleo next` and `orchestrate waves` use is loaded once (`loadRankingContext`),
+ *   so every wave surface orders members identically (T12692). Pass it in when
+ *   planning several waves or epics in one call.
  * @returns The selected children, the dependency lookup and the waves.
  * @task T12682
  * @task T12692
@@ -314,10 +318,11 @@ export async function planEpicWaves(
   }
   const children = [...selected.values()];
   const taskMap = await loadDependencyClosure(children, accessor);
+  const ctx = ranking ?? (await loadRankingContext(accessor)).ctx;
   return {
     children,
     taskMap,
-    waves: orderWaveMembers(computeWaves(children, taskMap), taskMap, ranking),
+    waves: orderWaveMembers(computeWaves(children, taskMap), taskMap, ctx),
   };
 }
 
@@ -334,8 +339,10 @@ export async function planEpicWaves(
  * @param cwd      - Optional project root (falls back to `getTaskAccessor` default).
  * @param accessor - Optional pre-constructed data accessor (useful in tests).
  * @param parentIds - Containment parents to select; defaults to the requested epic.
- * @param ranking - Shared ranking context (see `loadRankingContext`); when
- *   absent, a local one is built from the dependency closure.
+ * @param ranking - Shared ranking context; when absent, the project-wide one
+ *   `cleo next` and `orchestrate waves` use is loaded once (`loadRankingContext`),
+ *   so every wave surface orders members identically (T12692). Pass it in when
+ *   planning several waves or epics in one call.
  * @returns Selected task counts and waves with current dependency readiness.
  *
  * @example

@@ -18,11 +18,14 @@ import type { Task } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildBrainState } from '../../orchestration/bootstrap.js';
 import { getNextTask } from '../../orchestration/index.js';
+import { rollupWaveStatus } from '../../orchestration/lead-rollup.js';
+import { startParallelExecution } from '../../orchestration/parallel.js';
 import { getTaskAccessor } from '../../store/data-accessor.js';
 import { closeAllDatabases, resetDbState } from '../../store/sqlite.js';
 import { coreTaskPlan } from '../../tasks/plan.js';
 import { coreTaskContext } from '../../tasks/task-context.js';
 import { coreTaskNext } from '../../tasks/task-next.js';
+import { orchestratePlan } from '../plan.js';
 import { orchestrateReady, orchestrateWaves } from '../query-ops.js';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -174,5 +177,46 @@ describe('T12692 — one comparator on every ordering surface', () => {
     const c = await acc.loadSingleTask('C');
     expect(b?.priority).toBe(c?.priority);
     expect(b?.severity ?? null).toBeNull();
+  });
+
+  it('orchestrate plan, parallel start and the lead roll-up order a wave as orchestrate waves does', async () => {
+    // Two medium tasks in E2's wave 1. A is older; B unblocks X, a task in
+    // ANOTHER epic. Project-wide, B's leverage puts it first; a context built
+    // only from E2's dependency closure never sees X and would put A first.
+    const root = await fixture();
+    const acc = await getTaskAccessor(root);
+    const seed = async (task: Partial<Task> & Pick<Task, 'id' | 'title'>): Promise<void> =>
+      acc.upsertSingleTask({ description: 'T12692 fixture', status: 'pending', ...task } as Task);
+    await seed({ id: 'E2', title: 'Epic 2', type: 'epic', status: 'active', priority: 'high' });
+    await seed({ id: 'E3', title: 'Epic 3', type: 'epic', status: 'active', priority: 'high' });
+    const member = { type: 'task', parentId: 'E2', priority: 'medium' } as const;
+    await seed({ id: 'WA', title: 'Wave A', ...member, createdAt: daysAgo(5) });
+    await seed({ id: 'WB', title: 'Wave B', ...member, createdAt: daysAgo(1) });
+    await seed({
+      id: 'X',
+      title: 'Outside dependent',
+      type: 'task',
+      parentId: 'E3',
+      priority: 'medium',
+      depends: ['WB'],
+    });
+    const expected = ['WB', 'WA'];
+
+    const waves = await orchestrateWaves('E2', root);
+    expect(waves.success).toBe(true);
+    const listed = (waves.data as { waves: Array<{ waveNumber: number; taskIds: string[] }> })
+      .waves;
+    expect(listed[0]?.taskIds).toEqual(expected);
+
+    const plan = await orchestratePlan({ epicId: 'E2', projectRoot: root });
+    expect(plan.success).toBe(true);
+    const planWave = plan.data?.waves.find((w) => w.wave === 1);
+    expect(planWave?.workers.map((w) => w.taskId)).toEqual(expected);
+
+    const rollup = await rollupWaveStatus('E2', 1, root);
+    expect(rollup.workers.map((w) => w.taskId)).toEqual(expected);
+
+    const started = await startParallelExecution('E2', 1, root, acc);
+    expect(started.tasks).toEqual(expected);
   });
 });
