@@ -451,6 +451,7 @@ export async function validateAtom(
         ...(parsed.componentPrNumber !== undefined
           ? { componentPrNumber: parsed.componentPrNumber }
           : {}),
+        ...(context?.readOnly ? { readOnly: true } : {}),
       });
       return result.ok
         ? { ok: true, atom: result.atom }
@@ -2422,6 +2423,7 @@ async function validatePrAtom(
   // atom needs BOTH roots, and a swap would be as wrong as the original.
   const result = await resolvePrEvidenceAtom(prNumber, roots, {
     projectContext: ctx.loaded ? ctx.context : null,
+    ...(context.readOnly ? { readOnly: true } : {}),
   });
   if (!result.ok) {
     return { ok: false, reason: result.reason, codeName: result.codeName };

@@ -96,6 +96,116 @@ describe('resolveComponentPr', () => {
   });
 });
 
+describe('a change the integration branch undid does not survive (T12671 review HIGH)', () => {
+  /** A fresh repo: x.ts and y.ts on main, and an integration/j branch. */
+  function repoWith(): string {
+    const r = realpathSync(mkdtempSync(join(tmpdir(), 'component-undo-')));
+    git(r, ['init', '-q', '-b', 'main']);
+    git(r, ['config', 'user.name', 'T']);
+    git(r, ['config', 'user.email', 't@e.x']);
+    writeFileSync(join(r, 'x.ts'), 'old\n');
+    writeFileSync(join(r, 'y.ts'), 'keep\n');
+    git(r, ['add', '.']);
+    git(r, ['commit', '-q', '-m', 'init']);
+    git(r, ['switch', '-q', '-c', 'integration/j']);
+    writeFileSync(join(r, 'other.ts'), 'unrelated\n');
+    git(r, ['add', '.']);
+    git(r, ['commit', '-q', '-m', 'integration work']);
+    return r;
+  }
+
+  /** Merge task/T960 into integration/j (#10), then run `undo`, then squash-land as #20. */
+  function land(r: string, change: () => void, undo: (merge: string) => void) {
+    git(r, ['switch', '-q', '-c', 'task/T960']);
+    change();
+    git(r, ['add', '-A']);
+    git(r, ['commit', '-q', '-m', 'T960: work']);
+    git(r, ['switch', '-q', 'integration/j']);
+    git(r, ['merge', '-q', '--no-ff', '-m', 'Merge #10', 'task/T960']);
+    const merge = git(r, ['rev-parse', 'HEAD']);
+    undo(merge);
+    const tip = git(r, ['rev-parse', 'HEAD']);
+    git(r, ['switch', '-q', 'main']);
+    git(r, ['merge', '-q', '--squash', 'integration/j']);
+    git(r, ['commit', '-q', '-m', 'integration (#20)']);
+    return {
+      merge,
+      landing: {
+        prNumber: 20,
+        headRefName: 'integration/j',
+        headRefOid: tip,
+        mergeCommitSha: git(r, ['rev-parse', 'HEAD']),
+      },
+    };
+  }
+
+  const componentView = (merge: string) => async (n: number) => ({
+    number: n,
+    title: 'T960: work',
+    body: '',
+    headRefName: 'task/T960',
+    baseRefName: 'integration/j',
+    state: 'MERGED',
+    mergeCommitSha: merge,
+  });
+
+  it('a component reverted on the integration branch is refused, though its path still exists', async () => {
+    const r = repoWith();
+    try {
+      const { merge, landing } = land(
+        r,
+        () => writeFileSync(join(r, 'x.ts'), 'new\n'),
+        (m) => git(r, ['revert', '--no-edit', '-m', '1', m]),
+      );
+      const res = await resolveComponentPr(10, landing, r, componentView(merge));
+      expect(res.ok).toBe(false);
+      expect(!res.ok && res.reason).toMatch(/None of component PR #10's changes survive/);
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+
+  it('a deletion the integration branch restored is refused', async () => {
+    const r = repoWith();
+    try {
+      const { merge, landing } = land(
+        r,
+        () => git(r, ['rm', '-q', 'y.ts']),
+        () => {
+          writeFileSync(join(r, 'y.ts'), 'keep\n');
+          git(r, ['add', 'y.ts']);
+          git(r, ['commit', '-q', '-m', 'restore y.ts']);
+        },
+      );
+      const res = await resolveComponentPr(10, landing, r, componentView(merge));
+      expect(res.ok).toBe(false);
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+
+  it('a change a later commit overwrote is not counted; the untouched one is', async () => {
+    const r = repoWith();
+    try {
+      const { merge, landing } = land(
+        r,
+        () => {
+          writeFileSync(join(r, 'x.ts'), 'new\n');
+          writeFileSync(join(r, 'z.ts'), 'added\n');
+        },
+        () => {
+          writeFileSync(join(r, 'x.ts'), 'someone else\n');
+          git(r, ['commit', '-q', '-am', 'overwrite x.ts']);
+        },
+      );
+      const res = await resolveComponentPr(10, landing, r, componentView(merge));
+      expect(res.ok && res.files).toEqual(['z.ts']);
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('linkedPrChange: the task links through the component, not the integration text', () => {
   const integration = {
     title: 'integration',

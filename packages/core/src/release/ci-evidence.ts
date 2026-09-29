@@ -37,7 +37,7 @@ import {
   isDocumentArtifact,
   linkedPrChange,
 } from '../tasks/evidence.js';
-import { isGhCliAvailable } from './github-pr.js';
+import { ghQueryTimeoutMs, isGhCliAvailable } from './github-pr.js';
 import {
   describeRequiredWorkflowsSource,
   type PrAtomResolution,
@@ -144,6 +144,8 @@ export interface ResolveCiEvidenceOptions {
   componentPrNumber?: number;
   /** Component PR reader; defaults to `gh pr view`. */
   viewComponentPr?: ViewComponentPr;
+  /** Persist nothing: no PR-result or branch-protection cache writes (the `--plan` preview). */
+  readOnly?: boolean;
 }
 
 /** Parsed `.cleo/project-context.json` of the store root, or null. */
@@ -490,7 +492,7 @@ function ghDefaultBranch(cwd: string): string | null {
     const name = execFileSync(
       'gh',
       ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'],
-      { cwd, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] },
+      { cwd, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'], timeout: ghQueryTimeoutMs() },
     ).trim();
     return /^[A-Za-z0-9._/-]+$/.test(name) ? name : null;
   } catch {
@@ -523,6 +525,7 @@ function ghApi(path: string, cwd: string): unknown {
         encoding: 'utf-8',
         stdio: ['ignore', 'pipe', 'pipe'],
         maxBuffer: 32 * 1024 * 1024,
+        timeout: ghQueryTimeoutMs(),
       }),
     );
   } catch {
@@ -658,10 +661,10 @@ export async function resolveCiEvidenceAtom(
   }
 
   const projectContext = opts.projectContext ?? null;
-  const pr = await (opts.resolvePr ?? ((n, r) => resolvePrEvidenceAtom(n, r, { projectContext })))(
-    prNumber,
-    roots,
-  );
+  const readOnly = opts.readOnly === true;
+  const pr = await (
+    opts.resolvePr ?? ((n, r) => resolvePrEvidenceAtom(n, r, { projectContext, readOnly }))
+  )(prNumber, roots);
   if (!pr.ok) return { ok: false, reason: pr.reason, codeName: pr.codeName };
   // T12634: the same task linkage `pr:` enforces — never any merged PR for any
   // task. T12671: through the component PR when the atom names one.
@@ -716,7 +719,7 @@ export async function resolveCiEvidenceAtom(
     };
   }
 
-  const required = await resolveRequiredWorkflowsDetailed(roots, { projectContext });
+  const required = await resolveRequiredWorkflowsDetailed(roots, { projectContext, readOnly });
   if (required.source.tier === 'unknown') {
     return {
       ok: false,

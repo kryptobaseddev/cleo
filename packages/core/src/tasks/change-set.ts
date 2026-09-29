@@ -40,6 +40,7 @@ import type {
   TaskChangeSet,
 } from '@cleocode/contracts';
 import { gitToplevel, resolveDeclaredEvidenceGitRoot } from '../git/work-tree.js';
+import { ghQueryTimeoutMs } from '../release/github-pr.js';
 import type { PrAtomResolution } from '../release/pr-evidence.js';
 import { enumerateWorktrees } from '../worktree/list.js';
 import { componentLandedChanges } from './component-pr.js';
@@ -249,16 +250,16 @@ function resolveOriginDefault(root: string): string | null {
 /**
  * Deadline for one read-only `gh` query (T12656 review): discovery sits on the
  * `cleo complete` path, so a hung `gh` must fail — as an unknown merge state —
- * rather than hang the completion.
+ * rather than hang the completion. One value for every evidence `gh` call.
  */
-export const GH_QUERY_TIMEOUT_MS = 30_000;
+export { GH_QUERY_TIMEOUT_MS } from '../release/github-pr.js';
 
 /**
  * Default merged-PR discovery: `gh pr list` by search text and by task branch.
  *
  * @param taskId - Task whose PRs to find.
  * @param executionRoot - Repository `gh` runs in.
- * @param opts - `timeoutMs` per query (default {@link GH_QUERY_TIMEOUT_MS}).
+ * @param opts - `timeoutMs` per query (default `ghQueryTimeoutMs()`).
  * @returns The merged PRs, or why discovery failed (a timeout included).
  * @task T12624
  */
@@ -284,7 +285,7 @@ export async function defaultListMergedPrs(
           cwd: executionRoot,
           encoding: 'utf-8',
           stdio: ['ignore', 'pipe', 'pipe'],
-          timeout: opts.timeoutMs ?? GH_QUERY_TIMEOUT_MS,
+          timeout: opts.timeoutMs ?? ghQueryTimeoutMs(),
         },
       );
       const parsed: unknown = JSON.parse(out);
@@ -332,7 +333,7 @@ function ghJson(args: readonly string[], cwd: string): unknown {
         cwd,
         encoding: 'utf-8',
         stdio: ['ignore', 'pipe', 'pipe'],
-        timeout: GH_QUERY_TIMEOUT_MS,
+        timeout: ghQueryTimeoutMs(),
       }),
     );
   } catch {

@@ -20,6 +20,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { ghQueryTimeoutMs } from '../release/github-pr.js';
 
 /** One component PR as `gh pr view` reports it. */
 export interface ComponentPrView {
@@ -112,7 +113,12 @@ export const defaultViewComponentPr: ViewComponentPr = async (prNumber, root) =>
           '--json',
           'number,title,body,headRefName,baseRefName,state,mergeCommit',
         ],
-        { cwd: root, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] },
+        {
+          cwd: root,
+          encoding: 'utf-8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+          timeout: ghQueryTimeoutMs(),
+        },
       ),
     ) as Record<string, unknown>;
   } catch {
@@ -134,8 +140,16 @@ export const defaultViewComponentPr: ViewComponentPr = async (prNumber, root) =>
 
 /**
  * The component's change as it landed: first-parent name-status of its merge
- * (or squash) commit, keeping only the files that still exist in the landing
- * merge commit.
+ * (or squash) commit, keeping only the changes the landing merge commit still
+ * carries (T12671 review HIGH) — a changed file whose blob in the landing
+ * commit equals the component's resulting blob, and a deletion whose path is
+ * absent from the landing commit. A path that merely exists is not enough: a
+ * component reverted on the integration branch lands its paths unchanged.
+ *
+ * Limitation: a REBASE-merged component's `mergeCommit` is only the last
+ * rebased commit, so earlier commits' files are not seen. That under-reports
+ * the change and fails closed (fewer surviving files, possibly a refusal);
+ * GitHub does not report the merge method needed to diff the whole range.
  *
  * @param root - Git checkout holding both commits.
  * @param componentMerge - The component PR's merge commit.
@@ -162,12 +176,18 @@ export function componentLandedChanges(
     ]) ?? '';
   const files: string[] = [];
   const deleted: string[] = [];
+  const blob = (commit: string, path: string): string | null =>
+    git(root, ['rev-parse', '--verify', '--quiet', `${commit}:${path}`]);
   for (const line of out.split('\n')) {
     const [status, ...rest] = line.split('\t');
     const path = rest.join('\t');
     if (!status || !path) continue;
-    if (status.startsWith('D')) deleted.push(path);
-    else if (git(root, ['cat-file', '-e', `${landingMerge}:${path}`]) !== null) files.push(path);
+    if (status.startsWith('D')) {
+      if (blob(landingMerge, path) === null) deleted.push(path);
+      continue;
+    }
+    const own = blob(componentMerge, path);
+    if (own !== null && own === blob(landingMerge, path)) files.push(path);
   }
   return { files: [...new Set(files)], deleted: [...new Set(deleted)] };
 }

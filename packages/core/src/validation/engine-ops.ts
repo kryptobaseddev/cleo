@@ -714,6 +714,7 @@ export async function validateGateVerify(
           const check = await validateEvidenceAtom(atom, projectRoot, taskId, siblingCommitSha, {
             ...evidenceContext,
             artifactCommitSha: atoms.find((atom) => atom.kind === 'pr')?.mergeCommitSha,
+            ...(params.preview ? { readOnly: true } : {}),
           });
           if (!check.ok) {
             return engineError(check.codeName, check.reason);

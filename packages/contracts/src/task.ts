@@ -170,6 +170,12 @@ export interface EvidenceValidationContext {
   criteria: ReadonlyArray<Pick<AcRow, 'id' | 'text' | 'updatedAt'>>;
   /** Verified PR merge whose immutable artifact bytes must be inspected. */
   artifactCommitSha?: string;
+  /**
+   * Validate without persisting anything: `pr:`/`ci:` lookups write neither
+   * the PR-result cache nor the branch-protection cache (T12671 review — the
+   * `cleo done --plan` preview must leave `.cleo/` untouched).
+   */
+  readOnly?: boolean;
 }
 
 /** Explicit criterion link to inspected artifacts and validated results in one gate receipt. */
