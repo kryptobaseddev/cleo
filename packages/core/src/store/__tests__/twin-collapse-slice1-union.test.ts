@@ -149,6 +149,97 @@ describe('union: the initial collapse never drops a twin-only row', () => {
   });
 });
 
+describe('replaced twin values: focus_state history merged, everything else archived', () => {
+  /** A session-note list like the live stores carry. */
+  const notes = (from: number, count: number, prefix: string) =>
+    Array.from({ length: count }, (_, i) => ({
+      note: `${prefix} note ${from + i}: ${'work on the store '.repeat(6)}`,
+      timestamp: new Date(Date.UTC(2026, 0, 1) + (from + i) * 3_600_000).toISOString(),
+    }));
+
+  it('kodomeet shape: a focus_state only the twin holds is kept whole', () => {
+    db()
+      .prepare('DELETE FROM main.tasks_schema_meta WHERE key = ?')
+      .run(`${TWIN_COLLAPSE_MARKER_PREFIX}schema_meta`);
+    setMeta('schema_meta', 'schemaVersion', '"live"');
+    const focus = JSON.stringify({
+      currentTask: null,
+      currentPhase: 'core',
+      sessionNotes: notes(0, 20, 'kodo'),
+    });
+    expect(focus.length).toBeGreaterThan(2_800);
+    setMeta('tasks_schema_meta', 'focus_state', focus);
+    const [receipt] = collapseTwinTables(db(), dbPath());
+    expect(receipt?.kept).toContain('focus_state');
+    expect(receipt?.dropped).toEqual([]);
+    expect(meta('tasks_schema_meta', 'focus_state')).toBe(focus);
+  });
+
+  it('cleocode shape: a 178 KB twin history merges into the live focus_state; the twin value is archived', () => {
+    db()
+      .prepare('DELETE FROM main.tasks_schema_meta WHERE key = ?')
+      .run(`${TWIN_COLLAPSE_MARKER_PREFIX}schema_meta`);
+    setMeta('schema_meta', 'schemaVersion', '"live"');
+    const history = notes(0, 1100, 'history');
+    const twinFocus = JSON.stringify({
+      currentTask: null,
+      currentPhase: 'core',
+      sessionNotes: history,
+    });
+    expect(twinFocus.length).toBeGreaterThan(170_000);
+    // The live bare value: current task, and a few notes, two of them also in the twin.
+    const liveNotes = [
+      history[1098],
+      history[1099],
+      ...notes(2000, 3, 'live'),
+      // A live note older than most of the twin history: the union must sort it in.
+      { note: 'live, written early', timestamp: '2026-01-01T05:30:00.000Z' },
+    ];
+    const bareFocus = JSON.stringify({
+      currentTask: 'T12100',
+      currentPhase: null,
+      sessionNotes: liveNotes,
+    });
+    setMeta('tasks_schema_meta', 'focus_state', twinFocus);
+    setMeta('schema_meta', 'focus_state', bareFocus);
+    // Another key both hold with different values, and no merge rule.
+    setMeta('tasks_schema_meta', 'project_meta', '{"name":"twin copy"}');
+    setMeta('schema_meta', 'project_meta', '{"name":"live"}');
+    const [receipt] = collapseTwinTables(db(), dbPath());
+    expect(receipt?.archived).toEqual(expect.arrayContaining(['focus_state', 'project_meta']));
+    const merged = JSON.parse(meta('tasks_schema_meta', 'focus_state') ?? '{}');
+    expect(merged.currentTask).toBe('T12100'); // bare's current fields win
+    expect(merged.currentPhase).toBeNull();
+    expect(merged.sessionNotes).toHaveLength(1100 + 4); // union, the 2 shared notes once
+    const stamps = merged.sessionNotes.map((n: { timestamp: string }) => n.timestamp);
+    expect([...stamps].sort()).toEqual(stamps);
+    // Every replaced twin value is kept verbatim under its archive key.
+    expect(meta('tasks_schema_meta', 'twin_collapse_archive:focus_state')).toBe(twinFocus);
+    expect(meta('tasks_schema_meta', 'twin_collapse_archive:project_meta')).toBe(
+      '{"name":"twin copy"}',
+    );
+    expect(meta('tasks_schema_meta', 'project_meta')).toBe('{"name":"live"}');
+    expect(inspectTwinCollapse(db())[0]).toMatchObject({
+      archived: expect.arrayContaining(['focus_state', 'project_meta']),
+    });
+    expect(twinCollapseDoctorCheck(projectDir)).toMatchObject({
+      status: 'warning',
+      message: expect.stringMatching(
+        /archived the twin's own values of schema_meta: .*focus_state/,
+      ),
+    });
+  });
+
+  it('an unchanged twin value (the same as the result) is not archived', () => {
+    preMigrationMeta();
+    setMeta('schema_meta', 'project_meta', '{"name":"same"}');
+    setMeta('tasks_schema_meta', 'project_meta', '{"name":"same"}');
+    const [receipt] = collapseTwinTables(db(), dbPath());
+    expect(receipt?.archived).not.toContain('project_meta');
+    expect(meta('tasks_schema_meta', 'twin_collapse_archive:project_meta')).toBeUndefined();
+  });
+});
+
 describe('pinning: the pre-collapse snapshot is never rotated', () => {
   it('the collapse snapshot is written pinned and cleo backup list shows it', () => {
     preMigrationMeta();

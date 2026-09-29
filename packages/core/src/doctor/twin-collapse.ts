@@ -188,7 +188,14 @@ export function twinCollapseDoctorCheck(projectRoot: string): TwinCollapseDoctor
   const changed = report.pairs.filter((p) => p.state === 'bare-changed');
   const conflicted = report.pairs.filter((p) => p.conflicts.length > 0);
   const unpinned = report.pairs.filter((p) => p.snapshotPinned === false);
-  if (pending.length > 0 || changed.length > 0 || conflicted.length > 0 || unpinned.length > 0) {
+  const archived = report.pairs.filter((p) => p.archived.length > 0);
+  if (
+    pending.length > 0 ||
+    changed.length > 0 ||
+    conflicted.length > 0 ||
+    unpinned.length > 0 ||
+    archived.length > 0
+  ) {
     return {
       check: 'twin_collapse',
       status: 'warning',
@@ -201,6 +208,9 @@ export function twinCollapseDoctorCheck(projectRoot: string): TwinCollapseDoctor
           : '',
         conflicted.length > 0
           ? `both builds changed ${conflicted.map((p) => `${p.table}: ${p.conflicts.join(', ')}`).join('; ')} (last merge ${conflicted[0]?.conflictsAt}); the twin value was kept`
+          : '',
+        archived.length > 0
+          ? `the initial collapse archived the twin's own values of ${archived.map((p) => `${p.table}: ${p.archived.join(', ')}`).join('; ')} under twin_collapse_archive:<key> (the bare value won; nothing was lost)`
           : '',
         unpinned.length > 0
           ? `the pre-collapse snapshot of ${unpinned.map((p) => `${p.table} (${p.snapshotPath})`).join(', ')} is not pinned yet; the next open pins it so rotation never deletes it`

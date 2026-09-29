@@ -48,8 +48,14 @@
  *   every bare key is carried under the rules (the bare value wins every key
  *   both hold). A key only the twin holds is KEPT, never dropped (the union
  *   rule, T12535 audit 2026-09-29): it is listed as `kept` in the receipt and
- *   marker. The pre-collapse snapshot holds the store before any change and is
- *   pinned (never rotated).
+ *   marker. When a key's twin value would be replaced by a different result,
+ *   the twin value is copied to `twin_collapse_archive:<key>` in
+ *   `tasks_schema_meta` (listed as `archived`; doctor shows it), so nothing
+ *   unique is left only in the snapshot. `focus_state` merges instead: the
+ *   bare value's current fields win and `sessionNotes` is the union of both,
+ *   deduplicated by `(timestamp, note)` ({@link mergeFocusState}); its twin
+ *   value is archived as well. The pre-collapse snapshot holds the store
+ *   before any change and is pinned (never rotated).
  * - **Incremental re-merge**, per bare key whose hash changed since the last
  *   merge:
  *   - twin unchanged since the last merge → the bare value (counter fields
@@ -201,6 +207,8 @@ export interface TwinCollapseReceipt {
   readonly conflicts: readonly string[];
   /** Twin-only rows the initial collapse carried over (keys, or `sticky_id\ttag`). */
   readonly kept: readonly string[];
+  /** Keys whose replaced twin value was copied to `twin_collapse_archive:<key>`. */
+  readonly archived: readonly string[];
 }
 
 /** Per-key (or per sticky id) hashes of both sides as of the last merge. */
@@ -224,6 +232,8 @@ interface CollapseState {
   readonly conflictsAt: string | null;
   /** Twin-only rows the initial collapse carried over (union rule). */
   readonly kept: readonly string[];
+  /** Keys whose replaced twin value the initial collapse archived. */
+  readonly archived: readonly string[];
 }
 
 /** Row-level changes a plan makes to the twin. */
@@ -237,6 +247,8 @@ interface Plan {
   skipped: number;
   /** Twin-only rows the initial collapse carried over (the union rule). */
   readonly kept: string[];
+  /** Keys whose replaced twin value was copied to `twin_collapse_archive:<key>`. */
+  readonly archived: string[];
 }
 
 /** One bare/twin pair. */
@@ -312,6 +324,7 @@ function readState(db: DatabaseSync, pair: TwinPair): CollapseState | undefined 
     conflicts: Array.isArray(parsed.conflicts) ? parsed.conflicts : [],
     conflictsAt: typeof parsed.conflictsAt === 'string' ? parsed.conflictsAt : null,
     kept: Array.isArray(parsed.kept) ? parsed.kept : [],
+    archived: Array.isArray(parsed.archived) ? parsed.archived : [],
   };
 }
 
@@ -440,6 +453,52 @@ function kvRows(db: DatabaseSync, table: string, schema = 'main'): Map<string, s
   return new Map(rows.map((r) => [r.key, r.value]));
 }
 
+/** Prefix of the key holding a twin value the initial collapse replaced. */
+export const TWIN_COLLAPSE_ARCHIVE_PREFIX = 'twin_collapse_archive:';
+
+/**
+ * `focus_state` when both tables hold it: the bare value's current fields
+ * win, and the session-note history is the union of both
+ * (`sessionNotes`, deduplicated by `(timestamp, note)`, sorted by timestamp).
+ * The twin may hold months of notes the bare copy never saw (178 KB on the
+ * cleocode Linux store). A value that is not a JSON object stays the bare one
+ * (the replaced twin value is archived either way).
+ *
+ * @param bare - The bare value.
+ * @param twin - The twin value.
+ * @returns The merged value.
+ * @task T12535
+ */
+export function mergeFocusState(bare: string, twin: string): string {
+  const b = parseJson(bare);
+  const t = parseJson(twin);
+  if (b === null || typeof b !== 'object' || Array.isArray(b)) return bare;
+  const notesOf = (v: unknown): unknown[] =>
+    v !== null &&
+    typeof v === 'object' &&
+    Array.isArray((v as Record<string, unknown>).sessionNotes)
+      ? ((v as Record<string, unknown>).sessionNotes as unknown[])
+      : [];
+  const bareNotes = notesOf(b);
+  const twinNotes = notesOf(t);
+  if (twinNotes.length === 0) return bare;
+  const keyOf = (n: unknown): string => {
+    const r = (n ?? {}) as Record<string, unknown>;
+    return `${String(r.timestamp ?? '')}\u0000${String(r.note ?? JSON.stringify(n))}`;
+  };
+  const seen = new Set<string>();
+  const union: unknown[] = [];
+  for (const n of [...twinNotes, ...bareNotes]) {
+    const k = keyOf(n);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    union.push(n);
+  }
+  const ts = (n: unknown): string => String(((n ?? {}) as Record<string, unknown>).timestamp ?? '');
+  union.sort((x, y) => ts(x).localeCompare(ts(y)));
+  return JSON.stringify({ ...(b as Record<string, unknown>), sessionNotes: union });
+}
+
 /** Carried rows of a `schema_meta` table. */
 function carriedRows(db: DatabaseSync, table: string): Map<string, string> {
   const all = kvRows(db, table);
@@ -457,6 +516,7 @@ const emptyPlan = (): Plan => ({
   conflicts: [],
   skipped: 0,
   kept: [],
+  archived: [],
 });
 
 function planSchemaMeta(db: DatabaseSync, state: CollapseState | undefined): Plan {
@@ -468,7 +528,20 @@ function planSchemaMeta(db: DatabaseSync, state: CollapseState | undefined): Pla
   };
   if (state === undefined) {
     if (bare.size === 0) return plan;
-    for (const [key, value] of bare) want(key, mergeSchemaMetaValue(key, value, twin.get(key)));
+    for (const [key, value] of [...bare].sort(([a], [b]) => a.localeCompare(b))) {
+      const current = twin.get(key);
+      const merged =
+        key === 'focus_state' && current !== undefined
+          ? mergeFocusState(value, current)
+          : mergeSchemaMetaValue(key, value, current);
+      want(key, merged);
+      // The twin's own value would be replaced: keep a copy of it, so nothing
+      // unique is left only in the snapshot.
+      if (current !== undefined && merged !== null && merged !== current) {
+        plan.set.set(`${TWIN_COLLAPSE_ARCHIVE_PREFIX}${key}`, current);
+        plan.archived.push(key);
+      }
+    }
     // The union rule: a key only the twin holds is carried over, never
     // dropped (listed as kept). The bare value wins every key both hold.
     for (const key of [...twin.keys()].sort()) if (!bare.has(key)) plan.kept.push(key);
@@ -903,6 +976,7 @@ function receipt(
     dropped: [],
     conflicts: [],
     kept: [],
+    archived: [],
   };
 }
 
@@ -934,6 +1008,7 @@ function collapsePair(
       hashes: { bare: pair.bareHashes(db), twin: pair.twinHashes(db) },
       dropped: state === undefined ? plan.dropped : state.dropped,
       kept: state === undefined ? plan.kept.slice(0, MAX_CONFLICTS) : state.kept,
+      archived: state === undefined ? plan.archived : state.archived,
       conflicts: plan.conflicts.slice(0, MAX_CONFLICTS),
       conflictsAt: plan.conflicts.length > 0 ? now : null,
     };
@@ -949,6 +1024,7 @@ function collapsePair(
       dropped: plan.dropped,
       conflicts: plan.conflicts,
       kept: plan.kept,
+      archived: plan.archived,
     };
     if (counts.inserted + counts.replaced + counts.deleted > 0 || plan.conflicts.length > 0)
       log.warn(done, `carried bare ${pair.table} into ${pair.twin} (${done.status}, T12535)`);
@@ -1132,6 +1208,8 @@ export interface TwinCollapseStatus {
   readonly conflictsAt: string | null;
   /** Twin-only rows the initial collapse carried over (union rule). */
   readonly kept: readonly string[];
+  /** Keys whose replaced twin value is archived under `twin_collapse_archive:<key>`. */
+  readonly archived: readonly string[];
   /**
    * Whether the collapse snapshot is pinned (never rotated); `null` when there
    * is no snapshot on disk.
@@ -1167,6 +1245,7 @@ export function inspectTwinCollapse(db: DatabaseSync): TwinCollapseStatus[] {
       conflicts: [],
       conflictsAt: null,
       kept: [],
+      archived: [],
       snapshotPinned: null,
       failure: null,
     };
@@ -1208,6 +1287,7 @@ export function inspectTwinCollapse(db: DatabaseSync): TwinCollapseStatus[] {
       conflicts: state?.conflicts ?? [],
       conflictsAt: state?.conflictsAt ?? null,
       kept: state?.kept ?? [],
+      archived: state?.archived ?? [],
       snapshotPinned: snapshotPinnedOf(state?.snapshot ?? null),
       failure,
     };
