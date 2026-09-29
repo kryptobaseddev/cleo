@@ -347,6 +347,13 @@ export interface BackupEntry {
    * @task T10315
    */
   legacy?: boolean;
+  /**
+   * `true` when the backup is pinned: rotation never deletes it (T12535, the
+   * snapshot a twin collapse took before changing the store).
+   */
+  pinned?: boolean;
+  /** Why it is pinned. */
+  pinnedReason?: string;
 }
 
 /**
@@ -380,6 +387,10 @@ function readMetaSidecarsFromDir(
           };
           if (meta.note !== undefined) entry.note = meta.note;
           if (legacy) entry.legacy = true;
+          if (meta.pinned === true) {
+            entry.pinned = true;
+            if (meta.pinnedReason !== undefined) entry.pinnedReason = meta.pinnedReason;
+          }
           out.push(entry);
         }
       } catch {
