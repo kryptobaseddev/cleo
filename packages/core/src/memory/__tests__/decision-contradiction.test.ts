@@ -581,3 +581,48 @@ describe('advisory store path — the site fires without validateWithLlm (T12715
     expect(evaluateDialectic).not.toHaveBeenCalled();
   });
 });
+
+describe('advisory store path — a re-store never checks against itself (T12715)', () => {
+  beforeEach(() => {
+    saved['CLEO_DIR'] = process.env['CLEO_DIR'];
+    process.env['CLEO_DIR'] = join(projectDir, '.cleo');
+    _resetDecideDefaultsForTest();
+  });
+  afterEach(() => {
+    closeBrainDb();
+  });
+
+  it('re-storing the same ADR text makes no second billed call', async () => {
+    await saveDecideCredentials({ baseUrl, apiKey: 'sk-test-SECRET-1234', model: 'stub-model' });
+    await storeDecision(projectDir, {
+      type: 'architecture',
+      decision: EXISTING[0]!.decision,
+      rationale: EXISTING[0]!.rationale,
+      confidence: 'high',
+    });
+    await storeDecision(projectDir, { ...NEW, confidence: 'high' });
+    expect(received).toHaveLength(1);
+
+    // Same text again → the duplicate-update path; the advisory check is skipped.
+    await storeDecision(projectDir, { ...NEW, confidence: 'high' });
+    expect(received).toHaveLength(1);
+  });
+
+  it('on: the stored copy of the same decision is never reported as a contradiction', async () => {
+    // Seed the decision itself under another type and spacing (no adrPath, so
+    // no advisory call for the seed): only the self-exclusion can drop it.
+    await storeDecision(projectDir, {
+      type: 'technical',
+      decision: `  ${NEW.decision.toUpperCase()}  `,
+      rationale: NEW.rationale,
+      confidence: 'high',
+    });
+    const audit = memoryAudit();
+    const reported = await adviseDecisionConflicts(projectDir, NEW, {
+      mode: 'on',
+      decide: stubWiring(audit),
+    });
+    expect(reported).toEqual([]);
+    expect(received).toHaveLength(0);
+  });
+});

@@ -491,6 +491,14 @@ function isDecisionIdCollision(err: unknown): boolean {
 }
 
 /**
+ * Normalize decision text for self-identity comparison: trimmed, lower-cased,
+ * internal whitespace collapsed.
+ */
+function normalizeDecisionText(text: string): string {
+  return text.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/**
  * Advisory contradiction check for an ADR write without `validateWithLlm`
  * (T12715): runs the `memory.decision-contradiction` System One site with the
  * generative tier off. In `shadow` (the default once a provider is
@@ -513,7 +521,26 @@ export async function adviseDecisionConflicts(
 ): Promise<string[]> {
   try {
     const accessor = await getBrainAccessor(projectRoot);
-    const existing = await accessor.findDecisions({});
+    const all = await accessor.findDecisions({});
+    // A re-store of identical text takes the duplicate-update path in
+    // storeDecision (same type, case-insensitive text match): there is no new
+    // decision to check, so skip the billed call entirely.
+    const lowered = params.decision.toLowerCase();
+    if (
+      all.some(
+        (d) => (!params.type || d.type === params.type) && d.decision.toLowerCase() === lowered,
+      )
+    ) {
+      return [];
+    }
+    // Never compare a decision against its own stored copy (Jaccard 1.0 makes
+    // it the top candidate, and `on` mode would report it as contradicting
+    // itself).
+    const self = normalizeDecisionText(params.decision);
+    const existing = all.filter((d) => normalizeDecisionText(d.decision) !== self);
+    if (existing.length === 0) {
+      return [];
+    }
     const result = await validateDecisionConflicts(
       {
         decision: params.decision,

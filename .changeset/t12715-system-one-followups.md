@@ -48,5 +48,10 @@ One site with the generative tier forced off, within the site's 300 ms
 budget. In `shadow`, the default once a provider is configured, it only
 audits. In `on`, a confident contradiction is logged as a warning. With no
 provider configured it is `off` and makes no network call. It never throws
-and never rejects the write. The generative (T1828) check and rejection below
+and never rejects the write. Owner decision: this shadow check runs by
+default on every ADR write once System One is configured, so each such write
+can cost one billed System One call. A re-store of identical text (the
+duplicate-update path) skips the check entirely, and a stored decision with
+the same normalized text is never a candidate, so a decision is never
+reported as contradicting itself. The generative (T1828) check and rejection below
 the confidence threshold still run only with an explicit `validateWithLlm`.
