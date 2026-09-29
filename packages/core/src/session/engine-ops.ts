@@ -864,7 +864,7 @@ export async function sessionEnd(
 
     if (!activeSession) {
       return engineError('E_SESSION_NOT_FOUND', 'No active session to end', {
-        fix: 'Start a session first with: session start --scope <scope> --name <name>',
+        fix: 'Start a session first with: cleo session start --scope global --name "<name>"',
       });
     }
     const sessionId = activeSession.id;

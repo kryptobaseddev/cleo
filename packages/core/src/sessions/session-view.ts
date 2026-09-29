@@ -36,9 +36,16 @@ export class SessionView {
     return this._sessions.length;
   }
 
-  /** Find the currently active session (if any). */
+  /**
+   * First `active` session in THIS collection — a scan over the rows the
+   * caller loaded, NOT the caller's own session (T12500). With several agents
+   * active it names an arbitrary one of them.
+   *
+   * @deprecated For "my session" use `resolveBoundSession` (mutations) or
+   *   `resolveSessionForRead` (reads, labels an unbound guess).
+   */
   findActive(): Session | undefined {
-    return this._sessions.find((s) => s.status === 'active');
+    return this._sessions.find((s) => s.status === 'active'); // get-active-session-allowed: collection scan over caller-supplied rows, not identity (T12500)
   }
 
   /** Find a session by ID. */

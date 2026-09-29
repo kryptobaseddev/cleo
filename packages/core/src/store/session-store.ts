@@ -954,7 +954,7 @@ export async function hasActiveSession(cwd?: string, nowMs: number = Date.now())
 
 /** How to bind a caller to a session — shared by every E_SESSION_UNBOUND (T12500). */
 export const SESSION_UNBOUND_FIX =
-  "Bind this terminal to a session: run 'cleo session start --scope <scope> --name <name>' " +
+  'Bind this terminal to a session: run \'cleo session start --scope global --name "<name>"\' ' +
   "(or 'cleo session resume <id>' for an existing one), or set CLEO_SESSION_ID=<id>. " +
   "Read-only commands can name one explicitly (e.g. 'cleo session show <id>').";
 
