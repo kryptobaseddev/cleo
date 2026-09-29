@@ -5,7 +5,7 @@
  *
  *   cleo skills list            — list installed skills
  *   cleo skills search <query>  — search for skills
- *   cleo skills validate <name> — validate skill against protocol
+ *   cleo skills validate <name|path> — validate a SKILL.md (exits non-zero on errors)
  *   cleo skills info <name>     — show skill details
  *   cleo skills install <name>  — install skill to agent directory
  *   cleo skills uninstall <name>— uninstall a skill
@@ -135,13 +135,17 @@ const findCommand = defineCommand({
   },
 });
 
-/** cleo skills validate — validate skill against protocol */
+/** cleo skills validate — validate a SKILL.md; E_VALIDATION on any error */
 const validateCommand = defineCommand({
-  meta: { name: 'validate', description: 'Validate skill against protocol' },
+  meta: {
+    name: 'validate',
+    description:
+      'Validate a SKILL.md (frontmatter, name, description); exits non-zero with findings',
+  },
   args: {
     'skill-name': {
       type: 'positional',
-      description: 'Skill name to validate',
+      description: 'Skill name, skill directory, or SKILL.md path',
       required: true,
     },
   },
