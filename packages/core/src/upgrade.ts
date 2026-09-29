@@ -22,6 +22,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { CleoError } from './errors.js';
 import { ensureGitHooks } from './hooks.js';
 import {
   initAgentDefinition,
@@ -203,6 +204,34 @@ export async function runUpgrade(
             fix: 'Wait for the other migration to complete, then retry.',
           });
           errors.push('Cannot acquire migration lock: Another migration is currently in progress');
+          return { success: false, upToDate: false, dryRun: isDryRun, actions, applied: 0, errors };
+        }
+
+        // T12708: the storage migration renames a new database over the store
+        // (and restores it on failure) — an open-time rewrite. A
+        // worktree-resident store is refused; a run from a worktree against
+        // the owning project's store proceeds and is audited first.
+        const { assertOwnerStoreRewriteConfirmed, invocationDirectory } = await import(
+          './store/worktree-isolation-guard.js'
+        );
+        let rewriteRefusal: CleoError | null = null;
+        try {
+          assertOwnerStoreRewriteConfirmed('storage migration', dbPath, {
+            cwd: invocationDirectory(options.cwd),
+            openTime: true,
+          });
+        } catch (err) {
+          if (!(err instanceof CleoError)) throw err;
+          rewriteRefusal = err;
+        }
+        if (rewriteRefusal !== null) {
+          actions.push({
+            action: 'storage_migration',
+            status: 'error',
+            details: rewriteRefusal.message,
+            fix: rewriteRefusal.fix ?? undefined,
+          });
+          errors.push(rewriteRefusal.message);
           return { success: false, upToDate: false, dryRun: isDryRun, actions, applied: 0, errors };
         }
 

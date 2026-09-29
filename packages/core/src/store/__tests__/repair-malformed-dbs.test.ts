@@ -61,7 +61,7 @@ describe('repairMalformedDbs (T11829)', () => {
   it('skips a healthy DB (quick_check passes) without quarantining', () => {
     writeHealthyTasksDb(join(cleoDir, 'tasks.db'), 3);
 
-    const result = repairMalformedDbs({ projectRoot, roles: ['tasks'], logger });
+    const result = repairMalformedDbs({ projectRoot, cwd: projectRoot, roles: ['tasks'], logger });
 
     expect(result.malformedCount).toBe(0);
     expect(result.repairedCount).toBe(0);
@@ -71,7 +71,7 @@ describe('repairMalformedDbs (T11829)', () => {
   });
 
   it('reports an absent DB as skipped/healthy (nothing to repair)', () => {
-    const result = repairMalformedDbs({ projectRoot, roles: ['tasks'], logger });
+    const result = repairMalformedDbs({ projectRoot, cwd: projectRoot, roles: ['tasks'], logger });
     const tasks = result.roles.find((r) => r.role === 'tasks');
     expect(tasks?.present).toBe(false);
     expect(tasks?.action).toBe('skipped');
@@ -88,7 +88,7 @@ describe('repairMalformedDbs (T11829)', () => {
     mkdirSync(vacuumDir, { recursive: true });
     writeHealthyTasksDb(join(vacuumDir, 'tasks-20260101-120000.db'), 5);
 
-    const result = repairMalformedDbs({ projectRoot, roles: ['tasks'], logger });
+    const result = repairMalformedDbs({ projectRoot, cwd: projectRoot, roles: ['tasks'], logger });
 
     expect(result.malformedCount).toBe(1);
     expect(result.repairedCount).toBe(1);
@@ -115,7 +115,13 @@ describe('repairMalformedDbs (T11829)', () => {
     mkdirSync(vacuumDir, { recursive: true });
     writeHealthyTasksDb(join(vacuumDir, 'tasks-20260101-120000.db'), 7);
 
-    const result = repairMalformedDbs({ projectRoot, roles: ['tasks'], dryRun: true, logger });
+    const result = repairMalformedDbs({
+      projectRoot,
+      cwd: projectRoot,
+      roles: ['tasks'],
+      dryRun: true,
+      logger,
+    });
 
     expect(result.dryRun).toBe(true);
     expect(result.malformedCount).toBe(1);
@@ -140,7 +146,7 @@ describe('repairMalformedDbs (T11829)', () => {
   it('reports failed when a malformed DB has no valid snapshot to restore from', () => {
     writeFileSync(join(cleoDir, 'tasks.db'), Buffer.from('corrupt, no snapshots exist'));
 
-    const result = repairMalformedDbs({ projectRoot, roles: ['tasks'], logger });
+    const result = repairMalformedDbs({ projectRoot, cwd: projectRoot, roles: ['tasks'], logger });
 
     expect(result.malformedCount).toBe(1);
     expect(result.repairedCount).toBe(0);
