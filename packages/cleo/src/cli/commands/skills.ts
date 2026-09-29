@@ -26,6 +26,8 @@ import type { AdoptedSkillRowData, DoctorAdoptCliAdapters } from '@cleocode/core
 import {
   AgentsSkillsRealDirError,
   skills as coreSkills,
+  restoreBundledSkillQuarantine,
+  runBundledSkillPrune,
   runDoctorAdopt,
   runDoctorBridge,
 } from '@cleocode/core';
@@ -559,6 +561,81 @@ const doctorAdoptOrphansCommand = defineCommand({
 });
 
 /**
+ * `cleo skills doctor prune [--dry-run]` — quarantine bundled skills CLEO
+ * no longer installs, where its install ledger proves ownership (T12678).
+ */
+const doctorPruneCommand = defineCommand({
+  meta: {
+    name: 'prune',
+    description:
+      'Quarantine bundled skills CLEO no longer installs (internal/retired), only where its install ledger proves ownership',
+  },
+  args: {
+    'dry-run': {
+      type: 'boolean',
+      description: 'List what would be quarantined or kept; move nothing',
+    },
+    json: { type: 'boolean', description: 'Output as JSON (default)' },
+    human: { type: 'boolean', description: 'Output in human-readable format' },
+  },
+  async run({ args }) {
+    try {
+      const receipt = await runBundledSkillPrune({ dryRun: args['dry-run'] === true });
+      if (!receipt) {
+        cliError('bundled @cleocode/skills not found', 'E_NOT_FOUND', undefined, {
+          operation: 'skills.doctor.prune',
+        });
+        process.exit(4);
+      }
+      cliOutput(receipt, { command: 'skills doctor prune', operation: 'skills.doctor.prune' });
+    } catch (error) {
+      cliError(
+        error instanceof Error ? error.message : String(error),
+        'E_INTERNAL_ERROR',
+        undefined,
+        {
+          operation: 'skills.doctor.prune',
+        },
+      );
+      process.exit(1);
+    }
+  },
+});
+
+/**
+ * `cleo skills doctor restore [id]` — list quarantines, or put one back
+ * (files, links, CAAMP lock entries, skills.db state, ledger) (T12678).
+ */
+const doctorRestoreCommand = defineCommand({
+  meta: {
+    name: 'restore',
+    description: 'List skill quarantines, or restore one by id (reverses cleo skills doctor prune)',
+  },
+  args: {
+    id: { type: 'positional', required: false, description: 'Quarantine id (omit to list)' },
+    json: { type: 'boolean', description: 'Output as JSON (default)' },
+    human: { type: 'boolean', description: 'Output in human-readable format' },
+  },
+  async run({ args }) {
+    try {
+      const id = typeof args.id === 'string' && args.id !== '' ? args.id : undefined;
+      const result = await restoreBundledSkillQuarantine(id);
+      cliOutput(result, { command: 'skills doctor restore', operation: 'skills.doctor.restore' });
+    } catch (error) {
+      cliError(
+        error instanceof Error ? error.message : String(error),
+        'E_INTERNAL_ERROR',
+        undefined,
+        {
+          operation: 'skills.doctor.restore',
+        },
+      );
+      process.exit(1);
+    }
+  },
+});
+
+/**
  * `cleo skills stats` — Sphere B telemetry rollup (T9690).
  *
  * Surfaces the typed `SkillsStore` adapter behind a single command. Flags:
@@ -806,12 +883,14 @@ const doctorDiagnoseCommand = defineCommand({
 const doctorCommand = defineCommand({
   meta: {
     name: 'doctor',
-    description: 'Skill-store health checks (diagnose, bridge, adopt-orphans)',
+    description: 'Skill-store health checks (diagnose, bridge, adopt-orphans, prune, restore)',
   },
   subCommands: {
     diagnose: doctorDiagnoseCommand,
     bridge: doctorBridgeCommand,
     'adopt-orphans': doctorAdoptOrphansCommand,
+    prune: doctorPruneCommand,
+    restore: doctorRestoreCommand,
   },
   async run({ cmd, rawArgs }) {
     // Default to diagnose when no subcommand is given.
