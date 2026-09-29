@@ -213,7 +213,7 @@ This frontmatter is the metadata SSoT: gate 29 fails when `packages/skills/skill
 
 PR-gated pipeline. **NO direct pushes to `main`.** All PRs target `main` through GitHub Merge Queue.
 
-> Deliberate exception (T12152): branch protection sets `enforce_admins: false`, so a repo admin CAN merge without `CI` — the owner's intended escape hatch, not a vulnerability or evidence the pipeline is broken. Force-pushes and deletions stay blocked; `required_status_checks.strict: true`.
+> Deliberate exception (T12152): branch protection sets `enforce_admins: false`, so a repo admin CAN merge without `CI` — the owner's intended escape hatch, not a vulnerability or evidence the pipeline is broken. Force-pushes and deletions stay blocked; `required_status_checks.strict: false` (owner decision 2026-09-29): a PR merges once its own `CI` is green without re-running after every other merge, and main-push CI catches any break from combining PRs.
 
 **Verbs:** `plan` → `open` → `reconcile` (or `rollback`). The legacy `start`/`verify`/`publish` verbs were removed in T9540; the `ship` shim was deleted in T10103.
 
@@ -238,7 +238,7 @@ cleo release reconcile v2026.MM.N                # backfills provenance tables
 
 ```bash
 gh api -X PUT repos/:owner/:repo/branches/main/protection \
-  -f required_status_checks[strict]=true \
+  -f required_status_checks[strict]=false \
   -f required_status_checks[contexts][]=CI \
   -f required_status_checks[contexts][]="Lockfile Check" \
   -f required_status_checks[contexts][]="Contracts Dep Lint" \
