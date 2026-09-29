@@ -156,3 +156,24 @@ describe('finding 1: projectHash is portable only for an identity this build min
     expect(info.projectHash).toBe(computePortableProjectHash(info.projectId));
   });
 });
+
+describe('finding 2: a conflict with label drift plans exactly what it applies', () => {
+  it('dry-run and apply both re-key and then sync the label', async () => {
+    const { resolveProjectIdentity } = await import('../doctor/project-identity.js');
+    const { registerProjectOnEncounter } = await import('../paths.js');
+    const OLD = 'dddddddddddd';
+    // The label differs from both the declared and the cached name.
+    const root = fixture('drift-conflict', { manifest: ID, legacy: ID, info: OLD });
+    await registerProjectOnEncounter(root, OLD);
+    const { db, projectRegistry } = await registryDb();
+    db.update(projectRegistry).set({ name: 'third-label' }).run();
+
+    const plan = await resolveProjectIdentity(root, { dryRun: true, cleoHome: home });
+    const applied = await resolveProjectIdentity(root, { cleoHome: home });
+    expect(plan.steps.map((s) => s.action)).toContain('sync-registry-name');
+    expect(applied.steps.map((s) => s.action)).toEqual(plan.steps.map((s) => s.action));
+    expect(db.select().from(projectRegistry).all()).toEqual([
+      expect.objectContaining({ projectId: ID, name: 'drift-conflict-declared' }),
+    ]);
+  });
+});

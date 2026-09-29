@@ -698,10 +698,17 @@ export async function resolveProjectIdentity(
   const writesManifest = resolution.steps.some(
     (step) => step.action === 'write-project-json' || step.action === 'write-tracked-id',
   );
+  // A dry-run conflict has not re-keyed yet: its row is still keyed by the
+  // cached id, while the apply compares after the re-key. Look the row up by
+  // the id it holds NOW, so both see the same row (review finding 2).
+  const rekeyPending =
+    options.dryRun === true &&
+    resolution.steps.some((step) => step.action === 'rekey-registry-row');
   const drift = await inspectProjectNameDrift(
     projectRoot,
     options.cleoHome,
     writesManifest ? migrationName(projectRoot, readInfo(projectRoot)) : undefined,
+    rekeyPending ? (resolution.before.localId ?? undefined) : undefined,
   );
   if (drift.state !== 'drift' || drift.projectId === null || drift.declaredName === null)
     return resolution;
@@ -1011,6 +1018,8 @@ export interface ProjectNameDrift {
  * @param cleoHome - Global CLEO home whose registry is read.
  * @param plannedName - The name `project.json` will hold once a planned
  *   migration writes it (used by `--resolve` so its dry-run matches the apply).
+ * @param rowId - The id the registry row is keyed by right now, when it
+ *   differs from the declared id (a conflict whose re-key is only planned).
  * @returns The drift report; an unreadable registry is `unavailable`, never `ok`.
  *
  * @example
@@ -1024,6 +1033,7 @@ export async function inspectProjectNameDrift(
   projectRoot: string,
   cleoHome?: string,
   plannedName?: string,
+  rowId?: string,
 ): Promise<ProjectNameDrift> {
   const declared = readDeclaredProjectIdentity(projectRoot);
   const declaredName = declared?.name ?? plannedName ?? null;
@@ -1055,7 +1065,7 @@ export async function inspectProjectNameDrift(
     const row = db
       .select({ name: projectRegistry.name })
       .from(projectRegistry)
-      .where(eq(projectRegistry.projectId, declared.projectId))
+      .where(eq(projectRegistry.projectId, rowId ?? declared.projectId))
       .get();
     const base = { projectId: declared.projectId, declaredName };
     if (!row) {
@@ -1081,7 +1091,7 @@ export async function inspectProjectNameDrift(
       .from(projectRegistry)
       .where(eq(projectRegistry.name, declaredName))
       .all()
-      .find((other) => other.projectId !== declared.projectId);
+      .find((other) => other.projectId !== (rowId ?? declared.projectId));
     if (holder) {
       return {
         ...base,
