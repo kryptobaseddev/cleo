@@ -181,6 +181,7 @@ describe('portable bundle v2 (T12318)', () => {
     const target = path.join(tmp, 'dest-root', 'moved');
     const imported = await importPortableBundle({
       bundlePath: bundle,
+      cwd: '/',
       target,
       cleoHome: path.join(tmp, 'home-dest'),
       configHome: path.join(tmp, 'config-dest'),
@@ -310,6 +311,7 @@ describe('portable bundle v2 (T12318)', () => {
     let registerCalls = 0;
     const imported = await importPortableBundle({
       bundlePath: bundle,
+      cwd: '/',
       target: path.join(tmp, 'legacy-dest'),
       cleoHome: path.join(tmp, 'home-dest'),
       registerProject: async () => {
@@ -353,6 +355,7 @@ describe('portable bundle v2 (T12318)', () => {
     });
     const err = await importPortableBundle({
       bundlePath: bundle,
+      cwd: '/',
       target: projectRoot,
       cleoHome: path.join(tmp, 'home-dest'),
     }).catch((e: Error) => e);
@@ -381,6 +384,7 @@ describe('portable bundle v2 (T12318)', () => {
     const destHome = path.join(tmp, 'home-dest');
     const imported = await importPortableBundle({
       bundlePath: bundle,
+      cwd: '/',
       maps: [{ from: path.join(tmp, 'src-root'), to: newPrefix }],
       cleoHome: destHome,
       configHome: path.join(tmp, 'config-dest'),
@@ -424,6 +428,7 @@ describe('portable bundle v2 (T12318)', () => {
     expect(exported.secretsIncluded).toBe(true);
     const wrong = await importPortableBundle({
       bundlePath: bundle,
+      cwd: '/',
       passphrase: 'wrong',
       cleoHome: path.join(tmp, 'home-dest'),
     }).catch((e: Error) => e);
@@ -432,6 +437,7 @@ describe('portable bundle v2 (T12318)', () => {
 
     const ok = await importPortableBundle({
       bundlePath: bundle,
+      cwd: '/',
       passphrase: 'correct horse',
       cleoHome: path.join(tmp, 'home-dest'),
       configHome: path.join(tmp, 'config-dest'),
@@ -491,6 +497,7 @@ describe('portable bundle v2 (T12318)', () => {
     const tampered = await repack('tampered.cleobundle.tar.gz');
     const err = await importPortableBundle({
       bundlePath: tampered,
+      cwd: '/',
       target: path.join(tmp, 'dest-a'),
       cleoHome: path.join(tmp, 'home-dest'),
     }).catch((e: Error) => e);
@@ -502,6 +509,7 @@ describe('portable bundle v2 (T12318)', () => {
     const rehashed = await repack('rehashed.cleobundle.tar.gz');
     const result = await importPortableBundle({
       bundlePath: rehashed,
+      cwd: '/',
       target: path.join(tmp, 'dest-b'),
       cleoHome: path.join(tmp, 'home-dest'),
     });

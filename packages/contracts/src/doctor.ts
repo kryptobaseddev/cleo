@@ -880,6 +880,15 @@ export interface DbSubstrateSurveyOptions {
    * `false` → leave the corrupt DB in place; only report it.
    */
   autoQuarantine?: boolean;
+  /**
+   * Directory the survey was invoked from (T12708). Quarantine moves a
+   * project's live store; from a linked worktree of that project it needs
+   * {@link DbSubstrateSurveyOptions.confirmOwnerStore}, and it never moves a
+   * store inside a worktree. Defaults to the process directory.
+   */
+  cwd?: string;
+  /** Confirm quarantining the owning project's LIVE store from a worktree (T12708). */
+  confirmOwnerStore?: boolean;
 }
 
 /**

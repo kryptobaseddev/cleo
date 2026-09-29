@@ -63,6 +63,10 @@ export interface RepairMalformedDbsOptions {
   dryRun?: boolean;
   /** Pino-shaped logger for recovery announcements. */
   logger: RecoveryLogger;
+  /** Directory the repair was invoked from (T12708); supplied by the CLI layer. */
+  cwd: string;
+  /** Confirm overwriting the owning project's LIVE store from a worktree (T12708). */
+  confirmOwnerStore?: boolean;
 }
 
 /**
@@ -120,6 +124,7 @@ function repairOneRole(
         role,
         projectRoot: opts.projectRoot,
         logger: opts.logger,
+        cwd: opts.cwd,
         dryRun: true,
       });
       return {
@@ -156,6 +161,8 @@ function repairOneRole(
       role,
       projectRoot: opts.projectRoot,
       logger: opts.logger,
+      cwd: opts.cwd,
+      confirmOwnerStore: opts.confirmOwnerStore,
       dryRun: false,
     });
     return {
