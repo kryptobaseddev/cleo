@@ -22,6 +22,7 @@ import { type ContextInjectionData, injectContext } from '../sessions/context-in
 import {
   readFocusState,
   readLiveFocus,
+  resolveFocusSessionId,
   type StaleFocusPointer,
   staleFocusWarning,
   writeFocusState,
@@ -52,7 +53,7 @@ import {
   suspendSession,
   switchSession,
 } from '../sessions/index.js';
-import { generateSessionId, resolveSessionIdFromEnv } from '../sessions/session-id.js';
+import { generateSessionId } from '../sessions/session-id.js';
 import { appendSessionJournalEntry } from '../sessions/session-journal.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import {
@@ -165,7 +166,9 @@ export async function sessionStatus(projectRoot: string): Promise<
     const { session: active, unbound } = await resolveSessionForRead(projectRoot);
     // T11345 — read the per-session focus_state key for the resolved session.
     // T12684: the live focus — a finished task is reported as staleFocus.
-    const liveFocus = await readLiveFocus(accessor, active?.id ?? null);
+    // T12501: keyed by THE focus-key rule, the one `cleo start` writes — never
+    // the newest active row's key for an unbound caller.
+    const liveFocus = await readLiveFocus(accessor, await resolveFocusSessionId(projectRoot));
     const focusState = liveFocus.state
       ? { ...liveFocus.state, currentTask: liveFocus.currentTask }
       : null;
@@ -1571,10 +1574,12 @@ export async function sessionBriefing(
   },
 ): Promise<EngineResult<SessionBriefing>> {
   try {
-    // T9975: Env-precedence session resolution.
-    // CLEO_SESSION_ID → CLAUDE_SESSION_ID → AIDER_SESSION_ID → most-recent active.
-    // The explicit `sessionId` option takes highest priority (internal callers only).
-    const resolvedSessionId = options?.sessionId ?? resolveSessionIdFromEnv() ?? undefined;
+    // T9975/T12501: the explicit `sessionId` option (internal callers only),
+    // else THE focus-key rule — the caller's BOUND session (connection, env
+    // with a row, terminal binding), so a terminal-bound session's briefing
+    // shows its own focus. Unbound → no id (the legacy key, labelled below).
+    const resolvedSessionId =
+      options?.sessionId ?? (await resolveFocusSessionId(projectRoot)) ?? undefined;
 
     const [briefing, instructionDelivery, unbound] = await Promise.all([
       computeBriefing(projectRoot, {

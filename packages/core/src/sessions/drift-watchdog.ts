@@ -24,7 +24,7 @@ import type { Session, Task } from '@cleocode/contracts';
 import { getCleoHome } from '@cleocode/paths';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { resolveBoundSession } from '../store/session-store.js';
-import { readLiveFocus } from './focus-state-store.js';
+import { readLiveFocus, resolveFocusSessionId } from './focus-state-store.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -265,7 +265,8 @@ export async function detectSessionDrift(opts: DetectSessionDriftOptions): Promi
   // unbound caller records `sessionId: null` rather than a guessed session.
   const session = (await resolveBoundSession(projectRoot))?.session ?? null;
   // T12684: drift is watched only for a task still being worked.
-  const focus = await readLiveFocus(accessor, session?.id ?? null);
+  // T12501: THE focus-key rule (the same bound tiers as `session` above).
+  const focus = await readLiveFocus(accessor, await resolveFocusSessionId(projectRoot));
   const activeTaskId = resolveActiveTaskId(session, focus.currentTask);
 
   // Always read the modified-files set so a no-task report still reflects

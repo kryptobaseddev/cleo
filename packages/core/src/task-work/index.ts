@@ -16,10 +16,10 @@ import { resolveOrCwd } from '../paths.js';
 import {
   readFocusState,
   readLiveFocus,
+  resolveFocusSessionId,
   type StaleFocusPointer,
   writeFocusState,
 } from '../sessions/focus-state-store.js';
-import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import { trackBackgroundOp } from '../store/background-ops.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
@@ -44,23 +44,6 @@ export {
   renewTaskClaim,
   resolveClaimant,
 } from './claims.js';
-
-/**
- * Resolve the focus_state session key for the CALLER (T11345 · Epic T11284).
- *
- * Env-first: a spawned agent's `CLEO_SESSION_ID` keys its own focus_state
- * (`focus_state:<id>`); an orchestrator/CLI call with no session env resolves
- * to `null`, which {@link readFocusState}/{@link writeFocusState} map to the
- * legacy global `focus_state` key (backward-compatible — no behaviour change
- * outside spawned agents). This is what stops two concurrent agents from
- * clobbering each other's current task.
- *
- * @returns The resolved session id, or `null` for the legacy global key.
- * @task T11345
- */
-function resolveFocusSessionId(): string | null {
-  return resolveSessionIdFromEnv();
-}
 
 /**
  * RCASD planning stages — tasks in these stages auto-advance to 'implementation'
@@ -129,7 +112,7 @@ export async function currentTask(
     state: focus,
     currentTask: live,
     staleFocus,
-  } = await readLiveFocus(acc, resolveFocusSessionId());
+  } = await readLiveFocus(acc, await resolveFocusSessionId(cwd));
 
   return {
     currentTask: live,
@@ -220,8 +203,9 @@ export async function startTask(
   // T12502 — the caller's claim identity: its BOUND session, never a guess.
   const claimant = await resolveClaimant(cwd);
 
-  // T11345 — read/write the CALLER's per-session focus_state key.
-  const focusSessionId = resolveFocusSessionId();
+  // T11345/T12501 — read/write the CALLER's focus key: its bound session's,
+  // the same one `cleo current`, briefing and inject read.
+  const focusSessionId = await resolveFocusSessionId(cwd);
   const focus = (await readFocusState(acc, focusSessionId)) ?? ({} as TaskWorkState);
   const previousTask = focus.currentTask ?? null;
 
@@ -288,8 +272,8 @@ export async function stopTask(
   accessor?: DataAccessor,
 ): Promise<{ previousTask: string | null }> {
   const acc = accessor ?? (await getTaskAccessor(cwd));
-  // T11345 — read/write the CALLER's per-session focus_state key.
-  const focusSessionId = resolveFocusSessionId();
+  // T11345/T12501 — read/write the CALLER's focus key (THE focus-key rule).
+  const focusSessionId = await resolveFocusSessionId(cwd);
   const focus = await readFocusState(acc, focusSessionId);
 
   const previousTask = focus?.currentTask ?? null;
@@ -339,7 +323,7 @@ export async function getWorkHistory(
   accessor?: DataAccessor,
 ): Promise<TaskWorkHistoryEntry[]> {
   const acc = accessor ?? (await getTaskAccessor(cwd));
-  const focus = await readFocusState(acc, resolveFocusSessionId());
+  const focus = await readFocusState(acc, await resolveFocusSessionId(cwd));
 
   const notes = focus?.sessionNotes ?? [];
   const history: TaskWorkHistoryEntry[] = [];

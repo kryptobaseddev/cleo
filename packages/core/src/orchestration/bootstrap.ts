@@ -7,8 +7,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { BrainState } from '@cleocode/contracts';
-import { readLiveFocus } from '../sessions/focus-state-store.js';
-import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
+import { readLiveFocus, resolveFocusSessionId } from '../sessions/focus-state-store.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { buildRankingContext, rankTasks } from '../task-tools/score-task-priority.js';
@@ -50,9 +49,10 @@ export async function buildBrainState(
   // --- Session (from SQLite, ADR-006/ADR-020) ---
   const acc = accessor ?? (await getTaskAccessor(projectRoot));
   try {
-    const sessions = await acc.loadSessions();
-    const activeSession = sessions.find((s) => s.status === 'active');
-    if (activeSession) {
+    // T12501: the CALLER's session (bound first), not the first active row.
+    const { resolveSessionForRead } = await import('../store/session-store.js');
+    const { session: activeSession } = await resolveSessionForRead(projectRoot);
+    if (activeSession && activeSession.status === 'active') {
       brain.session = {
         id: activeSession.id,
         name: activeSession.name || activeSession.id,
@@ -77,7 +77,9 @@ export async function buildBrainState(
 
   // --- Current Task (from focus or session) ---
   // T12684: a finished task is never bootstrapped as the current task.
-  const focusTaskId = (await readLiveFocus(acc, resolveSessionIdFromEnv())).currentTask;
+  // T12501: the CALLER's focus key (THE focus-key rule), not an env-only one.
+  const focusTaskId = (await readLiveFocus(acc, await resolveFocusSessionId(projectRoot)))
+    .currentTask;
   if (focusTaskId) {
     const task = tasks.find((t) => t.id === focusTaskId);
     if (task) {
@@ -97,7 +99,7 @@ export async function buildBrainState(
   if (readyTasks.length > 0) {
     // T12692: THE comparator (D11161) — the same ranking as `cleo next`.
     const ctx = buildRankingContext(tasks, dependencyLookup, {
-      currentPhase: await resolveRankingPhase(acc),
+      currentPhase: await resolveRankingPhase(acc, projectRoot),
     });
     const next = rankTasks(readyTasks, ctx)[0]!.task;
     brain.nextSuggestion = { id: next.id, title: next.title, score: 1 };

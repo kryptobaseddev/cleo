@@ -5,8 +5,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { readLiveFocus } from '../sessions/focus-state-store.js';
-import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
+import { readLiveFocus, resolveFocusSessionId } from '../sessions/focus-state-store.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 
@@ -40,20 +39,23 @@ export async function generateInjection(
   let sessionScope: string | null = null;
 
   const acc = accessor ?? (await getTaskAccessor(projectRoot));
-  // T12684: never generate an injection around a finished task.
-  focusTask = (await readLiveFocus(acc, resolveSessionIdFromEnv())).currentTask;
+  // T12684: never generate an injection around a finished task. T12501: the
+  // CALLER's focus key (THE focus-key rule) — a terminal-bound session reads
+  // its own key, not the global one.
+  focusTask = (await readLiveFocus(acc, await resolveFocusSessionId(projectRoot))).currentTask;
   const activeSessionMeta = await acc.getMetaValue<string>('activeSession');
   if (activeSessionMeta) {
     activeSessionName = activeSessionMeta;
   }
 
-  // Load active session from SQLite (ADR-006/ADR-020)
+  // Load the CALLER's session from SQLite (ADR-006/ADR-020). T12501: the
+  // read resolver (bound first), not the first active row; the focus above is
+  // the only focus source — `taskWork.taskId` would bypass the done-task filter.
   try {
-    const sessions = await acc.loadSessions();
-    const active = sessions.find((s) => s.status === 'active');
-    if (active) {
+    const { resolveSessionForRead } = await import('../store/session-store.js');
+    const { session: active } = await resolveSessionForRead(projectRoot);
+    if (active && active.status === 'active') {
       activeSessionName = active.name || active.id;
-      focusTask = active.taskWork?.taskId ?? focusTask;
       sessionScope = `${active.scope?.type}:${active.scope?.rootTaskId}`;
     }
   } catch {

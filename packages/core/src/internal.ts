@@ -1289,6 +1289,7 @@ export {
   LEGACY_FOCUS_STATE_KEY,
   readFocusState,
   readLiveFocus,
+  resolveFocusSessionId,
   writeFocusState,
 } from './sessions/focus-state-store.js';
 export type { DebriefData, HandoffData } from './sessions/handoff.js';

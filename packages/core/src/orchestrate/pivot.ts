@@ -26,8 +26,12 @@ import { ExitCode, TERMINAL_TASK_STATUSES } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { memoryObserve } from '../memory/engine-compat.js';
 import { getProjectRoot } from '../paths.js';
-import { readFocusState, readLiveFocus, writeFocusState } from '../sessions/focus-state-store.js';
-import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
+import {
+  readFocusState,
+  readLiveFocus,
+  resolveFocusSessionId,
+  writeFocusState,
+} from '../sessions/focus-state-store.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { resolveBoundSession } from '../store/session-store.js';
@@ -153,10 +157,11 @@ function appendPivotAudit(repoRoot: string, row: PivotAuditRow): string {
 async function isTaskActive(
   acc: DataAccessor,
   fromTaskId: string,
+  root: string,
 ): Promise<{ active: boolean; reason: string }> {
-  // T11345 — the CALLER's per-session focus (env-first). T12698: the LIVE
-  // focus — a stale pointer at a finished task is never "active".
-  const focus = await readLiveFocus(acc, resolveSessionIdFromEnv());
+  // T11345/T12501 — the CALLER's focus key (THE focus-key rule). T12698: the
+  // LIVE focus — a stale pointer at a finished task is never "active".
+  const focus = await readLiveFocus(acc, await resolveFocusSessionId(root));
   if (focus.currentTask === fromTaskId) {
     return { active: true, reason: 'currentFocus' };
   }
@@ -308,7 +313,7 @@ export async function pivotTask(
   // ---------------------------------------------------------------------------
   // Validate from task is active
   // ---------------------------------------------------------------------------
-  const activeCheck = await isTaskActive(acc, fromTaskId);
+  const activeCheck = await isTaskActive(acc, fromTaskId, root);
   if (!activeCheck.active) {
     throw new CleoError(ExitCode.ACTIVE_TASK_REQUIRED, `pivot rejected: ${activeCheck.reason}`, {
       fix: `Run 'cleo start ${fromTaskId}' before pivoting away from it, or pick a different fromTaskId`,
@@ -328,7 +333,7 @@ export async function pivotTask(
   await assertTaskStartable(acc, toTaskId);
   const claimFlags = { takeOver: opts.takeOver, forceClaim: opts.forceClaim };
   const claimant = await resolveClaimant(root);
-  const focusSessionId = resolveSessionIdFromEnv();
+  const focusSessionId = await resolveFocusSessionId(root);
   const snapshot: PivotSnapshot = {
     focus: await readFocusState(acc, focusSessionId),
     fromClaim: fromTask.claim ?? null,

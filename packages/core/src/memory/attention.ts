@@ -50,7 +50,7 @@ import type {
 } from '@cleocode/contracts/operations/attention';
 import type { AttentionDigestPreviewItem } from '@cleocode/contracts/operations/focus';
 import { resolveSagaMemberIds } from '../sagas/storage.js';
-import { readLiveFocus } from '../sessions/focus-state-store.js';
+import { readLiveFocus, resolveFocusSessionId } from '../sessions/focus-state-store.js';
 import { resolveAgentIdFromEnv, resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { getBrainAccessor } from '../store/memory-accessor.js';
@@ -156,8 +156,11 @@ export async function resolveAttentionIdentity(
   // wave concurrently) failed them mid-query. Lifecycle is owned by the
   // dual-scope chokepoint.
   const accessor = await getTaskAccessor(projectRoot);
-  // Current task: explicit override (spawn) wins; else per-session focus_state.
-  const currentTaskId = options.taskId ?? (await readLiveFocus(accessor, sessionId)).currentTask;
+  // Current task: explicit override (spawn) wins; else the caller's focus
+  // under THE focus-key rule (T12501).
+  const currentTaskId =
+    options.taskId ??
+    (await readLiveFocus(accessor, await resolveFocusSessionId(projectRoot))).currentTask;
 
   const chain: AttentionScope[] = [];
 
