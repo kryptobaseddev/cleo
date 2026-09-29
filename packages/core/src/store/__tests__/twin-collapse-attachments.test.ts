@@ -777,7 +777,7 @@ describe('redirect: docs readers read the prefixed twins', () => {
 
 describe('freeze (option a): older builds can no longer write the bare docs tables', () => {
   const FROZEN =
-    /CLEO: docs moved to docs_attachments \(T12535\); this project needs cleo \d{4}\.\d+\.\d+\S* or newer to write docs, changesets and IVTR playbook provenance\. Run: npm i -g @cleocode\/cleo@latest/;
+    /CLEO: docs moved to docs_attachments \(T12535\); this project needs cleo 2026\.9\.23 or newer to write docs, changesets and IVTR playbook provenance\. Run: npm i -g @cleocode\/cleo@latest/;
   const freezeTriggers = (db: DatabaseSync): string[] =>
     (
       db
@@ -893,6 +893,28 @@ describe('freeze (option a): older builds can no longer write the bare docs tabl
     } finally {
       other.close();
     }
+  });
+
+  it('a trigger with an older text (another version or message) is re-written on the next open', async () => {
+    preMigration();
+    await reopen();
+    const db = tasksNative();
+    db.exec('DROP TRIGGER main.t12535_freeze_attachments_insert');
+    db.exec(
+      "CREATE TRIGGER main.t12535_freeze_attachments_insert BEFORE INSERT ON attachments BEGIN SELECT RAISE(ABORT, 'CLEO: docs moved to docs_attachments (T12535); this project needs cleo 2026.9.21 or newer to write docs. Run: npm i -g @cleocode/cleo@latest'); END",
+    );
+    expect(inspectTwinCollapse(db)[DOCS]).toMatchObject({ guardsIntact: false });
+    await reopen();
+    const sql = (
+      tasksNative()
+        .prepare(
+          "SELECT sql FROM main.sqlite_master WHERE name = 't12535_freeze_attachments_insert'",
+        )
+        .get() as { sql: string }
+    ).sql;
+    expect(sql).toContain(docsFrozenMessage());
+    expect(sql).not.toContain('2026.9.21');
+    expect(inspectTwinCollapse(tasksNative())[DOCS]).toMatchObject({ guardsIntact: true });
   });
 
   it('restoring a backup taken before the freeze gets the triggers back on the next open', async () => {

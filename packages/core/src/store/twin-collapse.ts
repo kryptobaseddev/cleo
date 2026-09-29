@@ -163,7 +163,6 @@ import { ExitCode } from '@cleocode/contracts';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
-import { getCleoVersion } from '../scaffold/ensure-config.js';
 import { blobFileForRow, pinBlob, restoreBlob } from './blob-keep.js';
 import { planMigrationSnapshot, writeMigrationSnapshot } from './pre-repair-snapshot.js';
 import { SNAPSHOT_GATE_META_KEY } from './snapshot-gate.js';
@@ -834,13 +833,20 @@ const docsGuardTriggers = (): string[] =>
  * a test, see {@link DOCS_FROZEN_FORBIDDEN}).
  */
 export function docsFrozenMessage(): string {
-  const version = getCleoVersion().replace(/[^0-9A-Za-z.+-]/g, '');
   return (
-    `CLEO: docs moved to docs_attachments (T12535); this project needs cleo ${version} or newer ` +
+    `CLEO: docs moved to docs_attachments (T12535); this project needs cleo ${DOCS_MIN_VERSION} or newer ` +
     'to write docs, changesets and IVTR playbook provenance. ' +
     'Run: npm i -g @cleocode/cleo@latest'
   );
 }
+
+/**
+ * The first release that reads and writes `docs_attachments` (this collapse
+ * ships in it). Fixed, not the running build's version: a trigger outlives the
+ * build that installed it, so the text must name the release an older build
+ * has to upgrade to. Changing it re-writes the triggers at the next open.
+ */
+export const DOCS_MIN_VERSION = '2026.9.23';
 
 /** Phrases the freeze message must never contain (older builds' retry and recovery matchers). */
 export const DOCS_FROZEN_FORBIDDEN: readonly string[] = [
@@ -866,15 +872,37 @@ export const DOCS_FROZEN_FORBIDDEN: readonly string[] = [
  * next open, see {@link repairGuards}).
  */
 function ensureDocsFreeze(db: DatabaseSync): void {
-  const message = docsFrozenMessage().replace(/'/g, "''");
   for (const table of DOCS_BARE) {
     for (const op of SHADOW_WRITE_OPS) {
+      const name = freezeTrigger(table, op);
+      // A trigger with another text (an older message or version) is replaced.
+      if (freezeSql(db, name) !== undefined && !freezeUpToDate(db, table, op))
+        db.exec(`DROP TRIGGER main.${name}`);
       db.exec(
-        `CREATE TRIGGER IF NOT EXISTS main.${freezeTrigger(table, op)} BEFORE ${op} ON ${table} ` +
-          `BEGIN SELECT RAISE(ABORT, '${message}'); END`,
+        `CREATE TRIGGER IF NOT EXISTS main.${name} BEFORE ${op} ON ${table} ` +
+          `BEGIN ${freezeBody()} END`,
       );
     }
   }
+}
+
+/** The freeze trigger's body (it carries the message). */
+const freezeBody = (): string =>
+  `SELECT RAISE(ABORT, '${docsFrozenMessage().replace(/'/g, "''")}');`;
+
+/** The stored SQL of a trigger, or `undefined` when it does not exist. */
+function freezeSql(db: DatabaseSync, name: string): string | undefined {
+  return (
+    db
+      .prepare("SELECT sql FROM main.sqlite_master WHERE type = 'trigger' AND name = ?")
+      .get(name) as { sql: string } | undefined
+  )?.sql;
+}
+
+/** Whether a freeze trigger exists with the current table, event and message. */
+function freezeUpToDate(db: DatabaseSync, table: string, op: string): boolean {
+  const sql = freezeSql(db, freezeTrigger(table, op));
+  return sql?.includes(`BEFORE ${op} ON ${table} `) === true && sql.includes(freezeBody());
 }
 
 /** Whether every freeze and change trigger is in place. */
@@ -887,7 +915,8 @@ function docsGuardsIntact(db: DatabaseSync): boolean {
       )
       .get(...names) as { n: number }
   ).n;
-  return present === names.length;
+  if (present !== names.length) return false;
+  return DOCS_BARE.every((t) => SHADOW_WRITE_OPS.every((op) => freezeUpToDate(db, t, op)));
 }
 
 /** Install the freeze and change triggers (idempotent). */
