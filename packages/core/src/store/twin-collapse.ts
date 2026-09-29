@@ -45,13 +45,17 @@
  * | every other key (`schemaVersion`, `version`, `focus_state`, `focus_state:<session>`, `project_meta`, `project`, `parallel_state`, `activeSession`, `reconcile.<task>.release`, any unknown key) | none: the bare value |
  *
  * - **Initial collapse**, when the bare table holds at least one carried key:
- *   every bare key is carried under the rules, and a key only the twin holds
- *   is a frozen copy and is DROPPED (listed in the receipt, marker and log).
- *   The exceptions are `task_id_sequence` and `sqlite_snapshot_gate` (a
- *   counter must not move back) and the collapse keys. `file_meta` is dropped
- *   only when the bare table lacks it; when both have it the field rule
- *   applies. When the bare table holds no carried key (a fresh lineage, e.g.
- *   after exodus landed legacy rows in the twin), nothing is dropped.
+ *   every bare key is carried under the rules (the bare value wins every key
+ *   both hold). A key only the twin holds is KEPT, never dropped (the union
+ *   rule, T12535 audit 2026-09-29): it is listed as `kept` in the receipt and
+ *   marker. When a key's twin value would be replaced by a different result,
+ *   the twin value is copied to `twin_collapse_archive:<key>` in
+ *   `tasks_schema_meta` (listed as `archived`; doctor shows it), so nothing
+ *   unique is left only in the snapshot. `focus_state` merges instead: the
+ *   bare value's current fields win and `sessionNotes` is the union of both,
+ *   deduplicated by `(timestamp, note)` ({@link mergeFocusState}); its twin
+ *   value is archived as well. The pre-collapse snapshot holds the store
+ *   before any change and is pinned (never rotated).
  * - **Incremental re-merge**, per bare key whose hash changed since the last
  *   merge:
  *   - twin unchanged since the last merge → the bare value (counter fields
@@ -68,9 +72,13 @@
  * `sticky_tags` → `brain_sticky_tags` (rows are `(sticky_id, tag)`, both the
  * key, so a collision is two identical rows and one is kept):
  *
- * - Initial collapse, when the bare table has rows: the twin is made equal to
- *   the bare set; frozen twin-only rows are dropped and listed. A bare tag whose
- *   note no longer exists is not carried (`skipped`; it stays in the bare table).
+ * - Initial collapse: bare tags are added. A twin-only tag the note's
+ *   `tags_json` names is kept (listed as `kept`). One it does not name leaves
+ *   the junction (which follows `tags_json`, the value every reader displays)
+ *   and is recorded under `twin_collapse_archive:sticky_tags` in
+ *   `brain_schema_meta` (listed as `archived`); adding it to `tags_json` would
+ *   change the tags the user sees. A bare tag whose note no longer exists is
+ *   not carried (`skipped`; it stays in the bare table).
  * - Incremental re-merge, per sticky id whose bare tag-set hash changed: if
  *   the twin's set for that id is unchanged since the last merge, the twin
  *   set is made equal to the bare set (additions AND removals propagate);
@@ -131,7 +139,9 @@
  * 1. **Snapshot first** (initial collapse only, only when the merge changes
  *    the twin). The free space is checked before the `VACUUM INTO`. One
  *    snapshot covers every pair collapsing in this open, registered as a
- *    `migration` backup (`cleo backup list`, rotation).
+ *    PINNED `migration` backup: `cleo backup list` shows it, rotation never
+ *    deletes it, and a snapshot an earlier build wrote unpinned is pinned at
+ *    the next open (`cleo doctor` lists an unpinned one).
  * 2. **Atomic.** Each pair merges, verifies and writes its marker in one
  *    `BEGIN IMMEDIATE` transaction, the marker re-read under the write lock.
  *    Any failure rolls back: both tables byte-identical.
@@ -170,7 +180,8 @@
  */
 
 import { createHash } from 'node:crypto';
-import { dirname } from 'node:path';
+import { existsSync } from 'node:fs';
+import { basename, dirname } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { ExitCode } from '@cleocode/contracts';
@@ -178,6 +189,7 @@ import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
 import { getCleoVersion } from '../scaffold/ensure-config.js';
+import { isPinnedBackup, pinBackup } from './backup-sidecar.js';
 import { blobFileForRow, pinBlob, restoreBlob } from './blob-keep.js';
 import { planMigrationSnapshot, writeMigrationSnapshot } from './pre-repair-snapshot.js';
 
@@ -209,6 +221,10 @@ export const SCHEMA_META_NEVER_DELETED: ReadonlySet<string> = new Set([
   SNAPSHOT_GATE_KEY,
 ]);
 
+/** Why a twin-collapse snapshot is pinned (never rotated). */
+const SNAPSHOT_PIN_REASON =
+  'T12535 twin collapse: the store before the merge (only copy of any row it replaced)';
+
 /** Most conflicts kept in the marker (the doctor warning lists them). */
 const MAX_CONFLICTS = 50;
 
@@ -236,7 +252,7 @@ export interface TwinCollapseReceipt {
   readonly deleted: number;
   /** Bare rows not carried by rule (dead keys, tags of deleted notes). */
   readonly skipped: number;
-  /** Frozen twin rows the initial collapse dropped (keys, or `sticky_id\ttag`). */
+  /** Twin rows the initial collapse dropped (none since the union rule; kept for old markers). */
   readonly dropped: readonly string[];
   /** Keys (or sticky ids) both builds changed since the last merge; the twin was kept. */
   readonly conflicts: readonly string[];
@@ -244,8 +260,14 @@ export interface TwinCollapseReceipt {
   readonly merged: readonly string[];
   /** Docs: rows carried under a free slug because another doc holds theirs. */
   readonly renamed: readonly string[];
-  /** Docs: twin rows the bare side deleted, kept because a ref or link still names them. */
+  /**
+   * Rows kept by the union rule: twin-only keys / sticky tags the initial
+   * collapse carried over, and (docs) twin rows the bare side deleted that a
+   * ref or link still names.
+   */
   readonly kept: readonly string[];
+  /** Keys whose replaced twin value was copied to `twin_collapse_archive:<key>`. */
+  readonly archived: readonly string[];
 }
 
 /** Per-key (or per sticky id) hashes of both sides as of the last merge. */
@@ -272,6 +294,10 @@ interface CollapseState {
   /** Rows the last merge that carried anything merged by content or renamed. */
   readonly merged: readonly string[];
   readonly renamed: readonly string[];
+  /** Twin-only rows the initial collapse carried over (union rule). */
+  readonly kept: readonly string[];
+  /** Keys whose replaced twin value the initial collapse archived. */
+  readonly archived: readonly string[];
 }
 
 /** Row-level changes a plan makes to the twin. */
@@ -287,8 +313,13 @@ interface Plan {
   readonly merged: string[];
   /** Rows carried under another slug (`<id>: <slug> -> <new slug>`). */
   readonly renamed: string[];
-  /** Twin rows the bare side deleted that are kept because something still names them. */
+  /**
+   * Rows kept: twin-only rows the initial collapse carried over (union rule),
+   * and (docs) twin rows the bare side deleted that something still names.
+   */
   readonly kept: string[];
+  /** Keys whose replaced twin value was copied to `twin_collapse_archive:<key>`. */
+  readonly archived: string[];
   /** The bare→twin id aliases after this plan (docs only). */
   aliases?: Record<string, string>;
 }
@@ -382,6 +413,8 @@ function readState(db: DatabaseSync, pair: TwinPair): CollapseState | undefined 
     seq: typeof parsed.seq === 'string' ? parsed.seq : null,
     merged: Array.isArray(parsed.merged) ? parsed.merged : [],
     renamed: Array.isArray(parsed.renamed) ? parsed.renamed : [],
+    kept: Array.isArray(parsed.kept) ? parsed.kept : [],
+    archived: Array.isArray(parsed.archived) ? parsed.archived : [],
   };
 }
 
@@ -515,6 +548,52 @@ function kvRows(db: DatabaseSync, table: string, schema = 'main'): Map<string, s
   return new Map(rows.map((r) => [r.key, r.value]));
 }
 
+/** Prefix of the key holding a twin value the initial collapse replaced. */
+export const TWIN_COLLAPSE_ARCHIVE_PREFIX = 'twin_collapse_archive:';
+
+/**
+ * `focus_state` when both tables hold it: the bare value's current fields
+ * win, and the session-note history is the union of both
+ * (`sessionNotes`, deduplicated by `(timestamp, note)`, sorted by timestamp).
+ * The twin may hold months of notes the bare copy never saw (178 KB on the
+ * cleocode Linux store). A value that is not a JSON object stays the bare one
+ * (the replaced twin value is archived either way).
+ *
+ * @param bare - The bare value.
+ * @param twin - The twin value.
+ * @returns The merged value.
+ * @task T12535
+ */
+export function mergeFocusState(bare: string, twin: string): string {
+  const b = parseJson(bare);
+  const t = parseJson(twin);
+  if (b === null || typeof b !== 'object' || Array.isArray(b)) return bare;
+  const notesOf = (v: unknown): unknown[] =>
+    v !== null &&
+    typeof v === 'object' &&
+    Array.isArray((v as Record<string, unknown>).sessionNotes)
+      ? ((v as Record<string, unknown>).sessionNotes as unknown[])
+      : [];
+  const bareNotes = notesOf(b);
+  const twinNotes = notesOf(t);
+  if (twinNotes.length === 0) return bare;
+  const keyOf = (n: unknown): string => {
+    const r = (n ?? {}) as Record<string, unknown>;
+    return `${String(r.timestamp ?? '')}\u0000${String(r.note ?? JSON.stringify(n))}`;
+  };
+  const seen = new Set<string>();
+  const union: unknown[] = [];
+  for (const n of [...twinNotes, ...bareNotes]) {
+    const k = keyOf(n);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    union.push(n);
+  }
+  const ts = (n: unknown): string => String(((n ?? {}) as Record<string, unknown>).timestamp ?? '');
+  union.sort((x, y) => ts(x).localeCompare(ts(y)));
+  return JSON.stringify({ ...(b as Record<string, unknown>), sessionNotes: union });
+}
+
 /** Carried rows of a `schema_meta` table. */
 function carriedRows(db: DatabaseSync, table: string): Map<string, string> {
   const all = kvRows(db, table);
@@ -534,6 +613,7 @@ const emptyPlan = (): Plan => ({
   merged: [],
   renamed: [],
   kept: [],
+  archived: [],
 });
 
 function planSchemaMeta(db: DatabaseSync, state: CollapseState | undefined): Plan {
@@ -545,13 +625,23 @@ function planSchemaMeta(db: DatabaseSync, state: CollapseState | undefined): Pla
   };
   if (state === undefined) {
     if (bare.size === 0) return plan;
-    for (const [key, value] of bare) want(key, mergeSchemaMetaValue(key, value, twin.get(key)));
-    for (const key of [...twin.keys()].sort()) {
-      if (!bare.has(key) && !SCHEMA_META_NEVER_DELETED.has(key)) {
-        plan.del.push(key);
-        plan.dropped.push(key);
+    for (const [key, value] of [...bare].sort(([a], [b]) => a.localeCompare(b))) {
+      const current = twin.get(key);
+      const merged =
+        key === 'focus_state' && current !== undefined
+          ? mergeFocusState(value, current)
+          : mergeSchemaMetaValue(key, value, current);
+      want(key, merged);
+      // The twin's own value would be replaced: keep a copy of it, so nothing
+      // unique is left only in the snapshot.
+      if (current !== undefined && merged !== null && merged !== current) {
+        plan.set.set(`${TWIN_COLLAPSE_ARCHIVE_PREFIX}${key}`, current);
+        plan.archived.push(key);
       }
     }
+    // The union rule: a key only the twin holds is carried over, never
+    // dropped (listed as kept). The bare value wins every key both hold.
+    for (const key of [...twin.keys()].sort()) if (!bare.has(key)) plan.kept.push(key);
     return plan;
   }
   const last = lastHashes(db, SCHEMA_META, state);
@@ -678,8 +768,29 @@ function planSticky(db: DatabaseSync, state: CollapseState | undefined): Plan {
     }
   };
   if (state === undefined) {
-    if (bare.size === 0) return plan;
-    for (const id of [...new Set([...bare.keys(), ...twin.keys()])].sort()) mirror(id, true);
+    // The union rule: bare tags are added. A twin-only tag the note's
+    // tags_json names is kept (listed as kept). One tags_json does not name is
+    // listed as archived: the junction follows tags_json (the value both
+    // builds write and every reader displays), so it leaves the junction, and
+    // its row is recorded under `twin_collapse_archive:sticky_tags`.
+    const tagsJson = db.prepare('SELECT tags_json FROM main.brain_sticky_notes WHERE id = ?');
+    for (const id of [...new Set([...bare.keys(), ...twin.keys()])].sort()) {
+      const b = new Set(bare.get(id) ?? []);
+      const t = new Set(twin.get(id) ?? []);
+      const alive = b.size === 0 || noteExists.get(id) !== undefined;
+      for (const tag of b) {
+        if (!alive) plan.skipped++;
+        else if (!t.has(tag)) plan.set.set(`${id}\t${tag}`, '');
+      }
+      const named = new Set(
+        tagsOf((tagsJson.get(id) as { tags_json: string | null } | undefined)?.tags_json ?? null),
+      );
+      for (const tag of t) {
+        if (b.has(tag)) continue;
+        if (named.has(tag)) plan.kept.push(`${id}\t${tag}`);
+        else plan.archived.push(`${id}\t${tag}`);
+      }
+    }
     return plan;
   }
   const last = lastHashes(db, STICKY_TAGS, state);
@@ -790,6 +901,12 @@ const STICKY_TAGS: TwinPair = {
       throw new Error(
         `sticky_tags collapse did not verify: ${missing} missing, ${lingering} not removed`,
       );
+    if (plan.archived.length > 0) {
+      const key = `${TWIN_COLLAPSE_ARCHIVE_PREFIX}sticky_tags`;
+      const previous = parseJson(readKv(db, 'brain_schema_meta', key) ?? '[]');
+      const rows = new Set([...(Array.isArray(previous) ? previous : []), ...plan.archived]);
+      writeKv(db, 'brain_schema_meta', key, JSON.stringify([...rows].sort()));
+    }
     const synced = syncStickyJunction(db, 'main');
     return {
       inserted: counts.inserted + synced.inserted,
@@ -1736,6 +1853,7 @@ function receipt(
     merged: [],
     renamed: [],
     kept: [],
+    archived: [],
   };
 }
 
@@ -1767,6 +1885,8 @@ function collapsePair(
       snapshot: state?.snapshot ?? snapshotPath,
       hashes: { bare: pair.bareHashes(db), twin: pair.twinHashes(db) },
       dropped: state === undefined ? plan.dropped : state.dropped,
+      kept: state === undefined ? plan.kept.slice(0, MAX_CONFLICTS) : state.kept,
+      archived: state === undefined ? plan.archived : state.archived,
       conflicts: plan.conflicts.slice(0, MAX_CONFLICTS),
       conflictsAt: plan.conflicts.length > 0 ? now : null,
       seq: pair.changeSeq?.(db) ?? null,
@@ -1792,6 +1912,7 @@ function collapsePair(
       merged: plan.merged,
       renamed: plan.renamed,
       kept: plan.kept,
+      archived: plan.archived,
     };
     if (counts.inserted + counts.replaced + counts.deleted > 0 || plan.conflicts.length > 0)
       log.warn(done, `carried bare ${pair.table} into ${pair.twin} (${done.status}, T12535)`);
@@ -1866,6 +1987,9 @@ export function collapseTwinTables(
       continue;
     }
     const state = readState(nativeDb, pair);
+    // A snapshot an earlier collapse took (a build before pinning) is pinned
+    // now, so rotation never deletes it. Best effort; one sidecar read.
+    if (state?.snapshot) pinBackup(state.snapshot, 'migration', SNAPSHOT_PIN_REASON);
     if (bareChanged(nativeDb, pair, state)) pending.push(pair);
     else {
       if (state !== undefined) repairGuards(nativeDb, pair);
@@ -1913,6 +2037,7 @@ export function collapseTwinTables(
         nativeDb,
         plan,
         `T12535 twin collapse of ${needSnapshot.map((p) => p.table).join(', ')} (store before the merge)`,
+        { pinnedReason: SNAPSHOT_PIN_REASON },
       );
     } catch (error) {
       fail(
@@ -1997,14 +2122,34 @@ export interface TwinCollapseStatus {
   readonly merged: readonly string[];
   /** Docs: rows the last merge carried under a free slug. */
   readonly renamed: readonly string[];
+  /** Twin-only rows the initial collapse carried over (union rule). */
+  readonly kept: readonly string[];
+  /** Keys whose replaced twin value is archived under `twin_collapse_archive:<key>`. */
+  readonly archived: readonly string[];
   /**
    * Whether the pair's triggers on the bare tables (the freeze against older
    * builds, the change counter) are all in place; `null` when the pair has
    * none or is not collapsed yet. Missing ones are re-installed at the next open.
    */
   readonly guardsIntact: boolean | null;
+  /**
+   * Whether the collapse snapshot is pinned (never rotated); `null` when there
+   * is no snapshot on disk.
+   */
+  readonly snapshotPinned: boolean | null;
+  /**
+   * `true` when the marker names a pre-collapse snapshot that is no longer on
+   * disk: the only copy of the store before the collapse is gone.
+   */
+  readonly snapshotMissing: boolean;
   /** The recorded failure, when the last attempt failed. */
   readonly failure: TwinCollapseFailure | null;
+}
+
+/** Whether a collapse snapshot on disk is pinned, or `null` when there is none. */
+function snapshotPinnedOf(snapshot: string | null): boolean | null {
+  if (!snapshot || !existsSync(snapshot)) return null;
+  return isPinnedBackup(dirname(snapshot), basename(snapshot), 'migration');
 }
 
 /**
@@ -2028,7 +2173,11 @@ export function inspectTwinCollapse(db: DatabaseSync): TwinCollapseStatus[] {
       conflictsAt: null,
       merged: [],
       renamed: [],
+      kept: [],
+      archived: [],
       guardsIntact: null,
+      snapshotPinned: null,
+      snapshotMissing: false,
       failure: null,
     };
     if (!pair.tables.every((t) => hasMainTable(db, t))) return { ...empty, state: 'no-bare-table' };
@@ -2070,8 +2219,12 @@ export function inspectTwinCollapse(db: DatabaseSync): TwinCollapseStatus[] {
       conflictsAt: state?.conflictsAt ?? null,
       merged: state?.merged ?? [],
       renamed: state?.renamed ?? [],
+      kept: state?.kept ?? [],
+      archived: state?.archived ?? [],
       guardsIntact:
         state === undefined || pair.guardsIntact === undefined ? null : pair.guardsIntact(db),
+      snapshotPinned: snapshotPinnedOf(state?.snapshot ?? null),
+      snapshotMissing: typeof state?.snapshot === 'string' && !existsSync(state.snapshot),
       failure,
     };
   });
