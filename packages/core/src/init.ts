@@ -663,19 +663,22 @@ async function pruneAfterInstall(
   try {
     const { resolveProviderSkillsDirs } = await import('@cleocode/caamp');
     const { resolveSkillsRoot } = await import('./skills/skill-root.js');
-    const { pruneBundledSkills, writeBundledLedger } = await import('./skills/prune-bundled.js');
+    const { defaultPruneRegistry, pruneBundledSkills, recordBundledInstalls } = await import(
+      './skills/prune-bundled.js'
+    );
     const skillsRoot = resolveSkillsRoot();
-    await writeBundledLedger(skillsRoot, installed);
+    await recordBundledInstalls(skillsRoot, installed);
     const receipt = await pruneBundledSkills({
       bundledSkillsDir: join(ctSkillsRoot, 'skills'),
       skillsRoot,
       providerSkillDirs: providers.flatMap((p) => resolveProviderSkillsDirs(p, 'global')),
+      registry: await defaultPruneRegistry(),
       receiptPath: join(skillsRoot, '.prune-receipts.jsonl'),
     });
-    const removed = receipt.actions.filter((a) => a.action === 'removed');
-    if (removed.length > 0) {
+    const moved = receipt.actions.filter((a) => a.action === 'quarantined');
+    if (moved.length > 0) {
       created.push(
-        `skills: pruned ${removed.length} entries no longer installed (${[...new Set(removed.map((a) => a.name))].join(', ')})`,
+        `skills: quarantined ${moved.length} entries no longer installed (${[...new Set(moved.map((a) => a.name))].join(', ')}); restore with cleo skills doctor restore ${receipt.quarantineId}`,
       );
     }
     for (const e of receipt.errors) warnings.push(`Skill prune: ${e}`);

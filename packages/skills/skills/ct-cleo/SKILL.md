@@ -6,8 +6,8 @@ metadata:
   tier: core
   install: harness
   covers:
-    - packages/core/templates/CLEO-INJECTION.md
-    - packages/core/templates/CLEO-REFERENCE.md
+    - packages/cleo/src/cli/commands/session.ts
+    - packages/cleo/src/cli/commands/focus.ts
     - packages/cleo/src/cli/commands/sticky.ts
   lastReviewed: 2026-09-28
   stability: stable
