@@ -21,8 +21,11 @@ import {
   markProjectOpened,
   markProjectsProbed,
   OPENED_WRITE_INTERVAL_MS,
+  projectLastActivity,
+  projectLastActivitySqlText,
 } from '../project-activity.js';
 import {
+  NexusProjectAmbiguityError,
   nexusGetProject,
   nexusList,
   nexusProjectsFleet,
@@ -172,5 +175,67 @@ describe('AC2 — probes write last_probed_at; only real use writes last_opened_
       opened: new Date(t0.getTime() + OPENED_WRITE_INTERVAL_MS + 1).toISOString(),
       probed: probedAt.toISOString(),
     });
+  });
+});
+
+describe('one activity accessor: max(last_seen, last_opened_at, last_probed_at)', () => {
+  it('projectLastActivity takes the newest, normalising datetime(now) values', () => {
+    expect(
+      projectLastActivity({
+        lastSeen: '2026-01-01 00:00:00',
+        lastOpenedAt: '2026-09-29T10:00:00.000Z',
+        lastProbedAt: '2026-05-01T00:00:00.000Z',
+      }),
+    ).toBe('2026-09-29T10:00:00.000Z');
+    // A space-separated UTC value later in the day beats an ISO one earlier.
+    expect(
+      projectLastActivity({
+        lastSeen: '2026-09-29 23:00:00',
+        lastOpenedAt: '2026-09-29T01:00:00Z',
+      }),
+    ).toBe('2026-09-29T23:00:00.000Z');
+    expect(projectLastActivity({ lastSeen: 'garbage' })).toBeNull();
+  });
+
+  it('the raw-SQL form only names the columns the store has', () => {
+    expect(projectLastActivitySqlText(new Set(['last_seen']))).toBe(
+      "coalesce(replace(last_seen, ' ', 'T'), '')",
+    );
+    expect(
+      projectLastActivitySqlText(new Set(['last_seen', 'last_opened_at', 'last_probed_at'])),
+    ).toMatch(/^max\(.*last_seen.*last_opened_at.*last_probed_at.*\)$/);
+  });
+
+  it('name disambiguation lists the most recently ACTIVE project first', async () => {
+    const other = join(testDir, 'other');
+    await mkdir(join(other, '.cleo'), { recursive: true });
+    await nexusRegister(projectDir, 'dup', 'read');
+    await nexusRegister(other, 'dup-2', 'read');
+    const db = await getNexusRegistryDb(getCleoHome());
+    const rows = db
+      .select({ id: projectRegistry.projectId, path: projectRegistry.projectPath })
+      .from(projectRegistry)
+      .all();
+    const older = rows.find((r) => r.path.endsWith('proj'))?.id ?? '';
+    const newer = rows.find((r) => r.path.endsWith('other'))?.id ?? '';
+    db.update(projectRegistry)
+      .set({ lastSeen: '2020-01-01 00:00:00' })
+      .where(eq(projectRegistry.projectId, older))
+      .run();
+    db.update(projectRegistry)
+      .set({ lastSeen: '2026-01-01 00:00:00', name: 'dup' })
+      .where(eq(projectRegistry.projectId, newer))
+      .run();
+    markProjectOpened(db, older, new Date());
+    try {
+      await nexusGetProject('dup');
+      expect.unreachable('a duplicated name must be ambiguous');
+    } catch (e) {
+      expect(e).toBeInstanceOf(NexusProjectAmbiguityError);
+      expect((e as NexusProjectAmbiguityError).candidates.map((c) => c.projectId)).toEqual([
+        older,
+        newer,
+      ]);
+    }
   });
 });

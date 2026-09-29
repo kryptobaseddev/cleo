@@ -256,7 +256,13 @@ describe('AC3 — filters for missing, dirty, behind and stale (plus ahead, erro
     seedFleet(db);
     const view = (p: Parameters<typeof listFleetStatus>[1]) =>
       listFleetStatus(db, p, { deviceId: 'dev-desk', now: NOW });
-    expect(names(view({ dirty: true, behind: true }))).toEqual(['alpha']);
+    const both = view({ dirty: true, behind: true });
+    expect(names(both)).toEqual(['alpha']);
+    // summary and devices are scoped by device only, never by the flag filters.
+    const all = view({});
+    expect(both.summary).toEqual(all.summary);
+    expect(both.devices).toEqual(all.devices);
+    expect(both.matched).toBe(1);
     expect(names(view({ dirty: true, missing: true }))).toEqual([]);
     // Dirty only on the lap: scoped to the desk nothing is dirty.
     expect(names(view({ dirty: true, device: 'current' }))).toEqual([]);

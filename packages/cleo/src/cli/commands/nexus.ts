@@ -1849,13 +1849,14 @@ const projectsStatusCommand = defineCommand({
         staleAfterMs: staleAfterMs ?? undefined,
       });
       if (!probe.success) {
+        const probeExit = probe.error?.exitCode ?? 1;
         cliError(
           probe.error?.message ?? 'Unknown error',
-          1,
+          probeExit,
           { name: probe.error?.code ?? 'E_PROJECTS_STATUS_FAILED', details: probe.error?.details },
           { operation: 'nexus.projects.status', duration_ms: Date.now() - startTime },
         );
-        process.exitCode = 1;
+        process.exitCode = probeExit;
         return;
       }
       const probed = probe.data as NexusProjectsStatusResult;
@@ -1882,7 +1883,8 @@ const projectsStatusCommand = defineCommand({
     const durationMs = Date.now() - startTime;
     if (!response.success) {
       const code = response.error?.code ?? 'E_PROJECTS_FLEET_FAILED';
-      const exitCode = code === 'E_NEXUS_DEVICE_NOT_FOUND' ? 4 : 1;
+      // The typed error's own exit class: 75 unreadable registry, 4 unknown device.
+      const exitCode = response.error?.exitCode ?? 1;
       cliError(
         response.error?.message ?? 'Unknown error',
         exitCode,

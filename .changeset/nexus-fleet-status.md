@@ -5,6 +5,16 @@ kind: feat
 summary: "`cleo nexus projects status` is now a fleet view: every project, where it lives on each device, and its last recorded git state (branch, HEAD, dirty, ahead/behind as of the last fetch) with probe, fetch and heartbeat staleness; paged with counts first, filters for missing/dirty/behind/ahead/stale/errored/device, and a live re-probe only with --refresh. Registry reads now fail with a typed E_NEXUS_REGISTRY_READ error instead of returning an empty list, and last_probed_at is separate from last_opened_at"
 ---
 
+**Breaking — `cleo nexus projects status` output shape.** v2026.9.21–9.23
+shipped this command as T12511's probe, which returned `rows`,
+`otherDevices`, `count` and `summary.{ok,errored,timedOut,dirty,remoteStale}`
+and ran git on every call. It now returns the fleet view below and reads
+recorded rows only. Scripts that read `--field /data/rows` or
+`/data/otherDevices` must switch to `/data/projects` (each project's
+`locations[].git`). To keep the old probe-then-read behaviour, pass
+`--refresh`; the probe's own counts are then under `/data/refresh`. The mutate
+dispatch operation `nexus.projects.status` still returns the old shape.
+
 `cleo nexus projects status` reads the probe rows that T12511 records. It does
 not run git, open any project's own store, or fetch. It returns:
 
@@ -63,3 +73,15 @@ default:
   once a minute. `cleo doctor` does not count as use.
 
 The migration also indexes `last_opened_at`.
+
+`last_seen` keeps one meaning: the last identity or location write to the
+registry row (registration, a new or moved checkout, reconcile, rename, index
+stats). It is not bumped on every command. Anything that asks "recently
+active" reads one accessor, `projectLastActivity` = max(`last_seen`,
+`last_opened_at`, `last_probed_at`). The temp-project GC, project-name
+disambiguation and the Studio project list all use it, so a non-git project
+opened daily is never offered for removal as inactive.
+
+`E_NEXUS_REGISTRY_READ` (exit 75, shared with `E_NEXUS_REGISTRY_CORRUPT`) and
+`E_NEXUS_DEVICE_NOT_FOUND` (exit 4) are in the gateway error-code catalog. The
+command exits with the typed error's own exit code.

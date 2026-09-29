@@ -28,6 +28,9 @@
  * 6. One `GROUP BY device_id` pass for the per-device summary.
  * 7. The device table (one row per machine).
  *
+ * `summary` and `devices` are scoped by the `device` filter only; the flag
+ * filters narrow `matched` and the page, never those counts.
+ *
  * Filters are one correlated `EXISTS` per registry row, and every join is on
  * the `(project_id, device_id, path)` primary key both location tables share,
  * so no statement scans a table per project.

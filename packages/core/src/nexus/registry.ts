@@ -62,6 +62,7 @@ import {
   recordCandidateLocation,
   recordProjectCheckout,
 } from './path-map.js';
+import { projectLastActivitySql } from './project-activity.js';
 import {
   NexusDeviceNotFoundError,
   NexusRegistryReadError,
@@ -721,7 +722,7 @@ export async function nexusList(
 export class NexusProjectAmbiguityError extends CleoError {
   /** Stable machine-readable error code. */
   readonly codeName = 'E_NEXUS_PROJECT_AMBIGUOUS';
-  /** Every matching project, most recently seen first. */
+  /** Every matching project, most recently active first (`projectLastActivity`). */
   readonly candidates: NexusProjectCandidate[];
 
   /**
@@ -784,7 +785,8 @@ export async function nexusGetProject(
     // cross-project open can close mid-query.
     const row = await withLiveNexusDb(async (db) => {
       // T12469: the immutable id is the key, so it wins; a path hash is not
-      // unique, so among hash/name matches the most recently seen row wins.
+      // unique, so among hash/name matches the most recently active row wins
+      // (max of last_seen/last_opened_at/last_probed_at, T12512).
       let rows = await db
         .select()
         .from(projectRegistry)
@@ -794,7 +796,7 @@ export async function nexusGetProject(
           .select()
           .from(projectRegistry)
           .where(eq(projectRegistry.projectHash, nameOrHash))
-          .orderBy(desc(projectRegistry.lastSeen));
+          .orderBy(desc(projectLastActivitySql));
       }
       if (rows.length === 0) {
         // T12510: a name is not unique. One match resolves; several are
@@ -803,7 +805,7 @@ export async function nexusGetProject(
           .select()
           .from(projectRegistry)
           .where(eq(projectRegistry.name, nameOrHash))
-          .orderBy(desc(projectRegistry.lastSeen));
+          .orderBy(desc(projectLastActivitySql));
         if (rows.length > 1) throw new NexusProjectAmbiguityError(nameOrHash, rows);
       }
       if (rows.length === 0) {
@@ -815,7 +817,7 @@ export async function nexusGetProject(
             .select()
             .from(projectRegistry)
             .where(inArray(projectRegistry.projectId, [...alias.claimants]))
-            .orderBy(desc(projectRegistry.lastSeen));
+            .orderBy(desc(projectLastActivitySql));
           throw new NexusProjectAmbiguityError(nameOrHash, claimed, 'alias');
         }
         if (alias.status === 'resolved') {
@@ -963,7 +965,7 @@ export async function nexusUpdateIndexStats(
     const { eq } = await import('drizzle-orm');
     const db = await getNexusDb();
 
-    // T12469: a path hash is not unique; the most recently seen row for this
+    // T12469: a path hash is not unique; the most recently active row for this
     // checkout is the one being indexed, and it is updated by its id.
     const ownerAt = async () =>
       (
@@ -971,7 +973,7 @@ export async function nexusUpdateIndexStats(
           .select({ projectId: projectRegistry.projectId })
           .from(projectRegistry)
           .where(eq(projectRegistry.projectHash, projectHash))
-          .orderBy(desc(projectRegistry.lastSeen))
+          .orderBy(desc(projectLastActivitySql))
           .limit(1)
       )[0];
     let owner = await ownerAt();

@@ -1653,7 +1653,12 @@ export interface NexusProjectsFleetResult {
   generatedAt: string;
   /** Device the command ran on. */
   currentDeviceId: string;
-  /** Fleet-wide counts of PROJECTS with at least one location in each condition (within `device`). */
+  /**
+   * Fleet-wide counts of PROJECTS with at least one location in each
+   * condition. Scoped by `device` ONLY — the flag filters (`missing`, `dirty`,
+   * `behind`, `ahead`, `stale`, `errored`) never narrow it, so it always shows
+   * the whole fleet (or the whole device) while `matched` counts the filter.
+   */
   summary: {
     /** Projects with a visible location. */
     located: number;
@@ -1674,7 +1679,11 @@ export interface NexusProjectsFleetResult {
     /** Projects with a never-probed location. */
     unprobed: number;
   };
-  /** Every device holding a visible location or known by heartbeat, with counts. */
+  /**
+   * Every device holding a visible location or known by heartbeat, with
+   * per-device location counts. Like `summary`, scoped by `device` only —
+   * never by the flag filters.
+   */
   devices: NexusFleetDeviceSummary[];
   /** This page of projects, by name then id. */
   projects: NexusFleetProject[];
