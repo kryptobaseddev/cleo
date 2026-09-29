@@ -7,14 +7,18 @@
  *   2. Poll the token endpoint every `interval` seconds until the user
  *      approves, the code expires, or a non-recoverable error is returned.
  *
- * ## Provider scope
+ * ## Scope
  *
- * Device-code OAuth is used by **kimi-code** only. Anthropic uses RFC 7636
- * PKCE (see `pkce.ts` and `builtin/anthropic.ts`). The `anthropic` preset
- * was removed in T9326 — PKCE is the canonical Anthropic OAuth path per T9302.
+ * The runner is provider-neutral. Among LLM providers, device-code OAuth is
+ * used by **kimi-code** only; Anthropic uses RFC 7636 PKCE (see `pkce.ts` and
+ * `builtin/anthropic.ts`). The `anthropic` preset was removed in T9326 — PKCE
+ * is the canonical Anthropic OAuth path per T9302. The Cleo Nexus account
+ * login (`cloud/nexus-auth.ts`, T12712) drives the same runner with
+ * `bodyEncoding: 'json'`.
  *
  * @module llm/oauth/device-code
  * @task T9321
+ * @task T12712
  * @epic T9261 T-LLM-CRED-CENTRALIZATION
  */
 
@@ -59,6 +63,15 @@ export interface DeviceCodeConfig {
    * `anthropic-version`).
    */
   defaultHeaders?: Record<string, string>;
+  /**
+   * Request body encoding. RFC 8628 specifies `form`
+   * (`application/x-www-form-urlencoded`), the default. Servers that accept
+   * only JSON on the token endpoint (better-auth, used by Cleo Nexus) set
+   * `json`.
+   */
+  bodyEncoding?: 'form' | 'json';
+  /** `fetch` override for tests and custom transports. Defaults to the global `fetch`. */
+  fetch?: (input: string, init?: RequestInit) => Promise<Response>;
 }
 
 /**
@@ -226,17 +239,28 @@ const POLL_INTERVAL_CAP_SECONDS = 30;
  */
 function buildHeaders(cfg: DeviceCodeConfig): Record<string, string> {
   return {
-    'Content-Type': 'application/x-www-form-urlencoded',
+    'Content-Type':
+      cfg.bodyEncoding === 'json' ? 'application/json' : 'application/x-www-form-urlencoded',
     Accept: 'application/json',
     ...cfg.defaultHeaders,
   };
 }
 
 /**
- * Encode a plain record as `application/x-www-form-urlencoded`.
+ * Encode a plain record per `cfg.bodyEncoding`: `application/x-www-form-urlencoded`
+ * by default, JSON when the config asks for it.
  */
-function encodeForm(params: Record<string, string>): string {
-  return new URLSearchParams(params).toString();
+function encodeBody(cfg: DeviceCodeConfig, params: Record<string, string>): string {
+  return cfg.bodyEncoding === 'json'
+    ? JSON.stringify(params)
+    : new URLSearchParams(params).toString();
+}
+
+/** The config's `fetch`, else the global one. */
+function fetcherFor(
+  cfg: DeviceCodeConfig,
+): (input: string, init?: RequestInit) => Promise<Response> {
+  return cfg.fetch ?? ((input, init) => fetch(input, init));
 }
 
 // ---------------------------------------------------------------------------
@@ -257,10 +281,10 @@ export async function startDeviceCodeFlow(cfg: DeviceCodeConfig): Promise<Device
   const body: Record<string, string> = { client_id: cfg.clientId };
   if (cfg.scope) body['scope'] = cfg.scope;
 
-  const resp = await fetch(cfg.deviceCodeUrl, {
+  const resp = await fetcherFor(cfg)(cfg.deviceCodeUrl, {
     method: 'POST',
     headers: buildHeaders(cfg),
-    body: encodeForm(body),
+    body: encodeBody(cfg, body),
   });
 
   if (!resp.ok) {
@@ -324,6 +348,7 @@ export async function startDeviceCodeFlow(cfg: DeviceCodeConfig): Promise<Device
  *   iteration with `(elapsedSeconds, totalExpiresIn)`. Used by the CLI to
  *   print a live progress counter.
  * @param options.signal - Optional `AbortSignal` for cooperative cancellation.
+ * @param options.sleep - Optional wait override (tests); defaults to `setTimeout`.
  *
  * @throws {DeviceCodeTimeoutError} When `expiresIn` is reached without approval.
  * @throws {DeviceCodeAuthError} When the provider returns a non-recoverable error.
@@ -335,10 +360,13 @@ export async function pollForToken(
   options?: {
     onPending?: (elapsed: number, expiresIn: number) => void;
     signal?: AbortSignal;
+    sleep?: (ms: number) => Promise<void>;
   },
 ): Promise<DeviceCodeTokenResponse> {
   const { deviceCode, expiresIn, interval } = startResp;
   const { onPending, signal } = options ?? {};
+  const sleep = options?.sleep ?? defaultSleep;
+  const doFetch = fetcherFor(cfg);
 
   const deadline = Date.now() + expiresIn * 1000;
   let currentInterval = Math.max(1, Math.min(interval, POLL_INTERVAL_CAP_SECONDS));
@@ -352,10 +380,10 @@ export async function pollForToken(
 
     let resp: Response;
     try {
-      resp = await fetch(cfg.tokenUrl, {
+      resp = await doFetch(cfg.tokenUrl, {
         method: 'POST',
         headers: buildHeaders(cfg),
-        body: encodeForm({
+        body: encodeBody(cfg, {
           grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
           client_id: cfg.clientId,
           device_code: deviceCode,
@@ -437,6 +465,6 @@ export async function pollForToken(
  *
  * @internal
  */
-function sleep(ms: number): Promise<void> {
+function defaultSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

@@ -57,6 +57,12 @@ import {
 } from '@cleocode/core/llm/oauth/pkce.js';
 import { getKimiCodeMshHeaders } from '@cleocode/core/llm/provider-registry/builtin/kimi-code.js';
 import { getProviderProfile, listProviders } from '@cleocode/core/llm/provider-registry/index.js';
+import {
+  writeDeviceCodeApproved,
+  writeDeviceCodeInterrupted,
+  writeDeviceCodePending,
+  writeDeviceCodePrompt,
+} from '../lib/device-code-prompt.js';
 
 // Re-export for tests that need to mock it.
 export { refreshPkceToken };
@@ -526,27 +532,13 @@ async function _runKimiCodeLogin(
     );
   }
 
-  process.stderr.write('\n');
-  process.stderr.write(
-    `  Visit:      ${startResp.verificationUriComplete ?? startResp.verificationUri}\n`,
-  );
-  process.stderr.write(`  Enter code: ${startResp.userCode}\n`);
-  process.stderr.write('\n');
-  process.stderr.write(
-    `  Waiting for Kimi Code authorization (up to ${Math.round(startResp.expiresIn / 60)} min)...\n`,
-  );
+  writeDeviceCodePrompt(startResp, 'Kimi Code');
 
   let tokenResp: Awaited<ReturnType<typeof pollForToken>>;
   try {
-    tokenResp = await pollForToken(cfg, startResp, {
-      onPending: (elapsed: number) => {
-        // In-place progress during device-code polling; stderr per ADR-086,
-        // and the sanctioned handle is stdout-only. See the note above.
-        process.stderr.write(`\r  Polling... ${elapsed}s elapsed`); // raw-cr-allowed
-      },
-    });
+    tokenResp = await pollForToken(cfg, startResp, { onPending: writeDeviceCodePending });
   } catch (err: unknown) {
-    process.stderr.write('\n');
+    writeDeviceCodeInterrupted();
 
     if (err instanceof DeviceCodeTimeoutError) {
       return _errorResult('E_DEVICE_CODE_TIMEOUT', err.message, meta);
@@ -562,8 +554,7 @@ async function _runKimiCodeLogin(
     );
   }
 
-  // Clears the `Polling...` line above; stderr per ADR-086.
-  process.stderr.write('\r  Kimi Code authorization approved.              \n\n'); // raw-cr-allowed
+  writeDeviceCodeApproved('Kimi Code');
 
   const label = opts.label ?? 'oauth-login';
   const expiresAt =
