@@ -8,9 +8,10 @@
  * @task T12664
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   type DecisionAnswer,
   type DecisionOutcome,
@@ -36,13 +37,14 @@ import {
   LAYAHOST_EXTENSION_CAPABILITIES,
   toJevSystemOneBody,
 } from '../jev-wire.js';
-import { probeDecideProvider } from '../operations.js';
+import { probeDecideProvider, resetDecideBudget, SPEND_LEDGER_REPAIR_HINT } from '../operations.js';
 import { type DecisionProvider, DecisionProviderError } from '../provider.js';
 import { _resetProviderStateMemoForTest, USAGE_REFRESH_MS } from '../provider-state.js';
 import { DECISION_SITES } from '../sites/registry.js';
 import {
   createFileSpendLedger,
   createMemorySpendLedger,
+  inspectSpendLedger,
   startOfNextUtcMonth,
   utcMonth,
 } from '../spend.js';
@@ -88,6 +90,97 @@ async function rejected(promise: Promise<unknown>): Promise<DecisionProviderErro
 }
 
 const signal = (): AbortSignal => new AbortController().signal;
+
+/** The provider's own OpenAPI, trimmed (`fixtures/layahost-openapi.trimmed.json`). */
+const SPEC: SpecNode = JSON.parse(
+  readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'layahost-openapi.trimmed.json'),
+    'utf-8',
+  ),
+);
+
+/** A JSON-schema node as far as these checks read it. */
+type SpecNode = { readonly [key: string]: unknown };
+
+function node(value: unknown): SpecNode {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? Object.fromEntries(Object.entries(value))
+    : {};
+}
+
+/** Follow `$ref`s within the spec. */
+function deref(schema: SpecNode): SpecNode {
+  const ref = schema['$ref'];
+  if (typeof ref !== 'string') return schema;
+  return deref(
+    ref
+      .replace(/^#\//, '')
+      .split('/')
+      .reduce<SpecNode>((n, k) => node(n[k]), SPEC),
+  );
+}
+
+/**
+ * Problems with `value` against a spec schema: type, required, properties,
+ * items and enum — enough to catch a wire shape the provider does not speak.
+ */
+function conforms(schemaIn: SpecNode, value: unknown, path = '$'): string[] {
+  const schema = deref(schemaIn);
+  const type = schema['type'];
+  const problems: string[] = [];
+  const is = (t: string): boolean =>
+    t === 'integer'
+      ? Number.isInteger(value)
+      : t === 'array'
+        ? Array.isArray(value)
+        : t === 'object'
+          ? value !== null && typeof value === 'object' && !Array.isArray(value)
+          : typeof value === t;
+  if (typeof type === 'string' && !is(type)) return [`${path}: expected ${type}`];
+  const en = schema['enum'];
+  if (Array.isArray(en) && !en.includes(value)) problems.push(`${path}: not in enum`);
+  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+    const obj = node(value);
+    const req = schema['required'];
+    if (Array.isArray(req))
+      for (const k of req) if (!(String(k) in obj)) problems.push(`${path}.${String(k)}: required`);
+    const props = node(schema['properties']);
+    for (const [k, v] of Object.entries(obj)) {
+      if (k in props) problems.push(...conforms(node(props[k]), v, `${path}.${k}`));
+      else if (
+        schema['additionalProperties'] &&
+        typeof schema['additionalProperties'] === 'object'
+      ) {
+        problems.push(...conforms(node(schema['additionalProperties']), v, `${path}.${k}`));
+      }
+    }
+  }
+  if (Array.isArray(value) && schema['items']) {
+    value.forEach((v, i) => problems.push(...conforms(node(schema['items']), v, `${path}[${i}]`)));
+  }
+  return problems;
+}
+
+/** The spec schema of an operation's JSON request or response. */
+function specSchema(path: string, method: string, part: 'request' | string): SpecNode {
+  const op = node(node(node(SPEC['paths'])[path])[method]);
+  const holder = part === 'request' ? node(op['requestBody']) : node(node(op['responses'])[part]);
+  return node(node(node(holder['content'])['application/json'])['schema']);
+}
+
+/** A spec-conformant SystemOneResponse body. */
+const SPEC_OK_BODY = {
+  model: 'laya-auto',
+  answers: { dup: { type: 'noul', noul: 0.9, confidence: 0.8 } },
+  usage: { input_tokens: 12, output_tokens: 0 },
+  meta: {
+    request_id: 'req_1',
+    checkpoint: 'laya-en-0926',
+    cost_micros: 15,
+    decisions: 1,
+    cached: false,
+  },
+};
 
 describe('jev-wire/2 — errors, cost and extensions', () => {
   it('is adapter version jev-wire/2', () => {
@@ -176,25 +269,79 @@ describe('jev-wire/2 — errors, cost and extensions', () => {
 });
 
 describe('decideBatch on the wire', () => {
-  it('POSTs /v1/systemone/batch and maps each item, failed ones by kind', async () => {
-    const fetchStub = routes({
-      '/v1/systemone/batch': () =>
-        jsonResponse(200, {
-          results: [
-            { status: 200, ...OK_BODY },
-            { status: 402, detail: { error_type: 'insufficient_credits' } },
-          ],
-        }),
+  it('reads the spec shape {responses:[{index,status,body}]}, placing items by index (review of #1685)', async () => {
+    // Out of order on purpose: index, not array position, places an item.
+    const response = {
+      responses: [
+        {
+          index: 1,
+          status: 402,
+          body: { detail: { error_type: 'insufficient_credits', message: 'x' } },
+        },
+        { index: 0, status: 200, body: SPEC_OK_BODY },
+      ],
+      request_id: 'batch_1',
+    };
+    expect(conforms(specSchema('/v1/systemone/batch', 'post', '200'), response)).toEqual([]);
+    const fetchStub = routes({ '/v1/systemone/batch': () => jsonResponse(200, response) });
+    const provider = createJevProvider(
+      { ...connection, model: 'laya-auto' },
+      { fetch: fetchStub, capabilities: LAYAHOST_EXTENSION_CAPABILITIES },
+    );
+    const items = (await provider.decideBatch?.([REQUEST, REQUEST], signal())) ?? [];
+    expect(items[0]).toMatchObject({
+      ok: true,
+      outcome: { costMicros: 15, checkpoint: 'laya-en-0926', requestId: 'req_1' },
     });
+    expect(items[1]).toEqual({ ok: false, status: 402, errorKind: 'insufficient_credits' });
+    const sent = JSON.parse(String(fetchStub.mock.calls[0]?.[1]?.body));
+    expect(conforms(specSchema('/v1/systemone/batch', 'post', 'request'), sent)).toEqual([]);
+    expect(sent.requests).toHaveLength(2);
+  });
+
+  it('rejects a batch response whose index is out of range or repeated', async () => {
     const provider = createJevProvider(connection, {
-      fetch: fetchStub,
+      fetch: routes({
+        '/v1/systemone/batch': () =>
+          jsonResponse(200, {
+            responses: [
+              { index: 0, status: 200, body: SPEC_OK_BODY },
+              { index: 0, status: 200, body: SPEC_OK_BODY },
+            ],
+          }),
+      }),
       capabilities: LAYAHOST_EXTENSION_CAPABILITIES,
     });
-    const items = (await provider.decideBatch?.([REQUEST, REQUEST], signal())) ?? [];
-    expect(items[0]).toMatchObject({ ok: true });
-    expect(items[1]).toEqual({ ok: false, status: 402, errorKind: 'insufficient_credits' });
-    const body = JSON.parse(String(fetchStub.mock.calls[0]?.[1]?.body));
-    expect(body.requests).toHaveLength(2);
+    const err = await rejected(
+      provider.decideBatch?.([REQUEST, REQUEST], signal()) ?? Promise.resolve(),
+    );
+    expect(err.kind).toBe('invalid_response');
+  });
+
+  it('sends a /v1/systemone body the spec accepts, and reads a spec response', async () => {
+    const fetchStub = routes({ '/v1/systemone': () => jsonResponse(200, SPEC_OK_BODY) });
+    expect(conforms(specSchema('/v1/systemone', 'post', '200'), SPEC_OK_BODY)).toEqual([]);
+    const provider = createJevProvider(
+      { ...connection, model: 'laya-auto' },
+      { fetch: fetchStub, capabilities: LAYAHOST_EXTENSION_CAPABILITIES },
+    );
+    const outcome = await provider.decide({ ...REQUEST, lang: 'en', cache: false }, signal());
+    expect(outcome).toMatchObject({ costMicros: 15, checkpoint: 'laya-en-0926' });
+    const sent = JSON.parse(String(fetchStub.mock.calls[0]?.[1]?.body));
+    expect(conforms(specSchema('/v1/systemone', 'post', 'request'), sent)).toEqual([]);
+    expect(sent).toMatchObject({ model: 'laya-auto', lang: 'en', cache: false });
+  });
+
+  it('treats a 429 insufficient_quota (empty balance) as credit exhaustion, not a rate limit', async () => {
+    const provider = createJevProvider(connection, {
+      fetch: routes({
+        '/v1/systemone': () =>
+          jsonResponse(429, { detail: { error_type: 'insufficient_quota', message: 'empty' } }),
+      }),
+    });
+    const err = await rejected(provider.decide(REQUEST, signal()));
+    expect(err.kind).toBe('insufficient_credits');
+    expect(err.kind).not.toBe('unauthorized');
   });
 
   it('refuses a batch beyond the provider limits', async () => {
@@ -214,12 +361,23 @@ describe('decideBatch on the wire', () => {
 
 describe('detectJevCapabilities — from responses, never the host name', () => {
   it('finds the layahost extensions and templates when /v1/usage answers', async () => {
+    expect(
+      conforms(specSchema('/v1/templates', 'get', '200'), {
+        templates: [{ template: 'spam', name: 'Spam', type: 'yes_no' }],
+      }),
+    ).toEqual([]);
     const result = await detectJevCapabilities(connection, signal(), {
       fetch: routes({
         '/v1/usage': () =>
           jsonResponse(200, { balance: { micros: 900, decisions_left: 60 }, plan: 'starter' }),
+        // Spec shape: `template` is the id, `name` a display label.
         '/v1/templates': () =>
-          jsonResponse(200, { templates: [{ name: 'prompt_injection' }, 'spam'] }),
+          jsonResponse(200, {
+            templates: [
+              { template: 'prompt_injection', name: 'Prompt injection', type: 'yes_no' },
+              { template: 'spam', name: 'Spam', type: 'yes_no' },
+            ],
+          }),
       }),
     });
     expect(result.capabilities).toMatchObject({
@@ -245,12 +403,12 @@ describe('spend ledger (D11159)', () => {
   it('degrades once month-to-date spend reaches the cap, and rolls over with the UTC month', async () => {
     let now = Date.UTC(2026, 8, 30, 23, 0);
     const ledger = createMemorySpendLedger({ now: () => now });
-    expect(await ledger.check(100)).toBe('ok');
+    expect((await ledger.reserve(100, 0)).verdict).toBe('ok');
     await ledger.record(60);
     await ledger.record(40);
-    expect(await ledger.check(100)).toBe('over_budget');
+    expect((await ledger.reserve(100, 0)).verdict).toBe('over_budget');
     now = Date.UTC(2026, 9, 1, 0, 1);
-    expect(await ledger.check(100)).toBe('ok');
+    expect((await ledger.reserve(100, 0)).verdict).toBe('ok');
     expect((await ledger.status())?.month).toBe('2026-10');
   });
 
@@ -258,10 +416,10 @@ describe('spend ledger (D11159)', () => {
     let now = Date.UTC(2026, 8, 15);
     const ledger = createMemorySpendLedger({ now: () => now });
     await ledger.markKeyLimited();
-    expect(await ledger.check(1_000_000)).toBe('key_limited');
+    expect((await ledger.reserve(1_000_000, 0)).verdict).toBe('key_limited');
     expect((await ledger.status())?.keyLimitedUntil).toBe(startOfNextUtcMonth(now));
     now = Date.UTC(2026, 9, 1);
-    expect(await ledger.check(1_000_000)).toBe('ok');
+    expect((await ledger.reserve(1_000_000, 0)).verdict).toBe('ok');
   });
 
   it('shares state across ledgers on the same file (cross-process)', async () => {
@@ -272,12 +430,69 @@ describe('spend ledger (D11159)', () => {
       const b = createFileSpendLedger({ statePath });
       await a.record(700);
       await b.record(300);
-      expect(await a.check(1000)).toBe('over_budget');
+      expect((await a.reserve(1000, 0)).verdict).toBe('over_budget');
       expect((await b.status())?.spentMicros).toBe(1000);
       expect((await b.status())?.month).toBe(utcMonth(Date.now()));
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('spend ledger under concurrency and corruption (review of #1685)', () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'spend-race-'));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('loses no cost when 40 records race on one file', async () => {
+    const statePath = join(dir, 'spend.json');
+    const ledgers = Array.from({ length: 40 }, () => createFileSpendLedger({ statePath }));
+    await Promise.all(ledgers.map((l) => l.record(1000)));
+    expect((await createFileSpendLedger({ statePath }).status())?.spentMicros).toBe(40_000);
+  });
+
+  it('reserves under the cap check, so 40 racing callers cannot overshoot it', async () => {
+    const statePath = join(dir, 'spend.json');
+    const ledgers = Array.from({ length: 40 }, () => createFileSpendLedger({ statePath }));
+    const verdicts = await Promise.all(ledgers.map((l) => l.reserve(100, 10)));
+    expect(verdicts.filter((v) => v.verdict === 'unavailable')).toEqual([]);
+    expect(verdicts.filter((v) => v.verdict === 'ok')).toHaveLength(10);
+    expect(verdicts.filter((v) => v.verdict === 'over_budget')).toHaveLength(30);
+  });
+
+  it('commits the reported cost in place of the reservation; release frees it', async () => {
+    const ledger = createMemorySpendLedger();
+    const a = await ledger.reserve(100, 40);
+    const b = await ledger.reserve(100, 40);
+    expect((await ledger.reserve(100, 40)).verdict).toBe('over_budget');
+    await ledger.commit(a.id ?? '', 15);
+    await ledger.release(b.id ?? '');
+    expect(await ledger.status()).toMatchObject({ spentMicros: 15, reservedMicros: 0 });
+  });
+
+  it('a corrupt ledger fails closed, status names the repair, and budget reset repairs it', async () => {
+    const statePath = join(dir, 'spend.json');
+    writeFileSync(statePath, '{not json');
+    const ledger = createFileSpendLedger({ statePath });
+    expect((await ledger.reserve(1_000_000, 15)).verdict).toBe('unavailable');
+    expect(inspectSpendLedger(statePath)).toBe('corrupt');
+    const status = await probeDecideProvider({
+      connection: null,
+      spendStatePath: statePath,
+      spend: ledger,
+    });
+    expect(status.spendLedger).toBe('corrupt');
+    expect(status.detail).toContain(SPEND_LEDGER_REPAIR_HINT);
+    expect(status.detail).toContain('cleo decide budget reset');
+    const receipt = await resetDecideBudget(statePath);
+    expect(receipt.before).toBe('corrupt');
+    expect(receipt.backupPath && existsSync(receipt.backupPath)).toBe(true);
+    expect(readFileSync(receipt.backupPath ?? '', 'utf-8')).toBe('{not json');
+    expect((await ledger.reserve(1_000_000, 15)).verdict).toBe('ok');
   });
 });
 
@@ -375,7 +590,7 @@ describe('client — spend cap, key limit, circuit breaker, batch', () => {
   it('never rejects: a spend ledger that cannot be read degrades to the heuristic', async () => {
     const spend = {
       ...createMemorySpendLedger(),
-      check: async () => 'unavailable' as const,
+      reserve: async () => ({ verdict: 'unavailable' as const }),
     };
     const opts = wiring({ spend, provider: { decide: vi.fn(async () => OUTCOME) } });
     const outcome = await decide('s', REQUEST, heuristic, opts);

@@ -39,8 +39,12 @@ import { DECIDE_ASK_DECISION_SITE, DECISION_SITES } from './sites/registry.js';
 import {
   createFileSpendLedger,
   DEFAULT_MONTHLY_SPEND_CAP_MICROS,
+  inspectSpendLedger,
   MONTHLY_SPEND_CAP_KEY,
+  resetSpendLedger,
   type SpendLedger,
+  type SpendLedgerHealth,
+  type SpendResetReceipt,
 } from './spend.js';
 
 /** Default deadline for the `GET /v1/models` probe, ms. */
@@ -72,6 +76,8 @@ export interface DecideSpendSummary {
   readonly month: string;
   /** Micro-dollars recorded this month. */
   readonly spentMicros: number;
+  /** Micro-dollars reserved by calls in flight. */
+  readonly reservedMicros: number;
   /** The cap, micro-dollars (`decide.budget.monthlyMicros`). */
   readonly capMicros: number;
   /** Whether sites are degraded to their heuristics because the cap is reached. */
@@ -108,6 +114,8 @@ export interface DecideProbeResult {
   readonly usage?: DecisionProviderUsage & { readonly fetchedAt: string };
   /** Month-to-date spend against the cap. */
   readonly spend?: DecideSpendSummary;
+  /** Spend-ledger health; `corrupt` or `unavailable` means every site falls back. */
+  readonly spendLedger?: SpendLedgerHealth;
 }
 
 /** Options for {@link probeDecideProvider}. */
@@ -122,6 +130,8 @@ export interface DecideProbeOptions {
   readonly spend?: SpendLedger | null;
   /** Monthly cap, micro-dollars. Default: `decide.budget.monthlyMicros`, else $1. */
   readonly capMicros?: number;
+  /** Spend-ledger path to inspect. Default: `<cleoHome>/decide/spend.json`. */
+  readonly spendStatePath?: string;
   /** Provider-state file (capabilities + usage cache). Default: `<cleoHome>/decide/provider-state.json`. */
   readonly providerStatePath?: string;
   /** Wall clock, epoch ms. Default `Date.now`. */
@@ -130,6 +140,15 @@ export interface DecideProbeOptions {
 
 const KEY_LIMIT_DETAIL =
   "The key's monthly decision limit is reached (403 key_limit_exceeded). The key itself is fine: decisions resume when the UTC month rolls over, or raise the limit in the provider console.";
+
+/** Message naming the repair for a ledger that cannot be read. */
+export const SPEND_LEDGER_REPAIR_HINT =
+  'The System One spend ledger cannot be read, so every site uses its heuristic (the cap fails closed). Run `cleo decide budget reset` to start a fresh ledger; the old file is kept as a receipt.';
+
+/** `{ detail }` when there is one, else nothing. */
+function optionalDetail(detail: string | undefined): { detail?: string } {
+  return detail ? { detail } : {};
+}
 
 /** Month-to-date spend, or undefined when the ledger is disabled or unreadable. */
 async function spendSummary(opts: DecideProbeOptions): Promise<DecideSpendSummary | undefined> {
@@ -153,6 +172,7 @@ async function spendSummary(opts: DecideProbeOptions): Promise<DecideSpendSummar
   return {
     month: status.month,
     spentMicros: status.spentMicros,
+    reservedMicros: status.reservedMicros,
     capMicros,
     capReached: status.spentMicros >= capMicros,
     ...(status.keyLimitedUntil !== undefined
@@ -192,13 +212,18 @@ export async function probeDecideProvider(
   const sites = DECISION_SITES.length;
   const sealed = opts.connection === undefined ? loadDecideConnection() : opts.connection;
   const spend = await spendSummary(opts);
+  const spendLedger = opts.spend === null ? undefined : inspectSpendLedger(opts.spendStatePath);
+  const ledgerBroken = spendLedger === 'corrupt' || spendLedger === 'unavailable';
+  const withHint = (detail: string | undefined): string | undefined =>
+    ledgerBroken ? [detail, SPEND_LEDGER_REPAIR_HINT].filter(Boolean).join(' ') : detail;
   if (!sealed) {
     return {
       state: 'unconfigured',
       modelsEndpoint: 'skipped',
-      detail: 'Run `cleo decide config`.',
+      detail: withHint('Run `cleo decide config`.'),
       sites,
       ...(spend ? { spend } : {}),
+      ...(spendLedger ? { spendLedger } : {}),
     };
   }
   const base = {
@@ -207,6 +232,7 @@ export async function probeDecideProvider(
     ...(sealed.model ? { model: sealed.model } : {}),
     sites,
     ...(spend ? { spend } : {}),
+    ...(spendLedger ? { spendLedger } : {}),
   };
   const now = opts.now ?? Date.now;
   const started = performance.now();
@@ -245,11 +271,9 @@ export async function probeDecideProvider(
       models,
       httpStatus: 200,
       latencyMs: Math.round(performance.now() - started),
-      ...(keyLimited
-        ? { detail: KEY_LIMIT_DETAIL }
-        : sealed.model
-          ? {}
-          : { detail: NO_MODEL_WARNING }),
+      ...optionalDetail(
+        withHint(keyLimited ? KEY_LIMIT_DETAIL : sealed.model ? undefined : NO_MODEL_WARNING),
+      ),
     };
   } catch (err) {
     const verdict = stateForError(err);
@@ -259,12 +283,15 @@ export async function probeDecideProvider(
       ...verdict,
       modelsEndpoint: 'failed',
       latencyMs: Math.round(performance.now() - started),
-      detail:
-        verdict.state === 'key_limit_reached'
-          ? KEY_LIMIT_DETAIL
-          : err instanceof Error
-            ? err.message
-            : 'probe failed',
+      ...optionalDetail(
+        withHint(
+          verdict.state === 'key_limit_reached'
+            ? KEY_LIMIT_DETAIL
+            : err instanceof Error
+              ? err.message
+              : 'probe failed',
+        ),
+      ),
     };
   }
 }
@@ -459,4 +486,16 @@ export async function askDecideDebug(input: DecideAskInput): Promise<DecideAskRe
     ...(sealed?.model ? { model: sealed.model } : {}),
     ...(sealed ? { keyPreview: sealed.keyPreview } : {}),
   };
+}
+
+/**
+ * `cleo decide budget reset`: start a fresh spend ledger for this month,
+ * moving the old file aside as a receipt. The repair for a corrupt ledger,
+ * which otherwise keeps every site on its heuristic.
+ *
+ * @param statePath - Ledger path. Default: `<cleoHome>/decide/spend.json`.
+ * @returns The receipt: previous health and where the old file went.
+ */
+export async function resetDecideBudget(statePath?: string): Promise<SpendResetReceipt> {
+  return resetSpendLedger(statePath);
 }

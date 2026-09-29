@@ -41,6 +41,7 @@ export {
 } from './cache.js';
 export {
   _resetDecideDefaultsForTest,
+  DECISION_COST_ESTIMATE_MICROS_PER_QUESTION,
   DEFAULT_DECISION_TIMEOUT_MS,
   type DecideOptions,
   type DecisionBatchEntry,
@@ -102,6 +103,8 @@ export {
   type DecideProviderState,
   type DecideSpendSummary,
   probeDecideProvider,
+  resetDecideBudget,
+  SPEND_LEDGER_REPAIR_HINT,
 } from './operations.js';
 export {
   type DecisionProvider,
@@ -150,9 +153,15 @@ export {
   DEFAULT_MONTHLY_SPEND_CAP_MICROS,
   defaultSpendStatePath,
   type FileSpendLedgerOptions,
+  inspectSpendLedger,
   MONTHLY_SPEND_CAP_KEY,
+  RESERVATION_TTL_MS,
+  resetSpendLedger,
   type SpendLedger,
+  type SpendLedgerHealth,
   type SpendLedgerOptions,
+  type SpendReservation,
+  type SpendResetReceipt,
   type SpendStatus,
   type SpendVerdict,
   startOfNextUtcMonth,

@@ -255,25 +255,65 @@ interface Gates {
   readonly capMicros: number;
 }
 
-/** Spend cap then request budget; `null` when the call may go ahead. */
-async function passGates(gates: Gates): Promise<DecisionFallbackReason | null> {
+/**
+ * Cost reserved per question before a call, micro-dollars. Only a
+ * reservation: the provider-reported cost replaces it on commit, so this is
+ * never what is recorded (layahost bills 5–15 µ$ per decision, 2026-09).
+ */
+export const DECISION_COST_ESTIMATE_MICROS_PER_QUESTION = 15;
+
+/** Estimated cost of asking `reqs`. */
+function estimateMicros(reqs: readonly DecisionRequest[]): number {
+  return reqs.reduce(
+    (n, r) => n + Object.keys(r.questions).length * DECISION_COST_ESTIMATE_MICROS_PER_QUESTION,
+    0,
+  );
+}
+
+type GateResult =
+  | { readonly ok: true; readonly reservation?: string }
+  | { readonly ok: false; readonly reason: DecisionFallbackReason };
+
+/**
+ * Spend cap (check and reserve, atomically) then request budget. A
+ * reservation is released again when the budget refuses.
+ */
+async function passGates(gates: Gates, estimate: number): Promise<GateResult> {
+  let reservation: string | undefined;
   if (gates.spend) {
-    const verdict = await gates.spend.check(gates.capMicros);
-    if (verdict === 'over_budget') return 'budget';
-    if (verdict === 'key_limited') return 'key_limit_exceeded';
-    if (verdict === 'unavailable') return 'budget_unavailable';
+    const r = await gates.spend.reserve(gates.capMicros, estimate);
+    if (r.verdict === 'over_budget') return { ok: false, reason: 'budget' };
+    if (r.verdict === 'key_limited') return { ok: false, reason: 'key_limit_exceeded' };
+    if (r.verdict === 'unavailable') return { ok: false, reason: 'budget_unavailable' };
+    reservation = r.id;
   }
   if (gates.budget) {
     const grant = await gates.budget.tryAcquire();
     if (!grant.granted) {
-      return grant.reason === 'exhausted'
-        ? 'budget_exhausted'
-        : grant.reason === 'cooling_down'
-          ? 'budget_cooling_down'
-          : 'budget_unavailable';
+      if (reservation !== undefined) await gates.spend?.release(reservation);
+      return {
+        ok: false,
+        reason:
+          grant.reason === 'exhausted'
+            ? 'budget_exhausted'
+            : grant.reason === 'cooling_down'
+              ? 'budget_cooling_down'
+              : 'budget_unavailable',
+      };
     }
   }
-  return null;
+  return { ok: true, ...(reservation !== undefined ? { reservation } : {}) };
+}
+
+/** Commit the reported cost against a reservation (or record it when there is none). */
+async function settle(
+  gates: Gates,
+  reservation: string | undefined,
+  micros: number,
+): Promise<void> {
+  if (!gates.spend) return;
+  if (reservation !== undefined) await gates.spend.commit(reservation, micros);
+  else await gates.spend.record(micros);
 }
 
 /** Side effects of a provider error on the shared gates; the fallback reason. */
@@ -302,15 +342,24 @@ async function attempt(
   req: DecisionRequest,
   signal: AbortSignal,
 ): Promise<Attempt> {
-  const blocked = await passGates(gates);
-  if (blocked) return { ok: false, reason: blocked };
-  if (signal.aborted) return { ok: false, reason: 'timeout' };
+  const gate = await passGates(gates, estimateMicros([req]));
+  if (!gate.ok) return { ok: false, reason: gate.reason };
+  const release = async (): Promise<void> => {
+    if (gate.reservation !== undefined) await gates.spend?.release(gate.reservation);
+  };
+  if (signal.aborted) {
+    await release();
+    return { ok: false, reason: 'timeout' };
+  }
   try {
     const outcome = await provider.decide(req, signal);
+    // A 2xx is billed even when its body is unusable.
+    await settle(gates, gate.reservation, reportedMicros(outcome));
     if (!coversRequest(outcome, req)) return { ok: false, reason: 'invalid_response' };
-    if (gates.spend) await gates.spend.record(reportedMicros(outcome));
     return { ok: true, outcome };
   } catch (err) {
+    // Failed requests are not billed (provider docs): drop the reservation.
+    await release();
     if (err instanceof DecisionProviderError) {
       return { ok: false, reason: await onProviderError(err, gates) };
     }
@@ -548,15 +597,16 @@ export async function decideBatch(
       | { readonly ok: false; readonly reason: DecisionFallbackReason };
     const result = await withDeadline<BatchResult>(
       async (signal) => {
-        const blocked = await passGates(gates);
-        if (blocked) return { ok: false, reason: blocked };
+        const sent = pending.map((p) => p.item.sent);
+        const gate = await passGates(gates, estimateMicros(sent));
+        if (!gate.ok) return { ok: false, reason: gate.reason };
         try {
-          const answered = await batch(
-            pending.map((p) => p.item.sent),
-            signal,
-          );
+          const answered = await batch(sent, signal);
+          const billed = answered.reduce((n, a) => n + (a.ok ? reportedMicros(a.outcome) : 0), 0);
+          await settle(gates, gate.reservation, billed);
           return { ok: true, items: answered };
         } catch (err) {
+          if (gate.reservation !== undefined) await gates.spend?.release(gate.reservation);
           if (err instanceof DecisionProviderError) {
             return { ok: false, reason: await onProviderError(err, gates) };
           }
@@ -575,7 +625,6 @@ export async function decideBatch(
       }
       const answered = result.items[k];
       if (answered?.ok && coversRequest(answered.outcome, item.sent)) {
-        if (gates.spend) await gates.spend.record(reportedMicros(answered.outcome));
         cache?.set(item.key, answered.outcome);
         out[i] = item.finish({
           ...answered.outcome,

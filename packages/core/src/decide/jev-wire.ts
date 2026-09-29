@@ -21,18 +21,21 @@
  *   `{ score: <expected level>, probabilities: { level: p }, confidence }`.
  *   Score probabilities are keyed by level text (or, defensively, by 0-based
  *   index) and re-aligned to the question's `criteria` order.
- * - Errors: 401, 402 (`insufficient_credits`), 403 (`key_limit_exceeded` —
- *   the key's monthly decision limit, NOT a credential failure; any other 403
- *   is `unauthorized`), 422 (FastAPI validation list), 429 (with
- *   `retry-after`), 503/529 (`overloaded`, with `retry-after`), other 5xx.
- *   All are thrown as {@link DecisionProviderError}. The error body
- *   (`{detail:{error_type}}`) is read, size-capped, to tell a key limit from a
- *   bad key.
- * - Cost (T12664, `jev-wire/2`): `meta.cost_micros` or the
- *   `x-layahost-cost-micros` header (integer micro-dollars), the
- *   `x-layahost-balance-micros` header, and `meta.checkpoint` are read when
- *   present; `meta.cost_usd` is still read. A plain Jev host sends none of
- *   them and keeps working.
+ * - Errors, per the layahost OpenAPI 1.0.0 (test fixture
+ *   `__tests__/fixtures/layahost-openapi.trimmed.json`): 401, 402, 422, 429,
+ *   503, each with a Jev-style body `{detail:{error_type,message}}`. 402, and a
+ *   429 whose `error_type` is `insufficient_quota` (empty balance), are credit
+ *   exhaustion (`insufficient_credits`), never `unauthorized` and never a rate
+ *   limit. 503 is `overloaded` (with `retry-after`). The error body is read,
+ *   size-capped, to classify.
+ *   UNVERIFIED tolerant extras (in the provider docs, not the OpenAPI): a 403
+ *   `key_limit_exceeded` (the key's monthly limit, NOT a credential failure;
+ *   any other 403 is `unauthorized`) and a 529 (`overloaded`).
+ * - Cost (T12664, `jev-wire/2`): `meta.cost_micros` (in the OpenAPI) and
+ *   `meta.checkpoint` (in the OpenAPI); `meta.cost_usd` is still read.
+ *   UNVERIFIED tolerant extras (docs only, not the OpenAPI): the
+ *   `x-layahost-cost-micros` and `x-layahost-balance-micros` headers. A plain
+ *   Jev host sends none of them and keeps working.
  * - Extensions, gated by {@link JevProviderOptions.capabilities} (detected by
  *   {@link detectJevCapabilities} from `/v1/usage` and `/v1/templates`
  *   responses, never from the host name): the `lang` and `cache` request
@@ -90,10 +93,10 @@ const USAGE_PATH = '/v1/usage';
 /** Path of the template listing (layahost extension). */
 const TEMPLATES_PATH = '/v1/templates';
 
-/** Header carrying the call's cost in integer micro-dollars. */
+/** Header carrying the call's cost in integer micro-dollars. UNVERIFIED: in the provider docs, not its OpenAPI. */
 export const COST_MICROS_HEADER = 'x-layahost-cost-micros';
 
-/** Header carrying the account balance in integer micro-dollars. */
+/** Header carrying the account balance in integer micro-dollars. UNVERIFIED: in the provider docs, not its OpenAPI. */
 export const BALANCE_MICROS_HEADER = 'x-layahost-balance-micros';
 
 /** Byte cap on an error body read to classify a failure. */
@@ -398,6 +401,11 @@ export function errorForStatus(
     return new DecisionProviderError('unauthorized', message, { status });
   }
   if (status === 402) return new DecisionProviderError('insufficient_credits', message, { status });
+  // An empty balance answers 429 insufficient_quota (OpenAPI): credit
+  // exhaustion, not a rate limit — backing off for a minute cannot fix it.
+  if (status === 429 && errorType === 'insufficient_quota') {
+    return new DecisionProviderError('insufficient_credits', message, { status });
+  }
   if (status === 429) return new DecisionProviderError('rate_limited', message, withRetry);
   if (status === 503 || status === 529) {
     return new DecisionProviderError('overloaded', message, withRetry);
@@ -424,7 +432,9 @@ function kindForErrorType(
   errorType: string | undefined,
 ): DecisionProviderErrorKind {
   if (status !== undefined) return errorForStatus(status, undefined, errorType).kind;
-  if (errorType === 'insufficient_credits') return 'insufficient_credits';
+  if (errorType === 'insufficient_credits' || errorType === 'insufficient_quota') {
+    return 'insufficient_credits';
+  }
   if (errorType === 'key_limit_exceeded') return 'key_limit_exceeded';
   if (errorType === 'rate_limit_error') return 'rate_limited';
   if (errorType === 'overloaded_error') return 'overloaded';
@@ -563,27 +573,33 @@ export function createJevProvider(
       if (!response.ok) throw await errorForResponse(response);
       const parsed = jevBatchSchema.safeParse(await jsonBody(response, signal));
       if (!parsed.success) throw invalid('batch response does not match the batch shape');
-      const items = parsed.data.results ?? parsed.data.responses ?? [];
-      if (items.length !== reqs.length) {
-        throw invalid(`batch answered ${items.length} of ${reqs.length} requests`);
+      // OpenAPI: `{ responses: [{ index, status, body: SystemOneResponse }], request_id }`.
+      // Items are placed by `index`, never by array position.
+      const byIndex = new Map<number, (typeof parsed.data.responses)[number]>();
+      for (const item of parsed.data.responses) {
+        if (item.index < 0 || item.index >= reqs.length || byIndex.has(item.index)) {
+          throw invalid(`batch item index ${item.index} is out of range or repeated`);
+        }
+        byIndex.set(item.index, item);
       }
       const latencyMs = Math.max(0, now() - started);
-      return items.map((item, i): DecisionBatchItem => {
-        const req = reqs[i];
-        if (req === undefined) return { ok: false, errorKind: 'invalid_response' };
-        const status = typeof item.status === 'number' ? item.status : undefined;
-        if ((status !== undefined && status >= 400) || item.answers === undefined) {
+      return reqs.map((req, index): DecisionBatchItem => {
+        const item = byIndex.get(index);
+        if (!item) return { ok: false, errorKind: 'invalid_response' };
+        if (item.status < 200 || item.status >= 300) {
           return {
             ok: false,
-            ...(status !== undefined ? { status } : {}),
-            errorKind: kindForErrorType(status, errorTypeOf(item)),
+            status: item.status,
+            errorKind: kindForErrorType(item.status, errorTypeOf(item.body)),
           };
         }
         try {
-          return { ok: true, outcome: fromJevSystemOneResponse(req, item, latencyMs) };
+          // Cost comes from the item body's `meta` (OpenAPI SystemOneResponse).
+          return { ok: true, outcome: fromJevSystemOneResponse(req, item.body, latencyMs) };
         } catch (err) {
           return {
             ok: false,
+            status: item.status,
             errorKind: err instanceof DecisionProviderError ? err.kind : 'invalid_response',
           };
         }
@@ -609,19 +625,26 @@ export function createJevProvider(
   return provider;
 }
 
-/** Loose schema for one batch result item: a systemone response plus a status. */
+/** One `/v1/systemone/batch` item (OpenAPI): its request index, HTTP status and body. */
 const jevBatchItemSchema = z.looseObject({
-  status: z.number().int().optional(),
-  answers: z.record(z.string(), z.unknown()).optional(),
+  index: z.number().int(),
+  status: z.number().int(),
+  body: z.unknown(),
 });
 
-/** Loose schema for the `/v1/systemone/batch` response. */
+/** The `/v1/systemone/batch` response (OpenAPI). */
 const jevBatchSchema = z.looseObject({
-  results: z.array(jevBatchItemSchema).optional(),
-  responses: z.array(jevBatchItemSchema).optional(),
+  responses: z.array(jevBatchItemSchema),
+  request_id: z.string().optional(),
 });
 
-/** Loose schema for `GET /v1/usage`. */
+/**
+ * Loose schema for `GET /v1/usage`. The OpenAPI types the body only as an
+ * object ("Balance, plan and daily usage of the account"): every field name
+ * below (`balance.micros`, `balance.decisions_left`, `plan`, `plan.period_end`,
+ * `totals`) is UNVERIFIED, taken from the provider's prose docs, and parsed
+ * tolerantly — an absent or differently named field is simply not reported.
+ */
 const jevUsageSchema = z.looseObject({
   balance: z
     .looseObject({
@@ -671,13 +694,14 @@ export function parseJevUsage(body: unknown): DecisionProviderUsage {
   };
 }
 
-/** Loose schema for `GET /v1/templates`: a list of names or of `{name}` objects. */
-const jevTemplatesSchema = z.union([
-  z.array(z.union([z.string(), z.looseObject({ name: z.string() })])),
-  z.looseObject({
-    templates: z.array(z.union([z.string(), z.looseObject({ name: z.string() })])),
-  }),
-]);
+/**
+ * `GET /v1/templates` (OpenAPI): `{ templates: [{ template, name, description,
+ * type, options, example }] }`. `template` is the id a request names; `name`
+ * is only a display label.
+ */
+const jevTemplatesSchema = z.looseObject({
+  templates: z.array(z.looseObject({ template: z.string() })),
+});
 
 /**
  * Detect what a Jev-compatible host supports beyond the Jev minimum, from its
@@ -742,10 +766,9 @@ export async function detectJevCapabilities(
         JSON.parse(await readBoundedText(response, MAX_EXTENSION_BODY_BYTES)),
       );
       if (parsed.success) {
-        const list = Array.isArray(parsed.data) ? parsed.data : parsed.data.templates;
-        templates = list
-          .map((x) => (typeof x === 'string' ? x : x.name))
-          .filter((n) => isValidDecisionModelName(n))
+        templates = parsed.data.templates
+          .map((x) => x.template)
+          .filter((id) => isValidDecisionModelName(id))
           .slice(0, 64);
       }
     } else {

@@ -14,6 +14,7 @@
  *   cleo decide status                                       — probe GET {url}/v1/models
  *   cleo decide ask --state <text> --noul <question>         — one debug decision
  *   cleo decide sites [--rung r] [--mode m] [--id s] [--evidence] — list decision sites
+ *   cleo decide budget reset                                 — fresh spend ledger (repair)
  *
  * @task T12491
  * @epic T12486
@@ -33,6 +34,7 @@ import {
   describeDecideCredentials,
   listDecisionSites,
   probeDecideProvider,
+  resetDecideBudget,
 } from '@cleocode/core/decide/index.js';
 import { defineCommand, showUsage } from '../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../renderers/index.js';
@@ -181,6 +183,32 @@ const decideSitesCommand = defineCommand({
   },
 });
 
+/** `cleo decide budget reset` */
+const decideBudgetResetCommand = defineCommand({
+  meta: {
+    name: 'reset',
+    description:
+      'Start a fresh System One spend ledger for this month (<cleoHome>/decide/spend.json). The old file is moved aside as a receipt. The repair for a corrupt ledger, which keeps every site on its heuristic; it also restarts month-to-date spend at zero.',
+  },
+  async run() {
+    cliOutput(await resetDecideBudget(), { command: 'decide', operation: 'decide.budget.reset' });
+  },
+});
+
+/** `cleo decide budget` */
+const decideBudgetCommand = defineCommand({
+  meta: {
+    name: 'budget',
+    description: 'System One monthly spend cap (decide.budget.monthlyMicros): budget reset',
+  },
+  subCommands: { reset: decideBudgetResetCommand },
+  async run({ cmd, rawArgs }) {
+    const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
+    if (firstArg && cmd.subCommands && firstArg in cmd.subCommands) return;
+    await showUsage(cmd);
+  },
+});
+
 /**
  * `cleo decide` — typed-decision provider setup and debugging.
  *
@@ -197,6 +225,7 @@ export const decideCommand = defineCommand({
     status: decideStatusCommand,
     ask: decideAskCommand,
     sites: decideSitesCommand,
+    budget: decideBudgetCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));

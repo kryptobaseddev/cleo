@@ -20,23 +20,42 @@ The Jev adapter is now `jev-wire/2`:
   `meta.checkpoint`, and records all three in the audit row.
 - It sends the `lang` and `cache` request fields only when the provider
   supports them.
-- It adds `POST /v1/systemone/batch` (up to 64 requests and 256 questions,
-  with a status per item) and `GET /v1/usage`.
+- It adds `POST /v1/systemone/batch` (up to 64 requests and 256 questions).
+  Responses are read per the provider's OpenAPI,
+  `{responses:[{index,status,body}]}`, and placed by `index`. It also adds
+  `GET /v1/usage`, whose field names are unverified and parsed tolerantly,
+  and `GET /v1/templates`, keyed by `template`.
 
 The extensions are detected from the `/v1/usage` and `/v1/templates`
 responses, never from the host name, so a plain Jev host sees exactly the Jev
 body.
 
-**Errors.** A 403 `key_limit_exceeded` is now its own kind and is never
-reported as `unauthorized`. Decisions stop until the UTC month rolls over.
-A 529 or 503 is `overloaded`: a short circuit-breaker trip on the request
-bucket that honours `retry-after` (30 s by default).
+**Errors.** A 402, or a 429 `insufficient_quota` (empty balance), is credit
+exhaustion and is never reported as `unauthorized` or as a rate limit. A 503
+is `overloaded`: a short circuit-breaker trip on the request bucket that
+honours `retry-after` (30 s by default).
+
+Two extras are handled tolerantly but are unverified; they appear in the
+provider docs, not its OpenAPI:
+
+- a 403 `key_limit_exceeded`, which stops decisions until the UTC month rolls
+  over;
+- a 529, treated as `overloaded`.
+
+The same goes for the `x-layahost-*` cost and balance headers.
 
 **Spend cap (D11159).** `decide.budget.monthlyMicros` (default 1,000,000,
 i.e. $1) is enforced across processes in `<cleoHome>/decide/spend.json`. Once
 the month-to-date spend reaches it, every site degrades to its heuristic with
-fallback reason `budget`, and no command fails. The request-rate token bucket
-stays in place.
+fallback reason `budget`, and no command fails.
+
+Each call reserves its estimated cost under the same lock as the cap check,
+then commits the reported cost, so concurrent callers cannot overshoot the
+cap. The lock waits about a second, so no concurrent cost is lost.
+
+A corrupt ledger fails closed. `cleo decide status` names the repair,
+`cleo decide budget reset`, which moves the old file aside as a receipt. The
+request-rate token bucket stays in place.
 
 **`decideBatch()`** in the client sends one batch call when the provider has
 the capability. Otherwise it makes sequential calls that share the deadline.
