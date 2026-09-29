@@ -62,6 +62,8 @@ export type AcInsertRow = {
   targetTaskId?: string | null;
   projection?: string;
   contentHash?: string | null;
+  /** Row uid to keep (T12341); omitted → the writer mints a new one. */
+  uid?: string | null;
 };
 
 type AcCriterionKind = NonNullable<AcInsertRow['kind']>;
@@ -278,6 +280,7 @@ function acRowToInsertRow(row: AcRow): AcInsertRow {
     targetTaskId: row.targetTaskId,
     projection: row.projection,
     contentHash: row.contentHash,
+    ...(row.uid ? { uid: row.uid } : {}),
   };
 }
 
@@ -285,9 +288,11 @@ function buildChildProjectionInsertRow(
   parentId: string,
   child: ChildProjectionAuditInput,
   ordinal: number,
+  uid?: string | null,
 ): AcInsertRow {
   const sourceKey = childProjectionSourceKey(child.id);
   return {
+    ...(uid ? { uid } : {}),
     id: buildAcRowId(parentId, sourceKey),
     taskId: parentId,
     ordinal,
@@ -506,8 +511,17 @@ export function planChildProjectionRebuild(
     (max, row) => (row.ordinal > max ? row.ordinal : max),
     0,
   );
+  // A child's projection row keeps its uid across rebuilds (T12341).
+  const childUids = new Map(
+    childRows.map((row) => [row.targetTaskId ?? row.sourceKey, row.uid ?? null]),
+  );
   const childInserts = children.map((child, index) =>
-    buildChildProjectionInsertRow(parentId, child, maxNonChildOrdinal + index + 1),
+    buildChildProjectionInsertRow(
+      parentId,
+      child,
+      maxNonChildOrdinal + index + 1,
+      childUids.get(child.id) ?? childUids.get(childProjectionSourceKey(child.id)),
+    ),
   );
   const inserts = [...nonChildInserts, ...childInserts];
   assertUniqueGeneratedRows(parentId, inserts);
@@ -517,6 +531,7 @@ export function planChildProjectionRebuild(
       inserts,
       history: childRows.map((row) => ({
         acId: row.id,
+        ...(row.uid ? { acUid: row.uid } : {}),
         previousText: row.text,
         reason: 'projection_rebuild',
       })),
@@ -565,6 +580,40 @@ export function isChildProjectionAcRow(row: AcRow, childId: string): boolean {
 }
 
 /**
+ * Which existing criterion each incoming AC continues, as uids (T12341): an
+ * incoming AC with the same text as an existing one keeps that one's uid (a
+ * reorder keeps identity); the rest take the uid of the unclaimed existing AC
+ * at the same position (an in-place edit keeps identity, so its evidence
+ * bindings follow it); anything left gets `null` and a new uid.
+ *
+ * @param existing - Current AC rows, ordered by ordinal.
+ * @param incomingTexts - Incoming AC texts, in their new order.
+ * @returns One uid (or `null`) per incoming AC.
+ */
+export function carryAcUids(
+  existing: readonly AcRow[],
+  incomingTexts: readonly string[],
+): Array<string | null> {
+  const out: Array<string | null> = incomingTexts.map(() => null);
+  const claimed = new Set<number>();
+  incomingTexts.forEach((text, i) => {
+    const j = existing.findIndex((row, k) => !claimed.has(k) && row.uid && row.text === text);
+    if (j >= 0) {
+      claimed.add(j);
+      out[i] = existing[j]?.uid ?? null;
+    }
+  });
+  incomingTexts.forEach((_, i) => {
+    if (out[i] !== null || claimed.has(i)) return;
+    const row = existing[i];
+    if (!row?.uid) return;
+    claimed.add(i);
+    out[i] = row.uid;
+  });
+  return out;
+}
+
+/**
  * Result of `planAcUpdate` — the row + history mutations the caller must
  * apply inside a transaction.
  */
@@ -572,7 +621,7 @@ export interface AcUpdatePlan {
   /** AC rows to INSERT (new, never-before-seen AC text). */
   inserts: AcInsertRow[];
   /** History rows to append BEFORE deleting any rows. */
-  history: Array<{ acId: string; previousText: string; reason: string }>;
+  history: Array<{ acId: string; previousText: string; reason: string; acUid?: string | null }>;
   /**
    * When true the caller MUST issue {@link TransactionAccessor.deleteAcRowsForTask}
    * BEFORE applying inserts. Used by replace-all + shrink paths to
@@ -643,6 +692,7 @@ export function planAcUpdate(
       const tailRows = existing.slice(incomingTexts.length);
       const history = tailRows.map((row) => ({
         acId: row.id,
+        ...(row.uid ? { acUid: row.uid } : {}),
         previousText: row.text,
         reason: 'edit',
       }));
@@ -660,6 +710,7 @@ export function planAcUpdate(
         targetTaskId: row.targetTaskId,
         projection: row.projection,
         contentHash: row.contentHash,
+        ...(row.uid ? { uid: row.uid } : {}),
       }));
       return { inserts: keepInserts, history, fullDelete: true };
     }
@@ -668,12 +719,15 @@ export function planAcUpdate(
   // Case 3: replace-all (mid-edit, reorder, mixed, or text drift).
   const history = existing.map((row) => ({
     acId: row.id,
+    ...(row.uid ? { acUid: row.uid } : {}),
     previousText: row.text,
     reason: 'edit',
   }));
+  const uids = carryAcUids(existing, incomingTexts);
   const inserts = incoming.map((item, idx) => {
     const ordinal = idx + 1;
-    return buildInsertRow(taskId, item, ordinal);
+    const uid = uids[idx];
+    return { ...buildInsertRow(taskId, item, ordinal), ...(uid ? { uid } : {}) };
   });
   assertUniqueGeneratedRows(taskId, inserts);
   return { inserts, history, fullDelete: true };
@@ -704,9 +758,11 @@ export function planChildProjectionRemoval(
       targetTaskId: row.targetTaskId,
       projection: row.projection,
       contentHash: row.contentHash,
+      ...(row.uid ? { uid: row.uid } : {}),
     }));
   const history = removed.map((row) => ({
     acId: row.id,
+    ...(row.uid ? { acUid: row.uid } : {}),
     previousText: row.text,
     reason,
   }));

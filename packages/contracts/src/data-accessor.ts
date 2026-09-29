@@ -180,6 +180,12 @@ export interface AcRow {
   updatedAt: string | null;
   /** Optional sha256(text) snapshot; writers MAY populate, readers MUST treat null as "unknown". */
   contentHash: string | null;
+  /**
+   * Row uid (T12341): the criterion's identity across devices and across edits
+   * (`id` changes with the text; `uid` does not). `null` until the store fills
+   * it; absent from accessors that predate it.
+   */
+  uid?: string | null;
 }
 
 /** Machine-readable AC child-projection drift codes for doctor/audit output. */
@@ -330,6 +336,8 @@ export interface TransactionAccessor {
       targetTaskId?: string | null;
       projection?: string;
       contentHash?: string | null;
+      /** Row uid to keep (T12341); omitted → a new uid is minted. */
+      uid?: string | null;
     }>,
   ): Promise<void>;
   /**
@@ -351,7 +359,7 @@ export interface TransactionAccessor {
    * @task T10508
    */
   appendAcHistory(
-    rows: Array<{ acId: string; previousText: string; reason: string }>,
+    rows: Array<{ acId: string; previousText: string; reason: string; acUid?: string | null }>,
   ): Promise<void>;
   /**
    * Read all `evidence_ac_bindings` rows whose `ac_id` ∈ the given set.

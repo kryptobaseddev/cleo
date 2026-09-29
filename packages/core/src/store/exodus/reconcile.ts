@@ -49,6 +49,7 @@ import { resolveCleoDir } from '../../paths.js';
 import { resolveDualScopeDbPath } from '../dual-scope-db.js';
 import { withLock } from '../lock.js';
 import { openCleoDbSnapshot } from '../open-cleo-db.js';
+import { rowIdentityColumns } from '../row-identity-registry.js';
 import { legacyRowProjection } from './column-transforms.js';
 import { runExodusMigrate } from './migrate.js';
 import { buildExodusPlan } from './plan.js';
@@ -549,7 +550,10 @@ function alteredLiveTables(
       //   pre-existing row — it did not exist before, so it is not compared;
       // - a column DROPPED is an alteration if it held any value — that data is
       //   no longer in the row — and harmless if it was NULL throughout;
-      // - every column both shapes share must still hold every prior row.
+      // - every column both shapes share must still hold every prior row,
+      //   except the row-identity columns (T12341): a NULL uid on a row an
+      //   older build wrote is filled by the open pass, which is not a change
+      //   to that row.
       const colsOf = (schema: string): string[] =>
         (
           live.db.prepare(`PRAGMA ${ident(schema)}.table_info(${ident(table)})`).all() as Array<{
@@ -575,7 +579,8 @@ function alteredLiveTables(
         altered.push(`${table} (dropped populated column(s): ${droppedWithData.join(', ')})`);
         continue;
       }
-      const shared = beforeCols.filter((c) => after.has(c));
+      const identity = new Set(rowIdentityColumns('project', table));
+      const shared = beforeCols.filter((c) => after.has(c) && !identity.has(c));
       if (shared.length === 0) {
         altered.push(table);
         continue;

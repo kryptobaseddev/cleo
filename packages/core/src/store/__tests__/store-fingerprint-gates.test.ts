@@ -50,9 +50,19 @@
  * The scripts run as real child processes, exactly as an operator runs them.
  * All fingerprints of one comparison share the key in `keyFile`.
  *
+ * T12341 (row uids):
+ *
+ *   - a store before the uid migration replays its migrated copy only with
+ *     `--omit-row-identity` (no other replicated value changed); without the
+ *     flag the column sets differ and it FAILS;
+ *   - two independent migrations of one store fingerprint identically WITH
+ *     the uids hashed (the backfill is deterministic), and equal to the rows
+ *     the per-connection trigger filled on insert.
+ *
  * @task T12332
  * @task T12613
  * @task T12636
+ * @task T12341
  * @epic T12322
  */
 
@@ -78,6 +88,7 @@ import { bindConduitDomain } from '../conduit-sqlite.js';
 import { _resetDualScopeDbCache, openDualScopeDb } from '../dual-scope-db.js';
 import { getBrainDb } from '../memory-sqlite.js';
 import { getNexusDb } from '../nexus-sqlite.js';
+import { prepareRowIdentity, ROW_IDENTITY, rowIdentityColumns } from '../row-identity.js';
 import { getDb } from '../sqlite.js';
 import { classifyTable, isPortableTableClass } from '../table-classification.js';
 
@@ -988,5 +999,73 @@ describe('T12636: a new key never lands beside the fingerprints', () => {
     ]);
     expect(stderr).toContain('EEXIST');
     expect(readFileSync(existing, 'utf8')).toBe('k'.repeat(64));
+  });
+});
+
+describe('T12341: row uids', () => {
+  /** A copy of the source as it was before the uid migration: no uid columns or indexes. */
+  function preMigrationCopy(label: string): string {
+    const file = join(testRoot, `${label}.db`);
+    copyFileSync(db.source, file);
+    const conn = openRaw(file);
+    for (const spec of ROW_IDENTITY.project) {
+      if (spec.table === 'tasks_display_id_aliases') {
+        conn.exec('DROP TABLE tasks_display_id_aliases');
+        continue;
+      }
+      conn.exec(`DROP INDEX IF EXISTS "uq_${spec.table}_uid"`);
+      for (const column of rowIdentityColumns('project', spec.table)) {
+        conn.exec(`DROP INDEX IF EXISTS "idx_${spec.table}_${column}"`);
+        conn.exec(`ALTER TABLE "${spec.table}" DROP COLUMN "${column}"`);
+      }
+    }
+    conn.close();
+    return file;
+  }
+
+  /** Run the uid migration's open pass on a store file, as the first open of this build does. */
+  function migrate(file: string): void {
+    const conn = openRaw(file);
+    try {
+      conn.exec(`CREATE TABLE IF NOT EXISTS tasks_display_id_aliases (
+        uid TEXT PRIMARY KEY NOT NULL, entity_table TEXT NOT NULL, display_id TEXT NOT NULL,
+        entity_uid TEXT NOT NULL, reason TEXT NOT NULL, origin TEXT, created_at TEXT NOT NULL)`);
+      expect(prepareRowIdentity(conn, 'project')?.healed.length).toBeGreaterThan(0);
+    } finally {
+      conn.close();
+    }
+  }
+
+  it('the migration changes no replicated value: pre replays post with --omit-row-identity', () => {
+    const pre = fingerprintFile(preMigrationCopy('preUid'), 'preUid');
+    const post = fingerprintFile(db.source, 'postUidOmitted', [
+      '--key-file',
+      keyFile,
+      '--omit-row-identity',
+    ]);
+    expect(post.fp.tables.tasks_tasks?.columns).not.toContain('uid');
+    const ok = compare(pre.file, post.file, 'replay');
+    expect(ok.out).toContain('PASS (replay)');
+    expect(ok.code).toBe(0);
+    const withUids = compare(pre.file, fingerprint('source').file, 'replay');
+    expect(withUids.code).toBe(1);
+  });
+
+  it('the backfill is deterministic: two independent migrations fingerprint identically', () => {
+    const one = preMigrationCopy('migratedOne');
+    const two = preMigrationCopy('migratedTwo');
+    migrate(one);
+    migrate(two);
+    const a = fingerprintFile(one, 'migratedOne');
+    const b = fingerprintFile(two, 'migratedTwo');
+    expect(a.fp.tables.tasks_tasks?.columns).toContain('uid');
+    const r = compare(a.file, b.file, 'replay');
+    expect(r.out).toContain('PASS (replay)');
+    expect(r.code).toBe(0);
+    // The source's rows were inserted without a uid on a connection with the
+    // per-connection trigger: they got the same uids the backfill derives.
+    const same = compare(fingerprint('source').file, a.file, 'replay');
+    expect(same.out).toContain('PASS (replay)');
+    expect(same.code).toBe(0);
   });
 });

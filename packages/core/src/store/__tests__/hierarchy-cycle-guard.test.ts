@@ -68,7 +68,8 @@ describe('hierarchy containment cycles are refused and survivable (T12307)', () 
       db.prepare('INSERT INTO self_edge_seed SELECT * FROM tasks_tasks WHERE id = ?').run(
         templateId,
       );
-      db.prepare('UPDATE self_edge_seed SET id = ?, parent_id = ?').run(newId, newId);
+      // A clone is a new row: it must not reuse the template's uid (T12341).
+      db.prepare('UPDATE self_edge_seed SET id = ?, parent_id = ?, uid = NULL').run(newId, newId);
       db.exec('INSERT INTO tasks_tasks SELECT * FROM self_edge_seed');
       db.exec('DROP TABLE self_edge_seed');
     } finally {

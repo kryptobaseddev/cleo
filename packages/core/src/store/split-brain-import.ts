@@ -60,6 +60,11 @@
 import { randomBytes } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { buildAcRowId } from '../tasks/ac-table.js';
+import { parseStoreTimestamp } from './row-identity.js';
+
+// Parsing CLEO's mixed timestamp formats moved to row-identity.ts (T12341),
+// which hashes the same birth values; re-exported for existing callers.
+export { parseStoreTimestamp };
 
 /** A SQLite value as node:sqlite returns it. */
 type SqlValue = string | number | bigint | Uint8Array | null;
@@ -202,25 +207,6 @@ const HANDLED_TASK_REF_TABLES = new Set([
   ...KEPT_ID_ENTITIES.map((spec) => spec.table),
   ...Object.keys(EXCLUDED_TABLES),
 ]);
-
-/**
- * Parse CLEO's mixed timestamp formats to epoch ms.
- *
- * `datetime('now')` writes `YYYY-MM-DD HH:MM:SS` with no zone, meaning UTC.
- * Comparing that text against ISO text is wrong within a day (`' '` sorts
- * before `'T'`), so every comparison goes through this function.
- *
- * @param value - Stored timestamp.
- * @returns Epoch milliseconds, or `null` when absent or unparseable.
- */
-export function parseStoreTimestamp(value: SqlValue | undefined): number | null {
-  if (typeof value !== 'string' || value.length === 0) return null;
-  const iso = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(value)
-    ? `${value.replace(' ', 'T')}Z`
-    : value;
-  const ms = Date.parse(iso);
-  return Number.isNaN(ms) ? null : ms;
-}
 
 /** Quote an identifier for SQL. */
 function q(name: string): string {

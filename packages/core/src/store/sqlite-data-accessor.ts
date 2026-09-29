@@ -91,6 +91,70 @@ function generateAuditLogId(): string {
   return `log-${epoch}-${rand}`;
 }
 
+/**
+ * Evidence bindings for a set of CURRENT AC ids (T12341).
+ *
+ * A binding is matched through the criterion's uid (`ac_uid`), which survives
+ * an AC edit, and falls back to `ac_id` for a binding whose uid is not filled.
+ * A binding recorded against an older text of a criterion is reported under
+ * the criterion's current id, so callers keyed by AC id keep working.
+ */
+async function selectAcBindings(
+  db: Awaited<ReturnType<typeof getDb>>,
+  acIds: readonly string[],
+): Promise<
+  Array<{
+    id: string;
+    evidenceAtomId: string;
+    acId: string;
+    bindingType: 'direct' | 'satisfies' | 'coverage';
+    createdAt: string;
+  }>
+> {
+  if (acIds.length === 0) return [];
+  const b = schema.evidenceAcBindings;
+  const ac = schema.taskAcceptanceCriteria;
+  const ids = acIds as string[];
+  const columns = {
+    id: b.id,
+    evidenceAtomId: b.evidenceAtomId,
+    acId: b.acId,
+    currentAcId: ac.id,
+    bindingType: b.bindingType,
+    createdAt: b.createdAt,
+  };
+  // Two indexed lookups rather than one OR across the join: by the current
+  // criterion's uid, then by the recorded ac_id.
+  const byUid = await db
+    .select(columns)
+    .from(b)
+    .innerJoin(ac, eq(ac.uid, b.acUid))
+    .where(inArray(ac.id, ids))
+    .all();
+  const byId = await db
+    .select(columns)
+    .from(b)
+    .leftJoin(ac, eq(ac.uid, b.acUid))
+    .where(inArray(b.acId, ids))
+    .all();
+  const rows = [...byUid, ...byId];
+  const wanted = new Set(ids);
+  const seen = new Set<string>();
+  const out = [];
+  for (const r of rows) {
+    if (seen.has(r.id)) continue;
+    seen.add(r.id);
+    out.push({
+      id: r.id,
+      evidenceAtomId: r.evidenceAtomId,
+      acId: r.currentAcId && wanted.has(r.currentAcId) ? r.currentAcId : r.acId,
+      bindingType: r.bindingType,
+      createdAt: r.createdAt,
+    });
+  }
+  return out;
+}
+
 // ---- Schema meta helpers ----
 
 /** Read a JSON blob from the schema_meta table by key. */
@@ -627,6 +691,7 @@ async function createOwnedSqliteDataAccessor(
           createdAt: schema.taskAcceptanceCriteria.createdAt,
           updatedAt: schema.taskAcceptanceCriteria.updatedAt,
           contentHash: schema.taskAcceptanceCriteria.contentHash,
+          uid: schema.taskAcceptanceCriteria.uid,
         })
         .from(schema.taskAcceptanceCriteria)
         .where(eq(schema.taskAcceptanceCriteria.taskId, taskId))
@@ -644,6 +709,7 @@ async function createOwnedSqliteDataAccessor(
         createdAt: r.createdAt,
         updatedAt: r.updatedAt ?? null,
         contentHash: r.contentHash ?? null,
+        uid: r.uid ?? null,
       }));
     },
 
@@ -651,25 +717,7 @@ async function createOwnedSqliteDataAccessor(
 
     async getAcBindings(acIds: readonly string[]) {
       if (acIds.length === 0) return [];
-      const db = await getDb(cwd);
-      const rows = await db
-        .select({
-          id: schema.evidenceAcBindings.id,
-          evidenceAtomId: schema.evidenceAcBindings.evidenceAtomId,
-          acId: schema.evidenceAcBindings.acId,
-          bindingType: schema.evidenceAcBindings.bindingType,
-          createdAt: schema.evidenceAcBindings.createdAt,
-        })
-        .from(schema.evidenceAcBindings)
-        .where(inArray(schema.evidenceAcBindings.acId, acIds as string[]))
-        .all();
-      return rows.map((r) => ({
-        id: r.id,
-        evidenceAtomId: r.evidenceAtomId,
-        acId: r.acId,
-        bindingType: r.bindingType,
-        createdAt: r.createdAt,
-      }));
+      return selectAcBindings(await getDb(cwd), acIds);
     },
 
     async archiveSingleTask(taskId: string, fields: ArchiveFields): Promise<void> {
@@ -1391,6 +1439,7 @@ async function createOwnedSqliteDataAccessor(
                     targetTaskId?: string | null;
                     projection?: string;
                     contentHash?: string | null;
+                    uid?: string | null;
                   }>,
                 ): Promise<void> {
                   scope.assertActive();
@@ -1410,6 +1459,8 @@ async function createOwnedSqliteDataAccessor(
                           projection: r.projection ?? 'legacy',
                           text: r.text,
                           contentHash: r.contentHash ?? null,
+                          // A kept criterion keeps its uid (T12341); else one is minted.
+                          ...(r.uid ? { uid: r.uid } : {}),
                         })),
                       )
                       .run();
@@ -1430,6 +1481,7 @@ async function createOwnedSqliteDataAccessor(
                       createdAt: schema.taskAcceptanceCriteria.createdAt,
                       updatedAt: schema.taskAcceptanceCriteria.updatedAt,
                       contentHash: schema.taskAcceptanceCriteria.contentHash,
+                      uid: schema.taskAcceptanceCriteria.uid,
                     })
                     .from(schema.taskAcceptanceCriteria)
                     .where(eq(schema.taskAcceptanceCriteria.taskId, taskId))
@@ -1447,6 +1499,7 @@ async function createOwnedSqliteDataAccessor(
                     createdAt: r.createdAt,
                     updatedAt: r.updatedAt ?? null,
                     contentHash: r.contentHash ?? null,
+                    uid: r.uid ?? null,
                   }));
                 },
                 async deleteAcRowsForTask(taskId: string): Promise<void> {
@@ -1460,7 +1513,12 @@ async function createOwnedSqliteDataAccessor(
                   });
                 },
                 async appendAcHistory(
-                  rows: Array<{ acId: string; previousText: string; reason: string }>,
+                  rows: Array<{
+                    acId: string;
+                    previousText: string;
+                    reason: string;
+                    acUid?: string | null;
+                  }>,
                 ): Promise<void> {
                   scope.assertActive();
                   return accessor.transaction(async () => {
@@ -1473,6 +1531,7 @@ async function createOwnedSqliteDataAccessor(
                           acId: r.acId,
                           previousText: r.previousText,
                           reason: r.reason,
+                          ...(r.acUid ? { acUid: r.acUid } : {}),
                         })),
                       )
                       .run();
@@ -1481,25 +1540,7 @@ async function createOwnedSqliteDataAccessor(
                 // ---- AC bindings (T10509 — AC-coverage gate) ----
                 async getAcBindings(acIds: readonly string[]) {
                   scope.assertActive();
-                  if (acIds.length === 0) return [];
-                  const out = await db
-                    .select({
-                      id: schema.evidenceAcBindings.id,
-                      evidenceAtomId: schema.evidenceAcBindings.evidenceAtomId,
-                      acId: schema.evidenceAcBindings.acId,
-                      bindingType: schema.evidenceAcBindings.bindingType,
-                      createdAt: schema.evidenceAcBindings.createdAt,
-                    })
-                    .from(schema.evidenceAcBindings)
-                    .where(inArray(schema.evidenceAcBindings.acId, acIds as string[]))
-                    .all();
-                  return out.map((r) => ({
-                    id: r.id,
-                    evidenceAtomId: r.evidenceAtomId,
-                    acId: r.acId,
-                    bindingType: r.bindingType,
-                    createdAt: r.createdAt,
-                  }));
+                  return selectAcBindings(db, acIds);
                 },
                 // ---- AC bindings — writer (T10511, Validator SDK tools) ----
                 async insertAcBindings(

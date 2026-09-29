@@ -927,6 +927,12 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
       },
     ],
   },
+  tasks_display_id_aliases: {
+    class: 'portable-project',
+    status: 'resolved',
+    source: 'T12341 (row uids; spec t12341-uid-scheme §9)',
+    note: 'displaced display ids (a T#### re-minted on a merge collision) must resolve on every device and for every collaborator; ADR-094 alias pattern',
+  },
   tasks_evidence_ac_bindings: {
     class: 'portable-project',
     status: 'draft',

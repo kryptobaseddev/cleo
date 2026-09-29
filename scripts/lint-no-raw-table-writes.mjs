@@ -93,6 +93,11 @@ export const SANCTIONED = new Set([
   // bind), and the accessors import the modules that call them, so the merge
   // SQL cannot live in an accessor without an import cycle.
   'packages/core/src/store/twin-collapse.ts',
+  // T12341: display-id re-mint and aliases. They write on the caller's
+  // chokepoint handle inside the caller's merge transaction (the merge engine,
+  // the split-brain import), rewriting every local reference to a re-minted
+  // task id in one savepoint.
+  'packages/core/src/store/display-id-alias.ts',
 ]);
 
 /** Files whose SQL words are prose only, never executed. File → reason. */
