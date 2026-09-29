@@ -94,7 +94,7 @@ describe('AC1/AC3 — a corrupt registry read is a typed error, never [] or null
     for (const result of [
       await nexusProjectsList(),
       await nexusStatus(),
-      await nexusProjectsFleet({}),
+      await nexusProjectsFleet('', {}),
     ]) {
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_NEXUS_REGISTRY_READ');
@@ -109,7 +109,7 @@ describe('AC1/AC3 — a corrupt registry read is a typed error, never [] or null
       getNexusRegistryDbPath(getCleoHome()),
       'this is not a sqlite database'.repeat(200),
     );
-    const fleet = await nexusProjectsFleet({});
+    const fleet = await nexusProjectsFleet('', {});
     expect(fleet.success).toBe(false);
     expect(fleet.error?.code).toBe('E_NEXUS_REGISTRY_READ');
   });
@@ -117,7 +117,7 @@ describe('AC1/AC3 — a corrupt registry read is a typed error, never [] or null
   it('an empty but readable registry is still an empty list, not an error', async () => {
     await expect(nexusList()).resolves.toEqual([]);
     await expect(nexusGetProject('nope')).resolves.toBeNull();
-    const fleet = await nexusProjectsFleet({});
+    const fleet = await nexusProjectsFleet('', {});
     expect(fleet.success).toBe(true);
     expect(fleet.data?.total).toBe(0);
   });

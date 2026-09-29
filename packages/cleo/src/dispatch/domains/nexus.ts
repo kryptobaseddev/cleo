@@ -463,7 +463,7 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
 
   'projects.fleet': async (params) =>
     wrapCoreResult(
-      await nexusProjectsFleet({
+      await nexusProjectsFleet(getProjectRoot(), {
         device: typeof params.device === 'string' ? params.device : undefined,
         missing: params.missing === true,
         dirty: params.dirty === true,

@@ -1598,12 +1598,15 @@ export async function nexusProjectsStatus(
  * on each device, and its last recorded git state, paged with counts first.
  * Read-only: it never runs git — see `nexus/fleet-status.ts`.
  *
+ * @param _projectRoot - Unused: the fleet spans every registered project
+ *   (uniform ADR-057 signature).
  * @param params - Filters, staleness window and paging.
  * @returns The fleet view, or a typed error (`E_NEXUS_REGISTRY_READ`,
  *   `E_NEXUS_DEVICE_NOT_FOUND`) — never an empty page that hides a failure.
  * @task T12513
  */
 export async function nexusProjectsFleet(
+  _projectRoot: string,
   params: NexusProjectsFleetParams,
 ): Promise<EngineResult<NexusProjectsFleetResult>> {
   const { getNexusRegistryDb } = await import('../store/nexus-sqlite.js');
