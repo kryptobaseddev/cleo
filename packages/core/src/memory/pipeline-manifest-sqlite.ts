@@ -319,8 +319,11 @@ export interface MalformedManifestRow {
   metadataSha256: string;
 }
 
-/** The command that repairs malformed manifest rows. */
+/** The command that plans the repair of malformed manifest rows (writes nothing). */
 export const MANIFEST_ROW_REPAIR_COMMAND = 'cleo doctor manifest-rows --repair';
+
+/** The command that writes the planned manifest-row repair (receipt first). */
+export const MANIFEST_ROW_APPLY_COMMAND = 'cleo doctor manifest-rows --repair --apply';
 
 function metadataProblem(
   row: ManifestWithProvenance<typeof pipelineManifest.$inferSelect>,
@@ -421,7 +424,25 @@ export interface ManifestRepairReceipt {
   databasePath: string | null;
   receiptPath: string | null;
   dryRun: boolean;
+  /**
+   * Row rewrites. Before the write this is the plan; once applied it keeps
+   * only the rows actually rewritten (rollback reads these).
+   */
   changes: ManifestRepairChange[];
+  /**
+   * Outcome of the write, `null` for a dry run or an empty plan. `repaired`
+   * rows were rewritten in every table holding them; `skipped` rows changed
+   * between the read and the write and were left untouched.
+   */
+  applied: ManifestSwapResult | null;
+}
+
+/** Outcome of applying (or rolling back) a manifest metadata repair. */
+export interface ManifestSwapResult {
+  /** Entry ids rewritten in every table that holds them. */
+  restored: string[];
+  /** Entry ids left untouched because no table still held the expected bytes. */
+  skipped: string[];
 }
 
 /**
@@ -454,11 +475,15 @@ function repairedMetadata(raw: string | null, problem: MalformedManifestRow): st
  * holds each row's metadata before and after; {@link rollbackManifestRepair}
  * restores from it. Each update is compare-and-set on the old bytes, in one
  * immediate transaction; rows in both the canonical and legacy table are
- * rewritten in both.
+ * rewritten in both. A row changed since the read is skipped (reported in
+ * `applied.skipped` and dropped from `changes`); a row changed in only one of
+ * its two tables aborts the whole transaction with
+ * `E_MANIFEST_CONCURRENT_CHANGE`, so the copies never diverge.
  *
  * @param projectRoot - Project root.
  * @param opts - `dryRun` plans without writing (no receipt file).
- * @returns The receipt.
+ * @returns The receipt; after a write, `changes` lists only rewritten rows.
+ * @throws EngineResultError `E_MANIFEST_CONCURRENT_CHANGE` on a partial match.
  * @task T12686
  */
 export async function repairMalformedManifestRows(
@@ -489,6 +514,7 @@ export async function repairMalformedManifestRows(
     receiptPath: null,
     dryRun: opts.dryRun === true,
     changes,
+    applied: null,
   };
   if (opts.dryRun || changes.length === 0) return receipt;
   const dir = join(
@@ -499,7 +525,15 @@ export async function repairMalformedManifestRows(
   mkdirSync(dir, { recursive: true });
   receipt.receiptPath = join(dir, `receipt-${createdAt.replace(/[:.]/g, '-')}.json`);
   writeFileSync(receipt.receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, 'utf8');
-  applyMetadataSwap(binding, changes, 'forward');
+  const applied = applyMetadataSwap(binding, changes, 'forward');
+  // Record the outcome: `changes` keeps only the rows actually rewritten, so
+  // neither the receipt nor the output lists a skipped row as changed.
+  const restored = new Set(applied.restored);
+  receipt.changes = changes.filter((change) => restored.has(change.entryId));
+  receipt.applied = applied;
+  const tmp = `${receipt.receiptPath}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(receipt, null, 2)}\n`, 'utf8');
+  renameSync(tmp, receipt.receiptPath);
   return receipt;
 }
 
@@ -516,7 +550,7 @@ export async function repairMalformedManifestRows(
 export async function rollbackManifestRepair(
   receiptPath: string,
   projectRoot?: string,
-): Promise<{ restored: string[]; skipped: string[] }> {
+): Promise<ManifestSwapResult> {
   const receipt = JSON.parse(readFileSync(receiptPath, 'utf8')) as ManifestRepairReceipt;
   if (receipt.kind !== 'manifest-metadata-repair') {
     throw new EngineResultError({
@@ -528,11 +562,18 @@ export async function rollbackManifestRepair(
   return applyMetadataSwap(binding, receipt.changes, 'back');
 }
 
+/**
+ * Compare-and-set every change in one immediate transaction. A row counts as
+ * restored only when EVERY table holding it matched the expected bytes; a row
+ * no table matches is skipped. A row that only SOME of its tables matched
+ * (e.g. a concurrent write to the legacy copy) throws, so the whole
+ * transaction rolls back instead of leaving the two copies divergent.
+ */
 function applyMetadataSwap(
   binding: Awaited<ReturnType<typeof getBinding>>,
   changes: ManifestRepairChange[],
   direction: 'forward' | 'back',
-): { restored: string[]; skipped: string[] } {
+): ManifestSwapResult {
   return binding.db.transaction(
     () => {
       const restored: string[] = [];
@@ -556,7 +597,18 @@ function applyMetadataSwap(
             .run();
           hit += Number(result.changes ?? 0);
         }
-        (hit > 0 ? restored : skipped).push(change.entryId);
+        if (hit === 0) {
+          skipped.push(change.entryId);
+        } else if (hit === change.tables.length) {
+          restored.push(change.entryId);
+        } else {
+          throw new EngineResultError({
+            code: 'E_MANIFEST_CONCURRENT_CHANGE',
+            message:
+              `manifest row '${change.entryId}' changed in only some of its tables ` +
+              `(${hit} of ${change.tables.join(', ')}) since it was read; nothing was written`,
+          });
+        }
       }
       return { restored, skipped };
     },

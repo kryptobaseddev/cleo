@@ -455,7 +455,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'doctorManifestRowsCommand',
     name: 'manifest-rows',
     description:
-      'List manifest rows whose metadata violates the stored field contract. --repair moves each ',
+      'List manifest rows whose metadata violates the stored field contract. --repair shows the plan (writes nothing); --repair --apply moves each bad field under _malformed (nothing lost) with a receipt; --rollback <receipt> undoes it.',
     load: async () =>
       (await import('../commands/doctor-manifest-rows.js')).doctorManifestRowsCommand as CommandDef,
   },
