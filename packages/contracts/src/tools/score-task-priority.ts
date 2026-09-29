@@ -6,7 +6,7 @@
  * @epic T9835
  */
 
-import type { TaskPriority } from '../task.js';
+import type { TaskKind, TaskPriority, TaskSeverity } from '../task.js';
 
 /** Minimal task shape required by scoreTask. */
 export interface ScoreTaskInput {
@@ -24,6 +24,10 @@ export interface ScoreTaskInput {
   createdAt?: string;
   /** Labels for pattern matching. */
   labels?: string[];
+  /** Severity axis (orthogonal to priority); unset for most tasks. */
+  severity?: TaskSeverity | null;
+  /** Kind axis; a `bug` with no severity is scored at the default bug severity (T12661). */
+  kind?: TaskKind | null;
 }
 
 /** Context provided to scoreTask to enable phase-aware and dependency-aware scoring. */
@@ -38,6 +42,8 @@ export interface ScoreTaskContext {
   successPatterns?: Array<{ pattern: string }>;
   /** Matched failure patterns from BRAIN (optional penalty scoring). */
   failurePatterns?: Array<{ pattern: string }>;
+  /** Open tasks that depend on each task id — its leverage (bounded bonus, T12661). */
+  leverage?: ReadonlyMap<string, number>;
 }
 
 /** A scoring factor contributing to the final score. */

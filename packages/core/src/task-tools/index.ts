@@ -7,7 +7,8 @@
  * Exposed tools:
  *   buildTaskTree        — flat array → hierarchical TaskTreeNode tree
  *   computeCriticalPath  — DAG longest-path via topological DP
- *   scoreTask            — priority score with per-factor breakdown
+ *   scoreTask            — priority score with per-factor breakdown (THE ranker, T12661)
+ *   rankTasks            — score + deterministic ordering over scoreTask
  *   renderTaskTreeText   — ASCII dep tree renderer
  *   renderTaskTreeMermaid — Mermaid graph TD renderer
  *   defineSdkTool        — schema-annotated tool registration factory
@@ -20,6 +21,12 @@ export { buildTaskTree } from './build-task-tree.js';
 export { computeCriticalPath } from './compute-critical-path.js';
 export { describeSchema, describeSchemaRegistered } from './describe-schema.js';
 export { renderTaskTreeMermaid, renderTaskTreeText } from './render-task-tree.js';
-export { scoreTask } from './score-task-priority.js';
+export type { RankedTask } from './score-task-priority.js';
+export {
+  computeLeverage,
+  formatScoreFactor,
+  rankTasks,
+  scoreTask,
+} from './score-task-priority.js';
 export type { JsonSchema, RegisteredSdkTool, SdkToolSpec } from './sdk-tool.js';
 export { defineSdkTool } from './sdk-tool.js';

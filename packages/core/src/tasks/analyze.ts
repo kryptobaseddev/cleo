@@ -7,6 +7,7 @@
 import type { TaskAnalysisResult, TaskWorkState } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { computeLeverage, rankTasks } from '../task-tools/score-task-priority.js';
 
 export interface AnalysisResult extends TaskAnalysisResult {
   autoStarted?: boolean;
@@ -52,20 +53,19 @@ export async function analyzeTaskPriority(
     .sort((a, b) => b.blocksCount - a.blocksCount)
     .slice(0, 5);
 
-  // Tier tasks
-  const scored = actionable.map((t) => ({
-    id: t.id,
-    title: t.title,
-    leverage: leverageMap[t.id] ?? 0,
-    priority: t.priority,
+  // Tier tasks — ranked by the shared scorer (T12661), the same weights as
+  // `cleo next` and the briefing (severity, bug kind, bounded leverage and age).
+  const leverage = computeLeverage(tasks);
+  const scored = rankTasks(actionable, {
+    taskStatuses: new Map(tasks.map((t) => [t.id, t.status] as const)),
+    leverage,
+  }).map(({ task, score }) => ({
+    id: task.id,
+    title: task.title,
+    leverage: leverageMap[task.id] ?? 0,
+    priority: task.priority,
+    score,
   }));
-
-  scored.sort((a, b) => {
-    const priorityWeight: Record<string, number> = { critical: 100, high: 50, medium: 20, low: 5 };
-    const aScore = (priorityWeight[a.priority ?? 'medium'] ?? 20) + a.leverage * 10;
-    const bScore = (priorityWeight[b.priority ?? 'medium'] ?? 20) + b.leverage * 10;
-    return bScore - aScore;
-  });
 
   const critical = scored.filter((t) => t.priority === 'critical');
   const high = scored.filter((t) => t.priority === 'high');
@@ -77,7 +77,8 @@ export async function analyzeTaskPriority(
           id: scored[0]!.id,
           title: scored[0]!.title,
           leverage: scored[0]!.leverage,
-          reason: 'Highest combined priority and leverage score',
+          reason:
+            'Highest score from the shared task ranking (priority, severity, leverage, readiness, age)',
         }
       : null;
 
