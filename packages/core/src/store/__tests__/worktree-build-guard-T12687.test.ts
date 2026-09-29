@@ -29,7 +29,7 @@ import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { drizzle } from 'drizzle-orm/node-sqlite';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { _resetDualScopeDbCache, openDualScopeDbAtPath } from '../dual-scope-db.js';
 import { ensureColumns, migrateSanitized, reconcileJournal } from '../migration-manager.js';
 import {
@@ -43,6 +43,27 @@ import {
   setWorktreeBuildGuardForTests,
   TEST_SANDBOX_MARKER,
 } from '../worktree-build-guard.js';
+
+// T9170: this file calls ensureColumns on purpose (the guard must deny the
+// ALTER), and ensureColumns WARNs "Adding missing column ... via ALTER TABLE"
+// before the denial. pino writes that line straight to stdout, so under
+// parallel shards the schema-warning budget gate attributes it to whichever
+// test file vitest printed last (e.g. temporal-supersession.test.ts) and the
+// ALLOWED_FILES entry cannot match. Silence the logger here so the expected
+// warning never reaches the shared log.
+vi.mock('../../logger.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../logger.js')>();
+  const silent = {
+    trace: vi.fn(),
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    fatal: vi.fn(),
+    child: () => silent,
+  };
+  return { ...actual, getLogger: () => silent };
+});
 
 const roots: string[] = [];
 
