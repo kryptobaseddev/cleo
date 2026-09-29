@@ -13,7 +13,9 @@
  * @epic T4454
  */
 
-import type { Task, TaskWorkState } from '@cleocode/contracts';
+import type { Task } from '@cleocode/contracts';
+import { readFocusState } from '../sessions/focus-state-store.js';
+import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 
@@ -90,7 +92,7 @@ export async function injectTasks(
   const acc = accessor ?? (await getTaskAccessor(opts.cwd));
   const { tasks: allTasks } = await acc.queryTasks({});
   const projectMeta = await acc.getMetaValue<{ currentPhase?: string }>('project');
-  const focusMeta = await acc.getMetaValue<TaskWorkState>('focus_state');
+  const focusMeta = await readFocusState(acc, resolveSessionIdFromEnv());
 
   const selectedTasks = selectTasksForInjection(allTasks, {
     ...opts,

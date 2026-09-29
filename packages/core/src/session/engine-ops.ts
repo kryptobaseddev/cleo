@@ -16,9 +16,15 @@ import type { Session, SessionSummaryInput, TaskWorkState } from '@cleocode/cont
 import { ExitCode, SESSION_JOURNAL_SCHEMA_VERSION } from '@cleocode/contracts';
 import type { GlobalInstructionRefreshReport } from '@cleocode/contracts/caamp-markers';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+import { pushWarning } from '../output.js';
 import { paginate } from '../pagination.js';
 import { type ContextInjectionData, injectContext } from '../sessions/context-inject.js';
-import { readFocusState, writeFocusState } from '../sessions/focus-state-store.js';
+import {
+  readFocusState,
+  type StaleFocusPointer,
+  staleFocusWarning,
+  writeFocusState,
+} from '../sessions/focus-state-store.js';
 import {
   archiveSessions,
   cleanupSessions,
@@ -342,15 +348,36 @@ export async function sessionShow(
  *
  * @task T1573
  */
-export async function taskCurrentGet(
-  projectRoot: string,
-): Promise<EngineResult<{ currentTask: string | null; currentPhase: string | null }>> {
+export async function taskCurrentGet(projectRoot: string): Promise<
+  EngineResult<{
+    currentTask: string | null;
+    currentPhase: string | null;
+    staleFocus?: StaleFocusPointer;
+    nextSuggested?: { id: string; title: string } | null;
+  }>
+> {
   try {
     const accessor = await getTaskAccessor(projectRoot);
     const result = await currentTask(undefined, accessor);
+    if (!result.staleFocus)
+      return engineSuccess({
+        currentTask: result.currentTask,
+        currentPhase: result.currentPhase,
+      });
+    // T12660: a done/cancelled/missing pointer is reported as stale, with the
+    // next ready task in its place — never as the current task.
+    const { coreTaskNext } = await import('../tasks/task-next.js');
+    const top = (await coreTaskNext(projectRoot, { count: 1 })).suggestions[0];
+    const nextSuggested = top ? { id: top.id, title: top.title } : null;
+    pushWarning({
+      code: 'W_STALE_FOCUS',
+      message: staleFocusWarning(result.staleFocus, nextSuggested),
+    });
     return engineSuccess({
-      currentTask: result.currentTask,
+      currentTask: null,
       currentPhase: result.currentPhase,
+      staleFocus: result.staleFocus,
+      nextSuggested,
     });
   } catch {
     return engineError('E_NOT_INITIALIZED', 'Task database not initialized');

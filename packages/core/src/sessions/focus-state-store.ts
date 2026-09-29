@@ -18,6 +18,7 @@
  */
 
 import type { TaskWorkState } from '@cleocode/contracts';
+import { TERMINAL_TASK_STATUSES } from '@cleocode/contracts';
 
 /**
  * The legacy global focus_state meta key, shared by all agents before T11345.
@@ -105,4 +106,84 @@ export async function writeFocusState(
   value: TaskWorkState,
 ): Promise<void> {
   await accessor.setMetaValue(focusStateKey(sessionId), value);
+}
+
+/**
+ * Clear the focus pointer to a task that just finished, in every scope that
+ * holds it: each given session key and the legacy global key (T12660).
+ *
+ * Only a blob whose `currentTask` IS `taskId` is touched, and only that field
+ * is cleared — notes and phase stay. Nothing else ever cleared the legacy key,
+ * so `cleo current` kept reporting a task done weeks earlier.
+ *
+ * @param accessor   - Metadata accessor.
+ * @param sessionIds - Session ids whose scoped key may hold the pointer
+ *   (the bound session, the env session); duplicates and nulls are ignored.
+ * @param taskId     - The completed task.
+ * @returns The meta keys that were cleared (empty when none pointed at it).
+ * @task T12660
+ */
+export async function clearFocusForFinishedTask(
+  accessor: FocusStateMetaAccessor,
+  sessionIds: ReadonlyArray<string | null | undefined>,
+  taskId: string,
+): Promise<string[]> {
+  const keys = new Set<string>([LEGACY_FOCUS_STATE_KEY]);
+  for (const id of sessionIds) if (id) keys.add(focusStateKey(id));
+  const cleared: string[] = [];
+  for (const key of keys) {
+    const state = await accessor.getMetaValue<TaskWorkState>(key);
+    if (state?.currentTask !== taskId) continue;
+    await accessor.setMetaValue(key, { ...state, currentTask: null });
+    cleared.push(key);
+  }
+  return cleared;
+}
+
+/** A focus pointer that names a task no longer workable (T12660). */
+export interface StaleFocusPointer {
+  /** Task the pointer names. */
+  taskId: string;
+  /** Its live status, or `missing` when the task no longer exists. */
+  status: string;
+}
+
+/**
+ * Whether a focus pointer is stale: its task is done, cancelled, archived or
+ * missing. A stale pointer is never reported as the current task (T12660).
+ *
+ * @param taskId - Pointer value.
+ * @param liveStatus - The task's live status, or `undefined` when it is missing.
+ * @returns The stale pointer, or `null` when the task is still workable.
+ * @task T12660
+ */
+export function staleFocusPointer(
+  taskId: string,
+  liveStatus: string | undefined,
+): StaleFocusPointer | null {
+  if (liveStatus === undefined) return { taskId, status: 'missing' };
+  return (TERMINAL_TASK_STATUSES as ReadonlySet<string>).has(liveStatus)
+    ? { taskId, status: liveStatus }
+    : null;
+}
+
+/**
+ * One-line warning for a stale focus pointer, naming the task, its status and
+ * what to do next.
+ *
+ * @param stale - The stale pointer.
+ * @param next - The next ready task, when one exists.
+ * @returns The warning text.
+ * @task T12660
+ */
+export function staleFocusWarning(
+  stale: StaleFocusPointer,
+  next: { id: string; title: string } | null,
+): string {
+  return (
+    `Stale focus pointer: ${stale.taskId} is ${stale.status}, not current. ` +
+    (next
+      ? `Next ready task: ${next.id} (${next.title}) — cleo start ${next.id}`
+      : 'No ready task — cleo next')
+  );
 }
