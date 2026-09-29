@@ -93,6 +93,8 @@ Full rationale per gate: `cleo docs fetch arch-gates-rationale` (git mirror: `do
 | 29 | Skills manifest SSoT (T12648 · T12653 · D11157) | `scripts/lint-skills-manifest.mjs` | none (zero-tolerance) | SKILL.md frontmatter is the skills metadata SSoT: `name` = directory, description ≤ 1024 chars, no duplicate keys, no top-level `tier`/`core`/`category`, and `metadata.version`/`tier` (core\|on-demand\|internal)/`install` (harness\|internal). `packages/skills/skills/manifest.json` MUST equal `node scripts/skills/generate-manifest.mjs` output — never hand-edit it — and is the ONLY skills index (a `packages/skills/skills.json` fails). |
 | 30 | Emitted-skill installability (T12648 · T12653 · D11157) | `scripts/lint-emitted-skills.mjs` | `scripts/.lint-emitted-skills-baseline.json` (empty) | Every skill named by `stage-guidance.ts`, `spawn-prompt.ts` (`loadSkillExcerpt`/`resolveSkillPath`), `SKILL_NAME_MAP` in `skills/types.ts`, `skill:` in `skills/dispatch.ts`, or a `.cant` `skillRef:` exists, is `metadata.install: harness` and is installed — `initCoreSkills` installs exactly the manifest's `install: harness` entries, and a tripwire fails the gate if that selection changes. Stale baseline entries fail. |
 | 31 | Skill command existence (T12649 · D11157) | `scripts/lint-skill-commands.mjs` | `scripts/.lint-skill-commands-baseline.json` (empty; non-core only) | Gate 14's rules applied to every `*.md` under `packages/skills/skills/`: each `cleo <verb> [<sub>]` exists, every flag is declared, partially-flagged invocations carry required flags, `--field` pointers resolve. Core-tier skills are zero-tolerance and can never be baselined; other skills ratchet (stale entries fail). A deliberately wrong example opts out with a trailing `# cleo-cmd: negative-example`. Frontmatter is not scanned. |
+| 32 | Skill coverage (T12124 · gh#1256 · D11157) | `scripts/lint-skill-coverage.mjs` | none (zero-tolerance) | Every core and LOOM-stage skill declares `metadata.covers`, and every covers glob matches a tracked file. PR mode (`--base <ref>`, run in CI): a changed covered path requires a change to that skill (on-demand skills accept a `Skill-Drift-Reviewed: <skill>: <reason>` trailer; core skills never do), and a changed skill requires a `metadata.version` bump. |
+| 33 | ct-cleo thin pointer (T9148 · T12124) | `scripts/check-ct-cleo-thin.mjs` | `scripts/.check-ct-cleo-thin-baseline.json` | ct-cleo SKILL.md may not grow: non-blank lines must not rise above the baseline, no new `## ` section outside Quick Reference / Skill-Specific Extensions, the thin-pointer marker stays. Target 50 lines (`--strict`). |
 | 35 | Model call sites registered (T12663 · D11158) | `scripts/lint-model-call-sites.mjs` | `scripts/.lint-model-call-sites-baseline.json` (per rule, per file) | Every `decide()`/`askSiteDecision` site id and every file calling an LLM entry point is a row of `packages/core/src/decide/sites/registry.ts` with a generative/agent rung; a System One site runs `on` only with go-live evidence (debug verb exempt); chokepoint bypasses are baselined per file and may only fall. A System One site's go-live `evidenceDoc` must resolve to a tracked `docs/**/<slug>.md` mirror. Opt-out `// model-site-allowed: <reason>` (reason required) trailing the line or alone on the line above. |
 
 **Common modes (all gates):** `--strict` zero-tolerance · `--baseline` regenerate · default fail-on-net-add.
@@ -183,13 +185,13 @@ After adoption: surfaces in `cleo worktree list` tagged `source: claude-agent`, 
 
 Canonical `ct-*` skills under `packages/skills/skills/` describe how CLEO works to every spawned agent; stale skill text means agents act on stale instructions.
 
-**Convention:** when you edit a path declared in the coverage map (`packages/skills/internal/skill-coverage.yml`), update the corresponding skill in the same PR — or acknowledge via commit trailer `Skill-Drift-Acknowledged: <reason>`.
+**Enforced (gate 32, `scripts/lint-skill-coverage.mjs`, T12124):** each skill declares the code it documents in `metadata.covers` (repo globs). A PR that changes a covered path must change that skill's directory, and a changed skill must bump `metadata.version`. CI runs the PR check against the PR base; `cleo check arch` checks that every core and LOOM-stage skill declares covers and that every glob matches a tracked file.
 
-> ⚠️ **NOT ENFORCED — convention, not a gate (T12124 · GH #1256).** No script or workflow reads the coverage map, and the tier-0 skills have no coverage entries. **Treat skill updates as a manual responsibility on every PR** (history: `cleo docs fetch arch-gates-rationale`, appendix).
+**Core skills (`metadata.tier: core`) — no override:** `ct-cleo` · `ct-orchestrator` · `ct-lead` · `ct-task-executor` · `ct-dev-workflow` · `ct-documentor` (D11157). A covered change must update the skill.
 
-**Tier-0 skills — trailer override is not permitted BY CONVENTION (unenforced):** `ct-cleo` (CLI protocol + session lifecycle) · `ct-orchestrator` (spawn/delegation contract) · `ct-task-executor` (worker contract) · `ct-dev-workflow` (commit / branch / release flow) · `ct-documentor` (docs SSoT routing) · `CLEO-INJECTION.md` (protocol injected into every spawn prompt).
+**On-demand skills** (the LOOM-stage skills in `packages/core/src/validation/protocols/`, ct-council, ct-codebase-mapper) accept a commit trailer instead: `Skill-Drift-Reviewed: <skill>: <why no update is needed>`.
 
-**Tier-1 LOOM-stage skills** (one per stage in `packages/core/src/validation/protocols/`): trailer override permitted.
+`CLEO-INJECTION.md` / `CLEO-REFERENCE.md` changes are covered by `ct-cleo`. ct-cleo's own size is ratcheted by gate 33 (`scripts/check-ct-cleo-thin.mjs`, baseline `scripts/.check-ct-cleo-thin-baseline.json`).
 
 Every `SKILL.md` ships with metadata (enforced by gate 29):
 
@@ -198,6 +200,8 @@ metadata:
   version: 2.0.0           # bump on every material change
   tier: core               # core | on-demand | internal (D11157)
   install: harness         # harness | internal
+  covers:                  # code this skill documents (gate 32)
+    - packages/cleo/src/cli/commands/example.ts
   lastReviewed: 2026-05-21 # ISO date
   stability: stable        # experimental | stable | deprecated
 ```

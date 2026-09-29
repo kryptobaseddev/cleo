@@ -15,7 +15,7 @@ import {
   type SpawnProtocolPhase,
   type SpawnTier,
 } from './spawn-prompt.js';
-import { type EnrichedWave, getEnrichedWaves } from './waves.js';
+import { type EnrichedWave, getEnrichedWaves, isTerminalWaveStatus } from './waves.js';
 
 export type { CircularDependency, DependencyAnalysis, MissingDependency } from './analyze.js';
 // Re-export new core modules for barrel access
@@ -288,8 +288,8 @@ function projectChildReadiness(children: Task[], waves: EnrichedWave[]): TaskRea
   );
   return children.flatMap((task) => {
     const assessment = assessments.get(task.id);
-    // Terminal children are absent from the canonical execution wave population.
-    if (!assessment) return [];
+    // Terminal children keep their (stable) wave but are not assessed for execution.
+    if (!assessment || isTerminalWaveStatus(task.status)) return [];
     return [
       {
         taskId: task.id,

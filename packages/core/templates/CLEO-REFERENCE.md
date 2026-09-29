@@ -1,6 +1,6 @@
 # CLEO Protocol — on-demand reference
 
-Version: 2.22.0 | Companion to the always-loaded `CLEO-INJECTION.md` core
+Version: 2.23.0 | Companion to the always-loaded `CLEO-INJECTION.md` core
 
 Not injected into agent context. Print one section with `cleo briefing inject --section <name>`; tier-2 spawn prompts embed this whole file. Section names are the `CLEO-INJECTION:section` markers below.
 
@@ -298,8 +298,6 @@ All overrides append a line to `.cleo/audit/force-bypass.jsonl`. Use sparingly.
 ### `pr:<number>` retroactive atom (T9764)
 
 `pr:` proves merge provenance, not completion. CLEO checks actual `mergeCommit`, task linkage and changed files; incomplete inventories or unavailable merge artifacts remain unverified. Fetch the merge commit before `files:` evidence. Task `files` must intersect its diff; prose mentions cannot establish scope. Explicit research/spike and documentation scope retain documentary evidence.
-
-A task PR merged into an integration branch is a component: `pr:<component>@<integration>` (and `ci:<component>@<integration>`) takes the merge commit and CI from the integration PR that landed it, and the task linkage and changed files from the component PR — only its files that survive the integration merge, never the whole integration diff (T12671). `cleo done` derives this from either PR number.
 
 Required checks: explicit configuration or target repository protection. `release.prRequiredWorkflows: []` requires no checks; it proves neither testing nor review. `.cleo/cache/evidence/pr-<num>.json` retains provenance and changed files; obsolete versions reject. Use `tool:test` or `test-run:<json>` plus appropriate QA tools, linking each result to verified criteria.
 <!-- /CLEO-INJECTION:section=evidence -->

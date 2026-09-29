@@ -97,7 +97,7 @@ Orchestrators resolve ALL tokens before spawning subagents. Subagents CANNOT res
 | `{{EPIC_ID}}` | Parent epic identifier |
 | `{{DATE}}` | Current date (ISO) |
 | `{{TOPIC_SLUG}}` | URL-safe topic name |
-| `{{OUTPUT_DIR}}` | Output directory |
+| `{{OUTPUT_DIR}}` | Legacy output directory — record output with `cleo docs add` instead |
 | `{{TASK_TITLE}}` | Task title |
 | `{{TASK_DESCRIPTION}}` | Task description |
 

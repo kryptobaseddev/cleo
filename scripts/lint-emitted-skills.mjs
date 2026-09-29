@@ -110,6 +110,31 @@ export function stripComments(source) {
 }
 
 /**
+ * Whether `marker` occurs in `source` outside every string literal, so a
+ * tripwire copied into a string (a log message, a test fixture) cannot
+ * satisfy the check. `source` is expected comment-free.
+ *
+ * @param {string} source - Comment-stripped module source.
+ * @param {string} marker - Code text to find.
+ * @returns {boolean}
+ */
+export function includesAsCode(source, marker) {
+  const spans = [];
+  const re = /(['"`])(?:\\.|(?!\1)[^\\])*\1/g;
+  for (const m of source.matchAll(re)) spans.push([m.index, m.index + m[0].length]);
+  let from = 0;
+  for (;;) {
+    const at = source.indexOf(marker, from);
+    if (at === -1) return false;
+    // A marker that starts inside a string literal (and is not merely the
+    // literal it itself opens with) is text, not code.
+    const inside = spans.some(([s, e]) => at > s && at < e - 1);
+    if (!inside) return true;
+    from = at + 1;
+  }
+}
+
+/**
  * Collect every skill name code emits, with where it came from, and which
  * expected sources yielded nothing.
  *
@@ -149,17 +174,22 @@ export function collectEmittedSkillsWithCoverage(root) {
   const spawn = read(SPAWN_PROMPT);
   const spawnNames = [];
   for (const m of spawn.matchAll(
-    /(?:loadSkillExcerpt|resolveSkillPath)\(\s*(?:(['"`])([a-z][\w-]*)\1|([A-Z][A-Z0-9_]*)\s*[,)])/g,
+    /(?:loadSkillExcerpt|resolveSkillPath)\(\s*(?:(['"`])([a-z][\w-]*)\1|([A-Za-z_$][\w$]*)\s*[,)])/g,
   )) {
     if (m[2]) {
       spawnNames.push(m[2]);
       continue;
     }
-    const decl = new RegExp(`\\bconst\\s+${m[3]}\\b[^=]*=\\s*(['"\`])([a-z][\\w-]*)\\1`).exec(
-      spawn,
-    );
+    // An identifier: resolve it from a same-file const/let string binding
+    // (any casing — `leadSkill` as well as `LEAD_SKILL`). An unbound
+    // CONSTANT_CASE name is reported; an unbound camelCase name is a
+    // parameter or computed value (e.g. `resolveSkillPath(skillName, …)`)
+    // and cannot be judged statically.
+    const decl = new RegExp(
+      `\\b(?:const|let)\\s+${m[3]}\\b[^=]*=\\s*(['"\`])([a-z][\\w-]*)\\1`,
+    ).exec(spawn);
     if (decl) spawnNames.push(decl[2]);
-    else unresolved.push(`${m[3]} (${SPAWN_PROMPT})`);
+    else if (/^[A-Z][A-Z0-9_]*$/.test(m[3])) unresolved.push(`${m[3]} (${SPAWN_PROMPT})`);
   }
   record(`loadSkillExcerpt/resolveSkillPath (${SPAWN_PROMPT})`, SPAWN_PROMPT, spawnNames);
 
@@ -230,7 +260,7 @@ export function findViolations(root) {
   const violations = [];
   const initSource = stripComments(readFileSync(join(root, INIT_TS), 'utf-8'));
   for (const marker of INSTALL_TRIPWIRES) {
-    if (!initSource.includes(marker)) {
+    if (!includesAsCode(initSource, marker)) {
       violations.push({
         key: `tripwire:${marker}`,
         message: `${INIT_TS} no longer contains \`${marker}\`: install changed, so installedSkillNames() in this gate no longer mirrors it. Update both together.`,
