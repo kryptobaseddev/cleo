@@ -351,10 +351,30 @@ interface HandleGuard {
 
 const guards = new WeakMap<DatabaseSync, HandleGuard>();
 
-/** Refusal for an ATTACH whose filename SQLite could not report (bound or computed). */
+/** Refusal for an ATTACH whose store this build cannot identify from its name. */
 const UNKNOWN_ATTACH_REFUSAL =
-  'a store was ATTACHed by a bound or computed filename, so this build cannot tell whose ' +
+  'a store was ATTACHed by a bound, computed or URI filename, so this build cannot tell whose ' +
   'store it is; schema changes on unmapped schemas are refused until the guard is refreshed';
+
+/**
+ * The refusal for an ATTACH, judged from the name SQLite's callback reports.
+ *
+ * Only a plain path is judged directly. The callback reports the filename only
+ * when it is a string literal (null otherwise), and a `file:` URI or a name
+ * with a `?` query is not a path: resolved against cwd it lands inside the
+ * worktree and would pass. Those fail closed until a refresh maps the real
+ * path from `PRAGMA database_list`. `''` and `:memory:` open private stores.
+ *
+ * @param name - The ATTACH callback's filename argument.
+ * @returns The refusal, or `null` when the attach is allowed.
+ */
+function attachRefusal(name: string | null | undefined): string | null {
+  if (name === '' || name === ':memory:') return null;
+  if (typeof name !== 'string' || /^file:/i.test(name) || name.includes('?')) {
+    return UNKNOWN_ATTACH_REFUSAL;
+  }
+  return decisionFor(name);
+}
 
 function readSchemas(nativeDb: DatabaseSync): Map<string, SchemaPolicy> {
   const schemas = new Map<string, SchemaPolicy>();
@@ -422,9 +442,7 @@ export function installSchemaWriteGuard(nativeDb: DatabaseSync): boolean {
   const { sqlite, creates, changes } = codes();
   nativeDb.setAuthorizer((action, arg1, arg2, dbName) => {
     if (action === sqlite.SQLITE_ATTACH) {
-      // arg1 is the filename only when it is a string literal; a bound or
-      // computed filename arrives as null and is refused until refresh.
-      const refusal = typeof arg1 === 'string' ? decisionFor(arg1) : UNKNOWN_ATTACH_REFUSAL;
+      const refusal = attachRefusal(arg1);
       if (refusal && !state.unmappedAttachRefusal) state.unmappedAttachRefusal = refusal;
       return sqlite.SQLITE_OK;
     }

@@ -474,4 +474,30 @@ describe('T12687 review — stamp fails closed, marker scoping, attached schemas
     }
     expect(columns(store)).toEqual(['id']);
   });
+
+  it.each([
+    ['a file: URI', (store: string) => `file:${store}`],
+    ['a file: URI with a query', (store: string) => `file:${store}?mode=rw`],
+    ['a file:// URI', (store: string) => `file://${store}`],
+  ])('an ATTACH by %s is guarded with cwd inside the build worktree (review)', (_n, uri) => {
+    const r = scratchRepos();
+    const seed = new DatabaseSync(r.store);
+    seed.exec('CREATE TABLE t (id INTEGER PRIMARY KEY)');
+    seed.close();
+    asWorktreeBuild(r.build);
+    const cwd = process.cwd();
+    process.chdir(r.worktree); // the normal case: running from the build's own worktree
+    const mem = new DatabaseSync(':memory:');
+    try {
+      installSchemaWriteGuard(mem);
+      mem.exec(`ATTACH DATABASE '${uri(r.store)}' AS e`);
+      expect(() => mem.exec('ALTER TABLE e.t ADD COLUMN p8 TEXT')).toThrow(/not authorized/);
+      refreshSchemaWriteGuard(mem); // maps the real path from database_list
+      expect(() => mem.exec('ALTER TABLE e.t ADD COLUMN p8 TEXT')).toThrow(/not authorized/);
+    } finally {
+      mem.close();
+      process.chdir(cwd);
+    }
+    expect(columns(r.store)).toEqual(['id']);
+  });
 });
