@@ -9,10 +9,10 @@
  * @task T1161
  */
 
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { applyIncludePatterns, loadWorktreeIncludePatterns } from '../worktree-include.js';
 
 function makeTmpDir(prefix: string): string {
@@ -116,7 +116,7 @@ describe('loadWorktreeIncludePatterns — legacy .cleo/worktree-include', () => 
 });
 
 describe('applyIncludePatterns', () => {
-  it('creates symlinks for matched source paths', () => {
+  it('copies matched source paths into the worktree', () => {
     const projectRoot = makeTmpDir('project');
     const worktreePath = makeTmpDir('worktree');
 
@@ -163,7 +163,7 @@ describe('applyIncludePatterns', () => {
     rmSync(worktreePath, { recursive: true });
   });
 
-  it('skips negated patterns (no symlink created)', () => {
+  it('skips negated patterns (nothing copied)', () => {
     const projectRoot = makeTmpDir('project');
     const worktreePath = makeTmpDir('worktree');
 
@@ -208,5 +208,40 @@ describe('applyIncludePatterns', () => {
 
     rmSync(projectRoot, { recursive: true });
     rmSync(worktreePath, { recursive: true });
+  });
+});
+
+describe('applyIncludePatterns — native copy path (T12685)', () => {
+  // Regression: the module called a bare `require()` from ESM, which threw
+  // "require is not defined" on every call, so every worktree fell back to
+  // the legacy symlinker. That fallback matches literal paths only, so glob
+  // patterns such as `crates/worktree-napi/*.node` copied nothing and a new
+  // worktree had no native addon. Runs under a directory with a space, the
+  // shape of every macOS CLEO worktree (`~/Library/Application Support/...`).
+  it('copies real files (not symlinks) under a spaced path without falling back', () => {
+    const base = makeTmpDir('include space');
+    const projectRoot = join(base, 'Application Support', 'project');
+    const worktreePath = join(base, 'Application Support', 'worktree');
+    mkdirSync(join(projectRoot, 'crates', 'addon'), { recursive: true });
+    mkdirSync(worktreePath, { recursive: true });
+    writeFileSync(join(projectRoot, 'crates', 'addon', 'binding.node'), 'native');
+
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      const patterns = [{ pattern: 'crates/addon/binding.node', negated: false }];
+      const applied = applyIncludePatterns(patterns, projectRoot, worktreePath);
+
+      const fallbackWrites = stderrSpy.mock.calls
+        .map(([chunk]) => String(chunk))
+        .filter((line) => line.includes('falling back'));
+      expect(fallbackWrites).toEqual([]);
+      expect(applied).toEqual(patterns);
+      const target = join(worktreePath, 'crates', 'addon', 'binding.node');
+      expect(lstatSync(target).isSymbolicLink()).toBe(false);
+      expect(readFileSync(target, 'utf-8')).toBe('native');
+    } finally {
+      stderrSpy.mockRestore();
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 });

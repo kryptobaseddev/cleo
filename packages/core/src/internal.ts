@@ -2206,6 +2206,8 @@ export {
   taskLint,
   taskNext,
   taskPromote,
+  taskRankingHistory,
+  taskRankingRevert,
   taskRelates,
   taskRelatesAdd,
   taskRelatesAddBatch,

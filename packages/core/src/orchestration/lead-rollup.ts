@@ -389,8 +389,22 @@ async function loadLatestManifestPerTask(
   const out = new Map<string, LatestManifestRow>();
   if (taskIds.length === 0) return out;
 
-  const { readManifestEntries } = await import('../memory/pipeline-manifest-sqlite.js');
-  const entries = await readManifestEntries(projectRoot);
+  // T12686: one malformed stored row must not sink the whole roll-up. Skip
+  // it, name it, and point at the repair.
+  const { MANIFEST_ROW_REPAIR_COMMAND, readManifestEntriesSkippingMalformed } = await import(
+    '../memory/pipeline-manifest-sqlite.js'
+  );
+  const { entries, malformed } = await readManifestEntriesSkippingMalformed(projectRoot);
+  if (malformed.length > 0) {
+    const { pushWarning } = await import('../output.js');
+    for (const row of malformed) {
+      pushWarning({
+        code: 'W_MANIFEST_ROW_MALFORMED',
+        message: `Skipped manifest row '${row.entryId}' (${row.message}); roll-up reports the rest. Repair: ${MANIFEST_ROW_REPAIR_COMMAND}`,
+        severity: 'warn',
+      });
+    }
+  }
   for (const taskId of taskIds) {
     const entry = entries.find((candidate) => candidate.linked_tasks?.includes(taskId));
     if (entry) {

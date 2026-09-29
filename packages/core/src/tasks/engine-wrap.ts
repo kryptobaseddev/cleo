@@ -51,6 +51,8 @@ export {
   taskHistory,
   taskImport,
   taskLint,
+  taskRankingHistory,
+  taskRankingRevert,
   taskStats,
   taskUnclaim,
 } from './engine-wrap-ops.js';

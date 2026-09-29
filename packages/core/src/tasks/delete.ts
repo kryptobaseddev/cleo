@@ -14,6 +14,12 @@ import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { removeChildProjectionAc } from './ac-table.js';
 import { taskToRecord } from './engine-converters.js';
+import {
+  type RankingSnapshot,
+  rankingAuditEntry,
+  rankingSnapshot,
+  resolveRankingActor,
+} from './ranking-audit.js';
 
 /** Options for deleting a task. */
 export type DeleteTaskOptions = TasksDeleteQueryParams;
@@ -99,10 +105,13 @@ export async function deleteTask(
 
   // Gather dependency cleanup data before the transaction (reads outside)
   const depsToUpdate: Task[] = [];
+  // T12693: each dependent's ranking inputs before the cascade edits them.
+  const dependsBefore = new Map<string, RankingSnapshot>();
   for (const deletedId of idsToDelete) {
     const dependents = await acc.getDependents(deletedId);
     for (const dep of dependents) {
       if (!idsToDelete.has(dep.id)) {
+        if (!dependsBefore.has(dep.id)) dependsBefore.set(dep.id, rankingSnapshot(dep));
         dep.depends = (dep.depends ?? []).filter((d) => !idsToDelete.has(d));
         if (dep.depends.length === 0) delete dep.depends;
         depsToUpdate.push(dep);
@@ -111,6 +120,7 @@ export async function deleteTask(
   }
 
   const now = new Date().toISOString();
+  const rankingActor = depsToUpdate.length > 0 ? await resolveRankingActor(cwd) : null;
 
   // Wrap all writes in a transaction for TOCTOU safety (T023)
   await acc.transaction(async (tx) => {
@@ -139,6 +149,20 @@ export async function deleteTask(
     // Clean up dependency references
     for (const dep of depsToUpdate) {
       await tx.upsertSingleTask(dep);
+      // T12693 (D11161): removing a deleted prerequisite changes depends.
+      const before = dependsBefore.get(dep.id);
+      const entry =
+        before && rankingActor
+          ? rankingAuditEntry({
+              taskId: dep.id,
+              before,
+              after: rankingSnapshot(dep),
+              actor: rankingActor,
+              reason: `dependency ${[...idsToDelete].join(', ')} deleted`,
+              source: 'delete-cascade',
+            })
+          : null;
+      if (entry) await tx.appendLog(entry);
     }
 
     // Audit log

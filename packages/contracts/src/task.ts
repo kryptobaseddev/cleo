@@ -187,6 +187,14 @@ export interface CriterionEvidenceLink {
   artifactPaths: string[];
   /** Indices of actual validated result atoms in the containing gate's atoms array. */
   resultAtomIndices: number[];
+  /**
+   * How the `implemented` link is supported (T12689): `files` when a path the
+   * criterion names is among the inspected artifacts; `self-attested` when the
+   * criterion names no path in them, so the link rests on the agent's claim.
+   * Paths parsed from criterion text are advisory (T12118), so this flags
+   * rather than refuses. Absent on other gates and on older receipts.
+   */
+  basis?: 'files' | 'self-attested';
 }
 
 /** Verification failure log entry. */
@@ -390,6 +398,12 @@ export type EvidenceAtom =
        * (T12671): the task is linked through it and its files are the change.
        */
       componentPrNumber?: number;
+      /**
+       * Paths the (component) PR deleted that stay deleted in the landing
+       * commit (T12689). A deletion has no bytes to hash, so a PR whose every
+       * change is a deletion implements with `pr:` + `note:` instead of `files:`.
+       */
+      deletedPaths?: string[];
     }
   | {
       /**

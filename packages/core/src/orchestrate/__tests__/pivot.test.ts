@@ -131,6 +131,38 @@ describe('pivotTask', () => {
     });
   });
 
+  it('refuses a pivot from a finished task, even when a stale focus still points at it (T12698)', async () => {
+    await seedTasks(accessor, [
+      { id: 'T001', title: 'From', status: 'pending', priority: 'medium' },
+      { id: 'T002', title: 'To', status: 'pending', priority: 'medium' },
+    ]);
+    await startTask('T001', env.tempDir, accessor);
+    // T001 finishes while the focus pointer still names it (another session's key).
+    await accessor.updateTaskFields('T001', { status: 'done', pipelineStage: 'contribution' });
+
+    await expect(
+      pivotTask('T001', 'T002', { reason: 'stale focus', projectRoot: env.tempDir, accessor }),
+    ).rejects.toMatchObject({
+      code: ExitCode.ACTIVE_TASK_REQUIRED,
+      message: expect.stringContaining("from task 'T001' is done"),
+    });
+    // No dependency on the finished task was added.
+    expect((await accessor.loadSingleTask('T001'))?.depends ?? []).not.toContain('T002');
+  });
+
+  it('a stale focus pointer at a finished task never makes it pivot-active (T12698)', async () => {
+    await seedTasks(accessor, [
+      { id: 'T001', title: 'From', status: 'blocked', priority: 'medium' },
+      { id: 'T002', title: 'To', status: 'pending', priority: 'medium' },
+      { id: 'T003', title: 'Done', status: 'done', priority: 'medium' },
+    ]);
+    // Focus points at the finished T003; T001 is neither focus nor in IVTR.
+    await accessor.setMetaValue('focus_state', { currentTask: 'T003' });
+    await expect(
+      pivotTask('T001', 'T002', { reason: 'not active', projectRoot: env.tempDir, accessor }),
+    ).rejects.toMatchObject({ code: ExitCode.ACTIVE_TASK_REQUIRED });
+  });
+
   it('accepts when from task is active by pipelineStage even if not focus', async () => {
     await seedTasks(accessor, [
       {

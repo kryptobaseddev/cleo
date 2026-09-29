@@ -234,16 +234,23 @@ export interface LiveFocus {
  *
  * @param accessor - Metadata accessor with a live task lookup.
  * @param sessionId - Resolved session id (or `null` for the global key).
+ * @param known - Tasks the caller already loaded (e.g. the briefing's task
+ *   map): a pointer found there skips the extra lookup (T12698). A pointer
+ *   absent from it (archived tasks are not listed) is still looked up.
  * @returns The blob, the live current task, and the stale pointer if any.
  * @task T12684
  */
 export async function readLiveFocus(
   accessor: LiveFocusAccessor,
   sessionId: string | null | undefined,
+  known?: ReadonlyMap<string, { status: string }>,
 ): Promise<LiveFocus> {
   const state = await readFocusState(accessor, sessionId);
   const pointer = state?.currentTask ?? null;
   if (!pointer) return { state, currentTask: null, staleFocus: null };
-  const staleFocus = staleFocusPointer(pointer, (await accessor.loadSingleTask(pointer))?.status);
+  const staleFocus = staleFocusPointer(
+    pointer,
+    (known?.get(pointer) ?? (await accessor.loadSingleTask(pointer)))?.status,
+  );
   return { state, currentTask: staleFocus ? null : pointer, staleFocus };
 }

@@ -6,18 +6,9 @@
  * @task T12684
  */
 
-import {
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, relative } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import type { TaskWorkState } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { injectTasks } from '../../inject/index.js';
@@ -148,41 +139,4 @@ describe('inject and bootstrap never put a finished task into agent context', ()
   });
 });
 
-describe('no reader bypasses the validating accessor', () => {
-  /** Files allowed the RAW read: read-modify-write of the blob, never reporting. */
-  const RAW_READ_ALLOWED = new Set([
-    'sessions/focus-state-store.ts',
-    'sessions/session-switch.ts',
-    'tasks/analyze.ts',
-    'task-work/index.ts',
-    'phases/index.ts',
-    'orchestrate/pivot.ts',
-    'session/engine-ops.ts',
-  ]);
-  const src = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-
-  function sourceFiles(dir: string): string[] {
-    return readdirSync(dir).flatMap((name) => {
-      const path = join(dir, name);
-      if (statSync(path).isDirectory()) return name === '__tests__' ? [] : sourceFiles(path);
-      return name.endsWith('.ts') ? [path] : [];
-    });
-  }
-
-  it('the legacy key is read only inside the store, and raw reads only by writers', () => {
-    const rawLegacy: string[] = [];
-    const rawRead: string[] = [];
-    for (const file of sourceFiles(src)) {
-      const rel = relative(src, file);
-      const text = readFileSync(file, 'utf-8');
-      if (
-        rel !== 'sessions/focus-state-store.ts' &&
-        /getMetaValue[^(]*\(\s*'focus_state'/.test(text)
-      )
-        rawLegacy.push(rel);
-      if (!RAW_READ_ALLOWED.has(rel) && /\breadFocusState\(/.test(text)) rawRead.push(rel);
-    }
-    expect(rawLegacy).toEqual([]);
-    expect(rawRead).toEqual([]);
-  });
-});
+// The per-call source scan lives in focus-reader-scan-T12698.test.ts.

@@ -67,6 +67,8 @@ import {
   taskList,
   taskNext,
   taskPlan,
+  taskRankingHistory,
+  taskRankingRevert,
   taskReconcileScope,
   taskRelates,
   taskRelatesAdd,
@@ -326,6 +328,13 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
 
   history: async (params) => {
     const projectRoot = getProjectRoot();
+    if (params.taskId && params.ranking) {
+      // T12693 (D11161): who changed the ranking inputs, and why.
+      return wrapCoreResult(
+        await taskRankingHistory(projectRoot, params.taskId, params.limit),
+        'history',
+      );
+    }
     if (params.taskId) {
       return wrapCoreResult(await taskHistory(projectRoot, params.taskId, params.limit), 'history');
     }
@@ -565,6 +574,20 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     );
   },
 
+  'ranking.revert': async (params) => {
+    if (!params.entryId) {
+      return lafsError('E_INVALID_INPUT', 'entryId is required', 'ranking.revert');
+    }
+    return wrapCoreResult(
+      await taskRankingRevert(getProjectRoot(), {
+        entryId: params.entryId,
+        ...(params.reason !== undefined ? { reason: params.reason } : {}),
+        ...(params.force ? { force: true } : {}),
+      }),
+      'ranking.revert',
+    );
+  },
+
   'relates.add-batch': async (params) => {
     const projectRoot = getProjectRoot();
     return wrapCoreResult(await taskRelatesAddBatch(projectRoot, params), 'relates.add-batch');
@@ -685,6 +708,8 @@ const MUTATE_OPS = new Set<string>([
   // OperationDef registered in @cleocode/contracts operations-registry.
   'relates.add-batch',
   'relates.remove',
+  // T12693 (D11161) — undo one audited ranking change.
+  'ranking.revert',
   'start',
   'stop',
   'sync.reconcile',
@@ -1188,6 +1213,7 @@ export class TasksHandler implements DomainHandler {
         'assignee',
         'relates.add',
         'relates.remove',
+        'ranking.revert',
         'start',
         'stop',
         'sync.reconcile',

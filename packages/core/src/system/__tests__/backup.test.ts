@@ -236,7 +236,7 @@ describe('system/backup', () => {
     writeFileSync(join(testDir, '.cleo', 'config.json'), '{"stale":true}');
 
     const { restoreBackup } = await import('../backup.js');
-    const result = restoreBackup(testDir, { backupId });
+    const result = restoreBackup(testDir, { backupId, cwd: testDir });
 
     expect(result.restored).toBe(true);
     expect(result.filesRestored).toEqual(expect.arrayContaining(['tasks.db', 'config.json']));
@@ -246,7 +246,7 @@ describe('system/backup', () => {
 
   it('restoreBackup throws NOT_FOUND for a missing backupId', async () => {
     const { restoreBackup } = await import('../backup.js');
-    expect(() => restoreBackup(testDir, { backupId: 'nonexistent' })).toThrowError(
+    expect(() => restoreBackup(testDir, { backupId: 'nonexistent', cwd: testDir })).toThrowError(
       /Backup not found/,
     );
   });
@@ -360,7 +360,7 @@ describe('system/backup — legacy dir fallthrough (T10315 · ADR-013 §10)', ()
     const mod = await import('../backup.js');
     mod._resetLegacyWarningOnce();
 
-    const result = mod.restoreBackup(testDir, { backupId });
+    const result = mod.restoreBackup(testDir, { backupId, cwd: testDir });
     expect(result.restored).toBe(true);
     expect(result.filesRestored).toContain('config.json');
     expect(readFileSync(join(testDir, '.cleo', 'config.json'), 'utf-8')).toBe('{"legacy":true}');
@@ -501,7 +501,7 @@ describe('system/backup — restored .db files are byte-identical', () => {
     );
 
     const { restoreBackup } = await import('../backup.js');
-    const result = restoreBackup(testDir, { backupId });
+    const result = restoreBackup(testDir, { backupId, cwd: testDir });
     expect(result.restored).toBe(true);
 
     const liveBytes = readFileSync(join(testDir, '.cleo', 'tasks.db'));

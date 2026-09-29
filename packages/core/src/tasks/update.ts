@@ -22,6 +22,7 @@ import { loadConfig } from '../config.js';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
+import { pushWarning } from '../output.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
@@ -50,6 +51,7 @@ import {
 import { childTypeForParentType } from './hierarchy.js';
 import { exceedsMaxDepth, resolveHierarchyPolicy } from './hierarchy-policy.js';
 import { validatePipelineTransition } from './pipeline-stage.js';
+import { rankingAuditEntry, rankingSnapshot, resolveRankingActor } from './ranking-audit.js';
 import { prepareSignedSeverityAttestation } from './severity-attestation.js';
 
 const NON_STATUS_DONE_FIELDS: Array<keyof Omit<UpdateTaskOptions, 'taskId' | 'status'>> = [
@@ -132,10 +134,11 @@ export interface UpdateTaskOptions {
   scope?: TaskScope;
   /**
    * Severity level — valid for any role (widened from bug-only by T9073).
-   * Orthogonal to priority — does NOT auto-map priority.
+   * Orthogonal to priority — does NOT auto-map priority. `null` clears it
+   * (T12693: reverting a ranking change back to "no severity").
    * @task T9073
    */
-  severity?: TaskSeverity;
+  severity?: TaskSeverity | null;
   /**
    * Operator-supplied justification required to override the
    * acceptance-criteria immutability guard once a task has entered the
@@ -150,6 +153,11 @@ export interface UpdateTaskOptions {
    * @task T1590
    */
   reason?: string;
+  /**
+   * What is making the change, recorded on the ranking audit row (T12693):
+   * `update` (default) or `revert`.
+   */
+  rankingSource?: 'update' | 'revert';
   /** Set related tasks (replaces existing). @task T9327 */
   relates?: Array<{ taskId: string; type: string; reason?: string }>;
   /** Add related tasks without overwriting existing. @task T9327 */
@@ -536,6 +544,7 @@ export async function updateTask(
 
   // T9073: severity — orthogonal to priority, valid for any role
   if (options.severity !== undefined) {
+    // null clears it (T12693); an explicit null is what the store persists.
     task.severity = options.severity;
     changes.push('severity');
   }
@@ -683,6 +692,11 @@ export async function updateTask(
   // inside the write transaction (T12503).
   let written: Task = task;
 
+  // T12693 (D11161): who is changing ranking inputs — resolved before the
+  // write transaction, recorded inside it.
+  const rankingActor = await resolveRankingActor(cwd);
+  let rankingRecorded = false;
+
   // Wrap writes in a transaction for TOCTOU safety (T023)
   await acc.transaction(async (tx) => {
     // T12503 — optimistic concurrency. BEGIN IMMEDIATE holds the write lock
@@ -703,7 +717,7 @@ export async function updateTask(
     validateDependencyWaiver(options.priority, options.dependsWaiver, written.depends ?? []);
 
     const severityAttestation =
-      options.severity === undefined
+      options.severity === undefined || options.severity === null
         ? undefined
         : await prepareSignedSeverityAttestation(
             {
@@ -717,6 +731,20 @@ export async function updateTask(
           );
 
     await tx.upsertSingleTask(written);
+
+    // T12693 (D11161): a ranking-input change is audited in the same write.
+    const rankingEntry = rankingAuditEntry({
+      taskId: options.taskId,
+      before: rankingSnapshot(current),
+      after: rankingSnapshot(written),
+      actor: rankingActor,
+      reason: options.reason,
+      source: options.rankingSource ?? 'update',
+    });
+    if (rankingEntry) {
+      await tx.appendLog(rankingEntry);
+      rankingRecorded = true;
+    }
 
     // T9514: persist relates mutations to task_relations table.
     // The in-memory task.relates update is not enough — upsertSingleTask
@@ -824,6 +852,14 @@ export async function updateTask(
       after: { changes, title: written.title },
     });
   });
+
+  // T12693: agents are asked for the why of a ranking change.
+  if (rankingRecorded && rankingActor.actor !== 'human' && !options.reason?.trim()) {
+    pushWarning({
+      code: 'W_RANKING_REASON_MISSING',
+      message: `Ranking inputs of ${options.taskId} changed without a reason; pass --reason "<why>" so the audit trail says why (cleo history ranking ${options.taskId}).`,
+    });
+  }
 
   return { task: written, changes };
 }

@@ -78,3 +78,15 @@ describe('a hung gh fails fast with a gh-named reason', () => {
     expect(value).toBeNull();
   });
 });
+
+describe('the gh availability probe is bounded (T12689)', () => {
+  it('a gh that hangs on --version counts as unavailable, fast', async () => {
+    writeFileSync(join(bin, 'gh'), '#!/bin/sh\nsleep 5\necho "gh version 2.0.0"\n', {
+      mode: 0o755,
+    });
+    const { isGhCliAvailable } = await import('../github-pr.js');
+    const started = Date.now();
+    expect(isGhCliAvailable()).toBe(false);
+    expect(Date.now() - started).toBeLessThan(4000);
+  });
+});

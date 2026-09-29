@@ -58,6 +58,8 @@ export {
   taskHistory,
   taskImport,
   taskLint,
+  taskRankingHistory,
+  taskRankingRevert,
   taskSlice,
   taskStats,
   taskUnclaim,

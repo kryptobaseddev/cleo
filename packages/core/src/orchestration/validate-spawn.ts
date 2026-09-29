@@ -16,6 +16,7 @@ import {
 import { AgentNotFoundError, resolveAgent } from '../store/agent-resolver.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { installSchemaWriteGuard } from '../store/worktree-build-guard.js';
 import { getReadinessDependencyBlockers } from '../tasks/dependency-check.js';
 import { MAX_WORKER_FILES } from './atomicity.js';
 import { CLASSIFY_CONFIDENCE_FLOOR, CLASSIFY_FALLBACK_AGENT_ID, classifyTask } from './classify.js';
@@ -95,6 +96,7 @@ async function openAgentRegistryDbForPreflight(): Promise<DatabaseSync | null> {
     await ensureGlobalAgentRegistryDb();
     const dbPath = getGlobalAgentRegistryDbPath();
     const db = new _DatabaseSyncCtor(dbPath);
+    installSchemaWriteGuard(db); // T12687
     db.exec('PRAGMA foreign_keys = ON');
     return db;
   } catch {
