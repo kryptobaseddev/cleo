@@ -48,6 +48,7 @@ import {
   providerKeyHash,
   readProviderState,
   refreshProviderState,
+  TRANSIENT_DETECTION_RETRY_MS,
   USAGE_REFRESH_MS,
   writeProviderState,
 } from '../provider-state.js';
@@ -901,6 +902,102 @@ describe('lazy capability detection (T12715)', () => {
       now: () => now,
     });
     expect(state?.capabilities).toEqual(JEV_MINIMUM_CAPABILITIES);
+  });
+
+  it('a transient failure with nothing cached is not written, and is retried after a short wait', async () => {
+    let now = 1_000_000;
+    const path = join(dir, 'state.json');
+    const down = routes({ '/v1/usage': () => jsonResponse(503, { detail: {} }) });
+    const o = { fetch: down, path, now: () => now };
+    const state = await refreshProviderState(connection, signal(), o);
+    expect(state?.capabilities).toEqual(JEV_MINIMUM_CAPABILITIES);
+    expect(existsSync(path)).toBe(false);
+    // The in-process memo serves the result meanwhile.
+    expect(cachedCapabilities(connection, now, path)).toEqual(JEV_MINIMUM_CAPABILITIES);
+
+    now += TRANSIENT_DETECTION_RETRY_MS - 1;
+    await refreshProviderState(connection, signal(), o);
+    expect(calls(down, '/v1/usage')).toBe(1);
+    now += 1;
+    await refreshProviderState(connection, signal(), o);
+    expect(calls(down, '/v1/usage')).toBe(2);
+  });
+
+  it('a partial detection (/v1/usage ok, /v1/templates timed out) is transient, not "no templates"', async () => {
+    const templatesDown = (): ReturnType<typeof routes> =>
+      vi.fn<typeof fetch>(async (input) => {
+        const p = new URL(String(input)).pathname;
+        if (p === '/v1/usage') return jsonResponse(200, { balance: { micros: 5 } });
+        throw new TypeError('fetch failed');
+      });
+    const partial = await detectJevCapabilities(connection, signal(), { fetch: templatesDown() });
+    expect(partial.error?.kind).toBe('network');
+
+    // Nothing cached: the partial result is not pinned for 10 minutes.
+    let now = 1_000_000;
+    const path = join(dir, 'state.json');
+    await refreshProviderState(connection, signal(), {
+      fetch: templatesDown(),
+      path,
+      now: () => now,
+    });
+    expect(existsSync(path)).toBe(false);
+
+    // Cached with templates: a templates timeout keeps them.
+    const full = routes({
+      '/v1/usage': () => jsonResponse(200, { balance: { micros: 5 } }),
+      '/v1/templates': () => jsonResponse(200, { templates: [{ template: 'spam' }] }),
+    });
+    await refreshProviderState(connection, signal(), {
+      fetch: full,
+      path,
+      now: () => now,
+      force: true,
+    });
+    expect(readProviderState(connection, path)?.capabilities.templates).toEqual(['spam']);
+    now += USAGE_REFRESH_MS;
+    const state = await refreshProviderState(connection, signal(), {
+      fetch: templatesDown(),
+      path,
+      now: () => now,
+    });
+    expect(state?.capabilities.templates).toEqual(['spam']);
+    expect(readProviderState(connection, path)?.capabilities.templates).toEqual(['spam']);
+  });
+
+  it('decideBatch answered entirely from the cache never detects', async () => {
+    const cache = createDecisionCache();
+    const stub = layahost();
+    const first = await decideBatch('s', TWO, { ...opts(stub), cache });
+    expect(first.map((o) => o.source)).toEqual(['provider', 'provider']);
+    expect(calls(stub, '/v1/usage')).toBe(1);
+    // A fresh process with no state file would detect — unless nothing is pending.
+    _resetProviderStateMemoForTest();
+    rmSync(join(dir, 'state.json'), { force: true });
+    const second = await decideBatch('s', TWO, { ...opts(stub), cache });
+    expect(second.map((o) => o.source)).toEqual(['cache', 'cache']);
+    expect(calls(stub, '/v1/usage')).toBe(1);
+  });
+
+  it('detection uses at most 40% of the remaining batch deadline', async () => {
+    const hanging = vi.fn<typeof fetch>(async (input, init) => {
+      const p = new URL(String(input)).pathname;
+      if (p === '/v1/systemone') return jsonResponse(200, OK_BODY);
+      if (p === '/v1/usage') {
+        return new Promise<Response>((_, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new Error('aborted')), {
+            once: true,
+          });
+        });
+      }
+      return jsonResponse(404, { detail: { error_type: 'not_found' } });
+    });
+    const started = performance.now();
+    const out = await decideBatch('s', TWO, { ...opts(hanging), timeoutMs: 1_000 });
+    const detectedFor = performance.now() - started;
+    // Detection gave up at ~400 ms, leaving the batch time to answer.
+    expect(out.map((o) => o.source)).toEqual(['provider', 'provider']);
+    expect(detectedFor).toBeLessThan(900);
   });
 });
 

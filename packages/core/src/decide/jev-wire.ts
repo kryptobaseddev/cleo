@@ -682,6 +682,20 @@ const jevTemplatesSchema = z.looseObject({
 });
 
 /**
+ * Detection failures that say nothing about the provider's capabilities
+ * (network, timeout/abort, 5xx, 503/529, 429): a detection that hit one is
+ * partial, never proof that a capability is absent (T12715).
+ */
+export const TRANSIENT_DETECTION_ERRORS: ReadonlySet<DecisionProviderErrorKind> =
+  new Set<DecisionProviderErrorKind>([
+    'network',
+    'aborted',
+    'server_error',
+    'overloaded',
+    'rate_limited',
+  ]);
+
+/**
  * Detect what a Jev-compatible host supports beyond the Jev minimum, from its
  * responses only (spec §2.2: never from the host name).
  *
@@ -689,6 +703,11 @@ const jevTemplatesSchema = z.looseObject({
  *   ({@link LAYAHOST_EXTENSION_CAPABILITIES}).
  * - `GET /v1/templates` answers 2xx with names → `templates`.
  * - Anything else (404, error, timeout) → the Jev minimum. Never throws.
+ *
+ * A transient failure (see {@link TRANSIENT_DETECTION_ERRORS}) of either
+ * probe is returned as `error`, including when `/v1/usage` succeeded and only
+ * `/v1/templates` failed: such a detection is partial, and callers must not
+ * cache it as "capability absent".
  *
  * Both endpoints count toward the provider's rate limit, so callers cache the
  * result (`cleo decide status` refreshes it at most every 10 minutes).
@@ -732,6 +751,10 @@ export async function detectJevCapabilities(
     };
   }
   let templates: string[] | undefined;
+  // A templates probe that failed transiently (network, abort/timeout, 5xx,
+  // 429) proves nothing about the capability: it is reported as `error` so the
+  // caller treats the detection as partial rather than "no templates" (T12715).
+  let templatesError: DecisionProviderError | undefined;
   try {
     const doFetch: DecideFetch = opts.fetch ?? decideFetch;
     const response = await doFetch(endpointUrl(connection.baseUrl, TEMPLATES_PATH), {
@@ -750,10 +773,21 @@ export async function detectJevCapabilities(
           .slice(0, 64);
       }
     } else {
-      await response.body?.cancel().catch(() => undefined);
+      const err = await errorForResponse(response);
+      if (TRANSIENT_DETECTION_ERRORS.has(err.kind)) templatesError = err;
     }
-  } catch {
+  } catch (err) {
     templates = undefined;
+    if (err instanceof DecisionProviderError) {
+      if (TRANSIENT_DETECTION_ERRORS.has(err.kind)) templatesError = err;
+    } else if (signal.aborted || !(err instanceof SyntaxError)) {
+      // A malformed JSON body is an answer (no usable templates); anything
+      // else thrown here is the transport failing or the probe timing out.
+      const kind = signal.aborted ? 'aborted' : 'network';
+      templatesError = new DecisionProviderError(kind, `templates probe failed (${kind})`, {
+        ...(err instanceof Error ? { cause: err } : {}),
+      });
+    }
   }
   return {
     capabilities: {
@@ -761,6 +795,7 @@ export async function detectJevCapabilities(
       ...(templates && templates.length > 0 ? { templates } : {}),
     },
     usage,
+    ...(templatesError ? { error: templatesError } : {}),
   };
 }
 

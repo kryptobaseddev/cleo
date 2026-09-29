@@ -26,12 +26,19 @@ decisions, each one is still capped at 300 ms unless the caller set
 **Lazy capability detection (AC b).** Capabilities were detected only by
 `cleo decide config` and `cleo decide status`. `decideBatch` now detects them
 on first use when the cached provider state is absent or older than 10
-minutes, before it builds the provider, bounded by 5 s and by the batch
-deadline. The shared `refreshProviderState` (also used by `cleo decide
-status`) runs at most one detection per base URL and key hash per 10 minutes:
+minutes. Detection runs after the cache lookup, so a batch answered entirely
+from the cache never detects, and it is bounded by 5 s and by 40% of the
+remaining batch deadline, so it cannot use up the time the batch needs. The
+shared `refreshProviderState` (also used by `cleo decide status`) runs at most one detection per base URL and key hash per 10 minutes:
 it writes a failed detection too, keeps the previous capabilities after a
 transient failure (network, timeout, 5xx, 429), and keeps an in-process
-attempt memo for an unwritable state file. A single 300 ms `decide()` never
+attempt memo for an unwritable state file. A transient failure with nothing
+cached is not written, because it would pin the Jev minimum for 10 minutes on
+a fresh install after one 503 or network blip. It serves the current process
+through the in-process memo, and detection is retried after 30 s
+(`TRANSIENT_DETECTION_RETRY_MS`). A partial detection, where `/v1/usage`
+answers but `/v1/templates` times out or fails transiently, now counts as
+transient instead of "no templates". A single 300 ms `decide()` never
 detects, neither in line nor in the background, because a pending background
 request would keep a one-shot CLI process alive past its work. It uses the
 cached state, or the Jev minimum until one exists; the minimum only omits the
