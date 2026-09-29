@@ -10,6 +10,8 @@
  */
 
 import {
+  DECIDE_DEFAULT_PROFILE_NAME,
+  DECIDE_PROFILE_DEFAULT_URL,
   type DecideProfileListResult,
   type DecideProfileProbe,
   type DecideProfileSummary,
@@ -31,11 +33,15 @@ import {
   clearDecideCredentials,
   DecideCredentialsError,
   type DecideCredentialsSummary,
+  type DecideProfileRef,
+  decideProfileId,
   describeDecideCredentials,
+  describeDecideProfile,
   isValidDecideProfileName,
   listDecideProfiles,
   loadDecideConnection,
   loadDecideProfile,
+  parseDecideProfileRef,
   type SealedDecideConnection,
   sameDecideHost,
   saveDecideCredentials,
@@ -43,7 +49,11 @@ import {
 import { listJevModels } from './jev-wire.js';
 import { DecisionProviderError } from './provider.js';
 import { refreshProviderState } from './provider-state.js';
-import { DECISION_PROVIDER_PRESETS, inferDecisionProviderKind } from './providers.js';
+import {
+  DECISION_PROVIDER_PRESETS,
+  inferDecisionProviderKind,
+  presetBaseUrl,
+} from './providers.js';
 import { DECIDE_ASK_DECISION_SITE, DECISION_SITES } from './sites/registry.js';
 import {
   createFileSpendLedger,
@@ -303,22 +313,23 @@ export async function probeDecideProvider(
 /** Input for {@link configureDecide}. */
 export interface DecideConfigureInput {
   /**
-   * Provider kind. Omitted → the stored kind when the host is unchanged,
-   * else inferred from `baseUrl` (the layahost host → `layahost`, any other →
-   * `jev`), else `layahost`.
+   * Provider kind. Omitted → the provider of a `<provider>/<name>` profile,
+   * else inferred from an override `baseUrl` (the layahost origin →
+   * `layahost`, any other → `jev`), else the active profile's provider, else
+   * `layahost`.
    */
   readonly provider?: DecisionProviderKind;
   /**
-   * Provider base URL. Omitted → the stored URL for the same provider, else
-   * the provider's preset URL. Required for `jev` when nothing is stored.
+   * `default` (the provider's preset URL, resolved at call time) or an
+   * override URL. Omitted → the profile's stored setting, else `default`.
    */
   readonly baseUrl?: string;
   /** API key. Omitted → the profile's stored key is kept. */
   readonly apiKey?: string;
   /**
-   * Profile to add or update (T12733); other profiles are kept. Omitted →
-   * the `provider` name when one is given, else the active profile, else the
-   * resolved provider kind's name.
+   * Profile to add or update (T12733): `<provider>/<name>` or a bare name;
+   * other profiles are kept. Omitted → the active profile when it has the
+   * same provider, else `<provider>/default`.
    */
   readonly profile?: string;
   /**
@@ -353,36 +364,43 @@ export interface DecideConfigureResult extends DecideCredentialsSummary {
   readonly warning?: string;
 }
 
-/** Resolve the provider kind for {@link configureDecide}. */
-function resolveProviderKind(
-  input: DecideConfigureInput,
-  stored: SealedDecideConnection | null,
-): DecisionProviderKind {
-  if (input.provider) return input.provider;
+/** The profile {@link configureDecide} writes. */
+function configureTarget(input: DecideConfigureInput): DecideProfileRef {
+  const raw = input.profile?.trim();
+  if (raw?.includes('/')) {
+    const ref = parseDecideProfileRef(raw);
+    if (!ref) {
+      throw new DecideCredentialsError(
+        `invalid profile '${raw}' (use <provider>/<name>, e.g. layahost/work)`,
+      );
+    }
+    if (input.provider && input.provider !== ref.provider) {
+      throw new DecideCredentialsError(
+        `profile '${ref.id}' belongs to ${ref.provider}, not ${input.provider}`,
+      );
+    }
+    return ref;
+  }
+  const active = listDecideProfiles().active;
+  const activeRef = active ? parseDecideProfileRef(active) : null;
   const url = input.baseUrl?.trim();
-  if (!url) return stored?.provider ?? 'layahost';
-  if (stored && sameDecideHost(stored.baseUrl, url)) return stored.provider;
-  return inferDecisionProviderKind(url);
-}
-
-/** Resolve the base URL for {@link configureDecide}; throws when `jev` has none. */
-function resolveBaseUrl(
-  input: DecideConfigureInput,
-  provider: DecisionProviderKind,
-  stored: SealedDecideConnection | null,
-): string {
-  const explicit = input.baseUrl?.trim();
-  if (explicit) return explicit;
-  if (stored && stored.provider === provider) return stored.baseUrl;
-  const preset = DECISION_PROVIDER_PRESETS[provider];
-  if (preset.defaultBaseUrl) return preset.defaultBaseUrl;
-  throw new DecideCredentialsError(
-    `the ${provider} provider needs a base URL: pass --url https://your-provider.example (https, or http only for localhost)`,
-  );
+  const provider =
+    input.provider ??
+    (url && url !== DECIDE_PROFILE_DEFAULT_URL
+      ? inferDecisionProviderKind(url)
+      : (activeRef?.provider ?? 'layahost'));
+  const name =
+    raw || (activeRef?.provider === provider ? activeRef.name : DECIDE_DEFAULT_PROFILE_NAME);
+  if (!isValidDecideProfileName(name)) {
+    throw new DecideCredentialsError(
+      `invalid profile name '${name}' (use 1-32 lowercase letters, digits or -, starting and ending with a letter or digit)`,
+    );
+  }
+  return { provider, name, id: decideProfileId(provider, name) };
 }
 
 /**
- * Store the provider settings, merging omitted values with the stored ones,
+ * Store a profile's settings, merging omitted values with the stored ones,
  * then probe the provider and re-detect its capabilities so its extensions
  * apply immediately.
  *
@@ -397,38 +415,36 @@ function resolveBaseUrl(
  * A URL whose host differs from the stored one must come with a fresh key:
  * the stored key is never re-used (or sent in the model probe) for a new host.
  *
- * Profiles (T12733): the settings go to one named profile (see
- * {@link DecideConfigureInput.profile}); every other profile is kept, and a
- * new profile needs its own key. The post-save probe targets that profile,
- * active or not.
+ * Profiles (T12733): the settings go to one profile, `<provider>/<name>`
+ * (see {@link DecideConfigureInput.profile}); every other profile is kept,
+ * and a new profile needs its own key. The URL is stored as `default` unless
+ * overridden. The post-save probe targets that profile, active or not.
  *
  * @param input - Provider, URL, key, optional model, profile and activation.
  * @returns Secret-free summary plus the model's provenance and the probe verdict.
- * @throws {DecideCredentialsError} On an invalid URL, `jev` without a URL, a
- *   blank key, an invalid model or profile name, a new profile without a key, or
- *   a host change without a fresh key.
+ * @throws {DecideCredentialsError} On an invalid URL or profile, a provider
+ *   without a preset URL and no override, a blank key, an invalid model name,
+ *   a new profile without a key, or a host change without a fresh key.
  */
 export async function configureDecide(input: DecideConfigureInput): Promise<DecideConfigureResult> {
-  const explicitName = input.profile?.trim() || undefined;
-  if (explicitName && !isValidDecideProfileName(explicitName)) {
+  const target = configureTarget(input);
+  const stored = loadDecideProfile(target.id);
+  const storedSetting =
+    stored && describeDecideProfile(target.id).urlSource === 'override'
+      ? stored.baseUrl
+      : DECIDE_PROFILE_DEFAULT_URL;
+  const urlSetting = input.baseUrl?.trim() || storedSetting;
+  const baseUrl =
+    urlSetting === DECIDE_PROFILE_DEFAULT_URL ? presetBaseUrl(target.provider) : urlSetting;
+  if (!baseUrl) {
     throw new DecideCredentialsError(
-      `invalid profile name '${explicitName}' (use 1-32 lowercase letters, digits or -, starting and ending with a letter or digit)`,
+      `the ${target.provider} provider has no default URL: pass --url https://your-provider.example (https, or http only for localhost)`,
     );
   }
-  // Which profile: --profile, else --provider's name, else (no new URL) the active one.
-  let name: string | undefined = explicitName ?? input.provider;
-  if (!name && !input.baseUrl?.trim()) name = listDecideProfiles().active ?? undefined;
-  const provider = resolveProviderKind(
-    input,
-    name ? loadDecideProfile(name) : loadDecideConnection(),
-  );
-  const profile = name ?? provider;
-  const stored = loadDecideProfile(profile);
-  const baseUrl = resolveBaseUrl(input, provider, stored);
   const freshKey = input.apiKey?.trim();
   if (!freshKey && !stored) {
     throw new DecideCredentialsError(
-      `profile '${profile}' has no stored key; pass --key-stdin (keys are never copied between profiles)`,
+      `profile '${target.id}' has no stored key; pass --key-stdin (keys are never copied between profiles)`,
     );
   }
   if (!freshKey && stored && !sameDecideHost(stored.baseUrl, baseUrl)) {
@@ -437,7 +453,7 @@ export async function configureDecide(input: DecideConfigureInput): Promise<Deci
     );
   }
   const apiKey = freshKey || stored?.connection().apiKey || '';
-  const preset = DECISION_PROVIDER_PRESETS[provider];
+  const preset = DECISION_PROVIDER_PRESETS[target.provider];
   const explicit = input.model?.trim();
   let model: string | undefined;
   let modelSource: DecideConfigureResult['modelSource'] = 'none';
@@ -452,22 +468,25 @@ export async function configureDecide(input: DecideConfigureInput): Promise<Deci
     modelSource = 'preset';
   }
 
-  const saved = await saveDecideCredentials({
-    provider,
-    baseUrl,
+  const settings = {
+    provider: target.provider,
+    profile: target.id,
+    baseUrl: urlSetting,
     apiKey,
+  };
+  const saved = await saveDecideCredentials({
+    ...settings,
     ...(model ? { model } : {}),
-    profile,
     ...(input.activate !== undefined ? { activate: input.activate } : {}),
   });
   const probe = await probeDecideProvider({
-    connection: loadDecideProfile(profile),
+    connection: loadDecideProfile(target.id),
     fetch: input.fetch,
     timeoutMs: input.timeoutMs,
     refreshCapabilities: true,
   });
   const verdict = {
-    active: saved.activeProfile === profile,
+    active: saved.activeProfile === target.id,
     providerState: probe.state,
     ...(probe.capabilities ? { capabilities: probe.capabilities } : {}),
   };
@@ -485,12 +504,9 @@ export async function configureDecide(input: DecideConfigureInput): Promise<Deci
     };
   }
   const withModel = await saveDecideCredentials({
-    provider,
-    baseUrl,
-    apiKey,
+    ...settings,
     model: first,
-    profile,
-    activate: saved.activeProfile === profile,
+    activate: verdict.active,
   });
   return { ...withModel, modelSource: 'provider-listing', ...verdict };
 }
@@ -523,7 +539,7 @@ export async function listDecideProfilesReport(
   const profiles = await Promise.all(
     list.profiles.map(async (summary): Promise<DecideProfileSummary> => {
       const result = await probeDecideProvider({
-        connection: loadDecideProfile(summary.name),
+        connection: loadDecideProfile(summary.id),
         spend: null,
         ...(opts.fetch ? { fetch: opts.fetch } : {}),
         ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
@@ -565,12 +581,16 @@ export interface DecideAskInput {
   readonly timeoutMs?: number;
   /** Project root for the audit line. Default: the resolved project root. */
   readonly projectRoot?: string;
-  /** Profile to ask through (T12733). Default: the active profile. */
+  /** Profile to ask through (T12733), `<provider>/<name>`. Default: the active profile. */
   readonly profile?: string;
 }
 
 /** Result of {@link askDecideDebug}. */
 export interface DecideAskResult {
+  /** The yes/no question that was asked (so a human render can show it). */
+  readonly question?: string;
+  /** Id of the profile asked through, when one was configured (T12733). */
+  readonly profile?: string;
   /** The typed answer. */
   readonly answer: DecisionAnswer;
   /** `provider`, `cache` or `fallback`. */
@@ -628,6 +648,9 @@ function teeAudit(projectRoot: string | undefined): {
  */
 export async function askDecideDebug(input: DecideAskInput): Promise<DecideAskResult> {
   const sealed = input.profile ? loadDecideProfile(input.profile) : loadDecideConnection();
+  const profile = input.profile
+    ? parseDecideProfileRef(input.profile)?.id
+    : (listDecideProfiles().active ?? undefined);
   const audit = teeAudit(input.projectRoot);
   const outcome = await decide(
     DECIDE_ASK_DECISION_SITE.id,
@@ -642,6 +665,8 @@ export async function askDecideDebug(input: DecideAskInput): Promise<DecideAskRe
   );
   const reason = audit.last()?.fallbackReason;
   return {
+    question: input.question,
+    ...(sealed && profile ? { profile } : {}),
     answer: outcome.answers['answer'] ?? NEUTRAL_NOUL,
     source: outcome.source,
     ...(reason ? { fallbackReason: reason } : {}),

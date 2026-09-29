@@ -61,7 +61,9 @@ export {
   DecideCredentialsError,
   type DecideCredentialsInput,
   type DecideCredentialsSummary,
+  type DecideProfileRef,
   decideCredentialsPath,
+  decideProfileId,
   describeDecideCredentials,
   describeDecideProfile,
   isAllowedDecideBaseUrl,
@@ -70,6 +72,7 @@ export {
   loadDecideConnection,
   loadDecideProfile,
   maskApiKey,
+  parseDecideProfileRef,
   removeDecideProfile,
   resolveDecideProfile,
   SealedDecideConnection,
@@ -144,6 +147,7 @@ export {
   inferDecisionProviderKind,
   listDecisionProviderPresets,
   parseDecisionProviderKind,
+  presetBaseUrl,
 } from './providers.js';
 export {
   type AskSiteDecisionInput,
@@ -194,6 +198,8 @@ export {
 } from './spend.js';
 export { type DecideFetch, type DecideFetchInit, decideFetch } from './transport.js';
 export {
+  DECIDE_SMOKE_QUESTION,
+  DECIDE_SMOKE_STATE,
   DECIDE_WIZARD_MAX_ATTEMPTS,
   type DecideWizardOptions,
   type DecideWizardResult,

@@ -2,21 +2,22 @@
  * CLI command group: `cleo decide` — configure and probe the typed-decision
  * ("System One") provider.
  *
- * The user picks a provider (`layahost`, the default, needs only an API key;
- * `jev` also needs a URL) and supplies the key, plus an optional default
- * model. Logic lives in `@cleocode/core/decide/`; these handlers only parse
+ * The user picks a provider (`layahost`, the default, or `jev`; each has a
+ * default URL that `--url` overrides), names the profile
+ * (`<provider>/<name>`, several per provider) and supplies the key, plus an
+ * optional default model. Logic lives in `@cleocode/core/decide/`; these handlers only parse
  * flags and render (arch gate 6). No output ever carries the key — at most a
  * masked last-4 preview.
  *
  * Subcommands:
  *   cleo decide config                                       — TTY: setup wizard (hidden key input); else show settings
  *   cleo decide config --provider layahost --key-stdin       — store settings (recommended scripted form)
- *   cleo decide config --provider jev --url <u> --key-stdin [--model <m>] — custom Jev endpoint
+ *   cleo decide config --provider jev --url <u> --key-stdin [--model <m>] — Jev-compatible override URL
  *   cleo decide config --url <u> --key <k>                   — same; the key lands in shell history
- *   cleo decide config ... --profile <name> [--activate]     — add/update a named profile (T12733)
- *   cleo decide config --remove <name> [--use <other>]       — remove a profile
+ *   cleo decide config ... --profile <provider>/<name> [--activate] — add/update a profile (T12733)
+ *   cleo decide config --remove <provider>/<name> [--use <p>/<n>] — remove a profile
  *   cleo decide config --clear                               — remove every profile
- *   cleo decide use <profile>                                — switch the active profile
+ *   cleo decide use <provider>/<name>                        — switch the active profile
  *   cleo decide profiles [--probe]                           — list profiles (active marked, keys masked)
  *   cleo decide status                                       — probe GET {url}/v1/models
  *   cleo decide ask --state <text> --noul <question>         — one debug decision
@@ -100,16 +101,17 @@ const decideConfigCommand = defineCommand({
   meta: {
     name: 'config',
     description:
-      'Store a named System One profile: provider, API key and model (0600 file in the CLEO home), then probe it and detect its capabilities. --provider layahost (default) needs only the key; --provider jev needs --url. --profile names it (default: the provider name); other profiles are kept, and exactly one is active. Prefer --key-stdin so the key stays out of shell history. No flags on a terminal runs the setup wizard (the key is typed hidden); no flags without a terminal shows the active settings (key masked).',
+      'Store a System One profile, <provider>/<name> (several per provider, each with its own key): API key, URL and model (0600 file in the CLEO home), then probe it and detect its capabilities. Each provider has a default URL (layahost https://layahost.com, jev https://api.typesafe.ai); --url overrides it. Other profiles are kept and exactly one is active. Prefer --key-stdin so the key stays out of shell history. No flags on a terminal runs the setup wizard (the key is masked); no flags without a terminal shows the active settings (key masked).',
   },
   args: {
     provider: {
       type: 'string',
-      description: `Provider: ${DECISION_PROVIDER_KINDS.join('|')} (layahost: fixed URL, model laya-auto; jev: custom URL, required)`,
+      description: `Provider: ${DECISION_PROVIDER_KINDS.join('|')} (layahost: model laya-auto; jev: model from the provider listing)`,
     },
     url: {
       type: 'string',
-      description: 'Provider API base URL: overrides the layahost default; required for jev',
+      description:
+        'Override URL for the profile, or "default" for the provider default URL (resolved at call time)',
     },
     key: {
       type: 'string',
@@ -125,7 +127,7 @@ const decideConfigCommand = defineCommand({
     profile: {
       type: 'string',
       description:
-        'Profile to add or update (lowercase a-z, 0-9, -; default: the provider name, or the active profile)',
+        'Profile to add or update: <provider>/<name> or a name (a-z, 0-9, -); default: the active profile of that provider, else <provider>/default',
     },
     activate: {
       type: 'boolean',
@@ -134,9 +136,12 @@ const decideConfigCommand = defineCommand({
     },
     remove: {
       type: 'string',
-      description: 'Remove this profile; the active one needs --use <other>',
+      description: 'Remove this profile (<provider>/<name>); the active one needs --use',
     },
-    use: { type: 'string', description: 'With --remove: the profile to activate instead' },
+    use: {
+      type: 'string',
+      description: 'With --remove: the profile (<provider>/<name>) to activate instead',
+    },
     clear: { type: 'boolean', description: 'Remove every profile (URLs, keys and models)' },
   },
   async run({ args }) {
@@ -191,10 +196,14 @@ const decideUseCommand = defineCommand({
   meta: {
     name: 'use',
     description:
-      'Switch the active System One profile: everyday decisions use it from now on. Other profiles stay stored and can still be addressed by name.',
+      'Switch the active System One profile (<provider>/<name>, e.g. layahost/work; a bare provider means <provider>/default): everyday decisions use it from now on. Other profiles stay stored and can still be addressed by id.',
   },
   args: {
-    profile: { type: 'positional', description: 'Profile to activate', required: true },
+    profile: {
+      type: 'positional',
+      description: 'Profile to activate, <provider>/<name>',
+      required: true,
+    },
   },
   async run({ args }) {
     const op = 'decide.use';
@@ -254,7 +263,10 @@ const decideAskCommand = defineCommand({
     state: { type: 'string', description: 'The state (text) to judge', required: true },
     noul: { type: 'string', description: 'The yes/no question', required: true },
     'timeout-ms': { type: 'string', description: 'Deadline in ms (default 10000)' },
-    profile: { type: 'string', description: 'Ask through this profile (default: the active one)' },
+    profile: {
+      type: 'string',
+      description: 'Ask through this profile, <provider>/<name> (default: the active one)',
+    },
   },
   async run({ args }) {
     const timeoutMs = args['timeout-ms'] ? Number(args['timeout-ms']) : undefined;
