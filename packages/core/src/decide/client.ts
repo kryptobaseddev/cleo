@@ -75,6 +75,17 @@ import {
 /** Default per-site deadline for the budget + provider round trip, in ms. */
 export const DEFAULT_DECISION_TIMEOUT_MS = 300;
 
+/**
+ * Default deadline for a whole {@link decideBatch} call, in ms (T12715).
+ *
+ * `POST /v1/systemone/batch` answers its items serially (2–5 s per 64
+ * requests), so the System One integration spec (§1, batch row) requires an
+ * HTTP timeout of at least 30 s. Batch callers are background sites (sweeps,
+ * the T12495 harness replay), never a latency-critical write path, so the
+ * 300 ms single-decision default would time out every real batch.
+ */
+export const DEFAULT_BATCH_DECISION_TIMEOUT_MS = 30_000;
+
 /** Circuit-breaker trip after a 503/529 that carried no `retry-after`, ms. */
 export const OVERLOADED_COOLDOWN_MS = 30_000;
 
@@ -572,9 +583,16 @@ export interface DecisionBatchEntry {
  * deadline cannot reach fall back with reason `timeout`. Never rejects; each
  * entry is audited like a single decision.
  *
+ * The whole-batch deadline defaults to {@link DEFAULT_BATCH_DECISION_TIMEOUT_MS}
+ * (30 s), not the 300 ms single-decision default. In the sequential
+ * degradation each call is additionally capped at
+ * {@link DEFAULT_DECISION_TIMEOUT_MS} unless the caller set `timeoutMs`, so a
+ * slow provider without the batch capability cannot hold one entry for 30 s.
+ *
  * @param siteId - Stable call-site identifier.
  * @param entries - Requests with their heuristics.
- * @param opts - Same wiring as {@link decide}; `timeoutMs` covers the whole batch.
+ * @param opts - Same wiring as {@link decide}; `timeoutMs` covers the whole batch
+ *   (default {@link DEFAULT_BATCH_DECISION_TIMEOUT_MS}).
  * @returns One outcome per entry, in order.
  */
 export async function decideBatch(
@@ -584,7 +602,7 @@ export async function decideBatch(
 ): Promise<DecisionOutcome[]> {
   if (entries.length === 0) return [];
   const started = performance.now();
-  const deadlineMs = opts.timeoutMs ?? DEFAULT_DECISION_TIMEOUT_MS;
+  const deadlineMs = opts.timeoutMs ?? DEFAULT_BATCH_DECISION_TIMEOUT_MS;
   const remaining = (): number => Math.max(0, deadlineMs - (performance.now() - started));
 
   const connection = resolveConnection(opts);
@@ -602,7 +620,10 @@ export async function decideBatch(
   if (!batchable || !provider?.decideBatch) {
     const out: DecisionOutcome[] = [];
     for (const entry of entries) {
-      const timeoutMs = remaining();
+      const timeoutMs =
+        opts.timeoutMs === undefined
+          ? Math.min(remaining(), DEFAULT_DECISION_TIMEOUT_MS)
+          : remaining();
       // model-site-allowed: plumbing — the caller's siteId is checked at its decideBatch call (gate 35)
       const outcome = await decide(siteId, entry.req, entry.fallback, { ...opts, timeoutMs });
       out.push(outcome);

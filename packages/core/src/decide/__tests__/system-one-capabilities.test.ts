@@ -14,6 +14,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   type DecisionAnswer,
+  type DecisionBatchItem,
   type DecisionOutcome,
   type DecisionRequest,
   JEV_MINIMUM_CAPABILITIES,
@@ -24,6 +25,8 @@ import { createMemoryTokenBucket, type DecisionBudget } from '../budget.js';
 import { createDecisionCache } from '../cache.js';
 import {
   _resetDecideDefaultsForTest,
+  DEFAULT_BATCH_DECISION_TIMEOUT_MS,
+  DEFAULT_DECISION_TIMEOUT_MS,
   type DecideOptions,
   decide,
   decideBatch,
@@ -681,6 +684,95 @@ describe('client — spend cap, key limit, circuit breaker, batch', () => {
     );
     expect(provider.decide).toHaveBeenCalledTimes(2);
     expect(out.map((o) => o.source)).toEqual(['provider', 'provider']);
+  });
+
+  it('decideBatch defaults to a >= 30 s deadline, not the 300 ms single-decision one (T12715)', async () => {
+    expect(DEFAULT_BATCH_DECISION_TIMEOUT_MS).toBeGreaterThanOrEqual(30_000);
+    vi.useFakeTimers();
+    try {
+      const decideBatchFn = vi.fn(
+        (reqs: readonly DecisionRequest[]) =>
+          new Promise<readonly DecisionBatchItem[]>((resolve) => {
+            // A realistic batch: 64 serial items take seconds, far past 300 ms.
+            setTimeout(
+              () => resolve(reqs.map(() => ({ ok: true as const, outcome: OUTCOME }))),
+              5_000,
+            );
+          }),
+      );
+      const provider: DecisionProvider = {
+        decide: vi.fn(async () => OUTCOME),
+        capabilities: () => LAYAHOST_EXTENSION_CAPABILITIES,
+        decideBatch: decideBatchFn,
+      };
+      const { timeoutMs: _omitted, ...opts } = wiring({ provider });
+      const pending = decideBatch(
+        's',
+        [
+          { req: REQUEST, fallback: heuristic },
+          { req: { ...REQUEST, state: 'Other' }, fallback: heuristic },
+        ],
+        opts,
+      );
+      await vi.advanceTimersByTimeAsync(DEFAULT_DECISION_TIMEOUT_MS + 1);
+      await vi.advanceTimersByTimeAsync(5_000);
+      const out = await pending;
+      expect(decideBatchFn).toHaveBeenCalledTimes(1);
+      expect(out.map((o) => o.source)).toEqual(['provider', 'provider']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('decideBatch still times out at the batch default', async () => {
+    vi.useFakeTimers();
+    try {
+      const provider: DecisionProvider = {
+        decide: vi.fn(async () => OUTCOME),
+        capabilities: () => LAYAHOST_EXTENSION_CAPABILITIES,
+        decideBatch: vi.fn(() => new Promise<readonly DecisionBatchItem[]>(() => undefined)),
+      };
+      const { timeoutMs: _omitted, ...opts } = wiring({ provider });
+      const pending = decideBatch(
+        's',
+        [
+          { req: REQUEST, fallback: heuristic },
+          { req: { ...REQUEST, state: 'Other' }, fallback: heuristic },
+        ],
+        opts,
+      );
+      await vi.advanceTimersByTimeAsync(DEFAULT_BATCH_DECISION_TIMEOUT_MS + 1);
+      const out = await pending;
+      expect(out.map((o) => o.source)).toEqual(['fallback', 'fallback']);
+      expect(opts.audit.entries.map((e) => e.fallbackReason)).toEqual(['timeout', 'timeout']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('decideBatch sequential degradation caps each call at the single-decision default', async () => {
+    vi.useFakeTimers();
+    try {
+      // No batch capability: every entry is a single decide that never answers.
+      const provider: DecisionProvider = {
+        decide: vi.fn(() => new Promise<DecisionOutcome>(() => undefined)),
+      };
+      const { timeoutMs: _omitted, ...opts } = wiring({ provider });
+      const pending = decideBatch(
+        's',
+        [
+          { req: REQUEST, fallback: heuristic },
+          { req: { ...REQUEST, state: 'Other' }, fallback: heuristic },
+        ],
+        opts,
+      );
+      await vi.advanceTimersByTimeAsync(2 * DEFAULT_DECISION_TIMEOUT_MS + 10);
+      const out = await pending;
+      expect(provider.decide).toHaveBeenCalledTimes(2);
+      expect(out.map((o) => o.source)).toEqual(['fallback', 'fallback']);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

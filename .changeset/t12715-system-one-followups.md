@@ -14,3 +14,11 @@ header reads (and the `COST_MICROS_HEADER` / `BALANCE_MICROS_HEADER` /
 `JevResponseHeaders` exports) are removed; the balance comes from
 `GET /v1/usage`. The adapter version is now `jev-wire/3`, which invalidates
 cached outcomes mapped by the old rules.
+
+**Batch deadline (AC a).** `decideBatch` now defaults to
+`DEFAULT_BATCH_DECISION_TIMEOUT_MS` (30 s) for the whole call instead of the
+300 ms single-decision default, because `/v1/systemone/batch` answers its
+items serially (2–5 s per 64) and the spec requires at least 30 s. When the
+provider has no batch capability and the call degrades to sequential
+decisions, each one is still capped at 300 ms unless the caller set
+`timeoutMs`.

@@ -42,6 +42,7 @@ export {
 export {
   _resetDecideDefaultsForTest,
   DECISION_COST_ESTIMATE_MICROS_PER_QUESTION,
+  DEFAULT_BATCH_DECISION_TIMEOUT_MS,
   DEFAULT_DECISION_TIMEOUT_MS,
   type DecideOptions,
   type DecisionBatchEntry,
