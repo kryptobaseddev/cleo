@@ -110,6 +110,11 @@ export interface StageGuidance {
   prompt: string;
   /** Source of the prompt: 'skills' (real SKILL.md files) or 'fallback'. */
   source: 'skills' | 'fallback';
+  /**
+   * Loaded skills that are NOT installed and were read from the
+   * `@cleocode/skills` package instead (T12646). The prompt says so too.
+   */
+  bundledSkills: readonly string[];
 }
 
 // ============================================================================
@@ -194,8 +199,12 @@ export function buildStageGuidance(stage: Stage, cwd?: string): StageGuidance {
   // Primary first, then Tier 0 (de-dup if the primary is itself tier 0)
   const skillNames = [primarySkill, ...TIER_0_SKILLS.filter((s) => s !== primarySkill)];
 
-  // Verify every skill can actually be found before calling prepareSpawnMulti
-  const allFound = skillNames.every((name) => findSkill(name, cwd) !== null);
+  // Verify every skill can actually be found before calling prepareSpawnMulti.
+  // The guidance only needs the protocol text, so an uninstalled skill may be
+  // read from the bundled package (T12646) — recorded, and stated in the prompt.
+  const found = skillNames.map((name) => findSkill(name, cwd, { includeBundled: true }));
+  const allFound = found.every((skill) => skill !== null);
+  const bundledSkills = skillNames.filter((_, i) => found[i]?.source === 'bundled');
 
   if (!allFound) {
     return {
@@ -208,11 +217,16 @@ export function buildStageGuidance(stage: Stage, cwd?: string): StageGuidance {
       expectedArtifacts: def.expectedArtifacts,
       prompt: buildFallbackPrompt(stage, primarySkill),
       source: 'fallback',
+      bundledSkills: [],
     };
   }
 
   try {
-    const composition = prepareSpawnMulti(skillNames, {}, cwd);
+    const composition = prepareSpawnMulti(skillNames, {}, cwd, { includeBundled: true });
+    const bundledNotice =
+      bundledSkills.length === 0
+        ? ''
+        : `> Not installed in this environment — read from the \`@cleocode/skills\` package: ${bundledSkills.join(', ')}. Check installation with \`cleo skills list\`.\n\n`;
     return {
       stage,
       name: def.name,
@@ -221,8 +235,9 @@ export function buildStageGuidance(stage: Stage, cwd?: string): StageGuidance {
       loadedSkills: skillNames,
       requiredGates: def.requiredGates,
       expectedArtifacts: def.expectedArtifacts,
-      prompt: composition.prompt,
+      prompt: `${bundledNotice}${composition.prompt}`,
       source: 'skills',
+      bundledSkills,
     };
   } catch {
     return {
@@ -235,6 +250,7 @@ export function buildStageGuidance(stage: Stage, cwd?: string): StageGuidance {
       expectedArtifacts: def.expectedArtifacts,
       prompt: buildFallbackPrompt(stage, primarySkill),
       source: 'fallback',
+      bundledSkills: [],
     };
   }
 }

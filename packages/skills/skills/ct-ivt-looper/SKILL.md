@@ -6,6 +6,11 @@ loomStage: testing
 adrRefs:
   - ADR-051
   - ADR-061
+metadata:
+  version: 1.0.0
+  tier: on-demand
+  install: harness
+  stability: stable
 ---
 
 # IVT Looper

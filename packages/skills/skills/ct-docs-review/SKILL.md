@@ -2,7 +2,6 @@
 name: ct-docs-review
 description: This skill should be used when the user asks to "review documentation", "check docs style", "review this markdown file", "check style guide compliance", "review PR documentation", or needs documentation reviewed against the CLEO writing style guide. Supports both local file review and GitHub PR review modes with inline comments.
 version: 1.0.0
-tier: 3
 core: false
 category: composition
 protocol: null
@@ -14,6 +13,11 @@ compatibility:
   - windsurf
   - gemini-cli
 license: MIT
+metadata:
+  version: 1.0.0
+  tier: on-demand
+  install: harness
+  stability: deprecated
 ---
 
 # Documentation Review Skill
