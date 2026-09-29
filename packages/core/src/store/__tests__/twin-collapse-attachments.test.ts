@@ -1406,7 +1406,9 @@ describe('Gate B: bare rows are a subset of the post-merge twin', () => {
     const keyDir = join(root, 'gate-b-key');
     mkdirSync(keyDir, { recursive: true });
     const key = join(keyDir, 'compare.key');
-    const fingerprint = (file: string, label: string): string => {
+    // The comparator fails closed without a project id: every store here sits beside one.
+    writeFileSync(join(work, 'project-id'), 'c0ffee00a535\n');
+    const fingerprint = (file: string, label: string, role: 'source' | 'replica'): string => {
       const out = join(work, `${label}.json`);
       execFileSync(
         process.execPath,
@@ -1417,6 +1419,8 @@ describe('Gate B: bare rows are a subset of the post-merge twin', () => {
           ...(existsSync(key) ? ['--key-file', key] : ['--key-out', key]),
           '--label',
           label,
+          '--role',
+          role,
           '--out',
           out,
         ],
@@ -1454,11 +1458,19 @@ describe('Gate B: bare rows are a subset of the post-merge twin', () => {
         ],
         { cwd: REPO_ROOT, stdio: 'pipe', encoding: 'utf8' },
       );
-    const fpPre = fingerprint(pre, 'pre');
-    const fpProjection = fingerprint(projection, 'bare-as-twin');
-    const fpPost = fingerprint(post, 'post');
-    // Control: the same check against the PRE-migration twin fails.
-    expect(() => compare(fpProjection, fpPre)).toThrow();
+    const fpPre = fingerprint(pre, 'pre', 'source');
+    const fpPreAsReplica = fingerprint(pre, 'pre-as-replica', 'replica');
+    const fpProjection = fingerprint(projection, 'bare-as-twin', 'source');
+    const fpPost = fingerprint(post, 'post', 'replica');
+    // Control: the same check against the PRE-migration twin fails (on the rows, not the roles).
+    let control = '';
+    try {
+      compare(fpProjection, fpPreAsReplica);
+    } catch (e) {
+      control = String((e as { stdout?: string }).stdout);
+    }
+    expect(control).toMatch(/source row\(s\) missing on replica/);
+    expect(control).not.toMatch(/wrong fingerprint roles|project id missing/);
     // Every bare row is in the post-merge twin …
     const subset = compare(fpProjection, fpPost);
     // … and the pre-migration store lost exactly the frozen twin rows the
