@@ -22,12 +22,20 @@ committed home.
   reports `legacy`; `--resolve --dry-run` prints the plan and `--resolve`
   writes `project.json` from `project-id` and the cached name (and allows it
   in a pre-T12716 `.cleo/.gitignore`). No id changes; init, upgrade and open
-  never migrate. A conflict re-key keeps the old id as an alias, and
-  credentials sealed under it are re-wrapped on their next open.
+  never migrate. A conflict re-key keeps the old id as an alias; when both
+  ids are registered, the cached-id row is folded into the tracked row with a
+  `merge-identity` audit receipt (never unregistered). Credentials sealed
+  under an old id (cache, receipts or alias table) are re-wrapped during the
+  re-key.
 - **Name.** `getProjectDisplayName(root)` is the single accessor
-  (`project.json`, then the legacy cache, then the basename). The doctor
+  (`project.json`, then the legacy cache, then the basename), also used by
+  Studio. The doctor
   reports registry-label drift and `--resolve` syncs it. Rename reports
   `relink-required` for a Nexus-linked project.
 - **Root marker** accepts `project.json` / `project-id` at a git toplevel.
-- **Portable `projectHash`:** a new hash derives from the id, so every clone
-  shares it; stored hashes never change.
+- **`projectHash`:** an identity minted now gets a hash derived from its id;
+  every project with a prior identity keeps the path-derived value its keys
+  were built from, even if project-info.json is lost. Stored hashes never
+  change.
+- **Legacy renames** write `project-info.json` `displayName`, so the path
+  fingerprint alias key never moves.
