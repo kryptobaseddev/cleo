@@ -172,6 +172,7 @@
 import { createHash } from 'node:crypto';
 import { dirname } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import { fileURLToPath } from 'node:url';
 import { ExitCode } from '@cleocode/contracts';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { CleoError } from '../errors.js';
@@ -961,9 +962,10 @@ const docsGuardTriggers = (): string[] =>
  * `database disk image is malformed`, so none of those words appear (pinned by
  * a test, see {@link DOCS_FROZEN_FORBIDDEN}).
  */
-export function docsFrozenMessage(version: string): string {
+export function docsFrozenMessage(version: string | null): string {
+  const needs = version === null ? 'the latest cleo' : `cleo ${version} or newer`;
   return (
-    `CLEO: docs moved to docs_attachments (T12535); this project needs cleo ${version} or newer ` +
+    `CLEO: docs moved to docs_attachments (T12535); this project needs ${needs} ` +
     'to write docs, changesets and IVTR playbook provenance. ' +
     'Run: npm i -g @cleocode/cleo@latest'
   );
@@ -973,28 +975,62 @@ export function docsFrozenMessage(version: string): string {
 export const DOCS_FROZEN_BY_KEY = 'twin_collapse_frozen_by:attachments';
 
 /**
- * The version the freeze message names: the build that first installed the
- * freeze on THIS store, recorded under {@link DOCS_FROZEN_BY_KEY} when it did.
+ * The version the freeze message names: the first RELEASE build that froze
+ * (or later opened) this store, recorded under {@link DOCS_FROZEN_BY_KEY}.
  *
- * Why derived and recorded, not a literal: the release that ships the freeze
- * is not known when the code is written (2026.9.23 shipped without it), and a
- * literal goes stale with every re-plan. The running build's version at open
- * is wrong too: a trigger outlives the build that wrote it, and a later
- * build would keep rewriting the text. The first freezing build's own version
- * is always a release that carries the freeze, and any build at or above it
- * can write docs, so "needs <it> or newer" is true for as long as the trigger
- * lives. (A development build freezing a store records its package version,
- * the last release; development builds must not open real stores, see the
- * worktree guard.)
+ * Why recorded, not a literal: the release that ships the freeze was not
+ * known when the code was written (2026.9.23 shipped without it). Why not the
+ * running build's version: a trigger outlives the build that wrote it, and a
+ * development build (a worktree, or the main checkout) reports the PREVIOUS
+ * release's version, which cannot read the store. So only a published build
+ * (running from an installed package, i.e. under `node_modules`) records its
+ * version, and never the unreadable `0.0.0` fallback. Until one does, the
+ * message names no version and points at `@latest`; the first release build
+ * to open the store records itself and the triggers are re-written.
  *
  * @param db - The project `cleo.db` connection.
- * @returns The recorded version, or the running build's when none is recorded.
+ * @returns The version to name, or `null` (no release build has frozen or
+ *   opened this store yet).
  * @task T12535
  */
-export function docsFrozenVersion(db: DatabaseSync): string {
+export function docsFrozenVersion(db: DatabaseSync): string | null {
   const recorded = readKv(db, 'tasks_schema_meta', DOCS_FROZEN_BY_KEY);
-  const version = recorded ?? getCleoVersion();
-  return version.replace(/[^0-9A-Za-z.+-]/g, '');
+  if (recorded !== undefined) return recorded.replace(/[^0-9A-Za-z.+-]/g, '');
+  return releaseBuildVersion();
+}
+
+/** Test hook: what this process counts as (a published build, and its version). */
+let freezeBuildOverride: { published: boolean; version: string } | undefined;
+
+/**
+ * Test only: make this process count as a published build with `version`
+ * (or restore the real detection with `undefined`).
+ *
+ * @param override - The build to pretend to be.
+ * @task T12535
+ */
+export function setFreezeBuildForTests(
+  override: { published: boolean; version: string } | undefined,
+): void {
+  freezeBuildOverride = override;
+}
+
+/**
+ * This build's version when it is a published release, else `null`: running
+ * from an installed package (under `node_modules`) with a real version.
+ */
+function releaseBuildVersion(): string | null {
+  const published =
+    freezeBuildOverride?.published ??
+    fileURLToPath(import.meta.url)
+      .split(/[\\/]/)
+      .includes('node_modules');
+  if (!published) return null;
+  const version = (freezeBuildOverride?.version ?? getCleoVersion()).replace(
+    /[^0-9A-Za-z.+-]/g,
+    '',
+  );
+  return /^\d+\.\d+\.\d+/.test(version) && version !== '0.0.0' ? version : null;
 }
 
 /** Phrases the freeze message must never contain (older builds' retry and recovery matchers). */
@@ -1021,8 +1057,10 @@ export const DOCS_FROZEN_FORBIDDEN: readonly string[] = [
  * next open, see {@link repairGuards}).
  */
 function ensureDocsFreeze(db: DatabaseSync): void {
-  if (readKv(db, 'tasks_schema_meta', DOCS_FROZEN_BY_KEY) === undefined)
-    writeKv(db, 'tasks_schema_meta', DOCS_FROZEN_BY_KEY, docsFrozenVersion(db));
+  if (readKv(db, 'tasks_schema_meta', DOCS_FROZEN_BY_KEY) === undefined) {
+    const version = releaseBuildVersion();
+    if (version !== null) writeKv(db, 'tasks_schema_meta', DOCS_FROZEN_BY_KEY, version);
+  }
   for (const table of DOCS_BARE) {
     for (const op of SHADOW_WRITE_OPS) {
       const name = freezeTrigger(table, op);
@@ -1102,7 +1140,12 @@ function freeSlug(slug: string, owners: ReadonlyMap<string, string>, id: string)
 /**
  * The initial docs collapse: a union that never drops content.
  *
- * - A row whose id the bare table has: the bare row is authoritative.
+ * - A row whose id the bare table has: the bare row is authoritative. When the
+ *   twin's row under that id holds DIFFERENT bytes, the twin's version is
+ *   kept as its own row `<id>~twin-<sha8>` (no slug, superseded by the bare
+ *   row) and listed as merged, so no content leaves the twins (unless those
+ *   bytes are already another row's). A metadata-only difference (same sha256)
+ *   goes to the bare row.
  * - A twin-only row whose sha256 a bare row (or an earlier kept twin-only
  *   row) holds, i.e. the same content under another id: merged into that row
  *   (listed as merged), its refs and any supersedes link moved onto it.
@@ -1128,6 +1171,32 @@ function planInitialDocs(
   }
   for (const [id, row] of bare.docs)
     if (twin.docs.get(id)?.json !== row.json) plan.set.set(`d:${id}`, row.json);
+  // An id both tables hold with DIFFERENT content: the bare row wins the id,
+  // and the twin's version is kept as its own row (`<id>~twin-<sha8>`,
+  // superseded by the bare row, no slug), so its bytes stay referenced and
+  // visible. Same content (only metadata differs): the bare row wins.
+  for (const [id, row] of bare.docs) {
+    const twinRow = twin.docs.get(id);
+    if (twinRow === undefined) continue;
+    const content = String(twinRow.values.sha256);
+    if (content === String(row.values.sha256)) continue;
+    const owner = bareBySha.get(content);
+    if (owner !== undefined) {
+      plan.merged.push(`${id} (twin version) -> ${owner}`);
+      continue;
+    }
+    const archiveId = `${id}~twin-${content.slice(0, 8)}`;
+    const values: Record<string, unknown> = {
+      ...twinRow.values,
+      id: archiveId,
+      slug: null,
+      lifecycle_status: 'superseded',
+      superseded_by: id,
+    };
+    plan.set.set(`d:${archiveId}`, JSON.stringify(columns.map((c) => values[c] ?? null)));
+    plan.merged.push(`${id} (twin version) -> ${archiveId}`);
+    bareBySha.set(content, archiveId);
+  }
   // Twin-only rows: merge same-content duplicates into the bare row, keep the rest.
   const mergedInto = new Map<string, string>();
   const kept: string[] = [];

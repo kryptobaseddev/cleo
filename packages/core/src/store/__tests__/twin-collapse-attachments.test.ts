@@ -47,6 +47,7 @@ import {
   docsFrozenMessage,
   docsFrozenVersion,
   inspectTwinCollapse,
+  setFreezeBuildForTests,
   TWIN_COLLAPSE_MARKER_PREFIX,
 } from '../twin-collapse.js';
 
@@ -779,7 +780,7 @@ describe('redirect: docs readers read the prefixed twins', () => {
 
 describe('freeze (option a): older builds can no longer write the bare docs tables', () => {
   const FROZEN =
-    /CLEO: docs moved to docs_attachments \(T12535\); this project needs cleo \d{4}\.\d+\.\d+\S* or newer to write docs, changesets and IVTR playbook provenance\. Run: npm i -g @cleocode\/cleo@latest/;
+    /CLEO: docs moved to docs_attachments \(T12535\); this project needs (cleo \d{4}\.\d+\.\d+\S* or newer|the latest cleo) to write docs, changesets and IVTR playbook provenance\. Run: npm i -g @cleocode\/cleo@latest/;
   const freezeTriggers = (db: DatabaseSync): string[] =>
     (
       db
@@ -864,7 +865,7 @@ describe('freeze (option a): older builds can no longer write the bare docs tabl
   });
 
   it('the message never reads as contention or corruption to an older build', () => {
-    const message = docsFrozenMessage('2026.9.24');
+    const message = docsFrozenMessage('2026.9.24') + docsFrozenMessage(null);
     for (const phrase of DOCS_FROZEN_FORBIDDEN)
       expect(message.toLowerCase(), phrase).not.toContain(phrase);
     for (const phrase of ['sqlite_busy', 'database is locked', 'database disk image is malformed'])
@@ -919,17 +920,14 @@ describe('freeze (option a): older builds can no longer write the bare docs tabl
     expect(inspectTwinCollapse(tasksNative())[DOCS]).toMatchObject({ guardsIntact: true });
   });
 
-  it('names the version of the build that first froze this store, recorded once and kept', async () => {
-    const { getCleoVersion } = await import('../../scaffold/ensure-config.js');
+  it('names no version until a RELEASE build opens the store; the first release records itself and it is kept', async () => {
     preMigration();
-    await reopen();
     const recorded = () =>
       (
         tasksNative()
           .prepare(`SELECT value FROM main.tasks_schema_meta WHERE key = '${DOCS_FROZEN_BY_KEY}'`)
           .get() as { value: string } | undefined
       )?.value;
-    expect(recorded()).toBe(getCleoVersion());
     const text = () =>
       (
         tasksNative()
@@ -938,19 +936,29 @@ describe('freeze (option a): older builds can no longer write the bare docs tabl
           )
           .get() as { sql: string }
       ).sql;
-    expect(text()).toContain(`needs cleo ${getCleoVersion()} or newer`);
-    // The store was first frozen by release 2026.9.24: every later build keeps
-    // naming it (the triggers follow the record, not the running build).
-    tasksNative()
-      .prepare(
-        `UPDATE main.tasks_schema_meta SET value = '2026.9.24' WHERE key = '${DOCS_FROZEN_BY_KEY}'`,
-      )
-      .run();
-    await reopen();
-    expect(recorded()).toBe('2026.9.24');
-    expect(text()).toContain('needs cleo 2026.9.24 or newer');
-    await reopen();
-    expect(text()).toContain('needs cleo 2026.9.24 or newer');
+    try {
+      // A development build (this test runs from source, like a main-checkout
+      // or worktree build): it records nothing and names no version.
+      await reopen();
+      expect(recorded()).toBeUndefined();
+      expect(text()).toContain('needs the latest cleo to write docs');
+      // A published build whose version fell back to 0.0.0 records nothing either.
+      setFreezeBuildForTests({ published: true, version: '0.0.0' });
+      await reopen();
+      expect(recorded()).toBeUndefined();
+      // The first release build to open the store records itself; the triggers follow.
+      setFreezeBuildForTests({ published: true, version: '2026.9.24' });
+      await reopen();
+      expect(recorded()).toBe('2026.9.24');
+      expect(text()).toContain('needs cleo 2026.9.24 or newer');
+      // A later release keeps the record.
+      setFreezeBuildForTests({ published: true, version: '2026.9.30' });
+      await reopen();
+      expect(recorded()).toBe('2026.9.24');
+      expect(text()).toContain('needs cleo 2026.9.24 or newer');
+    } finally {
+      setFreezeBuildForTests(undefined);
+    }
   });
 
   it('restoring a backup taken before the freeze gets the triggers back on the next open', async () => {
@@ -1312,6 +1320,46 @@ describe('initial collapse with an empty bare table', () => {
 });
 
 describe('initial collapse: the union never drops content (the live cleocode shape)', () => {
+  it('an id both tables hold with different bytes keeps the twin version as its own row', async () => {
+    const db = preMigration();
+    // The twin's att-spec-a holds other bytes than the bare row of the same id.
+    db.prepare("DELETE FROM main.docs_attachments WHERE id = 'att-spec-a'").run();
+    writeDoc(db, 'docs_attachments', {
+      id: 'att-spec-a',
+      slug: 'spec-a-old',
+      type: 'spec',
+      content: 'spec A, the twin version',
+      blob: true,
+    });
+    const receipt = collapseTwinTables(db, dbPath())[DOCS];
+    const archiveId = `att-spec-a~twin-${sha('spec A, the twin version').slice(0, 8)}`;
+    expect(receipt?.merged).toContain(`att-spec-a (twin version) -> ${archiveId}`);
+    expect(
+      db
+        .prepare(
+          'SELECT id, slug, lifecycle_status, superseded_by, sha256 FROM main.docs_attachments WHERE id IN (?, ?) ORDER BY id',
+        )
+        .all('att-spec-a', archiveId),
+    ).toEqual([
+      {
+        id: 'att-spec-a',
+        slug: 'spec-a',
+        lifecycle_status: 'draft',
+        superseded_by: null,
+        sha256: sha('content of att-spec-a'),
+      },
+      {
+        id: archiveId,
+        slug: null,
+        lifecycle_status: 'superseded',
+        superseded_by: 'att-spec-a',
+        sha256: sha('spec A, the twin version'),
+      },
+    ]);
+    const got = await createAttachmentStore().get(sha('spec A, the twin version'), projectDir);
+    expect(got?.bytes.toString()).toBe('spec A, the twin version');
+  });
+
   it('keeps unique twin-only docs, merges same-content duplicates into the bare row, renames slug collisions, keeps and remaps refs', async () => {
     const db = preMigration();
     // The docs history only the twin holds (as on the live store: 2749 such rows).
