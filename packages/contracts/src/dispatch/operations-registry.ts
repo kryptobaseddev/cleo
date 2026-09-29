@@ -6972,6 +6972,80 @@ export const OPERATIONS: OperationDef[] = [
   },
 
   {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'projects.fleet',
+    description:
+      'nexus.projects.fleet (query) — fleet view: every project with its location on each device, last recorded git state (local, and remote as of the last fetch) and staleness; paged, counts first, read-only',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'device',
+        type: 'string',
+        required: false,
+        description: 'Only locations on this device (device id, hostname, or current)',
+      },
+      {
+        name: 'missing',
+        type: 'boolean',
+        required: false,
+        description: 'Only projects with a missing location',
+      },
+      {
+        name: 'dirty',
+        type: 'boolean',
+        required: false,
+        description: 'Only projects with a dirty location',
+      },
+      {
+        name: 'behind',
+        type: 'boolean',
+        required: false,
+        description: 'Only projects with a location behind its upstream (as of the last fetch)',
+      },
+      {
+        name: 'ahead',
+        type: 'boolean',
+        required: false,
+        description: 'Only projects with a location ahead of its upstream (as of the last fetch)',
+      },
+      {
+        name: 'stale',
+        type: 'boolean',
+        required: false,
+        description: 'Only projects with a never-probed, old-probe or old-fetch location',
+      },
+      {
+        name: 'errored',
+        type: 'boolean',
+        required: false,
+        description: 'Only projects whose last probe recorded an error',
+      },
+      {
+        name: 'staleAfterMs',
+        type: 'number',
+        required: false,
+        description: 'Staleness window for probes, fetches and heartbeats (default 24h)',
+      },
+      {
+        name: 'limit',
+        type: 'number',
+        required: false,
+        description: 'Page size in projects (default 50, max 500; 0 = all)',
+      },
+      {
+        name: 'offset',
+        type: 'number',
+        required: false,
+        description: 'Projects skipped before the page',
+      },
+    ],
+  },
+
+  {
     gateway: 'mutate' as const,
     domain: 'nexus',
     operation: 'projects.register',
