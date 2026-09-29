@@ -11,8 +11,6 @@ description: >-
   "install master tac", "bootstrap protocols", "tools.skill.install ct-master-tac",
   "verify protocol bundle", "repair protocol files", "fresh CleoOS install".
 version: 1.0.0
-core: false
-category: meta
 protocol: null
 argument-hint: "[--verify] [--force]"
 allowed-tools: ["Read", "Write", "Bash(cp *)", "Bash(ls *)", "Bash(mkdir *)", "Bash(test *)"]

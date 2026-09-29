@@ -67,7 +67,18 @@
       "deliveryTier": "on-demand",
       "install": "harness",
       "status": "active",
+      "core": false,
+      "category": "recommended",
       "loomStage": "architecture_decision",
+      "references": [
+        "skills/ct-adr-recorder/references/cascade.md",
+        "skills/ct-adr-recorder/references/examples.md"
+      ],
+      "protocol": "architecture_decision",
+      "dependencies": [],
+      "sharedResources": [],
+      "compatibility": [],
+      "license": "MIT",
       "tags": [
         "adr",
         "architecture-decision",
@@ -75,14 +86,9 @@
         "decision-record"
       ],
       "token_budget": 8000,
-      "protocol": "architecture_decision",
       "adrRefs": [
         "ADR-053",
         "ADR-070"
-      ],
-      "references": [
-        "skills/ct-adr-recorder/references/cascade.md",
-        "skills/ct-adr-recorder/references/examples.md"
       ],
       "capabilities": {
         "inputs": [
@@ -140,6 +146,17 @@
       "deliveryTier": "on-demand",
       "install": "harness",
       "status": "active",
+      "core": false,
+      "category": "recommended",
+      "references": [
+        "skills/ct-artifact-publisher/references/artifact-types.md",
+        "skills/ct-artifact-publisher/references/handler-interface.md"
+      ],
+      "protocol": "artifact-publish",
+      "dependencies": [],
+      "sharedResources": [],
+      "compatibility": [],
+      "license": "MIT",
       "tags": [
         "artifact",
         "publish",
@@ -148,11 +165,6 @@
         "distribution"
       ],
       "token_budget": 8000,
-      "protocol": "artifact-publish",
-      "references": [
-        "skills/ct-artifact-publisher/references/artifact-types.md",
-        "skills/ct-artifact-publisher/references/handler-interface.md"
-      ],
       "capabilities": {
         "inputs": [
           "release-config",
@@ -209,6 +221,24 @@
       "deliveryTier": "core",
       "install": "harness",
       "status": "active",
+      "core": true,
+      "category": "core",
+      "references": [
+        "skills/ct-cleo/references/session-protocol.md",
+        "skills/ct-cleo/references/loom-lifecycle.md",
+        "skills/ct-cleo/references/anti-patterns.md"
+      ],
+      "protocol": null,
+      "dependencies": [],
+      "sharedResources": [
+        "task-system-integration"
+      ],
+      "compatibility": [
+        "claude-code",
+        "gemini-cli",
+        "codex-cli"
+      ],
+      "license": "MIT",
       "tags": [
         "cleo",
         "protocol",
@@ -217,11 +247,6 @@
         "task-management"
       ],
       "token_budget": 6000,
-      "references": [
-        "skills/ct-cleo/references/session-protocol.md",
-        "skills/ct-cleo/references/loom-lifecycle.md",
-        "skills/ct-cleo/references/anti-patterns.md"
-      ],
       "capabilities": {
         "inputs": [
           "TASK_ID",
@@ -271,7 +296,20 @@
       "tier": 1,
       "deliveryTier": "on-demand",
       "install": "harness",
-      "status": "active"
+      "status": "active",
+      "core": false,
+      "category": "recommended",
+      "references": [],
+      "protocol": null,
+      "dependencies": [],
+      "sharedResources": [],
+      "compatibility": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "gemini-cli"
+      ],
+      "license": "MIT"
     },
     {
       "name": "ct-consensus-voter",
@@ -282,7 +320,17 @@
       "deliveryTier": "on-demand",
       "install": "harness",
       "status": "active",
+      "core": false,
+      "category": "recommended",
       "loomStage": "consensus",
+      "references": [
+        "skills/ct-consensus-voter/references/matrix-examples.md"
+      ],
+      "protocol": "consensus",
+      "dependencies": [],
+      "sharedResources": [],
+      "compatibility": [],
+      "license": "MIT",
       "tags": [
         "consensus",
         "voting",
@@ -291,13 +339,9 @@
         "hitl"
       ],
       "token_budget": 6000,
-      "protocol": "consensus",
       "adrRefs": [
         "ADR-015",
         "ADR-023"
-      ],
-      "references": [
-        "skills/ct-consensus-voter/references/matrix-examples.md"
       ],
       "capabilities": {
         "inputs": [
@@ -354,19 +398,32 @@
       "deliveryTier": "on-demand",
       "install": "harness",
       "status": "active",
+      "core": false,
+      "category": "recommended",
       "loomStage": "contribution",
+      "references": [],
+      "protocol": "contribution",
+      "dependencies": [],
+      "sharedResources": [
+        "subagent-protocol-base"
+      ],
+      "compatibility": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "gemini-cli"
+      ],
+      "license": "MIT",
       "tags": [
         "contribution",
         "consensus",
         "workflow"
       ],
       "token_budget": 6000,
-      "protocol": "contribution",
       "adrRefs": [
         "ADR-015",
         "ADR-053"
       ],
-      "references": [],
       "capabilities": {
         "inputs": [
           "TASK_ID",
@@ -417,14 +474,8 @@
       "deliveryTier": "on-demand",
       "install": "harness",
       "status": "active",
-      "tags": [
-        "council",
-        "review",
-        "peer-review",
-        "multi-perspective",
-        "stress-test"
-      ],
-      "token_budget": 8000,
+      "core": false,
+      "category": "recommended",
       "references": [
         "skills/ct-council/references/chairman.md",
         "skills/ct-council/references/contrarian.md",
@@ -436,6 +487,24 @@
         "skills/ct-council/references/outsider.md",
         "skills/ct-council/references/peer-review.md"
       ],
+      "protocol": null,
+      "dependencies": [],
+      "sharedResources": [],
+      "compatibility": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "gemini-cli"
+      ],
+      "license": "MIT",
+      "tags": [
+        "council",
+        "review",
+        "peer-review",
+        "multi-perspective",
+        "stress-test"
+      ],
+      "token_budget": 8000,
       "capabilities": {
         "inputs": [
           "proposal",
@@ -492,6 +561,22 @@
       "deliveryTier": "core",
       "install": "harness",
       "status": "active",
+      "core": true,
+      "category": "core",
+      "references": [],
+      "protocol": "contribution",
+      "dependencies": [],
+      "sharedResources": [
+        "subagent-protocol-base",
+        "task-system-integration"
+      ],
+      "compatibility": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "gemini-cli"
+      ],
+      "license": "MIT",
       "tags": [
         "workflow",
         "git",
@@ -500,7 +585,6 @@
         "testing"
       ],
       "token_budget": 6000,
-      "references": [],
       "capabilities": {
         "inputs": [
           "TASK_ID",
@@ -553,17 +637,29 @@
       "deliveryTier": "on-demand",
       "install": "harness",
       "status": "deprecated",
+      "core": false,
+      "category": "recommended",
+      "references": [
+        "skills/ct-docs-lookup/references/ctx7-workflow.md",
+        "skills/ct-docs-lookup/references/library-id-resolution.md",
+        "skills/ct-docs-lookup/references/version-specific-docs.md"
+      ],
+      "protocol": null,
+      "dependencies": [],
+      "sharedResources": [],
+      "compatibility": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "gemini-cli"
+      ],
+      "license": "MIT",
       "tags": [
         "documentation",
         "libraries",
         "context7"
       ],
       "token_budget": 6000,
-      "references": [
-        "skills/ct-docs-lookup/references/ctx7-workflow.md",
-        "skills/ct-docs-lookup/references/library-id-resolution.md",
-        "skills/ct-docs-lookup/references/version-specific-docs.md"
-      ],
       "capabilities": {
         "inputs": [
           "library_name",
@@ -614,17 +710,29 @@
       "deliveryTier": "on-demand",
       "install": "harness",
       "status": "deprecated",
+      "core": false,
+      "category": "recommended",
+      "references": [
+        "skills/ct-docs-review/references/style-violations.md",
+        "skills/ct-docs-review/references/pr-review-mode.md",
+        "skills/ct-docs-review/references/inline-comment-patterns.md"
+      ],
+      "protocol": null,
+      "dependencies": [],
+      "sharedResources": [],
+      "compatibility": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "gemini-cli"
+      ],
+      "license": "MIT",
       "tags": [
         "documentation",
         "review",
         "style-guide"
       ],
       "token_budget": 6000,
-      "references": [
-        "skills/ct-docs-review/references/style-violations.md",
-        "skills/ct-docs-review/references/pr-review-mode.md",
-        "skills/ct-docs-review/references/inline-comment-patterns.md"
-      ],
       "capabilities": {
         "inputs": [
           "file_path",
@@ -673,17 +781,29 @@
       "deliveryTier": "on-demand",
       "install": "harness",
       "status": "deprecated",
+      "core": false,
+      "category": "recommended",
+      "references": [
+        "skills/ct-docs-write/references/cleo-style-guide.md",
+        "skills/ct-docs-write/references/markdown-patterns.md",
+        "skills/ct-docs-write/references/audience-targeting.md"
+      ],
+      "protocol": null,
+      "dependencies": [],
+      "sharedResources": [],
+      "compatibility": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "gemini-cli"
+      ],
+      "license": "MIT",
       "tags": [
         "documentation",
         "writing",
         "style-guide"
       ],
       "token_budget": 6000,
-      "references": [
-        "skills/ct-docs-write/references/cleo-style-guide.md",
-        "skills/ct-docs-write/references/markdown-patterns.md",
-        "skills/ct-docs-write/references/audience-targeting.md"
-      ],
       "capabilities": {
         "inputs": [
           "file_path",
@@ -734,18 +854,37 @@
       "deliveryTier": "core",
       "install": "harness",
       "status": "active",
-      "tags": [
-        "documentation",
-        "orchestration",
-        "workflow"
-      ],
-      "token_budget": 8000,
+      "core": true,
+      "category": "core",
       "references": [
         "skills/ct-documentor/references/chain-orchestration.md",
         "skills/ct-documentor/references/doc-types-and-templates.md",
         "skills/ct-documentor/references/style-coordination.md",
         "skills/ct-documentor/references/anti-patterns.md"
       ],
+      "protocol": null,
+      "dependencies": [
+        "ct-docs-lookup",
+        "ct-docs-write",
+        "ct-docs-review"
+      ],
+      "sharedResources": [
+        "subagent-protocol-base",
+        "task-system-integration"
+      ],
+      "compatibility": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "gemini-cli"
+      ],
+      "license": "MIT",
+      "tags": [
+        "documentation",
+        "orchestration",
+        "workflow"
+      ],
+      "token_budget": 8000,
       "capabilities": {
         "inputs": [
           "TASK_ID",
@@ -804,22 +943,36 @@
       "deliveryTier": "on-demand",
       "install": "harness",
       "status": "active",
+      "core": false,
+      "category": "recommended",
       "loomStage": "decomposition",
+      "references": [
+        "skills/ct-epic-architect/references/bug-epic-example.md",
+        "skills/ct-epic-architect/references/commands.md",
+        "skills/ct-epic-architect/references/feature-epic-example.md"
+      ],
+      "protocol": "decomposition",
+      "dependencies": [],
+      "sharedResources": [
+        "subagent-protocol-base",
+        "task-system-integration"
+      ],
+      "compatibility": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "gemini-cli"
+      ],
+      "license": "MIT",
       "tags": [
         "planning",
         "architecture",
         "task-management"
       ],
       "token_budget": 8000,
-      "protocol": "decomposition",
       "adrRefs": [
         "ADR-066",
         "ADR-073"
-      ],
-      "references": [
-        "skills/ct-epic-architect/references/bug-epic-example.md",
-        "skills/ct-epic-architect/references/commands.md",
-        "skills/ct-epic-architect/references/feature-epic-example.md"
       ],
       "capabilities": {
         "inputs": [
@@ -879,13 +1032,25 @@
       "deliveryTier": "internal",
       "install": "internal",
       "status": "active",
+      "core": false,
+      "category": "meta",
+      "references": [],
+      "protocol": null,
+      "dependencies": [],
+      "sharedResources": [],
+      "compatibility": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "gemini-cli"
+      ],
+      "license": "MIT",
       "tags": [
         "grading",
         "quality",
         "analysis"
       ],
       "token_budget": 6000,
-      "references": [],
       "capabilities": {
         "inputs": [
           "SESSION_ID",
@@ -935,7 +1100,19 @@
       "deliveryTier": "on-demand",
       "install": "harness",
       "status": "active",
+      "core": false,
+      "category": "recommended",
       "loomStage": "testing",
+      "references": [
+        "skills/ct-ivt-looper/references/escalation.md",
+        "skills/ct-ivt-looper/references/frameworks.md",
+        "skills/ct-ivt-looper/references/loop-anatomy.md"
+      ],
+      "protocol": "testing",
+      "dependencies": [],
+      "sharedResources": [],
+      "compatibility": [],
+      "license": "MIT",
       "tags": [
         "testing",
         "ivt-loop",
@@ -944,15 +1121,9 @@
         "compliance"
       ],
       "token_budget": 10000,
-      "protocol": "testing",
       "adrRefs": [
         "ADR-051",
         "ADR-061"
-      ],
-      "references": [
-        "skills/ct-ivt-looper/references/escalation.md",
-        "skills/ct-ivt-looper/references/frameworks.md",
-        "skills/ct-ivt-looper/references/loop-anatomy.md"
       ],
       "capabilities": {
         "inputs": [
@@ -1008,7 +1179,15 @@
       "tier": 0,
       "deliveryTier": "core",
       "install": "harness",
-      "status": "active"
+      "status": "active",
+      "core": true,
+      "category": "core",
+      "references": [],
+      "protocol": null,
+      "dependencies": [],
+      "sharedResources": [],
+      "compatibility": [],
+      "license": "MIT"
     },
     {
       "name": "ct-master-tac",
@@ -1018,7 +1197,15 @@
       "tier": 3,
       "deliveryTier": "internal",
       "install": "internal",
-      "status": "deprecated"
+      "status": "deprecated",
+      "core": false,
+      "category": "meta",
+      "references": [],
+      "protocol": null,
+      "dependencies": [],
+      "sharedResources": [],
+      "compatibility": [],
+      "license": "MIT"
     },
     {
       "name": "ct-memory",
@@ -1028,7 +1215,15 @@
       "tier": 3,
       "deliveryTier": "internal",
       "install": "internal",
-      "status": "deprecated"
+      "status": "deprecated",
+      "core": false,
+      "category": "meta",
+      "references": [],
+      "protocol": null,
+      "dependencies": [],
+      "sharedResources": [],
+      "compatibility": [],
+      "license": "MIT"
     },
     {
       "name": "ct-orchestrator",
@@ -1039,13 +1234,8 @@
       "deliveryTier": "core",
       "install": "harness",
       "status": "active",
-      "tags": [
-        "workflow",
-        "multi-agent",
-        "coordination",
-        "pipeline"
-      ],
-      "token_budget": 8000,
+      "core": true,
+      "category": "core",
       "references": [
         "skills/ct-orchestrator/references/autonomous-operation.md",
         "skills/ct-orchestrator/references/lifecycle-gates.md",
@@ -1057,6 +1247,26 @@
         "skills/ct-orchestrator/references/orchestrator-tokens.md",
         "skills/ct-orchestrator/references/SUBAGENT-PROTOCOL-BLOCK.md"
       ],
+      "protocol": "agent-protocol",
+      "dependencies": [],
+      "sharedResources": [
+        "subagent-protocol-base",
+        "task-system-integration"
+      ],
+      "compatibility": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "gemini-cli"
+      ],
+      "license": "MIT",
+      "tags": [
+        "workflow",
+        "multi-agent",
+        "coordination",
+        "pipeline"
+      ],
+      "token_budget": 8000,
       "capabilities": {
         "inputs": [
           "TASK_ID",
@@ -1117,6 +1327,17 @@
       "deliveryTier": "on-demand",
       "install": "harness",
       "status": "active",
+      "core": false,
+      "category": "recommended",
+      "references": [
+        "skills/ct-provenance-keeper/references/signing.md",
+        "skills/ct-provenance-keeper/references/slsa.md"
+      ],
+      "protocol": "provenance",
+      "dependencies": [],
+      "sharedResources": [],
+      "compatibility": [],
+      "license": "MIT",
       "tags": [
         "provenance",
         "slsa",
@@ -1126,11 +1347,6 @@
         "supply-chain"
       ],
       "token_budget": 6000,
-      "protocol": "provenance",
-      "references": [
-        "skills/ct-provenance-keeper/references/signing.md",
-        "skills/ct-provenance-keeper/references/slsa.md"
-      ],
       "capabilities": {
         "inputs": [
           "built-artifacts",
@@ -1185,7 +1401,18 @@
       "deliveryTier": "on-demand",
       "install": "harness",
       "status": "active",
+      "core": false,
+      "category": "recommended",
       "loomStage": "release",
+      "references": [
+        "skills/ct-release-orchestrator/references/composition.md",
+        "skills/ct-release-orchestrator/references/release-types.md"
+      ],
+      "protocol": "release",
+      "dependencies": [],
+      "sharedResources": [],
+      "compatibility": [],
+      "license": "MIT",
       "tags": [
         "release",
         "orchestration",
@@ -1194,15 +1421,10 @@
         "version"
       ],
       "token_budget": 8000,
-      "protocol": "release",
       "adrRefs": [
         "ADR-053",
         "ADR-063",
         "ADR-065"
-      ],
-      "references": [
-        "skills/ct-release-orchestrator/references/composition.md",
-        "skills/ct-release-orchestrator/references/release-types.md"
       ],
       "capabilities": {
         "inputs": [
@@ -1261,23 +1483,37 @@
       "deliveryTier": "on-demand",
       "install": "harness",
       "status": "active",
+      "core": false,
+      "category": "recommended",
       "loomStage": "research",
+      "references": [
+        "skills/ct-research-agent/references/triggers-and-routing.md",
+        "skills/ct-research-agent/references/source-strategy.md",
+        "skills/ct-research-agent/references/citation-and-evidence.md",
+        "skills/ct-research-agent/references/anti-patterns.md"
+      ],
+      "protocol": "research",
+      "dependencies": [],
+      "sharedResources": [
+        "subagent-protocol-base",
+        "task-system-integration"
+      ],
+      "compatibility": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "gemini-cli"
+      ],
+      "license": "MIT",
       "tags": [
         "research",
         "investigation",
         "discovery"
       ],
       "token_budget": 8000,
-      "protocol": "research",
       "adrRefs": [
         "ADR-023",
         "ADR-070"
-      ],
-      "references": [
-        "skills/ct-research-agent/references/triggers-and-routing.md",
-        "skills/ct-research-agent/references/source-strategy.md",
-        "skills/ct-research-agent/references/citation-and-evidence.md",
-        "skills/ct-research-agent/references/anti-patterns.md"
       ],
       "capabilities": {
         "inputs": [
@@ -1333,16 +1569,28 @@
       "deliveryTier": "internal",
       "install": "internal",
       "status": "deprecated",
+      "core": false,
+      "category": "meta",
+      "references": [
+        "skills/ct-skill-creator/references/output-patterns.md",
+        "skills/ct-skill-creator/references/workflows.md"
+      ],
+      "protocol": null,
+      "dependencies": [],
+      "sharedResources": [],
+      "compatibility": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "gemini-cli"
+      ],
+      "license": "MIT",
       "tags": [
         "skills",
         "creation",
         "meta"
       ],
       "token_budget": 8000,
-      "references": [
-        "skills/ct-skill-creator/references/output-patterns.md",
-        "skills/ct-skill-creator/references/workflows.md"
-      ],
       "capabilities": {
         "inputs": [
           "skill_name",
@@ -1389,7 +1637,15 @@
       "tier": 3,
       "deliveryTier": "internal",
       "install": "internal",
-      "status": "deprecated"
+      "status": "deprecated",
+      "core": false,
+      "category": "meta",
+      "references": [],
+      "protocol": null,
+      "dependencies": [],
+      "sharedResources": [],
+      "compatibility": [],
+      "license": "MIT"
     },
     {
       "name": "ct-spec-writer",
@@ -1400,23 +1656,37 @@
       "deliveryTier": "on-demand",
       "install": "harness",
       "status": "active",
+      "core": false,
+      "category": "recommended",
       "loomStage": "specification",
+      "references": [
+        "skills/ct-spec-writer/references/rfc2119-language.md",
+        "skills/ct-spec-writer/references/spec-templates.md",
+        "skills/ct-spec-writer/references/traceability-matrix.md",
+        "skills/ct-spec-writer/references/anti-patterns.md"
+      ],
+      "protocol": "specification",
+      "dependencies": [],
+      "sharedResources": [
+        "subagent-protocol-base",
+        "task-system-integration"
+      ],
+      "compatibility": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "gemini-cli"
+      ],
+      "license": "MIT",
       "tags": [
         "specification",
         "documentation",
         "rfc"
       ],
       "token_budget": 8000,
-      "protocol": "specification",
       "adrRefs": [
         "ADR-014",
         "ADR-023"
-      ],
-      "references": [
-        "skills/ct-spec-writer/references/rfc2119-language.md",
-        "skills/ct-spec-writer/references/spec-templates.md",
-        "skills/ct-spec-writer/references/traceability-matrix.md",
-        "skills/ct-spec-writer/references/anti-patterns.md"
       ],
       "capabilities": {
         "inputs": [
@@ -1470,7 +1740,15 @@
       "tier": 3,
       "deliveryTier": "internal",
       "install": "internal",
-      "status": "deprecated"
+      "status": "deprecated",
+      "core": false,
+      "category": "meta",
+      "references": [],
+      "protocol": null,
+      "dependencies": [],
+      "sharedResources": [],
+      "compatibility": [],
+      "license": "MIT"
     },
     {
       "name": "ct-task-executor",
@@ -1481,24 +1759,38 @@
       "deliveryTier": "core",
       "install": "harness",
       "status": "active",
+      "core": true,
+      "category": "core",
       "loomStage": "implementation",
-      "tags": [
-        "execution",
-        "implementation",
-        "task-management"
-      ],
-      "token_budget": 8000,
-      "protocol": "implementation",
-      "adrRefs": [
-        "ADR-070",
-        "ADR-062"
-      ],
       "references": [
         "skills/ct-task-executor/references/implementation-patterns.md",
         "skills/ct-task-executor/references/acceptance-criteria-mapping.md",
         "skills/ct-task-executor/references/evidence-and-gates.md",
         "skills/ct-task-executor/references/common-failures.md",
         "skills/ct-task-executor/references/anti-patterns.md"
+      ],
+      "protocol": "implementation",
+      "dependencies": [],
+      "sharedResources": [
+        "subagent-protocol-base",
+        "task-system-integration"
+      ],
+      "compatibility": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "gemini-cli"
+      ],
+      "license": "MIT",
+      "tags": [
+        "execution",
+        "implementation",
+        "task-management"
+      ],
+      "token_budget": 8000,
+      "adrRefs": [
+        "ADR-070",
+        "ADR-062"
       ],
       "capabilities": {
         "inputs": [
@@ -1555,23 +1847,37 @@
       "deliveryTier": "on-demand",
       "install": "harness",
       "status": "active",
+      "core": false,
+      "category": "recommended",
       "loomStage": "validation",
+      "references": [
+        "skills/ct-validator/references/validation-modes.md",
+        "skills/ct-validator/references/schema-checking.md",
+        "skills/ct-validator/references/compliance-reports.md",
+        "skills/ct-validator/references/anti-patterns.md"
+      ],
+      "protocol": "validation",
+      "dependencies": [],
+      "sharedResources": [
+        "subagent-protocol-base",
+        "task-system-integration"
+      ],
+      "compatibility": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "gemini-cli"
+      ],
+      "license": "MIT",
       "tags": [
         "validation",
         "compliance",
         "audit"
       ],
       "token_budget": 6000,
-      "protocol": "validation",
       "adrRefs": [
         "ADR-051",
         "ADR-023"
-      ],
-      "references": [
-        "skills/ct-validator/references/validation-modes.md",
-        "skills/ct-validator/references/schema-checking.md",
-        "skills/ct-validator/references/compliance-reports.md",
-        "skills/ct-validator/references/anti-patterns.md"
       ],
       "capabilities": {
         "inputs": [
@@ -1625,7 +1931,15 @@
       "tier": 3,
       "deliveryTier": "internal",
       "install": "internal",
-      "status": "deprecated"
+      "status": "deprecated",
+      "core": false,
+      "category": "meta",
+      "references": [],
+      "protocol": null,
+      "dependencies": [],
+      "sharedResources": [],
+      "compatibility": [],
+      "license": "MIT"
     }
   ]
 }

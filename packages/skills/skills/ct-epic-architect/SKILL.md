@@ -2,8 +2,6 @@
 name: ct-epic-architect
 description: Epic planning and task decomposition for breaking down large initiatives into atomic, executable tasks. Provides dependency analysis, wave-based parallel execution planning, hierarchy management, and research linking. Use when creating epics, decomposing initiatives into task trees, planning parallel workflows, or analyzing task dependencies. Triggers on epic creation, task decomposition requests, or planning phase work.
 version: 3.0.0
-core: false
-category: recommended
 protocol: decomposition
 loomStage: decomposition
 adrRefs:

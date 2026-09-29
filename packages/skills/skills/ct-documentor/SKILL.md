@@ -2,8 +2,6 @@
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Coordinates ct-docs-lookup, ct-docs-write, ct-docs-review, ct-spec-writer, and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
 version: 3.16.1
-core: false
-category: specialist
 protocol: null
 dependencies:
   - ct-docs-lookup

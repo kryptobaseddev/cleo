@@ -264,3 +264,38 @@ describe("catalog - registration and delegation", () => {
     }
   });
 });
+
+// T12653: the real @cleocode/skills package ships no skills.json. Both load
+// paths (its index.js module and the raw-file loader) must still yield the
+// full catalog from skills/manifest.json.
+describe("catalog - the real manifest-only @cleocode/skills package", () => {
+  const skillsRoot = join(import.meta.dirname, "..", "..", "..", "skills");
+
+  afterEach(() => {
+    catalog.clearRegisteredLibrary();
+  });
+
+  it("ships no skills.json", () => {
+    expect(existsSync(join(skillsRoot, "skills.json"))).toBe(false);
+  });
+
+  it.each([
+    ["module (index.js)", () => catalog.registerSkillLibraryFromPath(skillsRoot)],
+    ["raw files", () => buildLibraryFromFiles(skillsRoot)],
+  ])("loads every harness skill via %s", (_label, load) => {
+    const library = load() ?? null;
+    const names = library ? library.listSkills() : catalog.listSkills();
+    const core = (library ? library.getCoreSkills() : catalog.getCoreSkills()).map((s) => s.name);
+    for (const name of ["ct-cleo", "ct-lead", "ct-adr-recorder", "ct-ivt-looper", "ct-council"]) {
+      expect(names).toContain(name);
+    }
+    expect(core.sort()).toEqual([
+      "ct-cleo",
+      "ct-dev-workflow",
+      "ct-documentor",
+      "ct-lead",
+      "ct-orchestrator",
+      "ct-task-executor",
+    ]);
+  });
+});

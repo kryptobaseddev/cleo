@@ -2,7 +2,6 @@
 name: ct-stickynote
 description: Quick ephemeral sticky notes for project-wide capture before formal classification
 version: 1.0.0
-category: productivity
 protocol: null
 tags: [sticky, notes, capture, quick, ephemeral]
 triggers: [note, sticky, jot, capture]
