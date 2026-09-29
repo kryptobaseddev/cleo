@@ -150,19 +150,24 @@ export interface OwnerStoreRewriteOptions {
   /** The operator confirmed overwriting the owning project's live store. */
   confirmOwnerStore?: boolean | undefined;
   /**
-   * Whether the operation offers {@link CONFIRM_OWNER_STORE_FLAG}. Open-time
-   * rewrites (auto-recovery, exodus, lineage rebuild, upgrade migration) have
-   * no flag, so their refusal says where to run instead. Defaults to `true`.
+   * The rewrite runs implicitly when a store opens (auto-recovery, exodus
+   * first-open migration, lineage rebuild, upgrade storage migration). It
+   * targets the owning project's store exactly as it would from the project
+   * root, so it needs no confirmation there: only a worktree-resident target
+   * is refused, and a run from a worktree is audited. Unreleased worktree
+   * builds are stopped separately by the T12687 schema-write guard.
    */
-  confirmable?: boolean | undefined;
+  openTime?: boolean | undefined;
 }
 
 /** One row of {@link OWNER_STORE_REWRITE_AUDIT_FILE}. */
 export interface OwnerStoreRewriteAuditRow {
-  /** ISO-8601 time of the confirmed rewrite. */
+  /** ISO-8601 time of the rewrite. */
   timestamp: string;
   /** Operation label, e.g. `restore` or `backup recover tasks`. */
   operation: string;
+  /** `confirmed` by {@link CONFIRM_OWNER_STORE_FLAG}, or an `open-time` rewrite. */
+  trigger: 'confirmed' | 'open-time';
   /** Linked worktree the operation was run from. */
   worktree: string;
   /** Store file or `.cleo/` directory that was overwritten. */
@@ -224,9 +229,11 @@ function ownedFromWorktree(storeRoot: string, cwd: string): string | null {
  *
  * - A target inside a linked worktree is refused: CLEO never reads a
  *   worktree-resident store (T12460), so the rewrite would be lost.
- * - The owning project's store, reached from one of its worktrees, needs
- *   {@link CONFIRM_OWNER_STORE_FLAG}: path resolution sent the operation to
- *   that LIVE store, so the operator must say they mean it.
+ * - The owning project's store, reached from one of its worktrees by an
+ *   explicit command, needs {@link CONFIRM_OWNER_STORE_FLAG}: path resolution
+ *   sent the operation to that LIVE store, so the operator must say they mean
+ *   it. An open-time rewrite ({@link OwnerStoreRewriteOptions.openTime}) is
+ *   allowed there.
  * - Anything else (not a `<root>/.cleo` store, not run from a worktree, or a
  *   store the worktree does not own) is allowed.
  *
@@ -257,16 +264,14 @@ export function ownerStoreRewriteRefusal(
       },
     );
   }
+  if (opts.confirmOwnerStore === true || opts.openTime === true) return null;
   const worktree = ownedFromWorktree(store.root, opts.cwd);
-  if (worktree === null || opts.confirmOwnerStore === true) return null;
+  if (worktree === null) return null;
   return new CleoError(
     ExitCode.CONFIG_ERROR,
     `${E_WT_STORE_REWRITE_CONFIRM_REQUIRED}: ${operation} run from git worktree ${worktree} would overwrite the LIVE store ${target}; this worktree's ${describeWorktreeOwner(worktree)}.`,
     {
-      fix:
-        opts.confirmable === false
-          ? `Run it from ${store.root}; it runs implicitly, so there is no ${CONFIRM_OWNER_STORE_FLAG}. Nothing was written.`
-          : `Re-run with ${CONFIRM_OWNER_STORE_FLAG} to overwrite ${target}, or run it from ${store.root}. Nothing was written.`,
+      fix: `Re-run with ${CONFIRM_OWNER_STORE_FLAG} to overwrite ${target}, or run it from ${store.root}. Nothing was written.`,
     },
   );
 }
@@ -275,8 +280,8 @@ export function ownerStoreRewriteRefusal(
  * Enforce {@link ownerStoreRewriteRefusal} and audit a confirmed overwrite.
  *
  * When the rewrite targets the owning project's store from one of its
- * worktrees and the operator confirmed it, a row naming the worktree, store
- * and operation is appended to `<owner>/.cleo/audit/`
+ * worktrees (confirmed, or an open-time rewrite), a row naming the worktree,
+ * store, operation and trigger is appended to `<owner>/.cleo/audit/`
  * {@link OWNER_STORE_REWRITE_AUDIT_FILE} before anything is written. A failed
  * audit write refuses the rewrite (the error propagates).
  *
@@ -302,12 +307,13 @@ export function assertOwnerStoreRewriteConfirmed(
   const refusal = ownerStoreRewriteRefusal(operation, target, opts);
   if (refusal !== null) throw refusal;
   const store = projectStoreOf(target);
-  if (store === null || opts.confirmOwnerStore !== true) return;
+  if (store === null) return;
   const worktree = ownedFromWorktree(store.root, opts.cwd);
   if (worktree === null) return;
   const row: OwnerStoreRewriteAuditRow = {
     timestamp: new Date().toISOString(),
     operation,
+    trigger: opts.openTime === true ? 'open-time' : 'confirmed',
     worktree,
     store: target,
     cwd: resolve(opts.cwd),

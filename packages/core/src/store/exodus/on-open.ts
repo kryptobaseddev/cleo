@@ -198,6 +198,31 @@ async function strandedLegacySources(scope: DualScope, cwd: string | undefined):
     .map((s) => s.name);
 }
 
+/**
+ * Apply the shared whole-store rewrite guard to an exodus-on-open migration of
+ * the project store (T12708): audits a run from a worktree against the owning
+ * project's store, and returns the refusal message for a worktree-resident one.
+ */
+async function exodusStoreRewriteRefusal(
+  dbPath: string,
+  cwd: string | undefined,
+): Promise<string | null> {
+  const { assertOwnerStoreRewriteConfirmed, invocationDirectory } = await import(
+    '../worktree-isolation-guard.js'
+  );
+  const { CleoError } = await import('../../errors.js');
+  try {
+    assertOwnerStoreRewriteConfirmed('exodus migration', dbPath, {
+      cwd: invocationDirectory(cwd),
+      openTime: true,
+    });
+    return null;
+  } catch (err) {
+    if (err instanceof CleoError) return err.message;
+    throw err;
+  }
+}
+
 /** Recover only the inserted resources recorded by this staging operation. */
 async function rollbackBothScopes(plan: ExodusPlan): Promise<ExodusRecoveryResult> {
   const { getDualScopeNativeDb, openDualScopeDbAtPath } = await import('../dual-scope-db.js');
@@ -493,24 +518,6 @@ async function runExodusOnOpen(
     };
   }
 
-  // T12708: the migration fills (and on failure rolls back) the whole project
-  // store. From a linked worktree it never runs against the owning project's
-  // live store, nor against a worktree-resident one; writes refuse
-  // (`aborted`) until it runs from the project itself.
-  if (scope === 'project') {
-    const { invocationDirectory, ownerStoreRewriteRefusal } = await import(
-      '../worktree-isolation-guard.js'
-    );
-    const refusal = ownerStoreRewriteRefusal('exodus migration', dbPath, {
-      cwd: invocationDirectory(cwd),
-      confirmable: false,
-    });
-    if (refusal !== null) {
-      warnStrandedOnce(dbPath, refusal.message);
-      return { outcome: 'aborted', reason: refusal.message };
-    }
-  }
-
   // Single-flight: serialise the first-open migration across processes so two
   // concurrent opens never both migrate (AC6 · T11554 first-run race).
   const lockPath = `${dbPath}.exodus-on-open.lock`;
@@ -522,6 +529,20 @@ async function runExodusOnOpen(
       // already populated (by the winner) and bail without re-migrating.
       if (!consolidatedIsEmpty(nativeDb, scope)) {
         return { outcome: 'skipped', reason: 'migrated by a concurrent process (lock winner)' };
+      }
+
+      // T12708: the migration fills (and on failure rolls back) the whole
+      // project store — an open-time rewrite. A worktree-resident target is
+      // refused (`aborted`, so writes refuse); a run from a worktree against
+      // the owning project's store proceeds and is audited first.
+      if (scope === 'project') {
+        const refusal = await exodusStoreRewriteRefusal(dbPath, cwd);
+        if (refusal !== null) {
+          // The caller re-opens a fresh handle on `aborted`; release this one.
+          if (nativeDb.isOpen) nativeDb.close();
+          warnStrandedOnce(dbPath, refusal);
+          return { outcome: 'aborted', reason: refusal };
+        }
       }
 
       log.info(

@@ -409,7 +409,17 @@ function guardOwnerStoreRewrite(opts: BackupRecoverOptions, target: string): voi
       confirmOwnerStore: opts.confirmOwnerStore,
     });
   } catch (err) {
-    if (!(err instanceof CleoError)) throw err;
+    if (!(err instanceof CleoError)) {
+      // The audit row could not be written, so the rewrite does not run.
+      throw new BackupRecoverError(
+        `Could not write the owner-store audit row for role "${opts.role}": ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+        1,
+        'E_AUDIT_WRITE_FAILED',
+        'Check that the project .cleo/audit/ directory is writable; nothing was restored.',
+      );
+    }
     const codeName = err.message.startsWith(E_WT_STORE_REWRITE_REFUSED)
       ? E_WT_STORE_REWRITE_REFUSED
       : E_WT_STORE_REWRITE_CONFIRM_REQUIRED;
