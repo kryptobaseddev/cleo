@@ -538,9 +538,11 @@ async function runMainWithLafsEnvelope(
     // T12558: `cleo doctor *` must be able to inspect a relocated project, so
     // resolution does not refuse at a reroot tombstone for it. (Creating an
     // empty store there is still refused by the store guard.)
-    if (rawArgs.find((a) => !a.startsWith('-')) === 'doctor') setProjectMovedRefusal(false);
+    const isDoctor = rawArgs.find((a) => !a.startsWith('-')) === 'doctor';
+    if (isDoctor) setProjectMovedRefusal(false);
     try {
-      const outcome = await recordProjectEncounter();
+      // T12512: real use refreshes last_opened_at; `doctor` only inspects.
+      const outcome = await recordProjectEncounter(undefined, { markOpened: !isDoctor });
       if (process.env['CLEO_DEBUG'])
         process.stderr.write(`[cleo][debug] Project encounter: ${outcome}\n`);
     } catch (error) {

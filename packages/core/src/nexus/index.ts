@@ -96,6 +96,13 @@ export {
   nexusSearch,
   searchAcrossProjects,
 } from './discover.js';
+// Fleet view - every project on every device with recorded git state (T12513)
+export {
+  FLEET_DEFAULTS,
+  type FleetStoreHandle,
+  listFleetStatus,
+  locationFlags,
+} from './fleet-status.js';
 // Flows - execution flow (process) nodes (T1473)
 export {
   getProjectFlows,
@@ -169,6 +176,13 @@ export {
   requirePermission,
   setPermission,
 } from './permissions.js';
+// Project activity - last probed vs last opened (T12512)
+export {
+  markProjectOpened,
+  markProjectsProbed,
+  OPENED_WRITE_INTERVAL_MS,
+  type ProjectActivityHandle,
+} from './project-activity.js';
 // Projects clean - bulk purge project registry rows (T1473)
 export {
   type CleanProjectsOptions,
@@ -225,6 +239,7 @@ export {
   nexusListProjects,
   nexusMoveProject,
   nexusProjectExists,
+  nexusProjectsFleet,
   nexusProjectsList,
   nexusProjectsRegister,
   nexusProjectsRemove,
@@ -247,6 +262,12 @@ export {
   readRegistryRequired,
   resetNexusDbState,
 } from './registry.js';
+// Registry errors - typed read failures (T12512 · T12513)
+export {
+  NexusDeviceNotFoundError,
+  NexusRegistryReadError,
+  toRegistryReadError,
+} from './registry-errors.js';
 // Registry-derived default search roots (T12476)
 export { listRegistryParentRoots, parentRootsOf } from './registry-roots.js';
 // Sharing - multi-contributor .cleo/ state management

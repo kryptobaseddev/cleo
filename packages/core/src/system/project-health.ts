@@ -246,6 +246,11 @@ export interface FullHealthReport {
   };
   /** ISO 8601 timestamp when the full report was assembled. */
   generatedAt: string;
+  /**
+   * Set when the registry could not be read (T12512): `projects` is then
+   * empty because nothing could be enumerated, not because none exist.
+   */
+  registryError?: { code: string; message: string };
 }
 
 /** Options for {@link checkAllRegisteredProjects}. */
@@ -833,9 +838,10 @@ export async function checkAllRegisteredProjects(
         checkedAt: generatedAt,
       };
 
-  // Load registered projects. nexusList is defensive (returns [] when nexus.db
-  // has not been initialized) so we never crash a fresh install.
+  // Load registered projects. nexusList throws a typed error when the registry
+  // cannot be read (T12512); the report carries it instead of looking empty.
   let projects: ProjectHealthReport[] = [];
+  let registryError: FullHealthReport['registryError'];
   try {
     const { nexusList } = await import('../nexus/registry.js');
     const rows = await nexusList();
@@ -844,6 +850,12 @@ export async function checkAllRegisteredProjects(
     );
   } catch (err) {
     log.warn({ err }, 'project-health: failed to enumerate registered projects');
+    const { NexusRegistryReadError } = await import('../nexus/registry-errors.js');
+    registryError = {
+      code: err instanceof NexusRegistryReadError ? err.codeName : 'E_NEXUS_REGISTRY_READ',
+      message: err instanceof Error ? err.message : String(err),
+    };
+    global.issues.push(`Registry unreadable: ${registryError.message}`);
   }
 
   if (updateRegistry && projects.length > 0) {
@@ -858,7 +870,7 @@ export async function checkAllRegisteredProjects(
     unknown: projects.filter((p) => p.overall === 'unknown').length,
   };
 
-  return { global, projects, summary, generatedAt };
+  return { global, projects, summary, generatedAt, ...(registryError ? { registryError } : {}) };
 }
 
 // ============================================================================
@@ -867,7 +879,7 @@ export async function checkAllRegisteredProjects(
 
 /**
  * Persist each report's `overall` verdict to `project_registry.health_status`
- * and bump `last_seen`. Never throws — individual row failures are logged as
+ * and bump `last_probed_at` (T12512 — never `last_seen`). Never throws — individual row failures are logged as
  * warnings so a single busted row cannot break the whole batch.
  *
  * @internal
@@ -891,7 +903,8 @@ async function writeHealthBack(
           .set({
             healthStatus: report.overall,
             healthLastCheck: now,
-            lastSeen: now,
+            // T12512: a health check probes the project; it is not evidence of use.
+            lastProbedAt: now,
           })
           .where(eq(projectRegistry.projectHash, report.projectHash));
       } catch (err) {

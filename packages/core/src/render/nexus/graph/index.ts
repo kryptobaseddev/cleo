@@ -22,8 +22,12 @@
  */
 
 import type {
+  NexusFleetDeviceSummary,
+  NexusFleetLocation,
+  NexusFleetProject,
   NexusProjectGitState,
   NexusProjectsCleanReceipt,
+  NexusProjectsFleetResult,
   NexusRegistryClassification,
 } from '@cleocode/contracts';
 import { num, str } from '../_format.js';
@@ -345,6 +349,70 @@ export function renderNexusProjectsStatus(data: Record<string, unknown>, quiet: 
   for (const [deviceId, list] of byDevice) {
     lines.push('', `[nexus] Last recorded on device ${deviceId} (${list.length}):`);
     for (const r of list) lines.push(`${gitStateLine(r)}  probed=${r.probedAt.slice(0, 16)}`);
+  }
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// nexus projects status — fleet view (T12513)
+// ---------------------------------------------------------------------------
+
+/** One fleet location as an indented table line. */
+function fleetLocationLine(l: NexusFleetLocation): string {
+  const host = `${l.current ? '*' : ' '}${(l.hostname ?? l.deviceId.slice(0, 12)).slice(0, 18).padEnd(18)}`;
+  const g = l.git;
+  if (g === null) return `    ${host}  ${'(never probed)'.padEnd(44)}  ${l.path}`;
+  const ref = g.detached ? `(detached ${str(g.headSha).slice(0, 8)})` : str(g.branch);
+  const dirty = `~${g.dirtyCount ?? '?'} +${g.untrackedCount ?? '?'}`;
+  const ab =
+    g.remote.upstream === null
+      ? 'no-upstream'
+      : `↑${g.remote.ahead ?? '?'} ↓${g.remote.behind ?? '?'}`;
+  const fetched = g.remote.fetchedAt === null ? 'never' : g.remote.fetchedAt.slice(0, 16);
+  const flags = l.flags.length > 0 ? `  [${l.flags.join(',')}]` : '';
+  return `    ${host}  ${ref.slice(0, 20).padEnd(20)}  ${dirty.padEnd(8)}  ${ab.padEnd(12)}  probed=${g.probedAt.slice(0, 16)} fetched=${fetched}${flags}  ${l.path}`;
+}
+
+/**
+ * Render `cleo nexus projects status` human output (T12513): counts first,
+ * then one block per project with a line per device location.
+ */
+export function renderNexusProjectsFleet(data: Record<string, unknown>, quiet: boolean): string {
+  if (quiet) return '';
+  const summary = (data['summary'] as NexusProjectsFleetResult['summary'] | undefined) ?? null;
+  const devices = (data['devices'] as NexusFleetDeviceSummary[] | undefined) ?? [];
+  const projects = (data['projects'] as NexusFleetProject[] | undefined) ?? [];
+  const refresh = data['refresh'] as Record<string, unknown> | undefined;
+  const lines: string[] = [];
+  if (refresh !== undefined) {
+    lines.push(
+      `[nexus] Refreshed ${str(refresh['count'])} location(s) on this device in ${str(refresh['durationMs'])}ms (${refresh['fetched'] === true ? 'fetched' : 'no fetch'})`,
+    );
+  }
+  lines.push(
+    `[nexus] Fleet: ${str(data['matched'])}/${str(data['total'])} project(s) match; showing ${str(data['returned'])} from offset ${str(data['offset'])}${data['hasMore'] === true ? ' (more: raise --offset)' : ''}`,
+  );
+  if (summary !== null) {
+    lines.push(
+      `        located=${summary.located} locations=${summary.locations} missing=${summary.missing} dirty=${summary.dirty} behind=${summary.behind} ahead=${summary.ahead} stale=${summary.stale} errored=${summary.errored} unprobed=${summary.unprobed}`,
+    );
+  }
+  if (devices.length > 0) {
+    lines.push('', `[nexus] Devices (${devices.length}):`);
+    for (const d of devices) {
+      lines.push(
+        ` ${d.current ? '*' : ' '}${str(d.hostname ?? '(no heartbeat)').padEnd(24)}  locations=${d.locations} dirty=${d.dirty} behind=${d.behind} missing=${d.missing} stale=${d.stale}  heartbeat=${d.lastHeartbeatAt === null ? 'never' : d.lastHeartbeatAt.slice(0, 16)}${d.heartbeatStale ? ' (stale)' : ''}  id=${d.deviceId}`,
+      );
+    }
+  }
+  for (const p of projects) {
+    const flags = p.flags.length > 0 ? `  [${p.flags.join(',')}]` : '';
+    lines.push(
+      '',
+      `  ${p.name}  (${p.projectId})  devices=${p.deviceCount}  opened=${p.lastOpenedAt === null ? 'never' : p.lastOpenedAt.slice(0, 16)}${flags}`,
+    );
+    if (p.locations.length === 0) lines.push('    (no live location)');
+    for (const l of p.locations) lines.push(fleetLocationLine(l));
   }
   return lines.join('\n');
 }
