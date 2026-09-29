@@ -1648,6 +1648,11 @@ export interface AdminBackupMutateParams {
   file?: string;
   /** Preview the restore without writing (restore.file only). */
   dryRun?: boolean;
+  /**
+   * Allow a restore run from inside a git worktree to overwrite the owning
+   * project's live store (T12680). Without it such a restore is refused.
+   */
+  confirmOwnerStore?: boolean;
 }
 
 /** Result of `admin.backup` mutate (create action). */

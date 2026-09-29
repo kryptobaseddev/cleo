@@ -62,6 +62,7 @@ import { CleoError } from '../errors.js';
 import { formatBackupTimestamp, rotateBackupDir } from '../store/backup-sidecar.js';
 import { getBrainNativeDb } from '../store/memory-sqlite.js';
 import { getNativeDb } from '../store/sqlite.js';
+import { assertRestoreTargetConfirmed } from '../store/worktree-isolation-guard.js';
 
 /** Default max backup snapshots per backup type directory. */
 const DEFAULT_MAX_SNAPSHOTS = 10;
@@ -457,11 +458,13 @@ export function listSystemBackups(projectRoot: string): BackupEntry[] {
  */
 export function restoreBackup(
   projectRoot: string,
-  params: { backupId: string; force?: boolean },
+  params: { backupId: string; force?: boolean; confirmOwnerStore?: boolean; cwd: string },
 ): RestoreResult {
   if (!params.backupId) {
     throw new CleoError(ExitCode.INVALID_INPUT, 'backupId is required');
   }
+  // T12680: from a worktree this overwrites the owning project's live store.
+  assertRestoreTargetConfirmed(projectRoot, params);
 
   const cleoDir = join(projectRoot, '.cleo');
 
@@ -554,7 +557,7 @@ export interface FileRestoreResult {
  *
  * @param projectRoot - Absolute path to the project root
  * @param fileName - File to restore: 'tasks.db' or 'config.json'
- * @param opts - Optional restore flags
+ * @param opts - Restore flags; `cwd` (the invocation directory) is required (T12680)
  * @returns Result of the restore operation
  *
  * @task T5329
@@ -564,7 +567,7 @@ export interface FileRestoreResult {
 export async function fileRestore(
   projectRoot: string,
   fileName: string,
-  opts?: { dryRun?: boolean },
+  opts: { dryRun?: boolean; confirmOwnerStore?: boolean; cwd: string },
 ): Promise<FileRestoreResult> {
   const { getTaskPath, getConfigPath, getBackupDir } = await import('../paths.js');
   const { listBackups, restoreFromBackup } = await import('../store/backup.js');
@@ -588,11 +591,11 @@ export async function fileRestore(
     throw new Error(`No backups found for ${fileName}`);
   }
 
-  if (opts?.dryRun) {
+  if (opts.dryRun) {
     return { restored: false, file: fileName, from: backups[0]!, targetPath, dryRun: true };
   }
 
-  const restoredFrom = await restoreFromBackup(fileName, backupDir, targetPath);
+  const restoredFrom = await restoreFromBackup(fileName, backupDir, targetPath, opts);
 
   return { restored: true, file: fileName, from: restoredFrom, targetPath };
 }
