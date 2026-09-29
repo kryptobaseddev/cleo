@@ -85,14 +85,19 @@ export function getProjectHashKey(cwd?: string): string {
 /**
  * Update the project name in project-info.json.
  * Used by `cleo upgrade --name` and programmatic consumers.
+ *
+ * Writes `name`, the field every reader uses. It used to write `projectName`,
+ * which nothing reads, so `cleo upgrade --name` had no visible effect; a
+ * stray `projectName` left by that bug is removed.
  */
 export function updateProjectName(cwd: string, name: string): void {
   const cleoDir = getCleoDirAbsolute(cwd);
   const infoPath = join(cleoDir, 'project-info.json');
   if (!existsSync(infoPath)) return;
 
-  const data = JSON.parse(readFileSync(infoPath, 'utf-8')) as Record<string, string>;
-  data.projectName = name;
-  data.lastUpdated = new Date().toISOString();
+  const data = JSON.parse(readFileSync(infoPath, 'utf-8')) as Record<string, unknown>;
+  data['name'] = name;
+  delete data['projectName'];
+  data['lastUpdated'] = new Date().toISOString();
   writeFileSync(infoPath, `${JSON.stringify(data, null, 2)}\n`);
 }

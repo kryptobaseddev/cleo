@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { generateProjectHash } from '../nexus/hash.js';
 import { worktreeScope } from '../paths.js';
-import { getProjectInfo, getProjectInfoSync } from '../project-info.js';
+import { getProjectInfo, getProjectInfoSync, updateProjectName } from '../project-info.js';
 
 // Explicit cwd identifies each fixture; retain only the global sandbox bindings.
 beforeEach(() => {
@@ -293,5 +293,32 @@ describe('captured metadata ownership', () => {
     expect(b.async.projectId).toBe('second-id');
     expect(b.sync?.projectId).toBe('second-id');
     expect(worktreeScope.getStore()).toBeUndefined();
+  });
+});
+
+describe('updateProjectName (cleo upgrade --name)', () => {
+  let tempDir: string;
+  let infoPath: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'cleo-project-name-'));
+    await mkdir(join(tempDir, '.cleo'), { recursive: true });
+    infoPath = join(tempDir, '.cleo', 'project-info.json');
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('writes the `name` field readers use and drops the stray `projectName`', async () => {
+    await writeFile(
+      infoPath,
+      JSON.stringify({ projectId: 'c78d09c3a8ee', name: 'old', projectName: 'stale' }),
+    );
+    updateProjectName(tempDir, 'renamed');
+    const data = JSON.parse(await readFile(infoPath, 'utf-8')) as Record<string, unknown>;
+    expect(data['name']).toBe('renamed');
+    expect(data).not.toHaveProperty('projectName');
+    expect(data['projectId']).toBe('c78d09c3a8ee');
   });
 });
