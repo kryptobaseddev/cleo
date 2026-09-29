@@ -66,10 +66,16 @@ interface AuditLine {
 }
 
 /**
- * Audit lines from the live `decisions.jsonl` and its rotated generations.
- * Unreadable files and malformed lines are skipped.
+ * Audit lines from the live `decisions.jsonl` and its rotated generations,
+ * newest generation first. Rotation only moves older lines down, so once a
+ * whole generation predates `since`, every older one does too and reading
+ * stops there. Unreadable files and malformed lines are skipped.
+ *
+ * @param projectRoot - Project root.
+ * @param since - Start of the window, epoch ms.
+ * @returns Parsed lines from the generations that can reach the window.
  */
-function readAuditLines(projectRoot: string): AuditLine[] {
+function readAuditLines(projectRoot: string, since: number): AuditLine[] {
   const live = join(projectRoot, DECISION_AUDIT_FILE);
   const files = [live];
   for (let n = 1; n <= DEFAULT_DECISION_AUDIT_KEEP; n++) files.push(`${live}.${n}`);
@@ -82,15 +88,23 @@ function readAuditLines(projectRoot: string): AuditLine[] {
     } catch {
       continue;
     }
+    let newest = Number.NEGATIVE_INFINITY;
+    const parsedLines: AuditLine[] = [];
     for (const raw of text.split('\n')) {
       if (raw.trim() === '') continue;
       try {
         const parsed: unknown = JSON.parse(raw);
-        if (parsed && typeof parsed === 'object') lines.push(parsed as AuditLine);
+        if (!parsed || typeof parsed !== 'object') continue;
+        const line = parsed as AuditLine;
+        parsedLines.push(line);
+        const at = typeof line.timestamp === 'string' ? Date.parse(line.timestamp) : Number.NaN;
+        if (!Number.isNaN(at) && at > newest) newest = at;
       } catch {
         // malformed line
       }
     }
+    if (parsedLines.length > 0 && newest < since) break;
+    lines.push(...parsedLines);
   }
   return lines;
 }
@@ -195,7 +209,11 @@ export async function listDecisionSites(
       return getConfigValue(key, { projectRoot: root });
     });
 
-  const activity = activityBySite(readAuditLines(projectRoot), opts.now ?? new Date());
+  const now = opts.now ?? new Date();
+  const activity = activityBySite(
+    readAuditLines(projectRoot, now.getTime() - DECISION_SITE_ACTIVITY_WINDOW_MS),
+    now,
+  );
   const summaries: DecisionSiteSummary[] = [];
   for (const site of sites) {
     let configuredMode: DecisionSiteModeValue | undefined;

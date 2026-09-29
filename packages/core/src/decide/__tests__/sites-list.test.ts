@@ -155,4 +155,22 @@ describe('listDecisionSites (T12662)', () => {
     });
     expect(byId(r, 'cli.decide-ask')?.last7d.asked).toBe(1);
   });
+
+  it('stops at the first rotated generation that lies wholly before the window', async () => {
+    const file = join(root, DECISION_AUDIT_FILE);
+    mkdirSync(join(file, '..'), { recursive: true });
+    const line = (timestamp: string) =>
+      `${JSON.stringify({ timestamp, site: 'cli.decide-ask', source: 'fallback' })}\n`;
+    writeFileSync(file, line('2026-09-28T00:00:00.000Z'));
+    writeFileSync(`${file}.1`, line('2026-09-01T00:00:00.000Z'));
+    // Not reachable by rotation order; present only to prove .2 is never read.
+    writeFileSync(`${file}.2`, line('2026-09-27T00:00:00.000Z'));
+    const r = await listDecisionSites({
+      projectRoot: root,
+      providerConfigured: true,
+      readConfig: noConfig,
+      now: NOW,
+    });
+    expect(byId(r, 'cli.decide-ask')?.last7d.asked).toBe(1);
+  });
 });
