@@ -136,10 +136,13 @@ export function loadRegistry(neededSubs, root = REPO_ROOT) {
   );
 
   // Each manifest entry pairs a user-facing `name` with the module it imports.
+  // The match is bounded by the NEXT entry's `name:` rather than a fixed
+  // character window, so a long `description` cannot push the `import(` out of
+  // reach and silently drop the verb (T12733: `decide` vanished at 442 chars).
   const registry = new Map();
   const moduleByVerb = new Map();
   for (const entry of manifestSource.matchAll(
-    /name:\s*'([^']+)',[\s\S]{0,400}?import\('\.\.\/commands\/([^']+)\.js'\)/g,
+    /\bname:\s*'([^']+)',(?:(?!\bname:\s*')[\s\S])*?import\('\.\.\/commands\/([^']+)\.js'\)/g,
   )) {
     registry.set(entry[1], new Set());
     moduleByVerb.set(entry[1], entry[2]);

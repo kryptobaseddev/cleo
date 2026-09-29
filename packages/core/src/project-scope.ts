@@ -768,6 +768,29 @@ export function getProjectRoot(cwd?: string): string {
 }
 
 /**
+ * Whether an error only says "there is no CLEO project here": the cwd is
+ * outside every project (`Not inside a CLEO project`, `No CLEO project found`,
+ * `E_NO_PROJECT`, `NEXUS_PROJECT_NOT_FOUND`) or the project is uninitialised
+ * (`Run cleo init at …`). Project-independent commands (`decide`, `login`,
+ * `setup`) run there routinely, so startup checks treat it as expected, not
+ * as a failure.
+ *
+ * @param err - Any caught value.
+ * @returns True for a missing-project signal; false for any other error.
+ * @task T12733
+ */
+export function isMissingProjectError(err: unknown): boolean {
+  if (err instanceof CleoError && err.code === ExitCode.NEXUS_PROJECT_NOT_FOUND) return true;
+  const message = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+  return (
+    message.includes('E_NO_PROJECT') ||
+    message.includes('No CLEO project found') ||
+    message.startsWith('Not inside a CLEO project') ||
+    message.startsWith('Run cleo init')
+  );
+}
+
+/**
  * Module-level flag: emit the legacy-fallback warning at most once per process.
  * Prevents log spam when `validateProjectRoot` is called repeatedly in a session.
  */

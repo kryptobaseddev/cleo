@@ -84,7 +84,13 @@ describe('decide credential store', () => {
     });
 
     const sealed = loadDecideConnection();
-    expect(sealed?.connection()).toEqual({ baseUrl: URL, apiKey: KEY, model: 'm-1' });
+    // T12733: the connection names its profile (a file without profiles is jev/default).
+    expect(sealed?.connection()).toEqual({
+      baseUrl: URL,
+      apiKey: KEY,
+      model: 'm-1',
+      profile: 'jev/default',
+    });
 
     // A second write rotates a backup; it must be 0600 too.
     await saveDecideCredentials({ baseUrl: URL, apiKey: KEY });
@@ -117,6 +123,7 @@ describe('decide credential store', () => {
       baseUrl: URL,
       model: 'm-1',
       keyPreview: '…7890',
+      profile: 'jev/default', // T12733: the profile id is not secret
     });
   });
 
@@ -160,7 +167,13 @@ describe('decide credential store', () => {
     );
     const sealed = loadDecideConnection();
     expect(sealed?.provider).toBe('jev');
-    expect(sealed?.connection()).toEqual({ baseUrl: URL, apiKey: KEY, model: 'm-1' });
+    // T12733: the connection names its profile (a file without profiles is jev/default).
+    expect(sealed?.connection()).toEqual({
+      baseUrl: URL,
+      apiKey: KEY,
+      model: 'm-1',
+      profile: 'jev/default',
+    });
     expect(describeDecideCredentials()).toMatchObject({ configured: true, provider: 'jev' });
 
     // A provider-less file pointing at the layahost origin is layahost, not jev.

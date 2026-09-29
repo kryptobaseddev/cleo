@@ -61,14 +61,24 @@ export {
   DecideCredentialsError,
   type DecideCredentialsInput,
   type DecideCredentialsSummary,
+  type DecideProfileRef,
   decideCredentialsPath,
+  decideProfileId,
   describeDecideCredentials,
+  describeDecideProfile,
   isAllowedDecideBaseUrl,
+  isValidDecideProfileName,
+  listDecideProfiles,
   loadDecideConnection,
+  loadDecideProfile,
   maskApiKey,
+  parseDecideProfileRef,
+  removeDecideProfile,
+  resolveDecideProfile,
   SealedDecideConnection,
   sameDecideHost,
   saveDecideCredentials,
+  useDecideProfile,
 } from './credentials.js';
 export {
   createJevProvider,
@@ -102,8 +112,10 @@ export {
   type DecideConfigureResult,
   type DecideProbeOptions,
   type DecideProbeResult,
+  type DecideProfilesReportOptions,
   type DecideProviderState,
   type DecideSpendSummary,
+  listDecideProfilesReport,
   probeDecideProvider,
   resetDecideBudget,
   SPEND_LEDGER_REPAIR_HINT,
@@ -122,6 +134,7 @@ export {
   type ProviderState,
   type ProviderStateIdentity,
   providerKeyHash,
+  providerStateKey,
   type RefreshProviderStateOptions,
   readProviderState,
   refreshProviderState,
@@ -135,6 +148,7 @@ export {
   inferDecisionProviderKind,
   listDecisionProviderPresets,
   parseDecisionProviderKind,
+  presetBaseUrl,
 } from './providers.js';
 export {
   type AskSiteDecisionInput,
@@ -186,6 +200,8 @@ export {
 } from './spend.js';
 export { type DecideFetch, type DecideFetchInit, decideFetch } from './transport.js';
 export {
+  DECIDE_SMOKE_QUESTION,
+  DECIDE_SMOKE_STATE,
   DECIDE_WIZARD_MAX_ATTEMPTS,
   type DecideWizardOptions,
   type DecideWizardResult,

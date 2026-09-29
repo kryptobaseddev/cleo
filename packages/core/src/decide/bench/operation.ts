@@ -205,7 +205,7 @@ export async function runDecideBenchOperation(
     } catch (err) {
       throw new DecideBenchInputError(
         err instanceof Error ? err.message : 'profile resolution failed',
-        'CLEO_DECIDE_PROFILE_<NAME>_KEY=… (and _URL for a non-layahost host)',
+        'CLEO_DECIDE_PROFILE_<NAME>_KEY=… (and _URL to override the preset URL)',
       );
     }
   }

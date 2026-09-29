@@ -1,9 +1,15 @@
 /**
- * Detected provider capabilities and the last usage read, cached per base URL
- * AND API key in `<cleoHome>/decide/provider-state.json` (T12664). The key is
- * never stored: the state carries a truncated sha256 of it
- * ({@link providerKeyHash}), so a different key on the same URL (another
- * account or plan, with other capabilities) never reuses the cached state.
+ * Detected provider capabilities and the last usage read, cached PER PROFILE
+ * in `<cleoHome>/decide/provider-state.json` (T12664, T12733). The file maps
+ * a state key (the profile id `<provider>/<name>`, or `<baseUrl>#<keyHash>`
+ * for a connection without a profile) to that identity's state, so two
+ * profiles on the same URL (two layahost accounts) or a benchmark alternating
+ * profiles never overwrite each other's detection. The key is never stored:
+ * each state carries a truncated sha256 of it ({@link providerKeyHash}) as a
+ * guard, so a different key on the same profile or URL (another account or
+ * plan, with other capabilities) never reuses the cached state. A file in the
+ * pre-T12733 single-state shape is still read (guarded the same way) and is
+ * replaced by the map on the next write.
  *
  * Detection (`detectJevCapabilities`) calls `GET /v1/usage` and
  * `GET /v1/templates`, both of which count toward the provider's rate limit,
@@ -28,6 +34,7 @@
  * fields, so the answer itself is unaffected.
  *
  * @task T12664
+ * @task T12733
  * @epic T12486
  */
 
@@ -54,6 +61,8 @@ export interface ProviderStateIdentity {
   readonly baseUrl: string;
   /** API key; only its truncated hash is ever compared or stored. */
   readonly apiKey: string;
+  /** Profile id (`<provider>/<name>`, T12733); keys the state when present. */
+  readonly profile?: string;
 }
 
 /**
@@ -91,6 +100,17 @@ export function defaultProviderStatePath(): string {
   return join(getCleoHome(), 'decide', 'provider-state.json');
 }
 
+/**
+ * The key a state is filed under: the profile id, or `<baseUrl>#<keyHash>`
+ * for a connection without one.
+ *
+ * @param identity - Base URL, key and optional profile.
+ * @returns The state key.
+ */
+export function providerStateKey(identity: ProviderStateIdentity): string {
+  return identity.profile ?? `${identity.baseUrl}#${providerKeyHash(identity.apiKey)}`;
+}
+
 /** Structural check of a parsed state; anything else is ignored. */
 function isProviderState(value: unknown): value is ProviderState {
   if (value === null || typeof value !== 'object') return false;
@@ -122,29 +142,59 @@ export function readProviderState(
   identity: ProviderStateIdentity,
   path = defaultProviderStatePath(),
 ): ProviderState | null {
+  const file = readStateFile(path);
+  const candidate = file.states[providerStateKey(identity)] ?? file.legacy;
+  return candidate &&
+    candidate.baseUrl === identity.baseUrl &&
+    candidate.keyHash === providerKeyHash(identity.apiKey)
+    ? candidate
+    : null;
+}
+
+/** The state file: states keyed by {@link providerStateKey}, plus a pre-T12733 single state. */
+interface ProviderStateFile {
+  readonly states: Readonly<Record<string, ProviderState>>;
+  readonly legacy?: ProviderState;
+}
+
+/** Read the state file. Never throws; anything unreadable is empty. */
+function readStateFile(path: string): ProviderStateFile {
+  let parsed: unknown;
   try {
-    const parsed: unknown = JSON.parse(readFileSync(path, 'utf-8'));
-    return isProviderState(parsed) &&
-      parsed.baseUrl === identity.baseUrl &&
-      parsed.keyHash === providerKeyHash(identity.apiKey)
-      ? parsed
-      : null;
+    parsed = JSON.parse(readFileSync(path, 'utf-8'));
   } catch {
-    return null;
+    return { states: {} };
   }
+  if (isProviderState(parsed)) return { states: {}, legacy: parsed };
+  const raw: unknown =
+    parsed !== null && typeof parsed === 'object' ? Reflect.get(parsed, 'states') : undefined;
+  const states: Record<string, ProviderState> = {};
+  if (raw !== null && typeof raw === 'object') {
+    for (const [key, value] of Object.entries(raw)) {
+      if (isProviderState(value)) states[key] = value;
+    }
+  }
+  return { states };
 }
 
 /**
- * Write the cached state (atomic rename). Never throws.
+ * Write one identity's cached state (atomic rename), keeping every other
+ * identity's state. Never throws.
  *
  * @param state - State to store.
  * @param path - State file. Default {@link defaultProviderStatePath}.
+ * @param key - State key ({@link providerStateKey}). Default: `<baseUrl>#<keyHash>`.
  */
-export function writeProviderState(state: ProviderState, path = defaultProviderStatePath()): void {
+export function writeProviderState(
+  state: ProviderState,
+  path = defaultProviderStatePath(),
+  key = `${state.baseUrl}#${state.keyHash}`,
+): void {
   try {
     mkdirSync(dirname(path), { recursive: true });
     const tmp = `${path}.${process.pid}.tmp`;
-    writeFileSync(tmp, JSON.stringify(state), 'utf-8');
+    const states = { ...readStateFile(path).states, [key]: state };
+    writeFileSync(tmp, JSON.stringify({ states }), 'utf-8');
     renameSync(tmp, path);
     memo = null;
   } catch {
@@ -153,8 +203,9 @@ export function writeProviderState(state: ProviderState, path = defaultProviderS
 }
 
 let memo: {
-  readonly baseUrl: string;
+  readonly stateKey: string;
   readonly keyHash: string;
+  readonly baseUrl: string;
   readonly at: number;
   readonly caps: DecisionProviderCapabilities | null;
 } | null = null;
@@ -175,8 +226,10 @@ export function cachedCapabilities(
   path = defaultProviderStatePath(),
 ): DecisionProviderCapabilities | null {
   const keyHash = providerKeyHash(identity.apiKey);
+  const stateKey = providerStateKey(identity);
   if (
     memo &&
+    memo.stateKey === stateKey &&
     memo.baseUrl === identity.baseUrl &&
     memo.keyHash === keyHash &&
     now - memo.at < MEMO_MS
@@ -184,7 +237,7 @@ export function cachedCapabilities(
     return memo.caps;
   }
   const caps = readProviderState(identity, path)?.capabilities ?? null;
-  memo = { baseUrl: identity.baseUrl, keyHash, at: now, caps };
+  memo = { stateKey, baseUrl: identity.baseUrl, keyHash, at: now, caps };
   return caps;
 }
 
@@ -241,7 +294,8 @@ export async function refreshProviderState(
     return cached;
   }
   const keyHash = providerKeyHash(connection.apiKey);
-  const attemptKey = `${connection.baseUrl}\u0000${keyHash}`;
+  const stateKey = providerStateKey(connection);
+  const attemptKey = `${stateKey}\u0000${connection.baseUrl}\u0000${keyHash}`;
   const notBefore = retryAt.get(attemptKey);
   if (opts.force !== true && notBefore !== undefined && now() < notBefore) {
     return cached;
@@ -257,7 +311,13 @@ export async function refreshProviderState(
     // answered but /v1/templates timed out) is not "capability absent": do not
     // write it for 10 minutes. Use it in this process only, and retry soon.
     retryAt.set(attemptKey, now() + TRANSIENT_DETECTION_RETRY_MS);
-    memo = { baseUrl: connection.baseUrl, keyHash, at: now(), caps: detected.capabilities };
+    memo = {
+      stateKey,
+      baseUrl: connection.baseUrl,
+      keyHash,
+      at: now(),
+      caps: detected.capabilities,
+    };
     return {
       baseUrl: connection.baseUrl,
       keyHash,
@@ -274,7 +334,7 @@ export async function refreshProviderState(
     capabilities: kept?.capabilities ?? detected.capabilities,
     ...(detected.usage ? { usage: detected.usage } : kept?.usage ? { usage: kept.usage } : {}),
   };
-  writeProviderState(state, opts.path);
+  writeProviderState(state, opts.path, stateKey);
   return state;
 }
 

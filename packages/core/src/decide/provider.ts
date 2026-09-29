@@ -37,6 +37,11 @@ export interface DecisionProviderConnection extends DecisionProviderConfig {
    * sent without a model and the provider's own default (if any) applies.
    */
   readonly model?: string;
+  /**
+   * Profile id (`<provider>/<name>`, T12733) the connection was resolved
+   * from, when known. Keys the cached provider state per profile; never sent.
+   */
+  readonly profile?: string;
 }
 
 /**

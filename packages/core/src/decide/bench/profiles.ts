@@ -8,8 +8,8 @@
  *
  * 1. `CLEO_DECIDE_PROFILE_<NAME>_KEY` (plus `_URL`, `_MODEL`, `_PROVIDER`) in
  *    the environment — `<NAME>` upper-cased, non-alphanumerics as `_`. A
- *    `layahost` profile needs only the key (the preset URL and model apply);
- *    any other profile needs a URL.
+ *    profile whose provider has a preset URL (layahost, jev) needs only the
+ *    key; `_URL` overrides the preset.
  * 2. Otherwise, a name equal to the stored connection's provider kind
  *    (`cleo decide config`), or `default`, resolves to the stored connection.
  *
@@ -43,7 +43,7 @@ export class BenchProfileError extends Error {
    */
   constructor(missing: readonly string[]) {
     super(
-      `unknown decide profile(s): ${missing.join(', ')}. Set CLEO_DECIDE_PROFILE_<NAME>_KEY (and _URL for a non-layahost host), or store one with cleo decide config and name its provider kind.`,
+      `unknown decide profile(s): ${missing.join(', ')}. Set CLEO_DECIDE_PROFILE_<NAME>_KEY (and _URL to override the provider's preset URL), or store one with cleo decide config and name its provider kind.`,
     );
     this.name = 'BenchProfileError';
     this.missing = missing;

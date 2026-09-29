@@ -54,6 +54,10 @@ import {
   renderBrainQuality,
   renderBriefing,
   renderCurrent,
+  renderDecideAsk,
+  renderDecideConfig,
+  renderDecideProfiles,
+  renderDecideStatus,
   renderDoctor,
   renderGeneric,
   renderNext,
@@ -204,6 +208,11 @@ const renderers: Record<string, HumanRenderer> = {
   // Nexus subcommand renderers (T1720)
   'nexus-status': renderNexusStatus,
   'nexus-setup': renderNexusSetup,
+  // System One (T12733): human blocks for config / status / ask / profiles.
+  'decide-config': renderDecideConfig,
+  'decide-status': renderDecideStatus,
+  'decide-ask': renderDecideAsk,
+  'decide-profiles': renderDecideProfiles,
   'nexus-clusters': renderNexusClusters,
   'nexus-flows': renderNexusFlows,
   'nexus-context': renderNexusContextResult,

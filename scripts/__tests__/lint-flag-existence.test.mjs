@@ -17,7 +17,8 @@
  * @task T12191
  */
 
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
@@ -26,6 +27,7 @@ import {
   extractInvocationsWithFlags,
   findFlagViolations,
   loadGlobalFlags,
+  loadRegistry,
   loadRetiredFlags,
   makeFlagChecker,
   readInjectionTemplates,
@@ -317,5 +319,35 @@ describe('--field pointer pairing (gh#1373 PR, bug found by cleo-dev)', () => {
     expect(showPointers.some((p) => p.includes('verification'))).toBe(false);
 
     expect(out.filter((d) => d.verb === null)).toEqual([]);
+  });
+});
+
+describe('loadRegistry reads every manifest verb (T12733)', () => {
+  it('keeps a verb whose description is long enough to push its import() far away', () => {
+    const root = mkdtempSync(join(tmpdir(), 'lint-registry-'));
+    try {
+      mkdirSync(join(root, 'packages/cleo/src/cli/generated'), { recursive: true });
+      const entry = (name, description) =>
+        `  {\n    exportName: '${name}Command',\n    name: '${name}',\n    description:\n      '${description}',\n    load: async () => (await import('../commands/${name}.js')).${name}Command as CommandDef,\n  },\n`;
+      writeFileSync(
+        join(root, 'packages/cleo/src/cli/generated/command-manifest.ts'),
+        `export const COMMAND_MANIFEST = [\n${entry('alpha', 'x'.repeat(900))}${entry('beta', 'short')}];\n`,
+      );
+      writeFileSync(join(root, 'packages/cleo/src/cli/index.ts'), '');
+      const registry = loadRegistry([], root);
+      expect(registry.has('alpha')).toBe(true);
+      expect(registry.has('beta')).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('registers every verb the real manifest lazily imports', () => {
+    const manifest = read('packages/cleo/src/cli/generated/command-manifest.ts');
+    const imports = [...manifest.matchAll(/import\('\.\.\/commands\/[^']+\.js'\)/g)].length;
+    const registry = loadRegistry([], REPO_ROOT);
+    // `version` and the cli/index.ts aliases are added on top of the manifest.
+    expect(registry.size).toBeGreaterThanOrEqual(imports);
+    expect(registry.has('decide')).toBe(true);
   });
 });

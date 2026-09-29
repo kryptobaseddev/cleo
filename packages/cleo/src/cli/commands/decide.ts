@@ -2,20 +2,27 @@
  * CLI command group: `cleo decide` — configure and probe the typed-decision
  * ("System One") provider.
  *
- * The user picks a provider (`layahost`, the default, needs only an API key;
- * `jev` also needs a URL) and supplies the key, plus an optional default
- * model. Logic lives in `@cleocode/core/decide/`; these handlers only parse
+ * The user picks a provider (`layahost`, the default, or `jev`; each has a
+ * default URL that `--url` overrides), names the profile
+ * (`<provider>/<name>`, several per provider) and supplies the key, plus an
+ * optional default model. Logic lives in `@cleocode/core/decide/`; these handlers only parse
  * flags and render (arch gate 6). No output ever carries the key — at most a
- * masked last-4 preview.
+ * masked last-4 preview. On an interactive terminal `config`, `status`, `ask`,
+ * `profiles` and `use` print a human block (renderers in
+ * `@cleocode/core/render/decide`); `--json` or a pipe keeps the LAFS envelope.
  *
  * Subcommands:
  *   cleo decide config                                       — TTY: setup wizard (hidden key input); else show settings
  *   cleo decide config --provider layahost --key-stdin       — store settings (recommended scripted form)
- *   cleo decide config --provider jev --url <u> --key-stdin [--model <m>] — custom Jev endpoint
+ *   cleo decide config --provider jev --url <u> --key-stdin [--model <m>] — Jev-compatible override URL
  *   cleo decide config --url <u> --key <k>                   — same; the key lands in shell history
- *   cleo decide config --clear                               — remove settings
+ *   cleo decide config ... --profile <provider>/<name> [--activate] — add/update a profile (T12733)
+ *   cleo decide config --remove <provider>/<name> [--use <p>/<n>] — remove a profile
+ *   cleo decide config --clear                               — remove every profile
+ *   cleo decide use <provider>/<name>                        — switch the active profile
+ *   cleo decide profiles [--probe]                           — list profiles (active marked, keys masked)
  *   cleo decide status                                       — probe GET {url}/v1/models
- *   cleo decide ask --state <text> --noul <question>         — one debug decision
+ *   cleo decide ask --state <text> --question <q> [--profile p] — one debug decision (--noul: alias)
  *   cleo decide sites [--rung r] [--mode m] [--id s] [--evidence] — list decision sites
  *   cleo decide budget reset [--force]                       — repair a corrupt spend ledger
  *   cleo decide bench [--profiles a,b] [--sites …] [--sample-only] [--corrections f] [--max-usd N] [--runs N] [--out dir]
@@ -23,6 +30,7 @@
  *
  * @task T12491
  * @task T12713
+ * @task T12733
  * @task T12495
  * @epic T12486
  */
@@ -39,13 +47,17 @@ import {
   askDecideDebug,
   clearDecideConfig,
   configureDecide,
+  DecideCredentialsError,
   describeDecideCredentials,
+  listDecideProfilesReport,
   listDecisionSites,
   parseDecisionProviderKind,
   probeDecideProvider,
+  removeDecideProfile,
   resetDecideBudget,
   runDecideWizard,
   SpendResetRefusedError,
+  useDecideProfile,
 } from '@cleocode/core/decide/index.js';
 import { WizardInterruptError } from '@cleocode/core/setup';
 import { defineCommand, showUsage } from '../lib/define-cli-command.js';
@@ -69,11 +81,15 @@ function failValidation(message: string, operation: string, fix: string): void {
 
 const CONFIG_FIX = 'printf %s "$KEY" | cleo decide config --provider layahost --key-stdin';
 
+const PROFILES_FIX = 'cleo decide profiles';
+
+const ASK_FIX = 'cleo decide ask --state "<text>" --question "<yes/no question>"';
+
 /** Run the interactive setup wizard on the terminal (stderr prompts, hidden key). */
 async function runConfigWizard(op: string): Promise<void> {
   const io = new ReadlineWizardIO(process.stdin, process.stderr);
   try {
-    cliOutput(await runDecideWizard(io), { command: 'decide', operation: op });
+    cliOutput(await runDecideWizard(io), { command: 'decide-config', operation: op });
   } catch (err) {
     // Ctrl-C is a cancel, not a validation failure: exit 130 (SIGINT convention).
     if (err instanceof WizardInterruptError) {
@@ -92,16 +108,17 @@ const decideConfigCommand = defineCommand({
   meta: {
     name: 'config',
     description:
-      'Store the decision provider, API key and model (0600 file in the CLEO home), then probe it and detect its capabilities. --provider layahost (default) needs only the key; --provider jev needs --url. Prefer --key-stdin so the key stays out of shell history. No flags on a terminal runs the setup wizard (the key is typed hidden); no flags without a terminal shows the current settings (key masked).',
+      'Store a System One profile, <provider>/<name> (several per provider, each with its own key): API key, URL and model (0600 file in the CLEO home), then probe it and detect its capabilities. Each provider has a default URL (layahost https://layahost.com, jev https://api.typesafe.ai); --url overrides it. Other profiles are kept and exactly one is active. Prefer --key-stdin so the key stays out of shell history. No flags on a terminal runs the setup wizard (the key is masked); no flags without a terminal shows the active settings (key masked).',
   },
   args: {
     provider: {
       type: 'string',
-      description: `Provider: ${DECISION_PROVIDER_KINDS.join('|')} (layahost: fixed URL, model laya-auto; jev: custom URL, required)`,
+      description: `Provider: ${DECISION_PROVIDER_KINDS.join('|')} (layahost: model laya-auto; jev: model from the provider listing)`,
     },
     url: {
       type: 'string',
-      description: 'Provider API base URL: overrides the layahost default; required for jev',
+      description:
+        'Override URL for the profile, or "default" for the provider default URL (resolved at call time)',
     },
     key: {
       type: 'string',
@@ -114,12 +131,39 @@ const decideConfigCommand = defineCommand({
       description:
         'Default model; omitted → the stored model, the preset (layahost: laya-auto) or the first listed (jev)',
     },
-    clear: { type: 'boolean', description: 'Remove the stored URL, key and model' },
+    profile: {
+      type: 'string',
+      description:
+        'Profile to add or update: <provider>/<name> or a name (a-z, 0-9, -); default: the active profile of that provider, else <provider>/default',
+    },
+    activate: {
+      type: 'boolean',
+      description:
+        'Make the profile active (default: only for the first profile or one already active)',
+    },
+    remove: {
+      type: 'string',
+      description: 'Remove this profile (<provider>/<name>); the active one needs --use',
+    },
+    use: {
+      type: 'string',
+      description: 'With --remove: the profile (<provider>/<name>) to activate instead',
+    },
+    clear: { type: 'boolean', description: 'Remove every profile (URLs, keys and models)' },
   },
   async run({ args }) {
     const op = 'decide.config';
     if (args.clear === true)
-      return cliOutput(await clearDecideConfig(), { command: 'decide', operation: op });
+      return cliOutput(await clearDecideConfig(), { command: 'decide-config', operation: op });
+    if (args.remove !== undefined) {
+      try {
+        const result = await removeDecideProfile(args.remove, args.use);
+        return cliOutput(result, { command: 'decide-config', operation: 'decide.config.remove' });
+      } catch (err) {
+        if (!(err instanceof DecideCredentialsError)) throw err;
+        return failValidation(err.message, op, PROFILES_FIX);
+      }
+    }
     const provider = parseDecisionProviderKind(args.provider);
     if (args.provider !== undefined && provider === undefined) {
       return failValidation(`unknown provider '${args.provider}'`, op, CONFIG_FIX);
@@ -131,10 +175,12 @@ const decideConfigCommand = defineCommand({
       provider === undefined &&
       args.url === undefined &&
       apiKey === undefined &&
-      args.model === undefined;
+      args.model === undefined &&
+      args.profile === undefined &&
+      args.activate === undefined;
     if (noSettings && process.stdin.isTTY && process.stderr.isTTY) return runConfigWizard(op);
     if (noSettings) {
-      return cliOutput(describeDecideCredentials(), { command: 'decide', operation: op });
+      return cliOutput(describeDecideCredentials(), { command: 'decide-config', operation: op });
     }
     try {
       const result = await configureDecide({
@@ -142,11 +188,59 @@ const decideConfigCommand = defineCommand({
         baseUrl: args.url,
         apiKey,
         model: args.model,
+        profile: args.profile,
+        ...(args.activate === true ? { activate: true } : {}),
       });
-      cliOutput(result, { command: 'decide', operation: op });
+      cliOutput(result, { command: 'decide-config', operation: op });
     } catch (err) {
       failValidation(err instanceof Error ? err.message : 'invalid settings', op, CONFIG_FIX);
     }
+  },
+});
+
+/** `cleo decide use` */
+const decideUseCommand = defineCommand({
+  meta: {
+    name: 'use',
+    description:
+      'Switch the active System One profile (<provider>/<name>, e.g. layahost/work; a bare provider means <provider>/default): everyday decisions use it from now on. Other profiles stay stored and can still be addressed by id.',
+  },
+  args: {
+    profile: {
+      type: 'positional',
+      description: 'Profile to activate, <provider>/<name>',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    const op = 'decide.use';
+    try {
+      cliOutput(await useDecideProfile(args.profile), {
+        command: 'decide-profiles',
+        operation: op,
+      });
+    } catch (err) {
+      if (!(err instanceof DecideCredentialsError)) throw err;
+      failValidation(err.message, op, PROFILES_FIX);
+    }
+  },
+});
+
+/** `cleo decide profiles` */
+const decideProfilesCommand = defineCommand({
+  meta: {
+    name: 'profiles',
+    description:
+      'List the stored System One profiles: the active one marked, keys masked. --probe also checks each profile (GET {url}/v1/models, in parallel).',
+  },
+  args: {
+    probe: { type: 'boolean', description: "Probe each profile's reachability" },
+    'timeout-ms': { type: 'string', description: 'Probe timeout in ms (default 3000)' },
+  },
+  async run({ args }) {
+    const timeoutMs = args['timeout-ms'] ? Number(args['timeout-ms']) : undefined;
+    const result = await listDecideProfilesReport({ probe: args.probe === true, timeoutMs });
+    cliOutput(result, { command: 'decide-profiles', operation: 'decide.profiles' });
   },
 });
 
@@ -163,7 +257,7 @@ const decideStatusCommand = defineCommand({
   async run({ args }) {
     const timeoutMs = args['timeout-ms'] ? Number(args['timeout-ms']) : undefined;
     const result = await probeDecideProvider({ timeoutMs });
-    cliOutput(result, { command: 'decide', operation: 'decide.status' });
+    cliOutput(result, { command: 'decide-status', operation: 'decide.status' });
     if (result.state !== 'reachable' && (process.exitCode ?? 0) === 0) process.exitCode = 1;
   },
 });
@@ -176,14 +270,32 @@ const decideAskCommand = defineCommand({
       'Debug: ask one yes/no question about a state through the configured provider. Shows the typed answer, source (provider or fallback), latency and cost.',
   },
   args: {
-    state: { type: 'string', description: 'The state (text) to judge', required: true },
-    noul: { type: 'string', description: 'The yes/no question', required: true },
+    state: { type: 'string', description: 'The state (text) to judge' },
+    question: { type: 'string', description: 'The yes/no question' },
+    noul: { type: 'string', description: 'Alias of --question' },
     'timeout-ms': { type: 'string', description: 'Deadline in ms (default 10000)' },
+    profile: {
+      type: 'string',
+      description: 'Ask through this profile, <provider>/<name> (default: the active one)',
+    },
   },
   async run({ args }) {
+    const question = args.question ?? args.noul;
+    if (!args.state || !question) {
+      return failValidation(
+        'cleo decide ask needs a state and a yes/no question',
+        'decide.ask',
+        ASK_FIX,
+      );
+    }
     const timeoutMs = args['timeout-ms'] ? Number(args['timeout-ms']) : undefined;
-    const result = await askDecideDebug({ state: args.state, question: args.noul, timeoutMs });
-    cliOutput(result, { command: 'decide', operation: 'decide.ask' });
+    const result = await askDecideDebug({
+      state: args.state,
+      question,
+      timeoutMs,
+      ...(args.profile ? { profile: args.profile } : {}),
+    });
+    cliOutput(result, { command: 'decide-ask', operation: 'decide.ask' });
   },
 });
 
@@ -365,10 +477,12 @@ export const decideCommand = defineCommand({
   meta: {
     name: 'decide',
     description:
-      'System One integration (typed decisions): decide config (provider + API key; wizard on a terminal), decide status (reachability probe), decide ask (one debug question), decide sites (the registered decision sites), decide bench (accuracy benchmark). Unconfigured means heuristics answer.',
+      'System One integration (typed decisions): decide config (named provider profile + API key; wizard on a terminal), decide use (switch the active profile), decide profiles (list them), decide status (reachability probe), decide ask (one debug question), decide sites (the registered decision sites), decide bench (accuracy benchmark). Unconfigured means heuristics answer.',
   },
   subCommands: {
     config: decideConfigCommand,
+    use: decideUseCommand,
+    profiles: decideProfilesCommand,
     status: decideStatusCommand,
     ask: decideAskCommand,
     sites: decideSitesCommand,

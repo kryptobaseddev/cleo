@@ -45,6 +45,13 @@ export const INTERACTIVE_COMMAND_PATHS: ReadonlyArray<ReadonlyArray<string>> = [
   // The `cleo tui` cockpit (T11933) is a real-time keyboard-first terminal
   // client — human-default on a TTY, JSON when piped/non-TTY.
   ['tui'],
+  // System One setup and debugging (T12733): the wizard, the reachability
+  // probe, one debug question and the profile list are read by a person.
+  ['decide', 'config'],
+  ['decide', 'status'],
+  ['decide', 'ask'],
+  ['decide', 'profiles'],
+  ['decide', 'use'],
 ];
 
 /**

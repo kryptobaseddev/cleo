@@ -2,22 +2,33 @@
  * Interactive System One setup: `cleo decide config` on a TTY, and the
  * `system-one` section of `cleo setup`.
  *
- * Steps: pick the provider (layahost first, recommended) → `jev` only: the
- * URL → the API key through {@link WizardIO.secret} (never echoed) → probe
+ * Steps: pick the provider (layahost first, recommended) → name the profile
+ * (Enter keeps `default`; the profile is `<provider>/<name>`, T12733) → use
+ * the provider's default URL (stored as `default`) or enter an override →
+ * the API key through {@link WizardIO.secret} (masked) → probe
  * `GET /v1/models` → pick the model (layahost defaults to its routing model)
- * → optionally confirm a one-question smoke test → save (which probes again
- * and re-detects capabilities) → run the smoke test when confirmed.
+ * → save (probes again and re-detects capabilities; other profiles are kept)
+ * → when another profile is active, whether to make this one active →
+ * optionally one smoke-test question through the saved profile.
  *
  * All logic lives here; the IO is injected, so tests drive it with a stub and
  * the CLI with readline. Nothing this module returns or prints carries the
  * key: only the masked last-4 preview from the saved summary.
  *
  * @task T12713
+ * @task T12733
  * @epic T12486
  */
 
+import { DECIDE_DEFAULT_PROFILE_NAME, DECIDE_PROFILE_DEFAULT_URL } from '@cleocode/contracts';
 import type { WizardIO } from '../setup/wizard.js';
-import { isAllowedDecideBaseUrl } from './credentials.js';
+import {
+  decideProfileId,
+  isAllowedDecideBaseUrl,
+  isValidDecideProfileName,
+  listDecideProfiles,
+  useDecideProfile,
+} from './credentials.js';
 import { isValidDecisionModelName, listJevModels } from './jev-wire.js';
 import {
   askDecideDebug,
@@ -31,9 +42,11 @@ import { type DecisionProviderPreset, listDecisionProviderPresets } from './prov
 /** How many times the wizard re-asks for a URL or model name before giving up. */
 export const DECIDE_WIZARD_MAX_ATTEMPTS = 3;
 
-/** State the smoke test judges; the question should come back "yes". */
-const SMOKE_STATE = 'CLEO setup check: the System One provider was just configured.';
-const SMOKE_QUESTION = 'The text says a provider was configured.';
+/** State the setup smoke test judges. */
+export const DECIDE_SMOKE_STATE = 'CLEO setup check: the System One provider was just configured.';
+
+/** The setup smoke test's yes/no question; the answer should be "yes". */
+export const DECIDE_SMOKE_QUESTION = 'The text says a provider was configured.';
 
 /** Options for {@link runDecideWizard}. */
 export interface DecideWizardOptions {
@@ -59,11 +72,43 @@ export interface DecideWizardResult {
   readonly smoke?: DecideAskResult;
 }
 
-/** Ask for a base URL until it is acceptable, or give up. */
-async function askBaseUrl(io: WizardIO): Promise<string | undefined> {
+/** Ask for a profile name (Enter → `default`) until it is valid, or give up. */
+async function askProfileName(io: WizardIO, provider: string): Promise<string | undefined> {
+  const fallback = DECIDE_DEFAULT_PROFILE_NAME;
+  for (let attempt = 0; attempt < DECIDE_WIZARD_MAX_ATTEMPTS; attempt++) {
+    const name = (
+      await io.prompt(`Profile name, saved as ${provider}/<name> (Enter for "${fallback}"):`)
+    ).trim();
+    if (!name) return fallback;
+    if (isValidDecideProfileName(name)) return name;
+    io.warn(
+      'Profile names use 1-32 lowercase letters, digits or -, starting and ending with a letter or digit.',
+    );
+  }
+  return undefined;
+}
+
+/**
+ * After saving a profile that is not active (another one is): ask whether to
+ * make it active (default no, so adding a second key never silently switches
+ * everyday decisions).
+ */
+async function confirmActivation(io: WizardIO, profile: string): Promise<boolean> {
+  const { active } = listDecideProfiles();
+  return io.confirm(
+    `Make "${profile}" the active profile for everyday decisions? ("${active ?? 'none'}" is active now)`,
+    false,
+  );
+}
+
+/** Ask for an override base URL until it is acceptable, or give up. */
+async function askBaseUrl(
+  io: WizardIO,
+  preset: DecisionProviderPreset,
+): Promise<string | undefined> {
   for (let attempt = 0; attempt < DECIDE_WIZARD_MAX_ATTEMPTS; attempt++) {
     const url = (
-      await io.prompt('Jev-compatible base URL (e.g. https://provider.example):')
+      await io.prompt(`${preset.kind} base URL (e.g. https://provider.example):`)
     ).trim();
     if (!url) return undefined;
     if (isAllowedDecideBaseUrl(url)) return url;
@@ -108,6 +153,24 @@ async function chooseModel(
 }
 
 /**
+ * Choose the URL: the provider's preset (stored as `default`, so a changed
+ * preset flows through) unless the user declines and enters an override. A
+ * provider without a preset asks for the URL directly.
+ *
+ * @returns `default`, an override URL, or `undefined` when none was entered.
+ */
+async function chooseUrl(
+  io: WizardIO,
+  preset: DecisionProviderPreset,
+): Promise<string | undefined> {
+  const presetUrl = preset.defaultBaseUrl;
+  if (presetUrl && (await io.confirm(`Use the default URL (${presetUrl})?`, true))) {
+    return DECIDE_PROFILE_DEFAULT_URL;
+  }
+  return askBaseUrl(io, preset);
+}
+
+/**
  * Run the interactive System One setup.
  *
  * @param io - Prompt surface. The key is read with {@link WizardIO.secret}.
@@ -127,16 +190,21 @@ export async function runDecideWizard(
   const preset = presets.find((p) => p.label === picked) ?? presets[0];
   if (!preset) return { configured: false, summary: 'skipped (no provider presets)' };
 
-  let baseUrl = preset.defaultBaseUrl;
-  if (preset.requiresUrl || !baseUrl) {
-    baseUrl = await askBaseUrl(io);
-    if (!baseUrl) {
-      io.warn('No valid URL entered; System One left unchanged.');
-      return { configured: false, summary: 'skipped (no valid URL)' };
-    }
+  const name = await askProfileName(io, preset.kind);
+  if (!name) {
+    io.warn('No valid profile name entered; System One left unchanged.');
+    return { configured: false, summary: 'skipped (no valid profile name)' };
+  }
+  const profile = decideProfileId(preset.kind, name);
+
+  const urlSetting = await chooseUrl(io, preset);
+  const baseUrl = urlSetting === DECIDE_PROFILE_DEFAULT_URL ? preset.defaultBaseUrl : urlSetting;
+  if (!urlSetting || !baseUrl) {
+    io.warn('No valid URL entered; System One left unchanged.');
+    return { configured: false, summary: 'skipped (no valid URL)' };
   }
 
-  const apiKey = (await io.secret(`${preset.kind} API key (input hidden):`)).trim();
+  const apiKey = (await io.secret(`${profile} API key:`)).trim();
   if (!apiKey) {
     io.warn('No API key entered; System One left unchanged.');
     return { configured: false, summary: 'skipped (empty api key)' };
@@ -166,33 +234,39 @@ export async function runDecideWizard(
     return { configured: false, summary: 'skipped (no model)' };
   }
 
-  const wantsSmoke = await io.confirm(
-    'After saving, ask one test question to confirm it works? (one billed decision)',
-    true,
-  );
-
-  const config = await configureDecide({
+  let config = await configureDecide({
     provider: preset.kind,
-    baseUrl,
+    profile,
+    baseUrl: urlSetting,
     apiKey,
     model,
     fetch: opts.fetch,
     timeoutMs,
   });
+  if (!config.active && (await confirmActivation(io, profile))) {
+    await useDecideProfile(profile);
+    config = { ...config, active: true, activeProfile: profile };
+  }
+  const role = config.active ? 'active' : `inactive; switch with: cleo decide use ${profile}`;
   io.info(
-    `Saved ${preset.kind} at ${config.baseUrl ?? baseUrl}: model ${config.model ?? 'none'}, key ${config.keyPreview ?? '…'} (${config.providerState}).`,
+    `Saved ${profile} (${config.baseUrl ?? baseUrl}, ${role}): model ${config.model ?? 'none'}, key ${config.keyPreview ?? '…'} (${config.providerState}).`,
   );
   if (config.warning) io.warn(config.warning);
 
-  const summary = `${preset.kind} configured (model ${config.model ?? 'none'}, ${config.providerState})`;
+  const summary = `${profile} configured${config.active ? ' and active' : ''} (model ${config.model ?? 'none'}, ${config.providerState})`;
+  const wantsSmoke = await io.confirm(
+    'Ask one test question to confirm it works? (one billed decision)',
+    true,
+  );
   if (!wantsSmoke) return { configured: true, summary, config };
 
   const smoke = await (
     opts.smoke ??
     (() =>
       askDecideDebug({
-        state: SMOKE_STATE,
-        question: SMOKE_QUESTION,
+        state: DECIDE_SMOKE_STATE,
+        question: DECIDE_SMOKE_QUESTION,
+        profile,
         ...(opts.projectRoot ? { projectRoot: opts.projectRoot } : {}),
       }))
   )();

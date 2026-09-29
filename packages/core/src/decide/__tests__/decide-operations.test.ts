@@ -9,7 +9,11 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { LAYAHOST_BASE_URL, LAYAHOST_DEFAULT_MODEL } from '@cleocode/contracts';
+import {
+  JEV_DEFAULT_BASE_URL,
+  LAYAHOST_BASE_URL,
+  LAYAHOST_DEFAULT_MODEL,
+} from '@cleocode/contracts';
 import { _resetCleoPlatformPathsCache } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { _resetDecideDefaultsForTest } from '../client.js';
@@ -224,13 +228,18 @@ describe('configureDecide — provider presets (T12713)', () => {
     expect(laya).toMatchObject({ provider: 'layahost', model: 'laya-auto' });
   });
 
-  it('rejects jev without a URL with a clear error, storing and sending nothing', async () => {
-    const fetchStub = vi.fn();
-    await expect(
-      configureDecide({ provider: 'jev', apiKey: KEY, fetch: fetchStub }),
-    ).rejects.toThrow(/jev provider needs a base URL: pass --url/);
-    expect(fetchStub).not.toHaveBeenCalled();
-    expect(loadDecideConnection()).toBeNull();
+  it('jev without a URL uses the Jev default URL, stored as "default" (T12733)', async () => {
+    // Owner decision 2026-09-29: every provider has a known default URL.
+    const fetchStub = vi.fn(async () => Response.json(modelsBody));
+    const result = await configureDecide({ provider: 'jev', apiKey: KEY, fetch: fetchStub });
+    expect(result).toMatchObject({
+      provider: 'jev',
+      baseUrl: JEV_DEFAULT_BASE_URL,
+      urlSource: 'default',
+      profile: 'jev/default',
+    });
+    expect(loadDecideConnection()?.baseUrl).toBe(JEV_DEFAULT_BASE_URL);
+    expectNoKey(result);
   });
 
   it('regression: layahost always stores a model, so a request is never sent without one (422)', async () => {
