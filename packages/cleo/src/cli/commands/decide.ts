@@ -97,7 +97,7 @@ const decideStatusCommand = defineCommand({
   meta: {
     name: 'status',
     description:
-      'Probe the decision provider (GET {url}/v1/models, short timeout): reachable, unauthorized, unconfigured or unreachable. Exits 1 unless reachable.',
+      'Probe the decision provider (GET {url}/v1/models, short timeout): reachable, unauthorized, key_limit_reached (the key monthly limit), unconfigured or unreachable. Also reports the registered sites count, the provider capabilities and balance (GET /v1/usage, refreshed at most every 10 minutes) and month-to-date spend against decide.budget.monthlyMicros. Exits 1 unless reachable.',
   },
   args: {
     'timeout-ms': { type: 'string', description: 'Probe timeout in ms (default 3000)' },

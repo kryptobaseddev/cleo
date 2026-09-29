@@ -76,7 +76,8 @@ describe('probeDecideProvider', () => {
       keyPreview: '…4321',
     });
     expect(result.detail).toMatch(/requires a model/);
-    const [u, init] = fetchStub.mock.calls[0] ?? [];
+    // T12664: the probe also detects capabilities (/v1/usage, /v1/templates) first.
+    const [u, init] = fetchStub.mock.calls.find(([url]) => url === `${URL}/v1/models`) ?? [];
     expect(u).toBe(`${URL}/v1/models`);
     expect(init?.method).toBe('GET');
     expect((init?.headers as Record<string, string>)['authorization']).toBe(`Bearer ${KEY}`);

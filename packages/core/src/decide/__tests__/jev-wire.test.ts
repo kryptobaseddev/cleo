@@ -209,9 +209,15 @@ describe('createJevProvider', () => {
   it.each([
     [401, 'unauthorized'],
     [402, 'insufficient_credits'],
+    // A 403 that is not a key limit stays a credential failure (T12664).
+    [403, 'unauthorized'],
     [422, 'invalid_request'],
     [500, 'server_error'],
-    [503, 'server_error'],
+    [502, 'server_error'],
+    // T12664: 503 and 529 are the provider overloaded/unavailable — a short
+    // circuit-breaker trip, not a generic server error.
+    [503, 'overloaded'],
+    [529, 'overloaded'],
   ] as const)('classifies HTTP %i as %s', async (status, kind) => {
     const provider = createJevProvider(connection, {
       fetch: stubFetch(jsonResponse(status, { detail: { error_type: 'x', message: 'y' } })),

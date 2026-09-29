@@ -65,6 +65,8 @@ describe('rule 1 — unregistered-decide-site', () => {
   const f = 'packages/core/src/x.ts';
   it.each([
     "decide('tasks.duplicate-detection', req, h, o);",
+    'decideBatch(DUPLICATE_DECISION_SITE, entries, o);',
+    'export async function decideBatch(siteId: string, entries) {}',
     'decide(DUPLICATE_DETECTION_SITE.id, req, h, o);',
     'decide(DUPLICATE_DECISION_SITE, req, h, o);',
     'askSiteDecision({ siteId: DUPLICATE_DECISION_SITE, budgetMs: 1 });',
@@ -78,6 +80,7 @@ describe('rule 1 — unregistered-decide-site', () => {
     "decide('tasks.unknown-site', req, h, o);",
     'decide(someVariable, req, h, o);',
     "askSiteDecision({ siteId: 'memory.new-site', budgetMs: 1 });",
+    "decideBatch('tasks.unknown-site', entries, o);",
     'askSiteDecision({ budgetMs: 1 });',
   ])('fails %s', (src) => {
     expect(rules(f, src)).toEqual(['unregistered-decide-site']);

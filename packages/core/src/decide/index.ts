@@ -43,8 +43,11 @@ export {
   _resetDecideDefaultsForTest,
   DEFAULT_DECISION_TIMEOUT_MS,
   type DecideOptions,
+  type DecisionBatchEntry,
   type DecisionHeuristic,
   decide,
+  decideBatch,
+  OVERLOADED_COOLDOWN_MS,
   redactDecisionState,
 } from './client.js';
 export {
@@ -63,16 +66,24 @@ export {
   saveDecideCredentials,
 } from './credentials.js';
 export {
+  BALANCE_MICROS_HEADER,
+  COST_MICROS_HEADER,
   createJevProvider,
   DECISION_MODEL_NAME_PATTERN,
+  detectJevCapabilities,
+  errorForStatus,
+  errorTypeOf,
   fromJevSystemOneResponse,
   isValidDecisionModelName,
   JEV_ADAPTER_VERSION,
   type JevProviderOptions,
+  type JevResponseHeaders,
   type JevSystemOneBody,
+  LAYAHOST_EXTENSION_CAPABILITIES,
   listJevModels,
   MAX_MODELS_LISTED,
   MAX_MODELS_RESPONSE_BYTES,
+  parseJevUsage,
   parseRetryAfterMs,
   toJevSystemOneBody,
 } from './jev-wire.js';
@@ -89,6 +100,7 @@ export {
   type DecideProbeOptions,
   type DecideProbeResult,
   type DecideProviderState,
+  type DecideSpendSummary,
   probeDecideProvider,
 } from './operations.js';
 export {
@@ -98,6 +110,15 @@ export {
   type DecisionProviderErrorKind,
   type DecisionProviderErrorOptions,
 } from './provider.js';
+export {
+  _resetProviderStateMemoForTest,
+  cachedCapabilities,
+  defaultProviderStatePath,
+  type ProviderState,
+  readProviderState,
+  USAGE_REFRESH_MS,
+  writeProviderState,
+} from './provider-state.js';
 export {
   type AskSiteDecisionInput,
   askSiteDecision,
@@ -123,4 +144,18 @@ export {
   OBSERVATION_TYPE_DECISION_SITE,
   OWNER_DECISION_DECISION_SITE,
 } from './sites/registry.js';
+export {
+  createFileSpendLedger,
+  createMemorySpendLedger,
+  DEFAULT_MONTHLY_SPEND_CAP_MICROS,
+  defaultSpendStatePath,
+  type FileSpendLedgerOptions,
+  MONTHLY_SPEND_CAP_KEY,
+  type SpendLedger,
+  type SpendLedgerOptions,
+  type SpendStatus,
+  type SpendVerdict,
+  startOfNextUtcMonth,
+  utcMonth,
+} from './spend.js';
 export { type DecideFetch, type DecideFetchInit, decideFetch } from './transport.js';

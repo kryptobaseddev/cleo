@@ -9,7 +9,12 @@
  * @epic T12486
  */
 
-import type { DecisionAnswer } from '@cleocode/contracts';
+import {
+  type DecisionAnswer,
+  type DecisionProviderCapabilities,
+  type DecisionProviderUsage,
+  JEV_MINIMUM_CAPABILITIES,
+} from '@cleocode/contracts';
 import { getProjectRoot } from '../paths.js';
 import {
   createJsonlDecisionAudit,
@@ -27,9 +32,16 @@ import {
   sameDecideHost,
   saveDecideCredentials,
 } from './credentials.js';
-import { listJevModels } from './jev-wire.js';
+import { detectJevCapabilities, listJevModels } from './jev-wire.js';
 import { DecisionProviderError } from './provider.js';
-import { DECIDE_ASK_DECISION_SITE } from './sites/registry.js';
+import { readProviderState, USAGE_REFRESH_MS, writeProviderState } from './provider-state.js';
+import { DECIDE_ASK_DECISION_SITE, DECISION_SITES } from './sites/registry.js';
+import {
+  createFileSpendLedger,
+  DEFAULT_MONTHLY_SPEND_CAP_MICROS,
+  MONTHLY_SPEND_CAP_KEY,
+  type SpendLedger,
+} from './spend.js';
 
 /** Default deadline for the `GET /v1/models` probe, ms. */
 export const DEFAULT_DECIDE_PROBE_TIMEOUT_MS = 3_000;
@@ -41,11 +53,32 @@ export const DEFAULT_DECIDE_ASK_TIMEOUT_MS = 10_000;
  * Reachability of the configured provider.
  *
  * - `reachable`    — `GET /v1/models` answered 2xx.
- * - `unauthorized` — the provider rejected the key (401/403).
+ * - `unauthorized` — the provider rejected the key (401, or a 403 that is not a key limit).
+ * - `key_limit_reached` — the key's monthly decision limit is reached (403
+ *   `key_limit_exceeded`); decisions resume when the UTC month rolls over.
  * - `unconfigured` — no valid base URL + key stored.
  * - `unreachable`  — network failure, timeout, or any other HTTP status.
  */
-export type DecideProviderState = 'reachable' | 'unauthorized' | 'unconfigured' | 'unreachable';
+export type DecideProviderState =
+  | 'reachable'
+  | 'unauthorized'
+  | 'key_limit_reached'
+  | 'unconfigured'
+  | 'unreachable';
+
+/** Month-to-date spend against the CLEO cap (D11159). */
+export interface DecideSpendSummary {
+  /** UTC month, `YYYY-MM`. */
+  readonly month: string;
+  /** Micro-dollars recorded this month. */
+  readonly spentMicros: number;
+  /** The cap, micro-dollars (`decide.budget.monthlyMicros`). */
+  readonly capMicros: number;
+  /** Whether sites are degraded to their heuristics because the cap is reached. */
+  readonly capReached: boolean;
+  /** ISO time until which the key's monthly limit stops decisions, when set. */
+  readonly keyLimitedUntil?: string;
+}
 
 /** Result of {@link probeDecideProvider}. */
 export interface DecideProbeResult {
@@ -67,6 +100,14 @@ export interface DecideProbeResult {
   readonly latencyMs?: number;
   /** Secret-free explanation or warning. */
   readonly detail?: string;
+  /** Registered decision sites (T12662). */
+  readonly sites: number;
+  /** What the provider supports beyond the Jev minimum (T12664). */
+  readonly capabilities?: DecisionProviderCapabilities;
+  /** Last usage/balance read (refreshed at most every 10 minutes). */
+  readonly usage?: DecisionProviderUsage & { readonly fetchedAt: string };
+  /** Month-to-date spend against the cap. */
+  readonly spend?: DecideSpendSummary;
 }
 
 /** Options for {@link probeDecideProvider}. */
@@ -77,6 +118,47 @@ export interface DecideProbeOptions {
   readonly fetch?: typeof fetch;
   /** Deadline, ms. Default {@link DEFAULT_DECIDE_PROBE_TIMEOUT_MS}. */
   readonly timeoutMs?: number;
+  /** Spend ledger; `null` omits spend. Default: the machine-wide ledger. */
+  readonly spend?: SpendLedger | null;
+  /** Monthly cap, micro-dollars. Default: `decide.budget.monthlyMicros`, else $1. */
+  readonly capMicros?: number;
+  /** Provider-state file (capabilities + usage cache). Default: `<cleoHome>/decide/provider-state.json`. */
+  readonly providerStatePath?: string;
+  /** Wall clock, epoch ms. Default `Date.now`. */
+  readonly now?: () => number;
+}
+
+const KEY_LIMIT_DETAIL =
+  "The key's monthly decision limit is reached (403 key_limit_exceeded). The key itself is fine: decisions resume when the UTC month rolls over, or raise the limit in the provider console.";
+
+/** Month-to-date spend, or undefined when the ledger is disabled or unreadable. */
+async function spendSummary(opts: DecideProbeOptions): Promise<DecideSpendSummary | undefined> {
+  const ledger = opts.spend === undefined ? createFileSpendLedger() : opts.spend;
+  if (!ledger) return undefined;
+  const status = await ledger.status();
+  if (!status) return undefined;
+  let capMicros = opts.capMicros;
+  if (capMicros === undefined) {
+    try {
+      const { getConfigValue } = await import('../config/registry.js');
+      const value: unknown = await getConfigValue(MONTHLY_SPEND_CAP_KEY, {
+        projectRoot: getProjectRoot(),
+      });
+      capMicros =
+        typeof value === 'number' && value >= 0 ? value : DEFAULT_MONTHLY_SPEND_CAP_MICROS;
+    } catch {
+      capMicros = DEFAULT_MONTHLY_SPEND_CAP_MICROS;
+    }
+  }
+  return {
+    month: status.month,
+    spentMicros: status.spentMicros,
+    capMicros,
+    capReached: status.spentMicros >= capMicros,
+    ...(status.keyLimitedUntil !== undefined
+      ? { keyLimitedUntil: new Date(status.keyLimitedUntil).toISOString() }
+      : {}),
+  };
 }
 
 const NO_MODEL_WARNING =
@@ -85,6 +167,9 @@ const NO_MODEL_WARNING =
 function stateForError(err: unknown): { state: DecideProviderState; httpStatus?: number } {
   if (err instanceof DecisionProviderError) {
     if (err.kind === 'unauthorized') return { state: 'unauthorized', httpStatus: err.status };
+    if (err.kind === 'key_limit_exceeded') {
+      return { state: 'key_limit_reached', httpStatus: err.status };
+    }
     if (err.kind === 'invalid_response') return { state: 'reachable', httpStatus: err.status };
     return {
       state: 'unreachable',
@@ -104,40 +189,82 @@ function stateForError(err: unknown): { state: DecideProviderState; httpStatus?:
 export async function probeDecideProvider(
   opts: DecideProbeOptions = {},
 ): Promise<DecideProbeResult> {
+  const sites = DECISION_SITES.length;
   const sealed = opts.connection === undefined ? loadDecideConnection() : opts.connection;
+  const spend = await spendSummary(opts);
   if (!sealed) {
     return {
       state: 'unconfigured',
       modelsEndpoint: 'skipped',
       detail: 'Run `cleo decide config`.',
+      sites,
+      ...(spend ? { spend } : {}),
     };
   }
   const base = {
     baseUrl: sealed.baseUrl,
     keyPreview: sealed.keyPreview,
     ...(sealed.model ? { model: sealed.model } : {}),
+    sites,
+    ...(spend ? { spend } : {}),
   };
+  const now = opts.now ?? Date.now;
   const started = performance.now();
   const signal = AbortSignal.timeout(opts.timeoutMs ?? DEFAULT_DECIDE_PROBE_TIMEOUT_MS);
+
+  // Capabilities + usage: reuse the cached read unless it is older than 10 minutes.
+  const cached = readProviderState(sealed.baseUrl, opts.providerStatePath);
+  let state = cached;
+  if (!cached || now() - cached.detectedAt >= USAGE_REFRESH_MS) {
+    const detected = await detectJevCapabilities(sealed.connection(), signal, {
+      fetch: opts.fetch,
+    });
+    state = {
+      baseUrl: sealed.baseUrl,
+      detectedAt: now(),
+      capabilities: detected.capabilities,
+      ...(detected.usage ? { usage: detected.usage } : {}),
+    };
+    writeProviderState(state, opts.providerStatePath);
+  }
+  const extras = {
+    capabilities: state?.capabilities ?? JEV_MINIMUM_CAPABILITIES,
+    ...(state?.usage
+      ? { usage: { ...state.usage, fetchedAt: new Date(state.detectedAt).toISOString() } }
+      : {}),
+  };
+
   try {
     const models = await listJevModels(sealed.connection(), signal, { fetch: opts.fetch });
+    const keyLimited = spend?.keyLimitedUntil !== undefined;
     return {
       ...base,
-      state: 'reachable',
+      ...extras,
+      state: keyLimited ? 'key_limit_reached' : 'reachable',
       modelsEndpoint: 'ok',
       models,
       httpStatus: 200,
       latencyMs: Math.round(performance.now() - started),
-      ...(sealed.model ? {} : { detail: NO_MODEL_WARNING }),
+      ...(keyLimited
+        ? { detail: KEY_LIMIT_DETAIL }
+        : sealed.model
+          ? {}
+          : { detail: NO_MODEL_WARNING }),
     };
   } catch (err) {
     const verdict = stateForError(err);
     return {
       ...base,
+      ...extras,
       ...verdict,
       modelsEndpoint: 'failed',
       latencyMs: Math.round(performance.now() - started),
-      detail: err instanceof Error ? err.message : 'probe failed',
+      detail:
+        verdict.state === 'key_limit_reached'
+          ? KEY_LIMIT_DETAIL
+          : err instanceof Error
+            ? err.message
+            : 'probe failed',
     };
   }
 }

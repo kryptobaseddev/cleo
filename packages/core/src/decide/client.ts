@@ -11,10 +11,14 @@
  *    request with the contract schema (invalid → fallback).
  * 3. In-memory LRU cache hit → `source: 'cache'`.
  * 4. Within ONE per-site deadline (default {@link DEFAULT_DECISION_TIMEOUT_MS}):
- *    take a token from the machine-wide budget, then call the provider.
- *    Budget denial, timeout, 401/402/429/5xx, network failure or a malformed
- *    answer → fallback. A 429 also empties the shared budget for its
- *    `retry-after` so no other process piles on.
+ *    check the monthly spend cap (`./spend.ts`, D11159), take a token from the
+ *    machine-wide request budget, then call the provider. Spend cap reached
+ *    (`budget`), key monthly limit (`key_limit_exceeded`), budget denial,
+ *    timeout, 401/402/403/429/5xx, network failure or a malformed answer →
+ *    fallback. A 429 empties the shared budget for its `retry-after`; a
+ *    503/529 trips it as a short circuit breaker; a 403 key limit stops
+ *    decisions until the UTC month ends. Reported cost is added to the spend
+ *    ledger.
  * 5. Append one audit line (never containing the key or raw state).
  *
  * Provider-specific knowledge (endpoints, wire JSON) lives only in
@@ -26,6 +30,7 @@
 
 import {
   type DecisionAnswer,
+  type DecisionBatchItem,
   type DecisionJsonValue,
   type DecisionOutcome,
   type DecisionRequest,
@@ -56,9 +61,19 @@ import {
   type DecisionProviderConnection,
   DecisionProviderError,
 } from './provider.js';
+import { cachedCapabilities } from './provider-state.js';
+import {
+  createFileSpendLedger,
+  DEFAULT_MONTHLY_SPEND_CAP_MICROS,
+  MONTHLY_SPEND_CAP_KEY,
+  type SpendLedger,
+} from './spend.js';
 
 /** Default per-site deadline for the budget + provider round trip, in ms. */
 export const DEFAULT_DECISION_TIMEOUT_MS = 300;
+
+/** Circuit-breaker trip after a 503/529 that carried no `retry-after`, ms. */
+export const OVERLOADED_COOLDOWN_MS = 30_000;
 
 /**
  * A call site's local heuristic. It must be total and fast: it answers every
@@ -83,6 +98,10 @@ export interface DecideOptions {
   readonly cache?: DecisionCache | null;
   /** Request budget; `null` disables. Default: the machine-wide file bucket. */
   readonly budget?: DecisionBudget | null;
+  /** Monthly spend ledger; `null` disables the cap. Default: the machine-wide file ledger. */
+  readonly spend?: SpendLedger | null;
+  /** Monthly cap in micro-dollars. Default: `decide.budget.monthlyMicros`, else $1. */
+  readonly spendCapMicros?: number;
   /** Audit sink; `null` disables. Default: `<projectRoot>/.cleo/audit/decisions.jsonl`. */
   readonly audit?: DecisionAuditSink | null;
   /** Project root for the default audit sink. Default: the resolved CLEO project root. */
@@ -95,6 +114,8 @@ export interface DecideOptions {
 
 let defaultCache: DecisionCache | null = null;
 let defaultBudget: DecisionBudget | null = null;
+let defaultSpend: SpendLedger | null = null;
+let defaultSpendCap: Promise<number> | null = null;
 
 function processCache(): DecisionCache {
   defaultCache ??= createDecisionCache();
@@ -106,6 +127,29 @@ function processBudget(): DecisionBudget {
   return defaultBudget;
 }
 
+function processSpend(): SpendLedger {
+  defaultSpend ??= createFileSpendLedger();
+  return defaultSpend;
+}
+
+/** The configured monthly cap, read once per process; the $1 default when unset or unreadable. */
+function processSpendCap(projectRoot: string | undefined): Promise<number> {
+  defaultSpendCap ??= (async (): Promise<number> => {
+    try {
+      const { getConfigValue } = await import('../config/registry.js');
+      const value: unknown = await getConfigValue(MONTHLY_SPEND_CAP_KEY, {
+        projectRoot: projectRoot ?? getProjectRoot(),
+      });
+      return typeof value === 'number' && Number.isFinite(value) && value >= 0
+        ? value
+        : DEFAULT_MONTHLY_SPEND_CAP_MICROS;
+    } catch {
+      return DEFAULT_MONTHLY_SPEND_CAP_MICROS;
+    }
+  })();
+  return defaultSpendCap;
+}
+
 /**
  * Reset the process-default cache and budget. Tests only.
  *
@@ -114,6 +158,8 @@ function processBudget(): DecisionBudget {
 export function _resetDecideDefaultsForTest(): void {
   defaultCache = null;
   defaultBudget = null;
+  defaultSpend = null;
+  defaultSpendCap = null;
 }
 
 function redactJson(value: DecisionJsonValue): DecisionJsonValue {
@@ -155,7 +201,8 @@ function resolveProvider(
   if (opts.provider) return opts.provider;
   if (!connection || connection.apiKey.trim() === '') return null;
   if (!decisionProviderConfigSchema.safeParse({ baseUrl: connection.baseUrl }).success) return null;
-  return createJevProvider(connection);
+  const capabilities = cachedCapabilities(connection.baseUrl);
+  return createJevProvider(connection, capabilities ? { capabilities } : {});
 }
 
 function resolveAudit(opts: DecideOptions): DecisionAuditSink | null {
@@ -178,6 +225,19 @@ function reasonForError(err: DecisionProviderError): DecisionFallbackReason {
   }
 }
 
+/**
+ * The gates for a call. The configured cap is read BEFORE the deadline
+ * starts (a cold config read is not provider wait), once per process.
+ */
+async function resolveGates(opts: DecideOptions): Promise<Gates> {
+  const budget = opts.budget === undefined ? processBudget() : opts.budget;
+  const spend = opts.spend === undefined ? processSpend() : opts.spend;
+  const capMicros =
+    opts.spendCapMicros ??
+    (spend ? await processSpendCap(opts.projectRoot) : Number.POSITIVE_INFINITY);
+  return { budget, spend, capMicros };
+}
+
 /** True when `outcome` is contract-valid and answers every question with the right type. */
 function coversRequest(outcome: DecisionOutcome, req: DecisionRequest): boolean {
   if (!decisionOutcomeSchema.safeParse(outcome).success) return false;
@@ -188,36 +248,71 @@ type Attempt =
   | { readonly ok: true; readonly outcome: DecisionOutcome }
   | { readonly ok: false; readonly reason: DecisionFallbackReason };
 
-/** Budget + provider call; never rejects. */
+/** The spend and request gates one provider call passes through. */
+interface Gates {
+  readonly budget: DecisionBudget | null;
+  readonly spend: SpendLedger | null;
+  readonly capMicros: number;
+}
+
+/** Spend cap then request budget; `null` when the call may go ahead. */
+async function passGates(gates: Gates): Promise<DecisionFallbackReason | null> {
+  if (gates.spend) {
+    const verdict = await gates.spend.check(gates.capMicros);
+    if (verdict === 'over_budget') return 'budget';
+    if (verdict === 'key_limited') return 'key_limit_exceeded';
+    if (verdict === 'unavailable') return 'budget_unavailable';
+  }
+  if (gates.budget) {
+    const grant = await gates.budget.tryAcquire();
+    if (!grant.granted) {
+      return grant.reason === 'exhausted'
+        ? 'budget_exhausted'
+        : grant.reason === 'cooling_down'
+          ? 'budget_cooling_down'
+          : 'budget_unavailable';
+    }
+  }
+  return null;
+}
+
+/** Side effects of a provider error on the shared gates; the fallback reason. */
+async function onProviderError(
+  err: DecisionProviderError,
+  gates: Gates,
+): Promise<DecisionFallbackReason> {
+  if (err.kind === 'rate_limited' && gates.budget) await gates.budget.penalize(err.retryAfterMs);
+  if (err.kind === 'overloaded' && gates.budget) {
+    await gates.budget.penalize(err.retryAfterMs ?? OVERLOADED_COOLDOWN_MS);
+  }
+  if (err.kind === 'key_limit_exceeded' && gates.spend) await gates.spend.markKeyLimited();
+  return reasonForError(err);
+}
+
+/** Micro-dollars an outcome reported, preferring the exact integer. */
+function reportedMicros(outcome: DecisionOutcome): number {
+  if (outcome.costMicros !== undefined) return outcome.costMicros;
+  return outcome.costUsd !== undefined ? Math.round(outcome.costUsd * 1e6) : 0;
+}
+
+/** Spend gate + budget + provider call; never rejects. */
 async function attempt(
   provider: DecisionProvider,
-  budget: DecisionBudget | null,
+  gates: Gates,
   req: DecisionRequest,
   signal: AbortSignal,
 ): Promise<Attempt> {
-  if (budget) {
-    const grant = await budget.tryAcquire();
-    if (!grant.granted) {
-      return {
-        ok: false,
-        reason:
-          grant.reason === 'exhausted'
-            ? 'budget_exhausted'
-            : grant.reason === 'cooling_down'
-              ? 'budget_cooling_down'
-              : 'budget_unavailable',
-      };
-    }
-  }
+  const blocked = await passGates(gates);
+  if (blocked) return { ok: false, reason: blocked };
   if (signal.aborted) return { ok: false, reason: 'timeout' };
   try {
     const outcome = await provider.decide(req, signal);
     if (!coversRequest(outcome, req)) return { ok: false, reason: 'invalid_response' };
+    if (gates.spend) await gates.spend.record(reportedMicros(outcome));
     return { ok: true, outcome };
   } catch (err) {
     if (err instanceof DecisionProviderError) {
-      if (err.kind === 'rate_limited' && budget) await budget.penalize(err.retryAfterMs);
-      return { ok: false, reason: reasonForError(err) };
+      return { ok: false, reason: await onProviderError(err, gates) };
     }
     return { ok: false, reason: signal.aborted ? 'timeout' : 'provider_error' };
   }
@@ -228,15 +323,17 @@ async function attempt(
  * deadline or the caller's signal fires, even if the provider ignores its
  * abort signal.
  */
-function withDeadline(
-  run: (signal: AbortSignal) => Promise<Attempt>,
+function withDeadline<T extends { readonly ok: boolean }>(
+  run: (signal: AbortSignal) => Promise<T>,
   timeoutMs: number,
   callerSignal: AbortSignal | undefined,
-): Promise<Attempt> {
+  timedOut: T,
+  crashed: T,
+): Promise<T> {
   const controller = new AbortController();
-  return new Promise<Attempt>((resolve) => {
+  return new Promise<T>((resolve) => {
     let settled = false;
-    const finish = (result: Attempt): void => {
+    const finish = (result: T): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -245,7 +342,7 @@ function withDeadline(
     };
     const onTimeout = (): void => {
       controller.abort();
-      finish({ ok: false, reason: 'timeout' });
+      finish(timedOut);
     };
     const onCallerAbort = (): void => onTimeout();
     const timer = setTimeout(onTimeout, Math.max(0, timeoutMs));
@@ -254,7 +351,7 @@ function withDeadline(
       return;
     }
     callerSignal?.addEventListener('abort', onCallerAbort, { once: true });
-    run(controller.signal).then(finish, () => finish({ ok: false, reason: 'provider_error' }));
+    run(controller.signal).then(finish, () => finish(crashed));
   });
 }
 
@@ -287,11 +384,59 @@ export async function decide(
   fallback: DecisionHeuristic,
   opts: DecideOptions = {},
 ): Promise<DecisionOutcome> {
+  const audit = resolveAudit(opts);
+  const connection = resolveConnection(opts);
+  const item = prepare(siteId, req, fallback, opts, audit, connection);
+
+  const provider = resolveProvider(opts, connection);
+  if (!provider) return item.useFallback('unconfigured');
+  if (!item.valid) return item.useFallback('invalid_request');
+
+  const cache = opts.cache === undefined ? processCache() : opts.cache;
+  const hit = cache?.get(item.key);
+  if (hit) return item.finish({ ...hit, source: 'cache', latencyMs: item.elapsed() });
+
+  const gates = await resolveGates(opts);
+  const result = await withDeadline<Attempt>(
+    (signal) => attempt(provider, gates, item.sent, signal),
+    opts.timeoutMs ?? DEFAULT_DECISION_TIMEOUT_MS,
+    opts.signal,
+    { ok: false, reason: 'timeout' },
+    { ok: false, reason: 'provider_error' },
+  );
+  if (!result.ok) return item.useFallback(result.reason);
+
+  cache?.set(item.key, result.outcome);
+  return item.finish({ ...result.outcome, source: 'provider', latencyMs: item.elapsed() });
+}
+
+/** One request made ready to send: redacted, validated, keyed, with its audit closures. */
+interface PreparedDecision {
+  /** The redacted request (default model applied). */
+  readonly sent: DecisionRequest;
+  /** Whether `sent` passes the contract schema. */
+  readonly valid: boolean;
+  /** Cache key of `sent`. */
+  readonly key: string;
+  /** Milliseconds since preparation. */
+  readonly elapsed: () => number;
+  /** Audit and return an outcome. */
+  readonly finish: (outcome: DecisionOutcome, reason?: DecisionFallbackReason) => DecisionOutcome;
+  /** Audit and return the heuristic's answer. */
+  readonly useFallback: (reason: DecisionFallbackReason) => DecisionOutcome;
+}
+
+/** Redact, validate, key and wire the audit for one request. */
+function prepare(
+  siteId: string,
+  req: DecisionRequest,
+  fallback: DecisionHeuristic,
+  opts: DecideOptions,
+  audit: DecisionAuditSink | null,
+  connection: DecisionProviderConnection | null,
+): PreparedDecision {
   const started = performance.now();
   const elapsed = (): number => Math.max(0, performance.now() - started);
-  const audit = resolveAudit(opts);
-
-  const connection = resolveConnection(opts);
   const defaultModel = req.model === undefined ? connection?.model : undefined;
   const sent: DecisionRequest = {
     ...req,
@@ -300,7 +445,6 @@ export async function decide(
   };
   const questionsHash = hashCanonical(req.questions);
   const stateHash = hashCanonical(sent.state);
-
   const finish = (outcome: DecisionOutcome, reason?: DecisionFallbackReason): DecisionOutcome => {
     audit?.write({
       timestamp: new Date().toISOString(),
@@ -313,30 +457,154 @@ export async function decide(
       ...(reason ? { fallbackReason: reason } : {}),
       latencyMs: outcome.latencyMs,
       ...(outcome.costUsd !== undefined ? { costUsd: outcome.costUsd } : {}),
+      ...(outcome.costMicros !== undefined ? { costMicros: outcome.costMicros } : {}),
+      ...(outcome.balanceMicros !== undefined ? { balanceMicros: outcome.balanceMicros } : {}),
+      ...(outcome.checkpoint !== undefined ? { checkpoint: outcome.checkpoint } : {}),
       ...(sent.model !== undefined ? { model: sent.model } : {}),
     });
     return outcome;
   };
-  const useFallback = (reason: DecisionFallbackReason): DecisionOutcome =>
-    finish({ answers: fallback(req), source: 'fallback', latencyMs: elapsed() }, reason);
+  return {
+    sent,
+    valid: decisionRequestSchema.safeParse(sent).success,
+    key: decisionCacheKey(opts.adapterVersion ?? JEV_ADAPTER_VERSION, sent),
+    elapsed,
+    finish,
+    useFallback: (reason) =>
+      finish({ answers: fallback(req), source: 'fallback', latencyMs: elapsed() }, reason),
+  };
+}
 
+/** One request of a {@link decideBatch} call, with its own heuristic. */
+export interface DecisionBatchEntry {
+  /** Questions and state. */
+  readonly req: DecisionRequest;
+  /** The heuristic for this request. */
+  readonly fallback: DecisionHeuristic;
+}
+
+/**
+ * Ask several typed decisions at call site `siteId` under ONE deadline.
+ *
+ * When the provider reports a batch capability (`capabilities().batch`) and
+ * the entries fit its limits, the uncached ones go out as a single batch call
+ * (one spend check, one budget token). Otherwise it degrades to sequential
+ * {@link decide} calls that share the remaining deadline; entries the
+ * deadline cannot reach fall back with reason `timeout`. Never rejects; each
+ * entry is audited like a single decision.
+ *
+ * @param siteId - Stable call-site identifier.
+ * @param entries - Requests with their heuristics.
+ * @param opts - Same wiring as {@link decide}; `timeoutMs` covers the whole batch.
+ * @returns One outcome per entry, in order.
+ */
+export async function decideBatch(
+  siteId: string,
+  entries: readonly DecisionBatchEntry[],
+  opts: DecideOptions = {},
+): Promise<DecisionOutcome[]> {
+  if (entries.length === 0) return [];
+  const started = performance.now();
+  const deadlineMs = opts.timeoutMs ?? DEFAULT_DECISION_TIMEOUT_MS;
+  const remaining = (): number => Math.max(0, deadlineMs - (performance.now() - started));
+
+  const connection = resolveConnection(opts);
   const provider = resolveProvider(opts, connection);
-  if (!provider) return useFallback('unconfigured');
-  if (!decisionRequestSchema.safeParse(sent).success) return useFallback('invalid_request');
+  const limits = provider?.capabilities?.().batch;
+  const questions = entries.reduce((n, e) => n + Object.keys(e.req.questions).length, 0);
+  const batchable =
+    provider !== null &&
+    provider.decideBatch !== undefined &&
+    limits !== undefined &&
+    entries.length > 1 &&
+    entries.length <= limits.maxRequests &&
+    questions <= limits.maxQuestions;
 
+  if (!batchable || !provider?.decideBatch) {
+    const out: DecisionOutcome[] = [];
+    for (const entry of entries) {
+      const timeoutMs = remaining();
+      // model-site-allowed: plumbing — the caller's siteId is checked at its decideBatch call (gate 35)
+      const outcome = await decide(siteId, entry.req, entry.fallback, { ...opts, timeoutMs });
+      out.push(outcome);
+    }
+    return out;
+  }
+
+  const audit = resolveAudit(opts);
   const cache = opts.cache === undefined ? processCache() : opts.cache;
-  const key = decisionCacheKey(opts.adapterVersion ?? JEV_ADAPTER_VERSION, sent);
-  const hit = cache?.get(key);
-  if (hit) return finish({ ...hit, source: 'cache', latencyMs: elapsed() });
+  const items = entries.map((e) => prepare(siteId, e.req, e.fallback, opts, audit, connection));
+  const out: Array<DecisionOutcome | undefined> = items.map((item) => {
+    if (!item.valid) return item.useFallback('invalid_request');
+    const hit = cache?.get(item.key);
+    return hit ? item.finish({ ...hit, source: 'cache', latencyMs: item.elapsed() }) : undefined;
+  });
+  const pending = items.flatMap((item, i) => (out[i] === undefined ? [{ item, i }] : []));
+  if (pending.length > 0) {
+    const gates = await resolveGates(opts);
+    const batch = provider.decideBatch.bind(provider);
+    type BatchResult =
+      | { readonly ok: true; readonly items: readonly DecisionBatchItem[] }
+      | { readonly ok: false; readonly reason: DecisionFallbackReason };
+    const result = await withDeadline<BatchResult>(
+      async (signal) => {
+        const blocked = await passGates(gates);
+        if (blocked) return { ok: false, reason: blocked };
+        try {
+          const answered = await batch(
+            pending.map((p) => p.item.sent),
+            signal,
+          );
+          return { ok: true, items: answered };
+        } catch (err) {
+          if (err instanceof DecisionProviderError) {
+            return { ok: false, reason: await onProviderError(err, gates) };
+          }
+          return { ok: false, reason: signal.aborted ? 'timeout' : 'provider_error' };
+        }
+      },
+      remaining(),
+      opts.signal,
+      { ok: false, reason: 'timeout' },
+      { ok: false, reason: 'provider_error' },
+    );
+    for (const [k, { item, i }] of pending.entries()) {
+      if (!result.ok) {
+        out[i] = item.useFallback(result.reason);
+        continue;
+      }
+      const answered = result.items[k];
+      if (answered?.ok && coversRequest(answered.outcome, item.sent)) {
+        if (gates.spend) await gates.spend.record(reportedMicros(answered.outcome));
+        cache?.set(item.key, answered.outcome);
+        out[i] = item.finish({
+          ...answered.outcome,
+          source: 'provider',
+          latencyMs: item.elapsed(),
+        });
+      } else {
+        out[i] = item.useFallback(
+          answered && !answered.ok ? batchItemReason(answered.errorKind) : 'invalid_response',
+        );
+      }
+    }
+  }
+  return items.map((item, i) => out[i] ?? item.useFallback('provider_error'));
+}
 
-  const budget = opts.budget === undefined ? processBudget() : opts.budget;
-  const result = await withDeadline(
-    (signal) => attempt(provider, budget, sent, signal),
-    opts.timeoutMs ?? DEFAULT_DECISION_TIMEOUT_MS,
-    opts.signal,
-  );
-  if (!result.ok) return useFallback(result.reason);
-
-  cache?.set(key, result.outcome);
-  return finish({ ...result.outcome, source: 'provider', latencyMs: elapsed() });
+/** Fallback reason for a failed batch item. */
+function batchItemReason(kind: string): DecisionFallbackReason {
+  switch (kind) {
+    case 'unauthorized':
+    case 'insufficient_credits':
+    case 'key_limit_exceeded':
+    case 'rate_limited':
+    case 'overloaded':
+    case 'server_error':
+    case 'invalid_request':
+    case 'invalid_response':
+      return kind;
+    default:
+      return 'provider_error';
+  }
 }

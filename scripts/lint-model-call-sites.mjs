@@ -15,7 +15,7 @@
  *
  * ## Rules (each counted per file against the baseline)
  *
- * 1. `unregistered-decide-site` — a `decide(` / `askSiteDecision(` call whose
+ * 1. `unregistered-decide-site` — a `decide(` / `decideBatch(` / `askSiteDecision(` call whose
  *    site id (first argument / `siteId:`) is not a registered id: not a string
  *    literal naming one, a `<REGISTRY_CONST>.id`, or a constant exported as one.
  * 2. `unregistered-model-site` — a call to an LLM entry point
@@ -254,13 +254,13 @@ export function scanSource(rel, src, ctx) {
   const inChokepoint = CHOKEPOINT.some((p) => rel === p || rel.startsWith(p));
 
   // Rule 1: decide( and askSiteDecision( name a registered site.
-  for (const m of code.matchAll(/(?<![\w.$])decide\s*\(\s*([^,)]+)/g)) {
+  for (const m of code.matchAll(/(?<![\w.$])(?:decide|decideBatch)\s*\(\s*([^,)]+)/g)) {
     if (isDeclaration(code, m.index ?? 0)) continue;
     const arg = m[1].trim();
     // A signature (`decide(req: DecisionRequest …)`) declares, it does not call.
     if (/^\w+\??\s*:/.test(arg)) continue;
     if (!isRegisteredSiteArg(arg, ctx.known)) {
-      push('unregistered-decide-site', m.index ?? 0, `decide(${arg}, …)`);
+      push('unregistered-decide-site', m.index ?? 0, `${m[0].split('(')[0].trim()}(${arg}, …)`);
     }
   }
   for (const m of code.matchAll(/(?<![\w.$])askSiteDecision\s*\(/g)) {

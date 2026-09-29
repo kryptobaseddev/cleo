@@ -143,6 +143,17 @@ export interface DecisionRequest {
   readonly state: DecisionState;
   /** Question name → question (1–32 entries). Names key the answers in {@link DecisionOutcome}. */
   readonly questions: Readonly<Record<string, DecisionQuestion>>;
+  /**
+   * Language hint (e.g. `en`). Sent only to a provider whose capabilities
+   * include `langHint`; others never see it (T12664).
+   */
+  readonly lang?: string;
+  /**
+   * Provider-side answer cache. `false` asks a provider with `cacheControl`
+   * not to answer from its cache (real latency, sensitive text). Ignored by
+   * providers without the capability.
+   */
+  readonly cache?: boolean;
 }
 
 /** Answer to a {@link NoulDecisionQuestion}. */
@@ -196,6 +207,12 @@ export interface DecisionOutcome {
   readonly latencyMs: number;
   /** Provider-reported cost in US dollars, when known. */
   readonly costUsd?: number;
+  /** Provider-reported cost in integer micro-dollars, when known (T12664). */
+  readonly costMicros?: number;
+  /** Account balance in integer micro-dollars reported with this answer, when known. */
+  readonly balanceMicros?: number;
+  /** Provider model checkpoint that answered, when reported. */
+  readonly checkpoint?: string;
   /** Provider-reported input-token count, when known. */
   readonly inputTokens?: number;
 }
@@ -204,6 +221,64 @@ export interface DecisionOutcome {
 export interface DecisionProviderConfig {
   /** Absolute base URL of the provider's API (no trailing path to the endpoint). */
   readonly baseUrl: string;
+}
+
+// ─── Provider capabilities (T12664) ──────────────────────────────────────────
+
+/**
+ * What a decision provider can do beyond the Jev minimum
+ * (`POST /v1/systemone`, 32 questions, 32,000-character state). A caller asks
+ * for a capability; the client degrades when it is absent (spec
+ * `system-one-integration` §2.2).
+ */
+export interface DecisionProviderCapabilities {
+  /** Wire protocol the provider speaks. */
+  readonly wire: string;
+  /** Most questions one request may carry. */
+  readonly maxQuestionsPerRequest: number;
+  /** Largest state, in characters. */
+  readonly maxStateChars: number;
+  /** Batch endpoint limits, when the provider has one. */
+  readonly batch?: { readonly maxRequests: number; readonly maxQuestions: number };
+  /** Built-in template names, when the provider has templates. */
+  readonly templates?: readonly string[];
+  /** Server-side flows are available. */
+  readonly flows?: boolean;
+  /** A usage/balance endpoint and cost headers are available. */
+  readonly usage?: boolean;
+  /** The request's `cache` field is honoured. */
+  readonly cacheControl?: boolean;
+  /** The request's `lang` field is honoured. */
+  readonly langHint?: boolean;
+  /** How the provider reports cost. */
+  readonly reportsCost?: 'micros' | 'usd' | false;
+}
+
+/** The Jev minimum every provider supports; the default when a provider reports nothing. */
+export const JEV_MINIMUM_CAPABILITIES: DecisionProviderCapabilities = {
+  wire: 'jev-systemone/1',
+  maxQuestionsPerRequest: 32,
+  maxStateChars: 32_000,
+  reportsCost: 'usd',
+};
+
+/** One item of a batch call: its outcome, or why it failed. */
+export type DecisionBatchItem =
+  | { readonly ok: true; readonly outcome: DecisionOutcome }
+  | { readonly ok: false; readonly status?: number; readonly errorKind: string };
+
+/** Account usage and balance as a provider reports it. */
+export interface DecisionProviderUsage {
+  /** Balance in integer micro-dollars. */
+  readonly balanceMicros?: number;
+  /** Decisions the balance still covers. */
+  readonly decisionsLeft?: number;
+  /** Plan name. */
+  readonly plan?: string;
+  /** End of the current plan period, ISO-8601. */
+  readonly periodEnd?: string;
+  /** Decisions and cost over the queried window. */
+  readonly totals?: { readonly decisions?: number; readonly costMicros?: number };
 }
 
 // ─── Zod schemas ──────────────────────────────────────────────────────────────
@@ -290,6 +365,11 @@ export const decisionQuestionSchema = z.discriminatedUnion('type', [
  */
 export const decisionRequestSchema = z.object({
   model: z.string().min(1).optional(),
+  lang: z
+    .string()
+    .regex(/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$/)
+    .optional(),
+  cache: z.boolean().optional(),
   state: decisionStateSchema,
   questions: z.record(z.string().min(1), decisionQuestionSchema).refine(
     (questions) => {
@@ -346,6 +426,9 @@ export const decisionOutcomeSchema = z.object({
   requestId: z.string().min(1).optional(),
   latencyMs: z.number().nonnegative(),
   costUsd: z.number().nonnegative().optional(),
+  costMicros: z.number().int().nonnegative().optional(),
+  balanceMicros: z.number().int().optional(),
+  checkpoint: z.string().min(1).optional(),
   inputTokens: z.number().int().nonnegative().optional(),
 });
 
