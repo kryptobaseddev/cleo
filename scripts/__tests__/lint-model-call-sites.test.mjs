@@ -58,6 +58,10 @@ describe('parseRegistry on the real registry', () => {
     expect(parsed.map((r) => r.files)).toEqual(DECISION_SITES.map((s) => [...s.files]));
     expect(parsed.map((r) => r.primaryRung)).toEqual(DECISION_SITES.map((s) => s.primaryRung));
     expect(parsed.map((r) => r.ladder)).toEqual(DECISION_SITES.map((s) => [...s.ladder]));
+    expect(parsed.map((r) => r.defaultMode)).toEqual(DECISION_SITES.map((s) => s.defaultMode));
+    expect(parsed.map((r) => r.goLive)).toEqual(
+      DECISION_SITES.map((s) => s.goLive?.evidenceDoc ?? null),
+    );
   });
 });
 
@@ -89,6 +93,13 @@ describe('rule 1 — unregistered-decide-site', () => {
     expect(rules(f, 'decide(x, r); // model-site-allowed: plumbing')).toEqual([]);
     expect(rules(f, '// model-site-allowed: plumbing\ndecide(x, r);')).toEqual([]);
   });
+  it('needs a reason, and a trailing marker does not exempt the next line (review of #1684)', () => {
+    expect(rules(f, 'decide(x, r); // model-site-allowed')).toEqual(['unregistered-decide-site']);
+    expect(rules(f, 'decide(x, r); // model-site-allowed:')).toEqual(['unregistered-decide-site']);
+    expect(rules(f, 'foo(); // model-site-allowed: for foo\ndecide(x, r);')).toEqual([
+      'unregistered-decide-site',
+    ]);
+  });
 });
 
 describe('rules 2 and 5 — unregistered-model-site and rung-mismatch', () => {
@@ -114,6 +125,35 @@ describe('rules 2 and 5 — unregistered-model-site and rung-mismatch', () => {
     ).toEqual([]);
     expect(rules('packages/core/src/new.ts', '// resolveLLMForRole(x)')).toEqual([]);
     expect(rules('packages/core/src/llm/system-resolver.ts', 'resolveLLMForRole(r);')).toEqual([]);
+  });
+});
+
+describe('evasions found in review of #1684', () => {
+  it('catches a member call to an LLM entry point in an unregistered file', () => {
+    expect(rules('packages/core/src/new.ts', "await llm.resolveLLMForRole('x');")).toEqual([
+      'unregistered-model-site',
+    ]);
+  });
+  it.each([
+    [
+      'a member call to an AI-SDK function',
+      'const m = await import("x"); await m.generateText({});',
+    ],
+    ['an OpenAI SDK chat completion', 'await c.chat.completions.create({ model });'],
+    ['a dynamic import of ai', "const m = await import('ai');"],
+    ['a dynamic import with a type assertion', "const m = await import('ai' as string);"],
+    ['a dynamic import of an @ai-sdk provider', "await import('@ai-sdk/mistral');"],
+    ['a dynamic import of the Anthropic SDK', "await import('@anthropic-ai/sdk');"],
+    ['a dynamic import of openai', "await import('openai');"],
+    [
+      'any create* imported from @ai-sdk/*',
+      "import { createMistral as mk } from '@ai-sdk/mistral';\nconst p = mk({ apiKey });",
+    ],
+  ])('flags %s as a chokepoint bypass', (_name, src) => {
+    expect(rules('packages/core/src/gen.ts', src)).toContain('chokepoint-bypass');
+  });
+  it('does not flag an ordinary dynamic import', () => {
+    expect(rules('packages/core/src/gen.ts', "await import('node:path');")).toEqual([]);
   });
 });
 
@@ -161,7 +201,28 @@ describe('rules 3 and 4, and the baseline, on a fixture repository', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  it('rejects an on-site whose evidence slug resolves to no tracked file (review of #1684)', () => {
+    write(
+      REGISTRY_PATH,
+      registry([
+        { id: 'a.site', files: [], rung: 'system-one', mode: 'on', goLive: 'totally-fake-slug' },
+      ]),
+    );
+    const found = () => scanRepository(root).violations.map((v) => `${v.rule}:${v.detail}`);
+    expect(found()).toContain('on-without-evidence:a.site');
+    // An untracked ledger entry pointing nowhere proves nothing either.
+    write(
+      '.cleo/docs-publications.json',
+      JSON.stringify({ 'totally-fake-slug': 'docs/missing.md' }),
+    );
+    expect(found()).toContain('on-without-evidence:a.site');
+    // A tracked docs mirror named after the slug is evidence.
+    write('docs/evidence/totally-fake-slug.md', '# measured\n');
+    expect(found()).not.toContain('on-without-evidence:a.site');
+  });
+
   it('flags a missing registry file and on-without-evidence, exempting the debug verb', () => {
+    write('docs/evidence/measured-b.md', '# measured\n');
     write(
       REGISTRY_PATH,
       registry([
