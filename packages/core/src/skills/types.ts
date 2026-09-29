@@ -461,7 +461,15 @@ export interface InstalledSkillsFile {
 // Skill Name Mapping
 // ============================================================================
 
-/** Canonical skill name mapping (user-friendly to ct-prefixed). */
+/**
+ * Canonical skill name mapping (user-friendly to ct-prefixed).
+ *
+ * Every value MUST be a harness-installed skill (`metadata.install: harness`
+ * under packages/skills/skills) — scripts/lint-emitted-skills.mjs (gate 30)
+ * fails otherwise. T12653 removed three targets that never existed
+ * (ct-test-writer-bats, ct-library-implementer-bash, ct-skill-lookup) and the
+ * internal ct-skill-creator, which no harness receives (D11157).
+ */
 export const SKILL_NAME_MAP: Record<string, string> = {
   // Task execution
   'TASK-EXECUTOR': 'ct-task-executor',
@@ -491,24 +499,6 @@ export const SKILL_NAME_MAP: Record<string, string> = {
   SPEC: 'ct-spec-writer',
   spec: 'ct-spec-writer',
 
-  // Test writer
-  'TEST-WRITER-BATS': 'ct-test-writer-bats',
-  'test-writer-bats': 'ct-test-writer-bats',
-  'ct-test-writer-bats': 'ct-test-writer-bats',
-  'TEST-WRITER': 'ct-test-writer-bats',
-  'test-writer': 'ct-test-writer-bats',
-  BATS: 'ct-test-writer-bats',
-  bats: 'ct-test-writer-bats',
-
-  // Library implementer
-  'LIBRARY-IMPLEMENTER-BASH': 'ct-library-implementer-bash',
-  'library-implementer-bash': 'ct-library-implementer-bash',
-  'ct-library-implementer-bash': 'ct-library-implementer-bash',
-  'LIB-IMPLEMENTER': 'ct-library-implementer-bash',
-  'lib-implementer': 'ct-library-implementer-bash',
-  'BASH-LIB': 'ct-library-implementer-bash',
-  'bash-lib': 'ct-library-implementer-bash',
-
   // Validator
   VALIDATOR: 'ct-validator',
   validator: 'ct-validator',
@@ -523,24 +513,14 @@ export const SKILL_NAME_MAP: Record<string, string> = {
   DOCS: 'ct-documentor',
   docs: 'ct-documentor',
 
-  // Docs sub-skills
-  'DOCS-LOOKUP': 'ct-docs-lookup',
-  'docs-lookup': 'ct-docs-lookup',
-  'ct-docs-lookup': 'ct-docs-lookup',
-  'DOCS-WRITE': 'ct-docs-write',
-  'docs-write': 'ct-docs-write',
-  'ct-docs-write': 'ct-docs-write',
-  'DOCS-REVIEW': 'ct-docs-review',
-  'docs-review': 'ct-docs-review',
-  'ct-docs-review': 'ct-docs-review',
-
-  // Skill management
-  'SKILL-CREATOR': 'ct-skill-creator',
-  'skill-creator': 'ct-skill-creator',
-  'ct-skill-creator': 'ct-skill-creator',
-  'SKILL-LOOKUP': 'ct-skill-lookup',
-  'skill-lookup': 'ct-skill-lookup',
-  'ct-skill-lookup': 'ct-skill-lookup',
+  // Docs writing/review guides live in ct-documentor since T12649 (D11157);
+  // ct-docs-lookup was retired (use the Context7 MCP).
+  'DOCS-WRITE': 'ct-documentor',
+  'docs-write': 'ct-documentor',
+  'ct-docs-write': 'ct-documentor',
+  'DOCS-REVIEW': 'ct-documentor',
+  'docs-review': 'ct-documentor',
+  'ct-docs-review': 'ct-documentor',
 
   // Orchestrator
   ORCHESTRATOR: 'ct-orchestrator',

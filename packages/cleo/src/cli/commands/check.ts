@@ -766,6 +766,14 @@ const checkArchCommand = defineCommand({
         script: 'scripts/lint-emitted-skills.mjs',
         description: 'Every skill code emits is installable (ratchet)',
       },
+      {
+        // T12649: gate 14's command/flag rules applied to every canonical
+        // skill. Core-tier skills are zero-tolerance; others ratchet.
+        id: 'gate-31',
+        task: 'T12649',
+        script: 'scripts/lint-skill-commands.mjs',
+        description: 'Every cleo command a skill teaches exists and is runnable',
+      },
     ] as const;
 
     const scriptArgs = strict ? ['--strict'] : ['--check'];

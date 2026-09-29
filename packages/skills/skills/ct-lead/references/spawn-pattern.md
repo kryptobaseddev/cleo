@@ -1,7 +1,7 @@
 # Spawn Pattern — Worker Fanout Examples
 
 The Phase Lead fans out all workers in a single `delegate_task` batch.
-Width is bounded by `delegation.max_concurrent_children` (default 10).
+Width is bounded by `maxConcurrent` (default 10; a convention the Lead enforces — no runtime check exists).
 Each child carries `role=leaf` and inherits the wave's conduit topic.
 
 All examples assume:
@@ -32,15 +32,14 @@ Typical for narrowly-scoped IVTR waves where deps fan in tightly.
 }
 ```
 
-CLI equivalent (one shell call, NOT a loop):
+CLI equivalent (one shell call, NOT a loop). `fanout` takes the epic and the
+task list only; role, model and timeout come from each task's spawn prompt
+(`cleo orchestrate spawn <taskId>`), and the Lead subscribes to the wave topic
+before it runs:
 
 ```bash
-cleo orchestrate spawn-batch \
-  --parent T9080-lead-w2 --parent-role orchestrator \
-  --topic epic-T9080.wave-2 \
-  --timeout 600 \
-  --tasks T9101,T9102,T9103 \
-  --child-role leaf --model sonnet
+cleo conduit subscribe --topic epic-T9080.wave-2
+cleo orchestrate fanout T9080 --tasks T9101,T9102,T9103
 ```
 
 ---
@@ -69,7 +68,7 @@ cleo orchestrate spawn-batch \
 
 ## Example 3 — 10-worker fanout (max-width wave)
 
-This is the upper bound at default `delegation.max_concurrent_children = 10`.
+This is the upper bound at the default `maxConcurrent = 10`.
 For wider waves, the parent Orchestrator MUST split into multiple Leads.
 
 ```json
@@ -111,9 +110,11 @@ done
 DO NOT exceed `maxConcurrent`:
 
 ```bash
-# WRONG — runtime rejects with E_WAVE_OVERSIZED
-cleo orchestrate spawn-batch --tasks $(seq -s, T9301 T9320)   # 20 > 10
+# WRONG — 20 workers in one wave; split into waves of at most maxConcurrent
+cleo orchestrate fanout T9300 --tasks $(seq -s, T9301 T9320)
 ```
+
+Nothing in the runtime enforces the cap today; the Lead must.
 
 DO NOT spawn workers with `role=orchestrator`:
 

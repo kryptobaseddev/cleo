@@ -34,7 +34,7 @@ import { eq } from 'drizzle-orm';
 // module-load time", T1331). The type import is erased at runtime and is safe.
 import type { drizzle as drizzleFn, NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { getLogger } from '../logger.js';
-import { isGitLinkedCheckout } from '../project-scope.js';
+import { describeWorktreeOwner, isGitLinkedCheckout } from '../project-scope.js';
 // T11521: dual-scope chokepoint — all tasks.db opens now flow through here.
 // openDualScopeDb manages the DatabaseSync lifecycle, pragmas, and migrations
 // for the consolidated cleo.db. We extract the native handle and re-wrap it
@@ -288,6 +288,30 @@ function isSameDirectory(a: string, b: string): boolean {
 }
 
 /**
+ * Why auto-recovery must not restore into `dbPath`, or null when it may.
+ *
+ * A `<root>/.cleo/cleo.db` whose `<root>` is a linked git worktree is a
+ * diverged copy: restoring the parent's newest snapshot into it (~1.3 GB, and
+ * again into a `-pre-cleo.db.bak`) made every later write from the worktree
+ * land where nothing merges it back (T12460, field report T12677). The
+ * message names the project whose store the worktree must use.
+ *
+ * @param dbPath - Absolute path of the empty store auto-recovery would fill.
+ * @returns The refusal message, or null when `dbPath` is not worktree-resident.
+ * @task T12677
+ */
+export function worktreeRecoveryRefusal(dbPath: string): string | null {
+  const storeCleoDir = dirname(dbPath);
+  const root = dirname(storeCleoDir);
+  if (basename(storeCleoDir) !== '.cleo' || !isGitLinkedCheckout(root)) return null;
+  return (
+    `Auto-recovery refused: ${dbPath} lives inside the git worktree ${root}; ` +
+    `${describeWorktreeOwner(root)}. A worktree uses its owning project's store and ` +
+    'never receives a restored copy (T12460, T12677).'
+  );
+}
+
+/**
  * See the doc block above {@link countBackupTasks} for the full T5188/T11662
  * rationale. Exported (rather than module-private) ONLY so the T11662 concurrency
  * regression test can drive ≥4 racing invocations against a single `cleo.db` and
@@ -342,12 +366,9 @@ export async function autoRecoverFromBackup(
     // diverged copy; filling it with the parent's newest snapshot (~1.25 GB)
     // made every later write there land in a store nothing merges back.
     const storeCleoDir = dirname(dbPath);
-    if (basename(storeCleoDir) === '.cleo' && isGitLinkedCheckout(dirname(storeCleoDir))) {
-      log.warn(
-        { dbPath },
-        'Auto-recovery refused: the empty store lives inside a git worktree (T12460). ' +
-          'Worktrees must resolve the parent project store.',
-      );
+    const worktreeRefusal = worktreeRecoveryRefusal(dbPath);
+    if (worktreeRefusal !== null) {
+      log.warn({ dbPath }, worktreeRefusal);
       return false;
     }
 

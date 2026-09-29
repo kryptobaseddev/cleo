@@ -170,6 +170,12 @@ export interface EvidenceValidationContext {
   criteria: ReadonlyArray<Pick<AcRow, 'id' | 'text' | 'updatedAt'>>;
   /** Verified PR merge whose immutable artifact bytes must be inspected. */
   artifactCommitSha?: string;
+  /**
+   * Validate without persisting anything: `pr:`/`ci:` lookups write neither
+   * the PR-result cache nor the branch-protection cache (T12671 review — the
+   * `cleo done --plan` preview must leave `.cleo/` untouched).
+   */
+  readOnly?: boolean;
 }
 
 /** Explicit criterion link to inspected artifacts and validated results in one gate receipt. */
@@ -371,10 +377,19 @@ export type EvidenceAtom =
       successCount: number;
       /** Total number of checks evaluated in the rollup. */
       totalChecks: number;
-      /** Complete PR changed-file inventory retained for task-scope checks and display. */
+      /**
+       * Changed-file inventory retained for task-scope checks and display. With
+       * `componentPrNumber`, the component PR's files that survive in this
+       * PR's merge commit — never the whole integration PR.
+       */
       changedPaths?: string[];
       /** Explicit task relationship established when this atom was accepted. */
       taskId?: string;
+      /**
+       * Component PR this (integration) PR landed on the default branch
+       * (T12671): the task is linked through it and its files are the change.
+       */
+      componentPrNumber?: number;
     }
   | {
       /**
@@ -410,6 +425,8 @@ export type EvidenceAtom =
       testedTree?: string;
       /** Task the PR was verified to be linked to (T12634). */
       taskId?: string;
+      /** Component PR the task is linked through; its CI ran as this integration PR's (T12671). */
+      componentPrNumber?: number;
       /** Which configured checks attest each gate (`evidence.ciChecks`). */
       gateChecks?: { testsPassed?: string[]; qaPassed?: string[] };
       /** Where the required-check list came from (env, project context, branch protection). */

@@ -1,11 +1,8 @@
 ---
 name: ct-task-executor
 description: General implementation task execution for completing assigned CLEO tasks by following instructions and producing concrete deliverables. Handles coding, configuration, documentation work with quality verification against acceptance criteria and progress reporting. Use when executing implementation tasks, completing assigned work, or producing task deliverables. Triggers on implementation tasks, general execution needs, or task completion work.
-version: 2.7.0
-core: true
-category: core
+version: 2.7.1
 protocol: implementation
-loomStage: implementation
 adrRefs:
   - ADR-070
   - ADR-062
@@ -20,10 +17,11 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.7.0
+  version: 2.7.1
   tier: core
   install: harness
-  lastReviewed: 2026-09-19
+  loomStage: implementation
+  lastReviewed: 2026-09-28
   stability: stable
 ---
 
@@ -97,7 +95,7 @@ Context injection for implementation tasks spawned via cleo-subagent. Provides d
 3. Execute instructions (see Methodology below)
 4. Verify deliverables against acceptance criteria
 5. Write output: `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`
-6. Append manifest: `{{MANIFEST_PATH}}`
+6. Record the manifest entry: `cleo manifest append --task {{TASK_ID}} --type implementation --content "<one-paragraph summary>"`
 7. Complete task: `{{TASK_COMPLETE_CMD}} {{TASK_ID}}`
 8. Return summary message
 
@@ -157,7 +155,7 @@ The routing prints a one-line info message to stderr (suppress with
 ### Output Requirements
 
 1. MUST write findings to: `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`
-2. MUST append ONE line to: `{{MANIFEST_PATH}}`
+2. MUST record ONE manifest entry: `cleo manifest append --entry '<entry JSON>'` (the flat manifest file is retired, ADR-027)
 3. MUST return ONLY: "Implementation complete. Manifest appended to pipeline_manifest."
 4. MUST NOT return implementation details in response
 
@@ -190,7 +188,7 @@ Write to `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`:
 
 ## Acceptance Criteria Verification
 
-Record each criterion's changed artifacts and actual verification results. A merged PR with green CI provides provenance; it cannot automatically satisfy implementation, testing and review. Use `pr:<number>;files:<changed-path>` for implementation and actual result atoms for test/review gates, with explicit `satisfies:T1234#AC1` links for canonical criteria. The PR must relate to the task; documentation-only changes cannot prove a code fix. Research and documentation tasks may use appropriately scoped documentary evidence. Fetch the merge commit before claiming its artifact bytes were inspected. Criterion edits require fresh evidence. A completed child does not establish that its parent's independent criteria were met.
+Record each criterion's changed artifacts and actual verification results. A merged PR with green CI provides provenance; it cannot automatically satisfy implementation, testing and review. Use `pr:<number>;files:<changed-path>` for implementation (`pr:<component>@<integration>` when your PR merged into an integration branch) and actual result atoms for test/review gates, with explicit `satisfies:T1234#AC1` links for canonical criteria. The PR must relate to the task; documentation-only changes cannot prove a code fix. Research and documentation tasks may use appropriately scoped documentary evidence. Fetch the merge commit before claiming its artifact bytes were inspected. Criterion edits require fresh evidence. A completed child does not establish that its parent's independent criteria were met.
 
 
 | Criterion | Status | Notes |
@@ -213,7 +211,7 @@ Record each criterion's changed artifacts and actual verification results. A mer
 
 ## Manifest Entry Format
 
-Append ONE entry via `cleo manifest append <json>` (writes to pipeline_manifest table per ADR-027):
+Append ONE entry via `cleo manifest append --entry '<json>'` (writes to pipeline_manifest table per ADR-027):
 
 ```json
 {"id":"{{TOPIC_SLUG}}-{{DATE}}","file":"{{DATE}}_{{TOPIC_SLUG}}.md","title":"{{TASK_NAME}}","date":"{{DATE}}","status":"complete","agent_type":"implementation","topics":{{TOPICS_JSON}},"key_findings":["Completed: deliverable 1","Completed: deliverable 2","All acceptance criteria passed"],"actionable":false,"needs_followup":[],"linked_tasks":["{{EPIC_ID}}","{{TASK_ID}}"]}
@@ -304,8 +302,8 @@ cleo session list --all
 # Clean up stale sessions (72h+ inactive)
 cleo session gc
 
-# Force cleanup including active sessions (use cautiously)
-cleo session gc --include-active
+# Also end active sessions idle longer than N days (use cautiously)
+cleo session gc --max-age 1
 ```
 
 ### Best Practices

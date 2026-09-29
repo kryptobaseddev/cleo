@@ -43,7 +43,7 @@ jobs:
 
       - name: Run depth check (all skills)
         run: |
-          python packages/skills/skills/ct-skill-validator/scripts/check_depth.py \
+          python packages/skills/skills/ct-skill-author/scripts/check_depth.py \
             . --all --json | tee /tmp/depth-report.json
 
       - name: Summarize

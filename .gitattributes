@@ -1,0 +1,4 @@
+# Text files in this repo are LF. SKILL.md frontmatter and the skill gates
+# are parsed line by line; a CRLF checkout (Windows autocrlf) must not
+# change what they read (T12649).
+*.md text eol=lf

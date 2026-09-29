@@ -2,7 +2,7 @@
 
 The CLEO documentation style guide lives at
 `packages/skills/skills/_shared/cleo-style-guide.md` and is referenced
-by both `ct-docs-write` and `ct-docs-review`. As coordinator, the
+by both `ct-documentor` (`references/writing.md`) and `ct-documentor` (`references/reviewing.md`). As coordinator, the
 documentor's role is to ensure the style guide is enforced consistently
 across the chain — write applies it; review verifies it. This reference
 covers the parts of the style guide most commonly violated and how the
@@ -73,7 +73,7 @@ These never appear in CLEO docs. The review child rejects them on sight.
 - "as mentioned above" — use a stable cross-reference
 
 The forbidden list is the most common reason a draft fails review.
-Pass the list to ct-docs-write as part of the input contract so it
+Pass the list to the writing guide (`ct-documentor/references/writing.md`) as part of the input contract so it
 knows what to avoid.
 
 ## Link Discipline
@@ -162,8 +162,8 @@ Documentor MUST check that write's output and review's checks agree.
 If they disagree, the style guide reference is the tiebreaker.
 
 ```text
-write_output = ct-docs-write(input)
-review_findings = ct-docs-review(write_output)
+write_output = write_phase(input)
+review_findings = review_phase(write_output)
 
 # Possible drift case:
 # write produced "users" (it should have used "people")
@@ -187,7 +187,7 @@ run review one more time on the diff:
 
 ```bash
 # Review the diff for style violations
-gh pr diff <PR_NUMBER> | ct-docs-review --mode=diff
+gh pr diff <PR_NUMBER> | review_phase --mode=diff  # references/reviewing.md, diff mode
 ```
 
 PR-mode review uses the `mcp__github__*` tools when available;

@@ -1,0 +1,4 @@
+{
+  "_comment": "Known dead cleo invocations in NON-core skills (scripts/lint-skill-commands.mjs, T12649). Core-tier skills can never be baselined. A new finding fails; an entry that no longer occurs fails until deleted. Emptied by T12649 part 2 (skill merges and retirements).",
+  "entries": []
+}

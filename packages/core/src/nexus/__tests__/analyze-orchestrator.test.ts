@@ -1,6 +1,6 @@
 /** Regression coverage for staged Nexus graph replacement and recovery. */
 import { execFileSync } from 'node:child_process';
-import { renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,6 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { GraphPublicationRows } from '@cleocode/contracts';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { graphCoverageFinding } from '../../doctor/knowledge.js';
 import { worktreeScope } from '../../paths.js';
 import { createOperationExecutionContext } from '../../store/background-ops.js';
 import { getNexusDb } from '../../store/nexus-sqlite.js';
@@ -16,6 +17,7 @@ import { decodeStoredReferences } from '../assessment-store.js';
 import { assessKnowledgeCoverage, readKnowledgeIndexAssessment } from '../knowledge.js';
 import * as sourceRootsModule from '../source-roots.js';
 import { resolveSourceRoots } from '../source-roots.js';
+import { shellQuoteArg } from '../stored-roots.js';
 
 vi.mock('../../store/nexus-sqlite.js', async () => ({
   getNexusDb: vi.fn(async () => drizzle({ client: native })),
@@ -1015,5 +1017,207 @@ describe('analysis root provenance integration', () => {
     expect(coverage.reasons).toContain(
       'Legacy generation has no verified per-root ownership or revision observations.',
     );
+  });
+});
+
+describe('moved project graph re-bind (T12659)', () => {
+  const OLD_ROOT = '/mnt/projects/axiom-analytics/axiom-app';
+  let root: string;
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'analysis-rebind-a-'));
+    // The project root is itself a repository (so coverage can be `current`),
+    // with a nested repository `app` explicitly included in the index.
+    await fixtureRepository(root, 'export function parent() { return 0; }');
+    await writeFile(join(root, '.git/info/exclude'), '.cleo/\napp/\n');
+    await mkdir(join(root, '.cleo'));
+    await writeFile(
+      join(root, '.cleo/project-info.json'),
+      JSON.stringify({ projectId: 'moved-project-id', projectHash: 'moved-project-hash' }),
+    );
+    await fixtureRepository(join(root, 'app'), 'export function source() { return 1; }');
+  });
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const inventory = () =>
+    JSON.stringify({
+      nodes: native.prepare('SELECT * FROM nexus_nodes ORDER BY id').all(),
+      meta: native.prepare('SELECT * FROM _nexus_meta ORDER BY key').all(),
+    });
+
+  /**
+   * Analyse under root A, move the project to an unrelated root B, and leave a
+   * legacy absolute record whose paths are INCONSISTENT for the T12474 rebase:
+   * A was a symlink onto a data disk, so the source root's canonical path lies
+   * outside the recorded root. Decoding therefore leaves the record naming A.
+   */
+  async function analyseThenMove(stored: { projectId?: string } = {}): Promise<string> {
+    const result = await runNexusAnalysis({ repoPath: root, includedRepositories: ['app'] });
+    const roots = result.assessment!.sourceRoots!;
+    native.prepare("UPDATE _nexus_meta SET value=? WHERE key='graph_assessment'").run(
+      JSON.stringify({
+        ...result.assessment,
+        sourceRoot: OLD_ROOT,
+        sourceRoots: {
+          ...roots,
+          ...stored,
+          projectRoot: OLD_ROOT,
+          sourceRoot: OLD_ROOT,
+          roots: roots.roots.map((entry) =>
+            entry.graphPrefix === ''
+              ? { ...entry, requestedPath: OLD_ROOT, canonicalPath: '/mnt/data/axiom-app' }
+              : {
+                  ...entry,
+                  requestedPath: `${OLD_ROOT}/app`,
+                  canonicalPath: `${OLD_ROOT}/app`,
+                },
+          ),
+        },
+      }),
+    );
+    const moved = await mkdtemp(join(tmpdir(), 'analysis-rebind-b-'));
+    await rm(moved, { recursive: true });
+    renameSync(root, moved);
+    root = moved;
+    return realpathSync(moved);
+  }
+
+  it('refuses a plain analyze, naming recorded vs live root and id and the exact --full remedy', async () => {
+    const live = await analyseThenMove();
+    const before = inventory();
+    const refusal = runNexusAnalysis({ repoPath: root });
+    await expect(refusal).rejects.toThrow('Stored graph ownership differs');
+    await expect(refusal).rejects.toThrow(
+      `recorded root ${OLD_ROOT} (project moved-project-id), live root ${live} (project moved-project-id)`,
+    );
+    await expect(refusal).rejects.toThrow(`cleo nexus analyze '${live}' --full`);
+    expect(inventory()).toBe(before);
+
+    const coverage = await assessKnowledgeCoverage(root);
+    expect(coverage.status).toBe('failed');
+    expect(coverage.nextAction).toBe(`cleo nexus analyze '${live}' --full`);
+    expect(coverage.reasons.join(' ')).toContain(`cleo nexus analyze '${live}' --full`);
+    // doctor knowledge proposes the same exact command.
+    const finding = graphCoverageFinding(coverage);
+    expect(finding?.proposedAction).toEqual({
+      operation: 'nexus.analyze',
+      arguments: { full: true },
+      prerequisites: [
+        `Run exactly: cleo nexus analyze '${live}' --full`,
+        'Confirm the intended source root and repository inclusions.',
+      ],
+    });
+  });
+
+  it('re-binds with --full when the project id matches, with a receipt, and coverage becomes current', async () => {
+    const live = await analyseThenMove();
+    const result = await runNexusAnalysis({ repoPath: root, full: true });
+    expect(result.rebind).toEqual({
+      oldRoot: OLD_ROOT,
+      newRoot: live,
+      projectId: 'moved-project-id',
+      generation: expect.any(String),
+      droppedRepositories: [],
+    });
+    expect(result.summary.reason).toContain(`re-binding the graph from ${OLD_ROOT}`);
+    const stored = await readKnowledgeIndexAssessment(root);
+    expect(stored?.sourceRoots?.projectRoot).toBe(live);
+    expect(stored?.includedRepositories).toEqual(['app']);
+    const coverage = await assessKnowledgeCoverage(root);
+    expect(coverage.reasons).toEqual([]);
+    expect(coverage.status).toBe('current');
+    // Running the proposed command cleared the doctor finding.
+    expect(graphCoverageFinding(coverage)).toBeNull();
+    // A later plain analyze no longer refuses.
+    await expect(runNexusAnalysis({ repoPath: root })).resolves.toMatchObject({
+      projectId: 'moved-project-id',
+    });
+  });
+
+  it('still refuses a foreign project id even with --full, naming the identity remedy', async () => {
+    const live = await analyseThenMove({ projectId: 'foreign-project-id' });
+    const before = inventory();
+    const refusal = runNexusAnalysis({ repoPath: root, full: true });
+    await expect(refusal).rejects.toThrow(
+      `recorded root ${OLD_ROOT} (project foreign-project-id), live root ${live} (project moved-project-id)`,
+    );
+    await expect(refusal).rejects.toThrow('cleo doctor project-identity');
+    expect(inventory()).toBe(before);
+    const coverage = await assessKnowledgeCoverage(root);
+    expect(coverage.status).toBe('failed');
+    expect(coverage.nextAction).toBe('cleo doctor project-identity');
+    expect(graphCoverageFinding(coverage)?.proposedAction?.prerequisites[0]).toBe(
+      'Run exactly: cleo doctor project-identity',
+    );
+  });
+
+  it('re-roots parent -> child: a missing inclusion refuses (even on --full) until explicitly dropped', async () => {
+    await runNexusAnalysis({ repoPath: root, includedRepositories: ['app'] });
+    // The project is re-rooted into its former child: .cleo moves into app/.
+    renameSync(join(root, '.cleo'), join(root, 'app', '.cleo'));
+    await writeFile(join(root, 'app/.git/info/exclude'), '.cleo/\n');
+    const child = join(root, 'app');
+    const live = realpathSync(child);
+    const before = inventory();
+
+    for (const full of [false, true]) {
+      const refusal = runNexusAnalysis({ repoPath: child, full });
+      await expect(refusal).rejects.toThrow('Included repositories are missing');
+      await expect(refusal).rejects.toThrow(': app; previous graph retained');
+      await expect(refusal).rejects.toThrow(
+        full
+          ? `cleo nexus analyze '${live}' --full --drop-missing-repositories`
+          : `cleo nexus analyze '${live}' --drop-missing-repositories`,
+      );
+      expect(inventory()).toBe(before);
+    }
+
+    const result = await runNexusAnalysis({
+      repoPath: child,
+      full: true,
+      dropMissingRepositories: true,
+    });
+    expect(result.droppedRepositories).toEqual({
+      paths: ['app'],
+      restoreCommand: `cleo nexus analyze '${live}' --include-repositories 'app'`,
+    });
+    expect(result.assessment?.sourceRoots?.projectRoot).toBe(live);
+    expect((await assessKnowledgeCoverage(child)).status).toBe('current');
+  });
+
+  it('a re-bind never silently drops a missing inclusion', async () => {
+    const live = await analyseThenMove();
+    await rm(join(root, 'app'), { recursive: true, force: true });
+    const before = inventory();
+    const refusal = runNexusAnalysis({ repoPath: root, full: true });
+    await expect(refusal).rejects.toThrow('Included repositories are missing');
+    await expect(refusal).rejects.toThrow(
+      `cleo nexus analyze '${live}' --full --drop-missing-repositories`,
+    );
+    expect(inventory()).toBe(before);
+    const rebound = await runNexusAnalysis({
+      repoPath: root,
+      full: true,
+      dropMissingRepositories: true,
+    });
+    expect(rebound.rebind?.droppedRepositories).toEqual(['app']);
+    expect(rebound.droppedRepositories?.restoreCommand).toBe(
+      `cleo nexus analyze '${live}' --include-repositories 'app'`,
+    );
+  });
+});
+
+describe('shellQuoteArg (T12659)', () => {
+  it('single-quotes on POSIX so $, backticks and quotes stay literal', () => {
+    expect(shellQuoteArg("/Users/me/it's $HOME `x`", 'darwin')).toBe(
+      "'/Users/me/it'\\''s $HOME `x`'",
+    );
+    expect(shellQuoteArg('/home/u/My Project', 'linux')).toBe("'/home/u/My Project'");
+  });
+
+  it('double-quotes Windows paths verbatim, without doubled backslashes', () => {
+    expect(shellQuoteArg('C:\\Users\\me\\app', 'win32')).toBe('"C:\\Users\\me\\app"');
   });
 });
