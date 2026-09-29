@@ -26,7 +26,12 @@ import type { TaskAnalysisResult, TaskRef } from '../results.js';
  */
 import type { TaskStatus } from '../status-registry.js';
 import type { TaskClaim, TaskKind, TaskPriority, TaskSeverity, TaskType } from '../task.js';
-import type { MinimalTaskRecord, TaskMatch, TaskRecord } from '../task-record.js';
+import type {
+  MinimalTaskRecord,
+  RecordProjectionDisclosure,
+  TaskMatch,
+  TaskRecord,
+} from '../task-record.js';
 import type { ExternalTask, ExternalTaskLink, ReconcileResult } from '../task-sync.js';
 import type {
   CompletionEvaluateParams,
@@ -285,10 +290,16 @@ export interface TaskShowRelationsEntry {
  * Result of `tasks.show` — the full task record plus its canonical view
  * projection. `view` is null when the task has no lifecycle pipeline.
  *
+ * The inherited `_withheld` marker is set by the default (MVI) projection
+ * when it withholds a field from every `acRows` element: the key
+ * `acRows/*\/id` names the row UUIDs and its value is their UTF-8 byte total
+ * (T12523). `--full` returns the rows unprojected, with no marker.
+ *
  * @task T1703
  * @task T9966 — attachments[] always present (empty array when none)
+ * @task T12523 — `_withheld` for the projected `acRows`
  */
-export interface TasksShowResult {
+export interface TasksShowResult extends RecordProjectionDisclosure {
   /** Full task record (string-widened for dispatch layer serialization). */
   task: TaskRecord;
   /** Canonical task view projection produced by `computeTaskView`. Null when unavailable. */
@@ -307,6 +318,8 @@ export interface TasksShowResult {
    * Acceptance-criterion rows hydrated from the `task_acceptance_criteria`
    * table (T10502). Each entry carries the stable UUID `id`, the
    * `AC<ordinal>` alias, the ordinal itself, and the canonical AC text.
+   * The default (MVI) projection withholds `id` and says so in this result's
+   * `_withheld` (`acRows/*\/id`); `--full` returns it (T12523).
    *
    * Optional — undefined when the task has no rows in the table (e.g.
    * legacy tasks not yet backfilled by T10505). Consumers should fall
@@ -329,8 +342,14 @@ export interface TasksShowResult {
  * @task T10508
  */
 export interface TaskShowAcRowEntry {
-  /** UUIDv4 stable identifier, immutable for the AC's lifetime. */
-  id: string;
+  /**
+   * UUIDv4 stable identifier, immutable for the AC's lifetime.
+   *
+   * Absent under the default (MVI) projection, which cites a criterion by its
+   * `alias` and lists `acRows/*\/id` in the result's `_withheld`; present with
+   * `--full` or a `--field /data/acRows/<i>/id` pointer (T12523).
+   */
+  id?: string;
   /** Display alias derived from ordinal — `AC1`, `AC2`, etc. */
   alias: string;
   /** 1-based ordinal — never reused per task (gaps remain on shrink). */

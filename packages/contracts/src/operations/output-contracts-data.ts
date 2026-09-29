@@ -90,6 +90,8 @@ const tasksShowOutputContract: OperationOutputContract = {
     'Mutation envelopes are FLAT by contrast (/data/created/0, /data/updated/0), which is ' +
     'the asymmetry that produced GH #1225/#1239/#1231. ' +
     '`view` may be null. `acRows` and `relations` are conditional. ' +
+    'The default (MVI) projection withholds each `acRows` UUID and names it once in ' +
+    '`/data/_withheld` as `acRows/*/id` (T12523); cite a criterion by `alias` (AC1..n). ' +
     '`description`, `acceptance` and `verification` are withheld by the default (MVI) ' +
     'projection but `--field` resolves them transparently (T12108) — no `--full` needed. ' +
     'Evidence is NOT a task field: it lives at /data/task/verification/evidence ' +
@@ -137,7 +139,13 @@ const tasksShowOutputContract: OperationOutputContract = {
       },
       acRows: {
         type: 'array',
-        description: 'Acceptance-criterion rows (id, alias AC<n>, ordinal, text). Optional.',
+        description:
+          'Acceptance-criterion rows (alias AC<n>, ordinal, text; the UUID id only with --full). Optional.',
+      },
+      _withheld: {
+        type: 'object',
+        description:
+          'Fields the default projection withheld from list elements, e.g. `acRows/*/id` → UTF-8 byte total. Absent with --full.',
       },
       relations: {
         type: 'object',
