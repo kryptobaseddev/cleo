@@ -50,6 +50,10 @@ import { getCleoHome, readDeclaredProjectIdentity } from '@cleocode/paths';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { openCleoDbSnapshot } from '../store/open-cleo-db.js';
 import { resolveCorePackageMigrationsFolder } from '../store/resolve-migrations-folder.js';
+import {
+  assertOwnerStoreRewriteConfirmed,
+  invocationDirectory,
+} from '../store/worktree-isolation-guard.js';
 import { loadPragmaSsot, normalisePragmaValue } from './pragma-ssot.js';
 
 /**
@@ -162,6 +166,39 @@ function quarantineSubstrateDb(dbFilePath: string, role: string, now: number = D
   }
 
   return quarantineDir;
+}
+
+/**
+ * Quarantine a corrupt DB behind the shared whole-store rewrite guard
+ * (T12708): moving a project's live store from a linked worktree of that
+ * project needs `confirmOwnerStore`, a store inside a worktree is never moved,
+ * and a confirmed move is audited. A refusal or failure leaves the DB in place
+ * and is reported, never thrown.
+ *
+ * @param filePath - Absolute path to the corrupt DB.
+ * @param role - Canonical role name from `DB_INVENTORY`.
+ * @param options - Survey options carrying `cwd` and `confirmOwnerStore`.
+ * @returns The quarantine directory, or the reason nothing was moved.
+ *
+ * @task T12708
+ */
+function guardedQuarantine(
+  filePath: string,
+  role: string,
+  options: DbSubstrateSurveyOptions,
+): { quarantinedTo: string | null; quarantineErr: string | null } {
+  try {
+    assertOwnerStoreRewriteConfirmed(`doctor db-substrate quarantine ${role}`, filePath, {
+      cwd: invocationDirectory(options.cwd),
+      confirmOwnerStore: options.confirmOwnerStore,
+    });
+    return { quarantinedTo: quarantineSubstrateDb(filePath, role), quarantineErr: null };
+  } catch (qErr) {
+    return {
+      quarantinedTo: null,
+      quarantineErr: qErr instanceof Error ? qErr.message : String(qErr),
+    };
+  }
 }
 
 /**
@@ -618,18 +655,11 @@ export function inspectDbFile(
     snapshot.close();
     snapshot = null;
 
-    let quarantinedTo: string | null = null;
-    let quarantineErr: string | null = null;
-    if (autoQuarantine) {
-      try {
-        quarantinedTo = quarantineSubstrateDb(filePath, entry.role);
-      } catch (qErr) {
-        // Quarantine failure is non-fatal — surface as an addendum to
-        // the error string so the operator knows the corrupt DB is
-        // still in place.
-        quarantineErr = qErr instanceof Error ? qErr.message : String(qErr);
-      }
-    }
+    // Quarantine failure is non-fatal — surface as an addendum to the error
+    // string so the operator knows the corrupt DB is still in place.
+    const { quarantinedTo, quarantineErr } = autoQuarantine
+      ? guardedQuarantine(filePath, entry.role, options)
+      : { quarantinedTo: null, quarantineErr: null };
 
     const errParts: string[] = [];
     if (timedOut) {
@@ -672,15 +702,10 @@ export function inspectDbFile(
     snapshot?.close();
     snapshot = null;
 
-    let quarantinedTo: string | null = null;
-    let quarantineErr: string | null = null;
-    if (autoQuarantine && existsSync(filePath)) {
-      try {
-        quarantinedTo = quarantineSubstrateDb(filePath, entry.role);
-      } catch (qErr) {
-        quarantineErr = qErr instanceof Error ? qErr.message : String(qErr);
-      }
-    }
+    const { quarantinedTo, quarantineErr } =
+      autoQuarantine && existsSync(filePath)
+        ? guardedQuarantine(filePath, entry.role, options)
+        : { quarantinedTo: null, quarantineErr: null };
 
     const errParts: string[] = [message];
     if (quarantineErr !== null) {

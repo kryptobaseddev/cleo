@@ -217,6 +217,12 @@ export const doctorDbSubstrateCommand = defineCommand({
       description:
         'Disable auto-quarantine of corrupt DBs (leaves them in place; report-only mode).',
     },
+    'confirm-owner-store': {
+      type: 'boolean',
+      description:
+        "From inside a git worktree: allow quarantining the owning project's LIVE store (skipped without it)",
+      default: false,
+    },
     json: { type: 'boolean', description: 'Output as JSON' },
     human: { type: 'boolean', description: 'Force human-readable output' },
     quiet: { type: 'boolean', description: 'Suppress non-essential output' },
@@ -239,6 +245,9 @@ export const doctorDbSubstrateCommand = defineCommand({
     const options: DbSubstrateSurveyOptions = {
       ...(parsedTimeoutMs !== undefined ? { integrityCheckTimeoutMs: parsedTimeoutMs } : {}),
       autoQuarantine: !negatedFlag(args, 'quarantine'),
+      // T12708: the invocation directory; the quarantine guard checks it.
+      cwd: process.cwd(),
+      confirmOwnerStore: args['confirm-owner-store'] === true,
     };
 
     const result: DbSubstrateAuditResult = isFleet

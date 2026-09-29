@@ -74,6 +74,9 @@ function executeRecover(role: DbRole, args: Record<string, unknown>): void {
       dryRun,
       fromSnapshot: fromSnapshot.length > 0 ? fromSnapshot : undefined,
       noDelta,
+      // T12708: the invocation directory; core never falls back to it.
+      cwd: process.cwd(),
+      confirmOwnerStore: readBoolFlag(args, 'confirm-owner-store'),
     });
 
     cliOutput(result, {
@@ -168,6 +171,12 @@ export const backupRecoverBrainLeaf = defineCommand({
       description: 'Bypass any safety prompts (currently a no-op; reserved)',
       default: false,
     },
+    'confirm-owner-store': {
+      type: 'boolean',
+      description:
+        "From inside a git worktree: allow overwriting the owning project's LIVE store (refused without it)",
+      default: false,
+    },
   },
   async run({ args }): Promise<void> {
     const argsBag: Record<string, unknown> = args;
@@ -243,6 +252,12 @@ export const backupRecoverSubCommand = defineCommand({
     force: {
       type: 'boolean',
       description: 'Bypass any safety prompts (currently a no-op; reserved)',
+      default: false,
+    },
+    'confirm-owner-store': {
+      type: 'boolean',
+      description:
+        "From inside a git worktree: allow overwriting the owning project's LIVE store (refused without it)",
       default: false,
     },
   },
