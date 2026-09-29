@@ -42,7 +42,7 @@ import { assessKnowledgeCoverage } from '../nexus/knowledge.js';
 import { truncateString } from '../render/helpers.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { depsReady } from '../tasks/deps-ready.js';
+import { rankReadyTasks, resolveRankingPhase } from '../tasks/task-next.js';
 import {
   readLiveFocus,
   type StaleFocusPointer,
@@ -296,13 +296,6 @@ export interface SessionBriefing {
 /** @deprecated Use SessionBriefingShowParams from @cleocode/contracts. */
 export type BriefingOptions = SessionBriefingShowParams;
 
-const PRIORITY_SCORE: Record<string, number> = {
-  critical: 100,
-  high: 75,
-  medium: 50,
-  low: 25,
-};
-
 /**
  * Compute the complete session briefing.
  * Normalized Core signature: (projectRoot, params) → Result.
@@ -406,8 +399,8 @@ export async function computeBriefing(
   const { current: currentTaskInfo } = computeCurrentTask(focus, taskMap);
   const staleFocus = liveFocus.staleFocus;
 
-  // 3. Next tasks (leverage-scored) — default capped at 3 (T9974)
-  const nextTasks = computeNextTasks(tasks, taskMap, focus, {
+  // 3. Next tasks — the SAME ranking as `cleo next` (T12661), capped at 3 (T9974)
+  const nextTasks = await computeNextTasks(projectRoot, accessor, tasks, {
     maxTasks: params.maxNextTasks ?? 3,
     scopeTaskIds,
   });
@@ -921,84 +914,29 @@ function computeCurrentTask(
 }
 
 /**
- * Compute leverage for a task.
+ * Next tasks for the briefing, ranked by the shared scorer through
+ * {@link rankReadyTasks} — the same candidates, phase, weights and tie-break as
+ * `cleo next`, so both name the same tasks in the same order (T12661). Before
+ * this the briefing kept its own weights: no severity axis, an unbounded
+ * leverage bonus, and a deps bonus only for tasks that had dependencies.
  */
-function calculateLeverage(taskId: string, taskMap: Map<string, unknown>): number {
-  let leverage = 0;
-  for (const task of taskMap.values()) {
-    const t = task as { depends?: string[] };
-    if (t.depends?.includes(taskId)) {
-      leverage++;
-    }
-  }
-  return leverage;
-}
-
-/**
- * Compute next tasks sorted by leverage and score.
- */
-function computeNextTasks(
-  tasks: unknown[],
-  taskMap: Map<string, unknown>,
-  focus: TaskWorkStateExt | undefined,
+async function computeNextTasks(
+  projectRoot: string,
+  accessor: DataAccessor,
+  tasks: Task[],
   options: { maxTasks: number; scopeTaskIds?: Set<string> },
-): BriefingTask[] {
-  const pendingTasks = tasks.filter((t) => {
-    const task = t as { id?: string; status?: string };
-    return (
-      task.status === 'pending' && (!options.scopeTaskIds || options.scopeTaskIds.has(task.id!))
-    );
+): Promise<BriefingTask[]> {
+  const { ranked, leverage } = await rankReadyTasks(accessor, tasks, {
+    currentPhase: await resolveRankingPhase(accessor),
+    scopeTaskIds: options.scopeTaskIds,
+    projectRoot,
   });
-
-  const scored: BriefingTask[] = [];
-  const currentPhase = focus?.currentPhase;
-
-  for (const task of pendingTasks) {
-    const t = task as {
-      id: string;
-      title: string;
-      priority?: string;
-      phase?: string;
-      createdAt?: string;
-      depends?: string[];
-    };
-
-    if (!depsReady(t.depends, taskMap)) continue;
-
-    const leverage = calculateLeverage(t.id, taskMap);
-    let score = PRIORITY_SCORE[t.priority || 'medium'] ?? 50;
-
-    // Phase alignment bonus
-    if (currentPhase && t.phase === currentPhase) {
-      score += 20;
-    }
-
-    // Dependencies satisfied bonus
-    if (t.depends && t.depends.length > 0) {
-      score += 10;
-    }
-
-    // Age bonus
-    if (t.createdAt) {
-      const ageMs = Date.now() - new Date(t.createdAt).getTime();
-      const ageDays = ageMs / (1000 * 60 * 60 * 24);
-      if (ageDays > 7) {
-        score += Math.min(15, Math.floor(ageDays / 7));
-      }
-    }
-
-    // Leverage bonus
-    if (leverage > 0) {
-      score += leverage * 5;
-    }
-
-    scored.push({ id: t.id, title: t.title, leverage, score });
-  }
-
-  // Sort by score descending
-  scored.sort((a, b) => b.score - a.score);
-
-  return scored.slice(0, options.maxTasks);
+  return ranked.slice(0, options.maxTasks).map(({ task, score }) => ({
+    id: task.id,
+    title: task.title,
+    leverage: leverage.get(task.id) ?? 0,
+    score,
+  }));
 }
 
 /**

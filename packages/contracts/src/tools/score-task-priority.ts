@@ -6,7 +6,7 @@
  * @epic T9835
  */
 
-import type { TaskPriority } from '../task.js';
+import type { TaskKind, TaskPriority, TaskSeverity } from '../task.js';
 
 /** Minimal task shape required by scoreTask. */
 export interface ScoreTaskInput {
@@ -24,6 +24,10 @@ export interface ScoreTaskInput {
   createdAt?: string;
   /** Labels for pattern matching. */
   labels?: string[];
+  /** Severity axis (orthogonal to priority); unset for most tasks. */
+  severity?: TaskSeverity | null;
+  /** Kind axis; a `bug` with no severity is scored at the default bug severity (T12661). */
+  kind?: TaskKind | null;
 }
 
 /** Context provided to scoreTask to enable phase-aware and dependency-aware scoring. */
@@ -38,6 +42,8 @@ export interface ScoreTaskContext {
   successPatterns?: Array<{ pattern: string }>;
   /** Matched failure patterns from BRAIN (optional penalty scoring). */
   failurePatterns?: Array<{ pattern: string }>;
+  /** Open tasks that depend on each task id — its leverage (bounded bonus, T12661). */
+  leverage?: ReadonlyMap<string, number>;
 }
 
 /** A scoring factor contributing to the final score. */
@@ -48,12 +54,32 @@ export interface ScoreFactor {
   delta: number;
   /** Human-readable explanation. */
   detail: string;
+  /**
+   * Comparator tier the factor belongs to (T12691): 1 priority band, 2 severity,
+   * 3 bounded tiebreak; `null` for an informational factor outside the order.
+   */
+  tier?: 1 | 2 | 3 | null;
+}
+
+/** The lexicographic sort key of a scored task (T12691); higher sorts first. */
+export interface ScoreTaskKey {
+  /** Owner priority band: critical 4, high 3, medium 2, low 1. */
+  band: number;
+  /** Attested severity: P0 4, P1 3, P2 2, P3 1, unknown 0. */
+  severity: number;
+  /** Bounded computed tiebreak (deps, phase, leverage, age). */
+  tiebreak: number;
 }
 
 /** Result of scoreTask. */
 export interface ScoreTaskResult {
-  /** Final computed score. */
+  /**
+   * The key as one number that sorts identically (band × 10000 + severity ×
+   * 1000 + tiebreak), for display and single-number consumers.
+   */
   score: number;
-  /** Individual scoring factors. */
+  /** Individual scoring factors, each tagged with its comparator tier. */
   factors: ScoreFactor[];
+  /** The lexicographic sort key (T12691). */
+  key?: ScoreTaskKey;
 }

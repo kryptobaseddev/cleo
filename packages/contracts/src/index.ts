@@ -2703,6 +2703,7 @@ export type {
   ScoreFactor,
   ScoreTaskContext,
   ScoreTaskInput,
+  ScoreTaskKey,
   ScoreTaskResult,
 } from './tools/score-task-priority.js';
 // === Transport (low-level wire protocol) ===

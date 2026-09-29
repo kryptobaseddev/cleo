@@ -1,6 +1,6 @@
 import type { ScoreTaskInput } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
-import { scoreTask } from '../../../task-tools/score-task-priority.js';
+import { rankTasks, scoreTask } from '../../../task-tools/score-task-priority.js';
 
 // Task with a dependency so depsReady bonus only applies when statuses provided
 const HIGH_TASK: ScoreTaskInput = {
@@ -30,9 +30,9 @@ describe('scoreTask', () => {
     const lowResult = scoreTask(LOW_TASK, ctx);
 
     expect(highResult.score).toBeGreaterThan(lowResult.score);
-    // High priority baseline is 75, low is 25 (both get age bonus check separately)
-    expect(highResult.score).toBeGreaterThanOrEqual(75);
-    expect(lowResult.score).toBe(25); // priority only — no other bonuses apply
+    // T12691: tier 1 is the priority band (high 3 > low 1); nothing else applies to LOW.
+    expect(highResult.key?.band).toBe(3);
+    expect(lowResult.key).toEqual({ band: 1, severity: 0, tiebreak: 0 });
   });
 
   it('adds phase alignment bonus when task phase matches currentPhase', () => {
@@ -83,8 +83,18 @@ describe('scoreTask', () => {
       failurePatterns: [{ pattern: 'migration' }],
     });
 
-    expect(withSuccess.score).toBe(50 + 10); // medium + success bonus
-    expect(withFailure.score).toBe(50 - 5); // medium - failure penalty
+    // T12691 (D11161): BRAIN patterns are informational — they never move the order.
+    const plain = scoreTask(task, noDepCtx);
+    expect(withSuccess.score).toBe(plain.score);
+    expect(withFailure.score).toBe(plain.score);
+    expect(withSuccess.factors.find((f) => f.name === 'brainSuccess')).toMatchObject({
+      delta: 0,
+      tier: null,
+    });
+    expect(withFailure.factors.find((f) => f.name === 'brainFailure')).toMatchObject({
+      delta: 0,
+      tier: null,
+    });
   });
 
   it('returns all factor names in result', () => {
@@ -95,8 +105,72 @@ describe('scoreTask', () => {
     });
 
     const names = result.factors.map((f) => f.name);
-    expect(names).toContain('priority');
+    expect(names).toContain('band');
+    expect(names).toContain('severity');
     expect(names).toContain('phaseAlignment');
     expect(names).toContain('depsReady');
+  });
+});
+
+describe('rankTasks — D11161 adversarial checks', () => {
+  const nowMs = Date.parse('2026-09-29T00:00:00Z');
+  const old = '2025-01-01T00:00:00Z';
+
+  it('an unset severity never outranks an attested P1 in the same band, whatever its bonuses', () => {
+    const unset: ScoreTaskInput = {
+      id: 'T1',
+      title: 'unset',
+      priority: 'high',
+      createdAt: old,
+      phase: 'p',
+    };
+    const p1: ScoreTaskInput = {
+      id: 'T2',
+      title: 'p1',
+      priority: 'high',
+      severity: 'P1',
+      depends: ['X'],
+    };
+    const ranked = rankTasks([unset, p1], {
+      currentPhase: 'p',
+      nowMs,
+      taskStatuses: new Map([['X', 'pending']]),
+      leverage: new Map([['T1', 99]]),
+    });
+    expect(ranked.map((r) => r.task.id)).toEqual(['T2', 'T1']);
+  });
+
+  it('the maximal tiebreak stays below one severity step', () => {
+    const maxed = scoreTask(
+      { id: 'T1', title: 'x', priority: 'low', createdAt: old, phase: 'p' },
+      { currentPhase: 'p', nowMs, leverage: new Map([['T1', 99]]) },
+    );
+    expect(maxed.key?.tiebreak).toBe(60);
+    expect(maxed.score).toBeLessThan(
+      scoreTask({ id: 'T2', title: 'y', priority: 'low', severity: 'P3', depends: ['X'] }, {})
+        .score,
+    );
+  });
+
+  it('is total and NaN-free on malformed input, and independent of input order', () => {
+    // Values outside the TaskPriority / TaskSeverity unions, as an unvalidated row could carry.
+    const tasks: ScoreTaskInput[] = JSON.parse(
+      JSON.stringify([
+        {
+          id: 'T3',
+          title: 'a',
+          priority: 'toString',
+          severity: 'constructor',
+          createdAt: 'garbage',
+        },
+        { id: 'T1', title: 'b', priority: 'medium' },
+        { id: 'T2', title: 'c', priority: 'medium', createdAt: '' },
+      ]),
+    );
+    const forward = rankTasks(tasks, { nowMs });
+    const backward = rankTasks([...tasks].reverse(), { nowMs });
+    for (const r of forward) expect(Number.isFinite(r.score)).toBe(true);
+    expect(forward.map((r) => r.task.id)).toEqual(backward.map((r) => r.task.id));
+    expect(forward.map((r) => r.task.id)).toEqual(['T1', 'T2', 'T3']);
   });
 });

@@ -31,6 +31,9 @@ const RAW_READ_ALLOWED = new Set([
   'packages/core/src/phases/index.ts#renamePhase',
   'packages/core/src/session/engine-ops.ts#sessionEnd',
   'packages/core/src/session/engine-ops.ts#sessionResume',
+  // T12661: reads only focus.currentPhase for the ranking tiebreak, never the
+  // task pointer; readLiveFocus would load the pointed task for nothing.
+  'packages/core/src/tasks/task-next.ts#resolveRankingPhase',
 ]);
 
 /** Violations in one source file, keyed `path#function: what`. */

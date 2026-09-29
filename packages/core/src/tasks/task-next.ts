@@ -4,35 +4,19 @@
  * @epic T9834
  */
 
-import type { ProjectMeta } from '@cleocode/contracts';
+import type { ProjectMeta, ScoreTaskContext, Task } from '@cleocode/contracts';
+import { readFocusState } from '../sessions/focus-state-store.js';
+import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
+import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import {
+  computeLeverage,
+  formatScoreFactor,
+  type RankedTask,
+  rankTasks,
+} from '../task-tools/score-task-priority.js';
 import { loadReadinessDependencyLookup } from './dependency-check.js';
 import { depsReady } from './deps-ready.js';
-
-const PRIORITY_SCORE: Record<string, number> = {
-  critical: 100,
-  high: 75,
-  medium: 50,
-  low: 25,
-};
-
-/**
- * Severity-axis score bumps (T9905 unified urgency surface).
- *
- * Severity is orthogonal to priority — a task can have `priority='medium'` and
- * `severity='P0'` (e.g. a freshly-filed P0 incident before triage promotes its
- * priority). Without a severity boost the P0 work sits below an unrelated
- * `priority='high'` task in the `next` ranking, which inverts the operator's
- * expectations. The bump is conservative (P0 = +30, P1 = +15) so that
- * `priority='critical'` (+100) still wins all ties, but a P0/P1 row decisively
- * outranks any `priority='medium'` peer with no severity set.
- *
- * @task T9905
- */
-const SEVERITY_SCORE: Record<string, number> = {
-  P0: 30,
-  P1: 15,
-};
 
 /**
  * Suggest next task to work on based on priority, phase, age, and deps.
@@ -47,8 +31,12 @@ const SEVERITY_SCORE: Record<string, number> = {
  * @returns Ranked suggestions with scores and the total number of eligible candidates
  *
  * @remarks
- * Scoring considers priority weight, current phase alignment, dependency readiness,
- * task age, and brain success/failure pattern matches. Results are sorted descending by score.
+ * Ranks through the shared {@link scoreTask} (via {@link rankReadyTasks}):
+ * the lexicographic D11161 key — priority band, then attested severity (an
+ * unset severity is unknown; nothing is imputed from `kind`), then a bounded
+ * tiebreak (dependency readiness, phase alignment, leverage, age), then
+ * `createdAt`, then id. BRAIN patterns are informational factors only.
+ * `explain` returns every factor. The briefing's `nextTasks` uses the same ranking (T12661).
  * Candidates retain the active query population; a separate canonical lookup
  * resolves explicit dependencies, including archived records. Missing/cancelled
  * prerequisites block selection, and required dependency-read failures propagate.
@@ -79,106 +67,105 @@ export async function coreTaskNext(
 }> {
   const accessor = await getTaskAccessor(projectRoot);
   const { tasks: allTasks } = await accessor.queryTasks({});
-  const dependencyLookup = await loadReadinessDependencyLookup(allTasks, accessor);
+  const { ranked, totalCandidates } = await rankReadyTasks(accessor, allTasks, {
+    currentPhase: await resolveRankingPhase(accessor),
+    // T12689: a one-line hint (`brain: false`) opens no brain store.
+    ...(params?.brain !== false && { projectRoot }),
+  });
 
-  const projectMeta = await accessor.getMetaValue<ProjectMeta>('project_meta');
-  const currentPhase = projectMeta?.currentPhase ?? null;
-
-  const candidates = allTasks.filter(
-    (t) => t.status === 'pending' && !t.cancelledAt && depsReady(t.depends, dependencyLookup),
-  );
-
-  if (candidates.length === 0) {
-    return { suggestions: [], totalCandidates: 0 };
-  }
-
-  const scored = candidates
-    .map((task) => {
-      const reasons: string[] = [];
-      let score = 0;
-
-      score += PRIORITY_SCORE[task.priority] ?? 50;
-      reasons.push(`priority: ${task.priority} (+${PRIORITY_SCORE[task.priority] ?? 50})`);
-
-      // T9905: severity axis boost — orthogonal to priority.
-      const severityKey = task.severity ?? '';
-      const severityBump = SEVERITY_SCORE[severityKey];
-      if (severityBump !== undefined) {
-        score += severityBump;
-        reasons.push(`severity: ${severityKey} (+${severityBump})`);
-      }
-
-      if (currentPhase && task.phase === currentPhase) {
-        score += 20;
-        reasons.push(`phase alignment: ${currentPhase} (+20)`);
-      }
-
-      if (depsReady(task.depends, dependencyLookup)) {
-        score += 10;
-        reasons.push('all dependencies satisfied (+10)');
-      }
-
-      if (task.createdAt) {
-        const ageMs = Date.now() - new Date(task.createdAt).getTime();
-        const ageDays = ageMs / (1000 * 60 * 60 * 24);
-        if (ageDays > 7) {
-          const ageBonus = Math.min(15, Math.floor(ageDays / 7));
-          score += ageBonus;
-          reasons.push(`age: ${Math.floor(ageDays)} days (+${ageBonus})`);
-        }
-      }
-
-      return { task, score, reasons };
-    })
-    .sort((a, b) => b.score - a.score);
-
-  // Brain pattern scoring (best-effort; skipped for a one-line hint)
-  if (params?.brain !== false)
-    try {
-      const { searchPatterns } = await import('../memory/patterns.js');
-      const [successPatterns, failurePatterns] = await Promise.all([
-        searchPatterns(projectRoot, { type: 'success', limit: 20 }),
-        searchPatterns(projectRoot, { type: 'failure', limit: 20 }),
-      ]);
-
-      if (successPatterns.length > 0 || failurePatterns.length > 0) {
-        for (const item of scored) {
-          const titleLower = item.task.title.toLowerCase();
-          const labels = (item.task.labels ?? []).map((l: string) => l.toLowerCase());
-          const matchText = [titleLower, ...labels].join(' ');
-
-          for (const sp of successPatterns) {
-            if (matchText.includes(sp.pattern.toLowerCase())) {
-              item.score += 10;
-              item.reasons.push(`brain: success pattern match "${sp.pattern}" (+10)`);
-              break;
-            }
-          }
-          for (const fp of failurePatterns) {
-            if (matchText.includes(fp.pattern.toLowerCase())) {
-              item.score -= 5;
-              item.reasons.push(`brain: failure pattern match "${fp.pattern}" (-5)`);
-              break;
-            }
-          }
-        }
-        scored.sort((a, b) => b.score - a.score);
-      }
-    } catch {
-      // Brain pattern scoring is best-effort
-    }
-
-  const count = Math.min(params?.count || 1, scored.length);
+  const count = Math.min(params?.count || 1, ranked.length);
   const explain = params?.explain ?? false;
 
-  const suggestions = scored.slice(0, count).map(({ task, score, reasons }) => ({
+  const suggestions = ranked.slice(0, count).map(({ task, score, factors }) => ({
     id: task.id,
     title: task.title,
     priority: task.priority,
     phase: task.phase ?? null,
     score,
-    ...(explain && { reasons }),
+    ...(explain && { reasons: factors.map(formatScoreFactor) }),
   }));
 
-  return { suggestions, totalCandidates: candidates.length };
+  return { suggestions, totalCandidates };
+}
+
+/**
+ * The phase that earns the phase-alignment bonus: the caller's session focus
+ * phase, else the project's current phase. `cleo next` and the briefing both
+ * resolve it here so they rank identically (T12661).
+ *
+ * @param accessor - Task data accessor.
+ * @returns The phase slug, or null.
+ * @task T12661
+ */
+export async function resolveRankingPhase(accessor: DataAccessor): Promise<string | null> {
+  // Only the focus PHASE is read here, never the task pointer, so the stale-
+  // pointer check in readLiveFocus (and its task load) does not apply.
+  const focus = await readFocusState(accessor, resolveSessionIdFromEnv());
+  if (focus?.currentPhase) return focus.currentPhase;
+  const projectMeta = await accessor.getMetaValue<ProjectMeta>('project_meta');
+  return projectMeta?.currentPhase ?? null;
+}
+
+/**
+ * Rank every READY task — pending, not cancelled, all dependencies satisfied
+ * under the canonical lookup (archived dependencies included) — through the
+ * shared {@link scoreTask}. The single ranking behind `cleo next` and the
+ * briefing's `nextTasks` (T12661).
+ *
+ * @param accessor - Task data accessor (for dependency records outside `allTasks`).
+ * @param allTasks - The active task population.
+ * @param opts - Current phase, optional id scope, `nowMs`, and `projectRoot`
+ *   to attach BRAIN success/failure patterns as informational factors
+ *   (best-effort; they are not part of the order).
+ * @returns Ranked candidates, how many there were, and the leverage map used.
+ * @task T12661
+ */
+export async function rankReadyTasks(
+  accessor: DataAccessor,
+  allTasks: readonly Task[],
+  opts: {
+    currentPhase: string | null;
+    scopeTaskIds?: ReadonlySet<string>;
+    projectRoot?: string;
+    /** Clock for the age tiebreak; one instant for the whole ranking. */
+    nowMs?: number;
+  },
+): Promise<{
+  ranked: RankedTask<Task>[];
+  totalCandidates: number;
+  leverage: ReadonlyMap<string, number>;
+}> {
+  const dependencyLookup = await loadReadinessDependencyLookup(allTasks, accessor);
+  const candidates = allTasks.filter(
+    (t) =>
+      t.status === 'pending' &&
+      !t.cancelledAt &&
+      (!opts.scopeTaskIds || opts.scopeTaskIds.has(t.id)) &&
+      depsReady(t.depends, dependencyLookup),
+  );
+  const leverage = computeLeverage(allTasks);
+  if (candidates.length === 0) return { ranked: [], totalCandidates: 0, leverage };
+
+  const ctx: ScoreTaskContext = {
+    currentPhase: opts.currentPhase,
+    nowMs: opts.nowMs ?? Date.now(),
+    taskStatuses: new Map(
+      [...dependencyLookup.values()].map((task) => [task.id, task.status] as const),
+    ),
+    leverage,
+  };
+  if (opts.projectRoot) {
+    try {
+      const { searchPatterns } = await import('../memory/patterns.js');
+      const [success, failure] = await Promise.all([
+        searchPatterns(opts.projectRoot, { type: 'success', limit: 20 }),
+        searchPatterns(opts.projectRoot, { type: 'failure', limit: 20 }),
+      ]);
+      ctx.successPatterns = success;
+      ctx.failurePatterns = failure;
+    } catch {
+      // Brain pattern scoring is best-effort
+    }
+  }
+  return { ranked: rankTasks(candidates, ctx), totalCandidates: candidates.length, leverage };
 }

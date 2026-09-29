@@ -1,11 +1,29 @@
 /**
- * scoreTask — pure-functional task priority scorer.
+ * scoreTask — THE task ranker (T12661, tiered per council verdict D11161 / T12691).
  *
- * Computes a numeric score for a task given its attributes and project context.
  * Pure functional — no I/O, no DB access, no async.
+ *
+ * `cleo next`, the briefing's `nextTasks` and both `cleo analyze` paths rank
+ * through this module. The order is LEXICOGRAPHIC, never an additive sum:
+ *
+ * 1. **Priority band** — the owner's priority: critical > high > medium > low.
+ * 2. **Severity** — attested severity: P0 > P1 > P2 > P3 > unknown. An unset
+ *    severity is `unknown`; nothing is imputed (not even for a bug).
+ * 3. **Bounded tiebreak** — computed graph facts: dependencies ready (+10),
+ *    phase alignment (+20), leverage (+5 per open dependent, capped at +20),
+ *    anti-starvation age (+1 per week after the first, capped at +10).
+ * 4. **createdAt** — older first (parsed and normalised to UTC).
+ * 5. **id**.
+ *
+ * Computed signals therefore never cross a band: a plain ready critical task
+ * always outranks a low-priority P0 bug carrying every bonus. The additive
+ * scorer this replaces let that bug win 115 to 110. BRAIN success/failure
+ * patterns are informational factors only; they are not part of the order.
  *
  * @arch SDK Tool (Category B) — pure, no side effects, contracts-typed
  * @task T10068
+ * @task T12661
+ * @task T12691
  * @epic T9835
  */
 
@@ -13,125 +31,251 @@ import type {
   ScoreFactor,
   ScoreTaskContext,
   ScoreTaskInput,
+  ScoreTaskKey,
   ScoreTaskResult,
+  TaskSeverity,
 } from '@cleocode/contracts';
+import { isReadinessDependencySatisfied } from '../tasks/dependency-check.js';
 
-const PRIORITY_SCORE: Record<string, number> = {
-  critical: 100,
-  high: 75,
-  medium: 50,
-  low: 25,
+/** Tier 1 — owner priority band rank (higher first). */
+export const PRIORITY_BAND: Readonly<Record<string, number>> = {
+  critical: 4,
+  high: 3,
+  medium: 2,
+  low: 1,
 };
 
-const SATISFIED_STATUSES = new Set<string>(['done', 'cancelled']);
+/** Tier 2 — attested severity rank (higher first); `unknown` is 0. */
+export const SEVERITY_RANK: Readonly<Record<TaskSeverity, number>> = {
+  P0: 4,
+  P1: 3,
+  P2: 2,
+  P3: 1,
+};
 
+/** Tier 3 — bonus when every dependency is satisfied. */
+export const DEPS_READY_SCORE = 10;
+
+/** Tier 3 — bonus when the task's phase matches the current phase. */
+export const PHASE_ALIGNMENT_SCORE = 20;
+
+/** Tier 3 — bonus per open task this task unblocks. */
+export const LEVERAGE_PER_DEPENDENT = 5;
+
+/** Tier 3 — cap on the leverage bonus. */
+export const MAX_LEVERAGE_SCORE = 20;
+
+/** Tier 3 — cap on the anti-starvation age bonus (+1 per week after the first). */
+export const MAX_AGE_SCORE = 10;
+
+/** Weights that fold the key into one sortable number (tiebreak stays below 1000). */
+const BAND_WEIGHT = 10000;
+const SEVERITY_WEIGHT = 1000;
+
+/**
+ * Parse a task timestamp to epoch milliseconds, normalised to UTC.
+ *
+ * Stores hold both ISO-8601 with a zone (`2026-09-01T10:00:00Z`) and SQLite's
+ * zone-less `YYYY-MM-DD HH:MM:SS`. `Date.parse` reads the zone-less form as
+ * LOCAL time, so the same instant scored and sorted differently by machine
+ * (T12661 review). A timestamp without a zone is taken as UTC.
+ *
+ * @param value - Timestamp text.
+ * @returns Epoch milliseconds, or `NaN` when unparseable.
+ */
+export function parseTimestampMs(value: string | null | undefined): number {
+  if (!value) return Number.NaN;
+  const text = value.trim();
+  const hasZone = /(?:[zZ]|[+-]\d{2}:?\d{2})$/.test(text);
+  if (hasZone || !/\d{2}:\d{2}/.test(text)) return Date.parse(text);
+  return Date.parse(`${text.replace(' ', 'T')}Z`);
+}
+
+/**
+ * Whether every dependency of a task is satisfied, under the same readiness
+ * policy as `depsReady` (cancelled work still blocks).
+ */
 function areDepsReady(
   depends: string[] | undefined,
   taskStatuses: Map<string, string> | undefined,
 ): boolean {
   if (!depends?.length) return true;
   if (!taskStatuses) return false;
-  return depends.every((depId) => {
-    const status = taskStatuses.get(depId);
-    return status !== undefined && SATISFIED_STATUSES.has(status);
-  });
+  return depends.every((depId) => isReadinessDependencySatisfied(taskStatuses.get(depId)));
 }
 
 /**
- * Compute a priority score for a single task.
- *
- * Scoring formula:
- * - **Priority** (+25/+50/+75/+100 depending on level)
- * - **Phase alignment** (+20 when task phase matches `ctx.currentPhase`)
- * - **Dependency readiness** (+10 when all deps are done/cancelled)
- * - **Age bonus** (+1 per week over 7 days, capped at +15)
- * - **Brain success pattern** (+10 for first matching success pattern)
- * - **Brain failure pattern** (-5 for first matching failure pattern)
+ * Score a single task: its lexicographic key, every factor tagged with its
+ * comparator tier, and the key folded into one number that sorts identically.
  *
  * @param task - Task to score
- * @param ctx - Scoring context (phase, dep statuses, patterns)
- * @returns Score and individual factors
+ * @param ctx - Scoring context (phase, dep statuses, leverage, `nowMs`, patterns)
+ * @returns Score, key and factors
  *
  * @example
  * ```typescript
- * const result = scoreTask(
- *   { id: 'T1', title: 'Auth', priority: 'high', phase: 'v2', depends: ['T0'] },
- *   { currentPhase: 'v2', taskStatuses: new Map([['T0', 'done']]) },
- * );
- * // result.score === 75 (priority) + 20 (phase) + 10 (deps) = 105
+ * scoreTask({ id: 'T1', title: 'Auth', priority: 'high', kind: 'bug' }, {}).key;
+ * // { band: 3, severity: 0, tiebreak: 10 } — severity unknown, deps ready
  * ```
  */
 export function scoreTask(task: ScoreTaskInput, ctx: ScoreTaskContext): ScoreTaskResult {
   const factors: ScoreFactor[] = [];
-  let score = 0;
 
-  // Priority
-  const priorityDelta = PRIORITY_SCORE[task.priority] ?? 50;
-  score += priorityDelta;
-  factors.push({ name: 'priority', delta: priorityDelta, detail: `${task.priority}` });
+  const priority = task.priority ?? 'medium';
+  // Own-property lookups only: an unvalidated value such as `toString` must
+  // fall back, never yield a prototype member (which would fold to NaN).
+  const band = Object.hasOwn(PRIORITY_BAND, priority)
+    ? PRIORITY_BAND[priority]!
+    : PRIORITY_BAND['medium']!;
+  factors.push({
+    name: 'band',
+    delta: band * BAND_WEIGHT,
+    detail: `priority ${priority}`,
+    tier: 1,
+  });
 
-  // Phase alignment
-  if (ctx.currentPhase && task.phase === ctx.currentPhase) {
-    score += 20;
-    factors.push({
-      name: 'phaseAlignment',
-      delta: 20,
-      detail: `matches current phase "${ctx.currentPhase}"`,
-    });
-  }
+  const severity =
+    task.severity && Object.hasOwn(SEVERITY_RANK, task.severity) ? SEVERITY_RANK[task.severity] : 0;
+  factors.push({
+    name: 'severity',
+    delta: severity * SEVERITY_WEIGHT,
+    detail: task.severity ?? 'unknown (not set)',
+    tier: 2,
+  });
 
-  // Dependency readiness
+  let tiebreak = 0;
+  const bonus = (name: string, delta: number, detail: string): void => {
+    tiebreak += delta;
+    factors.push({ name, delta, detail, tier: 3 });
+  };
   if (areDepsReady(task.depends, ctx.taskStatuses)) {
-    score += 10;
-    factors.push({ name: 'depsReady', delta: 10, detail: 'all dependencies satisfied' });
+    bonus('depsReady', DEPS_READY_SCORE, 'all dependencies satisfied');
   }
-
-  // Age bonus
+  if (ctx.currentPhase && task.phase === ctx.currentPhase) {
+    bonus('phaseAlignment', PHASE_ALIGNMENT_SCORE, `matches current phase "${ctx.currentPhase}"`);
+  }
+  const dependents = ctx.leverage?.get(task.id) ?? 0;
+  if (dependents > 0) {
+    bonus(
+      'leverage',
+      Math.min(MAX_LEVERAGE_SCORE, dependents * LEVERAGE_PER_DEPENDENT),
+      `unblocks ${dependents} open task(s) (capped at +${MAX_LEVERAGE_SCORE})`,
+    );
+  }
   if (task.createdAt) {
     const nowMs = ctx.nowMs ?? Date.now();
-    const ageMs = nowMs - new Date(task.createdAt).getTime();
-    const ageDays = ageMs / (1000 * 60 * 60 * 24);
+    const ageDays = (nowMs - parseTimestampMs(task.createdAt)) / (1000 * 60 * 60 * 24);
     if (ageDays > 7) {
-      const ageBonus = Math.min(15, Math.floor(ageDays / 7));
-      score += ageBonus;
-      factors.push({
-        name: 'age',
-        delta: ageBonus,
-        detail: `${Math.floor(ageDays)} days old`,
-      });
+      bonus(
+        'age',
+        Math.min(MAX_AGE_SCORE, Math.floor(ageDays / 7)),
+        `anti-starvation: ${Math.floor(ageDays)} days old (capped at +${MAX_AGE_SCORE})`,
+      );
     }
   }
 
-  // Brain pattern scoring
+  // BRAIN patterns: informational only — not part of the order (D11161).
   if (ctx.successPatterns?.length || ctx.failurePatterns?.length) {
-    const titleLower = task.title.toLowerCase();
-    const labels = (task.labels ?? []).map((l) => l.toLowerCase());
-    const matchText = [titleLower, ...labels].join(' ');
-
-    for (const sp of ctx.successPatterns ?? []) {
-      if (matchText.includes(sp.pattern.toLowerCase())) {
-        score += 10;
-        factors.push({
-          name: 'brainSuccess',
-          delta: 10,
-          detail: `success pattern "${sp.pattern}"`,
-        });
-        break;
-      }
-    }
-
-    for (const fp of ctx.failurePatterns ?? []) {
-      if (matchText.includes(fp.pattern.toLowerCase())) {
-        score -= 5;
-        factors.push({
-          name: 'brainFailure',
-          delta: -5,
-          detail: `failure pattern "${fp.pattern}"`,
-        });
-        break;
-      }
-    }
+    const matchText = [task.title, ...(task.labels ?? [])].join(' ').toLowerCase();
+    const success = ctx.successPatterns?.find((p) => matchText.includes(p.pattern.toLowerCase()));
+    if (success)
+      factors.push({
+        name: 'brainSuccess',
+        delta: 0,
+        detail: `success pattern "${success.pattern}"`,
+        tier: null,
+      });
+    const failure = ctx.failurePatterns?.find((p) => matchText.includes(p.pattern.toLowerCase()));
+    if (failure)
+      factors.push({
+        name: 'brainFailure',
+        delta: 0,
+        detail: `failure pattern "${failure.pattern}"`,
+        tier: null,
+      });
   }
 
-  return { score, factors };
+  const key: ScoreTaskKey = { band, severity, tiebreak };
+  return { score: band * BAND_WEIGHT + severity * SEVERITY_WEIGHT + tiebreak, factors, key };
+}
+
+/**
+ * Render one factor as an `--explain` line naming its comparator tier.
+ *
+ * @param factor - Scored factor.
+ * @returns e.g. `tier 1 band: priority high`, `tier 3 depsReady: all dependencies satisfied (+10)`,
+ *   or `info brainSuccess: … (not in the order)`.
+ */
+export function formatScoreFactor(factor: ScoreFactor): string {
+  if (factor.tier === null) return `info ${factor.name}: ${factor.detail} (not in the order)`;
+  if (factor.tier === 1 || factor.tier === 2)
+    return `tier ${factor.tier} ${factor.name}: ${factor.detail}`;
+  const sign = factor.delta >= 0 ? '+' : '';
+  return `tier 3 ${factor.name}: ${factor.detail} (${sign}${factor.delta})`;
+}
+
+/**
+ * Count, for every task id, the OPEN tasks that depend on it — the leverage
+ * input of {@link scoreTask}. Done, archived and cancelled dependents are not
+ * work this task unblocks.
+ *
+ * @param tasks - Tasks with `depends` and `status`.
+ * @returns Map of task id to number of open dependents.
+ */
+export function computeLeverage(
+  tasks: ReadonlyArray<{ depends?: string[]; status?: string }>,
+): Map<string, number> {
+  const leverage = new Map<string, number>();
+  for (const task of tasks) {
+    if (isReadinessDependencySatisfied(task.status) || task.status === 'cancelled') continue;
+    for (const dep of task.depends ?? []) leverage.set(dep, (leverage.get(dep) ?? 0) + 1);
+  }
+  return leverage;
+}
+
+/** A task with its score, key and factors, as {@link rankTasks} returns it. */
+export interface RankedTask<T extends ScoreTaskInput> {
+  /** The task. */
+  task: T;
+  /** The key folded into one sortable number. */
+  score: number;
+  /** Every factor, tagged with its comparator tier. */
+  factors: ScoreFactor[];
+  /** The lexicographic key. */
+  key?: ScoreTaskKey;
+}
+
+/**
+ * Order tasks by the tiered key: band, severity, tiebreak (all higher first),
+ * then older `createdAt` (parsed, UTC), then id — deterministic, so every
+ * ranker returns the same order for the same input.
+ *
+ * @param tasks - Candidate tasks.
+ * @param ctx - Shared scoring context.
+ * @returns Ranked tasks.
+ */
+export function rankTasks<T extends ScoreTaskInput>(
+  tasks: readonly T[],
+  ctx: ScoreTaskContext,
+): RankedTask<T>[] {
+  // Missing or unparseable timestamps sort after every dated task.
+  const created = (task: T): number => {
+    const ms = parseTimestampMs(task.createdAt);
+    return Number.isNaN(ms) ? Number.POSITIVE_INFINITY : ms;
+  };
+  const zero: ScoreTaskKey = { band: 0, severity: 0, tiebreak: 0 };
+  return tasks
+    .map((task) => ({ task, ...scoreTask(task, ctx), createdMs: created(task) }))
+    .sort((a, b) => {
+      const ka = a.key ?? zero;
+      const kb = b.key ?? zero;
+      return (
+        kb.band - ka.band ||
+        kb.severity - ka.severity ||
+        kb.tiebreak - ka.tiebreak ||
+        (a.createdMs === b.createdMs ? 0 : a.createdMs < b.createdMs ? -1 : 1) ||
+        a.task.id.localeCompare(b.task.id)
+      );
+    })
+    .map(({ createdMs: _createdMs, ...rest }) => rest);
 }
