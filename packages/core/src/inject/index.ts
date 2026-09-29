@@ -15,8 +15,7 @@
 
 import type { Task } from '@cleocode/contracts';
 import { TERMINAL_TASK_STATUSES } from '@cleocode/contracts';
-import { readLiveFocus } from '../sessions/focus-state-store.js';
-import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
+import { readLiveFocus, resolveFocusSessionId } from '../sessions/focus-state-store.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 
@@ -97,7 +96,7 @@ export async function injectTasks(
   const { tasks: allTasks } = await acc.queryTasks({});
   const projectMeta = await acc.getMetaValue<{ currentPhase?: string }>('project');
   // T12684: never inject a finished task as the focused one.
-  const focus = await readLiveFocus(acc, resolveSessionIdFromEnv());
+  const focus = await readLiveFocus(acc, await resolveFocusSessionId(opts.cwd));
 
   const selectedTasks = selectTasksForInjection(allTasks, {
     ...opts,

@@ -14,6 +14,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { Session } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------
@@ -32,10 +33,21 @@ vi.mock('../../sessions/index.js', () => ({
   sessionStatus: vi.fn(),
 }));
 
+// T12501: the focused task comes from the caller's live focus, not the row.
+vi.mock('../../store/data-accessor.js', () => ({
+  getTaskAccessor: vi.fn().mockResolvedValue({}),
+}));
+
+vi.mock('../../sessions/focus-state-store.js', () => ({
+  resolveFocusSessionId: vi.fn().mockResolvedValue('ses_test_1'),
+  readLiveFocus: vi.fn().mockResolvedValue({ state: null, currentTask: null, staleFocus: null }),
+}));
+
 // Imported AFTER vi.mock declarations so the mocked module replaces the
 // real one in the dependency graph.
 import { getCredentialPool } from '../../llm/credential-pool.js';
 import { getDaemonStatus } from '../../sentient/daemon-api.js';
+import { readLiveFocus } from '../../sessions/focus-state-store.js';
 import { sessionStatus } from '../../sessions/index.js';
 import { getCleoStatus } from '../index.js';
 
@@ -392,11 +404,38 @@ describe('getCleoStatus.session', () => {
       taskWork: { taskId: 'T9423', setAt: '2026-05-17T00:00:00Z' },
       startedAt: '2026-05-17T00:00:00Z',
     } as unknown as Awaited<ReturnType<typeof sessionStatus>>);
+    vi.mocked(readLiveFocus).mockResolvedValueOnce({
+      state: null,
+      currentTask: 'T9423',
+      staleFocus: null,
+    });
 
     const status = await getCleoStatus();
     expect(status.session.active).toBe(true);
     expect(status.session.sessionId).toBe('ses_test_1');
     expect(status.session.focusedTask).toBe('T9423');
+  });
+
+  it('never reports the session row taskWork when the live focus is done (T12501)', async () => {
+    const row: Session = {
+      id: 'ses_test_1',
+      name: 'fake',
+      status: 'active',
+      scope: { type: 'global' },
+      // Set at start, never updated — T9423 has since been completed.
+      taskWork: { taskId: 'T9423', setAt: '2026-05-17T00:00:00Z' },
+      startedAt: '2026-05-17T00:00:00Z',
+    };
+    vi.mocked(sessionStatus).mockResolvedValueOnce(row);
+    vi.mocked(readLiveFocus).mockResolvedValueOnce({
+      state: { currentTask: 'T9423' },
+      currentTask: null,
+      staleFocus: { taskId: 'T9423', status: 'done' },
+    });
+
+    const status = await getCleoStatus();
+    expect(status.session.active).toBe(true);
+    expect(status.session.focusedTask).toBeNull();
   });
 
   it('falls back to inactive when the session store throws', async () => {

@@ -1287,10 +1287,13 @@ export type {
   LiveFocusAccessor,
 } from './sessions/focus-state-store.js';
 export {
+  focusSessionIdFromRead,
   focusStateKey,
   LEGACY_FOCUS_STATE_KEY,
   readFocusState,
   readLiveFocus,
+  releaseLegacyPointer,
+  resolveFocusSessionId,
   writeFocusState,
 } from './sessions/focus-state-store.js';
 export type { DebriefData, HandoffData } from './sessions/handoff.js';
