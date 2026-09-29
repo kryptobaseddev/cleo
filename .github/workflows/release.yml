@@ -654,7 +654,12 @@ jobs:
     name: Publish
     needs: [build-verify, prebuild, cant-napi]
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # gh#1479 recorded a single @cleocode/cleo publish taking 55m33s (npm
+    # accepted it; the registry sat on it). 60 minutes left ~4 minutes for the
+    # other 17 packages, the GitHub Release and the stage/verify steps, so one
+    # slow registry day would kill the job mid-wave. 180 is headroom, not a
+    # target: a healthy publish finishes in minutes.
+    timeout-minutes: 180
     env:
       VERSION: ${{ needs.build-verify.outputs.version }}
 
@@ -964,35 +969,16 @@ jobs:
 
           # `publish_pkg <dir> [npmName]` ENQUEUES into the current wave (and is
           # the npm publish-surface SSoT line, arch gate 9 / execute-payload);
-          # `run_wave` publishes the queued packages concurrently, waits for all
-          # of them, then prints each one's log in queue order so the output
-          # stays readable.
-          WAVE=()
-          publish_pkg() {
-            WAVE+=("$*")
-          }
-          run_wave() {
-            local label="$1"
-            local -a pids=()
-            local i=0
-            local entry
-            echo "=== wave ${label}: ${WAVE[*]} ==="
-            for entry in "${WAVE[@]}"; do
-              # shellcheck disable=SC2086 # "<dir> [npmName]" splits into args
-              ( _publish_one $entry ) > "/tmp/publish-wave-${label}-${i}.log" 2>&1 &
-              pids+=("$!")
-              i=$((i + 1))
-            done
-            local pid
-            for pid in "${pids[@]}"; do
-              wait "$pid" || true
-            done
-            local j
-            for ((j = 0; j < i; j++)); do
-              cat "/tmp/publish-wave-${label}-${j}.log"
-            done
-            WAVE=()
-          }
+          # `run_wave` publishes the queued packages concurrently and waits for
+          # all of them. Both live in scripts/release-publish-waves.sh so the
+          # failure handling is unit-tested with fake publishers: a publish that
+          # CRASHES (nonzero exit, no classified outcome) is a failure, and after
+          # any wave with a failure no later wave is published — a later wave
+          # depends on the earlier ones. SKIP-EXISTS/RACE/CONFLICT stay
+          # successes, so a re-run of the same release is idempotent.
+          WAVE_LOG_DIR=/tmp
+          # shellcheck source=scripts/release-publish-waves.sh
+          source scripts/release-publish-waves.sh
 
           # Waves are the dependency levels of the published @cleocode/*
           # graph (dependencies + peerDependencies + optionalDependencies).
@@ -1057,7 +1043,7 @@ jobs:
           echo "--- publish timeline ---"
           cat "$PUBLISH_LOG"
 
-          mapfile -t FAILED_PKGS < "$FAILED_LOG"
+          mapfile -t FAILED_PKGS < <(sort -u "$FAILED_LOG")
           if [[ ${#FAILED_PKGS[@]} -gt 0 ]]; then
             echo "::error::Real publish failures for: ${FAILED_PKGS[*]}"
             echo ""
