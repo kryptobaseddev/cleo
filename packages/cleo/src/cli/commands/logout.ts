@@ -89,7 +89,8 @@ export const logoutCommand = defineCommand({
     } catch (err) {
       failNexus(err, 'logout.run');
     }
-    for (const warning of result.warnings) process.stderr.write(`warning: ${warning}\n`);
+    // Warnings travel in the envelope (`data.warnings`); the human line names a
+    // failed revocation itself.
     emitNexusResult(result, nexusLogoutSummary(result), 'logout', 'logout.run');
   },
 });
