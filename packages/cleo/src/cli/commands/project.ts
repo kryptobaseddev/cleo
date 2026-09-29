@@ -298,9 +298,11 @@ const reregisterSubCommand = defineCommand({
 });
 
 /**
- * `cleo project link` — register this project with Cleo Nexus (a name label
- * only, never a path) and bind the remote project to the local one in
- * `.cleo/nexus-link.json`. Idempotent. Logic: `@cleocode/core/cloud/nexus-link.js`.
+ * `cleo project link` — register this project with Cleo Nexus under its
+ * `.cleo/project-id`, with its display name as a plaintext label (`--label`
+ * overrides; never a path), and record the binding in `.cleo/nexus-link.json`.
+ * Idempotent; re-linking after a rename updates the label. Logic:
+ * `@cleocode/core/cloud/nexus-link.js`.
  *
  * @task T12712
  */
@@ -308,12 +310,13 @@ const linkSubCommand = defineCommand({
   meta: {
     name: 'link',
     description:
-      'Register this project with Cleo Nexus and bind the remote project to the local project id. Sends the project id and a name label only (never a filesystem path). Idempotent. Requires cleo login nexus.',
+      'Register this project with Cleo Nexus under its project id (.cleo/project-id) with its name as a plaintext label (--label overrides; never a filesystem path). Idempotent: re-linking after a rename updates the label. Requires cleo login nexus.',
   },
   args: {
-    name: {
+    label: {
       type: 'string',
-      description: 'Label shown in Nexus (default: the project name). A name, not a path.',
+      description:
+        'Name shown in Nexus, sent in plaintext (default: the project name). A name, never a path.',
     },
     'api-url': NEXUS_API_URL_ARG,
     json: { type: 'boolean', description: 'Output raw JSON envelope.', default: false },
@@ -326,7 +329,7 @@ const linkSubCommand = defineCommand({
     try {
       result = await linkProjectToNexus({
         apiUrl: nexusApiUrlArg(args),
-        ...(typeof args['name'] === 'string' && args['name'] ? { name: args['name'] } : {}),
+        ...(typeof args['label'] === 'string' && args['label'] ? { label: args['label'] } : {}),
       });
     } catch (err) {
       failNexus(err, 'project.link');

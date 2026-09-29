@@ -4,15 +4,21 @@
  *
  * ## What is sent
  *
- * `POST /v1/projects` with `{ projectId, label }` only: the local CLEO project
- * id and a plaintext name label. No filesystem path, git remote or directory
- * layout is ever sent (the server stores none). The label defaults to the
- * project's name and must not look like a path.
+ * `POST /v1/projects` with `{ projectId, label }` only:
+ *
+ * - `projectId` is the tracked, immutable `.cleo/project-id`
+ *   (`readDeclaredProjectIdentity`), the key the server stores projects under,
+ *   so the remote id IS the local id.
+ * - `label` is the project's display name in plaintext
+ *   ({@link getProjectDisplayName}), or `--label`. It must not look like a path.
+ *
+ * No filesystem path, git remote or directory layout is ever sent.
  *
  * ## Idempotency
  *
- * The server keys projects by the CLEO project id, so registering the same id
- * again updates its label and returns the same project. Linking twice is safe.
+ * Registering the same id again answers 200 (201 on first registration) and
+ * sets the server label to the one sent, so re-linking after a rename updates
+ * the label. Linking twice is safe.
  *
  * ## Where the binding lives
  *
@@ -31,9 +37,10 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { NexusProjectLink, NexusProjectLinkResult } from '@cleocode/contracts';
+import { readDeclaredProjectIdentity } from '@cleocode/paths';
 import { z } from 'zod';
-import { getCleoDirAbsolute } from '../paths.js';
-import { getProjectInfo } from '../project-info.js';
+import { getCleoDirAbsolute, resolveOrCwd } from '../paths.js';
+import { getProjectDisplayName } from '../project-info.js';
 import { writeJsonFileAtomic } from '../store/file-utils.js';
 import { Http, NexusError } from './http.js';
 import {
@@ -72,8 +79,8 @@ type NexusLinkFile = z.infer<typeof linkFileSchema>;
 export interface NexusLinkOptions extends NexusFlowOptions {
   /** Project root; defaults to the resolved current project. */
   projectRoot?: string;
-  /** Label to register; defaults to the project name. */
-  name?: string;
+  /** Label to register (`--label`); defaults to {@link getProjectDisplayName}. */
+  label?: string;
 }
 
 /**
@@ -92,7 +99,7 @@ export function validateNexusProjectLabel(raw: string): string {
     throw new NexusAccountError(
       'E_NEXUS_INVALID_LABEL',
       `invalid project label "${label}": use 1-${NEXUS_LABEL_MAX} characters with no "/", "\\" or leading "~" (a name, not a path)`,
-      'pass `--name <label>`',
+      'pass `--label <name>`',
     );
   }
   return label;
@@ -163,26 +170,25 @@ export async function linkProjectToNexus(
   const session = await requireNexusSession(apiUrl, store);
 
   let projectRoot: string;
-  let projectId: string;
-  let projectName: string;
   try {
-    const info = await getProjectInfo(opts.projectRoot);
-    ({ projectRoot, projectId, projectName } = info);
+    projectRoot = resolveOrCwd(opts.projectRoot);
   } catch {
     throw new NexusAccountError(
       'E_NEXUS_NOT_A_PROJECT',
-      'not inside a CLEO project (no .cleo/project-info.json)',
+      'not inside a CLEO project',
       'run `cleo init` first',
     );
   }
-  if (!projectId) {
+  const identity = readDeclaredProjectIdentity(projectRoot);
+  if (!identity) {
     throw new NexusAccountError(
       'E_NEXUS_NOT_A_PROJECT',
-      'this project has no project id yet',
-      'run `cleo upgrade` to assign one',
+      'this project has no project id (.cleo/project-id)',
+      'run `cleo init` or `cleo upgrade` to assign one',
     );
   }
-  const label = validateNexusProjectLabel(opts.name ?? projectName);
+  const projectId = identity.projectId;
+  const label = validateNexusProjectLabel(opts.label ?? getProjectDisplayName(projectRoot));
 
   const http = new Http({
     baseUrl: apiUrl,
@@ -198,7 +204,6 @@ export async function linkProjectToNexus(
 
   const linkPath = nexusLinkPath(projectRoot);
   const file = readLinkFile(linkPath);
-  const previous = file.links[apiUrl];
   const link: NexusProjectLink = {
     apiUrl,
     localProjectId: projectId,
@@ -212,7 +217,7 @@ export async function linkProjectToNexus(
 
   return {
     link,
-    alreadyLinked: previous?.remoteProjectId === link.remoteProjectId,
+    alreadyLinked: !registered.created,
     linkPath,
   };
 }

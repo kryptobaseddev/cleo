@@ -455,13 +455,14 @@ describe('cleo auth list — nexus row', () => {
 });
 
 describe('cleo project link', () => {
-  it('registers with a name label only and emits the binding', async () => {
+  it('sends the tracked id and the project name (plaintext); --label overrides it', async () => {
     const base = mkdtempSync(join(tmpdir(), 'cli-link-'));
     const root = join(base, 'board');
     mkdirSync(join(root, '.cleo'), { recursive: true });
+    writeFileSync(join(root, '.cleo', 'project-id'), `${PROJECT_ID}\n`);
     writeFileSync(
       join(root, '.cleo', 'project-info.json'),
-      JSON.stringify({ projectId: PROJECT_ID, projectHash: 'abcdef012345' }),
+      JSON.stringify({ projectId: 'c78d09c3a8ee', projectHash: 'abcdef012345', name: 'Board' }),
     );
     const savedDir = process.env['CLEO_DIR'];
     const savedRoot = process.env['CLEO_ROOT'];
@@ -470,7 +471,8 @@ describe('cleo project link', () => {
     const cap = capture();
     try {
       await run(loginCommand, { provider: 'nexus', browser: false });
-      await run(await sub(projectCommand, 'link'), { name: 'Board' });
+      await run(await sub(projectCommand, 'link'), {});
+      await run(await sub(projectCommand, 'link'), { label: 'Ops Board' });
     } finally {
       cap.restore();
       if (savedDir === undefined) delete process.env['CLEO_DIR'];
@@ -478,9 +480,12 @@ describe('cleo project link', () => {
       if (savedRoot === undefined) delete process.env['CLEO_ROOT'];
       else process.env['CLEO_ROOT'] = savedRoot;
     }
-    const post = calls.find((c) => c.path === '/v1/projects');
-    expect(JSON.parse(post?.body ?? '{}')).toEqual({ projectId: PROJECT_ID, label: 'Board' });
-    expect(post?.body).not.toContain(base);
+    const posts = calls.filter((c) => c.path === '/v1/projects');
+    expect(posts.map((p) => JSON.parse(p.body))).toEqual([
+      { projectId: PROJECT_ID, label: 'Board' },
+      { projectId: PROJECT_ID, label: 'Ops Board' },
+    ]);
+    for (const p of posts) expect(p.body).not.toContain(base);
     const env = cap.envelope();
     expect(env.meta.operation).toBe('project.link');
     expect(env.data.link).toMatchObject({

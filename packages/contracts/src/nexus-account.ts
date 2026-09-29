@@ -151,13 +151,13 @@ export interface NexusLogoutResult {
 export interface NexusProjectLink {
   /** API origin the project is registered with. */
   apiUrl: string;
-  /** The local CLEO project id (`.cleo/project-info.json`). */
+  /** The local CLEO project id (the tracked `.cleo/project-id`). */
   localProjectId: string;
   /** The project id the server returned (the server keys projects by the CLEO id). */
   remoteProjectId: string;
   /** Owning organization id. */
   organizationId: string;
-  /** Plaintext label sent to the server, or `null` when none was sent. */
+  /** Plaintext display-name label the server holds, or `null` when it has none. */
   label: string | null;
   /** Journal stream id for the project. */
   streamId: string;
@@ -170,8 +170,9 @@ export interface NexusProjectLinkResult {
   /** The persisted binding. */
   link: NexusProjectLink;
   /**
-   * `true` when this project was already bound to the same remote project on
-   * this API origin (a repeat link). Linking is idempotent either way.
+   * `true` when the server already had this project id (HTTP 200; its label
+   * was updated to the one sent), `false` when this call registered it (201).
+   * Linking is idempotent either way.
    */
   alreadyLinked: boolean;
   /** Absolute path of the local binding file. */
