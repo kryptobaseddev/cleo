@@ -25,10 +25,13 @@
  *   cleo decide ask --state <text> --question <q> [--profile p] — one debug decision (--noul: alias)
  *   cleo decide sites [--rung r] [--mode m] [--id s] [--evidence] — list decision sites
  *   cleo decide budget reset [--force]                       — repair a corrupt spend ledger
+ *   cleo decide bench [--profiles a,b] [--sites …] [--sample-only] [--corrections f] [--max-usd N] [--runs N] [--out dir]
+ *                                                            — System One accuracy benchmark (T12495)
  *
  * @task T12491
  * @task T12713
  * @task T12733
+ * @task T12495
  * @epic T12486
  */
 
@@ -348,6 +351,83 @@ const decideSitesCommand = defineCommand({
   },
 });
 
+/** Split a comma list flag. */
+function commaList(value: string | undefined): string[] | undefined {
+  return value === undefined
+    ? undefined
+    : value
+        .split(',')
+        .map((v) => v.trim())
+        .filter(Boolean);
+}
+
+/** A numeric flag, or `undefined` when absent. */
+function numberFlag(value: string | undefined): number | undefined {
+  return value === undefined ? undefined : Number(value);
+}
+
+/** `cleo decide bench` */
+const decideBenchCommand = defineCommand({
+  meta: {
+    name: 'bench',
+    description:
+      "System One accuracy benchmark (T12495): build a labelled dataset from this project's own history (duplicate task pairs, explicitly typed observations, superseding decisions; redacted), write a stratified spot-check sample for the owner, then compare providers against each site's heuristic with batched calls (provider cache off, 30s or longer deadline): accuracy, precision, recall, F1, false-positive rate, p50/p95 latency, cost and fallbacks, mean and spread over --runs. A hard total cap (--max-usd, default 5) is checked before every batch; the run stops cleanly at it. Profiles resolve from CLEO_DECIDE_PROFILE_<NAME>_KEY/_URL/_MODEL or the stored provider kind. --sample-only never contacts a provider.",
+  },
+  args: {
+    profiles: {
+      type: 'string',
+      description: 'Comma list of provider profiles to compare, e.g. layahost,jev',
+    },
+    sites: {
+      type: 'string',
+      description:
+        'Comma list: duplicateDetection,observationType,decisionContradiction (default all)',
+    },
+    'sample-only': {
+      type: 'boolean',
+      description: 'Build the dataset and the spot-check sample only (offline, no spend)',
+    },
+    corrections: {
+      type: 'string',
+      description:
+        'Owner corrections file ({"corrections":[{"id","label"}|{"id","drop":true}]}) to apply',
+    },
+    'max-usd': { type: 'string', description: 'Hard total spend cap in USD (default 5)' },
+    runs: { type: 'string', description: 'Repeated runs for mean and spread (default 1)' },
+    out: { type: 'string', description: 'Output directory (default .cleo/decide-bench)' },
+    'batch-size': { type: 'string', description: 'Rows per batch call, 1-64 (default 16)' },
+    rebuild: {
+      type: 'boolean',
+      description: 'Rebuild the dataset from the stores (drops corrections)',
+    },
+    seed: { type: 'string', description: 'Seed for negatives and the sample (default 12495)' },
+  },
+  async run({ args }) {
+    const op = 'decide.bench';
+    const { DecideBenchInputError, runDecideBenchOperation } = await import(
+      '@cleocode/core/decide/bench/index.js'
+    );
+    try {
+      const result = await runDecideBenchOperation({
+        profiles: commaList(args.profiles),
+        sites: commaList(args.sites),
+        sampleOnly: args['sample-only'] === true,
+        correctionsPath: args.corrections,
+        maxUsd: numberFlag(args['max-usd']),
+        runs: numberFlag(args.runs),
+        outDir: args.out,
+        batchSize: numberFlag(args['batch-size']),
+        rebuild: args.rebuild === true,
+        seed: numberFlag(args.seed),
+      });
+      cliOutput(result, { command: 'decide', operation: op });
+    } catch (err) {
+      if (!(err instanceof DecideBenchInputError)) throw err;
+      failValidation(err.message, op, err.fix);
+    }
+  },
+});
+
 /** `cleo decide budget reset` */
 const decideBudgetResetCommand = defineCommand({
   meta: {
@@ -397,7 +477,7 @@ export const decideCommand = defineCommand({
   meta: {
     name: 'decide',
     description:
-      'System One integration (typed decisions): decide config (named provider profile + API key; wizard on a terminal), decide use (switch the active profile), decide profiles (list them), decide status (reachability probe), decide ask (one debug question), decide sites (the registered decision sites). Unconfigured means heuristics answer.',
+      'System One integration (typed decisions): decide config (named provider profile + API key; wizard on a terminal), decide use (switch the active profile), decide profiles (list them), decide status (reachability probe), decide ask (one debug question), decide sites (the registered decision sites), decide bench (accuracy benchmark). Unconfigured means heuristics answer.',
   },
   subCommands: {
     config: decideConfigCommand,
@@ -407,6 +487,7 @@ export const decideCommand = defineCommand({
     ask: decideAskCommand,
     sites: decideSitesCommand,
     budget: decideBudgetCommand,
+    bench: decideBenchCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));

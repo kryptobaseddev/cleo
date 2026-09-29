@@ -121,6 +121,29 @@ export const DECIDE_ASK_DECISION_SITE = {
 } as const satisfies DecisionSiteDefinition;
 
 /**
+ * `cli.decide-bench` — the `cleo decide bench` accuracy benchmark (T12495).
+ *
+ * Replays labelled rows built from CLEO's own history through each compared
+ * provider. Its answers are scored against the labels and never acted on, so
+ * it runs `on` without go-live evidence (it produces that evidence).
+ */
+export const DECIDE_BENCH_DECISION_SITE = {
+  id: 'cli.decide-bench',
+  title: 'cleo decide bench (accuracy benchmark)',
+  files: ['packages/core/src/decide/bench/runner.ts'],
+  questionType: 'choice',
+  primaryRung: 'system-one',
+  ladder: [],
+  fallback: 'rule',
+  ownerEscalation: 'never',
+  defaultMode: 'on',
+  writePath: false,
+  sends: ['task-text', 'memory-text'],
+  task: 'T12495',
+  note: 'Benchmark verb: replays the duplicate, observation-type and contradiction questions; answers are scored, never acted on.',
+} as const satisfies DecisionSiteDefinition;
+
+/**
  * Generative and agent-rung sites that predate the ladder: registered so every
  * model call site is listed (spec §3.3). All `on`; none uses System One.
  */
@@ -370,6 +393,7 @@ export const DECISION_SITES: readonly DecisionSiteDefinition[] = [
   OBSERVATION_TYPE_DECISION_SITE,
   OWNER_DECISION_DECISION_SITE,
   DECIDE_ASK_DECISION_SITE,
+  DECIDE_BENCH_DECISION_SITE,
   ...GENERATIVE_SITES,
 ];
 
