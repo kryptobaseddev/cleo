@@ -269,17 +269,19 @@ describe('(a) task-id collision probe across the upgrade', () => {
 });
 
 describe('the bare table is authoritative at the initial collapse (Blocker A)', () => {
-  it('drops frozen twin-only project_meta and file_meta, keeps the counters', async () => {
+  it('keeps twin-only project_meta and file_meta (union rule), and the counters', async () => {
     const db = preMigrationTasks(3);
     setMeta(db, 'tasks_schema_meta', 'project_meta', '{"name":"fixture","currentPhase":"core"}');
     setMeta(db, 'tasks_schema_meta', 'file_meta', '{"schemaVersion":"2.10.0","generation":7}');
     setMeta(db, 'tasks_schema_meta', SNAPSHOT_GATE_META_KEY, '{"generation":4,"prefixes":{}}');
     const [receipt] = collapseTwinTables(db, dbPath());
-    expect(receipt).toMatchObject({ table: 'schema_meta', status: 'initial' });
-    expect(receipt?.dropped).toEqual(['file_meta', 'project_meta']);
+    expect(receipt).toMatchObject({ table: 'schema_meta', status: 'initial', dropped: [] });
+    expect(receipt?.kept).toEqual(['file_meta', 'project_meta', SNAPSHOT_GATE_META_KEY]);
     const accessor = await createSqliteDataAccessor(projectDir);
-    expect(await accessor.getMetaValue('project_meta')).toBeNull(); // "No current phase set"
-    expect(await accessor.getSchemaVersion()).toBeNull(); // no frozen "2.10.0"
+    expect(await accessor.getMetaValue('project_meta')).toEqual({
+      name: 'fixture',
+      currentPhase: 'core',
+    });
     expect(counterOf(meta(db, 'tasks_schema_meta', 'task_id_sequence'))).toBe(3);
     expect(meta(db, 'tasks_schema_meta', SNAPSHOT_GATE_META_KEY)).toBeDefined();
     expect(meta(db, 'schema_meta', 'schemaVersion')).toBe('"live"'); // bare untouched
@@ -458,15 +460,17 @@ describe('incremental re-merge: the old build keeps writing the bare tables', ()
 });
 
 describe('sticky_tags', () => {
-  it('initial collapse: the twin equals the bare set (frozen tags dropped, orphans skipped)', async () => {
+  it('initial collapse: bare tags added, twin-only tags kept and listed, the junction then follows tags_json', async () => {
     const { db, a, b } = await preMigrationSticky();
     const receipt = collapseTwinTables(db, dbPath()).find((r) => r.table === 'sticky_tags');
     expect(receipt).toMatchObject({
       status: 'initial',
       inserted: 2,
+      // The kept frozen tag is not in the note's tags_json: the junction sync removes it.
       deleted: 1,
       skipped: 1,
-      dropped: [`${b}\tfrozen`],
+      dropped: [],
+      kept: [`${b}\tfrozen`],
     });
     expect(twinTags(db)).toEqual([`${a}:alpha`, `${a}:beta`, `${b}:gamma`].sort());
     expect(db.prepare('SELECT COUNT(*) AS c FROM main.sticky_tags').get()).toEqual({ c: 4 });
@@ -648,7 +652,7 @@ describe('concurrency guard: the marker is re-read under the write lock', () => 
 });
 
 describe('snapshot: inventoried and rotated', () => {
-  it('cleo backup list shows the migration snapshot, and the migration type rotates at 10', () => {
+  it('cleo backup list shows the pinned migration snapshot; the other migration backups rotate at 10', () => {
     const dir = join(projectDir, '.cleo', 'backups', 'sqlite');
     mkdirSync(dir, { recursive: true });
     for (let i = 0; i < 10; i++) {
@@ -672,10 +676,13 @@ describe('snapshot: inventoried and rotated', () => {
     const listed = listSystemBackups(projectDir).find((b) =>
       receipt?.snapshotPath?.endsWith(`cleo.db.${b.backupId}`),
     );
-    expect(listed).toMatchObject({ type: 'migration', files: ['cleo.db'] });
+    expect(listed).toMatchObject({ type: 'migration', files: ['cleo.db'], pinned: true });
+    // The pinned collapse snapshot does not count toward the cap: the 10 older
+    // ones stay (rotation would have deleted the oldest before pinning).
     const files = migrationSnapshots();
-    expect(files).toHaveLength(10);
-    expect(files).not.toContain('cleo.db.migration-20200100-000000');
+    expect(files).toHaveLength(11);
+    expect(files).toContain(receipt?.snapshotPath?.split('/').pop());
+    expect(files).toContain('cleo.db.migration-20200100-000000');
   });
 });
 

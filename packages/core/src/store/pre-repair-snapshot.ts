@@ -126,6 +126,7 @@ export function planMigrationSnapshot(
  * @param nativeDb - Connection on the store.
  * @param plan - From {@link planMigrationSnapshot}.
  * @param note - Shown by `cleo backup list`.
+ * @param options - `pinnedReason`: pin the snapshot (never rotated) and say why.
  * @returns The snapshot's absolute path.
  * @task T12535
  */
@@ -133,6 +134,7 @@ export function writeMigrationSnapshot(
   nativeDb: DatabaseSync,
   plan: MigrationSnapshotPlan,
   note: string,
+  options: { readonly pinnedReason?: string } = {},
 ): string {
   if (plan.availableBytes !== null && plan.availableBytes < plan.requiredBytes) {
     throw new Error(
@@ -148,6 +150,9 @@ export function writeMigrationSnapshot(
     timestamp: new Date().toISOString(),
     note,
     files: ['cleo.db'],
+    ...(options.pinnedReason !== undefined
+      ? { pinned: true, pinnedReason: options.pinnedReason }
+      : {}),
   });
   rotateBackupDir(plan.backupDir, 10, 'migration');
   return plan.snapshotPath;
