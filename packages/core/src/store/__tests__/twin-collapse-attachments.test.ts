@@ -18,9 +18,17 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Attachment } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -39,11 +47,10 @@ import {
 } from '../twin-collapse.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
-const MARKERS = ['attachments', 'attachment_refs'].map((t) => `${TWIN_COLLAPSE_MARKER_PREFIX}${t}`);
+const MARKERS = [`${TWIN_COLLAPSE_MARKER_PREFIX}attachments`];
 const UNIQUE_INDEXES = ['uniq_docs_attachments_sha256', 'uniq_docs_attachments_slug'];
-/** Index of each pair in the collapse receipts and inspect output. */
+/** Index of the docs pair (attachments + attachment_refs) in the receipts and inspect output. */
 const DOCS = 2;
-const REFS = 3;
 
 /** The columns both tables share (the bare table's, in its order). */
 const COLUMNS = [
@@ -129,12 +136,30 @@ interface Doc {
   readonly summary?: string | null;
   readonly createdAt?: string;
   readonly refs?: ReadonlyArray<readonly [string, string]>;
+  /** The doc's bytes (default `content of <id>`): its sha256 is the row's. */
+  readonly content?: string;
+  /** Also write the blob file where the attachment store keeps it. */
+  readonly blob?: boolean;
+}
+
+/** Where the attachment store keeps a markdown blob. */
+const blobFile = (hash: string): string =>
+  join(projectDir, '.cleo', 'attachments', 'sha256', hash.slice(0, 2), `${hash.slice(2)}.md`);
+
+/** Write a markdown blob the way the attachment store lays it out; returns its sha256. */
+function writeBlob(content: string): string {
+  const hash = sha(content);
+  mkdirSync(dirname(blobFile(hash)), { recursive: true });
+  writeFileSync(blobFile(hash), content);
+  return hash;
 }
 
 /** A doc row (and its refs) written the way the 2026.9.20 build writes it, into `table`. */
 function writeDoc(db: DatabaseSync, table: 'attachments' | 'docs_attachments', doc: Doc): void {
   const refsTable = table === 'attachments' ? 'attachment_refs' : 'docs_attachment_refs';
-  const hash = sha(`content of ${doc.id}`);
+  const content = doc.content ?? `content of ${doc.id}`;
+  const hash = sha(content);
+  if (doc.blob) writeBlob(content);
   db.prepare(
     `INSERT INTO main.${table} (id, sha256, attachment_json, created_at, ref_count, slug, type, lifecycle_status, supersedes, superseded_by, summary, keywords, topics, related_tasks, display_alias, owner_version, doc_version)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -335,15 +360,13 @@ describe('initial collapse: the bare tables are authoritative', () => {
     expect(receipts[DOCS]).toMatchObject({
       table: 'attachments',
       status: 'initial',
-      inserted: 4, // att-adr-001 existed (stale) and is replaced
+      // 4 docs + 6 refs inserted; att-adr-001 existed (stale) and is replaced;
+      // the frozen doc and its ref are deleted.
+      inserted: 10,
       replaced: 1,
-      deleted: 1,
-      dropped: ['["att-frozen"]'],
+      deleted: 2,
+      dropped: ['["att-frozen"]', '["att-frozen","task","T101"]'],
       snapshotPath: expect.stringContaining('cleo.db.migration-'),
-    });
-    expect(receipts[REFS]).toMatchObject({
-      status: 'initial',
-      dropped: ['["att-frozen","task","T101"]'],
     });
     expect(rows(db, 'docs_attachments')).toEqual(bareDocs);
     expect(rows(db, 'docs_attachment_refs')).toEqual(bareRefs);
@@ -523,7 +546,7 @@ describe('idempotency', () => {
       sha(JSON.stringify(db.prepare('SELECT * FROM main.tasks_schema_meta ORDER BY key').all()));
     const kvBefore = kv();
     const again = collapseTwinTables(db, dbPath());
-    expect([again[DOCS]?.status, again[REFS]?.status]).toEqual(['unchanged', 'unchanged']);
+    expect(again[DOCS]?.status).toBe('unchanged');
     expect(digest(db, 'docs_attachments')).toBe(docs);
     expect(digest(db, 'docs_attachment_refs')).toBe(refs);
     expect(kv()).toBe(kvBefore); // the markers were not rewritten
@@ -534,7 +557,8 @@ describe('idempotency', () => {
 describe('failure injection mid-merge', () => {
   it('both tables stay byte-identical, the error is E_TWIN_COLLAPSE_FAILED, retry completes', () => {
     const db = preMigration();
-    const before = ['attachments', 'docs_attachments', 'attachment_refs'].map((t) => digest(db, t));
+    const TABLES = ['attachments', 'docs_attachments', 'attachment_refs', 'docs_attachment_refs'];
+    const before = TABLES.map((t) => digest(db, t));
     db.exec(
       "CREATE TEMP TRIGGER inject_fail BEFORE INSERT ON main.docs_attachments WHEN NEW.id = 'att-spec-a' BEGIN SELECT RAISE(ABORT, 'injected failure'); END",
     );
@@ -550,12 +574,8 @@ describe('failure injection mid-merge', () => {
       details: { snapshotWritten: true },
     });
     expect(db.isTransaction).toBe(false);
-    expect(
-      ['attachments', 'docs_attachments', 'attachment_refs'].map((t) => digest(db, t)),
-    ).toEqual(before);
-    // Each pair is its own transaction: the refs pair merged on its own.
-    expect(rows(db, 'docs_attachment_refs')).toEqual(rows(db, 'attachment_refs'));
-    expect(inspectTwinCollapse(db)[REFS]?.state).toBe('collapsed');
+    // Docs and refs merge in ONE transaction: all four tables are unchanged.
+    expect(TABLES.map((t) => digest(db, t))).toEqual(before);
     expect(uniqueIndexes(db)).toEqual([]); // the index drop rolled back with the rest
     expect(inspectTwinCollapse(db)[DOCS]).toMatchObject({ state: 'failed' });
 
@@ -633,7 +653,7 @@ describe('degraded mode: reads served, every docs write refused, retry restores 
     ];
     for (const [name, write] of writes) {
       const message = await refusal(write);
-      expect(message, name).toMatch(/Twin collapse of attachments, attachment_refs failed/);
+      expect(message, name).toMatch(/Twin collapse of attachments failed/);
     }
     for (const [, write] of writes) await expect(write()).rejects.toMatchObject({ code: 55 });
     expect(state()).toBe(before); // nothing landed anywhere
@@ -714,12 +734,312 @@ describe('redirect: docs readers read the prefixed twins', () => {
   it('the ADR number allocator sees an ADR only the twin holds', async () => {
     const db = preMigration();
     collapseTwinTables(db, dbPath());
-    // An ADR only the bare table holds (not merged yet) is not the allocator's …
-    writeDoc(db, 'attachments', { id: 'att-adr-050', slug: 'adr-050-bare-only', type: 'adr' });
-    expect(await findHighestAdrNumber(projectDir)).toBe(0);
-    // … an ADR in the twin is.
     writeDoc(db, 'docs_attachments', { id: 'att-adr-044', slug: 'adr-044-new', type: 'adr' });
     expect(await findHighestAdrNumber(projectDir)).toBe(44);
+    // H3: an ADR only the bare table holds (a 2026.9.20 write, not merged yet)
+    // counts too, so this build never reuses its number.
+    writeDoc(db, 'attachments', { id: 'att-adr-050', slug: 'adr-050-bare-only', type: 'adr' });
+    expect(await findHighestAdrNumber(projectDir)).toBe(50);
+  });
+});
+
+describe('mixed versions: the 2026.9.20 build writes after the collapse', () => {
+  const store = () => createAttachmentStore();
+  const refsOf = (id: string): string[] =>
+    (
+      tasksNative()
+        .prepare(
+          'SELECT owner_type, owner_id FROM main.docs_attachment_refs WHERE attachment_id = ? ORDER BY owner_type, owner_id',
+        )
+        .all(id) as Array<{ owner_type: string; owner_id: string }>
+    ).map((r) => `${r.owner_type}:${r.owner_id}`);
+  const refCount = (id: string): number | undefined =>
+    (
+      tasksNative().prepare('SELECT ref_count FROM main.docs_attachments WHERE id = ?').get(id) as
+        | { ref_count: number }
+        | undefined
+    )?.ref_count;
+
+  it('H1: content this build stored, stored again by 9.20, merges by sha256 (refs remapped, never degraded)', async () => {
+    preMigration();
+    await reopen();
+    const mine = await store().put(
+      Buffer.from('shared content'),
+      blob(14),
+      'task',
+      'T200',
+      'agent',
+      projectDir,
+    );
+    // 9.20 dedups by sha256 against the BARE table only: a new id, same bytes.
+    writeDoc(tasksNative(), 'attachments', {
+      id: 'att-920-dup',
+      content: 'shared content',
+      refs: [['task', 'T900']],
+    });
+    await reopen();
+    expect(await storeWriteBlock(projectDir)).toBeNull();
+    const db = tasksNative();
+    expect(
+      db.prepare('SELECT id FROM main.docs_attachments WHERE sha256 = ?').all(mine.sha256),
+    ).toEqual([{ id: mine.id }]);
+    expect(refsOf(mine.id)).toEqual(['task:T200', 'task:T900']);
+    expect(refCount(mine.id)).toBe(2);
+    expect(uniqueIndexes(db)).toEqual(UNIQUE_INDEXES);
+    // 9.20 later drops its ref (and its bare row): the remapped ref goes, the doc stays.
+    db.exec("DELETE FROM main.attachment_refs WHERE attachment_id = 'att-920-dup'");
+    db.exec("DELETE FROM main.attachments WHERE id = 'att-920-dup'");
+    await reopen();
+    expect(refsOf(mine.id)).toEqual(['task:T200']);
+    expect(refCount(mine.id)).toBe(1);
+  });
+
+  it('H1: a slug both builds took for different content keeps both docs (the 9.20 one suffixed)', async () => {
+    preMigration();
+    await reopen();
+    const mine = await store().put(
+      Buffer.from('mine'),
+      blob(4),
+      'task',
+      'T200',
+      'agent',
+      projectDir,
+      { slug: 'shared-slug', type: 'note' },
+    );
+    writeDoc(tasksNative(), 'attachments', {
+      id: 'att-920-slug',
+      slug: 'shared-slug',
+      type: 'note',
+      content: 'theirs',
+      refs: [['task', 'T901']],
+    });
+    await reopen();
+    expect(await storeWriteBlock(projectDir)).toBeNull();
+    expect((await store().findBySlug('shared-slug', projectDir))?.metadata.id).toBe(mine.id);
+    expect(
+      tasksNative()
+        .prepare("SELECT slug FROM main.docs_attachments WHERE id = 'att-920-slug'")
+        .get(),
+    ).toEqual({ slug: 'shared-slug-2' });
+    expect(refsOf('att-920-slug')).toEqual(['task:T901']);
+    expect(inspectTwinCollapse(tasksNative())[DOCS]).toMatchObject({
+      state: 'collapsed',
+      renamed: ['att-920-slug: shared-slug -> shared-slug-2'],
+    });
+  });
+
+  it('H1: a docs merge failure blocks docs writes only, and the retry hint names the real cause', async () => {
+    preMigration();
+    await reopen();
+    writeDoc(tasksNative(), 'attachments', { id: 'att-bad-date', createdAt: 'yesterday' });
+    await reopen();
+    const docs = await storeWriteBlock(projectDir, { domain: 'docs', operation: 'add' });
+    expect(docs).toMatchObject({ code: 55 });
+    expect(docs?.fix).toMatch(/row|CHECK/i);
+    expect(docs?.fix).not.toMatch(/free the space/);
+    expect(await storeWriteBlock(projectDir, { domain: 'tasks', operation: 'add' })).toBeNull();
+    expect(await storeWriteBlock(projectDir, { domain: 'sticky', operation: 'add' })).toBeNull();
+    // Accessor entry: only the docs writers are refused.
+    await expect(
+      store().ref('att-spec-a', 'task', 'T301', 'agent', projectDir),
+    ).rejects.toMatchObject({ code: 55 });
+    const { allocateNextTaskId } = await import('../../sequence/index.js');
+    await expect(allocateNextTaskId(projectDir)).resolves.toMatch(/^T\d+/);
+  });
+
+  it('H2: ref_count is recomputed from the merged refs; derefs never purge a doc still referenced', async () => {
+    preMigration();
+    await reopen();
+    await store().ref('att-spec-a', 'task', 'T201', 'agent', projectDir); // this build: 2 refs
+    const db = tasksNative();
+    // 9.20 adds a ref in the bare tables and bumps ITS count.
+    db.prepare(
+      "INSERT INTO main.attachment_refs (attachment_id, owner_type, owner_id, attached_at, attached_by) VALUES ('att-spec-a', 'task', 'T902', '2026-09-28T10:00:00.000Z', 'agent')",
+    ).run();
+    db.exec("UPDATE main.attachments SET ref_count = 2 WHERE id = 'att-spec-a'");
+    await reopen();
+    expect(refsOf('att-spec-a')).toEqual(['task:T101', 'task:T201', 'task:T902']);
+    expect(refCount('att-spec-a')).toBe(3);
+    await store().deref('att-spec-a', 'task', 'T101', projectDir);
+    await store().deref('att-spec-a', 'task', 'T201', projectDir);
+    expect(await store().getMetadata('att-spec-a', projectDir)).not.toBeNull();
+    expect(refsOf('att-spec-a')).toEqual(['task:T902']);
+  });
+
+  it('H2: deref counts the refs that remain, so a drifted stored ref_count never purges a referenced doc', async () => {
+    preMigration();
+    await reopen();
+    await store().ref('att-spec-a', 'task', 'T201', 'agent', projectDir);
+    tasksNative().exec("UPDATE main.docs_attachments SET ref_count = 1 WHERE id = 'att-spec-a'");
+    expect(await store().deref('att-spec-a', 'task', 'T101', projectDir)).toEqual({
+      status: 'derefd',
+      refCountAfter: 1,
+    });
+    expect(await store().getMetadata('att-spec-a', projectDir)).not.toBeNull();
+  });
+
+  it('H3: a blob 9.20 deletes after its last bare deref survives for the doc this build references', async () => {
+    const db = preMigration();
+    const hash = writeBlob('content of att-spec-a');
+    await reopen();
+    await store().ref('att-spec-a', 'task', 'T201', 'agent', projectDir);
+    // 9.20 derefs its last bare ref: deletes the ref, the row, then the blob file.
+    tasksNative().exec("DELETE FROM main.attachment_refs WHERE attachment_id = 'att-spec-a'");
+    tasksNative().exec("DELETE FROM main.attachments WHERE id = 'att-spec-a'");
+    rmSync(blobFile(hash));
+    void db;
+    await reopen();
+    // The merge put the file back from its keep-link (no read needed).
+    expect(readFileSync(blobFile(hash), 'utf8')).toBe('content of att-spec-a');
+    expect(await store().getMetadata('att-spec-a', projectDir)).not.toBeNull();
+    expect(refsOf('att-spec-a')).toEqual(['task:T201']);
+    const got = await store().get(hash, projectDir);
+    expect(got?.bytes.toString()).toBe('content of att-spec-a');
+  });
+
+  it('H3: a blob the initial collapse carried is pinned: an unlinked file is restored on read', async () => {
+    preMigration();
+    const hash = writeBlob('content of att-note-1');
+    await reopen();
+    rmSync(blobFile(hash)); // e.g. the older build's janitor
+    const got = await store().get(hash, projectDir);
+    expect(got?.bytes.toString()).toBe('content of att-note-1');
+  });
+
+  it("H3: this build's repair never deletes a blob only a bare (9.20) row references", async () => {
+    preMigration();
+    await reopen();
+    // 9.20 stores a doc after this process bound the store (not merged yet).
+    writeDoc(tasksNative(), 'attachments', {
+      id: 'att-920-new',
+      content: 'fresh 9.20 doc',
+      blob: true,
+      refs: [['task', 'T903']],
+    });
+    const { repairAttachmentStore } = await import('../attachment-repair.js');
+    await repairAttachmentStore({ cwd: projectDir, gracePeriodMs: 0 });
+    expect(existsSync(blobFile(sha('fresh 9.20 doc')))).toBe(true);
+  });
+
+  it("H3: this build's last deref tombstones the blob; GC removes it only after the grace period and when neither table references it", async () => {
+    preMigration();
+    await reopen();
+    const mine = await store().put(
+      Buffer.from('short-lived'),
+      blob(11),
+      'task',
+      'T210',
+      'agent',
+      projectDir,
+    );
+    const file = blobFile(mine.sha256);
+    // An old file: only the tombstone's own grace period protects it.
+    const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    utimesSync(file, hourAgo, hourAgo);
+    await store().deref(mine.id, 'task', 'T210', projectDir);
+    expect(await store().getMetadata(mine.id, projectDir)).toBeNull();
+    expect(existsSync(file)).toBe(true); // tombstoned, not deleted
+    const { repairAttachmentStore } = await import('../attachment-repair.js');
+    await repairAttachmentStore({ cwd: projectDir }); // default grace: kept
+    expect(existsSync(file)).toBe(true);
+    // A bare row still naming the content keeps it even past the grace period.
+    writeDoc(tasksNative(), 'attachments', { id: 'att-920-same', content: 'short-lived' });
+    await repairAttachmentStore({ cwd: projectDir, gracePeriodMs: 0 });
+    expect(existsSync(file)).toBe(true);
+    tasksNative().exec("DELETE FROM main.attachments WHERE id = 'att-920-same'");
+    await repairAttachmentStore({ cwd: projectDir, gracePeriodMs: 0 });
+    expect(existsSync(file)).toBe(false);
+  });
+
+  it('an unchanged bare side is detected without re-reading its rows (change counter)', async () => {
+    preMigration();
+    await reopen();
+    const db = tasksNative();
+    expect(
+      db
+        .prepare(
+          "SELECT name FROM main.sqlite_master WHERE type = 'trigger' AND name LIKE 't12535_track_%' ORDER BY name",
+        )
+        .all()
+        .map((r) => (r as { name: string }).name),
+    ).toEqual([
+      't12535_track_attachment_refs_delete',
+      't12535_track_attachment_refs_insert',
+      't12535_track_attachment_refs_update',
+      't12535_track_attachments_delete',
+      't12535_track_attachments_insert',
+      't12535_track_attachments_update',
+    ]);
+    const before = inspectTwinCollapse(db)[DOCS]?.lastMergedAt;
+    // Hide the bare rows from a full re-read: if the open re-hashed them it would
+    // see every row as deleted and change the twin.
+    const twin = digest(db, 'docs_attachments');
+    await reopen();
+    expect(inspectTwinCollapse(tasksNative())[DOCS]?.lastMergedAt).toBe(before);
+    expect(digest(tasksNative(), 'docs_attachments')).toBe(twin);
+    // A bare write moves the counter and is carried on the next open.
+    tasksNative().exec("UPDATE main.attachments SET summary = 'moved' WHERE id = 'att-note-1'");
+    await reopen();
+    expect(
+      tasksNative()
+        .prepare("SELECT summary FROM main.docs_attachments WHERE id = 'att-note-1'")
+        .get(),
+    ).toEqual({ summary: 'moved' });
+  });
+});
+
+describe('heal-malformed-blob-attachments.mjs', () => {
+  it('heals the live docs_attachments rows of a cleo.db, never the frozen bare table', async () => {
+    const db = preMigration();
+    collapseTwinTables(db, dbPath());
+    const malformed = JSON.stringify({ kind: 'blob', mime: 'text/markdown', size: 1 });
+    db.prepare("UPDATE main.docs_attachments SET attachment_json = ? WHERE id = 'att-spec-a'").run(
+      malformed,
+    );
+    const copy = join(root, 'heal.db');
+    db.exec(`VACUUM INTO '${copy}'`);
+    const out = execFileSync(
+      process.execPath,
+      [join(REPO_ROOT, 'scripts/heal-malformed-blob-attachments.mjs'), '--db', copy],
+      { cwd: REPO_ROOT, encoding: 'utf8', stdio: 'pipe' },
+    );
+    expect(out).toMatch(/table: docs_attachments/);
+    const { DatabaseSync: Sqlite } = await import('node:sqlite');
+    const healed = new Sqlite(copy);
+    try {
+      const row = healed
+        .prepare("SELECT attachment_json FROM docs_attachments WHERE id = 'att-spec-a'")
+        .get() as { attachment_json: string };
+      expect(JSON.parse(row.attachment_json)).toMatchObject({
+        storageKey: expect.stringMatching(/^[0-9a-f]{2}\/[0-9a-f]{62}\.md$/),
+      });
+      expect(
+        healed.prepare("SELECT attachment_json FROM attachments WHERE id = 'att-spec-a'").get(),
+      ).toEqual(
+        db.prepare("SELECT attachment_json FROM main.attachments WHERE id = 'att-spec-a'").get(),
+      );
+    } finally {
+      healed.close();
+    }
+  });
+});
+
+describe('initial collapse with an empty bare table', () => {
+  it('drops the frozen twin rows (never shown by the old build), snapshot first', () => {
+    const db = tasksNative();
+    for (const marker of MARKERS)
+      db.prepare('DELETE FROM main.tasks_schema_meta WHERE key = ?').run(marker);
+    writeDoc(db, 'docs_attachments', { id: 'att-frozen', slug: 'frozen', refs: [['task', 'T1']] });
+    const receipt = collapseTwinTables(db, dbPath())[DOCS];
+    expect(receipt).toMatchObject({
+      status: 'initial',
+      dropped: ['["att-frozen"]', '["att-frozen","task","T1"]'],
+    });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM main.docs_attachments').get()).toEqual({ n: 0 });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM main.docs_attachment_refs').get()).toEqual({
+      n: 0,
+    });
+    expect(migrationSnapshots()).toHaveLength(1);
   });
 });
 

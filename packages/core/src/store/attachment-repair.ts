@@ -34,7 +34,8 @@ import { appendFile, mkdir, readdir, readFile, stat, unlink } from 'node:fs/prom
 import { join, relative } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { resolveCleoDir } from '../paths.js';
-import { getDb } from './sqlite.js';
+import { collectBlobGarbage, isTombstoned, restoreBlob, unpinBlob } from './blob-keep.js';
+import { getDb, getNativeTasksDb } from './sqlite.js';
 import { attachments } from './tasks-schema.js';
 import { assertTwinCollapseWritable } from './twin-collapse.js';
 
@@ -107,6 +108,12 @@ export interface RepairOptions {
 
 /** Default grace period (5 minutes). */
 const DEFAULT_GRACE_PERIOD_MS = 5 * 60 * 1_000;
+
+/**
+ * Default age of a tombstone (this build's last deref) before its blob may be
+ * deleted (T12535). An explicit `gracePeriodMs` applies to tombstones too.
+ */
+const DEFAULT_TOMBSTONE_GRACE_MS = 24 * 60 * 60 * 1_000;
 
 /** Audit log file, relative to project root. */
 const REPAIR_AUDIT_FILE = '.cleo/audit/attachment-repair.jsonl';
@@ -206,7 +213,7 @@ export async function repairAttachmentStore(opts?: RepairOptions): Promise<Repai
   const cleoDir = resolveCleoDir(cwd);
   const db = await getDb(cwd);
   // T12535: fail fast on a store degraded by a failed twin collapse.
-  if (!dryRun) assertTwinCollapseWritable(db);
+  if (!dryRun) assertTwinCollapseWritable(db, 'attachments');
   const now = Date.now();
   const actions: RepairAction[] = [];
 
@@ -255,7 +262,8 @@ export async function repairAttachmentStore(opts?: RepairOptions): Promise<Repai
     const ext = MIME_TO_EXT[base] ?? '.bin';
     const filePath = join(cleoDir, 'attachments', 'sha256', prefix, `${rest}${ext}`);
 
-    if (!existsSync(filePath)) {
+    // T12535: an older build may have unlinked the file; the keep-link holds it.
+    if (!existsSync(filePath) && !restoreBlob(cleoDir, row.sha256, filePath)) {
       const action: RepairAction = {
         kind: 'mark-row-without-file',
         sha256: row.sha256,
@@ -297,6 +305,15 @@ export async function repairAttachmentStore(opts?: RepairOptions): Promise<Repai
 
   const sha256Dir = join(cleoDir, 'attachments', 'sha256');
   const rowSha256Set = new Set(allRows.map((r) => r.sha256));
+  // T12535: an older CLEO build still writes the bare `attachments` table; a
+  // blob only its rows name (not merged yet) is referenced too.
+  try {
+    const bareRows = (getNativeTasksDb(cwd)?.prepare('SELECT sha256 FROM attachments').all() ??
+      []) as Array<{ sha256: string }>;
+    for (const r of bareRows) rowSha256Set.add(r.sha256);
+  } catch {
+    // no bare table
+  }
   const publicationsSha256Set = await readPublicationsSha256Set(cwd);
 
   let gracePeriodSkipCount = 0;
@@ -327,8 +344,11 @@ export async function repairAttachmentStore(opts?: RepairOptions): Promise<Repai
         // Validate it looks like a sha256 (sanity guard)
         if (!/^[0-9a-f]{64}$/.test(sha256)) continue;
 
-        // Already referenced by attachments table row
+        // Already referenced by an attachments row (either table)
         if (rowSha256Set.has(sha256)) continue;
+
+        // T12535: tombstoned by this build's last deref; phase 3 decides.
+        if (isTombstoned(cleoDir, sha256)) continue;
 
         const filePath = join(prefixPath, filename);
 
@@ -392,6 +412,7 @@ export async function repairAttachmentStore(opts?: RepairOptions): Promise<Repai
         if (!dryRun) {
           try {
             await unlink(filePath);
+            unpinBlob(cleoDir, sha256);
             unreferencedBlobsDeletedCount++;
           } catch {
             // Best-effort — if the file disappears between scan and delete, that's fine
@@ -409,6 +430,26 @@ export async function repairAttachmentStore(opts?: RepairOptions): Promise<Repai
         }
       }
     }
+  }
+
+  // ── Phase 3: keep-links (T12535) ───────────────────────────────────────────
+  // Tombstoned blobs and keep-links whose content neither table names any
+  // more are deleted once past the grace period.
+  const garbage = collectBlobGarbage(
+    cleoDir,
+    (sha256) => rowSha256Set.has(sha256),
+    opts?.gracePeriodMs ?? DEFAULT_TOMBSTONE_GRACE_MS,
+    now,
+    dryRun,
+  );
+  for (const sha256 of garbage.deleted) {
+    unreferencedBlobsDeletedCount++;
+    actions.push({
+      kind: 'delete-unreferenced-blob',
+      sha256,
+      filePath: join(cleoDir, 'attachments', 'keep', sha256.slice(0, 2), sha256.slice(2)),
+      reason: 'Tombstoned or orphaned keep-link past the grace period; no row in either table',
+    });
   }
 
   const rowsWithoutFilesCount = actions.filter((a) => a.kind === 'mark-row-without-file').length;

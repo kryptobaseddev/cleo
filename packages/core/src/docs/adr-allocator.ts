@@ -172,13 +172,25 @@ export async function findHighestAdrNumber(cwd?: string): Promise<number> {
   const db = await getDb(cwd);
   // Raw SELECT keeps the query independent of the Drizzle schema barrel —
   // we only need the slug strings, not full row objects. The live docs table
-  // is the prefixed twin since the T12535 collapse (bare `attachments` is a
-  // frozen copy the collapse folds in at every open).
+  // is the prefixed twin since the T12535 collapse; the bare `attachments`
+  // table is read too, because an older CLEO build may still write ADRs there
+  // that the next open has not merged yet (never reuse their numbers).
   const rows = await db
     .select({ slug: sql<string>`slug` })
     .from(sql`docs_attachments`)
     .where(sql`slug LIKE 'adr-%-%'`)
     .all();
+  try {
+    rows.push(
+      ...(await db
+        .select({ slug: sql<string>`slug` })
+        .from(sql`attachments`)
+        .where(sql`slug LIKE 'adr-%-%'`)
+        .all()),
+    );
+  } catch {
+    // No bare table (a store created after it was dropped): nothing to add.
+  }
 
   let highest = 0;
   for (const row of rows) {

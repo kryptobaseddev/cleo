@@ -254,7 +254,7 @@ export async function backfillAdrIndex(
 
   const db = await getDb(projectRoot);
   // T12535: fail fast on a store degraded by a failed twin collapse.
-  if (!dryRun) assertTwinCollapseWritable(db);
+  if (!dryRun) assertTwinCollapseWritable(db, 'attachments');
   const nowIso = new Date().toISOString();
 
   // ── Pass 1: insert/update every attachments row keyed on sha256 ────────────

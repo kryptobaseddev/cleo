@@ -407,7 +407,7 @@ export async function updateDocBySlug(
   const db = await getDb(projectRoot);
   // T12535: fail fast on a store degraded by a failed twin collapse (a dry
   // run only reads, so it is still served).
-  if (params.dryRun !== true) assertTwinCollapseWritable(db);
+  if (params.dryRun !== true) assertTwinCollapseWritable(db, 'attachments');
 
   // Look up the existing row by slug.
   const oldRow = await db.select().from(attachments).where(eq(attachments.slug, slug)).get();

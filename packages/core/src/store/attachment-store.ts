@@ -23,6 +23,7 @@ import type { Attachment, AttachmentMetadata, AttachmentRef } from '@cleocode/co
 import { and, asc, eq, or, sql } from 'drizzle-orm';
 import { EngineResultError } from '../engine-result.js';
 import { resolveCleoDir } from '../paths.js';
+import { extFromMime, pinBlob, restoreBlob, tombstoneBlob } from './blob-keep.js';
 import type { CleoBlobStore as CleoBlobStoreType } from './llmtxt-blob-adapter.js';
 import { getDb, getNativeTasksDb } from './sqlite.js';
 import { type AttachmentLifecycleStatus, attachmentRefs, attachments } from './tasks-schema.js';
@@ -119,44 +120,6 @@ export interface PutAttachmentExtras {
   slug?: string;
   /** Optional taxonomy classification; validated upstream. */
   type?: string;
-}
-
-// ─── MIME → extension map ──────────────────────────────────────────────────────
-
-/**
- * Minimal MIME-to-extension map for common attachment types.
- *
- * Fallback for all unrecognised MIME types is `.bin`.
- */
-const MIME_TO_EXT: Record<string, string> = {
-  'text/markdown': '.md',
-  'text/plain': '.txt',
-  'text/html': '.html',
-  'text/css': '.css',
-  'text/javascript': '.js',
-  'application/json': '.json',
-  'application/pdf': '.pdf',
-  'application/zip': '.zip',
-  'application/octet-stream': '.bin',
-  'image/png': '.png',
-  'image/jpeg': '.jpg',
-  'image/gif': '.gif',
-  'image/webp': '.webp',
-  'image/svg+xml': '.svg',
-  'audio/mpeg': '.mp3',
-  'video/mp4': '.mp4',
-};
-
-/**
- * Resolve a file extension from a MIME type.
- *
- * @param mime - IANA MIME type string
- * @returns Extension string including the leading dot (e.g., `".md"`)
- */
-function extFromMime(mime: string): string {
-  // Normalise: strip parameters (e.g., "text/plain; charset=utf-8")
-  const base = mime.split(';')[0]?.trim() ?? mime;
-  return MIME_TO_EXT[base] ?? '.bin';
 }
 
 // ─── Storage path helpers ──────────────────────────────────────────────────────
@@ -657,7 +620,7 @@ export function createAttachmentStore(): AttachmentStore {
         const nativeDb = getNativeTasksDb(cwd);
         if (!nativeDb) throw new Error('Database not initialized');
         // T12535: fail fast on a store degraded by a failed twin collapse.
-        assertTwinCollapseWritable(nativeDb);
+        assertTwinCollapseWritable(nativeDb, 'attachments');
 
         // Allocator chokepoint runtime assert (T10392) — every writer with
         // a slug SHOULD have first called reserveSlug(). The lookup is a
@@ -821,6 +784,8 @@ export function createAttachmentStore(): AttachmentStore {
           }
 
           nativeDb.prepare('COMMIT').run();
+          // T12535: keep a hard link so an older build's unlink cannot lose the bytes.
+          pinBlob(resolveCleoDir(cwd), hash, filePath);
 
           const finalRow = await db
             .select()
@@ -851,6 +816,9 @@ export function createAttachmentStore(): AttachmentStore {
 
       let buf: Buffer;
       try {
+        // T12535: an older build may have unlinked the primary file; the
+        // keep-link still holds the bytes.
+        restoreBlob(resolveCleoDir(cwd), sha256, filePath);
         buf = await readFile(filePath);
       } catch {
         return null;
@@ -1009,7 +977,7 @@ export function createAttachmentStore(): AttachmentStore {
         const nativeDb = getNativeTasksDb(cwd);
         if (!nativeDb) throw new Error('Database not initialized');
         // T12535: fail fast on a store degraded by a failed twin collapse.
-        assertTwinCollapseWritable(nativeDb);
+        assertTwinCollapseWritable(nativeDb, 'attachments');
 
         try {
           nativeDb.prepare('BEGIN IMMEDIATE').run();
@@ -1043,6 +1011,13 @@ export function createAttachmentStore(): AttachmentStore {
             .run();
 
           nativeDb.prepare('COMMIT').run();
+          // T12535: keep a hard link so an older build's unlink cannot lose the bytes.
+          const parsed = JSON.parse(existing.attachmentJson) as Attachment;
+          pinBlob(
+            resolveCleoDir(cwd),
+            existing.sha256,
+            blobPath(existing.sha256, mimeFromAttachment(parsed), cwd),
+          );
         } catch (err) {
           try {
             nativeDb.prepare('ROLLBACK').run();
@@ -1060,7 +1035,7 @@ export function createAttachmentStore(): AttachmentStore {
         const nativeDb = getNativeTasksDb(cwd);
         if (!nativeDb) throw new Error('Database not initialized');
         // T12535: fail fast on a store degraded by a failed twin collapse.
-        assertTwinCollapseWritable(nativeDb);
+        assertTwinCollapseWritable(nativeDb, 'attachments');
 
         // Verify attachment exists (inside the lock so read is consistent).
         const existing = await db
@@ -1085,31 +1060,38 @@ export function createAttachmentStore(): AttachmentStore {
             )
             .run();
 
-          const newCount = Math.max(0, existing.refCount - 1);
+          // T12535: count the refs that remain instead of trusting the stored
+          // `ref_count` (a merge or an older build may have added refs).
+          const newCount =
+            (
+              await db
+                .select({ n: sql<number>`count(*)` })
+                .from(attachmentRefs)
+                .where(eq(attachmentRefs.attachmentId, attachmentId))
+                .get()
+            )?.n ?? 0;
 
           if (newCount === 0) {
-            // No refs remain — delete the registry row (file delete is best-effort).
+            // No refs remain — delete the registry row.
             await db.delete(attachments).where(eq(attachments.id, attachmentId)).run();
 
             nativeDb.prepare('COMMIT').run();
 
-            // Delete file after commit (can fail independently).
+            // T12535: never delete the blob here. An older build may still
+            // name the content in its bare table; tombstone it, and the repair
+            // (`cleo doctor`, the janitor) deletes it after the grace period
+            // once neither table references it.
             const parsedAttachment = JSON.parse(existing.attachmentJson) as Attachment;
             const fileMime = mimeFromAttachment(parsedAttachment);
             const filePath = blobPath(existing.sha256, fileMime, cwd);
-            try {
-              await rm(filePath, { force: true });
-            } catch {
-              // Best-effort — file may already be gone.
-            }
+            tombstoneBlob(resolveCleoDir(cwd), existing.sha256, filePath, Date.now());
 
             return { status: 'removed' };
           }
 
-          // Still has refs — use SQL arithmetic to decrement ref_count.
           await db
             .update(attachments)
-            .set({ refCount: sql`ref_count - 1` })
+            .set({ refCount: newCount })
             .where(eq(attachments.id, attachmentId))
             .run();
 

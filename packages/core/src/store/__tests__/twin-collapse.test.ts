@@ -213,7 +213,6 @@ describe('fresh store', () => {
       'collapsed',
       'collapsed',
       'collapsed',
-      'collapsed',
     ]);
   });
 });
@@ -496,7 +495,6 @@ describe('(b) idempotency', () => {
     const sticky = tableDigest(brain, 'brain_sticky_tags', 'sticky_id, tag');
     const brainKv = tableDigest(brain, 'brain_schema_meta', 'key');
     expect(collapseTwinTables(db, dbPath()).map((r) => r.status)).toEqual([
-      'unchanged',
       'unchanged',
       'unchanged',
       'unchanged',

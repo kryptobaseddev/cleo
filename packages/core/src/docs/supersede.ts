@@ -149,7 +149,7 @@ export async function supersedeDoc(
     );
   }
   // T12535: fail fast on a store degraded by a failed twin collapse.
-  assertTwinCollapseWritable(db);
+  assertTwinCollapseWritable(db, 'attachments');
   {
     const now = new Date().toISOString();
 
