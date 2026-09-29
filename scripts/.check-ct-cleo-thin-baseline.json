@@ -1,0 +1,22 @@
+{
+  "maxNonBlankLines": 364,
+  "extraHeadings": [
+    "Trustworthy project knowledge",
+    "Asking the owner (HITL ask tool)",
+    "Project identity and moving between devices",
+    "Guarded knowledge repair",
+    "Sessions are terminal-bound (T12500)",
+    "Typed decisions (`cleo decide`, T12491)",
+    "Document projection outcomes",
+    "Acceptance input and historical evidence",
+    "Task controls and committed evidence",
+    "Read completeness before editing",
+    "Task Hierarchy (PM-Core V2 — ADR-088)",
+    "Typed Completion Criteria (PM-Core V2)",
+    "Saga Operations (PM-Core V2)",
+    "WorkGraph (PM-Core V2 — T10632/T10633/T10634)",
+    "Task Context (PM-Core V2 — T10629/T10630/T10631)",
+    "BRAIN Decision-Store — Durable Architecture Decisions",
+    "Evidence must prove task criteria"
+  ]
+}
