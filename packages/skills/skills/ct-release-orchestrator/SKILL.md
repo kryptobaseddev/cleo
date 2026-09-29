@@ -49,7 +49,7 @@ Optional validators (read-only / dry-run):
 |----|------|-------------|
 | RLSE-001 | Version MUST be CalVer (`YYYY.MM.patch`) per ADR-065 — never SemVer. | `cleo release plan` rejects non-CalVer; exit 53. |
 | RLSE-002 | `CHANGELOG.md` MUST be updated before the tag — always-write is the default behaviour of `cleo release plan` (T9784 deleted the manual changelog verb). | Plan envelope refuses to advance to `pr-opened` if the changeset directory is unparseable (T10105). |
-| RLSE-003 | All per-task evidence gates MUST be recorded via `cleo verify <task> --gate <g> --evidence …` BEFORE `cleo complete`. The legacy `cleo release verify` batch verb was deleted in T9540. | ADR-051 per-task evidence ritual. | <!-- cleo-cmd: negative-example -->
+| RLSE-003 | All per-task evidence gates MUST be recorded via `cleo verify <task> --gate <g> --evidence …` BEFORE `cleo complete`. The legacy `cleo release verify` batch verb was deleted in T9540. | ADR-051 per-task evidence ritual. | <!-- cleo-cmd: negative-example: release verify -->
 | RLSE-004 | The release MUST be tagged explicitly (`git tag -a v<ver>` + `git push origin v<ver>`) after the release PR merges. | Auto-tag was retired in T10434 / ADR-087: `GITHUB_TOKEN` tag pushes did not reliably trigger `release.yml`. |
 | RLSE-005 | Direct pushes to `main` are prohibited. Every release ships via a PR cut by `release-prepare.yml`. | ADR-065 + branch protection (see `docs/release/branch-protection-setup.md`). |
 | RLSE-006 | Version MUST be consistent across all workspace targets resolved by `resolveVersionBumpTargets` (root package.json + every workspace package + Cargo workspace). | Version-bump preflight in `release-prepare.yml`. |
@@ -57,7 +57,7 @@ Optional validators (read-only / dry-run):
 
 ## Integration
 
-Use the explicit verbs. **Do not** invoke `cleo release ship` — it was deleted in T10103. <!-- cleo-cmd: negative-example -->
+Use the explicit verbs. **Do not** invoke `cleo release ship` — it was deleted in T10103. <!-- cleo-cmd: negative-example: release ship -->
 
 ```bash
 # 1. Plan — build the canonical Release Plan envelope.
@@ -103,7 +103,7 @@ Exit codes (canonical):
 
 | Pattern | Problem | Solution |
 |---------|---------|----------|
-| Running `cleo release ship` | The verb was deleted in T10103 — the command will exit with `Unknown command`. | Use `cleo release plan` + `cleo release open`. | <!-- cleo-cmd: negative-example -->
+| Running `cleo release ship` | The verb was deleted in T10103 — the command will exit with `Unknown command`. | Use `cleo release plan` + `cleo release open`. | <!-- cleo-cmd: negative-example: release ship -->
 | Manually invoking `gh workflow run release-prepare.yml` | Bypasses the plan envelope; `releases.status` stays at `planned`. | Always go through `cleo release open <ver>` — it tracks state in the `releases` table. |
 | Tagging before the release PR merges, or `git push --tags` | Tags an unmerged commit, or pushes every local tag. | Tag the merged release commit and push that one tag: `git push origin v<ver>`. |
 | Hand-editing `CHANGELOG.md` for the new version | Drift between the changeset directory and the changelog. | `cleo release plan` always auto-writes the section (T10105). Use `cleo changeset add` to author entries. |
@@ -114,7 +114,7 @@ Exit codes (canonical):
 ## Critical Rules Summary
 
 1. The 4-verb pipeline — `plan`, `open`, `reconcile`, `rollback` — is the ONLY way to ship.
-2. The deprecated `cleo release ship` shim was DELETED in T10103. Do not invoke it. <!-- cleo-cmd: negative-example -->
+2. The deprecated `cleo release ship` shim was DELETED in T10103. Do not invoke it. <!-- cleo-cmd: negative-example: release ship -->
 3. CalVer (`YYYY.MM.patch`) is the only valid version scheme.
 4. `cleo release plan` always writes the CHANGELOG section unless `--no-changelog`.
 5. The tag is created explicitly after the release PR merges; `auto-tag-on-release-merge.yml` is retired (T10434, ADR-087).

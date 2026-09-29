@@ -15,7 +15,7 @@ The manifest system provides O(1) append operations and race-condition-free conc
 **Default Paths**:
 - Output directory: `.cleo/agent-outputs/` (configurable via `agentOutputs.directory`)
 - Manifest store: `pipeline_manifest` SQLite table (canonical per ADR-027)
-- CLI: `cleo manifest append <json>` — the only supported write path
+- CLI: `cleo manifest append --entry '<json>'` — the only supported write path
 
 **Design Principles**:
 - Append-only writes preserve audit trail
@@ -505,7 +505,7 @@ echo '{"id": "test", "title": "Test"}' >> .cleo/agent-outputs/legacy-manifest.js
 
 **Solution**: Use `cleo manifest append`
 ```bash
-cleo manifest append '{"id":"test","task_id":"T###","type":"research","status":"complete","output":"path/to/output.md","summary":"brief","key_findings":["..."]}'
+cleo manifest append --entry '{"id":"test","task_id":"T###","type":"research","status":"complete","output":"path/to/output.md","summary":"brief","key_findings":["..."]}'
 ```
 
 ---
@@ -521,7 +521,7 @@ echo "$json" >> .cleo/agent-outputs/legacy-manifest.jsonl
 
 **Solution**: Use `cleo manifest append`
 ```bash
-cleo manifest append '{"id":"...","task_id":"T####","type":"...","status":"complete","output":"...","summary":"...","key_findings":["..."]}'
+cleo manifest append --entry '{"id":"...","task_id":"T####","type":"...","status":"complete","output":"...","summary":"...","key_findings":["..."]}'
 ```
 
 ---

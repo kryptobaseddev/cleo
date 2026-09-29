@@ -172,10 +172,10 @@ of the children appended in a wrong format).
 children — owns the entry. Run:
 
 ```bash
-cleo manifest append <(cat <<EOF
+cleo manifest append --entry "$(cat <<'JSON'
 {"id":"docs-<topic>-<date>", "file":"<path>", "title":"...", ...}
-EOF
-)
+JSON
+)"
 ```
 
 After append, verify with:

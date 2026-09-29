@@ -45,6 +45,7 @@ import { join, relative } from 'node:path';
 import { isMain } from './lib/is-main.mjs';
 import {
   extractCleoCommands,
+  extractInvocationsWithFlags,
   findFlagViolations,
   findPointerViolations,
   findRequiredArgViolations,
@@ -97,9 +98,89 @@ export function prepareForScan(text) {
     for (let i = 0; i <= end; i++) lines[i] = '';
   }
   return lines
-    .map((line) => (line.includes(NEGATIVE_EXAMPLE_MARKER) ? '' : line))
+    .map(dropNegativeExample)
     .join('\n')
     .replace(/([\w-])cleo\b/g, '$1CLEO');
+}
+
+/**
+ * Remove only the invocation a negative-example marker annotates, so valid
+ * commands elsewhere on the same line are still checked.
+ *
+ * - `<!-- cleo-cmd: negative-example: release ship -->` removes every
+ *   `cleo release ship …` on the line (up to the next backtick or `|`).
+ * - An unnamed marker (`# cleo-cmd: negative-example`) removes from the last
+ *   `cleo ` before the marker to the end of the line.
+ *
+ * @param {string} line - One markdown line.
+ * @returns {string}
+ */
+export function dropNegativeExample(line) {
+  const at = line.indexOf(NEGATIVE_EXAMPLE_MARKER);
+  if (at === -1) return line;
+  const named = /cleo-cmd: negative-example:\s*([a-z][\w -]*?)\s*(?:-->|$)/.exec(line);
+  if (named) {
+    const phrase = named[1].trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return line.replace(new RegExp(`cleo ${phrase}[^\`|]*`, 'g'), '');
+  }
+  const cut = line.lastIndexOf('cleo ', at);
+  return cut === -1 ? line.slice(0, at) : line.slice(0, cut);
+}
+
+/**
+ * Whether sub-command `sub` in a command module declares a positional
+ * argument. `null` when its `args` block cannot be located (not judged).
+ *
+ * @param {string} source - Command module source.
+ * @param {string} sub - Sub-command name.
+ * @returns {boolean | null}
+ */
+export function subDeclaresPositional(source, sub) {
+  const metaAt = source.search(new RegExp(`meta:\\s*\\{[^}]*name:\\s*'${sub}'`));
+  if (metaAt === -1) return null;
+  // The command object runs from its meta to the next defineCommand( (or EOF).
+  const nextDefine = source.indexOf('defineCommand(', metaAt + 1);
+  const extent = source.slice(metaAt, nextDefine === -1 ? undefined : nextDefine);
+  // A group: the next token is a sub-sub-command, not a positional.
+  if (/\bsubCommands\s*:/.test(extent)) return null;
+  const argsMatch = /\bargs\s*:\s*(\{)?/.exec(extent);
+  if (!argsMatch) return false; // no args at all
+  if (!argsMatch[1]) return null; // args built elsewhere (identifier/spread): not judged
+  let depth = 1;
+  let i = argsMatch.index + argsMatch[0].length;
+  for (; i < extent.length && depth > 0; i++) {
+    if (extent[i] === '{') depth++;
+    else if (extent[i] === '}') depth--;
+  }
+  const body = extent.slice(argsMatch.index, i);
+  if (/\.\.\./.test(body)) return null; // spread-in args: not judged
+  return /type:\s*'positional'/.test(body);
+}
+
+/**
+ * Report invocations that pass a positional argument to a sub-command that
+ * declares none — citty drops it silently (`cleo manifest append '<json>'`
+ * then reads stdin instead).
+ *
+ * @param {string} text - Prepared markdown.
+ * @param {Map<string, Set<string>>} registry - verb → sub-verbs.
+ * @param {(verb: string) => string | null} sourceForVerb - Module source lookup.
+ * @returns {{ raw: string, reason: string }[]}
+ */
+export function findPositionalViolations(text, registry, sourceForVerb) {
+  const out = [];
+  for (const inv of extractInvocationsWithFlags(text)) {
+    if (!inv.sub || !registry.get(inv.verb)?.has(inv.sub)) continue;
+    const after = inv.raw.replace(new RegExp(`^cleo\\s+${inv.verb}\\s+${inv.sub}`), '').trim();
+    if (after === '' || after.startsWith('-') || after.startsWith('[')) continue;
+    const source = sourceForVerb(inv.verb);
+    if (!source || subDeclaresPositional(source, inv.sub) !== false) continue;
+    out.push({
+      raw: inv.raw,
+      reason: `\`cleo ${inv.verb} ${inv.sub}\` declares no positional argument, so \`${after.split(/\s+/)[0]}\` is silently ignored — pass it through a flag`,
+    });
+  }
+  return out;
 }
 
 /**
@@ -143,6 +224,7 @@ export function findSkillCommandViolations(root) {
       ...findFlagViolations(text, checker),
       ...findRequiredArgViolations(text, sourceForVerb),
       ...findPointerViolations(text, contracts, sourceForVerb),
+      ...findPositionalViolations(text, registry, sourceForVerb),
     ];
     const seen = new Set();
     for (const v of found) {

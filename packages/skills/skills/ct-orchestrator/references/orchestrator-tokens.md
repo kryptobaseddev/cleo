@@ -165,7 +165,7 @@ Token defaults (from `skills/_shared/placeholders.json`):
 
 OUTPUT REQUIREMENTS:
 1. MUST write findings to: {{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md
-2. MUST append ONE entry via `cleo manifest append <json>` (writes to pipeline_manifest table per ADR-027/T1093)
+2. MUST append ONE entry via `cleo manifest append --entry '<json>'` (writes to pipeline_manifest table per ADR-027/T1093)
 3. MUST return ONLY: "Research complete. Manifest appended to pipeline_manifest."
 4. MUST NOT return research content in response.
 
