@@ -29,9 +29,13 @@ re-detects its capabilities even when the cached read is fresh. The provider's
 extensions (batch, usage, cache control) therefore apply at once, and the
 result reports `providerState` and `capabilities`.
 
-**Credentials v2.** `decide-credentials.json` records the provider kind. A v1
-file loads as `jev` and is rewritten as v2 on the next save. The 0600 file, the
-lock and the rule that allows plain http only for loopback are unchanged.
+**Provider kind in the credentials file.** `decide-credentials.json` records
+the provider kind in an optional `provider` field. The file stays at schema
+version 1, so an older CLEO still reads it after a downgrade. A file without
+`provider` infers it from the base URL: the layahost origin is `layahost`, any
+other URL is `jev`. The 0600 file, the lock and the rule that allows plain
+http only for loopback are unchanged. `--config-json` rejects a `system-one`
+block; configure System One with `cleo decide config --key-stdin`.
 
 **Wizard.** `cleo decide config` with no flags on a terminal runs
 `runDecideWizard`. Without a terminal it shows the current settings, as
@@ -53,3 +57,7 @@ implementation mutes the output stream readline echoes into, so the characters
 of a typed or pasted key never reach the terminal. The `llm` setup section,
 the `cleo login` API-key prompt and the System One wizard now use it. The
 `llm` prompt had previously claimed its input was not echoed when it was.
+Readline keeps no history, so Up-arrow cannot recall a key. Terminal mode
+follows stdin, and `cleo setup` prompts on stderr, so `cleo setup > out.json`
+neither echoes the key nor mixes prompts into the JSON. Ctrl-C in the
+`cleo decide config` wizard exits 130.

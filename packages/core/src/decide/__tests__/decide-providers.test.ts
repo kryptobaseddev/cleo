@@ -53,11 +53,14 @@ describe('decision provider presets', () => {
     expect(parseDecisionProviderKind(undefined)).toBeUndefined();
   });
 
-  it('infers the kind from a URL host', () => {
+  it('infers the kind from the URL origin (scheme, host and port)', () => {
     expect(inferDecisionProviderKind('https://layahost.com/')).toBe('layahost');
     expect(inferDecisionProviderKind('https://LAYAHOST.com/api')).toBe('layahost');
     expect(inferDecisionProviderKind('https://evil.layahost.com.example')).toBe('jev');
     expect(inferDecisionProviderKind('http://127.0.0.1:47811')).toBe('jev');
     expect(inferDecisionProviderKind('not a url')).toBe('jev');
+    // Same host, different scheme or port → a different origin → not layahost.
+    expect(inferDecisionProviderKind('http://layahost.com')).toBe('jev');
+    expect(inferDecisionProviderKind('https://layahost.com:8443')).toBe('jev');
   });
 });

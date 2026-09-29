@@ -17,7 +17,12 @@
 import { PassThrough } from 'node:stream';
 import { WizardInterruptError } from '@cleocode/core/setup';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ReadlineWizardIO, StdinClosedError, stripBracketedPaste } from '../readline-wizard-io.js';
+import {
+  ReadlineWizardIO,
+  SECRET_ECHO_REFUSED_MESSAGE,
+  StdinClosedError,
+  stripBracketedPaste,
+} from '../readline-wizard-io.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -389,11 +394,11 @@ describe('ReadlineWizardIO.secret — the typed key is never echoed (T12714)', (
   const SECRET = 'sk-live-HIDDENKEY-9753';
 
   /**
-   * A terminal-like output: `isTTY` makes readline run in terminal mode, where
-   * it echoes every typed character to its output stream.
+   * A terminal-like session: a TTY input makes readline run in terminal mode,
+   * where it echoes every typed character to its output stream.
    */
   function ttyIO(): { io: ReadlineWizardIO; input: PassThrough; written: () => string } {
-    const input = new PassThrough();
+    const input = Object.assign(new PassThrough(), { isTTY: true });
     const output = Object.assign(new PassThrough(), { isTTY: true, columns: 80 });
     let captured = '';
     output.on('data', (chunk: Buffer) => {
@@ -443,5 +448,62 @@ describe('ReadlineWizardIO.secret — the typed key is never echoed (T12714)', (
     const io = makeIO([], true);
     await expect(io.secret('API key:')).rejects.toThrow(StdinClosedError);
     io.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// History and terminal mode (PR #1690 review)
+// ---------------------------------------------------------------------------
+
+/** Exposes the protected readline interface's terminal flag and history. */
+class ProbeIO extends ReadlineWizardIO {
+  /** Whether readline runs in terminal mode. */
+  terminalMode(): boolean {
+    return this.rl.terminal;
+  }
+  /** readline's runtime history array (undeclared in @types/node). */
+  history(): readonly string[] {
+    const h: unknown = Reflect.get(this.rl, 'history');
+    return Array.isArray(h) ? h.filter((x): x is string => typeof x === 'string') : [];
+  }
+}
+
+describe('ReadlineWizardIO — secrets never reach history; terminal mode follows stdin', () => {
+  const SECRET = 'sk-live-HISTORYKEY-2468';
+
+  it('a secret is not in readline history after secret() (Up-arrow cannot redraw it)', async () => {
+    const input = Object.assign(new PassThrough(), { isTTY: true });
+    const output = Object.assign(new PassThrough(), { isTTY: true, columns: 80 });
+    output.resume();
+    const io = new ProbeIO(input, output);
+    setImmediate(() => input.write(`${SECRET}\r`));
+    expect(await io.secret('API key:')).toBe(SECRET);
+    const history = io.history();
+    io.close();
+    expect(history.some((line) => line.includes('HISTORYKEY'))).toBe(false);
+  });
+
+  it('terminal mode derives from the INPUT stream, not the output stream', () => {
+    const ttyIn = Object.assign(new PassThrough(), { isTTY: true });
+    const plainOut = new PassThrough();
+    const a = new ProbeIO(ttyIn, plainOut);
+    expect(a.terminalMode()).toBe(true);
+    a.close();
+
+    const plainIn = new PassThrough();
+    const ttyOut = Object.assign(new PassThrough(), { isTTY: true, columns: 80 });
+    const b = new ProbeIO(plainIn, ttyOut);
+    expect(b.terminalMode()).toBe(false);
+    b.close();
+  });
+
+  it('secret() refuses on a TTY stdin when terminal mode is off (the terminal would echo)', async () => {
+    const input = Object.assign(new PassThrough(), { isTTY: true });
+    const io = new ReadlineWizardIO(input, new PassThrough(), { terminal: false });
+    setImmediate(() => input.write(`${SECRET}\n`));
+    await expect(io.secret('API key:')).rejects.toThrow(SECRET_ECHO_REFUSED_MESSAGE);
+    io.close();
+    expect(SECRET_ECHO_REFUSED_MESSAGE).toContain('--key-stdin');
+    expect(SECRET_ECHO_REFUSED_MESSAGE).toContain('--api-key-stdin');
   });
 });

@@ -48,6 +48,7 @@ import {
   createDefaultWizardRunner,
   mergeConfigJson,
   printWhoamiSummaryAndOfferTui,
+  SetupConfigJsonError,
   WizardInterruptError,
 } from '@cleocode/core/setup';
 import { defineCommand } from 'citty';
@@ -449,7 +450,8 @@ export const setupCommand = defineCommand({
     },
   },
   async run({ args }) {
-    const io = new ReadlineWizardIO();
+    // Prompts go to stderr so `cleo setup > out.json` keeps stdout pure JSON.
+    const io = new ReadlineWizardIO(process.stdin, process.stderr);
     let result: CleoSetupResult;
     try {
       result = await runSetup(args as Record<string, unknown>, io);
@@ -474,6 +476,12 @@ export const setupCommand = defineCommand({
       if (err instanceof WizardInterruptError) {
         process.stderr.write("Setup interrupted. Run 'cleo setup' to continue.\n");
         process.exit(130);
+      }
+      // T12713: a --config-json bag the wizard cannot apply (e.g. a
+      // `system-one` block) is a validation error, exit 6.
+      if (err instanceof SetupConfigJsonError) {
+        cliError(err.message, 6, { name: err.codeName, fix: err.fix });
+        process.exit(6);
       }
       // Bug #10 (T9599): stdin closed before the wizard finished — emit a
       // LAFS error envelope and exit 1 instead of silently exiting 0 with

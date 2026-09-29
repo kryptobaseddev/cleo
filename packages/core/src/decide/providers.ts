@@ -85,16 +85,15 @@ export function parseDecisionProviderKind(
 }
 
 /**
- * Infer the provider kind from a base URL: the layahost host → `layahost`,
- * anything else → `jev`.
+ * Infer the provider kind from a base URL: the layahost origin (scheme, host
+ * and port of {@link LAYAHOST_BASE_URL}) → `layahost`, anything else → `jev`.
  *
  * @param baseUrl - Provider base URL.
  * @returns The inferred kind.
  */
 export function inferDecisionProviderKind(baseUrl: string): DecisionProviderKind {
   try {
-    const host = new URL(baseUrl).host.toLowerCase();
-    return host === new URL(LAYAHOST_BASE_URL).host ? 'layahost' : 'jev';
+    return new URL(baseUrl).origin === new URL(LAYAHOST_BASE_URL).origin ? 'layahost' : 'jev';
   } catch {
     return 'jev';
   }

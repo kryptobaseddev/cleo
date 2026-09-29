@@ -2,9 +2,12 @@
  * Decision-provider credential store — the provider kind, the two settings a
  * user supplies (an API base URL and an API key) and the default model.
  *
- * Schema v2 (T12713) adds `provider` (`layahost` | `jev`). A v1 file, written
- * before provider kinds existed, loads as `jev` (a custom URL) and is
- * rewritten as v2 on the next save.
+ * The file stays at schema version 1. T12713 added `provider` (`layahost` |
+ * `jev`) as an OPTIONAL, additive field instead of bumping the version, so a
+ * CLEO that predates provider kinds (whose zod object is non-strict and
+ * accepts only `version: 1`) still parses the file after a downgrade. A file
+ * without `provider` infers the kind from its base URL
+ * ({@link inferDecisionProviderKind}).
  *
  * Stored at `<cleoHome>/decide-credentials.json` (resolved through
  * `@cleocode/paths`, arch gate 2) with 0600 permissions:
@@ -53,47 +56,44 @@ import { z } from 'zod';
 import { withLock } from '../store/file-utils.js';
 import { isValidDecisionModelName } from './jev-wire.js';
 import type { DecisionProviderConnection } from './provider.js';
+import { inferDecisionProviderKind } from './providers.js';
 
 /** File name of the store, directly under the CLEO home. */
 export const DECIDE_CREDENTIALS_FILE = 'decide-credentials.json';
 
-/** Current on-disk schema version. */
-export const DECIDE_CREDENTIALS_VERSION = 2;
+/**
+ * On-disk schema version. Deliberately still 1: `provider` is an additive
+ * optional field, and released CLEO parses `z.literal(1)` — bumping this would
+ * silently disable System One after a downgrade.
+ */
+export const DECIDE_CREDENTIALS_VERSION = 1;
 
-/** Fields shared by every schema version. `null` settings mean "not configured". */
-const storeFields = {
+/** On-disk shape of the store. `null` settings mean "not configured". */
+const storeSchema = z.object({
+  version: z.literal(DECIDE_CREDENTIALS_VERSION),
+  /** T12713, optional: absent in files written before provider kinds existed. */
+  provider: decisionProviderKindSchema.nullable().optional(),
   baseUrl: z.string().nullable(),
   apiKey: z.string().nullable(),
   model: z.string().nullable().optional(),
   updatedAt: z.string().optional(),
-};
-
-/** v1 (T12491): no provider kind. Loads as `jev`. */
-const storeV1Schema = z.object({ version: z.literal(1), ...storeFields });
-
-/** v2 (T12713): adds the provider kind. */
-const storeV2Schema = z.object({
-  version: z.literal(DECIDE_CREDENTIALS_VERSION),
-  provider: decisionProviderKindSchema.nullable(),
-  ...storeFields,
 });
 
-type DecideCredentialsStore = z.infer<typeof storeV2Schema>;
+type DecideCredentialsStore = z.infer<typeof storeSchema>;
 
 const EMPTY_STORE: DecideCredentialsStore = {
   version: DECIDE_CREDENTIALS_VERSION,
-  provider: null,
   baseUrl: null,
   apiKey: null,
 };
 
-/** Parse either schema version into the v2 shape; a v1 file becomes `jev`. */
+/** Parse the store; a file without `provider` infers it from its base URL. */
 function parseStore(value: unknown): DecideCredentialsStore | null {
-  const v2 = storeV2Schema.safeParse(value);
-  if (v2.success) return v2.data;
-  const v1 = storeV1Schema.safeParse(value);
-  if (!v1.success) return null;
-  return { ...v1.data, version: DECIDE_CREDENTIALS_VERSION, provider: 'jev' };
+  const parsed = storeSchema.safeParse(value);
+  if (!parsed.success) return null;
+  const store = parsed.data;
+  if (store.provider || !store.baseUrl) return store;
+  return { ...store, provider: inferDecisionProviderKind(store.baseUrl) };
 }
 
 /** Settings accepted by {@link saveDecideCredentials}. */
@@ -420,7 +420,7 @@ function ensureStoreFile(path: string): void {
 
 /**
  * Store the provider kind, base URL, API key and optional model (0600, locked,
- * atomic). Always writes schema v2.
+ * atomic). Writes schema version 1 with the optional `provider` field.
  *
  * @param input - Settings to store; replaces any previous settings.
  * @returns Secret-free summary of what is now stored.

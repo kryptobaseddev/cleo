@@ -44,6 +44,7 @@ import {
   runDecideWizard,
   SpendResetRefusedError,
 } from '@cleocode/core/decide/index.js';
+import { WizardInterruptError } from '@cleocode/core/setup';
 import { defineCommand, showUsage } from '../lib/define-cli-command.js';
 import { ReadlineWizardIO } from '../lib/readline-wizard-io.js';
 import { cliError, cliOutput } from '../renderers/index.js';
@@ -71,6 +72,12 @@ async function runConfigWizard(op: string): Promise<void> {
   try {
     cliOutput(await runDecideWizard(io), { command: 'decide', operation: op });
   } catch (err) {
+    // Ctrl-C is a cancel, not a validation failure: exit 130 (SIGINT convention).
+    if (err instanceof WizardInterruptError) {
+      process.stderr.write('System One setup cancelled.\n');
+      process.exitCode = 130;
+      return;
+    }
     failValidation(err instanceof Error ? err.message : 'setup failed', op, CONFIG_FIX);
   } finally {
     io.close();
