@@ -286,7 +286,8 @@ describe('orchestrateWaves — saga traversal (type=saga, T10966)', () => {
     expect(data.totalWaves).toBe(2);
 
     const wave1Ids = data.waves[0]?.taskIds.toSorted() ?? [];
-    expect(wave1Ids).toEqual(['T-E1-A', 'T-E2-A', 'T-E3-A']);
+    // Done T-E2-B keeps its wave too (stable numbering, T12682).
+    expect(wave1Ids).toEqual(['T-E1-A', 'T-E2-A', 'T-E2-B', 'T-E3-A']);
 
     const wave2Ids = data.waves[1]?.taskIds ?? [];
     expect(wave2Ids).toEqual(['T-E1-B']);

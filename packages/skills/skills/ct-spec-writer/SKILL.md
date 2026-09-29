@@ -1,11 +1,8 @@
 ---
 name: ct-spec-writer
 description: Technical specification writing using RFC 2119 language for clear, unambiguous requirements. Creates protocol specifications, technical requirements, API specifications, and architecture documents with testable requirements and compliance criteria. Use when writing specifications, defining protocols, documenting requirements, or creating API contracts. Triggers on specification tasks, protocol definition needs, or requirement documentation.
-version: 2.1.0
-core: false
-category: recommended
+version: 2.1.2
 protocol: specification
-loomStage: specification
 adrRefs:
   - ADR-014
   - ADR-023
@@ -20,9 +17,14 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.1.0
+  version: 2.1.2
   tier: on-demand
   install: harness
+  covers:
+    - packages/core/src/validation/protocols/cant/specification.cant
+    - packages/core/src/validation/protocols/protocols-markdown/specification.md
+  loomStage: specification
+  lastReviewed: 2026-09-28
   stability: stable
 ---
 
@@ -229,7 +231,7 @@ Spec blobs live in the docs SSoT; published copies on disk go in
 1. Read task: `{{TASK_SHOW_CMD}} {{TASK_ID}}`
 2. Start task: `{{TASK_START_CMD}} {{TASK_ID}}` (if not already started by orchestrator)
 3. Write specification to `docs/specs/{{SPEC_NAME}}.md`
-4. Append manifest entry to `{{MANIFEST_PATH}}`
+4. Record the manifest entry: `cleo manifest append --task {{TASK_ID}} --type specification --content "<one-paragraph summary>"`
 5. Complete task: `{{TASK_COMPLETE_CMD}} {{TASK_ID}}`
 6. Return summary message
 
@@ -242,7 +244,7 @@ Spec blobs live in the docs SSoT; published copies on disk go in
 ### Output Requirements
 
 1. MUST write specification to: `docs/specs/{{SPEC_NAME}}.md`
-2. MUST append ONE line to: `{{MANIFEST_PATH}}`
+2. MUST record ONE manifest entry: `cleo manifest append --entry '<entry JSON>'` (the flat manifest file is retired, ADR-027)
 3. MUST return ONLY: "Specification complete. Manifest appended to pipeline_manifest."
 4. MUST NOT return specification content in response
 

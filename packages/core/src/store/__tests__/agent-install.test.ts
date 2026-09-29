@@ -224,7 +224,7 @@ describe('W2-3 installAgentFromCant — real sqlite + real .cant', () => {
 
       // Skills JSON mirrors the .cant source.
       expect(JSON.parse(row.skills)).toEqual(
-        expect.arrayContaining(['ct-cleo', 'ct-documentor', 'ct-validator', 'ct-docs-review']),
+        expect.arrayContaining(['ct-cleo', 'ct-documentor', 'ct-validator']),
       );
 
       // agent_skills junction rows exist for catalog-matched slugs only.

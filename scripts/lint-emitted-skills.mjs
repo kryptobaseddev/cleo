@@ -1,50 +1,56 @@
 #!/usr/bin/env node
 /**
- * Gate: every skill CLEO code names is installable, and the frontmatter
- * `metadata.install` field matches what install actually does (T12648 · spec
+ * Gate: every skill CLEO code names is installable (T12648, T12653 · spec
  * `skills-curation-and-automation` §3.2.3 · owner decision D11157).
  *
  * ## What this prevents
  *
- * Spawn prompts and stage guidance name skills by string. Measured
- * 2026-09-28: `ct-lead` (loaded for every tier-1 lead spawn) and six LOOM
- * stage skills were named by code but never installed, because install reads
- * a separate catalogue (`packages/skills/skills.json`, tier <= 2) that did not
- * list them. The lead prompt silently degraded to "Skills not installed" and
- * nothing failed. A skill name in code and a skill on disk are only useful
- * together; this gate checks the join.
+ * Spawn prompts, stage guidance, the skill dispatcher and the protocol files
+ * name skills by string. Measured 2026-09-28: `ct-lead` (loaded for every
+ * tier-1 lead spawn) and six LOOM stage skills were named by code but never
+ * installed, because install read a separate catalogue (`skills.json`,
+ * tier <= 2) that did not list them, and `SKILL_NAME_MAP` resolved aliases to
+ * three skills that had never existed (`ct-test-writer-bats`,
+ * `ct-library-implementer-bash`, `ct-skill-lookup`). Nothing failed. A skill
+ * name in code and a skill on disk are only useful together; this gate checks
+ * the join.
  *
  * ## What it checks
  *
  * Emitted names are read from source, never `dist/`:
  *   - `STAGE_SKILL_MAP` values and `TIER_0_SKILLS` in
  *     `packages/core/src/lifecycle/stage-guidance.ts`;
- *   - `loadSkillExcerpt('<name>'` / `resolveSkillPath('<name>'` literals in
+ *   - `loadSkillExcerpt(...)` / `resolveSkillPath(...)` literals in
  *     `packages/core/src/orchestration/spawn-prompt.ts`;
+ *   - `SKILL_NAME_MAP` values in `packages/core/src/skills/types.ts`;
+ *   - `skill:` values in `packages/core/src/skills/dispatch.ts`;
  *   - `skillRef:` in `packages/core/src/validation/protocols/cant/*.cant`.
+ *
+ * String literals are matched in single, double or backtick quotes. Object
+ * and array blocks are read only up to their own closing brace or bracket,
+ * so a trailing `as const` or `satisfies` cannot pull in the next statement.
  *
  * For each emitted name: the skill directory exists, the manifest lists it
  * with `install: harness`, and install really installs it.
  *
- * For every skill: frontmatter `install: harness` holds exactly when install
- * really installs it. Otherwise the field is declarable but unenforced.
- *
  * "Install really installs it" mirrors `initCoreSkills`
- * (`packages/core/src/init.ts`): a `skills.json` entry with `tier <= 2` whose
- * directory exists. The mirror is only as good as its match with the code, so
- * the gate also fails if `init.ts` stops reading `skills.json` with that
- * filter: whoever changes install must change this gate with it.
+ * (`packages/core/src/init.ts`): a `packages/skills/skills/manifest.json`
+ * entry with `install: harness` whose `skills/<name>/` directory exists. The
+ * mirror is only as good as its match with the code, so the gate also fails
+ * if `init.ts` stops making that selection: whoever changes install must
+ * change this gate with it.
  *
  * ## Baseline
  *
  * Known violations live in `scripts/.lint-emitted-skills-baseline.json`, each
- * with the task that removes it. A new violation fails. So does a baseline
- * entry that no longer occurs; delete it in the change that fixed it.
- * `--strict` ignores the baseline.
+ * with the task that removes it (empty since T12653). A new violation fails.
+ * So does a baseline entry that no longer occurs. `--strict` ignores the
+ * baseline.
  *
  * Usage: node scripts/lint-emitted-skills.mjs [--check|--strict] [--json]
  *
  * @task T12648
+ * @task T12653
  */
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -57,15 +63,164 @@ export const BASELINE_PATH = 'scripts/.lint-emitted-skills-baseline.json';
 
 const STAGE_GUIDANCE = 'packages/core/src/lifecycle/stage-guidance.ts';
 const SPAWN_PROMPT = 'packages/core/src/orchestration/spawn-prompt.ts';
+const SKILL_TYPES = 'packages/core/src/skills/types.ts';
+const SKILL_DISPATCH = 'packages/core/src/skills/dispatch.ts';
 const CANT_DIR = 'packages/core/src/validation/protocols/cant';
 const INIT_TS = 'packages/core/src/init.ts';
-const SKILLS_JSON = 'packages/skills/skills.json';
 
 /**
- * Markers that must be present in `init.ts` for the install mirror below to
- * describe what install does.
+ * Markers that must be present in `init.ts` for {@link installedSkillNames}
+ * to describe what install does.
  */
-export const INSTALL_TRIPWIRES = ["join(ctSkillsRoot, 'skills.json')", 's.tier <= 2'];
+export const INSTALL_TRIPWIRES = [
+  "join(ctSkillsRoot, 'skills', 'manifest.json')",
+  "s.install === 'harness'",
+  "join(ctSkillsRoot, 'skills', skill.name)",
+];
+
+/** A quoted skill-name literal in any JS quote style; group 2 is the name. */
+const QUOTED_NAME = /(['"`])([a-z][\w-]*)\1/g;
+
+/**
+ * The body of `<name> ... = {` up to its own closing brace (or `[` ... `]`).
+ *
+ * @param {string} source - Module source.
+ * @param {string} name - Declared constant name.
+ * @param {'{' | '['} open - Opening delimiter of the literal.
+ * @returns {string} The literal's body, or '' when absent.
+ */
+function literalBody(source, name, open) {
+  const close = open === '{' ? '}' : ']';
+  const start = new RegExp(`\\b${name}\\b[^=]*=\\s*\\${open}`).exec(source);
+  if (!start) return '';
+  const from = start.index + start[0].length;
+  const end = source.indexOf(close, from);
+  return end === -1 ? '' : source.slice(from, end);
+}
+
+/**
+ * Remove `//` line comments and `/* … *\/` block comments, so text that
+ * survives only in a comment cannot satisfy a check (`://` in URLs is kept).
+ *
+ * @param {string} source - Module source.
+ * @returns {string}
+ */
+export function stripComments(source) {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+}
+
+/**
+ * Whether `marker` occurs in `source` outside every string literal, so a
+ * tripwire copied into a string (a log message, a test fixture) cannot
+ * satisfy the check. `source` is expected comment-free.
+ *
+ * @param {string} source - Comment-stripped module source.
+ * @param {string} marker - Code text to find.
+ * @returns {boolean}
+ */
+export function includesAsCode(source, marker) {
+  const spans = [];
+  const re = /(['"`])(?:\\.|(?!\1)[^\\])*\1/g;
+  for (const m of source.matchAll(re)) spans.push([m.index, m.index + m[0].length]);
+  let from = 0;
+  for (;;) {
+    const at = source.indexOf(marker, from);
+    if (at === -1) return false;
+    // A marker that starts inside a string literal (and is not merely the
+    // literal it itself opens with) is text, not code.
+    const inside = spans.some(([s, e]) => at > s && at < e - 1);
+    if (!inside) return true;
+    from = at + 1;
+  }
+}
+
+/**
+ * Collect every skill name code emits, with where it came from, and which
+ * expected sources yielded nothing.
+ *
+ * A source that yields zero names means the extraction no longer matches the
+ * code (a renamed constant, a moved call), not that nothing is emitted — so
+ * it is reported, never treated as clean. A skill name passed through a
+ * CONSTANT_CASE identifier (`loadSkillExcerpt(LEAD_SKILL)`) is resolved from
+ * its `const` declaration in the same file; an unresolvable one is reported.
+ *
+ * @param {string} root - Repository root.
+ * @returns {{ names: { name: string, source: string }[], empty: string[], unresolved: string[] }}
+ */
+export function collectEmittedSkillsWithCoverage(root) {
+  const names = [];
+  const empty = [];
+  const unresolved = [];
+  const read = (rel) => stripComments(readFileSync(join(root, rel), 'utf-8'));
+  /** Record one source's names; a source with none is reported as empty. */
+  const record = (label, source, found) => {
+    if (found.length === 0) empty.push(label);
+    for (const name of found) names.push({ name, source });
+  };
+  const quoted = (text) => [...text.matchAll(QUOTED_NAME)].map((m) => m[2]);
+
+  const guidance = read(STAGE_GUIDANCE);
+  record(
+    `STAGE_SKILL_MAP (${STAGE_GUIDANCE})`,
+    STAGE_GUIDANCE,
+    quoted(literalBody(guidance, 'STAGE_SKILL_MAP', '{')),
+  );
+  record(
+    `TIER_0_SKILLS (${STAGE_GUIDANCE})`,
+    STAGE_GUIDANCE,
+    quoted(literalBody(guidance, 'TIER_0_SKILLS', '[')),
+  );
+
+  const spawn = read(SPAWN_PROMPT);
+  const spawnNames = [];
+  for (const m of spawn.matchAll(
+    /(?:loadSkillExcerpt|resolveSkillPath)\(\s*(?:(['"`])([a-z][\w-]*)\1|([A-Za-z_$][\w$]*)\s*[,)])/g,
+  )) {
+    if (m[2]) {
+      spawnNames.push(m[2]);
+      continue;
+    }
+    // An identifier: resolve it from a same-file const/let string binding
+    // (any casing — `leadSkill` as well as `LEAD_SKILL`). An unbound
+    // CONSTANT_CASE name is reported; an unbound camelCase name is a
+    // parameter or computed value (e.g. `resolveSkillPath(skillName, …)`)
+    // and cannot be judged statically.
+    const decl = new RegExp(
+      `\\b(?:const|let)\\s+${m[3]}\\b[^=]*=\\s*(['"\`])([a-z][\\w-]*)\\1`,
+    ).exec(spawn);
+    if (decl) spawnNames.push(decl[2]);
+    else if (/^[A-Z][A-Z0-9_]*$/.test(m[3])) unresolved.push(`${m[3]} (${SPAWN_PROMPT})`);
+  }
+  record(`loadSkillExcerpt/resolveSkillPath (${SPAWN_PROMPT})`, SPAWN_PROMPT, spawnNames);
+
+  // Values only: keys are user-facing aliases, not skill names.
+  const nameMap = literalBody(read(SKILL_TYPES), 'SKILL_NAME_MAP', '{');
+  record(
+    `SKILL_NAME_MAP (${SKILL_TYPES})`,
+    SKILL_TYPES,
+    [...nameMap.matchAll(/:\s*(['"`])([a-z][\w-]*)\1/g)].map((m) => m[2]),
+  );
+
+  record(
+    `skill: (${SKILL_DISPATCH})`,
+    SKILL_DISPATCH,
+    [...read(SKILL_DISPATCH).matchAll(/\bskill:\s*(['"`])([a-z][\w-]*)\1/g)].map((m) => m[2]),
+  );
+
+  const cantNames = [];
+  for (const file of readdirSync(join(root, CANT_DIR))
+    .filter((f) => f.endsWith('.cant'))
+    .sort()) {
+    const text = readFileSync(join(root, CANT_DIR, file), 'utf-8');
+    for (const m of text.matchAll(/^skillRef:\s*([a-z][\w-]*)\s*$/gm)) {
+      cantNames.push(m[1]);
+      names.push({ name: m[1], source: `${CANT_DIR}/${file}` });
+    }
+  }
+  if (cantNames.length === 0) empty.push(`skillRef: (${CANT_DIR}/*.cant)`);
+
+  return { names, empty, unresolved };
+}
 
 /**
  * Collect every skill name code emits, with where it came from.
@@ -74,42 +229,23 @@ export const INSTALL_TRIPWIRES = ["join(ctSkillsRoot, 'skills.json')", 's.tier <
  * @returns {{ name: string, source: string }[]}
  */
 export function collectEmittedSkills(root) {
-  const out = [];
-  const guidance = readFileSync(join(root, STAGE_GUIDANCE), 'utf-8');
-  const block = (re) => re.exec(guidance)?.[1] ?? '';
-  const stageMap = block(/STAGE_SKILL_MAP[^=]*=\s*\{([\s\S]*?)\};/);
-  const tier0 = block(/TIER_0_SKILLS[^=]*=\s*\[([\s\S]*?)\];/);
-  for (const m of `${stageMap}\n${tier0}`.matchAll(/'([a-z][\w-]*)'/g)) {
-    out.push({ name: m[1], source: STAGE_GUIDANCE });
-  }
-  const spawn = readFileSync(join(root, SPAWN_PROMPT), 'utf-8');
-  for (const m of spawn.matchAll(/(?:loadSkillExcerpt|resolveSkillPath)\(\s*'([a-z][\w-]*)'/g)) {
-    out.push({ name: m[1], source: SPAWN_PROMPT });
-  }
-  for (const file of readdirSync(join(root, CANT_DIR))
-    .filter((f) => f.endsWith('.cant'))
-    .sort()) {
-    const text = readFileSync(join(root, CANT_DIR, file), 'utf-8');
-    for (const m of text.matchAll(/^skillRef:\s*([a-z][\w-]*)\s*$/gm)) {
-      out.push({ name: m[1], source: `${CANT_DIR}/${file}` });
-    }
-  }
-  return out;
+  return collectEmittedSkillsWithCoverage(root).names;
 }
 
 /**
- * The skills `initCoreSkills` installs: `skills.json` entries with
- * `tier <= 2` whose directory exists.
+ * The skills `initCoreSkills` installs: manifest entries with
+ * `install: harness` whose `skills/<name>/` directory exists. An entry
+ * without a name, or whose directory is missing, is not installed.
  *
  * @param {string} root - Repository root.
  * @returns {Set<string>}
  */
 export function installedSkillNames(root) {
-  const catalog = JSON.parse(readFileSync(join(root, SKILLS_JSON), 'utf-8'));
+  const manifest = JSON.parse(readFileSync(join(root, MANIFEST_PATH), 'utf-8'));
   const names = new Set();
-  for (const s of catalog.skills ?? []) {
-    const dir = join(root, 'packages/skills', s.path ?? '', '..');
-    if (typeof s.tier === 'number' && s.tier <= 2 && existsSync(dir)) names.add(s.name);
+  for (const s of manifest.skills ?? []) {
+    if (typeof s.name !== 'string' || s.install !== 'harness') continue;
+    if (existsSync(join(root, SKILLS_DIR, s.name))) names.add(s.name);
   }
   return names;
 }
@@ -122,9 +258,9 @@ export function installedSkillNames(root) {
  */
 export function findViolations(root) {
   const violations = [];
-  const initSource = readFileSync(join(root, INIT_TS), 'utf-8');
+  const initSource = stripComments(readFileSync(join(root, INIT_TS), 'utf-8'));
   for (const marker of INSTALL_TRIPWIRES) {
-    if (!initSource.includes(marker)) {
+    if (!includesAsCode(initSource, marker)) {
       violations.push({
         key: `tripwire:${marker}`,
         message: `${INIT_TS} no longer contains \`${marker}\`: install changed, so installedSkillNames() in this gate no longer mirrors it. Update both together.`,
@@ -136,8 +272,22 @@ export function findViolations(root) {
   const entries = new Map((manifest.skills ?? []).map((s) => [s.name, s]));
   const installed = installedSkillNames(root);
 
+  const coverage = collectEmittedSkillsWithCoverage(root);
+  for (const label of coverage.empty) {
+    violations.push({
+      key: `source-empty:${label}`,
+      message: `${label} yielded no skill names — the extraction no longer matches the code (renamed or moved?). Update this gate; an empty source is never clean.`,
+    });
+  }
+  for (const label of coverage.unresolved) {
+    violations.push({
+      key: `unresolved-constant:${label}`,
+      message: `${label} is passed as a skill name but its string value could not be resolved from a same-file \`const\` declaration.`,
+    });
+  }
+
   const seen = new Set();
-  for (const { name, source } of collectEmittedSkills(root)) {
+  for (const { name, source } of coverage.names) {
     if (seen.has(name)) continue;
     seen.add(name);
     const entry = entries.get(name);
@@ -155,22 +305,7 @@ export function findViolations(root) {
     if (!installed.has(name)) {
       violations.push({
         key: `emitted-not-installed:${name}`,
-        message: `${source} names '${name}', but install does not install it (${SKILLS_JSON} tier <= 2)`,
-      });
-    }
-  }
-
-  for (const [name, entry] of entries) {
-    const declared = entry.install === 'harness';
-    if (declared && !installed.has(name)) {
-      violations.push({
-        key: `install-mismatch:${name}`,
-        message: `'${name}' declares metadata.install: harness, but install does not install it`,
-      });
-    } else if (!declared && installed.has(name)) {
-      violations.push({
-        key: `install-mismatch:${name}`,
-        message: `'${name}' declares metadata.install: ${entry.install}, but install installs it to every harness`,
+        message: `${source} names '${name}', but install does not install it`,
       });
     }
   }
@@ -212,7 +347,7 @@ export function runGate(root, opts = {}) {
   }
   if (fresh.length + stale.length === 0) {
     process.stdout.write(
-      `Every emitted skill is installable and metadata.install matches install (${violations.length} baselined) (T12648).\n`,
+      `Every emitted skill exists, is metadata.install: harness and is installed (${violations.length} baselined) (T12653).\n`,
     );
     return 0;
   }

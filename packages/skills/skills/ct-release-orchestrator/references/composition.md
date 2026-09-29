@@ -31,7 +31,7 @@ release → artifact-publish → provenance
 | 93 | provenance | `E_DIGEST_MISMATCH` |
 | 94 | provenance | `E_ATTESTATION_INVALID` |
 
-The parent MUST NOT remap sub-protocol exit codes. A caller reading `cleo release ship` output needs to know exactly which step failed.
+The parent MUST NOT remap sub-protocol exit codes. A caller reading `cleo release open` / `cleo release pr-status` output needs to know exactly which step failed.
 
 ## Rollback Semantics
 

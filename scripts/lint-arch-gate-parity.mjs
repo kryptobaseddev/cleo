@@ -4,7 +4,8 @@
  *
  * Asserts that the gate list bundled into `cleo check arch`
  * (`packages/cleo/src/cli/commands/check.ts`) and the gate table documented in
- * `AGENTS.md` name the SAME set of lint scripts.
+ * `AGENTS.md` name the SAME set of lint scripts — and (T12658) that every
+ * bundled gate is run by at least one `.github/workflows/*.yml` step.
  *
  * Why this exists
  * ---------------
@@ -24,21 +25,30 @@
  * getActiveSession gate; table row 6 is the CLI package boundary), so matching
  * on numbers would be fragile and would invite renumbering churn.
  *
- * Zero-tolerance: there is no baseline. A gate is either in both places or the
- * build fails.
+ * The third list (T12658)
+ * ---------------------
+ * Joining the runner to the table left the workflows out: gh#1354 found three
+ * gates bundled and documented but run by no workflow, and on 2026-09-28 four
+ * more (gates 23, 26, 27, 28) had drifted into the same state. A gate CI never
+ * runs cannot block a merge, so every bundled script must appear as
+ * `node scripts/<gate>.mjs` on a non-comment line of some workflow.
+ *
+ * Zero-tolerance: there is no baseline. A gate is either in all three places
+ * or the build fails.
  *
  * Usage: node scripts/lint-arch-gate-parity.mjs [--check|--strict]
  *
  * @task T12122
  */
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CHECK_TS = join(REPO_ROOT, 'packages/cleo/src/cli/commands/check.ts');
 const AGENTS_MD = join(REPO_ROOT, 'AGENTS.md');
+const WORKFLOWS_DIR = join(REPO_ROOT, '.github/workflows');
 
 /** This gate itself — present in the runner by definition, and in the table. */
 const SELF = 'scripts/lint-arch-gate-parity.mjs';
@@ -85,22 +95,71 @@ export function documentedScripts(source) {
   return out;
 }
 
+/**
+ * Scripts a workflow runs: `node [flags] scripts/<name>.mjs` on a line that is
+ * not a YAML comment. A path that only appears in a comment or a step name
+ * does not count — that is documentation, not execution.
+ *
+ * @param {string[]} sources - Workflow file contents.
+ * @returns {Set<string>} Script paths.
+ */
+export function workflowScripts(sources) {
+  const out = new Set();
+  for (const source of sources) {
+    for (const line of source.split('\n')) {
+      const code = line.replace(/(^|\s)#.*$/, '');
+      for (const m of code.matchAll(/\bnode\s+(?:-\S+\s+)*(scripts\/[A-Za-z0-9._-]+\.mjs)\b/g)) {
+        out.add(m[1]);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Contents of every `.github/workflows/*.yml` / `*.yaml` file.
+ *
+ * @param {string} dir - Workflows directory.
+ * @returns {string[]}
+ */
+export function readWorkflows(dir) {
+  return readdirSync(dir)
+    .filter((f) => /\.ya?ml$/.test(f))
+    .sort()
+    .map((f) => readFileSync(join(dir, f), 'utf-8'));
+}
+
 export function main() {
   const bundled = bundledScripts(readFileSync(CHECK_TS, 'utf-8'));
   const documented = documentedScripts(readFileSync(AGENTS_MD, 'utf-8'));
+  const run = workflowScripts(readWorkflows(WORKFLOWS_DIR));
 
   const undocumented = [...bundled].filter((s) => !documented.has(s)).sort();
   const unbundled = [...documented].filter((s) => !bundled.has(s)).sort();
+  const unrun = [...bundled].filter((s) => !run.has(s)).sort();
 
-  if (undocumented.length === 0 && unbundled.length === 0) {
+  if (undocumented.length === 0 && unbundled.length === 0 && unrun.length === 0) {
     console.log(
-      `✓ arch-gate parity: ${bundled.size} gate(s) bundled in \`cleo check arch\` == ${documented.size} documented in AGENTS.md.`,
+      `✓ arch-gate parity: ${bundled.size} gate(s) bundled in \`cleo check arch\` == ${documented.size} documented in AGENTS.md; every one is run by a workflow.`,
     );
     process.exit(0);
   }
 
-  console.error('ARCH-GATE PARITY FAIL — `cleo check arch` and the AGENTS.md table disagree.');
+  console.error(
+    'ARCH-GATE PARITY FAIL — `cleo check arch`, the AGENTS.md table and the workflows disagree.',
+  );
   console.error('');
+  if (unrun.length > 0) {
+    console.error(
+      `  ${unrun.length} gate(s) BUNDLED but run by no workflow — CI never blocks on them:`,
+    );
+    for (const s of unrun) console.error(`    - ${s}`);
+    console.error('');
+    console.error(
+      '  Fix: add a `run: node <script>` step for each (e.g. a job in .github/workflows/arch-boundary-check.yml, listed in its aggregate `needs:`).',
+    );
+    console.error('');
+  }
   if (unbundled.length > 0) {
     console.error(
       `  ${unbundled.length} gate(s) DOCUMENTED but not bundled — agents running \`cleo check arch\``,

@@ -1,11 +1,8 @@
 ---
 name: ct-validator
 description: Compliance validation for verifying systems, documents, or code against requirements, schemas, or standards. Performs schema validation, code compliance checks, document validation, and protocol compliance verification with detailed pass/fail reporting. Use when validating compliance, checking schemas, verifying code standards, or auditing protocol implementations. Triggers on validation tasks, compliance checks, or quality verification needs.
-version: 2.0.0
-core: false
-category: recommended
+version: 2.0.4
 protocol: validation
-loomStage: validation
 adrRefs:
   - ADR-051
   - ADR-023
@@ -20,9 +17,14 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.0.0
+  version: 2.0.4
   tier: on-demand
   install: harness
+  covers:
+    - packages/core/src/validation/protocols/cant/validation.cant
+    - packages/core/src/validation/protocols/protocols-markdown/validation.md
+  loomStage: validation
+  lastReviewed: 2026-09-28
   stability: stable
 ---
 
@@ -194,8 +196,8 @@ the Validate-phase Lead prompt, listing the touched packages and the exact
 1. Read task: `{{TASK_SHOW_CMD}} {{TASK_ID}}`
 2. Start task: `{{TASK_START_CMD}} {{TASK_ID}}` (if not already started by orchestrator)
 3. Execute validation checks
-4. Write validation report to `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`
-5. Append manifest entry to `{{MANIFEST_PATH}}`
+4. Record validation report with `cleo docs add {{TASK_ID}} --content - --type note --slug {{TOPIC_SLUG}}`
+5. Record the manifest entry: `cleo manifest append --task {{TASK_ID}} --type validation --content "<one-paragraph summary>"`
 6. Complete task: `{{TASK_COMPLETE_CMD}} {{TASK_ID}}`
 7. Return summary message
 
@@ -207,8 +209,8 @@ the Validate-phase Lead prompt, listing the touched packages and the exact
 
 ### Output Requirements
 
-1. MUST write validation report to: `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`
-2. MUST append ONE line to: `{{MANIFEST_PATH}}`
+1. MUST record validation report with `cleo docs add {{TASK_ID}} --content - --type note --slug {{TOPIC_SLUG}}` (never a raw file under `.cleo/agent-outputs/`)
+2. MUST record ONE manifest entry: `cleo manifest append --entry '<entry JSON>'` (the flat manifest file is retired, ADR-027)
 3. MUST return ONLY: "Validation complete. Manifest appended to pipeline_manifest."
 4. MUST NOT return validation content in response
 
