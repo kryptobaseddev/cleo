@@ -19,23 +19,48 @@ const libraryRoot = LIBRARY_ROOT;
 
 // --- Core data ---
 
-/** Parsed skills.json index */
-const skillsIndex = JSON.parse(
-  fs.readFileSync(path.join(LIBRARY_ROOT, 'skills.json'), 'utf8')
-);
-
-/** Parsed manifest.json dispatch registry */
+/**
+ * Parsed manifest.json — the only skills index. It is generated from SKILL.md
+ * frontmatter by scripts/skills/generate-manifest.mjs; skills.json was
+ * removed in T12653.
+ */
 const manifest = JSON.parse(
   fs.readFileSync(path.join(SKILLS_ROOT, 'manifest.json'), 'utf8')
 );
+
+/**
+ * Map a manifest entry to the catalog SkillEntry shape (the manifest `path`
+ * names the directory; the catalog path names SKILL.md). Mirrors
+ * catalogEntryFromManifest in @cleocode/caamp.
+ * @param {object} m - Manifest skill entry
+ * @returns {object} SkillEntry
+ */
+function toSkillEntry(m) {
+  return {
+    name: m.name,
+    description: m.description,
+    version: m.version,
+    path: m.path.endsWith('SKILL.md') ? m.path : `${m.path}/SKILL.md`,
+    references: m.references || [],
+    core: m.core === undefined ? m.deliveryTier === 'core' : m.core,
+    category: m.category || 'recommended',
+    tier: m.tier,
+    protocol: m.protocol === undefined ? null : m.protocol,
+    dependencies: m.dependencies || [],
+    sharedResources: m.sharedResources || [],
+    compatibility: m.compatibility || [],
+    license: m.license || 'MIT',
+    metadata: { deliveryTier: m.deliveryTier, install: m.install },
+  };
+}
 
 /** Parsed _shared/placeholders.json */
 const shared = JSON.parse(
   fs.readFileSync(path.join(SHARED_ROOT, 'placeholders.json'), 'utf8')
 );
 
-/** All skill entries from skills.json */
-const skills = skillsIndex.skills;
+/** All skill entries, derived from manifest.json */
+const skills = manifest.skills.map(toSkillEntry);
 
 // --- Existing API (preserved) ---
 
@@ -48,7 +73,7 @@ function listSkills() {
 }
 
 /**
- * Get skill metadata from skills.json by name.
+ * Get skill metadata by name.
  * @param {string} name - Skill name (e.g. "ct-research-agent")
  * @returns {object|undefined}
  */

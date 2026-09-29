@@ -557,7 +557,7 @@ export async function initCoreSkills(created: string[], warnings: string[]): Pro
       const req = createRequire(import.meta.url);
       const skillsPkgMain = req.resolve('@cleocode/skills/package.json');
       const skillsPkgRoot = dirname(skillsPkgMain);
-      if (existsSync(join(skillsPkgRoot, 'skills.json'))) {
+      if (existsSync(join(skillsPkgRoot, 'skills', 'manifest.json'))) {
         ctSkillsRoot = skillsPkgRoot;
       }
     } catch {
@@ -568,12 +568,12 @@ export async function initCoreSkills(created: string[], warnings: string[]): Pro
       try {
         // Workspace monorepo fallback (packages/skills/)
         const bundledPath = join(packageRoot, 'packages', 'skills');
-        if (existsSync(join(bundledPath, 'skills.json'))) {
+        if (existsSync(join(bundledPath, 'skills', 'manifest.json'))) {
           ctSkillsRoot = bundledPath;
         } else {
           // node_modules fallback
           const ctSkillsPath = join(packageRoot, 'node_modules', '@cleocode', 'skills');
-          if (existsSync(join(ctSkillsPath, 'skills.json'))) {
+          if (existsSync(join(ctSkillsPath, 'skills', 'manifest.json'))) {
             ctSkillsRoot = ctSkillsPath;
           }
         }
@@ -594,23 +594,18 @@ export async function initCoreSkills(created: string[], warnings: string[]): Pro
       warnings.push('Failed to register skill library with CAAMP');
     }
 
-    // Read the skills catalog to find core skills
-    const catalogPath = join(ctSkillsRoot, 'skills.json');
-    const catalog = JSON.parse(readFileSync(catalogPath, 'utf-8'));
-    const skills: Array<{
-      name: string;
-      path: string;
-      core: boolean;
-      category: string;
-      tier: number;
-    }> = catalog.skills ?? [];
-
-    // Install core and recommended skills (tier 0, 1, 2)
-    const coreSkills = skills.filter((s) => s.tier <= 2);
+    // T12653: the manifest (generated from SKILL.md frontmatter) is the only
+    // skills index. Install every skill that declares `metadata.install:
+    // harness`; `internal` skills never reach a harness (D11157).
+    // scripts/lint-emitted-skills.mjs mirrors this selection — change both.
+    const manifestPath = join(ctSkillsRoot, 'skills', 'manifest.json');
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
+    const skills: Array<{ name: string; install?: string }> = manifest.skills ?? [];
+    const harnessSkills = skills.filter((s) => s.install === 'harness');
 
     const installed: string[] = [];
-    for (const skill of coreSkills) {
-      const skillSourceDir = dirname(join(ctSkillsRoot, skill.path));
+    for (const skill of harnessSkills) {
+      const skillSourceDir = join(ctSkillsRoot, 'skills', skill.name);
 
       if (!existsSync(skillSourceDir)) {
         continue;

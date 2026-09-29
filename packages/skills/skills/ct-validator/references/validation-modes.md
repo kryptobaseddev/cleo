@@ -93,9 +93,9 @@ links; scan for placeholder text; verify formatting.
 **Tool examples.**
 
 ```bash
-# Use the ct-skill-validator scripts as a model
-python packages/skills/skills/ct-skill-validator/scripts/validate.py <skill-dir>
-python packages/skills/skills/ct-skill-validator/scripts/audit_body.py <skill-dir>
+# Use the ct-skill-author scripts as a model
+python packages/skills/skills/ct-skill-author/scripts/validate.py <skill-dir>
+python packages/skills/skills/ct-skill-author/scripts/audit_body.py <skill-dir>
 
 # Generic markdown link check
 markdown-link-check docs/specs/*.md

@@ -18,8 +18,11 @@ No package is produced. Used for docs, spec updates, and internal code changes t
 ### Commands
 
 ```bash
-cleo release ship v2026.4.5 --bump-version --create-tag --push --no-artifacts
-cleo check protocol --protocolType release --version v2026.4.5 --hasChangelog true
+cleo release plan v2026.4.5 --epic T####
+cleo release open v2026.4.5
+# after the release PR merges:
+git tag -a v2026.4.5 -m "Release v2026.4.5" && git push origin v2026.4.5
+cleo check protocol release --version v2026.4.5 --has-changelog true
 ```
 
 ## npm-Package Release
@@ -38,11 +41,14 @@ Publishes one or more npm packages from the monorepo. Uses `npm publish --proven
 ### Commands
 
 ```bash
-cleo release ship v2026.4.5 --bump-version --create-tag --push
+cleo release plan v2026.4.5 --epic T####
+cleo release open v2026.4.5
+# after the release PR merges:
+git tag -a v2026.4.5 -m "Release v2026.4.5" && git push origin v2026.4.5
 # CI handles the publish + attestation; the skill records the result.
-cleo check protocol --protocolType release --version v2026.4.5 --hasChangelog true
-cleo check protocol --protocolType artifact-publish --artifactType npm-package --buildPassed true
-cleo check protocol --protocolType provenance --hasAttestation true --hasSbom true
+cleo check protocol release --version v2026.4.5 --has-changelog true
+cleo check protocol artifact-publish --artifact-type npm-package --build-passed true
+cleo check protocol provenance --has-attestation true --has-sbom true
 ```
 
 ## docker-image Release
@@ -61,10 +67,13 @@ Builds and pushes a container image to GHCR or another OCI registry, signs with 
 ### Commands
 
 ```bash
-cleo release ship v2026.4.5 --bump-version --create-tag --push
+cleo release plan v2026.4.5 --epic T####
+cleo release open v2026.4.5
+# after the release PR merges:
+git tag -a v2026.4.5 -m "Release v2026.4.5" && git push origin v2026.4.5
 # CI runs: docker build → cosign sign → cosign attest → syft sbom → push
-cleo check protocol --protocolType artifact-publish --artifactType docker-image --buildPassed true
-cleo check protocol --protocolType provenance --hasAttestation true --hasSbom true
+cleo check protocol artifact-publish --artifact-type docker-image --build-passed true
+cleo check protocol provenance --has-attestation true --has-sbom true
 ```
 
 ## cargo-crate Release
@@ -82,9 +91,12 @@ Publishes one or more crates from the Rust workspace to crates.io.
 ### Commands
 
 ```bash
-cleo release ship v2026.4.5 --bump-version --create-tag --push
+cleo release plan v2026.4.5 --epic T####
+cleo release open v2026.4.5
+# after the release PR merges:
+git tag -a v2026.4.5 -m "Release v2026.4.5" && git push origin v2026.4.5
 # CI runs: cargo test → cargo publish --dry-run → cargo publish
-cleo check protocol --protocolType artifact-publish --artifactType cargo-crate --buildPassed true
+cleo check protocol artifact-publish --artifact-type cargo-crate --build-passed true
 ```
 
 ## github-tarball Release
@@ -101,9 +113,12 @@ Creates a source tarball and attaches it to a GitHub Release. Optional cosign si
 ### Commands
 
 ```bash
-cleo release ship v2026.4.5 --bump-version --create-tag --push
+cleo release plan v2026.4.5 --epic T####
+cleo release open v2026.4.5
+# after the release PR merges:
+git tag -a v2026.4.5 -m "Release v2026.4.5" && git push origin v2026.4.5
 # gh release create runs in CI with the tarball attached
-cleo check protocol --protocolType artifact-publish --artifactType github-release --buildPassed true
+cleo check protocol artifact-publish --artifact-type github-release --build-passed true
 ```
 
 ## Multi-Artifact Release
@@ -120,9 +135,12 @@ A release with more than one artifact type — typical for a major version that 
 ### Commands
 
 ```bash
-cleo release ship v2026.4.5 --bump-version --create-tag --push
+cleo release plan v2026.4.5 --epic T####
+cleo release open v2026.4.5
+# after the release PR merges:
+git tag -a v2026.4.5 -m "Release v2026.4.5" && git push origin v2026.4.5
 # CI orchestrates all publishes; skill records the unified chain
-cleo check protocol --protocolType release --version v2026.4.5 --hasChangelog true
+cleo check protocol release --version v2026.4.5 --has-changelog true
 ```
 
 ## Which Checklist Wins?

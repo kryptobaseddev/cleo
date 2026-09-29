@@ -61,7 +61,7 @@ relate commits to the task.
 without reading ADR-062. The CLEO contract is that workers commit on
 their task branch; the integrator MUST use `git merge --no-ff
 task/<id>` to preserve SHAs, author identity, and the
-`cleo find <task-id> --commits` trace.
+`git log --grep <task-id>` trace.
 
 **Fix.** Always `git merge --no-ff task/<TID>` for integration. See
 `feedback_cherry_pick_worktrees.md` for the full pattern.

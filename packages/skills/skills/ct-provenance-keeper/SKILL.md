@@ -2,9 +2,10 @@
 name: ct-provenance-keeper
 description: "Generates in-toto v1 attestations, SLSA-level provenance records, SBOMs (CycloneDX or SPDX), and sigstore/cosign signatures for published artifacts. Invoked by ct-artifact-publisher as a delegation for signing and attestation. Records the full commit, then build, then artifact, then attestation, then registry chain in .cleo/releases.json and rejects publishes whose digest does not match the attestation. Triggers when artifact-publish reaches the provenance step or when a release needs SLSA L2+ attestation."
 metadata:
-  version: 1.0.0
+  version: 1.0.1
   tier: on-demand
   install: harness
+  lastReviewed: 2026-09-28
   stability: stable
 ---
 
@@ -132,11 +133,10 @@ Each release appends a record in the following shape. The skill MUST populate ev
 Validate the provenance entry through `cleo check protocol`:
 
 ```bash
-cleo check protocol \
-  --protocolType provenance \
-  --taskId T4902 \
-  --hasAttestation true \
-  --hasSbom true
+cleo check protocol provenance \
+  --task-id T4902 \
+  --has-attestation true \
+  --has-sbom true
 ```
 
 Exit code 0 = provenance record is complete and verified. Exit code 90 = invalid config. Exit code 91 = signing key missing. Exit code 92 = signature invalid. Exit code 93 = digest mismatch (refuse to bind attestation). Exit code 94 = attestation format or subject is invalid.
@@ -163,4 +163,4 @@ Exit code 0 = provenance record is complete and verified. Exit code 90 = invalid
 5. Default to sigstore keyless signing via OIDC in CI; fall back to gpg only when configured.
 6. Generate CycloneDX SBOMs for every artifact with runtime dependencies.
 7. `.cleo/releases.json` is append-only; never mutate past entries.
-8. Validate every run via `cleo check protocol --protocolType provenance`.
+8. Validate every run via `cleo check protocol provenance`.

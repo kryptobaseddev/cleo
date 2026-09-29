@@ -16,7 +16,7 @@ All subagents operating under an orchestrator MUST follow this protocol.
 | ID | Rule | Compliance |
 |----|------|------------|
 | OUT-001 | MUST write findings to `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md` | Required |
-| OUT-002 | MUST append ONE entry via `cleo manifest append <json>` (writes to pipeline_manifest table per ADR-027/T1093) | Required |
+| OUT-002 | MUST append ONE entry via `cleo manifest append --entry '<json>'` (writes to pipeline_manifest table per ADR-027/T1093) | Required |
 | OUT-003 | MUST return ONLY: "[Type] complete. Manifest appended to pipeline_manifest." | Required |
 | OUT-004 | MUST NOT return output content in response | Required |
 
