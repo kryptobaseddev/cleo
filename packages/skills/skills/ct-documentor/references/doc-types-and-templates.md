@@ -282,7 +282,7 @@ or that wasn't registered via `cleo docs add` / `cleo memory observe`.
 
 ## CLEO-Native: Skill
 
-Lives in `packages/skills/skills/<name>/SKILL.md`. The ct-skill-creator
+Lives in `packages/skills/skills/<name>/SKILL.md`. The ct-skill-author
 skill is the canonical template — see its references/.
 
 ## When to Pick Which Type

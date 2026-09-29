@@ -18,11 +18,8 @@
 ## Context Budget Monitoring
 
 ```bash
-# Check current context usage
-cleo orchestrate context
-
-# With specific token count
-cleo orchestrate context --tokens 5000
+# Check context usage for an epic
+cleo orchestrate context T1575
 ```
 
 **Status Thresholds**:
@@ -54,15 +51,14 @@ Orchestrator sessions may span multiple Claude conversations. This is expected a
 ### Cleanup Commands
 
 ```bash
-# Standard garbage collection (ended/suspended sessions only)
+# Standard garbage collection
 cleo session gc
 
-# Include stale active sessions (>7 days old by default)
-cleo session gc --include-active
+# Also end active sessions older than N days
+cleo session gc --max-age 7
 
-# Preview what would be cleaned
-cleo session gc --dry-run
-cleo session gc --include-active --dry-run
+# There is no dry-run; inspect first
+cleo session list --status active
 ```
 
 ### Configuration
@@ -84,12 +80,12 @@ cleo config set retention.autoEndActiveAfterDays 14  # Extend to 2 weeks
 
 2. **Session suspend for long waits**: Suspend when blocked on external factors
    ```bash
-   cleo session suspend --note "Awaiting code review"
+   cleo session suspend <sessionId> --reason "Awaiting code review"
    ```
 
 3. **Periodic cleanup**: Run garbage collection periodically to remove stale sessions
    ```bash
-   cleo session gc --include-active
+   cleo session gc --max-age 7
    ```
 
 4. **Multi-day work**: No need to restart sessions daily - orchestrator sessions are designed for extended work periods
@@ -99,15 +95,9 @@ cleo config set retention.autoEndActiveAfterDays 14  # Extend to 2 weeks
 ## Validation
 
 ```bash
-# Full protocol validation
-cleo orchestrate validate
+# Validate one task's subagent output
+cleo orchestrate validate T1586
 
-# Validate for specific epic
-cleo orchestrate validate --epic T1575
-
-# Validate specific subagent output
-cleo orchestrate validate --subagent research-id-2026-01-18
-
-# Manifest only
-cleo orchestrate validate --manifest
+# Validate a specific output file, and that a manifest entry was appended
+cleo orchestrate validate T1586 --file <output-path> --manifest
 ```

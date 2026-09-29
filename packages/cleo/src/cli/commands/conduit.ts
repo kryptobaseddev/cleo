@@ -174,7 +174,7 @@ const publishCommand = defineCommand({
   args: {
     topic: {
       type: 'string',
-      description: 'Topic name to publish to (e.g. "epic-T1149.wave-T1253")',
+      description: 'Topic name to publish to (e.g. "epic-T1149.wave-2")',
       required: true,
     },
     kind: {
@@ -274,7 +274,7 @@ const listenCommand = defineCommand({
   args: {
     topic: {
       type: 'string',
-      description: 'Topic name to poll (e.g. "epic-T1149.wave-T1253")',
+      description: 'Topic name to poll (e.g. "epic-T1149.wave-2")',
       required: true,
     },
     limit: {

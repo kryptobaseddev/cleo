@@ -1,11 +1,8 @@
 ---
 name: ct-epic-architect
 description: Epic planning and task decomposition for breaking down large initiatives into atomic, executable tasks. Provides dependency analysis, wave-based parallel execution planning, hierarchy management, and research linking. Use when creating epics, decomposing initiatives into task trees, planning parallel workflows, or analyzing task dependencies. Triggers on epic creation, task decomposition requests, or planning phase work.
-version: 3.0.0
-core: false
-category: recommended
+version: 3.0.1
 protocol: decomposition
-loomStage: decomposition
 adrRefs:
   - ADR-066
   - ADR-073
@@ -20,9 +17,11 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.0.0
+  version: 3.0.1
   tier: on-demand
   install: harness
+  loomStage: decomposition
+  lastReviewed: 2026-09-28
   stability: stable
 ---
 
@@ -61,7 +60,7 @@ Context injection for epic planning and task decomposition tasks spawned via cle
 3. Check existing work: `cleo find "keyword"`, `cleo list --type epic`
 4. Create epic and child tasks
 5. Attach files and link research
-6. Start session: `cleo session start --scope epic:{{EPIC_ID}} --auto-start`
+6. Start session: `cleo session start --scope epic:{{EPIC_ID}} --name "<what you are doing>"`
 7. Complete task: `cleo complete {{TASK_ID}}`
 
 ---
@@ -248,7 +247,8 @@ cleo list --parent T001 --status pending,active | jq '.tasks | length'
 
 ```bash
 cleo phase show                              # Current phase
-cleo list --phase $(cleo phase show -q)      # Tasks in phase
+cleo phase show                              # Current phase (slug)
+cleo list --phase <slug>                     # Tasks in that phase
 ```
 
 ---
@@ -283,7 +283,7 @@ Recommendation: [Your recommendation]
 ### Output Requirements
 
 1. MUST write decomposition to: `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`
-2. MUST append ONE line to: `{{MANIFEST_PATH}}`
+2. MUST record ONE manifest entry: `cleo manifest append --entry '<entry JSON>'` (the flat manifest file is retired, ADR-027)
 3. MUST return ONLY: "Decomposition complete. Manifest appended to pipeline_manifest."
 4. MUST NOT return full decomposition in response
 
