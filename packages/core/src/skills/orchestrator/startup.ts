@@ -13,8 +13,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Task, TaskRef, TaskRefPriority } from '@cleocode/contracts';
 import { getCleoDirAbsolute } from '../../paths.js';
-import { readLiveFocus } from '../../sessions/focus-state-store.js';
-import { resolveSessionIdFromEnv } from '../../sessions/session-id.js';
+import { readLiveFocus, resolveFocusSessionId } from '../../sessions/focus-state-store.js';
 import { getTaskAccessor } from '../../store/data-accessor.js';
 import { resolveBoundSessionId } from '../../store/session-store.js';
 import { orderByRanking, rankTasks } from '../../task-tools/score-task-priority.js';
@@ -181,10 +180,10 @@ export async function sessionInit(epicId?: string, cwd?: string): Promise<Sessio
   let focusedTask: string | null = null;
 
   try {
-    // T12684: the caller's live focus — never a finished task, never the raw
-    // legacy key alone.
-    focusedTask = (await readLiveFocus(acc, resolveSessionIdFromEnv() ?? activeSessionId))
-      .currentTask;
+    // T12684: the caller's live focus — never a finished task. T12501: under
+    // THE focus-key rule — the caller's bound session, never the first active
+    // row (another agent's, when this caller is unbound).
+    focusedTask = (await readLiveFocus(acc, await resolveFocusSessionId(cwd))).currentTask;
     hasFocus = !!focusedTask;
   } catch {
     // Focus unavailable
@@ -486,7 +485,8 @@ export async function generateHitlSummary(
   let progressNote: string | null = null;
   try {
     // T12684: the bound session's live focus — never a finished task.
-    const focus = await readLiveFocus(acc, sessionId);
+    // T12501: keyed by THE focus-key rule, like every other focus reader.
+    const focus = await readLiveFocus(acc, await resolveFocusSessionId(cwd));
     focusedTask = focus.currentTask;
     progressNote = focus.state?.sessionNote ?? null;
   } catch {

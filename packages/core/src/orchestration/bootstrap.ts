@@ -7,8 +7,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { BrainState } from '@cleocode/contracts';
-import { readLiveFocus } from '../sessions/focus-state-store.js';
-import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
+import { focusSessionIdFromRead, readLiveFocus } from '../sessions/focus-state-store.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { resolveSessionForRead } from '../store/session-store.js';
@@ -51,10 +50,14 @@ export async function buildBrainState(
   // --- Session (from SQLite, ADR-006/ADR-020) ---
   const acc = accessor ?? (await getTaskAccessor(projectRoot));
   // T12500: the caller's bound session; an unbound caller sees the newest
-  // active row labelled `unbound`, never presented as its own.
+  // active row labelled `unbound`, never presented as its own. T12501:
+  // resolved once; the focus key below derives from the same resolution.
+  let focusSessionId: string | null = null;
   try {
-    const { session: activeSession, unbound } = await resolveSessionForRead(projectRoot);
-    if (activeSession) {
+    const read = await resolveSessionForRead(projectRoot);
+    focusSessionId = focusSessionIdFromRead(read);
+    const { session: activeSession, unbound } = read;
+    if (activeSession && activeSession.status === 'active') {
       brain.session = {
         id: activeSession.id,
         name: activeSession.name || activeSession.id,
@@ -80,7 +83,8 @@ export async function buildBrainState(
 
   // --- Current Task (from focus or session) ---
   // T12684: a finished task is never bootstrapped as the current task.
-  const focusTaskId = (await readLiveFocus(acc, resolveSessionIdFromEnv())).currentTask;
+  // T12501: the CALLER's focus key (THE focus-key rule), not an env-only one.
+  const focusTaskId = (await readLiveFocus(acc, focusSessionId)).currentTask;
   if (focusTaskId) {
     const task = tasks.find((t) => t.id === focusTaskId);
     if (task) {
@@ -100,7 +104,7 @@ export async function buildBrainState(
   if (readyTasks.length > 0) {
     // T12692: THE comparator (D11161) — the same ranking as `cleo next`.
     const ctx = buildRankingContext(tasks, dependencyLookup, {
-      currentPhase: await resolveRankingPhase(acc),
+      currentPhase: await resolveRankingPhase(acc, projectRoot),
     });
     const next = rankTasks(readyTasks, ctx)[0]!.task;
     brain.nextSuggestion = { id: next.id, title: next.title, score: 1 };
