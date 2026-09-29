@@ -10,9 +10,11 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type {
+  KnowledgeCoverage,
   KnowledgeDoctorOptions,
   KnowledgeDoctorResult,
   KnowledgeEvidenceRef,
+  KnowledgeRepairFinding,
   KnowledgeRepairProposal,
   KnowledgeRepairReceipt,
 } from '@cleocode/contracts';
@@ -38,6 +40,7 @@ import { pruneObservationStubs, restoreObservationStubs } from '../memory/brain-
 import { linkDecisionToCodeEvidence } from '../memory/decision-cross-link.js';
 import { generateProjectHash } from '../nexus/hash.js';
 import { assessKnowledgeCoverage, readKnowledgeIndexAssessment } from '../nexus/knowledge.js';
+import { NEXUS_IDENTITY_REMEDY_COMMAND } from '../nexus/stored-roots.js';
 import { getTaskKnowledgeEvidence } from '../nexus/task-evidence.js';
 import { worktreeScope } from '../paths.js';
 import {
@@ -2064,6 +2067,57 @@ function rollback(db: DatabaseSync, id: string): KnowledgeRepairReceipt {
 }
 
 /**
+ * The `graph-coverage` repair finding for non-current graph coverage, or null
+ * when coverage is current.
+ *
+ * An ownership mismatch carries its exact remedy command in
+ * `coverage.nextAction` (T12659): a `--full` re-bind for a moved project
+ * (same project id), or the identity check for a foreign project id. The
+ * finding proposes that command, not a plain `nexus.analyze` that would
+ * refuse the same mismatch again.
+ *
+ * @param coverage - Assessed graph coverage.
+ * @returns The finding, or null.
+ * @task T12659
+ */
+export function graphCoverageFinding(coverage: KnowledgeCoverage): KnowledgeRepairFinding | null {
+  if (coverage.status === 'current') return null;
+  const remedy = coverage.nextAction;
+  const identityRemedy = remedy === NEXUS_IDENTITY_REMEDY_COMMAND;
+  const rebindRemedy = Boolean(
+    remedy?.startsWith('cleo nexus analyze ') && remedy.endsWith(' --full'),
+  );
+  return {
+    id: `graph-coverage:${coverage.projectId}`,
+    projectId: coverage.projectId,
+    affectedRecordIds: [],
+    description: coverage.reasons.join(' '),
+    evidence: coverage.evidence,
+    repairClass: 'agent-resolvable',
+    state: coverage.status === 'failed' ? 'failed' : 'unresolved',
+    proposedAction: identityRemedy
+      ? {
+          operation: 'doctor.project-identity.inspect',
+          arguments: {},
+          prerequisites: [
+            `Run exactly: ${NEXUS_IDENTITY_REMEDY_COMMAND}`,
+            'The stored graph names another project id; confirm which identity is correct before rebuilding.',
+          ],
+        }
+      : {
+          operation: 'nexus.analyze',
+          arguments: rebindRemedy ? { full: true } : {},
+          prerequisites: [
+            ...(rebindRemedy ? [`Run exactly: ${remedy}`] : []),
+            'Confirm the intended source root and repository inclusions.',
+          ],
+        },
+    verification: ['Reassess graph revision, extraction outcomes, and source freshness.'],
+    recovery: null,
+  };
+}
+
+/**
  * Assess project knowledge and optionally apply verified foreground repairs.
  * @param projectRoot - Canonical project identity root; source-root selection stays explicit.
  * @param options - Assessment budget, deterministic fix mode, sourced proposal, or receipt recovery.
@@ -2212,23 +2266,8 @@ export async function runKnowledgeDoctor(
           ],
       evidence: [],
     };
-    if (coverage.status !== 'current')
-      result.health.findings.push({
-        id: `graph-coverage:${coverage.projectId}`,
-        projectId: coverage.projectId,
-        affectedRecordIds: [],
-        description: coverage.reasons.join(' '),
-        evidence: coverage.evidence,
-        repairClass: 'agent-resolvable',
-        state: coverage.status === 'failed' ? 'failed' : 'unresolved',
-        proposedAction: {
-          operation: 'nexus.analyze',
-          arguments: {},
-          prerequisites: ['Confirm the intended source root and repository inclusions.'],
-        },
-        verification: ['Reassess graph revision, extraction outcomes, and source freshness.'],
-        recovery: null,
-      });
+    const graphFinding = graphCoverageFinding(coverage);
+    if (graphFinding) result.health.findings.push(graphFinding);
     const preview = pruneObservationStubs(db, false);
     if (preview.matched) {
       const evidence: [KnowledgeEvidenceRef, ...KnowledgeEvidenceRef[]] = [
