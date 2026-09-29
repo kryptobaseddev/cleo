@@ -121,6 +121,8 @@ const GLOBAL_SECRETS: Readonly<Record<string, string>> = {
     'Stored LLM provider credentials. Re-run provider login / re-enter API keys.',
   'decide-credentials.json':
     'Decision-provider base URL and API key (T12491). Re-run `cleo decide config --url <u> --key-stdin`.',
+  'nexus-credentials.json':
+    'Cleo Nexus account session tokens (T12712). Re-run `cleo login nexus`.',
   'anthropic-oauth.json': 'Anthropic OAuth session. Re-run the Anthropic login.',
   'google_oauth.json': 'Google OAuth session. Re-run the Google login.',
   'anthropic-key': 'Anthropic API key. Re-enter it.',

@@ -34,6 +34,8 @@ dev/sandbox/
 .cleo/brain.db-shm
 .cleo/config.json
 .cleo/project-info.json
+# Cleo Nexus project link (T12712) — machine-local, names an account's org
+.cleo/nexus-link.json
 .cleo/backups/
 .cleo/logs/
 # GC daemon runtime state — ephemeral, not restored from backup (ADR-047)
