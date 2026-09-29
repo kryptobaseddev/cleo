@@ -12,7 +12,7 @@
 
 import type { Session } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull, lte, or } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
 import { captureProjectScope, getProjectRoot, worktreeScope } from '../project-scope.js';
 import { getCurrentConnectionSessionId } from '../sessions/connection-session-handle.js';
@@ -20,8 +20,9 @@ import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import { resolveTerminalKeys, type TerminalKey } from '../sessions/terminal-identity.js';
 import { rowToSession } from './converters.js';
 import { sessionTerminalBindings } from './session-binding-schema.js';
-import { getDb } from './sqlite.js';
+import { getDb, getNativeTasksDb } from './sqlite.js';
 import * as schema from './tasks-schema.js';
+import { runHeartbeatWrite } from './with-retry.js';
 
 // === CRUD OPERATIONS ===
 
@@ -942,13 +943,97 @@ export async function hasActiveSession(cwd?: string, nowMs: number = Date.now())
       .where(eq(schema.sessions.status, 'active'))
       .all();
     const cutoff = nowMs - SESSION_LIVE_TTL_MS;
-    return rows.some((row) => {
-      const seen = Math.max(
-        Date.parse(row.startedAt ?? '') || 0,
-        Date.parse(row.lastActivity ?? '') || 0,
-      );
-      return seen >= cutoff;
-    });
+    return rows.some((row) => sessionLastSeenMs(row) >= cutoff);
+  });
+}
+
+/**
+ * When a session was last seen alive, in epoch milliseconds (T12540): the
+ * newer of its `lastActivity` heartbeat and `startedAt`. Liveness and gc
+ * measure idleness from this, so a long-running session that keeps working
+ * stays live however long ago it started.
+ *
+ * @param session - Any shape carrying the two timestamps.
+ * @returns Epoch ms, or `0` when neither timestamp parses.
+ * @example
+ * ```ts
+ * const idleMs = Date.now() - sessionLastSeenMs(session);
+ * ```
+ * @task T12540
+ */
+export function sessionLastSeenMs(session: {
+  readonly startedAt?: string | null;
+  readonly lastActivity?: string | null;
+}): number {
+  return Math.max(
+    Date.parse(session.startedAt ?? '') || 0,
+    Date.parse(session.lastActivity ?? '') || 0,
+  );
+}
+
+/**
+ * Minimum interval between two `lastActivity` writes for one session, in
+ * milliseconds (T12540). Every bound mutation is activity, but the heartbeat
+ * writes at most once per window so a busy agent does not add a write per
+ * command.
+ */
+export const SESSION_ACTIVITY_THROTTLE_MS = 60 * 1000;
+
+/**
+ * Session activity heartbeat (T12540 · epic T12497): refresh an ACTIVE
+ * session's `lastActivity`, at most once per {@link SESSION_ACTIVITY_THROTTLE_MS}.
+ *
+ * Cheap and best-effort by construction:
+ * - one primary-key read decides whether the window has elapsed, so a
+ *   throttled beat takes no write lock at all;
+ * - the write is ONE single-row UPDATE by primary key, whose `WHERE` repeats
+ *   the throttle so two racing processes cannot both land a beat;
+ * - it runs through {@link runHeartbeatWrite}: a short `busy_timeout`, and a
+ *   contended lock or an open transaction skips the beat instead of waiting.
+ *
+ * @param sessionId - The bound session that just did work.
+ * @param cwd - Working directory for DB resolution.
+ * @param nowMs - Clock override for tests.
+ * @returns `true` when `lastActivity` was written, `false` when throttled,
+ *   skipped, or the session is not active.
+ * @task T12540
+ */
+export async function touchSessionActivity(
+  sessionId: string,
+  cwd?: string,
+  nowMs: number = Date.now(),
+): Promise<boolean> {
+  const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    const db = await getDb(scope.worktreeRoot);
+    const [row] = await db
+      .select({ status: schema.sessions.status, lastActivity: schema.sessions.lastActivity })
+      .from(schema.sessions)
+      .where(eq(schema.sessions.id, sessionId))
+      .limit(1)
+      .all();
+    if (row?.status !== 'active') return false;
+    const due = nowMs - SESSION_ACTIVITY_THROTTLE_MS;
+    if ((Date.parse(row.lastActivity ?? '') || 0) > due) return false;
+    const changes = runHeartbeatWrite(db, getNativeTasksDb(scope.worktreeRoot), () =>
+      Number(
+        db
+          .update(schema.sessions)
+          .set({ lastActivity: new Date(nowMs).toISOString() })
+          .where(
+            and(
+              eq(schema.sessions.id, sessionId),
+              eq(schema.sessions.status, 'active'),
+              or(
+                isNull(schema.sessions.lastActivity),
+                lte(schema.sessions.lastActivity, new Date(due).toISOString()),
+              ),
+            ),
+          )
+          .run().changes,
+      ),
+    );
+    return (changes ?? 0) > 0;
   });
 }
 
