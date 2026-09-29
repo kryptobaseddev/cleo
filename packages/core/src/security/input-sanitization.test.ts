@@ -1,3 +1,4 @@
+import { DOCS_LIFECYCLE_STATUSES, OPERATIONS } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
 import { ALL_VALID_STATUSES, SecurityError, sanitizeParams } from './input-sanitization.js';
 
@@ -42,5 +43,34 @@ describe('status enum is a union, not a concatenation (gh#1458)', () => {
 
   it('exposes a deduplicated allowed-status set', () => {
     expect(ALL_VALID_STATUSES.length).toBe(new Set(ALL_VALID_STATUSES).size);
+  });
+});
+
+describe('docs status is a doc lifecycle status, not a task status (T12654)', () => {
+  // The statuses `cleo docs update --help` advertises: the registry enum.
+  const advertised =
+    OPERATIONS.find((op) => op.domain === 'docs' && op.operation === 'update')?.params?.find(
+      (param) => param.name === 'status',
+    )?.enum ?? [];
+
+  it('the registry advertises every doc lifecycle status', () => {
+    expect([...advertised]).toEqual([...DOCS_LIFECYCLE_STATUSES]);
+  });
+
+  it.each([...advertised])('passes docs.update --status %s through unchanged', (status) => {
+    const result = sanitizeParams({ slug: 'my-spec', status }, undefined, {
+      domain: 'docs',
+      operation: 'update',
+    });
+    expect(result?.['status']).toBe(status);
+  });
+
+  it('rejects a task status on docs.update, naming the doc lifecycle set', () => {
+    expect(() =>
+      sanitizeParams({ slug: 'my-spec', status: 'pending' }, undefined, {
+        domain: 'docs',
+        operation: 'update',
+      }),
+    ).toThrow(`Allowed values: ${DOCS_LIFECYCLE_STATUSES.join(', ')}`);
   });
 });
