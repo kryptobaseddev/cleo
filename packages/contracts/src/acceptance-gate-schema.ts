@@ -536,7 +536,10 @@ export const acceptanceGateResultSchema = z
           message: 'Result cannot precede input capture',
         });
       const executable = ['test', 'command', 'lint'].includes(result.kind);
-      if (executable && !binding.invocation)
+      // T12718: a command the runner refused to split (shell syntax, open
+      // quote) never had an invocation. It is bound as an unmet `error` so the
+      // rest of its batch still records; any verdict needs the invocation.
+      if (executable && !binding.invocation && result.result !== 'error')
         context.addIssue({
           code: 'custom',
           path: ['binding', 'invocation'],

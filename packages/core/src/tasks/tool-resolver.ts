@@ -31,6 +31,7 @@ import { delimiter, join } from 'node:path';
 
 import { loadProjectContext } from '../agents/variable-substitution.js';
 import type { ProjectType } from '../store/project-detect.js';
+import { splitCommandLine } from './command-line.js';
 import { isReferencesOnlyTsconfig } from './tool-vacuity.js';
 
 // ---------------------------------------------------------------------------
@@ -118,7 +119,17 @@ export type ResolveToolResult =
   | {
       ok: false;
       reason: string;
-      codeName: 'E_TOOL_UNKNOWN' | 'E_TOOL_UNAVAILABLE' | 'E_TOOL_NOT_APPLICABLE';
+      /**
+       * `E_TOOL_COMMAND_INVALID`: the declared project-context command uses
+       * shell syntax (or an open quote) it cannot run without a shell (T12718).
+       */
+      codeName:
+        | 'E_TOOL_UNKNOWN'
+        | 'E_TOOL_UNAVAILABLE'
+        | 'E_TOOL_NOT_APPLICABLE'
+        | 'E_TOOL_COMMAND_INVALID';
+      /** With `E_TOOL_COMMAND_INVALID`: the declared command, verbatim. */
+      rawCommand?: string;
     };
 
 // ---------------------------------------------------------------------------
@@ -312,17 +323,16 @@ const LANGUAGE_DEFAULTS: Record<ProjectType, Partial<Record<CanonicalTool, Comma
  * Parse a project-context command string (e.g. `"pnpm run test"`) into a
  * `(cmd, args[])` pair suitable for `child_process.spawn`.
  *
- * Splits on whitespace. Quoted segments are NOT honoured — project commands
- * are expected to be simple. Callers needing rich shell forms must use the
- * fallback (per-language defaults) and edit `project-context.json` to a
- * single-token command.
+ * Splits with POSIX `sh` quoting (T12718). The command runs without a shell,
+ * so shell syntax is refused: split on whitespace, `pnpm build && pnpm test`
+ * ran `pnpm build` with `&& pnpm test` as ignored arguments and could record
+ * a false `tool:test` pass.
  *
+ * @throws When `raw` uses shell syntax or has an unterminated quote.
  * @internal
  */
-function parseCommandString(raw: string): CommandShape | null {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  const parts = trimmed.split(/\s+/);
+function parseCommandString(raw: string, label: string): CommandShape | null {
+  const parts = splitCommandLine(raw, label);
   const cmd = parts[0];
   if (!cmd) return null;
   return { cmd, args: parts.slice(1) };
@@ -610,7 +620,21 @@ export function resolveToolCommand(
   const pcKey = PROJECT_CONTEXT_KEY_MAP[canonical];
   if (pcKey) {
     const cmd = readNestedString(ctx, pcKey);
-    const parsed = cmd ? parseCommandString(cmd) : null;
+    let parsed: CommandShape | null = null;
+    if (cmd) {
+      try {
+        parsed = parseCommandString(cmd, pcKey.join('.'));
+      } catch (error) {
+        // T12718: a declared command that cannot run as written is a config
+        // error — never a silent fallback and never a truncated argv.
+        return {
+          ok: false,
+          reason: `${error instanceof Error ? error.message : String(error)} (.cleo/project-context.json)`,
+          codeName: 'E_TOOL_COMMAND_INVALID',
+          rawCommand: cmd,
+        };
+      }
+    }
     if (parsed) {
       return {
         ok: true,
