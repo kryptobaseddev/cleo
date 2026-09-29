@@ -454,7 +454,13 @@ function createTestFallbackNativeModule(): WorktreeNapiModule {
         mergeCommit: '',
         commitCount: 0,
         rebased: false,
-        error: 'integrateWorktree not available in test fallback',
+        // T12685: name the cause. A caller sees this as a failed merge, so a
+        // bare "not available" read as a merge conflict in a fresh worktree.
+        error:
+          'integrateWorktree not available in test fallback: the native binding did not load ' +
+          `(${repoLocalNativeLoaderPath} found no addon for this host, and the napi-bin cache is ` +
+          'unreachable from the sandboxed HOME). Build crates/worktree-napi or provision the ' +
+          'worktree from a checkout that has the addon.',
       };
     },
   };
