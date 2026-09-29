@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -44,10 +47,18 @@ const mocks = vi.hoisted(() => ({
   checkAllInjections: vi.fn(async () => []),
   injectAll: vi.fn(async () => new Map()),
   buildInjectionContent: vi.fn(() => '@AGENTS.md'),
+  validateSkill: vi.fn(async () => ({
+    valid: false,
+    issues: [
+      { level: 'error', field: 'description', message: 'Missing required field: description' },
+    ],
+    metadata: { name: 'ct-planted' },
+  })),
 }));
 
 vi.mock('@cleocode/core/skills/skill-root.js', () => ({
   resolveSkillsRoot: mocks.resolveSkillsRoot,
+  resolveBundledSkillsDir: () => null,
 }));
 
 vi.mock('@cleocode/caamp', () => ({
@@ -69,6 +80,7 @@ vi.mock('@cleocode/caamp', () => ({
   checkAllInjections: mocks.checkAllInjections,
   injectAll: mocks.injectAll,
   buildInjectionContent: mocks.buildInjectionContent,
+  validateSkill: mocks.validateSkill,
 }));
 
 import { ToolsHandler } from '../tools.js';
@@ -123,6 +135,18 @@ describe('ToolsHandler', () => {
     const handler = new ToolsHandler();
     const ops = handler.getSupportedOperations();
     expect(ops.query).toContain('skill.precedence');
+  });
+
+  it('skill.verify (cleo skills validate) fails E_VALIDATION with findings (T12655)', async () => {
+    const dir = join(mkdtempSync(join(tmpdir(), 'skill-verify-')), 'ct-planted');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'SKILL.md'), '---\nname: ct-planted\n---\n');
+    const handler = new ToolsHandler();
+    const res = await handler.query('skill.verify', { name: dir });
+    expect(res.success).toBe(false);
+    expect(res.error?.code).toBe('E_VALIDATION');
+    expect(res.error?.message).toMatch(/description: Missing required field/);
+    expect(mocks.validateSkill).toHaveBeenCalledWith(join(dir, 'SKILL.md'));
   });
 
   it('runs provider injection via CAAMP', async () => {

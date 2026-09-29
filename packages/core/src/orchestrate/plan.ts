@@ -14,7 +14,7 @@ import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import type { AgentTier, ResolvedAgent, Task } from '@cleocode/contracts';
 import type { OrchestratePlanResult } from '@cleocode/contracts/operations/orchestrate';
 import { type EngineResult, engineError } from '../engine-result.js';
-import { getEnrichedWaves } from '../orchestration/waves.js';
+import { getEnrichedWaves, isTerminalWaveStatus } from '../orchestration/waves.js';
 import { getProjectRoot } from '../paths.js';
 import {
   ensureGlobalAgentRegistryDb,
@@ -346,7 +346,8 @@ export async function orchestratePlan(
         const workers: PlanWorkerEntry[] = [];
         for (const taskRef of wave.tasks) {
           const task = children.find((c) => c.id === taskRef.id);
-          if (!task) continue;
+          // T12682: finished tasks keep their stable wave but get no worker.
+          if (!task || isTerminalWaveStatus(task.status)) continue;
 
           const classifiedAgentId = classifyTaskToAgent(task);
           const resolved = resolveAgentGraceful(db, classifiedAgentId, preferTier);
@@ -409,6 +410,7 @@ export async function orchestratePlan(
           workers.find((w) => w.role === 'orchestrator') ??
           null;
 
+        if (workers.length === 0) continue;
         plannedWaves.push({
           wave: wave.waveNumber,
           leadTaskId: leadWorker ? leadWorker.taskId : null,
