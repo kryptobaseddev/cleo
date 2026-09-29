@@ -63,6 +63,7 @@ import type {
 import type { ArchiveFields } from './db-helpers.js';
 import {
   batchUpdateDependencies,
+  insertNewTask,
   loadDependenciesForTasks,
   loadRelationsForTasks,
   parseLabels,
@@ -662,6 +663,10 @@ async function createOwnedSqliteDataAccessor(
 
     async upsertSingleTask(task: Task): Promise<void> {
       await accessor.transaction((tx) => tx.upsertSingleTask(task));
+    },
+
+    async insertNewTask(task: Task): Promise<void> {
+      await accessor.transaction((tx) => tx.insertNewTask(task));
     },
 
     async addRelation(
@@ -1449,6 +1454,14 @@ async function createOwnedSqliteDataAccessor(
                     scope.assertActive();
                     const row = taskToRow(task);
                     await upsertTask(db, row);
+                    await updateDependencies(db, task.id, task.depends ?? []);
+                  });
+                },
+                async insertNewTask(task: Task): Promise<void> {
+                  scope.assertActive();
+                  return accessor.transaction(async () => {
+                    scope.assertActive();
+                    await insertNewTask(db, taskToRow(task));
                     await updateDependencies(db, task.id, task.depends ?? []);
                   });
                 },
