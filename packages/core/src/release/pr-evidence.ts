@@ -54,7 +54,7 @@ import {
 } from '../git/work-tree.js';
 import type { EvidenceRoots } from '../tasks/evidence.js';
 
-import { isGhCliAvailable } from './github-pr.js';
+import { ghQueryTimeoutMs, ghTimeoutReason, isGhCliAvailable, isGhTimeout } from './github-pr.js';
 
 // ---------------------------------------------------------------------------
 // Public result shape
@@ -278,6 +278,7 @@ export const defaultFetchGhPrPayload: FetchGhPrPayload = async (
         encoding: 'utf-8',
         stdio: ['ignore', 'pipe', 'pipe'],
         cwd,
+        timeout: ghQueryTimeoutMs(),
       },
     );
     let parsed: unknown;
@@ -289,6 +290,7 @@ export const defaultFetchGhPrPayload: FetchGhPrPayload = async (
     }
     return { ok: true, payload: parsed };
   } catch (err) {
+    if (isGhTimeout(err)) return { ok: false, reason: ghTimeoutReason(`gh pr view ${prNumber}`) };
     const stderr =
       err instanceof Error && 'stderr' in err
         ? String((err as NodeJS.ErrnoException & { stderr?: unknown }).stderr ?? err.message)
@@ -380,9 +382,12 @@ export const defaultFetchGhPrFilesPage: FetchGhPrFilesPage = async (
         'api',
         `repos/{owner}/{repo}/pulls/${prNumber}/files?per_page=${PR_FILES_PAGE_SIZE}&page=${page}`,
       ],
-      { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], cwd },
+      { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], cwd, timeout: ghQueryTimeoutMs() },
     );
   } catch (err) {
+    if (isGhTimeout(err)) {
+      return { ok: false, reason: ghTimeoutReason(`gh api PR #${prNumber} files page ${page}`) };
+    }
     const stderr =
       err instanceof Error && 'stderr' in err
         ? String((err as NodeJS.ErrnoException & { stderr?: unknown }).stderr ?? err.message)
@@ -706,7 +711,7 @@ export const defaultFetchGhBranchProtection: FetchGhBranchProtection = async (cw
     const repoStdout = execFileSync(
       'gh',
       ['repo', 'view', '--json', 'nameWithOwner,defaultBranchRef'],
-      { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], cwd },
+      { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], cwd, timeout: ghQueryTimeoutMs() },
     );
     const repoInfo = JSON.parse(repoStdout) as {
       nameWithOwner?: unknown;
@@ -723,7 +728,7 @@ export const defaultFetchGhBranchProtection: FetchGhBranchProtection = async (cw
     const stdout = execFileSync(
       'gh',
       ['api', `repos/${repo}/branches/${branch}/protection/required_status_checks`],
-      { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], cwd },
+      { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], cwd, timeout: ghQueryTimeoutMs() },
     );
     const parsed = JSON.parse(stdout) as { contexts?: unknown; checks?: unknown };
     const contexts = new Set<string>();
@@ -758,6 +763,8 @@ export const defaultFetchGhBranchProtection: FetchGhBranchProtection = async (cw
         : err instanceof Error
           ? err.message
           : String(err);
+    if (isGhTimeout(err))
+      return { ok: false, reason: ghTimeoutReason('gh branch-protection lookup') };
     return { ok: false, reason: `branch-protection lookup failed: ${stderr.slice(0, 200)}` };
   }
 };
