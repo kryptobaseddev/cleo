@@ -26,7 +26,7 @@ export interface ScoreTaskInput {
   labels?: string[];
   /** Severity axis (orthogonal to priority); unset for most tasks. */
   severity?: TaskSeverity | null;
-  /** Kind axis; a `bug` with no severity is scored at the default bug severity (T12661). */
+  /** Kind axis; not part of the order — an unset severity is unknown, never imputed from `kind` (D11161). */
   kind?: TaskKind | null;
 }
 
