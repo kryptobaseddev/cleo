@@ -272,7 +272,7 @@ function gitFileState(
  */
 function migrationName(projectRoot: string, info: ReturnType<typeof readInfo>): string {
   if (info && info !== 'unparseable')
-    for (const field of ['displayName', 'name'] as const) {
+    for (const field of ['displayName', 'name', 'projectName'] as const) {
       const name = info.data[field];
       if (typeof name === 'string' && isValidProjectDisplayName(name)) return name;
     }
