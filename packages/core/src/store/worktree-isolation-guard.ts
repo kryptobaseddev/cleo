@@ -20,7 +20,7 @@ import { basename, dirname, join } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { resolveCleoDir } from '../paths.js';
-import { isGitLinkedCheckout } from '../project-scope.js';
+import { describeWorktreeOwner, isGitLinkedCheckout } from '../project-scope.js';
 
 /** File name of the consolidated project store under `<root>/.cleo/`. */
 const PROJECT_STORE_FILENAME = 'cleo.db';
@@ -63,9 +63,11 @@ export function assertStorePathIsNotWorktreeResident(role: string, dbPath: strin
     );
     return;
   }
+  // T12677: name the project whose store this worktree must use.
+  const owner = describeWorktreeOwner(projectRoot);
   throw new CleoError(
     ExitCode.CONFIG_ERROR,
-    `E_WT_DB_ISOLATION_VIOLATION: refusing to open '${role}' DB at ${dbPath} — parent ${projectRoot} is a git worktree (gitlink). DBs must open against the canonical project root.`,
+    `E_WT_DB_ISOLATION_VIOLATION: refusing to open '${role}' DB at ${dbPath} — parent ${projectRoot} is a git worktree (gitlink); ${owner}. DBs must open against the canonical project root.`,
     {
       fix: `Run from the canonical project root, or make sure the worktree's main repository is an initialised CLEO project so it resolves there. Inspect stranded worktree stores with \`cleo doctor worktree-stores\`. Emergency override (audited): CLEO_ALLOW_WORKTREE_DB_CREATE=1.`,
     },

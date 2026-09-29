@@ -147,6 +147,24 @@ export interface SkillLibraryManifestSkill {
     requires_session: boolean;
     requires_epic: boolean;
   };
+  /** Delivery class from SKILL.md `metadata.tier` (T12648). */
+  deliveryTier?: 'core' | 'on-demand' | 'internal';
+  /** Install mode from SKILL.md `metadata.install` (T12648). */
+  install?: 'harness' | 'internal';
+  /** Whether this is a core skill (catalog field, T12653). */
+  core?: boolean;
+  /** Catalog category (T12653). */
+  category?: SkillLibraryEntry['category'];
+  /** Associated protocol name (T12653). */
+  protocol?: string | null;
+  /** Direct dependency skill names (T12653). */
+  dependencies?: string[];
+  /** Shared resource names (T12653). */
+  sharedResources?: string[];
+  /** Compatible agent/context types (T12653). */
+  compatibility?: string[];
+  /** SPDX license identifier (T12653). */
+  license?: string;
 }
 
 /**

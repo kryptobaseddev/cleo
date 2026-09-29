@@ -27,8 +27,8 @@ Skill: orchestrator
 
 Install to your project for persistent availability:
 ```bash
-cleo orchestrate skill --install    # Copy to .cleo/skills/
-cleo orchestrate skill --verify     # Verify installation
+cleo skills install ct-orchestrator   # install to your agent directory
+cleo skills info ct-orchestrator      # verify it resolves
 ```
 
 ## Files

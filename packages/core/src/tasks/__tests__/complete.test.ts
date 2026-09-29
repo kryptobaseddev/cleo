@@ -732,6 +732,68 @@ describe('completeTask', () => {
     );
   });
 
+  describe('an affected-scope testsPassed counts before merge only (T12656, D11150)', () => {
+    const affected = {
+      kind: 'tool' as const,
+      tool: 'test-affected',
+      exitCode: 0,
+      scope: 'affected' as const,
+      affectedPackages: ['@x/a'],
+    };
+    const prAtom = {
+      kind: 'pr' as const,
+      prNumber: 42,
+      mergedAt: '2026-09-28T00:00:00Z',
+      mergeCommitSha: 'a'.repeat(40),
+      successCount: 1,
+      totalChecks: 1,
+    };
+    async function seedMerged(testsAtoms: object[]): Promise<void> {
+      const now = new Date().toISOString();
+      await seedTasks(accessor, [
+        {
+          id: 'T001',
+          title: 'Affected-scope task',
+          status: 'active',
+          priority: 'medium',
+          createdAt: now,
+          type: 'task',
+          verification: {
+            passed: true,
+            round: 1,
+            gates: { implemented: true, testsPassed: true },
+            lastAgent: 'testing',
+            lastUpdated: now,
+            failureLog: [],
+            evidence: {
+              implemented: { atoms: [prAtom], capturedAt: now, capturedBy: 'test' },
+              testsPassed: { atoms: testsAtoms, capturedAt: now, capturedBy: 'test' },
+            },
+          },
+        } as Parameters<typeof seedTasks>[1][number],
+      ]);
+      await writeConfig({
+        enforcement: { acceptance: { mode: 'off' } },
+        lifecycle: { mode: 'off' },
+        verification: { enabled: true, requiredGates: ['implemented', 'testsPassed'] },
+      });
+    }
+
+    it('refuses completion once the PR has merged and only tool:test-affected backs testsPassed', async () => {
+      await seedMerged([affected]);
+      await expect(completeTask({ taskId: 'T001' }, env.tempDir, accessor)).rejects.toThrow(
+        /testsPassed \(testsPassed was recorded from an affected-scope run; the merged change needs merged CI/,
+      );
+      expect((await accessor.loadSingleTask('T001'))?.status).toBe('active');
+    });
+
+    it('completes when a full tool:test also backs testsPassed', async () => {
+      await seedMerged([affected, { kind: 'tool', tool: 'test', exitCode: 0 }]);
+      const result = await completeTask({ taskId: 'T001' }, env.tempDir, accessor);
+      expect(result.task.status).toBe('done');
+    });
+  });
+
   it('adds notes on completion', async () => {
     await seedTasks(accessor, [
       {
