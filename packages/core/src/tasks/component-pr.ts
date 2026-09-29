@@ -94,20 +94,99 @@ export type ComponentPrResolution =
         | 'E_EVIDENCE_TOOL_FAILED';
     };
 
-/** Output ceiling for git reads: an integration range's `log -p` is large. */
-const GIT_MAX_BUFFER = 256 * 1024 * 1024;
+/** Output ceiling for ordinary git reads. */
+const GIT_MAX_BUFFER = 64 * 1024 * 1024;
 
-function git(root: string, args: readonly string[]): string | null {
+/** Default deadline for one git subprocess. */
+const GIT_TIMEOUT_MS = 30_000;
+
+/** Default ceiling on the patch a candidate's merge introduces (patch-id mapping). */
+const CANDIDATE_PATCH_MAX_BYTES = 32 * 1024 * 1024;
+
+/** Default total time spent checking body-hint candidates. */
+const CANDIDATE_BUDGET_MS = 60_000;
+
+function envInt(name: string, fallback: number): number {
+  const raw = Number(process.env[name]);
+  return Number.isInteger(raw) && raw > 0 ? raw : fallback;
+}
+
+/**
+ * Deadline for one git subprocess in component verification
+ * (`CLEO_GIT_TIMEOUT_MS`, default 30 s). A read that outlives it is killed
+ * and the verification refuses with `E_EVIDENCE_TOOL_FAILED` (T12710 review).
+ *
+ * @returns Milliseconds.
+ * @task T12710
+ */
+export function gitTimeoutMs(): number {
+  return envInt('CLEO_GIT_TIMEOUT_MS', GIT_TIMEOUT_MS);
+}
+
+/**
+ * A git subprocess outlived {@link gitTimeoutMs} and was killed.
+ *
+ * @task T12710
+ */
+export class GitTimeoutError extends Error {
+  /** @param args - The git arguments that timed out. */
+  constructor(args: readonly string[]) {
+    super(
+      `git ${args.slice(0, 3).join(' ')} timed out after ${gitTimeoutMs()}ms (CLEO_GIT_TIMEOUT_MS); the repository or the range is too large to verify here.`,
+    );
+    this.name = 'GitTimeoutError';
+  }
+}
+
+/** git output exceeded its buffer ceiling. */
+class GitOutputTooLargeError extends Error {}
+
+/**
+ * Run one bounded git subprocess. SIGKILL at the deadline; lazy fetches of a
+ * partial clone are disabled (`GIT_NO_LAZY_FETCH`) so git spawns no network
+ * child that could outlive it, and no credential prompt can block.
+ *
+ * @throws GitTimeoutError at the deadline; GitOutputTooLargeError past
+ *   `maxBuffer`; the exec error for any other failure.
+ */
+function runGit(
+  root: string,
+  args: readonly string[],
+  opts: { input?: string; env?: NodeJS.ProcessEnv; maxBuffer?: number } = {},
+): string {
   try {
     return execFileSync('git', args, {
       cwd: root,
       encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      maxBuffer: GIT_MAX_BUFFER,
-    }).trim();
-  } catch {
+      input: opts.input,
+      stdio: [opts.input === undefined ? 'ignore' : 'pipe', 'pipe', 'ignore'],
+      env: { ...(opts.env ?? process.env), GIT_NO_LAZY_FETCH: '1', GIT_TERMINAL_PROMPT: '0' },
+      maxBuffer: opts.maxBuffer ?? GIT_MAX_BUFFER,
+      timeout: gitTimeoutMs(),
+      killSignal: 'SIGKILL',
+    });
+  } catch (err) {
+    const code = (err as { code?: unknown } | null)?.code;
+    if (code === 'ETIMEDOUT') throw new GitTimeoutError(args);
+    if (code === 'ENOBUFS') throw new GitOutputTooLargeError(`git ${args[0]} output too large`);
+    throw err;
+  }
+}
+
+/** A bounded git read, trimmed; null on failure. A timeout propagates. */
+function git(root: string, args: readonly string[]): string | null {
+  try {
+    return runGit(root, args).trim();
+  } catch (err) {
+    if (err instanceof GitTimeoutError) throw err;
     return null;
   }
+}
+
+/** Map a timeout to the refusal every entry point returns; rethrow anything else. */
+function timeoutRefusal(err: unknown): Refusal {
+  if (err instanceof GitTimeoutError) return refuse('E_EVIDENCE_TOOL_FAILED', err.message);
+  throw err;
 }
 
 function hasCommit(root: string, sha: string | null | undefined): sha is string {
@@ -194,6 +273,21 @@ export function componentLandedChanges(
   componentMerge: string,
   landingMerge: string,
 ): { files: string[]; deleted: string[] } {
+  try {
+    return landedChangesOfMerge(root, componentMerge, landingMerge);
+  } catch (err) {
+    // A timed-out read credits nothing (fails closed).
+    if (err instanceof GitTimeoutError) return { files: [], deleted: [] };
+    throw err;
+  }
+}
+
+/** {@link componentLandedChanges}, letting a git timeout propagate. */
+function landedChangesOfMerge(
+  root: string,
+  componentMerge: string,
+  landingMerge: string,
+): { files: string[]; deleted: string[] } {
   const out =
     git(root, [
       'diff-tree',
@@ -269,30 +363,26 @@ function hunkChecker(
     dir = mkdtempSync(join(tmpdir(), 'cleo-component-index-'));
     const candidate = { ...process.env, GIT_INDEX_FILE: join(dir, 'index') };
     try {
-      execFileSync('git', ['read-tree', landingMerge], {
-        cwd: root,
-        env: candidate,
-        stdio: ['ignore', 'ignore', 'ignore'],
-      });
+      runGit(root, ['read-tree', landingMerge], { env: candidate });
       env = candidate;
-    } catch {
+    } catch (err) {
       // No index, no credit — and no retry leaving another temp dir behind.
       failed = true;
       rmSync(dir, { recursive: true, force: true });
       dir = null;
+      if (err instanceof GitTimeoutError) throw err;
     }
     return env;
   };
   const applies = (patch: string, indexEnv: NodeJS.ProcessEnv, reverse: boolean): boolean => {
     try {
-      execFileSync('git', ['apply', '--cached', '--check', ...(reverse ? ['-R'] : [])], {
-        cwd: root,
+      runGit(root, ['apply', '--cached', '--check', ...(reverse ? ['-R'] : [])], {
         env: indexEnv,
         input: `${patch}\n`,
-        stdio: ['pipe', 'ignore', 'ignore'],
       });
       return true;
-    } catch {
+    } catch (err) {
+      if (err instanceof GitTimeoutError) throw err;
       return false;
     }
   };
@@ -353,18 +443,18 @@ function componentCommits(c: ComponentPrView): string[] {
  */
 function patchIds(root: string, logArgs: readonly string[]): Map<string, string> {
   const ids = new Map<string, string>();
-  const patch = git(root, ['log', '-p', '--no-color', '--no-merges', ...logArgs]);
-  if (!patch) return ids;
+  let patch = '';
   let out = '';
   try {
-    out = execFileSync('git', ['patch-id', '--stable'], {
-      cwd: root,
-      input: `${patch}\n`,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'ignore'],
-      maxBuffer: GIT_MAX_BUFFER,
+    // Capped (T12710 review): a candidate whose merge introduces a patch
+    // larger than the ceiling throws GitOutputTooLargeError and is skipped.
+    patch = runGit(root, ['log', '-p', '--no-color', '--no-merges', ...logArgs], {
+      maxBuffer: envInt('CLEO_COMPONENT_PATCH_MAX_BYTES', CANDIDATE_PATCH_MAX_BYTES),
     });
-  } catch {
+    if (!patch.trim()) return ids;
+    out = runGit(root, ['patch-id', '--stable'], { input: patch });
+  } catch (err) {
+    if (err instanceof GitTimeoutError || err instanceof GitOutputTooLargeError) throw err;
     return ids;
   }
   for (const line of out.split('\n')) {
@@ -429,6 +519,25 @@ export type ComponentCommitsLanded =
  * @task T12710
  */
 export function componentCommitsLanded(
+  root: string,
+  c: ComponentPrView,
+  landing: LandingMerge,
+): ComponentCommitsLanded {
+  try {
+    return proveCommitsLanded(root, c, landing);
+  } catch (err) {
+    if (err instanceof GitOutputTooLargeError) {
+      return refuse(
+        'E_EVIDENCE_INSUFFICIENT',
+        `PR #${landing.prNumber} skipped: the patch its merge introduces exceeds ${envInt('CLEO_COMPONENT_PATCH_MAX_BYTES', CANDIDATE_PATCH_MAX_BYTES)} bytes (CLEO_COMPONENT_PATCH_MAX_BYTES), too large to map by patch-id.`,
+      );
+    }
+    return timeoutRefusal(err);
+  }
+}
+
+/** {@link componentCommitsLanded}, letting timeouts and oversize patches propagate. */
+function proveCommitsLanded(
   root: string,
   c: ComponentPrView,
   landing: LandingMerge,
@@ -515,6 +624,16 @@ export function componentCommitsLanded(
  * @task T12710
  */
 export function landingCommitOn(root: string, sha: string, ref: string): string | null {
+  try {
+    return landingCommit(root, sha, ref);
+  } catch (err) {
+    if (err instanceof GitTimeoutError) return null;
+    throw err;
+  }
+}
+
+/** {@link landingCommitOn}, letting a git timeout propagate. */
+function landingCommit(root: string, sha: string, ref: string): string | null {
   if (!isAncestor(root, sha, ref)) return null;
   const chain = git(root, ['rev-list', '--first-parent', `${sha}..${ref}`]);
   if (!chain) return sha;
@@ -671,6 +790,20 @@ export async function findComponentLanding(
   defaultRef: string,
   deps: ComponentLandingDeps = {},
 ): Promise<ComponentLanding | null> {
+  try {
+    return await locateLanding(root, c, defaultRef, deps);
+  } catch (err) {
+    return timeoutRefusal(err);
+  }
+}
+
+/** {@link findComponentLanding}, letting a git timeout propagate. */
+async function locateLanding(
+  root: string,
+  c: ComponentPrView,
+  defaultRef: string,
+  deps: ComponentLandingDeps,
+): Promise<ComponentLanding | null> {
   const n = c.number;
   if (c.state === 'OPEN') {
     return refuse('E_EVIDENCE_INSUFFICIENT', `Component PR #${n} is open.`);
@@ -691,7 +824,7 @@ export async function findComponentLanding(
   const onDefault = [...commits].reverse().find((sha) => isAncestor(root, sha, defaultRef));
   let candidates: LandingCandidate[];
   if (onDefault) {
-    const m = landingCommitOn(root, onDefault, defaultRef);
+    const m = landingCommit(root, onDefault, defaultRef);
     if (m === null || m === c.mergeCommitSha) return null;
     const found = await lookups.prsByMergeCommit(m, root);
     if (!found.ok) return refuse('E_EVIDENCE_TOOL_FAILED', found.reason);
@@ -728,9 +861,22 @@ export async function findComponentLanding(
     }
   }
   const reasons: string[] = [];
+  const budgetMs = envInt('CLEO_COMPONENT_SEARCH_BUDGET_MS', CANDIDATE_BUDGET_MS);
+  const deadline = Date.now() + budgetMs;
+  let skipped = 0;
   for (const candidate of candidates) {
+    if (Date.now() > deadline) {
+      // T12710 review: bounded total work over body-hint candidates.
+      skipped++;
+      reasons.push(
+        `PR #${candidate.number} skipped: the ${budgetMs}ms candidate budget (CLEO_COMPONENT_SEARCH_BUDGET_MS) is spent.`,
+      );
+      continue;
+    }
     const mergeCommitSha = candidate.mergeCommitSha as string;
     const r = componentCommitsLanded(root, c, { prNumber: candidate.number, mergeCommitSha });
+    if (!r.ok && r.codeName === 'E_EVIDENCE_TOOL_FAILED') return r;
+    if (!r.ok && r.reason.includes(' skipped: ')) skipped++;
     if (r.ok && (r.files.length > 0 || r.deleted.length > 0)) {
       return {
         ok: true,
@@ -745,7 +891,10 @@ export async function findComponentLanding(
         : r.reason,
     );
   }
-  return refuse('E_EVIDENCE_CONTENT_MISMATCH', reasons.join(' '));
+  return refuse(
+    skipped === candidates.length ? 'E_EVIDENCE_INSUFFICIENT' : 'E_EVIDENCE_CONTENT_MISMATCH',
+    reasons.join(' '),
+  );
 }
 
 /**
@@ -822,16 +971,28 @@ export async function resolveComponentPr(
     return refuse('E_EVIDENCE_INSUFFICIENT', `Component PR #${componentPrNumber} is open.`);
   }
   let changes: { files: string[]; deleted: string[] };
-  const viaMerge = mergedIntoIntegration(c, landing, root);
-  if (viaMerge === null) {
-    changes = componentLandedChanges(root, c.mergeCommitSha as string, landing.mergeCommitSha);
-  } else {
-    if (componentCommits(c).length === 0) return viaMerge;
-    const viaCommits = componentCommitsLanded(root, c, landing);
-    if (!viaCommits.ok) {
-      return refuse(viaCommits.codeName, `${viaMerge.reason} ${viaCommits.reason}`);
+  try {
+    // The change set's follow proves with componentCommitsLanded, so the
+    // validator tries the SAME prover first (T12710 review): the two can
+    // only disagree when commit data is missing, or for a squash-landed
+    // integration PR, where the merge-into-integration proof remains.
+    const viaCommits =
+      componentCommits(c).length > 0 ? componentCommitsLanded(root, c, landing) : null;
+    if (viaCommits?.ok) {
+      changes = viaCommits;
+    } else if (viaCommits && viaCommits.codeName === 'E_EVIDENCE_TOOL_FAILED') {
+      return viaCommits;
+    } else {
+      const viaMerge = mergedIntoIntegration(c, landing, root);
+      if (viaMerge !== null) {
+        return viaCommits
+          ? refuse(viaCommits.codeName, `${viaMerge.reason} ${viaCommits.reason}`)
+          : viaMerge;
+      }
+      changes = landedChangesOfMerge(root, c.mergeCommitSha as string, landing.mergeCommitSha);
     }
-    changes = viaCommits;
+  } catch (err) {
+    return timeoutRefusal(err);
   }
   const { files, deleted } = changes;
   if (files.length === 0 && deleted.length === 0) {

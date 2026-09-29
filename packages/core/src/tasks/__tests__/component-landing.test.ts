@@ -549,3 +549,100 @@ describe('gh is bounded and offline is a named refusal', () => {
     }
   });
 });
+
+describe('every git subprocess is bounded (T12710 review)', () => {
+  /** A rebased batch: #31's commit c4 was cherry-picked into integration/y (#40). */
+  function rebasedFixture() {
+    const f = buildFixture();
+    git(repo, ['switch', '-q', '-c', 'task/T4']);
+    const c4 = commitFile(repo, 't4.ts', 'export const t4 = 1;\n', 'T4: work');
+    git(repo, ['switch', '-q', 'main']);
+    git(repo, ['switch', '-q', '-c', 'integration/y']);
+    commitFile(repo, 'y.ts', 'export const y = 1;\n', 'integration y work');
+    git(repo, ['cherry-pick', c4]);
+    git(repo, ['switch', '-q', 'main']);
+    git(repo, ['merge', '-q', '--no-ff', '-m', 'Merge pull request #40', 'integration/y']);
+    const landing40 = git(repo, ['rev-parse', 'HEAD']);
+    git(repo, ['push', '-q', 'origin', 'main']);
+    const view: ComponentPrView = {
+      number: 31,
+      title: 'T4: work',
+      body: '',
+      headRefName: 'task/T4',
+      baseRefName: 'main',
+      state: 'CLOSED',
+      mergeCommitSha: null,
+      headRefOid: c4,
+      commits: [c4],
+    };
+    return { f, landing40, view };
+  }
+
+  const ENV = [
+    'PATH',
+    'CLEO_GIT_TIMEOUT_MS',
+    'CLEO_COMPONENT_PATCH_MAX_BYTES',
+    'CLEO_COMPONENT_SEARCH_BUDGET_MS',
+  ] as const;
+  const saved: Record<string, string | undefined> = {};
+  beforeEach(() => {
+    for (const k of ENV) saved[k] = process.env[k];
+  });
+  afterEach(() => {
+    for (const k of ENV) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  it('a git that hangs (log -p / patch-id) is killed at the deadline: E_EVIDENCE_TOOL_FAILED', async () => {
+    const { landing40, view } = rebasedFixture();
+    const realGit = execFileSync('which', ['git'], { encoding: 'utf-8' }).trim();
+    const bin = join(base, 'slow-git');
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, 'git'),
+      `#!/bin/sh\nfor a in "$@"; do\n  case "$a" in log|patch-id) exec sleep 30 ;; esac\ndone\nexec ${realGit} "$@"\n`,
+    );
+    chmodSync(join(bin, 'git'), 0o755);
+    process.env['PATH'] = `${bin}:${saved['PATH'] ?? ''}`;
+    process.env['CLEO_GIT_TIMEOUT_MS'] = '400';
+    const { deps } = landingDeps({}, [candidate(40, landing40, '| #31 | T4 |')]);
+    const started = Date.now();
+    const found = await findComponentLanding(repo, view, 'origin/main', deps);
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(found).toMatchObject({ ok: false, codeName: 'E_EVIDENCE_TOOL_FAILED' });
+    expect(found?.ok === false && found.reason).toMatch(/timed out after 400ms/);
+    const r = await resolveComponentPr(
+      31,
+      { prNumber: 40, headRefName: 'integration/y', headRefOid: null, mergeCommitSha: landing40 },
+      repo,
+      async () => view,
+    );
+    expect(r).toMatchObject({ ok: false, codeName: 'E_EVIDENCE_TOOL_FAILED' });
+  });
+
+  it('a candidate whose merge introduces a patch past the size limit is skipped, and says so', async () => {
+    const { landing40, view } = rebasedFixture();
+    process.env['CLEO_COMPONENT_PATCH_MAX_BYTES'] = '64';
+    const { deps } = landingDeps({}, [candidate(40, landing40, '| #31 | T4 |')]);
+    const found = await findComponentLanding(repo, view, 'origin/main', deps);
+    expect(found).toMatchObject({ ok: false, codeName: 'E_EVIDENCE_INSUFFICIENT' });
+    expect(found?.ok === false && found.reason).toMatch(
+      /PR #40 skipped: the patch .* exceeds 64 bytes/,
+    );
+  });
+
+  it('body-hint candidates share one time budget; the rest are skipped, and says so', async () => {
+    const { f, landing40, view } = rebasedFixture();
+    process.env['CLEO_COMPONENT_SEARCH_BUDGET_MS'] = '1';
+    // #50 lists #31 but did not land it; checking it spends the budget, so #40 is skipped.
+    const { deps } = landingDeps({}, [
+      candidate(50, f.landing, '| #31 | T4 |'),
+      candidate(40, landing40, '| #31 | T4 |'),
+    ]);
+    const found = await findComponentLanding(repo, view, 'origin/main', deps);
+    expect(found?.ok).toBe(false);
+    expect(found?.ok === false && found.reason).toMatch(/PR #40 skipped: the 1ms candidate budget/);
+  });
+});
