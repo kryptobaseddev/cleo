@@ -1,7 +1,7 @@
 ---
 name: ct-spec-writer
 description: Technical specification writing using RFC 2119 language for clear, unambiguous requirements. Creates protocol specifications, technical requirements, API specifications, and architecture documents with testable requirements and compliance criteria. Use when writing specifications, defining protocols, documenting requirements, or creating API contracts. Triggers on specification tasks, protocol definition needs, or requirement documentation.
-version: 2.1.1
+version: 2.1.2
 protocol: specification
 adrRefs:
   - ADR-014
@@ -17,9 +17,12 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.1.1
+  version: 2.1.2
   tier: on-demand
   install: harness
+  covers:
+    - packages/core/src/validation/protocols/cant/specification.cant
+    - packages/core/src/validation/protocols/protocols-markdown/specification.md
   loomStage: specification
   lastReviewed: 2026-09-28
   stability: stable

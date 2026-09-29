@@ -72,7 +72,7 @@
   "skills": [
     {
       "name": "ct-adr-recorder",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "description": "Records Architecture Decision Records from accepted consensus verdicts. Use when promoting a consensus outcome to a formal ADR: drafts the document in the proposed-then-accepted HITL lifecycle, links to the originating consensus manifest, persists the decision to the canonical SQLite decisions table, and triggers downstream invalidation when an accepted ADR is later superseded. Triggers on phrases like 'write ADR', 'record architecture decision', 'formalize this decision', 'lock in the choice', 'create ADR-XXX', or when a consensus task reaches completed status and needs formalization.",
       "path": "skills/ct-adr-recorder",
       "tier": 1,
@@ -151,7 +151,7 @@
     },
     {
       "name": "ct-artifact-publisher",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "description": "Builds and publishes artifacts to registries (npm, PyPI, cargo, docker, GitHub releases, generic tarballs) following the validate, then dry-run, then build, then publish, then record-provenance pipeline. Invoked by ct-release-orchestrator as a sub-skill when a release has artifact config. Never stores credentials in output or manifest (ARTP-008), always dry-runs first (ARTP-002), halts and attempts rollback on failure (ARTP-009). Triggers when a release config has at least one enabled artifact handler.",
       "path": "skills/ct-artifact-publisher",
       "tier": 1,
@@ -226,7 +226,7 @@
     },
     {
       "name": "ct-cleo",
-      "version": "2.22.0",
+      "version": "2.22.1",
       "description": "CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.",
       "path": "skills/ct-cleo",
       "tier": 0,
@@ -302,7 +302,7 @@
     },
     {
       "name": "ct-codebase-mapper",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "description": "Orient in an unfamiliar or large codebase with CLEO's code-intelligence graph (cleo nexus) and project map (cleo map). Use before planning or editing unfamiliar code, for brownfield onboarding, to find what a change would break, or to map a project's structure, communities and execution flows. Triggers on \"map the codebase\", \"understand this project\", \"what calls X\", \"what would break\", \"brownfield analysis\", \"project structure\".",
       "path": "skills/ct-codebase-mapper",
       "tier": 1,
@@ -325,7 +325,7 @@
     },
     {
       "name": "ct-consensus-voter",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "description": "Runs structured multi-agent voting for decision tasks with confidence scores, conflict detection, and HITL escalation when the threshold is not met. Use when two or more agents must vote on options: architecture choices, tool selection, policy decisions, when a task carries agent_type:analysis, or on phrases like 'reach consensus', 'vote on options', 'resolve the debate', 'pick the best approach'. Produces a voting matrix JSON, enforces the 0.5 threshold, flags ties within 0.1 confidence as contested and escalates to human tiebreak.",
       "path": "skills/ct-consensus-voter",
       "tier": 1,
@@ -403,7 +403,7 @@
     },
     {
       "name": "ct-contribution",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "description": "Guided workflow for multi-agent consensus contributions. Use when user says \"/contribution\", \"contribution protocol\", \"submit contribution\", \"consensus workflow\", \"multi-agent decision\", \"create contribution\", \"contribution start\", \"contribution submit\", \"detect conflicts\", \"weighted consensus\", \"decision tracking\", \"conflict resolution\".",
       "path": "skills/ct-contribution",
       "tier": 1,
@@ -566,7 +566,7 @@
     },
     {
       "name": "ct-dev-workflow",
-      "version": "3.1.1",
+      "version": "3.1.2",
       "description": "Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.",
       "path": "skills/ct-dev-workflow",
       "tier": 0,
@@ -642,7 +642,7 @@
     },
     {
       "name": "ct-documentor",
-      "version": "3.17.0",
+      "version": "3.17.1",
       "description": "Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.",
       "path": "skills/ct-documentor",
       "tier": 0,
@@ -728,7 +728,7 @@
     },
     {
       "name": "ct-epic-architect",
-      "version": "3.0.1",
+      "version": "3.0.2",
       "description": "Epic planning and task decomposition for breaking down large initiatives into atomic, executable tasks. Provides dependency analysis, wave-based parallel execution planning, hierarchy management, and research linking. Use when creating epics, decomposing initiatives into task trees, planning parallel workflows, or analyzing task dependencies. Triggers on epic creation, task decomposition requests, or planning phase work.",
       "path": "skills/ct-epic-architect",
       "tier": 1,
@@ -885,7 +885,7 @@
     },
     {
       "name": "ct-ivt-looper",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "description": "Runs a project-agnostic autonomous Implement-then-Validate-then-Test compliance loop on any git worktree. Detects the project's test framework (vitest, jest, mocha, pytest, unittest, go-test, cargo-test, rspec, phpunit, bats, or other) and iterates until the implementation satisfies its specification, recording convergence metrics to the manifest. Use when given an implementation task that must ship verified: the IVT loop is the autonomous compliance layer enforced before any release or PR. Triggers on phrases like 'implement and verify', 'run the IVT loop', 'ship this task', 'complete implementation with tests', 'verify against spec', or any implementation task with acceptance criteria. Works in any git worktree regardless of language or framework, never hardcoded to one project's tooling.",
       "path": "skills/ct-ivt-looper",
       "tier": 1,
@@ -965,7 +965,7 @@
     },
     {
       "name": "ct-lead",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "description": "Phase Lead orchestration playbook for spawning and supervising a parallel worker swarm in one wave. Use when spawned by ct-orchestrator with role=orchestrator to fan out N leaf workers via delegate_task, drain the epic-<TID>.wave-<n> conduit topic plus pipeline_manifest, await rollupWaveStatus convergence, and return ONE rolled-up contract string to the parent Orchestrator. Triggers: 'phase lead', 'wave lead', 'supervise wave', 'fan out workers', 'aggregate worker results', 'rollup wave', any task with role=orchestrator that is itself a child of another orchestrator. Implements ADR-070 hierarchical orchestration.",
       "path": "skills/ct-lead",
       "tier": 0,
@@ -983,7 +983,7 @@
     },
     {
       "name": "ct-orchestrator",
-      "version": "4.0.1",
+      "version": "4.0.2",
       "description": "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \\\"orchestrate\\\", \\\"orchestrator mode\\\", \\\"run as orchestrator\\\", \\\"delegate to subagents\\\", \\\"coordinate agents\\\", \\\"spawn subagents\\\", \\\"multi-agent workflow\\\", \\\"context-protected workflow\\\", \\\"agent farm\\\", \\\"HITL orchestration\\\", \\\"pipeline management\\\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime.",
       "path": "skills/ct-orchestrator",
       "tier": 0,
@@ -1076,7 +1076,7 @@
     },
     {
       "name": "ct-provenance-keeper",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "description": "Generates in-toto v1 attestations, SLSA-level provenance records, SBOMs (CycloneDX or SPDX), and sigstore/cosign signatures for published artifacts. Invoked by ct-artifact-publisher as a delegation for signing and attestation. Records the full commit, then build, then artifact, then attestation, then registry chain in .cleo/releases.json and rejects publishes whose digest does not match the attestation. Triggers when artifact-publish reaches the provenance step or when a release needs SLSA L2+ attestation.",
       "path": "skills/ct-provenance-keeper",
       "tier": 1,
@@ -1150,7 +1150,7 @@
     },
     {
       "name": "ct-release-orchestrator",
-      "version": "3.0.1",
+      "version": "3.0.2",
       "description": "Orchestrates the canonical 4-verb release pipeline introduced by SPEC-T9345: cleo release plan, then cleo release open, then PR + GHA tag workflow, then cleo release reconcile. The deprecated cleo release ship monolith was deleted in T10103 — do not invoke it. Use ship-e2e-smoke to validate the full pipeline end-to-end (dry-run by default). The full verb-to-state map is in docs/release/verb-matrix.md. Use when shipping a new version, validating the release pipeline end-to-end, or promoting a completed epic to released status.",
       "path": "skills/ct-release-orchestrator",
       "tier": 1,
@@ -1232,7 +1232,7 @@
     },
     {
       "name": "ct-research-agent",
-      "version": "2.0.2",
+      "version": "2.0.3",
       "description": "Multi-source research and investigation combining web search, documentation lookup via Context7, and codebase analysis. Synthesizes findings into actionable recommendations with proper citation and task traceability. Use when conducting research, investigating best practices, gathering technical information, or analyzing existing implementations. Triggers on research tasks, investigation needs, or information discovery requests.",
       "path": "skills/ct-research-agent",
       "tier": 1,
@@ -1387,7 +1387,7 @@
     },
     {
       "name": "ct-spec-writer",
-      "version": "2.1.1",
+      "version": "2.1.2",
       "description": "Technical specification writing using RFC 2119 language for clear, unambiguous requirements. Creates protocol specifications, technical requirements, API specifications, and architecture documents with testable requirements and compliance criteria. Use when writing specifications, defining protocols, documenting requirements, or creating API contracts. Triggers on specification tasks, protocol definition needs, or requirement documentation.",
       "path": "skills/ct-spec-writer",
       "tier": 1,
@@ -1472,7 +1472,7 @@
     },
     {
       "name": "ct-task-executor",
-      "version": "2.7.1",
+      "version": "2.7.2",
       "description": "General implementation task execution for completing assigned CLEO tasks by following instructions and producing concrete deliverables. Handles coding, configuration, documentation work with quality verification against acceptance criteria and progress reporting. Use when executing implementation tasks, completing assigned work, or producing task deliverables. Triggers on implementation tasks, general execution needs, or task completion work.",
       "path": "skills/ct-task-executor",
       "tier": 0,
@@ -1560,7 +1560,7 @@
     },
     {
       "name": "ct-validator",
-      "version": "2.0.2",
+      "version": "2.0.3",
       "description": "Compliance validation for verifying systems, documents, or code against requirements, schemas, or standards. Performs schema validation, code compliance checks, document validation, and protocol compliance verification with detailed pass/fail reporting. Use when validating compliance, checking schemas, verifying code standards, or auditing protocol implementations. Triggers on validation tasks, compliance checks, or quality verification needs.",
       "path": "skills/ct-validator",
       "tier": 1,

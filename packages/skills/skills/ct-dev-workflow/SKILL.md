@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.1
+version: 3.1.2
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,9 +14,11 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.1
+  version: 3.1.2
   tier: core
   install: harness
+  covers:
+    - .github/workflows/release-prepare.yml
   lastReviewed: 2026-09-28
   stability: stable
 ---

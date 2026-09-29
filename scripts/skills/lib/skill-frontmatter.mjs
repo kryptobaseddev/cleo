@@ -121,13 +121,15 @@ function scalar(raw) {
  *   ok: boolean,
  *   fields: Record<string, string>,
  *   metadata: Record<string, string>,
+ *   metadataLists: Record<string, string[]>,
  *   lists: Record<string, string[]>,
  *   keys: string[],
  *   errors: string[],
  * }} `fields` holds top-level scalars (block scalars folded to one line;
  *   nested maps omitted), `lists` top-level block (`- item`) and inline
  *   (`[a, b]`) lists, `keys` every top-level key in order (duplicates
- *   included), `metadata` the nested `metadata:` map.
+ *   included), `metadata` the nested `metadata:` map and `metadataLists`
+ *   its nested lists (`metadata.covers`).
  */
 export function parseFrontmatter(text) {
   const errors = [];
@@ -138,6 +140,7 @@ export function parseFrontmatter(text) {
       ok: false,
       fields: {},
       metadata: {},
+      metadataLists: {},
       lists: {},
       keys: [],
       errors: ['no frontmatter block'],
@@ -149,6 +152,7 @@ export function parseFrontmatter(text) {
       ok: false,
       fields: {},
       metadata: {},
+      metadataLists: {},
       lists: {},
       keys: [],
       errors: ['unterminated frontmatter'],
@@ -161,6 +165,8 @@ export function parseFrontmatter(text) {
   const metadata = {};
   /** @type {Record<string, string[]>} */
   const lists = {};
+  /** @type {Record<string, string[]>} */
+  const metadataLists = {};
   const keys = [];
 
   for (let i = 0; i < body.length; i++) {
@@ -179,11 +185,26 @@ export function parseFrontmatter(text) {
     if (key === 'metadata' && value === '') {
       // A blank line inside the block does not end it; the next unindented
       // key does (T12649).
+      // A nested list (`  covers:` then `    - item`) is collected into
+      // metadataLists (T12124).
+      let listKey = null;
       for (let j = i + 1; j < body.length; j++) {
         if (body[j].trim() === '') continue;
         if (!/^\s+\S/.test(body[j])) break;
+        const item = /^\s+-\s+(.*)$/.exec(body[j]);
+        if (item && listKey) {
+          metadataLists[listKey].push(scalar(item[1]));
+          continue;
+        }
         const mm = /^\s+([A-Za-z][\w-]*):(.*)$/.exec(body[j]);
-        if (mm) metadata[mm[1]] = scalar(mm[2]);
+        if (!mm) continue;
+        listKey = null;
+        if (mm[2].trim() === '') {
+          listKey = mm[1];
+          metadataLists[listKey] = [];
+        } else {
+          metadata[mm[1]] = scalar(mm[2]);
+        }
       }
       continue;
     }
@@ -212,7 +233,7 @@ export function parseFrontmatter(text) {
     fields[key] = scalar(value);
   }
 
-  return { ok: errors.length === 0, fields, metadata, lists, keys, errors };
+  return { ok: errors.length === 0, fields, metadata, metadataLists, lists, keys, errors };
 }
 
 /**

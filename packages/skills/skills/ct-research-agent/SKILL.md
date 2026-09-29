@@ -1,7 +1,7 @@
 ---
 name: ct-research-agent
 description: Multi-source research and investigation combining web search, documentation lookup via Context7, and codebase analysis. Synthesizes findings into actionable recommendations with proper citation and task traceability. Use when conducting research, investigating best practices, gathering technical information, or analyzing existing implementations. Triggers on research tasks, investigation needs, or information discovery requests.
-version: 2.0.2
+version: 2.0.3
 protocol: research
 adrRefs:
   - ADR-023
@@ -17,9 +17,12 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.0.2
+  version: 2.0.3
   tier: on-demand
   install: harness
+  covers:
+    - packages/core/src/validation/protocols/cant/research.cant
+    - packages/core/src/validation/protocols/protocols-markdown/research.md
   loomStage: research
   lastReviewed: 2026-09-28
   stability: stable

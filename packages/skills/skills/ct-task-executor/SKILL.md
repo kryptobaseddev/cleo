@@ -1,7 +1,7 @@
 ---
 name: ct-task-executor
 description: General implementation task execution for completing assigned CLEO tasks by following instructions and producing concrete deliverables. Handles coding, configuration, documentation work with quality verification against acceptance criteria and progress reporting. Use when executing implementation tasks, completing assigned work, or producing task deliverables. Triggers on implementation tasks, general execution needs, or task completion work.
-version: 2.7.1
+version: 2.7.2
 protocol: implementation
 adrRefs:
   - ADR-070
@@ -17,9 +17,14 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.7.1
+  version: 2.7.2
   tier: core
   install: harness
+  covers:
+    - packages/cleo/src/cli/commands/verify.ts
+    - packages/cleo/src/cli/commands/complete.ts
+    - packages/core/src/validation/protocols/cant/implementation.cant
+    - packages/core/src/validation/protocols/protocols-markdown/implementation.md
   loomStage: implementation
   lastReviewed: 2026-09-28
   stability: stable

@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.17.0
+version: 3.17.1
 protocol: null
 dependencies:
   - ct-spec-writer
@@ -16,9 +16,12 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.17.0
+  version: 3.17.1
   tier: core
   install: harness
+  covers:
+    - packages/cleo/src/cli/commands/docs.ts
+    - packages/contracts/src/docs-taxonomy.ts
   lastReviewed: 2026-09-28
   stability: stable
 ---
