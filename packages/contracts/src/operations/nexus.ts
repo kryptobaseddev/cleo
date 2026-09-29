@@ -1387,6 +1387,12 @@ export interface NexusProjectGitState {
   branch: string | null;
   /** HEAD commit; `null` for an unborn branch or when the probe failed. */
   headSha: string | null;
+  /**
+   * ISO 8601 UTC instant HEAD was committed (`git log -1 --format=%cI`,
+   * normalized to `Z`); `null` for an unborn branch or when the probe failed
+   * before reading it (T12721).
+   */
+  headCommittedAt: string | null;
   /** `true` when HEAD is detached. */
   detached: boolean;
   /** `true` for a shallow clone (ahead/behind may be truncated by the graft). */
@@ -1556,6 +1562,12 @@ export interface NexusFleetGitSummary {
   branch: string | null;
   /** HEAD commit. */
   headSha: string | null;
+  /**
+   * ISO 8601 UTC instant HEAD was committed; `null` when unknown (unborn
+   * branch, failed probe, or a row probed before T12721). Mirrored as
+   * `ReplicaPresence.git.lastCommitAt`.
+   */
+  headCommittedAt: string | null;
   /** `true` when HEAD is detached. */
   detached: boolean;
   /** Tracked entries with changes. */

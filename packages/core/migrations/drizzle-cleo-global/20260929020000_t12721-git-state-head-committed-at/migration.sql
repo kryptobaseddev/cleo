@@ -1,0 +1,25 @@
+-- T12721 — `nexus_project_git_state.head_committed_at`: the instant HEAD was
+-- committed, recorded by the T12511 probe (`git log --format=%cI`, normalized
+-- to UTC `Z`) in the same bounded git call that reads the upstream tracking
+-- ref. It feeds `ReplicaPresence.git.lastCommitAt` in the cleo-nexus cloud.
+--
+-- The column is classified LOCAL-ONLY (table-classification.ts): the cloud
+-- receives it only through the path-free presence mapper, never through store
+-- sync. It starts NULL on every existing row ("unknown until re-probed"), the
+-- honest value — no past probe read it.
+--
+-- ## Journal probe (T12541)
+--
+-- The single `ADD COLUMN` is the probe target: on a store at main's state it
+-- is missing, so this migration runs; on a store that has it the entry is
+-- marked applied. No row is touched.
+--
+-- The CHECK is written exactly as the schema derives it for a timestamp
+-- column (T11364 parity), as T12512 did.
+--
+-- Timestamp is after T12512's 20260929010000 so the two never collide.
+--
+-- @task T12721
+-- @epic T12496
+
+ALTER TABLE `nexus_project_git_state` ADD COLUMN `head_committed_at` text CHECK ("head_committed_at" IS NULL OR "head_committed_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*');

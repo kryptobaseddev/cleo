@@ -154,6 +154,7 @@ function gitSummary(git: ProjectGitStateRow, cutoff: string): NexusFleetGitSumma
   return {
     branch: git.branch,
     headSha: git.headSha,
+    headCommittedAt: git.headCommittedAt,
     detached: git.detached,
     dirtyCount: git.dirtyCount,
     untrackedCount: git.untrackedCount,

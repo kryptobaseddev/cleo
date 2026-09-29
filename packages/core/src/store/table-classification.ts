@@ -1554,6 +1554,12 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
         reason:
           'cleo-dev ruling 2026-09-28 (round 2): a remote URL can embed credentials (https://user:token@host); stripped from outgoing ops and re-probed on the receiver',
       },
+      {
+        column: 'head_committed_at',
+        class: 'local-only',
+        reason:
+          'T12721 (drizzle-cleo-global t12721): per-device probe observation; the cloud receives it only as ReplicaPresence.git.lastCommitAt through the path-free presence mapper, never through store sync',
+      },
     ],
   },
   nexus_project_locations: {

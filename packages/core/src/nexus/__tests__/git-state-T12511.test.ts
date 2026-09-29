@@ -36,6 +36,7 @@ import { resetDbState } from '../../store/sqlite.js';
 import {
   isRemoteStale,
   listGitStates,
+  parseCommitDates,
   parsePorcelainV2Status,
   probeGitState,
   probeGitStates,
@@ -538,6 +539,82 @@ describe('the process never outlives the deadline (T12511 review)', () => {
     const row = await probeGitState(target(repo), { gitBin: bin, maxOutputBytes: 1_000_000 });
     expect(row.probeErrorCode).toBe('E_GIT_FAILED');
     expect(row.probeError).toMatch(/exceeded 1000000 bytes/);
+  });
+});
+
+describe('headCommittedAt (T12721)', () => {
+  it('parseCommitDates normalizes %cI offsets to UTC and keeps unparsable dates as null', () => {
+    const m = parseCommitDates('aaa 2026-09-29T08:07:21-07:00\nbbb nonsense\n\n');
+    expect(m.get('aaa')).toBe('2026-09-29T15:07:21.000Z');
+    expect(m.has('bbb')).toBe(true);
+    expect(m.get('bbb')).toBeNull();
+  });
+
+  it('no upstream: HEAD committer instant, in UTC', async () => {
+    const repo = join(testDir, 'hc');
+    mkdirSync(repo, { recursive: true });
+    git(repo, 'init', '-q', '-b', 'main');
+    writeFileSync(join(repo, 'a.txt'), 'a\n');
+    git(repo, 'add', 'a.txt');
+    execFileSync('git', ['commit', '-q', '-m', 'one'], {
+      cwd: repo,
+      env: { ...GIT_ENV, GIT_COMMITTER_DATE: '2026-09-01T10:00:00+02:00' },
+      stdio: 'pipe',
+    });
+    const row = await probeGitState(target(repo));
+    expect(row.probeErrorCode).toBeNull();
+    expect(row.headCommittedAt).toBe('2026-09-01T08:00:00.000Z');
+    expect(row.remoteHeadSha).toBeNull();
+  });
+
+  it('with an upstream, one call yields the HEAD date and the tracking-ref commit', async () => {
+    const { clone } = makeClone('hu');
+    const same = await probeGitState(target(clone));
+    expect(same.remoteHeadSha).toBe(same.headSha);
+    expect(same.headCommittedAt).toBe(
+      new Date(git(clone, 'log', '-1', '--format=%cI')).toISOString(),
+    );
+
+    writeFileSync(join(clone, 'z.txt'), 'z\n');
+    git(clone, 'add', 'z.txt');
+    git(clone, 'commit', '-q', '-m', 'local');
+    const ahead = await probeGitState(target(clone));
+    expect(ahead.ahead).toBe(1);
+    expect(ahead.headSha).toBe(git(clone, 'rev-parse', 'HEAD'));
+    expect(ahead.remoteHeadSha).toBe(git(clone, 'rev-parse', 'origin/main'));
+    expect(ahead.remoteHeadSha).not.toBe(ahead.headSha);
+    expect(ahead.headCommittedAt).not.toBeNull();
+  });
+
+  it('a gone tracking ref keeps the date and leaves remoteHeadSha null', async () => {
+    const { clone } = makeClone('hg');
+    git(clone, 'update-ref', '-d', 'refs/remotes/origin/main');
+    const row = await probeGitState(target(clone));
+    expect(row.upstream).toBe('origin/main');
+    expect(row.probeErrorCode).toBeNull();
+    expect(row.remoteHeadSha).toBeNull();
+    expect(row.headCommittedAt).not.toBeNull();
+  });
+
+  it('an unborn branch has no date', async () => {
+    const repo = join(testDir, 'unborn');
+    mkdirSync(repo, { recursive: true });
+    git(repo, 'init', '-q', '-b', 'main');
+    const row = await probeGitState(target(repo));
+    expect(row.headSha).toBeNull();
+    expect(row.headCommittedAt).toBeNull();
+  });
+
+  it('is stored and read back', async () => {
+    const repo = makeRepo(join(testDir, 'hs'));
+    const { getNexusRegistryDb } = await import('../../store/nexus-sqlite.js');
+    const db = await getNexusRegistryDb(getCleoHome());
+    db.insert(projectLocations).values({ projectId: 'p-hs', deviceId: 'dev-b', path: repo }).run();
+    await runProjectsGitStatus(db, {}, { deviceId: 'dev-b' });
+    const stored = listGitStates(db).find((r) => r.projectId === 'p-hs');
+    expect(stored?.headCommittedAt).toBe(
+      new Date(git(repo, 'log', '-1', '--format=%cI')).toISOString(),
+    );
   });
 });
 
