@@ -141,6 +141,35 @@ export async function currentTask(
 }
 
 /**
+ * Refuse to start `taskId` while it has unresolved dependencies — the
+ * readiness check {@link startTask} runs before it takes any claim or writes
+ * focus. Exported so a composite verb (`pivot`) can run it BEFORE its own
+ * side effects instead of discovering the refusal half-way (T12502).
+ *
+ * @param acc - Task accessor.
+ * @param taskId - The task about to be started.
+ * @throws CleoError `DEPENDENCY_ERROR` naming the unresolved blockers.
+ * @example
+ * ```ts
+ * await assertTaskStartable(acc, 'T2');
+ * ```
+ * @task T12502
+ */
+export async function assertTaskStartable(acc: DataAccessor, taskId: string): Promise<void> {
+  const { tasks: allTasks } = await acc.queryTasks({});
+  const unresolvedDeps = getUnresolvedDeps(taskId, allTasks);
+  if (unresolvedDeps.length > 0) {
+    throw new CleoError(
+      ExitCode.DEPENDENCY_ERROR,
+      `Task ${taskId} is blocked by unresolved dependencies: ${unresolvedDeps.join(', ')}`,
+      {
+        fix: `Complete blockers first: ${unresolvedDeps.map((d) => `cleo complete ${d}`).join(', ')}`,
+      },
+    );
+  }
+}
+
+/**
  * Start working on a specific task.
  *
  * T12502: the start takes the caller session's claim lease on the task with a
@@ -179,17 +208,7 @@ export async function startTask(
   }
 
   // Block starting a task with unresolved dependencies
-  const { tasks: allTasks } = await acc.queryTasks({});
-  const unresolvedDeps = getUnresolvedDeps(taskId, allTasks);
-  if (unresolvedDeps.length > 0) {
-    throw new CleoError(
-      ExitCode.DEPENDENCY_ERROR,
-      `Task ${taskId} is blocked by unresolved dependencies: ${unresolvedDeps.join(', ')}`,
-      {
-        fix: `Complete blockers first: ${unresolvedDeps.map((d) => `cleo complete ${d}`).join(', ')}`,
-      },
-    );
-  }
+  await assertTaskStartable(acc, taskId);
 
   // Auto-advance pipelineStage: RCASD planning stages → implementation (T719)
   // Best-effort: if pipelineStage is in planning stages, advance to implementation.
