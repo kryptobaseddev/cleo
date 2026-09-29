@@ -2,7 +2,7 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.22.2
+  version: 2.22.3
   tier: core
   install: harness
   covers:
@@ -48,8 +48,8 @@ send routine status chatter: report only when done or when a decision is needed.
 
 ## Project identity and moving between devices
 
-A project is identified by its portable `project_id` in `.cleo/project-id`
-(tracked, write-once; ADR-094). A path is only a per-device hint, so a moved or
+A project is identified by its portable `project_id` in `.cleo/project.json`
+(tracked, id write-once, plus its name; ADR-096; legacy mirror `.cleo/project-id`). A path is only a per-device hint, so a moved or
 restored checkout keeps its identity. After a new device, restore or migration,
 or when a known repo reports "Not inside a CLEO project", registry paths are
 unreachable, or nexus hits `ENOENT` on an old path, run and report:
@@ -57,7 +57,7 @@ unreachable, or nexus hits `ENOENT` on an old path, run and report:
 1. `cleo doctor projects` — machine-wide: moved, missing, split and temp rows with
    remedies. Dry-run by default; `--apply` rebinds only on nonce proof and writes a
    receipt; `--rollback <id>` restores.
-2. `cleo doctor project-identity` — missing, conflicting or uncommitted id.
+2. `cleo doctor project-identity` — legacy, missing, conflicting or uncommitted id, name drift; `--resolve --dry-run` then `--resolve` is the only migration.
 3. `cleo doctor --all-projects` — unreachable registered projects.
 4. `cleo nexus projects clean --orphans --dry-run` — NEVER without `--dry-run`;
    it deletes rows for projects that merely moved.

@@ -73,11 +73,14 @@ export const projectRegistry = sqliteTable(
   'nexus_project_registry',
   {
     /**
-     * Canonical project identifier (12-hex-char ID since T9149 W5).
+     * The project's portable id (ADR-094 · T12716): opaque, any historical
+     * shape (UUID, 12-hex, legacy).
      *
-     * @cross-db filesystem:.cleo/project-context.json.projectId — nexus→project-context-file
-     * invariant. Each registered project must have a project-context.json file
-     * whose `projectId` matches this row's `project_id`. Verified out-of-band by
+     * @cross-db filesystem:.cleo/project.json.id — nexus→project-identity
+     * invariant. Each registered project DECLARES this id: `.cleo/project.json`
+     * `id` (or the legacy `.cleo/project-id`), else the `projectId` cached in
+     * `.cleo/project-info.json` (`readDeclaredProjectIdentity`).
+     * `project-context.json` carries no id. Verified out-of-band by
      * `cleo doctor db-substrate` (T10323); no DB-level FK.
      */
     projectId: text('project_id').primaryKey(),
@@ -93,9 +96,10 @@ export const projectRegistry = sqliteTable(
      * location, never an identity. Every checkout on every device is recorded
      * in {@link projectLocations} (ADR-094 · T12469).
      *
-     * @cross-db filesystem:<projectPath>/.cleo/project-context.json — nexus→filesystem
-     * invariant. The directory at this path SHOULD contain a
-     * `.cleo/project-context.json` file referencing the SAME projectId.
+     * @cross-db filesystem:<projectPath>/.cleo/project.json — nexus→filesystem
+     * invariant. The directory at this path SHOULD declare the SAME projectId
+     * (`.cleo/project.json`, legacy `.cleo/project-id`, or the
+     * `project-info.json` cache — T12716).
      */
     projectPath: text('project_path').notNull(),
     name: text('name').notNull(),

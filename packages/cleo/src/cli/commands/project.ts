@@ -208,7 +208,11 @@ const rerootSubCommand = defineCommand({
 });
 
 const renameSubCommand = defineCommand({
-  meta: { name: 'rename', description: 'Rename this project.' },
+  meta: {
+    name: 'rename',
+    description:
+      'Rename this project: the committed .cleo/project.json name, the registry label, and a Cleo Nexus relink hint (the id never changes).',
+  },
   args: {
     newName: { type: 'positional', description: 'New project name.', required: true },
     'dry-run': { type: 'boolean', description: 'Validate without applying.', default: false },
@@ -249,6 +253,10 @@ const renameSubCommand = defineCommand({
           `Old name:     ${r.oldName}`,
           `New name:     ${r.newName}`,
           `Project hash: ${r.newProjectHash}`,
+          ...(r.recordedIn ? [`Recorded in:  .cleo/${r.recordedIn}`] : []),
+          ...(r.registry ? [`Registry:     ${r.registry}`] : []),
+          ...(r.nexusLabel ? [`Nexus label:  ${r.nexusLabel}`] : []),
+          ...(r.hint ? [`Next:         ${r.hint}`] : []),
         ]),
         { command: 'project', operation: 'project.rename' },
       );

@@ -467,26 +467,28 @@ export function buildStartupBanner(
  * Detect the project name for display in the startup banner.
  *
  * Resolution order:
- * 1. `name` field from `.cleo/project-info.json`
- * 2. `name` field from `package.json` in `projectDir`
- * 3. Last path segment of `projectDir`
+ * 1. `name` field from the committed `.cleo/project.json` (T12716)
+ * 2. `name` field from `.cleo/project-info.json` (legacy, pre-migration)
+ * 3. `name` field from `package.json` in `projectDir`
+ * 4. Last path segment of `projectDir`
  *
  * @param projectDir - The project root directory.
  * @returns The resolved project display name.
  */
 export function detectProjectName(projectDir: string): string {
-  // Try .cleo/project-info.json first
-  try {
-    const infoPath = join(projectDir, ".cleo", "project-info.json");
-    if (existsSync(infoPath)) {
-      const raw = readFileSync(infoPath, "utf-8");
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      if (typeof parsed["name"] === "string" && parsed["name"].length > 0) {
-        return parsed["name"];
+  // Try the committed .cleo/project.json, then the legacy project-info.json.
+  for (const file of ["project.json", "project-info.json"]) {
+    try {
+      const infoPath = join(projectDir, ".cleo", file);
+      if (existsSync(infoPath)) {
+        const parsed = JSON.parse(readFileSync(infoPath, "utf-8")) as Record<string, unknown>;
+        if (typeof parsed["name"] === "string" && parsed["name"].length > 0) {
+          return parsed["name"];
+        }
       }
+    } catch {
+      // Fall through
     }
-  } catch {
-    // Fall through
   }
 
   // Try package.json

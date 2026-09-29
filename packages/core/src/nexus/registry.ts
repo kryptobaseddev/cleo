@@ -348,28 +348,25 @@ async function readProjectMeta(
 /**
  * Read the declared immutable identity; absence differs from unreadable metadata.
  *
- * The local `project-info.json` id wins (ADR-094, T12325: local state
- * is keyed by it); a checkout that has not run `cleo init` yet declares the
- * tracked write-once `.cleo/project-id`, so a fresh clone never registers under
- * a path-derived fallback.
+ * The TRACKED id wins (T12470, T12716): `.cleo/project.json`, else the legacy
+ * `.cleo/project-id`, through `readPortableProjectId` — the same order as
+ * `readDeclaredProjectIdentity` and `decideProjectIdentity`. The
+ * `project-info.json` id is only a cache, used when nothing is tracked yet.
+ * A fresh clone that has not run `cleo init` therefore declares the tracked id
+ * and never registers under a path-derived fallback.
  */
 async function readProjectId(projectPath: string): Promise<string> {
   const infoPath = join(projectPath, '.cleo', 'project-info.json');
-  const tracked = (): string => {
-    const read = readPortableProjectId(projectPath);
-    return read.status === 'valid' ? read.projectId : '';
-  };
-  // T12470: the tracked `.cleo/project-id` outranks project-info.json.
-  const trackedId = tracked();
-  if (trackedId) return trackedId;
+  const tracked = readPortableProjectId(projectPath);
+  if (tracked.status === 'valid') return tracked.projectId;
   try {
     return (
       z
         .object({ projectId: z.string().min(1).optional() })
-        .parse(JSON.parse(await readFile(infoPath, 'utf8'))).projectId ?? tracked()
+        .parse(JSON.parse(await readFile(infoPath, 'utf8'))).projectId ?? ''
     );
   } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return tracked();
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return '';
     throw new CleoError(
       ExitCode.CONFIG_ERROR,
       `Cannot read project identity at ${infoPath}: ${error instanceof Error ? error.message : String(error)}`,
@@ -381,11 +378,12 @@ async function readProjectId(projectPath: string): Promise<string> {
  * Return the id a project root declares, adopting one first when it declares
  * none (T12470).
  *
- * A path — or any hash of it — is never a project identity. A root with
- * neither `.cleo/project-id` nor a `project-info.json` id gets one the same
- * way `cleo init` does: re-linked from the registry when exactly one
- * registered identity matches, otherwise freshly minted — and recorded
- * write-once in `.cleo/project-id`, so every later resolution returns it.
+ * A path — or any hash of it — is never a project identity. A root with no
+ * tracked identity (`.cleo/project.json` / `.cleo/project-id`) and no
+ * `project-info.json` id gets one the same way `cleo init` does: re-linked
+ * from the registry when exactly one registered identity matches, otherwise
+ * freshly minted — and recorded write-once in `.cleo/project.json` (plus the
+ * legacy `.cleo/project-id` mirror), so every later resolution returns it.
  *
  * @throws {CleoError} `CONFIG_ERROR` when no identity can be recorded.
  */
@@ -401,7 +399,7 @@ async function adoptDeclaredProjectId(projectPath: string): Promise<string> {
   if (recorded) return recorded;
   throw new CleoError(
     ExitCode.CONFIG_ERROR,
-    `Project at ${projectPath} declares no identity and none could be recorded in .cleo/project-id; refusing to derive one from its path`,
+    `Project at ${projectPath} declares no identity and none could be recorded in .cleo/project.json; refusing to derive one from its path`,
     { fix: `Run \`cleo init\` in ${projectPath} to record the project's identity` },
   );
 }
@@ -495,6 +493,8 @@ export async function nexusRegister(
       throw new CleoError(ExitCode.NOT_FOUND, `Path missing .cleo directory: ${resolvedPath}`);
     }
     const declaredId = await adoptDeclaredProjectId(resolvedPath);
+    const declared = readPortableProjectId(resolvedPath);
+    const declaredName = declared.status === 'valid' ? declared.name : undefined;
     const pathFingerprint = await projectPathFingerprint(resolvedPath);
     const evidence = await collectCheckoutEvidence(resolvedPath);
     await nexusInit();
@@ -522,13 +522,25 @@ export async function nexusRegister(
         // Keyed by the primary key, so at most one row: no owner conflict exists.
         const existing = tx.select().from(projectRegistry).where(ownershipFilter).get();
         const immutableId = ownerId;
-        const projectName = name || existing?.name || basename(resolvedPath) || 'unnamed';
-        const nameOwner = tx
-          .select()
-          .from(projectRegistry)
-          .where(eq(projectRegistry.name, projectName))
-          .all();
-        if (nameOwner.some((row) => row.projectId !== immutableId)) {
+        const takenByOther = (candidate: string): boolean =>
+          tx
+            .select()
+            .from(projectRegistry)
+            .where(eq(projectRegistry.name, candidate))
+            .all()
+            .some((row) => row.projectId !== immutableId);
+        // T12716: an explicit name; else the row's current label (a repeat
+        // registration never silently relabels — `cleo doctor
+        // project-identity` reports drift and `--resolve` syncs it); else, for
+        // a new row, the committed `.cleo/project.json` name unless another
+        // project on this device already holds it; else the basename.
+        const projectName =
+          name ||
+          existing?.name ||
+          (declaredName !== undefined && !takenByOther(declaredName) ? declaredName : '') ||
+          basename(resolvedPath) ||
+          'unnamed';
+        if (takenByOther(projectName)) {
           throw new CleoError(
             ExitCode.VALIDATION_ERROR,
             `Project name '${projectName}' already exists in registry`,

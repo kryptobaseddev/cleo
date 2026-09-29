@@ -9,9 +9,8 @@ import { writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ScaffoldResult } from '@cleocode/contracts/scaffold-diagnostics';
-import { generateProjectHash } from '../nexus/hash.js';
 import { getConfigPath, resolveCleoDir } from '../paths.js';
-import { computeStableProjectHash } from '../project-scope.js';
+import { computePortableProjectHash } from '../project-scope.js';
 import { saveJson } from '../store/json.js';
 import { decideProjectIdentity, ensurePortableProjectId } from './project-identity.js';
 
@@ -52,8 +51,10 @@ export const CLEO_GITIGNORE_FALLBACK = `# .cleo/.gitignore — Deny-by-default f
 # project-info.json) is provided by \`cleo backup add\` snapshots under
 # .cleo/backups/. See .cleo/adrs/ADR-013 for the full recovery story.
 #
-# ADR-094 (amends ADR-013 §9, T12325): project-id IS tracked — the write-once portable
-# project identity. CLEO never rewrites it, so git has nothing to overwrite.
+# ADR-094 (amends ADR-013 §9, T12325) + ADR-096 (T12716): project.json IS tracked — the
+# write-once portable project id plus the renamable display name — and so is
+# project-id, its legacy id-only mirror. CLEO never rewrites either id, so git
+# has nothing to overwrite.
 
 # Step 1: Ignore everything
 *
@@ -61,6 +62,7 @@ export const CLEO_GITIGNORE_FALLBACK = `# .cleo/.gitignore — Deny-by-default f
 # Allow list
 !.gitignore
 !project-context.json
+!project.json
 !project-id
 !setup-otel.sh
 !DATA-SAFETY-IMPLEMENTATION-SUMMARY.md
@@ -414,14 +416,22 @@ const CARRIED_PROJECT_INFO_FIELDS = [
 ] as const;
 
 /**
- * Create or refresh project-info.json, and adopt its id into the tracked,
- * write-once `.cleo/project-id` (T12325).
+ * Create or refresh project-info.json, and record the id in the tracked,
+ * write-once `.cleo/project.json` (plus its legacy `.cleo/project-id` mirror)
+ * when the project has no tracked identity yet (T12325 · T12716).
  * Idempotent: skips if file exists (unless force).
  *
- * The id is never minted while it can be re-linked: an existing local id is
- * kept, a committed `.cleo/project-id` is used by a fresh clone, and otherwise
- * the global registry is searched before a new id is minted (see
+ * The id is never minted while it can be re-linked: the tracked id wins, an
+ * existing cached id is used when nothing is tracked, and otherwise the global
+ * registry is searched before a new id is minted (see
  * {@link decideProjectIdentity}).
+ *
+ * `project-info.json` holds device-local state only; its `projectId` is a
+ * cache of the tracked id. A cache that disagrees with the tracked id is
+ * reported and left as-is: re-keying it (and the local state keyed by it) is
+ * `cleo doctor project-identity --resolve`, never a side effect of init or
+ * upgrade (T12716). A legacy project with only `.cleo/project-id` is likewise
+ * reported, not migrated.
  *
  * @param projectRoot - Absolute path to the project root directory
  * @param opts - Optional configuration
@@ -452,10 +462,16 @@ export async function ensureProjectInfo(
   const identity = await decideProjectIdentity(projectRoot, existingProjectId, {
     mintNewIdentity: opts?.mintNewIdentity,
   });
+  // The cache keeps its id until `doctor project-identity --resolve` re-keys it.
+  const cachedProjectId = existingProjectId ?? identity.projectId;
+  const existingName =
+    typeof existing?.['name'] === 'string' && existing['name'].length > 0
+      ? existing['name']
+      : undefined;
   const describeIdentity = async (): Promise<string> => {
-    const outcome = await ensurePortableProjectId(projectRoot, identity.projectId);
+    const outcome = await ensurePortableProjectId(projectRoot, identity.projectId, existingName);
     return [
-      `identity ${identity.projectId} (${identity.source}); .cleo/project-id ${outcome}`,
+      `identity ${identity.projectId} (${identity.source}); tracked identity ${outcome}`,
       ...identity.diagnostics,
     ].join('; ');
   };
@@ -508,16 +524,13 @@ export async function ensureProjectInfo(
     if (existing?.[field] !== undefined) carried[field] = existing[field];
 
   // T12557: write-once — a force-regenerate keeps the stored identity key.
-  // T12558: an id minted on explicit request (`--new-identity`) is a NEW
-  // project, possibly at a path another project's hash was derived from (a
-  // reroot's old root). Its hash is derived from the new id, never the path,
-  // so the two projects' release ids cannot collide once federated.
+  // T12716: a NEW key is derived from the portable id, never the path, so
+  // every clone on every device computes the same hash (T12558 did this for
+  // `--new-identity` only). A stored hash is never re-derived.
   const projectHash =
     typeof existing?.['projectHash'] === 'string' && existing['projectHash'].length > 0
       ? existing['projectHash']
-      : opts?.mintNewIdentity && identity.source === 'minted'
-        ? generateProjectHash(`project-id:${identity.projectId}`)
-        : computeStableProjectHash(projectRoot);
+      : computePortableProjectHash(identity.projectId);
   const cleoVersion = getCleoVersion();
   const now = new Date().toISOString();
 
@@ -539,9 +552,12 @@ export async function ensureProjectInfo(
   const projectInfo = {
     $schema: './schemas/project-info.schema.json',
     schemaVersion: '1.0.0',
-    projectId: identity.projectId,
+    projectId: cachedProjectId,
     projectHash,
-    name: basename(resolve(projectRoot)),
+    // Legacy: the display name lives in `.cleo/project.json` (T12716). This
+    // copy is kept only as the path-fingerprint alias-key input older builds
+    // recorded, so a rename never touches it.
+    name: existingName ?? basename(resolve(projectRoot)),
     ...(remoteUrl && { remoteUrl }),
     cleoVersion,
     createdAt: existingCreatedAt ?? now,

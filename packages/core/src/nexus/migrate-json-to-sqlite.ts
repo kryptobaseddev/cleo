@@ -10,7 +10,8 @@
 
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, renameSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { basename } from 'node:path';
+import { readDeclaredProjectIdentity } from '@cleocode/paths';
 import { sql } from 'drizzle-orm';
 import { getLogger } from '../logger.js';
 import { getNexusDb } from '../store/nexus-sqlite.js';
@@ -21,8 +22,9 @@ import { getRegistryPath } from './registry.js';
  * Migrate projects from legacy JSON registry to nexus.db.
  *
  * For each project entry in projects-registry.json:
- * - Reads target/.cleo/project-info.json for a stable UUID (projectId)
- * - Falls back to randomUUID() if project-info.json is absent
+ * - Reads the project's declared id (`.cleo/project.json`, legacy
+ *   `.cleo/project-id`, then `.cleo/project-info.json`) — T12716
+ * - Falls back to randomUUID() if the project declares none
  * - Upserts into project_registry (on conflict by projectHash → update path/name/lastSeen)
  *
  * On success, renames the JSON file to .migrated.
@@ -66,19 +68,10 @@ export async function migrateJsonToSqlite(): Promise<number> {
 
     if (!projectPath || !projectHash) continue;
 
-    // Try to read project-info.json for a stable UUID
-    let projectId: string = randomUUID();
-    try {
-      const infoPath = join(projectPath, '.cleo', 'project-info.json');
-      if (existsSync(infoPath)) {
-        const info = JSON.parse(readFileSync(infoPath, 'utf-8')) as Record<string, unknown>;
-        if (typeof info['projectId'] === 'string' && info['projectId']) {
-          projectId = info['projectId'];
-        }
-      }
-    } catch {
-      // Use fallback UUID
-    }
+    // The declared identity (tracked `.cleo/project.json` / `.cleo/project-id`
+    // first, then the `project-info.json` cache — T12716); a random UUID only
+    // when the project declares none.
+    const projectId: string = readDeclaredProjectIdentity(projectPath)?.projectId ?? randomUUID();
 
     const healthStatus = String(entry['healthStatus'] ?? 'unknown');
     const permissions = String(entry['permissions'] ?? 'read');

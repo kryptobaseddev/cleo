@@ -24,6 +24,11 @@
 #   the write-once portable project identity. CLEO creates it once and never
 #   rewrites it, so git has nothing to overwrite — unlike the four mutable
 #   files above, whose hazard was git replacing live state CLEO rewrites.
+#
+# T12716 (ADR-096, amends ADR-094): `project.json` IS tracked. It holds
+#   {schemaVersion, id, name}: the same write-once id, plus the display name,
+#   which only `cleo project rename` changes. `project-id` stays tracked as the
+#   legacy id-only mirror for older builds.
 # =============================================================================
 
 # Step 1: Ignore everything in .cleo/
@@ -41,6 +46,8 @@
 # (detected project facts and bootstrap scripts — not runtime state).
 !project-context.json
 # T12325: write-once portable project identity (ADR-094, amends ADR-013 §9).
+# T12716: project.json is the canonical {id, name}; project-id its legacy mirror.
+!project.json
 !project-id
 # T12093: placeholder overrides consumed when the release workflows are
 # rendered. It is declarative project config (which command bumps versions),

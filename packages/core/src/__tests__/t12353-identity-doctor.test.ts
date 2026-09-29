@@ -1,5 +1,5 @@
 /**
- * Identity doctor + conflict resolution (T12353 · ADR-094).
+ * Identity doctor + conflict resolution (T12353 · ADR-094 · T12716).
  *
  * The central case: two devices each ran `cleo init` before `.cleo/project-id`
  * existed, one committed its id, and the other pulled it. Local state is keyed
@@ -11,7 +11,11 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { formatPortableProjectId, readPortableProjectId } from '@cleocode/paths';
+import {
+  formatPortableProjectId,
+  formatProjectManifest,
+  readPortableProjectId,
+} from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { inspectProjectIdentity, resolveProjectIdentity } from '../doctor/project-identity.js';
 import { checkSchema } from '../json-schema-validator.js';
@@ -45,8 +49,16 @@ function git(cwd: string, ...args: string[]): void {
   execFileSync('git', args, { cwd, env: GIT_ENV, stdio: 'pipe' });
 }
 
-/** A git repo with `.cleo/project-info.json` (and optionally a tracked id). */
-function project(name: string, localId: string | null, trackedId?: string): string {
+/**
+ * A git repo with `.cleo/project-info.json` (and optionally a tracked id: the
+ * legacy `.cleo/project-id`, plus `.cleo/project.json` when `manifest`).
+ */
+function project(
+  name: string,
+  localId: string | null,
+  trackedId?: string,
+  manifest = false,
+): string {
   const root = join(sandbox, name);
   mkdirSync(join(root, '.cleo'), { recursive: true });
   git(root, 'init', '-q', '-b', 'main');
@@ -57,6 +69,11 @@ function project(name: string, localId: string | null, trackedId?: string): stri
     );
   if (trackedId)
     writeFileSync(join(root, '.cleo', 'project-id'), formatPortableProjectId(trackedId));
+  if (trackedId && manifest)
+    writeFileSync(
+      join(root, '.cleo', 'project.json'),
+      formatProjectManifest({ schemaVersion: 1, id: trackedId, name }),
+    );
   return root;
 }
 
@@ -100,7 +117,7 @@ describe('AC1: doctor reports each state with the exact remedy', () => {
     const check = checkProjectIdentity(root);
     expect(check).toMatchObject({ id: 'project_identity', status: 'warning' });
     expect(check.fix).toContain('cleo doctor project-identity --resolve');
-    expect(check.fix).toContain('git add .cleo/project-id');
+    expect(check.fix).toContain('git add .cleo/project.json .cleo/project-id');
   });
 
   it('conflict -> failed, remedy is dry-run first then resolve', () => {
@@ -126,7 +143,7 @@ describe('AC1: doctor reports each state with the exact remedy', () => {
   });
 
   it('agreeing but uncommitted -> untracked; ignored by an old .cleo/.gitignore -> ignored', async () => {
-    const root = project('untracked', 'same-id', 'same-id');
+    const root = project('untracked', 'same-id', 'same-id', true);
     expect(inspectProjectIdentity(root).state).toBe('untracked');
     writeFileSync(join(root, '.cleo', '.gitignore'), '*\n!.gitignore\n');
     expect(inspectProjectIdentity(root)).toMatchObject({ state: 'ignored' });
@@ -156,7 +173,10 @@ describe('AC2: --resolve re-keys a conflict to the tracked id without losing row
       'repoint-aliases',
       'alias-old-id',
       'rewrite-project-info',
+      // T12716: only the legacy file was tracked, so project.json is written too.
+      'write-project-json',
     ]);
+    expect(existsSync(join(root, '.cleo', 'project.json'))).toBe(false);
     expect(await registry()).toEqual(before);
     expect(inspectProjectIdentity(root).state).toBe('conflict');
 
@@ -188,7 +208,12 @@ describe('AC2: --resolve re-keys a conflict to the tracked id without losing row
       previousProjectIds: ['local-a'],
       name: 'rekey',
     });
-    expect(readPortableProjectId(root)).toEqual({ status: 'valid', projectId: 'tracked-b' });
+    expect(readPortableProjectId(root)).toEqual({
+      status: 'valid',
+      projectId: 'tracked-b',
+      file: 'project.json',
+      name: 'rekey',
+    });
     expect(inspectProjectIdentity(root).state).toBe('untracked');
 
     // A later encounter under the new id succeeds and does not add a row.
@@ -210,11 +235,17 @@ describe('AC2: --resolve re-keys a conflict to the tracked id without losing row
     expect(inspectProjectIdentity(root).state).toBe('conflict');
   });
 
-  it('missing -> --resolve writes the tracked file from the local id', async () => {
+  it('missing -> --resolve writes the tracked files from the local id', async () => {
     const root = project('adopt', 'local-a');
     const result = await resolveProjectIdentity(root);
     expect(result.steps.map((s) => s.action)).toEqual(['write-tracked-id']);
-    expect(readPortableProjectId(root)).toEqual({ status: 'valid', projectId: 'local-a' });
+    expect(readPortableProjectId(root)).toEqual({
+      status: 'valid',
+      projectId: 'local-a',
+      file: 'project.json',
+      name: 'adopt',
+    });
+    expect(existsSync(join(root, '.cleo', 'project-id'))).toBe(true);
   });
 
   it('invalid -> --resolve refuses and leaves the file untouched', async () => {
@@ -229,7 +260,7 @@ describe('AC2: --resolve re-keys a conflict to the tracked id without losing row
 
 describe('T12557: persisted projectRoot is stripped by --resolve; projectHash is never touched', () => {
   it('reports a legacy /mnt projectRoot; dry-run plans, apply strips with a receipt, hash byte-identical', async () => {
-    const root = project('legacy', 'same-id', 'same-id');
+    const root = project('legacy', 'same-id', 'same-id', true);
     await ensureGitignore(root);
     const infoPath = join(root, '.cleo', 'project-info.json');
     const contextPath = join(root, '.cleo', 'project-context.json');

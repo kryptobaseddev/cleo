@@ -18,7 +18,7 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 // T11280: node:sqlite is loaded LAZILY (via createRequire below) rather than as
 // an eager top-level import. paths.ts is imported transitively by sqlite.ts, and
 // an eager `node:sqlite` import here would defeat the lazy-init invariant proven
@@ -40,6 +40,7 @@ import { registryStorePath, shouldAutoRegisterProject } from './nexus/registry-h
 import {
   _resolveMainRepoFromGitlink,
   captureProjectScope,
+  getProjectDisplayName,
   getProjectRoot,
   resolveStoreOwnerRoot,
   validateProjectRoot,
@@ -1910,13 +1911,10 @@ function _rowToRegistryEntry(row: Record<string, unknown>): ProjectRegistryEntry
   };
 }
 
-/** Read optional project name; malformed or unreadable existing metadata is a diagnostic. */
-function _readProjectNameFromInfo(projectRoot: string): string | undefined {
+/** Malformed or unreadable existing metadata is a diagnostic, never a registration. */
+function _assertProjectInfoReadable(projectRoot: string): void {
   const infoPath = join(projectRoot, '.cleo', 'project-info.json');
-  if (!existsSync(infoPath)) return undefined;
-  const raw = readFileSync(infoPath, 'utf-8');
-  const data = JSON.parse(raw) as Record<string, unknown>;
-  return typeof data.name === 'string' && data.name.length > 0 ? data.name : undefined;
+  if (existsSync(infoPath)) JSON.parse(readFileSync(infoPath, 'utf-8'));
 }
 
 /**
@@ -2099,7 +2097,9 @@ export async function registerProjectOnEncounter(
   const scope = captureProjectScope(projectRoot, worktreeScope.getStore());
   const capturedHome = getCleoHome();
   const resolvedPath = scope.worktreeRoot;
-  const projectName = _readProjectNameFromInfo(resolvedPath) || basename(resolvedPath) || 'unnamed';
+  _assertProjectInfoReadable(resolvedPath);
+  // T12716: the single display-name accessor (project.json, then basename).
+  const projectName = getProjectDisplayName(resolvedPath) || 'unnamed';
   if (!infoProjectId.trim())
     throw new Error('Project encounter requires an existing immutable identity');
   const ownedExecution = !scope.execution;

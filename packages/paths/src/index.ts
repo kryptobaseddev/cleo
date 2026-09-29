@@ -19,7 +19,8 @@
  * - {@link isAbsolutePath} — cross-platform abs-path check
  * - Executable search: {@link findOnPath}, {@link prependPathEntry},
  *   {@link splitPathEnv} (PATH delimiter + PATHEXT aware, T12605)
- * - Portable identity: {@link readPortableProjectId} (tracked `.cleo/project-id`, T12325)
+ * - Portable identity: {@link readPortableProjectId} (tracked `.cleo/project.json`, then the
+ *   legacy `.cleo/project-id`; T12325 · T12716) and {@link readProjectManifest}
  *
  * @packageDocumentation
  * @task T1883
@@ -84,12 +85,24 @@ export {
 } from './platform-paths.js';
 export {
   formatPortableProjectId,
+  formatProjectManifest,
   isValidPortableProjectId,
+  isValidProjectDisplayName,
   PORTABLE_PROJECT_ID_FILE,
   type PortableProjectIdRead,
+  PROJECT_DISPLAY_NAME_MAX,
+  PROJECT_MANIFEST_FILE,
+  PROJECT_MANIFEST_SCHEMA_VERSION,
+  type ProjectManifest,
+  type ProjectManifestRead,
   parsePortableProjectId,
+  parseProjectManifest,
   portableProjectIdPath,
+  projectManifestPath,
   readPortableProjectId,
+  readProjectIdFile,
+  readProjectManifest,
+  type TrackedIdentityFile,
 } from './portable-project-id.js';
 export {
   computeProjectHash,

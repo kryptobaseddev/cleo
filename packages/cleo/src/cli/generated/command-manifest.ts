@@ -472,7 +472,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'doctorProjectIdentityCommand',
     name: 'project-identity',
     description:
-      'Check .cleo/project-id against project-info.json (missing / conflict / invalid / untracked) ',
+      'Check .cleo/project.json, its legacy .cleo/project-id mirror and the project-info.json cache ',
     load: async () =>
       (await import('../commands/doctor-project-identity.js'))
         .doctorProjectIdentityCommand as CommandDef,

@@ -9,8 +9,14 @@
  * @task T11008 — resolveProjectByCwd and resolveCanonicalCleoDir added to @cleocode/paths
  */
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import {
+  formatProjectManifest,
+  isValidProjectDisplayName,
+  projectManifestPath,
+  readProjectManifest,
+} from '@cleocode/paths';
 import { getCleoDirAbsolute, resolveOrCwd } from './paths.js';
 import {
   computeStableProjectHash,
@@ -18,6 +24,8 @@ import {
   readProjectInfoAtDirectory,
   readProjectInfoAtDirectorySync,
 } from './project-scope.js';
+
+export { getProjectDisplayName } from './project-scope.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -83,20 +91,38 @@ export function getProjectHashKey(cwd?: string): string {
 }
 
 /**
- * Update the project name in project-info.json.
- * Used by `cleo upgrade --name` and programmatic consumers.
+ * Update the project name, synchronously (T12716).
  *
- * Writes `name`, the field every reader uses. It used to write `projectName`,
- * which nothing reads, so `cleo upgrade --name` had no visible effect; a
- * stray `projectName` left by that bug is removed.
+ * Writes the committed `.cleo/project.json` `name` (id carried over
+ * byte-identical) when the project has one; a legacy project without it gets
+ * `project-info.json` `name`, the field every legacy reader uses. It once
+ * wrote `projectName`, which nothing reads; a stray one is removed.
+ *
+ * Programmatic consumers that also want the registry and Nexus labels use
+ * `renameProject` (`cleo project rename`, `cleo upgrade --name`).
+ *
+ * @param cwd - Project root.
+ * @param name - New display name (trimmed; must pass `isValidProjectDisplayName`).
+ * @throws {Error} When the name is invalid.
  */
 export function updateProjectName(cwd: string, name: string): void {
+  const newName = name.trim();
+  if (!isValidProjectDisplayName(newName)) throw new Error(`Invalid project name '${newName}'`);
+  const root = resolveOrCwd(cwd);
+  const manifest = readProjectManifest(root);
+  if (manifest.status === 'valid') {
+    const path = projectManifestPath(root);
+    const tmp = `${path}.tmp-${process.pid}`;
+    writeFileSync(tmp, formatProjectManifest({ ...manifest.manifest, name: newName }));
+    renameSync(tmp, path);
+    return;
+  }
   const cleoDir = getCleoDirAbsolute(cwd);
   const infoPath = join(cleoDir, 'project-info.json');
   if (!existsSync(infoPath)) return;
 
   const data = JSON.parse(readFileSync(infoPath, 'utf-8')) as Record<string, unknown>;
-  data['name'] = name;
+  data['name'] = newName;
   delete data['projectName'];
   data['lastUpdated'] = new Date().toISOString();
   writeFileSync(infoPath, `${JSON.stringify(data, null, 2)}\n`);

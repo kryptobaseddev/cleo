@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { getCleoPlatformPaths, getCleoWorktreesRoot } from '@cleocode/paths';
 import { listRegisteredWorktrees } from '@cleocode/worktree';
 import { CORE_PROTECTED_FILES } from '../../constants.js';
-import { inspectProjectIdentity } from '../../doctor/project-identity.js';
+import { inspectProjectIdentity, inspectProjectNameDrift } from '../../doctor/project-identity.js';
 import { detectLegacyAgentOutputs } from '../../migration/agent-outputs.js';
 import {
   getAgentsHome,
@@ -1838,12 +1838,14 @@ export async function checkExodusStrandedResidue(projectRoot?: string): Promise<
 }
 
 /**
- * Check the portable project identity: `.cleo/project-id` against
- * `project-info.json`, and whether git tracks the file (T12353 · ADR-094).
+ * Check the portable project identity: `.cleo/project.json` and its legacy
+ * `.cleo/project-id` mirror against the `project-info.json` cache, and
+ * whether git tracks the file (T12353 · ADR-094 · T12716).
  *
- * A conflict or an invalid file is `failed`, because local state is keyed by an
- * id no clone will ever share. A missing, uncommitted or ignored file is a
- * `warning`: nothing is wrong locally yet, but a clone would mint its own id.
+ * A conflict, a mirror conflict or an invalid file is `failed`, because local
+ * state is keyed by an id no clone will ever share. A missing, legacy,
+ * mirror-missing, uncommitted or ignored file is a `warning`: nothing is wrong
+ * locally yet, but a clone (or an older build) would not see the identity.
  * Every non-passing result carries the exact remedy command in `fix`.
  *
  * @param projectRoot - Project root; defaults to the resolved current project.
@@ -1855,7 +1857,9 @@ export function checkProjectIdentity(projectRoot?: string): CheckResult {
   const status: CheckResult['status'] =
     report.state === 'ok'
       ? 'passed'
-      : report.state === 'conflict' || report.state === 'invalid'
+      : report.state === 'conflict' ||
+          report.state === 'invalid' ||
+          report.state === 'mirror-conflict'
         ? 'failed'
         : report.state === 'uninitialized'
           ? 'info'
@@ -1865,8 +1869,52 @@ export function checkProjectIdentity(projectRoot?: string): CheckResult {
     category: 'configuration',
     status,
     message: report.message,
-    details: { state: report.state, trackedId: report.trackedId, localId: report.localId },
+    details: {
+      state: report.state,
+      trackedId: report.trackedId,
+      manifestId: report.manifestId,
+      legacyId: report.legacyId,
+      declaredName: report.declaredName,
+      localId: report.localId,
+    },
     fix: report.remedy,
+  };
+}
+
+/**
+ * Check that the global registry labels this project with the name it
+ * declares in `.cleo/project.json` (T12716). Drift is a `warning` whose fix
+ * syncs the label; an unreadable registry is `info` (coverage missing), never
+ * `passed`.
+ *
+ * @param projectRoot - Project root; defaults to the resolved current project.
+ * @param cleoHome - Global CLEO home whose registry is read.
+ * @returns The check result.
+ * @task T12716
+ */
+export async function checkProjectNameDrift(
+  projectRoot?: string,
+  cleoHome?: string,
+): Promise<CheckResult> {
+  const drift = await inspectProjectNameDrift(getProjectRoot(projectRoot), cleoHome);
+  const status: CheckResult['status'] =
+    drift.state === 'ok' || drift.state === 'not-registered' || drift.state === 'no-declared-name'
+      ? 'passed'
+      : drift.state === 'drift' || drift.state === 'taken'
+        ? 'warning'
+        : 'info';
+  return {
+    id: 'project_name_drift',
+    category: 'configuration',
+    status,
+    message: drift.message,
+    details: {
+      state: drift.state,
+      projectId: drift.projectId,
+      declaredName: drift.declaredName,
+      registryName: drift.registryName,
+    },
+    fix: drift.remedy,
   };
 }
 

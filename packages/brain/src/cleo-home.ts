@@ -34,7 +34,7 @@ export { getCleoHome };
  *
  * Resolution order:
  * 1. {@link resolveProjectByCwd} — reads the declared `projectId`
- *    (`.cleo/project-id`, then `project-info.json`) and the checkout root. The
+ *    (`.cleo/project.json` / legacy `.cleo/project-id`, then `project-info.json`) and the checkout root. The
  *    registry path from {@link resolveCanonicalCleoDir} is used only when it
  *    names this same checkout (T12470); otherwise `<projectRoot>/.cleo`.
  * 2. Fallback: `CLEO_ROOT` env var or `process.cwd()` + `'.cleo'` for
