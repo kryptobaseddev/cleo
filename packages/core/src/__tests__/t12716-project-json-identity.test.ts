@@ -211,11 +211,15 @@ describe('fixture matrix: project.json x project-id x project-info.json (missing
     });
 
     // 6. --resolve: the plan writes nothing; the apply never changes a
-    //    tracked id and never loses a registry row.
-    if (ids.info && tracked === ids.info) await registerProjectOnEncounter(root, ids.info);
+    //    tracked id and never loses a registry row. Seeded the way real
+    //    encounters register (review finding 5): a conflict was registered
+    //    under the cached id before the tracked file arrived, and every later
+    //    encounter registers the declared (tracked) id.
     if (ids.info && tracked && tracked !== ids.info)
       await registerProjectOnEncounter(root, ids.info);
+    if (ids.info && expectedId) await registerProjectOnEncounter(root, expectedId);
     const rowsBefore = await registryRows();
+    const idsBefore = rowsBefore.map((r) => r.projectId);
     const bytesBefore = trackedBytes(root);
     const infoBefore = existsSync(join(root, '.cleo', 'project-info.json'))
       ? readFileSync(join(root, '.cleo', 'project-info.json'), 'utf-8')
@@ -232,7 +236,19 @@ describe('fixture matrix: project.json x project-id x project-info.json (missing
 
     const applied = await resolveProjectIdentity(root);
     expect(applied.steps.map((s) => s.action)).toEqual(plan.steps.map((s) => s.action));
-    expect((await registryRows()).length).toBe(rowsBefore.length);
+    // No row lost: a folded row (merge-registry-row) leaves its id resolving
+    // through the alias to the live row, and its content in a receipt.
+    const merged = applied.steps.filter((s) => s.action === 'merge-registry-row').length;
+    expect((await registryRows()).length).toBe(rowsBefore.length - merged);
+    const { getNexusRegistryDb } = await import('../store/nexus-sqlite.js');
+    const { projectIdAliases } = await import('../store/schema/nexus-schema.js');
+    const aliases = (await getNexusRegistryDb(home)).select().from(projectIdAliases).all();
+    const liveIds = (await registryRows()).map((r) => r.projectId);
+    for (const id of idsBefore)
+      expect(
+        liveIds.includes(id) ||
+          aliases.some((a) => a.legacyId === id && liveIds.includes(a.canonicalId)),
+      ).toBe(true);
     const after = trackedBytes(root);
     // An existing tracked file is never rewritten.
     if (bytesBefore.manifest !== null) expect(after.manifest).toBe(bytesBefore.manifest);
@@ -269,7 +285,8 @@ describe('fixture matrix: project.json x project-id x project-info.json (missing
         ) as { projectId: string; previousProjectIds: string[] };
         expect(cache.projectId).toBe(tracked);
         expect(cache.previousProjectIds).toContain(ids.info);
-        expect((await registryRows()).map((r) => r.projectId)).toContain(tracked);
+        expect((await registryRows()).map((r) => r.projectId)).toEqual([tracked]);
+        expect(applied.steps.map((s) => s.action)).toContain('merge-registry-row');
         if (!ids.manifest) expect(after.manifest).not.toBeNull();
         break;
       }
@@ -485,7 +502,7 @@ describe('credentials survive a re-key', () => {
   it('a ciphertext sealed under the old cached id opens and is re-wrapped under the tracked id', async () => {
     const root = fixture('keys', { manifest: AGREED, legacy: AGREED, info: CONFLICT.info });
     const sealed = await encryptProjectSecret('sk-test', CONFLICT.info, { cleoHome: home });
-    const identity = readProjectCredentialIdentity(root);
+    const identity = await readProjectCredentialIdentity(root, home);
     expect(identity).toEqual({ projectId: AGREED, previousProjectIds: [CONFLICT.info] });
 
     const opened = await decryptProjectSecret(sealed, {

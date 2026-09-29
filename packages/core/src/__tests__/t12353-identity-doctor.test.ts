@@ -221,15 +221,20 @@ describe('AC2: --resolve re-keys a conflict to the tracked id without losing row
     expect((await registry()).rows).toHaveLength(2);
   });
 
-  it('refuses when both ids already own registry rows, and changes nothing', async () => {
+  it('refuses, changing nothing, when the old id is still live in another checkout', async () => {
+    // T12716 review finding 5: both ids registered is resolved by folding the
+    // old row into the tracked one — unless the old id is a second, live
+    // lineage elsewhere. Then the remedy resolves THAT checkout first; it
+    // never unregisters a row.
     const root = project('split', 'local-a', 'tracked-b');
-    await registerProjectOnEncounter(root, 'local-a');
-    const elsewhere = project('elsewhere', 'tracked-b');
-    await registerProjectOnEncounter(elsewhere, 'tracked-b');
+    await registerProjectOnEncounter(root, 'tracked-b');
+    const elsewhere = project('elsewhere', 'local-a');
+    await registerProjectOnEncounter(elsewhere, 'local-a');
     const before = await registry();
 
     const result = await resolveProjectIdentity(root);
-    expect(result.refused).toContain('cleo nexus unregister tracked-b');
+    expect(result.refused).toContain(`--resolve --dry-run\` in "${elsewhere}"`);
+    expect(result.refused).not.toContain('unregister');
     expect(result.steps).toEqual([]);
     expect(await registry()).toEqual(before);
     expect(inspectProjectIdentity(root).state).toBe('conflict');

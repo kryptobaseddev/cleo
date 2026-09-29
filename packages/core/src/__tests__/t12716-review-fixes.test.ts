@@ -177,3 +177,120 @@ describe('finding 2: a conflict with label drift plans exactly what it applies',
     ]);
   });
 });
+
+describe('finding 5: both ids registered (the real encounter order) resolves without losing a row', () => {
+  it('folds the cached-id row into the tracked row through the alias, with a receipt', async () => {
+    const { resolveProjectIdentity, inspectProjectIdentity } = await import(
+      '../doctor/project-identity.js'
+    );
+    const { registerProjectOnEncounter } = await import('../paths.js');
+    const OLD = 'dddddddddddd';
+    const root = fixture('both-rows', { manifest: ID, legacy: ID, info: OLD });
+    // Registered under the cached id before the tracked file arrived, then a
+    // later encounter registered the tracked id — what paths.ts does.
+    await registerProjectOnEncounter(root, OLD);
+    await registerProjectOnEncounter(root, ID);
+    const { db, projectRegistry, projectIdAliases, nexusAuditLog, projectLocations } =
+      await registryDb();
+    const rowsBefore = db.select().from(projectRegistry).all();
+    expect(rowsBefore.map((r) => r.projectId).sort()).toEqual([ID, OLD].sort());
+    const oldRow = rowsBefore.find((r) => r.projectId === OLD);
+
+    const plan = await resolveProjectIdentity(root, { dryRun: true, cleoHome: home });
+    expect(plan.refused).toBeNull();
+    expect(plan.steps.map((s) => s.action)).toContain('merge-registry-row');
+    expect(db.select().from(projectRegistry).all()).toEqual(rowsBefore);
+
+    const applied = await resolveProjectIdentity(root, { cleoHome: home });
+    expect(applied.refused).toBeNull();
+    expect(applied.steps.map((s) => s.action)).toEqual(plan.steps.map((s) => s.action));
+
+    // The tracked row is live; the cached id resolves to it through the alias.
+    expect(
+      db
+        .select()
+        .from(projectRegistry)
+        .all()
+        .map((r) => r.projectId),
+    ).toEqual([ID]);
+    expect(db.select().from(projectIdAliases).all()).toContainEqual(
+      expect.objectContaining({ legacyId: OLD, canonicalId: ID }),
+    );
+    // Nothing is lost: the folded row is kept whole in the audit receipt, and
+    // its locations now belong to the tracked id.
+    const receipt = db
+      .select()
+      .from(nexusAuditLog)
+      .all()
+      .find((r) => r.action === 'merge-identity');
+    expect(JSON.parse(receipt?.detailsJson ?? '{}')).toMatchObject({
+      foldedRow: { projectId: OLD, projectPath: oldRow?.projectPath },
+      into: ID,
+    });
+    expect(
+      db
+        .select()
+        .from(projectLocations)
+        .all()
+        .filter((l) => l.projectId === OLD),
+    ).toEqual([]);
+    expect(inspectProjectIdentity(root).state).not.toBe('conflict');
+  });
+});
+
+describe('finding 4: credentials follow every id the project was keyed by', () => {
+  it('previous ids include the alias table, not only project-info receipts', async () => {
+    const { readProjectCredentialIdentity } = await import('../store/credential-transfer.js');
+    const OLD = 'dddddddddddd';
+    const root = fixture('alias-keys', { manifest: ID, legacy: ID, info: ID });
+    const { db, projectIdAliases } = await registryDb();
+    db.insert(projectIdAliases)
+      .values({ legacyId: OLD, canonicalId: ID, createdAt: new Date().toISOString() })
+      .run();
+    expect(await readProjectCredentialIdentity(root, home)).toEqual({
+      projectId: ID,
+      previousProjectIds: [OLD],
+    });
+  });
+
+  it('--resolve re-wraps credentials sealed under the old id, with a receipt step', async () => {
+    const { DatabaseSync } = await import('node:sqlite');
+    const { encryptProjectSecret, decryptProjectSecret } = await import('../crypto/credentials.js');
+    const { resolveProjectIdentity } = await import('../doctor/project-identity.js');
+    const { registerProjectOnEncounter } = await import('../paths.js');
+    const OLD = 'dddddddddddd';
+    const root = fixture('rewrap', { manifest: ID, legacy: ID, info: OLD });
+    await registerProjectOnEncounter(root, OLD);
+    const dbPath = join(root, '.cleo', 'cleo.db');
+    const sealed = await encryptProjectSecret('sk-live', OLD, { cleoHome: home });
+    const raw = new DatabaseSync(dbPath);
+    raw.exec(
+      `CREATE TABLE tasks_agent_credentials (agent_id TEXT PRIMARY KEY, display_name TEXT NOT NULL,
+       api_key_encrypted TEXT NOT NULL, api_base_url TEXT NOT NULL DEFAULT '')`,
+    );
+    raw
+      .prepare(
+        'INSERT INTO tasks_agent_credentials (agent_id, display_name, api_key_encrypted) VALUES (?, ?, ?)',
+      )
+      .run('agent-a', 'Agent A', sealed);
+    raw.close();
+    const cell = (): string => {
+      const db = new DatabaseSync(dbPath, { readOnly: true });
+      const row = db
+        .prepare('SELECT api_key_encrypted AS c FROM tasks_agent_credentials')
+        .get() as {
+        c: string;
+      };
+      db.close();
+      return row.c;
+    };
+
+    const plan = await resolveProjectIdentity(root, { dryRun: true, cleoHome: home });
+    expect(plan.steps.find((s) => s.action === 'rewrap-credentials')?.detail).toContain('agent-a');
+    expect(cell()).toBe(sealed);
+
+    await resolveProjectIdentity(root, { cleoHome: home });
+    const opened = await decryptProjectSecret(cell(), { projectId: ID, cleoHome: home });
+    expect(opened).toMatchObject({ plaintext: 'sk-live', rewrapped: null });
+  });
+});

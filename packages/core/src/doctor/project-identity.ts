@@ -42,6 +42,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -169,6 +170,7 @@ export interface IdentityResolutionStep {
     | 'write-project-json'
     | 'write-legacy-mirror'
     | 'rekey-registry-row'
+    | 'merge-registry-row'
     | 'repoint-aliases'
     | 'alias-old-id'
     | 'drop-inverted-alias'
@@ -176,6 +178,7 @@ export interface IdentityResolutionStep {
     | 'confirm-candidate-location'
     | 'strip-derived-fields'
     | 'allow-project-json'
+    | 'rewrap-credentials'
     | 'sync-registry-name';
   /** Human-readable detail with the ids and counts involved. */
   readonly detail: string;
@@ -189,7 +192,11 @@ export interface IdentityResolution {
   readonly before: ProjectIdentityInspection;
   /** Steps, in order. When `dryRun` is `true`, none of them were applied. */
   readonly steps: readonly IdentityResolutionStep[];
-  /** Registry row count before and after; equal counts show no row was lost. */
+  /**
+   * Registry row count before and after. Equal counts show no row was lost; a
+   * `merge-registry-row` step lowers it by one, and that row is kept whole in a
+   * `merge-identity` nexus audit receipt.
+   */
   readonly registryRows: { readonly before: number; readonly after: number };
   /**
    * Why no steps were planned. Set when the state needs no resolution, or
@@ -861,8 +868,10 @@ async function resolveIdentityFiles(
   const oldId = before.localId;
   const newId = before.trackedId;
   const { getNexusRegistryDb } = await import('../store/nexus-sqlite.js');
-  const { projectIdAliases, projectRegistry } = await import('../store/schema/nexus-schema.js');
-  const { eq } = await import('drizzle-orm');
+  const { nexusAuditLog, projectGitState, projectIdAliases, projectLocations, projectRegistry } =
+    await import('../store/schema/nexus-schema.js');
+  const { and, eq } = await import('drizzle-orm');
+  const { isSupersededRegistryPath, projectHolding } = await import('../nexus/path-map.js');
   const db = await getNexusRegistryDb(options.cleoHome ?? getCleoHome());
   const countRows = (): number => db.select().from(projectRegistry).all().length;
   const rowsBefore = countRows();
@@ -877,13 +886,29 @@ async function resolveIdentityFiles(
     .from(projectRegistry)
     .where(eq(projectRegistry.projectId, newId))
     .get();
+  // Both ids registered: the cached id was registered before the tracked file
+  // arrived, and a later encounter registered the tracked id (review finding
+  // 5). When the cached-id row is THIS checkout, or its path no longer holds
+  // the cached id, the rows are one project: fold the cached-id row into the
+  // tracked row. Its content is kept whole in a nexus audit receipt, its
+  // locations move to the tracked id, and the cached id stays resolvable
+  // through the alias. A cached-id row still live elsewhere is a second
+  // lineage and is refused, never unregistered.
+  const merge = Boolean(oldRow && newRow);
   if (oldRow && newRow) {
-    return result(
-      `Both ids are registered on this device: ${oldId} at ${oldRow.projectPath} and ${newId} at ${newRow.projectPath}. ` +
-        'One registry row cannot hold two paths. ' +
-        `Remedy: if ${newRow.projectPath} is gone or is a stale checkout, run \`cleo nexus unregister ${newId}\` and then re-run \`${IDENTITY_COMMAND} --resolve\`.`,
-      { before: rowsBefore, after: rowsBefore },
-    );
+    const here = canonicalizePath(projectRoot);
+    const elsewhereLive =
+      oldRow.projectPath !== here &&
+      !isSupersededRegistryPath(oldRow.projectPath) &&
+      projectHolding(oldRow.projectPath, oldId) !== 'no';
+    if (elsewhereLive) {
+      return result(
+        `Both ids are registered on this device, and ${oldId} is still declared by ${oldRow.projectPath}. ` +
+          'That is a second checkout of the old lineage; nothing was changed. ' +
+          `Remedy: run \`${IDENTITY_COMMAND} --resolve --dry-run\` in "${oldRow.projectPath}" first (it adopts the tracked id there), then re-run it here.`,
+        { before: rowsBefore, after: rowsBefore },
+      );
+    }
   }
   const newIdAlias = db
     .select()
@@ -903,7 +928,12 @@ async function resolveIdentityFiles(
     .where(eq(projectIdAliases.canonicalId, oldId))
     .all();
 
-  if (oldRow)
+  if (merge && oldRow && newRow)
+    steps.push({
+      action: 'merge-registry-row',
+      detail: `fold registry row ${oldId} (path ${oldRow.projectPath}, permissions ${oldRow.permissions}) into ${newId} (path ${newRow.projectPath} kept; stronger permissions and earlier registeredAt carried over); the whole row is kept in a nexus audit receipt and ${oldId} resolves through the alias`,
+    });
+  else if (oldRow)
     steps.push({
       action: 'rekey-registry-row',
       detail: `registry row ${oldId} -> ${newId} (path ${oldRow.projectPath} kept)`,
@@ -922,7 +952,22 @@ async function resolveIdentityFiles(
     action: 'rewrite-project-info',
     detail: `project-info.json projectId ${oldId} -> ${newId} (previousProjectIds keeps ${oldId})`,
   });
+  // Credentials sealed under the old id are re-wrapped eagerly, not on their
+  // next open (review finding 4). The step is the receipt: every row named.
+  const rewrapStep = async (): Promise<void> => {
+    const { migrateProjectCredentialsAtRoot } = await import('../store/credential-transfer.js');
+    const plan = await migrateProjectCredentialsAtRoot(projectRoot, {
+      dryRun,
+      ...(options.cleoHome !== undefined && { cleoHome: options.cleoHome }),
+    });
+    if (plan.migrated.length === 0 && plan.reentry.length === 0) return;
+    steps.push({
+      action: 'rewrap-credentials',
+      detail: `re-wrap ${plan.migrated.length} credential(s) under ${newId}: ${plan.migrated.map((c) => `${c.store}:${c.id}`).join(', ') || 'none'}${plan.reentry.length > 0 ? `; ${plan.reentry.length} cannot be opened and must be re-entered: ${plan.reentry.map((r) => `${r.store}:${r.id}`).join(', ')}` : ''}`,
+    });
+  };
   if (dryRun) {
+    await rewrapStep();
     if (!before.manifestId) await writeManifestStep(newId);
     return result(before.manifestId ? null : allowStep(), {
       before: rowsBefore,
@@ -931,13 +976,64 @@ async function resolveIdentityFiles(
   }
 
   const now = new Date().toISOString();
+  const foldedLocations = [projectLocations, projectGitState].flatMap((table) =>
+    db.select().from(table).where(eq(table.projectId, oldId)).all(),
+  );
+  const rank = { read: 0, write: 1, execute: 2 } as const;
+  const strongest = (a: string, b: string): string =>
+    (rank[a as keyof typeof rank] ?? 0) >= (rank[b as keyof typeof rank] ?? 0) ? a : b;
   db.transaction(
     (tx) => {
-      if (oldRow)
+      if (merge && oldRow && newRow) {
+        tx.insert(nexusAuditLog)
+          .values({
+            id: randomUUID(),
+            action: 'merge-identity',
+            projectHash: newRow.projectHash,
+            projectId: newId,
+            domain: 'nexus',
+            operation: 'doctor.project-identity.resolve',
+            source: 'cleo doctor project-identity --resolve',
+            success: 1,
+            detailsJson: JSON.stringify({ foldedRow: oldRow, foldedLocations, into: newId }),
+          })
+          .run();
+        tx.update(projectRegistry)
+          .set({
+            permissions: strongest(newRow.permissions, oldRow.permissions),
+            registeredAt:
+              oldRow.registeredAt < newRow.registeredAt ? oldRow.registeredAt : newRow.registeredAt,
+          })
+          .where(eq(projectRegistry.projectId, newId))
+          .run();
+        tx.delete(projectRegistry).where(eq(projectRegistry.projectId, oldId)).run();
+      } else if (oldRow)
         tx.update(projectRegistry)
           .set({ projectId: newId })
           .where(eq(projectRegistry.projectId, oldId))
           .run();
+      // Per-checkout rows follow the id. A checkout the tracked id already
+      // records keeps the tracked row (earliest firstSeen carried over); the
+      // duplicate is in the receipt, so nothing is lost.
+      for (const table of [projectLocations, projectGitState] as const) {
+        for (const row of tx.select().from(table).where(eq(table.projectId, oldId)).all()) {
+          const at = (id: string) =>
+            and(
+              eq(table.projectId, id),
+              eq(table.deviceId, row.deviceId),
+              eq(table.path, row.path),
+            );
+          const taken = tx.select().from(table).where(at(newId)).get();
+          if (!taken) {
+            tx.update(table).set({ projectId: newId }).where(at(oldId)).run();
+            continue;
+          }
+          if (table === projectLocations && 'firstSeen' in row && 'firstSeen' in taken)
+            if (row.firstSeen < taken.firstSeen)
+              tx.update(projectLocations).set({ firstSeen: row.firstSeen }).where(at(newId)).run();
+          tx.delete(table).where(at(oldId)).run();
+        }
+      }
       if (newIdAlias?.canonicalId === oldId)
         tx.delete(projectIdAliases).where(eq(projectIdAliases.legacyId, newId)).run();
       tx.update(projectIdAliases)
@@ -969,6 +1065,7 @@ async function resolveIdentityFiles(
       lastUpdated: now,
     });
   }
+  await rewrapStep();
   const manifestFailure = before.manifestId
     ? null
     : ((await writeManifestStep(newId)) ?? allowStep());

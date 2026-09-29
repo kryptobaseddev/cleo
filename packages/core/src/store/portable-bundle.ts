@@ -556,13 +556,13 @@ export function detectUnmigratedLegacy(
  * first, then the `project-info.json` cache; the name from
  * `getProjectDisplayName`.
  */
-function readProjectIdentity(projectRoot: string): {
+async function readProjectIdentity(projectRoot: string): Promise<{
   projectId: string | null;
   previousProjectIds: string[];
   name: string;
-} {
+}> {
   return {
-    ...readProjectCredentialIdentity(projectRoot),
+    ...(await readProjectCredentialIdentity(projectRoot)),
     name: getProjectDisplayName(projectRoot),
   };
 }
@@ -577,7 +577,7 @@ async function stageProject(
   if (!fs.existsSync(cleoDir)) {
     throw new PortableBundleError('E_NO_PROJECT', `No .cleo directory at ${projectRoot}`);
   }
-  const info = readProjectIdentity(projectRoot);
+  const info = await readProjectIdentity(projectRoot);
   const name = info.name;
   const safe = name.replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 60) || 'project';
   const prefix = `projects/${String(index).padStart(3, '0')}-${safe}/cleo`;
