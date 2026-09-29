@@ -621,6 +621,23 @@ export async function completeTask(
         },
       );
     }
+
+    // T12656 (D11150): an affected-scope testsPassed counts before merge only.
+    if (enforcement.verificationRequiredGates.includes('testsPassed')) {
+      const { taskAffectedScopeSupersededReason } = await import('./affected-scope.js');
+      const superseded = await taskAffectedScopeSupersededReason(task, completionRoot);
+      if (superseded) {
+        throw new CleoError(
+          enforcement.lifecycleMode === 'strict'
+            ? ExitCode.LIFECYCLE_GATE_FAILED
+            : ExitCode.GATE_DEPENDENCY,
+          `Task ${options.taskId} failed verification gates: testsPassed (${superseded})`,
+          {
+            fix: `cleo done ${options.taskId} --plan  # plans ci:<pr> or tool:test for testsPassed`,
+          },
+        );
+      }
+    }
   }
 
   // ---- T1404 / P1-4: Epic closure requires direct evidence or verified children ----
