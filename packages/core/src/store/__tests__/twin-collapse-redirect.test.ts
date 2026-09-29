@@ -85,12 +85,17 @@ describe('schema_meta → tasks_schema_meta: writers', () => {
     expect(count(db, 'schema_meta', seeded)).toBe(0);
   });
 
-  it('allocateNextTaskId advances the counter in the prefixed twin only', async () => {
+  it('allocateNextTaskId advances the prefixed counter and mirrors only the counter to the bare row', async () => {
     const db = tasksNative();
     const before = twins(db, 'schema_meta', 'tasks_schema_meta');
     expect(await allocateNextTaskId(projectDir)).toBe('T001');
     expect(await allocateNextTaskId(projectDir)).toBe('T002');
-    expect(twins(db, 'schema_meta', 'tasks_schema_meta')).toEqual(before);
+    // The one sanctioned bare write (T12535): the task_id_sequence counter row.
+    expect(twins(db, 'schema_meta', 'tasks_schema_meta')).toEqual({
+      bare: before.bare + 1,
+      prefixed: before.prefixed,
+    });
+    expect(count(db, 'schema_meta', "key <> 'task_id_sequence'")).toBe(before.bare);
     const counter = db
       .prepare(
         "SELECT json_extract(value, '$.counter') AS c FROM tasks_schema_meta WHERE key = 'task_id_sequence'",
@@ -110,7 +115,7 @@ describe('schema_meta → tasks_schema_meta: writers', () => {
     expect(count(db, 'tasks_schema_meta', "key = 'focus_state'")).toBe(1);
   });
 
-  it('the snapshot gate persists its state in the prefixed twin only', async () => {
+  it('the snapshot gate persists its state in the prefixed twin (generation mirrored to the bare row)', async () => {
     const db = tasksNative();
     const before = twins(db, 'schema_meta', 'tasks_schema_meta');
     const backupDir = join(root, 'backups');
@@ -121,7 +126,7 @@ describe('schema_meta → tasks_schema_meta: writers', () => {
     );
     expect(result.snapshotted).toEqual(['tasks']);
     expect(twins(db, 'schema_meta', 'tasks_schema_meta')).toEqual({
-      bare: before.bare,
+      bare: before.bare + 1, // the generation mirror (T12535)
       prefixed: before.prefixed + 1,
     });
   });
@@ -146,7 +151,9 @@ describe('schema_meta → tasks_schema_meta: readers', () => {
       '{"counter":900,"lastId":"T900","checksum":"bare"}',
     );
     expect((await showSequence(projectDir)).counter).toBe(41);
-    expect(await allocateNextTaskId(projectDir)).toBe('T042');
+    // Allocation also floors on the older build's bare counter (T12535), so an
+    // id that build may have reserved is never issued here.
+    expect(await allocateNextTaskId(projectDir)).toBe('T901');
   });
 
   it('getMetaValue (tasks accessor) reads the prefixed row', async () => {
