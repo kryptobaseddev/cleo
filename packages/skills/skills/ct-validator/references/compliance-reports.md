@@ -106,7 +106,7 @@ unactionable — the consumer cannot prioritize.
 ### Warnings
 
 **W-001**: `packages/cleo/src/dispatch.ts` is 487 lines (warn at 400).
-- Rule: ct-skill-validator audit_body §body-length
+- Rule: ct-skill-author audit_body §body-length
 - Fix: Extract sub-handlers into sibling files.
 - Verification: re-run audit_body.py.
 

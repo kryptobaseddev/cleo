@@ -554,3 +554,4 @@ export function resolveTokens(
 // === Lead-tier rollup (T9082, ADR-070; mode flag T10513) ===
 export type { ConduitStatusMessage, RollupWaveStatusOptions } from './lead-rollup.js';
 export { resolveLeadRollupMode, rollupEpicStatus, rollupWaveStatus } from './lead-rollup.js';
+export { coordinationTopic, waveNumberOfTask, waveTopic } from './wave-topic.js';

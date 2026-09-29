@@ -1,14 +1,9 @@
 ---
 name: ct-documentor
-description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Coordinates ct-docs-lookup, ct-docs-write, ct-docs-review, ct-spec-writer, and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.16.1
-core: false
-category: specialist
+description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
+version: 3.17.0
 protocol: null
 dependencies:
-  - ct-docs-lookup
-  - ct-docs-write
-  - ct-docs-review
   - ct-spec-writer
   - ct-adr-recorder
 sharedResources:
@@ -21,10 +16,10 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.16.1
+  version: 3.17.0
   tier: core
   install: harness
-  lastReviewed: 2026-09-27
+  lastReviewed: 2026-09-28
   stability: stable
 ---
 
@@ -92,9 +87,9 @@ Context injection for documentation tasks spawned via cleo-subagent. Orchestrate
 
 | Skill | Purpose | Invoke When |
 |-------|---------|-------------|
-| `ct-docs-lookup` | Query existing docs, find references via `cleo docs fetch`/`list` | Discovery phase, checking what exists |
-| `ct-docs-write` | Create/edit docs via `cleo docs add` with CLEO style | Writing or updating content |
-| `ct-docs-review` | Check compliance with style guide, read through `cleo docs fetch` | Quality validation before completion |
+| `cleo docs find` / `list` / `fetch` (and the Context7 MCP for library APIs) | Query existing docs and current external docs | Discovery phase, checking what exists |
+| `references/writing.md` (was ct-docs-write) | Create/edit docs via `cleo docs add` with CLEO style | Writing or updating content |
+| `references/reviewing.md` (was ct-docs-review) | Check compliance with style guide, read through `cleo docs fetch`; PR mode | Quality validation before completion |
 | `ct-spec-writer` | Author specs (REQ-XXX requirements) via `cleo docs add --type spec` | Formal specification work |
 | `ct-adr-recorder` | Author ADRs via `cleo docs add --type adr --slug adr-NNN-...` | Architecture decisions promoted from consensus |
 
@@ -115,8 +110,8 @@ and every owner writes through `cleo docs add` — not raw filesystem writes.
 | `adr` (architecture decisions) | `ct-adr-recorder` | `cleo docs add <ownerId> <path> --type adr --slug adr-<NNN>-<rest>` (TODO T10360 · E3.2 pending: `--title` + auto-`adr-NNN` allocation) |
 | `research` (multi-source investigation) | `ct-research-agent` | `cleo docs add <ownerId> <path> --type research --slug research-<topic>` |
 | `handoff` (session/agent transition) | `ct-documentor` (this skill) | `cleo docs add <ownerId> <path> --type handoff --slug handoff-<context>` |
-| `note` (conversational prose) | `ct-docs-write` | `cleo docs add <ownerId> <path> --type note --slug <kebab-topic>` |
-| `llm-readme` (agent-facing) | `ct-docs-write` | `cleo docs add <ownerId> <path> --type llm-readme --slug <kebab-topic>` |
+| `note` (conversational prose) | `ct-documentor` (`references/writing.md`) | `cleo docs add <ownerId> <path> --type note --slug <kebab-topic>` |
+| `llm-readme` (agent-facing) | `ct-documentor` (`references/writing.md`) | `cleo docs add <ownerId> <path> --type llm-readme --slug <kebab-topic>` |
 
 Hard rule: EVERY canonical-type write goes through the SSoT. The coordinator
 rejects any subagent return that wrote raw markdown into `.cleo/adrs/`,
@@ -205,7 +200,7 @@ This closes the silent-absorption footgun where citty's underlying
 
 ```bash
 # Typo → E_UNKNOWN_FLAG with suggestion
-$ cleo docs add T123 file.md --titel "X"
+$ cleo docs add T123 file.md --titel "X"   # cleo-cmd: negative-example
 {
   "success": false,
   "error": {
@@ -577,9 +572,10 @@ not yet under test.
 
 **Anti-pattern**: do NOT write a `cleo memory observe` manually after a
 `cleo docs add` — the auto-emit already happened, and the duplicate
-observation pollutes the FTS index. Use `cleo memory backfill-docs` (AC4
-of T9976) only to repair attachments that pre-date the auto-emit feature
-or were written outside the SSoT.
+observation pollutes the FTS index. No CLI command back-fills that
+observation for attachments that pre-date the auto-emit feature: the
+`memory backfill-docs` verb planned in T9976 AC4 never shipped. Leave such
+attachments as they are rather than hand-writing a duplicate observation.
 
 #### System-managed exemptions (T10368)
 
@@ -696,7 +692,7 @@ the docs graph — never grep the filesystem for the file you just wrote.
 cleo docs list --type spec --project       # canonical: every spec in this project
 cleo docs list --task T1234                # canonical: everything attached to a task
 cleo docs versions --for T1234             # ADVANCED: list every SHA version
-cleo docs sync --from docs/legacy.md --for T1234 --type note --slug legacy-doc  # ADVANCED: back-fill on-disk file into SSoT
+cleo docs sync --from docs/legacy.md --for T1234  # ADVANCED: back-fill on-disk file into SSoT (no --type/--slug; classify with docs add)
 ```
 
 ---
@@ -773,7 +769,7 @@ Grep: pattern="{TOPIC_KEYWORDS}" path="docs/"
 Grep: pattern="{RELATED_TERMS}" path="docs/" output_mode="files_with_matches"
 ```
 
-**Invoke `/ct-docs-lookup`** for deeper documentation research.
+**Use the Context7 MCP** (`resolve-library-id` → `query-docs`) for current library and framework docs.
 
 ### Phase 2: Assess
 
@@ -786,7 +782,7 @@ Grep: pattern="{RELATED_TERMS}" path="docs/" output_mode="files_with_matches"
 
 ### Phase 3: Write/Update
 
-**Invoke `/ct-docs-write`** for content creation.
+**Load `references/writing.md`** for content creation.
 
 **For EXISTING files:**
 1. Read the current content
@@ -811,7 +807,7 @@ Grep: pattern="{RELATED_TERMS}" path="docs/" output_mode="files_with_matches"
 
 ### Phase 4: Review
 
-**Invoke `/ct-docs-review`** for quality validation.
+**Load `references/reviewing.md`** for quality validation.
 
 Checklist:
 - [ ] No formal language ("utilize", "offerings", "cannot")
@@ -872,7 +868,7 @@ cleo research link {TASK_ID} {RESEARCH_ID}
 ### Output Requirements
 
 1. MUST write documentation output to: `{{OUTPUT_DIR}}/`
-2. MUST append ONE line to: `{{MANIFEST_PATH}}`
+2. MUST record ONE manifest entry: `cleo manifest append --entry '<entry JSON>'` (the flat manifest file is retired, ADR-027)
 3. MUST return ONLY: "Documentation complete. Manifest appended to pipeline_manifest."
 4. MUST NOT return documentation content in response
 
@@ -907,12 +903,12 @@ Write to `{{OUTPUT_DIR}}/`:
 - [ ] Changes don't duplicate existing content
 - [ ] Cross-references updated
 - [ ] Examples tested
-- [ ] Style guide compliance verified via ct-docs-review
+- [ ] Style guide compliance verified via `references/reviewing.md`
 ```
 
 ### Manifest Entry
 
-Append ONE line to `{{MANIFEST_PATH}}`:
+Record it with `cleo manifest append --entry '<entry JSON>'` (the flat manifest file is retired, ADR-027):
 
 ```json
 {"id":"docs-{TOPIC}-{DATE}","file":"{DATE}_docs-{TOPIC}.md","title":"Documentation Update: {TITLE}","date":"{DATE}","status":"complete","agent_type":"documentation","topics":["documentation","{topic}"],"key_findings":["Updated {file} with {change}","Consolidated {topic} docs into {canonical-location}","Avoided duplication by updating existing {file}"],"actionable":false,"needs_followup":[],"linked_tasks":["{TASK_ID}"]}
@@ -926,10 +922,10 @@ Append ONE line to `{{MANIFEST_PATH}}`:
 - [ ] Core principle followed (maintain, don't duplicate)
 - [ ] Coordinator pattern followed: every doc-type routed to its owning skill
 - [ ] Every canonical-type write went through `cleo docs add --type X --slug Y`
-- [ ] `/ct-docs-write` invoked for `note`/`llm-readme` content
+- [ ] `references/writing.md` followed for `note`/`llm-readme` content
 - [ ] `/ct-spec-writer` invoked when writing specs (REQ-XXX requirements)
 - [ ] `/ct-adr-recorder` invoked when promoting consensus → ADR
-- [ ] `/ct-docs-review` invoked for quality validation
+- [ ] `references/reviewing.md` applied for quality validation
 - [ ] Anti-duplication checklist verified
 - [ ] Output file written with "Files NOT Created" section
 - [ ] Manifest entry appended

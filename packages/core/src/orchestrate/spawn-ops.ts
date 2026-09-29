@@ -1453,24 +1453,15 @@ export async function orchestrateSpawn(
     // Derivation is best-effort: failures are silently swallowed so spawn is
     // never blocked by a CONDUIT config read error.
     //
-    // Topic naming convention (per T1252 spec):
-    //   wave topic  : "epic-<epicId>.wave-<taskId>"   (taskId as waveId proxy)
-    //   coord topic : "epic-<epicId>.coordination"
-    //
-    // For top-level tasks (no parentId) the section is omitted entirely.
+    // T12682: the wave topic is `epic-<epicId>.wave-<n>` with n the task's
+    // wave in `cleo orchestrate waves` — the topic its Lead listens on. For a
+    // top-level or unscheduled task the section is omitted entirely.
     let conduitSubscription: ConduitSubscriptionConfig | undefined;
     const effectiveTierForConduit = tier ?? 1; // default before composeSpawnForTask resolves it
     if (effectiveTierForConduit >= 1) {
       try {
-        const taskRecord = await accessor.loadSingleTask(taskId);
-        if (taskRecord?.parentId) {
-          const epicId = taskRecord.parentId;
-          conduitSubscription = {
-            epicId,
-            waveId: Number.parseInt(taskId.replace(/\D/g, '').slice(-4) || '1', 10),
-            peerId: `cleo-agent-${taskId.toLowerCase()}`,
-          };
-        }
+        const { deriveConduitSubscription } = await import('../orchestration/wave-topic.js');
+        conduitSubscription = await deriveConduitSubscription(taskId, accessor);
       } catch {
         // Best-effort: CONDUIT config derivation must never block spawn.
       }
