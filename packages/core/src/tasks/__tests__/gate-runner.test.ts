@@ -524,6 +524,83 @@ describe('gate runner target verdict and shared execution (T12292)', () => {
 });
 
 /**
+ * A silent, long-running target must be observed to its real exit (T12718).
+ *
+ * `cleo verify --run` recorded PASS in 46 ms for a gate whose command was
+ * `node -e "setTimeout(()=>process.exit(0),6000)"`. The command string was
+ * split on whitespace, so node received the double quotes as part of its
+ * `-e` argument, evaluated a string-literal expression and exited 0 at once.
+ * The exit-1 twin passed the same way. These gates are written exactly as a
+ * task author writes them: a single command string, no `args`.
+ */
+describe('quoted command strings run the command the author wrote (T12718)', () => {
+  // Single-quoted so an interpreter path containing spaces stays one word.
+  const node = `'${process.execPath}'`;
+  const SLEEP_MS = 2000;
+
+  it('fails a silent target that sleeps and then exits 1', async () => {
+    const [result] = await runGates(
+      [
+        {
+          kind: 'test',
+          description: 'silent sleep then exit 1',
+          command: `${node} -e "setTimeout(()=>process.exit(1),${SLEEP_MS})"`,
+          expect: 'exit0',
+        },
+      ],
+      { projectRoot },
+    );
+    expect(result?.result).toBe('fail');
+    expect(result?.execution?.exitCode).toBe(1);
+    expect(result?.durationMs).toBeGreaterThanOrEqual(SLEEP_MS);
+  });
+
+  it('passes the exit-0 twin only after the target has actually run', async () => {
+    const [result] = await runGates(
+      [
+        {
+          kind: 'test',
+          description: 'silent sleep then exit 0',
+          command: `${node} -e 'setTimeout(()=>process.exit(0),${SLEEP_MS})'`,
+          expect: 'exit0',
+        },
+      ],
+      { projectRoot },
+    );
+    expect(result?.result).toBe('pass');
+    expect(result?.execution?.exitCode).toBe(0);
+    expect(result?.durationMs).toBeGreaterThanOrEqual(SLEEP_MS);
+  });
+
+  it('refuses shell operators it cannot honour instead of passing them as arguments', async () => {
+    // Without a shell, `&&` would reach `echo` as a literal word: `echo` exits 0
+    // and the `exit 1` the author wrote never runs.
+    const [result] = await runGates(
+      [{ kind: 'test', description: 'shell chain', command: 'echo ok && exit 1', expect: 'exit0' }],
+      { projectRoot },
+    );
+    expect(result?.result).toBe('error');
+    expect(result?.errorMessage).toMatch(/shell/i);
+  });
+
+  it('refuses an unterminated quote', async () => {
+    const [result] = await runGates(
+      [
+        {
+          kind: 'test',
+          description: 'open quote',
+          command: `${node} -e "process.exit(0)`,
+          expect: 'exit0',
+        },
+      ],
+      { projectRoot },
+    );
+    expect(result?.result).toBe('error');
+    expect(result?.errorMessage).toMatch(/quote/i);
+  });
+});
+
+/**
  * `minCount` was declarable and unsatisfiable (T12308).
  *
  * The contract accepted it, `cleo req add` stored it, and the runner rejected

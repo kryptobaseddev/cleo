@@ -79,6 +79,7 @@ import { captureWrapped } from '../resources/spawn-wrapper.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
 import { registerTeardownAbort } from '../teardown-signal.js';
 import { acItemToText, acTextHash } from './ac-table.js';
+import { splitCommandLine } from './command-line.js';
 import { resolveCanonicalProjectRoot } from './evidence.js';
 import {
   buildGateCacheEntryBody,
@@ -1046,7 +1047,13 @@ function executableInvocation(
   env: NodeJS.ProcessEnv,
 ): AcceptanceGateInvocation | undefined {
   if (gate.kind !== 'test' && gate.kind !== 'command' && gate.kind !== 'lint') return undefined;
-  const [testCommand, ...testArgs] = gate.kind === 'test' ? gate.command.trim().split(/\s+/) : [];
+  // T12718: quoted words are honoured and shell syntax is refused. A plain
+  // whitespace split handed `"` characters to the target, so
+  // `node -e "setTimeout(()=>process.exit(1),6000)"` evaluated a string
+  // literal, exited 0 at once and recorded a false PASS.
+  const [testCommand, ...testArgs] = gate.kind === 'test' ? splitCommandLine(gate.command) : [];
+  if (gate.kind === 'test' && testCommand === undefined)
+    throw new Error('Test gate command is empty');
   const command =
     gate.kind === 'test'
       ? testCommand!
