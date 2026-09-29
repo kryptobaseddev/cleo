@@ -85,8 +85,7 @@ const dbArgIndex = args.indexOf('--db');
 const defaultDb = existsSync(resolve(process.cwd(), '.cleo/cleo.db'))
   ? resolve(process.cwd(), '.cleo/cleo.db')
   : resolve(process.cwd(), '.cleo/tasks.db');
-const dbPath =
-  dbArgIndex >= 0 && args[dbArgIndex + 1] ? resolve(args[dbArgIndex + 1]) : defaultDb;
+const dbPath = dbArgIndex >= 0 && args[dbArgIndex + 1] ? resolve(args[dbArgIndex + 1]) : defaultDb;
 
 if (!existsSync(dbPath)) {
   console.error(`store not found at: ${dbPath}`);
@@ -103,8 +102,9 @@ const db = new DatabaseSync(dbPath);
 // `docs_attachments` (live) beside the frozen bare `attachments`; a legacy
 // `tasks.db` only has `attachments`.
 const hasDocsTwin =
-  db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'docs_attachments'").get() !==
-  undefined;
+  db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'docs_attachments'")
+    .get() !== undefined;
 const table = hasDocsTwin ? 'docs_attachments' : 'attachments';
 console.log(`[heal-malformed-blob-attachments] table: ${table}`);
 
