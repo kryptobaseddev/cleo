@@ -210,6 +210,32 @@ export function computeWaves(
 }
 
 /**
+ * The planned waves of an epic, numbered exactly as `cleo orchestrate waves`
+ * prints them (from 1). The one plan every wave consumer reads — the waves
+ * listing, `orchestrate roll-up --wave`, and the wave topic a spawned worker
+ * publishes on — so a wave number means the same wave everywhere (T12682).
+ *
+ * @param epicId - Epic whose direct children are planned.
+ * @param accessor - Task accessor.
+ * @param parentIds - Containment parents to select; defaults to the epic.
+ * @returns The selected children, the dependency lookup and the waves.
+ * @task T12682
+ */
+export async function planEpicWaves(
+  epicId: string,
+  accessor: DataAccessor,
+  parentIds: readonly string[] = [epicId],
+): Promise<{ children: Task[]; taskMap: Map<string, Task>; waves: Wave[] }> {
+  const selected = new Map<string, Task>();
+  for (const parentId of new Set(parentIds)) {
+    for (const task of await accessor.getChildren(parentId)) selected.set(task.id, task);
+  }
+  const children = [...selected.values()];
+  const taskMap = await loadReadinessDependencyLookup(children, accessor);
+  return { children, taskMap, waves: computeWaves(children, taskMap) };
+}
+
+/**
  * Get enriched wave data for an epic or a selected set of saga members.
  *
  * @remarks
@@ -236,13 +262,7 @@ export async function getEnrichedWaves(
   parentIds: readonly string[] = [epicId],
 ): Promise<{ epicId: string; waves: EnrichedWave[]; totalWaves: number; totalTasks: number }> {
   const acc = accessor ?? (await getTaskAccessor(cwd));
-  const selected = new Map<string, Task>();
-  for (const parentId of new Set(parentIds)) {
-    for (const task of await acc.getChildren(parentId)) selected.set(task.id, task);
-  }
-  const children = [...selected.values()];
-  const taskMap = await loadReadinessDependencyLookup(children, acc);
-  const waves = computeWaves(children, taskMap);
+  const { children, taskMap, waves } = await planEpicWaves(epicId, acc, parentIds);
 
   const enrichedWaves: EnrichedWave[] = waves.map((w) => {
     const enrichedTasks = sortWaveTasks(w.tasks.map((id) => enrichTask(id, taskMap)));

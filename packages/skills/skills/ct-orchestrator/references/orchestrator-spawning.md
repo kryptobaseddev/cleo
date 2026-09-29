@@ -11,14 +11,13 @@ Spawning is ALWAYS a two-step process: CLEO **prepares** the prompt, then the pr
 
 ```bash
 # Get next dependency-safe task
-cleo orchestrate next --epic T1575
+cleo orchestrate next T1575
 
 # Generate fully-resolved spawn prompt
 cleo orchestrate spawn T1586
 
-# Or specify a skill template
-cleo orchestrate spawn T1586 --template ct-research-agent
-cleo orchestrate spawn T1586 --template RESEARCH-AGENT  # aliases work
+# Or override the protocol (the skill follows from it)
+cleo orchestrate spawn T1586 --protocol research
 ```
 
 The `spawn` command returns:
@@ -110,7 +109,7 @@ skills/ct-documentor/SKILL.md
 
 ```bash
 # Step 1: Get ready task
-cleo orchestrate next --epic T1575
+cleo orchestrate next T1575
 # Returns: { nextTask: { id: "T1586", title: "...", priority: "high" } }
 
 # Step 2: Generate spawn prompt (handles all token injection)
@@ -148,7 +147,7 @@ The function performs these steps automatically:
 
 | Step | Action | Details |
 |------|--------|---------|
-| 1 | Read task from CLEO | `cleo show T1234 --format json` |
+| 1 | Read task from CLEO | `cleo show T1234` |
 | 2 | Select skill | Auto-dispatch from task type/labels or use override |
 | 3 | Validate skill | Check compatibility with target model |
 | 4 | Inject protocol | Load skill template + subagent protocol |
@@ -161,7 +160,7 @@ The function performs these steps automatically:
 Step 6 validates that the generated prompt contains the `SUBAGENT PROTOCOL` marker. This is **mandatory** and will fail loudly if missing:
 
 - **Exit code**: `EXIT_PROTOCOL_MISSING` (60)
-- **Fix command**: `cleo research inject`
+- **Fix command**: `cleo orchestrate spawn <taskId>` (regenerates the prompt with the protocol embedded)
 - **Validation function**: `orchestrator_verify_protocol_injection()`
 
 If validation fails, the spawn is **blocked** and you must fix the skill template or manually inject the protocol block.
@@ -266,7 +265,7 @@ ti_set_context "T1234" "$(date +%Y-%m-%d)" "auth-implementation"
 
 # Set defaults and get task context
 ti_set_defaults
-task_json=$(cleo show T1234 --format json)
+task_json=$(cleo show T1234)
 ti_set_task_context "$task_json"
 ```
 
@@ -290,6 +289,6 @@ Use Task tool with:
 # Check manifest for completion
 {{RESEARCH_SHOW_CMD}} <research-id>
 
-# Or use jq
-jq -s '.[-1] | {id, status, key_findings}' {{MANIFEST_PATH}}
+# Or list the task's pipeline_manifest entries
+cleo manifest list --task <taskId> --json --limit 1
 ```
