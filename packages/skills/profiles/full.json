@@ -3,8 +3,8 @@
   "description": "All skills including execution, documentation, quality, and meta",
   "extends": "recommended",
   "skills": [
-    "ct-dev-workflow", "ct-documentor", "ct-docs-lookup", "ct-docs-write", "ct-docs-review",
-    "ct-contribution", "ct-grade", "ct-skill-creator"
+    "ct-dev-workflow", "ct-documentor",
+    "ct-contribution"
   ],
   "includeProtocols": ["implementation", "contribution", "release", "testing", "artifact-publish", "provenance"]
 }

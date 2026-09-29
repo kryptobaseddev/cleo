@@ -42,12 +42,12 @@ existing page; do not create a sibling.
 **Symptom.** A how-to or reference cites a library API that has been
 renamed, deprecated, or removed.
 
-**Detection cue.** `ct-docs-lookup` was NOT invoked for the topic.
+**Detection cue.** the Context7 MCP was NOT invoked for the topic.
 
 **Root cause.** Documentor coordinator skipped lookup because "I know
 the API" or assumed training data was current.
 
-**Fix.** Always invoke `ct-docs-lookup` when documenting external
+**Fix.** Always invoke the Context7 MCP when documenting external
 library behavior. Training data is stale by definition — Context7 is
 the current source.
 
@@ -118,7 +118,7 @@ was assembled from multiple sources without normalization.
 
 **Fix.** CLEO style is "you" (second person) for how-tos and tutorials;
 "CLEO" (third person) for explanations and references. Apply
-consistently. Pass the choice explicitly to ct-docs-write as input.
+consistently. Pass the choice explicitly to the writing guide (`ct-documentor/references/writing.md`) as input.
 
 ## 8. The Forbidden Word Sneak-In
 
@@ -154,7 +154,7 @@ step bodies.
 
 **Fix.** Tutorials and how-tos use imperative voice — "Run the
 command", "Open the file", "Set the value". Pass that constraint
-explicitly to ct-docs-write.
+explicitly to the writing guide (`ct-documentor/references/writing.md`).
 
 ## 10. The Lost Manifest
 
@@ -211,6 +211,6 @@ violations the local review didn't catch.
 **Root cause.** Documentor ran review on the draft, but not on the
 PR diff. Integration introduced drift (rebase fixups, merge prose).
 
-**Fix.** Always run `ct-docs-review --mode=pr` on the PR's diff
+**Fix.** Always run `references/reviewing.md` in PR mode on the PR's diff
 before requesting merge. Catches drift that slipped through during
 integration.

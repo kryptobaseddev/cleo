@@ -50,7 +50,7 @@
   "_meta": {
     "schemaVersion": "2.7.0",
     "lastUpdated": "2026-05-19",
-    "totalSkills": 29,
+    "totalSkills": 21,
     "generatedFrom": "T260 — lifecycle pipeline rework: dedicated skills for ADR, IVT loop, consensus, release, artifact-publish, provenance. T9664/T9665/T9672 (epic T9568) — adds loomStage + adrRefs fields on every LOOM-stage skill entry (underscored canonical form matching `cleo lifecycle` stage names; ADR refs point at .cleo/adrs/). T9672 reconciled dispatch_matrix.by_protocol key 'architecture-decision' → 'architecture_decision' matching the lifecycle CLI source of truth; the dashed form is retained as a keyword alias.",
     "architectureNote": "Universal Subagent Architecture: All spawns use provider-neutral delegation with skill/protocol injection. Pipeline stages and cross-cutting protocols each have a dedicated skill — no overloading.",
     "loomStageContract": "Each of the 10 LOOM lifecycle stages (research, consensus, architecture_decision, specification, decomposition, implementation, validation, testing, release, contribution) MUST have a bound skill whose manifest entry declares loomStage matching the lifecycle CLI stage name. The legacy `protocol` field is retained as an alias; dispatch_matrix.by_protocol is the authoritative routing table. See docs/skills/loom-coverage-matrix.md.",
@@ -214,7 +214,7 @@
     },
     {
       "name": "ct-cleo",
-      "version": "2.21.1",
+      "version": "2.22.0",
       "description": "CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.",
       "path": "skills/ct-cleo",
       "tier": 0,
@@ -290,8 +290,8 @@
     },
     {
       "name": "ct-codebase-mapper",
-      "version": "1.0.0",
-      "description": "Codebase analysis and mapping for autonomous agent understanding. Builds structured maps of project stack, architecture, conventions, testing, integrations, and concerns.",
+      "version": "2.0.0",
+      "description": "Orient in an unfamiliar or large codebase with CLEO's code-intelligence graph (cleo nexus) and project map (cleo map). Use before planning or editing unfamiliar code, for brownfield onboarding, to find what a change would break, or to map a project's structure, communities and execution flows. Triggers on \"map the codebase\", \"understand this project\", \"what calls X\", \"what would break\", \"brownfield analysis\", \"project structure\".",
       "path": "skills/ct-codebase-mapper",
       "tier": 1,
       "deliveryTier": "on-demand",
@@ -629,226 +629,9 @@
       }
     },
     {
-      "name": "ct-docs-lookup",
-      "version": "1.0.0",
-      "description": "This skill should be used when the user asks \"how do I configure [library]\", \"write code using [framework]\", \"what are the [library] methods\", \"show me [framework] examples\", or mentions libraries like React, Vue, Next.js, Prisma, Supabase, Express, Tailwind, Drizzle, Svelte. Triggers for library setup, configuration, API references, framework code examples, or version-specific docs (\"React 19\", \"Next.js 15\").",
-      "path": "skills/ct-docs-lookup",
-      "tier": 1,
-      "deliveryTier": "on-demand",
-      "install": "harness",
-      "status": "deprecated",
-      "core": false,
-      "category": "recommended",
-      "references": [
-        "skills/ct-docs-lookup/references/ctx7-workflow.md",
-        "skills/ct-docs-lookup/references/library-id-resolution.md",
-        "skills/ct-docs-lookup/references/version-specific-docs.md"
-      ],
-      "protocol": null,
-      "dependencies": [],
-      "sharedResources": [],
-      "compatibility": [
-        "claude-code",
-        "cursor",
-        "windsurf",
-        "gemini-cli"
-      ],
-      "license": "MIT",
-      "tags": [
-        "documentation",
-        "libraries",
-        "context7"
-      ],
-      "token_budget": 6000,
-      "capabilities": {
-        "inputs": [
-          "library_name",
-          "query",
-          "version"
-        ],
-        "outputs": [
-          "documentation-content",
-          "code-examples"
-        ],
-        "dependencies": [],
-        "dispatch_triggers": [
-          "how do I configure",
-          "write code using",
-          "show me examples"
-        ],
-        "compatible_subagent_types": [
-          "general-purpose"
-        ],
-        "chains_to": [],
-        "dispatch_keywords": {
-          "primary": [
-            "library",
-            "framework",
-            "api",
-            "reference"
-          ],
-          "secondary": [
-            "configure",
-            "methods",
-            "examples",
-            "docs"
-          ]
-        }
-      },
-      "constraints": {
-        "max_context_tokens": 60000,
-        "requires_session": false,
-        "requires_epic": false
-      }
-    },
-    {
-      "name": "ct-docs-review",
-      "version": "1.0.0",
-      "description": "This skill should be used when the user asks to \"review documentation\", \"check docs style\", \"review this markdown file\", \"check style guide compliance\", \"review PR documentation\", or needs documentation reviewed against the CLEO writing style guide. Supports both local file review and GitHub PR review modes with inline comments.",
-      "path": "skills/ct-docs-review",
-      "tier": 1,
-      "deliveryTier": "on-demand",
-      "install": "harness",
-      "status": "deprecated",
-      "core": false,
-      "category": "recommended",
-      "references": [
-        "skills/ct-docs-review/references/style-violations.md",
-        "skills/ct-docs-review/references/pr-review-mode.md",
-        "skills/ct-docs-review/references/inline-comment-patterns.md"
-      ],
-      "protocol": null,
-      "dependencies": [],
-      "sharedResources": [],
-      "compatibility": [
-        "claude-code",
-        "cursor",
-        "windsurf",
-        "gemini-cli"
-      ],
-      "license": "MIT",
-      "tags": [
-        "documentation",
-        "review",
-        "style-guide"
-      ],
-      "token_budget": 6000,
-      "capabilities": {
-        "inputs": [
-          "file_path",
-          "pr_url",
-          "diff_content"
-        ],
-        "outputs": [
-          "review-comments",
-          "style-violations"
-        ],
-        "dependencies": [],
-        "dispatch_triggers": [
-          "review documentation",
-          "check docs style"
-        ],
-        "compatible_subagent_types": [
-          "general-purpose"
-        ],
-        "chains_to": [],
-        "dispatch_keywords": {
-          "primary": [
-            "review",
-            "check",
-            "style",
-            "compliance"
-          ],
-          "secondary": [
-            "violations",
-            "improvements",
-            "pr review"
-          ]
-        }
-      },
-      "constraints": {
-        "max_context_tokens": 60000,
-        "requires_session": false,
-        "requires_epic": false
-      }
-    },
-    {
-      "name": "ct-docs-write",
-      "version": "1.2.0",
-      "description": "This skill should be used when creating, editing, or reviewing documentation files (markdown, MDX, README, guides). Use when the user asks to \"write docs\", \"create documentation\", \"edit the README\", \"improve doc clarity\", \"make docs more readable\", \"follow the style guide\", or \"write user-facing content\". Applies CLEO's conversational, clear, and user-focused writing style.",
-      "path": "skills/ct-docs-write",
-      "tier": 1,
-      "deliveryTier": "on-demand",
-      "install": "harness",
-      "status": "deprecated",
-      "core": false,
-      "category": "recommended",
-      "references": [
-        "skills/ct-docs-write/references/cleo-style-guide.md",
-        "skills/ct-docs-write/references/markdown-patterns.md",
-        "skills/ct-docs-write/references/audience-targeting.md"
-      ],
-      "protocol": null,
-      "dependencies": [],
-      "sharedResources": [],
-      "compatibility": [
-        "claude-code",
-        "cursor",
-        "windsurf",
-        "gemini-cli"
-      ],
-      "license": "MIT",
-      "tags": [
-        "documentation",
-        "writing",
-        "style-guide"
-      ],
-      "token_budget": 6000,
-      "capabilities": {
-        "inputs": [
-          "file_path",
-          "content_topic",
-          "audience"
-        ],
-        "outputs": [
-          "documentation-file",
-          "markdown-content"
-        ],
-        "dependencies": [],
-        "dispatch_triggers": [
-          "write docs",
-          "create documentation",
-          "edit the README"
-        ],
-        "compatible_subagent_types": [
-          "general-purpose"
-        ],
-        "chains_to": [],
-        "dispatch_keywords": {
-          "primary": [
-            "write",
-            "create",
-            "edit",
-            "style"
-          ],
-          "secondary": [
-            "clarity",
-            "readable",
-            "user-facing",
-            "content"
-          ]
-        }
-      },
-      "constraints": {
-        "max_context_tokens": 60000,
-        "requires_session": false,
-        "requires_epic": false
-      }
-    },
-    {
       "name": "ct-documentor",
-      "version": "3.16.2",
-      "description": "Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Coordinates ct-docs-lookup, ct-docs-write, ct-docs-review, ct-spec-writer, and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.",
+      "version": "3.17.0",
+      "description": "Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.",
       "path": "skills/ct-documentor",
       "tier": 0,
       "deliveryTier": "core",
@@ -1190,42 +973,6 @@
       "license": "MIT"
     },
     {
-      "name": "ct-master-tac",
-      "version": "1.0.0",
-      "description": "Master Tactical Bundle for CleoOS autonomous execution. Installs the complete primitive library needed to run the full agentic execution layer on a fresh CleoOS install: 12 CANT protocol files (research, consensus, architecture-decision, specification, decomposition, implementation, validation, testing, contribution, release, artifact-publish, provenance), the canonical platform team definition, and the skills manifest entry. Use when bootstrapping a new CleoOS project, verifying that all protocol primitives are present, or recovering a broken protocol tree. Triggers on: \"install master tac\", \"bootstrap protocols\", \"tools.skill.install ct-master-tac\", \"verify protocol bundle\", \"repair protocol files\", \"fresh CleoOS install\".",
-      "path": "skills/ct-master-tac",
-      "tier": 3,
-      "deliveryTier": "internal",
-      "install": "internal",
-      "status": "deprecated",
-      "core": false,
-      "category": "meta",
-      "references": [],
-      "protocol": null,
-      "dependencies": [],
-      "sharedResources": [],
-      "compatibility": [],
-      "license": "MIT"
-    },
-    {
-      "name": "ct-memory",
-      "version": "1.0.0",
-      "description": "Brain memory protocol with progressive disclosure for anti-hallucination and context recall",
-      "path": "skills/ct-memory",
-      "tier": 3,
-      "deliveryTier": "internal",
-      "install": "internal",
-      "status": "deprecated",
-      "core": false,
-      "category": "meta",
-      "references": [],
-      "protocol": null,
-      "dependencies": [],
-      "sharedResources": [],
-      "compatibility": [],
-      "license": "MIT"
-    },
-    {
       "name": "ct-orchestrator",
       "version": "4.0.1",
       "description": "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \\\"orchestrate\\\", \\\"orchestrator mode\\\", \\\"run as orchestrator\\\", \\\"delegate to subagents\\\", \\\"coordinate agents\\\", \\\"spawn subagents\\\", \\\"multi-agent workflow\\\", \\\"context-protected workflow\\\", \\\"agent farm\\\", \\\"HITL orchestration\\\", \\\"pipeline management\\\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime.",
@@ -1476,7 +1223,7 @@
     },
     {
       "name": "ct-research-agent",
-      "version": "2.0.1",
+      "version": "2.0.2",
       "description": "Multi-source research and investigation combining web search, documentation lookup via Context7, and codebase analysis. Synthesizes findings into actionable recommendations with proper citation and task traceability. Use when conducting research, investigating best practices, gathering technical information, or analyzing existing implementations. Triggers on research tasks, investigation needs, or information discovery requests.",
       "path": "skills/ct-research-agent",
       "tier": 1,
@@ -1561,14 +1308,14 @@
       }
     },
     {
-      "name": "ct-skill-creator",
-      "version": "1.0.0",
-      "description": "Guide for creating effective skills. This skill should be used when users want to create a new skill (or update an existing skill) that extends Claude's capabilities with specialized knowledge, workflows, or tool integrations.",
-      "path": "skills/ct-skill-creator",
+      "name": "ct-skill-author",
+      "version": "2.0.0",
+      "description": "Create, improve and validate CLEO skills. Use when writing a new skill or updating an existing one (structure, frontmatter, progressive disclosure, trigger descriptions, evals), and when auditing a skill folder against the CLEO standard before it ships (structural, ecosystem-fit and quality validation with an HTML report). Internal to CLEO development — not installed to harnesses.",
+      "path": "skills/ct-skill-author",
       "tier": 3,
       "deliveryTier": "internal",
       "install": "internal",
-      "status": "deprecated",
+      "status": "active",
       "core": false,
       "category": "meta",
       "references": [
@@ -1628,24 +1375,6 @@
         "requires_session": false,
         "requires_epic": false
       }
-    },
-    {
-      "name": "ct-skill-validator",
-      "version": "1.0.0",
-      "description": "Validates an existing skill folder against the full CLEO standard and ecosystem. Use when auditing skills for structural compliance, verifying a skill fits into the CLEO ecosystem and constitution, running quality A/B evals, or preparing a skill for distribution. Runs a 3-phase validation loop — structural, ecosystem fit, and quality eval — then presents all findings as an HTML report opened in the user's browser. Iterates until all required phases pass.",
-      "path": "skills/ct-skill-validator",
-      "tier": 3,
-      "deliveryTier": "internal",
-      "install": "internal",
-      "status": "deprecated",
-      "core": false,
-      "category": "meta",
-      "references": [],
-      "protocol": null,
-      "dependencies": [],
-      "sharedResources": [],
-      "compatibility": [],
-      "license": "MIT"
     },
     {
       "name": "ct-spec-writer",
@@ -1731,24 +1460,6 @@
         "requires_session": false,
         "requires_epic": false
       }
-    },
-    {
-      "name": "ct-stickynote",
-      "version": "1.0.0",
-      "description": "Quick ephemeral sticky notes for project-wide capture before formal classification",
-      "path": "skills/ct-stickynote",
-      "tier": 3,
-      "deliveryTier": "internal",
-      "install": "internal",
-      "status": "deprecated",
-      "core": false,
-      "category": "meta",
-      "references": [],
-      "protocol": null,
-      "dependencies": [],
-      "sharedResources": [],
-      "compatibility": [],
-      "license": "MIT"
     },
     {
       "name": "ct-task-executor",
@@ -1840,7 +1551,7 @@
     },
     {
       "name": "ct-validator",
-      "version": "2.0.1",
+      "version": "2.0.2",
       "description": "Compliance validation for verifying systems, documents, or code against requirements, schemas, or standards. Performs schema validation, code compliance checks, document validation, and protocol compliance verification with detailed pass/fail reporting. Use when validating compliance, checking schemas, verifying code standards, or auditing protocol implementations. Triggers on validation tasks, compliance checks, or quality verification needs.",
       "path": "skills/ct-validator",
       "tier": 1,
@@ -1922,24 +1633,6 @@
         "requires_session": false,
         "requires_epic": false
       }
-    },
-    {
-      "name": "signaldock-connect",
-      "version": "1.0.0",
-      "description": "Connect any AI agent to SignalDock for agent-to-agent messaging. Use when an agent needs to: (1) register on api.signaldock.io, (2) install the signaldock runtime CLI, (3) send/receive messages to other agents, (4) set up SSE real-time streaming, (5) poll for messages, (6) check inbox, or (7) connect to the SignalDock platform. Triggers on: \"connect to signaldock\", \"register agent\", \"send message to agent\", \"agent messaging\", \"signaldock setup\", \"install signaldock\", \"agent-to-agent\".",
-      "path": "skills/signaldock-connect",
-      "tier": 3,
-      "deliveryTier": "internal",
-      "install": "internal",
-      "status": "deprecated",
-      "core": false,
-      "category": "meta",
-      "references": [],
-      "protocol": null,
-      "dependencies": [],
-      "sharedResources": [],
-      "compatibility": [],
-      "license": "MIT"
     }
   ]
 }
