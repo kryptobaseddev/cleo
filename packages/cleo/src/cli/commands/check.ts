@@ -791,6 +791,17 @@ const checkArchCommand = defineCommand({
         description: 'ct-cleo SKILL.md does not grow (thin-pointer ratchet)',
       },
       {
+        // T12704: an ES module has no `require`. A bare `require()` throws
+        // under Node while vitest supplies one, so tests stay green and the
+        // shipped build fails, usually inside a swallowing `try`: the docs
+        // audit wrote nothing, two doctor checks never ran, and no
+        // .worktreeinclude glob ever copied.
+        id: 'gate-34',
+        task: 'T12704',
+        script: 'scripts/lint-no-esm-bare-require.mjs',
+        description: 'No bare require() in ESM package sources',
+      },
+      {
         // T12663: every model call site is a registered decision site
         // (spec system-one-integration §3.5, D11158): decide()/askSiteDecision
         // name a registry id, LLM entry points live in registered files of a

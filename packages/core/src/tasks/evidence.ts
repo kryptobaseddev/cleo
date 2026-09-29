@@ -2459,6 +2459,7 @@ async function validatePrAtom(
       changedPaths,
       taskId: context.task.id,
       ...(componentPrNumber !== undefined ? { componentPrNumber } : {}),
+      ...(linked.pr.deletedPaths?.length ? { deletedPaths: linked.pr.deletedPaths } : {}),
     },
   };
 }
@@ -2471,6 +2472,8 @@ type LinkedPr = {
   changedPaths: string[];
   changedFileCount: number;
   changedFilesError?: string;
+  /** Deleted paths (component PRs only, T12689). */
+  deletedPaths?: string[];
 };
 
 /**
@@ -2518,6 +2521,8 @@ export async function linkedPrChange(
     view,
   );
   if (!c.ok) return { ok: false, reason: c.reason, codeName: c.codeName };
+  // T12689: deletions are changes too — linkage and deletion-only PRs see them.
+  const changedPaths = [...c.files, ...c.deleted];
   return {
     ok: true,
     prNumber: componentPrNumber,
@@ -2525,8 +2530,9 @@ export async function linkedPrChange(
       title: c.title,
       body: c.body,
       headRefName: c.headRefName,
-      changedPaths: c.files,
-      changedFileCount: c.files.length,
+      changedPaths,
+      changedFileCount: changedPaths.length,
+      ...(c.deleted.length > 0 ? { deletedPaths: c.deleted } : {}),
     },
   };
 }
@@ -2570,6 +2576,16 @@ export function classifyEvidenceTask(
 }
 
 /**
+ * A PR whose every change is a deletion that stays deleted (T12689): its
+ * receipt pins the deleted paths, and there are no bytes to hash, so
+ * `files:` cannot be required of it.
+ */
+function isDeletionOnlyPr(atom: Extract<EvidenceAtom, { kind: 'pr' }>): boolean {
+  const deleted = atom.deletedPaths ?? [];
+  return deleted.length > 0 && (atom.changedPaths ?? []).every((path) => deleted.includes(path));
+}
+
+/**
  * Require explicit criterion linkage to inspected artifacts and real gate results.
  * @param context - Current task classification, requested gates and criterion records.
  * @param gate - Individual gate whose evidence is being assessed.
@@ -2598,7 +2614,11 @@ export function checkTaskEvidenceContext(
   for (const atom of prAtoms) {
     if (atom.taskId !== context.task.id || !atom.changedPaths?.length)
       return 'PR provenance lacks verified task scope; re-verify with current task context.';
-    if (gate === 'implemented' && !filePaths.some((path) => atom.changedPaths?.includes(path)))
+    if (
+      gate === 'implemented' &&
+      !isDeletionOnlyPr(atom) &&
+      !filePaths.some((path) => atom.changedPaths?.includes(path))
+    )
       return `PR #${atom.prNumber} requires files evidence for an artifact actually changed by that PR.`;
     if (
       gate === 'implemented' &&
@@ -2634,7 +2654,8 @@ export function checkTaskEvidenceContext(
     linked.length > 0 &&
     gate === 'implemented' &&
     filePaths.length === 0 &&
-    !atoms.some((atom) => atom.kind === 'decision')
+    !atoms.some((atom) => atom.kind === 'decision') &&
+    !prAtoms.some(isDeletionOnlyPr)
   )
     return 'Criterion implementation evidence requires inspected files or a sourced research decision.';
   if (
@@ -2835,6 +2856,20 @@ export function composeGateEvidence(
     const artifactPaths = atoms.flatMap((atom) =>
       atom.kind === 'files' ? atom.files.map((file) => file.path) : [],
     );
+    // T12689: artifacts a criterion's named paths are checked against —
+    // inspected files plus what a PR changed (a deletion-only PR has no files).
+    const coveredPaths = new Set(
+      [
+        ...artifactPaths,
+        ...atoms.flatMap((atom) => (atom.kind === 'pr' ? (atom.changedPaths ?? []) : [])),
+      ].map((path) => path.replace(/^\.\//, '').replace(/\/+$/, '')),
+    );
+    const basisOf = (text: string): 'files' | 'self-attested' =>
+      (extractTaskAcFilesWithProvenance({ acceptance: [text] }).files ?? []).some((path) =>
+        coveredPaths.has(path.replace(/^\.\//, '').replace(/\/+$/, '')),
+      )
+        ? 'files'
+        : 'self-attested';
     const resultAtomIndices = atoms.flatMap((atom, index) => {
       if (gate === 'implemented')
         return atom.kind === 'commit' || atom.kind === 'pr' || atom.kind === 'decision'
@@ -2857,6 +2892,7 @@ export function composeGateEvidence(
                 (link) => link.criterionId === criterion.id,
               )?.artifactPaths ?? []),
           resultAtomIndices,
+          ...(gate === 'implemented' ? { basis: basisOf(criterion.text) } : {}),
         })),
     };
   }

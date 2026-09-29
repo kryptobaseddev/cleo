@@ -836,6 +836,21 @@ export declare function is_canonical(skillPath: string, options?: IsCanonicalOpt
   );
   console.log('  -> packages/core/dist/selfimprove/scenarios/** (fixtures)');
 
+  // Stamp where this build came from (T12687). A build made in a linked git
+  // worktree is refused schema writes on stores outside that worktree; the
+  // stamp travels with the dist (npm pack, copies), unlike the build's path.
+  await new Promise((res, rej) => {
+    const proc = spawn(process.execPath, ['packages/core/scripts/write-build-provenance.mjs'], {
+      stdio: 'inherit',
+      cwd: __dirname,
+    });
+    proc.on('error', rej);
+    proc.on('close', (code) =>
+      code !== 0 ? rej(new Error(`write-build-provenance failed (exit ${code})`)) : res(),
+    );
+  });
+  console.log('  -> packages/core/dist/build-provenance.json');
+
   // ---------------------------------------------------------------------------
   // Wave 6: runtime + adapters (both dep core — independent of each other)
   // ---------------------------------------------------------------------------

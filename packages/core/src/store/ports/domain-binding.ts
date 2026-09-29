@@ -63,6 +63,7 @@ import {
   resolveDualScopeDbPath,
   withStoreSchemaOwnership,
 } from '../dual-scope-db.js';
+import { explainSchemaWriteDenial } from '../worktree-build-guard.js';
 
 /**
  * The process-wide {@link CleoRuntime} instance backing every domain port.
@@ -248,6 +249,9 @@ async function bindAgainst<TDb>(
           establish(native, store as never),
         );
         return { store, native, db };
+      } catch (error) {
+        // T12687: a denied schema change on a guarded handle names its cause.
+        throw explainSchemaWriteDenial(native, error);
       } finally {
         membership.active = false;
       }

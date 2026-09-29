@@ -64,6 +64,7 @@ function setupAccessor(focusTask: string | null, endedSession = false) {
   };
   (getAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(accessor);
   (getTaskAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(accessor);
+  return accessor;
 }
 
 describe('T12660 — briefing stale focus and handoff suggestions', () => {
@@ -74,7 +75,7 @@ describe('T12660 — briefing stale focus and handoff suggestions', () => {
   });
 
   it('a legacy pointer at a done task is not currentTask; a stale warning names it and the next task', async () => {
-    setupAccessor('T458');
+    const accessor = setupAccessor('T458');
     const briefing = await computeBriefing('/fake/project', { scope: 'global' });
     expect(briefing.currentTask).toBeNull();
     expect(briefing.warnings?.join('\n')).toContain(
@@ -83,6 +84,8 @@ describe('T12660 — briefing stale focus and handoff suggestions', () => {
     // T12684: the warning carries its code, and the pointer is a field.
     expect(briefing.warnings?.join('\n')).toContain('W_STALE_FOCUS: Stale focus pointer: T458');
     expect(briefing.staleFocus).toEqual({ taskId: 'T458', status: 'done' });
+    // T12698: the pointer is in the briefing's task map — no extra lookup.
+    expect(accessor.loadSingleTask).not.toHaveBeenCalled();
   });
 
   it('a workable pointer is still currentTask, with no stale warning', async () => {

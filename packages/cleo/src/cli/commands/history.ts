@@ -54,6 +54,59 @@ const workCommand = defineCommand({
   },
 });
 
+/** cleo history ranking <taskId> — who changed a task's ranking inputs, and why (T12693) */
+const rankingCommand = defineCommand({
+  meta: {
+    name: 'ranking',
+    description:
+      "Who changed a task's priority, severity, kind or depends — actor, session, reason, before/after (D11161)",
+  },
+  args: {
+    taskId: { type: 'positional', description: 'Task ID', required: true },
+    limit: { type: 'string', description: 'Maximum entries (default 50)' },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'tasks',
+      'history',
+      {
+        taskId: String(args.taskId),
+        ranking: true,
+        ...(args.limit !== undefined ? { limit: Number.parseInt(String(args.limit), 10) } : {}),
+      },
+      { command: 'history' },
+    );
+  },
+});
+
+/** cleo history revert <entryId> — undo one ranking change as a new audited change (T12693) */
+const revertCommand = defineCommand({
+  meta: {
+    name: 'revert',
+    description:
+      'Undo one ranking change (an entry id from `cleo history ranking`); refused if a field changed again since, unless --force',
+  },
+  args: {
+    entryId: { type: 'positional', description: 'ranking_changed entry id', required: true },
+    reason: { type: 'string', description: 'Why it is reverted (recorded)' },
+    force: { type: 'boolean', description: 'Revert even though a field changed again since' },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'tasks',
+      'ranking.revert',
+      {
+        entryId: String(args.entryId),
+        ...(args.reason !== undefined ? { reason: String(args.reason) } : {}),
+        ...(args.force === true ? { force: true } : {}),
+      },
+      { command: 'history' },
+    );
+  },
+});
+
 /**
  * Root history command group — completion timeline and productivity analytics.
  *
@@ -64,6 +117,8 @@ export const historyCommand = defineCommand({
   subCommands: {
     log: logCommand,
     work: workCommand,
+    ranking: rankingCommand,
+    revert: revertCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));

@@ -45,24 +45,53 @@
  * key, and the key must NOT travel with the fingerprints:
  *
  *   node scripts/fingerprint-store.mjs --db source.db --out shared/source.json \
- *     --key-out ~/private/compare.key      # a new random 32-byte key, 0600
+ *     --role source --key-out ~/private/compare.key   # a new random 32-byte key, 0600
  *   node scripts/fingerprint-store.mjs --db replica.db --out shared/replica.json \
- *     --key-file ~/private/compare.key
+ *     --role replica --key-file ~/private/compare.key
  *   node scripts/compare-fingerprints.mjs --source shared/source.json \
  *     --replica shared/replica.json --key-file ~/private/compare.key
  *
  * There is no default key location. One of `--key-file` (an existing key) or
  * `--key-out` (where to create a new one) is required, and `--key-out` is
- * refused when it would land in the directory of `--out` or of the `.rows`
- * sidecar: a directory of fingerprints is the thing that gets copied or
- * shared, and a key inside it would travel with the rows it protects.
- * `--key-out` never overwrites an existing file.
+ * refused anywhere inside the directory tree of `--out` or of the `.rows`
+ * sidecar (the directory itself or any subdirectory). The check compares file
+ * identity (device + inode of every ancestor, after `realpathSync.native`,
+ * `scripts/lib/path-containment.mjs`), so neither a symlink nor a different
+ * letter case on a case-insensitive filesystem gets around it: a directory of
+ * fingerprints is the thing that gets copied or shared, and a key inside it
+ * would travel with the rows it protects. `--key-out` never overwrites an
+ * existing file.
  *
  * The JSON records `keyId`, an HMAC of a fixed label under the key, and
  * `mac`, an HMAC under the key over the canonical encoding of every other
  * field (`scripts/lib/fingerprint-mac.mjs`). The comparator verifies both
  * with `--key-file`, so an edited field (`rowsFile`, `rowsSha256`, a digest,
  * a count) fails.
+ *
+ * ## Run identity (not yet store identity)
+ *
+ * Every fingerprint records `identity`, which the MAC covers:
+ *   - `role`: `source` or `replica`, from the required `--role`;
+ *   - `projectId`: the portable project id from the `project-id` file beside
+ *     the store (`.cleo/project-id` for a project `cleo.db`), or `null`;
+ *     always `null` for `--scope global` (the global store belongs to no
+ *     project);
+ *   - `nonce`: random per run (or `--nonce`, which must then be unique).
+ * The top-level `scope` (`project` or `global`) is under the MAC too. The
+ * comparator requires the source fingerprint to have role `source` and the
+ * replica `replica`, different nonces, the same scope on both sides, and, for
+ * project scope, the same non-null project id on both sides (global stores
+ * are exempt from the project id, and only from it). That refuses a copied source fingerprint, swapped
+ * `--source`/`--replica`, a missing or one-sided project id, and another
+ * project's store.
+ *
+ * LIMIT: this identifies a fingerprint RUN, not a STORE. `cleo.db` persists
+ * neither a store-instance id nor its project id today, so fingerprinting the
+ * source store a second time with `--role replica` is indistinguishable from
+ * fingerprinting a genuine replica, and the project id comes from a file an
+ * operator can edit. Reading both ids from the store itself needs a schema
+ * change, tracked as T12675 (coordinated with T12341's per-store lineage
+ * salt).
  *
  * SENSITIVE: the `.rows` sidecar and the key file are written with mode
  * 0600. Anyone holding both can test guesses against every row, so keep the
@@ -107,13 +136,15 @@
  * Usage:
  *   node scripts/fingerprint-store.mjs --db <cleo.db> [--scope project|global]
  *     (--key-file <file> | --key-out <file>) [--label <name>] [--out <file.json>]
- *     [--rows <file.rows>]
+ *     --role source|replica [--rows <file.rows>] [--nonce <value>]
  *
  * Companion: scripts/compare-fingerprints.mjs.
  *
  * @task T12332
  * @task T12613
  * @task T12636
+ * @task T12641
+ * @task T12675
  */
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 import {
@@ -139,7 +170,9 @@ import {
   classifyTable,
   isPortableTableClass,
 } from '../packages/core/src/store/table-classification.ts';
+import { parsePortableProjectId } from '../packages/paths/src/portable-project-id.ts';
 import { fingerprintMac, parseKey } from './lib/fingerprint-mac.mjs';
+import { isInsideDirectoryTree } from './lib/path-containment.mjs';
 
 const REPO_ROOT = resolve(import.meta.dirname, '..');
 
@@ -152,12 +185,16 @@ const { values } = parseArgs({
     rows: { type: 'string' },
     'key-file': { type: 'string' },
     'key-out': { type: 'string' },
+    role: { type: 'string' },
+    nonce: { type: 'string' },
   },
 });
 if (!values.db) throw new Error('pass --db <cleo.db>');
 if (!['project', 'global'].includes(values.scope))
   throw new Error('--scope must be project or global');
 const scope = /** @type {'project' | 'global'} */ (values.scope);
+if (!['source', 'replica'].includes(values.role))
+  throw new Error('fingerprint-store: pass --role source or --role replica');
 const rowsPath = values.rows ?? (values.out ? `${values.out}.rows` : undefined);
 
 /** Open a file for writing with mode 0600, including when it already exists with wider bits. */
@@ -177,10 +214,12 @@ if (values['key-file']) {
   key = parseKey(readFileSync(values['key-file'], 'utf8'));
 } else {
   const keyOut = resolve(values['key-out']);
+  // File identity, not path strings: symlinks and case folding must not hide containment.
   for (const shared of [values.out, rowsPath]) {
-    if (shared && dirname(resolve(shared)) === dirname(keyOut))
+    if (!shared) continue;
+    if (isInsideDirectoryTree(keyOut, dirname(resolve(shared))))
       throw new Error(
-        'fingerprint-store: refusing --key-out in the directory of --out or --rows: sharing that directory would share the key',
+        'fingerprint-store: refusing --key-out inside the directory tree of --out or --rows: sharing that directory would share the key',
       );
   }
   key = randomBytes(32).toString('hex');
@@ -190,6 +229,24 @@ if (values['key-file']) {
   writeSync(fd, `${key}\n`);
   closeSync(fd);
 }
+// The run identity: role, portable project id (or null) and a per-run nonce, all under the MAC.
+let projectId = null;
+const projectIdFile = join(dirname(resolve(values.db)), 'project-id');
+// The global store belongs to no project: its identity is its scope, never a project id.
+if (scope === 'project' && existsSync(projectIdFile)) {
+  const read = parsePortableProjectId(readFileSync(projectIdFile, 'utf8'));
+  if (read.status !== 'valid')
+    throw new Error(`fingerprint-store: unusable project-id file: ${read.reason}`);
+  projectId = read.projectId;
+}
+if (values.nonce !== undefined && !/^[0-9A-Za-z_-]{16,128}$/.test(values.nonce))
+  throw new Error('fingerprint-store: --nonce must be 16-128 characters of [0-9A-Za-z_-]');
+const identity = {
+  role: values.role,
+  projectId,
+  nonce: values.nonce ?? randomBytes(16).toString('hex'),
+};
+
 const keyId = createHmac('sha256', key)
   .update('cleo-fingerprint-key-id')
   .digest('hex')
@@ -334,6 +391,7 @@ const result = {
   at: new Date().toISOString(),
   vecLoaded,
   keyId,
+  identity,
   rowsFile: rowsPath ? basename(rowsPath) : null,
   rowsSha256: null,
   tables: {},

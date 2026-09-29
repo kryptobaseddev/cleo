@@ -161,6 +161,12 @@ const backupSubCommand = defineCommand({
       description: 'Backup scope to restore from: project or global (default: project)',
       default: 'project',
     },
+    'confirm-owner-store': {
+      type: 'boolean',
+      description:
+        "From inside a git worktree: allow overwriting the owning project's LIVE store (refused without it)",
+      default: false,
+    },
   },
   async run({ args }) {
     try {
@@ -172,6 +178,7 @@ const backupSubCommand = defineCommand({
         file: fileName,
         dryRun: args['dry-run'] || undefined,
         scope,
+        confirmOwnerStore: args['confirm-owner-store'] || undefined,
       });
 
       if (!response.success) {

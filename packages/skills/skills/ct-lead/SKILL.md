@@ -2,7 +2,7 @@
 name: ct-lead
 description: "Phase Lead orchestration playbook for spawning and supervising a parallel worker swarm in one wave. Use when spawned by ct-orchestrator with role=orchestrator to fan out N leaf workers via delegate_task, drain the epic-{TID}.wave-{n} conduit topic plus pipeline_manifest, await rollupWaveStatus convergence, and return ONE rolled-up contract string to the parent Orchestrator. Triggers: 'phase lead', 'wave lead', 'supervise wave', 'fan out workers', 'aggregate worker results', 'rollup wave', any task with role=orchestrator that is itself a child of another orchestrator. Implements ADR-070 hierarchical orchestration."
 metadata:
-  version: 1.0.5
+  version: 1.0.6
   tier: core
   install: harness
   covers:
@@ -129,6 +129,13 @@ cleo orchestrate roll-up "${EPIC}" --wave "${WAVE}" --json \
 
 `rollupWaveStatus` (T9082, `packages/core/src/orchestration/lead-rollup.ts`)
 returns `{ wave, total, complete, partial, blocked, failed, workers: [...] }`.
+
+A stored manifest row with malformed metadata no longer fails the roll-up
+(T12686): it is skipped, every other worker is still reported, and a
+`W_MANIFEST_ROW_MALFORMED` warning names the row, the bad field and the
+repair. Treat that warning as missing coverage, not a clean wave: run
+`cleo doctor manifest-rows` to list such rows, `--repair` to see the plan,
+and `--repair --apply` to rewrite them with a receipt.
 
 ### 4. Decide: retry / escalate / return
 

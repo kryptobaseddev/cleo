@@ -218,6 +218,28 @@ describe('scaffoldWorkflows (T9531)', () => {
     expect(outcome.rendered).toContain('run: pnpm run build:fast');
   });
 
+  it('renders shell and quoted commands intact for the `run:` shell (T12718)', async () => {
+    // The evidence runner refuses `&&` (no shell), but a workflow step is a
+    // shell, so the declared command is rendered verbatim, and a quoted word
+    // is re-quoted rather than split into two.
+    const { projectRoot, templatesDir } = await makeFixture({
+      projectContext: {
+        schemaVersion: '1.0.0',
+        primaryType: 'node',
+        testing: { command: 'pnpm build && pnpm test' },
+        build: { command: 'pnpm run build -- --filter "my pkg"' },
+      },
+    });
+    const result = await scaffoldWorkflows({
+      projectRoot,
+      templatesDir,
+      templates: ['release-prepare'],
+      dryRun: true,
+    });
+    expect(result.resolvedTools.test).toBe('pnpm build && pnpm test');
+    expect(result.resolvedTools.build).toBe("pnpm run build -- --filter 'my pkg'");
+  });
+
   // ---- write + idempotence -------------------------------------------------
 
   it('creates .github/workflows/release-prepare.yml on first run', async () => {

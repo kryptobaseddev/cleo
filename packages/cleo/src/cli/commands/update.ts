@@ -232,7 +232,7 @@ export const updateCommand = defineCommand({
     reason: {
       type: 'string',
       description:
-        'Operator override reason for AC-immutability guard (required to mutate --acceptance once stage >= implementation; T1590)',
+        'Why this change is made. Recorded on the audit row of any priority/severity/kind/depends change (D11161; see `cleo history ranking <id>`), and required to mutate --acceptance once stage >= implementation (T1590)',
     },
     /**
      * Waiver for the critical-priority dependency declaration requirement.

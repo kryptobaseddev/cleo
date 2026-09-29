@@ -12,6 +12,7 @@ import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import type { DepGraphValidateResult, DepValidateScope } from './dep-graph-validator.js';
 import { runValidation } from './dep-graph-validator.js';
+import type { RankingChange } from './ranking-audit.js';
 import type { ComplexityFactor } from './task-analyze.js';
 import { coreTaskComplexityEstimate } from './task-analyze.js';
 import { coreTaskContext } from './task-context.js';
@@ -326,6 +327,59 @@ export async function taskHistory(
     return engineSuccess(result);
   } catch (err: unknown) {
     return nonCrudEngineError(err, 'Failed to read task history');
+  }
+}
+
+/**
+ * Who changed a task's ranking inputs, which session, why, before/after
+ * (T12693, D11161) — newest first.
+ *
+ * @param projectRoot - Project root.
+ * @param taskId - Task.
+ * @param limit - Maximum entries.
+ * @returns The recorded ranking changes.
+ * @task T12693
+ */
+export async function taskRankingHistory(
+  projectRoot: string,
+  taskId: string,
+  limit?: number,
+): Promise<EngineResult<RankingChange[]>> {
+  try {
+    const { listRankingHistory } = await import('./ranking-audit.js');
+    return engineSuccess(await listRankingHistory(taskId, projectRoot, limit));
+  } catch (err: unknown) {
+    return nonCrudEngineError(err, 'Failed to read ranking history');
+  }
+}
+
+/**
+ * Undo one recorded ranking change as a new audited change (T12693).
+ *
+ * @param projectRoot - Project root.
+ * @param params - Audit entry id, reason, force.
+ * @returns The task, fields and restored values.
+ * @task T12693
+ */
+export async function taskRankingRevert(
+  projectRoot: string,
+  params: { entryId: string; reason?: string; force?: boolean },
+): Promise<
+  EngineResult<{ taskId: string; fields: string[]; revertedTo: Record<string, unknown> }>
+> {
+  try {
+    const { revertRankingChange } = await import('./ranking-audit.js');
+    const result = await revertRankingChange(
+      params.entryId,
+      {
+        ...(params.reason !== undefined ? { reason: params.reason } : {}),
+        ...(params.force ? { force: true } : {}),
+      },
+      projectRoot,
+    );
+    return engineSuccess({ ...result, revertedTo: { ...result.revertedTo } });
+  } catch (err: unknown) {
+    return nonCrudEngineError(err, 'Failed to revert ranking change');
   }
 }
 

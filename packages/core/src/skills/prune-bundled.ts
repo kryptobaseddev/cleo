@@ -75,9 +75,14 @@ export interface BundledLedger {
   skills: Record<string, BundledLedgerEntry>;
   /**
    * Names the user restored from quarantine. The user chose to keep them, so
-   * prune never takes them again.
+   * prune never takes them again — until {@link unkeepSkill} hands one back.
    */
   kept?: string[];
+  /**
+   * Per kept name, the hashes of the copy as restored (T12699). Only an
+   * exact match lets {@link unkeepSkill} return the skill to CLEO.
+   */
+  keptFiles?: Record<string, Record<string, string>>;
 }
 
 /** What happened to one path. */
@@ -230,6 +235,27 @@ function matchesLedger(dir: string, files: Record<string, string>): boolean {
 }
 
 /**
+ * The `keptFiles` map from raw ledger JSON: skill name → relative path →
+ * hex SHA-256. Anything malformed is dropped.
+ *
+ * @param raw - Parsed `keptFiles` value.
+ * @returns The well-formed entries.
+ */
+function readKeptFiles(raw: unknown): Record<string, Record<string, string>> {
+  const out: Record<string, Record<string, string>> = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const [name, files] of Object.entries(raw)) {
+    if (!files || typeof files !== 'object' || Array.isArray(files)) continue;
+    const hashes: Record<string, string> = {};
+    for (const [rel, hash] of Object.entries(files)) {
+      if (typeof hash === 'string') hashes[rel] = hash;
+    }
+    if (Object.keys(hashes).length > 0) out[name] = hashes;
+  }
+  return out;
+}
+
+/**
  * Read the bundled-install ledger; an absent, unreadable or older-format
  * ledger yields an empty one (nothing is then provably CLEO's).
  *
@@ -242,12 +268,19 @@ export function readBundledLedger(skillsRoot: string): BundledLedger {
       version?: number;
       skills?: Record<string, BundledLedgerEntry>;
       kept?: unknown;
+      keptFiles?: unknown;
     };
     if (data.version === 2 && data.skills && typeof data.skills === 'object') {
       const kept = Array.isArray(data.kept)
         ? data.kept.filter((n): n is string => typeof n === 'string')
         : [];
-      return { version: 2, skills: data.skills, ...(kept.length > 0 ? { kept } : {}) };
+      const keptFiles = readKeptFiles(data.keptFiles);
+      return {
+        version: 2,
+        skills: data.skills,
+        ...(kept.length > 0 ? { kept } : {}),
+        ...(Object.keys(keptFiles).length > 0 ? { keptFiles } : {}),
+      };
     }
   } catch {
     // absent or unreadable
@@ -553,17 +586,104 @@ export async function restoreQuarantine(opts: {
   }
   // Restoring is the user choosing to keep the skill: mark it kept rather
   // than re-recording CLEO ownership, or the next prune would take it again.
+  // The restored copy's hashes are kept too, so `unkeepSkill` can later
+  // prove it is still exactly what came out of quarantine (T12699).
   const ledger = readBundledLedger(opts.skillsRoot);
   const kept = new Set(ledger.kept ?? []);
+  const keptFiles = { ...(ledger.keptFiles ?? {}) };
   for (const name of new Set(record.moves.map((m) => m.name))) {
     if (conflicted.has(name)) continue;
     kept.add(name);
     delete ledger.skills[name];
+    const canonical = join(opts.skillsRoot, name);
+    if (restored.includes(canonical)) {
+      const files = hashTree(canonical);
+      if (Object.keys(files).length > 0) keptFiles[name] = files;
+    }
   }
   ledger.kept = [...kept].sort();
+  if (Object.keys(keptFiles).length > 0) ledger.keptFiles = keptFiles;
   await writeLedger(opts.skillsRoot, ledger);
   if (conflicts.length === 0) await rm(dir, { recursive: true, force: true });
   return { restored, conflicts };
+}
+
+/** Outcome of {@link unkeepSkill}. */
+export interface UnkeepResult {
+  /** Skill name. */
+  name: string;
+  /** True when the skill left the kept list. */
+  unkept: boolean;
+  /** True when CLEO owns it again (ledger record restored). */
+  reledgered: boolean;
+  /** Why. */
+  reason: string;
+}
+
+/**
+ * Hand a kept skill back to CLEO (`cleo skills doctor restore --unkeep
+ * <name>`, T12699).
+ *
+ * Restoring from quarantine marks a skill kept, so prune leaves it alone for
+ * good. This reverses that only when CLEO can prove the canonical copy is
+ * byte-for-byte what came out of quarantine: every file hashes to the
+ * `keptFiles` record. A copy the user changed since the restore, or one
+ * restored before hashes were recorded, stays kept. With no canonical copy
+ * left there is nothing to own, so the name simply leaves the kept list.
+ *
+ * @param skillsRoot - Canonical skills root.
+ * @param name - Kept skill name.
+ * @returns What happened.
+ */
+export async function unkeepSkill(skillsRoot: string, name: string): Promise<UnkeepResult> {
+  const ledger = readBundledLedger(skillsRoot);
+  const kept = new Set(ledger.kept ?? []);
+  if (!kept.has(name)) {
+    return { name, unkept: false, reledgered: false, reason: 'not on the kept list' };
+  }
+  const canonical = join(skillsRoot, name);
+  const recorded = ledger.keptFiles?.[name];
+  const forget = async (reledger: Record<string, string> | null): Promise<void> => {
+    kept.delete(name);
+    ledger.kept = [...kept].sort();
+    if (ledger.keptFiles) delete ledger.keptFiles[name];
+    if (reledger) ledger.skills[name] = { installedAt: new Date().toISOString(), files: reledger };
+    await writeLedger(skillsRoot, ledger);
+  };
+  if (!existsSync(canonical)) {
+    await forget(null);
+    return {
+      name,
+      unkept: true,
+      reledgered: false,
+      reason: 'no canonical copy left; removed from the kept list',
+    };
+  }
+  if (!recorded) {
+    return {
+      name,
+      unkept: false,
+      reledgered: false,
+      reason:
+        'no hashes were recorded when it was restored, so CLEO cannot prove the copy is unchanged; it stays kept',
+    };
+  }
+  if (!matchesLedger(canonical, recorded)) {
+    return {
+      name,
+      unkept: false,
+      reledgered: false,
+      reason: 'the copy changed since it was restored (hashes differ); it stays kept',
+    };
+  }
+  await forget(recorded);
+  return {
+    name,
+    unkept: true,
+    reledgered: true,
+    reason:
+      'identical to the restored copy; CLEO owns it again, so the next prune may quarantine it',
+  };
 }
 
 /**
@@ -676,6 +796,17 @@ export async function restoreBundledSkillQuarantine(
     skillsRoot,
     registry: await defaultPruneRegistry(),
   });
+}
+
+/**
+ * {@link unkeepSkill} against this machine's canonical skills root.
+ *
+ * @param name - Kept skill name.
+ * @returns What happened.
+ */
+export async function unkeepBundledSkill(name: string): Promise<UnkeepResult> {
+  const { resolveSkillsRoot } = await import('./skill-root.js');
+  return unkeepSkill(resolveSkillsRoot(), name);
 }
 
 /**
