@@ -312,8 +312,12 @@ function assertClaimAllowed(
 /**
  * The holders an `acquire` / `take-over` claim write may replace even while
  * their lease is live (T12502): the explicit hand-off source, plus the
- * caller's claim family — its spawn-edge parent session and its child
- * sessions (`tasks_sessions.parent_session_id`). A spawned worker whose calls
+ * caller's claim family — the session that spawned it and the sessions it
+ * spawned (`tasks_sessions.spawned_by_session_id`, written only by the spawn
+ * itself). The self-declared `parent_session_id` (from
+ * `CLEO_PARENT_SESSION_ID` at `session start`) is NOT trusted here: any
+ * process can name any parent, so honouring it would let a forged child take
+ * a live lease silently. A spawned worker whose calls
  * resolve to its orchestrator's session, or an orchestrator taking a task
  * back from its own worker, is a hand-off, not a conflict.
  *
@@ -331,7 +335,7 @@ async function claimAllowedHolders(
   const sessionId = guard.sessionId;
   if (sessionId) {
     const [self] = await db
-      .select({ parent: schema.sessions.parentSessionId })
+      .select({ parent: schema.sessions.spawnedBySessionId })
       .from(schema.sessions)
       .where(eq(schema.sessions.id, sessionId))
       .limit(1)
@@ -340,7 +344,7 @@ async function claimAllowedHolders(
     const children = await db
       .select({ id: schema.sessions.id })
       .from(schema.sessions)
-      .where(eq(schema.sessions.parentSessionId, sessionId))
+      .where(eq(schema.sessions.spawnedBySessionId, sessionId))
       .all();
     for (const child of children) holders.add(child.id);
     holders.delete(sessionId);

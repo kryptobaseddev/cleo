@@ -188,6 +188,8 @@ export function rowToSession(row: SessionRow): Session {
     nextSessionId: row.nextSessionId ?? null,
     // Fork-tree parent edge (T11639)
     parentSessionId: row.parentSessionId ?? null,
+    // Trusted spawn edge (T12502) — read-only: upsertSession never writes it.
+    spawnedBySessionId: row.spawnedBySessionId ?? null,
     agentIdentifier: row.agentIdentifier ?? null,
     handoffConsumedAt: row.handoffConsumedAt ?? null,
     handoffConsumedBy: row.handoffConsumedBy ?? null,

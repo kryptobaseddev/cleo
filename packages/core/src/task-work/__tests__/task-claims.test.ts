@@ -293,6 +293,7 @@ describe('leased task claims (T12502)', () => {
     );
     const child = (await env.accessor.loadSessions()).find((x) => x.id === SES_B);
     expect(child?.parentSessionId).toBe(SES_A);
+    expect(child?.spawnedBySessionId).toBe(SES_A);
     // A worker call that resolves to the PARENT's session is not refused …
     const parent = await as(SES_A, () =>
       env.accessor.claimTask('T001', { sessionId: SES_A, agentId: null, mode: 'acquire' }),
@@ -309,6 +310,27 @@ describe('leased task claims (T12502)', () => {
     // An unrelated session is still refused.
     await env.accessor.upsertSingleSession(session(SES_C));
     expect((await rejection(start(SES_C))).code).toBe(ExitCode.TASK_CLAIMED);
+  });
+
+  it('a forged parent link (CLEO_PARENT_SESSION_ID) does not let a session take a live lease', async () => {
+    await start(SES_A);
+    // X declares A as its parent at `session start` — a self-declared edge —
+    // and even tries to smuggle the trusted spawn edge through the whole-row
+    // session upsert. Neither makes X part of A's claim family.
+    await env.accessor.upsertSingleSession({
+      ...session(SES_C),
+      parentSessionId: SES_A,
+      spawnedBySessionId: SES_A,
+    });
+    const forged = (await env.accessor.loadSessions()).find((x) => x.id === SES_C);
+    expect(forged?.spawnedBySessionId ?? null).toBeNull();
+    const err = await rejection(start(SES_C));
+    expect(err.code).toBe(ExitCode.TASK_CLAIMED);
+    expect((await env.accessor.loadSingleTask('T001'))?.claim?.sessionId).toBe(SES_A);
+    // Nor can the forged child be taken back from by its claimed "parent".
+    await start(SES_B, 'T002');
+    await env.accessor.upsertSingleSession({ ...session(SES_B), parentSessionId: SES_A });
+    expect((await rejection(start(SES_A, 'T002'))).code).toBe(ExitCode.TASK_CLAIMED);
   });
 
   it('a spawn that fails after claiming leaves the orchestrator holding the lease and ends the child session', async () => {

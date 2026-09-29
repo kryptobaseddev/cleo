@@ -16,7 +16,12 @@ import type { TaskClaim, TaskClaimMode } from '@cleocode/contracts';
 import { and, gt, inArray } from 'drizzle-orm';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { getSession, resolveBoundSession, updateSession } from '../store/session-store.js';
+import {
+  getSession,
+  resolveBoundSession,
+  setSessionSpawnedBy,
+  updateSession,
+} from '../store/session-store.js';
 import { getDb } from '../store/sqlite.js';
 import { leaseExpiresAtFrom, taskClaimLeaseMs } from '../store/task-claim.js';
 import * as schema from '../store/tasks-schema.js';
@@ -220,7 +225,9 @@ export interface SpawnClaimReceipt {
  * Claim a task for the agent a spawn is about to start (T12502).
  *
  * The spawned agent's own session takes the lease and records the calling
- * orchestrator session as its spawn-edge parent (`parentSessionId`). When the
+ * orchestrator session as its spawn-edge parent (`parentSessionId`) and as
+ * the trusted spawner (`spawnedBySessionId`, via `setSessionSpawnedBy` —
+ * the only edge the claim chokepoint honours). When the
  * orchestrator's session held the lease (it ran `cleo start` or `cleo claim`
  * first), the lease is handed to the spawned session (audited as a
  * hand-off). Parent and child are one claim family: either may take the lease
@@ -254,6 +261,9 @@ export async function claimSpawnedTask(
     if (child && !child.parentSessionId) {
       await updateSession(identity.sessionId, { parentSessionId: orchestrator.id }, projectRoot);
     }
+    // The TRUSTED spawn edge: the claim chokepoint reads this, never the
+    // self-declared `parentSessionId`, to let the family share the lease.
+    if (child) await setSessionSpawnedBy(identity.sessionId, orchestrator.id, projectRoot);
   }
   const claim = await acc.claimTask(taskId, {
     sessionId: identity.sessionId,

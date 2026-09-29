@@ -448,6 +448,16 @@ export const tasksSessions = sqliteTable(
     parentSessionId: text('parent_session_id').references((): AnySQLiteColumn => tasksSessions.id, {
       onDelete: 'set null',
     }),
+    /**
+     * The orchestrator session that SPAWNED this one, recorded by the spawn
+     * itself (`claimSpawnedTask`) — never self-declared (T12502). Unlike
+     * {@link parentSessionId} (read from `CLEO_PARENT_SESSION_ID` at
+     * `session start`, so any process can claim any parent), this is the edge
+     * the claim chokepoint trusts to let a spawn family pass a live lease
+     * between its members. Plain TEXT, no FK; written only through
+     * `setSessionSpawnedBy`, never by the whole-row session upsert.
+     */
+    spawnedBySessionId: text('spawned_by_session_id'),
     /** Agent identifier. */
     agentIdentifier: text('agent_identifier'),
     /** ISO-8601 UTC handoff-consumed instant (canonical TEXT, §4). */
@@ -482,6 +492,7 @@ export const tasksSessions = sqliteTable(
     index('idx_tasks_sessions_status').on(table.status),
     index('idx_tasks_sessions_previous').on(table.previousSessionId),
     index('idx_tasks_sessions_parent').on(table.parentSessionId),
+    index('idx_tasks_sessions_spawned_by').on(table.spawnedBySessionId),
     index('idx_tasks_sessions_agent_identifier').on(table.agentIdentifier),
     index('idx_tasks_sessions_started_at').on(table.startedAt),
     index('idx_tasks_sessions_status_started_at').on(table.status, table.startedAt),

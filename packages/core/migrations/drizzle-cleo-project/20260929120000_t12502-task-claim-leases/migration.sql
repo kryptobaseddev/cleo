@@ -15,6 +15,12 @@
 --   * a session that ends or is orphaned releases all its leases;
 --   * a deleted session releases all its leases (no FK: TEXT column);
 --   * a task that reaches done / cancelled / archived releases its lease.
+-- `tasks_sessions.spawned_by_session_id` records the orchestrator session
+-- that spawned a session, written by the spawn itself. The claim chokepoint
+-- trusts this edge — not the self-declared `parent_session_id` (read from
+-- CLEO_PARENT_SESSION_ID at `session start`) — to let a spawn family pass a
+-- live lease between its members. Plain TEXT, no FK.
+--
 -- The triggers touch only the claim columns, so no other tasks_tasks trigger
 -- (they are all UPDATE OF parent_id / status / pipeline_stage) fires.
 --
@@ -30,6 +36,10 @@ ALTER TABLE `tasks_tasks` ADD COLUMN `claimed_at` TEXT;
 ALTER TABLE `tasks_tasks` ADD COLUMN `lease_expires_at` TEXT;
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `idx_tasks_tasks_claimed_by_session` ON `tasks_tasks` (`claimed_by_session`);
+--> statement-breakpoint
+ALTER TABLE `tasks_sessions` ADD COLUMN `spawned_by_session_id` TEXT;
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_tasks_sessions_spawned_by` ON `tasks_sessions` (`spawned_by_session_id`);
 --> statement-breakpoint
 DROP TRIGGER IF EXISTS `tasks_sessions_release_claims_on_end`;
 --> statement-breakpoint

@@ -1848,6 +1848,7 @@
       "scope_id",
       "scope_json",
       "scope_kind",
+      "spawned_by_session_id",
       "started_at",
       "stats_json",
       "status",
