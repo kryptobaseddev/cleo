@@ -8,7 +8,7 @@
  */
 
 import type { Task } from '@cleocode/contracts';
-import { computeWaves } from './waves.js';
+import { computeWaves, type Wave } from './waves.js';
 
 /** Status counts by task state. */
 export interface StatusCounts {
@@ -79,10 +79,16 @@ export function countByStatus(tasks: Task[]): StatusCounts {
  * @param epicId - The epic task ID
  * @param epicTitle - The epic title
  * @param children - Child tasks of the epic
+ * @param waves - The epic's plan from `planEpicWaves` — pass it so status and
+ *   `orchestrate waves` agree (T12683); computed from `children` alone when omitted.
  * @returns Epic status with wave information
  */
-export function computeEpicStatus(epicId: string, epicTitle: string, children: Task[]): EpicStatus {
-  const waves = computeWaves(children);
+export function computeEpicStatus(
+  epicId: string,
+  epicTitle: string,
+  children: Task[],
+  waves: readonly Wave[] = computeWaves(children),
+): EpicStatus {
   const byStatus = countByStatus(children);
 
   return {
@@ -148,15 +154,17 @@ export function computeProgress(tasks: Task[]): ProgressMetrics {
  * @param epicTitle - The epic title
  * @param children - Child tasks of the epic
  * @param readyCount - Number of ready tasks
- * @returns Startup summary with wave information
+ * @param waves - The epic's plan from `planEpicWaves` (T12683); computed from
+ *   `children` alone when omitted.
+ * @returns Startup summary; `firstWave` is the first wave with work left.
  */
 export function computeStartupSummary(
   epicId: string,
   epicTitle: string,
   children: Task[],
   readyCount: number,
+  waves: readonly Wave[] = computeWaves(children),
 ): StartupSummary {
-  const waves = computeWaves(children);
   const byStatus = countByStatus(children);
 
   return {
@@ -169,6 +177,7 @@ export function computeStartupSummary(
       readyTasks: readyCount,
       byStatus,
     },
-    firstWave: waves[0] || null,
+    // Stable numbering keeps finished waves; the first to start is the first incomplete one.
+    firstWave: waves.find((w) => w.status !== 'completed') ?? null,
   };
 }

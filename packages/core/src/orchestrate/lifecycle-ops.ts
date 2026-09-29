@@ -25,6 +25,7 @@ import {
 import { getSkillContent } from '../orchestration/skill-ops.js';
 import { computeProgress, computeStartupSummary } from '../orchestration/status.js';
 import { getUnblockOpportunities } from '../orchestration/unblock.js';
+import { planEpicWaves } from '../orchestration/waves.js';
 import { captureProjectScope, getProjectRoot, worktreeScope } from '../project-scope.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { loadTasks } from './query-ops.js';
@@ -139,7 +140,9 @@ export async function orchestrateStartup(
         const autoInitialized = loomResult.initialized;
         const currentStage = autoInitialized ? 'research' : 'already-initialized';
 
-        const summary = computeStartupSummary(epicId, epic.title, children, ready.length);
+        // T12683: the same plan `orchestrate waves` prints.
+        const { waves } = await planEpicWaves(epicId, accessor);
+        const summary = computeStartupSummary(epicId, epic.title, children, ready.length, waves);
         return { success: true, data: { ...summary, autoInitialized, currentStage } };
       } catch (err: unknown) {
         const code = (err as { code?: string }).code ?? 'E_GENERAL';

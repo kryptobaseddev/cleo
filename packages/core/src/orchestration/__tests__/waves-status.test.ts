@@ -10,6 +10,7 @@
 
 import type { Task } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
+import { computeStartupSummary } from '../status.js';
 import { computeWaves } from '../waves.js';
 
 /** Minimal Task factory for test brevity. */
@@ -139,5 +140,70 @@ describe('computeWaves — wave status (T1197)', () => {
     expect(waves).toHaveLength(1);
     expect(waves[0]!.status).toBe('pending');
     expect(waves[0]!.tasks.sort()).toEqual(['T001', 'T002']);
+  });
+});
+
+describe('wave numbers never shift (T12683 review)', () => {
+  const numbers = (waves: ReturnType<typeof computeWaves>) =>
+    Object.fromEntries(waves.flatMap((w) => w.tasks.map((id) => [id, w.waveNumber])));
+  const lookupOf = (tasks: Task[]) => new Map(tasks.map((t) => [t.id, t]));
+
+  it('archiving a done sibling (it leaves the selection) keeps its dependents in their wave', () => {
+    const a = makeTask('A', 'done');
+    const b = makeTask('B', 'pending', { depends: ['A'] });
+    const c = makeTask('C', 'pending', { depends: ['B'] });
+    const before = numbers(computeWaves([a, b, c]));
+    const archivedA = makeTask('A', 'archived');
+    // getChildren no longer returns A; the dependency closure still knows it.
+    const after = numbers(computeWaves([b, c], lookupOf([archivedA, b, c])));
+    expect(before).toMatchObject({ B: 2, C: 3 });
+    expect(after).toEqual({ B: before.B, C: before.C });
+  });
+
+  it('re-parenting a prerequisite out of the epic keeps its dependents in their wave', () => {
+    const a = makeTask('A', 'done');
+    const b = makeTask('B', 'pending', { depends: ['A'] });
+    const before = numbers(computeWaves([a, b]));
+    const after = numbers(computeWaves([b], lookupOf([a, b])));
+    expect(after.B).toBe(before.B);
+  });
+
+  it('a task held on an external prerequisite, and its in-epic dependents, stay put when it finishes', () => {
+    const plan = (status: Task['status']) => {
+      const ext = makeTask('X', status);
+      const b = makeTask('B', 'pending', { depends: ['X'] });
+      const c = makeTask('C', 'pending', { depends: ['B'] });
+      return numbers(computeWaves([b, c], lookupOf([ext, b, c])));
+    };
+    expect(plan('pending')).toEqual({ B: 2, C: 3 });
+    expect(plan('done')).toEqual(plan('pending'));
+    expect(plan('archived')).toEqual(plan('pending'));
+  });
+
+  it('a chain deeper than 50 keeps one wave per link', () => {
+    const chain = Array.from({ length: 60 }, (_, i) =>
+      makeTask(`T${i}`, i < 30 ? 'done' : 'pending', i > 0 ? { depends: [`T${i - 1}`] } : {}),
+    );
+    const waves = computeWaves(chain);
+    expect(waves).toHaveLength(60);
+    expect(waves.map((w) => w.waveNumber)).toEqual(chain.map((_, i) => i + 1));
+  });
+
+  it('tasks on a dependency cycle share a final wave after the deepest', () => {
+    const waves = computeWaves([
+      makeTask('A', 'pending'),
+      makeTask('B', 'pending', { depends: ['C'] }),
+      makeTask('C', 'pending', { depends: ['B'] }),
+    ]);
+    expect(waves.map((w) => [w.waveNumber, w.tasks])).toEqual([
+      [1, ['A']],
+      [2, ['B', 'C']],
+    ]);
+  });
+
+  it('orchestrate start reports the first INCOMPLETE wave as firstWave', () => {
+    const tasks = [makeTask('A', 'done'), makeTask('B', 'pending', { depends: ['A'] })];
+    const summary = computeStartupSummary('E', 'Epic', tasks, 1, computeWaves(tasks));
+    expect(summary.firstWave).toMatchObject({ waveNumber: 2, tasks: ['B'] });
   });
 });

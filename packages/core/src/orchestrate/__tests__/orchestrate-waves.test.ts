@@ -38,6 +38,7 @@ import { awaitBackgroundOps } from '../../store/background-ops.js';
 import * as taskAccessors from '../../store/data-accessor.js';
 import { createTask } from '../../store/tasks-sqlite.js';
 import { archiveTasks } from '../../tasks/archive.js';
+import { orchestrateStatus } from '../query-ops.js';
 
 let TEST_ROOT: string;
 
@@ -447,5 +448,102 @@ describe('orchestrateWaves — global hard dependencies (T12293)', () => {
       success: false,
       error: { code: 'E_GENERAL', message: failure.message },
     });
+  });
+});
+
+describe('orchestrateWaves — stable numbers survive archiving and re-parenting (T12683)', () => {
+  async function seedEpicChain(): Promise<void> {
+    const records: Partial<Task>[] = [
+      { id: 'T130', type: 'epic' },
+      { id: 'T140', type: 'epic' },
+      { id: 'T131', parentId: 'T130', status: 'done' },
+      { id: 'T132', parentId: 'T130', depends: ['T131'] },
+      { id: 'T133', parentId: 'T130', depends: ['T132'] },
+    ];
+    for (const record of records) {
+      await createTask(
+        {
+          id: 'T130',
+          title: 'Stable-wave fixture',
+          description: 'Structural depth oracle',
+          status: 'pending',
+          priority: 'medium',
+          type: 'task',
+          createdAt: '2026-09-29T00:00:00Z',
+          ...record,
+        },
+        TEST_ROOT,
+      );
+    }
+    vi.spyOn(governor, 'available').mockResolvedValue(2);
+  }
+
+  const waveOf = async (epicId: string) => {
+    const result = await orchestrateWaves(epicId, TEST_ROOT);
+    const waves = (result.data as { waves: Array<{ waveNumber: number; taskIds: string[] }> })
+      .waves;
+    return Object.fromEntries(waves.flatMap((w) => w.taskIds.map((id) => [id, w.waveNumber])));
+  };
+
+  it('archiving the done prerequisite leaves its dependents in their waves', async () => {
+    await seedEpicChain();
+    expect(await waveOf('T130')).toEqual({ T131: 1, T132: 2, T133: 3 });
+    const accessor = await taskAccessors.getTaskAccessor(TEST_ROOT);
+    expect(await archiveTasks({ taskIds: ['T131'] }, TEST_ROOT, accessor)).toMatchObject({
+      archived: ['T131'],
+    });
+    expect(await waveOf('T130')).toEqual({ T132: 2, T133: 3 });
+  });
+
+  it('archiving a two-level finished chain keeps depth: the closure reaches past the direct dependency', async () => {
+    const records: Partial<Task>[] = [
+      { id: 'T150', type: 'epic' },
+      { id: 'T151', parentId: 'T150', status: 'done' },
+      { id: 'T152', parentId: 'T150', status: 'done', depends: ['T151'] },
+      { id: 'T153', parentId: 'T150', depends: ['T152'] },
+      { id: 'T154', parentId: 'T150', depends: ['T153'] },
+    ];
+    for (const record of records) {
+      await createTask(
+        {
+          id: 'T150',
+          title: 'Two-level chain',
+          description: 'Closure depth oracle',
+          status: 'pending',
+          priority: 'medium',
+          type: 'task',
+          createdAt: '2026-09-29T00:00:00Z',
+          ...record,
+        },
+        TEST_ROOT,
+      );
+    }
+    vi.spyOn(governor, 'available').mockResolvedValue(2);
+    expect(await waveOf('T150')).toEqual({ T151: 1, T152: 2, T153: 3, T154: 4 });
+    const accessor = await taskAccessors.getTaskAccessor(TEST_ROOT);
+    expect(await archiveTasks({ taskIds: ['T151', 'T152'] }, TEST_ROOT, accessor)).toMatchObject({
+      archived: expect.arrayContaining(['T151', 'T152']),
+    });
+    expect(await waveOf('T150')).toEqual({ T153: 3, T154: 4 });
+  });
+
+  it('re-parenting the prerequisite to another epic leaves its dependents in their waves', async () => {
+    await seedEpicChain();
+    const accessor = await taskAccessors.getTaskAccessor(TEST_ROOT);
+    await accessor.updateTaskFields('T131', { parentId: 'T140' });
+    expect(await waveOf('T130')).toEqual({ T132: 2, T133: 3 });
+  });
+});
+
+describe('orchestrate status reads the same plan as orchestrate waves (T12683)', () => {
+  it('currentWave is the first incomplete wave of the shared plan', async () => {
+    await seedCrossEpicTasks();
+    const waves = await orchestrateWaves('T120', TEST_ROOT);
+    const first = (
+      waves.data as { waves: Array<{ waveNumber: number; status: string }> }
+    ).waves.find((w) => w.status !== 'completed');
+    const status = await orchestrateStatus('T120', TEST_ROOT);
+    expect(first?.waveNumber).toBe(2);
+    expect((status.data as { currentWave: number | null }).currentWave).toBe(first?.waveNumber);
   });
 });

@@ -27,7 +27,7 @@ import { analyzeEpic, getNextTask, getReadyTasks } from '../orchestration/index.
 import { computeEpicStatus, computeOverallStatus } from '../orchestration/status.js';
 import { validateSpawnReadiness } from '../orchestration/validate-spawn.js';
 import type { EnrichedWave } from '../orchestration/waves.js';
-import { getEnrichedWaves } from '../orchestration/waves.js';
+import { getEnrichedWaves, planEpicWaves } from '../orchestration/waves.js';
 import { captureProjectScope, getProjectRoot, worktreeScope } from '../project-scope.js';
 import { isSagaShape } from '../sagas/enforcement.js';
 import { resolveSagaMemberIds } from '../sagas/storage.js';
@@ -189,7 +189,9 @@ export async function orchestrateStatus(
         }
 
         const children = tasks.filter((t) => t.parentId === epicId);
-        const status = computeEpicStatus(epicId, epic.title, children);
+        // T12683: the same plan `orchestrate waves` prints.
+        const { waves } = await planEpicWaves(epicId, await getTaskAccessor(root));
+        const status = computeEpicStatus(epicId, epic.title, children, waves);
 
         return { success: true, data: status };
       }
