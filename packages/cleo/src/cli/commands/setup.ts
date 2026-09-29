@@ -353,7 +353,7 @@ export const setupCommand = defineCommand({
     section: {
       type: 'string',
       description:
-        'Run only one named section. Valid: llm | models-roles | identity | sentient | harness | brain | project-conventions | integrations | verification',
+        'Run only one named section. Valid: llm | models-roles | identity | sentient | harness | brain | project-conventions | integrations | nexus-account | telemetry | verification',
     },
     'non-interactive': {
       type: 'boolean',

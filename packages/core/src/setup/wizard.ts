@@ -103,6 +103,7 @@ export type WizardSection =
   | 'project-conventions'
   | 'brain'
   | 'integrations'
+  | 'nexus-account'
   | 'telemetry'
   | 'verification';
 

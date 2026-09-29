@@ -23,26 +23,43 @@
  * It NEVER re-implements provider resolution, auth-method inference, the
  * 5-entity Profile binding, or validation — all of that lives in core.
  *
+ * ## Cleo Nexus account (T12712)
+ *
+ * `nexus` is a reserved target: `cleo login nexus` (and so `cleo auth login
+ * nexus` and `cleo llm login nexus`, which share {@link runLoginCommand})
+ * signs in to a Cleo Nexus account with the RFC 8628 device-code engine in
+ * core, BEFORE any LLM registry lookup. With no target on a terminal, the
+ * picker lists "Cleo Nexus account" first, then the LLM providers.
+ *
  * @module cli/commands/login
  * @task T11725
+ * @task T12712
  * @epic T11671 (E6-ONBOARDING-FRONT-DOOR)
  */
 
 import type {
+  NexusLoginResult,
   OnboardingAuthMode,
   OnboardingResult,
   ProviderProfile,
   RoleName,
 } from '@cleocode/contracts';
-import { WHOAMI_ROLE_IDS } from '@cleocode/contracts';
+import { NEXUS_LOGIN_TARGET, WHOAMI_ROLE_IDS } from '@cleocode/contracts';
 import type {
   AcquiredOAuthToken,
   OAuthTokenAcquirer,
 } from '@cleocode/core/llm/onboarding/front-door.js';
 import { defineCommand } from '../lib/define-cli-command.js';
+import {
+  emitNexusResult,
+  failNexus,
+  NEXUS_API_URL_ARG,
+  nexusLoginSummary,
+  runNexusLogin,
+} from '../lib/nexus-account-cli.js';
 import { ReadlineWizardIO } from '../lib/readline-wizard-io.js';
 import { cliError, cliOutput, humanLine, isHumanOutput } from '../renderers/index.js';
-import { runLlmLogin } from './llm-login.js';
+import { _tryOpenBrowser, runLlmLogin } from './llm-login.js';
 
 /**
  * Lazily resolve the provider-registry accessors. Kept as a dynamic import so
@@ -315,6 +332,102 @@ function hasApiKeyFlag(args: Record<string, unknown>): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Login target: Cleo Nexus account or an LLM provider (T12712)
+// ---------------------------------------------------------------------------
+
+/**
+ * The picker's label for the Cleo Nexus account. Listed first.
+ *
+ * @task T12712
+ */
+export const NEXUS_PICKER_LABEL = 'Cleo Nexus account';
+
+/**
+ * The front-door picker's options: the Cleo Nexus account first, then the
+ * LLM providers in name order.
+ *
+ * @param providerNames - LLM provider names from the registry.
+ * @returns Picker options.
+ * @task T12712
+ */
+export function loginPickerOptions(providerNames: readonly string[]): string[] {
+  return [NEXUS_PICKER_LABEL, ...[...providerNames].sort()];
+}
+
+/**
+ * Resolve the login target: the positional/`--provider` value, else (on a
+ * terminal) the picker. Returns `undefined` when non-interactive with no
+ * target, so the LLM front door reports its usual error.
+ *
+ * @internal
+ */
+async function resolveLoginTarget(args: Record<string, unknown>): Promise<string | undefined> {
+  const given = typeof args['provider'] === 'string' ? args['provider'] : '';
+  if (given || !process.stdin.isTTY) return given || undefined;
+  const names = (await (await providerRegistry()).listProviders()).map((p) => p.name);
+  const io = new ReadlineWizardIO(process.stdin, process.stderr);
+  try {
+    const choice = await io.select('What do you want to log in to?', loginPickerOptions(names));
+    return choice === NEXUS_PICKER_LABEL ? NEXUS_LOGIN_TARGET : choice;
+  } finally {
+    io.close();
+  }
+}
+
+/**
+ * The ONE handler behind `cleo login`, `cleo auth login` and `cleo llm login`:
+ * the reserved `nexus` target runs the Cleo Nexus device-code login before any
+ * LLM registry lookup; every other target runs {@link runLoginFrontDoor}.
+ *
+ * @param args - The citty-parsed arg bag.
+ * @param operation - LAFS operation id (`login.run`, `auth.login`, `llm.login`).
+ * @task T12712
+ */
+export async function runLoginCommand(
+  args: Record<string, unknown>,
+  operation: string,
+): Promise<void> {
+  let target: string | undefined;
+  try {
+    target = await resolveLoginTarget(args);
+  } catch (err) {
+    failLogin(err, operation);
+  }
+  if (target === NEXUS_LOGIN_TARGET) {
+    let nexus: NexusLoginResult;
+    try {
+      nexus = await runNexusLogin(args, _tryOpenBrowser);
+    } catch (err) {
+      failNexus(err, operation);
+    }
+    emitNexusResult(nexus, nexusLoginSummary(nexus), 'login', operation);
+    return;
+  }
+  let result: OnboardingResult;
+  try {
+    result = await runLoginFrontDoor(target ? { ...args, provider: target } : args);
+  } catch (err) {
+    failLogin(err, operation);
+  }
+  emitLoginResult(result, operation);
+}
+
+/**
+ * Emit a front-door failure as `E_LOGIN_FAILED` and exit 1.
+ *
+ * @internal
+ */
+function failLogin(err: unknown, operation: string): never {
+  cliError(
+    err instanceof Error ? err.message : String(err),
+    1,
+    { name: 'E_LOGIN_FAILED' },
+    { operation },
+  );
+  process.exit(1);
+}
+
+// ---------------------------------------------------------------------------
 // Output
 // ---------------------------------------------------------------------------
 
@@ -376,8 +489,16 @@ function emitLoginFailure(result: OnboardingResult, operation: string): never {
 export const LOGIN_ARGS = {
   provider: {
     type: 'positional',
-    description: 'Provider to log in to (anthropic | openai | codex | gemini | kimi-code | …).',
+    description:
+      "What to log in to: 'nexus' (Cleo Nexus account) or an LLM provider (anthropic | openai | codex | gemini | kimi-code | …).",
     required: false,
+  },
+  'api-url': NEXUS_API_URL_ARG,
+  browser: {
+    type: 'boolean',
+    description:
+      'Open the verification URL in a browser (nexus). --no-browser only prints it (SSH, containers).',
+    default: true,
   },
   auth: {
     type: 'string',
@@ -423,22 +544,10 @@ export const loginCommand = defineCommand({
     // captures only the first plain string literal (concatenations + backticks
     // truncate the `cleo --help` text mid-sentence).
     description:
-      'Log in to an LLM provider and bind a usable profile in one step. Picks a provider + auth method (browser OAuth or API key), selects a model, binds it, and validates the binding. cleo auth login and cleo llm login resolve to this same flow. Prompts/URLs go to stderr; the result is a human line on a terminal or a JSON envelope when piped / --json.',
+      'Log in to a Cleo Nexus account (cleo login nexus: device code, --api-url, --no-browser) or to an LLM provider, binding a usable profile in one step. The picker lists the Cleo Nexus account first, then the providers. For a provider it picks an auth method (browser OAuth or API key), selects a model, binds it, and validates the binding. cleo auth login and cleo llm login resolve to this same flow. Prompts/URLs go to stderr; the result is a human line on a terminal or a JSON envelope when piped / --json.',
   },
   args: LOGIN_ARGS,
   async run({ args }) {
-    let result: OnboardingResult;
-    try {
-      result = await runLoginFrontDoor(args as Record<string, unknown>);
-    } catch (err) {
-      cliError(
-        err instanceof Error ? err.message : String(err),
-        1,
-        { name: 'E_LOGIN_FAILED' },
-        { operation: 'login.run' },
-      );
-      process.exit(1);
-    }
-    emitLoginResult(result, 'login.run');
+    await runLoginCommand(args as Record<string, unknown>, 'login.run');
   },
 });

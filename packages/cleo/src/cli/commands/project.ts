@@ -11,6 +11,7 @@ import { resolve } from 'node:path';
 import type {
   EngineFailure,
   MoveProjectResult,
+  NexusProjectLinkResult,
   ProjectRelocationPlan,
   RenderableEnvelope,
   RerootProjectResult,
@@ -26,6 +27,12 @@ import {
 } from '@cleocode/core';
 import { defineCommand } from 'citty';
 import { getFormatContext } from '../format-context.js';
+import {
+  emitNexusResult,
+  failNexus,
+  NEXUS_API_URL_ARG,
+  nexusApiUrlArg,
+} from '../lib/nexus-account-cli.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
 function formatSuccessSection(
@@ -290,12 +297,54 @@ const reregisterSubCommand = defineCommand({
   },
 });
 
+/**
+ * `cleo project link` — register this project with Cleo Nexus (a name label
+ * only, never a path) and bind the remote project to the local one in
+ * `.cleo/nexus-link.json`. Idempotent. Logic: `@cleocode/core/cloud/nexus-link.js`.
+ *
+ * @task T12712
+ */
+const linkSubCommand = defineCommand({
+  meta: {
+    name: 'link',
+    description:
+      'Register this project with Cleo Nexus and bind the remote project to the local project id. Sends the project id and a name label only (never a filesystem path). Idempotent. Requires cleo login nexus.',
+  },
+  args: {
+    name: {
+      type: 'string',
+      description: 'Label shown in Nexus (default: the project name). A name, not a path.',
+    },
+    'api-url': NEXUS_API_URL_ARG,
+    json: { type: 'boolean', description: 'Output raw JSON envelope.', default: false },
+  },
+  async run({ args }) {
+    const { linkProjectToNexus } = await import(
+      /* webpackIgnore: true */ '@cleocode/core/cloud/nexus-link.js'
+    );
+    let result: NexusProjectLinkResult;
+    try {
+      result = await linkProjectToNexus({
+        apiUrl: nexusApiUrlArg(args),
+        ...(typeof args['name'] === 'string' && args['name'] ? { name: args['name'] } : {}),
+      });
+    } catch (err) {
+      failNexus(err, 'project.link');
+    }
+    const { link } = result;
+    const verb = result.alreadyLinked ? 'Already linked' : 'Linked';
+    const summary = `${verb}: project ${link.localProjectId} as "${link.label ?? ''}" on ${link.apiUrl}.`;
+    emitNexusResult(result, summary, 'project', 'project.link');
+  },
+});
+
 export const projectCommand = defineCommand({
   meta: {
     name: 'project',
-    description: 'Project lifecycle management (move, reroot, rename, re-register).',
+    description: 'Project lifecycle management (move, reroot, rename, re-register, link).',
   },
   subCommands: {
+    link: linkSubCommand,
     move: moveSubCommand,
     reroot: rerootSubCommand,
     rename: renameSubCommand,

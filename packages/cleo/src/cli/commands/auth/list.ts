@@ -12,7 +12,12 @@
  * baked into `StoredCredential` (via the `accessToken` suffix display logic in
  * the renderer below).
  *
+ * The envelope also carries a `nexus` array: the Cleo Nexus account session
+ * per API origin (signed-in email, organization, api url, or "not signed in";
+ * a 401 reads as "session expired"). Its token is never surfaced either.
+ *
  * @task T9416
+ * @task T12712
  * @epic E-CONFIG-AUTH-UNIFY (E2b)
  */
 
@@ -190,8 +195,18 @@ export const authListCommand = defineCommand({
           'Run `cleo auth consent --enable-claude-code` to seed it into the pool.'
         : null;
 
+    // T12712: the Cleo Nexus account row(s). A live check runs only when a
+    // Nexus token is stored; any failure degrades to "unverified", never a crash.
+    const { getNexusAccountStatus } = await import(
+      /* webpackIgnore: true */ '@cleocode/core/cloud/nexus-auth.js'
+    );
+    const nexus =
+      providerFilter === null || providerFilter === 'nexus'
+        ? await getNexusAccountStatus().catch(() => [])
+        : [];
+
     cliOutput(
-      { entries, ...(hint !== null ? { hint } : {}) },
+      { entries, nexus, ...(hint !== null ? { hint } : {}) },
       {
         command: 'auth-list',
         operation: 'auth.list',

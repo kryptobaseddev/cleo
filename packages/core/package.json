@@ -421,6 +421,16 @@
       "import": "./dist/git-shim-export.js",
       "require": "./dist/git-shim-export.js"
     },
+    "./cloud/*": {
+      "types": "./dist/cloud/*.d.ts",
+      "import": "./dist/cloud/*.js",
+      "require": "./dist/cloud/*.js"
+    },
+    "./cloud/*.js": {
+      "types": "./dist/cloud/*.d.ts",
+      "import": "./dist/cloud/*.js",
+      "require": "./dist/cloud/*.js"
+    },
     "./decide/*": {
       "types": "./dist/decide/*.d.ts",
       "import": "./dist/decide/*.js",

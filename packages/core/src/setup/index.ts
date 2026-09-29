@@ -21,6 +21,7 @@ import { createIdentitySection } from './sections/identity.js';
 import { createIntegrationsSection } from './sections/integrations.js';
 import { createLlmSection, type LlmSectionDeps } from './sections/llm.js';
 import { createModelsRolesSection } from './sections/models-roles.js';
+import { createNexusAccountSection } from './sections/nexus-account.js';
 import { createProjectConventionsSection } from './sections/project-conventions.js';
 import { createSentientSection } from './sections/sentient.js';
 import { createTelemetrySection } from './sections/telemetry.js';
@@ -35,6 +36,10 @@ export { createIdentitySection } from './sections/identity.js';
 export { createIntegrationsSection } from './sections/integrations.js';
 export { createLlmSection, type LlmSectionDeps } from './sections/llm.js';
 export { createModelsRolesSection } from './sections/models-roles.js';
+export {
+  createNexusAccountSection,
+  type NexusAccountSectionDeps,
+} from './sections/nexus-account.js';
 export { createProjectConventionsSection } from './sections/project-conventions.js';
 export { createSentientSection } from './sections/sentient.js';
 export { createTelemetrySection } from './sections/telemetry.js';
@@ -69,8 +74,9 @@ export {
  *   6. `harness`             — operator selects Pi vs Claude Code (T9425)
  *   7. `brain`               — BRAIN memory bridge mode (T9425)
  *   8. `integrations`        — SignalDock + Studio + Conduit (T9608)
- *   9. `telemetry`           — anonymous skills-usage telemetry (T9673)
- *  10. `verification`        — read-only health checks (T9594)
+ *   9. `nexus-account`       — optional Cleo Nexus sign-in (T12712)
+ *  10. `telemetry`           — anonymous skills-usage telemetry (T9673)
+ *  11. `verification`        — read-only health checks (T9594)
  *
  * @param llmDeps - Optional dependencies forwarded to the `llm` section — most
  *   notably the interactive OAuth token acquirer (T11727). The CLI surface
@@ -95,6 +101,7 @@ export function createBuiltinSections(llmDeps: LlmSectionDeps = {}): WizardSecti
     createHarnessSection(),
     createBrainSection(),
     createIntegrationsSection(),
+    createNexusAccountSection(),
     createTelemetrySection(),
     createVerificationSection(),
   ];

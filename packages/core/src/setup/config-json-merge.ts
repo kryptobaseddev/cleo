@@ -37,6 +37,7 @@ export const WIZARD_SECTION_IDS: ReadonlySet<string> = new Set<string>([
   'project-conventions',
   'brain',
   'integrations',
+  'nexus-account',
   'telemetry',
   'verification',
 ]);
