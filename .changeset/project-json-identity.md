@@ -14,6 +14,12 @@ committed home.
   and a display name that only `cleo project rename` (and
   `cleo upgrade --name`) change. New projects get it at `cleo init`, with
   `.cleo/project-id` kept as a legacy mirror so older builds read the same id.
+- **Behavior change for readers:** when `.cleo/project-info.json` caches an id
+  that disagrees with the tracked `.cleo/project.json` / `.cleo/project-id`,
+  every reader (`getProjectInfo`, the registry, relocation, credentials) now
+  uses the TRACKED id, not the cache. Run `cleo doctor project-identity
+  --resolve --dry-run`, then `--resolve`, to re-key the cache and the local
+  state keyed by it; the old id stays resolvable as an alias.
 - **One resolver, tracked id wins.** `readPortableProjectId` reads
   `project.json`, then `project-id`; `decideProjectIdentity`,
   `readDeclaredProjectIdentity`, `getProjectInfo` and the registry agree.
