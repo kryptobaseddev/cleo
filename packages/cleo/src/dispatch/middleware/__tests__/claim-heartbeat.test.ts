@@ -65,4 +65,15 @@ describe('createClaimHeartbeat (T12502)', () => {
     );
     expect(res.success).toBe(true);
   });
+
+  it('a stalled renewal does not hold the response past the budget', async () => {
+    const renew = vi.fn(() => new Promise<void>(() => undefined));
+    const started = Date.now();
+    const res = await createClaimHeartbeat(renew, 20)(request('mutate', 'ses-a'), async () =>
+      response(true),
+    );
+    expect(res.success).toBe(true);
+    expect(renew).toHaveBeenCalledTimes(1);
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
 });

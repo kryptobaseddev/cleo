@@ -588,7 +588,9 @@ describe('buildSpawnPrompt — worktree setup hardening (T1758)', () => {
       worktreeBranch: BRANCH,
       tier: 0,
     });
-    expect(result.prompt).toContain('cwd does NOT persist between Bash calls');
+    // T12502 — env does not persist either, so the per-call line re-binds the session.
+    expect(result.prompt).toContain('neither cwd nor env persists between Bash calls');
+    expect(result.prompt).toContain('re-binds your own session');
     expect(result.prompt).toContain('new shell');
   });
 
@@ -605,8 +607,12 @@ describe('buildSpawnPrompt — worktree setup hardening (T1758)', () => {
     // the path single-quoted. The old unquoted `WORKTREE=<path>` snippet and
     // the bare `cd <path>` FIRST ACTION were redundant copies that broke on
     // any path containing a space.
-    const guard = `cd '${WORKTREE}' || exit 1`;
+    // T12502 — the guard also re-exports the agent identity on every call.
+    const guard = `cd '${WORKTREE}' && export `;
     expect(result.prompt.split(guard).length - 1).toBe(1);
+    expect(result.prompt).toMatch(
+      new RegExp(`^cd '${WORKTREE}' && export CLEO_AGENT_ID='[^']+' \\|\\| exit 1$`, 'm'),
+    );
     expect(result.prompt).not.toContain('WORKTREE=');
     expect(result.prompt).not.toContain(`cd ${WORKTREE}`);
   });
@@ -778,7 +784,10 @@ describe('buildSpawnPrompt — worktree setup quoting and size (T12520)', () => 
     const fences = bashFences(section);
     expect(fences).toHaveLength(1);
     const script = fences[0] ?? '';
-    expect(script).toContain(`cd '${SPACED}' || exit 1`);
+    expect(script).toContain(
+      `cd '${SPACED}' && export CLEO_SESSION_ID='ses_space' CLEO_AGENT_ID='`,
+    );
+    expect(script).toMatch(/^cd '.*' && export .* \|\| exit 1$/m);
     expect(script).toContain(`export CLEO_WORKTREE_ROOT='${SPACED}'`);
 
     const check = spawnSync('bash', ['-n'], { input: script, encoding: 'utf8' });

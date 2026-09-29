@@ -27,7 +27,11 @@ import { generateSessionId } from '../sessions/session-id.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { withLock } from '../store/lock.js';
 import { endSession } from '../store/session-store.js';
-import { claimSpawnedTask } from '../task-work/claims.js';
+import {
+  claimSpawnedTask,
+  releaseSpawnClaim,
+  type SpawnClaimReceipt,
+} from '../task-work/claims.js';
 
 /**
  * Resolved per-agent spawn identity returned by {@link allocateSpawnSession}.
@@ -154,7 +158,15 @@ export function electSpawnSession(candidates: readonly Session[]): Session | und
 
 /** Outcome of {@link requireSpawnSession}: an explicit per-agent session, or a refusal. */
 export type SpawnSessionResolution =
-  | { readonly ok: true; readonly identity: SpawnAgentIdentity }
+  | {
+      readonly ok: true;
+      readonly identity: SpawnAgentIdentity;
+      /**
+       * The task claim this spawn took (T12502). Pass the resolution to
+       * {@link abandonSpawnSession} when the spawn fails after this point.
+       */
+      readonly claim: SpawnClaimReceipt;
+    }
   | {
       readonly ok: false;
       /**
@@ -222,8 +234,9 @@ export async function requireSpawnSession(
       cause,
     };
   }
+  let claim: SpawnClaimReceipt;
   try {
-    await claimSpawnedTask(projectRoot, taskId, {
+    claim = await claimSpawnedTask(projectRoot, taskId, {
       sessionId: identity.sessionId,
       agentId: identity.agentId,
     });
@@ -245,5 +258,31 @@ export async function requireSpawnSession(
       ...(cleo?.details ? { details: cleo.details } : {}),
     };
   }
-  return { ok: true, identity };
+  return { ok: true, identity, claim };
+}
+
+/**
+ * Undo a {@link requireSpawnSession} whose spawn then failed (T12502): give
+ * the task claim back to its previous holder (the orchestrator on a
+ * hand-off) and end the per-agent session if this spawn created it, so a
+ * failed spawn strands neither a lease nor an active session. A re-spawn's
+ * reused session and its own earlier lease are kept. Best-effort.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param taskId - The task whose spawn failed.
+ * @param resolution - The successful resolution returned for this spawn.
+ * @task T12502
+ */
+export async function abandonSpawnSession(
+  projectRoot: string,
+  taskId: string,
+  resolution: Extract<SpawnSessionResolution, { ok: true }>,
+): Promise<void> {
+  const { identity, claim } = resolution;
+  await releaseSpawnClaim(projectRoot, taskId, identity.sessionId, claim);
+  if (!identity.reused) {
+    await endSession(identity.sessionId, 'spawn failed before dispatch', projectRoot).catch(
+      () => undefined,
+    );
+  }
 }

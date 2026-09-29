@@ -367,6 +367,15 @@ export const ISOLATION_ENV_KEYS = [
 export type IsolationEnvKey = (typeof ISOLATION_ENV_KEYS)[number];
 
 /**
+ * The identity keys re-exported on every shell call of a spawned agent
+ * (T12502) — see {@link IsolationResult.perCallLine}.
+ */
+const IDENTITY_ENV_KEYS = [
+  'CLEO_SESSION_ID',
+  'CLEO_AGENT_ID',
+] as const satisfies readonly IsolationEnvKey[];
+
+/**
  * Absolute-path validation rules enforced for Edit/Write SDK tool operations.
  *
  * Closes the bypass vector discovered in T1763: a worker used Edit/Write with
@@ -516,6 +525,14 @@ export interface IsolationResult {
    */
   preamble: string;
   /**
+   * The one line an agent must run at the start of EVERY shell call (T12502):
+   * `cd <worktree> && export CLEO_SESSION_ID=… CLEO_AGENT_ID=… || exit 1`
+   * (identity keys only when set). Harness shells keep neither cwd nor env
+   * between calls, so this line re-enters the worktree AND re-binds the
+   * agent's own session. It is also Step 1 of {@link IsolationResult.preamble}.
+   */
+  perCallLine: string;
+  /**
    * Boundary contract for downstream enforcement layers (git-shim, tests).
    *
    * The contract is a pure-data snapshot — it carries no runtime state.
@@ -596,11 +613,23 @@ export function provisionIsolatedShell(options: IsolationOptions): IsolationResu
   // T12520 — every path is emitted through `shellQuote`, never interpolated
   // bare or inside double quotes, so the snippet parses for any worktree path.
   const quotedPath = shellQuote(worktreePath);
+  // T12502 — env does not persist between an agent harness's Bash calls, so
+  // the per-call line re-binds the agent's own identity along with the cwd.
+  // Without it a worker's `cleo start` resolves to the ORCHESTRATOR's session
+  // and is refused on its own (spawn-claimed) task with E_TASK_CLAIMED.
+  const identityExports = IDENTITY_ENV_KEYS.filter((k) => env[k] !== '').map(
+    (k) => `${k}=${shellQuote(env[k])}`,
+  );
+  const perCallLine =
+    identityExports.length > 0
+      ? `cd ${quotedPath} && export ${identityExports.join(' ')} || exit 1`
+      : `cd ${quotedPath} || exit 1`;
   const preamble = [
     '## Worktree Isolation (REQUIRED — do not skip)',
     '',
-    '# Step 1: Enter the worktree (exits immediately if path is missing)',
-    `cd ${quotedPath} || exit 1`,
+    '# Step 1: Enter the worktree and bind your session (exits if the path is missing).',
+    '# Repeat this line at the start of EVERY Bash call: cwd and env do not persist.',
+    perCallLine,
     '',
     '# Step 2: Verify working directory (guards against shell/symlink quirks)',
     'case "$PWD" in',
@@ -630,7 +659,7 @@ export function provisionIsolatedShell(options: IsolationOptions): IsolationResu
     absolutePathRules,
   };
 
-  return { cwd, env, preamble, boundaryContract };
+  return { cwd, env, preamble, perCallLine, boundaryContract };
 }
 
 // ---------------------------------------------------------------------------

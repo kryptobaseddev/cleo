@@ -366,3 +366,22 @@ describe('validateAbsolutePath (T1851 regression)', () => {
     expect(result.allowed).toBe(false);
   });
 });
+
+describe('provisionIsolatedShell — perCallLine (T12502)', () => {
+  it('re-exports the agent identity with the cd on every call', () => {
+    const result = provisionIsolatedShell({
+      ...SAMPLE_OPTS,
+      sessionId: 'ses_child',
+      agentId: 'agent-t1',
+    });
+    expect(result.perCallLine).toBe(
+      `cd '${SAMPLE_OPTS.worktreePath}' && export CLEO_SESSION_ID='ses_child' CLEO_AGENT_ID='agent-t1' || exit 1`,
+    );
+    expect(result.preamble).toContain(result.perCallLine);
+  });
+
+  it('is a plain cd guard when no identity is known', () => {
+    const result = provisionIsolatedShell(SAMPLE_OPTS);
+    expect(result.perCallLine).toBe(`cd '${SAMPLE_OPTS.worktreePath}' || exit 1`);
+  });
+});

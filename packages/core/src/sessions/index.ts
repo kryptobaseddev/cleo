@@ -26,6 +26,7 @@ import {
   requireOwnedSessionForEnd,
   resolveBoundSession,
 } from '../store/session-store.js';
+import { sessionsHoldingLiveClaims } from '../task-work/claims.js';
 import type { AgentSessionHandle } from './agent-session-adapter.js';
 import { closeAgentSession, openAgentSession } from './agent-session-adapter.js';
 import { resolveParentSessionIdFromEnv } from './session-id.js';
@@ -563,8 +564,22 @@ export async function gcSessions(
   const orphaned: string[] = [];
   const removed: string[] = [];
 
+  // T12502 — orphaning a session drops its task claims (release trigger). A
+  // session whose claim lease is still live renewed it within one lease
+  // length (every mutation it makes is a heartbeat), so it is working, not
+  // abandoned, however long ago it started.
+  const staleCandidates = sessions
+    .filter((s: Session) => s.status === 'active')
+    .filter((s: Session) => now - new Date(s.startedAt).getTime() > maxAgeMs)
+    .map((s: Session) => s.id);
+  const working = await sessionsHoldingLiveClaims(
+    projectRoot,
+    staleCandidates,
+    new Date(now).toISOString(),
+  );
+
   for (const session of sessions) {
-    if (session.status === 'active') {
+    if (session.status === 'active' && !working.has(session.id)) {
       const age = now - new Date(session.startedAt).getTime();
       if (age > maxAgeMs) {
         session.status = 'orphaned';

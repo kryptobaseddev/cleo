@@ -19,11 +19,14 @@
  * @epic T12497
  */
 
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { ExitCode, type Session, type TaskClaimedDetails } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CleoError } from '../../errors.js';
 import { readFocusState } from '../../sessions/focus-state-store.js';
-import { requireSpawnSession } from '../../spawn/agent-identity.js';
+import { gcSessions } from '../../sessions/index.js';
+import { abandonSpawnSession, requireSpawnSession } from '../../spawn/agent-identity.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import { endSession } from '../../store/session-store.js';
 import { taskVersion } from '../../store/task-version.js';
@@ -40,6 +43,7 @@ const ENV_KEYS = [
 
 const SES_A = 'ses_20260929000001_aaaaaa';
 const SES_B = 'ses_20260929000002_bbbbbb';
+const SES_C = 'ses_20260929000003_cccccc';
 
 /** Run `fn` as the process bound to `sessionId` (or unbound for `null`). */
 async function as<T>(sessionId: string | null, fn: () => Promise<T>): Promise<T> {
@@ -255,10 +259,11 @@ describe('leased task claims (T12502)', () => {
 
   it('spawn claims for the spawned session and hands off from the orchestrator, audited', async () => {
     await start(SES_A);
-    const claim = await as(SES_A, () =>
+    const receipt = await as(SES_A, () =>
       claimSpawnedTask(env.tempDir, 'T001', { sessionId: SES_B, agentId: 'agent-t001' }),
     );
-    expect(claim?.sessionId).toBe(SES_B);
+    expect(receipt.claim?.sessionId).toBe(SES_B);
+    expect(receipt.previous?.sessionId).toBe(SES_A);
     const audit = await env.accessor.queryAuditLog({
       taskIds: ['T001'],
       actions: ['task_claim_handoff'],
@@ -279,5 +284,100 @@ describe('leased task claims (T12502)', () => {
       (s) => s.status === 'active' && s.agentHandle === 'agent-t001',
     );
     expect(leaked).toHaveLength(0);
+  });
+
+  it('spawn records the orchestrator as parent; the claim moves within the family without an override', async () => {
+    await start(SES_A);
+    await as(SES_A, () =>
+      claimSpawnedTask(env.tempDir, 'T001', { sessionId: SES_B, agentId: 'agent-t001' }),
+    );
+    const child = (await env.accessor.loadSessions()).find((x) => x.id === SES_B);
+    expect(child?.parentSessionId).toBe(SES_A);
+    // A worker call that resolves to the PARENT's session is not refused …
+    const parent = await as(SES_A, () =>
+      env.accessor.claimTask('T001', { sessionId: SES_A, agentId: null, mode: 'acquire' }),
+    );
+    expect(parent?.sessionId).toBe(SES_A);
+    // … nor is the child taking it back.
+    const back = await start(SES_B);
+    expect(back.claim?.sessionId).toBe(SES_B);
+    const handoffs = await env.accessor.queryAuditLog({
+      taskIds: ['T001'],
+      actions: ['task_claim_handoff'],
+    });
+    expect(handoffs.length).toBeGreaterThanOrEqual(3);
+    // An unrelated session is still refused.
+    await env.accessor.upsertSingleSession(session(SES_C));
+    expect((await rejection(start(SES_C))).code).toBe(ExitCode.TASK_CLAIMED);
+  });
+
+  it('a spawn that fails after claiming leaves the orchestrator holding the lease and ends the child session', async () => {
+    await start(SES_A);
+    const spawned = await as(SES_A, () => requireSpawnSession(env.tempDir, 'T001'));
+    expect(spawned.ok).toBe(true);
+    if (!spawned.ok) return;
+    const childId = spawned.identity.sessionId;
+    expect((await env.accessor.loadSingleTask('T001'))?.claim?.sessionId).toBe(childId);
+    // The spawn fails later (worktree, compose, adapter): the finally undoes it.
+    await abandonSpawnSession(env.tempDir, 'T001', spawned);
+    expect((await env.accessor.loadSingleTask('T001'))?.claim?.sessionId).toBe(SES_A);
+    const child = (await env.accessor.loadSessions()).find((x) => x.id === childId);
+    expect(child?.status).toBe('ended');
+  });
+
+  it('an unbound --take-over / --force-claim is refused with E_SESSION_UNBOUND and a fix', async () => {
+    await start(SES_A);
+    for (const mode of ['take-over', 'force'] as const) {
+      const err = await rejection(
+        env.accessor.claimTask('T001', { sessionId: null, agentId: null, mode }),
+      );
+      expect(err.code).toBe(ExitCode.SESSION_UNBOUND);
+      expect(err.toLAFSError().code).toBe('E_SESSION_UNBOUND');
+      expect(err.fix).toContain('cleo session start');
+    }
+    expect((await env.accessor.loadSingleTask('T001'))?.claim?.sessionId).toBe(SES_A);
+  });
+
+  it('the heartbeat of a session holding no lease writes nothing and takes no write lock', async () => {
+    await start(SES_A);
+    // Another connection holds the write lock: a BEGIN IMMEDIATE would block.
+    const other = new DatabaseSync(join(env.cleoDir, 'cleo.db'));
+    other.exec('PRAGMA busy_timeout = 0');
+    other.exec('BEGIN IMMEDIATE');
+    try {
+      const started = Date.now();
+      expect(await renewClaimsForSession(env.accessor, SES_B)).toBe(0);
+      expect(Date.now() - started).toBeLessThan(1000);
+    } finally {
+      other.exec('ROLLBACK');
+      other.close();
+    }
+  });
+
+  it('session gc keeps a stale-started session whose lease is still being renewed', async () => {
+    const old = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+    await env.accessor.upsertSingleSession({ ...session(SES_A), startedAt: old });
+    await env.accessor.upsertSingleSession({ ...session(SES_B), startedAt: old });
+    await start(SES_A);
+    const result = await gcSessions(env.tempDir, { maxAgeDays: 1 });
+    expect(result.orphaned).toEqual([SES_B]);
+    expect((await env.accessor.loadSingleTask('T001'))?.claim?.sessionId).toBe(SES_A);
+  });
+
+  it('the migration installs the claim release triggers', async () => {
+    const db = new DatabaseSync(join(env.cleoDir, 'cleo.db'), { readOnly: true });
+    try {
+      const rows = db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE '%claim%'")
+        .all()
+        .map((r) => String(r['name']));
+      expect(rows.sort()).toEqual([
+        'tasks_sessions_release_claims_on_delete',
+        'tasks_sessions_release_claims_on_end',
+        'tasks_tasks_release_claim_on_terminal',
+      ]);
+    } finally {
+      db.close();
+    }
   });
 });

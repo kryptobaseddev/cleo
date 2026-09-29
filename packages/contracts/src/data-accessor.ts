@@ -777,7 +777,8 @@ export interface DataAccessor {
 
   /**
    * Heartbeat: extend every lease held by `sessionId` to `leaseExpiresAt`,
-   * without changing any task version (T12502).
+   * without changing any task version (T12502). A session holding no lease
+   * costs one indexed read and takes no write lock.
    *
    * @param sessionId - The holder session.
    * @param leaseExpiresAt - New lease expiry (ISO-8601 UTC).

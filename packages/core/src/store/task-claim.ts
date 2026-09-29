@@ -109,6 +109,25 @@ export function claimFromColumns(row: TaskClaimColumns): TaskClaim | undefined {
 }
 
 /**
+ * The claim columns for a loaded task's lease (all `null` when unclaimed).
+ *
+ * @param claim - The lease on a task, if any.
+ * @returns The four claim columns.
+ * @example
+ * ```ts
+ * claimColumnsOf(task.claim).claimedBySession;
+ * ```
+ */
+export function claimColumnsOf(claim: TaskClaim | undefined): TaskClaimColumns {
+  return {
+    claimedBySession: claim?.sessionId ?? null,
+    claimedByAgent: claim?.agentId ?? null,
+    claimedAt: claim?.claimedAt ?? null,
+    leaseExpiresAt: claim?.leaseExpiresAt ?? null,
+  };
+}
+
+/**
  * Whether a lease has lapsed at `now`. A lease with no recorded expiry
  * counts as lapsed (it can never be renewed into validity by its holder
  * anyway, and must not block forever).
@@ -134,7 +153,9 @@ export function isClaimExpired(claim: TaskClaim, now: string): boolean {
  * @param mode - The claim mode.
  * @param sessionId - The caller's session (`null` when unbound).
  * @param now - ISO-8601 UTC instant for the expiry comparison.
- * @param handoffFrom - A session whose live lease `acquire` may take.
+ * @param allowedHolders - Sessions whose lease `acquire` / `take-over` may take
+ *   even while live: the spawn hand-off source and the caller's spawn-edge
+ *   parent and children (`tasks_sessions.parent_session_id`).
  * @returns `true` when the write is allowed.
  * @example
  * ```ts
@@ -146,7 +167,7 @@ export function claimAllows(
   mode: TaskClaimMode,
   sessionId: string | null,
   now: string,
-  handoffFrom?: string | null,
+  allowedHolders: readonly string[] = [],
 ): boolean {
   if (mode === 'force') return true;
   if (mode === 'renew' || mode === 'release') {
@@ -154,7 +175,7 @@ export function claimAllows(
   }
   if (!stored) return true;
   if (sessionId !== null && stored.sessionId === sessionId) return true;
-  if (handoffFrom && stored.sessionId === handoffFrom) return true;
+  if (allowedHolders.includes(stored.sessionId)) return true;
   return mode === 'take-over' && isClaimExpired(stored, now);
 }
 

@@ -110,6 +110,53 @@ describe('pivotTask', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Claims (T12502)
+  // ---------------------------------------------------------------------------
+
+  it('a pivot to a task another session holds is refused and leaves `from` focused and leased (T12502)', async () => {
+    const sesA = 'ses_20260929000001_aaaaaa';
+    const sesB = 'ses_20260929000002_bbbbbb';
+    const now = new Date().toISOString();
+    for (const id of [sesA, sesB]) {
+      await accessor.upsertSingleSession({
+        id,
+        name: id,
+        status: 'active',
+        scope: { type: 'global' },
+        taskWork: { taskId: null, setAt: null },
+        startedAt: now,
+      });
+    }
+    await seedTasks(accessor, [
+      { id: 'T001', title: 'From', status: 'pending', priority: 'medium' },
+      { id: 'T002', title: 'To', status: 'pending', priority: 'medium' },
+    ]);
+    vi.stubEnv('CLEO_SESSION_ID', sesB);
+    await startTask('T002', env.tempDir, accessor);
+    vi.stubEnv('CLEO_SESSION_ID', sesA);
+    await startTask('T001', env.tempDir, accessor);
+
+    await expect(
+      pivotTask('T001', 'T002', { reason: 'blocked', projectRoot: env.tempDir, accessor }),
+    ).rejects.toMatchObject({ code: ExitCode.TASK_CLAIMED });
+
+    const { readFocusState } = await import('../../sessions/focus-state-store.js');
+    expect((await readFocusState(accessor, sesA))?.currentTask).toBe('T001');
+    expect((await accessor.loadSingleTask('T001'))?.claim?.sessionId).toBe(sesA);
+    expect((await accessor.loadSingleTask('T002'))?.claim?.sessionId).toBe(sesB);
+
+    // The explicit override applies to `to` and completes the pivot.
+    await pivotTask('T001', 'T002', {
+      reason: 'blocked',
+      projectRoot: env.tempDir,
+      accessor,
+      forceClaim: true,
+    });
+    expect((await accessor.loadSingleTask('T002'))?.claim?.sessionId).toBe(sesA);
+    expect((await accessor.loadSingleTask('T001'))?.claim).toBeUndefined();
+  });
+
+  // ---------------------------------------------------------------------------
   // Active-task gate
   // ---------------------------------------------------------------------------
 

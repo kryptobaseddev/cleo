@@ -77,8 +77,11 @@ import { closeDb, getDb, getNativeTasksDb } from './sqlite.js';
 import { TERMINAL_TASK_STATUSES } from './status-registry.js';
 import {
   claimAllows,
+  claimColumnsOf,
   claimFromColumns,
+  isClaimExpired,
   leaseExpiresAtFrom,
+  type TaskClaimColumns,
   taskClaimedError,
   taskClaimLeaseMs,
 } from './task-claim.js';
@@ -266,45 +269,36 @@ const CLAIM_COLUMNS = {
   leaseExpiresAt: schema.tasks.leaseExpiresAt,
 } as const;
 
-/** Stored claim columns of a task row. */
-interface ClaimColumns {
-  claimedBySession: string | null;
-  claimedByAgent: string | null;
-  claimedAt: string | null;
-  leaseExpiresAt: string | null;
-}
-
-/** Claim columns from a loaded task's {@link TaskClaim}. */
-function claimColumnsOf(claim: TaskClaim | undefined): ClaimColumns {
-  return {
-    claimedBySession: claim?.sessionId ?? null,
-    claimedByAgent: claim?.agentId ?? null,
-    claimedAt: claim?.claimedAt ?? null,
-    leaseExpiresAt: claim?.leaseExpiresAt ?? null,
-  };
-}
-
 /**
  * The claim compare-and-set predicate for an UPDATE's WHERE clause (T12502).
  * The SQL mirror of `claimAllows`; `force` adds no predicate.
+ *
+ * @param guard - The claim guard.
+ * @param allowedHolders - Holders `acquire` / `take-over` may replace even
+ *   while live (hand-off source, spawn-edge parent and children).
  */
-function claimPredicate(guard: TaskClaimGuard): SQL | undefined {
+function claimPredicate(guard: TaskClaimGuard, allowedHolders: readonly string[]): SQL | undefined {
   const holder = schema.tasks.claimedBySession;
   if (guard.mode === 'force') return undefined;
   const mine = guard.sessionId === null ? undefined : eq(holder, guard.sessionId);
   if (guard.mode === 'renew' || guard.mode === 'release') return mine ?? sql`0`;
-  const handoff = guard.handoffFrom ? eq(holder, guard.handoffFrom) : undefined;
+  const related = allowedHolders.length > 0 ? inArray(holder, [...allowedHolders]) : undefined;
   const expired =
     guard.mode === 'take-over'
       ? or(isNull(schema.tasks.leaseExpiresAt), lte(schema.tasks.leaseExpiresAt, guard.now))
       : undefined;
-  return or(isNull(holder), mine, handoff, expired);
+  return or(isNull(holder), mine, related, expired);
 }
 
 /** Throw `E_TASK_CLAIMED` when the stored holder refuses this claim write. */
-function assertClaimAllowed(taskId: string, row: ClaimColumns, guard: TaskClaimGuard): void {
+function assertClaimAllowed(
+  taskId: string,
+  row: TaskClaimColumns,
+  guard: TaskClaimGuard,
+  allowedHolders: readonly string[],
+): void {
   const stored = claimFromColumns(row);
-  if (claimAllows(stored, guard.mode, guard.sessionId, guard.now, guard.handoffFrom)) return;
+  if (claimAllows(stored, guard.mode, guard.sessionId, guard.now, allowedHolders)) return;
   if (!stored) {
     throw new CleoError(
       ExitCode.NOT_FOUND,
@@ -313,6 +307,45 @@ function assertClaimAllowed(taskId: string, row: ClaimColumns, guard: TaskClaimG
     );
   }
   throw taskClaimedError(taskId, stored, { sessionId: guard.sessionId, agentId: null }, guard.now);
+}
+
+/**
+ * The holders an `acquire` / `take-over` claim write may replace even while
+ * their lease is live (T12502): the explicit hand-off source, plus the
+ * caller's claim family — its spawn-edge parent session and its child
+ * sessions (`tasks_sessions.parent_session_id`). A spawned worker whose calls
+ * resolve to its orchestrator's session, or an orchestrator taking a task
+ * back from its own worker, is a hand-off, not a conflict.
+ *
+ * @param db - The project DB handle (inside the write transaction).
+ * @param guard - The claim guard.
+ * @returns Distinct session ids other than the caller's.
+ */
+async function claimAllowedHolders(
+  db: Awaited<ReturnType<typeof getDb>>,
+  guard: TaskClaimGuard,
+): Promise<string[]> {
+  if (guard.mode !== 'acquire' && guard.mode !== 'take-over') return [];
+  const holders = new Set<string>();
+  if (guard.handoffFrom) holders.add(guard.handoffFrom);
+  const sessionId = guard.sessionId;
+  if (sessionId) {
+    const [self] = await db
+      .select({ parent: schema.sessions.parentSessionId })
+      .from(schema.sessions)
+      .where(eq(schema.sessions.id, sessionId))
+      .limit(1)
+      .all();
+    if (self?.parent) holders.add(self.parent);
+    const children = await db
+      .select({ id: schema.sessions.id })
+      .from(schema.sessions)
+      .where(eq(schema.sessions.parentSessionId, sessionId))
+      .all();
+    for (const child of children) holders.add(child.id);
+    holders.delete(sessionId);
+  }
+  return [...holders];
 }
 
 /**
@@ -1303,7 +1336,8 @@ async function createOwnedSqliteDataAccessor(
         // touching anything, with the holder named. The WHERE clause below
         // repeats the predicate, so the write itself is the compare-and-set.
         const claimGuard = guard?.claim;
-        if (claimGuard) assertClaimAllowed(taskId, current, claimGuard);
+        const allowedHolders = claimGuard ? await claimAllowedHolders(db, claimGuard) : [];
+        if (claimGuard) assertClaimAllowed(taskId, current, claimGuard, allowedHolders);
         const expected = guard?.expectedUpdatedAt;
         if (expected !== undefined && taskVersion(current) !== expected) {
           throw taskConflictError(
@@ -1331,7 +1365,7 @@ async function createOwnedSqliteDataAccessor(
         const where = and(
           eq(schema.tasks.id, taskId),
           versionMatch,
-          claimGuard ? claimPredicate(claimGuard) : undefined,
+          claimGuard ? claimPredicate(claimGuard, allowedHolders) : undefined,
         );
 
         // gh#391: this is the chokepoint for `cleo update <id> --add-labels`.
@@ -1344,7 +1378,7 @@ async function createOwnedSqliteDataAccessor(
           const stored = await accessor.loadSingleTask(taskId);
           if (!stored) throw new Error(`Task not found: ${taskId}`);
           if (claimGuard) {
-            assertClaimAllowed(taskId, claimColumnsOf(stored.claim), claimGuard);
+            assertClaimAllowed(taskId, claimColumnsOf(stored.claim), claimGuard, allowedHolders);
           }
           throw taskConflictError(
             taskId,
@@ -1760,6 +1794,18 @@ async function createOwnedSqliteDataAccessor(
         if (!task) throw new Error(`Task not found: ${taskId}`);
         const before = task.claim;
         if (request.sessionId === null) {
+          // An override names who takes the task; an unbound caller has no
+          // session to record, so it is refused rather than silently ignored.
+          if (request.mode === 'take-over' || request.mode === 'force') {
+            const flag = request.mode === 'force' ? '--force-claim' : '--take-over';
+            throw new CleoError(
+              ExitCode.SESSION_UNBOUND,
+              `Cannot ${flag} task ${taskId}: this caller is not bound to a session, so there is no session to hand the claim to.`,
+              {
+                fix: `Bind a session first (cleo session start --scope global --name "<work>", cleo session resume <id>, or export CLEO_SESSION_ID=<id>), then retry with ${flag}.`,
+              },
+            );
+          }
           // An unbound caller holds no lease; the guarded no-op write still
           // proves, under the write lock, that no other session holds it.
           await accessor.updateTaskFields(taskId, {}, { claim: guard, keepVersion: true });
@@ -1786,7 +1832,9 @@ async function createOwnedSqliteDataAccessor(
         );
         const replaced = before && before.sessionId !== request.sessionId ? before : undefined;
         if (replaced) {
-          const handoff = !!guard.handoffFrom && replaced.sessionId === guard.handoffFrom;
+          // A write the predicate allowed over a LIVE lease without `force` is
+          // a claim-family hand-off (spawn source, spawn-edge parent or child).
+          const handoff = request.mode !== 'force' && !isClaimExpired(replaced, now);
           await accessor.appendLog({
             action: handoff
               ? 'task_claim_handoff'
@@ -1843,6 +1891,18 @@ async function createOwnedSqliteDataAccessor(
     },
 
     async renewSessionClaims(sessionId: string, leaseExpiresAt: string): Promise<number> {
+      // The heartbeat follows EVERY mutation of a bound session, and almost no
+      // session holds a lease. Probe the claimed_by_session index first and
+      // open a write transaction (BEGIN IMMEDIATE) only when there is a lease
+      // to extend, so the common case costs one indexed read and no lock.
+      const probe = await getDb(cwd);
+      const [held] = await probe
+        .select({ id: schema.tasks.id })
+        .from(schema.tasks)
+        .where(eq(schema.tasks.claimedBySession, sessionId))
+        .limit(1)
+        .all();
+      if (!held) return 0;
       return accessor.transaction(async () => {
         const db = await getDb(cwd);
         const result = await db

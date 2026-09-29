@@ -4214,6 +4214,20 @@ export const OPERATIONS: OperationDef[] = [
         description:
           'When true (default), adds toTaskId as a dependency on fromTaskId so it cannot complete before the pivot resolves',
       },
+      {
+        name: 'takeOver',
+        type: 'boolean',
+        required: false,
+        description: "Take over another session's EXPIRED claim on toTaskId (audited)",
+        cli: { flag: 'take-over' },
+      },
+      {
+        name: 'forceClaim',
+        type: 'boolean',
+        required: false,
+        description: "Take over another session's LIVE claim on toTaskId (audited)",
+        cli: { flag: 'force-claim' },
+      },
     ],
   },
   // parallel.start and parallel.end merged into orchestrate.parallel via action param (T5615)

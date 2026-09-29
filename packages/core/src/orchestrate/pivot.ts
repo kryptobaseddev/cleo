@@ -31,7 +31,7 @@ import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { resolveBoundSession } from '../store/session-store.js';
-import { startTask, stopTask } from '../task-work/index.js';
+import { claimModeFor, resolveClaimant, startTask, stopTask } from '../task-work/index.js';
 import { logOperation } from '../tasks/add.js';
 import { updateTask } from '../tasks/update.js';
 
@@ -55,6 +55,10 @@ export interface PivotOptions {
   projectRoot?: string;
   /** Optional override for the data accessor (used by tests). */
   accessor?: DataAccessor;
+  /** Take over another session's EXPIRED claim on the `to` task (audited). @task T12502 */
+  takeOver?: boolean;
+  /** Take over another session's LIVE claim on the `to` task (audited). @task T12502 */
+  forceClaim?: boolean;
 }
 
 /**
@@ -254,10 +258,19 @@ export async function pivotTask(
   // ---------------------------------------------------------------------------
   // Stop only if from is the current focus. If from is "active by stage"
   // we leave focus_state alone (there is no focus to clear) before starting to.
+  // T12502 — claim `to` BEFORE touching `from`: the claim is the only step of
+  // the start that can be refused (E_TASK_CLAIMED), and taking it first — one
+  // atomic compare-and-set — means a refusal leaves the caller's focus and its
+  // lease on `from` exactly as they were instead of half-applying the pivot.
+  const claimFlags = { takeOver: opts.takeOver, forceClaim: opts.forceClaim };
+  const claimant = await resolveClaimant(root);
+  await acc.claimTask(toTaskId, { ...claimant, mode: claimModeFor(claimFlags) });
+
   // T11345 — the CALLER's per-session focus (env-first), live (T12698).
   if ((await readLiveFocus(acc, resolveSessionIdFromEnv())).currentTask === fromTaskId) {
     await stopTask(root, acc);
   }
+  // The caller now holds `to`, so this start renews its own lease.
   await startTask(toTaskId, root, acc);
 
   // ---------------------------------------------------------------------------
