@@ -99,48 +99,107 @@ function literalBody(source, name, open) {
 }
 
 /**
+ * Remove `//` line comments and `/* … *\/` block comments, so text that
+ * survives only in a comment cannot satisfy a check (`://` in URLs is kept).
+ *
+ * @param {string} source - Module source.
+ * @returns {string}
+ */
+export function stripComments(source) {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+}
+
+/**
+ * Collect every skill name code emits, with where it came from, and which
+ * expected sources yielded nothing.
+ *
+ * A source that yields zero names means the extraction no longer matches the
+ * code (a renamed constant, a moved call), not that nothing is emitted — so
+ * it is reported, never treated as clean. A skill name passed through a
+ * CONSTANT_CASE identifier (`loadSkillExcerpt(LEAD_SKILL)`) is resolved from
+ * its `const` declaration in the same file; an unresolvable one is reported.
+ *
+ * @param {string} root - Repository root.
+ * @returns {{ names: { name: string, source: string }[], empty: string[], unresolved: string[] }}
+ */
+export function collectEmittedSkillsWithCoverage(root) {
+  const names = [];
+  const empty = [];
+  const unresolved = [];
+  const read = (rel) => stripComments(readFileSync(join(root, rel), 'utf-8'));
+  /** Record one source's names; a source with none is reported as empty. */
+  const record = (label, source, found) => {
+    if (found.length === 0) empty.push(label);
+    for (const name of found) names.push({ name, source });
+  };
+  const quoted = (text) => [...text.matchAll(QUOTED_NAME)].map((m) => m[2]);
+
+  const guidance = read(STAGE_GUIDANCE);
+  record(
+    `STAGE_SKILL_MAP (${STAGE_GUIDANCE})`,
+    STAGE_GUIDANCE,
+    quoted(literalBody(guidance, 'STAGE_SKILL_MAP', '{')),
+  );
+  record(
+    `TIER_0_SKILLS (${STAGE_GUIDANCE})`,
+    STAGE_GUIDANCE,
+    quoted(literalBody(guidance, 'TIER_0_SKILLS', '[')),
+  );
+
+  const spawn = read(SPAWN_PROMPT);
+  const spawnNames = [];
+  for (const m of spawn.matchAll(
+    /(?:loadSkillExcerpt|resolveSkillPath)\(\s*(?:(['"`])([a-z][\w-]*)\1|([A-Z][A-Z0-9_]*)\s*[,)])/g,
+  )) {
+    if (m[2]) {
+      spawnNames.push(m[2]);
+      continue;
+    }
+    const decl = new RegExp(`\\bconst\\s+${m[3]}\\b[^=]*=\\s*(['"\`])([a-z][\\w-]*)\\1`).exec(
+      spawn,
+    );
+    if (decl) spawnNames.push(decl[2]);
+    else unresolved.push(`${m[3]} (${SPAWN_PROMPT})`);
+  }
+  record(`loadSkillExcerpt/resolveSkillPath (${SPAWN_PROMPT})`, SPAWN_PROMPT, spawnNames);
+
+  // Values only: keys are user-facing aliases, not skill names.
+  const nameMap = literalBody(read(SKILL_TYPES), 'SKILL_NAME_MAP', '{');
+  record(
+    `SKILL_NAME_MAP (${SKILL_TYPES})`,
+    SKILL_TYPES,
+    [...nameMap.matchAll(/:\s*(['"`])([a-z][\w-]*)\1/g)].map((m) => m[2]),
+  );
+
+  record(
+    `skill: (${SKILL_DISPATCH})`,
+    SKILL_DISPATCH,
+    [...read(SKILL_DISPATCH).matchAll(/\bskill:\s*(['"`])([a-z][\w-]*)\1/g)].map((m) => m[2]),
+  );
+
+  const cantNames = [];
+  for (const file of readdirSync(join(root, CANT_DIR))
+    .filter((f) => f.endsWith('.cant'))
+    .sort()) {
+    const text = readFileSync(join(root, CANT_DIR, file), 'utf-8');
+    for (const m of text.matchAll(/^skillRef:\s*([a-z][\w-]*)\s*$/gm)) {
+      cantNames.push(m[1]);
+      names.push({ name: m[1], source: `${CANT_DIR}/${file}` });
+    }
+  }
+  if (cantNames.length === 0) empty.push(`skillRef: (${CANT_DIR}/*.cant)`);
+
+  return { names, empty, unresolved };
+}
+
+/**
  * Collect every skill name code emits, with where it came from.
  *
  * @param {string} root - Repository root.
  * @returns {{ name: string, source: string }[]}
  */
 export function collectEmittedSkills(root) {
-  const out = [];
-  const read = (rel) => readFileSync(join(root, rel), 'utf-8');
-  const push = (text, source) => {
-    for (const m of text.matchAll(QUOTED_NAME)) out.push({ name: m[2], source });
-  };
-
-  const guidance = read(STAGE_GUIDANCE);
-  push(literalBody(guidance, 'STAGE_SKILL_MAP', '{'), STAGE_GUIDANCE);
-  push(literalBody(guidance, 'TIER_0_SKILLS', '['), STAGE_GUIDANCE);
-
-  const spawn = read(SPAWN_PROMPT);
-  for (const m of spawn.matchAll(
-    /(?:loadSkillExcerpt|resolveSkillPath)\(\s*(['"`])([a-z][\w-]*)\1/g,
-  )) {
-    out.push({ name: m[2], source: SPAWN_PROMPT });
-  }
-
-  // Values only: keys are user-facing aliases, not skill names.
-  const nameMap = literalBody(read(SKILL_TYPES), 'SKILL_NAME_MAP', '{');
-  for (const m of nameMap.matchAll(/:\s*(['"`])([a-z][\w-]*)\1/g)) {
-    out.push({ name: m[2], source: SKILL_TYPES });
-  }
-
-  for (const m of read(SKILL_DISPATCH).matchAll(/\bskill:\s*(['"`])([a-z][\w-]*)\1/g)) {
-    out.push({ name: m[2], source: SKILL_DISPATCH });
-  }
-
-  for (const file of readdirSync(join(root, CANT_DIR))
-    .filter((f) => f.endsWith('.cant'))
-    .sort()) {
-    const text = read(`${CANT_DIR}/${file}`);
-    for (const m of text.matchAll(/^skillRef:\s*([a-z][\w-]*)\s*$/gm)) {
-      out.push({ name: m[1], source: `${CANT_DIR}/${file}` });
-    }
-  }
-  return out;
+  return collectEmittedSkillsWithCoverage(root).names;
 }
 
 /**
@@ -169,7 +228,7 @@ export function installedSkillNames(root) {
  */
 export function findViolations(root) {
   const violations = [];
-  const initSource = readFileSync(join(root, INIT_TS), 'utf-8');
+  const initSource = stripComments(readFileSync(join(root, INIT_TS), 'utf-8'));
   for (const marker of INSTALL_TRIPWIRES) {
     if (!initSource.includes(marker)) {
       violations.push({
@@ -183,8 +242,22 @@ export function findViolations(root) {
   const entries = new Map((manifest.skills ?? []).map((s) => [s.name, s]));
   const installed = installedSkillNames(root);
 
+  const coverage = collectEmittedSkillsWithCoverage(root);
+  for (const label of coverage.empty) {
+    violations.push({
+      key: `source-empty:${label}`,
+      message: `${label} yielded no skill names — the extraction no longer matches the code (renamed or moved?). Update this gate; an empty source is never clean.`,
+    });
+  }
+  for (const label of coverage.unresolved) {
+    violations.push({
+      key: `unresolved-constant:${label}`,
+      message: `${label} is passed as a skill name but its string value could not be resolved from a same-file \`const\` declaration.`,
+    });
+  }
+
   const seen = new Set();
-  for (const { name, source } of collectEmittedSkills(root)) {
+  for (const { name, source } of coverage.names) {
     if (seen.has(name)) continue;
     seen.add(name);
     const entry = entries.get(name);
