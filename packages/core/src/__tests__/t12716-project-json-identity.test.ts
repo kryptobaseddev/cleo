@@ -481,8 +481,8 @@ describe('doctor: registry-name vs declared-name drift', () => {
   });
 });
 
-describe('portable projectHash', () => {
-  it('only a freshly minted id gets the id-derived hash; a stored hash is never re-derived', async () => {
+describe('projectHash (AC8: path-derived)', () => {
+  it('a tracked id records the path-derived hash; a stored hash is never re-derived', async () => {
     // A tracked id is a PRIOR identity: its keys were built from the path hash.
     const fresh = fixture('fresh', { manifest: AGREED, legacy: AGREED, info: null });
     await ensureProjectInfo(fresh);

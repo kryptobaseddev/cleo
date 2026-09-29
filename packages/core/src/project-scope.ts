@@ -818,15 +818,15 @@ export function computeStableProjectHash(projectRoot: string): string {
 }
 
 /**
- * Compute the portable `projectHash` for a project id (T12716).
+ * Compute the id-derived `projectHash` for a project id (T12558 · T12716).
  *
- * Used ONLY for an identity minted in the same step (no prior identity
- * anywhere: tracked file, cache, registry row or alias) — T12558 introduced
- * the formula for `--new-identity`. Every project with a prior identity whose
- * stored hash is unreadable (a lost project-info.json, a legacy file) gets
- * {@link computeStableProjectHash}, the path-derived value its release, audit
- * and idempotency keys were built from; `getProjectHashKey` falls back to the
- * same. A stored hash is never re-derived.
+ * Used ONLY for an identity minted on explicit request (`cleo init
+ * --new-identity`, T12558). Every other project, a fresh init included, gets
+ * {@link computeStableProjectHash}: a hash is only stable across the loss of
+ * the untracked project-info.json if it can be re-derived from disk, and only
+ * the path-derived value can (ADR-096, AC8). A stored hash is never
+ * re-derived. If a cross-clone hash is ever needed, it belongs in
+ * `.cleo/project.json` as a write-once field.
  *
  * @param projectId - The project's portable id.
  * @returns 12-char hex hash of `project-id:<id>`.

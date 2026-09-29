@@ -119,7 +119,7 @@ describe('finding 3: a legacy rename never changes the path-fingerprint alias ke
   });
 });
 
-describe('finding 1: projectHash is portable only for an identity this build minted', () => {
+describe('finding 1 + hash rules 2-3: projectHash never changes and is id-derived only for --new-identity', () => {
   it('an existing project that loses project-info.json keeps its path-derived hash', async () => {
     const { computePortableProjectHash, computeStableProjectHash } = await import(
       '../project-scope.js'
@@ -143,17 +143,84 @@ describe('finding 1: projectHash is portable only for an identity this build min
     expect(getProjectHashKey(root)).toBe(stable);
   });
 
-  it('a project minted now gets the id-derived hash', async () => {
+  it('rule 2: a freshly initialised project keeps its hash after losing project-info.json', async () => {
+    // Option A (ADR-096, AC8): a fresh init records the path-derived hash, the
+    // one value every reader can re-derive from disk.
+    const { computeStableProjectHash } = await import('../project-scope.js');
+    const { ensureProjectInfo } = await import('../scaffold/ensure-config.js');
+    const { regenerateProjectInfoJson } = await import('../store/regenerators.js');
+    const { getProjectHashKey } = await import('../project-info.js');
+    const root = fixture('minted-then-lost', {});
+    const created = await ensureProjectInfo(root);
+    expect(created.details).toContain('(minted)');
+    const infoPath = join(root, '.cleo', 'project-info.json');
+    const original = (JSON.parse(readFileSync(infoPath, 'utf-8')) as { projectHash: string })
+      .projectHash;
+    expect(original).toBe(computeStableProjectHash(root));
+
+    rmSync(infoPath);
+    expect(getProjectHashKey(root)).toBe(original);
+    expect(regenerateProjectInfoJson(root).content['projectHash']).toBe(original);
+    await ensureProjectInfo(root);
+    expect(getProjectHashKey(root)).toBe(original);
+    rmSync(infoPath);
+    await ensureProjectInfo(root, { force: true });
+    expect(getProjectHashKey(root)).toBe(original);
+  });
+
+  it('rule 3: only an explicit --new-identity mint gets the id-derived hash (T12558)', async () => {
     const { computePortableProjectHash } = await import('../project-scope.js');
     const { ensureProjectInfo } = await import('../scaffold/ensure-config.js');
-    const root = fixture('minted', {});
-    const result = await ensureProjectInfo(root);
+    const root = fixture('new-identity', {});
+    const result = await ensureProjectInfo(root, { mintNewIdentity: true });
     expect(result.details).toContain('(minted)');
     const info = JSON.parse(readFileSync(join(root, '.cleo', 'project-info.json'), 'utf-8')) as {
       projectId: string;
       projectHash: string;
     };
     expect(info.projectHash).toBe(computePortableProjectHash(info.projectId));
+  });
+
+  it('rule 3: a prior identity found only in the registry (same path) gets the path hash', async () => {
+    const { computeStableProjectHash } = await import('../project-scope.js');
+    const { ensureProjectInfo } = await import('../scaffold/ensure-config.js');
+    const { registerProjectOnEncounter } = await import('../paths.js');
+    const root = fixture('registry-only', { manifest: ID, legacy: ID, info: ID });
+    await registerProjectOnEncounter(root, ID);
+    for (const file of ['project.json', 'project-id', 'project-info.json'])
+      rmSync(join(root, '.cleo', file));
+
+    const result = await ensureProjectInfo(root);
+    expect(result.details).toContain('(registry-path)');
+    const info = JSON.parse(readFileSync(join(root, '.cleo', 'project-info.json'), 'utf-8')) as {
+      projectId: string;
+      projectHash: string;
+    };
+    expect(info.projectId).toBe(ID);
+    expect(info.projectHash).toBe(computeStableProjectHash(root));
+  });
+
+  it('rule 3: a prior identity found only through an alias gets the path hash', async () => {
+    const { computeStableProjectHash } = await import('../project-scope.js');
+    const { ensureProjectInfo } = await import('../scaffold/ensure-config.js');
+    const root = fixture('alias-only', {});
+    const { db, projectIdAliases } = await registryDb();
+    db.insert(projectIdAliases)
+      .values({
+        legacyId: computePathFingerprintId(root),
+        canonicalId: ID,
+        createdAt: new Date().toISOString(),
+      })
+      .run();
+
+    const result = await ensureProjectInfo(root);
+    expect(result.details).toContain('(registry-alias)');
+    const info = JSON.parse(readFileSync(join(root, '.cleo', 'project-info.json'), 'utf-8')) as {
+      projectId: string;
+      projectHash: string;
+    };
+    expect(info.projectId).toBe(ID);
+    expect(info.projectHash).toBe(computeStableProjectHash(root));
   });
 });
 

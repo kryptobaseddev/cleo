@@ -524,15 +524,18 @@ export async function ensureProjectInfo(
     if (existing?.[field] !== undefined) carried[field] = existing[field];
 
   // T12557: write-once — a force-regenerate keeps the stored identity key.
-  // T12716: only an identity THIS call minted (no prior identity anywhere:
-  // tracked file, cache, registry row or alias) gets the id-derived hash. Any
-  // other project — including one whose untracked project-info.json was lost —
-  // gets the pre-T12716 path-derived value, the one its release, audit and
-  // idempotency keys were built from (and what getProjectHashKey falls back to).
+  // T12558: an id minted on EXPLICIT request (`--new-identity`) is a NEW
+  // project, possibly at a path another project's hash was derived from (a
+  // reroot's old root); its hash derives from the new id.
+  // T12716 (ADR-096, AC8): every other project — a fresh init included — gets
+  // the path-derived hash. A hash is only stable across the loss of the
+  // untracked project-info.json if it can be re-derived from disk, and only
+  // the path-derived value can (getProjectHashKey and regenerate re-derive the
+  // same value).
   const projectHash =
     typeof existing?.['projectHash'] === 'string' && existing['projectHash'].length > 0
       ? existing['projectHash']
-      : identity.source === 'minted'
+      : opts?.mintNewIdentity && identity.source === 'minted'
         ? computePortableProjectHash(identity.projectId)
         : computeStableProjectHash(projectRoot);
   const cleoVersion = getCleoVersion();

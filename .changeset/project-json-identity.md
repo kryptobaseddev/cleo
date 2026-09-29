@@ -33,9 +33,10 @@ committed home.
   reports registry-label drift and `--resolve` syncs it. Rename reports
   `relink-required` for a Nexus-linked project.
 - **Root marker** accepts `project.json` / `project-id` at a git toplevel.
-- **`projectHash`:** an identity minted now gets a hash derived from its id;
-  every project with a prior identity keeps the path-derived value its keys
-  were built from, even if project-info.json is lost. Stored hashes never
-  change.
+- **`projectHash` (AC8, decided: path-derived):** a fresh init keeps the
+  realpath hash. A hash stays stable across the loss of the untracked
+  project-info.json only if it can be re-derived from disk, so no project's
+  hash ever changes. The id-derived formula stays only where T12558 already
+  used it (`--new-identity`).
 - **Legacy renames** write `project-info.json` `displayName`, so the path
   fingerprint alias key never moves.
