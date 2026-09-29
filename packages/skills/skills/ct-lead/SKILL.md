@@ -2,13 +2,13 @@
 name: ct-lead
 description: "Phase Lead orchestration playbook for spawning and supervising a parallel worker swarm in one wave. Use when spawned by ct-orchestrator with role=orchestrator to fan out N leaf workers via delegate_task, drain the epic-{TID}.wave-{n} conduit topic plus pipeline_manifest, await rollupWaveStatus convergence, and return ONE rolled-up contract string to the parent Orchestrator. Triggers: 'phase lead', 'wave lead', 'supervise wave', 'fan out workers', 'aggregate worker results', 'rollup wave', any task with role=orchestrator that is itself a child of another orchestrator. Implements ADR-070 hierarchical orchestration."
 metadata:
-  version: 1.0.6
+  version: 1.0.7
   tier: core
   install: harness
   covers:
     - packages/core/src/orchestration/lead-rollup.ts
     - packages/core/src/orchestration/waves.ts
-  lastReviewed: 2026-09-28
+  lastReviewed: 2026-09-29
   stability: stable
 ---
 
@@ -126,6 +126,14 @@ cleo orchestrate roll-up "${EPIC}" --wave "${WAVE}" --json \
 >
 > `orchestrate ready`, `plan` and `parallel start --wave <n>` never re-run
 > finished tasks.
+>
+> **Order within a wave (T12692).** Members of a wave, the `orchestrate
+> ready` list and the focus ready wave are in the SAME order as `cleo next`
+> (D11161): priority band, then attested severity (unset is unknown and never
+> outranks an attested P1 of the same band), then a bounded tiebreak (deps,
+> phase, leverage, age), then `createdAt`, then id. Spawn in that order when
+> the wave is wider than `maxConcurrent`. Only the order moves; the wave
+> number is still structural depth.
 
 `rollupWaveStatus` (T9082, `packages/core/src/orchestration/lead-rollup.ts`)
 returns `{ wave, total, complete, partial, blocked, failed, workers: [...] }`.

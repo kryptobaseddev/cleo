@@ -41,6 +41,7 @@ import type {
   RollupBlocker,
   RollupEvidenceAtom,
   RollupWorker,
+  ScoreTaskContext,
   VerificationGate,
   WaveRollup,
 } from '@cleocode/contracts';
@@ -49,6 +50,7 @@ import { getConfigValue } from '../config/registry.js';
 import { CleoError } from '../errors.js';
 import { resolveOrCwd } from '../paths.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { loadRankingContext } from '../tasks/task-next.js';
 import { planEpicWaves } from './waves.js';
 
 /**
@@ -73,6 +75,12 @@ export interface RollupWaveStatusOptions {
    * only.
    */
   conduitMessages?: ConduitStatusMessage[];
+  /**
+   * Shared ranking context (see `loadRankingContext`) that orders the wave's
+   * members. When omitted, the project-wide one is loaded; `rollupEpicStatus`
+   * loads it once and passes it to every wave (T12692).
+   */
+  ranking?: ScoreTaskContext;
 }
 
 /**
@@ -188,7 +196,7 @@ export async function rollupWaveStatus(
   }
   // T12682: the plan `cleo orchestrate waves` prints — same dependency
   // lookup, same 1-based numbers — never a second, differently indexed one.
-  const { children, waves } = await planEpicWaves(epicId, accessor);
+  const { children, waves } = await planEpicWaves(epicId, accessor, [epicId], options.ranking);
   const wave = waves.find((w) => w.waveNumber === waveId);
   if (!wave) {
     return {
@@ -344,11 +352,15 @@ export async function rollupEpicStatus(
   options: RollupWaveStatusOptions = {},
 ): Promise<EpicRollup> {
   const accessor = await getTaskAccessor(projectRoot);
-  const { waves } = await planEpicWaves(epicId, accessor);
+  // T12692: load the project-wide ranking context ONCE, not once per wave.
+  const ranking = options.ranking ?? (await loadRankingContext(accessor)).ctx;
+  const { waves } = await planEpicWaves(epicId, accessor, [epicId], ranking);
 
   const waveRollups: WaveRollup[] = [];
   for (const wave of waves) {
-    waveRollups.push(await rollupWaveStatus(epicId, wave.waveNumber, projectRoot, options));
+    waveRollups.push(
+      await rollupWaveStatus(epicId, wave.waveNumber, projectRoot, { ...options, ranking }),
+    );
   }
 
   const totalWorkers = waveRollups.reduce((sum, w) => sum + w.workers.length, 0);

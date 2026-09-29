@@ -30,7 +30,9 @@ import type {
 } from '@cleocode/contracts';
 import { SAGA_GROUPS_RELATION } from '../sagas/constants.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { orderByRanking } from '../task-tools/score-task-priority.js';
 import { coreTaskSlice } from './task-data.js';
+import { loadRankingContext } from './task-next.js';
 
 const DEFAULT_BUDGET_TOKENS = 1500;
 const DEFAULT_ACTIVITY_LIMIT = 10;
@@ -301,6 +303,17 @@ async function buildSagaScope(
     // orchestrateReady module unavailable — omit ready frontier
   }
 
+  // T12692: each member's list is ranked, but their concatenation is not —
+  // re-rank the union with THE comparator (D11161), as `cleo next` would.
+  if (readyFrontier.length > 1) {
+    const { ctx, population } = await loadRankingContext(accessor);
+    const byId = new Map(population.map((task) => [task.id, task] as const));
+    return {
+      rollup,
+      members,
+      readyFrontier: orderByRanking(readyFrontier, (t) => t.id, byId, ctx),
+    };
+  }
   return { rollup, members, readyFrontier };
 }
 
