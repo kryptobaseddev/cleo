@@ -16,6 +16,7 @@ import { createMemoryTokenBucket, type DecisionBudget } from '../budget.js';
 import { createDecisionCache } from '../cache.js';
 import { _resetDecideDefaultsForTest, type DecideOptions, decide } from '../client.js';
 import { type DecisionProvider, DecisionProviderError } from '../provider.js';
+import { createMemorySpendLedger, DEFAULT_MONTHLY_SPEND_CAP_MICROS } from '../spend.js';
 
 // T12492: the default Jev transport is `decideFetch` (node:http, releases every
 // handle on abort), not the global `fetch`. These tests drive the default
@@ -53,13 +54,21 @@ function memoryAudit(): DecisionAuditSink & { entries: DecisionAuditEntry[] } {
   return { entries, write: (e) => entries.push(e) };
 }
 
-/** Fresh, isolated wiring per call: no shared cache, generous budget, in-memory audit. */
+/**
+ * Fresh, isolated wiring per call: no shared cache, generous budget, in-memory
+ * spend ledger and audit. The spend gate runs inside the site deadline, so the
+ * process default (a file ledger plus a config read for the cap) let disk I/O
+ * on a loaded CI runner outlast a 50 ms deadline before the provider was ever
+ * called, and wrote the test's spend into the real ledger.
+ */
 function isolated(
   extra: DecideOptions = {},
 ): DecideOptions & { audit: ReturnType<typeof memoryAudit> } {
   return {
     cache: createDecisionCache(),
     budget: createMemoryTokenBucket(),
+    spend: createMemorySpendLedger(),
+    spendCapMicros: DEFAULT_MONTHLY_SPEND_CAP_MICROS,
     ...extra,
     audit: memoryAudit(),
   };
