@@ -26,6 +26,7 @@ import type {
   GlobalInstructionRefreshReport,
   KnowledgeCoverage,
   KnowledgeHealth,
+  KnowledgeHealthSummary,
   KnowledgeReplacement,
   RetrievalBundle,
   SessionBriefingShowParams,
@@ -217,8 +218,12 @@ export interface SessionBriefing {
   instructionDelivery?: GlobalInstructionRefreshReport;
   /** Graph coverage is independent of task state and memory authority. */
   knowledgeCoverage?: KnowledgeCoverage;
-  /** Bounded automatic maintenance and repair matrix for the calling agent. */
-  knowledgeHealth?: KnowledgeHealth;
+  /**
+   * Bounded automatic maintenance and repair matrix for the calling agent.
+   * Its coverage is not repeated: `coverageRef` points at `knowledgeCoverage`
+   * (T12522).
+   */
+  knowledgeHealth?: KnowledgeHealthSummary;
   /** Accepted, currently eligible decisions, separate from historical handoffs. */
   currentGuidance?: BrainCompactHit[];
   /** Receipt-backed corrections presented separately from immutable historical handoffs. */
@@ -594,7 +599,7 @@ export async function computeBriefing(
     corrections: compactKnowledgeCorrections(corrections),
     nextTasks,
     lastSession: cleanedLastSession,
-    knowledgeHealth: compactKnowledgeHealth(knowledgeHealth),
+    knowledgeHealth: compactKnowledgeHealth(knowledgeHealth, '/knowledgeCoverage'),
     openBugs,
     blockedTasks,
     activeEpics,
