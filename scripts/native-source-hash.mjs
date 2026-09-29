@@ -153,9 +153,7 @@ export function computeNativeSourceHash(addon, root = process.cwd()) {
 if (process.argv[1]?.endsWith('native-source-hash.mjs')) {
   const addon = process.argv[2];
   if (addon === undefined || !(addon in NATIVE_SOURCE_SETS)) {
-    console.error(
-      `usage: native-source-hash.mjs <${Object.keys(NATIVE_SOURCE_SETS).join('|')}>`,
-    );
+    console.error(`usage: native-source-hash.mjs <${Object.keys(NATIVE_SOURCE_SETS).join('|')}>`);
     process.exit(2);
   }
   process.stdout.write(`${computeNativeSourceHash(/** @type {'cant' | 'worktree'} */ (addon))}\n`);
