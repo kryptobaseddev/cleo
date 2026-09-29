@@ -1860,11 +1860,17 @@ const updateCommand = defineCommand({
       });
       process.exit(ExitCode.VALIDATION_ERROR);
     }
-    if (filePath === undefined && inlineContent === undefined) {
-      cliError('provide --file <path> OR --content <text>', ExitCode.VALIDATION_ERROR, {
-        name: 'E_VALIDATION',
-        fix: 'Example: `cleo docs update my-doc --file ./new.md` OR `cleo docs update my-doc --content "..."`.',
-      });
+    // T12654: `--status` alone is a lifecycle-only change (bytes unchanged),
+    // e.g. `cleo docs update my-spec --status accepted`.
+    if (filePath === undefined && inlineContent === undefined && typeof args.status !== 'string') {
+      cliError(
+        'provide --file <path>, --content <text>, or --status <status> alone',
+        ExitCode.VALIDATION_ERROR,
+        {
+          name: 'E_VALIDATION',
+          fix: 'Example: `cleo docs update my-doc --file ./new.md`, `--content "..."`, or `cleo docs update my-doc --status accepted` to change only the lifecycle status.',
+        },
+      );
       process.exit(ExitCode.VALIDATION_ERROR);
     }
 

@@ -7,9 +7,13 @@ adrRefs:
   - ADR-063
   - ADR-065
 metadata:
-  version: 3.0.1
+  version: 3.0.2
   tier: on-demand
   install: harness
+  covers:
+    - packages/core/src/validation/protocols/cant/release.cant
+    - packages/core/src/validation/protocols/protocols-markdown/release.md
+    - packages/cleo/src/cli/commands/release.ts
   loomStage: release
   lastReviewed: 2026-09-28
   stability: stable

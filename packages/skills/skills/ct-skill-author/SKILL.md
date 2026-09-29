@@ -3,7 +3,7 @@ name: ct-skill-author
 description: Create, improve and validate CLEO skills. Use when writing a new skill or updating an existing one (structure, frontmatter, progressive disclosure, trigger descriptions, evals), and when auditing a skill folder against the CLEO standard before it ships (structural, ecosystem-fit and quality validation with an HTML report). Internal to CLEO development — not installed to harnesses.
 license: MIT
 metadata:
-  version: 2.0.0
+  version: 2.0.1
   tier: internal
   install: internal
   lastReviewed: 2026-09-28

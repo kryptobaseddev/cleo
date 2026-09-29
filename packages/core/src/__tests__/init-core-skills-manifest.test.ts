@@ -11,17 +11,27 @@
  * @task T12653
  */
 
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const installResolvedSkill = vi.fn(async () => ({ success: true }));
+// Stands in for CAAMP's install: writes the canonical copy it would write, so
+// the bundled-install ledger has files to hash (T12678).
+const installResolvedSkill = vi.fn(async (resolved: { skillName: string }) => {
+  const dir = join(process.env['CLEO_HOME'] ?? '', 'skills', resolved.skillName);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'SKILL.md'), `---\nname: ${resolved.skillName}\n---\n`);
+  return { success: true };
+});
 
 vi.mock('@cleocode/caamp', () => ({
   getInstalledProviders: () => [{ id: 'claude-code' }],
   installResolvedSkill,
   registerSkillLibraryFromPath: () => undefined,
+  // T12678: install now prunes; no harness dirs in this test.
+  resolveProviderSkillsDirs: () => [],
 }));
 
 /** The real `@cleocode/skills` manifest. */
@@ -32,8 +42,21 @@ function readManifest(): { skills: Array<{ name: string; install?: string }> } {
 }
 
 describe('initCoreSkills installs from manifest metadata.install (T12653)', () => {
+  let cleoHome: string;
+  const priorHome = process.env['CLEO_HOME'];
+
   beforeEach(() => {
     installResolvedSkill.mockClear();
+    // Install writes the bundled-install ledger and prunes under CLEO home;
+    // never let a test touch the developer's real data dir.
+    cleoHome = mkdtempSync(join(tmpdir(), 'init-core-skills-'));
+    process.env['CLEO_HOME'] = cleoHome;
+  });
+
+  afterEach(() => {
+    if (priorHome === undefined) delete process.env['CLEO_HOME'];
+    else process.env['CLEO_HOME'] = priorHome;
+    rmSync(cleoHome, { recursive: true, force: true });
   });
 
   it('installs every harness skill and no internal skill', async () => {
@@ -67,6 +90,14 @@ describe('initCoreSkills installs from manifest metadata.install (T12653)', () =
     }
     expect(installed).not.toContain('ct-grade');
     expect(created).toContain(`skills: ${harness.length} core skills installed`);
+    // T12678: the ledger records exactly what this run installed.
+    const ledger = JSON.parse(
+      readFileSync(join(cleoHome, 'skills', '.cleo-bundled.json'), 'utf-8'),
+    );
+    expect(Object.keys(ledger.skills).sort()).toEqual(harness);
+    for (const name of harness) {
+      expect(Object.keys(ledger.skills[name].files)).toEqual(['SKILL.md']);
+    }
   });
 
   it('installs each skill from its skills/<name> directory', async () => {
