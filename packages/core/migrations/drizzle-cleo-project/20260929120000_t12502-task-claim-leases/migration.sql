@@ -31,9 +31,9 @@ ALTER TABLE `tasks_tasks` ADD COLUMN `claimed_by_session` TEXT;
 --> statement-breakpoint
 ALTER TABLE `tasks_tasks` ADD COLUMN `claimed_by_agent` TEXT;
 --> statement-breakpoint
-ALTER TABLE `tasks_tasks` ADD COLUMN `claimed_at` TEXT;
+ALTER TABLE `tasks_tasks` ADD COLUMN `claimed_at` TEXT CHECK ("claimed_at" IS NULL OR "claimed_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*');
 --> statement-breakpoint
-ALTER TABLE `tasks_tasks` ADD COLUMN `lease_expires_at` TEXT;
+ALTER TABLE `tasks_tasks` ADD COLUMN `lease_expires_at` TEXT CHECK ("lease_expires_at" IS NULL OR "lease_expires_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*');
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `idx_tasks_tasks_claimed_by_session` ON `tasks_tasks` (`claimed_by_session`);
 --> statement-breakpoint
