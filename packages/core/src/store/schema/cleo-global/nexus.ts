@@ -370,6 +370,12 @@ export const nexusProjectGitState = sqliteTable(
     probeErrorCode: text('probe_error_code', { enum: GIT_PROBE_ERROR_CODES }),
     /** Detail for `probe_error_code`. */
     probeError: text('probe_error'),
+    /**
+     * ISO-8601 UTC instant HEAD was committed (`git log --format=%cI`, normalized
+     * to `Z`); NULL for an unborn branch, a failed probe, or a row probed before
+     * T12721. Local-only: never leaves the device through sync.
+     */
+    headCommittedAt: text('head_committed_at'),
   },
   (table) => [
     primaryKey({ columns: [table.projectId, table.deviceId, table.path] }),

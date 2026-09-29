@@ -2710,6 +2710,7 @@
       "dirty_count",
       "duration_ms",
       "git_root",
+      "head_committed_at",
       "head_sha",
       "path",
       "probe_error",
