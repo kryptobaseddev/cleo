@@ -210,6 +210,12 @@ export {
   type DoctorBridgeResult,
   runDoctorBridge,
 } from './skills/doctor-bridge.js';
+// T12678: bundled-skill prune (quarantine) + restore for `cleo skills doctor prune|restore`.
+export type { BundledSkillPruneReceipt } from './skills/prune-bundled.js';
+export {
+  restoreBundledSkillQuarantine,
+  runBundledSkillPrune,
+} from './skills/prune-bundled.js';
 export {
   createDataAccessor,
   // @deprecated — use getTaskAccessor (T9054). Retained for one minor version.
