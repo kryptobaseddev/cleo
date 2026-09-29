@@ -87,7 +87,7 @@ describe('restore from a worktree whose owner is an initialised project', () => 
 
   it('restore by id names the owner store and refuses without confirmation', () => {
     expect(() => restoreBackup(main, { backupId: 'b1', cwd: wt })).toThrow(
-      /E_WT_RESTORE_CONFIRM_REQUIRED.*LIVE store .*main\/\.cleo; this worktree's owning project .*main \(projectId proj-live\)/,
+      /E_WT_STORE_REWRITE_CONFIRM_REQUIRED.*LIVE store .*main\/\.cleo; this worktree's owning project .*main \(projectId proj-live\)/,
     );
     expect(live(main)).toBe('{"live":true}');
   });
@@ -101,7 +101,7 @@ describe('restore from a worktree whose owner is an initialised project', () => 
   it('restore --file refuses without confirmation and proceeds with it', async () => {
     vi.stubEnv('CLEO_DIR', join(main, '.cleo'));
     await expect(fileRestore(main, 'config.json', { cwd: wt })).rejects.toThrow(
-      /E_WT_RESTORE_CONFIRM_REQUIRED/,
+      /E_WT_STORE_REWRITE_CONFIRM_REQUIRED/,
     );
     expect(live(main)).toBe('{"live":true}');
     await fileRestore(main, 'config.json', { cwd: wt, confirmOwnerStore: true });
@@ -121,7 +121,7 @@ describe('restore from a worktree whose owner cannot hold the store', () => {
     git(main, 'worktree', 'add', '-q', wt);
     seedCleo(wt); // the store resolution falls back to the worktree itself
     expect(() => restoreBackup(wt, { backupId: 'b1', cwd: wt, confirmOwnerStore: true })).toThrow(
-      /E_WT_RESTORE_REFUSED.*not an initialised CLEO project/,
+      /E_WT_STORE_REWRITE_REFUSED.*not an initialised CLEO project/,
     );
     expect(live(wt)).toBe('{"live":true}');
   });
@@ -138,7 +138,7 @@ describe('restore from a worktree whose owner cannot hold the store', () => {
     expect(owner).toMatch(/cleo init/);
     seedCleo(wt);
     expect(() => restoreBackup(wt, { backupId: 'b1', cwd: wt, confirmOwnerStore: true })).toThrow(
-      /E_WT_RESTORE_REFUSED.*bare git repository/,
+      /E_WT_STORE_REWRITE_REFUSED.*bare git repository/,
     );
     expect(live(wt)).toBe('{"live":true}');
   });
