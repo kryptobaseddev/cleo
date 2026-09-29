@@ -707,6 +707,7 @@ describe('T9599 — StdinClosedError propagates out of runSetup', () => {
     // the ReadlineWizardIO behaviour when stdin closes mid-section.
     const eofIo: WizardIO = {
       prompt: () => Promise.reject(new StdinClosedError()),
+      secret: () => Promise.reject(new StdinClosedError()),
       confirm: () => Promise.reject(new StdinClosedError()),
       select: () => Promise.reject(new StdinClosedError()),
       info: () => undefined,

@@ -9,6 +9,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { LAYAHOST_BASE_URL, LAYAHOST_DEFAULT_MODEL } from '@cleocode/contracts';
 import { _resetCleoPlatformPathsCache } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { _resetDecideDefaultsForTest } from '../client.js';
@@ -125,16 +126,23 @@ describe('probeDecideProvider', () => {
 });
 
 describe('configureDecide', () => {
-  it('stores an explicit model without probing', async () => {
-    const fetchStub = vi.fn();
+  it('stores an explicit model over the listing, then probes the saved settings (T12713)', async () => {
+    const fetchStub = vi.fn(async (_u: string, _i: RequestInit) => Response.json(modelsBody));
     const result = await configureDecide({
       baseUrl: URL,
       apiKey: KEY,
       model: 'pinned',
       fetch: fetchStub,
     });
-    expect(result).toMatchObject({ configured: true, model: 'pinned', modelSource: 'flag' });
-    expect(fetchStub).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      configured: true,
+      provider: 'jev',
+      model: 'pinned',
+      modelSource: 'flag',
+      providerState: 'reachable',
+    });
+    expect(loadDecideConnection()?.model).toBe('pinned');
+    expect(fetchStub.mock.calls.some(([u]) => u === `${URL}/v1/models`)).toBe(true);
     expectNoKey(result);
   });
 
@@ -173,6 +181,107 @@ describe('configureDecide', () => {
     const cleared = await clearDecideConfig();
     expect(cleared).toMatchObject({ cleared: true, configured: false });
     expectNoKey(cleared);
+  });
+});
+
+describe('configureDecide — provider presets (T12713)', () => {
+  it('defaults to layahost: preset URL and model, only the key supplied', async () => {
+    const fetchStub = vi.fn(async (_u: string, _i: RequestInit) => Response.json(modelsBody));
+    const result = await configureDecide({ apiKey: KEY, fetch: fetchStub });
+    expect(result).toMatchObject({
+      configured: true,
+      provider: 'layahost',
+      baseUrl: LAYAHOST_BASE_URL,
+      model: LAYAHOST_DEFAULT_MODEL,
+      modelSource: 'preset',
+    });
+    expect(fetchStub.mock.calls.some(([u]) => u === `${LAYAHOST_BASE_URL}/v1/models`)).toBe(true);
+    expectNoKey(result);
+  });
+
+  it('--url overrides the layahost preset URL; the preset model still applies', async () => {
+    const result = await configureDecide({
+      provider: 'layahost',
+      baseUrl: URL,
+      apiKey: KEY,
+      fetch: vi.fn(async () => Response.json(modelsBody)),
+    });
+    expect(result).toMatchObject({ provider: 'layahost', baseUrl: URL, model: 'laya-auto' });
+  });
+
+  it('infers jev from a non-layahost URL and layahost from the layahost host', async () => {
+    const jev = await configureDecide({
+      baseUrl: URL,
+      apiKey: KEY,
+      fetch: vi.fn(async () => Response.json(modelsBody)),
+    });
+    expect(jev).toMatchObject({ provider: 'jev', model: 'first-listed' });
+    const laya = await configureDecide({
+      baseUrl: `${LAYAHOST_BASE_URL}/`,
+      apiKey: KEY,
+      fetch: vi.fn(async () => Response.json(modelsBody)),
+    });
+    expect(laya).toMatchObject({ provider: 'layahost', model: 'laya-auto' });
+  });
+
+  it('rejects jev without a URL with a clear error, storing and sending nothing', async () => {
+    const fetchStub = vi.fn();
+    await expect(
+      configureDecide({ provider: 'jev', apiKey: KEY, fetch: fetchStub }),
+    ).rejects.toThrow(/jev provider needs a base URL: pass --url/);
+    expect(fetchStub).not.toHaveBeenCalled();
+    expect(loadDecideConnection()).toBeNull();
+  });
+
+  it('regression: layahost always stores a model, so a request is never sent without one (422)', async () => {
+    // The listing is down at config time: before T12713 no model was stored and
+    // every decision went out without one, answered 422 and fell back silently.
+    const result = await configureDecide({
+      apiKey: KEY,
+      fetch: vi.fn(async () => new Response('{}', { status: 503 })),
+    });
+    expect(result).toMatchObject({ model: 'laya-auto', modelSource: 'preset' });
+    expect(result.warning).toBeUndefined();
+
+    const bodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_u: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        bodies.push(body);
+        if (typeof body['model'] !== 'string') {
+          return Response.json(
+            { error: { type: 'invalid_request', message: 'model is required' } },
+            { status: 422 },
+          );
+        }
+        return Response.json({ answers: { answer: { type: 'noul', noul: 0.9, confidence: 0.8 } } });
+      }),
+    );
+    const asked = await askDecideDebug({ state: 's', question: 'q', projectRoot: home });
+    expect(bodies[0]?.['model']).toBe('laya-auto');
+    expect(asked.source).toBe('provider');
+  });
+
+  it('re-detects capabilities on save even when the cached read is fresh', async () => {
+    const minimal = vi.fn(async (u: string) =>
+      u.endsWith('/v1/models') ? Response.json(modelsBody) : new Response('{}', { status: 404 }),
+    );
+    const first = await configureDecide({ apiKey: KEY, fetch: minimal });
+    expect(first.capabilities?.usage).toBeUndefined();
+
+    const extended = vi.fn(async (u: string) =>
+      u.includes('/v1/usage')
+        ? Response.json({ balance: { micros: 5_000_000 } })
+        : u.endsWith('/v1/models')
+          ? Response.json(modelsBody)
+          : new Response('{}', { status: 404 }),
+    );
+    const second = await configureDecide({ apiKey: KEY, fetch: extended });
+    expect(second.capabilities).toMatchObject({ usage: true, batch: { maxRequests: 64 } });
+    expect(extended.mock.calls.some(([u]) => u.startsWith(`${LAYAHOST_BASE_URL}/v1/usage`))).toBe(
+      true,
+    );
   });
 });
 

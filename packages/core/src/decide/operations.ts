@@ -12,6 +12,7 @@
 import {
   type DecisionAnswer,
   type DecisionProviderCapabilities,
+  type DecisionProviderKind,
   type DecisionProviderUsage,
   JEV_MINIMUM_CAPABILITIES,
 } from '@cleocode/contracts';
@@ -35,6 +36,7 @@ import {
 import { detectJevCapabilities, listJevModels } from './jev-wire.js';
 import { DecisionProviderError } from './provider.js';
 import { readProviderState, USAGE_REFRESH_MS, writeProviderState } from './provider-state.js';
+import { DECISION_PROVIDER_PRESETS, inferDecisionProviderKind } from './providers.js';
 import { DECIDE_ASK_DECISION_SITE, DECISION_SITES } from './sites/registry.js';
 import {
   createFileSpendLedger,
@@ -136,6 +138,11 @@ export interface DecideProbeOptions {
   readonly providerStatePath?: string;
   /** Wall clock, epoch ms. Default `Date.now`. */
   readonly now?: () => number;
+  /**
+   * Re-detect capabilities even when the cached read is fresh. Set after the
+   * settings change so the provider's extensions apply immediately (T12713).
+   */
+  readonly refreshCapabilities?: boolean;
 }
 
 const KEY_LIMIT_DETAIL =
@@ -241,7 +248,11 @@ export async function probeDecideProvider(
   // Capabilities + usage: reuse the cached read unless it is older than 10 minutes.
   const cached = readProviderState(sealed.baseUrl, opts.providerStatePath);
   let state = cached;
-  if (!cached || now() - cached.detectedAt >= USAGE_REFRESH_MS) {
+  if (
+    !cached ||
+    opts.refreshCapabilities === true ||
+    now() - cached.detectedAt >= USAGE_REFRESH_MS
+  ) {
     const detected = await detectJevCapabilities(sealed.connection(), signal, {
       fetch: opts.fetch,
     });
@@ -298,50 +309,96 @@ export async function probeDecideProvider(
 
 /** Input for {@link configureDecide}. */
 export interface DecideConfigureInput {
-  /** Provider base URL. Omitted → the stored URL is kept. */
+  /**
+   * Provider kind. Omitted → the stored kind when the host is unchanged,
+   * else inferred from `baseUrl` (the layahost host → `layahost`, any other →
+   * `jev`), else `layahost`.
+   */
+  readonly provider?: DecisionProviderKind;
+  /**
+   * Provider base URL. Omitted → the stored URL for the same provider, else
+   * the provider's preset URL. Required for `jev` when nothing is stored.
+   */
   readonly baseUrl?: string;
   /** API key. Omitted → the stored key is kept. */
   readonly apiKey?: string;
   /**
-   * Default model. Omitted → the stored model is kept when the URL is
-   * unchanged; otherwise resolved from the provider's model listing.
+   * Default model. Omitted → the stored model when the URL is unchanged;
+   * otherwise the preset default (`layahost`), else the first model the
+   * provider lists (`jev`).
    */
   readonly model?: string;
-  /** `fetch` for the model lookup; tests inject a stub. */
+  /** `fetch` for the model lookup and the post-save probe; tests inject a stub. */
   readonly fetch?: typeof fetch;
-  /** Deadline for the model lookup, ms. */
+  /** Deadline for the model lookup and the probe, ms. */
   readonly timeoutMs?: number;
 }
 
 /** Result of {@link configureDecide}. */
 export interface DecideConfigureResult extends DecideCredentialsSummary {
   /** Where the stored model came from. */
-  readonly modelSource: 'flag' | 'stored' | 'provider-listing' | 'none';
+  readonly modelSource: 'flag' | 'stored' | 'preset' | 'provider-listing' | 'none';
+  /** Reachability verdict of the probe run after saving. */
+  readonly providerState: DecideProviderState;
+  /** Capabilities detected after saving (the provider's extensions are active from now on). */
+  readonly capabilities?: DecisionProviderCapabilities;
   /** Secret-free warning, e.g. when no model could be resolved. */
   readonly warning?: string;
 }
 
+/** Resolve the provider kind for {@link configureDecide}. */
+function resolveProviderKind(
+  input: DecideConfigureInput,
+  stored: SealedDecideConnection | null,
+): DecisionProviderKind {
+  if (input.provider) return input.provider;
+  const url = input.baseUrl?.trim();
+  if (!url) return stored?.provider ?? 'layahost';
+  if (stored && sameDecideHost(stored.baseUrl, url)) return stored.provider;
+  return inferDecisionProviderKind(url);
+}
+
+/** Resolve the base URL for {@link configureDecide}; throws when `jev` has none. */
+function resolveBaseUrl(
+  input: DecideConfigureInput,
+  provider: DecisionProviderKind,
+  stored: SealedDecideConnection | null,
+): string {
+  const explicit = input.baseUrl?.trim();
+  if (explicit) return explicit;
+  if (stored && stored.provider === provider) return stored.baseUrl;
+  const preset = DECISION_PROVIDER_PRESETS[provider];
+  if (preset.defaultBaseUrl) return preset.defaultBaseUrl;
+  throw new DecideCredentialsError(
+    `the ${provider} provider needs a base URL: pass --url https://your-provider.example (https, or http only for localhost)`,
+  );
+}
+
 /**
- * Store the provider settings, merging omitted values with the stored ones.
+ * Store the provider settings, merging omitted values with the stored ones,
+ * then probe the provider and re-detect its capabilities so its extensions
+ * apply immediately.
  *
- * The Jev `/v1/systemone` endpoint requires a `model`, and no model literal
- * may be hard-coded in core (arch gate 13). So when no model is given (and
- * none is stored for the same URL), this asks the provider (`GET /v1/models`)
- * and stores the FIRST model it lists — the provider's own ordering; layahost
- * lists its routing default first. When that lookup fails the settings are
- * still stored, without a model, and a warning says how to set one.
+ * A model is always stored when one can be known, because the Jev
+ * `/v1/systemone` endpoint rejects a request without one (422, and every
+ * site silently falls back). The model comes from, in order: the flag; the
+ * stored model (same URL); the provider preset (`layahost` →
+ * `LAYAHOST_DEFAULT_MODEL`); the first model the provider lists. Only a
+ * `jev` provider whose listing fails can end with no model, and then a
+ * warning says how to set one.
  *
- * @param input - URL, key, optional model.
- * @returns Secret-free summary plus the model's provenance.
  * A URL whose host differs from the stored one must come with a fresh key:
  * the stored key is never re-used (or sent in the model probe) for a new host.
  *
- * @throws {DecideCredentialsError} On an invalid URL, blank key, invalid model
- *   name, or a host change without a fresh key.
+ * @param input - Provider, URL, key, optional model.
+ * @returns Secret-free summary plus the model's provenance and the probe verdict.
+ * @throws {DecideCredentialsError} On an invalid URL, `jev` without a URL, a
+ *   blank key, an invalid model name, or a host change without a fresh key.
  */
 export async function configureDecide(input: DecideConfigureInput): Promise<DecideConfigureResult> {
   const stored = loadDecideConnection();
-  const baseUrl = input.baseUrl?.trim() || stored?.baseUrl || '';
+  const provider = resolveProviderKind(input, stored);
+  const baseUrl = resolveBaseUrl(input, provider, stored);
   const freshKey = input.apiKey?.trim();
   if (!freshKey && stored && !sameDecideHost(stored.baseUrl, baseUrl)) {
     throw new DecideCredentialsError(
@@ -349,23 +406,39 @@ export async function configureDecide(input: DecideConfigureInput): Promise<Deci
     );
   }
   const apiKey = freshKey || stored?.connection().apiKey || '';
+  const preset = DECISION_PROVIDER_PRESETS[provider];
   const explicit = input.model?.trim();
+  let model: string | undefined;
+  let modelSource: DecideConfigureResult['modelSource'] = 'none';
   if (explicit) {
-    return {
-      ...(await saveDecideCredentials({ baseUrl, apiKey, model: explicit })),
-      modelSource: 'flag',
-    };
+    model = explicit;
+    modelSource = 'flag';
+  } else if (stored?.model && stored.baseUrl === baseUrl) {
+    model = stored.model;
+    modelSource = 'stored';
+  } else if (preset.defaultModel) {
+    model = preset.defaultModel;
+    modelSource = 'preset';
   }
-  if (stored?.model && stored.baseUrl === baseUrl) {
-    const kept = await saveDecideCredentials({ baseUrl, apiKey, model: stored.model });
-    return { ...kept, modelSource: 'stored' };
-  }
-  const saved = await saveDecideCredentials({ baseUrl, apiKey });
+
+  const saved = await saveDecideCredentials({
+    provider,
+    baseUrl,
+    apiKey,
+    ...(model ? { model } : {}),
+  });
   const probe = await probeDecideProvider({
     connection: loadDecideConnection(),
     fetch: input.fetch,
     timeoutMs: input.timeoutMs,
+    refreshCapabilities: true,
   });
+  const verdict = {
+    providerState: probe.state,
+    ...(probe.capabilities ? { capabilities: probe.capabilities } : {}),
+  };
+  if (model) return { ...saved, modelSource, ...verdict };
+
   const first = probe.models?.[0];
   if (!first) {
     const why =
@@ -373,11 +446,12 @@ export async function configureDecide(input: DecideConfigureInput): Promise<Deci
     return {
       ...saved,
       modelSource: 'none',
+      ...verdict,
       warning: `No model stored (${why}). ${NO_MODEL_WARNING}`,
     };
   }
-  const withModel = await saveDecideCredentials({ baseUrl, apiKey, model: first });
-  return { ...withModel, modelSource: 'provider-listing' };
+  const withModel = await saveDecideCredentials({ provider, baseUrl, apiKey, model: first });
+  return { ...withModel, modelSource: 'provider-listing', ...verdict };
 }
 
 /**

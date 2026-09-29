@@ -112,6 +112,7 @@ describe('decide credential store', () => {
       expect(s).not.toContain('SECRETVALUE');
     }
     expect(JSON.parse(JSON.stringify(sealed))).toEqual({
+      provider: 'jev',
       baseUrl: URL,
       model: 'm-1',
       keyPreview: '…7890',
@@ -147,6 +148,25 @@ describe('decide credential store', () => {
       : [];
     expect(left).toEqual([]);
     expect(await clearDecideCredentials()).toBe(false);
+  });
+
+  it('T12713: loads a v1 file (no provider) as jev and rewrites it as v2 on save', async () => {
+    const { writeFileSync } = await import('node:fs');
+    writeFileSync(
+      decideCredentialsPath(),
+      JSON.stringify({ version: 1, baseUrl: URL, apiKey: KEY, model: 'm-1' }),
+      { mode: 0o600 },
+    );
+    const sealed = loadDecideConnection();
+    expect(sealed?.provider).toBe('jev');
+    expect(sealed?.connection()).toEqual({ baseUrl: URL, apiKey: KEY, model: 'm-1' });
+    expect(describeDecideCredentials()).toMatchObject({ configured: true, provider: 'jev' });
+
+    await saveDecideCredentials({ provider: 'layahost', baseUrl: URL, apiKey: KEY, model: 'm-1' });
+    const onDisk = JSON.parse(readFileSync(decideCredentialsPath(), 'utf-8'));
+    expect(onDisk).toMatchObject({ version: 2, provider: 'layahost', baseUrl: URL });
+    expect(mode(decideCredentialsPath())).toBe(0o600);
+    expect(loadDecideConnection()?.provider).toBe('layahost');
   });
 
   it('treats a missing or malformed file as unconfigured', async () => {

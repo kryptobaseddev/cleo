@@ -30,6 +30,7 @@ import type { WizardOptions } from './wizard.js';
  */
 export const WIZARD_SECTION_IDS: ReadonlySet<string> = new Set<string>([
   'llm',
+  'system-one',
   'models-roles',
   'identity',
   'harness',

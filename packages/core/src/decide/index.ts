@@ -54,6 +54,7 @@ export {
 export {
   clearDecideCredentials,
   DECIDE_CREDENTIALS_FILE,
+  DECIDE_CREDENTIALS_VERSION,
   DecideCredentialsError,
   type DecideCredentialsInput,
   type DecideCredentialsSummary,
@@ -123,6 +124,13 @@ export {
   writeProviderState,
 } from './provider-state.js';
 export {
+  DECISION_PROVIDER_PRESETS,
+  type DecisionProviderPreset,
+  inferDecisionProviderKind,
+  listDecisionProviderPresets,
+  parseDecisionProviderKind,
+} from './providers.js';
+export {
   type AskSiteDecisionInput,
   askSiteDecision,
   type DecisionSiteMode,
@@ -168,3 +176,9 @@ export {
   utcMonth,
 } from './spend.js';
 export { type DecideFetch, type DecideFetchInit, decideFetch } from './transport.js';
+export {
+  DECIDE_WIZARD_MAX_ATTEMPTS,
+  type DecideWizardOptions,
+  type DecideWizardResult,
+  runDecideWizard,
+} from './wizard.js';

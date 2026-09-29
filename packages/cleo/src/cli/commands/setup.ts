@@ -347,13 +347,13 @@ export const setupCommand = defineCommand({
   meta: {
     name: 'setup',
     description:
-      'Interactive setup wizard — runs all 8 sections in canonical order (identity → llm → sentient → harness → brain → project-conventions → integrations → verification). Use --section <name> for a single section, --non-interactive with section-specific flags to configure without prompts, --config-json for fully scripted setup, or --reset to reconfigure already-set sections.',
+      'Interactive setup wizard — runs every section in canonical order (llm → system-one → models-roles → identity → sentient → project-conventions → harness → brain → integrations → telemetry → verification); system-one is optional. Use --section <name> for a single section, --non-interactive with section-specific flags to configure without prompts, --config-json for fully scripted setup, or --reset to reconfigure already-set sections.',
   },
   args: {
     section: {
       type: 'string',
       description:
-        'Run only one named section. Valid: llm | models-roles | identity | sentient | harness | brain | project-conventions | integrations | verification',
+        'Run only one named section. Valid: llm | system-one | models-roles | identity | sentient | harness | brain | project-conventions | integrations | telemetry | verification',
     },
     'non-interactive': {
       type: 'boolean',

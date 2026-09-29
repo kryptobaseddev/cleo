@@ -47,15 +47,24 @@
  * `@cleocode/core/setup`).  The matching `setup.ts` catch block prints
  * `"Setup interrupted. Run 'cleo setup' to continue."` and exits 130.
  *
+ * ## Hidden secret input (T12714)
+ *
+ * {@link ReadlineWizardIO.secret} writes its question, then mutes the
+ * {@link MutableOutput} stream readline echoes into until the answer is
+ * submitted, so the characters of a typed or pasted API key never reach the
+ * terminal.
+ *
  * @task T9421
  * @task T9599
  * @task T9612
+ * @task T12714
  * @epic E-CONFIG-AUTH-UNIFY (E3 §5.3 T-E3-2)
  * @epic E-CLEO-SETUP-V2 (§3.5 T-SETUP-V2-6)
  */
 
 import { stdin as input, stdout as output } from 'node:process';
 import * as readline from 'node:readline/promises';
+import { Writable } from 'node:stream';
 import type { WizardIO } from '@cleocode/core/setup';
 import { WizardFatalError, WizardInterruptError } from '@cleocode/core/setup';
 
@@ -131,6 +140,58 @@ export class StdinClosedError extends WizardFatalError {
 }
 
 // ---------------------------------------------------------------------------
+// Muted output (T12714)
+// ---------------------------------------------------------------------------
+
+/**
+ * Output stream readline echoes into. While {@link MutableOutput.muted} is
+ * true every write is dropped, so a secret being typed is never echoed.
+ * Otherwise writes pass through to the wrapped stream. `isTTY` and `columns`
+ * mirror the wrapped stream so readline keeps its terminal behaviour.
+ *
+ * @task T12714
+ */
+export class MutableOutput extends Writable {
+  /** When true, writes are dropped. */
+  muted = false;
+  /** Mirrors the wrapped stream: readline enables terminal mode (and echo) from it. */
+  readonly isTTY: boolean;
+
+  /** @param target - Stream that receives writes while unmuted. */
+  constructor(private readonly target: NodeJS.WritableStream) {
+    super();
+    this.isTTY = 'isTTY' in target && target.isTTY === true;
+  }
+
+  /** Terminal width of the wrapped stream, when it reports one. */
+  get columns(): number | undefined {
+    return 'columns' in this.target && typeof this.target.columns === 'number'
+      ? this.target.columns
+      : undefined;
+  }
+
+  /** Forward a chunk unless muted. */
+  override _write(
+    chunk: Buffer | string,
+    encoding: BufferEncoding,
+    callback: (error?: Error | null) => void,
+  ): void {
+    if (this.muted) {
+      callback();
+      return;
+    }
+    const done = (): void => callback();
+    if (typeof chunk === 'string') this.target.write(chunk, encoding, done);
+    else this.target.write(chunk, done);
+  }
+
+  /** Write straight to the wrapped stream, bypassing the mute. */
+  writeUnmuted(text: string): void {
+    this.target.write(text);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // ReadlineWizardIO
 // ---------------------------------------------------------------------------
 
@@ -170,6 +231,8 @@ export class ReadlineWizardIO implements WizardIO {
    * @internal
    */
   protected readonly rl: readline.Interface;
+  /** The stream readline echoes into; muted while a secret is typed. */
+  private readonly output: MutableOutput;
   /** AbortController aborted when stdin closes — surfaced as {@link StdinClosedError}. */
   private readonly eofController: AbortController;
   /**
@@ -190,7 +253,12 @@ export class ReadlineWizardIO implements WizardIO {
    */
   constructor(inStream: NodeJS.ReadableStream = input, outStream: NodeJS.WritableStream = output) {
     this.eofController = new AbortController();
-    this.rl = readline.createInterface({ input: inStream, output: outStream });
+    this.output = new MutableOutput(outStream);
+    this.rl = readline.createInterface({
+      input: inStream,
+      output: this.output,
+      terminal: this.output.isTTY,
+    });
     // When stdin closes, abort the controller so all pending question()
     // calls throw an AbortError that we wrap into StdinClosedError.
     this.rl.on('close', () => {
@@ -253,6 +321,29 @@ export class ReadlineWizardIO implements WizardIO {
       return stripBracketedPaste(raw);
     } catch (err) {
       this.rethrowEof(err);
+    }
+  }
+
+  /**
+   * Ask for a secret without echoing it: the question is written, then the
+   * output stream is muted until the answer is submitted. Bracketed-paste
+   * markers are stripped like {@link prompt}.
+   *
+   * @param question - The question, e.g. `API key:`.
+   * @returns The trimmed answer; `''` when none was given.
+   * @task T12714
+   */
+  async secret(question: string): Promise<string> {
+    this.output.writeUnmuted(`${question} `);
+    this.output.muted = true;
+    try {
+      const raw = await this.rl.question('', { signal: this.eofController.signal });
+      return stripBracketedPaste(raw);
+    } catch (err) {
+      this.rethrowEof(err);
+    } finally {
+      this.output.muted = false;
+      this.output.writeUnmuted('\n');
     }
   }
 

@@ -1,6 +1,10 @@
 /**
- * Decision-provider credential store — the two settings a user supplies
- * (an API base URL and an API key) plus an optional default model.
+ * Decision-provider credential store — the provider kind, the two settings a
+ * user supplies (an API base URL and an API key) and the default model.
+ *
+ * Schema v2 (T12713) adds `provider` (`layahost` | `jev`). A v1 file, written
+ * before provider kinds existed, loads as `jev` (a custom URL) and is
+ * rewritten as v2 on the next save.
  *
  * Stored at `<cleoHome>/decide-credentials.json` (resolved through
  * `@cleocode/paths`, arch gate 2) with 0600 permissions:
@@ -23,6 +27,7 @@
  * masked preview only.
  *
  * @task T12491
+ * @task T12713
  * @epic T12486
  */
 
@@ -38,7 +43,11 @@ import {
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { inspect } from 'node:util';
-import { decisionProviderConfigSchema } from '@cleocode/contracts';
+import {
+  type DecisionProviderKind,
+  decisionProviderConfigSchema,
+  decisionProviderKindSchema,
+} from '@cleocode/contracts';
 import { getCleoHome } from '@cleocode/paths';
 import { z } from 'zod';
 import { withLock } from '../store/file-utils.js';
@@ -48,21 +57,49 @@ import type { DecisionProviderConnection } from './provider.js';
 /** File name of the store, directly under the CLEO home. */
 export const DECIDE_CREDENTIALS_FILE = 'decide-credentials.json';
 
-/** On-disk shape of the store. `null` settings mean "not configured". */
-const storeSchema = z.object({
-  version: z.literal(1),
+/** Current on-disk schema version. */
+export const DECIDE_CREDENTIALS_VERSION = 2;
+
+/** Fields shared by every schema version. `null` settings mean "not configured". */
+const storeFields = {
   baseUrl: z.string().nullable(),
   apiKey: z.string().nullable(),
   model: z.string().nullable().optional(),
   updatedAt: z.string().optional(),
+};
+
+/** v1 (T12491): no provider kind. Loads as `jev`. */
+const storeV1Schema = z.object({ version: z.literal(1), ...storeFields });
+
+/** v2 (T12713): adds the provider kind. */
+const storeV2Schema = z.object({
+  version: z.literal(DECIDE_CREDENTIALS_VERSION),
+  provider: decisionProviderKindSchema.nullable(),
+  ...storeFields,
 });
 
-type DecideCredentialsStore = z.infer<typeof storeSchema>;
+type DecideCredentialsStore = z.infer<typeof storeV2Schema>;
 
-const EMPTY_STORE: DecideCredentialsStore = { version: 1, baseUrl: null, apiKey: null };
+const EMPTY_STORE: DecideCredentialsStore = {
+  version: DECIDE_CREDENTIALS_VERSION,
+  provider: null,
+  baseUrl: null,
+  apiKey: null,
+};
+
+/** Parse either schema version into the v2 shape; a v1 file becomes `jev`. */
+function parseStore(value: unknown): DecideCredentialsStore | null {
+  const v2 = storeV2Schema.safeParse(value);
+  if (v2.success) return v2.data;
+  const v1 = storeV1Schema.safeParse(value);
+  if (!v1.success) return null;
+  return { ...v1.data, version: DECIDE_CREDENTIALS_VERSION, provider: 'jev' };
+}
 
 /** Settings accepted by {@link saveDecideCredentials}. */
 export interface DecideCredentialsInput {
+  /** Provider kind. Omitted → `jev` (a custom endpoint). */
+  readonly provider?: DecisionProviderKind;
   /** Absolute provider base URL, e.g. `https://provider.example`. */
   readonly baseUrl: string;
   /** API key. Leading/trailing whitespace (e.g. a piped newline) is trimmed. */
@@ -77,6 +114,8 @@ export interface DecideCredentialsSummary {
   readonly configured: boolean;
   /** Absolute path of the store file. */
   readonly path: string;
+  /** Stored provider kind, when present. */
+  readonly provider?: DecisionProviderKind;
   /** Stored base URL, when present. */
   readonly baseUrl?: string;
   /** Stored default model, when present. */
@@ -112,6 +151,8 @@ export function maskApiKey(apiKey: string): string {
  * serialising or inspecting the handle yields the masked preview only.
  */
 export class SealedDecideConnection {
+  /** Provider kind (not secret). */
+  readonly provider: DecisionProviderKind;
   /** Provider base URL (not secret). */
   readonly baseUrl: string;
   /** Default model, when configured. */
@@ -124,8 +165,15 @@ export class SealedDecideConnection {
    * @param baseUrl - Provider base URL.
    * @param apiKey - Plaintext key; captured privately.
    * @param model - Optional default model.
+   * @param provider - Provider kind. Default `jev`.
    */
-  constructor(baseUrl: string, apiKey: string, model?: string) {
+  constructor(
+    baseUrl: string,
+    apiKey: string,
+    model?: string,
+    provider: DecisionProviderKind = 'jev',
+  ) {
+    this.provider = provider;
     this.baseUrl = baseUrl;
     this.#apiKey = apiKey;
     this.keyPreview = maskApiKey(apiKey);
@@ -146,8 +194,14 @@ export class SealedDecideConnection {
   }
 
   /** @returns The secret-free JSON form. */
-  toJSON(): { baseUrl: string; model?: string; keyPreview: string } {
+  toJSON(): {
+    provider: DecisionProviderKind;
+    baseUrl: string;
+    model?: string;
+    keyPreview: string;
+  } {
     return {
+      provider: this.provider,
       baseUrl: this.baseUrl,
       ...(this.model ? { model: this.model } : {}),
       keyPreview: this.keyPreview,
@@ -156,7 +210,7 @@ export class SealedDecideConnection {
 
   /** @returns A secret-free string form. */
   toString(): string {
-    return `SealedDecideConnection(${this.baseUrl}, key ${this.keyPreview})`;
+    return `SealedDecideConnection(${this.provider} ${this.baseUrl}, key ${this.keyPreview})`;
   }
 
   /** Secret-free `util.inspect` / `console.log` form. */
@@ -175,8 +229,7 @@ function readStoreSync(path: string = decideCredentialsPath()): DecideCredential
   }
   if (!raw.trim()) return EMPTY_STORE;
   try {
-    const parsed = storeSchema.safeParse(JSON.parse(raw));
-    return parsed.success ? parsed.data : EMPTY_STORE;
+    return parseStore(JSON.parse(raw)) ?? EMPTY_STORE;
   } catch {
     return EMPTY_STORE;
   }
@@ -254,6 +307,7 @@ export function loadDecideConnection(): SealedDecideConnection | null {
     baseUrl,
     apiKey,
     model && isValidDecisionModelName(model) ? model : undefined,
+    store.provider ?? 'jev',
   );
 }
 
@@ -269,6 +323,7 @@ export function describeDecideCredentials(): DecideCredentialsSummary {
   return {
     configured: sealed !== null,
     path,
+    ...(store.provider ? { provider: store.provider } : {}),
     ...(store.baseUrl ? { baseUrl: withoutUserinfo(store.baseUrl) } : {}),
     ...(store.model ? { model: store.model } : {}),
     ...(store.apiKey ? { keyPreview: maskApiKey(store.apiKey) } : {}),
@@ -364,7 +419,8 @@ function ensureStoreFile(path: string): void {
 }
 
 /**
- * Store the base URL, API key and optional model (0600, locked, atomic).
+ * Store the provider kind, base URL, API key and optional model (0600, locked,
+ * atomic). Always writes schema v2.
  *
  * @param input - Settings to store; replaces any previous settings.
  * @returns Secret-free summary of what is now stored.
@@ -401,7 +457,8 @@ export async function saveDecideCredentials(
   await withLock<DecideCredentialsStore>(
     path,
     () => ({
-      version: 1,
+      version: DECIDE_CREDENTIALS_VERSION,
+      provider: input.provider ?? 'jev',
       baseUrl,
       apiKey,
       model: model || null,

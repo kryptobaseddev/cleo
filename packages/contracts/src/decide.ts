@@ -217,10 +217,32 @@ export interface DecisionOutcome {
   readonly inputTokens?: number;
 }
 
+// ─── Provider kinds (T12713) ─────────────────────────────────────────────────
+
+/**
+ * Every supported decision-provider kind, recommended first.
+ *
+ * - `layahost` — the hosted provider at {@link LAYAHOST_BASE_URL}; the user
+ *   supplies only an API key.
+ * - `jev`      — any other Jev-compatible endpoint; the user supplies the URL.
+ */
+export const DECISION_PROVIDER_KINDS = ['layahost', 'jev'] as const;
+
+/** A decision-provider kind. See {@link DECISION_PROVIDER_KINDS}. */
+export type DecisionProviderKind = (typeof DECISION_PROVIDER_KINDS)[number];
+
+/** Base URL of the layahost API (its OpenAPI `servers[0].url`). */
+export const LAYAHOST_BASE_URL = 'https://layahost.com';
+
+/** layahost's routing model, the default for a layahost connection. */
+export const LAYAHOST_DEFAULT_MODEL = 'laya-auto';
+
 /** Connection settings for a decision provider. */
 export interface DecisionProviderConfig {
   /** Absolute base URL of the provider's API (no trailing path to the endpoint). */
   readonly baseUrl: string;
+  /** Provider kind; absent means a custom Jev-compatible endpoint (`jev`). */
+  readonly provider?: DecisionProviderKind;
 }
 
 // ─── Provider capabilities (T12664) ──────────────────────────────────────────
@@ -432,7 +454,11 @@ export const decisionOutcomeSchema = z.object({
   inputTokens: z.number().int().nonnegative().optional(),
 });
 
+/** Zod schema for {@link DecisionProviderKind}. */
+export const decisionProviderKindSchema = z.enum(DECISION_PROVIDER_KINDS);
+
 /** Zod schema for {@link DecisionProviderConfig}; `baseUrl` must be an absolute URL. */
 export const decisionProviderConfigSchema = z.object({
   baseUrl: z.url(),
+  provider: decisionProviderKindSchema.optional(),
 });

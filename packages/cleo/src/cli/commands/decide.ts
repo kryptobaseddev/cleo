@@ -2,13 +2,16 @@
  * CLI command group: `cleo decide` — configure and probe the typed-decision
  * ("System One") provider.
  *
- * The user supplies two settings, an API base URL and an API key, plus an
- * optional default model. Logic lives in `@cleocode/core/decide/operations`;
- * these handlers only parse flags and render (arch gate 6). No output ever
- * carries the key — at most a masked last-4 preview.
+ * The user picks a provider (`layahost`, the default, needs only an API key;
+ * `jev` also needs a URL) and supplies the key, plus an optional default
+ * model. Logic lives in `@cleocode/core/decide/`; these handlers only parse
+ * flags and render (arch gate 6). No output ever carries the key — at most a
+ * masked last-4 preview.
  *
  * Subcommands:
- *   cleo decide config --url <u> --key-stdin [--model <m>]   — store settings (recommended form)
+ *   cleo decide config                                       — TTY: setup wizard (hidden key input); else show settings
+ *   cleo decide config --provider layahost --key-stdin       — store settings (recommended scripted form)
+ *   cleo decide config --provider jev --url <u> --key-stdin [--model <m>] — custom Jev endpoint
  *   cleo decide config --url <u> --key <k>                   — same; the key lands in shell history
  *   cleo decide config --clear                               — remove settings
  *   cleo decide status                                       — probe GET {url}/v1/models
@@ -17,10 +20,12 @@
  *   cleo decide budget reset                                 — fresh spend ledger (repair)
  *
  * @task T12491
+ * @task T12713
  * @epic T12486
  */
 
 import {
+  DECISION_PROVIDER_KINDS,
   DECISION_RUNGS,
   DECISION_SITE_MODES,
   type DecisionRung,
@@ -33,10 +38,13 @@ import {
   configureDecide,
   describeDecideCredentials,
   listDecisionSites,
+  parseDecisionProviderKind,
   probeDecideProvider,
   resetDecideBudget,
+  runDecideWizard,
 } from '@cleocode/core/decide/index.js';
 import { defineCommand, showUsage } from '../lib/define-cli-command.js';
+import { ReadlineWizardIO } from '../lib/readline-wizard-io.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
 /** Read piped stdin (trimmed). Returns `''` for a TTY. */
@@ -54,39 +62,76 @@ function failValidation(message: string, operation: string, fix: string): void {
   process.exitCode = ExitCode.VALIDATION_ERROR;
 }
 
-const CONFIG_FIX =
-  'printf %s "$KEY" | cleo decide config --url https://provider.example --key-stdin';
+const CONFIG_FIX = 'printf %s "$KEY" | cleo decide config --provider layahost --key-stdin';
+
+/** Run the interactive setup wizard on the terminal (stderr prompts, hidden key). */
+async function runConfigWizard(op: string): Promise<void> {
+  const io = new ReadlineWizardIO(process.stdin, process.stderr);
+  try {
+    cliOutput(await runDecideWizard(io), { command: 'decide', operation: op });
+  } catch (err) {
+    failValidation(err instanceof Error ? err.message : 'setup failed', op, CONFIG_FIX);
+  } finally {
+    io.close();
+  }
+}
 
 /** `cleo decide config` */
 const decideConfigCommand = defineCommand({
   meta: {
     name: 'config',
     description:
-      'Store the decision provider API URL and key (0600 file in the CLEO home). Prefer --key-stdin so the key stays out of shell history. No flags shows the current settings (key masked).',
+      'Store the decision provider, API key and model (0600 file in the CLEO home), then probe it and detect its capabilities. --provider layahost (default) needs only the key; --provider jev needs --url. Prefer --key-stdin so the key stays out of shell history. No flags on a terminal runs the setup wizard (the key is typed hidden); no flags without a terminal shows the current settings (key masked).',
   },
   args: {
-    url: { type: 'string', description: 'Provider API base URL, e.g. https://layahost.com' },
+    provider: {
+      type: 'string',
+      description: `Provider: ${DECISION_PROVIDER_KINDS.join('|')} (layahost: fixed URL, model laya-auto; jev: custom URL, required)`,
+    },
+    url: {
+      type: 'string',
+      description: 'Provider API base URL: overrides the layahost default; required for jev',
+    },
     key: {
       type: 'string',
       description:
         'API key. Visible in the process list (ps) and shell history; prefer --key-stdin',
     },
     'key-stdin': { type: 'boolean', description: 'Read the API key from stdin (recommended)' },
-    model: { type: 'string', description: 'Optional default model; omitted → provider listing' },
+    model: {
+      type: 'string',
+      description:
+        'Default model; omitted → the stored model, the preset (layahost: laya-auto) or the first listed (jev)',
+    },
     clear: { type: 'boolean', description: 'Remove the stored URL, key and model' },
   },
   async run({ args }) {
     const op = 'decide.config';
     if (args.clear === true)
       return cliOutput(await clearDecideConfig(), { command: 'decide', operation: op });
+    const provider = parseDecisionProviderKind(args.provider);
+    if (args.provider !== undefined && provider === undefined) {
+      return failValidation(`unknown provider '${args.provider}'`, op, CONFIG_FIX);
+    }
     const apiKey = args['key-stdin'] === true ? await readSecretFromStdin() : args.key;
     if (args['key-stdin'] === true && !apiKey)
       return failValidation('--key-stdin set but stdin is empty or a TTY', op, CONFIG_FIX);
-    if (args.url === undefined && apiKey === undefined && args.model === undefined) {
+    const noSettings =
+      provider === undefined &&
+      args.url === undefined &&
+      apiKey === undefined &&
+      args.model === undefined;
+    if (noSettings && process.stdin.isTTY && process.stderr.isTTY) return runConfigWizard(op);
+    if (noSettings) {
       return cliOutput(describeDecideCredentials(), { command: 'decide', operation: op });
     }
     try {
-      const result = await configureDecide({ baseUrl: args.url, apiKey, model: args.model });
+      const result = await configureDecide({
+        provider,
+        baseUrl: args.url,
+        apiKey,
+        model: args.model,
+      });
       cliOutput(result, { command: 'decide', operation: op });
     } catch (err) {
       failValidation(err instanceof Error ? err.message : 'invalid settings', op, CONFIG_FIX);
@@ -218,7 +263,7 @@ export const decideCommand = defineCommand({
   meta: {
     name: 'decide',
     description:
-      'System One integration (typed decisions): decide config (API URL + key), decide status (reachability probe), decide ask (one debug question), decide sites (the registered decision sites). Unconfigured means heuristics answer.',
+      'System One integration (typed decisions): decide config (provider + API key; wizard on a terminal), decide status (reachability probe), decide ask (one debug question), decide sites (the registered decision sites). Unconfigured means heuristics answer.',
   },
   subCommands: {
     config: decideConfigCommand,

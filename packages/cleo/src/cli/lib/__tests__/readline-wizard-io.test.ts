@@ -380,3 +380,68 @@ describe('select() — happy path', () => {
     io.close();
   });
 });
+
+// ---------------------------------------------------------------------------
+// secret() — hidden input (T12714)
+// ---------------------------------------------------------------------------
+
+describe('ReadlineWizardIO.secret — the typed key is never echoed (T12714)', () => {
+  const SECRET = 'sk-live-HIDDENKEY-9753';
+
+  /**
+   * A terminal-like output: `isTTY` makes readline run in terminal mode, where
+   * it echoes every typed character to its output stream.
+   */
+  function ttyIO(): { io: ReadlineWizardIO; input: PassThrough; written: () => string } {
+    const input = new PassThrough();
+    const output = Object.assign(new PassThrough(), { isTTY: true, columns: 80 });
+    let captured = '';
+    output.on('data', (chunk: Buffer) => {
+      captured += chunk.toString('utf-8');
+    });
+    return { io: new ReadlineWizardIO(input, output), input, written: () => captured };
+  }
+
+  it('control: prompt() on the same terminal output DOES echo the typed characters', async () => {
+    const { io, input, written } = ttyIO();
+    setImmediate(() => input.write(`${SECRET}\r`));
+    expect(await io.prompt('Name:')).toBe(SECRET);
+    io.close();
+    expect(written()).toContain(SECRET);
+  });
+
+  it('secret() writes the question but the muted stream receives no key characters', async () => {
+    const { io, input, written } = ttyIO();
+    // Type the key one character at a time, as a person would.
+    setImmediate(() => {
+      for (const ch of SECRET) input.write(ch);
+      input.write('\r');
+    });
+    const answer = await io.secret('API key:');
+    // The mute is lifted afterwards: a later prompt echoes again.
+    setImmediate(() => input.write('visible\r'));
+    await io.prompt('Next:');
+    io.close();
+
+    expect(answer).toBe(SECRET);
+    const out = written();
+    expect(out).toContain('API key:');
+    expect(out).toContain('visible');
+    expect(out).not.toContain('HIDDENKEY');
+    for (const fragment of ['sk-l', '9753', 'KEY-']) expect(out).not.toContain(fragment);
+  });
+
+  it('strips bracketed-paste markers from a pasted secret', async () => {
+    const { io, input, written } = ttyIO();
+    setImmediate(() => input.write(`\x1b[200~${SECRET}\x1b[201~\r`));
+    expect(await io.secret('API key:')).toBe(SECRET);
+    io.close();
+    expect(written()).not.toContain('HIDDENKEY');
+  });
+
+  it('propagates StdinClosedError when stdin closes before the secret arrives', async () => {
+    const io = makeIO([], true);
+    await expect(io.secret('API key:')).rejects.toThrow(StdinClosedError);
+    io.close();
+  });
+});
