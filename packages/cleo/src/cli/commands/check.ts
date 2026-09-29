@@ -766,6 +766,17 @@ const checkArchCommand = defineCommand({
         script: 'scripts/lint-emitted-skills.mjs',
         description: 'Every skill code emits is installable (ratchet)',
       },
+      {
+        // T12704: an ES module has no `require`. A bare `require()` throws
+        // under Node while vitest supplies one, so tests stay green and the
+        // shipped build fails, usually inside a swallowing `try`: the docs
+        // audit wrote nothing, two doctor checks never ran, and no
+        // .worktreeinclude glob ever copied.
+        id: 'gate-31',
+        task: 'T12704',
+        script: 'scripts/lint-no-esm-bare-require.mjs',
+        description: 'No bare require() in ESM package sources',
+      },
     ] as const;
 
     const scriptArgs = strict ? ['--strict'] : ['--check'];

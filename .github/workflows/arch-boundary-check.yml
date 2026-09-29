@@ -554,6 +554,22 @@ jobs:
       - name: Assert every skill code emits is installable
         run: node scripts/lint-emitted-skills.mjs --check
 
+  esm-bare-require:
+    # Gate 31 (T12704). An ES module has no `require`: a bare call throws
+    # under Node while vitest supplies one, so unit tests cannot catch it.
+    # Wired here as well as in `cleo check arch` (gate 20 requires both).
+    # Pure node, no install needed.
+    name: No bare require() in ESM (T12704 · gate 31)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Assert no ESM package source calls a bare require()
+        run: node scripts/lint-no-esm-bare-require.mjs --check
+
   arch-gate-parity:
     # Gate 20 (T12122) — the gate on the gates. Asserts that the set bundled
     # into `cleo check arch` and the set documented in the AGENTS.md table name
