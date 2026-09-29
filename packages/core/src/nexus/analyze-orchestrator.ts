@@ -49,10 +49,12 @@ import { readKnowledgeIndexAssessment } from './knowledge.js';
 import { resolveSourceRoots } from './source-roots.js';
 import {
   canonicalProjectRoot,
+  DROP_MISSING_REPOSITORIES_FLAG,
   describeGraphOwnershipMismatch,
   type GraphOwnershipMismatch,
   nexusRebindCommand,
   portableSourceRoots,
+  shellQuoteArg,
 } from './stored-roots.js';
 
 /**
@@ -149,27 +151,14 @@ function applyParseCacheUpdate(tx: NodeSQLiteDatabase, update: GraphParseCacheUp
   }
 }
 
-/**
- * Fail closed when a required root observation did not finish successfully.
- *
- * @param roots - Observed roots.
- * @param remedy - Command that rebuilds without inclusions carried over from
- *   the previous generation, when they were carried (T12659); named in the error.
- */
-function requireObservedRoots(
-  roots: GraphSourceRootAssessment,
-  remedy: string | null = null,
-): void {
+/** Fail closed when a required root observation did not finish successfully. */
+function requireObservedRoots(roots: GraphSourceRootAssessment): void {
   const failed = roots.roots.filter(
     (root) => root.status !== 'available' && root.status !== 'unversioned',
   );
   if (failed.length)
     throw new Error(
-      `Source-root observation incomplete; previous graph retained: ${failed.map((root) => `${root.requestedPath}: ${root.diagnostics.join('; ')}`).join(' | ')}${
-        remedy && failed.some((root) => root.explicitlyIncluded && root.status === 'missing')
-          ? `. Repositories carried over from the previous generation are missing; rebuild without them: ${remedy}`
-          : ''
-      }`,
+      `Source-root observation incomplete; previous graph retained: ${failed.map((root) => `${root.requestedPath}: ${root.diagnostics.join('; ')}`).join(' | ')}`,
     );
 }
 
@@ -186,7 +175,8 @@ interface AnalysisIdentity {
  *
  * A stored graph whose recorded root differs from the live root is refused —
  * previous graph retained — unless `allowRebind` (a `--full` run) is set AND
- * the stored project id equals the live id read from project-info. That is a
+ * the stored project id equals the live `projectId` read from project-info (a
+ * path-derived projectHash never qualifies). That is a
  * moved project: the full rebuild re-binds the graph to the live root (T12659).
  * Every refusal names the recorded vs live root and id and the exact remedy.
  */
@@ -202,7 +192,9 @@ async function readAnalysisIdentity(
   try {
     const info = await getProjectInfo(projectRoot);
     projectId = info.projectId || info.projectHash;
-    verified = Boolean(projectId);
+    // Only a real projectId can authorize a re-bind: a projectHash is derived
+    // from the path, so after a move it would describe the NEW root.
+    verified = Boolean(info.projectId);
   } catch (error) {
     if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
     projectId = previousRoots?.projectId;
@@ -250,8 +242,16 @@ export interface NexusGraphRebind {
   projectId: string;
   /** Graph generation published by the re-binding rebuild. */
   generation: string | null;
-  /** Previously included repositories absent under the live root, so not carried over. */
+  /** Included repositories dropped because they were missing (only with `dropMissingRepositories`). */
   droppedRepositories: string[];
+}
+
+/** Included repositories an analysis dropped because they were missing on disk (T12659). */
+export interface NexusDroppedRepositories {
+  /** Relative paths dropped from the index scope. */
+  paths: string[];
+  /** Command that re-includes every dropped path once it exists again. */
+  restoreCommand: string;
 }
 
 /**
@@ -486,6 +486,13 @@ export interface NexusAnalysisParams {
   /** Explicit relative paths of nested repositories authorized for source inclusion. */
   includedRepositories?: readonly string[];
   /**
+   * Drop included repositories (explicit or carried over) that are missing on
+   * disk instead of refusing. Off by default: a missing inclusion refuses and
+   * keeps the previous graph (T12659). Dropped paths are reported with a
+   * restore command in {@link NexusAnalysisResult.droppedRepositories}.
+   */
+  dropMissingRepositories?: boolean;
+  /**
    * Progress callback invoked every 50 files (and on completion).
    * Omit for JSON output mode.
    */
@@ -515,10 +522,11 @@ export interface NexusAnalysisResult {
    */
   rebind?: NexusGraphRebind;
   /**
-   * Inclusions carried over from the previous generation that a `--full` run
-   * dropped because they no longer exist under the live source root (T12659).
+   * Included repositories dropped because they were missing on disk, only with
+   * `dropMissingRepositories` (T12659), and the one command that restores them
+   * once they are back.
    */
-  droppedRepositories?: string[];
+  droppedRepositories?: NexusDroppedRepositories;
 }
 
 // ---------------------------------------------------------------------------
@@ -607,22 +615,33 @@ async function runScopedNexusAnalysis(
   };
 
   const requestedSource = resolve(params.repoPath);
-  // Inclusions carried over from the previous generation (none passed): on a
-  // re-bind, by their recorded relative path. A `--full` run drops a carried
-  // inclusion that no longer exists under the live source root — a moved or
-  // re-rooted project (parent -> child) — and reports it, instead of refusing
-  // with nothing left to run (T12659). Explicit inclusions are never dropped.
-  const carried =
+  // Inclusions in effect: the explicit list, else those carried over from the
+  // previous generation (on a re-bind, by their recorded relative path). An
+  // inclusion missing on disk — a moved or re-rooted project, an unmounted
+  // volume, a sub-repo mid-reclone — REFUSES, even on `--full` and on a
+  // re-bind, and the previous graph is kept. It is dropped only with the
+  // explicit `dropMissingRepositories` opt-in, and the result then carries a
+  // one-command restore (T12659).
+  const effective =
     params.includedRepositories !== undefined
-      ? null
+      ? [...params.includedRepositories]
       : reboundFrom !== null
         ? [...(previousAssessment?.includedRepositories ?? [])]
         : includedRepositoryScope(previousAssessment, requestedSource);
-  const droppedRepositories =
-    full && carried ? carried.filter((rel) => !existsSync(join(requestedSource, rel))) : [];
-  const includedRepositories =
-    params.includedRepositories ??
-    (carried ?? []).filter((rel) => !droppedRepositories.includes(rel));
+  const missing = effective.filter((rel) => !existsSync(join(requestedSource, rel)));
+  if (missing.length > 0 && params.dropMissingRepositories !== true) {
+    const liveRoot = canonicalProjectRoot(projectRoot);
+    const remedy =
+      reboundFrom !== null || full
+        ? nexusRebindCommand(liveRoot, [DROP_MISSING_REPOSITORIES_FLAG])
+        : `cleo nexus analyze ${shellQuoteArg(liveRoot)} ${DROP_MISSING_REPOSITORIES_FLAG}`;
+    throw new Error(
+      `Included repositories are missing under ${requestedSource}: ${missing.join(', ')}; previous graph retained. ` +
+        `Restore them (re-clone, mount), or rebuild without them — they stay recorded for a one-command restore: ${remedy}`,
+    );
+  }
+  const droppedRepositories = missing;
+  const includedRepositories = effective.filter((rel) => !droppedRepositories.includes(rel));
   const rootRequest = {
     projectId,
     projectRoot,
@@ -632,10 +651,7 @@ async function runScopedNexusAnalysis(
     ...(execution ? { deadline: execution.deadlineAt } : {}),
   };
   const sourceRoots = await resolveSourceRoots(rootRequest);
-  requireObservedRoots(
-    sourceRoots,
-    carried !== null && !full ? nexusRebindCommand(canonicalProjectRoot(projectRoot)) : null,
-  );
+  requireObservedRoots(sourceRoots);
   execution?.assertActive();
   const repoPath = sourceRoots.sourceRoot;
   const assessedRevision = sourceRoots.roots[0]?.revision ?? null;
@@ -832,7 +848,14 @@ async function runScopedNexusAnalysis(
     durationMs: Date.now() - startTime,
     // T12348: the summary; the reference list is detail (`nexus status --references`).
     assessment: reportedAssessment ? assessmentSummary(reportedAssessment) : null,
-    ...(droppedRepositories.length ? { droppedRepositories } : {}),
+    ...(droppedRepositories.length
+      ? {
+          droppedRepositories: {
+            paths: droppedRepositories,
+            restoreCommand: `cleo nexus analyze ${shellQuoteArg(canonicalProjectRoot(projectRoot))} --include-repositories ${shellQuoteArg(effective.join(','))}`,
+          },
+        }
+      : {}),
     ...(reboundFrom !== null && committedAssessment !== null
       ? {
           rebind: {

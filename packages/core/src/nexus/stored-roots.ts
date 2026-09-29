@@ -223,19 +223,47 @@ export function decodeStoredAssessment<T extends StoredAssessmentRoots>(
 export const NEXUS_IDENTITY_REMEDY_COMMAND = 'cleo doctor project-identity';
 
 /**
- * Exact command that re-binds a moved project's graph to its live root: a full
- * rebuild at that root. Accepted only when the stored project id equals the
- * live, verified one (T12659).
+ * Quote one argument for the user's shell, so a printed remedy is exact.
  *
- * @param projectRoot - Canonical live project root.
- * @returns The runnable command, with the root quoted.
+ * POSIX shells expand `$`, backticks and `\\` inside double quotes, so a path
+ * is single-quoted there (an embedded `'` becomes `'\\''`). On Windows the path
+ * is double-quoted verbatim — no JSON-style doubled backslashes (T12659).
+ *
+ * @param value - Argument to quote.
+ * @param platform - Target platform; defaults to the host.
+ * @returns The quoted argument.
  * @example
  * ```ts
- * nexusRebindCommand('/Users/me/app'); // 'cleo nexus analyze "/Users/me/app" --full'
+ * shellQuoteArg("/Users/me/it's $HOME", 'darwin'); // `'/Users/me/it'\''s $HOME'`
+ * shellQuoteArg('C:\\work\\app', 'win32');        // `"C:\\work\\app"`
  * ```
  */
-export function nexusRebindCommand(projectRoot: string): string {
-  return `cleo nexus analyze ${JSON.stringify(projectRoot)} --full`;
+export function shellQuoteArg(value: string, platform: NodeJS.Platform = process.platform): string {
+  if (platform === 'win32') return `"${value}"`;
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+/** Flag that lets an analysis drop included repositories missing on disk (T12659). */
+export const DROP_MISSING_REPOSITORIES_FLAG = '--drop-missing-repositories';
+
+/**
+ * Exact command that re-binds a moved project's graph to its live root: a full
+ * rebuild at that root. Accepted only when the stored project id equals the
+ * live projectId read from project-info (T12659).
+ *
+ * @param projectRoot - Canonical live project root.
+ * @param extraFlags - Further flags to append (e.g. {@link DROP_MISSING_REPOSITORIES_FLAG}).
+ * @returns The runnable command, with the root quoted for the host shell.
+ * @example
+ * ```ts
+ * nexusRebindCommand('/Users/me/app'); // "cleo nexus analyze '/Users/me/app' --full"
+ * ```
+ */
+export function nexusRebindCommand(
+  projectRoot: string,
+  extraFlags: readonly string[] = [],
+): string {
+  return ['cleo nexus analyze', shellQuoteArg(projectRoot), '--full', ...extraFlags].join(' ');
 }
 
 /** Recorded vs live ownership of a stored graph. */

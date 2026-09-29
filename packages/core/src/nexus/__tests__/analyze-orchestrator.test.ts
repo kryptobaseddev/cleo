@@ -17,6 +17,7 @@ import { decodeStoredReferences } from '../assessment-store.js';
 import { assessKnowledgeCoverage, readKnowledgeIndexAssessment } from '../knowledge.js';
 import * as sourceRootsModule from '../source-roots.js';
 import { resolveSourceRoots } from '../source-roots.js';
+import { shellQuoteArg } from '../stored-roots.js';
 
 vi.mock('../../store/nexus-sqlite.js', async () => ({
   getNexusDb: vi.fn(async () => drizzle({ client: native })),
@@ -1091,20 +1092,20 @@ describe('moved project graph re-bind (T12659)', () => {
     await expect(refusal).rejects.toThrow(
       `recorded root ${OLD_ROOT} (project moved-project-id), live root ${live} (project moved-project-id)`,
     );
-    await expect(refusal).rejects.toThrow(`cleo nexus analyze "${live}" --full`);
+    await expect(refusal).rejects.toThrow(`cleo nexus analyze '${live}' --full`);
     expect(inventory()).toBe(before);
 
     const coverage = await assessKnowledgeCoverage(root);
     expect(coverage.status).toBe('failed');
-    expect(coverage.nextAction).toBe(`cleo nexus analyze "${live}" --full`);
-    expect(coverage.reasons.join(' ')).toContain(`cleo nexus analyze "${live}" --full`);
+    expect(coverage.nextAction).toBe(`cleo nexus analyze '${live}' --full`);
+    expect(coverage.reasons.join(' ')).toContain(`cleo nexus analyze '${live}' --full`);
     // doctor knowledge proposes the same exact command.
     const finding = graphCoverageFinding(coverage);
     expect(finding?.proposedAction).toEqual({
       operation: 'nexus.analyze',
       arguments: { full: true },
       prerequisites: [
-        `Run exactly: cleo nexus analyze "${live}" --full`,
+        `Run exactly: cleo nexus analyze '${live}' --full`,
         'Confirm the intended source root and repository inclusions.',
       ],
     });
@@ -1152,21 +1153,71 @@ describe('moved project graph re-bind (T12659)', () => {
     );
   });
 
-  it('re-roots parent -> child: --full drops the carried inclusion that no longer exists and reports it', async () => {
+  it('re-roots parent -> child: a missing inclusion refuses (even on --full) until explicitly dropped', async () => {
     await runNexusAnalysis({ repoPath: root, includedRepositories: ['app'] });
     // The project is re-rooted into its former child: .cleo moves into app/.
     renameSync(join(root, '.cleo'), join(root, 'app', '.cleo'));
     await writeFile(join(root, 'app/.git/info/exclude'), '.cleo/\n');
     const child = join(root, 'app');
     const live = realpathSync(child);
+    const before = inventory();
 
-    const refusal = runNexusAnalysis({ repoPath: child });
-    await expect(refusal).rejects.toThrow('previous graph retained');
-    await expect(refusal).rejects.toThrow(`cleo nexus analyze "${live}" --full`);
+    for (const full of [false, true]) {
+      const refusal = runNexusAnalysis({ repoPath: child, full });
+      await expect(refusal).rejects.toThrow('Included repositories are missing');
+      await expect(refusal).rejects.toThrow(': app; previous graph retained');
+      await expect(refusal).rejects.toThrow(
+        full
+          ? `cleo nexus analyze '${live}' --full --drop-missing-repositories`
+          : `cleo nexus analyze '${live}' --drop-missing-repositories`,
+      );
+      expect(inventory()).toBe(before);
+    }
 
-    const result = await runNexusAnalysis({ repoPath: child, full: true });
-    expect(result.droppedRepositories).toEqual(['app']);
+    const result = await runNexusAnalysis({
+      repoPath: child,
+      full: true,
+      dropMissingRepositories: true,
+    });
+    expect(result.droppedRepositories).toEqual({
+      paths: ['app'],
+      restoreCommand: `cleo nexus analyze '${live}' --include-repositories 'app'`,
+    });
     expect(result.assessment?.sourceRoots?.projectRoot).toBe(live);
     expect((await assessKnowledgeCoverage(child)).status).toBe('current');
+  });
+
+  it('a re-bind never silently drops a missing inclusion', async () => {
+    const live = await analyseThenMove();
+    await rm(join(root, 'app'), { recursive: true, force: true });
+    const before = inventory();
+    const refusal = runNexusAnalysis({ repoPath: root, full: true });
+    await expect(refusal).rejects.toThrow('Included repositories are missing');
+    await expect(refusal).rejects.toThrow(
+      `cleo nexus analyze '${live}' --full --drop-missing-repositories`,
+    );
+    expect(inventory()).toBe(before);
+    const rebound = await runNexusAnalysis({
+      repoPath: root,
+      full: true,
+      dropMissingRepositories: true,
+    });
+    expect(rebound.rebind?.droppedRepositories).toEqual(['app']);
+    expect(rebound.droppedRepositories?.restoreCommand).toBe(
+      `cleo nexus analyze '${live}' --include-repositories 'app'`,
+    );
+  });
+});
+
+describe('shellQuoteArg (T12659)', () => {
+  it('single-quotes on POSIX so $, backticks and quotes stay literal', () => {
+    expect(shellQuoteArg("/Users/me/it's $HOME `x`", 'darwin')).toBe(
+      "'/Users/me/it'\\''s $HOME `x`'",
+    );
+    expect(shellQuoteArg('/home/u/My Project', 'linux')).toBe("'/home/u/My Project'");
+  });
+
+  it('double-quotes Windows paths verbatim, without doubled backslashes', () => {
+    expect(shellQuoteArg('C:\\Users\\me\\app', 'win32')).toBe('"C:\\Users\\me\\app"');
   });
 });
