@@ -2,7 +2,6 @@
 name: ct-validator
 description: Compliance validation for verifying systems, documents, or code against requirements, schemas, or standards. Performs schema validation, code compliance checks, document validation, and protocol compliance verification with detailed pass/fail reporting. Use when validating compliance, checking schemas, verifying code standards, or auditing protocol implementations. Triggers on validation tasks, compliance checks, or quality verification needs.
 version: 2.0.0
-tier: 2
 core: false
 category: recommended
 protocol: validation
@@ -20,6 +19,11 @@ compatibility:
   - windsurf
   - gemini-cli
 license: MIT
+metadata:
+  version: 2.0.0
+  tier: on-demand
+  install: harness
+  stability: stable
 ---
 
 # Validator Context Injection

@@ -124,6 +124,12 @@ export interface ProjectContext {
   testing?: {
     framework?: TestFramework;
     command?: string;
+    /**
+     * Affected-scope test command template for `tool:test-affected` (D11150,
+     * T12635): `{projects}`, `{filters}` and `{packages}` expand per affected
+     * package, e.g. `pnpm exec vitest run {projects}`.
+     */
+    affectedCommand?: string;
     testFilePatterns?: string[];
     directories?: {
       unit?: string;

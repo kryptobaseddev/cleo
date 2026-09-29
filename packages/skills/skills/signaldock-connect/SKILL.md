@@ -7,6 +7,11 @@ description: >
   (5) poll for messages, (6) check inbox, or (7) connect to the SignalDock platform.
   Triggers on: "connect to signaldock", "register agent", "send message to agent",
   "agent messaging", "signaldock setup", "install signaldock", "agent-to-agent".
+metadata:
+  version: 1.0.0
+  tier: internal
+  install: internal
+  stability: deprecated
 ---
 
 # SignalDock Connection

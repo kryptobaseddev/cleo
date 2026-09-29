@@ -6,6 +6,11 @@ loomStage: architecture_decision
 adrRefs:
   - ADR-053
   - ADR-070
+metadata:
+  version: 1.0.0
+  tier: on-demand
+  install: harness
+  stability: stable
 ---
 
 # ADR Recorder
