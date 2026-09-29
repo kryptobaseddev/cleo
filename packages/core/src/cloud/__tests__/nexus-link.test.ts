@@ -13,6 +13,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getProjectDisplayName } from '../../project-info.js';
 import { FileNexusTokenStore } from '../nexus-credentials.js';
@@ -124,6 +125,17 @@ beforeEach(async () => {
 afterEach(() => {
   if (savedCleoDir === undefined) delete process.env['CLEO_DIR'];
   else process.env['CLEO_DIR'] = savedCleoDir;
+});
+
+describe('.cleo/.gitignore template', () => {
+  it('denies nexus-link.json explicitly, so fresh `cleo init` projects never commit it', () => {
+    const template = readFileSync(
+      fileURLToPath(new URL('../../../templates/cleo-gitignore', import.meta.url)),
+      'utf-8',
+    );
+    expect(template).toMatch(/^nexus-link\.json$/m);
+    expect(template).not.toMatch(/^!nexus-link\.json$/m);
+  });
 });
 
 describe('getProjectDisplayName', () => {
