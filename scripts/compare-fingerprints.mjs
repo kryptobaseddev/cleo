@@ -67,8 +67,12 @@
  *   - `--source` is not a `role: source` fingerprint, or `--replica` is not a
  *     `role: replica` one (a copied source fingerprint, or swapped arguments);
  *   - either fingerprint has no nonce, or the nonces are equal;
- *   - either project id is missing (fail closed: a one-sided id is a
- *     failure, not a note), or the two ids differ.
+ *   - the two fingerprints have different `scope`s: a project store never
+ *     compares against the global store;
+ *   - for project scope, either project id is missing (fail closed: a
+ *     one-sided id is a failure, not a note), or the two ids differ. Two
+ *     GLOBAL fingerprints are exempt: the global store belongs to no project
+ *     and has no project-id file, and it is backed up like every store.
  *
  * LIMIT: this tells fingerprint RUNS apart, not STORES. The source store
  * fingerprinted a second time with `--role replica` compares as a perfect
@@ -295,13 +299,21 @@ function compare(source, replica, mode, rows, key) {
       reason:
         "the replica carries the source's nonce: it is the source fingerprint, or a copy of it",
     });
-  if (!sid.projectId || !rid.projectId)
+  const bothGlobal = source.scope === 'global' && replica.scope === 'global';
+  if (source.scope !== replica.scope || !['project', 'global'].includes(source.scope))
+    failures.push({
+      gate: 'B',
+      table: '*',
+      reason: `scopes differ or are unknown (source ${source.scope ?? 'none'}, replica ${replica.scope ?? 'none'}): a project store never compares against the global store`,
+    });
+  // Two global fingerprints carry no project id: their identity is scope, role and nonce.
+  if (!bothGlobal && (!sid.projectId || !rid.projectId))
     failures.push({
       gate: 'B',
       table: '*',
       reason: `project id missing (source ${sid.projectId ?? 'none'}, replica ${rid.projectId ?? 'none'}): put the project-id file beside each store`,
     });
-  else if (sid.projectId !== rid.projectId)
+  else if (!bothGlobal && sid.projectId !== rid.projectId)
     failures.push({
       gate: 'B',
       table: '*',

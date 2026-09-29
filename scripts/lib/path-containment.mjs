@@ -30,7 +30,8 @@ import { dirname } from 'node:path';
  * @returns {boolean} `true` when `target` would be inside `dir`'s tree.
  */
 export function isInsideDirectoryTree(target, dir, fsOps = {}) {
-  const stat = fsOps.stat ?? ((p) => statSync(p));
+  // bigint: device and inode numbers can exceed 2^53 and must compare exactly.
+  const stat = fsOps.stat ?? ((p) => statSync(p, { bigint: true }));
   const realpath = fsOps.realpath ?? ((p) => realpathSync.native(p));
   const want = stat(realpath(dir));
   for (let d = realpath(dirname(target)); ; d = dirname(d)) {

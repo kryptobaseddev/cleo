@@ -1240,3 +1240,82 @@ describe('T12641 round 2: containment compares file identity, not spelling', () 
     },
   );
 });
+
+describe('T12641 round 3: scope is part of the identity', () => {
+  /** Fingerprint a store in an explicit scope and role. */
+  function scoped(dbFile: string, label: string, scope: 'project' | 'global', role: Role) {
+    const file = join(testRoot, `${label}.fp.json`);
+    execFileSync(
+      'node',
+      [
+        FINGERPRINT,
+        '--db',
+        dbFile,
+        '--label',
+        label,
+        '--out',
+        file,
+        '--role',
+        role,
+        '--scope',
+        scope,
+        '--key-file',
+        keyFile,
+      ],
+      { encoding: 'utf8' },
+    );
+    return { file, fp: JSON.parse(readFileSync(file, 'utf8')) as Fingerprint & { scope: string } };
+  }
+  /** The global cleo.db the runtime built under CLEO_HOME, and a copy of it in its own directory. */
+  function globalStores() {
+    const globalDb = join(testRoot, 'cleo', 'cleo.db');
+    const copyDir = join(testRoot, 'global-replica');
+    const copy = join(copyDir, 'cleo.db');
+    if (!existsSync(copy)) {
+      mkdirSync(copyDir, { recursive: true });
+      const conn = new DatabaseSync(globalDb, { readOnly: true });
+      conn.exec(`VACUUM INTO '${copy.replaceAll("'", "''")}'`);
+      conn.close();
+    }
+    expect(existsSync(join(testRoot, 'cleo', 'project-id'))).toBe(false);
+    return { globalDb, copy };
+  }
+
+  it('a global store against its replica PASSES without a project id', () => {
+    const { globalDb, copy } = globalStores();
+    const src = scoped(globalDb, 'global-src', 'global', 'source');
+    const rep = scoped(copy, 'global-rep', 'global', 'replica');
+    expect(src.fp.scope).toBe('global');
+    expect(src.fp.identity?.projectId).toBeNull();
+    const r = compare(src.file, rep.file, 'replay');
+    expect(r.out).toContain('PASS (replay)');
+    expect(r.code).toBe(0);
+  });
+
+  it('a global fingerprint never compares against a project one, either way round', () => {
+    const { globalDb } = globalStores();
+    const g = scoped(globalDb, 'global-src2', 'global', 'source');
+    const gRep = scoped(globalDb, 'global-rep2', 'global', 'replica');
+    const p = fingerprint('source');
+    const pRep = fingerprint('copy');
+    for (const [source, replica, s, r] of [
+      [g.file, pRep.file, 'global', 'project'],
+      [p.file, gRep.file, 'project', 'global'],
+    ]) {
+      const out = compare(source, replica, 'replay');
+      expect(out.code).toBe(1);
+      expect(out.out).toContain(
+        `GATE B FAIL *: scopes differ or are unknown (source ${s}, replica ${r}): a project store never compares against the global store`,
+      );
+    }
+  });
+
+  it('the scope is under the MAC: flipping it FAILS', () => {
+    const p = fingerprint('copy');
+    const flipped = join(testRoot, 'scope-flipped.fp.json');
+    writeFileSync(flipped, JSON.stringify({ ...JSON.parse(p.raw), scope: 'global' }));
+    const r = compare(fingerprint('source').file, flipped, 'replay');
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('GATE B FAIL *: replica fingerprint MAC does not verify');
+  });
+});

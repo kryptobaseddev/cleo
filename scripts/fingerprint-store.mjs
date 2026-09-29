@@ -74,10 +74,14 @@
  *   - `role`: `source` or `replica`, from the required `--role`;
  *   - `projectId`: the portable project id from the `project-id` file beside
  *     the store (`.cleo/project-id` for a project `cleo.db`), or `null`;
+ *     always `null` for `--scope global` (the global store belongs to no
+ *     project);
  *   - `nonce`: random per run (or `--nonce`, which must then be unique).
- * The comparator requires the source fingerprint to have role `source` and
- * the replica `replica`, different nonces, and the same non-null project id
- * on both sides. That refuses a copied source fingerprint, swapped
+ * The top-level `scope` (`project` or `global`) is under the MAC too. The
+ * comparator requires the source fingerprint to have role `source` and the
+ * replica `replica`, different nonces, the same scope on both sides, and, for
+ * project scope, the same non-null project id on both sides (global stores
+ * are exempt from the project id, and only from it). That refuses a copied source fingerprint, swapped
  * `--source`/`--replica`, a missing or one-sided project id, and another
  * project's store.
  *
@@ -228,7 +232,8 @@ if (values['key-file']) {
 // The run identity: role, portable project id (or null) and a per-run nonce, all under the MAC.
 let projectId = null;
 const projectIdFile = join(dirname(resolve(values.db)), 'project-id');
-if (existsSync(projectIdFile)) {
+// The global store belongs to no project: its identity is its scope, never a project id.
+if (scope === 'project' && existsSync(projectIdFile)) {
   const read = parsePortableProjectId(readFileSync(projectIdFile, 'utf8'));
   if (read.status !== 'valid')
     throw new Error(`fingerprint-store: unusable project-id file: ${read.reason}`);
