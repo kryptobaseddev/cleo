@@ -124,6 +124,10 @@ export interface NexusProjectRecord {
   lastIndexed: string | null;
   /** Code intelligence stats from the last index run. */
   stats: NexusProjectStats;
+  /** ISO 8601 instant of the last health check, sync or git probe (T12512). */
+  lastProbedAt?: string | null;
+  /** ISO 8601 instant of the last real CLI use inside the project (T12512). */
+  lastOpenedAt?: string | null;
 }
 
 /** A single cross-project task reference tuple. */
@@ -1464,6 +1468,218 @@ export interface NexusProjectsStatusResult {
   };
 }
 
+/**
+ * A condition on one project location in the fleet view (T12513).
+ *
+ * - `missing` — the location is recorded `missing`, or its last probe found no directory.
+ * - `dirty` — the last probe saw tracked changes or untracked files.
+ * - `behind` / `ahead` — the upstream had commits HEAD lacks / HEAD has commits
+ *   the upstream lacks, as of the LAST FETCH (see `remote.fetchedAt`).
+ * - `stale` — never probed, probed longer ago than the staleness window, or its
+ *   remote was last fetched longer ago than the window (or never).
+ * - `errored` — the last probe recorded a probe error.
+ * - `unprobed` — no probe row exists for the location yet.
+ */
+export type NexusFleetFlag =
+  | 'missing'
+  | 'dirty'
+  | 'behind'
+  | 'ahead'
+  | 'stale'
+  | 'errored'
+  | 'unprobed';
+
+/** Parameters for `nexus.projects.fleet` (T12513). Filters combine with AND. */
+export interface NexusProjectsFleetParams {
+  /** Keep only locations on this device: a device id, a hostname, or `current`. */
+  device?: string;
+  /** Keep projects with a `missing` location. */
+  missing?: boolean;
+  /** Keep projects with a `dirty` location. */
+  dirty?: boolean;
+  /** Keep projects with a location `behind` its upstream (as of the last fetch). */
+  behind?: boolean;
+  /** Keep projects with a location `ahead` of its upstream (as of the last fetch). */
+  ahead?: boolean;
+  /** Keep projects with a `stale` location. */
+  stale?: boolean;
+  /** Keep projects with a location whose last probe errored. */
+  errored?: boolean;
+  /** Staleness window for probes, fetches and heartbeats, ms. Default 24h. */
+  staleAfterMs?: number;
+  /** Page size (projects). Default 50, max 500; `0` returns every match. */
+  limit?: number;
+  /** Projects skipped before the page. Default 0. */
+  offset?: number;
+}
+
+/** One device as the fleet view shows it (T12513). */
+export interface NexusFleetDevice {
+  /** Stable device id (`<cleoHome>/device-id`). */
+  deviceId: string;
+  /** Hostname at the last heartbeat; `null` when the device never sent one. */
+  hostname: string | null;
+  /** Operating system at the last heartbeat. */
+  os: string | null;
+  /** CPU architecture at the last heartbeat. */
+  arch: string | null;
+  /** CLEO version at the last heartbeat. */
+  cleoVersion: string | null;
+  /** ISO 8601 instant of the last heartbeat; `null` if never. */
+  lastHeartbeatAt: string | null;
+  /** `true` when the last heartbeat is unknown or older than the staleness window. */
+  heartbeatStale: boolean;
+  /** `true` for the device running this command. */
+  current: boolean;
+}
+
+/** Per-device counts in the fleet view (T12513). */
+export interface NexusFleetDeviceSummary extends NexusFleetDevice {
+  /** Visible (live or missing) locations on the device. */
+  locations: number;
+  /** Of those, locations flagged `missing`. */
+  missing: number;
+  /** Of those, locations flagged `dirty`. */
+  dirty: number;
+  /** Of those, locations flagged `behind`. */
+  behind: number;
+  /** Of those, locations flagged `stale`. */
+  stale: number;
+}
+
+/**
+ * Last recorded git state of one location (T12513, from T12511's probe rows).
+ * Path-free, so a cloud mirror can carry it as replica presence.
+ */
+export interface NexusFleetGitSummary {
+  /** Checked-out branch; `null` when detached or unknown. */
+  branch: string | null;
+  /** HEAD commit. */
+  headSha: string | null;
+  /** `true` when HEAD is detached. */
+  detached: boolean;
+  /** Tracked entries with changes. */
+  dirtyCount: number | null;
+  /** Untracked, not-ignored entries. */
+  untrackedCount: number | null;
+  /** Remote side, as of the last fetch — never "now". */
+  remote: {
+    /** Remote name. */
+    name: string | null;
+    /** Remote URL, credentials removed. */
+    url: string | null;
+    /** Upstream ref (e.g. `origin/main`). */
+    upstream: string | null;
+    /** Upstream tracking-ref commit. */
+    headSha: string | null;
+    /** Commits on HEAD not on the upstream. */
+    ahead: number | null;
+    /** Commits on the upstream not on HEAD. */
+    behind: number | null;
+    /** ISO 8601 instant of the last fetch; `null` if never. */
+    fetchedAt: string | null;
+    /** `true` when the last fetch is unknown or older than the staleness window. */
+    stale: boolean;
+  };
+  /** ISO 8601 instant of the probe that recorded this state. */
+  probedAt: string;
+  /** `true` when `probedAt` is older than the staleness window. */
+  probeStale: boolean;
+  /** Probe error code, `null` on success. */
+  probeErrorCode: NexusGitProbeErrorCode | null;
+  /** Probe error detail. */
+  probeError: string | null;
+}
+
+/** One place a project lives, on one device (T12513). */
+export interface NexusFleetLocation {
+  /** Device the location is on. */
+  deviceId: string;
+  /** Hostname of that device, when it has sent a heartbeat. */
+  hostname: string | null;
+  /** `true` when the location is on the device running this command. */
+  current: boolean;
+  /** Checkout root on that device. */
+  path: string;
+  /** Location lifecycle state. */
+  state: 'live' | 'missing';
+  /** ISO 8601 instant the location was last encountered. */
+  lastSeen: string;
+  /** Last recorded git state; `null` when never probed. */
+  git: NexusFleetGitSummary | null;
+  /** Conditions that hold for this location. */
+  flags: NexusFleetFlag[];
+}
+
+/** One project in the fleet view (T12513). */
+export interface NexusFleetProject {
+  /** Immutable project id. */
+  projectId: string;
+  /** Registered name (not unique). */
+  name: string;
+  /** ISO 8601 instant of the last real CLI use; `null` if never recorded. */
+  lastOpenedAt: string | null;
+  /** ISO 8601 instant of the last health check, sync or git probe; `null` if never. */
+  lastProbedAt: string | null;
+  /** Number of distinct devices holding a visible location. */
+  deviceCount: number;
+  /** Union of the flags of its locations. */
+  flags: NexusFleetFlag[];
+  /** Every visible location (within the `device` filter), by device then path. */
+  locations: NexusFleetLocation[];
+}
+
+/**
+ * Result of `nexus.projects.fleet` (T12513). Counts come first; `projects` is
+ * one page. Read-only: it reports the probe rows recorded by
+ * `nexus.projects.status` and never runs git.
+ */
+export interface NexusProjectsFleetResult {
+  /** Projects in the registry. */
+  total: number;
+  /** Projects matching the filters. */
+  matched: number;
+  /** Projects on this page. */
+  returned: number;
+  /** Offset of this page. */
+  offset: number;
+  /** Page size applied (`0` = unbounded). */
+  limit: number;
+  /** `true` when more matches follow this page. */
+  hasMore: boolean;
+  /** Staleness window applied, ms. */
+  staleAfterMs: number;
+  /** ISO 8601 instant staleness was evaluated at. */
+  generatedAt: string;
+  /** Device the command ran on. */
+  currentDeviceId: string;
+  /** Fleet-wide counts of PROJECTS with at least one location in each condition (within `device`). */
+  summary: {
+    /** Projects with a visible location. */
+    located: number;
+    /** Distinct visible locations. */
+    locations: number;
+    /** Projects flagged per condition. */
+    missing: number;
+    /** Projects with a dirty location. */
+    dirty: number;
+    /** Projects with a location behind its upstream. */
+    behind: number;
+    /** Projects with a location ahead of its upstream. */
+    ahead: number;
+    /** Projects with a stale location. */
+    stale: number;
+    /** Projects with an errored probe. */
+    errored: number;
+    /** Projects with a never-probed location. */
+    unprobed: number;
+  };
+  /** Every device holding a visible location or known by heartbeat, with counts. */
+  devices: NexusFleetDeviceSummary[];
+  /** This page of projects, by name then id. */
+  projects: NexusFleetProject[];
+}
+
 /** Parameters for `nexus.projects.register`. */
 export interface NexusProjectsRegisterParams {
   /** Path to the project directory (required). */
@@ -2115,6 +2331,7 @@ export type NexusOps = {
   readonly 'projects.scan': readonly [NexusProjectsScanParams, NexusProjectsScanResult];
   readonly 'projects.clean': readonly [NexusProjectsCleanParams, NexusProjectsCleanResult];
   readonly 'projects.status': readonly [NexusProjectsStatusParams, NexusProjectsStatusResult];
+  readonly 'projects.fleet': readonly [NexusProjectsFleetParams, NexusProjectsFleetResult];
   readonly 'refresh-bridge': readonly [NexusRefreshBridgeParams, NexusRefreshBridgeResult];
   readonly diff: readonly [NexusDiffParams, NexusDiffResult];
   readonly 'query-cte': readonly [NexusQueryCteParams, NexusQueryCteResult];

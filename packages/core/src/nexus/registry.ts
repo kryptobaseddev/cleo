@@ -21,6 +21,8 @@ import {
   type NexusListParams,
   type NexusPermissionSetParams,
   type NexusProjectCandidate,
+  type NexusProjectsFleetParams,
+  type NexusProjectsFleetResult,
   type NexusProjectsStatusParams,
   type NexusProjectsStatusResult,
   type NexusReconcileParams,
@@ -60,6 +62,11 @@ import {
   recordCandidateLocation,
   recordProjectCheckout,
 } from './path-map.js';
+import {
+  NexusDeviceNotFoundError,
+  NexusRegistryReadError,
+  toRegistryReadError,
+} from './registry-errors.js';
 import { registryStorePath } from './registry-hygiene.js';
 
 // ── Domain types ─────────────────────────────────────────────────────
@@ -102,6 +109,10 @@ export interface NexusProject {
   lastIndexed: string | null;
   /** Code intelligence stats from the last index run. */
   stats: NexusProjectStats;
+  /** ISO 8601 instant of the last health check, sync or git probe (T12512); null if never. */
+  lastProbedAt?: string | null;
+  /** ISO 8601 instant of the last real CLI use inside the project (T12512); null if never. */
+  lastOpenedAt?: string | null;
 }
 
 /** Legacy registry file shape (pre-SQLite). Retained for migration compatibility. */
@@ -176,6 +187,8 @@ function rowToProject(row: ProjectRegistryRow): NexusProject {
       : registryStorePath(row.projectPath),
     lastIndexed: row.lastIndexed ?? null,
     stats,
+    lastProbedAt: row.lastProbedAt ?? null,
+    lastOpenedAt: row.lastOpenedAt ?? null,
   };
 }
 
@@ -263,41 +276,39 @@ async function withLiveNexusDb<T>(
 /**
  * Read all projects from nexus.db and return as a NexusRegistryFile.
  * Compatibility wrapper for consumers that expect the legacy JSON shape.
- * Returns null if nexus.db has not been initialized yet.
+ *
+ * @throws {NexusRegistryReadError} When the registry cannot be read — a
+ *   broken registry never looks empty (T12512).
  */
-export async function readRegistry(): Promise<NexusRegistryFile | null> {
+export async function readRegistry(): Promise<NexusRegistryFile> {
+  let rows: ProjectRegistryRow[];
   try {
-    const rows = await withLiveNexusDb((db) => db.select().from(projectRegistry));
-    const projects: Record<string, NexusProject> = {};
-    let latestUpdate = '';
-    for (const row of rows) {
-      const p = rowToProject(row);
-      projects[p.hash] = p;
-      if (p.lastSeen > latestUpdate) latestUpdate = p.lastSeen;
-    }
-    return {
-      schemaVersion: '1.0.0',
-      lastUpdated: latestUpdate || new Date().toISOString(),
-      projects,
-    };
-  } catch {
-    return null;
+    rows = await withLiveNexusDb((db) => db.select().from(projectRegistry));
+  } catch (error) {
+    throw toRegistryReadError('read registry', error);
   }
+  const projects: Record<string, NexusProject> = {};
+  let latestUpdate = '';
+  for (const row of rows) {
+    const p = rowToProject(row);
+    projects[p.hash] = p;
+    if (p.lastSeen > latestUpdate) latestUpdate = p.lastSeen;
+  }
+  return {
+    schemaVersion: '1.0.0',
+    lastUpdated: latestUpdate || new Date().toISOString(),
+    projects,
+  };
 }
 
 /**
- * Read the global registry, throwing if not initialized.
+ * Read the global registry.
+ *
+ * @deprecated {@link readRegistry} now throws a typed error itself (T12512).
+ * @throws {NexusRegistryReadError} When the registry cannot be read.
  */
 export async function readRegistryRequired(): Promise<NexusRegistryFile> {
-  const registry = await readRegistry();
-  if (!registry) {
-    throw new CleoError(
-      ExitCode.NEXUS_NOT_INITIALIZED,
-      'Nexus registry not initialized. Run: cleo nexus init',
-      { fix: 'cleo nexus init' },
-    );
-  }
-  return registry;
+  return readRegistry();
 }
 
 /**
@@ -679,17 +690,21 @@ export async function nexusUnregister(
 
 /**
  * List all registered projects.
+ *
+ * @throws {NexusRegistryReadError} When the registry cannot be read — never
+ *   an empty list that hides the failure (T12512).
  */
 export async function nexusList(
   _projectRoot = '',
   _params: NexusListParams = {},
 ): Promise<NexusProject[]> {
+  let rows: ProjectRegistryRow[];
   try {
-    const rows = await withLiveNexusDb((db) => db.select().from(projectRegistry));
-    return rows.map(rowToProject);
-  } catch {
-    return [];
+    rows = await withLiveNexusDb((db) => db.select().from(projectRegistry));
+  } catch (error) {
+    throw toRegistryReadError('list projects', error);
   }
+  return rows.map(rowToProject);
 }
 
 /**
@@ -816,8 +831,8 @@ export async function nexusGetProject(
     if (!row) return null;
     return rowToProject(row);
   } catch (error) {
-    if (error instanceof NexusProjectAmbiguityError) throw error;
-    return null;
+    // T12512: `null` means "no such project", never "could not read".
+    throw toRegistryReadError('get project', error);
   }
 }
 
@@ -862,7 +877,8 @@ export async function nexusSync(
       taskCount: meta.taskCount,
       labelsJson: JSON.stringify(meta.labels),
       lastSync: now,
-      lastSeen: now,
+      // T12512: a sync probes the project; it is not evidence of use.
+      lastProbedAt: now,
     })
     .where(eq(projectRegistry.projectId, project.projectId));
 
@@ -904,7 +920,7 @@ export async function nexusSyncAll(): Promise<{ synced: number; failed: number }
           taskCount: meta.taskCount,
           labelsJson: JSON.stringify(meta.labels),
           lastSync: now,
-          lastSeen: now,
+          lastProbedAt: now,
         })
         .where(eq(projectRegistry.projectId, project.projectId));
       synced++;
@@ -1337,7 +1353,11 @@ export { resetNexusDbState };
  * Convert a caught error to an EngineResult failure.
  */
 function caughtToEngineError<T>(error: unknown, fallbackMsg: string): EngineResult<T> {
-  if (error instanceof NexusProjectAmbiguityError) {
+  if (
+    error instanceof NexusProjectAmbiguityError ||
+    error instanceof NexusRegistryReadError ||
+    error instanceof NexusDeviceNotFoundError
+  ) {
     return engineError<T>(error.codeName, error.message, {
       exitCode: error.code,
       details: error.details,
@@ -1371,13 +1391,12 @@ export async function nexusStatus(): Promise<
   }>
 > {
   try {
+    // T12512: an unreadable registry is an error envelope, never "not initialized".
     const registry = await readRegistry();
-    const initialized = registry !== null;
-    const projectCount = initialized ? Object.keys(registry.projects).length : 0;
     return engineSuccess({
-      initialized,
-      projectCount,
-      lastUpdated: registry?.lastUpdated ?? null,
+      initialized: true,
+      projectCount: Object.keys(registry.projects).length,
+      lastUpdated: registry.lastUpdated,
     });
   } catch (error) {
     return caughtToEngineError(error, 'Failed to get nexus status');
@@ -1569,6 +1588,32 @@ export async function nexusProjectsStatus(
     );
   } catch (error) {
     return caughtToEngineError(error, 'Failed to probe project git state');
+  }
+}
+
+/**
+ * Fleet view (`nexus.projects.fleet`, T12513): every project, where it lives
+ * on each device, and its last recorded git state, paged with counts first.
+ * Read-only: it never runs git — see `nexus/fleet-status.ts`.
+ *
+ * @param params - Filters, staleness window and paging.
+ * @returns The fleet view, or a typed error (`E_NEXUS_REGISTRY_READ`,
+ *   `E_NEXUS_DEVICE_NOT_FOUND`) — never an empty page that hides a failure.
+ * @task T12513
+ */
+export async function nexusProjectsFleet(
+  params: NexusProjectsFleetParams,
+): Promise<EngineResult<NexusProjectsFleetResult>> {
+  const { getNexusRegistryDb } = await import('../store/nexus-sqlite.js');
+  const { listFleetStatus } = await import('./fleet-status.js');
+  try {
+    return engineSuccess(listFleetStatus(await getNexusRegistryDb(getCleoHome()), params));
+  } catch (error) {
+    // A typed error (unknown device) passes through; anything else is a read failure.
+    return caughtToEngineError(
+      toRegistryReadError('read fleet status', error),
+      'Failed to read fleet status',
+    );
   }
 }
 

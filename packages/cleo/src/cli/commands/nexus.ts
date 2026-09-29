@@ -20,6 +20,7 @@ import path from 'node:path';
 import {
   ExitCode,
   type NexusProjectsCleanResult,
+  type NexusProjectsStatusResult,
   type NexusTaskSymbolsResult,
 } from '@cleocode/contracts';
 import { getProjectRoot } from '@cleocode/core';
@@ -1756,78 +1757,150 @@ const projectsCleanCommand = defineCommand({
   },
 });
 
-/** Parse an optional positive-integer flag; `null` marks an invalid value. */
-function positiveIntFlag(value: unknown): number | undefined | null {
+/** Parse an optional integer flag `>= min`; `null` marks an invalid value. */
+function intFlag(value: unknown, min: number): number | undefined | null {
   if (value === undefined || value === '') return undefined;
   const n = Number(value);
-  return Number.isInteger(n) && n > 0 ? n : null;
+  return Number.isInteger(n) && n >= min ? n : null;
 }
 
-/** cleo nexus projects status — probe and record git state of every location on this device */
+/**
+ * cleo nexus projects status — fleet view (T12513): every project, where it
+ * lives on each device, and its last recorded git state. Reads recorded probe
+ * rows only; `--refresh` (or `--fetch`) first re-probes THIS device, bounded.
+ */
 const projectsStatusCommand = defineCommand({
   meta: {
     name: 'status',
     description:
-      'Git state (branch, head, dirty/untracked, upstream, ahead/behind, last fetch) of every project location on this device; bounded and parallel, no network unless --fetch',
+      'Fleet view: every project, its location on each device, and its last recorded git state (branch, head, dirty, ahead/behind as of the last fetch) with staleness; paged, counts first. Reads recorded probes; --refresh re-probes this device (bounded), --fetch also fetches',
   },
   args: {
+    refresh: {
+      type: 'boolean',
+      description: 'Re-probe this device first (bounded concurrency, per-repo timeout; no network)',
+    },
     fetch: {
       type: 'boolean',
-      description: 'Run git fetch per location first (network). Off by default',
+      description:
+        'Re-probe this device with git fetch per location first (network; implies --refresh)',
     },
-    concurrency: { type: 'string', description: 'Locations probed at once (default 8, max 64)' },
+    device: {
+      type: 'string',
+      description: 'Only locations on this device (device id, hostname, or current)',
+    },
+    missing: { type: 'boolean', description: 'Only projects with a missing location' },
+    dirty: { type: 'boolean', description: 'Only projects with uncommitted or untracked changes' },
+    behind: {
+      type: 'boolean',
+      description: 'Only projects behind their upstream (as of last fetch)',
+    },
+    ahead: {
+      type: 'boolean',
+      description: 'Only projects ahead of their upstream (as of last fetch)',
+    },
+    stale: {
+      type: 'boolean',
+      description: 'Only projects never probed, or probed/fetched longer ago than --stale-after-ms',
+    },
+    errored: { type: 'boolean', description: 'Only projects whose last probe recorded an error' },
+    limit: { type: 'string', description: 'Projects per page (default 50, max 500; 0 = all)' },
+    offset: { type: 'string', description: 'Projects skipped before the page (default 0)' },
+    concurrency: {
+      type: 'string',
+      description: 'With --refresh: locations probed at once (default 8, max 64)',
+    },
     'timeout-ms': {
       type: 'string',
-      description: 'Per-location git budget in ms (default 10000; 30000 with --fetch)',
+      description:
+        'With --refresh: per-location git budget in ms (default 10000; 30000 with --fetch)',
     },
     'stale-after-ms': {
       type: 'string',
-      description: 'A last fetch older than this marks remote state stale (default 86400000)',
+      description: 'Staleness window for probes, fetches and heartbeats (default 86400000)',
     },
     json: { type: 'boolean', description: 'Output as JSON (LAFS envelope format)' },
   },
   async run({ args }) {
     applyJsonFlag(args.json as boolean | undefined);
     const startTime = Date.now();
-    const concurrency = positiveIntFlag(args.concurrency);
-    const timeoutMs = positiveIntFlag(args['timeout-ms']);
-    const staleAfterMs = positiveIntFlag(args['stale-after-ms']);
-    if (concurrency === null || timeoutMs === null || staleAfterMs === null) {
+    const concurrency = intFlag(args.concurrency, 1);
+    const timeoutMs = intFlag(args['timeout-ms'], 1);
+    const staleAfterMs = intFlag(args['stale-after-ms'], 1);
+    const limit = intFlag(args.limit, 0);
+    const offset = intFlag(args.offset, 0);
+    if ([concurrency, timeoutMs, staleAfterMs, limit, offset].includes(null)) {
       cliError(
-        '--concurrency, --timeout-ms and --stale-after-ms take positive integers',
+        '--concurrency, --timeout-ms and --stale-after-ms take positive integers; --limit and --offset take integers >= 0',
         6,
         { name: 'E_VALIDATION' },
-        { operation: 'nexus.projects.status', duration_ms: 0 },
+        { operation: 'nexus.projects.fleet', duration_ms: 0 },
       );
       process.exitCode = 6;
       return;
     }
-    const response = await dispatchRaw('mutate', 'nexus', 'projects.status', {
-      fetch: args.fetch === true,
-      concurrency,
-      timeoutMs,
-      staleAfterMs,
+    const fetch = args.fetch === true;
+    let refresh: Record<string, unknown> | undefined;
+    if (fetch || args.refresh === true) {
+      const probe = await dispatchRaw('mutate', 'nexus', 'projects.status', {
+        fetch,
+        concurrency: concurrency ?? undefined,
+        timeoutMs: timeoutMs ?? undefined,
+        staleAfterMs: staleAfterMs ?? undefined,
+      });
+      if (!probe.success) {
+        cliError(
+          probe.error?.message ?? 'Unknown error',
+          1,
+          { name: probe.error?.code ?? 'E_PROJECTS_STATUS_FAILED', details: probe.error?.details },
+          { operation: 'nexus.projects.status', duration_ms: Date.now() - startTime },
+        );
+        process.exitCode = 1;
+        return;
+      }
+      const probed = probe.data as NexusProjectsStatusResult;
+      refresh = {
+        deviceId: probed.deviceId,
+        count: probed.count,
+        fetched: probed.fetched,
+        durationMs: probed.durationMs,
+        summary: probed.summary,
+      };
+    }
+    const response = await dispatchRaw('query', 'nexus', 'projects.fleet', {
+      device: typeof args.device === 'string' ? args.device : undefined,
+      missing: args.missing === true,
+      dirty: args.dirty === true,
+      behind: args.behind === true,
+      ahead: args.ahead === true,
+      stale: args.stale === true,
+      errored: args.errored === true,
+      staleAfterMs: staleAfterMs ?? undefined,
+      limit: limit ?? undefined,
+      offset: offset ?? undefined,
     });
     const durationMs = Date.now() - startTime;
     if (!response.success) {
+      const code = response.error?.code ?? 'E_PROJECTS_FLEET_FAILED';
+      const exitCode = code === 'E_NEXUS_DEVICE_NOT_FOUND' ? 4 : 1;
       cliError(
         response.error?.message ?? 'Unknown error',
-        1,
-        {
-          name: response.error?.code ?? 'E_PROJECTS_STATUS_FAILED',
-          details: response.error?.details,
-        },
-        { operation: 'nexus.projects.status', duration_ms: durationMs },
+        exitCode,
+        { name: code, details: response.error?.details },
+        { operation: 'nexus.projects.fleet', duration_ms: durationMs },
       );
-      process.exitCode = 1;
+      process.exitCode = exitCode;
       return;
     }
-    cliOutput(response.data as Record<string, unknown>, {
-      command: 'nexus-projects-status',
-      operation: 'nexus.projects.status',
-      extensions: { duration_ms: durationMs },
-      responseMeta: response.meta,
-    });
+    cliOutput(
+      { ...(response.data as Record<string, unknown>), ...(refresh ? { refresh } : {}) },
+      {
+        command: 'nexus-projects-fleet',
+        operation: 'nexus.projects.fleet',
+        extensions: { duration_ms: durationMs },
+        responseMeta: response.meta,
+      },
+    );
   },
 });
 
