@@ -29,6 +29,7 @@ import { gcSessions } from '../../sessions/index.js';
 import { abandonSpawnSession, requireSpawnSession } from '../../spawn/agent-identity.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import { endSession } from '../../store/session-store.js';
+import { getNativeTasksDb } from '../../store/sqlite.js';
 import { taskVersion } from '../../store/task-version.js';
 import { claimSpawnedTask, renewClaimsForSession, startTask, stopTask } from '../index.js';
 
@@ -374,6 +375,33 @@ describe('leased task claims (T12502)', () => {
       other.exec('ROLLBACK');
       other.close();
     }
+  });
+
+  it('a renewal blocked by another writer returns at once without renewing or erroring', async () => {
+    await start(SES_A);
+    await expireLease();
+    const busyTimeout = () =>
+      Number(getNativeTasksDb(env.tempDir)?.prepare('PRAGMA busy_timeout').get()?.['timeout']);
+    const before = busyTimeout();
+    // A second connection holds the write lock: a renewal waiting out the
+    // store's 30 s busy_timeout would block the (synchronous) event loop.
+    const other = new DatabaseSync(join(env.cleoDir, 'cleo.db'));
+    other.exec('PRAGMA busy_timeout = 0');
+    other.exec('BEGIN IMMEDIATE');
+    try {
+      const started = Date.now();
+      expect(await renewClaimsForSession(env.accessor, SES_A)).toBe(0);
+      expect(Date.now() - started).toBeLessThan(2000);
+    } finally {
+      other.exec('ROLLBACK');
+      other.close();
+    }
+    expect((await env.accessor.loadSingleTask('T001'))?.claim?.leaseExpiresAt).toBe(
+      '2000-01-01T00:00:00.000Z',
+    );
+    // The connection's lock policy is restored, and the next beat renews.
+    expect(busyTimeout()).toBe(before);
+    expect(await renewClaimsForSession(env.accessor, SES_A)).toBe(1);
   });
 
   it('session gc keeps a stale-started session whose lease is still being renewed', async () => {
