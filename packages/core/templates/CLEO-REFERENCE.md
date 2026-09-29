@@ -1,6 +1,6 @@
 # CLEO Protocol — on-demand reference
 
-Version: 2.24.0 | Companion to the always-loaded `CLEO-INJECTION.md` core
+Version: 2.24.1 | Companion to the always-loaded `CLEO-INJECTION.md` core
 
 Not injected into agent context. Print one section with `cleo briefing inject --section <name>`; tier-2 spawn prompts embed this whole file. Section names are the `CLEO-INJECTION:section` markers below.
 
@@ -189,7 +189,7 @@ Small legacy DBs beside large snapshots do not prove corruption. `cleo doctor su
 **FIRST CALL IS `cleo nexus status`.** Check `nodeCount`, `lastIndexedAt`, `staleFileCount`/`fileCount`. Queries report `_nexus.freshness` and auto-refresh ≤25 stale files; beyond that they warn `W_NEXUS_INDEX_STALE`. `analyze` is incremental (`--full` rebuilds). For stale coverage, refresh or inspect source with `git grep` and disclose that basis. Impact/context `E_NOT_FOUND` includes index size, median age and a repair command; inspect these first.
 
 **Project resolution**: `--project-id` > `--path` > `cwd`.
-Identity is the portable `project_id` (`.cleo/project-id`); a path is a per-device hint.
+Identity is the portable `project_id` (`.cleo/project.json`, legacy `.cleo/project-id`); a path is a per-device hint.
 
 **Rule**: BEFORE editing any symbol, run `cleo nexus impact <symbol>`.
 HIGH/CRITICAL requires reviewing affected callers before editing. For stale, partial, missing, or failed coverage, inspect source and report the remaining uncertainty. An empty footprint alone never establishes `NONE`.

@@ -267,7 +267,7 @@ export const doctorCommand = defineCommand({
     'worktree-stores': doctorWorktreeStoresCommand,
     // T12097 — machine-wide guard for test runs started OUTSIDE cleo verify
     'memory-guard': doctorMemoryGuardCommand,
-    // T12353 — tracked .cleo/project-id vs project-info.json (+ --resolve re-key)
+    // T12353 · T12716 — tracked .cleo/project.json / project-id vs project-info.json (+ --resolve migrate / re-key)
     'project-identity': doctorProjectIdentityCommand,
     // T12596 · T12598 — ~/.cleo, the global hub and every harness skill install must resolve
     'global-delivery': doctorGlobalDeliveryCommand,

@@ -5,14 +5,18 @@
  * `cleo doctor project-identity`, so an agent orienting with `cleo briefing`
  * never learned that a clone would mint its own id.
  *
+ * T12716: the tracked identity is `.cleo/project.json` plus the legacy
+ * `.cleo/project-id` mirror; a legacy-only project is told to migrate.
+ *
  * @task T12559
+ * @task T12716
  */
 
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { formatPortableProjectId } from '@cleocode/paths';
+import { formatPortableProjectId, formatProjectManifest } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../store/data-accessor.js', () => ({
@@ -52,9 +56,13 @@ function project(name: string, withGit: boolean): string {
     JSON.stringify({ projectId: 'same-id', name }),
   );
   writeFileSync(join(root, '.cleo', 'project-id'), formatPortableProjectId('same-id'));
+  writeFileSync(
+    join(root, '.cleo', 'project.json'),
+    formatProjectManifest({ schemaVersion: 1, id: 'same-id', name }),
+  );
   if (withGit) {
     git(root, 'init', '-q', '-b', 'main');
-    git(root, 'add', '.cleo/project-id');
+    git(root, 'add', '.cleo/project-id', '.cleo/project.json');
     git(root, 'commit', '-q', '--no-verify', '-m', 'track id');
   }
   return root;
@@ -93,15 +101,27 @@ describe('briefing project identity warning (T12559)', () => {
     expect(identityWarnings(briefing.warnings)).toEqual([]);
   });
 
-  it('warns with the remedy once .cleo/project-id has been removed', async () => {
+  it('warns with the remedy once the tracked files have been removed', async () => {
     const root = project('removed', true);
     rmSync(join(root, '.cleo', 'project-id'));
+    rmSync(join(root, '.cleo', 'project.json'));
     const briefing = await computeBriefing(root, { scope: 'global' });
     const [warning, ...rest] = identityWarnings(briefing.warnings);
     expect(rest).toEqual([]);
     expect(warning).toContain('Project identity missing');
     expect(warning).toContain('Remedy: cleo doctor project-identity --resolve');
-    expect(warning).toContain('git add .cleo/project-id');
+    expect(warning).toContain('git add .cleo/project.json .cleo/project-id');
+  });
+
+  it('tells a legacy project (only .cleo/project-id) to migrate with a dry-run first', async () => {
+    const root = project('legacy', true);
+    rmSync(join(root, '.cleo', 'project.json'));
+    const [warning, ...rest] = identityWarnings(
+      (await computeBriefing(root, { scope: 'global' })).warnings,
+    );
+    expect(rest).toEqual([]);
+    expect(warning).toContain('Project identity legacy');
+    expect(warning).toContain('cleo doctor project-identity --resolve --dry-run');
   });
 
   it('warns without git commands for a non-git CLEO root', async () => {
@@ -112,6 +132,7 @@ describe('briefing project identity warning (T12559)', () => {
 
     const root = project('plain-removed', false);
     rmSync(join(root, '.cleo', 'project-id'));
+    rmSync(join(root, '.cleo', 'project.json'));
     const [warning] = identityWarnings((await computeBriefing(root, { scope: 'global' })).warnings);
     expect(warning).toContain('Remedy: cleo doctor project-identity --resolve');
     expect(warning).not.toContain('git add');

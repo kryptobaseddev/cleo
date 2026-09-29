@@ -448,7 +448,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('round 3: escapes and false refusals (T1255
     expect(parseSoleEnvelope(separate.stdout).success).toBe(true);
     const newId = readFileSync(join(root, '.cleo', 'project-id'), 'utf-8').trim();
     expect(newId).not.toBe(liveId);
-    expect(separate.stdout).toContain('Commit the new .cleo/project-id');
+    expect(separate.stdout).toContain('Commit the new .cleo/project.json and .cleo/project-id');
     expect(
       readFileSync(join(root, '.cleo', 'audit', 'relocation-override.jsonl'), 'utf-8'),
     ).toContain('"newIdentity":true');

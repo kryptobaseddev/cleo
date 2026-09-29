@@ -124,8 +124,12 @@ export interface RerootProjectResult {
   checkpointPath: string;
   /** Top-level entries renamed from the old root into the new one. */
   renamed: string[];
-  /** Whether `.cleo/project-id` was already present or had to be written. */
-  projectIdFile: 'present' | 'written';
+  /**
+   * Whether the tracked identity was already present (`.cleo/project.json`),
+   * present only as the legacy `.cleo/project-id` (`legacy`, T12716), or had
+   * to be written.
+   */
+  projectIdFile: 'present' | 'written' | 'legacy';
   /** Absolute path of the tombstone left at the old root. */
   tombstone: string;
   /** Registry status after the rebind. */

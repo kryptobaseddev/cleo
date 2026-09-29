@@ -219,6 +219,10 @@ export async function collectCheckoutEvidence(
 /**
  * Read the project name from `.cleo/project-info.json` (if present).
  * Non-fatal on any I/O or parse error.
+ *
+ * Deliberately NOT the display name (`.cleo/project.json`, T12716): this value
+ * feeds the path fingerprint, a legacy alias KEY that must keep matching the
+ * keys older builds recorded. A rename never changes it.
  */
 async function readProjectInfoName(
   repoRoot: string,

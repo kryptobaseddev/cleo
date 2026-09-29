@@ -469,7 +469,12 @@ export {
 } from './platform.js';
 export type { ProjectInfo } from './project-info.js';
 // Project info
-export { getProjectInfo, getProjectInfoSync, updateProjectName } from './project-info.js';
+export {
+  getProjectDisplayName,
+  getProjectInfo,
+  getProjectInfoSync,
+  updateProjectName,
+} from './project-info.js';
 export type {
   MoveProjectResult,
   RelocateProjectOptions,

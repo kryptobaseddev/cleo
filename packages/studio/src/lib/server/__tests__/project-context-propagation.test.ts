@@ -258,6 +258,19 @@ describe('actual modern-store context resolution', () => {
     ]);
   });
 
+  it('names the default project with the declared display name (T12716)', async () => {
+    const actual =
+      await vi.importActual<typeof import('../project-context.js')>('../project-context.js');
+    writeFileSync(
+      join(projectA, '.cleo/project.json'),
+      `${JSON.stringify({ schemaVersion: 1, id: 'aaaaaaaaaaaa', name: 'Declared A' }, null, 2)}\n`,
+    );
+    expect(actual.resolveDefaultProjectContext()).toMatchObject({
+      projectId: 'aaaaaaaaaaaa',
+      name: 'Declared A',
+    });
+  });
+
   it('switches registered projects without trusting retired paths or ambient pins', async () => {
     const actual =
       await vi.importActual<typeof import('../project-context.js')>('../project-context.js');

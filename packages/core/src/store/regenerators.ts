@@ -145,8 +145,10 @@ function readExistingProjectHash(projectRoot: string): string | null {
  *
  * Captures machine-local fields:
  *   - `projectHash` — write-once identity key: an existing value is kept,
- *                     else {@link computeStableProjectHash} (T12557)
- *   - `projectId`   — the tracked write-once `.cleo/project-id` when present
+ *                     else {@link computeStableProjectHash} (T12557; a
+ *                     regenerate never mints, so never the id-derived hash)
+ *   - `projectId`   — the tracked write-once id (`.cleo/project.json`, legacy
+ *                     `.cleo/project-id`) when present
  *                     (T12325 — a restore must not re-key a portable project);
  *                     otherwise a fresh UUID (volatile; each call differs)
  *   - `lastUpdated` — current ISO timestamp (volatile)
@@ -166,9 +168,11 @@ function readExistingProjectHash(projectRoot: string): string | null {
  */
 export function regenerateProjectInfoJson(projectRoot: string): RegeneratedFile {
   const resolvedRoot = resolve(projectRoot);
+  const trackedId = readPortableProjectId(resolvedRoot);
+  // A stored hash is kept; otherwise the path derivation. A regenerate is
+  // never a mint, so it never takes the id-derived hash (T12716).
   const projectHash =
     readExistingProjectHash(resolvedRoot) ?? computeStableProjectHash(resolvedRoot);
-  const trackedId = readPortableProjectId(resolvedRoot);
   const cleoVersion = getCleoVersion();
   const now = new Date().toISOString();
 

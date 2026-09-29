@@ -26,13 +26,16 @@ import { ExitCode } from '@cleocode/contracts';
 import {
   canonicalizePath,
   computeProjectHash,
+  isValidProjectDisplayName,
+  PROJECT_DISPLAY_NAME_MAX,
+  readDeclaredProjectIdentity,
   readPortableProjectId,
   resolveWorktreeRootForHash,
 } from '@cleocode/paths';
 import { withStrippedFieldsReceipt } from './doctor/project-identity.js';
 import { type EngineResult, engineError, engineSuccess } from './engine-result.js';
 import { generateProjectHash, nexusReconcile, nexusRenameProject } from './nexus/index.js';
-import { computeStableProjectHash } from './project-scope.js';
+import { computeStableProjectHash, worktreeScope } from './project-scope.js';
 
 export type { MoveProjectResult } from '@cleocode/contracts';
 
@@ -53,6 +56,22 @@ export interface RenameProjectResult {
    * The field name is kept for API compatibility.
    */
   newProjectHash: string;
+  /**
+   * Where the name was recorded (T12716): `project.json` (committed — commit
+   * the change), or `project-info.json` for a legacy project that has not
+   * been migrated by `cleo doctor project-identity --resolve` yet.
+   */
+  recordedIn?: 'project.json' | 'project-info.json';
+  /** Global registry label: `renamed`, `not-registered`, or why it failed (T12716). */
+  registry?: string;
+  /**
+   * Cleo Nexus label (T12716): `not-linked`, or `relink-required` when
+   * `.cleo/nexus-link.json` binds this project — re-run `cleo project link`
+   * to push the new label.
+   */
+  nexusLabel?: 'not-linked' | 'relink-required';
+  /** Follow-up the operator should run, when any. */
+  hint?: string;
 }
 
 /** Result of a successful project re-registration. */
@@ -180,7 +199,13 @@ function crossDeviceRefusal(source: string, target: string, command: string): En
   );
 }
 
-/** Read `projectId` from project-info.json, or the failure to return. */
+/**
+ * Read the project's declared id (tracked `.cleo/project.json` / legacy
+ * `.cleo/project-id`, else the `project-info.json` cache — T12716), or the
+ * failure to return. A cache that disagrees with the tracked id is refused:
+ * relocating would carry two lineages; `cleo doctor project-identity
+ * --resolve` reconciles them first.
+ */
 async function readRelocatableIdentity(
   projectRoot: string,
 ): Promise<{ projectId: string } | EngineResult<never>> {
@@ -192,15 +217,25 @@ async function readRelocatableIdentity(
       { exitCode: ExitCode.CONFIG_ERROR },
     );
   }
-  const projectId = typeof info.projectId === 'string' ? info.projectId : '';
-  if (!projectId) {
+  const declared = readDeclaredProjectIdentity(projectRoot);
+  if (!declared) {
     return engineError(
       'E_NO_PROJECT_ID',
-      `project-info.json at "${projectRoot}" is missing projectId`,
+      `No project identity is declared at "${projectRoot}" (.cleo/project.json, .cleo/project-id, project-info.json)`,
       { fix: 'Run `cleo init` to generate a projectId', exitCode: ExitCode.CONFIG_ERROR },
     );
   }
-  return { projectId };
+  if (declared.infoProjectId !== undefined && declared.infoProjectId !== declared.projectId) {
+    return engineError(
+      'E_IDENTITY_CONFLICT',
+      `The tracked project id ${declared.projectId} does not agree with the project-info.json cache ${declared.infoProjectId} at "${projectRoot}"`,
+      {
+        exitCode: ExitCode.CONFIG_ERROR,
+        fix: 'Run `cleo doctor project-identity --resolve --dry-run`, then `--resolve`, first',
+      },
+    );
+  }
+  return { projectId: declared.projectId };
 }
 
 /**
@@ -684,15 +719,15 @@ async function completeReroot(
   oldRoot: string,
 ): Promise<
   EngineResult<{
-    projectIdFile: 'present' | 'written';
+    projectIdFile: 'present' | 'written' | 'legacy';
     tombstone: string;
     status: MoveProjectResult['reconcileStatus'];
   }>
 > {
   const { ensurePortableProjectId } = await import('./scaffold/project-identity.js');
   const idOutcome = await ensurePortableProjectId(childDir, projectId);
-  if (idOutcome !== 'present' && idOutcome !== 'written') {
-    throw new Error(`.cleo/project-id could not record ${projectId} (${idOutcome})`);
+  if (idOutcome !== 'present' && idOutcome !== 'written' && idOutcome !== 'legacy') {
+    throw new Error(`the tracked identity could not record ${projectId} (${idOutcome})`);
   }
   const { PROJECT_TOMBSTONE_FILE, writeProjectTombstone } = await import('./project-tombstone.js');
   const tombstone = writeProjectTombstone(oldRoot, {
@@ -875,7 +910,7 @@ export async function rerootProject(
   ) {
     return engineError(
       'E_IDENTITY_CONFLICT',
-      `.cleo/project-id does not agree with project-info.json at "${projectRoot}"`,
+      `The tracked identity (.cleo/project.json or .cleo/project-id) does not agree with project-info.json at "${projectRoot}"`,
       {
         exitCode: ExitCode.CONFIG_ERROR,
         fix: 'Run `cleo doctor project-identity` and resolve it first',
@@ -902,7 +937,9 @@ export async function rerootProject(
       entries,
       excluded,
       writes: [
-        ...(tracked.status === 'absent' ? [join(childDir, '.cleo', 'project-id')] : []),
+        ...(tracked.status === 'absent'
+          ? [join(childDir, '.cleo', 'project.json'), join(childDir, '.cleo', 'project-id')]
+          : []),
         join(projectRoot, '.cleo-moved.json'),
       ],
       registry: {
@@ -983,24 +1020,29 @@ export async function rerootProject(
 /** Git bookkeeping a reroot leaves to the operator. */
 function rerootNotes(oldRoot: string, newRoot: string): string[] {
   return [
-    `Commit .cleo/project-id in the repository at ${newRoot}`,
+    `Commit .cleo/project.json and .cleo/project-id in the repository at ${newRoot}`,
     `The repository at ${oldRoot} now shows .cleo/ as deleted; do not restore it (commands there refuse with E_PROJECT_MOVED)`,
   ];
 }
 
 /**
- * Rename a CLEO project (updates project-info.json name and hash).
+ * Rename a CLEO project: the committed `.cleo/project.json` name, the global
+ * registry label, and the Cleo Nexus label (T12716).
  *
- * This is a lightweight metadata operation — no files are moved.
- * The projectHash is recomputed because the project name influences
- * the canonical project ID (T9149 algorithm).
+ * This is a lightweight metadata operation — no files are moved and no id or
+ * `projectHash` changes.
+ *
+ * - A project with `.cleo/project.json` gets its `name` rewritten there (the
+ *   id is carried over byte-identical); commit the change.
+ * - A legacy project (only `.cleo/project-id` or none) keeps the pre-T12716
+ *   behaviour — `project-info.json` `name` — and is told to migrate with
+ *   `cleo doctor project-identity --resolve`. Renaming never migrates.
+ * - The registry row is relabelled best-effort; the Nexus label is reported as
+ *   `relink-required` when the project is linked (the link verb re-sends it).
  *
  * @param newName - The new project name.
  * @param projectRoot - Absolute path to the project root.
  * @returns EngineResult with {@link RenameProjectResult} on success.
- *
- * @remarks AC4: Updates project-info.json name field and recomputes
- *   projectHash based on the new basename.
  *
  * @example
  * ```typescript
@@ -1021,6 +1063,13 @@ export async function renameProject(
   if (!newName || newName.trim().length === 0) {
     return engineError('E_INVALID_NAME', 'newName must be a non-empty string');
   }
+  const name = newName.trim();
+  if (!isValidProjectDisplayName(name)) {
+    return engineError(
+      'E_INVALID_NAME',
+      `Invalid project name '${name}': use 1-${PROJECT_DISPLAY_NAME_MAX} characters with no "/", "\\", control characters or leading "~" (a name, not a path)`,
+    );
+  }
 
   // Read current project info
   const info = await readProjectInfo(projectRoot);
@@ -1031,7 +1080,8 @@ export async function renameProject(
     );
   }
 
-  const projectId = typeof info.projectId === 'string' ? info.projectId : '';
+  // T12716: the declared id (tracked first), the same resolver every reader uses.
+  const projectId = readDeclaredProjectIdentity(projectRoot)?.projectId ?? '';
   if (!projectId) {
     return engineError(
       'E_NO_PROJECT_ID',
@@ -1040,52 +1090,93 @@ export async function renameProject(
     );
   }
 
-  const oldName =
-    (typeof info.name === 'string' ? info.name : '') ||
-    (typeof info.projectName === 'string' ? info.projectName : '') ||
-    basename(projectRoot);
-
-  // AC4: Update project-info.json — only name changes. T12557: projectHash is
-  // a write-once identity key (release ids, audit rows), so the stored value is
-  // kept byte-identical. projectRoot is a path fact and is never written back:
-  // a legacy value is dropped into the same `strippedFields` receipt that
-  // `cleo doctor project-identity --resolve` keeps.
+  // T12557: projectHash is a write-once identity key (release ids, audit rows);
+  // a rename never changes it.
   const newProjectHash =
     typeof info.projectHash === 'string' && info.projectHash.length > 0
       ? info.projectHash
       : computeStableProjectHash(projectRoot);
-  const now = new Date().toISOString();
-  const kept =
-    info.projectRoot === undefined
-      ? info
-      : withStrippedFieldsReceipt(
-          info,
-          [{ file: 'project-info.json', field: 'projectRoot', value: info.projectRoot }],
-          now,
-          true,
-        );
-  const newInfo = {
-    ...kept,
-    name: newName.trim(),
-    projectHash: newProjectHash,
-    lastUpdated: now,
-  };
-  await writeProjectInfo(projectRoot, newInfo);
 
-  // AC1, AC3, AC5: Register self-alias in nexus projectIdAliases table
-  // for dispatch-layer consumer compatibility (T11025).
+  let oldName: string;
+  let recordedIn: 'project.json' | 'project-info.json';
+  let hint: string | undefined;
+  const tracked = readPortableProjectId(projectRoot);
+  if (tracked.status === 'valid' && tracked.name !== undefined) {
+    const { renameProjectManifest } = await import('./scaffold/project-identity.js');
+    try {
+      ({ oldName } = await renameProjectManifest(projectRoot, name));
+    } catch (error) {
+      return engineError('E_RENAME_FAILED', error instanceof Error ? error.message : String(error));
+    }
+    recordedIn = 'project.json';
+    hint = 'Commit .cleo/project.json so every clone shares the new name';
+  } else {
+    oldName =
+      (typeof info.displayName === 'string' ? info.displayName : '') ||
+      (typeof info.name === 'string' ? info.name : '') ||
+      (typeof info.projectName === 'string' ? info.projectName : '') ||
+      basename(projectRoot);
+    // Legacy project: `displayName`, never `name` — the cached `name` feeds the
+    // path fingerprint alias key and must not move on a rename (T12716).
+    // projectRoot is a path fact and is never written back: a legacy value is
+    // dropped into the same `strippedFields` receipt that
+    // `cleo doctor project-identity --resolve` keeps.
+    const now = new Date().toISOString();
+    const kept =
+      info.projectRoot === undefined
+        ? info
+        : withStrippedFieldsReceipt(
+            info,
+            [{ file: 'project-info.json', field: 'projectRoot', value: info.projectRoot }],
+            now,
+            true,
+          );
+    await writeProjectInfo(projectRoot, {
+      ...kept,
+      displayName: name,
+      projectHash: newProjectHash,
+      lastUpdated: now,
+    });
+    recordedIn = 'project-info.json';
+    hint =
+      'This project has no .cleo/project.json yet: run `cleo doctor project-identity --resolve` to record the name in git';
+  }
+
+  // Registry label, best-effort: the rename itself has succeeded. Scoped to
+  // the explicit root, so no ambient project (cwd, CLEO_ROOT) owns the write.
+  let registry: string;
   try {
-    await nexusRenameProject(projectId, newName.trim());
-  } catch {
-    // Non-fatal: alias registration is best-effort; the rename succeeded
+    await worktreeScope.run(
+      { worktreeRoot: projectRoot, projectHash: generateProjectHash(projectRoot) },
+      () => nexusRenameProject(projectId, name),
+    );
+    registry = 'renamed';
+  } catch (error) {
+    registry =
+      error instanceof Error && /not found/i.test(error.message)
+        ? 'not-registered'
+        : `failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+
+  // Nexus label hook (T12712's `cleo project link` owns the binding file and
+  // the label push; linking is idempotent, so re-running it re-sends the name).
+  const nexusLabel = existsSync(join(projectRoot, '.cleo', 'nexus-link.json'))
+    ? 'relink-required'
+    : 'not-linked';
+  if (nexusLabel === 'relink-required') {
+    hint = `${hint}; run \`cleo project link --name ${JSON.stringify(name)}\` to update the Cleo Nexus label`;
   }
 
   return engineSuccess({
     projectId,
     projectRoot,
     oldName,
-    newName: newName.trim(),
+    newName: name,
     newProjectHash,
+    recordedIn,
+    registry,
+    nexusLabel,
+    hint,
   });
 }
 
@@ -1131,7 +1222,8 @@ export async function reregisterProject(
     );
   }
 
-  const projectId = typeof info.projectId === 'string' ? info.projectId : '';
+  // T12716: the declared id (tracked first) — what nexusReconcile registers.
+  const projectId = readDeclaredProjectIdentity(projectRoot)?.projectId ?? '';
   if (!projectId) {
     return engineError(
       'E_NO_PROJECT_ID',

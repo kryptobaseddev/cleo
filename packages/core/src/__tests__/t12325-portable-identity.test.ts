@@ -1,11 +1,14 @@
 /**
- * Write-once portable project identity (T12325 · ADR-094).
+ * Write-once portable project identity (T12325 · ADR-094 · T12716).
  *
  * Proves the four acceptance criteria against real git and a real registry:
  * a fresh clone resolves the original id; a moved project keeps its id and
  * its ONE registry row is re-pointed; a missing id file is re-linked (from
  * project-info, the registry path, or a live checkout of the same remote),
  * never silently re-minted; and the tracked file is never rewritten.
+ *
+ * T12716: the tracked identity is now `.cleo/project.json` plus the legacy
+ * `.cleo/project-id` mirror, and on a conflict the TRACKED id wins.
  */
 import { execFileSync } from 'node:child_process';
 import {
@@ -22,6 +25,7 @@ import { join } from 'node:path';
 import {
   formatPortableProjectId,
   readPortableProjectId,
+  readProjectIdFile,
   resolveProjectByCwd,
 } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -95,18 +99,24 @@ afterEach(() => {
 });
 
 describe('AC2: a fresh clone resolves the same projectId', () => {
-  it('commits .cleo/project-id, not project-info.json, and the clone adopts it', async () => {
+  it('commits .cleo/project.json + .cleo/project-id, not project-info.json, and the clone adopts it', async () => {
     newHome('device-a');
     const origin = newRepo('origin');
     await ensureGitignore(origin);
     const created = await ensureProjectInfo(origin);
     const originalId = readInfoId(origin);
     expect(created.details).toContain('(minted)');
-    expect(readPortableProjectId(origin)).toEqual({ status: 'valid', projectId: originalId });
+    expect(readPortableProjectId(origin)).toEqual({
+      status: 'valid',
+      projectId: originalId,
+      file: 'project.json',
+      name: 'origin',
+    });
 
     git(origin, 'add', '-A');
     git(origin, 'commit', '-q', '-m', 'init');
     const tracked = git(origin, 'ls-files', '.cleo').split('\n');
+    expect(tracked).toContain('.cleo/project.json');
     expect(tracked).toContain('.cleo/project-id');
     expect(tracked).not.toContain('.cleo/project-info.json');
 
@@ -142,7 +152,7 @@ describe('AC4: moving a project keeps its projectId and updates only the path', 
     await registerProjectOnEncounter(after, moved?.legacyUUID ?? '');
 
     expect(await registryRows(home)).toEqual([{ projectId: id, projectPath: after }]);
-    expect(readPortableProjectId(after)).toEqual({ status: 'valid', projectId: id });
+    expect(readPortableProjectId(after)).toMatchObject({ status: 'valid', projectId: id });
   });
 });
 
@@ -156,8 +166,16 @@ describe('AC3: a missing id file is re-linked, never silently re-minted', () => 
     );
     const result = await ensureProjectInfo(root);
     expect(result.action).toBe('skipped');
-    expect(result.details).toContain('.cleo/project-id written');
-    expect(readPortableProjectId(root)).toEqual({ status: 'valid', projectId: 'c78d09c3a8ee' });
+    expect(result.details).toContain('tracked identity written');
+    // T12716: a project with NO tracked file gets project.json (named from the
+    // cache) and the legacy mirror, both create-only.
+    expect(readPortableProjectId(root)).toEqual({
+      status: 'valid',
+      projectId: 'c78d09c3a8ee',
+      file: 'project.json',
+      name: 'legacy',
+    });
+    expect(readProjectIdFile(root)).toMatchObject({ status: 'valid', projectId: 'c78d09c3a8ee' });
   });
 
   it('re-links from the registry row at the same path when both files are gone', async () => {
@@ -167,13 +185,14 @@ describe('AC3: a missing id file is re-linked, never silently re-minted', () => 
     const id = readInfoId(root);
     await registerProjectOnEncounter(root, id);
     rmSync(join(root, '.cleo', 'project-info.json'));
+    rmSync(join(root, '.cleo', 'project.json'));
     rmSync(join(root, '.cleo', 'project-id'));
 
     const result = await ensureProjectInfo(root);
     expect(readInfoId(root)).toBe(id);
     expect(result.details).toContain('(registry-path)');
     expect(result.details).toContain('re-linked');
-    expect(readPortableProjectId(root)).toEqual({ status: 'valid', projectId: id });
+    expect(readPortableProjectId(root)).toMatchObject({ status: 'valid', projectId: id });
     expect(await registryRows(home)).toHaveLength(1);
   });
 
@@ -216,7 +235,7 @@ describe('AC3: a missing id file is re-linked, never silently re-minted', () => 
 });
 
 describe('write-once: the tracked file is never rewritten', () => {
-  it('keeps the local id on conflict and reports it', async () => {
+  it('on conflict the tracked id wins, the cache is left for doctor, and nothing is migrated', async () => {
     newHome('device');
     const root = newRepo('conflict');
     writeFileSync(join(root, '.cleo', 'project-id'), formatPortableProjectId('tracked-y'));
@@ -225,19 +244,44 @@ describe('write-once: the tracked file is never rewritten', () => {
       JSON.stringify({ projectId: 'local-x', name: 'conflict' }),
     );
     const result = await ensureProjectInfo(root);
-    expect(readInfoId(root)).toBe('local-x');
-    expect(result.details).toContain('.cleo/project-id conflict');
+    // T12716: the decision is the tracked id; the cache is re-keyed only by
+    // `cleo doctor project-identity --resolve`, never by init/upgrade.
+    expect(result.details).toContain('identity tracked-y (tracked)');
     expect(result.details).toContain('identity conflict');
-    expect(readPortableProjectId(root)).toEqual({ status: 'valid', projectId: 'tracked-y' });
+    expect(result.details).toContain('tracked identity legacy');
+    expect(readInfoId(root)).toBe('local-x');
+    expect(await decideProjectIdentity(root, 'local-x')).toMatchObject({
+      projectId: 'tracked-y',
+      source: 'tracked',
+    });
+    // Legacy-only: never migrated on init.
+    expect(existsSync(join(root, '.cleo', 'project.json'))).toBe(false);
+    expect(readPortableProjectId(root)).toMatchObject({
+      status: 'valid',
+      projectId: 'tracked-y',
+      file: 'project-id',
+    });
+    // A force-regenerate (`cleo upgrade`) keeps the cache too.
+    await ensureProjectInfo(root, { force: true });
+    expect(readInfoId(root)).toBe('local-x');
   });
 
   it('ensurePortableProjectId writes once and then only compares', async () => {
     const root = join(sandbox, 'once');
     mkdirSync(join(root, '.cleo'), { recursive: true });
     expect(await ensurePortableProjectId(root, 'first-id')).toBe('written');
+    const manifest = readFileSync(join(root, '.cleo', 'project.json'), 'utf-8');
+    const mirror = readFileSync(join(root, '.cleo', 'project-id'), 'utf-8');
     expect(await ensurePortableProjectId(root, 'first-id')).toBe('present');
     expect(await ensurePortableProjectId(root, 'other-id')).toBe('conflict');
-    expect(readPortableProjectId(root)).toEqual({ status: 'valid', projectId: 'first-id' });
+    expect(readPortableProjectId(root)).toEqual({
+      status: 'valid',
+      projectId: 'first-id',
+      file: 'project.json',
+      name: 'once',
+    });
+    expect(readFileSync(join(root, '.cleo', 'project.json'), 'utf-8')).toBe(manifest);
+    expect(readFileSync(join(root, '.cleo', 'project-id'), 'utf-8')).toBe(mirror);
   });
 
   it('normalises equivalent remote spellings', () => {

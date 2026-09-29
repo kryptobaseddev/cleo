@@ -118,7 +118,7 @@ export interface DiagnoseResult {
  * @param options.autoMigrate  Auto-migrate storage if needed (default: true)
  * @param options.forceDetect  Force re-detection of project type (ignore staleness)
  * @param options.mapCodebase  Run full codebase analysis and store to brain.db
- * @param options.projectName  Update project name in project-info and nexus
+ * @param options.projectName  Rename the project (`.cleo/project.json`, registry and Nexus label — T12716)
  * @param options.cwd  Project directory override
  */
 export async function runUpgrade(
@@ -1133,18 +1133,31 @@ export async function runUpgrade(
       }
     }
 
-    // Update project name if requested (delegates to core updateProjectName)
+    // Update project name if requested: the same path as `cleo project rename`
+    // (project.json, registry label, Nexus label hint — T12716).
     if (options.projectName) {
       try {
-        const { updateProjectName } = await import('./project-info.js');
-        await updateProjectName(projectRootForMaint, options.projectName);
+        const { renameProject } = await import('./project-lifecycle.js');
+        const renamed = await renameProject(options.projectName, projectRootForMaint);
+        actions.push(
+          renamed.success
+            ? {
+                action: 'project_name_update',
+                status: 'applied',
+                details: `Project name set to "${renamed.data.newName}" in ${renamed.data.recordedIn ?? 'project-info.json'} (registry: ${renamed.data.registry ?? 'unknown'})${renamed.data.hint ? `; ${renamed.data.hint}` : ''}`,
+              }
+            : {
+                action: 'project_name_update',
+                status: 'error',
+                details: renamed.error.message,
+              },
+        );
+      } catch (err) {
         actions.push({
           action: 'project_name_update',
-          status: 'applied',
-          details: `Project name set to "${options.projectName}"`,
+          status: 'error',
+          details: `Project rename failed: ${err instanceof Error ? err.message : String(err)}`,
         });
-      } catch {
-        /* best-effort */
       }
     }
 

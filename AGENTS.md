@@ -257,13 +257,13 @@ Runbooks: `docs/release/merge-queue-runbook.md`, `docs/release/verb-matrix.md`, 
 - **Auto snapshot:** `cleo session end` → `vacuumIntoBackupAll` writes timestamped snapshots under `.cleo/backups/sqlite/` (10 per DB, oldest rotated out).
 - **List:** `cleo backup list`
 - **Restore:** `cleo restore backup --file tasks.db` (or brain.db / config.json / project-info.json)
-- **Fresh clones:** `cleo init` recreates config + project-info; DBs are created empty on first access. The clone keeps the original `projectId` because `init` reads it from the tracked `.cleo/project-id`.
+- **Fresh clones:** `cleo init` recreates config + project-info; DBs are created empty on first access. The clone keeps the original `projectId` because `init` reads it from the tracked `.cleo/project.json` (legacy: `.cleo/project-id`).
 
-**One exception: `.cleo/project-id` IS tracked** (ADR-094, amending ADR-013 §9 · T12325). It holds the write-once portable project identity. CLEO creates it once with `O_EXCL` and never rewrites it, so git has nothing to overwrite. The §9 hazard needed a second writer and state that changes, and this file has neither. **Commit it; never edit or regenerate it.**
-- A conflict with `project-info.json` is reported, and the local id is kept.
+**Exception: the identity files ARE tracked** (ADR-094 · T12325, ADR-096 · T12716, amending ADR-013 §9). `.cleo/project.json` holds `{schemaVersion, id, name}`: the **id is write-once** (created once with `O_EXCL`, never rewritten), the name changes only through `cleo project rename`. `.cleo/project-id` stays tracked as the legacy id-only mirror. The §9 hazard needed a second writer on state that changes, and neither id has one. **Commit both; never edit or regenerate an id.** A legacy project (only `.cleo/project-id`) migrates only through `cleo doctor project-identity --resolve --dry-run`, then `--resolve` — never on open, init or upgrade.
+- A conflict with the `project-info.json` cache is reported, and the TRACKED id wins everywhere (ADR-096). Init and upgrade leave the cache alone; only `--resolve` re-keys it.
 - A missing file is re-linked from `project-info.json` or the global registry. A new id is minted only when nothing can be re-linked, or explicitly with `cleo init --new-identity`.
 - A fork inherits the id; see ADR-094 for the fork caveat.
-- Check it with `cleo doctor project-identity`. It reports missing, conflicting, invalid, uncommitted or gitignored ids with the exact remedy. `--resolve --dry-run` shows the plan; `--resolve` applies it. A conflict is re-keyed to the tracked id through the alias table, so no registry row is lost and the old id still resolves (T12353).
+- Check it with `cleo doctor project-identity`. It reports legacy, missing, conflicting, invalid, uncommitted or gitignored ids and registry-name drift with the exact remedy. `--resolve --dry-run` shows the plan; `--resolve` applies it. A conflict is re-keyed to the tracked id through the alias table (when both ids are registered, the cached-id row is folded into the tracked row with a `merge-identity` audit receipt), credentials sealed under the old id are re-wrapped, and the old id still resolves (T12353 · T12716).
 
 **NEVER** `git add` any of these four files. Root and nested `.gitignore` block this; manual overrides re-open the T5158 data-loss vector.
 

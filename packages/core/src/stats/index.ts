@@ -308,7 +308,7 @@ export async function getDashboard(
   }
 
   const meta = await acc.getMetaValue<import('@cleocode/contracts').ProjectMeta>('project_meta');
-  // Fall back to the legacy 'project' key, then to the directory name from project-info.json
+  // Fall back to the legacy 'project' key, then to the declared display name (T12716)
   const legacyMeta = meta
     ? null
     : await acc.getMetaValue<{ name?: string; currentPhase?: string }>('project');

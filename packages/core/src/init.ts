@@ -1364,13 +1364,17 @@ export async function updateDocs(): Promise<InitResult> {
 /**
  * Remove the identity files a relocated project left (or `git checkout`
  * restored) at `root`, so `cleo init --here --new-identity` mints a new id
- * instead of adopting the old one: `.cleo/project-id` and
- * `.cleo/project-info.json` only when they declare `projectId`, and the reroot
- * tombstone. Nothing else is touched.
+ * instead of adopting the old one: `.cleo/project.json`, `.cleo/project-id`
+ * and `.cleo/project-info.json` only when they declare `projectId`, and the
+ * reroot tombstone. Nothing else is touched.
  */
 async function retireRelocatedIdentity(root: string, projectId: string): Promise<void> {
-  const { readPortableProjectId } = await import('@cleocode/paths');
-  const tracked = readPortableProjectId(root);
+  const { readProjectIdFile, readProjectManifest } = await import('@cleocode/paths');
+  const manifest = readProjectManifest(root);
+  if (manifest.status === 'valid' && manifest.manifest.id === projectId) {
+    await unlink(join(root, '.cleo', 'project.json'));
+  }
+  const tracked = readProjectIdFile(root);
   if (tracked.status === 'valid' && tracked.projectId === projectId) {
     await unlink(join(root, '.cleo', 'project-id'));
   }
@@ -1459,7 +1463,7 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
       ExitCode.PROJECT_MOVED,
       `E_PROJECT_MOVED: ${projRoot} is where project ${relocated.projectId} was rerooted from; \`--here\` alone would create a second store for that same project`,
       {
-        fix: `cd "${relocated.movedTo}" (the live project). To start a DIFFERENT project here, run \`cleo init --here --new-identity\` (mints a new id; commit the new .cleo/project-id).`,
+        fix: `cd "${relocated.movedTo}" (the live project). To start a DIFFERENT project here, run \`cleo init --here --new-identity\` (mints a new id; commit the new .cleo/project.json and .cleo/project-id).`,
         details: {
           field: 'projectRoot',
           projectId: relocated.projectId,
@@ -1735,8 +1739,11 @@ async function scaffoldInitTarget(
   }
 
   // T4684: Project info (.cleo/project-info.json)
-  // T12325: the id is adopted into the tracked write-once .cleo/project-id;
-  // re-links, conflicts and missing registry coverage are reported, not hidden.
+  // T12325 · T12716: a project with no tracked identity records its id in the
+  // tracked write-once .cleo/project.json (+ the legacy .cleo/project-id
+  // mirror); re-links, conflicts, a legacy-only project (migrated only by
+  // `cleo doctor project-identity --resolve`) and missing registry coverage
+  // are reported, not hidden.
   const projectInfoResult = await ensureProjectInfo(projRoot, {
     force,
     mintNewIdentity: opts.newIdentity,
@@ -1748,13 +1755,21 @@ async function scaffoldInitTarget(
   }
   if (
     projectInfoResult.details &&
-    /re-linked|conflict|invalid|coverage missing/.test(projectInfoResult.details)
+    /re-linked|conflict|invalid|coverage missing|tracked identity legacy/.test(
+      projectInfoResult.details,
+    )
   ) {
-    warnings.push(`Project identity: ${projectInfoResult.details}`);
+    warnings.push(
+      `Project identity: ${projectInfoResult.details}${
+        projectInfoResult.details.includes('tracked identity legacy')
+          ? '. Migrate to .cleo/project.json: `cleo doctor project-identity --resolve --dry-run`, then `--resolve`'
+          : ''
+      }`,
+    );
   }
   if (retiredProjectId) {
     warnings.push(
-      `.cleo/project-id changed: this is a NEW project, not ${retiredProjectId} (which lives on elsewhere). Commit the new .cleo/project-id.`,
+      `The tracked identity changed: this is a NEW project, not ${retiredProjectId} (which lives on elsewhere). Commit the new .cleo/project.json and .cleo/project-id.`,
     );
     // Both projects are registered under this directory's name; say so rather
     // than rename either one behind the operator's back.
