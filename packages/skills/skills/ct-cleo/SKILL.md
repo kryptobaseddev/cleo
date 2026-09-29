@@ -2,7 +2,7 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.22.2
+  version: 2.23.0
   tier: core
   install: harness
   covers:
@@ -143,7 +143,7 @@ stderr; `session status` / `briefing` label a guessed session `unbound: true`.
 
 ## Typed decisions (`cleo decide`, T12491)
 
-`decide` answers typed questions (yes/no, choice, score) through a swappable Jev-wire provider and falls back to local heuristics when unconfigured or failing. It needs two settings, an API URL and a key: `printf %s "$KEY" | cleo decide config --url <u> --key-stdin` (optional `--model`; `--clear` removes them). The key is kept in a 0600 file and never printed. `cleo decide status` probes reachability and `cleo decide ask --state <text> --noul <q>` runs one debug question.
+`decide` answers typed questions (yes/no, choice, score) through a swappable Jev-wire provider and falls back to local heuristics when unconfigured or failing. Pick a provider and supply its key: `printf %s "$KEY" | cleo decide config --provider layahost --key-stdin` (layahost, the default, needs only the key and uses model `laya-auto`); a custom endpoint is `--provider jev --url <u>`. `--model` overrides the model and `--clear` removes the settings. On a terminal, `cleo decide config` with no flags runs a setup wizard that reads the key hidden. The key is kept in a 0600 file and never printed. `cleo decide status` probes reachability and `cleo decide ask --state <text> --noul <q>` runs one debug question.
 
 ## Quick Reference
 

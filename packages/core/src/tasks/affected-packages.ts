@@ -28,6 +28,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { promisify } from 'node:util';
 import { isCiDocumentPath } from '../release/ci-evidence.js';
+import { splitCommandLine } from './command-line.js';
 import type { ResolvedToolCommand } from './tool-resolver.js';
 import { acquireGlobalSlot, type ReleaseSlotFn } from './tool-semaphore.js';
 
@@ -437,11 +438,15 @@ export function scriptTestTargets(
  * Expand a `testing.affectedCommand` template into a spawnable command.
  * `{projects}` → `--project <name>` per package, `{filters}` → `--filter
  * <name>` per package, `{packages}` → the names. Each expands to separate
- * arguments; the template is split on whitespace (no shell).
+ * arguments. The template is split with POSIX `sh` quoting and run without a
+ * shell, so shell syntax (`&&`, `|`, `$`, …) is refused rather than passed to
+ * the target as literal words, which could run a different program and
+ * false-PASS (T12718).
  *
  * @param template - e.g. `pnpm exec vitest run {projects}`.
  * @param packages - Affected package names.
  * @returns The executable and its arguments.
+ * @throws When the template uses shell syntax or has an unterminated quote.
  * @task T12635
  */
 export function buildAffectedTestCommand(
@@ -449,7 +454,7 @@ export function buildAffectedTestCommand(
   packages: readonly string[],
   projects: readonly string[] = packages,
 ): { cmd: string; args: string[] } {
-  const words = template.trim().split(/\s+/).filter(Boolean);
+  const words = splitCommandLine(template, 'testing.affectedCommand');
   const expanded = words.flatMap((word) => {
     if (word === '{projects}') return projects.flatMap((p) => ['--project', p]);
     if (word === '{filters}') return packages.flatMap((p) => ['--filter', p]);
@@ -554,6 +559,18 @@ export async function planAffectedTestRun(
         '"pnpm exec vitest run {projects}" ({projects}/{filters}/{packages} expand per package).',
     };
   }
+  // T12718: a template the runner cannot split without a shell is a config
+  // error, refused before anything runs — never a pass for a truncated argv.
+  let templateWords: string[];
+  try {
+    templateWords = splitCommandLine(template, 'testing.affectedCommand');
+  } catch (error) {
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_TOOL_UNAVAILABLE',
+      reason: `${error instanceof Error ? error.message : String(error)} (.cleo/project-context.json)`,
+    };
+  }
   const changed = changedPathsSinceDefault(root);
   if (changed === null) {
     return {
@@ -578,7 +595,7 @@ export async function planAffectedTestRun(
         'The change touches no workspace package, so there is nothing to test by scope; use tool:test.',
     };
   }
-  const targets = template.split(/\s+/).includes('{projects}')
+  const targets = templateWords.includes('{projects}')
     ? await affectedTestTargets(root, scope.packages, scope.direct, (r) =>
         listVitestProjects(r, { wait: opts.wait === true }),
       )

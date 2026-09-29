@@ -11,10 +11,12 @@ import { readLiveFocus } from '../sessions/focus-state-store.js';
 import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { buildRankingContext, rankTasks } from '../task-tools/score-task-priority.js';
 import {
   getReadinessDependencyBlockers,
   loadReadinessDependencyLookup,
 } from '../tasks/dependency-check.js';
+import { resolveRankingPhase } from '../tasks/task-next.js';
 
 /**
  * Build startup state from selected project tasks and explicit dependency evidence.
@@ -83,7 +85,7 @@ export async function buildBrainState(
     }
   }
 
-  // --- Next Suggestion (simple: pick first pending task with all deps met) ---
+  // --- Next Suggestion: the best-ranked pending task with all deps met ---
   const dependencyLookup = await loadReadinessDependencyLookup(tasks, acc);
   const blockersByTask = new Map(
     tasks.map((task) => [task.id, getReadinessDependencyBlockers(task.depends, dependencyLookup)]),
@@ -93,14 +95,11 @@ export async function buildBrainState(
   );
 
   if (readyTasks.length > 0) {
-    // Sort by priority
-    const priorityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
-    readyTasks.sort((a, b) => {
-      const aPri = priorityOrder[a.priority ?? 'medium'] ?? 2;
-      const bPri = priorityOrder[b.priority ?? 'medium'] ?? 2;
-      return aPri - bPri;
+    // T12692: THE comparator (D11161) — the same ranking as `cleo next`.
+    const ctx = buildRankingContext(tasks, dependencyLookup, {
+      currentPhase: await resolveRankingPhase(acc),
     });
-    const next = readyTasks[0]!;
+    const next = rankTasks(readyTasks, ctx)[0]!.task;
     brain.nextSuggestion = { id: next.id, title: next.title, score: 1 };
   }
 

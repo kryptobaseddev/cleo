@@ -301,7 +301,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'decideCommand',
     name: 'decide',
     description:
-      'Typed-decision (System One) provider: decide config (API URL + key), decide status (reachability probe), decide ask (one debug question). Unconfigured means heuristics answer.',
+      'System One integration (typed decisions): decide config (provider + API key; wizard on a terminal), decide status (reachability probe), decide ask (one debug question), decide sites (the registered decision sites). Unconfigured means heuristics answer.',
     load: async () => (await import('../commands/decide.js')).decideCommand as CommandDef,
   },
   {
@@ -450,6 +450,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
       'Report task rows whose id is not a valid task identifier — rows that `cleo list` returns ',
     load: async () =>
       (await import('../commands/doctor-malformed-ids.js')).doctorMalformedIdsCommand as CommandDef,
+  },
+  {
+    exportName: 'doctorManifestRowsCommand',
+    name: 'manifest-rows',
+    description:
+      'List manifest rows whose metadata violates the stored field contract. --repair shows the plan (writes nothing); --repair --apply moves each bad field under _malformed (nothing lost) with a receipt; --rollback <receipt> undoes it.',
+    load: async () =>
+      (await import('../commands/doctor-manifest-rows.js')).doctorManifestRowsCommand as CommandDef,
   },
   {
     exportName: 'doctorMemoryGuardCommand',
@@ -1069,7 +1077,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'setupCommand',
     name: 'setup',
     description:
-      'Interactive setup wizard — runs all 8 sections in canonical order (identity → llm → sentient → harness → brain → project-conventions → integrations → verification). Use --section <name> for a single section, --non-interactive with section-specific flags to configure without prompts, --config-json for fully scripted setup, or --reset to reconfigure already-set sections.',
+      'Interactive setup wizard — runs every section in canonical order (llm → system-one → models-roles → identity → sentient → project-conventions → harness → brain → integrations → telemetry → verification); system-one is optional. Use --section <name> for a single section, --non-interactive with section-specific flags to configure without prompts, --config-json for fully scripted setup, or --reset to reconfigure already-set sections.',
     load: async () => (await import('../commands/setup.js')).setupCommand as CommandDef,
   },
   {

@@ -101,6 +101,7 @@ import {
   resolveCorePackageMigrationsFolder,
 } from './resolve-migrations-folder.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
+import { installSchemaWriteGuard } from './worktree-build-guard.js';
 
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
@@ -595,6 +596,7 @@ export function checkConduitDbHealth(projectRoot: string): {
   }
 
   const db = new DatabaseSync(dbPath);
+  installSchemaWriteGuard(db); // T12687
   // Health-check is a short-lived read of pragma + sqlite_master state.
   // Apply the perf pragma set so the inspection itself benefits from mmap +
   // cache, and the connection doesn't sit at SQLite defaults if the writer
@@ -657,5 +659,6 @@ export function openFreshConduitDb(projectRoot: string): DatabaseSync {
   const dbPath = getConduitDbPath(projectRoot);
   const db = new DatabaseSync(dbPath);
   applyPerfPragmas(db);
+  installSchemaWriteGuard(db); // T12687
   return db;
 }

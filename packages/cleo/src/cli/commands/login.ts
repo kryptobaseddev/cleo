@@ -313,7 +313,7 @@ async function resolveApiKey(args: Record<string, unknown>, io: ReadlineWizardIO
     return args['api-key'] as string;
   }
   if (process.stdin.isTTY) {
-    return (await io.prompt('API key:')).trim();
+    return (await io.secret('API key (input hidden):')).trim();
   }
   return '';
 }

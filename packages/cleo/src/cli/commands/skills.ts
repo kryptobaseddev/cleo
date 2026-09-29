@@ -22,6 +22,7 @@
  * @epic T4545
  */
 
+import { ExitCode } from '@cleocode/contracts';
 import type { AdoptedSkillRowData, DoctorAdoptCliAdapters } from '@cleocode/core';
 import {
   AgentsSkillsRealDirError,
@@ -30,6 +31,7 @@ import {
   runBundledSkillPrune,
   runDoctorAdopt,
   runDoctorBridge,
+  unkeepBundledSkill,
 } from '@cleocode/core';
 import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
@@ -613,15 +615,35 @@ const doctorPruneCommand = defineCommand({
 const doctorRestoreCommand = defineCommand({
   meta: {
     name: 'restore',
-    description: 'List skill quarantines, or restore one by id (reverses cleo skills doctor prune)',
+    description:
+      'List skill quarantines, or restore one by id (reverses cleo skills doctor prune). ' +
+      'A restored skill is kept: prune never takes it again. --unkeep <name> hands it back to ' +
+      'CLEO only when its files still hash exactly to the copy that was restored; a changed ' +
+      'copy stays kept.',
   },
   args: {
     id: { type: 'positional', required: false, description: 'Quarantine id (omit to list)' },
+    unkeep: {
+      type: 'string',
+      description: 'Kept skill name to hand back to CLEO (only if unchanged since it was restored)',
+    },
     json: { type: 'boolean', description: 'Output as JSON (default)' },
     human: { type: 'boolean', description: 'Output in human-readable format' },
   },
   async run({ args }) {
     try {
+      if (typeof args.unkeep === 'string' && args.unkeep !== '') {
+        const outcome = await unkeepBundledSkill(args.unkeep);
+        if (!outcome.unkept) {
+          cliError(outcome.reason, ExitCode.VALIDATION_ERROR, {
+            name: 'E_VALIDATION',
+            details: outcome,
+          });
+          process.exit(ExitCode.VALIDATION_ERROR);
+        }
+        cliOutput(outcome, { command: 'skills doctor restore', operation: 'skills.doctor.unkeep' });
+        return;
+      }
       const id = typeof args.id === 'string' && args.id !== '' ? args.id : undefined;
       const result = await restoreBundledSkillQuarantine(id);
       cliOutput(result, { command: 'skills doctor restore', operation: 'skills.doctor.restore' });

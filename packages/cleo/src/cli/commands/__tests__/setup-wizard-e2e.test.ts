@@ -228,6 +228,12 @@ class CapturingIO implements WizardIO {
     return answer;
   }
 
+  async secret(question: string): Promise<string> {
+    const answer = this.promptQueue.shift() ?? '';
+    this.infos.push(`[secret] ${question} → ***`);
+    return answer;
+  }
+
   async confirm(question: string, defaultValue?: boolean): Promise<boolean> {
     if (this.confirmQueue.length > 0) {
       const val = this.confirmQueue.shift() as boolean;
@@ -423,6 +429,7 @@ describe('cleo setup — e2e TTY-simulated (T11983)', () => {
   it('printWhoamiSummaryAndOfferTui: accepts gracefully when confirm throws (non-TTY)', async () => {
     const brokenIO: WizardIO = {
       prompt: vi.fn(async () => ''),
+      secret: vi.fn(async () => ''),
       confirm: vi.fn(async () => {
         throw new Error('stdin closed');
       }),

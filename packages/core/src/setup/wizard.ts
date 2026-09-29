@@ -96,6 +96,7 @@ export class WizardFatalError extends Error {
  */
 export type WizardSection =
   | 'llm'
+  | 'system-one'
   | 'models-roles'
   | 'identity'
   | 'harness'
@@ -322,6 +323,13 @@ export interface WizardOptions {
 export interface WizardIO {
   /** Ask a free-form text question; empty string means "no answer". */
   prompt(question: string): Promise<string>;
+  /**
+   * Ask for a secret (an API key). The answer is not echoed: the CLI mutes
+   * its output stream while the operator types. Empty string means "no answer".
+   *
+   * @task T12714
+   */
+  secret(question: string): Promise<string>;
   /** Yes/no question with an optional default. */
   confirm(question: string, defaultValue?: boolean): Promise<boolean>;
   /** Single-choice selection across a finite option list. */
@@ -658,15 +666,33 @@ export class StubWizardIO implements WizardIO {
   constructor(
     private readonly queues: {
       prompts?: string[];
+      /** Answers for {@link StubWizardIO.secret}; when empty, `secret` reads `prompts`. */
+      secrets?: string[];
       confirms?: boolean[];
       selects?: string[];
     } = {},
   ) {
     this.queues = {
       prompts: [...(queues.prompts ?? [])],
+      secrets: [...(queues.secrets ?? [])],
       confirms: [...(queues.confirms ?? [])],
       selects: [...(queues.selects ?? [])],
     };
+  }
+
+  /**
+   * Answer a secret prompt from the `secrets` queue (else the `prompts`
+   * queue). The history records `***`, never the secret.
+   */
+  async secret(question: string): Promise<string> {
+    const secrets = this.queues.secrets ?? [];
+    const queue = secrets.length > 0 ? secrets : (this.queues.prompts ?? []);
+    if (queue.length === 0) {
+      throw new Error(`StubWizardIO: secret queue exhausted on question '${question}'`);
+    }
+    const answer = queue.shift() as string;
+    this.promptHistory.push({ question, answer: '***' });
+    return answer;
   }
 
   async prompt(question: string): Promise<string> {

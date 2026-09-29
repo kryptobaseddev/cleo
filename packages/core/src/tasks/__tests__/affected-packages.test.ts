@@ -248,6 +248,21 @@ describe('buildAffectedTestCommand', () => {
       '@x/b',
     ]);
   });
+
+  it('honours sh quoting and still expands {projects} (T12718)', () => {
+    expect(
+      buildAffectedTestCommand(`pnpm exec vitest run --reporter 'dot' {projects}`, ['@x/a']),
+    ).toEqual({
+      cmd: 'pnpm',
+      args: ['exec', 'vitest', 'run', '--reporter', 'dot', '--project', '@x/a'],
+    });
+  });
+
+  it('refuses shell syntax instead of passing `&&` to the target (T12718)', () => {
+    expect(() =>
+      buildAffectedTestCommand('pnpm build && pnpm exec vitest run {projects}', ['@x/a']),
+    ).toThrow(/testing\.affectedCommand .*shell syntax \(&\)/);
+  });
 });
 
 describe('tool:test-affected evidence', () => {
@@ -278,7 +293,7 @@ describe('tool:test-affected evidence', () => {
   it('runs the configured command over the affected set and records scope:affected', async () => {
     // The command itself asserts it received exactly the affected packages.
     initRepo(
-      "node -e process.exit(process.argv.slice(1).join(',')==='@x/a,@x/b,@x/d'?0:3) {packages}",
+      `node -e "process.exit(process.argv.slice(1).join(',')==='@x/a,@x/b,@x/d'?0:3)" {packages}`,
     );
     writeFileSync(join(root, 'packages/a/src/index.ts'), "export const n = 'changed';\n");
     git(root, ['commit', '-q', '-am', 'T1: change a']);
@@ -308,7 +323,7 @@ describe('tool:test-affected evidence', () => {
   });
 
   it('a failing affected run is E_EVIDENCE_TOOL_FAILED', async () => {
-    initRepo('node -e process.exit(1) {packages}');
+    initRepo('node -e "process.exit(1)" {packages}');
     writeFileSync(join(root, 'packages/c/src/index.ts'), "export const n = 'changed';\n");
     git(root, ['commit', '-q', '-am', 'T1: change c']);
     const r = await validateAtom({ kind: 'tool', tool: 'test-affected' }, root);
@@ -337,7 +352,7 @@ describe('tool:test-affected evidence', () => {
   });
 
   it('T12657: an untracked new file in a package selects that package', async () => {
-    initRepo("node -e process.exit(process.argv.slice(1).join(',')==='@x/c'?0:3) {packages}");
+    initRepo(`node -e "process.exit(process.argv.slice(1).join(',')==='@x/c'?0:3)" {packages}`);
     writeFileSync(join(root, 'packages/c/src/new.ts'), 'export const fresh = 1;\n');
     expect(changedPathsSinceDefault(root)).toEqual(['packages/c/src/new.ts']);
     const r = await validateAtom({ kind: 'tool', tool: 'test-affected' }, root);
@@ -384,6 +399,17 @@ describe('tool:test-affected evidence', () => {
     const edited = await listVitestProjects(root, { acquireSlot });
     expect(edited).not.toBe(changed);
     expect(acquired).toEqual(['test', 'test', 'test']);
+  });
+
+  it('a shell-chained affectedCommand is a config error, never a pass (T12718)', async () => {
+    // Split on whitespace this ran `node -e 0` with `&& exit 1` as ignored
+    // arguments: exit 0, and the `exit 1` the author wrote never ran.
+    initRepo('node -e 0 && exit 1 {packages}');
+    writeFileSync(join(root, 'packages/c/src/index.ts'), "export const n = 'changed';\n");
+    git(root, ['commit', '-q', '-am', 'T1: change c']);
+    const r = await validateAtom({ kind: 'tool', tool: 'test-affected' }, root);
+    expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_TOOL_UNAVAILABLE');
+    expect(!r.ok && r.reason).toMatch(/testing\.affectedCommand .*shell syntax.*sh -c/);
   });
 
   it('refuses when testing.affectedCommand is not configured', async () => {

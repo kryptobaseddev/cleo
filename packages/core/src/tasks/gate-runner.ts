@@ -79,6 +79,7 @@ import { captureWrapped } from '../resources/spawn-wrapper.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
 import { registerTeardownAbort } from '../teardown-signal.js';
 import { acItemToText, acTextHash } from './ac-table.js';
+import { splitCommandLine } from './command-line.js';
 import { resolveCanonicalProjectRoot } from './evidence.js';
 import {
   buildGateCacheEntryBody,
@@ -764,7 +765,11 @@ export async function runTaskGates(
       if (typeof gate === 'string') continue;
       execution.assertActive();
       const capturedAt = new Date().toISOString();
-      const invocation = executableInvocation(gate, tree, env);
+      // T12718 review: a gate whose command is refused (shell syntax, open
+      // quote) becomes ITS OWN `error` result. Throwing here rejected the whole
+      // batch, and the verify engine turned that into E_GENERAL, discarding
+      // every other gate's verdict.
+      const { invocation, refusal } = resolveInvocation(gate, tree, env);
       const artifacts = await snapshotGateInputs(snapshot, gate, invocation, execution, tree);
       const binding: AcceptanceGateBinding = {
         version: 1,
@@ -781,17 +786,22 @@ export async function runTaskGates(
       };
       const treeBinding = captureTreeBinding(tree, invocation, artifacts);
       if (treeBinding) binding.tree = treeBinding;
-      const observed = (
-        await runGates([gate], {
-          ...options,
-          projectRoot: root,
-          env,
-          execution,
-          ...(options.cache && options.cache !== 'off'
-            ? { cacheInputsHash: gateInputsHash(invocation, artifacts) }
-            : {}),
-        })
-      )[0]!;
+      const observed = refusal
+        ? {
+            ...makeResult(index, gate, 'error', 0, undefined, refusal),
+            checkedBy: execution.identity.actor,
+          }
+        : (
+            await runGates([gate], {
+              ...options,
+              projectRoot: root,
+              env,
+              execution,
+              ...(options.cache && options.cache !== 'off'
+                ? { cacheInputsHash: gateInputsHash(invocation, artifacts) }
+                : {}),
+            })
+          )[0]!;
       let result: AcceptanceGateResult = { ...observed, index, binding };
       try {
         const after = await snapshotGateInputs(snapshot, gate, invocation, execution, tree);
@@ -922,7 +932,9 @@ export async function revalidateTaskGateResults(
         throw new Error(
           `Typed requirement ${gate.req ?? index} binding is stale or belongs to another owner`,
         );
-      const invocation = executableInvocation(gate, tree, env);
+      // A refused command is bound without an invocation (T12718 review), so it
+      // revalidates as the unmet `error` it was recorded as.
+      const { invocation } = resolveInvocation(gate, tree, env);
       const artifacts = await snapshotGateInputs(task, gate, invocation, execution, tree);
       const exact =
         isDeepStrictEqual(binding.invocation, invocation) &&
@@ -1046,7 +1058,13 @@ function executableInvocation(
   env: NodeJS.ProcessEnv,
 ): AcceptanceGateInvocation | undefined {
   if (gate.kind !== 'test' && gate.kind !== 'command' && gate.kind !== 'lint') return undefined;
-  const [testCommand, ...testArgs] = gate.kind === 'test' ? gate.command.trim().split(/\s+/) : [];
+  // T12718: quoted words are honoured and shell syntax is refused. A plain
+  // whitespace split handed `"` characters to the target, so
+  // `node -e "setTimeout(()=>process.exit(1),6000)"` evaluated a string
+  // literal, exited 0 at once and recorded a false PASS.
+  const [testCommand, ...testArgs] = gate.kind === 'test' ? splitCommandLine(gate.command) : [];
+  if (gate.kind === 'test' && testCommand === undefined)
+    throw new Error('Test gate command is empty');
   const command =
     gate.kind === 'test'
       ? testCommand!
@@ -1075,6 +1093,28 @@ function executableInvocation(
       )
       .digest('hex'),
   };
+}
+
+/**
+ * Resolve a gate's invocation, turning a refused command line into a message.
+ *
+ * `executableInvocation` throws when a test gate's `command` cannot be split
+ * (shell syntax, unterminated quote, empty). Batch callers need that as one
+ * gate's `error` verdict, not as a rejection of every gate (T12718 review).
+ */
+function resolveInvocation(
+  gate: AcceptanceGate,
+  root: string,
+  env: NodeJS.ProcessEnv,
+): { invocation: AcceptanceGateInvocation | undefined; refusal?: string } {
+  try {
+    return { invocation: executableInvocation(gate, root, env) };
+  } catch (error) {
+    return {
+      invocation: undefined,
+      refusal: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 /** Capture declared task inputs and an interpreter's explicit harness argument. */
