@@ -38,12 +38,12 @@ to sibling skills that have narrower context budgets and stricter contracts.
 | "write the spec for X" | `ct-spec-writer` |
 | "validate this implementation against the spec" | `ct-validator` |
 | "decompose this epic into tasks" | `ct-epic-architect` |
-| "look up Next.js 15 middleware API" | `ct-docs-lookup` (single-library fetch) |
+| "look up Next.js 15 middleware API" | the Context7 MCP (single-library fetch) |
 | "decide between A and B" (no investigation needed) | `ct-consensus-voter` |
 | "explain this function" | (no skill — direct read suffices) |
 
 A useful heuristic: if the user already knows the answer and just wants it
-written down, route to `ct-spec-writer` or `ct-docs-write`. Research is for
+written down, route to `ct-spec-writer` or `ct-documentor` (`references/writing.md`). Research is for
 when the answer is not yet known.
 
 ## Routing to Downstream Skills
@@ -68,11 +68,11 @@ Research outputs typically feed one of these next stages. The manifest
 
 ```
 Is the answer already known and just needs documentation?
-├── YES → ct-docs-write
+├── YES → the writing guide (`ct-documentor/references/writing.md`)
 └── NO → continue
     │
     Is this a single-library API question?
-    ├── YES → ct-docs-lookup
+    ├── YES → the Context7 MCP
     └── NO → ct-research-agent (this skill)
         │
         After research, do findings produce requirements?

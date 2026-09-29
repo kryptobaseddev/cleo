@@ -11,8 +11,10 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Task, TaskRef, TaskRefPriority, TaskWorkState } from '@cleocode/contracts';
+import type { Task, TaskRef, TaskRefPriority } from '@cleocode/contracts';
 import { getCleoDirAbsolute } from '../../paths.js';
+import { readLiveFocus } from '../../sessions/focus-state-store.js';
+import { resolveSessionIdFromEnv } from '../../sessions/session-id.js';
 import { getTaskAccessor } from '../../store/data-accessor.js';
 import { resolveBoundSessionId } from '../../store/session-store.js';
 import type {
@@ -177,8 +179,10 @@ export async function sessionInit(epicId?: string, cwd?: string): Promise<Sessio
   let focusedTask: string | null = null;
 
   try {
-    const focus = await acc.getMetaValue<TaskWorkState>('focus_state');
-    focusedTask = focus?.currentTask ?? null;
+    // T12684: the caller's live focus — never a finished task, never the raw
+    // legacy key alone.
+    focusedTask = (await readLiveFocus(acc, resolveSessionIdFromEnv() ?? activeSessionId))
+      .currentTask;
     hasFocus = !!focusedTask;
   } catch {
     // Focus unavailable
@@ -474,9 +478,10 @@ export async function generateHitlSummary(
   let focusedTask: string | null = null;
   let progressNote: string | null = null;
   try {
-    const focus = await acc.getMetaValue<TaskWorkState>('focus_state');
-    focusedTask = focus?.currentTask ?? null;
-    progressNote = focus?.sessionNote ?? null;
+    // T12684: the bound session's live focus — never a finished task.
+    const focus = await readLiveFocus(acc, sessionId);
+    focusedTask = focus.currentTask;
+    progressNote = focus.state?.sessionNote ?? null;
   } catch {
     // Focus unavailable
   }

@@ -25,9 +25,9 @@ afterEach(async () => {
 
 describe('rollupWaveStatus — contract shape', () => {
   it('returns a well-formed WaveRollup for a non-existent epic', async () => {
-    const result = await rollupWaveStatus('T-DOES-NOT-EXIST', 0, env.tempDir);
+    const result = await rollupWaveStatus('T-DOES-NOT-EXIST', 1, env.tempDir);
     expect(result.epicId).toBe('T-DOES-NOT-EXIST');
-    expect(result.waveId).toBe(0);
+    expect(result.waveId).toBe(1);
     expect(Array.isArray(result.workers)).toBe(true);
     expect(Array.isArray(result.blockers)).toBe(true);
     expect(typeof result.readyToAdvance).toBe('boolean');
@@ -35,7 +35,7 @@ describe('rollupWaveStatus — contract shape', () => {
   });
 
   it('accepts conduit messages without throwing', async () => {
-    const result = await rollupWaveStatus('T-DOES-NOT-EXIST', 0, env.tempDir, {
+    const result = await rollupWaveStatus('T-DOES-NOT-EXIST', 1, env.tempDir, {
       conduitMessages: [
         {
           taskId: 'T-CHILD-1',
@@ -115,7 +115,7 @@ describe('lead manifest evidence selection', () => {
     await append('new-worker-one', 'T1', '2026-02-01');
     await append('T10-newer-unrelated', 'T10', '2026-03-01');
     await append('T2-unlinked-name', null, '2026-04-01');
-    const wave = await rollupWaveStatus('T0', 0, env.tempDir);
+    const wave = await rollupWaveStatus('T0', 1, env.tempDir);
     expect(wave.workers).toHaveLength(3);
     expect(wave.workers.find((worker) => worker.taskId === 'T1')).toMatchObject({
       latestManifestEntry: 'new-worker-one',
@@ -151,7 +151,7 @@ describe('lead manifest evidence selection', () => {
         JSON.stringify(historical),
         '2026-03-01',
       );
-    const wave = await rollupWaveStatus('T0', 0, env.tempDir);
+    const wave = await rollupWaveStatus('T0', 1, env.tempDir);
     expect(wave.workers.find((worker) => worker.taskId === 'T1')).toMatchObject({
       latestManifestEntry: 'old-linked',
     });
@@ -176,7 +176,7 @@ describe('lead manifest evidence selection', () => {
         JSON.stringify(entry),
         '2026-01-01',
       );
-    await expect(rollupWaveStatus('T0', 0, env.tempDir)).rejects.toMatchObject({
+    await expect(rollupWaveStatus('T0', 1, env.tempDir)).rejects.toMatchObject({
       code: 'E_MANIFEST_ID_CONFLICT',
       details: {
         entryId: entry.id,
@@ -191,7 +191,7 @@ describe('lead manifest evidence selection', () => {
   it('propagates the actual native database read failure', async () => {
     const { native } = await bindTasksDomain(env.tempDir);
     native.exec('DROP TABLE docs_pipeline_manifest');
-    await expect(rollupWaveStatus('T0', 0, env.tempDir)).rejects.toMatchObject({
+    await expect(rollupWaveStatus('T0', 1, env.tempDir)).rejects.toMatchObject({
       cause: expect.objectContaining({
         message: expect.stringContaining('no such table: docs_pipeline_manifest'),
       }),

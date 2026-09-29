@@ -4,9 +4,11 @@
  * @epic T4454
  */
 
-import type { PhaseStatus, PhaseTransition, ProjectMeta, TaskWorkState } from '@cleocode/contracts';
+import type { PhaseStatus, PhaseTransition, ProjectMeta } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import { readFocusState, writeFocusState } from '../sessions/focus-state-store.js';
+import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { logOperation } from '../tasks/add.js';
 
@@ -500,10 +502,12 @@ export async function renamePhase(
   await accessor!.setMetaValue('project_meta', updatedMeta);
 
   // Update focus if needed
-  const focus = await accessor!.getMetaValue<TaskWorkState>('focus_state');
+  // T12660: through the per-session focus store, not the raw legacy key.
+  const focusSessionId = resolveSessionIdFromEnv();
+  const focus = await readFocusState(accessor!, focusSessionId);
   if (focus?.currentPhase === oldName) {
     focus.currentPhase = newName;
-    await accessor!.setMetaValue('focus_state', focus);
+    await writeFocusState(accessor!, focusSessionId, focus);
   }
 
   return { oldName, newName, tasksUpdated, currentPhaseUpdated };

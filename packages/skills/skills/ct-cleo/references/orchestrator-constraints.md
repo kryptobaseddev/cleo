@@ -18,11 +18,11 @@
 ### CLI Spawn Operations
 
 ```bash
-cleo orchestrator start --epic T001
-cleo orchestrator analyze T001
-cleo orchestrator ready --epic T001
-cleo orchestrator next --epic T001
-cleo orchestrator spawn T002
+cleo orchestrate start T001
+cleo orchestrate analyze T001
+cleo orchestrate ready T001
+cleo orchestrate next T001
+cleo orchestrate spawn T002
 ```
 
 ### Spawn Workflow

@@ -43,7 +43,7 @@ cleo session end
 ### Step 5: Grade the session
 
 ```bash
-cleo check grade --session "<saved-id>"
+cleo grade "<saved-id>"
 ```
 
 Save the full GradeResult JSON.

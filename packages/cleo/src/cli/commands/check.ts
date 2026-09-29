@@ -767,6 +767,14 @@ const checkArchCommand = defineCommand({
         description: 'Every skill code emits is installable (ratchet)',
       },
       {
+        // T12649: gate 14's command/flag rules applied to every canonical
+        // skill. Core-tier skills are zero-tolerance; others ratchet.
+        id: 'gate-31',
+        task: 'T12649',
+        script: 'scripts/lint-skill-commands.mjs',
+        description: 'Every cleo command a skill teaches exists and is runnable',
+      },
+      {
         // T12663: every model call site is a registered decision site
         // (spec system-one-integration §3.5, D11158): decide()/askSiteDecision
         // name a registry id, LLM entry points live in registered files of a

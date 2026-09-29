@@ -1461,9 +1461,55 @@ interface CompleteEngineSuccess {
    * @task T9548
    */
   worktreeAutoComplete?: AutoCompleteWorktreeResult;
+  /**
+   * `true` when the completed task was a focus pointer (the caller's session
+   * key or the legacy global key) and that pointer was cleared (T12660).
+   */
+  focusCleared?: boolean;
+  /** Next ready task, reported alongside a cleared focus (null when none). */
+  nextSuggested?: { id: string; title: string } | null;
 }
 
 type CompleteEngineResult = EngineResult<CompleteEngineSuccess>;
+
+/**
+ * Clear every focus pointer to a task that is now done — the bound session's
+ * key, the env session's key and the legacy global key — and suggest the next
+ * ready task when one was cleared (T12660). Before this, only `cleo stop` and
+ * session end cleared focus, so `cleo current` reported long-finished tasks.
+ *
+ * Best-effort: a failure here never undoes the completion.
+ *
+ * @param projectRoot - Project root.
+ * @param taskIds - The completed task and any parents auto-completed with it.
+ * @returns `focusCleared`, plus `nextSuggested` when it was.
+ */
+async function clearFinishedFocus(
+  projectRoot: string,
+  taskIds: readonly string[],
+): Promise<Pick<CompleteEngineSuccess, 'focusCleared' | 'nextSuggested'>> {
+  try {
+    const [{ clearFocusForFinishedTask }, { resolveSessionIdFromEnv }] = await Promise.all([
+      import('../sessions/focus-state-store.js'),
+      import('../sessions/session-id.js'),
+    ]);
+    const accessor = await getTaskAccessor(projectRoot);
+    const sessions = [await resolveBoundSessionId(projectRoot), resolveSessionIdFromEnv()];
+    let cleared = 0;
+    for (const taskId of taskIds)
+      cleared += (await clearFocusForFinishedTask(accessor, sessions, taskId)).length;
+    if (cleared === 0) return { focusCleared: false };
+    const { coreTaskNext } = await import('./task-next.js');
+    const top = (await coreTaskNext(projectRoot, { count: 1, brain: false })).suggestions[0];
+    return { focusCleared: true, nextSuggested: top ? { id: top.id, title: top.title } : null };
+  } catch (err) {
+    getLogger('tasks:complete').warn(
+      { taskIds, err: err instanceof Error ? err.message : String(err) },
+      '[T12660] could not clear the focus pointer to the completed task',
+    );
+    return {};
+  }
+}
 
 /**
  * Options forwarded through the EngineResult-returning wrappers.
@@ -1563,6 +1609,8 @@ export async function taskComplete(
         knowledgeCoverage: result.knowledgeCoverage,
         alreadyDone: true,
         note: `Task ${taskId} is already done — complete was a no-op (idempotent).`,
+        // A retry still clears a pointer the timed-out run left behind.
+        ...(await clearFinishedFocus(projectRoot, [taskId])),
       });
     }
 
@@ -1606,6 +1654,7 @@ export async function taskComplete(
       ...(result.autoCompleted && { autoCompleted: result.autoCompleted }),
       ...(result.unblockedTasks && { unblockedTasks: result.unblockedTasks }),
       worktreeAutoComplete,
+      ...(await clearFinishedFocus(projectRoot, [taskId, ...(result.autoCompleted ?? [])])),
     });
   } catch (err: unknown) {
     // T10538: preserve CleoError LAFS codes (E_EPIC_HAS_PENDING_CHILDREN,
