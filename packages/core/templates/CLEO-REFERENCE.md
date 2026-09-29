@@ -1,6 +1,6 @@
 # CLEO Protocol — on-demand reference
 
-Version: 2.21.0 | Companion to the always-loaded `CLEO-INJECTION.md` core
+Version: 2.22.0 | Companion to the always-loaded `CLEO-INJECTION.md` core
 
 Not injected into agent context. Print one section with `cleo briefing inject --section <name>`; tier-2 spawn prompts embed this whole file. Section names are the `CLEO-INJECTION:section` markers below.
 
