@@ -1078,7 +1078,10 @@ export async function orchestrateSpawnExecute(
 
     // Execute spawn
     const result = await adapter.spawn(cleoSpawnContext);
-    dispatched = true;
+    // T12502 — an adapter may REPORT a failure (status `failed`) instead of
+    // throwing: the child never ran, so the claim goes back exactly as for a
+    // throw (the `finally` abandons the spawn session).
+    dispatched = result.status !== 'failed';
     keepExecLock = result.status === 'running' || result.status === 'pending';
 
     // Run declarative post-start worktree hooks after the agent is spawned.
@@ -1228,7 +1231,8 @@ export async function orchestrateSpawnExecute(
     if (execLock && !keepExecLock) {
       releaseWorktreeTaskLock(execLock.projectHash, taskId, execLock.token);
     }
-    // T12502 — a spawn that never reached the adapter hands the claim back.
+    // T12502 — a spawn that never reached the adapter, or that the adapter
+    // reported as failed, hands the claim back.
     if (execClaim && !dispatched) {
       await abandonSpawnSession(cwd, taskId, execClaim);
     }
