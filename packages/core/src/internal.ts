@@ -1278,11 +1278,16 @@ export { injectContext } from './sessions/context-inject.js';
 export { getDecisionLog, recordDecision } from './sessions/decisions.js';
 export type { FindSessionsParams, MinimalSessionRecord } from './sessions/find.js';
 // Per-session focus_state keying SSoT (T11345 · Epic T11284)
-export type { FocusStateMetaAccessor } from './sessions/focus-state-store.js';
+export type {
+  FocusStateMetaAccessor,
+  LiveFocus,
+  LiveFocusAccessor,
+} from './sessions/focus-state-store.js';
 export {
   focusStateKey,
   LEGACY_FOCUS_STATE_KEY,
   readFocusState,
+  readLiveFocus,
   writeFocusState,
 } from './sessions/focus-state-store.js';
 export type { DebriefData, HandoffData } from './sessions/handoff.js';

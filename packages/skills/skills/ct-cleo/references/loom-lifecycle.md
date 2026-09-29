@@ -107,7 +107,7 @@ Every spawn combines two layers:
 
 | ID | Rule | Enforcement |
 |----|------|-------------|
-| BASE-001 | MUST append ONE entry via `cleo manifest append <json>` (writes to pipeline_manifest table per ADR-027/T1093) | Required |
+| BASE-001 | MUST append ONE entry via `cleo manifest append --entry '<json>'` (writes to pipeline_manifest table per ADR-027/T1093) | Required |
 | BASE-002 | MUST NOT return content in response | Required |
 | BASE-003 | MUST complete task via `cleo complete` | Required |
 | BASE-004 | MUST write output file before manifest | Required |

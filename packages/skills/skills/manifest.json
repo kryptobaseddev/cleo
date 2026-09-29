@@ -50,7 +50,7 @@
   "_meta": {
     "schemaVersion": "2.7.0",
     "lastUpdated": "2026-05-19",
-    "totalSkills": 29,
+    "totalSkills": 21,
     "generatedFrom": "T260 — lifecycle pipeline rework: dedicated skills for ADR, IVT loop, consensus, release, artifact-publish, provenance. T9664/T9665/T9672 (epic T9568) — adds loomStage + adrRefs fields on every LOOM-stage skill entry (underscored canonical form matching `cleo lifecycle` stage names; ADR refs point at .cleo/adrs/). T9672 reconciled dispatch_matrix.by_protocol key 'architecture-decision' → 'architecture_decision' matching the lifecycle CLI source of truth; the dashed form is retained as a keyword alias.",
     "architectureNote": "Universal Subagent Architecture: All spawns use provider-neutral delegation with skill/protocol injection. Pipeline stages and cross-cutting protocols each have a dedicated skill — no overloading.",
     "loomStageContract": "Each of the 10 LOOM lifecycle stages (research, consensus, architecture_decision, specification, decomposition, implementation, validation, testing, release, contribution) MUST have a bound skill whose manifest entry declares loomStage matching the lifecycle CLI stage name. The legacy `protocol` field is retained as an alias; dispatch_matrix.by_protocol is the authoritative routing table. See docs/skills/loom-coverage-matrix.md.",
@@ -60,14 +60,25 @@
   "skills": [
     {
       "name": "ct-adr-recorder",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "description": "Records Architecture Decision Records from accepted consensus verdicts. Use when promoting a consensus outcome to a formal ADR: drafts the document in the proposed-then-accepted HITL lifecycle, links to the originating consensus manifest, persists the decision to the canonical SQLite decisions table, and triggers downstream invalidation when an accepted ADR is later superseded. Triggers on phrases like 'write ADR', 'record architecture decision', 'formalize this decision', 'lock in the choice', 'create ADR-XXX', or when a consensus task reaches completed status and needs formalization.",
       "path": "skills/ct-adr-recorder",
       "tier": 1,
       "deliveryTier": "on-demand",
       "install": "harness",
       "status": "active",
+      "core": false,
+      "category": "recommended",
+      "dependencies": [],
       "loomStage": "architecture_decision",
+      "references": [
+        "skills/ct-adr-recorder/references/cascade.md",
+        "skills/ct-adr-recorder/references/examples.md"
+      ],
+      "protocol": "architecture_decision",
+      "sharedResources": [],
+      "compatibility": [],
+      "license": "MIT",
       "tags": [
         "adr",
         "architecture-decision",
@@ -75,14 +86,9 @@
         "decision-record"
       ],
       "token_budget": 8000,
-      "protocol": "architecture_decision",
       "adrRefs": [
         "ADR-053",
         "ADR-070"
-      ],
-      "references": [
-        "skills/ct-adr-recorder/references/cascade.md",
-        "skills/ct-adr-recorder/references/examples.md"
       ],
       "capabilities": {
         "inputs": [
@@ -133,13 +139,24 @@
     },
     {
       "name": "ct-artifact-publisher",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "description": "Builds and publishes artifacts to registries (npm, PyPI, cargo, docker, GitHub releases, generic tarballs) following the validate, then dry-run, then build, then publish, then record-provenance pipeline. Invoked by ct-release-orchestrator as a sub-skill when a release has artifact config. Never stores credentials in output or manifest (ARTP-008), always dry-runs first (ARTP-002), halts and attempts rollback on failure (ARTP-009). Triggers when a release config has at least one enabled artifact handler.",
       "path": "skills/ct-artifact-publisher",
       "tier": 1,
       "deliveryTier": "on-demand",
       "install": "harness",
       "status": "active",
+      "core": false,
+      "category": "recommended",
+      "dependencies": [],
+      "references": [
+        "skills/ct-artifact-publisher/references/artifact-types.md",
+        "skills/ct-artifact-publisher/references/handler-interface.md"
+      ],
+      "protocol": "artifact-publish",
+      "sharedResources": [],
+      "compatibility": [],
+      "license": "MIT",
       "tags": [
         "artifact",
         "publish",
@@ -148,11 +165,6 @@
         "distribution"
       ],
       "token_budget": 8000,
-      "protocol": "artifact-publish",
-      "references": [
-        "skills/ct-artifact-publisher/references/artifact-types.md",
-        "skills/ct-artifact-publisher/references/handler-interface.md"
-      ],
       "capabilities": {
         "inputs": [
           "release-config",
@@ -202,13 +214,31 @@
     },
     {
       "name": "ct-cleo",
-      "version": "2.21.0",
+      "version": "2.22.0",
       "description": "CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.",
       "path": "skills/ct-cleo",
       "tier": 0,
       "deliveryTier": "core",
       "install": "harness",
       "status": "active",
+      "core": true,
+      "category": "core",
+      "dependencies": [],
+      "references": [
+        "skills/ct-cleo/references/session-protocol.md",
+        "skills/ct-cleo/references/loom-lifecycle.md",
+        "skills/ct-cleo/references/anti-patterns.md"
+      ],
+      "protocol": null,
+      "sharedResources": [
+        "task-system-integration"
+      ],
+      "compatibility": [
+        "claude-code",
+        "gemini-cli",
+        "codex-cli"
+      ],
+      "license": "MIT",
       "tags": [
         "cleo",
         "protocol",
@@ -217,11 +247,6 @@
         "task-management"
       ],
       "token_budget": 6000,
-      "references": [
-        "skills/ct-cleo/references/session-protocol.md",
-        "skills/ct-cleo/references/loom-lifecycle.md",
-        "skills/ct-cleo/references/anti-patterns.md"
-      ],
       "capabilities": {
         "inputs": [
           "TASK_ID",
@@ -265,24 +290,47 @@
     },
     {
       "name": "ct-codebase-mapper",
-      "version": "1.0.0",
-      "description": "Codebase analysis and mapping for autonomous agent understanding. Builds structured maps of project stack, architecture, conventions, testing, integrations, and concerns.",
+      "version": "2.0.0",
+      "description": "Orient in an unfamiliar or large codebase with CLEO's code-intelligence graph (cleo nexus) and project map (cleo map). Use before planning or editing unfamiliar code, for brownfield onboarding, to find what a change would break, or to map a project's structure, communities and execution flows. Triggers on \"map the codebase\", \"understand this project\", \"what calls X\", \"what would break\", \"brownfield analysis\", \"project structure\".",
       "path": "skills/ct-codebase-mapper",
       "tier": 1,
       "deliveryTier": "on-demand",
       "install": "harness",
-      "status": "active"
+      "status": "active",
+      "core": false,
+      "category": "recommended",
+      "dependencies": [],
+      "references": [],
+      "protocol": null,
+      "sharedResources": [],
+      "compatibility": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "gemini-cli"
+      ],
+      "license": "MIT"
     },
     {
       "name": "ct-consensus-voter",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "description": "Runs structured multi-agent voting for decision tasks with confidence scores, conflict detection, and HITL escalation when the threshold is not met. Use when two or more agents must vote on options: architecture choices, tool selection, policy decisions, when a task carries agent_type:analysis, or on phrases like 'reach consensus', 'vote on options', 'resolve the debate', 'pick the best approach'. Produces a voting matrix JSON, enforces the 0.5 threshold, flags ties within 0.1 confidence as contested and escalates to human tiebreak.",
       "path": "skills/ct-consensus-voter",
       "tier": 1,
       "deliveryTier": "on-demand",
       "install": "harness",
       "status": "active",
+      "core": false,
+      "category": "recommended",
+      "dependencies": [],
       "loomStage": "consensus",
+      "references": [
+        "skills/ct-consensus-voter/references/matrix-examples.md"
+      ],
+      "protocol": "consensus",
+      "sharedResources": [],
+      "compatibility": [],
+      "license": "MIT",
       "tags": [
         "consensus",
         "voting",
@@ -291,13 +339,9 @@
         "hitl"
       ],
       "token_budget": 6000,
-      "protocol": "consensus",
       "adrRefs": [
         "ADR-015",
         "ADR-023"
-      ],
-      "references": [
-        "skills/ct-consensus-voter/references/matrix-examples.md"
       ],
       "capabilities": {
         "inputs": [
@@ -347,26 +391,39 @@
     },
     {
       "name": "ct-contribution",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "description": "Guided workflow for multi-agent consensus contributions. Use when user says \"/contribution\", \"contribution protocol\", \"submit contribution\", \"consensus workflow\", \"multi-agent decision\", \"create contribution\", \"contribution start\", \"contribution submit\", \"detect conflicts\", \"weighted consensus\", \"decision tracking\", \"conflict resolution\".",
       "path": "skills/ct-contribution",
       "tier": 1,
       "deliveryTier": "on-demand",
       "install": "harness",
       "status": "active",
+      "core": false,
+      "category": "recommended",
+      "dependencies": [],
       "loomStage": "contribution",
+      "references": [],
+      "protocol": "contribution",
+      "sharedResources": [
+        "subagent-protocol-base"
+      ],
+      "compatibility": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "gemini-cli"
+      ],
+      "license": "MIT",
       "tags": [
         "contribution",
         "consensus",
         "workflow"
       ],
       "token_budget": 6000,
-      "protocol": "contribution",
       "adrRefs": [
         "ADR-015",
         "ADR-053"
       ],
-      "references": [],
       "capabilities": {
         "inputs": [
           "TASK_ID",
@@ -417,14 +474,9 @@
       "deliveryTier": "on-demand",
       "install": "harness",
       "status": "active",
-      "tags": [
-        "council",
-        "review",
-        "peer-review",
-        "multi-perspective",
-        "stress-test"
-      ],
-      "token_budget": 8000,
+      "core": false,
+      "category": "recommended",
+      "dependencies": [],
       "references": [
         "skills/ct-council/references/chairman.md",
         "skills/ct-council/references/contrarian.md",
@@ -436,6 +488,23 @@
         "skills/ct-council/references/outsider.md",
         "skills/ct-council/references/peer-review.md"
       ],
+      "protocol": null,
+      "sharedResources": [],
+      "compatibility": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "gemini-cli"
+      ],
+      "license": "MIT",
+      "tags": [
+        "council",
+        "review",
+        "peer-review",
+        "multi-perspective",
+        "stress-test"
+      ],
+      "token_budget": 8000,
       "capabilities": {
         "inputs": [
           "proposal",
@@ -485,13 +554,29 @@
     },
     {
       "name": "ct-dev-workflow",
-      "version": "3.1.0",
+      "version": "3.1.1",
       "description": "Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.",
       "path": "skills/ct-dev-workflow",
       "tier": 0,
       "deliveryTier": "core",
       "install": "harness",
       "status": "active",
+      "core": true,
+      "category": "core",
+      "dependencies": [],
+      "references": [],
+      "protocol": "contribution",
+      "sharedResources": [
+        "subagent-protocol-base",
+        "task-system-integration"
+      ],
+      "compatibility": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "gemini-cli"
+      ],
+      "license": "MIT",
       "tags": [
         "workflow",
         "git",
@@ -500,7 +585,6 @@
         "testing"
       ],
       "token_budget": 6000,
-      "references": [],
       "capabilities": {
         "inputs": [
           "TASK_ID",
@@ -545,207 +629,44 @@
       }
     },
     {
-      "name": "ct-docs-lookup",
-      "version": "1.0.0",
-      "description": "This skill should be used when the user asks \"how do I configure [library]\", \"write code using [framework]\", \"what are the [library] methods\", \"show me [framework] examples\", or mentions libraries like React, Vue, Next.js, Prisma, Supabase, Express, Tailwind, Drizzle, Svelte. Triggers for library setup, configuration, API references, framework code examples, or version-specific docs (\"React 19\", \"Next.js 15\").",
-      "path": "skills/ct-docs-lookup",
-      "tier": 1,
-      "deliveryTier": "on-demand",
-      "install": "harness",
-      "status": "deprecated",
-      "tags": [
-        "documentation",
-        "libraries",
-        "context7"
-      ],
-      "token_budget": 6000,
-      "references": [
-        "skills/ct-docs-lookup/references/ctx7-workflow.md",
-        "skills/ct-docs-lookup/references/library-id-resolution.md",
-        "skills/ct-docs-lookup/references/version-specific-docs.md"
-      ],
-      "capabilities": {
-        "inputs": [
-          "library_name",
-          "query",
-          "version"
-        ],
-        "outputs": [
-          "documentation-content",
-          "code-examples"
-        ],
-        "dependencies": [],
-        "dispatch_triggers": [
-          "how do I configure",
-          "write code using",
-          "show me examples"
-        ],
-        "compatible_subagent_types": [
-          "general-purpose"
-        ],
-        "chains_to": [],
-        "dispatch_keywords": {
-          "primary": [
-            "library",
-            "framework",
-            "api",
-            "reference"
-          ],
-          "secondary": [
-            "configure",
-            "methods",
-            "examples",
-            "docs"
-          ]
-        }
-      },
-      "constraints": {
-        "max_context_tokens": 60000,
-        "requires_session": false,
-        "requires_epic": false
-      }
-    },
-    {
-      "name": "ct-docs-review",
-      "version": "1.0.0",
-      "description": "This skill should be used when the user asks to \"review documentation\", \"check docs style\", \"review this markdown file\", \"check style guide compliance\", \"review PR documentation\", or needs documentation reviewed against the CLEO writing style guide. Supports both local file review and GitHub PR review modes with inline comments.",
-      "path": "skills/ct-docs-review",
-      "tier": 1,
-      "deliveryTier": "on-demand",
-      "install": "harness",
-      "status": "deprecated",
-      "tags": [
-        "documentation",
-        "review",
-        "style-guide"
-      ],
-      "token_budget": 6000,
-      "references": [
-        "skills/ct-docs-review/references/style-violations.md",
-        "skills/ct-docs-review/references/pr-review-mode.md",
-        "skills/ct-docs-review/references/inline-comment-patterns.md"
-      ],
-      "capabilities": {
-        "inputs": [
-          "file_path",
-          "pr_url",
-          "diff_content"
-        ],
-        "outputs": [
-          "review-comments",
-          "style-violations"
-        ],
-        "dependencies": [],
-        "dispatch_triggers": [
-          "review documentation",
-          "check docs style"
-        ],
-        "compatible_subagent_types": [
-          "general-purpose"
-        ],
-        "chains_to": [],
-        "dispatch_keywords": {
-          "primary": [
-            "review",
-            "check",
-            "style",
-            "compliance"
-          ],
-          "secondary": [
-            "violations",
-            "improvements",
-            "pr review"
-          ]
-        }
-      },
-      "constraints": {
-        "max_context_tokens": 60000,
-        "requires_session": false,
-        "requires_epic": false
-      }
-    },
-    {
-      "name": "ct-docs-write",
-      "version": "1.2.0",
-      "description": "This skill should be used when creating, editing, or reviewing documentation files (markdown, MDX, README, guides). Use when the user asks to \"write docs\", \"create documentation\", \"edit the README\", \"improve doc clarity\", \"make docs more readable\", \"follow the style guide\", or \"write user-facing content\". Applies CLEO's conversational, clear, and user-focused writing style.",
-      "path": "skills/ct-docs-write",
-      "tier": 1,
-      "deliveryTier": "on-demand",
-      "install": "harness",
-      "status": "deprecated",
-      "tags": [
-        "documentation",
-        "writing",
-        "style-guide"
-      ],
-      "token_budget": 6000,
-      "references": [
-        "skills/ct-docs-write/references/cleo-style-guide.md",
-        "skills/ct-docs-write/references/markdown-patterns.md",
-        "skills/ct-docs-write/references/audience-targeting.md"
-      ],
-      "capabilities": {
-        "inputs": [
-          "file_path",
-          "content_topic",
-          "audience"
-        ],
-        "outputs": [
-          "documentation-file",
-          "markdown-content"
-        ],
-        "dependencies": [],
-        "dispatch_triggers": [
-          "write docs",
-          "create documentation",
-          "edit the README"
-        ],
-        "compatible_subagent_types": [
-          "general-purpose"
-        ],
-        "chains_to": [],
-        "dispatch_keywords": {
-          "primary": [
-            "write",
-            "create",
-            "edit",
-            "style"
-          ],
-          "secondary": [
-            "clarity",
-            "readable",
-            "user-facing",
-            "content"
-          ]
-        }
-      },
-      "constraints": {
-        "max_context_tokens": 60000,
-        "requires_session": false,
-        "requires_epic": false
-      }
-    },
-    {
       "name": "ct-documentor",
-      "version": "3.16.1",
-      "description": "Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Coordinates ct-docs-lookup, ct-docs-write, ct-docs-review, ct-spec-writer, and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.",
+      "version": "3.17.0",
+      "description": "Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.",
       "path": "skills/ct-documentor",
       "tier": 0,
       "deliveryTier": "core",
       "install": "harness",
       "status": "active",
-      "tags": [
-        "documentation",
-        "orchestration",
-        "workflow"
+      "core": true,
+      "category": "core",
+      "dependencies": [
+        "ct-spec-writer",
+        "ct-adr-recorder"
       ],
-      "token_budget": 8000,
       "references": [
         "skills/ct-documentor/references/chain-orchestration.md",
         "skills/ct-documentor/references/doc-types-and-templates.md",
         "skills/ct-documentor/references/style-coordination.md",
         "skills/ct-documentor/references/anti-patterns.md"
       ],
+      "protocol": null,
+      "sharedResources": [
+        "subagent-protocol-base",
+        "task-system-integration"
+      ],
+      "compatibility": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "gemini-cli"
+      ],
+      "license": "MIT",
+      "tags": [
+        "documentation",
+        "orchestration",
+        "workflow"
+      ],
+      "token_budget": 8000,
       "capabilities": {
         "inputs": [
           "TASK_ID",
@@ -757,9 +678,8 @@
           "review-report"
         ],
         "dependencies": [
-          "ct-docs-lookup",
-          "ct-docs-write",
-          "ct-docs-review"
+          "ct-spec-writer",
+          "ct-adr-recorder"
         ],
         "dispatch_triggers": [
           "write documentation",
@@ -770,9 +690,8 @@
           "general-purpose"
         ],
         "chains_to": [
-          "ct-docs-lookup",
-          "ct-docs-write",
-          "ct-docs-review"
+          "ct-spec-writer",
+          "ct-adr-recorder"
         ],
         "dispatch_keywords": {
           "primary": [
@@ -797,29 +716,43 @@
     },
     {
       "name": "ct-epic-architect",
-      "version": "3.0.0",
+      "version": "3.0.1",
       "description": "Epic planning and task decomposition for breaking down large initiatives into atomic, executable tasks. Provides dependency analysis, wave-based parallel execution planning, hierarchy management, and research linking. Use when creating epics, decomposing initiatives into task trees, planning parallel workflows, or analyzing task dependencies. Triggers on epic creation, task decomposition requests, or planning phase work.",
       "path": "skills/ct-epic-architect",
       "tier": 1,
       "deliveryTier": "on-demand",
       "install": "harness",
       "status": "active",
+      "core": false,
+      "category": "recommended",
+      "dependencies": [],
       "loomStage": "decomposition",
+      "references": [
+        "skills/ct-epic-architect/references/bug-epic-example.md",
+        "skills/ct-epic-architect/references/commands.md",
+        "skills/ct-epic-architect/references/feature-epic-example.md"
+      ],
+      "protocol": "decomposition",
+      "sharedResources": [
+        "subagent-protocol-base",
+        "task-system-integration"
+      ],
+      "compatibility": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "gemini-cli"
+      ],
+      "license": "MIT",
       "tags": [
         "planning",
         "architecture",
         "task-management"
       ],
       "token_budget": 8000,
-      "protocol": "decomposition",
       "adrRefs": [
         "ADR-066",
         "ADR-073"
-      ],
-      "references": [
-        "skills/ct-epic-architect/references/bug-epic-example.md",
-        "skills/ct-epic-architect/references/commands.md",
-        "skills/ct-epic-architect/references/feature-epic-example.md"
       ],
       "capabilities": {
         "inputs": [
@@ -872,20 +805,32 @@
     },
     {
       "name": "ct-grade",
-      "version": "2.1.0",
+      "version": "2.1.1",
       "description": "CLEO session grading and A/B behavioral analysis with token tracking. Evaluates agent session quality via a 5-dimension rubric (S1 session discipline, S2 discovery efficiency, S3 task hygiene, S4 error protocol, S5 progressive disclosure). Supports three modes: (1) scenario — run playbook scenarios S1-S5 via CLI; (2) ab — blind A/B comparison of different CLI configurations for same domain operations with token cost measurement; (3) blind — spawn two agents with different configurations, blind-comparator picks winner, analyzer produces recommendation. Use when grading agent sessions, running grade playbook scenarios, comparing behavioral differences, measuring token usage across configurations, or performing multi-run blind A/B evaluation with statistical analysis and comparative report. Triggers on: grade session, evaluate agent behavior, A/B test CLEO configurations, run grade scenario, token usage analysis, behavioral rubric, protocol compliance scoring.",
       "path": "skills/ct-grade",
       "tier": 3,
       "deliveryTier": "internal",
       "install": "internal",
       "status": "active",
+      "core": false,
+      "category": "meta",
+      "dependencies": [],
+      "references": [],
+      "protocol": null,
+      "sharedResources": [],
+      "compatibility": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "gemini-cli"
+      ],
+      "license": "MIT",
       "tags": [
         "grading",
         "quality",
         "analysis"
       ],
       "token_budget": 6000,
-      "references": [],
       "capabilities": {
         "inputs": [
           "SESSION_ID",
@@ -928,14 +873,26 @@
     },
     {
       "name": "ct-ivt-looper",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "description": "Runs a project-agnostic autonomous Implement-then-Validate-then-Test compliance loop on any git worktree. Detects the project's test framework (vitest, jest, mocha, pytest, unittest, go-test, cargo-test, rspec, phpunit, bats, or other) and iterates until the implementation satisfies its specification, recording convergence metrics to the manifest. Use when given an implementation task that must ship verified: the IVT loop is the autonomous compliance layer enforced before any release or PR. Triggers on phrases like 'implement and verify', 'run the IVT loop', 'ship this task', 'complete implementation with tests', 'verify against spec', or any implementation task with acceptance criteria. Works in any git worktree regardless of language or framework, never hardcoded to one project's tooling.",
       "path": "skills/ct-ivt-looper",
       "tier": 1,
       "deliveryTier": "on-demand",
       "install": "harness",
       "status": "active",
+      "core": false,
+      "category": "recommended",
+      "dependencies": [],
       "loomStage": "testing",
+      "references": [
+        "skills/ct-ivt-looper/references/escalation.md",
+        "skills/ct-ivt-looper/references/frameworks.md",
+        "skills/ct-ivt-looper/references/loop-anatomy.md"
+      ],
+      "protocol": "testing",
+      "sharedResources": [],
+      "compatibility": [],
+      "license": "MIT",
       "tags": [
         "testing",
         "ivt-loop",
@@ -944,15 +901,9 @@
         "compliance"
       ],
       "token_budget": 10000,
-      "protocol": "testing",
       "adrRefs": [
         "ADR-051",
         "ADR-061"
-      ],
-      "references": [
-        "skills/ct-ivt-looper/references/escalation.md",
-        "skills/ct-ivt-looper/references/frameworks.md",
-        "skills/ct-ivt-looper/references/loop-anatomy.md"
       ],
       "capabilities": {
         "inputs": [
@@ -1002,50 +953,34 @@
     },
     {
       "name": "ct-lead",
-      "version": "1.0.0",
+      "version": "1.0.2",
       "description": "Phase Lead orchestration playbook for spawning and supervising a parallel worker swarm in one wave. Use when spawned by ct-orchestrator with role=orchestrator to fan out N leaf workers via delegate_task, drain the epic-<TID>.wave-<n> conduit topic plus pipeline_manifest, await rollupWaveStatus convergence, and return ONE rolled-up contract string to the parent Orchestrator. Triggers: 'phase lead', 'wave lead', 'supervise wave', 'fan out workers', 'aggregate worker results', 'rollup wave', any task with role=orchestrator that is itself a child of another orchestrator. Implements ADR-070 hierarchical orchestration.",
       "path": "skills/ct-lead",
       "tier": 0,
       "deliveryTier": "core",
       "install": "harness",
-      "status": "active"
-    },
-    {
-      "name": "ct-master-tac",
-      "version": "1.0.0",
-      "description": "Master Tactical Bundle for CleoOS autonomous execution. Installs the complete primitive library needed to run the full agentic execution layer on a fresh CleoOS install: 12 CANT protocol files (research, consensus, architecture-decision, specification, decomposition, implementation, validation, testing, contribution, release, artifact-publish, provenance), the canonical platform team definition, and the skills manifest entry. Use when bootstrapping a new CleoOS project, verifying that all protocol primitives are present, or recovering a broken protocol tree. Triggers on: \"install master tac\", \"bootstrap protocols\", \"tools.skill.install ct-master-tac\", \"verify protocol bundle\", \"repair protocol files\", \"fresh CleoOS install\".",
-      "path": "skills/ct-master-tac",
-      "tier": 3,
-      "deliveryTier": "internal",
-      "install": "internal",
-      "status": "deprecated"
-    },
-    {
-      "name": "ct-memory",
-      "version": "1.0.0",
-      "description": "Brain memory protocol with progressive disclosure for anti-hallucination and context recall",
-      "path": "skills/ct-memory",
-      "tier": 3,
-      "deliveryTier": "internal",
-      "install": "internal",
-      "status": "deprecated"
+      "status": "active",
+      "core": true,
+      "category": "core",
+      "dependencies": [],
+      "references": [],
+      "protocol": null,
+      "sharedResources": [],
+      "compatibility": [],
+      "license": "MIT"
     },
     {
       "name": "ct-orchestrator",
-      "version": "4.0.0",
+      "version": "4.0.1",
       "description": "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \\\"orchestrate\\\", \\\"orchestrator mode\\\", \\\"run as orchestrator\\\", \\\"delegate to subagents\\\", \\\"coordinate agents\\\", \\\"spawn subagents\\\", \\\"multi-agent workflow\\\", \\\"context-protected workflow\\\", \\\"agent farm\\\", \\\"HITL orchestration\\\", \\\"pipeline management\\\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime.",
       "path": "skills/ct-orchestrator",
       "tier": 0,
       "deliveryTier": "core",
       "install": "harness",
       "status": "active",
-      "tags": [
-        "workflow",
-        "multi-agent",
-        "coordination",
-        "pipeline"
-      ],
-      "token_budget": 8000,
+      "core": true,
+      "category": "core",
+      "dependencies": [],
       "references": [
         "skills/ct-orchestrator/references/autonomous-operation.md",
         "skills/ct-orchestrator/references/lifecycle-gates.md",
@@ -1057,6 +992,25 @@
         "skills/ct-orchestrator/references/orchestrator-tokens.md",
         "skills/ct-orchestrator/references/SUBAGENT-PROTOCOL-BLOCK.md"
       ],
+      "protocol": "agent-protocol",
+      "sharedResources": [
+        "subagent-protocol-base",
+        "task-system-integration"
+      ],
+      "compatibility": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "gemini-cli"
+      ],
+      "license": "MIT",
+      "tags": [
+        "workflow",
+        "multi-agent",
+        "coordination",
+        "pipeline"
+      ],
+      "token_budget": 8000,
       "capabilities": {
         "inputs": [
           "TASK_ID",
@@ -1110,13 +1064,24 @@
     },
     {
       "name": "ct-provenance-keeper",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "description": "Generates in-toto v1 attestations, SLSA-level provenance records, SBOMs (CycloneDX or SPDX), and sigstore/cosign signatures for published artifacts. Invoked by ct-artifact-publisher as a delegation for signing and attestation. Records the full commit, then build, then artifact, then attestation, then registry chain in .cleo/releases.json and rejects publishes whose digest does not match the attestation. Triggers when artifact-publish reaches the provenance step or when a release needs SLSA L2+ attestation.",
       "path": "skills/ct-provenance-keeper",
       "tier": 1,
       "deliveryTier": "on-demand",
       "install": "harness",
       "status": "active",
+      "core": false,
+      "category": "recommended",
+      "dependencies": [],
+      "references": [
+        "skills/ct-provenance-keeper/references/signing.md",
+        "skills/ct-provenance-keeper/references/slsa.md"
+      ],
+      "protocol": "provenance",
+      "sharedResources": [],
+      "compatibility": [],
+      "license": "MIT",
       "tags": [
         "provenance",
         "slsa",
@@ -1126,11 +1091,6 @@
         "supply-chain"
       ],
       "token_budget": 6000,
-      "protocol": "provenance",
-      "references": [
-        "skills/ct-provenance-keeper/references/signing.md",
-        "skills/ct-provenance-keeper/references/slsa.md"
-      ],
       "capabilities": {
         "inputs": [
           "built-artifacts",
@@ -1178,14 +1138,25 @@
     },
     {
       "name": "ct-release-orchestrator",
-      "version": "3.0.0",
+      "version": "3.0.1",
       "description": "Orchestrates the canonical 4-verb release pipeline introduced by SPEC-T9345: cleo release plan, then cleo release open, then PR + GHA tag workflow, then cleo release reconcile. The deprecated cleo release ship monolith was deleted in T10103 — do not invoke it. Use ship-e2e-smoke to validate the full pipeline end-to-end (dry-run by default). The full verb-to-state map is in docs/release/verb-matrix.md. Use when shipping a new version, validating the release pipeline end-to-end, or promoting a completed epic to released status.",
       "path": "skills/ct-release-orchestrator",
       "tier": 1,
       "deliveryTier": "on-demand",
       "install": "harness",
       "status": "active",
+      "core": false,
+      "category": "recommended",
+      "dependencies": [],
       "loomStage": "release",
+      "references": [
+        "skills/ct-release-orchestrator/references/composition.md",
+        "skills/ct-release-orchestrator/references/release-types.md"
+      ],
+      "protocol": "release",
+      "sharedResources": [],
+      "compatibility": [],
+      "license": "MIT",
       "tags": [
         "release",
         "orchestration",
@@ -1194,15 +1165,10 @@
         "version"
       ],
       "token_budget": 8000,
-      "protocol": "release",
       "adrRefs": [
         "ADR-053",
         "ADR-063",
         "ADR-065"
-      ],
-      "references": [
-        "skills/ct-release-orchestrator/references/composition.md",
-        "skills/ct-release-orchestrator/references/release-types.md"
       ],
       "capabilities": {
         "inputs": [
@@ -1254,30 +1220,44 @@
     },
     {
       "name": "ct-research-agent",
-      "version": "2.0.0",
+      "version": "2.0.2",
       "description": "Multi-source research and investigation combining web search, documentation lookup via Context7, and codebase analysis. Synthesizes findings into actionable recommendations with proper citation and task traceability. Use when conducting research, investigating best practices, gathering technical information, or analyzing existing implementations. Triggers on research tasks, investigation needs, or information discovery requests.",
       "path": "skills/ct-research-agent",
       "tier": 1,
       "deliveryTier": "on-demand",
       "install": "harness",
       "status": "active",
+      "core": false,
+      "category": "recommended",
+      "dependencies": [],
       "loomStage": "research",
+      "references": [
+        "skills/ct-research-agent/references/triggers-and-routing.md",
+        "skills/ct-research-agent/references/source-strategy.md",
+        "skills/ct-research-agent/references/citation-and-evidence.md",
+        "skills/ct-research-agent/references/anti-patterns.md"
+      ],
+      "protocol": "research",
+      "sharedResources": [
+        "subagent-protocol-base",
+        "task-system-integration"
+      ],
+      "compatibility": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "gemini-cli"
+      ],
+      "license": "MIT",
       "tags": [
         "research",
         "investigation",
         "discovery"
       ],
       "token_budget": 8000,
-      "protocol": "research",
       "adrRefs": [
         "ADR-023",
         "ADR-070"
-      ],
-      "references": [
-        "skills/ct-research-agent/references/triggers-and-routing.md",
-        "skills/ct-research-agent/references/source-strategy.md",
-        "skills/ct-research-agent/references/citation-and-evidence.md",
-        "skills/ct-research-agent/references/anti-patterns.md"
       ],
       "capabilities": {
         "inputs": [
@@ -1325,24 +1305,36 @@
       }
     },
     {
-      "name": "ct-skill-creator",
-      "version": "1.0.0",
-      "description": "Guide for creating effective skills. This skill should be used when users want to create a new skill (or update an existing skill) that extends Claude's capabilities with specialized knowledge, workflows, or tool integrations.",
-      "path": "skills/ct-skill-creator",
+      "name": "ct-skill-author",
+      "version": "2.0.0",
+      "description": "Create, improve and validate CLEO skills. Use when writing a new skill or updating an existing one (structure, frontmatter, progressive disclosure, trigger descriptions, evals), and when auditing a skill folder against the CLEO standard before it ships (structural, ecosystem-fit and quality validation with an HTML report). Internal to CLEO development — not installed to harnesses.",
+      "path": "skills/ct-skill-author",
       "tier": 3,
       "deliveryTier": "internal",
       "install": "internal",
-      "status": "deprecated",
+      "status": "active",
+      "core": false,
+      "category": "meta",
+      "dependencies": [],
+      "references": [
+        "skills/ct-skill-author/references/output-patterns.md",
+        "skills/ct-skill-author/references/workflows.md"
+      ],
+      "protocol": null,
+      "sharedResources": [],
+      "compatibility": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "gemini-cli"
+      ],
+      "license": "MIT",
       "tags": [
         "skills",
         "creation",
         "meta"
       ],
       "token_budget": 8000,
-      "references": [
-        "skills/ct-skill-creator/references/output-patterns.md",
-        "skills/ct-skill-creator/references/workflows.md"
-      ],
       "capabilities": {
         "inputs": [
           "skill_name",
@@ -1382,41 +1374,45 @@
       }
     },
     {
-      "name": "ct-skill-validator",
-      "version": "1.0.0",
-      "description": "Validates an existing skill folder against the full CLEO standard and ecosystem. Use when auditing skills for structural compliance, verifying a skill fits into the CLEO ecosystem and constitution, running quality A/B evals, or preparing a skill for distribution. Runs a 3-phase validation loop — structural, ecosystem fit, and quality eval — then presents all findings as an HTML report opened in the user's browser. Iterates until all required phases pass.",
-      "path": "skills/ct-skill-validator",
-      "tier": 3,
-      "deliveryTier": "internal",
-      "install": "internal",
-      "status": "deprecated"
-    },
-    {
       "name": "ct-spec-writer",
-      "version": "2.1.0",
+      "version": "2.1.1",
       "description": "Technical specification writing using RFC 2119 language for clear, unambiguous requirements. Creates protocol specifications, technical requirements, API specifications, and architecture documents with testable requirements and compliance criteria. Use when writing specifications, defining protocols, documenting requirements, or creating API contracts. Triggers on specification tasks, protocol definition needs, or requirement documentation.",
       "path": "skills/ct-spec-writer",
       "tier": 1,
       "deliveryTier": "on-demand",
       "install": "harness",
       "status": "active",
+      "core": false,
+      "category": "recommended",
+      "dependencies": [],
       "loomStage": "specification",
+      "references": [
+        "skills/ct-spec-writer/references/rfc2119-language.md",
+        "skills/ct-spec-writer/references/spec-templates.md",
+        "skills/ct-spec-writer/references/traceability-matrix.md",
+        "skills/ct-spec-writer/references/anti-patterns.md"
+      ],
+      "protocol": "specification",
+      "sharedResources": [
+        "subagent-protocol-base",
+        "task-system-integration"
+      ],
+      "compatibility": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "gemini-cli"
+      ],
+      "license": "MIT",
       "tags": [
         "specification",
         "documentation",
         "rfc"
       ],
       "token_budget": 8000,
-      "protocol": "specification",
       "adrRefs": [
         "ADR-014",
         "ADR-023"
-      ],
-      "references": [
-        "skills/ct-spec-writer/references/rfc2119-language.md",
-        "skills/ct-spec-writer/references/spec-templates.md",
-        "skills/ct-spec-writer/references/traceability-matrix.md",
-        "skills/ct-spec-writer/references/anti-patterns.md"
       ],
       "capabilities": {
         "inputs": [
@@ -1463,16 +1459,6 @@
       }
     },
     {
-      "name": "ct-stickynote",
-      "version": "1.0.0",
-      "description": "Quick ephemeral sticky notes for project-wide capture before formal classification",
-      "path": "skills/ct-stickynote",
-      "tier": 3,
-      "deliveryTier": "internal",
-      "install": "internal",
-      "status": "deprecated"
-    },
-    {
       "name": "ct-task-executor",
       "version": "2.7.1",
       "description": "General implementation task execution for completing assigned CLEO tasks by following instructions and producing concrete deliverables. Handles coding, configuration, documentation work with quality verification against acceptance criteria and progress reporting. Use when executing implementation tasks, completing assigned work, or producing task deliverables. Triggers on implementation tasks, general execution needs, or task completion work.",
@@ -1481,24 +1467,38 @@
       "deliveryTier": "core",
       "install": "harness",
       "status": "active",
+      "core": true,
+      "category": "core",
+      "dependencies": [],
       "loomStage": "implementation",
-      "tags": [
-        "execution",
-        "implementation",
-        "task-management"
-      ],
-      "token_budget": 8000,
-      "protocol": "implementation",
-      "adrRefs": [
-        "ADR-070",
-        "ADR-062"
-      ],
       "references": [
         "skills/ct-task-executor/references/implementation-patterns.md",
         "skills/ct-task-executor/references/acceptance-criteria-mapping.md",
         "skills/ct-task-executor/references/evidence-and-gates.md",
         "skills/ct-task-executor/references/common-failures.md",
         "skills/ct-task-executor/references/anti-patterns.md"
+      ],
+      "protocol": "implementation",
+      "sharedResources": [
+        "subagent-protocol-base",
+        "task-system-integration"
+      ],
+      "compatibility": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "gemini-cli"
+      ],
+      "license": "MIT",
+      "tags": [
+        "execution",
+        "implementation",
+        "task-management"
+      ],
+      "token_budget": 8000,
+      "adrRefs": [
+        "ADR-070",
+        "ADR-062"
       ],
       "capabilities": {
         "inputs": [
@@ -1548,30 +1548,44 @@
     },
     {
       "name": "ct-validator",
-      "version": "2.0.0",
+      "version": "2.0.2",
       "description": "Compliance validation for verifying systems, documents, or code against requirements, schemas, or standards. Performs schema validation, code compliance checks, document validation, and protocol compliance verification with detailed pass/fail reporting. Use when validating compliance, checking schemas, verifying code standards, or auditing protocol implementations. Triggers on validation tasks, compliance checks, or quality verification needs.",
       "path": "skills/ct-validator",
       "tier": 1,
       "deliveryTier": "on-demand",
       "install": "harness",
       "status": "active",
+      "core": false,
+      "category": "recommended",
+      "dependencies": [],
       "loomStage": "validation",
+      "references": [
+        "skills/ct-validator/references/validation-modes.md",
+        "skills/ct-validator/references/schema-checking.md",
+        "skills/ct-validator/references/compliance-reports.md",
+        "skills/ct-validator/references/anti-patterns.md"
+      ],
+      "protocol": "validation",
+      "sharedResources": [
+        "subagent-protocol-base",
+        "task-system-integration"
+      ],
+      "compatibility": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "gemini-cli"
+      ],
+      "license": "MIT",
       "tags": [
         "validation",
         "compliance",
         "audit"
       ],
       "token_budget": 6000,
-      "protocol": "validation",
       "adrRefs": [
         "ADR-051",
         "ADR-023"
-      ],
-      "references": [
-        "skills/ct-validator/references/validation-modes.md",
-        "skills/ct-validator/references/schema-checking.md",
-        "skills/ct-validator/references/compliance-reports.md",
-        "skills/ct-validator/references/anti-patterns.md"
       ],
       "capabilities": {
         "inputs": [
@@ -1616,16 +1630,6 @@
         "requires_session": false,
         "requires_epic": false
       }
-    },
-    {
-      "name": "signaldock-connect",
-      "version": "1.0.0",
-      "description": "Connect any AI agent to SignalDock for agent-to-agent messaging. Use when an agent needs to: (1) register on api.signaldock.io, (2) install the signaldock runtime CLI, (3) send/receive messages to other agents, (4) set up SSE real-time streaming, (5) poll for messages, (6) check inbox, or (7) connect to the SignalDock platform. Triggers on: \"connect to signaldock\", \"register agent\", \"send message to agent\", \"agent messaging\", \"signaldock setup\", \"install signaldock\", \"agent-to-agent\".",
-      "path": "skills/signaldock-connect",
-      "tier": 3,
-      "deliveryTier": "internal",
-      "install": "internal",
-      "status": "deprecated"
     }
   ]
 }

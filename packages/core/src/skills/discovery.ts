@@ -27,6 +27,7 @@ import { getCleoHome, getProjectRoot } from '../paths.js';
 import {
   bundledSkillFallbackEnabled,
   resolveBundledSkillDir,
+  resolveBundledSkillsDir,
   resolveSkillsRoot,
 } from './skill-root.js';
 import type {
@@ -115,10 +116,35 @@ export function mapSkillName(input: string): { canonical: string; mapped: boolea
 }
 
 /**
- * List all known canonical skill names (unique values from the map).
+ * List every canonical skill name: the entries of the bundled
+ * `@cleocode/skills` manifest (`skills/manifest.json`), which is generated
+ * from SKILL.md frontmatter.
+ *
+ * Before T12649 this returned the values of {@link SKILL_NAME_MAP} — an alias
+ * table that omitted ct-lead, most LOOM skills and ct-skill-author, so skill
+ * migration and `cleo doctor skill-fixtures` did not treat them as
+ * canonical. The alias table remains the fallback when no bundled manifest
+ * can be found.
+ *
+ * @returns Unique skill names, manifest order.
  * @task T4516
+ * @task T12649
  */
 export function listCanonicalSkillNames(): string[] {
+  const bundled = resolveBundledSkillsDir();
+  if (bundled) {
+    try {
+      const manifest: { skills?: Array<{ name?: unknown }> } = JSON.parse(
+        readFileSync(join(bundled, 'manifest.json'), 'utf-8'),
+      );
+      const names = (manifest.skills ?? [])
+        .map((s) => s.name)
+        .filter((n): n is string => typeof n === 'string');
+      if (names.length > 0) return [...new Set(names)];
+    } catch {
+      // Unreadable manifest — fall back to the alias table below.
+    }
+  }
   return [...new Set(Object.values(SKILL_NAME_MAP))];
 }
 

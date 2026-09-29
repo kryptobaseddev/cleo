@@ -485,7 +485,6 @@ agent ${name}:
   skills:
     - ct-cleo
     - ct-documentor
-    - ct-docs-write
 
   tools:
     core: [Read, Edit, Write, Bash, Glob, Grep]

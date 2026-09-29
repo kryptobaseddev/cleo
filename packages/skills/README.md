@@ -31,69 +31,52 @@ yarn add @cleocode/skills
 
 ## Included Skills
 
-### Core Skills
+Tiers and install behaviour come from each SKILL.md's `metadata` (owner decision
+D11157). `packages/skills/skills/manifest.json` is generated from them by
+`node scripts/skills/generate-manifest.mjs`; gates 29-31 keep the manifest,
+installability and every documented `cleo` command honest.
 
-| Skill | Purpose | Description |
-|-------|---------|-------------|
-| **ct-codebase-mapper** | Analysis | Maps project structure, stack, and architecture |
-| **ct-memory** | Memory | Manages persistent knowledge storage and retrieval |
-| **ct-orchestrator** | Orchestration | Coordinates multi-agent workflows and spawning |
-| **ct-task-executor** | Execution | General task execution with protocol compliance |
-| **ct-validator** | Validation | Validates compliance against rules and schemas |
+### Core (installed to every harness, always relevant)
 
-### Research Skills
+| Skill | Purpose |
+|-------|---------|
+| **ct-cleo** | CLEO task management protocol - session, task, and workflow guidance. |
+| **ct-dev-workflow** | Development workflow orchestration for task-driven development with atomic commits, conventional commit messag… |
+| **ct-documentor** | Documentation coordinator with CLEO style guide compliance. |
+| **ct-lead** | Phase Lead orchestration playbook for spawning and supervising a parallel worker swarm in one wave. |
+| **ct-orchestrator** | Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. |
+| **ct-task-executor** | General implementation task execution for completing assigned CLEO tasks by following instructions and produci… |
 
-| Skill | Purpose | Description |
-|-------|---------|-------------|
-| **ct-research-agent** | Research | Multi-source research aggregation and synthesis |
-| **ct-epic-architect** | Planning | Epic decomposition and task planning |
-| **ct-spec-writer** | Specification | RFC 2119 technical specification writing |
-| **ct-docs-lookup** | Documentation | Library and framework documentation queries |
+### On demand (installed; loaded by description or by stage guidance)
 
-### Documentation Skills
+| Skill | Purpose |
+|-------|---------|
+| **ct-adr-recorder** | Records Architecture Decision Records from accepted consensus verdicts. |
+| **ct-artifact-publisher** | Builds and publishes artifacts to registries (npm, PyPI, cargo, docker, GitHub releases, generic tarballs) fol… |
+| **ct-codebase-mapper** | Orient in an unfamiliar or large codebase with CLEO's code-intelligence graph (cleo nexus) and project map (cl… |
+| **ct-consensus-voter** | Runs structured multi-agent voting for decision tasks with confidence scores, conflict detection, and HITL esc… |
+| **ct-contribution** | Guided workflow for multi-agent consensus contributions. |
+| **ct-council** | Convene "The Council" — a 5-advisor, shuffled gate-based peer-review, chairman-synthesis workflow for reviewin… |
+| **ct-epic-architect** | Epic planning and task decomposition for breaking down large initiatives into atomic, executable tasks. |
+| **ct-ivt-looper** | Runs a project-agnostic autonomous Implement-then-Validate-then-Test compliance loop on any git worktree. |
+| **ct-provenance-keeper** | Generates in-toto v1 attestations, SLSA-level provenance records, SBOMs (CycloneDX or SPDX), and sigstore/cosi… |
+| **ct-release-orchestrator** | Orchestrates the canonical 4-verb release pipeline introduced by SPEC-T9345: cleo release plan, then cleo rele… |
+| **ct-research-agent** | Multi-source research and investigation combining web search, documentation lookup via Context7, and codebase … |
+| **ct-spec-writer** | Technical specification writing using RFC 2119 language for clear, unambiguous requirements. |
+| **ct-validator** | Compliance validation for verifying systems, documents, or code against requirements, schemas, or standards. |
 
-| Skill | Purpose | Description |
-|-------|---------|-------------|
-| **ct-documentor** | Documentation | Documentation creation and management |
-| **ct-docs-write** | Writing | User-facing documentation writing |
-| **ct-docs-review** | Review | Documentation style guide compliance |
+### Internal (CLEO development only; never installed to a harness)
 
-### Workflow Skills
+| Skill | Purpose |
+|-------|---------|
+| **ct-grade** | CLEO session grading and A/B behavioral analysis with token tracking. |
+| **ct-skill-author** | Create, improve and validate CLEO skills. |
 
-| Skill | Purpose | Description |
-|-------|---------|-------------|
-| **ct-dev-workflow** | Development | Git workflows, commits, releases |
-| **ct-contribution** | Contribution | Multi-agent consensus contributions |
-| **ct-skill-creator** | Skill Dev | Creating and validating CLEO skills |
-| **ct-skill-validator** | Validation | Skill compliance validation |
-
-### Quality Skills
-
-| Skill | Purpose | Description |
-|-------|---------|-------------|
-| **ct-grade** | Grading | Session quality evaluation |
-| **ct-stickynote** | Notes | Quick ephemeral sticky notes |
-
-### Integration Skills
-
-| Skill | Purpose | Description |
-|-------|---------|-------------|
-| **ct-cleo** | CLEO | Task management protocol operations |
-
-### Specialized Skills
-
-Additional skills for specific domains:
-- **better-auth-svelte** - Better-Auth with SvelteKit
-- **drizzle-orm** - Drizzle ORM guidance
-- **expo-production-deploy** - Expo app deployment
-- **flarectl** - Cloudflare CLI management
-- **github-guru** - GitHub workflows
-- **neonctl** - Neon Postgres CLI
-- **payment-provider-oauth** - Payment provider OAuth
-- **railway** - Railway infrastructure
-- **resend** - Resend email API
-- **svelte5-sveltekit** - Svelte 5 development
-- **yt-dlp-webapp** - YouTube download backends
+Merged or retired in T12649: ct-docs-write and ct-docs-review are references of
+ct-documentor; ct-memory and ct-stickynote are references of ct-cleo;
+ct-skill-creator and ct-skill-validator became ct-skill-author; ct-docs-lookup
+(use the Context7 MCP) and ct-master-tac were retired; signaldock-connect moved
+to the SignalDock repository.
 
 ## Skill Structure
 

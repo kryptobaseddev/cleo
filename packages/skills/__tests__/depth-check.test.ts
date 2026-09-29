@@ -1,7 +1,7 @@
 /**
  * Integration tests for the progressive-disclosure-depth rule (T9684).
  *
- * Exercises `packages/skills/skills/ct-skill-validator/scripts/check_depth.py`
+ * Exercises `packages/skills/skills/ct-skill-author/scripts/check_depth.py`
  * against (a) the gold-standard ct-orchestrator skill — must pass, and
  * (b) a synthetic stub fixture written to a tmp dir — must fail.
  *
@@ -28,7 +28,7 @@ const thisFile = fileURLToPath(import.meta.url);
 const repoRoot = resolve(dirname(thisFile), '..', '..', '..');
 const checkDepthScript = join(
   repoRoot,
-  'packages/skills/skills/ct-skill-validator/scripts/check_depth.py',
+  'packages/skills/skills/ct-skill-author/scripts/check_depth.py',
 );
 const ctOrchestratorPath = join(repoRoot, 'packages/skills/skills/ct-orchestrator');
 
@@ -86,10 +86,9 @@ describe('check_depth.py — pass case (gold standard)', () => {
       'ct-spec-writer',
       'ct-task-executor',
       'ct-validator',
+      // ct-docs-write/ct-docs-review merged into ct-documentor and
+      // ct-docs-lookup retired (T12649, D11157).
       'ct-documentor',
-      'ct-docs-lookup',
-      'ct-docs-write',
-      'ct-docs-review',
     ];
     for (const name of backfilled) {
       const skillPath = join(repoRoot, 'packages/skills/skills', name);
@@ -151,7 +150,7 @@ This is too short.
     // Remediation MUST point at the gold standard
     const remediationText = report.remediation.join(' ');
     expect(remediationText).toMatch(/ct-orchestrator/);
-    expect(remediationText).toMatch(/ct-skill-creator/);
+    expect(remediationText).toMatch(/ct-skill-author/);
   });
 });
 
