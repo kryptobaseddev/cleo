@@ -1548,7 +1548,7 @@ export interface EvidenceExecutionRootHints {
 async function validateAffectedTests(roots: EvidenceRoots): Promise<AtomValidation> {
   const { storeRoot, executionRoot } = roots;
   const { planAffectedTestRun } = await import('./affected-packages.js');
-  const run = await planAffectedTestRun(storeRoot, executionRoot);
+  const run = await planAffectedTestRun(storeRoot, executionRoot, { wait: true });
   if (!run.ok) return { ok: false, codeName: run.codeName, reason: run.reason };
   const result = await runToolCached(run.command, storeRoot, { executionRoot });
   if (result.exitCode !== 0) {

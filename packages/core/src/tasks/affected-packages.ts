@@ -24,7 +24,7 @@
 
 import { execFile, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { promisify } from 'node:util';
 import { isCiDocumentPath } from '../release/ci-evidence.js';
@@ -204,25 +204,51 @@ const VITEST_PROJECTS_MARK = '__CLEO_VITEST_PROJECTS__';
 /** Vitest's resolved projects, or why they could not be resolved. */
 export type VitestProjectsResult =
   | { ok: true; projects: VitestProject[] }
-  | { ok: false; reason: string };
+  | {
+      ok: false;
+      reason: string;
+      /** The `test` slot was busy and the caller would not wait (T12656 review). */
+      busy?: true;
+    };
+
+/** The report a caller that will not wait gets while the `test` slot is held. */
+export const TEST_SLOT_BUSY = 'scope pending: test slot busy';
 
 /** Options for {@link listVitestProjects}. */
 export interface ListVitestProjectsOptions {
   /** Heavy-tool slot acquisition (tests inject; defaults to the global `test` semaphore). */
   acquireSlot?: (canonical: 'test') => Promise<ReleaseSlotFn>;
+  /**
+   * Queue for the `test` slot (true: `cleo done`, about to run tests anyway),
+   * or take it only if free now (false: `--plan`, which never waits — a held
+   * slot reports {@link TEST_SLOT_BUSY}). Default false.
+   */
+  wait?: boolean;
 }
 
 /** Resolutions keyed by tree state, so plan + record in one `cleo done` resolve once. */
 const vitestProjectsMemo = new Map<string, Promise<VitestProjectsResult>>();
 
-/** Key for the tree's current state (HEAD plus working-tree changes), or null outside git. */
+/**
+ * Key for the tree's current state, or null outside git: HEAD, the tracked
+ * diff, and each untracked file's path, size and mtime — `status` alone names
+ * an untracked file but misses edits to it (T12656 review).
+ */
 function treeStateKey(root: string): string | null {
   const head = git(root, ['rev-parse', 'HEAD']);
-  const status = git(root, ['status', '--porcelain', '--untracked-files=all']);
   const diff = git(root, ['diff', 'HEAD']);
-  if (head === null || status === null || diff === null) return null;
-  const digest = createHash('sha256').update(status).update('\0').update(diff).digest('hex');
-  return `${root}\0${head}\0${digest}`;
+  const untracked = git(root, ['ls-files', '--others', '--exclude-standard']);
+  if (head === null || diff === null || untracked === null) return null;
+  const hash = createHash('sha256').update(diff);
+  for (const path of untracked.split('\n').filter(Boolean)) {
+    try {
+      const st = statSync(join(root, path));
+      hash.update(`\0${path}\0${st.size}\0${st.mtimeMs}`);
+    } catch {
+      hash.update(`\0${path}\0gone`);
+    }
+  }
+  return `${root}\0${head}\0${hash.digest('hex')}`;
 }
 
 /**
@@ -250,8 +276,19 @@ export function listVitestProjects(
   const key = treeStateKey(root);
   const hit = key === null ? undefined : vitestProjectsMemo.get(key);
   if (hit) return hit;
-  const pending = resolveVitestProjects(root, opts.acquireSlot ?? acquireGlobalSlot);
-  if (key !== null) vitestProjectsMemo.set(key, pending);
+  const acquire =
+    opts.acquireSlot ??
+    (opts.wait === true
+      ? acquireGlobalSlot
+      : (canonical: 'test') => acquireGlobalSlot(canonical, { timeoutMs: 1, pollMs: 1 }));
+  const pending = resolveVitestProjects(root, acquire);
+  if (key !== null) {
+    vitestProjectsMemo.set(key, pending);
+    // A busy slot is not an answer about the tree: never remember it.
+    void pending.then((r) => {
+      if (!r.ok && r.busy) vitestProjectsMemo.delete(key);
+    });
+  }
   return pending;
 }
 
@@ -268,7 +305,12 @@ async function resolveVitestProjects(
     'process.exit(0);',
   ].join('\n');
   let stdout: string;
-  const release = await acquireSlot('test');
+  let release: ReleaseSlotFn;
+  try {
+    release = await acquireSlot('test');
+  } catch {
+    return { ok: false, busy: true, reason: TEST_SLOT_BUSY };
+  }
   try {
     ({ stdout } = await promisify(execFile)(
       process.execPath,
@@ -303,7 +345,7 @@ async function resolveVitestProjects(
 /** Test targets for an affected run, or why only a full run is safe. */
 export type AffectedTestTargets =
   | { ok: true; projects: string[]; untested: string[] }
-  | { ok: false; reason: string };
+  | { ok: false; reason: string; busy?: true };
 
 /**
  * The vitest projects an affected run must select (T12635 review).
@@ -480,6 +522,8 @@ export type AffectedTestRun =
       /** `E_EVIDENCE_TOOL_UNAVAILABLE` when unconfigured, else `E_EVIDENCE_INSUFFICIENT`. */
       codeName: 'E_EVIDENCE_TOOL_UNAVAILABLE' | 'E_EVIDENCE_INSUFFICIENT';
       reason: string;
+      /** The scope is not refused, only unresolved yet: the `test` slot was busy. */
+      pending?: true;
     };
 
 /**
@@ -490,12 +534,14 @@ export type AffectedTestRun =
  *
  * @param storeRoot - CLEO store root (project context).
  * @param root - Execution root whose diff defines the set.
+ * @param opts - `wait`: queue for the `test` slot (`cleo done`); `--plan` does not.
  * @returns The command and its receipt fields, or the refusal reason.
  * @task T12635
  */
 export async function planAffectedTestRun(
   storeRoot: string,
   root: string,
+  opts: { wait?: boolean } = {},
 ): Promise<AffectedTestRun> {
   const { readRawProjectContext } = await import('./tool-resolver.js');
   const testing = (
@@ -536,14 +582,18 @@ export async function planAffectedTestRun(
     };
   }
   const targets = template.split(/\s+/).includes('{projects}')
-    ? await affectedTestTargets(root, scope.packages, scope.direct)
+    ? await affectedTestTargets(root, scope.packages, scope.direct, (r) =>
+        listVitestProjects(r, { wait: opts.wait === true }),
+      )
     : scriptTestTargets(root, scope.packages, scope.direct);
   if (!targets.ok) {
-    return {
-      ok: false,
-      codeName: 'E_EVIDENCE_INSUFFICIENT',
-      reason: `${targets.reason}; use tool:test.`,
-    };
+    return targets.busy
+      ? { ok: false, codeName: 'E_EVIDENCE_INSUFFICIENT', reason: targets.reason, pending: true }
+      : {
+          ok: false,
+          codeName: 'E_EVIDENCE_INSUFFICIENT',
+          reason: `${targets.reason}; use tool:test.`,
+        };
   }
   const { projects, untested } = targets;
   const { cmd, args } = buildAffectedTestCommand(template, scope.packages, projects);

@@ -9,11 +9,11 @@
  * @task T12656
  */
 
-import type { EvidenceAtom, Task, TaskChangeSet } from '@cleocode/contracts';
+import type { ChangeSetMergeState, EvidenceAtom, Task, TaskChangeSet } from '@cleocode/contracts';
 import type { ChangeSetDeps } from './change-set.js';
 
 /** Whether the task's change has merged to the default branch. */
-export type ChangeMergeState = 'merged' | 'unmerged' | 'unknown';
+export type ChangeMergeState = ChangeSetMergeState;
 
 /**
  * Recorded `testsPassed` evidence whose only verification result is an
@@ -31,16 +31,20 @@ export function isAffectedOnly(atoms: ReadonlyArray<EvidenceAtom>): boolean {
 }
 
 /**
- * The merge state a derived change set implies: a merged-PR change set is
- * merged; a failed merged-PR lookup leaves it unknown; otherwise unmerged.
+ * The merge state a derived change set implies. What the PR lookup found
+ * decides (`mergeState`), never `source` alone: a merged PR whose `pr:`
+ * check was refused falls back to the task branch, which outlives a squash
+ * merge (T12656 review HIGH). Otherwise a merged-PR change set is merged, a
+ * failed merged-PR lookup unknown, anything else unmerged.
  *
  * @param changeSet - Derived change set.
  * @returns The merge state.
  * @task T12656
  */
 export function mergeStateOfChangeSet(
-  changeSet: Pick<TaskChangeSet, 'source' | 'prDiscoveryFailed'>,
+  changeSet: Pick<TaskChangeSet, 'source' | 'prDiscoveryFailed' | 'mergeState'>,
 ): ChangeMergeState {
+  if (changeSet.mergeState) return changeSet.mergeState;
   if (changeSet.source === 'pr') return 'merged';
   return changeSet.prDiscoveryFailed === true ? 'unknown' : 'unmerged';
 }
@@ -62,7 +66,7 @@ export function affectedScopeSupersededReason(
   if (state === 'unmerged' || !isAffectedOnly(atoms)) return null;
   return state === 'merged'
     ? 'testsPassed was recorded from an affected-scope run; the merged change needs merged CI (ci:<pr>) or a full run (tool:test).'
-    : 'testsPassed was recorded from an affected-scope run, which counts before merge only, and whether the change has merged cannot be determined; record ci:<pr> or tool:test.';
+    : 'testsPassed was recorded from an affected-scope run, which counts before merge only, and whether the change has merged cannot be determined because gh was unreachable (check `gh auth status`); retry, or record tool:test (or ci:<pr>).';
 }
 
 /**

@@ -380,6 +380,12 @@ describe('tool:test-affected evidence', () => {
     const changed = await listVitestProjects(root, { acquireSlot });
     expect(changed).not.toBe(first);
     expect(acquired).toEqual(['test', 'test']);
+    // T12656 review: an edit to an EXISTING untracked file is a changed tree too.
+    expect(await listVitestProjects(root, { acquireSlot })).toBe(changed);
+    projectConfig('packages/b', "{ name: 'b-renamed-project' }");
+    const edited = await listVitestProjects(root, { acquireSlot });
+    expect(edited).not.toBe(changed);
+    expect(acquired).toEqual(['test', 'test', 'test']);
   });
 
   it('refuses when testing.affectedCommand is not configured', async () => {

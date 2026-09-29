@@ -91,7 +91,7 @@ export interface RecordTaskDoneOptions extends DeriveTaskEvidenceOptions {
 const defaultRunTool: DoneToolRunner = async (tool, storeRoot, executionRoot) => {
   if (tool === 'test-affected') {
     const { planAffectedTestRun } = await import('./affected-packages.js');
-    const affected = await planAffectedTestRun(storeRoot, executionRoot);
+    const affected = await planAffectedTestRun(storeRoot, executionRoot, { wait: true });
     if (!affected.ok) {
       return {
         exitCode: null,
@@ -238,7 +238,12 @@ export async function recordTaskDone(
   const storeRoot = opts.projectRoot ?? getProjectRoot();
   let plan: DonePlan;
   try {
-    plan = await deriveTaskEvidence(taskId, { ...opts, projectRoot: storeRoot });
+    // It will run the tests anyway, so it may queue for the test slot.
+    plan = await deriveTaskEvidence(taskId, {
+      ...opts,
+      projectRoot: storeRoot,
+      waitForTestSlot: true,
+    });
   } catch (err) {
     return cleoErrorToEngineResult<DoneRecordResult>(err, 'E_DONE_FAILED', 'cleo done failed');
   }

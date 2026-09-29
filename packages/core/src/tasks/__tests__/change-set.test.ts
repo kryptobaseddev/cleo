@@ -20,9 +20,11 @@ import type { EvidenceAtom } from '@cleocode/contracts';
 import { validateEvidenceForGate } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { PrAtomResolution } from '../../release/pr-evidence.js';
+import { affectedScopeSupersededReason, mergeStateOfChangeSet } from '../affected-scope.js';
 import {
   type ChangeSetDeps,
   type ChangeSetTask,
+  defaultListMergedPrs,
   deriveTaskChangeSet,
   type MergedPrSummary,
   type PrDetails,
@@ -692,6 +694,37 @@ describe('stacked and reverted PRs', () => {
     expect(cs.implementedEvidence).toBe(`commit:${head};files:a.ts,new.ts`);
     expect(cs.blockers).toEqual([]);
     expect(cs.warnings.join(' ')).toContain('PR #42 cannot serve as evidence');
+    // T12656 review HIGH: the PR still merged. The branch outlives a squash
+    // merge, so `source` says nothing about it — an affected-only testsPassed
+    // must not stand.
+    expect(cs.mergeState).toBe('merged');
+    expect(mergeStateOfChangeSet(cs)).toBe('merged');
+    expect(
+      affectedScopeSupersededReason(
+        [{ kind: 'tool', tool: 'test-affected', exitCode: 0, scope: 'affected' }],
+        mergeStateOfChangeSet(cs),
+      ),
+    ).toMatch(/merged change needs/);
+  });
+
+  it('T12656: a hung gh is a failed discovery, not a hang', async () => {
+    const bin = mkdtempSync(join(tmpdir(), 'fake-gh-'));
+    writeFileSync(
+      join(bin, 'gh'),
+      '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "gh version 2.0.0"; exit 0; fi\nsleep 5\necho "[]"\n',
+      { mode: 0o755 },
+    );
+    const savedPath = process.env['PATH'];
+    process.env['PATH'] = `${bin}:${savedPath ?? ''}`;
+    try {
+      const started = Date.now();
+      const r = await defaultListMergedPrs('T961', base, { timeoutMs: 300 });
+      expect(r.ok).toBe(false);
+      expect(Date.now() - started).toBeLessThan(4000);
+    } finally {
+      process.env['PATH'] = savedPath;
+      rmSync(bin, { recursive: true, force: true });
+    }
   });
 
   it('a later merged Revert PR that cites the task blocks with pr-reverted', async () => {

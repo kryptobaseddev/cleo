@@ -48,6 +48,7 @@ import {
 } from '../evidence.js';
 import { runToolCached } from '../tool-cache.js';
 import { resolveToolCommand } from '../tool-resolver.js';
+import { acquireGlobalSlot } from '../tool-semaphore.js';
 
 function git(dir: string, args: string[]): string {
   return execFileSync('git', args, { cwd: dir, encoding: 'utf-8' }).trim();
@@ -609,6 +610,52 @@ describe('affected-scope test runs (T12635, D11150)', () => {
     });
     expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')?.tool).toBe('test');
   });
+
+  it('T12656: when gh is unreachable the merge state is unknown, so testsPassed plans the full tool:test', async () => {
+    workspaceWithPackages();
+    const id = await seedTask(['Change pkgs/a/i.ts']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    writeFileSync(join(root, 'pkgs', 'a', 'i.ts'), 'export const x = 2;\n');
+    git(root, ['commit', '-q', '-am', `${id}: a`]);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      satisfies: 'all',
+      deps: { ...deps, listMergedPrs: async () => ({ ok: false, reason: 'gh timed out' }) },
+    });
+    expect(plan.changeSet.mergeState).toBe('unknown');
+    expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')?.tool).toBe('test');
+  });
+
+  it('T12656: --plan never waits for a busy test slot; it reports the scope as pending', async () => {
+    workspaceWithPackages();
+    const id = await seedTask(['Change pkgs/a/i.ts']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    writeFileSync(join(root, 'pkgs', 'a', 'i.ts'), 'export const x = 3;\n');
+    git(root, ['commit', '-q', '-am', `${id}: a`]);
+    const saved = process.env['CLEO_TOOL_CONCURRENCY_TEST'];
+    process.env['CLEO_TOOL_CONCURRENCY_TEST'] = '1';
+    const release = await acquireGlobalSlot('test');
+    try {
+      const started = Date.now();
+      const plan = await deriveTaskEvidence(id, {
+        projectRoot: root,
+        cwd: root,
+        satisfies: 'all',
+        deps,
+      });
+      expect(Date.now() - started).toBeLessThan(10_000);
+      expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')).toMatchObject({
+        tool: 'test-affected',
+        command: null,
+        reason: 'scope pending: test slot busy',
+      });
+    } finally {
+      await release();
+      if (saved === undefined) delete process.env['CLEO_TOOL_CONCURRENCY_TEST'];
+      else process.env['CLEO_TOOL_CONCURRENCY_TEST'] = saved;
+    }
+  }, 30_000);
 
   it('a workspace-wide change falls back to the full tool:test', async () => {
     workspaceWithPackages();
