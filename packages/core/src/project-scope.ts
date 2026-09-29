@@ -187,6 +187,43 @@ export function linkedWorktreeMainRoot(dir: string): string | null {
 }
 
 /**
+ * Name the project that owns the linked git worktree at `dir`, for refusals
+ * that must say where the store actually lives (T12677).
+ *
+ * @param dir - Worktree root.
+ * @returns e.g. `owning project /home/u/project (projectId abc)`,
+ *   `owning repository /home/u/project (not an initialised CLEO project)`, or
+ *   `owning repository unknown (unreadable gitlink)`.
+ * @remarks Never throws. Reads only the gitlink, the main checkout's gitdir
+ *   config and its `.cleo/project-info.json`.
+ * @example
+ * ```ts
+ * describeWorktreeOwner('/data/cleo/worktrees/abc/T1');
+ * // 'owning project /home/u/project (projectId 7f3c…)'
+ * ```
+ * @task T12677
+ */
+export function describeWorktreeOwner(dir: string): string {
+  const mainRoot = linkedWorktreeMainRoot(dir);
+  if (mainRoot === null) return 'owning repository unknown (unreadable gitlink)';
+  let projectId: string | null = null;
+  try {
+    const parsed: unknown = JSON.parse(
+      readFileSync(join(mainRoot, '.cleo', 'project-info.json'), 'utf-8'),
+    );
+    if (typeof parsed === 'object' && parsed !== null && 'projectId' in parsed) {
+      const value = (parsed as { projectId: unknown }).projectId;
+      if (typeof value === 'string' && value !== '') projectId = value;
+    }
+  } catch {
+    // No readable identity: named below as not initialised.
+  }
+  return projectId === null
+    ? `owning repository ${mainRoot} (not an initialised CLEO project)`
+    : `owning project ${mainRoot} (projectId ${projectId})`;
+}
+
+/**
  * Read `core.worktree` from a git directory's `config`, resolved against it.
  *
  * @param gitDir - Absolute git directory.
