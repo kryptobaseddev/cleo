@@ -6,9 +6,12 @@ adrRefs:
   - ADR-053
   - ADR-070
 metadata:
-  version: 1.0.1
+  version: 1.0.2
   tier: on-demand
   install: harness
+  covers:
+    - packages/core/src/validation/protocols/cant/architecture-decision.cant
+    - packages/core/src/validation/protocols/protocols-markdown/architecture-decision.md
   loomStage: architecture_decision
   lastReviewed: 2026-09-28
   stability: stable

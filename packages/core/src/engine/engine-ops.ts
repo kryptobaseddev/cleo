@@ -18,6 +18,8 @@
  * @epic T1566
  */
 
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
 import {
   buildInjectionContent,
   catalog,
@@ -34,6 +36,8 @@ import {
   removeSkill,
   SkillInstallError,
   type SkillRowData,
+  type ValidationIssue as SkillValidationIssue,
+  validateSkill,
 } from '@cleocode/caamp';
 import type {
   SkillImportHermesRequest,
@@ -56,7 +60,7 @@ import {
   renderDoctorDiagnoseReport,
 } from '../skills/doctor.js';
 import type { MigrationOptions } from '../skills/migration.js';
-import { resolveSkillsRoot } from '../skills/skill-root.js';
+import { resolveBundledSkillsDir, resolveSkillsRoot } from '../skills/skill-root.js';
 import { upsertSkillRow } from '../store/skills-db.js';
 
 /** Shape for provider hook info returned by queryHookProviders. */
@@ -258,29 +262,152 @@ export function toolsSkillDispatch(name: string): EngineResult<{
   }
 }
 
+/** Result of {@link toolsSkillVerify}. */
+export interface SkillVerifyReport {
+  /** Skill name (frontmatter `name`, else the directory name). */
+  skill: string;
+  /** The SKILL.md that was validated. */
+  file: string;
+  /** No error-level issue. */
+  valid: boolean;
+  /** Every finding, errors and warnings. */
+  issues: SkillValidationIssue[];
+  /** Installed in the canonical skills root. */
+  installed: boolean;
+  /** Listed in the skill catalog. */
+  inCatalog: boolean;
+  /** Canonical install directory, when installed. */
+  installPath: string | null;
+  /**
+   * Which rules applied: `cleo` (a CLEO bundled skill: the Agent Skills
+   * standard plus gate 29's frontmatter contract) or `agent-skills` (any other
+   * skill: the Agent Skills standard only).
+   */
+  rules: 'cleo' | 'agent-skills';
+}
+
 /**
- * Verify a skill's installation and catalog status.
+ * Whether `file` is a CLEO bundled skill: a SKILL.md in the bundled skills
+ * package (or a `packages/skills/skills` checkout), or the installed canonical
+ * copy of a skill the bundled manifest lists.
+ *
+ * @param file - Absolute SKILL.md path.
+ * @returns True when gate 29's rules apply.
  */
-export async function toolsSkillVerify(name: string): Promise<
-  EngineResult<{
-    skill: string;
-    installed: boolean;
-    inCatalog: boolean;
-    installPath: string | null;
-  }>
-> {
+function isBundledSkillFile(file: string): boolean {
+  const dir = dirname(file);
+  const name = basename(dir);
+  if (/[\\/]packages[\\/]skills[\\/]skills$/.test(dirname(dir))) return true;
+  const bundled = resolveBundledSkillsDir();
+  if (!bundled) return false;
+  if (resolve(dirname(dir)) === resolve(bundled)) return true;
+  if (resolve(dirname(dir)) !== resolve(resolveSkillsRoot())) return false;
   try {
-    if (!catalog.isCatalogAvailable()) {
-      return engineError('E_CONFIG_ERROR', CATALOG_UNAVAILABLE_MSG, CATALOG_UNAVAILABLE_OPTS);
+    const manifest = JSON.parse(readFileSync(join(bundled, 'manifest.json'), 'utf-8')) as {
+      skills?: Array<{ name?: string }>;
+    };
+    return (manifest.skills ?? []).some((s) => s.name === name);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The SKILL.md a `skills validate` target names: a path (file or skill
+ * directory), else an installed skill, else a catalog skill.
+ *
+ * @param target - Skill name, skill directory or SKILL.md path.
+ * @returns Absolute SKILL.md path, or null when nothing matches.
+ */
+function resolveSkillFile(target: string): string | null {
+  const looksLikePath =
+    target.includes('/') || target.includes('\\') || target.endsWith('.md') || existsSync(target);
+  if (looksLikePath) {
+    const abs = resolve(target);
+    if (!existsSync(abs)) return null;
+    const file = statSync(abs).isDirectory() ? join(abs, 'SKILL.md') : abs;
+    return existsSync(file) ? file : null;
+  }
+  const installed = join(resolveSkillsRoot(), target, 'SKILL.md');
+  if (existsSync(installed)) return installed;
+  if (catalog.isCatalogAvailable() && catalog.getSkill(target)) {
+    const file = catalog.getSkillPath(target);
+    return existsSync(file) ? file : null;
+  }
+  return null;
+}
+
+/**
+ * Validate a skill's SKILL.md against the Agent Skills standard and report
+ * its installation and catalog status (T12655).
+ *
+ * @remarks
+ * Before T12655 this only reported whether the skill was installed and
+ * catalogued, and returned success for any input — `cleo skills validate`
+ * validated nothing. Now the frontmatter is checked (valid YAML, `name` and
+ * `description` present and well-formed, `name` equal to its directory) and
+ * any error-level finding fails with `E_VALIDATION`, the findings in
+ * `details`.
+ *
+ * @param target - Skill name, skill directory or SKILL.md path.
+ * @returns The report, or `E_VALIDATION` carrying it when invalid.
+ */
+export async function toolsSkillVerify(target: string): Promise<EngineResult<SkillVerifyReport>> {
+  try {
+    const file = resolveSkillFile(target);
+    if (!file) {
+      return engineError(
+        'E_NOT_FOUND',
+        `No SKILL.md for '${target}': not a path, an installed skill or a catalog skill`,
+        { fix: 'Pass a skill directory, a SKILL.md path, or an installed skill name' },
+      );
     }
-    const installed = await discoverSkill(`${resolveSkillsRoot()}/${name}`);
-    const catalogEntry = catalog.getSkill(name);
-    return engineSuccess({
-      skill: name,
-      installed: !!installed,
-      inCatalog: !!catalogEntry,
-      installPath: installed ? `${resolveSkillsRoot()}/${name}` : null,
-    });
+    const result = await validateSkill(file);
+    const issues = [...result.issues];
+    const dirName = basename(dirname(file));
+    const declared = typeof result.metadata?.['name'] === 'string' ? result.metadata['name'] : null;
+    const bundled = basename(file) === 'SKILL.md' && isBundledSkillFile(file);
+    if (bundled) {
+      // The exact rules gate 29 applies, from the one shared module.
+      const { parseFrontmatter, validateFrontmatter } = await import(
+        '@cleocode/skills/frontmatter.mjs'
+      );
+      const fm = parseFrontmatter(readFileSync(file, 'utf-8'));
+      for (const problem of validateFrontmatter({ ...fm, name: dirName })) {
+        issues.push({ level: 'error', field: 'cleo-frontmatter', message: problem });
+      }
+    } else if (basename(file) === 'SKILL.md' && declared !== null && declared !== dirName) {
+      issues.push({
+        level: 'error',
+        field: 'name',
+        message: `name '${declared}' must equal its directory '${dirName}'`,
+      });
+    }
+    const skill = declared ?? dirName;
+    const installDir = join(resolveSkillsRoot(), skill);
+    const installed = !!(await discoverSkill(installDir));
+    const report: SkillVerifyReport = {
+      skill,
+      file,
+      valid: !issues.some((i) => i.level === 'error'),
+      issues,
+      installed,
+      inCatalog: catalog.isCatalogAvailable() && !!catalog.getSkill(skill),
+      installPath: installed ? installDir : null,
+      rules: bundled ? 'cleo' : 'agent-skills',
+    };
+    if (!report.valid) {
+      const errors = issues.filter((i) => i.level === 'error');
+      return engineError(
+        'E_VALIDATION',
+        `${errors.length} error(s) in ${file}: ${errors.map((i) => `${i.field}: ${i.message}`).join('; ')}`,
+        {
+          details: report,
+          fix: 'Fix the listed SKILL.md fields, then re-run cleo skills validate',
+        },
+      );
+    }
+    return engineSuccess(report);
   } catch (error) {
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }

@@ -440,6 +440,41 @@ export async function upsertSkillRow(row: NewSkillRow): Promise<SkillRow> {
 }
 
 /**
+ * Set a row's lifecycle state (and its archive bookkeeping) without touching
+ * any other column.
+ *
+ * Used by the bundled-skill prune (T12678): when CLEO quarantines a skill it
+ * installed, the matching row is archived, and a restore puts the prior
+ * state back. Only lifecycle bookkeeping changes — never content, source or
+ * provenance — so the canonical-row write-guard does not apply.
+ *
+ * @param name - Skill name.
+ * @param state - New lifecycle state.
+ * @param archivedFromPath - Path the skill was archived from (archive only).
+ * @returns `true` when a row was updated.
+ *
+ * @task T12678
+ */
+export async function setSkillLifecycleState(
+  name: string,
+  state: 'active' | 'stale' | 'archived',
+  archivedFromPath?: string,
+): Promise<boolean> {
+  const db = await openSkillsDb();
+  const archived = state === 'archived';
+  const result = db
+    .update(skillsTable)
+    .set({
+      lifecycleState: state,
+      archivedAt: archived ? new Date().toISOString() : null,
+      archivedFromPath: archived ? (archivedFromPath ?? null) : null,
+    })
+    .where(eq(skillsTable.name, name))
+    .run();
+  return result.changes > 0;
+}
+
+/**
  * List all skills whose `source_type` equals the given provenance.
  *
  * Ordered by `name` for stable callers (no `ORDER BY` in tests would otherwise
