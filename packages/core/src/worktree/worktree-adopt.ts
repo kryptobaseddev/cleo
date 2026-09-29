@@ -37,7 +37,7 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { AdoptWorktreeOpts, AdoptWorktreeResult, WorktreeSource } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '@cleocode/contracts';
 import { getLogger } from '../logger.js';
@@ -80,7 +80,10 @@ export async function adoptWorktree(
   opts: AdoptWorktreeOpts,
 ): Promise<EngineResult<AdoptWorktreeResult>> {
   const projectRoot = resolveOrCwd(opts.projectRoot);
-  const worktreePath = opts.worktreePath;
+  // T12677: `cleo worktree adopt .` from inside the worktree recorded the path
+  // "." in the OWNING project's sentinel index, where it names the project
+  // root, not the worktree. Record the absolute path.
+  const worktreePath = resolve(opts.worktreePath);
   const source: WorktreeSource = opts.source ?? 'claude-agent';
   const actor = opts.actor ?? resolveWorktreeAuditActor();
 
