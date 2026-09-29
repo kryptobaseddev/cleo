@@ -19,6 +19,7 @@ import {
 } from '@cleocode/contracts';
 import type { DecideOptions } from '../decide/client.js';
 import type { DecisionSiteMode } from '../decide/site.js';
+import { getLogger } from '../logger.js';
 import { taskExistsInTasksDb } from '../store/cross-db-cleanup.js';
 import { getBrainAccessor } from '../store/memory-accessor.js';
 import type { BrainDecisionRow, NewBrainDecisionRow } from '../store/schema/memory-schema.js';
@@ -70,7 +71,12 @@ export interface StoreDecisionParams {
    * External callers MUST NOT set this flag.
    */
   _skipGate?: boolean;
-  /** Explicitly request optional LLM conflict evaluation; sourced writes default to no model call. */
+  /**
+   * Explicitly request the full conflict validation: the generative (T1828)
+   * check and rejection below the confidence threshold. Without it an ADR
+   * write still runs the System One contradiction site advisorily (T12715):
+   * no generative model call, never rejects.
+   */
   validateWithLlm?: boolean;
 }
 
@@ -170,8 +176,11 @@ async function resolveValidatorThreshold(projectRoot: string): Promise<number> {
  * ## Scope
  *
  * Only runs for ADR-typed writes (where `adrPath` is provided on the params).
- * Non-ADR writes skip validation entirely. `storeDecision` invokes this optional
- * model-assisted check only when `validateWithLlm: true` is explicitly supplied.
+ * Non-ADR writes skip validation entirely. `storeDecision` runs it on every
+ * ADR write (T12715): advisorily with `llmTier: false` by default (the System
+ * One site only — shadow unless promoted, off without a provider; never
+ * rejects), and in full — generative check and rejection — only when
+ * `validateWithLlm: true` is explicitly supplied.
  *
  * ## Env skip
  *
@@ -482,6 +491,58 @@ function isDecisionIdCollision(err: unknown): boolean {
 }
 
 /**
+ * Advisory contradiction check for an ADR write without `validateWithLlm`
+ * (T12715): runs the `memory.decision-contradiction` System One site with the
+ * generative tier off. In `shadow` (the default once a provider is
+ * configured) the site only audits its answers; in `on` a confident
+ * contradiction is logged as a warning. Unconfigured → `off`, no network
+ * call. Never throws and never blocks the write (registry: "Advisory: a
+ * contradiction is reported, never blocks the write").
+ *
+ * @param projectRoot - Project root for the brain accessor, config and audit.
+ * @param params - The decision being stored.
+ * @param options - Test wiring forwarded to {@link validateDecisionConflicts}.
+ * @returns The contradicting decision ids that were reported (empty when none).
+ *
+ * @task T12715
+ */
+export async function adviseDecisionConflicts(
+  projectRoot: string,
+  params: Pick<StoreDecisionParams, 'decision' | 'rationale' | 'type' | 'adrPath' | 'supersedes'>,
+  options: Pick<ValidateDecisionConflictsOptions, 'decide' | 'mode'> = {},
+): Promise<string[]> {
+  try {
+    const accessor = await getBrainAccessor(projectRoot);
+    const existing = await accessor.findDecisions({});
+    const result = await validateDecisionConflicts(
+      {
+        decision: params.decision,
+        rationale: params.rationale,
+        type: params.type,
+        adrPath: params.adrPath,
+        supersedes: params.supersedes,
+      },
+      existing.map((d) => ({
+        id: d.id,
+        decision: d.decision,
+        rationale: d.rationale,
+        supersedes: d.supersedes,
+      })),
+      { ...options, projectRoot, llmTier: false },
+    );
+    if (result.contradictions.length > 0) {
+      getLogger('memory').warn(
+        { contradictions: result.contradictions, adrPath: params.adrPath },
+        'New decision may contradict stored decisions (System One, advisory)',
+      );
+    }
+    return result.contradictions;
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Store a new decision or update an existing one if a duplicate is found.
  * Duplicate detection: same decision text (case-insensitive).
  *
@@ -514,7 +575,13 @@ export async function storeDecision(
   }
 
   // Optional synthesis is separate from recording sourced decisions. An ADR
-  // reference supplies evidence; it is not consent to invoke a background model.
+  // reference supplies evidence; it is not consent to invoke a background
+  // generative model. Without the explicit opt-in the System One site still
+  // runs, advisorily (T12715): bounded at 300 ms, shadow by default, no
+  // generative call, never blocks the write.
+  if (params.validateWithLlm !== true && !params._skipGate && params.adrPath) {
+    await adviseDecisionConflicts(projectRoot, params);
+  }
   if (params.validateWithLlm === true && !params._skipGate && params.adrPath) {
     const accessor = await getBrainAccessor(projectRoot);
     const existing = await accessor.findDecisions({});

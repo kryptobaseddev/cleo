@@ -37,3 +37,16 @@ request would keep a one-shot CLI process alive past its work. It uses the
 cached state, or the Jev minimum until one exists; the minimum only omits the
 optional `lang` and `cache` body fields. `DecideOptions` gains `fetch` and
 `providerStatePath`.
+
+**Live decision-contradiction site (AC c).** `memory.decision-contradiction`
+never fired: `storeDecision` ran it only when `validateWithLlm === true`, and
+no caller set that flag. The spec (§3 site table) keeps the site at `shadow`
+by default and advisory, so it is now wired rather than removed. Every ADR
+write (`adrPath` set, e.g. `cleo memory decision-store --adr-path`) without
+`validateWithLlm` calls the new `adviseDecisionConflicts`. It runs the System
+One site with the generative tier forced off, within the site's 300 ms
+budget. In `shadow`, the default once a provider is configured, it only
+audits. In `on`, a confident contradiction is logged as a warning. With no
+provider configured it is `off` and makes no network call. It never throws
+and never rejects the write. The generative (T1828) check and rejection below
+the confidence threshold still run only with an explicit `validateWithLlm`.

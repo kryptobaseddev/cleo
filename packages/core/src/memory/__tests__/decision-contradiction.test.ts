@@ -22,7 +22,12 @@ import type { DecideOptions } from '../../decide/client.js';
 const evaluateDialectic = vi.fn();
 vi.mock('../dialectic-evaluator.js', () => ({ evaluateDialectic }));
 
-const { validateDecisionConflicts } = await import('../decisions.js');
+const { adviseDecisionConflicts, storeDecision, validateDecisionConflicts } = await import(
+  '../decisions.js'
+);
+const { saveDecideCredentials } = await import('../../decide/credentials.js');
+const { closeBrainDb } = await import('../../store/memory-sqlite.js');
+const { _resetDecideDefaultsForTest } = await import('../../decide/client.js');
 const { CONTRADICTION_RELATIONS, DECISION_CONTRADICTION_BUDGET_MS, DECISION_CONTRADICTION_SITE } =
   await import('../decision-contradiction.js');
 
@@ -521,5 +526,58 @@ describe('System One contradiction check — unconfigured', () => {
 
     const opts = evaluateDialectic.mock.calls[0]?.[1] as { abortSignal?: AbortSignal } | undefined;
     expect(opts?.abortSignal).toBeInstanceOf(AbortSignal);
+  });
+});
+
+describe('advisory store path — the site fires without validateWithLlm (T12715)', () => {
+  beforeEach(() => {
+    saved['CLEO_DIR'] = process.env['CLEO_DIR'];
+    process.env['CLEO_DIR'] = join(projectDir, '.cleo');
+    _resetDecideDefaultsForTest();
+  });
+  afterEach(() => {
+    closeBrainDb();
+  });
+
+  async function seedPrior(): Promise<void> {
+    // No adrPath: the advisory check does not run for the seed.
+    await storeDecision(projectDir, {
+      type: 'architecture',
+      decision: EXISTING[0]!.decision,
+      rationale: EXISTING[0]!.rationale,
+      confidence: 'high',
+    });
+  }
+
+  it('an ADR write asks System One once in shadow, never calls the generative model, never blocks', async () => {
+    await saveDecideCredentials({ baseUrl, apiKey: 'sk-test-SECRET-1234', model: 'stub-model' });
+    await seedPrior();
+    expect(received).toHaveLength(0);
+
+    const stored = await storeDecision(projectDir, { ...NEW, confidence: 'high' });
+
+    expect(stored.adrPath).toBe(NEW.adrPath);
+    expect(received).toHaveLength(1);
+    expect(Object.keys(received[0]!.body['questions'] as object)).toEqual(['c1']);
+    expect(evaluateDialectic).not.toHaveBeenCalled();
+  });
+
+  it('unconfigured: an ADR write makes no network call', async () => {
+    await seedPrior();
+    await storeDecision(projectDir, { ...NEW, confidence: 'high' });
+    expect(received).toHaveLength(0);
+    expect(evaluateDialectic).not.toHaveBeenCalled();
+  });
+
+  it('on: a confident contradiction is reported, not thrown', async () => {
+    await seedPrior();
+    const audit = memoryAudit();
+    const reported = await adviseDecisionConflicts(projectDir, NEW, {
+      mode: 'on',
+      decide: stubWiring(audit),
+    });
+    expect(reported).toEqual(['D001']);
+    expect(audit.entries[0]?.shadow?.acted).toBe('decision');
+    expect(evaluateDialectic).not.toHaveBeenCalled();
   });
 });
