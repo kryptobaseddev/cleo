@@ -16,7 +16,8 @@
  * @decision D009
  */
 
-import { basename, dirname, join } from 'node:path';
+import { existsSync } from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { resolveCleoDir } from '../paths.js';
@@ -101,4 +102,77 @@ export function assertDbPathIsNotWorktreeResident(role: string, cwd?: string): v
     return;
   }
   assertStorePathIsNotWorktreeResident(role, join(cleoDir, PROJECT_STORE_FILENAME));
+}
+
+/**
+ * The root of the git checkout enclosing `dir`: the nearest ancestor (or `dir`
+ * itself) holding a `.git` entry.
+ *
+ * @param dir - Starting directory.
+ * @returns The checkout root, or `null` outside any checkout.
+ */
+function enclosingCheckout(dir: string): string | null {
+  let current = resolve(dir);
+  for (;;) {
+    if (existsSync(join(current, '.git'))) return current;
+    const parent = dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+}
+
+/**
+ * Guard a manual restore (`cleo restore backup`, `admin.backup` restore) that
+ * is run from inside a linked git worktree (T12680).
+ *
+ * Path resolution maps a worktree to its owning project, so a restore run in a
+ * worktree overwrites the owning project's LIVE store. That is allowed only
+ * with an explicit confirmation naming it. When the owner cannot hold a
+ * store (not an initialised CLEO project, or a bare repository) the restore
+ * would land in the worktree's own `.cleo/`, which CLEO never reads; that is
+ * refused outright.
+ *
+ * @param storeRoot - Project root whose `.cleo/` the restore writes.
+ * @param opts - `cwd` the restore was invoked from (default `process.cwd()`),
+ *   and `confirmOwnerStore` to allow overwriting the owner's live store.
+ * @throws `CleoError` `E_WT_RESTORE_REFUSED` when the owner cannot hold the
+ *   store, or `E_WT_RESTORE_CONFIRM_REQUIRED` when confirmation is missing.
+ * @example
+ * ```ts
+ * assertRestoreTargetConfirmed('/home/u/project', { cwd: '/data/cleo/worktrees/abc/T1' }); // throws
+ * ```
+ * @task T12680
+ */
+export function assertRestoreTargetConfirmed(
+  storeRoot: string,
+  opts: { cwd?: string | undefined; confirmOwnerStore?: boolean | undefined } = {},
+): void {
+  const checkout = enclosingCheckout(opts.cwd ?? process.cwd());
+  const worktree = isGitLinkedCheckout(storeRoot)
+    ? storeRoot
+    : checkout !== null && isGitLinkedCheckout(checkout)
+      ? checkout
+      : null;
+  if (worktree === null) return;
+  const owner = describeWorktreeOwner(worktree);
+  const target = join(storeRoot, '.cleo');
+  // The store resolved to the worktree itself: its owner is not an
+  // initialised project or is a bare repository (named in `owner`).
+  if (isGitLinkedCheckout(storeRoot)) {
+    throw new CleoError(
+      ExitCode.CONFIG_ERROR,
+      `E_WT_RESTORE_REFUSED: restore run from git worktree ${worktree} would write ${target}, a store CLEO never reads — ${owner}.`,
+      {
+        fix: 'Run the restore from an initialised CLEO project (see the owning repository above); nothing was written.',
+      },
+    );
+  }
+  if (opts.confirmOwnerStore) return;
+  throw new CleoError(
+    ExitCode.CONFIG_ERROR,
+    `E_WT_RESTORE_CONFIRM_REQUIRED: restore run from git worktree ${worktree} would overwrite the LIVE store ${target}; this worktree's ${owner}.`,
+    {
+      fix: `Re-run with --confirm-owner-store to overwrite ${target}, or run the restore from ${storeRoot}. Nothing was written.`,
+    },
+  );
 }

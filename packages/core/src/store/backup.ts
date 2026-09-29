@@ -6,9 +6,10 @@
  */
 
 import { copyFile, rename as fsRename, mkdir, readdir, stat, unlink } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import { assertRestoreTargetConfirmed } from './worktree-isolation-guard.js';
 
 const DEFAULT_MAX_BACKUPS = 5;
 
@@ -87,15 +88,30 @@ export async function listBackups(fileName: string, backupDir: string): Promise<
 /**
  * Restore a file from its most recent backup.
  * Returns the path of the backup that was restored.
+ *
+ * A target under a project's `.cleo/` is guarded against a run from inside a
+ * git worktree (T12680): see {@link assertRestoreTargetConfirmed}.
+ *
+ * @param fileName - File to restore.
+ * @param backupDir - Directory holding its numbered backups.
+ * @param targetPath - Where to write it.
+ * @param opts - Invocation directory, and confirmation to overwrite the
+ *   owning project's live store from a worktree.
+ * @returns The backup file restored from.
  */
 export async function restoreFromBackup(
   fileName: string,
   backupDir: string,
   targetPath: string,
+  opts: { confirmOwnerStore?: boolean | undefined; cwd?: string | undefined } = {},
 ): Promise<string> {
   const backups = await listBackups(fileName, backupDir);
   if (backups.length === 0) {
     throw new CleoError(ExitCode.NOT_FOUND, `No backups found for: ${fileName}`);
+  }
+  const cleoDir = dirname(targetPath);
+  if (basename(cleoDir) === '.cleo') {
+    assertRestoreTargetConfirmed(dirname(cleoDir), opts);
   }
   const newest = backups[0]!;
   await copyFile(newest, targetPath);
