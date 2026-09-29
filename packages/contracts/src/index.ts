@@ -516,6 +516,7 @@ export type {
 // === Done planner: read-only `cleo done --plan` evidence plan (T12623, T12624) ===
 export type {
   ChangeSetDoc,
+  ChangeSetMergeState,
   ChangeSetPrCandidate,
   ChangeSetRootSource,
   ChangeSetSource,

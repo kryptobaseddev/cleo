@@ -894,6 +894,8 @@ describe('batch close: several tasks shipped by one PR (T12628)', () => {
     const r = await recordTaskDone(
       id,
       opts({
+        // pr: resolution is injected for the change set; the write is stubbed.
+        previewEvidence: async () => ({ ok: true }),
         deps: {
           ...deps,
           listMergedPrs: async () => ({
