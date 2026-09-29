@@ -536,12 +536,13 @@ jobs:
         run: node scripts/lint-vitest-memory-safe.mjs
 
   skills-metadata:
-    # Gates 29 + 30 (T12648 · D11157). SKILL.md frontmatter is the skills
+    # Gates 29, 30 + 31 (T12648, T12649 · D11157). SKILL.md frontmatter is the skills
     # metadata SSoT: the manifest is generated from it (gate 29), and every
-    # skill code names must be installable (gate 30). Wired here as well as in
+    # skill code names must be installable (gate 30), and every cleo command a
+    # skill teaches must exist (gate 31). Wired here as well as in
     # `cleo check arch`, because a gate bundled and documented but run by no
     # workflow is the gh#1354 defect. Pure node, no install needed.
-    name: Skills Metadata SSoT (T12648 · gates 29-30)
+    name: Skills Metadata SSoT (T12648 · T12649 · gates 29-31)
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -553,6 +554,8 @@ jobs:
         run: node scripts/lint-skills-manifest.mjs --check
       - name: Assert every skill code emits is installable
         run: node scripts/lint-emitted-skills.mjs --check
+      - name: Assert every cleo command a skill teaches exists (gate 31, T12649)
+        run: node scripts/lint-skill-commands.mjs --check
 
   arch-gate-parity:
     # Gate 20 (T12122) — the gate on the gates. Asserts that the set bundled
