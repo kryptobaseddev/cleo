@@ -35,7 +35,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { rename, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
 import {
@@ -297,7 +297,7 @@ export async function decideProjectIdentity(
           .map((candidate) => `${candidate.projectId} @ ${candidate.projectPath}`)
           .join(', ')})`,
         {
-          fix: 'Write the intended id to .cleo/project-id, or mint explicitly with `cleo init --new-identity`',
+          fix: 'Restore .cleo/project.json (or the legacy .cleo/project-id) with the intended id from version control, or mint explicitly with `cleo init --new-identity`',
         },
       );
     }
@@ -449,9 +449,10 @@ export async function ensurePortableProjectId(
 }
 
 /**
- * Rename a project in its committed `.cleo/project.json`: only `name` changes,
- * the id is carried over byte-identical (tmp + rename, so a crash never leaves
- * a half-written identity file).
+ * Rename a project in its committed `.cleo/project.json`: only `name` changes;
+ * the id is carried over byte-identical and keys this build does not know are
+ * kept (`writeProjectManifestName`: a tmp file unique to the call, renamed
+ * into place, so a crash never leaves a half-written identity file).
  *
  * @param projectRoot - Absolute project root.
  * @param name - New display name (trimmed; must pass `isValidProjectDisplayName`).
@@ -491,9 +492,7 @@ export async function renameProjectManifest(
       },
     );
   }
-  const path = projectManifestPath(projectRoot);
-  const tmp = `${path}.tmp-${process.pid}`;
-  await writeFile(tmp, formatProjectManifest({ ...current.manifest, name: newName }));
-  await rename(tmp, path);
-  return { oldName: current.manifest.name, newName, projectId: current.manifest.id };
+  // Only `name` changes; unknown keys survive; a per-call tmp file (T12716).
+  const { writeProjectManifestName } = await import('../project-info.js');
+  return writeProjectManifestName(projectRoot, newName);
 }
