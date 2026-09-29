@@ -17,11 +17,12 @@ const ioStreams: unknown[][] = [];
 const mockUse = vi.fn(async (_name: string): Promise<unknown> => ({}));
 const mockRemove = vi.fn(async (_name: string, _use?: string): Promise<unknown> => ({}));
 const mockProfiles = vi.fn(async (_opts: unknown): Promise<unknown> => ({}));
+const mockAsk = vi.fn(async (_input: unknown): Promise<unknown> => ({}));
 
 class FakeCredentialsError extends Error {}
 
 vi.mock('@cleocode/core/decide/index.js', () => ({
-  askDecideDebug: vi.fn(),
+  askDecideDebug: (input: unknown) => mockAsk(input),
   clearDecideConfig: vi.fn(),
   configureDecide: vi.fn(),
   DecideCredentialsError: FakeCredentialsError,
@@ -112,6 +113,31 @@ describe('cleo decide config — wizard interrupt (T12713)', () => {
   it('prompts on stderr: the IO is built on stdin + stderr', async () => {
     await configRun()({ args: {}, rawArgs: [] });
     expect(ioStreams[0]).toEqual([process.stdin, process.stderr]);
+  });
+});
+
+describe('cleo decide ask (T12733)', () => {
+  it('takes --question; the output goes to the decide-ask human renderer', async () => {
+    await subRun('ask')({ args: { state: 's', question: 'Is it?' }, rawArgs: [] });
+    expect(mockAsk).toHaveBeenLastCalledWith(
+      expect.objectContaining({ state: 's', question: 'Is it?' }),
+    );
+    expect(mockCliOutput.mock.calls.at(-1)?.[1]).toMatchObject({ command: 'decide-ask' });
+  });
+
+  it('keeps --noul as an alias', async () => {
+    await subRun('ask')({ args: { state: 's', noul: 'Old form?' }, rawArgs: [] });
+    expect(mockAsk).toHaveBeenLastCalledWith(expect.objectContaining({ question: 'Old form?' }));
+  });
+
+  it('a missing question names the right form (exit 6)', async () => {
+    mockAsk.mockClear();
+    await subRun('ask')({ args: { state: 's' }, rawArgs: [] });
+    expect(mockAsk).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(6);
+    expect(mockCliError.mock.calls[0]?.[2]).toMatchObject({
+      fix: 'cleo decide ask --state "<text>" --question "<yes/no question>"',
+    });
   });
 });
 
