@@ -316,6 +316,9 @@ export async function updateTask(
 
   await requireActiveSession('tasks.update', cwd);
 
+  // The row this command read, before staging mutates `task` — the baseline
+  // for the changed-field summary on E_CONFLICT. @task T12503
+  const baseline = structuredClone(task);
   const changes: string[] = [];
   const now = new Date().toISOString();
   const originalParentId = task.parentId ?? null;
@@ -332,10 +335,13 @@ export async function updateTask(
     options.status === 'done' && task.status !== 'done' && !hasNonStatusDoneFields(options);
 
   if (isStatusOnlyDoneTransition) {
-    // The complete flow owns its own write transaction; check the guard
-    // against the read it would otherwise act on. @task T12503
-    assertTaskVersion(options.taskId, task, options.expectedUpdatedAt);
-    const result = await completeTask({ taskId: options.taskId }, cwd, accessor);
+    // The complete flow owns its own write transaction and checks the guard
+    // inside it. @task T12503
+    const result = await completeTask(
+      { taskId: options.taskId, expectedUpdatedAt: options.expectedUpdatedAt },
+      cwd,
+      accessor,
+    );
     return { task: result.task, changes: ['status'] };
   }
 
@@ -710,7 +716,7 @@ export async function updateTask(
         fix: `Use 'cleo find "${options.taskId}"' to search`,
       });
     }
-    assertTaskVersion(options.taskId, current, options.expectedUpdatedAt);
+    assertTaskVersion(options.taskId, current, options.expectedUpdatedAt, baseline);
     written = rebaseTaskUpdate(current, task, changes, options, timestampedNote);
     written.updatedAt = nextTaskVersion(current, now);
     // The waiver rule applies to the dependency set actually persisted.

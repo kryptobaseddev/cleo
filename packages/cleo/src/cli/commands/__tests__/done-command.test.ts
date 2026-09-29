@@ -50,6 +50,26 @@ afterEach(() => {
 });
 
 describe('cleo done', () => {
+  it('--if-match is checked by the record step and never forwarded to complete (T12503)', async () => {
+    recordTaskDone.mockResolvedValue(recorded);
+    dispatchRaw.mockResolvedValue({ success: true, data: { updated: ['T1'] } });
+    await runDone({ taskId: 'T1', 'if-match': '2026-09-29T00:00:00.000Z' });
+    expect(recordTaskDone).toHaveBeenCalledWith('T1', {
+      projectRoot: '/p',
+      expectedUpdatedAt: '2026-09-29T00:00:00.000Z',
+    });
+    const params = dispatchRaw.mock.calls[0]?.[3] as Record<string, unknown>;
+    expect(params['expectedUpdatedAt']).toBeUndefined();
+  });
+
+  it('refuses --if-match with several task ids before recording anything (T12503)', async () => {
+    await runDone({ taskId: 'T1', _: ['T2'], 'if-match': '2026-09-29T00:00:00.000Z' });
+    expect(recordTasksDone).not.toHaveBeenCalled();
+    expect(recordTaskDone).not.toHaveBeenCalled();
+    expect(cliError.mock.calls[0]?.[1]).toBe('E_INVALID_INPUT');
+    expect(process.exitCode).toBe(2);
+  });
+
   it('refuses an invalid --pr before recording anything', async () => {
     await runDone({ taskId: 'T1', pr: 'abc' });
     expect(recordTaskDone).not.toHaveBeenCalled();

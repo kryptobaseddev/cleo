@@ -1,7 +1,7 @@
 ---
 name: ct-task-executor
 description: General implementation task execution for completing assigned CLEO tasks by following instructions and producing concrete deliverables. Handles coding, configuration, documentation work with quality verification against acceptance criteria and progress reporting. Use when executing implementation tasks, completing assigned work, or producing task deliverables. Triggers on implementation tasks, general execution needs, or task completion work.
-version: 2.7.3
+version: 2.7.4
 protocol: implementation
 adrRefs:
   - ADR-070
@@ -17,7 +17,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.7.3
+  version: 2.7.4
   tier: core
   install: harness
   covers:
@@ -26,7 +26,7 @@ metadata:
     - packages/core/src/validation/protocols/cant/implementation.cant
     - packages/core/src/validation/protocols/protocols-markdown/implementation.md
   loomStage: implementation
-  lastReviewed: 2026-09-28
+  lastReviewed: 2026-09-29
   stability: stable
 ---
 
@@ -280,6 +280,23 @@ If deliverables don't pass acceptance criteria:
 3. Add remediation suggestions to `needs_followup`
 4. Complete task only if failure is documented and understood
 5. Return appropriate status message
+
+### Concurrent Edits (`E_CONFLICT`, exit 23)
+
+Another agent may edit the same task while you work. `cleo update` and
+`cleo complete` refuse a write based on a stale read with `E_CONFLICT`; nothing
+was written. `error.details` carries `currentVersion`, `changedFields`,
+per-field `changes` (`was`/`now`) and the stored `current` values. Re-read the
+task, merge your change onto it, then retry. To guard a write explicitly, pass
+the version you read:
+
+```bash
+cleo show T1234 --field /data/task/updatedAt   # the version you read
+cleo update T1234 --title "New title" --if-match <updatedAt>
+cleo complete T1234 --if-match <updatedAt>
+```
+
+`--add-labels`, `--add-depends` and `--add-files` merge with concurrent writers and never need a retry.
 
 ---
 

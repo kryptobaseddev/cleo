@@ -362,6 +362,8 @@ export type {
   QueryTasksResult,
   TaskAuditLogQuery,
   TaskAuditLogRow,
+  TaskConflictChange,
+  TaskConflictDetails,
   TaskFieldUpdates,
   TaskPopulation,
   TaskQueryFilters,

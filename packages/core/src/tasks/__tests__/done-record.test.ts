@@ -741,6 +741,44 @@ describe('typed results verified in a worktree complete from main after merge (T
   });
 });
 
+describe('cleo done --if-match (T12503 review MED)', () => {
+  it('a stale --if-match returns E_CONFLICT before anything is recorded', async () => {
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    commitOnTaskBranch(id);
+    const stale = (await env.accessor.loadSingleTask(id))?.updatedAt ?? '';
+    await env.accessor.updateTaskFields(id, { title: 'edited by another agent' });
+
+    const r = await recordTaskDone(id, opts({ expectedUpdatedAt: stale }));
+    expect(r.success).toBe(false);
+    if (r.success) return;
+    expect(r.error.code).toBe('E_CONFLICT');
+    expect(gatesJsonl()).toBe('');
+    expect((await env.accessor.loadSingleTask(id))?.verification?.gates?.implemented).not.toBe(
+      true,
+    );
+  });
+
+  it('a current --if-match records, then completion succeeds on its own post-record read', async () => {
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    commitOnTaskBranch(id);
+    const version = (await env.accessor.loadSingleTask(id))?.updatedAt ?? '';
+
+    const r = await recordTaskDone(id, opts({ expectedUpdatedAt: version }));
+    expect(r.success, JSON.stringify(r)).toBe(true);
+    // Recording advanced the version, so the caller's value no longer matches.
+    expect((await env.accessor.loadSingleTask(id))?.updatedAt).not.toBe(version);
+    // `cleo done` completes WITHOUT forwarding --if-match: no self-conflict.
+    await completeTask({ taskId: id }, root, env.accessor);
+    expect((await env.accessor.loadSingleTask(id))?.status).toBe('done');
+  });
+
+  it('refuses --if-match with several task ids', async () => {
+    await expect(
+      recordTasksDone(['T1', 'T2'], opts({ expectedUpdatedAt: '2026-01-01T00:00:00.000Z' })),
+    ).rejects.toMatchObject({ message: expect.stringContaining('--if-match applies to one task') });
+  });
+});
+
 describe('batch close: several tasks shipped by one PR (T12628)', () => {
   /** Seed the pr: provenance cache so the real validator never calls gh. */
   function seedPrCache(prNumber: number, title: string, merge: string, paths: string[]): void {
