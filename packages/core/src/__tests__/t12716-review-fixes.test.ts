@@ -294,3 +294,53 @@ describe('finding 4: credentials follow every id the project was keyed by', () =
     expect(opened).toMatchObject({ plaintext: 'sk-live', rewrapped: null });
   });
 });
+
+describe('finding 8: a tracked-only .cleo in a linked worktree is not a root, in either check', () => {
+  it('resolveProjectByCwd agrees with validateProjectRoot on a gitlink .git file', async () => {
+    const { resolveProjectByCwd } = await import('@cleocode/paths');
+    const { validateProjectRoot } = await import('../project-scope.js');
+    const wt = join(sandbox, 'linked-wt');
+    mkdirSync(join(wt, '.cleo'), { recursive: true });
+    writeFileSync(join(wt, '.git'), 'gitdir: /elsewhere/.git/worktrees/linked-wt\n');
+    writeFileSync(
+      join(wt, '.cleo', 'project.json'),
+      formatProjectManifest({ schemaVersion: 1, id: ID, name: 'wt' }),
+    );
+    expect(validateProjectRoot(wt)).toBe(false);
+    expect(resolveProjectByCwd(wt)?.projectRoot).not.toBe(wt);
+
+    // At a real toplevel both accept it.
+    const top = fixture('toplevel', { manifest: ID });
+    expect(validateProjectRoot(top)).toBe(true);
+    expect(resolveProjectByCwd(top)?.projectId).toBe(ID);
+  });
+});
+
+describe('finding 9: renaming project.json keeps unknown keys and never shares a tmp file', () => {
+  it('preserves extra keys and survives a stale pid-named tmp path', async () => {
+    const { renameProjectManifest } = await import('../scaffold/project-identity.js');
+    const root = fixture('extras', { legacy: ID });
+    const path = join(root, '.cleo', 'project.json');
+    writeFileSync(
+      path,
+      `${JSON.stringify({ schemaVersion: 1, id: ID, name: 'before', future: { keep: true } }, null, 2)}\n`,
+    );
+    // A concurrent writer's leftover at the old shared tmp name.
+    mkdirSync(`${path}.tmp-${process.pid}`);
+
+    await renameProjectManifest(root, 'after-async');
+    expect(JSON.parse(readFileSync(path, 'utf-8'))).toEqual({
+      schemaVersion: 1,
+      id: ID,
+      name: 'after-async',
+      future: { keep: true },
+    });
+    updateProjectName(root, 'after-sync');
+    expect(JSON.parse(readFileSync(path, 'utf-8'))).toEqual({
+      schemaVersion: 1,
+      id: ID,
+      name: 'after-sync',
+      future: { keep: true },
+    });
+  });
+});

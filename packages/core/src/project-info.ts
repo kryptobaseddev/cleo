@@ -9,11 +9,12 @@
  * @task T11008 — resolveProjectByCwd and resolveCanonicalCleoDir added to @cleocode/paths
  */
 
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  formatProjectManifest,
   isValidProjectDisplayName,
+  parseProjectManifest,
   projectManifestPath,
   readProjectManifest,
 } from '@cleocode/paths';
@@ -26,6 +27,50 @@ import {
 } from './project-scope.js';
 
 export { getProjectDisplayName } from './project-scope.js';
+
+/**
+ * Rewrite ONLY the `name` of a valid `.cleo/project.json` (T12716). The id and
+ * `schemaVersion` are carried over, keys this build does not know are kept
+ * (after the three known ones), and the write goes through a tmp file unique
+ * to this call (`O_EXCL`), renamed into place — concurrent writers never share
+ * a tmp path, and a crash never leaves a half-written identity file.
+ *
+ * @param projectRoot - Project root.
+ * @param name - New display name; the caller validates it.
+ * @returns The previous and new names and the (unchanged) id.
+ * @throws {Error} When `project.json` is absent or not a valid manifest.
+ * @example
+ * ```ts
+ * writeProjectManifestName('/repo', 'cleo-platform');
+ * ```
+ * @task T12716
+ */
+export function writeProjectManifestName(
+  projectRoot: string,
+  name: string,
+): { oldName: string; newName: string; projectId: string } {
+  const path = projectManifestPath(projectRoot);
+  const raw = readFileSync(path, 'utf-8');
+  const parsed = parseProjectManifest(raw);
+  if (parsed.status !== 'valid')
+    throw new Error(
+      `${path} is not a valid project manifest (${parsed.status === 'invalid' ? parsed.reason : 'absent'})`,
+    );
+  // Known keys first (the id and version exactly as parsed), then any key a
+  // newer build added, untouched.
+  const extra: Record<string, unknown> = { ...(JSON.parse(raw) as Record<string, unknown>) };
+  for (const key of ['schemaVersion', 'id', 'name']) delete extra[key];
+  const body = `${JSON.stringify({ ...parsed.manifest, name, ...extra }, null, 2)}\n`;
+  const tmp = `${path}.tmp-${process.pid}-${randomUUID()}`;
+  writeFileSync(tmp, body, { flag: 'wx' });
+  try {
+    renameSync(tmp, path);
+  } catch (error) {
+    rmSync(tmp, { force: true });
+    throw error;
+  }
+  return { oldName: parsed.manifest.name, newName: name, projectId: parsed.manifest.id };
+}
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -112,12 +157,8 @@ export function updateProjectName(cwd: string, name: string): void {
   const newName = name.trim();
   if (!isValidProjectDisplayName(newName)) throw new Error(`Invalid project name '${newName}'`);
   const root = resolveOrCwd(cwd);
-  const manifest = readProjectManifest(root);
-  if (manifest.status === 'valid') {
-    const path = projectManifestPath(root);
-    const tmp = `${path}.tmp-${process.pid}`;
-    writeFileSync(tmp, formatProjectManifest({ ...manifest.manifest, name: newName }));
-    renameSync(tmp, path);
+  if (readProjectManifest(root).status === 'valid') {
+    writeProjectManifestName(root, newName);
     return;
   }
   const cleoDir = getCleoDirAbsolute(cwd);

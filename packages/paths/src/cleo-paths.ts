@@ -11,7 +11,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -341,6 +341,19 @@ export function readDeclaredProjectIdentity(projectRoot: string): DeclaredProjec
   return null;
 }
 
+/**
+ * Whether `<dir>/.git` is a DIRECTORY (a git toplevel). A linked worktree's
+ * `.git` is a gitlink FILE: a tracked-only `.cleo/` there is not a project
+ * root, matching core's `validateProjectRoot` (T12716 review finding 8).
+ */
+function _isGitDirectory(dir: string): boolean {
+  try {
+    return statSync(join(dir, '.git')).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Path fingerprint (alias key only — never an identity, T12470)
 // ---------------------------------------------------------------------------
@@ -561,10 +574,10 @@ export function resolveProjectByCwd(cwd?: string): ResolvedProject | null {
       const declared = readDeclaredProjectIdentity(current);
       // A `.cleo/` holding ONLY a committed identity (project.json or the
       // legacy project-id; no project-info.json) is a project root only at a
-      // git toplevel. Otherwise a monorepo
+      // git toplevel — a real `.git/` directory, never a worktree's gitlink. Otherwise a monorepo
       // subdirectory that carries a committed id would shadow its parent.
       const trackedOnly = declared?.source === 'tracked' && declared.infoProjectId === undefined;
-      if (declared !== null && (!trackedOnly || existsSync(join(current, '.git')))) {
+      if (declared !== null && (!trackedOnly || _isGitDirectory(current))) {
         return {
           projectId: declared.projectId,
           projectRoot: canonicalizePath(current),
