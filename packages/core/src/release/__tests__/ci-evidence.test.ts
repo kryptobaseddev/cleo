@@ -330,6 +330,28 @@ describe('resolveCiEvidenceAtom', () => {
     expect(!r.ok && r.reason).toMatch(/does not establish a relationship to task T999/);
   });
 
+  it('ci:<component>@<integration> links the task through the component PR (T12671)', async () => {
+    writeContext(optedIn);
+    const viewed: number[] = [];
+    const r = await resolve({
+      componentPrNumber: 40,
+      viewComponentPr: async (n) => {
+        viewed.push(n);
+        return {
+          number: n,
+          title: 'T1: work',
+          body: '',
+          headRefName: 'task/T1',
+          baseRefName: 'some/other-branch',
+          state: 'MERGED',
+          mergeCommitSha: HEAD,
+        };
+      },
+    });
+    expect(viewed).toEqual([40]);
+    expect(!r.ok && r.reason).toMatch(/Component PR #40 merged into some\/other-branch/);
+  });
+
   it('a PR merged into an integration branch that later landed on the default branch: accepted', async () => {
     writeContext(optedIn);
     let asked = '';

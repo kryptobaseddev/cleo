@@ -198,7 +198,11 @@ export const decisionAtomSchema = z.object({
  * checks task relationship and changed artifacts. Implementation also needs
  * inspected file evidence; testing and review require actual result atoms.
  *
- * Format: `pr:<positive integer>` (e.g. `pr:357`).
+ * Format: `pr:<positive integer>` (e.g. `pr:357`), or
+ * `pr:<component>@<integration>` (e.g. `pr:356@357`, T12671): component PR
+ * #356 merged into an integration branch that PR #357 landed on the default
+ * branch. The integration PR supplies the merge commit; the component PR
+ * supplies the task linkage and the changed files.
  *
  * @task T9764
  * @task T9838
@@ -206,6 +210,7 @@ export const decisionAtomSchema = z.object({
 export const prAtomSchema = z.object({
   kind: z.literal('pr'),
   prNumber: z.number().int().positive('pr atom requires a positive integer PR number'),
+  componentPrNumber: z.number().int().positive().optional(),
 });
 
 /**
@@ -214,13 +219,16 @@ export const prAtomSchema = z.object({
  * `qaPassed` only when the project opts in with `evidence.ciSatisfies`
  * (owner decision D11149).
  *
- * Format: `ci:<positive integer>` (e.g. `ci:357`).
+ * Format: `ci:<positive integer>` (e.g. `ci:357`), or
+ * `ci:<component>@<integration>` (e.g. `ci:356@357`, T12671): the integration
+ * PR's merge-commit CI, for a task linked through its component PR.
  *
  * @task T12634
  */
 export const ciAtomSchema = z.object({
   kind: z.literal('ci'),
   prNumber: z.number().int().positive('ci atom requires a positive integer PR number'),
+  componentPrNumber: z.number().int().positive().optional(),
 });
 
 /**
@@ -771,6 +779,21 @@ export class EvidenceParseError extends Error {
  * @task T10337
  * @adr ADR-051
  */
+/**
+ * `<n>` or `<component>@<integration>` (T12671), each a positive integer.
+ * The integration PR is the atom's `prNumber`.
+ */
+function parsePrReference(
+  payload: string,
+): { prNumber: number; componentPrNumber?: number } | null {
+  const match = /^(\d+)(?:@(\d+))?$/.exec(payload);
+  if (!match) return null;
+  const first = Number(match[1]);
+  const second = match[2] === undefined ? null : Number(match[2]);
+  if (first <= 0 || (second !== null && (second <= 0 || second === first))) return null;
+  return second === null ? { prNumber: first } : { prNumber: second, componentPrNumber: first };
+}
+
 export function parseEvidenceString(raw: string): EvidenceAtom[] {
   if (!raw || typeof raw !== 'string') {
     throw new EvidenceParseError(
@@ -840,26 +863,16 @@ export function parseEvidenceString(raw: string): EvidenceAtom[] {
         atoms.push({ kind: 'decision', decisionId: payload });
         break;
       }
-      case 'pr': {
-        const prNumber = Number(payload);
-        if (!Number.isInteger(prNumber) || prNumber <= 0) {
-          throw new EvidenceParseError(
-            `pr atom requires a positive integer PR number, got "${payload}" in "${chunk}"`,
-            'Use format: pr:<number> e.g. pr:357',
-          );
-        }
-        atoms.push({ kind: 'pr', prNumber });
-        break;
-      }
+      case 'pr':
       case 'ci': {
-        const prNumber = Number(payload);
-        if (!Number.isInteger(prNumber) || prNumber <= 0) {
+        const ref = parsePrReference(payload);
+        if (!ref) {
           throw new EvidenceParseError(
-            `ci atom requires a positive integer PR number, got "${payload}" in "${chunk}"`,
-            'Use format: ci:<number> e.g. ci:357',
+            `${kind} atom requires a positive integer PR number, got "${payload}" in "${chunk}"`,
+            `Use format: ${kind}:<number> e.g. ${kind}:357, or ${kind}:<component>@<integration> e.g. ${kind}:356@357`,
           );
         }
-        atoms.push({ kind: 'ci', prNumber });
+        atoms.push(kind === 'pr' ? { kind: 'pr', ...ref } : { kind: 'ci', ...ref });
         break;
       }
       case 'loc-drop': {

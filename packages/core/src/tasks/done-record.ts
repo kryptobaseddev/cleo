@@ -32,7 +32,6 @@
  * @task T12625
  */
 
-import { execFileSync } from 'node:child_process';
 import type {
   DoneBlockedDetails,
   DonePlan,
@@ -168,72 +167,6 @@ function blocked(
   return engineError('E_DONE_BLOCKED', blocker.message, { details, fix: blocker.next.command });
 }
 
-/** `git` read in `cwd`, trimmed; `null` on failure (a non-zero exit included). */
-function gitRead(cwd: string, args: readonly string[]): string | null {
-  try {
-    return execFileSync('git', args, {
-      cwd,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-  } catch {
-    return null;
-  }
-}
-
-/**
- * The tools and typed gates run on whatever `executionRoot` has checked out.
- * `implemented` cites the change set's commit; unless that tree CONTAINS the
- * change, `testsPassed`/`qaPassed` would attest a different tree — the T12625
- * review reproduced a failing test recording testsPassed from the main
- * checkout while `implemented` cited the unchecked-out task branch.
- *
- * - branch: the change-set commit must be the checked-out HEAD (a dirty tree
- *   is already a plan blocker);
- * - pr: the merge commit must be an ancestor of the checked-out HEAD.
- */
-function checkoutBlocker(plan: DonePlan): DonePlanBlocker | null {
-  const cs = plan.changeSet;
-  const root = cs.executionRoot;
-  const head = gitRead(root, ['rev-parse', 'HEAD']);
-  const short = (sha: string | null | undefined): string => (sha ?? 'nothing').slice(0, 12);
-  if (cs.source === 'branch') {
-    if (cs.headRef === 'HEAD' && head !== null && head === cs.commitSha) return null;
-    const branch = cs.headRef && cs.headRef !== 'HEAD' ? cs.headRef : `task/${plan.taskId}`;
-    return {
-      code: 'checkout-required',
-      message: `${plan.taskId}'s change is ${short(cs.commitSha)} on ${branch}, but ${root} has ${short(head)} checked out; the tools would measure a different tree than implemented cites.`,
-      next: {
-        command: `git -C ${shellQuote(root)} switch ${branch} && cleo done ${plan.taskId}`,
-        why: 'Tests, lint, typecheck and typed gates must run on the commit implemented records.',
-      },
-    };
-  }
-  if (cs.source === 'pr' && cs.mergeCommitSha) {
-    // D11151: every PR the task shipped in must be in the tested tree.
-    const merges = [
-      ...(cs.additionalPrs ?? []).flatMap((p) =>
-        p.mergeCommitSha ? [{ pr: p.prNumber, sha: p.mergeCommitSha }] : [],
-      ),
-      { pr: cs.prNumber, sha: cs.mergeCommitSha },
-    ];
-    const missing = merges.find(
-      (m) =>
-        head === null || gitRead(root, ['merge-base', '--is-ancestor', m.sha, 'HEAD']) === null,
-    );
-    if (!missing) return null;
-    return {
-      code: 'checkout-required',
-      message: `${root} has ${short(head)} checked out, which does not contain PR #${missing.pr}'s merge commit ${short(missing.sha)}.`,
-      next: {
-        command: `git -C ${shellQuote(root)} switch --detach ${cs.mergeCommitSha} && cleo done ${plan.taskId}`,
-        why: 'Tests, lint, typecheck and typed gates must run on a tree containing the merged change.',
-      },
-    };
-  }
-  return null;
-}
-
 /** Step 2: lint + typecheck in parallel, then test; stop at the first failure. */
 async function runPlannedTools(
   plan: DonePlan,
@@ -309,22 +242,10 @@ export async function recordTaskDone(
   } catch (err) {
     return cleoErrorToEngineResult<DoneRecordResult>(err, 'E_DONE_FAILED', 'cleo done failed');
   }
-  if (plan.changeSet.rootSource === 'task-worktree') {
-    return blocked(plan, {
-      code: 'run-from-worktree',
-      message: `${taskId}'s work is in its worktree ${plan.runFrom}; tools must run in that tree.`,
-      next: {
-        command: `cd ${shellQuote(plan.runFrom)} && cleo done ${taskId}`,
-        why: 'Evidence tools measure the invocation tree; run cleo done from the task worktree.',
-      },
-    });
-  }
+  // T12672: every plan-visible refusal (worktree, checkout, evidence the
+  // validators would refuse) is already a plan blocker — one readiness check.
   const first = plan.blockers[0];
   if (first) return blocked(plan, first);
-  if (plan.toolRuns.length > 0 || plan.typedGates.length > 0) {
-    const checkout = checkoutBlocker(plan);
-    if (checkout) return blocked(plan, checkout);
-  }
 
   const steps = opts.steps ?? {};
   const tools = await runPlannedTools(plan, storeRoot, steps.runTool ?? defaultRunTool);

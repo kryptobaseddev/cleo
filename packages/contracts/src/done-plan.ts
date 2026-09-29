@@ -119,6 +119,11 @@ export interface TaskChangeSet {
   executionRoot: string;
   /** Why {@link executionRoot} was chosen. */
   rootSource: ChangeSetRootSource;
+  /**
+   * Component PR whose change the (integration) `prNumber` landed on the
+   * default branch (T12671). Evidence is then `pr:<component>@<prNumber>`.
+   */
+  componentPrNumber?: number;
   /** Merged PR number (`source === 'pr'`). */
   prNumber?: number;
   /**

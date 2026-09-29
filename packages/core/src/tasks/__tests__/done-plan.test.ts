@@ -31,11 +31,15 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import type { EvidenceAtom, VerificationGate } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { engineSuccess } from '../../engine-result.js';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
+import { getTaskAccessor } from '../../store/data-accessor.js';
 import { resetDbState } from '../../store/sqlite.js';
+import { validateGateVerify } from '../../validation/engine-ops.js';
 import { addTask } from '../add.js';
 import type { ChangeSetDeps } from '../change-set.js';
-import { deriveTaskEvidence } from '../done-plan.js';
+import { type DeriveTaskEvidenceOptions, deriveTaskEvidence } from '../done-plan.js';
+import { recordTaskDone } from '../done-record.js';
 import {
   checkGateEvidenceMinimum,
   checkTaskEvidenceContext,
@@ -284,6 +288,11 @@ describe('zero writes (T12623 AC2)', () => {
 
 describe('merged-PR CI replaces local tool runs when the project opts in (T12634)', () => {
   async function mergedPrPlan(optIn: boolean, prepare?: (id: string) => Promise<void>) {
+    const { id, prDeps } = await mergedPrSetup(optIn, prepare);
+    return deriveTaskEvidence(id, { projectRoot: root, cwd: root, satisfies: 'all', deps: prDeps });
+  }
+
+  async function mergedPrSetup(optIn: boolean, prepare?: (id: string) => Promise<void>) {
     const id = await seedTask(['Change src/a.ts to return 2']);
     if (prepare) await prepare(id);
     commitOnTaskBranch(id);
@@ -307,44 +316,176 @@ describe('merged-PR CI replaces local tool runs when the project opts in (T12634
         },
       }),
     );
-    return deriveTaskEvidence(id, {
-      projectRoot: root,
-      cwd: root,
-      satisfies: 'all',
-      deps: {
-        ...deps,
-        listMergedPrs: async () => ({
-          ok: true,
-          prs: [{ number: 42, title: `${id}: work`, body: '', headRefName: `task/${id}` }],
-        }),
-        viewPr: async (n) => ({
-          number: n,
-          title: '',
-          headRefName: `task/${id}`,
-          baseRefName: 'main',
-          state: 'MERGED',
-          mergedAt: '2026-09-28T00:00:00Z',
-          headRefOid: null,
-          mergeCommitSha: merge,
-        }),
-        findPrByHead: async () => null,
-        resolvePr: async (n) => ({
-          ok: true,
-          prNumber: n,
-          mergeCommitSha: merge,
-          mergedAt: '2026-09-28T00:00:00Z',
-          successCount: 1,
-          totalChecks: 1,
-          cacheHit: false,
-          title: '',
-          body: '',
-          headRefName: `task/${id}`,
-          changedPaths: ['src/a.ts'],
-          changedFileCount: 1,
-        }),
-      },
-    });
+    const prDeps: ChangeSetDeps = {
+      ...deps,
+      listMergedPrs: async () => ({
+        ok: true,
+        prs: [{ number: 42, title: `${id}: work`, body: '', headRefName: `task/${id}` }],
+      }),
+      viewPr: async (n) => ({
+        number: n,
+        title: '',
+        headRefName: `task/${id}`,
+        baseRefName: 'main',
+        state: 'MERGED',
+        mergedAt: '2026-09-28T00:00:00Z',
+        headRefOid: null,
+        mergeCommitSha: merge,
+      }),
+      findPrByHead: async () => null,
+      resolvePr: async (n) => ({
+        ok: true,
+        prNumber: n,
+        mergeCommitSha: merge,
+        mergedAt: '2026-09-28T00:00:00Z',
+        successCount: 1,
+        totalChecks: 1,
+        cacheHit: false,
+        title: '',
+        body: '',
+        headRefName: `task/${id}`,
+        changedPaths: ['src/a.ts'],
+        changedFileCount: 1,
+      }),
+    };
+    return { id, prDeps };
   }
+
+  /** Component #42 (task/<id>) merged into integration/i, which #41 squash-landed on main. */
+  async function integrationSetup() {
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    git(root, ['switch', '-q', '-c', 'integration/i']);
+    writeFileSync(join(root, 'src', 'i.ts'), 'export const i = 1;\n');
+    git(root, ['add', 'src/i.ts']);
+    git(root, ['commit', '-q', '-m', 'integration work']);
+    commitOnTaskBranch(id);
+    git(root, ['switch', '-q', 'integration/i']);
+    git(root, ['merge', '-q', '--no-ff', '-m', `Merge #42 ${id}`, `task/${id}`]);
+    const componentMerge = git(root, ['rev-parse', 'HEAD']);
+    git(root, ['switch', '-q', 'main']);
+    git(root, ['merge', '-q', '--squash', 'integration/i']);
+    git(root, ['commit', '-q', '-m', 'integration (#41)']);
+    const integrationMerge = git(root, ['rev-parse', 'HEAD']);
+    const ctxPath = join(root, '.cleo', 'project-context.json');
+    const ctx = JSON.parse(readFileSync(ctxPath, 'utf-8')) as Record<string, unknown>;
+    writeFileSync(
+      ctxPath,
+      JSON.stringify({
+        ...ctx,
+        evidence: {
+          ciSatisfies: true,
+          ciChecks: {
+            tests: ['CI'],
+            qa: ['CI'],
+            jobs: { tests: ['Unit Tests*'], qa: ['Type Check'] },
+          },
+        },
+      }),
+    );
+    const integration = {
+      number: 41,
+      title: 'integration',
+      headRefName: 'integration/i',
+      baseRefName: 'main',
+      state: 'MERGED',
+      mergedAt: '2026-09-28T00:00:00Z',
+      headRefOid: componentMerge,
+      mergeCommitSha: integrationMerge,
+    };
+    const prDeps: ChangeSetDeps = {
+      ...deps,
+      listMergedPrs: async () => ({
+        ok: true,
+        prs: [
+          { number: 42, title: `${id}: work`, body: '', headRefName: `task/${id}` },
+          { number: 41, title: 'integration', body: `lands ${id}`, headRefName: 'integration/i' },
+        ],
+      }),
+      viewPr: async (n) =>
+        n === 41
+          ? integration
+          : {
+              ...integration,
+              number: 42,
+              title: `${id}: work`,
+              headRefName: `task/${id}`,
+              baseRefName: 'integration/i',
+              headRefOid: null,
+              mergeCommitSha: componentMerge,
+            },
+      findPrByHead: async () => integration,
+      resolvePr: async (n) => ({
+        ok: true,
+        prNumber: n,
+        mergeCommitSha: integrationMerge,
+        mergedAt: '2026-09-28T00:00:00Z',
+        successCount: 1,
+        totalChecks: 1,
+        cacheHit: false,
+        title: 'integration',
+        body: `lands ${id}`,
+        headRefName: 'integration/i',
+        headRefOid: componentMerge,
+        changedPaths: ['src/a.ts', 'src/i.ts'],
+        changedFileCount: 2,
+      }),
+    };
+    return { id, prDeps };
+  }
+
+  it("a component landed by an integration PR uses the integration PR's CI: no tool run, not stacked (T12672)", async () => {
+    const { id, prDeps } = await integrationSetup();
+    for (const prNumber of [undefined, 41, 42]) {
+      const plan = await deriveTaskEvidence(id, {
+        projectRoot: root,
+        cwd: root,
+        satisfies: 'all',
+        deps: prDeps,
+        previewEvidence: async () => ({ ok: true }),
+        ...(prNumber !== undefined ? { prNumber } : {}),
+      });
+      const label = `--pr ${prNumber ?? '(discovered)'}`;
+      expect(plan.changeSet.stackedOn, label).toBeUndefined();
+      expect(plan.changeSet.prNumber, label).toBe(41);
+      expect(plan.changeSet.componentPrNumber, label).toBe(42);
+      expect(plan.toolRuns, label).toEqual([]);
+      expect(plan.blockers, label).toEqual([]);
+      const ev = Object.fromEntries(plan.gates.map((g) => [g.gate, g.evidence]));
+      // Both PR numbers, and the component's file only (not src/i.ts).
+      expect(ev['implemented'], label).toBe(`pr:42@41;files:src/a.ts;satisfies:${id}#AC1`);
+      expect(ev['testsPassed'], label).toBe(`ci:42@41;satisfies:${id}#AC1`);
+      expect(ev['qaPassed'], label).toBe(`ci:42@41;satisfies:${id}#AC1`);
+    }
+  });
+
+  it('a ci:/pr:-only close needs no task worktree, even when one is registered (T12671)', async () => {
+    const { id, prDeps } = await mergedPrSetup(true);
+    // A stale worktree still holds task/<id> after the merge.
+    const stale = `${root}-wt`;
+    git(root, ['worktree', 'add', '-q', stale, `task/${id}`]);
+    try {
+      const writes: string[] = [];
+      const r = await recordTaskDone(id, {
+        projectRoot: root,
+        cwd: root,
+        satisfies: 'all',
+        deps: prDeps,
+        previewEvidence: async () => ({ ok: true }),
+        steps: {
+          write: async (_root, params) => {
+            writes.push(JSON.stringify(params.gateEvidence));
+            return engineSuccess({ passed: true });
+          },
+        },
+      });
+      expect(r.success, JSON.stringify(r)).toBe(true);
+      expect(r.success && r.data.plan.changeSet.rootSource).toBe('task-worktree');
+      expect(r.success && r.data.toolResults).toEqual([]);
+      expect(writes[0]).toMatch(/ci:42/);
+    } finally {
+      git(root, ['worktree', 'remove', '--force', stale]);
+    }
+  });
 
   it('with evidence.ciSatisfies, testsPassed and qaPassed plan ci:<pr> and no tool runs', async () => {
     const plan = await mergedPrPlan(true);
@@ -486,6 +627,107 @@ describe('affected-scope test runs (T12635, D11150)', () => {
   });
 });
 
+describe('the plan and done share one readiness check (T12672)', () => {
+  async function researchWithUnknownDecision(): Promise<{
+    id: string;
+    opts: DeriveTaskEvidenceOptions;
+  }> {
+    const id = await seedTask(['Report the findings'], 'research');
+    const content = '# findings\n';
+    const sha = createHash('sha256').update(content).digest('hex');
+    mkdirSync(join(root, '.cleo', 'blobs', 'blobs'), { recursive: true });
+    writeFileSync(join(root, '.cleo', 'blobs', 'blobs', sha), content);
+    return {
+      id,
+      opts: {
+        projectRoot: root,
+        cwd: root,
+        satisfies: 'all',
+        deps: {
+          ...deps,
+          listTaskDocs: async () => [{ id: 'att', slug: 'findings', sha256: sha }],
+          listTaskDecisions: async () => ['D900'],
+        },
+      },
+    };
+  }
+
+  it('evidence the validators refuse is a plan blocker, not a surprise at done', async () => {
+    const { id, opts } = await researchWithUnknownDecision();
+    const plan = await deriveTaskEvidence(id, opts);
+    expect(plan.ready).toBe(false);
+    expect(plan.blockers[0]).toMatchObject({
+      code: 'evidence-refused',
+      cause: 'E_EVIDENCE_INVALID_DECISION',
+    });
+    // done refuses for the SAME plan-visible reason, before any write.
+    let wrote = false;
+    const r = await recordTaskDone(id, {
+      ...opts,
+      steps: {
+        write: async () => {
+          wrote = true;
+          return engineSuccess({ passed: true });
+        },
+      },
+    });
+    expect(!r.success && r.error.details).toMatchObject({
+      blocker: 'evidence-refused',
+      cause: 'E_EVIDENCE_INVALID_DECISION',
+    });
+    expect(wrote).toBe(false);
+  });
+
+  it('validateGateVerify preview validates without running a tool or writing (T12672)', async () => {
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    const sha = commitOnTaskBranch(id);
+    // A test command that would leave a marker (and fail) if it ever ran.
+    writeFileSync(
+      join(root, 'mark.cjs'),
+      "require('fs').writeFileSync('ran', '1'); process.exit(1);\n",
+    );
+    const ctxPath = join(root, '.cleo', 'project-context.json');
+    const ctx = JSON.parse(readFileSync(ctxPath, 'utf-8')) as Record<string, unknown>;
+    writeFileSync(ctxPath, JSON.stringify({ ...ctx, testing: { command: 'node mark.cjs' } }));
+    const before = JSON.stringify((await env.accessor.loadSingleTask(id))?.verification ?? null);
+    const r = await validateGateVerify(root, {
+      taskId: id,
+      preview: true,
+      gateEvidence: {
+        implemented: `commit:${sha};files:src/a.ts;satisfies:${id}#AC1`,
+        testsPassed: `tool:test;satisfies:${id}#AC1`,
+      },
+    });
+    expect(r.success, JSON.stringify(r)).toBe(true);
+    expect(r.success && r.data.action).toBe('preview');
+    expect(existsSync(join(root, 'ran'))).toBe(false);
+    resetDbState();
+    const after = JSON.stringify(
+      (await (await getTaskAccessor(root)).loadSingleTask(id))?.verification ?? null,
+    );
+    expect(after).toBe(before);
+  });
+
+  it('the preview never runs a tool', async () => {
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    commitOnTaskBranch(id);
+    const seen: string[] = [];
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+      previewEvidence: async (_root, _id, gateEvidence) => {
+        seen.push(...Object.keys(gateEvidence));
+        return { ok: true };
+      },
+    });
+    expect(plan.ready).toBe(true);
+    expect(seen).toEqual(['implemented', 'testsPassed', 'qaPassed']);
+    expect(plan.toolRuns.every((r) => r.cache !== 'hit')).toBe(true);
+  });
+});
+
 describe('research and no-change-set tasks', () => {
   it('a research task with a doc and a decision plans decision-only gates with no tool runs', async () => {
     const id = await seedTask(['Report the findings'], 'research');
@@ -498,6 +740,8 @@ describe('research and no-change-set tasks', () => {
       projectRoot: root,
       cwd: root,
       satisfies: 'all',
+      // The planned gates are under test here; D900 is not a stored decision.
+      previewEvidence: async () => ({ ok: true }),
       deps: {
         ...deps,
         listTaskDocs: async () => [{ id: 'att', slug: 'findings', sha256: sha }],

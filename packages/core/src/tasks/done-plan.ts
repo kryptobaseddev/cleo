@@ -24,6 +24,7 @@
  * @task T12623
  */
 
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
@@ -133,6 +134,158 @@ export interface DeriveTaskEvidenceOptions {
   prNumber?: number;
   /** Injectable change-set I/O (tests). */
   deps?: ChangeSetDeps;
+  /** Evidence preview (tests inject; defaults to the write's own validators). */
+  previewEvidence?: DoneEvidencePreview;
+}
+
+/**
+ * Validate a derived multi-gate write without writing it: the same validators
+ * `cleo done` records through (T12672).
+ */
+export type DoneEvidencePreview = (
+  storeRoot: string,
+  taskId: string,
+  gateEvidence: Partial<Record<VerificationGate, string | string[]>>,
+) => Promise<{ ok: true } | { ok: false; code: string; message: string; fix?: string }>;
+
+/** Default preview: `validateGateVerify` in preview mode (no tool runs, no write). */
+const defaultPreviewEvidence: DoneEvidencePreview = async (storeRoot, taskId, gateEvidence) => {
+  const { validateGateVerify } = await import('../validation/engine-ops.js');
+  const r = await validateGateVerify(storeRoot, { taskId, gateEvidence, preview: true });
+  return r.success
+    ? { ok: true }
+    : {
+        ok: false,
+        code: r.error.code,
+        message: r.error.message,
+        ...(r.error.fix ? { fix: r.error.fix } : {}),
+      };
+};
+
+/** `git` read in `cwd`, trimmed; `null` on failure (a non-zero exit included). */
+function gitRead(cwd: string, args: readonly string[]): string | null {
+  try {
+    return execFileSync('git', args, {
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The tools and typed gates run on whatever `executionRoot` has checked out.
+ * `implemented` cites the change set's commit; unless that tree CONTAINS the
+ * change, `testsPassed`/`qaPassed` would attest a different tree — the T12625
+ * review reproduced a failing test recording testsPassed from the main
+ * checkout while `implemented` cited the unchecked-out task branch.
+ *
+ * - branch: the change-set commit must be the checked-out HEAD (a dirty tree
+ *   is already a plan blocker);
+ * - pr: the merge commit must be an ancestor of the checked-out HEAD.
+ */
+function checkoutBlocker(taskId: string, cs: TaskChangeSet): DonePlanBlocker | null {
+  const root = cs.executionRoot;
+  const head = gitRead(root, ['rev-parse', 'HEAD']);
+  const short = (sha: string | null | undefined): string => (sha ?? 'nothing').slice(0, 12);
+  if (cs.source === 'branch') {
+    if (cs.headRef === 'HEAD' && head !== null && head === cs.commitSha) return null;
+    const branch = cs.headRef && cs.headRef !== 'HEAD' ? cs.headRef : `task/${taskId}`;
+    return {
+      code: 'checkout-required',
+      message: `${taskId}'s change is ${short(cs.commitSha)} on ${branch}, but ${root} has ${short(head)} checked out; the tools would measure a different tree than implemented cites.`,
+      next: {
+        command: `git -C ${shellQuote(root)} switch ${branch} && cleo done ${taskId}`,
+        why: 'Tests, lint, typecheck and typed gates must run on the commit implemented records.',
+      },
+    };
+  }
+  if (cs.source === 'pr' && cs.mergeCommitSha) {
+    // D11151: every PR the task shipped in must be in the tested tree.
+    const merges = [
+      ...(cs.additionalPrs ?? []).flatMap((p) =>
+        p.mergeCommitSha ? [{ pr: p.prNumber, sha: p.mergeCommitSha }] : [],
+      ),
+      { pr: cs.prNumber, sha: cs.mergeCommitSha },
+    ];
+    const missing = merges.find(
+      (m) =>
+        head === null || gitRead(root, ['merge-base', '--is-ancestor', m.sha, 'HEAD']) === null,
+    );
+    if (!missing) return null;
+    return {
+      code: 'checkout-required',
+      message: `${root} has ${short(head)} checked out, which does not contain PR #${missing.pr}'s merge commit ${short(missing.sha)}.`,
+      next: {
+        command: `git -C ${shellQuote(root)} switch --detach ${cs.mergeCommitSha} && cleo done ${taskId}`,
+        why: 'Tests, lint, typecheck and typed gates must run on a tree containing the merged change.',
+      },
+    };
+  }
+  return null;
+}
+
+/**
+ * The refusals `cleo done` would raise from what the plan already knows —
+ * the ONE readiness check both `--plan` and `done` use (T12672), so
+ * `ready: true` never meets a plan-visible refusal:
+ *
+ * - tools or typed gates run on a tree: from the task worktree
+ *   (`run-from-worktree`), with the change checked out (`checkout-required`).
+ *   A close with no tool run needs no tree (T12671);
+ * - the derived evidence goes through the write's own validators in preview
+ *   mode (`evidence-refused`), when nothing else blocks.
+ */
+async function readinessBlockers(input: {
+  taskId: string;
+  storeRoot: string;
+  changeSet: TaskChangeSet;
+  needsTree: boolean;
+  gates: readonly DonePlanGate[];
+  additionalImplemented: readonly string[];
+  blocked: boolean;
+  preview: DoneEvidencePreview;
+}): Promise<DonePlanBlocker[]> {
+  const { taskId, changeSet: cs } = input;
+  if (input.needsTree) {
+    if (cs.rootSource === 'task-worktree') {
+      return [
+        {
+          code: 'run-from-worktree',
+          message: `${taskId}'s work is in its worktree ${cs.executionRoot}; tools must run in that tree.`,
+          next: {
+            command: `cd ${shellQuote(cs.executionRoot)} && cleo done ${taskId}`,
+            why: 'Evidence tools measure the invocation tree; run cleo done from the task worktree.',
+          },
+        },
+      ];
+    }
+    const checkout = checkoutBlocker(taskId, cs);
+    if (checkout) return [checkout];
+  }
+  const pending = input.gates.filter((g) => !g.passed && g.evidence !== null);
+  if (input.blocked || pending.length === 0) return [];
+  const gateEvidence: Partial<Record<VerificationGate, string | string[]>> = Object.fromEntries(
+    pending.map((g) => [g.gate, g.evidence as string]),
+  );
+  if (input.additionalImplemented.length > 0 && gateEvidence.implemented) {
+    gateEvidence.implemented = [...input.additionalImplemented, gateEvidence.implemented as string];
+  }
+  const checked = await input.preview(input.storeRoot, taskId, gateEvidence);
+  if (checked.ok) return [];
+  return [
+    {
+      code: 'evidence-refused',
+      message: checked.message,
+      next: {
+        command: checked.fix ?? `cleo show ${taskId} --full`,
+        why: 'The validators cleo done records through refuse this evidence.',
+      },
+      cause: checked.code,
+    },
+  ];
 }
 
 /**
@@ -296,7 +449,7 @@ function toolGateEvidence(
   gate: VerificationGate,
   runs: readonly DonePlanToolRun[],
   decisionOnly: boolean,
-  ciPr: number | null,
+  ciPr: string | null,
 ): string | null {
   if (decisionOnly) return 'note:decision-only implementation, no code changed';
   if (ciPr !== null) return `ci:${ciPr}`;
@@ -538,7 +691,11 @@ export async function deriveTaskEvidence(
       ![...changeSet.files, ...changeSet.deletedFiles].every(isCiDocumentPath),
       [...changeSet.files, ...changeSet.deletedFiles],
     )
-      ? changeSet.prNumber
+      ? // T12671: a component landed by an integration PR is judged on the
+        // integration PR's CI, linked through the component.
+        changeSet.componentPrNumber !== undefined
+        ? `${changeSet.componentPrNumber}@${changeSet.prNumber}`
+        : String(changeSet.prNumber)
       : null;
   const toolRuns: DonePlanToolRun[] = [];
   if (!decisionOnly && ciPr === null) {
@@ -577,7 +734,7 @@ export async function deriveTaskEvidence(
 
   const isCode = classifyEvidenceTask({ task }) === 'code';
   const acBlocker = acMappingBlocker(taskId, acMapping, pending);
-  const blockers = orderBlockers([
+  const derivedBlockers = orderBlockers([
     ...changeSet.blockers,
     ...toolAndTypedGateBlockers(taskId, isCode, toolRuns, typedGates, root),
     ...(acBlocker ? [acBlocker] : []),
@@ -593,6 +750,21 @@ export async function deriveTaskEvidence(
         const ev = withSatisfies(taskId, 'implemented', extra.implementedEvidence, acMapping);
         return ev === null ? [] : [ev];
       });
+  const blockers = orderBlockers([
+    ...derivedBlockers,
+    ...(task.status === 'done'
+      ? []
+      : await readinessBlockers({
+          taskId,
+          storeRoot,
+          changeSet,
+          needsTree: toolRuns.length > 0 || typedGates.length > 0,
+          gates,
+          additionalImplemented,
+          blocked: derivedBlockers.length > 0,
+          preview: opts.previewEvidence ?? defaultPreviewEvidence,
+        })),
+  ]);
   const commands = additionalImplemented.map(
     (ev) => `${cd}cleo verify ${taskId} --gate implemented --evidence ${shellQuote(ev)}`,
   );

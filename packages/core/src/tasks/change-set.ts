@@ -42,6 +42,7 @@ import type {
 import { gitToplevel, resolveDeclaredEvidenceGitRoot } from '../git/work-tree.js';
 import type { PrAtomResolution } from '../release/pr-evidence.js';
 import { enumerateWorktrees } from '../worktree/list.js';
+import { componentLandedChanges } from './component-pr.js';
 import {
   classifyEvidenceTask,
   diffIntersectsAc,
@@ -463,7 +464,6 @@ async function deriveStackedChangeSet(
 ): Promise<true> {
   const baseRef = pr.baseRefName;
   const basePr = await findPrByHead(baseRef, root);
-  cs.stackedOn = { baseRef, ...(basePr ? { basePrNumber: basePr.number } : {}) };
   const baseLanded =
     basePr !== null && basePr.state === 'MERGED' && basePr.baseRefName === defaultBranch;
   if (baseLanded && hasCommit(root, pr.mergeCommitSha) && hasCommit(root, basePr.headRefOid)) {
@@ -476,20 +476,27 @@ async function deriveStackedChangeSet(
       ]) !== null;
     const baseMerge = basePr.mergeCommitSha;
     if (contained && baseMerge !== null && hasCommit(root, baseMerge)) {
-      const { files, deleted } = mergeCommitChanges(root, pr.mergeCommitSha as string);
-      const surviving = files.filter(
-        (f) => git(root, ['cat-file', '-e', `${baseMerge}:${f}`]) !== null,
+      // T12671/T12672: a component PR its integration PR landed is NOT
+      // stacked — the integration PR is the provenance and CI, the component
+      // PR the task link and the change (only its surviving files).
+      const { files, deleted } = componentLandedChanges(
+        root,
+        pr.mergeCommitSha as string,
+        baseMerge,
       );
-      if (surviving.length > 0) {
+      if (files.length > 0) {
         cs.source = 'pr';
+        cs.prNumber = basePr.number;
+        cs.componentPrNumber = pr.number;
         cs.mergeCommitSha = baseMerge;
-        cs.files = surviving;
+        cs.files = files;
         cs.deletedFiles = deleted;
-        cs.implementedEvidence = `commit:${baseMerge};files:${surviving.join(',')}`;
+        cs.implementedEvidence = `pr:${pr.number}@${basePr.number};files:${files.join(',')}`;
         return true;
       }
     }
   }
+  cs.stackedOn = { baseRef, ...(basePr ? { basePrNumber: basePr.number } : {}) };
   const baseState =
     basePr === null
       ? `no PR has ${baseRef} as its head`
@@ -664,6 +671,99 @@ async function deriveMultiPrChangeSet(
   return true;
 }
 
+/** A PR merged from the task's own branch (`task/<id>` or `task/<id>-…`). */
+function isOwnBranch(headRefName: string, taskId: string): boolean {
+  return headRefName === `task/${taskId}` || headRefName.startsWith(`task/${taskId}-`);
+}
+
+/**
+ * The component PRs an integration PR landed for this task (T12672): merged
+ * PRs citing the task whose base is the integration PR's head branch and
+ * whose merge commit its final head contains. Own-branch components win over
+ * ones that merely mention the id; newest first.
+ */
+async function landedComponents(
+  integration: PrDetails,
+  discovery: PrDiscovery,
+  taskId: string,
+  root: string,
+  viewPr: NonNullable<ChangeSetDeps['viewPr']>,
+): Promise<PrDetails[]> {
+  const found: PrDetails[] = [];
+  for (const candidate of discovery.originals) {
+    if (candidate.number === integration.number) continue;
+    const view = await viewPr(candidate.number, root);
+    if (
+      view?.state === 'MERGED' &&
+      view.baseRefName === integration.headRefName &&
+      hasCommit(root, view.mergeCommitSha) &&
+      hasCommit(root, integration.headRefOid) &&
+      git(root, [
+        'merge-base',
+        '--is-ancestor',
+        view.mergeCommitSha as string,
+        integration.headRefOid as string,
+      ]) !== null
+    ) {
+      found.push(view);
+    }
+  }
+  const own = found.filter((c) => isOwnBranch(c.headRefName, taskId));
+  return (own.length > 0 ? own : found).sort((a, b) => b.number - a.number);
+}
+
+/**
+ * Change set for an integration PR through its component PR(s): the newest
+ * is primary, each earlier one its own implemented attempt (D11151). Files
+ * are the component's surviving files, narrowed to declared task files.
+ */
+function deriveComponentChangeSet(
+  cs: TaskChangeSet,
+  components: readonly PrDetails[],
+  integrationMerge: string,
+  task: ChangeSetTask,
+): true {
+  const root = cs.executionRoot;
+  const integration = cs.prNumber as number;
+  const declared = task.files ?? [];
+  const attempts = components.map((c) => {
+    const { files, deleted } = componentLandedChanges(
+      root,
+      c.mergeCommitSha as string,
+      integrationMerge,
+    );
+    const own = declared.length > 0 ? files.filter((f) => diffIntersectsAc([f], declared)) : [];
+    const kept = own.length > 0 ? own : files;
+    return {
+      prNumber: c.number,
+      mergeCommitSha: integrationMerge,
+      files: kept,
+      deletedFiles: deleted,
+      implementedEvidence:
+        kept.length > 0 ? `pr:${c.number}@${integration};files:${kept.join(',')}` : null,
+    };
+  });
+  const [primary, ...earlier] = attempts;
+  if (!primary) return true;
+  cs.componentPrNumber = primary.prNumber;
+  cs.files = primary.files;
+  cs.deletedFiles = primary.deletedFiles;
+  cs.implementedEvidence = primary.implementedEvidence;
+  const extra = earlier.filter((a) => a.implementedEvidence !== null).reverse();
+  if (extra.length > 0) cs.additionalPrs = extra;
+  if (primary.implementedEvidence === null) {
+    cs.blockers.push(
+      blocker(
+        'no-change-set',
+        `Component PR #${primary.prNumber}'s change leaves no surviving file in PR #${integration}'s merge commit.`,
+        `cleo verify ${task.id} --gate implemented --evidence "pr:${primary.prNumber}@${integration};files:<a file it changed>"`,
+        'The implemented gate needs files evidence for an artifact the component PR changed.',
+      ),
+    );
+  }
+  return true;
+}
+
 /** Derive the change set of one chosen PR (revert, stacked, provenance, merge files). */
 async function deriveOnePr(
   cs: TaskChangeSet,
@@ -727,6 +827,13 @@ async function deriveOnePr(
 
   cs.source = 'pr';
   cs.mergeCommitSha = pr.mergeCommitSha;
+  if (hasCommit(root, pr.mergeCommitSha) && detail && !isOwnBranch(detail.headRefName, task.id)) {
+    // T12672: an integration PR records its component's files, not its own.
+    const components = await landedComponents(detail, discovery, task.id, root, deps.viewPr);
+    if (components.length > 0) {
+      return deriveComponentChangeSet(cs, components, pr.mergeCommitSha, task);
+    }
+  }
   if (!hasCommit(root, pr.mergeCommitSha)) {
     cs.blockers.push(
       blocker(

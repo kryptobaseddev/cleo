@@ -500,7 +500,7 @@ describe('stacked and reverted PRs', () => {
     expect(cs.blockers[0]?.next.why).toContain('#41');
   });
 
-  it('once the base PR merged to main and contains the stacked commits, attributes to its merge commit', async () => {
+  it('once the base PR merged to main and contains the stacked commits, the component is not stacked: pr:<component>@<integration> (T12671/T12672)', async () => {
     const repo = repoWithOrigin(base, 'repo');
     const { stackedMerge, baseTip } = stackedFixture(repo);
     git(repo, ['switch', '-q', 'main']);
@@ -521,7 +521,7 @@ describe('stacked and reverted PRs', () => {
             mergeCommitSha: baseMerge,
           }),
         resolvePr: async () => {
-          throw new Error('attribution goes through commit:, not the stacked pr:');
+          throw new Error('the change set needs no pr: resolution of the stacked PR');
         },
         ...noDocs,
         env: {},
@@ -529,15 +529,115 @@ describe('stacked and reverted PRs', () => {
     );
     expect(cs.blockers).toEqual([]);
     expect(cs.source).toBe('pr');
-    expect(cs.stackedOn).toEqual({ baseRef: 'task/T940-base', basePrNumber: 41 });
+    expect(cs.stackedOn).toBeUndefined();
+    expect(cs.prNumber).toBe(41);
+    expect(cs.componentPrNumber).toBe(42);
     expect(cs.mergeCommitSha).toBe(baseMerge);
+    // The component's files only: base.ts is the integration branch's own work.
     expect(cs.files).toEqual(['a.ts', 'new.ts']);
     expect(cs.deletedFiles).toEqual(['old.ts']);
-    expect(cs.implementedEvidence).toBe(`commit:${baseMerge};files:a.ts,new.ts`);
+    expect(cs.implementedEvidence).toBe('pr:42@41;files:a.ts,new.ts');
     const filesAtom = parseEvidence(cs.implementedEvidence ?? '').atoms.find(
       (a) => a.kind === 'files',
     );
     expect((await validateAtom(filesAtom!, repo, undefined, baseMerge)).ok).toBe(true);
+  });
+
+  describe('an integration PR landing a component PR (T12672)', () => {
+    /** integration/i carries its own work plus component PR #42 (task/T941); #41 squash-lands it. */
+    function integrationFixture(repo: string) {
+      git(repo, ['switch', '-q', '-c', 'integration/i']);
+      writeFileSync(join(repo, 'integration-only.ts'), 'export const i = 1;\n');
+      git(repo, ['add', '-A']);
+      git(repo, ['commit', '-q', '-m', 'integration work']);
+      git(repo, ['switch', '-q', '-c', 'task/T941']);
+      commitTaskWork(repo, 'T941');
+      git(repo, ['switch', '-q', 'integration/i']);
+      git(repo, ['merge', '-q', '--no-ff', '-m', 'Merge #42 T941', 'task/T941']);
+      const componentMerge = git(repo, ['rev-parse', 'HEAD']);
+      git(repo, ['switch', '-q', 'main']);
+      git(repo, ['merge', '-q', '--squash', 'integration/i']);
+      git(repo, ['commit', '-q', '-m', 'integration (#41)']);
+      const integrationMerge = git(repo, ['rev-parse', 'HEAD']);
+      const deps: ChangeSetDeps = {
+        listMergedPrs: async () => ({
+          ok: true,
+          prs: [
+            { number: 42, title: 'T941: work', body: '', headRefName: 'task/T941' },
+            { number: 41, title: 'integration', body: 'lands T941', headRefName: 'integration/i' },
+          ],
+        }),
+        viewPr: async (n) =>
+          n === 41
+            ? details(41, {
+                headRefName: 'integration/i',
+                headRefOid: componentMerge,
+                mergeCommitSha: integrationMerge,
+              })
+            : details(42, {
+                headRefName: 'task/T941',
+                baseRefName: 'integration/i',
+                mergeCommitSha: componentMerge,
+              }),
+        findPrByHead: async () =>
+          details(41, {
+            headRefName: 'integration/i',
+            headRefOid: componentMerge,
+            mergeCommitSha: integrationMerge,
+          }),
+        resolvePr: async (n) => ({
+          ok: true,
+          prNumber: n,
+          mergeCommitSha: integrationMerge,
+          mergedAt: '2026-09-28T00:00:00Z',
+          successCount: 1,
+          totalChecks: 1,
+          cacheHit: false,
+          title: 'integration',
+          body: 'lands T941',
+          headRefName: 'integration/i',
+          headRefOid: componentMerge,
+          changedPaths: ['a.ts', 'integration-only.ts', 'new.ts', 'old.ts'],
+          changedFileCount: 4,
+        }),
+        ...noDocs,
+        env: {},
+      };
+      return { deps, integrationMerge };
+    }
+
+    it('--pr <integration> records the component PR and ITS files, not the whole integration diff', async () => {
+      const repo = repoWithOrigin(base, 'repo');
+      const { deps, integrationMerge } = integrationFixture(repo);
+      const cs = await deriveTaskChangeSet(
+        { task: task('T941'), storeRoot: repo, cwd: repo, prNumber: 41 },
+        deps,
+      );
+      expect(cs.blockers).toEqual([]);
+      expect(cs.prNumber).toBe(41);
+      expect(cs.componentPrNumber).toBe(42);
+      expect(cs.mergeCommitSha).toBe(integrationMerge);
+      expect(cs.files).toEqual(['a.ts', 'new.ts']);
+      expect(cs.implementedEvidence).toBe('pr:42@41;files:a.ts,new.ts');
+    });
+
+    it('--pr <component> and discovery reach the same integration PR', async () => {
+      const repo = repoWithOrigin(base, 'repo');
+      const { deps } = integrationFixture(repo);
+      for (const prNumber of [42, undefined]) {
+        const cs = await deriveTaskChangeSet(
+          {
+            task: task('T941'),
+            storeRoot: repo,
+            cwd: repo,
+            ...(prNumber !== undefined ? { prNumber } : {}),
+          },
+          deps,
+        );
+        expect(cs.stackedOn, String(prNumber)).toBeUndefined();
+        expect(cs.implementedEvidence, String(prNumber)).toBe('pr:42@41;files:a.ts,new.ts');
+      }
+    });
   });
 
   it('a base PR merged to main that does NOT contain the stacked commits stays pr-stacked', async () => {

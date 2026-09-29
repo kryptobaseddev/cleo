@@ -27,11 +27,12 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
 import { platform } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join, relative } from 'node:path';
 
 import type {
   AgentWorktreeState,
@@ -320,6 +321,28 @@ export interface PruneWorktreeResult {
 }
 
 /**
+ * Move this process out of `dir` before it is deleted (T12671). `cleo done`
+ * run inside a task worktree completes the task, which prunes that worktree;
+ * a process whose cwd no longer exists then fails every later resolution from
+ * it (the audit write logged "No CLEO project found" beside `success: true`).
+ *
+ * @param dir - Directory about to be removed.
+ * @param to - Directory to move to (the repository root).
+ */
+function leaveDirectoryBeforeRemoval(dir: string, to: string): void {
+  let cwd: string;
+  let target: string;
+  try {
+    cwd = realpathSync(process.cwd()); // CWD-OK: the process's own cwd is the subject
+    target = realpathSync(dir);
+  } catch {
+    return;
+  }
+  const rel = relative(target, cwd);
+  if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) process.chdir(to);
+}
+
+/**
  * Prune the worktree for a single completed or cancelled task.
  *
  * This function does NOT integrate commits — it is called after
@@ -424,6 +447,7 @@ export function pruneWorktree(
   // shell-outs. Keeps filesystem rmSync fallback for stale/corrupted
   // directories that NAPI cannot resolve.
   let worktreeRemoved = false;
+  leaveDirectoryBeforeRemoval(worktreePath, gitRoot);
   try {
     const napiResult = napiDestroyWorktree({
       repoRoot: gitRoot,

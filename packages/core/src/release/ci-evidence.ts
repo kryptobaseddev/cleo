@@ -30,7 +30,13 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { EvidenceAtom, EvidenceValidationContext } from '@cleocode/contracts';
 import { isGitWorkTree } from '../git/work-tree.js';
-import { checkPrTaskLinkage, type EvidenceRoots, isDocumentArtifact } from '../tasks/evidence.js';
+import type { ViewComponentPr } from '../tasks/component-pr.js';
+import {
+  checkPrTaskLinkage,
+  type EvidenceRoots,
+  isDocumentArtifact,
+  linkedPrChange,
+} from '../tasks/evidence.js';
 import { isGhCliAvailable } from './github-pr.js';
 import {
   describeRequiredWorkflowsSource,
@@ -131,6 +137,13 @@ export interface ResolveCiEvidenceOptions {
    * `origin/HEAD` (else origin/main, origin/master) and `merge-base --is-ancestor`.
    */
   onDefaultBranch?: (sha: string, cwd: string) => { ref: string | null; landed: boolean };
+  /**
+   * Component PR the task is linked through (`ci:<component>@<integration>`,
+   * T12671): the integration PR's CI is judged; the component supplies the link.
+   */
+  componentPrNumber?: number;
+  /** Component PR reader; defaults to `gh pr view`. */
+  viewComponentPr?: ViewComponentPr;
 }
 
 /** Parsed `.cleo/project-context.json` of the store root, or null. */
@@ -650,8 +663,26 @@ export async function resolveCiEvidenceAtom(
     roots,
   );
   if (!pr.ok) return { ok: false, reason: pr.reason, codeName: pr.codeName };
-  // T12634: the same task linkage `pr:` enforces — never any merged PR for any task.
-  const unlinked = checkPrTaskLinkage(prNumber, pr, context);
+  // T12634: the same task linkage `pr:` enforces — never any merged PR for any
+  // task. T12671: through the component PR when the atom names one.
+  const linked = await linkedPrChange(
+    prNumber,
+    pr,
+    roots,
+    opts.componentPrNumber,
+    opts.viewComponentPr,
+  );
+  if (!linked.ok) {
+    return {
+      ok: false,
+      reason: linked.reason,
+      codeName:
+        linked.codeName === 'E_EVIDENCE_CONTENT_MISMATCH'
+          ? 'E_EVIDENCE_CONTENT_MISMATCH'
+          : 'E_EVIDENCE_INSUFFICIENT',
+    };
+  }
+  const unlinked = checkPrTaskLinkage(linked.prNumber, linked.pr, context);
   if (unlinked) {
     return {
       ok: false,
@@ -846,6 +877,9 @@ export async function resolveCiEvidenceAtom(
       requiredSource: required.source.tier,
       taskId: context.task.id,
       gateChecks,
+      ...(opts.componentPrNumber !== undefined
+        ? { componentPrNumber: opts.componentPrNumber }
+        : {}),
     },
   };
 }
