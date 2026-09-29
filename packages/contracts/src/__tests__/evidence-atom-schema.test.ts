@@ -499,6 +499,28 @@ describe('parseEvidenceString (T10337)', () => {
 
 // ─── GATE_EVIDENCE_REQUIREMENTS — gate-to-atom mapping ─────────────────────
 
+describe('pr:/ci: component references (T12671)', () => {
+  it('pr:<component>@<integration> names the integration PR and its component', () => {
+    expect(parseEvidenceString('pr:42@41')).toEqual([
+      { kind: 'pr', prNumber: 41, componentPrNumber: 42 },
+    ]);
+    expect(parseEvidenceString('ci:42@41')).toEqual([
+      { kind: 'ci', prNumber: 41, componentPrNumber: 42 },
+    ]);
+    expect(parseEvidenceString('pr:41')).toEqual([{ kind: 'pr', prNumber: 41 }]);
+  });
+
+  it.each(['pr:42@42', 'pr:42@', 'pr:@41', 'ci:0@41', 'pr:42@4x'])('rejects %s', (raw) => {
+    expect(() => parseEvidenceString(raw)).toThrow(EvidenceParseError);
+  });
+
+  it('the schema accepts the component field', () => {
+    expect(
+      EvidenceAtomSchema.safeParse({ kind: 'ci', prNumber: 41, componentPrNumber: 42 }).success,
+    ).toBe(true);
+  });
+});
+
 describe('GATE_EVIDENCE_REQUIREMENTS (T10337)', () => {
   it('covers every VerificationGate', () => {
     const expected: VerificationGate[] = [
