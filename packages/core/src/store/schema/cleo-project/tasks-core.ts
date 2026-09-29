@@ -177,8 +177,20 @@ export const tasksTasks = sqliteTable(
     }),
     /** Pipeline stage name. */
     pipelineStage: text('pipeline_stage'),
-    /** Assignee agent id. */
+    /** Human / owner assignee — separate from the agent claim lease below (T12502). */
     assignee: text('assignee'),
+    /**
+     * Session holding the agent claim lease (T12502). Plain TEXT, no FK: the
+     * `tasks_sessions` end/delete triggers release the lease instead.
+     * Column class `local-only` (a lease is meaningless off-device).
+     */
+    claimedBySession: text('claimed_by_session'),
+    /** Agent identity of the claim holder (T12502). */
+    claimedByAgent: text('claimed_by_agent'),
+    /** ISO-8601 UTC instant the claim lease was taken (T12502). */
+    claimedAt: text('claimed_at'),
+    /** ISO-8601 UTC instant the claim lease lapses unless renewed (T12502). */
+    leaseExpiresAt: text('lease_expires_at'),
     /** JSON IVTR orchestration state (TEXT per JSON audit). */
     ivtrState: text('ivtr_state'),
     /**
@@ -199,6 +211,7 @@ export const tasksTasks = sqliteTable(
     index('idx_tasks_tasks_session_id').on(table.sessionId),
     index('idx_tasks_tasks_pipeline_stage').on(table.pipelineStage),
     index('idx_tasks_tasks_assignee').on(table.assignee),
+    index('idx_tasks_tasks_claimed_by_session').on(table.claimedBySession),
     index('idx_tasks_tasks_parent_status').on(table.parentId, table.status),
     index('idx_tasks_tasks_status_priority').on(table.status, table.priority),
     index('idx_tasks_tasks_type_phase').on(table.type, table.phase),
@@ -435,6 +448,16 @@ export const tasksSessions = sqliteTable(
     parentSessionId: text('parent_session_id').references((): AnySQLiteColumn => tasksSessions.id, {
       onDelete: 'set null',
     }),
+    /**
+     * The orchestrator session that SPAWNED this one, recorded by the spawn
+     * itself (`claimSpawnedTask`) — never self-declared (T12502). Unlike
+     * {@link parentSessionId} (read from `CLEO_PARENT_SESSION_ID` at
+     * `session start`, so any process can claim any parent), this is the edge
+     * the claim chokepoint trusts to let a spawn family pass a live lease
+     * between its members. Plain TEXT, no FK; written only through
+     * `setSessionSpawnedBy`, never by the whole-row session upsert.
+     */
+    spawnedBySessionId: text('spawned_by_session_id'),
     /** Agent identifier. */
     agentIdentifier: text('agent_identifier'),
     /** ISO-8601 UTC handoff-consumed instant (canonical TEXT, §4). */
@@ -469,6 +492,7 @@ export const tasksSessions = sqliteTable(
     index('idx_tasks_sessions_status').on(table.status),
     index('idx_tasks_sessions_previous').on(table.previousSessionId),
     index('idx_tasks_sessions_parent').on(table.parentSessionId),
+    index('idx_tasks_sessions_spawned_by').on(table.spawnedBySessionId),
     index('idx_tasks_sessions_agent_identifier').on(table.agentIdentifier),
     index('idx_tasks_sessions_started_at').on(table.startedAt),
     index('idx_tasks_sessions_status_started_at').on(table.status, table.startedAt),

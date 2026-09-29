@@ -608,7 +608,13 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
 
   start: async (params) => {
     const projectRoot = getProjectRoot();
-    return wrapCoreResult(await taskStart(projectRoot, params.taskId), 'start');
+    return wrapCoreResult(
+      await taskStart(projectRoot, params.taskId, {
+        takeOver: params.takeOver === true,
+        forceClaim: params.forceClaim === true,
+      }),
+      'start',
+    );
   },
 
   stop: async (_params) => {
@@ -641,12 +647,12 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
 
   claim: async (params) => {
     const projectRoot = getProjectRoot();
-    return wrapCoreResult(await taskClaim(projectRoot, params.taskId, params.agentId), 'claim');
+    return wrapCoreResult(await taskClaim(projectRoot, params), 'claim');
   },
 
   unclaim: async (params) => {
     const projectRoot = getProjectRoot();
-    return wrapCoreResult(await taskUnclaim(projectRoot, params.taskId), 'unclaim');
+    return wrapCoreResult(await taskUnclaim(projectRoot, params), 'unclaim');
   },
 });
 

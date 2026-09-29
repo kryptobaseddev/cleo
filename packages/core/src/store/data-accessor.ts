@@ -20,6 +20,8 @@ export type {
   QueryTasksResult,
   TaskAuditLogQuery,
   TaskAuditLogRow,
+  TaskClaimGuard,
+  TaskClaimRequest,
   TaskFieldUpdates,
   TaskQueryFilters,
   TaskWriteGuard,

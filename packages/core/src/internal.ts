@@ -1640,7 +1640,7 @@ export type {
 export { quarantineRogueCleoDir, scanRogueCleoDirs } from './system/rogue-cleo-detector.js';
 // Task work (additional)
 export type { TaskWorkHistoryEntry } from './task-work/index.js';
-export { getTaskHistory } from './task-work/index.js';
+export { getTaskHistory, renewProjectSessionClaims } from './task-work/index.js';
 // Tasks (additional)
 export { validateLabels } from './tasks/add.js';
 // Canonical task view — unified derivation (T943)

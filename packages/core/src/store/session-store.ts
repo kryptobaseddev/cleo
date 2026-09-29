@@ -115,6 +115,48 @@ export async function updateSession(
 }
 
 /**
+ * Record the orchestrator session that spawned `sessionId` (T12502).
+ *
+ * This is the ONLY writer of `tasks_sessions.spawned_by_session_id` — the
+ * trusted spawn edge the task-claim chokepoint uses to let a spawn family
+ * pass a live lease between its members. It is write-once: an edge already
+ * recorded is never replaced, so a later caller cannot re-parent a session
+ * into its own family.
+ *
+ * @param sessionId - The spawned session.
+ * @param spawnerSessionId - The orchestrator session performing the spawn.
+ * @param cwd - Project root.
+ * @returns `true` when the edge was recorded now, or already names `spawnerSessionId`.
+ * @example
+ * ```ts
+ * await setSessionSpawnedBy(child.sessionId, orchestrator.id, projectRoot);
+ * ```
+ * @task T12502
+ */
+export async function setSessionSpawnedBy(
+  sessionId: string,
+  spawnerSessionId: string,
+  cwd?: string,
+): Promise<boolean> {
+  const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    const db = await getDb(scope.worktreeRoot);
+    await db
+      .update(schema.sessions)
+      .set({ spawnedBySessionId: spawnerSessionId })
+      .where(and(eq(schema.sessions.id, sessionId), isNull(schema.sessions.spawnedBySessionId)))
+      .run();
+    const [row] = await db
+      .select({ spawnedBy: schema.sessions.spawnedBySessionId })
+      .from(schema.sessions)
+      .where(eq(schema.sessions.id, sessionId))
+      .limit(1)
+      .all();
+    return row?.spawnedBy === spawnerSessionId;
+  });
+}
+
+/**
  * Insert a handoff entry for a session (write-once, append-only).
  *
  * The underlying `session_handoff_entries` table enforces:

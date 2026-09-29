@@ -5,11 +5,20 @@
  * @epic T9834
  */
 
-import type { TaskStatus, TasksContextParams, TasksContextResult } from '@cleocode/contracts';
+import type {
+  TaskStatus,
+  TasksClaimParams,
+  TasksClaimResult,
+  TasksContextParams,
+  TasksContextResult,
+  TasksUnclaimParams,
+  TasksUnclaimResult,
+} from '@cleocode/contracts';
 import { TASK_STATUSES } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { claimModeFor, resolveClaimant } from '../task-work/claims.js';
 import type { DepGraphValidateResult, DepValidateScope } from './dep-graph-validator.js';
 import { runValidation } from './dep-graph-validator.js';
 import type { RankingChange } from './ranking-audit.js';
@@ -463,40 +472,70 @@ export async function taskImport(
 }
 
 /**
- * Atomically claim a task for an agent.
+ * Take, renew or override the caller session's leased claim on a task
+ * (T12502). The claim is recorded under the caller's BOUND session; an
+ * unbound caller is refused (a lease needs a holder). The human `assignee`
+ * is never written.
+ *
+ * @param projectRoot - Project root.
+ * @param params - Task, optional agent id, and `renew` / `takeOver` / `forceClaim`.
+ * @returns The lease held, or `E_TASK_CLAIMED` naming the holder.
  * @task T1568
+ * @task T12502
  * @epic T1566
  */
 export async function taskClaim(
   projectRoot: string,
-  taskId: string,
-  agentId: string,
-): Promise<EngineResult<{ taskId: string; agentId: string }>> {
+  params: TasksClaimParams,
+): Promise<EngineResult<TasksClaimResult>> {
+  const { taskId } = params;
   if (!taskId) return engineError('E_INVALID_INPUT', 'taskId is required');
-  if (!agentId) return engineError('E_INVALID_INPUT', 'agentId is required');
   try {
+    const claimant = await resolveClaimant(projectRoot, params.agentId);
+    if (!claimant.sessionId) {
+      return engineError(
+        'E_SESSION_UNBOUND',
+        `Cannot claim ${taskId}: no session is bound to this caller, so there is no holder for the lease.`,
+        {
+          fix: "Start or resume a session first: cleo session start --scope global --name '<what you are doing>'",
+        },
+      );
+    }
     const acc = await getTaskAccessor(projectRoot);
-    await acc.claimTask(taskId, agentId);
-    return engineSuccess({ taskId, agentId });
+    const mode = params.renew ? 'renew' : claimModeFor(params);
+    const claim = await acc.claimTask(taskId, { ...claimant, mode });
+    if (!claim) return engineError('E_INTERNAL', `Claim on ${taskId} returned no lease`);
+    return engineSuccess({ taskId, agentId: claim.agentId, claim });
   } catch (err: unknown) {
     return cleoErrorToEngineResult(err, 'E_INTERNAL', 'Failed to claim task');
   }
 }
 
 /**
- * Release an agent's claim on a task.
+ * Release the caller session's claim lease on a task (T12502). Releasing
+ * another session's lease needs `forceClaim` and is audited.
+ *
+ * @param projectRoot - Project root.
+ * @param params - Task and optional `forceClaim`.
+ * @returns Whether a lease was released.
  * @task T1568
+ * @task T12502
  * @epic T1566
  */
 export async function taskUnclaim(
   projectRoot: string,
-  taskId: string,
-): Promise<EngineResult<{ taskId: string }>> {
+  params: TasksUnclaimParams,
+): Promise<EngineResult<TasksUnclaimResult>> {
+  const { taskId } = params;
   if (!taskId) return engineError('E_INVALID_INPUT', 'taskId is required');
   try {
+    const claimant = await resolveClaimant(projectRoot);
     const acc = await getTaskAccessor(projectRoot);
-    await acc.unclaimTask(taskId);
-    return engineSuccess({ taskId });
+    const released = await acc.unclaimTask(taskId, {
+      sessionId: claimant.sessionId,
+      force: params.forceClaim === true,
+    });
+    return engineSuccess({ taskId, released });
   } catch (err: unknown) {
     return cleoErrorToEngineResult(err, 'E_INTERNAL', 'Failed to unclaim task');
   }
