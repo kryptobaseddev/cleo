@@ -38,6 +38,7 @@ import {
 } from '../../tasks/duplicate-detector.js';
 import {
   DECIDE_ASK_DECISION_SITE,
+  DECIDE_BENCH_DECISION_SITE,
   DECISION_CONTRADICTION_DECISION_SITE,
   DECISION_SITES,
   DUPLICATE_DETECTION_SITE,
@@ -75,18 +76,22 @@ describe('decision-site registry (T12662)', () => {
   it('gives every mode-driven System One site a decide.sites.* mode key', () => {
     for (const site of DECISION_SITES) {
       const usesSystemOne = site.primaryRung === 'system-one' || site.ladder.includes('system-one');
-      if (!usesSystemOne || site.id === DECIDE_ASK_DECISION_SITE.id) continue;
+      if (!usesSystemOne) continue;
+      if (site.id === DECIDE_ASK_DECISION_SITE.id || site.id === DECIDE_BENCH_DECISION_SITE.id) {
+        continue;
+      }
       expect(site.modeKey, site.id).toMatch(/^decide\.sites\./);
     }
   });
 
-  it('registers the four existing sites and the debug verb', () => {
+  it('registers the four existing sites, the debug verb and the benchmark verb', () => {
     for (const id of [
       'tasks.duplicate-detection',
       'memory.decision-contradiction',
       'memory.observation-type',
       'orchestration.owner-decision',
       'cli.decide-ask',
+      'cli.decide-bench',
     ]) {
       expect(getDecisionSite(id), id).toBeDefined();
     }
