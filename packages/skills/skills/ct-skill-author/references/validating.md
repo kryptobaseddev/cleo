@@ -21,7 +21,7 @@ python ${CLAUDE_SKILL_DIR}/scripts/validate.py <skill-dir>
 
 # With manifest checks (Tier 4):
 python ${CLAUDE_SKILL_DIR}/scripts/validate.py <skill-dir> \
-  --manifest <manifest.json> --dispatch-config <dispatch-config.json>
+  --manifest packages/skills/skills/manifest.json
 
 # JSON output (for scripting):
 python ${CLAUDE_SKILL_DIR}/scripts/validate.py <skill-dir> --json
@@ -30,7 +30,10 @@ python ${CLAUDE_SKILL_DIR}/scripts/validate.py <skill-dir> --json
 python ${CLAUDE_SKILL_DIR}/scripts/audit_body.py <skill-dir>
 
 # Manifest alignment check: bundled into validate.py Tier 4. Use:
-#   python validate.py <skill-dir> --manifest <manifest.json> --dispatch-config <dispatch-config.json>
+#   python validate.py <skill-dir> --manifest packages/skills/skills/manifest.json
+# (CLEO's own package ships no dispatch-config.json or provider-skills-map.json
+# since T12649/T12679; --dispatch-config/--provider-map only apply to external
+# libraries that still ship them. For CLEO skills, gates 29-32 are authoritative.)
 
 # Progressive-disclosure depth check (T9684 — CI gate):
 python ${CLAUDE_SKILL_DIR}/scripts/check_depth.py <skill-dir>
@@ -70,8 +73,8 @@ Repeat until errors = 0. Do not proceed to Phase 2 while errors remain.
 - Tier 1 — Structure: SKILL.md exists, frontmatter parseable, no CLEO-only fields
 - Tier 2 — Frontmatter Quality: name matches dir, description has trigger indicators
 - Tier 3 — Body Quality: length, no placeholder text, file references exist on disk
-- Tier 4 — CLEO Integration: manifest and dispatch-config alignment (optional)
-- Tier 5 — Provider Compatibility: provider-skills-map check (optional)
+- Tier 4 — CLEO Integration: manifest alignment (dispatch-config only for external libraries that ship one)
+- Tier 5 — Provider Compatibility: provider-skills-map check (external libraries only; CLEO removed its map in T12679)
 
 See [references/validation-rules.md](references/validation-rules.md) for full rule set.
 

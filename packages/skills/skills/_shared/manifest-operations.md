@@ -433,7 +433,7 @@ When present, the `audit` field provides operational metadata:
 | `{{EPIC_ID}}` | Parent epic identifier | `T3147` |
 | `{{DATE}}` | Current date | `2026-02-07` |
 | `{{TOPIC_SLUG}}` | URL-safe topic name | `jwt-authentication` |
-| `{{OUTPUT_DIR}}` | Output directory | `.cleo/agent-outputs` |
+| `{{OUTPUT_DIR}}` | Output directory | `.cleo/agent-outputs` (legacy token — do not write there; record output with `cleo docs add`) |
 
 
 ### Command Tokens (CLEO Defaults)
@@ -456,7 +456,7 @@ When present, the `audit` field provides operational metadata:
 ```markdown
 ## Output Requirements
 
-1. Write findings to `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`
+1. Record findings with `cleo docs add {{TASK_ID}} --content - --type <kind> --slug {{TOPIC_SLUG}}`
 2. Create manifest entry:
 
 ```bash

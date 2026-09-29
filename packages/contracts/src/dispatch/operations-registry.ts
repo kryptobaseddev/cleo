@@ -8493,6 +8493,7 @@ export const OPERATIONS: OperationDef[] = [
         enum: DOCS_LIFECYCLE_STATUSES,
         description:
           'Override the new lifecycle status. Defaults to "draft" on every update. ' +
+          'Alone (no file or content) it changes only the lifecycle status. ' +
           `Valid: ${DOCS_LIFECYCLE_STATUSES.join('|')}.`,
       },
       {
