@@ -168,7 +168,7 @@ When tokens are not explicitly configured, assume CLEO defaults:
 | `{{TASK_LIST_CMD}}` | `cleo list` |
 | `{{TASK_FIND_CMD}}` | `cleo find` |
 | `{{TASK_ADD_CMD}}` | `cleo add` |
-| `{{OUTPUT_DIR}}` | `.cleo/agent-outputs` |
+| `{{OUTPUT_DIR}}` | `.cleo/agent-outputs` (legacy token — do not write there; record output with `cleo docs add`) |
 
 
 ---
