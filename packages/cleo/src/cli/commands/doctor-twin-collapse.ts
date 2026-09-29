@@ -16,6 +16,7 @@
 
 import {
   inspectProjectTwinCollapse,
+  recoverTwinCollapse,
   retryTwinCollapse,
 } from '@cleocode/core/doctor/twin-collapse.js';
 import { CleoError } from '@cleocode/core/errors';
@@ -41,12 +42,45 @@ export const doctorTwinCollapseCommand = defineCommand({
       type: 'boolean',
       description: 'Run the collapse once now (after clearing the reported cause)',
     },
+    recover: {
+      type: 'boolean',
+      description:
+        'Restore twin values a 2026.9.21 collapse dropped or replaced, from its pinned ' +
+        'pre-collapse snapshot, into twin_collapse_archive:* (T12727). Combine with --dry-run',
+    },
+    'dry-run': {
+      type: 'boolean',
+      description: 'With --recover: print the plan, write nothing',
+    },
     json: { type: 'boolean', description: 'Output as JSON' },
     human: { type: 'boolean', description: 'Force human-readable output' },
     quiet: { type: 'boolean', description: 'Suppress non-essential output' },
   },
   async run({ args }) {
     const projectRoot = getProjectRoot();
+    if (args.recover === true) {
+      try {
+        const result = await recoverTwinCollapse(projectRoot, {
+          dryRun: args['dry-run'] === true,
+        });
+        cliOutput(
+          { kind: 'generic', ...result },
+          { command: 'doctor', operation: 'doctor.twin-collapse.recover' },
+        );
+        if (!result.plan.snapshotExists) process.exitCode = 1;
+      } catch (error) {
+        cliError(
+          error instanceof Error ? error.message : String(error),
+          'E_TWIN_COLLAPSE_RECOVER',
+          {
+            name: 'Error',
+            fix: 'cleo doctor twin-collapse --recover --dry-run  # shows the snapshot path and plan',
+          },
+        );
+        process.exitCode = 1;
+      }
+      return;
+    }
     if (args.retry === true) {
       try {
         const receipts = await retryTwinCollapse(projectRoot);
