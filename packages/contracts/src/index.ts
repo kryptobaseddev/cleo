@@ -1631,6 +1631,7 @@ export type {
   NexusWhyResult,
   NexusWikiParams,
 } from './operations/nexus.js';
+export { NEXUS_FLEET_SCHEMA_VERSION } from './operations/nexus.js';
 // === Nexus Scope Contracts (T9145 + T9146) ===
 export type {
   MetaWithNexusScope,

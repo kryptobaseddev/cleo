@@ -1523,7 +1523,10 @@ export interface NexusProjectsFleetParams {
 export interface NexusFleetDevice {
   /** Stable device id (`<cleoHome>/device-id`). */
   deviceId: string;
-  /** Hostname at the last heartbeat; `null` when the device never sent one. */
+  /**
+   * Hostname at the last heartbeat; `null` when the device never sent one.
+   * **Device-local, never mirrored** to the cloud.
+   */
   hostname: string | null;
   /** Operating system at the last heartbeat. */
   os: string | null;
@@ -1554,13 +1557,30 @@ export interface NexusFleetDeviceSummary extends NexusFleetDevice {
 }
 
 /**
+ * Version of the fleet/presence shape a {@link NexusProjectsFleetResult} and
+ * the cloud `ReplicaPresence` built from it conform to (T12721). A positive
+ * integer, sent as `ReplicaPresence.schemaVersion`; bump it when a field the
+ * presence mapper reads changes meaning.
+ *
+ * - `1` — T12721: `headCommittedAt`, `replicaId`, device-local field markers.
+ */
+export const NEXUS_FLEET_SCHEMA_VERSION = 1;
+
+/**
  * Last recorded git state of one location (T12513, from T12511's probe rows).
- * Path-free, so a cloud mirror can carry it as replica presence.
+ *
+ * The cloud mirrors only a path-free projection of it (`ReplicaPresence`,
+ * built by core's `toReplicaPresence`): dirty, ahead, behind, a remote-sync
+ * enum and `headCommittedAt`. Every field marked **device-local, never
+ * mirrored** stays on the device; `branch` leaves it only on explicit opt-in.
  */
 export interface NexusFleetGitSummary {
-  /** Checked-out branch; `null` when detached or unknown. */
+  /**
+   * Checked-out branch; `null` when detached or unknown. **Mirrored only on
+   * explicit opt-in** (branch names can be sensitive).
+   */
   branch: string | null;
-  /** HEAD commit. */
+  /** HEAD commit. **Device-local, never mirrored.** */
   headSha: string | null;
   /**
    * ISO 8601 UTC instant HEAD was committed; `null` when unknown (unborn
@@ -1576,13 +1596,13 @@ export interface NexusFleetGitSummary {
   untrackedCount: number | null;
   /** Remote side, as of the last fetch — never "now". */
   remote: {
-    /** Remote name. */
+    /** Remote name. **Device-local, never mirrored.** */
     name: string | null;
-    /** Remote URL, credentials removed. */
+    /** Remote URL, credentials removed. **Device-local, never mirrored.** */
     url: string | null;
-    /** Upstream ref (e.g. `origin/main`). */
+    /** Upstream ref (e.g. `origin/main`). **Device-local, never mirrored.** */
     upstream: string | null;
-    /** Upstream tracking-ref commit. */
+    /** Upstream tracking-ref commit. **Device-local, never mirrored.** */
     headSha: string | null;
     /** Commits on HEAD not on the upstream. */
     ahead: number | null;
@@ -1599,7 +1619,10 @@ export interface NexusFleetGitSummary {
   probeStale: boolean;
   /** Probe error code, `null` on success. */
   probeErrorCode: NexusGitProbeErrorCode | null;
-  /** Probe error detail. */
+  /**
+   * Probe error detail (git's stderr, an errno, a path). **Device-local, never
+   * mirrored**: presence carries only `remote: 'unknown'` for an errored probe.
+   */
   probeError: string | null;
 }
 
@@ -1607,11 +1630,26 @@ export interface NexusFleetGitSummary {
 export interface NexusFleetLocation {
   /** Device the location is on. */
   deviceId: string;
-  /** Hostname of that device, when it has sent a heartbeat. */
+  /**
+   * Replica identity of this location in the cloud (the `:replicaId` of
+   * `PUT /v1/projects/:projectId/replicas/:replicaId/presence`), or `null`.
+   *
+   * Always `null` today: the store has no stable per-replica id yet. T12675's
+   * store-instance id becomes this `replicaId` (it must satisfy the cloud
+   * `ReplicaId` shape, a UUIDv7). It is never derived from the path, the
+   * device id or a hash of either — a derived id changes on a move and is not
+   * stable. A caller must not send presence for a location whose `replicaId`
+   * is `null`.
+   */
+  replicaId: string | null;
+  /**
+   * Hostname of that device, when it has sent a heartbeat. **Device-local,
+   * never mirrored.**
+   */
   hostname: string | null;
   /** `true` when the location is on the device running this command. */
   current: boolean;
-  /** Checkout root on that device. */
+  /** Checkout root on that device. **Device-local, never mirrored.** */
   path: string;
   /** Location lifecycle state. */
   state: 'live' | 'missing';
@@ -1665,6 +1703,11 @@ export interface NexusProjectsFleetResult {
   generatedAt: string;
   /** Device the command ran on. */
   currentDeviceId: string;
+  /**
+   * Fleet/presence shape version this result conforms to
+   * ({@link NEXUS_FLEET_SCHEMA_VERSION}); sent as `ReplicaPresence.schemaVersion`.
+   */
+  schemaVersion: number;
   /**
    * Fleet-wide counts of PROJECTS with at least one location in each
    * condition. Scoped by `device` ONLY — the flag filters (`missing`, `dirty`,

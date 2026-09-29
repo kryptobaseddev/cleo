@@ -39,15 +39,16 @@
  * @epic T12496
  */
 
-import type {
-  NexusFleetDevice,
-  NexusFleetDeviceSummary,
-  NexusFleetFlag,
-  NexusFleetGitSummary,
-  NexusFleetLocation,
-  NexusFleetProject,
-  NexusProjectsFleetParams,
-  NexusProjectsFleetResult,
+import {
+  NEXUS_FLEET_SCHEMA_VERSION,
+  type NexusFleetDevice,
+  type NexusFleetDeviceSummary,
+  type NexusFleetFlag,
+  type NexusFleetGitSummary,
+  type NexusFleetLocation,
+  type NexusFleetProject,
+  type NexusProjectsFleetParams,
+  type NexusProjectsFleetResult,
 } from '@cleocode/contracts';
 import { and, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
@@ -423,6 +424,9 @@ export function listFleetStatus(
     const list = byProject.get(loc.projectId) ?? [];
     list.push({
       deviceId: loc.deviceId,
+      // No stable per-replica id exists yet; T12675's store-instance id
+      // becomes this value. Never derive one from path or device.
+      replicaId: null,
       hostname: hostById.get(loc.deviceId) ?? null,
       current: loc.deviceId === self,
       path: loc.path,
@@ -474,6 +478,7 @@ export function listFleetStatus(
     staleAfterMs,
     generatedAt: now.toISOString(),
     currentDeviceId: self,
+    schemaVersion: NEXUS_FLEET_SCHEMA_VERSION,
     summary: {
       located: agg?.located ?? 0,
       locations: agg?.locations ?? 0,
