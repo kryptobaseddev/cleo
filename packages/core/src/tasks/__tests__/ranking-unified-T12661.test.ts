@@ -88,6 +88,26 @@ afterEach(() => {
 });
 
 describe('T12661 — shared scorer', () => {
+  it('a plain ready critical task outranks a low-priority P0 bug carrying every bonus — priority is the documented dominant axis', () => {
+    const low = scoreTask(
+      {
+        id: 'TLOW',
+        title: 'Low P0 bug',
+        priority: 'low',
+        severity: 'P0',
+        kind: 'bug',
+        phase: 'impl',
+        createdAt: daysAgo(120),
+      },
+      { nowMs: NOW, currentPhase: 'impl', leverage: new Map([['TLOW', 4]]) },
+    );
+    const crit = scoreTask(
+      { id: 'TCRIT', title: 'Plain critical', priority: 'critical', createdAt: daysAgo(0) },
+      { nowMs: NOW, currentPhase: 'impl' },
+    );
+    expect(crit.score).toBeGreaterThan(low.score);
+  });
+
   it('a fresh high bug with no severity outranks a 90-day-old medium feature with leverage 8', () => {
     const bug = scoreTask(
       { id: 'T741', title: 'Crash', priority: 'high', kind: 'bug', createdAt: daysAgo(0) },
