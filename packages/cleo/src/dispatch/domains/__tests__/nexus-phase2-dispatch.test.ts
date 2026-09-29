@@ -414,7 +414,7 @@ describe('NexusHandler — Phase 2 T1510 operations', () => {
         offset: '5',
       });
       expect(result.success).toBe(true);
-      expect(nexusProjectsFleet).toHaveBeenCalledWith({
+      expect(nexusProjectsFleet).toHaveBeenCalledWith(expect.any(String), {
         device: 'desk',
         missing: false,
         dirty: true,
