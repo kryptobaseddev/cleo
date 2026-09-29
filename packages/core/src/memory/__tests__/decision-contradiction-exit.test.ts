@@ -3,9 +3,10 @@
  * is configured but unreachable.
  *
  * Mirrors `packages/cleo/src/cli/__tests__/decide-duplicate-exit.test.ts`
- * (T12492). No `cleo` verb requests model validation today (`validateWithLlm`
- * has no CLI flag), so each case spawns a Node process that imports the
- * COMPILED core and calls `storeDecision(..., { validateWithLlm: true })` — the
+ * (T12492). `cleo memory decision-store --adr-path` runs the same site
+ * advisorily since T12715, but no verb requests full validation
+ * (`validateWithLlm` has no CLI flag), so each case spawns a Node process that
+ * imports the COMPILED core and calls `storeDecision(..., { validateWithLlm: true })` — the
  * real credentials file, config cascade, transport and audit sink, with
  * nothing stubbed in-process. Providers that never answer:
  *

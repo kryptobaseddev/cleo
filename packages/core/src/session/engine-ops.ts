@@ -36,6 +36,7 @@ import {
   type DecisionRecord,
   type FindSessionsParams,
   findSessions,
+  gcSessions,
   getContextDrift,
   getDecisionLog,
   getLastHandoff,
@@ -864,7 +865,7 @@ export async function sessionEnd(
 
     if (!activeSession) {
       return engineError('E_SESSION_NOT_FOUND', 'No active session to end', {
-        fix: 'Start a session first with: session start --scope <scope> --name <name>',
+        fix: 'Start a session first with: cleo session start --scope global --name "<name>"',
       });
     }
     const sessionId = activeSession.id;
@@ -1119,48 +1120,25 @@ export async function sessionResume(
 /**
  * Garbage collect old sessions.
  *
+ * Delegates to the core {@link gcSessions} SSoT (T12540), so the CLI shares
+ * its rules: an active session is orphaned only when idle — measured from its
+ * `lastActivity` heartbeat, else `startedAt` — for longer than `maxAgeDays`,
+ * and never while it holds a live claim lease (T12502). Ended/orphaned
+ * sessions older than 30 days are removed; journal retention runs afterwards.
+ *
  * @param projectRoot - Absolute path to the project root
- * @param maxAgeDays - Maximum age in days before marking active sessions orphaned
+ * @param maxAgeDays - Maximum idle age in days before marking active sessions orphaned
  * @returns EngineResult with orphaned and removed session IDs
  *
  * @task T1573
+ * @task T12540
  */
 export async function sessionGc(
   projectRoot: string,
   maxAgeDays = 1,
 ): Promise<EngineResult<{ orphaned: string[]; removed: string[] }>> {
   try {
-    const accessor = await getTaskAccessor(projectRoot);
-    const sessions = await accessor.loadSessions();
-
-    const now = Date.now();
-    const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
-    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
-    const orphaned: string[] = [];
-    const removed: string[] = [];
-
-    // Mark stale active sessions as orphaned
-    for (const session of sessions) {
-      if (session.status === 'active') {
-        const lastActive = new Date(session.endedAt ?? session.startedAt).getTime();
-        if (now - lastActive > maxAgeMs) {
-          session.status = 'ended';
-          session.endedAt = new Date().toISOString();
-          orphaned.push(session.id);
-          await accessor.upsertSingleSession(session);
-        }
-      }
-    }
-
-    // Remove very old ended sessions
-    for (const s of sessions) {
-      if (s.status === 'active') continue;
-      const endedAt = s.endedAt ? new Date(s.endedAt).getTime() : new Date(s.startedAt).getTime();
-      if (now - endedAt > thirtyDaysMs) {
-        removed.push(s.id);
-        await accessor.removeSingleSession(s.id);
-      }
-    }
+    const result = await gcSessions(projectRoot, { maxAgeDays });
 
     // T1263: Apply session journal retention policy (best-effort)
     try {
@@ -1170,7 +1148,7 @@ export async function sessionGc(
       // Rotation is best-effort — never block session GC
     }
 
-    return engineSuccess({ orphaned, removed });
+    return engineSuccess(result);
   } catch {
     return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
   }

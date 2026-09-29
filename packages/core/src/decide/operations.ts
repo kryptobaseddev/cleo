@@ -33,14 +33,9 @@ import {
   sameDecideHost,
   saveDecideCredentials,
 } from './credentials.js';
-import { detectJevCapabilities, listJevModels } from './jev-wire.js';
+import { listJevModels } from './jev-wire.js';
 import { DecisionProviderError } from './provider.js';
-import {
-  providerKeyHash,
-  readProviderState,
-  USAGE_REFRESH_MS,
-  writeProviderState,
-} from './provider-state.js';
+import { refreshProviderState } from './provider-state.js';
 import { DECISION_PROVIDER_PRESETS, inferDecisionProviderKind } from './providers.js';
 import { DECIDE_ASK_DECISION_SITE, DECISION_SITES } from './sites/registry.js';
 import {
@@ -252,26 +247,14 @@ export async function probeDecideProvider(
   const signal = AbortSignal.timeout(opts.timeoutMs ?? DEFAULT_DECIDE_PROBE_TIMEOUT_MS);
 
   // Capabilities + usage: reuse the cached read unless it is older than 10 minutes.
-  const identity = sealed.connection();
-  const cached = readProviderState(identity, opts.providerStatePath);
-  let state = cached;
-  if (
-    !cached ||
-    opts.refreshCapabilities === true ||
-    now() - cached.detectedAt >= USAGE_REFRESH_MS
-  ) {
-    const detected = await detectJevCapabilities(sealed.connection(), signal, {
-      fetch: opts.fetch,
-    });
-    state = {
-      baseUrl: sealed.baseUrl,
-      keyHash: providerKeyHash(identity.apiKey),
-      detectedAt: now(),
-      capabilities: detected.capabilities,
-      ...(detected.usage ? { usage: detected.usage } : {}),
-    };
-    writeProviderState(state, opts.providerStatePath);
-  }
+  // Shared with decideBatch's lazy detection: at most one detection per
+  // identity per USAGE_REFRESH_MS, transient failures keep the old state.
+  const state = await refreshProviderState(sealed.connection(), signal, {
+    ...(opts.fetch ? { fetch: opts.fetch } : {}),
+    now,
+    ...(opts.providerStatePath !== undefined ? { path: opts.providerStatePath } : {}),
+    force: opts.refreshCapabilities === true,
+  });
   const extras = {
     capabilities: state?.capabilities ?? JEV_MINIMUM_CAPABILITIES,
     ...(state?.usage

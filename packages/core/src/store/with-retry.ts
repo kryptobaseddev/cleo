@@ -59,6 +59,10 @@
  * ```
  */
 
+import type { DatabaseSync } from 'node:sqlite';
+import { sql } from 'drizzle-orm';
+import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
+
 /** Default number of attempts (1 initial + 3 retries = 4 total). */
 const DEFAULT_MAX_ATTEMPTS = 4;
 
@@ -219,6 +223,59 @@ export async function withWriteRetry<T>(
   (contentionErr as Error & { code?: string; cause?: unknown }).code = 'E_WRITE_CONTENTION';
   (contentionErr as Error & { code?: string; cause?: unknown }).cause = lastBusyErr;
   throw contentionErr;
+}
+
+/**
+ * How long a best-effort heartbeat write waits for another connection's write
+ * lock, in milliseconds (T12502 · T12540). A beat that would wait longer is
+ * skipped; the next mutation beats instead.
+ */
+export const HEARTBEAT_BUSY_TIMEOUT_MS = 50;
+
+/**
+ * Run ONE best-effort heartbeat write that never waits on a contended lock
+ * (T12502 claim renewal · T12540 session `lastActivity`).
+ *
+ * node:sqlite is SYNCHRONOUS: a write stuck behind another connection's lock
+ * waits the full `busy_timeout` (30 s) ON the event loop, where no timer can
+ * interrupt it. So this lowers `busy_timeout` for the one statement and treats
+ * `SQLITE_BUSY` as "skip this beat". A single statement autocommits atomically,
+ * and set → run → restore runs with no `await` in between, so no other caller
+ * ever sees the short timeout. A connection that is mid-transaction belongs to
+ * another caller — joining it would commit or roll back with that caller's
+ * work — so the beat is skipped then too.
+ *
+ * @param db - Drizzle handle over `native`.
+ * @param native - The native connection (its transaction state is checked).
+ * @param write - The single synchronous write statement.
+ * @param busyTimeoutMs - Lock wait for this one statement.
+ * @returns The write's result, or `null` when the beat was skipped.
+ * @throws Any error other than `SQLITE_BUSY` raised by `write`.
+ * @example
+ * ```ts
+ * const changes = runHeartbeatWrite(db, native, () =>
+ *   Number(db.update(schema.sessions).set({ lastActivity }).where(eq(schema.sessions.id, id)).run().changes),
+ * ) ?? 0;
+ * ```
+ * @task T12540
+ */
+export function runHeartbeatWrite<T>(
+  db: NodeSQLiteDatabase,
+  native: DatabaseSync | null,
+  write: () => T,
+  busyTimeoutMs: number = HEARTBEAT_BUSY_TIMEOUT_MS,
+): T | null {
+  if (!native || native.isTransaction) return null;
+  const previous = db.get<{ timeout: number }>(sql`PRAGMA busy_timeout`).timeout;
+  db.run(sql.raw(`PRAGMA busy_timeout=${busyTimeoutMs}`));
+  try {
+    return write();
+  } catch (err) {
+    if (isSqliteBusy(err) || (err instanceof Error && isSqliteBusy(err.cause))) return null;
+    throw err;
+  } finally {
+    db.run(sql.raw(`PRAGMA busy_timeout=${previous}`));
+  }
 }
 
 /** Small promise-based sleep helper. */

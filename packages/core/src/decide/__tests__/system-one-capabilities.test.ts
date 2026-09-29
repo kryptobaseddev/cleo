@@ -14,6 +14,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   type DecisionAnswer,
+  type DecisionBatchItem,
   type DecisionOutcome,
   type DecisionRequest,
   JEV_MINIMUM_CAPABILITIES,
@@ -24,6 +25,8 @@ import { createMemoryTokenBucket, type DecisionBudget } from '../budget.js';
 import { createDecisionCache } from '../cache.js';
 import {
   _resetDecideDefaultsForTest,
+  DEFAULT_BATCH_DECISION_TIMEOUT_MS,
+  DEFAULT_DECISION_TIMEOUT_MS,
   type DecideOptions,
   decide,
   decideBatch,
@@ -44,6 +47,8 @@ import {
   cachedCapabilities,
   providerKeyHash,
   readProviderState,
+  refreshProviderState,
+  TRANSIENT_DETECTION_RETRY_MS,
   USAGE_REFRESH_MS,
   writeProviderState,
 } from '../provider-state.js';
@@ -193,9 +198,9 @@ const SPEC_OK_BODY = {
   },
 };
 
-describe('jev-wire/2 — errors, cost and extensions', () => {
-  it('is adapter version jev-wire/2', () => {
-    expect(JEV_ADAPTER_VERSION).toBe('jev-wire/2');
+describe('jev-wire/3 — errors, cost and extensions', () => {
+  it('is adapter version jev-wire/3', () => {
+    expect(JEV_ADAPTER_VERSION).toBe('jev-wire/3');
   });
 
   it('maps 403 key_limit_exceeded to its own kind, never unauthorized', async () => {
@@ -227,33 +232,58 @@ describe('jev-wire/2 — errors, cost and extensions', () => {
     expect(err.retryAfterMs).toBe(4000);
   });
 
-  it('reads cost from meta.cost_micros, balance from the header, and the checkpoint', async () => {
+  it('reads cost from meta.cost_micros and the checkpoint (OpenAPI SystemOneResponse.meta)', async () => {
     const provider = createJevProvider(connection, {
       fetch: routes({
         '/v1/systemone': () =>
-          jsonResponse(
-            200,
-            { ...OK_BODY, meta: { request_id: 'r', cost_micros: 15, checkpoint: 'laya-en-0926' } },
-            { 'x-layahost-balance-micros': '4999985' },
-          ),
+          jsonResponse(200, {
+            ...OK_BODY,
+            meta: { request_id: 'r', cost_micros: 15, checkpoint: 'laya-en-0926' },
+          }),
       }),
     });
     const outcome = await provider.decide(REQUEST, signal());
     expect(outcome).toMatchObject({
       costMicros: 15,
       costUsd: 15 / 1e6,
-      balanceMicros: 4999985,
       checkpoint: 'laya-en-0926',
     });
+    expect(outcome.balanceMicros).toBeUndefined();
   });
 
-  it('falls back to the cost header when meta has no cost_micros', async () => {
+  it('derives micros from meta.cost_usd when meta has no cost_micros', async () => {
     const provider = createJevProvider(connection, {
       fetch: routes({
-        '/v1/systemone': () => jsonResponse(200, OK_BODY, { 'x-layahost-cost-micros': '5' }),
+        '/v1/systemone': () => jsonResponse(200, { ...OK_BODY, meta: { cost_usd: 0.000005 } }),
       }),
     });
-    expect((await provider.decide(REQUEST, signal())).costMicros).toBe(5);
+    const outcome = await provider.decide(REQUEST, signal());
+    expect(outcome).toMatchObject({ costMicros: 5, costUsd: 0.000005 });
+  });
+
+  it('ignores the undocumented x-layahost-* cost and balance headers (T12715)', async () => {
+    const provider = createJevProvider(connection, {
+      fetch: routes({
+        '/v1/systemone': () =>
+          jsonResponse(200, OK_BODY, {
+            'x-layahost-cost-micros': '5',
+            'x-layahost-balance-micros': '4999985',
+          }),
+      }),
+    });
+    const outcome = await provider.decide(REQUEST, signal());
+    expect(outcome.costMicros).toBeUndefined();
+    expect(outcome.balanceMicros).toBeUndefined();
+  });
+
+  it('the pinned OpenAPI declares cost only in SystemOneResponse.meta, never as a header', () => {
+    expect(JSON.stringify(SPEC)).not.toMatch(/x-layahost|"headers"/i);
+    const meta = node(
+      node(node(node(node(SPEC.components).schemas).SystemOneResponse).properties).meta,
+    );
+    expect(Object.keys(node(meta.properties))).toEqual(
+      expect.arrayContaining(['cost_micros', 'cost_usd', 'checkpoint']),
+    );
   });
 
   it('keeps a plain Jev host on the Jev body and the one-method shape', async () => {
@@ -656,6 +686,318 @@ describe('client — spend cap, key limit, circuit breaker, batch', () => {
     );
     expect(provider.decide).toHaveBeenCalledTimes(2);
     expect(out.map((o) => o.source)).toEqual(['provider', 'provider']);
+  });
+
+  it('decideBatch defaults to a >= 30 s deadline, not the 300 ms single-decision one (T12715)', async () => {
+    expect(DEFAULT_BATCH_DECISION_TIMEOUT_MS).toBeGreaterThanOrEqual(30_000);
+    vi.useFakeTimers();
+    try {
+      const decideBatchFn = vi.fn(
+        (reqs: readonly DecisionRequest[]) =>
+          new Promise<readonly DecisionBatchItem[]>((resolve) => {
+            // A realistic batch: 64 serial items take seconds, far past 300 ms.
+            setTimeout(
+              () => resolve(reqs.map(() => ({ ok: true as const, outcome: OUTCOME }))),
+              5_000,
+            );
+          }),
+      );
+      const provider: DecisionProvider = {
+        decide: vi.fn(async () => OUTCOME),
+        capabilities: () => LAYAHOST_EXTENSION_CAPABILITIES,
+        decideBatch: decideBatchFn,
+      };
+      const { timeoutMs: _omitted, ...opts } = wiring({ provider });
+      const pending = decideBatch(
+        's',
+        [
+          { req: REQUEST, fallback: heuristic },
+          { req: { ...REQUEST, state: 'Other' }, fallback: heuristic },
+        ],
+        opts,
+      );
+      await vi.advanceTimersByTimeAsync(DEFAULT_DECISION_TIMEOUT_MS + 1);
+      await vi.advanceTimersByTimeAsync(5_000);
+      const out = await pending;
+      expect(decideBatchFn).toHaveBeenCalledTimes(1);
+      expect(out.map((o) => o.source)).toEqual(['provider', 'provider']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('decideBatch still times out at the batch default', async () => {
+    vi.useFakeTimers();
+    try {
+      const provider: DecisionProvider = {
+        decide: vi.fn(async () => OUTCOME),
+        capabilities: () => LAYAHOST_EXTENSION_CAPABILITIES,
+        decideBatch: vi.fn(() => new Promise<readonly DecisionBatchItem[]>(() => undefined)),
+      };
+      const { timeoutMs: _omitted, ...opts } = wiring({ provider });
+      const pending = decideBatch(
+        's',
+        [
+          { req: REQUEST, fallback: heuristic },
+          { req: { ...REQUEST, state: 'Other' }, fallback: heuristic },
+        ],
+        opts,
+      );
+      await vi.advanceTimersByTimeAsync(DEFAULT_BATCH_DECISION_TIMEOUT_MS + 1);
+      const out = await pending;
+      expect(out.map((o) => o.source)).toEqual(['fallback', 'fallback']);
+      expect(opts.audit.entries.map((e) => e.fallbackReason)).toEqual(['timeout', 'timeout']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('decideBatch sequential degradation caps each call at the single-decision default', async () => {
+    vi.useFakeTimers();
+    try {
+      // No batch capability: every entry is a single decide that never answers.
+      const provider: DecisionProvider = {
+        decide: vi.fn(() => new Promise<DecisionOutcome>(() => undefined)),
+      };
+      const { timeoutMs: _omitted, ...opts } = wiring({ provider });
+      const pending = decideBatch(
+        's',
+        [
+          { req: REQUEST, fallback: heuristic },
+          { req: { ...REQUEST, state: 'Other' }, fallback: heuristic },
+        ],
+        opts,
+      );
+      await vi.advanceTimersByTimeAsync(2 * DEFAULT_DECISION_TIMEOUT_MS + 10);
+      const out = await pending;
+      expect(provider.decide).toHaveBeenCalledTimes(2);
+      expect(out.map((o) => o.source)).toEqual(['fallback', 'fallback']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('lazy capability detection (T12715)', () => {
+  const HEURISTIC: Record<string, DecisionAnswer> = {
+    dup: { type: 'noul', value: false, probability: 0.1, confidence: 1 },
+  };
+  const heuristic = (): Record<string, DecisionAnswer> => HEURISTIC;
+  const sink: DecisionAuditSink = { write: () => undefined };
+  let dir: string;
+  const TWO = [
+    { req: REQUEST, fallback: heuristic },
+    { req: { ...REQUEST, state: 'Another task' }, fallback: heuristic },
+  ];
+  const batchBody = () =>
+    jsonResponse(200, {
+      responses: [
+        { index: 0, status: 200, body: OK_BODY },
+        { index: 1, status: 200, body: OK_BODY },
+      ],
+    });
+  const layahost = () =>
+    routes({
+      '/v1/usage': () => jsonResponse(200, { balance: { micros: 5_000_000 } }),
+      '/v1/systemone': () => jsonResponse(200, OK_BODY),
+      '/v1/systemone/batch': batchBody,
+    });
+  const calls = (stub: ReturnType<typeof routes>, path: string): number =>
+    stub.mock.calls.filter(([u]) => new URL(String(u)).pathname === path).length;
+
+  beforeEach(() => {
+    _resetDecideDefaultsForTest();
+    _resetProviderStateMemoForTest();
+    dir = mkdtempSync(join(tmpdir(), 'decide-lazy-'));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function opts(fetchStub: ReturnType<typeof routes>): DecideOptions {
+    return {
+      connection,
+      fetch: fetchStub,
+      providerStatePath: join(dir, 'state.json'),
+      budget: null,
+      spend: null,
+      cache: null,
+      audit: sink,
+    };
+  }
+
+  it('decideBatch detects on first use, then sends ONE batch call', async () => {
+    const stub = layahost();
+    const out = await decideBatch('s', TWO, opts(stub));
+    expect(out.map((o) => o.source)).toEqual(['provider', 'provider']);
+    expect(calls(stub, '/v1/usage')).toBe(1);
+    expect(calls(stub, '/v1/systemone/batch')).toBe(1);
+    expect(calls(stub, '/v1/systemone')).toBe(0);
+    const state = JSON.parse(readFileSync(join(dir, 'state.json'), 'utf-8'));
+    expect(state.capabilities.batch).toEqual({ maxRequests: 64, maxQuestions: 256 });
+    expect(JSON.stringify(state)).not.toContain(connection.apiKey);
+  });
+
+  it('detects at most once per refresh interval', async () => {
+    const stub = layahost();
+    await decideBatch('s', TWO, opts(stub));
+    _resetProviderStateMemoForTest(); // even a fresh process reuses the file
+    await decideBatch('s', TWO, opts(stub));
+    expect(calls(stub, '/v1/usage')).toBe(1);
+    expect(calls(stub, '/v1/systemone/batch')).toBe(2);
+  });
+
+  it('a single decide never detects: it uses the Jev minimum until a detection is cached', async () => {
+    const stub = layahost();
+    const outcome = await decide('s', REQUEST, heuristic, { ...opts(stub), timeoutMs: 1_000 });
+    expect(outcome.source).toBe('provider');
+    expect(calls(stub, '/v1/usage')).toBe(0);
+    expect(calls(stub, '/v1/templates')).toBe(0);
+    expect(existsSync(join(dir, 'state.json'))).toBe(false);
+  });
+
+  it('a failed detection is not retried within the interval, even when the state cannot be written', async () => {
+    writeFileSync(join(dir, 'blocker'), 'x');
+    const stub = routes({ '/v1/systemone': () => jsonResponse(200, OK_BODY) });
+    // `blocker` is a file, so `<blocker>/state.json` can never be written.
+    const o = { ...opts(stub), providerStatePath: join(dir, 'blocker', 'state.json') };
+    const first = await decideBatch('s', TWO, o);
+    const second = await decideBatch('s', TWO, o);
+    expect([...first, ...second].map((x) => x.source)).toEqual([
+      'provider',
+      'provider',
+      'provider',
+      'provider',
+    ]);
+    expect(calls(stub, '/v1/usage')).toBe(1);
+    expect(calls(stub, '/v1/systemone')).toBe(4);
+  });
+
+  it('a transient detection failure keeps the previous capabilities', async () => {
+    let now = 1_000_000;
+    const path = join(dir, 'state.json');
+    await refreshProviderState(connection, signal(), { fetch: layahost(), path, now: () => now });
+    now += USAGE_REFRESH_MS;
+    _resetProviderStateMemoForTest();
+    const down = routes({ '/v1/usage': () => jsonResponse(503, { detail: {} }) });
+    const state = await refreshProviderState(connection, signal(), {
+      fetch: down,
+      path,
+      now: () => now,
+    });
+    expect(state?.capabilities.batch).toEqual({ maxRequests: 64, maxQuestions: 256 });
+    expect(state?.detectedAt).toBe(now);
+  });
+
+  it('a definitive "no extension" answer downgrades to the Jev minimum', async () => {
+    let now = 1_000_000;
+    const path = join(dir, 'state.json');
+    await refreshProviderState(connection, signal(), { fetch: layahost(), path, now: () => now });
+    now += USAGE_REFRESH_MS;
+    _resetProviderStateMemoForTest();
+    const plainJev = routes({});
+    const state = await refreshProviderState(connection, signal(), {
+      fetch: plainJev,
+      path,
+      now: () => now,
+    });
+    expect(state?.capabilities).toEqual(JEV_MINIMUM_CAPABILITIES);
+  });
+
+  it('a transient failure with nothing cached is not written, and is retried after a short wait', async () => {
+    let now = 1_000_000;
+    const path = join(dir, 'state.json');
+    const down = routes({ '/v1/usage': () => jsonResponse(503, { detail: {} }) });
+    const o = { fetch: down, path, now: () => now };
+    const state = await refreshProviderState(connection, signal(), o);
+    expect(state?.capabilities).toEqual(JEV_MINIMUM_CAPABILITIES);
+    expect(existsSync(path)).toBe(false);
+    // The in-process memo serves the result meanwhile.
+    expect(cachedCapabilities(connection, now, path)).toEqual(JEV_MINIMUM_CAPABILITIES);
+
+    now += TRANSIENT_DETECTION_RETRY_MS - 1;
+    await refreshProviderState(connection, signal(), o);
+    expect(calls(down, '/v1/usage')).toBe(1);
+    now += 1;
+    await refreshProviderState(connection, signal(), o);
+    expect(calls(down, '/v1/usage')).toBe(2);
+  });
+
+  it('a partial detection (/v1/usage ok, /v1/templates timed out) is transient, not "no templates"', async () => {
+    const templatesDown = (): ReturnType<typeof routes> =>
+      vi.fn<typeof fetch>(async (input) => {
+        const p = new URL(String(input)).pathname;
+        if (p === '/v1/usage') return jsonResponse(200, { balance: { micros: 5 } });
+        throw new TypeError('fetch failed');
+      });
+    const partial = await detectJevCapabilities(connection, signal(), { fetch: templatesDown() });
+    expect(partial.error?.kind).toBe('network');
+
+    // Nothing cached: the partial result is not pinned for 10 minutes.
+    let now = 1_000_000;
+    const path = join(dir, 'state.json');
+    await refreshProviderState(connection, signal(), {
+      fetch: templatesDown(),
+      path,
+      now: () => now,
+    });
+    expect(existsSync(path)).toBe(false);
+
+    // Cached with templates: a templates timeout keeps them.
+    const full = routes({
+      '/v1/usage': () => jsonResponse(200, { balance: { micros: 5 } }),
+      '/v1/templates': () => jsonResponse(200, { templates: [{ template: 'spam' }] }),
+    });
+    await refreshProviderState(connection, signal(), {
+      fetch: full,
+      path,
+      now: () => now,
+      force: true,
+    });
+    expect(readProviderState(connection, path)?.capabilities.templates).toEqual(['spam']);
+    now += USAGE_REFRESH_MS;
+    const state = await refreshProviderState(connection, signal(), {
+      fetch: templatesDown(),
+      path,
+      now: () => now,
+    });
+    expect(state?.capabilities.templates).toEqual(['spam']);
+    expect(readProviderState(connection, path)?.capabilities.templates).toEqual(['spam']);
+  });
+
+  it('decideBatch answered entirely from the cache never detects', async () => {
+    const cache = createDecisionCache();
+    const stub = layahost();
+    const first = await decideBatch('s', TWO, { ...opts(stub), cache });
+    expect(first.map((o) => o.source)).toEqual(['provider', 'provider']);
+    expect(calls(stub, '/v1/usage')).toBe(1);
+    // A fresh process with no state file would detect — unless nothing is pending.
+    _resetProviderStateMemoForTest();
+    rmSync(join(dir, 'state.json'), { force: true });
+    const second = await decideBatch('s', TWO, { ...opts(stub), cache });
+    expect(second.map((o) => o.source)).toEqual(['cache', 'cache']);
+    expect(calls(stub, '/v1/usage')).toBe(1);
+  });
+
+  it('detection uses at most 40% of the remaining batch deadline', async () => {
+    const hanging = vi.fn<typeof fetch>(async (input, init) => {
+      const p = new URL(String(input)).pathname;
+      if (p === '/v1/systemone') return jsonResponse(200, OK_BODY);
+      if (p === '/v1/usage') {
+        return new Promise<Response>((_, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new Error('aborted')), {
+            once: true,
+          });
+        });
+      }
+      return jsonResponse(404, { detail: { error_type: 'not_found' } });
+    });
+    const started = performance.now();
+    const out = await decideBatch('s', TWO, { ...opts(hanging), timeoutMs: 1_000 });
+    const detectedFor = performance.now() - started;
+    // Detection gave up at ~400 ms, leaving the batch time to answer.
+    expect(out.map((o) => o.source)).toEqual(['provider', 'provider']);
+    expect(detectedFor).toBeLessThan(900);
   });
 });
 
