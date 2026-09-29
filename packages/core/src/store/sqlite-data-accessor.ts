@@ -489,6 +489,8 @@ async function createOwnedSqliteDataAccessor(
               detailsJson: entry.details ? JSON.stringify(entry.details) : '{}',
               beforeJson: entry.before ? JSON.stringify(entry.before) : null,
               afterJson: entry.after ? JSON.stringify(entry.after) : null,
+              // T12693: the session a ranking change ran in.
+              sessionId: typeof entry.sessionId === 'string' ? entry.sessionId : null,
             })
             .run(),
         );
@@ -498,6 +500,9 @@ async function createOwnedSqliteDataAccessor(
     async queryAuditLog(query: TaskAuditLogQuery): Promise<TaskAuditLogRow[]> {
       const db = await getDb(cwd);
       const conditions = [];
+      if (query.ids && query.ids.length > 0) {
+        conditions.push(inArray(tasksAuditLog.id, [...query.ids]));
+      }
       if (query.taskIds && query.taskIds.length > 0) {
         conditions.push(inArray(tasksAuditLog.taskId, [...query.taskIds]));
       }
@@ -518,6 +523,7 @@ async function createOwnedSqliteDataAccessor(
           detailsJson: tasksAuditLog.detailsJson,
           beforeJson: tasksAuditLog.beforeJson,
           afterJson: tasksAuditLog.afterJson,
+          sessionId: tasksAuditLog.sessionId,
         })
         .from(tasksAuditLog)
         .where(conditions.length > 0 ? and(...conditions) : undefined)
@@ -533,6 +539,7 @@ async function createOwnedSqliteDataAccessor(
         detailsJson: row.detailsJson ?? null,
         beforeJson: row.beforeJson ?? null,
         afterJson: row.afterJson ?? null,
+        sessionId: row.sessionId ?? null,
       }));
     },
 

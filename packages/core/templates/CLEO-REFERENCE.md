@@ -105,6 +105,8 @@ List/find default to excluding archived rows; `--include-archive` applies the sa
 | `relates` | **Semantic, non-blocking** linkage (`blocks`, `related`, `duplicates`, `absorbs`, `fixes`, `extends`, `supersedes`) | `cleo relates add <from> <to> <type> <reason>` |
 
 **Rule:** `relates` never blocks; `blocked-by` takes a reason, not a task ID. Details: `ct-cleo` → "Task Relationship Systems".
+
+**Ranking inputs (D11161):** agents may change `priority`, `severity`, `kind` and `depends` directly. Every change records actor, session, reason and before/after. Say why with `cleo update <id> --priority high --reason "<why>"`. `cleo history ranking <id>` shows who changed what; `cleo history revert <entryId>` undoes one change.
 <!-- /CLEO-INJECTION:section=task-relationships -->
 
 <!-- CLEO-INJECTION:section=memory -->
