@@ -24,10 +24,14 @@
  *
  * Every `*.ts`/`*.mts`/`*.tsx`/`*.js`/`*.mjs` under `packages/<pkg>/src/`,
  * for each package whose `package.json` declares `"type": "module"` (tests,
- * `__tests__/` and `.d.ts` excluded). Comments and string/template-literal
- * text are blanked first, so a `require(` in documentation or in generated
- * child-process source is not a violation. A file that binds `require` itself
- * (`const require = createRequire(...)`) is exempt.
+ * `__tests__/` and `.d.ts` excluded). Every reference to the free identifier
+ * `require` counts — a call, `require.resolve`, `require?.(`, `const r =
+ * require` — and so does `module.require`. Comments and string, template and
+ * regex literal text are blanked first, so `require(` in documentation or in
+ * generated child-process source is not a violation; `typeof require` and an
+ * object key or type member named `require` are not references. A
+ * `const require = createRequire(...)` binding exempts its own scope only: at
+ * top level the file, inside a function that function.
  *
  * ## Baseline
  *
@@ -62,15 +66,26 @@ export const BASELINE = Object.freeze({
 const SOURCE_EXT = /\.(ts|mts|tsx|js|mjs)$/;
 const TEST_FILE = /\.(test|spec)\.(ts|mts|tsx|js|mjs)$/;
 
-/** A bare call: `require(` not preceded by `.`, an identifier char or `$`. */
-const BARE_REQUIRE = /(?<![.\w$])require\s*\(/g;
-
-/** A local binding that makes `require` legitimate in this file. */
-const LOCAL_BINDING = /\b(?:const|let|var)\s+require\s*=/;
+/**
+ * A reference to the free identifier `require` (a call, `require.resolve`,
+ * `require?.(`, or passing it as a value), or to CommonJS `module.require`.
+ * `x.require`, `my_require` and `$require` are other identifiers.
+ */
+const REQUIRE_REF = /(?<![.\w$])require\b|(?<![.\w$])module\s*\.\s*require\b/g;
 
 /**
- * Blank comments and the text of string and template literals, keeping
- * newlines (so line numbers survive) and the code inside `${…}`.
+ * A `require` binding: `const require = …` (or `let`/`var`). It exempts
+ * references in its own scope only.
+ */
+const REQUIRE_BINDING = /\b(?:const|let|var)\s+require\s*=/g;
+
+/** Last significant token after which a `/` starts a regex literal, not a division. */
+const REGEX_PRECEDER =
+  /(?:^|[(,=:[!&|?{};+\-*%<>~^]|\b(?:return|typeof|instanceof|in|of|new|delete|void|throw|case|do|else|yield|await))\s*$/;
+
+/**
+ * Blank comments and the text of string, template and regex literals,
+ * keeping newlines (so line numbers survive) and the code inside `${…}`.
  *
  * @param {string} src
  * @returns {string}
@@ -94,6 +109,18 @@ export function blankNonCode(src) {
       const stop = end === -1 ? src.length : end + 2;
       out += blank(src.slice(i, stop));
       i = stop;
+    } else if (c === '/' && REGEX_PRECEDER.test(out.slice(-40))) {
+      // Regex literal: runs to the first unescaped `/` outside a class.
+      let j = i + 1;
+      let inClass = false;
+      while (j < src.length && src[j] !== '\n' && (inClass || src[j] !== '/')) {
+        if (src[j] === '\\') j += 1;
+        else if (src[j] === '[') inClass = true;
+        else if (src[j] === ']') inClass = false;
+        j += 1;
+      }
+      out += `/${blank(src.slice(i + 1, j))}${src[j] === '/' ? '/' : ''}`;
+      i = src[j] === '/' ? j + 1 : j;
     } else if (c === "'" || c === '"') {
       let j = i + 1;
       while (j < src.length && src[j] !== c && src[j] !== '\n') j += src[j] === '\\' ? 2 : 1;
@@ -128,19 +155,66 @@ export function blankNonCode(src) {
 }
 
 /**
- * Find every bare `require(` in one ESM source text.
+ * The `[start, end)` span of the innermost `{…}` block enclosing `index`, or
+ * the whole text at top level.
+ *
+ * @param {string} code - Blanked source.
+ * @param {number} index
+ * @returns {[number, number]}
+ */
+function enclosingBlock(code, index) {
+  let depth = 0;
+  let open = -1;
+  for (let k = index - 1; k >= 0; k -= 1) {
+    if (code[k] === '}') depth += 1;
+    else if (code[k] === '{') {
+      if (depth === 0) {
+        open = k;
+        break;
+      }
+      depth -= 1;
+    }
+  }
+  if (open === -1) return [0, code.length];
+  depth = 0;
+  for (let k = open; k < code.length; k += 1) {
+    if (code[k] === '{') depth += 1;
+    else if (code[k] === '}' && --depth === 0) return [open, k + 1];
+  }
+  return [open, code.length];
+}
+
+/**
+ * Find every reference to a free `require` in one ESM source text.
+ *
+ * `typeof require` is a safe probe, and an object key or type member
+ * (`require:`, `require?:`) is not a reference. A `const require = …` binding exempts its own block only: a
+ * top-level binding exempts the file, a function-local one that function.
  *
  * @param {string} src - Module source.
- * @returns {{ line: number, text: string }[]} Empty when the file binds `require` itself.
+ * @returns {{ line: number, text: string }[]}
  */
 export function findBareRequires(src) {
   const code = blankNonCode(src);
-  if (LOCAL_BINDING.test(code)) return [];
+  const scopes = [];
+  REQUIRE_BINDING.lastIndex = 0;
+  for (let m = REQUIRE_BINDING.exec(code); m !== null; m = REQUIRE_BINDING.exec(code)) {
+    scopes.push(enclosingBlock(code, m.index));
+  }
   const lines = src.split('\n');
   const hits = [];
-  BARE_REQUIRE.lastIndex = 0;
-  for (let m = BARE_REQUIRE.exec(code); m !== null; m = BARE_REQUIRE.exec(code)) {
-    const line = code.slice(0, m.index).split('\n').length;
+  REQUIRE_REF.lastIndex = 0;
+  for (let m = REQUIRE_REF.exec(code); m !== null; m = REQUIRE_REF.exec(code)) {
+    const before = code.slice(0, m.index);
+    const after = code.slice(m.index + m[0].length);
+    if (/\btypeof\s*$/.test(before)) continue;
+    // An object key or type member: `{ require: … }`, `require?: string;`.
+    if (/^\s*\??\s*:(?!:)/.test(after) && /(?:^|[{,;])\s*$/.test(before)) continue;
+    if (/(?:const|let|var)\s+$/.test(before)) continue; // the binding itself
+    if (!m[0].startsWith('module') && scopes.some(([a, b]) => m.index >= a && m.index < b)) {
+      continue;
+    }
+    const line = before.split('\n').length;
     hits.push({ line, text: lines[line - 1].trim() });
   }
   return hits;

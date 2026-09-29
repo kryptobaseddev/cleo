@@ -35,7 +35,7 @@ describe('findBareRequires', () => {
     "/* require('node:fs') */ const y = 1;",
     'const hint = "run node -e \\"require(\'node:crypto\')\\"";',
     "const script = String.raw`\nconst { spawn } = require('node:child_process');\n`;",
-    "const r = createRequire(import.meta.url); r('x'); module.require('y'); my_require('z');",
+    "const r = createRequire(import.meta.url); r('x'); my_require('z');",
     "import { createRequire } from 'node:module';\nconst require = createRequire(import.meta.url);\nrequire('ajv');",
   ])('does not flag %s', (src) => {
     expect(findBareRequires(src)).toEqual([]);
@@ -44,6 +44,54 @@ describe('findBareRequires', () => {
   it('reports the right line after a block comment and a multi-line template', () => {
     const src = '/*\n * doc\n */\nconst t = `a\nb`;\nconst x = require("y");\n';
     expect(findBareRequires(src)[0]?.line).toBe(6);
+  });
+});
+
+describe('findBareRequires — review gaps', () => {
+  it.each([
+    "const p = require.resolve('ajv');",
+    "const m = require?.('node:fs');",
+    'const r = require;',
+    "const m = module.require('node:fs');",
+    'load(require);',
+  ])('flags every free reference: %s', (src) => {
+    expect(findBareRequires(src)).toHaveLength(1);
+  });
+
+  it.each([
+    "if (typeof require !== 'undefined') {}",
+    "const exportsMap = { import: './a.mjs', require: './a.cjs' };",
+    'interface Entry { import?: string; require?: string }',
+    'const x = pkg.require; const y = my_require(1); const z = $require(2);',
+  ])('does not flag a non-reference: %s', (src) => {
+    expect(findBareRequires(src)).toEqual([]);
+  });
+
+  it('a top-level createRequire binding exempts the whole file', () => {
+    const src =
+      "import { createRequire } from 'node:module';\n" +
+      'const require = createRequire(import.meta.url);\n' +
+      "function a() { return require('x'); }\n" +
+      "const b = require.resolve('y');\n";
+    expect(findBareRequires(src)).toEqual([]);
+  });
+
+  it('a function-local binding exempts only that function', () => {
+    const src =
+      'function load() {\n' +
+      '  const require = createRequire(import.meta.url);\n' +
+      "  return require('ajv');\n" +
+      '}\n' +
+      "export const fs = require('node:fs');\n";
+    const hits = findBareRequires(src);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]?.line).toBe(5);
+  });
+
+  it('blanks regex literals but still treats division as code', () => {
+    expect(findBareRequires("const re = /require\\('x'\\)/g;")).toEqual([]);
+    expect(findBareRequires('const re = [/[/]require(/, 1];')).toEqual([]);
+    expect(findBareRequires("const half = total / 2; const m = require('y') / 2;")).toHaveLength(1);
   });
 });
 
