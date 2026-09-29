@@ -193,9 +193,9 @@ const SPEC_OK_BODY = {
   },
 };
 
-describe('jev-wire/2 — errors, cost and extensions', () => {
-  it('is adapter version jev-wire/2', () => {
-    expect(JEV_ADAPTER_VERSION).toBe('jev-wire/2');
+describe('jev-wire/3 — errors, cost and extensions', () => {
+  it('is adapter version jev-wire/3', () => {
+    expect(JEV_ADAPTER_VERSION).toBe('jev-wire/3');
   });
 
   it('maps 403 key_limit_exceeded to its own kind, never unauthorized', async () => {
@@ -227,33 +227,58 @@ describe('jev-wire/2 — errors, cost and extensions', () => {
     expect(err.retryAfterMs).toBe(4000);
   });
 
-  it('reads cost from meta.cost_micros, balance from the header, and the checkpoint', async () => {
+  it('reads cost from meta.cost_micros and the checkpoint (OpenAPI SystemOneResponse.meta)', async () => {
     const provider = createJevProvider(connection, {
       fetch: routes({
         '/v1/systemone': () =>
-          jsonResponse(
-            200,
-            { ...OK_BODY, meta: { request_id: 'r', cost_micros: 15, checkpoint: 'laya-en-0926' } },
-            { 'x-layahost-balance-micros': '4999985' },
-          ),
+          jsonResponse(200, {
+            ...OK_BODY,
+            meta: { request_id: 'r', cost_micros: 15, checkpoint: 'laya-en-0926' },
+          }),
       }),
     });
     const outcome = await provider.decide(REQUEST, signal());
     expect(outcome).toMatchObject({
       costMicros: 15,
       costUsd: 15 / 1e6,
-      balanceMicros: 4999985,
       checkpoint: 'laya-en-0926',
     });
+    expect(outcome.balanceMicros).toBeUndefined();
   });
 
-  it('falls back to the cost header when meta has no cost_micros', async () => {
+  it('derives micros from meta.cost_usd when meta has no cost_micros', async () => {
     const provider = createJevProvider(connection, {
       fetch: routes({
-        '/v1/systemone': () => jsonResponse(200, OK_BODY, { 'x-layahost-cost-micros': '5' }),
+        '/v1/systemone': () => jsonResponse(200, { ...OK_BODY, meta: { cost_usd: 0.000005 } }),
       }),
     });
-    expect((await provider.decide(REQUEST, signal())).costMicros).toBe(5);
+    const outcome = await provider.decide(REQUEST, signal());
+    expect(outcome).toMatchObject({ costMicros: 5, costUsd: 0.000005 });
+  });
+
+  it('ignores the undocumented x-layahost-* cost and balance headers (T12715)', async () => {
+    const provider = createJevProvider(connection, {
+      fetch: routes({
+        '/v1/systemone': () =>
+          jsonResponse(200, OK_BODY, {
+            'x-layahost-cost-micros': '5',
+            'x-layahost-balance-micros': '4999985',
+          }),
+      }),
+    });
+    const outcome = await provider.decide(REQUEST, signal());
+    expect(outcome.costMicros).toBeUndefined();
+    expect(outcome.balanceMicros).toBeUndefined();
+  });
+
+  it('the pinned OpenAPI declares cost only in SystemOneResponse.meta, never as a header', () => {
+    expect(JSON.stringify(SPEC)).not.toMatch(/x-layahost|"headers"/i);
+    const meta = node(
+      node(node(node(node(SPEC.components).schemas).SystemOneResponse).properties).meta,
+    );
+    expect(Object.keys(node(meta.properties))).toEqual(
+      expect.arrayContaining(['cost_micros', 'cost_usd', 'checkpoint']),
+    );
   });
 
   it('keeps a plain Jev host on the Jev body and the one-method shape', async () => {

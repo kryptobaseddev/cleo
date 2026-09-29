@@ -68,8 +68,6 @@ export {
   saveDecideCredentials,
 } from './credentials.js';
 export {
-  BALANCE_MICROS_HEADER,
-  COST_MICROS_HEADER,
   createJevProvider,
   DECISION_MODEL_NAME_PATTERN,
   detectJevCapabilities,
@@ -79,7 +77,6 @@ export {
   isValidDecisionModelName,
   JEV_ADAPTER_VERSION,
   type JevProviderOptions,
-  type JevResponseHeaders,
   type JevSystemOneBody,
   LAYAHOST_EXTENSION_CAPABILITIES,
   listJevModels,
