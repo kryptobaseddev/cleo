@@ -121,28 +121,46 @@ function scalar(raw) {
  *   ok: boolean,
  *   fields: Record<string, string>,
  *   metadata: Record<string, string>,
+ *   lists: Record<string, string[]>,
  *   keys: string[],
  *   errors: string[],
  * }} `fields` holds top-level scalars (block scalars folded to one line;
- *   nested maps and lists omitted), `keys` every top-level key in order
- *   (duplicates included), `metadata` the nested `metadata:` map.
+ *   nested maps omitted), `lists` top-level block (`- item`) and inline
+ *   (`[a, b]`) lists, `keys` every top-level key in order (duplicates
+ *   included), `metadata` the nested `metadata:` map.
  */
 export function parseFrontmatter(text) {
   const errors = [];
   // T12649: a CRLF checkout (Windows autocrlf) must parse identically.
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
   if (lines[0] !== '---') {
-    return { ok: false, fields: {}, metadata: {}, keys: [], errors: ['no frontmatter block'] };
+    return {
+      ok: false,
+      fields: {},
+      metadata: {},
+      lists: {},
+      keys: [],
+      errors: ['no frontmatter block'],
+    };
   }
   const end = lines.indexOf('---', 1);
   if (end === -1) {
-    return { ok: false, fields: {}, metadata: {}, keys: [], errors: ['unterminated frontmatter'] };
+    return {
+      ok: false,
+      fields: {},
+      metadata: {},
+      lists: {},
+      keys: [],
+      errors: ['unterminated frontmatter'],
+    };
   }
   const body = lines.slice(1, end);
   /** @type {Record<string, string>} */
   const fields = {};
   /** @type {Record<string, string>} */
   const metadata = {};
+  /** @type {Record<string, string[]>} */
+  const lists = {};
   const keys = [];
 
   for (let i = 0; i < body.length; i++) {
@@ -177,10 +195,24 @@ export function parseFrontmatter(text) {
       fields[key] = parts.filter(Boolean).join(' ');
       continue;
     }
+    if (value === '') {
+      // A block list (`key:` then `  - item` lines) — T12649.
+      const items = [];
+      for (let j = i + 1; j < body.length && /^\s+-\s/.test(body[j]); j++) {
+        items.push(scalar(body[j].replace(/^\s+-\s+/, '')));
+      }
+      lists[key] = items;
+    } else if (value.startsWith('[') && value.endsWith(']')) {
+      lists[key] = value
+        .slice(1, -1)
+        .split(',')
+        .map((s) => scalar(s))
+        .filter(Boolean);
+    }
     fields[key] = scalar(value);
   }
 
-  return { ok: errors.length === 0, fields, metadata, keys, errors };
+  return { ok: errors.length === 0, fields, metadata, lists, keys, errors };
 }
 
 /**

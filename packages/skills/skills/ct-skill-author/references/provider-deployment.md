@@ -57,7 +57,7 @@ CLEO-aware providers read both SKILL.md and manifest.json. The manifest provides
 
 ### CLEO Package Skills
 
-Skills in `packages/skills/skills/` are managed by CLEO infrastructure. They are deployed via the CLEO skill system and do not need manual symlink setup. The manifest.json, dispatch-config.json, and provider-skills-map.json coordinate deployment automatically.
+Skills in `packages/skills/skills/` are managed by CLEO infrastructure. They are deployed via the CLEO skill system and do not need manual symlink setup. `manifest.json` (generated from SKILL.md frontmatter) drives installation: every skill with `metadata.install: harness` is installed.
 
 ### User Global Skills
 
@@ -164,10 +164,14 @@ To add a new skill to the CLEO package (`packages/skills/`):
    }
    ```
 
-4. **Add entry to dispatch-config.json** (`packages/skills/dispatch-config.json`):
-   Add the skill to relevant `by_task_type`, `by_keyword`, and/or `by_protocol` mappings if it should participate in dispatch routing.
+4. **Add dispatch routing** if the skill should participate: add it to the
+   `dispatch_matrix` (`by_task_type`, `by_keyword`, `by_protocol`) in
+   `packages/skills/skills/manifest.json`. (`dispatch-config.json` was removed
+   in T12649; nothing read it.)
 
-5. **Update totalSkills** in manifest.json `_meta.totalSkills` to reflect the new count.
+5. **Regenerate the manifest**: `node scripts/skills/generate-manifest.mjs`.
+   It writes the identity fields and `_meta.totalSkills` from SKILL.md
+   frontmatter; gate 29 fails if you hand-edit them.
 
 6. **Validate**: Run the skill validator to confirm the new skill passes all checks:
    ```bash

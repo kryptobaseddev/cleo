@@ -184,6 +184,48 @@ describe('lint-skills-manifest goes red on planted defects', () => {
     ]);
   });
 
+  it('fails on a ghost dependency, chains_to or reference (review of #1656)', () => {
+    addSkill('ct-beta', skillMd('ct-beta', 'dependencies:\n  - ct-docs-write'));
+    expect(checkManifest(root).problems).toEqual([]);
+    const { manifest } = buildManifest(root);
+    expect(manifest.skills.find((s) => s.name === 'ct-beta').dependencies).toEqual([
+      'ct-docs-write',
+    ]);
+    writeFileSync(join(root, MANIFEST), serialiseManifest(manifest));
+    expect(checkManifest(root).drift).toEqual([
+      "ct-beta: dependencies names 'ct-docs-write', which is not a skill",
+    ]);
+
+    addSkill('ct-beta');
+    const clean = buildManifest(root).manifest;
+    clean.skills[0].capabilities = { chains_to: ['ct-docs-review'] };
+    clean.skills[0].references = ['skills/ct-skill-creator/references/x.md'];
+    writeFileSync(join(root, MANIFEST), serialiseManifest(clean));
+    expect(checkManifest(root).drift).toEqual([
+      "ct-alpha: capabilities.chains_to names 'ct-docs-review', which is not a skill",
+      "ct-alpha: references 'skills/ct-skill-creator/references/x.md', which does not exist",
+    ]);
+  });
+
+  it("fails when a profile's dependency closure reaches a non-harness skill", () => {
+    addSkill(
+      'ct-gamma',
+      skillMd('ct-gamma')
+        .replace('tier: on-demand', 'tier: internal')
+        .replace('install: harness', 'install: internal'),
+    );
+    addSkill('ct-beta', skillMd('ct-beta', 'dependencies:\n  - ct-gamma'));
+    regenerate();
+    mkdirSync(join(root, 'packages/skills/profiles'), { recursive: true });
+    writeFileSync(
+      join(root, 'packages/skills/profiles/full.json'),
+      JSON.stringify({ name: 'full', skills: ['ct-alpha', 'ct-beta'] }),
+    );
+    expect(checkManifest(root).drift).toEqual([
+      "packages/skills/profiles: profile 'full' installs 'ct-gamma' (via dependencies), which is not a harness skill",
+    ]);
+  });
+
   it('fails when the manifest lists a skill with no directory', () => {
     const m = JSON.parse(readFileSync(join(root, MANIFEST), 'utf8'));
     m.skills.push({ name: 'loom' });

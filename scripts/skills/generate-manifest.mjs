@@ -99,6 +99,30 @@ export function checkProfiles(root, manifest) {
     seen.add(name);
     return [...(p.extends ? resolve(p.extends, seen) : []), ...(p.skills ?? [])];
   };
+  // The dependency closure CAAMP's resolveProfile installs (T12649).
+  const deps = new Map(manifest.skills.map((s) => [s.name, s.dependencies ?? []]));
+  const closure = (skills) => {
+    const out = new Set();
+    const queue = [...skills];
+    while (queue.length > 0) {
+      const n = queue.shift();
+      if (out.has(n)) continue;
+      out.add(n);
+      queue.push(...(deps.get(n) ?? []));
+    }
+    return out;
+  };
+  for (const name of profiles.keys()) {
+    const direct = new Set(resolve(name));
+    for (const skill of closure(direct)) {
+      // Directly named non-harness skills are already reported above.
+      if (!direct.has(skill) && !harness.has(skill)) {
+        drift.push(
+          `${PROFILES_DIR}: profile '${name}' installs '${skill}' (via dependencies), which is not a harness skill`,
+        );
+      }
+    }
+  }
   if (profiles.has('full')) {
     const full = new Set(resolve('full'));
     for (const skill of harness) {
@@ -106,6 +130,41 @@ export function checkProfiles(root, manifest) {
         drift.push(
           `${PROFILES_DIR}: harness skill '${skill}' is in no profile ('full' must install every harness skill)`,
         );
+    }
+  }
+  return drift;
+}
+
+/**
+ * Check that every skill name and file a manifest entry points at exists
+ * (T12649): `dependencies`, `capabilities.dependencies`,
+ * `capabilities.chains_to` must name manifest entries, and every
+ * `references` path must be a file in the skills package. A merged or
+ * retired skill otherwise survives as a ghost that `resolveProfile` returns
+ * and `caamp skills install --profile` fails on.
+ *
+ * @param {string} root - Repository root.
+ * @param {{ skills: object[] }} manifest - Manifest.
+ * @returns {string[]} Drift descriptions (empty when consistent).
+ */
+export function checkCrossReferences(root, manifest) {
+  const names = new Set(manifest.skills.map((s) => s.name));
+  const drift = [];
+  for (const s of manifest.skills) {
+    const lists = [
+      ['dependencies', s.dependencies],
+      ['capabilities.dependencies', s.capabilities?.dependencies],
+      ['capabilities.chains_to', s.capabilities?.chains_to],
+    ];
+    for (const [field, list] of lists) {
+      for (const dep of list ?? []) {
+        if (!names.has(dep)) drift.push(`${s.name}: ${field} names '${dep}', which is not a skill`);
+      }
+    }
+    for (const ref of s.references ?? []) {
+      if (!existsSync(join(root, 'packages/skills', ref))) {
+        drift.push(`${s.name}: references '${ref}', which does not exist`);
+      }
     }
   }
   return drift;
@@ -119,13 +178,12 @@ export const LEGACY_INDEXES = ['packages/skills/skills.json'];
  * CAAMP's `SkillLibraryEntry` (T12653). Curated values already in the
  * manifest win over these defaults.
  *
- * @returns {{ references: string[], protocol: null, dependencies: string[], sharedResources: string[], compatibility: string[], license: string }}
+ * @returns {{ references: string[], protocol: null, sharedResources: string[], compatibility: string[], license: string }}
  */
 function catalogDefaults() {
   return {
     references: [],
     protocol: null,
-    dependencies: [],
     sharedResources: [],
     compatibility: [],
     license: 'MIT',
@@ -165,6 +223,7 @@ export function buildManifest(root) {
       loomStage: _l,
       core: _c,
       category: _cat,
+      dependencies: _deps,
       ...curated
     } = prior;
     const entry = {
@@ -178,6 +237,9 @@ export function buildManifest(root) {
       status: md.stability === 'deprecated' ? 'deprecated' : 'active',
       core: md.tier === 'core',
       category: CATEGORY_FOR_TIER[md.tier],
+      // T12649: frontmatter owns dependencies; CAAMP resolves profile
+      // install closures through this field.
+      dependencies: fm.lists.dependencies ?? [],
     };
     const loomStage = md.loomStage;
     if (loomStage) entry.loomStage = loomStage;
@@ -232,6 +294,7 @@ export function checkManifest(root) {
     }
   }
   drift.push(...checkProfiles(root, manifest));
+  drift.push(...checkCrossReferences(root, manifest));
   const committedText = readFileSync(join(root, MANIFEST_PATH), 'utf-8');
   const expectedText = serialiseManifest(manifest);
   if (committedText === expectedText) return { problems, drift };
