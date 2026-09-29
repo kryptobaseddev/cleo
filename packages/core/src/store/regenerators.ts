@@ -29,7 +29,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { readPortableProjectId } from '@cleocode/paths';
-import { computePortableProjectHash, computeStableProjectHash } from '../project-scope.js';
+import { computeStableProjectHash } from '../project-scope.js';
 import { createDefaultConfig, getCleoVersion } from '../scaffold.js';
 import { getSchemaVersion } from '../schema-management.js';
 import { detectProjectType, type ProjectContext } from './project-detect.js';
@@ -145,8 +145,8 @@ function readExistingProjectHash(projectRoot: string): string | null {
  *
  * Captures machine-local fields:
  *   - `projectHash` — write-once identity key: an existing value is kept,
- *                     else derived from the tracked id (T12716), else
- *                     {@link computeStableProjectHash} (T12557)
+ *                     else {@link computeStableProjectHash} (T12557; a
+ *                     regenerate never mints, so never the id-derived hash)
  *   - `projectId`   — the tracked write-once id (`.cleo/project.json`, legacy
  *                     `.cleo/project-id`) when present
  *                     (T12325 — a restore must not re-key a portable project);
@@ -169,13 +169,10 @@ function readExistingProjectHash(projectRoot: string): string | null {
 export function regenerateProjectInfoJson(projectRoot: string): RegeneratedFile {
   const resolvedRoot = resolve(projectRoot);
   const trackedId = readPortableProjectId(resolvedRoot);
-  // T12716: a new hash is derived from the tracked id (portable across clones);
-  // a stored one is kept; with neither, the pre-T12716 path derivation.
+  // A stored hash is kept; otherwise the path derivation. A regenerate is
+  // never a mint, so it never takes the id-derived hash (T12716).
   const projectHash =
-    readExistingProjectHash(resolvedRoot) ??
-    (trackedId.status === 'valid'
-      ? computePortableProjectHash(trackedId.projectId)
-      : computeStableProjectHash(resolvedRoot));
+    readExistingProjectHash(resolvedRoot) ?? computeStableProjectHash(resolvedRoot);
   const cleoVersion = getCleoVersion();
   const now = new Date().toISOString();
 

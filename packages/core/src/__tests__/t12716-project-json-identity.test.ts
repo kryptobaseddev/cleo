@@ -37,7 +37,11 @@ import { generateProjectHash } from '../nexus/hash.js';
 import { registerProjectOnEncounter } from '../paths.js';
 import { getProjectDisplayName, getProjectInfoSync, updateProjectName } from '../project-info.js';
 import { renameProject } from '../project-lifecycle.js';
-import { computePortableProjectHash, validateProjectRoot } from '../project-scope.js';
+import {
+  computePortableProjectHash,
+  computeStableProjectHash,
+  validateProjectRoot,
+} from '../project-scope.js';
 import { ensureProjectInfo } from '../scaffold/ensure-config.js';
 import { decideProjectIdentity } from '../scaffold/project-identity.js';
 import { readProjectCredentialIdentity } from '../store/credential-transfer.js';
@@ -461,14 +465,15 @@ describe('doctor: registry-name vs declared-name drift', () => {
 });
 
 describe('portable projectHash', () => {
-  it('a new project derives its hash from the id; a stored hash is never re-derived', async () => {
+  it('only a freshly minted id gets the id-derived hash; a stored hash is never re-derived', async () => {
+    // A tracked id is a PRIOR identity: its keys were built from the path hash.
     const fresh = fixture('fresh', { manifest: AGREED, legacy: AGREED, info: null });
     await ensureProjectInfo(fresh);
     const info = JSON.parse(readFileSync(join(fresh, '.cleo', 'project-info.json'), 'utf-8')) as {
       projectHash: string;
     };
-    expect(info.projectHash).toBe(computePortableProjectHash(AGREED));
-    expect(info.projectHash).toBe(generateProjectHash(`project-id:${AGREED}`));
+    expect(info.projectHash).toBe(computeStableProjectHash(fresh));
+    expect(computePortableProjectHash(AGREED)).toBe(generateProjectHash(`project-id:${AGREED}`));
 
     const legacy = fixture('stored', { manifest: AGREED, legacy: AGREED, info: AGREED });
     await ensureProjectInfo(legacy, { force: true });

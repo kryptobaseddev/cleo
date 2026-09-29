@@ -118,3 +118,41 @@ describe('finding 3: a legacy rename never changes the path-fingerprint alias ke
     expect(plan.steps[0]?.detail).toContain('name: "renamed-via-upgrade"');
   });
 });
+
+describe('finding 1: projectHash is portable only for an identity this build minted', () => {
+  it('an existing project that loses project-info.json keeps its path-derived hash', async () => {
+    const { computePortableProjectHash, computeStableProjectHash } = await import(
+      '../project-scope.js'
+    );
+    const { ensureProjectInfo } = await import('../scaffold/ensure-config.js');
+    const { regenerateProjectInfoJson } = await import('../store/regenerators.js');
+    const { getProjectHashKey } = await import('../project-info.js');
+    const root = fixture('lost-info', { manifest: ID, legacy: ID });
+    const stable = computeStableProjectHash(root);
+
+    // No readable stored hash: every derivation agrees on the pre-T12716 value.
+    expect(getProjectHashKey(root)).toBe(stable);
+    expect(regenerateProjectInfoJson(root).content['projectHash']).toBe(stable);
+    await ensureProjectInfo(root);
+    const info = JSON.parse(readFileSync(join(root, '.cleo', 'project-info.json'), 'utf-8')) as {
+      projectHash: string;
+    };
+    expect(info.projectHash).toBe(stable);
+    expect(info.projectHash).not.toBe(computePortableProjectHash(ID));
+    await ensureProjectInfo(root, { force: true });
+    expect(getProjectHashKey(root)).toBe(stable);
+  });
+
+  it('a project minted now gets the id-derived hash', async () => {
+    const { computePortableProjectHash } = await import('../project-scope.js');
+    const { ensureProjectInfo } = await import('../scaffold/ensure-config.js');
+    const root = fixture('minted', {});
+    const result = await ensureProjectInfo(root);
+    expect(result.details).toContain('(minted)');
+    const info = JSON.parse(readFileSync(join(root, '.cleo', 'project-info.json'), 'utf-8')) as {
+      projectId: string;
+      projectHash: string;
+    };
+    expect(info.projectHash).toBe(computePortableProjectHash(info.projectId));
+  });
+});

@@ -786,13 +786,13 @@ export function computeStableProjectHash(projectRoot: string): string {
 /**
  * Compute the portable `projectHash` for a project id (T12716).
  *
- * Every NEW `projectHash` is derived from the tracked id, never the path, so
- * every clone on every device computes the same key (T12558 introduced the
- * formula for `--new-identity`). A stored hash is never re-derived: existing
- * audit rows, idempotency keys and release ids keep the value they were
- * written with, and a legacy file without a hash is still backfilled with
- * {@link computeStableProjectHash}, the path-derived value its pre-T12557 keys
- * were built from.
+ * Used ONLY for an identity minted in the same step (no prior identity
+ * anywhere: tracked file, cache, registry row or alias) — T12558 introduced
+ * the formula for `--new-identity`. Every project with a prior identity whose
+ * stored hash is unreadable (a lost project-info.json, a legacy file) gets
+ * {@link computeStableProjectHash}, the path-derived value its release, audit
+ * and idempotency keys were built from; `getProjectHashKey` falls back to the
+ * same. A stored hash is never re-derived.
  *
  * @param projectId - The project's portable id.
  * @returns 12-char hex hash of `project-id:<id>`.

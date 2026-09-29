@@ -72,7 +72,8 @@ export function getProjectInfoSync(cwd?: string): ProjectInfo | null {
  *
  * @param cwd - Project root (defaults to the resolved current project).
  * @returns The persisted hash, or {@link computeStableProjectHash} when the
- *   project has no readable `project-info.json`.
+ *   project has no readable `project-info.json` — the same value
+ *   `ensureProjectInfo` records for any project it did not just mint (T12716).
  * @example
  * ```ts
  * const releaseId = `${getProjectHashKey(root)}:${version}`;

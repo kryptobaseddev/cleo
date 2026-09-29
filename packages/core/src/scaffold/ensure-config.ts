@@ -10,7 +10,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ScaffoldResult } from '@cleocode/contracts/scaffold-diagnostics';
 import { getConfigPath, resolveCleoDir } from '../paths.js';
-import { computePortableProjectHash } from '../project-scope.js';
+import { computePortableProjectHash, computeStableProjectHash } from '../project-scope.js';
 import { saveJson } from '../store/json.js';
 import { decideProjectIdentity, ensurePortableProjectId } from './project-identity.js';
 
@@ -524,13 +524,17 @@ export async function ensureProjectInfo(
     if (existing?.[field] !== undefined) carried[field] = existing[field];
 
   // T12557: write-once — a force-regenerate keeps the stored identity key.
-  // T12716: a NEW key is derived from the portable id, never the path, so
-  // every clone on every device computes the same hash (T12558 did this for
-  // `--new-identity` only). A stored hash is never re-derived.
+  // T12716: only an identity THIS call minted (no prior identity anywhere:
+  // tracked file, cache, registry row or alias) gets the id-derived hash. Any
+  // other project — including one whose untracked project-info.json was lost —
+  // gets the pre-T12716 path-derived value, the one its release, audit and
+  // idempotency keys were built from (and what getProjectHashKey falls back to).
   const projectHash =
     typeof existing?.['projectHash'] === 'string' && existing['projectHash'].length > 0
       ? existing['projectHash']
-      : computePortableProjectHash(identity.projectId);
+      : identity.source === 'minted'
+        ? computePortableProjectHash(identity.projectId)
+        : computeStableProjectHash(projectRoot);
   const cleoVersion = getCleoVersion();
   const now = new Date().toISOString();
 
