@@ -511,7 +511,7 @@ async function deriveStackedChangeSet(
         pr.mergeCommitSha as string,
         baseMerge,
       );
-      if (files.length > 0) {
+      if (files.length > 0 || deleted.length > 0) {
         cs.mergeState = 'merged';
         cs.source = 'pr';
         cs.prNumber = basePr.number;
@@ -519,7 +519,7 @@ async function deriveStackedChangeSet(
         cs.mergeCommitSha = baseMerge;
         cs.files = files;
         cs.deletedFiles = deleted;
-        cs.implementedEvidence = `pr:${pr.number}@${basePr.number};files:${files.join(',')}`;
+        cs.implementedEvidence = componentEvidence(pr.number, basePr.number, files, deleted);
         return true;
       }
     }
@@ -703,6 +703,23 @@ async function deriveMultiPrChangeSet(
   return true;
 }
 
+/**
+ * `implemented` evidence for a component PR landed by an integration PR:
+ * its surviving files, or — when it only deleted files, which have no bytes
+ * to hash — a note naming the deletions (T12689; `pr:` records them).
+ */
+function componentEvidence(
+  component: number,
+  integration: number,
+  files: readonly string[],
+  deleted: readonly string[],
+): string {
+  const pr = `pr:${component}@${integration}`;
+  return files.length > 0
+    ? `${pr};files:${files.join(',')}`
+    : `${pr};note:${atomSafe(`Component PR #${component} only deleted: ${deleted.join(', ')}`)}`;
+}
+
 /** A PR merged from the task's own branch (`task/<id>` or `task/<id>-…`). */
 function isOwnBranch(headRefName: string, taskId: string): boolean {
   return headRefName === `task/${taskId}` || headRefName.startsWith(`task/${taskId}-`);
@@ -772,7 +789,9 @@ function deriveComponentChangeSet(
       files: kept,
       deletedFiles: deleted,
       implementedEvidence:
-        kept.length > 0 ? `pr:${c.number}@${integration};files:${kept.join(',')}` : null,
+        kept.length > 0 || deleted.length > 0
+          ? componentEvidence(c.number, integration, kept, deleted)
+          : null,
     };
   });
   const [primary, ...earlier] = attempts;

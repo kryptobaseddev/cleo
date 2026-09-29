@@ -134,4 +134,30 @@ describe('focus knowledge assessment', () => {
       'E_GENERAL: database is not open (fix: retry)',
     ]);
   });
+
+  it('renders the ready wave in orchestrate.ready order — THE comparator, not a re-sort (T12692)', async () => {
+    vi.mocked(taskShow).mockResolvedValueOnce({
+      success: true,
+      data: {
+        task: { id: 'T123', title: 'Fixture', type: 'task', status: 'pending', parentId: 'T100' },
+      },
+    } as Awaited<ReturnType<typeof taskShow>>);
+    // orchestrate.ready already returns THE comparator's order (D11161); the
+    // focus envelope renders it verbatim — ids deliberately not in id order.
+    const ranked = ['T3', 'T1', 'T2'].map((id, index) => ({
+      id,
+      title: id,
+      priority: ['critical', 'high', 'low'][index] ?? 'low',
+      depends: [],
+    }));
+    vi.mocked(orchestrateReady).mockResolvedValueOnce({
+      success: true,
+      data: { readyTasks: ranked },
+    });
+    const result = await new FocusHandler().query('show', { id: 'T123' });
+    expect(result.success).toBe(true);
+    expect(
+      (result.data as { readyWave?: Array<{ id: string }> }).readyWave?.map((t) => t.id),
+    ).toEqual(['T3', 'T1', 'T2']);
+  });
 });

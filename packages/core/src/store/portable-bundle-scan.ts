@@ -609,7 +609,7 @@ export interface CredentialRedaction {
  */
 export function redactCredentials(snapshotPath: string): CredentialRedaction[] {
   const out: CredentialRedaction[] = [];
-  const db = new DatabaseSync(snapshotPath);
+  const db = new DatabaseSync(snapshotPath); // schema-guard-exempt: a snapshot copy this step owns; credential redaction is DML only
   try {
     db.exec('PRAGMA secure_delete = ON');
     for (const [table, wanted] of Object.entries(CREDENTIAL_COLUMNS)) {

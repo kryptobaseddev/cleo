@@ -70,6 +70,7 @@ import {
 } from './resolve-migrations-folder.js';
 import { listSqliteBackups } from './sqlite-backup.js';
 import { collapseTwinTables, twinCollapseFailureOf } from './twin-collapse.js';
+import { isWorktreeBuildSchemaError } from './worktree-build-guard.js';
 import { assertDbPathIsNotWorktreeResident } from './worktree-isolation-guard.js';
 
 // node:sqlite access is isolated in the leaf module sqlite-native.ts to prevent
@@ -768,6 +769,9 @@ function runMigrations(nativeDb: DatabaseSync, db: NodeSQLiteDatabase, dbPath: s
     // high-water-era tasks.db cannot be replayed into shape. Rebuild that family
     // fresh (snapshot first, atomic, prefixed tables untouched); if even that
     // fails, the database is unchanged and the ORIGINAL error surfaces.
+    // T12687: a worktree build refused to change this store's schema — never
+    // fall through to the rebuild (it snapshots and rewrites the store).
+    if (isWorktreeBuildSchemaError(error)) throw error;
     if (isSqliteBusy(error) || !tableExists(nativeDb, 'tasks_tasks')) throw error;
     try {
       rebuildLegacyTasksLineage(

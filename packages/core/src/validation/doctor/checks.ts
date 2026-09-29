@@ -992,9 +992,7 @@ export function checkCanonicalRcasdPaths(projectRoot?: string): CheckResult {
     const dirPath = join(cleoDir, dir);
     if (existsSync(dirPath)) {
       try {
-        const entries = (require('node:fs').readdirSync(dirPath) as string[]).filter(
-          (e) => !e.startsWith('.'),
-        );
+        const entries = readdirSync(dirPath).filter((e) => !e.startsWith('.'));
         if (entries.length > 0) {
           failures.push(
             `deprecated .cleo/${dir}/ contains files (should migrate to .cleo/rcasd/{epicId}/${dir}/)`,
@@ -1010,9 +1008,7 @@ export function checkCanonicalRcasdPaths(projectRoot?: string): CheckResult {
   const rcasdPath = join(cleoDir, 'rcasd');
   if (existsSync(rcasdPath)) {
     try {
-      const rootFiles = (require('node:fs').readdirSync(rcasdPath) as string[]).filter((e) =>
-        e.endsWith('.md'),
-      );
+      const rootFiles = readdirSync(rcasdPath).filter((e) => e.endsWith('.md'));
       if (rootFiles.length > 0) {
         failures.push(
           `misplaced .md files in .cleo/rcasd/ root (audit-*.md, etc. should be in .cleo/agent-outputs/)`,

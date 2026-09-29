@@ -126,6 +126,14 @@ class HttpWizardIO implements WizardIO {
     );
   }
 
+  async secret(question: string): Promise<string> {
+    throw new Error(
+      `HttpWizardIO: section attempted an interactive secret prompt ('${question}') ` +
+        `but the Studio /setup flow only supports non-interactive section runs. ` +
+        `Pass the required field via the POST body.`,
+    );
+  }
+
   async confirm(question: string): Promise<boolean> {
     throw new Error(
       `HttpWizardIO: section attempted an interactive confirm ('${question}') ` +

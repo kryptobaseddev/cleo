@@ -102,6 +102,7 @@ import * as nexusSchema from './schema/nexus-schema.js';
 // from its canonical leaf home (with-retry.ts) rather than sqlite.ts so this
 // module no longer pulls the native open path.
 import { isSqliteBusy } from './with-retry.js';
+import { refreshSchemaWriteGuard } from './worktree-build-guard.js';
 
 /** Schema version for newly created nexus databases. Single source of truth. */
 export const NEXUS_SCHEMA_VERSION = '1.0.0';
@@ -287,6 +288,8 @@ function ensureGlobalRegistryAttached(nativeDb: DatabaseSync): void {
   // consolidated registry schema. Registry readers tolerate a missing table
   // (try/catch), so a bare ATTACH is sufficient and non-fatal here.
   nativeDb.exec(`ATTACH DATABASE '${escaped}' AS ${NEXUS_GLOBAL_ATTACH_ALIAS}`);
+  // T12687: keep no-op CREATE IF NOT EXISTS on the attached schema allowed.
+  refreshSchemaWriteGuard(nativeDb);
 }
 
 /**

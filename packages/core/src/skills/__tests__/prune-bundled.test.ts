@@ -31,6 +31,7 @@ import {
   pruneCandidates,
   recordBundledInstalls,
   restoreQuarantine,
+  unkeepSkill,
 } from '../prune-bundled.js';
 
 let root: string;
@@ -336,5 +337,77 @@ describe('pruneBundledSkills — never touches what CLEO cannot prove it wrote (
     skillDir(join(pi, 'ct-grade'), 'ct-grade', 'user notes\n');
     await run();
     expect(present(join(pi, 'ct-grade'))).toBe(true);
+  });
+});
+
+describe('unkeepSkill — hand a kept skill back to CLEO (T12699)', () => {
+  /** Prune ct-grade, then restore it: it is now kept. */
+  async function pruneAndRestore(): Promise<void> {
+    await cleoInstall('ct-grade');
+    const receipt = await run();
+    await restoreQuarantine({
+      quarantineRoot,
+      id: receipt.quarantineId ?? '',
+      skillsRoot,
+      registry,
+    });
+  }
+
+  const ledger = () => JSON.parse(readFileSync(join(skillsRoot, BUNDLED_LEDGER_FILE), 'utf8'));
+
+  it("restore records the restored copy's hashes alongside the kept name", async () => {
+    await pruneAndRestore();
+    expect(ledger().kept).toEqual(['ct-grade']);
+    expect(Object.keys(ledger().keptFiles['ct-grade'])).toEqual(['SKILL.md']);
+  });
+
+  it('an unchanged copy is re-ledgered, and the next prune may quarantine it again', async () => {
+    await pruneAndRestore();
+    const outcome = await unkeepSkill(skillsRoot, 'ct-grade');
+    expect(outcome).toMatchObject({ unkept: true, reledgered: true });
+    expect(ledger().kept).toEqual([]);
+    expect(ledger().keptFiles?.['ct-grade']).toBeUndefined();
+    expect(Object.keys(ledger().skills)).toContain('ct-grade');
+
+    const again = await run();
+    expect(again.quarantineId).not.toBeNull();
+    expect(existsSync(join(skillsRoot, 'ct-grade'))).toBe(false);
+  });
+
+  it('a copy changed since the restore stays kept, and prune still leaves it', async () => {
+    await pruneAndRestore();
+    writeFileSync(join(skillsRoot, 'ct-grade', 'SKILL.md'), '---\nname: ct-grade\n---\nmine\n');
+    const outcome = await unkeepSkill(skillsRoot, 'ct-grade');
+    expect(outcome).toMatchObject({ unkept: false, reledgered: false });
+    expect(outcome.reason).toMatch(/changed since it was restored/);
+    expect(ledger().kept).toEqual(['ct-grade']);
+    expect((await run()).quarantineId).toBeNull();
+    expect(readFileSync(join(skillsRoot, 'ct-grade', 'SKILL.md'), 'utf8')).toContain('mine');
+  });
+
+  it('a kept name with no recorded hashes (restored before T12699) stays kept', async () => {
+    skillDir(join(skillsRoot, 'ct-grade'), 'ct-grade');
+    writeFileSync(
+      join(skillsRoot, BUNDLED_LEDGER_FILE),
+      JSON.stringify({ version: 2, skills: {}, kept: ['ct-grade'] }),
+    );
+    const outcome = await unkeepSkill(skillsRoot, 'ct-grade');
+    expect(outcome).toMatchObject({ unkept: false, reledgered: false });
+    expect(outcome.reason).toMatch(/no hashes were recorded/);
+    expect(ledger().kept).toEqual(['ct-grade']);
+  });
+
+  it('a kept name whose copy is gone just leaves the kept list', async () => {
+    await pruneAndRestore();
+    rmSync(join(skillsRoot, 'ct-grade'), { recursive: true, force: true });
+    const outcome = await unkeepSkill(skillsRoot, 'ct-grade');
+    expect(outcome).toMatchObject({ unkept: true, reledgered: false });
+    expect(ledger().kept).toEqual([]);
+    expect(Object.keys(ledger().skills)).not.toContain('ct-grade');
+  });
+
+  it('a name that is not kept is refused', async () => {
+    const outcome = await unkeepSkill(skillsRoot, 'ct-nope');
+    expect(outcome).toMatchObject({ unkept: false, reason: 'not on the kept list' });
   });
 });

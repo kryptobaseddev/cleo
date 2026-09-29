@@ -32,7 +32,10 @@ export type DecisionFallbackReason =
   | 'timeout'
   | 'unauthorized'
   | 'insufficient_credits'
+  | 'key_limit_exceeded'
+  | 'budget'
   | 'rate_limited'
+  | 'overloaded'
   | 'server_error'
   | 'network'
   | 'invalid_response'
@@ -110,6 +113,12 @@ export interface DecisionAuditEntry {
   readonly latencyMs: number;
   /** Provider-reported cost in USD, when known. */
   readonly costUsd?: number;
+  /** Provider-reported cost in integer micro-dollars, when known (T12664). */
+  readonly costMicros?: number;
+  /** Account balance in integer micro-dollars reported with the answer, when known. */
+  readonly balanceMicros?: number;
+  /** Provider model checkpoint that answered, when reported. */
+  readonly checkpoint?: string;
   /** Model the request named, when it named one. */
   readonly model?: string;
   /** Shadow-mode comparison, when the call site recorded one. */

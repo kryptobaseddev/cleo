@@ -187,6 +187,7 @@ describe('TasksHandler', () => {
         'assignee',
         'relates.add',
         'relates.remove',
+        'ranking.revert',
         'start',
         'stop',
         'sync.reconcile',

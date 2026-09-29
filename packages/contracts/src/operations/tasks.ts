@@ -921,6 +921,31 @@ export interface TasksComplexityEstimateResult {
 export interface TasksHistoryParams {
   taskId?: string;
   limit?: number;
+  /**
+   * With `taskId`: only ranking-input changes (priority, severity, kind,
+   * depends) — who, which session, why, before/after (T12693, D11161).
+   */
+  ranking?: boolean;
+}
+
+// tasks.ranking.revert
+/** Parameters for `tasks.ranking.revert` (T12693, D11161). */
+export interface TasksRankingRevertParams {
+  /** The `ranking_changed` audit row id to undo (from `cleo history ranking`). */
+  entryId: string;
+  /** Why it is reverted; recorded on the new audit row. */
+  reason?: string;
+  /** Revert even though a field changed again since. */
+  force?: boolean;
+}
+/** Result of `tasks.ranking.revert`. */
+export interface TasksRankingRevertResult {
+  /** Task whose ranking inputs were restored. */
+  taskId: string;
+  /** Fields set back. */
+  fields: string[];
+  /** The values they were set back to. */
+  revertedTo: Record<string, unknown>;
 }
 /**
  * Result of `tasks.history` — audit log entries for a task.
@@ -1655,6 +1680,13 @@ export interface TasksCompleteQueryParams {
    * @task T11954 (DHQ-071)
    */
   waiveDependsReason?: string;
+  /**
+   * Optimistic-concurrency guard (`--if-match`): the task `updatedAt` the
+   * caller read. When the stored version differs, completion fails with
+   * `E_CONFLICT` carrying the current version and the changed fields.
+   * @task T12503
+   */
+  expectedUpdatedAt?: string;
 }
 /**
  * Result of `tasks.complete` — completion confirmation with unblocked tasks.
@@ -2277,6 +2309,7 @@ export type TasksOps = {
   readonly 'relates.add': readonly [TasksRelatesAddParams, TasksRelatesAddResult];
   readonly 'relates.add-batch': readonly [TasksRelatesAddBatchParams, TasksRelatesAddBatchResult];
   readonly 'relates.remove': readonly [TasksRelatesRemoveParams, TasksRelatesRemoveResult];
+  readonly 'ranking.revert': readonly [TasksRankingRevertParams, TasksRankingRevertResult];
   readonly start: readonly [TasksStartQueryParams, TasksStartQueryResult];
   readonly stop: readonly [TasksStopQueryParams, TasksStopQueryResult];
   readonly 'sync.reconcile': readonly [TasksSyncReconcileParams, TasksSyncReconcileResult];

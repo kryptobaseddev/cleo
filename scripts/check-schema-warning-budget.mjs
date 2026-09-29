@@ -40,6 +40,12 @@ const ALLOWED_FILES = [
   // This intentional exercise of ensureColumns emits the WARN and must be allowed.
   // T9185: added to allowlist after audit confirmed this is intentional.
   'brain-observations-provenance.test.ts',
+  // T12687: the worktree-build guard test calls ensureColumns on purpose to
+  // prove the SQLite authorizer denies the ALTER (the WARN precedes the denial).
+  // That file now silences its logger, because pino's stdout line is
+  // attributed to the last test file vitest printed, not this one, under
+  // parallel output; the entry stays as a backstop.
+  'worktree-build-guard-T12687.test.ts',
 ];
 
 // Match the actual log message format from migration-manager.ts ensureColumns:

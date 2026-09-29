@@ -68,7 +68,7 @@ import { tasksAuditLog } from './schema/cleo-project/audit.js';
 import { resolveCurrentSession } from './session-store.js';
 import { closeDb, getDb, getNativeTasksDb } from './sqlite.js';
 import { TERMINAL_TASK_STATUSES } from './status-registry.js';
-import { assertTaskVersion, nextTaskVersion } from './task-version.js';
+import { nextTaskVersion, taskConflictError, taskVersion } from './task-version.js';
 import * as schema from './tasks-schema.js';
 import { assertTwinCollapseWritable, bareCounterOf, mirrorCounterToBare } from './twin-collapse.js';
 import { withWriteRetry } from './with-retry.js';
@@ -489,6 +489,8 @@ async function createOwnedSqliteDataAccessor(
               detailsJson: entry.details ? JSON.stringify(entry.details) : '{}',
               beforeJson: entry.before ? JSON.stringify(entry.before) : null,
               afterJson: entry.after ? JSON.stringify(entry.after) : null,
+              // T12693: the session a ranking change ran in.
+              sessionId: typeof entry.sessionId === 'string' ? entry.sessionId : null,
             })
             .run(),
         );
@@ -498,6 +500,9 @@ async function createOwnedSqliteDataAccessor(
     async queryAuditLog(query: TaskAuditLogQuery): Promise<TaskAuditLogRow[]> {
       const db = await getDb(cwd);
       const conditions = [];
+      if (query.ids && query.ids.length > 0) {
+        conditions.push(inArray(tasksAuditLog.id, [...query.ids]));
+      }
       if (query.taskIds && query.taskIds.length > 0) {
         conditions.push(inArray(tasksAuditLog.taskId, [...query.taskIds]));
       }
@@ -518,6 +523,7 @@ async function createOwnedSqliteDataAccessor(
           detailsJson: tasksAuditLog.detailsJson,
           beforeJson: tasksAuditLog.beforeJson,
           afterJson: tasksAuditLog.afterJson,
+          sessionId: tasksAuditLog.sessionId,
         })
         .from(tasksAuditLog)
         .where(conditions.length > 0 ? and(...conditions) : undefined)
@@ -533,6 +539,7 @@ async function createOwnedSqliteDataAccessor(
         detailsJson: row.detailsJson ?? null,
         beforeJson: row.beforeJson ?? null,
         afterJson: row.afterJson ?? null,
+        sessionId: row.sessionId ?? null,
       }));
     },
 
@@ -1217,19 +1224,49 @@ async function createOwnedSqliteDataAccessor(
           .limit(1)
           .all();
         if (!current) throw new Error(`Task not found: ${taskId}`);
-        assertTaskVersion(taskId, current, guard?.expectedUpdatedAt);
+        const expected = guard?.expectedUpdatedAt;
+        if (expected !== undefined && taskVersion(current) !== expected) {
+          throw taskConflictError(
+            taskId,
+            expected,
+            (await accessor.loadSingleTask(taskId)) ?? current,
+            guard?.baseline,
+          );
+        }
         const updateRow = {
           ...fields,
           updatedAt: fields.updatedAt ?? nextTaskVersion(current),
         };
 
+        // T12503: a guarded write is a compare-and-set in SQL — the UPDATE
+        // matches only while the stored version is still the expected one, so
+        // the check and the write are one statement, not a read-then-write.
+        const versionMatch =
+          expected === undefined
+            ? undefined
+            : current.updatedAt === null
+              ? isNull(schema.tasks.updatedAt)
+              : eq(schema.tasks.updatedAt, current.updatedAt);
+        const where = versionMatch
+          ? and(eq(schema.tasks.id, taskId), versionMatch)
+          : eq(schema.tasks.id, taskId);
+
         // gh#391: this is the chokepoint for `cleo update <id> --add-labels`.
         // Parallel invocations from a single shell used to lose ~50% of writes
         // to SQLITE_BUSY; withWriteRetry recovers them.
         const result = await withWriteRetry(() =>
-          db.update(schema.tasks).set(updateRow).where(eq(schema.tasks.id, taskId)).run(),
+          db.update(schema.tasks).set(updateRow).where(where).run(),
         );
-        if (Number(result.changes) !== 1) throw new Error(`Task not found: ${taskId}`);
+        if (Number(result.changes) !== 1) {
+          const stored = await accessor.loadSingleTask(taskId);
+          if (!stored) throw new Error(`Task not found: ${taskId}`);
+          throw taskConflictError(
+            taskId,
+            expected ?? taskVersion(current),
+            stored,
+            guard?.baseline,
+          );
+        }
         if (fields.labelsJson !== undefined) {
           await updateTaskLabels(db, taskId, parseLabels(fields.labelsJson));
         }

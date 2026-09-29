@@ -3,13 +3,15 @@
  * @task T4784
  */
 
-import type { Task, TaskPriority, TaskRef } from '@cleocode/contracts';
+import type { ScoreTaskContext, Task, TaskPriority, TaskRef } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { orderByRanking } from '../task-tools/score-task-priority.js';
 import {
   getReadinessDependencyBlockers,
   loadReadinessDependencyLookup,
 } from '../tasks/dependency-check.js';
+import { loadRankingContext } from '../tasks/task-next.js';
 
 /** Basic execution wave: task IDs grouped by dependency depth. */
 export interface Wave {
@@ -54,14 +56,13 @@ export interface EnrichedWaveTask extends TaskRef {
 /**
  * Enriched execution wave carrying per-task metadata for rendering.
  *
- * All tasks within the wave are sorted by priority (critical → high → medium →
- * low) descending, then by open-dependency count ascending, then by ID for
- * deterministic stability.
+ * Tasks within the wave are in THE comparator's order (D11161, T12692):
+ * priority band, attested severity, bounded tiebreak, createdAt, id.
  */
 export interface EnrichedWave {
   /** 1-based wave number. */
   waveNumber: number;
-  /** Enriched, priority-sorted tasks for this wave. */
+  /** Enriched tasks for this wave, in comparator order. */
   tasks: EnrichedWaveTask[];
   /**
    * Plain task ID list — convenience alias for `tasks.map(t => t.id)`.
@@ -85,14 +86,6 @@ export interface EnrichedWave {
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
-
-/** Numeric sort weight for each priority level (higher = sort first). */
-const PRIORITY_WEIGHT: Record<string, number> = {
-  critical: 4,
-  high: 3,
-  medium: 2,
-  low: 1,
-};
 
 /**
  * Enrich a task ID into an {@link EnrichedWaveTask}.
@@ -118,28 +111,23 @@ function enrichTask(id: string, taskMap: Map<string, Task>): EnrichedWaveTask {
 }
 
 /**
- * Sort enriched wave tasks by priority DESC → open-dep count ASC → ID ASC.
+ * Order each wave's members by THE comparator (D11161, T12692). Only the
+ * order WITHIN a wave moves; wave numbers stay structural depth (T12683).
  *
- * Within a wave, tasks that are higher priority and have fewer open blockers
- * appear first, making the most actionable work immediately visible.
- *
- * @param tasks - Enriched tasks to sort (mutates the array in-place and returns it).
+ * @param waves - Waves in structural order.
+ * @param taskMap - Dependency closure the waves were computed over.
+ * @param ranking - The project-wide ranking context (see `loadRankingContext`).
+ * @returns The same waves with members in ranked order.
  */
-function sortWaveTasks(tasks: EnrichedWaveTask[]): EnrichedWaveTask[] {
-  return tasks.sort((a, b) => {
-    // 1. Priority descending (critical > high > medium > low)
-    const pa = PRIORITY_WEIGHT[a.priority] ?? 2;
-    const pb = PRIORITY_WEIGHT[b.priority] ?? 2;
-    if (pa !== pb) return pb - pa;
-
-    // 2. Open-dependency count ascending (fewer blockers = more actionable)
-    const ba = a.blockedBy.length;
-    const bb = b.blockedBy.length;
-    if (ba !== bb) return ba - bb;
-
-    // 3. ID ascending for deterministic stability
-    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-  });
+function orderWaveMembers(
+  waves: Wave[],
+  taskMap: ReadonlyMap<string, Task>,
+  ranking: ScoreTaskContext,
+): Wave[] {
+  return waves.map((w) => ({
+    ...w,
+    tasks: orderByRanking(w.tasks, (id) => id, taskMap, ranking),
+  }));
 }
 
 /** Statuses whose task has finished (it occupies its wave, but runs no more). */
@@ -304,16 +292,25 @@ async function loadDependencyClosure(
  * listing, `orchestrate roll-up --wave`, and the wave topic a spawned worker
  * publishes on — so a wave number means the same wave everywhere (T12682).
  *
+ * Members of each wave are in THE comparator's order (D11161, T12692); the
+ * wave numbers are structural depth and never depend on the ranking.
+ *
  * @param epicId - Epic whose direct children are planned.
  * @param accessor - Task accessor.
  * @param parentIds - Containment parents to select; defaults to the epic.
+ * @param ranking - Shared ranking context; when absent, the project-wide one
+ *   `cleo next` and `orchestrate waves` use is loaded once (`loadRankingContext`),
+ *   so every wave surface orders members identically (T12692). Pass it in when
+ *   planning several waves or epics in one call.
  * @returns The selected children, the dependency lookup and the waves.
  * @task T12682
+ * @task T12692
  */
 export async function planEpicWaves(
   epicId: string,
   accessor: DataAccessor,
   parentIds: readonly string[] = [epicId],
+  ranking?: ScoreTaskContext,
 ): Promise<{ children: Task[]; taskMap: Map<string, Task>; waves: Wave[] }> {
   const selected = new Map<string, Task>();
   for (const parentId of new Set(parentIds)) {
@@ -321,7 +318,12 @@ export async function planEpicWaves(
   }
   const children = [...selected.values()];
   const taskMap = await loadDependencyClosure(children, accessor);
-  return { children, taskMap, waves: computeWaves(children, taskMap) };
+  const ctx = ranking ?? (await loadRankingContext(accessor)).ctx;
+  return {
+    children,
+    taskMap,
+    waves: orderWaveMembers(computeWaves(children, taskMap), taskMap, ctx),
+  };
 }
 
 /**
@@ -329,14 +331,18 @@ export async function planEpicWaves(
  *
  * @remarks
  * Resolves the selected parents' direct children, computes one topological plan, enriches
- * each wave's task list with dependency metadata, sorts tasks within each wave
- * by priority descending then open-dep count ascending, and attaches a
- * `completedAt` timestamp to completed waves.
+ * each wave's task list with dependency metadata, keeps each wave's members in
+ * the comparator order of {@link planEpicWaves} (D11161, T12692), and attaches
+ * a `completedAt` timestamp to completed waves.
  *
  * @param epicId   - The epic task ID to compute waves for.
  * @param cwd      - Optional project root (falls back to `getTaskAccessor` default).
  * @param accessor - Optional pre-constructed data accessor (useful in tests).
  * @param parentIds - Containment parents to select; defaults to the requested epic.
+ * @param ranking - Shared ranking context; when absent, the project-wide one
+ *   `cleo next` and `orchestrate waves` use is loaded once (`loadRankingContext`),
+ *   so every wave surface orders members identically (T12692). Pass it in when
+ *   planning several waves or epics in one call.
  * @returns Selected task counts and waves with current dependency readiness.
  *
  * @example
@@ -349,12 +355,13 @@ export async function getEnrichedWaves(
   cwd?: string,
   accessor?: DataAccessor,
   parentIds: readonly string[] = [epicId],
+  ranking?: ScoreTaskContext,
 ): Promise<{ epicId: string; waves: EnrichedWave[]; totalWaves: number; totalTasks: number }> {
   const acc = accessor ?? (await getTaskAccessor(cwd));
-  const { children, taskMap, waves } = await planEpicWaves(epicId, acc, parentIds);
+  const { children, taskMap, waves } = await planEpicWaves(epicId, acc, parentIds, ranking);
 
   const enrichedWaves: EnrichedWave[] = waves.map((w) => {
-    const enrichedTasks = sortWaveTasks(w.tasks.map((id) => enrichTask(id, taskMap)));
+    const enrichedTasks = w.tasks.map((id) => enrichTask(id, taskMap));
 
     const wave: EnrichedWave = {
       waveNumber: w.waveNumber,

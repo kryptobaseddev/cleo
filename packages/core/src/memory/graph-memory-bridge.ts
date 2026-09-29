@@ -29,6 +29,7 @@ import type { BrainNodeType } from '../store/schema/memory-schema.js';
 import { brainPageEdges, brainPageNodes } from '../store/schema/memory-schema.js';
 import { applyPerfPragmas } from '../store/sqlite-pragmas.js';
 import { typedAll } from '../store/typed-query.js';
+import { installSchemaWriteGuard } from '../store/worktree-build-guard.js';
 import { withWriterLease } from '../store/writer-lease.js';
 import {
   isCurrentDecisionCodeEvidence,
@@ -1373,6 +1374,7 @@ export async function linkConduitMessagesToSymbols(
     // Open conduit.db for this operation — apply pragma SSoT (T9023)
     const conduitDb = new DatabaseSync(conduitDbPath); // db-open-allowed: hot-path conduit.db open with full pragma SSoT (T9023); core-owned conduit infrastructure
     applyPerfPragmas(conduitDb); // hot-path; full pragma set (WAL, busy_timeout, cache)
+    installSchemaWriteGuard(conduitDb); // T12687
     try {
       // Ensure brain.db is available for edge writes
       await getBrainDb(projectRoot);
