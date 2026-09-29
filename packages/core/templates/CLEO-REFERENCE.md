@@ -1,6 +1,6 @@
 # CLEO Protocol — on-demand reference
 
-Version: 2.23.0 | Companion to the always-loaded `CLEO-INJECTION.md` core
+Version: 2.24.0 | Companion to the always-loaded `CLEO-INJECTION.md` core
 
 Not injected into agent context. Print one section with `cleo briefing inject --section <name>`; tier-2 spawn prompts embed this whole file. Section names are the `CLEO-INJECTION:section` markers below.
 
@@ -13,7 +13,7 @@ Not injected into agent context. Print one section with `cleo briefing inject --
 <!-- CLEO-INJECTION:section=projection -->
 ## Projections, budgets and mutation receipts
 
-Projection markers include omitted empty/null fields and survive repeated projection. `_withheld` maps omitted fields to UTF-8 content bytes (JSON bytes for structured values). A record without `_withheld` is complete. Budgeting preserves coverage, diagnostic failures, authority corrections and pending repair facts before examples. A read budget too small for mandatory facts fails explicitly; request narrower scope or more budget. Never treat this failure as clean coverage.
+Projection markers include omitted empty/null fields and survive repeated projection. `_withheld` maps omitted fields to UTF-8 content bytes (JSON bytes for structured values). A `list/*/field` key (e.g. `acRows/*/id` on `cleo show`) names a field omitted from every element of that list, with the summed size. A record without `_withheld` is complete. Budgeting preserves coverage, diagnostic failures, authority corrections and pending repair facts before examples. A read budget too small for mandatory facts fails explicitly; request narrower scope or more budget. Never treat this failure as clean coverage.
 
 An impossible internal mutation budget rejects before execution. If a successful mutation's actual receipt exceeds a viable budget, its success and complete receipt remain available with `_budgetEnforcement.withinBudget: false`; overflow does not mean rollback. Inspect the receipt before retrying a mutation.
 

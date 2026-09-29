@@ -186,6 +186,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { ExitCode } from '@cleocode/contracts';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
+import { z } from 'zod';
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
 import { getCleoVersion } from '../scaffold/ensure-config.js';
@@ -2228,4 +2229,476 @@ export function inspectTwinCollapse(db: DatabaseSync): TwinCollapseStatus[] {
       failure,
     };
   });
+}
+
+// ── recovery of what 2026.9.21 dropped or replaced (T12727) ─────────────────
+
+/** Prefix of a recovery receipt key: `twin_collapse_recovery:<recoveredAt>`. */
+export const TWIN_COLLAPSE_RECOVERY_PREFIX = 'twin_collapse_recovery:';
+
+/** Error code of a recovery or rollback that cannot proceed; nothing was written. */
+export const E_TWIN_COLLAPSE_RECOVER = 'E_TWIN_COLLAPSE_RECOVER';
+
+const STICKY_ARCHIVE_KEY = `${TWIN_COLLAPSE_ARCHIVE_PREFIX}sticky_tags`;
+
+/** A JSON object whose `sessionNotes` is an array (other fields pass through). */
+const FocusNotesShape = z.object({ sessionNotes: z.array(z.unknown()) }).passthrough();
+/** The sticky archive: `sticky_id\ttag` rows. */
+const StickyArchiveShape = z.array(z.string());
+
+/** Session notes of a `focus_state` value; `[]` when it has none or is not JSON. */
+function sessionNotesOf(value: string | undefined): unknown[] {
+  if (value === undefined) return [];
+  const parsed = FocusNotesShape.safeParse(parseJson(value));
+  return parsed.success ? parsed.data.sessionNotes : [];
+}
+
+/** The `(timestamp, note)` identity {@link mergeFocusState} deduplicates on. */
+function noteKey(n: unknown): string {
+  const r = (n !== null && typeof n === 'object' ? n : {}) as Record<string, unknown>;
+  return `${String(r.timestamp ?? '')}\u0000${String(r.note ?? JSON.stringify(n))}`;
+}
+
+/** One twin value the recovery archives. */
+export interface TwinCollapseRecoveryArchive {
+  /** The `schema_meta` key. */
+  readonly key: string;
+  /** Where the value is written (`twin_collapse_archive:<key>`, or a suffixed key). */
+  readonly archiveKey: string;
+  /** `dropped`: only the twin held the key; `replaced`: the bare value won it. */
+  readonly reason: 'dropped' | 'replaced';
+  /** Length of the archived value, in characters. */
+  readonly length: number;
+}
+
+/** What {@link planTwinCollapseRecovery} found, and what an apply would write. */
+export interface TwinCollapseRecoveryPlan {
+  /** The pre-collapse snapshot the `schema_meta` marker records; `null`: never collapsed. */
+  readonly snapshot: string | null;
+  /** Whether that snapshot is on disk. */
+  readonly snapshotExists: boolean;
+  /** Twin `schema_meta` values to archive. */
+  readonly archive: readonly TwinCollapseRecoveryArchive[];
+  /** Session notes the live `focus_state` gains from the twin history. */
+  readonly focusNotesAdded: number;
+  /** Twin-only sticky tags (`sticky_id\ttag`) to archive. */
+  readonly stickyArchived: readonly string[];
+  /** Where those tags go: `twin_collapse_archive:sticky_tags`, or a suffixed key. */
+  readonly stickyArchiveKey: string;
+  /** Receipt keys of earlier applies that were not rolled back. */
+  readonly receipts: readonly string[];
+  /** Whether an apply would write anything. */
+  readonly changes: boolean;
+}
+
+/** Values a plan computed, and the snapshot it read. */
+interface RecoveryWrites {
+  readonly snapshot: DatabaseSync;
+  readonly kv: ReadonlyMap<string, string>;
+  readonly focusBefore: string | null;
+  readonly focusState: string | null;
+  readonly stickyBefore: string | null;
+  readonly stickyArchive: string | null;
+}
+
+const recoveryWrites = new WeakMap<TwinCollapseRecoveryPlan, RecoveryWrites>();
+
+const RecoveryReceiptShape = z.object({
+  task: z.literal('T12727'),
+  id: z.string(),
+  recoveredAt: z.string(),
+  snapshot: z.string().nullable(),
+  archived: z.array(z.object({ key: z.string(), archiveKey: z.string(), sha: z.string() })),
+  focusNotesAdded: z.number(),
+  stickyArchived: z.array(z.string()),
+  stickyArchiveKey: z.string(),
+  before: z.object({ focusState: z.string().nullable(), stickyArchive: z.string().nullable() }),
+  after: z.object({ focusState: z.string().nullable(), stickyArchive: z.string().nullable() }),
+  rolledBackAt: z.string().nullable(),
+});
+
+/**
+ * Receipt an apply records under `twin_collapse_recovery:<recoveredAt>`
+ * (never over an earlier one). `before` holds the values the apply replaced,
+ * `after` the sha256 of what it wrote, so `--rollback` can undo it.
+ */
+export type TwinCollapseRecoveryReceipt = z.infer<typeof RecoveryReceiptShape>;
+
+/** Parsed receipt rows, by key. */
+function recoveryReceipts(live: DatabaseSync): Map<string, TwinCollapseRecoveryReceipt> {
+  const out = new Map<string, TwinCollapseRecoveryReceipt>();
+  for (const [key, value] of kvRows(live, 'tasks_schema_meta')) {
+    if (!key.startsWith(TWIN_COLLAPSE_RECOVERY_PREFIX)) continue;
+    const parsed = RecoveryReceiptShape.safeParse(parseJson(value));
+    if (parsed.success) out.set(key, parsed.data);
+  }
+  return out;
+}
+
+/** Tag sets of a sticky junction; empty when the table is absent. */
+function stickySetsIfPresent(db: DatabaseSync, table: string): Map<string, string[]> {
+  return hasMainTable(db, table) ? stickySets(db, table) : new Map();
+}
+
+/**
+ * Plan the recovery of the twin values a 2026.9.21 collapse dropped or
+ * replaced, from the pre-collapse snapshot its marker records (T12727).
+ *
+ * The 9.21 initial collapse was bare-authoritative: it deleted keys and
+ * sticky tags only the twin held and overwrote twin values with the bare
+ * ones, keeping them only in that snapshot. This compares the snapshot's
+ * twin and bare tables (read-only; a pair whose table the snapshot lacks is
+ * skipped) and plans, for every twin value that is not live and not archived:
+ * - `schema_meta`: the twin value is written to `twin_collapse_archive:<key>`
+ *   (a suffixed key when that name already holds another value, so nothing is
+ *   overwritten); for `focus_state` the twin's session notes are also merged
+ *   into the live value ({@link mergeFocusState}: live current fields win,
+ *   notes deduplicated by `(timestamp, note)` and sorted);
+ * - `sticky_tags`: twin-only tags are added to
+ *   `twin_collapse_archive:sticky_tags` in `brain_schema_meta` (a suffixed key
+ *   when that row is not a list of tags).
+ * The notes are merged once: not again after an apply that was not rolled
+ * back, nor when the twin value is already archived, so notes pruned after a
+ * recovery stay pruned. A second apply plans nothing.
+ *
+ * @param live - The project `cleo.db` connection (read-only is enough).
+ * @param snapshot - The snapshot, opened read-only, or `null` when missing.
+ * @returns The plan.
+ * @task T12727
+ */
+export function planTwinCollapseRecovery(
+  live: DatabaseSync,
+  snapshot: DatabaseSync | null,
+): TwinCollapseRecoveryPlan {
+  const state = readState(live, SCHEMA_META);
+  const snapshotPath = state?.snapshot ?? null;
+  const liveKv = kvRows(live, 'tasks_schema_meta');
+  const receipts = [...recoveryReceipts(live)]
+    .filter(([, r]) => r.rolledBackAt === null)
+    .map(([k]) => k)
+    .sort();
+  const empty = {
+    snapshot: snapshotPath,
+    snapshotExists: snapshot !== null,
+    archive: [],
+    focusNotesAdded: 0,
+    stickyArchived: [],
+    stickyArchiveKey: STICKY_ARCHIVE_KEY,
+    receipts,
+    changes: false,
+  };
+  if (snapshot === null) return empty;
+
+  // A pair whose bare or twin table the snapshot lacks had nothing to collapse.
+  const kvPair =
+    hasMainTable(snapshot, 'schema_meta') && hasMainTable(snapshot, 'tasks_schema_meta');
+  const sBare = kvPair ? carriedRows(snapshot, 'schema_meta') : new Map<string, string>();
+  const sTwin = kvPair ? carriedRows(snapshot, 'tasks_schema_meta') : new Map<string, string>();
+  const kv = new Map<string, string>();
+  const archive: TwinCollapseRecoveryArchive[] = [];
+  const archivedValues = new Set(
+    [...liveKv].filter(([k]) => k.startsWith(TWIN_COLLAPSE_ARCHIVE_PREFIX)).map(([, v]) => v),
+  );
+  const focusBefore = liveKv.get('focus_state') ?? null;
+  let focusState: string | null = null;
+  let focusNotesAdded = 0;
+  for (const [key, twinValue] of [...sTwin].sort(([a], [b]) => a.localeCompare(b))) {
+    if (sBare.get(key) === twinValue) continue; // not replaced
+    const reason = sBare.has(key) ? 'replaced' : 'dropped';
+    const done = liveKv.get(key) === twinValue || archivedValues.has(twinValue);
+    if (key === 'focus_state' && focusBefore !== null && !done && receipts.length === 0) {
+      const merged = mergeFocusState(focusBefore, twinValue);
+      if (merged !== focusBefore) {
+        focusNotesAdded = sessionNotesOf(merged).length - sessionNotesOf(focusBefore).length;
+        focusState = merged;
+      }
+    }
+    if (done) continue;
+    let archiveKey = `${TWIN_COLLAPSE_ARCHIVE_PREFIX}${key}`;
+    if (liveKv.has(archiveKey)) archiveKey = `${archiveKey}:${sha(twinValue).slice(0, 8)}`;
+    kv.set(archiveKey, twinValue);
+    archive.push({ key, archiveKey, reason, length: twinValue.length });
+  }
+
+  // Sticky tags only the twin junction held in the snapshot.
+  const stickyPair =
+    hasMainTable(snapshot, 'sticky_tags') && hasMainTable(snapshot, 'brain_sticky_tags');
+  const sb = stickyPair ? stickySets(snapshot, 'sticky_tags') : new Map<string, string[]>();
+  const st = stickyPair ? stickySets(snapshot, 'brain_sticky_tags') : new Map<string, string[]>();
+  const liveTags = stickySetsIfPresent(live, 'brain_sticky_tags');
+  const stickyRaw = hasMainTable(live, 'brain_schema_meta')
+    ? readKv(live, 'brain_schema_meta', STICKY_ARCHIVE_KEY)
+    : undefined;
+  const stickyParsed = StickyArchiveShape.safeParse(parseJson(stickyRaw ?? '[]'));
+  // A row that is not a list of tags is someone's data: never overwrite it.
+  const stickyArchiveKey = stickyParsed.success
+    ? STICKY_ARCHIVE_KEY
+    : `${STICKY_ARCHIVE_KEY}:${sha(stickyRaw ?? '').slice(0, 8)}`;
+  const previousRaw = stickyParsed.success
+    ? stickyRaw
+    : readKv(live, 'brain_schema_meta', stickyArchiveKey);
+  const previous = StickyArchiveShape.safeParse(parseJson(previousRaw ?? '[]'));
+  const archivedTags = new Set(previous.success ? previous.data : []);
+  const stickyArchived: string[] = [];
+  for (const [id, tags] of st) {
+    const bare = new Set(sb.get(id) ?? []);
+    const now = new Set(liveTags.get(id) ?? []);
+    for (const tag of tags) {
+      const row = `${id}\t${tag}`;
+      if (bare.has(tag) || now.has(tag) || archivedTags.has(row)) continue;
+      stickyArchived.push(row);
+    }
+  }
+  stickyArchived.sort();
+  const stickyArchive =
+    stickyArchived.length > 0
+      ? JSON.stringify([...new Set([...archivedTags, ...stickyArchived])].sort())
+      : null;
+
+  const plan: TwinCollapseRecoveryPlan = {
+    ...empty,
+    archive,
+    focusNotesAdded,
+    stickyArchived,
+    stickyArchiveKey,
+    changes: kv.size > 0 || focusState !== null || stickyArchive !== null,
+  };
+  recoveryWrites.set(plan, {
+    snapshot,
+    kv,
+    focusBefore,
+    focusState,
+    stickyBefore: previousRaw ?? null,
+    stickyArchive,
+  });
+  return plan;
+}
+
+/**
+ * Apply a recovery in one `BEGIN IMMEDIATE` transaction on the live store.
+ *
+ * The plan is recomputed INSIDE the transaction from the live values read
+ * under the write lock, so a note written after `plan` was built is merged,
+ * never lost; `plan` is the preview the caller showed. Writes the archive
+ * keys, the merged `focus_state`, the sticky archive, and a new receipt.
+ * Nothing is written when there is nothing to recover. Never touches the
+ * snapshot.
+ *
+ * @param live - The project `cleo.db` connection, outside a transaction.
+ * @param plan - From {@link planTwinCollapseRecovery} on the same connection.
+ * @returns The plan applied and its receipt (`null` when nothing was written).
+ * @throws {CleoError} {@link E_TWIN_COLLAPSE_RECOVER} when the recorded
+ *   snapshot is missing (nothing is written).
+ * @task T12727
+ */
+export function applyTwinCollapseRecovery(
+  live: DatabaseSync,
+  plan: TwinCollapseRecoveryPlan,
+): {
+  readonly plan: TwinCollapseRecoveryPlan;
+  readonly receipt: TwinCollapseRecoveryReceipt | null;
+} {
+  if (plan.snapshot === null) return { plan, receipt: null };
+  const preview = recoveryWrites.get(plan);
+  if (!plan.snapshotExists || preview === undefined) throw missingSnapshot(plan.snapshot);
+  live.exec('BEGIN IMMEDIATE');
+  try {
+    const fresh = planTwinCollapseRecovery(live, preview.snapshot);
+    const writes = recoveryWrites.get(fresh);
+    if (!fresh.changes || writes === undefined) {
+      live.exec('ROLLBACK');
+      return { plan: fresh, receipt: null };
+    }
+    const recoveredAt = new Date().toISOString();
+    let id = `${TWIN_COLLAPSE_RECOVERY_PREFIX}${recoveredAt}`;
+    for (let n = 2; readKv(live, 'tasks_schema_meta', id) !== undefined; n++)
+      id = `${TWIN_COLLAPSE_RECOVERY_PREFIX}${recoveredAt}:${n}`;
+    const receipt: TwinCollapseRecoveryReceipt = {
+      task: 'T12727',
+      id,
+      recoveredAt,
+      snapshot: fresh.snapshot,
+      archived: fresh.archive.map((a) => ({
+        key: a.key,
+        archiveKey: a.archiveKey,
+        sha: sha(writes.kv.get(a.archiveKey) ?? ''),
+      })),
+      focusNotesAdded: fresh.focusNotesAdded,
+      stickyArchived: [...fresh.stickyArchived],
+      stickyArchiveKey: fresh.stickyArchiveKey,
+      before: {
+        focusState: writes.focusState === null ? null : writes.focusBefore,
+        stickyArchive: writes.stickyArchive === null ? null : writes.stickyBefore,
+      },
+      after: {
+        focusState: writes.focusState === null ? null : sha(writes.focusState),
+        stickyArchive: writes.stickyArchive === null ? null : sha(writes.stickyArchive),
+      },
+      rolledBackAt: null,
+    };
+    for (const [key, value] of writes.kv) writeKv(live, 'tasks_schema_meta', key, value);
+    if (writes.focusState !== null)
+      writeKv(live, 'tasks_schema_meta', 'focus_state', writes.focusState);
+    if (writes.stickyArchive !== null)
+      writeKv(live, 'brain_schema_meta', fresh.stickyArchiveKey, writes.stickyArchive);
+    writeKv(live, 'tasks_schema_meta', id, JSON.stringify(receipt));
+    live.exec('COMMIT');
+    return { plan: fresh, receipt };
+  } catch (error) {
+    if (live.isTransaction) live.exec('ROLLBACK');
+    throw error;
+  }
+}
+
+/** The error for a recorded snapshot that is not on disk. */
+export function missingSnapshot(path: string | null): CleoError {
+  return new CleoError(
+    ExitCode.NOT_FOUND,
+    `${E_TWIN_COLLAPSE_RECOVER}: the pre-collapse snapshot ${path ?? '(none recorded)'} is missing; nothing was recovered`,
+    {
+      fix: 'Restore that file from a backup of .cleo/backups/sqlite/ and re-run; without it there is nothing to recover from.',
+      details: { field: 'snapshot', actual: path },
+    },
+  );
+}
+
+/** What {@link rollbackTwinCollapseRecovery} undid. */
+export interface TwinCollapseRecoveryRollback {
+  /** The receipt key. */
+  readonly id: string;
+  /** Archive keys deleted (they still held what the recovery wrote). */
+  readonly archiveDeleted: readonly string[];
+  /** Archive keys left alone (changed since; not the recovery's value any more). */
+  readonly archiveKept: readonly string[];
+  /**
+   * `restored`: `focus_state` was unchanged since, so the pre-merge value is
+   * back; `notes-removed`: it changed since, so only the notes the recovery
+   * added were removed; `none`: the recovery did not touch it.
+   */
+  readonly focusState: 'restored' | 'notes-removed' | 'none';
+  /** Session notes removed from `focus_state`. */
+  readonly notesRemoved: number;
+  /** Sticky rows removed from the sticky archive. */
+  readonly stickyRemoved: number;
+}
+
+/**
+ * Undo one recovery apply (`cleo doctor twin-collapse --rollback <id>`), in
+ * one `BEGIN IMMEDIATE` transaction:
+ * - archive keys it wrote are deleted when they still hold that value;
+ * - `focus_state` is restored to its pre-merge value when unchanged since,
+ *   else only the notes the recovery added are removed (notes written since
+ *   stay);
+ * - the sticky archive is restored when unchanged since, else only the rows
+ *   the recovery added are removed;
+ * - the receipt is kept, stamped `rolledBackAt`.
+ *
+ * @param live - The project `cleo.db` connection, outside a transaction.
+ * @param id - The receipt key (`twin_collapse_recovery:<recoveredAt>`).
+ * @returns What was undone.
+ * @throws {CleoError} {@link E_TWIN_COLLAPSE_RECOVER} when the receipt is
+ *   unknown or already rolled back (nothing is written).
+ * @task T12727
+ */
+export function rollbackTwinCollapseRecovery(
+  live: DatabaseSync,
+  id: string,
+): TwinCollapseRecoveryRollback {
+  live.exec('BEGIN IMMEDIATE');
+  try {
+    const receipt = recoveryReceipts(live).get(id);
+    if (receipt === undefined || receipt.rolledBackAt !== null)
+      throw new CleoError(
+        ExitCode.NOT_FOUND,
+        `${E_TWIN_COLLAPSE_RECOVER}: ${receipt === undefined ? 'no recovery receipt' : 'already rolled back:'} ${id}; nothing was changed`,
+        {
+          fix: 'cleo doctor twin-collapse --recover --dry-run  # lists the receipts not rolled back',
+        },
+      );
+    const archiveDeleted: string[] = [];
+    const archiveKept: string[] = [];
+    let addedNotes = new Set<string>();
+    for (const a of receipt.archived) {
+      const value = readKv(live, 'tasks_schema_meta', a.archiveKey);
+      if (value === undefined || sha(value) !== a.sha) {
+        archiveKept.push(a.archiveKey);
+        continue;
+      }
+      if (a.key === 'focus_state') {
+        const before = new Set(sessionNotesOf(receipt.before.focusState ?? undefined).map(noteKey));
+        addedNotes = new Set(
+          sessionNotesOf(value)
+            .map(noteKey)
+            .filter((k) => !before.has(k)),
+        );
+      }
+      live.prepare('DELETE FROM main.tasks_schema_meta WHERE key = ?').run(a.archiveKey);
+      archiveDeleted.push(a.archiveKey);
+    }
+
+    let focusState: TwinCollapseRecoveryRollback['focusState'] = 'none';
+    let notesRemoved = 0;
+    if (receipt.after.focusState !== null && receipt.before.focusState !== null) {
+      const current = readKv(live, 'tasks_schema_meta', 'focus_state');
+      if (current !== undefined && sha(current) === receipt.after.focusState) {
+        notesRemoved =
+          sessionNotesOf(current).length - sessionNotesOf(receipt.before.focusState).length;
+        writeKv(live, 'tasks_schema_meta', 'focus_state', receipt.before.focusState);
+        focusState = 'restored';
+      } else if (current !== undefined) {
+        const parsed = FocusNotesShape.safeParse(parseJson(current));
+        if (parsed.success) {
+          const kept = parsed.data.sessionNotes.filter((n) => !addedNotes.has(noteKey(n)));
+          notesRemoved = parsed.data.sessionNotes.length - kept.length;
+          if (notesRemoved > 0)
+            writeKv(
+              live,
+              'tasks_schema_meta',
+              'focus_state',
+              JSON.stringify({ ...parsed.data, sessionNotes: kept }),
+            );
+          focusState = 'notes-removed';
+        }
+      }
+    }
+
+    let stickyRemoved = 0;
+    if (receipt.after.stickyArchive !== null) {
+      const current = readKv(live, 'brain_schema_meta', receipt.stickyArchiveKey);
+      if (current !== undefined && sha(current) === receipt.after.stickyArchive) {
+        stickyRemoved = receipt.stickyArchived.length;
+        if (receipt.before.stickyArchive === null)
+          live
+            .prepare('DELETE FROM main.brain_schema_meta WHERE key = ?')
+            .run(receipt.stickyArchiveKey);
+        else
+          writeKv(
+            live,
+            'brain_schema_meta',
+            receipt.stickyArchiveKey,
+            receipt.before.stickyArchive,
+          );
+      } else if (current !== undefined) {
+        const parsed = StickyArchiveShape.safeParse(parseJson(current));
+        if (parsed.success) {
+          const added = new Set(receipt.stickyArchived);
+          const kept = parsed.data.filter((r) => !added.has(r));
+          stickyRemoved = parsed.data.length - kept.length;
+          writeKv(live, 'brain_schema_meta', receipt.stickyArchiveKey, JSON.stringify(kept));
+        }
+      }
+    }
+
+    writeKv(
+      live,
+      'tasks_schema_meta',
+      id,
+      JSON.stringify({ ...receipt, rolledBackAt: new Date().toISOString() }),
+    );
+    live.exec('COMMIT');
+    return { id, archiveDeleted, archiveKept, focusState, notesRemoved, stickyRemoved };
+  } catch (error) {
+    if (live.isTransaction) live.exec('ROLLBACK');
+    throw error;
+  }
 }
