@@ -41,6 +41,9 @@ const SEVERITY_SCORE: Record<string, number> = {
  * @param params - Optional scoring configuration
  * @param params.count - Number of suggestions to return (default: 1)
  * @param params.explain - When true, include scoring reasons in each suggestion
+ * @param params.brain - Brain pattern scoring (default true). A one-line
+ *   "next ready task" hint (stale `cleo current`, a completion's
+ *   `nextSuggested`) passes false: no brain store is opened (T12689).
  * @returns Ranked suggestions with scores and the total number of eligible candidates
  *
  * @remarks
@@ -62,7 +65,7 @@ const SEVERITY_SCORE: Record<string, number> = {
  */
 export async function coreTaskNext(
   projectRoot: string,
-  params?: { count?: number; explain?: boolean },
+  params?: { count?: number; explain?: boolean; brain?: boolean },
 ): Promise<{
   suggestions: Array<{
     id: string;
@@ -129,40 +132,41 @@ export async function coreTaskNext(
     })
     .sort((a, b) => b.score - a.score);
 
-  // Brain pattern scoring (best-effort)
-  try {
-    const { searchPatterns } = await import('../memory/patterns.js');
-    const [successPatterns, failurePatterns] = await Promise.all([
-      searchPatterns(projectRoot, { type: 'success', limit: 20 }),
-      searchPatterns(projectRoot, { type: 'failure', limit: 20 }),
-    ]);
+  // Brain pattern scoring (best-effort; skipped for a one-line hint)
+  if (params?.brain !== false)
+    try {
+      const { searchPatterns } = await import('../memory/patterns.js');
+      const [successPatterns, failurePatterns] = await Promise.all([
+        searchPatterns(projectRoot, { type: 'success', limit: 20 }),
+        searchPatterns(projectRoot, { type: 'failure', limit: 20 }),
+      ]);
 
-    if (successPatterns.length > 0 || failurePatterns.length > 0) {
-      for (const item of scored) {
-        const titleLower = item.task.title.toLowerCase();
-        const labels = (item.task.labels ?? []).map((l: string) => l.toLowerCase());
-        const matchText = [titleLower, ...labels].join(' ');
+      if (successPatterns.length > 0 || failurePatterns.length > 0) {
+        for (const item of scored) {
+          const titleLower = item.task.title.toLowerCase();
+          const labels = (item.task.labels ?? []).map((l: string) => l.toLowerCase());
+          const matchText = [titleLower, ...labels].join(' ');
 
-        for (const sp of successPatterns) {
-          if (matchText.includes(sp.pattern.toLowerCase())) {
-            item.score += 10;
-            item.reasons.push(`brain: success pattern match "${sp.pattern}" (+10)`);
-            break;
+          for (const sp of successPatterns) {
+            if (matchText.includes(sp.pattern.toLowerCase())) {
+              item.score += 10;
+              item.reasons.push(`brain: success pattern match "${sp.pattern}" (+10)`);
+              break;
+            }
+          }
+          for (const fp of failurePatterns) {
+            if (matchText.includes(fp.pattern.toLowerCase())) {
+              item.score -= 5;
+              item.reasons.push(`brain: failure pattern match "${fp.pattern}" (-5)`);
+              break;
+            }
           }
         }
-        for (const fp of failurePatterns) {
-          if (matchText.includes(fp.pattern.toLowerCase())) {
-            item.score -= 5;
-            item.reasons.push(`brain: failure pattern match "${fp.pattern}" (-5)`);
-            break;
-          }
-        }
+        scored.sort((a, b) => b.score - a.score);
       }
-      scored.sort((a, b) => b.score - a.score);
+    } catch {
+      // Brain pattern scoring is best-effort
     }
-  } catch {
-    // Brain pattern scoring is best-effort
-  }
 
   const count = Math.min(params?.count || 1, scored.length);
   const explain = params?.explain ?? false;
