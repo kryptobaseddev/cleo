@@ -325,14 +325,20 @@ describe('task mutation durability', () => {
     expect(await a.getDependencyChain('T2')).toEqual(['T1']);
     expect(await a.getNextPosition(null)).toBe(2);
     await a.shiftPositions(null, 1, 3);
-    await b.claimTask('T1', 'agent-b');
+    await b.claimTask('T1', { sessionId: 'ses-b', agentId: 'agent-b', mode: 'acquire' });
     expect(
-      persisted(projectA, "SELECT title, position, assignee FROM tasks_tasks WHERE id = 'T1'"),
-    ).toBe('[{"title":"A","position":4,"assignee":null}]');
+      persisted(
+        projectA,
+        "SELECT title, position, claimed_by_agent FROM tasks_tasks WHERE id = 'T1'",
+      ),
+    ).toBe('[{"title":"A","position":4,"claimed_by_agent":null}]');
     expect(
-      persisted(projectB, "SELECT title, position, assignee FROM tasks_tasks WHERE id = 'T1'"),
-    ).toBe('[{"title":"B","position":1,"assignee":"agent-b"}]');
-    await b.unclaimTask('T1');
+      persisted(
+        projectB,
+        "SELECT title, position, claimed_by_agent FROM tasks_tasks WHERE id = 'T1'",
+      ),
+    ).toBe('[{"title":"B","position":1,"claimed_by_agent":"agent-b"}]');
+    await b.unclaimTask('T1', { sessionId: 'ses-b' });
   });
 
   it.each([
@@ -462,7 +468,11 @@ describe('task mutation durability', () => {
       const writes = Promise.all([
         store.addRelation('T1', 'T2', 'related'),
         store.shiftPositions(null, 1, 2),
-        store.claimTask('T1', 'agent-committed'),
+        store.claimTask('T1', {
+          sessionId: 'ses-committed',
+          agentId: 'agent-committed',
+          mode: 'acquire',
+        }),
         store.appendLog({ id: 'durable-audit', action: 'test', taskId: 'T1' }),
         store.setMetaValue('accessor-marker', 'durable'),
         setMetaValue(projectA, 'exported-marker', 'durable'),
@@ -477,9 +487,9 @@ describe('task mutation durability', () => {
     expect(persisted(projectA, 'SELECT task_id, related_to FROM tasks_task_relations')).toBe(
       '[{"task_id":"T1","related_to":"T2"}]',
     );
-    expect(persisted(projectA, "SELECT position, assignee FROM tasks_tasks WHERE id = 'T1'")).toBe(
-      '[{"position":3,"assignee":"agent-committed"}]',
-    );
+    expect(
+      persisted(projectA, "SELECT position, claimed_by_agent FROM tasks_tasks WHERE id = 'T1'"),
+    ).toBe('[{"position":3,"claimed_by_agent":"agent-committed"}]');
     expect(
       persisted(projectA, "SELECT id FROM main.tasks_audit_log WHERE id = 'durable-audit'"),
     ).toBe('[{"id":"durable-audit"}]');

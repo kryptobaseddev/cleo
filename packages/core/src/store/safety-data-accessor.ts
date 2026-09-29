@@ -14,7 +14,7 @@
  * @epic T4732
  */
 
-import type { Session, Task, TaskStatus } from '@cleocode/contracts';
+import type { Session, Task, TaskClaim, TaskClaimRequest, TaskStatus } from '@cleocode/contracts';
 import { getLogger } from '../logger.js';
 import type {
   ArchiveFile,
@@ -351,12 +351,19 @@ export class SafetyDataAccessor implements DataAccessor {
 
   // ---- Agent task claiming ----
 
-  async claimTask(taskId: string, agentId: string): Promise<void> {
-    return this.inner.claimTask(taskId, agentId);
+  async claimTask(taskId: string, request: TaskClaimRequest): Promise<TaskClaim | null> {
+    return this.inner.claimTask(taskId, request);
   }
 
-  async unclaimTask(taskId: string): Promise<void> {
-    return this.inner.unclaimTask(taskId);
+  async unclaimTask(
+    taskId: string,
+    release: { sessionId: string | null; force?: boolean },
+  ): Promise<boolean> {
+    return this.inner.unclaimTask(taskId, release);
+  }
+
+  async renewSessionClaims(sessionId: string, leaseExpiresAt: string): Promise<number> {
+    return this.inner.renewSessionClaims(sessionId, leaseExpiresAt);
   }
 
   // ---- Lifecycle ----

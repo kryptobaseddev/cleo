@@ -26,6 +26,12 @@ import { CleoError } from '../errors.js';
 import { generateSessionId } from '../sessions/session-id.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { withLock } from '../store/lock.js';
+import { endSession } from '../store/session-store.js';
+import {
+  claimSpawnedTask,
+  releaseSpawnClaim,
+  type SpawnClaimReceipt,
+} from '../task-work/claims.js';
 
 /**
  * Resolved per-agent spawn identity returned by {@link allocateSpawnSession}.
@@ -152,7 +158,15 @@ export function electSpawnSession(candidates: readonly Session[]): Session | und
 
 /** Outcome of {@link requireSpawnSession}: an explicit per-agent session, or a refusal. */
 export type SpawnSessionResolution =
-  | { readonly ok: true; readonly identity: SpawnAgentIdentity }
+  | {
+      readonly ok: true;
+      readonly identity: SpawnAgentIdentity;
+      /**
+       * The task claim this spawn took (T12502). Pass the resolution to
+       * {@link abandonSpawnSession} when the spawn fails after this point.
+       */
+      readonly claim: SpawnClaimReceipt;
+    }
   | {
       readonly ok: false;
       /**
@@ -165,8 +179,13 @@ export type SpawnSessionResolution =
       readonly exitCode: number;
       readonly message: string;
       readonly fix: string;
-      /** Why allocation failed. */
+      /** Why allocation (or the task claim) failed. */
       readonly cause: string;
+      /**
+       * Structured refusal details — for `E_TASK_CLAIMED`, the
+       * `TaskClaimedDetails` naming the holder and lease expiry (T12502).
+       */
+      readonly details?: Record<string, unknown>;
     };
 
 /**
@@ -181,17 +200,24 @@ export type SpawnSessionResolution =
  *
  * @param projectRoot - Absolute path to the project root.
  * @param taskId - The task being spawned.
+ * T12502: the spawned session then takes the task's claim lease
+ * ({@link claimSpawnedTask}). Another session's claim refuses the spawn with
+ * `E_TASK_CLAIMED` naming the holder, and a session created for this refused
+ * spawn is ended again so it does not leak.
+ *
  * @param allocate - Allocation strategy (defaults to {@link allocateSpawnSession}; tests inject failures).
  * @returns The explicit per-agent identity, or a typed refusal.
  * @task T12500
+ * @task T12502
  */
 export async function requireSpawnSession(
   projectRoot: string,
   taskId: string,
   allocate: (root: string, id: string) => Promise<SpawnAgentIdentity> = allocateSpawnSession,
 ): Promise<SpawnSessionResolution> {
+  let identity: SpawnAgentIdentity;
   try {
-    return { ok: true, identity: await allocate(projectRoot, taskId) };
+    identity = await allocate(projectRoot, taskId);
   } catch (err) {
     const cause = err instanceof Error ? err.message : String(err);
     const cleoDef = err instanceof CleoError ? getErrorDefinition(err.code) : undefined;
@@ -207,5 +233,56 @@ export async function requireSpawnSession(
         "always runs under its own session (CLEO_SESSION_ID), never the orchestrator's.",
       cause,
     };
+  }
+  let claim: SpawnClaimReceipt;
+  try {
+    claim = await claimSpawnedTask(projectRoot, taskId, {
+      sessionId: identity.sessionId,
+      agentId: identity.agentId,
+    });
+  } catch (err) {
+    if (!identity.reused) {
+      await endSession(identity.sessionId, 'spawn refused: task claimed', projectRoot).catch(
+        () => undefined,
+      );
+    }
+    const cause = err instanceof Error ? err.message : String(err);
+    const cleo = err instanceof CleoError ? err : undefined;
+    return {
+      ok: false,
+      code: (cleo && getErrorDefinition(cleo.code)?.lafsCode) ?? 'E_INTERNAL',
+      exitCode: cleo?.code ?? ExitCode.GENERAL_ERROR,
+      message: `Refusing to spawn ${taskId}: ${cause}`,
+      fix: cleo?.fix ?? "Check the task store with 'cleo doctor', then retry the spawn.",
+      cause,
+      ...(cleo?.details ? { details: cleo.details } : {}),
+    };
+  }
+  return { ok: true, identity, claim };
+}
+
+/**
+ * Undo a {@link requireSpawnSession} whose spawn then failed (T12502): give
+ * the task claim back to its previous holder (the orchestrator on a
+ * hand-off) and end the per-agent session if this spawn created it, so a
+ * failed spawn strands neither a lease nor an active session. A re-spawn's
+ * reused session and its own earlier lease are kept. Best-effort.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param taskId - The task whose spawn failed.
+ * @param resolution - The successful resolution returned for this spawn.
+ * @task T12502
+ */
+export async function abandonSpawnSession(
+  projectRoot: string,
+  taskId: string,
+  resolution: Extract<SpawnSessionResolution, { ok: true }>,
+): Promise<void> {
+  const { identity, claim } = resolution;
+  await releaseSpawnClaim(projectRoot, taskId, identity.sessionId, claim);
+  if (!identity.reused) {
+    await endSession(identity.sessionId, 'spawn failed before dispatch', projectRoot).catch(
+      () => undefined,
+    );
   }
 }

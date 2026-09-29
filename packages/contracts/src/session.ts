@@ -132,6 +132,17 @@ export interface Session {
    * @defaultValue undefined
    */
   parentSessionId?: string | null;
+  /**
+   * ID of the orchestrator session that SPAWNED this one, recorded by the
+   * spawn itself (T12502). Unlike {@link Session.parentSessionId}, which a
+   * process declares for itself at `session start`, only the spawn writes
+   * this edge, so the task-claim chokepoint trusts it to let a spawn family
+   * pass a live lease between its members. Read-only on the session record:
+   * the whole-row session upsert never writes it.
+   *
+   * @defaultValue undefined
+   */
+  spawnedBySessionId?: string | null;
   /** Provider-specific agent identifier string. @defaultValue undefined */
   agentIdentifier?: string | null;
   /** ISO 8601 timestamp of when the handoff was consumed. @defaultValue undefined */

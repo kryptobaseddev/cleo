@@ -75,6 +75,13 @@ export enum ExitCode {
   SCOPE_CONFLICT = 32,
   SCOPE_INVALID = 33,
   TASK_NOT_IN_SCOPE = 34,
+  /**
+   * Another session holds the claim lease on the task (`cleo start`,
+   * `cleo claim`, spawn). LAFS code `E_TASK_CLAIMED`; the details
+   * (`TaskClaimedDetails`) name the holder session and agent, the lease
+   * expiry, and the explicit, audited override: `--take-over` for an expired
+   * lease, `--force-claim` for a live one. @task T12502
+   */
   TASK_CLAIMED = 35,
   SESSION_REQUIRED = 36,
   SESSION_CLOSE_BLOCKED = 37,

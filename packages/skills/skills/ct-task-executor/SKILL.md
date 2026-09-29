@@ -1,7 +1,7 @@
 ---
 name: ct-task-executor
 description: General implementation task execution for completing assigned CLEO tasks by following instructions and producing concrete deliverables. Handles coding, configuration, documentation work with quality verification against acceptance criteria and progress reporting. Use when executing implementation tasks, completing assigned work, or producing task deliverables. Triggers on implementation tasks, general execution needs, or task completion work.
-version: 2.7.4
+version: 2.7.5
 protocol: implementation
 adrRefs:
   - ADR-070
@@ -17,12 +17,14 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.7.4
+  version: 2.7.5
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/verify.ts
     - packages/cleo/src/cli/commands/complete.ts
+    - packages/cleo/src/cli/commands/start.ts
+    - packages/cleo/src/cli/commands/claim.ts
     - packages/core/src/validation/protocols/cant/implementation.cant
     - packages/core/src/validation/protocols/protocols-markdown/implementation.md
   loomStage: implementation
@@ -297,6 +299,24 @@ cleo complete T1234 --if-match <updatedAt>
 ```
 
 `--add-labels`, `--add-depends` and `--add-files` merge with concurrent writers and never need a retry.
+
+### Claimed Tasks (`E_TASK_CLAIMED`, exit 35)
+
+`cleo start` (and spawn) takes your session's time-limited claim lease on the
+task. If another session holds it, the start is refused with `E_TASK_CLAIMED`
+and nothing is written; `error.details` names the `holder` (session, agent,
+`leaseExpiresAt`), whether the lease has `expired`, and the `override` flag.
+Your mutations renew your leases; `cleo stop`, `cleo complete` and ending your
+session release them. The human `assignee` is a separate field.
+
+```bash
+cleo claim T1234 --renew        # extend your lease during a long step
+cleo start T1234 --take-over    # holder's lease EXPIRED (audited)
+cleo start T1234 --force-claim  # holder is LIVE: only with a clear reason (audited)
+```
+
+Never force a live claim to get unblocked: pick another task (`cleo next`) or
+report the conflict to your orchestrator.
 
 ---
 

@@ -97,8 +97,9 @@ function setupAccessor(tasks: Task[], extraMethods: Record<string, unknown> = {}
     addRelation: vi.fn().mockResolvedValue(undefined),
     updateTaskFields: vi.fn().mockResolvedValue(undefined),
     appendLog: vi.fn().mockResolvedValue(undefined),
-    claimTask: vi.fn().mockResolvedValue(undefined),
-    unclaimTask: vi.fn().mockResolvedValue(undefined),
+    claimTask: vi.fn().mockResolvedValue(null),
+    unclaimTask: vi.fn().mockResolvedValue(false),
+    renewSessionClaims: vi.fn().mockResolvedValue(0),
     ...extraMethods,
   };
   (getTaskAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(mockImpl);

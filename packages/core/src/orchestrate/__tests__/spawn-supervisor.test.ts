@@ -37,6 +37,7 @@ const execFileMock = vi.fn();
 const existsSyncMock = vi.fn();
 const acquireWorktreeTaskLockMock = vi.fn();
 const releaseWorktreeTaskLockMock = vi.fn();
+const endSessionMock = vi.fn(async (..._args: unknown[]) => null);
 
 vi.mock('node:child_process', () => ({
   execFileSync: (...args: unknown[]) => execFileSyncMock(...args),
@@ -85,6 +86,10 @@ vi.mock('../../store/data-accessor.js', () => ({
 vi.mock('../../store/session-store.js', () => ({
   getActiveSession: (...args: unknown[]) => getActiveSessionMock(...args),
   resolveCurrentSession: (...args: unknown[]) => getActiveSessionMock(...args),
+  // T12502: spawn claims the task for the child session (orchestrator hand-off
+  // lookup) and ends a session it created for a refused spawn.
+  resolveBoundSession: async () => null,
+  endSession: (...args: unknown[]) => endSessionMock(...args),
 }));
 
 vi.mock('../../paths.js', async () => {
@@ -310,6 +315,8 @@ describe('orchestrateSpawn — supervisor end-to-end (T9545 / Saga T10176)', () 
     // fallback), so the stub must support the allocation round-trip.
     loadSessions: vi.fn(async () => []),
     upsertSingleSession: vi.fn(async () => undefined),
+    // T12502: spawn takes the child session's claim lease.
+    claimTask: vi.fn(async () => null),
   });
 
   it('completes under the spawn budget and returns a success envelope (happy path)', async () => {
@@ -438,6 +445,8 @@ describe('orchestrateSpawn — worktree lock safety (T12506 review)', () => {
     appendLog: vi.fn(async () => undefined),
     loadSessions: vi.fn(async () => []),
     upsertSingleSession: vi.fn(async () => undefined),
+    // T12502: spawn takes the child session's claim lease.
+    claimTask: vi.fn(async () => null),
   });
   const lockRecord = { token: 'tok-1' };
   const wtResult = (over: Record<string, unknown> = {}) => ({
@@ -520,6 +529,19 @@ describe('orchestrateSpawn — worktree lock safety (T12506 review)', () => {
     expect(result.error?.code).toBe('E_WORKTREE_LOCKED');
     expect(result.error?.exitCode).toBe(25);
     expect(destroyWorktreeMock).not.toHaveBeenCalled();
+  });
+
+  it('a spawn failing after the claim ends the child session it created (T12502)', async () => {
+    reset();
+    endSessionMock.mockClear();
+    spawnWorktreeMock.mockRejectedValue(new Error('ENOTSUP: operation not supported, link'));
+    const result = await orchestrateSpawn('T9999');
+    expect(result.success).toBe(false);
+    expect(endSessionMock).toHaveBeenCalledWith(
+      expect.stringMatching(/^ses_/),
+      'spawn failed before dispatch',
+      expect.any(String),
+    );
   });
 
   it('a generic provisioning error on a pre-existing worktree never triggers destroyWorktree (item 1)', async () => {

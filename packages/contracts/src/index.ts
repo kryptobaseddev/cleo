@@ -362,6 +362,10 @@ export type {
   QueryTasksResult,
   TaskAuditLogQuery,
   TaskAuditLogRow,
+  TaskClaimedDetails,
+  TaskClaimGuard,
+  TaskClaimMode,
+  TaskClaimRequest,
   TaskConflictChange,
   TaskConflictDetails,
   TaskFieldUpdates,
@@ -1631,6 +1635,7 @@ export type {
   NexusWhyResult,
   NexusWikiParams,
 } from './operations/nexus.js';
+export { NEXUS_FLEET_SCHEMA_VERSION } from './operations/nexus.js';
 // === Nexus Scope Contracts (T9145 + T9146) ===
 export type {
   MetaWithNexusScope,
@@ -2510,6 +2515,7 @@ export type {
   SeverityAttestation,
   SignedSeverityAttestation,
   Task,
+  TaskClaim,
   TaskCreate,
   // T944 new axes (T9072: renamed TaskRole → TaskKind)
   TaskKind,

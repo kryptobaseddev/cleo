@@ -1133,6 +1133,14 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
         reason:
           '§F.14 / PR #1570: evidence resolvedPath is an absolute path on the verifying device (ADR-094)',
       },
+      ...(
+        ['claimed_by_session', 'claimed_by_agent', 'claimed_at', 'lease_expires_at'] as const
+      ).map((column) => ({
+        column,
+        class: 'local-only' as const,
+        reason:
+          'T12502: the agent claim lease names a session on this device and a wall-clock expiry; meaningless on a peer',
+      })),
     ],
   },
   tasks_token_usage: {
@@ -1559,6 +1567,12 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
         class: 'strip',
         reason:
           'cleo-dev ruling 2026-09-28 (round 2): a remote URL can embed credentials (https://user:token@host); stripped from outgoing ops and re-probed on the receiver',
+      },
+      {
+        column: 'head_committed_at',
+        class: 'local-only',
+        reason:
+          'T12721 (drizzle-cleo-global t12721): per-device probe observation; the cloud receives it only as ReplicaPresence.git.lastCommitAt through the path-free presence mapper, never through store sync',
       },
     ],
   },

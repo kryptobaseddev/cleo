@@ -25,7 +25,7 @@ import type { TaskAnalysisResult, TaskRef } from '../results.js';
  * Common task types (API contract — matches CLI src/types/task.ts)
  */
 import type { TaskStatus } from '../status-registry.js';
-import type { TaskKind, TaskPriority, TaskSeverity, TaskType } from '../task.js';
+import type { TaskClaim, TaskKind, TaskPriority, TaskSeverity, TaskType } from '../task.js';
 import type { MinimalTaskRecord, TaskMatch, TaskRecord } from '../task-record.js';
 import type { ExternalTask, ExternalTaskLink, ReconcileResult } from '../task-sync.js';
 import type {
@@ -1831,51 +1831,91 @@ export interface TasksArchiveQueryResult {
   archivedTasks: Array<{ id: string }>;
 }
 
-// tasks.claim
-export interface TasksClaimParams {
-  taskId: string;
-  agentId: string;
-}
 /**
- * Result of `tasks.claim` — agent claim confirmation.
+ * Params for `tasks.claim` — take, renew or override the caller session's
+ * leased claim on a task (T12502). The human `assignee` is never written.
  *
  * @task T1703
+ * @task T12502
+ */
+export interface TasksClaimParams {
+  /** Task to claim. */
+  taskId: string;
+  /** Agent identity recorded with the lease; defaults to the session's agent / `CLEO_AGENT_ID`. */
+  agentId?: string;
+  /** Renew the caller's own lease instead of taking one (`--renew`). */
+  renew?: boolean;
+  /** Take over an EXPIRED lease held by another session (`--take-over`, audited). */
+  takeOver?: boolean;
+  /** Take over a LIVE lease held by another session (`--force-claim`, audited). */
+  forceClaim?: boolean;
+}
+/**
+ * Result of `tasks.claim` — the lease now held.
+ *
+ * @task T1703
+ * @task T12502
  */
 export interface TasksClaimResult {
   /** The task ID that was claimed. */
   taskId: string;
-  /** The agent ID that now holds the claim. */
-  agentId: string;
+  /** The agent ID recorded with the lease, or `null`. */
+  agentId: string | null;
+  /** The lease held by the caller's session. */
+  claim: TaskClaim;
 }
 
-// tasks.unclaim
+/**
+ * Params for `tasks.unclaim` — release the caller session's lease (T12502).
+ *
+ * @task T12502
+ */
 export interface TasksUnclaimParams {
+  /** Task to release. */
   taskId: string;
+  /** Release a lease held by ANOTHER session (`--force-claim`, audited). */
+  forceClaim?: boolean;
 }
 /**
  * Result of `tasks.unclaim` — agent release confirmation.
  *
  * @task T1703
+ * @task T12502
  */
 export interface TasksUnclaimResult {
   /** The task ID whose claim was released. */
   taskId: string;
+  /** `true` when a lease was cleared; `false` when the task was unclaimed. */
+  released: boolean;
 }
 
-// tasks.start (dispatch-level)
+/**
+ * Params for `tasks.start`. T12502: the start takes the caller session's
+ * claim lease; the flags are the explicit, audited overrides.
+ *
+ * @task T12502
+ */
 export interface TasksStartQueryParams {
+  /** Task to start. */
   taskId: string;
+  /** Take over an EXPIRED lease held by another session (`--take-over`). */
+  takeOver?: boolean;
+  /** Take over a LIVE lease held by another session (`--force-claim`). */
+  forceClaim?: boolean;
 }
 /**
  * Result of `tasks.start` — work-start confirmation.
  *
  * @task T1703
+ * @task T12502
  */
 export interface TasksStartQueryResult {
   /** The task ID that is now active. */
   taskId: string;
   /** The task ID that was previously active (auto-stopped), or null. */
   previousTask: string | null;
+  /** The claim lease this start holds, or `null` for an unbound caller (no lease). */
+  claim?: TaskClaim | null;
 }
 
 // tasks.stop (dispatch-level)
