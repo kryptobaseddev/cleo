@@ -3,9 +3,10 @@
  *
  * While a project store's twin collapse is failed or pending, reads keep
  * working (they are served from the merged TEMP shadows) and `cleo doctor`
- * stays available, but mutating operations are refused with
- * `E_TWIN_COLLAPSE_FAILED`: a write would land in a shadow or in a twin that is
- * not in step with its bare table. `admin.backup` stays allowed, because
+ * stays available, but mutating operations of the failed pair's domain are
+ * refused with `E_TWIN_COLLAPSE_FAILED`: a write would land in a shadow or in
+ * a twin that is not in step with its bare table. Other domains keep writing
+ * (a failed docs merge does not stop `cleo add`). `admin.backup` stays allowed, because
  * taking or restoring a backup is part of the recovery path.
  *
  * @task T12535
@@ -39,7 +40,10 @@ export function createStoreWriteGuard(getProjectRoot: () => string): Middleware 
       return next();
     }
     const { storeWriteBlock } = await import('@cleocode/core/store/store-write-guard.js');
-    const blocked = await storeWriteBlock(projectRoot);
+    const blocked = await storeWriteBlock(projectRoot, {
+      domain: req.domain,
+      operation: req.operation,
+    });
     if (blocked === null) return next();
     return {
       success: false,

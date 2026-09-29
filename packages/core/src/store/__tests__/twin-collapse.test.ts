@@ -209,11 +209,12 @@ afterEach(() => {
 });
 
 describe('fresh store', () => {
-  it('collapses both pairs on first bind without a snapshot (nothing to carry)', () => {
+  it('collapses every pair on first bind without a snapshot (nothing to carry)', () => {
     expect(meta(tasksNative(), 'tasks_schema_meta', SEQ_MARKER)).toBeDefined();
     expect(meta(brainNative(), 'brain_schema_meta', STICKY_MARKER)).toBeDefined();
     expect(migrationSnapshots()).toEqual([]);
     expect(inspectTwinCollapse(tasksNative()).map((s) => s.state)).toEqual([
+      'collapsed',
       'collapsed',
       'collapsed',
     ]);
@@ -500,7 +501,7 @@ describe('sticky_tags', () => {
 });
 
 describe('(b) idempotency', () => {
-  it('a second run is a no-op for both pairs', async () => {
+  it('a second run is a no-op for every pair', async () => {
     const db = preMigrationTasks(2);
     setMeta(db, 'schema_meta', 'focus_state', '{"currentTask":"T900"}');
     const { db: brain } = await preMigrationSticky();
@@ -509,6 +510,7 @@ describe('(b) idempotency', () => {
     const sticky = tableDigest(brain, 'brain_sticky_tags', 'sticky_id, tag');
     const brainKv = tableDigest(brain, 'brain_schema_meta', 'key');
     expect(collapseTwinTables(db, dbPath()).map((r) => r.status)).toEqual([
+      'unchanged',
       'unchanged',
       'unchanged',
     ]);

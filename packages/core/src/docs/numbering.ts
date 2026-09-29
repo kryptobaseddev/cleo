@@ -67,8 +67,8 @@
  */
 
 import { type AnyColumn, like, sql } from 'drizzle-orm';
-import { attachments } from '../store/schema/attachments.js';
 import { getDb, getNativeTasksDb } from '../store/sqlite.js';
+import { attachments } from '../store/tasks-schema.js';
 
 // ─── Public surface ───────────────────────────────────────────────────────────
 

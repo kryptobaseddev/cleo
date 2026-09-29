@@ -14,7 +14,7 @@ import { createStoreWriteGuard } from '../store-write-guard.js';
 
 const storeWriteBlock = vi.fn();
 vi.mock('@cleocode/core/store/store-write-guard.js', () => ({
-  storeWriteBlock: (root: string) => storeWriteBlock(root),
+  storeWriteBlock: (root: string, req?: unknown) => storeWriteBlock(root, req),
 }));
 
 const ok: DispatchResponse = {
@@ -91,5 +91,14 @@ describe('store write guard', () => {
     storeWriteBlock.mockResolvedValue(null);
     expect(await guard(request('mutate', 'tasks', 'add'), next)).toBe(ok);
     expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks about the operation it guards, so a failed pair blocks only its own domain', async () => {
+    storeWriteBlock.mockResolvedValue(null);
+    await guard(request('mutate', 'docs', 'add'), next);
+    expect(storeWriteBlock).toHaveBeenCalledWith(expect.any(String), {
+      domain: 'docs',
+      operation: 'add',
+    });
   });
 });

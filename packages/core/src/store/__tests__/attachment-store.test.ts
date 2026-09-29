@@ -98,7 +98,7 @@ describe('AttachmentStore', () => {
   // deref drops refCount; when refCount reaches 0 blob file is removed
   // ──────────────────────────────────────────────────────────────────────────
 
-  it('deref decrements refCount and purges blob when refCount reaches 0', async () => {
+  it('deref at refCount 0 deletes the row and tombstones the blob; the repair deletes it after the grace period', async () => {
     const { createAttachmentStore } = await import('../attachment-store.js');
     const { closeDb } = await import('../sqlite.js');
     closeDb();
@@ -123,16 +123,20 @@ describe('AttachmentStore', () => {
     const blobFile = join(process.env['CLEO_DIR']!, 'attachments', 'sha256', prefix, `${rest}.txt`);
     await expect(stat(blobFile)).resolves.toBeTruthy();
 
-    // Deref — last ref, should purge.
+    // Deref — last ref: the row goes, the blob is tombstoned (T12535: an older
+    // build may still name the content in its bare table).
     const result = await store.deref(meta.id, 'task', 'T010');
     expect(result.status).toBe('removed');
+    await expect(stat(blobFile)).resolves.toBeTruthy();
 
-    // Blob file should be gone.
-    await expect(stat(blobFile)).rejects.toThrow();
-
-    // get should return null.
+    // get should return null (no row).
     const fetched = await store.get(sha256);
     expect(fetched).toBeNull();
+
+    // The repair deletes it once the grace period has passed.
+    const { repairAttachmentStore } = await import('../attachment-repair.js');
+    await repairAttachmentStore({ cwd: tempDir, gracePeriodMs: 0 });
+    await expect(stat(blobFile)).rejects.toThrow();
   });
 
   it('deref with remaining refs keeps blob and returns { status: "derefd" }', async () => {
@@ -217,6 +221,10 @@ describe('AttachmentStore', () => {
       `${meta.sha256.slice(2)}.txt`,
     );
     await rm(path);
+    // …and the keep-link (T12535), so no copy of the bytes is left.
+    await rm(
+      join(tempDir, '.cleo', 'attachments', 'keep', meta.sha256.slice(0, 2), meta.sha256.slice(2)),
+    );
     expect(await store.get(meta.sha256)).toBeNull();
     expect(await store.getMetadata(meta.sha256)).toEqual(meta);
     const { createDocsReadModel } = await import('../../docs/docs-read-model.js');
