@@ -8,7 +8,12 @@
  * command run from a task worktree wrote a different `project_hash` than the
  * main checkout, and `/tmp/x` and `/private/tmp/x` forked it too.
  *
+ * T12716: a freshly MINTED identity persists sha256('project-id:'+id), which
+ * no path spelling or worktree can fork; every project with a prior identity
+ * keeps the path-derived value its keys were built from.
+ *
  * @task T12557
+ * @task T12716
  */
 import { execFileSync } from 'node:child_process';
 import {
@@ -90,12 +95,12 @@ describe('T12557: projectHash is stable across worktrees', () => {
   it('fresh init: a command in a spawned worktree reads the same audit project_hash as main', async () => {
     const main = mainCheckout();
     await ensureProjectInfo(main);
-    const persisted = (
-      JSON.parse(readFileSync(join(main, '.cleo', 'project-info.json'), 'utf-8')) as {
-        projectHash?: string;
-      }
-    ).projectHash;
-    expect(persisted).toBe(generateProjectHash(main));
+    const { projectHash: persisted, projectId } = JSON.parse(
+      readFileSync(join(main, '.cleo', 'project-info.json'), 'utf-8'),
+    ) as { projectHash?: string; projectId: string };
+    // T12716: a freshly MINTED identity's hash derives from its id, not the
+    // path (review finding 1 keeps the path hash for every prior identity).
+    expect(persisted).toBe(generateProjectHash(`project-id:${projectId}`));
 
     const mainHash = getProjectInfoSync(main)?.projectHash;
     const wt = spawnWorktree(main);
@@ -129,13 +134,19 @@ describe('T12557: projectHash is stable across symlinked spellings', () => {
     expect(viaReal).toBe(viaLink);
   });
 
-  it('init through a symlink persists the real-path hash', async () => {
+  it('init through a symlink persists one hash for both spellings', async () => {
     const real = join(sandbox, 'real');
     mkdirSync(join(real, '.cleo'), { recursive: true });
     const link = join(sandbox, 'link');
     symlinkSync(real, link);
     await ensureProjectInfo(link);
-    expect(getProjectInfoSync(link)?.projectHash).toBe(generateProjectHash(real));
-    expect(getProjectInfoSync(real)?.projectHash).toBe(generateProjectHash(real));
+    // T12716: a freshly minted identity's hash derives from its id, so no
+    // spelling of the path can fork it.
+    const { projectId } = JSON.parse(
+      readFileSync(join(real, '.cleo', 'project-info.json'), 'utf-8'),
+    ) as { projectId: string };
+    const expected = generateProjectHash(`project-id:${projectId}`);
+    expect(getProjectInfoSync(link)?.projectHash).toBe(expected);
+    expect(getProjectInfoSync(real)?.projectHash).toBe(expected);
   });
 });
