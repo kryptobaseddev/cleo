@@ -10,6 +10,7 @@ import type { BrainState } from '@cleocode/contracts';
 import { focusSessionIdFromRead, readLiveFocus } from '../sessions/focus-state-store.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { resolveSessionForRead } from '../store/session-store.js';
 import { buildRankingContext, rankTasks } from '../task-tools/score-task-priority.js';
 import {
   getReadinessDependencyBlockers,
@@ -48,20 +49,21 @@ export async function buildBrainState(
 
   // --- Session (from SQLite, ADR-006/ADR-020) ---
   const acc = accessor ?? (await getTaskAccessor(projectRoot));
-  // T12501: the CALLER's session (bound first), not the first active row —
+  // T12500: the caller's bound session; an unbound caller sees the newest
+  // active row labelled `unbound`, never presented as its own. T12501:
   // resolved once; the focus key below derives from the same resolution.
   let focusSessionId: string | null = null;
   try {
-    const { resolveSessionForRead } = await import('../store/session-store.js');
     const read = await resolveSessionForRead(projectRoot);
     focusSessionId = focusSessionIdFromRead(read);
-    const activeSession = read.session;
+    const { session: activeSession, unbound } = read;
     if (activeSession && activeSession.status === 'active') {
       brain.session = {
         id: activeSession.id,
         name: activeSession.name || activeSession.id,
         status: activeSession.status,
         startedAt: activeSession.startedAt,
+        ...(unbound ? { unbound: true } : {}),
       };
     }
   } catch {

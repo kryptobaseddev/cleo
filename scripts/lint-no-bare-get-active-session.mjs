@@ -27,9 +27,9 @@
  * T12500 migrated every bare identity-meaning callsite (11 → 0) to the
  * caller's BOUND session (`resolveBoundSession` / `requireBoundSession`, which
  * refuse with `E_SESSION_UNBOUND` instead of guessing), and added a second
- * rule for INLINE newest-active selection. The baseline is now 4: read-only
- * displays (SessionView.findActive ×2, the bootstrap brain summary, injection
- * generation) that pick an active row inline.
+ * rule for INLINE newest-active selection. T12500 (follow-up) then moved the
+ * last 4 read-only displays onto `resolveSessionForRead` (which labels an
+ * unbound guess) or annotated them as collection scans: the baseline is 0.
  *
  * What counts as a "bare callsite"
  * --------------------------------

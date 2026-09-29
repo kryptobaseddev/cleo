@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { focusSessionIdFromRead, readLiveFocus } from '../sessions/focus-state-store.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { resolveSessionForRead } from '../store/session-store.js';
 
 export interface InjectGenerateResult {
   injection: string;
@@ -37,6 +38,7 @@ export async function generateInjection(
   let activeSessionName: string | null = null;
   let focusTask: string | null = null;
   let sessionScope: string | null = null;
+  let sessionUnbound = false;
 
   const acc = accessor ?? (await getTaskAccessor(projectRoot));
   const activeSessionMeta = await acc.getMetaValue<string>('activeSession');
@@ -44,17 +46,19 @@ export async function generateInjection(
     activeSessionName = activeSessionMeta;
   }
 
-  // Load the CALLER's session from SQLite (ADR-006/ADR-020). T12501: the
-  // read resolver (bound first), not the first active row — resolved once;
-  // the focus key derives from the same resolution.
+  // Load the CALLER's session from SQLite (ADR-006/ADR-020). T12500: the
+  // caller's bound session; an unbound caller's injection names the newest
+  // active row only with an explicit `unbound` label. T12501: resolved once;
+  // the focus key derives from the same resolution, and the session row's
+  // `taskWork` is never a focus source (it skips the done-task filter).
   let focusSessionId: string | null = null;
   try {
-    const { resolveSessionForRead } = await import('../store/session-store.js');
     const read = await resolveSessionForRead(projectRoot);
     focusSessionId = focusSessionIdFromRead(read);
     const active = read.session;
     if (active && active.status === 'active') {
       activeSessionName = active.name || active.id;
+      sessionUnbound = read.unbound;
       sessionScope = `${active.scope?.type}:${active.scope?.rootTaskId}`;
     }
   } catch {
@@ -77,6 +81,7 @@ export async function generateInjection(
     activeSessionName,
     focusTask,
     sessionScope,
+    sessionUnbound,
   });
 
   const sizeBytes = Buffer.byteLength(mvi, 'utf-8');
@@ -95,9 +100,12 @@ function buildMviMarkdown(state: {
   activeSessionName: string | null;
   focusTask: string | null;
   sessionScope: string | null;
+  sessionUnbound: boolean;
 }): string {
+  // T12500: an unbound generator only saw the newest active row — say so.
+  const unboundNote = state.sessionUnbound ? ' — unbound: newest active, may be another agent' : '';
   const sessionLine = state.activeSessionName
-    ? `| Session | \`${state.activeSessionName}\` (${state.sessionScope || 'unknown'}) |`
+    ? `| Session | \`${state.activeSessionName}\` (${state.sessionScope || 'unknown'})${unboundNote} |`
     : '| Session | none |';
   const focusLine = state.focusTask ? `| Focus | \`${state.focusTask}\` |` : '| Focus | none |';
 
