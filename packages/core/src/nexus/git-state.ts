@@ -68,6 +68,7 @@ import {
   projectRegistry,
 } from '../store/schema/nexus-schema.js';
 import { adoptLocalDeviceRows, currentDeviceId } from './path-map.js';
+import { markProjectsProbed } from './project-activity.js';
 
 /** Defaults and limits for the git state probe. */
 export const GIT_STATE_DEFAULTS = {
@@ -812,6 +813,12 @@ export async function runProjectsGitStatus(
     gitBin: overrides.gitBin,
   });
   recordGitStates(db, rows, { pruneDeviceId: deviceId });
+  // T12512: a probe is not use — it moves last_probed_at, never last_opened_at.
+  markProjectsProbed(
+    db,
+    rows.map((r) => r.projectId),
+    overrides.now?.() ?? new Date(),
+  );
   const otherDevices = listGitStates(db, {
     excludeDeviceId: deviceId,
     now: overrides.now?.(),

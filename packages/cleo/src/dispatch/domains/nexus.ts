@@ -63,6 +63,7 @@ import {
   nexusProfileUpsert,
   nexusProfileView,
   nexusProjectsClean,
+  nexusProjectsFleet,
   nexusProjectsList,
   nexusProjectsRegister,
   nexusProjectsRemove,
@@ -460,6 +461,23 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
       'projects.status',
     ),
 
+  'projects.fleet': async (params) =>
+    wrapCoreResult(
+      await nexusProjectsFleet(getProjectRoot(), {
+        device: typeof params.device === 'string' ? params.device : undefined,
+        missing: params.missing === true,
+        dirty: params.dirty === true,
+        behind: params.behind === true,
+        ahead: params.ahead === true,
+        stale: params.stale === true,
+        errored: params.errored === true,
+        staleAfterMs: typeof params.staleAfterMs === 'number' ? params.staleAfterMs : undefined,
+        limit: typeof params.limit === 'number' ? params.limit : undefined,
+        offset: typeof params.offset === 'number' ? params.offset : undefined,
+      }),
+      'projects.fleet',
+    ),
+
   'refresh-bridge': async (params) => {
     const projectRoot = getProjectRoot();
     const repoPath = (params.repoPath as string | undefined) ?? projectRoot;
@@ -692,6 +710,7 @@ const QUERY_OPS = new Set<string>([
   'flows',
   'context',
   'projects.list',
+  'projects.fleet',
   'diff',
   'query-cte',
   'hot-paths',
