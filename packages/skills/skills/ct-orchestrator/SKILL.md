@@ -2,9 +2,12 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.0.1
+  version: 4.0.4
   tier: core
   install: harness
+  covers:
+    - packages/cleo/src/cli/commands/orchestrate.ts
+    - packages/core/src/orchestration/spawn-prompt.ts
   lastReviewed: 2026-09-28
   stability: stable
 ---
@@ -199,11 +202,12 @@ cleo orchestrate start T1575  # Full state: session, pipeline, next task
 ### 3. IVTR — Execute the Work
 
 ```
-1. Identify Wave 0: cleo orchestrate ready T1575
-2. Spawn Workers in parallel for each Wave 0 task
+1. Read the waves: cleo orchestrate waves T1575 (take each wave n from here;
+   numbers can skip and the first need not be 1), then cleo orchestrate ready T1575
+2. Spawn Workers in parallel for each ready task in the first incomplete wave
 3. On completion: read manifest, check acceptance criteria
 4. If criteria NOT met → re-spawn worker with feedback (IVTR loop)
-5. Advance to Wave 1 (tasks whose deps are now done)
+5. Advance to the next wave cleo orchestrate waves lists (its deps are now done)
 6. Repeat until all tasks complete
 7. Final validation with Lead across the full epic
 ```

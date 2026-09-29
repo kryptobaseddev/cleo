@@ -1688,15 +1688,25 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       return lafsError('E_INVALID_INPUT', 'slug is required', 'update');
     }
 
-    // Exactly one of file or content must be provided.
+    // At most one of file or content; with neither, --status alone is a
+    // lifecycle-only change that keeps the stored bytes (T12654).
     const hasFile = typeof filePath === 'string' && filePath.length > 0;
     const hasContent = typeof inlineContent === 'string';
-    if (hasFile === hasContent) {
+    const statusOnly = !hasFile && !hasContent;
+    if (hasFile && hasContent) {
       return lafsError(
         'E_INVALID_INPUT',
-        'Provide exactly one of --file <path> or --content <text>',
+        '--file and --content are mutually exclusive',
         'update',
         'Use `cleo docs update <slug> --file ./new.md` OR `cleo docs update <slug> --content "..."`.',
+      );
+    }
+    if (statusOnly && rawStatus === undefined) {
+      return lafsError(
+        'E_INVALID_INPUT',
+        'Provide --file <path>, --content <text>, or --status <status> alone',
+        'update',
+        'Use `--file ./new.md`, `--content "..."`, or `cleo docs update <slug> --status accepted` to change only the lifecycle status.',
       );
     }
 
@@ -1729,34 +1739,39 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     }
 
     // T947 Wave C — mirror the updated blob so blobList /
-    // publishDocs see the new version (T11053 / AC1). Best-effort.
+    // publishDocs see the new version (T11053 / AC1). Best-effort. A
+    // lifecycle-only change has no new bytes to mirror.
     let backend: AttachmentBackend = 'llmtxt';
-    try {
-      const blobMirror = createAttachmentBlobStore(getProjectRoot());
-      const updatedBytes = hasFile
-        ? new Uint8Array(await readFile(resolve(filePath as string)))
-        : new Uint8Array(Buffer.from(inlineContent as string, 'utf-8'));
-      const contentType = hasFile ? mimeFromPath(resolve(filePath as string)) : 'text/plain';
-      const store = createAttachmentStore();
-      const rows = await store.listAllInProject(projectRoot);
-      const ownerIds = Array.from(
-        new Set(
-          rows
-            .filter((row) => row.metadata.id === outcome.result.attachmentId)
-            .map((row) => row.ownerId),
-        ),
-      );
-      const mirrorOwnerIds = ownerIds.length > 0 ? ownerIds : [`slug:${outcome.result.slug}`];
-      for (const mirrorOwnerId of mirrorOwnerIds) {
-        const mirrorResult = await blobMirror.put(mirrorOwnerId, {
-          name: outcome.result.slug,
-          data: updatedBytes,
-          contentType,
-        });
-        backend = mirrorResult.backend;
-      }
-    } catch {
+    if (statusOnly) {
       backend = await currentAttachmentBackend();
+    } else {
+      try {
+        const blobMirror = createAttachmentBlobStore(getProjectRoot());
+        const updatedBytes = hasFile
+          ? new Uint8Array(await readFile(resolve(filePath as string)))
+          : new Uint8Array(Buffer.from(inlineContent as string, 'utf-8'));
+        const contentType = hasFile ? mimeFromPath(resolve(filePath as string)) : 'text/plain';
+        const store = createAttachmentStore();
+        const rows = await store.listAllInProject(projectRoot);
+        const ownerIds = Array.from(
+          new Set(
+            rows
+              .filter((row) => row.metadata.id === outcome.result.attachmentId)
+              .map((row) => row.ownerId),
+          ),
+        );
+        const mirrorOwnerIds = ownerIds.length > 0 ? ownerIds : [`slug:${outcome.result.slug}`];
+        for (const mirrorOwnerId of mirrorOwnerIds) {
+          const mirrorResult = await blobMirror.put(mirrorOwnerId, {
+            name: outcome.result.slug,
+            data: updatedBytes,
+            contentType,
+          });
+          backend = mirrorResult.backend;
+        }
+      } catch {
+        backend = await currentAttachmentBackend();
+      }
     }
 
     // T11139 — audit trail
