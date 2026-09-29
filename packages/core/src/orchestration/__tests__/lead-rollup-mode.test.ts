@@ -135,12 +135,12 @@ describe('rollupWaveStatus — caller signature unchanged across flag states', (
   it('flag off (default): legacy 2-arg call returns a well-formed WaveRollup', async () => {
     let result: WaveRollup | undefined;
     try {
-      result = await rollupWaveStatus('T-DOES-NOT-EXIST', 0);
+      result = await rollupWaveStatus('T-DOES-NOT-EXIST', 1);
     } catch {
       return; // No project DB available — skip
     }
     expect(result.epicId).toBe('T-DOES-NOT-EXIST');
-    expect(result.waveId).toBe(0);
+    expect(result.waveId).toBe(1);
     expect(Array.isArray(result.workers)).toBe(true);
     expect(Array.isArray(result.blockers)).toBe(true);
     expect(typeof result.readyToAdvance).toBe('boolean');
@@ -153,12 +153,12 @@ describe('rollupWaveStatus — caller signature unchanged across flag states', (
       // Note: we pass projectRoot so resolveLeadRollupMode sees our config.
       // The signature is identical to the legacy call — projectRoot has
       // always been an optional positional. No new args were added.
-      result = await rollupWaveStatus('T-DOES-NOT-EXIST', 0, projectRoot);
+      result = await rollupWaveStatus('T-DOES-NOT-EXIST', 1, projectRoot);
     } catch {
       return;
     }
     expect(result.epicId).toBe('T-DOES-NOT-EXIST');
-    expect(result.waveId).toBe(0);
+    expect(result.waveId).toBe(1);
     expect(Array.isArray(result.workers)).toBe(true);
     expect(Array.isArray(result.blockers)).toBe(true);
     expect(typeof result.readyToAdvance).toBe('boolean');
@@ -171,9 +171,9 @@ describe('rollupWaveStatus — caller signature unchanged across flag states', (
     let passive: WaveRollup | undefined;
     let active: WaveRollup | undefined;
     try {
-      passive = await rollupWaveStatus('T-DOES-NOT-EXIST', 0, projectRoot);
+      passive = await rollupWaveStatus('T-DOES-NOT-EXIST', 1, projectRoot);
       writeProjectConfig({ leadRollup: { mode: 'active' } });
-      active = await rollupWaveStatus('T-DOES-NOT-EXIST', 0, projectRoot);
+      active = await rollupWaveStatus('T-DOES-NOT-EXIST', 1, projectRoot);
     } catch {
       return;
     }

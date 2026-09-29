@@ -21,14 +21,14 @@ cleo orchestrate spawn T1575  # Auto-detects epic → uses decomposition protoco
 cleo research show <research-id>
 
 # 5. Continue with wave-0 tasks
-cleo orchestrate next --epic T1575
+cleo orchestrate next T1575
 ```
 
 ## Pattern: Resuming Interrupted Work
 
 ```bash
 # 1. Check state on conversation start
-cleo orchestrate start --epic T1575
+cleo orchestrate start T1575
 # Shows: session active, current T1586, next task T1589
 
 # 2. Check for incomplete subagent work
@@ -36,7 +36,7 @@ cleo research pending
 # Shows: needs_followup: ["T1586"]
 
 # 3. Resume focused task or spawn followup
-cleo show T1586 --brief
+cleo show T1586
 cleo orchestrate spawn T1586  # Re-spawn if needed
 ```
 
@@ -52,7 +52,7 @@ cleo add "Add error handling to auth" --parent T1586 --depends T1586
 cleo add "Write auth tests" --parent T1586 --depends T1586
 
 # 3. Spawn for new tasks
-cleo orchestrate next --epic T1575
+cleo orchestrate next T1575
 cleo orchestrate spawn T1590
 ```
 
@@ -64,7 +64,7 @@ cleo orchestrate analyze T1575
 # Shows: Wave 0: T1578, T1580, T1582 (no deps)
 
 # 2. Verify parallel safety
-cleo orchestrate ready --epic T1575
+cleo orchestrate ready T1575
 # Returns: ["T1578", "T1580", "T1582"]
 
 # 3. Spawn multiple subagents (different sessions)
@@ -84,13 +84,13 @@ cleo phase show
 # Returns: "core"
 
 # 2. Get tasks in current phase
-cleo orchestrate ready --epic T1575 --phase core
+cleo orchestrate ready T1575
 
 # 3. Spawn within phase context
 cleo orchestrate spawn T1586
 
 # 4. When phase complete, advance
-cleo phases stats
+cleo phase list
 cleo phase advance  # Move to testing phase
 ```
 
@@ -125,18 +125,19 @@ cleo list --parent T1575 --status pending  # Should be empty
 
 # 2. Run pre-release validation
 ./tests/run-all-tests.sh
-cleo validate
+cleo check arch
 
-# 3. Create and ship release
-cleo release create v0.85.0 --tasks T001,T002,T003
-cleo release ship v0.85.0 --bump-version --create-tag --push
-
-# Preview without changes:
-cleo release ship v0.85.0 --bump-version --dry-run
+# 3. Plan and open the release PR (ADR-065; merged through PRs, tagged explicitly)
+cleo release plan v0.85.0 --tasks T001,T002,T003
+cleo release open v0.85.0
+cleo release pr-status v0.85.0
+git tag -a v0.85.0 -m "Release v0.85.0" && git push origin v0.85.0
+cleo release reconcile v0.85.0
 ```
 
-**IMPORTANT**: `dev/release-version.sh` is **DEPRECATED** (since v0.78.0).
-Always use `cleo release create` → `cleo release ship`.
+**IMPORTANT**: `dev/release-version.sh` is **DEPRECATED** (since v0.78.0), and the
+`release create`/`release ship` verbs were removed (T9540, T10103). Always use
+`cleo release plan` → `open` → tag → `reconcile`.
 
 See `src/protocols/release.md` for the full release protocol specification.
 
@@ -158,7 +159,7 @@ cleo orchestrate spawn T105  # implementation protocol
 # contribution protocol auto-triggers for shared resources
 
 # RELEASE (polish phase)
-cleo release create v0.74.0 --tasks T104,T105
-cleo release ship v0.74.0 --bump-version --create-tag --push
+cleo release plan v0.74.0 --tasks T104,T105
+cleo release open v0.74.0
 cleo session end --note "Feature X released v0.74.0"
 ```

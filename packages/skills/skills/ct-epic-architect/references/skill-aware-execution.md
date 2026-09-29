@@ -118,7 +118,7 @@ Before creating epics, ct-epic-architect SHOULD check existing research:
 When ct-epic-architect creates an epic, it follows the subagent protocol:
 
 1. **Write output file**: `{{OUTPUT_DIR}}/{{DATE}}_epic-{{FEATURE_SLUG}}.md`
-2. **Append manifest entry**: Single line JSON to `{{MANIFEST_PATH}}`
+2. **Record manifest entry**: `cleo manifest append --entry '<entry JSON>'` (the flat manifest file is retired, ADR-027)
 3. **Return summary only**: "Epic created. Manifest appended to pipeline_manifest."
 
 ### Querying Prior Research
@@ -170,7 +170,7 @@ The orchestrator skill enforces context budget (ORC-005). When spawning ct-epic-
 
 ```bash
 # Orchestrator queries manifest for epic details
-tail -1 {{MANIFEST_PATH}} | jq '.key_findings'
+cleo manifest list --task {{TASK_ID}} --json
 ```
 
 ---

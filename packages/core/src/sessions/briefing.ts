@@ -43,7 +43,12 @@ import { truncateString } from '../render/helpers.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { depsReady } from '../tasks/deps-ready.js';
-import { readFocusState } from './focus-state-store.js';
+import {
+  readLiveFocus,
+  type StaleFocusPointer,
+  staleFocusPointer,
+  staleFocusWarning,
+} from './focus-state-store.js';
 import { getLastHandoff, type HandoffData } from './handoff.js';
 import { resolveSessionIdFromEnv } from './session-id.js';
 import type { TaskWorkStateExt } from './types.js';
@@ -176,6 +181,12 @@ export interface LastSessionInfo {
   handoff: HandoffData;
   /** Handoff content records a previous session and is not current authority. */
   authority?: 'historical';
+  /**
+   * Live status of each `handoff.nextSuggested` id, read now rather than when
+   * the handoff was written: a done, cancelled, archived or missing id is
+   * `stale` and is not current advice (T12660).
+   */
+  nextSuggestedLive?: Array<{ id: string; status: string; stale: boolean }>;
 }
 
 /**
@@ -231,6 +242,12 @@ export interface SessionBriefing {
   urgentTasks: BriefingUrgentTask[];
   pipelineStage?: PipelineStageInfo;
   warnings?: string[];
+  /**
+   * The focus pointer, when it names a done, cancelled, archived or missing
+   * task (T12684). `currentTask` is then null; the envelope carries a
+   * `W_STALE_FOCUS` warning.
+   */
+  staleFocus?: StaleFocusPointer;
   /** Brain memory context -- decisions/patterns/observations relevant to this scope. */
   memoryContext?: SessionMemoryContext;
   /**
@@ -303,9 +320,12 @@ export async function computeBriefing(
   // → env-first resolver → legacy global key (backward-compat fallback inside
   // readFocusState). This scopes the "current task" line to the CALLER's agent.
   const focusSessionId = params.activeSessionId ?? resolveSessionIdFromEnv();
-  const focus = ((await readFocusState(accessor, focusSessionId)) ?? undefined) as
-    | TaskWorkStateExt
-    | undefined;
+  // T12684: the one validating focus reader — a pointer to a finished task
+  // (archived included, which the task listing below omits) comes back stale.
+  const liveFocus = await readLiveFocus(accessor, focusSessionId);
+  const focus = (
+    liveFocus.state ? { ...liveFocus.state, currentTask: liveFocus.currentTask } : undefined
+  ) as TaskWorkStateExt | undefined;
 
   // Build task map for quick lookups
   const taskMap = new Map(tasks.map((t) => [t.id, t]));
@@ -381,8 +401,9 @@ export async function computeBriefing(
   // 1. Last session handoff
   const lastSession = await computeLastSession(projectRoot, scopeFilter);
 
-  // 2. Current active task
-  const currentTaskInfo = computeCurrentTask(focus, taskMap);
+  // 2. Current active task (a stale pointer is reported as a warning below)
+  const { current: currentTaskInfo } = computeCurrentTask(focus, taskMap);
+  const staleFocus = liveFocus.staleFocus;
 
   // 3. Next tasks (leverage-scored) — default capped at 3 (T9974)
   const nextTasks = computeNextTasks(tasks, taskMap, focus, {
@@ -533,6 +554,7 @@ export async function computeBriefing(
         ...lastSession,
         handoff: cleanHandoff(lastSession.handoff),
         authority: 'historical',
+        ...liveNextSuggested(lastSession.handoff, taskMap),
       }
     : null;
 
@@ -550,6 +572,18 @@ export async function computeBriefing(
   } catch (error) {
     warnings.push(
       `Project identity unavailable: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (staleFocus) {
+    const next = nextTasks[0] ? { id: nextTasks[0].id, title: nextTasks[0].title } : null;
+    warnings.push(`W_STALE_FOCUS: ${staleFocusWarning(staleFocus, next)}`);
+  }
+  const staleSuggested = cleanedLastSession?.nextSuggestedLive?.filter((entry) => entry.stale);
+  if (staleSuggested?.length) {
+    warnings.push(
+      `Last handoff suggested work that is no longer current: ${staleSuggested
+        .map((entry) => `${entry.id} (${entry.status})`)
+        .join(', ')}`,
     );
   }
   if (currentTaskInfo?.blockedBy?.length) {
@@ -573,6 +607,7 @@ export async function computeBriefing(
     urgentTasks,
     ...(pipelineStage && { pipelineStage }),
     ...(warnings.length > 0 && { warnings }),
+    ...(staleFocus && { staleFocus }),
     ...(memoryContext && { memoryContext }),
     ...(bundle && { bundle }),
     ...(docsContext && { docsContext }),
@@ -852,14 +887,17 @@ async function resolveHandoffFromDocs(
 function computeCurrentTask(
   focus: TaskWorkStateExt | undefined,
   taskMap: Map<string, unknown>,
-): CurrentTaskInfo | null {
+): { current: CurrentTaskInfo | null; stale: StaleFocusPointer | null } {
   const focusTaskId = focus?.currentTask;
-  if (!focusTaskId) return null;
+  if (!focusTaskId) return { current: null, stale: null };
 
   const task = taskMap.get(focusTaskId) as
     | { id: string; title: string; status: string; depends?: string[] }
     | undefined;
-  if (!task) return null;
+  // T12660: a pointer to a done, cancelled, archived or missing task is stale —
+  // never the current task.
+  const stale = staleFocusPointer(focusTaskId, task?.status);
+  if (!task || stale) return { current: null, stale };
 
   const info: CurrentTaskInfo = {
     id: task.id,
@@ -878,7 +916,7 @@ function computeCurrentTask(
     }
   }
 
-  return info;
+  return { current: info, stale: null };
 }
 
 /**
@@ -1312,6 +1350,29 @@ function cleanHandoff(handoff: HandoffData): HandoffData {
     }
   }
   return cleaned as unknown as HandoffData;
+}
+
+/**
+ * Annotate a historical handoff's `nextSuggested` ids with their LIVE status
+ * (T12660). The handoff is a snapshot; without this a done or cancelled id
+ * read as current advice.
+ *
+ * @param handoff - The recorded handoff.
+ * @param taskMap - Live tasks by id.
+ * @returns `{ nextSuggestedLive }`, or `{}` when nothing was suggested.
+ */
+function liveNextSuggested(
+  handoff: HandoffData,
+  taskMap: Map<string, unknown>,
+): Pick<LastSessionInfo, 'nextSuggestedLive'> {
+  const ids = handoff.nextSuggested ?? [];
+  if (ids.length === 0) return {};
+  return {
+    nextSuggestedLive: ids.map((id) => {
+      const status = (taskMap.get(id) as { status?: string } | undefined)?.status;
+      return { id, status: status ?? 'missing', stale: staleFocusPointer(id, status) !== null };
+    }),
+  };
 }
 
 /**

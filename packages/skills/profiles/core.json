@@ -1,7 +1,14 @@
 {
   "name": "core",
-  "description": "Orchestration and LOOM (RCASD-IVTR+C) pipeline awareness",
+  "description": "The six core skills (D11157): CLEO protocol, orchestration, phase leads, task execution, dev workflow and documentation",
   "extends": "minimal",
-  "skills": ["ct-orchestrator", "loom"],
-  "includeProtocols": ["agent-protocol"]
+  "skills": [
+    "ct-orchestrator",
+    "ct-lead",
+    "ct-dev-workflow",
+    "ct-documentor"
+  ],
+  "includeProtocols": [
+    "agent-protocol"
+  ]
 }
