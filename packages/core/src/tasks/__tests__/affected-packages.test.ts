@@ -35,7 +35,6 @@ import {
   deriveAffectedPackages,
   listVitestProjects,
   listWorkspacePackages,
-  toPosixPath,
 } from '../affected-packages.js';
 import { validateAtom } from '../evidence.js';
 
@@ -133,7 +132,6 @@ describe('deriveAffectedPackages', () => {
     expect(changed).toContain('\\');
     const scope = deriveAffectedPackages(root, [changed]);
     expect(scope.scope === 'affected' && scope.direct).toEqual(['@x/a']);
-    expect(toPosixPath(win32.relative('C:\\repo', 'C:\\repo\\packages\\a'))).toBe('packages/a');
   });
 
   it('a documentation-only diff affects nothing', () => {

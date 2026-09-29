@@ -34,12 +34,9 @@ import { acquireGlobalSlot, type ReleaseSlotFn } from './tool-semaphore.js';
 /**
  * A path with `/` separators. `path.relative` and Windows callers produce `\`,
  * while package directories and git paths are compared with `/` (T12657).
- *
- * @param path - A relative path in either separator style.
- * @returns The same path with forward slashes.
- * @task T12657
+ * Module-local: package-dir matching only, not a general path primitive.
  */
-export function toPosixPath(path: string): string {
+function slashSeparated(path: string): string {
   return path.replace(/\\/g, '/');
 }
 
@@ -132,7 +129,7 @@ export function listWorkspacePackages(root: string): WorkspacePackage[] {
       const scripts = (pkg.scripts ?? {}) as Record<string, unknown>;
       found.push({
         name: pkg.name,
-        dir: toPosixPath(relative(root, join(root, dir))),
+        dir: slashSeparated(relative(root, join(root, dir))),
         all,
         hasTestScript: typeof scripts['test'] === 'string' && scripts['test'].trim() !== '',
       });
@@ -165,7 +162,7 @@ export function deriveAffectedPackages(
   const packages = listWorkspacePackages(root).sort((a, b) => b.dir.length - a.dir.length);
   const direct = new Set<string>();
   const workspaceWide: string[] = [];
-  for (const path of changedPaths.map(toPosixPath)) {
+  for (const path of changedPaths.map(slashSeparated)) {
     const owner = packages.find((p) => path === p.dir || path.startsWith(`${p.dir}/`));
     if (owner) direct.add(owner.name);
     else if (!isCiDocumentPath(path)) workspaceWide.push(path);
@@ -334,7 +331,7 @@ async function resolveVitestProjects(
     }>;
     const projects = parsed.map((p) => {
       if (typeof p.name !== 'string' || typeof p.root !== 'string') throw new Error('bad entry');
-      return { name: p.name, dir: toPosixPath(relative(root, p.root)) };
+      return { name: p.name, dir: slashSeparated(relative(root, p.root)) };
     });
     return { ok: true, projects };
   } catch {
