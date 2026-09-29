@@ -150,6 +150,11 @@ export function checkProfiles(root, manifest) {
 export function checkCrossReferences(root, manifest) {
   const names = new Set(manifest.skills.map((s) => s.name));
   const drift = [];
+  // T12678: retiredSkills drives install pruning; a retired name must not
+  // also be a live skill, or install would add and prune it every run.
+  for (const retired of manifest.retiredSkills ?? []) {
+    if (names.has(retired)) drift.push(`retiredSkills lists '${retired}', which is still a skill`);
+  }
   for (const s of manifest.skills) {
     const lists = [
       ['dependencies', s.dependencies],

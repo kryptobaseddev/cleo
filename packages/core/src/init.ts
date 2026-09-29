@@ -52,6 +52,7 @@ import {
 } from 'node:fs/promises';
 import { platform } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
+import type { Provider } from '@cleocode/caamp';
 import { ExitCode } from '@cleocode/contracts';
 import { isAbsolutePath } from '@cleocode/paths';
 import { classifyProject, type ProjectClassification } from './discovery.js';
@@ -633,8 +634,53 @@ export async function initCoreSkills(created: string[], warnings: string[]): Pro
     if (installed.length > 0) {
       created.push(`skills: ${installed.length} core skills installed`);
     }
+
+    // T12678: record what CLEO installed, then remove bundled skills CLEO no
+    // longer installs (internal or retired) — only where CLEO owns them.
+    await pruneAfterInstall(ctSkillsRoot, installed, providers, created, warnings);
   } catch (err) {
     warnings.push(`Core skill install: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/**
+ * Write the bundled-install ledger and prune skills the bundled manifest no
+ * longer installs (T12678). Best-effort: failures become warnings.
+ *
+ * @param ctSkillsRoot - `@cleocode/skills` package root.
+ * @param installed - Skills installed by this run.
+ * @param providers - Installed harness providers.
+ * @param created - Accumulator for created/removed messages.
+ * @param warnings - Accumulator for warnings.
+ */
+async function pruneAfterInstall(
+  ctSkillsRoot: string,
+  installed: string[],
+  providers: Provider[],
+  created: string[],
+  warnings: string[],
+): Promise<void> {
+  try {
+    const { resolveProviderSkillsDirs } = await import('@cleocode/caamp');
+    const { resolveSkillsRoot } = await import('./skills/skill-root.js');
+    const { pruneBundledSkills, writeBundledLedger } = await import('./skills/prune-bundled.js');
+    const skillsRoot = resolveSkillsRoot();
+    await writeBundledLedger(skillsRoot, installed);
+    const receipt = await pruneBundledSkills({
+      bundledSkillsDir: join(ctSkillsRoot, 'skills'),
+      skillsRoot,
+      providerSkillDirs: providers.flatMap((p) => resolveProviderSkillsDirs(p, 'global')),
+      receiptPath: join(skillsRoot, '.prune-receipts.jsonl'),
+    });
+    const removed = receipt.actions.filter((a) => a.action === 'removed');
+    if (removed.length > 0) {
+      created.push(
+        `skills: pruned ${removed.length} entries no longer installed (${[...new Set(removed.map((a) => a.name))].join(', ')})`,
+      );
+    }
+    for (const e of receipt.errors) warnings.push(`Skill prune: ${e}`);
+  } catch (err) {
+    warnings.push(`Skill prune: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 

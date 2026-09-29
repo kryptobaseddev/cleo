@@ -47,6 +47,18 @@
       "agent-protocol": "ct-orchestrator"
     }
   },
+  "retiredSkills": [
+    "ct-docs-lookup",
+    "ct-docs-review",
+    "ct-docs-write",
+    "ct-master-tac",
+    "ct-memory",
+    "ct-skill-creator",
+    "ct-skill-validator",
+    "ct-stickynote",
+    "loom",
+    "signaldock-connect"
+  ],
   "_meta": {
     "schemaVersion": "2.7.0",
     "lastUpdated": "2026-05-19",

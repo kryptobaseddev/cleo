@@ -226,6 +226,15 @@ describe('lint-skills-manifest goes red on planted defects', () => {
     ]);
   });
 
+  it('fails when retiredSkills names a live skill (T12678)', () => {
+    const m = JSON.parse(readFileSync(join(root, MANIFEST), 'utf8'));
+    m.retiredSkills = ['ct-alpha', 'ct-gone'];
+    writeFileSync(join(root, MANIFEST), serialiseManifest(m));
+    const drift = checkManifest(root).drift;
+    expect(drift).toContain("retiredSkills lists 'ct-alpha', which is still a skill");
+    expect(drift.join('\n')).not.toMatch(/ct-gone/);
+  });
+
   it('fails when the manifest lists a skill with no directory', () => {
     const m = JSON.parse(readFileSync(join(root, MANIFEST), 'utf8'));
     m.skills.push({ name: 'loom' });
