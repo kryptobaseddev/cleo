@@ -1211,12 +1211,17 @@ const analyzeCommand = defineCommand({
     full: {
       type: 'boolean',
       description:
-        'Parse every file instead of reusing unchanged files (default: incremental, falling back to full with a stated reason)',
+        "Parse every file instead of reusing unchanged files (default: incremental, falling back to full with a stated reason). Also re-binds a moved project's graph (same project id, old recorded root) to the live root",
     },
     incremental: {
       type: 'boolean',
       description:
         'Deprecated no-op: incremental analysis is now the default (use --full to rebuild)',
+    },
+    'drop-missing-repositories': {
+      type: 'boolean',
+      description:
+        'Drop included repositories that are missing on disk instead of refusing (the default keeps the previous graph). Dropped paths are reported with a one-command restore',
     },
   },
   async run({ args }) {
@@ -1239,6 +1244,7 @@ const analyzeCommand = defineCommand({
         repoPath,
         projectIdOverride,
         full,
+        dropMissingRepositories: args['drop-missing-repositories'] === true,
         includedRepositories: args['include-repositories']
           ?.split(',')
           .map((entry) => entry.trim())
@@ -1257,6 +1263,16 @@ const analyzeCommand = defineCommand({
       humanInfo(`[nexus] nexus-bridge.md refreshed at ${repoPath}/.cleo/nexus-bridge.md`);
       humanInfo('[nexus] Project registered/updated in multi-project registry.');
 
+      // T12659: a drop narrows the index scope for every later run — say so loudly.
+      if (result.droppedRepositories)
+        humanWarn(
+          `[nexus] DROPPED missing included repositories: ${result.droppedRepositories.paths.join(', ')}. ` +
+            `Restore them once they exist again: ${result.droppedRepositories.restoreCommand}`,
+        );
+      if (result.rebind)
+        humanInfo(
+          `[nexus] Re-bound graph for ${result.rebind.projectId}: ${result.rebind.oldRoot} -> ${result.rebind.newRoot}`,
+        );
       humanInfo(
         `[nexus] Mode: ${result.summary.mode} — ${result.summary.reason} ` +
           `(parsed ${result.summary.parsedFiles}, reused ${result.summary.reusedFiles})`,
@@ -1274,6 +1290,11 @@ const analyzeCommand = defineCommand({
           fileCount: result.fileCount,
           durationMs: result.durationMs,
           assessment: result.assessment,
+          // T12659: receipt of a moved project's graph re-bound to the live root.
+          ...(result.rebind ? { rebind: result.rebind } : {}),
+          ...(result.droppedRepositories
+            ? { droppedRepositories: result.droppedRepositories }
+            : {}),
         },
         {
           command: 'nexus-analyze',

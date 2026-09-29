@@ -32,7 +32,11 @@ import {
 } from './assessment-store.js';
 import { generateProjectHash } from './hash.js';
 import { resolveSourceRoots } from './source-roots.js';
-import { decodeStoredAssessment } from './stored-roots.js';
+import {
+  decodeStoredAssessment,
+  describeGraphOwnershipMismatch,
+  graphOwnershipRemedy,
+} from './stored-roots.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -696,11 +700,24 @@ async function assessCoverage(
         }
       } else {
         const verifiedIdentity = projectId ?? (info?.projectId || info?.projectHash);
+        const liveRoot = realpathSync(projectRoot);
         if (
-          assessment.sourceRoots.projectRoot !== realpathSync(projectRoot) ||
+          assessment.sourceRoots.projectRoot !== liveRoot ||
           (verifiedIdentity !== undefined && verifiedIdentity !== assessment.sourceRoots.projectId)
-        )
-          throw new Error('Recorded source ownership differs from the requested project binding.');
+        ) {
+          // T12659: name the recorded vs live binding and the one command that
+          // resolves it — the same command doctor knowledge proposes.
+          const mismatch = {
+            recordedRoot: assessment.sourceRoots.projectRoot,
+            recordedProjectId: assessment.sourceRoots.projectId,
+            liveRoot,
+            liveProjectId: verifiedIdentity || undefined,
+          };
+          coverage.nextAction = graphOwnershipRemedy(mismatch);
+          throw new Error(
+            `Recorded source ownership differs from the requested project binding: ${describeGraphOwnershipMismatch(mismatch)}`,
+          );
+        }
         coverage.projectId = assessment.sourceRoots.projectId;
         coverage.status = 'current';
       }
