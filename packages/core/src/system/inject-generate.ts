@@ -5,6 +5,8 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { readLiveFocus } from '../sessions/focus-state-store.js';
+import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 
@@ -38,12 +40,9 @@ export async function generateInjection(
   let sessionScope: string | null = null;
 
   const acc = accessor ?? (await getTaskAccessor(projectRoot));
-  const focusMeta = await acc.getMetaValue<{ currentTask?: string | null }>('focus_state');
+  // T12684: never generate an injection around a finished task.
+  focusTask = (await readLiveFocus(acc, resolveSessionIdFromEnv())).currentTask;
   const activeSessionMeta = await acc.getMetaValue<string>('activeSession');
-
-  if (focusMeta) {
-    focusTask = focusMeta.currentTask ?? null;
-  }
   if (activeSessionMeta) {
     activeSessionName = activeSessionMeta;
   }

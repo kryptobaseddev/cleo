@@ -13,6 +13,8 @@
  *   (d) two updates within the 5-minute squash window → ONE audit line
  *       with two `revisions[]` entries
  *   (e) noop (re-update with identical bytes) → changed=false, sha256 stable
+ *   (k) `--status` alone applies every status `--help` advertises (T12654)
+ *   (l) no --file, --content or --status → still rejected (T12654)
  *
  * @task T10161 (Epic T10157 · Saga T9855 · E12.C4)
  */
@@ -270,6 +272,43 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
     expect(data?.changed).toBe(false);
     expect(data?.sha256).toBe(originalSha);
     expect(data?.previousSha256).toBe(originalSha);
+  });
+
+  it('(k) --status alone applies every status --help advertises, bytes unchanged (T12654)', async () => {
+    // Read the statuses from the help text itself, so an advertised status
+    // the command rejects can never pass unnoticed again.
+    const help = runCli(['docs', 'update', '--help'], projectRoot);
+    const line = `${help.stdout}\n${help.stderr}`
+      .split('\n')
+      .find((l) => /--status <string>/.test(l));
+    const advertised = /\(([a-z|]+)\)\s*$/.exec(line ?? '')?.[1]?.split('|') ?? [];
+    expect(advertised).toEqual([...DOCS_LIFECYCLE_STATUSES]);
+
+    const original = join(projectRoot, 'orig-k.md');
+    await writeFile(original, '# Spec\n\nBody.\n', 'utf-8');
+    const addRes = runCli(
+      ['docs', 'add', 'T-T12654-k', original, '--slug', 't12654-doc-k', '--type', 'note'],
+      projectRoot,
+    );
+    expect(addRes.status, `add failed; stdout=${addRes.stdout}`).toBe(0);
+    const originalSha = parseEnvelope<AddResultShape>(addRes.stdout).data?.sha256;
+
+    for (const status of advertised) {
+      const res = runCli(['docs', 'update', 't12654-doc-k', '--status', status], projectRoot);
+      expect(res.status, `--status ${status}: stdout=${res.stdout} stderr=${res.stderr}`).toBe(0);
+      const data = parseEnvelope<UpdateResultShape>(res.stdout).data;
+      expect(data?.lifecycleStatus).toBe(status);
+      expect(data?.changed).toBe(false);
+      expect(data?.sha256).toBe(originalSha);
+    }
+  });
+
+  it('(l) update with no --file, --content or --status is still rejected (T12654)', () => {
+    const res = runCli(['docs', 'update', 't12654-missing'], projectRoot);
+    expect(res.status).toBe(6);
+    const env = parseEnvelope(res.stdout);
+    expect(env.success).toBe(false);
+    expect(env.error?.message).toMatch(/--status <status> alone/);
   });
 
   it('(f) --dry-run returns preview metadata without mutating rows or audit log', async () => {

@@ -13,7 +13,12 @@ import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { assessKnowledgeCoverage } from '../nexus/knowledge.js';
 import { resolveOrCwd } from '../paths.js';
-import { readFocusState, writeFocusState } from '../sessions/focus-state-store.js';
+import {
+  readFocusState,
+  readLiveFocus,
+  type StaleFocusPointer,
+  writeFocusState,
+} from '../sessions/focus-state-store.js';
 import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import { trackBackgroundOp } from '../store/background-ops.js';
 import type { DataAccessor } from '../store/data-accessor.js';
@@ -57,6 +62,11 @@ export interface TaskCurrentResult {
   currentPhase: string | null;
   sessionNote: string | null;
   nextAction: string | null;
+  /**
+   * The focus pointer when it names a done, cancelled, archived or missing
+   * task. `currentTask` is then `null`: a finished task is never current (T12660).
+   */
+  staleFocus?: StaleFocusPointer;
 }
 
 /** Result of starting work on a task. */
@@ -84,10 +94,17 @@ export async function currentTask(
   accessor?: DataAccessor,
 ): Promise<TaskCurrentResult> {
   const acc = accessor ?? (await getTaskAccessor(cwd));
-  const focus = await readFocusState(acc, resolveFocusSessionId());
+  // T12660/T12684: the one validating focus reader — a pointer left behind by
+  // a completion (or the never-cleared legacy key) comes back stale.
+  const {
+    state: focus,
+    currentTask: live,
+    staleFocus,
+  } = await readLiveFocus(acc, resolveFocusSessionId());
 
   return {
-    currentTask: focus?.currentTask ?? null,
+    currentTask: live,
+    ...(staleFocus ? { staleFocus } : {}),
     currentPhase: focus?.currentPhase ?? null,
     sessionNote: focus?.sessionNote ?? null,
     nextAction: focus?.nextAction ?? null,

@@ -119,6 +119,11 @@ export interface TaskChangeSet {
   executionRoot: string;
   /** Why {@link executionRoot} was chosen. */
   rootSource: ChangeSetRootSource;
+  /**
+   * Component PR whose change the (integration) `prNumber` landed on the
+   * default branch (T12671). Evidence is then `pr:<component>@<prNumber>`.
+   */
+  componentPrNumber?: number;
   /** Merged PR number (`source === 'pr'`). */
   prNumber?: number;
   /**
@@ -168,7 +173,22 @@ export interface TaskChangeSet {
   blockers: DonePlanBlocker[];
   /** Non-blocking observations, e.g. PR discovery that could not reach `gh`. */
   warnings: string[];
+  /**
+   * The merged-PR lookup failed (e.g. `gh` unavailable), so a non-PR change set
+   * does not prove the change is unmerged (T12656).
+   */
+  prDiscoveryFailed?: boolean;
+  /**
+   * Whether the task's PR has merged to the default branch, as the PR lookup
+   * found it — independent of `source` (T12656 review): a merged PR whose
+   * `pr:` check was refused still falls back to the task branch, and the
+   * branch outlives a squash merge. Absent when no PR was examined.
+   */
+  mergeState?: ChangeSetMergeState;
 }
+
+/** Whether a task's change has merged to the default branch. */
+export type ChangeSetMergeState = 'merged' | 'unmerged' | 'unknown';
 
 /** Planned state of one verification gate. */
 export interface DonePlanGate {

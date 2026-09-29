@@ -193,7 +193,7 @@ Record it with `cleo docs add {{TASK_ID}} --content - --type note --slug {{TOPIC
 
 ## Acceptance Criteria Verification
 
-Record each criterion's changed artifacts and actual verification results. A merged PR with green CI provides provenance; it cannot automatically satisfy implementation, testing and review. Use `pr:<number>;files:<changed-path>` for implementation and actual result atoms for test/review gates, with explicit `satisfies:T1234#AC1` links for canonical criteria. The PR must relate to the task; documentation-only changes cannot prove a code fix. Research and documentation tasks may use appropriately scoped documentary evidence. Fetch the merge commit before claiming its artifact bytes were inspected. Criterion edits require fresh evidence. A completed child does not establish that its parent's independent criteria were met.
+Record each criterion's changed artifacts and actual verification results. A merged PR with green CI provides provenance; it cannot automatically satisfy implementation, testing and review. Use `pr:<number>;files:<changed-path>` for implementation (`pr:<component>@<integration>` when your PR merged into an integration branch) and actual result atoms for test/review gates, with explicit `satisfies:T1234#AC1` links for canonical criteria. The PR must relate to the task; documentation-only changes cannot prove a code fix. Research and documentation tasks may use appropriately scoped documentary evidence. Fetch the merge commit before claiming its artifact bytes were inspected. Criterion edits require fresh evidence. A completed child does not establish that its parent's independent criteria were met.
 
 
 | Criterion | Status | Notes |

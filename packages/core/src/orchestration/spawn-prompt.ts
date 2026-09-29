@@ -50,6 +50,7 @@ import {
   buildBudgetedPsycheMemoryBlock,
   relevanceContextFromTask,
 } from './psyche-memory-budget.js';
+import { coordinationTopic, waveTopic as waveTopicName } from './wave-topic.js';
 
 /**
  * Locate `packages/core/templates/CLEO-INJECTION.md` at runtime.
@@ -227,7 +228,10 @@ export const ALL_SPAWN_PROTOCOL_PHASES: readonly SpawnProtocolPhase[] = [
 export interface ConduitSubscriptionConfig {
   /** Parent epic ID, e.g. `"T1149"`. */
   epicId: string;
-  /** Wave number (integer), e.g. `2`. */
+  /**
+   * The task's wave number as `cleo orchestrate waves` prints it (from 1) —
+   * the `n` of the `epic-<epicId>.wave-<n>` topic its Lead listens on (T12682).
+   */
   waveId: number;
   /** Spawned agent peer ID, e.g. `"cleo-lead-2"`. */
   peerId: string;
@@ -1489,8 +1493,8 @@ function buildDashboardContextBlock(summary: string): string {
 
 function buildConduitSubscriptionBlock(config: ConduitSubscriptionConfig): string {
   const { epicId, waveId, peerId } = config;
-  const waveTopic = `epic-${epicId}.wave-${waveId}`;
-  const coordTopic = `epic-${epicId}.coordination`;
+  const waveTopic = waveTopicName(epicId, waveId);
+  const coordTopic = coordinationTopic(epicId);
 
   return [
     '## CONDUIT Subscription (A2A Wave Coordination · T1252)',
