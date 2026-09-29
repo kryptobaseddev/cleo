@@ -14,6 +14,13 @@ on:
   # resulting check runs attach to the branch-tip SHA, which IS the PR head, so
   # protection is satisfied without a human pushing a commit.
   workflow_dispatch:
+  # Nightly full run on main. This is where the macOS unit-test and
+  # Build & Verify matrix runs (see the `os:` expressions below): macOS no
+  # longer runs on every push to main, because its runner pool was the CI
+  # bottleneck and its 2-shard layout outgrew `timeout-minutes`. Release
+  # preparation keeps its own macOS preflight.
+  schedule:
+    - cron: '17 7 * * *'
 
 # gh#1362: cancellation is right on PRs and wrong on main.
 #
@@ -50,8 +57,12 @@ on:
 # deliberate: `false` makes main runs QUEUE behind each other, and macOS runner
 # allocation is already the CI bottleneck (gh#1351). Unique groups let them run
 # in parallel instead.
+#
+# The event name joins the SHA on main so the nightly `schedule` run (same ref,
+# often the same SHA as the last push) never cancels that push's run, or the
+# reverse.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}-${{ github.ref == 'refs/heads/main' && github.event_name || '' }}
   cancel-in-progress: true
 
 jobs:
@@ -60,35 +71,31 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     outputs:
-      code: ${{ steps.filter.outputs.code }}
-      packaging: ${{ steps.filter.outputs.packaging }}
-      scripts: ${{ steps.filter.outputs.scripts }}
-      schemas: ${{ steps.filter.outputs.schemas }}
-      core: ${{ steps.filter.outputs.core }}
-      cleo: ${{ steps.filter.outputs.cleo }}
-      contracts: ${{ steps.filter.outputs.contracts }}
-      nexus: ${{ steps.filter.outputs.nexus }}
-      studio: ${{ steps.filter.outputs.studio }}
-      adapters: ${{ steps.filter.outputs.adapters }}
-      agents: ${{ steps.filter.outputs.agents }}
-      animations: ${{ steps.filter.outputs.animations }}
-      brain: ${{ steps.filter.outputs.brain }}
-      caamp: ${{ steps.filter.outputs.caamp }}
-      cant: ${{ steps.filter.outputs.cant }}
-      cleo_os: ${{ steps.filter.outputs.cleo_os }}
-      git_shim: ${{ steps.filter.outputs.git_shim }}
-      lafs: ${{ steps.filter.outputs.lafs }}
-      mcp_adapter: ${{ steps.filter.outputs.mcp_adapter }}
-      paths: ${{ steps.filter.outputs.paths }}
-      playbooks: ${{ steps.filter.outputs.playbooks }}
-      runtime: ${{ steps.filter.outputs.runtime }}
-      skills: ${{ steps.filter.outputs.skills }}
-      worktree: ${{ steps.filter.outputs.worktree }}
-      workflows: ${{ steps.filter.outputs.workflows }}
+      # A scheduled (nightly) run has no diff to filter — paths-filter is
+      # skipped there and every path-gated job runs.
+      code: ${{ github.event_name == 'schedule' && 'true' || steps.filter.outputs.code }}
+      packaging: ${{ github.event_name == 'schedule' && 'true' || steps.filter.outputs.packaging }}
+      scripts: ${{ github.event_name == 'schedule' && 'true' || steps.filter.outputs.scripts }}
+      schemas: ${{ github.event_name == 'schedule' && 'true' || steps.filter.outputs.schemas }}
+      workflows: ${{ github.event_name == 'schedule' && 'true' || steps.filter.outputs.workflows }}
+      # `true` only for a pull request whose whole diff is `"version"` lines in
+      # package.json files, CHANGELOG.md and `.changeset/**` moves — the release
+      # bump-PR shape. Heavy jobs skip on it; lint + typecheck (and the separate
+      # Lockfile Check workflow) still run. See scripts/ci-detect-version-only.mjs.
+      version_only: ${{ steps.version-only.outputs.version_only == 'true' && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The version-only detector diffs the PR merge commit against its
+          # first parent (the base tip), so it needs that parent.
+          fetch-depth: 2
+      - name: Detect a version-only (release bump) pull request
+        id: version-only
+        if: github.event_name == 'pull_request'
+        run: node scripts/ci-detect-version-only.mjs HEAD^1 HEAD
       - uses: dorny/paths-filter@v3
         id: filter
+        if: github.event_name != 'schedule'
         with:
           # T12094: paths-filter infers its comparison point from the event —
           # base branch for `pull_request`, previous commit for `push`. A
@@ -163,45 +170,6 @@ jobs:
               - 'packages/*/templates/workflows/**'
               - 'scripts/lint-deployed-template-parity.mjs'
               - '.lint-deployed-template-parity-baseline.json'
-            core:
-              - 'packages/core/**'
-            cleo:
-              - 'packages/cleo/**'
-            contracts:
-              - 'packages/contracts/**'
-            nexus:
-              - 'packages/nexus/**'
-            studio:
-              - 'packages/studio/**'
-            adapters:
-              - 'packages/adapters/**'
-            agents:
-              - 'packages/agents/**'
-            animations:
-              - 'packages/animations/**'
-            brain:
-              - 'packages/brain/**'
-            caamp:
-              - 'packages/caamp/**'
-            cant:
-              - 'packages/cant/**'
-            cleo_os:
-              - 'packages/cleo-os/**'
-            git_shim:
-              - 'packages/git-shim/**'
-            lafs:
-              - 'packages/lafs/**'
-            # mcp_adapter removed (R8 · T11259): packages/mcp-adapter deleted.
-            paths:
-              - 'packages/paths/**'
-            playbooks:
-              - 'packages/playbooks/**'
-            runtime:
-              - 'packages/runtime/**'
-            skills:
-              - 'packages/skills/**'
-            worktree:
-              - 'packages/worktree/**'
 
   biome:
     name: Lint & Format
@@ -1004,7 +972,7 @@ jobs:
     # run so reviewers can see the unresolved count trend.
     name: Manual Write Sweep (T10372)
     needs: [changes]
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -1046,7 +1014,8 @@ jobs:
 
   canon-drift:
     name: Canon Drift Check
-    needs: [biome]
+    needs: [biome, changes]
+    if: needs.changes.outputs.version_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1086,7 +1055,7 @@ jobs:
     # never flagged — the gate only fires on ADDITIONS. Saga T9787.
     name: Canon Drift Check (T9796)
     needs: [changes]
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1129,7 +1098,8 @@ jobs:
     # all are in-sync, and is a no-op when no `.cleo/docs-publications.json`
     # exists yet. This job IS the release-verify drift gate.
     name: Docs SSoT Drift Gate (T9645)
-    needs: [biome]
+    needs: [biome, changes]
+    if: needs.changes.outputs.version_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1267,6 +1237,8 @@ jobs:
     # missed every real-schema failure; this job is the regression wall.
     # Pure test invocation — no untrusted input flows into run:.
     name: Exodus Real-Data Parity Gate (T11551)
+    needs: [changes]
+    if: needs.changes.outputs.version_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -1363,49 +1335,32 @@ jobs:
       - name: Type check with project references
         run: pnpm run typecheck
 
-  unit-tests:
-    name: Unit Tests (${{ matrix.os }}, shard ${{ matrix.shard }})
-    needs: [biome, changes]
-    if: needs.changes.outputs.code == 'true'
+  # Shared build (runs in parallel with `biome`). Builds the native addons and
+  # every package ONCE per OS and hands the result to unit-tests (all shards)
+  # and install-test, which previously each repeated the cargo builds and
+  # `pnpm run build` (~4 min per job). The output is path-independent across
+  # jobs: every job checks out to the same runner workspace path, build.mjs
+  # strips runner paths from sourcemaps (T9184), and the build-provenance
+  # stamp records only whether the checkout is a linked worktree (never true
+  # in CI). It is packed with tar to keep the executable bits that
+  # upload-artifact drops.
+  #
+  # NOT consumers, deliberately: `Build & Verify` (its whole point is a COLD
+  # build that catches build.mjs ordering bugs), `Packed CLI and Studio
+  # Artifact` (builds from `cargo --locked` with its own NODE_OPTIONS and adds
+  # the Studio build), and `Type Check` (runs `tsc -b` from source and never
+  # built; restoring tsbuildinfo would change what it checks).
+  build:
+    name: Build (${{ matrix.os }})
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
     runs-on: ${{ matrix.os }}
-    # T12073: raised from 35. T12070 restored 199 previously-undiscovered
-    # @cleocode/cleo test files to the run (they had never executed — the
-    # project's include globs matched nothing), which grew the suite enough
-    # that macOS started hitting the ceiling: Ubuntu finishes a shard in ~17
-    # minutes, macOS runners are roughly 2x slower, and both macOS shards were
-    # cancelled at 35m21s / 35m27s — a timeout, not a failure. 55 leaves real
-    # headroom above the ~34-minute macOS baseline instead of sitting on it.
-    timeout-minutes: 55
+    timeout-minutes: 25
     strategy:
       matrix:
-        # Windows shards temporarily disabled pending T9182/T9181 follow-up — pre-existing
-        # afterEach hook hangs on injection-chain + orchestrate-engine + paths tests.
-        # Linux + macOS validate cross-platform correctness for v2026.5.50.
-        # T12177 (gh#1359): macOS runs on what LANDS, not on every PR push.
-        # Measured 2026-09-13: `Unit Tests (macos-latest, shard 1)` took 33.0
-        # min against 18.6 min for the identical ubuntu shard, and macOS was
-        # 4,071 s of the run's 8,290 job-seconds (49%). It was therefore both
-        # the entire critical path of every PR and half the cost — while
-        # `required_status_checks.strict` guaranteed the commit it validated
-        # would be invalidated by the next merge to main. The coverage was
-        # real; the commit it covered was never the one that landed.
-        #
-        # So macOS moves to the two events that ARE the landed commit:
-        # `push` to main (post-merge verification, which is what exists today)
-        # and `merge_group`. The merge-queue arm is deliberately kept even
-        # though this repo cannot use it — merge queue requires an
-        # organization-owned repository and `kryptobaseddev` is a personal
-        # account, verified 2026-09-13 by a controlled pair against
-        # POST /rulesets: `{"type":"merge_queue"}` returns 422 "Invalid rule"
-        # while `{"type":"deletion"}` on the same endpoint returns 201. If the
-        # repo is ever transferred to an org, macOS becomes a pre-merge gate
-        # again by enabling the queue, with no change to this file.
-        #
-        # The tradeoff this accepts: a macOS-only regression now lands on main
-        # before it is detected, instead of blocking the PR. It is detected on
-        # the very next push run, against the exact commit that introduced it.
-        os: ${{ fromJson((github.event_name == 'merge_group' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
-        shard: [1, 2]
+        # Same OS set as unit-tests (see the rationale there): macOS only on
+        # the nightly schedule and merge_group.
+        os: ${{ fromJson((github.event_name == 'merge_group' || github.event_name == 'schedule') && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
@@ -1426,6 +1381,10 @@ jobs:
           key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-pnpm-store-
+      # Caches ~/.cargo registry/git and target/ dependency builds, keyed on
+      # Cargo.lock, the toolchain and the job. Only dependencies are cached;
+      # workspace crates are always rebuilt.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Build worktree-napi native addon BEFORE pnpm install (T9982)
         # Must run before `pnpm install --frozen-lockfile` so that the file:
         # link to crates/worktree-napi picks up the .node binary into the
@@ -1459,8 +1418,6 @@ jobs:
               ;;
           esac
       - run: pnpm install --frozen-lockfile
-      - name: Install ripgrep (required for T1605 callsite-coverage validator)
-        uses: ./.github/actions/install-ripgrep
       # T12382: no cant binary is committed any more (arch gate 24), on ANY OS.
       # Build the host binary + napi-rs generated loader into packages/cant/napi/
       # with the same script developers use. The WASI build and the
@@ -1470,71 +1427,136 @@ jobs:
         run: pnpm --filter @cleocode/cant run build:napi
       - name: Build packages (required for cross-package imports)
         run: pnpm run build
+      - name: Pack build output
+        # Everything untracked in the workspace except node_modules/ and the
+        # cargo target/ — i.e. every package's dist/, tsbuildinfo, the
+        # generated napi loaders and both .node binaries. Consumers run their
+        # own `pnpm install`, so node_modules is never shipped.
+        shell: bash
+        run: |
+          set -euo pipefail
+          list="$RUNNER_TEMP/build-output.list"
+          { git ls-files --others --ignored --exclude-standard --directory
+            git ls-files --others --exclude-standard
+          } | grep -vE '(^|/)node_modules/?$' | grep -vE '^target/?$' | sort -u > "$list"
+          cat "$list"
+          for required in packages/cleo/dist/ packages/core/dist/ packages/cant/napi/; do
+            grep -qxF "$required" "$list" || { echo "::error::build output is missing $required"; exit 1; }
+          done
+          ls crates/worktree-napi/worktree-napi.*.node
+          mkdir -p "$RUNNER_TEMP/build-output"
+          tar -czf "$RUNNER_TEMP/build-output/build-output.tgz" -T "$list"
+          ls -la "$RUNNER_TEMP/build-output"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-output-${{ matrix.os }}
+          path: ${{ runner.temp }}/build-output/build-output.tgz
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+
+  unit-tests:
+    name: Unit Tests (${{ matrix.os }}, shard ${{ matrix.shard }})
+    needs: [biome, changes, build]
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
+    runs-on: ${{ matrix.os }}
+    # T12073: raised from 35. T12070 restored 199 previously-undiscovered
+    # @cleocode/cleo test files to the run (they had never executed — the
+    # project's include globs matched nothing), which grew the suite enough
+    # that macOS started hitting the ceiling: Ubuntu finishes a shard in ~17
+    # minutes, macOS runners are roughly 2x slower, and both macOS shards were
+    # cancelled at 35m21s / 35m27s — a timeout, not a failure. 55 leaves real
+    # headroom above the ~34-minute macOS baseline instead of sitting on it.
+    # 2026-09-29: with 4 shards and the shared `build` job each shard does a
+    # quarter of the suite and no build, so 55 is now generous on both OSes.
+    timeout-minutes: 55
+    strategy:
+      matrix:
+        # Windows shards temporarily disabled pending T9182/T9181 follow-up — pre-existing
+        # afterEach hook hangs on injection-chain + orchestrate-engine + paths tests.
+        # Linux + macOS validate cross-platform correctness for v2026.5.50.
+        # T12177 (gh#1359): macOS runs on what LANDS, not on every PR push.
+        # Measured 2026-09-13: `Unit Tests (macos-latest, shard 1)` took 33.0
+        # min against 18.6 min for the identical ubuntu shard, and macOS was
+        # 4,071 s of the run's 8,290 job-seconds (49%). It was therefore both
+        # the entire critical path of every PR and half the cost — while
+        # `required_status_checks.strict` guaranteed the commit it validated
+        # would be invalidated by the next merge to main. The coverage was
+        # real; the commit it covered was never the one that landed.
+        #
+        # So macOS moves to the two events that ARE the landed commit:
+        # `push` to main (post-merge verification, which is what exists today)
+        # and `merge_group`. The merge-queue arm is deliberately kept even
+        # though this repo cannot use it — merge queue requires an
+        # organization-owned repository and `kryptobaseddev` is a personal
+        # account, verified 2026-09-13 by a controlled pair against
+        # POST /rulesets: `{"type":"merge_queue"}` returns 422 "Invalid rule"
+        # while `{"type":"deletion"}` on the same endpoint returns 201. If the
+        # repo is ever transferred to an org, macOS becomes a pre-merge gate
+        # again by enabling the queue, with no change to this file.
+        #
+        # The tradeoff this accepts: a macOS-only regression now lands on main
+        # before it is detected, instead of blocking the PR.
+        #
+        # 2026-09-29 (owner-approved): macOS moved again, from every push to
+        # main to the NIGHTLY `schedule` run (plus release preparation, which
+        # has its own macOS preflight). On push the macOS shards hit
+        # `timeout-minutes: 55` (build 575 s + 42 min of vitest over 2 shards),
+        # so main went red/cancelled on a timeout, not a failure. A macOS-only
+        # regression is now detected by the next nightly run instead.
+        os: ${{ fromJson((github.event_name == 'merge_group' || github.event_name == 'schedule') && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
+        # 2026-09-29: 4 shards (was 2). Shard 1 of 2 was the whole PR critical
+        # path at ~33 min (~4 min setup + 27-30 min vitest); `--shard` splits
+        # by file count, not duration, so halving the files per shard is the
+        # simple, robust lever. Keep `--shard=N/4` below in sync.
+        shard: [1, 2, 3, 4]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.30.0'
+          run_install: false
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      # The `build` job's output for this OS: dist/ of every package plus the
+      # worktree-napi and cant-napi .node binaries. Restored BEFORE
+      # `pnpm install --frozen-lockfile` so the file: link to
+      # crates/worktree-napi picks up the .node into the pnpm-managed copy
+      # (T9982 — the crate's package.json only ships `worktree-napi.*.node`
+      # files that exist at install time).
+      - uses: actions/download-artifact@v4
+        with:
+          name: build-output-${{ matrix.os }}
+          path: ${{ runner.temp }}/build-output
+      - name: Restore shared build output
+        shell: bash
+        run: tar -xzf "$RUNNER_TEMP/build-output/build-output.tgz"
+      - run: pnpm install --frozen-lockfile
+      - name: Install ripgrep (required for T1605 callsite-coverage validator)
+        uses: ./.github/actions/install-ripgrep
       - name: Generate SvelteKit type stubs (required for studio tests)
         # packages/studio/tsconfig.json extends .svelte-kit/tsconfig.json which
         # is generated by svelte-kit sync. Previously .svelte-kit/ was tracked in
         # git (inadvertently). After adding it to .gitignore (v2026.4.60), we must
         # generate it explicitly in CI before running tests. No user input used.
         run: pnpm --filter @cleocode/studio exec svelte-kit sync
-      - name: Resolve test scope (per-package fast path or full shard sweep)
-        # On PRs NOT targeting main with ≤3 packages changed, run only the
-        # affected package tests via pnpm test:pkg for faster feedback.
-        # Always falls back to the full 2-shard sweep when:
-        #   - targeting main (cross-platform matrix already handles this)
-        #   - more than 3 packages changed (too broad for per-package scoping)
-        #   - the changed-package set is ambiguous (root config files touched)
-        # Per-package scoping is an OPTIONAL fast path, NOT a replacement.
-        # The shard run is always the safe fallback.
-        id: test-scope
-        shell: bash
-        run: |
-          # Targeting main always uses full shard sweep (set by matrix strategy).
-          # For non-main PRs, check how many individual packages changed.
-          if [[ "${{ github.event_name }}" == "pull_request" && "${{ github.base_ref }}" != "main" ]]; then
-            changed_pkgs=""
-            [[ "${{ needs.changes.outputs.core }}"        == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/core"
-            [[ "${{ needs.changes.outputs.cleo }}"        == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/cleo"
-            [[ "${{ needs.changes.outputs.contracts }}"   == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/contracts"
-            [[ "${{ needs.changes.outputs.nexus }}"       == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/nexus"
-            [[ "${{ needs.changes.outputs.studio }}"      == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/studio"
-            [[ "${{ needs.changes.outputs.adapters }}"    == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/adapters"
-            [[ "${{ needs.changes.outputs.agents }}"      == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/agents"
-            [[ "${{ needs.changes.outputs.animations }}"  == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/animations"
-            [[ "${{ needs.changes.outputs.brain }}"       == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/brain"
-            [[ "${{ needs.changes.outputs.caamp }}"       == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/caamp"
-            [[ "${{ needs.changes.outputs.cant }}"        == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/cant"
-            [[ "${{ needs.changes.outputs.cleo_os }}"     == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/cleo-os"
-            [[ "${{ needs.changes.outputs.git_shim }}"    == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/git-shim"
-            [[ "${{ needs.changes.outputs.lafs }}"        == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/lafs"
-            # mcp-adapter removed (R8 · T11259); MCP transport is part of @cleocode/runtime.
-            [[ "${{ needs.changes.outputs.paths }}"       == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/paths"
-            [[ "${{ needs.changes.outputs.playbooks }}"   == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/playbooks"
-            [[ "${{ needs.changes.outputs.runtime }}"     == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/runtime"
-            [[ "${{ needs.changes.outputs.skills }}"      == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/skills"
-            [[ "${{ needs.changes.outputs.worktree }}"    == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/worktree"
-            changed_pkgs="${changed_pkgs# }"  # trim leading space
-            pkg_count=$(echo "$changed_pkgs" | wc -w)
-            if [[ -n "$changed_pkgs" && "$pkg_count" -le 3 ]]; then
-              echo "mode=per_package_tests" >> "$GITHUB_OUTPUT"
-              echo "pkgs=$changed_pkgs"     >> "$GITHUB_OUTPUT"
-              echo "Per-package fast path: $changed_pkgs ($pkg_count package(s))"
-            else
-              echo "mode=shard" >> "$GITHUB_OUTPUT"
-              echo "pkgs="      >> "$GITHUB_OUTPUT"
-              echo "Full shard sweep: $pkg_count package(s) changed (or root config touched)"
-            fi
-          else
-            echo "mode=shard" >> "$GITHUB_OUTPUT"
-            echo "pkgs="      >> "$GITHUB_OUTPUT"
-            echo "Full shard sweep: targeting main or push event"
-          fi
-      - name: Run unit tests — per-package fast path (shard ${{ matrix.shard }}/2)
-        if: steps.test-scope.outputs.mode == 'per_package_tests' && matrix.shard == 1
-        # Only runs on shard 1 to avoid duplicates; per-package scope is
-        # already narrow enough that sharding provides no meaningful benefit.
-        run: pnpm test:pkg ${{ steps.test-scope.outputs.pkgs }}
-      - name: Run unit tests — full shard sweep (shard ${{ matrix.shard }}/2)
-        if: steps.test-scope.outputs.mode != 'per_package_tests'
+      # The former "per-package fast path" (pnpm test:pkg on <=3 changed
+      # packages) was removed 2026-09-29: it ran only when a PR targeted a
+      # branch other than main, and every PR here targets main, so it was
+      # dead code. Its per-package paths-filter outputs went with it.
+      - name: Run unit tests (shard ${{ matrix.shard }}/4)
         shell: bash
         run: |
           set -o pipefail
@@ -1551,16 +1573,16 @@ jobs:
           if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
             RETRY_FLAG="--retry=2"
           fi
-          pnpm exec vitest run --shard=${{ matrix.shard }}/2 $RETRY_FLAG 2>&1 | tee /tmp/vitest-shard${{ matrix.shard }}.log
-      - name: T9170 — schema-warning budget gate (shard ${{ matrix.shard }}/2)
-        if: steps.test-scope.outputs.mode != 'per_package_tests' && matrix.os == 'ubuntu-latest'
+          pnpm exec vitest run --shard=${{ matrix.shard }}/4 $RETRY_FLAG 2>&1 | tee /tmp/vitest-shard${{ matrix.shard }}.log
+      - name: T9170 — schema-warning budget gate (shard ${{ matrix.shard }}/4)
+        if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: node scripts/check-schema-warning-budget.mjs /tmp/vitest-shard${{ matrix.shard }}.log
 
   build-verify:
     name: Build & Verify (${{ matrix.os }})
     needs: [biome, changes]
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     strategy:
@@ -1587,9 +1609,15 @@ jobs:
         # again by enabling the queue, with no change to this file.
         #
         # The tradeoff this accepts: a macOS-only regression now lands on main
-        # before it is detected, instead of blocking the PR. It is detected on
-        # the very next push run, against the exact commit that introduced it.
-        os: ${{ fromJson((github.event_name == 'merge_group' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
+        # before it is detected, instead of blocking the PR.
+        #
+        # 2026-09-29 (owner-approved): macOS moved again, from every push to
+        # main to the NIGHTLY `schedule` run (plus release preparation, which
+        # has its own macOS preflight). On push the macOS shards hit
+        # `timeout-minutes: 55` (build 575 s + 42 min of vitest over 2 shards),
+        # so main went red/cancelled on a timeout, not a failure. A macOS-only
+        # regression is now detected by the next nightly run instead.
+        os: ${{ fromJson((github.event_name == 'merge_group' || github.event_name == 'schedule') && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
@@ -1631,9 +1659,15 @@ jobs:
       # actions/cache. If someone reorders build.mjs incorrectly again,
       # this step fails and blocks the merge.
       # ──────────────────────────────────────────────────────────────────
+      # Rust dependency cache only: the JS build below stays cold (the purpose
+      # of this job), and workspace crates are still compiled every run.
+      # Caches ~/.cargo registry/git and target/ dependency builds, keyed on
+      # Cargo.lock, the toolchain and the job. Only dependencies are cached;
+      # workspace crates are always rebuilt.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Build worktree-napi native addon BEFORE pnpm install (T9982)
         # Must run before `pnpm install` so the file:link to crates/worktree-napi
-        # picks up the .node binary. See ci.yml unit-tests job for context.
+        # picks up the .node binary. See the `build` job for context.
         shell: bash
         run: |
           cargo build --release -p worktree-napi
@@ -1730,7 +1764,7 @@ jobs:
     name: Packed CLI and Studio Artifact
     needs: [biome, changes]
     # Includes native and package-manager inputs, even without JavaScript changes.
-    if: needs.changes.outputs.packaging == 'true' || needs.changes.outputs.code == 'true' || needs.changes.outputs.scripts == 'true' || needs.changes.outputs.workflows == 'true'
+    if: (needs.changes.outputs.packaging == 'true' || needs.changes.outputs.code == 'true' || needs.changes.outputs.scripts == 'true' || needs.changes.outputs.workflows == 'true') && needs.changes.outputs.version_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -1755,6 +1789,10 @@ jobs:
         with:
           version: '10.30.0'
           run_install: false
+      # Caches ~/.cargo registry/git and target/ dependency builds, keyed on
+      # Cargo.lock, the toolchain and the job. Only dependencies are cached;
+      # workspace crates are always rebuilt.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Build Linux native prerequisite from the locked source
         run: |
           cargo build --release --locked -p worktree-napi
@@ -1829,8 +1867,8 @@ jobs:
 
   install-test:
     name: Install Test
-    needs: [biome, changes]
-    if: needs.changes.outputs.code == 'true'
+    needs: [biome, changes, build]
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -1851,13 +1889,17 @@ jobs:
           key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-pnpm-store-
-      - name: Build worktree-napi native addon BEFORE pnpm install (T9982)
-        shell: bash
-        run: |
-          cargo build --release -p worktree-napi
-          cp target/release/libworktree_napi.so crates/worktree-napi/worktree-napi.linux-x64-gnu.node
-      - name: Install dependencies and build
-        run: pnpm install --frozen-lockfile && node build.mjs
+      # Restores the `build` job's output (dist/ of every package plus the
+      # worktree-napi and cant-napi .node binaries) BEFORE install, so the
+      # file: link to crates/worktree-napi picks up the .node (T9982).
+      - uses: actions/download-artifact@v4
+        with:
+          name: build-output-ubuntu-latest
+          path: ${{ runner.temp }}/build-output
+      - name: Restore shared build output
+        run: tar -xzf "$RUNNER_TEMP/build-output/build-output.tgz"
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
       - name: Test global link (simulates global install)
         run: |
           cd packages/cleo && pnpm link --global && cd ../..
@@ -1966,7 +2008,7 @@ jobs:
   forge-ts-check:
     name: Documentation Coverage (forge-ts)
     needs: [biome, changes]
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
     runs-on: ubuntu-latest
     # Runtime is ~4-5 min on a warm runner; the previous 5-minute budget was
     # routinely hit on slower runners, and a TIMEOUT concludes the job as
@@ -2231,6 +2273,7 @@ jobs:
       - exodus-parity-gate
       - drizzle-kit-check
       - typecheck
+      - build
       - unit-tests
       - scripts-tests
       - build-verify
