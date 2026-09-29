@@ -37,4 +37,4 @@ The ranking follows the council verdict the owner adopted (D11161):
   carries the key itself.
 - **Remaining orderings.** About ten others still use their own priority
   weights, for example orchestrate ready/next, handoff nextSuggested, inject
-  and plan. Routing them through this comparator is tracked in T12690.
+  and plan. Routing them through this comparator is tracked in T12692.
