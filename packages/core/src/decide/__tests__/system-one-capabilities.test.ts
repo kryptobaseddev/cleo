@@ -39,12 +39,21 @@ import {
 } from '../jev-wire.js';
 import { probeDecideProvider, resetDecideBudget, SPEND_LEDGER_REPAIR_HINT } from '../operations.js';
 import { type DecisionProvider, DecisionProviderError } from '../provider.js';
-import { _resetProviderStateMemoForTest, USAGE_REFRESH_MS } from '../provider-state.js';
+import {
+  _resetProviderStateMemoForTest,
+  cachedCapabilities,
+  providerKeyHash,
+  readProviderState,
+  USAGE_REFRESH_MS,
+  writeProviderState,
+} from '../provider-state.js';
 import { DECISION_SITES } from '../sites/registry.js';
 import {
   createFileSpendLedger,
   createMemorySpendLedger,
   inspectSpendLedger,
+  RESERVATION_TTL_MS,
+  SpendResetRefusedError,
   startOfNextUtcMonth,
   utcMonth,
 } from '../spend.js';
@@ -156,7 +165,9 @@ function conforms(schemaIn: SpecNode, value: unknown, path = '$'): string[] {
     }
   }
   if (Array.isArray(value) && schema['items']) {
-    value.forEach((v, i) => problems.push(...conforms(node(schema['items']), v, `${path}[${i}]`)));
+    for (const [i, v] of value.entries()) {
+      problems.push(...conforms(node(schema['items']), v, `${path}[${i}]`));
+    }
   }
   return problems;
 }
@@ -721,5 +732,203 @@ describe('cleo decide status — capabilities, usage, spend, sites', () => {
     expect(result.state).toBe('key_limit_reached');
     expect(result.detail).toMatch(/monthly decision limit/);
     expect(result.state).not.toBe('unauthorized');
+  });
+});
+
+describe('review of #1685, round 2: billed aborts, reset guard, batch item errors, keyed state', () => {
+  const HEURISTIC: Record<string, DecisionAnswer> = {
+    dup: { type: 'noul', value: false, probability: 0.1, confidence: 1 },
+  };
+  const heuristic = (): Record<string, DecisionAnswer> => HEURISTIC;
+  const sink: DecisionAuditSink = { write: () => undefined };
+  let dir: string;
+
+  beforeEach(() => {
+    _resetDecideDefaultsForTest();
+    _resetProviderStateMemoForTest();
+    dir = mkdtempSync(join(tmpdir(), 'decide-review2-'));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** A provider call that was sent and only ends when its signal aborts. */
+  const hangsUntilAborted = <T>(signal: AbortSignal): Promise<T> =>
+    new Promise<T>((_, reject) => {
+      signal.addEventListener('abort', () =>
+        reject(new DecisionProviderError('aborted', 'aborted by deadline')),
+      );
+    });
+
+  const settled = async (spend: ReturnType<typeof createMemorySpendLedger>): Promise<void> => {
+    await vi.waitFor(async () => expect((await spend.status())?.reservedMicros).toBe(0));
+  };
+
+  it('commits the estimate for a call aborted by the deadline after it was sent', async () => {
+    const spend = createMemorySpendLedger();
+    const provider: DecisionProvider = { decide: (_req, signal) => hangsUntilAborted(signal) };
+    const outcome = await decide('s', REQUEST, heuristic, {
+      provider,
+      spend,
+      spendCapMicros: 1_000_000,
+      budget: null,
+      cache: null,
+      audit: sink,
+      timeoutMs: 20,
+    });
+    expect(outcome.source).toBe('fallback');
+    await settled(spend);
+    expect((await spend.status())?.spentMicros).toBe(15);
+  });
+
+  it('commits the estimate for a call the caller aborts after send', async () => {
+    const spend = createMemorySpendLedger();
+    const controller = new AbortController();
+    const provider: DecisionProvider = {
+      decide: (_req, signal) => {
+        setTimeout(() => controller.abort(), 5);
+        return hangsUntilAborted(signal);
+      },
+    };
+    await decide('s', REQUEST, heuristic, {
+      provider,
+      spend,
+      spendCapMicros: 1_000_000,
+      budget: null,
+      cache: null,
+      audit: sink,
+      timeoutMs: 5_000,
+      signal: controller.signal,
+    });
+    await settled(spend);
+    expect((await spend.status())?.spentMicros).toBe(15);
+  });
+
+  it('still releases the reservation for an error response (not billed)', async () => {
+    const spend = createMemorySpendLedger();
+    const provider: DecisionProvider = {
+      decide: async () => {
+        throw new DecisionProviderError('unauthorized', 'no', { status: 401 });
+      },
+    };
+    await decide('s', REQUEST, heuristic, {
+      provider,
+      spend,
+      spendCapMicros: 1_000_000,
+      budget: null,
+      cache: null,
+      audit: sink,
+    });
+    expect(await spend.status()).toMatchObject({ spentMicros: 0, reservedMicros: 0 });
+  });
+
+  it('commits the batch estimate when a sent batch is aborted by the deadline', async () => {
+    const spend = createMemorySpendLedger();
+    const provider: DecisionProvider = {
+      decide: async () => {
+        throw new Error('unused');
+      },
+      capabilities: () => LAYAHOST_EXTENSION_CAPABILITIES,
+      decideBatch: (_reqs, signal) => hangsUntilAborted(signal),
+    };
+    await decideBatch(
+      's',
+      [
+        { req: REQUEST, fallback: heuristic },
+        { req: { ...REQUEST, state: 'Another task' }, fallback: heuristic },
+      ],
+      {
+        provider,
+        spend,
+        spendCapMicros: 1_000_000,
+        budget: null,
+        cache: null,
+        audit: sink,
+        timeoutMs: 20,
+      },
+    );
+    await settled(spend);
+    expect((await spend.status())?.spentMicros).toBe(30);
+  });
+
+  it('charges a reservation still pending after the TTL at its estimate', async () => {
+    let now = Date.UTC(2026, 8, 10);
+    const spend = createMemorySpendLedger({ now: () => now });
+    expect((await spend.reserve(1_000_000, 40)).verdict).toBe('ok');
+    now += RESERVATION_TTL_MS;
+    expect(await spend.status()).toMatchObject({ spentMicros: 40, reservedMicros: 0 });
+  });
+
+  it('budget reset refuses a healthy ledger; --force keeps month-to-date spend', async () => {
+    const statePath = join(dir, 'spend.json');
+    const ledger = createFileSpendLedger({ statePath });
+    await ledger.record(500);
+    await ledger.markKeyLimited();
+    const refused = resetDecideBudget(statePath);
+    await expect(refused).rejects.toBeInstanceOf(SpendResetRefusedError);
+    await expect(refused).rejects.toThrow(/only repairs a corrupt ledger/);
+    expect((await ledger.status())?.spentMicros).toBe(500);
+    expect((await ledger.reserve(1_000_000, 15)).verdict).toBe('key_limited');
+
+    const receipt = await resetDecideBudget(statePath, { force: true });
+    expect(receipt).toMatchObject({ before: 'ok', forced: true, spentMicros: 500 });
+    expect(await ledger.status()).toMatchObject({ spentMicros: 500 });
+    // A reset never lifts a reached cap.
+    expect((await ledger.reserve(500, 15)).verdict).toBe('over_budget');
+  });
+
+  it('routes batch item errors through the gates: key limit stops, rate limit penalizes once', async () => {
+    const spend = createMemorySpendLedger();
+    const penalize = vi.fn(async () => undefined);
+    const budget: DecisionBudget = { tryAcquire: async () => ({ granted: true }), penalize };
+    const provider: DecisionProvider = {
+      decide: async () => {
+        throw new Error('unused');
+      },
+      capabilities: () => LAYAHOST_EXTENSION_CAPABILITIES,
+      decideBatch: async (reqs) =>
+        reqs.map((_, i) => ({
+          ok: false as const,
+          status: i === 0 ? 403 : 429,
+          errorKind: i === 0 ? 'key_limit_exceeded' : 'rate_limited',
+        })),
+    };
+    await decideBatch(
+      's',
+      [
+        { req: REQUEST, fallback: heuristic },
+        { req: { ...REQUEST, state: 'b' }, fallback: heuristic },
+        { req: { ...REQUEST, state: 'c' }, fallback: heuristic },
+      ],
+      { provider, spend, spendCapMicros: 1_000_000, budget, cache: null, audit: sink },
+    );
+    expect(penalize).toHaveBeenCalledTimes(1);
+    expect((await spend.reserve(1_000_000, 15)).verdict).toBe('key_limited');
+  });
+
+  it('keys cached provider state by base URL and a short key hash, never the key', () => {
+    const path = join(dir, 'provider-state.json');
+    const keyA = 'lh_key_alpha_0123456789';
+    writeProviderState(
+      {
+        baseUrl: connection.baseUrl,
+        keyHash: providerKeyHash(keyA),
+        detectedAt: 1,
+        capabilities: LAYAHOST_EXTENSION_CAPABILITIES,
+      },
+      path,
+    );
+    expect(readFileSync(path, 'utf-8')).not.toContain(keyA);
+    expect(providerKeyHash(keyA)).toMatch(/^[0-9a-f]{16}$/);
+    expect(readProviderState({ baseUrl: connection.baseUrl, apiKey: keyA }, path)).not.toBeNull();
+    expect(
+      readProviderState({ baseUrl: connection.baseUrl, apiKey: 'lh_key_beta' }, path),
+    ).toBeNull();
+    expect(
+      cachedCapabilities({ baseUrl: connection.baseUrl, apiKey: 'lh_key_beta' }, 0, path),
+    ).toBeNull();
+    expect(cachedCapabilities({ baseUrl: connection.baseUrl, apiKey: keyA }, 0, path)).toEqual(
+      LAYAHOST_EXTENSION_CAPABILITIES,
+    );
   });
 });

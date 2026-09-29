@@ -15,8 +15,10 @@
  * A caller reserves its estimated cost BEFORE the provider call, under the
  * same lock as the cap check, and commits the reported cost (or releases the
  * reservation) after it. Concurrent callers therefore see each other's
- * in-flight spend and cannot overshoot the cap together. A reservation whose
- * process died expires after {@link RESERVATION_TTL_MS}.
+ * in-flight spend and cannot overshoot the cap together. A reservation still
+ * pending after {@link RESERVATION_TTL_MS} (its process died, or exited
+ * before its commit landed) is CHARGED at its estimate, not dropped: the
+ * request may have been billed, and the cap must not undercount it.
  *
  * The lock retries for about a second with backoff: a decision may wait for
  * the ledger, but a cost is never dropped because 40 processes recorded at
@@ -28,7 +30,9 @@
  *
  * A corrupt ledger fails closed (every site uses its heuristic) and
  * `cleo decide status` says so; `cleo decide budget reset` repairs it, moving
- * the bad file aside as a receipt.
+ * the bad file aside as a receipt. It refuses a readable ledger unless
+ * `--force` is given, and then keeps the month-to-date spend, so a reset can
+ * never lift a reached cap.
  *
  * @task T12664
  * @epic T12486
@@ -54,7 +58,11 @@ export const DEFAULT_MONTHLY_SPEND_CAP_MICROS = 1_000_000;
 /** Config key holding the monthly cap in micro-dollars. */
 export const MONTHLY_SPEND_CAP_KEY = 'decide.budget.monthlyMicros';
 
-/** How long an uncommitted reservation counts against the cap, ms. */
+/**
+ * How long a reservation stays pending, ms. After that it is charged at its
+ * estimate (it may have been billed). Decision deadlines are hundreds of ms,
+ * so a live call always commits or releases long before this.
+ */
 export const RESERVATION_TTL_MS = 60_000;
 
 /** Verdict of a spend check or reservation. */
@@ -136,7 +144,11 @@ function freshState(now: number): LedgerState {
   return { month: utcMonth(now), spentMicros: 0, keyLimitedUntil: 0, reservations: {} };
 }
 
-/** Roll a state over to the current month and drop expired reservations (mutates). */
+/**
+ * Roll a state over to the current month and charge expired reservations at
+ * their estimate (mutates). An expired reservation's call may have been
+ * billed, so it is counted rather than forgotten.
+ */
 function roll(state: LedgerState, now: number): void {
   const month = utcMonth(now);
   if (state.month !== month) {
@@ -145,7 +157,10 @@ function roll(state: LedgerState, now: number): void {
   }
   if (state.keyLimitedUntil <= now) state.keyLimitedUntil = 0;
   for (const [id, r] of Object.entries(state.reservations)) {
-    if (now - r.at >= RESERVATION_TTL_MS) delete state.reservations[id];
+    if (now - r.at >= RESERVATION_TTL_MS) {
+      state.spentMicros += positive(r.micros);
+      delete state.reservations[id];
+    }
   }
 }
 
@@ -395,35 +410,94 @@ export interface SpendResetReceipt {
   readonly backupPath?: string;
   /** ISO time of the reset. */
   readonly resetAt: string;
+  /** Month-to-date spend carried into the new ledger (0 when the old file was unreadable). */
+  readonly spentMicros: number;
+  /** Whether `force` overrode the refusal to reset a readable ledger. */
+  readonly forced: boolean;
+}
+
+/** Options for {@link resetSpendLedger}. */
+export interface SpendResetOptions {
+  /**
+   * Reset a ledger that is NOT corrupt. The month-to-date spend is still
+   * carried over; only in-flight reservations and the key-limit stop are
+   * cleared (e.g. after raising the key's limit in the provider console).
+   */
+  readonly force?: boolean;
+}
+
+/**
+ * Thrown by {@link resetSpendLedger} when the ledger is not corrupt and
+ * `force` was not given. A reached cap is not a fault to repair.
+ */
+export class SpendResetRefusedError extends Error {
+  /** Health of the ledger that was not reset. */
+  readonly health: SpendLedgerHealth;
+
+  /** @param health - The ledger's health (anything but `corrupt`). */
+  constructor(health: SpendLedgerHealth) {
+    super(
+      `The System One spend ledger is ${health === 'ok' ? 'healthy' : health}, so it was not reset: ` +
+        '`cleo decide budget reset` only repairs a corrupt ledger. A reached monthly cap lifts when ' +
+        'the UTC month rolls over or when `decide.budget.monthlyMicros` is raised; resetting does not ' +
+        'lift it. Pass --force to reset anyway (month-to-date spend is kept; in-flight reservations ' +
+        'and the key-limit stop are cleared).',
+    );
+    this.name = 'SpendResetRefusedError';
+    this.health = health;
+  }
 }
 
 /**
  * Reset the ledger (`cleo decide budget reset`): move the current file aside
- * to `spend.json.reset-<iso>` and start an empty ledger for this month. The
- * repair for a corrupt ledger, which otherwise fails closed forever. The
- * month-to-date spend restarts at zero, so the moved file is kept as the
- * receipt of what was recorded.
+ * to `spend.json.reset-<iso>` and start a new ledger for this month. The
+ * repair for a corrupt ledger, which otherwise fails closed forever.
+ *
+ * Refuses (throws {@link SpendResetRefusedError}) unless the ledger is
+ * corrupt or `opts.force` is set, so an agent cannot reset its way past a
+ * reached cap. When the old file is readable its month-to-date spend
+ * (expired reservations included) is carried over; only a corrupt file's
+ * spend is lost, and the moved file is kept as the receipt of it.
  *
  * @param statePath - Ledger path. Default {@link defaultSpendStatePath}.
  * @param now - Wall clock, epoch ms.
- * @returns What was reset and where the old file went.
+ * @param opts - `force` resets a ledger that is not corrupt.
+ * @returns What was reset, the spend carried over and where the old file went.
+ * @throws {SpendResetRefusedError} When the ledger is not corrupt and `force` is not set.
  */
 export async function resetSpendLedger(
   statePath = defaultSpendStatePath(),
   now: number = Date.now(),
+  opts: SpendResetOptions = {},
 ): Promise<SpendResetReceipt> {
-  const before = inspectSpendLedger(statePath);
   const resetAt = new Date(now).toISOString();
   mkdirSync(dirname(statePath), { recursive: true });
   const release = await lockfile.lock(statePath, LOCK_OPTIONS);
   try {
+    // Inspect under the lock, so the verdict is about the file we move.
+    const before = inspectSpendLedger(statePath);
+    const forced = opts.force === true;
+    if (before !== 'corrupt' && !forced) throw new SpendResetRefusedError(before);
+    const next = freshState(now);
+    if (before === 'ok') {
+      const old = readLedger(statePath, now);
+      roll(old, now);
+      next.spentMicros = old.spentMicros;
+    }
     let backupPath: string | undefined;
     if (existsSync(statePath)) {
       backupPath = `${statePath}.reset-${resetAt.replace(/[:.]/g, '-')}`;
       renameSync(statePath, backupPath);
     }
-    writeLedger(statePath, freshState(now));
-    return { statePath, before, ...(backupPath ? { backupPath } : {}), resetAt };
+    writeLedger(statePath, next);
+    return {
+      statePath,
+      before,
+      ...(backupPath ? { backupPath } : {}),
+      resetAt,
+      spentMicros: next.spentMicros,
+      forced,
+    };
   } finally {
     await release().catch(() => undefined);
   }

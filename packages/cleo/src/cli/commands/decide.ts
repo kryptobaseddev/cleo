@@ -17,7 +17,7 @@
  *   cleo decide status                                       — probe GET {url}/v1/models
  *   cleo decide ask --state <text> --noul <question>         — one debug decision
  *   cleo decide sites [--rung r] [--mode m] [--id s] [--evidence] — list decision sites
- *   cleo decide budget reset                                 — fresh spend ledger (repair)
+ *   cleo decide budget reset [--force]                       — repair a corrupt spend ledger
  *
  * @task T12491
  * @task T12713
@@ -42,6 +42,7 @@ import {
   probeDecideProvider,
   resetDecideBudget,
   runDecideWizard,
+  SpendResetRefusedError,
 } from '@cleocode/core/decide/index.js';
 import { defineCommand, showUsage } from '../lib/define-cli-command.js';
 import { ReadlineWizardIO } from '../lib/readline-wizard-io.js';
@@ -233,10 +234,24 @@ const decideBudgetResetCommand = defineCommand({
   meta: {
     name: 'reset',
     description:
-      'Start a fresh System One spend ledger for this month (<cleoHome>/decide/spend.json). The old file is moved aside as a receipt. The repair for a corrupt ledger, which keeps every site on its heuristic; it also restarts month-to-date spend at zero.',
+      'Repair a corrupt System One spend ledger (<cleoHome>/decide/spend.json): start a fresh one for this month, moving the old file aside as a receipt. Refuses a readable ledger unless --force; month-to-date spend is always kept when readable, so a reset never lifts a reached cap.',
   },
-  async run() {
-    cliOutput(await resetDecideBudget(), { command: 'decide', operation: 'decide.budget.reset' });
+  args: {
+    force: {
+      type: 'boolean',
+      description:
+        'Reset a ledger that is not corrupt (keeps month-to-date spend; clears in-flight reservations and the key-limit stop)',
+    },
+  },
+  async run({ args }) {
+    const op = 'decide.budget.reset';
+    try {
+      const receipt = await resetDecideBudget(undefined, { force: args.force === true });
+      cliOutput(receipt, { command: 'decide', operation: op });
+    } catch (err) {
+      if (!(err instanceof SpendResetRefusedError)) throw err;
+      failValidation(err.message, op, 'cleo decide status');
+    }
   },
 });
 

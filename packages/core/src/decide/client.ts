@@ -18,7 +18,9 @@
  *    fallback. A 429 empties the shared budget for its `retry-after`; a
  *    503/529 trips it as a short circuit breaker; a 403 key limit stops
  *    decisions until the UTC month ends. Reported cost is added to the spend
- *    ledger.
+ *    ledger. A call aborted AFTER it was sent (deadline or caller) may still be
+ *    billed, so its reserved estimate is committed; only a failure before send
+ *    or an error response releases the reservation.
  * 5. Append one audit line (never containing the key or raw state).
  *
  * Provider-specific knowledge (endpoints, wire JSON) lives only in
@@ -60,6 +62,7 @@ import {
   type DecisionProvider,
   type DecisionProviderConnection,
   DecisionProviderError,
+  type DecisionProviderErrorKind,
 } from './provider.js';
 import { cachedCapabilities } from './provider-state.js';
 import {
@@ -201,7 +204,7 @@ function resolveProvider(
   if (opts.provider) return opts.provider;
   if (!connection || connection.apiKey.trim() === '') return null;
   if (!decisionProviderConfigSchema.safeParse({ baseUrl: connection.baseUrl }).success) return null;
-  const capabilities = cachedCapabilities(connection.baseUrl);
+  const capabilities = cachedCapabilities(connection);
   return createJevProvider(connection, capabilities ? { capabilities } : {});
 }
 
@@ -329,6 +332,33 @@ async function onProviderError(
   return reasonForError(err);
 }
 
+/**
+ * Whether a failed call may still have been billed: it was aborted (deadline
+ * or caller) AFTER the request was handed to the provider. The server may
+ * have answered and billed it, so its reservation is committed at the
+ * estimate rather than released. Every other failure is an error response or
+ * a transport failure, which the provider does not bill.
+ */
+function abortedAfterSend(err: unknown, signal: AbortSignal): boolean {
+  return signal.aborted || (err instanceof DecisionProviderError && err.kind === 'aborted');
+}
+
+/**
+ * Settle a reservation after a failed call: commit the estimate when the
+ * call was aborted after send ({@link abortedAfterSend}), else release it.
+ */
+async function settleFailure(
+  gates: Gates,
+  reservation: string | undefined,
+  estimate: number,
+  err: unknown,
+  signal: AbortSignal,
+): Promise<void> {
+  if (reservation === undefined || !gates.spend) return;
+  if (abortedAfterSend(err, signal)) await gates.spend.commit(reservation, estimate);
+  else await gates.spend.release(reservation);
+}
+
 /** Micro-dollars an outcome reported, preferring the exact integer. */
 function reportedMicros(outcome: DecisionOutcome): number {
   if (outcome.costMicros !== undefined) return outcome.costMicros;
@@ -342,13 +372,12 @@ async function attempt(
   req: DecisionRequest,
   signal: AbortSignal,
 ): Promise<Attempt> {
-  const gate = await passGates(gates, estimateMicros([req]));
+  const estimate = estimateMicros([req]);
+  const gate = await passGates(gates, estimate);
   if (!gate.ok) return { ok: false, reason: gate.reason };
-  const release = async (): Promise<void> => {
-    if (gate.reservation !== undefined) await gates.spend?.release(gate.reservation);
-  };
   if (signal.aborted) {
-    await release();
+    // Pre-send: nothing left the machine, so nothing can be billed.
+    if (gate.reservation !== undefined) await gates.spend?.release(gate.reservation);
     return { ok: false, reason: 'timeout' };
   }
   try {
@@ -358,8 +387,9 @@ async function attempt(
     if (!coversRequest(outcome, req)) return { ok: false, reason: 'invalid_response' };
     return { ok: true, outcome };
   } catch (err) {
-    // Failed requests are not billed (provider docs): drop the reservation.
-    await release();
+    // Failed requests are not billed (provider docs), but one aborted after
+    // send may have been answered and billed: charge its estimate.
+    await settleFailure(gates, gate.reservation, estimate, err, signal);
     if (err instanceof DecisionProviderError) {
       return { ok: false, reason: await onProviderError(err, gates) };
     }
@@ -598,15 +628,20 @@ export async function decideBatch(
     const result = await withDeadline<BatchResult>(
       async (signal) => {
         const sent = pending.map((p) => p.item.sent);
-        const gate = await passGates(gates, estimateMicros(sent));
+        const estimate = estimateMicros(sent);
+        const gate = await passGates(gates, estimate);
         if (!gate.ok) return { ok: false, reason: gate.reason };
+        if (signal.aborted) {
+          if (gate.reservation !== undefined) await gates.spend?.release(gate.reservation);
+          return { ok: false, reason: 'timeout' };
+        }
         try {
           const answered = await batch(sent, signal);
           const billed = answered.reduce((n, a) => n + (a.ok ? reportedMicros(a.outcome) : 0), 0);
           await settle(gates, gate.reservation, billed);
           return { ok: true, items: answered };
         } catch (err) {
-          if (gate.reservation !== undefined) await gates.spend?.release(gate.reservation);
+          await settleFailure(gates, gate.reservation, estimate, err, signal);
           if (err instanceof DecisionProviderError) {
             return { ok: false, reason: await onProviderError(err, gates) };
           }
@@ -618,6 +653,7 @@ export async function decideBatch(
       { ok: false, reason: 'timeout' },
       { ok: false, reason: 'provider_error' },
     );
+    if (result.ok) await applyBatchItemErrors(result.items, gates);
     for (const [k, { item, i }] of pending.entries()) {
       if (!result.ok) {
         out[i] = item.useFallback(result.reason);
@@ -655,5 +691,39 @@ function batchItemReason(kind: string): DecisionFallbackReason {
       return kind;
     default:
       return 'provider_error';
+  }
+}
+
+/** Batch item error kinds with a side effect on the shared gates. */
+const GATE_ERROR_KINDS: ReadonlySet<DecisionProviderErrorKind> = new Set<DecisionProviderErrorKind>(
+  ['key_limit_exceeded', 'rate_limited', 'overloaded'],
+);
+
+/** The gate-affecting provider error kind named by a batch item, if any. */
+function gateErrorKind(kind: string): DecisionProviderErrorKind | null {
+  for (const k of GATE_ERROR_KINDS) if (k === kind) return k;
+  return null;
+}
+
+/**
+ * Give failed batch items the same gate side effects as a failed single
+ * call (key-limit stop, rate-limit and overload back-off), once per kind.
+ */
+async function applyBatchItemErrors(
+  items: readonly DecisionBatchItem[],
+  gates: Gates,
+): Promise<void> {
+  const seen = new Set<DecisionProviderErrorKind>();
+  for (const item of items) {
+    if (item.ok) continue;
+    const kind = gateErrorKind(item.errorKind);
+    if (kind === null || seen.has(kind)) continue;
+    seen.add(kind);
+    await onProviderError(
+      new DecisionProviderError(kind, `batch item failed: ${kind}`, {
+        ...(item.status !== undefined ? { status: item.status } : {}),
+      }),
+      gates,
+    );
   }
 }
