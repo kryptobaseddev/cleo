@@ -181,8 +181,15 @@ describe('Data Safety Central', () => {
       async getAgentInstance() {
         return null;
       },
-      async claimTask() {},
-      async unclaimTask() {},
+      async claimTask() {
+        return null;
+      },
+      async unclaimTask() {
+        return false;
+      },
+      async renewSessionClaims() {
+        return 0;
+      },
     };
     return mock;
   }

@@ -198,13 +198,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'claimCommand',
     name: 'claim',
-    description: 'Claim a task by assigning it to an agent',
+    description:
+      "Take, renew (--renew) or override (--take-over expired, --force-claim live) your session's leased claim on a task",
     load: async () => (await import('../commands/claim.js')).claimCommand as CommandDef,
   },
   {
     exportName: 'unclaimCommand',
     name: 'unclaim',
-    description: 'Unclaim a task by removing its current assignee',
+    description: "Release your session's claim lease on a task (--force-claim: another session's)",
     load: async () => (await import('../commands/claim.js')).unclaimCommand as CommandDef,
   },
   {
@@ -1108,7 +1109,8 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'startCommand',
     name: 'start',
-    description: 'Start working on a task (sets it as the current task in the active session)',
+    description:
+      "Start working on a task (sets it as the current task and takes your session's claim lease)",
     load: async () => (await import('../commands/start.js')).startCommand as CommandDef,
   },
   {

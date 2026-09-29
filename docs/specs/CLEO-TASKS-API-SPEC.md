@@ -274,8 +274,8 @@ surface). Error codes are drawn from
 | `tasks.stop` | `cleo stop` | PROPOSED `POST /api/tasks/stop` | — | `{ previousTaskId }` | — | yes | Stop current task (session-scoped) | `tasks.ts:445-448` |
 | `tasks.sync.reconcile` | `cleo sync reconcile` | PROPOSED `POST /api/tasks/sync/reconcile` | `providerId`, `externalTasks`, `dryRun?`, `conflictPolicy?`, `defaultPhase?`, `defaultLabels?` | `{ reconciled, conflicts }` | `VALIDATION_ERROR` (400), `CONFLICT_POLICY_FAILED` (409) | yes | External task link reconciliation | `tasks.ts:450-460` |
 | `tasks.sync.links.remove` | `cleo sync links remove` | PROPOSED `DELETE /api/tasks/sync/links` | `providerId` | `{ removed }` | — | yes | Drop all links from provider | `tasks.ts:462-465` |
-| `tasks.claim` | `cleo claim <id>` | PROPOSED `POST /api/tasks/:id/claim` | `taskId`, `agentId` | `{ task }` | `NOT_FOUND` (404), `TASK_CLAIMED` (409) | yes | Lock a task to a single agent | `tasks.ts:467-492` |
-| `tasks.unclaim` | `cleo unclaim <id>` | PROPOSED `POST /api/tasks/:id/unclaim` | `taskId` | `{ task }` | `NOT_FOUND` (404) | yes | Release an agent claim | `tasks.ts:494-508` |
+| `tasks.claim` | `cleo claim <id>` | PROPOSED `POST /api/tasks/:id/claim` | `taskId`, `agentId?`, `renew?`, `takeOver?`, `forceClaim?` | `{ taskId, claim }` (the lease: `sessionId`, `agentId`, `claimedAt`, `leaseExpiresAt`) | `NOT_FOUND` (404), `TASK_CLAIMED` (409), `SESSION_UNBOUND` (409, on `takeOver`/`forceClaim` without a bound session) | yes | Take, renew or override the caller session's leased claim (T12502); never writes `assignee` | `TasksClaimParams` in `contracts/src/operations/tasks.ts` |
+| `tasks.unclaim` | `cleo unclaim <id>` | PROPOSED `POST /api/tasks/:id/unclaim` | `taskId`, `forceClaim?` | `{ taskId, released }` | `NOT_FOUND` (404), `TASK_CLAIMED` (409) | yes | Release the caller session's lease (`forceClaim` releases another session's, audited) | `TasksUnclaimParams` in `contracts/src/operations/tasks.ts` |
 
 ---
 
@@ -297,9 +297,10 @@ lists only codes that can surface from `tasks.*` operations.
 | `HAS_DEPENDENTS` | 19 | 409 | Delete with downstream deps |
 | `CONCURRENT_MODIFICATION` | 21 | 409 | Row version mismatch |
 | `INVALID_RETYPE` | 22 | 409 | Retype plan has invalid descendants |
+| `SESSION_UNBOUND` | 24 | 409 | Claim override (`takeOver`/`forceClaim`) with no bound session |
 | `SESSION_EXISTS` | 30 | 409 | Already-active session conflict |
 | `SESSION_NOT_FOUND` | 31 | 404 | start/stop without session |
-| `TASK_CLAIMED` | 35 | 409 | Claim collision |
+| `TASK_CLAIMED` | 35 | 409 | Another session holds the task's claim lease (`E_TASK_CLAIMED`; `details` names the holder and override) |
 | `SESSION_CLOSE_BLOCKED` | 37 | 409 | Session has unfinished work |
 | `INVALID_GATE` | 42 | 400 | Unknown gate name on verify |
 | `LIFECYCLE_GATE_FAILED` | 80 | 422 | Gate not satisfied |
