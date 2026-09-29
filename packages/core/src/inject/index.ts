@@ -14,7 +14,8 @@
  */
 
 import type { Task } from '@cleocode/contracts';
-import { readFocusState } from '../sessions/focus-state-store.js';
+import { TERMINAL_TASK_STATUSES } from '@cleocode/contracts';
+import { readLiveFocus } from '../sessions/focus-state-store.js';
 import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
@@ -35,7 +36,10 @@ function selectTasksForInjection(
   },
 ): Task[] {
   const maxTasks = opts.maxTasks ?? 8;
-  let tasks = allTasks.filter((t) => t.status !== 'done');
+  // T12684: no finished task (done, cancelled or archived) enters agent context.
+  let tasks = allTasks.filter(
+    (t) => !(TERMINAL_TASK_STATUSES as ReadonlySet<string>).has(t.status),
+  );
 
   // Filter by focused task
   if (opts.focusedOnly && opts.focusedTaskId) {
@@ -92,11 +96,12 @@ export async function injectTasks(
   const acc = accessor ?? (await getTaskAccessor(opts.cwd));
   const { tasks: allTasks } = await acc.queryTasks({});
   const projectMeta = await acc.getMetaValue<{ currentPhase?: string }>('project');
-  const focusMeta = await readFocusState(acc, resolveSessionIdFromEnv());
+  // T12684: never inject a finished task as the focused one.
+  const focus = await readLiveFocus(acc, resolveSessionIdFromEnv());
 
   const selectedTasks = selectTasksForInjection(allTasks, {
     ...opts,
-    focusedTaskId: focusMeta?.currentTask ?? null,
+    focusedTaskId: focus.currentTask,
     currentPhase: projectMeta?.currentPhase ?? null,
   });
   const formatted = formatForInjection(selectedTasks);

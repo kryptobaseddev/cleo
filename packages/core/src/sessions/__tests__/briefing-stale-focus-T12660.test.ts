@@ -50,6 +50,7 @@ function setupAccessor(focusTask: string | null, endedSession = false) {
     upsertSingleSession: vi.fn().mockResolvedValue(undefined),
     removeSingleSession: vi.fn().mockResolvedValue(undefined),
     queryTasks: vi.fn().mockResolvedValue({ tasks: TASKS, total: TASKS.length }),
+    loadSingleTask: vi.fn((id: string) => Promise.resolve(TASKS.find((t) => t.id === id) ?? null)),
     getMetaValue: vi.fn((key: string) => Promise.resolve(meta[key] ?? null)),
     setMetaValue: vi.fn((key: string, value: unknown) => {
       meta[key] = value;
@@ -79,6 +80,9 @@ describe('T12660 — briefing stale focus and handoff suggestions', () => {
     expect(briefing.warnings?.join('\n')).toContain(
       'Stale focus pointer: T458 is done, not current. Next ready task: T500',
     );
+    // T12684: the warning carries its code, and the pointer is a field.
+    expect(briefing.warnings?.join('\n')).toContain('W_STALE_FOCUS: Stale focus pointer: T458');
+    expect(briefing.staleFocus).toEqual({ taskId: 'T458', status: 'done' });
   });
 
   it('a workable pointer is still currentTask, with no stale warning', async () => {

@@ -15,8 +15,8 @@ import { assessKnowledgeCoverage } from '../nexus/knowledge.js';
 import { resolveOrCwd } from '../paths.js';
 import {
   readFocusState,
+  readLiveFocus,
   type StaleFocusPointer,
-  staleFocusPointer,
   writeFocusState,
 } from '../sessions/focus-state-store.js';
 import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
@@ -94,18 +94,17 @@ export async function currentTask(
   accessor?: DataAccessor,
 ): Promise<TaskCurrentResult> {
   const acc = accessor ?? (await getTaskAccessor(cwd));
-  const focus = await readFocusState(acc, resolveFocusSessionId());
-  const pointer = focus?.currentTask ?? null;
-  // T12660: validate the pointer against the task's LIVE status — a pointer
-  // left behind by a completion (or the never-cleared legacy key) is stale.
-  const stale =
-    pointer === null
-      ? null
-      : staleFocusPointer(pointer, (await acc.loadSingleTask(pointer))?.status);
+  // T12660/T12684: the one validating focus reader — a pointer left behind by
+  // a completion (or the never-cleared legacy key) comes back stale.
+  const {
+    state: focus,
+    currentTask: live,
+    staleFocus,
+  } = await readLiveFocus(acc, resolveFocusSessionId());
 
   return {
-    currentTask: stale ? null : pointer,
-    ...(stale ? { staleFocus: stale } : {}),
+    currentTask: live,
+    ...(staleFocus ? { staleFocus } : {}),
     currentPhase: focus?.currentPhase ?? null,
     sessionNote: focus?.sessionNote ?? null,
     nextAction: focus?.nextAction ?? null,

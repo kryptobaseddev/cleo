@@ -44,7 +44,7 @@ import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { depsReady } from '../tasks/deps-ready.js';
 import {
-  readFocusState,
+  readLiveFocus,
   type StaleFocusPointer,
   staleFocusPointer,
   staleFocusWarning,
@@ -242,6 +242,12 @@ export interface SessionBriefing {
   urgentTasks: BriefingUrgentTask[];
   pipelineStage?: PipelineStageInfo;
   warnings?: string[];
+  /**
+   * The focus pointer, when it names a done, cancelled, archived or missing
+   * task (T12684). `currentTask` is then null; the envelope carries a
+   * `W_STALE_FOCUS` warning.
+   */
+  staleFocus?: StaleFocusPointer;
   /** Brain memory context -- decisions/patterns/observations relevant to this scope. */
   memoryContext?: SessionMemoryContext;
   /**
@@ -314,9 +320,12 @@ export async function computeBriefing(
   // → env-first resolver → legacy global key (backward-compat fallback inside
   // readFocusState). This scopes the "current task" line to the CALLER's agent.
   const focusSessionId = params.activeSessionId ?? resolveSessionIdFromEnv();
-  const focus = ((await readFocusState(accessor, focusSessionId)) ?? undefined) as
-    | TaskWorkStateExt
-    | undefined;
+  // T12684: the one validating focus reader — a pointer to a finished task
+  // (archived included, which the task listing below omits) comes back stale.
+  const liveFocus = await readLiveFocus(accessor, focusSessionId);
+  const focus = (
+    liveFocus.state ? { ...liveFocus.state, currentTask: liveFocus.currentTask } : undefined
+  ) as TaskWorkStateExt | undefined;
 
   // Build task map for quick lookups
   const taskMap = new Map(tasks.map((t) => [t.id, t]));
@@ -393,7 +402,8 @@ export async function computeBriefing(
   const lastSession = await computeLastSession(projectRoot, scopeFilter);
 
   // 2. Current active task (a stale pointer is reported as a warning below)
-  const { current: currentTaskInfo, stale: staleFocus } = computeCurrentTask(focus, taskMap);
+  const { current: currentTaskInfo } = computeCurrentTask(focus, taskMap);
+  const staleFocus = liveFocus.staleFocus;
 
   // 3. Next tasks (leverage-scored) — default capped at 3 (T9974)
   const nextTasks = computeNextTasks(tasks, taskMap, focus, {
@@ -566,7 +576,7 @@ export async function computeBriefing(
   }
   if (staleFocus) {
     const next = nextTasks[0] ? { id: nextTasks[0].id, title: nextTasks[0].title } : null;
-    warnings.push(staleFocusWarning(staleFocus, next));
+    warnings.push(`W_STALE_FOCUS: ${staleFocusWarning(staleFocus, next)}`);
   }
   const staleSuggested = cleanedLastSession?.nextSuggestedLive?.filter((entry) => entry.stale);
   if (staleSuggested?.length) {
@@ -597,6 +607,7 @@ export async function computeBriefing(
     urgentTasks,
     ...(pipelineStage && { pipelineStage }),
     ...(warnings.length > 0 && { warnings }),
+    ...(staleFocus && { staleFocus }),
     ...(memoryContext && { memoryContext }),
     ...(bundle && { bundle }),
     ...(docsContext && { docsContext }),

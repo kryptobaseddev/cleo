@@ -59,7 +59,10 @@ export function focusStateKey(sessionId: string | null | undefined): string {
 }
 
 /**
- * Read the focus_state blob for a resolved session id (per-session, env-aware).
+ * Read the RAW focus_state blob for a resolved session id (per-session,
+ * env-aware) — for read-modify-write only. Anything that reports or acts on
+ * the current task reads {@link readLiveFocus}, which never returns a
+ * finished task (T12684).
  *
  * Resolution:
  * 1. Read the per-session key `focus_state:<sessionId>`.
@@ -186,4 +189,45 @@ export function staleFocusWarning(
       ? `Next ready task: ${next.id} (${next.title}) — cleo start ${next.id}`
       : 'No ready task — cleo next')
   );
+}
+
+/** The metadata accessor plus a live task lookup, for {@link readLiveFocus}. */
+export interface LiveFocusAccessor extends FocusStateMetaAccessor {
+  /** Load one task by id (any status, archived included); null when missing. */
+  loadSingleTask(taskId: string): Promise<{ status: string } | null>;
+}
+
+/** A focus read validated against the pointed task's live status (T12684). */
+export interface LiveFocus {
+  /** The stored blob (notes, phase, …), or null when there is none. */
+  state: TaskWorkState | null;
+  /** The current task — only while it is still workable, else null. */
+  currentTask: string | null;
+  /** The pointer, when it names a done, cancelled, archived or missing task. */
+  staleFocus: StaleFocusPointer | null;
+}
+
+/**
+ * THE focus reader for anything that reports or acts on the current task
+ * (T12684): `cleo current`, briefing, inject, bootstrap, orchestrator startup,
+ * stats, validation, attention and the drift watchdog. A pointer to a done,
+ * cancelled, archived or missing task comes back as `currentTask: null` plus
+ * `staleFocus` — never as the current task. The stored key is not touched:
+ * another session completing a task leaves this session's key alone, and this
+ * read reports it stale.
+ *
+ * @param accessor - Metadata accessor with a live task lookup.
+ * @param sessionId - Resolved session id (or `null` for the global key).
+ * @returns The blob, the live current task, and the stale pointer if any.
+ * @task T12684
+ */
+export async function readLiveFocus(
+  accessor: LiveFocusAccessor,
+  sessionId: string | null | undefined,
+): Promise<LiveFocus> {
+  const state = await readFocusState(accessor, sessionId);
+  const pointer = state?.currentTask ?? null;
+  if (!pointer) return { state, currentTask: null, staleFocus: null };
+  const staleFocus = staleFocusPointer(pointer, (await accessor.loadSingleTask(pointer))?.status);
+  return { state, currentTask: staleFocus ? null : pointer, staleFocus };
 }

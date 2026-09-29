@@ -21,6 +21,7 @@ import { paginate } from '../pagination.js';
 import { type ContextInjectionData, injectContext } from '../sessions/context-inject.js';
 import {
   readFocusState,
+  readLiveFocus,
   type StaleFocusPointer,
   staleFocusWarning,
   writeFocusState,
@@ -155,7 +156,11 @@ export async function sessionStatus(projectRoot: string): Promise<
     // row, but the envelope labels it `unbound: true`.
     const { session: active, unbound } = await resolveSessionForRead(projectRoot);
     // T11345 — read the per-session focus_state key for the resolved session.
-    const focusState = await readFocusState(accessor, active?.id ?? null);
+    // T12684: the live focus — a finished task is reported as staleFocus.
+    const liveFocus = await readLiveFocus(accessor, active?.id ?? null);
+    const focusState = liveFocus.state
+      ? { ...liveFocus.state, currentTask: liveFocus.currentTask }
+      : null;
 
     // Surface persisted override count for the active session (T1501).
     let overrideCount = 0;
@@ -167,7 +172,8 @@ export async function sessionStatus(projectRoot: string): Promise<
     return engineSuccess({
       hasActiveSession: !!active && active.status === 'active',
       session: active ?? null,
-      taskWork: focusState ?? null,
+      taskWork: focusState,
+      ...(liveFocus.staleFocus ? { staleFocus: liveFocus.staleFocus } : {}),
       overrideCount,
       ...(unbound ? { unbound: true as const } : {}),
     });
@@ -1565,6 +1571,18 @@ export async function sessionBriefing(
       refreshGlobalInstructionDelivery(),
       isCallerUnbound(projectRoot, options?.sessionId),
     ]);
+    // T12684: a stale focus pointer is a coded warning on the envelope too.
+    if (briefing.staleFocus) {
+      pushWarning({
+        code: 'W_STALE_FOCUS',
+        message: staleFocusWarning(
+          briefing.staleFocus,
+          briefing.nextTasks[0]
+            ? { id: briefing.nextTasks[0].id, title: briefing.nextTasks[0].title }
+            : null,
+        ),
+      });
+    }
     // T12500 — read-only: the briefing may describe the newest active session
     // for an unbound caller, but says so.
     return engineSuccess({

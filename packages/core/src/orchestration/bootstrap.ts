@@ -7,7 +7,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { BrainState } from '@cleocode/contracts';
-import { readFocusState } from '../sessions/focus-state-store.js';
+import { readLiveFocus } from '../sessions/focus-state-store.js';
 import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
@@ -74,8 +74,8 @@ export async function buildBrainState(
   };
 
   // --- Current Task (from focus or session) ---
-  const focus = await readFocusState(acc, resolveSessionIdFromEnv());
-  const focusTaskId = focus?.currentTask ?? null;
+  // T12684: a finished task is never bootstrapped as the current task.
+  const focusTaskId = (await readLiveFocus(acc, resolveSessionIdFromEnv())).currentTask;
   if (focusTaskId) {
     const task = tasks.find((t) => t.id === focusTaskId);
     if (task) {
