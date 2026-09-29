@@ -175,6 +175,41 @@ export function checkCrossReferences(root, manifest) {
   return drift;
 }
 
+/**
+ * Protocol templates whose `Version:` line must equal ct-cleo's
+ * `metadata.version` (the skill documents that protocol; T12648).
+ */
+export const PROTOCOL_TEMPLATES = [
+  'packages/core/templates/CLEO-INJECTION.md',
+  'packages/core/templates/CLEO-REFERENCE.md',
+];
+
+/**
+ * ct-cleo's version and the protocol templates' `Version:` line move
+ * together. `injection-mvi-tiers.test.ts` asserts the same equality, but only
+ * in the unit-test shard; checking it here fails fast, locally.
+ *
+ * @param {string} root - Repository root.
+ * @param {{ skills: object[] }} manifest - Manifest.
+ * @returns {string[]} Drift descriptions (empty when consistent).
+ */
+export function checkProtocolVersion(root, manifest) {
+  const version = manifest.skills.find((s) => s.name === 'ct-cleo')?.version;
+  if (!version) return [];
+  const drift = [];
+  for (const rel of PROTOCOL_TEMPLATES) {
+    const path = join(root, rel);
+    if (!existsSync(path)) continue;
+    const declared = /^Version: (\S+) \|/m.exec(readFileSync(path, 'utf-8'))?.[1];
+    if (declared !== version) {
+      drift.push(
+        `${rel}: Version ${declared ?? '(missing)'} must equal ct-cleo metadata.version ${version}`,
+      );
+    }
+  }
+  return drift;
+}
+
 /** Retired skills indexes that must not come back (T12653). */
 export const LEGACY_INDEXES = ['packages/skills/skills.json'];
 
@@ -300,6 +335,7 @@ export function checkManifest(root) {
   }
   drift.push(...checkProfiles(root, manifest));
   drift.push(...checkCrossReferences(root, manifest));
+  drift.push(...checkProtocolVersion(root, manifest));
   const committedText = readFileSync(join(root, MANIFEST_PATH), 'utf-8');
   const expectedText = serialiseManifest(manifest);
   if (committedText === expectedText) return { problems, drift };

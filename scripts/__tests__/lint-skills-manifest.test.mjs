@@ -226,6 +226,21 @@ describe('lint-skills-manifest goes red on planted defects', () => {
     ]);
   });
 
+  it("fails when a protocol template's Version differs from ct-cleo's version", () => {
+    addSkill('ct-cleo');
+    regenerate();
+    const version = buildManifest(root).manifest.skills.find((s) => s.name === 'ct-cleo').version;
+    const template = (v) => `# CLEO Protocol\n\nVersion: ${v} | CLI-only dispatch\n`;
+    mkdirSync(join(root, 'packages/core/templates'), { recursive: true });
+    writeFileSync(join(root, 'packages/core/templates/CLEO-INJECTION.md'), template(version));
+    writeFileSync(join(root, 'packages/core/templates/CLEO-REFERENCE.md'), template('0.0.1'));
+    expect(checkManifest(root).drift).toEqual([
+      `packages/core/templates/CLEO-REFERENCE.md: Version 0.0.1 must equal ct-cleo metadata.version ${version}`,
+    ]);
+    writeFileSync(join(root, 'packages/core/templates/CLEO-REFERENCE.md'), template(version));
+    expect(runGate(root)).toBe(0);
+  });
+
   it('fails when retiredSkills names a live skill (T12678)', () => {
     const m = JSON.parse(readFileSync(join(root, MANIFEST), 'utf8'));
     m.retiredSkills = ['ct-alpha', 'ct-gone'];
