@@ -368,11 +368,15 @@ export type IsolationEnvKey = (typeof ISOLATION_ENV_KEYS)[number];
 
 /**
  * The identity keys re-exported on every shell call of a spawned agent
- * (T12502) — see {@link IsolationResult.perCallLine}.
+ * (T12502) — see {@link IsolationResult.perCallLine}. `CLEO_AGENT_ROLE` is
+ * among them because the git shim reads it on every `git` call to enforce
+ * the worker's restricted-role policy; a shell that lost it would run git
+ * unrestricted.
  */
 const IDENTITY_ENV_KEYS = [
   'CLEO_SESSION_ID',
   'CLEO_AGENT_ID',
+  'CLEO_AGENT_ROLE',
 ] as const satisfies readonly IsolationEnvKey[];
 
 /**
@@ -526,10 +530,11 @@ export interface IsolationResult {
   preamble: string;
   /**
    * The one line an agent must run at the start of EVERY shell call (T12502):
-   * `cd <worktree> && export CLEO_SESSION_ID=… CLEO_AGENT_ID=… || exit 1`
-   * (identity keys only when set). Harness shells keep neither cwd nor env
-   * between calls, so this line re-enters the worktree AND re-binds the
-   * agent's own session. It is also Step 1 of {@link IsolationResult.preamble}.
+   * `cd <worktree> && export CLEO_SESSION_ID=… CLEO_AGENT_ID=… CLEO_AGENT_ROLE=… || exit 1`
+   * (identity keys only when set; every value shell-quoted). Harness shells
+   * keep neither cwd nor env between calls, so this line re-enters the
+   * worktree AND re-binds the agent's own session and the role the git shim
+   * enforces. It is also Step 1 of {@link IsolationResult.preamble}.
    */
   perCallLine: string;
   /**
@@ -614,7 +619,8 @@ export function provisionIsolatedShell(options: IsolationOptions): IsolationResu
   // bare or inside double quotes, so the snippet parses for any worktree path.
   const quotedPath = shellQuote(worktreePath);
   // T12502 — env does not persist between an agent harness's Bash calls, so
-  // the per-call line re-binds the agent's own identity along with the cwd.
+  // the per-call line re-binds the agent's own identity (and the role the git
+  // shim enforces) along with the cwd.
   // Without it a worker's `cleo start` resolves to the ORCHESTRATOR's session
   // and is refused on its own (spawn-claimed) task with E_TASK_CLAIMED.
   const identityExports = IDENTITY_ENV_KEYS.filter((k) => env[k] !== '').map(

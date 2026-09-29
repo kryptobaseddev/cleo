@@ -109,7 +109,10 @@ describe('provisionIsolatedShell', () => {
     it('contains the worktreePath in the cd command', () => {
       const { preamble } = provisionIsolatedShell(SAMPLE_OPTS);
       // T12520 — single-quoted so a path with spaces stays one shell word.
-      expect(preamble).toContain(`cd '${SAMPLE_OPTS.worktreePath}' || exit 1`);
+      // T12502 — the per-call line re-exports the role the git shim reads.
+      expect(preamble).toContain(
+        `cd '${SAMPLE_OPTS.worktreePath}' && export CLEO_AGENT_ROLE='worker' || exit 1`,
+      );
     });
 
     it('contains export for every NON-EMPTY isolation env key', () => {
@@ -156,7 +159,7 @@ describe('provisionIsolatedShell', () => {
       const hostile = "/Users/a b/Library/Application Support/cleo/wt/$HOME`x`/it's/T1";
       const { preamble } = provisionIsolatedShell({ ...SAMPLE_OPTS, worktreePath: hostile });
       const quoted = `'${hostile.replace(/'/g, "'\\''")}'`;
-      expect(preamble).toContain(`cd ${quoted} || exit 1`);
+      expect(preamble).toContain(`cd ${quoted} && export CLEO_AGENT_ROLE='worker' || exit 1`);
       expect(preamble).toContain(`  ${quoted}*) ;;`);
       expect(preamble).toContain(`export CLEO_WORKTREE_ROOT=${quoted}`);
       // No double-quoted interpolation of the path survives anywhere.
@@ -375,13 +378,15 @@ describe('provisionIsolatedShell — perCallLine (T12502)', () => {
       agentId: 'agent-t1',
     });
     expect(result.perCallLine).toBe(
-      `cd '${SAMPLE_OPTS.worktreePath}' && export CLEO_SESSION_ID='ses_child' CLEO_AGENT_ID='agent-t1' || exit 1`,
+      `cd '${SAMPLE_OPTS.worktreePath}' && export CLEO_SESSION_ID='ses_child' CLEO_AGENT_ID='agent-t1' CLEO_AGENT_ROLE='${SAMPLE_OPTS.role}' || exit 1`,
     );
     expect(result.preamble).toContain(result.perCallLine);
   });
 
-  it('is a plain cd guard when no identity is known', () => {
+  it('re-exports only the role when no session identity is known', () => {
     const result = provisionIsolatedShell(SAMPLE_OPTS);
-    expect(result.perCallLine).toBe(`cd '${SAMPLE_OPTS.worktreePath}' || exit 1`);
+    expect(result.perCallLine).toBe(
+      `cd '${SAMPLE_OPTS.worktreePath}' && export CLEO_AGENT_ROLE='${SAMPLE_OPTS.role}' || exit 1`,
+    );
   });
 });

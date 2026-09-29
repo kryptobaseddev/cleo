@@ -161,12 +161,14 @@ Agent({
 ```
 
 **Task claims (T12502)**: spawn gives the task's claim lease to the worker's own
-session and records your session as its parent, so the lease moves between you
-and your worker without an override. A task another session holds refuses the
+session and records your session as its spawner (`spawnedBySessionId`, written
+only by the spawn — a self-declared `CLEO_PARENT_SESSION_ID` does not count), so
+the lease moves between you and your worker without an override. A task another session holds refuses the
 spawn with `E_TASK_CLAIMED`; a failed spawn hands the lease back to you. The
 prompt tells the worker to begin every Bash call with
-`cd <worktree> && export CLEO_SESSION_ID=… CLEO_AGENT_ID=… || exit 1`, since
-harness shells keep neither cwd nor env between calls. Do not strip that line.
+`cd <worktree> && export CLEO_SESSION_ID=… CLEO_AGENT_ID=… CLEO_AGENT_ROLE=… || exit 1`,
+since harness shells keep neither cwd nor env between calls (the git shim reads
+`CLEO_AGENT_ROLE`). Do not strip that line.
 
 **Other harnesses**: Pass the resolved prompt to whatever "give this prompt to an agent" mechanism the runtime provides. Results flow back through pipeline_manifest (via `cleo manifest append`) — the universal handoff medium.
 

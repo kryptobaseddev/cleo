@@ -611,7 +611,10 @@ describe('buildSpawnPrompt — worktree setup hardening (T1758)', () => {
     const guard = `cd '${WORKTREE}' && export `;
     expect(result.prompt.split(guard).length - 1).toBe(1);
     expect(result.prompt).toMatch(
-      new RegExp(`^cd '${WORKTREE}' && export CLEO_AGENT_ID='[^']+' \\|\\| exit 1$`, 'm'),
+      new RegExp(
+        `^cd '${WORKTREE}' && export CLEO_AGENT_ID='[^']+' CLEO_AGENT_ROLE='worker' \\|\\| exit 1$`,
+        'm',
+      ),
     );
     expect(result.prompt).not.toContain('WORKTREE=');
     expect(result.prompt).not.toContain(`cd ${WORKTREE}`);
@@ -787,7 +790,7 @@ describe('buildSpawnPrompt — worktree setup quoting and size (T12520)', () => 
     expect(script).toContain(
       `cd '${SPACED}' && export CLEO_SESSION_ID='ses_space' CLEO_AGENT_ID='`,
     );
-    expect(script).toMatch(/^cd '.*' && export .* \|\| exit 1$/m);
+    expect(script).toMatch(/^cd '.*' && export .* CLEO_AGENT_ROLE='worker' \|\| exit 1$/m);
     expect(script).toContain(`export CLEO_WORKTREE_ROOT='${SPACED}'`);
 
     const check = spawnSync('bash', ['-n'], { input: script, encoding: 'utf8' });
