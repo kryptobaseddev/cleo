@@ -1,7 +1,7 @@
 ---
 id: model-call-site-gate
 tasks: [T12663]
-kind: feature
+kind: feat
 summary: Arch gate 35 fails CI on an unregistered model call site, a System One site running on without go-live evidence, or a new chokepoint bypass
 ---
 
