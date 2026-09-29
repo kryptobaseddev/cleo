@@ -122,12 +122,16 @@ export function extractCleoCommands(markdown) {
  * from the `subCommands: { … }` block of the root `defineCommand` in each
  * referenced command module.
  *
+ * Exported so other surfaces (the skill command gate, T12649) judge commands
+ * against the same registry instead of a copy that drifts.
+ *
  * @param neededSubs - verbs whose sub-commands must be resolved.
+ * @param root - repository root (defaults to the working directory).
  * @returns map of verb → Set of sub-verbs (empty Set when leaf/unresolvable).
  */
-function loadRegistry(neededSubs) {
+export function loadRegistry(neededSubs, root = REPO_ROOT) {
   const manifestSource = readFileSync(
-    join(REPO_ROOT, 'packages/cleo/src/cli/generated/command-manifest.ts'),
+    join(root, 'packages/cleo/src/cli/generated/command-manifest.ts'),
     'utf-8',
   );
 
@@ -143,13 +147,13 @@ function loadRegistry(neededSubs) {
   // `version` is defined inline in cli/index.ts rather than via the manifest.
   registry.set('version', new Set());
   // Root aliases declared in cli/index.ts via `alias(<name>, <export>)`.
-  const cliIndex = readFileSync(join(REPO_ROOT, 'packages/cleo/src/cli/index.ts'), 'utf-8');
+  const cliIndex = readFileSync(join(root, 'packages/cleo/src/cli/index.ts'), 'utf-8');
   for (const m of cliIndex.matchAll(/^alias\('([^']+)'/gm)) registry.set(m[1], new Set());
 
   for (const verb of neededSubs) {
     const moduleName = moduleByVerb.get(verb);
     if (!moduleName) continue;
-    const modulePath = join(REPO_ROOT, 'packages/cleo/src/cli/commands', `${moduleName}.ts`);
+    const modulePath = join(root, 'packages/cleo/src/cli/commands', `${moduleName}.ts`);
     let source;
     try {
       source = readFileSync(modulePath, 'utf-8');
@@ -891,6 +895,42 @@ export function findFlagViolations(text, checker, skipComment) {
   return out;
 }
 
+/**
+ * Resolve a top-level verb to its command-module source, reading each module
+ * at most once. Shared with the skill command gate (T12649).
+ *
+ * @param root - repository root.
+ * @returns `(verb) => source | null`.
+ */
+export function makeSourceForVerb(root) {
+  const manifestSrc = readFileSync(
+    join(root, 'packages/cleo/src/cli/generated/command-manifest.ts'),
+    'utf-8',
+  );
+  const moduleByVerb = new Map(
+    [
+      ...manifestSrc.matchAll(
+        /name:\s*'([^']+)',[\s\S]{0,400}?import\('\.\.\/commands\/([^']+)\.js'\)/g,
+      ),
+    ].map((m) => [m[1], m[2]]),
+  );
+  const cache = new Map();
+  return (verb) => {
+    if (cache.has(verb)) return cache.get(verb);
+    const mod = moduleByVerb.get(verb);
+    let source = null;
+    if (mod) {
+      try {
+        source = readFileSync(join(root, 'packages/cleo/src/cli/commands', `${mod}.ts`), 'utf-8');
+      } catch {
+        source = null;
+      }
+    }
+    cache.set(verb, source);
+    return source;
+  };
+}
+
 if (isMain(import.meta.url)) {
   const asJson = process.argv.includes('--json');
   const markdown = readInjectionTemplates(REPO_ROOT);
@@ -904,26 +944,7 @@ if (isMain(import.meta.url)) {
 
   // T12077: existence is not enough — a documented invocation must also be
   // runnable. Resolve each verb's module source once and check required flags.
-  const manifestSrc = readFileSync(
-    join(REPO_ROOT, 'packages/cleo/src/cli/generated/command-manifest.ts'),
-    'utf-8',
-  );
-  const moduleByVerb = new Map(
-    [
-      ...manifestSrc.matchAll(
-        /name:\s*'([^']+)',[\s\S]{0,400}?import\('\.\.\/commands\/([^']+)\.js'\)/g,
-      ),
-    ].map((m) => [m[1], m[2]]),
-  );
-  const sourceForVerb = (verb) => {
-    const mod = moduleByVerb.get(verb);
-    if (!mod) return null;
-    try {
-      return readFileSync(join(REPO_ROOT, 'packages/cleo/src/cli/commands', `${mod}.ts`), 'utf-8');
-    } catch {
-      return null;
-    }
-  };
+  const sourceForVerb = makeSourceForVerb(REPO_ROOT);
   violations.push(...findRequiredArgViolations(markdown, sourceForVerb));
 
   // T12127: existence and runnability are still not enough — a documented

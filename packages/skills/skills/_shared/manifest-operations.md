@@ -239,12 +239,9 @@ cleo research show jwt-auth-2026-02-07  # Check linked_tasks
 
 ---
 
-### cleo research unlink
+### research unlink (retired)
 
-> **Note**: Not currently implemented in the CLI. To disassociate research from a task, use
-> `cleo research update <id>` to change status, or remove the link manually from the task record.
-
----
+Retired. Link edits go through `cleo research link`; there is no unlink verb.
 
 ### cleo research links
 
@@ -322,19 +319,13 @@ cleo research archive --before-date 2026-01-01
 
 ---
 
-### cleo research archive-list
+### research archive-list (retired)
 
-> **Note**: Not currently implemented in the CLI. To list archived entries, use
-> `cleo research list --status archived` or query the archive file directly.
+Retired. List archived entries with `cleo manifest list --filter archived`.
 
----
+### research status (retired)
 
-### cleo research status
-
-> **Note**: Not currently implemented as a separate CLI command. Use `cleo research stats`
-> for manifest statistics.
-
----
+Retired. Use `cleo research stats` or `cleo manifest stats`.
 
 ### cleo research stats
 
@@ -369,33 +360,21 @@ cleo research stats
 
 ---
 
-### cleo research validate
+### research validate (retired)
 
-> **Note**: Not currently implemented in the CLI. Manifest validation occurs automatically
-> when entries are created via `cleo research add`.
+Retired. Validate a subagent's output with `cleo orchestrate validate <taskId>` or `cleo check output`.
 
----
+### research compact (retired)
 
-### cleo research compact
+Retired. The pipeline_manifest table needs no compaction (ADR-027).
 
-> **Note**: Not currently implemented in the CLI. Use `cleo research archive` to manage
-> manifest size.
+### research get (retired)
 
----
+Retired. Use `cleo research show <id>` or `cleo manifest show <id>`.
 
-### cleo research get
+### research inject (retired)
 
-> **Note**: Not currently implemented as a separate CLI command. Use `cleo research show <id>`
-> for entry details.
-
----
-
-### cleo research inject
-
-> **Note**: Not currently implemented in the CLI. The orchestrator generates fully-resolved
-> subagent prompts via `cleo orchestrator spawn <taskId>`.
-
----
+Retired. `cleo orchestrate spawn <taskId>` embeds the subagent protocol in the prompt it returns.
 
 ## Manifest Entry Schema
 

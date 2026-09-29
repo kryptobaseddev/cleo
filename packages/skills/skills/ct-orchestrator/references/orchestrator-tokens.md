@@ -16,7 +16,7 @@ The `spawn` command handles token injection automatically. For manual injection,
 # 3. Gets task context from CLEO
 # 4. Extracts manifest summaries
 # 5. Injects all tokens
-cleo orchestrate spawn T1586 --template ct-research-agent
+cleo orchestrate spawn T1586 --protocol research
 ```
 
 ### Manual Token Injection
@@ -33,7 +33,7 @@ export TI_TOPIC_SLUG="my-research-topic"
 ti_set_defaults
 
 # 3. Optional: Get task context from CLEO
-task_json=$(cleo show T1234 --format json)
+task_json=$(cleo show T1234)
 ti_set_task_context "$task_json"
 
 # 4. Load and inject skill template
@@ -113,7 +113,7 @@ For fine-grained control over token injection, use `lib/token-inject.sh` directl
 |----------|--------|--------|
 | **Required** | `{{TASK_ID}}`, `{{DATE}}`, `{{TOPIC_SLUG}}` | Must be set before injection |
 | **Task Commands** | `{{TASK_SHOW_CMD}}`, `{{TASK_START_CMD}}`, `{{TASK_COMPLETE_CMD}}`, etc. | CLEO defaults |
-| **Output Paths** | `{{OUTPUT_DIR}}`, `{{MANIFEST_PATH}}` | CLEO defaults |
+| **Output Paths** | `{{OUTPUT_DIR}}` | CLEO defaults (manifest entries go through `cleo manifest append`) |
 | **Task Context** | `{{TASK_TITLE}}`, `{{TASK_DESCRIPTION}}`, `{{DEPENDS_LIST}}`, etc. | From CLEO task data |
 | **Manifest Context** | `{{MANIFEST_SUMMARIES}}` | From recent pipeline_manifest entries |
 
@@ -129,7 +129,7 @@ ti_set_context "T1234" "2026-01-20" "auth-research"
 ti_set_defaults
 
 # 3. Get task context from CLEO
-task_json=$(cleo show T1234 --format json)
+task_json=$(cleo show T1234)
 ti_set_task_context "$task_json"
 
 # 4. Load and inject skill template
@@ -156,7 +156,7 @@ echo "$template" | grep -c '{{' && echo "WARNING: Uninjected tokens remain"
 
 Token defaults (from `skills/_shared/placeholders.json`):
 - `{{OUTPUT_DIR}}` -> `.cleo/agent-outputs`
-- `{{MANIFEST_PATH}}` -> retired (ADR-027) — use `cleo manifest append`
+- The flat manifest path token is retired (ADR-027) — use `cleo manifest append`
 
 ### Inline Protocol Block (when CLI unavailable)
 

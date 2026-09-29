@@ -156,7 +156,7 @@ cleo list --tree --parent {{EPIC_ID}}      # Show epic subtree
 | `{{TASK_TREE_CMD}}` | `cleo list --tree` |
 | `{{TASK_ANALYZE_CMD}}` | `cleo analyze` |
 | `{{TASK_ARCHIVE_CMD}}` | `cleo archive` |
-| `{{TASK_VALIDATE_CMD}}` | `cleo validate` |
+| `{{TASK_VALIDATE_CMD}}` | `cleo check task <id>` |
 
 ### Session Tokens
 
@@ -174,7 +174,7 @@ cleo list --tree --parent {{EPIC_ID}}      # Show epic subtree
 | Token | CLEO Default |
 |-------|--------------|
 | `{{TASK_CURRENT_CMD}}` | `cleo current` |
-| `{{TASK_NOTE_CMD}}` | `cleo note` |
+| `{{TASK_NOTE_CMD}}` | `cleo update <id> --notes "..."` |
 | `{{TASK_STOP_CMD}}` | `cleo stop` |
 
 ### Verification Tokens
@@ -187,11 +187,11 @@ cleo list --tree --parent {{EPIC_ID}}      # Show epic subtree
 
 | Token | CLEO Default |
 |-------|--------------|
-| `{{TASK_RESEARCH_INIT_CMD}}` | `cleo research init` |
+| `{{TASK_RESEARCH_INIT_CMD}}` | `cleo research add` |
 | `{{TASK_RESEARCH_LIST_CMD}}` | `cleo research list` |
 | `{{TASK_RESEARCH_SHOW_CMD}}` | `cleo research show` |
 | `{{TASK_RESEARCH_PENDING_CMD}}` | `cleo research pending` |
-| `{{TASK_RESEARCH_INJECT_CMD}}` | `cleo research inject` |
+| `{{TASK_RESEARCH_INJECT_CMD}}` | `cleo orchestrate spawn <taskId>` (embeds the protocol; there is no inject verb) |
 
 ### Output Tokens
 

@@ -115,19 +115,19 @@ HANDOFF CONTENTS:
 
 ```bash
 # 1. Read last handoff
-cleo research list --type handoff --limit 1
+cleo docs list --type handoff --project
 
 # 2. Verify session exists
 cleo session status <session_id>
 
 # 3. Check for concurrent modifications
-cleo session list --scope epic:<epic_id>
+cleo session list --status active
 
 # 4. Resume if clear
 cleo session resume <session_id>
 
 # 5. Continue from next_tasks
-cleo orchestrate next --epic <epic_id>
+cleo orchestrate next <epic_id>
 ```
 
 ## Exit Codes

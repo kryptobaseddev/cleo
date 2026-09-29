@@ -2,16 +2,16 @@
 name: ct-release-orchestrator
 description: "Orchestrates the canonical 4-verb release pipeline introduced by SPEC-T9345: cleo release plan, then cleo release open, then PR + GHA tag workflow, then cleo release reconcile. The deprecated cleo release ship monolith was deleted in T10103 — do not invoke it. Use ship-e2e-smoke to validate the full pipeline end-to-end (dry-run by default). The full verb-to-state map is in docs/release/verb-matrix.md. Use when shipping a new version, validating the release pipeline end-to-end, or promoting a completed epic to released status."
 protocol: release
-loomStage: release
 adrRefs:
   - ADR-053
   - ADR-063
   - ADR-065
 metadata:
-  version: 3.0.0
+  version: 3.0.1
   tier: on-demand
   install: harness
-  lastReviewed: 2026-05-22
+  loomStage: release
+  lastReviewed: 2026-09-28
   stability: stable
 ---
 
@@ -32,7 +32,7 @@ Owns the canonical 4-verb release pipeline established by SPEC-T9345 and finalis
 | 1 | `cleo release plan <ver> --epic <id>` | _(none)_ → `planned` | Builds the Release Plan envelope; auto-writes `CHANGELOG.md` (T10105 closes the silent-skip gap) |
 | 2 | `cleo release open <ver>` | `planned` → `pr-opened` | Dispatches `release-prepare.yml`; the workflow cuts the branch + opens the PR |
 | 3 | _(GHA)_ `release-prepare.yml` → PR merge | `pr-opened` → `pr-merged` | Owned by CI; verify via `cleo release pr-status <ver>` |
-| 4 | _(GHA)_ `auto-tag-on-release-merge.yml` (T10104) | `pr-merged` → `tag-pushed` | Auto-tag on merge — no manual `git tag` needed |
+| 4 | `git tag -a v<ver> -m "Release v<ver>" && git push origin v<ver>` | `pr-merged` → `tag-pushed` | Explicit tag after the release PR merges — `auto-tag-on-release-merge.yml` is retired (T10434, ADR-087); the tag push triggers `release.yml` |
 | 5 | `cleo release reconcile <ver>` | `tag-pushed` → `published` | Backfills 11 provenance tables; idempotent |
 
 Optional validators (read-only / dry-run):
@@ -49,15 +49,15 @@ Optional validators (read-only / dry-run):
 |----|------|-------------|
 | RLSE-001 | Version MUST be CalVer (`YYYY.MM.patch`) per ADR-065 — never SemVer. | `cleo release plan` rejects non-CalVer; exit 53. |
 | RLSE-002 | `CHANGELOG.md` MUST be updated before the tag — always-write is the default behaviour of `cleo release plan` (T9784 deleted the manual changelog verb). | Plan envelope refuses to advance to `pr-opened` if the changeset directory is unparseable (T10105). |
-| RLSE-003 | All per-task evidence gates MUST be recorded via `cleo verify <task> --gate <g> --evidence …` BEFORE `cleo complete`. The legacy `cleo release verify` batch verb was deleted in T9540. | ADR-051 per-task evidence ritual. |
-| RLSE-004 | The release MUST be tagged via the auto-tag GHA workflow — not a manual `git tag`. | T10104 closes the auto-tag gap. |
+| RLSE-003 | All per-task evidence gates MUST be recorded via `cleo verify <task> --gate <g> --evidence …` BEFORE `cleo complete`. The legacy `cleo release verify` batch verb was deleted in T9540. | ADR-051 per-task evidence ritual. | <!-- cleo-cmd: negative-example -->
+| RLSE-004 | The release MUST be tagged explicitly (`git tag -a v<ver>` + `git push origin v<ver>`) after the release PR merges. | Auto-tag was retired in T10434 / ADR-087: `GITHUB_TOKEN` tag pushes did not reliably trigger `release.yml`. |
 | RLSE-005 | Direct pushes to `main` are prohibited. Every release ships via a PR cut by `release-prepare.yml`. | ADR-065 + branch protection (see `docs/release/branch-protection-setup.md`). |
 | RLSE-006 | Version MUST be consistent across all workspace targets resolved by `resolveVersionBumpTargets` (root package.json + every workspace package + Cargo workspace). | Version-bump preflight in `release-prepare.yml`. |
 | RLSE-007 | Provenance reconcile MUST run within the release-publish workflow — never as a manual followup. | Invoked by `release-publish.yml`. |
 
 ## Integration
 
-Use the explicit two-verb invocation. **Do not** invoke `cleo release ship` — it was deleted in T10103.
+Use the explicit verbs. **Do not** invoke `cleo release ship` — it was deleted in T10103. <!-- cleo-cmd: negative-example -->
 
 ```bash
 # 1. Plan — build the canonical Release Plan envelope.
@@ -69,7 +69,11 @@ cleo release open v2026.6.0
 # 3. (Optional) Poll PR + CI status while the workflow runs.
 cleo release pr-status v2026.6.0
 
-# 4. Reconcile — runs automatically inside release-publish.yml.
+# 4. After the release PR merges, tag explicitly (auto-tag is retired).
+git tag -a v2026.6.0 -m "Release v2026.6.0"
+git push origin v2026.6.0
+
+# 5. Reconcile — runs automatically inside release-publish.yml.
 #    Run manually only if backfilling a historical release.
 cleo release reconcile v2026.6.0
 ```
@@ -90,7 +94,7 @@ Exit codes (canonical):
 - `0` — success.
 - `53` — version validation failed (e.g. not CalVer).
 - `54` — release-prepare workflow gate failed.
-- `56` — tag creation failed (auto-tag workflow).
+- `56` — tag creation failed.
 - `82` — `E_PLAN_NOT_FOUND` (plan envelope missing for the requested version).
 - `83` — `E_IVTR_INCOMPLETE` (per-task IVTR loops not released).
 - `88` — artifact publish failed.
@@ -99,9 +103,9 @@ Exit codes (canonical):
 
 | Pattern | Problem | Solution |
 |---------|---------|----------|
-| Running `cleo release ship` | The verb was deleted in T10103 — the command will exit with `Unknown command`. | Use `cleo release plan` + `cleo release open`. |
+| Running `cleo release ship` | The verb was deleted in T10103 — the command will exit with `Unknown command`. | Use `cleo release plan` + `cleo release open`. | <!-- cleo-cmd: negative-example -->
 | Manually invoking `gh workflow run release-prepare.yml` | Bypasses the plan envelope; `releases.status` stays at `planned`. | Always go through `cleo release open <ver>` — it tracks state in the `releases` table. |
-| Manually `git tag v<ver> && git push --tags` | Bypasses the auto-tag workflow (T10104) and skips provenance backfill. | Let `auto-tag-on-release-merge.yml` create the tag on PR merge. |
+| Tagging before the release PR merges, or `git push --tags` | Tags an unmerged commit, or pushes every local tag. | Tag the merged release commit and push that one tag: `git push origin v<ver>`. |
 | Hand-editing `CHANGELOG.md` for the new version | Drift between the changeset directory and the changelog. | `cleo release plan` always auto-writes the section (T10105). Use `cleo changeset add` to author entries. |
 | Pasting one verb into another's workflow file | Multi-step orchestration belongs in `ship-e2e-smoke`. | Use `cleo release ship-e2e-smoke … --execute` for end-to-end validation. |
 | Running the pipeline on a dirty worktree | Release commit scoops up unrelated changes. | The clean-tree gate refuses to advance. |
@@ -110,10 +114,10 @@ Exit codes (canonical):
 ## Critical Rules Summary
 
 1. The 4-verb pipeline — `plan`, `open`, `reconcile`, `rollback` — is the ONLY way to ship.
-2. The deprecated `cleo release ship` shim was DELETED in T10103. Do not invoke it.
+2. The deprecated `cleo release ship` shim was DELETED in T10103. Do not invoke it. <!-- cleo-cmd: negative-example -->
 3. CalVer (`YYYY.MM.patch`) is the only valid version scheme.
 4. `cleo release plan` always writes the CHANGELOG section unless `--no-changelog`.
-5. The tag is created by `auto-tag-on-release-merge.yml`, not by hand.
+5. The tag is created explicitly after the release PR merges; `auto-tag-on-release-merge.yml` is retired (T10434, ADR-087).
 6. Provenance reconcile is invoked by `release-publish.yml`, not manually (unless backfilling).
 7. Per-task evidence gates use `cleo verify --gate --evidence` per ADR-051 — not the deleted batch verb.
 8. Use `cleo release ship-e2e-smoke` to validate the full pipeline before a real ship.

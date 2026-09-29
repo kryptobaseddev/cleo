@@ -43,6 +43,15 @@ function skillMd(name, extra = '') {
 }
 
 describe('lint-skills-manifest on the real repository', () => {
+  it('pins SKILL.md checkouts to LF via .gitattributes (T12649)', () => {
+    const run = spawnSync(
+      'git',
+      ['check-attr', 'eol', '--', 'packages/skills/skills/ct-cleo/SKILL.md'],
+      { cwd: REPO, encoding: 'utf8' },
+    );
+    expect(run.stdout.trim()).toBe('packages/skills/skills/ct-cleo/SKILL.md: eol: lf');
+  });
+
   it('reports no drift and no invalid frontmatter', () => {
     expect(checkManifest(REPO)).toEqual({ problems: [], drift: [] });
   });
@@ -133,6 +142,30 @@ describe('lint-skills-manifest goes red on planted defects', () => {
     });
   });
 
+  it('binds metadata.loomStage to the stage map and rejects a top-level loomStage (T12649)', () => {
+    mkdirSync(join(root, 'packages/core/src/lifecycle'), { recursive: true });
+    writeFileSync(
+      join(root, 'packages/core/src/lifecycle/stage-guidance.ts'),
+      "export const STAGE_SKILL_MAP = {\n  research: 'ct-beta',\n  testing: 'ct-alpha',\n};\n",
+    );
+    const withStage = (stage) =>
+      skillMd('ct-beta').replace('  install: harness', `  install: harness\n  loomStage: ${stage}`);
+
+    addSkill('ct-beta', withStage('research'));
+    expect(checkManifest(root).problems).toEqual([]);
+
+    addSkill('ct-beta', withStage('testing'));
+    expect(checkManifest(root).problems.map((p) => p.problem)).toEqual([
+      "metadata.loomStage 'testing' is bound to 'ct-alpha', not 'ct-beta'",
+    ]);
+
+    addSkill('ct-beta', withStage('nonsense'));
+    expect(checkManifest(root).problems[0].problem).toMatch(/not a STAGE_SKILL_MAP stage/);
+
+    addSkill('ct-beta', skillMd('ct-beta', 'loomStage: research'));
+    expect(checkManifest(root).problems[0].problem).toMatch(/top-level loomStage moved/);
+  });
+
   it('fails when the manifest lists a skill with no directory', () => {
     const m = JSON.parse(readFileSync(join(root, MANIFEST), 'utf8'));
     m.skills.push({ name: 'loom' });
@@ -210,5 +243,37 @@ describe('parseFrontmatter', () => {
 
   it('reports a missing frontmatter block', () => {
     expect(parseFrontmatter('# no frontmatter').errors).toEqual(['no frontmatter block']);
+  });
+
+  it('parses a CRLF file exactly like its LF twin (T12649)', () => {
+    const lf = [
+      '---',
+      'name: x',
+      'description: d',
+      'metadata:',
+      '  version: 1.2.3',
+      '---',
+      '',
+    ].join('\n');
+    const crlf = lf.replace(/\n/g, '\r\n');
+    expect(parseFrontmatter(crlf)).toEqual(parseFrontmatter(lf));
+    expect(parseFrontmatter(crlf).metadata.version).toBe('1.2.3');
+  });
+
+  it('keeps reading metadata across a blank line (T12649)', () => {
+    const fm = parseFrontmatter(
+      [
+        '---',
+        'name: x',
+        'metadata:',
+        '  version: 1.2.3',
+        '',
+        '  tier: core',
+        'other: y',
+        '---',
+      ].join('\n'),
+    );
+    expect(fm.metadata).toEqual({ version: '1.2.3', tier: 'core' });
+    expect(fm.fields.other).toBe('y');
   });
 });

@@ -71,6 +71,12 @@ export const CATEGORY_FOR_TIER = /** @type {const} */ ({
  */
 export const DERIVED_TOP_LEVEL_KEYS = /** @type {const} */ (['tier', 'core', 'category']);
 
+/**
+ * Top-level keys that moved under `metadata:` (T12649). Each maps to its
+ * `metadata.<key>` home.
+ */
+export const MOVED_TO_METADATA_KEYS = /** @type {const} */ (['loomStage']);
+
 /** Maximum `description` length accepted by harness skill loaders. */
 export const MAX_DESCRIPTION_LENGTH = 1024;
 
@@ -123,7 +129,8 @@ function scalar(raw) {
  */
 export function parseFrontmatter(text) {
   const errors = [];
-  const lines = text.split('\n');
+  // T12649: a CRLF checkout (Windows autocrlf) must parse identically.
+  const lines = text.replace(/\r\n?/g, '\n').split('\n');
   if (lines[0] !== '---') {
     return { ok: false, fields: {}, metadata: {}, keys: [], errors: ['no frontmatter block'] };
   }
@@ -152,7 +159,11 @@ export function parseFrontmatter(text) {
     const value = rest.trim();
 
     if (key === 'metadata' && value === '') {
-      for (let j = i + 1; j < body.length && /^\s+\S/.test(body[j]); j++) {
+      // A blank line inside the block does not end it; the next unindented
+      // key does (T12649).
+      for (let j = i + 1; j < body.length; j++) {
+        if (body[j].trim() === '') continue;
+        if (!/^\s+\S/.test(body[j])) break;
         const mm = /^\s+([A-Za-z][\w-]*):(.*)$/.exec(body[j]);
         if (mm) metadata[mm[1]] = scalar(mm[2]);
       }
@@ -189,9 +200,11 @@ export function readSkillFrontmatter(root, name) {
  * Validate one skill's frontmatter against the SSoT contract.
  *
  * @param {ReturnType<typeof readSkillFrontmatter>} fm - Parsed frontmatter.
+ * @param {{ loomStages?: Map<string, string> }} [ctx] - `loomStages` (from
+ *   {@link loadLoomStages}) enables the `metadata.loomStage` binding check.
  * @returns {string[]} Human-readable problems (empty when valid).
  */
-export function validateFrontmatter(fm) {
+export function validateFrontmatter(fm, ctx = {}) {
   const problems = [...fm.errors];
   const seen = new Set();
   for (const k of fm.keys) {
@@ -213,7 +226,22 @@ export function validateFrontmatter(fm) {
       );
     }
   }
+  for (const key of MOVED_TO_METADATA_KEYS) {
+    if (key in fm.fields) problems.push(`top-level ${key} moved — declare metadata.${key}`);
+  }
   const md = fm.metadata;
+  if (md.loomStage !== undefined && ctx.loomStages) {
+    const owner = ctx.loomStages.get(md.loomStage);
+    if (owner === undefined) {
+      problems.push(
+        `metadata.loomStage '${md.loomStage}' is not a STAGE_SKILL_MAP stage or a .cant protocol id`,
+      );
+    } else if (owner !== fm.name) {
+      problems.push(
+        `metadata.loomStage '${md.loomStage}' is bound to '${owner}', not '${fm.name}'`,
+      );
+    }
+  }
   if (!md.version) problems.push('metadata.version is missing');
   else if (!/^\d+\.\d+\.\d+$/.test(md.version)) {
     problems.push(`metadata.version '${md.version}' is not X.Y.Z`);
@@ -240,4 +268,44 @@ export function validateFrontmatter(fm) {
     );
   }
   return problems;
+}
+
+/**
+ * Every LOOM stage a skill may declare in `metadata.loomStage`, mapped to the
+ * skill bound to it (spec `skills-curation-and-automation` §3.2.4).
+ *
+ * Pipeline stages come from `STAGE_SKILL_MAP` in
+ * `packages/core/src/lifecycle/stage-guidance.ts`. Cross-cutting protocols
+ * (contribution, artifact-publish, provenance) have no pipeline slot, so their
+ * `.cant` protocol id — the file name, dashes as underscores — binds to the
+ * protocol's `skillRef`. A pipeline binding wins over a protocol binding.
+ *
+ * @param {string} root - Repository root.
+ * @returns {Map<string, string>} stage → bound skill name.
+ * @task T12649
+ */
+export function loadLoomStages(root) {
+  const stages = new Map();
+  const cantDir = join(root, 'packages/core/src/validation/protocols/cant');
+  if (existsSync(cantDir)) {
+    for (const file of readdirSync(cantDir).filter((f) => f.endsWith('.cant'))) {
+      const ref = /^skillRef:\s*([a-z][\w-]*)\s*$/m.exec(
+        readFileSync(join(cantDir, file), 'utf-8'),
+      );
+      if (ref) stages.set(file.slice(0, -'.cant'.length).replace(/-/g, '_'), ref[1]);
+    }
+  }
+  const guidancePath = join(root, 'packages/core/src/lifecycle/stage-guidance.ts');
+  if (existsSync(guidancePath)) {
+    const source = readFileSync(guidancePath, 'utf-8');
+    const start = /\bSTAGE_SKILL_MAP\b[^=]*=\s*\{/.exec(source);
+    if (start) {
+      const from = start.index + start[0].length;
+      const body = source.slice(from, source.indexOf('}', from));
+      for (const m of body.matchAll(/([a-z_]+)\s*:\s*(['"`])([a-z][\w-]*)\2/g)) {
+        stages.set(m[1], m[3]);
+      }
+    }
+  }
+  return stages;
 }

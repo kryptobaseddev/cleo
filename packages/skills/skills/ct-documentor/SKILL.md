@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Coordinates ct-docs-lookup, ct-docs-write, ct-docs-review, ct-spec-writer, and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.16.1
+version: 3.16.2
 protocol: null
 dependencies:
   - ct-docs-lookup
@@ -19,10 +19,10 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.16.1
+  version: 3.16.2
   tier: core
   install: harness
-  lastReviewed: 2026-09-27
+  lastReviewed: 2026-09-28
   stability: stable
 ---
 
@@ -203,7 +203,7 @@ This closes the silent-absorption footgun where citty's underlying
 
 ```bash
 # Typo → E_UNKNOWN_FLAG with suggestion
-$ cleo docs add T123 file.md --titel "X"
+$ cleo docs add T123 file.md --titel "X"   # cleo-cmd: negative-example
 {
   "success": false,
   "error": {
@@ -575,9 +575,10 @@ not yet under test.
 
 **Anti-pattern**: do NOT write a `cleo memory observe` manually after a
 `cleo docs add` — the auto-emit already happened, and the duplicate
-observation pollutes the FTS index. Use `cleo memory backfill-docs` (AC4
-of T9976) only to repair attachments that pre-date the auto-emit feature
-or were written outside the SSoT.
+observation pollutes the FTS index. No CLI command back-fills that
+observation for attachments that pre-date the auto-emit feature: the
+`memory backfill-docs` verb planned in T9976 AC4 never shipped. Leave such
+attachments as they are rather than hand-writing a duplicate observation.
 
 #### System-managed exemptions (T10368)
 
@@ -694,7 +695,7 @@ the docs graph — never grep the filesystem for the file you just wrote.
 cleo docs list --type spec --project       # canonical: every spec in this project
 cleo docs list --task T1234                # canonical: everything attached to a task
 cleo docs versions --for T1234             # ADVANCED: list every SHA version
-cleo docs sync --from docs/legacy.md --for T1234 --type note --slug legacy-doc  # ADVANCED: back-fill on-disk file into SSoT
+cleo docs sync --from docs/legacy.md --for T1234  # ADVANCED: back-fill on-disk file into SSoT (no --type/--slug; classify with docs add)
 ```
 
 ---
@@ -870,7 +871,7 @@ cleo research link {TASK_ID} {RESEARCH_ID}
 ### Output Requirements
 
 1. MUST write documentation output to: `{{OUTPUT_DIR}}/`
-2. MUST append ONE line to: `{{MANIFEST_PATH}}`
+2. MUST record ONE manifest entry: `cleo manifest append --entry '<entry JSON>'` (the flat manifest file is retired, ADR-027)
 3. MUST return ONLY: "Documentation complete. Manifest appended to pipeline_manifest."
 4. MUST NOT return documentation content in response
 
@@ -910,7 +911,7 @@ Write to `{{OUTPUT_DIR}}/`:
 
 ### Manifest Entry
 
-Append ONE line to `{{MANIFEST_PATH}}`:
+Record it with `cleo manifest append --entry '<entry JSON>'` (the flat manifest file is retired, ADR-027):
 
 ```json
 {"id":"docs-{TOPIC}-{DATE}","file":"{DATE}_docs-{TOPIC}.md","title":"Documentation Update: {TITLE}","date":"{DATE}","status":"complete","agent_type":"documentation","topics":["documentation","{topic}"],"key_findings":["Updated {file} with {change}","Consolidated {topic} docs into {canonical-location}","Avoided duplication by updating existing {file}"],"actionable":false,"needs_followup":[],"linked_tasks":["{TASK_ID}"]}

@@ -41,7 +41,7 @@ The orchestrator delegates work to a subagent via `orchestrate.spawn` with skill
 
 ```bash
 # Generate fully-resolved spawn prompt
-cleo orchestrator spawn T1234 --json
+cleo orchestrate spawn T1234 --json
 
 # Provider adapter executes the prompt using its native mechanism
 #    - Claude Code: Task tool with cleo-subagent type
@@ -213,7 +213,7 @@ TOPIC_SLUG    # URL-safe topic name
 Before spawning subagent:
 - [ ] Identify appropriate skill for task type
 - [ ] Prepare token context (TASK_ID, DATE, TOPIC_SLUG)
-- [ ] `cleo orchestrator spawn <taskId> --json`
+- [ ] `cleo orchestrate spawn <taskId> --json`
 - [ ] Verify token resolution is complete (`tokenResolution.fullyResolved`)
 
 Before chaining to another skill:

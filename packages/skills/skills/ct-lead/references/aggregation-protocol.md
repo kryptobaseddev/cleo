@@ -21,12 +21,12 @@ fast-finishing workers and silently loses early `complete` signals.
 
 ```bash
 # CORRECT — subscribe, then spawn
-cleo conduit subscribe "epic-T9080.wave-2" --as-lead
-cleo orchestrate spawn-batch --tasks T9301,T9302,T9303 ...
+cleo conduit subscribe --topic "epic-T9080.wave-2"
+cleo orchestrate fanout T9080 --tasks T9301,T9302,T9303
 
 # WRONG — fanout, then subscribe (race window)
-cleo orchestrate spawn-batch --tasks T9301,T9302,T9303 ...
-cleo conduit subscribe "epic-T9080.wave-2" --as-lead   # may miss T9301 done
+cleo orchestrate fanout T9080 --tasks T9301,T9302,T9303
+cleo conduit subscribe --topic "epic-T9080.wave-2"   # may miss T9301 done
 ```
 
 The conduit retains buffered signals for `conduit.replay_window` (default 30s)
@@ -36,17 +36,16 @@ to defend against tiny races, but relying on the buffer is brittle.
 
 ## 2. Drain loop
 
-The Lead blocks on `cleo conduit await` which yields when the expected number
-of terminal signals arrive OR the wall-clock timeout elapses.
+There is no blocking await. The Lead polls the wave topic with
+`cleo conduit listen --topic <topic> --since <last-seen>` until the expected number of
+terminal signals has arrived OR its wall-clock budget elapses.
 
 ```bash
-cleo conduit await "epic-T9080.wave-2" \
-  --expect 5 \
-  --timeout 600 \
-  --json > /tmp/conduit-drain.json
+cleo conduit listen --topic "epic-T9080.wave-2" --since "${SPAWNED_AT}" \
+  > /tmp/conduit-drain.json
 
-# Then read authoritative state from manifest
-cleo lead rollup --epic T9080 --wave wave-2 --json > /tmp/rollup.json
+# Then read authoritative state from manifest (wave index is 0-based)
+cleo orchestrate roll-up T9080 --wave 2 --json > /tmp/rollup.json
 ```
 
 `rollupWaveStatus` returns:
@@ -94,15 +93,13 @@ Local retry shape:
 RETRIABLE=$(jq -r '.workers[] | select(.status=="failed" and (.reason|test("testsPassed|qaPassed|INFRASTRUCTURE"))) | .taskId' /tmp/rollup.json)
 
 # Re-spawn ONLY those (NEW conduit topic suffix to avoid replay collision)
-cleo orchestrate spawn-batch \
-  --parent "${LEAD_TASK_ID}" --parent-role orchestrator \
-  --topic "epic-T9080.wave-2.retry-1" \
-  --tasks "$(echo $RETRIABLE | tr ' ' ,)" \
-  --child-role leaf --timeout 600
+cleo conduit subscribe --topic "epic-T9080.wave-2.retry-1"
+cleo orchestrate fanout T9080 --tasks "$(echo $RETRIABLE | tr ' ' ,)"
 
-# Re-drain on the retry topic, merge into final rollup
-cleo conduit await "epic-T9080.wave-2.retry-1" --expect $(echo $RETRIABLE | wc -w) --timeout 600
-cleo lead rollup --epic T9080 --wave wave-2 --include-retries --json > /tmp/rollup-final.json
+# Re-drain on the retry topic, then roll up again (the manifest holds the
+# latest status of every worker, retries included)
+cleo conduit listen --topic "epic-T9080.wave-2.retry-1" --since "${RETRY_AT}"
+cleo orchestrate roll-up T9080 --wave 2 --json > /tmp/rollup-final.json
 ```
 
 After the single retry pass, whatever `rollup-final.json` shows IS the

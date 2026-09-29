@@ -98,7 +98,6 @@ Orchestrators resolve ALL tokens before spawning subagents. Subagents CANNOT res
 | `{{DATE}}` | Current date (ISO) |
 | `{{TOPIC_SLUG}}` | URL-safe topic name |
 | `{{OUTPUT_DIR}}` | Output directory |
-| `{{MANIFEST_PATH}}` | Manifest file path |
 | `{{TASK_TITLE}}` | Task title |
 | `{{TASK_DESCRIPTION}}` | Task description |
 
@@ -118,8 +117,8 @@ Skills are **context injections, NOT agents**. The orchestrator selects and inje
 ### Discovery
 
 ```bash
-cleo skill list
-cleo skill show ct-orchestrator
+cleo skills list
+cleo skills info ct-orchestrator
 ```
 
 ### Key Skills
@@ -145,12 +144,16 @@ cleo skill show ct-orchestrator
 
 ## Release Workflow
 
-**CRITICAL**: `release ship` only commits version metadata. All code changes MUST be committed BEFORE running `release ship`.
+Releases are PR-gated (ADR-065). Commit and merge all code through PRs first; the
+release verbs are `plan` → `open` → `reconcile`. The legacy `create`/`ship`
+verbs were removed (T9540, T10103).
 
 ```bash
-git add <files> && git commit -m "feat(T####): description"
-cleo release create v1.0.0
-cleo release ship v1.0.0 --bump-version --create-tag --push
+cleo release plan v2026.MM.N --epic T####     # or --tasks T1,T2
+cleo release open v2026.MM.N                  # dispatches release-prepare
+cleo release pr-status v2026.MM.N             # poll the release PR + CI
+git tag -a v2026.MM.N -m "Release v2026.MM.N" && git push origin v2026.MM.N
+cleo release reconcile v2026.MM.N             # backfill provenance
 ```
 
 ## Project Context
