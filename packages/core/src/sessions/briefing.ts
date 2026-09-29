@@ -322,13 +322,14 @@ export async function computeBriefing(
   const focusSessionId = params.activeSessionId ?? resolveSessionIdFromEnv();
   // T12684: the one validating focus reader — a pointer to a finished task
   // (archived included, which the task listing below omits) comes back stale.
-  const liveFocus = await readLiveFocus(accessor, focusSessionId);
+  // Build task map for quick lookups
+  const taskMap = new Map(tasks.map((t) => [t.id, t]));
+  // T12698: reuse the loaded task map — only an unlisted (archived) pointer
+  // costs a lookup.
+  const liveFocus = await readLiveFocus(accessor, focusSessionId, taskMap);
   const focus = (
     liveFocus.state ? { ...liveFocus.state, currentTask: liveFocus.currentTask } : undefined
   ) as TaskWorkStateExt | undefined;
-
-  // Build task map for quick lookups
-  const taskMap = new Map(tasks.map((t) => [t.id, t]));
 
   // Determine scope
   const scopeFilter = await parseScope(params.scope, accessor);
