@@ -350,7 +350,9 @@ export function completeWorktreeForTask(
         target: worktreePath,
         branch,
         taskId,
-        reason: `no task branch '${branch}' and no worktree — nothing to integrate`,
+        reason: integration.landedUpstream
+          ? `'${branch}' already landed upstream — no local merge (T12773)`
+          : `no task branch '${branch}' and no worktree — nothing to integrate`,
         success: true,
       },
       opts.lifecycleAuditPath,
@@ -359,7 +361,49 @@ export function completeWorktreeForTask(
       taskId,
       outcome: 'noop',
       integration,
-      reason: `No worktree or task branch for ${taskId} — nothing to integrate (task was not worked on a task branch).`,
+      reason: integration.landedUpstream
+        ? `${branch} already landed upstream — nothing to integrate locally. ${integration.hint ?? ''}`.trim()
+        : `No worktree or task branch for ${taskId} — nothing to integrate (task was not worked on a task branch).`,
+    };
+  }
+
+  // ---- Stale target: refused before any merge, not a conflict. ------------
+  //
+  // T12773 — the local default branch is behind (or diverged from) origin,
+  // so a local merge would fork it. Nothing was rebased or merged, so the
+  // rebase/--resolve recovery steps of the conflict path do not apply: the
+  // operator syncs the default branch, then re-runs the integration.
+  if (integration.staleTarget) {
+    appendWorktreeAuditEntry(
+      projectRoot,
+      {
+        actor,
+        action: 'complete-conflict',
+        target: worktreePath,
+        branch,
+        taskId,
+        reason: `stale target '${integration.targetBranch}' — local merge refused (T12773)`,
+        success: false,
+        error: integration.error,
+      },
+      opts.lifecycleAuditPath,
+    );
+    return {
+      taskId,
+      outcome: 'conflict',
+      integration,
+      reason:
+        `Local '${integration.targetBranch}' is out of date with origin — no merge was attempted and the worktree was preserved. ${integration.hint ?? ''}`.trim(),
+      recovery: {
+        worktreePath,
+        branch,
+        steps: [
+          ...(integration.syncCommand
+            ? [`${integration.syncCommand}   # sync local ${integration.targetBranch}`]
+            : []),
+          `cleo orchestrate worktree-complete ${taskId}`,
+        ],
+      },
     };
   }
 
