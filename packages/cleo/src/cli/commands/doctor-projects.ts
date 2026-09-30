@@ -179,7 +179,7 @@ export async function runDoctorProjects(
   // are cosmetic: a failed lookup falls back to '<unnamed>'. An unreadable
   // registry is already reported through `report.registryError` (T12512).
   const nameLookup = new Map<string, string>();
-  if (!report.registryError)
+  if (!report.registryError) {
     try {
       const { nexusList } = await import('@cleocode/core/internal');
       const rows = await nexusList();
@@ -189,6 +189,7 @@ export async function runDoctorProjects(
     } catch {
       // nexus.db not initialized — continue with an empty lookup.
     }
+  }
 
   printDoctorProjectsReport(report, opts, nameLookup);
   return report;

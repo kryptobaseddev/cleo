@@ -37,6 +37,7 @@ import {
   runCommand,
 } from 'citty';
 import { cittyErrorCodeName, cittyErrorFix, stripAnsi } from './citty-error-envelope.js';
+import { asCleoErrorLike, cleoErrorCodeName } from './cleo-error-like.js';
 // NOTE: `@cleocode/core/internal` is a 2018-line barrel re-exporting 406
 // symbols. A top-level eager import here transitively loads the entire CORE
 // dependency tree (drizzle, node:sqlite, every dispatch handler, every
@@ -380,28 +381,6 @@ interface CittyCliError extends Error {
   readonly code: string;
 }
 
-/** The parts of a core `CleoError` the entrypoint needs (duck-typed: no core import here). */
-interface CleoErrorLike {
-  message: string;
-  code: number;
-  fix?: string;
-  alternatives?: Array<{ action: string; command: string }>;
-  details?: Record<string, unknown>;
-  toLAFSError(): { code: string };
-}
-
-/**
- * Narrow a thrown value to a core `CleoError` without importing core into the
- * entrypoint's static graph (gate 25).
- */
-function asCleoErrorLike(err: unknown): CleoErrorLike | null {
-  if (!(err instanceof Error) || err.name !== 'CleoError') return null;
-  const candidate = err as Error & Partial<CleoErrorLike>;
-  return typeof candidate.code === 'number' && typeof candidate.toLAFSError === 'function'
-    ? (candidate as CleoErrorLike)
-    : null;
-}
-
 /**
  * Type-guard for citty's `CLIError`. Returns the value when it has both
  * `name === 'CLIError'` AND a string `code` (e.g. `'EARG'`), else `null`.
@@ -594,7 +573,7 @@ async function runMainWithLafsEnvelope(
       const typed = asCleoErrorLike(err);
       if (typed) {
         cliError(typed.message, typed.code, {
-          name: typed.toLAFSError().code,
+          name: cleoErrorCodeName(typed),
           fix: typed.fix,
           alternatives: typed.alternatives,
           details: typed.details,
