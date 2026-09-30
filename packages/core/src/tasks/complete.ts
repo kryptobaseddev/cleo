@@ -1328,7 +1328,14 @@ export async function completeTask(
     // that at WARN (as `mergeError: "task branch … does not exist"`) trained
     // readers to ignore a channel that should mean something — and the one
     // genuine rebase conflict was filtered out with the hundred non-events.
-    if (integration.nothingToIntegrate) {
+    if (integration.landedUpstream) {
+      // T12773 — the task branch already landed on origin (e.g. its PR merged
+      // upstream); no local merge was made, so local main cannot fork.
+      getLogger('tasks:complete').info(
+        { taskId: options.taskId, hint: integration.hint },
+        '[T12773] task branch already landed upstream — skipped local merge',
+      );
+    } else if (integration.nothingToIntegrate) {
       getLogger('tasks:complete').debug(
         { taskId: options.taskId },
         '[T12153] no task branch or worktree for this task — nothing to integrate',
