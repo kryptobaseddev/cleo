@@ -13,9 +13,21 @@
  * - slow DNS: a hostname whose resolution is sent to a local UDP socket that
  *   never replies (a `--import` preload points every resolver at it).
  *
- * The assertion is on process EXIT, relative to an unconfigured run of the
- * same site: the configured run may cost at most the decision budget plus
- * slack more.
+ * The assertion is on process EXIT and on the decision's own timing:
+ *
+ * - the process exits on its own (no signal, rc 0) with the heuristic's answer;
+ * - relative to an unconfigured run of the same site, the configured run costs
+ *   less than {@link HANG_CEILING_MS} more. The runner has no backstop, so a
+ *   held connect-phase handle keeps it alive until `spawnSync` kills it at 30 s
+ *   (a signal) — far above the ceiling however fast the runner is;
+ * - for a stalled provider, the audit line records `fallbackReason: 'timeout'`
+ *   with an in-process `latencyMs` of at least the budget and well under the
+ *   ceiling: the deadline itself fired, measured without process-startup noise.
+ *
+ * The wall-clock delta used to be held to budget + 600 ms. Process startup on a
+ * shared CI runner varies by more than that between two spawns (T12840), so the
+ * tight bound failed runs whose exit behaviour was correct. The ceiling now
+ * separates "exited" from "hung", which is the defect this file exists for.
  *
  * @task T12494
  */
@@ -37,8 +49,18 @@ const DIST_AVAILABLE = existsSync(OBSERVATION_DIST) && existsSync(READINESS_DIST
 
 /** Decision budget (mirrors `OBSERVATION_TYPE_BUDGET_MS` / `OWNER_DECISION_BUDGET_MS`). */
 const DECISION_BUDGET_MS = 300;
-/** Slack over the unconfigured baseline for scheduling noise. */
-const SLACK_MS = 600;
+/**
+ * Most a configured run may cost over the unconfigured baseline. A healthy run
+ * costs the budget plus startup jitter (≈ 1 s on a loaded runner); a leaked
+ * handle holds the process until the 30 s `spawnSync` timeout.
+ */
+const HANG_CEILING_MS = 3_000;
+/**
+ * Most the decision itself (the audited in-process `latencyMs`) may take when the
+ * provider stalls: the budget plus slack for event-loop scheduling. Far below any
+ * OS connect timeout, so it proves the deadline — not the network — ended the wait.
+ */
+const TIMEOUT_LATENCY_CEILING_MS = DECISION_BUDGET_MS + 700;
 
 type Site = 'observe' | 'readiness';
 const SITE_IDS: Record<Site, string> = {
@@ -222,10 +244,21 @@ function expectPromptExit(site: Site, run: Run, label: string, extraMs = 0): voi
   // Default mode once configured is shadow: the result is the heuristic's.
   if (site === 'observe') expect(run.stdout, context).toContain('"source":"keyword"');
   else expect(run.stdout, context).toContain('"verdict":"proceed"');
-  expect(run.ms - baselineMs[site], context).toBeLessThan(DECISION_BUDGET_MS + SLACK_MS + extraMs);
+  expect(run.ms - baselineMs[site], context).toBeLessThan(HANG_CEILING_MS + extraMs);
   const audit = lastAudit();
   expect(audit.site).toBe(SITE_IDS[site]);
   expect(audit.shadow?.acted).toBe('heuristic');
+}
+
+/** The newest decision fell back because its deadline fired, at about the budget. */
+function expectDeadlineFired(): void {
+  const audit = lastAudit();
+  const context = JSON.stringify(audit);
+  expect(audit.fallbackReason, context).toBe('timeout');
+  // Timers never fire early by more than a millisecond; the clock starts
+  // before the deadline is armed.
+  expect(audit.latencyMs, context).toBeGreaterThanOrEqual(DECISION_BUDGET_MS - 5);
+  expect(audit.latencyMs, context).toBeLessThan(TIMEOUT_LATENCY_CEILING_MS);
 }
 
 describe.skipIf(!DIST_AVAILABLE)(
@@ -280,7 +313,7 @@ describe.skipIf(!DIST_AVAILABLE)(
     it.each(SITES)('%s: TLS black hole (accepts, never speaks)', (site) => {
       configure(`https://127.0.0.1:${tlsHolePort}`);
       expectPromptExit(site, runSite(site), 'tls-black-hole');
-      expect(lastAudit().fallbackReason).toBe('timeout');
+      expectDeadlineFired();
     }, 60_000);
 
     it.each(SITES)('%s: unroutable address (SYN goes nowhere)', (site) => {
@@ -336,7 +369,7 @@ describe.skipIf(!DIST_AVAILABLE)(
         }),
         'slow-dns',
       );
-      expect(lastAudit().fallbackReason).toBe('timeout');
+      expectDeadlineFired();
     }, 60_000);
   },
 );
