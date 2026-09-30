@@ -58,6 +58,7 @@ import { classifyTable, isPortableTableClass } from '../table-classification.js'
 import { readSyncFlags, setSyncFlag } from './flags.js';
 import { ensureSyncSchema, hasTable, healSyncSchema } from './schema.js';
 import { CAPTURE_TRIGGER_PREFIX, normalizeSql, suspendClause } from './trigger-classes.js';
+import { raiseMinWriterVersion } from './writer-version.js';
 
 /** How one table is captured. Built from the registries, or by tests. */
 export interface CaptureTableDef {
@@ -655,6 +656,8 @@ export function setCaptureEnabled(
   db.exec('BEGIN IMMEDIATE');
   try {
     setSyncFlag(db, 'sync.capture', on, { schemaRoot: options.schemaRoot });
+    // Ruling (c): a store with capture on requires a framing writer.
+    if (on) raiseMinWriterVersion(db);
     const report = on ? installCaptureTriggers(db, scope) : { dropped: dropCaptureTriggers(db) };
     db.exec('COMMIT');
     if (on) installCaptureStamp(db);

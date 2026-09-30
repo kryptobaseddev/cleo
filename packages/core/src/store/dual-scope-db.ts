@@ -72,6 +72,7 @@ import { applyPerfPragmas } from './sqlite-pragmas.js';
 import { captureBracketHooks, syncCaptureOpenPass } from './sync/capture.js';
 import { prepareRowIdentityUnderCapture } from './sync/identity-fill.js';
 import { ensureTriggerSuspendTable, verifyOwnedTriggers } from './sync/trigger-classes.js';
+import { assertWriterVersion } from './sync/writer-version.js';
 import { explainSchemaWriteDenial, installSchemaWriteGuard } from './worktree-build-guard.js';
 import { assertStorePathIsNotWorktreeResident } from './worktree-isolation-guard.js';
 import {
@@ -550,6 +551,9 @@ function migrateScopeSchema(
   execution?: OperationExecutionContext,
 ): void {
   execution?.assertActive();
+  // S2 ruling (c): before any write, refuse a store that requires a newer
+  // writer (sync capture on under a newer build).
+  assertWriterVersion(nativeDb);
   if (scope === 'project') {
     const step0 = ensureTriggerSuspendTable(nativeDb);
     if (step0.created)

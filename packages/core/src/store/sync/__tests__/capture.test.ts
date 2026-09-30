@@ -16,6 +16,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { syncTriggersDoctorCheck } from '../../../doctor/sync-triggers.js';
+import { getCleoVersion } from '../../../scaffold/ensure-config.js';
 import { createTestDb, seedTasks } from '../../__tests__/test-db-helper.js';
 import { rekeyRowUid } from '../../display-id-alias.js';
 import { _resetDualScopeDbCache, openDualScopeDbAtPath } from '../../dual-scope-db.js';
@@ -48,6 +49,11 @@ import {
   ensureTriggerSuspendTable,
   TRIGGER_SUSPEND_TABLE_DDL,
 } from '../trigger-classes.js';
+import {
+  compareWriterVersions,
+  raiseMinWriterVersion,
+  readMinWriterVersion,
+} from '../writer-version.js';
 
 const SYNC_SCHEMA = resolve(import.meta.dirname, '../../../../migrations/sync-journal');
 
@@ -353,6 +359,24 @@ describe('frames and the stamp (§2.3, N10)', () => {
     db.exec('COMMIT');
     clearCaptureFrame(db, f);
     expect(db.prepare('SELECT count(*) AS n FROM _sync_undo').get()).toEqual({ n: 1 });
+  });
+});
+
+describe('min_writer_version (ruling (c))', () => {
+  it('capture on records this build as the minimum writer; an older writer is refused at open', async () => {
+    const db = await captureOn();
+    expect(readMinWriterVersion(db)).toBe(getCleoVersion());
+    // A newer build raised it: this build may not write the store any more.
+    expect(raiseMinWriterVersion(db, '2099.1.1')).toBe(true);
+    expect(raiseMinWriterVersion(db, '2026.1.1')).toBe(false); // never lowered
+    _resetDualScopeDbCache();
+    await expect(openStore()).rejects.toThrow(/E_STORE_WRITER_TOO_OLD/);
+  });
+
+  it('compares versions by their numeric parts', () => {
+    expect(compareWriterVersions('2026.9.25', '2026.10.1')).toBeLessThan(0);
+    expect(compareWriterVersions('2026.9.25-rc.1', '2026.9.25')).toBe(0);
+    expect(compareWriterVersions('dev', '2026.9.25')).toBeNull();
   });
 });
 
