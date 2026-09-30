@@ -1,5 +1,33 @@
 # Changelog
 
+## [2026.9.26] (2026-09-30)
+
+### Added
+
+- a typed, sealed, owner-only store for Nexus device credentials (nexus-device.json), dormant until the device login lands, and never exported in backup bundles _(provenance: [T12867](https://github.com/kryptobaseddev/cleo/search?q=T12867&type=commits))_
+- behind CLEO_NEXUS_DEVICE=1, `cleo login nexus` enrols this machine as a Nexus device and stores only a scoped device credential, and a 9.24 session is upgraded once, automatically _(provenance: [T12868](https://github.com/kryptobaseddev/cleo/search?q=T12868&type=commits))_
+
+### Fixed
+
+- a task dependency edge that closes a cycle is refused on every write path, with an error that names the cycle; `cleo doctor dep-cycles` reports cycles already stored _(provenance: [T12886](https://github.com/kryptobaseddev/cleo/search?q=T12886&type=commits))_
+- every focus read and write resolves the caller's session through one function, so each terminal-bound session keeps its own focus _(provenance: [T12501](https://github.com/kryptobaseddev/cleo/search?q=T12501&type=commits), [T12731](https://github.com/kryptobaseddev/cleo/search?q=T12731&type=commits))_
+- cleo start/stop from a terminal with no bound session is refused with E_SESSION_UNBOUND instead of writing the shared legacy focus key _(provenance: [T12501](https://github.com/kryptobaseddev/cleo/search?q=T12501&type=commits))_
+- session start conflicts only with a session the calling terminal already owns, so a second terminal starts its own session without --agent _(provenance: [T12530](https://github.com/kryptobaseddev/cleo/search?q=T12530&type=commits))_
+- A row received by sync never carries another row's local key; every reference travels as a uid and fingerprint, and a row whose target is missing waits (row uids, opt-in) _(provenance: [T12798](https://github.com/kryptobaseddev/cleo/search?q=T12798&type=commits))_
+- A display-id re-mint's outcome no longer depends on local-only state, and a guarded write to a re-numbered task fails with E_TASK_RENAMED (row uids, opt-in) _(provenance: [T12800](https://github.com/kryptobaseddev/cleo/search?q=T12800&type=commits))_
+- With row uids on, imports and snapshot restores keep a task's row identity and never stamp an import-time uid; with them off, nothing changes _(provenance: [T12806](https://github.com/kryptobaseddev/cleo/search?q=T12806&type=commits))_
+- cleo done --field <pointer> no longer leaks the output pointer into its internal tasks.complete step, which refused completion after every gate was recorded _(provenance: [T12839](https://github.com/kryptobaseddev/cleo/search?q=T12839&type=commits))_
+- cleo verify validates each pr: atom in one evidence write against its own merge commit, so pr:A;pr:B;files:… no longer fails E_EVIDENCE_INSUFFICIENT _(provenance: [T12848](https://github.com/kryptobaseddev/cleo/search?q=T12848&type=commits))_
+- Every project open restores the row-identity tables and columns a stamped uid migration left out, with row uids on or off; no row value changes _(provenance: [T12878](https://github.com/kryptobaseddev/cleo/search?q=T12878&type=commits))_
+
+### Also in this release (merged; task still open for follow-up criteria)
+
+- Harness identity for sessions: known agent harnesses (claude, codex, aider, gemini, kimi, cursor-agent, amp), GitHub Actions and GitLab jobs, and interactive ssh logins each keep one stable session identity across separate shell calls; generic hosts need `CLEO_AGENT_ID` or `CLEO_SESSION_ID` _(T12864)_
+- Received rows are validated before apply (cycle, depth and type-matrix guards; constraint failures held as `invalid`), held rows are released by trigger, and `cleo doctor` counts held rows by reason (row uids, opt-in) _(T12801)_
+- Row-identity Gate B runs in CI on fixture stores; the recipe no longer depends on AC existence at fill time, and HLC values use the journal format with 9.25-format values still readable (row uids, opt-in) _(T12802)_
+- The TLS black-hole System One test asserts the deadline fired instead of a tight wall-clock bound _(T12840)_
+- System One: `jev/default` benchmarked ahead of layahost on duplicate detection (64% accuracy, 0% false positives) and observation typing at about half the latency; see the `system-one-bench-2026-09-30` research doc
+
 ## [2026.9.25] (2026-09-30)
 
 ### Added

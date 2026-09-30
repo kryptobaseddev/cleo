@@ -1,0 +1,286 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.9.26",
+  "resolvedVersion": "v2026.9.26",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": "T12486",
+  "releaseKind": "regular",
+  "createdAt": "2026-09-30T19:53:12.860Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.9.24",
+  "previousTag": "v2026.9.24",
+  "previousShippedAt": "2026-09-30T01:16:58.131Z",
+  "tasks": [
+    {
+      "id": "T12886",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "No dependency-cycle guard: task depends edges can form cycles (validator inventory §3.6)",
+      "evidenceAtoms": [
+        "pr:1758",
+        "files:.changeset/dependency-cycle-guard.md,packages/cleo/src/cli/commands/__tests__/doctor-dep-cycles.test.ts,packages/cleo/src/cli/commands/doctor-dep-cycles.ts,packages/cleo/src/cli/commands/doctor.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/core/migrations/drizzle-cleo-project/20260930160000_t12886-dependency-cycle-guard/migration.sql,packages/core/migrations/drizzle-cleo-project/20260930160000_t12886-dependency-cycle-guard/revert.sql,packages/core/src/doctor/dependency-cycles.ts,packages/core/src/doctor/index.ts,packages/core/src/store/__tests__/dependency-cycle-guard.test.ts,packages/core/src/store/__tests__/exodus-reconcile.test.ts,packages/core/src/store/__tests__/migration-sqlite.test.ts,packages/core/src/store/__tests__/split-brain-import.test.ts,packages/core/src/store/__tests__/store-fingerprint-gates.test.ts,packages/core/src/store/db-helpers.ts,packages/core/src/store/dependency-cycles.ts,packages/core/src/store/exodus/migrate.ts,packages/core/src/store/migration-sqlite.ts,packages/core/src/store/split-brain-import.ts,packages/core/src/store/tasks-sqlite.ts,packages/core/src/system/__tests__/project-health.test.ts,packages/core/src/system/health.ts,packages/core/src/workgraph/__tests__/scaffold-apply.test.ts,packages/core/src/workgraph/scaffold-apply.ts",
+        "ci:1758"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12867",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "CLI client: nexus-device.json store (0600, withLock + re-check, pending/pendingSignOut/pendingRevoke slots)",
+      "evidenceAtoms": [
+        "pr:1751",
+        "files:.changeset/nexus-device-store.md,packages/core/src/cloud/__tests__/nexus-device.test.ts,packages/core/src/cloud/index.ts,packages/core/src/cloud/nexus-credentials.ts,packages/core/src/cloud/nexus-device.ts,packages/core/src/crypto/__tests__/first-create-race.test.ts,packages/core/src/crypto/credentials.ts,packages/core/src/store/__tests__/portable-bundle-scan-nexus-device.test.ts,packages/core/src/store/global-salt.ts,packages/core/src/store/portable-bundle-scan.ts,packages/paths/src/cleo-paths.ts,packages/paths/src/index.ts",
+        "ci:1751"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12868",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "CLI client: login enrol (steps 5-7) and 9.24 session auto-upgrade behind a flag",
+      "evidenceAtoms": [
+        "pr:1759",
+        "files:.changeset/nexus-login-enrol.md,packages/cleo/src/cli/commands/login.ts,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/core/src/cloud/__tests__/nexus-enrol.test.ts,packages/core/src/cloud/__tests__/nexus-link.test.ts,packages/core/src/cloud/nexus-auth.ts,packages/core/src/cloud/nexus-device.ts,packages/core/src/cloud/nexus-enrol.ts,packages/core/src/cloud/nexus-link.ts,packages/core/src/cloud/signing.ts",
+        "ci:1759"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12501",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "One focus-key rule for reads and writes: cleo start/stop never write the legacy global focus_state key",
+      "evidenceAtoms": [
+        "pr:1749",
+        "files:.changeset/t12501-no-legacy-focus-write.md,packages/core/src/nexus/__tests__/workspace-directive-session-T12501.test.ts,packages/core/src/nexus/workspace.ts,packages/core/src/orchestrate/__tests__/pivot.test.ts,packages/core/src/orchestrate/lifecycle-ops.ts,packages/core/src/orchestrate/pivot.ts,packages/core/src/orchestrate/query-ops.ts,packages/core/src/orchestrate/spawn-ops.ts,packages/core/src/orchestration/index.ts,packages/core/src/orchestration/lead-rollup.ts,packages/core/src/orchestration/parallel.ts,packages/core/src/orchestration/wave-topic.ts,packages/core/src/orchestration/waves.ts,packages/core/src/phases/index.ts,packages/core/src/session/engine-ops.ts,packages/core/src/sessions/__tests__/focus-key-rule-T12501.test.ts,packages/core/src/sessions/__tests__/focus-session-no-store-T12501.test.ts,packages/core/src/sessions/__tests__/focus-session-resolve-errors-T12501.test.ts,packages/core/src/sessions/focus-state-store.ts,packages/core/src/sessions/handoff.ts,packages/core/src/skills/orchestrator/startup.ts,packages/core/src/store/__tests__/test-db-helper.ts,packages/core/src/store/session-store.ts,packages/core/src/task-work/__tests__/start-deps.test.ts,packages/core/src/task-work/__tests__/task-claims.test.ts,packages/core/src/task-work/__tests__/task-work-functions.test.ts,packages/core/src/task-work/index.ts,packages/core/src/tasks/analyze.ts,packages/core/src/tasks/infer-add-params.ts,packages/core/src/tasks/task-context.ts,packages/core/src/tasks/task-next.ts,packages/core/templates/CLEO-INJECTION.md,packages/core/templates/CLEO-REFERENCE.md,packages/skills/skills/_shared/subagent-protocol-base.md,packages/skills/skills/_shared/task-system-integration.md,packages/skills/skills/ct-cleo/SKILL.md,packages/skills/skills/ct-cleo/references/anti-patterns.md,packages/skills/skills/ct-dev-workflow/SKILL.md,packages/skills/skills/ct-documentor/SKILL.md,packages/skills/skills/ct-epic-architect/SKILL.md,packages/skills/skills/ct-lead/SKILL.md,packages/skills/skills/manifest.json",
+        "ci:1749"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12530",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Terminal-aware session start guard + SDK startSession binding: a second terminal may start its own session without --agent",
+      "evidenceAtoms": [
+        "pr:1748",
+        "files:.changeset/t12530-terminal-session-start.md,packages/core/src/session/engine-ops.ts,packages/core/src/sessions/__tests__/per-agent-session.test.ts,packages/core/src/sessions/__tests__/session-edge-cases.test.ts,packages/core/src/sessions/__tests__/session-engine-scope.test.ts,packages/core/src/sessions/__tests__/session-leak-recovery.test.ts,packages/core/src/sessions/__tests__/sessions.test.ts,packages/core/src/sessions/__tests__/terminal-session-start-T12530.test.ts,packages/core/src/sessions/index.ts,packages/core/src/store/session-store.ts",
+        "ci:1748"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12798",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "UID R3-1: every stored ref travels as a uid+fingerprint WireRef; missing refs are held",
+      "evidenceAtoms": [
+        "pr:1753",
+        "files:.changeset/t12798-wire-refs.md,packages/core/src/store/__tests__/display-id-alias.test.ts,packages/core/src/store/display-id-alias.ts,packages/core/src/store/sqlite-data-accessor.ts",
+        "test-run:/private/tmp/claude-501/-Users-keatonhoskins-projects-cleo-nexus/22b74a4a-93ee-452f-b4f5-981bd074dfe1/scratchpad/t12798-test-run.json",
+        "ci:1753"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12800",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "UID R3-4/5: portable re-mint record; renamed-id writes fail typed",
+      "evidenceAtoms": [
+        "pr:1756",
+        "files:.changeset/t12800-portable-remint-record.md,docs/specs/CLEO-TASKS-API-SPEC.md,packages/cleo/src/dispatch/adapters/cli.ts,packages/cleo/src/dispatch/domains/__tests__/orchestrate-pivot-errors.test.ts,packages/cleo/src/dispatch/domains/orchestrate.ts,packages/contracts/src/exit-codes.ts,packages/contracts/src/operations/output-contracts-data.ts,packages/contracts/src/operations/tasks.ts,packages/core/src/__tests__/error-catalog.test.ts,packages/core/src/error-catalog.ts,packages/core/src/error-registry.ts,packages/core/src/store/__tests__/display-id-alias.test.ts,packages/core/src/store/__tests__/row-identity-off.test.ts,packages/core/src/store/display-id-alias.ts,packages/core/src/store/row-identity-registry.ts,packages/core/src/store/sqlite-data-accessor.ts,packages/runtime/src/gateway/engine-error.ts",
+        "test-run:/private/tmp/claude-501/-Users-keatonhoskins-projects-cleo-nexus/22b74a4a-93ee-452f-b4f5-981bd074dfe1/scratchpad/t12800-test-run.json",
+        "ci:1756"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12806",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "UID R3-12: import and restore never mint import-time uids",
+      "evidenceAtoms": [
+        "pr:1752",
+        "files:.changeset/t12806-import-row-identity.md,packages/contracts/src/data-accessor.ts,packages/contracts/src/index.ts,packages/core/src/admin/import-tasks.ts,packages/core/src/admin/import.ts,packages/core/src/snapshot/index.ts,packages/core/src/store/__tests__/row-identity-import.test.ts,packages/core/src/store/db-helpers.ts,packages/core/src/store/row-identity.ts,packages/core/src/store/safety-data-accessor.ts,packages/core/src/store/sqlite-data-accessor.ts,packages/core/src/store/umbrella-data-accessor.ts,packages/core/src/tasks/task-import.ts",
+        "test-run:/private/tmp/claude-501/-Users-keatonhoskins-projects-cleo-nexus/22b74a4a-93ee-452f-b4f5-981bd074dfe1/scratchpad/t12806-test-run.json",
+        "ci:1752"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12839",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo done --field <pointer> is applied to its internal complete step, refusing completion after all gates recorded",
+      "evidenceAtoms": [
+        "pr:1746",
+        "files:.changeset/t12839-done-field-pointer.md,packages/cleo/src/cli/commands/__tests__/done-command.test.ts,packages/cleo/src/cli/commands/done.ts,packages/cleo/src/cli/field-context.ts",
+        "ci:1746"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12848",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo verify: several pr: atoms in one write are checked against the first PR merge commit",
+      "evidenceAtoms": [
+        "pr:1747",
+        "files:.changeset/t12848-multi-pr-evidence.md,packages/contracts/src/index.ts,packages/contracts/src/task.ts,packages/core/src/tasks/__tests__/evidence-multi-pr-T12848.test.ts,packages/core/src/tasks/evidence.ts,packages/core/src/validation/engine-ops.ts",
+        "ci:1747"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12878",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Row identity: run the identity schema heal on every open, flag or not (9.25 stamped-migration stores)",
+      "evidenceAtoms": [
+        "pr:1754",
+        "files:.changeset/t12878-row-identity-heal.md,packages/core/src/doctor/row-identity.ts,packages/core/src/store/__tests__/row-identity-heal.test.ts,packages/core/src/store/dual-scope-db.ts,packages/core/src/store/row-identity.ts",
+        "test-run:/private/tmp/claude-501/-Users-keatonhoskins-projects-cleo-nexus/22b74a4a-93ee-452f-b4f5-981bd074dfe1/scratchpad/t12878-test-run.json",
+        "ci:1754"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    }
+  ],
+  "changelog": {
+    "features": [
+      "T12886",
+      "T12867",
+      "T12868",
+      "T12530",
+      "T12798",
+      "T12800",
+      "T12806",
+      "T12839",
+      "T12848",
+      "T12878"
+    ],
+    "fixes": [
+      "T12501"
+    ],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-30T19:53:12.860Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-30T19:53:12.860Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-30T19:53:12.860Z",
+      "resolvedCommand": "pnpm run lint",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-30T19:53:12.860Z",
+      "resolvedCommand": "pnpm run typecheck",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-30T19:53:12.860Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-30T19:53:12.860Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 457 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.9.26 — 2026-09-30\n\n### Added\n\n- a typed, sealed, owner-only store for Nexus device credentials (nexus-device.json), dormant until the device login lands, and never exported in backup bundles _(provenance: [T12867](https://github.com/kryptobaseddev/cleo/search?q=T12867&type=commits))_\n- behind CLEO_NEXUS_DEVICE=1, `cleo login nexus` enrols this machine as a Nexus device and stores only a scoped device credential, and a 9.24 session is upgraded once, automatically _(provenance: [T12868](https://github.com/kryptobaseddev/cleo/search?q=T12868&type=commits))_\n\n### Fixed\n\n- a task dependency edge that closes a cycle is refused on every write path, with an error that names the cycle; `cleo doctor dep-cycles` reports cycles already stored _(provenance: [T12886](https://github.com/kryptobaseddev/cleo/search?q=T12886&type=commits))_\n- every focus read and write resolves the caller's session through one function, so each terminal-bound session keeps its own focus _(provenance: [T12501](https://github.com/kryptobaseddev/cleo/search?q=T12501&type=commits), [T12731](https://github.com/kryptobaseddev/cleo/search?q=T12731&type=commits))_\n- cleo start/stop from a terminal with no bound session is refused with E_SESSION_UNBOUND instead of writing the shared legacy focus key _(provenance: [T12501](https://github.com/kryptobaseddev/cleo/search?q=T12501&type=commits))_\n- session start conflicts only with a session the calling terminal already owns, so a second terminal starts its own session without --agent _(provenance: [T12530](https://github.com/kryptobaseddev/cleo/search?q=T12530&type=commits))_\n- A row received by sync never carries another row's local key; every reference travels as a uid and fingerprint, and a row whose target is missing waits (row uids, opt-in) _(provenance: [T12798](https://github.com/kryptobaseddev/cleo/search?q=T12798&type=commits))_\n- A display-id re-mint's outcome no longer depends on local-only state, and a guarded write to a re-numbered task fails with E_TASK_RENAMED (row uids, opt-in) _(provenance: [T12800](https://github.com/kryptobaseddev/cleo/search?q=T12800&type=commits))_\n- With row uids on, imports and snapshot restores keep a task's row identity and never stamp an import-time uid; with them off, nothing changes _(provenance: [T12806](https://github.com/kryptobaseddev/cleo/search?q=T12806&type=commits))_\n- cleo done --field <pointer> no longer leaks the output pointer into its internal tasks.complete step, which refused completion after every gate was recorded _(provenance: [T12839](https://github.com/kryptobaseddev/cleo/search?q=T12839&type=commits))_\n- cleo verify validates each pr: atom in one evidence write against its own merge commit, so pr:A;pr:B;files:… no longer fails E_EVIDENCE_INSUFFICIENT _(provenance: [T12848](https://github.com/kryptobaseddev/cleo/search?q=T12848&type=commits))_\n- Every project open restores the row-identity tables and columns a stamped uid migration left out, with row uids on or off; no row value changes _(provenance: [T12878](https://github.com/kryptobaseddev/cleo/search?q=T12878&type=commits))_\n",
+    "changesetEntryCount": 12,
+    "changesetIds": [
+      "dependency-cycle-guard",
+      "nexus-device-store",
+      "nexus-login-enrol",
+      "one-focus-key-rule",
+      "t12501-no-legacy-focus-write",
+      "t12530-terminal-session-start",
+      "t12798-wire-refs",
+      "t12800-portable-remint-record",
+      "t12806-import-row-identity",
+      "t12839-done-field-pointer",
+      "t12848-multi-pr-evidence",
+      "t12878-row-identity-heal"
+    ],
+    "taskIds": [
+      "T12886",
+      "T12867",
+      "T12868",
+      "T12501",
+      "T12530",
+      "T12798",
+      "T12800",
+      "T12806",
+      "T12839",
+      "T12848",
+      "T12878"
+    ]
+  }
+}
