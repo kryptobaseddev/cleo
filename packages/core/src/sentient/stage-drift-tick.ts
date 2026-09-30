@@ -445,11 +445,8 @@ export async function runStageDriftScan(options: StageDriftOptions): Promise<Sta
         // T11356: keep the task_labels junction in sync so Tier-2 membership
         // filters (now junction joins, not labels_json LIKE) see this proposal.
         if (db) {
-          const labelStmt = db.prepare(
-            'INSERT OR IGNORE INTO tasks_task_labels (task_id, label) VALUES (?, ?)',
-          );
-          labelStmt.run(taskId, 'sentient-tier2');
-          labelStmt.run(taskId, DRIFT_SOURCE_LABEL);
+          const { addTaskLabelsNative } = await import('../store/sqlite-data-accessor.js');
+          addTaskLabelsNative(db, taskId, ['sentient-tier2', DRIFT_SOURCE_LABEL]);
         }
       } else if (result.reason === 'rate-limit') {
         break;

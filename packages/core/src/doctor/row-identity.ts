@@ -23,6 +23,7 @@ import {
   rowIdentityFindings,
   UID_COLUMN,
 } from '../store/row-identity.js';
+import { ROW_UID_FILL_FLAG, rowUidFillEnabled } from '../store/row-identity-flag.js';
 
 /** One row of the default `cleo doctor` report (the `DoctorCheck` shape). */
 export interface RowIdentityDoctorCheck {
@@ -41,6 +42,13 @@ export interface RowIdentityDoctorCheck {
  * @task T12341
  */
 export function rowIdentityDoctorCheck(projectRoot: string): RowIdentityDoctorCheck {
+  if (!rowUidFillEnabled()) {
+    return {
+      check: 'row_identity',
+      status: 'ok',
+      message: `row uids are off (set ${ROW_UID_FILL_FLAG}=1 to enable them)`,
+    };
+  }
   const dbPath = resolveDualScopeDbPath('project', projectRoot);
   if (!existsSync(dbPath)) {
     return { check: 'row_identity', status: 'ok', message: 'no project store yet' };

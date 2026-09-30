@@ -82,7 +82,7 @@ import {
   unique,
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core';
-import { uuidv7 } from '../../../cloud/uuidv7.js';
+import { defaultRowUid } from '../../row-identity-flag.js';
 import { SESSION_STATUSES, TASK_STATUSES } from '../../status-registry.js';
 import {
   ACCEPTANCE_PROJECTION_DIRTY_REASONS,
@@ -208,7 +208,7 @@ export const tasksTasks = sqliteTable(
      * written without one gets a deterministic uid at the next open
      * (`store/row-identity.ts`). Never updated once set.
      */
-    uid: text('uid').$defaultFn(uuidv7),
+    uid: text('uid').$defaultFn(defaultRowUid),
     /** Birth fingerprint (T12341): creation facts hashed once with the uid; never updated. */
     birthFp: text('birth_fp'),
   },
@@ -273,7 +273,7 @@ export const tasksTaskAcceptanceCriteria = sqliteTable(
      * Row uid (T12341). Unlike `id`, which is derived from the text, it stays
      * with the criterion across edits, so evidence bindings follow it.
      */
-    uid: text('uid').$defaultFn(uuidv7),
+    uid: text('uid').$defaultFn(defaultRowUid),
     /** Birth fingerprint (T12341): creation facts hashed once with the uid; never updated. */
     birthFp: text('birth_fp'),
   },
@@ -523,7 +523,7 @@ export const tasksSessions = sqliteTable(
      * written without one gets a deterministic uid at the next open
      * (`store/row-identity.ts`). Never updated once set.
      */
-    uid: text('uid').$defaultFn(uuidv7),
+    uid: text('uid').$defaultFn(defaultRowUid),
     /** Birth fingerprint (T12341): creation facts hashed once with the uid; never updated. */
     birthFp: text('birth_fp'),
   },
@@ -618,7 +618,7 @@ export const tasksTaskAcceptanceCriteriaHistory = sqliteTable(
      * written without one gets a deterministic uid at the next open
      * (`store/row-identity.ts`). Never updated once set.
      */
-    uid: text('uid').$defaultFn(uuidv7),
+    uid: text('uid').$defaultFn(defaultRowUid),
     /** Birth fingerprint (T12341): creation facts hashed once with the uid; never updated. */
     birthFp: text('birth_fp'),
     /** Uid of the criterion this row records (T12341); stays joined across edits. */

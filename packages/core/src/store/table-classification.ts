@@ -967,6 +967,12 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'cleo-dev ruling 2026-09-28 (round 2)',
     note: 'per-agent goal state (turn budget, verdict); an agent resuming on another device needs it. No bare `goal` twin exists',
   },
+  tasks_identity_quarantine: {
+    class: 'local-only',
+    status: 'resolved',
+    source: 'T12341 (row uids; spec t12341-uid-scheme §6.4)',
+    note: 'staging for incoming rows a merge cannot place yet (uid or display-id collision awaiting its authority, or a reference awaiting one); re-pulled from sync if lost',
+  },
   tasks_lifecycle_evidence: {
     class: 'portable-project',
     status: 'draft',

@@ -1422,6 +1422,7 @@
     ],
     "tasks_ac_uid_graveyard": [
       "ac_id",
+      "birth_fp",
       "deleted_at",
       "ordinal",
       "seq",
@@ -1590,6 +1591,7 @@
       "created_at",
       "displaced_hlc",
       "display_id",
+      "entity_birth_fp",
       "entity_table",
       "entity_uid",
       "origin",
@@ -1645,6 +1647,16 @@
       "turn_budget",
       "turns_used",
       "updated_at"
+    ],
+    "tasks_identity_quarantine": [
+      "birth_fp",
+      "contested_id",
+      "created_at",
+      "entity_table",
+      "reason",
+      "received_hlc",
+      "row_json",
+      "uid"
     ],
     "tasks_lifecycle_evidence": [
       "description",

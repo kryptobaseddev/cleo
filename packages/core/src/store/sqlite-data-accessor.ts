@@ -13,7 +13,7 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { resolve } from 'node:path';
-import type { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 import {
   ARCHIVE_REASON_TOMBSTONE,
   type ArchiveReasonValue,
@@ -73,6 +73,7 @@ import {
   upsertSession,
   upsertTask,
 } from './db-helpers.js';
+import { registerRowIdentityWriters } from './row-identity.js';
 import { tasksAuditLog } from './schema/cleo-project/audit.js';
 import { resolveCurrentSession } from './session-store.js';
 import { closeDb, getDb, getNativeTasksDb } from './sqlite.js';
@@ -277,6 +278,540 @@ export function advanceTaskIdSequence(nativeDb: DatabaseSync, floor: number): nu
     `)
     .get() as { counter: number } | undefined;
   return row?.counter;
+}
+
+// ---- Row identity writes (T12341) -------------------------------------------
+//
+// The literal-table writes of the row-identity layer (display-id re-mints,
+// alias and uid-alias rows, the identity quarantine, the AC uid graveyard, the
+// recipe marker) live here, in the tasks chokepoint, so they are enumerable
+// (gate 28) and a display-id re-mint moves the task VERSION like every other
+// task write (T12503 --if-match) and keeps its claim columns (T12502).
+
+/** A local column that holds a task's display id (from store/display-id-alias.ts). */
+export interface TaskReferenceColumn {
+  readonly table: string;
+  readonly column: string;
+  readonly jsonArray: boolean;
+}
+
+/**
+ * Give the task with `uid` the display id `toId`: a compare-and-set on the
+ * stored version AND claim lease that advances the version (so a stale
+ * `--if-match` writer fails, #1698), with the claim columns carried unchanged
+ * (#1701), then every local reference rewritten. Runs in the caller's
+ * transaction with foreign keys deferred to its commit.
+ *
+ * A collision re-mint is a system write: it passes no claim guard and never
+ * takes or drops a lease, but the version bump makes the lease holder's next
+ * guarded write re-read. A caller acting for a session (a manual rename)
+ * passes `guard`: `expectedUpdatedAt` fails with `E_CONFLICT` when the task
+ * moved on, `claim` fails with `E_TASK_CLAIMED` when another session holds it.
+ *
+ * @param nativeDb - The project `cleo.db` handle holding the transaction.
+ * @param uid - Uid of the task to rename.
+ * @param toId - Its new display id.
+ * @param refs - Columns that hold task display ids.
+ * @param guard - Optional version / claim guard.
+ * @returns The id it had and the rows rewritten per `table.column`.
+ * @task T12341
+ * @task T12748
+ */
+export function renameTaskDisplayIdNative(
+  nativeDb: DatabaseSync,
+  uid: string,
+  toId: string,
+  refs: readonly TaskReferenceColumn[],
+  guard: { readonly expectedUpdatedAt?: string; readonly claim?: TaskClaimGuard } = {},
+): { fromId: string; rewritten: Record<string, number> } {
+  const current = nativeDb
+    .prepare(
+      `SELECT id, updated_at AS updatedAt, created_at AS createdAt,
+              claimed_by_session AS claimedBySession, claimed_by_agent AS claimedByAgent,
+              claimed_at AS claimedAt, lease_expires_at AS leaseExpiresAt
+         FROM tasks_tasks WHERE uid = ?`,
+    )
+    .get(uid) as
+    | ({ id: string; updatedAt: string | null; createdAt: string | null } & TaskClaimColumns)
+    | undefined;
+  if (!current) throw new Error(`No task with uid ${uid}`);
+  if (guard.expectedUpdatedAt !== undefined && guard.expectedUpdatedAt !== taskVersion(current)) {
+    throw taskConflictError(current.id, guard.expectedUpdatedAt, current);
+  }
+  if (guard.claim) assertClaimAllowed(current.id, current, guard.claim, []);
+  nativeDb.exec('PRAGMA defer_foreign_keys = ON');
+  const changed = nativeDb
+    .prepare(
+      `UPDATE tasks_tasks SET id = ?, updated_at = ?
+        WHERE uid = ? AND id = ? AND updated_at IS ? AND claimed_by_session IS ?
+          AND lease_expires_at IS ?`,
+    )
+    .run(
+      toId,
+      nextTaskVersion(current),
+      uid,
+      current.id,
+      current.updatedAt,
+      current.claimedBySession,
+      current.leaseExpiresAt,
+    ).changes;
+  if (Number(changed) !== 1) {
+    throw taskConflictError(current.id, taskVersion(current), null);
+  }
+  const rewritten: Record<string, number> = {};
+  const q = (name: string) => `"${name.replaceAll('"', '""')}"`;
+  for (const ref of refs) {
+    const table = `main.${q(ref.table)}`;
+    const col = q(ref.column);
+    const n = ref.jsonArray
+      ? nativeDb
+          .prepare(
+            `UPDATE ${table} SET ${col} = (
+               SELECT json_group_array(CASE WHEN j.value = ? THEN ? ELSE j.value END)
+                 FROM json_each(${table}.${col}) j)
+             WHERE json_valid(${col}) AND EXISTS (
+               SELECT 1 FROM json_each(${table}.${col}) j WHERE j.value = ?)`,
+          )
+          .run(current.id, toId, current.id).changes
+      : nativeDb.prepare(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`).run(toId, current.id)
+          .changes;
+    if (Number(n) > 0) rewritten[`${ref.table}.${ref.column}`] = Number(n);
+  }
+  return { fromId: current.id, rewritten };
+}
+
+/** One row of `tasks_display_id_aliases`. */
+export interface DisplayIdAliasRow {
+  readonly uid: string;
+  readonly entityTable: string;
+  readonly displayId: string;
+  readonly entityUid: string;
+  readonly reason: string;
+  readonly origin: string | null;
+  readonly displacedHlc: string | null;
+  readonly createdAt: string;
+  /** Birth fingerprint of the entity, so a uid collision cannot confuse two rows. */
+  readonly entityBirthFp: string | null;
+}
+
+/**
+ * Insert a display-id alias row (idempotent on its uid).
+ *
+ * @param nativeDb - The project `cleo.db` handle.
+ * @param row - The alias.
+ * @task T12341
+ */
+export function insertDisplayIdAliasNative(nativeDb: DatabaseSync, row: DisplayIdAliasRow): void {
+  nativeDb
+    .prepare(
+      `INSERT OR IGNORE INTO tasks_display_id_aliases
+         (uid, entity_table, display_id, entity_uid, reason, origin, displaced_hlc, created_at,
+          entity_birth_fp)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      row.uid,
+      row.entityTable,
+      row.displayId,
+      row.entityUid,
+      row.reason,
+      row.origin,
+      row.displacedHlc,
+      row.createdAt,
+      row.entityBirthFp,
+    );
+}
+
+/**
+ * Delete one display-id alias row (a local alias whose entity was re-keyed is
+ * re-inserted under its new entity uid by the caller).
+ *
+ * @param nativeDb - The project `cleo.db` handle.
+ * @param uid - The alias row's uid.
+ * @task T12341
+ */
+export function deleteDisplayIdAliasNative(nativeDb: DatabaseSync, uid: string): void {
+  nativeDb.prepare('DELETE FROM tasks_display_id_aliases WHERE uid = ?').run(uid);
+}
+
+/** One row of `tasks_uid_aliases`. */
+export interface UidAliasRow {
+  readonly uid: string;
+  readonly entityTable: string;
+  readonly oldUid: string;
+  readonly oldBirthFp: string;
+  readonly newUid: string;
+  readonly origin: string | null;
+  readonly displacedHlc: string | null;
+  readonly createdAt: string;
+}
+
+/**
+ * Insert a uid re-key alias row (idempotent on its uid).
+ *
+ * @param nativeDb - The project `cleo.db` handle.
+ * @param row - The alias.
+ * @task T12341
+ */
+export function insertUidAliasNative(nativeDb: DatabaseSync, row: UidAliasRow): void {
+  nativeDb
+    .prepare(
+      `INSERT OR IGNORE INTO tasks_uid_aliases
+         (uid, entity_table, old_uid, old_birth_fp, new_uid, origin, displaced_hlc, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      row.uid,
+      row.entityTable,
+      row.oldUid,
+      row.oldBirthFp,
+      row.newUid,
+      row.origin,
+      row.displacedHlc,
+      row.createdAt,
+    );
+}
+
+/** One row of `tasks_identity_quarantine`. */
+export interface QuarantineRow {
+  readonly entityTable: string;
+  readonly uid: string;
+  readonly birthFp: string;
+  readonly reason: 'uid-collision' | 'display-id-collision' | 'key-collision' | 'ref-pending';
+  readonly contestedId: string | null;
+  readonly rowJson: string;
+  readonly receivedHlc: string | null;
+  readonly createdAt: string;
+}
+
+/**
+ * Hold an incoming row the merge cannot place yet (replacing an older hold of
+ * the same row).
+ *
+ * @param nativeDb - The project `cleo.db` handle.
+ * @param row - The held row.
+ * @task T12341
+ */
+export function insertQuarantineNative(nativeDb: DatabaseSync, row: QuarantineRow): void {
+  nativeDb
+    .prepare(
+      `INSERT OR REPLACE INTO tasks_identity_quarantine
+         (entity_table, uid, birth_fp, reason, contested_id, row_json, received_hlc, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      row.entityTable,
+      row.uid,
+      row.birthFp,
+      row.reason,
+      row.contestedId,
+      row.rowJson,
+      row.receivedHlc,
+      row.createdAt,
+    );
+}
+
+/**
+ * Drop a held row (released or superseded).
+ *
+ * @param nativeDb - The project `cleo.db` handle.
+ * @param key - The held row's table, uid and birth fingerprint.
+ * @task T12341
+ */
+export function deleteQuarantineNative(
+  nativeDb: DatabaseSync,
+  key: { readonly entityTable: string; readonly uid: string; readonly birthFp: string },
+): void {
+  nativeDb
+    .prepare(
+      'DELETE FROM tasks_identity_quarantine WHERE entity_table = ? AND uid = ? AND birth_fp = ?',
+    )
+    .run(key.entityTable, key.uid, key.birthFp);
+}
+
+/**
+ * Write a row-identity meta value (the recipe marker, a re-mint record).
+ *
+ * @param nativeDb - The project `cleo.db` handle.
+ * @param key - Meta key.
+ * @param value - Meta value.
+ * @task T12341
+ */
+export function writeRowIdentityMetaNative(
+  nativeDb: DatabaseSync,
+  key: string,
+  value: string,
+): void {
+  nativeDb
+    .prepare(
+      `INSERT INTO tasks_row_identity_meta (key, value) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    )
+    .run(key, value);
+}
+
+/**
+ * Hand a criterion back the uid its deleted predecessor carried (AC uid
+ * graveyard re-link, spec §6.5), with that predecessor's birth fingerprint.
+ *
+ * @param nativeDb - The project `cleo.db` handle.
+ * @param acId - The criterion to re-link (its uid is NULL).
+ * @param uid - The uid to hand back.
+ * @param birthFp - The fingerprint that goes with it, when recorded.
+ * @returns Rows changed (0 or 1).
+ * @task T12341
+ */
+export function relinkAcUidNative(
+  nativeDb: DatabaseSync,
+  acId: string,
+  uid: string,
+  birthFp: string | null,
+): number {
+  return Number(
+    nativeDb
+      .prepare(
+        'UPDATE tasks_task_acceptance_criteria SET uid = ?, birth_fp = COALESCE(?, birth_fp) WHERE id = ? AND uid IS NULL',
+      )
+      .run(uid, birthFp, acId).changes,
+  );
+}
+
+/**
+ * Empty the AC uid graveyard (after the open pass consumed it).
+ *
+ * @param nativeDb - The project `cleo.db` handle.
+ * @task T12341
+ */
+export function clearAcUidGraveyardNative(nativeDb: DatabaseSync): void {
+  nativeDb.exec('DELETE FROM tasks_ac_uid_graveyard');
+}
+
+/** Quote an identifier for the dynamic row-identity writes below. */
+function quoteIdent(name: string): string {
+  return `"${name.replaceAll('"', '""')}"`;
+}
+
+/**
+ * Fill a NULL identity column (`uid`, `birth_fp`, a stored reference uid) of a
+ * declared table from its recipe SQL (the row-uid open pass, spec §6.1).
+ *
+ * @param nativeDb - The `cleo.db` handle holding the cold-open lease.
+ * @param table - Declared table.
+ * @param column - Identity column.
+ * @param valueSql - Recipe expression over `main."<table>"` columns.
+ * @param rowid - One row only (the clash fallback); all NULL rows otherwise.
+ * @returns Rows written.
+ * @task T12341
+ */
+export function fillIdentityColumnNative(
+  nativeDb: DatabaseSync,
+  table: string,
+  column: string,
+  valueSql: string,
+  rowid?: number,
+): number {
+  const col = quoteIdent(column);
+  const sql = `UPDATE main.${quoteIdent(table)} SET ${col} = ${valueSql} WHERE ${col} IS NULL`;
+  const changes =
+    rowid === undefined
+      ? nativeDb.prepare(sql).run().changes
+      : nativeDb.prepare(`${sql} AND rowid = ?`).run(rowid).changes;
+  return Number(changes);
+}
+
+/**
+ * Clear one pre-release birth fingerprint so the fill re-derives it (spec §12.1).
+ *
+ * @param nativeDb - The `cleo.db` handle holding the cold-open lease.
+ * @param table - Declared minted table.
+ * @param rowid - The row.
+ * @task T12341
+ */
+export function clearBirthFpNative(nativeDb: DatabaseSync, table: string, rowid: number): void {
+  nativeDb
+    .prepare(`UPDATE main.${quoteIdent(table)} SET birth_fp = NULL WHERE rowid = ?`)
+    .run(rowid);
+}
+
+/**
+ * Insert one row into a declared identity table, with the columns the row
+ * carries that the table has (a row released from the identity quarantine).
+ *
+ * @param nativeDb - The project `cleo.db` handle.
+ * @param table - Declared table.
+ * @param row - Column → value.
+ * @task T12341
+ */
+export function insertIdentityRowNative(
+  nativeDb: DatabaseSync,
+  table: string,
+  row: Readonly<Record<string, SQLInputValue>>,
+): void {
+  const have = new Set(
+    (
+      nativeDb.prepare('SELECT name FROM pragma_table_info(?)').all(table) as { name: string }[]
+    ).map((c) => c.name),
+  );
+  const cols = Object.keys(row).filter((c) => have.has(c));
+  nativeDb
+    .prepare(
+      `INSERT INTO main.${quoteIdent(table)} (${cols.map(quoteIdent).join(', ')}) VALUES (${cols
+        .map(() => '?')
+        .join(', ')})`,
+    )
+    .run(...cols.map((c) => row[c] ?? null));
+}
+
+/**
+ * Give the row of `table` identified by (`oldUid`, `birthFp`) the uid
+ * `newUid` (a uid re-key; the birth fingerprint never changes).
+ *
+ * @param nativeDb - The project `cleo.db` handle.
+ * @param table - Declared minted table.
+ * @param oldUid - The colliding uid.
+ * @param birthFp - The row's birth fingerprint.
+ * @param newUid - Its new uid.
+ * @returns Rows changed (0 or 1).
+ * @task T12341
+ */
+export function setRowUidNative(
+  nativeDb: DatabaseSync,
+  table: string,
+  oldUid: string,
+  birthFp: string,
+  newUid: string,
+): number {
+  return Number(
+    nativeDb
+      .prepare(`UPDATE main.${quoteIdent(table)} SET uid = ? WHERE uid = ? AND birth_fp = ?`)
+      .run(newUid, oldUid, birthFp).changes,
+  );
+}
+
+/**
+ * Point a stored reference uid column (`ac_uid`) of the rows that reference
+ * the re-keyed row by key at its new uid. Scoped by the key column, so a row
+ * referencing the OTHER holder of a colliding uid is never touched.
+ *
+ * @param nativeDb - The project `cleo.db` handle.
+ * @param table - Table holding the column.
+ * @param column - The stored reference uid column.
+ * @param fromColumn - The column that references the row by key (`ac_id`).
+ * @param key - The re-keyed row's local key.
+ * @param oldUid - Old referenced uid.
+ * @param newUid - New referenced uid.
+ * @returns Rows changed.
+ * @task T12341
+ */
+export function rewriteStoredRefUidNative(
+  nativeDb: DatabaseSync,
+  table: string,
+  column: string,
+  fromColumn: string,
+  key: string,
+  oldUid: string,
+  newUid: string,
+): number {
+  const col = quoteIdent(column);
+  return Number(
+    nativeDb
+      .prepare(
+        `UPDATE main.${quoteIdent(table)} SET ${col} = ? WHERE ${col} = ? AND ${quoteIdent(fromColumn)} = ?`,
+      )
+      .run(newUid, oldUid, key).changes,
+  );
+}
+
+/**
+ * Clear one row's uid so the natural recipe re-derives it (a uid re-key
+ * changed an endpoint's uid).
+ *
+ * @param nativeDb - The project `cleo.db` handle.
+ * @param table - Declared natural table.
+ * @param rowid - The row.
+ * @task T12341
+ */
+export function clearRowUidNative(nativeDb: DatabaseSync, table: string, rowid: number): void {
+  nativeDb.prepare(`UPDATE main.${quoteIdent(table)} SET uid = NULL WHERE rowid = ?`).run(rowid);
+}
+
+/**
+ * Delete a row-identity meta value (a re-mint record that moved with a re-key).
+ *
+ * @param nativeDb - The project `cleo.db` handle.
+ * @param key - Meta key.
+ * @task T12341
+ */
+export function deleteRowIdentityMetaNative(nativeDb: DatabaseSync, key: string): void {
+  nativeDb.prepare('DELETE FROM tasks_row_identity_meta WHERE key = ?').run(key);
+}
+
+/**
+ * Set a natural row's uid by its current uid (a re-key re-derives the natural
+ * uids keyed by the re-keyed row; a receiver applies the published values).
+ *
+ * @param nativeDb - The project `cleo.db` handle.
+ * @param table - Declared natural table.
+ * @param oldUid - Current uid.
+ * @param newUid - New uid.
+ * @returns Rows changed.
+ * @task T12341
+ */
+export function setNaturalUidNative(
+  nativeDb: DatabaseSync,
+  table: string,
+  oldUid: string,
+  newUid: string,
+): number {
+  return Number(
+    nativeDb
+      .prepare(`UPDATE main.${quoteIdent(table)} SET uid = ? WHERE uid = ?`)
+      .run(newUid, oldUid).changes,
+  );
+}
+
+/**
+ * Rewrite a held row (identity quarantine) under a new uid: a uid re-key of a
+ * row this replica holds but has not placed.
+ *
+ * @param nativeDb - The project `cleo.db` handle.
+ * @param key - The held row's table, uid and birth fingerprint.
+ * @param newUid - Its new uid.
+ * @param rowJson - Its wire form with the new uid.
+ * @task T12341
+ */
+export function rekeyQuarantineNative(
+  nativeDb: DatabaseSync,
+  key: { readonly entityTable: string; readonly uid: string; readonly birthFp: string },
+  newUid: string,
+  rowJson: string,
+): void {
+  nativeDb
+    .prepare(
+      `UPDATE tasks_identity_quarantine SET uid = ?, row_json = ?
+        WHERE entity_table = ? AND uid = ? AND birth_fp = ?`,
+    )
+    .run(newUid, rowJson, key.entityTable, key.uid, key.birthFp);
+}
+
+/**
+ * Add labels to a task's label junction (idempotent), for writers that
+ * insert a task with raw SQL (the sentient proposal ticks).
+ *
+ * @param nativeDb - The project `cleo.db` handle.
+ * @param taskId - The task.
+ * @param labels - Labels to add.
+ * @task T12341
+ */
+export function addTaskLabelsNative(
+  nativeDb: DatabaseSync,
+  taskId: string,
+  labels: readonly string[],
+): void {
+  const stmt = nativeDb.prepare(
+    'INSERT OR IGNORE INTO tasks_task_labels (task_id, label) VALUES (?, ?)',
+  );
+  for (const label of labels) stmt.run(taskId, label);
 }
 
 // One queue per shared native handle, independent of accessor identity. These
@@ -833,6 +1368,7 @@ async function createOwnedSqliteDataAccessor(
           updatedAt: schema.taskAcceptanceCriteria.updatedAt,
           contentHash: schema.taskAcceptanceCriteria.contentHash,
           uid: schema.taskAcceptanceCriteria.uid,
+          birthFp: schema.taskAcceptanceCriteria.birthFp,
         })
         .from(schema.taskAcceptanceCriteria)
         .where(eq(schema.taskAcceptanceCriteria.taskId, taskId))
@@ -851,6 +1387,7 @@ async function createOwnedSqliteDataAccessor(
         updatedAt: r.updatedAt ?? null,
         contentHash: r.contentHash ?? null,
         uid: r.uid ?? null,
+        birthFp: r.birthFp ?? null,
       }));
     },
 
@@ -1635,6 +2172,7 @@ async function createOwnedSqliteDataAccessor(
                     projection?: string;
                     contentHash?: string | null;
                     uid?: string | null;
+                    birthFp?: string | null;
                   }>,
                 ): Promise<void> {
                   scope.assertActive();
@@ -1656,6 +2194,7 @@ async function createOwnedSqliteDataAccessor(
                           contentHash: r.contentHash ?? null,
                           // A kept criterion keeps its uid (T12341); else one is minted.
                           ...(r.uid ? { uid: r.uid } : {}),
+                          ...(r.uid && r.birthFp ? { birthFp: r.birthFp } : {}),
                         })),
                       )
                       .run();
@@ -1677,6 +2216,7 @@ async function createOwnedSqliteDataAccessor(
                       updatedAt: schema.taskAcceptanceCriteria.updatedAt,
                       contentHash: schema.taskAcceptanceCriteria.contentHash,
                       uid: schema.taskAcceptanceCriteria.uid,
+                      birthFp: schema.taskAcceptanceCriteria.birthFp,
                     })
                     .from(schema.taskAcceptanceCriteria)
                     .where(eq(schema.taskAcceptanceCriteria.taskId, taskId))
@@ -1695,6 +2235,7 @@ async function createOwnedSqliteDataAccessor(
                     updatedAt: r.updatedAt ?? null,
                     contentHash: r.contentHash ?? null,
                     uid: r.uid ?? null,
+                    birthFp: r.birthFp ?? null,
                   }));
                 },
                 async deleteAcRowsForTask(taskId: string): Promise<void> {
@@ -1991,3 +2532,12 @@ async function createOwnedSqliteDataAccessor(
 
   return accessor;
 }
+
+// T12341: the row-identity open pass writes through these chokepoint helpers.
+registerRowIdentityWriters({
+  relinkAcUidNative,
+  clearAcUidGraveyardNative,
+  writeRowIdentityMetaNative,
+  fillIdentityColumnNative,
+  clearBirthFpNative,
+});

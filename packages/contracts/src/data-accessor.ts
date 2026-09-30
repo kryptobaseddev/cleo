@@ -199,6 +199,8 @@ export interface AcRow {
    * it; absent from accessors that predate it.
    */
   uid?: string | null;
+  /** Birth fingerprint (T12341): write-once, carried with the uid across edits. */
+  birthFp?: string | null;
 }
 
 /** Machine-readable AC child-projection drift codes for doctor/audit output. */
@@ -515,6 +517,8 @@ export interface TransactionAccessor {
       contentHash?: string | null;
       /** Row uid to keep (T12341); omitted → a new uid is minted. */
       uid?: string | null;
+      /** Birth fingerprint to keep with the uid (T12341). */
+      birthFp?: string | null;
     }>,
   ): Promise<void>;
   /**

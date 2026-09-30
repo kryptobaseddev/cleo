@@ -64,7 +64,23 @@ export type AcInsertRow = {
   contentHash?: string | null;
   /** Row uid to keep (T12341); omitted → the writer mints a new one. */
   uid?: string | null;
+  /** Birth fingerprint to keep with the uid (T12341): write-once, never re-derived. */
+  birthFp?: string | null;
 };
+
+/**
+ * The identity a re-inserted criterion keeps (T12341): its uid AND its birth
+ * fingerprint. The fingerprint is write-once; dropping it on a delete-and-
+ * reinsert would let the fill re-derive it from the NEW text, and every edit
+ * would then sync as a uid collision.
+ */
+function carriedIdentity(row: Pick<AcRow, 'uid' | 'birthFp'> | undefined): {
+  uid?: string;
+  birthFp?: string;
+} {
+  if (!row?.uid) return {};
+  return { uid: row.uid, ...(row.birthFp ? { birthFp: row.birthFp } : {}) };
+}
 
 type AcCriterionKind = NonNullable<AcInsertRow['kind']>;
 
@@ -280,7 +296,7 @@ function acRowToInsertRow(row: AcRow): AcInsertRow {
     targetTaskId: row.targetTaskId,
     projection: row.projection,
     contentHash: row.contentHash,
-    ...(row.uid ? { uid: row.uid } : {}),
+    ...carriedIdentity(row),
   };
 }
 
@@ -288,11 +304,11 @@ function buildChildProjectionInsertRow(
   parentId: string,
   child: ChildProjectionAuditInput,
   ordinal: number,
-  uid?: string | null,
+  carried?: Pick<AcRow, 'uid' | 'birthFp'>,
 ): AcInsertRow {
   const sourceKey = childProjectionSourceKey(child.id);
   return {
-    ...(uid ? { uid } : {}),
+    ...carriedIdentity(carried),
     id: buildAcRowId(parentId, sourceKey),
     taskId: parentId,
     ordinal,
@@ -512,9 +528,7 @@ export function planChildProjectionRebuild(
     0,
   );
   // A child's projection row keeps its uid across rebuilds (T12341).
-  const childUids = new Map(
-    childRows.map((row) => [row.targetTaskId ?? row.sourceKey, row.uid ?? null]),
-  );
+  const childUids = new Map(childRows.map((row) => [row.targetTaskId ?? row.sourceKey, row]));
   const childInserts = children.map((child, index) =>
     buildChildProjectionInsertRow(
       parentId,
@@ -710,7 +724,7 @@ export function planAcUpdate(
         targetTaskId: row.targetTaskId,
         projection: row.projection,
         contentHash: row.contentHash,
-        ...(row.uid ? { uid: row.uid } : {}),
+        ...carriedIdentity(row),
       }));
       return { inserts: keepInserts, history, fullDelete: true };
     }
@@ -727,7 +741,8 @@ export function planAcUpdate(
   const inserts = incoming.map((item, idx) => {
     const ordinal = idx + 1;
     const uid = uids[idx];
-    return { ...buildInsertRow(taskId, item, ordinal), ...(uid ? { uid } : {}) };
+    const carried = uid ? existing.find((row) => row.uid === uid) : undefined;
+    return { ...buildInsertRow(taskId, item, ordinal), ...carriedIdentity(carried) };
   });
   assertUniqueGeneratedRows(taskId, inserts);
   return { inserts, history, fullDelete: true };
@@ -758,7 +773,7 @@ export function planChildProjectionRemoval(
       targetTaskId: row.targetTaskId,
       projection: row.projection,
       contentHash: row.contentHash,
-      ...(row.uid ? { uid: row.uid } : {}),
+      ...carriedIdentity(row),
     }));
   const history = removed.map((row) => ({
     acId: row.id,

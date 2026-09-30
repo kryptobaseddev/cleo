@@ -31,6 +31,10 @@
 -- a collision. Both are runtime infrastructure written by
 -- store/display-id-alias.ts, not part of the exodus target shape.
 --
+-- `tasks_identity_quarantine` (local-only) holds incoming rows a merge cannot
+-- place yet: the loser of a uid or display-id collision until its authority's
+-- re-key / re-mint arrives, and rows whose references wait on one (spec §6.4).
+--
 -- `tasks_row_identity_meta` (local-only) holds the identity recipe version the
 -- store's values were derived with, and the sync layer's "uids have synced"
 -- marker (spec §12.1).
@@ -105,7 +109,8 @@ CREATE TABLE IF NOT EXISTS `tasks_display_id_aliases` (
   `reason` TEXT NOT NULL,
   `origin` TEXT,
   `displaced_hlc` TEXT,
-  `created_at` TEXT NOT NULL
+  `created_at` TEXT NOT NULL,
+  `entity_birth_fp` TEXT
 );
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `idx_tasks_display_id_aliases_lookup` ON `tasks_display_id_aliases` (`entity_table`, `display_id`);
@@ -132,6 +137,7 @@ CREATE TABLE IF NOT EXISTS `tasks_ac_uid_graveyard` (
   `task_id` TEXT NOT NULL,
   `ordinal` INTEGER NOT NULL,
   `text` TEXT NOT NULL,
+  `birth_fp` TEXT,
   `deleted_at` TEXT NOT NULL
 );
 --> statement-breakpoint
@@ -141,11 +147,23 @@ CREATE TRIGGER IF NOT EXISTS `trg_tasks_ac_uid_graveyard`
 AFTER DELETE ON `tasks_task_acceptance_criteria`
 WHEN OLD.`uid` IS NOT NULL
 BEGIN
-  INSERT INTO `tasks_ac_uid_graveyard` (`ac_id`, `uid`, `task_id`, `ordinal`, `text`, `deleted_at`)
-  VALUES (OLD.`id`, OLD.`uid`, OLD.`task_id`, OLD.`ordinal`, OLD.`text`, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+  INSERT INTO `tasks_ac_uid_graveyard` (`ac_id`, `uid`, `task_id`, `ordinal`, `text`, `birth_fp`, `deleted_at`)
+  VALUES (OLD.`id`, OLD.`uid`, OLD.`task_id`, OLD.`ordinal`, OLD.`text`, OLD.`birth_fp`, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
 END;
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS `tasks_row_identity_meta` (
   `key` TEXT PRIMARY KEY NOT NULL,
   `value` TEXT NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `tasks_identity_quarantine` (
+  `entity_table` TEXT NOT NULL,
+  `uid` TEXT NOT NULL,
+  `birth_fp` TEXT NOT NULL,
+  `reason` TEXT NOT NULL,
+  `contested_id` TEXT,
+  `row_json` TEXT NOT NULL,
+  `received_hlc` TEXT,
+  `created_at` TEXT NOT NULL,
+  PRIMARY KEY (`entity_table`, `uid`, `birth_fp`)
 );

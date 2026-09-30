@@ -69,7 +69,7 @@ import {
   unique,
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core';
-import { uuidv7 } from '../../../cloud/uuidv7.js';
+import { defaultRowUid } from '../../row-identity-flag.js';
 import { BACKGROUND_JOB_STATUSES } from '../background-jobs.js';
 import { EVIDENCE_BINDING_TYPES } from '../evidence-bindings.js';
 
@@ -184,7 +184,7 @@ export const tasksEvidenceAcBindings = sqliteTable(
      * written without one gets a deterministic uid at the next open
      * (`store/row-identity.ts`). Never updated once set.
      */
-    uid: text('uid').$defaultFn(uuidv7),
+    uid: text('uid').$defaultFn(defaultRowUid),
     /** Birth fingerprint (T12341): creation facts hashed once with the uid; never updated. */
     birthFp: text('birth_fp'),
     /**

@@ -34,17 +34,31 @@ tables now also carries `uid`, the key a merge compares:
   open (the uid is recovered from a small deletion log).
 - **Labels and dependencies** are now written as diffs: saving a task no
   longer deletes and re-inserts the edges it keeps.
-- **Display-id collisions**: only one authority (the sync server, or the
-  device that created the losing row) gives the loser a new `T####` and
-  publishes it (with no origin, a retired one, or after 72 hours, the
-  lowest-id active device); other devices keep it under a provisional id
-  (`prov-<12 hex>`, which no `T####` parser reads) until then. The
-  old id stays in `tasks_display_id_aliases`: a live id always wins, one alias
-  resolves, several aliases are reported as ambiguous.
-- A store whose identity columns were filled by a pre-release build is
-  healed at the next open: missing tables and the trigger are re-created, and
-  values without the current recipe marker are cleared and re-derived (never
-  once uids have synced).
-- `cleo doctor` gains a `row_identity` check. `CLEO_DISABLE_ROW_UID_FILL=1`
-  skips the fill. Gate B: `fingerprint-store.mjs --omit-row-identity`
-  compares a store with its pre-migration copy.
+- **Receiving rows**: a row that cannot be placed yet (a uid or display-id
+  collision, a local key another row holds, or a reference whose target is
+  not here yet) is held in a local quarantine, never inserted under a
+  stand-in id. References travel with the target's birth fingerprint, so a
+  reference to one side of a uid collision never lands on the other.
+- **Display-id collisions**: only one authority gives the loser a new
+  `T####` and publishes it: the sync server, else the device that created the
+  losing row for 72 hours of HLC time, then each other active device in turn,
+  so a silent device is always taken over. When two re-mints of one row
+  exist, the later HLC wins on every device and the other number becomes an
+  alias. The old id stays in `tasks_display_id_aliases`: a live id always
+  wins, one alias resolves, several aliases are reported as ambiguous. A
+  re-mint goes through the task chokepoint: it moves the task version and
+  keeps the claim lease.
+- **Uid collisions**: the authority re-keys the loser (the greater
+  fingerprint) and publishes a receipt with every derived value (children,
+  edges, aliases); other devices apply the receipt and never recompute.
+- A store whose birth fingerprints were derived by a pre-release build is
+  healed at the next open: missing tables, columns and the trigger are
+  re-created, and ONLY the fingerprints that match the pre-release recipe are
+  cleared and re-derived (never once uids have synced or been received).
+- Birth times without a zone are read as UTC; any other non-ISO value is
+  flagged as unparseable, so the result does not depend on the machine's
+  time zone.
+- **Off by default.** The fill runs only with `CLEO_ROW_UID_FILL=1` until the
+  real-store Gate B replay is recorded. `cleo doctor` gains a `row_identity`
+  check. Gate B: `fingerprint-store.mjs --omit-row-identity` compares a store
+  with its pre-migration copy.

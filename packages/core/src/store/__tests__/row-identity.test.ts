@@ -9,6 +9,9 @@
  * @epic T12323
  */
 
+// Row uids are opt-in (T12341); these tests exercise them.
+process.env.CLEO_ROW_UID_FILL = '1';
+
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -16,7 +19,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { rowIdentityDoctorCheck } from '../../doctor/row-identity.js';
 import { computeAcCoverage } from '../../tasks/ac-coverage-gate.js';
 import { applyAcPlan, planAcUpdate } from '../../tasks/ac-table.js';
-import { rekeyRowUid } from '../display-id-alias.js';
+import { receiveRow, recordDisplayIdAlias, rekeyRowUid, wireRowOf } from '../display-id-alias.js';
 import {
   birthFingerprint,
   canonicalText,
@@ -28,10 +31,12 @@ import {
   mintRowUid,
   naturalRowUid,
   prepareRowIdentity,
+  preReleaseBirthFp,
   ROW_IDENTITY,
   ROW_IDENTITY_RECIPE,
   ROW_IDENTITY_RECIPE_KEY,
   ROW_IDENTITY_SYNCED_KEY,
+  rekeyedChildUid,
   rowIdentityColumns,
 } from '../row-identity.js';
 import { getNativeTasksDb } from '../sqlite.js';
@@ -149,7 +154,8 @@ describe('uid fill through the open path', () => {
   const one = (sql: string, ...args: (string | number)[]) =>
     db.prepare(sql).get(...args) as Record<string, string | number | null> | undefined;
   const uidOf = (table: string, where: string, ...args: (string | number)[]) =>
-    one(`SELECT uid FROM ${table} WHERE ${where}`, ...args)?.uid ?? null;
+    (one(`SELECT uid FROM ${table} WHERE ${where}`, ...args)?.uid as string | null | undefined) ??
+    null;
 
   /** A connection like an older build's: no uid functions, no TEMP triggers. */
   function olderBuild<T>(fn: (older: DatabaseSync) => T): T {
@@ -382,6 +388,9 @@ describe('uid fill through the open path', () => {
     const [edited] = await env.accessor.getAcRows('T003');
     expect(edited?.id).not.toBe(first.id);
     expect(edited?.uid).toBe(first.uid);
+    // The fingerprint is write-once: an edit carries it, never re-derives it.
+    expect(first.birthFp).toMatch(/^[0-9a-f]{32}$/);
+    expect(edited?.birthFp).toBe(first.birthFp);
     const bindings = await env.accessor.getAcBindings([edited?.id ?? '']);
     expect(bindings.map((b) => [b.id, b.acId, b.stale])).toEqual([['b-1', edited?.id, true]]);
     const coverage = await computeAcCoverage('T003', env.accessor);
@@ -492,39 +501,84 @@ describe('uid fill through the open path', () => {
     expect(prepareRowIdentity(db, 'project')?.healed).toEqual([]);
   });
 
-  it('clears and re-derives identity values a pre-release build filled (no recipe marker)', () => {
-    const born = one("SELECT created_at FROM tasks_tasks WHERE id = 'T001'")?.created_at ?? null;
-    // A pre-release build: other uid and fingerprint values, no marker.
-    db.exec(`UPDATE tasks_tasks SET uid = lower(hex(randomblob(16))), birth_fp = 'stale' WHERE id = 'T001';
-      DELETE FROM tasks_row_identity_meta WHERE key = '${ROW_IDENTITY_RECIPE_KEY}';`);
+  /** Put T001's fingerprint back to what the pre-release (v4/v5) build derived. */
+  function prereleaseFill(): string {
+    const row = one("SELECT * FROM tasks_tasks WHERE id = 'T001'") as Record<string, string | null>;
+    const stale = preReleaseBirthFp(db, 'tasks_tasks', row) ?? '';
+    db.prepare("UPDATE tasks_tasks SET birth_fp = ? WHERE id = 'T001'").run(stale);
+    db.exec(`DELETE FROM tasks_row_identity_meta WHERE key = '${ROW_IDENTITY_RECIPE_KEY}'`);
+    return stale;
+  }
+
+  it('re-derives ONLY the fingerprints a pre-release build derived, and never touches aliases', () => {
+    const fresh = one("SELECT birth_fp FROM tasks_tasks WHERE id = 'T001'")?.birth_fp;
+    const stale = prereleaseFill();
+    expect(stale).not.toBe(fresh);
+    // A value from another source (received by sync) and a split-brain alias.
+    db.exec("UPDATE tasks_tasks SET birth_fp = 'received-value' WHERE id = 'T002'");
+    recordDisplayIdAlias(db, {
+      table: 'tasks_tasks',
+      displayId: 'T777',
+      entityUid: uidOf('tasks_tasks', 'id = ?', 'T003') ?? '',
+      entityBirthFp: null,
+      reason: 'split-brain-import',
+    });
     const report = prepareRowIdentity(db, 'project');
     expect(report?.refill).toBe('cleared');
-    expect(uidOf('tasks_tasks', 'id = ?', 'T001')).toBe(
-      mintedRowUid('project', 'tasks_tasks', ['T001'], born),
+    expect(one("SELECT birth_fp FROM tasks_tasks WHERE id = 'T001'")?.birth_fp).toBe(fresh);
+    expect(one("SELECT birth_fp FROM tasks_tasks WHERE id = 'T002'")?.birth_fp).toBe(
+      'received-value',
     );
-    expect(one("SELECT birth_fp FROM tasks_tasks WHERE id = 'T001'")?.birth_fp).not.toBe('stale');
+    expect(
+      one("SELECT count(*) AS n FROM tasks_display_id_aliases WHERE display_id = 'T777'")?.n,
+    ).toBe(1);
     expect(
       one(`SELECT value FROM tasks_row_identity_meta WHERE key = '${ROW_IDENTITY_RECIPE_KEY}'`)
         ?.value,
     ).toBe(ROW_IDENTITY_RECIPE);
-    // Every row is back, every value re-derived by the release recipe.
-    expect(
-      one('SELECT count(*) AS n FROM tasks_tasks WHERE uid IS NULL OR birth_fp IS NULL')?.n,
-    ).toBe(0);
     expect(prepareRowIdentity(db, 'project')?.refill).toBe('none');
   });
 
-  it('refuses the clear-and-refill once uids have synced', () => {
-    db.exec(`UPDATE tasks_tasks SET birth_fp = 'synced-value' WHERE id = 'T001';
-      DELETE FROM tasks_row_identity_meta WHERE key = '${ROW_IDENTITY_RECIPE_KEY}';
-      INSERT INTO tasks_row_identity_meta (key, value) VALUES ('${ROW_IDENTITY_SYNCED_KEY}', '2026-09-29');`);
-    const uid = uidOf('tasks_tasks', 'id = ?', 'T001');
+  it('keeps values on a receive-only device or after the meta table was lost', () => {
+    db.exec("UPDATE tasks_tasks SET birth_fp = 'received-value' WHERE id = 'T001'");
+    db.exec('DROP TABLE tasks_row_identity_meta');
+    const report = prepareRowIdentity(db, 'project');
+    expect(report?.healed.join('\n')).toContain('tasks_row_identity_meta');
+    expect(report?.refill).toBe('none');
+    expect(one("SELECT birth_fp FROM tasks_tasks WHERE id = 'T001'")?.birth_fp).toBe(
+      'received-value',
+    );
+  });
+
+  it('refuses to re-derive pre-release values once uids have synced', () => {
+    const stale = prereleaseFill();
+    db.exec(
+      `INSERT INTO tasks_row_identity_meta (key, value) VALUES ('${ROW_IDENTITY_SYNCED_KEY}', '2026-09-29')`,
+    );
     const report = prepareRowIdentity(db, 'project');
     expect(report?.refill).toBe('refused');
-    expect(uidOf('tasks_tasks', 'id = ?', 'T001')).toBe(uid);
-    expect(one("SELECT birth_fp FROM tasks_tasks WHERE id = 'T001'")?.birth_fp).toBe(
-      'synced-value',
-    );
+    expect(one("SELECT birth_fp FROM tasks_tasks WHERE id = 'T001'")?.birth_fp).toBe(stale);
+  });
+
+  it('a pull-first clone keeps what it received across reopen (T12746)', () => {
+    // The received value happens to be what a pre-release build derives.
+    const received = prereleaseFill();
+    const t001 = uidOf('tasks_tasks', 'id = ?', 'T001') ?? '';
+    expect(receiveRow(db, wireRowOf(db, 'tasks_tasks', t001)).status).toBe('duplicate');
+    expect(
+      JSON.parse(
+        String(
+          one(`SELECT value FROM tasks_row_identity_meta WHERE key = '${ROW_IDENTITY_SYNCED_KEY}'`)
+            ?.value,
+        ),
+      ).first,
+    ).toBe('receive');
+    expect(prepareRowIdentity(db, 'project')?.refill).toBe('none');
+    expect(one("SELECT birth_fp FROM tasks_tasks WHERE id = 'T001'")?.birth_fp).toBe(received);
+    // Even with the recipe marker lost again, the shared marker refuses the wipe.
+    db.exec(`DELETE FROM tasks_row_identity_meta WHERE key = '${ROW_IDENTITY_RECIPE_KEY}'`);
+    expect(prepareRowIdentity(db, 'project')?.refill).toBe('refused');
+    expect(one("SELECT birth_fp FROM tasks_tasks WHERE id = 'T001'")?.birth_fp).toBe(received);
   });
 
   it('re-creates a missing uid index (a migration stamped without its index DDL)', () => {
@@ -638,14 +692,25 @@ describe('identity versus collision across stores (spec §3)', () => {
       expect(classifyUidMatch(fa.ac.fp, fb.ac.fp)).toBe('collision');
 
       // Owners first: re-keying the losing T100 re-derives its descendants.
-      const [loserDb, winner] = fa.task.fp > fb.task.fp ? [a, fb] : [b, fa];
-      const receipt = rekeyRowUid(loserDb, 'tasks_tasks', winner.task.uid, { origin: 'device' });
+      const [loserDb, winner, loser] = fa.task.fp > fb.task.fp ? [a, fb, fa] : [b, fa, fb];
+      const receipt = rekeyRowUid(loserDb, 'tasks_tasks', winner.task.uid, loser.task.fp, {
+        origin: 'device',
+      });
       expect(receipt.cascaded.map((c) => [c.table, c.oldUid])).toEqual([
         ['tasks_task_acceptance_criteria', winner.ac.uid],
       ]);
       const after = family(loserDb);
       expect(after.task.uid).toBe(receipt.newUid);
       expect(after.ac.uid).not.toBe(winner.ac.uid);
+      // Derived from stored identity only: old child uid + new owner uid.
+      expect(after.ac.uid).toBe(
+        rekeyedChildUid('project', 'tasks_task_acceptance_criteria', winner.ac.uid, receipt.newUid),
+      );
+      expect(receipt.natural).toContainEqual({
+        table: 'tasks_task_labels',
+        oldUid: winner.label,
+        newUid: after.label,
+      });
       expect(after.label).not.toBe(winner.label);
       expect(after.label).toBe(
         naturalRowUid('project', 'tasks_task_labels', [receipt.newUid, 'bug']),
@@ -678,7 +743,9 @@ describe('identity versus collision across stores (spec §3)', () => {
       // The authority re-keys the loser (greater fingerprint); the old uid
       // stays resolvable through its fingerprint.
       const [loserDb, loser] = ia.fp > ib.fp ? [a, ia] : [b, ib];
-      const receipt = rekeyRowUid(loserDb, 'tasks_tasks', loser.uid, { origin: 'device' });
+      const receipt = rekeyRowUid(loserDb, 'tasks_tasks', loser.uid, loser.fp, {
+        origin: 'device',
+      });
       expect(receipt.newUid).toMatch(V7);
       expect(identity(loserDb, 'T100')).toEqual({ uid: receipt.newUid, fp: loser.fp });
       expect(

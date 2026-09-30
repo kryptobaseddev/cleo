@@ -104,8 +104,10 @@ export interface RowIdentitySpec {
   /**
    * `minted`: facts of the row's creation hashed into its birth fingerprint
    * (`birth_fp`), besides the canonical birth. Each entry is a column name,
-   * or `@ownerFp:<column>` (the birth fingerprint of the owner that column
-   * references, so the children of two colliding owners fingerprint apart).
+   * `@ownerFp:<column>` (the birth fingerprint of the owner that column
+   * references, so the children of two colliding owners fingerprint apart),
+   * or `@refFp:<column>` (the fingerprint of the row a stored reference uid
+   * column names, e.g. the AC behind `ac_uid`).
    * Read from the row as it is when its identity is first assigned; frozen
    * per recipe version.
    */

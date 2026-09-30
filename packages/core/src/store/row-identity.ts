@@ -50,7 +50,8 @@
  *
  * A row an older build inserts keeps NULL values until the next open by this
  * build: there is no persistent trigger that computes them (see the
- * migration's header). `CLEO_DISABLE_ROW_UID_FILL=1` skips steps 2 and 3.
+ * migration's header). Row uids are OPT-IN: nothing here runs unless
+ * `CLEO_ROW_UID_FILL=1` ({@link rowUidFillEnabled}).
  *
  * A failure never fails the open: it is logged, and the rows keep NULL values
  * until a later open succeeds. A uid's timestamp is ordering sugar only: HLC
@@ -67,6 +68,7 @@ import type { RowIdentityRef, RowIdentitySpec, TableScope } from '@cleocode/cont
 import { uuidv7 } from '../cloud/uuidv7.js';
 import { getLogger } from '../logger.js';
 import { acTextHash } from '../tasks/ac-table.js';
+import { rowUidFillEnabled } from './row-identity-flag.js';
 import {
   BIRTH_FP_COLUMN,
   ROW_IDENTITY,
@@ -95,11 +97,47 @@ export const ROW_RANDOM_UID_SQL_FUNCTION = 'cleo_row_random_uid';
 /** Per-connection SQL function hashing AC text like `acTextHash`. */
 export const AC_TEXT_HASH_SQL_FUNCTION = 'cleo_ac_text_hash';
 
-/** Environment switch that skips the fill and the per-connection triggers. */
-export const ROW_UID_FILL_KILL_SWITCH = 'CLEO_DISABLE_ROW_UID_FILL';
-
 /** Physical name of the AC uid graveyard (spec §6.5). */
 export const AC_UID_GRAVEYARD = 'tasks_ac_uid_graveyard';
+
+/**
+ * The literal-table writes the open pass makes, supplied by the tasks
+ * chokepoint (`store/sqlite-data-accessor.ts`, which registers them when it
+ * loads) so they stay enumerable by gate 28.
+ */
+export interface RowIdentityWriters {
+  relinkAcUidNative(db: DatabaseSync, acId: string, uid: string, birthFp: string | null): number;
+  clearAcUidGraveyardNative(db: DatabaseSync): void;
+  writeRowIdentityMetaNative(db: DatabaseSync, key: string, value: string): void;
+  fillIdentityColumnNative(
+    db: DatabaseSync,
+    table: string,
+    column: string,
+    valueSql: string,
+    rowid?: number,
+  ): number;
+  clearBirthFpNative(db: DatabaseSync, table: string, rowid: number): void;
+}
+
+let registeredWriters: RowIdentityWriters | undefined;
+
+/**
+ * Register the chokepoint's row-identity writers (called once by
+ * `store/sqlite-data-accessor.ts` at load).
+ *
+ * @param writers - The writers.
+ */
+export function registerRowIdentityWriters(writers: RowIdentityWriters): void {
+  registeredWriters = writers;
+}
+
+/** The registered writers, or an error naming the module that registers them. */
+function requireWriters(): RowIdentityWriters {
+  if (!registeredWriters) {
+    throw new Error('row identity writers are not registered: load store/sqlite-data-accessor.js');
+  }
+  return registeredWriters;
+}
 
 /** A SQL value as node:sqlite passes it to a function. */
 export type UidInput = string | number | bigint | Uint8Array | null;
@@ -143,23 +181,46 @@ export function encodeUidInputs(values: readonly UidInput[]): Buffer {
   return Buffer.concat(parts);
 }
 
+/** Strict ISO-8601 / SQLite timestamp: date, optional time, optional zone. */
+const STORE_TIMESTAMP =
+  /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?)?(Z|[+-]\d{2}:?\d{2})?$/;
+
 /**
- * Epoch milliseconds of a stored timestamp, or `null` when absent or
- * unparseable. `datetime('now')` writes `YYYY-MM-DD HH:MM:SS` with no zone,
- * meaning UTC, so a zoneless value is read as UTC. Comparing that text against
- * ISO text is wrong within a day (`' '` sorts before `'T'`), so every
- * comparison and every uid birth goes through this function (T12329).
+ * Epoch milliseconds of a stored timestamp, or `null` when absent or not a
+ * strict ISO-8601 / SQLite timestamp. A value WITHOUT a zone is UTC:
+ * `datetime('now')` writes `YYYY-MM-DD HH:MM:SS` meaning UTC, and a zoneless
+ * `YYYY-MM-DDTHH:MM:SS` is read the same way, never as the device's local
+ * time (`Date.parse` would, and a uid would then depend on the device's
+ * timezone). Anything else (`Date.parse` extensions such as `Sep 24 2026`,
+ * out-of-range fields) is `null`, i.e. an unparseable birth. Comparing that
+ * text against ISO text is wrong within a day (`' '` sorts before `'T'`), so
+ * every comparison and every uid birth goes through this function (T12329).
  *
  * @param value - Stored timestamp.
  * @returns Epoch milliseconds, or `null`.
  */
 export function parseStoreTimestamp(value: UidInput | undefined): number | null {
-  if (typeof value !== 'string' || value.length === 0) return null;
-  const iso = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(value)
-    ? `${value.replace(' ', 'T')}Z`
-    : value;
-  const ms = Date.parse(iso);
-  return Number.isNaN(ms) ? null : ms;
+  if (typeof value !== 'string') return null;
+  const m = STORE_TIMESTAMP.exec(value);
+  if (!m) return null;
+  const [, y, mo, d, h = '0', mi = '0', sec = '0', frac = '', zone] = m;
+  const year = Number(y);
+  const month = Number(mo);
+  const day = Number(d);
+  const hour = Number(h);
+  const minute = Number(mi);
+  const second = Number(sec);
+  if (month < 1 || month > 12 || day < 1 || hour > 23 || minute > 59 || second > 59) return null;
+  const ms = Number(frac.padEnd(3, '0').slice(0, 3) || '0');
+  const utc = Date.UTC(year, month - 1, day, hour, minute, second, ms);
+  const check = new Date(utc);
+  if (check.getUTCMonth() !== month - 1 || check.getUTCDate() !== day) return null;
+  if (!zone || zone === 'Z') return utc;
+  const sign = zone.startsWith('-') ? -1 : 1;
+  const digits = zone.slice(1).replace(':', '');
+  const offset = (Number(digits.slice(0, 2)) * 60 + Number(digits.slice(2, 4))) * 60_000;
+  if (Number(digits.slice(0, 2)) > 23 || Number(digits.slice(2, 4)) > 59) return null;
+  return utc - sign * offset;
 }
 
 /** Largest value a UUIDv7 timestamp field holds. */
@@ -224,6 +285,39 @@ export function mintedRowUid(
   const ms = birthMs !== null && birthMs >= 0 && birthMs <= MAX_UUID_MS ? birthMs : 0;
   const b = Buffer.alloc(16);
   b.writeUIntBE(ms, 0, 6);
+  b[6] = 0x70 | ((h[0] ?? 0) & 0x0f);
+  b[7] = h[1] ?? 0;
+  b[8] = 0x80 | ((h[2] ?? 0) & 0x3f);
+  h.copy(b, 9, 3, 10);
+  return formatUuid(b);
+}
+
+/**
+ * The new uid of a minted child row when its owner is re-keyed (spec §6.4):
+ * derived from STORED identity only (the child's old uid and the owner's new
+ * uid), never from a local key or content, so every replica that computes it
+ * gets the same value whatever display ids it holds. The child's timestamp
+ * bits are kept; the other 74 bits come from SHA-256.
+ *
+ * @param scope - Store scope.
+ * @param table - Physical table of the child.
+ * @param oldChildUid - The child's uid before the re-key.
+ * @param newOwnerUid - The owner's new uid.
+ * @returns Canonical lowercase UUID string.
+ */
+export function rekeyedChildUid(
+  scope: TableScope,
+  table: string,
+  oldChildUid: string,
+  newOwnerUid: string,
+): string {
+  const h = createHash('sha256')
+    .update(
+      encodeUidInputs([ROW_UID_DOMAIN, 'rekey-child', scope, table, oldChildUid, newOwnerUid]),
+    )
+    .digest();
+  const b = Buffer.alloc(16);
+  Buffer.from(oldChildUid.replaceAll('-', '').slice(0, 12), 'hex').copy(b, 0);
   b[6] = 0x70 | ((h[0] ?? 0) & 0x0f);
   b[7] = h[1] ?? 0;
   b[8] = 0x80 | ((h[2] ?? 0) & 0x3f);
@@ -474,16 +568,69 @@ function uidFromArgs(
 
 /** SQL for one birth fact of a minted table. */
 function birthFactSql(scope: TableScope, spec: RowIdentitySpec, fact: string, row: string): string {
+  const target = fingerprintRef(scope, spec, fact);
+  if (target) {
+    // The referenced row's fingerprint; a flag when there is no reference or
+    // the row is gone; NULL (wait) while it exists without a fingerprint.
+    const match = `_r.${q(target.key)} = ${row}.${q(target.column)}`;
+    return (
+      `(CASE WHEN ${row}.${q(target.column)} IS NULL THEN 'ref:none' ` +
+      `WHEN NOT EXISTS (SELECT 1 FROM main.${q(target.table)} AS _r WHERE ${match}) THEN 'ref:missing' ` +
+      `ELSE (SELECT _r.${q(BIRTH_FP_COLUMN)} FROM main.${q(target.table)} AS _r WHERE ${match}) END)`
+    );
+  }
+  return `${row}.${q(fact)}`;
+}
+
+/**
+ * The row a fingerprint fact reads the fingerprint of: `@ownerFp:<column>` is
+ * the owner that column references (matched on the owner's key);
+ * `@refFp:<column>` is a stored reference uid column (matched on the uid).
+ */
+function fingerprintRef(
+  scope: TableScope,
+  spec: RowIdentitySpec,
+  fact: string,
+): { table: string; column: string; key: string } | null {
   if (fact.startsWith('@ownerFp:')) {
     const column = fact.slice('@ownerFp:'.length);
     const ref = spec.owners?.find((r) => r.column === column);
     if (!ref) throw new Error(`row identity: ${spec.table} birth fact ${fact} names no owner`);
-    return (
-      `(SELECT _r.${q(BIRTH_FP_COLUMN)} FROM main.${q(ref.table)} AS _r ` +
-      `WHERE _r.${q(targetKey(scope, ref.table))} = ${row}.${q(ref.column)})`
-    );
+    return { table: ref.table, column, key: targetKey(scope, ref.table) };
   }
-  return `${row}.${q(fact)}`;
+  if (fact.startsWith('@refFp:')) {
+    const column = fact.slice('@refFp:'.length);
+    const ref = spec.storedRefUids?.find(
+      (r) => r.column === column && (r.source ?? 'uid') === 'uid',
+    );
+    if (!ref) throw new Error(`row identity: ${spec.table} birth fact ${fact} names no stored uid`);
+    return { table: ref.table, column, key: UID_COLUMN };
+  }
+  return null;
+}
+
+/** Minted tables ordered so a table comes after every table its fingerprint facts read. */
+function fingerprintOrder(scope: TableScope, specs: readonly RowIdentitySpec[]): RowIdentitySpec[] {
+  const minted = specs.filter((s) => s.kind === 'minted');
+  const deps = (spec: RowIdentitySpec) =>
+    (spec.birthFacts ?? [])
+      .map((f) => fingerprintRef(scope, spec, f)?.table)
+      .filter((t): t is string => t !== undefined && t !== spec.table);
+  const done = new Set<string>();
+  const out: RowIdentitySpec[] = [];
+  let pending = [...minted];
+  while (pending.length > 0) {
+    const ready = pending.filter((s) =>
+      deps(s).every((t) => done.has(t) || !minted.some((m) => m.table === t)),
+    );
+    if (ready.length === 0) throw new Error('row identity: cyclic fingerprint facts');
+    for (const s of ready) {
+      out.push(s);
+      done.add(s.table);
+    }
+    pending = pending.filter((s) => !ready.includes(s));
+  }
+  return out;
 }
 
 /** SQL call of the birth-fingerprint function for one minted table. */
@@ -531,7 +678,9 @@ export function registerRowUidFunction(db: DatabaseSync, scope: TableScope): voi
     (table, birth, ...facts) => {
       if (typeof table !== 'string') throw new Error('row identity: table name must be text');
       const spec = rowIdentitySpec(scope, table);
-      const ownerFacts = (spec?.birthFacts ?? []).map((f) => f.startsWith('@ownerFp:'));
+      const ownerFacts = (spec?.birthFacts ?? []).map(
+        (f) => f.startsWith('@ownerFp:') || f.startsWith('@refFp:'),
+      );
       if (facts.some((v, k) => ownerFacts[k] && v === null)) return null;
       return birthFingerprint(table, birth as UidInput, facts as UidInput[]);
     },
@@ -693,15 +842,26 @@ function isUniqueViolation(error: unknown): boolean {
  * (a symmetric edge then tries its mirror recipe) and a row that still clashes
  * keeps its NULL (reported, never fatal).
  */
-function fillTable(db: DatabaseSync, scope: TableScope, spec: RowIdentitySpec): number {
+function fillTable(
+  db: DatabaseSync,
+  scope: TableScope,
+  spec: RowIdentitySpec,
+  writers: RowIdentityWriters,
+): number {
   const before = nullCount(db, spec.table, UID_COLUMN);
   if (before === 0) return 0;
   const table = `main.${q(spec.table)}`;
-  const update = (variant: number) =>
-    `UPDATE ${table} SET ${q(UID_COLUMN)} = ${uidCallSql(scope, spec, table, variant)} WHERE ${q(UID_COLUMN)} IS NULL`;
+  const fill = (variant: number, rowid?: number) =>
+    writers.fillIdentityColumnNative(
+      db,
+      spec.table,
+      UID_COLUMN,
+      uidCallSql(scope, spec, table, variant),
+      rowid,
+    );
   db.exec('SAVEPOINT row_uid_fill_table');
   try {
-    db.exec(update(0));
+    fill(0);
     db.exec('RELEASE SAVEPOINT row_uid_fill_table');
   } catch (error) {
     db.exec('ROLLBACK TO SAVEPOINT row_uid_fill_table');
@@ -711,11 +871,10 @@ function fillTable(db: DatabaseSync, scope: TableScope, spec: RowIdentitySpec): 
       .prepare(`SELECT rowid AS r FROM ${table} WHERE ${q(UID_COLUMN)} IS NULL ORDER BY rowid`)
       .all() as { r: number }[];
     const variants = spec.symmetric ? [0, 1] : [0];
-    const statements = variants.map((v) => db.prepare(`${update(v)} AND rowid = ?`));
     for (const { r } of rowids) {
-      for (const one of statements) {
+      for (const variant of variants) {
         try {
-          if (Number(one.run(r).changes) > 0) break;
+          if (fill(variant, r) > 0) break;
         } catch (rowError) {
           if (!isUniqueViolation(rowError)) throw rowError;
         }
@@ -735,10 +894,15 @@ function fillTable(db: DatabaseSync, scope: TableScope, spec: RowIdentitySpec): 
  * @param table - Declared table.
  * @returns Uids written.
  */
-export function fillTableUids(db: DatabaseSync, scope: TableScope, table: string): number {
+export function fillTableUids(
+  db: DatabaseSync,
+  scope: TableScope,
+  table: string,
+  writers: RowIdentityWriters = requireWriters(),
+): number {
   const spec = rowIdentitySpec(scope, table);
   if (!spec) throw new Error(`row identity: ${table} is not declared in scope ${scope}`);
-  return fillTable(db, scope, spec);
+  return fillTable(db, scope, spec, writers);
 }
 
 /** Fill the stored reference facts (`ac_uid`, `ac_text_hash`) that resolve. */
@@ -747,27 +911,34 @@ function fillStoredRefs(
   scope: TableScope,
   spec: RowIdentitySpec,
   out: Record<string, number>,
+  writers: RowIdentityWriters,
 ): void {
   const table = `main.${q(spec.table)}`;
   for (const ref of spec.storedRefUids ?? []) {
     const before = nullCount(db, spec.table, ref.column);
     if (before === 0) continue;
-    db.exec(
-      `UPDATE ${table} SET ${q(ref.column)} = ${storedRefSql(scope, ref, table)} WHERE ${q(ref.column)} IS NULL`,
-    );
+    writers.fillIdentityColumnNative(db, spec.table, ref.column, storedRefSql(scope, ref, table));
     const written = before - nullCount(db, spec.table, ref.column);
     if (written > 0) out[`${spec.table}.${ref.column}`] = written;
   }
 }
 
 /** Fill the NULL birth fingerprints of one minted table. */
-function fillBirthFp(db: DatabaseSync, scope: TableScope, spec: RowIdentitySpec): number {
+function fillBirthFp(
+  db: DatabaseSync,
+  scope: TableScope,
+  spec: RowIdentitySpec,
+  writers: RowIdentityWriters,
+): number {
   if (spec.kind !== 'minted') return 0;
   const before = nullCount(db, spec.table, BIRTH_FP_COLUMN);
   if (before === 0) return 0;
   const table = `main.${q(spec.table)}`;
-  db.exec(
-    `UPDATE ${table} SET ${q(BIRTH_FP_COLUMN)} = ${birthFpCallSql(scope, spec, table)} WHERE ${q(BIRTH_FP_COLUMN)} IS NULL`,
+  writers.fillIdentityColumnNative(
+    db,
+    spec.table,
+    BIRTH_FP_COLUMN,
+    birthFpCallSql(scope, spec, table),
   );
   return before - nullCount(db, spec.table, BIRTH_FP_COLUMN);
 }
@@ -781,7 +952,7 @@ function fillBirthFp(db: DatabaseSync, scope: TableScope, spec: RowIdentitySpec)
  * emptied afterwards: an entry whose criterion was not recreated is a real
  * deletion.
  */
-function relinkAcUids(db: DatabaseSync): number {
+function relinkAcUids(db: DatabaseSync, writers: RowIdentityWriters): number {
   if (!hasTable(db, AC_UID_GRAVEYARD) || !hasTable(db, 'tasks_task_acceptance_criteria')) return 0;
   let relinked = 0;
   const orphans = db
@@ -792,20 +963,19 @@ function relinkAcUids(db: DatabaseSync): number {
     )
     .all() as { id: string; taskId: string; ordinal: number; text: string }[];
   const dead = db.prepare(
-    `SELECT uid, ordinal, text FROM main.${AC_UID_GRAVEYARD} g
+    `SELECT uid, ordinal, text, birth_fp AS birthFp FROM main.${AC_UID_GRAVEYARD} g
       WHERE task_id = ? AND NOT EXISTS (SELECT 1 FROM main.tasks_task_acceptance_criteria a WHERE a.uid = g.uid)
       ORDER BY seq DESC`,
   );
-  const assign = db.prepare(
-    'UPDATE main.tasks_task_acceptance_criteria SET uid = ? WHERE id = ? AND uid IS NULL',
-  );
+  const assign = (dead: { uid: string; birthFp: string | null }, acId: string) =>
+    writers.relinkAcUidNative(db, acId, dead.uid, dead.birthFp);
   const byTask = new Map<string, typeof orphans>();
   for (const row of orphans) byTask.set(row.taskId, [...(byTask.get(row.taskId) ?? []), row]);
   for (const [taskId, rows] of byTask) {
     const seen = new Set<string>();
-    const pool = (dead.all(taskId) as { uid: string; ordinal: number; text: string }[]).filter(
-      (d) => !seen.has(d.uid) && seen.add(d.uid),
-    );
+    const pool = (
+      dead.all(taskId) as { uid: string; ordinal: number; text: string; birthFp: string | null }[]
+    ).filter((d) => !seen.has(d.uid) && seen.add(d.uid));
     const claimed = new Set<string>();
     const pick = (match: (d: (typeof pool)[number]) => boolean) =>
       pool.find((d) => !claimed.has(d.uid) && match(d));
@@ -813,17 +983,17 @@ function relinkAcUids(db: DatabaseSync): number {
       const same = pick((d) => d.text === row.text);
       if (!same) return true;
       claimed.add(same.uid);
-      relinked += Number(assign.run(same.uid, row.id).changes);
+      relinked += assign(same, row.id);
       return false;
     });
     for (const row of pending) {
       const same = pick((d) => d.ordinal === row.ordinal);
       if (!same) continue;
       claimed.add(same.uid);
-      relinked += Number(assign.run(same.uid, row.id).changes);
+      relinked += assign(same, row.id);
     }
   }
-  db.exec(`DELETE FROM main.${AC_UID_GRAVEYARD}`);
+  writers.clearAcUidGraveyardNative(db);
   return relinked;
 }
 
@@ -907,6 +1077,7 @@ export function rowIdentityFindings(db: DatabaseSync, scope: TableScope): RowIde
 export function fillRowUids(
   db: DatabaseSync,
   scope: TableScope,
+  writers: RowIdentityWriters = requireWriters(),
 ): Omit<RowUidFillReport, 'healed' | 'findings' | 'refill'> {
   const filled: Record<string, number> = {};
   const refsFilled: Record<string, number> = {};
@@ -915,14 +1086,14 @@ export function fillRowUids(
   const order = fillOrder(db, scope);
   db.exec('SAVEPOINT row_uid_fill');
   try {
-    const relinked = scope === 'project' ? relinkAcUids(db) : 0;
+    const relinked = scope === 'project' ? relinkAcUids(db, writers) : 0;
     for (const spec of order) {
-      const n = fillTable(db, scope, spec);
+      const n = fillTable(db, scope, spec, writers);
       if (n > 0) filled[spec.table] = n;
     }
-    for (const spec of order) fillStoredRefs(db, scope, spec, refsFilled);
-    for (const spec of order) {
-      const n = fillBirthFp(db, scope, spec);
+    for (const spec of order) fillStoredRefs(db, scope, spec, refsFilled, writers);
+    for (const spec of fingerprintOrder(scope, order)) {
+      const n = fillBirthFp(db, scope, spec, writers);
       if (n > 0) fingerprinted[spec.table] = n;
     }
     for (const spec of order) {
@@ -1030,7 +1201,7 @@ const IDENTITY_TABLE_DDL: Readonly<Record<string, readonly string[]>> = {
     `CREATE TABLE IF NOT EXISTS main.tasks_display_id_aliases (
       uid TEXT PRIMARY KEY NOT NULL, entity_table TEXT NOT NULL, display_id TEXT NOT NULL,
       entity_uid TEXT NOT NULL, reason TEXT NOT NULL, origin TEXT, displaced_hlc TEXT,
-      created_at TEXT NOT NULL)`,
+      created_at TEXT NOT NULL, entity_birth_fp TEXT)`,
     'CREATE INDEX IF NOT EXISTS main.idx_tasks_display_id_aliases_lookup ON tasks_display_id_aliases (entity_table, display_id)',
     'CREATE INDEX IF NOT EXISTS main.idx_tasks_display_id_aliases_entity ON tasks_display_id_aliases (entity_uid)',
   ],
@@ -1041,10 +1212,17 @@ const IDENTITY_TABLE_DDL: Readonly<Record<string, readonly string[]>> = {
       created_at TEXT NOT NULL)`,
     'CREATE INDEX IF NOT EXISTS main.idx_tasks_uid_aliases_old ON tasks_uid_aliases (entity_table, old_uid)',
   ],
+  tasks_identity_quarantine: [
+    `CREATE TABLE IF NOT EXISTS main.tasks_identity_quarantine (
+      entity_table TEXT NOT NULL, uid TEXT NOT NULL, birth_fp TEXT NOT NULL, reason TEXT NOT NULL,
+      contested_id TEXT, row_json TEXT NOT NULL, received_hlc TEXT, created_at TEXT NOT NULL,
+      PRIMARY KEY (entity_table, uid, birth_fp))`,
+  ],
   [AC_UID_GRAVEYARD]: [
     `CREATE TABLE IF NOT EXISTS main.${AC_UID_GRAVEYARD} (
       seq INTEGER PRIMARY KEY AUTOINCREMENT, ac_id TEXT NOT NULL, uid TEXT NOT NULL,
-      task_id TEXT NOT NULL, ordinal INTEGER NOT NULL, text TEXT NOT NULL, deleted_at TEXT NOT NULL)`,
+      task_id TEXT NOT NULL, ordinal INTEGER NOT NULL, text TEXT NOT NULL, birth_fp TEXT,
+      deleted_at TEXT NOT NULL)`,
     `CREATE INDEX IF NOT EXISTS main.idx_${AC_UID_GRAVEYARD}_task ON ${AC_UID_GRAVEYARD} (task_id)`,
   ],
 };
@@ -1054,8 +1232,8 @@ const AC_UID_GRAVEYARD_TRIGGER = `CREATE TRIGGER IF NOT EXISTS main.trg_tasks_ac
 AFTER DELETE ON tasks_task_acceptance_criteria
 WHEN OLD.uid IS NOT NULL
 BEGIN
-  INSERT INTO ${AC_UID_GRAVEYARD} (ac_id, uid, task_id, ordinal, text, deleted_at)
-  VALUES (OLD.id, OLD.uid, OLD.task_id, OLD.ordinal, OLD.text, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+  INSERT INTO ${AC_UID_GRAVEYARD} (ac_id, uid, task_id, ordinal, text, birth_fp, deleted_at)
+  VALUES (OLD.id, OLD.uid, OLD.task_id, OLD.ordinal, OLD.text, OLD.birth_fp, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
 END`;
 
 /** Whether a schema object of `type` named `name` exists in `main`. */
@@ -1087,8 +1265,14 @@ export function ensureIdentityTables(db: DatabaseSync): string[] {
       healed.push(stmt);
     }
   }
-  if (!columnsOf(db, 'tasks_display_id_aliases').has('displaced_hlc')) {
-    const stmt = 'ALTER TABLE main.tasks_display_id_aliases ADD COLUMN displaced_hlc TEXT';
+  // Columns an early pre-release table lacks (the live-cleocode state, §12.1).
+  for (const [table, column] of [
+    ['tasks_display_id_aliases', 'displaced_hlc'],
+    ['tasks_display_id_aliases', 'entity_birth_fp'],
+    [AC_UID_GRAVEYARD, 'birth_fp'],
+  ] as const) {
+    if (columnsOf(db, table).has(column)) continue;
+    const stmt = `ALTER TABLE main.${table} ADD COLUMN ${column} TEXT`;
     db.exec(stmt);
     healed.push(stmt);
   }
@@ -1108,40 +1292,125 @@ function readMeta(db: DatabaseSync, key: string): string | undefined {
   return row?.value;
 }
 
+/** The pre-release (v4/v5 build) parse of a birth: a zoneless SQLite value as UTC, else `Date.parse`. */
+function preReleaseParses(value: UidInput): boolean {
+  if (typeof value !== 'string' || value.length === 0) return false;
+  const iso = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(value)
+    ? `${value.replace(' ', 'T')}Z`
+    : value;
+  return !Number.isNaN(Date.parse(iso));
+}
+
 /**
- * Identity values derived before the current recipe marker (a pre-release
- * build filled them, e.g. a worktree CLI that opened a live store) are
- * cleared so the fill re-derives them with the release recipe, deterministic
- * with every other store. Safe ONLY while no uid has ever synced: once the
- * sync layer has written {@link ROW_IDENTITY_SYNCED_KEY}, the values are
- * shared identity and are kept (`refused`).
+ * The birth fingerprint the pre-release v4/v5 build derived (the recipe that
+ * reached live cleocode on 2026-09-28): raw birth text, raw facts, the task
+ * title from the earliest `task_created` audit event, and an AC's OWNER UID
+ * instead of its owner's fingerprint. Used only to recognise those values.
+ *
+ * @param db - Connection on the project `cleo.db`.
+ * @param table - Minted table.
+ * @param row - The stored row.
+ * @returns The pre-release fingerprint, or `null` when the table had none.
  */
-function resetStaleIdentity(db: DatabaseSync, scope: TableScope): RowUidFillReport['refill'] {
-  if (!hasTable(db, ROW_IDENTITY_META_TABLE)) return 'none';
+export function preReleaseBirthFp(
+  db: DatabaseSync,
+  table: string,
+  row: Readonly<Record<string, UidInput>>,
+): string | null {
+  const facts: UidInput[] = [];
+  const col = (c: string): UidInput => row[c] ?? null;
+  switch (table) {
+    case 'tasks_tasks': {
+      let title = col('title');
+      if (hasTable(db, 'tasks_audit_log')) {
+        const ev = db
+          .prepare(
+            `SELECT json_extract(details_json, '$.title') AS t FROM main.tasks_audit_log
+              WHERE task_id = ? AND +action = 'task_created' AND json_valid(details_json)
+              ORDER BY +timestamp, +id LIMIT 1`,
+          )
+          .get(col('id')) as { t: UidInput } | undefined;
+        if (ev && ev.t !== null && ev.t !== undefined) title = ev.t;
+      }
+      facts.push(title, col('type'));
+      break;
+    }
+    case 'tasks_sessions':
+      facts.push(col('name'));
+      break;
+    case 'tasks_task_acceptance_criteria': {
+      const owner = db
+        .prepare('SELECT uid FROM main.tasks_tasks WHERE id = ?')
+        .get(col('task_id')) as { uid: UidInput } | undefined;
+      facts.push(col('text'), owner?.uid ?? null);
+      break;
+    }
+    case 'tasks_task_acceptance_criteria_history':
+      facts.push(col('ac_id'), col('previous_text'), col('reason'));
+      break;
+    case 'tasks_evidence_ac_bindings':
+      facts.push(col('evidence_atom_id'), col('binding_type'), col('ac_text_hash'));
+      break;
+    default:
+      return null;
+  }
+  const spec = rowIdentitySpec('project', table);
+  const birth = spec?.birth ? col(spec.birth) : null;
+  const token =
+    birth === null
+      ? 'birth:unknown'
+      : preReleaseParses(birth)
+        ? String(birth)
+        : `birth:unparseable:${String(birth)}`;
+  return createHash('sha256')
+    .update(encodeUidInputs([ROW_BIRTH_DOMAIN, table, token, ...facts]))
+    .digest('hex')
+    .slice(0, 32);
+}
+
+/**
+ * Birth fingerprints a pre-release build derived (e.g. a worktree CLI that
+ * opened live cleocode, 2026-09-28) are cleared, so the fill re-derives them
+ * with the release recipe. Targeted: a value is cleared ONLY when it equals
+ * {@link preReleaseBirthFp} of its row; values from any other source (a
+ * device that received them by sync, a store whose meta table was lost) are
+ * kept, and alias rows are never touched. The uid recipe did not change, so
+ * uids are kept. Runs only while the recipe marker is missing or stale, and
+ * never once uids have synced ({@link ROW_IDENTITY_SYNCED_KEY}): `refused`.
+ */
+function resetStaleIdentity(
+  db: DatabaseSync,
+  scope: TableScope,
+  writers: RowIdentityWriters,
+): RowUidFillReport['refill'] {
+  if (scope !== 'project' || !hasTable(db, ROW_IDENTITY_META_TABLE)) return 'none';
   if (readMeta(db, ROW_IDENTITY_RECIPE_KEY) === ROW_IDENTITY_RECIPE) return 'none';
-  const present = ROW_IDENTITY[scope].filter((spec) => hasTable(db, spec.table));
-  const hasValues = present.some(
+  const minted = ROW_IDENTITY.project.filter(
     (spec) =>
-      db
-        .prepare(`SELECT 1 FROM main.${q(spec.table)} WHERE ${q(UID_COLUMN)} IS NOT NULL LIMIT 1`)
-        .get() !== undefined,
+      spec.kind === 'minted' &&
+      hasTable(db, spec.table) &&
+      columnsOf(db, spec.table).has(BIRTH_FP_COLUMN),
   );
-  if (!hasValues) return 'none';
+  const stale: Array<{ table: string; rowid: number }> = [];
+  for (const spec of minted) {
+    const rows = db
+      .prepare(
+        `SELECT rowid AS _rowid, * FROM main.${q(spec.table)} WHERE ${q(BIRTH_FP_COLUMN)} IS NOT NULL`,
+      )
+      .all() as Array<Record<string, UidInput> & { _rowid: number }>;
+    for (const row of rows) {
+      if (row[BIRTH_FP_COLUMN] === preReleaseBirthFp(db, spec.table, row)) {
+        stale.push({ table: spec.table, rowid: row._rowid });
+      }
+    }
+  }
+  if (stale.length === 0) return 'none';
   if (readMeta(db, ROW_IDENTITY_SYNCED_KEY) !== undefined) return 'refused';
   db.exec('SAVEPOINT row_identity_reset');
   try {
-    for (const spec of present) {
-      const aliasTable = uidIsPrimaryKey(db, spec.table);
-      if (aliasTable) {
-        db.exec(`DELETE FROM main.${q(spec.table)}`);
-        continue;
-      }
-      const cols = rowIdentityColumns(scope, spec.table).filter((c) =>
-        columnsOf(db, spec.table).has(c),
-      );
-      db.exec(`UPDATE main.${q(spec.table)} SET ${cols.map((c) => `${q(c)} = NULL`).join(', ')}`);
+    for (const { table, rowid } of stale) {
+      writers.clearBirthFpNative(db, table, rowid);
     }
-    if (hasTable(db, AC_UID_GRAVEYARD)) db.exec(`DELETE FROM main.${AC_UID_GRAVEYARD}`);
     db.exec('RELEASE SAVEPOINT row_identity_reset');
   } catch (error) {
     db.exec('ROLLBACK TO SAVEPOINT row_identity_reset');
@@ -1151,22 +1420,55 @@ function resetStaleIdentity(db: DatabaseSync, scope: TableScope): RowUidFillRepo
   return 'cleared';
 }
 
-/** Record that the store's identity values follow {@link ROW_IDENTITY_RECIPE}. */
-function writeRecipeMarker(db: DatabaseSync): void {
+/**
+ * Record that the store's identity values follow {@link ROW_IDENTITY_RECIPE}.
+ * The fill writes it; {@link markRowIdentityShared} writes it too on the
+ * first receive (a device that pulls before it ever fills).
+ *
+ * @param db - Connection on the project `cleo.db`.
+ */
+export function writeRecipeMarker(
+  db: DatabaseSync,
+  writers: RowIdentityWriters = requireWriters(),
+): void {
   if (!hasTable(db, ROW_IDENTITY_META_TABLE)) return;
-  db.prepare(
-    `INSERT INTO main.${ROW_IDENTITY_META_TABLE} (key, value) VALUES (?, ?)
-     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-  ).run(ROW_IDENTITY_RECIPE_KEY, ROW_IDENTITY_RECIPE);
+  writers.writeRowIdentityMetaNative(db, ROW_IDENTITY_RECIPE_KEY, ROW_IDENTITY_RECIPE);
+}
+
+/**
+ * Record that identity values are now SHARED with other devices: the recipe
+ * marker, and {@link ROW_IDENTITY_SYNCED_KEY} (first write wins, with the
+ * direction). Called on the first receive (a pull-first clone that never
+ * filled) as well as before the first send; once present, the open pass
+ * never clears an identity value (spec §12.1).
+ *
+ * @param db - Connection on the project `cleo.db`.
+ * @param direction - `receive` (the merge applied a row or op) or `send`.
+ * @param writers - The chokepoint writers.
+ * @task T12746
+ */
+export function markRowIdentityShared(
+  db: DatabaseSync,
+  direction: 'send' | 'receive',
+  writers: RowIdentityWriters = requireWriters(),
+): void {
+  if (!hasTable(db, ROW_IDENTITY_META_TABLE)) return;
+  if (readMeta(db, ROW_IDENTITY_RECIPE_KEY) === undefined) writeRecipeMarker(db, writers);
+  if (readMeta(db, ROW_IDENTITY_SYNCED_KEY) !== undefined) return;
+  writers.writeRowIdentityMetaNative(
+    db,
+    ROW_IDENTITY_SYNCED_KEY,
+    JSON.stringify({ first: direction, at: new Date().toISOString() }),
+  );
 }
 
 export function prepareRowIdentity(
   db: DatabaseSync,
   scope: TableScope,
-  options: { readonly triggers?: boolean } = {},
+  options: { readonly triggers?: boolean; readonly writers?: RowIdentityWriters } = {},
 ): RowUidFillReport | null {
   if (ROW_IDENTITY[scope].length === 0) return null;
-  if (process.env[ROW_UID_FILL_KILL_SWITCH] === '1') return null;
+  if (!rowUidFillEnabled()) return null;
   const log = getLogger('row-identity');
   try {
     const healed = [
@@ -1174,15 +1476,16 @@ export function prepareRowIdentity(
       ...ensureRowIdentitySchema(db, scope),
     ];
     registerRowUidFunction(db, scope);
-    const refill = resetStaleIdentity(db, scope);
+    const writers = options.writers ?? requireWriters();
+    const refill = resetStaleIdentity(db, scope, writers);
     if (refill === 'refused') {
       log.error(
         { scope, marker: readMeta(db, ROW_IDENTITY_RECIPE_KEY) },
         'identity values predate the current recipe but uids have synced; kept as they are',
       );
     }
-    const filled = fillRowUids(db, scope);
-    if (refill !== 'refused') writeRecipeMarker(db);
+    const filled = fillRowUids(db, scope, writers);
+    if (refill !== 'refused') writeRecipeMarker(db, writers);
     const findings = rowIdentityFindings(db, scope);
     const report: RowUidFillReport = { ...filled, findings, healed, refill };
     if (options.triggers !== false) installRowUidTriggers(db, scope);

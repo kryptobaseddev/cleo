@@ -83,7 +83,7 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       key: ['id'],
       birth: 'recorded_at',
       content: ['ac_id', 'previous_text', 'reason'],
-      birthFacts: ['ac_id', 'previous_text', 'reason'],
+      birthFacts: ['ac_id', 'previous_text', 'reason', '@refFp:ac_uid'],
       storedRefUids: [{ column: 'ac_uid', from: 'ac_id', table: ACS }],
       task: 'T12341',
     },
@@ -92,7 +92,7 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       kind: 'minted',
       key: ['id'],
       birth: 'created_at',
-      birthFacts: ['evidence_atom_id', 'binding_type', 'ac_text_hash'],
+      birthFacts: ['evidence_atom_id', 'binding_type', 'ac_text_hash', '@refFp:ac_uid'],
       storedRefUids: [
         { column: 'ac_uid', from: 'ac_id', table: ACS },
         { column: 'ac_text_hash', from: 'ac_id', table: ACS, source: 'text_hash' },
@@ -160,6 +160,7 @@ export const ROW_IDENTITY_TABLES: Readonly<Record<TableScope, readonly string[]>
     'tasks_uid_aliases',
     'tasks_ac_uid_graveyard',
     'tasks_row_identity_meta',
+    'tasks_identity_quarantine',
   ],
   global: [],
 };

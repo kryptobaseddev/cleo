@@ -80,6 +80,9 @@
  * @epic T12322
  */
 
+// Row uids are opt-in (T12341); these tests exercise them.
+process.env.CLEO_ROW_UID_FILL = '1';
+
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 import {
@@ -104,7 +107,12 @@ import { bindConduitDomain } from '../conduit-sqlite.js';
 import { _resetDualScopeDbCache, openDualScopeDb } from '../dual-scope-db.js';
 import { getBrainDb } from '../memory-sqlite.js';
 import { getNexusDb } from '../nexus-sqlite.js';
-import { prepareRowIdentity, ROW_IDENTITY, rowIdentityColumns } from '../row-identity.js';
+import {
+  prepareRowIdentity,
+  preReleaseBirthFp,
+  ROW_IDENTITY,
+  rowIdentityColumns,
+} from '../row-identity.js';
 import { ROW_IDENTITY_TABLES } from '../row-identity-registry.js';
 import { getDb } from '../sqlite.js';
 import { classifyTable, isPortableTableClass } from '../table-classification.js';
@@ -1124,8 +1132,14 @@ describe('T12341: pre-release identity values are cleared and re-derived', () =>
       const file = join(testRoot, `${label}.db`);
       copyFileSync(db.source, file);
       const conn = openRaw(file);
-      conn.exec(`UPDATE tasks_tasks SET uid = lower(hex(randomblob(16))), birth_fp = 'pre-release';
-        DELETE FROM tasks_row_identity_meta;`);
+      // The pre-release (v4/v5) recipe's fingerprints, as live cleocode got them.
+      const set = conn.prepare('UPDATE tasks_tasks SET birth_fp = ? WHERE rowid = ?');
+      for (const row of conn.prepare('SELECT rowid AS r, * FROM tasks_tasks').all() as Array<
+        Record<string, string | null> & { r: number }
+      >) {
+        set.run(preReleaseBirthFp(conn, 'tasks_tasks', row), row.r);
+      }
+      conn.exec('DELETE FROM tasks_row_identity_meta');
       conn.close();
       return file;
     };
