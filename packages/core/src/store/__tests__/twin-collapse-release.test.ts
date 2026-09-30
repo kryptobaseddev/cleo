@@ -212,6 +212,25 @@ describe('refused before a recovery', () => {
     expect(marker('tasks_schema_meta', 'schema_meta').snapshot).toBe(snapshotPath());
   });
 
+  it("a marker naming a snapshot outside this store's backups/sqlite is refused (T12772)", async () => {
+    collapsedWithoutLoss();
+    const elsewhere = join(root, 'elsewhere');
+    mkdirSync(elsewhere, { recursive: true });
+    const foreign = join(elsewhere, `cleo.db.${ID}`);
+    writeFileSync(foreign, readFileSync(snapshotPath()));
+    markersNaming(foreign);
+    for (const o of [
+      { ...opts(), dryRun: true },
+      { ...opts(), confirm: true },
+    ])
+      await expect(releaseProjectTwinCollapseSnapshot(projectDir, ID, o)).rejects.toThrow(
+        /E_TWIN_COLLAPSE_RELEASE: the marker names .*elsewhere.*, outside this store's backup directory/,
+      );
+    expect(marker('tasks_schema_meta', 'schema_meta').snapshot).toBe(foreign);
+    expect(existsSync(join(elsewhere, `${ID}.meta.json`))).toBe(false);
+    expect(existsSync(auditPath())).toBe(false);
+  });
+
   it('a failed audit write refuses the release and restores the pin', async () => {
     collapsedWithoutLoss();
     writeFileSync(join(projectDir, '.cleo', 'audit'), 'not a directory');

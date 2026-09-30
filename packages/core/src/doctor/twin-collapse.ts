@@ -32,11 +32,12 @@
  * @task T12535
  */
 
-import { appendFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import { readMarkerSnapshots } from '../store/backup-sidecar.js';
 import {
   getDualScopeNativeDb,
   openDualScopeDb,
@@ -47,6 +48,7 @@ import { planMigrationSnapshot } from '../store/pre-repair-snapshot.js';
 import {
   applyTwinCollapseRecovery,
   collapseTwinTables,
+  E_TWIN_COLLAPSE_RECOVER,
   E_TWIN_COLLAPSE_RELEASE,
   inspectTwinCollapse,
   missingSnapshot,
@@ -189,10 +191,46 @@ export interface TwinCollapseRecoveryOptions extends OwnerStoreRewriteOptions {
   readonly pinSnapshot?: boolean;
 }
 
+/** A path with symlinks resolved as far as it exists (macOS `/var` is `/private/var`). */
+function realDir(dir: string): string {
+  try {
+    return realpathSync(dir);
+  } catch {
+    return resolve(dir);
+  }
+}
+
+/**
+ * Refuse a snapshot a marker records outside this store's own
+ * `.cleo/backups/sqlite/` (T12772): the recovery reads it and `--pin-snapshot`
+ * writes a sidecar next to it, so it must be this store's backup.
+ */
+function assertStoreSnapshot(
+  snapshot: string,
+  dbPath: string,
+  code: string = E_TWIN_COLLAPSE_RECOVER,
+): void {
+  const expected = join(dirname(dbPath), 'backups', 'sqlite');
+  if (realDir(dirname(snapshot)) === realDir(expected)) return;
+  throw new CleoError(
+    ExitCode.VALIDATION_ERROR,
+    `${code}: the marker names ${snapshot}, outside this store's backup directory ${expected}; refusing to read or pin it, nothing was changed`,
+    {
+      fix: `Copy that snapshot into ${expected} and point the marker at it, or run the recovery from the project that owns it.`,
+      details: { field: 'snapshot', expected, actual: snapshot },
+    },
+  );
+}
+
 /** Open the live store's snapshot read-only around `fn`; `null` when none is recorded. */
-function withRecoverySnapshot<T>(live: DatabaseSync, fn: (plan: TwinCollapseRecoveryPlan) => T): T {
+function withRecoverySnapshot<T>(
+  live: DatabaseSync,
+  dbPath: string,
+  fn: (plan: TwinCollapseRecoveryPlan) => T,
+): T {
   const probe = planTwinCollapseRecovery(live, null);
   if (probe.snapshot === null) return fn(probe); // never collapsed: nothing to recover
+  assertStoreSnapshot(probe.snapshot, dbPath);
   if (!existsSync(probe.snapshot)) throw missingSnapshot(probe.snapshot);
   const snap = openCleoDbSnapshot(probe.snapshot, { readOnly: true, applyPragmas: false });
   try {
@@ -234,31 +272,36 @@ export async function recoverTwinCollapse(
   if (dryRun) {
     const live = openCleoDbSnapshot(dbPath, { readOnly: true });
     try {
-      return withRecoverySnapshot(live.db, (plan) => ({ dbPath, dryRun, plan, receipt: null }));
+      return withRecoverySnapshot(live.db, dbPath, (plan) => ({
+        dbPath,
+        dryRun,
+        plan,
+        receipt: null,
+      }));
     } finally {
       live.close();
     }
   }
   assertOwnerStoreRewriteConfirmed('doctor twin-collapse --recover', dbPath, options);
-  // Checked before the store opens: a collapse run during the open may pin it.
+  // Checked before the store opens (a collapse run during the open may pin
+  // it), and only when there is something to recover (T12772).
   const ro = openCleoDbSnapshot(dbPath, { readOnly: true });
   let probe: TwinCollapseRecoveryPlan;
   try {
-    probe = planTwinCollapseRecovery(ro.db, null);
+    probe = withRecoverySnapshot(ro.db, dbPath, (plan) => plan);
   } finally {
     ro.close();
   }
-  if (probe.snapshot !== null) {
-    if (!existsSync(probe.snapshot)) throw missingSnapshot(probe.snapshot);
-    if (
-      !probe.snapshotPinned &&
-      !(options.pinSnapshot === true && pinRecoverySnapshot(probe.snapshot))
-    )
-      throw unpinnedSnapshot(probe.snapshot);
-  }
+  if (
+    probe.snapshot !== null &&
+    probe.changes &&
+    !probe.snapshotPinned &&
+    !(options.pinSnapshot === true && pinRecoverySnapshot(probe.snapshot))
+  )
+    throw unpinnedSnapshot(probe.snapshot);
   const handle = await openDualScopeDb('project', projectRoot);
   const live = getDualScopeNativeDb(handle);
-  return withRecoverySnapshot(live, (preview) => ({
+  return withRecoverySnapshot(live, dbPath, (preview) => ({
     dbPath,
     dryRun,
     ...applyTwinCollapseRecovery(live, preview),
@@ -345,6 +388,7 @@ export async function releaseProjectTwinCollapseSnapshot(
   if (!existsSync(dbPath)) throw new Error(`no project store at ${dbPath}`);
   const withSnapshot = <T>(live: DatabaseSync, fn: (snap: DatabaseSync | null) => T): T => {
     const path = planSnapshotRelease(live, id, null).snapshot;
+    if (path !== null) assertStoreSnapshot(path, dbPath, E_TWIN_COLLAPSE_RELEASE); // T12772
     if (path === null || !existsSync(path)) return fn(null);
     const snap = openCleoDbSnapshot(path, { readOnly: true, applyPragmas: false });
     try {
@@ -430,7 +474,16 @@ export function twinCollapseDoctorCheck(projectRoot: string): TwinCollapseDoctor
       message: `twin collapse state unreadable: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
-  const details = { dbPath: report.dbPath, pairs: report.pairs, preflight: report.preflight };
+  // T12770: rotation keeps every migration backup while a marker is unreadable.
+  const unreadableMarkers = report.storeExists
+    ? readMarkerSnapshots(join(dirname(report.dbPath), 'backups', 'sqlite')).unreadable
+    : [];
+  const details = {
+    dbPath: report.dbPath,
+    pairs: report.pairs,
+    preflight: report.preflight,
+    unreadableMarkers,
+  };
   const failed = report.pairs.filter((p) => p.state === 'failed');
   if (failed.length > 0 || report.preflight?.ok === false) {
     const first = failed[0]?.failure;
@@ -464,7 +517,8 @@ export function twinCollapseDoctorCheck(projectRoot: string): TwinCollapseDoctor
     conflicted.length > 0 ||
     unguarded.length > 0 ||
     unpinned.length > 0 ||
-    missing.length > 0
+    missing.length > 0 ||
+    unreadableMarkers.length > 0
   ) {
     return {
       check: 'twin_collapse',
@@ -484,6 +538,9 @@ export function twinCollapseDoctorCheck(projectRoot: string): TwinCollapseDoctor
           : '',
         unpinned.length > 0
           ? `the pre-collapse snapshot of ${unpinned.map((p) => `${p.table} (${p.snapshotPath})`).join(', ')} is not pinned yet; the next open pins it so rotation never deletes it`
+          : '',
+        unreadableMarkers.length > 0
+          ? `the twin-collapse marker ${unreadableMarkers.join(', ')} cannot be read, so backup rotation keeps every migration backup in .cleo/backups/sqlite until it is repaired`
           : '',
         missing.length > 0
           ? `the pre-collapse snapshot of ${missing.map((p) => `${p.table} (${p.snapshotPath})`).join(', ')} is missing: the store before the collapse can no longer be recovered from it`
