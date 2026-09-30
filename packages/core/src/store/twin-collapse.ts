@@ -1890,7 +1890,11 @@ function collapsePair(
       task: 'T12535',
       collapsedAt: state?.collapsedAt || now,
       lastMergedAt: now,
-      snapshot: state?.snapshot ?? snapshotPath,
+      // Only an initial collapse records the snapshot it took. A later one
+      // keeps what the marker holds, including `null` after an owner
+      // released it (T12767): the snapshot another pair's initial collapse
+      // took is not this pair's pre-collapse store.
+      snapshot: state === undefined ? snapshotPath : state.snapshot,
       hashes: { bare: pair.bareHashes(db), twin: pair.twinHashes(db) },
       dropped: state === undefined ? plan.dropped : state.dropped,
       kept: state === undefined ? plan.kept.slice(0, MAX_CONFLICTS) : state.kept,

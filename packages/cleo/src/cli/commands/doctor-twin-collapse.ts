@@ -89,6 +89,18 @@ export const doctorTwinCollapseCommand = defineCommand({
     const projectRoot = getProjectRoot();
     // T12708: the invocation directory; core never falls back to it.
     const guard = { cwd: process.cwd(), confirmOwnerStore: args['confirm-owner-store'] === true };
+    // One action per run: `--release-snapshot` with `--recover` would release
+    // the snapshot the recovery is about to read (T12767 review).
+    const actions = twinCollapseActions(args);
+    if (actions.length > 1) {
+      cliError(
+        `E_INVALID_INPUT: ${actions.join(' and ')} are separate actions; run them one at a time (--recover before --release-snapshot)`,
+        'E_INVALID_INPUT',
+        { name: 'Error', fix: 'cleo doctor twin-collapse --recover --dry-run' },
+      );
+      process.exitCode = 2;
+      return;
+    }
     try {
       if (typeof args.rollback === 'string' && args.rollback.length > 0) {
         const result = await rollbackTwinCollapse(projectRoot, args.rollback, guard);
@@ -163,4 +175,15 @@ function reportTwinCollapseError(error: unknown, retry: boolean): void {
     details: error instanceof CleoError ? error.details : undefined,
   });
   process.exitCode = error instanceof CleoError ? error.code : 1;
+}
+
+/** The mutually exclusive actions a `doctor twin-collapse` run asks for. */
+function twinCollapseActions(args: Record<string, unknown>): string[] {
+  const named = (key: string) => typeof args[key] === 'string' && (args[key] as string).length > 0;
+  return [
+    args.recover === true ? '--recover' : '',
+    named('release-snapshot') ? '--release-snapshot' : '',
+    named('rollback') ? '--rollback' : '',
+    args.retry === true ? '--retry' : '',
+  ].filter(Boolean);
 }

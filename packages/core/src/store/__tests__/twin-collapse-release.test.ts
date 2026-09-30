@@ -33,10 +33,15 @@ import {
   rollbackTwinCollapse,
   TWIN_COLLAPSE_RELEASE_AUDIT_FILE,
 } from '../../doctor/twin-collapse.js';
+import { addSticky } from '../../sticky/create.js';
 import { rotateBackupDir } from '../backup-sidecar.js';
 import { closeBrainDb, getBrainDb } from '../memory-sqlite.js';
 import { getDb, getNativeDb, resetDbState } from '../sqlite.js';
-import { pinRecoverySnapshot, TWIN_COLLAPSE_MARKER_PREFIX } from '../twin-collapse.js';
+import {
+  collapseTwinTables,
+  pinRecoverySnapshot,
+  TWIN_COLLAPSE_MARKER_PREFIX,
+} from '../twin-collapse.js';
 
 let root: string;
 let projectDir: string;
@@ -304,6 +309,27 @@ describe('released after a recovery, or when nothing needed recovering', () => {
 
     rotateBackupDir(backupDir(), 10, 'migration');
     expect(existsSync(snapshotPath())).toBe(false);
+  });
+
+  it('a released marker stays released when a later collapse takes a snapshot for another pair', async () => {
+    const note = (await addSticky({ content: 'n', tags: [] }, projectDir)).id;
+    collapsedWithoutLoss();
+    await releaseProjectTwinCollapseSnapshot(projectDir, ID, { ...opts(), confirm: true });
+    // schema_meta: an incremental change (an older build wrote the bare table).
+    setMeta('schema_meta', 'written_by_an_older_build', '"x"');
+    // sticky_tags: its initial collapse again, with a bare-only tag, so it takes a snapshot.
+    db()
+      .prepare('DELETE FROM main.brain_schema_meta WHERE key = ?')
+      .run(`${TWIN_COLLAPSE_MARKER_PREFIX}sticky_tags`);
+    db()
+      .prepare('INSERT INTO main.sticky_tags (sticky_id, tag) VALUES (?, ?)')
+      .run(note, 'bare-only');
+    const receipts = collapseTwinTables(db(), join(projectDir, '.cleo', 'cleo.db'));
+    const taken = receipts.find((r) => r.table === 'sticky_tags')?.snapshotPath;
+    expect(taken).toEqual(expect.stringContaining('.migration-'));
+    expect(receipts.find((r) => r.table === 'schema_meta')?.status).not.toBe('unchanged');
+    expect(marker('tasks_schema_meta', 'schema_meta').snapshot).toBeNull();
+    expect(marker('brain_schema_meta', 'sticky_tags').snapshot).toBe(taken);
   });
 
   it('a store that lost nothing is released on the no-recovery-needed check', async () => {
