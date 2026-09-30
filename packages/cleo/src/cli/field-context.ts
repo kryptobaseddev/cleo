@@ -55,3 +55,34 @@ export function resolveFieldContext(opts: Record<string, unknown>): FieldExtract
   };
   return resolveFieldExtraction(input);
 }
+
+/**
+ * Run an internal step of a composite command with the output pointer
+ * (`--field`) suspended, restoring it afterwards.
+ *
+ * `--field` addresses the envelope of the command the caller typed. A command
+ * that dispatches another operation as one of its steps (`cleo done` runs
+ * `tasks.complete`) must not hand that pointer to the step: dispatch
+ * middleware validates it against the step's own output contract and refuses
+ * the step when the pointer names a field only the outer envelope has
+ * (T12839 — `cleo done … --field /data/completed` recorded every gate, then
+ * left the task pending). `--fields` / `--mvi` are left unchanged.
+ *
+ * @param step - The internal dispatch to run.
+ * @returns The step's result.
+ * @example
+ * ```ts
+ * const res = await withoutOutputPointer(() => dispatchRaw('mutate', 'tasks', 'complete', p));
+ * ```
+ * @task T12839
+ */
+export async function withoutOutputPointer<T>(step: () => Promise<T>): Promise<T> {
+  const saved = currentContext;
+  const { field: _field, ...rest } = saved;
+  currentContext = rest;
+  try {
+    return await step();
+  } finally {
+    currentContext = saved;
+  }
+}
