@@ -17,6 +17,7 @@
  * @task T12634
  */
 
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -31,8 +32,11 @@ import { checkTaskEvidenceContext, parseEvidence } from '../../tasks/evidence.js
 import {
   type CommitCheck,
   evaluateMergeCommitChecks,
+  listMainDescendants,
+  listPathTouchingMainCommits,
   type ResolveCiEvidenceOptions,
   readCiSatisfies,
+  recheckCiDescendantAtom,
   resolveCiEvidenceAtom,
 } from '../ci-evidence.js';
 import type { PrAtomResolution } from '../pr-evidence.js';
@@ -628,6 +632,350 @@ describe('resolveCiEvidenceAtom', () => {
     });
   });
 
+  describe('green main CI on a descendant commit (T12742)', () => {
+    beforeEach(() => writeContext(optedIn));
+    const CI_WORKFLOW = '.github/workflows/ci.yml';
+    /** The whole ci.yml run was cancelled by the concurrency group; Lockfile Check is green. */
+    const cancelledMerge = allGreen.map((c) =>
+      c.workflowPath === CI_WORKFLOW ? { ...c, conclusion: 'cancelled' } : c,
+    );
+    const onSha = (sha: string, patch: Partial<CommitCheck> = {}) =>
+      allGreen.map((c) => ({ ...c, headSha: sha, event: 'push', ...patch }));
+    const DESC1 = '1'.repeat(40);
+    const DESC2 = '2'.repeat(40);
+    const OTHER_MERGE = '4'.repeat(40);
+    const DIRECT = '3'.repeat(40);
+
+    function descend(
+      byDescendant: Record<string, CommitCheck[]>,
+      extra: Partial<ResolveCiEvidenceOptions> = {},
+    ) {
+      const fetched: string[] = [];
+      const run = resolve({
+        context: context('T1', ['testsPassed', 'qaPassed']),
+        fetchChecks: async (sha) => {
+          fetched.push(sha);
+          return {
+            ok: true,
+            checks:
+              sha === MERGE ? cancelledMerge : sha === HEAD ? onHead : (byDescendant[sha] ?? []),
+          };
+        },
+        listDescendants: () => Object.keys(byDescendant),
+        isAncestor: (a, d) => a === MERGE && d in byDescendant,
+        touchingCommits: () => [],
+        ...extra,
+      });
+      return { run, fetched };
+    }
+
+    it('cancelled merge-commit run + green PR head + green push run on an untouched descendant: accepted, provenance recorded', async () => {
+      const seen: string[][] = [];
+      const { run } = descend(
+        { [DESC1]: onSha(DESC1) },
+        {
+          touchingCommits: (_from, _to, paths) => {
+            seen.push([...paths]);
+            return [];
+          },
+        },
+      );
+      const r = await run;
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      const atom = r.ok ? r.atom : null;
+      expect(atom?.kind === 'ci' && atom.descendantSha).toBe(DESC1);
+      expect(atom?.kind === 'ci' && atom.descendantRange).toBe(`${MERGE}..${DESC1}`);
+      expect(atom?.kind === 'ci' && atom.descendantPrHeadSha).toBe(HEAD);
+      // The PR's files AND the pinned CI definitions were both checked.
+      expect(seen).toContainEqual(['a.ts']);
+      expect(seen.flat()).toEqual(
+        expect.arrayContaining([
+          '.github/workflows/ci.yml',
+          '.github/workflows/lockfile-check.yml',
+          '.github/actions',
+        ]),
+      );
+      const bySha = Object.fromEntries(
+        (atom?.kind === 'ci' ? atom.checks : []).map((c) => [c.name, c.sha]),
+      );
+      expect(bySha).toEqual({ CI: DESC1, 'Lockfile Check': MERGE, 'Contracts Dep Lint': DESC1 });
+      expect(atom?.kind === 'ci' && atom.gateChecks?.testsPassed).toContain(
+        'Unit Tests (ubuntu-latest, shard 1)',
+      );
+    });
+
+    it('skips a descendant whose own run was also cancelled, accepting the next green one', async () => {
+      const { run } = descend({
+        [DESC1]: onSha(DESC1).map((c) =>
+          c.workflowPath === CI_WORKFLOW ? { ...c, conclusion: 'cancelled' } : c,
+        ),
+        [DESC2]: onSha(DESC2),
+      });
+      const r = await run;
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      expect(r.ok && r.atom.kind === 'ci' && r.atom.descendantSha).toBe(DESC2);
+    });
+
+    it('a FAILED merge-commit run is never stood in for, even with a green descendant', async () => {
+      const failedMerge = allGreen.map((c) =>
+        c.name === 'CI' ? { ...c, conclusion: 'failure' } : c,
+      );
+      const { run, fetched } = descend(
+        { [DESC1]: onSha(DESC1) },
+        {
+          fetchChecks: async (sha) => ({
+            ok: true,
+            checks: sha === MERGE ? failedMerge : onSha(DESC1),
+          }),
+        },
+      );
+      const r = await run;
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.codeName).toBe('E_EVIDENCE_TESTS_FAILED');
+      expect(!r.ok && r.reason).toMatch(/CI: failure on merge commit.*real failure/s);
+      expect(fetched).not.toContain(DESC1);
+    });
+
+    it('a job that failed before the run was cancelled is a real failure: refused', async () => {
+      const partlyFailed = cancelledMerge.map((c) =>
+        c.name === 'Unit Tests (ubuntu-latest, shard 2)' ? { ...c, conclusion: 'failure' } : c,
+      );
+      const { run } = descend(
+        { [DESC1]: onSha(DESC1) },
+        {
+          fetchChecks: async (sha) => ({
+            ok: true,
+            checks: sha === MERGE ? partlyFailed : onSha(DESC1),
+          }),
+        },
+      );
+      const r = await run;
+      expect(!r.ok && r.reason).toMatch(/Unit Tests \(ubuntu-latest, shard 2\): failure on merge/);
+    });
+
+    it('a timed-out merge-commit run is a failure, not a cancellation: refused', async () => {
+      const timedOut = allGreen.map((c) =>
+        c.workflowPath === CI_WORKFLOW ? { ...c, conclusion: 'timed_out' } : c,
+      );
+      const { run } = descend(
+        { [DESC1]: onSha(DESC1) },
+        {
+          fetchChecks: async (sha) => ({
+            ok: true,
+            checks: sha === MERGE ? timedOut : onSha(DESC1),
+          }),
+        },
+      );
+      expect((await run).ok).toBe(false);
+    });
+
+    it('no later commit on main: refused, cancelled-only is not green', async () => {
+      const { run } = descend({});
+      const r = await run;
+      expect(!r.ok && r.reason).toMatch(/CI: cancelled on merge commit/);
+      expect(!r.ok && r.reason).toMatch(
+        /No later main run stands in: no later origin\/main commit/,
+      );
+    });
+
+    it('only cancelled runs on every descendant: refused', async () => {
+      const cancelled = (sha: string) =>
+        onSha(sha).map((c) =>
+          c.workflowPath === CI_WORKFLOW ? { ...c, conclusion: 'cancelled' } : c,
+        );
+      const { run } = descend({ [DESC1]: cancelled(DESC1), [DESC2]: cancelled(DESC2) });
+      expect((await run).ok).toBe(false);
+    });
+
+    it('the first decisive descendant FAILED: refused, never shopping past it to a later green run', async () => {
+      const { run } = descend({
+        [DESC1]: onSha(DESC1).map((c) => (c.name === 'CI' ? { ...c, conclusion: 'failure' } : c)),
+        [DESC2]: onSha(DESC2),
+      });
+      const r = await run;
+      expect(!r.ok && r.reason).toMatch(/CI: failure on later origin\/main commit 111111111111/);
+    });
+
+    it('a commit that is not a descendant of the merge never counts', async () => {
+      const { run } = descend({ [DESC1]: onSha(DESC1) }, { isAncestor: () => false });
+      expect((await run).ok).toBe(false);
+    });
+
+    it('a NON-merge commit on main changed the PR files before the descendant: refused', async () => {
+      const { run } = descend(
+        { [DESC1]: onSha(DESC1) },
+        { touchingCommits: () => [{ sha: DIRECT, parents: 1 }] },
+      );
+      const r = await run;
+      expect(!r.ok && r.reason).toMatch(
+        /the PR's files changed on origin\/main by commit 333333333333/,
+      );
+    });
+
+    it('a later MERGE that touched the PR files (a fix landing after it) is refused too', async () => {
+      const { run } = descend(
+        { [DESC1]: onSha(DESC1) },
+        {
+          touchingCommits: (_from, _to, paths) =>
+            paths.includes('a.ts') ? [{ sha: OTHER_MERGE, parents: 2 }] : [],
+        },
+      );
+      const r = await run;
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toMatch(
+        /the PR's files changed on origin\/main by merge 444444444444/,
+      );
+    });
+
+    it('a range commit that edited a pinned workflow file is refused (CI may have been weakened)', async () => {
+      const { run } = descend(
+        { [DESC1]: onSha(DESC1) },
+        {
+          touchingCommits: (_from, _to, paths) =>
+            paths.includes('.github/workflows/ci.yml') ? [{ sha: OTHER_MERGE, parents: 2 }] : [],
+        },
+      );
+      const r = await run;
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toMatch(/a CI definition .*changed on origin\/main by merge 4444/);
+    });
+
+    it("the PR head's own pull_request run was RED: a green descendant never rescues it", async () => {
+      const redHead = onHead.map((c) =>
+        c.workflowPath === CI_WORKFLOW && (c.name === 'CI' || c.source === 'workflow-run')
+          ? { ...c, conclusion: 'failure' }
+          : c,
+      );
+      const { run, fetched } = descend(
+        { [DESC1]: onSha(DESC1) },
+        {
+          fetchChecks: async (sha) => ({
+            ok: true,
+            checks: sha === MERGE ? cancelledMerge : sha === HEAD ? redHead : onSha(DESC1),
+          }),
+        },
+      );
+      const r = await run;
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toMatch(/CI: failure on PR head bbbbbbbbbbbb/);
+      expect(fetched).not.toContain(DESC1);
+    });
+
+    it('a PR head with no pull_request run at all is refused', async () => {
+      const { run } = descend(
+        { [DESC1]: onSha(DESC1) },
+        {
+          fetchChecks: async (sha) => ({
+            ok: true,
+            checks: sha === MERGE ? cancelledMerge : sha === HEAD ? [] : onSha(DESC1),
+          }),
+        },
+      );
+      const r = await run;
+      expect(!r.ok && r.reason).toMatch(/no pull_request run on PR head/);
+    });
+
+    it('a PENDING run on the first candidate refuses with "wait", never moving on to a later green one', async () => {
+      const { run, fetched } = descend({
+        [DESC1]: onSha(DESC1).map((c) =>
+          c.name === 'CI' ? { ...c, status: 'in_progress', conclusion: null } : c,
+        ),
+        [DESC2]: onSha(DESC2),
+      });
+      const r = await run;
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toMatch(/pending \(in_progress\).*wait for 111111111111/);
+      expect(fetched).not.toContain(DESC2);
+    });
+
+    it('unreadable history between merge and descendant: refused', async () => {
+      const { run } = descend({ [DESC1]: onSha(DESC1) }, { touchingCommits: () => null });
+      expect((await run).ok).toBe(false);
+    });
+
+    it('a pull_request run on the descendant never stands in; only push runs on main do', async () => {
+      const { run } = descend({ [DESC1]: onSha(DESC1, { event: 'pull_request' }) });
+      expect((await run).ok).toBe(false);
+    });
+
+    it('a missing merge-commit run is not a cancellation: refused', async () => {
+      const { run } = descend(
+        { [DESC1]: onSha(DESC1) },
+        {
+          fetchChecks: async (sha) => ({
+            ok: true,
+            checks: sha === MERGE ? allGreen.filter((c) => c.name !== 'CI') : onSha(DESC1),
+          }),
+        },
+      );
+      const r = await run;
+      expect(!r.ok && r.reason).toMatch(/only a cancelled or skipped run is stood in for/);
+    });
+  });
+
+  describe('recheckCiDescendantAtom — complete-time re-check of a descendant stand-in (T12742)', () => {
+    const DESC = '1'.repeat(40);
+    const atom: Extract<EvidenceAtom, { kind: 'ci' }> = {
+      kind: 'ci',
+      prNumber: 42,
+      mergeCommitSha: MERGE,
+      checks: [
+        {
+          name: 'CI',
+          conclusion: 'success',
+          sha: DESC,
+          app: 'github-actions',
+          workflow: '.github/workflows/ci.yml',
+          event: 'push',
+        },
+        { name: 'Lockfile Check', conclusion: 'success', sha: MERGE },
+      ],
+      descendantSha: DESC,
+      descendantRange: `${MERGE}..${DESC}`,
+      descendantPrHeadSha: HEAD,
+      requiredSource: 'project-context',
+    };
+    const onDesc = allGreen.map((c) => ({ ...c, headSha: DESC, event: 'push' }));
+    const fetchFrom =
+      (desc: CommitCheck[], head: CommitCheck[] = onHead) =>
+      async (sha: string) => ({ ok: true as const, checks: sha === DESC ? desc : head });
+
+    it('still green: ok', async () => {
+      expect(await recheckCiDescendantAtom(atom, '/nowhere', fetchFrom(onDesc))).toEqual({
+        ok: true,
+      });
+    });
+
+    it('a re-run attempt on the descendant went red: fails', async () => {
+      const rerun = [...onDesc, { ...onDesc[0]!, id: 99, conclusion: 'failure' }];
+      const r = await recheckCiDescendantAtom(atom, '/nowhere', fetchFrom(rerun));
+      expect(!r.ok && r.reason).toMatch(/CI: now failure \(push\)/);
+    });
+
+    it('a re-run attempt on the PR head went red: fails', async () => {
+      const rerun = [...onHead, { ...onHead[0]!, id: 99, conclusion: 'failure' }];
+      const r = await recheckCiDescendantAtom(atom, '/nowhere', fetchFrom(onDesc, rerun));
+      expect(!r.ok && r.reason).toMatch(/CI: now failure \(pull_request\)/);
+    });
+
+    it('checks cannot be fetched: fails closed', async () => {
+      const r = await recheckCiDescendantAtom(atom, '/nowhere', async () => ({
+        ok: false,
+        reason: 'offline',
+      }));
+      expect(!r.ok && r.reason).toMatch(/cannot re-check ci:42.*offline/);
+    });
+
+    it('an atom without a descendant is untouched', async () => {
+      const plain = { ...atom, descendantSha: undefined };
+      expect(
+        await recheckCiDescendantAtom(plain, '/nowhere', async () => {
+          throw new Error('must not fetch');
+        }),
+      ).toEqual({ ok: true });
+    });
+  });
+
   it('refuses failing merge-commit CI with E_EVIDENCE_TESTS_FAILED', async () => {
     writeContext(optedIn);
     const r = await resolve({
@@ -668,5 +1016,70 @@ describe('gate rules accept a validated ci: atom for testsPassed and qaPassed on
       /lacks verified task linkage/,
     );
     expect(checkTaskEvidenceContext(context('T1'), 'testsPassed', [])).not.toBeNull();
+  });
+});
+
+describe('git defaults for the descendant rule, on a real repository (T12742)', () => {
+  let repo: string;
+  const git = (...args: string[]): string =>
+    execFileSync('git', args, { cwd: repo, encoding: 'utf-8' }).trim();
+  const write = (file: string, body: string): void => writeFileSync(join(repo, file), body);
+
+  beforeEach(() => {
+    repo = mkdtempSync(join(tmpdir(), 'ci-descendant-git-'));
+    git('init', '-q', '-b', 'main');
+    git('config', 'user.email', 'test@example.com');
+    git('config', 'user.name', 'test');
+    git('config', 'commit.gpgsign', 'false');
+  });
+  afterEach(() => rmSync(repo, { recursive: true, force: true }));
+
+  /** init → M1 (merges pr1: a.ts) → direct b.ts → M2 (merges pr2: a.ts) → direct b.ts. */
+  function history(): { m1: string; m2: string; directB: string; tip: string } {
+    write('a.ts', '1\n');
+    write('b.ts', '1\n');
+    git('add', '.');
+    git('commit', '-qm', 'init');
+    git('checkout', '-qb', 'pr1');
+    write('a.ts', '2\n');
+    git('commit', '-qam', 'pr1');
+    git('checkout', '-q', 'main');
+    git('merge', '-q', '--no-ff', 'pr1', '-m', 'M1');
+    const m1 = git('rev-parse', 'HEAD');
+    git('checkout', '-qb', 'pr2');
+    write('a.ts', '3\n');
+    git('commit', '-qam', 'pr2');
+    git('checkout', '-q', 'main');
+    write('b.ts', 'x\n');
+    git('commit', '-qam', 'direct-b');
+    const directB = git('rev-parse', 'HEAD');
+    git('merge', '-q', '--no-ff', 'pr2', '-m', 'M2');
+    const m2 = git('rev-parse', 'HEAD');
+    write('b.ts', 'y\n');
+    git('commit', '-qam', 'direct-b2');
+    return { m1, m2, directB, tip: git('rev-parse', 'HEAD') };
+  }
+
+  it('lists the first-parent descendants of the merge commit, oldest first', () => {
+    const { m1, m2, directB, tip } = history();
+    expect(listMainDescendants(m1, 'main', repo)).toEqual([directB, m2, tip]);
+  });
+
+  it('a later merge that brought another PR edit of the file is listed as a merge', () => {
+    const { m1, m2, tip } = history();
+    expect(listPathTouchingMainCommits(m1, tip, ['a.ts'], repo)).toEqual([{ sha: m2, parents: 2 }]);
+  });
+
+  it('a direct commit on main that edited the file is listed as a non-merge', () => {
+    const { m1, directB, tip } = history();
+    const touching = listPathTouchingMainCommits(m1, tip, ['b.ts'], repo) ?? [];
+    expect(touching.map((c) => c.parents)).toEqual([1, 1]);
+    expect(touching.map((c) => c.sha)).toContain(directB);
+  });
+
+  it('an unknown commit yields null, never an empty (vacuous) answer', () => {
+    history();
+    expect(listPathTouchingMainCommits('f'.repeat(40), 'main', ['a.ts'], repo)).toBeNull();
+    expect(listMainDescendants('f'.repeat(40), 'main', repo)).toBeNull();
   });
 });
