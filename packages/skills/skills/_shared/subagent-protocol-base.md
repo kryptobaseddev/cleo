@@ -221,5 +221,5 @@ If work cannot proceed:
 | Returning full content | Bloats orchestrator context | Return only summary message |
 | Manual JSONL append | No validation, race conditions | Use `cleo research add` |
 | Missing manifest entry | Orchestrator can't find findings | Always create manifest entry |
-| Skipping task start | Protocol violation | Bind a session first (`cleo session start --scope global --name "<name>"`, or `cleo session resume <id>`), then always `cleo start` before work; an unbound `cleo start` fails with `E_SESSION_UNBOUND` |
+| Skipping task start | Protocol violation | Always `cleo start` before work. If `cleo start` fails with `E_SESSION_UNBOUND` (spawned workers and subagents are already bound), run `cleo session start --scope global --name "<name>"` or `cleo session resume <id>` first. |
 | Incomplete checklist | Protocol violation | Verify all items before return |

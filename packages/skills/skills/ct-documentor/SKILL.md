@@ -851,9 +851,10 @@ Before completing, verify:
 # 1. Read task details
 cleo show {TASK_ID}
 
-# 2. Start task — bind a session first (or 'cleo session resume <id>');
-#    an unbound 'cleo start' fails with E_SESSION_UNBOUND
-cleo session start --scope global --name "<what you are doing>"
+# 2. Start task. If it fails with E_SESSION_UNBOUND (spawned workers and
+#    subagents are already bound), run
+#    'cleo session start --scope global --name "<what you are doing>"'
+#    or 'cleo session resume <id>' first, then retry.
 cleo start {TASK_ID}
 
 # 3. Execute documentation workflow (phases 1-4)

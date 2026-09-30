@@ -272,7 +272,7 @@ describe('unbound callers never write the legacy focus key (T12501 AC2)', () => 
     const err = await inTerminal({}, () => startTask('T1', root)).catch((e) => e);
     expect((err as CleoError).code).toBe(ExitCode.SESSION_UNBOUND);
     expect((err as CleoError).message).toContain(
-      'this shell has no stable terminal identity; prefix commands with CLEO_SESSION_ID=<id> (see `cleo session status`)',
+      'this shell has no stable terminal identity; prefix commands with CLEO_SESSION_ID=<the id `cleo session start` printed>, or, in a multi-agent host, set CLEO_AGENT_ID per agent',
     );
   });
 

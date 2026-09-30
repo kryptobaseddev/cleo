@@ -59,7 +59,7 @@ Context injection for epic planning and task decomposition tasks spawned via cle
 ### Execution Sequence
 
 1. Read task: `cleo show {{TASK_ID}}`
-2. Start task: `cleo session start --scope global --name "<what you are doing>"` first (or `cleo session resume <id>`; an unbound `cleo start` fails with `E_SESSION_UNBOUND`), then `cleo start {{TASK_ID}}`
+2. Start task: `cleo start {{TASK_ID}}`. If `cleo start` fails with `E_SESSION_UNBOUND` (spawned workers and subagents are already bound), run `cleo session start --scope global --name "<name>"` or `cleo session resume <id>` first.
 3. Check existing work: `cleo find "keyword"`, `cleo list --type epic`
 4. Create epic and child tasks
 5. Attach files and link research

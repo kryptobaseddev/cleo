@@ -100,21 +100,40 @@ export async function resolveFocusSessionId(cwd?: string): Promise<string | null
     // No store at this path, or one without the session / binding tables,
     // cannot bind anyone: the caller is unbound. Anything else is a real fault
     // and surfaces as such.
-    if (err instanceof Error && isMissingSessionSchema(err)) return null;
+    if (err instanceof Error && (await isMissingSessionStore(err, cwd))) return null;
     throw err;
   }
 }
 
 /**
- * Whether an error means there is no session store to bind from — the store
- * directory does not exist (`ENOENT`), or it predates the session / binding
- * tables — rather than a real store fault (T12501).
+ * Whether an error means there is no session store to bind from — the
+ * project's own `.cleo` store does not exist (`ENOENT` on a path under
+ * `<project>/.cleo`), or it predates the session / binding tables — rather
+ * than a real fault (T12501). An `ENOENT` anywhere else (a missing global
+ * store, config or binary) is a real fault and is not swallowed.
  *
  * @param err - The caught error; drizzle wraps the SQLite error in `cause`.
+ * @param cwd - The project root resolution was asked for (defaults to the
+ *   resolved project root).
  * @returns `true` when no session can exist at this path.
  */
-function isMissingSessionSchema(err: Error): boolean {
-  if ('code' in err && err.code === 'ENOENT') return true;
+async function isMissingSessionStore(err: Error, cwd: string | undefined): Promise<boolean> {
+  if ('code' in err && err.code === 'ENOENT') {
+    const missing = 'path' in err && typeof err.path === 'string' ? err.path : null;
+    if (missing === null) return false;
+    let root = cwd;
+    if (root === undefined) {
+      try {
+        root = (await import('../paths.js')).getProjectRoot();
+      } catch {
+        return false;
+      }
+    }
+    const { resolve, sep } = await import('node:path');
+    const store = resolve(root, '.cleo');
+    const target = resolve(missing);
+    return target === store || target.startsWith(store + sep);
+  }
   const pattern = /no such (table|column)/i;
   return (
     pattern.test(err.message) || (err.cause instanceof Error && pattern.test(err.cause.message))
@@ -295,9 +314,11 @@ export async function writeFocusState(
  * Message for refusing a focus write from an unbound caller (T12501).
  *
  * @param operation - What the caller tried to do (e.g. `start work on T12`).
- * @param stableTerminal - `false` when the caller's only identity is the
- *   ppid-chain fallback (or nothing): a binding written from such a shell
- *   does not survive to its next command, so the remedy is `CLEO_SESSION_ID`.
+ * @param stableTerminal - `false` when the caller has no stable terminal
+ *   identity (no key at all, or only a legacy ppid key): a binding written from
+ *   such a shell does not survive to its next command, so the remedy is the id
+ *   its own `session start` printed — never an id read from `session status`,
+ *   which may show ANOTHER agent's newest session (labelled `unbound: true`).
  * @returns The refusal text.
  * @task T12501
  */
@@ -305,7 +326,8 @@ export function focusUnboundMessage(operation: string, stableTerminal = true): s
   const why = stableTerminal
     ? 'no session is bound to this terminal'
     : 'this shell has no stable terminal identity; prefix commands with ' +
-      'CLEO_SESSION_ID=<id> (see `cleo session status`)';
+      'CLEO_SESSION_ID=<the id `cleo session start` printed>, or, in a multi-agent host, ' +
+      'set CLEO_AGENT_ID per agent';
   return (
     `Cannot ${operation}: ${why}. Focus is kept per session; without one it would go to a ` +
     'single key that every unbound terminal shares and overwrites.'

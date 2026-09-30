@@ -79,10 +79,11 @@ cleo current
 # 2. If no task, find or create one
 cleo find "relevant query"
 cleo add "Task title" --description "What you're doing" --parent T001
-# 3. Bind a session first (or 'cleo session resume <id>'): an unbound
-#    'cleo start' fails with E_SESSION_UNBOUND
-cleo session start --scope global --name "<what you are doing>"
 cleo start T123
+# 3. If 'cleo start' fails with E_SESSION_UNBOUND (spawned workers and
+#    subagents are already bound), bind first, then retry:
+#    cleo session start --scope global --name "<what you are doing>"
+#    (or: cleo session resume <id>)
 ```
 
 ### Commit Message Format
@@ -332,8 +333,7 @@ head SHA is green: `gh pr merge <n> --admin --merge` — see
 ```bash
 # Task lifecycle
 cleo current                 # Current task
-cleo session start --scope global --name "<name>"  # Bind a session first (or resume)
-cleo start T123              # Start task (needs a bound session)
+cleo start T123              # Start task (E_SESSION_UNBOUND → cleo session start / resume first)
 cleo complete T123           # Mark done
 
 # Find existing work
