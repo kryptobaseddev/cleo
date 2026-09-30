@@ -601,4 +601,32 @@ describe('Gate A: two-tier policy', () => {
       expect(r.kind === 'entry' && r.class !== 'derived', `${scope}.${t}`).toBe(true);
     }
   });
+
+  /**
+   * cleo-dev's journal spec review rulings (2026-09-29, Q9 and Q11): STDP
+   * event history and token usage are portable-personal, and final. Pinned
+   * HERE so reverting either takes an explicit edit to the gate.
+   */
+  const PERSONAL_BY_RULING: Record<TableScope, readonly string[]> = {
+    project: [
+      'brain_plasticity_events',
+      'brain_weight_history',
+      'tasks_token_usage',
+      'token_usage',
+    ],
+    global: ['brain_plasticity_events', 'brain_weight_history'],
+  };
+
+  it.each([
+    'project',
+    'global',
+  ] as const)('%s: STDP event history and token usage are portable-personal (ruled)', (scope) => {
+    for (const t of PERSONAL_BY_RULING[scope]) {
+      expect(classifyTable(scope, t), `${scope}.${t}`).toMatchObject({
+        kind: 'entry',
+        class: 'portable-personal',
+        entry: { status: 'resolved' },
+      });
+    }
+  });
 });
