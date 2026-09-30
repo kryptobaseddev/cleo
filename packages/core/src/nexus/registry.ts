@@ -1364,9 +1364,23 @@ export { resetNexusDbState };
 // ---------------------------------------------------------------------------
 
 /**
- * Convert a caught error to an EngineResult failure.
+ * Convert a caught error to an EngineResult failure, keeping the code, exit
+ * code, fix and details of a typed registry error (`E_NEXUS_REGISTRY_READ`,
+ * `E_NEXUS_DEVICE_NOT_FOUND`, `E_NEXUS_PROJECT_AMBIGUOUS`, `E_PROJECT_MOVED`)
+ * instead of collapsing it to `E_INTERNAL` (T12512). Every nexus engine
+ * wrapper that reads the registry uses this.
+ *
+ * @param error - The caught value.
+ * @param fallbackMsg - Message used when `error` is not an `Error`.
+ * @returns A failed EngineResult.
+ * @example
+ * ```ts
+ * try { return engineSuccess(await nexusList()); }
+ * catch (error) { return nexusCaughtToEngineError(error, 'Failed to list projects'); }
+ * ```
+ * @task T12512
  */
-function caughtToEngineError<T>(error: unknown, fallbackMsg: string): EngineResult<T> {
+export function nexusCaughtToEngineError<T>(error: unknown, fallbackMsg: string): EngineResult<T> {
   if (
     error instanceof NexusProjectAmbiguityError ||
     error instanceof NexusRegistryReadError ||
@@ -1413,7 +1427,7 @@ export async function nexusStatus(): Promise<
       lastUpdated: registry.lastUpdated,
     });
   } catch (error) {
-    return caughtToEngineError(error, 'Failed to get nexus status');
+    return nexusCaughtToEngineError(error, 'Failed to get nexus status');
   }
 }
 
@@ -1450,7 +1464,7 @@ export async function nexusListProjects(
       page: page.page,
     };
   } catch (error) {
-    return caughtToEngineError(error, 'Failed to list projects');
+    return nexusCaughtToEngineError(error, 'Failed to list projects');
   }
 }
 
@@ -1470,7 +1484,7 @@ export async function nexusShowProject(
     }
     return engineSuccess(project);
   } catch (error) {
-    return caughtToEngineError(error, `Failed to show project: ${name}`);
+    return nexusCaughtToEngineError(error, `Failed to show project: ${name}`);
   }
 }
 
@@ -1485,7 +1499,7 @@ export async function nexusInitialize(): Promise<EngineResult<{ message: string 
     await nexusInit('', {});
     return engineSuccess({ message: 'NEXUS initialized successfully' });
   } catch (error) {
-    return caughtToEngineError(error, 'Failed to initialize nexus');
+    return nexusCaughtToEngineError(error, 'Failed to initialize nexus');
   }
 }
 
@@ -1504,7 +1518,7 @@ export async function nexusRegisterProject(
     const hash = await nexusRegister('', { path, name, permission });
     return engineSuccess({ hash, message: `Project registered with hash: ${hash}` });
   } catch (error) {
-    return caughtToEngineError(error, `Failed to register project: ${path}`);
+    return nexusCaughtToEngineError(error, `Failed to register project: ${path}`);
   }
 }
 
@@ -1521,7 +1535,7 @@ export async function nexusUnregisterProject(
     await nexusUnregister('', { name });
     return engineSuccess({ message: `Project unregistered: ${name}` });
   } catch (error) {
-    return caughtToEngineError(error, `Failed to unregister project: ${name}`);
+    return nexusCaughtToEngineError(error, `Failed to unregister project: ${name}`);
   }
 }
 
@@ -1540,7 +1554,7 @@ export async function nexusSyncProject(name?: string): Promise<EngineResult<unkn
     const result = await nexusSyncAll();
     return engineSuccess(result);
   } catch (error) {
-    return caughtToEngineError(error, 'Failed to sync project');
+    return nexusCaughtToEngineError(error, 'Failed to sync project');
   }
 }
 
@@ -1558,7 +1572,7 @@ export async function nexusReconcileProject(
     const result = await nexusReconcile(projectRoot, params);
     return engineSuccess(result);
   } catch (error) {
-    return caughtToEngineError(error, `Failed to reconcile project: ${projectRoot}`);
+    return nexusCaughtToEngineError(error, `Failed to reconcile project: ${projectRoot}`);
   }
 }
 
@@ -1575,7 +1589,7 @@ export async function nexusProjectsList(): Promise<EngineResult<unknown>> {
     const devices = listNexusDevices(await getNexusRegistryDb(getCleoHome()));
     return engineSuccess({ projects: list, count: list.length, devices });
   } catch (error) {
-    return caughtToEngineError(error, 'Failed to list nexus projects');
+    return nexusCaughtToEngineError(error, 'Failed to list nexus projects');
   }
 }
 
@@ -1597,11 +1611,15 @@ export async function nexusProjectsStatus(
   try {
     const { getNexusRegistryDb } = await import('../store/nexus-sqlite.js');
     const { runProjectsGitStatus } = await import('./git-state.js');
-    return engineSuccess(
-      await runProjectsGitStatus(await getNexusRegistryDb(getCleoHome()), params),
-    );
+    let db: Awaited<ReturnType<typeof getNexusRegistryDb>>;
+    try {
+      db = await getNexusRegistryDb(getCleoHome());
+    } catch (error) {
+      throw toRegistryReadError('open project registry', error);
+    }
+    return engineSuccess(await runProjectsGitStatus(db, params));
   } catch (error) {
-    return caughtToEngineError(error, 'Failed to probe project git state');
+    return nexusCaughtToEngineError(error, 'Failed to probe project git state');
   }
 }
 
@@ -1627,7 +1645,7 @@ export async function nexusProjectsFleet(
     return engineSuccess(listFleetStatus(await getNexusRegistryDb(getCleoHome()), params));
   } catch (error) {
     // A typed error (unknown device) passes through; anything else is a read failure.
-    return caughtToEngineError(
+    return nexusCaughtToEngineError(
       toRegistryReadError('read fleet status', error),
       'Failed to read fleet status',
     );
@@ -1650,7 +1668,7 @@ export async function nexusProjectsRegister(
     const hash = await nexusRegister(repoPath, name);
     return engineSuccess({ hash, path: repoPath });
   } catch (error) {
-    return caughtToEngineError(error, `Failed to register project: ${repoPath}`);
+    return nexusCaughtToEngineError(error, `Failed to register project: ${repoPath}`);
   }
 }
 
@@ -1668,6 +1686,6 @@ export async function nexusProjectsRemove(
     await nexusUnregister(nameOrHash);
     return engineSuccess({ removed: nameOrHash });
   } catch (error) {
-    return caughtToEngineError(error, `Failed to remove project: ${nameOrHash}`);
+    return nexusCaughtToEngineError(error, `Failed to remove project: ${nameOrHash}`);
   }
 }

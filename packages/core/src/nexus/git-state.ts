@@ -69,6 +69,7 @@ import {
 } from '../store/schema/nexus-schema.js';
 import { adoptLocalDeviceRows, currentDeviceId } from './path-map.js';
 import { markProjectsProbed } from './project-activity.js';
+import { toRegistryReadError } from './registry-errors.js';
 
 /** Defaults and limits for the git state probe. */
 export const GIT_STATE_DEFAULTS = {
@@ -857,11 +858,14 @@ export async function runProjectsGitStatus(
       ? params.staleAfterMs
       : GIT_STATE_DEFAULTS.staleAfterMs;
 
-  const targets = await dedupeByRealPath(
-    listLocalProbeTargets(db, deviceId),
-    concurrency,
-    timeoutMs,
-  );
+  // T12512: an unreadable registry is a typed error, never "no locations".
+  let recorded: ReturnType<typeof listLocalProbeTargets>;
+  try {
+    recorded = listLocalProbeTargets(db, deviceId);
+  } catch (error) {
+    throw toRegistryReadError('list project locations to probe', error);
+  }
+  const targets = await dedupeByRealPath(recorded, concurrency, timeoutMs);
   const rows = await probeGitStates(targets, {
     budget: new GitOutputBudget(GIT_STATE_DEFAULTS.runOutputBudgetBytes),
     fetch,

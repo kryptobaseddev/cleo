@@ -20,6 +20,7 @@ import {
   RegistryRepairError,
   rollbackProjectRegistryRepair,
 } from '@cleocode/core/doctor/projects.js';
+import { NexusRegistryReadError } from '@cleocode/core/nexus/registry-errors.js';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
@@ -97,6 +98,17 @@ export const doctorRegistryCommand = defineCommand({
       )
         process.exitCode = 1;
     } catch (error) {
+      // T12512: an unreadable registry keeps its typed code, exit 75 and fix.
+      if (error instanceof NexusRegistryReadError) {
+        cliError(
+          error.message,
+          error.code,
+          { name: error.codeName, fix: error.fix, details: error.details },
+          { operation },
+        );
+        process.exitCode = error.code;
+        return;
+      }
       const code = error instanceof RegistryRepairError ? error.code : 'E_DOCTOR_PROJECTS_FAILED';
       const exitCode = code === 'E_NOT_FOUND' ? 4 : 1;
       cliError(

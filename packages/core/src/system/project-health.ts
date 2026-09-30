@@ -250,14 +250,24 @@ export interface FullHealthReport {
    * Set when the registry could not be read (T12512): `projects` is then
    * empty because nothing could be enumerated, not because none exist.
    */
-  registryError?: { code: string; message: string };
+  registryError?: {
+    /** Stable error code — `E_NEXUS_REGISTRY_READ`. */
+    code: string;
+    /** What failed and why. */
+    message: string;
+    /** Process exit code the CLI uses for this failure (75). */
+    exitCode: number;
+    /** Copy-paste remedy. */
+    fix: string;
+  };
 }
 
 /** Options for {@link checkAllRegisteredProjects}. */
 export interface CheckAllOptions {
   /**
    * When true, write each project's computed {@link ProjectHealthReport.overall}
-   * back to `project_registry.health_status` and bump `last_seen`.
+   * back to `project_registry.health_status` and bump `last_probed_at`
+   * (T12512 — a probe never bumps `last_seen` or `last_opened_at`).
    * Defaults to true.
    */
   updateRegistry?: boolean;
@@ -786,7 +796,7 @@ export async function checkGlobalHealth(): Promise<GlobalHealthReport> {
  *
  * On success (and when `opts.updateRegistry` is true, the default), writes
  * the computed {@link ProjectHealthReport.overall} back to
- * `project_registry.health_status` and bumps `last_seen`.
+ * `project_registry.health_status` and bumps `last_probed_at` (T12512).
  *
  * @param opts - See {@link CheckAllOptions}.
  * @returns Aggregated {@link FullHealthReport}.
@@ -851,9 +861,15 @@ export async function checkAllRegisteredProjects(
   } catch (err) {
     log.warn({ err }, 'project-health: failed to enumerate registered projects');
     const { NexusRegistryReadError } = await import('../nexus/registry-errors.js');
+    const typed =
+      err instanceof NexusRegistryReadError
+        ? err
+        : new NexusRegistryReadError('list projects', err);
     registryError = {
-      code: err instanceof NexusRegistryReadError ? err.codeName : 'E_NEXUS_REGISTRY_READ',
-      message: err instanceof Error ? err.message : String(err),
+      code: typed.codeName,
+      message: typed.message,
+      exitCode: typed.code,
+      fix: typed.fix ?? 'Run `cleo doctor` to check the global store.',
     };
     global.issues.push(`Registry unreadable: ${registryError.message}`);
   }

@@ -66,6 +66,7 @@ import {
   probeProjectHolding,
 } from '../nexus/path-map.js';
 import { walkForCleoBounded, withinBudget } from '../nexus/projects-scan.js';
+import { toRegistryReadError } from '../nexus/registry-errors.js';
 import { isEphemeralPath } from '../nexus/registry-hygiene.js';
 import { getCleoHome } from '../paths.js';
 import { isStrictlyInsideDir, readValidProjectTombstone } from '../project-tombstone.js';
@@ -247,11 +248,13 @@ function chunks<T>(items: readonly T[]): T[][] {
 async function openRegistry(cleoHome: string) {
   const { getNexusRegistryDb, getNexusRegistryDbPath } = await import('../store/nexus-sqlite.js');
   const schema = await import('../store/schema/nexus-schema.js');
-  return {
-    db: await getNexusRegistryDb(cleoHome),
-    storePath: getNexusRegistryDbPath(cleoHome),
-    ...schema,
-  };
+  let db: Awaited<ReturnType<typeof getNexusRegistryDb>>;
+  try {
+    db = await getNexusRegistryDb(cleoHome);
+  } catch (error) {
+    throw toRegistryReadError('open project registry', error);
+  }
+  return { db, storePath: getNexusRegistryDbPath(cleoHome), ...schema };
 }
 
 /**
@@ -628,30 +631,39 @@ async function inspect(opts: ProjectRegistryScanOptions): Promise<Inspection> {
   const budget = scanBudget(opts);
   const { db, storePath, projectRegistry, projectLocations, projectIdAliases } =
     await openRegistry(cleoHome);
-  const rows: RegistryRowView[] = db
-    .select({
-      projectId: projectRegistry.projectId,
-      projectPath: projectRegistry.projectPath,
-      name: projectRegistry.name,
-    })
-    .from(projectRegistry)
-    .all();
-  const locations: LocationView[] = db
-    .select({
-      projectId: projectLocations.projectId,
-      deviceId: projectLocations.deviceId,
-      path: projectLocations.path,
-      state: projectLocations.state,
-      checkoutNonce: projectLocations.checkoutNonce,
-      gitRemote: projectLocations.gitRemote,
-      gitRootCommit: projectLocations.gitRootCommit,
-    })
-    .from(projectLocations)
-    .all();
-  const aliases = db
-    .select({ legacyId: projectIdAliases.legacyId, canonicalId: projectIdAliases.canonicalId })
-    .from(projectIdAliases)
-    .all();
+  // T12512: an unreadable registry is a typed error (E_NEXUS_REGISTRY_READ,
+  // exit 75), never an empty report that reads as "nothing to repair".
+  let rows: RegistryRowView[];
+  let locations: LocationView[];
+  let aliases: Array<{ legacyId: string; canonicalId: string }>;
+  try {
+    rows = db
+      .select({
+        projectId: projectRegistry.projectId,
+        projectPath: projectRegistry.projectPath,
+        name: projectRegistry.name,
+      })
+      .from(projectRegistry)
+      .all();
+    locations = db
+      .select({
+        projectId: projectLocations.projectId,
+        deviceId: projectLocations.deviceId,
+        path: projectLocations.path,
+        state: projectLocations.state,
+        checkoutNonce: projectLocations.checkoutNonce,
+        gitRemote: projectLocations.gitRemote,
+        gitRootCommit: projectLocations.gitRootCommit,
+      })
+      .from(projectLocations)
+      .all();
+    aliases = db
+      .select({ legacyId: projectIdAliases.legacyId, canonicalId: projectIdAliases.canonicalId })
+      .from(projectIdAliases)
+      .all();
+  } catch (error) {
+    throw toRegistryReadError('inspect project registry', error);
+  }
 
   const deviceId = currentDeviceId();
   const local = (l: LocationView): boolean =>

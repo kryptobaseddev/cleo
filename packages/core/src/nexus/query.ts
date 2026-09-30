@@ -20,7 +20,7 @@ import { getProjectDisplayName } from '../project-scope.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { getBrainNativeDb } from '../store/memory-sqlite.js';
 import { getNexusNativeDb } from '../store/nexus-sqlite.js';
-import { nexusGetProject, readRegistry } from './registry.js';
+import { nexusCaughtToEngineError, nexusGetProject, readRegistry } from './registry.js';
 import { registryStorePath } from './registry-hygiene.js';
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -200,8 +200,8 @@ export async function resolveTask(
  * Search for a task ID across all registered projects.
  */
 async function resolveWildcard(taskId: string): Promise<NexusResolvedTask[]> {
+  // T12512: an unreadable registry throws a typed error, never "no match".
   const registry = await readRegistry();
-  if (!registry) return [];
 
   const results: NexusResolvedTask[] = [];
 
@@ -234,14 +234,6 @@ export function getProjectFromQuery(query: string, currentProject?: string): str
 // ---------------------------------------------------------------------------
 
 /**
- * Convert a caught error to an EngineResult failure.
- */
-function caughtToEngineError<T>(error: unknown, fallbackMsg: string): EngineResult<T> {
-  const e = error instanceof Error ? error : null;
-  return engineError<T>('E_INTERNAL', e?.message ?? fallbackMsg);
-}
-
-/**
  * Resolve a cross-project task query.
  *
  * @task T1569
@@ -261,7 +253,7 @@ export async function nexusResolve(
     const result = await resolveTask('', { query, currentProject });
     return engineSuccess(result);
   } catch (error) {
-    return caughtToEngineError(error, 'Failed to resolve query');
+    return nexusCaughtToEngineError(error, 'Failed to resolve query');
   }
 }
 
@@ -433,6 +425,6 @@ export async function nexusTopEntries(params?: {
       });
     }
   } catch (error) {
-    return caughtToEngineError(error, 'Failed to get top entries');
+    return nexusCaughtToEngineError(error, 'Failed to get top entries');
   }
 }

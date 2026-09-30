@@ -19,13 +19,17 @@ import {
   type NexusOrphansListParams,
   type NexusPathShowParams,
 } from '@cleocode/contracts';
-import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { paginate } from '../pagination.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { checkPermission } from './permissions.js';
 import { parseQuery, resolveTask, validateSyntax } from './query.js';
-import { type NexusRegistryFile, readRegistryRequired } from './registry.js';
+import {
+  type NexusRegistryFile,
+  nexusCaughtToEngineError,
+  readRegistryRequired,
+} from './registry.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -561,14 +565,6 @@ export async function orphanDetection(
 // ---------------------------------------------------------------------------
 
 /**
- * Convert a caught error to an EngineResult failure.
- */
-function caughtToEngineError<T>(error: unknown, fallbackMsg: string): EngineResult<T> {
-  const e = error instanceof Error ? error : null;
-  return engineError<T>('E_INTERNAL', e?.message ?? fallbackMsg);
-}
-
-/**
  * Get cross-project dependencies for a task query.
  *
  * @task T1569
@@ -582,7 +578,7 @@ export async function nexusDepsQuery(
     const result = await nexusDeps('', { query, direction });
     return engineSuccess(result);
   } catch (error) {
-    return caughtToEngineError(error, 'Failed to get nexus dependencies');
+    return nexusCaughtToEngineError(error, 'Failed to get nexus dependencies');
   }
 }
 
@@ -599,7 +595,7 @@ export async function nexusGraph(): Promise<
     const graph = await buildGlobalGraph('', {});
     return engineSuccess(graph);
   } catch (error) {
-    return caughtToEngineError(error, 'Failed to build global graph');
+    return nexusCaughtToEngineError(error, 'Failed to build global graph');
   }
 }
 
@@ -616,7 +612,7 @@ export async function nexusCriticalPath(): Promise<
     const path = await criticalPath('', {});
     return engineSuccess(path);
   } catch (error) {
-    return caughtToEngineError(error, 'Failed to compute critical path');
+    return nexusCaughtToEngineError(error, 'Failed to compute critical path');
   }
 }
 
@@ -633,7 +629,7 @@ export async function nexusBlockers(
     const analysis = await blockingAnalysis('', { query });
     return engineSuccess(analysis);
   } catch (error) {
-    return caughtToEngineError(error, 'Failed to analyze blockers');
+    return nexusCaughtToEngineError(error, 'Failed to analyze blockers');
   }
 }
 
@@ -670,6 +666,6 @@ export async function nexusOrphans(
       page: page.page,
     };
   } catch (error) {
-    return caughtToEngineError(error, 'Failed to detect orphans');
+    return nexusCaughtToEngineError(error, 'Failed to detect orphans');
   }
 }
