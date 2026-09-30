@@ -25,7 +25,9 @@
  * One substitution (T12742): when a required check's merge-commit push run
  * was only CANCELLED or SKIPPED (a concurrency group superseded it) and no
  * run on the merge commit failed, the first decisive green `push` run on a
- * later default-branch commit stands in — see {@link findGreenDescendant}.
+ * later default-branch commit stands in — only when the PR head's own
+ * `pull_request` run was green and nothing in between touched the PR's files
+ * or a CI definition. See {@link findGreenDescendant}.
  *
  * @task T12634
  */
@@ -192,7 +194,8 @@ export interface ResolveCiEvidenceOptions {
   listDescendants?: (mergeSha: string, ref: string, cwd: string) => string[] | null;
   /**
    * First-parent commits in `from..to` whose diff against their first parent
-   * touches any of `paths`; null when git cannot tell (T12742). Defaults to
+   * touches any of `paths`; null when git cannot tell (T12742). Any hit —
+   * merge or not — refuses the stand-in. Defaults to
    * `git log --first-parent -- <paths>`.
    */
   touchingCommits?: (
@@ -638,8 +641,14 @@ export interface FindGreenDescendantInput {
   treeEquivalentSha?: string;
   /** Required-name → app/workflow pin. */
   pins: Record<string, RequiredCheckPinSpec>;
-  /** The PR's changed paths; the stand-in must carry them as merged. */
+  /** The PR's changed paths; no commit in the descendant range may touch them. */
   changedPaths: readonly string[];
+  /**
+   * The PR's final head (`headRefOid`). Its latest `pull_request` runs must be
+   * green for every superseded check: a later main run never vouches for a
+   * PR that was not itself green.
+   */
+  prHeadSha?: string;
   /** Default-branch ref (`origin/main`). */
   ref: string;
   /** Repository work tree. */
@@ -654,31 +663,68 @@ export interface FindGreenDescendantInput {
   isAncestor: NonNullable<ResolveCiEvidenceOptions['isAncestor']>;
 }
 
+/** Result of {@link findGreenDescendant}. */
+export type FindGreenDescendantResult =
+  | {
+      ok: true;
+      /** The stand-in commit. */
+      sha: string;
+      /** Checks fetched for the stand-in and for the PR head. */
+      checks: CommitCheck[];
+      /** `<merge>..<sha>`, proven to leave the PR's files and CI definitions untouched. */
+      range: string;
+      /** The PR head whose `pull_request` runs were green for every superseded check. */
+      prHeadSha: string;
+    }
+  | { ok: false; reason: string };
+
+/**
+ * CI-definition paths no commit in a descendant range may touch (T12742): the
+ * pinned workflow file of every required check, local composite actions, and
+ * the whole workflows directory when a required check has no pinned workflow
+ * file (its runs could then come from any of them).
+ */
+function ciDefinitionPaths(
+  required: readonly string[],
+  pins: Record<string, RequiredCheckPinSpec>,
+): string[] {
+  const paths = new Set<string>();
+  for (const name of required) paths.add(pins[name]?.workflow ?? '.github/workflows');
+  paths.add('.github/actions');
+  return [...paths];
+}
+
 /**
  * Find a later default-branch commit whose green `push` CI stands in for a
  * merge-commit run that a concurrency group cancelled (T12742).
  *
- * Conservative by construction:
+ * The stand-in's CI tested the DESCENDANT's tree, not the merge tree. It is
+ * accepted only when that difference cannot matter to the PR:
  *  - the merge commit must be superseded, not failed ({@link supersededOnMerge});
+ *  - the PR's own final head (`prHeadSha`) must have a green latest
+ *    `pull_request` run for every superseded check — a later fix on main
+ *    never rescues a broken PR;
  *  - candidates are the first {@link CI_DESCENDANT_MAX_CANDIDATES} first-parent
  *    commits of `ref` within {@link CI_DESCENDANT_MAX_AGE_SECONDS} of the
  *    merge, each a proven descendant (`git merge-base --is-ancestor`);
- *  - the PR's changed files must reach the candidate unchanged, or changed only
- *    by merge commits (other PRs' merges); a non-merge commit on main that
- *    touched them ends the search;
+ *  - NO commit in `merge..candidate` — merge commits included — may touch the
+ *    PR's changed paths or a CI definition ({@link ciDefinitionPaths}): a
+ *    later merge could otherwise fix the PR's code or weaken the workflow
+ *    that judged it (drop steps or filters, add `continue-on-error`);
  *  - the FIRST candidate with a decisive verdict decides: every superseded
  *    check green on its own `push` runs accepts it, a failure on it (or any
- *    failed job of a pinned workflow) refuses — a later green run is never
- *    shopped for past a red one. Cancelled, skipped, pending and missing runs
- *    move on to the next candidate.
+ *    failed job of a pinned workflow) refuses, and a PENDING run refuses with
+ *    "wait for <sha>" — a later green run is never shopped for past one that
+ *    is red or may still go red. Only cancelled, skipped and missing
+ *    (never-started) runs move on to the next candidate.
  *
- * @param input - Merge-commit checks, pins, changed paths and injected I/O.
- * @returns The stand-in SHA and its checks, or the refusal reason.
+ * @param input - Merge-commit checks, pins, changed paths, PR head and injected I/O.
+ * @returns The stand-in SHA, its checks and proven range, or the refusal reason.
  * @task T12742
  */
 export async function findGreenDescendant(
   input: FindGreenDescendantInput,
-): Promise<{ ok: true; sha: string; checks: CommitCheck[] } | { ok: false; reason: string }> {
+): Promise<FindGreenDescendantResult> {
   const { required, mergeCommitSha: merge, pins, cwd } = input;
   const superseded = supersededOnMerge(required, input.checks, merge, {
     ...(input.treeEquivalentSha ? { treeEquivalentSha: input.treeEquivalentSha } : {}),
@@ -688,26 +734,48 @@ export async function findGreenDescendant(
   if (input.changedPaths.length === 0) {
     return { ok: false, reason: 'the PR has no known changed paths to follow onto a later commit' };
   }
+  const head = input.prHeadSha;
+  if (!head || !/^[0-9a-f]{40}$/.test(head)) {
+    return {
+      ok: false,
+      reason: "the PR's final head is unknown, so its own pull_request CI cannot be shown green",
+    };
+  }
+  const onHead = await input.fetchChecks(head, cwd);
+  if (!onHead.ok) return { ok: false, reason: onHead.reason };
+  for (const name of superseded.names) {
+    const pinned = onHead.checks.filter((c) => c.name === name && pinMatches(c, pins[name]));
+    const verdict = judgeOnSha(pinned, head, 'pull_request');
+    if (!verdict.ok) {
+      return {
+        ok: false,
+        reason: `${name}: ${verdict.verdict === 'missing' ? 'no pull_request run' : verdict.verdict} on PR head ${head.slice(0, 12)} — a later main run never stands in for a PR whose own CI was not green`,
+      };
+    }
+  }
   const candidates = input.listDescendants(merge, input.ref, cwd);
   if (candidates === null) {
     return { ok: false, reason: `cannot list commits on ${input.ref} after ${merge.slice(0, 12)}` };
   }
   const scope = pinnedScope(required, pins);
+  const ciPaths = ciDefinitionPaths(required, pins);
+  const guarded: ReadonlyArray<readonly [string, readonly string[]]> = [
+    ["the PR's files", input.changedPaths],
+    [`a CI definition (${ciPaths.join(', ')})`, ciPaths],
+  ];
   for (const sha of candidates.slice(0, CI_DESCENDANT_MAX_CANDIDATES)) {
     if (sha === merge || !input.isAncestor(merge, sha, cwd)) continue;
-    const touching = input.touchingCommits(merge, sha, input.changedPaths, cwd);
-    if (touching === null) {
-      return {
-        ok: false,
-        reason: `cannot read history ${merge.slice(0, 12)}..${sha.slice(0, 12)}`,
-      };
-    }
-    const direct = touching.find((c) => c.parents < 2);
-    if (direct) {
-      return {
-        ok: false,
-        reason: `the PR's files were changed on ${input.ref} by non-merge commit ${direct.sha.slice(0, 12)} before any later green run`,
-      };
+    const range = `${merge.slice(0, 12)}..${sha.slice(0, 12)}`;
+    for (const [what, paths] of guarded) {
+      const touching = input.touchingCommits(merge, sha, paths, cwd);
+      if (touching === null) return { ok: false, reason: `cannot read history ${range}` };
+      const first = touching[0];
+      if (first) {
+        return {
+          ok: false,
+          reason: `${what} changed on ${input.ref} by ${first.parents > 1 ? 'merge' : 'commit'} ${first.sha.slice(0, 12)} in ${range}, so a later run no longer tests what the PR merged`,
+        };
+      }
     }
     const fetched = await input.fetchChecks(sha, cwd);
     if (!fetched.ok) return { ok: false, reason: fetched.reason };
@@ -723,11 +791,13 @@ export async function findGreenDescendant(
       const pinned = fetched.checks.filter((c) => c.name === name && pinMatches(c, pins[name]));
       const verdict = judgeOnSha(pinned, sha, 'push');
       if (verdict.ok) continue;
-      if (
-        verdict.verdict === 'missing' ||
-        verdict.verdict.startsWith('pending') ||
-        SUPERSEDED_VERDICTS.has(verdict.verdict)
-      ) {
+      if (verdict.verdict.startsWith('pending')) {
+        return {
+          ok: false,
+          reason: `${name}: ${verdict.verdict} on later ${input.ref} commit ${sha.slice(0, 12)} — wait for ${sha.slice(0, 12)} to finish, then verify again`,
+        };
+      }
+      if (verdict.verdict === 'missing' || SUPERSEDED_VERDICTS.has(verdict.verdict)) {
         decided = false;
         break;
       }
@@ -736,7 +806,15 @@ export async function findGreenDescendant(
         reason: `${name}: ${verdict.verdict} on later ${input.ref} commit ${sha.slice(0, 12)}`,
       };
     }
-    if (decided) return { ok: true, sha, checks: fetched.checks };
+    if (decided) {
+      return {
+        ok: true,
+        sha,
+        checks: [...fetched.checks, ...onHead.checks],
+        range: `${merge}..${sha}`,
+        prHeadSha: head,
+      };
+    }
   }
   return {
     ok: false,
@@ -965,6 +1043,68 @@ async function defaultFetchChecks(
 }
 
 /**
+ * Re-check, at `cleo complete`, a `ci:` atom that leaned on a later main
+ * commit (T12742). A completed conclusion is NOT immutable: a GitHub re-run
+ * adds a newer attempt that can go red. Every check judged on the
+ * descendant is re-fetched and its latest `push` attempt (same app and
+ * workflow) must still be `success`; each such check's latest
+ * `pull_request` attempt on the recorded PR head must be too. Atoms without
+ * `descendantSha` pass untouched.
+ *
+ * @param atom - The recorded `ci:` atom.
+ * @param cwd - Repository work tree for `gh`.
+ * @param fetchChecks - Checks for one SHA; defaults to the GitHub REST API.
+ * @returns Ok, or why the stand-in no longer holds.
+ * @task T12742
+ */
+export async function recheckCiDescendantAtom(
+  atom: Extract<EvidenceAtom, { kind: 'ci' }>,
+  cwd: string,
+  fetchChecks: NonNullable<ResolveCiEvidenceOptions['fetchChecks']> = defaultFetchChecks,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const descendant = atom.descendantSha;
+  if (!descendant) return { ok: true };
+  const head = atom.descendantPrHeadSha;
+  if (!head) {
+    return {
+      ok: false,
+      reason: `ci:${atom.prNumber} leans on ${descendant.slice(0, 12)} but records no PR head; verify again`,
+    };
+  }
+  const stoodIn = atom.checks.filter((c) => c.sha === descendant);
+  const sameSource = (run: CommitCheck, c: (typeof stoodIn)[number]): boolean =>
+    run.name === c.name &&
+    (c.app === undefined || run.appSlug === c.app || String(run.appId) === c.app) &&
+    (c.workflow === undefined || run.workflowPath === c.workflow);
+  for (const [sha, event] of [
+    [descendant, 'push'],
+    [head, 'pull_request'],
+  ] as const) {
+    const fetched = await fetchChecks(sha, cwd);
+    if (!fetched.ok) {
+      return {
+        ok: false,
+        reason: `cannot re-check ci:${atom.prNumber} on ${sha.slice(0, 12)}: ${fetched.reason}`,
+      };
+    }
+    for (const c of stoodIn) {
+      const verdict = judgeOnSha(
+        fetched.checks.filter((run) => sameSource(run, c)),
+        sha,
+        event,
+      );
+      if (!verdict.ok) {
+        return {
+          ok: false,
+          reason: `${c.name}: now ${verdict.verdict} (${event}) on ${sha.slice(0, 12)} — ci:${atom.prNumber} no longer holds; verify again`,
+        };
+      }
+    }
+  }
+  return { ok: true };
+}
+
+/**
  * Validate a `ci:<pr>` atom end to end.
  *
  * @param prNumber - The merged PR.
@@ -1175,8 +1315,10 @@ export async function resolveCiEvidenceAtom(
   });
   // T12742: a merge-commit push run cancelled by a concurrency group (merges
   // landing back to back) may be stood in for by the first decisive green push
-  // run on a later default-branch commit that still carries the PR's files.
-  let descendantSha: string | undefined;
+  // run on a later default-branch commit — only when the PR head's own
+  // pull_request CI was green and nothing in between touched the PR's files
+  // or a CI definition. That run proves the DESCENDANT's tree, not the merge's.
+  let descendant: { sha: string; range: string; prHeadSha: string } | undefined;
   let descendantReason: string | undefined;
   if (!judgedChecks.ok && onDefault.ref !== null) {
     const found = await findGreenDescendant({
@@ -1186,6 +1328,7 @@ export async function resolveCiEvidenceAtom(
       ...(treeEqualHead ? { treeEquivalentSha: treeEqualHead } : {}),
       pins,
       changedPaths: pr.changedPaths,
+      ...(pr.headRefOid ? { prHeadSha: pr.headRefOid } : {}),
       ref: onDefault.ref,
       cwd,
       fetchChecks,
@@ -1208,7 +1351,9 @@ export async function resolveCiEvidenceAtom(
       if (rejudged.ok) {
         checks = withDescendant;
         judgedChecks = rejudged;
-        descendantSha = found.sha;
+        descendant = { sha: found.sha, range: found.range, prHeadSha: found.prHeadSha };
+      } else {
+        descendantReason = `later commit ${found.sha.slice(0, 12)} was green, but re-judging with it still fails: ${rejudged.reasons.join('; ')}`;
       }
     } else {
       descendantReason = found.reason;
@@ -1264,9 +1409,12 @@ export async function resolveCiEvidenceAtom(
         const onHead = evaluateJobs(globs, checks, treeEqualHead, scope, 'pull_request');
         if (onHead.ok) judgedJobs = onHead;
       }
-      if (!judgedJobs.ok && descendantSha) {
-        const onDescendant = evaluateJobs(globs, checks, descendantSha, scope, 'push');
-        if (onDescendant.ok) judgedJobs = onDescendant;
+      if (!judgedJobs.ok && descendant) {
+        // T12742: the stand-in's jobs, and the PR head's own pull_request jobs.
+        const onDescendant = evaluateJobs(globs, checks, descendant.sha, scope, 'push');
+        const onPrHead = evaluateJobs(globs, checks, descendant.prHeadSha, scope, 'pull_request');
+        if (onDescendant.ok && onPrHead.ok) judgedJobs = onDescendant;
+        else if (!onPrHead.ok) judgedJobs = onPrHead;
       }
       if (!judgedJobs.ok) {
         return {
@@ -1291,7 +1439,13 @@ export async function resolveCiEvidenceAtom(
       mergeCommitSha: pr.mergeCommitSha,
       checks: judgedChecks.checks,
       ...(mergeTree !== null ? { testedTree: mergeTree } : {}),
-      ...(descendantSha ? { descendantSha } : {}),
+      ...(descendant
+        ? {
+            descendantSha: descendant.sha,
+            descendantRange: descendant.range,
+            descendantPrHeadSha: descendant.prHeadSha,
+          }
+        : {}),
       requiredSource: required.source.tier,
       taskId: context.task.id,
       gateChecks,
