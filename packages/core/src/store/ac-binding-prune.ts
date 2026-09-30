@@ -170,33 +170,49 @@ export async function pruneAcBindingsForAcIds(
   keepBindingsForUids: readonly string[] = [],
 ): Promise<number> {
   if (acIds.length === 0) return 0;
-  // T12341: a binding follows its criterion's uid (`ac_uid`) across edits, so
-  // the bindings of a removed row are also those recorded under an older id of
-  // the same criterion; and a row whose uid the same write carries onto a new
-  // row (an edit) is not leaving, so its bindings stay (stale until re-verified).
-  const uids = (
-    await db
-      .select({ uid: schema.taskAcceptanceCriteria.uid })
-      .from(schema.taskAcceptanceCriteria)
-      .where(inArray(schema.taskAcceptanceCriteria.id, acIds as string[]))
-      .all()
-  )
-    .map((r) => r.uid)
-    .filter((u): u is string => u !== null);
+  // T12341: a binding follows its criterion's uid (`ac_uid`) across edits.
+  // - The removed rows are read for THIS task only: AC ids derive from display
+  //   ids, so one id can have named another task's criterion (T12799).
+  // - A binding that records a uid goes when that uid is one of the removed
+  //   rows' and the same write does not carry it onto a new row (an edit keeps
+  //   its evidence, stale until re-verified); a binding naming another
+  //   criterion's uid stays, even when its recorded ac_id matches.
+  // - A binding without a uid (written before the fill) goes by its ac_id,
+  //   unless that id's criterion carries its uid onto a new row.
+  const owned = await db
+    .select({ id: schema.taskAcceptanceCriteria.id, uid: schema.taskAcceptanceCriteria.uid })
+    .from(schema.taskAcceptanceCriteria)
+    .where(
+      and(
+        eq(schema.taskAcceptanceCriteria.taskId, ownerTaskId),
+        inArray(schema.taskAcceptanceCriteria.id, acIds as string[]),
+      ),
+    )
+    .all();
+  const uidOfId = new Map(owned.map((r) => [r.id, r.uid]));
+  const uids = new Set(owned.map((r) => r.uid).filter((u): u is string => u !== null));
   const keep = new Set(keepBindingsForUids);
   const rows = await db
     .select({ ...BINDING_COLUMNS, acUid: schema.evidenceAcBindings.acUid })
     .from(schema.evidenceAcBindings)
     .where(
-      uids.length > 0
+      uids.size > 0
         ? or(
             inArray(schema.evidenceAcBindings.acId, acIds as string[]),
-            inArray(schema.evidenceAcBindings.acUid, uids),
+            inArray(schema.evidenceAcBindings.acUid, [...uids]),
           )
         : inArray(schema.evidenceAcBindings.acId, acIds as string[]),
     )
     .all();
-  const bindings = rows.filter((r) => r.acUid === null || !keep.has(r.acUid)).map(toBindingRow);
+  const removed = new Set(acIds);
+  const bindings = rows
+    .filter((r) => {
+      if (r.acUid !== null) return uids.has(r.acUid) && !keep.has(r.acUid);
+      if (!removed.has(r.acId)) return false;
+      const carried = uidOfId.get(r.acId);
+      return !(carried && keep.has(carried));
+    })
+    .map(toBindingRow);
   await archiveAndDelete(db, ownerTaskId, reason, bindings);
   return bindings.length;
 }

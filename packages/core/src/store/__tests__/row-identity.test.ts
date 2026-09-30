@@ -354,6 +354,50 @@ describe('uid fill through the open path', () => {
     expect(uids.every((u) => V8.test(u))).toBe(true);
   });
 
+  it('removing a criterion never prunes another task’s binding that recorded the same AC id (T12799)', async () => {
+    db.exec(`INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, text, kind, source_key)
+        VALUES ('ac-shared', 'T002', 1, 'tests pass', 'text', 'text:1:a'),
+               ('ac-b-now', 'T003', 1, 'tests pass', 'text', 'text:1:b')`);
+    const uidB = uidOf('tasks_task_acceptance_criteria', 'id = ?', 'ac-b-now') ?? '';
+    // T003's criterion was once named 'ac-shared' too (its task shared T002's
+    // display id before a re-mint): its binding recorded that id and its uid.
+    db.prepare(
+      `INSERT INTO tasks_evidence_ac_bindings (id, evidence_atom_id, ac_id, binding_type, ac_uid)
+       VALUES ('b-a', 'tool:test', 'ac-shared', 'direct', NULL),
+              ('b-b', 'tool:lint', 'ac-shared', 'direct', ?)`,
+    ).run(uidB);
+    await env.accessor.transaction((tx) => tx.deleteAcRowsByIds('T002', ['ac-shared']));
+    expect(
+      db.prepare('SELECT id, ac_uid FROM tasks_evidence_ac_bindings ORDER BY id').all(),
+    ).toEqual([{ id: 'b-b', ac_uid: uidB }]);
+  });
+
+  it('an edit keeps a binding written without ac_uid when its criterion’s uid is carried', async () => {
+    await env.accessor.transaction(async (tx) => {
+      await applyAcPlan(tx, 'T003', planAcUpdate('T003', [], ['tests pass', 'docs updated']));
+    });
+    const [first] = await env.accessor.getAcRows('T003');
+    if (!first?.uid) throw new Error('AC has no uid');
+    await env.accessor.transaction((tx) =>
+      tx.insertAcBindings([
+        { id: 'b-old', acId: first.id, evidenceAtomId: 'tool:test', bindingType: 'direct' },
+      ]),
+    );
+    // An older build wrote this binding: no ac_uid.
+    db.exec("UPDATE tasks_evidence_ac_bindings SET ac_uid = NULL WHERE id = 'b-old'");
+    await env.accessor.transaction(async (tx) => {
+      const existing = await tx.getAcRows('T003');
+      await applyAcPlan(
+        tx,
+        'T003',
+        planAcUpdate('T003', existing, ['all tests pass', 'docs updated']),
+      );
+    });
+    expect(one("SELECT ac_id FROM tasks_evidence_ac_bindings WHERE id = 'b-old'")).toEqual({
+      ac_id: first.id,
+    });
+  });
+
   it('keeps an edited criterion’s uid and marks its evidence stale until re-verified', async () => {
     await env.accessor.transaction(async (tx) => {
       await applyAcPlan(tx, 'T003', planAcUpdate('T003', [], ['tests pass', 'docs updated']));
