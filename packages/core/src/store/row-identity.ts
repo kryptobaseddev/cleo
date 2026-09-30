@@ -1518,7 +1518,8 @@ export function healRowIdentitySchema(
       ];
       if (healed.length > 0) recordHealReceipt(db, scope, healed, writers);
       db.exec('RELEASE SAVEPOINT row_identity_heal');
-      if (healed.length > 0) log.info({ scope, healed: healed.length }, 'row identity schema healed');
+      if (healed.length > 0)
+        log.info({ scope, healed: healed.length }, 'row identity schema healed');
       return healed;
     } catch (error) {
       db.exec('ROLLBACK TO SAVEPOINT row_identity_heal');
