@@ -12,6 +12,7 @@
 import type { NexusLoginResult } from '@cleocode/contracts';
 import { cliError, cliOutput, humanLine, isHumanOutput } from '../renderers/index.js';
 import {
+  type DeviceCodePromptInfo,
   writeDeviceCodeApproved,
   writeDeviceCodeInterrupted,
   writeDeviceCodePending,
@@ -95,16 +96,41 @@ export async function runNexusLogin(
   const { loginToNexus } = await import(
     /* webpackIgnore: true */ '@cleocode/core/cloud/nexus-auth.js'
   );
+  const { isNexusDeviceEnabled } = await import(
+    /* webpackIgnore: true */ '@cleocode/core/cloud/nexus-device.js'
+  );
   const noBrowser = negatedFlag(args, 'browser');
+  const hooks = {
+    apiUrl: nexusApiUrlArg(args),
+    onCode: (code: DeviceCodePromptInfo) => {
+      writeDeviceCodePrompt(code, SERVICE_NAME);
+      if (!noBrowser) openBrowser(code.verificationUriComplete ?? code.verificationUri);
+    },
+    onPending: writeDeviceCodePending,
+  };
+  const readOnly = args['read-only'] === true;
+  const name = typeof args['name'] === 'string' && args['name'] !== '' ? args['name'] : undefined;
   try {
-    const result = await loginToNexus({
-      apiUrl: nexusApiUrlArg(args),
-      onCode: (code) => {
-        writeDeviceCodePrompt(code, SERVICE_NAME);
-        if (!noBrowser) openBrowser(code.verificationUriComplete ?? code.verificationUri);
-      },
-      onPending: writeDeviceCodePending,
-    });
+    let result: NexusLoginResult;
+    if (isNexusDeviceEnabled()) {
+      // Device credentials (T12868): enrol this machine; only the device
+      // credential is stored.
+      const { loginToNexusDevice } = await import(
+        /* webpackIgnore: true */ '@cleocode/core/cloud/nexus-enrol.js'
+      );
+      result = await loginToNexusDevice({
+        ...hooks,
+        readOnly,
+        ...(name !== undefined ? { name } : {}),
+      });
+    } else {
+      if (readOnly || name !== undefined) {
+        process.stderr.write(
+          'warning: --read-only and --name need device credentials (CLEO_NEXUS_DEVICE=1); ignored\n',
+        );
+      }
+      result = await loginToNexus(hooks);
+    }
     writeDeviceCodeApproved(SERVICE_NAME);
     for (const warning of result.warnings) process.stderr.write(`warning: ${warning}\n`);
     return result;
@@ -123,5 +149,8 @@ export async function runNexusLogin(
 export function nexusLoginSummary(r: NexusLoginResult): string {
   const who = r.user?.email ?? 'your account';
   const org = r.organization ? ` (${r.organization.name})` : '';
-  return `Signed in to ${r.apiUrl} as ${who}${org}.`;
+  const device = r.device
+    ? ` This machine is device ${r.device.deviceId}${r.device.name ? ` (${r.device.name})` : ''}, profile ${r.device.profile ?? 'unknown'}.`
+    : '';
+  return `Signed in to ${r.apiUrl} as ${who}${org}.${device}`;
 }

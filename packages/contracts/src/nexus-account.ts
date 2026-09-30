@@ -46,6 +46,23 @@ export const NEXUS_ACCOUNT_ERROR_CODES = [
   'E_NEXUS_REQUEST_FAILED',
   'E_NEXUS_NOT_A_PROJECT',
   'E_NEXUS_INVALID_LABEL',
+  // Device credentials (cleo-nexus device contract §3.3, §4.0.4; T12868).
+  /** No answer from the API (network error or timeout). */
+  'E_NEXUS_UNREACHABLE',
+  /** `cleo login nexus` while a revoke of this device is unconfirmed (§3.3, v2.9). */
+  'E_NEXUS_REVOKE_PENDING',
+  /** The device was signed out (E9, E11): 401 `device-signed-out`. */
+  'E_NEXUS_DEVICE_SIGNED_OUT',
+  /** The device was revoked (E10, E12): 401 `device-revoked`. */
+  'E_NEXUS_DEVICE_REVOKED',
+  /** A credential replaced or revoked elsewhere, or a `rotation-conflict` (R2). */
+  'E_NEXUS_CREDENTIAL_COMPROMISED',
+  /** The device credential lacks the scope (a read-only device): 403 `insufficient-scope`. */
+  'E_NEXUS_INSUFFICIENT_SCOPE',
+  /** A replica attach from a second device: 409 `replica-copied`. */
+  'E_NEXUS_REPLICA_COPIED',
+  /** Another cleo process holds the device file or an upgrade in flight; retry. */
+  'E_NEXUS_BUSY',
 ] as const;
 
 /** One of {@link NEXUS_ACCOUNT_ERROR_CODES}. */
@@ -112,6 +129,20 @@ export interface NexusAccountStatus {
   summary: string;
 }
 
+/** The enrolled device, as `cleo login nexus` reports it (device contract §3.3 step 10). */
+export interface NexusLoginDevice {
+  /** The Nexus device id (UUIDv7, scoped to this CLEO home, origin and user). */
+  deviceId: string;
+  /** Display name the server holds. */
+  name: string;
+  /** Server-side state (`active` right after a login). */
+  state: string;
+  /** Credential profile: `device` or `read-only`. */
+  profile: string | null;
+  /** `true` when E1 created the device row, `false` when it re-enrolled it. */
+  created: boolean | null;
+}
+
 /** Result of `cleo login nexus` (never carries the token). */
 export interface NexusLoginResult {
   /** API origin the session belongs to. */
@@ -126,6 +157,10 @@ export interface NexusLoginResult {
   credentialsPath: string;
   /** Non-fatal problems, e.g. the account lookup failed after a good login. */
   warnings: string[];
+  /** The enrolled device; present only with `CLEO_NEXUS_DEVICE=1` (device credentials). */
+  device?: NexusLoginDevice;
+  /** Scopes of the stored device credential; present only with `CLEO_NEXUS_DEVICE=1`. */
+  scopes?: string[];
 }
 
 /** Result of `cleo logout nexus`. */
