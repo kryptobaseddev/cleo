@@ -186,9 +186,9 @@ export function nexusDeviceLogoutSummary(r: NexusDeviceLogoutResult): string {
     return `Not signed in to ${r.apiUrl}; nothing to do.`;
   }
   const count = (o: string): number => r.devices.filter((d) => d.outcome === o).length;
-  const open = count('pending') + count('unconfirmed');
+  const open = count('pending') + count('unconfirmed') + count('signed-out');
   const parts = [`${count('confirmed')} device request(s) confirmed`];
-  if (open > 0) parts.push(`${open} NOT confirmed (see warnings; kept for retry)`);
+  if (open > 0) parts.push(`${open} NOT confirmed (see warnings)`);
   if (r.session !== null) parts.push(`9.24 session ${r.session.revocation}`);
   return `${verb} ${r.apiUrl}: ${parts.join('; ')}.`;
 }

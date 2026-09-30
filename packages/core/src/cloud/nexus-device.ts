@@ -1059,6 +1059,21 @@ export function applySignOutConfirmed(entry: NexusDeviceEntry): NexusDeviceEntry
 }
 
 /**
+ * End an unfinishable revoke (§E10, contract v2.13): E10 answered 401
+ * `device-signed-out`, so the device is signed out on the server and every
+ * credential it held is dead; no request from this machine can revoke it
+ * any more. Clear `pendingRevoke` so it is not retried forever; the entry and
+ * its keys stay, and the caller tells the user to revoke the device on
+ * cleocode.dev.
+ *
+ * @param entry - The entry read under the lock.
+ * @returns The updated entry, guarded.
+ */
+export function applyRevokeFoundSignedOut(entry: NexusDeviceEntry): NexusDeviceEntry {
+  return guard({ ...entry, pendingRevoke: null });
+}
+
+/**
  * Settle a confirmed sign-out or revoke of a retired device.
  *
  * @param entry - The entry read under the lock.

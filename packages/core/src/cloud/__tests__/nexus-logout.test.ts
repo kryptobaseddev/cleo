@@ -326,17 +326,35 @@ describe('cleo logout nexus --revoke (E10)', () => {
     expect(await read(USER_A)).toBeNull();
   });
 
-  it('401 device-signed-out is not a revoke; 401 device-revoked is', async () => {
+  it('401 device-signed-out on a revoke ends it: web revoke named, slot cleared, never retried', async () => {
     const c0 = mintToken();
-    await seed(USER_A, enrolled(c0));
+    const entry = enrolled(c0);
+    await seed(USER_A, entry);
     const signedOut = await run(
       mockApi(new Map([[c0, { status: 401, reason: 'device-signed-out' }]])).fetch,
       true,
     );
-    expect(signedOut.devices[0]?.outcome).toBe('unconfirmed');
-    expect(signedOut.warnings.join('\n')).toMatch(/revoke this device on cleocode\.dev/);
-    expect((await read(USER_A))?.pendingRevoke).not.toBeNull();
+    expect(signedOut.devices[0]).toMatchObject({ outcome: 'signed-out', removedLocally: false });
+    expect(signedOut.warnings.join('\n')).toContain(
+      `revoke device ${entry.deviceId} on cleocode.dev`,
+    );
+    const after = await read(USER_A);
+    expect(after?.pendingRevoke).toBeNull();
+    expect(after?.keys).not.toBeNull();
 
+    const api = mockApi(new Map());
+    const retry = await settleNexusDeviceEnds({
+      apiUrl: API,
+      fetch: api.fetch,
+      deviceStore: store,
+    });
+    expect(api.calls).toEqual([]);
+    expect(retry.devices).toEqual([]);
+  });
+
+  it('401 device-revoked confirms a revoke and removes the entry', async () => {
+    const c0 = mintToken();
+    await seed(USER_A, enrolled(c0));
     const revoked = await run(
       mockApi(new Map([[c0, { status: 401, reason: 'device-revoked' }]])).fetch,
       true,

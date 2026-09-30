@@ -196,9 +196,13 @@ export interface NexusLogoutResult {
  *   next `cleo logout nexus`, `cleo login nexus` or cloud command retries;
  * - `unconfirmed`: every credential held was refused as stale, so the CLI
  *   cannot finish it; the slot is kept, and a sign-out or revoke of the
- *   device on cleocode.dev lets the next retry confirm it.
+ *   device on cleocode.dev lets the next retry confirm it;
+ * - `signed-out`: a revoke found the device already signed out (E10 401
+ *   `device-signed-out`). Its credentials are dead, so the CLI cannot revoke
+ *   it; the revoke slot is cleared (never retried) and the device must be
+ *   revoked on cleocode.dev.
  */
-export type NexusDeviceEndOutcome = 'confirmed' | 'pending' | 'unconfirmed';
+export type NexusDeviceEndOutcome = 'confirmed' | 'pending' | 'unconfirmed' | 'signed-out';
 
 /** One device row of a {@link NexusDeviceLogoutResult}. */
 export interface NexusDeviceLogoutRow {

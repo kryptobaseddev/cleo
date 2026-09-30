@@ -45,6 +45,7 @@ import {
   applyBeginRevoke,
   applyBeginSignOut,
   applyRetiredSettled,
+  applyRevokeFoundSignedOut,
   applySignOutConfirmed,
   type NexusDeviceEntry,
   type NexusDeviceSlotCredential,
@@ -93,8 +94,12 @@ interface EndRequest {
   readonly credentials: readonly NexusDeviceSlotCredential[];
 }
 
-/** What one credential's call established. */
-type CallAnswer = 'done' | 'stale' | 'unanswered';
+/**
+ * What one credential's call established. `signed-out` is E10's 401
+ * `device-signed-out`: the device is signed out, not revoked, and no
+ * credential of it can revoke it any more (contract v2.13 §E10).
+ */
+type CallAnswer = 'done' | 'signed-out' | 'stale' | 'unanswered';
 
 function context(opts: NexusDeviceLogoutOptions): Ctx {
   const apiUrl = resolveNexusApiUrl(opts.apiUrl);
@@ -141,8 +146,9 @@ async function callEnd(
     if (err.status === 401) {
       const proves =
         reason === 'device-revoked' || (action === 'sign-out' && reason === 'device-signed-out');
+      const signedOut = action === 'revoke' && reason === 'device-signed-out';
       return {
-        answer: proves ? 'done' : 'stale',
+        answer: proves ? 'done' : signedOut ? 'signed-out' : 'stale',
         detail: `HTTP 401 ${typeof reason === 'string' ? reason : err.code}`,
       };
     }
@@ -201,7 +207,12 @@ function slotNow(
  *
  * @returns `true` when a confirmed revoke removed the entry.
  */
-async function settleConfirmed(ctx: Ctx, req: EndRequest, token: string): Promise<boolean> {
+async function settleConfirmed(
+  ctx: Ctx,
+  req: EndRequest,
+  token: string,
+  answer: 'done' | 'signed-out',
+): Promise<boolean> {
   return ctx.devices.update((tx) => {
     const entry = tx.get(ctx.apiUrl, req.userId);
     const creds = slotNow(entry, req);
@@ -212,6 +223,10 @@ async function settleConfirmed(ctx: Ctx, req: EndRequest, token: string): Promis
     }
     if (req.action === 'sign-out') {
       tx.set(ctx.apiUrl, req.userId, applySignOutConfirmed(entry));
+      return false;
+    }
+    if (answer === 'signed-out') {
+      tx.set(ctx.apiUrl, req.userId, applyRevokeFoundSignedOut(entry));
       return false;
     }
     return tx.delete(ctx.apiUrl, req.userId, {
@@ -238,7 +253,16 @@ async function settleRequest(
   const what = `${req.action === 'revoke' ? 'revoke' : 'sign-out'} of device ${req.deviceId}`;
   for (const c of req.credentials) {
     const { answer, detail } = await callEnd(ctx, req.action, c.token);
-    if (answer === 'done') return row('confirmed', await settleConfirmed(ctx, req, c.token));
+    if (answer === 'done') {
+      return row('confirmed', await settleConfirmed(ctx, req, c.token, answer));
+    }
+    if (answer === 'signed-out') {
+      await settleConfirmed(ctx, req, c.token, answer);
+      warnings.push(
+        `device ${req.deviceId} is signed out but not revoked, and a signed-out device's credentials cannot revoke it; revoke device ${req.deviceId} on cleocode.dev (Devices)`,
+      );
+      return row('signed-out');
+    }
     if (answer === 'unanswered') {
       warnings.push(
         `${what} not confirmed (${detail}); it was kept and is retried by the next \`cleo logout nexus\`, \`cleo login nexus\` or cloud command`,
