@@ -1,5 +1,40 @@
 # Changelog
 
+## [2026.9.24] (2026-09-30)
+
+### Added
+
+- The fleet view lines up with the cleo-nexus ReplicaPresence contract: the git probe records when HEAD was committed (headCommittedAt, from the same git call that reads the upstream commit), every location carries a replicaId (null until T12675's store-instance id exists), the result carries schemaVersion, device-local fields are marked never-mirrored, and a new pure toReplicaPresence mapper in core/cloud builds the path-free presence body _(provenance: [T12721](https://github.com/kryptobaseddev/cleo/search?q=T12721&type=commits))_
+- leased task claims — cleo start and spawn take a session lease; a second session gets E_TASK_CLAIMED naming the holder _(provenance: [T12502](https://github.com/kryptobaseddev/cleo/search?q=T12502&type=commits))_
+- System One profiles (<provider>/<name>, several keys per provider, one active), a masked key prompt, human output on a terminal, and per-profile capability caching _(provenance: [T12733](https://github.com/kryptobaseddev/cleo/search?q=T12733&type=commits))_
+
+### Fixed
+
+- repair stores where the t12502 claim-lease migration was only half applied; reconcileJournal refuses post-cutover migration hash drift instead of re-stamping it; VITEST exempts only fixture stores from the worktree-build schema guard _(provenance: [T12736](https://github.com/kryptobaseddev/cleo/search?q=T12736&type=commits), [T12737](https://github.com/kryptobaseddev/cleo/search?q=T12737&type=commits))_
+- cleo done: a component PR landed by an integration PR closes on the integration PR's CI with the component's files; --plan and done share one readiness check; ci-only closes need no worktree; no cwd noise after worktree prune _(provenance: [T12671](https://github.com/kryptobaseddev/cleo/search?q=T12671&type=commits), [T12672](https://github.com/kryptobaseddev/cleo/search?q=T12672&type=commits))_
+- cleo done --pr <component> follows a component PR to the integration PR that landed it: closed by hand, marked merged by GitHub, stacked, main-merged afterwards, or rebased into the batch _(provenance: [T12671](https://github.com/kryptobaseddev/cleo/search?q=T12671&type=commits), [T12710](https://github.com/kryptobaseddev/cleo/search?q=T12710&type=commits))_
+- an unbound terminal can no longer end, attribute to or suspend another agent's session; new E_SESSION_UNBOUND (exit 24) _(provenance: [T12500](https://github.com/kryptobaseddev/cleo/search?q=T12500&type=commits))_
+- cleo update/complete --if-match; E_CONFLICT names the changed fields; complete never overwrites a concurrent edit _(provenance: [T12503](https://github.com/kryptobaseddev/cleo/search?q=T12503&type=commits))_
+- task updates no longer lose concurrent writes; --expected-updated-at fails with E_CONFLICT on a stale version _(provenance: [T12503](https://github.com/kryptobaseddev/cleo/search?q=T12503&type=commits))_
+- a working session's lastActivity is refreshed on every bound mutation (at most once a minute), so liveness and session gc stop orphaning long-running sessions _(provenance: [T12540](https://github.com/kryptobaseddev/cleo/search?q=T12540&type=commits), [T12500](https://github.com/kryptobaseddev/cleo/search?q=T12500&type=commits))_
+- System One follow-ups — cost read from the OpenAPI meta only, a 30 s batch timeout, lazy capability detection and a live decision-contradiction site _(provenance: [T12715](https://github.com/kryptobaseddev/cleo/search?q=T12715&type=commits))_
+- scripts/migrate-rogue-worktrees.mjs refuses unknown flags such as --check, is dry-run by default, moves only with --apply, and never unlocks or moves a locked or in-use worktree _(provenance: [T12725](https://github.com/kryptobaseddev/cleo/search?q=T12725&type=commits))_
+- Every whole-store rewrite run from a git worktree now shares one guard: restore, backup recover, doctor repair, backup import and the db-substrate quarantine need --confirm-owner-store to overwrite the owning project's live store; open-time rewrites proceed on the owner store and are audited; a store inside the worktree is always refused; worktrees of a bare repo such as /p/app.git no longer bind to /p's store _(provenance: [T12708](https://github.com/kryptobaseddev/cleo/search?q=T12708&type=commits), [T12677](https://github.com/kryptobaseddev/cleo/search?q=T12677&type=commits))_
+
+### Also in this release (merged; task still open for follow-up criteria)
+
+- **Breaking — `cleo nexus projects status`** now returns the fleet view from recorded rows (`/data/projects`, each project's `locations[].git`) instead of probing git on every call; scripts reading `/data/rows` or `/data/otherDevices` must switch, and `--refresh` keeps the old probe-then-read behaviour _(T12513)_
+- `cleo login nexus` signs in to a Cleo Nexus account with the RFC 8628 device-code grant; `cleo logout`, a nexus row in `cleo auth list`/`status`, and `cleo project link` to register a project _(T12712)_
+- `.cleo/project.json` is the canonical tracked project identity (write-once id + display name changed only by `cleo project rename` / `cleo upgrade --name`); readers now prefer the tracked id over a disagreeing `project-info.json` cache, and `cleo doctor project-identity --resolve` re-keys local state _(T12716)_
+- `cleo decide bench` benchmarks System One providers (layahost, Jev-compatible hosts) against each decision site's heuristic using the project's own history as the control group, with `--sample-only` spot-check export and a `--max-usd` spend cap _(T12495)_
+- one focus-key rule: `cleo start`, `stop`, `current` and every focus reader resolve the caller's focus key the same way _(T12501)_
+- `cleo show` withholds acceptance-row UUIDs by default (`--full` returns them) and briefing/focus drop repeated coverage text _(T12523, T12522)_
+- `cleo orchestrate ready/next`, waves and handoff suggestions use the one task comparator _(T12692)_
+- twin collapse keeps twin-only schema_meta keys and sticky tags, merges focus_state notes, and pins the pre-collapse snapshot; `cleo doctor twin-collapse --recover [--dry-run] [--rollback <id>]` restores what 2026.9.21 dropped _(T12535, T12727)_
+- `cleo upgrade --name` now actually renames the project (it wrote the wrong field)
+- linux-arm64-gnu native addons are built natively and require glibc ≥ 2.39 (Ubuntu 24.04+ / Debian 13+); older ARM64 Linux uses the WASI fallback for `.cant`
+- release pipeline: preflight skips re-running tests only when Linux unit shards for the exact SHA passed, native builds are reused when their source is unchanged, and npm publish runs in waves; PR CI is sharded 4 ways with a shared build and macOS moved to nightly + release
+
 ## [2026.9.23] (2026-09-29)
 
 ### Added
