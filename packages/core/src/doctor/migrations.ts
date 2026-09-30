@@ -25,6 +25,23 @@ import {
   resolveCorePackageMigrationsFolder,
 } from '../store/resolve-migrations-folder.js';
 
+/** Lineages the project store's journal runs (the consolidated one first). */
+export const PROJECT_LINEAGES: readonly string[] = [
+  'drizzle-cleo-project',
+  'drizzle-tasks',
+  'drizzle-brain',
+  'drizzle-nexus',
+  'drizzle-conduit',
+];
+
+/** Lineages the global store's journal runs. */
+export const GLOBAL_LINEAGES: readonly string[] = [
+  'drizzle-cleo-global',
+  'drizzle-agent-registry',
+  'drizzle-skills',
+  'drizzle-telemetry',
+];
+
 /** One lineage's standing in a journal. */
 export interface LineageMigrationReport {
   readonly lineage: string;
@@ -88,7 +105,8 @@ function localMigrations(folder: string): LocalMigration[] {
  *
  * @param scope - Which store.
  * @param dbPath - The store file.
- * @param lineages - Lineage folder names sharing the journal (installed folders).
+ * @param lineages - Lineages to report (installed folders). Every consolidated
+ *   lineage still counts as known for drift and unknown rows.
  * @param folderOf - Folder resolver (tests pass their own).
  */
 export function inspectJournal(
@@ -119,15 +137,21 @@ export function inspectJournal(
       .all() as unknown as JournalRowReport[];
     const byHash = new Set(rows.map((r) => r.hash));
     const byName = new Map(rows.filter((r) => r.name).map((r) => [r.name as string, r]));
+    // Every hash any installed lineage defines: a row whose hash is here is
+    // accounted for, even when another lineage has a file of the same name
+    // (drizzle-cleo-project and drizzle-cleo-global share some names).
     const known = new Set<string>();
+    const locals = new Map<string, LocalMigration[]>();
+    for (const lineage of new Set([...lineages, ...CONSOLIDATED_JOURNAL_LINEAGES])) {
+      const local = localMigrations(folderOf(lineage));
+      if (lineages.includes(lineage)) locals.set(lineage, local);
+      for (const m of local) known.add(m.hash);
+    }
     const reports: LineageMigrationReport[] = [];
     const drift: ScopeMigrationReport['drift'] = [];
-    for (const lineage of lineages) {
-      const local = localMigrations(folderOf(lineage));
-      if (local.length === 0) continue;
-      for (const m of local) known.add(m.hash);
+    for (const [lineage, local] of locals) {
       const applied = local.filter((m) => byHash.has(m.hash)).length;
-      if (applied === 0 && !local.some((m) => byName.has(m.name))) continue;
+      if (applied === 0) continue; // a lineage this journal never ran
       reports.push({
         lineage,
         local: local.length,
@@ -136,9 +160,7 @@ export function inspectJournal(
       });
       for (const m of local) {
         const row = byName.get(m.name);
-        if (row && row.hash !== m.hash && !byHash.has(m.hash)) {
-          drift.push({ ...row, fileHash: m.hash, lineage });
-        }
+        if (row && !known.has(row.hash)) drift.push({ ...row, fileHash: m.hash, lineage });
       }
     }
     return {
@@ -163,8 +185,8 @@ export function inspectJournal(
 export function inspectMigrations(projectRoot: string): MigrationsReport {
   return {
     scopes: [
-      inspectJournal('project', resolveDualScopeDbPath('project', projectRoot)),
-      inspectJournal('global', resolveDualScopeDbPath('global')),
+      inspectJournal('project', resolveDualScopeDbPath('project', projectRoot), PROJECT_LINEAGES),
+      inspectJournal('global', resolveDualScopeDbPath('global'), GLOBAL_LINEAGES),
     ],
   };
 }

@@ -45,6 +45,11 @@ describe('inspectJournal', () => {
     ]);
     expect(r.drift).toEqual([]);
     expect(r.unknown).toEqual([]);
+    // drizzle-cleo-global has files with the same NAMES as some project
+    // migrations and different content: no false drift, no phantom pending.
+    const both = inspectJournal('project', path, ['drizzle-cleo-project'], folderOf);
+    expect(both.drift).toEqual([]);
+    expect(both.unknown).toEqual([]);
   });
 
   it('reports pending files, drifted rows and unknown rows', () => {
