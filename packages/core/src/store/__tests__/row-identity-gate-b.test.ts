@@ -7,9 +7,12 @@
  * `CLEO_ROW_UID_FILL` defaults on. Each fixture is built through the runtime
  * path, then:
  *
- *   - **replay:** a copy without the identity layer (the store before the uid
- *     migration) replays the migrated, filled copy with `--omit-row-identity`.
- *     The fill changes no replicated value;
+ *   - **replay:** the baseline is a store built with row uids OFF: no
+ *     trigger and no fill ever ran on it. Its copy without the identity layer
+ *     (the store before the uid migration) replays the migrated, filled copy
+ *     with `--omit-row-identity`, so the fill changes no replicated value. A
+ *     baseline the fill had already run on would hide such a change (a fill
+ *     that normalises `created_at` passed); a test injects exactly that;
  *   - **determinism:** two independent migrations fingerprint identically
  *     WITH identity hashed, and equal the store filled as its rows were
  *     written. That includes history and binding rows written before their
@@ -40,15 +43,34 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { _resetDualScopeDbCache, openDualScopeDb } from '../dual-scope-db.js';
 import {
   prepareRowIdentity,
+  preReleaseBirthFp,
   ROW_IDENTITY,
   ROW_IDENTITY_RECIPE,
   ROW_IDENTITY_RECIPE_KEY,
   ROW_IDENTITY_RECIPE_V1,
+  type RowIdentityWriters,
+  registerRowIdentityWriters,
   rowIdentityColumns,
   v1ReleaseBirthFp,
 } from '../row-identity.js';
 import { ROW_IDENTITY_TABLES } from '../row-identity-registry.js';
 import { getDb } from '../sqlite.js';
+import {
+  clearAcUidGraveyardNative,
+  clearBirthFpNative,
+  fillIdentityColumnNative,
+  relinkAcUidNative,
+  writeRowIdentityMetaNative,
+} from '../sqlite-data-accessor.js';
+
+/** The writers the chokepoint registers (store/sqlite-data-accessor.ts). */
+const CHOKEPOINT_WRITERS: RowIdentityWriters = {
+  relinkAcUidNative,
+  clearAcUidGraveyardNative,
+  writeRowIdentityMetaNative,
+  fillIdentityColumnNative,
+  clearBirthFpNative,
+};
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 const FINGERPRINT = join(REPO_ROOT, 'scripts', 'fingerprint-store.mjs');
@@ -66,10 +88,16 @@ type Shape = 'cleocode' | 'llmtxt';
 
 let testRoot: string;
 let keyFile: string;
+/** Built with row uids ON: triggers and fills ran as the rows were written. */
 const source = {} as Record<Shape, string>;
+/** Built with row uids OFF: no trigger, no fill. The replay baseline. */
+const unfilled = {} as Record<Shape, string>;
 
-/** Seed a fixture shaped like the real stores Gate B ran on. */
-function seed(native: DatabaseSync, shape: Shape): void {
+/**
+ * Seed a fixture shaped like the real stores Gate B ran on. `fillBetween`
+ * runs an open's fill between the writes (row uids on only).
+ */
+function seed(native: DatabaseSync, shape: Shape, fillBetween: boolean): void {
   native.exec(`
     INSERT INTO tasks_tasks (id, title, type, status, created_at) VALUES
       ('T1', 'Epic', 'epic', 'pending', '2026-09-01T09:00:00.000Z'),
@@ -87,9 +115,15 @@ function seed(native: DatabaseSync, shape: Shape): void {
       VALUES ('ac-t3-1', 'tests', 'edit', '2026-09-02 10:01:00');
     INSERT INTO tasks_evidence_ac_bindings (id, evidence_atom_id, ac_id, binding_type, created_at)
       VALUES ('b-1', 'tool:test', 'ac-t3-1', 'satisfies', '2026-09-02 10:02:00');
+    -- A binding whose criterion never exists here (dangling), and a task whose
+    -- birth passes the store's GLOB but does not parse.
+    INSERT INTO tasks_evidence_ac_bindings (id, evidence_atom_id, ac_id, binding_type, created_at)
+      VALUES ('b-dangling', 'tool:test', 'ac-gone', 'direct', '2026-09-02 10:02:30');
+    INSERT INTO tasks_tasks (id, title, type, status, priority, created_at)
+      VALUES ('T5', 'Odd birth', 'task', 'pending', 'high', '2026-02-30 25:61:00');
   `);
   // An open between the writes fills those rows while their criterion is absent.
-  prepareRowIdentity(native, 'project');
+  if (fillBetween) prepareRowIdentity(native, 'project');
   native.exec(`
     -- The same criterion text on two tasks, and two criteria on one task.
     INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, text, kind, source_key, created_at) VALUES
@@ -122,12 +156,17 @@ function openRaw(file: string): DatabaseSync {
 }
 
 /** Copy a fixture store into its own directory, with or without a project-id file beside it. */
-function copyStore(shape: Shape, label: string, projectId: string | null): string {
+function copyStore(
+  shape: Shape,
+  label: string,
+  projectId: string | null,
+  from: Record<Shape, string> = source,
+): string {
   const dir = join(testRoot, shape, label);
   mkdirSync(dir, { recursive: true });
   if (projectId) writeFileSync(join(dir, 'project-id'), `${projectId}\n`);
   const file = join(dir, 'cleo.db');
-  copyFileSync(source[shape], file);
+  copyFileSync(from[shape], file);
   return file;
 }
 
@@ -135,9 +174,12 @@ function copyStore(shape: Shape, label: string, projectId: string | null): strin
 const projectIdOf = (shape: Shape, stub = true) =>
   shape === 'llmtxt' ? (stub ? STUB_PROJECT_ID : null) : FIXTURE_PROJECT_ID;
 
-/** A copy as it was before the uid migration: no identity columns, tables or trigger. */
+/**
+ * A copy of the UNFILLED store as it was before the uid migration: no
+ * identity columns, tables or trigger, and no fill ever ran on its values.
+ */
 function preMigrationCopy(shape: Shape, label: string, stub = true): string {
-  const file = copyStore(shape, label, projectIdOf(shape, stub));
+  const file = copyStore(shape, label, projectIdOf(shape, stub), unfilled);
   const conn = openRaw(file);
   conn.exec('DROP TRIGGER IF EXISTS trg_tasks_ac_uid_graveyard');
   for (const table of ROW_IDENTITY_TABLES.project) conn.exec(`DROP TABLE IF EXISTS "${table}"`);
@@ -226,6 +268,33 @@ function expectPass(r: { code: number; out: string }): void {
   expect(r.code).toBe(0);
 }
 
+/**
+ * Build one fixture store through the runtime path and return a VACUUM copy.
+ * `fill` false builds with row uids OFF: no uid trigger is armed and no fill
+ * runs, so its values are exactly what was written (the replay baseline).
+ */
+async function buildFixture(shape: Shape, fill: boolean, label: string): Promise<string> {
+  const projectDir = join(testRoot, `${shape}-${label}-project`);
+  mkdirSync(join(projectDir, '.cleo'), { recursive: true });
+  process.env.CLEO_ROW_UID_FILL = fill ? '1' : '0';
+  try {
+    const handle = await openDualScopeDb('project', projectDir);
+    await getDb(projectDir);
+    const native = handle.db.$client;
+    seed(native, shape, fill);
+    // The next open fills what the insert triggers left (birth fingerprints).
+    if (fill) prepareRowIdentity(native, 'project');
+    const out = join(testRoot, `${shape}-${label}.db`);
+    native.exec(`VACUUM INTO '${out.replaceAll("'", "''")}'`);
+    return out;
+  } finally {
+    _resetDualScopeDbCache();
+    process.env.CLEO_ROW_UID_FILL = '1';
+    // llmtxt has no project-id file.
+    if (shape === 'llmtxt') rmSync(join(projectDir, '.cleo', 'project-id'), { force: true });
+  }
+}
+
 beforeAll(async () => {
   vi.stubEnv('CLEO_ROOT', undefined);
   vi.stubEnv('CLEO_DIR', undefined);
@@ -237,19 +306,8 @@ beforeAll(async () => {
   writeFileSync(keyFile, `${randomBytes(32).toString('hex')}\n`, { mode: 0o600 });
 
   for (const shape of ['cleocode', 'llmtxt'] as const) {
-    const projectDir = join(testRoot, `${shape}-project`);
-    mkdirSync(join(projectDir, '.cleo'), { recursive: true });
-    const handle = await openDualScopeDb('project', projectDir);
-    await getDb(projectDir);
-    const native = handle.db.$client;
-    seed(native, shape);
-    // The next open fills what the insert triggers left (birth fingerprints).
-    prepareRowIdentity(native, 'project');
-    source[shape] = join(testRoot, `${shape}-source.db`);
-    native.exec(`VACUUM INTO '${source[shape].replaceAll("'", "''")}'`);
-    _resetDualScopeDbCache();
-    // llmtxt has no project-id file.
-    if (shape === 'llmtxt') rmSync(join(projectDir, '.cleo', 'project-id'), { force: true });
+    unfilled[shape] = await buildFixture(shape, false, 'unfilled');
+    source[shape] = await buildFixture(shape, true, 'source');
   }
 }, 300_000);
 
@@ -291,6 +349,50 @@ describe.each([
         fingerprint(post, `${shape}-post-omit`, 'replica', true),
       ),
     );
+  });
+
+  it('a fill that changes a replicated value FAILS replay: the baseline is never filled', async () => {
+    // The unfilled baseline really is unfilled, and has values a fill could touch.
+    const conn = new DatabaseSync(unfilled[shape], { readOnly: true });
+    try {
+      expect(
+        conn.prepare('SELECT count(*) AS n FROM tasks_tasks WHERE uid IS NOT NULL').get(),
+      ).toEqual({ n: 0 });
+      expect(
+        conn.prepare("SELECT count(*) AS n FROM tasks_tasks WHERE created_at LIKE '% %'").get(),
+      ).not.toEqual({ n: 0 });
+    } finally {
+      conn.close();
+    }
+    // A mutant build whose fill also normalises created_at (' ' -> 'T'), a
+    // replicated value. Every store below is built and filled by it.
+    registerRowIdentityWriters({
+      ...CHOKEPOINT_WRITERS,
+      fillIdentityColumnNative(db, table, column, valueSql, rowid) {
+        db.exec(
+          "UPDATE tasks_tasks SET created_at = replace(created_at, ' ', 'T') WHERE created_at LIKE '% %'",
+        );
+        return fillIdentityColumnNative(db, table, column, valueSql, rowid);
+      },
+    });
+    const saved = { unfilled: unfilled[shape], source: source[shape] };
+    try {
+      unfilled[shape] = await buildFixture(shape, false, 'mutant-unfilled');
+      source[shape] = await buildFixture(shape, true, 'mutant-source');
+      const pre = preMigrationCopy(shape, 'pre-mutant');
+      const post = preMigrationCopy(shape, 'post-mutant');
+      migrate(post);
+      const r = replay(
+        fingerprint(pre, `${shape}-pre-mutant`, 'source'),
+        fingerprint(post, `${shape}-post-mutant`, 'replica', true),
+      );
+      expect(r.code).not.toBe(0);
+      expect(r.out).toContain('tasks_tasks');
+    } finally {
+      registerRowIdentityWriters(CHOKEPOINT_WRITERS);
+      unfilled[shape] = saved.unfilled;
+      source[shape] = saved.source;
+    }
   });
 
   it('determinism: two migrations agree with identity hashed, and equal the store filled as it was written', () => {
@@ -343,6 +445,41 @@ describe.each([
       replay(
         fingerprint(fresh, `${shape}-fresh`, 'source'),
         fingerprint(v1, `${shape}-v1-after`, 'replica'),
+      ),
+    );
+  });
+
+  it('pre-release refill: a copy with pre-release fingerprints refills to the fresh identity, changing nothing else', () => {
+    const stale = copyStore(shape, 'prerelease', projectIdOf(shape));
+    const conn = openRaw(stale);
+    try {
+      const set = conn.prepare('UPDATE tasks_tasks SET birth_fp = ? WHERE rowid = ?');
+      for (const row of conn.prepare('SELECT rowid AS r, * FROM tasks_tasks').all() as Array<
+        Record<string, string | null> & { r: number }
+      >) {
+        set.run(preReleaseBirthFp(conn, 'tasks_tasks', row), row.r);
+      }
+      conn
+        .prepare('DELETE FROM tasks_row_identity_meta WHERE key = ?')
+        .run(ROW_IDENTITY_RECIPE_KEY);
+    } finally {
+      conn.close();
+    }
+    const before = fingerprint(stale, `${shape}-prerelease-before`, 'source', true);
+    const refill = openRaw(stale);
+    try {
+      expect(prepareRowIdentity(refill, 'project')?.refill).toBe('cleared');
+    } finally {
+      refill.close();
+    }
+    expectPass(
+      replay(before, fingerprint(stale, `${shape}-prerelease-after-omit`, 'replica', true)),
+    );
+    const fresh = copyStore(shape, 'fresh-pr', projectIdOf(shape));
+    expectPass(
+      replay(
+        fingerprint(fresh, `${shape}-fresh-pr`, 'source'),
+        fingerprint(stale, `${shape}-prerelease-after`, 'replica'),
       ),
     );
   });
