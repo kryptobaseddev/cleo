@@ -29,6 +29,7 @@ import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
 import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
 import { createDoctorProgress } from '../progress.js';
 import { cliError, cliOutput, humanLine } from '../renderers/index.js';
+import { doctorAcBindingsCommand } from './doctor-ac-bindings.js';
 import { doctorAcceptanceDriftCommand } from './doctor-acceptance-drift.js';
 import { doctorCredentialsCommand } from './doctor-credentials.js';
 import { doctorDbSubstrateCommand } from './doctor-db-substrate.js';
@@ -279,6 +280,8 @@ export const doctorCommand = defineCommand({
     'split-brain': doctorSplitBrainCommand,
     // T12157 — the two acceptance stores (json column vs text+child rows) must agree
     'acceptance-drift': doctorAcceptanceDriftCommand,
+    // T12790 — evidence bindings whose AC row is gone (no FK): report + --fix (audited)
+    'ac-bindings': doctorAcBindingsCommand,
     // T12158 — tables nexus resolves by bare name must actually live where it assumes
     'nexus-residency': doctorNexusResidencyCommand,
     // T12113 (gh#1222) — evidence-tool semaphore holders + orphan reaping

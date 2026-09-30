@@ -275,6 +275,11 @@ export class UmbrellaDataAccessor implements DataAccessor {
     return (await this.tasks()).getAcBindings(acIds);
   }
 
+  /** @task T12790 */
+  async findOrphanAcBindings() {
+    return (await this.tasks()).findOrphanAcBindings();
+  }
+
   async getMetaValue<T>(key: string): Promise<T | null> {
     return (await this.tasks()).getMetaValue<T>(key);
   }

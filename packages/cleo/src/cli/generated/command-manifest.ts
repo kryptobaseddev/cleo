@@ -371,6 +371,13 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/docs.js')).docsCommand as CommandDef,
   },
   {
+    exportName: 'doctorAcBindingsCommand',
+    name: 'ac-bindings',
+    description: 'Report evidence bindings whose acceptance criterion no longer exists (dangling ',
+    load: async () =>
+      (await import('../commands/doctor-ac-bindings.js')).doctorAcBindingsCommand as CommandDef,
+  },
+  {
     exportName: 'doctorAcceptanceDriftCommand',
     name: 'acceptance-drift',
     description:

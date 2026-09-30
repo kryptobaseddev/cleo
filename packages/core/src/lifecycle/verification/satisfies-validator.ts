@@ -68,6 +68,7 @@ import type { EvidenceAtom } from '@cleocode/contracts';
 import { TERMINAL_TASK_STATUSES } from '@cleocode/contracts';
 import { and, eq } from 'drizzle-orm';
 import { captureProjectScope, worktreeScope } from '../../project-scope.js';
+import { selectPrunedAcBindings } from '../../store/ac-binding-prune.js';
 import { getDb } from '../../store/sqlite.js';
 import * as schema from '../../store/tasks-schema.js';
 
@@ -338,6 +339,15 @@ async function detectAliasDrift(
       .from(schema.evidenceAcBindings)
       .where(eq(schema.evidenceAcBindings.bindingType, 'satisfies'))
       .all();
+    // T12790: a binding whose AC was removed is pruned from the live table,
+    // but its row is kept in the audit log under the AC's owning (target)
+    // task. It is still a record of what the alias used to mean.
+    const pruned = await selectPrunedAcBindings(db, targetTaskId);
+    for (const row of pruned) {
+      if (row.bindingType === 'satisfies') {
+        rows.push({ acId: row.acId, evidenceAtomId: row.evidenceAtomId });
+      }
+    }
     // The stable atom id pattern follows the form used by writers
     // (T10505/T10506) but is not yet finalised — we match conservatively
     // by scanning for any binding whose atom id encodes the same
