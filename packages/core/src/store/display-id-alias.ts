@@ -106,7 +106,7 @@ import {
   type TaskReferenceColumn,
   writeRowIdentityMetaNative,
 } from './sqlite-data-accessor.js';
-import { compareHlc as compareSyncHlc, encodeHlc, parseHlc } from './sync/hlc.js';
+import { compareHlc as compareSyncHlc, encodeHlc, type Hlc, parseHlc } from './sync/hlc.js';
 
 /** Physical name of the display-id alias table. */
 export const DISPLAY_ID_ALIAS_TABLE = 'tasks_display_id_aliases';
@@ -139,12 +139,31 @@ export type DisplayIdAliasReason =
  * @throws HlcError when a value is not an encoded HLC.
  */
 export function compareHlc(a: HlcWire, b: HlcWire): number {
-  return compareSyncHlc(parseHlc(a), parseHlc(b));
+  return compareSyncHlc(storedHlc(a), storedHlc(b));
 }
 
 /** Physical milliseconds of an encoded HLC. */
 function hlcMs(value: HlcWire): number {
-  return parseHlc(value).phys;
+  return storedHlc(value).phys;
+}
+
+/** The format 9.25 wrote with the uid flag on: `<ms 15>.<counter 6>.<node>`. */
+const LEGACY_HLC_RE = /^(\d{15})\.(\d{6})\.(.+)$/;
+
+/**
+ * Decode an HLC this module stored. The journal format is the only one
+ * written; a value in the 9.25 format (written only with
+ * `CLEO_ROW_UID_FILL=1`) is still read, ordered by the same
+ * `(physical, counter, node)` tuple, so an old alias never breaks a re-mint.
+ *
+ * @throws HlcError when the value is in neither format.
+ */
+function storedHlc(value: HlcWire): Hlc {
+  const legacy = LEGACY_HLC_RE.exec(value);
+  if (legacy) {
+    return { phys: Number(legacy[1]), ctr: Number(legacy[2]), replica: legacy[3] as string };
+  }
+  return parseHlc(value);
 }
 
 /** The replica id a pre-HLC value carries: none issued it. */

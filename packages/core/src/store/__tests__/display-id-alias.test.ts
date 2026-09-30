@@ -27,6 +27,7 @@ import {
   applyRemintOp,
   collisionHlcFromBirths,
   collisionLoser,
+  compareHlc,
   listHeldRows,
   REMINT_TAKEOVER_MS,
   type RemintOp,
@@ -64,7 +65,6 @@ interface Replica {
 
 const BASE_MS = 1_790_000_000_000;
 let tick = 0;
-/** A fresh HLC value, increasing across the file. */
 /** A stable replica uuid per test device name (HLCs name their replica by uuid). */
 const replica = (name: string) => {
   const h = createHash('sha256').update(name).digest('hex');
@@ -357,6 +357,32 @@ describe('two stores created offline (AC2, AC3)', () => {
       c.close();
       rmSync(cPath, { force: true });
     }
+  });
+
+  it('a stored HLC in the 9.25 format is still ordered, never thrown on (T12802)', () => {
+    // `<ms 15>.<counter 6>.<node>`: what a 9.25 build wrote with the flag on.
+    const legacy = (ms: number, node: string) =>
+      `${String(BASE_MS + ms).padStart(15, '0')}.000000.${node}` as RemintOp['hlc'];
+    expect(compareHlc(legacy(5_000, 'device-c'), hlcAt(10_000))).toBeLessThan(0);
+    expect(compareHlc(hlcAt(10_000), legacy(5_000, 'device-c'))).toBeGreaterThan(0);
+    expect(compareHlc(legacy(20_000, 'device-c'), hlcAt(10_000))).toBeGreaterThan(0);
+    expect(() => compareHlc('not-an-hlc' as RemintOp['hlc'], hlcAt(1))).toThrow();
+
+    pull(b, a);
+    const alpha = tasksOf(a.db).find((t) => t.title === 'alpha (A)') as TaskRow;
+    const early: RemintOp = {
+      uid: alpha.uid,
+      birthFp: alpha.birth_fp,
+      oldId: 'T004',
+      newId: 'T700',
+      origin: 'device-c',
+      hlc: legacy(5_000, 'device-c'),
+    };
+    const late: RemintOp = { ...early, newId: 'T800', origin: 'device-a', hlc: hlcAt(10_000) };
+    expect(applyRemintOp(b.db, early).status).toBe('recorded');
+    expect(applyRemintOp(b.db, late).status).toBe('applied');
+    expect(applyRemintOp(b.db, early).status).toBe('superseded');
+    expect(idByTitle(b.db).get('alpha (A)')).toBe('T800');
   });
 
   it('a non-authority never allocates: it records, applies, or reports a conflict', () => {

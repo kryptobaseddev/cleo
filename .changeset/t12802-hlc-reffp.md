@@ -16,7 +16,13 @@ summary: Row-uid fingerprints of AC history and bindings no longer depend on fil
 - **One HLC.** Display-id re-mints and the authority schedule now use the
   change journal's HLC: the `Hlc` wire format in `@cleocode/contracts`,
   `PPPPPPPPPPPPP-CCCCCC-<replica uuid>`, ordered by `store/sync/hlc.ts`. The
-  local `<ms15>.<ctr6>.<node>` stand-in is gone.
+  local `<ms15>.<ctr6>.<node>` stand-in is no longer written. A value a 9.25
+  build stored in that format (only with the flag on) is still read and
+  ordered, never thrown on.
 - **Rows from before the journal.** For rows with no creation HLC, the
   collision HLC is the later of the two births, at counter 0, from the nil
   replica (`collisionHlcFromBirths`).
+- **Gate B in CI.** A new CI job, `row-identity-gate-b`, runs Gate B for row
+  identity on fixture stores shaped like cleocode and llmtxt. It covers the
+  replay with `--omit-row-identity`, determinism, and the v1 to v2 refill,
+  and it must stay green before the flag defaults on.
