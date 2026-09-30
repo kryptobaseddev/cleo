@@ -389,6 +389,7 @@ export async function observeBrain(
         const vector = await embedText(text);
         if (vector && nativeDb) {
           nativeDb
+            // replace-allowed: brain_embeddings is a vec0 virtual table — never an FK parent, and virtual tables reject UPSERT (T12787)
             .prepare('INSERT OR REPLACE INTO brain_embeddings (id, embedding) VALUES (?, ?)')
             .run(id, Buffer.from(vector.buffer));
         }
@@ -593,6 +594,7 @@ export async function populateEmbeddings(
         const vector = await embedText(row.narrative || row.title);
         if (vector) {
           nativeDb
+            // replace-allowed: brain_embeddings is a vec0 virtual table — never an FK parent, and virtual tables reject UPSERT (T12787)
             .prepare('INSERT OR REPLACE INTO brain_embeddings (id, embedding) VALUES (?, ?)')
             .run(row.id, Buffer.from(vector.buffer));
           processed++;
