@@ -2562,14 +2562,18 @@ export function applyTwinCollapseRecovery(
     if (fresh.changes && writes !== undefined && !fresh.snapshotPinned)
       throw unpinnedSnapshot(fresh.snapshot);
     // A moved store (T12788): the markers name the file where it lives now,
-    // whether or not anything is left to recover; `onRepoint` audits it.
+    // whether or not anything is left to recover. `onRepoint` audits it just
+    // before COMMIT, so a failure that rolls the re-point back leaves no
+    // audit row claiming it.
     let repointed: TwinCollapseSnapshotRepoint | null = null;
-    if (fresh.movedFrom !== null && fresh.snapshot !== null) {
+    if (fresh.movedFrom !== null && fresh.snapshot !== null)
       repointed = repointSnapshotMarkers(live, fresh.movedFrom, fresh.snapshot);
-      onRepoint?.(repointed);
-    }
     if (!fresh.changes || writes === undefined) {
-      live.exec(repointed === null ? 'ROLLBACK' : 'COMMIT');
+      if (repointed === null) live.exec('ROLLBACK');
+      else {
+        onRepoint?.(repointed);
+        live.exec('COMMIT');
+      }
       return { plan: fresh, receipt: null, repointed };
     }
     const recoveredAt = new Date().toISOString();
@@ -2605,6 +2609,7 @@ export function applyTwinCollapseRecovery(
     if (writes.stickyArchive !== null)
       writeKv(live, 'brain_schema_meta', fresh.stickyArchiveKey, writes.stickyArchive);
     writeKv(live, 'tasks_schema_meta', id, JSON.stringify(receipt));
+    if (repointed !== null) onRepoint?.(repointed);
     live.exec('COMMIT');
     return { plan: fresh, receipt, repointed };
   } catch (error) {
