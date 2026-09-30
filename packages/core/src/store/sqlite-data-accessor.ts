@@ -1642,6 +1642,69 @@ async function createOwnedSqliteDataAccessor(
                       .run();
                   });
                 },
+                async deleteAcRowsByIds(taskId: string, ids: readonly string[]): Promise<void> {
+                  scope.assertActive();
+                  if (ids.length === 0) return;
+                  return accessor.transaction(async () => {
+                    scope.assertActive();
+                    await db
+                      .delete(schema.taskAcceptanceCriteria)
+                      .where(
+                        and(
+                          eq(schema.taskAcceptanceCriteria.taskId, taskId),
+                          inArray(schema.taskAcceptanceCriteria.id, ids as string[]),
+                        ),
+                      )
+                      .run();
+                  });
+                },
+                async updateAcRows(
+                  rows: Array<{
+                    id: string;
+                    taskId: string;
+                    ordinal: number;
+                    text: string;
+                    kind?: 'text' | 'child_task' | 'evidence_bound';
+                    sourceKey?: string;
+                    targetTaskId?: string | null;
+                    projection?: string;
+                    contentHash?: string | null;
+                  }>,
+                ): Promise<void> {
+                  scope.assertActive();
+                  if (rows.length === 0) return;
+                  return accessor.transaction(async () => {
+                    scope.assertActive();
+                    const updatedAt = new Date().toISOString();
+                    for (const r of rows) {
+                      const result = await db
+                        .update(schema.taskAcceptanceCriteria)
+                        .set({
+                          ordinal: r.ordinal,
+                          kind: r.kind ?? 'text',
+                          sourceKey: r.sourceKey ?? `text:${r.ordinal}`,
+                          targetTaskId: r.targetTaskId ?? null,
+                          projection: r.projection ?? 'legacy',
+                          text: r.text,
+                          contentHash: r.contentHash ?? null,
+                          updatedAt,
+                        })
+                        .where(
+                          and(
+                            eq(schema.taskAcceptanceCriteria.id, r.id),
+                            eq(schema.taskAcceptanceCriteria.taskId, r.taskId),
+                          ),
+                        )
+                        .run();
+                      if (Number(result.changes) === 0) {
+                        throw new CleoError(
+                          ExitCode.VALIDATION_ERROR,
+                          `Acceptance criterion ${r.id} does not exist on task ${r.taskId}; refusing to update it`,
+                        );
+                      }
+                    }
+                  });
+                },
                 async appendAcHistory(
                   rows: Array<{ acId: string; previousText: string; reason: string }>,
                 ): Promise<void> {

@@ -51,6 +51,27 @@
  * words in prose are listed in {@link PROSE_ONLY} with the reason. Migration
  * `.sql` files are DDL history, not runtime writers, and are not scanned.
  *
+ * ## REPLACE conflict resolution is banned (T12787 · zero tolerance)
+ *
+ * Separately from the ratchet, every `INSERT OR REPLACE INTO t`,
+ * `REPLACE INTO t`, `UPDATE OR REPLACE t` and DDL `ON CONFLICT REPLACE`
+ * constraint in scanned source (the SANCTIONED chokepoint included)
+ * FAILS, in every mode. REPLACE resolves a conflict by DELETING the existing
+ * row and inserting a new one; with `foreign_keys=ON` SQLite runs the ON
+ * DELETE action of every FK referencing the deleted row — `CASCADE` deletes
+ * the children, `SET NULL` / `SET DEFAULT` detaches them — even though the
+ * "same" row is re-inserted a moment later. Write an UPSERT instead:
+ * `INSERT … ON CONFLICT(<key>) DO UPDATE SET c = excluded.c` (for an
+ * `INSERT … SELECT` source add `WHERE true` before `ON CONFLICT`).
+ *
+ * A site whose target provably is not such a parent (a `vec0` virtual table,
+ * which rejects UPSERT) opts out with `// replace-allowed: <reason>` on the
+ * same line or the line above. The opt-out is REFUSED when the statically
+ * named target is the parent of an `ON DELETE CASCADE | SET NULL | SET
+ * DEFAULT` foreign key declared in any migration `.sql` or scanned source
+ * ({@link fkActionParents}). A dynamic target (`${table}`) can never be
+ * proven safe, so it must be an UPSERT.
+ *
  * Modes:
  *   (default) / --check   fail on a new offender or an un-dropped removal
  *   --update-baseline     regenerate after a deliberate change
@@ -317,7 +338,7 @@ export function stripComments(src, lang = 'js') {
   return out.join('');
 }
 
-function sourceFiles() {
+function sourceFiles({ includeSanctioned = false } = {}) {
   const out = execFileSync('git', ['ls-files', ...SCAN_GLOBS], {
     cwd: REPO_ROOT,
     encoding: 'utf-8',
@@ -329,7 +350,7 @@ function sourceFiles() {
     .filter((f) => !/(^|\/)(__tests__|__fixtures__|tests|test|dist|target|node_modules)\//.test(f))
     .filter((f) => !/\.(test|spec)\.(ts|tsx|mjs|js)$/.test(f))
     .filter((f) => !f.endsWith('.d.ts'))
-    .filter((f) => !SANCTIONED.has(f) && !PROSE_ONLY.has(f));
+    .filter((f) => (includeSanctioned || !SANCTIONED.has(f)) && !PROSE_ONLY.has(f));
 }
 
 /**
@@ -358,6 +379,151 @@ export function writeSites(code, tables) {
     hits.push({ line, table });
   }
   return hits;
+}
+
+/**
+ * `INSERT OR REPLACE INTO t` / `REPLACE INTO t` / `UPDATE OR REPLACE t` (an
+ * UPDATE that hits a UNIQUE conflict deletes the OTHER row). The target is
+ * captured as a name, or left undefined when it is dynamic (`${…}`) and
+ * cannot be resolved.
+ *
+ * Known limit: the keywords must sit in one string literal. SQL assembled from
+ * split strings (`'INSERT OR ' + mode + ' INTO t'`) is not seen — review that.
+ */
+const REPLACE_RE =
+  /\b(?:insert\s+or\s+replace\s+into|update\s+or\s+replace|replace\s+into)\s+(?:[`"'[]?[a-z_]\w*[`"'\]]?\.)?(?:[`"'[]?([a-z_]\w*)|\$\{)/gi;
+
+/**
+ * DDL `ON CONFLICT REPLACE` on a column / table constraint: every plain
+ * INSERT or UPDATE into that table then resolves conflicts by REPLACE. The
+ * table is not resolved (reported `null`), so the opt-out is refused.
+ * `INSERT … ON CONFLICT(x) DO …` (an UPSERT) does not match.
+ */
+const DDL_REPLACE_RE = /\bon\s+conflict\s+replace\b/gi;
+
+/** Opt-out marker for a REPLACE whose target is not an FK-action parent. */
+const REPLACE_ALLOWED_RE = /\/\/\s*replace-allowed:\s*\S/;
+
+/**
+ * Every REPLACE site in comment-stripped code.
+ *
+ * @param {string} code - Output of {@link stripComments}.
+ * @returns {Array<{ line: number, table: string | null }>} `table` is lower-cased,
+ *   or `null` for a dynamic target.
+ */
+export function replaceSites(code) {
+  const hits = [];
+  const lineOf = (index) => {
+    let line = 1;
+    for (let k = 0; k < index; k++) if (code.charCodeAt(k) === 10) line++;
+    return line;
+  };
+  for (const m of code.matchAll(REPLACE_RE)) {
+    hits.push({ line: lineOf(m.index), table: m[1] ? m[1].toLowerCase() : null });
+  }
+  for (const m of code.matchAll(DDL_REPLACE_RE)) {
+    hits.push({ line: lineOf(m.index), table: null });
+  }
+  return hits.sort((a, b) => a.line - b.line);
+}
+
+/**
+ * Whether a REPLACE site carries a `// replace-allowed: <reason>` opt-out on
+ * its own line or the line above. Read from the RAW source: the marker is a
+ * comment, which {@link stripComments} blanks.
+ *
+ * @param {string[]} rawLines - The unstripped file, split on newlines.
+ * @param {number} line - 1-based line of the REPLACE keyword.
+ * @returns {boolean}
+ */
+export function replaceAllowed(rawLines, line) {
+  return [rawLines[line - 1], rawLines[line - 2]].some(
+    (l) => l !== undefined && REPLACE_ALLOWED_RE.test(l),
+  );
+}
+
+/**
+ * Tables that are the PARENT of a foreign key whose ON DELETE action deletes
+ * or rewrites child rows (`CASCADE`, `SET NULL`, `SET DEFAULT`): the tables a
+ * REPLACE must never target.
+ *
+ * @param {string} sql - SQL text (a migration, or source holding DDL strings).
+ * @returns {Set<string>} Lower-cased parent table names.
+ */
+export function fkActionParents(sql) {
+  const parents = new Set();
+  const re =
+    /\breferences\s+[`"'[]?([a-z_]\w*)[`"'\]]?\s*(?:\([^)]*\))?((?:\s+(?:on\s+(?:update|delete)\s+(?:cascade|restrict|set\s+null|set\s+default|no\s+action)|match\s+\w+|(?:not\s+)?deferrable(?:\s+initially\s+\w+)?))*)/gi;
+  for (const m of sql.matchAll(re)) {
+    if (/on\s+delete\s+(?:cascade|set\s+null|set\s+default)/i.test(m[2] ?? '')) {
+      parents.add(m[1].toLowerCase());
+    }
+  }
+  return parents;
+}
+
+/** FK-action parents across every tracked migration `.sql` and the given sources. */
+function repoFkActionParents(sources) {
+  const sqlFiles = execFileSync('git', ['ls-files', '*.sql'], {
+    cwd: REPO_ROOT,
+    encoding: 'utf-8',
+  })
+    .split('\n')
+    .filter((f) => /^(packages|crates)\//.test(f));
+  const parents = new Set();
+  for (const text of [
+    ...sqlFiles.map((f) => readFileSync(resolve(REPO_ROOT, f), 'utf-8')),
+    ...sources,
+  ]) {
+    for (const p of fkActionParents(text)) parents.add(p);
+  }
+  return parents;
+}
+
+/**
+ * Zero-tolerance REPLACE scan (T12787): every REPLACE site without an opt-out,
+ * plus every opted-out site whose target is dynamic or an FK-action parent.
+ *
+ * @returns {Array<{ file: string, line: number, table: string | null, reason: string }>}
+ */
+export function scanReplace() {
+  const files = sourceFiles({ includeSanctioned: true });
+  const raw = new Map(files.map((f) => [f, readFileSync(resolve(REPO_ROOT, f), 'utf-8')]));
+  const parents = repoFkActionParents([...raw.values()]);
+  const violations = [];
+  for (const [file, src] of raw) {
+    const code = stripComments(src, file.endsWith('.rs') ? 'rs' : 'js');
+    const rawLines = src.split('\n');
+    for (const site of replaceSites(code)) {
+      if (!replaceAllowed(rawLines, site.line)) {
+        violations.push({ file, ...site, reason: 'REPLACE conflict resolution' });
+      } else if (site.table === null) {
+        violations.push({ file, ...site, reason: 'opt-out on a dynamic target' });
+      } else if (parents.has(site.table)) {
+        violations.push({ file, ...site, reason: 'opt-out on an ON DELETE action FK parent' });
+      }
+    }
+  }
+  return violations;
+}
+
+/** Print REPLACE violations; returns 1 when there are any. */
+function reportReplace(violations) {
+  if (violations.length === 0) return 0;
+  console.error(
+    `lint-no-raw-table-writes: FAIL — ${violations.length} REPLACE write(s) (T12787, zero tolerance):\n`,
+  );
+  for (const v of violations) {
+    console.error(`  ${v.file}:${v.line}  [${v.table ?? '<dynamic>'}]  ${v.reason}`);
+  }
+  console.error(
+    '\nREPLACE deletes the conflicting row before re-inserting it, and with foreign keys\n' +
+      'on SQLite runs every ON DELETE CASCADE / SET NULL that references it: the\n' +
+      'children are deleted or detached. Use an UPSERT: INSERT … ON CONFLICT(<key>) DO\n' +
+      'UPDATE SET c = excluded.c (add WHERE true after an INSERT … SELECT source). A\n' +
+      'target proven not to be an FK parent may opt out: // replace-allowed: <reason>.\n',
+  );
+  return 1;
 }
 
 function scan() {
@@ -427,7 +593,10 @@ function main() {
     return 0;
   }
 
+  const replaceFailed = reportReplace(scanReplace());
+
   if (args.has('--strict')) {
+    if (replaceFailed) return 1;
     if (findings.length === 0) {
       console.log('lint-no-raw-table-writes: STRICT OK — no raw write on a classified table.');
       return 0;
@@ -465,6 +634,7 @@ function main() {
   }
 
   if (added.length === 0 && removed.length === 0) {
+    if (replaceFailed) return 1;
     console.log(
       `lint-no-raw-table-writes: OK — ${findings.length} baselined raw write site(s) in ${fileCount} file(s), no new offender.\n` +
         `  scanned: ${SCAN_SCOPE_DESCRIPTION}`,
