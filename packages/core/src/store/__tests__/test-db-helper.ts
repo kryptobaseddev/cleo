@@ -254,3 +254,45 @@ export async function seedTasks(
     }
   }
 }
+
+/** Session id {@link bindTestSession} binds by default (T12501). */
+export const BOUND_TEST_SESSION_ID = 'ses_20260930000000_b0b0b0';
+
+/**
+ * Bind the test process to an active session in `env`'s store (T12501).
+ *
+ * Focus writes (`cleo start` / `stop`, pivot, analyze auto-start) require a
+ * bound session: an unbound caller is refused with `E_SESSION_UNBOUND` instead
+ * of writing the shared legacy focus key. This inserts an active session row
+ * and names it through `CLEO_SESSION_ID`; `env.cleanup()` restores the
+ * previous value.
+ *
+ * @param env - The test store.
+ * @param sessionId - Session id to create and bind.
+ * @returns The bound session id.
+ * @task T12501
+ */
+export async function bindTestSession(
+  env: TestDbEnv,
+  sessionId: string = BOUND_TEST_SESSION_ID,
+): Promise<string> {
+  const now = new Date().toISOString();
+  await env.accessor.upsertSingleSession({
+    id: sessionId,
+    name: 'bound-test-session',
+    status: 'active',
+    scope: { type: 'global' },
+    taskWork: { taskId: null, setAt: null },
+    startedAt: now,
+    lastActivity: now,
+  });
+  const previous = process.env['CLEO_SESSION_ID'];
+  process.env['CLEO_SESSION_ID'] = sessionId;
+  const cleanup = env.cleanup;
+  env.cleanup = async () => {
+    if (previous === undefined) delete process.env['CLEO_SESSION_ID'];
+    else process.env['CLEO_SESSION_ID'] = previous;
+    await cleanup();
+  };
+  return sessionId;
+}
