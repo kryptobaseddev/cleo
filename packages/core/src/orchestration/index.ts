@@ -354,7 +354,7 @@ export async function getRankedReadyTasks(
 ): Promise<TaskReadiness[]> {
   const ready = (await getReadyTasks(epicId, cwd, accessor)).filter((t) => t.ready);
   if (ready.length < 2) return ready;
-  const { ctx, population } = await loadRankingContext(accessor!);
+  const { ctx, population } = await loadRankingContext(accessor!, undefined, { cwd });
   const byId = new Map(population.map((task) => [task.id, task] as const));
   return orderByRanking(ready, (t) => t.taskId, byId, ctx);
 }

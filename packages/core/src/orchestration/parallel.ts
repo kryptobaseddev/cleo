@@ -58,7 +58,7 @@ export async function startParallelExecution(
 
   // T12682: the same stable plan `orchestrate waves` prints; the wave's
   // finished tasks keep their number but are not run again.
-  const { children, waves } = await planEpicWaves(epicId, acc);
+  const { children, waves } = await planEpicWaves(epicId, acc, [epicId], undefined, cwd);
   const targetWave = waves.find((w) => w.waveNumber === wave);
 
   if (!targetWave) {

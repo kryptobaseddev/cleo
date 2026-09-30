@@ -325,7 +325,7 @@ async function routeSingleTask(
 
   // Execute the operation
   try {
-    await executeOperation(operation, taskId, targetProject.path, targetAccessor, directive);
+    await executeOperation(operation, taskId, targetProject, targetAccessor, directive);
 
     // Audit log (LOW-06)
     await logRouteAudit(directive, targetProject.name, taskId, operation, true);
@@ -354,18 +354,91 @@ async function routeSingleTask(
   }
 }
 
+/**
+ * The directive agent's own active session in the target project (T12501).
+ *
+ * Focus writes (`tasks.start` / `tasks.stop`) need a bound session: the
+ * routing process runs in no terminal of the target project, and the shared
+ * legacy focus key is never written. A directive acts in the session its
+ * agent holds there — the one active session whose `agentHandle` or
+ * `agentIdentifier` is `directive.agentId`. With none, or more than one, it
+ * refuses instead of guessing.
+ *
+ * @param operation - The routed operation (for the message).
+ * @param project - The target project.
+ * @param accessor - The target project's accessor.
+ * @param directive - The directive being routed.
+ * @returns The agent's session id.
+ * @throws CleoError `SESSION_UNBOUND` when the agent has no single active session there.
+ * @task T12501
+ */
+async function requireDirectiveSession(
+  operation: string,
+  project: NexusProject,
+  accessor: DataAccessor,
+  directive: ParsedDirective,
+): Promise<string> {
+  const own = (await accessor.loadSessions()).filter(
+    (s) =>
+      s.status === 'active' &&
+      (s.agentHandle === directive.agentId || s.agentIdentifier === directive.agentId),
+  );
+  if (own.length === 1) return own[0]!.id;
+  const why =
+    own.length === 0
+      ? `agent '${directive.agentId}' has no active session there`
+      : `agent '${directive.agentId}' has ${own.length} active sessions there (ambiguous)`;
+  throw new CleoError(
+    ExitCode.SESSION_UNBOUND,
+    `directive ${operation} needs a session in ${project.name}: ${why}.`,
+    {
+      fix:
+        `Start one session for agent '${directive.agentId}' in ${project.name} ` +
+        `('cleo session start --scope global --name "<name>" --agent ${directive.agentId}'), ` +
+        'then resend the directive.',
+    },
+  );
+}
+
+/**
+ * Run a focus-writing task operation inside the directive agent's session in
+ * the target project, via the connection-handle identity tier (T12501).
+ *
+ * @param operation - `tasks.start` or `tasks.stop`.
+ * @param project - The target project.
+ * @param accessor - The target project's accessor.
+ * @param directive - The directive being routed.
+ * @param fn - The operation, run with the agent's session bound.
+ * @returns Whatever `fn` returns.
+ * @task T12501
+ */
+async function inDirectiveSession<T>(
+  operation: string,
+  project: NexusProject,
+  accessor: DataAccessor,
+  directive: ParsedDirective,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const sessionId = await requireDirectiveSession(operation, project, accessor, directive);
+  const { runWithConnectionHandle } = await import('../sessions/connection-session-handle.js');
+  return runWithConnectionHandle(`conduit-directive:${directive.messageId}`, fn, sessionId);
+}
+
 /** Execute a CLEO operation on a project's task. */
 async function executeOperation(
   operation: string,
   taskId: string,
-  projectPath: string,
+  project: NexusProject,
   accessor: DataAccessor,
   directive: ParsedDirective,
 ): Promise<void> {
+  const projectPath = project.path;
   switch (operation) {
     case 'tasks.start': {
       const { startTask } = await import('../task-work/index.js');
-      await startTask(taskId, projectPath, accessor);
+      await inDirectiveSession(operation, project, accessor, directive, () =>
+        startTask(taskId, projectPath, accessor),
+      );
       break;
     }
     case 'tasks.complete': {
@@ -379,7 +452,9 @@ async function executeOperation(
     }
     case 'tasks.stop': {
       const { stopTask } = await import('../task-work/index.js');
-      await stopTask(projectPath, accessor);
+      await inDirectiveSession(operation, project, accessor, directive, () =>
+        stopTask(projectPath, accessor),
+      );
       break;
     }
     case 'tasks.update': {

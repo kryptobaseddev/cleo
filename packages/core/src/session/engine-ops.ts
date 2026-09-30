@@ -382,7 +382,7 @@ export async function taskCurrentGet(projectRoot: string): Promise<
 > {
   try {
     const accessor = await getTaskAccessor(projectRoot);
-    const result = await currentTask(undefined, accessor);
+    const result = await currentTask(projectRoot, accessor);
     if (!result.staleFocus)
       return engineSuccess({
         currentTask: result.currentTask,
@@ -459,10 +459,12 @@ export async function taskStop(
 ): Promise<EngineResult<{ cleared: boolean; previousTask: string | null }>> {
   try {
     const accessor = await getTaskAccessor(projectRoot);
-    const result = await stopTask(undefined, accessor);
+    // T12501: resolve the caller's session from the project root, not the
+    // process cwd, and surface a refusal (E_SESSION_UNBOUND) as itself.
+    const result = await stopTask(projectRoot, accessor);
     return engineSuccess({ cleared: true, previousTask: result.previousTask });
-  } catch {
-    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
+  } catch (err) {
+    return toEngineError(err, 'E_NOT_INITIALIZED', 'Failed to stop task');
   }
 }
 
@@ -479,7 +481,7 @@ export async function taskWorkHistory(
 ): Promise<EngineResult<{ history: TaskWorkHistoryEntry[]; count: number }>> {
   try {
     const accessor = await getTaskAccessor(projectRoot);
-    const history = await getTaskHistory(undefined, accessor);
+    const history = await getTaskHistory(projectRoot, accessor);
     return engineSuccess({ history, count: history.length });
   } catch {
     return engineError('E_NOT_INITIALIZED', 'Task database not initialized');

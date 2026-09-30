@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.4
+version: 3.1.5
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,12 +14,12 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.4
+  version: 3.1.5
   tier: core
   install: harness
   covers:
     - .github/workflows/release-prepare.yml
-  lastReviewed: 2026-09-29
+  lastReviewed: 2026-09-30
   stability: stable
 ---
 
@@ -80,6 +80,10 @@ cleo current
 cleo find "relevant query"
 cleo add "Task title" --description "What you're doing" --parent T001
 cleo start T123
+# 3. If 'cleo start' fails with E_SESSION_UNBOUND (spawned workers and
+#    subagents are already bound), bind first, then retry:
+#    cleo session start --scope global --name "<what you are doing>"
+#    (or: cleo session resume <id>)
 ```
 
 ### Commit Message Format
@@ -329,7 +333,7 @@ head SHA is green: `gh pr merge <n> --admin --merge` — see
 ```bash
 # Task lifecycle
 cleo current                 # Current task
-cleo start T123              # Start task
+cleo start T123              # Start task (on E_SESSION_UNBOUND: bind a session, see above)
 cleo complete T123           # Mark done
 
 # Find existing work

@@ -10,6 +10,7 @@
  * @task T1609 insertHandoffEntry — write-once INSERT path for handoff data
  */
 
+import { existsSync } from 'node:fs';
 import type { Session } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { and, desc, eq, inArray, isNull, lte, or } from 'drizzle-orm';
@@ -20,7 +21,7 @@ import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import { resolveTerminalKeys, type TerminalKey } from '../sessions/terminal-identity.js';
 import { rowToSession } from './converters.js';
 import { sessionTerminalBindings } from './session-binding-schema.js';
-import { getDb, getNativeTasksDb } from './sqlite.js';
+import { getDb, getDbPath, getNativeTasksDb } from './sqlite.js';
 import * as schema from './tasks-schema.js';
 import { runHeartbeatWrite } from './with-retry.js';
 
@@ -981,12 +982,20 @@ export interface BoundSessionResolution {
  * and they label it via {@link resolveSessionForRead}.
  *
  * @param cwd - Working directory for DB resolution.
+ * Never creates the project store: with no `cleo.db` the caller is unbound (T12501).
+ *
  * @returns The bound session and the tier that bound it, or `null` when unbound.
  * @task T12500
  */
 export async function resolveBoundSession(cwd?: string): Promise<BoundSessionResolution | null> {
   const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
   return worktreeScope.run(scope, async () => {
+    // T12501: resolution is a READ. With no project store there is no session
+    // row to bind to, so the caller is unbound — and opening the store here
+    // would CREATE `<root>/.cleo` (mkdir) just to find it empty, or fail with
+    // EACCES / EROFS where the caller may not write. Real faults in an EXISTING
+    // store still surface from the reads below.
+    if (!existsSync(getDbPath(scope.worktreeRoot))) return null;
     const connId = getCurrentConnectionSessionId();
     if (connId) {
       const byConn = await getSession(connId, scope.worktreeRoot);
