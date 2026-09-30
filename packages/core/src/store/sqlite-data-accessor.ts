@@ -495,9 +495,13 @@ export interface QuarantineRow {
 export function insertQuarantineNative(nativeDb: DatabaseSync, row: QuarantineRow): void {
   nativeDb
     .prepare(
-      `INSERT OR REPLACE INTO tasks_identity_quarantine
+      `INSERT INTO tasks_identity_quarantine
          (entity_table, uid, birth_fp, reason, contested_id, row_json, received_hlc, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(entity_table, uid, birth_fp) DO UPDATE SET
+         reason = excluded.reason, contested_id = excluded.contested_id,
+         row_json = excluded.row_json, received_hlc = excluded.received_hlc,
+         created_at = excluded.created_at`,
     )
     .run(
       row.entityTable,
