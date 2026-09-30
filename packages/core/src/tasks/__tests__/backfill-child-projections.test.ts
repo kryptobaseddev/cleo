@@ -478,3 +478,66 @@ describe('T10639 integration — backfill on seeded DB', () => {
     db2.close();
   });
 });
+
+// ---------------------------------------------------------------------------
+// T12787: the AC insert is an UPSERT — a same-id conflict must not cascade
+// ---------------------------------------------------------------------------
+
+describe('T12787 — AC insert conflict keeps evidence bindings (FK CASCADE child)', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'cleo-t12787-backfill-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('updates the conflicting AC row in place; its evidence_ac_bindings survive', async () => {
+    const projectDir = await setupProjectDir(tempDir);
+    const dbPath = join(projectDir, '.cleo', 'tasks.db');
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new (DatabaseSync as any)(dbPath) as NativeDb;
+
+    seedTask(db, 'EP9', 'Parent', { type: 'epic' });
+    seedTask(db, 'T91', 'Child', { parentId: 'EP9' });
+    seedTask(db, 'T99', 'Unrelated task');
+    // A row of ANOTHER task already holds the id the rebuild generates for
+    // EP9's child projection, and evidence is bound to it. The rebuild deletes
+    // only EP9's own rows, so the insert conflicts on `id`: `INSERT OR REPLACE`
+    // deleted this row first, and ON DELETE CASCADE took the binding with it.
+    const collidingId = buildAcRowId('EP9', childProjectionSourceKey('T91'));
+    seedAcRow(db, collidingId, 'T99', 7, 'pre-existing text');
+    db.prepare(
+      `INSERT INTO evidence_ac_bindings (id, evidence_atom_id, ac_id, binding_type)
+       VALUES ('b1', 'commit:abc', ?, 'direct')`,
+    ).run(collidingId);
+    db.close();
+
+    const { backfillChildProjections } = await import('../backfill-child-projections.js');
+    const result = await backfillChildProjections(projectDir, { dryRun: false });
+    expect(result.changes.find((c) => c.parentId === 'EP9')?.rebuilt).toBe(true);
+
+    const check = new (DatabaseSync as any)(dbPath) as NativeDb;
+    try {
+      expect(check.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
+      const row = check
+        .prepare(
+          'SELECT task_id, kind, target_task_id, text FROM task_acceptance_criteria WHERE id = ?',
+        )
+        .get(collidingId);
+      expect(row).toEqual({
+        task_id: 'EP9',
+        kind: 'child_task',
+        target_task_id: 'T91',
+        text: buildChildProjectionAcText('T91', 'Child'),
+      });
+      expect(check.prepare('SELECT id, ac_id FROM evidence_ac_bindings').all()).toEqual([
+        { id: 'b1', ac_id: collidingId },
+      ]);
+    } finally {
+      check.close();
+    }
+  });
+});

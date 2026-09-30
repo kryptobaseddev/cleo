@@ -12,7 +12,16 @@ import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { PROSE_ONLY, SANCTIONED, stripComments, writeSites } from '../lint-no-raw-table-writes.mjs';
+import {
+  fkActionParents,
+  PROSE_ONLY,
+  replaceAllowed,
+  replaceSites,
+  SANCTIONED,
+  scanReplace,
+  stripComments,
+  writeSites,
+} from '../lint-no-raw-table-writes.mjs';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SCRIPT = join(REPO, 'scripts', 'lint-no-raw-table-writes.mjs');
@@ -94,6 +103,62 @@ describe('writeSites', () => {
     expect(sites('db.update(tasks).set({ a: 1 }); db.delete(tasks);')).toEqual([]);
     // biome-ignore lint/suspicious/noTemplateCurlyInString: JS source text under test
     expect(sites('db.exec(`INSERT INTO ${table} VALUES (1)`);')).toEqual([]);
+  });
+});
+
+describe('REPLACE ban (T12787)', () => {
+  const reps = (src, lang = 'js') => replaceSites(stripComments(src, lang));
+
+  it('finds INSERT OR REPLACE and REPLACE INTO, any case, multi-line, qualified', () => {
+    expect(reps("db.exec('insert or replace into p (id) values (1)')")).toEqual([
+      { line: 1, table: 'p' },
+    ]);
+    expect(reps('x(`\n  REPLACE\n  INTO main."Parent" (id) VALUES (1)`)')).toEqual([
+      { line: 2, table: 'parent' },
+    ]);
+  });
+
+  it('reports a dynamic target as null, and ignores comments and .replace()', () => {
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: JS source text under test
+    expect(reps('db.exec(`INSERT OR REPLACE INTO main.${ident(t)} SELECT 1`);')).toEqual([
+      { line: 1, table: null },
+    ]);
+    expect(reps("// INSERT OR REPLACE INTO p\ns.replace(/a/, 'b'); s.replace('x', y);")).toEqual(
+      [],
+    );
+    expect(
+      reps("db.exec('INSERT INTO p (id) VALUES (1) ON CONFLICT(id) DO UPDATE SET id = 1')"),
+    ).toEqual([]);
+  });
+
+  it('honours a `// replace-allowed: <reason>` marker on the line or the line above', () => {
+    const lines = [
+      'a',
+      '  // replace-allowed: vec0 virtual table',
+      "  .prepare('INSERT OR REPLACE INTO v (id) VALUES (?)')",
+      "db.exec('REPLACE INTO v VALUES (1)'); // replace-allowed: vec0",
+      '// replace-allowed:',
+      "db.exec('REPLACE INTO v VALUES (1)');",
+    ];
+    expect(replaceAllowed(lines, 3)).toBe(true);
+    expect(replaceAllowed(lines, 4)).toBe(true);
+    expect(replaceAllowed(lines, 6)).toBe(false); // a reason is required
+    expect(replaceAllowed(lines, 1)).toBe(false);
+  });
+
+  it('fkActionParents keeps only ON DELETE CASCADE / SET NULL / SET DEFAULT parents', () => {
+    const sql = [
+      'CREATE TABLE c1 (pid TEXT REFERENCES `task_acceptance_criteria`(`id`) ON DELETE CASCADE);',
+      'CREATE TABLE c2 (a TEXT, FOREIGN KEY (`a`) REFERENCES `tasks`(`id`) ON UPDATE no action ON DELETE set null);',
+      'CREATE TABLE c3 (b TEXT REFERENCES keep_me(id) ON DELETE RESTRICT);',
+      'CREATE TABLE c4 (b TEXT REFERENCES plain(id));',
+      'CREATE TABLE c5 (b TEXT REFERENCES "dflt" (id) ON UPDATE CASCADE ON DELETE SET DEFAULT DEFERRABLE INITIALLY DEFERRED);',
+    ].join('\n');
+    expect([...fkActionParents(sql)].sort()).toEqual(['dflt', 'task_acceptance_criteria', 'tasks']);
+  });
+
+  it('the real repository has no un-opted REPLACE and no opt-out on an FK-action parent', () => {
+    expect(scanReplace()).toEqual([]);
   });
 });
 

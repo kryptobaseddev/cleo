@@ -357,8 +357,9 @@ export async function bindConduitDomain(
     // tooling that grepped the meta table prior to T1407). The Drizzle journal
     // (`__drizzle_migrations`) is the canonical migration source-of-truth.
     nativeDb.exec(
-      `INSERT OR REPLACE INTO _conduit_meta (key, value, updated_at)
-       VALUES ('schema_version', '${CONDUIT_SCHEMA_VERSION}', strftime('%s', 'now'))`,
+      `INSERT INTO _conduit_meta (key, value, updated_at)
+       VALUES ('schema_version', '${CONDUIT_SCHEMA_VERSION}', strftime('%s', 'now'))
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
     );
 
     return nativeDb;

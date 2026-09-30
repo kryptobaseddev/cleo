@@ -268,10 +268,27 @@ function buildDbTransactionAccessor(db: NativeDb, _parentId: string) {
     },
 
     insertAcRows: async (rows: any[]) => {
+      // UPSERT on the primary key, never `INSERT OR REPLACE` (T12787): the
+      // bare `task_acceptance_criteria` is the parent of
+      // `evidence_ac_bindings.ac_id ... ON DELETE CASCADE`, and this handle
+      // enforces foreign keys (node:sqlite's default), so REPLACE's implicit
+      // delete of a same-id row would cascade-delete its evidence bindings.
+      // The caller deletes the task's own rows first, so the only conflicts
+      // left are on `id`; the (task_id, ordinal) / (task_id, source_key)
+      // UNIQUE indexes cannot collide with a row of the same task.
       const stmt = db.prepare(
-        `INSERT OR REPLACE INTO task_acceptance_criteria
+        `INSERT INTO task_acceptance_criteria
          (id, task_id, ordinal, kind, source_key, target_task_id, projection, text, content_hash)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           task_id = excluded.task_id,
+           ordinal = excluded.ordinal,
+           kind = excluded.kind,
+           source_key = excluded.source_key,
+           target_task_id = excluded.target_task_id,
+           projection = excluded.projection,
+           text = excluded.text,
+           content_hash = excluded.content_hash`,
       );
       for (const row of rows) {
         stmt.run(
