@@ -270,6 +270,9 @@ export const EXEMPT = {
     _sync_clock: { count: 1, reason: SYNC_BOOKKEEPING },
   },
   'packages/core/src/store/sync/flags.ts': { _sync_meta: { count: 1, reason: SYNC_BOOKKEEPING } },
+  'packages/core/src/store/sync/writer-version.ts': {
+    _sync_meta: { count: 1, reason: SYNC_BOOKKEEPING },
+  },
   'packages/core/src/store/sync/replica.ts': {
     _sync_meta: { count: 2, reason: SYNC_BOOKKEEPING },
     _sync_replica: { count: 2, reason: SYNC_BOOKKEEPING },
