@@ -1172,7 +1172,54 @@ export function installRowUidTriggers(db: DatabaseSync, scope: TableScope): void
  * {@link ROW_IDENTITY_RECIPE_KEY} by the first fill; bumped by any change to a
  * recipe, a frozen content or birth-fact list, or the encoding.
  */
-export const ROW_IDENTITY_RECIPE = 'cleo/row-identity/v1';
+export const ROW_IDENTITY_RECIPE = 'cleo/row-identity/v2';
+
+/**
+ * The recipe 9.25 shipped (v1). v2 changed only the birth facts of AC history
+ * and evidence bindings (@refFp:ac_uid and ac_text_hash → none / ac_id,
+ * T12802); a store filled
+ * with v1 has those two tables' fingerprints re-derived (see
+ * {@link v1ReleaseBirthFp}).
+ */
+export const ROW_IDENTITY_RECIPE_V1 = 'cleo/row-identity/v1';
+
+/**
+ * The v1 fingerprint of an AC-history or binding row, to recognise a value
+ * the 9.25 recipe derived: v1 hashed the criterion's fingerprint
+ * (`@refFp:ac_uid`), or `ref:none` / `ref:missing`. Other tables: `null`
+ * (their v1 and v2 recipes are the same).
+ *
+ * @param db - Connection on the project `cleo.db`.
+ * @param table - Declared minted table.
+ * @param row - The stored row.
+ * @returns The v1 value, or `null`.
+ * @task T12802
+ */
+export function v1ReleaseBirthFp(
+  db: DatabaseSync,
+  table: string,
+  row: Readonly<Record<string, UidInput>>,
+): string | null {
+  const col = (c: string): UidInput => row[c] ?? null;
+  const facts: UidInput[] =
+    table === 'tasks_task_acceptance_criteria_history'
+      ? [col('ac_id'), col('previous_text'), col('reason')]
+      : table === 'tasks_evidence_ac_bindings'
+        ? [col('evidence_atom_id'), col('binding_type'), col('ac_text_hash')]
+        : [];
+  if (facts.length === 0) return null;
+  const acUid = col('ac_uid');
+  let ref: UidInput = 'ref:none';
+  if (acUid !== null) {
+    const ac = db
+      .prepare('SELECT birth_fp AS fp FROM main.tasks_task_acceptance_criteria WHERE uid = ?')
+      .get(acUid) as { fp: UidInput } | undefined;
+    ref = ac === undefined ? 'ref:missing' : ac.fp;
+    if (ref === null) return null;
+  }
+  const spec = rowIdentitySpec('project', table);
+  return birthFingerprint(table, spec?.birth ? col(spec.birth) : null, [...facts, ref]);
+}
 
 /**
  * Local-only key/value table of the row-identity layer. Not
@@ -1399,7 +1446,10 @@ function resetStaleIdentity(
       )
       .all() as Array<Record<string, UidInput> & { _rowid: number }>;
     for (const row of rows) {
-      if (row[BIRTH_FP_COLUMN] === preReleaseBirthFp(db, spec.table, row)) {
+      if (
+        row[BIRTH_FP_COLUMN] === preReleaseBirthFp(db, spec.table, row) ||
+        row[BIRTH_FP_COLUMN] === v1ReleaseBirthFp(db, spec.table, row)
+      ) {
         stale.push({ table: spec.table, rowid: row._rowid });
       }
     }

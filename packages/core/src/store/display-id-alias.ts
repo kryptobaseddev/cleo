@@ -72,6 +72,7 @@
 
 import type { DatabaseSync } from 'node:sqlite';
 import { ExitCode, type RowIdentitySpec, type TaskClaimGuard } from '@cleocode/contracts';
+import type { Hlc as HlcWire } from '@cleocode/contracts/cloud';
 import { CleoError } from '../errors.js';
 import {
   BIRTH_FP_COLUMN,
@@ -105,6 +106,7 @@ import {
   type TaskReferenceColumn,
   writeRowIdentityMetaNative,
 } from './sqlite-data-accessor.js';
+import { compareHlc as compareSyncHlc, encodeHlc, parseHlc } from './sync/hlc.js';
 
 /** Physical name of the display-id alias table. */
 export const DISPLAY_ID_ALIAS_TABLE = 'tasks_display_id_aliases';
@@ -123,57 +125,45 @@ export type DisplayIdAliasReason =
   | 'manual';
 
 // ---- HLC -------------------------------------------------------------------
+//
+// HLC values are the change journal's (T12342): the wire string `Hlc` in
+// `@cleocode/contracts` (`PPPPPPPPPPPPP-CCCCCC-<replica uuid>`), decoded and
+// ordered by `store/sync/hlc.ts`. String order is HLC order.
 
 /**
- * A hybrid logical clock value (T12342 owns the clock; this module needs only
- * its total order and its physical time). Encoded as
- * `<physical ms, 15 digits>.<counter, 6 digits>.<node>` so that string order
- * is HLC order.
- */
-export interface Hlc {
-  readonly physicalMs: number;
-  readonly counter: number;
-  readonly node: string;
-}
-
-const HLC_RE = /^(\d{15})\.(\d{6})\.(.+)$/;
-
-/**
- * Encode an HLC value.
- *
- * @param hlc - The value.
- * @returns Its sortable string form.
- */
-export function encodeHlc(hlc: Hlc): string {
-  return `${String(hlc.physicalMs).padStart(15, '0')}.${String(hlc.counter).padStart(6, '0')}.${hlc.node}`;
-}
-
-/**
- * Parse an encoded HLC value.
- *
- * @param value - Encoded HLC.
- * @returns The value.
- * @throws Error when the value is not an encoded HLC.
- */
-export function parseHlc(value: string): Hlc {
-  const m = HLC_RE.exec(value);
-  if (!m) throw new Error(`not an HLC value: ${value}`);
-  return { physicalMs: Number(m[1]), counter: Number(m[2]), node: m[3] as string };
-}
-
-/**
- * Total order of two encoded HLC values.
+ * Total order of two encoded HLC values (`Hlc` wire strings).
  *
  * @param a - One value.
  * @param b - The other.
  * @returns Negative, zero or positive.
+ * @throws HlcError when a value is not an encoded HLC.
  */
-export function compareHlc(a: string, b: string): number {
-  const x = parseHlc(a);
-  const y = parseHlc(b);
-  if (x.physicalMs !== y.physicalMs) return x.physicalMs < y.physicalMs ? -1 : 1;
-  if (x.counter !== y.counter) return x.counter < y.counter ? -1 : 1;
-  return x.node < y.node ? -1 : x.node > y.node ? 1 : 0;
+export function compareHlc(a: HlcWire, b: HlcWire): number {
+  return compareSyncHlc(parseHlc(a), parseHlc(b));
+}
+
+/** Physical milliseconds of an encoded HLC. */
+function hlcMs(value: HlcWire): number {
+  return parseHlc(value).phys;
+}
+
+/** The replica id a pre-HLC value carries: none issued it. */
+export const PRE_HLC_REPLICA = '00000000-0000-0000-0000-000000000000';
+
+/**
+ * The collision HLC of two rows that have no creation HLC (written before the
+ * change journal, T12342): the later of their two BIRTHS, at counter 0, from
+ * no replica ({@link PRE_HLC_REPLICA}). Every replica derives the same value
+ * from the rows' synced births; it only anchors the authority schedule
+ * ({@link remintAuthority}), never a clock (HLC never reads a uid's time).
+ *
+ * @param birthMsA - One row's birth, epoch ms.
+ * @param birthMsB - The other's.
+ * @returns An encoded HLC.
+ * @task T12802
+ */
+export function collisionHlcFromBirths(birthMsA: number, birthMsB: number): HlcWire {
+  return encodeHlc({ phys: Math.max(birthMsA, birthMsB, 0), ctr: 0, replica: PRE_HLC_REPLICA });
 }
 
 // ---- Shared helpers ---------------------------------------------------------
@@ -304,10 +294,7 @@ export function remintAuthority(input: RemintAuthorityInput): {
 } {
   if (input.cloudSynced) return { authority: 'server', reason: 'server', slot: 0 };
   const window = input.takeoverAfterMs ?? REMINT_TAKEOVER_MS;
-  const elapsed = Math.max(
-    0,
-    parseHlc(input.atHlc).physicalMs - parseHlc(input.collisionHlc).physicalMs,
-  );
+  const elapsed = Math.max(0, hlcMs(input.atHlc) - hlcMs(input.collisionHlc));
   const active = input.replicas
     .filter(
       (r) =>

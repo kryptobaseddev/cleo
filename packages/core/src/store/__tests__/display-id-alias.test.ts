@@ -16,6 +16,7 @@
 // Row uids are opt-in (T12341); these tests exercise them.
 process.env.CLEO_ROW_UID_FILL = '1';
 
+import { createHash } from 'node:crypto';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -24,8 +25,8 @@ import { buildAcRowId } from '../../tasks/ac-table.js';
 import {
   applyRekey,
   applyRemintOp,
+  collisionHlcFromBirths,
   collisionLoser,
-  encodeHlc,
   listHeldRows,
   REMINT_TAKEOVER_MS,
   type RemintOp,
@@ -44,6 +45,7 @@ import {
   rekeyedChildUid,
 } from '../row-identity.js';
 import { getNativeTasksDb } from '../sqlite.js';
+import { encodeHlc } from '../sync/hlc.js';
 import { createTestDb, seedTasks, type TestDbEnv } from './test-db-helper.js';
 
 interface TaskRow {
@@ -63,9 +65,16 @@ interface Replica {
 const BASE_MS = 1_790_000_000_000;
 let tick = 0;
 /** A fresh HLC value, increasing across the file. */
+/** A stable replica uuid per test device name (HLCs name their replica by uuid). */
+const replica = (name: string) => {
+  const h = createHash('sha256').update(name).digest('hex');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-7${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
+};
+/** A fresh HLC value (the journal's wire form, T12342), increasing across the file. */
 const clock = (node = 'n'): string =>
-  encodeHlc({ physicalMs: BASE_MS + ++tick * 1000, counter: 0, node });
-const hlcAt = (ms: number, node = 'n') => encodeHlc({ physicalMs: BASE_MS + ms, counter: 0, node });
+  encodeHlc({ phys: BASE_MS + ++tick * 1000, ctr: 0, replica: replica(node) });
+const hlcAt = (ms: number, node = 'n') =>
+  encodeHlc({ phys: BASE_MS + ms, ctr: 0, replica: replica(node) });
 
 const tasksOf = (db: DatabaseSync): TaskRow[] =>
   db
@@ -770,6 +779,22 @@ describe('remintAuthority (spec §9.2, T12750)', () => {
     expect(at(0, null)).toEqual({ authority: 'dev-a', reason: 'fallback', slot: 1 });
     expect(at(0, 'dev-a')).toEqual({ authority: 'dev-a', reason: 'origin', slot: 0 });
     expect(at(WINDOW - 1, 'dev-a')).toEqual({ authority: 'dev-b', reason: 'fallback', slot: 1 });
+  });
+
+  it('pre-HLC rows anchor the schedule at the later birth (T12802)', () => {
+    const t0 = BASE_MS + 1000;
+    const anchor = collisionHlcFromBirths(t0, t0 + 500);
+    expect(anchor).toMatch(/^\d{13}-000000-00000000-0000-0000-0000-000000000000$/);
+    expect(anchor).toBe(collisionHlcFromBirths(t0 + 500, t0));
+    expect(
+      remintAuthority({
+        cloudSynced: false,
+        origin: 'dev-c',
+        replicas,
+        collisionHlc: anchor,
+        atHlc: hlcAt(1500 + WINDOW),
+      }),
+    ).toMatchObject({ reason: 'fallback', slot: 1 });
   });
 
   it('is the same on every replica for the same inputs', () => {

@@ -35,9 +35,11 @@ import {
   ROW_IDENTITY,
   ROW_IDENTITY_RECIPE,
   ROW_IDENTITY_RECIPE_KEY,
+  ROW_IDENTITY_RECIPE_V1,
   ROW_IDENTITY_SYNCED_KEY,
   rekeyedChildUid,
   rowIdentityColumns,
+  v1ReleaseBirthFp,
 } from '../row-identity.js';
 import { getNativeTasksDb } from '../sqlite.js';
 import { createTestDb, seedTasks, type TestDbEnv } from './test-db-helper.js';
@@ -681,6 +683,73 @@ describe('identity versus collision across stores (spec §3)', () => {
       uid: string;
       fp: string;
     };
+
+  it('history and binding fingerprints do not depend on whether the criterion still existed at fill time (T12802)', () => {
+    const x = copyStore('x');
+    // An older build writes a criterion, its history and a binding (no identity yet).
+    x.exec(`INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, text, kind, source_key, created_at)
+        VALUES ('ac-9', 'T001', 1, 'tests pass', 'text', 'text:1:x', '2026-09-28 12:00:00');
+      INSERT INTO tasks_task_acceptance_criteria_history (ac_id, previous_text, reason, recorded_at)
+        VALUES ('ac-9', 'old text', 'edit', '2026-09-28 12:00:01');
+      INSERT INTO tasks_evidence_ac_bindings (id, evidence_atom_id, ac_id, binding_type, created_at)
+        VALUES ('b-9', 'tool:test', 'ac-9', 'direct', '2026-09-28 12:00:02');`);
+    // A second device holds the same history, but its criterion was removed
+    // before this build first opened it.
+    x.exec(`VACUUM INTO '${join(env.tempDir, 'y.db')}'`);
+    extra.push(join(env.tempDir, 'y.db'));
+    const y = new DatabaseSync(join(env.tempDir, 'y.db'));
+    try {
+      y.exec("DELETE FROM tasks_task_acceptance_criteria WHERE id = 'ac-9'");
+      prepareRowIdentity(x, 'project');
+      prepareRowIdentity(y, 'project');
+      for (const table of [
+        'tasks_task_acceptance_criteria_history',
+        'tasks_evidence_ac_bindings',
+      ]) {
+        const fp = (db: DatabaseSync) =>
+          (db.prepare(`SELECT birth_fp AS fp FROM ${table}`).get() as { fp: string }).fp;
+        expect(fp(x), table).toMatch(/^[0-9a-f]{32}$/);
+        expect(fp(y), table).toBe(fp(x));
+      }
+    } finally {
+      x.close();
+      y.close();
+    }
+  });
+
+  it('a store filled with the 9.25 (v1) recipe re-derives its history and binding fingerprints (T12802)', () => {
+    const x = copyStore('x1');
+    try {
+      prepareRowIdentity(x, 'project');
+      x.exec(`INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, text, kind, source_key)
+          VALUES ('ac-8', 'T001', 1, 'tests pass', 'text', 'text:1:x');
+        INSERT INTO tasks_evidence_ac_bindings (id, evidence_atom_id, ac_id, binding_type)
+          VALUES ('b-8', 'tool:test', 'ac-8', 'direct');`);
+      prepareRowIdentity(x, 'project');
+      const current = () =>
+        x.prepare("SELECT * FROM tasks_evidence_ac_bindings WHERE id = 'b-8'").get() as Record<
+          string,
+          string | null
+        >;
+      const v2 = current().birth_fp;
+      const v1 = v1ReleaseBirthFp(x, 'tasks_evidence_ac_bindings', current());
+      expect(v1).not.toBe(v2);
+      x.prepare("UPDATE tasks_evidence_ac_bindings SET birth_fp = ? WHERE id = 'b-8'").run(v1);
+      x.prepare('UPDATE tasks_row_identity_meta SET value = ? WHERE key = ?').run(
+        ROW_IDENTITY_RECIPE_V1,
+        ROW_IDENTITY_RECIPE_KEY,
+      );
+      expect(prepareRowIdentity(x, 'project')?.refill).toBe('cleared');
+      expect(current().birth_fp).toBe(v2);
+      expect(
+        x
+          .prepare('SELECT value FROM tasks_row_identity_meta WHERE key = ?')
+          .get(ROW_IDENTITY_RECIPE_KEY),
+      ).toEqual({ value: ROW_IDENTITY_RECIPE });
+    } finally {
+      x.close();
+    }
+  });
 
   it('a copied store keeps identical uids and fingerprints', () => {
     const a = copyStore('a');
