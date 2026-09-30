@@ -1289,11 +1289,30 @@ export async function addTask(
     // `task`) and silently create the wrong tier rather than refusing.
     const childTypeForParent = taskType ?? childTypeForParentType(parentTypeForValidation);
     if (!isAllowedWorkGraphParentType(childTypeForParent, parentTypeForValidation)) {
+      // T12756: name the exact tier the parent accepts (e.g. `--type task`
+      // under a task → `--type subtask`) instead of only restating the matrix.
+      const acceptedChildType = childTypeForParentType(parentTypeForValidation);
+      const canSuggestType =
+        acceptedChildType !== childTypeForParent &&
+        isAllowedWorkGraphParentType(acceptedChildType, parentTypeForValidation);
+      const containment = 'Use Saga→Epic, Epic→Task, and Task→Subtask containment.';
       throw new CleoError(
         ExitCode.VALIDATION_ERROR,
         `Invalid parent type for ${taskType}: parent ${parentId} has type '${parentTask.type}'.`,
         {
-          fix: 'Use Saga→Epic, Epic→Task, and Task→Subtask containment.',
+          fix: canSuggestType
+            ? `Use --type ${acceptedChildType}: a ${parentTypeForValidation} holds ` +
+              `${acceptedChildType}s, so \`cleo add "<title>" --type ${acceptedChildType} ` +
+              `--parent ${parentId} --acceptance "<criteria>"\` files it here. ${containment}`
+            : containment,
+          ...(canSuggestType && {
+            alternatives: [
+              {
+                action: `File it as a ${acceptedChildType} under ${parentId}`,
+                command: `cleo add "<title>" --type ${acceptedChildType} --parent ${parentId} --acceptance "<criteria>"`,
+              },
+            ],
+          }),
           details: {
             field: 'parentId',
             expected: 'saga->epic | epic->task | task->subtask',
@@ -1383,6 +1402,15 @@ export async function addTask(
         autoDecomposed = { childId: moved.childId, movedAcceptance: moved.movedAcceptance };
       }
     } else if (parentHasTextAc) {
+      // T12756: the usual intent is "related follow-up work", which belongs as a
+      // SIBLING under the leaf's own container (typically its epic) linked back
+      // with --relates, plus a dependency edge from the leaf onto the new task.
+      const siblingContainerId = parentTaskForProjection.parentId ?? null;
+      const siblingAddCommand =
+        `cleo add "<title>"` +
+        (siblingContainerId ? ` --parent ${siblingContainerId}` : '') +
+        ` --relates ${parentId} --acceptance "<criteria>"`;
+      const siblingDependsCommand = `cleo update ${parentId} --add-depends <new>`;
       throw new CleoError(
         ExitCode.VALIDATION_ERROR,
         `Cannot add child under ${parentId}: it is a ${parentTaskForProjection.type} with its ` +
@@ -1393,7 +1421,10 @@ export async function addTask(
           `containers by design.)`,
         {
           fix:
-            `Re-run this add with --auto-decompose to do it in one step, or run ` +
+            `To keep ${parentId} a leaf, file the new work as a sibling instead: ` +
+            `\`${siblingAddCommand}\` then \`${siblingDependsCommand}\` ` +
+            `(the new task's id replaces <new>). ` +
+            `Otherwise re-run this add with --auto-decompose to do it in one step, or run ` +
             `\`cleo decompose ${parentId}\` first — either moves ${parentId}'s text acceptance ` +
             `criteria onto a new first child in one step, leaving ${parentId} a pure ` +
             `container, after which this add succeeds. (Or promote ${parentId} to an epic ` +
@@ -1406,7 +1437,24 @@ export async function addTask(
             parentType: parentTaskForProjection.type,
             textAcCount: parentAcRows.filter((row) => row.kind === 'text').length,
             reason: 'mixed_parent_text_ac_plus_child',
+            siblingContainerId,
           },
+          alternatives: [
+            {
+              action: siblingContainerId
+                ? `File it as a sibling under ${siblingContainerId}, related to ${parentId}`
+                : `File it as a root-level task related to ${parentId}`,
+              command: siblingAddCommand,
+            },
+            {
+              action: `Make ${parentId} depend on the new sibling`,
+              command: siblingDependsCommand,
+            },
+            {
+              action: `Turn ${parentId} into a container, then add the child`,
+              command: `cleo decompose ${parentId}`,
+            },
+          ],
         },
       );
     }
