@@ -3276,10 +3276,22 @@ export async function revalidateEvidence(
         // once accepted/proposed. Re-validation is not performed at complete
         // time — the DB row is trusted as captured at verify time.
         break;
-      case 'ci':
-        // T12634: check conclusions on a merge commit are immutable once
-        // completed; the atom is trusted as captured, like `pr:`.
+      case 'ci': {
+        // T12634: a merge-commit atom is trusted as captured, like `pr:`.
+        // T12742: a completed conclusion is NOT immutable — a GitHub re-run
+        // adds a newer attempt — so an atom that leaned on a later main commit
+        // re-fetches that run's latest attempt (and the PR head's) here.
+        if (!atom.descendantSha) break;
+        const { recheckCiDescendantAtom } = await import('../release/ci-evidence.js');
+        const recheck = await recheckCiDescendantAtom(
+          atom,
+          resolveEvidenceExecutionRoot(projectRoot, undefined, {
+            commitSha: atom.mergeCommitSha,
+          }),
+        );
+        if (!recheck.ok) failed.push({ atom, reason: recheck.reason });
         break;
+      }
       case 'pr':
         // PR atoms capture (prNumber, mergedAt, mergeCommitSha) at verify
         // time. A merged PR's mergedAt is immutable, so the atom is trusted

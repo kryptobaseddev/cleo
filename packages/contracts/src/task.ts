@@ -435,8 +435,28 @@ export type EvidenceAtom =
         /** Event of the judged run (`push`, `pull_request`, …), when known. */
         event?: string;
       }>;
-      /** Tree of the merge commit — the content every recorded check tested. */
+      /** Tree of the merge commit — the content every check judged on it (or on a tree-equal PR head) tested. */
       testedTree?: string;
+      /**
+       * Later default-branch commit whose green `push` runs stood in for a
+       * required check the merge commit's own run only had cancelled or
+       * skipped (T12742). Its CI tested the DESCENDANT's tree, not the merge
+       * tree: it descends from the merge commit, and no commit in
+       * `descendantRange` — merge or not — touched the PR's changed files or a
+       * pinned CI workflow. Checks judged there record it as their `sha`.
+       */
+      descendantSha?: string;
+      /**
+       * `<mergeCommitSha>..<descendantSha>`: the first-parent range proven to
+       * leave the PR's files and the pinned workflows untouched (T12742).
+       */
+      descendantRange?: string;
+      /**
+       * Final PR head whose latest `pull_request` runs were green for every
+       * check the descendant stood in for (T12742); a descendant never
+       * vouches for a PR that was not itself green.
+       */
+      descendantPrHeadSha?: string;
       /** Task the PR was verified to be linked to (T12634). */
       taskId?: string;
       /** Component PR the task is linked through; its CI ran as this integration PR's (T12671). */
