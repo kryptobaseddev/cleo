@@ -13,13 +13,18 @@ back to the heuristic (the setup wizard's smoke test showed
 `Fallback: invalid_response`).
 
 `confidence` is now optional on the wire. When a host omits it, the adapter
-derives it from the probabilities as the margin between the two most likely
-outcomes: `|2p − 1|` for a noul answer, `p(top) − p(runner-up)` for choice and
-score answers, always in [0, 1]. A reported `confidence` is still preferred.
-The single and batch (`/v1/systemone/batch`) paths share this mapping.
+derives it from the probabilities as the margin of the chosen outcome over the
+most likely other one, clamped to [0, 1]: `|2p − 1|` for a noul answer,
+`p(chosen) − max(p(others))` for choice and score answers (a host-named choice
+that is not the most probable option gets 0). A reported `confidence` is
+still preferred; plain Jev reports one for choice and score and omits it only
+for noul. The single and batch (`/v1/systemone/batch`) paths share this
+mapping.
 
 The adapter version is now `jev-wire/4`, which invalidates cached outcomes
 from the old mapping. A host that reports no cost (`meta.cost_*` absent) is
-still charged nothing in the spend ledger. The `cleo decide bench` report now
+now charged the per-question reservation estimate in the spend ledger, so the
+monthly spend cap still applies to it; a reported cost is charged as
+reported. `cleo decide bench` charges the same estimate. Its report now
 marks such a provider's cost column as an estimate (`~$… (est.)`) instead of
 presenting the reservation estimate as a billed cost.

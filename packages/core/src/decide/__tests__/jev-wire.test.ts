@@ -215,7 +215,7 @@ describe('answers without confidence (plain Jev hosts)', () => {
     expect(at(0.2)?.confidence).toBeCloseTo(0.6, 10);
   });
 
-  it('derives choice and score confidence as the top-two probability margin', () => {
+  it('derives choice and score confidence as the chosen outcome margin over the others', () => {
     const outcome = fromJevSystemOneResponse(
       REQUEST,
       {
@@ -234,6 +234,28 @@ describe('answers without confidence (plain Jev hosts)', () => {
     expect(outcome.answers.severity?.confidence).toBeCloseTo(0.1, 10);
   });
 
+  it('derives choice confidence from the NAMED choice even when it is not the argmax', () => {
+    const outcome = fromJevSystemOneResponse(
+      REQUEST,
+      {
+        answers: {
+          retry: { type: 'noul', noul: 0.3 },
+          area: { type: 'choice', choice: 'infra', probabilities: { infra: 0.45, code: 0.55 } },
+          severity: { type: 'score', probabilities: { trivial: 0.2, minor: 0.2, major: 0.6 } },
+        },
+      },
+      1,
+    );
+    // Noul answered "no" at p = 0.3: |2p − 1| = 0.4.
+    expect(outcome.answers.retry).toMatchObject({ value: false });
+    expect(outcome.answers.retry?.confidence).toBeCloseTo(0.4, 10);
+    // The host named infra (0.45) over code (0.55): margin −0.1 clamps to 0.
+    expect(outcome.answers.area).toMatchObject({ type: 'choice', value: 'infra', confidence: 0 });
+    // Score picks the argmax level (major 0.6) over the best other (0.2).
+    expect(outcome.answers.severity).toMatchObject({ type: 'score', value: 2 });
+    expect(outcome.answers.severity?.confidence).toBeCloseTo(0.4, 10);
+  });
+
   it('prefers a reported confidence over the derivation', () => {
     const outcome = fromJevSystemOneResponse(
       NOUL_Q,
@@ -250,11 +272,14 @@ describe('answers without confidence (plain Jev hosts)', () => {
   });
 
   it('keeps the derived confidence inside [0, 1]', () => {
-    expect(deriveJevConfidence([])).toBe(0);
-    expect(deriveJevConfidence([1])).toBe(1);
-    expect(deriveJevConfidence([0.4, 0.4, 0.2])).toBe(0);
-    expect(deriveJevConfidence([Number.NaN, 0.5])).toBeGreaterThanOrEqual(0);
-    expect(deriveJevConfidence([2, 0])).toBe(1);
+    expect(deriveJevConfidence([], 0)).toBe(0);
+    expect(deriveJevConfidence([0.5, 0.5], 5)).toBe(0);
+    expect(deriveJevConfidence([1], 0)).toBe(1);
+    expect(deriveJevConfidence([0.4, 0.4, 0.2], 0)).toBe(0);
+    expect(deriveJevConfidence([0.2, 0.7, 0.1], 0)).toBe(0);
+    expect(deriveJevConfidence([0.2, 0.7, 0.1], 1)).toBeCloseTo(0.5, 10);
+    expect(deriveJevConfidence([Number.NaN, 0.5], 0)).toBe(0);
+    expect(deriveJevConfidence([2, 0], 0)).toBe(1);
   });
 
   it('answers through createJevProvider (single) and a batch item without confidence', async () => {
@@ -273,6 +298,58 @@ describe('answers without confidence (plain Jev hosts)', () => {
     });
     const items = (await batch.decideBatch?.([NOUL_Q], new AbortController().signal)) ?? [];
     expect(items[0]).toMatchObject({ ok: true, outcome: { answers: { q: { value: true } } } });
+  });
+});
+
+/** Read a JSON fixture from `./fixtures`. */
+function fixture(name: string): unknown {
+  return JSON.parse(
+    readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'fixtures', name), 'utf-8'),
+  );
+}
+
+describe('plain Jev choice and score answers carry a host confidence', () => {
+  // A live plain Jev host (jev-1.13.0, 2026-09-29) reports `confidence` and
+  // `probabilities` for choice and score, and omits `confidence` only for
+  // noul. The host-reported value is used as is, never re-derived.
+  it('uses the reported choice confidence (0.62), not the derived margin', () => {
+    const req: DecisionRequest = {
+      state: 'x',
+      questions: {
+        kind: {
+          type: 'choice',
+          criteria: { bugfix: 'Fixes a defect', feature: 'Adds behaviour', chore: 'Upkeep' },
+        },
+      },
+    };
+    const outcome = fromJevSystemOneResponse(
+      req,
+      fixture('jev-systemone-choice-confidence.json'),
+      1,
+    );
+    expect(outcome.answers.kind).toMatchObject({
+      type: 'choice',
+      value: 'bugfix',
+      confidence: 0.62,
+    });
+  });
+
+  it('uses the reported score confidence (0.72) and tolerates the legend', () => {
+    const req: DecisionRequest = {
+      state: 'x',
+      questions: { risk: { type: 'score', criteria: ['none', 'low', 'medium', 'high'] } },
+    };
+    const outcome = fromJevSystemOneResponse(
+      req,
+      fixture('jev-systemone-score-confidence.json'),
+      1,
+    );
+    expect(outcome.answers.risk).toMatchObject({
+      type: 'score',
+      value: 2,
+      confidence: 0.72,
+      probabilities: [0.01, 0.12, 0.65, 0.22],
+    });
   });
 });
 

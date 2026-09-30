@@ -22,8 +22,8 @@
  *   `confidence` is OPTIONAL on the wire (T12790 follow-up, `jev-wire/4`): a
  *   plain Jev host (e.g. `jev-1.13.0`) answers `{ type, noul }` with no
  *   `confidence`; layahost sends one. When absent, the adapter derives it
- *   with {@link deriveJevConfidence} (the probability margin between the top
- *   two outcomes), so the contract's required `confidence` stays satisfied.
+ *   with {@link deriveJevConfidence} (the chosen outcome's probability margin
+ *   over the others), so the contract's required `confidence` stays satisfied.
  *   Score probabilities are keyed by level text (or, defensively, by 0-based
  *   index) and re-aligned to the question's `criteria` order.
  * - Errors, per the layahost OpenAPI 1.0.0 (test fixture
@@ -237,32 +237,33 @@ function invalid(message: string): DecisionProviderError {
 /**
  * Confidence for an answer whose wire body carries none (plain Jev hosts).
  *
- * Defined as the probability margin between the most and second-most likely
- * outcomes, clamped to [0, 1]:
- * - noul: `|2p − 1|` (the margin between P(yes) = p and P(no) = 1 − p) — 0 at
- *   a coin flip, 1 at certainty.
- * - choice / score: `p(top) − p(runner-up)` over the answer's probabilities
- *   (a single outcome counts as a margin of `p(top)`).
+ * Defined as the probability margin of the CHOSEN outcome over the most
+ * likely of the others, clamped to [0, 1]:
+ * `p(chosen) − max(p(other))`. The chosen outcome need not be the argmax (a
+ * host may name a `choice` that is not the most probable option), in which
+ * case the margin is negative and clamps to 0.
+ * - noul: chosen is yes when `p >= 0.5`, so this is `|2p − 1|` — 0 at a coin
+ *   flip, 1 at certainty.
+ * - choice / score: `p(chosen option or level) − max(p of the others)` (a
+ *   single outcome counts as a margin of `p(chosen)`).
  *
- * The two definitions agree on a two-outcome distribution, so a noul and a
+ * The definitions agree on a two-outcome distribution, so a noul and a
  * two-option choice with the same odds get the same confidence. A reported
  * `confidence` is always preferred over this derivation.
  *
  * @param probabilities - The outcome probabilities (for noul: `[p, 1 − p]`).
- * @returns The derived confidence in [0, 1] (0 for an empty distribution).
+ * @param chosen - Index of the chosen outcome in `probabilities`.
+ * @returns The derived confidence in [0, 1] (0 for an empty distribution or
+ *   an out-of-range `chosen`).
  */
-export function deriveJevConfidence(probabilities: readonly number[]): number {
-  let top = 0;
-  let second = 0;
-  for (const p of probabilities) {
-    if (p > top) {
-      second = top;
-      top = p;
-    } else if (p > second) {
-      second = p;
-    }
+export function deriveJevConfidence(probabilities: readonly number[], chosen: number): number {
+  const picked = probabilities[chosen];
+  if (picked === undefined) return 0;
+  let other = 0;
+  for (const [i, p] of probabilities.entries()) {
+    if (i !== chosen && p > other) other = p;
   }
-  const margin = top - second;
+  const margin = picked - other;
   if (!Number.isFinite(margin)) return 0;
   return Math.min(1, Math.max(0, margin));
 }
@@ -275,7 +276,9 @@ function mapAnswer(name: string, question: DecisionQuestion, wire: JevWireAnswer
       type: 'noul',
       value: wire.noul >= 0.5,
       probability: wire.noul,
-      confidence: wire.confidence ?? deriveJevConfidence([wire.noul, 1 - wire.noul]),
+      confidence:
+        wire.confidence ??
+        deriveJevConfidence([wire.noul, 1 - wire.noul], wire.noul >= 0.5 ? 0 : 1),
     };
   }
   if (question.type === 'choice') {
@@ -291,7 +294,12 @@ function mapAnswer(name: string, question: DecisionQuestion, wire: JevWireAnswer
       type: 'choice',
       value,
       probabilities,
-      confidence: wire.confidence ?? deriveJevConfidence(options.map((o) => probabilities[o] ?? 0)),
+      confidence:
+        wire.confidence ??
+        deriveJevConfidence(
+          options.map((o) => probabilities[o] ?? 0),
+          options.indexOf(value),
+        ),
     };
   }
   const probabilities = wire.probabilities;
@@ -301,11 +309,12 @@ function mapAnswer(name: string, question: DecisionQuestion, wire: JevWireAnswer
     if (p === undefined) throw invalid(`answer "${name}" is missing level ${index}`);
     return p;
   });
+  const value = argmax(levels);
   return {
     type: 'score',
-    value: argmax(levels),
+    value,
     probabilities: levels,
-    confidence: wire.confidence ?? deriveJevConfidence(levels),
+    confidence: wire.confidence ?? deriveJevConfidence(levels, value),
   };
 }
 

@@ -9,12 +9,23 @@
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { DecisionAnswer, DecisionOutcome, DecisionRequest } from '@cleocode/contracts';
+import {
+  type DecisionAnswer,
+  type DecisionOutcome,
+  type DecisionRequest,
+  JEV_MINIMUM_CAPABILITIES,
+} from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DecisionAuditEntry, DecisionAuditSink } from '../audit.js';
 import { createMemoryTokenBucket, type DecisionBudget } from '../budget.js';
 import { createDecisionCache } from '../cache.js';
-import { _resetDecideDefaultsForTest, type DecideOptions, decide } from '../client.js';
+import {
+  _resetDecideDefaultsForTest,
+  DECISION_COST_ESTIMATE_MICROS_PER_QUESTION,
+  type DecideOptions,
+  decide,
+  decideBatch,
+} from '../client.js';
 import { type DecisionProvider, DecisionProviderError } from '../provider.js';
 import { createMemorySpendLedger, DEFAULT_MONTHLY_SPEND_CAP_MICROS } from '../spend.js';
 
@@ -171,6 +182,71 @@ describe('decide — provider path', () => {
     const outcome = await decide('site.e', REQUEST, heuristic, opts);
     expect(outcome.source).toBe('fallback');
     expect(opts.audit.entries[0]?.fallbackReason).toBe('invalid_response');
+  });
+});
+
+describe('decide — spend ledger charge (D11159 cap stays effective)', () => {
+  const { costUsd: _cost, ...NO_COST_OUTCOME } = PROVIDER_OUTCOME;
+
+  it('charges the reserved estimate when the host reports no cost (plain Jev)', async () => {
+    const opts = isolated({ provider: fakeProvider(async () => NO_COST_OUTCOME) });
+    const outcome = await decide('site.cost', REQUEST, heuristic, opts);
+    expect(outcome.source).toBe('provider');
+    const status = await opts.spend?.status();
+    expect(status?.spentMicros).toBe(DECISION_COST_ESTIMATE_MICROS_PER_QUESTION);
+  });
+
+  it('charges the reported cost when the host reports one', async () => {
+    const reported = { ...NO_COST_OUTCOME, costMicros: 7 };
+    const opts = isolated({ provider: fakeProvider(async () => reported) });
+    await decide('site.cost', REQUEST, heuristic, opts);
+    expect((await opts.spend?.status())?.spentMicros).toBe(7);
+
+    const usd = isolated({ provider: fakeProvider(async () => PROVIDER_OUTCOME) });
+    await decide('site.cost', REQUEST, heuristic, usd);
+    expect((await usd.spend?.status())?.spentMicros).toBe(10);
+  });
+
+  it('batch: charges each no-cost item its own estimate and each reported item its cost', async () => {
+    const twoQuestions: DecisionRequest = {
+      state: 'deploy failed twice',
+      questions: {
+        retry: { type: 'noul', criteria: 'Retrying will help' },
+        page: { type: 'noul', criteria: 'Someone should be paged' },
+      },
+    };
+    const answer: DecisionAnswer = { type: 'noul', value: true, probability: 0.9, confidence: 0.8 };
+    const provider: DecisionProvider = {
+      decide: vi.fn(async () => NO_COST_OUTCOME),
+      capabilities: () => ({
+        ...JEV_MINIMUM_CAPABILITIES,
+        batch: { maxRequests: 8, maxQuestions: 8 },
+      }),
+      decideBatch: vi.fn(async () => [
+        { ok: true as const, outcome: { ...NO_COST_OUTCOME } },
+        {
+          ok: true as const,
+          outcome: { ...NO_COST_OUTCOME, answers: { retry: answer, page: answer } },
+        },
+        { ok: true as const, outcome: { ...NO_COST_OUTCOME, costMicros: 3 } },
+      ]),
+    };
+    const opts = isolated({ provider });
+    const outcomes = await decideBatch(
+      'site.cost',
+      [
+        { req: REQUEST, fallback: heuristic },
+        { req: twoQuestions, fallback: heuristic },
+        { req: { ...REQUEST, state: 'deploy failed again' }, fallback: heuristic },
+      ],
+      opts,
+    );
+    expect(provider.decideBatch).toHaveBeenCalledTimes(1);
+    expect(outcomes.map((o) => o.source)).toEqual(['provider', 'provider', 'provider']);
+    // 1 question + 2 questions at the estimate, plus the reported 3.
+    expect((await opts.spend?.status())?.spentMicros).toBe(
+      3 * DECISION_COST_ESTIMATE_MICROS_PER_QUESTION + 3,
+    );
   });
 });
 

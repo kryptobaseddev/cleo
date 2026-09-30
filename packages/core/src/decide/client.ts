@@ -463,10 +463,16 @@ async function settleFailure(
   else await gates.spend.release(reservation);
 }
 
-/** Micro-dollars an outcome reported, preferring the exact integer. */
-function reportedMicros(outcome: DecisionOutcome): number {
+/**
+ * Micro-dollars to charge for an answered call: the cost the outcome
+ * reported (preferring the exact integer), or `estimate` when the host
+ * reports none (plain Jev sends no `meta.cost_*`). Charging the estimate
+ * keeps the monthly spend cap (D11159) effective for such hosts instead of
+ * recording every call as free.
+ */
+function reportedMicros(outcome: DecisionOutcome, estimate: number): number {
   if (outcome.costMicros !== undefined) return outcome.costMicros;
-  return outcome.costUsd !== undefined ? Math.round(outcome.costUsd * 1e6) : 0;
+  return outcome.costUsd !== undefined ? Math.round(outcome.costUsd * 1e6) : estimate;
 }
 
 /** Spend gate + budget + provider call; never rejects. */
@@ -487,7 +493,7 @@ async function attempt(
   try {
     const outcome = await provider.decide(req, signal);
     // A 2xx is billed even when its body is unusable.
-    await settle(gates, gate.reservation, reportedMicros(outcome));
+    await settle(gates, gate.reservation, reportedMicros(outcome, estimate));
     if (!coversRequest(outcome, req)) {
       return { ok: false, reason: 'invalid_response', billed: billedCost(outcome) };
     }
@@ -780,7 +786,11 @@ export async function decideBatch(
         }
         try {
           const answered = await batch(sent, signal);
-          const billed = answered.reduce((n, a) => n + (a.ok ? reportedMicros(a.outcome) : 0), 0);
+          const billed = answered.reduce(
+            (n, a, k) =>
+              n + (a.ok ? reportedMicros(a.outcome, estimateMicros(sent.slice(k, k + 1))) : 0),
+            0,
+          );
           await settle(gates, gate.reservation, billed);
           return { ok: true, items: answered };
         } catch (err) {
