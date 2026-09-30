@@ -23,6 +23,7 @@ import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import {
   bindCallingTerminal,
+  findSessionStartConflicts,
   requireOwnedSessionForEnd,
   resolveBoundSession,
   sessionLastSeenMs,
@@ -132,22 +133,29 @@ export async function startSession(
   const scope = parseScope(params.scope);
   const sessions = await readSessions(projectRoot, accessor);
 
-  // Check for conflicting active sessions
-  const activeSessions = sessions.filter((s: Session) => s.status === 'active');
-  for (const active of activeSessions) {
-    if (active.scope.type === scope.type && active.scope.epicId === scope.epicId) {
-      throw new CleoError(
-        ExitCode.SCOPE_CONFLICT,
-        `Active session already exists for scope ${params.scope}: ${active.id}`,
-        {
-          fix: `Resume with 'cleo session resume ${active.id}' or end it first`,
-          alternatives: [
-            { action: 'Resume existing', command: `cleo session resume ${active.id}` },
-            { action: 'End existing', command: `cleo session end` },
-          ],
-        },
-      );
-    }
+  // Check for conflicting active sessions of the same scope. T12530: only a
+  // session this terminal already owns (or one no terminal binding names)
+  // conflicts; a same-scope session another terminal started is that
+  // terminal's, so this one may start its own.
+  const sameScope = sessions.filter(
+    (s: Session) =>
+      s.status === 'active' && s.scope.type === scope.type && s.scope.epicId === scope.epicId,
+  );
+  const { held, blocking } = await findSessionStartConflicts(sameScope, projectRoot);
+  const active = blocking[0];
+  if (active) {
+    const owner = held?.session.id === active.id ? ' (held by this terminal)' : '';
+    throw new CleoError(
+      ExitCode.SCOPE_CONFLICT,
+      `Active session already exists for scope ${params.scope}: ${active.id}${owner}`,
+      {
+        fix: `Resume with 'cleo session resume ${active.id}' or end it first`,
+        alternatives: [
+          { action: 'Resume existing', command: `cleo session resume ${active.id}` },
+          { action: 'End existing', command: `cleo session end` },
+        ],
+      },
+    );
   }
 
   // Auto-detect runtime provider for session tracking (T5240)

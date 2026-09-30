@@ -12,7 +12,7 @@
 
 import type { Session } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
-import { and, desc, eq, isNull, lte, or } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, lte, or } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
 import { captureProjectScope, getProjectRoot, worktreeScope } from '../project-scope.js';
 import { getCurrentConnectionSessionId } from '../sessions/connection-session-handle.js';
@@ -714,6 +714,131 @@ export async function resolveTerminalBoundSession(
   keys: readonly TerminalKey[] = resolveTerminalKeys(),
 ): Promise<Session | null> {
   return (await resolveTerminalBinding(cwd, keys))?.session ?? null;
+}
+
+/** Which active sessions block the caller from starting another one (T12530). */
+export interface SessionStartConflicts {
+  /**
+   * The active session the caller already OWNS — named by its daemon
+   * connection, its env session id, or a terminal binding it wrote itself —
+   * or `null`. A session an agent merely ADOPTED from a human's pane/tab is not
+   * owned: the agent may start its own alongside it.
+   */
+  readonly held: { readonly session: Session; readonly via: SessionBindingSource } | null;
+  /**
+   * `true` when the caller has an identity to compare against: a connection or
+   * env session id that names a row, or at least one terminal key, and the
+   * binding table was readable. When `false` no session can be told apart from
+   * the caller's, so every candidate blocks (the pre-T12530 single-session guard).
+   */
+  readonly identified: boolean;
+  /**
+   * Every candidate that blocks the start, the held one first: the held
+   * session, plus each session that no terminal binding names and that carries
+   * no `agentHandle` — nobody provably owns it, so it may be the caller's own
+   * (a session started before T12499, or one whose binding moved on). A session
+   * bound to ANOTHER terminal, or tagged with an agent handle, never blocks.
+   */
+  readonly blocking: readonly Session[];
+}
+
+/**
+ * Decide which active sessions block `session start` from the calling
+ * terminal (T12530 · epic T12497).
+ *
+ * Before T12530 the start guard refused whenever ANY session was active, so a
+ * second terminal needed `--agent <handle>` even though T12499 already gave it
+ * its own identity. The guard now conflicts only with a session the caller
+ * already owns — the SAME terminal key (or env / connection identity) — and
+ * with sessions nobody provably owns. Sessions bound to other terminals are
+ * theirs, and starting here never touches them.
+ *
+ * Read-only: unlike {@link resolveTerminalBinding} this never writes an
+ * adoption row.
+ *
+ * @param candidates - Active sessions to classify (the caller pre-filters by status / scope).
+ * @param cwd - Working directory for DB resolution.
+ * @param keys - Identity keys, most specific first (defaults to the live terminal's).
+ * @returns The held session, whether the caller is identified, and the blocking set.
+ * @task T12530
+ */
+export async function findSessionStartConflicts(
+  candidates: readonly Session[],
+  cwd?: string,
+  keys: readonly TerminalKey[] = resolveTerminalKeys(),
+): Promise<SessionStartConflicts> {
+  const legacy: SessionStartConflicts = { held: null, identified: false, blocking: candidates };
+  const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    const activeById = async (id: string): Promise<Session | null> => {
+      const session = await getSession(id, scope.worktreeRoot);
+      return session && session.status === 'active' ? session : null;
+    };
+    try {
+      let held: SessionStartConflicts['held'] = null;
+      let identified = false;
+
+      const connId = getCurrentConnectionSessionId();
+      if (connId && (await getSession(connId, scope.worktreeRoot))) {
+        identified = true;
+        const session = await activeById(connId);
+        if (session) held = { session, via: 'connection' };
+      }
+      const envId = held ? null : resolveSessionIdFromEnv();
+      if (envId && (await getSession(envId, scope.worktreeRoot))) {
+        identified = true;
+        const session = await activeById(envId);
+        if (session) held = { session, via: 'env' };
+      }
+
+      const db = await getDb(scope.worktreeRoot);
+      const { provider, pane, tab } = splitTerminalKeys(keys);
+      const ownKey = provider ?? pane ?? tab;
+      if (ownKey) {
+        identified = true;
+        if (!held) {
+          // resolveTerminalBinding's ownership rule, without adopting: a
+          // provider caller owns only a provider row it wrote itself; a caller
+          // without a provider key owns its pane row (or, with no pane, its tab).
+          const row = await readBinding(db, ownKey);
+          if (row && (!provider || row.boundByProvider)) {
+            const session = await activeById(row.sessionId);
+            if (session) held = { session, via: 'terminal' };
+          }
+        }
+      }
+      if (!identified) return legacy;
+
+      const claimed = new Set<string>();
+      if (candidates.length > 0) {
+        const rows = await db
+          .select({ sessionId: sessionTerminalBindings.sessionId })
+          .from(sessionTerminalBindings)
+          .where(
+            inArray(
+              sessionTerminalBindings.sessionId,
+              candidates.map((s) => s.id),
+            ),
+          )
+          .all();
+        for (const r of rows) claimed.add(r.sessionId);
+      }
+      const heldId = held?.session.id;
+      const heldCandidate = candidates.find((s) => s.id === heldId);
+      const unclaimed = candidates.filter(
+        (s) => s.id !== heldId && !claimed.has(s.id) && !s.agentHandle,
+      );
+      return {
+        held,
+        identified: true,
+        blocking: heldCandidate ? [heldCandidate, ...unclaimed] : unclaimed,
+      };
+    } catch {
+      // A store opened before the T12499 migration lacks the binding table:
+      // with no way to tell sessions apart, keep the single-session guard.
+      return legacy;
+    }
+  });
 }
 
 /**
