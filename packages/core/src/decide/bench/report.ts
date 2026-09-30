@@ -48,7 +48,13 @@ function fallbacks(row: BenchAggregateRow): string {
 /** One table row. */
 function tableRow(row: BenchAggregateRow): string {
   const n = row.answered.mean === null ? '—' : row.answered.mean.toFixed(0);
-  const cost = row.provider === HEURISTIC_PROVIDER ? '$0' : usd(row.costMicros.mean ?? 0);
+  // A provider that reports no cost (plain Jev) shows the estimate, marked as one.
+  const cost =
+    row.provider === HEURISTIC_PROVIDER
+      ? '$0'
+      : row.costReported
+        ? usd(row.costMicros.mean ?? 0)
+        : `~${usd(row.costMicros.mean ?? 0)} (est.)`;
   return `| ${row.provider} | ${n} | ${pct(row.accuracy)} | ${pct(row.precision)} | ${pct(row.recall)} | ${pct(row.f1)} | ${pct(row.falsePositiveRate)} | ${ms(row.p50Ms)} | ${ms(row.p95Ms)} | ${cost} | ${fallbacks(row)} |`;
 }
 
