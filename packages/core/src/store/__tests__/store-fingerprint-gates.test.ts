@@ -129,7 +129,10 @@ const UID_MIGRATION = join(
 const MUTATIONS = {
   copy: '',
   lostRow: "DELETE FROM tasks_task_dependencies WHERE task_id = 'T3'",
-  cycle: "INSERT INTO tasks_task_dependencies (task_id, depends_on) VALUES ('T2', 'T3')",
+  // The T12886 guard trigger refuses this edge, so the replica is one a
+  // pre-guard build wrote: drop the trigger first. Gate C must still catch it.
+  cycle: `DROP TRIGGER IF EXISTS tasks_task_dependencies_cycle_guard_insert;
+    INSERT INTO tasks_task_dependencies (task_id, depends_on) VALUES ('T2', 'T3')`,
   changedRow: "UPDATE tasks_tasks SET title = 'Second, edited' WHERE id = 'T3'",
   reordered: `CREATE TEMP TABLE o AS SELECT * FROM brain_observations;
     DELETE FROM brain_observations;
