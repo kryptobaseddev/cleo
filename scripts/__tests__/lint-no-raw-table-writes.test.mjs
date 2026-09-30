@@ -21,11 +21,15 @@ import {
   bindMarkers,
   EXEMPT,
   enclosingFunction,
+  fkActionParents,
   isSyncTable,
   PROSE_ONLY,
   registryClasses,
+  replaceAllowed,
+  replaceSites,
   SANCTIONED,
   STAGED_SNAPSHOT,
+  scanReplace,
   stagedMarkers,
   stripComments,
   writeSites,
@@ -286,6 +290,78 @@ describe('staged-snapshot markers', () => {
     expect(enclosingFunction('const b = async (db) => {\n  x;\n};', 2)).toBe('b');
     expect(enclosingFunction('pub fn c(conn: &Connection) {\n  x;\n}', 2)).toBe('c');
     expect(enclosingFunction('x;', 1)).toBeUndefined();
+  });
+});
+
+describe('REPLACE ban (T12787)', () => {
+  const reps = (src, lang = 'js') => replaceSites(stripComments(src, lang));
+
+  it('finds INSERT OR REPLACE and REPLACE INTO, any case, multi-line, qualified', () => {
+    expect(reps("db.exec('insert or replace into p (id) values (1)')")).toEqual([
+      { line: 1, table: 'p' },
+    ]);
+    expect(reps('x(`\n  REPLACE\n  INTO main."Parent" (id) VALUES (1)`)')).toEqual([
+      { line: 2, table: 'parent' },
+    ]);
+  });
+
+  it('finds UPDATE OR REPLACE and DDL ON CONFLICT REPLACE, but not an UPSERT', () => {
+    expect(reps("db.exec('UPDATE OR REPLACE main.p SET id = 2 WHERE id = 1')")).toEqual([
+      { line: 1, table: 'p' },
+    ]);
+    expect(
+      reps('db.exec(`CREATE TABLE p (\n  id TEXT PRIMARY KEY ON CONFLICT REPLACE,\n  k TEXT)`)'),
+    ).toEqual([{ line: 2, table: null }]);
+    expect(reps("db.exec('CREATE TABLE p (k TEXT, UNIQUE (k) on  conflict  replace)')")).toEqual([
+      { line: 1, table: null },
+    ]);
+    expect(
+      reps("db.exec('INSERT INTO p (id) VALUES (1) ON CONFLICT(id) DO UPDATE SET id = 1')"),
+    ).toEqual([]);
+    expect(reps("db.exec('INSERT INTO p (id) VALUES (1) ON CONFLICT DO NOTHING')")).toEqual([]);
+  });
+
+  it('reports a dynamic target as null, and ignores comments and .replace()', () => {
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: JS source text under test
+    expect(reps('db.exec(`INSERT OR REPLACE INTO main.${ident(t)} SELECT 1`);')).toEqual([
+      { line: 1, table: null },
+    ]);
+    expect(reps("// INSERT OR REPLACE INTO p\ns.replace(/a/, 'b'); s.replace('x', y);")).toEqual(
+      [],
+    );
+    expect(
+      reps("db.exec('INSERT INTO p (id) VALUES (1) ON CONFLICT(id) DO UPDATE SET id = 1')"),
+    ).toEqual([]);
+  });
+
+  it('honours a `// replace-allowed: <reason>` marker on the line or the line above', () => {
+    const lines = [
+      'a',
+      '  // replace-allowed: vec0 virtual table',
+      "  .prepare('INSERT OR REPLACE INTO v (id) VALUES (?)')",
+      "db.exec('REPLACE INTO v VALUES (1)'); // replace-allowed: vec0",
+      '// replace-allowed:',
+      "db.exec('REPLACE INTO v VALUES (1)');",
+    ];
+    expect(replaceAllowed(lines, 3)).toBe(true);
+    expect(replaceAllowed(lines, 4)).toBe(true);
+    expect(replaceAllowed(lines, 6)).toBe(false); // a reason is required
+    expect(replaceAllowed(lines, 1)).toBe(false);
+  });
+
+  it('fkActionParents keeps only ON DELETE CASCADE / SET NULL / SET DEFAULT parents', () => {
+    const sql = [
+      'CREATE TABLE c1 (pid TEXT REFERENCES `task_acceptance_criteria`(`id`) ON DELETE CASCADE);',
+      'CREATE TABLE c2 (a TEXT, FOREIGN KEY (`a`) REFERENCES `tasks`(`id`) ON UPDATE no action ON DELETE set null);',
+      'CREATE TABLE c3 (b TEXT REFERENCES keep_me(id) ON DELETE RESTRICT);',
+      'CREATE TABLE c4 (b TEXT REFERENCES plain(id));',
+      'CREATE TABLE c5 (b TEXT REFERENCES "dflt" (id) ON UPDATE CASCADE ON DELETE SET DEFAULT DEFERRABLE INITIALLY DEFERRED);',
+    ].join('\n');
+    expect([...fkActionParents(sql)].sort()).toEqual(['dflt', 'task_acceptance_criteria', 'tasks']);
+  });
+
+  it('the real repository has no un-opted REPLACE and no opt-out on an FK-action parent', () => {
+    expect(scanReplace()).toEqual([]);
   });
 });
 
