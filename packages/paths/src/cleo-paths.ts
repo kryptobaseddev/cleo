@@ -121,6 +121,29 @@ export function resolveStableDeviceIdPath(): string {
 }
 
 /**
+ * Path of this device's sync replica registry —
+ * `<cleoStateDir>/sync/replicas-<deviceId>.json`.
+ *
+ * The registry is machine-local device state and never synced (journal spec
+ * N6). It lives in the state dir, not in a store and not beside synced data,
+ * and its name carries the device id, so a copy of the state dir that lands
+ * on another device is not read there.
+ *
+ * @param deviceId - The stable device id (`getStableDeviceId()`).
+ * @returns Absolute path of the registry file. Not created.
+ * @throws {Error} When `deviceId` is not a plain identifier.
+ *
+ * @public
+ * @task T12342
+ */
+export function resolveSyncReplicaRegistryPath(deviceId: string): string {
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(deviceId)) {
+    throw new Error(`invalid device id for the sync replica registry: ${deviceId}`);
+  }
+  return join(getCleoStateDir(), 'sync', `replicas-${deviceId}.json`);
+}
+
+/**
  * Get a cached system information snapshot scoped to CLEO.
  *
  * Includes platform, architecture, hostname, Node version, and resolved

@@ -112,6 +112,24 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     status: 'draft',
     source: 'table-classification-draft.md',
   },
+  _sync_clock: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §1.4-§1.5 (T12342)',
+    note: "the HLC clock of this store's replica; describes this physical file, so meaningless on another device. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled",
+  },
+  _sync_meta: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §1.4-§1.5 (T12342)',
+    note: 'store-level sync.* flags and journal bookkeeping; describes this physical file, so meaningless on another device. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled',
+  },
+  _sync_replica: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §1.4-§1.5 (T12342)',
+    note: 'the replica binding (inode, birthtime, nonce, device) of this store file; describes this physical file, so meaningless on another device. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled',
+  },
   _writer_leases: { class: 'local-only', status: 'draft', source: 'table-classification-draft.md' },
   _writer_queue: { class: 'local-only', status: 'draft', source: 'table-classification-draft.md' },
   acceptance_projection_dirty: {
@@ -1190,6 +1208,24 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
   __drizzle_migrations: { class: 'local-only', status: 'draft', source: 'draft §3' },
   _agent_registry_meta: { class: 'local-only', status: 'draft', source: 'draft §3' },
   _agent_registry_migrations: { class: 'local-only', status: 'draft', source: 'draft §3' },
+  _sync_clock: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §1.4-§1.5 (T12342)',
+    note: "the HLC clock of this store's replica; describes this physical file, so meaningless on another device. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled",
+  },
+  _sync_meta: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §1.4-§1.5 (T12342)',
+    note: 'store-level sync.* flags and journal bookkeeping; describes this physical file, so meaningless on another device. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled',
+  },
+  _sync_replica: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §1.4-§1.5 (T12342)',
+    note: 'the replica binding (inode, birthtime, nonce, device) of this store file; describes this physical file, so meaningless on another device. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled',
+  },
   _writer_leases: { class: 'local-only', status: 'draft', source: 'draft §3' },
   _writer_queue: { class: 'local-only', status: 'draft', source: 'draft §3' },
   accounts: {

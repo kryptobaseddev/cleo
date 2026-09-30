@@ -146,6 +146,8 @@ const NEXUS_META =
 const DERIVER_QUEUE = 'deriver work queue (local-only): per-device background queue';
 const FTS5 = 'FTS5 index maintenance (derived): rebuilt from its base table, never synced';
 const FROZEN = 'frozen bare twin (frozen-legacy): dropped by T12535; no reader';
+const SYNC_BOOKKEEPING =
+  'change journal bookkeeping (local-only): flags, clock and replica binding of THIS store file (T12342)';
 
 /**
  * Raw writers of NON-SYNC tables, exempt per (file, table): file → table →
@@ -236,6 +238,15 @@ export const EXEMPT = {
     tasks_schema_meta: { count: 1, reason: SCHEMA_STAMP },
   },
   'packages/core/src/store/sqlite.ts': { tasks_schema_meta: { count: 2, reason: SCHEMA_STAMP } },
+  'packages/core/src/store/sync/clock-store.ts': {
+    _sync_clock: { count: 1, reason: SYNC_BOOKKEEPING },
+  },
+  'packages/core/src/store/sync/flags.ts': { _sync_meta: { count: 1, reason: SYNC_BOOKKEEPING } },
+  'packages/core/src/store/sync/replica.ts': {
+    _sync_meta: { count: 2, reason: SYNC_BOOKKEEPING },
+    _sync_replica: { count: 2, reason: SYNC_BOOKKEEPING },
+  },
+  'packages/core/src/store/sync/schema.ts': { _sync_meta: { count: 1, reason: SYNC_BOOKKEEPING } },
   'packages/core/src/tasks/backfill-child-projections.ts': {
     task_acceptance_criteria: { count: 2, reason: FROZEN },
     tasks: { count: 1, reason: FROZEN },

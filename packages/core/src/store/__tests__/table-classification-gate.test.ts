@@ -176,6 +176,18 @@ const NOT_A_CREDENTIAL: Readonly<Record<string, string>> = Object.fromEntries(
  * gate checks that DDL still exists, so the exemption cannot outlive its
  * table.
  */
+/**
+ * The change journal's own tables (T12342): created only when a `sync.*` flag
+ * is first enabled, from the sync-journal schema folder, in either store.
+ */
+const SYNC_JOURNAL_DDL =
+  'packages/core/migrations/sync-journal/20260929140000_t12342-sync-clock/migration.sql';
+const SYNC_JOURNAL_TABLES = {
+  _sync_clock: { class: 'local-only', ddl: SYNC_JOURNAL_DDL },
+  _sync_meta: { class: 'local-only', ddl: SYNC_JOURNAL_DDL },
+  _sync_replica: { class: 'local-only', ddl: SYNC_JOURNAL_DDL },
+};
+
 const OPTIONAL_TRANSIENT: Record<TableScope, Record<string, { class: string; ddl: string }>> = {
   project: {
     _exodus_database_identity: {
@@ -183,9 +195,11 @@ const OPTIONAL_TRANSIENT: Record<TableScope, Record<string, { class: string; ddl
       ddl: 'packages/core/src/store/exodus/recovery.ts',
     },
     _fts5_check: { class: 'local-only', ddl: 'packages/core/src/memory/brain-search.ts' },
+    ...SYNC_JOURNAL_TABLES,
   },
   global: {
     __catalog_meta: { class: 'local-only', ddl: 'packages/core/src/llm/catalog-seeder.ts' },
+    ...SYNC_JOURNAL_TABLES,
     // No global binder creates it yet; pinned so a future one is never derived.
     brain_embeddings: {
       class: 'portable-personal',
