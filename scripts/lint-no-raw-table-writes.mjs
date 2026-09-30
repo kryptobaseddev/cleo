@@ -53,8 +53,9 @@
  *
  * ## REPLACE conflict resolution is banned (T12787 · zero tolerance)
  *
- * Separately from the ratchet, every `INSERT OR REPLACE INTO t` and
- * `REPLACE INTO t` in scanned source (the SANCTIONED chokepoint included)
+ * Separately from the ratchet, every `INSERT OR REPLACE INTO t`,
+ * `REPLACE INTO t`, `UPDATE OR REPLACE t` and DDL `ON CONFLICT REPLACE`
+ * constraint in scanned source (the SANCTIONED chokepoint included)
  * FAILS, in every mode. REPLACE resolves a conflict by DELETING the existing
  * row and inserting a new one; with `foreign_keys=ON` SQLite runs the ON
  * DELETE action of every FK referencing the deleted row — `CASCADE` deletes
@@ -381,11 +382,24 @@ export function writeSites(code, tables) {
 }
 
 /**
- * `INSERT OR REPLACE INTO t` / `REPLACE INTO t`. The target is captured as a
- * name, or left undefined when it is dynamic (`${…}`) and cannot be resolved.
+ * `INSERT OR REPLACE INTO t` / `REPLACE INTO t` / `UPDATE OR REPLACE t` (an
+ * UPDATE that hits a UNIQUE conflict deletes the OTHER row). The target is
+ * captured as a name, or left undefined when it is dynamic (`${…}`) and
+ * cannot be resolved.
+ *
+ * Known limit: the keywords must sit in one string literal. SQL assembled from
+ * split strings (`'INSERT OR ' + mode + ' INTO t'`) is not seen — review that.
  */
 const REPLACE_RE =
-  /\b(?:insert\s+or\s+replace\s+into|replace\s+into)\s+(?:[`"'[]?[a-z_]\w*[`"'\]]?\.)?(?:[`"'[]?([a-z_]\w*)|\$\{)/gi;
+  /\b(?:insert\s+or\s+replace\s+into|update\s+or\s+replace|replace\s+into)\s+(?:[`"'[]?[a-z_]\w*[`"'\]]?\.)?(?:[`"'[]?([a-z_]\w*)|\$\{)/gi;
+
+/**
+ * DDL `ON CONFLICT REPLACE` on a column / table constraint: every plain
+ * INSERT or UPDATE into that table then resolves conflicts by REPLACE. The
+ * table is not resolved (reported `null`), so the opt-out is refused.
+ * `INSERT … ON CONFLICT(x) DO …` (an UPSERT) does not match.
+ */
+const DDL_REPLACE_RE = /\bon\s+conflict\s+replace\b/gi;
 
 /** Opt-out marker for a REPLACE whose target is not an FK-action parent. */
 const REPLACE_ALLOWED_RE = /\/\/\s*replace-allowed:\s*\S/;
@@ -399,12 +413,18 @@ const REPLACE_ALLOWED_RE = /\/\/\s*replace-allowed:\s*\S/;
  */
 export function replaceSites(code) {
   const hits = [];
-  for (const m of code.matchAll(REPLACE_RE)) {
+  const lineOf = (index) => {
     let line = 1;
-    for (let k = 0; k < m.index; k++) if (code.charCodeAt(k) === 10) line++;
-    hits.push({ line, table: m[1] ? m[1].toLowerCase() : null });
+    for (let k = 0; k < index; k++) if (code.charCodeAt(k) === 10) line++;
+    return line;
+  };
+  for (const m of code.matchAll(REPLACE_RE)) {
+    hits.push({ line: lineOf(m.index), table: m[1] ? m[1].toLowerCase() : null });
   }
-  return hits;
+  for (const m of code.matchAll(DDL_REPLACE_RE)) {
+    hits.push({ line: lineOf(m.index), table: null });
+  }
+  return hits.sort((a, b) => a.line - b.line);
 }
 
 /**

@@ -118,6 +118,22 @@ describe('REPLACE ban (T12787)', () => {
     ]);
   });
 
+  it('finds UPDATE OR REPLACE and DDL ON CONFLICT REPLACE, but not an UPSERT', () => {
+    expect(reps("db.exec('UPDATE OR REPLACE main.p SET id = 2 WHERE id = 1')")).toEqual([
+      { line: 1, table: 'p' },
+    ]);
+    expect(
+      reps('db.exec(`CREATE TABLE p (\n  id TEXT PRIMARY KEY ON CONFLICT REPLACE,\n  k TEXT)`)'),
+    ).toEqual([{ line: 2, table: null }]);
+    expect(reps("db.exec('CREATE TABLE p (k TEXT, UNIQUE (k) on  conflict  replace)')")).toEqual([
+      { line: 1, table: null },
+    ]);
+    expect(
+      reps("db.exec('INSERT INTO p (id) VALUES (1) ON CONFLICT(id) DO UPDATE SET id = 1')"),
+    ).toEqual([]);
+    expect(reps("db.exec('INSERT INTO p (id) VALUES (1) ON CONFLICT DO NOTHING')")).toEqual([]);
+  });
+
   it('reports a dynamic target as null, and ignores comments and .replace()', () => {
     // biome-ignore lint/suspicious/noTemplateCurlyInString: JS source text under test
     expect(reps('db.exec(`INSERT OR REPLACE INTO main.${ident(t)} SELECT 1`);')).toEqual([

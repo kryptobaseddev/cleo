@@ -199,6 +199,11 @@ function carryForward(
     // over a seeded row that collides on the primary key OR on any secondary
     // UNIQUE constraint; the colliding row is updated in place instead of being
     // deleted. `WHERE true` disambiguates `ON` after a SELECT source.
+    // One behaviour differs: a snapshot row that collides with TWO different
+    // seeded rows (say, one on the PK and another on a UNIQUE column) makes
+    // the untargeted UPSERT raise a constraint error, where REPLACE silently
+    // deleted both. The error propagates out of the rebuild transaction, which
+    // rolls back, so nothing is half-copied or lost — it fails loudly instead.
     const update = colNames.map((c) => `${c} = excluded.${c}`).join(', ');
     nativeDb.exec(
       `INSERT INTO main.${ident(table)} (${cols}) SELECT ${values} FROM ${ident(alias)}.${ident(table)} WHERE true ` +

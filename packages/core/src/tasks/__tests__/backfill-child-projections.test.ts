@@ -16,13 +16,18 @@
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { AcRow } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  type AcPlanWriter,
+  applyAcPlan,
   auditChildProjectionAcRows,
   buildAcRowId,
   buildChildProjectionAcText,
+  buildFreshAcRows,
   childProjectionFreshnessFingerprint,
   childProjectionSourceKey,
+  planAcUpdate,
 } from '../ac-table.js';
 
 vi.mock('../../logger.js', () => ({
@@ -480,10 +485,105 @@ describe('T10639 integration — backfill on seeded DB', () => {
 });
 
 // ---------------------------------------------------------------------------
-// T12787: the AC insert is an UPSERT — a same-id conflict must not cascade
+// T12787 / T12789: AC writes never cascade-delete evidence bindings they keep,
+// and never take over another task's AC row. The bare schema declares
+// `evidence_ac_bindings.ac_id REFERENCES task_acceptance_criteria(id) ON
+// DELETE CASCADE`, and node:sqlite opens with foreign_keys ON.
 // ---------------------------------------------------------------------------
 
-describe('T12787 — AC insert conflict keeps evidence bindings (FK CASCADE child)', () => {
+function seedBinding(db: NativeDb, id: string, acId: string): void {
+  db.prepare(
+    `INSERT INTO evidence_ac_bindings (id, evidence_atom_id, ac_id, binding_type)
+     VALUES (?, ?, ?, 'direct')`,
+  ).run(id, `commit:${id}`, acId);
+}
+
+function bindingIds(db: NativeDb): string[] {
+  return (
+    db.prepare('SELECT id FROM evidence_ac_bindings ORDER BY id').all() as { id: string }[]
+  ).map((r) => r.id);
+}
+
+/** Test-local {@link AcPlanWriter} over the bare legacy schema (FK enforced). */
+function nativeAcPlanWriter(db: NativeDb): AcPlanWriter {
+  return {
+    appendAcHistory: async () => {},
+    getAcRows: async (taskId: string): Promise<AcRow[]> =>
+      (
+        db
+          .prepare(
+            `SELECT id, task_id, ordinal, kind, source_key, target_task_id, projection, text,
+                    created_at, updated_at, content_hash
+             FROM task_acceptance_criteria WHERE task_id = ? ORDER BY ordinal`,
+          )
+          .all(taskId) as Array<Record<string, string | number | null>>
+      ).map((r) => ({
+        id: String(r['id']),
+        taskId: String(r['task_id']),
+        ordinal: Number(r['ordinal']),
+        kind: r['kind'] as AcRow['kind'],
+        sourceKey: String(r['source_key']),
+        targetTaskId: (r['target_task_id'] as string | null) ?? null,
+        projection: String(r['projection']),
+        text: String(r['text']),
+        createdAt: String(r['created_at']),
+        updatedAt: (r['updated_at'] as string | null) ?? null,
+        contentHash: (r['content_hash'] as string | null) ?? null,
+      })),
+    insertAcRows: async (rows) => {
+      for (const r of rows) {
+        db.prepare(
+          `INSERT INTO task_acceptance_criteria
+           (id, task_id, ordinal, kind, source_key, target_task_id, projection, text, content_hash)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ).run(
+          r.id,
+          r.taskId,
+          r.ordinal,
+          r.kind ?? 'text',
+          r.sourceKey ?? null,
+          r.targetTaskId ?? null,
+          r.projection ?? 'legacy',
+          r.text,
+          r.contentHash ?? null,
+        );
+      }
+    },
+    updateAcRows: async (rows) => {
+      for (const r of rows) {
+        const res = db
+          .prepare(
+            `UPDATE task_acceptance_criteria
+             SET ordinal = ?, kind = ?, source_key = ?, target_task_id = ?, projection = ?,
+                 text = ?, content_hash = ?
+             WHERE id = ? AND task_id = ?`,
+          )
+          .run(
+            r.ordinal,
+            r.kind ?? 'text',
+            r.sourceKey ?? null,
+            r.targetTaskId ?? null,
+            r.projection ?? 'legacy',
+            r.text,
+            r.contentHash ?? null,
+            r.id,
+            r.taskId,
+          );
+        if (Number(res.changes) !== 1) throw new Error(`missing AC ${r.id}`);
+      }
+    },
+    deleteAcRowsByIds: async (taskId, ids) => {
+      for (const id of ids) {
+        db.prepare('DELETE FROM task_acceptance_criteria WHERE task_id = ? AND id = ?').run(
+          taskId,
+          id,
+        );
+      }
+    },
+  };
+}
+
+describe('T12787 — backfill refuses to take over another task’s AC row', () => {
   let tempDir: string;
 
   beforeEach(() => {
@@ -494,7 +594,7 @@ describe('T12787 — AC insert conflict keeps evidence bindings (FK CASCADE chil
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('updates the conflicting AC row in place; its evidence_ac_bindings survive', async () => {
+  it('fails on a foreign-owner id conflict; the other task’s AC and binding are untouched', async () => {
     const projectDir = await setupProjectDir(tempDir);
     const dbPath = join(projectDir, '.cleo', 'tasks.db');
     const { DatabaseSync } = await import('node:sqlite');
@@ -503,39 +603,135 @@ describe('T12787 — AC insert conflict keeps evidence bindings (FK CASCADE chil
     seedTask(db, 'EP9', 'Parent', { type: 'epic' });
     seedTask(db, 'T91', 'Child', { parentId: 'EP9' });
     seedTask(db, 'T99', 'Unrelated task');
-    // A row of ANOTHER task already holds the id the rebuild generates for
-    // EP9's child projection, and evidence is bound to it. The rebuild deletes
-    // only EP9's own rows, so the insert conflicts on `id`: `INSERT OR REPLACE`
-    // deleted this row first, and ON DELETE CASCADE took the binding with it.
+    // A row of ANOTHER task holds the id the rebuild generates for EP9's child
+    // projection, with evidence bound to it. `INSERT OR REPLACE` deleted it
+    // (cascading the binding); an untargeted `DO UPDATE` would re-parent it to
+    // EP9 and credit T99's evidence to EP9. Both are wrong: refuse.
     const collidingId = buildAcRowId('EP9', childProjectionSourceKey('T91'));
     seedAcRow(db, collidingId, 'T99', 7, 'pre-existing text');
-    db.prepare(
-      `INSERT INTO evidence_ac_bindings (id, evidence_atom_id, ac_id, binding_type)
-       VALUES ('b1', 'commit:abc', ?, 'direct')`,
-    ).run(collidingId);
+    seedBinding(db, 'b1', collidingId);
     db.close();
 
     const { backfillChildProjections } = await import('../backfill-child-projections.js');
-    const result = await backfillChildProjections(projectDir, { dryRun: false });
-    expect(result.changes.find((c) => c.parentId === 'EP9')?.rebuilt).toBe(true);
+    await expect(backfillChildProjections(projectDir, { dryRun: false })).rejects.toThrow(
+      /E_AC_ID_FOREIGN_OWNER/,
+    );
 
     const check = new (DatabaseSync as any)(dbPath) as NativeDb;
     try {
       expect(check.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
-      const row = check
-        .prepare(
-          'SELECT task_id, kind, target_task_id, text FROM task_acceptance_criteria WHERE id = ?',
-        )
-        .get(collidingId);
-      expect(row).toEqual({
-        task_id: 'EP9',
-        kind: 'child_task',
-        target_task_id: 'T91',
-        text: buildChildProjectionAcText('T91', 'Child'),
-      });
+      expect(
+        check
+          .prepare('SELECT task_id, ordinal, kind, text FROM task_acceptance_criteria WHERE id = ?')
+          .get(collidingId),
+      ).toEqual({ task_id: 'T99', ordinal: 7, kind: 'text', text: 'pre-existing text' });
       expect(check.prepare('SELECT id, ac_id FROM evidence_ac_bindings').all()).toEqual([
         { id: 'b1', ac_id: collidingId },
       ]);
+      // The failed rebuild rolled back: EP9 gained no rows.
+      expect(
+        check
+          .prepare("SELECT COUNT(*) AS n FROM task_acceptance_criteria WHERE task_id = 'EP9'")
+          .get(),
+      ).toEqual({ n: 0 });
+    } finally {
+      check.close();
+    }
+  });
+});
+
+describe('T12789 — AC diff apply keeps bindings of surviving ACs (FK ON)', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'cleo-t12789-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  async function openSeeded(): Promise<{ db: NativeDb; ids: string[]; projectDir: string }> {
+    const projectDir = await setupProjectDir(tempDir);
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new (DatabaseSync as any)(join(projectDir, '.cleo', 'tasks.db')) as NativeDb;
+    expect(db.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
+    seedTask(db, 'T5', 'Epic with bound ACs', { type: 'epic' });
+    const rows = buildFreshAcRows('T5', ['Alpha', 'Beta', 'Gamma']);
+    await nativeAcPlanWriter(db).insertAcRows(rows);
+    const ids = rows.map((r) => r.id);
+    for (const [i, id] of ids.entries()) seedBinding(db, `b${i + 1}`, id);
+    return { db, ids, projectDir };
+  }
+
+  it('editing one AC keeps the other ACs’ bindings; only the removed AC’s binding cascades', async () => {
+    const { db, ids } = await openSeeded();
+    try {
+      const writer = nativeAcPlanWriter(db);
+      const plan = planAcUpdate('T5', await writer.getAcRows('T5'), ['Alpha', 'Beta v2', 'Gamma']);
+      expect(plan.fullDelete).toBe(true);
+      await applyAcPlan(writer, 'T5', plan);
+
+      const after = await writer.getAcRows('T5');
+      expect(after.map((r) => r.text)).toEqual(['Alpha', 'Beta v2', 'Gamma']);
+      expect(after[0]?.id).toBe(ids[0]);
+      expect(after[2]?.id).toBe(ids[2]);
+      expect(bindingIds(db)).toEqual(['b1', 'b3']);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('shrink deletes only the tail; the kept AC keeps its binding', async () => {
+    const { db } = await openSeeded();
+    try {
+      const writer = nativeAcPlanWriter(db);
+      await applyAcPlan(writer, 'T5', planAcUpdate('T5', await writer.getAcRows('T5'), ['Alpha']));
+      expect((await writer.getAcRows('T5')).map((r) => r.text)).toEqual(['Alpha']);
+      expect(bindingIds(db)).toEqual(['b1']);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('a reorder updates rows in place through the UNIQUE indexes; every binding survives', async () => {
+    const { db, ids } = await openSeeded();
+    try {
+      const writer = nativeAcPlanWriter(db);
+      await applyAcPlan(
+        writer,
+        'T5',
+        planAcUpdate('T5', await writer.getAcRows('T5'), ['Gamma', 'Alpha', 'Beta']),
+      );
+      const after = await writer.getAcRows('T5');
+      expect(after.map((r) => [r.text, r.ordinal])).toEqual([
+        ['Gamma', 1],
+        ['Alpha', 2],
+        ['Beta', 3],
+      ]);
+      expect(after.map((r) => r.id)).toEqual([ids[2], ids[0], ids[1]]);
+      expect(bindingIds(db)).toEqual(['b1', 'b2', 'b3']);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('a child-projection rebuild keeps bindings on the parent’s text ACs', async () => {
+    const { db, ids, projectDir } = await openSeeded();
+    seedTask(db, 'T51', 'New child', { parentId: 'T5' });
+    db.close();
+
+    const { backfillChildProjections } = await import('../backfill-child-projections.js');
+    const result = await backfillChildProjections(projectDir, { dryRun: false });
+    expect(result.changes.find((c) => c.parentId === 'T5')?.rebuilt).toBe(true);
+
+    const { DatabaseSync } = await import('node:sqlite');
+    const check = new (DatabaseSync as any)(join(projectDir, '.cleo', 'tasks.db')) as NativeDb;
+    try {
+      const rows = await nativeAcPlanWriter(check).getAcRows('T5');
+      expect(rows.slice(0, 3).map((r) => r.id)).toEqual(ids);
+      expect(rows[3]?.targetTaskId).toBe('T51');
+      expect(bindingIds(check)).toEqual(['b1', 'b2', 'b3']);
     } finally {
       check.close();
     }
