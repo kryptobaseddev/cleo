@@ -32,9 +32,11 @@
  * @task T12535
  */
 
-import { existsSync, statSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { appendFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import { ExitCode } from '@cleocode/contracts';
+import { CleoError } from '../errors.js';
 import {
   getDualScopeNativeDb,
   openDualScopeDb,
@@ -45,15 +47,21 @@ import { planMigrationSnapshot } from '../store/pre-repair-snapshot.js';
 import {
   applyTwinCollapseRecovery,
   collapseTwinTables,
+  E_TWIN_COLLAPSE_RELEASE,
   inspectTwinCollapse,
   missingSnapshot,
   pinRecoverySnapshot,
+  planSnapshotRelease,
   planTwinCollapseRecovery,
+  releaseRefused,
+  releaseTwinCollapseSnapshot,
   rollbackTwinCollapseRecovery,
   type TwinCollapseReceipt,
   type TwinCollapseRecoveryPlan,
   type TwinCollapseRecoveryReceipt,
   type TwinCollapseRecoveryRollback,
+  type TwinCollapseSnapshotRelease,
+  type TwinCollapseSnapshotReleasePlan,
   type TwinCollapseStatus,
   unpinnedSnapshot,
 } from '../store/twin-collapse.js';
@@ -277,6 +285,120 @@ export async function rollbackTwinCollapse(
   assertOwnerStoreRewriteConfirmed('doctor twin-collapse --rollback', dbPath, options);
   const handle = await openDualScopeDb('project', projectRoot);
   return rollbackTwinCollapseRecovery(getDualScopeNativeDb(handle), id);
+}
+
+/** Audit log of snapshot releases, under the project's `.cleo/audit/`. */
+export const TWIN_COLLAPSE_RELEASE_AUDIT_FILE = 'twin-collapse-release.jsonl';
+
+/** Result of {@link releaseProjectTwinCollapseSnapshot}. */
+export interface TwinCollapseSnapshotReleaseResult {
+  /** The project store. */
+  readonly dbPath: string;
+  /** `true`: only planned, nothing written. */
+  readonly dryRun: boolean;
+  /** What a release would do, and why it may or may not. */
+  readonly plan: TwinCollapseSnapshotReleasePlan;
+  /** The release, or `null` on a dry run. */
+  readonly release: TwinCollapseSnapshotRelease | null;
+  /** The audit log the release was recorded in, or `null` on a dry run. */
+  readonly auditFile: string | null;
+}
+
+/** Options of {@link releaseProjectTwinCollapseSnapshot}. */
+export interface TwinCollapseSnapshotReleaseOptions extends OwnerStoreRewriteOptions {
+  /** Plan only; the live store is opened read-only. */
+  readonly dryRun?: boolean;
+  /**
+   * The owner's decision to release, which the calling agent obtained through
+   * its ask tool. The CLI never prompts; without it nothing is written.
+   */
+  readonly confirm?: boolean;
+}
+
+/**
+ * Release a pre-collapse snapshot (T12767):
+ * `cleo doctor twin-collapse --release-snapshot <id> [--dry-run] --confirm`.
+ *
+ * Allowed only after a verified recovery or a no-recovery-needed check (see
+ * `planSnapshotRelease`): the recovery plan against the snapshot must find
+ * nothing left to recover. A release clears the markers' reference to the
+ * snapshot and its sidecar pin, and appends a row to
+ * `.cleo/audit/twin-collapse-release.jsonl`. The snapshot file is never
+ * touched; it rotates normally afterwards. A dry run reports the bytes
+ * reclaimed once it rotates and writes nothing.
+ *
+ * @param projectRoot - Project directory.
+ * @param id - The snapshot: backup id (`migration-<timestamp>`), file name or path.
+ * @param options - `cwd`, `confirmOwnerStore`, `dryRun`, `confirm`.
+ * @returns The plan and, for a release, what was released.
+ * @throws {CleoError} `E_TWIN_COLLAPSE_RELEASE` (not confirmed, or not
+ *   releasable) and the owner-store guard's errors; nothing is written.
+ * @task T12767
+ */
+export async function releaseProjectTwinCollapseSnapshot(
+  projectRoot: string,
+  id: string,
+  options: TwinCollapseSnapshotReleaseOptions,
+): Promise<TwinCollapseSnapshotReleaseResult> {
+  const dryRun = options.dryRun === true;
+  const dbPath = resolveDualScopeDbPath('project', projectRoot);
+  if (!existsSync(dbPath)) throw new Error(`no project store at ${dbPath}`);
+  const withSnapshot = <T>(live: DatabaseSync, fn: (snap: DatabaseSync | null) => T): T => {
+    const path = planSnapshotRelease(live, id, null).snapshot;
+    if (path === null || !existsSync(path)) return fn(null);
+    const snap = openCleoDbSnapshot(path, { readOnly: true, applyPragmas: false });
+    try {
+      return fn(snap.db);
+    } finally {
+      snap.close();
+    }
+  };
+  if (dryRun) {
+    const live = openCleoDbSnapshot(dbPath, { readOnly: true });
+    try {
+      const plan = withSnapshot(live.db, (snap) => planSnapshotRelease(live.db, id, snap));
+      return { dbPath, dryRun, plan, release: null, auditFile: null };
+    } finally {
+      live.close();
+    }
+  }
+  if (options.confirm !== true)
+    throw new CleoError(
+      ExitCode.VALIDATION_ERROR,
+      `${E_TWIN_COLLAPSE_RELEASE}: releasing ${id} needs the owner's decision (--confirm); nothing was changed`,
+      {
+        fix: `cleo doctor twin-collapse --release-snapshot ${id} --dry-run  # show the plan, ask the owner, then add --confirm`,
+        details: { field: 'confirm', expected: true, actual: false },
+      },
+    );
+  assertOwnerStoreRewriteConfirmed('doctor twin-collapse --release-snapshot', dbPath, options);
+  const handle = await openDualScopeDb('project', projectRoot);
+  const live = getDualScopeNativeDb(handle);
+  const auditFile = join(dirname(dbPath), 'audit', TWIN_COLLAPSE_RELEASE_AUDIT_FILE);
+  return withSnapshot(live, (snap) => {
+    let plan = planSnapshotRelease(live, id, snap);
+    if (plan.basis === null) throw releaseRefused(id, plan);
+    const release = releaseTwinCollapseSnapshot(live, id, snap, (row) => {
+      mkdirSync(dirname(auditFile), { recursive: true });
+      appendFileSync(
+        auditFile,
+        `${JSON.stringify({
+          timestamp: row.releasedAt,
+          operation: 'doctor twin-collapse --release-snapshot',
+          snapshot: row.snapshot,
+          basis: row.basis,
+          bytes: row.bytes,
+          markers: row.markers,
+          receipts: row.receipts,
+          confirmedBy: 'owner (--confirm)',
+          cwd: resolve(options.cwd),
+          pid: process.pid,
+        })}\n`,
+      );
+    });
+    plan = { ...plan, basis: release.basis };
+    return { dbPath, dryRun, plan, release, auditFile };
+  });
 }
 
 /** One row of the default `cleo doctor` report (the `DoctorCheck` shape). */
