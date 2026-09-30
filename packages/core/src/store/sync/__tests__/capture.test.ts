@@ -310,13 +310,13 @@ describe('frames and the stamp (§2.3, N10)', () => {
     addTask(db, 'T2'); // autocommit, no frame
     const unframed = captures(db, 'tasks_tasks').at(-1) as Cap;
     expect(unframed.frame).toBeNull();
-    expect(unframed.conn).toBe(c.conn);
+    // Labels are written per frame at finish: an unframed write has none.
+    expect(unframed.conn).toBeNull();
   });
 
-  it('a rolled-back frame leaves no stale ctx: the ctx update rolls back with it', async () => {
-    // The ctx is set inside the transaction, and TEMP tables are
-    // transactional, so a ROLLBACK (explicit or automatic) restores the
-    // unframed ctx. A later autocommit write can never look framed.
+  it('a rolled-back frame leaves nothing: a later autocommit write is unframed', async () => {
+    // The frame row is written inside the transaction and labels only at
+    // finish, so a ROLLBACK (explicit or automatic) leaves no trace.
     const db = await captureOn();
     db.exec('BEGIN IMMEDIATE');
     const frame = openCaptureFrame(db, 'apply');
@@ -600,13 +600,28 @@ describe('the generator on a plain database (L3, L4)', () => {
     return { db, def };
   }
 
-  it('a 70-column table images every column (json_object chunked at 60 pairs)', () => {
+  it('a 70-column table images every non-NULL column (json_object chunked at 60 pairs)', () => {
     const { db } = plain(70);
-    db.exec("INSERT INTO w (id, c0, c69) VALUES ('a', 1, 2)");
+    const cols = Array.from({ length: 70 }, (_, i) => `c${i}`);
+    db.exec(
+      `INSERT INTO w (id, ${cols.join(', ')}) VALUES ('a', ${cols.map((_, i) => i).join(', ')})`,
+    );
     const row = db.prepare('SELECT img FROM _sync_capture').get() as { img: string };
     const image = JSON.parse(row.img);
-    expect(Object.keys(image)).toHaveLength(72);
-    expect(image.c69).toBe('2');
+    expect(Object.keys(image).length).toBeGreaterThanOrEqual(71);
+    expect(image.c0).toBe('0');
+    expect(image.c69).toBe('69');
+    // NULL columns are absent from I and D images (S2 ruling (a)).
+    db.exec("INSERT INTO w (id, c0, c69) VALUES ('b', 1, 2)");
+    const sparse = JSON.parse(
+      (
+        db.prepare('SELECT img FROM _sync_capture ORDER BY seq DESC LIMIT 1').get() as {
+          img: string;
+        }
+      ).img,
+    );
+    expect(sparse.c1).toBeUndefined();
+    expect(sparse.c69).toBe('2');
     db.close();
   });
 
@@ -632,7 +647,7 @@ describe('the generator on a plain database (L3, L4)', () => {
     expect(image.c1).toBe('9223372036854775807');
     expect(image.c2).toBe("X'00FF10'");
     expect(image.c3).toBe("'it''s'");
-    expect(image.c4).toBe('NULL');
+    expect(image.c4).toBeUndefined(); // NULL: absent from a full image
     expect(image.c5).toBe('rInf');
     expect(image.c6).toBe('r-Inf');
     // -0.0: SQLite stores an integer-valued REAL as REAL; the sign is not kept (L4).

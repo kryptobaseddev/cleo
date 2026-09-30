@@ -15,6 +15,7 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite';
+import { removeCaptureStamp } from './capture.js';
 import { CAPTURE_TRIGGER_PREFIX, TRIGGER_SUSPEND_TABLE } from './trigger-classes.js';
 
 /** What {@link dropSyncMachinery} removed. */
@@ -39,6 +40,7 @@ export function dropSyncMachinery(db: DatabaseSync): DroppedSyncMachinery {
   const triggers = names('trigger', CAPTURE_TRIGGER_PREFIX);
   const tables = names('table', '_sync_').filter((t) => t !== TRIGGER_SUSPEND_TABLE);
   const nested = db.isTransaction;
+  removeCaptureStamp(db);
   db.exec(nested ? 'SAVEPOINT drop_sync_machinery' : 'BEGIN IMMEDIATE');
   try {
     for (const t of triggers) db.exec(`DROP TRIGGER IF EXISTS "${t}"`);

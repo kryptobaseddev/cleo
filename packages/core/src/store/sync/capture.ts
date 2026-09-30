@@ -41,7 +41,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import type { RowIdentityRef, TableScope } from '@cleocode/contracts';
 import {
   BIRTH_FP_COLUMN,
@@ -156,19 +156,40 @@ export function captureTableDef(
   };
 }
 
-/** A column's value in an image, from row alias `row` (`NEW` or `OLD`). */
-function valueExpr(def: CaptureTableDef, col: string, row: string, liveIdentity: boolean): string {
+/**
+ * `enc(v)`, except that SQL NULL stays NULL (a JSON null in `json_object`,
+ * which the full-image merge patch then removes).
+ */
+function encOrNull(expr: string): string {
+  return `CASE typeof(${expr}) WHEN 'null' THEN NULL WHEN 'real' THEN 'r' || printf('%!.17g', ${expr}) ELSE quote(${expr}) END`;
+}
+
+/**
+ * A column's value in an image, from row alias `row` (`NEW` or `OLD`). With
+ * `omitNull`, a NULL value is SQL NULL (the full images drop the key); else
+ * it is the text `NULL`.
+ */
+function valueExpr(
+  def: CaptureTableDef,
+  col: string,
+  row: string,
+  liveIdentity: boolean,
+  omitNull = false,
+): string {
+  const e = omitNull ? encOrNull : enc;
+  const nullText = omitNull ? 'NULL' : "'NULL'";
   if (def.secret.has(col)) {
-    return `CASE WHEN ${row}.${q(col)} IS NULL THEN 'NULL' ELSE ${lit(SECRET_MARKER)} END`;
+    return `CASE WHEN ${row}.${q(col)} IS NULL THEN ${nullText} ELSE ${lit(SECRET_MARKER)} END`;
   }
   if (liveIdentity && def.identity.includes(col)) {
-    return `(SELECT ${enc(`x.${q(col)}`)} FROM ${q(def.table)} x WHERE ${keyMatch(def, 'x', row)})`;
+    return `(SELECT ${e(`x.${q(col)}`)} FROM ${q(def.table)} x WHERE ${keyMatch(def, 'x', row)})`;
   }
   const ref = def.refs.get(col);
   if (ref) {
-    return `json_array(${enc(`${row}.${q(col)}`)}, (SELECT r.${q(UID_COLUMN)} FROM ${q(ref.table)} r WHERE r.${q(ref.key)} = ${row}.${q(col)}))`;
+    const pair = `json_array(${enc(`${row}.${q(col)}`)}, (SELECT r.${q(UID_COLUMN)} FROM ${q(ref.table)} r WHERE r.${q(ref.key)} = ${row}.${q(col)}))`;
+    return omitNull ? `CASE WHEN ${row}.${q(col)} IS NULL THEN NULL ELSE ${pair} END` : pair;
   }
-  return enc(`${row}.${q(col)}`);
+  return e(`${row}.${q(col)}`);
 }
 
 function keyMatch(def: CaptureTableDef, alias: string, row: string): string {
@@ -190,8 +211,16 @@ export function chunkedObject(pairs: ReadonlyArray<readonly [string, string]>): 
   return chunks.reduce((acc, c) => `json_patch(${acc}, ${c})`);
 }
 
+/**
+ * The I and D image: every captured column that is not NULL (S2 ruling (a),
+ * cheaper images). A column absent from the image is NULL; the column set a
+ * sender had is pinned by its trigger set (replayPin), so absence is never
+ * "unknown column". The JSON merge patch drops the null members.
+ */
 function fullImage(def: CaptureTableDef, row: string, liveIdentity: boolean): string {
-  return chunkedObject(def.columns.map((c) => [c, valueExpr(def, c, row, liveIdentity)] as const));
+  return `json_patch('{}', ${chunkedObject(
+    def.columns.map((c) => [c, valueExpr(def, c, row, liveIdentity, true)] as const),
+  )})`;
 }
 
 /** The undo image: every captured column, secret ciphertext and strip included (Rule 2). */
@@ -322,7 +351,7 @@ export function captureTriggers(def: CaptureTableDef): CaptureTrigger[] {
     const patch = idCols
       .map(
         (c) =>
-          `'$.${c}', CASE WHEN json_extract(img, '$.${c}') = 'NULL' THEN ${enc(`NEW.${q(c)}`)} ELSE json_extract(img, '$.${c}') END`,
+          `'$.${c}', CASE WHEN coalesce(json_extract(img, '$.${c}'), 'NULL') = 'NULL' THEN ${enc(`NEW.${q(c)}`)} ELSE json_extract(img, '$.${c}') END`,
       )
       .join(', ');
     out.push({
@@ -464,10 +493,13 @@ export function dropCaptureTriggers(db: DatabaseSync): string[] {
 const stamped = new WeakMap<DatabaseSync, string>();
 
 /**
- * Install the TEMP provenance stamp on a chokepoint connection (§2.3): the
- * single-row `temp.cleo_sync_ctx`, a TEMP trigger that labels every capture
- * with the connection, frame and kind, and one that labels undo rows and
- * drops the undo of `apply` / `rebase` frames at once (D1). Also turns
+ * Install the provenance stamp on a chokepoint connection (§2.3). A
+ * persistent trigger cannot read a TEMP table, so the capture triggers write
+ * rows unlabelled; the labels (connection, frame, kind) are written ONCE per
+ * frame by {@link finishCaptureFrame}, over the frame's seq range. Writes are
+ * serialized by the write lock, so every capture from the frame's
+ * `first_seq` on belongs to it. This replaces a TEMP trigger that ran one
+ * UPDATE per capture (S2 insert-path ruling (a)). Also turns
  * `recursive_triggers` on for this connection (M1; the REPLACE audit is
  * T12787's zero-tolerance ban plus `recursive-triggers-audit.test.ts`).
  *
@@ -477,33 +509,15 @@ export function installCaptureStamp(db: DatabaseSync): string {
   const existing = stamped.get(db);
   if (existing) return existing;
   const conn = randomUUID();
-  db.exec(`
-    CREATE TEMP TABLE IF NOT EXISTS cleo_sync_ctx (conn TEXT, frame TEXT, kind TEXT, actor TEXT);
-    DELETE FROM temp.cleo_sync_ctx;
-    CREATE TEMP TRIGGER IF NOT EXISTS cleo_sync_stamp AFTER INSERT ON main._sync_capture
-    BEGIN
-      UPDATE _sync_capture
-         SET conn = (SELECT conn FROM temp.cleo_sync_ctx),
-             frame = (SELECT frame FROM temp.cleo_sync_ctx),
-             kind = (SELECT kind FROM temp.cleo_sync_ctx)
-       WHERE seq = NEW.seq;
-    END;
-    CREATE TEMP TRIGGER IF NOT EXISTS cleo_sync_undo_stamp AFTER INSERT ON main._sync_undo
-    BEGIN
-      DELETE FROM _sync_undo
-       WHERE seq = NEW.seq
-         AND (SELECT kind FROM temp.cleo_sync_ctx) IN ('apply', 'rebase')
-         AND EXISTS (SELECT 1 FROM main._sync_frame WHERE frame = (SELECT frame FROM temp.cleo_sync_ctx));
-      UPDATE _sync_undo
-         SET txn_local = (SELECT frame FROM temp.cleo_sync_ctx),
-             kind = (SELECT kind FROM temp.cleo_sync_ctx)
-       WHERE seq = NEW.seq;
-    END;
-    PRAGMA recursive_triggers = ON;
-  `);
-  db.prepare('INSERT INTO temp.cleo_sync_ctx (conn) VALUES (?)').run(conn);
+  db.exec('PRAGMA recursive_triggers = ON');
   stamped.set(db, conn);
   return conn;
+}
+
+/** Remove the stamp (capture turned off, or the sync tables dropped). */
+export function removeCaptureStamp(db: DatabaseSync): void {
+  stamped.delete(db);
+  frameStatements.delete(db);
 }
 
 /** Whether this connection carries the capture stamp. */
@@ -522,11 +536,51 @@ export type FrameKind =
   | 'remint'
   | 'rekey';
 
+/** Frames whose undo is dropped at once (D1). */
+const NO_UNDO_KINDS: ReadonlySet<string> = new Set(['apply', 'rebase']);
+
+interface FrameStatements {
+  readonly next: StatementSync;
+  readonly open: StatementSync;
+  readonly frameOf: StatementSync;
+  readonly labelCaptures: StatementSync;
+  readonly labelUndo: StatementSync;
+  readonly dropUndo: StatementSync;
+  readonly dropEmpty: StatementSync;
+}
+
+const frameStatements = new WeakMap<DatabaseSync, FrameStatements>();
+
+function statementsFor(db: DatabaseSync): FrameStatements {
+  let s = frameStatements.get(db);
+  if (!s) {
+    s = {
+      next: db.prepare('SELECT coalesce(max(seq), 0) + 1 AS n FROM main._sync_capture'),
+      open: db.prepare(
+        'INSERT INTO _sync_frame (frame, kind, actor, first_seq) VALUES (?, ?, ?, ?)',
+      ),
+      frameOf: db.prepare('SELECT kind, first_seq FROM _sync_frame WHERE frame = ?'),
+      labelCaptures: db.prepare(
+        'UPDATE _sync_capture SET conn = ?, frame = ?, kind = ? WHERE seq >= ? AND frame IS NULL',
+      ),
+      labelUndo: db.prepare(
+        'UPDATE _sync_undo SET txn_local = ?, kind = ? WHERE seq >= ? AND txn_local IS NULL',
+      ),
+      dropUndo: db.prepare('DELETE FROM _sync_undo WHERE seq >= ? AND txn_local IS NULL'),
+      dropEmpty: db.prepare(
+        'DELETE FROM _sync_frame WHERE frame = ? AND NOT EXISTS (SELECT 1 FROM main._sync_capture WHERE frame = ?)',
+      ),
+    };
+    frameStatements.set(db, s);
+  }
+  return s;
+}
+
 /**
  * Open a frame for the caller's transaction, right after its
- * `BEGIN IMMEDIATE`: insert the `_sync_frame` row and point the TEMP ctx at
- * it. A connection without the stamp (capture off) gets `null` and nothing is
- * written.
+ * `BEGIN IMMEDIATE`: insert the `_sync_frame` row with the first seq its
+ * captures can take. A connection without the stamp (capture off) gets
+ * `null` and nothing is written.
  */
 export function openCaptureFrame(
   db: DatabaseSync,
@@ -534,42 +588,37 @@ export function openCaptureFrame(
   actor: string | null = null,
 ): string | null {
   if (!stamped.has(db)) return null;
+  const st = statementsFor(db);
   const frame = randomUUID();
-  const next = (
-    db.prepare('SELECT coalesce(max(seq), 0) + 1 AS n FROM main._sync_capture').get() as {
-      n: number;
-    }
-  ).n;
-  db.prepare('INSERT INTO _sync_frame (frame, kind, actor, first_seq) VALUES (?, ?, ?, ?)').run(
-    frame,
-    kind,
-    actor,
-    next,
-  );
-  db.prepare('UPDATE temp.cleo_sync_ctx SET frame = ?, kind = ?, actor = ?').run(
-    frame,
-    kind,
-    actor,
-  );
+  const next = (st.next.get() as { n: number }).n;
+  st.open.run(frame, kind, actor, next);
   return frame;
 }
 
 /**
- * Before COMMIT: delete the frame's row when no capture carries it, so a
- * read-only transaction leaves nothing (N10).
+ * Before COMMIT: label the frame's captures and undo rows (one UPDATE each
+ * over its seq range), drop the undo of an `apply` / `rebase` frame (D1), and
+ * delete the frame's row when no capture carries it, so a read-only
+ * transaction leaves nothing (N10). A transaction that commits without this
+ * call leaves its captures unframed, never mislabelled.
  */
 export function finishCaptureFrame(db: DatabaseSync, frame: string | null): void {
   if (!frame) return;
-  db.prepare(
-    'DELETE FROM _sync_frame WHERE frame = ? AND NOT EXISTS (SELECT 1 FROM main._sync_capture WHERE frame = ?)',
-  ).run(frame, frame);
+  const st = statementsFor(db);
+  const row = st.frameOf.get(frame) as { kind: string; first_seq: number } | undefined;
+  if (row) {
+    st.labelCaptures.run(stamped.get(db) ?? null, frame, row.kind, row.first_seq);
+    if (NO_UNDO_KINDS.has(row.kind)) st.dropUndo.run(row.first_seq);
+    else st.labelUndo.run(frame, row.kind, row.first_seq);
+  }
+  st.dropEmpty.run(frame, frame);
 }
 
-/** In `finally`: clear the ctx, so a later autocommit write is unframed. */
-export function clearCaptureFrame(db: DatabaseSync, frame: string | null): void {
-  if (!frame || !db.isOpen) return;
-  db.prepare('UPDATE temp.cleo_sync_ctx SET frame = NULL, kind = NULL, actor = NULL').run();
-}
+/**
+ * In `finally`: nothing is left to clear (the labels are written by
+ * {@link finishCaptureFrame}); kept so callers need not change.
+ */
+export function clearCaptureFrame(_db: DatabaseSync, _frame: string | null): void {}
 
 // ── flag and open pass ─────────────────────────────────────────────────────
 
@@ -590,6 +639,7 @@ export function setCaptureEnabled(
     const report = on ? installCaptureTriggers(db, scope) : { dropped: dropCaptureTriggers(db) };
     db.exec('COMMIT');
     if (on) installCaptureStamp(db);
+    else removeCaptureStamp(db);
     return report;
   } catch (err) {
     if (db.isTransaction) db.exec('ROLLBACK');
@@ -613,6 +663,7 @@ export function syncCaptureOpenPass(
 ): CaptureOpenResult {
   const on = readSyncFlags(db)['sync.capture'];
   if (!on) {
+    removeCaptureStamp(db);
     const live = liveCaptureTriggers(db);
     if (live.size === 0) return { capture: 'off', dropped: [] };
     return { capture: 'off', dropped: dropCaptureTriggers(db) };
