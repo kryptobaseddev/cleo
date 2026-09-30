@@ -706,7 +706,12 @@ export type WireValue = string | number | null;
 
 /** A reference on the wire: the referenced row's uid and birth fingerprint. */
 export interface WireRef {
-  readonly uid: string;
+  /**
+   * The referenced row's uid; `null` when the SENDER could not find the row
+   * its local key names (a dangling reference): the receiver holds the row
+   * rather than guess (T12798).
+   */
+  readonly uid: string | null;
   /** `null` for a natural target (its uid is a pure function; no fingerprint). */
   readonly birthFp: string | null;
 }
@@ -717,10 +722,21 @@ export interface WireRow {
   readonly uid: string;
   /** Birth fingerprint (minted tables); `null` for natural rows. */
   readonly birthFp: string | null;
-  /** Column values. Reference columns are replaced by resolving {@link refs}. */
+  /**
+   * Column values, WITHOUT any local key of another row: reference columns,
+   * stored reference uids and the key columns they come from, and JSON arrays
+   * of ids travel as {@link refs} / {@link jsonRefs} and are resolved on the
+   * receiver (T12798).
+   */
   readonly values: Readonly<Record<string, WireValue>>;
-  /** Reference column → the referenced row's identity, or `null` for NULL. */
+  /**
+   * Reference column → the referenced row's identity, or `null` for NULL.
+   * Also carries each stored reference uid column (`ac_uid`): its resolution
+   * sets both that column and the key column it comes from (`ac_id`).
+   */
   readonly refs?: Readonly<Record<string, WireRef | null>>;
+  /** JSON array of ids column → the identities of its elements, in order. */
+  readonly jsonRefs?: Readonly<Record<string, readonly WireRef[]>>;
 }
 
 /** Why a row is held. */
@@ -801,6 +817,7 @@ function followUidAlias(db: DatabaseSync, table: string, uid: string, birthFp: s
  * @returns Where it points.
  */
 export function resolveWireRef(db: DatabaseSync, table: string, ref: WireRef): WireRefResolution {
+  if (ref.uid === null) return { status: 'pending' };
   const minted = specOf(table).kind === 'minted';
   const uid =
     minted && ref.birthFp !== null ? followUidAlias(db, table, ref.uid, ref.birthFp) : ref.uid;
@@ -826,6 +843,33 @@ function refTargets(spec: RowIdentitySpec): Map<string, string> {
   const out = new Map<string, string>();
   for (const ref of [...(spec.refs ?? []), ...(spec.owners ?? []), ...(spec.keyRefs ?? [])]) {
     out.set(ref.column, ref.table);
+  }
+  return out;
+}
+
+/** Stored reference uid column (`ac_uid`) → its table and key column (`ac_id`). */
+function storedUidRefs(spec: RowIdentitySpec): Map<string, { table: string; from: string }> {
+  const out = new Map<string, { table: string; from: string }>();
+  for (const ref of spec.storedRefUids ?? []) {
+    if ((ref.source ?? 'uid') === 'uid') out.set(ref.column, { table: ref.table, from: ref.from });
+  }
+  return out;
+}
+
+/** JSON array of ids column → referenced table. */
+function jsonArrayTargets(spec: RowIdentitySpec): Map<string, string> {
+  return new Map((spec.jsonArrayRefs ?? []).map((ref) => [ref.column, ref.table]));
+}
+
+/**
+ * Columns that hold another row's LOCAL key: never sent as values (T12798).
+ * `ac_text_hash` (a stored fact, not a key) is kept.
+ */
+function localKeyColumns(spec: RowIdentitySpec): Set<string> {
+  const out = new Set<string>([...refTargets(spec).keys(), ...jsonArrayTargets(spec).keys()]);
+  for (const [column, { from }] of storedUidRefs(spec)) {
+    out.add(column);
+    out.add(from);
   }
   return out;
 }
@@ -907,20 +951,46 @@ function placeRow(db: DatabaseSync, incoming: WireRow, heldAs?: HeldRowKey): Rec
     };
   }
   const values: Record<string, WireValue> = { ...wire.values };
+  // A local key of another row never comes from the sender's values (T12798);
+  // a JSON column that is not an id array travels as a value.
+  const arrayColumns = jsonArrayTargets(spec);
+  for (const column of localKeyColumns(spec)) {
+    if (!arrayColumns.has(column) || wire.jsonRefs?.[column]) delete values[column];
+  }
   const targets = refTargets(spec);
+  const stored = storedUidRefs(spec);
+  const pending = (): ReceiveResult => {
+    hold(db, wire, 'ref-pending', null, heldAs);
+    return { status: 'held', reason: 'ref-pending' };
+  };
   for (const [column, ref] of Object.entries(wire.refs ?? {})) {
-    const target = targets.get(column);
+    const storedRef = stored.get(column);
+    const target = targets.get(column) ?? storedRef?.table;
     if (!target) throw new Error(`receive: ${wire.table}.${column} is not a declared reference`);
     if (ref === null) {
       values[column] = null;
+      if (storedRef) values[storedRef.from] = null;
       continue;
     }
     const resolved = resolveWireRef(db, target, ref);
-    if (resolved.status !== 'row') {
-      hold(db, wire, 'ref-pending', null, heldAs);
-      return { status: 'held', reason: 'ref-pending' };
+    if (resolved.status !== 'row') return pending();
+    if (storedRef) {
+      values[storedRef.from] = resolved.key;
+      values[column] = resolved.uid;
+    } else {
+      values[column] = resolved.key;
     }
-    values[column] = resolved.key;
+  }
+  for (const [column, refs] of Object.entries(wire.jsonRefs ?? {})) {
+    const target = arrayColumns.get(column);
+    if (!target) throw new Error(`receive: ${wire.table}.${column} is not a declared id array`);
+    const keys: string[] = [];
+    for (const ref of refs) {
+      const resolved = resolveWireRef(db, target, ref);
+      if (resolved.status !== 'row') return pending();
+      keys.push(resolved.key);
+    }
+    values[column] = JSON.stringify(keys);
   }
   if (spec.displayId && minted) {
     const key = keyOf(wire.table);
@@ -1115,25 +1185,56 @@ export function wireRowOf(db: DatabaseSync, table: string, uid: string): WireRow
     | Record<string, WireValue>
     | undefined;
   if (!row) throw new Error(`wire: no ${table} row with uid ${uid}`);
+  const keyColumns = localKeyColumns(spec);
   const values: Record<string, WireValue> = {};
   for (const [column, value] of Object.entries(row)) {
-    if (column !== UID_COLUMN && column !== BIRTH_FP_COLUMN) values[column] = value;
+    if (column === UID_COLUMN || column === BIRTH_FP_COLUMN || keyColumns.has(column)) continue;
+    values[column] = value;
   }
-  const refs: Record<string, WireRef | null> = {};
-  for (const [column, target] of refTargets(spec)) {
-    const value = row[column];
-    if (value === null || value === undefined) {
-      refs[column] = null;
-      continue;
-    }
+  /** The identity of the target row, by its local key or by its uid. */
+  const identityOf = (target: string, by: 'key' | 'uid', value: WireValue): WireRef => {
     const minted = specOf(target).kind === 'minted';
     const t = db
       .prepare(
         `SELECT ${q(UID_COLUMN)} AS uid, ${minted ? q(BIRTH_FP_COLUMN) : 'NULL'} AS fp
-           FROM main.${q(target)} WHERE ${q(keyOf(target))} = ?`,
+           FROM main.${q(target)} WHERE ${q(by === 'key' ? keyOf(target) : UID_COLUMN)} = ?`,
       )
-      .get(value) as { uid: string; fp: string | null } | undefined;
-    if (t) refs[column] = { uid: t.uid, birthFp: t.fp };
+      .get(value) as { uid: string | null; fp: string | null } | undefined;
+    // A missing target (or one whose uid is not filled) travels as uid null:
+    // the receiver holds the row, and the sender's raw key never travels.
+    return t?.uid ? { uid: t.uid, birthFp: t.fp } : { uid: null, birthFp: null };
+  };
+  const refs: Record<string, WireRef | null> = {};
+  for (const [column, target] of refTargets(spec)) {
+    const value = row[column];
+    refs[column] = value === null || value === undefined ? null : identityOf(target, 'key', value);
+  }
+  for (const [column, { table: target, from }] of storedUidRefs(spec)) {
+    const recorded = row[column];
+    const key = row[from];
+    if (recorded !== null && recorded !== undefined) {
+      refs[column] = identityOf(target, 'uid', recorded);
+      // A recorded uid whose row this store no longer has keeps its uid on the
+      // wire; the receiver resolves it (or holds the row).
+      if (refs[column]?.uid === null) refs[column] = { uid: String(recorded), birthFp: null };
+    } else {
+      refs[column] = key === null || key === undefined ? null : identityOf(target, 'key', key);
+    }
+  }
+  const jsonRefs: Record<string, WireRef[]> = {};
+  for (const [column, target] of jsonArrayTargets(spec)) {
+    const raw = row[column];
+    let ids: unknown;
+    try {
+      ids = typeof raw === 'string' ? JSON.parse(raw) : null;
+    } catch {
+      ids = null;
+    }
+    if (!Array.isArray(ids)) {
+      values[column] = raw ?? null; // not an id array: sent as is
+      continue;
+    }
+    jsonRefs[column] = ids.map((id) => identityOf(target, 'key', String(id)));
   }
   return {
     table,
@@ -1141,6 +1242,7 @@ export function wireRowOf(db: DatabaseSync, table: string, uid: string): WireRow
     birthFp: spec.kind === 'minted' ? ((row[BIRTH_FP_COLUMN] as string | null) ?? null) : null,
     values,
     refs,
+    ...(Object.keys(jsonRefs).length > 0 ? { jsonRefs } : {}),
   };
 }
 

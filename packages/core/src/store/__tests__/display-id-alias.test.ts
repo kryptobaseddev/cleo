@@ -420,7 +420,108 @@ describe('two stores created offline (AC2, AC3)', () => {
     expect(a.db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
   });
 
+  it('a received binding never attaches to the wrong criterion after a collision (T12798)', () => {
+    const acId = buildAcRowId('T004', 'tests pass');
+    for (const db of [a.db, b.db]) {
+      db.prepare(
+        "INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, text, kind, source_key) VALUES (?, 'T004', 1, 'tests pass', 'text', 'text:1:x')",
+      ).run(acId);
+    }
+    b.db
+      .prepare(
+        "INSERT INTO tasks_evidence_ac_bindings (id, evidence_atom_id, ac_id, binding_type) VALUES ('bind-beta', 'tool:test', ?, 'direct')",
+      )
+      .run(acId);
+    const acUid = (db: DatabaseSync) =>
+      (
+        db.prepare('SELECT uid FROM tasks_task_acceptance_criteria WHERE id = ?').get(acId) as {
+          uid: string;
+        }
+      ).uid;
+    const alphaAc = acUid(a.db);
+    const betaAc = acUid(b.db);
+    const bindingUid = (
+      b.db.prepare("SELECT uid FROM tasks_evidence_ac_bindings WHERE id = 'bind-beta'").get() as {
+        uid: string;
+      }
+    ).uid;
+    // The binding reaches A before beta's criterion: A's row with that local
+    // id is alpha's criterion, so the binding waits instead of attaching.
+    const wire = wireRowOf(b.db, 'tasks_evidence_ac_bindings', bindingUid);
+    expect(wire.values).not.toHaveProperty('ac_id');
+    expect(wire.refs?.ac_uid).toEqual({ uid: betaAc, birthFp: expect.any(String) });
+    expect(receiveRow(a.db, wire)).toMatchObject({ status: 'held', reason: 'ref-pending' });
+    expect(a.db.prepare('SELECT count(*) AS n FROM tasks_evidence_ac_bindings').get()).toEqual({
+      n: 0,
+    });
+    // A re-mints alpha (its criterion id is re-derived), beta and its criterion
+    // arrive, and the binding lands on beta's criterion.
+    pull(a, b);
+    receiveRow(a.db, wireRowOf(b.db, 'tasks_task_acceptance_criteria', betaAc));
+    // Only gamma (B's T005, waiting for B's re-mint) is still held.
+    expect(listHeldRows(a.db).map((h) => [h.entityTable, h.contestedId])).toEqual([
+      ['tasks_tasks', 'T005'],
+    ]);
+    expect(
+      a.db
+        .prepare(
+          `SELECT b.ac_id AS acId, b.ac_uid AS acUid, c.uid AS criterionUid
+             FROM tasks_evidence_ac_bindings b
+             JOIN tasks_task_acceptance_criteria c ON c.id = b.ac_id
+            WHERE b.id = 'bind-beta'`,
+        )
+        .get(),
+    ).toEqual({ acId, acUid: betaAc, criterionUid: betaAc });
+    expect(alphaAc).not.toBe(betaAc);
+  });
+
+  it('a received JSON id array is translated to local ids, and waits for its tasks (T12798)', () => {
+    b.db
+      .prepare(
+        `INSERT INTO tasks_sessions (id, name, tasks_created_json, tasks_completed_json)
+         VALUES ('ses-b', 'B session', '["T005"]', '["T001"]')`,
+      )
+      .run();
+    const sessionUid = (
+      b.db.prepare("SELECT uid FROM tasks_sessions WHERE id = 'ses-b'").get() as { uid: string }
+    ).uid;
+    pull(a, b); // gamma (B's T005) loses to delta and is held on A
+    const gamma = tasksOf(b.db).find((t) => t.title === 'gamma (B)') as TaskRow;
+    const wire = wireRowOf(b.db, 'tasks_sessions', sessionUid);
+    expect(wire.values).not.toHaveProperty('tasks_created_json');
+    expect(receiveRow(a.db, wire)).toMatchObject({ status: 'held', reason: 'ref-pending' });
+    applyRemintOp(a.db, {
+      uid: gamma.uid,
+      birthFp: gamma.birth_fp,
+      oldId: 'T005',
+      newId: 'T950',
+      origin: 'device-b',
+      hlc: clock('device-b'),
+    });
+    expect(
+      a.db
+        .prepare(
+          "SELECT tasks_created_json AS created, tasks_completed_json AS completed FROM tasks_sessions WHERE id = 'ses-b'",
+        )
+        .get(),
+    ).toEqual({ created: '["T950"]', completed: '["T001"]' });
+  });
+
   it('a received AUTOINCREMENT row drops the sender id and gets a local one (T12799)', () => {
+    // The criterion the history rows point at: B's, received by A first.
+    b.db
+      .prepare(
+        "INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, text, kind, source_key) VALUES ('ac-x', 'T001', 1, 'x', 'text', 'text:1:x')",
+      )
+      .run();
+    const acX = (
+      b.db.prepare("SELECT uid FROM tasks_task_acceptance_criteria WHERE id = 'ac-x'").get() as {
+        uid: string;
+      }
+    ).uid;
+    expect(receiveRow(a.db, wireRowOf(b.db, 'tasks_task_acceptance_criteria', acX)).status).toBe(
+      'inserted',
+    );
     const history = (db: DatabaseSync, text: string) => {
       db.prepare(
         "INSERT INTO tasks_task_acceptance_criteria_history (ac_id, previous_text, reason) VALUES ('ac-x', ?, 'edit')",
