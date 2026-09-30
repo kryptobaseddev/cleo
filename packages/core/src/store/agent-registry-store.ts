@@ -313,8 +313,9 @@ function writeAgentRegistrySchemaVersionSentinel(db: DatabaseSync): void {
          value TEXT NOT NULL,
          updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
        );
-       INSERT OR REPLACE INTO _agent_registry_meta (key, value, updated_at)
-       VALUES ('schema_version', '${GLOBAL_AGENT_REGISTRY_SCHEMA_VERSION}', strftime('%s', 'now'));`,
+       INSERT INTO _agent_registry_meta (key, value, updated_at)
+       VALUES ('schema_version', '${GLOBAL_AGENT_REGISTRY_SCHEMA_VERSION}', strftime('%s', 'now'))
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;`,
     );
   } catch {
     // Non-fatal: if the meta write fails, ensure() still succeeds. Next
