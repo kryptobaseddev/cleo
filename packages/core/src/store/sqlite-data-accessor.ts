@@ -21,6 +21,8 @@ import {
   type Session,
   type Task,
   type TaskClaim,
+  type TaskInsertIdentity,
+  type TaskRowIdentity,
   type TaskStatus,
 } from '@cleocode/contracts';
 import {
@@ -80,7 +82,7 @@ import {
   upsertSession,
   upsertTask,
 } from './db-helpers.js';
-import { registerRowIdentityWriters } from './row-identity.js';
+import { registerRowIdentityWriters, rowIdentityShared } from './row-identity.js';
 import { tasksAuditLog } from './schema/cleo-project/audit.js';
 import { resolveCurrentSession } from './session-store.js';
 import { closeDb, getDb, getNativeTasksDb } from './sqlite.js';
@@ -1344,8 +1346,18 @@ async function createOwnedSqliteDataAccessor(
       await accessor.transaction((tx) => tx.upsertSingleTask(task));
     },
 
-    async insertNewTask(task: Task): Promise<void> {
-      await accessor.transaction((tx) => tx.insertNewTask(task));
+    async insertNewTask(task: Task, identity?: TaskInsertIdentity): Promise<void> {
+      await accessor.transaction((tx) => tx.insertNewTask(task, identity));
+    },
+
+    async getTaskIdentities(taskIds: readonly string[]): Promise<TaskRowIdentity[]> {
+      if (taskIds.length === 0) return [];
+      const db = await getDb(cwd);
+      return db
+        .select({ id: schema.tasks.id, uid: schema.tasks.uid, birthFp: schema.tasks.birthFp })
+        .from(schema.tasks)
+        .where(inArray(schema.tasks.id, taskIds as string[]))
+        .all();
     },
 
     async addRelation(
@@ -2131,12 +2143,33 @@ async function createOwnedSqliteDataAccessor(
                     await updateDependencies(db, task.id, task.depends ?? []);
                   });
                 },
-                async insertNewTask(task: Task): Promise<void> {
+                async insertNewTask(task: Task, identity?: TaskInsertIdentity): Promise<void> {
                   scope.assertActive();
                   return accessor.transaction(async () => {
                     scope.assertActive();
-                    await insertNewTask(db, taskToRow(task));
+                    await insertNewTask(db, taskToRow(task), identity);
                     await updateDependencies(db, task.id, task.depends ?? []);
+                  });
+                },
+                async clearTaskIdentity(taskId: string): Promise<void> {
+                  scope.assertActive();
+                  return accessor.transaction(async () => {
+                    scope.assertActive();
+                    if (rowIdentityShared(getNativeTasksDb(cwd) as DatabaseSync)) {
+                      throw new CleoError(
+                        ExitCode.VALIDATION_ERROR,
+                        `Task ${taskId} cannot be overwritten by an import: its identity is shared with other devices`,
+                        {
+                          fix: 'Import it under a new id (the default duplicate strategy), or edit the task instead of overwriting it.',
+                          details: { field: 'taskId', actual: taskId },
+                        },
+                      );
+                    }
+                    await db
+                      .update(schema.tasks)
+                      .set({ uid: null, birthFp: null })
+                      .where(eq(schema.tasks.id, taskId))
+                      .run();
                   });
                 },
                 async archiveSingleTask(taskId: string, fields: ArchiveFields): Promise<void> {

@@ -7,7 +7,7 @@
  * @epic T4454
  */
 
-import type { ArchiveReasonValue, Session, Task } from '@cleocode/contracts';
+import type { ArchiveReasonValue, Session, Task, TaskInsertIdentity } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
@@ -72,8 +72,43 @@ export async function upsertTask(
  * @throws CleoError `ID_COLLISION` when `row.id` is already stored.
  * @task T12724
  */
-export async function insertNewTask(db: DrizzleDb, row: NewTaskRow): Promise<void> {
-  await writeTaskRow(db, row, undefined, false, true);
+export async function insertNewTask(
+  db: DrizzleDb,
+  row: NewTaskRow,
+  identity: TaskInsertIdentity = { origin: 'new' },
+): Promise<void> {
+  await writeTaskRow(
+    db,
+    { ...row, ...(await importedIdentity(db, identity)) },
+    undefined,
+    false,
+    true,
+  );
+}
+
+/**
+ * The identity columns of an IMPORTED task (T12341 spec §5.1, T12806): the
+ * source's `uid` / `birth_fp` when it carried them and no other row holds that
+ * uid; otherwise an explicit NULL uid, which the deterministic recipe fills
+ * from the row's own key and birth (the insert-time TEMP trigger, else the
+ * next open). A NEW task keeps the schema default (a random UUIDv7).
+ */
+async function importedIdentity(
+  db: DrizzleDb,
+  identity: TaskInsertIdentity,
+): Promise<Pick<NewTaskRow, 'uid' | 'birthFp'>> {
+  if (identity.origin === 'new') return {};
+  const uid = identity.uid ?? null;
+  if (uid !== null) {
+    const holder = await db
+      .select({ id: schema.tasks.id })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.uid, uid))
+      .limit(1)
+      .all();
+    if (holder.length === 0) return { uid, birthFp: identity.birthFp ?? null };
+  }
+  return { uid: null, birthFp: null };
 }
 
 /** The shared write behind {@link upsertTask} and {@link insertNewTask}. */

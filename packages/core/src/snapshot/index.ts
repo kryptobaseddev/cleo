@@ -49,6 +49,10 @@ export interface SnapshotTask {
   createdAt: string;
   updatedAt?: string | null;
   completedAt?: string;
+  /** Row uid (T12341), when the exporting store had one: a restore carries it (T12806). */
+  uid?: string;
+  /** Birth fingerprint that goes with `uid`. */
+  birthFp?: string;
 }
 
 /** Complete snapshot package. */
@@ -118,7 +122,21 @@ export async function exportSnapshot(cwd?: string): Promise<Snapshot> {
   );
   const version = await accessor.getMetaValue<string>('version');
 
-  const snapshotTasks = tasks.map(toSnapshotTask);
+  // T12806: carry each task's row identity, so a restore re-creates the same
+  // row rather than a new one.
+  const identities = new Map(
+    ((await accessor.getTaskIdentities?.(tasks.map((t) => t.id))) ?? []).map((r) => [r.id, r]),
+  );
+  const snapshotTasks = tasks.map((task) => {
+    const row = toSnapshotTask(task);
+    const identity = identities.get(task.id);
+    if (!identity?.uid) return row;
+    return {
+      ...row,
+      uid: identity.uid,
+      ...(identity.birthFp ? { birthFp: identity.birthFp } : {}),
+    };
+  });
   const checksum = computeChecksum(snapshotTasks);
 
   return {
@@ -231,7 +249,13 @@ export async function importSnapshot(snapshot: Snapshot, cwd?: string): Promise<
           completedAt: snapshotTask.completedAt,
         };
         // Missing locally: insert, never overwrite a task stored since (T12724).
-        await tx.insertNewTask(newTask);
+        // A restore re-creates an existing row: it carries the snapshot's uid,
+        // or leaves it to the deterministic recipe, never a new one (T12806).
+        await tx.insertNewTask(newTask, {
+          origin: 'imported',
+          uid: snapshotTask.uid ?? null,
+          birthFp: snapshotTask.birthFp ?? null,
+        });
         result.added++;
         continue;
       }

@@ -473,13 +473,48 @@ export interface TaskConflictDetails {
  * Subset of DataAccessor methods available inside a transaction callback.
  * Write-only — reads use the outer accessor (snapshot isolation).
  */
+/**
+ * How {@link TransactionAccessor.insertNewTask} gives a task its row identity
+ * (T12341 spec §5.1, T12806).
+ *
+ * - `new` (the default): the task is created now; it gets a random UUIDv7.
+ * - `imported`: the task existed before this write (import, snapshot
+ *   restore). It carries `uid` / `birthFp` when the source has them and no
+ *   other row holds that uid; otherwise its uid is left NULL, so the
+ *   deterministic recipe derives it from the row's own key and birth. An
+ *   import never stamps an import-time uid.
+ */
+export interface TaskInsertIdentity {
+  readonly origin: 'new' | 'imported';
+  /** The uid the source row carried, when it carried one. */
+  readonly uid?: string | null;
+  /** The birth fingerprint that goes with `uid`. */
+  readonly birthFp?: string | null;
+}
+
+/** A task's row identity (T12341): `uid` and `birthFp`, NULL until filled. */
+export interface TaskRowIdentity {
+  readonly id: string;
+  readonly uid: string | null;
+  readonly birthFp: string | null;
+}
+
 export interface TransactionAccessor {
   upsertSingleTask(task: Task): Promise<void>;
   /**
    * Insert a NEW task; never overwrites. Throws `ID_COLLISION` when the id is
-   * already stored (T12724).
+   * already stored (T12724). `identity` says whether the task is new or
+   * imported ({@link TaskInsertIdentity}, T12806).
    */
-  insertNewTask(task: Task): Promise<void>;
+  insertNewTask(task: Task, identity?: TaskInsertIdentity): Promise<void>;
+  /**
+   * Clear a task's row identity (`uid`, `birth_fp`) after an overwrite import
+   * replaced it with a different task, so the next fill derives the new row's
+   * own identity. Refuses (`E_VALIDATION`) once identity values are shared
+   * with other devices: there the overwrite would silently re-point a shared
+   * uid at different work (T12806).
+   */
+  clearTaskIdentity?(taskId: string): Promise<void>;
   archiveSingleTask(taskId: string, fields: ArchiveFields): Promise<void>;
   removeSingleTask(taskId: string): Promise<void>;
   setMetaValue(key: string, value: unknown): Promise<void>;
@@ -669,9 +704,15 @@ export interface DataAccessor {
   /**
    * Insert a NEW task under a freshly allocated or computed id. Never
    * overwrites: throws `ID_COLLISION` when the id is already stored, and
-   * writes nothing (T12724).
+   * writes nothing (T12724). `identity`: {@link TaskInsertIdentity} (T12806).
    */
-  insertNewTask(task: Task): Promise<void>;
+  insertNewTask(task: Task, identity?: TaskInsertIdentity): Promise<void>;
+
+  /**
+   * Row identities of the named tasks (archived included); a task without a
+   * row is omitted (T12806: a snapshot carries them).
+   */
+  getTaskIdentities?(taskIds: readonly string[]): Promise<TaskRowIdentity[]>;
 
   /** Archive a single task by ID (sets status='archived' + archive metadata). */
   archiveSingleTask(taskId: string, fields: ArchiveFields): Promise<void>;

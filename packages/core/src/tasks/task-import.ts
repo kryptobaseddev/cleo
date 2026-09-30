@@ -571,8 +571,13 @@ export async function coreTaskImport(
   // One transaction: a collision on any task leaves nothing half-imported (T12724).
   await accessor.transaction(async (tx) => {
     for (const { task, replace } of writes) {
-      if (replace) await tx.upsertSingleTask(task);
-      else await tx.insertNewTask(task);
+      // An overwrite replaces a stored task with a different one: its identity
+      // is cleared for the fill to re-derive, or refused once shared; a new
+      // task's uid is derived, never stamped at import time (T12806).
+      if (replace) {
+        await tx.upsertSingleTask(task);
+        await tx.clearTaskIdentity?.(task.id);
+      } else await tx.insertNewTask(task, { origin: 'imported' });
     }
   });
 
