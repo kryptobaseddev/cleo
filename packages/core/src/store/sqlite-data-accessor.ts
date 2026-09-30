@@ -553,7 +553,8 @@ export interface QuarantineRow {
     | 'display-id-collision'
     | 'key-collision'
     | 'ref-pending'
-    | 'invalid';
+    | 'invalid'
+    | 'unsupported-wire';
   readonly contestedId: string | null;
   readonly rowJson: string;
   readonly receivedHlc: string | null;
