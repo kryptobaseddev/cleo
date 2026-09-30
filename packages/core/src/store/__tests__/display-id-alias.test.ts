@@ -880,3 +880,125 @@ describe('remintAuthority (spec §9.2, T12750)', () => {
     }
   });
 });
+
+describe('references the sender no longer resolves (T12798 review, probe 1753)', () => {
+  let env: TestDbEnv;
+  let a: DatabaseSync;
+  let b: DatabaseSync;
+  let bPath: string;
+
+  beforeEach(async () => {
+    env = await createTestDb();
+    await seedTasks(env.accessor, [
+      { id: 'T001', title: 'Shared', type: 'task', createdAt: '2026-09-20T09:00:00.000Z' },
+    ]);
+    a = getNativeTasksDb(env.tempDir) as DatabaseSync;
+    bPath = join(env.tempDir, 'b.db');
+    a.exec(`VACUUM INTO '${bPath}'`);
+    b = new DatabaseSync(bPath);
+    prepareRowIdentity(b, 'project');
+  });
+
+  afterEach(async () => {
+    b.close();
+    rmSync(bPath, { force: true });
+    await env.cleanup();
+  });
+
+  it('Q1: history of a criterion deleted on the sender is placed, with its uid carried and no live ac_id', () => {
+    b.prepare(
+      "INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, text, kind, source_key) VALUES ('ac-z','T001',1,'z','text','text:1:z')",
+    ).run();
+    b.prepare(
+      "INSERT INTO tasks_task_acceptance_criteria_history (ac_id, previous_text, reason) VALUES ('ac-z','z','delete')",
+    ).run();
+    b.prepare("DELETE FROM tasks_task_acceptance_criteria WHERE id='ac-z'").run();
+    const h = b.prepare('SELECT uid, ac_uid FROM tasks_task_acceptance_criteria_history').get() as {
+      uid: string;
+      ac_uid: string;
+    };
+    const wire = wireRowOf(b, 'tasks_task_acceptance_criteria_history', h.uid);
+    expect(wire.values).not.toHaveProperty('ac_id');
+    expect(wire.refs?.ac_uid).toMatchObject({ uid: h.ac_uid, gone: true });
+    expect(receiveRow(a, wire).status).toBe('inserted');
+    expect(listHeldRows(a)).toEqual([]);
+    expect(
+      a
+        .prepare('SELECT ac_id, ac_uid FROM tasks_task_acceptance_criteria_history WHERE uid = ?')
+        .get(h.uid),
+    ).toEqual({ ac_id: `gone:${h.ac_uid}`, ac_uid: h.ac_uid });
+  });
+
+  it('Q2: a session whose id array names a task the sender no longer has syncs without it', () => {
+    b.prepare(
+      `INSERT INTO tasks_sessions (id, name, tasks_created_json, tasks_completed_json)
+       VALUES ('ses-b', 's', '["T001"]', '["T999"]')`,
+    ).run();
+    const s = b.prepare("SELECT uid FROM tasks_sessions WHERE id='ses-b'").get() as { uid: string };
+    const wire = wireRowOf(b, 'tasks_sessions', s.uid);
+    expect(wire.jsonRefs?.tasks_completed_json).toEqual([]);
+    expect(receiveRow(a, wire).status).toBe('inserted');
+    expect(
+      a
+        .prepare(
+          "SELECT tasks_created_json AS created, tasks_completed_json AS completed FROM tasks_sessions WHERE id='ses-b'",
+        )
+        .get(),
+    ).toEqual({ created: '["T001"]', completed: '[]' });
+  });
+
+  it('Q3: an orphan recorded ac_uid never attaches to another criterion holding that uid', () => {
+    b.prepare(
+      "INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, text, kind, source_key) VALUES ('ac-b','T001',1,'b-text','text','text:1:b')",
+    ).run();
+    b.prepare(
+      "INSERT INTO tasks_evidence_ac_bindings (id, evidence_atom_id, ac_id, binding_type) VALUES ('bind-b','tool:test','ac-b','direct')",
+    ).run();
+    const acU = (
+      b.prepare("SELECT uid FROM tasks_task_acceptance_criteria WHERE id='ac-b'").get() as {
+        uid: string;
+      }
+    ).uid;
+    b.prepare("DELETE FROM tasks_task_acceptance_criteria WHERE id='ac-b'").run();
+    const bind = b
+      .prepare("SELECT uid FROM tasks_evidence_ac_bindings WHERE id='bind-b'")
+      .get() as {
+      uid: string;
+    };
+    // A holds a DIFFERENT criterion under the same uid (the other side of a collision).
+    a.prepare(
+      "INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, text, kind, source_key, uid, birth_fp) VALUES ('ac-a','T001',1,'a-text','text','text:1:a',?, 'other-fp')",
+    ).run(acU);
+    const wire = wireRowOf(b, 'tasks_evidence_ac_bindings', bind.uid);
+    expect(wire.refs?.ac_uid).toMatchObject({ uid: acU, gone: true });
+    expect(wire.refs?.ac_uid?.birthFp).not.toBe('other-fp');
+    expect(receiveRow(a, wire)).toMatchObject({ status: 'held', reason: 'ref-pending' });
+    expect(
+      a.prepare("SELECT count(*) AS n FROM tasks_evidence_ac_bindings WHERE id='bind-b'").get(),
+    ).toEqual({
+      n: 0,
+    });
+    // A reference that names a uid but no fingerprint never matches a minted row.
+    expect(
+      receiveRow(a, {
+        ...wire,
+        uid: 'no-fp',
+        refs: { ...wire.refs, ac_uid: { uid: acU, birthFp: null } },
+      }),
+    ).toMatchObject({ status: 'held', reason: 'ref-pending' });
+  });
+
+  it('a row from a v1 sender (raw local keys in its values) is recognised and held', () => {
+    const t = b.prepare("SELECT uid FROM tasks_tasks WHERE id='T001'").get() as { uid: string };
+    const { version: _v, ...v1 } = wireRowOf(b, 'tasks_tasks', t.uid);
+    expect(
+      receiveRow(a, { ...v1, uid: 'from-v1', values: { ...v1.values, id: 'T777' } }),
+    ).toMatchObject({
+      status: 'held',
+      reason: 'unsupported-wire',
+    });
+    expect(listHeldRows(a).map((h) => [h.reason, h.contestedId])).toEqual([
+      ['unsupported-wire', 'wire v1'],
+    ]);
+  });
+});

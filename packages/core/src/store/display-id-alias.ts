@@ -74,6 +74,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { ExitCode, type RowIdentitySpec, type TaskClaimGuard } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import {
+  AC_UID_GRAVEYARD,
   BIRTH_FP_COLUMN,
   fillTableUids,
   markRowIdentityShared,
@@ -708,16 +709,44 @@ export type WireValue = string | number | null;
 export interface WireRef {
   /**
    * The referenced row's uid; `null` when the SENDER could not find the row
-   * its local key names (a dangling reference): the receiver holds the row
-   * rather than guess (T12798).
+   * its local key names and knows no uid for it.
    */
   readonly uid: string | null;
-  /** `null` for a natural target (its uid is a pure function; no fingerprint). */
+  /**
+   * The referenced row's birth fingerprint. A minted target is only ever
+   * matched on uid AND fingerprint, so a reference without one never matches
+   * a row (T12798 review). `null` for a natural target (its uid is a pure
+   * function; no fingerprint).
+   */
   readonly birthFp: string | null;
+  /**
+   * The sender had the reference but no longer has the row it names (deleted
+   * there). The receiver uses the row when it still has it (uid and
+   * fingerprint), else applies the table's `gone` rule instead of waiting
+   * for a row that will never arrive.
+   */
+  readonly gone?: true;
 }
+
+/**
+ * Version of the wire row format. v2 (T12798) carries no local key of
+ * another row in `values`; a row without it (or older) came from a build
+ * whose values hold raw local keys, and is held (`unsupported-wire`) rather
+ * than applied or silently stripped.
+ */
+export const WIRE_VERSION = 2;
+
+/**
+ * AC-history rows whose criterion is gone everywhere are still history: they
+ * are placed with the criterion's uid carried and a key that names no live
+ * criterion (`gone:<uid>`), never held forever.
+ */
+const GONE_CRITERION_PREFIX = 'gone:';
 
 /** An incoming row (the merge engine, T12344, builds these from the outbox). */
 export interface WireRow {
+  /** {@link WIRE_VERSION} of the sender (absent: a v1 sender). */
+  readonly version?: number;
   readonly table: string;
   readonly uid: string;
   /** Birth fingerprint (minted tables); `null` for natural rows. */
@@ -819,6 +848,10 @@ function followUidAlias(db: DatabaseSync, table: string, uid: string, birthFp: s
 export function resolveWireRef(db: DatabaseSync, table: string, ref: WireRef): WireRefResolution {
   if (ref.uid === null) return { status: 'pending' };
   const minted = specOf(table).kind === 'minted';
+  // A minted row is identified by uid AND fingerprint: a reference without a
+  // fingerprint never matches one (the other side of a uid collision holds the
+  // same uid).
+  if (minted && ref.birthFp === null) return { status: 'pending' };
   const uid =
     minted && ref.birthFp !== null ? followUidAlias(db, table, ref.uid, ref.birthFp) : ref.uid;
   const row = db
@@ -827,7 +860,7 @@ export function resolveWireRef(db: DatabaseSync, table: string, ref: WireRef): W
          FROM main.${q(table)} WHERE ${q(UID_COLUMN)} = ?`,
     )
     .get(uid) as { key: string; fp: string | null } | undefined;
-  if (row && (!minted || ref.birthFp === null || row.fp === ref.birthFp)) {
+  if (row && (!minted || row.fp === ref.birthFp)) {
     return { status: 'row', key: row.key, uid };
   }
   const held = db
@@ -836,6 +869,14 @@ export function resolveWireRef(db: DatabaseSync, table: string, ref: WireRef): W
     )
     .get(table, uid, ref.birthFp ?? '');
   return held ? { status: 'held' } : { status: 'pending' };
+}
+
+/** Whether a column accepts NULL. */
+function nullableColumn(db: DatabaseSync, table: string, column: string): boolean {
+  const info = db
+    .prepare('SELECT "notnull" AS notnull, pk FROM pragma_table_info(?) WHERE name = ?')
+    .get(table, column) as { notnull: number; pk: number } | undefined;
+  return info !== undefined && info.notnull === 0 && info.pk === 0;
 }
 
 /** Reference column → referenced table, for a declared table. */
@@ -905,6 +946,13 @@ function hold(
 function placeRow(db: DatabaseSync, incoming: WireRow, heldAs?: HeldRowKey): ReceiveResult {
   const spec = specOf(incoming.table);
   const minted = spec.kind === 'minted';
+  // A v1 sender's values hold raw local keys of other rows: recognised and
+  // held, never applied and never silently stripped (T12798 review).
+  const version = incoming.version ?? 1;
+  if (version !== WIRE_VERSION) {
+    hold(db, incoming, 'unsupported-wire', `wire v${version}`, heldAs);
+    return { status: 'held', reason: 'unsupported-wire' };
+  }
   if (minted && !incoming.birthFp) {
     throw new Error(`receive: a ${incoming.table} row must carry its birth fingerprint`);
   }
@@ -973,6 +1021,20 @@ function placeRow(db: DatabaseSync, incoming: WireRow, heldAs?: HeldRowKey): Rec
       continue;
     }
     const resolved = resolveWireRef(db, target, ref);
+    if (resolved.status !== 'row' && ref.gone) {
+      // The sender no longer has the row this names, and neither do we.
+      if (storedRef && wire.table === 'tasks_task_acceptance_criteria_history') {
+        // History of a criterion gone everywhere: keep the history, carry the
+        // criterion's uid, point the key at no live criterion.
+        values[column] = ref.uid;
+        values[storedRef.from] = `${GONE_CRITERION_PREFIX}${ref.uid ?? wire.uid}`;
+        continue;
+      }
+      if (!storedRef && nullableColumn(db, wire.table, column)) {
+        values[column] = null; // a dangling optional reference is dropped
+        continue;
+      }
+    }
     if (resolved.status !== 'row') return pending();
     if (storedRef) {
       values[storedRef.from] = resolved.key;
@@ -1200,9 +1262,23 @@ export function wireRowOf(db: DatabaseSync, table: string, uid: string): WireRow
            FROM main.${q(target)} WHERE ${q(by === 'key' ? keyOf(target) : UID_COLUMN)} = ?`,
       )
       .get(value) as { uid: string | null; fp: string | null } | undefined;
-    // A missing target (or one whose uid is not filled) travels as uid null:
-    // the receiver holds the row, and the sender's raw key never travels.
-    return t?.uid ? { uid: t.uid, birthFp: t.fp } : { uid: null, birthFp: null };
+    // A missing target travels as gone (the raw key never travels); one whose
+    // uid is not filled yet travels as uid null (the receiver waits).
+    if (!t) return { uid: null, birthFp: null, gone: true };
+    return t.uid ? { uid: t.uid, birthFp: t.fp } : { uid: null, birthFp: null };
+  };
+  /** The fingerprint a deleted criterion had, from the AC uid graveyard. */
+  const graveyardFp = (acUid: string): string | null => {
+    const has = db
+      .prepare("SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(AC_UID_GRAVEYARD);
+    if (!has) return null;
+    const r = db
+      .prepare(
+        `SELECT birth_fp AS fp FROM ${AC_UID_GRAVEYARD} WHERE uid = ? ORDER BY seq DESC LIMIT 1`,
+      )
+      .get(acUid) as { fp: string | null } | undefined;
+    return r?.fp ?? null;
   };
   const refs: Record<string, WireRef | null> = {};
   for (const [column, target] of refTargets(spec)) {
@@ -1214,9 +1290,12 @@ export function wireRowOf(db: DatabaseSync, table: string, uid: string): WireRow
     const key = row[from];
     if (recorded !== null && recorded !== undefined) {
       refs[column] = identityOf(target, 'uid', recorded);
-      // A recorded uid whose row this store no longer has keeps its uid on the
-      // wire; the receiver resolves it (or holds the row).
-      if (refs[column]?.uid === null) refs[column] = { uid: String(recorded), birthFp: null };
+      // A recorded uid whose row this store no longer has keeps its uid, with
+      // the fingerprint the graveyard kept when there is one; the receiver
+      // never matches it without a fingerprint.
+      if (refs[column]?.uid === null) {
+        refs[column] = { uid: String(recorded), birthFp: graveyardFp(String(recorded)), gone: true };
+      }
     } else {
       refs[column] = key === null || key === undefined ? null : identityOf(target, 'key', key);
     }
@@ -1234,9 +1313,14 @@ export function wireRowOf(db: DatabaseSync, table: string, uid: string): WireRow
       values[column] = raw ?? null; // not an id array: sent as is
       continue;
     }
-    jsonRefs[column] = ids.map((id) => identityOf(target, 'key', String(id)));
+    // An id whose task this store no longer has is dropped from the array:
+    // there is nothing it could name on the receiver (T12798 review).
+    jsonRefs[column] = ids
+      .map((id) => identityOf(target, 'key', String(id)))
+      .filter((ref) => !ref.gone);
   }
   return {
+    version: WIRE_VERSION,
     table,
     uid,
     birthFp: spec.kind === 'minted' ? ((row[BIRTH_FP_COLUMN] as string | null) ?? null) : null,

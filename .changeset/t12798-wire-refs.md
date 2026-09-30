@@ -23,3 +23,18 @@ wrong tasks.
   itself could not find.
 
 Nothing changes while row uids are off (the default).
+
+What happens when the sender no longer has the row a reference names:
+- **Id arrays.** The dangling id is dropped from the array.
+- **AC history.** An AC history row whose criterion was deleted is still
+  placed. It carries the criterion's uid, and its `ac_id` names no live
+  criterion (`gone:<uid>`).
+- **Optional reference columns.** They are set to NULL.
+- **Everything else.** The row waits.
+
+A reference to a minted row is only matched on uid AND birth fingerprint, so
+a uid without a fingerprint never attaches to whatever row holds that uid
+here. Wire rows carry a format version (2). A row from an older sender,
+whose values hold raw local keys, is held (`unsupported-wire`) instead of
+applied or silently stripped.
+
