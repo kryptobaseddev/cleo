@@ -71,9 +71,16 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite';
-import { ExitCode, type RowIdentitySpec, type TaskClaimGuard } from '@cleocode/contracts';
+import {
+  type CleoConfig,
+  ExitCode,
+  type RowIdentitySpec,
+  type TaskClaimGuard,
+} from '@cleocode/contracts';
 import { getTableColumns } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
+import { exceedsMaxDepth } from '../tasks/hierarchy.js';
+import { resolveHierarchyPolicy } from '../tasks/hierarchy-policy.js';
 import {
   AC_UID_GRAVEYARD,
   BIRTH_FP_COLUMN,
@@ -1317,6 +1324,39 @@ function rekeyTriggers(receipt: RekeyReceipt): ReleaseTrigger[] {
   return out;
 }
 
+/** The project policy a received row is validated against (T12801). */
+export interface ReceivePolicy {
+  /** The resolved `hierarchy.maxDepth` (config, `CLEO_HIERARCHY_MAX_DEPTH`, or the profile). */
+  readonly maxDepth: number;
+}
+
+/** The policy each connection receives under; set by {@link receiveRow}'s `policy`. */
+const receivePolicies = new WeakMap<DatabaseSync, ReceivePolicy>();
+
+/**
+ * Resolve the receive policy of a project from its configuration, exactly as
+ * a local task write does (`resolveHierarchyPolicy(loadConfig())`, so
+ * `hierarchy.maxDepth` and `CLEO_HIERARCHY_MAX_DEPTH` apply). The merge engine
+ * resolves it once per merge and passes it to {@link receiveRow}.
+ *
+ * @param cwd - Project root.
+ * @returns The policy.
+ */
+export async function loadReceivePolicy(cwd?: string): Promise<ReceivePolicy> {
+  // Loaded lazily: config.js is outside the store module graph.
+  const { loadConfig } = await import('../config.js');
+  return { maxDepth: resolveHierarchyPolicy(await loadConfig(cwd)).maxDepth };
+}
+
+/** The policy in force on `db`: the last one passed, else the default profile's. */
+function receivePolicyOf(db: DatabaseSync): ReceivePolicy {
+  return (
+    receivePolicies.get(db) ?? {
+      maxDepth: resolveHierarchyPolicy({} as CleoConfig).maxDepth,
+    }
+  );
+}
+
 /**
  * Receive one row: place it, or hold it (module docs). The first receive
  * marks the store's identity values as shared, so the open pass never
@@ -1324,10 +1364,14 @@ function rekeyTriggers(receipt: RekeyReceipt): ReleaseTrigger[] {
  *
  * @param db - Connection on the project `cleo.db`, inside the merge transaction.
  * @param wire - The incoming row.
+ * @param policy - The project's resolved receive policy ({@link loadReceivePolicy}).
+ *   It stays in force on this connection, also for held rows released later;
+ *   without one, the default hierarchy profile applies.
  * @returns What happened; a `held` result carries the collision for the caller
  *   (the merge engine) to hand to its authority.
  */
-export function receiveRow(db: DatabaseSync, wire: WireRow): ReceiveResult {
+export function receiveRow(db: DatabaseSync, wire: WireRow, policy?: ReceivePolicy): ReceiveResult {
+  if (policy) receivePolicies.set(db, policy);
   registerRowUidFunction(db, 'project');
   return inSavepoint(db, 'receive', () => {
     markRowIdentityShared(db, 'receive');
@@ -1338,9 +1382,6 @@ export function receiveRow(db: DatabaseSync, wire: WireRow): ReceiveResult {
     return result;
   });
 }
-
-/** The depth cap a received task must respect (the hierarchy policy default). */
-const RECEIVE_MAX_DEPTH = 3;
 
 /** Depth of a local task (a root is 0), walking its parent chain. */
 function depthOf(db: DatabaseSync, taskId: string): number {
@@ -1385,14 +1426,14 @@ function validateReceived(
   values: Record<string, WireValue>,
 ): string | null {
   if (table !== 'tasks_tasks') return null;
-  // The containment depth cap every local task write enforces
-  // (validateHierarchyPlacement): the canonical spine saga(0) → epic(1) →
-  // task(2) → subtask(3), inclusive (T12801 review).
+  // The containment depth cap every local task write enforces, from the
+  // project's resolved hierarchy policy (T12801 review).
   const parent = values.parent_id;
   if (typeof parent === 'string' && parent.length > 0) {
+    const { maxDepth } = receivePolicyOf(db);
     const parentDepth = depthOf(db, parent);
-    if (parentDepth + 1 > RECEIVE_MAX_DEPTH) {
-      return `E_DEPTH_EXCEEDED: depth ${parentDepth + 1} under ${parent} exceeds ${RECEIVE_MAX_DEPTH}`;
+    if (exceedsMaxDepth(parentDepth, maxDepth)) {
+      return `E_DEPTH_EXCEEDED: depth ${parentDepth + 1} under ${parent} exceeds ${maxDepth}`;
     }
   }
   for (const column of CLAIM_COLUMNS) {

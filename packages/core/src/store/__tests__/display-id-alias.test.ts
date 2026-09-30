@@ -19,7 +19,7 @@ process.env.CLEO_ROW_UID_FILL = '1';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { heldRowCounts, rowIdentityDoctorCheck } from '../../doctor/row-identity.js';
 import { buildAcRowId } from '../../tasks/ac-table.js';
 import {
@@ -28,6 +28,7 @@ import {
   collisionLoser,
   encodeHlc,
   listHeldRows,
+  loadReceivePolicy,
   REMINT_TAKEOVER_MS,
   type RemintOp,
   receiveRow,
@@ -374,6 +375,8 @@ describe('two stores created offline (AC2, AC3)', () => {
         .all();
     const before = snapshot();
     expect(before).toHaveLength(50);
+    // Held for the reference they wait on, not refused as an old wire version.
+    expect(new Set(listHeldRows(a.db).map((h) => h.reason))).toEqual(new Set(['ref-pending']));
     // Unrelated rows arrive and are placed: none of the held rows is rewritten.
     addTask(b, 'T006', 'epsilon (B)', '2026-09-25T14:00:00.000Z');
     for (const t of tasksOf(b.db)) receiveRow(a.db, wireRowOf(b.db, 'tasks_tasks', t.uid));
@@ -1059,6 +1062,44 @@ describe('receive: hardening and references the sender no longer resolves (T1280
     expect(listHeldRows(a).find((h) => h.uid === 'too-deep')?.contestedId).toContain(
       'E_DEPTH_EXCEEDED',
     );
+  });
+
+  it("the depth cap is the project's resolved hierarchy policy, not a constant (T12801 review)", async () => {
+    a.exec('DROP TRIGGER IF EXISTS tasks_tasks_parent_type_matrix_insert');
+    a.exec(`INSERT INTO tasks_tasks (id,title,status,priority,type,created_at,parent_id) VALUES
+      ('T101','d1','pending','medium','task','2026-09-25T10:00:00.000Z','T001'),
+      ('T102','d2','pending','medium','task','2026-09-25T10:00:01.000Z','T101'),
+      ('T103','d3','pending','medium','task','2026-09-25T10:00:02.000Z','T102')`);
+    const deepest = a.prepare("SELECT uid, birth_fp FROM tasks_tasks WHERE id='T103'").get() as {
+      uid: string;
+      birth_fp: string;
+    };
+    const t = b.prepare("SELECT uid FROM tasks_tasks WHERE id='T001'").get() as { uid: string };
+    const wire = wireRowOf(b, 'tasks_tasks', t.uid);
+    const deep = (uid: string, id: string) => ({
+      ...wire,
+      uid,
+      birthFp: `fp-${uid}`,
+      values: { ...wire.values, id },
+      refs: { ...wire.refs, parent_id: { uid: deepest.uid, birthFp: deepest.birth_fp } },
+    });
+    // CLEO_HIERARCHY_MAX_DEPTH=4 raises the cap, as it does for a local write.
+    vi.stubEnv('CLEO_HIERARCHY_MAX_DEPTH', '4');
+    try {
+      const policy = await loadReceivePolicy(env.tempDir);
+      expect(policy).toEqual({ maxDepth: 4 });
+      expect(receiveRow(a, deep('deep-ok', 'T104'), policy)).toMatchObject({ status: 'inserted' });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    // A stricter resolved policy refuses what the default would allow.
+    const strict = receiveRow(a, deep('deep-strict', 'T105'), { maxDepth: 2 });
+    expect(strict).toMatchObject({ status: 'held', reason: 'invalid' });
+    expect(listHeldRows(a).find((h) => h.uid === 'deep-strict')?.contestedId).toContain(
+      'exceeds 2',
+    );
+    // Without an env override or config the default profile applies (3).
+    expect(await loadReceivePolicy(env.tempDir)).toEqual({ maxDepth: 3 });
   });
 
   it('an insert error that is not a constraint is thrown, not held as invalid', () => {
