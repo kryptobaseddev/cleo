@@ -120,7 +120,11 @@ describe('the C2 migration', () => {
       lineage(PROJECT_FOLDER),
     );
     expect(report.applied).toContain(TRIGGER_CLAUSE_MIGRATION);
-    expect(verifyOwnedTriggers(native)).toEqual([]);
+    // The graveyard trigger's owned text is installed by the open pass (its
+    // table may be missing), so a migration-only store still has t12341's.
+    expect(verifyOwnedTriggers(native)).toEqual([
+      { name: 'trg_tasks_ac_uid_graveyard', problem: 'no-clause', repaired: false },
+    ]);
     native.close();
   });
 });
@@ -201,6 +205,26 @@ describe('the open pass', () => {
     ]);
     const again = await reopen();
     expect(verifyOwnedTriggers(again)).toEqual([]);
+  });
+
+  it('a store without the AC graveyard table (T12341 probe-stamped) keeps AC deletes working', async () => {
+    const db = await openStore();
+    db.exec('DROP TRIGGER trg_tasks_ac_uid_graveyard; DROP TABLE tasks_ac_uid_graveyard;');
+    // The trigger as a migration that created it unconditionally would leave it.
+    db.exec(ownedTriggerDdl().get('trg_tasks_ac_uid_graveyard') as string);
+    db.exec(`INSERT INTO tasks_tasks (id, title, type, status) VALUES ('T1', 'x', 'task', 'pending');
+             INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, kind, text, uid)
+               VALUES ('A1', 'T1', 1, 'text', 'ac', 'u1'), ('A2', 'T1', 2, 'text', 'ac2', 'u2');`);
+    expect(() => db.exec("DELETE FROM tasks_task_acceptance_criteria WHERE id = 'A1'")).toThrow(
+      /no such table: main.tasks_ac_uid_graveyard/,
+    );
+    expect(verifyOwnedTriggers(db)).toEqual([
+      { name: 'trg_tasks_ac_uid_graveyard', problem: 'dangling', repaired: false },
+    ]);
+    const again = await reopen();
+    expect(liveSql(again, 'trg_tasks_ac_uid_graveyard')).toBeUndefined();
+    expect(verifyOwnedTriggers(again)).toEqual([]);
+    again.exec("DELETE FROM tasks_task_acceptance_criteria WHERE id = 'A2'");
   });
 
   it('a drizzle-style rebuild of tasks_tasks, then an open, leaves every owned trigger with its clause (C2(d))', async () => {
@@ -326,7 +350,7 @@ describe('ownership', () => {
     expect(owned.length).toBe(Object.keys(OWNED_TRIGGERS).length);
   });
 
-  it('owned DDL is read from the C2 migration on', () => {
+  it('owned DDL is read from the C2 migration on, plus the code-held graveyard trigger', () => {
     expect([...ownedTriggerDdl(PROJECT_FOLDER).keys()].sort()).toEqual(
       Object.keys(OWNED_TRIGGERS).sort(),
     );

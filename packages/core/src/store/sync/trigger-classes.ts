@@ -16,9 +16,11 @@
  *
  * `guard` and `side-effect` triggers are OWNED: {@link OWNED_TRIGGERS} names
  * each one, and its DDL is the last `CREATE TRIGGER` for that name in the
- * migration lineage from the C2 migration on ({@link ownedTriggerDdl}). The
- * open pass and the doctor compare each owned trigger's LIVE text with that
- * DDL and re-run the DDL when it differs or is missing (C2(b)).
+ * migration lineage from the C2 migration on, or the code-held DDL of
+ * {@link CODE_OWNED_TRIGGER_DDL} ({@link ownedTriggerDdl}). The open pass and
+ * the doctor compare each owned trigger's LIVE text with that DDL and re-run
+ * the DDL when it differs or is missing (C2(b)), but only where every table
+ * the trigger needs exists ({@link OWNED_TRIGGER_REQUIRES}).
  *
  * A trigger is `frozen-guard` ONLY because of the table it fires ON: a
  * `frozen-legacy` bare twin. A rebase never touches a frozen twin, and giving
@@ -83,7 +85,8 @@ export function suspendClause(cls: SuspendableClass): string {
 
 /**
  * The owned guard and side-effect triggers (project store), by name. Each
- * one's DDL comes from the migration lineage ({@link ownedTriggerDdl}).
+ * one's DDL comes from the migration lineage or from
+ * {@link CODE_OWNED_TRIGGER_DDL} ({@link ownedTriggerDdl}).
  */
 export const OWNED_TRIGGERS: Readonly<Record<string, 'guard' | 'side-effect'>> = {
   tasks_tasks_parent_cycle_guard_insert: 'guard',
@@ -104,6 +107,38 @@ export const OWNED_TRIGGERS: Readonly<Record<string, 'guard' | 'side-effect'>> =
   tasks_sessions_release_claims_on_delete: 'side-effect',
   tasks_tasks_release_claim_on_terminal: 'side-effect',
   trg_tasks_ac_uid_graveyard: 'side-effect',
+};
+
+/**
+ * Owned triggers whose DDL is held in code, not in the C2 migration.
+ *
+ * The AC uid graveyard trigger writes `tasks_ac_uid_graveyard`. A store whose
+ * t12341 migration was probe-stamped after only its ADD COLUMNs ran (the
+ * 9.25 live-cleocode shape) has no graveyard table, and the table is created
+ * only by the flag-gated identity heal. A migration that created the trigger
+ * unconditionally would make every acceptance-criterion delete fail there
+ * ("no such table: main.tasks_ac_uid_graveyard"), so the trigger is installed
+ * by the open pass, and only where its table exists.
+ */
+export const CODE_OWNED_TRIGGER_DDL: Readonly<Record<string, string>> = {
+  trg_tasks_ac_uid_graveyard: `CREATE TRIGGER \`trg_tasks_ac_uid_graveyard\`
+AFTER DELETE ON \`tasks_task_acceptance_criteria\`
+WHEN (OLD.\`uid\` IS NOT NULL)
+  AND ${suspendClause('side-effect')}
+BEGIN
+  INSERT INTO \`tasks_ac_uid_graveyard\` (\`ac_id\`, \`uid\`, \`task_id\`, \`ordinal\`, \`text\`, \`birth_fp\`, \`deleted_at\`)
+  VALUES (OLD.\`id\`, OLD.\`uid\`, OLD.\`task_id\`, OLD.\`ordinal\`, OLD.\`text\`, OLD.\`birth_fp\`, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+END`,
+};
+
+/**
+ * Tables an owned trigger needs besides the one it fires ON. Where one is
+ * missing the trigger is not verified or installed, and a live copy is a
+ * finding (`dangling`) that repair drops: it would fail every write that
+ * fires it.
+ */
+export const OWNED_TRIGGER_REQUIRES: Readonly<Record<string, readonly string[]>> = {
+  trg_tasks_ac_uid_graveyard: ['tasks_ac_uid_graveyard'],
 };
 
 /** Prefix of every capture trigger (S2, §2.3). */
@@ -211,9 +246,10 @@ export function createTriggerStatements(migrationSql: string): Map<string, strin
 }
 
 /**
- * The owned trigger DDL: the last `CREATE TRIGGER` for each owned name in
- * the lineage's migration files from {@link TRIGGER_CLAUSE_MIGRATION} on, in
- * folder order.
+ * The owned trigger DDL: {@link CODE_OWNED_TRIGGER_DDL}, then the last
+ * `CREATE TRIGGER` for each owned name in the lineage's migration files from
+ * {@link TRIGGER_CLAUSE_MIGRATION} on, in folder order (a later migration
+ * replaces a code-held text).
  *
  * @param folder - The lineage folder (tests pass one; default: installed).
  * @throws {Error} When an owned trigger has no DDL from C2 on.
@@ -223,7 +259,7 @@ export function ownedTriggerDdl(
 ): Map<string, string> {
   const cached = ownedDdlCache.get(folder);
   if (cached) return cached;
-  const ddl = new Map<string, string>();
+  const ddl = new Map<string, string>(Object.entries(CODE_OWNED_TRIGGER_DDL));
   const names = readdirSync(folder)
     .filter((n) => n >= TRIGGER_CLAUSE_MIGRATION && existsSync(join(folder, n, 'migration.sql')))
     .sort();
@@ -250,7 +286,8 @@ const ownedDdlCache = new Map<string, Map<string, string>>();
 /** One finding of {@link verifyOwnedTriggers}. */
 export interface OwnedTriggerFinding {
   readonly name: string;
-  readonly problem: 'missing' | 'text-differs' | 'no-clause';
+  /** `dangling`: live, but a table it needs is missing (repair drops it). */
+  readonly problem: 'missing' | 'text-differs' | 'no-clause' | 'dangling';
   readonly repaired: boolean;
 }
 
@@ -288,21 +325,23 @@ export function verifyOwnedTriggers(
         .all() as Array<{ name: string; tbl_name: string; sql: string }>
     ).map((r) => [r.name, r]),
   );
+  const hasTable = (t: string) =>
+    db.prepare("SELECT 1 FROM main.sqlite_master WHERE type = 'table' AND name = ?").get(t) !==
+    undefined;
   const findings: OwnedTriggerFinding[] = [];
   for (const [name, cls] of Object.entries(OWNED_TRIGGERS)) {
     const want = ddl.get(name) as string;
     const onTable = /\bON\s+[`"]?(\w+)[`"]?/i.exec(want.slice(0, want.search(/\bBEGIN\b/i)))?.[1];
     // The trigger's table may not exist in this store shape (a store the
     // owning migration never reached); nothing to verify then.
-    if (
-      onTable &&
-      db
-        .prepare("SELECT 1 FROM main.sqlite_master WHERE type = 'table' AND name = ?")
-        .get(onTable) === undefined
-    ) {
+    if (onTable && !hasTable(onTable)) continue;
+    const row = live.get(name);
+    if ((OWNED_TRIGGER_REQUIRES[name] ?? []).some((t) => !hasTable(t))) {
+      if (!row) continue;
+      if (options.repair) db.exec(`DROP TRIGGER IF EXISTS \`${name}\``);
+      findings.push({ name, problem: 'dangling', repaired: options.repair === true });
       continue;
     }
-    const row = live.get(name);
     let problem: OwnedTriggerFinding['problem'] | undefined;
     if (!row) problem = 'missing';
     else if (normalizeSql(row.sql) !== normalizeSql(want)) {
