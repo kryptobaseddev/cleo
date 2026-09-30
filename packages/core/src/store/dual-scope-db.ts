@@ -67,6 +67,8 @@ import {
   resolveConsolidatedJournalSiblings,
   resolveCorePackageMigrationsFolder,
 } from './resolve-migrations-folder.js';
+import { prepareRowIdentity } from './row-identity.js';
+import { rowUidFillEnabled } from './row-identity-flag.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
 import { explainSchemaWriteDenial, installSchemaWriteGuard } from './worktree-build-guard.js';
 import { assertStorePathIsNotWorktreeResident } from './worktree-isolation-guard.js';
@@ -583,6 +585,16 @@ async function openDedicatedDualScopeDb(
           `dual-scope-db[${scope}]`,
         );
 
+        // T12341: fill row uids (opt-in). No per-connection uid triggers:
+        // dedicated handles run the exodus copy, whose effect inspection
+        // refuses a trigger that calls an opaque function; the next open fills
+        // its rows. The chokepoint writers load lazily (store import cycle).
+        execution?.assertActive();
+        if (rowUidFillEnabled()) {
+          await import('./sqlite-data-accessor.js');
+          prepareRowIdentity(nativeDb, scope, { triggers: false });
+        }
+
         execution?.assertActive();
         log.debug({ scope, dbPath }, 'DEDICATED dual-scope cleo.db ready (T11782 FIX D)');
 
@@ -892,6 +904,17 @@ export async function openDualScopeDbAtPath(
             existenceTable(scope),
             `dual-scope-db[${scope}]`,
           );
+
+          // T12341 (opt-in, CLEO_ROW_UID_FILL=1): fill every NULL row uid
+          // deterministically, inside this lease so two processes never fill at
+          // once, and arm this connection's uid triggers. Never throws.
+          execution?.assertActive();
+          if (rowUidFillEnabled()) {
+            // The chokepoint writers load lazily: a static import would close
+            // the store import cycle through sqlite.js.
+            await import('./sqlite-data-accessor.js');
+            prepareRowIdentity(nativeDb, scope);
+          }
 
           execution?.assertActive();
           log.debug({ scope, dbPath: normalizedPath }, 'dual-scope cleo.db ready');

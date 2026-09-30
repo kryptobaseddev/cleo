@@ -132,7 +132,8 @@ async function validatorAcPullFn(input: ValidatorAcPullInput): Promise<Validator
   }
 
   const bindings = await accessor.getAcBindings(acs.map((ac) => ac.id));
-  const satisfiedIds = new Set(bindings.map((b) => b.acId));
+  // T12341: stale evidence (recorded against an earlier text) does not satisfy.
+  const satisfiedIds = new Set(bindings.filter((b) => !b.stale).map((b) => b.acId));
 
   const acsView: ValidatorAcRowView[] = acs.map((ac) => ({
     id: ac.id,

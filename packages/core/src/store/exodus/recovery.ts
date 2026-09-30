@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import { constants, type DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { z } from 'zod';
+import { rowIdentityColumns } from '../row-identity-registry.js';
 
 const RECEIPTS = '_exodus_recovery_rows';
 const identitySchema = z.array(
@@ -54,6 +55,14 @@ function tableShape(db: DatabaseSync, schema: string, table: string) {
       throw new ExodusRecoveryError('Invalid Exodus column metadata');
     return column.name;
   });
+  // T12341: the open pass fills a NULL row uid on rows this copy inserted
+  // before any recovery can run. A uid is identity, not data, so a filled one
+  // is not a change to the row the receipt guards.
+  const identityColumns = new Set([
+    ...rowIdentityColumns('project', table),
+    ...rowIdentityColumns('global', table),
+  ]);
+  const imaged = names.filter((name) => !identityColumns.has(name));
   const keys = columns
     .filter((column) => Number(column.pk) > 0)
     .sort((a, b) => Number(a.pk) - Number(b.pk))
@@ -62,7 +71,7 @@ function tableShape(db: DatabaseSync, schema: string, table: string) {
     throw new ExodusRecoveryError(
       `Exodus recovery needs a stable row identity: ${schema}.${table}`,
     );
-  return { sql, keys, identity: image(keys), row: image(names) };
+  return { sql, keys, identity: image(keys), row: image(imaged) };
 }
 
 function ensureReceipts(db: DatabaseSync, schema: string): void {
@@ -210,6 +219,18 @@ function inspectEffects(
         dbName === schema &&
         typeof name === 'string' &&
         (name === `${table}_fts` || name.startsWith(`${table}_fts_`))
+      )
+        return constants.SQLITE_OK;
+      // T12341: deleting an acceptance criterion records its uid in the
+      // local-only AC uid graveyard (pure-SQL trigger), repair scratch that the
+      // next open consumes and empties. Not replicated, so no receipt.
+      if (
+        trigger &&
+        action === constants.SQLITE_DELETE &&
+        code === constants.SQLITE_INSERT &&
+        dbName === schema &&
+        table === 'tasks_task_acceptance_criteria' &&
+        name === 'tasks_ac_uid_graveyard'
       )
         return constants.SQLITE_OK;
       refusal = `untracked trigger side effects: ${String(dbName)}.${String(name)} ${String(column)}`;

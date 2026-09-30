@@ -69,6 +69,7 @@ import {
   unique,
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core';
+import { defaultRowUid } from '../../row-identity-flag.js';
 import { BACKGROUND_JOB_STATUSES } from '../background-jobs.js';
 import { EVIDENCE_BINDING_TYPES } from '../evidence-bindings.js';
 
@@ -184,6 +185,25 @@ export const tasksEvidenceAcBindings = sqliteTable(
     bindingType: text('binding_type', { enum: EVIDENCE_BINDING_TYPES }).notNull(),
     /** ISO-8601 UTC binding-creation instant (already canonical TEXT, §4). */
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+    /**
+     * Row uid (T12341): the merge key. A new row gets a random UUIDv7; a row
+     * written without one gets a deterministic uid at the next open
+     * (`store/row-identity.ts`). Never updated once set.
+     */
+    uid: text('uid').$defaultFn(defaultRowUid),
+    /** Birth fingerprint (T12341): creation facts hashed once with the uid; never updated. */
+    birthFp: text('birth_fp'),
+    /**
+     * Uid of the bound criterion (T12341). Readers resolve bindings through it,
+     * so an AC edit (which changes `ac_id`) no longer orphans the binding.
+     */
+    acUid: text('ac_uid'),
+    /**
+     * Hash of the AC text this evidence was recorded against (T12341). When it
+     * differs from the criterion's current text the evidence is STALE: shown,
+     * never counted by a gate until re-verified.
+     */
+    acTextHash: text('ac_text_hash'),
   },
   (table) => [
     uniqueIndex('uq_tasks_evidence_ac_bindings_atom_ac_type').on(
@@ -193,6 +213,9 @@ export const tasksEvidenceAcBindings = sqliteTable(
     ),
     index('idx_tasks_evidence_ac_bindings_ac_id').on(table.acId),
     index('idx_tasks_evidence_ac_bindings_evidence_atom_id').on(table.evidenceAtomId),
+    uniqueIndex('uq_tasks_evidence_ac_bindings_uid').on(table.uid),
+    index('idx_tasks_evidence_ac_bindings_ac_uid').on(table.acUid),
+    index('idx_tasks_evidence_ac_bindings_ac_text_hash').on(table.acTextHash),
   ],
 );
 
@@ -216,10 +239,16 @@ export const tasksTaskLabels = sqliteTable(
     taskId: text('task_id').notNull(),
     /** A single label string (one row per label). */
     label: text('label').notNull(),
+    /**
+     * Row uid (T12341): a UUIDv8 over (task uid, label), filled by
+     * `store/row-identity.ts`; delete-and-reinsert on every task save keeps it.
+     */
+    uid: text('uid'),
   },
   (table) => [
     primaryKey({ columns: [table.taskId, table.label] }),
     index('idx_tasks_task_labels_label').on(table.label),
+    uniqueIndex('uq_tasks_task_labels_uid').on(table.uid),
   ],
 );
 

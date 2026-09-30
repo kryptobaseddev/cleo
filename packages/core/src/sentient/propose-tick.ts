@@ -516,11 +516,8 @@ export async function runProposeTick(options: ProposeTickOptions): Promise<Propo
         // filters (sentientProposeList/Accept/Reject) — now junction joins, not
         // labels_json LIKE — see this proposal. INSERT OR IGNORE is idempotent.
         if (tasksNativeDb) {
-          const labelStmt = tasksNativeDb.prepare(
-            'INSERT OR IGNORE INTO tasks_task_labels (task_id, label) VALUES (?, ?)',
-          );
-          labelStmt.run(taskId, TIER2_LABEL);
-          labelStmt.run(taskId, `source:${candidate.source}`);
+          const { addTaskLabelsNative } = await import('../store/sqlite-data-accessor.js');
+          addTaskLabelsNative(tasksNativeDb, taskId, [TIER2_LABEL, `source:${candidate.source}`]);
         }
       } else if (result.reason === 'rate-limit') {
         // Rate limit hit mid-loop — stop writing.

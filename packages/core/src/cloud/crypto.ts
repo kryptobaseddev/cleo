@@ -297,13 +297,4 @@ export const sha256Hex = (b: Uint8Array) => createHash('sha256').update(b).diges
 export const hmacSha256 = (key: Uint8Array, message: Uint8Array): Buffer =>
   createHmac('sha256', key).update(message).digest();
 
-/** A UUIDv7 (RFC 9562 §5.7): 48-bit Unix millis, then random bits. Used to mint checkpoint ids. */
-export function uuidv7(now: number = Date.now()): string {
-  const b = randomBytes(16);
-  const ms = BigInt(Math.max(0, Math.floor(now)));
-  for (let i = 0; i < 6; i++) b[i] = Number((ms >> BigInt(8 * (5 - i))) & 0xffn);
-  b[6] = ((b[6] ?? 0) & 0x0f) | 0x70;
-  b[8] = ((b[8] ?? 0) & 0x3f) | 0x80;
-  const h = b.toString('hex');
-  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
-}
+export { uuidv7 } from './uuidv7.js';

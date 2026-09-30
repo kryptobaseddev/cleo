@@ -80,7 +80,9 @@ import {
   sqliteTable,
   text,
   unique,
+  uniqueIndex,
 } from 'drizzle-orm/sqlite-core';
+import { defaultRowUid } from '../../row-identity-flag.js';
 import { SESSION_STATUSES, TASK_STATUSES } from '../../status-registry.js';
 import {
   ACCEPTANCE_PROJECTION_DIRTY_REASONS,
@@ -201,6 +203,14 @@ export const tasksTasks = sqliteTable(
      * only keyed writes dedup; the dedup scope is the project `cleo.db` file.
      */
     idempotencyKey: text('idempotency_key'),
+    /**
+     * Row uid (T12341): the merge key. A new row gets a random UUIDv7; a row
+     * written without one gets a deterministic uid at the next open
+     * (`store/row-identity.ts`). Never updated once set.
+     */
+    uid: text('uid').$defaultFn(defaultRowUid),
+    /** Birth fingerprint (T12341): creation facts hashed once with the uid; never updated. */
+    birthFp: text('birth_fp'),
   },
   (table) => [
     index('idx_tasks_tasks_status').on(table.status),
@@ -221,6 +231,7 @@ export const tasksTasks = sqliteTable(
     index('idx_tasks_tasks_role_status').on(table.kind, table.status),
     index('idx_tasks_tasks_created_date').on(sql`date(${table.createdAt})`),
     unique('uq_tasks_tasks_idempotency_key').on(table.idempotencyKey),
+    uniqueIndex('uq_tasks_tasks_uid').on(table.uid),
   ],
 );
 
@@ -258,12 +269,20 @@ export const tasksTaskAcceptanceCriteria = sqliteTable(
     updatedAt: text('updated_at'),
     /** Optional sha256(text) drift snapshot. */
     contentHash: text('content_hash'),
+    /**
+     * Row uid (T12341). Unlike `id`, which is derived from the text, it stays
+     * with the criterion across edits, so evidence bindings follow it.
+     */
+    uid: text('uid').$defaultFn(defaultRowUid),
+    /** Birth fingerprint (T12341): creation facts hashed once with the uid; never updated. */
+    birthFp: text('birth_fp'),
   },
   (table) => [
     index('idx_tasks_task_acceptance_criteria_task_id').on(table.taskId),
     index('idx_tasks_task_acceptance_criteria_target_task_id').on(table.targetTaskId),
     unique('uq_tasks_task_acceptance_criteria_task_ordinal').on(table.taskId, table.ordinal),
     unique('uq_tasks_task_acceptance_criteria_task_source_key').on(table.taskId, table.sourceKey),
+    uniqueIndex('uq_tasks_task_acceptance_criteria_uid').on(table.uid),
   ],
 );
 
@@ -351,10 +370,16 @@ export const tasksTaskDependencies = sqliteTable(
     dependsOn: text('depends_on')
       .notNull()
       .references(() => tasksTasks.id, { onDelete: 'cascade' }),
+    /**
+     * Row uid (T12341): a UUIDv8 over the edge's key with each task as its uid,
+     * filled by `store/row-identity.ts` (per-connection trigger, then at open).
+     */
+    uid: text('uid'),
   },
   (table) => [
     primaryKey({ columns: [table.taskId, table.dependsOn] }),
     index('idx_tasks_task_dependencies_depends_on').on(table.dependsOn),
+    uniqueIndex('uq_tasks_task_dependencies_uid').on(table.uid),
   ],
 );
 
@@ -378,6 +403,11 @@ export const tasksTaskRelations = sqliteTable(
     relationType: text('relation_type', { enum: TASK_RELATION_TYPES }).notNull().default('related'),
     /** Optional reason. */
     reason: text('reason'),
+    /**
+     * Row uid (T12341): a UUIDv8 over the edge's key with each task as its uid,
+     * filled by `store/row-identity.ts` (per-connection trigger, then at open).
+     */
+    uid: text('uid'),
   },
   (table) => [
     primaryKey({ columns: [table.taskId, table.relatedTo, table.relationType] }),
@@ -387,6 +417,7 @@ export const tasksTaskRelations = sqliteTable(
       table.relationType,
     ),
     index('idx_tasks_task_relations_relation_type').on(table.relationType),
+    uniqueIndex('uq_tasks_task_relations_uid').on(table.uid),
   ],
 );
 
@@ -487,6 +518,14 @@ export const tasksSessions = sqliteTable(
     scopeId: text('scope_id'),
     /** ISO-8601 UTC last-activity instant (canonical TEXT, §4). */
     lastActivity: text('last_activity'),
+    /**
+     * Row uid (T12341): the merge key. A new row gets a random UUIDv7; a row
+     * written without one gets a deterministic uid at the next open
+     * (`store/row-identity.ts`). Never updated once set.
+     */
+    uid: text('uid').$defaultFn(defaultRowUid),
+    /** Birth fingerprint (T12341): creation facts hashed once with the uid; never updated. */
+    birthFp: text('birth_fp'),
   },
   (table) => [
     index('idx_tasks_sessions_status').on(table.status),
@@ -498,6 +537,7 @@ export const tasksSessions = sqliteTable(
     index('idx_tasks_sessions_status_started_at').on(table.status, table.startedAt),
     index('idx_tasks_sessions_agent_handle').on(table.agentHandle),
     index('idx_tasks_sessions_scope_kind_id').on(table.scopeKind, table.scopeId),
+    uniqueIndex('uq_tasks_sessions_uid').on(table.uid),
   ],
 );
 
@@ -573,12 +613,24 @@ export const tasksTaskAcceptanceCriteriaHistory = sqliteTable(
      * (referenced, not frozen).
      */
     reason: text('reason').notNull(),
+    /**
+     * Row uid (T12341): the merge key. A new row gets a random UUIDv7; a row
+     * written without one gets a deterministic uid at the next open
+     * (`store/row-identity.ts`). Never updated once set.
+     */
+    uid: text('uid').$defaultFn(defaultRowUid),
+    /** Birth fingerprint (T12341): creation facts hashed once with the uid; never updated. */
+    birthFp: text('birth_fp'),
+    /** Uid of the criterion this row records (T12341); stays joined across edits. */
+    acUid: text('ac_uid'),
   },
   (table) => [
     index('idx_tasks_task_acceptance_criteria_history_ac_id_recorded_at').on(
       table.acId,
       sql`${table.recordedAt} desc`,
     ),
+    uniqueIndex('uq_tasks_task_acceptance_criteria_history_uid').on(table.uid),
+    index('idx_tasks_task_acceptance_criteria_history_ac_uid').on(table.acUid),
   ],
 );
 
