@@ -371,12 +371,13 @@ const decideBenchCommand = defineCommand({
   meta: {
     name: 'bench',
     description:
-      "System One accuracy benchmark (T12495): build a labelled dataset from this project's own history (duplicate task pairs, explicitly typed observations, superseding decisions; redacted), write a stratified spot-check sample for the owner, then compare providers against each site's heuristic with batched calls (provider cache off, 30s or longer deadline): accuracy, precision, recall, F1, false-positive rate, p50/p95 latency, cost and fallbacks, mean and spread over --runs. A hard total cap (--max-usd, default 5) is checked before every batch; the run stops cleanly at it. Profiles resolve from CLEO_DECIDE_PROFILE_<NAME>_KEY/_URL/_MODEL or the stored provider kind. --sample-only never contacts a provider.",
+      "System One accuracy benchmark (T12495): build a labelled dataset from this project's own history (duplicate task pairs, explicitly typed observations, superseding decisions; redacted), write a stratified spot-check sample for the owner, then compare providers against each site's heuristic with batched calls (provider cache off, 30s or longer deadline): accuracy, precision, recall, F1, false-positive rate, p50/p95 latency, cost and fallbacks, mean and spread over --runs. A hard total cap (--max-usd, default 5) is checked before every batch; the run stops cleanly at it. Each --profiles entry is a System One profile (cleo decide profiles): an id <provider>/<name> (e.g. layahost/work), or a bare provider meaning its active profile, else <provider>/default; a default URL resolves to the provider preset. A name no profile holds falls back to CLEO_DECIDE_PROFILE_<NAME>_KEY (plus _URL, _MODEL, _PROVIDER) for a one-off key. An unknown name fails listing the stored profiles (keys masked). --sample-only never contacts a provider.",
   },
   args: {
     profiles: {
       type: 'string',
-      description: 'Comma list of provider profiles to compare, e.g. layahost,jev',
+      description:
+        'Comma list of profiles to compare: <provider>/<name> ids or bare providers, e.g. layahost/work,jev',
     },
     sites: {
       type: 'string',
