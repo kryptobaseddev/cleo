@@ -46,16 +46,19 @@
  *   On macOS, Node's fsync is `F_FULLFSYNC` (libuv), so the data reaches the
  *   disk, not only the drive cache. No rotated backups are made; any found are
  *   purged (L3), and stale temp files are swept under the lock.
- * - **Durable before the network.** {@link NexusDeviceTransaction.flush}
- *   writes mid-transaction with the lock held. A `pending` credential MUST be
- *   flushed before E8 is sent (§2.5 step 3), so a crash after the server
- *   applied the rotation never loses the new credential.
+ * - **Never held across a network call (contract v2.9).** The lock covers
+ *   only a local read-modify-write. Every change that involves the server
+ *   follows one order: under the lock, re-read and persist the intent (a
+ *   `pending` credential before E8, §2.5 step 1; the E1 intent before E1,
+ *   §3.3 step 5); **return from `update`, releasing the lock**; make the call
+ *   (E1, E8, E9, E10) with a plain `AbortSignal.timeout(...)`; then call
+ *   `update` again and re-check with a compare-and-swap (is the entry still
+ *   the one this process wrote?) before promoting or clearing. `update`
+ *   writes when `fn` returns, so the intent is durable before the request.
  * - **Lock loss aborts.** If the lock is taken over (a stale-lock takeover
  *   after the machine slept, say), {@link NexusDeviceTransaction.signal} is
  *   aborted, no further write happens, and `update` rejects with
- *   `E_NEXUS_DEVICE_LOCK_COMPROMISED`. Callers MUST pass that signal, combined
- *   with `AbortSignal.timeout(...)`, to every HTTP call made under the lock
- *   (E1, E8, E9, E10), so a hung request never holds the lock indefinitely.
+ *   `E_NEXUS_DEVICE_LOCK_COMPROMISED`.
  * - **No downgrade.** A file whose `version` is newer than this CLI knows is
  *   refused, never read as empty and never rewritten. A malformed file is
  *   refused the same way. Unknown fields of a known version, at any depth,
@@ -78,8 +81,10 @@
  *   entry (`{ ...entry }`) produces an unguarded copy: T12868–T12871 must
  *   never spread an entry, or any part of one, into a log line or envelope.
  *
- * Dormant: nothing calls this module yet. Behaviour that uses it ships behind
- * `CLEO_NEXUS_DEVICE=1` ({@link isNexusDeviceEnabled}) in T12868–T12871.
+ * Behaviour that uses it ships behind `CLEO_NEXUS_DEVICE=1`
+ * ({@link isNexusDeviceEnabled}): login enrolment and the 9.24 upgrade
+ * (`nexus-enrol.ts`, T12868), then rotation, logout and the cloud reads
+ * (T12869–T12871).
  *
  * @task T12867
  * @epic T12323
@@ -148,6 +153,9 @@ export const NEXUS_DEVICE_SCOPES = [
 
 /** Credential profiles (contract §2.3, `DeviceProfile`). */
 export const NEXUS_DEVICE_PROFILES = ['device', 'read-only'] as const;
+
+/** Why an E1 call is in flight: an interactive login (§3.3) or the 9.24 auto-upgrade (§3.4). */
+export const NEXUS_DEVICE_INTENT_KINDS = ['login', 'upgrade'] as const;
 
 /**
  * Most credentials one sign-out or revoke slot may hold. A transition that
@@ -234,6 +242,36 @@ function makeEntrySchema(token: z.ZodString, privateKey: z.ZodString) {
       )
       .max(NEXUS_DEVICE_MAX_RETIRED)
       .optional(),
+    /**
+     * An E1 call in flight (contract §3.3 step 5, §3.4 step 1): persisted under
+     * the lock before E1 is sent, cleared at step 7. Holds no secret.
+     */
+    /**
+     * A credential E1 issued to this process while the file already held
+     * another one for the same device, and the server could not yet say which
+     * is live (§3.3 step 7, ruling A). Kept, sealed, until E2 settles it, so
+     * the only live credential is never lost.
+     */
+    raceCandidate: z
+      .looseObject({
+        credentialId: uuid,
+        token,
+        profile: z.enum(NEXUS_DEVICE_PROFILES),
+        scopes: z.array(z.enum(NEXUS_DEVICE_SCOPES)),
+        createdAt: isoTime,
+      })
+      .nullable()
+      .optional(),
+    enrolIntent: z
+      .looseObject({
+        deviceId: uuid,
+        kind: z.enum(NEXUS_DEVICE_INTENT_KINDS),
+        /** Random id of the process that wrote it (a CAS token). */
+        owner: z.string().regex(/^[0-9a-f]{32}$/),
+        startedAt: isoTime,
+      })
+      .nullable()
+      .optional(),
   });
 }
 
@@ -260,6 +298,10 @@ export type NexusDevicePendingEnd = NonNullable<NexusDeviceEntry['pendingSignOut
 export type NexusDeviceSlotCredential = NexusDevicePendingEnd['credentials'][number];
 /** An unsettled sign-out or revoke of a device an entry replaced. */
 export type NexusDeviceRetired = NonNullable<NexusDeviceEntry['retired']>[number];
+/** An E1 call in flight for an entry (§3.3 step 5, §3.4 step 1). */
+export type NexusDeviceEnrolIntent = NonNullable<NexusDeviceEntry['enrolIntent']>;
+/** A racing login's unsettled credential (§3.3 step 7). */
+export type NexusDeviceRaceCandidate = NonNullable<NexusDeviceEntry['raceCandidate']>;
 /** The on-disk file, with secrets sealed. */
 type SealedFile = z.infer<typeof sealedFileSchema>;
 /** A device credential profile. */
@@ -403,6 +445,19 @@ function guard<T>(value: T): T {
     configurable: true,
   });
   return value;
+}
+
+/**
+ * Attach the store's non-enumerable `toJSON` and `util.inspect` guards to any
+ * value that holds device secrets (tokens, private keys), at every depth, so
+ * printing or serialising it shows only the redacted view. Never spread the
+ * result: a spread drops the guards.
+ *
+ * @param value - An object holding `token` or `privateKey` fields.
+ * @returns The same object, guarded.
+ */
+export function guardNexusDeviceSecrets<T>(value: T): T {
+  return guard(value);
 }
 
 /** A deep copy of an entry, guarded. */
@@ -562,9 +617,12 @@ function issuesText(error: z.ZodError): string {
 
 // ---------- slot transitions (pure; run them inside NexusDeviceStore.update) ----------
 
-/** The live credentials of an entry, newest first: `pending`, then `current`. */
+/** The live credentials of an entry, newest first: `raceCandidate`, `pending`, then `current`. */
 function liveCredentials(entry: NexusDeviceEntry): NexusDeviceSlotCredential[] {
   const out: NexusDeviceSlotCredential[] = [];
+  if (entry.raceCandidate) {
+    out.push({ credentialId: entry.raceCandidate.credentialId, token: entry.raceCandidate.token });
+  }
   if (entry.pending)
     out.push({ credentialId: entry.pending.credentialId, token: entry.pending.token });
   if (entry.current)
@@ -649,9 +707,36 @@ export function applyEnrolment(
       current: { ...credential },
       pending: null,
       pendingSignOut: null,
+      raceCandidate: null,
     });
   }
-  const retired: NexusDeviceRetired[] = [...(entry?.retired ?? [])];
+  const retired = retireDevice(entry, now);
+  return guard({
+    deviceId: enrolment.deviceId,
+    createdAt: now.toISOString(),
+    keys,
+    current: { ...credential },
+    pending: null,
+    pendingSignOut: null,
+    pendingRevoke: null,
+    ...(retired.length > 0 ? { retired } : {}),
+  });
+}
+
+/**
+ * The `retired` list an entry leaves behind when a new identity replaces its
+ * device: every credential the old device may still hold (and its unsettled
+ * sign-out or revoke) is kept for a retry, never dropped.
+ *
+ * @throws {NexusDeviceStoreError} `E_NEXUS_DEVICE_SLOT_FULL` when `retired` is full.
+ */
+function retireDevice(entry: NexusDeviceEntry | null, now: Date): NexusDeviceRetired[] {
+  const retired: NexusDeviceRetired[] = (entry?.retired ?? []).map((r) => ({
+    deviceId: r.deviceId,
+    kind: r.kind,
+    credentials: r.credentials.map((c) => ({ credentialId: c.credentialId, token: c.token })),
+    requestedAt: r.requestedAt,
+  }));
   if (entry !== null) {
     const live = mergeCredentials(liveCredentials(entry), entry.pendingSignOut?.credentials ?? []);
     if (live.length > 0) {
@@ -666,7 +751,10 @@ export function applyEnrolment(
       retired.push({
         deviceId: entry.deviceId,
         kind: 'revoke',
-        credentials: entry.pendingRevoke.credentials.map((c) => ({ ...c })),
+        credentials: entry.pendingRevoke.credentials.map((c) => ({
+          credentialId: c.credentialId,
+          token: c.token,
+        })),
         requestedAt: entry.pendingRevoke.requestedAt,
       });
     }
@@ -677,23 +765,148 @@ export function applyEnrolment(
       `refusing to retire more than ${NEXUS_DEVICE_MAX_RETIRED} unsettled devices for one account; settle them first, or revoke them on cleocode.dev`,
     );
   }
+  return retired;
+}
+
+/**
+ * Persist the identity a login or upgrade is about to enrol, with its E1
+ * intent (§3.3 step 5, §3.4 step 1), before E1 is sent.
+ *
+ * - **No entry:** a new identity with `deviceId` and `keys`.
+ * - **Same device:** the intent is recorded; `keys` fill in only when the
+ *   entry has none (lost keys, §3.3 step 6 `device-keys-changed`). Every
+ *   credential and slot is kept: E1 has not run yet.
+ * - **Another device** (a fresh identity after 409 `device-revoked`,
+ *   `device-other-account`, `device-id-taken` or `device-keys-changed`): the
+ *   old device's credentials and unsettled slots move to `retired`, as in
+ *   {@link applyEnrolment}, so nothing live is dropped.
+ *
+ * @param entry - The entry read under the lock, or `null`.
+ * @param identity - The device id and keys to enrol, and the intent.
+ * @param now - Clock.
+ * @returns The updated entry, guarded.
+ * @throws {NexusDeviceStoreError} `E_NEXUS_DEVICE_REVOKE_PENDING` for the same
+ *   device while a revoke is unconfirmed, or `E_NEXUS_DEVICE_SLOT_FULL`.
+ */
+export function applyEnrolIntent(
+  entry: NexusDeviceEntry | null,
+  identity: {
+    readonly deviceId: string;
+    readonly keys: NexusDeviceKeys;
+    readonly intent: NexusDeviceEnrolIntent;
+  },
+  now: Date = new Date(),
+): NexusDeviceEntry {
+  assertEnrolmentAllowed(entry, identity.deviceId);
+  if (entry !== null && entry.deviceId === identity.deviceId) {
+    return guard({
+      ...entry,
+      keys: entry.keys ?? structuredClone(identity.keys),
+      enrolIntent: { ...identity.intent },
+    });
+  }
+  const retired = retireDevice(entry, now);
   return guard({
-    deviceId: enrolment.deviceId,
+    deviceId: identity.deviceId,
     createdAt: now.toISOString(),
-    keys,
-    current: { ...credential },
+    keys: structuredClone(identity.keys),
+    current: null,
     pending: null,
     pendingSignOut: null,
     pendingRevoke: null,
     ...(retired.length > 0 ? { retired } : {}),
+    enrolIntent: { ...identity.intent },
   });
 }
 
 /**
- * Store a freshly minted rotation credential as `pending` (§2.5 step 3). A
+ * Clear an E1 intent, as a compare-and-swap on its owner: another process's
+ * intent is never cleared.
+ *
+ * @param entry - The entry read under the lock.
+ * @param owner - The intent owner this process wrote.
+ * @returns The updated entry (guarded), or the entry unchanged.
+ */
+export function applyClearEnrolIntent(entry: NexusDeviceEntry, owner: string): NexusDeviceEntry {
+  if (entry.enrolIntent?.owner !== owner) return entry;
+  return guard({ ...entry, enrolIntent: null });
+}
+
+/**
+ * Drop `current`, as a compare-and-swap on its credential id: used when the
+ * server refused it and no other credential is live (§3.3 step 7, both
+ * racing credentials answered 401). Nothing is moved to a sign-out slot: a
+ * refused credential needs no E9.
+ *
+ * @param entry - The entry read under the lock.
+ * @param credentialId - The credential id the caller saw refused.
+ * @returns The updated entry (guarded), or the entry unchanged when `current` moved on.
+ */
+export function applyDropCurrent(entry: NexusDeviceEntry, credentialId: string): NexusDeviceEntry {
+  if (entry.current?.credentialId !== credentialId) return entry;
+  return guard({ ...entry, current: null });
+}
+
+/**
+ * Refresh this process's E1 intent right before E1 is sent (compare-and-swap
+ * on the owner), so a live intent never looks stale while its owner is still
+ * working (§3.4 step 1).
+ *
+ * @param entry - The entry read under the lock.
+ * @param owner - The intent owner this process wrote.
+ * @param now - Clock.
+ * @returns The updated entry (guarded), or `null` when the intent is no
+ *   longer this process's (another process replaced or took it over).
+ */
+export function applyRefreshEnrolIntent(
+  entry: NexusDeviceEntry,
+  owner: string,
+  now: Date = new Date(),
+): NexusDeviceEntry | null {
+  const intent = entry.enrolIntent;
+  if (!intent || intent.owner !== owner) return null;
+  return guard({ ...entry, enrolIntent: { ...intent, startedAt: now.toISOString() } });
+}
+
+/**
+ * Park a racing login's credential beside `current` until E2 settles which is
+ * live (§3.3 step 7). An existing candidate is replaced only by a newer one;
+ * the older is dropped, because E1 re-enrolment revoked it.
+ *
+ * @param entry - The entry read under the lock.
+ * @param candidate - The credential E1 issued to this process.
+ * @returns The updated entry, guarded.
+ */
+export function applySetRaceCandidate(
+  entry: NexusDeviceEntry,
+  candidate: NexusDeviceRaceCandidate,
+): NexusDeviceEntry {
+  const held = entry.raceCandidate ?? null;
+  if (held !== null && Date.parse(held.createdAt) > Date.parse(candidate.createdAt)) return entry;
+  return guard({ ...entry, raceCandidate: structuredClone(candidate) });
+}
+
+/**
+ * Drop the race candidate, as a compare-and-swap on its credential id (it
+ * lost: the server refused it, or `current` is newer).
+ *
+ * @param entry - The entry read under the lock.
+ * @param credentialId - The candidate the caller settled.
+ * @returns The updated entry (guarded), or the entry unchanged.
+ */
+export function applyDropRaceCandidate(
+  entry: NexusDeviceEntry,
+  credentialId: string,
+): NexusDeviceEntry {
+  if (entry.raceCandidate?.credentialId !== credentialId) return entry;
+  return guard({ ...entry, raceCandidate: null });
+}
+
+/**
+ * Store a freshly minted rotation credential as `pending` (§2.5 step 1). A
  * second pending credential is never minted: when one exists the caller must
- * replay it instead. The caller MUST then call
- * {@link NexusDeviceTransaction.flush} before sending E8.
+ * replay it instead. The caller MUST let `update` write it (return from the
+ * transaction, releasing the lock) before sending E8, never send E8 inside it.
  *
  * @param entry - The entry read under the lock.
  * @param newToken - The client-minted `cnx_d1_…` token.
@@ -792,6 +1005,7 @@ export function applyBeginSignOut(
     ...entry,
     current: null,
     pending: null,
+    raceCandidate: null,
     pendingSignOut: {
       credentials,
       requestedAt: entry.pendingSignOut?.requestedAt ?? now.toISOString(),
@@ -824,6 +1038,7 @@ export function applyBeginRevoke(
     ...entry,
     current: null,
     pending: null,
+    raceCandidate: null,
     pendingSignOut: null,
     pendingRevoke: {
       credentials,
@@ -905,6 +1120,14 @@ function mapSecrets(
     pending: entry.pending
       ? { ...entry.pending, token: f(entry.pending.token, 'pending.token') }
       : null,
+    ...(entry.raceCandidate
+      ? {
+          raceCandidate: {
+            ...entry.raceCandidate,
+            token: f(entry.raceCandidate.token, 'raceCandidate.token'),
+          },
+        }
+      : {}),
     pendingSignOut: entry.pendingSignOut
       ? {
           ...entry.pendingSignOut,
@@ -947,8 +1170,8 @@ function fingerprintOf(path: string): string {
 /** Read and write access to the file, valid only inside {@link NexusDeviceStore.update}. */
 export interface NexusDeviceTransaction {
   /**
-   * Aborted when the lock is lost (taken over as stale). Pass it, combined
-   * with `AbortSignal.timeout(...)`, to every HTTP call made under the lock.
+   * Aborted when the lock is lost (taken over as stale). No HTTP call is ever
+   * made inside `update` (v2.9): persist, return, call, then re-lock and CAS.
    */
   readonly signal: AbortSignal;
   /**
@@ -971,8 +1194,11 @@ export interface NexusDeviceTransaction {
   ): boolean;
   /**
    * Write the changes so far to disk now, atomically, with the lock still
-   * held. Required before any network call that depends on them: a `pending`
-   * credential MUST be flushed before E8 is sent (§2.5 step 3).
+   * held. `update` also writes when `fn` returns, which is the normal path: a
+   * `pending` credential or an E1 intent is persisted by returning from
+   * `update` (releasing the lock) before E8 or E1 is sent. `flush` is for a
+   * long transaction that must make a change durable before it continues
+   * locally; never before a network call made with the lock held.
    *
    * @throws {NexusDeviceStoreError} `E_NEXUS_DEVICE_LOCK_COMPROMISED` once the lock is lost.
    */
@@ -1132,10 +1358,10 @@ export class NexusDeviceStore {
    *
    * - The file is re-read **after** the lock is acquired, so `fn` always sees
    *   the latest state, never a snapshot taken before another process wrote.
-   * - `fn` may await (the protocol holds the lock across E1, E8, E9 and E10).
-   *   Every such HTTP call MUST carry `AbortSignal.any([tx.signal,
-   *   AbortSignal.timeout(ms)])`, so neither a hung request nor a lost lock
-   *   keeps it running.
+   * - `fn` may await local work (another store's lock, taken after this one),
+   *   but MUST NOT make a network call: the lock is never held across E1,
+   *   E8, E9 or E10 (v2.9). Persist the intent, return, make the call, then
+   *   call `update` again and re-check with a CAS.
    * - `tx.flush()` writes mid-transaction; whatever is still unflushed is
    *   written when `fn` returns. When `fn` throws, unflushed changes are
    *   dropped.

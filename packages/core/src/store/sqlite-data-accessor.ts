@@ -95,7 +95,12 @@ import {
   taskClaimedError,
   taskClaimLeaseMs,
 } from './task-claim.js';
-import { nextTaskVersion, taskConflictError, taskVersion } from './task-version.js';
+import {
+  nextTaskVersion,
+  type TaskVersionSource,
+  taskConflictError,
+  taskVersion,
+} from './task-version.js';
 import * as schema from './tasks-schema.js';
 import { assertTwinCollapseWritable, bareCounterOf, mirrorCounterToBare } from './twin-collapse.js';
 import { runHeartbeatWrite, withWriteRetry } from './with-retry.js';
@@ -355,6 +360,7 @@ export function renameTaskDisplayIdNative(
   if (Number(changed) !== 1) {
     throw taskConflictError(current.id, taskVersion(current), null);
   }
+  recordLocalRename(nativeDb, uid, current.id, toId, taskVersion(current));
   const rewritten: Record<string, number> = {};
   const q = (name: string) => `"${name.replaceAll('"', '""')}"`;
   for (const ref of refs) {
@@ -466,31 +472,61 @@ export interface DisplayIdAliasRow {
 }
 
 /**
- * Insert a display-id alias row (idempotent on its uid).
+ * Insert a display-id alias row. Idempotent on its uid, and order-independent
+ * (T12800): when two displacements write one alias uid, the stored row is
+ * replaced only when `precedes(incoming, stored)` says the incoming one ranks
+ * first, so every replica keeps the same row whatever order the ops arrived
+ * in. The caller ranks by HLC order (`compareHlc`), never by text: stored
+ * values may be in either HLC format (T12802).
  *
  * @param nativeDb - The project `cleo.db` handle.
  * @param row - The alias.
+ * @param precedes - Whether `incoming` ranks before the `stored` row of the same uid.
  * @task T12341
  */
-export function insertDisplayIdAliasNative(nativeDb: DatabaseSync, row: DisplayIdAliasRow): void {
+export function insertDisplayIdAliasNative(
+  nativeDb: DatabaseSync,
+  row: DisplayIdAliasRow,
+  precedes: (incoming: DisplayIdAliasRow, stored: DisplayIdAliasRow) => boolean,
+): void {
+  const stored = nativeDb
+    .prepare(
+      `SELECT uid, entity_table AS entityTable, display_id AS displayId, entity_uid AS entityUid,
+              reason, origin, displaced_hlc AS displacedHlc, created_at AS createdAt,
+              entity_birth_fp AS entityBirthFp
+         FROM tasks_display_id_aliases WHERE uid = ?`,
+    )
+    .get(row.uid) as DisplayIdAliasRow | undefined;
+  if (!stored) {
+    nativeDb
+      .prepare(
+        `INSERT INTO tasks_display_id_aliases
+           (uid, entity_table, display_id, entity_uid, reason, origin, displaced_hlc, created_at,
+            entity_birth_fp)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        row.uid,
+        row.entityTable,
+        row.displayId,
+        row.entityUid,
+        row.reason,
+        row.origin,
+        row.displacedHlc,
+        row.createdAt,
+        row.entityBirthFp,
+      );
+    return;
+  }
+  if (!precedes(row, stored)) return;
   nativeDb
     .prepare(
-      `INSERT OR IGNORE INTO tasks_display_id_aliases
-         (uid, entity_table, display_id, entity_uid, reason, origin, displaced_hlc, created_at,
-          entity_birth_fp)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `UPDATE tasks_display_id_aliases
+          SET origin = ?, displaced_hlc = ?, created_at = ?,
+              entity_birth_fp = coalesce(entity_birth_fp, ?)
+        WHERE uid = ?`,
     )
-    .run(
-      row.uid,
-      row.entityTable,
-      row.displayId,
-      row.entityUid,
-      row.reason,
-      row.origin,
-      row.displacedHlc,
-      row.createdAt,
-      row.entityBirthFp,
-    );
+    .run(row.origin, row.displacedHlc, row.createdAt, row.entityBirthFp, row.uid);
 }
 
 /**
@@ -980,6 +1016,111 @@ function claimPredicate(guard: TaskClaimGuard, allowedHolders: readonly string[]
       ? or(isNull(schema.tasks.leaseExpiresAt), lte(schema.tasks.leaseExpiresAt, guard.now))
       : undefined;
   return or(isNull(holder), mine, related, expired);
+}
+
+/** How long after a local rename a write to the old id is still read as meant for the renamed task. */
+export const RENAMED_RECENT_MS = 24 * 60 * 60 * 1000;
+
+/** Local record of one rename of a task's display id (key `renamed_from:tasks_tasks:<old id>`). */
+interface LocalRenameRecord {
+  readonly uid: string;
+  /** The task version a caller holding the old id read last. */
+  readonly fromVersion: string;
+  readonly toId: string;
+  readonly at: string;
+}
+
+function renameRecordKey(fromId: string): string {
+  return `renamed_from:tasks_tasks:${fromId}`;
+}
+
+function hasIdentityMeta(nativeDb: DatabaseSync): boolean {
+  return (
+    nativeDb
+      .prepare(
+        "SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'tasks_row_identity_meta'",
+      )
+      .get() !== undefined
+  );
+}
+
+/**
+ * Remember, locally, that `fromId` named the task `uid` at version
+ * `fromVersion` until now (T12800). Local-only (`tasks_row_identity_meta`):
+ * it answers "what did a caller of THIS store mean by `fromId`", which only
+ * this store's history can.
+ */
+function recordLocalRename(
+  nativeDb: DatabaseSync,
+  uid: string,
+  fromId: string,
+  toId: string,
+  fromVersion: string,
+): void {
+  if (!hasIdentityMeta(nativeDb)) return;
+  const record: LocalRenameRecord = { uid, fromVersion, toId, at: new Date().toISOString() };
+  writeRowIdentityMetaNative(nativeDb, renameRecordKey(fromId), JSON.stringify(record));
+}
+
+/**
+ * Refuse a guarded write that names a display id its task no longer carries
+ * (T12800), when the caller can only mean the renamed task:
+ *
+ * - it expects EXACTLY the version the renamed task had when it left the id
+ *   (the version the caller read under the old id), and that is not the
+ *   current holder's version: a stale write on the current holder stays a
+ *   plain `E_CONFLICT`;
+ * - or it renews or releases a claim the caller's session holds on the
+ *   renamed task (acquiring or taking over the new holder is legitimate: a
+ *   pivot claims its target before it releases its source);
+ * - or no row holds the old id any more.
+ *
+ * Only a RECENT rename counts ({@link RENAMED_RECENT_MS}), and only one this
+ * store performed (the local rename record). `E_TASK_RENAMED` carries the new
+ * id in its details.
+ */
+function assertNotRenamed(
+  nativeDb: DatabaseSync | null,
+  taskId: string,
+  guard: TaskWriteGuard,
+  current: (TaskVersionSource & Partial<TaskClaimColumns>) | undefined,
+): void {
+  if (!nativeDb || !hasIdentityMeta(nativeDb)) return;
+  const raw = nativeDb
+    .prepare('SELECT value FROM tasks_row_identity_meta WHERE key = ?')
+    .get(renameRecordKey(taskId)) as { value: string } | undefined;
+  if (!raw) return;
+  let record: LocalRenameRecord;
+  try {
+    record = JSON.parse(raw.value) as LocalRenameRecord;
+  } catch {
+    return;
+  }
+  if (Date.now() - Date.parse(record.at) > RENAMED_RECENT_MS) return;
+  const renamed = nativeDb
+    .prepare('SELECT id, claimed_by_session AS claimedBySession FROM tasks_tasks WHERE uid = ?')
+    .get(record.uid) as { id: string; claimedBySession: string | null } | undefined;
+  if (!renamed || renamed.id === taskId) return;
+  const expected = guard.expectedUpdatedAt;
+  const session = guard.claim?.sessionId ?? null;
+  const holdsRenamedClaim =
+    session !== null &&
+    (guard.claim?.mode === 'renew' || guard.claim?.mode === 'release') &&
+    renamed.claimedBySession === session &&
+    current?.claimedBySession !== session;
+  const readRenamed =
+    expected !== undefined &&
+    expected === record.fromVersion &&
+    (current === undefined || taskVersion(current) !== expected);
+  if (!(current === undefined || holdsRenamedClaim || readRenamed)) return;
+  throw new CleoError(
+    ExitCode.TASK_RENAMED,
+    `Task ${taskId} is now ${renamed.id}: sync re-numbered it after a display-id collision, and ${taskId} ${current ? 'names another task' : 'names no task'}; nothing was written`,
+    {
+      fix: `Re-read it with 'cleo show ${renamed.id}' and retry against ${renamed.id}.`,
+      details: { field: 'taskId', actual: taskId, expected: renamed.id },
+    },
+  );
 }
 
 /** Throw `E_TASK_CLAIMED` when the stored holder refuses this claim write. */
@@ -2026,6 +2167,11 @@ async function createOwnedSqliteDataAccessor(
           .where(eq(schema.tasks.id, taskId))
           .limit(1)
           .all();
+        // T12800: a guarded write aimed at a task that sync re-numbered must not
+        // land on whatever row holds the old id now.
+        if (guard?.claim || guard?.expectedUpdatedAt !== undefined) {
+          assertNotRenamed(getNativeTasksDb(cwd), taskId, guard, current);
+        }
         if (!current) throw new Error(`Task not found: ${taskId}`);
         // T12502: refuse a claim write the stored holder does not allow before
         // touching anything, with the holder named. The WHERE clause below

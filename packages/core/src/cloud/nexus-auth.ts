@@ -284,7 +284,62 @@ function toLoginError(err: unknown): NexusAccountError {
 export async function loginToNexus(opts: NexusLoginOptions = {}): Promise<NexusLoginResult> {
   const apiUrl = resolveNexusApiUrl(opts.apiUrl);
   const store = opts.store ?? new FileNexusTokenStore();
-  const cfg = nexusDeviceCodeConfig(apiUrl, opts.fetch);
+  const token = await runNexusDeviceCode(apiUrl, opts);
+
+  const warnings: string[] = [];
+  let me: NexusAccountMe | null = null;
+  try {
+    me = await fetchAccountMe(apiUrl, token.accessToken, opts.fetch ? { fetch: opts.fetch } : {});
+  } catch (err) {
+    warnings.push(
+      `signed in, but the account lookup failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  const organization = me ? primaryNexusOrganization(me) : null;
+  const expiresAt =
+    typeof token.expiresIn === 'number'
+      ? new Date(Date.now() + token.expiresIn * 1000).toISOString()
+      : null;
+
+  await store.put(apiUrl, {
+    token: token.accessToken,
+    tokenType: token.tokenType,
+    expiresAt,
+    user: me?.user ?? null,
+    organization,
+  });
+
+  return {
+    apiUrl,
+    user: me?.user ?? null,
+    organization,
+    expiresAt,
+    credentialsPath: store.location,
+    warnings,
+  };
+}
+
+/**
+ * The device-code grant against a Nexus origin (contract §3.3 steps 1 to 3):
+ * start, validate and show the verification URL, then poll until the user
+ * approves. The session token it returns is held in memory only; the caller
+ * decides whether to store it (9.24 behaviour) or enrol a device with it.
+ *
+ * @param apiUrl - Resolved API origin.
+ * @param opts - UI hooks and test overrides.
+ * @param scope - Optional OAuth `scope` for `/device/code` (`cleo:device` or `cleo:read-only`).
+ * @returns The token response (the session token is its only secret).
+ * @throws {NexusAccountError} On a start, poll, denial or expiry failure.
+ */
+export async function runNexusDeviceCode(
+  apiUrl: string,
+  opts: NexusLoginOptions,
+  scope?: string,
+): Promise<Awaited<ReturnType<typeof pollForToken>>> {
+  const cfg: DeviceCodeConfig = {
+    ...nexusDeviceCodeConfig(apiUrl, opts.fetch),
+    ...(scope !== undefined ? { scope } : {}),
+  };
 
   let start: DeviceCodeStartResponse;
   try {
@@ -321,38 +376,7 @@ export async function loginToNexus(opts: NexusLoginOptions = {}): Promise<NexusL
   } catch (err) {
     throw toLoginError(err);
   }
-
-  const warnings: string[] = [];
-  let me: NexusAccountMe | null = null;
-  try {
-    me = await fetchAccountMe(apiUrl, token.accessToken, opts.fetch ? { fetch: opts.fetch } : {});
-  } catch (err) {
-    warnings.push(
-      `signed in, but the account lookup failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-  const organization = me ? primaryNexusOrganization(me) : null;
-  const expiresAt =
-    typeof token.expiresIn === 'number'
-      ? new Date(Date.now() + token.expiresIn * 1000).toISOString()
-      : null;
-
-  await store.put(apiUrl, {
-    token: token.accessToken,
-    tokenType: token.tokenType,
-    expiresAt,
-    user: me?.user ?? null,
-    organization,
-  });
-
-  return {
-    apiUrl,
-    user: me?.user ?? null,
-    organization,
-    expiresAt,
-    credentialsPath: store.location,
-    warnings,
-  };
+  return token;
 }
 
 /**
@@ -378,9 +402,9 @@ export async function logoutFromNexus(opts: NexusLogoutOptions = {}): Promise<Ne
   const warnings: string[] = [];
   let revocation: NexusLogoutResult['revocation'];
   try {
-    revocation = await revokeSession(
+    revocation = await signOutNexusSessionToken(
       apiUrl,
-      session,
+      session.bearer(),
       opts.revokeTimeoutMs ?? NEXUS_REVOKE_TIMEOUT_MS,
       opts.fetch,
     );
@@ -393,10 +417,20 @@ export async function logoutFromNexus(opts: NexusLogoutOptions = {}): Promise<Ne
   return { apiUrl, removedLocally, revocation, warnings };
 }
 
-/** `POST /api/auth/sign-out` with the bearer token, within `timeoutMs`. Never follows redirects. */
-async function revokeSession(
+/**
+ * `POST /api/auth/sign-out` with a bearer session token, within `timeoutMs`,
+ * which deletes the session server-side. Never follows redirects.
+ *
+ * @param apiUrl - Resolved API origin.
+ * @param bearer - The session token (never logged).
+ * @param timeoutMs - Time budget for the call.
+ * @param fetchImpl - Optional `fetch` override.
+ * @returns `revoked`, or `already-invalid` on a 401.
+ * @throws On a network error, a timeout or a non-2xx, non-401 answer.
+ */
+export async function signOutNexusSessionToken(
   apiUrl: string,
-  session: SealedNexusSession,
+  bearer: string,
   timeoutMs: number,
   fetchImpl?: FetchLike,
 ): Promise<'revoked' | 'already-invalid'> {
@@ -404,7 +438,7 @@ async function revokeSession(
   const res = await doFetch(`${apiUrl}/api/auth/sign-out`, {
     method: 'POST',
     headers: {
-      authorization: `Bearer ${session.bearer()}`,
+      authorization: `Bearer ${bearer}`,
       'content-type': 'application/json',
       accept: 'application/json',
     },
