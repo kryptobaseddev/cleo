@@ -47,6 +47,7 @@ import {
   collapseTwinTables,
   inspectTwinCollapse,
   missingSnapshot,
+  pinRecoverySnapshot,
   planTwinCollapseRecovery,
   rollbackTwinCollapseRecovery,
   type TwinCollapseReceipt,
@@ -54,6 +55,7 @@ import {
   type TwinCollapseRecoveryReceipt,
   type TwinCollapseRecoveryRollback,
   type TwinCollapseStatus,
+  unpinnedSnapshot,
 } from '../store/twin-collapse.js';
 import {
   assertOwnerStoreRewriteConfirmed,
@@ -175,6 +177,8 @@ export interface TwinCollapseRecoveryResult {
 export interface TwinCollapseRecoveryOptions extends OwnerStoreRewriteOptions {
   /** Plan only; the live store is opened read-only. */
   readonly dryRun?: boolean;
+  /** Pin an unpinned snapshot (its sidecar only) before applying; without it the apply refuses. */
+  readonly pinSnapshot?: boolean;
 }
 
 /** Open the live store's snapshot read-only around `fn`; `null` when none is recorded. */
@@ -201,7 +205,8 @@ function withRecoverySnapshot<T>(live: DatabaseSync, fn: (plan: TwinCollapseReco
  * opens the live store read-only and writes nothing. An apply re-plans under
  * the write lock, writes in one transaction and records a receipt that
  * `--rollback` undoes; a second apply finds nothing to do. A store never
- * collapsed has nothing to recover. No network.
+ * collapsed has nothing to recover. An unpinned snapshot is reported by the
+ * plan, and an apply refuses it unless `pinSnapshot` pins it first. No network.
  *
  * @param projectRoot - Project directory.
  * @param options - `cwd` the command runs from (a worktree needs
@@ -227,6 +232,22 @@ export async function recoverTwinCollapse(
     }
   }
   assertOwnerStoreRewriteConfirmed('doctor twin-collapse --recover', dbPath, options);
+  // Checked before the store opens: a collapse run during the open may pin it.
+  const ro = openCleoDbSnapshot(dbPath, { readOnly: true });
+  let probe: TwinCollapseRecoveryPlan;
+  try {
+    probe = planTwinCollapseRecovery(ro.db, null);
+  } finally {
+    ro.close();
+  }
+  if (probe.snapshot !== null) {
+    if (!existsSync(probe.snapshot)) throw missingSnapshot(probe.snapshot);
+    if (
+      !probe.snapshotPinned &&
+      !(options.pinSnapshot === true && pinRecoverySnapshot(probe.snapshot))
+    )
+      throw unpinnedSnapshot(probe.snapshot);
+  }
   const handle = await openDualScopeDb('project', projectRoot);
   const live = getDualScopeNativeDb(handle);
   return withRecoverySnapshot(live, (preview) => ({

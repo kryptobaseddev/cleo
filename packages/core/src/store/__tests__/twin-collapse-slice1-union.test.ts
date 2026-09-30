@@ -13,7 +13,16 @@
  * @task T12535
  */
 
-import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
@@ -413,6 +422,59 @@ describe('pinning: the pre-collapse snapshot is never rotated', () => {
     const kept = ids.filter((id) => existsSync(join(backupDir(), `cleo.db.${id}`)));
     // The pinned oldest survives; of the other 11, the 10 newest are kept.
     expect(kept).toEqual([ids[0], ...ids.slice(2)]);
+  });
+
+  it('rotation never deletes an unpinned snapshot a marker references, and it does not count toward the cap (T12727)', () => {
+    mkdirSync(backupDir(), { recursive: true });
+    const ids: string[] = [];
+    for (let i = 0; i < 12; i++) {
+      const id = `migration-20260103-0000${String(i).padStart(2, '0')}`;
+      const file = join(backupDir(), `cleo.db.${id}`);
+      writeFileSync(file, `snapshot ${i}`); // no sidecar at all, as 2026.9.21 left some
+      const at = new Date(Date.UTC(2026, 0, 3, 0, 0, i));
+      utimesSync(file, at, at);
+      ids.push(id);
+    }
+    setMeta(
+      'brain_schema_meta',
+      `${TWIN_COLLAPSE_MARKER_PREFIX}sticky_tags`,
+      JSON.stringify({ version: 3, snapshot: join(backupDir(), `cleo.db.${ids[0]}`) }),
+    );
+    rotateBackupDir(backupDir(), 10, 'migration');
+    const kept = ids.filter((id) => existsSync(join(backupDir(), `cleo.db.${id}`)));
+    expect(kept).toEqual([ids[0], ...ids.slice(2)]);
+  });
+
+  it('rotation deletes nothing when a marker cannot be read (T12727)', () => {
+    mkdirSync(backupDir(), { recursive: true });
+    for (let i = 0; i < 12; i++)
+      writeFileSync(
+        join(backupDir(), `cleo.db.migration-20260104-0000${String(i).padStart(2, '0')}`),
+        'x',
+      );
+    setMeta('brain_schema_meta', `${TWIN_COLLAPSE_MARKER_PREFIX}sticky_tags`, '{not json');
+    rotateBackupDir(backupDir(), 10, 'migration');
+    expect(readdirSync(backupDir()).filter((f) => f.includes('.migration-20260104-'))).toHaveLength(
+      12,
+    );
+  });
+
+  it('a pre-collapse snapshot with no sidecar is pinned at the next open, once (T12727)', async () => {
+    preMigrationMeta();
+    const [receipt] = collapseTwinTables(db(), dbPath());
+    const snapshot = receipt?.snapshotPath as string;
+    const backupId = snapshot.slice(snapshot.indexOf('.migration-') + 1);
+    const path = join(backupDir(), `${backupId}.meta.json`);
+    rmSync(path);
+    expect(inspectTwinCollapse(db())[0]).toMatchObject({ snapshotPinned: false });
+    await reopen();
+    expect(sidecar(backupId)).toMatchObject({ backupId, type: 'migration', pinned: true });
+    const first = readFileSync(path, 'utf8');
+    const firstMtime = statSync(path).mtimeMs;
+    await reopen();
+    expect(readFileSync(path, 'utf8')).toBe(first);
+    expect(statSync(path).mtimeMs).toBe(firstMtime);
+    expect(readFileSync(snapshot).length).toBeGreaterThan(0);
   });
 
   it('a snapshot an earlier build took unpinned is reported, then pinned at the next open', async () => {

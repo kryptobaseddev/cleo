@@ -2277,6 +2277,12 @@ export interface TwinCollapseRecoveryPlan {
   readonly snapshot: string | null;
   /** Whether that snapshot is on disk. */
   readonly snapshotExists: boolean;
+  /**
+   * Whether that snapshot is pinned (its sidecar says `pinned: true`), so
+   * rotation never deletes it. An apply refuses an unpinned snapshot unless
+   * the caller pins it first (`--pin-snapshot`).
+   */
+  readonly snapshotPinned: boolean;
   /** Twin `schema_meta` values to archive. */
   readonly archive: readonly TwinCollapseRecoveryArchive[];
   /** Session notes the live `focus_state` gains from the twin history. */
@@ -2380,6 +2386,7 @@ export function planTwinCollapseRecovery(
   const empty = {
     snapshot: snapshotPath,
     snapshotExists: snapshot !== null,
+    snapshotPinned: recoverySnapshotPinned(snapshotPath),
     archive: [],
     focusNotesAdded: 0,
     stickyArchived: [],
@@ -2406,11 +2413,18 @@ export function planTwinCollapseRecovery(
     if (sBare.get(key) === twinValue) continue; // not replaced
     const reason = sBare.has(key) ? 'replaced' : 'dropped';
     const done = liveKv.get(key) === twinValue || archivedValues.has(twinValue);
-    if (key === 'focus_state' && focusBefore !== null && !done && receipts.length === 0) {
-      const merged = mergeFocusState(focusBefore, twinValue);
-      if (merged !== focusBefore) {
-        focusNotesAdded = sessionNotesOf(merged).length - sessionNotesOf(focusBefore).length;
-        focusState = merged;
+    if (key === 'focus_state' && !done && receipts.length === 0) {
+      if (focusBefore !== null) {
+        const merged = mergeFocusState(focusBefore, twinValue);
+        if (merged !== focusBefore) {
+          focusNotesAdded = sessionNotesOf(merged).length - sessionNotesOf(focusBefore).length;
+          focusState = merged;
+        }
+      } else if (reason === 'dropped') {
+        // Only the twin held it (the kodomeet shape) and nothing replaced it
+        // since: the union rule keeps it, so it is live again.
+        focusState = twinValue;
+        focusNotesAdded = sessionNotesOf(twinValue).length;
       }
     }
     if (done) continue;
@@ -2501,6 +2515,7 @@ export function applyTwinCollapseRecovery(
   if (plan.snapshot === null) return { plan, receipt: null };
   const preview = recoveryWrites.get(plan);
   if (!plan.snapshotExists || preview === undefined) throw missingSnapshot(plan.snapshot);
+  if (!plan.snapshotPinned) throw unpinnedSnapshot(plan.snapshot);
   live.exec('BEGIN IMMEDIATE');
   try {
     const fresh = planTwinCollapseRecovery(live, preview.snapshot);
@@ -2560,6 +2575,37 @@ export function missingSnapshot(path: string | null): CleoError {
       details: { field: 'snapshot', actual: path },
     },
   );
+}
+
+/** The error for a recorded snapshot rotation could still delete. */
+export function unpinnedSnapshot(path: string | null): CleoError {
+  return new CleoError(
+    ExitCode.VALIDATION_ERROR,
+    `${E_TWIN_COLLAPSE_RECOVER}: the pre-collapse snapshot ${path ?? '(none recorded)'} is not pinned, so backup rotation may delete it; nothing was recovered`,
+    {
+      fix: 'cleo doctor twin-collapse --recover --pin-snapshot  # pins it (writes only its .meta.json sidecar), then recovers',
+      details: { field: 'snapshotPinned', expected: true, actual: false },
+    },
+  );
+}
+
+/** Whether the recorded snapshot is on disk and pinned. */
+function recoverySnapshotPinned(path: string | null): boolean {
+  return (
+    path !== null && existsSync(path) && isPinnedBackup(dirname(path), basename(path), 'migration')
+  );
+}
+
+/**
+ * Pin the recorded pre-collapse snapshot before a recovery
+ * (`--pin-snapshot`): writes its `.meta.json` sidecar only, never the snapshot.
+ *
+ * @param path - The snapshot the marker records.
+ * @returns Whether it is pinned now.
+ * @task T12727
+ */
+export function pinRecoverySnapshot(path: string): boolean {
+  return pinBackup(path, 'migration', SNAPSHOT_PIN_REASON);
 }
 
 /** What {@link rollbackTwinCollapseRecovery} undid. */
@@ -2638,12 +2684,15 @@ export function rollbackTwinCollapseRecovery(
 
     let focusState: TwinCollapseRecoveryRollback['focusState'] = 'none';
     let notesRemoved = 0;
-    if (receipt.after.focusState !== null && receipt.before.focusState !== null) {
+    if (receipt.after.focusState !== null) {
       const current = readKv(live, 'tasks_schema_meta', 'focus_state');
       if (current !== undefined && sha(current) === receipt.after.focusState) {
         notesRemoved =
-          sessionNotesOf(current).length - sessionNotesOf(receipt.before.focusState).length;
-        writeKv(live, 'tasks_schema_meta', 'focus_state', receipt.before.focusState);
+          sessionNotesOf(current).length -
+          sessionNotesOf(receipt.before.focusState ?? undefined).length;
+        if (receipt.before.focusState === null)
+          live.prepare("DELETE FROM main.tasks_schema_meta WHERE key = 'focus_state'").run();
+        else writeKv(live, 'tasks_schema_meta', 'focus_state', receipt.before.focusState);
         focusState = 'restored';
       } else if (current !== undefined) {
         const parsed = FocusNotesShape.safeParse(parseJson(current));

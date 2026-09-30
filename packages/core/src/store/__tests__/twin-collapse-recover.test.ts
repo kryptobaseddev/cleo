@@ -30,6 +30,7 @@ import { openCleoDbSnapshot } from '../open-cleo-db.js';
 import { getDb, getNativeDb, resetDbState } from '../sqlite.js';
 import {
   applyTwinCollapseRecovery,
+  pinRecoverySnapshot,
   planTwinCollapseRecovery,
   TWIN_COLLAPSE_MARKER_PREFIX,
   TWIN_COLLAPSE_RECOVERY_PREFIX,
@@ -41,6 +42,7 @@ let projectDir: string;
 const sha = (value: string | Buffer): string => createHash('sha256').update(value).digest('hex');
 const backupDir = (): string => join(projectDir, '.cleo', 'backups', 'sqlite');
 const snapshotPath = (): string => join(backupDir(), 'cleo.db.migration-20260928-153200');
+const sidecarPath = (): string => join(backupDir(), 'migration-20260928-153200.meta.json');
 const opts = () => ({ cwd: projectDir });
 
 function db(): DatabaseSync {
@@ -146,6 +148,7 @@ async function cleocodeShape(editSnapshot?: (snap: DatabaseSync) => void): Promi
     editSnapshot(snap);
     snap.close();
   }
+  expect(pinRecoverySnapshot(snapshotPath())).toBe(true); // as 9.22+ pins it at open
   // What 9.21 left: the bare values won, twin-only rows deleted.
   setMeta('tasks_schema_meta', 'focus_state', bareFocus);
   db().prepare("DELETE FROM main.tasks_schema_meta WHERE key = 'release_plan'").run();
@@ -187,6 +190,7 @@ describe('recover what 2026.9.21 dropped or replaced (cleocode shape)', () => {
       plan: {
         snapshot: snapshotPath(),
         snapshotExists: true,
+        snapshotPinned: true,
         changes: true,
         focusNotesAdded: 1099, // the twin's history minus the one note already live
         stickyArchived: [expect.stringMatching(/\thistory-tag$/)],
@@ -286,6 +290,90 @@ describe('recover what 2026.9.21 dropped or replaced (cleocode shape)', () => {
   });
 });
 
+describe('an unpinned snapshot (AC4)', () => {
+  it('is reported by the plan, and an apply refuses it and writes nothing', async () => {
+    const { snapshotSha } = await cleocodeShape();
+    rmSync(sidecarPath()); // taken by a build before pinning, never opened since
+    const before = kvDigest();
+    const dry = await recoverTwinCollapse(projectDir, { ...opts(), dryRun: true });
+    expect(dry.plan).toMatchObject({ snapshotExists: true, snapshotPinned: false, changes: true });
+    await expect(recoverTwinCollapse(projectDir, opts())).rejects.toThrow(
+      /E_TWIN_COLLAPSE_RECOVER: the pre-collapse snapshot .* is not pinned, so backup rotation may delete it; nothing was recovered/,
+    );
+    expect(kvDigest()).toBe(before);
+    expect(existsSync(sidecarPath())).toBe(false);
+    expect(sha(readFileSync(snapshotPath()))).toBe(snapshotSha);
+  });
+
+  it('--pin-snapshot pins it (sidecar only), then recovers', async () => {
+    const { snapshotSha } = await cleocodeShape();
+    rmSync(sidecarPath());
+    const result = await recoverTwinCollapse(projectDir, { ...opts(), pinSnapshot: true });
+    expect(result.plan.snapshotPinned).toBe(true);
+    expect(result.receipt?.focusNotesAdded).toBe(1099);
+    expect(JSON.parse(readFileSync(sidecarPath(), 'utf8'))).toMatchObject({ pinned: true });
+    expect(sha(readFileSync(snapshotPath()))).toBe(snapshotSha);
+  });
+});
+
+/**
+ * The kodomeet shape: only the twin held `focus_state` (2,850 chars of
+ * session notes), so 9.21 deleted it outright.
+ */
+async function kodomeetShape(): Promise<string> {
+  const twinFocus = JSON.stringify({
+    currentTask: 'T77',
+    currentPhase: 'build',
+    sessionNotes: notes(0, 20, 'kodomeet'),
+  });
+  expect(twinFocus.length).toBeGreaterThan(2_800);
+  db().prepare("DELETE FROM main.schema_meta WHERE key = 'focus_state'").run();
+  setMeta('tasks_schema_meta', 'focus_state', twinFocus);
+  mkdirSync(backupDir(), { recursive: true });
+  db().exec(`VACUUM INTO '${snapshotPath()}'`);
+  pinRecoverySnapshot(snapshotPath());
+  db().prepare("DELETE FROM main.tasks_schema_meta WHERE key = 'focus_state'").run();
+  markersNaming(snapshotPath());
+  return twinFocus;
+}
+
+describe('kodomeet shape: a twin-only focus_state 9.21 dropped (AC5)', () => {
+  it('is live again and archived; a re-run is a no-op; rollback removes it', async () => {
+    const twinFocus = await kodomeetShape();
+    const before = kvDigest();
+    const dry = await recoverTwinCollapse(projectDir, { ...opts(), dryRun: true });
+    expect(dry.plan).toMatchObject({
+      changes: true,
+      focusNotesAdded: 20,
+      archive: [{ key: 'focus_state', reason: 'dropped', length: twinFocus.length }],
+    });
+    const { receipt } = await recoverTwinCollapse(projectDir, opts());
+    expect(meta('tasks_schema_meta', 'focus_state')).toBe(twinFocus);
+    expect(meta('tasks_schema_meta', 'twin_collapse_archive:focus_state')).toBe(twinFocus);
+    expect(receipt).toMatchObject({ focusNotesAdded: 20, before: { focusState: null } });
+    const after = kvDigest();
+    expect((await recoverTwinCollapse(projectDir, opts())).receipt).toBeNull();
+    expect(kvDigest()).toBe(after);
+    const undo = await rollbackTwinCollapse(projectDir, receipt?.id as string, opts());
+    expect(undo).toMatchObject({ focusState: 'restored', notesRemoved: 20 });
+    expect(meta('tasks_schema_meta', 'focus_state')).toBeUndefined();
+    db()
+      .prepare('DELETE FROM main.tasks_schema_meta WHERE key = ?')
+      .run(receipt?.id as string);
+    expect(kvDigest()).toBe(before);
+  });
+
+  it('when a new focus_state was written since, the twin notes are merged into it', async () => {
+    await kodomeetShape();
+    const now = { currentTask: 'T90', sessionNotes: notes(500, 2, 'since') };
+    setMeta('tasks_schema_meta', 'focus_state', JSON.stringify(now));
+    const { receipt } = await recoverTwinCollapse(projectDir, opts());
+    expect(receipt?.focusNotesAdded).toBe(20);
+    expect(focus()).toMatchObject({ currentTask: 'T90' });
+    expect(focus().sessionNotes).toHaveLength(22);
+  });
+});
+
 describe('--rollback <receiptId> (review 3)', () => {
   it('restores the pre-merge focus_state and sticky archive, deletes the archive keys, keeps the receipt', async () => {
     const { bareFocus } = await cleocodeShape();
@@ -354,6 +442,7 @@ describe('stores with nothing to recover, and a missing snapshot', () => {
     db().prepare("DELETE FROM main.tasks_schema_meta WHERE key NOT LIKE 'twin_collapse%'").run();
     mkdirSync(backupDir(), { recursive: true });
     db().exec(`VACUUM INTO '${snapshotPath()}'`);
+    pinRecoverySnapshot(snapshotPath());
     setMeta('tasks_schema_meta', 'focus_state', '{"currentTask":"T1"}');
     markersNaming(snapshotPath());
     const before = kvDigest();
