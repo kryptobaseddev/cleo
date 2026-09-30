@@ -104,7 +104,7 @@ export interface DecideBenchInput {
   readonly sampleSize?: number;
   /** Store port (tests). Default: the core accessors. */
   readonly source?: BenchSource;
-  /** Profile resolver (tests; T12733 profiles later). Default: the interim adapter. */
+  /** Profile resolver (tests). Default: the T12733 profile store, then the env override layer. */
   readonly resolver?: BenchProfileResolver;
   /** Explicit connections; skip profile resolution. */
   readonly connections?: readonly BenchConnection[];
@@ -205,7 +205,7 @@ export async function runDecideBenchOperation(
     } catch (err) {
       throw new DecideBenchInputError(
         err instanceof Error ? err.message : 'profile resolution failed',
-        'CLEO_DECIDE_PROFILE_<NAME>_KEY=… (and _URL to override the preset URL)',
+        'cleo decide profiles (to list them), or cleo decide config --profile <provider>/<name>',
       );
     }
   }

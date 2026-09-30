@@ -74,8 +74,33 @@ const DIST_DIR = join(PKG_ROOT, 'dist');
  * So this ceiling was false-failing on exactly the "normal growth" it says it
  * must not fail on. If it ever trips again, re-run those three checks before
  * raising it — a raise is only correct while the bundle composition is diffuse.
+ *
+ * Raised again from 48 MB -> 56 MB (2026-09-30). main measured 47.99 MB, 11 KB
+ * under the cap, and feature PRs #1725 (sync S0/S1) and #1731 (T12341) tripped
+ * it by ~20 KB each. The three checks above were re-run on a clean main build
+ * (948e5dc73) before raising:
+ *   - No runaway dep. 5669 files: 1416 `.js` (23.46 MB), 2832 `.map`
+ *     (15.59 MB), 1416 `.d.ts` (8.93 MB). The largest emitted file is
+ *     llm/plugin-facade.js at 3.18 MB, with selfimprove/fix-gen.js (3.16 MB)
+ *     and docs/export-document.js (1.92 MB) next. All three are esbuild
+ *     side-bundles whose weight is in-repo code, not an npm dep: core/store
+ *     ~850-930 KB each, contracts/dispatch 335 KB, core/llm ~300 KB, plus zod
+ *     688 KB, drizzle-orm 226 KB and @ai-sdk/anthropic 215 KB. Growth since
+ *     T12256 (40.54 MB, ~1290 modules) is spread over ~126 new modules.
+ *   - AC1 Pass B found no undeclared `@cleocode/*` bare imports in any of the
+ *     266 top-level dist entries. Every tree-shake probe is inside its budget:
+ *     full core bundles to 26.62 MB; largest submodule ./caamp 2.05 MB (7.7%
+ *     of full), ./worktree 1.10 MB, ./git-shim 1.04 MB, ./lafs 90 KB,
+ *     ./paths 30 KB, ./skills-lib 11 KB.
+ *   - The packed tarball measures 10.69 MB (unpacked 49.96 MB, without the
+ *     staged Rust fallbacks) against the 30 MB budget of
+ *     check-core-tarball-size.mjs.
+ * The 8 MB headroom covers the in-flight sync work (~0.5 MB) and normal growth.
+ * One thing worth fixing instead of raising next time: the three side-bundles
+ * each inline their own copy of core/store, zod and drizzle (~12.6 MB of dist
+ * with their maps). Sharing those would buy back more than this raise.
  */
-export const MAX_CORE_DIST_MB = 48;
+export const MAX_CORE_DIST_MB = 56;
 
 /** The uncompressed dist budget expressed in bytes. */
 export const MAX_CORE_DIST_BYTES = MAX_CORE_DIST_MB * 1024 * 1024;
