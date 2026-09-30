@@ -958,7 +958,11 @@ function placeRow(db: DatabaseSync, incoming: WireRow, heldAs?: HeldRowKey): Rec
       return { status: 'duplicate', uid: existing.uid ?? wire.uid };
     }
   }
-  if (!spec.displayId && spec.key.length === 1) {
+  const rowidKey = rowidKeyOf(db, wire.table);
+  // An INTEGER PRIMARY KEY (AUTOINCREMENT) numbers from 1 on every device: the
+  // sender's value means nothing here. Drop it; SQLite assigns a local one (T12799).
+  if (rowidKey) delete values[rowidKey];
+  if (!spec.displayId && spec.key.length === 1 && !rowidKey) {
     // A local key another row holds (keys such as AC ids derive from local
     // display ids): the merge engine re-derives it (T12344); held until then.
     const key = spec.key[0] as string;
@@ -982,8 +986,33 @@ function placeRow(db: DatabaseSync, incoming: WireRow, heldAs?: HeldRowKey): Rec
     fillTableUids(db, 'project', wire.table);
   }
   done();
-  const key = spec.key.length === 1 ? String(values[spec.key[0] as string]) : wire.uid;
+  const key = rowidKey
+    ? String(
+        (
+          db
+            .prepare(
+              `SELECT ${q(rowidKey)} AS k FROM main.${q(wire.table)} WHERE ${q(UID_COLUMN)} = ?`,
+            )
+            .get(wire.uid) as { k: number | string }
+        ).k,
+      )
+    : spec.key.length === 1
+      ? String(values[spec.key[0] as string])
+      : wire.uid;
   return { status: 'inserted', key, uid: wire.uid };
+}
+
+/** The table's INTEGER PRIMARY KEY column (a rowid alias, locally numbered), if it has one. */
+function rowidKeyOf(db: DatabaseSync, table: string): string | undefined {
+  const pk = (
+    db.prepare('SELECT name, type, pk FROM pragma_table_info(?)').all(table) as Array<{
+      name: string;
+      type: string;
+      pk: number;
+    }>
+  ).filter((c) => c.pk > 0);
+  const [only] = pk;
+  return pk.length === 1 && only && only.type.toUpperCase() === 'INTEGER' ? only.name : undefined;
 }
 
 /**

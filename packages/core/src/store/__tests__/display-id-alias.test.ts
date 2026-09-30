@@ -20,6 +20,7 @@ import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { buildAcRowId } from '../../tasks/ac-table.js';
 import {
   applyRekey,
   applyRemintOp,
@@ -369,6 +370,84 @@ describe('two stores created offline (AC2, AC3)', () => {
     });
     expect(idByTitle(b.db).get('alpha (A)')).toBe('T900');
     expect(sequence(b.db)).toEqual(before);
+  });
+
+  it('a re-mint re-derives the task AC ids with their bindings and history, so same-text ACs never collide (T12799)', () => {
+    const addAc = (db: DatabaseSync, taskId: string, text: string) => {
+      const id = buildAcRowId(taskId, text);
+      db.prepare(
+        "INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, text, kind, source_key) VALUES (?, ?, 1, ?, 'text', 'text:1:x')",
+      ).run(id, taskId, text);
+      return id;
+    };
+    const alphaAc = addAc(a.db, 'T004', 'tests pass');
+    const betaAc = addAc(b.db, 'T004', 'tests pass');
+    expect(alphaAc).toBe(betaAc);
+    a.db
+      .prepare(
+        "INSERT INTO tasks_evidence_ac_bindings (id, evidence_atom_id, ac_id, binding_type) VALUES ('bind-a', 'tool:test', ?, 'direct')",
+      )
+      .run(alphaAc);
+    a.db
+      .prepare(
+        "INSERT INTO tasks_task_acceptance_criteria_history (ac_id, previous_text, reason) VALUES (?, 'old', 'edit')",
+      )
+      .run(alphaAc);
+    const uidOfAc = (db: DatabaseSync, id: string) =>
+      (
+        db.prepare('SELECT uid FROM tasks_task_acceptance_criteria WHERE id = ?').get(id) as {
+          uid: string;
+        }
+      ).uid;
+    const alphaAcUid = uidOfAc(a.db, alphaAc);
+    const betaAcUid = uidOfAc(b.db, betaAc);
+
+    const [receipt] = pull(a, b) as Array<RemintOp & { rewritten: Record<string, number> }>;
+    const newAc = buildAcRowId(receipt?.newId ?? '', 'tests pass');
+    expect(
+      a.db
+        .prepare('SELECT id, task_id FROM tasks_task_acceptance_criteria WHERE uid = ?')
+        .get(alphaAcUid),
+    ).toEqual({ id: newAc, task_id: receipt?.newId });
+    expect(receipt?.rewritten['tasks_task_acceptance_criteria.id']).toBe(1);
+    for (const table of ['tasks_evidence_ac_bindings', 'tasks_task_acceptance_criteria_history']) {
+      expect(a.db.prepare(`SELECT ac_id FROM ${table}`).all(), table).toEqual([{ ac_id: newAc }]);
+    }
+    // beta's same-text criterion now lands next to it instead of colliding.
+    expect(
+      receiveRow(a.db, wireRowOf(b.db, 'tasks_task_acceptance_criteria', betaAcUid)),
+    ).toMatchObject({ status: 'inserted', key: betaAc });
+    expect(a.db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+  });
+
+  it('a received AUTOINCREMENT row drops the sender id and gets a local one (T12799)', () => {
+    const history = (db: DatabaseSync, text: string) => {
+      db.prepare(
+        "INSERT INTO tasks_task_acceptance_criteria_history (ac_id, previous_text, reason) VALUES ('ac-x', ?, 'edit')",
+      ).run(text);
+      return db
+        .prepare(
+          'SELECT id, uid FROM tasks_task_acceptance_criteria_history WHERE previous_text = ?',
+        )
+        .get(text) as { id: number; uid: string };
+    };
+    const onA = history(a.db, 'written on A');
+    const onB = history(b.db, 'written on B');
+    expect(onA.id).toBe(onB.id);
+    const result = receiveRow(
+      a.db,
+      wireRowOf(b.db, 'tasks_task_acceptance_criteria_history', onB.uid),
+    );
+    expect(result.status).toBe('inserted');
+    expect(result.status === 'inserted' && result.key).not.toBe(String(onA.id));
+    expect(
+      a.db
+        .prepare(
+          'SELECT previous_text AS t FROM tasks_task_acceptance_criteria_history WHERE uid IN (?, ?) ORDER BY id',
+        )
+        .all(onA.uid, onB.uid),
+    ).toEqual([{ t: 'written on A' }, { t: 'written on B' }]);
+    expect(listHeldRows(a.db)).toEqual([]);
   });
 
   it('a re-mint moves the version and keeps the claim; a guarded rename honours both (T12748)', () => {

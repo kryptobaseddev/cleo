@@ -44,7 +44,7 @@ import {
   type WorktreeScope,
   worktreeScope,
 } from '../project-scope.js';
-import { acTextHash } from '../tasks/ac-table.js';
+import { acTextHash, buildAcRowId } from '../tasks/ac-table.js';
 import { withBackgroundOpCommitBoundary } from './background-ops.js';
 import { archivedTaskToRow, rowToSession, rowToTask, taskToRow } from './converters.js';
 import { cleanupBrainRefsOnSessionDelete } from './cross-db-cleanup.js';
@@ -377,7 +377,81 @@ export function renameTaskDisplayIdNative(
           .changes;
     if (Number(n) > 0) rewritten[`${ref.table}.${ref.column}`] = Number(n);
   }
+  for (const [key, n] of Object.entries(rederiveAcIdsNative(nativeDb, current.id, toId))) {
+    if (n > 0) rewritten[key] = n;
+  }
   return { fromId: current.id, rewritten };
+}
+
+/**
+ * After a task's display id changed from `fromId` to `toId`, re-derive the
+ * ids of the acceptance criteria derived from it (`buildAcRowId(taskId,
+ * identity)`): the task's own criteria, and a parent's child-projection
+ * criteria (`child:<id>`, whose source key is rewritten too). The binding and
+ * history rows that point at a re-derived id follow. A criterion whose id was
+ * not derived from the old id (an explicit id) keeps it. Without this, two
+ * tasks that once shared a display id keep identical ids for same-text
+ * criteria ("tests pass") and collide on every merge (T12799).
+ *
+ * @param nativeDb - The project `cleo.db` handle, inside the rename's transaction.
+ * @param fromId - The task's old display id.
+ * @param toId - Its new display id (the task row already carries it).
+ * @returns Rows rewritten per `table.column`.
+ * @task T12799
+ */
+export function rederiveAcIdsNative(
+  nativeDb: DatabaseSync,
+  fromId: string,
+  toId: string,
+): Record<string, number> {
+  const count: Record<string, number> = {};
+  const bump = (key: string, n: number | bigint) => {
+    count[key] = (count[key] ?? 0) + Number(n);
+  };
+  const has = (table: string) =>
+    nativeDb
+      .prepare("SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(table) !== undefined;
+  if (!has('tasks_task_acceptance_criteria')) return count;
+  const oldChild = `child:${fromId}`;
+  const rows = nativeDb
+    .prepare(
+      `SELECT id, task_id AS taskId, kind, text, source_key AS sourceKey
+         FROM tasks_task_acceptance_criteria WHERE task_id = ? OR source_key = ?`,
+    )
+    .all(toId, oldChild) as Array<{
+    id: string;
+    taskId: string;
+    kind: string;
+    text: string;
+    sourceKey: string | null;
+  }>;
+  const followers = ['tasks_evidence_ac_bindings', 'tasks_task_acceptance_criteria_history'].filter(
+    has,
+  );
+  for (const row of rows) {
+    const ownerBefore = row.taskId === toId ? fromId : row.taskId;
+    const sourceAfter = row.sourceKey === oldChild ? `child:${toId}` : row.sourceKey;
+    const identity = (source: string | null) => (row.kind === 'text' ? row.text : (source ?? ''));
+    const derived = row.id === buildAcRowId(ownerBefore, identity(row.sourceKey));
+    const newId = derived ? buildAcRowId(row.taskId, identity(sourceAfter)) : row.id;
+    if (newId === row.id && sourceAfter === row.sourceKey) continue;
+    bump(
+      'tasks_task_acceptance_criteria.id',
+      nativeDb
+        .prepare('UPDATE tasks_task_acceptance_criteria SET id = ?, source_key = ? WHERE id = ?')
+        .run(newId, sourceAfter, row.id).changes,
+    );
+    if (newId === row.id) continue;
+    for (const table of followers) {
+      bump(
+        `${table}.ac_id`,
+        nativeDb.prepare(`UPDATE ${table} SET ac_id = ? WHERE ac_id = ?`).run(newId, row.id)
+          .changes,
+      );
+    }
+  }
+  return count;
 }
 
 /** One row of `tasks_display_id_aliases`. */
