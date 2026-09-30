@@ -28,6 +28,7 @@ import { dirname, isAbsolute, join, resolve as resolvePath } from 'node:path';
 
 import type {
   EvidenceAtom,
+  EvidenceMergeAnchor,
   EvidenceValidationContext,
   GateEvidence,
   EvidenceAtomInput as ParsedEvidenceAtom,
@@ -396,11 +397,17 @@ export async function validateAtom(
   // that parents several repositories resolves itself. `files:` atoms carry no
   // SHA of their own, so the sibling `commit:`/`pr:` anchor supplies it — the
   // same anchor `validateFiles` already uses to read bytes at that commit.
+  // T12848: with several `pr:` atoms each path is anchored at the merge of
+  // the PR that changed it, never at whichever PR happened to validate first.
+  const artifactPrs = context?.artifactPrs?.length ? context.artifactPrs : undefined;
+  const anchorFor = (path: string): string | undefined =>
+    artifactPrs
+      ? prMergeCommitForPath(artifactPrs, path)
+      : (context?.artifactCommitSha ?? siblingCommitSha);
+  const filesAnchor = parsed.kind === 'files' ? anchorFor(parsed.paths[0] ?? '') : undefined;
   const executionRootHints: EvidenceExecutionRootHints = {
     ...(parsed.kind === 'commit' ? { commitSha: parsed.sha } : {}),
-    ...(parsed.kind === 'files' && (context?.artifactCommitSha ?? siblingCommitSha) !== undefined
-      ? { commitSha: (context?.artifactCommitSha ?? siblingCommitSha) as string }
-      : {}),
+    ...(filesAnchor !== undefined ? { commitSha: filesAnchor } : {}),
   };
   const roots: EvidenceRoots = {
     storeRoot: projectRoot,
@@ -414,8 +421,8 @@ export async function validateAtom(
         parsed.paths,
         roots,
         taskId,
-        context?.artifactCommitSha ?? siblingCommitSha,
-        Boolean(context?.artifactCommitSha),
+        anchorFor,
+        Boolean(artifactPrs ?? context?.artifactCommitSha),
       );
     case 'test-run':
       return validateTestRun(parsed.path, roots);
@@ -1416,8 +1423,11 @@ async function gitShowFileContentAtCommit(
  * @param paths - Repo-relative or absolute file paths.
  * @param projectRoot - Absolute path to project root.
  * @param taskId - Optional CLEO task ID; enables the git-show fallback (T11959).
- * @param commitSha - Optional sibling `commit:` atom sha; enables the
- *   commit-tree-first check (T12107).
+ * @param commitShaFor - Resolves the anchor commit for a path — the sibling
+ *   `commit:` sha, or the merge of the `pr:` atom that changed it (T12848);
+ *   enables the commit-tree-first check (T12107).
+ * @param requireCommitArtifact - Refuse when the anchor tree lacks the path
+ *   (a PR merge anchor: checkout bytes cannot substitute).
  * @returns Validated atom on success, error on failure.
  *
  * @internal
@@ -1428,8 +1438,8 @@ async function gitShowFileContentAtCommit(
 async function validateFiles(
   paths: string[],
   roots: EvidenceRoots,
-  taskId?: string,
-  commitSha?: string,
+  taskId: string | undefined,
+  commitShaFor: (path: string) => string | undefined,
   requireCommitArtifact = false,
 ): Promise<AtomValidation> {
   const { storeRoot: projectRoot, executionRoot } = roots;
@@ -1449,6 +1459,7 @@ async function validateFiles(
     // an absolute or store-relative path keeps working.
     const fromExecution = isAbsolute(p) ? p : resolvePath(executionRoot, p);
     const abs = existsSync(fromExecution) ? fromExecution : resolvePath(projectRoot, p);
+    const commitSha = commitShaFor(p);
     let content: Buffer | null = null;
 
     // T12107 (gh#1195): the sibling commit is the evidence anchor — check its
@@ -2576,6 +2587,52 @@ export function classifyEvidenceTask(
 }
 
 /**
+ * Normalise an evidence path for comparison with PR changed paths: strip a
+ * leading `./` and trailing slashes. One normaliser for anchoring, PR
+ * coverage and criterion basis, so they never disagree about a path (T12848).
+ *
+ * @param path - A `files:` or PR changed path.
+ * @returns The comparable repo-relative form.
+ * @task T12848
+ */
+function normalizeEvidencePath(path: string): string {
+  return path.replace(/^\.\//, '').replace(/\/+$/, '');
+}
+
+/**
+ * The merge commit whose tree holds a `files:` path's bytes when one evidence
+ * write carries several `pr:` atoms (T12848): the PR that changed the path —
+ * the latest merge when several did — else the latest merge overall, whose
+ * tree is the newest state the write attests. With one PR it is that PR's
+ * merge, exactly as before. Verify and complete-time re-validation both use
+ * this, so the bytes hashed at verify are the bytes re-checked at complete.
+ *
+ * @param prs - Verified PR anchors of the write (merge sha, mergedAt, changed paths).
+ * @param path - The `files:` path being inspected (repo-relative).
+ * @returns The anchor merge SHA, or `undefined` when there is no PR.
+ * @example
+ * ```ts
+ * const sha = prMergeCommitForPath(prAtoms, 'src/fix.ts');
+ * ```
+ * @task T12848
+ */
+export function prMergeCommitForPath(
+  prs: ReadonlyArray<EvidenceMergeAnchor>,
+  path: string,
+): string | undefined {
+  const target = normalizeEvidencePath(path);
+  const changed = prs.filter((pr) =>
+    pr.changedPaths?.some((p) => normalizeEvidencePath(p) === target),
+  );
+  const pool = changed.length > 0 ? changed : prs;
+  let latest: EvidenceMergeAnchor | undefined;
+  for (const pr of pool) {
+    if (!latest || Date.parse(pr.mergedAt) >= Date.parse(latest.mergedAt)) latest = pr;
+  }
+  return latest?.mergeCommitSha;
+}
+
+/**
  * A PR whose every change is a deletion that stays deleted (T12689): its
  * receipt pins the deleted paths, and there are no bytes to hash, so
  * `files:` cannot be required of it.
@@ -2608,18 +2665,23 @@ export function checkTaskEvidenceContext(
   // T12634: a `ci:` result is bound to the task it was validated for, like `pr:`.
   if (atoms.some((atom) => atom.kind === 'ci' && atom.taskId !== context.task.id))
     return 'CI evidence lacks verified task linkage; re-verify with current task context.';
+  // T12848: several PRs in one write are unambiguous — each `files:` path is
+  // pinned to the merge of the PR that changed it (prMergeCommitForPath), and
+  // every PR must be proven by an artifact it changed that was READ AT ITS OWN
+  // merge. A file two PRs changed is read at the later merge only, so it
+  // proves the later PR, never the earlier one.
   const prAtoms = atoms.filter((atom) => atom.kind === 'pr');
-  if (prAtoms.length > 1)
-    return 'Record one PR and its merge-pinned artifacts per verification attempt; multiple merge identities are ambiguous.';
   for (const atom of prAtoms) {
     if (atom.taskId !== context.task.id || !atom.changedPaths?.length)
       return 'PR provenance lacks verified task scope; re-verify with current task context.';
-    if (
-      gate === 'implemented' &&
-      !isDeletionOnlyPr(atom) &&
-      !filePaths.some((path) => atom.changedPaths?.includes(path))
-    )
-      return `PR #${atom.prNumber} requires files evidence for an artifact actually changed by that PR.`;
+    if (gate === 'implemented' && !isDeletionOnlyPr(atom)) {
+      const changed = new Set(atom.changedPaths.map(normalizeEvidencePath));
+      const ownFiles = filePaths.filter((path) => changed.has(normalizeEvidencePath(path)));
+      if (ownFiles.length === 0)
+        return `PR #${atom.prNumber} requires files evidence for an artifact actually changed by that PR.`;
+      if (!ownFiles.some((path) => prMergeCommitForPath(prAtoms, path) === atom.mergeCommitSha))
+        return `PR #${atom.prNumber} has no listed file read at its own merge commit: every file it changed that you listed (${ownFiles.join(', ')}) is read at a later PR's merge. List a file PR #${atom.prNumber} changed last, or record PR #${atom.prNumber} in a separate attempt.`;
+    }
     if (
       gate === 'implemented' &&
       classifyEvidenceTask(context) === 'code' &&
@@ -2862,11 +2924,11 @@ export function composeGateEvidence(
       [
         ...artifactPaths,
         ...atoms.flatMap((atom) => (atom.kind === 'pr' ? (atom.changedPaths ?? []) : [])),
-      ].map((path) => path.replace(/^\.\//, '').replace(/\/+$/, '')),
+      ].map(normalizeEvidencePath),
     );
     const basisOf = (text: string): 'files' | 'self-attested' =>
       (extractTaskAcFilesWithProvenance({ acceptance: [text] }).files ?? []).some((path) =>
-        coveredPaths.has(path.replace(/^\.\//, '').replace(/\/+$/, '')),
+        coveredPaths.has(normalizeEvidencePath(path)),
       )
         ? 'files'
         : 'self-attested';
@@ -3163,14 +3225,22 @@ export async function revalidateEvidence(
         const siblingCommit = evidence.atoms.find(
           (a): a is Extract<EvidenceAtom, { kind: 'commit' }> => a.kind === 'commit',
         );
-        const siblingPr = evidence.atoms.find((atom) => atom.kind === 'pr');
-        const siblingCommitSha = siblingPr?.mergeCommitSha ?? siblingCommit?.sha;
+        // T12848: each path re-reads the merge of the PR that changed it —
+        // the same anchor validateFiles hashed at verify time.
+        const prAnchors = evidence.atoms.filter(
+          (a): a is Extract<EvidenceAtom, { kind: 'pr' }> => a.kind === 'pr',
+        );
+        const siblingPr = prAnchors[0];
+        const anchorFor = (path: string): string | undefined =>
+          siblingPr ? prMergeCommitForPath(prAnchors, path) : siblingCommit?.sha;
+        const rootAnchor = anchorFor(atom.files[0]?.path ?? '');
         const executionRoot = resolveEvidenceExecutionRoot(
           projectRoot,
           undefined,
-          siblingCommitSha === undefined ? {} : { commitSha: siblingCommitSha },
+          rootAnchor === undefined ? {} : { commitSha: rootAnchor },
         );
         for (const f of atom.files) {
+          const siblingCommitSha = anchorFor(f.path);
           // T12476: read the file hashed at verify time, in this order:
           //   1. `resolvedPath` — pins the attested file regardless of cwd;
           //   2. that path rebased through a vanished recorded project root;
