@@ -28,8 +28,7 @@
  * ancestor that identifies ONE caller ({@link resolveAncestor}): a long-lived
  * interactive or script shell (the terminal tab's shell, a CI step or cron
  * script), or — past throwaway `sh -c` / `bash -c` layers — a KNOWN agent
- * harness process ({@link KNOWN_HARNESSES}: Kimi, aider, OpenCode, Gemini CLI,
- * …). Such harnesses run every tool call in a fresh `bash -c`, so the
+ * harness process ({@link KNOWN_HARNESSES}: Kimi, aider, …). Such harnesses run every tool call in a fresh `bash -c`, so the
  * immediate parent changes on each call; the harness process does not. Any
  * other process (a node / python host that may run several agents, a daemon
  * spawning `cleo` directly) identifies nobody unless `CLEO_AGENT_ID` names the
@@ -193,14 +192,25 @@ export const PPID_CHAIN_MAX_DEPTH = 12 as const;
 /**
  * Agent harnesses recognised by the ancestor walk (T12864), by PROGRAM name:
  * the executable, or the script / `-m` module a `node` / `python` runtime runs
- * (see {@link programName}). A harness process hosts ONE agent, so it is a
- * per-caller identity even though it runs every tool call in a fresh `bash -c`.
+ * (see {@link programName}). A listed process becomes a caller identity, even
+ * though it runs every tool call in a fresh `bash -c`.
  *
- * To add a harness: append the name its process shows as program name (check
- * with `ps -o args= -p <pid>` while it runs a tool call). Only add processes
- * that host exactly one agent — a host that runs several agents (an IDE
- * extension host, CrewAI, LangGraph, OpenHands) must NOT be listed: its agents
- * would share one session. Those set `CLEO_AGENT_ID` per agent instead.
+ * List ONLY processes that host exactly ONE agent session for their whole
+ * life. A process that hosts several (an IDE extension host, CrewAI,
+ * LangGraph, OpenHands, a server that clients attach to) must NOT be listed:
+ * its agents would share one session. Such hosts set `CLEO_AGENT_ID` per agent.
+ * Avoid names that other common tools also use.
+ *
+ * To add a harness: append the program name its process shows (check with
+ * `ps -o args= -p <pid>` while it runs a tool call), after confirming it is
+ * single-agent.
+ *
+ * Deliberately NOT listed:
+ * - `opencode`: `opencode serve` / `opencode web` run one server process that
+ *   hosts many sessions and clients (`opencode attach`, `opencode run
+ *   --attach`, `GET /session/status` for all sessions; opencode.ai/docs/server),
+ *   and tools run in that server process.
+ * - `goose`: collides with pressly/goose, the database migration tool.
  */
 export const KNOWN_HARNESSES: ReadonlySet<string> = new Set([
   'claude',
@@ -208,9 +218,7 @@ export const KNOWN_HARNESSES: ReadonlySet<string> = new Set([
   'aider',
   'gemini',
   'kimi',
-  'opencode',
   'cursor-agent',
-  'goose',
   'amp',
 ]);
 
@@ -475,7 +483,10 @@ export interface AncestorAnchor {
   /**
    * `shell` — a long-lived interactive / login / script shell (the terminal's
    * own identity); `harness` — a {@link KNOWN_HARNESSES} process; `host` — any
-   * other process, anchored ONLY because `CLEO_AGENT_ID` names the agent.
+   * other process, anchored ONLY because `CLEO_AGENT_ID` names the agent. Set
+   * `CLEO_AGENT_ID` only in a LONG-LIVED host: with it, the first non-harness
+   * ancestor anchors, even a short-lived `make`, and the key then changes on
+   * every call.
    */
   readonly type: 'shell' | 'harness' | 'host';
 }

@@ -1,7 +1,7 @@
 /**
  * Stable session identity for harnesses without a terminal key (T12864 · epic T12497).
  *
- * Kimi, aider, OpenCode, Gemini CLI, cron and one-shot ssh export no
+ * Kimi, aider, cron and one-shot ssh export no
  * per-session / per-tab variable, and they run every tool call in a fresh
  * `bash -c`, so the immediate parent pid changes on each call. The identity is
  * the nearest LONG-LIVED ancestor instead: the harness process (past the
@@ -282,18 +282,26 @@ describe('harness-ancestor key (T12864)', () => {
     expect(b).toBe(`harness:main:900@${T} #900#agent=agent-b`);
   });
 
-  it('HIGH-1: a known harness title (claude, codex, opencode, goose, amp, cursor-agent) gets a key', () => {
+  it('HIGH-1: a known harness title (claude, codex, amp, cursor-agent) gets a key; opencode and goose do not', () => {
     for (const [pid, title] of [
       [910, 'claude'],
       [911, 'codex exec'],
-      [912, '/usr/local/bin/opencode'],
-      [913, 'goose session'],
       [914, 'node /usr/local/lib/node_modules/@sourcegraph/amp/bin/amp'],
       [915, 'cursor-agent -p'],
     ] as const) {
       sim.table[pid] = proc(pid, 50, 'x', title);
       call(pid);
       expect(liveKey()).toMatch(new RegExp(`^harness:[a-z-]+:${pid}@`));
+    }
+    // Multi-session server (opencode serve / attach) and a name collision
+    // (pressly/goose, the migration tool): no key, the caller stays unidentified.
+    for (const [pid, title] of [
+      [912, '/usr/local/bin/opencode serve'],
+      [913, 'goose up'],
+    ] as const) {
+      sim.table[pid] = proc(pid, 50, 'x', title);
+      call(pid);
+      expect(resolveTerminalKeys()).toEqual([]);
     }
   });
 
