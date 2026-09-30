@@ -14,3 +14,9 @@ Review follow-ups:
 - **No stable terminal identity:** when the caller's only identity is the parent-process fallback, the refusal says so and points to `CLEO_SESSION_ID=<id>`.
 - **Store faults:** `resolveFocusSessionId` reports a store fault as an error. Only an absent store, or one without the session tables, counts as unbound.
 - **Skills:** skills that tell agents to run `cleo start` now tell them to bind a session first.
+
+Second review round:
+
+- **Session resolution never creates the store.** Resolving the caller's session is a read. `resolveBoundSession` now returns unbound when the project has no `cleo.db`, instead of opening the store (which creates `<root>/.cleo`). Before, it created the directory on a fresh directory and failed with EACCES where it could not write.
+- **Store errors are no longer swallowed.** `resolveFocusSessionId` treats only missing session / binding tables as unbound; ENOENT, EACCES and every other store error are reported.
+- **Ranking uses the right project.** The ranking context's focus phase (`loadRankingContext`, `planEpicWaves`, `waveNumberOfTask`, `deriveConduitSubscription`) now resolves the session from the caller's project root, not the process working directory. In a git worktree, the working directory resolves to the main checkout.

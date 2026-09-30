@@ -1,7 +1,8 @@
 /**
  * `resolveFocusSessionId` reports a store FAULT as a fault, not as "unbound"
- * (T12501 review). Only "no session can exist here" — no store at the path, or
- * a store without the session / binding tables — resolves to `null`.
+ * (T12501 review). Only a store without the session / binding tables resolves
+ * to `null` here; an ABSENT store is `null` before anything is opened (see
+ * focus-session-no-store-T12501.test.ts).
  *
  * @task T12501
  */
@@ -33,43 +34,17 @@ describe('resolveFocusSessionId error handling (T12501)', () => {
     await expect(resolveFocusSessionId('/p')).resolves.toBeNull();
   });
 
-  it("treats an ENOENT under the project's own .cleo store as unbound", async () => {
-    resolveBoundSessionId.mockRejectedValue(
-      Object.assign(new Error("ENOENT: no such file or directory, mkdir '/p/.cleo'"), {
-        code: 'ENOENT',
-        path: '/p/.cleo',
-      }),
-    );
-    await expect(resolveFocusSessionId('/p')).resolves.toBeNull();
-    resolveBoundSessionId.mockRejectedValue(
-      Object.assign(new Error('ENOENT: open /p/.cleo/cleo.db'), {
-        code: 'ENOENT',
-        path: '/p/.cleo/cleo.db',
-      }),
-    );
-    await expect(resolveFocusSessionId('/p')).resolves.toBeNull();
-  });
-
-  it('rethrows any other ENOENT (outside <cwd>/.cleo, or with no path)', async () => {
-    resolveBoundSessionId.mockRejectedValue(
-      Object.assign(new Error('ENOENT: open /home/u/.local/share/cleo/cleo.db'), {
-        code: 'ENOENT',
-        path: '/home/u/.local/share/cleo/cleo.db',
-      }),
-    );
-    await expect(resolveFocusSessionId('/p')).rejects.toThrow('/home/u/.local/share/cleo');
-    // A sibling whose name merely starts with ".cleo" is not the store.
-    resolveBoundSessionId.mockRejectedValue(
-      Object.assign(new Error('ENOENT: /p/.cleo-backup'), {
-        code: 'ENOENT',
-        path: '/p/.cleo-backup',
-      }),
-    );
-    await expect(resolveFocusSessionId('/p')).rejects.toThrow('.cleo-backup');
-    resolveBoundSessionId.mockRejectedValue(
-      Object.assign(new Error('ENOENT: spawn ps'), { code: 'ENOENT' }),
-    );
-    await expect(resolveFocusSessionId('/p')).rejects.toThrow('spawn ps');
+  it('rethrows ENOENT / EACCES: an absent store never reaches the open, so they are real faults', async () => {
+    for (const [code, path] of [
+      ['ENOENT', '/p/.cleo/cleo.db'],
+      ['ENOENT', '/home/u/.local/share/cleo/cleo.db'],
+      ['EACCES', '/p/.cleo'],
+    ] as const) {
+      resolveBoundSessionId.mockRejectedValue(
+        Object.assign(new Error(`${code}: ${path}`), { code, path }),
+      );
+      await expect(resolveFocusSessionId('/p')).rejects.toThrow(path);
+    }
   });
 
   it('returns the bound session id', async () => {

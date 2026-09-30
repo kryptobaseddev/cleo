@@ -133,7 +133,7 @@ export async function computeHandoff(
     nextSuggested: computeNextSuggested(
       session,
       tasks,
-      (await loadRankingContext(accessor, tasks)).ctx,
+      (await loadRankingContext(accessor, tasks, { cwd: projectRoot })).ctx,
     ),
     openBlockers: findOpenBlockers(tasks, session),
     openBugs: findOpenBugs(tasks, session),

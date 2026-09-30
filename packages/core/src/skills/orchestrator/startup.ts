@@ -367,7 +367,7 @@ export async function analyzeDependencies(
   // (T946 / Round 2 audit §8). See also dependency-check.ts:getReadyTasks.
   // T12692: ready candidates in THE comparator's order (D11161), ranked with
   // the same project context as `cleo next`.
-  const { ctx: ranking } = await loadRankingContext(acc, allTasks);
+  const { ctx: ranking } = await loadRankingContext(acc, allTasks, { cwd });
   const readyToSpawn = orderByRanking(
     epicTasks.filter((t) => {
       if (t.status !== 'pending') return false;
@@ -515,7 +515,7 @@ export async function generateHitlSummary(
       .map((t) => ({ id: t.id, title: t.title }));
 
     // T12692: THE comparator (D11161) orders what remains.
-    const { ctx: ranking } = await loadRankingContext(acc);
+    const { ctx: ranking } = await loadRankingContext(acc, undefined, { cwd });
     remainingTasks = rankTasks(
       tasks.filter((t) => t.status !== 'done'),
       ranking,

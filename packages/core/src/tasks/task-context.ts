@@ -306,7 +306,9 @@ async function buildSagaScope(
   // T12692: each member's list is ranked, but their concatenation is not —
   // re-rank the union with THE comparator (D11161), as `cleo next` would.
   if (readyFrontier.length > 1) {
-    const { ctx, population } = await loadRankingContext(accessor);
+    const { ctx, population } = await loadRankingContext(accessor, undefined, {
+      cwd: projectRoot,
+    });
     const byId = new Map(population.map((task) => [task.id, task] as const));
     return {
       rollup,

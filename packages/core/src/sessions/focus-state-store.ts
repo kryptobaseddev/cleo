@@ -77,14 +77,15 @@ export interface FocusStateMetaAccessor {
  * its focus is not this caller's.
  *
  * `null` means the caller is bound to no session, or there is no session store
- * at `cwd` (absent, or predating the session / binding tables). A reader then reads the legacy global key
+ * at `cwd` (absent — never created by this read — or predating the session /
+ * binding tables). A reader then reads the legacy global key
  * ({@link focusStateKey}); a writer refuses ({@link requireFocusSessionId}).
  * Any other store failure is rethrown, so a fault is never reported as
  * "unbound".
  *
  * @param cwd - Project root for session resolution.
  * @returns The bound session id, or `null` when the caller is unbound.
- * @throws The store error, unless the store is absent or lacks the session / binding tables.
+ * @throws The store error, unless the store lacks the session / binding tables.
  * @example
  * ```ts
  * const focus = await readLiveFocus(acc, await resolveFocusSessionId(projectRoot));
@@ -97,43 +98,24 @@ export async function resolveFocusSessionId(cwd?: string): Promise<string | null
   try {
     return await resolveBoundSessionId(cwd);
   } catch (err) {
-    // No store at this path, or one without the session / binding tables,
-    // cannot bind anyone: the caller is unbound. Anything else is a real fault
-    // and surfaces as such.
-    if (err instanceof Error && (await isMissingSessionStore(err, cwd))) return null;
+    // A store without the session / binding tables cannot bind anyone: the
+    // caller is unbound. (An absent store is already `null`, never opened.)
+    // Anything else is a real fault and surfaces as such.
+    if (err instanceof Error && isMissingSessionSchema(err)) return null;
     throw err;
   }
 }
 
 /**
- * Whether an error means there is no session store to bind from — the
- * project's own `.cleo` store does not exist (`ENOENT` on a path under
- * `<project>/.cleo`), or it predates the session / binding tables — rather
- * than a real fault (T12501). An `ENOENT` anywhere else (a missing global
- * store, config or binary) is a real fault and is not swallowed.
+ * Whether an error means the project store predates the session / binding
+ * tables (a missing table or column) rather than a real fault (T12501). An
+ * ABSENT store never reaches here: `resolveBoundSession` returns `null` before
+ * opening (or creating) it, so any `ENOENT` / `EACCES` is a real fault.
  *
  * @param err - The caught error; drizzle wraps the SQLite error in `cause`.
- * @param cwd - The project root resolution was asked for (defaults to the
- *   resolved project root).
- * @returns `true` when no session can exist at this path.
+ * @returns `true` for a missing session / binding table or column.
  */
-async function isMissingSessionStore(err: Error, cwd: string | undefined): Promise<boolean> {
-  if ('code' in err && err.code === 'ENOENT') {
-    const missing = 'path' in err && typeof err.path === 'string' ? err.path : null;
-    if (missing === null) return false;
-    let root = cwd;
-    if (root === undefined) {
-      try {
-        root = (await import('../paths.js')).getProjectRoot();
-      } catch {
-        return false;
-      }
-    }
-    const { resolve, sep } = await import('node:path');
-    const store = resolve(root, '.cleo');
-    const target = resolve(missing);
-    return target === store || target.startsWith(store + sep);
-  }
+function isMissingSessionSchema(err: Error): boolean {
   const pattern = /no such (table|column)/i;
   return (
     pattern.test(err.message) || (err.cause instanceof Error && pattern.test(err.cause.message))

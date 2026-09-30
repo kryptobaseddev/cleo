@@ -192,7 +192,13 @@ export async function orchestrateStatus(
 
         const children = tasks.filter((t) => t.parentId === epicId);
         // T12683: the same plan `orchestrate waves` prints.
-        const { waves } = await planEpicWaves(epicId, await getTaskAccessor(root));
+        const { waves } = await planEpicWaves(
+          epicId,
+          await getTaskAccessor(root),
+          [epicId],
+          undefined,
+          root,
+        );
         const status = computeEpicStatus(epicId, epic.title, children, waves);
 
         return { success: true, data: status };
@@ -422,7 +428,7 @@ export async function orchestrateReady(
       // ranks with (T12692), so the ready set and the focus ready wave match it.
       const rankReadyOut = async (items: ReadyTaskOut[]): Promise<ReadyTaskOut[]> => {
         if (items.length < 2) return items;
-        const { ctx } = await loadRankingContext(accessor, tasks);
+        const { ctx } = await loadRankingContext(accessor, tasks, { cwd: root });
         const byId = new Map(tasks.map((task) => [task.id, task] as const));
         return orderByRanking(items, (t) => t.id, byId, ctx);
       };
@@ -681,7 +687,7 @@ export async function orchestrateWaves(
       const sagaShaped = isSagaShape(epic);
       // T12692: members of each wave in THE comparator's order, ranked with the
       // same project context as `cleo next`. Wave numbers stay structural.
-      const { ctx: ranking } = await loadRankingContext(accessor);
+      const { ctx: ranking } = await loadRankingContext(accessor, undefined, { cwd: root });
 
       if (!sagaShaped) {
         const result = await getEnrichedWaves(epicId, root, accessor, [epicId], ranking);
