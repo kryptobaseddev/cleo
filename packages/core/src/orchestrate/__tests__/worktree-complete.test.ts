@@ -223,6 +223,50 @@ describe('completeWorktreeForTask (T9548)', () => {
     expect(conflictRow?.taskId).toBe('T9548-conflict');
   });
 
+  it('stale local target (T12773): own reason + sync recovery, no rebase/--resolve steps', () => {
+    fixture = makeRepo('main');
+    const root = fixture.root;
+    const origin = join(root, '.xdg', 'origin.git');
+    gitIn(root, 'init', '-q', '--bare', '-b', 'main', origin);
+    gitIn(root, 'remote', 'add', 'origin', origin);
+    gitIn(root, 'push', '-q', 'origin', 'main');
+    // Upstream moves on without the local checkout.
+    const dev = join(root, '.xdg', 'dev');
+    gitIn(root, 'clone', '-q', origin, dev);
+    gitIn(dev, 'config', 'user.email', 'cleo-test@example.com');
+    gitIn(dev, 'config', 'user.name', 'CLEO Test');
+    gitIn(dev, 'config', 'commit.gpgsign', 'false');
+    writeFileSync(join(dev, 'upstream.ts'), '// upstream\n');
+    gitIn(dev, 'add', 'upstream.ts');
+    gitIn(dev, 'commit', '-q', '-m', 'upstream work');
+    gitIn(dev, 'push', '-q', 'origin', 'main');
+    gitIn(root, 'fetch', '-q', 'origin');
+
+    const worktree = createAgentWorktree('T9548-stale', root);
+    writeFileSync(join(worktree.path, 'work.ts'), '// agent work\n');
+    gitIn(worktree.path, 'add', 'work.ts');
+    gitIn(worktree.path, 'commit', '-q', '-m', 'feat(T9548-stale): add work');
+    const headBefore = gitIn(root, 'rev-parse', 'HEAD');
+
+    const result = completeWorktreeForTask('T9548-stale', root, {
+      targetBranch: 'main',
+      skipFetch: true,
+      integrationAuditPath: join(root, '.cleo', 'audit', 'worktree-integration.jsonl'),
+      lifecycleAuditPath: join(root, '.cleo', 'audit', 'worktree-lifecycle.jsonl'),
+    });
+
+    expect(result.outcome).toBe('conflict');
+    expect(result.integration?.staleTarget).toBe(true);
+    expect(result.reason).toMatch(/out of date with origin — no merge was attempted/);
+    const steps = result.recovery?.steps.join('\n') ?? '';
+    expect(steps).toContain('merge --ff-only origin/main');
+    expect(steps).toContain('cleo orchestrate worktree-complete T9548-stale');
+    expect(steps).not.toContain('rebase --continue');
+    expect(steps).not.toContain('--resolve manual');
+    expect(existsSync(worktree.path)).toBe(true);
+    expect(gitIn(root, 'rev-parse', 'HEAD')).toBe(headBefore);
+  });
+
   // -------------------------------------------------------------------------
   // 4. --resolve manual: skips merge attempt
   // -------------------------------------------------------------------------

@@ -126,13 +126,31 @@ export interface WorktreeMergeResult {
    * T12773: `cleo done --pr <n>` on a task whose PR had already merged on
    * origin ran a local `git merge --no-ff task/<id>` into a stale local
    * default branch, forking it from origin. When this flag is set no local
-   * merge was attempted; the local default branch was at most fast-forwarded
-   * to `origin/<targetBranch>` (see {@link WorktreeMergeResult.hint}).
+   * merge was attempted and the operator's checkout was NOT moved; when the
+   * local default branch is behind, {@link WorktreeMergeResult.syncCommand}
+   * names the command to sync it (hint-only).
+   *
+   * Not set for a task branch with zero commits beyond the local default
+   * branch — that is plain `nothingToIntegrate`.
    */
   landedUpstream?: boolean;
   /**
+   * True when the local merge was REFUSED because the local default branch is
+   * behind `origin/<targetBranch>` (or diverged from it: behind and ahead). A
+   * merge there would fork it from origin (T12773). The worktree and task
+   * branch are preserved; sync the default branch
+   * ({@link WorktreeMergeResult.syncCommand}) and re-run the integration.
+   */
+  staleTarget?: boolean;
+  /**
+   * Exact shell command that syncs the local default branch with
+   * `origin/<targetBranch>` — `git merge --ff-only` when it is only behind,
+   * `git pull --rebase` when it is diverged. CLEO never runs it (T12773).
+   */
+  syncCommand?: string;
+  /**
    * Operator-facing next step when integration was skipped or refused without
-   * a merge (T12773) — e.g. how to fast-forward a stale local default branch.
+   * a merge (T12773) — e.g. how to sync a stale local default branch.
    */
   hint?: string;
 }

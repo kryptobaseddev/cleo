@@ -607,14 +607,18 @@ export function getDefaultBranch(projectRoot: string): string {
  * - `landed` — the task branch is already on the upstream default branch
  *   (ancestor of it, or its changes are fully contained in it). No local
  *   merge may run.
+ * - `nothing` — the task branch has no commits beyond the local default
+ *   branch (e.g. a worktree that was never committed to). There is nothing to
+ *   integrate, and it is NOT reported as landed upstream.
  * - `stale-target` — the local default branch is behind the upstream default
- *   branch; a merge there would fork it from upstream. No local merge may run.
+ *   branch (possibly also ahead of it — diverged); a merge there would fork it
+ *   from upstream. No local merge may run.
  * - `proceed` — no upstream to compare against, or the local default branch is
  *   current; the ADR-062 local `--no-ff` integration may run.
  *
  * @task T12773
  */
-export type UpstreamIntegrationKind = 'landed' | 'stale-target' | 'proceed';
+export type UpstreamIntegrationKind = 'landed' | 'nothing' | 'stale-target' | 'proceed';
 
 /**
  * Result of {@link assessUpstreamIntegration}.
@@ -626,10 +630,86 @@ export interface UpstreamIntegrationAssessment {
   kind: UpstreamIntegrationKind;
   /** Remote-tracking ref compared against (e.g. `refs/remotes/origin/main`), or null. */
   upstreamRef: string | null;
-  /** True when the local default branch was fast-forwarded to the upstream ref. */
-  fastForwarded: boolean;
+  /**
+   * True when this assessment ran `git fetch <remote> <targetBranch>` (whether
+   * or not it succeeded), so a later integration step need not fetch again.
+   */
+  fetched: boolean;
+  /** Commits on the upstream ref missing from the local default branch. */
+  behind: number;
+  /** Commits on the local default branch missing from the upstream ref. */
+  ahead: number;
+  /**
+   * Exact shell command that syncs the local default branch with upstream,
+   * or empty when no sync is needed. NEVER run by CLEO — the operator's
+   * checkout is never moved (hint-only policy).
+   */
+  syncCommand: string;
   /** Operator-facing explanation / next step (empty for `proceed`). */
   hint: string;
+}
+
+/**
+ * Default timeout for the upstream `git fetch` in
+ * {@link assessUpstreamIntegration}. Short on purpose: the fetch is
+ * best-effort, and a hung network or credential prompt must never stall
+ * `cleo done` for the 180s generic git timeout.
+ *
+ * @task T12773
+ */
+export const UPSTREAM_FETCH_TIMEOUT_MS = 20_000;
+
+/**
+ * Environment for a non-interactive `git fetch`: no terminal credential
+ * prompt, and ssh in batch mode (an existing `GIT_SSH_COMMAND` is preserved
+ * with `-oBatchMode=yes` appended).
+ */
+function nonInteractiveGitEnv(): NodeJS.ProcessEnv {
+  const existingSsh = process.env['GIT_SSH_COMMAND']?.trim();
+  return {
+    ...process.env,
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_SSH_COMMAND: existingSsh ? `${existingSsh} -oBatchMode=yes` : 'ssh -oBatchMode=yes',
+  };
+}
+
+/**
+ * Best-effort, bounded, non-interactive `git fetch <remote> <branch>`.
+ *
+ * @returns true when git exited 0; false on failure, offline, or timeout.
+ */
+function fetchUpstreamBranch(
+  gitRoot: string,
+  remote: string,
+  branch: string,
+  timeoutMs: number,
+): boolean {
+  try {
+    execFileSync('git', ['fetch', '--quiet', remote, branch], {
+      cwd: gitRoot,
+      // No pipes: a timed-out git's surviving ssh grandchild must not hold
+      // stdout/stderr open and keep this synchronous call waiting.
+      stdio: 'ignore',
+      timeout: timeoutMs,
+      killSignal: 'SIGKILL',
+      env: nonInteractiveGitEnv(),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * `git rev-list --count <range>`, or 0 when git fails.
+ */
+function revListCount(gitRoot: string, range: string): number {
+  try {
+    const n = Number.parseInt(gitSync(['rev-list', '--count', range], gitRoot), 10);
+    return Number.isFinite(n) ? n : 0;
+  } catch {
+    return 0;
+  }
 }
 
 /**
@@ -664,34 +744,6 @@ function branchChangesContainedIn(gitRoot: string, branch: string, upstreamRef: 
 }
 
 /**
- * Fast-forward the local `targetBranch` to `upstreamRef` — only when it is the
- * branch checked out at `gitRoot`, the tracked working tree is clean, and the
- * move is a pure fast-forward. Never creates a commit.
- *
- * @returns true when the branch moved.
- */
-function fastForwardDefaultBranch(
-  gitRoot: string,
-  targetBranch: string,
-  upstreamRef: string,
-): boolean {
-  try {
-    const current = gitSync(['symbolic-ref', '--quiet', '--short', 'HEAD'], gitRoot);
-    if (current !== targetBranch) return false;
-    if (gitSync(['status', '--porcelain', '--untracked-files=no'], gitRoot).length > 0) {
-      return false;
-    }
-    if (gitSync(['rev-parse', 'HEAD'], gitRoot) === gitSync(['rev-parse', upstreamRef], gitRoot)) {
-      return false;
-    }
-    if (!gitSilent(['merge-base', '--is-ancestor', 'HEAD', upstreamRef], gitRoot)) return false;
-    return gitSilent(['merge', '--ff-only', '--quiet', upstreamRef], gitRoot);
-  } catch {
-    return false;
-  }
-}
-
-/**
  * Decide whether a local ADR-062 `--no-ff` integration of `branch` into
  * `targetBranch` is safe, by comparing against the upstream default branch
  * (`<remote>/<targetBranch>`).
@@ -701,19 +753,25 @@ function fastForwardDefaultBranch(
  * commits behind origin, creating a local merge commit that forked `main`
  * from `origin/main`. This check runs BEFORE any checkout or merge:
  *
- * - branch already on upstream → `landed`; the local default branch is
- *   fast-forwarded to upstream when that is a clean fast-forward of the
- *   checked-out branch, otherwise a hint says how to sync it.
- * - local default branch behind upstream → `stale-target` with a hint.
+ * - branch has no commits beyond the local default branch → `nothing`.
+ * - branch already on upstream → `landed`; when the local default branch is
+ *   behind, the hint names the exact sync command. The checkout is never
+ *   moved (hint-only).
+ * - local default branch behind upstream → `stale-target`; a distinct hint
+ *   when it is also ahead (diverged: unpushed local commits).
  * - otherwise (no remote, no upstream ref, current target) → `proceed`.
  *
- * Never creates a commit.
+ * The fetch is best-effort, non-interactive (`GIT_TERMINAL_PROMPT=0`, ssh
+ * `BatchMode`) and bounded by {@link UPSTREAM_FETCH_TIMEOUT_MS}; offline, the
+ * last-known remote-tracking ref is used. Never creates a commit and never
+ * moves any ref other than the remote-tracking one the fetch updates.
  *
  * @param gitRoot - Absolute git root of the project checkout.
  * @param branch - Task branch (e.g. `task/T123`).
  * @param targetBranch - Resolved default branch (e.g. `main`).
  * @param opts.skipFetch - Skip `git fetch <remote> <targetBranch>` (fixtures).
  * @param opts.remote - Remote name (default `origin`).
+ * @param opts.fetchTimeoutMs - Fetch timeout (default {@link UPSTREAM_FETCH_TIMEOUT_MS}).
  * @returns The assessment.
  *
  * @task T12773
@@ -723,63 +781,96 @@ export function assessUpstreamIntegration(
   gitRoot: string,
   branch: string,
   targetBranch: string,
-  opts: { skipFetch?: boolean; remote?: string } = {},
+  opts: { skipFetch?: boolean; remote?: string; fetchTimeoutMs?: number } = {},
 ): UpstreamIntegrationAssessment {
   const remote = opts.remote ?? 'origin';
   const proceed: UpstreamIntegrationAssessment = {
     kind: 'proceed',
     upstreamRef: null,
-    fastForwarded: false,
+    fetched: false,
+    behind: 0,
+    ahead: 0,
+    syncCommand: '',
     hint: '',
   };
   if (!gitSilent(['remote', 'get-url', remote], gitRoot)) return proceed;
-  if (!opts.skipFetch) {
+  const fetched = !opts.skipFetch;
+  if (fetched) {
     // Best-effort: offline must not block an otherwise-local integration.
-    gitSilent(['fetch', '--quiet', remote, targetBranch], gitRoot);
+    fetchUpstreamBranch(
+      gitRoot,
+      remote,
+      targetBranch,
+      opts.fetchTimeoutMs ?? UPSTREAM_FETCH_TIMEOUT_MS,
+    );
   }
   const upstreamRef = `refs/remotes/${remote}/${targetBranch}`;
   const upstreamShort = `${remote}/${targetBranch}`;
-  if (!gitSilent(['rev-parse', '--verify', '--quiet', upstreamRef], gitRoot)) return proceed;
+  if (!gitSilent(['rev-parse', '--verify', '--quiet', upstreamRef], gitRoot)) {
+    return { ...proceed, fetched };
+  }
+
+  const localRef = `refs/heads/${targetBranch}`;
+  const hasLocal = gitSilent(['rev-parse', '--verify', '--quiet', localRef], gitRoot);
+  const behind = hasLocal ? revListCount(gitRoot, `${localRef}..${upstreamRef}`) : 0;
+  const ahead = hasLocal ? revListCount(gitRoot, `${upstreamRef}..${localRef}`) : 0;
+  const base = { upstreamRef, fetched, behind, ahead };
+
+  // Single-quoted for the shell: macOS roots often contain spaces.
+  const quotedRoot = `'${gitRoot.replace(/'/g, `'\\''`)}'`;
+  const syncCommand =
+    behind === 0
+      ? ''
+      : ahead > 0
+        ? `git -C ${quotedRoot} switch ${targetBranch} && git -C ${quotedRoot} pull --rebase ${remote} ${targetBranch}`
+        : `git -C ${quotedRoot} switch ${targetBranch} && git -C ${quotedRoot} merge --ff-only ${upstreamShort}`;
+  const syncState =
+    behind === 0
+      ? ''
+      : ahead > 0
+        ? `local '${targetBranch}' has ${ahead} unpushed commit(s) and is ${behind} behind ${upstreamShort}`
+        : `local '${targetBranch}' is ${behind} commit(s) behind ${upstreamShort}`;
+
+  // A branch with no commits beyond the local default branch has nothing to
+  // integrate — it trivially "is an ancestor of upstream", which must not be
+  // reported as a landed PR.
+  if (hasLocal && revListCount(gitRoot, `${localRef}..${branch}`) === 0) {
+    return {
+      ...base,
+      kind: 'nothing',
+      syncCommand,
+      hint: `'${branch}' has no commits beyond local '${targetBranch}'; nothing to integrate.`,
+    };
+  }
 
   const landed =
     gitSilent(['merge-base', '--is-ancestor', branch, upstreamRef], gitRoot) ||
     branchChangesContainedIn(gitRoot, branch, upstreamRef);
   if (landed) {
-    const fastForwarded = fastForwardDefaultBranch(gitRoot, targetBranch, upstreamRef);
     return {
+      ...base,
       kind: 'landed',
-      upstreamRef,
-      fastForwarded,
-      hint: fastForwarded
-        ? `'${branch}' already landed on ${upstreamShort}; fast-forwarded local '${targetBranch}' to it (no local merge).`
-        : `'${branch}' already landed on ${upstreamShort}; no local merge was made. To sync local '${targetBranch}': git switch ${targetBranch} && git merge --ff-only ${upstreamShort}`,
+      syncCommand,
+      hint:
+        behind === 0
+          ? `'${branch}' already landed on ${upstreamShort}; no local merge was made.`
+          : `'${branch}' already landed on ${upstreamShort}; no local merge was made and your checkout was not moved. ${syncState}; to sync it run: ${syncCommand}`,
     };
   }
 
-  const localRef = `refs/heads/${targetBranch}`;
-  if (
-    gitSilent(['rev-parse', '--verify', '--quiet', localRef], gitRoot) &&
-    !gitSilent(['merge-base', '--is-ancestor', upstreamRef, localRef], gitRoot)
-  ) {
-    let behind = 0;
-    try {
-      behind = Number.parseInt(
-        gitSync(['rev-list', '--count', `${localRef}..${upstreamRef}`], gitRoot),
-        10,
-      );
-    } catch {
-      behind = 0;
-    }
-    if (behind > 0) {
-      return {
-        kind: 'stale-target',
-        upstreamRef,
-        fastForwarded: false,
-        hint: `local '${targetBranch}' is ${behind} commit(s) behind ${upstreamShort}, so a merge there would fork it from ${upstreamShort}. Land '${branch}' through a PR, or sync first (git switch ${targetBranch} && git merge --ff-only ${upstreamShort}) and re-run \`cleo orchestrate worktree-complete\`.`,
-      };
-    }
+  if (behind > 0) {
+    const rerun = `re-run \`cleo orchestrate worktree-complete ${branch.replace(/^task\//, '')}\``;
+    return {
+      ...base,
+      kind: 'stale-target',
+      syncCommand,
+      hint:
+        ahead > 0
+          ? `${syncState}: run \`git pull --rebase ${remote} ${targetBranch}\` (or merge ${upstreamShort}) in ${quotedRoot}, then ${rerun}. A merge now would fork '${targetBranch}' further from ${upstreamShort}; alternatively land '${branch}' through a PR.`
+          : `${syncState}, so a merge there would fork it from ${upstreamShort}. Land '${branch}' through a PR, or sync first (${syncCommand}) and ${rerun}.`,
+    };
   }
-  return { ...proceed, upstreamRef };
+  return { ...proceed, ...base };
 }
 
 /**
@@ -796,14 +887,17 @@ export function assessUpstreamIntegration(
  *    override). NEVER hardcodes "main".
  * 1a. T12773: {@link assessUpstreamIntegration} — when `task/<id>` already
  *    landed on `origin/<targetBranch>` the merge is skipped
- *    (`landedUpstream: true`), and when the local target is behind origin the
- *    merge is refused with a `hint`. Neither path creates a commit.
- * 2. `git fetch origin` then `git rebase origin/<targetBranch>` inside the
- *    worktree. Conflicts cause an early non-fatal return — the agent must
- *    re-resolve before completion.
- * 3. From the project's git root on `<targetBranch>`, run
- *    `git merge --no-ff task/<taskId> -m "Merge T<id>: <title>"` so the
- *    merge commit subject is `git log --grep`-friendly.
+ *    (`landedUpstream: true`); when it has no commits beyond the local
+ *    target it is `nothingToIntegrate` without `landedUpstream`; when the
+ *    local target is behind (or diverged from) origin the merge is refused
+ *    (`staleTarget: true`) with a `hint`. None of these paths creates a
+ *    commit or moves the operator's checkout — syncing is hint-only.
+ * 2. Optionally `git fetch` (skipped when step 1a already fetched), then
+ *    `git checkout <targetBranch>` in the project's git root. The task
+ *    branch is NOT rebased — agent SHAs are preserved.
+ * 3. Run `git merge --no-ff task/<taskId> -m "<taskId>: <title> (worktree
+ *    merge)"`; a failed merge is aborted so the repo is left clean, and the
+ *    worktree is preserved.
  * 4. Capture the merge commit SHA and report it.
  * 5. Delegate worktree+branch removal to {@link pruneWorktree} (T1462).
  *
@@ -814,7 +908,9 @@ export function assessUpstreamIntegration(
  * @param projectRoot - Absolute path to the project root.
  * @param opts.targetBranch - Override the resolved default branch.
  * @param opts.taskTitle - Task title used in the merge commit message subject.
- * @param opts.skipFetch - Skip the `git fetch origin` step (test fixtures).
+ * @param opts.skipFetch - Skip every `git fetch` (test fixtures).
+ * @param opts.fetchTimeoutMs - Timeout for the upstream fetch (default
+ *   {@link UPSTREAM_FETCH_TIMEOUT_MS}).
  * @returns Merge integration result.
  *
  * @task T1587
@@ -827,6 +923,7 @@ export function completeAgentWorktreeViaMerge(
     targetBranch?: string;
     taskTitle?: string;
     skipFetch?: boolean;
+    fetchTimeoutMs?: number;
   } = {},
 ): WorktreeMergeResult {
   const branch = `task/${taskId}`;
@@ -891,13 +988,17 @@ export function completeAgentWorktreeViaMerge(
   // divergent local merge commit (`merge task/<id>: Merge made by the 'ort'
   // strategy`) when `cleo done --pr <n>` ran from a stale checkout for a task
   // whose PR had already merged on origin.
+  let upstreamFetched = false;
   if (branchExists) {
     const upstream = assessUpstreamIntegration(gitRoot, branch, targetBranch, {
       skipFetch: opts.skipFetch ?? false,
+      fetchTimeoutMs: opts.fetchTimeoutMs,
     });
-    if (upstream.kind === 'landed') {
-      // The commits are safe on origin; clean up the worktree unless it holds
-      // uncommitted work, which is left for the operator.
+    upstreamFetched = upstream.fetched;
+    if (upstream.kind === 'landed' || upstream.kind === 'nothing') {
+      // The commits are safe on origin (or there are none); clean up the
+      // worktree unless it holds uncommitted work, which is left for the
+      // operator. The checkout itself is never moved (hint-only).
       const dirty = existsSync(worktreePath) && isWorktreeDirty(worktreePath);
       const pruneResult = dirty ? null : pruneWorktree(taskId, projectRoot);
       return {
@@ -910,7 +1011,8 @@ export function completeAgentWorktreeViaMerge(
         worktreeRemoved: pruneResult?.worktreeRemoved ?? false,
         branchDeleted: pruneResult?.branchDeleted ?? false,
         nothingToIntegrate: true,
-        landedUpstream: true,
+        ...(upstream.kind === 'landed' ? { landedUpstream: true } : {}),
+        ...(upstream.syncCommand ? { syncCommand: upstream.syncCommand } : {}),
         hint: dirty
           ? `${upstream.hint} Worktree ${worktreePath} has uncommitted changes and was preserved.`
           : upstream.hint,
@@ -927,6 +1029,8 @@ export function completeAgentWorktreeViaMerge(
         worktreeRemoved: false,
         branchDeleted: false,
         error: `refusing local merge of '${branch}' into '${targetBranch}': ${upstream.hint}`,
+        staleTarget: true,
+        syncCommand: upstream.syncCommand,
         hint: upstream.hint,
       };
     }
@@ -939,7 +1043,9 @@ export function completeAgentWorktreeViaMerge(
     branch,
     targetBranch,
     taskTitle: opts.taskTitle,
-    skipFetch: opts.skipFetch ?? false,
+    // The upstream assessment already fetched (bounded + non-interactive);
+    // do not fetch a second time from Rust.
+    skipFetch: (opts.skipFetch ?? false) || upstreamFetched,
   });
   if (!result.merged) {
     return {

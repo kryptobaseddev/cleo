@@ -110,7 +110,7 @@ describe('T12773 — no local merge of a task that already landed upstream', () 
   let fx: UpstreamFixture;
   afterEach(() => fx?.cleanup());
 
-  it('PR merged upstream (--no-ff) + stale local main → no local merge, main fast-forwarded', () => {
+  it('PR merged upstream (--no-ff) + stale local main → no local merge, checkout NOT moved, sync hint', () => {
     fx = makeUpstreamFixture();
     const taskId = 'T9912773';
     const tip = agentCommitAndPush(fx.root, taskId);
@@ -120,6 +120,7 @@ describe('T12773 — no local merge of a task that already landed upstream', () 
     gitAt(fx.dev, 'merge', '-q', '--no-ff', `origin/task/${taskId}`, '-m', 'Merge PR');
     commitFile(fx.dev, 'later.ts', 'export const later = 1;\n', 'later upstream work');
     gitAt(fx.dev, 'push', '-q', 'origin', 'main');
+    const headBefore = gitAt(fx.root, 'rev-parse', 'HEAD');
     const localBefore = gitAt(fx.root, 'rev-parse', 'main');
 
     const result = completeAgentWorktreeViaMerge(taskId, fx.root, { targetBranch: 'main' });
@@ -127,19 +128,28 @@ describe('T12773 — no local merge of a task that already landed upstream', () 
     expect(result.merged, JSON.stringify(result)).toBe(false);
     expect(result.landedUpstream).toBe(true);
     expect(result.nothingToIntegrate).toBe(true);
+    expect(result.staleTarget).toBeUndefined();
     expect(result.mergeCommit).toBe('');
     expect(result.error).toBeUndefined();
     // The core assertion: no local-only commit (no `merge task/<id>`) on main.
     expect(localOnlyCommits(fx.root)).toEqual([]);
-    // Clean fast-forward of the checked-out default branch to origin.
-    const localAfter = gitAt(fx.root, 'rev-parse', 'main');
-    expect(localAfter).not.toBe(localBefore);
-    expect(localAfter).toBe(gitAt(fx.root, 'rev-parse', 'refs/remotes/origin/main'));
+    // Hint-only policy: the operator's checkout never moves.
+    expect(gitAt(fx.root, 'rev-parse', 'HEAD')).toBe(headBefore);
+    expect(gitAt(fx.root, 'rev-parse', 'main')).toBe(localBefore);
     expect(gitAt(fx.root, 'reflog', '-n', '5', 'main')).not.toMatch(/merge task\//);
-    expect(gitAt(fx.root, 'merge-base', '--is-ancestor', tip, 'main')).toBe('');
-    // Commits are safe on origin, so the clean worktree + branch are pruned.
+    // ... but the exact sync command is handed back.
+    expect(result.syncCommand).toMatch(
+      /^git -C '.+' switch main && git -C '.+' merge --ff-only origin\/main$/,
+    );
+    expect(result.hint).toMatch(/merge --ff-only origin\/main/);
+    expect(result.hint).toMatch(/3 commit\(s\) behind origin\/main/);
+    expect(gitAt(fx.root, 'merge-base', '--is-ancestor', tip, 'refs/remotes/origin/main')).toBe('');
+    // Commits are safe on origin, so the clean worktree is pruned. The task
+    // branch is kept: pruneWorktree only deletes a branch already contained in
+    // the checked-out HEAD, and the checkout is (deliberately) not synced.
     expect(result.worktreeRemoved).toBe(true);
-    expect(gitAt(fx.root, 'branch', '--list', `task/${taskId}`)).toBe('');
+    expect(result.branchDeleted).toBe(false);
+    expect(gitAt(fx.root, 'branch', '--list', `task/${taskId}`)).not.toBe('');
   });
 
   it('PR squash-merged upstream → detected as landed, no local merge', () => {
@@ -159,7 +169,7 @@ describe('T12773 — no local merge of a task that already landed upstream', () 
     expect(localOnlyCommits(fx.root)).toEqual([]);
   });
 
-  it('dirty checkout → landed but NOT fast-forwarded; local main untouched, hint given', () => {
+  it('dirty checkout → landed; local main untouched, hint given', () => {
     fx = makeUpstreamFixture();
     const taskId = 'T9912775';
     agentCommitAndPush(fx.root, taskId);
@@ -198,6 +208,107 @@ describe('T12773 — no local merge of a task that already landed upstream', () 
     // Worktree + branch preserved for recovery.
     expect(existsSync(wt.path)).toBe(true);
     expect(gitAt(fx.root, 'branch', '--list', `task/${taskId}`)).not.toBe('');
+  });
+
+  it('task NOT landed + local main DIVERGED (ahead and behind) → refused with pull --rebase hint', () => {
+    fx = makeUpstreamFixture();
+    const taskId = 'T9912778';
+    const wt = createAgentWorktree(taskId, fx.root);
+    identity(wt.path);
+    commitFile(wt.path, 'diverged.ts', 'export const d = 1;\n', `${taskId}: work`);
+
+    commitFile(fx.dev, 'up1.ts', 'export const a = 1;\n', 'upstream 1');
+    commitFile(fx.dev, 'up2.ts', 'export const b = 1;\n', 'upstream 2');
+    gitAt(fx.dev, 'push', '-q', 'origin', 'main');
+    commitFile(fx.root, 'local.ts', 'export const l = 1;\n', 'unpushed local work');
+    const headBefore = gitAt(fx.root, 'rev-parse', 'HEAD');
+
+    const result = completeAgentWorktreeViaMerge(taskId, fx.root, { targetBranch: 'main' });
+
+    expect(result.merged, JSON.stringify(result)).toBe(false);
+    expect(result.staleTarget).toBe(true);
+    expect(result.hint).toMatch(/has 1 unpushed commit\(s\) and is 2 behind origin\/main/);
+    expect(result.hint).toMatch(/git pull --rebase origin main/);
+    expect(result.hint).toMatch(new RegExp(`worktree-complete ${taskId}`));
+    expect(result.syncCommand).toMatch(/pull --rebase origin main$/);
+    expect(gitAt(fx.root, 'rev-parse', 'HEAD')).toBe(headBefore);
+    expect(existsSync(wt.path)).toBe(true);
+  });
+
+  it('squash-merged then upstream edits the same lines → not landed; refused on stale main', () => {
+    fx = makeUpstreamFixture();
+    const taskId = 'T9912779';
+    const wt = createAgentWorktree(taskId, fx.root);
+    identity(wt.path);
+    commitFile(wt.path, 'README.md', '# task edit\n', `${taskId}: edit readme`);
+    gitAt(wt.path, 'push', '-q', 'origin', `task/${taskId}`);
+
+    gitAt(fx.dev, 'fetch', '-q', 'origin');
+    gitAt(fx.dev, 'merge', '-q', '--squash', `origin/task/${taskId}`);
+    gitAt(fx.dev, 'commit', '-q', '-m', 'Squash PR');
+    commitFile(fx.dev, 'README.md', '# upstream rewrote it\n', 'upstream edit');
+    gitAt(fx.dev, 'push', '-q', 'origin', 'main');
+    const headBefore = gitAt(fx.root, 'rev-parse', 'HEAD');
+
+    // The containment check is a false negative here (merge-tree conflicts):
+    // the branch is NOT reported landed, and the stale-target guard refuses.
+    const result = completeAgentWorktreeViaMerge(taskId, fx.root, { targetBranch: 'main' });
+
+    expect(result.landedUpstream, JSON.stringify(result)).toBeUndefined();
+    expect(result.merged).toBe(false);
+    expect(result.staleTarget).toBe(true);
+    expect(localOnlyCommits(fx.root)).toEqual([]);
+    expect(gitAt(fx.root, 'rev-parse', 'HEAD')).toBe(headBefore);
+    expect(gitAt(fx.root, 'status', '--porcelain', '--untracked-files=no')).toBe('');
+  });
+
+  it('zero-commit task branch → nothing to integrate, NOT labelled landed upstream', () => {
+    fx = makeUpstreamFixture();
+    const taskId = 'T9912780';
+    const wt = createAgentWorktree(taskId, fx.root);
+    const headBefore = gitAt(fx.root, 'rev-parse', 'HEAD');
+
+    const result = completeAgentWorktreeViaMerge(taskId, fx.root, { targetBranch: 'main' });
+
+    expect(result.nothingToIntegrate, JSON.stringify(result)).toBe(true);
+    expect(result.landedUpstream).toBeUndefined();
+    expect(result.merged).toBe(false);
+    expect(result.hint).toMatch(/no commits beyond local 'main'/);
+    expect(gitAt(fx.root, 'rev-parse', 'HEAD')).toBe(headBefore);
+    expect(existsSync(wt.path)).toBe(false);
+  });
+
+  it('fetch fails (offline remote) → no hang, best-effort on the last-known origin ref', () => {
+    fx = makeUpstreamFixture();
+    const taskId = 'T9912781';
+    agentCommitAndPush(fx.root, taskId);
+    gitAt(fx.dev, 'fetch', '-q', 'origin');
+    gitAt(fx.dev, 'merge', '-q', '--no-ff', `origin/task/${taskId}`, '-m', 'Merge PR');
+    gitAt(fx.dev, 'push', '-q', 'origin', 'main');
+    // Learn about the merge, then lose the network.
+    gitAt(fx.root, 'fetch', '-q', 'origin');
+    gitAt(fx.root, 'remote', 'set-url', 'origin', join(fx.root, '..', 'gone.git'));
+
+    const a = assessUpstreamIntegration(fx.root, `task/${taskId}`, 'main');
+    expect(a.fetched).toBe(true);
+    expect(a.kind).toBe('landed');
+  });
+
+  it('fetch that would hang (ssh never answers) is bounded by fetchTimeoutMs', () => {
+    fx = makeUpstreamFixture();
+    gitAt(fx.root, 'branch', 'task/T9912782');
+    const hang = join(fx.root, '..', 'hang-ssh.sh');
+    writeFileSync(hang, '#!/bin/sh\nsleep 30\n', { mode: 0o755 });
+    vi.stubEnv('GIT_SSH_COMMAND', hang);
+    gitAt(fx.root, 'remote', 'set-url', 'origin', 'ssh://git@example.invalid/x.git');
+
+    const started = Date.now();
+    const a = assessUpstreamIntegration(fx.root, 'task/T9912782', 'main', {
+      fetchTimeoutMs: 1_500,
+    });
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(a.fetched).toBe(true);
+    expect(a.kind).toBe('nothing');
   });
 
   it('assessUpstreamIntegration → proceed when there is no remote', () => {
