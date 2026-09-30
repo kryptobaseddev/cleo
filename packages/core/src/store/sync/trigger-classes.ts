@@ -439,20 +439,47 @@ export function assertTriggerSuspendEmpty(db: DatabaseSync): void {
 }
 
 /**
+ * Why a caller suspends triggers. `rewind` and `undo` restore a state the
+ * store already held, so its guards held for it; `forward` is anything else
+ * (apply, replay, import, a derived rewrite).
+ */
+export type SuspendPurpose = 'rewind' | 'undo' | 'forward';
+
+/** Purposes that may suspend the `guard` class (T12344 AC5). */
+const GUARD_SUSPEND_PURPOSES: ReadonlySet<SuspendPurpose> = new Set(['rewind', 'undo']);
+
+/**
  * Run `fn` with the given trigger classes suspended, inside the caller's
  * transaction: insert the scope rows, run, delete them, and assert the table
  * is empty before returning. Other connections never see the rows (WAL), so
  * their triggers stay active; a crash rolls the rows back.
  *
- * @throws {Error} When called outside a transaction.
+ * Suspending `guard` (or `all`) is allowed only to rewind or undo (T12344
+ * AC5): a forward apply or replay with the guards off would commit a merged
+ * state they refuse (a dependency or parent cycle) without a word.
+ *
+ * @throws {Error} When called outside a transaction, or
+ *   `E_GUARD_SUSPEND_FORWARD` when a forward purpose suspends `guard`.
  */
 export function withTriggersSuspended<T>(
   db: DatabaseSync,
   scopes: ReadonlyArray<SuspendableClass | 'all'>,
+  purpose: SuspendPurpose,
   fn: () => T,
 ): T {
   if (!db.isTransaction) {
     throw new Error('withTriggersSuspended must run inside the caller transaction');
+  }
+  if (
+    (scopes.includes('guard') || scopes.includes('all')) &&
+    !GUARD_SUSPEND_PURPOSES.has(purpose)
+  ) {
+    throw Object.assign(
+      new Error(
+        `E_GUARD_SUSPEND_FORWARD: guards may be suspended only to rewind or undo, not for a '${purpose}' write`,
+      ),
+      { code: 'E_GUARD_SUSPEND_FORWARD' },
+    );
   }
   const ins = db.prepare('INSERT OR IGNORE INTO main.cleo_trigger_suspend (scope) VALUES (?)');
   for (const s of scopes) ins.run(s);

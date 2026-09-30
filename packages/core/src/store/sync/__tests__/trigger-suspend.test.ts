@@ -134,7 +134,7 @@ describe('suspension by flag row', () => {
     const db = await openStore();
     expect(() => insertDoneTask(db, 'T1')).toThrow(/T877_INVARIANT_VIOLATION/);
     db.exec('BEGIN IMMEDIATE');
-    withTriggersSuspended(db, ['guard'], () => insertDoneTask(db, 'T2'));
+    withTriggersSuspended(db, ['guard'], 'rewind', () => insertDoneTask(db, 'T2'));
     db.exec('COMMIT');
     expect(
       (db.prepare('SELECT count(*) AS n FROM cleo_trigger_suspend').get() as { n: number }).n,
@@ -142,12 +142,24 @@ describe('suspension by flag row', () => {
     expect(() => insertDoneTask(db, 'T3')).toThrow(/T877_INVARIANT_VIOLATION/);
   });
 
+  it('guards are suspended only to rewind or undo, never for a forward write (T12344 AC5)', async () => {
+    const db = await openStore();
+    db.exec('BEGIN IMMEDIATE');
+    for (const scopes of [['guard'], ['all']] as const) {
+      expect(() =>
+        withTriggersSuspended(db, scopes, 'forward', () => insertDoneTask(db, 'T9')),
+      ).toThrow(/E_GUARD_SUSPEND_FORWARD/);
+    }
+    db.exec('ROLLBACK');
+    expect(db.prepare("SELECT 1 FROM tasks_tasks WHERE id = 'T9'").get()).toBeUndefined();
+  });
+
   it('a side-effect trigger is off while suspended (claim release on session end)', async () => {
     const db = await openStore();
     db.exec(`INSERT INTO tasks_sessions (id, name, status) VALUES ('S1', 's', 'active');
              INSERT INTO tasks_tasks (id, title, type, status, claimed_by_session) VALUES ('T1', 'x', 'task', 'active', 'S1');`);
     db.exec('BEGIN IMMEDIATE');
-    withTriggersSuspended(db, ['side-effect'], () =>
+    withTriggersSuspended(db, ['side-effect'], 'forward', () =>
       db.exec("UPDATE tasks_sessions SET status = 'ended' WHERE id = 'S1'"),
     );
     db.exec('COMMIT');

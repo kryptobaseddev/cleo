@@ -40,6 +40,7 @@ import {
   rowIdentityColumns,
 } from '../row-identity.js';
 import { getNativeTasksDb } from '../sqlite.js';
+import { normalizeSql, ownedTriggerDdl, suspendClause } from '../sync/trigger-classes.js';
 import { createTestDb, seedTasks, type TestDbEnv } from './test-db-helper.js';
 
 const V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -552,6 +553,16 @@ describe('uid fill through the open path', () => {
         "SELECT 1 AS x FROM sqlite_master WHERE type = 'trigger' AND name = 'trg_tasks_ac_uid_graveyard'",
       ),
     ).toEqual({ x: 1 });
+    // T12819: the healed trigger is the owned text, with its suspension clause.
+    const sql = (
+      one("SELECT sql FROM sqlite_master WHERE name = 'trg_tasks_ac_uid_graveyard'") as {
+        sql: string;
+      }
+    ).sql;
+    expect(normalizeSql(sql)).toBe(
+      normalizeSql(ownedTriggerDdl().get('trg_tasks_ac_uid_graveyard') as string),
+    );
+    expect(normalizeSql(sql)).toContain(normalizeSql(suspendClause('side-effect')));
     expect(prepareRowIdentity(db, 'project')?.healed).toEqual([]);
   });
 

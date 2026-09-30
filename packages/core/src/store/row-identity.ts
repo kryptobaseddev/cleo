@@ -76,7 +76,11 @@ import {
   rowIdentitySpec,
   UID_COLUMN,
 } from './row-identity-registry.js';
-import { hasTriggerSuspendTable, ownedTriggerDdl } from './sync/trigger-classes.js';
+import {
+  hasTriggerSuspendTable,
+  ownedTriggerDdl,
+  TRIGGER_SUSPEND_TABLE_DDL,
+} from './sync/trigger-classes.js';
 
 export { BIRTH_FP_COLUMN, ROW_IDENTITY, rowIdentityColumns, rowIdentitySpec, UID_COLUMN };
 
@@ -1228,19 +1232,6 @@ const IDENTITY_TABLE_DDL: Readonly<Record<string, readonly string[]>> = {
   ],
 };
 
-/**
- * The graveyard's pure-SQL delete trigger as the t12341 migration created it.
- * trigger-classes.ts (T12819) owns its current text; this plain form is used
- * only on a store without `cleo_trigger_suspend`.
- */
-const AC_UID_GRAVEYARD_TRIGGER = `CREATE TRIGGER IF NOT EXISTS main.trg_tasks_ac_uid_graveyard
-AFTER DELETE ON tasks_task_acceptance_criteria
-WHEN OLD.uid IS NOT NULL
-BEGIN
-  INSERT INTO ${AC_UID_GRAVEYARD} (ac_id, uid, task_id, ordinal, text, birth_fp, deleted_at)
-  VALUES (OLD.id, OLD.uid, OLD.task_id, OLD.ordinal, OLD.text, OLD.birth_fp, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
-END`;
-
 /** Whether a schema object of `type` named `name` exists in `main`. */
 function hasObject(db: DatabaseSync, type: string, name: string): boolean {
   return (
@@ -1282,12 +1273,11 @@ export function ensureIdentityTables(db: DatabaseSync): string[] {
     healed.push(stmt);
   }
   if (!hasObject(db, 'trigger', 'trg_tasks_ac_uid_graveyard')) {
-    // T12819: the trigger is owned (side-effect, with the
-    // suspension clause). Create that exact text when its flag table exists,
-    // so the open pass never sees a differing copy; otherwise the plain one.
-    const ddl = hasTriggerSuspendTable(db)
-      ? (ownedTriggerDdl().get('trg_tasks_ac_uid_graveyard') ?? AC_UID_GRAVEYARD_TRIGGER)
-      : AC_UID_GRAVEYARD_TRIGGER;
+    // T12819: one source for the trigger, the owned DDL with its suspension
+    // clause (never the t12341 migration's plain text), so a healed store and
+    // a migrated one carry the same trigger. The clause reads the flag table.
+    if (!hasTriggerSuspendTable(db)) db.exec(TRIGGER_SUSPEND_TABLE_DDL);
+    const ddl = ownedTriggerDdl().get('trg_tasks_ac_uid_graveyard') as string;
     db.exec(ddl);
     healed.push(ddl);
   }
