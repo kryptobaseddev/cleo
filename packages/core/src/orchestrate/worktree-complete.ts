@@ -350,7 +350,9 @@ export function completeWorktreeForTask(
         target: worktreePath,
         branch,
         taskId,
-        reason: `no task branch '${branch}' and no worktree — nothing to integrate`,
+        reason: integration.landedUpstream
+          ? `'${branch}' already landed upstream — no local merge (T12773)`
+          : `no task branch '${branch}' and no worktree — nothing to integrate`,
         success: true,
       },
       opts.lifecycleAuditPath,
@@ -359,7 +361,9 @@ export function completeWorktreeForTask(
       taskId,
       outcome: 'noop',
       integration,
-      reason: `No worktree or task branch for ${taskId} — nothing to integrate (task was not worked on a task branch).`,
+      reason: integration.landedUpstream
+        ? `${branch} already landed upstream — nothing to integrate locally. ${integration.hint ?? ''}`.trim()
+        : `No worktree or task branch for ${taskId} — nothing to integrate (task was not worked on a task branch).`,
     };
   }
 

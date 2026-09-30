@@ -602,6 +602,187 @@ export function getDefaultBranch(projectRoot: string): string {
 }
 
 /**
+ * Verdict of {@link assessUpstreamIntegration}.
+ *
+ * - `landed` — the task branch is already on the upstream default branch
+ *   (ancestor of it, or its changes are fully contained in it). No local
+ *   merge may run.
+ * - `stale-target` — the local default branch is behind the upstream default
+ *   branch; a merge there would fork it from upstream. No local merge may run.
+ * - `proceed` — no upstream to compare against, or the local default branch is
+ *   current; the ADR-062 local `--no-ff` integration may run.
+ *
+ * @task T12773
+ */
+export type UpstreamIntegrationKind = 'landed' | 'stale-target' | 'proceed';
+
+/**
+ * Result of {@link assessUpstreamIntegration}.
+ *
+ * @task T12773
+ */
+export interface UpstreamIntegrationAssessment {
+  /** What the caller may do next. */
+  kind: UpstreamIntegrationKind;
+  /** Remote-tracking ref compared against (e.g. `refs/remotes/origin/main`), or null. */
+  upstreamRef: string | null;
+  /** True when the local default branch was fast-forwarded to the upstream ref. */
+  fastForwarded: boolean;
+  /** Operator-facing explanation / next step (empty for `proceed`). */
+  hint: string;
+}
+
+/**
+ * True when the worktree at `worktreePath` has uncommitted tracked or
+ * untracked changes. An unreadable status counts as dirty (never discard
+ * work on uncertainty).
+ */
+function isWorktreeDirty(worktreePath: string): boolean {
+  try {
+    return gitSync(['status', '--porcelain'], worktreePath).length > 0;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * True when merging `branch` into `upstreamRef` would leave the upstream tree
+ * unchanged — the branch's changes already landed (e.g. a squash-merged PR,
+ * whose commits are never ancestors of upstream). Uses `git merge-tree
+ * --write-tree`; older git or a conflict yields false.
+ */
+function branchChangesContainedIn(gitRoot: string, branch: string, upstreamRef: string): boolean {
+  try {
+    const merged = gitSync(['merge-tree', '--write-tree', upstreamRef, branch], gitRoot)
+      .split('\n')[0]
+      ?.trim();
+    const upstreamTree = gitSync(['rev-parse', `${upstreamRef}^{tree}`], gitRoot);
+    return merged !== undefined && merged.length > 0 && merged === upstreamTree;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Fast-forward the local `targetBranch` to `upstreamRef` — only when it is the
+ * branch checked out at `gitRoot`, the tracked working tree is clean, and the
+ * move is a pure fast-forward. Never creates a commit.
+ *
+ * @returns true when the branch moved.
+ */
+function fastForwardDefaultBranch(
+  gitRoot: string,
+  targetBranch: string,
+  upstreamRef: string,
+): boolean {
+  try {
+    const current = gitSync(['symbolic-ref', '--quiet', '--short', 'HEAD'], gitRoot);
+    if (current !== targetBranch) return false;
+    if (gitSync(['status', '--porcelain', '--untracked-files=no'], gitRoot).length > 0) {
+      return false;
+    }
+    if (gitSync(['rev-parse', 'HEAD'], gitRoot) === gitSync(['rev-parse', upstreamRef], gitRoot)) {
+      return false;
+    }
+    if (!gitSilent(['merge-base', '--is-ancestor', 'HEAD', upstreamRef], gitRoot)) return false;
+    return gitSilent(['merge', '--ff-only', '--quiet', upstreamRef], gitRoot);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Decide whether a local ADR-062 `--no-ff` integration of `branch` into
+ * `targetBranch` is safe, by comparing against the upstream default branch
+ * (`<remote>/<targetBranch>`).
+ *
+ * T12773: `cleo done --pr <n>` for a task whose PR had already merged on
+ * origin ran `git merge --no-ff task/<id>` into a local `main` that was 199
+ * commits behind origin, creating a local merge commit that forked `main`
+ * from `origin/main`. This check runs BEFORE any checkout or merge:
+ *
+ * - branch already on upstream → `landed`; the local default branch is
+ *   fast-forwarded to upstream when that is a clean fast-forward of the
+ *   checked-out branch, otherwise a hint says how to sync it.
+ * - local default branch behind upstream → `stale-target` with a hint.
+ * - otherwise (no remote, no upstream ref, current target) → `proceed`.
+ *
+ * Never creates a commit.
+ *
+ * @param gitRoot - Absolute git root of the project checkout.
+ * @param branch - Task branch (e.g. `task/T123`).
+ * @param targetBranch - Resolved default branch (e.g. `main`).
+ * @param opts.skipFetch - Skip `git fetch <remote> <targetBranch>` (fixtures).
+ * @param opts.remote - Remote name (default `origin`).
+ * @returns The assessment.
+ *
+ * @task T12773
+ * @adr ADR-062
+ */
+export function assessUpstreamIntegration(
+  gitRoot: string,
+  branch: string,
+  targetBranch: string,
+  opts: { skipFetch?: boolean; remote?: string } = {},
+): UpstreamIntegrationAssessment {
+  const remote = opts.remote ?? 'origin';
+  const proceed: UpstreamIntegrationAssessment = {
+    kind: 'proceed',
+    upstreamRef: null,
+    fastForwarded: false,
+    hint: '',
+  };
+  if (!gitSilent(['remote', 'get-url', remote], gitRoot)) return proceed;
+  if (!opts.skipFetch) {
+    // Best-effort: offline must not block an otherwise-local integration.
+    gitSilent(['fetch', '--quiet', remote, targetBranch], gitRoot);
+  }
+  const upstreamRef = `refs/remotes/${remote}/${targetBranch}`;
+  const upstreamShort = `${remote}/${targetBranch}`;
+  if (!gitSilent(['rev-parse', '--verify', '--quiet', upstreamRef], gitRoot)) return proceed;
+
+  const landed =
+    gitSilent(['merge-base', '--is-ancestor', branch, upstreamRef], gitRoot) ||
+    branchChangesContainedIn(gitRoot, branch, upstreamRef);
+  if (landed) {
+    const fastForwarded = fastForwardDefaultBranch(gitRoot, targetBranch, upstreamRef);
+    return {
+      kind: 'landed',
+      upstreamRef,
+      fastForwarded,
+      hint: fastForwarded
+        ? `'${branch}' already landed on ${upstreamShort}; fast-forwarded local '${targetBranch}' to it (no local merge).`
+        : `'${branch}' already landed on ${upstreamShort}; no local merge was made. To sync local '${targetBranch}': git switch ${targetBranch} && git merge --ff-only ${upstreamShort}`,
+    };
+  }
+
+  const localRef = `refs/heads/${targetBranch}`;
+  if (
+    gitSilent(['rev-parse', '--verify', '--quiet', localRef], gitRoot) &&
+    !gitSilent(['merge-base', '--is-ancestor', upstreamRef, localRef], gitRoot)
+  ) {
+    let behind = 0;
+    try {
+      behind = Number.parseInt(
+        gitSync(['rev-list', '--count', `${localRef}..${upstreamRef}`], gitRoot),
+        10,
+      );
+    } catch {
+      behind = 0;
+    }
+    if (behind > 0) {
+      return {
+        kind: 'stale-target',
+        upstreamRef,
+        fastForwarded: false,
+        hint: `local '${targetBranch}' is ${behind} commit(s) behind ${upstreamShort}, so a merge there would fork it from ${upstreamShort}. Land '${branch}' through a PR, or sync first (git switch ${targetBranch} && git merge --ff-only ${upstreamShort}) and re-run \`cleo orchestrate worktree-complete\`.`,
+      };
+    }
+  }
+  return { ...proceed, upstreamRef };
+}
+
+/**
  * Complete a worker task's worktree via `git merge --no-ff` (ADR-062).
  *
  * Canonical worktree integration per ADR-062. Preserves the full agent
@@ -613,6 +794,10 @@ export function getDefaultBranch(projectRoot: string): string {
  *
  * 1. Resolve target branch via {@link getDefaultBranch} (or `opts.targetBranch`
  *    override). NEVER hardcodes "main".
+ * 1a. T12773: {@link assessUpstreamIntegration} — when `task/<id>` already
+ *    landed on `origin/<targetBranch>` the merge is skipped
+ *    (`landedUpstream: true`), and when the local target is behind origin the
+ *    merge is refused with a `hint`. Neither path creates a commit.
  * 2. `git fetch origin` then `git rebase origin/<targetBranch>` inside the
  *    worktree. Conflicts cause an early non-fatal return — the agent must
  *    re-resolve before completion.
@@ -699,6 +884,52 @@ export function completeAgentWorktreeViaMerge(
       error: `no task branch '${branch}' and no worktree — nothing to integrate`,
       nothingToIntegrate: true,
     };
+  }
+
+  // T12773 — never merge locally what already landed upstream, and never
+  // merge into a local default branch that is behind origin. Both produced a
+  // divergent local merge commit (`merge task/<id>: Merge made by the 'ort'
+  // strategy`) when `cleo done --pr <n>` ran from a stale checkout for a task
+  // whose PR had already merged on origin.
+  if (branchExists) {
+    const upstream = assessUpstreamIntegration(gitRoot, branch, targetBranch, {
+      skipFetch: opts.skipFetch ?? false,
+    });
+    if (upstream.kind === 'landed') {
+      // The commits are safe on origin; clean up the worktree unless it holds
+      // uncommitted work, which is left for the operator.
+      const dirty = existsSync(worktreePath) && isWorktreeDirty(worktreePath);
+      const pruneResult = dirty ? null : pruneWorktree(taskId, projectRoot);
+      return {
+        taskId,
+        targetBranch,
+        merged: false,
+        mergeCommit: '',
+        commitCount: 0,
+        rebased: false,
+        worktreeRemoved: pruneResult?.worktreeRemoved ?? false,
+        branchDeleted: pruneResult?.branchDeleted ?? false,
+        nothingToIntegrate: true,
+        landedUpstream: true,
+        hint: dirty
+          ? `${upstream.hint} Worktree ${worktreePath} has uncommitted changes and was preserved.`
+          : upstream.hint,
+      };
+    }
+    if (upstream.kind === 'stale-target') {
+      return {
+        taskId,
+        targetBranch,
+        merged: false,
+        mergeCommit: '',
+        commitCount: 0,
+        rebased: false,
+        worktreeRemoved: false,
+        branchDeleted: false,
+        error: `refusing local merge of '${branch}' into '${targetBranch}': ${upstream.hint}`,
+        hint: upstream.hint,
+      };
+    }
   }
 
   // T11124: Delegate to Rust NAPI SSoT

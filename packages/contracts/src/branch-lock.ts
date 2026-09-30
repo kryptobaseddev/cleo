@@ -111,8 +111,30 @@ export interface WorktreeMergeResult {
    *
    * Callers should treat `nothingToIntegrate: true` as success-with-no-work,
    * and reserve failure handling for `merged: false` WITHOUT this flag.
+   *
+   * T12773: also set when {@link WorktreeMergeResult.landedUpstream} is true —
+   * the task branch already landed on `origin/<targetBranch>`, so there is no
+   * local integration left to do.
    */
   nothingToIntegrate?: boolean;
+  /**
+   * True when the `task/<taskId>` branch had **already landed upstream** — its
+   * tip is an ancestor of `origin/<targetBranch>`, or merging it into
+   * `origin/<targetBranch>` would change nothing (squash-merged PR).
+   *
+   * @remarks
+   * T12773: `cleo done --pr <n>` on a task whose PR had already merged on
+   * origin ran a local `git merge --no-ff task/<id>` into a stale local
+   * default branch, forking it from origin. When this flag is set no local
+   * merge was attempted; the local default branch was at most fast-forwarded
+   * to `origin/<targetBranch>` (see {@link WorktreeMergeResult.hint}).
+   */
+  landedUpstream?: boolean;
+  /**
+   * Operator-facing next step when integration was skipped or refused without
+   * a merge (T12773) — e.g. how to fast-forward a stale local default branch.
+   */
+  hint?: string;
 }
 
 /**
