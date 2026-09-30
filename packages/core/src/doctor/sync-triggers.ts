@@ -21,12 +21,16 @@
  */
 
 import { existsSync } from 'node:fs';
+import type { DatabaseSync } from 'node:sqlite';
 import { resolveDualScopeDbPath } from '../store/dual-scope-db.js';
 import { openCleoDbSnapshot } from '../store/open-cleo-db.js';
+import { generateCaptureTriggers } from '../store/sync/capture.js';
+import { readSyncFlags } from '../store/sync/flags.js';
 import {
   CAPTURE_TRIGGER_PREFIX,
   classifyStoreTriggers,
   hasTriggerSuspendTable,
+  normalizeSql,
   type OwnedTriggerFinding,
   TRIGGER_CLAUSE_MIGRATION,
   verifyOwnedTriggers,
@@ -52,6 +56,8 @@ export interface SyncTriggersReport {
   readonly unclassified: string[];
   readonly owned: OwnedTriggerFinding[];
   readonly orphanedCaptureTriggers: string[];
+  /** With `sync.capture` on: capture triggers missing, differing from the generated text, or extra (rule 9). */
+  readonly captureDrift: { missing: string[]; differing: string[]; extra: string[] };
 }
 
 const FIX =
@@ -69,6 +75,7 @@ export function inspectSyncTriggers(projectRoot: string): SyncTriggersReport {
     unclassified: [],
     owned: [],
     orphanedCaptureTriggers: [],
+    captureDrift: { missing: [], differing: [], extra: [] },
   };
   if (!existsSync(dbPath)) return empty;
   const snap = openCleoDbSnapshot(dbPath, { readOnly: true });
@@ -107,10 +114,40 @@ export function inspectSyncTriggers(projectRoot: string): SyncTriggersReport {
       unclassified: classifyStoreTriggers(db, 'project').unclassified,
       owned: journaled ? verifyOwnedTriggers(db) : [],
       orphanedCaptureTriggers: hasCapture ? [] : captureTriggers,
+      captureDrift: readSyncFlags(db)['sync.capture']
+        ? captureDrift(db)
+        : { missing: [], differing: [], extra: [] },
     };
   } finally {
     snap.close();
   }
+}
+
+/** Live capture triggers against the text generated for the current schema. */
+function captureDrift(db: DatabaseSync): {
+  missing: string[];
+  differing: string[];
+  extra: string[];
+} {
+  const want = new Map(generateCaptureTriggers(db, 'project').map((t) => [t.name, t.sql]));
+  const live = new Map(
+    (
+      db
+        .prepare(
+          "SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND substr(name, 1, length(?)) = ?",
+        )
+        .all(CAPTURE_TRIGGER_PREFIX, CAPTURE_TRIGGER_PREFIX) as Array<{ name: string; sql: string }>
+    ).map((r) => [r.name, r.sql]),
+  );
+  return {
+    missing: [...want.keys()].filter((n) => !live.has(n)),
+    differing: [...want]
+      .filter(
+        ([n, sql]) => live.has(n) && normalizeSql(live.get(n) as string) !== normalizeSql(sql),
+      )
+      .map(([n]) => n),
+    extra: [...live.keys()].filter((n) => !want.has(n)),
+  };
 }
 
 /** The `sync_triggers` row of the default `cleo doctor` report. */
@@ -145,6 +182,12 @@ export function syncTriggersDoctorCheck(projectRoot: string): SyncTriggersDoctor
   if (r.orphanedCaptureTriggers.length > 0) {
     problems.push(
       `capture trigger(s) without _sync_capture: ${r.orphanedCaptureTriggers.join(', ')}`,
+    );
+  }
+  const drift = r.captureDrift;
+  if (drift.missing.length + drift.differing.length + drift.extra.length > 0) {
+    problems.push(
+      `capture triggers differ from the generated set (missing ${drift.missing.length}, differing ${drift.differing.length}, extra ${drift.extra.length})`,
     );
   }
   if (r.unclassified.length > 0)

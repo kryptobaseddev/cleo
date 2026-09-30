@@ -64,6 +64,7 @@ import { orderTablesForCopy } from './exodus/table-order.js';
 import { sanitizeMigrationStatements, stripSqlComments } from './migration-manager.js';
 import { openCleoDbSnapshot } from './open-cleo-db.js';
 import { writePreRepairSnapshot } from './pre-repair-snapshot.js';
+import { markSuspect, touchSet } from './sync/structural.js';
 
 const log = getLogger('legacy-tasks-lineage');
 
@@ -379,6 +380,17 @@ export function rebuildLegacyTasksLineage(
         alias,
         snapshotPath,
         new Set(toDrop.filter((o) => o.type === 'table').map((o) => o.name)),
+      );
+      // T12343 (§2.3a rule 3): the carry-forward runs with each table's
+      // triggers dropped, so its writes are uncaptured by construction. Mark
+      // the sync-set tables of its touch set suspect for the repair diff.
+      markSuspect(
+        nativeDb,
+        'project',
+        touchSet(
+          nativeDb,
+          carriedForward.map((r) => r.table),
+        ),
       );
       nativeDb.exec('COMMIT');
     } catch (error) {

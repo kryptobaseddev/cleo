@@ -167,6 +167,8 @@ const NEXUS_META =
 const DERIVER_QUEUE = 'deriver work queue (local-only): per-device background queue';
 const FTS5 = 'FTS5 index maintenance (derived): rebuilt from its base table, never synced';
 const FROZEN = 'frozen bare twin (frozen-legacy): dropped by T12535; no reader';
+const CAPTURE_MACHINERY =
+  'change-journal capture machinery (local-only): trigger and TEMP-stamp text that writes the outbox, frames and undo (T12343)';
 const SYNC_BOOKKEEPING =
   'change journal bookkeeping (local-only): flags, clock and replica binding of THIS store file (T12342)';
 
@@ -259,6 +261,11 @@ export const EXEMPT = {
     tasks_schema_meta: { count: 1, reason: SCHEMA_STAMP },
   },
   'packages/core/src/store/sqlite.ts': { tasks_schema_meta: { count: 2, reason: SCHEMA_STAMP } },
+  'packages/core/src/store/sync/capture.ts': {
+    _sync_capture: { count: 3, reason: CAPTURE_MACHINERY },
+    _sync_frame: { count: 2, reason: CAPTURE_MACHINERY },
+    _sync_undo: { count: 3, reason: CAPTURE_MACHINERY },
+  },
   'packages/core/src/store/sync/clock-store.ts': {
     _sync_clock: { count: 1, reason: SYNC_BOOKKEEPING },
   },
@@ -268,6 +275,9 @@ export const EXEMPT = {
     _sync_replica: { count: 2, reason: SYNC_BOOKKEEPING },
   },
   'packages/core/src/store/sync/schema.ts': { _sync_meta: { count: 1, reason: SYNC_BOOKKEEPING } },
+  'packages/core/src/store/sync/structural.ts': {
+    _sync_meta: { count: 1, reason: SYNC_BOOKKEEPING },
+  },
   'packages/core/src/store/sync/trigger-classes.ts': {
     cleo_trigger_suspend: {
       count: 3,

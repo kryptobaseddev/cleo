@@ -85,6 +85,7 @@ import { tasksAuditLog } from './schema/cleo-project/audit.js';
 import { resolveCurrentSession } from './session-store.js';
 import { closeDb, getDb, getNativeTasksDb } from './sqlite.js';
 import { TERMINAL_TASK_STATUSES } from './status-registry.js';
+import { clearCaptureFrame, finishCaptureFrame, openCaptureFrame } from './sync/capture.js';
 import {
   claimAllows,
   claimColumnsOf,
@@ -2120,6 +2121,9 @@ async function createOwnedSqliteDataAccessor(
             } else {
               nativeDb.prepare(`SAVEPOINT ${spName}`).run();
             }
+            // T12343: the outer transaction is one capture frame (null when
+            // capture is off on this connection: nothing is written).
+            const frame = isOuter ? openCaptureFrame(nativeDb, 'write') : null;
             try {
               const tx: TransactionAccessor = {
                 async upsertSingleTask(task: Task): Promise<void> {
@@ -2500,6 +2504,7 @@ async function createOwnedSqliteDataAccessor(
               const result = await fn(bindTaskAccessorScope(tx, accessorScope));
               await scope.pending;
               if (isOuter) {
+                finishCaptureFrame(nativeDb, frame);
                 nativeDb.prepare('COMMIT').run();
               } else {
                 nativeDb.prepare(`RELEASE SAVEPOINT ${spName}`).run();
@@ -2520,6 +2525,7 @@ async function createOwnedSqliteDataAccessor(
               throw err;
             } finally {
               scope.active = false;
+              clearCaptureFrame(nativeDb, frame);
             }
           });
         };

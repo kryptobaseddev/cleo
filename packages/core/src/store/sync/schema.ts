@@ -154,3 +154,25 @@ export function ensureSyncSchema(
     throw err;
   }
 }
+
+/**
+ * Re-run every APPLIED sync schema folder's SQL (all `CREATE … IF NOT
+ * EXISTS`) when one of the sync tables is missing: a store whose
+ * `_sync_capture` was dropped with capture triggers still present fails every
+ * captured write, and the journal already says the folder ran (§2.3a
+ * rule 9). A store with every table present is left untouched.
+ *
+ * @returns Whether anything was re-run.
+ */
+export function healSyncSchema(
+  db: DatabaseSync,
+  expected: readonly string[],
+  options: { root?: string } = {},
+): boolean {
+  if (expected.every((t) => hasTable(db, t))) return false;
+  const applied = appliedSyncSchemaHashes(db);
+  for (const f of syncSchemaFolders(options.root)) {
+    if (applied.has(f.name)) db.exec(f.sql);
+  }
+  return true;
+}

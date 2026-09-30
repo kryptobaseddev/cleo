@@ -187,7 +187,12 @@ const NOT_A_CREDENTIAL: Readonly<Record<string, string>> = Object.fromEntries(
  */
 const SYNC_JOURNAL_DDL =
   'packages/core/migrations/sync-journal/20260929140000_t12342-sync-clock/migration.sql';
+const SYNC_CAPTURE_DDL =
+  'packages/core/migrations/sync-journal/20260930120000_t12343-capture/migration.sql';
 const SYNC_JOURNAL_TABLES = {
+  _sync_capture: { class: 'local-only', ddl: SYNC_CAPTURE_DDL },
+  _sync_frame: { class: 'local-only', ddl: SYNC_CAPTURE_DDL },
+  _sync_undo: { class: 'local-only', ddl: SYNC_CAPTURE_DDL },
   _sync_clock: { class: 'local-only', ddl: SYNC_JOURNAL_DDL },
   _sync_meta: { class: 'local-only', ddl: SYNC_JOURNAL_DDL },
   _sync_replica: { class: 'local-only', ddl: SYNC_JOURNAL_DDL },

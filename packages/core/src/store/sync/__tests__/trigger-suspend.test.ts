@@ -18,6 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { syncTriggersDoctorCheck } from '../../../doctor/sync-triggers.js';
 import { _resetDualScopeDbCache, openDualScopeDbAtPath } from '../../dual-scope-db.js';
 import { runBracketedMigrations } from '../../migration-runner.js';
+import { setCaptureEnabled } from '../capture.js';
 import { dropSyncMachinery } from '../machinery.js';
 import { ensureSyncSchema } from '../schema.js';
 import {
@@ -253,6 +254,68 @@ describe('ownership', () => {
         )
         .run(),
     ).not.toThrow();
+  });
+
+  it('the T12341 §13 rollback, after capture off and dropSyncMachinery (rule 10), leaves cleo_trigger_suspend and writes working', async () => {
+    const db = await openStore();
+    setCaptureEnabled(db, 'project', true, { schemaRoot: SYNC_SCHEMA });
+    // Rule 10, step 0: capture off; then remove the journal.
+    setCaptureEnabled(db, 'project', false);
+    dropSyncMachinery(db);
+    // T12341 §13 step 3, in one transaction.
+    const t12341 = '20260928120000_t12341-row-uids';
+    const hash = (
+      db.prepare('SELECT hash FROM __drizzle_migrations WHERE name = ?').get(t12341) as {
+        hash: string;
+      }
+    ).hash;
+    const uniq = (
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'index' AND (name LIKE 'uq_%_uid' OR name LIKE 'idx_%ac_uid' OR name LIKE 'idx_%ac_text_hash')",
+        )
+        .all() as Array<{ name: string }>
+    ).map((r) => r.name);
+    const dropCols: Array<[string, string]> = [
+      ['tasks_tasks', 'uid'],
+      ['tasks_tasks', 'birth_fp'],
+      ['tasks_task_acceptance_criteria', 'uid'],
+      ['tasks_task_acceptance_criteria', 'birth_fp'],
+      ['tasks_task_acceptance_criteria_history', 'uid'],
+      ['tasks_task_acceptance_criteria_history', 'ac_uid'],
+      ['tasks_task_acceptance_criteria_history', 'birth_fp'],
+      ['tasks_evidence_ac_bindings', 'uid'],
+      ['tasks_evidence_ac_bindings', 'ac_uid'],
+      ['tasks_evidence_ac_bindings', 'birth_fp'],
+      ['tasks_evidence_ac_bindings', 'ac_text_hash'],
+      ['tasks_sessions', 'uid'],
+      ['tasks_sessions', 'birth_fp'],
+      ['tasks_task_dependencies', 'uid'],
+      ['tasks_task_relations', 'uid'],
+      ['tasks_task_labels', 'uid'],
+    ];
+    db.exec('BEGIN IMMEDIATE');
+    for (const i of uniq) db.exec(`DROP INDEX "${i}"`);
+    db.exec('DROP TRIGGER IF EXISTS trg_tasks_ac_uid_graveyard');
+    for (const t of ['tasks_ac_uid_graveyard', 'tasks_display_id_aliases', 'tasks_uid_aliases']) {
+      db.exec(`DROP TABLE IF EXISTS "${t}"`);
+    }
+    for (const [t, c] of dropCols) db.exec(`ALTER TABLE "${t}" DROP COLUMN "${c}"`);
+    db.prepare('DELETE FROM __drizzle_migrations WHERE hash = ?').run(hash);
+    db.exec('COMMIT');
+
+    expect(
+      db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'cleo_trigger_suspend'").get(),
+    ).toBeDefined();
+    db.exec(`INSERT INTO tasks_sessions (id, name, status) VALUES ('S1', 's', 'active');
+             INSERT INTO tasks_tasks (id, title, type, status) VALUES ('T1', 'x', 'task', 'pending');
+             INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, kind, text) VALUES ('A1', 'T1', 1, 'text', 'ac');
+             DELETE FROM tasks_task_acceptance_criteria WHERE id = 'A1';
+             UPDATE tasks_sessions SET status = 'ended' WHERE id = 'S1';`);
+    expect(() => insertDoneTask(db, 'T2')).toThrow(/T877_INVARIANT_VIOLATION/);
+    // This build's next open re-applies T12341 and the graveyard trigger.
+    const again = await reopen();
+    expect(verifyOwnedTriggers(again)).toEqual([]);
   });
 
   it('every trigger of a chokepoint-opened project store is classified', async () => {

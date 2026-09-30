@@ -112,6 +112,24 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     status: 'draft',
     source: 'table-classification-draft.md',
   },
+  _sync_capture: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §2.3, §3.5 Rule 2 (T12343)',
+    note: 'the capture outbox: one row per captured change, until sealed; this device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)',
+  },
+  _sync_frame: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §2.3, §3.5 Rule 2 (T12343)',
+    note: 'one row per chokepoint transaction frame, deleted when unused; this device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)',
+  },
+  _sync_undo: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §2.3, §3.5 Rule 2 (T12343)',
+    note: 'full before/after images for rewind, written only while push is on; this device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)',
+  },
   _sync_clock: {
     class: 'local-only',
     status: 'optional-transient',
@@ -1244,6 +1262,24 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
   __drizzle_migrations: { class: 'local-only', status: 'draft', source: 'draft §3' },
   _agent_registry_meta: { class: 'local-only', status: 'draft', source: 'draft §3' },
   _agent_registry_migrations: { class: 'local-only', status: 'draft', source: 'draft §3' },
+  _sync_capture: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §2.3, §3.5 Rule 2 (T12343)',
+    note: 'the capture outbox: one row per captured change, until sealed; this device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)',
+  },
+  _sync_frame: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §2.3, §3.5 Rule 2 (T12343)',
+    note: 'one row per chokepoint transaction frame, deleted when unused; this device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)',
+  },
+  _sync_undo: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §2.3, §3.5 Rule 2 (T12343)',
+    note: 'full before/after images for rewind, written only while push is on; this device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)',
+  },
   _sync_clock: {
     class: 'local-only',
     status: 'optional-transient',

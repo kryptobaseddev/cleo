@@ -70,6 +70,7 @@ import {
 import { prepareRowIdentity } from './row-identity.js';
 import { rowUidFillEnabled } from './row-identity-flag.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
+import { captureBracketHooks, syncCaptureOpenPass } from './sync/capture.js';
 import { ensureTriggerSuspendTable, verifyOwnedTriggers } from './sync/trigger-classes.js';
 import { explainSchemaWriteDenial, installSchemaWriteGuard } from './worktree-build-guard.js';
 import { assertStorePathIsNotWorktreeResident } from './worktree-isolation-guard.js';
@@ -568,6 +569,7 @@ function migrateScopeSchema(
     existenceTable(scope),
     `dual-scope-db[${scope}]`,
     resolveConsolidatedJournalSiblings(migrationsSetName(scope)),
+    captureBracketHooks(nativeDb, scope),
   );
   // NEW-6: the handle leaves the schema pass in its configured FK mode.
   assertHandleForeignKeys(nativeDb);
@@ -577,6 +579,20 @@ function migrateScopeSchema(
     if (findings.length > 0) {
       log.warn({ scope, findings }, 'owned triggers repaired from their owned DDL (T12819)');
     }
+  }
+  // T12343 (S2): capture triggers match the persisted sync.capture flag;
+  // with the flag off and no trigger present this only reads.
+  const capture = syncCaptureOpenPass(nativeDb, scope);
+  if (
+    capture.capture === 'on' &&
+    capture.report.installed.length + capture.report.replaced.length > 0
+  ) {
+    log.info({ scope, report: capture.report }, 'capture triggers installed (T12343)');
+  } else if (capture.capture === 'off' && capture.dropped.length > 0) {
+    log.info(
+      { scope, dropped: capture.dropped },
+      'capture triggers dropped: sync.capture is off (T12343)',
+    );
   }
 }
 
