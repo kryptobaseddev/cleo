@@ -64,6 +64,12 @@ function buildLegacyStore(cleoDir: string): void {
       ('AC1', 'T2', 1, 'child T4 done', '2026-01-02T00:00:00Z', 'child_task', 'T4', 'legacy'),
       ('AC2', 'T2', 2, 'plain text',    '2026-01-02T00:00:00Z', 'text',       NULL, 'legacy');
     INSERT INTO task_relations VALUES ('T2', 'T4', 'related', 'duplicates the parent edge');
+    -- A legacy dependency cycle (T12886): the guard trigger postdates it.
+    CREATE TABLE task_dependencies (
+      task_id TEXT NOT NULL REFERENCES tasks(id), depends_on TEXT NOT NULL REFERENCES tasks(id),
+      PRIMARY KEY (task_id, depends_on)
+    );
+    INSERT INTO task_dependencies VALUES ('T2', 'T3'), ('T3', 'T2');
     -- Pre-T9686-B2 release history (T12346): folded into tasks_releases.
     CREATE TABLE release_manifests (
       id TEXT PRIMARY KEY, version TEXT NOT NULL, status TEXT NOT NULL,
@@ -187,6 +193,8 @@ describe.each(
     expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_tasks')).toBe(5);
     expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_task_acceptance_criteria')).toBe(2);
     expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_task_relations')).toBe(1);
+    // The legacy dependency cycle is copied verbatim (T12886).
+    expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_task_dependencies')).toBe(2);
     expect(scalar(liveDb, 'SELECT COUNT(*) FROM brain_observations')).toBe(2);
     // Normalizations mirror the legacy backfills (T1408, T877) and never stamp
     // migration time onto history.
@@ -209,9 +217,9 @@ describe.each(
         liveDb,
         "SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name IN " +
           "('tasks_tasks_parent_type_matrix_insert','tasks_task_relations_non_containment_insert'," +
-          "'tasks_task_acceptance_child_target_insert')",
+          "'tasks_task_acceptance_child_target_insert','tasks_task_dependencies_cycle_guard_insert')",
       ),
-    ).toBe(3);
+    ).toBe(4);
     // Legacy inputs are byte-identical; a receipt records before/after.
     expect(legacy.map(digest)).toEqual(before);
     expect(result.receiptPath).not.toBeNull();

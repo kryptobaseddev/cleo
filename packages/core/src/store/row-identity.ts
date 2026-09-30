@@ -76,6 +76,7 @@ import {
   rowIdentitySpec,
   UID_COLUMN,
 } from './row-identity-registry.js';
+import { schemaWritesAllowed } from './worktree-build-guard.js';
 
 export { BIRTH_FP_COLUMN, ROW_IDENTITY, rowIdentityColumns, rowIdentitySpec, UID_COLUMN };
 
@@ -1419,7 +1420,8 @@ export function preReleaseBirthFp(
  * Birth fingerprints a pre-release build derived (e.g. a worktree CLI that
  * opened live cleocode, 2026-09-28) are cleared, so the fill re-derives them
  * with the release recipe. Targeted: a value is cleared ONLY when it equals
- * {@link preReleaseBirthFp} of its row; values from any other source (a
+ * {@link preReleaseBirthFp} of its row, or hashes a fingerprint cleared here
+ * (@ownerFp / @refFp; T12801); values from any other source (a
  * device that received them by sync, a store whose meta table was lost) are
  * kept, and alias rows are never touched. The uid recipe did not change, so
  * uids are kept. Runs only while the recipe marker is missing or stale, and
@@ -1432,32 +1434,69 @@ function resetStaleIdentity(
 ): RowUidFillReport['refill'] {
   if (scope !== 'project' || !hasTable(db, ROW_IDENTITY_META_TABLE)) return 'none';
   if (readMeta(db, ROW_IDENTITY_RECIPE_KEY) === ROW_IDENTITY_RECIPE) return 'none';
-  const minted = ROW_IDENTITY.project.filter(
-    (spec) =>
-      spec.kind === 'minted' &&
-      hasTable(db, spec.table) &&
-      columnsOf(db, spec.table).has(BIRTH_FP_COLUMN),
+  const minted = fingerprintOrder('project', ROW_IDENTITY.project).filter(
+    (spec) => hasTable(db, spec.table) && columnsOf(db, spec.table).has(BIRTH_FP_COLUMN),
   );
+  // A value is stale when it equals the pre-release recipe of its row, OR when
+  // it was derived from a stale value: a fingerprint that hashes its owner's
+  // or its criterion's fingerprint (@ownerFp / @refFp) whose source is being
+  // cleared. That covers a criterion whose uid and fingerprint an edit carried
+  // onto a new row (the pre-release recipe cannot be recomputed from the new
+  // row, T12801). Tables are visited owners first.
   const stale: Array<{ table: string; rowid: number }> = [];
+  const cleared = new Map<string, Set<string>>(); // `${table}.${column}` → cleared values
+  const mark = (table: string, column: string, value: UidInput | undefined) => {
+    if (value === null || value === undefined) return;
+    const key = `${table}.${column}`;
+    const set = cleared.get(key) ?? new Set<string>();
+    set.add(String(value));
+    cleared.set(key, set);
+  };
   for (const spec of minted) {
+    const deps = (spec.birthFacts ?? [])
+      .map((fact) => fingerprintRef('project', spec, fact))
+      .filter((d): d is { table: string; column: string; key: string } => d !== null);
+    const keyColumn = targetKey('project', spec.table);
     const rows = db
       .prepare(
         `SELECT rowid AS _rowid, * FROM main.${q(spec.table)} WHERE ${q(BIRTH_FP_COLUMN)} IS NOT NULL`,
       )
       .all() as Array<Record<string, UidInput> & { _rowid: number }>;
     for (const row of rows) {
+      const derivedFromStale = deps.some((d) =>
+        cleared.get(`${d.table}.${d.key}`)?.has(String(row[d.column] ?? '')),
+      );
+      // Three sources of a stale value, all kept (T12801 x T12802): derived
+      // from a value cleared in this pass, the pre-release recipe, or the
+      // 9.25 (v1) recipe.
       if (
+        derivedFromStale ||
         row[BIRTH_FP_COLUMN] === preReleaseBirthFp(db, spec.table, row) ||
         row[BIRTH_FP_COLUMN] === v1ReleaseBirthFp(db, spec.table, row)
       ) {
         stale.push({ table: spec.table, rowid: row._rowid });
+        mark(spec.table, keyColumn, row[keyColumn]);
+        mark(spec.table, UID_COLUMN, row[UID_COLUMN]);
       }
     }
   }
-  if (stale.length === 0) return 'none';
+  // The AC uid graveyard records deletions made while the recipe marker was
+  // missing or stale: with the fill off, the schema heal (T12878) restores
+  // its trigger, which then records the stale pre-release uid and birth_fp of
+  // every criterion deleted since. Relinking those would carry a stale
+  // fingerprint into the release recipe and, through the ordinal fallback,
+  // hand a deleted criterion's uid to an unrelated new one. They are not an
+  // older build's delete-and-recreate of one edit, so they are dropped in
+  // this same step, before the fill relinks anything (T12878 review F1).
+  const graveyardRows =
+    scope === 'project' && hasTable(db, AC_UID_GRAVEYARD)
+      ? (db.prepare(`SELECT count(*) AS n FROM main.${AC_UID_GRAVEYARD}`).get() as { n: number }).n
+      : 0;
+  if (stale.length === 0 && graveyardRows === 0) return 'none';
   if (readMeta(db, ROW_IDENTITY_SYNCED_KEY) !== undefined) return 'refused';
   db.exec('SAVEPOINT row_identity_reset');
   try {
+    if (graveyardRows > 0) writers.clearAcUidGraveyardNative(db);
     for (const { table, rowid } of stale) {
       writers.clearBirthFpNative(db, table, rowid);
     }
@@ -1486,6 +1525,19 @@ export function writeRecipeMarker(
 }
 
 /**
+ * Whether the store's identity values are shared with other devices
+ * ({@link ROW_IDENTITY_SYNCED_KEY} present): from then on no local write may
+ * clear or re-point a uid.
+ *
+ * @param db - Connection on the project `cleo.db`.
+ * @returns True once identity has been sent or received.
+ * @task T12806
+ */
+export function rowIdentityShared(db: DatabaseSync): boolean {
+  return readMeta(db, ROW_IDENTITY_SYNCED_KEY) !== undefined;
+}
+
+/**
  * Record that identity values are now SHARED with other devices: the recipe
  * marker, and {@link ROW_IDENTITY_SYNCED_KEY} (first write wins, with the
  * direction). Called on the first receive (a pull-first clone that never
@@ -1510,6 +1562,196 @@ export function markRowIdentityShared(
     ROW_IDENTITY_SYNCED_KEY,
     JSON.stringify({ first: direction, at: new Date().toISOString() }),
   );
+}
+
+/**
+ * Re-create the row-identity SCHEMA a store should have, on every open,
+ * whatever the fill flag (T12878). DDL only: the identity tables, the
+ * graveyard trigger, the columns an early table lacks, the uid columns and
+ * their indexes. No row value is read or written. A store whose uid migration
+ * was journaled without running its statements (journal Scenario 3 Case A:
+ * live cleocode under 9.25, spec §12.2) gets the full schema here; the fill,
+ * refill and TEMP triggers stay opt-in ({@link prepareRowIdentity}).
+ *
+ * Never throws: a failure is logged and the open continues.
+ *
+ * @param db - Connection on a `cleo.db`, inside the cold-open lease.
+ * @param scope - The store's scope.
+ * @returns The DDL statements it ran (empty when the schema was complete).
+ * @task T12878
+ */
+export function healRowIdentitySchema(
+  db: DatabaseSync,
+  scope: TableScope,
+  writers: RowIdentityWriters | undefined = registeredWriters,
+): string[] {
+  const log = getLogger('row-identity');
+  if (ROW_IDENTITY[scope].length === 0) {
+    // Nothing is declared in this scope yet (the global store today): there is
+    // no identity schema to heal, so nothing to record either.
+    return [];
+  }
+  // A build that may not change this store's schema (a worktree-built CLI on a
+  // live store, T12687) never heals it: the released build will.
+  if (!schemaWritesAllowed(db)) {
+    log.debug({ scope }, 'row identity schema heal skipped: schema writes refused for this build');
+    return [];
+  }
+  try {
+    db.exec('SAVEPOINT row_identity_heal');
+    try {
+      const healed = [
+        ...(scope === 'project' ? ensureIdentityTables(db) : []),
+        ...ensureRowIdentitySchema(db, scope),
+      ];
+      if (healed.length > 0) recordHealReceipt(db, scope, healed, writers);
+      db.exec('RELEASE SAVEPOINT row_identity_heal');
+      if (healed.length > 0)
+        log.info({ scope, healed: healed.length }, 'row identity schema healed');
+      return healed;
+    } catch (error) {
+      db.exec('ROLLBACK TO SAVEPOINT row_identity_heal');
+      db.exec('RELEASE SAVEPOINT row_identity_heal');
+      throw error;
+    }
+  } catch (error) {
+    log.error({ scope, error }, 'row identity schema heal failed');
+    return [];
+  }
+}
+
+/**
+ * Meta key of the heal receipt: when the open last re-created missing
+ * identity schema, and what (T12878). Local-only bookkeeping of the heal
+ * itself, in `tasks_row_identity_meta`; no row value of any other table is
+ * written. `cleo doctor` (the `row_identity` check) shows it.
+ */
+export const ROW_IDENTITY_HEAL_KEY = 'row_identity_schema_healed';
+
+/** The receipt {@link healRowIdentitySchema} leaves when it re-created schema. */
+export interface RowIdentityHealReceipt {
+  readonly at: string;
+  readonly scope?: TableScope;
+  readonly statements: number;
+  /** Objects re-created or columns added (table, index, trigger or `table.column`). */
+  readonly objects: readonly string[];
+}
+
+/** The table holding each scope's heal receipts (`null`: the scope has none yet). */
+const HEAL_RECEIPT_TABLE: Readonly<Record<TableScope, string | null>> = {
+  project: ROW_IDENTITY_META_TABLE,
+  // The global store declares no identity table yet (ROW_IDENTITY.global is
+  // empty, so its heal never runs); the change that declares one adds its
+  // meta table here.
+  global: null,
+};
+
+/** How many heal receipts a store keeps (newest last). */
+const HEAL_RECEIPTS_KEPT = 20;
+
+function recordHealReceipt(
+  db: DatabaseSync,
+  scope: TableScope,
+  healed: readonly string[],
+  writers: RowIdentityWriters | undefined,
+): void {
+  const table = HEAL_RECEIPT_TABLE[scope];
+  const log = getLogger('row-identity');
+  if (table === null || !hasTable(db, table) || !writers) {
+    log.warn({ scope, healed: healed.length }, 'row identity schema healed; no receipt table');
+    return;
+  }
+  const objects = healed.map((stmt) => {
+    const col = /ALTER TABLE main\.("?)(\w+)\1 ADD COLUMN ("?)(\w+)\3/.exec(stmt);
+    if (col) return `${col[2]}.${col[4]}`;
+    const obj = /(TABLE|INDEX|TRIGGER) IF NOT EXISTS main\.("?)(\w+)\2/.exec(stmt);
+    return obj ? `${(obj[1] as string).toLowerCase()} ${obj[3]}` : stmt.slice(0, 60);
+  });
+  const receipt: RowIdentityHealReceipt = {
+    at: new Date().toISOString(),
+    scope,
+    statements: healed.length,
+    objects,
+  };
+  // Appended, never overwritten: a later partial heal keeps the earlier ones.
+  const history = [...readRowIdentityHealHistory(db), receipt].slice(-HEAL_RECEIPTS_KEPT);
+  writers.writeRowIdentityMetaNative(db, ROW_IDENTITY_HEAL_KEY, JSON.stringify(history));
+}
+
+/**
+ * The last heal receipt of a store, read-only (`undefined` when the schema
+ * never needed healing).
+ *
+ * @param db - Connection on a project `cleo.db` (read-only is fine).
+ * @returns The receipt.
+ * @task T12878
+ */
+export function readRowIdentityHealReceipt(db: DatabaseSync): RowIdentityHealReceipt | undefined {
+  const history = readRowIdentityHealHistory(db);
+  return history[history.length - 1];
+}
+
+/**
+ * Every heal receipt a store kept, oldest first (read-only).
+ *
+ * @param db - Connection on a project `cleo.db` (read-only is fine).
+ * @returns The receipts (empty when the schema never needed healing).
+ * @task T12878
+ */
+export function readRowIdentityHealHistory(db: DatabaseSync): RowIdentityHealReceipt[] {
+  const raw = readMeta(db, ROW_IDENTITY_HEAL_KEY);
+  if (raw === undefined) return [];
+  try {
+    const parsed = JSON.parse(raw) as RowIdentityHealReceipt | RowIdentityHealReceipt[];
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Identity schema a project store lacks, read-only: missing identity tables,
+ * the graveyard trigger, and the alias / graveyard columns an early table
+ * lacks (T12878; the open heals them).
+ *
+ * @param db - Connection on a project `cleo.db` (read-only is fine).
+ * @returns What is missing (empty when complete).
+ * @task T12878
+ */
+export function missingRowIdentitySchema(db: DatabaseSync): string[] {
+  if (!hasTable(db, 'tasks_task_acceptance_criteria')) return [];
+  const missing: string[] = [];
+  for (const table of Object.keys(IDENTITY_TABLE_DDL)) {
+    if (!hasTable(db, table)) missing.push(`table ${table}`);
+  }
+  for (const [table, column] of [
+    ['tasks_display_id_aliases', 'displaced_hlc'],
+    ['tasks_display_id_aliases', 'entity_birth_fp'],
+    [AC_UID_GRAVEYARD, 'birth_fp'],
+  ] as const) {
+    if (hasTable(db, table) && !columnsOf(db, table).has(column)) {
+      missing.push(`column ${table}.${column}`);
+    }
+  }
+  if (!hasObject(db, 'trigger', 'trg_tasks_ac_uid_graveyard')) {
+    missing.push('trigger trg_tasks_ac_uid_graveyard');
+  }
+  // The uid columns and indexes ensureRowIdentitySchema heals.
+  for (const spec of ROW_IDENTITY.project) {
+    if (!hasTable(db, spec.table)) continue;
+    const cols = columnsOf(db, spec.table);
+    for (const column of rowIdentityColumns('project', spec.table)) {
+      if (!cols.has(column)) missing.push(`column ${spec.table}.${column}`);
+    }
+    if (!uidIsPrimaryKey(db, spec.table) && !hasObject(db, 'index', `uq_${spec.table}_uid`)) {
+      missing.push(`index uq_${spec.table}_uid`);
+    }
+    for (const ref of spec.storedRefUids ?? []) {
+      const index = `idx_${spec.table}_${ref.column}`;
+      if (!hasObject(db, 'index', index)) missing.push(`index ${index}`);
+    }
+  }
+  return missing;
 }
 
 export function prepareRowIdentity(

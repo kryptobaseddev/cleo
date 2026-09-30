@@ -7,12 +7,14 @@
  * @epic T4454
  */
 
-import type { ArchiveReasonValue, Session, Task } from '@cleocode/contracts';
+import type { ArchiveReasonValue, Session, Task, TaskInsertIdentity } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
+import { rethrowDependencyCycle } from './dependency-cycles.js';
+import { rowUidFillEnabled } from './row-identity-flag.js';
 import type { NewTaskRow } from './tasks-schema.js';
 import * as schema from './tasks-schema.js';
 
@@ -72,8 +74,103 @@ export async function upsertTask(
  * @throws CleoError `ID_COLLISION` when `row.id` is already stored.
  * @task T12724
  */
-export async function insertNewTask(db: DrizzleDb, row: NewTaskRow): Promise<void> {
-  await writeTaskRow(db, row, undefined, false, true);
+export async function insertNewTask(
+  db: DrizzleDb,
+  row: NewTaskRow,
+  identity: TaskInsertIdentity = { origin: 'new' },
+): Promise<void> {
+  await writeTaskRow(
+    db,
+    { ...row, ...(await importedIdentity(db, identity, row)) },
+    undefined,
+    false,
+    true,
+  );
+}
+
+/**
+ * An import or restore named a row this store already holds: same uid AND
+ * same birth fingerprint (possibly under another display id after a re-mint,
+ * re-keyed, or held in the identity quarantine). Writing it again would
+ * duplicate the work, so the caller skips it and reports the conflict
+ * (T12806 review).
+ */
+export class SameRowPresentError extends CleoError {
+  /** Where the row already is: its display id, or `held` when quarantined. */
+  readonly presentAs: string;
+
+  constructor(taskId: string, presentAs: string) {
+    super(
+      ExitCode.ID_COLLISION,
+      `Task ${taskId} is already in this store (${presentAs === 'held' ? 'held for sync' : `as ${presentAs}`}): same uid and birth fingerprint; not written again`,
+      { details: { field: 'taskId', actual: taskId, expected: presentAs } },
+    );
+    this.presentAs = presentAs;
+  }
+}
+
+async function tableExists(db: DrizzleDb, table: string): Promise<boolean> {
+  const rows = await db.all<{ x: number }>(
+    sql`SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = ${table}`,
+  );
+  return rows.length > 0;
+}
+
+/**
+ * The identity columns of an IMPORTED task (T12341 spec §5.1, T12806), only
+ * while row uids are on (`CLEO_ROW_UID_FILL=1`; off, nothing changes):
+ *
+ * - the source's `uid` + `birth_fp`, followed through `tasks_uid_aliases`
+ *   when it was re-keyed here, when no row holds it;
+ * - {@link SameRowPresentError} when a row with that uid AND fingerprint is
+ *   here already (another display id, or held in the quarantine);
+ * - otherwise an explicit NULL uid for the deterministic recipe (the TEMP
+ *   trigger, else the next open), from the row's own key and birth as stored.
+ *   A source without a creation time is no exception (T12806 review): an
+ *   unknown-birth fingerprint next to the `created_at` the import wrote would
+ *   be flagged by every recompute.
+ */
+async function importedIdentity(
+  db: DrizzleDb,
+  identity: TaskInsertIdentity,
+  row: NewTaskRow,
+): Promise<Pick<NewTaskRow, 'uid' | 'birthFp'>> {
+  if (identity.origin === 'new' || !rowUidFillEnabled()) return {};
+  const fp = identity.birthFp ?? null;
+  const carried = identity.uid ?? null;
+  if (carried !== null && fp !== null) {
+    let uid: string = carried;
+    if (await tableExists(db, 'tasks_uid_aliases')) {
+      for (let hop = 0; hop < 32; hop++) {
+        const found: Array<{ uid: string }> = await db.all<{ uid: string }>(
+          sql`SELECT new_uid AS uid FROM tasks_uid_aliases
+               WHERE entity_table = 'tasks_tasks' AND old_uid = ${uid} AND old_birth_fp = ${fp}`,
+        );
+        const next = found[0];
+        if (!next) break;
+        uid = next.uid;
+      }
+    }
+    const [holder] = await db
+      .select({ id: schema.tasks.id, birthFp: schema.tasks.birthFp })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.uid, uid))
+      .limit(1)
+      .all();
+    if (holder && holder.birthFp === fp) throw new SameRowPresentError(row.id, holder.id);
+    if (await tableExists(db, 'tasks_identity_quarantine')) {
+      const [held] = await db.all<{ x: number }>(
+        sql`SELECT 1 AS x FROM tasks_identity_quarantine
+             WHERE entity_table = 'tasks_tasks' AND uid = ${uid} AND birth_fp = ${fp}`,
+      );
+      if (held) throw new SameRowPresentError(row.id, 'held');
+    }
+    if (!holder) return { uid, birthFp: fp };
+    // Another row holds the uid with another fingerprint: derive instead.
+  }
+  // A source without a creation time gets the recipe from the row as stored:
+  // its identity agrees with its `created_at`, so no recompute flags it.
+  return { uid: null, birthFp: null };
 }
 
 /** The shared write behind {@link upsertTask} and {@link insertNewTask}. */
@@ -414,7 +511,13 @@ export async function batchUpdateDependencies(
   }
 
   if (added.length > 0) {
-    await db.insert(schema.taskDependencies).values(added).onConflictDoNothing().run();
+    // T12886: the cycle-guard trigger refuses an edge that closes a cycle;
+    // rethrowDependencyCycle names the cycle for the caller.
+    try {
+      await db.insert(schema.taskDependencies).values(added).onConflictDoNothing().run();
+    } catch (err) {
+      rethrowDependencyCycle(db, err, added);
+    }
   }
 }
 

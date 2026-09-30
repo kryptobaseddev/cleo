@@ -206,7 +206,13 @@ function getSqliteVersion(db: DatabaseSync): string {
  * restored inside the same transaction; they keep enforcing every NEW write
  * exactly as they did in the legacy runtime.
  *
- * The cycle guard is deliberately NOT listed — a containment cycle drives the
+ * The dependency-cycle guard (T12886) is listed for the same reason: it is
+ * newer than most history, and a legacy store may hold a dependency cycle.
+ * `cleo doctor dep-cycles` reports such a cycle with a repair plan, and every
+ * write after the copy is guarded; its recursion is bounded, unlike the
+ * parent walk below.
+ *
+ * The parent cycle guard is deliberately NOT listed — a containment cycle drives the
  * recursive ancestor walks forever, so it must stay a hard stop. The
  * status/pipeline invariant is not listed either: T877 DID backfill, and exodus
  * applies that same backfill as a normalization instead.
@@ -217,6 +223,7 @@ const GRANDFATHERED_GUARD_TRIGGERS = [
   'tasks_tasks_parent_type_matrix_insert',
   'tasks_task_relations_non_containment_insert',
   'tasks_task_acceptance_child_target_insert',
+  'tasks_task_dependencies_cycle_guard_insert',
 ] as const;
 
 /** A guard trigger dropped for the copy, with the DDL that restores it. */

@@ -30,7 +30,9 @@ import type {
   TaskClaim,
   TaskClaimRequest,
   TaskFieldUpdates,
+  TaskInsertIdentity,
   TaskQueryFilters,
+  TaskRowIdentity,
   TaskWriteGuard,
   TelemetryAccessor,
   TransactionAccessor,
@@ -234,8 +236,12 @@ export class UmbrellaDataAccessor implements DataAccessor {
     return (await this.tasks()).upsertSingleTask(task);
   }
 
-  async insertNewTask(task: Task): Promise<void> {
-    return (await this.tasks()).insertNewTask(task);
+  async insertNewTask(task: Task, identity?: TaskInsertIdentity): Promise<void> {
+    return (await this.tasks()).insertNewTask(task, identity);
+  }
+
+  async getTaskIdentities(taskIds: readonly string[]): Promise<TaskRowIdentity[]> {
+    return (await this.tasks()).getTaskIdentities?.(taskIds) ?? [];
   }
 
   async archiveSingleTask(taskId: string, fields: ArchiveFields): Promise<void> {

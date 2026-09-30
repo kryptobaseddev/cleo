@@ -563,7 +563,10 @@ export async function coreTaskImport(
     // Only an explicit --overwrite of an existing id may replace a row; a new
     // or remapped id is inserted and fails with ID_COLLISION rather than
     // overwrite (T12724).
-    writes.push({ task: newTask, replace: overwrite === true && existingIds.has(newId) });
+    writes.push({
+      task: newTask,
+      replace: overwrite === true && existingIds.has(newId),
+    });
     allIds.add(newId);
     imported++;
   }
@@ -571,8 +574,13 @@ export async function coreTaskImport(
   // One transaction: a collision on any task leaves nothing half-imported (T12724).
   await accessor.transaction(async (tx) => {
     for (const { task, replace } of writes) {
-      if (replace) await tx.upsertSingleTask(task);
-      else await tx.insertNewTask(task);
+      // An overwrite keeps the identity of the same task (same birth) and
+      // re-keys a different one, or is refused once shared; a new task's uid
+      // is derived from its row, never stamped at import time (T12806).
+      if (replace) {
+        await tx.upsertSingleTask(task);
+        await tx.clearTaskIdentity?.(task.id);
+      } else await tx.insertNewTask(task, { origin: 'imported' });
     }
   });
 
