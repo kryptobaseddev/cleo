@@ -21,6 +21,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { ExitCode } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { heldRowCounts, rowIdentityDoctorCheck } from '../../doctor/row-identity.js';
 import { pivotTask } from '../../orchestrate/pivot.js';
 import { buildAcRowId } from '../../tasks/ac-table.js';
 import {
@@ -29,6 +30,7 @@ import {
   collisionLoser,
   encodeHlc,
   listHeldRows,
+  loadReceivePolicy,
   REMINT_TAKEOVER_MS,
   type RemintOp,
   receiveRow,
@@ -36,6 +38,7 @@ import {
   remintAuthority,
   remintTaskDisplayId,
   resolveDisplayId,
+  WIRE_VERSION,
   type WireRow,
   wireRowOf,
 } from '../display-id-alias.js';
@@ -649,6 +652,85 @@ describe('two stores created offline (AC2, AC3)', () => {
     }
   });
 
+  it('receiving a row re-tries only the held rows it may unblock, and never rewrites them (T12801)', () => {
+    // 50 rows held on references to tasks that never arrive.
+    for (let i = 0; i < 50; i++) {
+      receiveRow(a.db, {
+        version: WIRE_VERSION,
+        table: 'tasks_task_labels',
+        uid: `label-${i}`,
+        birthFp: null,
+        values: { label: `waiting-${i}` },
+        refs: {
+          task_id: { uid: `0199ffff-0000-7000-8000-${String(i).padStart(12, '0')}`, birthFp: 'x' },
+        },
+      });
+    }
+    const snapshot = () =>
+      a.db
+        .prepare(
+          "SELECT rowid, row_json FROM tasks_identity_quarantine WHERE entity_table = 'tasks_task_labels' ORDER BY rowid",
+        )
+        .all();
+    const before = snapshot();
+    expect(before).toHaveLength(50);
+    // Held for the reference they wait on, not refused as an old wire version.
+    expect(new Set(listHeldRows(a.db).map((h) => h.reason))).toEqual(new Set(['ref-pending']));
+    // Unrelated rows arrive and are placed: none of the held rows is rewritten.
+    addTask(b, 'T006', 'epsilon (B)', '2026-09-25T14:00:00.000Z');
+    for (const t of tasksOf(b.db)) receiveRow(a.db, wireRowOf(b.db, 'tasks_tasks', t.uid));
+    expect(idByTitle(a.db).get('epsilon (B)')).toBe('T006');
+    expect(snapshot()).toEqual(before);
+  });
+
+  it('a received task is validated: no claim lease, invalid rows held, guards enforced (T12801)', () => {
+    b.db
+      .prepare(
+        `UPDATE tasks_tasks SET claimed_by_session = 'ses-b', claimed_by_agent = 'agent-b',
+           claimed_at = '2026-09-29T00:00:00.000Z', lease_expires_at = '2099-01-01T00:00:00.000Z'
+         WHERE id = 'T005'`,
+      )
+      .run();
+    const gamma = tasksOf(b.db).find((t) => t.title === 'gamma (B)') as TaskRow;
+    const wire = wireRowOf(b.db, 'tasks_tasks', gamma.uid);
+    // A row that breaks the task schema is held, not inserted, and nothing throws.
+    expect(
+      receiveRow(a.db, {
+        ...wire,
+        uid: 'bad-status',
+        values: { ...wire.values, id: 'T990', status: 'bogus' },
+      }),
+    ).toMatchObject({ status: 'held', reason: 'invalid' });
+    // A row the store's triggers refuse (a saga must be a root) is held too.
+    const epic = tasksOf(a.db).find((t) => t.title === 'Shared epic') as TaskRow;
+    expect(
+      receiveRow(a.db, {
+        ...wire,
+        uid: 'bad-parent',
+        values: { ...wire.values, id: 'T991', type: 'saga' },
+        refs: { ...wire.refs, parent_id: { uid: epic.uid, birthFp: epic.birth_fp } },
+      }),
+    ).toMatchObject({ status: 'held', reason: 'invalid' });
+    expect(
+      a.db.prepare("SELECT count(*) AS n FROM tasks_tasks WHERE id IN ('T990', 'T991')").get(),
+    ).toEqual({ n: 0 });
+    // A valid task arrives without the sender's claim lease.
+    const alphaSlot = receiveRow(a.db, { ...wire, values: { ...wire.values, id: 'T992' } });
+    expect(alphaSlot).toMatchObject({ status: 'inserted', key: 'T992' });
+    expect(
+      a.db
+        .prepare(
+          "SELECT claimed_by_session, claimed_by_agent, claimed_at, lease_expires_at FROM tasks_tasks WHERE id = 'T992'",
+        )
+        .get(),
+    ).toEqual({
+      claimed_by_session: null,
+      claimed_by_agent: null,
+      claimed_at: null,
+      lease_expires_at: null,
+    });
+  });
+
   it('a non-authority never allocates: it records, applies, or reports a conflict', () => {
     const alpha = tasksOf(a.db).find((t) => t.title === 'alpha (A)') as TaskRow;
     const op = (newId: string): RemintOp => ({
@@ -1043,12 +1125,28 @@ describe('uid collision: re-key the loser, every replica applies it (T12744, T12
     ]);
     expect(W.prepare('SELECT count(*) AS n FROM tasks_task_relations').get()).toEqual({ n: 0 });
     // The winner is never re-keyed (T12744).
-    expect(() => rekeyRowUid(W, 'tasks_tasks', U, fpW)).toThrow(/not the loser/);
-    expect(() => rekeyRowUid(Z, 'tasks_tasks', U, fpW)).toThrow(/not the loser/);
-    expect(() => rekeyRowUid(Z, 'tasks_tasks', U, 'f'.repeat(32))).toThrow(/No tasks_tasks row/);
+    expect(() =>
+      rekeyRowUid(W, 'tasks_tasks', U, { loserBirthFp: fpW, winnerBirthFp: fpL }),
+    ).toThrow(/not the loser/);
+    expect(() =>
+      rekeyRowUid(Z, 'tasks_tasks', U, { loserBirthFp: fpW, winnerBirthFp: fpL }),
+    ).toThrow(/not the loser/);
+    // A pair the caller got wrong (the named winner is not the one here) is refused too.
+    expect(() =>
+      rekeyRowUid(W, 'tasks_tasks', U, { loserBirthFp: fpL, winnerBirthFp: '0'.repeat(32) }),
+    ).toThrow(/not the loser/);
+    expect(() =>
+      rekeyRowUid(Z, 'tasks_tasks', U, { loserBirthFp: 'f'.repeat(32), winnerBirthFp: fpL }),
+    ).toThrow(/No tasks_tasks row/);
 
     // ---- The authority re-keys the loser and publishes the receipt.
-    const R = rekeyRowUid(Z, 'tasks_tasks', U, fpL, { origin: 'dev-Z', displacedHlc: clock('z') });
+    const R = rekeyRowUid(
+      Z,
+      'tasks_tasks',
+      U,
+      { loserBirthFp: fpL, winnerBirthFp: fpW },
+      { origin: 'dev-Z', displacedHlc: clock('z') },
+    );
     expect(identity(Z, "id = 'T101'")).toEqual({ id: 'T101', uid: R.newUid, fp: fpL });
     // Children re-keyed from stored identity, although the owner's key changed.
     expect(R.cascaded.map((c) => [c.table, c.oldUid, c.newUid]).sort()).toEqual(
@@ -1183,7 +1281,7 @@ describe('remintAuthority (spec §9.2, T12750)', () => {
   });
 });
 
-describe('references the sender no longer resolves (T12798 review, probe 1753)', () => {
+describe('receive: hardening and references the sender no longer resolves (T12801 probe 1755, T12798 probe 1753)', () => {
   let env: TestDbEnv;
   let a: DatabaseSync;
   let b: DatabaseSync;
@@ -1205,6 +1303,153 @@ describe('references the sender no longer resolves (T12798 review, probe 1753)',
     b.close();
     rmSync(bPath, { force: true });
     await env.cleanup();
+  });
+
+  it('R1: a re-tried row that is still held keeps its quarantine row (never deleted and re-inserted)', () => {
+    b.prepare(
+      "INSERT INTO tasks_tasks (id,title,status,priority,type,created_at) VALUES ('T010','x','pending','medium','task','2026-09-25T10:00:00.000Z')",
+    ).run();
+    b.prepare(
+      "INSERT INTO tasks_tasks (id,title,status,priority,type,created_at) VALUES ('T011','y','pending','medium','task','2026-09-25T11:00:00.000Z')",
+    ).run();
+    b.prepare(
+      "INSERT INTO tasks_task_dependencies (task_id, depends_on) VALUES ('T010','T011')",
+    ).run();
+    const dep = b.prepare("SELECT uid FROM tasks_task_dependencies WHERE task_id='T010'").get() as {
+      uid: string;
+    };
+    expect(receiveRow(a, wireRowOf(b, 'tasks_task_dependencies', dep.uid)).status).toBe('held');
+    // A second held row, so a delete + re-insert could not reuse the rowid.
+    receiveRow(a, {
+      version: WIRE_VERSION,
+      table: 'tasks_task_labels',
+      uid: 'label-z',
+      birthFp: null,
+      values: { label: 'z' },
+      refs: { task_id: { uid: '0199ffff-0000-7000-8000-000000000001', birthFp: 'x' } },
+    });
+    const snap = () =>
+      a
+        .prepare(
+          "SELECT rowid, reason, row_json FROM tasks_identity_quarantine WHERE entity_table='tasks_task_dependencies'",
+        )
+        .all();
+    const before = snap();
+    // T010 arrives: the dependency is re-tried, and still waits for T011.
+    const t10 = b.prepare("SELECT uid FROM tasks_tasks WHERE id='T010'").get() as { uid: string };
+    expect(receiveRow(a, wireRowOf(b, 'tasks_tasks', t10.uid)).status).toBe('inserted');
+    expect(snap()).toEqual(before);
+  });
+
+  it('a received task deeper than the depth cap is held as invalid (a store without the type-matrix trigger)', () => {
+    a.exec('DROP TRIGGER IF EXISTS tasks_tasks_parent_type_matrix_insert');
+    a.exec(`INSERT INTO tasks_tasks (id,title,status,priority,type,created_at,parent_id) VALUES
+      ('T101','d1','pending','medium','task','2026-09-25T10:00:00.000Z','T001'),
+      ('T102','d2','pending','medium','task','2026-09-25T10:00:01.000Z','T101'),
+      ('T103','d3','pending','medium','task','2026-09-25T10:00:02.000Z','T102')`);
+    const deepest = a.prepare("SELECT uid, birth_fp FROM tasks_tasks WHERE id='T103'").get() as {
+      uid: string;
+      birth_fp: string;
+    };
+    const t = b.prepare("SELECT uid FROM tasks_tasks WHERE id='T001'").get() as { uid: string };
+    const wire = wireRowOf(b, 'tasks_tasks', t.uid);
+    const result = receiveRow(a, {
+      ...wire,
+      uid: 'too-deep',
+      birthFp: 'fp-deep',
+      values: { ...wire.values, id: 'T104' },
+      refs: { ...wire.refs, parent_id: { uid: deepest.uid, birthFp: deepest.birth_fp } },
+    });
+    expect(result).toMatchObject({ status: 'held', reason: 'invalid' });
+    expect(listHeldRows(a).find((h) => h.uid === 'too-deep')?.contestedId).toContain(
+      'E_DEPTH_EXCEEDED',
+    );
+  });
+
+  it("the depth cap is the project's resolved hierarchy policy, not a constant (T12801 review)", async () => {
+    a.exec('DROP TRIGGER IF EXISTS tasks_tasks_parent_type_matrix_insert');
+    a.exec(`INSERT INTO tasks_tasks (id,title,status,priority,type,created_at,parent_id) VALUES
+      ('T101','d1','pending','medium','task','2026-09-25T10:00:00.000Z','T001'),
+      ('T102','d2','pending','medium','task','2026-09-25T10:00:01.000Z','T101'),
+      ('T103','d3','pending','medium','task','2026-09-25T10:00:02.000Z','T102')`);
+    const deepest = a.prepare("SELECT uid, birth_fp FROM tasks_tasks WHERE id='T103'").get() as {
+      uid: string;
+      birth_fp: string;
+    };
+    const t = b.prepare("SELECT uid FROM tasks_tasks WHERE id='T001'").get() as { uid: string };
+    const wire = wireRowOf(b, 'tasks_tasks', t.uid);
+    const deep = (uid: string, id: string) => ({
+      ...wire,
+      uid,
+      birthFp: `fp-${uid}`,
+      values: { ...wire.values, id },
+      refs: { ...wire.refs, parent_id: { uid: deepest.uid, birthFp: deepest.birth_fp } },
+    });
+    // CLEO_HIERARCHY_MAX_DEPTH=4 raises the cap, as it does for a local write.
+    vi.stubEnv('CLEO_HIERARCHY_MAX_DEPTH', '4');
+    try {
+      const policy = await loadReceivePolicy(env.tempDir);
+      expect(policy).toEqual({ maxDepth: 4 });
+      expect(receiveRow(a, deep('deep-ok', 'T104'), policy)).toMatchObject({ status: 'inserted' });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    // A stricter resolved policy refuses what the default would allow.
+    const strict = receiveRow(a, deep('deep-strict', 'T105'), { maxDepth: 2 });
+    expect(strict).toMatchObject({ status: 'held', reason: 'invalid' });
+    expect(listHeldRows(a).find((h) => h.uid === 'deep-strict')?.contestedId).toContain(
+      'exceeds 2',
+    );
+    // Without an env override or config the default profile applies (3).
+    expect(await loadReceivePolicy(env.tempDir)).toEqual({ maxDepth: 3 });
+  });
+
+  it('an insert error that is not a constraint is thrown, not held as invalid', () => {
+    const t = b.prepare("SELECT uid FROM tasks_tasks WHERE id='T001'").get() as { uid: string };
+    const wire = wireRowOf(b, 'tasks_tasks', t.uid);
+    // A guard that fails with a plain SQL error (not SQLITE_CONSTRAINT) whose
+    // message still looks like a CLEO code.
+    a.exec(
+      "CREATE TEMP TRIGGER probe_error BEFORE INSERT ON main.tasks_tasks WHEN NEW.id = 'T555' BEGIN SELECT E_NOT_A_CONSTRAINT_INVARIANT(); END",
+    );
+    expect(() =>
+      receiveRow(a, {
+        ...wire,
+        uid: 'u-err',
+        birthFp: 'fp-err',
+        values: { ...wire.values, id: 'T555' },
+      }),
+    ).toThrow(/E_NOT_A_CONSTRAINT_INVARIANT/);
+    expect(listHeldRows(a)).toEqual([]);
+  });
+
+  it('cleo doctor counts held rows by reason', () => {
+    receiveRow(a, {
+      version: WIRE_VERSION,
+      table: 'tasks_task_labels',
+      uid: 'label-z',
+      birthFp: null,
+      values: { label: 'z' },
+      refs: { task_id: { uid: '0199ffff-0000-7000-8000-000000000001', birthFp: 'x' } },
+    });
+    const t = b.prepare("SELECT uid FROM tasks_tasks WHERE id='T001'").get() as { uid: string };
+    const wire = wireRowOf(b, 'tasks_tasks', t.uid);
+    receiveRow(a, {
+      ...wire,
+      uid: 'bad',
+      birthFp: 'fp-bad',
+      values: { ...wire.values, id: 'T990', status: 'bogus' },
+    });
+    expect(heldRowCounts(a)).toEqual({ invalid: 1, 'ref-pending': 1 });
+    process.env.CLEO_DIR = join(env.tempDir, '.cleo');
+    try {
+      const doctor = rowIdentityDoctorCheck(env.tempDir);
+      expect(doctor.status).toBe('warning');
+      expect(doctor.message).toContain('received rows refused as invalid: 1');
+      expect(doctor.details?.held).toEqual({ invalid: 1, 'ref-pending': 1 });
+    } finally {
+      delete process.env.CLEO_DIR;
+    }
   });
 
   it('Q1: history of a criterion deleted on the sender is placed, with its uid carried and no live ac_id', () => {

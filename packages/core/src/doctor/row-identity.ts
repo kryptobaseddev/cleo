@@ -14,6 +14,7 @@
  */
 
 import { existsSync } from 'node:fs';
+import type { DatabaseSync } from 'node:sqlite';
 import { resolveDualScopeDbPath } from '../store/dual-scope-db.js';
 import { openCleoDbSnapshot } from '../store/open-cleo-db.js';
 import {
@@ -82,6 +83,7 @@ export function rowIdentityDoctorCheck(projectRoot: string): RowIdentityDoctorCh
   }
   let unfilled: Record<string, number>;
   let findings: RowIdentityFindings;
+  let held: Record<string, number> = {};
   try {
     const snap = openCleoDbSnapshot(dbPath, { readOnly: true });
     try {
@@ -100,6 +102,7 @@ export function rowIdentityDoctorCheck(projectRoot: string): RowIdentityDoctorCh
         if (row.n > 0) unfilled[spec.table] = row.n;
       }
       findings = rowIdentityFindings(snap.db, 'project');
+      held = heldRowCounts(snap.db);
     } finally {
       snap.close();
     }
@@ -114,8 +117,11 @@ export function rowIdentityDoctorCheck(projectRoot: string): RowIdentityDoctorCh
     Object.entries(counts)
       .map(([table, n]) => `${table} (${n})`)
       .join(', ');
+  const heldTotal = Object.values(held).reduce((a, n) => a + n, 0);
   const parts = [
     missing.length > 0 ? schemaNote : '',
+    // A row the store refused (invalid) needs a person; the rest wait for sync.
+    (held.invalid ?? 0) > 0 ? `received rows refused as invalid: ${held.invalid}` : '',
     Object.keys(unfilled).length > 0
       ? `rows without a uid or birth fingerprint, filled at the next open: ${list(unfilled)}`
       : '',
@@ -129,9 +135,40 @@ export function rowIdentityDoctorCheck(projectRoot: string): RowIdentityDoctorCh
       ? `symmetric relations stored in both directions (duplicates to drop): ${list(findings.mirrorEdges)}`
       : '',
   ].filter(Boolean);
-  const details = { dbPath, unfilled, findings, ...schemaDetails };
-  const ok = receipt ? `every row has a uid; ${schemaNote}` : 'every row has a uid';
+  const details = { dbPath, unfilled, findings, held, ...schemaDetails };
+  const uids =
+    heldTotal > 0
+      ? `every row has a uid; rows held for sync: ${list(held)}`
+      : 'every row has a uid';
+  const ok = receipt ? `${uids}; ${schemaNote}` : uids;
   return parts.length > 0
     ? { check: 'row_identity', status: 'warning', message: parts.join('; '), details }
     : { check: 'row_identity', status: 'ok', message: ok, details };
+}
+
+/**
+ * Received rows held in the identity quarantine, per reason (`invalid`,
+ * `ref-pending`, `uid-collision`, ...). Read-only; empty when the table is
+ * absent (T12801 review).
+ *
+ * @param db - Connection on the project store (read-only is fine).
+ * @returns Count per reason.
+ * @task T12801
+ */
+export function heldRowCounts(db: DatabaseSync): Record<string, number> {
+  const has = db
+    .prepare(
+      "SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'tasks_identity_quarantine'",
+    )
+    .get();
+  if (!has) return {};
+  const out: Record<string, number> = {};
+  for (const r of db
+    .prepare(
+      'SELECT reason, count(*) AS n FROM tasks_identity_quarantine GROUP BY reason ORDER BY reason',
+    )
+    .all() as { reason: string; n: number }[]) {
+    out[r.reason] = r.n;
+  }
+  return out;
 }
