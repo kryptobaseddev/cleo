@@ -1294,7 +1294,11 @@ export function wireRowOf(db: DatabaseSync, table: string, uid: string): WireRow
       // the fingerprint the graveyard kept when there is one; the receiver
       // never matches it without a fingerprint.
       if (refs[column]?.uid === null) {
-        refs[column] = { uid: String(recorded), birthFp: graveyardFp(String(recorded)), gone: true };
+        refs[column] = {
+          uid: String(recorded),
+          birthFp: graveyardFp(String(recorded)),
+          gone: true,
+        };
       }
     } else {
       refs[column] = key === null || key === undefined ? null : identityOf(target, 'key', key);
