@@ -351,8 +351,19 @@ describe.each([
     );
   });
 
-  it('a fill that changes a replicated value FAILS replay: the baseline is never filled', async () => {
-    // The unfilled baseline really is unfilled, and has values a fill could touch.
+  it.each([
+    [
+      "created_at ' ' -> 'T'",
+      'ts',
+      "UPDATE tasks_tasks SET created_at = replace(created_at, ' ', 'T') WHERE created_at LIKE '% %'",
+    ],
+    [
+      "priority = 'high'",
+      'prio',
+      "UPDATE tasks_tasks SET priority = 'high' WHERE priority <> 'high'",
+    ],
+  ])('a fill that changes a replicated value (%s) FAILS replay: the baseline is never filled', async (_label, tag, mutation) => {
+    // The unfilled baseline really is unfilled, and has values each mutation touches.
     const conn = new DatabaseSync(unfilled[shape], { readOnly: true });
     try {
       expect(
@@ -361,30 +372,31 @@ describe.each([
       expect(
         conn.prepare("SELECT count(*) AS n FROM tasks_tasks WHERE created_at LIKE '% %'").get(),
       ).not.toEqual({ n: 0 });
+      expect(
+        conn.prepare("SELECT count(*) AS n FROM tasks_tasks WHERE priority <> 'high'").get(),
+      ).not.toEqual({ n: 0 });
     } finally {
       conn.close();
     }
-    // A mutant build whose fill also normalises created_at (' ' -> 'T'), a
-    // replicated value. Every store below is built and filled by it.
+    // A mutant build whose fill also rewrites a replicated value, idempotently.
+    // Every store below is built and filled by it.
     registerRowIdentityWriters({
       ...CHOKEPOINT_WRITERS,
       fillIdentityColumnNative(db, table, column, valueSql, rowid) {
-        db.exec(
-          "UPDATE tasks_tasks SET created_at = replace(created_at, ' ', 'T') WHERE created_at LIKE '% %'",
-        );
+        db.exec(mutation);
         return fillIdentityColumnNative(db, table, column, valueSql, rowid);
       },
     });
     const saved = { unfilled: unfilled[shape], source: source[shape] };
     try {
-      unfilled[shape] = await buildFixture(shape, false, 'mutant-unfilled');
-      source[shape] = await buildFixture(shape, true, 'mutant-source');
-      const pre = preMigrationCopy(shape, 'pre-mutant');
-      const post = preMigrationCopy(shape, 'post-mutant');
+      unfilled[shape] = await buildFixture(shape, false, `mutant-${tag}-unfilled`);
+      source[shape] = await buildFixture(shape, true, `mutant-${tag}-source`);
+      const pre = preMigrationCopy(shape, `pre-mutant-${tag}`);
+      const post = preMigrationCopy(shape, `post-mutant-${tag}`);
       migrate(post);
       const r = replay(
-        fingerprint(pre, `${shape}-pre-mutant`, 'source'),
-        fingerprint(post, `${shape}-post-mutant`, 'replica', true),
+        fingerprint(pre, `${shape}-pre-mutant-${tag}`, 'source'),
+        fingerprint(post, `${shape}-post-mutant-${tag}`, 'replica', true),
       );
       expect(r.code).not.toBe(0);
       expect(r.out).toContain('tasks_tasks');
