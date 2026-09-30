@@ -435,8 +435,16 @@ export type EvidenceAtom =
         /** Event of the judged run (`push`, `pull_request`, …), when known. */
         event?: string;
       }>;
-      /** Tree of the merge commit — the content every recorded check tested. */
+      /** Tree of the merge commit — the content every check judged on it (or on a tree-equal PR head) tested. */
       testedTree?: string;
+      /**
+       * Later default-branch commit whose green `push` runs stood in for a
+       * required check the merge commit's own run only had cancelled or
+       * skipped (T12742). It descends from the merge commit and carries the
+       * PR's changed files as merged, or changed only by later merge commits;
+       * checks judged there record it as their `sha`.
+       */
+      descendantSha?: string;
       /** Task the PR was verified to be linked to (T12634). */
       taskId?: string;
       /** Component PR the task is linked through; its CI ran as this integration PR's (T12671). */
