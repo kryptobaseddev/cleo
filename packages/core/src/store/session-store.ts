@@ -573,7 +573,7 @@ export async function bindTerminalToSession(
  * lifecycle command.
  *
  * Skipped only when the process already carries an env session id that NAMES
- * AN EXISTING ROW (e.g. a spawned worker's `CLEO_SESSION_ID`): that identity
+ * AN ACTIVE SESSION (e.g. a spawned worker's `CLEO_SESSION_ID`): that identity
  * already governs the process, and binding would let a worker sharing its
  * harness's `CLAUDE_CODE_SESSION_ID` overwrite the orchestrator's binding. A
  * harness that exports `CLAUDE_SESSION_ID` / `AIDER_SESSION_ID` holding a
@@ -588,7 +588,10 @@ export async function bindTerminalToSession(
 export async function bindCallingTerminal(sessionId: string, cwd?: string): Promise<boolean> {
   try {
     const envId = resolveSessionIdFromEnv();
-    if (envId !== null && (await getSession(envId, cwd)) !== null) return false;
+    // T12530 review: only an ACTIVE env session governs the process. An env id
+    // naming an ended row must not stop the new session from being bound —
+    // unbound, it would block every terminal's start as unclaimed.
+    if (envId !== null && (await getSession(envId, cwd))?.status === 'active') return false;
     return (await bindTerminalToSession(sessionId, cwd)).length > 0;
   } catch {
     // Best-effort — without a binding, mutations from this terminal are
@@ -719,27 +722,47 @@ export async function resolveTerminalBoundSession(
 /** Which active sessions block the caller from starting another one (T12530). */
 export interface SessionStartConflicts {
   /**
-   * The active session the caller already OWNS — named by its daemon
-   * connection, its env session id, or a terminal binding it wrote itself —
-   * or `null`. A session an agent merely ADOPTED from a human's pane/tab is not
-   * owned: the agent may start its own alongside it.
+   * The active session the caller already OWNS, or `null`: the session its
+   * daemon connection or env session id names, or the one its own terminal
+   * binding row names. Not held: a session an agent merely ADOPTED from a
+   * human's pane/tab (the agent may start its own), and, for a caller with no
+   * provider key, a coarse row an AGENT wrote (`bound_by_provider = 1`) — the
+   * human's start only rewrites that coarse row, and must never be told to end
+   * the agent's session (T12500). Reported regardless of the candidates' scope.
    */
   readonly held: { readonly session: Session; readonly via: SessionBindingSource } | null;
   /**
-   * `true` when the caller has an identity to compare against: a connection or
-   * env session id that names a row, or at least one terminal key, and the
-   * binding table was readable. When `false` no session can be told apart from
-   * the caller's, so every candidate blocks (the pre-T12530 single-session guard).
+   * `true` when the caller has a STABLE identity to compare against: an active
+   * connection or env session, or a provider / pane / tab key from the
+   * environment, and the binding table was readable. A ppid-chain key alone does
+   * NOT count: in agent, CI, cron or `ssh host 'cleo …'` shells the walk stops
+   * at a throwaway `bash -c`, so every call gets a new key and an older session
+   * would always look like another terminal's. When `false`, every candidate
+   * blocks (the pre-T12530 single-session guard).
    */
   readonly identified: boolean;
   /**
    * Every candidate that blocks the start, the held one first: the held
-   * session, plus each session that no terminal binding names and that carries
-   * no `agentHandle` — nobody provably owns it, so it may be the caller's own
-   * (a session started before T12499, or one whose binding moved on). A session
-   * bound to ANOTHER terminal, or tagged with an agent handle, never blocks.
+   * session (when it is a candidate), plus each session that no terminal
+   * binding names and that carries no `agentHandle` — nobody provably owns it,
+   * so it may be the caller's own. A session bound to ANOTHER terminal, or
+   * tagged with an agent handle, never blocks. When {@link identified} is
+   * `false`, every candidate blocks.
    */
   readonly blocking: readonly Session[];
+}
+
+/**
+ * Whether an error means the binding schema is missing (a store opened before
+ * the T12499 / T12500 migrations), as opposed to a real read failure.
+ *
+ * @param err - The caught error (drizzle wraps the SQLite error in `cause`).
+ * @returns `true` for a missing table or column.
+ */
+function isMissingBindingSchema(err: Error): boolean {
+  const pattern = /no such (table|column)/i;
+  if (pattern.test(err.message)) return true;
+  return err.cause instanceof Error && pattern.test(err.cause.message);
 }
 
 /**
@@ -760,6 +783,8 @@ export interface SessionStartConflicts {
  * @param cwd - Working directory for DB resolution.
  * @param keys - Identity keys, most specific first (defaults to the live terminal's).
  * @returns The held session, whether the caller is identified, and the blocking set.
+ * @throws The underlying error when reading bindings fails for any reason other
+ *   than a missing binding table or column.
  * @task T12530
  */
 export async function findSessionStartConflicts(
@@ -776,38 +801,31 @@ export async function findSessionStartConflicts(
     };
     try {
       let held: SessionStartConflicts['held'] = null;
-      let identified = false;
 
       const connId = getCurrentConnectionSessionId();
-      if (connId && (await getSession(connId, scope.worktreeRoot))) {
-        identified = true;
-        const session = await activeById(connId);
-        if (session) held = { session, via: 'connection' };
-      }
+      const byConn = connId ? await activeById(connId) : null;
+      if (byConn) held = { session: byConn, via: 'connection' };
       const envId = held ? null : resolveSessionIdFromEnv();
-      if (envId && (await getSession(envId, scope.worktreeRoot))) {
-        identified = true;
-        const session = await activeById(envId);
-        if (session) held = { session, via: 'env' };
-      }
+      const byEnv = envId ? await activeById(envId) : null;
+      if (byEnv) held = { session: byEnv, via: 'env' };
+
+      // A ppid-chain key is not a stable identity (see `identified`).
+      const { provider, pane, tab } = splitTerminalKeys(keys.filter((k) => k.kind !== 'ppid'));
+      const ownKey = provider ?? pane ?? tab;
+      if (!held && !ownKey) return legacy;
 
       const db = await getDb(scope.worktreeRoot);
-      const { provider, pane, tab } = splitTerminalKeys(keys);
-      const ownKey = provider ?? pane ?? tab;
-      if (ownKey) {
-        identified = true;
-        if (!held) {
-          // resolveTerminalBinding's ownership rule, without adopting: a
-          // provider caller owns only a provider row it wrote itself; a caller
-          // without a provider key owns its pane row (or, with no pane, its tab).
-          const row = await readBinding(db, ownKey);
-          if (row && (!provider || row.boundByProvider)) {
-            const session = await activeById(row.sessionId);
-            if (session) held = { session, via: 'terminal' };
-          }
+      if (!held && ownKey) {
+        // resolveTerminalBinding's ownership rule, without adopting: a provider
+        // caller owns only a provider row it wrote itself; a caller without a
+        // provider key owns its pane row (or, with no pane, its tab) unless an
+        // agent wrote it.
+        const row = await readBinding(db, ownKey);
+        if (row && (provider ? row.boundByProvider : !row.boundByProvider)) {
+          const session = await activeById(row.sessionId);
+          if (session) held = { session, via: 'terminal' };
         }
       }
-      if (!identified) return legacy;
 
       const claimed = new Set<string>();
       if (candidates.length > 0) {
@@ -833,10 +851,11 @@ export async function findSessionStartConflicts(
         identified: true,
         blocking: heldCandidate ? [heldCandidate, ...unclaimed] : unclaimed,
       };
-    } catch {
-      // A store opened before the T12499 migration lacks the binding table:
-      // with no way to tell sessions apart, keep the single-session guard.
-      return legacy;
+    } catch (err) {
+      // Only a store opened before the T12499 migration (no binding table or
+      // column) falls back to the single-session guard; anything else is real.
+      if (err instanceof Error && isMissingBindingSchema(err)) return legacy;
+      throw err;
     }
   });
 }

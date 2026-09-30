@@ -39,8 +39,9 @@ vi.mock('../../injection.js', () => ({
 }));
 
 import { CleoError } from '../../errors.js';
-import { sessionStart } from '../../session/engine-ops.js';
+import { sessionEnd, sessionStart } from '../../session/engine-ops.js';
 import {
+  bindTerminalToSession,
   findSessionStartConflicts,
   getSession,
   resolveBoundSessionId,
@@ -49,7 +50,7 @@ import {
 } from '../../store/session-store.js';
 import { startSession } from '../index.js';
 import { SESSION_ENV_KEY_PRECEDENCE } from '../session-id.js';
-import { TERMINAL_KEY_SOURCES } from '../terminal-identity.js';
+import { TERMINAL_KEY_SOURCES, type TerminalKey } from '../terminal-identity.js';
 
 /** Every env var the resolvers read — cleared so the host terminal cannot leak in. */
 const IDENTITY_ENV_VARS: readonly string[] = [
@@ -233,6 +234,83 @@ describe('SDK startSession (T12530)', () => {
     await expect(again).rejects.toBeInstanceOf(CleoError);
     await expect(
       inTerminal(TAB_A, () => startSession(tempDir, { name: 'a3', scope: 'global' })),
-    ).rejects.toThrow(`Active session already exists for scope global: ${a.id}`);
+    ).rejects.toThrow(`This terminal already has an active session (${a.id}`);
+  });
+});
+
+describe('review fixes (T12530 review of #1748)', () => {
+  const ppidKey = (pid: number): TerminalKey => ({
+    key: `ppid:${pid}@Tue Sep 30 12:00:00 2026`,
+    source: 'ppid',
+    kind: 'ppid',
+  });
+
+  it('HIGH-1: a ppid-only key does not identify the caller, so an older session still blocks', async () => {
+    const s = await startFrom(TAB_A, 'from-bash-c');
+    const id = s.data!.id;
+    // As if started from a throwaway `bash -c` whose pid is now gone.
+    await unbindSessionTerminals(id, tempDir);
+    await bindTerminalToSession(id, tempDir, [ppidKey(100)]);
+    const active = [(await getSession(id, tempDir)) as Session];
+
+    const next = await inTerminal({}, () =>
+      findSessionStartConflicts(active, tempDir, [ppidKey(101)]),
+    );
+    expect(next.identified).toBe(false);
+    expect(next.blocking.map((x) => x.id)).toEqual([id]);
+  });
+
+  it('HIGH-2: SDK — a session this terminal holds blocks in ANY scope', async () => {
+    const g = await inTerminal(TAB_A, () => startSession(tempDir, { name: 'g', scope: 'global' }));
+    await expect(
+      inTerminal(TAB_A, () => startSession(tempDir, { name: 'e', scope: 'epic:T1' })),
+    ).rejects.toThrow(`This terminal already has an active session (${g.id}`);
+    // G is still TAB_A's, so another terminal is not blocked by it.
+    expect(await inTerminal(TAB_A, () => resolveBoundSessionId(tempDir))).toBe(g.id);
+    const b = await startFrom(TAB_B, 'b');
+    expect(b.error?.message).toBeUndefined();
+    expect(b.success).toBe(true);
+  });
+
+  it('MEDIUM-3: a human in a tab where an agent started a session starts their own, without end advice', async () => {
+    const agent = await startFrom({ ...TAB_A, ...CLAUDE_1 }, 'agent');
+    expect(agent.success).toBe(true);
+    const human = await startFrom(TAB_A, 'human');
+    expect(human.error?.message).toBeUndefined();
+    expect(human.success).toBe(true);
+    expect(await inTerminal(TAB_A, () => resolveBoundSessionId(tempDir))).toBe(human.data!.id);
+    expect(await inTerminal({ ...TAB_A, ...CLAUDE_1 }, () => resolveBoundSessionId(tempDir))).toBe(
+      agent.data!.id,
+    );
+    expect((await getSession(agent.data!.id, tempDir))?.status).toBe('active');
+  });
+
+  it('MEDIUM-4: an env id naming an ENDED session does not stop the new session from binding', async () => {
+    const old = await startFrom(TAB_B, 'old');
+    const oldId = old.data!.id;
+    const ended = await inTerminal(TAB_B, () =>
+      sessionEnd(tempDir, undefined, { sessionId: oldId }),
+    );
+    expect(ended.success).toBe(true);
+
+    const fresh = await startFrom({ ...TAB_A, CLEO_SESSION_ID: oldId }, 'fresh');
+    expect(fresh.success).toBe(true);
+    expect((await inTerminal(TAB_A, () => resolveTerminalBoundSession(tempDir)))?.id).toBe(
+      fresh.data!.id,
+    );
+    // Bound, so it does not block another terminal as unclaimed.
+    expect((await startFrom(TAB_B, 'b')).success).toBe(true);
+  });
+
+  it('LOW-6: activeSessionCount stays the total; blockingSessionCount counts blockers; gc hint uses the total', async () => {
+    expect((await startFrom(TAB_A, 'a')).success).toBe(true);
+    const orphan = await startFrom(PANE_A, 'orphan');
+    await unbindSessionTerminals(orphan.data!.id, tempDir);
+
+    const res = await startFrom(TAB_B, 'b');
+    expect(res.error?.code).toBe('E_SESSION_CONFLICT');
+    expect(res.error?.details?.activeSessionCount).toBe(2);
+    expect(res.error?.details?.blockingSessionCount).toBe(1);
+    expect(res.error?.message).toContain('session gc');
   });
 });

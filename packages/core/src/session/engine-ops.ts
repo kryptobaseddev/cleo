@@ -527,6 +527,8 @@ const HELD_VIA_LABEL: Readonly<Record<SessionBindingSource, string>> = {
  *
  * @param held - The session the caller owns, when that is what blocks.
  * @param blocking - Every blocking session, `held` first (never empty).
+ * @param activeCount - Every active session in the project (reported as
+ *   `activeSessionCount`; drives the `session gc` hint).
  * @param agentHandle - The `--agent` handle the start asked for, if any.
  * @returns The engine error envelope.
  * @task T12530
@@ -534,9 +536,10 @@ const HELD_VIA_LABEL: Readonly<Record<SessionBindingSource, string>> = {
 function sessionStartConflictError(
   held: SessionStartConflicts['held'],
   blocking: readonly Session[],
+  activeCount: number,
   agentHandle: string | undefined,
 ): EngineResult<Session> {
-  const count = blocking.length;
+  const counts = { activeSessionCount: activeCount, blockingSessionCount: blocking.length };
   if (held) {
     const id = held.session.id;
     return engineError(
@@ -546,7 +549,7 @@ function sessionStartConflictError(
         `first with 'cleo session end', or start another alongside it with '--agent <handle>'.`,
       {
         fix: `Continue in ${id}, or run 'cleo session end' and then start a new session.`,
-        details: { activeSessionId: id, activeSessionCount: count, heldVia: held.via },
+        details: { activeSessionId: id, ...counts, heldVia: held.via },
       },
     );
   }
@@ -561,10 +564,10 @@ function sessionStartConflictError(
   // T12308: sessions leak active — an agent that crashes never ends its own.
   // Past one, name the count and `session gc` instead of a per-session drain.
   const bulk =
-    count > 1
-      ? ` ${count} sessions are currently active. Stale ones (older than a day) can be ` +
+    activeCount > 1
+      ? ` ${activeCount} sessions are currently active. Stale ones (older than a day) can be ` +
         `cleared with 'cleo session gc --max-age 1'; list them with ` +
-        `'cleo session list --status active --limit ${count}'.`
+        `'cleo session list --status active --limit ${activeCount}'.`
       : '';
   return engineError(
     'E_SESSION_CONFLICT',
@@ -573,8 +576,8 @@ function sessionStartConflictError(
       fix:
         `Run 'cleo session start --agent <handle> …' to start your own session, or ` +
         `'cleo session resume ${conflictId}' if it is yours. Do not end another agent's session.` +
-        (count > 1 ? ` Stale backlog: 'cleo session gc --max-age 1'.` : ''),
-      details: { activeSessionId: conflictId, activeSessionCount: count },
+        (activeCount > 1 ? ` Stale backlog: 'cleo session gc --max-age 1'.` : ''),
+      details: { activeSessionId: conflictId, ...counts },
     },
   );
 }
@@ -642,7 +645,12 @@ export async function sessionStart(
       ? { held: null, blocking: allActive.filter((s) => s.agentHandle === params.agentHandle) }
       : await findSessionStartConflicts(allActive, projectRoot);
     if (conflict.blocking.length > 0) {
-      return sessionStartConflictError(conflict.held, conflict.blocking, params.agentHandle);
+      return sessionStartConflictError(
+        conflict.held,
+        conflict.blocking,
+        allActive.length,
+        params.agentHandle,
+      );
     }
 
     const now = new Date().toISOString();
