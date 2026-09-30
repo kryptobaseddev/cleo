@@ -17,6 +17,8 @@ import {
   sessionStatus,
   startSession,
 } from '../index.js';
+import { SESSION_ENV_KEY_PRECEDENCE } from '../session-id.js';
+import { TERMINAL_KEY_SOURCES } from '../terminal-identity.js';
 
 describe('parseScope', () => {
   it('parses global scope', () => {
@@ -40,6 +42,15 @@ describe('Session lifecycle', () => {
     // Each test owns a fresh store at the explicitly supplied project root.
     vi.stubEnv('CLEO_ROOT', undefined);
     vi.stubEnv('CLEO_DIR', undefined);
+    // T12530: this process has NO terminal identity (only the ppid fallback,
+    // which does not identify a caller), so the SDK applies the scope-based
+    // single-session guard. Clear the host terminal's keys so the result does
+    // not depend on where the suite runs.
+    for (const s of TERMINAL_KEY_SOURCES) {
+      vi.stubEnv(s.envVar, undefined);
+      if (s.qualifierEnvVar) vi.stubEnv(s.qualifierEnvVar, undefined);
+    }
+    for (const name of SESSION_ENV_KEY_PRECEDENCE) vi.stubEnv(name, undefined);
     tempDir = await mkdtemp(join(tmpdir(), 'cleo-test-'));
     cleoDir = join(tempDir, '.cleo');
     await mkdir(cleoDir, { recursive: true });

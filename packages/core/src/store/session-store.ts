@@ -12,7 +12,7 @@
 
 import type { Session } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
-import { and, desc, eq, isNull, lte, or } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, lte, or } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
 import { captureProjectScope, getProjectRoot, worktreeScope } from '../project-scope.js';
 import { getCurrentConnectionSessionId } from '../sessions/connection-session-handle.js';
@@ -573,7 +573,7 @@ export async function bindTerminalToSession(
  * lifecycle command.
  *
  * Skipped only when the process already carries an env session id that NAMES
- * AN EXISTING ROW (e.g. a spawned worker's `CLEO_SESSION_ID`): that identity
+ * AN ACTIVE SESSION (e.g. a spawned worker's `CLEO_SESSION_ID`): that identity
  * already governs the process, and binding would let a worker sharing its
  * harness's `CLAUDE_CODE_SESSION_ID` overwrite the orchestrator's binding. A
  * harness that exports `CLAUDE_SESSION_ID` / `AIDER_SESSION_ID` holding a
@@ -588,7 +588,10 @@ export async function bindTerminalToSession(
 export async function bindCallingTerminal(sessionId: string, cwd?: string): Promise<boolean> {
   try {
     const envId = resolveSessionIdFromEnv();
-    if (envId !== null && (await getSession(envId, cwd)) !== null) return false;
+    // T12530 review: only an ACTIVE env session governs the process. An env id
+    // naming an ended row must not stop the new session from being bound —
+    // unbound, it would block every terminal's start as unclaimed.
+    if (envId !== null && (await getSession(envId, cwd))?.status === 'active') return false;
     return (await bindTerminalToSession(sessionId, cwd)).length > 0;
   } catch {
     // Best-effort — without a binding, mutations from this terminal are
@@ -714,6 +717,147 @@ export async function resolveTerminalBoundSession(
   keys: readonly TerminalKey[] = resolveTerminalKeys(),
 ): Promise<Session | null> {
   return (await resolveTerminalBinding(cwd, keys))?.session ?? null;
+}
+
+/** Which active sessions block the caller from starting another one (T12530). */
+export interface SessionStartConflicts {
+  /**
+   * The active session the caller already OWNS, or `null`: the session its
+   * daemon connection or env session id names, or the one its own terminal
+   * binding row names. Not held: a session an agent merely ADOPTED from a
+   * human's pane/tab (the agent may start its own), and, for a caller with no
+   * provider key, a coarse row an AGENT wrote (`bound_by_provider = 1`) — the
+   * human's start only rewrites that coarse row, and must never be told to end
+   * the agent's session (T12500). Reported regardless of the candidates' scope.
+   */
+  readonly held: { readonly session: Session; readonly via: SessionBindingSource } | null;
+  /**
+   * `true` when the caller has a STABLE identity to compare against: an active
+   * connection or env session, or a provider / pane / tab key from the
+   * environment, and the binding table was readable. A ppid-chain key alone does
+   * NOT count: in agent, CI, cron or `ssh host 'cleo …'` shells the walk stops
+   * at a throwaway `bash -c`, so every call gets a new key and an older session
+   * would always look like another terminal's. When `false`, every candidate
+   * blocks (the pre-T12530 single-session guard).
+   */
+  readonly identified: boolean;
+  /**
+   * Every candidate that blocks the start, the held one first: the held
+   * session (when it is a candidate), plus each session that no terminal
+   * binding names and that carries no `agentHandle` — nobody provably owns it,
+   * so it may be the caller's own. A session bound to ANOTHER terminal, or
+   * tagged with an agent handle, never blocks. When {@link identified} is
+   * `false`, every candidate blocks.
+   */
+  readonly blocking: readonly Session[];
+}
+
+/**
+ * Whether an error means the binding schema is missing (a store opened before
+ * the T12499 / T12500 migrations), as opposed to a real read failure.
+ *
+ * @param err - The caught error (drizzle wraps the SQLite error in `cause`).
+ * @returns `true` for a missing table or column.
+ */
+function isMissingBindingSchema(err: Error): boolean {
+  const pattern = /no such (table|column)/i;
+  if (pattern.test(err.message)) return true;
+  return err.cause instanceof Error && pattern.test(err.cause.message);
+}
+
+/**
+ * Decide which active sessions block `session start` from the calling
+ * terminal (T12530 · epic T12497).
+ *
+ * Before T12530 the start guard refused whenever ANY session was active, so a
+ * second terminal needed `--agent <handle>` even though T12499 already gave it
+ * its own identity. The guard now conflicts only with a session the caller
+ * already owns — the SAME terminal key (or env / connection identity) — and
+ * with sessions nobody provably owns. Sessions bound to other terminals are
+ * theirs, and starting here never touches them.
+ *
+ * Read-only: unlike {@link resolveTerminalBinding} this never writes an
+ * adoption row.
+ *
+ * @param candidates - Active sessions to classify (the caller pre-filters by status / scope).
+ * @param cwd - Working directory for DB resolution.
+ * @param keys - Identity keys, most specific first (defaults to the live terminal's).
+ * @returns The held session, whether the caller is identified, and the blocking set.
+ * @throws The underlying error when reading bindings fails for any reason other
+ *   than a missing binding table or column.
+ * @task T12530
+ */
+export async function findSessionStartConflicts(
+  candidates: readonly Session[],
+  cwd?: string,
+  keys: readonly TerminalKey[] = resolveTerminalKeys(),
+): Promise<SessionStartConflicts> {
+  const legacy: SessionStartConflicts = { held: null, identified: false, blocking: candidates };
+  const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    const activeById = async (id: string): Promise<Session | null> => {
+      const session = await getSession(id, scope.worktreeRoot);
+      return session && session.status === 'active' ? session : null;
+    };
+    try {
+      let held: SessionStartConflicts['held'] = null;
+
+      const connId = getCurrentConnectionSessionId();
+      const byConn = connId ? await activeById(connId) : null;
+      if (byConn) held = { session: byConn, via: 'connection' };
+      const envId = held ? null : resolveSessionIdFromEnv();
+      const byEnv = envId ? await activeById(envId) : null;
+      if (byEnv) held = { session: byEnv, via: 'env' };
+
+      // A ppid-chain key is not a stable identity (see `identified`).
+      const { provider, pane, tab } = splitTerminalKeys(keys.filter((k) => k.kind !== 'ppid'));
+      const ownKey = provider ?? pane ?? tab;
+      if (!held && !ownKey) return legacy;
+
+      const db = await getDb(scope.worktreeRoot);
+      if (!held && ownKey) {
+        // resolveTerminalBinding's ownership rule, without adopting: a provider
+        // caller owns only a provider row it wrote itself; a caller without a
+        // provider key owns its pane row (or, with no pane, its tab) unless an
+        // agent wrote it.
+        const row = await readBinding(db, ownKey);
+        if (row && (provider ? row.boundByProvider : !row.boundByProvider)) {
+          const session = await activeById(row.sessionId);
+          if (session) held = { session, via: 'terminal' };
+        }
+      }
+
+      const claimed = new Set<string>();
+      if (candidates.length > 0) {
+        const rows = await db
+          .select({ sessionId: sessionTerminalBindings.sessionId })
+          .from(sessionTerminalBindings)
+          .where(
+            inArray(
+              sessionTerminalBindings.sessionId,
+              candidates.map((s) => s.id),
+            ),
+          )
+          .all();
+        for (const r of rows) claimed.add(r.sessionId);
+      }
+      const heldId = held?.session.id;
+      const heldCandidate = candidates.find((s) => s.id === heldId);
+      const unclaimed = candidates.filter(
+        (s) => s.id !== heldId && !claimed.has(s.id) && !s.agentHandle,
+      );
+      return {
+        held,
+        identified: true,
+        blocking: heldCandidate ? [heldCandidate, ...unclaimed] : unclaimed,
+      };
+    } catch (err) {
+      // Only a store opened before the T12499 migration (no binding table or
+      // column) falls back to the single-session guard; anything else is real.
+      if (err instanceof Error && isMissingBindingSchema(err)) return legacy;
+      throw err;
+    }
+  });
 }
 
 /**

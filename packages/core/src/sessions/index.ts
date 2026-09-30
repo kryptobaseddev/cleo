@@ -23,6 +23,7 @@ import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import {
   bindCallingTerminal,
+  findSessionStartConflicts,
   requireOwnedSessionForEnd,
   resolveBoundSession,
   sessionLastSeenMs,
@@ -132,22 +133,30 @@ export async function startSession(
   const scope = parseScope(params.scope);
   const sessions = await readSessions(projectRoot, accessor);
 
-  // Check for conflicting active sessions
-  const activeSessions = sessions.filter((s: Session) => s.status === 'active');
-  for (const active of activeSessions) {
-    if (active.scope.type === scope.type && active.scope.epicId === scope.epicId) {
-      throw new CleoError(
-        ExitCode.SCOPE_CONFLICT,
-        `Active session already exists for scope ${params.scope}: ${active.id}`,
-        {
-          fix: `Resume with 'cleo session resume ${active.id}' or end it first`,
-          alternatives: [
-            { action: 'Resume existing', command: `cleo session resume ${active.id}` },
-            { action: 'End existing', command: `cleo session end` },
-          ],
-        },
-      );
-    }
+  // Start guard (T12530). A session this terminal already OWNS blocks in ANY
+  // scope: starting another would move the terminal's binding and orphan it.
+  // Scope narrows only which UNOWNED sessions block — a same-scope session no
+  // binding names may be the caller's own. A session another terminal owns
+  // never blocks.
+  const active = sessions.filter((s: Session) => s.status === 'active');
+  const { held, blocking } = await findSessionStartConflicts(active, projectRoot);
+  const blocker =
+    held?.session ??
+    blocking.find((s) => s.scope.type === scope.type && s.scope.epicId === scope.epicId);
+  if (blocker) {
+    const message = held
+      ? `This terminal already has an active session (${blocker.id}, scope ` +
+        `${blocker.scope.type === 'epic' ? `epic:${blocker.scope.epicId}` : 'global'}); ` +
+        `a second session started here would take over its binding`
+      : `Active session already exists for scope ${params.scope}: ${blocker.id}`;
+    throw new CleoError(ExitCode.SCOPE_CONFLICT, message, {
+      fix: held
+        ? `Continue in ${blocker.id}, or end it first with 'cleo session end'`
+        : `Resume with 'cleo session resume ${blocker.id}' if it is yours`,
+      alternatives: held
+        ? [{ action: 'End your session', command: 'cleo session end' }]
+        : [{ action: 'Resume existing', command: `cleo session resume ${blocker.id}` }],
+    });
   }
 
   // Auto-detect runtime provider for session tracking (T5240)

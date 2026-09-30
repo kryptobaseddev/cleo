@@ -73,6 +73,20 @@ vi.mock('../session-id.js', () => ({
   generateSessionId: vi.fn().mockReturnValue('ses-test-scope-001'),
 }));
 
+// T12530: the accessor is mocked, so there is no binding store to read; treat
+// the caller as unidentified (the single-session guard).
+vi.mock('../../store/session-store.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../store/session-store.js')>();
+  return {
+    ...actual,
+    findSessionStartConflicts: vi.fn(async (candidates: readonly Session[]) => ({
+      held: null,
+      identified: false,
+      blocking: candidates,
+    })),
+  };
+});
+
 vi.mock('../../task-work/index.js', () => ({
   currentTask: vi.fn(),
   startTask: vi.fn(),
