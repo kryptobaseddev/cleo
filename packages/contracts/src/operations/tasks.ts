@@ -1616,7 +1616,13 @@ export interface TasksUpdateQueryParams {
   /**
    * Optimistic-concurrency guard: the task `updatedAt` the caller read. When
    * the stored version differs, the update fails with `E_CONFLICT` and the
-   * current version, instead of overwriting a newer write. @task T12503
+   * current version, instead of overwriting a newer write. When sync
+   * re-numbered the task the caller read (a display-id collision) and the
+   * version is exactly the one it had under this id, the update fails with
+   * `E_TASK_RENAMED` (exit 26) instead, `details.expected` naming the task's
+   * new id; nothing is written to the task that holds the id now.
+   * @task T12503
+   * @task T12800
    */
   expectedUpdatedAt?: string;
 }
@@ -1702,8 +1708,11 @@ export interface TasksCompleteQueryParams {
   /**
    * Optimistic-concurrency guard (`--if-match`): the task `updatedAt` the
    * caller read. When the stored version differs, completion fails with
-   * `E_CONFLICT` carrying the current version and the changed fields.
+   * `E_CONFLICT` carrying the current version and the changed fields, or
+   * with `E_TASK_RENAMED` (exit 26, `details.expected` = the new id) when
+   * sync re-numbered the task the caller read.
    * @task T12503
+   * @task T12800
    */
   expectedUpdatedAt?: string;
 }
