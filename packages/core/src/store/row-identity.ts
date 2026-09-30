@@ -1462,6 +1462,50 @@ export function markRowIdentityShared(
   );
 }
 
+/**
+ * Re-create the row-identity SCHEMA a store should have, on every open,
+ * whatever the fill flag (T12878). DDL only: the identity tables, the
+ * graveyard trigger, the columns an early table lacks, the uid columns and
+ * their indexes. No row value is read or written. A store whose uid migration
+ * was journaled without running its statements (journal Scenario 3 Case A:
+ * live cleocode under 9.25, spec §12.2) gets the full schema here; the fill,
+ * refill and TEMP triggers stay opt-in ({@link prepareRowIdentity}).
+ *
+ * Never throws: a failure is logged and the open continues.
+ *
+ * @param db - Connection on a `cleo.db`, inside the cold-open lease.
+ * @param scope - The store's scope.
+ * @returns The DDL statements it ran (empty when the schema was complete).
+ * @task T12878
+ */
+export function healRowIdentitySchema(db: DatabaseSync, scope: TableScope): string[] {
+  if (ROW_IDENTITY[scope].length === 0) return [];
+  try {
+    db.exec('SAVEPOINT row_identity_heal');
+    try {
+      const healed = [
+        ...(scope === 'project' ? ensureIdentityTables(db) : []),
+        ...ensureRowIdentitySchema(db, scope),
+      ];
+      db.exec('RELEASE SAVEPOINT row_identity_heal');
+      if (healed.length > 0) {
+        getLogger('row-identity').info(
+          { scope, healed: healed.length },
+          'row identity schema healed',
+        );
+      }
+      return healed;
+    } catch (error) {
+      db.exec('ROLLBACK TO SAVEPOINT row_identity_heal');
+      db.exec('RELEASE SAVEPOINT row_identity_heal');
+      throw error;
+    }
+  } catch (error) {
+    getLogger('row-identity').error({ scope, error }, 'row identity schema heal failed');
+    return [];
+  }
+}
+
 export function prepareRowIdentity(
   db: DatabaseSync,
   scope: TableScope,
