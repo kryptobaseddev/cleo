@@ -1491,7 +1491,7 @@ export async function orchestrateSpawn(
     if (effectiveTierForConduit >= 1) {
       try {
         const { deriveConduitSubscription } = await import('../orchestration/wave-topic.js');
-        conduitSubscription = await deriveConduitSubscription(taskId, accessor);
+        conduitSubscription = await deriveConduitSubscription(taskId, accessor, root);
       } catch {
         // Best-effort: CONDUIT config derivation must never block spawn.
       }

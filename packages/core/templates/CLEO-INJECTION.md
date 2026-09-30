@@ -1,6 +1,6 @@
 # CLEO Protocol
 
-Version: 2.24.1 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.24.3 | CLI-only dispatch | `cleo <command> [args]`
 
 <!-- CLEO-INJECTION:section=session-start -->
 ## Universal protocol
@@ -71,7 +71,7 @@ Discovery: `cleo focus <id>` to orient, `cleo find "query"` to search (default p
 | Start session | `cleo session start --scope global --name "<what you are doing>"` (both flags are REQUIRED) |
 | End session | `cleo session end --note "..."` |
 
-Sessions are terminal-bound. `E_SESSION_UNBOUND` → bind via `cleo session start`, `cleo session resume <id>` or `CLEO_SESSION_ID=<id>`, or pass `--session <id>`; CI and multi-step scripts must export `CLEO_SESSION_ID`. Claude Code adopts a session a human started in its tab; Agent-tool subagents inherit the parent's `CLAUDE_CODE_SESSION_ID`, so they act in the parent's session.
+Sessions are terminal-bound: to the agent harness, pane, tab, CI job (GitHub Actions, GitLab CI) or ssh login, and to a known single-agent harness process (Kimi, aider, …) across its `bash -c` calls; in a human's tab it gets its own identity and runs `cleo session start` itself. Other hosts (orchestrators, IDE extension hosts, `opencode serve`, daemons) identify nobody: multi-agent hosts and multi-step scripts set `CLEO_SESSION_ID` (or `CLEO_AGENT_ID` in a long-lived host only) per agent. `E_SESSION_UNBOUND` → bind via `cleo session start`, `cleo session resume <id>` or `CLEO_SESSION_ID=<id>`, or pass `--session <id>`; separate one-shot `ssh host 'cleo …'` calls must export `CLEO_SESSION_ID`. Claude Code adopts a session a human started in its tab; Agent-tool subagents inherit the parent's `CLAUDE_CODE_SESSION_ID`, so they act in the parent's session.
 <!-- /CLEO-INJECTION:section=session-commands -->
 
 <!-- CLEO-INJECTION:section=output-contract -->

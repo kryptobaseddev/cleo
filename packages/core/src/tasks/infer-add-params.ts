@@ -214,7 +214,7 @@ export async function inferTaskAddParams(
   if (!input.parentRaw && input.type !== 'epic') {
     try {
       const accessor = await getTaskAccessor(projectRoot);
-      const focusResult = await currentTask(undefined, accessor);
+      const focusResult = await currentTask(projectRoot, accessor);
       const candidateId = focusResult.currentTask;
 
       if (!candidateId) {

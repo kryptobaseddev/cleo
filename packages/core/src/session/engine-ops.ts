@@ -60,11 +60,14 @@ import { appendSessionJournalEntry } from '../sessions/session-journal.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import {
   bindCallingTerminal,
+  findSessionStartConflicts,
   hasActiveSession,
   resolveBoundSession,
   resolveSessionForRead,
   SESSION_UNBOUND_ALTERNATIVES,
   SESSION_UNBOUND_FIX,
+  type SessionBindingSource,
+  type SessionStartConflicts,
   sessionAdoptedEndMessage,
   sessionUnboundMessage,
   unbindSessionTerminals,
@@ -379,7 +382,7 @@ export async function taskCurrentGet(projectRoot: string): Promise<
 > {
   try {
     const accessor = await getTaskAccessor(projectRoot);
-    const result = await currentTask(undefined, accessor);
+    const result = await currentTask(projectRoot, accessor);
     if (!result.staleFocus)
       return engineSuccess({
         currentTask: result.currentTask,
@@ -456,10 +459,12 @@ export async function taskStop(
 ): Promise<EngineResult<{ cleared: boolean; previousTask: string | null }>> {
   try {
     const accessor = await getTaskAccessor(projectRoot);
-    const result = await stopTask(undefined, accessor);
+    // T12501: resolve the caller's session from the project root, not the
+    // process cwd, and surface a refusal (E_SESSION_UNBOUND) as itself.
+    const result = await stopTask(projectRoot, accessor);
     return engineSuccess({ cleared: true, previousTask: result.previousTask });
-  } catch {
-    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
+  } catch (err) {
+    return toEngineError(err, 'E_NOT_INITIALIZED', 'Failed to stop task');
   }
 }
 
@@ -476,7 +481,7 @@ export async function taskWorkHistory(
 ): Promise<EngineResult<{ history: TaskWorkHistoryEntry[]; count: number }>> {
   try {
     const accessor = await getTaskAccessor(projectRoot);
-    const history = await getTaskHistory(undefined, accessor);
+    const history = await getTaskHistory(projectRoot, accessor);
     return engineSuccess({ history, count: history.length });
   } catch {
     return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
@@ -503,6 +508,80 @@ async function isCallerUnbound(projectRoot: string, explicitSessionId?: string):
   } catch {
     return false;
   }
+}
+
+/** Wording of the identity that holds the caller's session, per binding tier (T12530). */
+const HELD_VIA_LABEL: Readonly<Record<SessionBindingSource, string>> = {
+  terminal: 'This terminal',
+  env: 'This process (its session environment variable)',
+  connection: 'This daemon connection',
+};
+
+/**
+ * Build the `E_SESSION_CONFLICT` refusal for `session start` (T9975 · T12308 · T12530).
+ *
+ * - **held**: the caller already owns an active session (same terminal key, env
+ *   or connection identity). It is the caller's own, so ending it is safe advice.
+ * - **agent handle**: an active session already carries the requested handle.
+ * - **unowned**: active sessions no terminal binding names. They may be the
+ *   caller's own or another agent's, so the advice never says "end it"; past
+ *   one it names the count and `session gc` (T12308).
+ *
+ * @param held - The session the caller owns, when that is what blocks.
+ * @param blocking - Every blocking session, `held` first (never empty).
+ * @param activeCount - Every active session in the project (reported as
+ *   `activeSessionCount`; drives the `session gc` hint).
+ * @param agentHandle - The `--agent` handle the start asked for, if any.
+ * @returns The engine error envelope.
+ * @task T12530
+ */
+function sessionStartConflictError(
+  held: SessionStartConflicts['held'],
+  blocking: readonly Session[],
+  activeCount: number,
+  agentHandle: string | undefined,
+): EngineResult<Session> {
+  const counts = { activeSessionCount: activeCount, blockingSessionCount: blocking.length };
+  if (held) {
+    const id = held.session.id;
+    return engineError(
+      'E_SESSION_CONFLICT',
+      `${HELD_VIA_LABEL[held.via]} already has an active session (${id}); a second ` +
+        `session started here would take over its binding. Keep working in it, end it ` +
+        `first with 'cleo session end', or start another alongside it with '--agent <handle>'.`,
+      {
+        fix: `Continue in ${id}, or run 'cleo session end' and then start a new session.`,
+        details: { activeSessionId: id, ...counts, heldVia: held.via },
+      },
+    );
+  }
+  const conflictId = blocking[0]?.id ?? 'unknown';
+  const handleSuffix = agentHandle ? ` for agent '${agentHandle}'` : '';
+  // T12500 review: never advise ending the blocker — from a second agent that
+  // is a scripted way to end SOMEONE ELSE's session. Lead with starting your
+  // own (`--agent`) or adopting it if it really is yours.
+  const own =
+    ` Start your own session alongside it with '--agent <handle>', or, if it is ` +
+    `yours, bind it here with 'cleo session resume ${conflictId}'.`;
+  // T12308: sessions leak active — an agent that crashes never ends its own.
+  // Past one, name the count and `session gc` instead of a per-session drain.
+  const bulk =
+    activeCount > 1
+      ? ` ${activeCount} sessions are currently active. Stale ones (older than a day) can be ` +
+        `cleared with 'cleo session gc --max-age 1'; list them with ` +
+        `'cleo session list --status active --limit ${activeCount}'.`
+      : '';
+  return engineError(
+    'E_SESSION_CONFLICT',
+    `An active session already exists${handleSuffix} (${conflictId}).${own}${bulk}`,
+    {
+      fix:
+        `Run 'cleo session start --agent <handle> …' to start your own session, or ` +
+        `'cleo session resume ${conflictId}' if it is yours. Do not end another agent's session.` +
+        (activeCount > 1 ? ` Stale backlog: 'cleo session gc --max-age 1'.` : ''),
+      details: { activeSessionId: conflictId, ...counts },
+    },
+  );
 }
 
 /**
@@ -556,62 +635,24 @@ export async function sessionStart(
       }
     }
 
-    // T9975: Guard — reject if an active session already exists for the same agent handle.
-    // When --agent <handle> is provided, the conflict is scoped per-handle so that N
-    // concurrent worktree agents can each have their own active session.
-    // When no handle is provided, fall back to the original single-session guard.
-    const existingActive = await accessor.getActiveSession(); // get-active-session-allowed: existence scan for the start guard — the row is named in the error, never acted on
-    if (existingActive) {
-      const conflictsByHandle = params.agentHandle
-        ? // Per-handle conflict: only block if the same handle already has an active session
-          (await accessor.loadSessions()).filter(
-            (s: Session) => s.status === 'active' && s.agentHandle === params.agentHandle,
-          )
-        : [existingActive];
-
-      if (conflictsByHandle.length > 0) {
-        const conflictId = conflictsByHandle[0]!.id;
-        const handleSuffix = params.agentHandle ? ` for agent '${params.agentHandle}'` : '';
-
-        // T12308: `session end` ends ONE session, so naming a single blocker
-        // and saying "end it first" is only a fix when there IS one. Sessions
-        // leak active — an agent that crashes never ends its own — and the
-        // count reached 70 in this repo, some four months old. Following the
-        // old advice ended one, and the next `start` named a different id,
-        // with no count and no enumeration: a 70-step drain loop presented as
-        // a one-step fix. `session list` did not help either, because its
-        // default page is ten rows ordered oldest-first.
-        //
-        // Count the backlog and, past one, name `session gc` — which already
-        // existed and already does exactly this, and which nothing pointed at.
-        const allActive = (await accessor.loadSessions()).filter(
-          (s: Session) => s.status === 'active',
-        );
-        const stale = allActive.length;
-        // T12500 review: never advise ending the blocker — from a second agent
-        // that is a scripted way to end SOMEONE ELSE's session. Lead with
-        // starting your own (`--agent`) or adopting it if it really is yours.
-        const own =
-          ` Start your own session alongside it with '--agent <handle>', or, if it is ` +
-          `yours, bind it here with 'cleo session resume ${conflictId}'.`;
-        const bulk =
-          stale > 1
-            ? ` ${stale} sessions are currently active. Stale ones (older than a day) can be ` +
-              `cleared with 'cleo session gc --max-age 1'; list them with ` +
-              `'cleo session list --status active --limit ${stale}'.`
-            : '';
-        return engineError(
-          'E_SESSION_CONFLICT',
-          `An active session already exists${handleSuffix} (${conflictId}).${own}${bulk}`,
-          {
-            fix:
-              `Run 'cleo session start --agent <handle> …' to start your own session, or ` +
-              `'cleo session resume ${conflictId}' if it is yours. Do not end another agent's session.` +
-              (stale > 1 ? ` Stale backlog: 'cleo session gc --max-age 1'.` : ''),
-            details: { activeSessionId: conflictId, activeSessionCount: stale },
-          },
-        );
-      }
+    // Start guard (T9975 · T12530).
+    // - With `--agent <handle>` the conflict is scoped per handle, so N
+    //   concurrent worktree agents can each hold their own session.
+    // - Without a handle it is scoped per TERMINAL (T12530): only a session the
+    //   caller already owns (same terminal key, env or connection identity), or
+    //   one nobody provably owns, blocks. A session another terminal started is
+    //   that terminal's, so a second terminal starts its own without `--agent`.
+    const allActive = (await accessor.loadSessions()).filter((s: Session) => s.status === 'active');
+    const conflict = params.agentHandle
+      ? { held: null, blocking: allActive.filter((s) => s.agentHandle === params.agentHandle) }
+      : await findSessionStartConflicts(allActive, projectRoot);
+    if (conflict.blocking.length > 0) {
+      return sessionStartConflictError(
+        conflict.held,
+        conflict.blocking,
+        allActive.length,
+        params.agentHandle,
+      );
     }
 
     const now = new Date().toISOString();

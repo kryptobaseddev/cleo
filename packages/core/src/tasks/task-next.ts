@@ -179,14 +179,17 @@ export async function rankReadyTasks(
  *
  * @param accessor - Task data accessor.
  * @param population - The active task population (`queryTasks({})`); loaded when omitted.
- * @param opts - Optional phase override and clock.
+ * @param opts - Optional phase override, clock, and the project root whose
+ *   caller's focus phase ranks (T12501: always pass it — without it the focus
+ *   session is resolved from the process cwd, which in a git worktree is the
+ *   main checkout).
  * @returns The scoring context and the dependency lookup it was built from.
  * @task T12692
  */
 export async function loadRankingContext(
   accessor: DataAccessor,
   population?: readonly Task[],
-  opts?: { currentPhase?: string | null; nowMs?: number },
+  opts?: { currentPhase?: string | null; nowMs?: number; cwd?: string },
 ): Promise<{
   ctx: ScoreTaskContext;
   dependencyLookup: Map<string, Task>;
@@ -195,7 +198,9 @@ export async function loadRankingContext(
   const tasks = population ?? (await accessor.queryTasks({})).tasks;
   const dependencyLookup = await loadReadinessDependencyLookup(tasks, accessor);
   const currentPhase =
-    opts?.currentPhase !== undefined ? opts.currentPhase : await resolveRankingPhase(accessor);
+    opts?.currentPhase !== undefined
+      ? opts.currentPhase
+      : await resolveRankingPhase(accessor, opts?.cwd);
   const ctx = buildRankingContext(tasks, dependencyLookup, { currentPhase, nowMs: opts?.nowMs });
   return { ctx, dependencyLookup, population: tasks };
 }

@@ -507,8 +507,10 @@ export async function renamePhase(
   // Update focus if needed
   // T12660: through the per-session focus store, not the raw legacy key.
   const focusSessionId = await resolveFocusSessionId(cwd);
-  const focus = await readFocusState(accessor!, focusSessionId);
-  if (focus?.currentPhase === oldName) {
+  // T12501 AC2: an unbound caller has no focus key of its own to update, and
+  // the shared legacy key is never written — the rename itself still applies.
+  const focus = focusSessionId ? await readFocusState(accessor!, focusSessionId) : null;
+  if (focusSessionId && focus?.currentPhase === oldName) {
     focus.currentPhase = newName;
     await writeFocusState(accessor!, focusSessionId, focus);
   }

@@ -141,7 +141,7 @@ export async function orchestrateStartup(
         const currentStage = autoInitialized ? 'research' : 'already-initialized';
 
         // T12683: the same plan `orchestrate waves` prints.
-        const { waves } = await planEpicWaves(epicId, accessor);
+        const { waves } = await planEpicWaves(epicId, accessor, [epicId], undefined, root);
         const summary = computeStartupSummary(epicId, epic.title, children, ready.length, waves);
         return { success: true, data: { ...summary, autoInitialized, currentStage } };
       } catch (err: unknown) {

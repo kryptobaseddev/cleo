@@ -1,7 +1,7 @@
 ---
 name: ct-epic-architect
 description: Epic planning and task decomposition for breaking down large initiatives into atomic, executable tasks. Provides dependency analysis, wave-based parallel execution planning, hierarchy management, and research linking. Use when creating epics, decomposing initiatives into task trees, planning parallel workflows, or analyzing task dependencies. Triggers on epic creation, task decomposition requests, or planning phase work.
-version: 3.0.3
+version: 3.0.4
 protocol: decomposition
 adrRefs:
   - ADR-066
@@ -17,14 +17,14 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.0.3
+  version: 3.0.4
   tier: on-demand
   install: harness
   covers:
     - packages/core/src/validation/protocols/cant/decomposition.cant
     - packages/core/src/validation/protocols/protocols-markdown/decomposition.md
   loomStage: decomposition
-  lastReviewed: 2026-09-28
+  lastReviewed: 2026-09-30
   stability: stable
 ---
 
@@ -59,7 +59,7 @@ Context injection for epic planning and task decomposition tasks spawned via cle
 ### Execution Sequence
 
 1. Read task: `cleo show {{TASK_ID}}`
-2. Start task: `cleo start {{TASK_ID}}`
+2. Start task: `cleo start {{TASK_ID}}`. If `cleo start` fails with `E_SESSION_UNBOUND` (spawned workers and subagents are already bound), run `cleo session start --scope global --name "<name>"` or `cleo session resume <id>` first.
 3. Check existing work: `cleo find "keyword"`, `cleo list --type epic`
 4. Create epic and child tasks
 5. Attach files and link research

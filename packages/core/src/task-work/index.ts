@@ -17,6 +17,7 @@ import {
   readFocusState,
   readLiveFocus,
   releaseLegacyPointer,
+  requireFocusSessionId,
   resolveFocusSessionId,
   type StaleFocusPointer,
   writeFocusState,
@@ -211,8 +212,10 @@ export async function startTask(
   const claimant = await resolveClaimant(cwd);
 
   // T11345/T12501 — read/write the CALLER's focus key: its bound session's,
-  // the same one `cleo current`, briefing and inject read.
-  const focusSessionId = await resolveFocusSessionId(cwd);
+  // the same one `cleo current`, briefing and inject read. An unbound caller
+  // is refused (E_SESSION_UNBOUND): the only key it could write is the legacy
+  // global one, which every unbound terminal shares (T12501 AC2).
+  const focusSessionId = await requireFocusSessionId(`start work on ${taskId}`, cwd);
   const focus = (await readFocusState(acc, focusSessionId)) ?? ({} as TaskWorkState);
   const previousTask = focus.currentTask ?? null;
 
@@ -279,8 +282,9 @@ export async function stopTask(
   accessor?: DataAccessor,
 ): Promise<{ previousTask: string | null }> {
   const acc = accessor ?? (await getTaskAccessor(cwd));
-  // T11345/T12501 — read/write the CALLER's focus key (THE focus-key rule).
-  const focusSessionId = await resolveFocusSessionId(cwd);
+  // T11345/T12501 — read/write the CALLER's focus key (THE focus-key rule);
+  // an unbound caller is refused rather than writing the shared legacy key.
+  const focusSessionId = await requireFocusSessionId('stop work', cwd);
   const focus = await readFocusState(acc, focusSessionId);
 
   const previousTask = focus?.currentTask ?? null;
@@ -318,7 +322,7 @@ export async function stopTask(
   });
   // T12501: a bound caller's stop also releases a pre-upgrade legacy pointer
   // to the same task, so unbound callers do not inherit a stopped focus.
-  if (taskId && focusSessionId) await releaseLegacyPointer(acc, taskId);
+  if (taskId) await releaseLegacyPointer(acc, taskId);
 
   return { previousTask };
 }

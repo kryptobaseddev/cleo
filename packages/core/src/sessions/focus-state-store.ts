@@ -5,8 +5,9 @@
  * nextAction, …). Historically it lived under ONE global meta key
  * (`focus_state`) shared by every agent — so two concurrent agents writing
  * their current task clobbered each other. This module keys it per resolved
- * session id (`focus_state:<sessionId>`). The legacy global key remains the
- * focus of an UNBOUND caller only (T12501).
+ * session id (`focus_state:<sessionId>`). Nothing writes the legacy global
+ * key any more (T12501 AC2): an unbound caller may still READ it, and a bound
+ * session migrates a live pointer out of it once.
  *
  * Single source of truth: every read/write callsite across engine-ops,
  * briefing, drift-watchdog, session-drift, session-switch, and orchestrate/pivot
@@ -19,15 +20,17 @@
  */
 
 import type { TaskWorkState } from '@cleocode/contracts';
-import { TERMINAL_TASK_STATUSES } from '@cleocode/contracts';
+import { ExitCode, TERMINAL_TASK_STATUSES } from '@cleocode/contracts';
+import { CleoError } from '../errors.js';
 
 /**
  * The legacy global focus_state meta key, shared by all agents before T11345.
  *
- * UNBOUND CALLERS ONLY (T12501): it is the focus of a caller that is bound to
- * no session — {@link resolveFocusSessionId} returned `null`. A caller bound
- * to a session never reads or writes it: its focus lives only under
- * `focus_state:<sessionId>`. The exceptions only ever CLEAR its pointer: a
+ * READ-ONLY LEGACY DATA (T12501): only a caller bound to no session reads it
+ * ({@link resolveFocusSessionId} returned `null`), and nothing writes a focus
+ * into it — {@link writeFocusState} takes a bound session id only, so unbound
+ * terminals can no longer overwrite each other here. A bound session's focus
+ * lives only under `focus_state:<sessionId>`. The exceptions only ever CLEAR its pointer: a
  * bound session with no key yet adopts a live legacy pointer once on upgrade
  * ({@link readFocusState}), a bound `cleo stop` releases it
  * ({@link releaseLegacyPointer}), and {@link clearFocusForFinishedTask} clears
@@ -73,12 +76,16 @@ export interface FocusStateMetaAccessor {
  * active row — from an unbound terminal that is another agent's session, and
  * its focus is not this caller's.
  *
- * `null` means the caller is bound to no session (or the session store
- * cannot be opened); {@link focusStateKey} then maps it to the legacy global
- * key (unbound callers only).
+ * `null` means the caller is bound to no session, or there is no session store
+ * at `cwd` (absent — never created by this read — or predating the session /
+ * binding tables). A reader then reads the legacy global key
+ * ({@link focusStateKey}); a writer refuses ({@link requireFocusSessionId}).
+ * Any other store failure is rethrown, so a fault is never reported as
+ * "unbound".
  *
  * @param cwd - Project root for session resolution.
  * @returns The bound session id, or `null` when the caller is unbound.
+ * @throws The store error, unless the store lacks the session / binding tables.
  * @example
  * ```ts
  * const focus = await readLiveFocus(acc, await resolveFocusSessionId(projectRoot));
@@ -90,11 +97,29 @@ export async function resolveFocusSessionId(cwd?: string): Promise<string | null
   const { resolveBoundSessionId } = await import('../store/session-store.js');
   try {
     return await resolveBoundSessionId(cwd);
-  } catch {
-    // No readable session store means no session can be bound: the caller is
-    // unbound, exactly as before any session existed.
-    return null;
+  } catch (err) {
+    // A store without the session / binding tables cannot bind anyone: the
+    // caller is unbound. (An absent store is already `null`, never opened.)
+    // Anything else is a real fault and surfaces as such.
+    if (err instanceof Error && isMissingSessionSchema(err)) return null;
+    throw err;
   }
+}
+
+/**
+ * Whether an error means the project store predates the session / binding
+ * tables (a missing table or column) rather than a real fault (T12501). An
+ * ABSENT store never reaches here: `resolveBoundSession` returns `null` before
+ * opening (or creating) it, so any `ENOENT` / `EACCES` is a real fault.
+ *
+ * @param err - The caught error; drizzle wraps the SQLite error in `cause`.
+ * @returns `true` for a missing session / binding table or column.
+ */
+function isMissingSessionSchema(err: Error): boolean {
+  const pattern = /no such (table|column)/i;
+  return (
+    pattern.test(err.message) || (err.cause instanceof Error && pattern.test(err.cause.message))
+  );
 }
 
 /**
@@ -103,8 +128,9 @@ export async function resolveFocusSessionId(cwd?: string): Promise<string | null
  *
  * - A non-empty session id → the per-session key `focus_state:<sessionId>`.
  * - `null` / `undefined` (the caller is bound to no session) → the legacy
- *   global key, {@link LEGACY_FOCUS_STATE_KEY}. Only an unbound caller lands
- *   here (T12501).
+ *   global key, {@link LEGACY_FOCUS_STATE_KEY}. Only READS land here: an
+ *   unbound caller may read pre-upgrade legacy focus, but no writer can reach
+ *   this branch — {@link writeFocusState} takes a bound id only (T12501 AC2).
  *
  * @param sessionId - Resolved session id, or `null` when none.
  * @returns The meta key to read/write.
@@ -184,15 +210,16 @@ async function adoptLegacyFocus(
  * only. Anything that reports or acts on the current task reads
  * {@link readLiveFocus}, which never returns a finished task (T12684).
  *
- * Reads {@link focusStateKey}. The legacy global key is an unbound caller's
- * focus, never read as a bound session's — except once, on upgrade: when the
+ * Reads {@link focusStateKey}. For an unbound caller (`null`) that is the
+ * legacy global key: pre-upgrade data that nothing writes any more (T12501
+ * AC2). It is never read as a bound session's focus — except once, on upgrade: when the
  * session's key is ABSENT (not merely `currentTask: null`) and the legacy key
  * holds a live pointer, the session adopts it and the legacy pointer is
  * cleared, so no second session can adopt it too (T12501).
  *
  * @param accessor  - Metadata accessor.
  * @param sessionId - Session id from {@link resolveFocusSessionId}, or `null`
- *   for an unbound caller (the legacy key).
+ *   for an unbound caller (reads the read-only legacy key).
  * @returns The focus_state blob, or `null` when there is none.
  * @task T11345
  * @task T12501
@@ -232,26 +259,95 @@ export async function releaseLegacyPointer(
 }
 
 /**
- * Write the focus_state blob for a session id.
+ * Write the focus_state blob for a BOUND session (T11345 · T12501).
  *
- * A bound session writes only its own key, so concurrent sessions never
- * clobber each other; only an unbound caller (`sessionId` null) writes the
- * legacy key. (A bound session touches the legacy key only to clear a pointer:
- * adoption on upgrade, {@link releaseLegacyPointer} and
- * {@link clearFocusForFinishedTask}.) (T12501)
+ * Only a session's own key `focus_state:<sessionId>` is ever written, so
+ * concurrent sessions never clobber each other. There is no unbound form:
+ * `sessionId` is a `string`, and an empty one throws `E_SESSION_UNBOUND`.
+ * Before T12501 AC2 a `null` id wrote the legacy global key, which every
+ * unbound terminal shared, so two terminals' `cleo start` overwrote each
+ * other. Writers resolve the id with {@link requireFocusSessionId}. (The legacy
+ * key is touched only to CLEAR a pointer during migration: adoption on
+ * upgrade, {@link releaseLegacyPointer} and {@link clearFocusForFinishedTask}.)
  *
  * @param accessor  - Metadata accessor.
- * @param sessionId - Session id from {@link resolveFocusSessionId}, or `null`
- *   for an unbound caller (the legacy key).
+ * @param sessionId - The caller's bound session id (never null or empty).
  * @param value     - The focus_state blob to persist.
+ * @throws CleoError `SESSION_UNBOUND` when `sessionId` is empty.
  * @task T11345
+ * @task T12501
  */
 export async function writeFocusState(
   accessor: FocusStateMetaAccessor,
-  sessionId: string | null | undefined,
+  sessionId: string,
   value: TaskWorkState,
 ): Promise<void> {
+  if (!sessionId) {
+    throw new CleoError(
+      ExitCode.SESSION_UNBOUND,
+      'Refusing to write focus without a session: the legacy global focus key is shared by ' +
+        'every unbound terminal (T12501).',
+    );
+  }
   await accessor.setMetaValue(focusStateKey(sessionId), value);
+}
+
+/**
+ * Message for refusing a focus write from an unbound caller (T12501).
+ *
+ * @param operation - What the caller tried to do (e.g. `start work on T12`).
+ * @param stableTerminal - `false` when the caller has no stable terminal
+ *   identity (no key at all, or only a legacy ppid key): a binding written from
+ *   such a shell does not survive to its next command, so the remedy is the id
+ *   its own `session start` printed — never an id read from `session status`,
+ *   which may show ANOTHER agent's newest session (labelled `unbound: true`).
+ * @returns The refusal text.
+ * @task T12501
+ */
+export function focusUnboundMessage(operation: string, stableTerminal = true): string {
+  const why = stableTerminal
+    ? 'no session is bound to this terminal'
+    : 'this shell has no stable terminal identity; prefix commands with ' +
+      'CLEO_SESSION_ID=<the id `cleo session start` printed>, or, in a multi-agent host, ' +
+      'set CLEO_AGENT_ID per agent';
+  return (
+    `Cannot ${operation}: ${why}. Focus is kept per session; without one it would go to a ` +
+    'single key that every unbound terminal shares and overwrites.'
+  );
+}
+
+/**
+ * Resolve the caller's focus session for a focus WRITE, refusing when unbound
+ * (T12501 AC2 · T12500).
+ *
+ * Same resolver as every reader ({@link resolveFocusSessionId}); where a reader
+ * treats `null` as "unbound", a writer refuses with `E_SESSION_UNBOUND` and the
+ * standard bind remedies instead of writing the shared legacy key. It refuses
+ * even when no session is active at all: there is still no key it may write.
+ *
+ * @param operation - What the caller is attempting, for the message.
+ * @param cwd - Project root for session resolution.
+ * @returns The bound session id.
+ * @throws CleoError `SESSION_UNBOUND` when the caller is bound to no session.
+ * @example
+ * ```ts
+ * const sessionId = await requireFocusSessionId(`start work on ${taskId}`, projectRoot);
+ * await writeFocusState(acc, sessionId, focus);
+ * ```
+ * @task T12501
+ */
+export async function requireFocusSessionId(operation: string, cwd?: string): Promise<string> {
+  const sessionId = await resolveFocusSessionId(cwd);
+  if (sessionId) return sessionId;
+  const { SESSION_UNBOUND_ALTERNATIVES, SESSION_UNBOUND_FIX } = await import(
+    '../store/session-store.js'
+  );
+  const { resolveTerminalKeys } = await import('./terminal-identity.js');
+  const stableTerminal = resolveTerminalKeys().some((k) => k.kind !== 'ppid');
+  throw new CleoError(ExitCode.SESSION_UNBOUND, focusUnboundMessage(operation, stableTerminal), {
+    fix: SESSION_UNBOUND_FIX,
+    alternatives: [...SESSION_UNBOUND_ALTERNATIVES],
+  });
 }
 
 /**

@@ -19,11 +19,29 @@ import {
   sessionStatus,
   startSession,
 } from '../index.js';
+import { SESSION_ENV_KEY_PRECEDENCE } from '../session-id.js';
+import { TERMINAL_KEY_SOURCES } from '../terminal-identity.js';
+
+// T12864: these tests pin the SDK scope guard for an UNIDENTIFIED caller (no
+// terminal key at all), so they never depend on the process tree they run in;
+// a test that ends a session names it explicitly.
+vi.mock('../terminal-identity.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../terminal-identity.js')>();
+  return { ...actual, resolveTerminalKeys: () => [] };
+});
 
 // Each explicit cwd belongs to this test's synthetic project, not the setup pin.
 beforeEach(() => {
   vi.stubEnv('CLEO_ROOT', undefined);
   vi.stubEnv('CLEO_DIR', undefined);
+  // T12530: this process has NO stable terminal identity (see the mock above),
+  // so the SDK applies the scope-based single-session guard. Clear the host
+  // terminal's keys so the result does not depend on where the suite runs.
+  for (const s of TERMINAL_KEY_SOURCES) {
+    vi.stubEnv(s.envVar, undefined);
+    if (s.qualifierEnvVar) vi.stubEnv(s.qualifierEnvVar, undefined);
+  }
+  for (const name of SESSION_ENV_KEY_PRECEDENCE) vi.stubEnv(name, undefined);
 });
 
 afterEach(() => {
@@ -135,8 +153,8 @@ describe('Concurrent session handling', () => {
   });
 
   it('allows new session after ending previous with same scope', async () => {
-    await startSession(tempDir, { name: 'First', scope: 'epic:T001' });
-    await endSession(tempDir, {});
+    const first = await startSession(tempDir, { name: 'First', scope: 'epic:T001' });
+    await endSession(tempDir, { sessionId: first.id });
 
     const second = await startSession(tempDir, { name: 'Second', scope: 'epic:T001' });
     expect(second.status).toBe('active');
@@ -179,18 +197,18 @@ describe('Session resume edge cases', () => {
 
   it('resume ended session reactivates it', async () => {
     const started = await startSession(tempDir, { name: 'Resumable', scope: 'global' });
-    await endSession(tempDir, { note: 'Pausing' });
+    await endSession(tempDir, { note: 'Pausing', sessionId: started.id });
 
     const resumed = await resumeSession(tempDir, { sessionId: started.id });
     expect(resumed.status).toBe('active');
     expect(resumed.endedAt).toBeUndefined();
   });
 
-  it('ending most recent active session works', async () => {
+  it('ending a named active session works', async () => {
     await startSession(tempDir, { name: 'Session 1', scope: 'epic:T001' });
     const s2 = await startSession(tempDir, { name: 'Session 2', scope: 'epic:T002' });
 
-    const ended = await endSession(tempDir, {});
+    const ended = await endSession(tempDir, { sessionId: s2.id });
     expect(ended.id).toBe(s2.id);
     expect(ended.status).toBe('ended');
   });
@@ -221,8 +239,8 @@ describe('Session GC edge cases', () => {
   });
 
   it('GC preserves ended sessions within 30 days', async () => {
-    await startSession(tempDir, { name: 'Session', scope: 'global' });
-    await endSession(tempDir, {});
+    const s = await startSession(tempDir, { name: 'Session', scope: 'global' });
+    await endSession(tempDir, { sessionId: s.id });
 
     const result = await gcSessions(tempDir, { maxAgeDays: 24 });
     expect(result.removed).toHaveLength(0);
@@ -232,8 +250,8 @@ describe('Session GC edge cases', () => {
   });
 
   it('session status returns null after all sessions ended', async () => {
-    await startSession(tempDir, { name: 'Session', scope: 'global' });
-    await endSession(tempDir, {});
+    const s = await startSession(tempDir, { name: 'Session', scope: 'global' });
+    await endSession(tempDir, { sessionId: s.id });
 
     const status = await sessionStatus(tempDir, {});
     expect(status).toBeNull();
@@ -280,15 +298,15 @@ describe('Session focus and notes', () => {
   });
 
   it('ending session adds note', async () => {
-    await startSession(tempDir, { name: 'Noted', scope: 'global' });
-    const ended = await endSession(tempDir, { note: 'Completed milestone 1' });
+    const s = await startSession(tempDir, { name: 'Noted', scope: 'global' });
+    const ended = await endSession(tempDir, { note: 'Completed milestone 1', sessionId: s.id });
 
     expect(ended.notes).toContain('Completed milestone 1');
   });
 
   it('ending session without note preserves existing notes', async () => {
-    await startSession(tempDir, { name: 'Empty note', scope: 'global' });
-    const ended = await endSession(tempDir, {});
+    const s = await startSession(tempDir, { name: 'Empty note', scope: 'global' });
+    const ended = await endSession(tempDir, { sessionId: s.id });
 
     // SQLite round-trips empty arrays as undefined via safeParseJsonArray
     expect(ended.notes ?? []).toEqual([]);

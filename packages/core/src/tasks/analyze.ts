@@ -8,7 +8,7 @@ import type { Task, TaskAnalysisResult } from '@cleocode/contracts';
 import { resolveOrCwd } from '../paths.js';
 import {
   readFocusState,
-  resolveFocusSessionId,
+  requireFocusSessionId,
   writeFocusState,
 } from '../sessions/focus-state-store.js';
 import type { DataAccessor } from '../store/data-accessor.js';
@@ -118,7 +118,8 @@ export async function analyzeTaskPriority(
   if (opts.autoStart && recommended) {
     // T12660: write through the per-session focus store (the same session
     // resolution `cleo current` reads with), never the raw legacy global key.
-    const sessionId = await resolveFocusSessionId(opts.cwd);
+    // T12501 AC2: an unbound caller is refused, never written to the shared legacy key.
+    const sessionId = await requireFocusSessionId(`auto-start ${recommended.id}`, opts.cwd);
     const currentFocus = await readFocusState(acc, sessionId);
     await writeFocusState(acc, sessionId, { ...(currentFocus ?? {}), currentTask: recommended.id });
     autoStarted = true;

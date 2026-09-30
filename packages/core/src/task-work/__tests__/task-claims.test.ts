@@ -155,13 +155,16 @@ describe('leased task claims (T12502)', () => {
     expect(after?.claim?.sessionId).toBe(SES_A);
   });
 
-  it('an unbound caller holds no lease but is refused by a held one', async () => {
-    const free = await start(null, 'T002');
-    expect(free.claim).toBeNull();
+  it('an unbound caller is refused (E_SESSION_UNBOUND) and takes no lease (T12501)', async () => {
+    // Before T12501 AC2 an unbound start went through lease-less and wrote the
+    // shared legacy focus key. It is now refused before anything is written.
+    const free = await rejection(start(null, 'T002'));
+    expect(free.code).toBe(ExitCode.SESSION_UNBOUND);
     expect((await env.accessor.loadSingleTask('T002'))?.claim).toBeUndefined();
     await start(SES_A);
     const err = await rejection(start(null));
-    expect(err.code).toBe(ExitCode.TASK_CLAIMED);
+    expect(err.code).toBe(ExitCode.SESSION_UNBOUND);
+    expect((await env.accessor.loadSingleTask('T001'))?.claim?.sessionId).toBe(SES_A);
   });
 
   it('the holder re-starting renews its own lease without moving the version', async () => {

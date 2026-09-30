@@ -26,6 +26,9 @@ vi.mock('../../../dispatch/adapters/cli.js', () => ({ dispatchRaw }));
 vi.mock('../../renderers/index.js', () => ({ cliError, cliOutput }));
 
 const { doneCommand } = await import('../done.js');
+const { getFieldContext, resolveFieldContext, setFieldContext } = await import(
+  '../../field-context.js'
+);
 
 async function runDone(args: Record<string, unknown>): Promise<void> {
   await doneCommand.run?.({ args, rawArgs: [], cmd: doneCommand } as never);
@@ -47,6 +50,7 @@ afterEach(() => {
   ])
     fn.mockReset();
   process.exitCode = undefined;
+  setFieldContext(resolveFieldContext({}));
 });
 
 describe('cleo done', () => {
@@ -146,6 +150,35 @@ describe('cleo done', () => {
       recordedGates: ['implemented'],
     });
     expect(process.exitCode).toBe(7);
+  });
+
+  it('--field is never applied to the internal complete dispatch, only to the done envelope (T12839)', async () => {
+    // `cleo done T1 --field /data/completed`: the pointer names a field of the
+    // DONE envelope. The mutate-projection middleware prevalidates the global
+    // pointer against `tasks.complete`, which has no `/data/completed`, and
+    // refused the completion after every gate was recorded.
+    setFieldContext(resolveFieldContext({ field: '/data/completed' }));
+    const seen: Array<string | undefined> = [];
+    recordTaskDone.mockResolvedValue(recorded);
+    dispatchRaw.mockImplementation(async () => {
+      seen.push(getFieldContext().field);
+      return { success: true, data: { updated: ['T1'] } };
+    });
+    cliOutput.mockImplementation(() => seen.push(getFieldContext().field));
+    await runDone({ taskId: 'T1' });
+    expect(seen).toEqual([undefined, '/data/completed']);
+    expect(cliOutput.mock.calls[0]?.[0]).toMatchObject({ completed: true });
+    expect(cliError).not.toHaveBeenCalled();
+
+    // Batch close uses the same internal step.
+    seen.length = 0;
+    recordTasksDone.mockResolvedValue([
+      { taskId: 'T1', result: recorded },
+      { taskId: 'T2', result: { ...recorded, data: { ...recorded.data, taskId: 'T2' } } },
+    ]);
+    await runDone({ taskId: 'T1', _: ['T1', 'T2'] });
+    expect(seen).toEqual([undefined, undefined, '/data/completed']);
+    expect(getFieldContext().field).toBe('/data/completed');
   });
 
   it('--plan plans and records nothing', async () => {

@@ -48,6 +48,8 @@ export {
   readDeclaredProjectIdentity,
   resolveCanonicalCleoDir,
   resolveLegacyCleoDir,
+  resolveNexusCredentialsPath,
+  resolveNexusDevicePath,
   resolveProjectByCwd,
   resolveStableDeviceIdPath,
   resolveSyncReplicaRegistryPath,
