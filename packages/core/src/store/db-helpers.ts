@@ -13,6 +13,8 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
+import { birthFingerprint, mintedRowUid } from './row-identity.js';
+import { rowUidFillEnabled } from './row-identity-flag.js';
 import type { NewTaskRow } from './tasks-schema.js';
 import * as schema from './tasks-schema.js';
 
@@ -79,7 +81,7 @@ export async function insertNewTask(
 ): Promise<void> {
   await writeTaskRow(
     db,
-    { ...row, ...(await importedIdentity(db, identity)) },
+    { ...row, ...(await importedIdentity(db, identity, row)) },
     undefined,
     false,
     true,
@@ -87,26 +89,89 @@ export async function insertNewTask(
 }
 
 /**
- * The identity columns of an IMPORTED task (T12341 spec §5.1, T12806): the
- * source's `uid` / `birth_fp` when it carried them and no other row holds that
- * uid; otherwise an explicit NULL uid, which the deterministic recipe fills
- * from the row's own key and birth (the insert-time TEMP trigger, else the
- * next open). A NEW task keeps the schema default (a random UUIDv7).
+ * An import or restore named a row this store already holds: same uid AND
+ * same birth fingerprint (possibly under another display id after a re-mint,
+ * re-keyed, or held in the identity quarantine). Writing it again would
+ * duplicate the work, so the caller skips it and reports the conflict
+ * (T12806 review).
+ */
+export class SameRowPresentError extends CleoError {
+  /** Where the row already is: its display id, or `held` when quarantined. */
+  readonly presentAs: string;
+
+  constructor(taskId: string, presentAs: string) {
+    super(
+      ExitCode.ID_COLLISION,
+      `Task ${taskId} is already in this store (${presentAs === 'held' ? 'held for sync' : `as ${presentAs}`}): same uid and birth fingerprint; not written again`,
+      { details: { field: 'taskId', actual: taskId, expected: presentAs } },
+    );
+    this.presentAs = presentAs;
+  }
+}
+
+async function tableExists(db: DrizzleDb, table: string): Promise<boolean> {
+  const rows = await db.all<{ x: number }>(
+    sql`SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = ${table}`,
+  );
+  return rows.length > 0;
+}
+
+/**
+ * The identity columns of an IMPORTED task (T12341 spec §5.1, T12806), only
+ * while row uids are on (`CLEO_ROW_UID_FILL=1`; off, nothing changes):
+ *
+ * - the source's `uid` + `birth_fp`, followed through `tasks_uid_aliases`
+ *   when it was re-keyed here, when no row holds it;
+ * - {@link SameRowPresentError} when a row with that uid AND fingerprint is
+ *   here already (another display id, or held in the quarantine);
+ * - otherwise an explicit NULL uid for the deterministic recipe (the TEMP
+ *   trigger, else the next open), from the row's own key and birth. A source
+ *   without a birth (`birthKnown: false`) gets the recipe's unknown-birth
+ *   values now, never an identity stamped with the import time.
  */
 async function importedIdentity(
   db: DrizzleDb,
   identity: TaskInsertIdentity,
+  row: NewTaskRow,
 ): Promise<Pick<NewTaskRow, 'uid' | 'birthFp'>> {
-  if (identity.origin === 'new') return {};
-  const uid = identity.uid ?? null;
-  if (uid !== null) {
-    const holder = await db
-      .select({ id: schema.tasks.id })
+  if (identity.origin === 'new' || !rowUidFillEnabled()) return {};
+  const fp = identity.birthFp ?? null;
+  const carried = identity.uid ?? null;
+  if (carried !== null && fp !== null) {
+    let uid: string = carried;
+    if (await tableExists(db, 'tasks_uid_aliases')) {
+      for (let hop = 0; hop < 32; hop++) {
+        const found: Array<{ uid: string }> = await db.all<{ uid: string }>(
+          sql`SELECT new_uid AS uid FROM tasks_uid_aliases
+               WHERE entity_table = 'tasks_tasks' AND old_uid = ${uid} AND old_birth_fp = ${fp}`,
+        );
+        const next = found[0];
+        if (!next) break;
+        uid = next.uid;
+      }
+    }
+    const [holder] = await db
+      .select({ id: schema.tasks.id, birthFp: schema.tasks.birthFp })
       .from(schema.tasks)
       .where(eq(schema.tasks.uid, uid))
       .limit(1)
       .all();
-    if (holder.length === 0) return { uid, birthFp: identity.birthFp ?? null };
+    if (holder && holder.birthFp === fp) throw new SameRowPresentError(row.id, holder.id);
+    if (await tableExists(db, 'tasks_identity_quarantine')) {
+      const [held] = await db.all<{ x: number }>(
+        sql`SELECT 1 AS x FROM tasks_identity_quarantine
+             WHERE entity_table = 'tasks_tasks' AND uid = ${uid} AND birth_fp = ${fp}`,
+      );
+      if (held) throw new SameRowPresentError(row.id, 'held');
+    }
+    if (!holder) return { uid, birthFp: fp };
+    // Another row holds the uid with another fingerprint: derive instead.
+  }
+  if (identity.birthKnown === false) {
+    return {
+      uid: mintedRowUid('project', 'tasks_tasks', [row.id], null),
+      birthFp: birthFingerprint('tasks_tasks', null, [row.title ?? null, row.type ?? null]),
+    };
   }
   return { uid: null, birthFp: null };
 }

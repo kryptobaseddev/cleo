@@ -82,7 +82,9 @@ import {
   upsertSession,
   upsertTask,
 } from './db-helpers.js';
-import { registerRowIdentityWriters, rowIdentityShared } from './row-identity.js';
+import { birthFingerprint, registerRowIdentityWriters, rowIdentityShared } from './row-identity.js';
+import { rowUidFillEnabled } from './row-identity-flag.js';
+import { ROW_IDENTITY } from './row-identity-registry.js';
 import { tasksAuditLog } from './schema/cleo-project/audit.js';
 import { resolveCurrentSession } from './session-store.js';
 import { closeDb, getDb, getNativeTasksDb } from './sqlite.js';
@@ -661,6 +663,95 @@ export function relinkAcUidNative(
  */
 export function clearAcUidGraveyardNative(nativeDb: DatabaseSync): void {
   nativeDb.exec('DELETE FROM tasks_ac_uid_graveyard');
+}
+
+/**
+ * After an overwrite import replaced task `taskId` with a DIFFERENT task,
+ * clear its identity and everything derived from it, so the next fill
+ * re-derives them (T12806 review):
+ *
+ * - nothing happens when the replacement is the same task (its birth
+ *   fingerprint recomputed from the new row equals the stored one): the uid
+ *   stays;
+ * - refused once identity is shared: the overwrite would re-point a uid other
+ *   devices hold at different work;
+ * - otherwise the task's uid and birth_fp, the natural uids keyed by it
+ *   (dependencies, relations, labels), the uid and birth_fp of its criteria
+ *   (their fingerprint hashes the task's), and the `ac_uid` / birth_fp of the
+ *   history and bindings of those criteria are cleared.
+ *
+ * @param nativeDb - The project `cleo.db` handle holding the transaction.
+ * @param taskId - The overwritten task.
+ * @task T12806
+ */
+export function clearReplacedTaskIdentityNative(nativeDb: DatabaseSync, taskId: string): void {
+  const row = nativeDb
+    .prepare(
+      'SELECT uid, birth_fp AS fp, title, type, created_at AS createdAt FROM tasks_tasks WHERE id = ?',
+    )
+    .get(taskId) as
+    | {
+        uid: string | null;
+        fp: string | null;
+        title: string | null;
+        type: string | null;
+        createdAt: string | null;
+      }
+    | undefined;
+  if (!row || (row.uid === null && row.fp === null)) return;
+  if (
+    row.fp !== null &&
+    row.fp === birthFingerprint('tasks_tasks', row.createdAt, [row.title, row.type])
+  ) {
+    return; // the same task, re-imported: its identity stands
+  }
+  if (rowIdentityShared(nativeDb)) {
+    throw new CleoError(
+      ExitCode.VALIDATION_ERROR,
+      `Task ${taskId} cannot be overwritten by an import: its identity is shared with other devices`,
+      {
+        fix: 'Import it under a new id (the default duplicate strategy), or edit the task instead of overwriting it.',
+        details: { field: 'taskId', actual: taskId },
+      },
+    );
+  }
+  const has = (table: string) =>
+    nativeDb
+      .prepare("SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(table) !== undefined;
+  nativeDb.prepare('UPDATE tasks_tasks SET uid = NULL, birth_fp = NULL WHERE id = ?').run(taskId);
+  for (const spec of ROW_IDENTITY.project) {
+    if (spec.kind !== 'natural' || !has(spec.table)) continue;
+    const cols = (spec.keyRefs ?? []).filter((r) => r.table === 'tasks_tasks').map((r) => r.column);
+    if (cols.length === 0) continue;
+    nativeDb
+      .prepare(
+        `UPDATE main.${quoteIdent(spec.table)} SET uid = NULL WHERE ${cols.map((c) => `${quoteIdent(c)} = ?`).join(' OR ')}`,
+      )
+      .run(...cols.map(() => taskId));
+  }
+  if (!has('tasks_task_acceptance_criteria')) return;
+  const acIds = (
+    nativeDb
+      .prepare('SELECT id FROM tasks_task_acceptance_criteria WHERE task_id = ?')
+      .all(taskId) as {
+      id: string;
+    }[]
+  ).map((r) => r.id);
+  nativeDb
+    .prepare(
+      'UPDATE tasks_task_acceptance_criteria SET uid = NULL, birth_fp = NULL WHERE task_id = ?',
+    )
+    .run(taskId);
+  for (const table of ['tasks_task_acceptance_criteria_history', 'tasks_evidence_ac_bindings']) {
+    if (!has(table) || acIds.length === 0) continue;
+    nativeDb
+      .prepare(
+        `UPDATE main.${quoteIdent(table)} SET ac_uid = NULL, birth_fp = NULL
+          WHERE ac_id IN (${acIds.map(() => '?').join(', ')})`,
+      )
+      .run(...acIds);
+  }
 }
 
 /** Quote an identifier for the dynamic row-identity writes below. */
@@ -2153,23 +2244,11 @@ async function createOwnedSqliteDataAccessor(
                 },
                 async clearTaskIdentity(taskId: string): Promise<void> {
                   scope.assertActive();
+                  // Row uids off: an overwrite changes no identity value (T12806 review).
+                  if (!rowUidFillEnabled()) return;
                   return accessor.transaction(async () => {
                     scope.assertActive();
-                    if (rowIdentityShared(getNativeTasksDb(cwd) as DatabaseSync)) {
-                      throw new CleoError(
-                        ExitCode.VALIDATION_ERROR,
-                        `Task ${taskId} cannot be overwritten by an import: its identity is shared with other devices`,
-                        {
-                          fix: 'Import it under a new id (the default duplicate strategy), or edit the task instead of overwriting it.',
-                          details: { field: 'taskId', actual: taskId },
-                        },
-                      );
-                    }
-                    await db
-                      .update(schema.tasks)
-                      .set({ uid: null, birthFp: null })
-                      .where(eq(schema.tasks.id, taskId))
-                      .run();
+                    clearReplacedTaskIdentityNative(nativeDb, taskId);
                   });
                 },
                 async archiveSingleTask(taskId: string, fields: ArchiveFields): Promise<void> {

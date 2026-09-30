@@ -15,10 +15,13 @@ import { dirname, join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
 import { resolveCleoDir } from '../paths.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { SameRowPresentError } from '../store/db-helpers.js';
 import { queryTasksIncludingArchived } from '../store/import-remap.js';
+import { rowUidFillEnabled } from '../store/row-identity-flag.js';
 
 /** Snapshot format version. */
-const SNAPSHOT_FORMAT_VERSION = '1.0.0';
+/** 1.1.0 (T12806): tasks may carry `uid` / `birthFp` (row uids on). */
+const SNAPSHOT_FORMAT_VERSION = '1.1.0';
 
 /** Snapshot metadata. */
 export interface SnapshotMeta {
@@ -123,9 +126,12 @@ export async function exportSnapshot(cwd?: string): Promise<Snapshot> {
   const version = await accessor.getMetaValue<string>('version');
 
   // T12806: carry each task's row identity, so a restore re-creates the same
-  // row rather than a new one.
+  // row rather than a new one. Row uids off: the snapshot is unchanged.
   const identities = new Map(
-    ((await accessor.getTaskIdentities?.(tasks.map((t) => t.id))) ?? []).map((r) => [r.id, r]),
+    (rowUidFillEnabled()
+      ? ((await accessor.getTaskIdentities?.(tasks.map((t) => t.id))) ?? [])
+      : []
+    ).map((r) => [r.id, r]),
   );
   const snapshotTasks = tasks.map((task) => {
     const row = toSnapshotTask(task);
@@ -224,6 +230,13 @@ export async function importSnapshot(snapshot: Snapshot, cwd?: string): Promise<
   };
 
   const localTaskMap = new Map(localTasks.map((t) => [t.id, t]));
+  // T12806: the row identity of the local tasks the snapshot names (uids on).
+  const localUids = new Map(
+    (rowUidFillEnabled()
+      ? ((await accessor.getTaskIdentities?.(snapshot.tasks.map((t) => t.id))) ?? [])
+      : []
+    ).map((r) => [r.id, r.uid]),
+  );
 
   // One transaction: a collision on any task leaves nothing half-imported (T12724).
   await accessor.transaction(async (tx) => {
@@ -251,12 +264,34 @@ export async function importSnapshot(snapshot: Snapshot, cwd?: string): Promise<
         // Missing locally: insert, never overwrite a task stored since (T12724).
         // A restore re-creates an existing row: it carries the snapshot's uid,
         // or leaves it to the deterministic recipe, never a new one (T12806).
-        await tx.insertNewTask(newTask, {
-          origin: 'imported',
-          uid: snapshotTask.uid ?? null,
-          birthFp: snapshotTask.birthFp ?? null,
-        });
+        try {
+          await tx.insertNewTask(newTask, {
+            origin: 'imported',
+            uid: snapshotTask.uid ?? null,
+            birthFp: snapshotTask.birthFp ?? null,
+          });
+        } catch (error) {
+          // The same row (uid + fingerprint) is here already, under another id
+          // or held for sync: writing it again would duplicate the work.
+          if (!(error instanceof SameRowPresentError)) throw error;
+          result.skipped++;
+          result.conflicts.push(
+            `${snapshotTask.id}: already present ${error.presentAs === 'held' ? '(held for sync)' : `as ${error.presentAs}`} (same uid and birth fingerprint); not restored`,
+          );
+          continue;
+        }
         result.added++;
+        continue;
+      }
+
+      // The same id names DIFFERENT rows here and in the snapshot (row uids
+      // on): never overwrite one with the other; report it (T12806 review).
+      const localUid = localUids.get(snapshotTask.id);
+      if (snapshotTask.uid && localUid && localUid !== snapshotTask.uid) {
+        result.skipped++;
+        result.conflicts.push(
+          `${snapshotTask.id}: the snapshot's task (uid ${snapshotTask.uid}) is a different row from the local one (uid ${localUid}); not overwritten`,
+        );
         continue;
       }
 

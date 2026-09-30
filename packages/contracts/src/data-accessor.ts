@@ -490,6 +490,12 @@ export interface TaskInsertIdentity {
   readonly uid?: string | null;
   /** The birth fingerprint that goes with `uid`. */
   readonly birthFp?: string | null;
+  /**
+   * `false` when the source had no creation time (the row's `created_at` was
+   * defaulted at import): its identity uses the recipe's unknown birth, never
+   * the import time.
+   */
+  readonly birthKnown?: boolean;
 }
 
 /** A task's row identity (T12341): `uid` and `birthFp`, NULL until filled. */

@@ -70,6 +70,7 @@ export async function importTasks(
     return { imported: 0, skipped: 0, renamed: [], totalTasks: 0, dryRun: params.dryRun };
   }
 
+  const birthUnknown = new WeakSet<Task>();
   const accessor = await getTaskAccessor(projectRoot);
   // Duplicates are decided against every stored id, archived included: an
   // archived task still owns its id (T12724).
@@ -127,6 +128,9 @@ export async function importTasks(
 
     importTask.status = importTask.status ?? ('pending' as TaskStatus);
     importTask.priority = importTask.priority ?? ('medium' as TaskPriority);
+    // A task without a creation time gets one here; its row identity must not
+    // come from it (T12806 review): recorded so the insert says so.
+    if (!importTask.createdAt) birthUnknown.add(importTask);
     importTask.createdAt = importTask.createdAt ?? new Date().toISOString();
     importTask.updatedAt = new Date().toISOString();
 
@@ -165,7 +169,8 @@ export async function importTasks(
       if (duplicateStrategy === 'overwrite' && existingTaskIds.has(task.id)) {
         await tx.upsertSingleTask(task);
         await tx.clearTaskIdentity?.(task.id);
-      } else await tx.insertNewTask(task, { origin: 'imported' });
+      } else
+        await tx.insertNewTask(task, { origin: 'imported', birthKnown: !birthUnknown.has(task) });
     }
   });
 

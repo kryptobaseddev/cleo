@@ -217,7 +217,9 @@ export async function importFromPackage(
   await accessor.transaction(async (tx) => {
     // Imported rows existed before: their uid comes from the deterministic
     // recipe (their own key and birth), never an import-time v7 (T12806).
-    for (const task of transformed) await tx.insertNewTask(task, { origin: 'imported' });
+    for (const task of transformed) {
+      await tx.insertNewTask(task, { origin: 'imported', birthKnown: Boolean(task.createdAt) });
+    }
   });
 
   return {
