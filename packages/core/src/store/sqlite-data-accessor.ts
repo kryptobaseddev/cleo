@@ -82,7 +82,12 @@ import {
   upsertSession,
   upsertTask,
 } from './db-helpers.js';
-import { birthFingerprint, registerRowIdentityWriters, rowIdentityShared } from './row-identity.js';
+import {
+  fillRowUids,
+  parseStoreTimestamp,
+  registerRowIdentityWriters,
+  rowIdentityShared,
+} from './row-identity.js';
 import { rowUidFillEnabled } from './row-identity-flag.js';
 import { ROW_IDENTITY } from './row-identity-registry.js';
 import { tasksAuditLog } from './schema/cleo-project/audit.js';
@@ -665,45 +670,67 @@ export function clearAcUidGraveyardNative(nativeDb: DatabaseSync): void {
   nativeDb.exec('DELETE FROM tasks_ac_uid_graveyard');
 }
 
+/** The birth of a stored task, read before an overwrite replaces the row (T12806). */
+export interface ReplacedTaskBirth {
+  /** Its `created_at` before the overwrite. */
+  readonly createdAt: string | null;
+  /** Its uid before the overwrite. */
+  readonly uid: string | null;
+}
+
 /**
- * After an overwrite import replaced task `taskId` with a DIFFERENT task,
- * clear its identity and everything derived from it, so the next fill
- * re-derives them (T12806 review):
+ * Read the birth of task `taskId` before an overwrite replaces it.
  *
- * - nothing happens when the replacement is the same task (its birth
- *   fingerprint recomputed from the new row equals the stored one): the uid
- *   stays;
+ * @param nativeDb - The project `cleo.db` handle.
+ * @param taskId - The task about to be overwritten.
+ * @returns Its birth, or `undefined` when there is no such row.
+ * @task T12806
+ */
+export function readReplacedTaskBirthNative(
+  nativeDb: DatabaseSync,
+  taskId: string,
+): ReplacedTaskBirth | undefined {
+  return nativeDb
+    .prepare('SELECT created_at AS createdAt, uid FROM tasks_tasks WHERE id = ?')
+    .get(taskId) as ReplacedTaskBirth | undefined;
+}
+
+/**
+ * After an overwrite import replaced task `taskId`, keep or re-key its
+ * identity (T12806 review):
+ *
+ * - the SAME task (same id, same birth instant as before the overwrite) keeps
+ *   its identity. Sameness is decided on the immutable birth facts, never on
+ *   the title or type: a task retitled here and re-imported unchanged stays
+ *   the same row;
  * - refused once identity is shared: the overwrite would re-point a uid other
  *   devices hold at different work;
- * - otherwise the task's uid and birth_fp, the natural uids keyed by it
- *   (dependencies, relations, labels), the uid and birth_fp of its criteria
- *   (their fingerprint hashes the task's), and the `ac_uid` / birth_fp of the
- *   history and bindings of those criteria are cleared.
+ * - otherwise the task, the natural rows keyed by it (dependencies,
+ *   relations, labels) and its criteria are re-derived from the new row, now,
+ *   and every AC history row and binding that pointed at one of those
+ *   criteria is RE-KEYED to the criterion's new uid, found by the criterion's
+ *   old uid as well as by its current id. A binding whose `ac_id` is stale
+ *   (#1731) keeps resolving: its evidence is kept, never dropped.
  *
  * @param nativeDb - The project `cleo.db` handle holding the transaction.
  * @param taskId - The overwritten task.
+ * @param before - Its birth before the overwrite ({@link readReplacedTaskBirthNative}).
  * @task T12806
  */
-export function clearReplacedTaskIdentityNative(nativeDb: DatabaseSync, taskId: string): void {
+export function clearReplacedTaskIdentityNative(
+  nativeDb: DatabaseSync,
+  taskId: string,
+  before?: ReplacedTaskBirth,
+): void {
   const row = nativeDb
-    .prepare(
-      'SELECT uid, birth_fp AS fp, title, type, created_at AS createdAt FROM tasks_tasks WHERE id = ?',
-    )
-    .get(taskId) as
-    | {
-        uid: string | null;
-        fp: string | null;
-        title: string | null;
-        type: string | null;
-        createdAt: string | null;
-      }
-    | undefined;
+    .prepare('SELECT uid, birth_fp AS fp, created_at AS createdAt FROM tasks_tasks WHERE id = ?')
+    .get(taskId) as { uid: string | null; fp: string | null; createdAt: string | null } | undefined;
   if (!row || (row.uid === null && row.fp === null)) return;
-  if (
-    row.fp !== null &&
-    row.fp === birthFingerprint('tasks_tasks', row.createdAt, [row.title, row.type])
-  ) {
-    return; // the same task, re-imported: its identity stands
+  if (before) {
+    const was = parseStoreTimestamp(before.createdAt);
+    if (was !== null && was === parseStoreTimestamp(row.createdAt)) {
+      return; // the same task, re-imported: its identity stands
+    }
   }
   if (rowIdentityShared(nativeDb)) {
     throw new CleoError(
@@ -730,28 +757,42 @@ export function clearReplacedTaskIdentityNative(nativeDb: DatabaseSync, taskId: 
       )
       .run(...cols.map(() => taskId));
   }
-  if (!has('tasks_task_acceptance_criteria')) return;
-  const acIds = (
-    nativeDb
-      .prepare('SELECT id FROM tasks_task_acceptance_criteria WHERE task_id = ?')
-      .all(taskId) as {
-      id: string;
-    }[]
-  ).map((r) => r.id);
-  nativeDb
-    .prepare(
-      'UPDATE tasks_task_acceptance_criteria SET uid = NULL, birth_fp = NULL WHERE task_id = ?',
-    )
-    .run(taskId);
-  for (const table of ['tasks_task_acceptance_criteria_history', 'tasks_evidence_ac_bindings']) {
-    if (!has(table) || acIds.length === 0) continue;
+  const children = ['tasks_task_acceptance_criteria_history', 'tasks_evidence_ac_bindings'].filter(
+    has,
+  );
+  const criteria = has('tasks_task_acceptance_criteria')
+    ? (nativeDb
+        .prepare('SELECT id, uid FROM tasks_task_acceptance_criteria WHERE task_id = ?')
+        .all(taskId) as { id: string; uid: string | null }[])
+    : [];
+  if (criteria.length > 0) {
     nativeDb
       .prepare(
-        `UPDATE main.${quoteIdent(table)} SET ac_uid = NULL, birth_fp = NULL
-          WHERE ac_id IN (${acIds.map(() => '?').join(', ')})`,
+        'UPDATE tasks_task_acceptance_criteria SET uid = NULL, birth_fp = NULL WHERE task_id = ?',
       )
-      .run(...acIds);
+      .run(taskId);
   }
+  // Re-derive the task, its natural rows and its criteria now, inside the
+  // import transaction, so the children can be re-keyed to the new uids.
+  fillRowUids(nativeDb, 'project');
+  const newUid = nativeDb.prepare('SELECT uid FROM tasks_task_acceptance_criteria WHERE id = ?');
+  let rekeyed = 0;
+  for (const ac of criteria) {
+    const now = (newUid.get(ac.id) as { uid: string | null } | undefined)?.uid ?? null;
+    for (const table of children) {
+      // By the criterion's old uid (a stale ac_id keeps it) or its current id.
+      rekeyed += Number(
+        nativeDb
+          .prepare(
+            `UPDATE main.${quoteIdent(table)} SET ac_uid = ?, birth_fp = NULL
+              WHERE ac_id = ? OR (? IS NOT NULL AND ac_uid = ?)`,
+          )
+          .run(now, ac.id, ac.uid, ac.uid).changes,
+      );
+    }
+  }
+  // Their fingerprints hash the criterion's: re-derive them against the new one.
+  if (rekeyed > 0) fillRowUids(nativeDb, 'project');
 }
 
 /** Quote an identifier for the dynamic row-identity writes below. */
@@ -2224,11 +2265,18 @@ async function createOwnedSqliteDataAccessor(
               nativeDb.prepare(`SAVEPOINT ${spName}`).run();
             }
             try {
+              // The birth of each task an upsert replaced, for clearTaskIdentity
+              // (T12806): sameness is decided on the birth before the overwrite.
+              const replacedBirths = new Map<string, ReplacedTaskBirth>();
               const tx: TransactionAccessor = {
                 async upsertSingleTask(task: Task): Promise<void> {
                   scope.assertActive();
                   return accessor.transaction(async () => {
                     scope.assertActive();
+                    if (rowUidFillEnabled() && !replacedBirths.has(task.id)) {
+                      const before = readReplacedTaskBirthNative(nativeDb, task.id);
+                      if (before) replacedBirths.set(task.id, before);
+                    }
                     const row = taskToRow(task);
                     await upsertTask(db, row);
                     await updateDependencies(db, task.id, task.depends ?? []);
@@ -2248,7 +2296,7 @@ async function createOwnedSqliteDataAccessor(
                   if (!rowUidFillEnabled()) return;
                   return accessor.transaction(async () => {
                     scope.assertActive();
-                    clearReplacedTaskIdentityNative(nativeDb, taskId);
+                    clearReplacedTaskIdentityNative(nativeDb, taskId, replacedBirths.get(taskId));
                   });
                 },
                 async archiveSingleTask(taskId: string, fields: ArchiveFields): Promise<void> {

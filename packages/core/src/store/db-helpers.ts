@@ -13,7 +13,6 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
-import { birthFingerprint, mintedRowUid } from './row-identity.js';
 import { rowUidFillEnabled } from './row-identity-flag.js';
 import type { NewTaskRow } from './tasks-schema.js';
 import * as schema from './tasks-schema.js';
@@ -125,9 +124,10 @@ async function tableExists(db: DrizzleDb, table: string): Promise<boolean> {
  * - {@link SameRowPresentError} when a row with that uid AND fingerprint is
  *   here already (another display id, or held in the quarantine);
  * - otherwise an explicit NULL uid for the deterministic recipe (the TEMP
- *   trigger, else the next open), from the row's own key and birth. A source
- *   without a birth (`birthKnown: false`) gets the recipe's unknown-birth
- *   values now, never an identity stamped with the import time.
+ *   trigger, else the next open), from the row's own key and birth as stored.
+ *   A source without a creation time is no exception (T12806 review): an
+ *   unknown-birth fingerprint next to the `created_at` the import wrote would
+ *   be flagged by every recompute.
  */
 async function importedIdentity(
   db: DrizzleDb,
@@ -167,12 +167,8 @@ async function importedIdentity(
     if (!holder) return { uid, birthFp: fp };
     // Another row holds the uid with another fingerprint: derive instead.
   }
-  if (identity.birthKnown === false) {
-    return {
-      uid: mintedRowUid('project', 'tasks_tasks', [row.id], null),
-      birthFp: birthFingerprint('tasks_tasks', null, [row.title ?? null, row.type ?? null]),
-    };
-  }
+  // A source without a creation time gets the recipe from the row as stored:
+  // its identity agrees with its `created_at`, so no recompute flags it.
   return { uid: null, birthFp: null };
 }
 

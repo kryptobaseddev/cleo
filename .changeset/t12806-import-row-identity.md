@@ -19,13 +19,17 @@ restores and overwrite imports neither write nor clear one.
   different rows (different uids), the conflict is reported and the local
   task is not overwritten.
 - **Other imports**, and snapshots without identity, derive the uid from the
-  task's own id and creation time. A source with no creation time gets the
-  recipe's unknown-birth identity, never one stamped with the import time.
+  task's own id and creation time as stored. A source with no creation time
+  gets the one the import writes, so its identity always agrees with its row
+  and a recompute never flags it.
 - **Overwrite imports** (`--on-duplicate overwrite`):
-  - Replacing a task with the same task (same birth fingerprint) keeps its
-    identity.
-  - Replacing it with different work clears the task's identity and
-    everything derived from it: its edges, its criteria, and their history
-    and bindings. The next open re-derives them.
+  - Replacing a task with the same task keeps its identity. Sameness is the
+    task's birth (same id and creation time), not its title, so a task
+    retitled here and re-imported unchanged keeps its uid.
+  - Replacing it with different work re-derives, within the import, the
+    task's identity and everything derived from it: its edges and its
+    criteria. The history and bindings of those criteria are re-keyed to the
+    criteria's new uids, including bindings whose `ac_id` went stale, so
+    their evidence keeps resolving.
   - Once identity has been shared with other devices, the overwrite is
     refused.

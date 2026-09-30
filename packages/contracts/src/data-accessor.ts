@@ -490,12 +490,6 @@ export interface TaskInsertIdentity {
   readonly uid?: string | null;
   /** The birth fingerprint that goes with `uid`. */
   readonly birthFp?: string | null;
-  /**
-   * `false` when the source had no creation time (the row's `created_at` was
-   * defaulted at import): its identity uses the recipe's unknown birth, never
-   * the import time.
-   */
-  readonly birthKnown?: boolean;
 }
 
 /** A task's row identity (T12341): `uid` and `birthFp`, NULL until filled. */
@@ -514,11 +508,13 @@ export interface TransactionAccessor {
    */
   insertNewTask(task: Task, identity?: TaskInsertIdentity): Promise<void>;
   /**
-   * Clear a task's row identity (`uid`, `birth_fp`) after an overwrite import
-   * replaced it with a different task, so the next fill derives the new row's
-   * own identity. Refuses (`E_VALIDATION`) once identity values are shared
-   * with other devices: there the overwrite would silently re-point a shared
-   * uid at different work (T12806).
+   * Settle a task's row identity after an overwrite import replaced it (call
+   * it after `upsertSingleTask` in the same transaction). The same task (same
+   * birth as before the overwrite) keeps its identity; a different one is
+   * re-derived, and the history and bindings of its criteria are re-keyed so
+   * their evidence keeps resolving. Refuses (`E_VALIDATION`) once identity
+   * values are shared with other devices: there the overwrite would silently
+   * re-point a shared uid at different work (T12806).
    */
   clearTaskIdentity?(taskId: string): Promise<void>;
   archiveSingleTask(taskId: string, fields: ArchiveFields): Promise<void>;

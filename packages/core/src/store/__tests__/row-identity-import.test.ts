@@ -24,6 +24,7 @@ import { exportSnapshot, importSnapshot } from '../../snapshot/index.js';
 import { coreTaskImport } from '../../tasks/task-import.js';
 import { buildExportPackage } from '../export.js';
 import {
+  birthFingerprint,
   fillRowUids,
   mintedRowUid,
   naturalRowUid,
@@ -176,7 +177,7 @@ describe('import and restore keep row identity (T12806)', () => {
     expect(result.conflicts.join('\n')).toContain('is a different row');
   });
 
-  it('a file import derives uids; an overwrite clears the replaced identity, or refuses once shared', async () => {
+  it('a file import derives uids; an overwrite re-derives the replaced identity, or refuses once shared', async () => {
     const file = join(env.tempDir, 'import.json');
     writeFileSync(
       file,
@@ -197,6 +198,7 @@ describe('import and restore keep row identity (T12806)', () => {
             priority: 'medium',
             type: 'task',
             createdAt: '2026-07-02T08:00:00.000Z',
+            labels: ['bug'],
           },
         ],
       }),
@@ -209,14 +211,15 @@ describe('import and restore keep row identity (T12806)', () => {
     expect(identity(db, 'T500')?.uid).toBe(
       mintedRowUid('project', 'tasks_tasks', ['T500'], '2026-07-01T08:00:00.000Z'),
     );
-    // T002 is now a different task: the old identity is gone (filled at the next open),
-    // and so are the identities derived from it (review 3).
-    expect(identity(db, 'T002')).toEqual({ uid: null, fp: null });
-    for (const row of db
-      .prepare("SELECT uid FROM tasks_task_labels WHERE task_id = 'T002'")
-      .all()) {
-      expect(row).toEqual({ uid: null });
-    }
+    // T002 is now a different task: its identity, and the identities derived
+    // from it, are re-derived from the new row in the import (review 3).
+    const t002 = identity(db, 'T002');
+    expect(t002?.uid).toBe(
+      mintedRowUid('project', 'tasks_tasks', ['T002'], '2026-07-02T08:00:00.000Z'),
+    );
+    expect(db.prepare("SELECT uid FROM tasks_task_labels WHERE task_id = 'T002'").get()).toEqual({
+      uid: naturalRowUid('project', 'tasks_task_labels', [t002?.uid ?? '', 'bug']),
+    });
 
     db.prepare('INSERT INTO tasks_row_identity_meta (key, value) VALUES (?, ?)').run(
       ROW_IDENTITY_SYNCED_KEY,
@@ -292,6 +295,98 @@ describe('overwrite and file imports (T12806 review)', () => {
     expect(labelUid()).toBe(label);
   });
 
+  it('re-importing an identical copy of a RETITLED task keeps its identity (#1752 review, delta D1)', async () => {
+    db.exec("UPDATE tasks_tasks SET title = 'Retitled' WHERE id = 'T001'");
+    const before = identity(db, 'T001');
+    const label = labelUid();
+    expect(before?.uid).not.toBeNull();
+    const file = join(env.tempDir, 'imp.json');
+    writeFileSync(
+      file,
+      JSON.stringify({
+        tasks: [
+          {
+            id: 'T001',
+            title: 'Retitled',
+            status: 'pending',
+            priority: 'medium',
+            type: 'task',
+            createdAt: '2026-09-01T10:00:00.000Z',
+            labels: ['x'],
+          },
+        ],
+      }),
+    );
+    await importTasks(env.tempDir, { file, onDuplicate: 'overwrite' });
+    fillRowUids(db, 'project');
+    // The stored fingerprint hashes the BIRTH title; sameness is the birth, not the title.
+    expect(identity(db, 'T001')).toEqual(before);
+    expect(labelUid()).toBe(label);
+  });
+
+  it('an overwrite re-keys a binding with a stale ac_id: its evidence keeps resolving (#1752 review, delta D2)', async () => {
+    db.prepare(
+      "INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, text, kind, source_key) VALUES ('ac-new','T001',1,'edited text','text','text:1:e')",
+    ).run();
+    const acBefore = (
+      db.prepare("SELECT uid FROM tasks_task_acceptance_criteria WHERE id='ac-new'").get() as {
+        uid: string;
+      }
+    ).uid;
+    // #1731: the binding kept the criterion by ac_uid after its ac_id went stale.
+    db.prepare(
+      "INSERT INTO tasks_evidence_ac_bindings (id, evidence_atom_id, ac_id, binding_type, ac_uid) VALUES ('bind-stale','tool:test','ac-old','direct', ?)",
+    ).run(acBefore);
+    db.prepare(
+      "INSERT INTO tasks_evidence_ac_bindings (id, evidence_atom_id, ac_id, binding_type) VALUES ('bind-live','tool:test','ac-new','direct')",
+    ).run();
+    db.prepare(
+      "INSERT INTO tasks_task_acceptance_criteria_history (ac_id, previous_text, reason, ac_uid) VALUES ('ac-older','old text','edit', ?)",
+    ).run(acBefore);
+    const file = join(env.tempDir, 'imp.json');
+    writeFileSync(
+      file,
+      JSON.stringify({
+        tasks: [
+          {
+            id: 'T001',
+            title: 'Different work',
+            status: 'pending',
+            priority: 'medium',
+            type: 'task',
+            createdAt: '2026-07-01T10:00:00.000Z',
+          },
+        ],
+      }),
+    );
+    await importTasks(env.tempDir, { file, onDuplicate: 'overwrite' });
+    fillRowUids(db, 'project');
+    const acAfter = (
+      db.prepare("SELECT uid FROM tasks_task_acceptance_criteria WHERE id='ac-new'").get() as {
+        uid: string;
+      }
+    ).uid;
+    expect(acAfter).not.toBe(acBefore);
+    const pointsAt = (sql: string) => (db.prepare(sql).get() as { ac_uid: string | null }).ac_uid;
+    expect(pointsAt("SELECT ac_uid FROM tasks_evidence_ac_bindings WHERE id='bind-stale'")).toBe(
+      acAfter,
+    );
+    expect(pointsAt("SELECT ac_uid FROM tasks_evidence_ac_bindings WHERE id='bind-live'")).toBe(
+      acAfter,
+    );
+    expect(
+      pointsAt("SELECT ac_uid FROM tasks_task_acceptance_criteria_history WHERE ac_id='ac-older'"),
+    ).toBe(acAfter);
+    // Their fingerprints were re-derived against the new criterion; none is left empty.
+    expect(
+      db
+        .prepare(
+          'SELECT count(*) AS n FROM tasks_evidence_ac_bindings WHERE birth_fp IS NULL OR ac_uid IS NULL',
+        )
+        .get(),
+    ).toEqual({ n: 0 });
+  });
+
   it('overwriting with DIFFERENT work re-derives the task and its edges from the new row (review 3)', async () => {
     const file = join(env.tempDir, 'imp.json');
     writeFileSync(
@@ -319,7 +414,7 @@ describe('overwrite and file imports (T12806 review)', () => {
     expect(labelUid()).toBe(naturalRowUid('project', 'tasks_task_labels', [after?.uid ?? '', 'x']));
   });
 
-  it('coreTaskImport: new tasks derive their uid, a missing createdAt never becomes identity, overwrite clears or keeps', async () => {
+  it('coreTaskImport: new tasks derive their uid from the row as stored, overwrite re-derives or keeps', async () => {
     const file = join(env.tempDir, 'core.json');
     writeFileSync(
       file,
@@ -349,11 +444,21 @@ describe('overwrite and file imports (T12806 review)', () => {
     expect(identity(db, 'T050')?.uid).toBe(
       mintedRowUid('project', 'tasks_tasks', ['T050'], '2026-06-01T00:00:00.000Z'),
     );
-    // No creation time in the source: the recipe's unknown birth (timestamp 0), never "now".
-    const noBirth = identity(db, 'T051');
-    expect(noBirth?.uid).toBe(mintedRowUid('project', 'tasks_tasks', ['T051'], null));
-    expect(uidMs(noBirth?.uid ?? '')).toBe(0);
-    expect(identity(db, 'T001')).toEqual({ uid: null, fp: null });
+    // No creation time in the source: the import writes one, and the identity
+    // agrees with the row as stored, so a recompute never flags it (#1752 review).
+    const noBirth = db
+      .prepare(
+        "SELECT uid, birth_fp AS fp, created_at AS at, title, type FROM tasks_tasks WHERE id = 'T051'",
+      )
+      .get() as { uid: string; fp: string; at: string; title: string; type: string };
+    expect(noBirth.uid).toBe(mintedRowUid('project', 'tasks_tasks', ['T051'], noBirth.at));
+    expect(noBirth.fp).toBe(
+      birthFingerprint('tasks_tasks', noBirth.at, [noBirth.title, noBirth.type]),
+    );
+    expect(uidMs(noBirth.uid)).toBeGreaterThan(0);
+    expect(identity(db, 'T001')?.uid).toBe(
+      mintedRowUid('project', 'tasks_tasks', ['T001'], '2026-06-02T00:00:00.000Z'),
+    );
   });
 
   it('importFromPackage: remapped tasks derive their uid from their new id and their own birth', async () => {
