@@ -12,6 +12,7 @@
 import { createHash } from 'node:crypto';
 import {
   copyFileSync,
+  cpSync,
   existsSync,
   mkdtempSync,
   readFileSync,
@@ -45,7 +46,13 @@ import {
   syncOpenPass,
 } from '../replica.js';
 import { ReplicaRegistry } from '../replica-registry.js';
-import { appliedSyncSchema, ensureSyncSchema } from '../schema.js';
+import {
+  appliedSyncSchema,
+  appliedSyncSchemaHashes,
+  ensureSyncSchema,
+  SyncSchemaHashDriftError,
+  syncSchemaFolders,
+} from '../schema.js';
 
 const SCHEMA_ROOT = resolve(import.meta.dirname, '../../../../migrations/sync-journal');
 const DEVICE = 'device-aaaaaaaa';
@@ -156,6 +163,69 @@ describe('flags', () => {
     expect(isSyncFlagOn(db, 'sync.capture', { CLEO_SYNC_CAPTURE: '0' })).toBe(false);
     expect(isSyncFlagOn(db, 'sync.seal', { CLEO_SYNC_SEAL: '1' })).toBe(false);
     expect(readSyncFlags(db)['sync.capture']).toBe(true);
+  });
+});
+
+describe('sync schema journal', () => {
+  const FOLDER = '20260929140000_t12342-sync-clock';
+
+  /** A private copy of the schema folders, safe to edit. */
+  function schemaCopy(): string {
+    const root = join(dir, 'schema');
+    cpSync(SCHEMA_ROOT, root, { recursive: true });
+    return root;
+  }
+
+  it('records the sha256 of each applied folder', () => {
+    const { db } = freshStore();
+    const root = schemaCopy();
+    expect(ensureSyncSchema(db, { root })).toEqual([FOLDER]);
+    const sql = readFileSync(join(root, FOLDER, 'migration.sql'), 'utf8');
+    expect(appliedSyncSchemaHashes(db).get(FOLDER)).toBe(
+      createHash('sha256').update(sql).digest('hex'),
+    );
+    expect(syncSchemaFolders(root)[0]?.hash).toBe(appliedSyncSchemaHashes(db).get(FOLDER));
+  });
+
+  it('refuses an applied folder whose SQL was edited, instead of skipping it', () => {
+    const { db } = freshStore();
+    const root = schemaCopy();
+    ensureSyncSchema(db, { root });
+    const file = join(root, FOLDER, 'migration.sql');
+    writeFileSync(file, `${readFileSync(file, 'utf8')}\n-- edited after apply\n`);
+    let err: unknown;
+    try {
+      ensureSyncSchema(db, { root });
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(SyncSchemaHashDriftError);
+    expect(err).toMatchObject({ code: 'E_SYNC_SCHEMA_HASH_DRIFT', folder: FOLDER });
+    // Enabling a flag hits the same check.
+    expect(() => setSyncFlag(db, 'sync.seal', true, { schemaRoot: root })).toThrow(
+      SyncSchemaHashDriftError,
+    );
+  });
+
+  it('two connections enabling at once apply each folder once (re-read under the lock)', () => {
+    const { path, db } = freshStore();
+    const other = openDb(path);
+    let raced: string[] = [];
+    // B passes its unlocked pre-check (nothing applied), then A applies and
+    // commits before B takes the write lock.
+    const applied = ensureSyncSchema(db, {
+      root: SCHEMA_ROOT,
+      now: new Date(T0 + 1),
+      beforeLock: () => {
+        raced = ensureSyncSchema(other, { root: SCHEMA_ROOT, now: new Date(T0) });
+      },
+    });
+    expect(raced).toEqual([FOLDER]);
+    expect(applied).toEqual([]);
+    const row = db
+      .prepare('SELECT updated_at FROM _sync_meta WHERE key = ?')
+      .get(`schema:${FOLDER}`) as { updated_at: string };
+    expect(row.updated_at).toBe(new Date(T0).toISOString());
   });
 });
 
