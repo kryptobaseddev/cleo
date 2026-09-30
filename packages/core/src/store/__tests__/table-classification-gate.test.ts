@@ -170,13 +170,6 @@ const NOT_A_CREDENTIAL: Readonly<Record<string, string>> = Object.fromEntries(
 );
 
 /**
- * `optional-transient` is an escape hatch from the stale-entry check, so like
- * `derived` it is pinned HERE: adding one takes an explicit edit to the gate.
- * Each names its class and the source file whose runtime DDL creates it; the
- * gate checks that DDL still exists, so the exemption cannot outlive its
- * table.
- */
-/**
  * The change journal's own tables (T12342): created only when a `sync.*` flag
  * is first enabled, from the sync-journal schema folder, in either store.
  */
@@ -188,6 +181,13 @@ const SYNC_JOURNAL_TABLES = {
   _sync_replica: { class: 'local-only', ddl: SYNC_JOURNAL_DDL },
 };
 
+/**
+ * `optional-transient` is an escape hatch from the stale-entry check, so like
+ * `derived` it is pinned HERE: adding one takes an explicit edit to the gate.
+ * Each names its class and the source file whose runtime DDL creates it; the
+ * gate checks that DDL still exists, so the exemption cannot outlive its
+ * table.
+ */
 const OPTIONAL_TRANSIENT: Record<TableScope, Record<string, { class: string; ddl: string }>> = {
   project: {
     _exodus_database_identity: {
