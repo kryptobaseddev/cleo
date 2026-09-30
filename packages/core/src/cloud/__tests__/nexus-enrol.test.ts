@@ -35,8 +35,10 @@ import type { NexusTokenStore } from '../nexus-credentials.js';
 import { FileNexusTokenStore } from '../nexus-credentials.js';
 import {
   applyBeginRevoke,
+  applyDropCurrent,
   applyEnrolIntent,
   applyEnrolment,
+  applySetRaceCandidate,
   guardNexusDeviceSecrets,
   NEXUS_DEVICE_ENV,
   NexusDeviceEnrolment,
@@ -1160,5 +1162,62 @@ describe('review L7: guarded key material', () => {
     const priv = keys.signing.privateKey;
     expect(inspect(guarded, { depth: 10 })).not.toContain(priv);
     expect(JSON.stringify(guarded)).not.toContain(priv);
+  });
+});
+
+describe('re-check P5: a parked candidate is always probed, even with no current', () => {
+  /** A logged-in entry whose current is dropped and a candidate parked instead. */
+  async function parkOnly(): Promise<{ candidateToken: string; candidateId: string }> {
+    await loginToNexusDevice(flow());
+    const cred = server.creds[0];
+    if (!cred) throw new Error('no credential');
+    await devices.update((tx) => {
+      const entry = tx.get(API, USER);
+      if (!entry?.current) throw new Error('no entry');
+      const current = entry.current;
+      tx.set(
+        API,
+        USER,
+        applySetRaceCandidate(applyDropCurrent(entry, current.credentialId), {
+          credentialId: current.credentialId,
+          token: current.token,
+          profile: current.profile,
+          scopes: current.scopes,
+          createdAt: current.createdAt,
+        }),
+      );
+    });
+    return { candidateToken: cred.token, candidateId: cred.id };
+  }
+
+  it('drops a candidate the server refuses (401), never promoting it', async () => {
+    await parkOnly();
+    for (const c of server.creds) c.live = false;
+    const before = server.count('/v1/whoami');
+    await accountError(
+      ensureNexusDeviceCredential(flow({ userId: USER })),
+      'E_NEXUS_NOT_SIGNED_IN',
+    );
+    expect(server.count('/v1/whoami')).toBe(before + 1);
+    const entry = (await devices.get(API, USER))?.unseal();
+    expect(entry?.current ?? null).toBeNull();
+    expect(entry?.raceCandidate ?? null).toBeNull();
+  });
+
+  it('promotes a candidate only on 200', async () => {
+    const { candidateToken } = await parkOnly();
+    const before = server.count('/v1/whoami');
+    const handle = await ensureNexusDeviceCredential(flow({ userId: USER }));
+    expect(server.count('/v1/whoami')).toBe(before + 1);
+    expect(handle.device.currentBearer()).toBe(candidateToken);
+  });
+
+  it('keeps a candidate the server cannot confirm (5xx), and does not promote it', async () => {
+    const { candidateToken } = await parkOnly();
+    server.whoamiDeviceStatus = 503;
+    await accountError(ensureNexusDeviceCredential(flow({ userId: USER })), 'E_NEXUS_UNREACHABLE');
+    const entry = (await devices.get(API, USER))?.unseal();
+    expect(entry?.current ?? null).toBeNull();
+    expect(entry?.raceCandidate?.token).toBe(candidateToken);
   });
 });

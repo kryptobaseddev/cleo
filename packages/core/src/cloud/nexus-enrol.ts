@@ -800,8 +800,14 @@ async function settleRaceCandidate(
   const candidate = snap?.raceCandidate ?? null;
   if (snap === null || candidate === null) return 'none';
   const current = snap.current;
-  let keep: 'candidate' | 'current' | 'neither' = 'candidate';
-  if (current !== null) {
+  let keep: 'candidate' | 'current' | 'neither';
+  if (current === null) {
+    // No other credential: the candidate is still probed, never promoted
+    // blind. 200 promotes, 401 drops, no answer keeps it (re-check P5).
+    const mine = await probe(ctx, candidate.token);
+    if (mine.state === 'unknown') return 'unknown';
+    keep = mine.state === 'ok' ? 'candidate' : 'neither';
+  } else {
     const [mine, other] = await Promise.all([
       probe(ctx, candidate.token),
       probe(ctx, current.token),
@@ -1473,6 +1479,15 @@ export async function ensureNexusDeviceCredential(
     );
   }
   const device = await ctx.devices.get(ctx.apiUrl, userId);
-  if (device === null || device.currentBearer() === null) throw notSignedIn();
+  if (device === null || device.currentBearer() === null) {
+    if (settled === 'unknown') {
+      throw new NexusAccountError(
+        'E_NEXUS_UNREACHABLE',
+        'the only device credential on this CLEO home is unconfirmed and Cleo Nexus did not answer; it was kept',
+        'retry when Cleo Nexus is reachable',
+      );
+    }
+    throw notSignedIn();
+  }
   return { device, upgraded: upgrade.outcome === 'upgraded', warnings };
 }
