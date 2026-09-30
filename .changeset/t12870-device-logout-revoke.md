@@ -18,8 +18,11 @@ other 401 means that credential is stale, so the next credential is tried. A
 network error, 429, 5xx or a missing route keeps the slot. A confirmed sign-out
 keeps the device keys for the next login. A confirmed revoke removes the
 (origin, user) entry, and other accounts in the file stay. Each row of the
-envelope is `confirmed`, `pending` or `unconfirmed`, and every row that is not
-confirmed is also named in `warnings`.
+envelope is `confirmed`, `pending`, `unconfirmed` or `signed-out`, and every
+row that is not confirmed is also named in `warnings`. `signed-out` means a
+revoke found the device already signed out (E10 401 `device-signed-out`). Its
+credentials are dead and cannot revoke it, so the revoke slot is cleared, never
+retried, and the warning names the device id to revoke on cleocode.dev.
 
 **Retry.** Unsettled slots, and the `retired` requests left by a device change,
 are retried by every later `cleo logout nexus`. `cleo login nexus` and every
