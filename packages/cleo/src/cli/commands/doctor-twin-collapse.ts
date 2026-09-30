@@ -53,6 +53,11 @@ export const doctorTwinCollapseCommand = defineCommand({
       type: 'boolean',
       description: 'With --recover: print the plan, write nothing',
     },
+    'pin-snapshot': {
+      type: 'boolean',
+      description:
+        'With --recover: pin an unpinned pre-collapse snapshot (its .meta.json sidecar only) before applying',
+    },
     rollback: {
       type: 'string',
       description:
@@ -84,6 +89,7 @@ export const doctorTwinCollapseCommand = defineCommand({
         const result = await recoverTwinCollapse(projectRoot, {
           ...guard,
           dryRun: args['dry-run'] === true,
+          pinSnapshot: args['pin-snapshot'] === true,
         });
         cliOutput(
           { kind: 'generic', ...result },

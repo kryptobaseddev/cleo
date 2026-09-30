@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import type { AcceptanceGate, Task, TasksAddParams } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { CleoError } from '../../errors.js';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { getNativeTasksDb, resetDbState } from '../../store/sqlite.js';
@@ -826,6 +827,89 @@ describe('addTask mixed parent-text-AC + children guard (T11576)', () => {
     expect(err.message.toLowerCase()).toMatch(/free-text acceptance|design-point 3/);
     expect((err as { details?: { reason?: string } }).details?.reason).toBe(
       'mixed_parent_text_ac_plus_child',
+    );
+  });
+
+  it('names the sibling-under-epic + --relates / --add-depends path in the fix (T12756)', async () => {
+    const epic = await addTask(
+      {
+        title: 'Owning epic',
+        description: 'container',
+        type: 'epic',
+        acceptance: ['epic outcome'],
+        skipContainmentInvariant: true,
+      },
+      env.tempDir,
+      accessor,
+    );
+    const leaf = await addTask(
+      {
+        title: 'Leaf under epic',
+        description: 'a leaf',
+        type: 'task',
+        parentId: epic.task.id,
+        acceptance: ['do work'],
+      },
+      env.tempDir,
+      accessor,
+    );
+
+    const err = (await addTask(
+      {
+        title: 'Follow-up work',
+        description: 'related work',
+        type: 'subtask',
+        parentId: leaf.task.id,
+      },
+      env.tempDir,
+      accessor,
+    ).catch((e: Error) => e)) as CleoError;
+
+    expect(err).toBeInstanceOf(CleoError);
+    const leafId = leaf.task.id;
+    const epicId = epic.task.id;
+    expect(err.fix).toContain(
+      `cleo add "<title>" --parent ${epicId} --relates ${leafId} --acceptance "<criteria>"`,
+    );
+    expect(err.fix).toContain(`cleo update ${leafId} --add-depends <new>`);
+    expect(err.alternatives?.map((a) => a.command)).toEqual([
+      `cleo add "<title>" --parent ${epicId} --relates ${leafId} --acceptance "<criteria>"`,
+      `cleo update ${leafId} --add-depends <new>`,
+      `cleo decompose ${leafId}`,
+    ]);
+  });
+
+  it('suggests --type subtask when --type task is filed under a task (T12756)', async () => {
+    const parent = await addTask(
+      {
+        title: 'Parent task',
+        description: 'a task',
+        type: 'task',
+        skipContainmentInvariant: true,
+      },
+      env.tempDir,
+      accessor,
+    );
+
+    const err = (await addTask(
+      {
+        title: 'Wrong tier',
+        description: 'task under task',
+        type: 'task',
+        parentId: parent.task.id,
+      },
+      env.tempDir,
+      accessor,
+    ).catch((e: Error) => e)) as CleoError;
+
+    expect(err).toBeInstanceOf(CleoError);
+    expect(err.message).toMatch(/Invalid parent type for task/);
+    expect(err.fix).toContain('Use --type subtask');
+    expect(err.fix).toContain(
+      `cleo add "<title>" --type subtask --parent ${parent.task.id} --acceptance "<criteria>"`,
+    );
+    expect(err.alternatives?.[0]?.command).toBe(
+      `cleo add "<title>" --type subtask --parent ${parent.task.id} --acceptance "<criteria>"`,
     );
   });
 

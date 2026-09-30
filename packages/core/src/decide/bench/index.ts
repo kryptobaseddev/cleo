@@ -47,8 +47,10 @@ export {
   BenchProfileError,
   BenchProfileInvalidError,
   type BenchProfileResolver,
+  type BenchProfileResolverOptions,
+  type BenchProfileStore,
   benchProfileEnvPrefix,
-  createInterimProfileResolver,
+  createProfileResolver,
   resolveBenchProfiles,
 } from './profiles.js';
 export { type BenchQuestion, benchQuestionFor } from './questions.js';
