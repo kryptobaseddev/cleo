@@ -812,6 +812,18 @@ const checkArchCommand = defineCommand({
         script: 'scripts/lint-model-call-sites.mjs',
         description: 'Every model call site is a registered decision site (ratchet)',
       },
+      {
+        // T12819 / T12827 (journal spec §2.3a, §3.5 Rule 4): nothing drops
+        // cleo_trigger_suspend; only dropSyncMachinery drops _sync_* tables;
+        // migrations never mention capture triggers; forward-only migration
+        // rules (owned triggers carry the suspension clause, deterministic
+        // DML, no parent DELETE in a rebuild file); released migration files
+        // are byte-identical to the base ref (#1719).
+        id: 'gate-36',
+        task: 'T12819',
+        script: 'scripts/lint-sync-schema.mjs',
+        description: 'Change-journal schema rules (suspend table, migrations)',
+      },
     ] as const;
 
     const scriptArgs = strict ? ['--strict'] : ['--check'];
