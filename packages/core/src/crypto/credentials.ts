@@ -21,10 +21,15 @@
 
 import { execFileSync } from 'node:child_process';
 import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'node:crypto';
-import { chmod, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { getCleoHome } from '../paths.js';
-import { getGlobalSalt, loadGlobalSaltAt } from '../store/global-salt.js';
+import {
+  createSecretFileExclusive,
+  getGlobalSalt,
+  loadGlobalSaltAt,
+  readGlobalSaltAt,
+} from '../store/global-salt.js';
 
 /** AES-256-GCM constants. */
 const ALGORITHM = 'aes-256-gcm' as const;
@@ -82,73 +87,93 @@ export interface CredentialKeyOptions {
  * @throws If the machine key exists but has wrong permissions (not 0600).
  */
 async function getMachineKey(cleoHome?: string): Promise<Buffer> {
-  const keyPath = getMachineKeyPath(cleoHome);
+  const key = await readOrCreateMachineKey(cleoHome, true);
+  if (key === null) throw new Error('machine key could not be created');
+  return key;
+}
 
+/**
+ * Read the machine key, or with `create`, generate it on first use.
+ *
+ * Creation is exclusive (T12867 review N2): the key is written to a private
+ * temp file and hard-linked into place (or created with `wx` where links are
+ * unavailable), and a process that loses the race reads the winner's key.
+ * A plain write could let two first-time creators seal under different keys.
+ *
+ * @returns The key, or `null` when it does not exist and `create` is false.
+ * @throws If the key exists with unsafe permissions or the wrong length.
+ */
+async function readOrCreateMachineKey(
+  cleoHome: string | undefined,
+  create: boolean,
+): Promise<Buffer | null> {
+  const keyPath = getMachineKeyPath(cleoHome);
   try {
-    // Verify key file permissions
-    const stats = await stat(keyPath);
-    if (process.platform === 'win32') {
-      // Windows: use icacls to verify the key is not world-readable.
-      try {
-        const output = execFileSync('icacls', [keyPath], { encoding: 'utf-8', timeout: 5000 });
-        const unsafePatterns = /\\(Users|Everyone|Authenticated Users):/i;
-        if (unsafePatterns.test(output)) {
-          throw new Error(
-            `Machine key has unsafe Windows ACLs (accessible to other users). ` +
-              `Fix with: icacls "${keyPath}" /inheritance:r /grant:r "%USERNAME%":F`,
-          );
-        }
-      } catch (aclErr) {
-        if (aclErr instanceof Error && aclErr.message.includes('unsafe')) throw aclErr;
-      }
-    } else {
-      // Unix: verify 0600 permissions
-      const mode = stats.mode & 0o777;
-      if (mode !== 0o600) {
+    return await readMachineKeyAt(keyPath);
+  } catch (err: unknown) {
+    if (!(err instanceof Error && 'code' in err && err.code === 'ENOENT')) throw err;
+  }
+  if (!create) return null;
+  await mkdir(dirname(keyPath), { recursive: true });
+  const created = createSecretFileExclusive(keyPath, randomBytes(KEY_LENGTH), 0o600);
+  if (created && process.platform === 'win32') {
+    // Lock down Windows ACLs: remove inherited permissions, grant only current user
+    try {
+      execFileSync(
+        'icacls',
+        [keyPath, '/inheritance:r', '/grant:r', `${process.env['USERNAME'] ?? 'CURRENT_USER'}:F`],
+        { timeout: 5000 },
+      );
+    } catch {
+      // Best-effort — icacls may not be available in all environments
+    }
+  }
+  // Whether this call created it or lost the race, use what is on disk.
+  return readMachineKeyAt(keyPath);
+}
+
+/**
+ * Read and validate an existing machine key.
+ *
+ * @throws An `ENOENT` error when it does not exist; an `Error` on unsafe
+ *   permissions or the wrong length.
+ */
+async function readMachineKeyAt(keyPath: string): Promise<Buffer> {
+  // Verify key file permissions
+  const stats = await stat(keyPath);
+  if (process.platform === 'win32') {
+    // Windows: use icacls to verify the key is not world-readable.
+    try {
+      const output = execFileSync('icacls', [keyPath], { encoding: 'utf-8', timeout: 5000 });
+      const unsafePatterns = /\\(Users|Everyone|Authenticated Users):/i;
+      if (unsafePatterns.test(output)) {
         throw new Error(
-          `Machine key has unsafe permissions (${mode.toString(8)}). Expected 0600. ` +
-            `Fix with: chmod 600 ${keyPath}`,
+          `Machine key has unsafe Windows ACLs (accessible to other users). ` +
+            `Fix with: icacls "${keyPath}" /inheritance:r /grant:r "%USERNAME%":F`,
         );
       }
+    } catch (aclErr) {
+      if (aclErr instanceof Error && aclErr.message.includes('unsafe')) throw aclErr;
     }
-    const key = await readFile(keyPath);
-    // F-004: validate key length
-    if (key.length !== KEY_LENGTH) {
+  } else {
+    // Unix: verify 0600 permissions
+    const mode = stats.mode & 0o777;
+    if (mode !== 0o600) {
       throw new Error(
-        `Machine key has invalid length (${key.length} bytes, expected ${KEY_LENGTH}). ` +
-          `Delete ${keyPath} and re-register agents to generate a new key.`,
+        `Machine key has unsafe permissions (${mode.toString(8)}). Expected 0600. ` +
+          `Fix with: chmod 600 ${keyPath}`,
       );
     }
-    return key;
-  } catch (err: unknown) {
-    if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
-      // Auto-generate on first use
-      const key = randomBytes(KEY_LENGTH);
-      await mkdir(dirname(keyPath), { recursive: true });
-      await writeFile(keyPath, key, { mode: 0o600 });
-      if (process.platform === 'win32') {
-        // Lock down Windows ACLs: remove inherited permissions, grant only current user
-        try {
-          execFileSync(
-            'icacls',
-            [
-              keyPath,
-              '/inheritance:r',
-              '/grant:r',
-              `${process.env['USERNAME'] ?? 'CURRENT_USER'}:F`,
-            ],
-            { timeout: 5000 },
-          );
-        } catch {
-          // Best-effort — icacls may not be available in all environments
-        }
-      } else {
-        await chmod(keyPath, 0o600);
-      }
-      return key;
-    }
-    throw err;
   }
+  const key = await readFile(keyPath);
+  // F-004: validate key length
+  if (key.length !== KEY_LENGTH) {
+    throw new Error(
+      `Machine key has invalid length (${key.length} bytes, expected ${KEY_LENGTH}). ` +
+        `Delete ${keyPath} and re-register agents to generate a new key.`,
+    );
+  }
+  return key;
 }
 
 // ============================================================================
@@ -159,9 +184,15 @@ async function getMachineKey(cleoHome?: string): Promise<Buffer> {
  * Encrypt `plaintext` under `key` and frame it as
  * base64(version ‖ iv ‖ ciphertext ‖ authTag).
  */
-function sealWithKey(plaintext: string, key: Buffer, version: number): string {
+function sealWithKey(
+  plaintext: string,
+  key: Buffer,
+  version: number,
+  associatedData?: string,
+): string {
   const iv = randomBytes(IV_LENGTH);
   const cipher = createCipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
+  if (associatedData !== undefined) cipher.setAAD(Buffer.from(associatedData, 'utf8'));
   const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
   const authTag = cipher.getAuthTag();
   return Buffer.concat([Buffer.from([version]), iv, encrypted, authTag]).toString('base64');
@@ -194,8 +225,13 @@ function unframe(ciphertext: string): {
  * Decrypt a framed ciphertext under `key`. Returns `null` when the GCM auth
  * tag rejects the key — the caller decides whether another key is worth trying.
  */
-function openWithKey(parts: ReturnType<typeof unframe>, key: Buffer): string | null {
+function openWithKey(
+  parts: ReturnType<typeof unframe>,
+  key: Buffer,
+  associatedData?: string,
+): string | null {
   const decipher = createDecipheriv(ALGORITHM, key, parts.iv, { authTagLength: AUTH_TAG_LENGTH });
+  if (associatedData !== undefined) decipher.setAAD(Buffer.from(associatedData, 'utf8'));
   decipher.setAuthTag(parts.authTag);
   try {
     return Buffer.concat([decipher.update(parts.encrypted), decipher.final()]).toString('utf8');
@@ -436,9 +472,102 @@ export async function decryptProjectSecret(
 async function deriveGlobalKey(id: string, cleoHome?: string): Promise<Buffer> {
   const machineKey = await getMachineKey(cleoHome);
   const globalSalt = cleoHome === undefined ? getGlobalSalt() : loadGlobalSaltAt(cleoHome);
+  return deriveGlobalKeyFromMaterial({ machineKey, globalSalt }, id);
+}
+
+/**
+ * The machine key and global salt of one CLEO home: the inputs of the global
+ * KDF. Held only in memory, only as long as one operation needs it.
+ *
+ * @task T12867
+ */
+export interface GlobalKeyMaterial {
+  /** The 32-byte `machine-key`. */
+  readonly machineKey: Buffer;
+  /** The 32-byte `global-salt`. */
+  readonly globalSalt: Buffer;
+}
+
+/**
+ * Load the global KDF inputs of a CLEO home.
+ *
+ * With `create: false` nothing is ever written: a missing `machine-key` or
+ * `global-salt` returns `null`, so a read path never mints key material
+ * (T12867 review N1). With `create: true` both are created on first use,
+ * exclusively (N2).
+ *
+ * @param options - The CLEO home, and whether missing material may be created.
+ * @returns The material, or `null` when it is missing and `create` is false.
+ * @throws {Error} When a key file exists but is unsafe (permissions, length) or unreadable.
+ * @task T12867
+ */
+export async function loadGlobalKeyMaterial(
+  options: CredentialKeyOptions & { readonly create: boolean },
+): Promise<GlobalKeyMaterial | null> {
+  const home = options.cleoHome ?? getCleoHome();
+  if (!options.create) {
+    const machineKey = await readOrCreateMachineKey(home, false);
+    const globalSalt = readGlobalSaltAt(home);
+    return machineKey === null || globalSalt === null ? null : { machineKey, globalSalt };
+  }
+  const machineKey = await readOrCreateMachineKey(home, true);
+  if (machineKey === null) throw new Error('machine key could not be created');
+  return { machineKey, globalSalt: loadGlobalSaltAt(home) };
+}
+
+/**
+ * Derive the global KDF key for `id`: `HMAC-SHA256(machine-key || global-salt, id)`
+ * (ADR-037 §5), the same key {@link encryptGlobal} uses.
+ *
+ * @param material - The home's key material.
+ * @param id - The identity binding the ciphertext.
+ * @returns A 32-byte AES-256 key.
+ * @task T12867
+ */
+export function deriveGlobalKeyFromMaterial(material: GlobalKeyMaterial, id: string): Buffer {
   // HMAC key = machine-key || globalSalt (concatenation); message = id.
-  const hmacKey = Buffer.concat([machineKey, globalSalt]);
+  const hmacKey = Buffer.concat([material.machineKey, material.globalSalt]);
   return createHmac('sha256', hmacKey).update(id).digest();
+}
+
+/**
+ * Encrypt with an already-derived global key, binding `associatedData`
+ * (authenticated, not encrypted) into the GCM tag. Same framing as
+ * {@link encryptGlobal}.
+ *
+ * @param plaintext - The secret.
+ * @param key - From {@link deriveGlobalKeyFromMaterial}.
+ * @param associatedData - Context the ciphertext is bound to (for example a field path).
+ * @returns Base64 ciphertext.
+ * @task T12867
+ */
+export function sealWithGlobalKey(plaintext: string, key: Buffer, associatedData: string): string {
+  return sealWithKey(plaintext, key, CIPHERTEXT_VERSION, associatedData);
+}
+
+/**
+ * Decrypt a {@link sealWithGlobalKey} ciphertext.
+ *
+ * @param ciphertext - Base64 ciphertext.
+ * @param key - From {@link deriveGlobalKeyFromMaterial}.
+ * @param associatedData - The same context it was sealed with.
+ * @returns The plaintext, or `null` when the ciphertext is malformed, of an
+ *   unknown version, or fails authentication (wrong key, id or context).
+ * @task T12867
+ */
+export function openWithGlobalKey(
+  ciphertext: string,
+  key: Buffer,
+  associatedData: string,
+): string | null {
+  let parts: ReturnType<typeof unframe>;
+  try {
+    parts = unframe(ciphertext);
+  } catch {
+    return null;
+  }
+  if (parts.version !== CIPHERTEXT_VERSION) return null;
+  return openWithKey(parts, key, associatedData);
 }
 
 /**

@@ -86,27 +86,43 @@ export function getGlobalSalt(): Buffer {
  * @task T12326
  */
 export function loadGlobalSaltAt(cleoHome: string): Buffer {
-  const saltPath = path.join(cleoHome, GLOBAL_SALT_FILENAME);
+  const existing = readGlobalSaltAt(cleoHome);
+  if (existing !== null) return existing;
 
-  if (!fs.existsSync(saltPath)) {
-    // First-run generation: ensure the directory exists
-    if (!fs.existsSync(cleoHome)) {
-      fs.mkdirSync(cleoHome, { recursive: true });
-    }
-
-    const salt = crypto.randomBytes(GLOBAL_SALT_SIZE);
-
-    // Atomic write: write to tmp file, chmod, then rename into place
-    const tmpPath = `${saltPath}.tmp-${process.pid}-${Date.now()}`;
-    fs.writeFileSync(tmpPath, salt, { mode: SALT_FILE_MODE });
-    // Explicit chmod in case writeFileSync's mode arg is ignored on some FS
-    fs.chmodSync(tmpPath, SALT_FILE_MODE);
-    fs.renameSync(tmpPath, saltPath);
-    return salt;
+  // First-run generation. Never replaces a salt another process created
+  // meanwhile: the create is exclusive, and whoever loses the race reads the
+  // winner's salt (T12867 review N2). Replacing it would split the two
+  // processes onto different keys.
+  if (!fs.existsSync(cleoHome)) {
+    fs.mkdirSync(cleoHome, { recursive: true });
   }
+  const saltPath = path.join(cleoHome, GLOBAL_SALT_FILENAME);
+  createSecretFileExclusive(saltPath, crypto.randomBytes(GLOBAL_SALT_SIZE), SALT_FILE_MODE);
+  const created = readGlobalSaltAt(cleoHome);
+  if (created === null) {
+    throw new Error(`global-salt at ${saltPath} vanished right after it was created`);
+  }
+  return created;
+}
 
-  // Existing file — validate before trusting
-  const stat = fs.statSync(saltPath);
+/**
+ * Read and validate the global salt of an explicit CLEO home WITHOUT ever
+ * creating it. Read paths that must not mint key material use this.
+ *
+ * @param cleoHome - Absolute CLEO home directory.
+ * @returns The 32-byte salt, or `null` when `<cleoHome>/global-salt` does not exist.
+ * @throws {Error} If the salt file exists with wrong size or wrong permissions.
+ * @task T12867
+ */
+export function readGlobalSaltAt(cleoHome: string): Buffer | null {
+  const saltPath = path.join(cleoHome, GLOBAL_SALT_FILENAME);
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(saltPath);
+  } catch (err) {
+    if (err instanceof Error && 'code' in err && err.code === 'ENOENT') return null;
+    throw err;
+  }
 
   if (stat.size !== GLOBAL_SALT_SIZE) {
     throw new Error(
@@ -128,6 +144,51 @@ export function loadGlobalSaltAt(cleoHome: string): Buffer {
   }
 
   return fs.readFileSync(saltPath);
+}
+
+/**
+ * Create a secret file only if it does not exist, never replacing one that
+ * another process created first. The bytes are written to a private temp
+ * file and hard-linked into place, so the target appears complete or not at
+ * all. Where hard links are unavailable, the target is created with the
+ * exclusive `wx` flag instead.
+ *
+ * @param filePath - Target path.
+ * @param data - The secret bytes.
+ * @param mode - File mode (for example `0o600`).
+ * @returns `true` when this call created the file, `false` when it already existed.
+ * @task T12867
+ */
+export function createSecretFileExclusive(filePath: string, data: Buffer, mode: number): boolean {
+  const tmpPath = `${filePath}.tmp-${process.pid}-${crypto.randomBytes(6).toString('hex')}`;
+  fs.writeFileSync(tmpPath, data, { mode, flag: 'wx' });
+  try {
+    // Explicit chmod in case writeFileSync's mode arg is narrowed by umask or ignored
+    fs.chmodSync(tmpPath, mode);
+    try {
+      fs.linkSync(tmpPath, filePath);
+      return true;
+    } catch (err) {
+      const code = err instanceof Error && 'code' in err ? err.code : undefined;
+      if (code === 'EEXIST') return false;
+      if (code !== 'EPERM' && code !== 'ENOTSUP' && code !== 'EXDEV' && code !== 'ENOSYS') {
+        throw err;
+      }
+    }
+    try {
+      fs.writeFileSync(filePath, data, { mode, flag: 'wx' });
+      return true;
+    } catch (err) {
+      if (err instanceof Error && 'code' in err && err.code === 'EEXIST') return false;
+      throw err;
+    }
+  } finally {
+    try {
+      fs.unlinkSync(tmpPath);
+    } catch {
+      /* already gone */
+    }
+  }
 }
 
 /**

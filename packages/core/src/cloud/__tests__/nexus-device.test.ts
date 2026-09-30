@@ -802,3 +802,128 @@ describe('redaction (C2, M3)', () => {
     expect(existsSync(join(backups, 'nexus-device.json.1'))).toBe(false);
   });
 });
+
+describe('review round 3 (N1–N5, L1)', () => {
+  it('N3: an entry moved across the origin/user colon boundary does not open', async () => {
+    const store = new NexusDeviceStore(location);
+    await store.update((tx) => tx.set('https://a.test:8443/v1', 'u', enrolled()));
+    const json = JSON.parse(readFileSync(location, 'utf-8'));
+    json.devices['https://a.test'] = { '8443:u': json.devices['https://a.test:8443'].u };
+    delete json.devices['https://a.test:8443'];
+    writeFileSync(location, JSON.stringify(json), { mode: 0o600 });
+    await storeError(store.get('https://a.test', '8443:u'), 'E_NEXUS_DEVICE_UNSEAL_FAILED');
+  });
+
+  it('N3: values cannot be swapped between fields (field path is GCM associated data)', async () => {
+    const store = new NexusDeviceStore(location);
+    await store.update((tx) => tx.set(API, USER_A, applyPendingRotation(enrolled(), mintToken())));
+    const json = JSON.parse(readFileSync(location, 'utf-8'));
+    const e = json.devices[ORIGIN][USER_A];
+    [e.current.token, e.pending.token] = [e.pending.token, e.current.token];
+    writeFileSync(location, JSON.stringify(json), { mode: 0o600 });
+    await storeError(store.get(API, USER_A), 'E_NEXUS_DEVICE_UNSEAL_FAILED');
+  });
+
+  it('N1: reads never create key material; a lost key reads as unreadable', async () => {
+    const store = new NexusDeviceStore(location);
+    const entry = enrolled();
+    await store.update((tx) => tx.set(API, USER_A, entry));
+    rmSync(join(home, 'machine-key'));
+    rmSync(join(home, 'global-salt'));
+
+    const err = await storeError(store.get(API, USER_A), 'E_NEXUS_DEVICE_UNSEAL_FAILED');
+    expect(err.message).toContain('no machine key');
+    const listed = await store.list();
+    expect(listed).toHaveLength(1);
+    expect(listed[0]?.readable).toBe(false);
+    expect(listed[0]?.deviceId).toBe(entry.deviceId);
+    expect(existsSync(join(home, 'machine-key'))).toBe(false);
+    expect(existsSync(join(home, 'global-salt'))).toBe(false);
+
+    // A read of a home that has nothing at all creates nothing either.
+    const empty = join(dir, 'empty-home');
+    expect(
+      await new NexusDeviceStore(join(empty, 'nexus-device.json')).get(API, USER_A),
+    ).toBeNull();
+    expect(existsSync(empty)).toBe(false);
+  });
+
+  it('N1: a login can discard an unreadable entry, with a warning naming the device to revoke', async () => {
+    const store = new NexusDeviceStore(location);
+    const lost = enrolled();
+    await store.update((tx) => tx.set(API, USER_A, lost));
+    rmSync(join(home, 'machine-key'));
+
+    const fresh = enrolled();
+    const outcome = await store.update((tx) => {
+      expect(tx.keys()).toEqual([{ origin: ORIGIN, userId: USER_A, readable: false }]);
+      expect(tx.discardUnreadable(API, USER_A, { deviceId: uuidv7() }).discarded).toBe(false);
+      const result = tx.discardUnreadable(API, USER_A, { deviceId: lost.deviceId });
+      tx.set(API, USER_A, fresh);
+      return { result, warnings: [...tx.warnings] };
+    });
+    expect(outcome.result.discarded).toBe(true);
+    expect(outcome.result.warning).toContain(lost.deviceId);
+    expect(outcome.result.warning).toContain('cleocode.dev');
+    expect(outcome.warnings).toContain(outcome.result.warning);
+    expect((await store.get(API, USER_A))?.deviceId).toBe(fresh.deviceId);
+  });
+
+  it.skipIf(!posix)('N4: a symlinked CLEO home is never chmod-ed; it only warns', async () => {
+    const real = join(dir, 'real-home');
+    mkdirSync(real);
+    chmodSync(real, 0o775);
+    symlinkSync(real, home);
+    const warnings = await new NexusDeviceStore(location).update((tx) => {
+      tx.set(API, USER_A, enrolled());
+      return [...tx.warnings];
+    });
+    expect(statSync(real).mode & 0o777).toBe(0o775);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('symlink');
+    expect(warnings[0]).toContain('was not changed');
+  });
+
+  it.skipIf(!posix)(
+    'N5: an unusable machine key is its own error, never "copied from another machine"',
+    async () => {
+      const store = new NexusDeviceStore(location);
+      await store.update((tx) => tx.set(API, USER_A, enrolled()));
+      const before = readFileSync(location, 'utf-8');
+      chmodSync(join(home, 'machine-key'), 0o644);
+
+      const read = await storeError(store.get(API, USER_A), 'E_NEXUS_DEVICE_MACHINE_KEY');
+      expect(read.message).toContain('chmod 600');
+      expect(read.message).not.toContain('another machine');
+      await storeError(
+        store.update((tx) => tx.set(API, USER_B, enrolled())),
+        'E_NEXUS_DEVICE_MACHINE_KEY',
+      );
+      expect(readFileSync(location, 'utf-8')).toBe(before);
+    },
+  );
+
+  it('L1: a change by another writer under our lock is fenced off before the rename', async () => {
+    const store = new NexusDeviceStore(location);
+    await store.update((tx) => tx.set(API, USER_A, enrolled()));
+    const intruder = `${readFileSync(location, 'utf-8')} `;
+    await storeError(
+      store.update(async (tx) => {
+        tx.set(API, USER_B, enrolled());
+        await sleep(5);
+        writeFileSync(location, intruder, { mode: 0o600 }); // bypasses the lock
+      }),
+      'E_NEXUS_DEVICE_LOCK_COMPROMISED',
+    );
+    expect(readFileSync(location, 'utf-8')).toBe(intruder);
+
+    // Our own successive flushes are not mistaken for an intruder.
+    chmodSync(location, 0o600);
+    await store.update(async (tx) => {
+      tx.set(API, USER_B, enrolled());
+      await tx.flush();
+      tx.set(API, USER_B, enrolled());
+    });
+    expect((await store.list()).map((d) => d.userId)).toEqual([USER_A, USER_B]);
+  });
+});
