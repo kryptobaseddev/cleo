@@ -445,18 +445,55 @@ describe('pinning: the pre-collapse snapshot is never rotated', () => {
     expect(kept).toEqual([ids[0], ...ids.slice(2)]);
   });
 
-  it('rotation deletes nothing when a marker cannot be read (T12727)', () => {
+  it('an unreadable marker keeps every migration backup, says so, and other types still rotate (T12770)', () => {
     mkdirSync(backupDir(), { recursive: true });
-    for (let i = 0; i < 12; i++)
-      writeFileSync(
-        join(backupDir(), `cleo.db.migration-20260104-0000${String(i).padStart(2, '0')}`),
-        'x',
-      );
+    for (let i = 0; i < 12; i++) {
+      const n = String(i).padStart(2, '0');
+      writeFileSync(join(backupDir(), `cleo.db.migration-20260104-0000${n}`), 'x');
+      writeFileSync(join(backupDir(), `cleo.db.snapshot-20260104-0000${n}`), 'x');
+    }
+    const key = `brain_schema_meta:${TWIN_COLLAPSE_MARKER_PREFIX}sticky_tags`;
     setMeta('brain_schema_meta', `${TWIN_COLLAPSE_MARKER_PREFIX}sticky_tags`, '{not json');
-    rotateBackupDir(backupDir(), 10, 'migration');
-    expect(readdirSync(backupDir()).filter((f) => f.includes('.migration-20260104-'))).toHaveLength(
-      12,
-    );
+    expect(rotateBackupDir(backupDir(), 10, 'migration')).toMatchObject({
+      deleted: [],
+      keptAll: 'marker-unreadable',
+      unreadable: [key],
+    });
+    expect(readdirSync(backupDir()).filter((f) => f.includes('.migration-'))).toHaveLength(12);
+    const other = rotateBackupDir(backupDir(), 10, 'snapshot');
+    expect(other).toMatchObject({ keptAll: null });
+    expect(other.deleted).toHaveLength(2);
+    expect(readdirSync(backupDir()).filter((f) => f.includes('.snapshot-'))).toHaveLength(10);
+    expect(twinCollapseDoctorCheck(projectDir)).toMatchObject({
+      status: 'warning',
+      message: expect.stringContaining(
+        `the twin-collapse marker ${key} cannot be read, so backup rotation keeps every migration backup`,
+      ),
+    });
+  });
+
+  it('cleo doctor names a marker whose snapshot field cannot be read, on an otherwise healthy store (T12770)', () => {
+    const key = `${TWIN_COLLAPSE_MARKER_PREFIX}sticky_tags`;
+    expect(twinCollapseDoctorCheck(projectDir)).toMatchObject({ status: 'ok' });
+    const marker = JSON.parse(meta('brain_schema_meta', key) ?? '{}');
+    setMeta('brain_schema_meta', key, JSON.stringify({ ...marker, snapshot: 42 }));
+    expect(twinCollapseDoctorCheck(projectDir)).toMatchObject({
+      status: 'warning',
+      message: `the twin-collapse marker brain_schema_meta:${key} cannot be read, so backup rotation keeps every migration backup in .cleo/backups/sqlite until it is repaired`,
+    });
+  });
+
+  it('a store that cannot be read (busy, corrupt) keeps migration backups and reports the error (T12770)', () => {
+    const other = join(root, 'other', '.cleo');
+    const dir = join(other, 'backups', 'sqlite');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(other, 'cleo.db'), 'not a database, as good as locked');
+    for (let i = 0; i < 12; i++)
+      writeFileSync(join(dir, `cleo.db.migration-20260105-0000${String(i).padStart(2, '0')}`), 'x');
+    const kept = rotateBackupDir(dir, 10, 'migration');
+    expect(kept).toMatchObject({ deleted: [], keptAll: 'store-unreadable' });
+    expect(kept.error).toEqual(expect.any(String));
+    expect(readdirSync(dir)).toHaveLength(12);
   });
 
   it('a pre-collapse snapshot with no sidecar is pinned at the next open, once (T12727)', async () => {

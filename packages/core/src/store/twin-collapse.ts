@@ -2421,10 +2421,16 @@ export function planTwinCollapseRecovery(
           focusState = merged;
         }
       } else if (reason === 'dropped') {
-        // Only the twin held it (the kodomeet shape) and nothing replaced it
-        // since: the union rule keeps it, so it is live again.
-        focusState = twinValue;
-        focusNotesAdded = sessionNotesOf(twinValue).length;
+        // Only the twin held it (the kodomeet shape) and nothing replaced the
+        // legacy key since: its notes are live again. Its pointer is not:
+        // bound sessions keep their focus under `focus_state:<sessionId>`
+        // (T11345, T12501), and the next keyless one would adopt a live legacy
+        // pointer months stale. The full value stays in the archive (T12771).
+        const parsed = FocusNotesShape.safeParse(parseJson(twinValue));
+        if (parsed.success) {
+          focusState = JSON.stringify({ ...parsed.data, currentTask: null });
+          focusNotesAdded = parsed.data.sessionNotes.length;
+        }
       }
     }
     if (done) continue;
@@ -2515,7 +2521,6 @@ export function applyTwinCollapseRecovery(
   if (plan.snapshot === null) return { plan, receipt: null };
   const preview = recoveryWrites.get(plan);
   if (!plan.snapshotExists || preview === undefined) throw missingSnapshot(plan.snapshot);
-  if (!plan.snapshotPinned) throw unpinnedSnapshot(plan.snapshot);
   live.exec('BEGIN IMMEDIATE');
   try {
     const fresh = planTwinCollapseRecovery(live, preview.snapshot);
@@ -2524,6 +2529,9 @@ export function applyTwinCollapseRecovery(
       live.exec('ROLLBACK');
       return { plan: fresh, receipt: null };
     }
+    // Only when there is something to write (T12772): a re-run on a
+    // recovered store is a no-op whatever the pin.
+    if (!fresh.snapshotPinned) throw unpinnedSnapshot(fresh.snapshot);
     const recoveredAt = new Date().toISOString();
     let id = `${TWIN_COLLAPSE_RECOVERY_PREFIX}${recoveredAt}`;
     for (let n = 2; readKv(live, 'tasks_schema_meta', id) !== undefined; n++)

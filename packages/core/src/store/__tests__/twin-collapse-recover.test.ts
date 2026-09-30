@@ -337,8 +337,40 @@ async function kodomeetShape(): Promise<string> {
   return twinFocus;
 }
 
+describe('the pin check and the snapshot path (T12772)', () => {
+  it('a re-run on a recovered store is a no-op even when the snapshot is unpinned', async () => {
+    await cleocodeShape();
+    await recoverTwinCollapse(projectDir, opts());
+    rmSync(sidecarPath());
+    const digest = kvDigest();
+    const again = await recoverTwinCollapse(projectDir, opts());
+    expect(again.receipt).toBeNull();
+    expect(again.plan.changes).toBe(false);
+    expect(kvDigest()).toBe(digest);
+  });
+
+  it("a marker naming a snapshot outside this store's backups/sqlite is refused and never pinned", async () => {
+    await cleocodeShape();
+    const elsewhere = join(root, 'elsewhere');
+    mkdirSync(elsewhere, { recursive: true });
+    const foreign = join(elsewhere, 'cleo.db.migration-20260928-153200');
+    writeFileSync(foreign, readFileSync(snapshotPath()));
+    markersNaming(foreign);
+    const digest = kvDigest();
+    for (const o of [
+      { ...opts(), dryRun: true },
+      { ...opts(), pinSnapshot: true },
+    ])
+      await expect(recoverTwinCollapse(projectDir, o)).rejects.toThrow(
+        /E_TWIN_COLLAPSE_RECOVER: the marker names .*elsewhere.*, outside this store's backup directory/,
+      );
+    expect(existsSync(join(elsewhere, 'migration-20260928-153200.meta.json'))).toBe(false);
+    expect(kvDigest()).toBe(digest);
+  });
+});
+
 describe('kodomeet shape: a twin-only focus_state 9.21 dropped (AC5)', () => {
-  it('is live again and archived; a re-run is a no-op; rollback removes it', async () => {
+  it('its notes are live again (pointer cleared) and the full value archived; a re-run is a no-op; rollback removes it', async () => {
     const twinFocus = await kodomeetShape();
     const before = kvDigest();
     const dry = await recoverTwinCollapse(projectDir, { ...opts(), dryRun: true });
@@ -348,7 +380,7 @@ describe('kodomeet shape: a twin-only focus_state 9.21 dropped (AC5)', () => {
       archive: [{ key: 'focus_state', reason: 'dropped', length: twinFocus.length }],
     });
     const { receipt } = await recoverTwinCollapse(projectDir, opts());
-    expect(meta('tasks_schema_meta', 'focus_state')).toBe(twinFocus);
+    expect(focus()).toEqual({ ...JSON.parse(twinFocus), currentTask: null });
     expect(meta('tasks_schema_meta', 'twin_collapse_archive:focus_state')).toBe(twinFocus);
     expect(receipt).toMatchObject({ focusNotesAdded: 20, before: { focusState: null } });
     const after = kvDigest();
@@ -361,6 +393,39 @@ describe('kodomeet shape: a twin-only focus_state 9.21 dropped (AC5)', () => {
       .prepare('DELETE FROM main.tasks_schema_meta WHERE key = ?')
       .run(receipt?.id as string);
     expect(kvDigest()).toBe(before);
+  });
+
+  it('with a bound session holding focus_state:<sessionId>, the stale pointer never comes back (T12771)', async () => {
+    await kodomeetShape();
+    const own = JSON.stringify({ currentTask: 'T500', sessionNotes: notes(900, 1, 'bound') });
+    setMeta('tasks_schema_meta', 'focus_state:ses_bound', own);
+    const { receipt } = await recoverTwinCollapse(projectDir, opts());
+    expect(receipt?.focusNotesAdded).toBe(20);
+    // The legacy key a keyless bound session would adopt carries no pointer.
+    expect(focus().currentTask).toBeNull();
+    expect(focus().sessionNotes).toHaveLength(20);
+    expect(meta('tasks_schema_meta', 'focus_state:ses_bound')).toBe(own);
+  });
+
+  it('rollback after a bound session adopted the merged focus keeps the notes in its key (acceptable)', async () => {
+    await kodomeetShape();
+    setMeta(
+      'tasks_schema_meta',
+      'focus_state',
+      JSON.stringify({ currentTask: 'T90', sessionNotes: notes(500, 2, 'since') }),
+    );
+    const { receipt } = await recoverTwinCollapse(projectDir, opts());
+    // As adoptLegacyFocus does (T12501): copy the blob to the session key,
+    // then clear the legacy pointer.
+    const merged = focus();
+    setMeta('tasks_schema_meta', 'focus_state:ses_adopter', JSON.stringify(merged));
+    setMeta('tasks_schema_meta', 'focus_state', JSON.stringify({ ...merged, currentTask: null }));
+    const undo = await rollbackTwinCollapse(projectDir, receipt?.id as string, opts());
+    expect(undo).toMatchObject({ focusState: 'notes-removed', notesRemoved: 20 });
+    expect(focus().sessionNotes).toHaveLength(2);
+    const adopted = JSON.parse(meta('tasks_schema_meta', 'focus_state:ses_adopter') ?? '{}');
+    expect(adopted).toMatchObject({ currentTask: 'T90' });
+    expect(adopted.sessionNotes).toHaveLength(22); // the session keeps what it adopted
   });
 
   it('when a new focus_state was written since, the twin notes are merged into it', async () => {
