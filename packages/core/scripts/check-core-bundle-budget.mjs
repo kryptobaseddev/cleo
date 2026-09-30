@@ -74,8 +74,16 @@ const DIST_DIR = join(PKG_ROOT, 'dist');
  * So this ceiling was false-failing on exactly the "normal growth" it says it
  * must not fail on. If it ever trips again, re-run those three checks before
  * raising it — a raise is only correct while the bundle composition is diffuse.
+ *
+ * Raised 48 MB -> 49 MB on 2026-09-29 (T12343 S0/S1, cleo-dev ruling, same
+ * precedent as T12256). The change journal's flag-off sync library
+ * (`store/sync/`, about 180 KB of js, d.ts and maps) took the tree to 48.02 MB.
+ * The checks above were re-run first: the largest emitted file is 3.3 MB
+ * (`llm/plugin-facade.js`) across 5701 files, so the growth is diffuse; every
+ * tree-shake probe is inside its budget (largest ./caamp at 7.7% of full); and
+ * the packed tarball is 10.70 MB against the 30 MB tag-time budget.
  */
-export const MAX_CORE_DIST_MB = 48;
+export const MAX_CORE_DIST_MB = 49;
 
 /** The uncompressed dist budget expressed in bytes. */
 export const MAX_CORE_DIST_BYTES = MAX_CORE_DIST_MB * 1024 * 1024;
