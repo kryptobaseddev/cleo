@@ -476,6 +476,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
       (await import('../commands/doctor-memory-guard.js')).doctorMemoryGuardCommand as CommandDef,
   },
   {
+    exportName: 'doctorMigrationsCommand',
+    name: 'migrations',
+    description:
+      'Report the migration journal of the project and global stores: row count, head, applied ',
+    load: async () =>
+      (await import('../commands/doctor-migrations.js')).doctorMigrationsCommand as CommandDef,
+  },
+  {
     exportName: 'doctorNexusResidencyCommand',
     name: 'nexus-residency',
     description:

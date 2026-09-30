@@ -43,6 +43,7 @@ import { doctorLegacyReaperCommand } from './doctor-legacy-reaper.js';
 import { doctorMalformedIdsCommand } from './doctor-malformed-ids.js';
 import { doctorManifestRowsCommand } from './doctor-manifest-rows.js';
 import { doctorMemoryGuardCommand } from './doctor-memory-guard.js';
+import { doctorMigrationsCommand } from './doctor-migrations.js';
 import { doctorNexusResidencyCommand } from './doctor-nexus-residency.js';
 import { doctorProjectIdentityCommand } from './doctor-project-identity.js';
 import { runDoctorProjects } from './doctor-projects.js';
@@ -258,6 +259,8 @@ export const doctorCommand = defineCommand({
     'legacy-reaper': doctorLegacyReaperCommand,
     // T12128 — task ids that fail the write-path validator
     'malformed-ids': doctorMalformedIdsCommand,
+    // T12796 — the migration journal of each store (read-only; the live journal count)
+    migrations: doctorMigrationsCommand,
     // T12686 — manifest rows whose metadata violates the stored field contract (+ --repair/--rollback)
     'manifest-rows': doctorManifestRowsCommand,
     // T12095 — pre-dual-scope store files still on disk under their old LIVE names
