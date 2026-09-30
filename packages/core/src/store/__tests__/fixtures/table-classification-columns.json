@@ -1423,6 +1423,16 @@
       "updated_at",
       "verification_json"
     ],
+    "tasks_ac_uid_graveyard": [
+      "ac_id",
+      "birth_fp",
+      "deleted_at",
+      "ordinal",
+      "seq",
+      "task_id",
+      "text",
+      "uid"
+    ],
     "tasks_acceptance_projection_dirty": [
       "payload_json",
       "projection_key",
@@ -1580,12 +1590,27 @@
       "signature_verified",
       "subject"
     ],
+    "tasks_display_id_aliases": [
+      "created_at",
+      "displaced_hlc",
+      "display_id",
+      "entity_birth_fp",
+      "entity_table",
+      "entity_uid",
+      "origin",
+      "reason",
+      "uid"
+    ],
     "tasks_evidence_ac_bindings": [
       "ac_id",
+      "ac_text_hash",
+      "ac_uid",
       "binding_type",
+      "birth_fp",
       "created_at",
       "evidence_atom_id",
-      "id"
+      "id",
+      "uid"
     ],
     "tasks_experiments": [
       "baseline_commit",
@@ -1625,6 +1650,16 @@
       "turn_budget",
       "turns_used",
       "updated_at"
+    ],
+    "tasks_identity_quarantine": [
+      "birth_fp",
+      "contested_id",
+      "created_at",
+      "entity_table",
+      "reason",
+      "received_hlc",
+      "row_json",
+      "uid"
     ],
     "tasks_lifecycle_evidence": [
       "description",
@@ -1818,6 +1853,10 @@
       "version",
       "workflow_run_url"
     ],
+    "tasks_row_identity_meta": [
+      "key",
+      "value"
+    ],
     "tasks_schema_meta": [
       "key",
       "value"
@@ -1832,6 +1871,7 @@
       "agent",
       "agent_handle",
       "agent_identifier",
+      "birth_fp",
       "current_task",
       "debrief_json",
       "ended_at",
@@ -1858,7 +1898,8 @@
       "status",
       "task_started_at",
       "tasks_completed_json",
-      "tasks_created_json"
+      "tasks_created_json",
+      "uid"
     ],
     "tasks_status_registry": [
       "description",
@@ -1868,6 +1909,7 @@
       "namespace"
     ],
     "tasks_task_acceptance_criteria": [
+      "birth_fp",
       "content_hash",
       "created_at",
       "id",
@@ -1878,14 +1920,18 @@
       "target_task_id",
       "task_id",
       "text",
+      "uid",
       "updated_at"
     ],
     "tasks_task_acceptance_criteria_history": [
       "ac_id",
+      "ac_uid",
+      "birth_fp",
       "id",
       "previous_text",
       "reason",
-      "recorded_at"
+      "recorded_at",
+      "uid"
     ],
     "tasks_task_commits": [
       "commit_sha",
@@ -1896,17 +1942,20 @@
     ],
     "tasks_task_dependencies": [
       "depends_on",
-      "task_id"
+      "task_id",
+      "uid"
     ],
     "tasks_task_labels": [
       "label",
-      "task_id"
+      "task_id",
+      "uid"
     ],
     "tasks_task_relations": [
       "reason",
       "related_to",
       "relation_type",
-      "task_id"
+      "task_id",
+      "uid"
     ],
     "tasks_task_work_history": [
       "cleared_at",
@@ -1920,6 +1969,7 @@
       "archive_reason",
       "archived_at",
       "assignee",
+      "birth_fp",
       "blocked_by",
       "cancellation_reason",
       "cancelled_at",
@@ -1956,6 +2006,7 @@
       "status",
       "title",
       "type",
+      "uid",
       "updated_at",
       "verification_json"
     ],
@@ -1981,6 +2032,16 @@
       "task_id",
       "total_tokens",
       "transport"
+    ],
+    "tasks_uid_aliases": [
+      "created_at",
+      "displaced_hlc",
+      "entity_table",
+      "new_uid",
+      "old_birth_fp",
+      "old_uid",
+      "origin",
+      "uid"
     ],
     "tasks_warp_chain_instances": [
       "chain_id",

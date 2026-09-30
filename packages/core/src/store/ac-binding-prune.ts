@@ -33,7 +33,7 @@
  */
 
 import type { AcBindingRow } from '@cleocode/contracts';
-import { and, eq, inArray, notInArray } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, notInArray, or } from 'drizzle-orm';
 import { tasksAuditLog } from './schema/cleo-project/audit.js';
 import type { getDb } from './sqlite.js';
 import * as schema from './tasks-schema.js';
@@ -167,14 +167,52 @@ export async function pruneAcBindingsForAcIds(
   ownerTaskId: string,
   acIds: readonly string[],
   reason: AcBindingPruneReason,
+  keepBindingsForUids: readonly string[] = [],
 ): Promise<number> {
   if (acIds.length === 0) return 0;
-  const rows = await db
-    .select(BINDING_COLUMNS)
-    .from(schema.evidenceAcBindings)
-    .where(inArray(schema.evidenceAcBindings.acId, acIds as string[]))
+  // T12341: a binding follows its criterion's uid (`ac_uid`) across edits.
+  // - The removed rows are read for THIS task only: AC ids derive from display
+  //   ids, so one id can have named another task's criterion (T12799).
+  // - A binding that records a uid goes when that uid is one of the removed
+  //   rows' and the same write does not carry it onto a new row (an edit keeps
+  //   its evidence, stale until re-verified); a binding naming another
+  //   criterion's uid stays, even when its recorded ac_id matches.
+  // - A binding without a uid (written before the fill) goes by its ac_id,
+  //   unless that id's criterion carries its uid onto a new row.
+  const owned = await db
+    .select({ id: schema.taskAcceptanceCriteria.id, uid: schema.taskAcceptanceCriteria.uid })
+    .from(schema.taskAcceptanceCriteria)
+    .where(
+      and(
+        eq(schema.taskAcceptanceCriteria.taskId, ownerTaskId),
+        inArray(schema.taskAcceptanceCriteria.id, acIds as string[]),
+      ),
+    )
     .all();
-  const bindings = rows.map(toBindingRow);
+  const uidOfId = new Map(owned.map((r) => [r.id, r.uid]));
+  const uids = new Set(owned.map((r) => r.uid).filter((u): u is string => u !== null));
+  const keep = new Set(keepBindingsForUids);
+  const rows = await db
+    .select({ ...BINDING_COLUMNS, acUid: schema.evidenceAcBindings.acUid })
+    .from(schema.evidenceAcBindings)
+    .where(
+      uids.size > 0
+        ? or(
+            inArray(schema.evidenceAcBindings.acId, acIds as string[]),
+            inArray(schema.evidenceAcBindings.acUid, [...uids]),
+          )
+        : inArray(schema.evidenceAcBindings.acId, acIds as string[]),
+    )
+    .all();
+  const removed = new Set(acIds);
+  const bindings = rows
+    .filter((r) => {
+      if (r.acUid !== null) return uids.has(r.acUid) && !keep.has(r.acUid);
+      if (!removed.has(r.acId)) return false;
+      const carried = uidOfId.get(r.acId);
+      return !(carried && keep.has(carried));
+    })
+    .map(toBindingRow);
   await archiveAndDelete(db, ownerTaskId, reason, bindings);
   return bindings.length;
 }
@@ -223,9 +261,23 @@ export async function selectOrphanAcBindings(db: TasksDb): Promise<AcBindingRow[
     .select(BINDING_COLUMNS)
     .from(schema.evidenceAcBindings)
     .where(
-      notInArray(
-        schema.evidenceAcBindings.acId,
-        db.select({ id: schema.taskAcceptanceCriteria.id }).from(schema.taskAcceptanceCriteria),
+      and(
+        notInArray(
+          schema.evidenceAcBindings.acId,
+          db.select({ id: schema.taskAcceptanceCriteria.id }).from(schema.taskAcceptanceCriteria),
+        ),
+        // T12341: a binding recorded under an older id of a criterion that
+        // still exists (same `ac_uid`) is stale evidence, not an orphan.
+        or(
+          isNull(schema.evidenceAcBindings.acUid),
+          notInArray(
+            schema.evidenceAcBindings.acUid,
+            db
+              .select({ uid: schema.taskAcceptanceCriteria.uid })
+              .from(schema.taskAcceptanceCriteria)
+              .where(isNotNull(schema.taskAcceptanceCriteria.uid)),
+          ),
+        ),
       ),
     )
     .orderBy(schema.evidenceAcBindings.createdAt, schema.evidenceAcBindings.id)

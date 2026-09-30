@@ -151,6 +151,8 @@ export async function computeAcCoverage(
     // T12254: the former completion shortcut asserted every criterion solely
     // from verification.passed. Keep its rows as history, never as proof.
     if (b.evidenceAtomId === 'auto-coverage-verification-passed') continue;
+    // T12341: evidence recorded against an earlier text of the criterion.
+    if (b.stale) continue;
     covered.add(b.acId);
   }
 

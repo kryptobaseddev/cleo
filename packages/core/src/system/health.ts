@@ -10,6 +10,7 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import type { DependencyReport } from '@cleocode/contracts';
 import { findOnPath } from '@cleocode/paths';
+import { rowIdentityDoctorCheck } from '../doctor/row-identity.js';
 import { syncTriggersDoctorCheck } from '../doctor/sync-triggers.js';
 import { twinCollapseDoctorCheck } from '../doctor/twin-collapse.js';
 import { checkGitHooks, type HookCheckResult } from '../hooks.js';
@@ -1011,6 +1012,8 @@ export async function coreDoctorReport(projectRoot: string): Promise<DoctorRepor
   // it reports even while every bind fails with E_TWIN_COLLAPSE_FAILED).
   checks.push(twinCollapseDoctorCheck(projectRoot));
 
+  // T12341: rows without a uid yet, and rows the uid recipes flag.
+  checks.push(rowIdentityDoctorCheck(projectRoot));
   // T12819: the trigger-suspension table and the owned triggers' clause
   // (read-only; the next open repairs).
   checks.push(syncTriggersDoctorCheck(projectRoot));

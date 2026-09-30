@@ -133,16 +133,29 @@
  * recorded as `unreadable`, and the comparator fails on it rather than
  * skipping it silently.
  *
+ * ## Row identity columns (T12341)
+ *
+ * `--omit-row-identity` leaves out the uid columns the row-identity registry
+ * declares (`uid`, and stored reference uids such as `ac_uid`;
+ * `packages/core/src/store/row-identity-registry.ts`) and the tables the uid
+ * migration adds (`ROW_IDENTITY_TABLES`, the display-id aliases), and records
+ * `omitRowIdentity: true` in the (MAC'd) JSON. It is for ONE comparison: a
+ * store before the uid migration against the same store after it, which must
+ * be equal on every other replicated value. Without the flag the uids are
+ * hashed like any column, so two independent migrations of one store must
+ * fingerprint identically (the backfill is deterministic).
+ *
  * Usage:
  *   node scripts/fingerprint-store.mjs --db <cleo.db> [--scope project|global]
  *     (--key-file <file> | --key-out <file>) [--label <name>] [--out <file.json>]
- *     --role source|replica [--rows <file.rows>] [--nonce <value>]
+ *     --role source|replica [--rows <file.rows>] [--nonce <value>] [--omit-row-identity]
  *
  * Companion: scripts/compare-fingerprints.mjs.
  *
  * @task T12332
  * @task T12613
  * @task T12636
+ * @task T12341
  * @task T12641
  * @task T12675
  */
@@ -167,6 +180,10 @@ import { DatabaseSync } from 'node:sqlite';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
+  ROW_IDENTITY_TABLES,
+  rowIdentityColumns,
+} from '../packages/core/src/store/row-identity-registry.ts';
+import {
   classifyTable,
   isPortableTableClass,
 } from '../packages/core/src/store/table-classification.ts';
@@ -185,6 +202,7 @@ const { values } = parseArgs({
     rows: { type: 'string' },
     'key-file': { type: 'string' },
     'key-out': { type: 'string' },
+    'omit-row-identity': { type: 'boolean', default: false },
     role: { type: 'string' },
     nonce: { type: 'string' },
   },
@@ -382,15 +400,16 @@ function classOf(table) {
   return { class: 'UNCLASSIFIED', status: 'unclassified', shareable: false, overrides: [] };
 }
 
-const tables = q("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").map(
-  (r) => r.name,
-);
+const tables = q("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+  .map((r) => r.name)
+  .filter((t) => !(values['omit-row-identity'] && ROW_IDENTITY_TABLES[scope].includes(t)));
 const result = {
   store: values.label,
   scope,
   at: new Date().toISOString(),
   vecLoaded,
   keyId,
+  omitRowIdentity: values['omit-row-identity'],
   identity,
   rowsFile: rowsPath ? basename(rowsPath) : null,
   rowsSha256: null,
@@ -416,6 +435,9 @@ for (const t of tables) {
   result.volumeByClass[cls] = (result.volumeByClass[cls] ?? 0) + entry.rows;
   if (shareable) {
     const excluded = new Set(overrides.filter((o) => !o.jsonPath).map((o) => o.column));
+    if (values['omit-row-identity']) {
+      for (const c of rowIdentityColumns(scope, t)) excluded.add(c);
+    }
     const jsonStrips = overrides
       .filter((o) => o.jsonPath)
       .map((o) => [o.column, parseJsonPath(o.jsonPath)]);

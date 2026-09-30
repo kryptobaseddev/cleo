@@ -1,0 +1,297 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.9.25",
+  "resolvedVersion": "v2026.9.25",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": "T12486",
+  "releaseKind": "regular",
+  "createdAt": "2026-09-30T04:21:52.826Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.9.24",
+  "previousTag": "v2026.9.24",
+  "previousShippedAt": "2026-09-30T01:16:58.131Z",
+  "tasks": [
+    {
+      "id": "T12715",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "System One follow-ups: decideBatch 30s timeout, lazy capability detection, dead decisionContradiction site",
+      "evidenceAtoms": [
+        "ci:1710",
+        "commit:b1c2312b2079bb0d28a6c80212f92ac8e4d8f804",
+        "files:.changeset/t12715-system-one-followups.md,packages/contracts/src/decide.ts,packages/core/src/decide/__tests__/system-one-capabilities.test.ts,packages/core/src/decide/client.ts,packages/core/src/decide/index.ts,packages/core/src/decide/jev-wire.ts,packages/core/src/decide/operations.ts,packages/core/src/decide/provider-state.ts,packages/core/src/memory/__tests__/decision-contradiction-exit.test.ts,packages/core/src/memory/__tests__/decision-contradiction.test.ts,packages/core/src/memory/decisions.ts"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12727",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Recover data 9.21 dropped or replaced in slice-1 collapsed stores (doctor repair from the pinned snapshot)",
+      "evidenceAtoms": [
+        "pr:1720",
+        "files:packages/core/src/store/twin-collapse.ts,packages/core/src/doctor/twin-collapse.ts,packages/cleo/src/cli/commands/doctor-twin-collapse.ts,packages/core/src/store/__tests__/twin-collapse-recover.test.ts",
+        "ci:1720"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12512",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Registry reads surface errors instead of returning [] or null; separate last_probed_at from last_opened_at",
+      "evidenceAtoms": [
+        "pr:1741",
+        "files:.changeset/t12512-registry-read-errors-remaining.md,packages/cleo/src/cli/__tests__/cleo-error-like.test.ts,packages/cleo/src/cli/cleo-error-like.ts,packages/cleo/src/cli/commands/__tests__/doctor-db-substrate-registry-error.test.ts,packages/cleo/src/cli/commands/__tests__/doctor-projects-registry-error.test.ts,packages/cleo/src/cli/commands/doctor-db-substrate.ts,packages/cleo/src/cli/commands/doctor-projects-registry.ts,packages/cleo/src/cli/commands/doctor-projects.ts,packages/cleo/src/cli/index.ts,packages/core/src/doctor/projects.ts,packages/core/src/nexus/__tests__/registry-read-errors-T12512.test.ts,packages/core/src/nexus/deps.ts,packages/core/src/nexus/discover.ts,packages/core/src/nexus/git-state.ts,packages/core/src/nexus/projects-clean.ts,packages/core/src/nexus/projects-scan.ts,packages/core/src/nexus/query.ts,packages/core/src/nexus/registry-roots.ts,packages/core/src/nexus/registry.ts,packages/core/src/sentient/cross-project-hygiene.ts,packages/core/src/system/project-health.ts",
+        "ci:1741"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12521",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Compressed cavecrew-style return + manifest contract for spawned agents (743 -> ~281 tokens) with legacy form still accepted",
+      "evidenceAtoms": [
+        "pr:1739",
+        "files:.changeset/t12521-cavecrew-return-contract.md,packages/core/src/orchestration/__tests__/spawn-prompt-hitl.test.ts,packages/core/src/orchestration/__tests__/spawn-prompt-return-contract.test.ts,packages/core/src/orchestration/__tests__/spawn-prompt.test.ts,packages/core/src/orchestration/spawn-prompt.ts,packages/core/src/skills/__tests__/validation.test.ts,packages/core/src/skills/manifests/research.ts,packages/core/src/skills/validation.ts,packages/core/src/validation/__tests__/compliance.test.ts,packages/core/src/validation/__tests__/protocol-common.test.ts,packages/core/src/validation/compliance.ts,packages/core/src/validation/index.ts,packages/core/src/validation/protocol-common.ts,packages/skills/skills/ct-orchestrator/SKILL.md,packages/skills/skills/ct-orchestrator/references/SUBAGENT-PROTOCOL-BLOCK.md,packages/skills/skills/ct-orchestrator/references/orchestrator-compliance.md,packages/skills/skills/ct-task-executor/SKILL.md,packages/skills/skills/manifest.json",
+        "ci:1739"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12522",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "briefing/focus emit the knowledge coverage object once (duplicate costs 251 tokens per call)",
+      "evidenceAtoms": [
+        "pr:1738",
+        "files:.changeset/t12522-coverage-token-delta.md,packages/core/src/doctor/__tests__/knowledge-summary.test.ts",
+        "ci:1738"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12738",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Flaky: provider-verification.test.ts treats ESRCH from /proc/<pid>/stat read as failure",
+      "evidenceAtoms": [
+        "pr:1742",
+        "files:.changeset/t12738-esrch-flake.md,packages/cleo-os/src/harnesses/__tests__/provider-verification.test.ts",
+        "ci:1742"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12817",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo memory observe with no bound session exits 0, prints no envelope and stores nothing",
+      "evidenceAtoms": [
+        "pr:1737",
+        "files:.changeset/t12817-memory-observe-silent.md,packages/cleo/src/cli/__tests__/memory-observe-cli.test.ts,packages/cleo/src/dispatch/domains/memory.ts,packages/core/src/memory/__tests__/mental-model-queue-settles.test.ts,packages/core/src/memory/mental-model-queue.ts,packages/core/src/memory/transcript-scanner.ts",
+        "ci:1737"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12829",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo manifest append accepts any --task value (nonexistent ids, arbitrary text) and builds file paths from it",
+      "evidenceAtoms": [
+        "pr:1740",
+        "files:.changeset/t12829-manifest-task-validation.md,packages/cleo/src/cli/commands/doctor-manifest-rows.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/dispatch/domains/__tests__/pipeline-manifest.test.ts,packages/cleo/src/dispatch/domains/pipeline.ts,packages/core/src/memory/__tests__/manifest-identity.test.ts,packages/core/src/memory/__tests__/manifest-legacy-readers.test.ts,packages/core/src/memory/__tests__/pipeline-manifest-sqlite.test.ts,packages/core/src/memory/index.ts,packages/core/src/memory/manifest-identity.ts,packages/core/src/memory/pipeline-manifest-sqlite.ts,packages/core/src/skills/orchestrator/__tests__/validator.orchestrator.test.ts,packages/core/src/skills/orchestrator/validator.ts,packages/cleo/src/cli/generated/command-manifest.ts",
+        "ci:1740"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12716",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Consolidate project identity into one committed .cleo/project.json {id, name}",
+      "evidenceAtoms": [
+        "pr:1702",
+        "files:.changeset/project-json-identity.md,.changeset/upgrade-name-field.md,.cleo/.gitignore,.cleo/adrs/ADR-013-data-integrity-checkpoint-architecture.md,AGENTS.md,packages/brain/src/cleo-home.ts,packages/cleo-os/extensions/cleo-startup.ts,packages/cleo/src/cli/__tests__/project-relocation-cli-T12553.test.ts,packages/cleo/src/cli/commands/doctor-project-identity.ts,packages/cleo/src/cli/commands/doctor.ts,packages/cleo/src/cli/commands/project.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/contracts/src/project-lifecycle.ts,packages/core/schemas/project-info.schema.json,packages/core/src/__tests__/project-info.test.ts,packages/core/src/__tests__/project-lifecycle.test.ts,packages/core/src/__tests__/project-relocation-T12552.test.ts,packages/core/src/__tests__/t12325-portable-identity.test.ts,packages/core/src/__tests__/t12353-identity-doctor.test.ts,packages/core/src/__tests__/t12716-project-json-identity.test.ts,packages/core/src/__tests__/t12716-review-fixes.test.ts,packages/core/src/crypto/credentials.ts,packages/core/src/doctor/db-substrate.ts,packages/core/src/doctor/project-identity.ts,packages/core/src/index.ts,packages/core/src/init.ts,packages/core/src/nexus/__tests__/project-candidate-T12470.test.ts,packages/core/src/nexus/identity.ts,packages/core/src/nexus/migrate-json-to-sqlite.ts,packages/core/src/nexus/query.ts,packages/core/src/nexus/registry.ts,packages/core/src/paths.ts,packages/core/src/project-info.ts,packages/core/src/project-lifecycle.ts,packages/core/src/project-scope.ts,packages/core/src/scaffold/ensure-config.ts,packages/core/src/scaffold/project-identity.ts,packages/core/src/sessions/__tests__/briefing-identity.test.ts,packages/core/src/sessions/briefing.ts,packages/core/src/stats/index.ts,packages/core/src/store/credential-transfer.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/store/regenerators.ts,packages/core/src/store/schema/nexus-schema.ts,packages/core/src/system/health.ts,packages/core/src/upgrade.ts,packages/core/src/validation/doctor/checks.ts,packages/core/templates/CLEO-INJECTION.md,packages/core/templates/CLEO-REFERENCE.md,packages/core/templates/cleo-gitignore,packages/paths/src/__tests__/portable-project-id.test.ts,packages/paths/src/cleo-paths.ts,packages/paths/src/index.ts,packages/paths/src/portable-project-id.ts,packages/skills/skills/ct-cleo/SKILL.md,packages/skills/skills/manifest.json,packages/studio/src/lib/server/__tests__/project-context-propagation.test.ts,packages/studio/src/lib/server/project-context.ts",
+        "decision:D11162",
+        "test-run:/private/tmp/claude-501/-Users-keatonhoskins-projects-cleo-nexus/22b74a4a-93ee-452f-b4f5-981bd074dfe1/scratchpad/testruns/portable-project-id.json",
+        "test-run:/private/tmp/claude-501/-Users-keatonhoskins-projects-cleo-nexus/22b74a4a-93ee-452f-b4f5-981bd074dfe1/scratchpad/testruns/project-rename-link-hint.json",
+        "test-run:/private/tmp/claude-501/-Users-keatonhoskins-projects-cleo-nexus/22b74a4a-93ee-452f-b4f5-981bd074dfe1/scratchpad/testruns/t12353-identity-doctor.json",
+        "test-run:/private/tmp/claude-501/-Users-keatonhoskins-projects-cleo-nexus/22b74a4a-93ee-452f-b4f5-981bd074dfe1/scratchpad/testruns/t12557-stable-project-hash.json",
+        "test-run:/private/tmp/claude-501/-Users-keatonhoskins-projects-cleo-nexus/22b74a4a-93ee-452f-b4f5-981bd074dfe1/scratchpad/testruns/t12716-project-json-identity.json",
+        "test-run:/private/tmp/claude-501/-Users-keatonhoskins-projects-cleo-nexus/22b74a4a-93ee-452f-b4f5-981bd074dfe1/scratchpad/testruns/t12716-review-fixes.json",
+        "tool:lint",
+        "tool:typecheck"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12788",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "twin-collapse recover: resolve a moved store's snapshot by file name in its own backup dir",
+      "evidenceAtoms": [
+        "pr:1734",
+        "files:packages/core/src/doctor/twin-collapse.ts,packages/core/src/store/twin-collapse.ts,packages/core/src/store/__tests__/twin-collapse-recover.test.ts",
+        "test-run:/private/tmp/claude-501/-Users-keatonhoskins-projects-cleo-nexus/22b74a4a-93ee-452f-b4f5-981bd074dfe1/scratchpad/test-runs/twin-collapse-recover.json",
+        "ci:1734"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12767",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "twin-collapse: release a pre-collapse snapshot after verified recovery (--release-snapshot)",
+      "evidenceAtoms": [
+        "pr:1736",
+        "files:packages/cleo/src/cli/commands/doctor-twin-collapse.ts,packages/core/src/doctor/twin-collapse.ts,packages/core/src/store/twin-collapse.ts,packages/core/src/store/backup-sidecar.ts,packages/core/src/store/__tests__/twin-collapse-release.test.ts,packages/cleo/src/cli/commands/__tests__/doctor-twin-collapse.test.ts",
+        "test-run:/private/tmp/claude-501/-Users-keatonhoskins-projects-cleo-nexus/22b74a4a-93ee-452f-b4f5-981bd074dfe1/scratchpad/test-runs/twin-collapse-release.json",
+        "test-run:/private/tmp/claude-501/-Users-keatonhoskins-projects-cleo-nexus/22b74a4a-93ee-452f-b4f5-981bd074dfe1/scratchpad/test-runs/cli-doctor-twin-collapse.json",
+        "ci:1736"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    }
+  ],
+  "changelog": {
+    "features": [
+      "T12715",
+      "T12521",
+      "T12522",
+      "T12738",
+      "T12817",
+      "T12829",
+      "T12716",
+      "T12788",
+      "T12767"
+    ],
+    "fixes": [
+      "T12727",
+      "T12512"
+    ],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-30T04:21:52.826Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-30T04:21:52.826Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-30T04:21:52.826Z",
+      "resolvedCommand": "pnpm run lint",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-30T04:21:52.826Z",
+      "resolvedCommand": "pnpm run typecheck",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-30T04:21:52.826Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-30T04:21:52.826Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 454 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.9.25 — 2026-09-30\n\n### Added\n\n- `cleo nexus projects status` is now a fleet view: every project, where it lives on each device, and its last recorded git state (branch, HEAD, dirty, ahead/behind as of the last fetch) with probe, fetch and heartbeat staleness; paged with counts first, filters for missing/dirty/behind/ahead/stale/errored/device, and a live re-probe only with --refresh. Registry reads now fail with a typed E_NEXUS_REGISTRY_READ error instead of returning an empty list, and last_probed_at is separate from last_opened_at _(provenance: [T12513](https://github.com/kryptobaseddev/cleo/search?q=T12513&type=commits), [T12512](https://github.com/kryptobaseddev/cleo/search?q=T12512&type=commits))_\n- One committed `.cleo/project.json` {schemaVersion, id, name} holds the project identity; the tracked id always wins, and a legacy project migrates only through `cleo doctor project-identity --resolve` (ADR-096, amends ADR-094) _(provenance: [T12716](https://github.com/kryptobaseddev/cleo/search?q=T12716&type=commits))_\n- cleo show withholds acceptance-row UUIDs by default; briefing and focus emit knowledge coverage once _(provenance: [T12523](https://github.com/kryptobaseddev/cleo/search?q=T12523&type=commits), [T12522](https://github.com/kryptobaseddev/cleo/search?q=T12522&type=commits))_\n- Spawn prompts use a compressed return + manifest contract (767 -> 379 est. tokens); validators accept it and the legacy one-liner _(provenance: [T12521](https://github.com/kryptobaseddev/cleo/search?q=T12521&type=commits))_\n- cleo doctor twin-collapse --release-snapshot lets a checked pre-collapse snapshot rotate again _(provenance: [T12767](https://github.com/kryptobaseddev/cleo/search?q=T12767&type=commits))_\n\n### Changed\n\n- Assert the measured token reduction of emitting knowledge coverage once in briefing and focus _(provenance: [T12522](https://github.com/kryptobaseddev/cleo/search?q=T12522&type=commits))_\n\n### Fixed\n\n- System One accepts Jev answers without `confidence`, so plain Jev hosts stop falling back to the heuristic _(provenance: [T12715](https://github.com/kryptobaseddev/cleo/search?q=T12715&type=commits))_\n- `cleo project rename` on a Nexus-linked project now hints `cleo project link`, a command that exists (it named a `--name` flag `link` does not have) _(provenance: [T12716](https://github.com/kryptobaseddev/cleo/search?q=T12716&type=commits))_\n- The remaining project-registry readers now fail with the typed E_NEXUS_REGISTRY_READ error (exit 75, with a fix hint) instead of an empty result: `cleo doctor --all-projects`, `cleo nexus projects scan` (which marked every project unregistered and could re-register them all), `cleo nexus projects clean`, `cleo doctor projects`, the `--refresh` git probe, cross-project search/discover/resolve/deps, the fleet-root default and the nightly hygiene digest _(provenance: [T12512](https://github.com/kryptobaseddev/cleo/search?q=T12512&type=commits))_\n- twin-collapse --recover reports and refuses an unpinned snapshot (--pin-snapshot) and restores a twin-only focus_state; rotation never deletes a marker-referenced snapshot _(provenance: [T12727](https://github.com/kryptobaseddev/cleo/search?q=T12727&type=commits))_\n- cleo doctor twin-collapse --recover restores what a 2026.9.21 collapse dropped or replaced; --rollback undoes it _(provenance: [T12727](https://github.com/kryptobaseddev/cleo/search?q=T12727&type=commits))_\n- cleo-os provider-verification test treats ESRCH like ENOENT when a descendant is reaped between opening and reading /proc/<pid>/stat _(provenance: [T12738](https://github.com/kryptobaseddev/cleo/search?q=T12738&type=commits))_\n- twin-collapse --recover finds a moved store's snapshot by file name in its own backup directory and re-points the markers _(provenance: [T12788](https://github.com/kryptobaseddev/cleo/search?q=T12788&type=commits))_\n- cleo memory observe --agent no longer exits 0 with empty stdout and nothing stored; memory recent/diary/watch read the real narrative column instead of silently returning empty lists _(provenance: [T12817](https://github.com/kryptobaseddev/cleo/search?q=T12817&type=commits))_\n- cleo manifest append validates linked task ids (format and existence), entry ids and file references, so no input names a path outside the project; manifest show refuses malformed ids and unsafe stored file references; cleo doctor manifest-rows reports existing rows with bad identities (security hardening) _(provenance: [T12829](https://github.com/kryptobaseddev/cleo/search?q=T12829&type=commits))_\n- `cleo upgrade --name` now changes the project name: it wrote `projectName`, a field nothing reads _(provenance: [T12716](https://github.com/kryptobaseddev/cleo/search?q=T12716&type=commits))_\n",
+    "changesetEntryCount": 16,
+    "changesetIds": [
+      "jev-optional-confidence",
+      "nexus-fleet-status",
+      "project-json-identity",
+      "rename-link-hint",
+      "slim-show-and-orientation-coverage",
+      "t12512-registry-read-errors-remaining",
+      "t12521-cavecrew-return-contract",
+      "t12522-coverage-token-delta",
+      "t12727-recover-pin-kodomeet",
+      "t12727-twin-collapse-recover",
+      "t12738-esrch-flake",
+      "t12767-release-snapshot",
+      "t12788-moved-store-snapshot",
+      "t12817-memory-observe-silent",
+      "t12829-manifest-task-validation",
+      "upgrade-name-field"
+    ],
+    "taskIds": [
+      "T12715",
+      "T12727",
+      "T12512",
+      "T12521",
+      "T12522",
+      "T12738",
+      "T12817",
+      "T12829",
+      "T12716",
+      "T12788",
+      "T12767"
+    ]
+  }
+}

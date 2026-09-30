@@ -193,6 +193,14 @@ export interface AcRow {
   updatedAt: string | null;
   /** Optional sha256(text) snapshot; writers MAY populate, readers MUST treat null as "unknown". */
   contentHash: string | null;
+  /**
+   * Row uid (T12341): the criterion's identity across devices and across edits
+   * (`id` changes with the text; `uid` does not). `null` until the store fills
+   * it; absent from accessors that predate it.
+   */
+  uid?: string | null;
+  /** Birth fingerprint (T12341): write-once, carried with the uid across edits. */
+  birthFp?: string | null;
 }
 
 /** Machine-readable AC child-projection drift codes for doctor/audit output. */
@@ -264,6 +272,12 @@ export interface AcBindingRow {
   bindingType: 'direct' | 'satisfies' | 'coverage';
   /** ISO-8601 timestamp of binding creation. */
   createdAt: string;
+  /**
+   * The evidence was recorded against a different text of this criterion
+   * (T12341): the criterion kept its identity through an edit, but no gate may
+   * count this binding until the evidence is re-verified. Absent means valid.
+   */
+  stale?: boolean;
 }
 
 /** Query options for bounded reads from the append-only task audit log. @task T10594 */
@@ -501,6 +515,10 @@ export interface TransactionAccessor {
       targetTaskId?: string | null;
       projection?: string;
       contentHash?: string | null;
+      /** Row uid to keep (T12341); omitted → a new uid is minted. */
+      uid?: string | null;
+      /** Birth fingerprint to keep with the uid (T12341). */
+      birthFp?: string | null;
     }>,
   ): Promise<void>;
   /**
@@ -520,9 +538,17 @@ export interface TransactionAccessor {
    * Delete only the named AC rows of `taskId` (rows of other tasks are never
    * touched). Used by the diff apply path so ACs that survive an edit keep
    * their row — and therefore their evidence bindings.
+   *
+   * `keepBindingsForUids`: uids the same write carries onto new rows (an
+   * edited criterion keeps its uid, T12341); their bindings are kept, as
+   * stale evidence, instead of pruned.
    * @task T12789
    */
-  deleteAcRowsByIds(taskId: string, ids: readonly string[]): Promise<void>;
+  deleteAcRowsByIds(
+    taskId: string,
+    ids: readonly string[],
+    keepBindingsForUids?: readonly string[],
+  ): Promise<void>;
   /**
    * Update existing AC rows of their own task in place, keyed by `(id, taskId)`.
    * Every mutable column is rewritten from the supplied row; `id` and
@@ -549,7 +575,7 @@ export interface TransactionAccessor {
    * @task T10508
    */
   appendAcHistory(
-    rows: Array<{ acId: string; previousText: string; reason: string }>,
+    rows: Array<{ acId: string; previousText: string; reason: string; acUid?: string | null }>,
   ): Promise<void>;
   /**
    * Read all `evidence_ac_bindings` rows whose `ac_id` ∈ the given set.

@@ -62,13 +62,26 @@
  * to `keyRoot`, a sibling of `testRoot`, because a key inside the tree of the
  * fingerprints is refused.
  *
+ * T12341 (row uids):
+ *
+ *   - a store before the uid migration replays its migrated copy only with
+ *     `--omit-row-identity` (no other replicated value changed); without the
+ *     flag the column sets differ and it FAILS;
+ *   - two independent migrations of one store fingerprint identically WITH
+ *     the uids hashed (the backfill is deterministic), and equal to the rows
+ *     the per-connection trigger filled on insert.
+ *
  * @task T12332
  * @task T12613
  * @task T12636
+ * @task T12341
  * @task T12641
  * @task T12675
  * @epic T12322
  */
+
+// Row uids are opt-in (T12341); these tests exercise them.
+process.env.CLEO_ROW_UID_FILL = '1';
 
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash, createHmac, randomBytes } from 'node:crypto';
@@ -94,12 +107,23 @@ import { bindConduitDomain } from '../conduit-sqlite.js';
 import { _resetDualScopeDbCache, openDualScopeDb } from '../dual-scope-db.js';
 import { getBrainDb } from '../memory-sqlite.js';
 import { getNexusDb } from '../nexus-sqlite.js';
+import {
+  prepareRowIdentity,
+  preReleaseBirthFp,
+  ROW_IDENTITY,
+  rowIdentityColumns,
+} from '../row-identity.js';
+import { ROW_IDENTITY_TABLES } from '../row-identity-registry.js';
 import { getDb } from '../sqlite.js';
 import { classifyTable, isPortableTableClass } from '../table-classification.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 const FINGERPRINT = join(REPO_ROOT, 'scripts', 'fingerprint-store.mjs');
 const COMPARE = join(REPO_ROOT, 'scripts', 'compare-fingerprints.mjs');
+const UID_MIGRATION = join(
+  REPO_ROOT,
+  'packages/core/migrations/drizzle-cleo-project/20260928120000_t12341-row-uids/migration.sql',
+);
 
 /** One targeted change per copy of the source store. */
 const MUTATIONS = {
@@ -1026,6 +1050,135 @@ describe('T12636: a new key never lands beside the fingerprints', () => {
     ]);
     expect(stderr).toContain('EEXIST');
     expect(readFileSync(existing, 'utf8')).toBe('k'.repeat(64));
+  });
+});
+
+describe('T12341: row uids', () => {
+  /** A copy of the source as it was before the uid migration: no identity columns, tables or trigger. */
+  function preMigrationCopy(label: string): string {
+    const file = join(testRoot, `${label}.db`);
+    copyFileSync(db.source, file);
+    const conn = openRaw(file);
+    conn.exec('DROP TRIGGER IF EXISTS trg_tasks_ac_uid_graveyard');
+    for (const table of ROW_IDENTITY_TABLES.project) conn.exec(`DROP TABLE IF EXISTS "${table}"`);
+    for (const spec of ROW_IDENTITY.project) {
+      if (ROW_IDENTITY_TABLES.project.includes(spec.table)) continue;
+      conn.exec(`DROP INDEX IF EXISTS "uq_${spec.table}_uid"`);
+      for (const column of rowIdentityColumns('project', spec.table)) {
+        conn.exec(`DROP INDEX IF EXISTS "idx_${spec.table}_${column}"`);
+        conn.exec(`ALTER TABLE "${spec.table}" DROP COLUMN "${column}"`);
+      }
+    }
+    conn.close();
+    return file;
+  }
+
+  /** Apply the uid migration's SQL, then the open pass, as the first open of this build does. */
+  function migrate(file: string): void {
+    const conn = openRaw(file);
+    try {
+      for (const stmt of readFileSync(UID_MIGRATION, 'utf8').split('--> statement-breakpoint')) {
+        conn.exec(stmt);
+      }
+      expect(prepareRowIdentity(conn, 'project')?.filled.tasks_tasks).toBeGreaterThan(0);
+    } finally {
+      conn.close();
+    }
+  }
+
+  it('the migration changes no replicated value: pre replays post with --omit-row-identity', () => {
+    const pre = fingerprintFile(preMigrationCopy('preUid'), 'preUid', undefined, 'source');
+    const post = fingerprintFile(db.source, 'postUidOmitted', [
+      '--key-file',
+      keyFile,
+      '--omit-row-identity',
+    ]);
+    expect(post.fp.tables.tasks_tasks?.columns).not.toContain('uid');
+    const ok = compare(pre.file, post.file, 'replay');
+    expect(ok.out).toContain('PASS (replay)');
+    expect(ok.code).toBe(0);
+    const withUids = compare(pre.file, fingerprint('source').file, 'replay');
+    expect(withUids.code).toBe(1);
+  });
+
+  it('the backfill is deterministic: two independent migrations fingerprint identically', () => {
+    const one = preMigrationCopy('migratedOne');
+    const two = preMigrationCopy('migratedTwo');
+    migrate(one);
+    migrate(two);
+    const a = fingerprintFile(one, 'migratedOne', undefined, 'source');
+    const b = fingerprintFile(two, 'migratedTwo');
+    expect(a.fp.tables.tasks_tasks?.columns).toContain('uid');
+    const r = compare(a.file, b.file, 'replay');
+    expect(r.out).toContain('PASS (replay)');
+    expect(r.code).toBe(0);
+    // The source's rows were inserted without a uid on a connection with the
+    // per-connection trigger: they got the same uids the backfill derives.
+    const same = compare(
+      fingerprint('source').file,
+      fingerprintFile(one, 'migratedOneAsReplica').file,
+      'replay',
+    );
+    expect(same.out).toContain('PASS (replay)');
+    expect(same.code).toBe(0);
+  });
+});
+
+describe('T12341: pre-release identity values are cleared and re-derived', () => {
+  it('a store filled by a pre-release build (no recipe marker) refills deterministically, changing nothing else', () => {
+    // A copy of the source as a pre-release build left it: other uid and
+    // fingerprint values, no recipe marker.
+    const stale = (label: string) => {
+      const file = join(testRoot, `${label}.db`);
+      copyFileSync(db.source, file);
+      const conn = openRaw(file);
+      // The pre-release (v4/v5) recipe's fingerprints, as live cleocode got them.
+      const set = conn.prepare('UPDATE tasks_tasks SET birth_fp = ? WHERE rowid = ?');
+      for (const row of conn.prepare('SELECT rowid AS r, * FROM tasks_tasks').all() as Array<
+        Record<string, string | null> & { r: number }
+      >) {
+        set.run(preReleaseBirthFp(conn, 'tasks_tasks', row), row.r);
+      }
+      conn.exec('DELETE FROM tasks_row_identity_meta');
+      conn.close();
+      return file;
+    };
+    const refill = (file: string) => {
+      const conn = openRaw(file);
+      try {
+        expect(prepareRowIdentity(conn, 'project')?.refill).toBe('cleared');
+      } finally {
+        conn.close();
+      }
+    };
+    const one = stale('staleOne');
+    const two = stale('staleTwo');
+    const pre = fingerprintFile(
+      one,
+      'staleOnePre',
+      ['--key-file', keyFile, '--omit-row-identity'],
+      'source',
+    );
+    refill(one);
+    refill(two);
+    // Nothing but identity changed.
+    const post = fingerprintFile(one, 'staleOnePost', [
+      '--key-file',
+      keyFile,
+      '--omit-row-identity',
+    ]);
+    const same = compare(pre.file, post.file, 'replay');
+    expect(same.out).toContain('PASS (replay)');
+    expect(same.code).toBe(0);
+    // Two independent refills agree, and match a store that never had stale values.
+    const a = fingerprintFile(one, 'refilledOne', undefined, 'source');
+    const b = fingerprintFile(two, 'refilledTwo');
+    const det = compare(a.file, b.file, 'replay');
+    expect(det.out).toContain('PASS (replay)');
+    expect(det.code).toBe(0);
+    const fresh = compare(a.file, fingerprint('copy').file, 'replay');
+    expect(fresh.out).toContain('PASS (replay)');
+    expect(fresh.code).toBe(0);
   });
 });
 
