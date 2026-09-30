@@ -383,6 +383,19 @@ function answer(request: Json): Json {
   return { answers, meta: { cost_micros: 5, request_id: 'r' } };
 }
 
+/** {@link answer} as a plain Jev host sends it: no `confidence`, no `meta` (no cost). */
+function plainJevAnswer(request: Json): { [k: string]: Json } {
+  const a = answer(request);
+  if (!isObject(a) || !isObject(a['answers'])) return {};
+  const answers: { [k: string]: Json } = {};
+  for (const [name, value] of Object.entries(a['answers'])) {
+    if (!isObject(value)) continue;
+    const { confidence: _drop, ...rest } = value;
+    answers[name] = rest;
+  }
+  return { answers };
+}
+
 /** {@link answer} with a different reported cost. */
 function pricedAnswer(request: Json, micros: number): { [k: string]: Json } {
   const a = answer(request);
@@ -413,6 +426,7 @@ beforeAll(async () => {
         const flaky = auth === 'Bearer jev-key';
         const bad = auth === 'Bearer bad-key';
         const pricey = auth === 'Bearer pricey-key';
+        const plain = auth === 'Bearer plain-key';
         return send(200, {
           responses: requests.map((r, index) =>
             bad
@@ -422,7 +436,11 @@ beforeAll(async () => {
                 : {
                     index,
                     status: 200,
-                    body: pricey ? { ...pricedAnswer(r, 100) } : answer(r),
+                    body: pricey
+                      ? { ...pricedAnswer(r, 100) }
+                      : plain
+                        ? plainJevAnswer(r)
+                        : answer(r),
                   },
           ),
           request_id: 'b',
@@ -432,7 +450,11 @@ beforeAll(async () => {
         const malformed = auth === 'Bearer bad-key';
         return send(
           200,
-          malformed ? { answers: {}, meta: { cost_micros: 5 } } : answer(JSON.parse(body)),
+          malformed
+            ? { answers: {}, meta: { cost_micros: 5 } }
+            : auth === 'Bearer plain-key'
+              ? plainJevAnswer(JSON.parse(body))
+              : answer(JSON.parse(body)),
         );
       }
       return send(404, { error: { type: 'not_found' } });
@@ -620,6 +642,30 @@ describe('billed but unusable answers and pricier models (review of #1715)', () 
     // 4 rows × 100 µ$ = 400 per batch: two batches fit, the third would not.
     expect(results.spend.spentMicros).toBe(800);
     expect(results.spend.stoppedAt?.estimateMicros).toBe(400);
+  });
+});
+
+describe('plain Jev host: no confidence, no cost', () => {
+  it('answers usably and marks the unreported cost as an estimate', async () => {
+    const rows = await buildBenchDataset(fixtureSource());
+    const results = await runDecideBench({
+      rows,
+      connections: [{ name: 'plain', provider: 'jev', baseUrl, apiKey: 'plain-key' }],
+      batchSize: 4,
+      maxMicros: 10_000,
+      spendLedger: null,
+      providerStateDir: join(dir, 'state'),
+    });
+    const sites = results.runs[0]?.providers[0]?.sites ?? [];
+    for (const site of sites) {
+      expect(site.fallbacks['invalid_response'] ?? 0).toBe(0);
+      expect(site.answered).toBe(site.attempted);
+      expect(site.costReported).toBe(false);
+    }
+    expect(results.spend.reportedMicros).toBe(0);
+    const row = results.aggregate.find((a) => a.provider === 'plain');
+    expect(row?.costReported).toBe(false);
+    expect(renderBenchReport(results)).toMatch(/\| plain \|.*~\$[0-9.]+ \(est\.\)/);
   });
 });
 

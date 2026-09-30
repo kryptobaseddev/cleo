@@ -199,8 +199,8 @@ const SPEC_OK_BODY = {
 };
 
 describe('jev-wire/3 — errors, cost and extensions', () => {
-  it('is adapter version jev-wire/3', () => {
-    expect(JEV_ADAPTER_VERSION).toBe('jev-wire/3');
+  it('is adapter version jev-wire/4', () => {
+    expect(JEV_ADAPTER_VERSION).toBe('jev-wire/4');
   });
 
   it('maps 403 key_limit_exceeded to its own kind, never unauthorized', async () => {

@@ -19,6 +19,11 @@
  * - Response answers: noul → `{ noul: <P(yes)>, confidence }`; choice →
  *   `{ choice, probabilities: { option: p }, confidence }`; score →
  *   `{ score: <expected level>, probabilities: { level: p }, confidence }`.
+ *   `confidence` is OPTIONAL on the wire (T12790 follow-up, `jev-wire/4`): a
+ *   plain Jev host (e.g. `jev-1.13.0`) answers `{ type, noul }` with no
+ *   `confidence`; layahost sends one. When absent, the adapter derives it
+ *   with {@link deriveJevConfidence} (the probability margin between the top
+ *   two outcomes), so the contract's required `confidence` stays satisfied.
  *   Score probabilities are keyed by level text (or, defensively, by 0-based
  *   index) and re-aligned to the question's `criteria` order.
  * - Errors, per the layahost OpenAPI 1.0.0 (test fixture
@@ -122,8 +127,10 @@ export const LAYAHOST_EXTENSION_CAPABILITIES: DecisionProviderCapabilities = {
  * invalidates the cache. `/2`: cost micros, balance and checkpoint are read.
  * `/3` (T12715): cost is read from `meta` only (no headers); micros are
  * derived from `meta.cost_usd` when `meta.cost_micros` is absent.
+ * `/4`: an answer's `confidence` is optional; when a plain Jev host omits it,
+ * it is derived from the probabilities ({@link deriveJevConfidence}).
  */
-export const JEV_ADAPTER_VERSION = 'jev-wire/3';
+export const JEV_ADAPTER_VERSION = 'jev-wire/4';
 
 /** One question as the Jev wire expects it. */
 interface JevWireQuestion {
@@ -146,13 +153,16 @@ export interface JevSystemOneBody {
   readonly cache?: boolean;
 }
 
-/** Loose schema for one wire answer; extra fields (e.g. `legend`) are tolerated. */
+/**
+ * Loose schema for one wire answer; extra fields (e.g. `legend`) are tolerated.
+ * `confidence` is optional: plain Jev hosts omit it (see {@link deriveJevConfidence}).
+ */
 const jevAnswerSchema = z.looseObject({
   type: z.string().optional(),
   noul: z.number().optional(),
   choice: z.string().optional(),
   score: z.number().optional(),
-  confidence: z.number(),
+  confidence: z.number().optional(),
   probabilities: z.record(z.string(), z.number()).optional(),
 });
 
@@ -224,6 +234,39 @@ function invalid(message: string): DecisionProviderError {
   return new DecisionProviderError('invalid_response', message);
 }
 
+/**
+ * Confidence for an answer whose wire body carries none (plain Jev hosts).
+ *
+ * Defined as the probability margin between the most and second-most likely
+ * outcomes, clamped to [0, 1]:
+ * - noul: `|2p − 1|` (the margin between P(yes) = p and P(no) = 1 − p) — 0 at
+ *   a coin flip, 1 at certainty.
+ * - choice / score: `p(top) − p(runner-up)` over the answer's probabilities
+ *   (a single outcome counts as a margin of `p(top)`).
+ *
+ * The two definitions agree on a two-outcome distribution, so a noul and a
+ * two-option choice with the same odds get the same confidence. A reported
+ * `confidence` is always preferred over this derivation.
+ *
+ * @param probabilities - The outcome probabilities (for noul: `[p, 1 − p]`).
+ * @returns The derived confidence in [0, 1] (0 for an empty distribution).
+ */
+export function deriveJevConfidence(probabilities: readonly number[]): number {
+  let top = 0;
+  let second = 0;
+  for (const p of probabilities) {
+    if (p > top) {
+      second = top;
+      top = p;
+    } else if (p > second) {
+      second = p;
+    }
+  }
+  const margin = top - second;
+  if (!Number.isFinite(margin)) return 0;
+  return Math.min(1, Math.max(0, margin));
+}
+
 /** Map one wire answer onto the contract answer for its question. */
 function mapAnswer(name: string, question: DecisionQuestion, wire: JevWireAnswer): DecisionAnswer {
   if (question.type === 'noul') {
@@ -232,7 +275,7 @@ function mapAnswer(name: string, question: DecisionQuestion, wire: JevWireAnswer
       type: 'noul',
       value: wire.noul >= 0.5,
       probability: wire.noul,
-      confidence: wire.confidence,
+      confidence: wire.confidence ?? deriveJevConfidence([wire.noul, 1 - wire.noul]),
     };
   }
   if (question.type === 'choice') {
@@ -244,7 +287,12 @@ function mapAnswer(name: string, question: DecisionQuestion, wire: JevWireAnswer
         ? wire.choice
         : options[argmax(options.map((o) => probabilities[o] ?? 0))];
     if (value === undefined) throw invalid(`answer "${name}" has no choice`);
-    return { type: 'choice', value, probabilities, confidence: wire.confidence };
+    return {
+      type: 'choice',
+      value,
+      probabilities,
+      confidence: wire.confidence ?? deriveJevConfidence(options.map((o) => probabilities[o] ?? 0)),
+    };
   }
   const probabilities = wire.probabilities;
   if (!probabilities) throw invalid(`answer "${name}" has no probabilities`);
@@ -257,7 +305,7 @@ function mapAnswer(name: string, question: DecisionQuestion, wire: JevWireAnswer
     type: 'score',
     value: argmax(levels),
     probabilities: levels,
-    confidence: wire.confidence,
+    confidence: wire.confidence ?? deriveJevConfidence(levels),
   };
 }
 
