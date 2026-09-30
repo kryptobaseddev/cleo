@@ -283,6 +283,19 @@ describe('checkAllRegisteredProjects', () => {
     // Now corrupt beta's cleo.db (tasks domain) so the probe sees an unhealthy DB.
     // E6-L1 (T11521): tasks domain consolidated into `cleo.db`.
     {
+      // Fold the WAL into the main file first. Registration leaves beta's
+      // store open with pages still in cleo.db-wal; garbage written under a
+      // page whose live image is in the WAL is never read, so the probe saw a
+      // healthy store as soon as a new migration row put page 2 in the WAL
+      // (T12886).
+      await closeAllDatabases();
+      resetDbState();
+      const checkpoint = new DatabaseSync(join(degradedPath, '.cleo', 'cleo.db'));
+      try {
+        checkpoint.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+      } finally {
+        checkpoint.close();
+      }
       const { open } = await import('node:fs/promises');
       const handle = await open(join(degradedPath, '.cleo', 'cleo.db'), 'r+');
       try {
