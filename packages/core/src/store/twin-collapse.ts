@@ -2295,11 +2295,25 @@ export interface TwinCollapseRecoveryPlan {
   readonly receipts: readonly string[];
   /** Whether an apply would write anything. */
   readonly changes: boolean;
+  /**
+   * The path the markers record, when the store moved (`/mnt` → `/home`,
+   * Linux → Mac) and the snapshot was found by file name in the store's own
+   * backup directory instead (T12788); `null` otherwise. An apply re-points
+   * the markers at {@link snapshot}.
+   */
+  readonly movedFrom: string | null;
+}
+
+/** Options of {@link planTwinCollapseRecovery}. */
+export interface TwinCollapseRecoveryPlanOptions {
+  /** The snapshot file to use in place of the markers' path (a moved store, T12788). */
+  readonly snapshotPath?: string;
 }
 
 /** Values a plan computed, and the snapshot it read. */
 interface RecoveryWrites {
   readonly snapshot: DatabaseSync;
+  readonly options: TwinCollapseRecoveryPlanOptions;
   readonly kv: ReadonlyMap<string, string>;
   readonly focusBefore: string | null;
   readonly focusState: string | null;
@@ -2375,9 +2389,11 @@ function stickySetsIfPresent(db: DatabaseSync, table: string): Map<string, strin
 export function planTwinCollapseRecovery(
   live: DatabaseSync,
   snapshot: DatabaseSync | null,
+  options: TwinCollapseRecoveryPlanOptions = {},
 ): TwinCollapseRecoveryPlan {
   const state = readState(live, SCHEMA_META);
-  const snapshotPath = state?.snapshot ?? null;
+  const recorded = state?.snapshot ?? null;
+  const snapshotPath = recorded === null ? null : (options.snapshotPath ?? recorded);
   const liveKv = kvRows(live, 'tasks_schema_meta');
   const receipts = [...recoveryReceipts(live)]
     .filter(([, r]) => r.rolledBackAt === null)
@@ -2393,6 +2409,7 @@ export function planTwinCollapseRecovery(
     stickyArchiveKey: STICKY_ARCHIVE_KEY,
     receipts,
     changes: false,
+    movedFrom: recorded !== null && snapshotPath !== recorded ? recorded : null,
   };
   if (snapshot === null) return empty;
 
@@ -2485,6 +2502,7 @@ export function planTwinCollapseRecovery(
   };
   recoveryWrites.set(plan, {
     snapshot,
+    options,
     kv,
     focusBefore,
     focusState,
@@ -2514,24 +2532,35 @@ export function planTwinCollapseRecovery(
 export function applyTwinCollapseRecovery(
   live: DatabaseSync,
   plan: TwinCollapseRecoveryPlan,
+  onRepoint?: (repoint: TwinCollapseSnapshotRepoint) => void,
 ): {
   readonly plan: TwinCollapseRecoveryPlan;
   readonly receipt: TwinCollapseRecoveryReceipt | null;
+  readonly repointed: TwinCollapseSnapshotRepoint | null;
 } {
-  if (plan.snapshot === null) return { plan, receipt: null };
+  if (plan.snapshot === null) return { plan, receipt: null, repointed: null };
   const preview = recoveryWrites.get(plan);
   if (!plan.snapshotExists || preview === undefined) throw missingSnapshot(plan.snapshot);
   live.exec('BEGIN IMMEDIATE');
   try {
-    const fresh = planTwinCollapseRecovery(live, preview.snapshot);
+    const fresh = planTwinCollapseRecovery(live, preview.snapshot, preview.options);
     const writes = recoveryWrites.get(fresh);
-    if (!fresh.changes || writes === undefined) {
-      live.exec('ROLLBACK');
-      return { plan: fresh, receipt: null };
-    }
     // Only when there is something to write (T12772): a re-run on a
-    // recovered store is a no-op whatever the pin.
-    if (!fresh.snapshotPinned) throw unpinnedSnapshot(fresh.snapshot);
+    // recovered store is a no-op whatever the pin. Checked before anything
+    // (the re-point, its audit row) is written.
+    if (fresh.changes && writes !== undefined && !fresh.snapshotPinned)
+      throw unpinnedSnapshot(fresh.snapshot);
+    // A moved store (T12788): the markers name the file where it lives now,
+    // whether or not anything is left to recover; `onRepoint` audits it.
+    let repointed: TwinCollapseSnapshotRepoint | null = null;
+    if (fresh.movedFrom !== null && fresh.snapshot !== null) {
+      repointed = repointSnapshotMarkers(live, fresh.movedFrom, fresh.snapshot);
+      onRepoint?.(repointed);
+    }
+    if (!fresh.changes || writes === undefined) {
+      live.exec(repointed === null ? 'ROLLBACK' : 'COMMIT');
+      return { plan: fresh, receipt: null, repointed };
+    }
     const recoveredAt = new Date().toISOString();
     let id = `${TWIN_COLLAPSE_RECOVERY_PREFIX}${recoveredAt}`;
     for (let n = 2; readKv(live, 'tasks_schema_meta', id) !== undefined; n++)
@@ -2566,11 +2595,41 @@ export function applyTwinCollapseRecovery(
       writeKv(live, 'brain_schema_meta', fresh.stickyArchiveKey, writes.stickyArchive);
     writeKv(live, 'tasks_schema_meta', id, JSON.stringify(receipt));
     live.exec('COMMIT');
-    return { plan: fresh, receipt };
+    return { plan: fresh, receipt, repointed };
   } catch (error) {
     if (live.isTransaction) live.exec('ROLLBACK');
     throw error;
   }
+}
+
+/** Markers re-pointed from a moved store's old snapshot path (T12788). */
+export interface TwinCollapseSnapshotRepoint {
+  /** The path the markers recorded. */
+  readonly from: string;
+  /** The file in the store's own backup directory they name now. */
+  readonly to: string;
+  /** The marker keys rewritten (`<kvTable>:twin_collapse:<table>`). */
+  readonly markers: readonly string[];
+}
+
+/** Point every marker that records `from` at `to` (inside the caller's transaction). */
+function repointSnapshotMarkers(
+  live: DatabaseSync,
+  from: string,
+  to: string,
+): TwinCollapseSnapshotRepoint {
+  const markers: string[] = [];
+  for (const pair of PAIRS) {
+    if (!hasMainTable(live, pair.kvTable)) continue;
+    const key = `${TWIN_COLLAPSE_MARKER_PREFIX}${pair.table}`;
+    const raw = readKv(live, pair.kvTable, key);
+    const parsed = raw === undefined ? undefined : parseJson(raw);
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) continue;
+    if ((parsed as { snapshot?: unknown }).snapshot !== from) continue;
+    writeKv(live, pair.kvTable, key, JSON.stringify({ ...parsed, snapshot: to }));
+    markers.push(`${pair.kvTable}:${key}`);
+  }
+  return { from, to, markers };
 }
 
 /** The error for a recorded snapshot that is not on disk. */

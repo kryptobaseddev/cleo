@@ -32,8 +32,17 @@
  * @task T12535
  */
 
-import { existsSync, realpathSync, statSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import {
+  appendFileSync,
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readSync,
+  realpathSync,
+  statSync,
+} from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
@@ -58,6 +67,7 @@ import {
   type TwinCollapseRecoveryPlan,
   type TwinCollapseRecoveryReceipt,
   type TwinCollapseRecoveryRollback,
+  type TwinCollapseSnapshotRepoint,
   type TwinCollapseStatus,
   unpinnedSnapshot,
 } from '../store/twin-collapse.js';
@@ -175,6 +185,8 @@ export interface TwinCollapseRecoveryResult {
   readonly plan: TwinCollapseRecoveryPlan;
   /** The receipt of this apply, or `null` (dry run, or nothing to recover). */
   readonly receipt: TwinCollapseRecoveryReceipt | null;
+  /** Markers re-pointed at a moved store's snapshot (T12788), or `null`/absent. */
+  readonly repointed?: TwinCollapseSnapshotRepoint | null;
 }
 
 /** Options of {@link recoverTwinCollapse} and {@link rollbackTwinCollapse}. */
@@ -194,19 +206,59 @@ function realDir(dir: string): string {
   }
 }
 
+/** Audit log of markers re-pointed at a moved store's snapshot (T12788). */
+export const TWIN_COLLAPSE_REPOINT_AUDIT_FILE = 'twin-collapse-repoint.jsonl';
+
+/** The SQLite file header every snapshot starts with. */
+const SQLITE_HEADER = 'SQLite format 3\u0000';
+
+/** Whether `path` is a migration backup that starts with the SQLite header. */
+function looksLikeStoreSnapshot(path: string): boolean {
+  if (!/\.migration-/.test(basename(path))) return false;
+  let fd: number | undefined;
+  try {
+    fd = openSync(path, 'r');
+    const header = Buffer.alloc(SQLITE_HEADER.length);
+    return (
+      readSync(fd, header, 0, header.length, 0) === header.length &&
+      header.toString('latin1') === SQLITE_HEADER
+    );
+  } catch {
+    return false;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
+
 /**
- * Refuse a snapshot a marker records outside this store's own
- * `.cleo/backups/sqlite/` (T12772): the recovery reads it and `--pin-snapshot`
- * writes a sidecar next to it, so it must be this store's backup.
+ * The snapshot file to read for a marker path. The recovery reads it and
+ * `--pin-snapshot` writes a sidecar next to it, so it must be this store's own
+ * backup (T12772): a path in `<db dir>/backups/sqlite/` is used as is; a path
+ * elsewhere (the store moved: `/mnt` → `/home`, Linux → Mac) resolves to
+ * `<db dir>/backups/sqlite/<basename>` when that file is a migration backup
+ * starting with the SQLite header (T12788). Anything else is refused.
+ *
+ * @returns The file to use, and the marker path it replaces (`null` when the same).
  */
-function assertStoreSnapshot(snapshot: string, dbPath: string): void {
+function resolveStoreSnapshot(
+  snapshot: string,
+  dbPath: string,
+  code: string = E_TWIN_COLLAPSE_RECOVER,
+): { readonly path: string; readonly movedFrom: string | null } {
   const expected = join(dirname(dbPath), 'backups', 'sqlite');
-  if (realDir(dirname(snapshot)) === realDir(expected)) return;
+  if (realDir(dirname(snapshot)) === realDir(expected)) return { path: snapshot, movedFrom: null };
+  const local = join(expected, basename(snapshot));
+  if (existsSync(local) && looksLikeStoreSnapshot(local))
+    return { path: local, movedFrom: snapshot };
   throw new CleoError(
     ExitCode.VALIDATION_ERROR,
-    `${E_TWIN_COLLAPSE_RECOVER}: the marker names ${snapshot}, outside this store's backup directory ${expected}; refusing to read or pin it, nothing was changed`,
+    `${code}: the marker names ${snapshot}, outside this store's backup directory ${expected}` +
+      (existsSync(local)
+        ? `, and ${local} is not a migration snapshot`
+        : `, and ${local} does not exist`) +
+      '; refusing to read or pin it, nothing was changed',
     {
-      fix: `Copy that snapshot into ${expected} and point the marker at it, or run the recovery from the project that owns it.`,
+      fix: `Copy that snapshot into ${expected} (same file name) and re-run; the markers are re-pointed at it.`,
       details: { field: 'snapshot', expected, actual: snapshot },
     },
   );
@@ -220,11 +272,11 @@ function withRecoverySnapshot<T>(
 ): T {
   const probe = planTwinCollapseRecovery(live, null);
   if (probe.snapshot === null) return fn(probe); // never collapsed: nothing to recover
-  assertStoreSnapshot(probe.snapshot, dbPath);
-  if (!existsSync(probe.snapshot)) throw missingSnapshot(probe.snapshot);
-  const snap = openCleoDbSnapshot(probe.snapshot, { readOnly: true, applyPragmas: false });
+  const { path } = resolveStoreSnapshot(probe.snapshot, dbPath);
+  if (!existsSync(path)) throw missingSnapshot(path);
+  const snap = openCleoDbSnapshot(path, { readOnly: true, applyPragmas: false });
   try {
-    return fn(planTwinCollapseRecovery(live, snap.db));
+    return fn(planTwinCollapseRecovery(live, snap.db, { snapshotPath: path }));
   } finally {
     snap.close();
   }
@@ -242,7 +294,10 @@ function withRecoverySnapshot<T>(
  * the write lock, writes in one transaction and records a receipt that
  * `--rollback` undoes; a second apply finds nothing to do. A store never
  * collapsed has nothing to recover. An unpinned snapshot is reported by the
- * plan, and an apply refuses it unless `pinSnapshot` pins it first. No network.
+ * plan, and an apply refuses it unless `pinSnapshot` pins it first. A moved
+ * store's snapshot is found by file name in its own backup directory; an
+ * apply re-points the markers and appends a row to
+ * `.cleo/audit/twin-collapse-repoint.jsonl` (T12788). No network.
  *
  * @param projectRoot - Project directory.
  * @param options - `cwd` the command runs from (a worktree needs
@@ -291,10 +346,25 @@ export async function recoverTwinCollapse(
     throw unpinnedSnapshot(probe.snapshot);
   const handle = await openDualScopeDb('project', projectRoot);
   const live = getDualScopeNativeDb(handle);
+  const auditFile = join(dirname(dbPath), 'audit', TWIN_COLLAPSE_REPOINT_AUDIT_FILE);
   return withRecoverySnapshot(live, dbPath, (preview) => ({
     dbPath,
     dryRun,
-    ...applyTwinCollapseRecovery(live, preview),
+    ...applyTwinCollapseRecovery(live, preview, (repoint) => {
+      mkdirSync(dirname(auditFile), { recursive: true });
+      appendFileSync(
+        auditFile,
+        `${JSON.stringify({
+          timestamp: new Date().toISOString(),
+          operation: 'doctor twin-collapse --recover',
+          from: repoint.from,
+          to: repoint.to,
+          markers: repoint.markers,
+          cwd: resolve(options.cwd),
+          pid: process.pid,
+        })}\n`,
+      );
+    }),
   }));
 }
 
