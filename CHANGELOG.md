@@ -1,5 +1,41 @@
 # Changelog
 
+## [2026.9.25] (2026-09-30)
+
+### Added
+
+- One committed `.cleo/project.json` {schemaVersion, id, name} holds the project identity; the tracked id always wins, and a legacy project migrates only through `cleo doctor project-identity --resolve` (ADR-096, amends ADR-094) _(provenance: [T12716](https://github.com/kryptobaseddev/cleo/search?q=T12716&type=commits))_
+- Spawn prompts use a compressed return + manifest contract (767 -> 379 est. tokens); validators accept it and the legacy one-liner _(provenance: [T12521](https://github.com/kryptobaseddev/cleo/search?q=T12521&type=commits))_
+- cleo doctor twin-collapse --release-snapshot lets a checked pre-collapse snapshot rotate again _(provenance: [T12767](https://github.com/kryptobaseddev/cleo/search?q=T12767&type=commits))_
+
+### Changed
+
+- Assert the measured token reduction of emitting knowledge coverage once in briefing and focus _(provenance: [T12522](https://github.com/kryptobaseddev/cleo/search?q=T12522&type=commits))_
+
+### Fixed
+
+- System One accepts Jev answers without `confidence`, so plain Jev hosts stop falling back to the heuristic _(provenance: [T12715](https://github.com/kryptobaseddev/cleo/search?q=T12715&type=commits))_
+- `cleo project rename` on a Nexus-linked project now hints `cleo project link`, a command that exists (it named a `--name` flag `link` does not have) _(provenance: [T12716](https://github.com/kryptobaseddev/cleo/search?q=T12716&type=commits))_
+- The remaining project-registry readers now fail with the typed E_NEXUS_REGISTRY_READ error (exit 75, with a fix hint) instead of an empty result: `cleo doctor --all-projects`, `cleo nexus projects scan` (which marked every project unregistered and could re-register them all), `cleo nexus projects clean`, `cleo doctor projects`, the `--refresh` git probe, cross-project search/discover/resolve/deps, the fleet-root default and the nightly hygiene digest _(provenance: [T12512](https://github.com/kryptobaseddev/cleo/search?q=T12512&type=commits))_
+- twin-collapse --recover reports and refuses an unpinned snapshot (--pin-snapshot) and restores a twin-only focus_state; rotation never deletes a marker-referenced snapshot _(provenance: [T12727](https://github.com/kryptobaseddev/cleo/search?q=T12727&type=commits))_
+- cleo doctor twin-collapse --recover restores what a 2026.9.21 collapse dropped or replaced; --rollback undoes it _(provenance: [T12727](https://github.com/kryptobaseddev/cleo/search?q=T12727&type=commits))_
+- cleo-os provider-verification test treats ESRCH like ENOENT when a descendant is reaped between opening and reading /proc/<pid>/stat _(provenance: [T12738](https://github.com/kryptobaseddev/cleo/search?q=T12738&type=commits))_
+- twin-collapse --recover finds a moved store's snapshot by file name in its own backup directory and re-points the markers _(provenance: [T12788](https://github.com/kryptobaseddev/cleo/search?q=T12788&type=commits))_
+- cleo memory observe --agent no longer exits 0 with empty stdout and nothing stored; memory recent/diary/watch read the real narrative column instead of silently returning empty lists _(provenance: [T12817](https://github.com/kryptobaseddev/cleo/search?q=T12817&type=commits))_
+- cleo manifest append validates linked task ids (format and existence), entry ids and file references, so no input names a path outside the project; manifest show refuses malformed ids and unsafe stored file references; cleo doctor manifest-rows reports existing rows with bad identities (security hardening) _(provenance: [T12829](https://github.com/kryptobaseddev/cleo/search?q=T12829&type=commits))_
+- `cleo upgrade --name` now changes the project name: it wrote `projectName`, a field nothing reads _(provenance: [T12716](https://github.com/kryptobaseddev/cleo/search?q=T12716&type=commits))_
+
+### Also in this release (merged; task still open for follow-up criteria)
+
+- REPLACE on foreign-key parent tables no longer cascade-deletes children; acceptance-criteria edits apply as a diff so surviving criteria keep their evidence bindings; `INSERT OR REPLACE`/`REPLACE INTO` is banned repo-wide by gate 28 _(T12787, T12789)_
+- evidence bindings leave the store with their acceptance criterion, and `cleo doctor ac-bindings` reports and repairs bindings left behind _(T12790)_
+- `ci:<pr>` evidence accepts green main CI on a descendant commit when the merge commit's push run was cancelled by concurrency _(T12742)_
+- `cleo done`/`complete` no longer creates a local `merge task/<id>` commit when the task already landed upstream or local main is behind origin _(T12773)_
+- `cleo decide bench --profiles` resolves names through the System One profile store (`layahost/<name>`, `jev/<name>`) _(T12735)_
+- `cleo add` parent-refusal errors name the exact command that works _(T12756)_
+- sync journal groundwork (S0/S1, flag off): gate 28 exemptions keyed per (file, table) with reasons, and the hybrid logical clock and replica identity tables _(T12343)_
+- the core package size budget is raised to 56 MB
+
 ## [2026.9.24] (2026-09-30)
 
 ### Added
