@@ -30,3 +30,11 @@ drifted alias into a silent rebind.
 read-only by default: it reports exact counts by type and the missing AC ids,
 and exits 1 while orphans remain. `--fix` removes them in one accessor
 transaction, with the same audit line (reason `orphan-repair`).
+
+Age-based audit pruning (`auditRetentionDays`) never deletes
+`ac.bindings.pruned` rows, in either audit table, so retention cannot
+silently disable alias-drift detection.
+
+Reverting an AC's text (A→B→A) restores its id but not its pruned binding:
+the task needs a fresh `cleo verify`. Before this change the stale binding
+silently counted again.

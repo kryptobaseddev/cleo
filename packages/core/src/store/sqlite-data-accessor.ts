@@ -45,6 +45,7 @@ import {
   worktreeScope,
 } from '../project-scope.js';
 import {
+  generateAuditLogId,
   pruneAcBindingsForAcIds,
   pruneAcBindingsForTask,
   pruneOrphanAcBindings,
@@ -104,16 +105,6 @@ import { runHeartbeatWrite, withWriteRetry } from './with-retry.js';
  * BEGIN IMMEDIATE/COMMIT/ROLLBACK (depth = 0).
  */
 let _txSavepointCounter = 0;
-
-/**
- * Generate a unique audit log entry ID.
- * @task T4837
- */
-function generateAuditLogId(): string {
-  const epoch = Math.floor(Date.now() / 1000);
-  const rand = Math.random().toString(36).slice(2, 8);
-  return `log-${epoch}-${rand}`;
-}
 
 // ---- Schema meta helpers ----
 

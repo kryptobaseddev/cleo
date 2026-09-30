@@ -9,10 +9,11 @@
  * @task T12790
  */
 
-import { getProjectRoot } from '@cleocode/core';
+import { ExitCode } from '@cleocode/contracts';
 import { scanOrphanAcBindings } from '@cleocode/core/doctor/orphan-ac-bindings.js';
+import { getProjectRoot } from '@cleocode/core/paths.js';
 import { defineCommand } from '../lib/define-cli-command.js';
-import { cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 /**
  * `cleo doctor ac-bindings` subcommand.
@@ -46,11 +47,21 @@ export const doctorAcBindingsCommand = defineCommand({
     quiet: { type: 'boolean', description: 'Suppress non-essential output' },
   },
   async run({ args }) {
-    const parsedLimit =
-      typeof args.limit === 'string' ? Number.parseInt(args.limit, 10) : Number.NaN;
+    let limit: number | undefined;
+    if (typeof args.limit === 'string') {
+      if (!/^\d+$/.test(args.limit.trim())) {
+        cliError(
+          `--limit must be a non-negative integer (got '${args.limit}')`,
+          ExitCode.VALIDATION_ERROR,
+          { name: 'E_VALIDATION' },
+        );
+        return;
+      }
+      limit = Number.parseInt(args.limit, 10);
+    }
     const report = await scanOrphanAcBindings(getProjectRoot(), {
       fix: args.fix === true,
-      limit: Number.isFinite(parsedLimit) ? parsedLimit : undefined,
+      limit,
     });
 
     cliOutput(report, {

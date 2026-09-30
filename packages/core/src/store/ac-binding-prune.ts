@@ -93,9 +93,14 @@ const BINDING_COLUMNS = {
 };
 
 /**
- * Generate an audit row id in the accessor's `log-<epoch>-<rand>` shape.
+ * Generate a task audit log row id in the `log-<epoch>-<rand>` shape.
+ *
+ * Shared by the task accessor's `appendLog` and the binding prune below, so
+ * both write ids of one shape.
+ *
+ * @task T4837 · T12790
  */
-function auditId(): string {
+export function generateAuditLogId(): string {
   const epoch = Math.floor(Date.now() / 1000);
   const rand = Math.random().toString(36).slice(2, 8);
   return `log-${epoch}-${rand}`;
@@ -120,7 +125,7 @@ async function archiveAndDelete(
   await db
     .insert(tasksAuditLog)
     .values({
-      id: auditId(),
+      id: generateAuditLogId(),
       timestamp: new Date().toISOString(),
       action: AC_BINDINGS_PRUNED_ACTION,
       taskId: ownerTaskId,
