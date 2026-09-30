@@ -25,7 +25,7 @@ Skills and templates SHOULD reference this file instead of hardcoding CLEO comma
 
 **Purpose**: Mark task as active/in-progress.
 
-**CLEO Default**: `cleo start {{TASK_ID}}`
+**CLEO Default**: `cleo session start --scope global --name "<name>"` first (or `cleo session resume <id>`), then `cleo start {{TASK_ID}}`. An unbound `cleo start` fails with `E_SESSION_UNBOUND`.
 
 ### Complete Task
 

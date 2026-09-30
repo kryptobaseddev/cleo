@@ -12,6 +12,7 @@ import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
+import { vi } from 'vitest';
 import { canonicalProjectId } from '../../nexus/identity.js';
 import { registerProjectOnEncounter } from '../../paths.js';
 import { awaitBackgroundOps } from '../background-ops.js';
@@ -264,8 +265,8 @@ export const BOUND_TEST_SESSION_ID = 'ses_20260930000000_b0b0b0';
  * Focus writes (`cleo start` / `stop`, pivot, analyze auto-start) require a
  * bound session: an unbound caller is refused with `E_SESSION_UNBOUND` instead
  * of writing the shared legacy focus key. This inserts an active session row
- * and names it through `CLEO_SESSION_ID`; `env.cleanup()` restores the
- * previous value.
+ * and names it through `CLEO_SESSION_ID` (via `vi.stubEnv`); `env.cleanup()`
+ * restores the previous value.
  *
  * @param env - The test store.
  * @param sessionId - Session id to create and bind.
@@ -286,12 +287,13 @@ export async function bindTestSession(
     startedAt: now,
     lastActivity: now,
   });
+  // vi.stubEnv, so `vi.unstubAllEnvs()` also restores it; cleanup restores it
+  // explicitly too, so the id never leaks into the next test or file.
   const previous = process.env['CLEO_SESSION_ID'];
-  process.env['CLEO_SESSION_ID'] = sessionId;
+  vi.stubEnv('CLEO_SESSION_ID', sessionId);
   const cleanup = env.cleanup;
   env.cleanup = async () => {
-    if (previous === undefined) delete process.env['CLEO_SESSION_ID'];
-    else process.env['CLEO_SESSION_ID'] = previous;
+    vi.stubEnv('CLEO_SESSION_ID', previous);
     await cleanup();
   };
   return sessionId;

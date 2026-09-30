@@ -36,7 +36,7 @@ vi.mock('../../injection.js', () => ({
 import { CleoError } from '../../errors.js';
 import { injectTasks } from '../../inject/index.js';
 import { buildBrainState } from '../../orchestration/bootstrap.js';
-import { sessionStart, sessionStatus } from '../../session/engine-ops.js';
+import { sessionStart, sessionStatus, taskStop } from '../../session/engine-ops.js';
 import { getTaskAccessor } from '../../store/data-accessor.js';
 import { bindTerminalToSession, createSession } from '../../store/session-store.js';
 import { generateInjection } from '../../system/inject-generate.js';
@@ -249,6 +249,31 @@ describe('unbound callers never write the legacy focus key (T12501 AC2)', () => 
     const err = await inTerminal(UNBOUND_X, () => startTask('T1', root)).catch((e) => e);
     expect((err as CleoError).code).toBe(ExitCode.SESSION_UNBOUND);
     expect(await acc.getMetaValue(LEGACY_FOCUS_STATE_KEY)).toBeNull();
+  });
+
+  it('taskStop (the `cleo stop` engine op) reports E_SESSION_UNBOUND, not E_NOT_INITIALIZED', async () => {
+    const res = await inTerminal(UNBOUND_X, () => taskStop(root));
+    expect(res.success).toBe(false);
+    expect(res.error?.code).toBe('E_SESSION_UNBOUND');
+    expect(res.error?.message).toContain('Cannot stop work');
+  });
+
+  it('taskStop resolves the session from projectRoot, not the process cwd', async () => {
+    const sessionA = await startIn(TERMINAL_A, 'agent-a', 'T1');
+    // cwd is the repo running the tests, not `root`: resolution must use root.
+    const res = await inTerminal(TERMINAL_A, () => taskStop(root));
+    expect(res.success).toBe(true);
+    expect(res.data?.previousTask).toBe('T1');
+    const acc = await getTaskAccessor(root);
+    expect(await acc.getMetaValue(focusStateKey(sessionA))).toMatchObject({ currentTask: null });
+  });
+
+  it('a shell whose only identity is the ppid fallback is told to use CLEO_SESSION_ID', async () => {
+    const err = await inTerminal({}, () => startTask('T1', root)).catch((e) => e);
+    expect((err as CleoError).code).toBe(ExitCode.SESSION_UNBOUND);
+    expect((err as CleoError).message).toContain(
+      'this shell has no stable terminal identity; prefix commands with CLEO_SESSION_ID=<id> (see `cleo session status`)',
+    );
   });
 
   it('writeFocusState refuses an empty session id at runtime', async () => {

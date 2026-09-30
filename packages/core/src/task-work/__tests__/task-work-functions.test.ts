@@ -246,10 +246,10 @@ describe('stopTask', () => {
     }
   });
 
-  it('calling stop with no prior session is a no-op', async () => {
+  it('calling stop from a bound session with no focus yet is a no-op', async () => {
     await seedTasks(accessor, []);
 
-    // Should not throw even with no focus_state
+    // Should not throw even with no focus_state (the session is bound — T12501)
     await expect(stopTask(env.tempDir, accessor)).resolves.toEqual({
       previousTask: null,
     });

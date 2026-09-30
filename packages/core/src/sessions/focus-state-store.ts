@@ -76,12 +76,15 @@ export interface FocusStateMetaAccessor {
  * active row — from an unbound terminal that is another agent's session, and
  * its focus is not this caller's.
  *
- * `null` means the caller is bound to no session (or the session store
- * cannot be opened); {@link focusStateKey} then maps it to the legacy global
- * key (unbound callers only).
+ * `null` means the caller is bound to no session, or there is no session store
+ * at `cwd` (absent, or predating the session / binding tables). A reader then reads the legacy global key
+ * ({@link focusStateKey}); a writer refuses ({@link requireFocusSessionId}).
+ * Any other store failure is rethrown, so a fault is never reported as
+ * "unbound".
  *
  * @param cwd - Project root for session resolution.
  * @returns The bound session id, or `null` when the caller is unbound.
+ * @throws The store error, unless the store is absent or lacks the session / binding tables.
  * @example
  * ```ts
  * const focus = await readLiveFocus(acc, await resolveFocusSessionId(projectRoot));
@@ -93,11 +96,29 @@ export async function resolveFocusSessionId(cwd?: string): Promise<string | null
   const { resolveBoundSessionId } = await import('../store/session-store.js');
   try {
     return await resolveBoundSessionId(cwd);
-  } catch {
-    // No readable session store means no session can be bound: the caller is
-    // unbound, exactly as before any session existed.
-    return null;
+  } catch (err) {
+    // No store at this path, or one without the session / binding tables,
+    // cannot bind anyone: the caller is unbound. Anything else is a real fault
+    // and surfaces as such.
+    if (err instanceof Error && isMissingSessionSchema(err)) return null;
+    throw err;
   }
+}
+
+/**
+ * Whether an error means there is no session store to bind from — the store
+ * directory does not exist (`ENOENT`), or it predates the session / binding
+ * tables — rather than a real store fault (T12501).
+ *
+ * @param err - The caught error; drizzle wraps the SQLite error in `cause`.
+ * @returns `true` when no session can exist at this path.
+ */
+function isMissingSessionSchema(err: Error): boolean {
+  if ('code' in err && err.code === 'ENOENT') return true;
+  const pattern = /no such (table|column)/i;
+  return (
+    pattern.test(err.message) || (err.cause instanceof Error && pattern.test(err.cause.message))
+  );
 }
 
 /**
@@ -106,8 +127,9 @@ export async function resolveFocusSessionId(cwd?: string): Promise<string | null
  *
  * - A non-empty session id → the per-session key `focus_state:<sessionId>`.
  * - `null` / `undefined` (the caller is bound to no session) → the legacy
- *   global key, {@link LEGACY_FOCUS_STATE_KEY}. Only an unbound caller lands
- *   here (T12501).
+ *   global key, {@link LEGACY_FOCUS_STATE_KEY}. Only READS land here: an
+ *   unbound caller may read pre-upgrade legacy focus, but no writer can reach
+ *   this branch — {@link writeFocusState} takes a bound id only (T12501 AC2).
  *
  * @param sessionId - Resolved session id, or `null` when none.
  * @returns The meta key to read/write.
@@ -187,15 +209,16 @@ async function adoptLegacyFocus(
  * only. Anything that reports or acts on the current task reads
  * {@link readLiveFocus}, which never returns a finished task (T12684).
  *
- * Reads {@link focusStateKey}. The legacy global key is an unbound caller's
- * focus, never read as a bound session's — except once, on upgrade: when the
+ * Reads {@link focusStateKey}. For an unbound caller (`null`) that is the
+ * legacy global key: pre-upgrade data that nothing writes any more (T12501
+ * AC2). It is never read as a bound session's focus — except once, on upgrade: when the
  * session's key is ABSENT (not merely `currentTask: null`) and the legacy key
  * holds a live pointer, the session adopts it and the legacy pointer is
  * cleared, so no second session can adopt it too (T12501).
  *
  * @param accessor  - Metadata accessor.
  * @param sessionId - Session id from {@link resolveFocusSessionId}, or `null`
- *   for an unbound caller (the legacy key).
+ *   for an unbound caller (reads the read-only legacy key).
  * @returns The focus_state blob, or `null` when there is none.
  * @task T11345
  * @task T12501
@@ -272,14 +295,20 @@ export async function writeFocusState(
  * Message for refusing a focus write from an unbound caller (T12501).
  *
  * @param operation - What the caller tried to do (e.g. `start work on T12`).
+ * @param stableTerminal - `false` when the caller's only identity is the
+ *   ppid-chain fallback (or nothing): a binding written from such a shell
+ *   does not survive to its next command, so the remedy is `CLEO_SESSION_ID`.
  * @returns The refusal text.
  * @task T12501
  */
-export function focusUnboundMessage(operation: string): string {
+export function focusUnboundMessage(operation: string, stableTerminal = true): string {
+  const why = stableTerminal
+    ? 'no session is bound to this terminal'
+    : 'this shell has no stable terminal identity; prefix commands with ' +
+      'CLEO_SESSION_ID=<id> (see `cleo session status`)';
   return (
-    `Cannot ${operation}: no session is bound to this terminal. Focus is kept per session; ` +
-    'without one it would go to a single key that every unbound terminal shares and ' +
-    'overwrites.'
+    `Cannot ${operation}: ${why}. Focus is kept per session; without one it would go to a ` +
+    'single key that every unbound terminal shares and overwrites.'
   );
 }
 
@@ -309,7 +338,9 @@ export async function requireFocusSessionId(operation: string, cwd?: string): Pr
   const { SESSION_UNBOUND_ALTERNATIVES, SESSION_UNBOUND_FIX } = await import(
     '../store/session-store.js'
   );
-  throw new CleoError(ExitCode.SESSION_UNBOUND, focusUnboundMessage(operation), {
+  const { resolveTerminalKeys } = await import('./terminal-identity.js');
+  const stableTerminal = resolveTerminalKeys().some((k) => k.kind !== 'ppid');
+  throw new CleoError(ExitCode.SESSION_UNBOUND, focusUnboundMessage(operation, stableTerminal), {
     fix: SESSION_UNBOUND_FIX,
     alternatives: [...SESSION_UNBOUND_ALTERNATIVES],
   });
