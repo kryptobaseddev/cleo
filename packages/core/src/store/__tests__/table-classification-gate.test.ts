@@ -170,6 +170,18 @@ const NOT_A_CREDENTIAL: Readonly<Record<string, string>> = Object.fromEntries(
 );
 
 /**
+ * The change journal's own tables (T12342): created only when a `sync.*` flag
+ * is first enabled, from the sync-journal schema folder, in either store.
+ */
+const SYNC_JOURNAL_DDL =
+  'packages/core/migrations/sync-journal/20260929140000_t12342-sync-clock/migration.sql';
+const SYNC_JOURNAL_TABLES = {
+  _sync_clock: { class: 'local-only', ddl: SYNC_JOURNAL_DDL },
+  _sync_meta: { class: 'local-only', ddl: SYNC_JOURNAL_DDL },
+  _sync_replica: { class: 'local-only', ddl: SYNC_JOURNAL_DDL },
+};
+
+/**
  * `optional-transient` is an escape hatch from the stale-entry check, so like
  * `derived` it is pinned HERE: adding one takes an explicit edit to the gate.
  * Each names its class and the source file whose runtime DDL creates it; the
@@ -183,9 +195,11 @@ const OPTIONAL_TRANSIENT: Record<TableScope, Record<string, { class: string; ddl
       ddl: 'packages/core/src/store/exodus/recovery.ts',
     },
     _fts5_check: { class: 'local-only', ddl: 'packages/core/src/memory/brain-search.ts' },
+    ...SYNC_JOURNAL_TABLES,
   },
   global: {
     __catalog_meta: { class: 'local-only', ddl: 'packages/core/src/llm/catalog-seeder.ts' },
+    ...SYNC_JOURNAL_TABLES,
     // No global binder creates it yet; pinned so a future one is never derived.
     brain_embeddings: {
       class: 'portable-personal',
@@ -599,6 +613,34 @@ describe('Gate A: two-tier policy', () => {
     ]) {
       const r = classifyTable(scope, t);
       expect(r.kind === 'entry' && r.class !== 'derived', `${scope}.${t}`).toBe(true);
+    }
+  });
+
+  /**
+   * cleo-dev's journal spec review rulings (2026-09-29, Q9 and Q11): STDP
+   * event history and token usage are portable-personal, and final. Pinned
+   * HERE so reverting either takes an explicit edit to the gate.
+   */
+  const PERSONAL_BY_RULING: Record<TableScope, readonly string[]> = {
+    project: [
+      'brain_plasticity_events',
+      'brain_weight_history',
+      'tasks_token_usage',
+      'token_usage',
+    ],
+    global: ['brain_plasticity_events', 'brain_weight_history'],
+  };
+
+  it.each([
+    'project',
+    'global',
+  ] as const)('%s: STDP event history and token usage are portable-personal (ruled)', (scope) => {
+    for (const t of PERSONAL_BY_RULING[scope]) {
+      expect(classifyTable(scope, t), `${scope}.${t}`).toMatchObject({
+        kind: 'entry',
+        class: 'portable-personal',
+        entry: { status: 'resolved' },
+      });
     }
   });
 });

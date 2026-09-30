@@ -236,6 +236,18 @@ Running `pnpm db:new -- --db signaldock` emits a warning and proceeds; the linte
 any convention violations. Bringing signaldock fully into the `migration-manager.ts` runtime
 is an epic-scale refactor out of scope for Wave 2A (ADR-054 R3 §6.1).
 
+### sync-journal: not a drizzle lineage
+
+`sync-journal/` holds the change journal's own tables (`_sync_meta`, `_sync_clock`,
+`_sync_replica`; T12342). It is NOT a drizzle lineage: `migration-manager.ts`, drizzle-kit,
+`pnpm db:new` and `scripts/lint-migrations.mjs` (which scans `drizzle-*` sets only) never touch
+it. `packages/core/src/store/sync/schema.ts` applies its folders lazily, only when a `sync.*`
+flag is first enabled on a store, so a store with every flag off gains no table and no journal
+row. Each applied folder is journaled in `_sync_meta` as `schema:<folder>` with the sha256 of
+its `migration.sql`, never in `__drizzle_migrations`; an applied folder whose SQL changed is
+refused with `E_SYNC_SCHEMA_HASH_DRIFT`. Never edit an applied folder: add a new one, with the
+same `YYYYMMDDHHMMSS_tNNNN-<slug>/migration.sql` naming.
+
 ---
 
 ## Linter Rules

@@ -13,7 +13,12 @@
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getCleoHome, getCleoPlatformPaths, getCleoStateDir } from '../cleo-paths.js';
+import {
+  getCleoHome,
+  getCleoPlatformPaths,
+  getCleoStateDir,
+  resolveSyncReplicaRegistryPath,
+} from '../cleo-paths.js';
 import { expandTildePath } from '../platform-paths.js';
 import { getCleoWorktreesRoot } from '../worktree-paths.js';
 
@@ -81,6 +86,26 @@ describe('getCleoStateDir', () => {
     stubPlatform('darwin');
     vi.stubEnv('CLEO_HOME', '/opt/cleo');
     expect(getCleoStateDir()).toBe(join('/opt/cleo', 'state'));
+  });
+});
+
+describe('resolveSyncReplicaRegistryPath (T12342, N6)', () => {
+  it('lives in the machine-local state dir, named by the device id', () => {
+    stubPlatform('linux');
+    vi.stubEnv('XDG_STATE_HOME', '/xdg/state');
+    expect(resolveSyncReplicaRegistryPath('dev-1')).toBe(
+      join('/xdg/state', 'cleo', 'sync', 'replicas-dev-1.json'),
+    );
+    stubPlatform('darwin');
+    vi.stubEnv('CLEO_HOME', '/opt/cleo');
+    expect(resolveSyncReplicaRegistryPath('dev-1')).toBe(
+      join('/opt/cleo', 'state', 'sync', 'replicas-dev-1.json'),
+    );
+  });
+
+  it('refuses a device id that is not a plain identifier', () => {
+    expect(() => resolveSyncReplicaRegistryPath('../x')).toThrow(/invalid device id/);
+    expect(() => resolveSyncReplicaRegistryPath('')).toThrow(/invalid device id/);
   });
 });
 

@@ -44,21 +44,23 @@
  * that is meaningless off-device: leases, queues, pids, paths, locations and
  * fs-keyed caches.
  *
- * ## Follow-up: current learned weights (does not block Gate A)
+ * ## STDP event history syncs (cleo-dev ruling 2026-09-29)
  *
- * `brain_plasticity_events` and `brain_weight_history` are local-only for row
- * sync (they are STDP event history, 14M+ inserts). A new device still needs
- * the CURRENT learned weights. Deliver them either as a compacted
- * "current weights" projection that syncs as `portable-personal`, or as a
- * periodic compacted snapshot blob. Until then a new device restores them
- * only from the tier-1 backup.
+ * `brain_plasticity_events` and `brain_weight_history` are `portable-personal`
+ * (journal spec review, Q11, under the owner's direction that the cloud backs
+ * up everything). The 2026-09-28 ruling had them local-only, with the current
+ * learned weights to follow as a projection or snapshot blob. They are
+ * append-only with 14M+ lifetime inserts, so they set the change journal's
+ * op-rate ceiling; how much event history replicates is the journal spec's
+ * open retention question (Q15).
  *
  * ## Sources
  *
  * The classes come from the classification draft
  * (`docs/research/table-classification-draft.md` in the cleo-nexus repo), the
  * core owner's rulings in its §F, and the core owner's two-tier ruling of
- * 2026-09-28 plus its follow-up ruling on the STDP tables. Table
+ * 2026-09-28, its follow-up rulings on the STDP tables, and its journal spec
+ * review rulings of 2026-09-29 (STDP and `token_usage`). Table
  * classification was delegated to agents by the owner, so these are cleo-dev
  * rulings; the ruling supersedes earlier ones where they conflict (each such
  * entry carries the old reasoning in its `note`). Rows marked
@@ -109,6 +111,24 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'local-only',
     status: 'draft',
     source: 'table-classification-draft.md',
+  },
+  _sync_clock: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §1.4-§1.5 (T12342)',
+    note: "the HLC clock of this store's replica; describes this physical file, so meaningless on another device. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled",
+  },
+  _sync_meta: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §1.4-§1.5 (T12342)',
+    note: 'store-level sync.* flags and journal bookkeeping; describes this physical file, so meaningless on another device. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled',
+  },
+  _sync_replica: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §1.4-§1.5 (T12342)',
+    note: 'the replica binding (inode, birthtime, nonce, device) of this store file; describes this physical file, so meaningless on another device. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled',
   },
   _writer_leases: { class: 'local-only', status: 'draft', source: 'table-classification-draft.md' },
   _writer_queue: { class: 'local-only', status: 'draft', source: 'table-classification-draft.md' },
@@ -324,10 +344,10 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'table-classification-draft.md',
   },
   brain_plasticity_events: {
-    class: 'local-only',
+    class: 'portable-personal',
     status: 'resolved',
-    source: 'cleo-dev ruling 2026-09-28',
-    note: 'cleo-dev ruling (final, 2026-09-28): local-only for row sync (14M+ inserts ever, draft §D); still tier-1 backed up. A new device gets the CURRENT learned weights through a follow-up projection or snapshot blob (see the module doc), not this event history',
+    source: 'cleo-dev ruling 2026-09-29 (journal spec review, Q11)',
+    note: "supersedes the 2026-09-28 local-only ruling under the owner's direction that the cloud backs up everything: STDP event history is learned state a new device would otherwise lose. Append-only with 14M+ lifetime inserts, so it sets the journal's op-rate ceiling; retention is journal spec Q15",
   },
   brain_promotion_log: {
     class: 'portable-personal',
@@ -393,10 +413,10 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     note: 'named in the ruling; pre-T1402 name of brain_observations_staging, dropped by T12535',
   },
   brain_weight_history: {
-    class: 'local-only',
+    class: 'portable-personal',
     status: 'resolved',
-    source: 'cleo-dev ruling 2026-09-28',
-    note: 'cleo-dev ruling (final, 2026-09-28): local-only for row sync (14M+ inserts ever, draft §D); still tier-1 backed up. A new device gets the CURRENT learned weights through a follow-up projection or snapshot blob (see the module doc), not this event history',
+    source: 'cleo-dev ruling 2026-09-29 (journal spec review, Q11)',
+    note: "supersedes the 2026-09-28 local-only ruling under the owner's direction that the cloud backs up everything: STDP event history is learned state a new device would otherwise lose. Append-only with 14M+ lifetime inserts, so it sets the journal's op-rate ceiling; retention is journal spec Q15",
   },
   commit_files: {
     class: 'local-only',
@@ -1145,9 +1165,9 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
   },
   tasks_token_usage: {
     class: 'portable-personal',
-    status: 'needs-owner-call',
-    source: 'cleo-dev ruling 2026-09-28',
-    note: 'ruling: token_usage is portable (cost history). Merge scope personal is my proposal (keyed by session, and sessions are personal)',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-29 (journal spec review, Q9)',
+    note: 'ruling: token_usage is portable (cost history), merged per person (keyed by session, and sessions are personal)',
   },
   tasks_warp_chain_instances: {
     class: 'portable-project',
@@ -1161,8 +1181,8 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
   },
   token_usage: {
     class: 'portable-personal',
-    status: 'needs-owner-call',
-    source: 'cleo-dev ruling 2026-09-28',
+    status: 'resolved',
+    source: 'cleo-dev ruling 2026-09-29 (journal spec review, Q9)',
     note: 'live bare twin of tasks_token_usage; same ruling',
   },
   warp_chain_instances: {
@@ -1188,6 +1208,24 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
   __drizzle_migrations: { class: 'local-only', status: 'draft', source: 'draft §3' },
   _agent_registry_meta: { class: 'local-only', status: 'draft', source: 'draft §3' },
   _agent_registry_migrations: { class: 'local-only', status: 'draft', source: 'draft §3' },
+  _sync_clock: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §1.4-§1.5 (T12342)',
+    note: "the HLC clock of this store's replica; describes this physical file, so meaningless on another device. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled",
+  },
+  _sync_meta: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §1.4-§1.5 (T12342)',
+    note: 'store-level sync.* flags and journal bookkeeping; describes this physical file, so meaningless on another device. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled',
+  },
+  _sync_replica: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §1.4-§1.5 (T12342)',
+    note: 'the replica binding (inode, birthtime, nonce, device) of this store file; describes this physical file, so meaningless on another device. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled',
+  },
   _writer_leases: { class: 'local-only', status: 'draft', source: 'draft §3' },
   _writer_queue: { class: 'local-only', status: 'draft', source: 'draft §3' },
   accounts: {
@@ -1458,10 +1496,10 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     note: 'writer verified: memory/specialists.ts (LLM Induction/CodePattern specialists) and sleep-consolidation.ts',
   },
   brain_plasticity_events: {
-    class: 'local-only',
+    class: 'portable-personal',
     status: 'resolved',
-    source: 'cleo-dev ruling 2026-09-28',
-    note: 'cleo-dev ruling (final, 2026-09-28): local-only for row sync (14M+ inserts ever, draft §D); still tier-1 backed up. A new device gets the CURRENT learned weights through a follow-up projection or snapshot blob (see the module doc), not this event history',
+    source: 'cleo-dev ruling 2026-09-29 (journal spec review, Q11)',
+    note: "supersedes the 2026-09-28 local-only ruling under the owner's direction that the cloud backs up everything: STDP event history is learned state a new device would otherwise lose. Append-only with 14M+ lifetime inserts, so it sets the journal's op-rate ceiling; retention is journal spec Q15",
   },
   brain_promotion_log: {
     class: 'portable-personal',
@@ -1508,10 +1546,10 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     note: '"all brain_*" per the ruling, but it is feedback telemetry (10,152 rows) that drives quality scores; confirm',
   },
   brain_weight_history: {
-    class: 'local-only',
+    class: 'portable-personal',
     status: 'resolved',
-    source: 'cleo-dev ruling 2026-09-28',
-    note: 'cleo-dev ruling (final, 2026-09-28): local-only for row sync (14M+ inserts ever, draft §D); still tier-1 backed up. A new device gets the CURRENT learned weights through a follow-up projection or snapshot blob (see the module doc), not this event history',
+    source: 'cleo-dev ruling 2026-09-29 (journal spec review, Q11)',
+    note: "supersedes the 2026-09-28 local-only ruling under the owner's direction that the cloud backs up everything: STDP event history is learned state a new device would otherwise lose. Append-only with 14M+ lifetime inserts, so it sets the journal's op-rate ceiling; retention is journal spec Q15",
   },
   models_catalog: {
     class: 'local-only',

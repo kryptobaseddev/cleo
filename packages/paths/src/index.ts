@@ -15,6 +15,7 @@
  *   {@link resolveWorktreeRootForHash}, {@link resolveTaskWorktreePath},
  *   {@link getCleoWorktreesRoot}, {@link resolveWorktreeIndexPath}
  * - {@link getCleoStateDir} — CLEO state dir (XDG state on Linux, `<cleoHome>/state` elsewhere)
+ * - {@link resolveSyncReplicaRegistryPath} — this device's sync replica registry (state dir, never synced)
  * - {@link expandTildePath} — `~` expansion via `os.homedir()`
  * - {@link isAbsolutePath} — cross-platform abs-path check
  * - Executable search: {@link findOnPath}, {@link prependPathEntry},
@@ -49,6 +50,7 @@ export {
   resolveLegacyCleoDir,
   resolveProjectByCwd,
   resolveStableDeviceIdPath,
+  resolveSyncReplicaRegistryPath,
 } from './cleo-paths.js';
 export {
   type ExecPathOptions,
