@@ -135,6 +135,38 @@ describe('several pr: atoms in one evidence write (T12848)', () => {
     });
   });
 
+  it('accepts a "./"-prefixed path for a PR-changed file (review LOW)', async () => {
+    const result = await validateGateVerify(root, {
+      taskId: TASK,
+      gate: 'implemented',
+      evidence: `pr:41;pr:42;files:src/a.ts,./src/b.ts;satisfies:${TASK}#AC1`,
+      agent: 'coder',
+    });
+    expect(result, JSON.stringify(result)).toMatchObject({ success: true });
+  });
+
+  it('refuses a PR whose every listed file is read at a later PR merge (review MEDIUM)', async () => {
+    // Both PRs changed src/b.ts, so it is read at #42's merge only: #41's
+    // merge tree is never inspected and #41 is not proven by this write.
+    const accessor = await createSqliteDataAccessor(root);
+    const task = await accessor.loadSingleTask(TASK);
+    if (!task) throw new Error('fixture task missing');
+    await accessor.upsertSingleTask({ ...task, files: ['src/b.ts'] });
+    const first = prs.get(41);
+    if (!first) throw new Error('fixture PR missing');
+    prs.set(41, { ...first, changedPaths: ['src/a.ts', 'src/b.ts'], changedFileCount: 2 });
+    const result = await validateGateVerify(root, {
+      taskId: TASK,
+      gate: 'implemented',
+      evidence: `pr:41;pr:42;files:src/b.ts;satisfies:${TASK}#AC1`,
+      agent: 'coder',
+    });
+    expect(result).toMatchObject({
+      success: false,
+      error: { message: expect.stringContaining('PR #41') },
+    });
+  });
+
   it('still refuses a file absent from every PR merge tree', async () => {
     const result = await validateGateVerify(root, {
       taskId: TASK,

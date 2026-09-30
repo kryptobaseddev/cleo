@@ -2587,6 +2587,19 @@ export function classifyEvidenceTask(
 }
 
 /**
+ * Normalise an evidence path for comparison with PR changed paths: strip a
+ * leading `./` and trailing slashes. One normaliser for anchoring, PR
+ * coverage and criterion basis, so they never disagree about a path (T12848).
+ *
+ * @param path - A `files:` or PR changed path.
+ * @returns The comparable repo-relative form.
+ * @task T12848
+ */
+function normalizeEvidencePath(path: string): string {
+  return path.replace(/^\.\//, '').replace(/\/+$/, '');
+}
+
+/**
  * The merge commit whose tree holds a `files:` path's bytes when one evidence
  * write carries several `pr:` atoms (T12848): the PR that changed the path —
  * the latest merge when several did — else the latest merge overall, whose
@@ -2607,9 +2620,10 @@ export function prMergeCommitForPath(
   prs: ReadonlyArray<EvidenceMergeAnchor>,
   path: string,
 ): string | undefined {
-  const norm = (value: string): string => value.replace(/^\.\//, '');
-  const target = norm(path);
-  const changed = prs.filter((pr) => pr.changedPaths?.some((p) => norm(p) === target));
+  const target = normalizeEvidencePath(path);
+  const changed = prs.filter((pr) =>
+    pr.changedPaths?.some((p) => normalizeEvidencePath(p) === target),
+  );
   const pool = changed.length > 0 ? changed : prs;
   let latest: EvidenceMergeAnchor | undefined;
   for (const pr of pool) {
@@ -2653,17 +2667,21 @@ export function checkTaskEvidenceContext(
     return 'CI evidence lacks verified task linkage; re-verify with current task context.';
   // T12848: several PRs in one write are unambiguous — each `files:` path is
   // pinned to the merge of the PR that changed it (prMergeCommitForPath), and
-  // every PR must still be covered by an inspected artifact it changed.
+  // every PR must be proven by an artifact it changed that was READ AT ITS OWN
+  // merge. A file two PRs changed is read at the later merge only, so it
+  // proves the later PR, never the earlier one.
   const prAtoms = atoms.filter((atom) => atom.kind === 'pr');
   for (const atom of prAtoms) {
     if (atom.taskId !== context.task.id || !atom.changedPaths?.length)
       return 'PR provenance lacks verified task scope; re-verify with current task context.';
-    if (
-      gate === 'implemented' &&
-      !isDeletionOnlyPr(atom) &&
-      !filePaths.some((path) => atom.changedPaths?.includes(path))
-    )
-      return `PR #${atom.prNumber} requires files evidence for an artifact actually changed by that PR.`;
+    if (gate === 'implemented' && !isDeletionOnlyPr(atom)) {
+      const changed = new Set(atom.changedPaths.map(normalizeEvidencePath));
+      const ownFiles = filePaths.filter((path) => changed.has(normalizeEvidencePath(path)));
+      if (ownFiles.length === 0)
+        return `PR #${atom.prNumber} requires files evidence for an artifact actually changed by that PR.`;
+      if (!ownFiles.some((path) => prMergeCommitForPath(prAtoms, path) === atom.mergeCommitSha))
+        return `PR #${atom.prNumber} has no listed file read at its own merge commit: every file it changed that you listed (${ownFiles.join(', ')}) is read at a later PR's merge. List a file PR #${atom.prNumber} changed last, or record PR #${atom.prNumber} in a separate attempt.`;
+    }
     if (
       gate === 'implemented' &&
       classifyEvidenceTask(context) === 'code' &&
@@ -2906,11 +2924,11 @@ export function composeGateEvidence(
       [
         ...artifactPaths,
         ...atoms.flatMap((atom) => (atom.kind === 'pr' ? (atom.changedPaths ?? []) : [])),
-      ].map((path) => path.replace(/^\.\//, '').replace(/\/+$/, '')),
+      ].map(normalizeEvidencePath),
     );
     const basisOf = (text: string): 'files' | 'self-attested' =>
       (extractTaskAcFilesWithProvenance({ acceptance: [text] }).files ?? []).some((path) =>
-        coveredPaths.has(path.replace(/^\.\//, '').replace(/\/+$/, '')),
+        coveredPaths.has(normalizeEvidencePath(path)),
       )
         ? 'files'
         : 'self-attested';

@@ -181,7 +181,14 @@ export interface EvidenceValidationContext {
   gates: readonly VerificationGate[];
   /** Canonical criteria read for this verification operation. */
   criteria: ReadonlyArray<Pick<AcRow, 'id' | 'text' | 'updatedAt'>>;
-  /** Verified PR merge whose immutable artifact bytes must be inspected. */
+  /**
+   * Verified PR merge whose immutable artifact bytes must be inspected.
+   *
+   * @deprecated Since T12848 no caller sets it: a single SHA cannot anchor a
+   * write with several `pr:` atoms. Use {@link EvidenceValidationContext.artifactPrs},
+   * which anchors each `files:` path at the merge of the PR that changed it.
+   * Still honoured when `artifactPrs` is absent.
+   */
   artifactCommitSha?: string;
   /**
    * Every verified PR in the evidence write (T12848). When non-empty, each
