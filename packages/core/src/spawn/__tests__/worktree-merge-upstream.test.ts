@@ -139,17 +139,17 @@ describe('T12773 — no local merge of a task that already landed upstream', () 
     expect(gitAt(fx.root, 'reflog', '-n', '5', 'main')).not.toMatch(/merge task\//);
     // ... but the exact sync command is handed back.
     expect(result.syncCommand).toMatch(
-      /^git -C '.+' switch main && git -C '.+' merge --ff-only origin\/main$/,
+      /^git -C '.+' switch 'main' && git -C '.+' merge --ff-only 'origin\/main'$/,
     );
-    expect(result.hint).toMatch(/merge --ff-only origin\/main/);
+    expect(result.hint).toMatch(/merge --ff-only 'origin\/main'/);
     expect(result.hint).toMatch(/3 commit\(s\) behind origin\/main/);
     expect(gitAt(fx.root, 'merge-base', '--is-ancestor', tip, 'refs/remotes/origin/main')).toBe('');
-    // Commits are safe on origin, so the clean worktree is pruned. The task
-    // branch is kept: pruneWorktree only deletes a branch already contained in
-    // the checked-out HEAD, and the checkout is (deliberately) not synced.
+    // Commits are safe on origin, so the clean worktree is pruned and the
+    // task branch deleted explicitly — pruneWorktree alone would keep it
+    // (it is not contained in the stale, deliberately unsynced checkout HEAD).
     expect(result.worktreeRemoved).toBe(true);
-    expect(result.branchDeleted).toBe(false);
-    expect(gitAt(fx.root, 'branch', '--list', `task/${taskId}`)).not.toBe('');
+    expect(result.branchDeleted).toBe(true);
+    expect(gitAt(fx.root, 'branch', '--list', `task/${taskId}`)).toBe('');
   });
 
   it('PR squash-merged upstream → detected as landed, no local merge', () => {
@@ -167,6 +167,11 @@ describe('T12773 — no local merge of a task that already landed upstream', () 
     expect(result.landedUpstream, JSON.stringify(result)).toBe(true);
     expect(result.merged).toBe(false);
     expect(localOnlyCommits(fx.root)).toEqual([]);
+    // A squash merge never makes the task commits ancestors of anything, so
+    // only the explicit landed-branch delete keeps task/<id> from piling up.
+    expect(result.worktreeRemoved).toBe(true);
+    expect(result.branchDeleted).toBe(true);
+    expect(gitAt(fx.root, 'branch', '--list', `task/${taskId}`)).toBe('');
   });
 
   it('dirty checkout → landed; local main untouched, hint given', () => {
@@ -184,7 +189,7 @@ describe('T12773 — no local merge of a task that already landed upstream', () 
 
     expect(result.landedUpstream, JSON.stringify(result)).toBe(true);
     expect(gitAt(fx.root, 'rev-parse', 'main')).toBe(localBefore);
-    expect(result.hint).toMatch(/merge --ff-only origin\/main/);
+    expect(result.hint).toMatch(/merge --ff-only 'origin\/main'/);
   });
 
   it('task NOT landed but local main is behind origin → refused, no merge commit', () => {
@@ -210,7 +215,7 @@ describe('T12773 — no local merge of a task that already landed upstream', () 
     expect(gitAt(fx.root, 'branch', '--list', `task/${taskId}`)).not.toBe('');
   });
 
-  it('task NOT landed + local main DIVERGED (ahead and behind) → refused with pull --rebase hint', () => {
+  it('task NOT landed + local main DIVERGED (ahead and behind) → refused with merge (never rebase) hint', () => {
     fx = makeUpstreamFixture();
     const taskId = 'T9912778';
     const wt = createAgentWorktree(taskId, fx.root);
@@ -228,9 +233,14 @@ describe('T12773 — no local merge of a task that already landed upstream', () 
     expect(result.merged, JSON.stringify(result)).toBe(false);
     expect(result.staleTarget).toBe(true);
     expect(result.hint).toMatch(/has 1 unpushed commit\(s\) and is 2 behind origin\/main/);
-    expect(result.hint).toMatch(/git pull --rebase origin main/);
+    // A rebase would drop local ADR-062 --no-ff task merges and rewrite SHAs.
+    expect(result.syncCommand).toMatch(
+      /^git -C '.+' switch 'main' && git -C '.+' merge 'origin\/main'$/,
+    );
+    expect(result.syncCommand).not.toMatch(/rebase|--ff-only/);
+    expect(result.hint).toContain(result.syncCommand);
+    expect(result.hint).not.toMatch(/pull --rebase/);
     expect(result.hint).toMatch(new RegExp(`worktree-complete ${taskId}`));
-    expect(result.syncCommand).toMatch(/pull --rebase origin main$/);
     expect(gitAt(fx.root, 'rev-parse', 'HEAD')).toBe(headBefore);
     expect(existsSync(wt.path)).toBe(true);
   });

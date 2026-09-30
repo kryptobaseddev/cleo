@@ -145,7 +145,9 @@ export interface WorktreeMergeResult {
   /**
    * Exact shell command that syncs the local default branch with
    * `origin/<targetBranch>` — `git merge --ff-only` when it is only behind,
-   * `git pull --rebase` when it is diverged. CLEO never runs it (T12773).
+   * a plain `git merge origin/<targetBranch>` when it is diverged (never a
+   * rebase, which would drop the local ADR-062 `--no-ff` task merge commits
+   * and rewrite agent SHAs). CLEO never runs it (T12773).
    */
   syncCommand?: string;
   /**

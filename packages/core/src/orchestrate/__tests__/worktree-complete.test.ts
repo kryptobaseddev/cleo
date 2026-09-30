@@ -259,7 +259,7 @@ describe('completeWorktreeForTask (T9548)', () => {
     expect(result.integration?.staleTarget).toBe(true);
     expect(result.reason).toMatch(/out of date with origin — no merge was attempted/);
     const steps = result.recovery?.steps.join('\n') ?? '';
-    expect(steps).toContain('merge --ff-only origin/main');
+    expect(steps).toContain("merge --ff-only 'origin/main'");
     expect(steps).toContain('cleo orchestrate worktree-complete T9548-stale');
     expect(steps).not.toContain('rebase --continue');
     expect(steps).not.toContain('--resolve manual');

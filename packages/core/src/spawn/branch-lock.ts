@@ -660,16 +660,22 @@ export interface UpstreamIntegrationAssessment {
 export const UPSTREAM_FETCH_TIMEOUT_MS = 20_000;
 
 /**
+ * ssh options for the upstream fetch: batch mode (no prompt), a bounded
+ * connect, and keepalives so a stalled connection fails fast.
+ */
+const SSH_NON_INTERACTIVE_OPTS = '-oBatchMode=yes -oConnectTimeout=10 -oServerAliveInterval=5';
+
+/**
  * Environment for a non-interactive `git fetch`: no terminal credential
- * prompt, and ssh in batch mode (an existing `GIT_SSH_COMMAND` is preserved
- * with `-oBatchMode=yes` appended).
+ * prompt, and ssh with {@link SSH_NON_INTERACTIVE_OPTS} (an existing
+ * `GIT_SSH_COMMAND` is preserved with the options appended).
  */
 function nonInteractiveGitEnv(): NodeJS.ProcessEnv {
   const existingSsh = process.env['GIT_SSH_COMMAND']?.trim();
   return {
     ...process.env,
     GIT_TERMINAL_PROMPT: '0',
-    GIT_SSH_COMMAND: existingSsh ? `${existingSsh} -oBatchMode=yes` : 'ssh -oBatchMode=yes',
+    GIT_SSH_COMMAND: `${existingSsh || 'ssh'} ${SSH_NON_INTERACTIVE_OPTS}`,
   };
 }
 
@@ -691,6 +697,11 @@ function fetchUpstreamBranch(
       // stdout/stderr open and keep this synchronous call waiting.
       stdio: 'ignore',
       timeout: timeoutMs,
+      // Known small window: a SIGKILL landing while git updates the
+      // remote-tracking ref can leave `refs/remotes/<remote>/<branch>.lock`
+      // behind, which makes the next fetch of that ref fail until the stale
+      // lock file is removed. SSH connect/keepalive bounds (above) make a
+      // timeout — and so this kill — rare.
       killSignal: 'SIGKILL',
       env: nonInteractiveGitEnv(),
     });
@@ -816,14 +827,20 @@ export function assessUpstreamIntegration(
   const ahead = hasLocal ? revListCount(gitRoot, `${upstreamRef}..${localRef}`) : 0;
   const base = { upstreamRef, fetched, behind, ahead };
 
-  // Single-quoted for the shell: macOS roots often contain spaces.
-  const quotedRoot = `'${gitRoot.replace(/'/g, `'\\''`)}'`;
+  // Single-quoted for the shell: macOS roots often contain spaces, and branch
+  // / remote names are operator-controlled.
+  const quotedRoot = shellQuote(gitRoot);
+  const quotedTarget = shellQuote(targetBranch);
+  const quotedUpstream = shellQuote(upstreamShort);
+  // Diverged (ahead AND behind): merge, never `pull --rebase` — a rebase
+  // would drop the local ADR-062 `--no-ff` task merge commits and rewrite
+  // agent SHAs. Behind only: fast-forward.
   const syncCommand =
     behind === 0
       ? ''
       : ahead > 0
-        ? `git -C ${quotedRoot} switch ${targetBranch} && git -C ${quotedRoot} pull --rebase ${remote} ${targetBranch}`
-        : `git -C ${quotedRoot} switch ${targetBranch} && git -C ${quotedRoot} merge --ff-only ${upstreamShort}`;
+        ? `git -C ${quotedRoot} switch ${quotedTarget} && git -C ${quotedRoot} merge ${quotedUpstream}`
+        : `git -C ${quotedRoot} switch ${quotedTarget} && git -C ${quotedRoot} merge --ff-only ${quotedUpstream}`;
   const syncState =
     behind === 0
       ? ''
@@ -866,7 +883,7 @@ export function assessUpstreamIntegration(
       syncCommand,
       hint:
         ahead > 0
-          ? `${syncState}: run \`git pull --rebase ${remote} ${targetBranch}\` (or merge ${upstreamShort}) in ${quotedRoot}, then ${rerun}. A merge now would fork '${targetBranch}' further from ${upstreamShort}; alternatively land '${branch}' through a PR.`
+          ? `${syncState}: sync it with \`${syncCommand}\` (a merge, not a rebase, so the local --no-ff task merges keep their SHAs), then ${rerun}. A task merge now would fork '${targetBranch}' further from ${upstreamShort}; alternatively land '${branch}' through a PR.`
           : `${syncState}, so a merge there would fork it from ${upstreamShort}. Land '${branch}' through a PR, or sync first (${syncCommand}) and ${rerun}.`,
     };
   }
@@ -1001,6 +1018,20 @@ export function completeAgentWorktreeViaMerge(
       // operator. The checkout itself is never moved (hint-only).
       const dirty = existsSync(worktreePath) && isWorktreeDirty(worktreePath);
       const pruneResult = dirty ? null : pruneWorktree(taskId, projectRoot);
+      let branchDeleted = pruneResult?.branchDeleted ?? false;
+      // pruneWorktree only deletes a branch with zero commits ahead of the
+      // checkout HEAD, so a stale local default branch, a squash merge, or a
+      // checkout on another branch would leave `task/<id>` behind forever.
+      // For a PROVEN-landed branch the content is on upstream, so delete it
+      // explicitly — but only once its (clean) worktree is gone.
+      if (
+        upstream.kind === 'landed' &&
+        pruneResult !== null &&
+        !branchDeleted &&
+        !existsSync(worktreePath)
+      ) {
+        branchDeleted = gitSilent(['branch', '-D', branch], gitRoot);
+      }
       return {
         taskId,
         targetBranch,
@@ -1009,7 +1040,7 @@ export function completeAgentWorktreeViaMerge(
         commitCount: 0,
         rebased: false,
         worktreeRemoved: pruneResult?.worktreeRemoved ?? false,
-        branchDeleted: pruneResult?.branchDeleted ?? false,
+        branchDeleted,
         nothingToIntegrate: true,
         ...(upstream.kind === 'landed' ? { landedUpstream: true } : {}),
         ...(upstream.syncCommand ? { syncCommand: upstream.syncCommand } : {}),
