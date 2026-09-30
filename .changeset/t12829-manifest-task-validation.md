@@ -33,3 +33,18 @@ path, so this was a read traversal (file disclosure), not a write.
   problems in existing rows. These are rows with a bad id, a bad linked task
   id, an unsafe file reference, or a missing linked task. It exits non-zero on
   malformed or unsafe values. A missing task alone is only a warning.
+- File references are also checked on disk. Every reader (`manifest show`,
+  `research show`, the legacy `showManifestEntry`/`validateManifestEntries`
+  readers and the orchestrator's historical output check) resolves the real
+  path and reads it only when it stays inside the project, so an in-project
+  symlink that points outside is refused with `E_MANIFEST_FILE_UNSAFE`. A
+  symlink to another in-project file still works, and a dangling link counts
+  as not found. Absolute paths, Windows drive paths, UNC paths and any
+  backslash are rejected.
+- The legacy flat-file import (`migrateManifestJsonlToSqlite`) skips entries
+  with an invalid identity and lists them in `invalid`. It no longer inserts
+  them.
+- Upgrade note: if one stored row for a task has a bad id or an unsafe file
+  reference, `pipelineManifestValidate` fails closed for that task. The
+  task's other rows do not change this. Run `cleo doctor manifest-rows` to
+  list the rows that cause it.

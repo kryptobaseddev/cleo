@@ -5,10 +5,11 @@
  * @task T12282
  */
 import { readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { MANIFEST_STATUSES } from '@cleocode/contracts';
 import { z } from 'zod';
 import { EngineResultError } from '../../engine-result.js';
+import { readContainedFile } from '../../memory/manifest-identity.js';
 import {
   pipelineManifestShow,
   readManifestEntries,
@@ -120,7 +121,12 @@ function historicalOutputIssue(entry: ManifestEntry, cwd?: string): string | nul
   try {
     const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
     const outputRoot = worktreeScope.run(scope, () => getAgentOutputsAbsolute(scope.worktreeRoot));
-    readFileSync(join(outputRoot, entry.file));
+    // T12829: read only a reference whose real path stays inside the output
+    // root, so a `../` or symlinked reference cannot probe other files.
+    const read = readContainedFile(outputRoot, entry.file);
+    if (read.status === 'unsafe') return `OUTPUT_FILE_UNSAFE: ${entry.file}: ${read.reason}`;
+    if (read.status === 'not-found')
+      return `OUTPUT_FILE_READ_FAILED: ${entry.file}: ENOENT (not found)`;
     return null;
   } catch (error) {
     return `OUTPUT_FILE_READ_FAILED: ${entry.file}: ${error instanceof Error ? error.message : String(error)}`;

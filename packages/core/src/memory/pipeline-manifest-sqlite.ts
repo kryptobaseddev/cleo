@@ -47,8 +47,8 @@ import {
   findMissingLinkedTasks,
   type ManifestIdentityIssue,
   manifestEntryIdProblem,
-  manifestFileProblem,
   manifestIdentityIssues,
+  readContainedFile,
 } from './manifest-identity.js';
 
 // Re-export types for consumers that previously imported them from pipeline-manifest-compat
@@ -878,20 +878,17 @@ export async function pipelineManifestShow(
     } else if (entry.file) {
       // T12829: never read a file reference that escapes the project (or
       // whose name the filesystem cannot hold) — rows stored before append
-      // validated `file` may carry one.
-      const fileProblem = manifestFileProblem(entry.file, scope.worktreeRoot);
-      if (fileProblem) {
+      // validated `file` may carry one. The read resolves real paths, so an
+      // in-project symlink pointing outside the project is refused too.
+      const read = readContainedFile(scope.worktreeRoot, entry.file);
+      if (read.status === 'unsafe') {
         throw new EngineResultError({
           code: 'E_MANIFEST_FILE_UNSAFE',
-          message: `Manifest '${researchId}' has an unsafe file reference (${fileProblem}); it was not read. Run \`cleo doctor manifest-rows\` to list such rows.`,
+          message: `Manifest '${researchId}' has an unsafe file reference (${read.reason}); it was not read. Run \`cleo doctor manifest-rows\` to list such rows.`,
           details: { entryId: researchId, field: 'file' },
         });
       }
-      try {
-        fileContent = readFileSync(join(scope.worktreeRoot, entry.file), 'utf-8');
-      } catch (error) {
-        if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
-      }
+      if (read.status === 'ok') fileContent = read.content;
     }
 
     return {
@@ -1707,19 +1704,24 @@ export async function distillManifestEntry(
 
 /**
  * Migrate existing .cleo/MANIFEST.jsonl entries into the pipeline_manifest table.
- * Skips entries that already exist (by id). Renames MANIFEST.jsonl to
- * MANIFEST.jsonl.migrated when done.
+ * Skips entries that already exist (by id). Entries whose id, linked task ids
+ * or file reference fail the T12829 identity checks are skipped, not inserted,
+ * and listed in `invalid`. Renames MANIFEST.jsonl to MANIFEST.jsonl.migrated
+ * when done.
  *
- * @returns Count of migrated and skipped entries.
+ * @returns Count of migrated and skipped entries (skipped includes invalid ones),
+ *   and every entry refused for an identity problem.
  */
-export async function migrateManifestJsonlToSqlite(
-  projectRoot?: string,
-): Promise<{ migrated: number; skipped: number }> {
+export async function migrateManifestJsonlToSqlite(projectRoot?: string): Promise<{
+  migrated: number;
+  skipped: number;
+  invalid: Array<{ entryId: string; issues: ManifestIdentityIssue[] }>;
+}> {
   const root = manifestScope(projectRoot).worktreeRoot;
   const manifestPath = join(resolveCleoDir(root), 'MANIFEST.jsonl');
 
   if (!existsSync(manifestPath)) {
-    return { migrated: 0, skipped: 0 };
+    return { migrated: 0, skipped: 0, invalid: [] };
   }
 
   const content = readFileSync(manifestPath, 'utf-8');
@@ -1737,7 +1739,7 @@ export async function migrateManifestJsonlToSqlite(
   }
 
   if (entries.length === 0) {
-    return { migrated: 0, skipped: 0 };
+    return { migrated: 0, skipped: 0, invalid: [] };
   }
 
   const binding = await getBinding(projectRoot);
@@ -1745,9 +1747,18 @@ export async function migrateManifestJsonlToSqlite(
 
   let migrated = 0;
   let skipped = 0;
+  const invalid: Array<{ entryId: string; issues: ManifestIdentityIssue[] }> = [];
 
   for (const entry of entries) {
     if (!entry.id) {
+      skipped++;
+      continue;
+    }
+    // T12829: never import an identity append would refuse (bad id, bad
+    // linked task id, or a file reference that escapes the project).
+    const issues = manifestIdentityIssues(entry, root);
+    if (issues.length > 0) {
+      invalid.push({ entryId: String(entry.id).slice(0, 120), issues });
       skipped++;
       continue;
     }
@@ -1773,5 +1784,5 @@ export async function migrateManifestJsonlToSqlite(
     // Non-fatal — file may already be renamed or locked
   }
 
-  return { migrated, skipped };
+  return { migrated, skipped, invalid };
 }

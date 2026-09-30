@@ -12,7 +12,15 @@
 
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -960,6 +968,45 @@ describe('pipeline-manifest-sqlite', () => {
       }
     });
 
+    it('show refuses a file reached through an in-project symlink that leaves the project', async () => {
+      const outsideDir = mkdtempSync(join(tmpdir(), 'cleo-manifest-outside-'));
+      writeFileSync(join(outsideDir, 'secret.txt'), 'SECRET-VIA-LINK');
+      try {
+        symlinkSync(outsideDir, join(testRoot, 'link'));
+        // The reference is lexically inside the project, so append accepts it.
+        await pipelineManifestAppend(
+          { ...ENTRY_A, id: 'sym-escape', file: 'link/secret.txt' },
+          testRoot,
+        );
+        const show = await pipelineManifestShow('sym-escape', testRoot);
+        expect(show).toMatchObject({ success: false, error: { code: 'E_MANIFEST_FILE_UNSAFE' } });
+        expect(JSON.stringify(show)).not.toContain('SECRET-VIA-LINK');
+      } finally {
+        rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
+
+    it('show follows an in-project symlink to an in-project file, and treats a dangling link as missing', async () => {
+      mkdirSync(join(testRoot, 'out'), { recursive: true });
+      writeFileSync(join(testRoot, 'out', 'real.md'), 'IN-PROJECT');
+      symlinkSync('out/real.md', join(testRoot, 'alias.md'));
+      symlinkSync('out/nope.md', join(testRoot, 'dangling.md'));
+      await pipelineManifestAppend({ ...ENTRY_A, id: 'sym-inside', file: 'alias.md' }, testRoot);
+      await pipelineManifestAppend(
+        { ...ENTRY_B, id: 'sym-dangling', file: 'dangling.md' },
+        testRoot,
+      );
+
+      expect(await pipelineManifestShow('sym-inside', testRoot)).toMatchObject({
+        success: true,
+        data: { fileContent: 'IN-PROJECT', fileExists: true },
+      });
+      expect(await pipelineManifestShow('sym-dangling', testRoot)).toMatchObject({
+        success: true,
+        data: { fileContent: null, fileExists: false },
+      });
+    });
+
     it('doctor reports nothing for valid rows linked to existing tasks', async () => {
       await seedTask('T4242');
       await pipelineManifestAppend(shorthand('T4242'), testRoot, { requireExistingTasks: true });
@@ -1483,6 +1530,26 @@ describe('pipeline-manifest-sqlite', () => {
       const result = await migrateManifestJsonlToSqlite(testRoot);
       expect(result.migrated).toBe(1);
       expect(result.skipped).toBe(1);
+    });
+
+    it('skips and reports legacy entries with an invalid identity instead of inserting them', async () => {
+      const manifestPath = join(testRoot, '.cleo', LEGACY_MANIFEST);
+      const bad = [
+        { ...ENTRY_B, id: '../../escape' },
+        { ...ENTRY_C, file: '../secret.txt' },
+      ];
+      const content = [ENTRY_A, ...bad].map((e) => JSON.stringify(e)).join('\n') + '\n';
+      writeFileSync(manifestPath, content, 'utf-8');
+
+      const result = await migrateManifestJsonlToSqlite(testRoot);
+      expect(result.migrated).toBe(1);
+      expect(result.skipped).toBe(2);
+      expect(result.invalid.map((i) => [i.entryId, i.issues.map((x) => x.field)])).toEqual([
+        ['../../escape', ['id']],
+        [ENTRY_C.id, ['file']],
+      ]);
+      const ids = (await readManifestEntries(testRoot)).map((e) => e.id);
+      expect(ids).toEqual([ENTRY_A.id]);
     });
 
     it('should rename legacy flat-file to .migrated', async () => {

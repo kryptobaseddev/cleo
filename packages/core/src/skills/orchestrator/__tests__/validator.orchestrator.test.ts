@@ -1,6 +1,6 @@
 /** Independent current-store and explicit historical-file validator oracles. */
 import { createHash } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { BlobAttachment } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -131,6 +131,25 @@ describe('explicit synchronous history', () => {
     expect(
       validator.verifyCompliance('T1', undefined, env.tempDir, historicalPath).canSpawnNext,
     ).toBe(false);
+  });
+  it('refuses historical output references that leave the output root (T12829)', () => {
+    const outsideDir = join(env.tempDir, 'outside');
+    mkdirSync(outsideDir, { recursive: true });
+    writeFileSync(join(outsideDir, 'secret.txt'), 'SECRET');
+    symlinkSync(outsideDir, join(env.cleoDir, 'agent-outputs', 'link'));
+    for (const file of ['link/secret.txt', '../../outside/secret.txt', '/etc/hosts']) {
+      history([JSON.stringify({ ...entry, file })]);
+      const result = validator.validateManifestIntegrity(env.tempDir, historicalPath);
+      expect(result.passed).toBe(false);
+      expect(result.issues).toEqual(
+        expect.arrayContaining([expect.stringContaining('OUTPUT_FILE_UNSAFE')]),
+      );
+    }
+    symlinkSync(entry.file, join(env.cleoDir, 'agent-outputs', 'alias.md'));
+    history([JSON.stringify({ ...entry, file: 'alias.md' })]);
+    expect(validator.validateManifestIntegrity(env.tempDir, historicalPath).issues).not.toEqual(
+      expect.arrayContaining([expect.stringContaining('OUTPUT_FILE')]),
+    );
   });
   it('refuses T1/T10 name-only and follow-up-only compliance matches', () => {
     history([
