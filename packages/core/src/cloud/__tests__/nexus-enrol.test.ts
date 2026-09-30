@@ -565,7 +565,8 @@ describe('loginToNexusDevice: E1 conflicts (§3.3 step 6, §4.0.4)', () => {
 
   it('a network error on the interactive E1 reports E_NEXUS_UNREACHABLE; re-running re-enrols the same id', async () => {
     server.afterEnrol = async (n) => (n === 1 ? 'drop' : undefined);
-    await accountError(loginToNexusDevice(flow()), 'E_NEXUS_UNREACHABLE');
+    const lost = await accountError(loginToNexusDevice(flow()), 'E_NEXUS_UNREACHABLE');
+    expect(lost.fix).toContain('revokes any credential left orphaned');
     const persisted = (await devices.get(API, USER))?.deviceId;
     expect(persisted).toBeDefined();
     const again = await loginToNexusDevice(flow());
@@ -647,6 +648,7 @@ describe('loginToNexusDevice: concurrent logins on one home (M6, step 7)', () =>
     const kept = await storedToken();
     expect(a).toBeInstanceOf(NexusAccountError);
     expect((a as NexusAccountError).code).toBe('E_NEXUS_UNREACHABLE');
+    expect((a as NexusAccountError).fix).toContain('re-enrols the same device id');
     // B's credential (stored first) is still there, untouched.
     const bCred = server.creds[1];
     expect(kept).toBe(bCred?.token);
@@ -686,13 +688,41 @@ describe('upgradeNexusSession (§3.4)', () => {
     expect(result.warnings.some((w) => w.includes('signed out'))).toBe(false);
   });
 
-  it('skips E1 when the device file already holds a credential, and removes the leftover session', async () => {
+  it('skips E1 when the device file already holds a credential; signs the leftover session out, then removes it', async () => {
     await loginToNexusDevice(flow());
-    await seedV1Session();
+    const leftover = await seedV1Session(false);
     const enrols = server.count('/v1/devices/enroll');
-    const result = await upgradeNexusSession(flow());
+    let storedAtSignOut: boolean | null = null;
+    const fetchImpl: FetchLike = async (url, init) => {
+      if (new URL(url).pathname === '/api/auth/sign-out') {
+        storedAtSignOut = (await sessions.get(API)) !== null;
+      }
+      return server.fetch(url, init);
+    };
+    const result = await upgradeNexusSession(flow({ fetch: fetchImpl }));
     expect(result.outcome).toBe('already-enrolled');
     expect(server.count('/v1/devices/enroll')).toBe(enrols);
+    const signOuts = server.calls.filter(
+      (c) => c.path === '/api/auth/sign-out' && c.auth === leftover,
+    );
+    expect(signOuts).toHaveLength(1);
+    expect(storedAtSignOut).toBe(true); // signed out first, removed after
+    expect(server.sessions.has(leftover)).toBe(false);
+    expect(await sessions.get(API)).toBeNull();
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('a failed sign-out of the leftover session is best effort: warned, still removed locally', async () => {
+    await loginToNexusDevice(flow());
+    const leftover = await seedV1Session(false);
+    const fetchImpl: FetchLike = async (url, init) =>
+      new URL(url).pathname === '/api/auth/sign-out'
+        ? fail(503, 'E_INTERNAL')
+        : server.fetch(url, init);
+    const result = await upgradeNexusSession(flow({ fetch: fetchImpl }));
+    expect(result.outcome).toBe('already-enrolled');
+    expect(result.warnings.some((w) => w.includes('could not be signed out'))).toBe(true);
+    expect(result.warnings.join(' ')).not.toContain(leftover);
     expect(await sessions.get(API)).toBeNull();
   });
 

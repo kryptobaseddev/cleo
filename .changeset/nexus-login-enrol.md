@@ -42,8 +42,9 @@ switch unset, `cleo login nexus` runs the 9.24 session login exactly as before.
   device is enrolled, and the warning names the old device id to revoke.
 - **9.24 upgrade.** `upgradeNexusSession` / `ensureNexusDeviceCredential` (used
   by `cleo project link` with the switch on) re-check both files under both
-  locks (device file first): an existing credential or a consumed session
-  stops without E1; a live upgrade intent from another process is waited for;
+  locks (device file first): an existing credential stops without E1, and the
+  leftover 9.24 session is signed out server-side (best effort, after the lock
+  is released) and then removed from the v1 file; a consumed session stops too; a live upgrade intent from another process is waited for;
   a stale one (older than E1's timeout) is taken over only when a second locked
   re-read finds no credential and the same intent. A lost E1 answer on this
   one-shot path reports `E_NEXUS_SESSION_EXPIRED` ("needs a browser login") and

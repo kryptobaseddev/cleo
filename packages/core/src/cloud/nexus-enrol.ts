@@ -694,7 +694,7 @@ async function store(
       throw new NexusAccountError(
         'E_NEXUS_UNREACHABLE',
         'another login stored a device credential at the same time, and the server could not confirm which one is live; the stored credential was kept',
-        'retry the command when Cleo Nexus is reachable; if it reports that a login is required, run `cleo login nexus`',
+        'run `cleo login nexus` again when Cleo Nexus is reachable: it re-enrols the same device id, which revokes any credential left orphaned on the server',
       );
     }
     let keepOurs: boolean;
@@ -891,6 +891,13 @@ function enrolError(err: unknown, reason: string | null, input: EnrolInput): Err
         BROWSER_LOGIN_FIX,
       );
     }
+  }
+  if (isUnanswered(err)) {
+    return new NexusAccountError(
+      'E_NEXUS_UNREACHABLE',
+      `Cleo Nexus did not answer the device enrolment: ${err instanceof Error ? err.message : String(err)}`,
+      'run `cleo login nexus` again when Cleo Nexus is reachable: it re-enrols the same device id, which revokes any credential left orphaned on the server',
+    );
   }
   const conflict = conflictReason(err);
   if (conflict === 'device-keys-changed') {
@@ -1124,6 +1131,7 @@ export async function upgradeNexusSession(
       throw storeErrorToAccountError(err);
     }
     if (step.kind === 'enrolled') {
+      await retireLeftoverSession(ctx, session, warnings);
       const device = await ctx.devices.get(ctx.apiUrl, userId);
       return { outcome: 'already-enrolled', device, warnings };
     }
@@ -1185,6 +1193,32 @@ export async function upgradeNexusSession(
 }
 
 /**
+ * A 9.24 session left in the v1 file next to a device credential (a login ran,
+ * or another process upgraded): sign it out server-side first, best effort,
+ * as a login signs out its own session, then remove it from the v1 file with
+ * a CAS on its token. No lock is held during the sign-out.
+ */
+async function retireLeftoverSession(
+  ctx: Ctx,
+  session: SealedNexusSession,
+  warnings: string[],
+): Promise<void> {
+  try {
+    await signOutNexusSessionToken(
+      ctx.apiUrl,
+      session.bearer(),
+      NEXUS_REVOKE_TIMEOUT_MS,
+      ctx.fetch,
+    );
+  } catch (err) {
+    warnings.push(
+      `the leftover Cleo Nexus session could not be signed out (${err instanceof Error ? err.message : String(err)}); it was removed locally and expires on its own`,
+    );
+  }
+  await ctx.sessions.delete(ctx.apiUrl, session);
+}
+
+/**
  * One locked re-check of §3.4 step 1, device file first, then the v1 file. On
  * `go` it has persisted the identity and the upgrade intent in the same
  * transaction, so no second process can pass the check meanwhile.
@@ -1201,11 +1235,9 @@ async function upgradeCheck(
     discardIfUnreadable(tx, ctx, input.userId, unreadable);
     warnings.push(...tx.warnings.filter((w) => !warnings.includes(w)));
     const entry = tx.get(ctx.apiUrl, input.userId);
-    if (entry?.current) {
-      // Nested lock, device file first: remove the leftover session (CAS).
-      await ctx.sessions.delete(ctx.apiUrl, session);
-      return { kind: 'enrolled' };
-    }
+    // A leftover session is signed out and removed after this transaction:
+    // no network call is made with the lock held.
+    if (entry?.current) return { kind: 'enrolled' };
     const stored = await ctx.sessions.get(ctx.apiUrl);
     if (stored === null || stored.bearer() !== session.bearer()) return { kind: 'consumed' };
     const intent = entry?.enrolIntent ?? null;
