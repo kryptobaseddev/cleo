@@ -1,0 +1,316 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.9.24",
+  "resolvedVersion": "v2026.9.24",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": "T12486",
+  "releaseKind": "regular",
+  "createdAt": "2026-09-30T00:08:14.249Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.9.23",
+  "previousTag": "v2026.9.23",
+  "previousShippedAt": "2026-09-29T12:15:24.180Z",
+  "tasks": [
+    {
+      "id": "T12733",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "System One named provider profiles: store layahost and jev keys side by side, one active (cleo decide use)",
+      "evidenceAtoms": [
+        "pr:1717",
+        "files:.changeset/t12733-decide-profiles.md,packages/cleo/src/cli/__tests__/startup-migration.test.ts,packages/cleo/src/cli/commands/__tests__/decide-config.test.ts,packages/cleo/src/cli/commands/decide.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/index.ts,packages/cleo/src/cli/lib/__tests__/interactive-commands.test.ts,packages/cleo/src/cli/lib/__tests__/readline-wizard-io.test.ts,packages/cleo/src/cli/lib/interactive-commands.ts,packages/cleo/src/cli/lib/readline-wizard-io.ts,packages/cleo/src/cli/renderers/index.ts,packages/contracts/src/decide.ts,packages/contracts/src/index.ts,packages/core/src/__tests__/missing-project-error.test.ts,packages/core/src/decide/__tests__/decide-bench.test.ts,packages/core/src/decide/__tests__/decide-credentials.test.ts,packages/core/src/decide/__tests__/decide-operations.test.ts,packages/core/src/decide/__tests__/decide-profiles.test.ts,packages/core/src/decide/__tests__/decide-providers.test.ts,packages/core/src/decide/__tests__/decide-wizard.test.ts,packages/core/src/decide/__tests__/system-one-capabilities.test.ts,packages/core/src/decide/bench/operation.ts,packages/core/src/decide/bench/profiles.ts,packages/core/src/decide/credentials.ts,packages/core/src/decide/index.ts,packages/core/src/decide/operations.ts,packages/core/src/decide/provider-state.ts,packages/core/src/decide/provider.ts,packages/core/src/decide/providers.ts,packages/core/src/decide/wizard.ts,packages/core/src/internal.ts,packages/core/src/memory/__tests__/observation-type-decision.test.ts,packages/core/src/project-scope.ts,packages/core/src/render/__tests__/decide-render.test.ts,packages/core/src/render/decide/index.ts,packages/core/src/render/index.ts,scripts/__tests__/lint-flag-existence.test.mjs,scripts/lint-injection-commands.mjs,packages/cleo/src/cli/generated/command-manifest.ts,packages/core/src/project-scope.ts",
+        "ci:1717"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12671",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo done --pr: follow a component PR to the integration PR that landed it; ci-only closes need no task worktree",
+      "evidenceAtoms": [
+        "pr:1712",
+        "files:.changeset/done-follows-integration.md,packages/core/src/tasks/__tests__/component-landing.test.ts,packages/core/src/tasks/__tests__/done-plan.test.ts,packages/core/src/tasks/change-set.ts,packages/core/src/tasks/component-pr.ts",
+        "ci:1655",
+        "ci:1712"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12736",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Repair migration: claim-lease ISO guards + spawned_by index for half-applied dev stores",
+      "evidenceAtoms": [
+        "pr:1719",
+        "files:.changeset/claim-lease-repair-and-guard.md,packages/core/migrations/drizzle-cleo-project/20260929130000_t12736-claim-lease-iso-repair/migration.sql,packages/core/src/store/__tests__/claim-lease-iso-repair-T12736.test.ts,packages/core/src/store/__tests__/migration-hash-drift-T12737.test.ts,packages/core/src/store/__tests__/worktree-build-guard-T12687.test.ts,packages/core/src/store/migration-manager.ts,packages/core/src/store/worktree-build-guard.ts",
+        "ci:1719"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12737",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Worktree build guard: narrow VITEST exemption; reconciler fails loudly on same-name hash drift",
+      "evidenceAtoms": [
+        "pr:1719",
+        "files:.changeset/claim-lease-repair-and-guard.md,packages/core/migrations/drizzle-cleo-project/20260929130000_t12736-claim-lease-iso-repair/migration.sql,packages/core/src/store/__tests__/claim-lease-iso-repair-T12736.test.ts,packages/core/src/store/__tests__/migration-hash-drift-T12737.test.ts,packages/core/src/store/__tests__/worktree-build-guard-T12687.test.ts,packages/core/src/store/migration-manager.ts,packages/core/src/store/worktree-build-guard.ts",
+        "ci:1719"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12724",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "#1669 follow-ups: schema_meta note, degraded sticky shadow test, task inserts never overwrite on id collision",
+      "evidenceAtoms": [
+        "pr:1706",
+        "files:packages/contracts/src/data-accessor.ts,packages/core/src/admin/import-tasks.ts,packages/core/src/admin/import.ts,packages/core/src/snapshot/index.ts,packages/core/src/store/__tests__/twin-collapse-failure.test.ts,packages/core/src/store/db-helpers.ts,packages/core/src/store/import-remap.ts,packages/core/src/store/safety-data-accessor.ts,packages/core/src/store/sqlite-data-accessor.ts,packages/core/src/store/table-classification.ts,packages/core/src/store/umbrella-data-accessor.ts,packages/core/src/tasks/__tests__/task-id-collision.test.ts,packages/core/src/tasks/__tests__/task-ops-characterization.test.ts,packages/core/src/tasks/add.ts,packages/core/src/tasks/task-import.ts",
+        "ci:1706"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12540",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Session lastActivity is only written at start: no heartbeat, so liveness/TTL checks use start time",
+      "evidenceAtoms": [
+        "pr:1709",
+        "files:.changeset/t12540-session-heartbeat.md,AGENTS.md,packages/cleo/src/dispatch/adapters/cli.ts,packages/cleo/src/dispatch/middleware/claim-heartbeat.ts,packages/contracts/src/operations/orchestrate.ts,packages/contracts/src/session.ts,packages/core/src/error-catalog.ts,packages/core/src/internal.ts,packages/core/src/orchestration/bootstrap.ts,packages/core/src/session/engine-ops.ts,packages/core/src/sessions/__tests__/session-heartbeat.test.ts,packages/core/src/sessions/index.ts,packages/core/src/sessions/session-view.ts,packages/core/src/store/session-store.ts,packages/core/src/store/sqlite-data-accessor.ts,packages/core/src/store/with-retry.ts,packages/core/src/system/inject-generate.ts,packages/core/src/task-work/claims.ts,packages/core/src/task-work/index.ts,scripts/.lint-no-bare-get-active-session-baseline.json,scripts/lint-no-bare-get-active-session.mjs,packages/core/src/store/sqlite-data-accessor.ts",
+        "ci:1709"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12500",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Remove the most-recent-active session fallback for mutations: unbound calls return E_SESSION_UNBOUND instead of acting on another agent's session",
+      "evidenceAtoms": [
+        "pr:1709",
+        "files:.changeset/t12540-session-heartbeat.md,AGENTS.md,packages/cleo/src/dispatch/adapters/cli.ts,packages/cleo/src/dispatch/middleware/claim-heartbeat.ts,packages/contracts/src/operations/orchestrate.ts,packages/contracts/src/session.ts,packages/core/src/error-catalog.ts,packages/core/src/internal.ts,packages/core/src/orchestration/bootstrap.ts,packages/core/src/session/engine-ops.ts,packages/core/src/sessions/__tests__/session-heartbeat.test.ts,packages/core/src/sessions/index.ts,packages/core/src/sessions/session-view.ts,packages/core/src/store/session-store.ts,packages/core/src/store/sqlite-data-accessor.ts,packages/core/src/store/with-retry.ts,packages/core/src/system/inject-generate.ts,packages/core/src/task-work/claims.ts,packages/core/src/task-work/index.ts,scripts/.lint-no-bare-get-active-session-baseline.json,scripts/lint-no-bare-get-active-session.mjs",
+        "tool:test",
+        "tool:lint",
+        "tool:typecheck"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12715",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "System One follow-ups: decideBatch 30s timeout, lazy capability detection, dead decisionContradiction site",
+      "evidenceAtoms": [
+        "ci:1710",
+        "commit:b1c2312b2079bb0d28a6c80212f92ac8e4d8f804",
+        "files:.changeset/t12715-system-one-followups.md,packages/contracts/src/decide.ts,packages/core/src/decide/__tests__/system-one-capabilities.test.ts,packages/core/src/decide/client.ts,packages/core/src/decide/index.ts,packages/core/src/decide/jev-wire.ts,packages/core/src/decide/operations.ts,packages/core/src/decide/provider-state.ts,packages/core/src/memory/__tests__/decision-contradiction-exit.test.ts,packages/core/src/memory/__tests__/decision-contradiction.test.ts,packages/core/src/memory/decisions.ts"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12725",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "migrate-rogue-worktrees.mjs: refuse unknown flags, dry-run by default, never move locked or in-use worktrees",
+      "evidenceAtoms": [
+        "commit:72e4b7b86dfcfca4afd26639d502ee5f49a3186a",
+        "files:.changeset/t12725-safe-rogue-migrator.md,AGENTS.md,scripts/__tests__/migrate-rogue-worktrees.test.mjs,scripts/lint-worktree-location.mjs,scripts/migrate-rogue-worktrees.mjs",
+        "ci:1705"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12721",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Fleet view: ReplicaPresence alignment — headCommittedAt, replica identity, schemaVersion, device-local field markers",
+      "evidenceAtoms": [
+        "commit:2857dce8580ca8a484f7db0a3d680321bf0a4a61",
+        "files:.changeset/replica-presence-alignment.md,packages/contracts/src/index.ts,packages/contracts/src/operations/nexus.ts,packages/core/migrations/drizzle-cleo-global/20260929020000_t12721-git-state-head-committed-at/migration.sql,packages/core/src/cloud/__tests__/presence.test.ts,packages/core/src/cloud/index.ts,packages/core/src/cloud/presence.ts,packages/core/src/nexus/__tests__/fleet-status-T12513.test.ts,packages/core/src/nexus/__tests__/git-state-T12511.test.ts,packages/core/src/nexus/fleet-status.ts,packages/core/src/nexus/git-state.ts,packages/core/src/store/__tests__/__snapshots__/nexus-ddl-snapshot.test.ts.snap,packages/core/src/store/__tests__/fixtures/table-classification-columns.json,packages/core/src/store/__tests__/git-state-head-committed-at-migration-T12721.test.ts,packages/core/src/store/schema/cleo-global/nexus.ts,packages/core/src/store/schema/nexus-schema.ts,packages/core/src/store/table-classification.ts",
+        "ci:1705"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12502",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Leased task claims on cleo start and spawn: claimed_by (session+agent), claimed_at, heartbeat TTL, separate from human assignee; E_TASK_CLAIMED on conflict",
+      "evidenceAtoms": [
+        "commit:e4e76e129165994c79d14080d760842e7ffe92bb",
+        "files:.changeset/t12502-leased-task-claims.md,docs/specs/CLEO-TASKS-API-SPEC.md,packages/cleo/src/cli/commands/claim.ts,packages/cleo/src/cli/commands/pivot.ts,packages/cleo/src/cli/commands/start.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/dispatch/adapters/cli.ts,packages/cleo/src/dispatch/domains/__tests__/tasks.test.ts,packages/cleo/src/dispatch/domains/orchestrate.ts,packages/cleo/src/dispatch/domains/tasks.ts,packages/cleo/src/dispatch/middleware/__tests__/claim-heartbeat.test.ts,packages/cleo/src/dispatch/middleware/claim-heartbeat.ts,packages/contracts/src/__tests__/__snapshots__/operations-registry.test.ts.snap,packages/contracts/src/branch-lock.ts,packages/contracts/src/data-accessor.ts,packages/contracts/src/dispatch/operations-registry.ts,packages/contracts/src/exit-codes.ts,packages/contracts/src/index.ts,packages/contracts/src/operations/output-contracts-data.ts,packages/contracts/src/operations/tasks.ts,packages/contracts/src/session.ts,packages/contracts/src/task.ts,packages/core/migrations/drizzle-cleo-project/20260929120000_t12502-task-claim-leases/migration.sql,packages/core/src/__tests__/error-catalog.test.ts,packages/core/src/admin/__tests__/__snapshots__/help-tier-snapshot.test.ts.snap,packages/core/src/error-catalog.ts,packages/core/src/error-registry.ts,packages/core/src/gateway-client/generated/types.gen.ts,packages/core/src/internal.ts,packages/core/src/orchestrate/__tests__/pivot.test.ts,packages/core/src/orchestrate/__tests__/spawn-execute-claim.test.ts,packages/core/src/orchestrate/__tests__/spawn-supervisor.test.ts,packages/core/src/orchestrate/pivot.ts,packages/core/src/orchestrate/spawn-ops.ts,packages/core/src/orchestration/__tests__/spawn-prompt.test.ts,packages/core/src/orchestration/spawn-prompt.ts,packages/core/src/session/engine-ops.ts,packages/core/src/sessions/index.ts,packages/core/src/spawn/agent-identity.ts,packages/core/src/spawn/index.ts,packages/core/src/store/__tests__/data-safety-central.test.ts,packages/core/src/store/__tests__/fixtures/table-classification-columns.json,packages/core/src/store/__tests__/safety-accessor.test.ts,packages/core/src/store/__tests__/task-mutation-durability.test.ts,packages/core/src/store/converters.ts,packages/core/src/store/data-accessor.ts,packages/core/src/store/db-helpers.ts,packages/core/src/store/safety-data-accessor.ts,packages/core/src/store/schema/cleo-project/tasks-core.ts,packages/core/src/store/session-store.ts,packages/core/src/store/sqlite-data-accessor.ts,packages/core/src/store/table-classification.ts,packages/core/src/store/task-claim.ts,packages/core/src/store/umbrella-data-accessor.ts,packages/core/src/task-work/__tests__/task-claims-multiprocess.test.ts,packages/core/src/task-work/__tests__/task-claims.test.ts,packages/core/src/task-work/claims.ts,packages/core/src/task-work/index.ts,packages/core/src/tasks/__tests__/assignee.test.ts,packages/core/src/tasks/__tests__/task-ops-characterization.test.ts,packages/core/src/tasks/engine-wrap-ops.ts,packages/core/src/worktree/__tests__/isolation.test.ts,packages/skills/skills/ct-orchestrator/SKILL.md,packages/skills/skills/ct-task-executor/SKILL.md,packages/skills/skills/manifest.json",
+        "ci:1705"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12708",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Worktree guard for other whole-store rewrites; audit --confirm-owner-store; bare-repo gitlink resolves to parent dir",
+      "evidenceAtoms": [
+        "pr:1700",
+        "files:.changeset/worktree-store-rewrite-guards.md,packages/cleo/src/cli/commands/backup-recover.ts,packages/cleo/src/cli/commands/backup.ts,packages/cleo/src/cli/commands/doctor-db-substrate.ts,packages/cleo/src/cli/commands/doctor-repair.ts,packages/contracts/src/doctor.ts,packages/core/src/__tests__/upgrade.test.ts,packages/core/src/doctor/db-substrate.ts,packages/core/src/project-scope.ts,packages/core/src/store/__tests__/exodus-on-open.test.ts,packages/core/src/store/__tests__/legacy-tasks-lineage.test.ts,packages/core/src/store/__tests__/owner-store-rewrite-guard.test.ts,packages/core/src/store/__tests__/portable-bundle-credentials.test.ts,packages/core/src/store/__tests__/portable-bundle.test.ts,packages/core/src/store/__tests__/repair-malformed-dbs.test.ts,packages/core/src/store/__tests__/restore-worktree-guard.test.ts,packages/core/src/store/backup-recover-brain.ts,packages/core/src/store/backup-recover.ts,packages/core/src/store/exodus/on-open.ts,packages/core/src/store/portable-bundle-import.ts,packages/core/src/store/repair-malformed-dbs.ts,packages/core/src/store/sqlite.ts,packages/core/src/store/worktree-isolation-guard.ts,packages/core/src/upgrade.ts",
+        "ci:1700"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12503",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Optimistic concurrency on task mutation: expected updated_at/version, E_CONFLICT on mismatch; labels as set operations",
+      "evidenceAtoms": [
+        "pr:1698",
+        "files:.changeset/t12503-if-match-conflict-summary.md,packages/cleo/src/cli/commands/__tests__/done-command.test.ts,packages/cleo/src/cli/commands/complete.ts,packages/cleo/src/cli/commands/done.ts,packages/cleo/src/cli/commands/update.ts,packages/cleo/src/dispatch/domains/tasks.ts,packages/contracts/src/__tests__/__snapshots__/operations-registry.test.ts.snap,packages/contracts/src/data-accessor.ts,packages/contracts/src/dispatch/operations-registry.ts,packages/contracts/src/index.ts,packages/contracts/src/operations/output-contracts-data.ts,packages/contracts/src/operations/tasks.ts,packages/core/src/store/sqlite-data-accessor.ts,packages/core/src/store/task-version.ts,packages/core/src/store/tasks-sqlite.ts,packages/core/src/tasks/__tests__/done-record.test.ts,packages/core/src/tasks/__tests__/update-concurrency-multiprocess.test.ts,packages/core/src/tasks/__tests__/update-concurrency.test.ts,packages/core/src/tasks/complete.ts,packages/core/src/tasks/done-record.ts,packages/core/src/tasks/update.ts,packages/skills/skills/ct-task-executor/SKILL.md,packages/skills/skills/manifest.json",
+        "ci:1698"
+      ],
+      "epicAncestor": "T12486",
+      "ivtrPhaseAtPlan": "contribution"
+    }
+  ],
+  "changelog": {
+    "features": [
+      "T12733",
+      "T12671",
+      "T12736",
+      "T12737",
+      "T12724",
+      "T12715",
+      "T12725",
+      "T12721",
+      "T12708"
+    ],
+    "fixes": [
+      "T12540",
+      "T12500",
+      "T12502",
+      "T12503"
+    ],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-30T00:08:14.249Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-30T00:08:14.249Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-30T00:08:14.249Z",
+      "resolvedCommand": "pnpm run lint",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-30T00:08:14.249Z",
+      "resolvedCommand": "pnpm run typecheck",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-30T00:08:14.249Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-09-30T00:08:14.249Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 453 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.9.24 — 2026-09-30\n\n### Added\n\n- The fleet view lines up with the cleo-nexus ReplicaPresence contract: the git probe records when HEAD was committed (headCommittedAt, from the same git call that reads the upstream commit), every location carries a replicaId (null until T12675's store-instance id exists), the result carries schemaVersion, device-local fields are marked never-mirrored, and a new pure toReplicaPresence mapper in core/cloud builds the path-free presence body _(provenance: [T12721](https://github.com/kryptobaseddev/cleo/search?q=T12721&type=commits))_\n- leased task claims — cleo start and spawn take a session lease; a second session gets E_TASK_CLAIMED naming the holder _(provenance: [T12502](https://github.com/kryptobaseddev/cleo/search?q=T12502&type=commits))_\n- System One profiles (<provider>/<name>, several keys per provider, one active), a masked key prompt, human output on a terminal, and per-profile capability caching _(provenance: [T12733](https://github.com/kryptobaseddev/cleo/search?q=T12733&type=commits))_\n\n### Fixed\n\n- repair stores where the t12502 claim-lease migration was only half applied; reconcileJournal refuses post-cutover migration hash drift instead of re-stamping it; VITEST exempts only fixture stores from the worktree-build schema guard _(provenance: [T12736](https://github.com/kryptobaseddev/cleo/search?q=T12736&type=commits), [T12737](https://github.com/kryptobaseddev/cleo/search?q=T12737&type=commits))_\n- cleo done: a component PR landed by an integration PR closes on the integration PR's CI with the component's files; --plan and done share one readiness check; ci-only closes need no worktree; no cwd noise after worktree prune _(provenance: [T12671](https://github.com/kryptobaseddev/cleo/search?q=T12671&type=commits), [T12672](https://github.com/kryptobaseddev/cleo/search?q=T12672&type=commits))_\n- cleo done --pr <component> follows a component PR to the integration PR that landed it: closed by hand, marked merged by GitHub, stacked, main-merged afterwards, or rebased into the batch _(provenance: [T12671](https://github.com/kryptobaseddev/cleo/search?q=T12671&type=commits), [T12710](https://github.com/kryptobaseddev/cleo/search?q=T12710&type=commits))_\n- an unbound terminal can no longer end, attribute to or suspend another agent's session; new E_SESSION_UNBOUND (exit 24) _(provenance: [T12500](https://github.com/kryptobaseddev/cleo/search?q=T12500&type=commits))_\n- cleo update/complete --if-match; E_CONFLICT names the changed fields; complete never overwrites a concurrent edit _(provenance: [T12503](https://github.com/kryptobaseddev/cleo/search?q=T12503&type=commits))_\n- task updates no longer lose concurrent writes; --expected-updated-at fails with E_CONFLICT on a stale version _(provenance: [T12503](https://github.com/kryptobaseddev/cleo/search?q=T12503&type=commits))_\n- a working session's lastActivity is refreshed on every bound mutation (at most once a minute), so liveness and session gc stop orphaning long-running sessions _(provenance: [T12540](https://github.com/kryptobaseddev/cleo/search?q=T12540&type=commits), [T12500](https://github.com/kryptobaseddev/cleo/search?q=T12500&type=commits))_\n- System One follow-ups — cost read from the OpenAPI meta only, a 30 s batch timeout, lazy capability detection and a live decision-contradiction site _(provenance: [T12715](https://github.com/kryptobaseddev/cleo/search?q=T12715&type=commits))_\n- scripts/migrate-rogue-worktrees.mjs refuses unknown flags such as --check, is dry-run by default, moves only with --apply, and never unlocks or moves a locked or in-use worktree _(provenance: [T12725](https://github.com/kryptobaseddev/cleo/search?q=T12725&type=commits))_\n- Every whole-store rewrite run from a git worktree now shares one guard: restore, backup recover, doctor repair, backup import and the db-substrate quarantine need --confirm-owner-store to overwrite the owning project's live store; open-time rewrites proceed on the owner store and are audited; a store inside the worktree is always refused; worktrees of a bare repo such as /p/app.git no longer bind to /p's store _(provenance: [T12708](https://github.com/kryptobaseddev/cleo/search?q=T12708&type=commits), [T12677](https://github.com/kryptobaseddev/cleo/search?q=T12677&type=commits))_\n",
+    "changesetEntryCount": 13,
+    "changesetIds": [
+      "claim-lease-repair-and-guard",
+      "done-field-defects",
+      "done-follows-integration",
+      "replica-presence-alignment",
+      "t12500-session-unbound",
+      "t12502-leased-task-claims",
+      "t12503-if-match-conflict-summary",
+      "t12503-task-optimistic-concurrency",
+      "t12540-session-heartbeat",
+      "t12715-system-one-followups",
+      "t12725-safe-rogue-migrator",
+      "t12733-decide-profiles",
+      "worktree-store-rewrite-guards"
+    ],
+    "taskIds": [
+      "T12733",
+      "T12671",
+      "T12736",
+      "T12737",
+      "T12724",
+      "T12540",
+      "T12500",
+      "T12715",
+      "T12725",
+      "T12721",
+      "T12502",
+      "T12708",
+      "T12503"
+    ]
+  }
+}
