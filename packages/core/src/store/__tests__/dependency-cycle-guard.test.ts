@@ -79,6 +79,22 @@ describe('dependency-cycle guard (T12886)', () => {
       .run(taskId, dependsOn);
   }
 
+  /** Store edges with the guard off, the way a pre-guard store holds them. */
+  function plantLegacyEdges(pairs: ReadonlyArray<readonly [string, string]>): void {
+    const db = native();
+    const saved = TRIGGERS.map(
+      (name) =>
+        (
+          db.prepare("SELECT sql FROM sqlite_master WHERE type='trigger' AND name=?").get(name) as {
+            sql: string;
+          }
+        ).sql,
+    );
+    for (const name of TRIGGERS) db.exec(`DROP TRIGGER ${name}`);
+    for (const [a, b] of pairs) rawInsert(a, b);
+    for (const sql of saved) db.exec(sql);
+  }
+
   function edges(): string[] {
     return (
       native()
@@ -235,25 +251,13 @@ describe('dependency-cycle guard (T12886)', () => {
     });
 
     it('reports stored cycles with a repair plan and changes nothing', async () => {
-      // Plant cycles the way a pre-guard store holds them.
-      const db = native();
-      const saved = TRIGGERS.map(
-        (name) =>
-          (
-            db
-              .prepare("SELECT sql FROM sqlite_master WHERE type='trigger' AND name=?")
-              .get(name) as {
-              sql: string;
-            }
-          ).sql,
-      );
-      for (const name of TRIGGERS) db.exec(`DROP TRIGGER ${name}`);
-      rawInsert('T001', 'T002');
-      rawInsert('T002', 'T003');
-      rawInsert('T003', 'T001');
-      rawInsert('T004', 'T004');
-      rawInsert('T005', 'T001');
-      for (const sql of saved) db.exec(sql);
+      plantLegacyEdges([
+        ['T001', 'T002'],
+        ['T002', 'T003'],
+        ['T003', 'T001'],
+        ['T004', 'T004'],
+        ['T005', 'T001'],
+      ]);
       const before = edges();
 
       const report = await scanDependencyCycles(env.tempDir);
@@ -276,6 +280,89 @@ describe('dependency-cycle guard (T12886)', () => {
         )
         .map(([taskId, dependsOn]) => ({ taskId, dependsOn }));
       expect(detectDependencyCycles(remaining).components).toEqual([]);
+    });
+
+    it('the health check names the cycles as the reason doctor exits 2', async () => {
+      plantLegacyEdges([
+        ['T001', 'T002'],
+        ['T002', 'T001'],
+      ]);
+      const { getSystemHealth } = await import('../../system/health.js');
+      const health = await getSystemHealth(env.tempDir);
+      const check = health.checks.find((c) => c.name === 'dependency_cycles');
+      expect(check?.status).toBe('warn');
+      expect(check?.details).toMatchObject({
+        code: DEPENDENCY_CYCLE_CODE,
+        exitCode: 2,
+        cycleCount: 1,
+        cycles: [['T001', 'T002', 'T001']],
+        repairPlan: ['cleo update T002 --remove-depends T001'],
+      });
+    });
+
+    it('the health check passes on a clean store', async () => {
+      await updateTask({ taskId: 'T001', addDepends: ['T002'] }, env.tempDir, accessor);
+      const { getSystemHealth } = await import('../../system/health.js');
+      const health = await getSystemHealth(env.tempDir);
+      const check = health.checks.find((c) => c.name === 'dependency_cycles');
+      expect(check).toMatchObject({ status: 'pass', details: { cycleCount: 0, edgeCount: 1 } });
+    });
+  });
+
+  describe('a store that already holds a legacy cycle stays writable', () => {
+    beforeEach(() => {
+      plantLegacyEdges([
+        ['T001', 'T002'],
+        ['T002', 'T001'],
+      ]);
+    });
+
+    it('re-inserting an existing cyclic edge with ON CONFLICT DO NOTHING succeeds', () => {
+      native()
+        .prepare(
+          'INSERT INTO tasks_task_dependencies (task_id, depends_on) VALUES (?, ?) ON CONFLICT DO NOTHING',
+        )
+        .run('T002', 'T001');
+      expect(edges()).toEqual(['T001->T002', 'T002->T001']);
+    });
+
+    it('an update on a task in the cycle that adds an unrelated edge succeeds', async () => {
+      await updateTask({ taskId: 'T002', addDepends: ['T003'] }, env.tempDir, accessor);
+      expect(edges()).toEqual(['T001->T002', 'T002->T001', 'T002->T003']);
+    });
+
+    it('a uid-only UPDATE, or one that rewrites the same values, does not fire the guard', () => {
+      const db = native();
+      db.prepare(
+        "UPDATE tasks_task_dependencies SET uid = 'uid-backfill-probe' WHERE task_id = 'T002' AND depends_on = 'T001'",
+      ).run();
+      db.prepare(
+        "UPDATE tasks_task_dependencies SET task_id = task_id, depends_on = depends_on WHERE task_id = 'T002'",
+      ).run();
+      expect(
+        db
+          .prepare(
+            "SELECT uid FROM tasks_task_dependencies WHERE task_id = 'T002' AND depends_on = 'T001'",
+          )
+          .get(),
+      ).toEqual({ uid: 'uid-backfill-probe' });
+    });
+
+    it('a new edge into the legacy cycle is still refused', () => {
+      expect(() => rawInsert('T002', 'T002')).toThrow(DEPENDENCY_CYCLE_CODE);
+    });
+  });
+
+  describe('addDependency (tasks-sqlite)', () => {
+    it('maps the trigger abort to a CleoError that names the cycle', async () => {
+      const { addDependency } = await import('../tasks-sqlite.js');
+      await addDependency('T001', 'T002', env.tempDir);
+      await addDependency('T002', 'T003', env.tempDir);
+      const err = await refused(() => addDependency('T003', 'T001', env.tempDir));
+      expect(err.code).toBe(ExitCode.CIRCULAR_REFERENCE);
+      expect(err.message).toContain('T003 → T001 → T002 → T003');
+      expect(err.fix).toContain('cleo update T002 --remove-depends T003');
+      expect(edges()).toEqual(['T001->T002', 'T002->T003']);
     });
   });
 });

@@ -8,8 +8,8 @@
  * @task T12886
  */
 
-import { getProjectRoot } from '@cleocode/core';
 import { scanDependencyCycles } from '@cleocode/core/doctor/dependency-cycles.js';
+import { getProjectRoot } from '@cleocode/core/paths.js';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliOutput } from '../renderers/index.js';
 

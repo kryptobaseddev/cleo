@@ -226,6 +226,81 @@ export function rethrowDependencyCycle(
   throw err;
 }
 
+/** A dependency edge left out because it would close a cycle. */
+export interface SkippedDependencyEdge {
+  /** The edge that was not written. */
+  readonly edge: DependencyEdge;
+  /** The cycle it would have closed, first id repeated last. */
+  readonly cycle: readonly string[];
+  /** One-line explanation naming the cycle. */
+  readonly message: string;
+}
+
+function skippedEdge(edge: DependencyEdge, cycle: readonly string[]): SkippedDependencyEdge {
+  return {
+    edge,
+    cycle,
+    message:
+      `skipped dependency ${edge.taskId} → ${edge.dependsOn}: it would close the dependency ` +
+      `cycle ${formatDependencyCycle(cycle)} (${DEPENDENCY_CYCLE_CODE})`,
+  };
+}
+
+/**
+ * Insert one edge (ignoring an exact duplicate); when the cycle guard refuses
+ * it, leave it out and say why instead of failing.
+ *
+ * For bulk importers that must keep a record and its other edges when one
+ * edge is refused (legacy JSON import). Any other error propagates.
+ *
+ * @param db - Drizzle handle on the project store.
+ * @param edge - The edge to insert.
+ * @returns `null` when written (or already present), else what was skipped.
+ */
+export function insertDependencyEdgeOrSkipCycle(
+  db: NodeSQLiteDatabase,
+  edge: DependencyEdge,
+): SkippedDependencyEdge | null {
+  try {
+    db.insert(schema.taskDependencies).values(edge).onConflictDoNothing().run();
+    return null;
+  } catch (err) {
+    if (!isDependencyCycleAbort(err)) throw err;
+    const cycle = findClosedCycle(readDependencyEdges(db), edge) ?? [edge.taskId, edge.taskId];
+    return skippedEdge(edge, cycle);
+  }
+}
+
+/**
+ * Split planned edges into the ones that can be written and the ones that
+ * would close a cycle, replaying them in order over `existing`. Deterministic:
+ * of two edges that close a cycle together, the LATER one is dropped. Pure.
+ *
+ * @param existing - Edges already stored in the target.
+ * @param planned - Edges to add, in plan order.
+ * @returns The dropped edges with their cycles; every other planned edge is safe.
+ */
+export function dropCycleClosingEdges(
+  existing: readonly DependencyEdge[],
+  planned: readonly DependencyEdge[],
+): SkippedDependencyEdge[] {
+  const edges = [...existing];
+  const seen = new Set(existing.map((e) => `${e.taskId}\u0000${e.dependsOn}`));
+  const dropped: SkippedDependencyEdge[] = [];
+  for (const edge of planned) {
+    const key = `${edge.taskId}\u0000${edge.dependsOn}`;
+    if (seen.has(key)) continue;
+    const cycle = findClosedCycle(edges, edge);
+    if (cycle) {
+      dropped.push(skippedEdge(edge, cycle));
+      continue;
+    }
+    edges.push(edge);
+    seen.add(key);
+  }
+  return dropped;
+}
+
 /**
  * Find every stored dependency cycle and a repair plan. Pure: never writes.
  *

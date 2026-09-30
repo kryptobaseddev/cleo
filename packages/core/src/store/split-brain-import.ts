@@ -60,6 +60,7 @@
 import { randomBytes } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { buildAcRowId } from '../tasks/ac-table.js';
+import { dropCycleClosingEdges, type SkippedDependencyEdge } from './dependency-cycles.js';
 import { parseStoreTimestamp } from './row-identity.js';
 
 // Parsing CLEO's mixed timestamp formats moved to row-identity.ts (T12341),
@@ -267,6 +268,34 @@ class InsertPlan {
     }
     this.rows.push({ table, row: out });
     this.byTable[table] = (this.byTable[table] ?? 0) + 1;
+  }
+
+  /**
+   * Remove queued dependency edges that would close a cycle over the target's
+   * edges plus the earlier queued ones (T12886). Deterministic: of the edges
+   * that close a cycle together, the later one in plan order is dropped, so a
+   * dry run reports exactly what an apply writes.
+   */
+  dropDependencyCycles(): SkippedDependencyEdge[] {
+    const table = 'tasks_task_dependencies';
+    if (!hasTable(this.target, table)) return [];
+    const existing = (
+      this.target.prepare(`SELECT task_id, depends_on FROM ${q(table)}`).all() as Row[]
+    ).map((row) => ({ taskId: String(row['task_id']), dependsOn: String(row['depends_on']) }));
+    const planned = this.rows
+      .filter((entry) => entry.table === table)
+      .map(({ row }) => ({ taskId: String(row['task_id']), dependsOn: String(row['depends_on']) }));
+    const dropped = dropCycleClosingEdges(existing, planned);
+    if (dropped.length === 0) return dropped;
+    const drop = new Set(dropped.map(({ edge }) => `${edge.taskId}\u0000${edge.dependsOn}`));
+    const kept = this.rows.filter(
+      (entry) =>
+        entry.table !== table ||
+        !drop.has(`${String(entry.row['task_id'])}\u0000${String(entry.row['depends_on'])}`),
+    );
+    this.rows.splice(0, this.rows.length, ...kept);
+    this.byTable[table] = (this.byTable[table] ?? 0) - dropped.length;
+    return dropped;
   }
 
   /** Execute every queued INSERT; any constraint violation aborts the caller's transaction. */
@@ -698,6 +727,18 @@ function runImport(
         count,
         reason: 'written after divergence, absent in the target, and not handled by this import',
       });
+  }
+
+  // --- Dependency cycles (T12886) --------------------------------------------
+  // The target's cycle-guard trigger would abort the whole import on an edge
+  // that closes a cycle with the target's own edges. Leave that edge out and
+  // report it; everything else is still imported.
+  for (const skippedDep of plan.dropDependencyCycles()) {
+    unresolved.push({
+      table: 'tasks_task_dependencies',
+      count: 1,
+      reason: `conflict: ${skippedDep.message}; the later edge in plan order is not imported`,
+    });
   }
 
   // --- Provenance -------------------------------------------------------------

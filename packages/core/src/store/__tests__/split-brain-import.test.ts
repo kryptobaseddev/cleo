@@ -266,6 +266,51 @@ describe('importSplitBrain', () => {
     expect(verifyPreexistingRows(pristine, target).every((c) => c.before === c.after)).toBe(true);
   });
 
+  it('skips the later edge when the two stores together close a dependency cycle (T12886)', () => {
+    // Target, after divergence: T1 depends on T2. Source, after divergence:
+    // T2 depends on its T3 and its T3 depends on T1. Imported under new ids,
+    // T2 → T008 → T1 closes T1 → T2 → T008 → T1 with the target's edge.
+    exec(target, "INSERT INTO tasks_task_dependencies VALUES ('T1', 'T2')");
+    exec(source, "INSERT INTO tasks_task_dependencies VALUES ('T2', 'T3'), ('T3', 'T1')");
+    // The target carries the real guard triggers: the import must not trip them.
+    const guard = readFileSync(
+      join(
+        import.meta.dirname,
+        '../../../migrations/drizzle-cleo-project/20260930160000_t12886-dependency-cycle-guard/migration.sql',
+      ),
+      'utf8',
+    );
+    for (const statement of guard.split('--> statement-breakpoint'))
+      if (statement.split('\n').some((l) => l.trim() && !l.trim().startsWith('--')))
+        exec(target, statement);
+
+    const conflict = expect.objectContaining({
+      table: 'tasks_task_dependencies',
+      count: 1,
+      reason: expect.stringContaining(
+        'skipped dependency T008 → T1: it would close the dependency cycle T008 → T1 → T2 → T008',
+      ),
+    });
+    const dry = importSplitBrain({ sourcePath: source, targetPath: target, dryRun: true });
+    expect(dry.unresolved).toContainEqual(conflict);
+    expect(dry.rowsByTable['tasks_task_dependencies']).toBe(3);
+
+    const report = importSplitBrain({
+      sourcePath: source,
+      targetPath: target,
+      dryRun: false,
+      provenanceTaskId: 'T2',
+    });
+    expect(report.unresolved).toContainEqual(conflict);
+    expect(
+      rows(
+        target,
+        "SELECT task_id || '->' || depends_on AS e FROM tasks_task_dependencies ORDER BY 1",
+      ).map((r) => r['e']),
+    ).toEqual(['T009->T008', 'T009->T2', 'T1->T2', 'T2->T008']);
+    expect(rows(target, "SELECT id FROM tasks_tasks WHERE id IN ('T008', 'T009')")).toHaveLength(2);
+  });
+
   it('refuses two stores that were never one', () => {
     exec(target, 'DELETE FROM tasks_tasks');
     expect(() =>

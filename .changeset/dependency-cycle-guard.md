@@ -28,10 +28,21 @@ orchestration all wait for a blocker that waits for them.
   every cycle, each with its `cleo update <id> --remove-depends <dep>` command.
   The default `cleo doctor` run prints the same summary and exits 2 while a
   cycle remains. Both are read-only and never remove an edge.
+  The same summary is a machine-readable `dependency_cycles` check in the
+  `admin.health` JSON: `details.code`, `exitCode: 2`, the cycles and the
+  repair commands.
 - **Exodus.** Copying a legacy store suspends the new insert guard, as it does
   the other grandfathered guards. Historical cycles are copied as they are, and
   doctor reports them.
+- **Bulk importers.** The legacy `todo.json` import (both paths) and the
+  split-brain import leave out only the edge that would close a cycle and
+  report it with the named cycle: a warning on the JSON import, an
+  `unresolved` conflict on the split-brain import. The task and its other
+  edges are still imported. The split-brain import drops the later edge in
+  plan order, so a dry run reports exactly what an apply writes.
 
 Cost: a refused edge over the deepest live chain (59 tasks) takes 0.025 ms. An
-edge whose target reaches 13 000 tasks takes 6.5 ms. Re-inserting all 1 628
-live edges takes 7 ms with the trigger and 1.3 ms without it.
+edge whose target reaches 13 000 tasks takes 6.5 ms. Bulk-inserting all 1 628
+live edges into an empty table takes 7 ms with the trigger and 1.3 ms without
+it. Re-inserting an edge that is already stored costs nothing extra: the
+trigger's `WHEN` clause skips it with one primary-key lookup.
