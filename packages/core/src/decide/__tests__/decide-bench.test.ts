@@ -1,27 +1,30 @@
 /**
  * System One accuracy benchmark (T12495): dataset rules, spot-check and
- * corrections, metrics, the profile adapter, and the runner against a fake
+ * corrections, metrics, profile resolution (T12735), and the runner against a fake
  * Jev server (a local HTTP server answering the OpenAPI shapes) — never a
  * real provider.
  *
  * @task T12495
  */
 
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { _resetCleoPlatformPathsCache } from '@cleocode/paths';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   applyBenchCorrections,
   type BenchConnection,
+  BenchProfileError,
+  BenchProfileInvalidError,
   type BenchRow,
   type BenchSource,
   benchQuestionFor,
   buildBenchDataset,
   classificationMetrics,
-  createInterimProfileResolver,
+  createProfileResolver,
   DecideBenchInputError,
   legacyKeywordObservationType,
   parseBenchCorrections,
@@ -34,6 +37,7 @@ import {
   serializeBenchDataset,
 } from '../bench/index.js';
 import { _resetDecideDefaultsForTest } from '../client.js';
+import { saveDecideCredentials } from '../credentials.js';
 import { _resetProviderStateMemoForTest } from '../provider-state.js';
 import { DECISION_PROVIDER_PRESETS } from '../providers.js';
 import { createMemorySpendLedger } from '../spend.js';
@@ -287,34 +291,168 @@ describe('classificationMetrics', () => {
   });
 });
 
-describe('profile adapter (until T12733 lands)', () => {
-  it('resolves env profiles, the layahost preset and the stored connection', () => {
-    const resolver = createInterimProfileResolver(
-      {
-        CLEO_DECIDE_PROFILE_LAYAHOST_KEY: 'k1',
-        CLEO_DECIDE_PROFILE_JEV_KEY: 'k2',
-        CLEO_DECIDE_PROFILE_JEV_URL: 'http://127.0.0.1:9',
-      },
-      () => null,
+describe('profile resolution through the T12733 profile store (T12735)', () => {
+  // Fake keys only; the store lives in the per-test scratch CLEO_HOME.
+  const LAYA_WORK = 'sk-laya-FAKEWORK-1111';
+  const LAYA_HOME = 'sk-laya-FAKEHOME-3333';
+  const JEV_TEAM = 'sk-jev-FAKETEAM-2222';
+  const JEV_DEFAULT = 'sk-jev-FAKEDEFAULT-4444';
+
+  beforeEach(() => {
+    _resetCleoPlatformPathsCache();
+  });
+  afterEach(() => {
+    _resetCleoPlatformPathsCache();
+  });
+
+  async function seedProfiles(): Promise<void> {
+    await saveDecideCredentials({
+      profile: 'layahost/work',
+      baseUrl: 'default',
+      apiKey: LAYA_WORK,
+      activate: true,
+    });
+    await saveDecideCredentials({
+      profile: 'layahost/home',
+      baseUrl: 'default',
+      apiKey: LAYA_HOME,
+      model: 'laya-small',
+      activate: false,
+    });
+    await saveDecideCredentials({
+      profile: 'jev/team',
+      baseUrl: 'http://127.0.0.1:9',
+      apiKey: JEV_TEAM,
+      activate: false,
+    });
+  }
+
+  it('resolves a named profile per provider by exact id, URLs through the presets', async () => {
+    await seedProfiles();
+    const resolver = createProfileResolver({ env: {} });
+    const [work, home, team] = resolveBenchProfiles(
+      ['layahost/work', 'layahost/home', 'jev/team'],
+      resolver,
     );
-    const [laya, jev] = resolveBenchProfiles(['layahost', 'jev'], resolver);
-    expect(laya?.baseUrl).toMatch(/^https:\/\//);
-    expect(laya?.apiKey).toBe('k1');
-    expect(jev).toMatchObject({ name: 'jev', provider: 'jev', baseUrl: 'http://127.0.0.1:9' });
-    expect(() => resolveBenchProfiles(['ghost'], resolver)).toThrow(/ghost/);
-    // A profile without a URL takes its provider's preset URL (T12733 gave jev one).
-    const noUrl = createInterimProfileResolver({ CLEO_DECIDE_PROFILE_JEV_KEY: 'k' }, () => null);
-    expect(noUrl.resolve('jev')).toMatchObject({
+    expect(work).toEqual({
+      name: 'layahost/work',
+      provider: 'layahost',
+      baseUrl: DECISION_PROVIDER_PRESETS.layahost.defaultBaseUrl,
+      apiKey: LAYA_WORK,
+    });
+    expect(home).toMatchObject({ provider: 'layahost', apiKey: LAYA_HOME, model: 'laya-small' });
+    expect(team).toEqual({
+      name: 'jev/team',
+      provider: 'jev',
+      baseUrl: 'http://127.0.0.1:9',
+      apiKey: JEV_TEAM,
+    });
+  });
+
+  it('resolves a bare provider to its active profile, else <provider>/default', async () => {
+    await seedProfiles();
+    await saveDecideCredentials({
+      profile: 'jev/default',
+      baseUrl: 'default',
+      apiKey: JEV_DEFAULT,
+      activate: false,
+    });
+    const resolver = createProfileResolver({ env: {} });
+    // layahost/work is active → bare `layahost` is that profile, not layahost/default.
+    expect(resolver.resolve('layahost')).toMatchObject({ name: 'layahost', apiKey: LAYA_WORK });
+    // The active profile is not a jev one → bare `jev` is jev/default at the jev preset URL.
+    expect(resolver.resolve('jev')).toEqual({
+      name: 'jev',
       provider: 'jev',
       baseUrl: DECISION_PROVIDER_PRESETS.jev.defaultBaseUrl,
+      apiKey: JEV_DEFAULT,
     });
-    // A provider without a preset URL still needs one: an unknown kind parses to jev,
-    // so assert the guard through a URL that is present but invalid instead.
-    const badUrl = createInterimProfileResolver(
-      { CLEO_DECIDE_PROFILE_JEV_KEY: 'k', CLEO_DECIDE_PROFILE_JEV_URL: 'ftp://x' },
-      () => null,
+  });
+
+  it('fails an unknown profile with a typed error listing the stored ids, keys masked', async () => {
+    await seedProfiles();
+    const resolver = createProfileResolver({ env: {} });
+    let caught: unknown;
+    try {
+      // `jev` alone: no jev profile is active and no jev/default exists.
+      resolveBenchProfiles(['layahost/work', 'layahost/ghost', 'jev'], resolver);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(BenchProfileError);
+    const err = caught as BenchProfileError;
+    expect(err.missing).toEqual(['layahost/ghost', 'jev']);
+    expect(err.available).toEqual([
+      'jev/team (key …2222)',
+      'layahost/home (key …3333)',
+      'layahost/work [active] (key …1111)',
+    ]);
+    for (const key of [LAYA_WORK, LAYA_HOME, JEV_TEAM]) {
+      expect(err.message).not.toContain(key);
+    }
+    expect(err.message).toMatch(/layahost\/ghost/);
+    expect(err.message).toMatch(/jev\/team/);
+    // Nothing stored at all: the error says so.
+    rmSync(join(dir, 'home'), { recursive: true, force: true });
+    expect(() => resolveBenchProfiles(['ghost'], createProfileResolver({ env: {} }))).toThrow(
+      /no profiles are stored/,
     );
+  });
+
+  it('surfaces the unknown profile through runDecideBenchOperation as input error', async () => {
+    await seedProfiles();
+    await expect(
+      runDecideBenchOperation({
+        projectRoot: dir,
+        outDir: join(dir, 'out'),
+        profiles: ['layahost/nope'],
+        resolver: createProfileResolver({ env: {} }),
+        source: fixtureSource(),
+      }),
+    ).rejects.toThrow(/unknown decide profile.*layahost\/nope.*layahost\/work/);
+  });
+
+  it('keeps the env override layer for names the store does not hold', async () => {
+    await seedProfiles();
+    const resolver = createProfileResolver({
+      env: {
+        // Shadowed: layahost/work is stored, so the store wins.
+        CLEO_DECIDE_PROFILE_LAYAHOST_WORK_KEY: 'env-shadowed',
+        CLEO_DECIDE_PROFILE_LAYAHOST_LAB_KEY: 'k1',
+        CLEO_DECIDE_PROFILE_SCRATCH_KEY: 'k2',
+        CLEO_DECIDE_PROFILE_SCRATCH_URL: 'http://127.0.0.1:9',
+      },
+    });
+    expect(resolver.resolve('layahost/work')?.apiKey).toBe(LAYA_WORK);
+    expect(resolver.resolve('layahost/lab')).toMatchObject({
+      provider: 'layahost',
+      baseUrl: DECISION_PROVIDER_PRESETS.layahost.defaultBaseUrl,
+      apiKey: 'k1',
+    });
+    expect(resolver.resolve('scratch')).toMatchObject({
+      name: 'scratch',
+      provider: 'jev',
+      baseUrl: 'http://127.0.0.1:9',
+    });
+    const badUrl = createProfileResolver({
+      env: { CLEO_DECIDE_PROFILE_JEV_KEY: 'k', CLEO_DECIDE_PROFILE_JEV_URL: 'ftp://x' },
+    });
     expect(() => badUrl.resolve('jev')).toThrow(/invalid URL/);
+  });
+
+  it('reports a stored profile with an unusable URL as invalid, not unknown', async () => {
+    const path = join(dir, 'home', 'decide-credentials.json');
+    await seedProfiles();
+    const raw = JSON.parse(readFileSync(path, 'utf-8')) as {
+      profiles: Record<string, { baseUrl: string }>;
+    };
+    const team = raw.profiles['jev/team'];
+    if (!team) throw new Error('seed missing jev/team');
+    team.baseUrl = 'http://example.com';
+    writeFileSync(path, JSON.stringify(raw));
+    expect(() => createProfileResolver({ env: {} }).resolve('jev/team')).toThrow(
+      BenchProfileInvalidError,
+    );
   });
 });
 
@@ -656,15 +794,16 @@ describe('leakage and profile validation (review of #1715)', () => {
   });
 
   it('reports an invalid URL or model instead of an unknown profile', () => {
-    const badUrl = createInterimProfileResolver(
-      { CLEO_DECIDE_PROFILE_JEV_KEY: 'k', CLEO_DECIDE_PROFILE_JEV_URL: 'http://example.com' },
-      () => null,
-    );
+    const badUrl = createProfileResolver({
+      env: { CLEO_DECIDE_PROFILE_JEV_KEY: 'k', CLEO_DECIDE_PROFILE_JEV_URL: 'http://example.com' },
+    });
     expect(() => badUrl.resolve('jev')).toThrow(/invalid URL/);
-    const badModel = createInterimProfileResolver(
-      { CLEO_DECIDE_PROFILE_LAYAHOST_KEY: 'k', CLEO_DECIDE_PROFILE_LAYAHOST_MODEL: 'bad model!' },
-      () => null,
-    );
+    const badModel = createProfileResolver({
+      env: {
+        CLEO_DECIDE_PROFILE_LAYAHOST_KEY: 'k',
+        CLEO_DECIDE_PROFILE_LAYAHOST_MODEL: 'bad model!',
+      },
+    });
     expect(() => resolveBenchProfiles(['layahost'], badModel)).toThrow(/invalid model/);
   });
 });
