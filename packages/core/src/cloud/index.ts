@@ -16,6 +16,7 @@ export * from './keys.js';
 export * from './manifest-check.js';
 export * from './nexus-auth.js';
 export * from './nexus-credentials.js';
+export * from './nexus-device.js';
 export * from './nexus-link.js';
 export * from './presence.js';
 export * from './projects.js';

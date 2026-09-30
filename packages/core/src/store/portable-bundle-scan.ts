@@ -160,6 +160,13 @@ export const GLOBAL_HOME_RULES: SectionRules = {
     // re-sealed under the bundle passphrase instead.
     'machine-key':
       'device-bound machine key; never exported, even encrypted (restoring it would break credentials already on the target). Credentials encrypted with it need re-entry or the T12326 credential transfer',
+    // Device-local by contract (cleo-nexus device contract §2.2, T12867): the
+    // Nexus device credential and private keys, sealed under the machine key.
+    // A copy on another machine is useless there and a live credential here.
+    // Its temp files (`.nexus-device.json.<hex>.tmp`) fall under the `.tmp`
+    // suffix rule above.
+    'nexus-device.json':
+      'Nexus device credential and device keys; device-local, never exported, even encrypted. Run `cleo login nexus` on the target machine to enrol it as its own device',
   },
   secretRemedy: (relPath) => {
     const explicit = GLOBAL_SECRETS[relPath];
