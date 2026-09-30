@@ -350,6 +350,85 @@ describe('two stores created offline (AC2, AC3)', () => {
     }
   });
 
+  it('the re-mint record is portable: losing local state changes no outcome (T12800)', () => {
+    pull(b, a);
+    const alpha = tasksOf(a.db).find((t) => t.title === 'alpha (A)') as TaskRow;
+    const early: RemintOp = {
+      uid: alpha.uid,
+      birthFp: alpha.birth_fp,
+      oldId: 'T004',
+      newId: 'T700',
+      origin: 'device-c',
+      hlc: hlcAt(5_000, 'device-c'),
+    };
+    const late: RemintOp = { ...early, newId: 'T800', origin: 'device-a', hlc: hlcAt(10_000) };
+    expect(applyRemintOp(b.db, late).status).toBe('recorded');
+    // The replica's local-only state is lost (or was never there).
+    b.db.exec('DELETE FROM tasks_row_identity_meta');
+    expect(applyRemintOp(b.db, early).status).toBe('superseded');
+    expect(idByTitle(b.db).get('alpha (A)')).toBe('T800');
+    // An op recorded before its row arrives still decides where the row lands.
+    const beta = tasksOf(b.db).find((t) => t.title === 'beta (B)') as TaskRow;
+    const moveBeta: RemintOp = {
+      uid: beta.uid,
+      birthFp: beta.birth_fp,
+      oldId: 'T004',
+      newId: 'T901',
+      origin: 'device-b',
+      hlc: hlcAt(20_000, 'device-b'),
+    };
+    expect(applyRemintOp(a.db, moveBeta).status).toBe('recorded');
+    a.db.exec('DELETE FROM tasks_row_identity_meta');
+    expect(receiveRow(a.db, wireRowOf(b.db, 'tasks_tasks', beta.uid))).toMatchObject({
+      status: 'inserted',
+      key: 'T901',
+    });
+  });
+
+  it('a guarded write to a re-numbered id fails with E_TASK_RENAMED, never lands on the new holder (T12800)', async () => {
+    a.db
+      .prepare(
+        `UPDATE tasks_tasks SET claimed_by_session = 'ses-1', claimed_by_agent = 'agent-1',
+           claimed_at = '2026-09-29T00:00:00.000Z', lease_expires_at = '2099-01-01T00:00:00.000Z'
+         WHERE id = 'T004'`,
+      )
+      .run();
+    const readVersion = (await env.accessor.loadSingleTask('T004'))?.updatedAt ?? '';
+    pull(a, b); // alpha (A) loses T004 to beta (B) and is re-minted here
+    const alphaId = idByTitle(a.db).get('alpha (A)') as string;
+    expect(alphaId).not.toBe('T004');
+    const now = '2026-09-30T00:00:00.000Z';
+    const renamed = (p: Promise<unknown>) =>
+      expect(p).rejects.toMatchObject({
+        code: 26,
+        details: { actual: 'T004', expected: alphaId },
+      });
+    await renamed(
+      env.accessor.updateTaskFields(
+        'T004',
+        { title: 'claim holder edit' },
+        { claim: { sessionId: 'ses-1', mode: 'renew', now } },
+      ),
+    );
+    await renamed(
+      env.accessor.updateTaskFields(
+        'T004',
+        { title: 'if-match edit' },
+        { expectedUpdatedAt: readVersion },
+      ),
+    );
+    expect(idByTitle(a.db).get('beta (B)')).toBe('T004');
+    // Addressing the new holder deliberately still works.
+    const betaTask = await env.accessor.loadSingleTask('T004');
+    const betaVersion = betaTask?.updatedAt ?? betaTask?.createdAt ?? '';
+    await env.accessor.updateTaskFields(
+      'T004',
+      { title: 'beta, edited' },
+      { expectedUpdatedAt: betaVersion },
+    );
+    expect(idByTitle(a.db).get('beta, edited')).toBe('T004');
+  });
+
   it('a non-authority never allocates: it records, applies, or reports a conflict', () => {
     const alpha = tasksOf(a.db).find((t) => t.title === 'alpha (A)') as TaskRow;
     const op = (newId: string): RemintOp => ({
@@ -669,7 +748,10 @@ describe('uid collision: re-key the loser, every replica applies it (T12744, T12
       expect(Z.prepare(`SELECT ac_uid FROM ${table}`).all()).toEqual([{ ac_uid: acLUid }]);
     }
     // Natural rows re-derived and published, the display alias included.
+    // Two display aliases move: the renumbered T100, and T101, the id the
+    // manual re-mint assigned (its portable re-mint record, T12800).
     expect(R.natural.map((n) => n.table).sort()).toEqual([
+      'tasks_display_id_aliases',
       'tasks_display_id_aliases',
       'tasks_task_dependencies',
       'tasks_task_labels',

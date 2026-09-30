@@ -95,7 +95,12 @@ import {
   taskClaimedError,
   taskClaimLeaseMs,
 } from './task-claim.js';
-import { nextTaskVersion, taskConflictError, taskVersion } from './task-version.js';
+import {
+  nextTaskVersion,
+  type TaskVersionSource,
+  taskConflictError,
+  taskVersion,
+} from './task-version.js';
 import * as schema from './tasks-schema.js';
 import { assertTwinCollapseWritable, bareCounterOf, mirrorCounterToBare } from './twin-collapse.js';
 import { runHeartbeatWrite, withWriteRetry } from './with-retry.js';
@@ -975,6 +980,76 @@ function claimPredicate(guard: TaskClaimGuard, allowedHolders: readonly string[]
       ? or(isNull(schema.tasks.leaseExpiresAt), lte(schema.tasks.leaseExpiresAt, guard.now))
       : undefined;
   return or(isNull(holder), mine, related, expired);
+}
+
+/**
+ * Refuse a guarded write that names a display id its task no longer carries
+ * (T12800). A collision re-mint (T12341) moves a task to a new id and records
+ * the old one as an alias; a caller still holding the old id is addressing
+ * that task, not the row that holds the id now. The write is refused with
+ * `E_TASK_RENAMED` (details carry the new id) when the caller cannot mean the
+ * row that holds the id now: the renamed task holds the caller's claim, the
+ * caller's expected version is not the current holder's, or no row holds the
+ * old id any more.
+ */
+function assertNotRenamed(
+  nativeDb: DatabaseSync | null,
+  taskId: string,
+  guard: TaskWriteGuard,
+  current: (TaskVersionSource & Partial<TaskClaimColumns>) | undefined,
+): void {
+  if (!nativeDb) return;
+  // A store whose uid migration was stamped without running it (the live
+  // cleocode state after 9.25) has an early alias table: no alias table, or
+  // no entity_birth_fp column. Read what exists; never fail the write on it.
+  const aliasColumns = new Set(
+    (
+      nativeDb.prepare("SELECT name FROM pragma_table_info('tasks_display_id_aliases')").all() as {
+        name: string;
+      }[]
+    ).map((c) => c.name),
+  );
+  if (!aliasColumns.has('entity_uid')) return;
+  const fpMatch = aliasColumns.has('entity_birth_fp')
+    ? 'AND (a.entity_birth_fp IS NULL OR t.birth_fp = a.entity_birth_fp)'
+    : '';
+  const renamed = nativeDb
+    .prepare(
+      `SELECT t.id AS id, t.updated_at AS updatedAt, t.created_at AS createdAt,
+              t.claimed_by_session AS claimedBySession
+         FROM tasks_display_id_aliases a
+         JOIN tasks_tasks t
+           ON t.uid = a.entity_uid ${fpMatch}
+        WHERE a.entity_table = 'tasks_tasks' AND a.display_id = ? AND t.id <> ?
+          AND a.reason IN ('collision-remint', 'superseded-remint', 'remint-assigned')`,
+    )
+    .all(taskId, taskId) as Array<{
+    id: string;
+    updatedAt: string | null;
+    createdAt: string | null;
+    claimedBySession: string | null;
+  }>;
+  const session = guard.claim?.sessionId ?? null;
+  const expected = guard.expectedUpdatedAt;
+  for (const row of renamed) {
+    const mine =
+      !current ||
+      (session !== null &&
+        row.claimedBySession === session &&
+        current.claimedBySession !== session) ||
+      // The expected version is not the current holder's: the caller read the
+      // task before it was re-numbered (the re-mint itself moved its version).
+      (expected !== undefined && taskVersion(current) !== expected);
+    if (!mine) continue;
+    throw new CleoError(
+      ExitCode.TASK_RENAMED,
+      `Task ${taskId} is now ${row.id}: sync re-numbered it after a display-id collision, and ${taskId} ${current ? 'names another task' : 'names no task'}; nothing was written`,
+      {
+        fix: `Re-read it with 'cleo show ${row.id}' and retry against ${row.id}.`,
+        details: { field: 'taskId', actual: taskId, expected: row.id },
+      },
+    );
+  }
 }
 
 /** Throw `E_TASK_CLAIMED` when the stored holder refuses this claim write. */
@@ -2021,6 +2096,11 @@ async function createOwnedSqliteDataAccessor(
           .where(eq(schema.tasks.id, taskId))
           .limit(1)
           .all();
+        // T12800: a guarded write aimed at a task that sync re-numbered must not
+        // land on whatever row holds the old id now.
+        if (guard?.claim || guard?.expectedUpdatedAt !== undefined) {
+          assertNotRenamed(getNativeTasksDb(cwd), taskId, guard, current);
+        }
         if (!current) throw new Error(`Task not found: ${taskId}`);
         // T12502: refuse a claim write the stored holder does not allow before
         // touching anything, with the holder named. The WHERE clause below
