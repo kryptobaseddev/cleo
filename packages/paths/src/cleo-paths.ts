@@ -121,6 +121,40 @@ export function resolveStableDeviceIdPath(): string {
 }
 
 /**
+ * Path of the Cleo Nexus session store — `<cleoHome>/nexus-credentials.json`.
+ *
+ * Holds 9.24-style account sessions only and stays format version 1, so a
+ * downgraded CLI can always read it (cleo-nexus device contract §2.2,
+ * finding 8). Machine-local: never inside a project directory.
+ *
+ * @returns Absolute path of the session store. Not created.
+ *
+ * @public
+ * @task T12867
+ */
+export function resolveNexusCredentialsPath(): string {
+  return join(getCleoHome(), 'nexus-credentials.json');
+}
+
+/**
+ * Path of the Cleo Nexus device store — `<cleoHome>/nexus-device.json`.
+ *
+ * Holds this home's Nexus device identities, their private keys and device
+ * credentials (cleo-nexus device contract §2.2, §2.4). Separate from
+ * {@link resolveNexusCredentialsPath} so a CLI that predates device
+ * credentials never reads or rewrites it. Machine-local: never inside a
+ * project directory, never synced or exported.
+ *
+ * @returns Absolute path of the device store. Not created.
+ *
+ * @public
+ * @task T12867
+ */
+export function resolveNexusDevicePath(): string {
+  return join(getCleoHome(), 'nexus-device.json');
+}
+
+/**
  * Path of this device's sync replica registry —
  * `<cleoStateDir>/sync/replicas-<deviceId>.json`.
  *

@@ -41,7 +41,7 @@ import {
   nexusAccountOrganizationSchema,
   nexusAccountUserSchema,
 } from '@cleocode/contracts';
-import { getCleoHome } from '@cleocode/paths';
+import { resolveNexusCredentialsPath } from '@cleocode/paths';
 import { z } from 'zod';
 import { withLock } from '../store/file-utils.js';
 
@@ -210,7 +210,7 @@ export function nexusOriginKey(apiUrl: string): string {
  * @returns `<cleoHome>/nexus-credentials.json`.
  */
 export function nexusCredentialsPath(): string {
-  return join(getCleoHome(), NEXUS_CREDENTIALS_FILE);
+  return resolveNexusCredentialsPath();
 }
 
 /**
