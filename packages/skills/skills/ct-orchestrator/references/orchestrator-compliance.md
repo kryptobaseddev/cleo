@@ -16,9 +16,18 @@ echo "$prompt" | grep -q "SUBAGENT PROTOCOL" || echo "ERROR: Missing protocol bl
 
 ### MUST Validate Return Messages
 
-Only accept these return message formats from subagents:
+Only accept these return message formats from subagents. The compressed block (T12521) is what spawn prompts ask for:
 
-| Status | Valid Return Message |
+```
+Research <complete|partial|blocked>. manifest:<entryId>
+commits: <sha7,sha7|none>
+gates: <gate>=<pass|fail|skip> ...
+blocker: <≤12 words|none>
+```
+
+Line 1 is required; `commits:`, `gates:` and `blocker:` may each appear once, and `blocker` is not `none` only for `partial`/`blocked`. The legacy one-liner stays valid:
+
+| Status | Legacy Return Message |
 |--------|---------------------|
 | Complete | "Research complete. Manifest appended to pipeline_manifest." |
 | Partial | "Research partial. Manifest appended to pipeline_manifest." |
