@@ -402,6 +402,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
       (await import('../commands/doctor-db-substrate.js')).doctorDbSubstrateCommand as CommandDef,
   },
   {
+    exportName: 'doctorDepCyclesCommand',
+    name: 'dep-cycles',
+    description:
+      'Report task dependency cycles already stored (edges written before the T12886 cycle ',
+    load: async () =>
+      (await import('../commands/doctor-dep-cycles.js')).doctorDepCyclesCommand as CommandDef,
+  },
+  {
     exportName: 'doctorExodusResidueCommand',
     name: 'exodus-residue',
     description:

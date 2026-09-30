@@ -22,6 +22,7 @@ import {
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { resolveCleoDir } from '../paths.js';
+import { insertDependencyEdgeOrSkipCycle } from './dependency-cycles.js';
 import { migrateSanitized } from './migration-manager.js';
 import { dbExists, getDb, openNativeDatabase, resolveMigrationsFolder } from './sqlite.js';
 import type { SessionStatus } from './status-registry.js';
@@ -345,14 +346,16 @@ async function runMigrationDataImport(
             .onConflictDoNothing()
             .run();
 
-          // Insert dependencies
+          // Insert dependencies. T12886: an edge the cycle guard refuses is
+          // left out with a warning naming the cycle; the task and its other
+          // edges are still imported.
           if (task.depends) {
             for (const depId of task.depends) {
-              await db
-                .insert(schema.taskDependencies)
-                .values({ taskId: task.id, dependsOn: depId })
-                .onConflictDoNothing()
-                .run();
+              const skipped = insertDependencyEdgeOrSkipCycle(db, {
+                taskId: task.id,
+                dependsOn: depId,
+              });
+              if (skipped) result.warnings.push(`Task ${task.id}: ${skipped.message}`);
             }
           }
 
@@ -721,13 +724,16 @@ export async function migrateJsonToSqlite(
             .onConflictDoNothing()
             .run();
 
-          // Insert dependencies
+          // Insert dependencies. T12886: an edge the cycle guard refuses is
+          // left out with a warning naming the cycle; the task and its other
+          // edges are still imported.
           if (task.depends) {
             for (const depId of task.depends) {
-              db.insert(schema.taskDependencies)
-                .values({ taskId: task.id, dependsOn: depId })
-                .onConflictDoNothing()
-                .run();
+              const skipped = insertDependencyEdgeOrSkipCycle(db, {
+                taskId: task.id,
+                dependsOn: depId,
+              });
+              if (skipped) result.warnings.push(`Task ${task.id}: ${skipped.message}`);
             }
           }
 

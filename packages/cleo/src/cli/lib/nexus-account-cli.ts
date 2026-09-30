@@ -12,6 +12,7 @@
 import type { NexusLoginResult } from '@cleocode/contracts';
 import { cliError, cliOutput, humanLine, isHumanOutput } from '../renderers/index.js';
 import {
+  type DeviceCodePromptInfo,
   writeDeviceCodeApproved,
   writeDeviceCodeInterrupted,
   writeDeviceCodePending,
@@ -52,7 +53,12 @@ export function failNexus(err: unknown, operation: string): never {
     err instanceof Error && 'code' in err && typeof err.code === 'string' ? err.code : undefined;
   const fix =
     err instanceof Error && 'fix' in err && typeof err.fix === 'string' ? err.fix : undefined;
-  const exitCode = code === 'E_NEXUS_INVALID_API_URL' || code === 'E_NEXUS_INVALID_LABEL' ? 6 : 1;
+  const exitCode =
+    code === 'E_NEXUS_INVALID_API_URL' ||
+    code === 'E_NEXUS_INVALID_LABEL' ||
+    code === 'E_NEXUS_DEVICE_REQUIRED'
+      ? 6
+      : 1;
   cliError(
     err instanceof Error ? err.message : String(err),
     exitCode,
@@ -95,16 +101,54 @@ export async function runNexusLogin(
   const { loginToNexus } = await import(
     /* webpackIgnore: true */ '@cleocode/core/cloud/nexus-auth.js'
   );
+  const { isNexusDeviceEnabled } = await import(
+    /* webpackIgnore: true */ '@cleocode/core/cloud/nexus-device.js'
+  );
   const noBrowser = negatedFlag(args, 'browser');
-  try {
-    const result = await loginToNexus({
-      apiUrl: nexusApiUrlArg(args),
-      onCode: (code) => {
-        writeDeviceCodePrompt(code, SERVICE_NAME);
-        if (!noBrowser) openBrowser(code.verificationUriComplete ?? code.verificationUri);
+  const hooks = {
+    apiUrl: nexusApiUrlArg(args),
+    onCode: (code: DeviceCodePromptInfo) => {
+      writeDeviceCodePrompt(code, SERVICE_NAME);
+      if (!noBrowser) openBrowser(code.verificationUriComplete ?? code.verificationUri);
+    },
+    onPending: writeDeviceCodePending,
+  };
+  const readOnly = args['read-only'] === true;
+  const name = typeof args['name'] === 'string' && args['name'] !== '' ? args['name'] : undefined;
+  if (readOnly && !isNexusDeviceEnabled()) {
+    // Never fall back to a full-privilege session login when the user asked
+    // for read-only (security review L1).
+    throw Object.assign(
+      new Error(
+        '--read-only needs device credentials, which are not enabled; nothing was signed in',
+      ),
+      {
+        code: 'E_NEXUS_DEVICE_REQUIRED',
+        fix: 'set CLEO_NEXUS_DEVICE=1 to enrol a read-only device, or log in without --read-only',
       },
-      onPending: writeDeviceCodePending,
-    });
+    );
+  }
+  try {
+    let result: NexusLoginResult;
+    if (isNexusDeviceEnabled()) {
+      // Device credentials (T12868): enrol this machine; only the device
+      // credential is stored.
+      const { loginToNexusDevice } = await import(
+        /* webpackIgnore: true */ '@cleocode/core/cloud/nexus-enrol.js'
+      );
+      result = await loginToNexusDevice({
+        ...hooks,
+        readOnly,
+        ...(name !== undefined ? { name } : {}),
+      });
+    } else {
+      if (name !== undefined) {
+        process.stderr.write(
+          'warning: --name needs device credentials (CLEO_NEXUS_DEVICE=1); ignored\n',
+        );
+      }
+      result = await loginToNexus(hooks);
+    }
     writeDeviceCodeApproved(SERVICE_NAME);
     for (const warning of result.warnings) process.stderr.write(`warning: ${warning}\n`);
     return result;
@@ -123,5 +167,8 @@ export async function runNexusLogin(
 export function nexusLoginSummary(r: NexusLoginResult): string {
   const who = r.user?.email ?? 'your account';
   const org = r.organization ? ` (${r.organization.name})` : '';
-  return `Signed in to ${r.apiUrl} as ${who}${org}.`;
+  const device = r.device
+    ? ` This machine is device ${r.device.deviceId}${r.device.name ? ` (${r.device.name})` : ''}, profile ${r.device.profile ?? 'unknown'}.`
+    : '';
+  return `Signed in to ${r.apiUrl} as ${who}${org}.${device}`;
 }

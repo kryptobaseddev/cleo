@@ -39,6 +39,9 @@ export {
   walkCrossDbInvariants,
   walkPragmaDrift,
 } from './db-substrate.js';
+// T12886 — stored dependency cycles + repair plan (read-only).
+export type { DependencyCyclesDoctorReport } from './dependency-cycles.js';
+export { scanDependencyCycles } from './dependency-cycles.js';
 export { auditInvariantRegistry } from './invariant-audit.js';
 // T10340 — Invariant Registry Audit (Saga T10326 SG-SUBSTRATE-RECONCILIATION /
 // Epic T10327 E-INVARIANT-REGISTRY-SSOT / R6)

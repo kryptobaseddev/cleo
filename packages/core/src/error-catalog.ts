@@ -360,6 +360,19 @@ export const ERROR_CATALOG: ReadonlyMap<number, ErrorDefinition> = new Map<numbe
       ),
     ],
     [
+      ExitCode.TASK_RENAMED,
+      def(
+        ExitCode.TASK_RENAMED,
+        'TASK_RENAMED',
+        'CONFLICT',
+        'Task was re-numbered by sync',
+        409,
+        true,
+        'E_TASK_RENAMED',
+        "The task you addressed now has another id (a display-id collision re-numbered it). Re-read it with 'cleo show <new id>' and retry against that id.",
+      ),
+    ],
+    [
       ExitCode.WORKTREE_LOCKED,
       def(
         ExitCode.WORKTREE_LOCKED,

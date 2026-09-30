@@ -250,6 +250,57 @@ describe('linkProjectToNexus', () => {
       fix: 'ask the owner to share the project',
     });
   });
+
+  it('retries the registration once on 409 project-id-taken (T12868, contract §4.0.4 N3)', async () => {
+    const { fetchImpl: real, bodies } = mockProjects();
+    let first = true;
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit): Promise<Response> => {
+      if (first) {
+        first = false;
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: {
+              code: 'E_CONFLICT',
+              message: 'registered concurrently',
+              requestId: 'r',
+              details: { reason: 'project-id-taken' },
+            },
+          }),
+          { status: 409 },
+        );
+      }
+      return real(url, init);
+    });
+    const result = await linkProjectToNexus({ apiUrl: API, store, projectRoot, fetch: fetchImpl });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(bodies).toHaveLength(1);
+    expect(result.link.remoteProjectId).toBe(PROJECT_ID);
+  });
+
+  it('does not retry a second project-id-taken, and never retries another 409', async () => {
+    const conflict = (reason: string) =>
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              success: false,
+              error: { code: 'E_CONFLICT', message: reason, requestId: 'r', details: { reason } },
+            }),
+            { status: 409 },
+          ),
+      );
+    const taken = conflict('project-id-taken');
+    await expect(
+      linkProjectToNexus({ apiUrl: API, store, projectRoot, fetch: taken }),
+    ).rejects.toMatchObject({ code: 'E_NEXUS_REQUEST_FAILED' });
+    expect(taken).toHaveBeenCalledTimes(2);
+    const other = conflict('project-other-account');
+    await expect(
+      linkProjectToNexus({ apiUrl: API, store, projectRoot, fetch: other }),
+    ).rejects.toMatchObject({ code: 'E_NEXUS_REQUEST_FAILED' });
+    expect(other).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('label privacy (T12712 review item 8)', () => {

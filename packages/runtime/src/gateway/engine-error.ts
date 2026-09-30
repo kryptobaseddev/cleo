@@ -86,6 +86,7 @@ export const STRING_TO_EXIT: Record<string, number> = {
   E_CONFLICT: 23,
   E_SESSION_UNBOUND: 24,
   E_WORKTREE_LOCKED: 25,
+  E_TASK_RENAMED: 26,
 
   // Session Errors (30-39)
   E_SESSION_EXISTS: 30,
