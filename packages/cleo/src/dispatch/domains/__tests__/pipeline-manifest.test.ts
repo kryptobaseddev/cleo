@@ -321,7 +321,9 @@ describe('PipelineHandler manifest operations', () => {
 
       const result = await handler.mutate('manifest.append', { entry });
       expect(result.success).toBe(true);
-      expect(pipelineManifestAppend).toHaveBeenCalledWith(entry, '/mock/project');
+      expect(pipelineManifestAppend).toHaveBeenCalledWith(entry, '/mock/project', {
+        requireExistingTasks: true,
+      });
     });
 
     it('should return E_INVALID_INPUT when entry is missing', async () => {

@@ -17,8 +17,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ExtendedManifestEntry } from '../index.js';
+import { buildManifestEntryFromShorthand } from '../manifest-builder.js';
 import {
   distillManifestEntry,
+  listManifestIdentityProblems,
   migrateManifestJsonlToSqlite,
   pipelineManifestAppend,
   pipelineManifestArchive,
@@ -804,6 +806,164 @@ describe('pipeline-manifest-sqlite', () => {
 
       const show = await pipelineManifestShow('T001-research', testRoot);
       expect((show.data as any).title).toBe('Updated Title');
+    });
+  });
+
+  // =========================================================================
+  // T12829: identity validation (task ids, entry ids, file references)
+  // =========================================================================
+
+  describe('T12829 manifest identity validation', () => {
+    const JSON_BLOB = JSON.stringify({ k: 'a'.repeat(900) });
+
+    async function seedTask(id: string): Promise<void> {
+      const { bindTasksDomain } = await import('../../store/sqlite.js');
+      const { native } = await bindTasksDomain(testRoot);
+      native
+        .prepare(
+          "INSERT INTO tasks_tasks(id,title,status,created_at,updated_at) VALUES (?,'Real task','pending','2026-09-20','2026-09-20')",
+        )
+        .run(id);
+    }
+
+    function shorthand(task: string): ExtendedManifestEntry {
+      return buildManifestEntryFromShorthand(
+        { task, type: 'implementation', content: 'x' },
+        new Date('2026-09-29T00:00:00Z'),
+      );
+    }
+
+    it('rejects a well-formed task id with no task (E_NOT_FOUND) when existence is required', async () => {
+      const result = await pipelineManifestAppend(shorthand('T99999'), testRoot, {
+        requireExistingTasks: true,
+      });
+      expect(result).toMatchObject({ success: false, error: { code: 'E_NOT_FOUND' } });
+      expect(result.error?.message).toContain('T99999');
+      expect((await pipelineManifestList({}, testRoot)).data).toMatchObject({ total: 0 });
+    });
+
+    it('accepts an existing task id when existence is required', async () => {
+      await seedTask('T4242');
+      const result = await pipelineManifestAppend(shorthand('T4242'), testRoot, {
+        requireExistingTasks: true,
+      });
+      expect(result).toMatchObject({ success: true, data: { appended: true } });
+    });
+
+    it.each([
+      ['a JSON blob', JSON_BLOB],
+      ['a ../ traversal', '../../../escaped'],
+      ['a very long value', `T${'1'.repeat(600)}`],
+      ['an absolute path', '/etc/passwd'],
+    ])('rejects %s as --task with E_VALIDATION and stores nothing', async (_label, task) => {
+      const result = await pipelineManifestAppend(shorthand(task), testRoot, {
+        requireExistingTasks: true,
+      });
+      expect(result).toMatchObject({ success: false, error: { code: 'E_VALIDATION' } });
+      // The error message is bounded even for a huge input.
+      expect(result.error?.message.length ?? 0).toBeLessThan(1500);
+      expect((await pipelineManifestList({}, testRoot)).data).toMatchObject({ total: 0 });
+    });
+
+    it('rejects malformed linked_tasks from a full entry even without the existence check', async () => {
+      const result = await pipelineManifestAppend(
+        { ...ENTRY_A, id: 'entry-1', linked_tasks: ['T001', '../x'] },
+        testRoot,
+      );
+      expect(result).toMatchObject({
+        success: false,
+        error: { code: 'E_VALIDATION', details: { field: 'linked_tasks' } },
+      });
+    });
+
+    it.each([
+      ['a slash', 'a/b'],
+      ['a traversal', '../x'],
+      ['whitespace', 'a b'],
+      ['an over-long id', 'a'.repeat(201)],
+    ])('rejects an entry id containing %s', async (_label, id) => {
+      const result = await pipelineManifestAppend({ ...ENTRY_A, id }, testRoot);
+      expect(result).toMatchObject({
+        success: false,
+        error: { code: 'E_VALIDATION', details: { field: 'id' } },
+      });
+    });
+
+    it.each([
+      ['a ../ escape', '../secret.txt'],
+      ['a nested escape', 'out/../../secret.txt'],
+      ['an over-long segment', `out/${'a'.repeat(300)}.md`],
+    ])('rejects a file reference with %s', async (_label, file) => {
+      const result = await pipelineManifestAppend({ ...ENTRY_A, file }, testRoot);
+      expect(result).toMatchObject({
+        success: false,
+        error: { code: 'E_VALIDATION', details: { field: 'file' } },
+      });
+    });
+
+    it('show refuses a malformed id before any lookup', async () => {
+      for (const id of ['../../etc/passwd', JSON_BLOB, 'a'.repeat(5000)]) {
+        const result = await pipelineManifestShow(id, testRoot);
+        expect(result).toMatchObject({ success: false, error: { code: 'E_VALIDATION' } });
+      }
+    });
+
+    it('show never reads a stored file reference outside the project, and doctor reports the row', async () => {
+      const outside = join(testRoot, '..', `outside-${Date.now()}.txt`);
+      writeFileSync(outside, 'SECRET-OUTSIDE');
+      try {
+        const { bindTasksDomain } = await import('../../store/sqlite.js');
+        const { native } = await bindTasksDomain(testRoot);
+        const insert = native.prepare(
+          'INSERT INTO docs_pipeline_manifest(id,type,content,status,source_file,metadata_json,created_at) VALUES (?,?,?,?,?,?,?)',
+        );
+        // Rows stored before T12829 validation existed.
+        insert.run(
+          'legacy-escape',
+          'research',
+          '{}',
+          'active',
+          null,
+          JSON.stringify({ file: `../${outside.split('/').pop()}`, linked_tasks: [] }),
+          '2026-01-01 00:00:00',
+        );
+        insert.run(
+          'legacy/bad id',
+          'research',
+          '{}',
+          'active',
+          null,
+          JSON.stringify({ file: 'ok.md', linked_tasks: ['{"blob":1}', 'T77777'] }),
+          '2026-01-01 00:00:00',
+        );
+
+        const show = await pipelineManifestShow('legacy-escape', testRoot);
+        expect(show).toMatchObject({
+          success: false,
+          error: { code: 'E_MANIFEST_FILE_UNSAFE' },
+        });
+        expect(JSON.stringify(show)).not.toContain('SECRET-OUTSIDE');
+
+        const problems = await listManifestIdentityProblems(testRoot);
+        expect(problems.map((p) => p.entryId).sort()).toEqual(['legacy-escape', 'legacy/bad id']);
+        const bad = problems.find((p) => p.entryId === 'legacy/bad id');
+        expect(bad?.issues.map((i) => `${i.field}:${i.code}`).sort()).toEqual([
+          'id:E_VALIDATION',
+          'linked_tasks:E_NOT_FOUND',
+          'linked_tasks:E_VALIDATION',
+        ]);
+        expect(
+          problems.find((p) => p.entryId === 'legacy-escape')?.issues.map((i) => i.field),
+        ).toEqual(['file']);
+      } finally {
+        rmSync(outside, { force: true });
+      }
+    });
+
+    it('doctor reports nothing for valid rows linked to existing tasks', async () => {
+      await seedTask('T4242');
+      await pipelineManifestAppend(shorthand('T4242'), testRoot, { requireExistingTasks: true });
+      expect(await listManifestIdentityProblems(testRoot)).toEqual([]);
     });
   });
 
