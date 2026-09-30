@@ -7,10 +7,20 @@
  * decouples the hot path (agent execution) from I/O latency.
  *
  * The queue is drained to brain.db either:
- *   1. Periodically — every {@link FLUSH_INTERVAL_MS} milliseconds via a timer.
- *   2. On high watermark — when the queue exceeds {@link FLUSH_WATERMARK} entries.
- *   3. On process exit — SIGINT, SIGTERM, and 'exit' hooks perform a best-effort
- *      synchronous flush so no observations are lost.
+ *   1. Promptly — every `enqueue` schedules a drain on the next macrotask
+ *      (`setImmediate`, NOT unref'd), so observations enqueued in the same tick
+ *      are written as one batch and the caller's promise always settles (T12817).
+ *   2. Periodically — every {@link FLUSH_INTERVAL_MS} milliseconds via a timer
+ *      (backstop; unref'd).
+ *   3. On high watermark — when the queue exceeds {@link FLUSH_WATERMARK} entries.
+ *   4. On process exit — SIGINT, SIGTERM, and 'exit' hooks perform a best-effort
+ *      flush.
+ *
+ * T12817: before the prompt drain existed, the ONLY drain a one-shot process
+ * could reach was the unref'd 5 s timer. `enqueue()` returned a promise that
+ * only that timer could settle, so an awaited `cleo memory observe --agent X`
+ * left the event loop empty: Node exited 0 with zero bytes on stdout and the
+ * `'exit'` hook's async drain never ran — the observation was silently lost.
  *
  * Observations without an `agent` field continue to use the existing synchronous
  * path in observeBrain() and are never routed here.
@@ -111,14 +121,21 @@ const MENTAL_MODEL_TYPES = new Set<string>([
 /** In-memory queue of pending mental-model observations. */
 const _queue: QueuedObservation[] = [];
 
-/** Whether a flush is currently in progress (prevents re-entrant flushes). */
-let _flushing = false;
-
 /** Whether process-exit hooks have been registered. */
 let _hooksRegistered = false;
 
 /** Handle for the periodic flush timer (undefined = no active timer). */
 let _timer: ReturnType<typeof setInterval> | undefined;
+
+/** Handle for the pending prompt drain (undefined = none scheduled). T12817 */
+let _immediate: ReturnType<typeof setImmediate> | undefined;
+
+/**
+ * Tail of the serialized drain chain. Every drain runs after the previous one
+ * settles, so entries enqueued while a drain is in flight are picked up by the
+ * next link instead of waiting for the unref'd timer. T12817
+ */
+let _drainTail: Promise<unknown> = Promise.resolve();
 
 /**
  * Drain the queue synchronously where possible, or fall back to async writes.
@@ -146,6 +163,34 @@ async function drainQueue(): Promise<number> {
   }
 
   return count;
+}
+
+/**
+ * Run {@link drainQueue} after every earlier drain has settled.
+ *
+ * @returns The number of observations this drain persisted.
+ */
+function serialDrain(): Promise<number> {
+  const next = _drainTail.then(() => drainQueue());
+  _drainTail = next.catch(() => undefined);
+  return next;
+}
+
+/**
+ * Schedule a prompt drain on the next macrotask (T12817).
+ *
+ * The handle is deliberately NOT unref'd: an enqueued observation is pending
+ * I/O the process owes its caller, so it must keep the event loop alive until
+ * written. Entries enqueued in the same tick share one drain.
+ */
+function schedulePromptDrain(): void {
+  if (_immediate !== undefined) return;
+  _immediate = setImmediate(() => {
+    _immediate = undefined;
+    serialDrain().catch(() => {
+      /* per-entry errors already rejected their callers */
+    });
+  });
 }
 
 /**
@@ -210,15 +255,9 @@ function ensureTimer(): void {
   if (_timer !== undefined) return;
   _timer = setInterval(() => {
     if (_queue.length === 0) return;
-    if (_flushing) return;
-    _flushing = true;
-    drainQueue()
-      .catch(() => {
-        /* best-effort */
-      })
-      .finally(() => {
-        _flushing = false;
-      });
+    serialDrain().catch(() => {
+      /* best-effort */
+    });
   }, FLUSH_INTERVAL_MS);
   // Unref so the timer doesn't prevent process exit when queue is idle
   if (typeof _timer.unref === 'function') {
@@ -247,31 +286,20 @@ export const mentalModelQueue: MentalModelQueue = {
     return new Promise<ObserveBrainResult>((resolve, reject) => {
       _queue.push({ projectRoot, params, resolve, reject });
 
-      // High-watermark flush
-      if (_queue.length >= FLUSH_WATERMARK && !_flushing) {
-        _flushing = true;
-        drainQueue()
-          .catch(() => {
-            /* best-effort */
-          })
-          .finally(() => {
-            _flushing = false;
-          });
+      if (_queue.length >= FLUSH_WATERMARK) {
+        // High-watermark flush
+        serialDrain().catch(() => {
+          /* best-effort */
+        });
+      } else {
+        // T12817: guarantee the caller's promise settles in a one-shot process.
+        schedulePromptDrain();
       }
     });
   },
 
-  async flush(): Promise<number> {
-    if (_flushing) {
-      // Wait for the current flush to settle then flush again
-      await new Promise<void>((r) => setTimeout(r, 50));
-    }
-    _flushing = true;
-    try {
-      return await drainQueue();
-    } finally {
-      _flushing = false;
-    }
+  flush(): Promise<number> {
+    return serialDrain();
   },
 
   size(): number {
@@ -298,6 +326,11 @@ export function _resetMentalModelQueueForTests(): void {
     clearInterval(_timer);
     _timer = undefined;
   }
+  if (_immediate !== undefined) {
+    clearImmediate(_immediate);
+    _immediate = undefined;
+  }
+  _drainTail = Promise.resolve();
 
   // Reject all pending observations so test assertions can proceed.
   const pending = _queue.splice(0, _queue.length);
@@ -306,7 +339,6 @@ export function _resetMentalModelQueueForTests(): void {
     entry.reject(cancelErr);
   }
 
-  _flushing = false;
   _hooksRegistered = false;
 }
 
