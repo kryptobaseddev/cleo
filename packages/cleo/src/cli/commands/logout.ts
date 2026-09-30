@@ -4,6 +4,9 @@
  * - `nexus` (the default): revoke the Cleo Nexus session server-side, then
  *   delete the stored token (`<cleoHome>/nexus-credentials.json`). The local
  *   token is deleted even when the revocation call fails; the envelope says so.
+ *   With `CLEO_NEXUS_DEVICE=1`, sign the device out (E9) or, with `--revoke`,
+ *   revoke it (E10); nothing is reported done until the server confirms it
+ *   (device contract §3.5, T12870).
  * - `<provider> [label]`: remove an LLM credential through the SAME logic as
  *   `cleo auth remove` (per-source removal step, suppression, store delete).
  *   The label may be omitted when the provider has a single credential.
@@ -23,6 +26,7 @@ import {
   failNexus,
   NEXUS_API_URL_ARG,
   nexusApiUrlArg,
+  runNexusDeviceLogout,
 } from '../lib/nexus-account-cli.js';
 import { emitLlmCredentialRemoval } from './auth/remove.js';
 
@@ -66,6 +70,11 @@ export const logoutCommand = defineCommand({
       required: false,
     },
     'api-url': NEXUS_API_URL_ARG,
+    revoke: {
+      type: 'boolean',
+      description:
+        'Hard-revoke this device (needs CLEO_NEXUS_DEVICE=1): destroys its key grant and burns the device id. Without it, logout signs the device out and keeps it for the next login.',
+    },
     json: { type: 'boolean', description: 'Output as JSON envelope' },
   },
   async run({ args }) {
@@ -78,6 +87,13 @@ export const logoutCommand = defineCommand({
         /* webpackIgnore: true */ '@cleocode/core/llm/credential-remove-entry.js'
       );
       emitLlmCredentialRemoval(await removeLlmCredential(target, label), 'logout', 'logout.run');
+      return;
+    }
+    const { isNexusDeviceEnabled } = await import(
+      /* webpackIgnore: true */ '@cleocode/core/cloud/nexus-device.js'
+    );
+    if (isNexusDeviceEnabled() || a['revoke'] === true) {
+      await runNexusDeviceLogout(a);
       return;
     }
     const { logoutFromNexus } = await import(

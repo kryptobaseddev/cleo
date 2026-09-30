@@ -78,6 +78,7 @@ import {
   type SealedNexusDevice,
   UnreadableNexusDevice,
 } from './nexus-device.js';
+import { retryNexusDeviceEnds } from './nexus-logout.js';
 import { deviceEnrollmentMessage } from './signing.js';
 import { uuidv7 } from './uuidv7.js';
 
@@ -285,6 +286,11 @@ function client(ctx: Ctx, bearer: string, timeoutMs: number): Http {
   const timed: FetchLike = (input, init) =>
     ctx.fetch(input, { ...init, signal: AbortSignal.timeout(timeoutMs) });
   return new Http({ baseUrl: ctx.apiUrl, token: bearer, fetch: timed, maxAttempts: 1 });
+}
+
+/** The logout-retry options for this flow's origin, stores and transport. */
+function endOpts(ctx: Ctx): { apiUrl: string; fetch: FetchLike; deviceStore: NexusDeviceStore } {
+  return { apiUrl: ctx.apiUrl, fetch: ctx.fetch, deviceStore: ctx.devices };
 }
 
 /** A fresh 32-hex intent owner id. */
@@ -1108,6 +1114,10 @@ export async function loginToNexusDevice(
   opts: NexusDeviceLoginOptions = {},
 ): Promise<NexusLoginResult> {
   const ctx = context(opts);
+  const warnings: string[] = [];
+  // §3.5 L2: an unsettled sign-out or revoke is retried first; a confirmed
+  // revoke clears the `pendingRevoke` that would refuse this login.
+  await retryNexusDeviceEnds(endOpts(ctx), warnings);
   const profile: NexusDeviceProfile = opts.readOnly === true ? 'read-only' : 'device';
   const loginOpts: NexusLoginOptions = {
     ...(opts.fetch ? { fetch: opts.fetch } : {}),
@@ -1122,7 +1132,6 @@ export async function loginToNexusDevice(
     profile === 'read-only' ? 'cleo:read-only' : 'cleo:device',
   );
   const session = token.accessToken;
-  const warnings: string[] = [];
 
   // Step 4: who is signing in.
   let me: Whoami;
@@ -1439,13 +1448,15 @@ export async function ensureNexusDeviceCredential(
   opts: NexusDeviceCredentialOptions = {},
 ): Promise<NexusDeviceCredentialHandle> {
   const ctx = context(opts);
+  const retryWarnings: string[] = [];
+  await retryNexusDeviceEnds(endOpts(ctx), retryWarnings);
   const upgrade = await upgradeNexusSession({
     ...opts,
     apiUrl: ctx.apiUrl,
     deviceStore: ctx.devices,
     store: ctx.sessions,
   });
-  const warnings = [...upgrade.warnings];
+  const warnings = [...retryWarnings, ...upgrade.warnings];
   const notSignedIn = (): NexusAccountError =>
     new NexusAccountError(
       'E_NEXUS_NOT_SIGNED_IN',

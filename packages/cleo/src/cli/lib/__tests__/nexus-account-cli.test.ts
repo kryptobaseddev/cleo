@@ -19,7 +19,9 @@ vi.mock('@cleocode/core/cloud/nexus-device.js', () => ({
   isNexusDeviceEnabled: () => process.env['CLEO_NEXUS_DEVICE'] === '1',
 }));
 
-const { nexusLoginSummary, runNexusLogin } = await import('../nexus-account-cli.js');
+const { nexusDeviceLogoutSummary, nexusLoginSummary, runNexusLogin } = await import(
+  '../nexus-account-cli.js'
+);
 
 const RESULT = {
   apiUrl: 'https://api.nexus.test',
@@ -97,5 +99,34 @@ describe('runNexusLogin', () => {
     expect(opts['readOnly']).toBe(true);
     expect(opts['name']).toBe('ci box');
     expect(nexusLoginSummary(result)).toContain('device d-1');
+  });
+});
+
+describe('nexusDeviceLogoutSummary (T12870)', () => {
+  const row = (outcome: 'confirmed' | 'pending' | 'unconfirmed') => ({
+    userId: 'u-1',
+    deviceId: 'd-1',
+    action: 'sign-out' as const,
+    retired: false,
+    outcome,
+    removedLocally: false,
+  });
+  const base = { apiUrl: 'https://api.nexus.test', session: null, warnings: [] };
+
+  it('says nothing to do when nothing was stored', () => {
+    expect(nexusDeviceLogoutSummary({ ...base, action: 'sign-out', devices: [] })).toBe(
+      'Not signed in to https://api.nexus.test; nothing to do.',
+    );
+  });
+
+  it('never claims an unconfirmed sign-out succeeded', () => {
+    const line = nexusDeviceLogoutSummary({
+      ...base,
+      action: 'revoke',
+      devices: [row('confirmed'), row('pending'), row('unconfirmed')],
+    });
+    expect(line).toBe(
+      'Revoked on https://api.nexus.test: 1 device request(s) confirmed; 2 NOT confirmed (see warnings; kept for retry).',
+    );
   });
 });
