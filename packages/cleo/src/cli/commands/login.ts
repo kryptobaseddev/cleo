@@ -503,7 +503,7 @@ export const LOGIN_ARGS = {
   'read-only': {
     type: 'boolean',
     description:
-      'nexus with CLEO_NEXUS_DEVICE=1: enrol this machine with the read-only device profile (account, devices and project reads only).',
+      'nexus with CLEO_NEXUS_DEVICE=1: enrol this machine with the read-only device profile (account, devices and project reads only). Refused without CLEO_NEXUS_DEVICE=1.',
   },
   name: {
     type: 'string',

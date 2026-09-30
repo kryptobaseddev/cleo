@@ -57,9 +57,13 @@ import {
 import {
   applyClearEnrolIntent,
   applyDropCurrent,
+  applyDropRaceCandidate,
   applyEnrolIntent,
   applyEnrolment,
+  applyRefreshEnrolIntent,
+  applySetRaceCandidate,
   assertEnrolmentAllowed,
+  guardNexusDeviceSecrets,
   NEXUS_DEVICE_CREDENTIAL_PATTERN,
   NEXUS_DEVICE_PROFILES,
   NEXUS_DEVICE_SCOPES,
@@ -91,6 +95,18 @@ export const NEXUS_UPGRADE_WAIT_MS = 60_000;
 
 /** Interval between locked re-reads while waiting for another process's upgrade. */
 export const NEXUS_UPGRADE_POLL_MS = 250;
+
+/** Slack added to the stale age of an E1 intent, over its owner's E2 and E1 timeouts. */
+export const NEXUS_INTENT_MARGIN_MS = 15_000;
+
+/**
+ * Age after which another process's E1 intent is stale (§3.4 step 1). A live
+ * owner can be E2 plus E1 past `startedAt` (it also refreshes `startedAt`
+ * right before E1), so the threshold is derived from both timeouts plus a
+ * margin, never E1's timeout alone (security review M1).
+ */
+export const NEXUS_INTENT_STALE_MS =
+  NEXUS_WHOAMI_TIMEOUT_MS + NEXUS_ENROL_TIMEOUT_MS + NEXUS_INTENT_MARGIN_MS;
 
 /** Warning code: two racing logins both held a live credential (§3.3 step 7, ruling A). */
 export const W_NEXUS_LOGIN_RACE_BOTH_LIVE = 'W_NEXUS_LOGIN_RACE_BOTH_LIVE';
@@ -174,6 +190,8 @@ export interface NexusDeviceFlowOptions {
   upgradeWaitMs?: number;
   /** Interval between re-reads while waiting. */
   upgradePollMs?: number;
+  /** Margin over E2 + E1 timeouts before an intent is stale; default {@link NEXUS_INTENT_MARGIN_MS}. */
+  intentMarginMs?: number;
   /** CLEO version sent as `cliVersion`; defaults to the installed one. */
   cliVersion?: string;
 }
@@ -228,6 +246,8 @@ interface Ctx {
   readonly now: () => Date;
   readonly sleep: (ms: number) => Promise<void>;
   readonly enrolTimeoutMs: number;
+  /** Age after which another process's intent is stale: E2 + E1 timeouts + margin. */
+  readonly intentStaleMs: number;
   readonly whoamiTimeoutMs: number;
   readonly upgradeWaitMs: number;
   readonly upgradePollMs: number;
@@ -245,6 +265,10 @@ function context(opts: NexusDeviceFlowOptions): Ctx {
     now: opts.now ?? (() => new Date()),
     sleep: opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))),
     enrolTimeoutMs: opts.enrolTimeoutMs ?? NEXUS_ENROL_TIMEOUT_MS,
+    intentStaleMs:
+      (opts.whoamiTimeoutMs ?? NEXUS_WHOAMI_TIMEOUT_MS) +
+      (opts.enrolTimeoutMs ?? NEXUS_ENROL_TIMEOUT_MS) +
+      (opts.intentMarginMs ?? NEXUS_INTENT_MARGIN_MS),
     whoamiTimeoutMs: opts.whoamiTimeoutMs ?? NEXUS_WHOAMI_TIMEOUT_MS,
     upgradeWaitMs: opts.upgradeWaitMs ?? NEXUS_UPGRADE_WAIT_MS,
     upgradePollMs: opts.upgradePollMs ?? NEXUS_UPGRADE_POLL_MS,
@@ -308,6 +332,15 @@ export function nexusApiErrorToAccountError(err: unknown): Error {
   if (err.status === 401) {
     switch (reason) {
       case 'credential-revoked':
+        if (err.details?.['revokedReason'] === 'reenrolled') {
+          // Replaced by a newer login of this device, not stolen: a login
+          // fixes it, and the device id stays (security review M2b).
+          return new NexusAccountError(
+            'E_NEXUS_NOT_SIGNED_IN',
+            "this device's credential was replaced by a newer login of the same device",
+            'run `cleo login nexus`',
+          );
+        }
         return new NexusAccountError(
           'E_NEXUS_CREDENTIAL_COMPROMISED',
           "this device's credential was replaced or revoked elsewhere, possibly used from another machine",
@@ -529,12 +562,13 @@ function prepareInTx(
     startedAt: now.toISOString(),
   };
   tx.set(ctx.apiUrl, input.userId, applyEnrolIntent(entry, { deviceId, keys, intent }, now));
-  return {
+  // Guarded: the private keys never print (security review L7).
+  return guardNexusDeviceSecrets({
     deviceId,
-    keys,
+    keys: structuredClone(keys),
     regeneratedKeys: reuse && entry.keys === null,
     baseline: reuse ? (entry.current?.credentialId ?? null) : null,
-  };
+  });
 }
 
 /** Step 5: take the lock, discard an unreadable entry, persist identity and intent, release. */
@@ -550,6 +584,18 @@ async function prepare(
     const prepared = prepareInTx(tx, ctx, input, replaceIdentity);
     warnings.push(...tx.warnings);
     return prepared;
+  });
+}
+
+/** Refresh this process's E1 intent under the lock; `false` when it is no longer ours. */
+async function refreshIntent(ctx: Ctx, input: EnrolInput, prepared: Prepared): Promise<boolean> {
+  return ctx.devices.update((tx) => {
+    const entry = tx.get(ctx.apiUrl, input.userId);
+    if (entry === null || entry.deviceId !== prepared.deviceId) return false;
+    const next = applyRefreshEnrolIntent(entry, input.owner, ctx.now());
+    if (next === null) return false;
+    tx.set(ctx.apiUrl, input.userId, next);
+    return true;
   });
 }
 
@@ -624,13 +670,6 @@ async function clearIntent(ctx: Ctx, userId: string, owner: string): Promise<voi
   }
 }
 
-/** The secret-free view of a credential the file holds, for the race rule. */
-interface Theirs {
-  readonly credentialId: string;
-  readonly createdAt: string;
-  readonly token: string;
-}
-
 /**
  * Step 7: re-take the lock and store E1's credential with a CAS, applying the
  * racing-login rule when the file already holds a different credential.
@@ -657,12 +696,18 @@ async function store(
   for (let round = 0; round < 3; round++) {
     const step = await ctx.devices.update((tx) => {
       const entry = tx.get(ctx.apiUrl, input.userId);
-      if (entry !== null && entry.deviceId === prepared.deviceId && entry.pendingRevoke !== null) {
+      if (entry !== null && entry.deviceId !== prepared.deviceId) {
+        // Another process replaced this machine's identity meanwhile: never
+        // retire that device's live credential for ours (security review L3).
+        tx.set(ctx.apiUrl, input.userId, applyClearEnrolIntent(entry, input.owner));
+        return { kind: 'identity-changed' } as const;
+      }
+      if (entry !== null && entry.pendingRevoke !== null) {
         tx.set(ctx.apiUrl, input.userId, applyClearEnrolIntent(entry, input.owner));
         return { kind: 'revoke-pending' } as const;
       }
       const held = entry?.current ?? null;
-      if (held === null || held.credentialId === prepared.baseline) {
+      if (entry === null || held === null || held.credentialId === prepared.baseline) {
         tx.set(
           ctx.apiUrl,
           input.userId,
@@ -671,13 +716,31 @@ async function store(
         return { kind: 'stored' } as const;
       }
       if (held.credentialId === ours.credentialId) return { kind: 'stored' } as const;
-      const theirs: Theirs = {
-        credentialId: held.credentialId,
-        createdAt: held.createdAt,
-        token: held.token,
-      };
-      return { kind: 'race', theirs } as const;
+      // Racing logins: park ours, sealed, beside the held one BEFORE probing,
+      // so the only live credential is never lost (security review M2).
+      tx.set(
+        ctx.apiUrl,
+        input.userId,
+        applyClearEnrolIntent(
+          applySetRaceCandidate(entry, {
+            credentialId: ours.credentialId,
+            token: ours.token,
+            profile: ours.profile,
+            scopes: ours.scopes,
+            createdAt: ours.createdAt,
+          }),
+          input.owner,
+        ),
+      );
+      return { kind: 'race' } as const;
     });
+    if (step.kind === 'identity-changed') {
+      throw new NexusAccountError(
+        'E_NEXUS_BUSY',
+        `another cleo process replaced this machine's Nexus device while device ${prepared.deviceId} was being enrolled; nothing was stored`,
+        `retry \`cleo login nexus\`; if device ${prepared.deviceId} is listed on cleocode.dev, revoke it there`,
+      );
+    }
     if (step.kind === 'revoke-pending') {
       throw storeErrorToAccountError(
         new NexusDeviceStoreError('E_NEXUS_DEVICE_REVOKE_PENDING', 'revoke pending'),
@@ -685,61 +748,22 @@ async function store(
     }
     if (step.kind === 'stored') return requireStored(ctx, input.userId);
 
-    const [mine, other] = await Promise.all([
-      probe(ctx, ours.token),
-      probe(ctx, step.theirs.token),
-    ]);
-    if (mine.state === 'unknown' || other.state === 'unknown') {
-      await clearIntent(ctx, input.userId, input.owner);
+    const outcome = await settleRaceCandidate(ctx, input.userId, warnings);
+    if (outcome === 'unknown') {
       throw new NexusAccountError(
         'E_NEXUS_UNREACHABLE',
-        'another login stored a device credential at the same time, and the server could not confirm which one is live; the stored credential was kept',
+        'another login stored a device credential at the same time, and the server could not confirm which one is live; both are kept, sealed, and the next cloud command settles them',
         'run `cleo login nexus` again when Cleo Nexus is reachable: it re-enrols the same device id, which revokes any credential left orphaned on the server',
       );
     }
-    let keepOurs: boolean;
-    if (mine.state === 'ok' && other.state === 'ok') {
-      keepOurs = Date.parse(ours.createdAt) > Date.parse(step.theirs.createdAt);
-      warnings.push(
-        `${W_NEXUS_LOGIN_RACE_BOTH_LIVE}: two logins on this CLEO home both hold a live credential for device ${prepared.deviceId}; kept the newer one`,
-      );
-    } else if (mine.state === 'ok') {
-      keepOurs = true;
-    } else if (other.state === 'ok') {
-      keepOurs = false;
-    } else {
-      await ctx.devices.update((tx) => {
-        const entry = tx.get(ctx.apiUrl, input.userId);
-        if (entry === null) return;
-        tx.set(
-          ctx.apiUrl,
-          input.userId,
-          applyClearEnrolIntent(applyDropCurrent(entry, step.theirs.credentialId), input.owner),
-        );
-      });
+    if (outcome === 'both-refused') {
       throw new NexusAccountError(
         'E_NEXUS_NOT_SIGNED_IN',
         'two logins raced on this CLEO home and the server refused both credentials',
         'run `cleo login nexus`',
       );
     }
-    if (!keepOurs) {
-      // Theirs is live: ours is dropped (the server revoked it). No E9, no slot.
-      await clearIntent(ctx, input.userId, input.owner);
-      return requireStored(ctx, input.userId);
-    }
-    // Ours is live: store it, but only over the credential that was probed.
-    const swapped = await ctx.devices.update((tx) => {
-      const entry = tx.get(ctx.apiUrl, input.userId);
-      if (entry?.current?.credentialId !== step.theirs.credentialId) return false;
-      tx.set(
-        ctx.apiUrl,
-        input.userId,
-        applyClearEnrolIntent(applyEnrolment(entry, enrolment, ctx.now()), input.owner),
-      );
-      return true;
-    });
-    if (swapped) return requireStored(ctx, input.userId);
+    if (outcome !== 'changed') return requireStored(ctx, input.userId);
     // The file changed again while probing: re-run the check.
   }
   await clearIntent(ctx, input.userId, input.owner);
@@ -748,6 +772,97 @@ async function store(
     'other logins kept replacing the device credential on this CLEO home',
     'retry the command',
   );
+}
+
+/** How {@link settleRaceCandidate} ended. */
+type SettleOutcome =
+  | 'none'
+  | 'kept-candidate'
+  | 'kept-current'
+  | 'both-refused'
+  | 'unknown'
+  | 'changed';
+
+/**
+ * Settle a parked race candidate (§3.3 step 7, ruling A): ask E2 about it and
+ * about `current`, then, under the lock with a CAS on both, keep the one that
+ * answers 200 (both: the later `createdAt`, with
+ * {@link W_NEXUS_LOGIN_RACE_BOTH_LIVE}), or drop both when both are refused.
+ * The loser is dropped with no E9 and no `pendingSignOut`: the server already
+ * refused it. With no answer, nothing changes.
+ */
+async function settleRaceCandidate(
+  ctx: Ctx,
+  userId: string,
+  warnings: string[],
+): Promise<SettleOutcome> {
+  const snap = (await ctx.devices.get(ctx.apiUrl, userId))?.unseal() ?? null;
+  const candidate = snap?.raceCandidate ?? null;
+  if (snap === null || candidate === null) return 'none';
+  const current = snap.current;
+  let keep: 'candidate' | 'current' | 'neither' = 'candidate';
+  if (current !== null) {
+    const [mine, other] = await Promise.all([
+      probe(ctx, candidate.token),
+      probe(ctx, current.token),
+    ]);
+    if (mine.state === 'unknown' || other.state === 'unknown') return 'unknown';
+    if (mine.state === 'ok' && other.state === 'ok') {
+      keep =
+        Date.parse(candidate.createdAt) > Date.parse(current.createdAt) ? 'candidate' : 'current';
+      warnings.push(
+        `${W_NEXUS_LOGIN_RACE_BOTH_LIVE}: two logins on this CLEO home both hold a live credential for device ${snap.deviceId}; kept the newer one`,
+      );
+    } else if (mine.state === 'ok') {
+      keep = 'candidate';
+    } else if (other.state === 'ok') {
+      keep = 'current';
+    } else {
+      keep = 'neither';
+    }
+  }
+  const currentId = current?.credentialId ?? null;
+  const applied = await ctx.devices.update((tx) => {
+    const entry = tx.get(ctx.apiUrl, userId);
+    if (
+      entry === null ||
+      entry.deviceId !== snap.deviceId ||
+      entry.raceCandidate?.credentialId !== candidate.credentialId ||
+      (entry.current?.credentialId ?? null) !== currentId
+    ) {
+      return false;
+    }
+    if (keep === 'candidate') {
+      const promoted = new NexusDeviceEnrolment({
+        deviceId: entry.deviceId,
+        keys: null,
+        credential: {
+          credentialId: candidate.credentialId,
+          token: candidate.token,
+          profile: candidate.profile,
+          scopes: candidate.scopes,
+          createdAt: candidate.createdAt,
+        },
+      });
+      tx.set(ctx.apiUrl, userId, applyEnrolment(entry, promoted, ctx.now()));
+    } else if (keep === 'current') {
+      tx.set(ctx.apiUrl, userId, applyDropRaceCandidate(entry, candidate.credentialId));
+    } else {
+      const dropped = applyDropRaceCandidate(entry, candidate.credentialId);
+      tx.set(
+        ctx.apiUrl,
+        userId,
+        currentId === null ? dropped : applyDropCurrent(dropped, currentId),
+      );
+    }
+    return true;
+  });
+  if (!applied) return 'changed';
+  return keep === 'candidate'
+    ? 'kept-candidate'
+    : keep === 'current'
+      ? 'kept-current'
+      : 'both-refused';
 }
 
 /** The stored entry after step 7. */
@@ -788,6 +903,23 @@ async function enrol(
   let issued: { result: EnrollResult; status: number } | null = null;
   let adopted: SealedNexusDevice | null = null;
   for (let attempt = 0; attempt < 2 && issued === null && adopted === null; attempt++) {
+    // Refresh the intent (owner CAS) right before E1, so a live intent never
+    // looks stale to another upgrader (security review M1). On the one-shot
+    // upgrade path, an intent that is no longer ours means another process
+    // took over: send nothing.
+    let ownIntent: boolean;
+    try {
+      ownIntent = await refreshIntent(ctx, input, prepared);
+    } catch (err) {
+      throw storeErrorToAccountError(err);
+    }
+    if (!ownIntent && input.kind === 'upgrade') {
+      throw new NexusAccountError(
+        'E_NEXUS_BUSY',
+        'another cleo process took over this upgrade; the stored session was not sent',
+        'retry the command',
+      );
+    }
     try {
       issued = await sendEnrol(ctx, input, prepared);
     } catch (err) {
@@ -1215,7 +1347,26 @@ async function retireLeftoverSession(
       `the leftover Cleo Nexus session could not be signed out (${err instanceof Error ? err.message : String(err)}); it was removed locally and expires on its own`,
     );
   }
-  await ctx.sessions.delete(ctx.apiUrl, session);
+  try {
+    await ctx.sessions.delete(ctx.apiUrl, session);
+  } catch (err) {
+    throw sessionStoreError(err);
+  }
+}
+
+/**
+ * Map a `nexus-credentials.json` failure to a CLI error: a held lock
+ * (`ELOCKED`) is {@link NexusAccountError} `E_NEXUS_BUSY` (security review L4).
+ */
+function sessionStoreError(err: unknown): Error {
+  if (err instanceof Error && 'code' in err && err.code === 'ELOCKED') {
+    return new NexusAccountError(
+      'E_NEXUS_BUSY',
+      'another cleo process holds the Nexus session file',
+      'retry the command',
+    );
+  }
+  return err instanceof Error ? err : new Error(String(err));
 }
 
 /**
@@ -1241,9 +1392,11 @@ async function upgradeCheck(
     const stored = await ctx.sessions.get(ctx.apiUrl);
     if (stored === null || stored.bearer() !== session.bearer()) return { kind: 'consumed' };
     const intent = entry?.enrolIntent ?? null;
-    if (intent !== null && intent.kind === 'upgrade' && intent.owner !== input.owner) {
+    // Any live intent (an upgrade or a login) means another process is about
+    // to enrol this identity: wait for it (security review M1, LOW).
+    if (intent !== null && intent.owner !== input.owner) {
       const age = ctx.now().getTime() - Date.parse(intent.startedAt);
-      if (age < ctx.enrolTimeoutMs) return { kind: 'wait' };
+      if (age < ctx.intentStaleMs) return { kind: 'wait' };
       if (intent.owner !== staleOwner) return { kind: 'stale', owner: intent.owner };
       // Second locked read: no credential and the same stale intent. Take over.
     }
@@ -1251,18 +1404,33 @@ async function upgradeCheck(
   });
 }
 
+/** Options for {@link ensureNexusDeviceCredential}. */
+export interface NexusDeviceCredentialOptions extends NexusDeviceFlowOptions {
+  /**
+   * The Nexus user whose device credential to use. Without it, the origin
+   * must hold exactly one account's credential (security review L2).
+   */
+  userId?: string;
+}
+
 /**
  * The device credential for commands that need one (behind `CLEO_NEXUS_DEVICE=1`).
- * A 9.24 session still in `nexus-credentials.json` is upgraded first, once
- * (§3.4); a leftover session next to an existing device credential is removed.
  *
- * @param opts - API URL, stores and test overrides.
+ * - A 9.24 session still in `nexus-credentials.json` is upgraded first, once
+ *   (§3.4); a leftover session next to an existing credential is signed out
+ *   and removed.
+ * - The account is `opts.userId`, else the upgraded one, else the only one
+ *   on the origin; with several, it refuses and lists them.
+ * - A racing login's parked credential is settled with E2 first (§3.3 step
+ *   7); without an answer the current credential is used and a warning added.
+ *
+ * @param opts - API URL, account, stores and test overrides.
  * @returns The sealed device entry and whether an upgrade ran.
- * @throws {NexusAccountError} `E_NEXUS_NOT_SIGNED_IN` when there is neither a
- *   device credential nor a session; the upgrade's errors.
+ * @throws {NexusAccountError} `E_NEXUS_NOT_SIGNED_IN` with no usable
+ *   credential, `E_NEXUS_ACCOUNT_AMBIGUOUS`, or the upgrade's errors.
  */
 export async function ensureNexusDeviceCredential(
-  opts: NexusDeviceFlowOptions = {},
+  opts: NexusDeviceCredentialOptions = {},
 ): Promise<NexusDeviceCredentialHandle> {
   const ctx = context(opts);
   const upgrade = await upgradeNexusSession({
@@ -1271,29 +1439,40 @@ export async function ensureNexusDeviceCredential(
     deviceStore: ctx.devices,
     store: ctx.sessions,
   });
-  if (upgrade.device?.currentBearer()) {
-    return {
-      device: upgrade.device,
-      upgraded: upgrade.outcome === 'upgraded',
-      warnings: upgrade.warnings,
-    };
-  }
-  const origin = nexusOriginKey(ctx.apiUrl);
-  const candidates = (await ctx.devices.list())
-    .filter(
-      (d): d is SealedNexusDevice =>
-        !(d instanceof UnreadableNexusDevice) && d.origin === origin && d.currentBearer() !== null,
-    )
-    .sort((a, b) =>
-      (b.unseal().current?.createdAt ?? '').localeCompare(a.unseal().current?.createdAt ?? ''),
-    );
-  const device = candidates[0];
-  if (device === undefined) {
-    throw new NexusAccountError(
+  const warnings = [...upgrade.warnings];
+  const notSignedIn = (): NexusAccountError =>
+    new NexusAccountError(
       'E_NEXUS_NOT_SIGNED_IN',
       `not signed in to Cleo Nexus at ${ctx.apiUrl}`,
       'run `cleo login nexus`',
     );
+  let userId = opts.userId ?? upgrade.device?.userId ?? null;
+  if (userId === null) {
+    const origin = nexusOriginKey(ctx.apiUrl);
+    const holders = new Set<string>();
+    for (const d of await ctx.devices.list()) {
+      if (d instanceof UnreadableNexusDevice || d.origin !== origin) continue;
+      if (d.currentBearer() !== null || d.unseal().raceCandidate) holders.add(d.userId);
+    }
+    if (holders.size === 0) throw notSignedIn();
+    if (holders.size > 1) {
+      throw new NexusAccountError(
+        'E_NEXUS_ACCOUNT_AMBIGUOUS',
+        `several Cleo Nexus accounts are signed in at ${ctx.apiUrl} on this CLEO home (users ${[...holders].sort().join(', ')}); refusing to pick one`,
+        'sign out the accounts you do not use with `cleo logout nexus`, or name the account explicitly',
+      );
+    }
+    userId = [...holders][0] ?? null;
+    if (userId === null) throw notSignedIn();
   }
-  return { device, upgraded: false, warnings: upgrade.warnings };
+  const settled = await settleRaceCandidate(ctx, userId, warnings);
+  if (settled === 'both-refused') throw notSignedIn();
+  if (settled === 'unknown' || settled === 'changed') {
+    warnings.push(
+      'a racing login left two credentials for this device and the server could not say which is live yet; using the current one',
+    );
+  }
+  const device = await ctx.devices.get(ctx.apiUrl, userId);
+  if (device === null || device.currentBearer() === null) throw notSignedIn();
+  return { device, upgraded: upgrade.outcome === 'upgraded', warnings };
 }

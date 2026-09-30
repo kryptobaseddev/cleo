@@ -53,7 +53,12 @@ export function failNexus(err: unknown, operation: string): never {
     err instanceof Error && 'code' in err && typeof err.code === 'string' ? err.code : undefined;
   const fix =
     err instanceof Error && 'fix' in err && typeof err.fix === 'string' ? err.fix : undefined;
-  const exitCode = code === 'E_NEXUS_INVALID_API_URL' || code === 'E_NEXUS_INVALID_LABEL' ? 6 : 1;
+  const exitCode =
+    code === 'E_NEXUS_INVALID_API_URL' ||
+    code === 'E_NEXUS_INVALID_LABEL' ||
+    code === 'E_NEXUS_DEVICE_REQUIRED'
+      ? 6
+      : 1;
   cliError(
     err instanceof Error ? err.message : String(err),
     exitCode,
@@ -110,6 +115,19 @@ export async function runNexusLogin(
   };
   const readOnly = args['read-only'] === true;
   const name = typeof args['name'] === 'string' && args['name'] !== '' ? args['name'] : undefined;
+  if (readOnly && !isNexusDeviceEnabled()) {
+    // Never fall back to a full-privilege session login when the user asked
+    // for read-only (security review L1).
+    throw Object.assign(
+      new Error(
+        '--read-only needs device credentials, which are not enabled; nothing was signed in',
+      ),
+      {
+        code: 'E_NEXUS_DEVICE_REQUIRED',
+        fix: 'set CLEO_NEXUS_DEVICE=1 to enrol a read-only device, or log in without --read-only',
+      },
+    );
+  }
   try {
     let result: NexusLoginResult;
     if (isNexusDeviceEnabled()) {
@@ -124,9 +142,9 @@ export async function runNexusLogin(
         ...(name !== undefined ? { name } : {}),
       });
     } else {
-      if (readOnly || name !== undefined) {
+      if (name !== undefined) {
         process.stderr.write(
-          'warning: --read-only and --name need device credentials (CLEO_NEXUS_DEVICE=1); ignored\n',
+          'warning: --name needs device credentials (CLEO_NEXUS_DEVICE=1); ignored\n',
         );
       }
       result = await loginToNexus(hooks);

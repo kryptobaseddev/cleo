@@ -80,6 +80,15 @@ describe('runNexusLogin', () => {
     expect(loginToNexusDevice).not.toHaveBeenCalled();
   });
 
+  it('with the flag unset, --read-only is REFUSED, never a full-privilege login (review L1)', async () => {
+    delete process.env['CLEO_NEXUS_DEVICE'];
+    await expect(runNexusLogin({ 'read-only': true }, () => {})).rejects.toMatchObject({
+      code: 'E_NEXUS_DEVICE_REQUIRED',
+    });
+    expect(loginToNexus).not.toHaveBeenCalled();
+    expect(loginToNexusDevice).not.toHaveBeenCalled();
+  });
+
   it('with CLEO_NEXUS_DEVICE=1, enrols the device with --read-only and --name', async () => {
     process.env['CLEO_NEXUS_DEVICE'] = '1';
     const result = await runNexusLogin({ 'read-only': true, name: 'ci box' }, () => {});

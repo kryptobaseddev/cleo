@@ -63,6 +63,10 @@ export const NEXUS_ACCOUNT_ERROR_CODES = [
   'E_NEXUS_REPLICA_COPIED',
   /** Another cleo process holds the device file or an upgrade in flight; retry. */
   'E_NEXUS_BUSY',
+  /** Several accounts hold a device credential on one origin and none was named. */
+  'E_NEXUS_ACCOUNT_AMBIGUOUS',
+  /** An option that needs device credentials (`--read-only`) without `CLEO_NEXUS_DEVICE=1`. */
+  'E_NEXUS_DEVICE_REQUIRED',
 ] as const;
 
 /** One of {@link NEXUS_ACCOUNT_ERROR_CODES}. */

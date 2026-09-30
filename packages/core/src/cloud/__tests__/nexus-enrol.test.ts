@@ -31,11 +31,15 @@ import { generateEd25519, generateX25519, verifyEd25519 } from '../crypto.js';
 import type { FetchLike } from '../http.js';
 import { NexusError } from '../http.js';
 import { NexusAccountError } from '../nexus-auth.js';
+import type { NexusTokenStore } from '../nexus-credentials.js';
 import { FileNexusTokenStore } from '../nexus-credentials.js';
 import {
   applyBeginRevoke,
   applyEnrolIntent,
+  applyEnrolment,
+  guardNexusDeviceSecrets,
   NEXUS_DEVICE_ENV,
+  NexusDeviceEnrolment,
   type NexusDeviceKeys,
   NexusDeviceStore,
 } from '../nexus-device.js';
@@ -137,6 +141,8 @@ class MockNexus {
   beforeEnrol: EnrolHook | null = null;
   /** Runs after E1 committed; `drop` loses the answer. */
   afterEnrol: EnrolHook | null = null;
+  /** Runs before every E2 (delays, probes of the file). */
+  beforeWhoami: ((auth: string) => Promise<void>) | null = null;
   /** Answer E2 for device credentials with this status instead (5xx tests). */
   whoamiDeviceStatus: number | null = null;
   /** Re-enrolment revokes older credentials (the contract); off to force "both live". */
@@ -194,6 +200,7 @@ class MockNexus {
         return json(200, { success: true });
       }
       case '/v1/whoami':
+        if (this.beforeWhoami) await this.beforeWhoami(auth);
         return this.whoami(auth);
       case '/v1/devices/enroll':
         return this.enrol(auth, body ?? {});
@@ -639,19 +646,57 @@ describe('loginToNexusDevice: concurrent logins on one home (M6, step 7)', () =>
     expect(await storedToken()).toBeNull();
   });
 
-  it('an unanswered E2 leaves the file unchanged', async () => {
-    const { a } = await race({
-      beforeRelease: () => {
-        server.whoamiDeviceStatus = 503;
-      },
-    });
-    const kept = await storedToken();
-    expect(a).toBeInstanceOf(NexusAccountError);
-    expect((a as NexusAccountError).code).toBe('E_NEXUS_UNREACHABLE');
-    expect((a as NexusAccountError).fix).toContain('re-enrols the same device id');
-    // B's credential (stored first) is still there, untouched.
+  it('M2: the later E1 is never lost: parked as a sealed race candidate, settled by the next command', async () => {
+    // A enrols first and stores; B prepared before A stored, so its later E1
+    // (which revokes A's credential) meets A's credential at step 7.
+    const aCommitted = deferred();
+    const releaseA = deferred();
+    const bEnrolling = deferred();
+    const releaseB = deferred();
+    server.beforeEnrol = async (n) => {
+      if (n === 2) {
+        bEnrolling.resolve();
+        await releaseB.promise;
+      }
+      return undefined;
+    };
+    server.afterEnrol = async (n) => {
+      if (n === 1) {
+        aCommitted.resolve();
+        await releaseA.promise;
+      }
+      return undefined;
+    };
+    const a = loginToNexusDevice(flow());
+    await aCommitted.promise;
+    const b = loginToNexusDevice(flow()).then(
+      (r) => r,
+      (e: Error) => e,
+    );
+    await bEnrolling.promise;
+    releaseA.resolve();
+    await a;
+    server.whoamiDeviceStatus = 503;
+    releaseB.resolve();
+    const bResult = await b;
+
+    expect(bResult).toBeInstanceOf(NexusAccountError);
+    expect((bResult as NexusAccountError).code).toBe('E_NEXUS_UNREACHABLE');
+    expect((bResult as NexusAccountError).fix).toContain('re-enrols the same device id');
+    const aCred = server.creds[0];
     const bCred = server.creds[1];
-    expect(kept).toBe(bCred?.token);
+    expect(aCred?.live).toBe(false);
+    expect(bCred?.live).toBe(true);
+    const entry = (await devices.get(API, USER))?.unseal();
+    expect(entry?.current?.token).toBe(aCred?.token);
+    expect(entry?.raceCandidate?.token).toBe(bCred?.token);
+    expect(readFileSync(devices.location, 'utf-8')).not.toContain('cnx_d1_');
+
+    // Next command, server reachable: E2 settles it to the live credential.
+    server.whoamiDeviceStatus = null;
+    const handle = await ensureNexusDeviceCredential(flow());
+    expect(handle.device.currentBearer()).toBe(bCred?.token);
+    expect((await devices.get(API, USER))?.unseal().raceCandidate ?? null).toBeNull();
   });
 });
 
@@ -931,5 +976,189 @@ describe('linkProjectToNexus with CLEO_NEXUS_DEVICE=1', () => {
     expect(result.alreadyLinked).toBe(true);
     expect(server.count('/v1/devices/enroll')).toBe(1);
     expect(await sessions.get(API)).toBeNull();
+  });
+});
+
+// ---------- security review of #1759 (M1, M2, L2, L3, L4, L7) ----------
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const USER2 = '0198a1b2-0000-7000-8000-0000000000bb';
+
+async function seedEntry(userId: string, deviceId: string): Promise<string> {
+  const token = `cnx_d1_${randomBytes(32).toString('base64url')}`;
+  await devices.update((tx) => {
+    tx.set(
+      API,
+      userId,
+      applyEnrolment(
+        tx.get(API, userId),
+        new NexusDeviceEnrolment({
+          deviceId,
+          keys: keyPairs(),
+          credential: {
+            credentialId: serverUuid(),
+            token,
+            profile: 'device',
+            scopes: ['account:read'],
+            createdAt: new Date().toISOString(),
+          },
+        }),
+      ),
+    );
+  });
+  return token;
+}
+
+describe('review M1: the upgrade intent never goes stale under a live owner', () => {
+  it('a live owner past E1 timeout is not taken over: one E1 on one exempt session', async () => {
+    await seedV1Session();
+    const opts = flow({ enrolTimeoutMs: 300, whoamiTimeoutMs: 300, intentMarginMs: 100 });
+    const aInWhoami = deferred();
+    let first = true;
+    server.beforeWhoami = async () => {
+      if (first) {
+        first = false;
+        aInWhoami.resolve();
+        await sleep(250);
+      }
+    };
+    server.beforeEnrol = async () => {
+      await sleep(250);
+      return undefined;
+    };
+    const a = upgradeNexusSession(opts).then(
+      (r) => r,
+      (e: Error) => e,
+    );
+    await aInWhoami.promise;
+    const b = upgradeNexusSession(opts).then(
+      (r) => r,
+      (e: Error) => e,
+    );
+    const [ra, rb] = await Promise.all([a, b]);
+    expect(server.count('/v1/devices/enroll')).toBe(1);
+    expect(ra).not.toBeInstanceOf(Error);
+    expect(rb).not.toBeInstanceOf(Error);
+  });
+
+  it('refreshes startedAt with an owner CAS right before E1', async () => {
+    await seedV1Session();
+    let atWhoami: string | null = null;
+    let atEnrol: string | null = null;
+    const read = async () =>
+      (await devices.get(API, USER))?.unseal().enrolIntent?.startedAt ?? null;
+    server.beforeWhoami = async () => {
+      if (atWhoami === null) atWhoami = await read();
+      await sleep(20);
+    };
+    server.beforeEnrol = async () => {
+      atEnrol = await read();
+      return undefined;
+    };
+    await upgradeNexusSession(flow());
+    expect(atWhoami).not.toBeNull();
+    expect(atEnrol).not.toBeNull();
+    expect(Date.parse(atEnrol ?? '')).toBeGreaterThan(Date.parse(atWhoami ?? ''));
+  });
+
+  it('waits on a live LOGIN intent too while a v1 session exists (no E1, no E2)', async () => {
+    await seedV1Session();
+    const deviceId = '0198a1b2-0000-7000-8000-00000000abcf';
+    await devices.update((tx) => {
+      tx.set(
+        API,
+        USER,
+        applyEnrolIntent(null, {
+          deviceId,
+          keys: keyPairs(),
+          intent: {
+            deviceId,
+            kind: 'login',
+            owner: 'd'.repeat(32),
+            startedAt: new Date().toISOString(),
+          },
+        }),
+      );
+    });
+    await accountError(upgradeNexusSession(flow({ upgradeWaitMs: 150 })), 'E_NEXUS_BUSY');
+    expect(server.count('/v1/devices/enroll')).toBe(0);
+    expect(server.count('/v1/whoami')).toBe(0);
+  });
+});
+
+describe('review M2(b): credential-revoked by re-enrolment', () => {
+  it('maps revokedReason reenrolled to a login-required error, not COMPROMISED', () => {
+    const mapped = nexusApiErrorToAccountError(
+      new NexusError('E_UNAUTHENTICATED', 'm', 401, 'r', {
+        reason: 'credential-revoked',
+        revokedReason: 'reenrolled',
+      }),
+    );
+    expect((mapped as NexusAccountError).code).toBe('E_NEXUS_NOT_SIGNED_IN');
+    expect((mapped as NexusAccountError).fix).toContain('cleo login nexus');
+    expect(mapped.message).not.toContain('possibly used');
+  });
+});
+
+describe('review L2: one account per origin, or an explicit user', () => {
+  it('refuses when several accounts hold a credential on the origin, and lists them', async () => {
+    await seedEntry(USER, '0198a1b2-0000-7000-8000-0000000000c1');
+    await seedEntry(USER2, '0198a1b2-0000-7000-8000-0000000000c2');
+    const err = await accountError(
+      ensureNexusDeviceCredential(flow()),
+      'E_NEXUS_ACCOUNT_AMBIGUOUS',
+    );
+    expect(err.message).toContain(USER);
+    expect(err.message).toContain(USER2);
+  });
+
+  it('an explicit user picks that account', async () => {
+    await seedEntry(USER, '0198a1b2-0000-7000-8000-0000000000c1');
+    const token2 = await seedEntry(USER2, '0198a1b2-0000-7000-8000-0000000000c2');
+    const handle = await ensureNexusDeviceCredential(flow({ userId: USER2 }));
+    expect(handle.device.currentBearer()).toBe(token2);
+  });
+});
+
+describe("review L3: step 7 never retires another device's credential", () => {
+  it('refuses when the identity changed between steps 5 and 7, leaving the other device intact', async () => {
+    const other = '0198a1b2-0000-7000-8000-0000000000d1';
+    let otherToken = '';
+    server.afterEnrol = async (n) => {
+      if (n === 1) otherToken = await seedEntry(USER, other);
+      return undefined;
+    };
+    await accountError(loginToNexusDevice(flow()), 'E_NEXUS_BUSY');
+    const entry = (await devices.get(API, USER))?.unseal();
+    expect(entry?.deviceId).toBe(other);
+    expect(entry?.current?.token).toBe(otherToken);
+    expect(entry?.retired ?? []).toEqual([]);
+  });
+});
+
+describe('review L4: a busy v1 file maps to E_NEXUS_BUSY', () => {
+  it('an ELOCKED while removing the leftover session is E_NEXUS_BUSY', async () => {
+    await loginToNexusDevice(flow());
+    await seedV1Session(false);
+    const locked: NexusTokenStore = {
+      location: sessions.location,
+      get: (u) => sessions.get(u),
+      put: (u, v) => sessions.put(u, v),
+      list: () => sessions.list(),
+      delete: async () => {
+        throw Object.assign(new Error('Lock file is already being held'), { code: 'ELOCKED' });
+      },
+    };
+    await accountError(upgradeNexusSession(flow({ store: locked })), 'E_NEXUS_BUSY');
+  });
+});
+
+describe('review L7: guarded key material', () => {
+  it('guardNexusDeviceSecrets hides private keys from inspect and JSON', () => {
+    const keys = keyPairs();
+    const guarded = guardNexusDeviceSecrets({ deviceId: 'x', keys });
+    const priv = keys.signing.privateKey;
+    expect(inspect(guarded, { depth: 10 })).not.toContain(priv);
+    expect(JSON.stringify(guarded)).not.toContain(priv);
   });
 });
