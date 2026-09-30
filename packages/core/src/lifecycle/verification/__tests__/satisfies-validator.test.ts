@@ -782,6 +782,42 @@ describe('validateSatisfiesAtom — 5-check pipeline (T10507 · ADR-079-r2 §2.4
       expect(result.reason).toMatch(newAcId);
     });
 
+    it('still fires after the old AC (and so its binding) was removed — history lives in the audit log (T12790)', async () => {
+      const oldAcId = uuid();
+      const newAcId = uuid();
+      await seedTasks(env.accessor, [
+        {
+          id: 'TS-SAGA-1',
+          title: 'saga',
+          type: 'epic',
+          status: 'pending',
+          priority: 'high',
+          labels: ['saga'],
+        },
+        { id: 'T100', title: 'source', type: 'task', status: 'pending', priority: 'medium' },
+        { id: 'T200', title: 'target', type: 'task', status: 'pending', priority: 'medium' },
+      ]);
+      await linkSagaMember(env.tempDir, 'TS-SAGA-1', 'T100');
+      await linkSagaMember(env.tempDir, 'TS-SAGA-1', 'T200');
+      await insertAc(env.tempDir, oldAcId, 'T200', 1);
+      await insertBinding(env.tempDir, 'satisfies:T100->T200#AC1', oldAcId);
+
+      // The AC diff path removes the old AC; its binding leaves with it.
+      await env.accessor.transaction((tx) => tx.deleteAcRowsByIds('T200', [oldAcId]));
+      expect(await env.accessor.getAcBindings([oldAcId])).toEqual([]);
+      await insertAc(env.tempDir, newAcId, 'T200', 1);
+
+      const result = await validateSatisfiesAtom(
+        { kind: 'satisfies', targetTaskId: 'T200', targetAcAlias: 'AC1' },
+        'T100',
+        env.tempDir,
+      );
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error('unreachable');
+      expect(result.codeName).toBe('E_AC_ALIAS_DRIFTED');
+      expect(result.reason).toMatch(oldAcId);
+    });
+
     it('does NOT fire when previously-persisted binding matches the current resolution', async () => {
       const acId = uuid();
       await seedTasks(env.accessor, [

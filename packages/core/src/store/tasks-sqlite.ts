@@ -26,6 +26,7 @@ import { and, asc, count, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
 import { getProjectRoot, worktreeScope } from '../project-scope.js';
 import { applyAcPlan, planAcUpdate } from '../tasks/ac-table.js';
+import { pruneAcBindingsForTask } from './ac-binding-prune.js';
 import { rowToTask, taskToRow } from './converters.js';
 import { cleanupBrainRefsOnTaskDelete } from './cross-db-cleanup.js';
 import {
@@ -192,7 +193,14 @@ export async function deleteTask(taskId: string, cwd?: string): Promise<boolean>
       .all();
     if (existing.length === 0) return false;
 
-    db.delete(schema.tasks).where(eq(schema.tasks.id, taskId)).run();
+    // T12790: one transaction for the delete AND the explicit prune of the
+    // evidence bindings of the task's AC rows (they cascade from tasks_tasks,
+    // but the bindings table has no FK to them).
+    const accessor = await createSqliteDataAccessor(cwd);
+    await accessor.transaction(async () => {
+      await pruneAcBindingsForTask(db, taskId);
+      db.delete(schema.tasks).where(eq(schema.tasks.id, taskId)).run();
+    });
 
     // T033 Part 4: Cross-DB cleanup — nullify brain.db soft FK refs to this task.
     // Runs after deletion to avoid blocking the task delete path on brain errors.

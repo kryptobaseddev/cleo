@@ -223,6 +223,11 @@ export class SafetyDataAccessor implements DataAccessor {
     return this.inner.getAcBindings(acIds);
   }
 
+  /** @task T12790 */
+  async findOrphanAcBindings() {
+    return this.inner.findOrphanAcBindings();
+  }
+
   // ---- Metadata (pass-through to inner) ----
 
   async getMetaValue<T>(key: string): Promise<T | null> {

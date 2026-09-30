@@ -581,6 +581,16 @@ export interface TransactionAccessor {
       bindingType: 'direct' | 'satisfies' | 'coverage';
     }>,
   ): Promise<void>;
+  /**
+   * Delete every `evidence_ac_bindings` row whose `ac_id` names no AC row
+   * (bindings left behind before AC removal pruned them), recording each
+   * removed row in the task audit log (`ac.bindings.pruned`) first. Backs
+   * `cleo doctor ac-bindings --fix`.
+   *
+   * @returns the removed bindings
+   * @task T12790
+   */
+  pruneOrphanAcBindings(): Promise<AcBindingRow[]>;
 }
 
 // Re-export AcRow at the module level for both transaction + outer accessor use.
@@ -671,6 +681,14 @@ export interface DataAccessor {
    * @task T10509
    */
   getAcBindings(acIds: readonly string[]): Promise<AcBindingRow[]>;
+
+  /**
+   * Read every `evidence_ac_bindings` row whose `ac_id` names no row of
+   * `task_acceptance_criteria` — a binding for an AC that no longer exists.
+   * Read-only; backs `cleo doctor ac-bindings`.
+   * @task T12790
+   */
+  findOrphanAcBindings(): Promise<AcBindingRow[]>;
 
   // ---- Metadata (schema_meta KV store) ----
 
