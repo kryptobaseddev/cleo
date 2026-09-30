@@ -17,9 +17,23 @@
  *   never replies (installed by a `--import` preload that points every
  *   resolver in the child at it).
  *
- * The assertion is on process EXIT, relative to an unconfigured `cleo add` in
- * the same project: the configured add may cost at most the decision budget
- * plus slack more, and stderr must not carry the backstop message.
+ * The assertion is on process EXIT and on the decision's own timing:
+ *
+ * - the process exits on its own (no signal, rc 0, envelope on stdout) and
+ *   stderr does not carry the backstop message;
+ * - relative to an unconfigured `cleo add` in the same project, the configured
+ *   add costs less than {@link HANG_CEILING_MS} more — a held connect-phase
+ *   handle keeps the loop alive until the backstop fires 3 s after teardown,
+ *   so a leak lands above the ceiling however fast the runner is;
+ * - for a stalled provider, the audit line records `fallbackReason: 'timeout'`
+ *   with an in-process `latencyMs` of at least the budget and well under the
+ *   ceiling: the deadline itself fired, measured without process-startup noise.
+ *
+ * The wall-clock delta used to be held to budget + 600 ms. Process startup on a
+ * shared CI runner varies by more than that between two spawns (T12840: 928 ms
+ * over a 2255 ms baseline on PR #1734), so the tight bound failed runs whose
+ * exit behaviour was correct. The ceiling now separates "exited" from "hung
+ * until the backstop", which is the defect this file exists for.
  *
  * @task T12492
  */
@@ -39,8 +53,19 @@ const CLI_DIST_AVAILABLE = existsSync(CLI_DIST);
 
 /** Decision budget (mirrors `DUPLICATE_DECISION_BUDGET_MS`). */
 const DECISION_BUDGET_MS = 300;
-/** Slack over the unconfigured baseline for scheduling noise. */
-const SLACK_MS = 600;
+/**
+ * Most a configured add may cost over the unconfigured baseline. Equal to the
+ * teardown backstop's grace (`EXIT_BACKSTOP_MS`): a leaked handle holds the
+ * process for at least that long, while a healthy run's cost is the budget plus
+ * startup jitter (≈ 1 s on a loaded runner).
+ */
+const HANG_CEILING_MS = 3_000;
+/**
+ * Most the decision itself (the audited in-process `latencyMs`) may take when the
+ * provider stalls: the budget plus slack for event-loop scheduling. Far below any
+ * OS connect timeout, so it proves the deadline — not the network — ended the wait.
+ */
+const TIMEOUT_LATENCY_CEILING_MS = DECISION_BUDGET_MS + 700;
 /** The teardown backstop's stderr signature. */
 const BACKSTOP = /event loop still alive/;
 
@@ -293,13 +318,31 @@ describe.skipIf(!CLI_DIST_AVAILABLE)(
       rmSync(root, { recursive: true, force: true });
     });
 
-    /** Fallback reason of the newest decision audit line — proves the case hit the stalled phase. */
-    function lastFallbackReason(): string | undefined {
+    /** The newest decision audit line. */
+    function lastAudit(): { fallbackReason?: string; latencyMs?: number } {
       const lines = readFileSync(join(project, '.cleo', 'audit', 'decisions.jsonl'), 'utf-8')
         .trim()
         .split('\n');
-      const last = JSON.parse(lines[lines.length - 1] ?? '{}') as { fallbackReason?: string };
-      return last.fallbackReason;
+      return JSON.parse(lines[lines.length - 1] ?? '{}') as {
+        fallbackReason?: string;
+        latencyMs?: number;
+      };
+    }
+
+    /** Fallback reason of the newest decision audit line — proves the case hit the stalled phase. */
+    function lastFallbackReason(): string | undefined {
+      return lastAudit().fallbackReason;
+    }
+
+    /** The newest decision fell back because its deadline fired, at about the budget. */
+    function expectDeadlineFired(): void {
+      const audit = lastAudit();
+      const context = JSON.stringify(audit);
+      expect(audit.fallbackReason, context).toBe('timeout');
+      // Timers never fire early by more than a millisecond; the clock starts
+      // before the deadline is armed.
+      expect(audit.latencyMs, context).toBeGreaterThanOrEqual(DECISION_BUDGET_MS - 5);
+      expect(audit.latencyMs, context).toBeLessThan(TIMEOUT_LATENCY_CEILING_MS);
     }
 
     function expectPromptExit(run: Run, label: string): void {
@@ -308,13 +351,13 @@ describe.skipIf(!CLI_DIST_AVAILABLE)(
       expect(run.status, context).toBe(0);
       expect(run.stdout, context).toContain('"success":true');
       expect(run.stderr, context).not.toMatch(BACKSTOP);
-      expect(run.ms - baselineMs, context).toBeLessThan(DECISION_BUDGET_MS + SLACK_MS);
+      expect(run.ms - baselineMs, context).toBeLessThan(HANG_CEILING_MS);
     }
 
     it('TLS black hole (accepts, never speaks)', () => {
       configure(`https://127.0.0.1:${tlsHolePort}`);
       expectPromptExit(ambiguousAdd(), 'tls-black-hole');
-      expect(lastFallbackReason()).toBe('timeout');
+      expectDeadlineFired();
     }, 60_000);
 
     it('unroutable address (SYN goes nowhere)', () => {
@@ -354,7 +397,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)(
         }),
         'slow-dns',
       );
-      expect(lastFallbackReason()).toBe('timeout');
+      expectDeadlineFired();
     }, 60_000);
   },
 );
