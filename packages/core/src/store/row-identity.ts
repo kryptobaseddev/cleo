@@ -1372,7 +1372,8 @@ export function preReleaseBirthFp(
  * Birth fingerprints a pre-release build derived (e.g. a worktree CLI that
  * opened live cleocode, 2026-09-28) are cleared, so the fill re-derives them
  * with the release recipe. Targeted: a value is cleared ONLY when it equals
- * {@link preReleaseBirthFp} of its row; values from any other source (a
+ * {@link preReleaseBirthFp} of its row, or hashes a fingerprint cleared here
+ * (@ownerFp / @refFp; T12801); values from any other source (a
  * device that received them by sync, a store whose meta table was lost) are
  * kept, and alias rows are never touched. The uid recipe did not change, so
  * uids are kept. Runs only while the recipe marker is missing or stale, and
@@ -1385,22 +1386,42 @@ function resetStaleIdentity(
 ): RowUidFillReport['refill'] {
   if (scope !== 'project' || !hasTable(db, ROW_IDENTITY_META_TABLE)) return 'none';
   if (readMeta(db, ROW_IDENTITY_RECIPE_KEY) === ROW_IDENTITY_RECIPE) return 'none';
-  const minted = ROW_IDENTITY.project.filter(
-    (spec) =>
-      spec.kind === 'minted' &&
-      hasTable(db, spec.table) &&
-      columnsOf(db, spec.table).has(BIRTH_FP_COLUMN),
+  const minted = fingerprintOrder('project', ROW_IDENTITY.project).filter(
+    (spec) => hasTable(db, spec.table) && columnsOf(db, spec.table).has(BIRTH_FP_COLUMN),
   );
+  // A value is stale when it equals the pre-release recipe of its row, OR when
+  // it was derived from a stale value: a fingerprint that hashes its owner's
+  // or its criterion's fingerprint (@ownerFp / @refFp) whose source is being
+  // cleared. That covers a criterion whose uid and fingerprint an edit carried
+  // onto a new row (the pre-release recipe cannot be recomputed from the new
+  // row, T12801). Tables are visited owners first.
   const stale: Array<{ table: string; rowid: number }> = [];
+  const cleared = new Map<string, Set<string>>(); // `${table}.${column}` → cleared values
+  const mark = (table: string, column: string, value: UidInput | undefined) => {
+    if (value === null || value === undefined) return;
+    const key = `${table}.${column}`;
+    const set = cleared.get(key) ?? new Set<string>();
+    set.add(String(value));
+    cleared.set(key, set);
+  };
   for (const spec of minted) {
+    const deps = (spec.birthFacts ?? [])
+      .map((fact) => fingerprintRef('project', spec, fact))
+      .filter((d): d is { table: string; column: string; key: string } => d !== null);
+    const keyColumn = targetKey('project', spec.table);
     const rows = db
       .prepare(
         `SELECT rowid AS _rowid, * FROM main.${q(spec.table)} WHERE ${q(BIRTH_FP_COLUMN)} IS NOT NULL`,
       )
       .all() as Array<Record<string, UidInput> & { _rowid: number }>;
     for (const row of rows) {
-      if (row[BIRTH_FP_COLUMN] === preReleaseBirthFp(db, spec.table, row)) {
+      const derivedFromStale = deps.some((d) =>
+        cleared.get(`${d.table}.${d.key}`)?.has(String(row[d.column] ?? '')),
+      );
+      if (derivedFromStale || row[BIRTH_FP_COLUMN] === preReleaseBirthFp(db, spec.table, row)) {
         stale.push({ table: spec.table, rowid: row._rowid });
+        mark(spec.table, keyColumn, row[keyColumn]);
+        mark(spec.table, UID_COLUMN, row[UID_COLUMN]);
       }
     }
   }

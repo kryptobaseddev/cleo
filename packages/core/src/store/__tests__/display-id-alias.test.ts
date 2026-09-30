@@ -350,6 +350,82 @@ describe('two stores created offline (AC2, AC3)', () => {
     }
   });
 
+  it('receiving a row re-tries only the held rows it may unblock, and never rewrites them (T12801)', () => {
+    // 50 rows held on references to tasks that never arrive.
+    for (let i = 0; i < 50; i++) {
+      receiveRow(a.db, {
+        table: 'tasks_task_labels',
+        uid: `label-${i}`,
+        birthFp: null,
+        values: { label: `waiting-${i}` },
+        refs: {
+          task_id: { uid: `0199ffff-0000-7000-8000-${String(i).padStart(12, '0')}`, birthFp: 'x' },
+        },
+      });
+    }
+    const snapshot = () =>
+      a.db
+        .prepare(
+          "SELECT rowid, row_json FROM tasks_identity_quarantine WHERE entity_table = 'tasks_task_labels' ORDER BY rowid",
+        )
+        .all();
+    const before = snapshot();
+    expect(before).toHaveLength(50);
+    // Unrelated rows arrive and are placed: none of the held rows is rewritten.
+    addTask(b, 'T006', 'epsilon (B)', '2026-09-25T14:00:00.000Z');
+    for (const t of tasksOf(b.db)) receiveRow(a.db, wireRowOf(b.db, 'tasks_tasks', t.uid));
+    expect(idByTitle(a.db).get('epsilon (B)')).toBe('T006');
+    expect(snapshot()).toEqual(before);
+  });
+
+  it('a received task is validated: no claim lease, invalid rows held, guards enforced (T12801)', () => {
+    b.db
+      .prepare(
+        `UPDATE tasks_tasks SET claimed_by_session = 'ses-b', claimed_by_agent = 'agent-b',
+           claimed_at = '2026-09-29T00:00:00.000Z', lease_expires_at = '2099-01-01T00:00:00.000Z'
+         WHERE id = 'T005'`,
+      )
+      .run();
+    const gamma = tasksOf(b.db).find((t) => t.title === 'gamma (B)') as TaskRow;
+    const wire = wireRowOf(b.db, 'tasks_tasks', gamma.uid);
+    // A row that breaks the task schema is held, not inserted, and nothing throws.
+    expect(
+      receiveRow(a.db, {
+        ...wire,
+        uid: 'bad-status',
+        values: { ...wire.values, id: 'T990', status: 'bogus' },
+      }),
+    ).toMatchObject({ status: 'held', reason: 'invalid' });
+    // A row the store's triggers refuse (a saga must be a root) is held too.
+    const epic = tasksOf(a.db).find((t) => t.title === 'Shared epic') as TaskRow;
+    expect(
+      receiveRow(a.db, {
+        ...wire,
+        uid: 'bad-parent',
+        values: { ...wire.values, id: 'T991', type: 'saga' },
+        refs: { ...wire.refs, parent_id: { uid: epic.uid, birthFp: epic.birth_fp } },
+      }),
+    ).toMatchObject({ status: 'held', reason: 'invalid' });
+    expect(
+      a.db.prepare("SELECT count(*) AS n FROM tasks_tasks WHERE id IN ('T990', 'T991')").get(),
+    ).toEqual({ n: 0 });
+    // A valid task arrives without the sender's claim lease.
+    const alphaSlot = receiveRow(a.db, { ...wire, values: { ...wire.values, id: 'T992' } });
+    expect(alphaSlot).toMatchObject({ status: 'inserted', key: 'T992' });
+    expect(
+      a.db
+        .prepare(
+          "SELECT claimed_by_session, claimed_by_agent, claimed_at, lease_expires_at FROM tasks_tasks WHERE id = 'T992'",
+        )
+        .get(),
+    ).toEqual({
+      claimed_by_session: null,
+      claimed_by_agent: null,
+      claimed_at: null,
+      lease_expires_at: null,
+    });
+  });
+
   it('a non-authority never allocates: it records, applies, or reports a conflict', () => {
     const alpha = tasksOf(a.db).find((t) => t.title === 'alpha (A)') as TaskRow;
     const op = (newId: string): RemintOp => ({
@@ -643,12 +719,28 @@ describe('uid collision: re-key the loser, every replica applies it (T12744, T12
     ]);
     expect(W.prepare('SELECT count(*) AS n FROM tasks_task_relations').get()).toEqual({ n: 0 });
     // The winner is never re-keyed (T12744).
-    expect(() => rekeyRowUid(W, 'tasks_tasks', U, fpW)).toThrow(/not the loser/);
-    expect(() => rekeyRowUid(Z, 'tasks_tasks', U, fpW)).toThrow(/not the loser/);
-    expect(() => rekeyRowUid(Z, 'tasks_tasks', U, 'f'.repeat(32))).toThrow(/No tasks_tasks row/);
+    expect(() =>
+      rekeyRowUid(W, 'tasks_tasks', U, { loserBirthFp: fpW, winnerBirthFp: fpL }),
+    ).toThrow(/not the loser/);
+    expect(() =>
+      rekeyRowUid(Z, 'tasks_tasks', U, { loserBirthFp: fpW, winnerBirthFp: fpL }),
+    ).toThrow(/not the loser/);
+    // A pair the caller got wrong (the named winner is not the one here) is refused too.
+    expect(() =>
+      rekeyRowUid(W, 'tasks_tasks', U, { loserBirthFp: fpL, winnerBirthFp: '0'.repeat(32) }),
+    ).toThrow(/not the loser/);
+    expect(() =>
+      rekeyRowUid(Z, 'tasks_tasks', U, { loserBirthFp: 'f'.repeat(32), winnerBirthFp: fpL }),
+    ).toThrow(/No tasks_tasks row/);
 
     // ---- The authority re-keys the loser and publishes the receipt.
-    const R = rekeyRowUid(Z, 'tasks_tasks', U, fpL, { origin: 'dev-Z', displacedHlc: clock('z') });
+    const R = rekeyRowUid(
+      Z,
+      'tasks_tasks',
+      U,
+      { loserBirthFp: fpL, winnerBirthFp: fpW },
+      { origin: 'dev-Z', displacedHlc: clock('z') },
+    );
     expect(identity(Z, "id = 'T101'")).toEqual({ id: 'T101', uid: R.newUid, fp: fpL });
     // Children re-keyed from stored identity, although the owner's key changed.
     expect(R.cascaded.map((c) => [c.table, c.oldUid, c.newUid]).sort()).toEqual(

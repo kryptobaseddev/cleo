@@ -604,6 +604,26 @@ describe('uid fill through the open path', () => {
     );
   });
 
+  it('re-derives a carried criterion fingerprint that hashed a stale owner fingerprint (T12801)', () => {
+    db.exec(`INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, text, kind, source_key)
+        VALUES ('ac-t001', 'T001', 1, 'tests pass', 'text', 'text:1:x')`);
+    prepareRowIdentity(db, 'project');
+    const fresh = one(
+      "SELECT birth_fp FROM tasks_task_acceptance_criteria WHERE id = 'ac-t001'",
+    )?.birth_fp;
+    // An edit carried a fingerprint the pre-release build derived for the
+    // criterion's predecessor: it matches no recipe of THIS row, and it hashed
+    // the task's stale fingerprint.
+    db.exec(
+      "UPDATE tasks_task_acceptance_criteria SET birth_fp = 'carried-stale' WHERE id = 'ac-t001'",
+    );
+    prereleaseFill();
+    expect(prepareRowIdentity(db, 'project')?.refill).toBe('cleared');
+    expect(
+      one("SELECT birth_fp FROM tasks_task_acceptance_criteria WHERE id = 'ac-t001'")?.birth_fp,
+    ).toBe(fresh);
+  });
+
   it('refuses to re-derive pre-release values once uids have synced', () => {
     const stale = prereleaseFill();
     db.exec(
@@ -747,9 +767,15 @@ describe('identity versus collision across stores (spec §3)', () => {
 
       // Owners first: re-keying the losing T100 re-derives its descendants.
       const [loserDb, winner, loser] = fa.task.fp > fb.task.fp ? [a, fb, fa] : [b, fa, fb];
-      const receipt = rekeyRowUid(loserDb, 'tasks_tasks', winner.task.uid, loser.task.fp, {
-        origin: 'device',
-      });
+      const receipt = rekeyRowUid(
+        loserDb,
+        'tasks_tasks',
+        winner.task.uid,
+        { loserBirthFp: loser.task.fp, winnerBirthFp: winner.task.fp },
+        {
+          origin: 'device',
+        },
+      );
       expect(receipt.cascaded.map((c) => [c.table, c.oldUid])).toEqual([
         ['tasks_task_acceptance_criteria', winner.ac.uid],
       ]);
@@ -797,9 +823,15 @@ describe('identity versus collision across stores (spec §3)', () => {
       // The authority re-keys the loser (greater fingerprint); the old uid
       // stays resolvable through its fingerprint.
       const [loserDb, loser] = ia.fp > ib.fp ? [a, ia] : [b, ib];
-      const receipt = rekeyRowUid(loserDb, 'tasks_tasks', loser.uid, loser.fp, {
-        origin: 'device',
-      });
+      const receipt = rekeyRowUid(
+        loserDb,
+        'tasks_tasks',
+        loser.uid,
+        { loserBirthFp: loser.fp, winnerBirthFp: loser === ia ? ib.fp : ia.fp },
+        {
+          origin: 'device',
+        },
+      );
       expect(receipt.newUid).toMatch(V7);
       expect(identity(loserDb, 'T100')).toEqual({ uid: receipt.newUid, fp: loser.fp });
       expect(
