@@ -125,8 +125,8 @@ Code-graph answers (`cleo nexus impact`, `context`, `full-context`, `why`, `sear
 ## Sessions are terminal-bound (T12500)
 
 `cleo session start` binds the calling agent process (`CLAUDE_CODE_SESSION_ID`, `CODEX_THREAD_ID`, …), pane (`TMUX_PANE`, …), tab (`TERM_SESSION_ID`, …), CI job (`GITHUB_RUN_ID`+`GITHUB_RUN_ATTEMPT`+`GITHUB_JOB`, `CI_JOB_ID`) or ssh login tty (`SSH_TTY`+`SSH_CONNECTION`).
-With none of those (Kimi, aider, OpenCode, Gemini CLI, cron, a script), it binds the nearest long-lived ancestor process (T12864): an interactive or script shell, or, past per-call `bash -c` shells, the harness process itself — so `session start` then `cleo start` in separate `bash -c` calls share one session, and two harness processes never do.
-A caller whose ancestors reach pid 1 / launchd / systemd (a daemon or service job) has no identity: it keeps the single-session guard.
+With no provider key it also walks the process tree (T12864): a known single-agent harness (Kimi, aider, OpenCode, goose, amp, cursor-agent, … — past its per-call `bash -c` shells) or an interactive / script shell becomes the identity, so `session start` then `cleo start` in separate `bash -c` calls share one session; a harness below a shared tab / ssh / CI key gets its own, more specific key.
+Any other host (a node / python orchestrator, an IDE extension host, a daemon, anything under pid 1) identifies nobody and keeps the single-session guard: multi-agent hosts and multi-step scripts must set `CLEO_SESSION_ID` (or `CLEO_AGENT_ID`) per agent.
 Session mutations from an unbound caller fail with `E_SESSION_UNBOUND` instead of
 guessing the newest session; bind with `cleo session start`, `cleo session resume
 <id>` or `CLEO_SESSION_ID=<id>`, or name the target with `--session <id>`. Separate one-shot `ssh host 'cleo …'` calls are separate callers: export `CLEO_SESSION_ID` there.

@@ -120,7 +120,8 @@ describe('resolveTerminalKeys — provider/terminal key map (T12499)', () => {
       env: {},
       ppid: 40,
       lookupProcess: lookup,
-      lookupArgs: (pid) => (pid === 20 ? '-zsh' : null),
+      lookupArgs: (pid) =>
+        ({ 20: '-zsh', 30: 'node /usr/lib/node_modules/pnpm/bin/pnpm.cjs exec cleo' })[pid] ?? null,
     });
     expect(keys).toEqual([
       { key: 'proc:20@Sat Sep 27 21:00:00 2026', source: 'process', kind: 'process' },
@@ -129,9 +130,15 @@ describe('resolveTerminalKeys — provider/terminal key map (T12499)', () => {
     expect(lookup).not.toHaveBeenCalledWith(10);
   });
 
-  it('does not walk the process table when an env key identifies the terminal', () => {
+  it('does not walk the process table when a provider key identifies the agent', () => {
+    // T12864: a tab key alone still walks (a harness below the tab is more
+    // specific); a provider key already names one agent session.
     const lookup = vi.fn(() => null);
-    resolveTerminalKeys({ env: { TERM_SESSION_ID: 'x' }, ppid: 40, lookupProcess: lookup });
+    resolveTerminalKeys({
+      env: { CLAUDE_CODE_SESSION_ID: 'c', TERM_SESSION_ID: 'x' },
+      ppid: 40,
+      lookupProcess: lookup,
+    });
     expect(lookup).not.toHaveBeenCalled();
   });
 });

@@ -25,17 +25,20 @@
  * ## Harness-ancestor fallback (T12864)
  *
  * When no environment key is present, the identity falls back to the nearest
- * LONG-LIVED ancestor ({@link resolveAncestorKey}): an interactive or script
- * shell (the terminal tab's shell, a CI step or cron script), or — past any
- * throwaway `sh -c` / `bash -c` layers — the first non-shell process, which
- * for an agent harness (Kimi, aider, OpenCode, Gemini CLI, …) is the harness
- * itself. Such harnesses run every tool call in a fresh `bash -c`, so the
- * immediate parent changes on each call; the harness process does not, so the
- * key stays stable across calls and differs between harness processes. The key
- * carries the process start time, so a recycled pid never matches a stale
- * binding. When the walk reaches pid 1 / launchd / systemd / init, cannot read
- * a shell's arguments, or runs out of depth, there is NO key: the caller is
- * unidentified and keeps the single-session guard.
+ * ancestor that identifies ONE caller ({@link resolveAncestor}): a long-lived
+ * interactive or script shell (the terminal tab's shell, a CI step or cron
+ * script), or — past throwaway `sh -c` / `bash -c` layers — a KNOWN agent
+ * harness process ({@link KNOWN_HARNESSES}: Kimi, aider, OpenCode, Gemini CLI,
+ * …). Such harnesses run every tool call in a fresh `bash -c`, so the
+ * immediate parent changes on each call; the harness process does not. Any
+ * other process (a node / python host that may run several agents, a daemon
+ * spawning `cleo` directly) identifies nobody unless `CLEO_AGENT_ID` names the
+ * agent. Pid 1 / launchd / systemd / init, an unreadable shell command line or
+ * depth exhaustion also yield no key: the caller keeps the single-session guard.
+ *
+ * Env tab keys are inherited by every descendant, so when a harness (or a
+ * `CLEO_AGENT_ID` agent) runs below one, its anchor is appended as a more
+ * specific key — two harnesses in one ssh login or CI step stay apart.
  *
  * Before T12864 the fallback stopped at the first non-launcher ancestor, which
  * for a harness is the per-call `bash -c` — a new key on every call, so a
@@ -51,11 +54,18 @@ import { execFileSync } from 'node:child_process';
 import { PS_STABLE_ENV } from '@cleocode/contracts';
 
 /**
- * Where a terminal key comes from. `process` is the harness-ancestor fallback
- * (T12864); `ppid` is the pre-T12864 per-call fallback, never produced any
- * more and kept only so rows written before it still type-check.
+ * Where a terminal key comes from. `process` is a long-lived ancestor shell
+ * (tab tier) and `harness` one agent below it or anywhere (pane tier) — both
+ * T12864; `ppid` is the pre-T12864 per-call fallback, never produced any more
+ * and kept only so rows written before it still type-check.
  */
-export type TerminalKeyKind = 'provider' | 'multiplexer' | 'terminal' | 'process' | 'ppid';
+export type TerminalKeyKind =
+  | 'provider'
+  | 'multiplexer'
+  | 'terminal'
+  | 'process'
+  | 'harness'
+  | 'ppid';
 
 /**
  * One row of the provider/terminal key map: an environment variable whose value
@@ -65,7 +75,7 @@ export interface TerminalKeySource {
   /** Environment variable carrying the identity value. */
   readonly envVar: string;
   /** Category of identity (drives precedence documentation only). */
-  readonly kind: Exclude<TerminalKeyKind, 'ppid' | 'process'>;
+  readonly kind: Exclude<TerminalKeyKind, 'ppid' | 'process' | 'harness'>;
   /** Harness / terminal that exports the variable. */
   readonly origin: string;
   /**
@@ -181,8 +191,40 @@ export { PS_STABLE_ENV };
 export const PPID_CHAIN_MAX_DEPTH = 12 as const;
 
 /**
- * Thin wrappers a harness may put between its shell and `cleo` (T12864). They
- * live exactly as long as the command they wrap, so the walk skips them.
+ * Agent harnesses recognised by the ancestor walk (T12864), by PROGRAM name:
+ * the executable, or the script / `-m` module a `node` / `python` runtime runs
+ * (see {@link programName}). A harness process hosts ONE agent, so it is a
+ * per-caller identity even though it runs every tool call in a fresh `bash -c`.
+ *
+ * To add a harness: append the name its process shows as program name (check
+ * with `ps -o args= -p <pid>` while it runs a tool call). Only add processes
+ * that host exactly one agent — a host that runs several agents (an IDE
+ * extension host, CrewAI, LangGraph, OpenHands) must NOT be listed: its agents
+ * would share one session. Those set `CLEO_AGENT_ID` per agent instead.
+ */
+export const KNOWN_HARNESSES: ReadonlySet<string> = new Set([
+  'claude',
+  'codex',
+  'aider',
+  'gemini',
+  'kimi',
+  'opencode',
+  'cursor-agent',
+  'goose',
+  'amp',
+]);
+
+/**
+ * Language runtimes whose program name is the script or module they run
+ * (T12864): `node /usr/local/bin/gemini` is `gemini`, `python -m aider` is
+ * `aider`. A runtime running an unknown program is a generic host.
+ */
+const RUNTIME_PATTERN = /^(node|nodejs|bun|deno|python[0-9.]*|pypy[0-9.]*|ruby|java|php|perl)$/;
+
+/**
+ * Thin wrappers between a caller and `cleo` (T12864). They live exactly as long
+ * as the command they wrap, so the walk skips them. Matched on program name, so
+ * `npm exec …` (npx's process title) and `node …/npm-cli.js` both match.
  */
 export const ANCESTOR_WRAPPERS: ReadonlySet<string> = new Set([
   'env',
@@ -196,10 +238,13 @@ export const ANCESTOR_WRAPPERS: ReadonlySet<string> = new Set([
   'sudo',
   'doas',
   'npm',
+  'npm-cli',
   'npx',
+  'npx-cli',
   'pnpm',
   'pnpx',
   'yarn',
+  'bunx',
   'corepack',
   'mise',
   'cleo',
@@ -207,14 +252,13 @@ export const ANCESTOR_WRAPPERS: ReadonlySet<string> = new Set([
 
 /**
  * The system's init / service manager (T12864). An ancestor walk that reaches
- * one of these (or pid 1) found no harness: a daemon or a systemd / launchd job
- * spawned `cleo` directly, so there is no per-caller process to key on.
+ * one of these (or pid 1) found no caller-owned process.
  */
 export const INIT_PROCESSES: ReadonlySet<string> = new Set(['launchd', 'systemd', 'init']);
 
 /** One resolved identity key for the calling terminal. */
 export interface TerminalKey {
-  /** Opaque, stable binding key (`env:<VAR>=<value>` or `proc:<pid>@<start>`). */
+  /** Opaque, stable binding key (`env:<VAR>=<value>`, `proc:<pid>@<start>` or `harness:…`). */
   readonly key: string;
   /** Environment variable name, or `'process'` for the harness-ancestor fallback. */
   readonly source: string;
@@ -304,9 +348,9 @@ export function readProcessEntry(pid: number): ProcessAncestor | null {
 /**
  * Read a process's command line via `ps -o args=` (POSIX only, T12864).
  *
- * Used only for shells, to tell a throwaway `sh -c '…'` from a long-lived
- * interactive or script shell. Returns `null` on Windows, for an unknown pid,
- * or when `ps` fails.
+ * Tells a throwaway `sh -c '…'` from a long-lived shell, and names the program
+ * a runtime runs. Returns `null` on Windows, for an unknown pid, or when `ps`
+ * fails.
  *
  * @param pid - Process id to inspect.
  * @returns The command line, or `null`.
@@ -326,86 +370,191 @@ export function readProcessArgs(pid: number): string | null {
   }
 }
 
+/** Base name of a path-like token, without a leading login-shell `-`. */
+function baseName(token: string): string {
+  return token.slice(token.lastIndexOf('/') + 1).replace(/^-/, '');
+}
+
+/**
+ * The program a process runs, from its command line (T12864): the executable's
+ * base name, or — for a language runtime ({@link RUNTIME_PATTERN}) — the
+ * `-m` module or script it runs (extension stripped). Matches on the FIRST
+ * word, so a process title such as `npm exec cleo` is `npm`.
+ *
+ * @param commandLine - `ps -o args=` output (or the bare command name).
+ * @returns The program name.
+ * @example
+ * ```ts
+ * programName('/usr/bin/python3.12 -m aider --yes'); // 'aider'
+ * programName('npm exec cleo start T1');             // 'npm'
+ * ```
+ */
+export function programName(commandLine: string): string {
+  const tokens = commandLine.trim().split(/\s+/);
+  const head = baseName(tokens[0] ?? '');
+  if (!RUNTIME_PATTERN.test(head)) return head;
+  for (let i = 1; i < tokens.length; i++) {
+    const token = tokens[i] ?? '';
+    if (token === '-m') return (tokens[i + 1] ?? head).split('.')[0] ?? head;
+    if (token.startsWith('-')) continue;
+    return baseName(token).replace(/\.(c|m)?(js|ts)$|\.py$/, '');
+  }
+  return head;
+}
+
+/** Shell options whose NEXT token is their argument, not an operand. */
+const SHELL_OPTIONS_WITH_ARGUMENT: ReadonlySet<string> = new Set([
+  '-o',
+  '+o',
+  '-O',
+  '+O',
+  '--rcfile',
+  '--init-file',
+]);
+
+/** PowerShell switches (case-insensitive) that run a command string. */
+const PWSH_COMMAND_SWITCHES: ReadonlySet<string> = new Set([
+  '-c',
+  '-command',
+  '-commandwithargs',
+  '-cwa',
+  '-e',
+  '-ec',
+  '-encodedcommand',
+]);
+
 /**
  * Whether a shell's command line runs a single command string (`sh -c '…'`,
- * `bash -lc '…'`) — a throwaway shell that exits with the command — rather
- * than an interactive or script shell that outlives it (T12864).
+ * `bash -lc '…'`, `pwsh -Command …`) — a throwaway shell that exits with the
+ * command — rather than an interactive or script shell that outlives it (T12864).
  *
- * Options are read up to the first operand; any short-option cluster that
- * contains `c` means command mode.
+ * POSIX-style shells: options are read up to the first operand. `-c`,
+ * `--command` / `--commands` (fish, nu), or a short-option cluster containing
+ * `c` means command mode; the arguments of `-o` / `+o` / `-O` / `+O` /
+ * `--rcfile` / `--init-file` are skipped rather than read as the operand.
+ * PowerShell: any `-Command` / `-c` / `-EncodedCommand` / `-CommandWithArgs`.
  *
  * @param args - The shell's full command line.
  * @returns `true` for a command-string shell.
  */
 export function isCommandStringShell(args: string): boolean {
-  const tokens = args.trim().split(/\s+/).slice(1);
-  for (const token of tokens) {
+  const tokens = args.trim().split(/\s+/);
+  const shell = programName(args);
+  // A shell run by a runtime (`python3 /usr/bin/xonsh -c …`): its own options
+  // start after the script path.
+  let first = 1;
+  if (RUNTIME_PATTERN.test(baseName(tokens[0] ?? ''))) {
+    while (first < tokens.length && (tokens[first] ?? '').startsWith('-')) first++;
+    first++;
+  }
+  const rest = tokens.slice(first);
+  if (shell === 'pwsh' || shell === 'powershell') {
+    return rest.some((t) => PWSH_COMMAND_SWITCHES.has(t.toLowerCase()));
+  }
+  for (let i = 0; i < rest.length; i++) {
+    const token = rest[i] ?? '';
     if (token === '--') return false;
+    if (token === '--command' || token === '--commands') return true;
+    if (SHELL_OPTIONS_WITH_ARGUMENT.has(token)) {
+      i++;
+      continue;
+    }
     if (token.startsWith('--')) continue;
-    if (!token.startsWith('-') || token === '-') return false;
-    if (token.slice(1).includes('c')) return true;
+    if (!/^[-+][A-Za-z]+$/.test(token)) return false;
+    if (token.startsWith('-') && token.slice(1).includes('c')) return true;
   }
   return false;
 }
 
-/** Key for a long-lived ancestor. */
-function ancestorKey(entry: ProcessAncestor): TerminalKey {
-  return { key: `proc:${entry.pid}@${entry.startedAt}`, source: 'process', kind: 'process' };
+/** What the ancestor walk anchored on (T12864). */
+export interface AncestorAnchor {
+  /** The anchoring process. */
+  readonly entry: ProcessAncestor;
+  /** Its program name ({@link programName}). */
+  readonly program: string;
+  /**
+   * `shell` — a long-lived interactive / login / script shell (the terminal's
+   * own identity); `harness` — a {@link KNOWN_HARNESSES} process; `host` — any
+   * other process, anchored ONLY because `CLEO_AGENT_ID` names the agent.
+   */
+  readonly type: 'shell' | 'harness' | 'host';
 }
 
 /**
- * Resolve the harness-ancestor fallback key (T12864): the nearest ancestor
- * that outlives a single `cleo` call.
+ * Walk to the nearest ancestor that identifies ONE caller across its `cleo`
+ * calls (T12864).
  *
- * Walking up from `cleo`'s parent:
+ * From `cleo`'s parent upwards, by program name ({@link programName}):
  *
- * 1. Launchers and wrappers ({@link PPID_CHAIN_LAUNCHERS},
- *    {@link ANCESTOR_WRAPPERS}) below the first shell are skipped.
- * 2. A shell that is NOT a command-string shell (interactive, login, or running
- *    a script) is long-lived: it is the key — one per terminal tab, CI step or
- *    cron script.
- * 3. A command-string shell (`bash -c`) is skipped, as are further shells and
- *    wrappers above it. The first other process is the key — for an agent
- *    harness, the harness itself, even when it is a `node` / `python` process.
- * 4. A non-shell, non-launcher parent below any shell (a harness that spawned
- *    `cleo` directly) is the key.
+ * - wrappers ({@link ANCESTOR_WRAPPERS}) are skipped;
+ * - a shell that is not a command-string shell ({@link isCommandStringShell})
+ *   is long-lived — one per terminal tab, CI step or script: `shell`;
+ * - a command-string shell (`bash -c`) is skipped;
+ * - a {@link KNOWN_HARNESSES} process is `harness`;
+ * - any other process ends the walk: it may host SEVERAL agents (a node or
+ *   python orchestrator, an IDE extension host, a daemon spawning `cleo`
+ *   directly), so it identifies nobody — unless `agentId` (`CLEO_AGENT_ID`)
+ *   names the agent, which makes it a `host` anchor.
  *
- * Returns `null` — no identity — when the walk reaches pid 1 or an init
- * process ({@link INIT_PROCESSES}), when a shell's command line cannot be read
- * (a guess either way could merge two callers or split one), when the process
- * table cannot be read, or past {@link PPID_CHAIN_MAX_DEPTH}.
+ * Returns `null` — no identity, the single-session guard applies — at pid 1 or
+ * an init process, when a shell's command line cannot be read, when the
+ * process table cannot be read, or past {@link PPID_CHAIN_MAX_DEPTH}.
  *
  * @param ppid - Parent pid to start from.
  * @param lookupProcess - Process-table reader.
- * @param lookupArgs - Command-line reader for shells.
- * @returns The fallback key, or `null`.
+ * @param lookupArgs - Command-line reader.
+ * @param agentId - `CLEO_AGENT_ID`, when set.
+ * @returns The anchor, or `null`.
  * @task T12864
  */
-export function resolveAncestorKey(
+export function resolveAncestor(
   ppid: number,
   lookupProcess: ProcessLookup,
   lookupArgs: ProcessArgsLookup,
-): TerminalKey | null {
+  agentId: string | null = null,
+): AncestorAnchor | null {
   let pid = ppid;
-  let pastShell = false;
   for (let depth = 0; depth < PPID_CHAIN_MAX_DEPTH; depth++) {
     if (pid <= 1) return null;
     const entry = lookupProcess(pid);
-    if (!entry || entry.pid <= 1 || INIT_PROCESSES.has(entry.command)) return null;
-    if (OWNER_PROCESS_SHELLS.has(entry.command)) {
-      const args = lookupArgs(entry.pid);
+    if (!entry || entry.pid <= 1) return null;
+    const args = lookupArgs(entry.pid);
+    const program = programName(args ?? entry.command);
+    if (INIT_PROCESSES.has(program) || INIT_PROCESSES.has(entry.command)) return null;
+    if (OWNER_PROCESS_SHELLS.has(program)) {
       if (args === null) return null;
-      if (!isCommandStringShell(args)) return ancestorKey(entry);
-      pastShell = true;
-    } else if (
-      !ANCESTOR_WRAPPERS.has(entry.command) &&
-      (pastShell || !PPID_CHAIN_LAUNCHERS.has(entry.command))
-    ) {
-      return ancestorKey(entry);
+      if (!isCommandStringShell(args)) return { entry, program, type: 'shell' };
+    } else if (!ANCESTOR_WRAPPERS.has(program)) {
+      if (KNOWN_HARNESSES.has(program)) return { entry, program, type: 'harness' };
+      return agentId ? { entry, program, type: 'host' } : null;
     }
     pid = entry.ppid;
   }
   return null;
+}
+
+/**
+ * Key for an ancestor anchor. A plain long-lived shell is the terminal's own
+ * identity (`process`, tab tier). A harness, a `CLEO_AGENT_ID`-named host, or a
+ * shell with `CLEO_AGENT_ID` identifies one agent (`harness`, pane tier: more
+ * specific than the tab), qualified by the env key it runs under, if any.
+ */
+function anchorKey(
+  anchor: AncestorAnchor,
+  agentId: string | null,
+  under: TerminalKey | undefined,
+): TerminalKey {
+  const proc = `${anchor.entry.pid}@${anchor.entry.startedAt}`;
+  if (anchor.type === 'shell' && !agentId) {
+    return { key: `proc:${proc}`, source: 'process', kind: 'process' };
+  }
+  const agent = agentId ? `#agent=${agentId}` : '';
+  const scope = under ? `|${under.key}` : '';
+  return {
+    key: `harness:${anchor.program}:${proc}${agent}${scope}`,
+    source: 'process',
+    kind: 'harness',
+  };
 }
 
 /** Interactive / script shells skipped by {@link resolveOwnerProcess}, beyond the launchers. */
@@ -418,6 +567,10 @@ export const OWNER_PROCESS_SHELLS: ReadonlySet<string> = new Set([
   'ksh',
   'tcsh',
   'csh',
+  'pwsh',
+  'powershell',
+  'nu',
+  'xonsh',
 ]);
 
 /** Maximum number of ancestors {@link resolveOwnerProcess} inspects. */
@@ -460,9 +613,10 @@ export function resolveOwnerProcess(
  * Resolve the calling terminal's identity keys, most specific first (T12499).
  *
  * Every {@link TERMINAL_KEY_SOURCES} row whose variable is set contributes one
- * key. Only when NO row matches does the harness-ancestor fallback
- * ({@link resolveAncestorKey}) run, so the common case (an agent harness or a
- * mainstream terminal) never spawns `ps`.
+ * key. Unless a provider key is present, the ancestor walk
+ * ({@link resolveAncestor}) then runs: with no env key its anchor is the only
+ * key; under env keys an agent-level anchor (a harness, or `CLEO_AGENT_ID`) is
+ * appended as the most specific key. The walk is memoised per process.
  *
  * Synchronous and database-free; binding persistence and lookup live in
  * `store/session-binding-store.ts`.
@@ -491,27 +645,41 @@ export function resolveTerminalKeys(options: ResolveTerminalKeysOptions = {}): T
       kind: source.kind,
     });
   }
-  if (keys.length > 0) return keys;
+  // A provider key already names one agent session: nothing is more specific.
+  if (keys.some((k) => k.kind === 'provider')) return keys;
+  const agentId = envValue(env, 'CLEO_AGENT_ID');
   const live =
     options.ppid === undefined &&
     options.lookupProcess === undefined &&
     options.lookupArgs === undefined;
-  let ancestor: TerminalKey | null;
+  let anchor: AncestorAnchor | null;
   if (live) {
     // The live process's ancestry cannot change, so `ps` runs at most once per
-    // ancestor per process even though identity resolution runs on every dispatch.
-    if (liveAncestorKey === undefined)
-      liveAncestorKey = resolveAncestorKey(process.ppid, readProcessEntry, readProcessArgs);
-    ancestor = liveAncestorKey;
+    // ancestor per process (and agent id) even though resolution runs per dispatch.
+    const memoKey = agentId ?? '';
+    if (!liveAnchors.has(memoKey))
+      liveAnchors.set(
+        memoKey,
+        resolveAncestor(process.ppid, readProcessEntry, readProcessArgs, agentId),
+      );
+    anchor = liveAnchors.get(memoKey) ?? null;
   } else {
-    ancestor = resolveAncestorKey(
+    anchor = resolveAncestor(
       options.ppid ?? process.ppid,
       options.lookupProcess ?? readProcessEntry,
       options.lookupArgs ?? readProcessArgs,
+      agentId,
     );
   }
-  return ancestor ? [ancestor] : [];
+  if (!anchor) return keys;
+  if (keys.length === 0) return [anchorKey(anchor, agentId, undefined)];
+  // Env tab / pane keys are inherited by every descendant, so two harnesses
+  // (or two CLEO_AGENT_ID agents) under one ssh login, CI step or tab would
+  // share them. An agent-level anchor below them is appended as the more
+  // specific key; a plain shell anchor IS the tab and adds nothing.
+  if (anchor.type === 'shell' && !agentId) return keys;
+  return [...keys, anchorKey(anchor, agentId, keys[0])];
 }
 
-/** Memoised harness-ancestor key of the live process (`undefined` = not yet read). */
-let liveAncestorKey: TerminalKey | null | undefined;
+/** Memoised ancestor anchors of the live process, by `CLEO_AGENT_ID` ('' = unset). */
+const liveAnchors = new Map<string, AncestorAnchor | null>();

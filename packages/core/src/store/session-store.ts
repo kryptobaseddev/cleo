@@ -427,7 +427,10 @@ export async function getActiveSession(cwd?: string): Promise<Session | null> {
 interface TerminalKeyTiers {
   /** Agent-harness process (`CLAUDE_CODE_SESSION_ID`, `CODEX_THREAD_ID`, …). */
   readonly provider: TerminalKey | undefined;
-  /** Multiplexer pane (`TMUX_PANE`, `ZELLIJ_PANE_ID`, `WEZTERM_PANE`). */
+  /**
+   * One agent below the tab (T12864: a known harness or a `CLEO_AGENT_ID` agent),
+   * else the multiplexer pane (`TMUX_PANE`, `ZELLIJ_PANE_ID`, `WEZTERM_PANE`).
+   */
   readonly pane: TerminalKey | undefined;
   /**
    * Terminal tab (`TERM_SESSION_ID`, `ITERM_SESSION_ID`, `WT_SESSION`, …), a CI job
@@ -445,7 +448,8 @@ interface TerminalKeyTiers {
 function splitTerminalKeys(keys: readonly TerminalKey[]): TerminalKeyTiers {
   return {
     provider: keys.find((k) => k.kind === 'provider'),
-    pane: keys.find((k) => k.kind === 'multiplexer'),
+    // A harness / CLEO_AGENT_ID agent (T12864) is more specific than a pane.
+    pane: keys.find((k) => k.kind === 'harness') ?? keys.find((k) => k.kind === 'multiplexer'),
     tab: keys.find((k) => k.kind === 'terminal' || k.kind === 'process' || k.kind === 'ppid'),
   };
 }

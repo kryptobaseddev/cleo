@@ -18,6 +18,10 @@
  *  4. Shells that outlive the call (interactive, login, script) are the key;
  *     an unreadable shell command line yields no key.
  *  5. CI and ssh env keys: GitHub Actions per job, GitLab per job, ssh per login tty.
+ *  6. Review of #1750: a generic host (node / python orchestrator, IDE extension
+ *     host) identifies nobody unless CLEO_AGENT_ID names the agent; a daemon
+ *     spawning cleo directly is not skipped to the human's shell; option
+ *     arguments before -c; npx; harnesses below a shared env key stay apart.
  *
  * @task T12864
  * @epic T12497
@@ -37,7 +41,8 @@ import type {
 const sim: {
   table: Record<number, ProcessAncestor & { args?: string }>;
   ppid: number;
-} = { table: {}, ppid: 0 };
+  env: Record<string, string>;
+} = { table: {}, ppid: 0, env: {} };
 
 // Live identity resolution reads the simulated tree instead of the real one.
 vi.mock('../terminal-identity.js', async (importOriginal) => {
@@ -47,7 +52,7 @@ vi.mock('../terminal-identity.js', async (importOriginal) => {
     resolveTerminalKeys: (options?: ResolveTerminalKeysOptions): TerminalKey[] =>
       actual.resolveTerminalKeys(
         options ?? {
-          env: {},
+          env: sim.env,
           ppid: sim.ppid,
           lookupProcess: (pid) => sim.table[pid] ?? null,
           lookupArgs: (pid) => sim.table[pid]?.args ?? null,
@@ -98,7 +103,7 @@ function baseTable(): Record<number, ProcessAncestor & { args?: string }> {
   return {
     1: proc(1, 0, 'launchd'),
     50: proc(50, 1, 'Code Helper'),
-    100: proc(100, 50, 'python3.12', 'python3.12 -m kimi_cli'),
+    100: proc(100, 50, 'python3.12', 'python3.12 /Users/dev/.local/bin/kimi --yolo'),
     200: proc(200, 50, 'python3.12', 'python3.12 -m aider'),
   };
 }
@@ -120,6 +125,7 @@ function liveKey(): string | undefined {
 let root: string;
 
 beforeEach(async () => {
+  sim.env = {};
   vi.stubEnv('CLEO_ROOT', undefined);
   vi.stubEnv('CLEO_DIR', undefined);
   for (const s of TERMINAL_KEY_SOURCES) vi.stubEnv(s.envVar, undefined);
@@ -169,21 +175,21 @@ describe('harness-ancestor key (T12864)', () => {
     call(100);
     expect(sim.ppid).not.toBe(firstPpid);
     expect(liveKey()).toBe(first);
-    expect(first).toBe(`proc:100@${T} #100`);
+    expect(first).toBe(`harness:kimi:100@${T} #100`);
   });
 
   it('differs between two harness processes', () => {
     call(100);
     const a = liveKey();
     call(200);
-    expect(liveKey()).toBe(`proc:200@${T} #200`);
+    expect(liveKey()).toBe(`harness:aider:200@${T} #200`);
     expect(liveKey()).not.toBe(a);
   });
 
   it('keys a node harness (Gemini CLI style) past the bash -c, even though node is a launcher', () => {
     sim.table[300] = proc(300, 50, 'node', 'node /usr/local/bin/gemini');
     call(300);
-    expect(liveKey()).toBe(`proc:300@${T} #300`);
+    expect(liveKey()).toBe(`harness:gemini:300@${T} #300`);
   });
 
   it('skips wrappers and nested command shells (timeout, sh -c inside bash -c)', () => {
@@ -191,7 +197,7 @@ describe('harness-ancestor key (T12864)', () => {
     sim.table[401] = proc(401, 400, 'timeout');
     sim.table[402] = proc(402, 401, 'sh', 'sh -c cleo');
     sim.ppid = 402;
-    expect(liveKey()).toBe(`proc:100@${T} #100`);
+    expect(liveKey()).toBe(`harness:kimi:100@${T} #100`);
   });
 
   it('stops at a long-lived shell: interactive, login, or a script (CI step, cron script)', () => {
@@ -233,6 +239,102 @@ describe('harness-ancestor key (T12864)', () => {
     expect(isCommandStringShell('bash --norc -eo pipefail /tmp/x.sh')).toBe(false);
     expect(isCommandStringShell('bash script.sh -c')).toBe(false);
   });
+
+  it('MEDIUM-2: an option argument is not the operand (-o, -O, --rcfile before -c)', () => {
+    expect(isCommandStringShell("bash -o pipefail -c 'cleo start T1'")).toBe(true);
+    expect(isCommandStringShell("bash -O extglob -c 'cleo start T1'")).toBe(true);
+    expect(isCommandStringShell("bash --rcfile /tmp/rc -c 'cleo start T1'")).toBe(true);
+    expect(isCommandStringShell('bash -o pipefail /tmp/script.sh')).toBe(false);
+    expect(isCommandStringShell("fish --command 'cleo x'")).toBe(true);
+  });
+
+  it('recognises pwsh, nu and xonsh command forms', () => {
+    expect(isCommandStringShell('pwsh -NoProfile -NonInteractive -Command cleo start T1')).toBe(
+      true,
+    );
+    expect(isCommandStringShell('pwsh -NoProfile -NonInteractive')).toBe(false);
+    expect(isCommandStringShell("nu -c 'cleo start T1'")).toBe(true);
+    expect(isCommandStringShell("nu --commands 'cleo'")).toBe(true);
+    expect(isCommandStringShell("/usr/bin/python3 /usr/bin/xonsh -c 'cleo'")).toBe(true);
+    // A pwsh -Command layer is skipped on the way to the harness.
+    sim.table[450] = proc(450, 100, 'pwsh', 'pwsh -NoProfile -Command cleo');
+    sim.ppid = 450;
+    expect(liveKey()).toBe(`harness:kimi:100@${T} #100`);
+  });
+
+  it('HIGH-1: two agents in one generic node host get NO key (not a shared one)', () => {
+    sim.table[900] = proc(900, 50, 'node', 'node /opt/orchestrator/dist/main.js');
+    call(900); // agent A shells out
+    expect(resolveTerminalKeys()).toEqual([]);
+    call(900); // agent B shells out from the same host
+    expect(resolveTerminalKeys()).toEqual([]);
+  });
+
+  it('HIGH-1: CLEO_AGENT_ID makes each agent of a generic host its own key', () => {
+    sim.table[900] = proc(900, 50, 'node', 'node /opt/orchestrator/dist/main.js');
+    sim.env = { CLEO_AGENT_ID: 'agent-a' };
+    call(900);
+    const a = liveKey();
+    sim.env = { CLEO_AGENT_ID: 'agent-b' };
+    call(900);
+    const b = liveKey();
+    expect(a).toBe(`harness:main:900@${T} #900#agent=agent-a`);
+    expect(b).toBe(`harness:main:900@${T} #900#agent=agent-b`);
+  });
+
+  it('HIGH-1: a known harness title (claude, codex, opencode, goose, amp, cursor-agent) gets a key', () => {
+    for (const [pid, title] of [
+      [910, 'claude'],
+      [911, 'codex exec'],
+      [912, '/usr/local/bin/opencode'],
+      [913, 'goose session'],
+      [914, 'node /usr/local/lib/node_modules/@sourcegraph/amp/bin/amp'],
+      [915, 'cursor-agent -p'],
+    ] as const) {
+      sim.table[pid] = proc(pid, 50, 'x', title);
+      call(pid);
+      expect(liveKey()).toMatch(new RegExp(`^harness:[a-z-]+:${pid}@`));
+    }
+  });
+
+  it('HIGH-1 direct exec: a non-harness runtime spawning cleo without a shell is NOT skipped to the human shell', () => {
+    sim.table[920] = proc(920, 50, 'zsh', '-zsh'); // the human's interactive shell
+    sim.table[921] = proc(921, 920, 'node', 'node /opt/cleo/sentient/tick.js');
+    sim.ppid = 921; // execFileSync('cleo', …) straight from the daemon
+    expect(resolveTerminalKeys()).toEqual([]);
+  });
+
+  it('MEDIUM-3: npx / npm exec is a wrapper, so repeated npx calls keep the harness key', () => {
+    const viaNpx = (host: number): void => {
+      const shell = nextPid++;
+      const npx = nextPid++;
+      sim.table[shell] = proc(shell, host, 'bash', "bash -c 'npx cleo start T1'");
+      sim.table[npx] = proc(npx, shell, 'node', 'npm exec cleo start T1');
+      sim.ppid = npx;
+    };
+    viaNpx(100);
+    const first = liveKey();
+    viaNpx(100);
+    expect(liveKey()).toBe(first);
+    expect(first).toBe(`harness:kimi:100@${T} #100`);
+  });
+
+  it('MEDIUM-4: two harnesses under one ssh login (or tab) get distinct, more specific keys', () => {
+    sim.env = { SSH_CONNECTION: '10.0.0.2 51234 10.0.0.9 22', SSH_TTY: '/dev/pts/3' };
+    call(100);
+    const kimi = resolveTerminalKeys();
+    call(200);
+    const aider = resolveTerminalKeys();
+    expect(kimi[0]?.key).toBe(aider[0]?.key); // the shared login key
+    expect(kimi[1]?.kind).toBe('harness');
+    expect(aider[1]?.kind).toBe('harness');
+    expect(kimi[1]?.key).not.toBe(aider[1]?.key);
+    expect(kimi[1]?.key).toContain('|env:SSH_TTY=');
+    // A plain shell under the tab adds nothing: the tab is its identity.
+    sim.table[520] = proc(520, 50, 'zsh', '-zsh');
+    sim.ppid = 520;
+    expect(resolveTerminalKeys().map((k) => k.kind)).toEqual(['terminal']);
+  });
 });
 
 describe('session start then cleo start in separate bash -c calls (T12864 AC1, AC2)', () => {
@@ -250,6 +352,30 @@ describe('session start then cleo start in separate bash -c calls (T12864 AC1, A
     const again = await sessionStart(root, { scope: 'global', name: 'kimi-2' });
     expect(again.error?.code).toBe('E_SESSION_CONFLICT');
     expect(again.error?.details?.heldVia).toBe('terminal');
+  });
+
+  it('MEDIUM-4: two harnesses under one tab env each start their own session', async () => {
+    sim.env = { TERM_SESSION_ID: 'w0t0p0:SHARED' };
+    call(100);
+    const a = await sessionStart(root, { scope: 'global', name: 'kimi' });
+    call(200);
+    const b = await sessionStart(root, { scope: 'global', name: 'aider' });
+    expect(b.error?.message).toBeUndefined();
+    call(100);
+    expect(await resolveBoundSessionId(root)).toBe(a.data!.id);
+    call(200);
+    expect(await resolveBoundSessionId(root)).toBe(b.data!.id);
+  });
+
+  it('HIGH-1: two agents of one generic host share nothing — both are unidentified', async () => {
+    call(100);
+    const a = await sessionStart(root, { scope: 'global', name: 'kimi' });
+    expect(a.success).toBe(true);
+    sim.table[900] = proc(900, 50, 'node', 'node /opt/orchestrator/dist/main.js');
+    call(900);
+    expect(await resolveBoundSessionId(root)).toBeNull();
+    const b = await sessionStart(root, { scope: 'global', name: 'host-agent' });
+    expect(b.error?.code).toBe('E_SESSION_CONFLICT');
   });
 
   it('two harnesses each start their own session and never share one', async () => {

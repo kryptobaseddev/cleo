@@ -2,26 +2,24 @@
 id: t12864-harness-identity
 tasks: [T12864]
 kind: fix
-summary: "Harnesses without a terminal key (Kimi, aider, OpenCode, Gemini CLI, CI, cron) keep one session across separate bash -c calls"
+summary: "Known single-agent harnesses without a terminal key (Kimi, aider, OpenCode, …), CI jobs and ssh logins keep one session across separate bash -c calls"
 ---
 
-When no provider, pane or tab variable identifies the caller, the terminal identity now falls back to the nearest long-lived ancestor process, not the immediate parent. That ancestor is one of:
+When no provider key identifies the caller, the terminal identity now walks the process tree (`resolveAncestor`). Matching is by program name: the first word of the command line, or the script / `-m` module a `node` / `python` runtime runs. The walk:
 
-- an interactive, login or script shell;
-- past per-call `sh -c` / `bash -c` shells and thin wrappers, the first other process, which for an agent harness is the harness itself (even a `node` or `python` one).
+- skips wrappers (`env`, `timeout`, `npm exec`, `pnpm`, …);
+- skips command-string shells, meaning `-c` / `--command` (including after `-o` / `-O` / `--rcfile` arguments) and pwsh `-Command`;
+- stops at a long-lived interactive, login or script shell, which becomes the identity;
+- stops at a known single-agent harness (claude, codex, aider, gemini, kimi, opencode, cursor-agent, goose, amp), whose process becomes the identity. A harness runs every tool call in a fresh `bash -c`, so the old per-call key made a session started in one call invisible to the next.
 
-Such harnesses run every command in a fresh `bash -c`. The old fallback keyed on that throwaway shell, so a session started in one call was invisible to the next. The new key (`proc:<pid>@<start>`) is stable across calls from one harness process and differs between harness processes.
+Any other process gives no key, and the caller keeps the single-session guard. That includes a node or python orchestrator, an IDE extension host, and a daemon that spawns `cleo` directly: such a host may run several agents, which must not share a session. `CLEO_AGENT_ID` names the agent and makes such a host an identity, one per agent. Pid 1, launchd, systemd or init, an unreadable command line, or depth exhaustion also give no key.
 
-The walk returns no key, so the caller keeps the single-session guard, when it:
-
-- reaches pid 1, launchd, systemd or init (a daemon or service job);
-- cannot read a shell's command line;
-- runs past the depth limit.
+Env tab keys are inherited by every descendant. A harness, or a `CLEO_AGENT_ID` agent, below one therefore gets its own more specific key, so two harnesses in one ssh login, CI step or tab stay apart.
 
 New environment keys:
 
-- **GitHub Actions:** `GITHUB_RUN_ID`, qualified by `GITHUB_RUN_ATTEMPT` and `GITHUB_JOB`, so each job has one identity.
+- **GitHub Actions:** `GITHUB_RUN_ID`, qualified by `GITHUB_RUN_ATTEMPT` and `GITHUB_JOB`.
 - **GitLab CI:** `CI_JOB_ID`.
-- **ssh logins with a tty:** `SSH_TTY`, qualified by `SSH_CONNECTION`.
+- **ssh login with a tty:** `SSH_TTY`, qualified by `SSH_CONNECTION`.
 
-Separate one-shot `ssh host 'cleo …'` calls are separate callers and still need `CLEO_SESSION_ID`.
+`pwsh`, `nu` and `xonsh` join the shell sets.
