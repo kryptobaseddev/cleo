@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.0.5
+  version: 4.0.6
   tier: core
   install: harness
   covers:
@@ -174,12 +174,18 @@ since harness shells keep neither cwd nor env between calls (the git shim reads
 
 ### Valid Return Messages
 
-Capture exactly one `cleo manifest append` receipt (shorthand OR rich entry). Verify that same receipt has `success: true`, `data.appended: true`, and a nonempty `entryId`, then read it with `cleo manifest show <entryId>`. Never append again merely to capture or verify the receipt. On append or readback failure, report the failure; do not claim "Manifest appended". Static prompt checks do not prove storage or provider workflow success.
+Append exactly once and capture the id with `--field /data/entryId` (ADR-086: never pipe the receipt through `python3`/`jq`). A nonempty `ENTRY_ID` must then read back with `cleo manifest show "$ENTRY_ID"`. Never append again merely to verify. On append or readback failure, return `blocked` with `manifest:none`; do not claim an entry. Static prompt checks do not prove storage or provider workflow success. The manifest `--type` is the protocol's own type (`consensus`, `specification`, `architecture_decision`, ... — T12521).
 
-After successful verification, subagents MUST return exactly one of:
-- `"[Type] complete. Manifest appended to pipeline_manifest."`
-- `"[Type] partial. Manifest appended to pipeline_manifest."`
-- `"[Type] blocked. Manifest appended to pipeline_manifest."`
+After verification, subagents MUST return exactly this compressed block (T12521):
+
+```
+[Type] <complete|partial|blocked>. manifest:<entryId>
+commits: <sha7,sha7|none>
+gates: <gate>=<pass|fail|skip> ...
+blocker: <≤12 words|none>
+```
+
+`blocker` is not `none` only for `partial`/`blocked`. Validators (`checkReturnMessageFormat`, `checkReturnFormat`, `validateReturnMessage`) still accept the legacy one-liner `"[Type] <complete|partial|blocked>. Manifest appended to pipeline_manifest."`.
 
 > Detailed spawn workflow, manual protocol injection, skill dispatch matrix: `references/orchestrator-spawning.md`
 

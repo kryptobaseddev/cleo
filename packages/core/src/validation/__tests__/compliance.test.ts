@@ -55,6 +55,22 @@ describe('checkReturnFormat', () => {
   it('rejects invalid format', () => {
     expect(checkReturnFormat('Done!')).toBe(false);
   });
+
+  it('accepts the compressed return block (T12521)', () => {
+    expect(
+      checkReturnFormat(
+        'Consensus complete. manifest:T1-consensus-1\ncommits: none\ngates: implemented=pass\nblocker: none',
+      ),
+    ).toBe(true);
+    expect(checkReturnFormat('ADR blocked. manifest:none\nblocker: manifest append failed')).toBe(
+      true,
+    );
+  });
+
+  it('rejects a compressed block with an unknown line or a blocker on complete (T12521)', () => {
+    expect(checkReturnFormat('Research complete. manifest:e1\nfindings: lots')).toBe(false);
+    expect(checkReturnFormat('Research complete. manifest:e1\nblocker: stuck on CI')).toBe(false);
+  });
 });
 
 describe('scoreSubagentCompliance', () => {

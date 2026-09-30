@@ -146,6 +146,22 @@ describe('validateReturnMessage', () => {
     ).toBe(true);
   });
 
+  it('should accept the compressed return block (T12521)', () => {
+    expect(
+      validateReturnMessage(
+        'Implementation partial. manifest:T9-implementation-1\ncommits: abc1234\ngates: testsPassed=fail\nblocker: flaky fixture',
+      ).valid,
+    ).toBe(true);
+    expect(validateReturnMessage('Research complete. manifest:e1').valid).toBe(true);
+  });
+
+  it('should reject a malformed compressed block (T12521)', () => {
+    expect(
+      validateReturnMessage('Research complete. manifest:e1\ncommits: a\ncommits: b').valid,
+    ).toBe(false);
+    expect(validateReturnMessage('Research complete. manifest:').valid).toBe(false);
+  });
+
   it('should reject empty messages', () => {
     expect(validateReturnMessage('').valid).toBe(false);
   });

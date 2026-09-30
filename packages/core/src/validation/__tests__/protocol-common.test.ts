@@ -13,6 +13,7 @@ import {
   checkManifestFieldType,
   checkReturnMessageFormat,
   checkStatusValid,
+  parseReturnMessage,
   validateCommonManifestRequirements,
 } from '../protocol-common.js';
 
@@ -43,9 +44,71 @@ describe('checkReturnMessageFormat', () => {
 
   it('rejects invalid format', () => {
     expect(checkReturnMessageFormat('Done')).toBe(false);
+    expect(
+      checkReturnMessageFormat(
+        'Research complete. Manifest appended to pipeline_manifest.\ncommits: none',
+      ),
+    ).toBe(false);
     expect(checkReturnMessageFormat('Research done. Manifest appended to pipeline_manifest.')).toBe(
       false,
     );
+  });
+
+  it('accepts the compressed return block (T12521)', () => {
+    const block =
+      'Consensus partial. manifest:T1-consensus-20260929\ncommits: abc1234,def5678\ngates: implemented=pass testsPassed=skip\nblocker: waiting on owner vote';
+    expect(checkReturnMessageFormat(block)).toBe(true);
+    expect(checkReturnMessageFormat(block, 'consensus')).toBe(true);
+    expect(checkReturnMessageFormat(block, 'research')).toBe(false);
+  });
+
+  it('accepts the spawn-prompt spelling `complete` and the ADR type (T12521)', () => {
+    expect(
+      checkReturnMessageFormat(
+        'ADR complete. Manifest appended to pipeline_manifest.',
+        'architecture_decision',
+      ),
+    ).toBe(true);
+    expect(checkReturnMessageFormat('ADR complete. manifest:e1', 'architecture_decision')).toBe(
+      true,
+    );
+  });
+});
+
+describe('parseReturnMessage (T12521)', () => {
+  it('parses the compressed form into its parts', () => {
+    expect(
+      parseReturnMessage(
+        'Implementation blocked. manifest:none\ncommits: none\nblocker: manifest append failed',
+      ),
+    ).toEqual({
+      form: 'compressed',
+      type: 'Implementation',
+      status: 'blocked',
+      entryId: 'none',
+      commits: 'none',
+      gates: null,
+      blocker: 'manifest append failed',
+    });
+  });
+
+  it('parses the legacy one-liner', () => {
+    expect(
+      parseReturnMessage('Research completed. Manifest appended to pipeline_manifest.'),
+    ).toMatchObject({ form: 'legacy', type: 'Research', status: 'completed', entryId: null });
+  });
+
+  it('rejects unknown, duplicate or empty detail lines and a blocker on complete', () => {
+    expect(parseReturnMessage('Research complete. manifest:e1\nnotes: x')).toBeNull();
+    expect(parseReturnMessage('Research complete. manifest:e1\ngates: a\ngates: b')).toBeNull();
+    expect(parseReturnMessage('Research complete. manifest:e1\ncommits: ')).toBeNull();
+    expect(parseReturnMessage('Research complete. manifest:e1\nblocker: CI red')).toBeNull();
+    expect(parseReturnMessage('Research complete. manifest:e1\nblocker: none')).not.toBeNull();
+  });
+
+  it('restricts the type word when a type list is given', () => {
+    expect(parseReturnMessage('Epic created. manifest:e1', ['Research'])).toBeNull();
+    expect(parseReturnMessage('Research partial. manifest:e1', ['Research'])).not.toBeNull();
   });
 });
 

@@ -8,6 +8,8 @@
  * @epic T4454
  */
 
+import { parseReturnMessage } from './protocol-common.js';
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -109,16 +111,35 @@ export function checkManifestEntry(entry: ManifestEntry | null): ManifestIntegri
 // Return Format Checking
 // ============================================================================
 
-const RETURN_PATTERN =
-  /^(Research|Implementation|Validation|Testing|Specification|Consensus|Decomposition|Contribution|Release|Documentation|Artifact publish|Provenance|Workflow) (complete|completed|partial|blocked)\. Manifest appended to pipeline_manifest\.$/;
+/** Type words a subagent return message may start with. */
+const RETURN_TYPES = [
+  'Research',
+  'Implementation',
+  'Validation',
+  'Testing',
+  'Specification',
+  'Consensus',
+  'ADR',
+  'Decomposition',
+  'Contribution',
+  'Release',
+  'Documentation',
+  'Artifact publish',
+  'Provenance',
+  'Workflow',
+] as const;
 
 /**
- * Check if a response matches the expected return format.
+ * Check if a response matches the expected return format: the compressed
+ * contract (`<Type> <status>. manifest:<entryId>` plus optional `commits:`,
+ * `gates:`, `blocker:` lines — T12521) or the legacy one-liner
+ * (`<Type> <status>. Manifest appended to pipeline_manifest.`).
  * ADR-027: manifest is pipeline_manifest (SQLite table), not the retired flat-file.
  * @task T4524
+ * @task T12521
  */
 export function checkReturnFormat(response: string): boolean {
-  return RETURN_PATTERN.test(response);
+  return parseReturnMessage(response, RETURN_TYPES) !== null;
 }
 
 // ============================================================================

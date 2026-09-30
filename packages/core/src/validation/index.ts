@@ -247,8 +247,10 @@ export {
   checkProvenanceTags,
   checkReturnMessageFormat,
   checkStatusValid,
+  type ParsedReturnMessage,
   type ProtocolValidationResult,
   type ProtocolViolation,
+  parseReturnMessage,
   validateCommonManifestRequirements,
 } from './protocol-common.js';
 // Verification gates
