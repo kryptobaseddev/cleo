@@ -20,6 +20,14 @@ import {
 import { SESSION_ENV_KEY_PRECEDENCE } from '../session-id.js';
 import { TERMINAL_KEY_SOURCES } from '../terminal-identity.js';
 
+// T12864: these tests pin the SDK scope guard for an UNIDENTIFIED caller (no
+// terminal key at all), so they never depend on the process tree they run in;
+// a test that ends a session names it explicitly.
+vi.mock('../terminal-identity.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../terminal-identity.js')>();
+  return { ...actual, resolveTerminalKeys: () => [] };
+});
+
 describe('parseScope', () => {
   it('parses global scope', () => {
     expect(parseScope('global')).toEqual({ type: 'global' });
@@ -42,10 +50,9 @@ describe('Session lifecycle', () => {
     // Each test owns a fresh store at the explicitly supplied project root.
     vi.stubEnv('CLEO_ROOT', undefined);
     vi.stubEnv('CLEO_DIR', undefined);
-    // T12530: this process has NO terminal identity (only the ppid fallback,
-    // which does not identify a caller), so the SDK applies the scope-based
-    // single-session guard. Clear the host terminal's keys so the result does
-    // not depend on where the suite runs.
+    // T12530: this process has NO stable terminal identity (see the mock
+    // above), so the SDK applies the scope-based single-session guard. Clear the
+    // host terminal's keys so the result does not depend on where the suite runs.
     for (const s of TERMINAL_KEY_SOURCES) {
       vi.stubEnv(s.envVar, undefined);
       if (s.qualifierEnvVar) vi.stubEnv(s.qualifierEnvVar, undefined);
@@ -105,7 +112,7 @@ describe('Session lifecycle', () => {
       scope: 'global',
     });
 
-    const ended = await endSession(tempDir, { note: 'Done for now' });
+    const ended = await endSession(tempDir, { note: 'Done for now', sessionId: started.id });
     expect(ended.id).toBe(started.id);
     expect(ended.status).toBe('ended');
     expect(ended.endedAt).toBeDefined();
@@ -132,15 +139,15 @@ describe('Session lifecycle', () => {
 
   it('resumes an ended session', async () => {
     const started = await startSession(tempDir, { name: 'Resumable', scope: 'global' });
-    await endSession(tempDir, {});
+    await endSession(tempDir, { sessionId: started.id });
 
     const resumed = await resumeSession(tempDir, { sessionId: started.id });
     expect(resumed.status).toBe('active');
   });
 
   it('lists sessions', async () => {
-    await startSession(tempDir, { name: 'Session 1', scope: 'global' });
-    await endSession(tempDir, {});
+    const s1 = await startSession(tempDir, { name: 'Session 1', scope: 'global' });
+    await endSession(tempDir, { sessionId: s1.id });
     await startSession(tempDir, { name: 'Session 2', scope: 'epic:T001' });
 
     const all = await listSessions(tempDir, {});
