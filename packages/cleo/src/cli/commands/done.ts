@@ -18,6 +18,7 @@
 
 import type { DoneBlockedDetails } from '@cleocode/contracts';
 import { dispatchRaw } from '../../dispatch/adapters/cli.js';
+import { withoutOutputPointer } from '../field-context.js';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 import { completeCommandArgs, completeDispatchParams } from './complete.js';
@@ -33,7 +34,8 @@ async function batchEntry(
     return { taskId, completed: false, error: code, message, next: fix };
   }
   const params = completeDispatchParams({ ...args, taskId, 'if-match': undefined });
-  const done = await dispatchRaw('mutate', 'tasks', 'complete', params);
+  // T12839: --field addresses the done envelope, never this internal step.
+  const done = await withoutOutputPointer(() => dispatchRaw('mutate', 'tasks', 'complete', params));
   const recordedGates = result.data.recordedGates;
   if (done.success) return { taskId, recordedGates, completed: true };
   const failure = { error: 'E_DONE_BLOCKED', message: done.error?.message, next: done.error?.fix };
@@ -172,11 +174,16 @@ export const doneCommand = defineCommand({
       process.exitCode = recorded.error.exitCode ?? 1;
       return;
     }
-    const completed = await dispatchRaw(
-      'mutate',
-      'tasks',
-      'complete',
-      completeDispatchParams({ ...args, 'if-match': undefined }),
+    // T12839: --field addresses the done envelope; handing it to this
+    // internal step let the mutate middleware refuse the completion after
+    // every gate was recorded.
+    const completed = await withoutOutputPointer(() =>
+      dispatchRaw(
+        'mutate',
+        'tasks',
+        'complete',
+        completeDispatchParams({ ...args, 'if-match': undefined }),
+      ),
     );
     if (!completed.success) {
       const details: Omit<DoneBlockedDetails, 'plan'> = {
