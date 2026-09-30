@@ -297,6 +297,92 @@ describe('releaseOpen — workflow input schema parity (T10105)', () => {
     expect(joined).not.toContain('tasks=');
   });
 
+  it('forwards the preflight skip decision for main HEAD, and every key is declared in the YAML', async () => {
+    // `cleo release open` skips release-prepare's test suites whose result
+    // GitHub already holds for the commit the workflow will check out. The
+    // decision rides along as inputs — so each of them must be declared, or
+    // the dispatch is rejected with HTTP 422 "Unexpected inputs provided".
+    const version = 'v2026.6.3';
+    writePlanFile(version);
+    writeStubWorkflow();
+    await seedReleaseRow(version);
+
+    const sha = 'c'.repeat(40);
+    const base = makeStubRunner();
+    const runner: ReleaseOpenRunner & { calls: Array<{ cmd: string; args: readonly string[] }> } = {
+      calls: base.calls,
+      checkGhAuth: base.checkGhAuth,
+      runGh: (args, cwd) => {
+        const endpoint = args[1] ?? '';
+        if (args[0] === 'repo' && args[1] === 'view') {
+          base.calls.push({ cmd: 'gh', args });
+          return 'main';
+        }
+        if (args[0] === 'api') {
+          base.calls.push({ cmd: 'gh', args });
+          if (endpoint.includes('/commits/main')) return sha;
+          const run = (id: number, event: string) => ({
+            id,
+            head_sha: sha,
+            status: 'completed',
+            conclusion: 'success',
+            event,
+            html_url: `https://github.com/o/r/actions/runs/${id}`,
+          });
+          if (endpoint.includes('/actions/workflows/ci.yml/runs')) {
+            return JSON.stringify({ workflow_runs: [run(1, 'push')] });
+          }
+          if (endpoint.includes('event=schedule')) {
+            return JSON.stringify({ workflow_runs: [run(2, 'schedule')] });
+          }
+          if (endpoint.includes('/actions/runs/1/jobs')) {
+            // A green push run skips Linux tests only if its Linux Unit Tests
+            // shards actually ran (a docs-only push is green with none).
+            return JSON.stringify({
+              jobs: [
+                { name: 'Unit Tests (ubuntu-latest, shard 1)', conclusion: 'success' },
+                { name: 'Unit Tests (ubuntu-latest, shard 2)', conclusion: 'success' },
+              ],
+            });
+          }
+          if (endpoint.includes('/actions/runs/2/jobs')) {
+            return JSON.stringify({
+              jobs: [{ name: 'Unit Tests (macos-latest, shard 1)', conclusion: 'success' }],
+            });
+          }
+          return JSON.stringify({ jobs: [] });
+        }
+        return base.runGh(args, cwd);
+      },
+    };
+
+    const result = await releaseOpen({ version, projectRoot: testDir, commitPlan: false }, runner);
+    expect(result.success).toBe(true);
+    expect(result.data?.preflight).toMatchObject({
+      verifiedSha: sha,
+      skipTests: true,
+      skipMacosTests: true,
+    });
+
+    const dispatched = runner.calls.find((c) => c.args[0] === 'workflow' && c.args[1] === 'run');
+    const passed = new Map<string, string>();
+    const args = dispatched?.args ?? [];
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === '--field' && typeof args[i + 1] === 'string') {
+        const pair = args[i + 1] as string;
+        const eq = pair.indexOf('=');
+        if (eq > 0) passed.set(pair.slice(0, eq), pair.slice(eq + 1));
+      }
+    }
+    expect(passed.get('skip-tests')).toBe('true');
+    expect(passed.get('skip-macos-tests')).toBe('true');
+    expect(passed.get('verified-sha')).toBe(sha);
+    expect(passed.get('skip-reason')).toContain('Linux tests skipped');
+
+    const declared = readWorkflowInputKeys();
+    for (const key of passed.keys()) expect(declared).toContain(key);
+  });
+
   it('release-prepare.yml declares `version` as the only required input', () => {
     const requiredInputs = readRequiredWorkflowInputKeys();
     expect(requiredInputs.sort()).toEqual(['version']);

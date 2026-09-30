@@ -72,6 +72,41 @@ fn napi_err(e: impl std::fmt::Display) -> napi::Error {
     napi::Error::from_reason(format!("{e}"))
 }
 
+// ── build stamp ─────────────────────────────────────────────────────
+
+/// Native-source stamp embedded at build time (see `build.rs`).
+///
+/// A single contiguous literal, so the release can find it in the raw bytes
+/// of every staged `.node` without loading a foreign-platform binary. Same
+/// shape as `cant-napi`'s stamp: a `#[used]` static byte array (a `const &str`
+/// may be inlined without a contiguous copy), read through [`worktree_build_info`]
+/// so it stays reachable in the linked cdylib.
+#[used]
+static SOURCE_REV_STAMP: [u8; SOURCE_REV_STAMP_STR.len()] = {
+    let src = SOURCE_REV_STAMP_STR.as_bytes();
+    let mut out = [0u8; SOURCE_REV_STAMP_STR.len()];
+    let mut i = 0;
+    while i < src.len() {
+        out[i] = src[i];
+        i += 1;
+    }
+    out
+};
+
+/// The stamp text; see [`SOURCE_REV_STAMP`].
+const SOURCE_REV_STAMP_STR: &str = concat!(
+    "worktree-napi-source-rev:",
+    env!("WORKTREE_NAPI_SOURCE_REV")
+);
+
+/// Return the native source this binary was built from, e.g.
+/// `"worktree-napi-source-rev:0a1b2c…"` (`"…:unversioned"` for local builds).
+#[napi]
+pub fn worktree_build_info() -> String {
+    // Read through black_box so the emitted static stays the data source.
+    String::from_utf8_lossy(std::hint::black_box(&SOURCE_REV_STAMP)).into_owned()
+}
+
 // ── provision_worktree ──────────────────────────────────────────────
 
 /// Options for [`provision_worktree`].

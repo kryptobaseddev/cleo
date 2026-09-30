@@ -57,11 +57,13 @@ import {
 import { create as tarCreate } from 'tar';
 import { isEphemeralPath } from '../nexus/registry-hygiene.js';
 import { getCleoConfigDir, getCleoHome } from '../paths.js';
+import { getProjectDisplayName } from '../project-scope.js';
 import { getCleoVersion } from '../scaffold/ensure-config.js';
 import { encryptFileStream } from './backup-crypto.js';
 import {
   type CredentialSources,
   listCredentialsForReentry,
+  readProjectCredentialIdentity,
   sealCredentials,
 } from './credential-transfer.js';
 import { resolveDualScopeDbPath } from './dual-scope-db.js';
@@ -549,19 +551,20 @@ export function detectUnmigratedLegacy(
   return { detected: evidence.length > 0, evidence };
 }
 
-function readProjectInfo(cleoDir: string): { projectId: string | null; name: string | null } {
-  try {
-    const raw = JSON.parse(fs.readFileSync(path.join(cleoDir, 'project-info.json'), 'utf-8')) as {
-      projectId?: unknown;
-      name?: unknown;
-    };
-    return {
-      projectId: typeof raw.projectId === 'string' ? raw.projectId : null,
-      name: typeof raw.name === 'string' ? raw.name : null,
-    };
-  } catch {
-    return { projectId: null, name: null };
-  }
+/**
+ * The project's declared identity and display name (T12716): the tracked id
+ * first, then the `project-info.json` cache; the name from
+ * `getProjectDisplayName`.
+ */
+async function readProjectIdentity(projectRoot: string): Promise<{
+  projectId: string | null;
+  previousProjectIds: string[];
+  name: string;
+}> {
+  return {
+    ...(await readProjectCredentialIdentity(projectRoot)),
+    name: getProjectDisplayName(projectRoot),
+  };
 }
 
 async function stageProject(
@@ -574,8 +577,8 @@ async function stageProject(
   if (!fs.existsSync(cleoDir)) {
     throw new PortableBundleError('E_NO_PROJECT', `No .cleo directory at ${projectRoot}`);
   }
-  const info = readProjectInfo(cleoDir);
-  const name = info.name ?? path.basename(projectRoot);
+  const info = await readProjectIdentity(projectRoot);
+  const name = info.name;
   const safe = name.replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 60) || 'project';
   const prefix = `projects/${String(index).padStart(3, '0')}-${safe}/cleo`;
   const base = await stageSection(
@@ -592,6 +595,7 @@ async function stageProject(
     await sealSectionCredentials(state, base, `project-${String(index).padStart(3, '0')}`, {
       projectDbPath: path.join(state.stagingDir, primary.bundlePath),
       ...(projectId !== null ? { projectId } : {}),
+      previousProjectIds: info.previousProjectIds,
       legacyProjectPaths: [projectRoot],
     });
   }

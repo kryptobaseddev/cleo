@@ -756,7 +756,8 @@ const CROSS_DB_QUERY_LIMIT = 100;
 const CROSS_DB_SAMPLE_LIMIT = 5;
 
 /** Stable text for the I3 path-mismatch invariant fix. */
-const I3_FIX = 'Run `cleo nexus reset-project-id` to realign nexus.db with project-context.json';
+const I3_FIX =
+  'Run `cleo nexus reset-project-id` to realign nexus.db with the declared identity (.cleo/project.json)';
 /** Stable text for the I1 invariant fix. */
 const I1_FIX = 'Run `cleo memory observe --task <taskId>` to re-anchor';
 /** Stable text for the I2 invariant fix. */

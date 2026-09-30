@@ -173,6 +173,8 @@ After two data loss incidents caused by git tracking `.cleo/tasks.db`, the follo
 
 **Status**: RESOLVED. `.cleo/tasks.db`, `.cleo/brain.db`, `.cleo/config.json`, and `.cleo/project-info.json` are no longer tracked in the project git repo.
 
+> **Amended (identity files).** ADR-094 (T12325) tracks `.cleo/project-id`, the write-once project id. Its successor ADR-096 (T12716) makes `.cleo/project.json` the canonical tracked identity: `{schemaVersion, id, name}`, where the **id is write-once** (created with `O_EXCL`, never rewritten, never regenerated) and the **name** changes only through `cleo project rename`. `.cleo/project-id` stays tracked as the legacy id-only mirror. The four files above stay untracked; `project-info.json` holds device-local state only, and its `projectId` is a cache of the tracked id. The §9 hazard needs a second writer on state that changes; neither tracked id has one, and a name edit is an ordinary committed-config change.
+
 ### Why the 2026-03-01 guards were insufficient
 
 The safety guards documented in §8 caught new *stages* of the DB files but did nothing about the four files that were **already in the index** from pre-T5158 commits. Every `git checkout` between branches whose histories differed still overwrote the live DB with a stale blob, and the runtime logger continued to emit `tasks.db is tracked by project git — this risks data loss on branch switch` on every single command invocation. The nested `.cleo/.gitignore` also retained `!config.json` and `!project-info.json` re-include rules, which overrode any parent-repo deny lines for those two paths.

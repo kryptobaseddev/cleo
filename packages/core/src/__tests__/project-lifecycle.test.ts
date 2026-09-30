@@ -246,7 +246,10 @@ describe('project-lifecycle', () => {
       expect(data.newProjectHash).toBe('a1b2c3d4e5f6');
       expect(hashBytes()).toBe('"a1b2c3d4e5f6"');
       const info = JSON.parse(readFileSync(infoPath, 'utf-8')) as Record<string, unknown>;
-      expect(info['name']).toBe('renamed');
+      // T12716: a legacy rename writes `displayName`; `name` (the path
+      // fingerprint alias-key input) never moves.
+      expect(info['displayName']).toBe('renamed');
+      expect(info).not.toHaveProperty('name');
       expect(info).not.toHaveProperty('projectRoot');
       // The legacy path fact is kept as a receipt, never silently lost.
       expect(info['strippedFields']).toEqual([

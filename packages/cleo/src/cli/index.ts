@@ -677,6 +677,7 @@ export async function runStartupMaintenance(): Promise<void> {
     getLogger,
     getProjectRoot,
     isCleanupMarkerSet,
+    isMissingProjectError,
     migrateSignaldockToConduit,
     needsSignaldockToConduitMigration,
     setCleanupMarker,
@@ -749,11 +750,11 @@ export async function runStartupMaintenance(): Promise<void> {
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      // E_NO_PROJECT (global command, no project root) and "Run cleo init at"
-      // (uninitialized project) are expected — both indicate "no project to
-      // migrate", not a real failure. Suppress the noise.
-      if (msg.includes('E_NO_PROJECT') || msg.startsWith('Run cleo init')) {
-        // expected — no-op
+      // No project here (a project-independent command such as `decide`,
+      // `login` or `setup` run outside any project, or an uninitialised one)
+      // means "nothing to migrate", not a failure: debug only (T12733).
+      if (isMissingProjectError(err)) {
+        _startupLog.debug({ error: msg }, 'T310 migration startup check: no project, skipped');
       } else {
         _startupLog.warn(
           { error: msg },

@@ -15,13 +15,17 @@
  *    baseline. A cant binary (`packages/cant/**`, `crates/cant-*`) can never
  *    be baselined.
  *
- * 2. Packed mode (`--packed <packageDir> --expect-rev <rev>`), run by the
- *    release after staging `@cleocode/cant`: `npm pack --dry-run` must ship
- *    exactly the generated loader, the WASI glue, the `.wasm` and one `.node`
- *    per required triple, and every packed binary must carry the literal
- *    `cant-napi-source-rev:<rev>` (stamped by `crates/cant-napi/build.rs`).
- *    A leftover or stale binary lacks the stamp of the commit being released
- *    and fails the release.
+ * 2. Packed mode (`--packed <packageDir> --expect-source-hash <hash>`), run by
+ *    the release after staging `@cleocode/cant`: `npm pack --dry-run` must
+ *    ship exactly the generated loader, the WASI glue, the `.wasm` and one
+ *    `.node` per required triple, and every packed binary must carry the
+ *    literal `cant-napi-source-rev:<hash>` (stamped by
+ *    `crates/cant-napi/build.rs`). `<hash>` is the NATIVE SOURCE hash
+ *    (`node scripts/native-source-hash.mjs cant`), which the release recomputes
+ *    from the tagged commit: a leftover or stale binary lacks the stamp of the
+ *    source being released and fails the release, while a binary restored from
+ *    the build cache passes only when its source is byte-identical.
+ *    `--expect-rev` is the pre-source-hash spelling of the same option.
  *
  * REPO_ROOT is `process.cwd()` so unit tests can target a synthetic tree.
  *
@@ -100,7 +104,7 @@ export function scanCommittedBinaries(trackedFiles, options = {}) {
  * @param {object} input
  * @param {string[]} input.packedFiles - package-relative paths `npm pack` lists
  * @param {(path: string) => Buffer} input.readFile - reads a package-relative file
- * @param {string} input.expectRev - the revision every binary must be stamped with
+ * @param {string} input.expectRev - the native source hash every binary must be stamped with
  * @param {string[]} [input.triples] - native triples that must be present
  * @returns {string[]} problems; empty means the pack is complete and fresh
  */
@@ -129,7 +133,7 @@ export function assessPackedCant({
     if (bytes.length === 0) {
       problems.push(`empty binary: ${file}`);
     } else if (!bytes.includes(stamp)) {
-      problems.push(`stale binary (not built from ${expectRev}): ${file}`);
+      problems.push(`stale binary (not built from native source ${expectRev}): ${file}`);
     }
   }
   return problems;
@@ -150,11 +154,11 @@ function option(argv, name) {
 /** Packed-mode CLI entry. */
 function mainPacked(argv) {
   const packageDir = option(argv, '--packed');
-  const expectRev = option(argv, '--expect-rev');
+  const expectRev = option(argv, '--expect-source-hash') ?? option(argv, '--expect-rev');
   const triplesArg = option(argv, '--triples');
   if (!packageDir || !expectRev) {
     console.error(
-      'usage: lint-no-committed-native-binaries.mjs --packed <dir> --expect-rev <rev> [--triples a,b]',
+      'usage: lint-no-committed-native-binaries.mjs --packed <dir> --expect-source-hash <hash> [--triples a,b]',
     );
     return 2;
   }
@@ -178,8 +182,9 @@ function mainPacked(argv) {
     );
     for (const p of problems) console.error(`  - ${p}`);
     console.error(
-      `\nEvery binary must be built in this run from ${expectRev} (CANT_NAPI_SOURCE_REV) by\n` +
-        '.github/workflows/cant-napi-build.yml and staged into packages/cant/napi/.\n',
+      `\nEvery binary must be built from native source ${expectRev} (CANT_NAPI_SOURCE_REV =\n` +
+        '`node scripts/native-source-hash.mjs cant`) by .github/workflows/cant-napi-build.yml\n' +
+        '(built in the run, or restored from its verified cache) and staged into packages/cant/napi/.\n',
     );
     return 1;
   }

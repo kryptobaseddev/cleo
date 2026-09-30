@@ -43,7 +43,12 @@ import { gitToplevel, resolveDeclaredEvidenceGitRoot } from '../git/work-tree.js
 import { ghQueryTimeoutMs } from '../release/github-pr.js';
 import type { PrAtomResolution } from '../release/pr-evidence.js';
 import { enumerateWorktrees } from '../worktree/list.js';
-import { componentLandedChanges } from './component-pr.js';
+import {
+  type ComponentLandingDeps,
+  componentLandedChanges,
+  findComponentLanding,
+  landingCommitOn,
+} from './component-pr.js';
 import {
   classifyEvidenceTask,
   diffIntersectsAc,
@@ -88,6 +93,8 @@ export interface PrDetails {
   headRefOid: string | null;
   /** Merge commit, or null when unmerged. */
   mergeCommitSha: string | null;
+  /** The PR's commits, oldest first, when known (T12710). */
+  commits?: string[];
 }
 
 /** A document attached to a task, as the docs read model reports it. */
@@ -120,6 +127,8 @@ export interface ChangeSetDeps {
   listTaskDocs?: (storeRoot: string, taskId: string) => Promise<TaskDocRef[]>;
   /** Accepted or proposed decisions linked to the task. */
   listTaskDecisions?: (storeRoot: string, taskId: string) => Promise<string[]>;
+  /** `gh` lookups that follow a component PR to its integration PR (T12710). */
+  landing?: ComponentLandingDeps;
   /** Environment for declared git-root resolution. */
   env?: NodeJS.ProcessEnv;
 }
@@ -304,7 +313,7 @@ export async function defaultListMergedPrs(
 }
 
 const PR_DETAIL_FIELDS =
-  'number,title,headRefName,baseRefName,state,mergedAt,headRefOid,mergeCommit';
+  'number,title,headRefName,baseRefName,state,mergedAt,headRefOid,mergeCommit,commits';
 
 /** Normalise one `gh pr view/list --json PR_DETAIL_FIELDS` row. */
 function toPrDetails(row: unknown): PrDetails | null {
@@ -322,6 +331,12 @@ function toPrDetails(row: unknown): PrDetails | null {
     mergedAt: typeof r.mergedAt === 'string' && r.mergedAt !== '' ? r.mergedAt : null,
     headRefOid: typeof r.headRefOid === 'string' ? r.headRefOid : null,
     mergeCommitSha: typeof merge?.oid === 'string' ? merge.oid : null,
+    commits: Array.isArray(r.commits)
+      ? r.commits.flatMap((c: unknown) => {
+          const oid = (c as { oid?: unknown } | null)?.oid;
+          return typeof oid === 'string' && oid !== '' ? [oid] : [];
+        })
+      : [],
   };
 }
 
@@ -549,6 +564,61 @@ async function deriveStackedChangeSet(
   return true;
 }
 
+/** The PR-path I/O, defaults resolved. */
+type PrDeps = Required<
+  Pick<ChangeSetDeps, 'listMergedPrs' | 'resolvePr' | 'viewPr' | 'findPrByHead'>
+> &
+  Pick<ChangeSetDeps, 'landing'>;
+
+/**
+ * A PR that did not itself land on the default branch — closed by hand after
+ * a `git merge --no-ff` into an integration branch, marked merged by GitHub
+ * when its commits reached the base (its "merge commit" then sits inside the
+ * integration branch), stacked, or rebased into the batch — is followed to
+ * the integration PR whose merge landed its commits (T12710). The component
+ * stays the task link and its surviving files the change; the integration PR
+ * is the provenance and the CI. Returns false (leaving a warning when the
+ * follow was refused) so the caller's own path decides.
+ */
+async function followComponentLanding(
+  cs: TaskChangeSet,
+  root: string,
+  detail: PrDetails | null,
+  defaultRef: string | null,
+  landing: ComponentLandingDeps | undefined,
+): Promise<boolean> {
+  if (!detail || !defaultRef || !detail.commits?.length || detail.state === 'OPEN') return false;
+  const defaultBranch = defaultRef.replace(/^origin\//, '');
+  const merge = detail.mergeCommitSha;
+  const direct =
+    detail.state === 'MERGED' &&
+    detail.baseRefName === defaultBranch &&
+    merge !== null &&
+    hasCommit(root, merge) &&
+    landingCommitOn(root, merge, defaultRef) === merge;
+  if (direct) return false;
+  const found = await findComponentLanding(root, { ...detail, body: '' }, defaultRef, landing);
+  if (found === null) return false;
+  if (!found.ok) {
+    cs.warnings.push(`PR #${detail.number} was not followed to an integration PR: ${found.reason}`);
+    return false;
+  }
+  cs.source = 'pr';
+  cs.mergeState = 'merged';
+  cs.prNumber = found.landing.number;
+  cs.componentPrNumber = detail.number;
+  cs.mergeCommitSha = found.landing.mergeCommitSha;
+  cs.files = found.files;
+  cs.deletedFiles = found.deleted;
+  cs.implementedEvidence = componentEvidence(
+    detail.number,
+    found.landing.number,
+    found.files,
+    found.deleted,
+  );
+  return true;
+}
+
 /** Candidate numbers after the declared-files and own-branch narrowing rules. */
 async function narrowCandidates(
   numbers: number[],
@@ -593,7 +663,7 @@ async function derivePrChangeSet(
   cs: TaskChangeSet,
   input: DeriveChangeSetInput,
   roots: EvidenceRoots,
-  deps: Required<Pick<ChangeSetDeps, 'listMergedPrs' | 'resolvePr' | 'viewPr' | 'findPrByHead'>>,
+  deps: PrDeps,
 ): Promise<boolean> {
   const { task } = input;
   const root = roots.executionRoot;
@@ -679,7 +749,7 @@ async function deriveMultiPrChangeSet(
   discovery: PrDiscovery,
   input: DeriveChangeSetInput,
   roots: EvidenceRoots,
-  deps: Required<Pick<ChangeSetDeps, 'listMergedPrs' | 'resolvePr' | 'viewPr' | 'findPrByHead'>>,
+  deps: PrDeps,
 ): Promise<boolean> {
   const ordered = [...numbers].sort((a, b) => a - b);
   const parts: TaskChangeSet[] = [];
@@ -822,7 +892,7 @@ async function deriveOnePr(
   discovery: PrDiscovery,
   input: DeriveChangeSetInput,
   roots: EvidenceRoots,
-  deps: Required<Pick<ChangeSetDeps, 'listMergedPrs' | 'resolvePr' | 'viewPr' | 'findPrByHead'>>,
+  deps: PrDeps,
 ): Promise<boolean> {
   const { task } = input;
   const root = roots.executionRoot;
@@ -857,8 +927,19 @@ async function deriveOnePr(
     cs.mergeState = detail ? (detail.state === 'MERGED' ? 'merged' : 'unmerged') : 'unknown';
   }
   if (detail && defaultBranch && detail.baseRefName && detail.baseRefName !== defaultBranch) {
-    return deriveStackedChangeSet(cs, task.id, root, detail, defaultBranch, deps.findPrByHead);
+    await deriveStackedChangeSet(cs, task.id, root, detail, defaultBranch, deps.findPrByHead);
+    // T12710: a stacked component whose base PR never landed it (closed, or
+    // merged elsewhere) may still have landed through an integration PR.
+    if (
+      cs.stackedOn !== undefined &&
+      (await followComponentLanding(cs, root, detail, defaultRef, deps.landing))
+    ) {
+      cs.blockers = cs.blockers.filter((b) => b.code !== 'pr-stacked');
+      delete cs.stackedOn;
+    }
+    return true;
   }
+  if (await followComponentLanding(cs, root, detail, defaultRef, deps.landing)) return true;
 
   const pr = resolved.get(prNumber) ?? (await deps.resolvePr(prNumber, roots));
   if (!pr.ok) {
@@ -1054,6 +1135,7 @@ export async function deriveTaskChangeSet(
       resolvePr: deps.resolvePr ?? defaultResolvePr,
       viewPr: deps.viewPr ?? defaultViewPr,
       findPrByHead: deps.findPrByHead ?? defaultFindPrByHead,
+      ...(deps.landing ? { landing: deps.landing } : {}),
     })
   )
     return cs;

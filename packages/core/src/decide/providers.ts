@@ -5,19 +5,25 @@
  * - `layahost` (recommended): a fixed base URL ({@link LAYAHOST_BASE_URL});
  *   the user brings only an API key. Model defaults to
  *   {@link LAYAHOST_DEFAULT_MODEL}.
- * - `jev`: any Jev-compatible endpoint; the user supplies the URL, and the
- *   model comes from the provider's `GET /v1/models` listing.
+ * - `jev`: Jev's own API ({@link JEV_DEFAULT_BASE_URL}) by default, or any
+ *   Jev-compatible endpoint as an override URL; the model comes from the
+ *   provider's `GET /v1/models` listing.
+ *
+ * A profile that keeps the preset URL stores the literal `default`
+ * (T12733), resolved here at call time.
  *
  * The URL and model literals live in `@cleocode/contracts` (const data); this
  * module only arranges them.
  *
  * @task T12713
+ * @task T12733
  * @epic T12486
  */
 
 import {
   DECISION_PROVIDER_KINDS,
   type DecisionProviderKind,
+  JEV_DEFAULT_BASE_URL,
   LAYAHOST_BASE_URL,
   LAYAHOST_DEFAULT_MODEL,
 } from '@cleocode/contracts';
@@ -55,10 +61,10 @@ export const DECISION_PROVIDER_PRESETS: Readonly<
   },
   jev: {
     kind: 'jev',
-    label: 'jev: custom Jev-compatible URL',
-    description:
-      'Any Jev-compatible endpoint; you supply the URL, the model comes from /v1/models.',
-    requiresUrl: true,
+    label: 'jev: Jev API or any Jev-compatible URL',
+    description: `Jev at ${JEV_DEFAULT_BASE_URL} by default, or any Jev-compatible URL; the model comes from /v1/models.`,
+    defaultBaseUrl: JEV_DEFAULT_BASE_URL,
+    requiresUrl: false,
     recommended: false,
   },
 };
@@ -97,4 +103,15 @@ export function inferDecisionProviderKind(baseUrl: string): DecisionProviderKind
   } catch {
     return 'jev';
   }
+}
+
+/**
+ * The preset base URL of a provider kind, which a profile storing `default`
+ * resolves to at call time.
+ *
+ * @param kind - Provider kind.
+ * @returns The preset URL, or `undefined` when the kind has none.
+ */
+export function presetBaseUrl(kind: DecisionProviderKind): string | undefined {
+  return DECISION_PROVIDER_PRESETS[kind].defaultBaseUrl;
 }

@@ -302,7 +302,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'decideCommand',
     name: 'decide',
     description:
-      'System One integration (typed decisions): decide config (provider + API key; wizard on a terminal), decide status (reachability probe), decide ask (one debug question), decide sites (the registered decision sites), decide bench (accuracy benchmark). Unconfigured means heuristics answer.',
+      'System One integration (typed decisions): decide config (named provider profile + API key; wizard on a terminal), decide use (switch the active profile), decide profiles (list them), decide status (reachability probe), decide ask (one debug question), decide sites (the registered decision sites), decide bench (accuracy benchmark). Unconfigured means heuristics answer.',
     load: async () => (await import('../commands/decide.js')).decideCommand as CommandDef,
   },
   {
@@ -481,7 +481,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'doctorProjectIdentityCommand',
     name: 'project-identity',
     description:
-      'Check .cleo/project-id against project-info.json (missing / conflict / invalid / untracked) ',
+      'Check .cleo/project.json, its legacy .cleo/project-id mirror and the project-info.json cache ',
     load: async () =>
       (await import('../commands/doctor-project-identity.js'))
         .doctorProjectIdentityCommand as CommandDef,

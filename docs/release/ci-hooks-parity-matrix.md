@@ -43,7 +43,7 @@ Legend: yes = configured trigger; path = configured but path-filtered; n/a = int
 | Docs Re-ingest | `.github/workflows/docs-reingest.yml` | Cleocode dogfood-only | closed PR only | no | no | no | no | no | yes | Runs after PR merge to refresh repo docs/search state. |
 | Release Pipeline Matrix | `.github/workflows/release-pipeline-matrix.yml` | Shared | path | path | no | no | no | no | yes | Dogfood CI instance for shipped release-pipeline scenarios; 32 scenario matrix. |
 | Release Readiness | `.github/workflows/release-readiness.yml` | Shared release dogfood | yes | no | no | no | no | no | yes | PR/merge-queue readiness gate for release PR state and release-note provenance. |
-| worktree-napi prebuild | `.github/workflows/worktree-napi-prebuild.yml` | Shared | path | path | no | yes (`v*`) | no | yes | yes | Builds/tests native prebuild artifacts for shipped `@cleocode/worktree-napi`. |
+| worktree-napi prebuild | `.github/workflows/worktree-napi-prebuild.yml` | Shared | path | path | no | no (via `release.yml` `workflow_call`) | no | yes | yes | Builds/tests the native binaries bundled into `@cleocode/worktree`. Not tag-triggered: `release.yml` calls it (`workflow_call`) on `v*`, and it restores binaries cached by native source hash (warmed by main pushes). |
 | Auto-Tag on Release Merge | `.github/workflows/auto-tag-on-release-merge.yml` | Shared release dogfood | closed PR only | no | no | no | no | no | yes | Tags merge commit after release PR merge; repo instance validates release invariant. |
 | Release | `.github/workflows/release.yml` | Shared artifact publishing | no | no | no | yes (`v*`) | no | yes | no | Publishes shipped CLEO packages from tags; also has GitHub Release creation job. |
 | Release Prepare | `.github/workflows/release-prepare.yml` | Shared release dogfood | no | no | no | no | no | yes | no | Repo-local instance of shipped release-prepare flow. |
@@ -99,7 +99,7 @@ Observed result on 2026-05-25T03:08:25Z: repository `kryptobaseddev/cleo` defaul
 
 1. PR/main parity is broadly present for repo hygiene gates: most always-on dogfood workflows trigger on both `pull_request` to `main` and `push` to `main`, plus `merge_group` for merge-queue parity.
 2. No workflow in this tree targets a `dev` branch. The documented branch model is currently main-centric; adding `dev` would require explicit branch filters and branch-protection updates.
-3. Tag triggers are intentionally limited to product publishing/prebuild surfaces: `release.yml` and `worktree-napi-prebuild.yml` on `v*`.
+3. Tag triggers are intentionally limited to product publishing: only `release.yml` triggers on `v*`. The native builds (`worktree-napi-prebuild.yml`, `cant-napi-build.yml`) run inside the release through `workflow_call`, not on the tag themselves.
 4. Cron triggers are intentionally owner/dogfood-only: freshness sentinel, skills council, and skills grade.
 5. Dispatch-only workflows are either shipped release operations (`release-prepare`, release template operations) or owner maintenance operations; dispatch is not a substitute for PR/main gates.
 6. The current live GitHub `main` branch protection now matches the in-tree desired protection document for required contexts, strictness, review count, admin enforcement, and push restrictions.

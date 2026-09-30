@@ -459,6 +459,97 @@ describe('merged-PR CI replaces local tool runs when the project opts in (T12634
     }
   });
 
+  it("--pr <component> GitHub marked MERGED (or closed by hand) plans the integration PR's CI, never its own (T12710)", async () => {
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    const componentHead = commitOnTaskBranch(id);
+    git(root, ['switch', '-q', 'main']);
+    git(root, ['switch', '-q', '-c', 'integration/i']);
+    writeFileSync(join(root, 'src', 'i.ts'), 'export const i = 1;\n');
+    git(root, ['add', 'src/i.ts']);
+    git(root, ['commit', '-q', '-m', 'integration work']);
+    git(root, ['merge', '-q', '--no-ff', '-m', `Merge task/${id}`, `task/${id}`]);
+    const intoIntegration = git(root, ['rev-parse', 'HEAD']);
+    git(root, ['switch', '-q', 'main']);
+    git(root, ['merge', '-q', '--no-ff', '-m', 'Merge pull request #41', 'integration/i']);
+    const landing = git(root, ['rev-parse', 'HEAD']);
+    git(root, ['push', '-q', 'origin', 'main']);
+    const ctxPath = join(root, '.cleo', 'project-context.json');
+    const ctx = JSON.parse(readFileSync(ctxPath, 'utf-8')) as Record<string, unknown>;
+    writeFileSync(
+      ctxPath,
+      JSON.stringify({
+        ...ctx,
+        evidence: {
+          ciSatisfies: true,
+          ciChecks: {
+            tests: ['CI'],
+            qa: ['CI'],
+            jobs: { tests: ['Unit Tests*'], qa: ['Type Check'] },
+          },
+        },
+      }),
+    );
+    const component = {
+      number: 42,
+      title: `${id}: work`,
+      headRefName: `task/${id}`,
+      baseRefName: 'main',
+      mergedAt: null,
+      headRefOid: componentHead,
+      commits: [componentHead],
+    };
+    for (const shape of [
+      { state: 'MERGED', mergeCommitSha: intoIntegration },
+      { state: 'CLOSED', mergeCommitSha: null },
+    ]) {
+      const resolved: number[] = [];
+      const plan = await deriveTaskEvidence(id, {
+        projectRoot: root,
+        cwd: root,
+        satisfies: 'all',
+        prNumber: 42,
+        previewEvidence: async () => ({ ok: true }),
+        deps: {
+          ...deps,
+          viewPr: async () => ({ ...component, ...shape }),
+          findPrByHead: async () => null,
+          resolvePr: async (n) => {
+            resolved.push(n);
+            return { ok: false, codeName: 'E_EVIDENCE_TESTS_FAILED', reason: 'own CI incomplete' };
+          },
+          landing: {
+            prsByMergeCommit: async (sha) => ({
+              ok: true,
+              prs: [
+                {
+                  number: 41,
+                  headRefName: 'integration/i',
+                  baseRefName: 'main',
+                  state: 'MERGED',
+                  headRefOid: intoIntegration,
+                  mergeCommitSha: sha,
+                  body: `| #42 | ${id} |`,
+                },
+              ],
+            }),
+            prsListingComponent: async () => ({ ok: true, prs: [] }),
+          },
+        },
+      });
+      const label = shape.state;
+      expect(resolved, label).toEqual([]);
+      expect(plan.changeSet.prNumber, label).toBe(41);
+      expect(plan.changeSet.componentPrNumber, label).toBe(42);
+      expect(plan.changeSet.mergeCommitSha, label).toBe(landing);
+      expect(plan.toolRuns, label).toEqual([]);
+      expect(plan.blockers, label).toEqual([]);
+      const ev = Object.fromEntries(plan.gates.map((g) => [g.gate, g.evidence]));
+      expect(ev['implemented'], label).toBe(`pr:42@41;files:src/a.ts;satisfies:${id}#AC1`);
+      expect(ev['testsPassed'], label).toBe(`ci:42@41;satisfies:${id}#AC1`);
+      expect(ev['qaPassed'], label).toBe(`ci:42@41;satisfies:${id}#AC1`);
+    }
+  });
+
   it('a ci:/pr:-only close needs no task worktree, even when one is registered (T12671)', async () => {
     const { id, prDeps } = await mergedPrSetup(true);
     // A stale worktree still holds task/<id> after the merge.

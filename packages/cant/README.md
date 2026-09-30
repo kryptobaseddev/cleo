@@ -17,10 +17,9 @@ typed frontmatter.
 pnpm add @cleocode/cant
 ```
 
-The package ships pre-built napi binaries via `optionalDependencies` for
-`x86_64-unknown-linux-gnu`. On other platforms `@cleocode/cant` falls back to
-typed errors at runtime — the TypeScript surface still loads but
-parser/validator/executor calls require a native binding present.
+The package bundles pre-built napi binaries for every supported platform, with
+a WebAssembly (WASI) fallback for the rest — see
+[Native binaries and the WebAssembly fallback](#native-binaries-and-the-webassembly-fallback).
 
 **`cant-core` is the single source of truth (SSoT) for all CANT parsing.**
 There is no JS-regex fallback parser in the routine code path. If the native
@@ -146,6 +145,12 @@ The published package bundles the cant-napi addon for every supported
 platform in `napi/` (T12382): native binaries for linux x64/arm64 (glibc and
 musl), darwin x64/arm64 and win32 x64/arm64, plus
 `cant.wasm32-wasi.wasm`, the same crate built for `wasm32-wasip1-threads`.
+
+**glibc floor on ARM64 Linux:** `linux-arm64-gnu` is built on GitHub's native
+`ubuntu-24.04-arm` runner, so it requires glibc ≥ 2.39 (Ubuntu 24.04+ /
+Debian 13+). Older ARM64 Linux loads the WebAssembly build instead (the
+fallback below), and the native worktree helper in `@cleocode/worktree` is
+unavailable there. musl (Alpine) ARM64 is unaffected.
 The napi-rs generated loader (`napi/index.cjs`) uses the native binary for
 the host and falls back to the WebAssembly build automatically when none
 matches. `NAPI_RS_FORCE_WASI=error` forces the WebAssembly build (tests use

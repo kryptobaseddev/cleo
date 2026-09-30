@@ -24,6 +24,7 @@ export * from './ansi.js';
 export * from './brain/index.js';
 export * from './cli-colorize.js';
 export * from './colors.js';
+export * from './decide/index.js';
 export * from './docs/index.js';
 export * from './fallback.js';
 export * from './format-label.js';

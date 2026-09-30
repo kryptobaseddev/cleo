@@ -1,12 +1,16 @@
 /**
  * Decision-provider presets (T12713): layahost is the recommended default with
- * a fixed URL and model; jev needs a URL and takes its model from /v1/models.
+ * a fixed URL and model; jev defaults to Jev's own API URL (T12733, owner
+ * decision: every provider has a known default URL) and takes its model from
+ * /v1/models.
  *
  * @task T12713
+ * @task T12733
  */
 
 import {
   DECISION_PROVIDER_KINDS,
+  JEV_DEFAULT_BASE_URL,
   LAYAHOST_BASE_URL,
   LAYAHOST_DEFAULT_MODEL,
 } from '@cleocode/contracts';
@@ -16,6 +20,7 @@ import {
   inferDecisionProviderKind,
   listDecisionProviderPresets,
   parseDecisionProviderKind,
+  presetBaseUrl,
 } from '../providers.js';
 
 describe('decision provider presets', () => {
@@ -31,10 +36,11 @@ describe('decision provider presets', () => {
     expect(LAYAHOST_DEFAULT_MODEL).toBe('laya-auto');
   });
 
-  it('jev: URL required, no default URL or model (the listing decides)', () => {
+  it('jev: the Jev API URL by default, no default model (the listing decides)', () => {
     const jev = DECISION_PROVIDER_PRESETS.jev;
-    expect(jev).toMatchObject({ kind: 'jev', requiresUrl: true, recommended: false });
-    expect(jev.defaultBaseUrl).toBeUndefined();
+    expect(jev).toMatchObject({ kind: 'jev', requiresUrl: false, recommended: false });
+    expect(jev.defaultBaseUrl).toBe(JEV_DEFAULT_BASE_URL);
+    expect(presetBaseUrl('jev')).toBe(JEV_DEFAULT_BASE_URL);
     expect(jev.defaultModel).toBeUndefined();
   });
 

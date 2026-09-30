@@ -78,8 +78,9 @@ describe('runDecideWizard', () => {
     const selectSpy = vi.spyOn(StubWizardIO.prototype, 'select');
     const io = new StubWizardIO({
       selects: [LAYA, 'laya-auto'],
+      prompts: [''], // T12733: Enter keeps "default" as the profile name
       secrets: [KEY],
-      confirms: [true],
+      confirms: [true, true], // use the default URL; run the smoke test
     });
     const result = await runDecideWizard(io, { fetch: fetchStub, smoke });
 
@@ -99,12 +100,13 @@ describe('runDecideWizard', () => {
     ]);
     // No URL prompt on the layahost path; the key went through secret().
     expect(io.promptHistory.find((h) => /API key/.test(h.question))?.answer).toBe('***');
-    expect(io.promptHistory.some((h) => /URL/.test(h.question))).toBe(false);
+    expect(io.promptHistory.some((h) => /base URL/.test(h.question))).toBe(false);
     expect(smoke).toHaveBeenCalledTimes(1);
     expect(loadDecideConnection()?.connection()).toEqual({
       baseUrl: LAYAHOST_BASE_URL,
       apiKey: KEY,
       model: 'laya-auto',
+      profile: 'layahost/default',
     });
     expectKeyNeverShown(io, result);
     selectSpy.mockRestore();
@@ -114,9 +116,9 @@ describe('runDecideWizard', () => {
     const fetchStub = providerFetch(['jev-a', 'jev-b']);
     const io = new StubWizardIO({
       selects: [JEV, 'jev-b'],
-      prompts: ['http://remote.example', JEV_URL],
+      prompts: ['', 'http://remote.example', JEV_URL],
       secrets: [KEY],
-      confirms: [false],
+      confirms: [false, false], // override the default URL; no smoke test
     });
     const smoke = vi.fn(async () => smokeOk);
     const result = await runDecideWizard(io, { fetch: fetchStub, smoke });
@@ -132,16 +134,21 @@ describe('runDecideWizard', () => {
   it('jev path with an empty listing asks for the model name', async () => {
     const io = new StubWizardIO({
       selects: [JEV],
-      prompts: [JEV_URL, 'custom-model'],
+      prompts: ['', JEV_URL, 'custom-model'],
       secrets: [KEY],
-      confirms: [false],
+      confirms: [false, false],
     });
     const result = await runDecideWizard(io, { fetch: providerFetch([]) });
     expect(result.config).toMatchObject({ provider: 'jev', model: 'custom-model' });
   });
 
   it('a failed probe asks before saving; declining stores nothing', async () => {
-    const io = new StubWizardIO({ selects: [LAYA], secrets: [KEY], confirms: [false] });
+    const io = new StubWizardIO({
+      selects: [LAYA],
+      prompts: [''],
+      secrets: [KEY],
+      confirms: [true, false], // use the default URL; do not save after the failed probe
+    });
     const result = await runDecideWizard(io, {
       fetch: vi.fn(async () => new Response('{}', { status: 401 })),
     });
@@ -154,7 +161,12 @@ describe('runDecideWizard', () => {
   });
 
   it('an empty key leaves the settings unchanged', async () => {
-    const io = new StubWizardIO({ selects: [LAYA], secrets: [''] });
+    const io = new StubWizardIO({
+      selects: [LAYA],
+      prompts: [''],
+      secrets: [''],
+      confirms: [true],
+    });
     const result = await runDecideWizard(io, { fetch: vi.fn() });
     expect(result).toMatchObject({ configured: false, summary: 'skipped (empty api key)' });
     expect(loadDecideConnection()).toBeNull();
@@ -178,7 +190,12 @@ describe('system-one setup section', () => {
     const declined = await section.run(new StubWizardIO(), {});
     expect(declined).toMatchObject({ changed: false, summary: 'skipped (not now)' });
 
-    const io = new StubWizardIO({ confirms: [true, false], selects: [LAYA], secrets: [KEY] });
+    const io = new StubWizardIO({
+      confirms: [true, true, false],
+      selects: [LAYA],
+      prompts: [''],
+      secrets: [KEY],
+    });
     const ran = await section.run(io, {});
     expect(ran.changed).toBe(true);
     expect(await section.isConfigured?.({})).toBe(true);

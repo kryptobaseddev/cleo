@@ -139,7 +139,7 @@ describe('conduit.db idempotency contract (T10314)', () => {
       n: number;
     };
 
-    // The sentinel uses INSERT OR REPLACE on a single `schema_version`
+    // The sentinel is an UPSERT (T12787) on a single `schema_version`
     // key — row count must be identical on the second open.
     expect(metaCountSecond.n).toBe(metaCountFirst.n);
   });

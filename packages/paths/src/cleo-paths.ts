@@ -11,7 +11,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -27,7 +27,7 @@ import {
   type PlatformPaths,
   type SystemInfo,
 } from './platform-paths.js';
-import { readPortableProjectId } from './portable-project-id.js';
+import { readPortableProjectId, type TrackedIdentityFile } from './portable-project-id.js';
 
 const TEMPLATES_SUBDIR = 'templates';
 
@@ -240,9 +240,10 @@ export function resolveLegacyCleoDir(override?: string): string {
  */
 export interface ResolvedProject {
   /**
-   * The project's portable identity (ADR-094, T12470): the tracked
-   * `.cleo/project-id` when valid, otherwise the `projectId` recorded in
-   * `.cleo/project-info.json`. Never derived from the path. Treat it as an
+   * The project's portable identity (ADR-094, T12470, T12716): the tracked
+   * `.cleo/project.json` id (or the legacy `.cleo/project-id`) when valid,
+   * otherwise the `projectId` cached in `.cleo/project-info.json`. Never
+   * derived from the path. Treat it as an
    * opaque string — ids of every historical shape (UUID, 12-hex, legacy) occur.
    */
   projectId: string;
@@ -267,8 +268,15 @@ export interface ResolvedProject {
 export interface DeclaredProjectIdentity {
   /** The opaque project id. */
   readonly projectId: string;
-  /** `tracked` = `.cleo/project-id`; `project-info` = `.cleo/project-info.json`. */
+  /**
+   * `tracked` = `.cleo/project.json` or the legacy `.cleo/project-id`;
+   * `project-info` = the device-local cache in `.cleo/project-info.json`.
+   */
   readonly source: 'tracked' | 'project-info';
+  /** Which tracked file supplied the id, when `source` is `tracked` (T12716). */
+  readonly trackedFile?: TrackedIdentityFile;
+  /** The committed display name, when `.cleo/project.json` declares one (T12716). */
+  readonly name?: string;
   /** The `projectId` recorded in `project-info.json`, when that file has one. */
   readonly infoProjectId?: string;
 }
@@ -290,11 +298,15 @@ function _readProjectInfoId(projectRoot: string): string | undefined {
 }
 
 /**
- * Read the identity a project root DECLARES, in precedence order (T12470):
+ * Read the identity a project root DECLARES, in precedence order (T12470,
+ * T12716):
  *
- *   1. the tracked, write-once `.cleo/project-id` (ADR-094);
- *   2. the `projectId` in `.cleo/project-info.json`.
+ *   1. the tracked, write-once id: `.cleo/project.json`, else the legacy
+ *      `.cleo/project-id` ({@link readPortableProjectId}, ADR-094);
+ *   2. the `projectId` cached in `.cleo/project-info.json`.
  *
+ * The tracked id always wins; a disagreeing cache is reported by
+ * `cleo doctor project-identity` and re-keyed only by its `--resolve`.
  * A malformed tracked file is skipped here (it is reported by
  * `cleo doctor project-identity`) and never replaced by a derived value.
  * Nothing about the path — its spelling, realpath, git root or remote — takes
@@ -318,6 +330,8 @@ export function readDeclaredProjectIdentity(projectRoot: string): DeclaredProjec
     return {
       projectId: tracked.projectId,
       source: 'tracked',
+      ...(tracked.file !== undefined && { trackedFile: tracked.file }),
+      ...(tracked.name !== undefined && { name: tracked.name }),
       ...(infoProjectId !== undefined && { infoProjectId }),
     };
   }
@@ -325,6 +339,19 @@ export function readDeclaredProjectIdentity(projectRoot: string): DeclaredProjec
     return { projectId: infoProjectId, source: 'project-info', infoProjectId };
   }
   return null;
+}
+
+/**
+ * Whether `<dir>/.git` is a DIRECTORY (a git toplevel). A linked worktree's
+ * `.git` is a gitlink FILE: a tracked-only `.cleo/` there is not a project
+ * root, matching core's `validateProjectRoot` (T12716 review finding 8).
+ */
+function _isGitDirectory(dir: string): boolean {
+  try {
+    return statSync(join(dir, '.git')).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -369,6 +396,10 @@ function _findGitRemoteUrlSync(fromPath: string): string | null {
 /**
  * Read the project name from `.cleo/project-info.json` (if present).
  * Non-fatal on any I/O or parse error.
+ *
+ * Deliberately NOT the display name (`.cleo/project.json`, T12716): this value
+ * is an input to the path fingerprint, a legacy alias KEY that must keep
+ * matching the keys older builds recorded. A rename never changes it.
  */
 function _readProjectInfoName(repoRoot: string): string | undefined {
   try {
@@ -541,11 +572,12 @@ export function resolveProjectByCwd(cwd?: string): ResolvedProject | null {
   while (true) {
     if (existsSync(join(current, '.cleo'))) {
       const declared = readDeclaredProjectIdentity(current);
-      // A `.cleo/` holding ONLY a committed project-id (no project-info.json)
-      // is a project root only at a git toplevel. Otherwise a monorepo
+      // A `.cleo/` holding ONLY a committed identity (project.json or the
+      // legacy project-id; no project-info.json) is a project root only at a
+      // git toplevel — a real `.git/` directory, never a worktree's gitlink. Otherwise a monorepo
       // subdirectory that carries a committed id would shadow its parent.
       const trackedOnly = declared?.source === 'tracked' && declared.infoProjectId === undefined;
-      if (declared !== null && (!trackedOnly || existsSync(join(current, '.git')))) {
+      if (declared !== null && (!trackedOnly || _isGitDirectory(current))) {
         return {
           projectId: declared.projectId,
           projectRoot: canonicalizePath(current),

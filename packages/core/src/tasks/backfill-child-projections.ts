@@ -254,6 +254,49 @@ function dbToAcRow(dbRow: AcDbRow) {
   };
 }
 
+/**
+ * The one AC row write of the backfill: insert a row, or update it in place
+ * when the SAME task already owns that id. Returns the number of rows written.
+ *
+ * Never `INSERT OR REPLACE` (T12787): the bare `task_acceptance_criteria` is
+ * the parent of `evidence_ac_bindings.ac_id ... ON DELETE CASCADE` and this
+ * handle enforces foreign keys (node:sqlite's default), so REPLACE's implicit
+ * delete would cascade-delete the row's evidence bindings. Ids are
+ * sha256(taskId, key), so an id conflict with ANOTHER task's row means a
+ * corrupt or hand-seeded row: the `WHERE` refuses to take it over and 0 is
+ * returned, so the caller fails and the rebuild transaction rolls back.
+ */
+function upsertOwnedAcRow(db: NativeDb, row: any): number {
+  const result = db
+    .prepare(
+      `INSERT INTO task_acceptance_criteria
+       (id, task_id, ordinal, kind, source_key, target_task_id, projection, text, content_hash)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         ordinal = excluded.ordinal,
+         kind = excluded.kind,
+         source_key = excluded.source_key,
+         target_task_id = excluded.target_task_id,
+         projection = excluded.projection,
+         text = excluded.text,
+         content_hash = excluded.content_hash,
+         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+       WHERE task_acceptance_criteria.task_id = excluded.task_id`,
+    )
+    .run(
+      row.id,
+      row.taskId,
+      row.ordinal,
+      row.kind ?? 'text',
+      row.sourceKey ?? null,
+      row.targetTaskId ?? null,
+      row.projection ?? 'legacy',
+      row.text,
+      row.contentHash ?? null,
+    );
+  return Number(result.changes);
+}
+
 function buildDbTransactionAccessor(db: NativeDb, _parentId: string) {
   return {
     getAcRows: async (taskId: string) => {
@@ -268,28 +311,31 @@ function buildDbTransactionAccessor(db: NativeDb, _parentId: string) {
     },
 
     insertAcRows: async (rows: any[]) => {
-      const stmt = db.prepare(
-        `INSERT OR REPLACE INTO task_acceptance_criteria
-         (id, task_id, ordinal, kind, source_key, target_task_id, projection, text, content_hash)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      );
       for (const row of rows) {
-        stmt.run(
-          row.id,
-          row.taskId,
-          row.ordinal,
-          row.kind ?? 'text',
-          row.sourceKey ?? null,
-          row.targetTaskId ?? null,
-          row.projection ?? 'legacy',
-          row.text,
-          row.contentHash ?? null,
-        );
+        if (upsertOwnedAcRow(db, row) === 0) {
+          throw new Error(
+            `E_AC_ID_FOREIGN_OWNER: acceptance criterion id ${row.id} for task ${row.taskId} ` +
+              'is already owned by another task; refusing to take it over',
+          );
+        }
       }
     },
 
-    deleteAcRowsForTask: async (taskId: string) => {
-      db.prepare('DELETE FROM task_acceptance_criteria WHERE task_id = ?').run(taskId);
+    updateAcRows: async (rows: any[]) => {
+      const owner = db.prepare('SELECT task_id FROM task_acceptance_criteria WHERE id = ?');
+      for (const row of rows) {
+        const current = owner.get(row.id) as { task_id: string } | undefined;
+        if (current?.task_id !== row.taskId || upsertOwnedAcRow(db, row) === 0) {
+          throw new Error(
+            `E_AC_ROW_MISSING: acceptance criterion ${row.id} does not exist on task ${row.taskId}`,
+          );
+        }
+      }
+    },
+
+    deleteAcRowsByIds: async (taskId: string, ids: readonly string[]) => {
+      const stmt = db.prepare('DELETE FROM task_acceptance_criteria WHERE task_id = ? AND id = ?');
+      for (const id of ids) stmt.run(taskId, id);
     },
 
     appendAcHistory: async (_history: any[]) => {

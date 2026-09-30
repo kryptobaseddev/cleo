@@ -19,7 +19,12 @@ import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
-import { isAbsolutePath } from '@cleocode/paths';
+import {
+  isAbsolutePath,
+  isValidProjectDisplayName,
+  readDeclaredProjectIdentity,
+  readPortableProjectId,
+} from '@cleocode/paths';
 import { CleoError } from './errors.js';
 import { generateProjectHash } from './nexus/hash.js';
 import {
@@ -225,7 +230,8 @@ function checkoutOfCommonDir(commonDir: string): string | null {
  *   `owning repository /home/u/project (not an initialised CLEO project)`, or
  *   `owning repository unknown (unreadable gitlink)`.
  * @remarks Never throws. Reads only the gitlink, the main checkout's gitdir
- *   config and its `.cleo/project-info.json`.
+ *   config and its declared identity (`.cleo/project.json`, the legacy
+ *   `.cleo/project-id`, then `.cleo/project-info.json`).
  * @example
  * ```ts
  * describeWorktreeOwner('/data/cleo/worktrees/abc/T1');
@@ -244,15 +250,10 @@ export function describeWorktreeOwner(dir: string): string {
       : `owning repository ${bare} is a bare git repository with no main checkout to hold a CLEO store; ` +
           'clone it to a regular checkout, run `cleo init` there, and create worktrees from that checkout';
   }
+  // T12716: the declared identity (tracked id first, then the cache).
   let projectId: string | null = null;
   try {
-    const parsed: unknown = JSON.parse(
-      readFileSync(join(mainRoot, '.cleo', 'project-info.json'), 'utf-8'),
-    );
-    if (typeof parsed === 'object' && parsed !== null && 'projectId' in parsed) {
-      const value = (parsed as { projectId: unknown }).projectId;
-      if (typeof value === 'string' && value !== '') projectId = value;
-    }
+    projectId = readDeclaredProjectIdentity(mainRoot)?.projectId ?? null;
   } catch {
     // No readable identity: named below as not initialised.
   }
@@ -412,6 +413,15 @@ export function _resolveMainRepoFromGitlink(gitlinkDir: string): string | null {
  * the directory is a proper CLEO project rather than a stray `.cleo/` left by
  * an old installation or a git worktree that auto-created its own `.cleo/`.
  *
+ * ## Tracked identity (T12716)
+ *
+ * A candidate whose `.cleo/project.json` (or legacy `.cleo/project-id`)
+ * declares a valid id is also accepted, without the legacy warning — a fresh
+ * clone before `cleo init` is a project root. As in `resolveProjectByCwd`, a
+ * tracked-only `.cleo/` counts only at a git toplevel (a real `.git/`
+ * directory), so a committed id in a monorepo subdirectory never shadows its
+ * parent, and a worktree (gitlink `.git` file) still resolves to its parent.
+ *
  * ## Legacy fallback (backwards-compatibility)
  *
  * Projects initialized before `project-info.json` was introduced are still
@@ -490,6 +500,15 @@ export function validateProjectRoot(candidate: string): boolean {
       }
     } catch {
       // JSON parse error or read error — fall through to legacy check.
+    }
+  }
+
+  // T12716: a valid tracked identity marks a root at a git toplevel.
+  if (readPortableProjectId(candidate).status === 'valid') {
+    try {
+      if (statSync(join(candidate, '.git')).isDirectory()) return true;
+    } catch {
+      // No `.git/`: not a toplevel — fall through (rejected below).
     }
   }
 
@@ -749,6 +768,29 @@ export function getProjectRoot(cwd?: string): string {
 }
 
 /**
+ * Whether an error only says "there is no CLEO project here": the cwd is
+ * outside every project (`Not inside a CLEO project`, `No CLEO project found`,
+ * `E_NO_PROJECT`, `NEXUS_PROJECT_NOT_FOUND`) or the project is uninitialised
+ * (`Run cleo init at …`). Project-independent commands (`decide`, `login`,
+ * `setup`) run there routinely, so startup checks treat it as expected, not
+ * as a failure.
+ *
+ * @param err - Any caught value.
+ * @returns True for a missing-project signal; false for any other error.
+ * @task T12733
+ */
+export function isMissingProjectError(err: unknown): boolean {
+  if (err instanceof CleoError && err.code === ExitCode.NEXUS_PROJECT_NOT_FOUND) return true;
+  const message = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+  return (
+    message.includes('E_NO_PROJECT') ||
+    message.includes('No CLEO project found') ||
+    message.startsWith('Not inside a CLEO project') ||
+    message.startsWith('Run cleo init')
+  );
+}
+
+/**
  * Module-level flag: emit the legacy-fallback warning at most once per process.
  * Prevents log spam when `validateProjectRoot` is called repeatedly in a session.
  */
@@ -758,11 +800,15 @@ let _legacyFallbackWarned = false;
 export interface ProjectInfo {
   /** Write-once 12-char hex identity key persisted at init (T12557: never re-derived once stored). */
   projectHash: string;
-  /** Portable project-local UUID stored with `.cleo/project-info.json`. */
+  /**
+   * Portable project id: the tracked `.cleo/project.json` / legacy
+   * `.cleo/project-id` id, else the `projectId` cached in
+   * `.cleo/project-info.json` (T12716).
+   */
   projectId: string;
   /** Absolute path to the project root directory. */
   projectRoot: string;
-  /** Human-readable project name (last segment of projectRoot). */
+  /** Display name from {@link getProjectDisplayName} (T12716). */
   projectName: string;
 }
 
@@ -792,6 +838,66 @@ export function computeStableProjectHash(projectRoot: string): string {
     }
   };
   return generateProjectHash(real(resolveStoreOwnerRoot(real(projectRoot))));
+}
+
+/**
+ * Compute the id-derived `projectHash` for a project id (T12558 · T12716).
+ *
+ * Used ONLY for an identity minted on explicit request (`cleo init
+ * --new-identity`, T12558). Every other project, a fresh init included, gets
+ * {@link computeStableProjectHash}: a hash is only stable across the loss of
+ * the untracked project-info.json if it can be re-derived from disk, and only
+ * the path-derived value can (ADR-096, AC8). A stored hash is never
+ * re-derived. If a cross-clone hash is ever needed, it belongs in
+ * `.cleo/project.json` as a write-once field.
+ *
+ * @param projectId - The project's portable id.
+ * @returns 12-char hex hash of `project-id:<id>`.
+ * @example
+ * ```ts
+ * computePortableProjectHash('c78d09c3a8ee'); // same value on every device
+ * ```
+ * @task T12716
+ */
+export function computePortableProjectHash(projectId: string): string {
+  return generateProjectHash(`project-id:${projectId}`);
+}
+
+/**
+ * The display name of a project (T12716) — the single accessor every
+ * registration, encounter, Nexus link and label path uses.
+ *
+ * Order: the committed `.cleo/project.json` `name`; for a legacy project not
+ * yet migrated by `cleo doctor project-identity --resolve`, the
+ * `.cleo/project-info.json` `displayName` (what a legacy rename writes), then
+ * its `name` (the init-time name, or what `cleo project rename` wrote before
+ * T12716), then the stray `projectName` old `cleo upgrade --name` builds
+ * wrote (T12712); otherwise the directory basename.
+ *
+ * @param projectRoot - Absolute project root.
+ * @returns A non-empty name. Never throws.
+ * @example
+ * ```ts
+ * getProjectDisplayName('/work/cleocode'); // 'cleocode' unless project.json names it
+ * ```
+ * @task T12716
+ */
+export function getProjectDisplayName(projectRoot: string): string {
+  const tracked = readPortableProjectId(projectRoot);
+  if (tracked.status === 'valid' && tracked.name !== undefined) return tracked.name;
+  try {
+    const info = JSON.parse(
+      readFileSync(join(projectRoot, '.cleo', 'project-info.json'), 'utf-8'),
+    ) as Record<string, unknown>;
+    for (const field of ['displayName', 'name', 'projectName'] as const) {
+      const name = info[field];
+      if (typeof name === 'string' && isValidProjectDisplayName(name)) return name;
+    }
+  } catch {
+    // No readable cache: the basename below.
+  }
+  const segments = projectRoot.replace(/[\\/]+$/, '').split(/[\\/]/);
+  return segments[segments.length - 1] || 'unknown';
 }
 
 /**
@@ -832,12 +938,19 @@ function decodeProjectInfo(raw: string, projectRoot: string, infoPath: string): 
     projectHash = computeStableProjectHash(projectRoot);
     backfillProjectHash(infoPath, data.projectId, projectHash);
   }
-  const segments = projectRoot.replace(/[\\/]+$/, '').split(/[\\/]/);
+  // T12716: the tracked id wins over the cached `projectId` (the same order
+  // as `readDeclaredProjectIdentity` and `decideProjectIdentity`).
+  const tracked = readPortableProjectId(projectRoot);
   return {
     projectHash,
-    projectId: typeof data.projectId === 'string' ? data.projectId : '',
+    projectId:
+      tracked.status === 'valid'
+        ? tracked.projectId
+        : typeof data.projectId === 'string'
+          ? data.projectId
+          : '',
     projectRoot,
-    projectName: segments[segments.length - 1] ?? 'unknown',
+    projectName: getProjectDisplayName(projectRoot),
   };
 }
 

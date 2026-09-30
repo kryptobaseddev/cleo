@@ -16,6 +16,14 @@ describe('isInteractiveInvocation', () => {
     expect(isInteractiveInvocation(['auth', 'login'])).toBe(true);
   });
 
+  it('matches the System One human surfaces (T12733), not the machine ones', () => {
+    for (const sub of ['config', 'status', 'ask', 'profiles', 'use']) {
+      expect(isInteractiveInvocation(['decide', sub])).toBe(true);
+    }
+    expect(isInteractiveInvocation(['decide', 'sites'])).toBe(false);
+    expect(isInteractiveInvocation(['decide', 'budget', 'reset'])).toBe(false);
+  });
+
   it('does NOT match agent-first commands (they keep the JSON default)', () => {
     expect(isInteractiveInvocation(['llm', 'list'])).toBe(false);
     expect(isInteractiveInvocation(['auth', 'list'])).toBe(false);

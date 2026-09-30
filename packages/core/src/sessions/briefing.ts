@@ -559,8 +559,9 @@ export async function computeBriefing(
 
   // Compute warnings
   const warnings: string[] = [...knowledgeWarnings];
-  // T12559: a missing or conflicting `.cleo/project-id` is otherwise invisible
-  // until a clone mints its own id. One line, only when the state is not ok.
+  // T12559: a missing or conflicting tracked identity is otherwise invisible
+  // until a clone mints its own id; T12716 adds the legacy-only state (migrate
+  // to `.cleo/project.json`). One line, only when the state is not ok.
   try {
     const { inspectProjectIdentity } = await import('../doctor/project-identity.js');
     const identity = inspectProjectIdentity(projectRoot);

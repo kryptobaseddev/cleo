@@ -328,13 +328,22 @@ describe('maintenance and explicit reconcile never move a live row (T12470 M1)',
     expect(await locationState('confirm-T12470', second)).toBe('candidate');
 
     const plan = await resolveProjectIdentity(second, { dryRun: true });
-    expect(plan.steps.map((s) => s.action)).toEqual(['confirm-candidate-location']);
+    // T12716: the fixture is legacy (only .cleo/project-id), so --resolve also
+    // migrates it to .cleo/project.json and syncs the registry label to the
+    // name that file now declares.
+    expect(plan.steps.map((s) => s.action)).toEqual([
+      'write-project-json',
+      'confirm-candidate-location',
+      'sync-registry-name',
+    ]);
     expect((await registryRow('confirm-T12470'))?.projectPath).toBe(first);
 
-    await resolveProjectIdentity(second);
+    const applied = await resolveProjectIdentity(second);
+    expect(applied.steps.map((s) => s.action)).toEqual(plan.steps.map((s) => s.action));
     expect(await registryRow('confirm-T12470')).toMatchObject({
       projectPath: second,
       permissions: 'write',
+      name: 'second',
     });
     expect(await locationState('confirm-T12470', second)).toBe('live');
     // Both checkouts are now confirmed: later encounters refresh, never flip.

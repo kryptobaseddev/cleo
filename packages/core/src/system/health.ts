@@ -49,6 +49,7 @@ import {
   checkLegacyAgentOutputs,
   checkNodeVersion,
   checkProjectIdentity,
+  checkProjectNameDrift,
   checkVitalFilesTracked,
 } from '../validation/doctor/checks.js';
 import { checkAllDependencies } from './dependencies.js';
@@ -980,6 +981,8 @@ export async function coreDoctorReport(projectRoot: string): Promise<DoctorRepor
   checks.push(mapCheckResult(checkProjectInfo(projectRoot)));
   // T12353: tracked write-once identity vs project-info.json (ADR-094)
   checks.push(mapCheckResult(checkProjectIdentity(projectRoot)));
+  // T12716: registry label vs the name declared in .cleo/project.json
+  checks.push(mapCheckResult(await checkProjectNameDrift(projectRoot)));
 
   // Project context check
   checks.push(mapCheckResult(checkProjectContext(projectRoot)));

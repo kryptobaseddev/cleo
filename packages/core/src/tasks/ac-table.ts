@@ -637,9 +637,12 @@ export interface AcUpdatePlan {
   /** History rows to append BEFORE deleting any rows. */
   history: Array<{ acId: string; previousText: string; reason: string; acUid?: string | null }>;
   /**
-   * When true the caller MUST issue {@link TransactionAccessor.deleteAcRowsForTask}
-   * BEFORE applying inserts. Used by replace-all + shrink paths to
-   * guarantee no stale (taskId, ordinal) conflicts survive.
+   * When true `inserts` is the task's COMPLETE AC set: {@link applyAcPlan}
+   * deletes rows whose id is absent from it, updates kept ids in place and
+   * inserts the rest (a diff, never delete-all-then-reinsert — T12789, so
+   * evidence bindings on surviving ACs are never cascade-deleted). Used by
+   * replace-all, shrink and child-projection rebuild/removal paths. When
+   * false `inserts` are appended as new rows.
    */
   fullDelete: boolean;
 }
@@ -673,7 +676,7 @@ export interface AcUpdatePlan {
  * @param taskId — task being updated
  * @param existing — current AC rows from the table (ordered by ordinal ASC)
  * @param incoming — new AC items from `--acceptance "a|b|c"`
- * @returns plan to be applied in order: appendAcHistory → deleteAcRowsForTask (if fullDelete) → insertAcRows
+ * @returns plan to be applied with {@link applyAcPlan}
  */
 export function planAcUpdate(
   taskId: string,
@@ -710,10 +713,10 @@ export function planAcUpdate(
         previousText: row.text,
         reason: 'edit',
       }));
-      // For shrink we DO need to delete the tail. We use the
-      // fullDelete-then-reinsert approach to keep the codepath uniform
-      // (insertAcRows below uses the kept prefix rows with their EXISTING
-      // ids + ordinals so binding stability survives).
+      // For shrink we DO need to delete the tail. The plan lists the kept
+      // prefix rows with their EXISTING ids + ordinals as the complete set;
+      // applyAcPlan's diff deletes only the tail ids, so the kept rows (and
+      // their evidence bindings) are never touched.
       const keepInserts = existing.slice(0, incomingTexts.length).map((row) => ({
         id: row.id,
         taskId,
@@ -807,26 +810,88 @@ export async function removeChildProjectionAc(
 }
 
 /**
+ * The subset of {@link TransactionAccessor} that {@link applyAcPlan} writes
+ * through — any open transaction accessor satisfies it.
+ *
+ * @task T12789
+ */
+export type AcPlanWriter = Pick<
+  TransactionAccessor,
+  'appendAcHistory' | 'getAcRows' | 'deleteAcRowsByIds' | 'updateAcRows' | 'insertAcRows'
+>;
+
+/**
  * Convenience executor — apply an {@link AcUpdatePlan} against a transaction
- * accessor in the required order: history append → delete (if requested) →
- * insert. Caller MUST have already opened a transaction.
+ * accessor in the required order: history append → (for `fullDelete`) delete
+ * the ids that leave the set, update kept ids in place → insert new ids.
+ * Caller MUST have already opened a transaction.
  *
  * @param tx — open transaction accessor
  * @param taskId — task whose AC rows are being mutated
  * @param plan — pre-computed plan from {@link planAcUpdate} or {@link buildFreshAcRows}
  */
 export async function applyAcPlan(
-  tx: TransactionAccessor,
+  tx: AcPlanWriter,
   taskId: string,
   plan: AcUpdatePlan,
 ): Promise<void> {
   if (plan.history.length > 0) {
     await tx.appendAcHistory(plan.history);
   }
-  if (plan.fullDelete) {
-    await tx.deleteAcRowsForTask(taskId);
+  if (!plan.fullDelete) {
+    if (plan.inserts.length > 0) {
+      await tx.insertAcRows(plan.inserts);
+    }
+    return;
   }
-  if (plan.inserts.length > 0) {
-    await tx.insertAcRows(plan.inserts);
+
+  // `fullDelete` means "the task's AC set becomes exactly `plan.inserts`".
+  // It is applied as a DIFF, never as delete-all-then-reinsert (T12789):
+  // deleting a row fires `ON DELETE CASCADE` on its evidence bindings wherever
+  // that FK is declared and enforced, so a wholesale delete would wipe the
+  // bindings of every AC that survives the edit unchanged under the same id.
+  // Only ids that leave the set are deleted; kept ids are updated in place.
+  const existing = await tx.getAcRows(taskId);
+  const existingById = new Map(existing.map((row) => [row.id, row]));
+  const targetIds = new Set(plan.inserts.map((row) => row.id));
+
+  const removedIds = existing.filter((row) => !targetIds.has(row.id)).map((row) => row.id);
+  const changed = plan.inserts.filter((row) => {
+    const current = existingById.get(row.id);
+    return current !== undefined && acRowDiffers(current, row);
+  });
+  const fresh = plan.inserts.filter((row) => !existingById.has(row.id));
+
+  if (removedIds.length > 0) {
+    await tx.deleteAcRowsByIds(taskId, removedIds);
   }
+  if (changed.length > 0) {
+    // Park every changed row on a unique negative ordinal and a unique source
+    // key first: UNIQUE (task_id, ordinal) / (task_id, source_key) are checked
+    // per statement, so a reorder (A:1→2, B:2→1) collides mid-way otherwise.
+    await tx.updateAcRows(
+      changed.map((row, index) => ({
+        ...row,
+        ordinal: -(index + 1),
+        sourceKey: `reorder:${row.id}`,
+      })),
+    );
+    await tx.updateAcRows(changed);
+  }
+  if (fresh.length > 0) {
+    await tx.insertAcRows(fresh);
+  }
+}
+
+/** True when applying `next` to the stored row `current` would change any column. */
+function acRowDiffers(current: AcRow, next: AcInsertRow): boolean {
+  return (
+    current.ordinal !== next.ordinal ||
+    current.text !== next.text ||
+    current.kind !== (next.kind ?? 'text') ||
+    current.sourceKey !== (next.sourceKey ?? `text:${next.ordinal}`) ||
+    current.targetTaskId !== (next.targetTaskId ?? null) ||
+    current.projection !== (next.projection ?? 'legacy') ||
+    current.contentHash !== (next.contentHash ?? null)
+  );
 }

@@ -13,8 +13,8 @@
  */
 
 import { existsSync } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
-import { getProjectInfoSync } from '@cleocode/core';
+import { dirname, join } from 'node:path';
+import { getProjectDisplayName, getProjectInfoSync } from '@cleocode/core';
 import { projectLastActivitySqlText } from '@cleocode/core/nexus/project-activity.js';
 import { openCleoDbSnapshot } from '@cleocode/core/store/open-cleo-db';
 import type { Cookies } from '@sveltejs/kit';
@@ -155,7 +155,8 @@ export function resolveDefaultProjectContext(): ProjectContext {
   }
   return {
     projectId: info?.projectId || info?.projectHash || '',
-    name: basename(projectPath) || 'default',
+    // T12716: the declared display name (project.json), then the basename.
+    name: getProjectDisplayName(projectPath) || 'default',
     projectPath,
     brainDbPath,
     tasksDbPath,

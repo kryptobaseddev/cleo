@@ -535,6 +535,33 @@ export interface TransactionAccessor {
    */
   deleteAcRowsForTask(taskId: string): Promise<void>;
   /**
+   * Delete only the named AC rows of `taskId` (rows of other tasks are never
+   * touched). Used by the diff apply path so ACs that survive an edit keep
+   * their row — and therefore their evidence bindings.
+   * @task T12789
+   */
+  deleteAcRowsByIds(taskId: string, ids: readonly string[]): Promise<void>;
+  /**
+   * Update existing AC rows of their own task in place, keyed by `(id, taskId)`.
+   * Every mutable column is rewritten from the supplied row; `id` and
+   * `taskId` are never changed. A row that does not exist for that task is
+   * an error, never an insert.
+   * @task T12789
+   */
+  updateAcRows(
+    rows: Array<{
+      id: string;
+      taskId: string;
+      ordinal: number;
+      text: string;
+      kind?: 'text' | 'child_task' | 'evidence_bound';
+      sourceKey?: string;
+      targetTaskId?: string | null;
+      projection?: string;
+      contentHash?: string | null;
+    }>,
+  ): Promise<void>;
+  /**
    * Append a history row to `task_acceptance_criteria_history` capturing the
    * AC text that is about to be superseded.
    * @task T10508

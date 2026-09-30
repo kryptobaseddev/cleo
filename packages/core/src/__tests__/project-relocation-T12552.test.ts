@@ -503,7 +503,8 @@ describe('T12558 — cleo project reroot', () => {
       oldRoot: root,
       newRoot: child,
       renamed: ['.cleo', '.worktreeinclude', '.github'],
-      projectIdFile: 'present',
+      // T12716: the fixture tracks only the legacy .cleo/project-id; reroot never migrates it.
+      projectIdFile: 'legacy',
       tombstone: join(root, '.cleo-moved.json'),
     });
     expect(existsSync(join(root, '.cleo'))).toBe(false);

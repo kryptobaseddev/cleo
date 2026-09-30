@@ -242,6 +242,52 @@ describe('T12687 — who may change a store schema', () => {
   });
 });
 
+describe('T12737 — VITEST exempts only fixture stores', () => {
+  it('refuses a real checkout store under VITEST; allows one below a fixture root', () => {
+    const r = scratchRepos();
+    // Fixture roots that do NOT contain the scratch checkout stand in for a
+    // real project outside the test sandbox's temp directory.
+    const elsewhere = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-t12737-fixtures-')));
+    roots.push(elsewhere);
+    const base = {
+      codePath: r.build,
+      provenance: null,
+      env: { VITEST: 'true' },
+      honourTestSandbox: false,
+    };
+    expect(schemaWriteRefusal(r.store, { ...base, fixtureRoots: [elsewhere] })).toMatch(
+      /Refusing to change the schema/,
+    );
+    expect(schemaWriteRefusal(r.store, { ...base, fixtureRoots: [dirname(r.main)] })).toBeNull();
+    // The default fixture root is os.tmpdir() (the vitest fork sandbox's temp dir).
+    expect(schemaWriteRefusal(r.store, base)).toBeNull();
+  });
+
+  it('installs the handle guard under VITEST and denies DDL on a non-fixture store', () => {
+    const r = scratchRepos();
+    const seed = new DatabaseSync(r.store);
+    seed.exec('CREATE TABLE t (id INTEGER PRIMARY KEY)');
+    seed.close();
+    const elsewhere = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-t12737-fixtures-')));
+    roots.push(elsewhere);
+    setWorktreeBuildGuardForTests({
+      codePath: r.build,
+      provenance: null,
+      env: { VITEST: 'true' },
+      honourTestSandbox: false,
+      fixtureRoots: [elsewhere],
+    });
+    const native = new DatabaseSync(r.store);
+    try {
+      expect(installSchemaWriteGuard(native)).toBe(true);
+      expect(() => native.exec('ALTER TABLE t ADD COLUMN shape TEXT')).toThrow(/not authorized/);
+    } finally {
+      native.close();
+    }
+    expect(columns(r.store)).toEqual(['id']);
+  });
+});
+
 describe('T12687 — the guarded handle denies every schema change', () => {
   it('denies ALTER, DROP and new CREATEs; allows no-op CREATE IF NOT EXISTS and data writes', () => {
     const r = scratchRepos();

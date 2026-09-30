@@ -57,6 +57,7 @@ import type {
   SealCredentialsResult,
   UnsealCredentialsResult,
 } from '@cleocode/contracts';
+import { isValidPortableProjectId, readDeclaredProjectIdentity } from '@cleocode/paths';
 import {
   decryptGlobal,
   decryptProjectSecret,
@@ -99,6 +100,11 @@ export interface CredentialSources {
   readonly projectDbPath?: string;
   /** Project identity keying the project KDF. Required when the project store has rows. */
   readonly projectId?: string;
+  /**
+   * Ids the project was keyed by before a re-key (T12716); ciphertexts under
+   * them are opened and re-wrapped under {@link CredentialSources.projectId}.
+   */
+  readonly previousProjectIds?: readonly string[];
   /** Candidate paths for legacy path-bound project ciphertexts (usually the project root). */
   readonly legacyProjectPaths?: readonly string[];
   /** Global `cleo.db` (live, or a staged snapshot). */
@@ -497,6 +503,7 @@ async function openRow(row: StoredRow, sources: CredentialSources): Promise<stri
       const projectId = requireProjectId(sources.projectId, 'seal');
       const result = await decryptProjectSecret(row.material, {
         projectId,
+        previousProjectIds: sources.previousProjectIds,
         legacyProjectPaths: sources.legacyProjectPaths,
         cleoHome: sources.cleoHome,
       });
@@ -859,7 +866,7 @@ export async function unsealCredentials(
 export async function migrateProjectCredentials(
   sources: Pick<
     CredentialSources,
-    'projectDbPath' | 'projectId' | 'legacyProjectPaths' | 'cleoHome'
+    'projectDbPath' | 'projectId' | 'previousProjectIds' | 'legacyProjectPaths' | 'cleoHome'
   >,
   options: { readonly dryRun?: boolean } = {},
 ): Promise<ProjectCredentialMigrationResult> {
@@ -878,6 +885,7 @@ export async function migrateProjectCredentials(
     try {
       result = await decryptProjectSecret(row.material, {
         projectId,
+        previousProjectIds: sources.previousProjectIds,
         legacyProjectPaths: sources.legacyProjectPaths,
         cleoHome: sources.cleoHome,
       });
@@ -921,10 +929,79 @@ export interface ProjectRootCredentialMigration extends ProjectCredentialMigrati
 }
 
 /**
- * Migrate a project's stored credentials off the path-bound KDF, resolving
- * everything from the project root: the store is `<root>/.cleo/cleo.db`, the
- * identity is `projectId` from `.cleo/project-info.json`, and the legacy
- * candidates are the root as given and its real path.
+ * The id that keys a project's credentials, plus the ids it was keyed by
+ * before (T12716).
+ *
+ * The id is the declared one — tracked `.cleo/project.json` /
+ * `.cleo/project-id` first, then the `project-info.json` cache — the same
+ * order every identity reader uses. The previous ids are the cache when it
+ * disagrees (a conflict not yet resolved), the cache's `previousProjectIds`
+ * receipts (a conflict `cleo doctor project-identity --resolve` already
+ * re-keyed), and every id the global registry aliases to the declared one
+ * (`nexus_project_id_aliases`), so credentials sealed under any of them open.
+ * The alias read never creates the global store.
+ *
+ * @param projectRoot - Project root.
+ * @param cleoHome - Global CLEO home whose alias table is read (defaults to the current one).
+ * @returns The declared id (`null` when none) and the previous ids.
+ * @example
+ * ```ts
+ * const { projectId, previousProjectIds } = await readProjectCredentialIdentity(root);
+ * ```
+ * @task T12716
+ */
+export async function readProjectCredentialIdentity(
+  projectRoot: string,
+  cleoHome: string = getCleoHome(),
+): Promise<{
+  projectId: string | null;
+  previousProjectIds: string[];
+}> {
+  const declared = readDeclaredProjectIdentity(projectRoot);
+  const previous = new Set<string>();
+  if (declared?.infoProjectId !== undefined && declared.infoProjectId !== declared.projectId)
+    previous.add(declared.infoProjectId);
+  try {
+    const info: unknown = JSON.parse(
+      fs.readFileSync(path.join(projectRoot, '.cleo', 'project-info.json'), 'utf-8'),
+    );
+    const receipts =
+      info !== null && typeof info === 'object' && 'previousProjectIds' in info
+        ? info.previousProjectIds
+        : undefined;
+    if (Array.isArray(receipts))
+      for (const id of receipts) if (typeof id === 'string' && id.length > 0) previous.add(id);
+  } catch {
+    // No readable cache: no previous ids.
+  }
+  if (declared) {
+    try {
+      const { getNexusRegistryDb, getNexusRegistryDbPath } = await import('./nexus-sqlite.js');
+      if (fs.existsSync(getNexusRegistryDbPath(cleoHome))) {
+        const { projectIdAliases } = await import('./schema/nexus-schema.js');
+        const { eq } = await import('drizzle-orm');
+        const db = await getNexusRegistryDb(cleoHome);
+        for (const alias of db
+          .select({ legacyId: projectIdAliases.legacyId })
+          .from(projectIdAliases)
+          .where(eq(projectIdAliases.canonicalId, declared.projectId))
+          .all())
+          if (isValidPortableProjectId(alias.legacyId)) previous.add(alias.legacyId);
+      }
+    } catch {
+      // Registry unreadable: the receipts above still apply.
+    }
+    previous.delete(declared.projectId);
+  }
+  return { projectId: declared?.projectId ?? null, previousProjectIds: [...previous] };
+}
+
+/**
+ * Migrate a project's stored credentials off the path-bound KDF (and off any
+ * id the project was re-keyed away from — T12716), resolving everything from
+ * the project root: the store is `<root>/.cleo/cleo.db`, the identity is
+ * {@link readProjectCredentialIdentity}, and the legacy candidates are the
+ * root as given and its real path.
  *
  * This is the trigger used by `cleo upgrade` and `cleo doctor credentials`.
  * It is idempotent and never deletes; unrecoverable rows come back in
@@ -945,27 +1022,15 @@ export async function migrateProjectCredentialsAtRoot(
   const root = path.resolve(projectRoot);
   const cleoDir = path.join(root, '.cleo');
   const projectDbPath = path.join(cleoDir, 'cleo.db');
-  let projectId: string | null = null;
-  try {
-    const parsed: unknown = JSON.parse(
-      fs.readFileSync(path.join(cleoDir, 'project-info.json'), 'utf-8'),
-    );
-    if (
-      typeof parsed === 'object' &&
-      parsed !== null &&
-      'projectId' in parsed &&
-      typeof parsed.projectId === 'string' &&
-      parsed.projectId.length > 0
-    ) {
-      projectId = parsed.projectId;
-    }
-  } catch {
-    projectId = null;
-  }
+  const { projectId, previousProjectIds } = await readProjectCredentialIdentity(
+    root,
+    options.cleoHome,
+  );
   const result = await migrateProjectCredentials(
     {
       projectDbPath,
       ...(projectId !== null ? { projectId } : {}),
+      previousProjectIds,
       legacyProjectPaths: [root, canonicalPath(root)],
       ...(options.cleoHome !== undefined ? { cleoHome: options.cleoHome } : {}),
     },

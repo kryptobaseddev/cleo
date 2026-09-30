@@ -238,11 +238,20 @@ export type ProjectCredentialKdf = 'project-id' | 'legacy-path';
  */
 export interface ProjectSecretContext extends CredentialKeyOptions {
   /**
-   * Stable project identity — the `projectId` of `.cleo/project-info.json`
-   * (or its tracked successor). Travels with the project directory, so a
-   * moved or renamed checkout derives the same key.
+   * Stable project identity — the declared id (`.cleo/project.json`, the
+   * legacy `.cleo/project-id`, else the `project-info.json` cache). Travels
+   * with the project directory, so a moved or renamed checkout derives the
+   * same key.
    */
   readonly projectId: string;
+  /**
+   * Ids this project was keyed by before (T12716): the `project-info.json`
+   * cache when it disagrees with the tracked id, and its
+   * `previousProjectIds` receipts. A project-id ciphertext sealed under one
+   * of them is opened and re-wrapped under {@link ProjectSecretContext.projectId},
+   * so re-keying a project never strands its credentials.
+   */
+  readonly previousProjectIds?: readonly string[];
   /**
    * Candidate project paths for ciphertexts still under the legacy path KDF
    * (typically the current root plus the path the registry last recorded).
@@ -321,7 +330,8 @@ export async function encryptProjectSecret(
 /**
  * Decrypt a project-scoped secret, migrating legacy ciphertexts on the way.
  *
- * - Version `0x02` ciphertexts open with the project-identity key.
+ * - Version `0x02` ciphertexts open with the project-identity key; one sealed
+ *   under a `previousProjectIds` entry is opened and re-wrapped (T12716).
  * - Version `0x01` (legacy, path-bound) ciphertexts are tried against each of
  *   `legacyProjectPaths`; the first that authenticates wins and the secret is
  *   re-encrypted under the project-identity KDF and returned as `rewrapped`
@@ -346,6 +356,18 @@ export async function decryptProjectSecret(
       await deriveProjectIdKey(context.projectId, context.cleoHome),
     );
     if (plaintext === null) {
+      // T12716: sealed under an id the project was re-keyed away from.
+      for (const previous of new Set(context.previousProjectIds ?? [])) {
+        if (previous.length === 0 || previous === context.projectId) continue;
+        const opened = openWithKey(parts, await deriveProjectIdKey(previous, context.cleoHome));
+        if (opened !== null) {
+          return {
+            plaintext: opened,
+            kdf: 'project-id',
+            rewrapped: await encryptProjectSecret(opened, context.projectId, context),
+          };
+        }
+      }
       throw new Error(
         `Cannot decrypt project credential for project ${context.projectId}: ` +
           'the machine key differs from the one that encrypted it (another device, or a ' +

@@ -2,18 +2,23 @@
  * `cleo doctor project-identity` — is this project's portable id consistent,
  * and if not, fix it.
  *
- * Without flags it is read-only and reports the state of `.cleo/project-id`
- * against `project-info.json`, with the exact remedy. `--resolve` applies that
- * remedy. For a conflict, it re-keys local state to the tracked id through the
- * alias table. `--dry-run` prints the plan and writes nothing.
+ * Without flags it is read-only and reports the state of `.cleo/project.json`,
+ * its legacy `.cleo/project-id` mirror and the `project-info.json` cache, plus
+ * registry-label drift, with the exact remedy. `--resolve` applies that
+ * remedy: it is the ONLY command that migrates a legacy project to
+ * `.cleo/project.json` (T12716) or re-keys a conflict to the tracked id
+ * through the alias table. `--dry-run` prints the plan and writes nothing.
  *
  * @task T12353
+ * @task T12716
  * @see ADR-094 — write-once portable project identity
+ * @see ADR-096 — one committed `.cleo/project.json` (amends ADR-094)
  */
 
 import { getProjectRoot } from '@cleocode/core';
 import {
   inspectProjectIdentity,
+  inspectProjectNameDrift,
   resolveProjectIdentity,
 } from '@cleocode/core/doctor/project-identity.js';
 import { defineCommand } from '../lib/define-cli-command.js';
@@ -31,9 +36,11 @@ export const doctorProjectIdentityCommand = defineCommand({
   meta: {
     name: 'project-identity',
     description:
-      'Check .cleo/project-id against project-info.json (missing / conflict / invalid / untracked) ' +
-      'and print the exact remedy. --resolve applies it (a conflict is re-keyed to the tracked id ' +
-      'through the alias table, losing no registry rows); add --dry-run to see the plan first.',
+      'Check .cleo/project.json, its legacy .cleo/project-id mirror and the project-info.json cache ' +
+      '(legacy / missing / conflict / invalid / untracked) plus registry-name drift, and print the ' +
+      'exact remedy. --resolve applies it: it migrates a legacy project to .cleo/project.json (no id ' +
+      'changes) and re-keys a conflict to the tracked id through the alias table, losing no registry ' +
+      'rows; add --dry-run to see the plan first.',
   },
   args: {
     resolve: { type: 'boolean', description: 'Apply the remedy for the reported state' },
@@ -46,8 +53,16 @@ export const doctorProjectIdentityCommand = defineCommand({
     const projectRoot = getProjectRoot();
     if (!args.resolve) {
       const report = inspectProjectIdentity(projectRoot);
-      cliOutput(report, { command: 'doctor', operation: 'doctor.project-identity.inspect' });
-      if (report.state !== 'ok' && (process.exitCode === undefined || process.exitCode === 0))
+      const nameDrift = await inspectProjectNameDrift(projectRoot);
+      cliOutput(
+        { ...report, nameDrift },
+        { command: 'doctor', operation: 'doctor.project-identity.inspect' },
+      );
+      const drifted = nameDrift.state === 'drift' || nameDrift.state === 'taken';
+      if (
+        (report.state !== 'ok' || drifted) &&
+        (process.exitCode === undefined || process.exitCode === 0)
+      )
         process.exitCode = 1;
       return;
     }

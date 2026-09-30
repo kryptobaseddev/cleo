@@ -238,8 +238,130 @@ export type DecisionProviderKind = (typeof DECISION_PROVIDER_KINDS)[number];
 /** Base URL of the layahost API (its OpenAPI `servers[0].url`). */
 export const LAYAHOST_BASE_URL = 'https://layahost.com';
 
+/**
+ * Base URL of Jev's own API (TypeSafe AI). Source: the canonical spec
+ * `system-one-integration`, "Provider research: capability map" ("Jev itself
+ * (TypeSafe AI, `https://api.typesafe.ai`, OpenAPI v0.2.0)").
+ */
+export const JEV_DEFAULT_BASE_URL = 'https://api.typesafe.ai';
+
 /** layahost's routing model, the default for a layahost connection. */
 export const LAYAHOST_DEFAULT_MODEL = 'laya-auto';
+
+// ─── Named provider profiles (T12733) ────────────────────────────────────────
+
+/**
+ * A valid profile name: 1-32 characters of lowercase letters, digits and
+ * `-`, starting and ending with a letter or digit (e.g. `default`, `work`,
+ * `team-b`). A profile is addressed as `<provider>/<name>`, e.g.
+ * `layahost/default` or `jev/team`; one provider may hold several profiles
+ * (accounts), each with its own key.
+ */
+export const DECIDE_PROFILE_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/;
+
+/** The profile name used when none is given: `<provider>/default`. */
+export const DECIDE_DEFAULT_PROFILE_NAME = 'default';
+
+/**
+ * The stored `baseUrl` of a profile that uses its provider's preset URL. It
+ * is resolved when the profile is used, so a changed preset URL flows
+ * through to every profile that kept the default.
+ */
+export const DECIDE_PROFILE_DEFAULT_URL = 'default';
+
+/** How a profile's base URL is set: the provider's preset URL, or an override. */
+export type DecideProfileUrlSource = 'default' | 'override';
+
+/**
+ * Reachability of a decision provider, as `GET /v1/models` reports it.
+ *
+ * - `reachable`         — the listing answered 2xx.
+ * - `unauthorized`      — the provider rejected the key.
+ * - `key_limit_reached` — the key's monthly decision limit is reached.
+ * - `unconfigured`      — no valid base URL + key stored.
+ * - `unreachable`       — network failure, timeout, or any other HTTP status.
+ */
+export type DecideProviderState =
+  | 'reachable'
+  | 'unauthorized'
+  | 'key_limit_reached'
+  | 'unconfigured'
+  | 'unreachable';
+
+/** Result of probing one profile (`cleo decide profiles --probe`). Secret-free. */
+export interface DecideProfileProbe {
+  /** Reachability verdict. */
+  readonly state: DecideProviderState;
+  /** HTTP status of the probe, when one was received. */
+  readonly httpStatus?: number;
+  /** Probe latency, ms. */
+  readonly latencyMs?: number;
+  /** Secret-free explanation, when there is one. */
+  readonly detail?: string;
+}
+
+/** One named System One provider profile, as listed. Carries no key, only its masked preview. */
+export interface DecideProfileSummary {
+  /** Profile id, `<provider>/<name>`, e.g. `layahost/work`. */
+  readonly id: string;
+  /** Profile name within its provider, e.g. `work`. */
+  readonly name: string;
+  /** Whether everyday decisions use this profile. Exactly one profile is active when any is. */
+  readonly active: boolean;
+  /** Whether the profile holds an acceptable base URL and a non-blank key. */
+  readonly configured: boolean;
+  /** Provider kind. */
+  readonly provider: DecisionProviderKind;
+  /** Resolved base URL (userinfo removed). */
+  readonly baseUrl: string;
+  /** Whether the URL is the provider's preset (`default`) or an override. */
+  readonly urlSource: DecideProfileUrlSource;
+  /** Default model, when stored. */
+  readonly model?: string;
+  /** Masked key preview (`…abcd`). */
+  readonly keyPreview: string;
+  /** ISO timestamp of the profile's last write, when known. */
+  readonly updatedAt?: string;
+  /** Reachability, when probed. */
+  readonly probe?: DecideProfileProbe;
+}
+
+/**
+ * A profile resolved for use (`resolveDecideProfile`): its id, provider, base
+ * URL (a stored `default` already resolved to the preset), plaintext API key
+ * and default model. Contains the key: pass it to the wire and never log or
+ * emit it. `profile` repeats `name` so the value can be used directly as a
+ * decision connection whose provider state is cached per profile.
+ */
+export interface DecideProfileConnection {
+  /** Profile id, `<provider>/<name>`. */
+  readonly name: string;
+  /** Same as {@link DecideProfileConnection.name}. */
+  readonly profile: string;
+  /** Provider kind. */
+  readonly provider: DecisionProviderKind;
+  /** Resolved base URL. */
+  readonly baseUrl: string;
+  /** Plaintext API key. SECRET. */
+  readonly apiKey: string;
+  /** Default model, when stored. */
+  readonly model?: string;
+}
+
+/** Result of listing the System One profiles. Secret-free. */
+export interface DecideProfileListResult {
+  /** Absolute path of the credential store. */
+  readonly path: string;
+  /** Id (`<provider>/<name>`) of the active profile, or `null` when none is configured. */
+  readonly active: string | null;
+  /** Every stored profile, sorted by id. */
+  readonly profiles: readonly DecideProfileSummary[];
+  /**
+   * True when the top-level settings disagreed with the active profile's
+   * entry (an older CLEO rewrote the file) and were taken as authoritative.
+   */
+  readonly reconciled: boolean;
+}
 
 /** Connection settings for a decision provider. */
 export interface DecisionProviderConfig {

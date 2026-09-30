@@ -3,7 +3,7 @@
   "$id": "https://cleo-dev.com/schemas/v1/project-info.schema.json",
   "schemaVersion": "1.0.0",
   "title": "CLEO Project Info Schema",
-  "description": "Per-project manifest file (.cleo/project-info.json). Contains project identity, origin provenance, and schema version tracking. Acts as the portable descriptor for the .cleo/ container — when .cleo/ is shared between systems, this file carries the project's identity and origin.",
+  "description": "Device-local project metadata (.cleo/project-info.json, untracked per ADR-013 §9). The committed identity lives in .cleo/project.json {schemaVersion, id, name} (T12716; legacy mirror .cleo/project-id); here projectId is only a cache of that id, and name is a frozen legacy value. Also carries origin provenance, the per-checkout nonce and schema version tracking.",
   "type": "object",
   "required": ["schemaVersion", "projectHash", "projectId", "schemas"],
   "additionalProperties": false,
@@ -21,7 +21,7 @@
     "projectId": {
       "type": "string",
       "minLength": 1,
-      "description": "Portable project-local identity (UUIDv4). Survives .cleo/ moves between filesystems. Used as the stable brain key for cross-system project sharing."
+      "description": "Cache of the tracked portable id in .cleo/project.json (T12716; legacy .cleo/project-id). The tracked id always wins; a cache that disagrees is re-keyed only by `cleo doctor project-identity --resolve`. Used alone only by a project with no tracked id yet."
     },
     "checkoutNonce": {
       "type": "string",
@@ -31,7 +31,7 @@
     "projectHash": {
       "type": "string",
       "pattern": "^[a-f0-9]{12}$",
-      "description": "Write-once 12-character hex identity key (SHA-256 prefix of the real main-checkout path at init). Keys release ids, audit rows and idempotency. Never re-computed: not on project move, relocation, restore or `cleo upgrade` (T12557)."
+      "description": "Write-once 12-character hex identity key. Keys release ids, audit rows and idempotency. A new key is SHA-256('project-id:' + id) prefix, identical on every clone (T12716); keys written before T12716 are the SHA-256 prefix of the real main-checkout path. Never re-computed: not on project move, relocation, restore or `cleo upgrade` (T12557)."
     },
     "previousProjectIds": {
       "type": "array",
@@ -55,11 +55,17 @@
         }
       }
     },
+    "displayName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "description": "Display name of a legacy project (no .cleo/project.json yet), written by `cleo project rename` / `cleo upgrade --name` (T12716). Kept apart from `name` so a rename never moves the path-fingerprint alias key. `cleo doctor project-identity --resolve` carries it into project.json."
+    },
     "name": {
       "type": "string",
       "minLength": 1,
       "maxLength": 128,
-      "description": "Human-readable project name. Defaults to the directory basename. Used by canonicalProjectId for nexus identity computation and by project rename operations."
+      "description": "Legacy name, written once (the directory basename at init). Kept only as the input to the path-fingerprint alias key older builds recorded. The display name lives in .cleo/project.json (T12716); it is read from here (after `displayName`) only for a legacy project not yet migrated by `cleo doctor project-identity --resolve`. Nothing rewrites it after init."
     },
     "description": {
       "type": "string",

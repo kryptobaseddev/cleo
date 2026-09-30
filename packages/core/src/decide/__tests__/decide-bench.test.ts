@@ -35,6 +35,7 @@ import {
 } from '../bench/index.js';
 import { _resetDecideDefaultsForTest } from '../client.js';
 import { _resetProviderStateMemoForTest } from '../provider-state.js';
+import { DECISION_PROVIDER_PRESETS } from '../providers.js';
 import { createMemorySpendLedger } from '../spend.js';
 
 const SECRET = 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789';
@@ -301,9 +302,19 @@ describe('profile adapter (until T12733 lands)', () => {
     expect(laya?.apiKey).toBe('k1');
     expect(jev).toMatchObject({ name: 'jev', provider: 'jev', baseUrl: 'http://127.0.0.1:9' });
     expect(() => resolveBenchProfiles(['ghost'], resolver)).toThrow(/ghost/);
-    // A non-layahost profile without a URL is a configuration error.
+    // A profile without a URL takes its provider's preset URL (T12733 gave jev one).
     const noUrl = createInterimProfileResolver({ CLEO_DECIDE_PROFILE_JEV_KEY: 'k' }, () => null);
-    expect(() => noUrl.resolve('jev')).toThrow(/no URL/);
+    expect(noUrl.resolve('jev')).toMatchObject({
+      provider: 'jev',
+      baseUrl: DECISION_PROVIDER_PRESETS.jev.defaultBaseUrl,
+    });
+    // A provider without a preset URL still needs one: an unknown kind parses to jev,
+    // so assert the guard through a URL that is present but invalid instead.
+    const badUrl = createInterimProfileResolver(
+      { CLEO_DECIDE_PROFILE_JEV_KEY: 'k', CLEO_DECIDE_PROFILE_JEV_URL: 'ftp://x' },
+      () => null,
+    );
+    expect(() => badUrl.resolve('jev')).toThrow(/invalid URL/);
   });
 });
 

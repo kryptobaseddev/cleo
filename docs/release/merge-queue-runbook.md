@@ -160,6 +160,74 @@ passes **vacuously** — a green check that tested nothing.
 gh workflow run ci.yml --ref release/v2026.X.Y
 ```
 
+## Merging the bump-PR: admin-merge once its dispatched CI is green (approved)
+
+**Why a human step remains.** There is no GitHub App for this repository, so
+every event on the bump-PR is `GITHUB_TOKEN`-created. Its `pull_request` runs
+come back `action_required` (queued pending approval) and never run on their
+own. The `CI` check that DOES run is the `workflow_dispatch` run that
+`release-prepare` starts on the release branch (see above); its check runs
+attach to the PR head SHA. Waiting for the `pull_request` runs, or approving
+them one by one, adds nothing that run has not already proven.
+
+**Procedure (the orchestrator runs this, not the release workflow):**
+
+```bash
+PR=$(gh pr list --head release/v2026.X.Y --json number --jq '.[0].number')
+HEAD=$(gh pr view "$PR" --json headRefOid --jq .headRefOid)
+
+# The dispatched CI run for EXACTLY the PR head SHA must be completed + success.
+gh run list --workflow ci.yml --branch release/v2026.X.Y --event workflow_dispatch \
+  --json headSha,status,conclusion,url --jq ".[] | select(.headSha == \"$HEAD\")"
+
+# Only then:
+gh pr merge "$PR" --admin --merge
+```
+
+Rules:
+
+- Merge only when the dispatched `CI` run for the **current** head SHA is
+  `completed` / `success`. A green run for an earlier head does not count; if
+  the branch moved, re-dispatch (`gh workflow run ci.yml --ref release/v2026.X.Y`)
+  and wait.
+- `--merge` (a merge commit), not squash: the tag is cut from `main` after the
+  merge and must contain the bump commit as prepared.
+- This is the ONE sanctioned use of `--admin` under the Zero-Admin-Merge Policy
+  below (owner-approved; `enforce_admins: false` is the intended escape hatch,
+  T12152). Record it in `.cleo/audit/force-bypass.jsonl` like any other bypass,
+  with reason `release bump-PR: dispatched CI green on <sha>`.
+- `cleo release open` does not watch or merge the bump-PR (it dispatches
+  `release-prepare` and returns), so this step is documented rather than
+  automated.
+
+## Preflight test skips and native binary reuse
+
+Two mechanisms keep the release off the slow path when nothing new would be
+learned. Both are recorded where an operator can see them.
+
+- **Preflight test skips.** `cleo release open` checks main's HEAD SHA with
+  `gh` (each call bounded to 15s). If the `ci.yml` push run for that exact SHA
+  is green AND its Linux `Unit Tests` shards all ran and succeeded (a green
+  docs-only push skips them, and does not qualify) it dispatches
+  `release-prepare` with `skip-tests=true`; if every
+  macOS job of the nightly (or push) run for that SHA is green it adds
+  `skip-macos-tests=true`. The SHA goes along as `verified-sha`, and the
+  workflow ignores every skip if it checked out a different commit, or if
+  `verified-sha` is empty (a skip must name the commit it was verified on). The
+  decision and its reason are in the "Preflight test decision" block of the
+  run summary and in `cleo release open`'s result (`preflight`). Any `gh`
+  error or unfinished run means the tests run. To force the full preflight,
+  dispatch `release-prepare.yml` manually without the skip inputs.
+- **Native binary reuse.** cant-napi (8 triples + WASI) and worktree-napi
+  (4 triples) are stamped with a native SOURCE hash
+  (`node scripts/native-source-hash.mjs cant|worktree`) instead of the commit
+  SHA. A verified bundle is cached under that hash (`cant-napi-bundle-v1-<hash>`,
+  `worktree-napi-bundle-v1-<hash>`); a release whose native source is unchanged
+  restores it and skips the native builds. The publish job recomputes both
+  hashes from the tagged commit and refuses any binary that lacks the stamp.
+  To force a rebuild, delete the cache entry:
+  `gh cache delete cant-napi-bundle-v1-<hash>`.
+
 ## Operator Commands
 
 ### Add a PR to the merge queue
@@ -264,6 +332,10 @@ This repository operates under a strict zero-admin-merge policy:
    - Reason
    - Operator identity
    - Timestamp
+
+   The release bump-PR is the one standing, owner-approved exception: it is
+   admin-merged once its dispatched CI is green on the head SHA (see
+   "Merging the bump-PR" above).
 
 Consequences of bypassing:
 - Unreviewed or broken code can reach `main`.

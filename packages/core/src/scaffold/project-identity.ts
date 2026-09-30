@@ -1,42 +1,60 @@
 /**
- * Write-once portable project identity: decide, re-link, adopt (T12325).
+ * Write-once portable project identity: decide, re-link, adopt (T12325 · T12716).
  *
- * The tracked `.cleo/project-id` file (read by `@cleocode/paths`) is the one
- * project identifier that survives a fresh clone, a move, and a new device.
- * This module owns the two write-side rules ADR-094 (amending ADR-013 §9) depends on:
+ * The tracked identity — `.cleo/project.json` `{schemaVersion, id, name}`,
+ * with the ADR-094 `.cleo/project-id` kept as a legacy mirror (both read by
+ * `@cleocode/paths` `readPortableProjectId`) — is the one project identifier
+ * that survives a fresh clone, a move, and a new device. This module owns the
+ * write-side rules:
  *
- * 1. **Write once.** The file is created with `O_EXCL` and never rewritten. A
- *    conflicting or malformed file is reported, not repaired.
- * 2. **Never silently re-mint.** When no local or tracked id exists, the
+ * 1. **Write once.** The id is created with `O_EXCL` and never rewritten. A
+ *    conflicting or malformed file is reported, not repaired. Only the
+ *    manifest's `name` may change, through {@link renameProjectManifest}.
+ * 2. **Never silently re-mint.** When no tracked or local id exists, the
  *    global registry is searched for the project's previous identity (same
  *    path, its canonical-fingerprint alias, or a live checkout of the same remote). A
  *    unique candidate is re-linked; several candidates refuse to guess; a new
  *    id is minted only when nothing can be re-linked or when the caller asks
  *    for one explicitly.
+ * 3. **Never migrate on open.** Tracked files are created here only for a
+ *    project that has NONE yet. Turning a legacy `project-id` into
+ *    `project.json` is `cleo doctor project-identity --resolve` alone.
  *
- * Precedence when both files exist and disagree: the local
- * `project-info.json` id wins and the conflict is reported. Local state
- * (registry row, aliases, brain) is keyed by that id, so switching silently
- * would re-key it — the data-loss geometry this whole design avoids. Two ids
- * for one repository means two lineages (typically two devices that each ran
- * `cleo init` before this file existed); reconciling them is an explicit act.
+ * Precedence when the tracked id and the `project-info.json` cache disagree
+ * (T12716, reversing the T12325 rule): the TRACKED id wins, as it already did
+ * for every reader. The disagreement is reported. The cache is not rewritten
+ * here: local state (registry row, aliases) keyed by the old id is re-keyed,
+ * with the old id kept as an alias, only by `cleo doctor project-identity
+ * --resolve`. Two ids for one repository means two lineages (typically two
+ * devices that each ran `cleo init` before the id was tracked).
  *
  * @task T12325
+ * @task T12716
+ * @see ADR-096 — one committed `.cleo/project.json` (amends ADR-094)
  */
 
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
 import {
   canonicalizePath,
   computePathFingerprintId,
   formatPortableProjectId,
+  formatProjectManifest,
   getCleoHome,
   isValidPortableProjectId,
+  isValidProjectDisplayName,
+  PORTABLE_PROJECT_ID_FILE,
+  PROJECT_DISPLAY_NAME_MAX,
+  PROJECT_MANIFEST_FILE,
+  PROJECT_MANIFEST_SCHEMA_VERSION,
   portableProjectIdPath,
+  projectManifestPath,
   readPortableProjectId,
+  readProjectIdFile,
+  readProjectManifest,
 } from '@cleocode/paths';
 import { CleoError } from '../errors.js';
 import { normalizeRemoteUrl } from '../nexus/identity.js';
@@ -44,8 +62,10 @@ import { normalizeRemoteUrl } from '../nexus/identity.js';
 /**
  * Where the identity a scaffold step settled on came from.
  *
- * - `project-info` — the existing local `project-info.json` id (adopted as-is).
- * - `tracked` — the committed `.cleo/project-id` (fresh clone).
+ * - `tracked` — the committed `.cleo/project.json` (or legacy `.cleo/project-id`);
+ *   it wins over the `project-info.json` cache (T12716).
+ * - `project-info` — the `project-info.json` cache, used only when no tracked
+ *   file exists yet (a project from before ADR-094).
  * - `registry-path` / `registry-alias` / `registry-remote` — re-linked from the
  *   global registry because neither file was present.
  * - `minted` — a new random id; only when nothing could be re-linked or the
@@ -82,11 +102,16 @@ export interface ProjectIdentityDecision {
   diagnostics: string[];
 }
 
-/** Outcome of making sure `.cleo/project-id` records the project's id. */
+/** Outcome of making sure the tracked files record the project's id. */
 export type PortableIdFileOutcome =
-  /** Already present with the same id. */
+  /** `project.json` already records the same id. */
   | 'present'
-  /** Created now (first adoption). */
+  /**
+   * Only the legacy `project-id` records the same id. Reported, not migrated:
+   * `cleo doctor project-identity --resolve` writes `project.json` (T12716).
+   */
+  | 'legacy'
+  /** Created now (first adoption): `project.json` plus the `project-id` mirror. */
   | 'written'
   /** Present with a DIFFERENT id — reported, not rewritten. */
   | 'conflict'
@@ -215,25 +240,35 @@ export async function decideProjectIdentity(
 ): Promise<ProjectIdentityDecision> {
   const tracked = readPortableProjectId(projectRoot);
   const diagnostics: string[] = [];
+  const trackedFile = `.cleo/${tracked.status !== 'absent' ? (tracked.file ?? PORTABLE_PROJECT_ID_FILE) : PROJECT_MANIFEST_FILE}`;
 
-  if (localInfoId) {
-    if (tracked.status === 'valid' && tracked.projectId !== localInfoId) {
+  // T12716: the tracked id wins — the ONE place this rule lives. Readers
+  // (`readDeclaredProjectIdentity`, `decodeProjectInfo`) apply the same order.
+  if (tracked.status === 'valid') {
+    if (localInfoId && localInfoId !== tracked.projectId) {
       diagnostics.push(
-        `identity conflict: .cleo/project-id is '${tracked.projectId}' but project-info.json is '${localInfoId}'; keeping the local id — reconcile explicitly`,
+        `identity conflict: ${trackedFile} is '${tracked.projectId}' but the project-info.json cache is '${localInfoId}'; the tracked id wins. Re-key local state with \`cleo doctor project-identity --resolve\` (the old id stays resolvable as an alias)`,
       );
     }
-    return { projectId: localInfoId, source: 'project-info', diagnostics };
-  }
-
-  if (tracked.status === 'valid') {
     return { projectId: tracked.projectId, source: 'tracked', diagnostics };
   }
   if (tracked.status === 'invalid') {
+    if (localInfoId) {
+      // Never block a working checkout on a damaged tracked file, and never
+      // regenerate it: keep the cached id and report the file.
+      diagnostics.push(
+        `${trackedFile} is unusable (${tracked.reason}); keeping the project-info.json id '${localInfoId}'. Restore it: \`git checkout -- ${trackedFile}\``,
+      );
+      return { projectId: localInfoId, source: 'project-info', diagnostics };
+    }
     throw new CleoError(
       ExitCode.CONFIG_ERROR,
-      `Tracked project identity ${portableProjectIdPath(projectRoot)} is unusable (${tracked.reason}); refusing to mint a replacement`,
-      { fix: 'Restore it from version control: `git checkout -- .cleo/project-id`' },
+      `Tracked project identity ${join(projectRoot, trackedFile)} is unusable (${tracked.reason}); refusing to mint a replacement`,
+      { fix: `Restore it from version control: \`git checkout -- ${trackedFile}\`` },
     );
+  }
+  if (localInfoId) {
+    return { projectId: localInfoId, source: 'project-info', diagnostics };
   }
 
   if (options.mintNewIdentity) {
@@ -262,7 +297,7 @@ export async function decideProjectIdentity(
           .map((candidate) => `${candidate.projectId} @ ${candidate.projectPath}`)
           .join(', ')})`,
         {
-          fix: 'Write the intended id to .cleo/project-id, or mint explicitly with `cleo init --new-identity`',
+          fix: 'Restore .cleo/project.json (or the legacy .cleo/project-id) with the intended id from version control, or mint explicitly with `cleo init --new-identity`',
         },
       );
     }
@@ -273,14 +308,116 @@ export async function decideProjectIdentity(
 }
 
 /**
- * Make sure `<projectRoot>/.cleo/project-id` records `projectId` — write-once.
+ * Default display name for a project root: its directory basename, made a
+ * valid name (control characters and separators replaced, a leading `~`
+ * dropped, capped at {@link PROJECT_DISPLAY_NAME_MAX}). `project` when nothing
+ * usable is left.
  *
- * Creates the file only when absent (`O_EXCL`); a present file is compared,
- * never rewritten.
+ * @param projectRoot - Project root.
+ * @returns A name that passes `isValidProjectDisplayName`.
+ *
+ * @example
+ * ```ts
+ * defaultProjectDisplayName('/work/cleocode'); // 'cleocode'
+ * ```
+ * @task T12716
+ */
+export function defaultProjectDisplayName(projectRoot: string): string {
+  const cleaned = basename(resolve(projectRoot))
+    .replace(/[/\\\u0000-\u001f\u007f]/g, '-')
+    .replace(/^~+/, '')
+    .slice(0, PROJECT_DISPLAY_NAME_MAX)
+    .trim();
+  return isValidProjectDisplayName(cleaned) ? cleaned : 'project';
+}
+
+/** Create a file with `O_EXCL`; `false` when it already exists. */
+async function writeExclusive(path: string, content: string): Promise<boolean> {
+  try {
+    await writeFile(path, content, { flag: 'wx' });
+    return true;
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'EEXIST') return false;
+    throw error;
+  }
+}
+
+/**
+ * Create `.cleo/project.json` for `projectId` — create-only (`O_EXCL`).
+ *
+ * @param projectRoot - Absolute project root.
+ * @param projectId - The identity to record; never changed afterwards.
+ * @param name - Display name; must pass `isValidProjectDisplayName`.
+ * @returns `written`, or — for a file that already exists — `present` (same
+ *   id), `conflict` (different id) or `invalid` (unparseable). Never rewrites.
+ *
+ * @example
+ * ```ts
+ * await createProjectManifest(root, 'c78d09c3a8ee', 'cleocode'); // 'written'
+ * ```
+ * @task T12716
+ */
+export async function createProjectManifest(
+  projectRoot: string,
+  projectId: string,
+  name: string,
+): Promise<'written' | 'present' | 'conflict' | 'invalid' | 'no-cleo-dir'> {
+  if (!isValidPortableProjectId(projectId) || !isValidProjectDisplayName(name)) return 'invalid';
+  if (!existsSync(join(projectRoot, '.cleo'))) return 'no-cleo-dir';
+  const body = formatProjectManifest({
+    schemaVersion: PROJECT_MANIFEST_SCHEMA_VERSION,
+    id: projectId,
+    name,
+  });
+  if (await writeExclusive(projectManifestPath(projectRoot), body)) return 'written';
+  // Present (or lost a race): judge what is there, never overwrite it.
+  const current = readProjectManifest(projectRoot);
+  if (current.status !== 'valid') return 'invalid';
+  return current.manifest.id === projectId ? 'present' : 'conflict';
+}
+
+/**
+ * Create the legacy `.cleo/project-id` mirror for `projectId` — create-only.
+ * Older builds read only this file, so it is kept beside `project.json`
+ * until a later removal (T12716).
+ *
+ * @param projectRoot - Absolute project root.
+ * @param projectId - The identity to mirror.
+ * @returns `written`, or for an existing file `present` / `conflict` / `invalid`.
+ *
+ * @example
+ * ```ts
+ * await createProjectIdMirror(root, 'c78d09c3a8ee');
+ * ```
+ * @task T12716
+ */
+export async function createProjectIdMirror(
+  projectRoot: string,
+  projectId: string,
+): Promise<'written' | 'present' | 'conflict' | 'invalid' | 'no-cleo-dir'> {
+  if (!isValidPortableProjectId(projectId)) return 'invalid';
+  if (!existsSync(join(projectRoot, '.cleo'))) return 'no-cleo-dir';
+  if (await writeExclusive(portableProjectIdPath(projectRoot), formatPortableProjectId(projectId)))
+    return 'written';
+  const current = readProjectIdFile(projectRoot);
+  if (current.status !== 'valid') return 'invalid';
+  return current.projectId === projectId ? 'present' : 'conflict';
+}
+
+/**
+ * Make sure the tracked files record `projectId` — write-once.
+ *
+ * Only a project with NO tracked identity gets files: `project.json` and the
+ * legacy `project-id` mirror, both created with `O_EXCL`. A present file is
+ * compared, never rewritten, and a legacy-only project is reported as
+ * `legacy` rather than migrated (migration is `cleo doctor project-identity
+ * --resolve`, T12716).
  *
  * @param projectRoot - Absolute project root.
  * @param projectId - The identity to adopt.
- * @returns What happened; `conflict`/`invalid` are for the caller to report.
+ * @param name - Display name for a new `project.json`; defaults to
+ *   {@link defaultProjectDisplayName}. Ignored when a file already exists.
+ * @returns What happened; `legacy`/`conflict`/`invalid` are for the caller to report.
  *
  * @example
  * ```ts
@@ -290,24 +427,72 @@ export async function decideProjectIdentity(
 export async function ensurePortableProjectId(
   projectRoot: string,
   projectId: string,
+  name?: string,
 ): Promise<PortableIdFileOutcome> {
   const current = readPortableProjectId(projectRoot);
-  if (current.status === 'valid') return current.projectId === projectId ? 'present' : 'conflict';
+  if (current.status === 'valid') {
+    if (current.projectId !== projectId) return 'conflict';
+    return current.file === PORTABLE_PROJECT_ID_FILE ? 'legacy' : 'present';
+  }
   if (current.status === 'invalid') return 'invalid';
   if (!isValidPortableProjectId(projectId)) return 'invalid';
   if (!existsSync(join(projectRoot, '.cleo'))) return 'no-cleo-dir';
-  try {
-    await writeFile(portableProjectIdPath(projectRoot), formatPortableProjectId(projectId), {
-      flag: 'wx',
-    });
-    return 'written';
-  } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'EEXIST') {
-      // Lost a race with another writer: judge what they wrote, never overwrite it.
-      const raced = readPortableProjectId(projectRoot);
-      if (raced.status === 'valid') return raced.projectId === projectId ? 'present' : 'conflict';
-      return 'invalid';
-    }
-    throw error;
+  const displayName =
+    name !== undefined && isValidProjectDisplayName(name)
+      ? name
+      : defaultProjectDisplayName(projectRoot);
+  const manifest = await createProjectManifest(projectRoot, projectId, displayName);
+  if (manifest !== 'written' && manifest !== 'present') return manifest;
+  const mirror = await createProjectIdMirror(projectRoot, projectId);
+  if (mirror === 'conflict' || mirror === 'invalid') return mirror;
+  return manifest;
+}
+
+/**
+ * Rename a project in its committed `.cleo/project.json`: only `name` changes;
+ * the id is carried over byte-identical and keys this build does not know are
+ * kept (`writeProjectManifestName`: a tmp file unique to the call, renamed
+ * into place, so a crash never leaves a half-written identity file).
+ *
+ * @param projectRoot - Absolute project root.
+ * @param name - New display name (trimmed; must pass `isValidProjectDisplayName`).
+ * @returns The previous and new manifest names.
+ * @throws {CleoError} `VALIDATION_ERROR` for an invalid name; `CONFIG_ERROR`
+ *   when `project.json` is absent (migrate first) or unusable.
+ *
+ * @example
+ * ```ts
+ * await renameProjectManifest(root, 'cleo-platform');
+ * ```
+ * @task T12716
+ */
+export async function renameProjectManifest(
+  projectRoot: string,
+  name: string,
+): Promise<{ oldName: string; newName: string; projectId: string }> {
+  const newName = name.trim();
+  if (!isValidProjectDisplayName(newName)) {
+    throw new CleoError(
+      ExitCode.VALIDATION_ERROR,
+      `Invalid project name '${newName}': use 1-${PROJECT_DISPLAY_NAME_MAX} characters with no "/", "\\", control characters or leading "~"`,
+    );
   }
+  const current = readProjectManifest(projectRoot);
+  if (current.status !== 'valid') {
+    throw new CleoError(
+      ExitCode.CONFIG_ERROR,
+      current.status === 'absent'
+        ? `${projectManifestPath(projectRoot)} does not exist yet`
+        : `${projectManifestPath(projectRoot)} is unusable (${current.reason})`,
+      {
+        fix:
+          current.status === 'absent'
+            ? 'Run `cleo doctor project-identity --resolve` to record the identity in .cleo/project.json'
+            : `Restore it from version control: \`git checkout -- .cleo/${PROJECT_MANIFEST_FILE}\``,
+      },
+    );
+  }
+  // Only `name` changes; unknown keys survive; a per-call tmp file (T12716).
+  const { writeProjectManifestName } = await import('../project-info.js');
+  return writeProjectManifestName(projectRoot, newName);
 }

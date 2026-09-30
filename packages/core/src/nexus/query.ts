@@ -11,13 +11,12 @@
  * @epic T4540
  */
 
-import { existsSync, readFileSync } from 'node:fs';
-import { basename, join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
 import { ExitCode, type NexusResolveParams } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { getProjectRoot } from '../paths.js';
+import { getProjectDisplayName } from '../project-scope.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { getBrainNativeDb } from '../store/memory-sqlite.js';
 import { getNexusNativeDb } from '../store/nexus-sqlite.js';
@@ -87,30 +86,15 @@ export function parseQuery(query: string, currentProject?: string): NexusParsedQ
 }
 
 /**
- * Get the current project name from context.
- * Reads .cleo/project-info.json or falls back to directory name.
+ * Get the current project name from context: the display name from
+ * `.cleo/project.json`, else the directory name (T12716).
  */
 export function getCurrentProject(): string {
   // Allow test/env override
   if (process.env['NEXUS_CURRENT_PROJECT']) {
     return process.env['NEXUS_CURRENT_PROJECT'];
   }
-
-  // Try to read from .cleo/project-info.json (matches bash behavior)
-  try {
-    const infoPath = join(getProjectRoot(), '.cleo', 'project-info.json');
-    if (existsSync(infoPath)) {
-      const data = JSON.parse(readFileSync(infoPath, 'utf-8')) as Record<string, unknown>;
-      if (typeof data.name === 'string' && data.name.length > 0) {
-        return data.name;
-      }
-    }
-  } catch {
-    // Fall through to directory name
-  }
-
-  // Fallback to project-root directory name
-  return basename(getProjectRoot());
+  return getProjectDisplayName(getProjectRoot());
 }
 
 /**
