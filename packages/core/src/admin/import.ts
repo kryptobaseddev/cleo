@@ -159,9 +159,13 @@ export async function importTasks(
   // transaction: a collision leaves nothing half-imported (T12724).
   await accessor.transaction(async (tx) => {
     for (const task of imported) {
-      if (duplicateStrategy === 'overwrite' && existingTaskIds.has(task.id))
+      // An overwrite keeps the identity of the same task (same birth) and
+      // re-keys a different one, or is refused once shared; a new task's uid
+      // is derived from its row, never stamped at import time (T12806).
+      if (duplicateStrategy === 'overwrite' && existingTaskIds.has(task.id)) {
         await tx.upsertSingleTask(task);
-      else await tx.insertNewTask(task);
+        await tx.clearTaskIdentity?.(task.id);
+      } else await tx.insertNewTask(task, { origin: 'imported' });
     }
   });
 

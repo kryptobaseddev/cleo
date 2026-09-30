@@ -369,8 +369,10 @@ export type {
   TaskConflictChange,
   TaskConflictDetails,
   TaskFieldUpdates,
+  TaskInsertIdentity,
   TaskPopulation,
   TaskQueryFilters,
+  TaskRowIdentity,
   TaskWriteGuard,
   TransactionAccessor,
 } from './data-accessor.js';

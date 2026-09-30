@@ -1450,6 +1450,19 @@ export function writeRecipeMarker(
 }
 
 /**
+ * Whether the store's identity values are shared with other devices
+ * ({@link ROW_IDENTITY_SYNCED_KEY} present): from then on no local write may
+ * clear or re-point a uid.
+ *
+ * @param db - Connection on the project `cleo.db`.
+ * @returns True once identity has been sent or received.
+ * @task T12806
+ */
+export function rowIdentityShared(db: DatabaseSync): boolean {
+  return readMeta(db, ROW_IDENTITY_SYNCED_KEY) !== undefined;
+}
+
+/**
  * Record that identity values are now SHARED with other devices: the recipe
  * marker, and {@link ROW_IDENTITY_SYNCED_KEY} (first write wins, with the
  * direction). Called on the first receive (a pull-first clone that never
