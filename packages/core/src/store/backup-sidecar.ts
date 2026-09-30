@@ -5,7 +5,8 @@
  * timestamp, the per-type rotation, and the `.meta.json` sidecar that
  * `cleo backup list` reads.
  *
- * A leaf module (node:fs only), so store code that runs inside a domain bind
+ * A leaf module (node:fs, the logger, and a read-only node:sqlite read of the
+ * twin-collapse markers during rotation), so store code that runs inside a domain bind
  * can write an inventoried snapshot without importing `system/backup.ts`,
  * which imports the domain binders.
  *
@@ -23,8 +24,11 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { createRequire } from 'node:module';
 import { basename, dirname, join } from 'node:path';
+import type { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
+import { getLogger } from '../logger.js';
 
 /**
  * Format a Date as `YYYYMMDD-HHmmss` (local time) — mirrors the helper of
@@ -51,11 +55,27 @@ export function formatBackupTimestamp(d: Date): string {
  * touches files produced by `vacuumIntoBackupAll` in the same directory.
  * Non-fatal — filesystem errors are silently swallowed.
  *
+ * A pinned backup, and a pre-collapse snapshot a twin-collapse marker of the
+ * project store references (pinned or not: 2026.9.21 wrote them without a
+ * pin), is never rotated and does not count toward the cap. When a marker
+ * cannot be read (malformed, or the store busy), which snapshot it names is
+ * unknown: every `migration` backup is kept and a warning is logged, while
+ * other backup types still rotate (pre-collapse snapshots are always
+ * `migration` backups). `cleo doctor` names an unreadable marker.
+ *
  * @task T9194
  * @task T10315 — added scoping predicate so rotation never reaches
  *                vacuum-snapshot files that share `.cleo/backups/sqlite/`.
+ * @task T12727 — marker-referenced snapshots are never rotated.
+ * @task T12770 — an unreadable marker keeps only `migration` backups, and says so.
+ * @returns The files deleted, and why rotation kept backups past the cap.
  */
-export function rotateBackupDir(backupDir: string, maxSnapshots: number, backupType: string): void {
+export function rotateBackupDir(
+  backupDir: string,
+  maxSnapshots: number,
+  backupType: string,
+): BackupRotation {
+  const deleted: string[] = [];
   try {
     // Match `<anything>.${backupType}-<timestamp>` where timestamp is either
     // canonical (`YYYYMMDD-HHmmss`) or legacy-ISO (`YYYY-MM-DDTHH-MM-SS-mmmZ`).
@@ -77,11 +97,35 @@ export function rotateBackupDir(backupDir: string, maxSnapshots: number, backupT
       }))
       .sort((a, b) => a.mtimeMs - b.mtimeMs); // oldest first
 
+    if (files.length > maxSnapshots) {
+      const markers = readMarkerSnapshots(backupDir);
+      const unreadable = markers.error !== null || markers.unreadable.length > 0;
+      if (unreadable) {
+        const skipped = backupType === PRE_COLLAPSE_BACKUP_TYPE;
+        getLogger('backup-rotation').warn(
+          { backupDir, backupType, unreadable: markers.unreadable, error: markers.error, skipped },
+          skipped
+            ? 'twin-collapse marker unreadable: keeping every migration backup (run cleo doctor)'
+            : 'twin-collapse marker unreadable: rotating (a pre-collapse snapshot is a migration backup)',
+        );
+        if (skipped)
+          return {
+            deleted,
+            keptAll: markers.error !== null ? 'store-unreadable' : 'marker-unreadable',
+            unreadable: markers.unreadable,
+            error: markers.error,
+          };
+      }
+      for (let i = files.length - 1; i >= 0; i--)
+        if (markers.names.has(files[i]?.name ?? '')) files.splice(i, 1);
+    }
+
     while (files.length > maxSnapshots) {
       const oldest = files.shift();
       if (!oldest) break;
       try {
         unlinkSync(oldest.path);
+        deleted.push(oldest.name);
         // Also delete the corresponding .meta.json sidecar if it exists.
         const metaPath = `${oldest.path}.meta.json`;
         if (existsSync(metaPath)) unlinkSync(metaPath);
@@ -91,6 +135,92 @@ export function rotateBackupDir(backupDir: string, maxSnapshots: number, backupT
     }
   } catch {
     // non-fatal — rotation failures must never block the backup operation
+  }
+  return { deleted, keptAll: null, unreadable: [], error: null };
+}
+
+/** What {@link rotateBackupDir} did. */
+export interface BackupRotation {
+  /** Backup files deleted. */
+  readonly deleted: readonly string[];
+  /**
+   * Why every backup of the type was kept past the cap: a marker that does
+   * not parse, or a store that could not be read (busy, corrupt). `null` when
+   * rotation ran.
+   */
+  readonly keptAll: 'marker-unreadable' | 'store-unreadable' | null;
+  /** The unreadable marker keys (`<kvTable>:twin_collapse:<table>`). */
+  readonly unreadable: readonly string[];
+  /** The error reading the store (for example `database is locked`), or `null`. */
+  readonly error: string | null;
+}
+
+/** The backup type every pre-collapse snapshot is written as. */
+const PRE_COLLAPSE_BACKUP_TYPE = 'migration';
+
+/** Key prefix of a twin-collapse marker (`twin_collapse:<table>`) in a kv table. */
+const MARKER_PREFIX = 'twin_collapse:';
+
+/** The twin-collapse markers of a project store, as rotation reads them. */
+export interface MarkerSnapshots {
+  /** File names of the pre-collapse snapshots the readable markers reference. */
+  readonly names: ReadonlySet<string>;
+  /** Marker keys whose value does not parse (`<kvTable>:twin_collapse:<table>`). */
+  readonly unreadable: readonly string[];
+  /** Why the store could not be read at all (busy, corrupt), or `null`. */
+  readonly error: string | null;
+}
+
+/**
+ * The pre-collapse snapshots the twin-collapse markers of the project store
+ * (`<backupDir>/../../cleo.db`) reference, and the markers that cannot be
+ * read. No store there: no markers.
+ *
+ * @param backupDir - `<root>/.cleo/backups/sqlite`.
+ * @returns The referenced file names, the unreadable marker keys, and any read error.
+ * @task T12727
+ * @task T12770
+ */
+export function readMarkerSnapshots(backupDir: string): MarkerSnapshots {
+  const store = join(backupDir, '..', '..', 'cleo.db');
+  const names = new Set<string>();
+  const unreadable: string[] = [];
+  if (!existsSync(store)) return { names, unreadable, error: null };
+  let db: DatabaseSync | undefined;
+  try {
+    const { DatabaseSync: Ctor } = createRequire(import.meta.url)('node:sqlite') as {
+      DatabaseSync: new (path: string, opts: { readOnly: boolean }) => DatabaseSync;
+    };
+    db = new Ctor(store, { readOnly: true }); // db-open-allowed: leaf module; read-only marker read during rotation
+    for (const table of ['tasks_schema_meta', 'brain_schema_meta']) {
+      const present = db
+        .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
+        .get(table);
+      if (present === undefined) continue;
+      const rows = db
+        .prepare(`SELECT key, value FROM ${table} WHERE substr(key, 1, ?) = ?`)
+        .all(MARKER_PREFIX.length, MARKER_PREFIX) as Array<{ key: string; value: string }>;
+      for (const { key, value } of rows) {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(value);
+        } catch {
+          parsed = undefined;
+        }
+        const snapshot =
+          parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+            ? (parsed as { snapshot?: unknown }).snapshot
+            : Symbol.for('unreadable');
+        if (snapshot === undefined || snapshot === null) continue;
+        if (typeof snapshot === 'string' && snapshot.length > 0) names.add(basename(snapshot));
+        else unreadable.push(`${table}:${key}`);
+      }
+    }
+    return { names, unreadable, error: null };
+  } catch (error) {
+    return { names, unreadable, error: error instanceof Error ? error.message : String(error) };
+  } finally {
+    db?.close();
   }
 }
 
