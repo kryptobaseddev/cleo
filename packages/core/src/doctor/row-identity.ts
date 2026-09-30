@@ -132,15 +132,18 @@ export function rowIdentityDoctorCheck(projectRoot: string): RowIdentityDoctorCh
  */
 export function heldRowCounts(db: DatabaseSync): Record<string, number> {
   const has = db
-    .prepare("SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'tasks_identity_quarantine'")
+    .prepare(
+      "SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'tasks_identity_quarantine'",
+    )
     .get();
   if (!has) return {};
   const out: Record<string, number> = {};
   for (const r of db
-    .prepare('SELECT reason, count(*) AS n FROM tasks_identity_quarantine GROUP BY reason ORDER BY reason')
+    .prepare(
+      'SELECT reason, count(*) AS n FROM tasks_identity_quarantine GROUP BY reason ORDER BY reason',
+    )
     .all() as { reason: string; n: number }[]) {
     out[r.reason] = r.n;
   }
   return out;
 }
-
