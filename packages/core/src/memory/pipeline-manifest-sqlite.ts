@@ -43,6 +43,13 @@ import type {
   SupersededDetail,
 } from './index.js';
 import { filterManifestEntries } from './manifest-filter.js';
+import {
+  findMissingLinkedTasks,
+  type ManifestIdentityIssue,
+  manifestEntryIdProblem,
+  manifestIdentityIssues,
+  readContainedFile,
+} from './manifest-identity.js';
 
 // Re-export types for consumers that previously imported them from pipeline-manifest-compat
 export type ManifestEntry = ExtendedManifestEntry;
@@ -406,6 +413,77 @@ export async function listMalformedManifestRows(
   return (await readRows(projectRoot, true)).flatMap((row) => metadataProblem(row) ?? []);
 }
 
+/** A stored manifest row whose id, linked task ids or file reference fails T12829 validation. */
+export interface ManifestIdentityProblemRow {
+  /** Manifest entry id, truncated to 120 characters for display. */
+  entryId: string;
+  /** Tables holding the row (`docs_pipeline_manifest`, legacy `pipeline_manifest`). */
+  tables: string[];
+  /** The problems: `E_VALIDATION` (malformed or unsafe) or `E_NOT_FOUND` (linked task missing). */
+  issues: ManifestIdentityIssue[];
+}
+
+/**
+ * List every stored manifest row (archived included) whose entry id, linked
+ * task ids or file reference would be rejected by append today, and every
+ * well-formed linked task id that names no task. Read-only: the rows predate
+ * T12829 validation and are reported, never rewritten.
+ *
+ * @param projectRoot - Project root.
+ * @returns The offending rows, each with its problems.
+ * @task T12829
+ */
+export async function listManifestIdentityProblems(
+  projectRoot?: string,
+): Promise<ManifestIdentityProblemRow[]> {
+  const scope = manifestScope(projectRoot);
+  const checked = (await readRows(scope.worktreeRoot, true)).map((row) => {
+    // A row with unreadable metadata is `listMalformedManifestRows`' finding;
+    // here it falls back to the columns.
+    const meta = metadataProblem(row) === null ? readRowMetadata(row) : undefined;
+    const linkedTasks = meta?.linked_tasks ?? (row.taskId ? [row.taskId] : []);
+    const file = meta?.file ?? row.sourceFile ?? undefined;
+    return {
+      row,
+      linkedTasks,
+      issues: manifestIdentityIssues(
+        { id: row.id, linked_tasks: linkedTasks, file },
+        scope.worktreeRoot,
+      ),
+    };
+  });
+  const missing = new Set(
+    await worktreeScope.run(scope, () =>
+      findMissingLinkedTasks(
+        checked.flatMap((c) => c.linkedTasks),
+        scope.worktreeRoot,
+      ),
+    ),
+  );
+  return checked.flatMap(({ row, linkedTasks, issues }) => {
+    const all: ManifestIdentityIssue[] = [
+      ...issues,
+      ...linkedTasks
+        .filter((id) => missing.has(id))
+        .map((id) => ({
+          field: 'linked_tasks' as const,
+          code: 'E_NOT_FOUND' as const,
+          value: id,
+          message: 'no such task in this project',
+        })),
+    ];
+    if (all.length === 0) return [];
+    return [
+      {
+        entryId:
+          row.id.length <= 120 ? row.id : `${row.id.slice(0, 120)}… (${row.id.length} chars)`,
+        tables: [...row.provenance.tables],
+        issues: all,
+      },
+    ];
+  });
+}
+
 /** One row a repair rewrote: its metadata before and after. */
 export interface ManifestRepairChange {
   entryId: string;
@@ -715,6 +793,19 @@ export async function pipelineManifestShow(
       error: { code: 'E_INVALID_INPUT', message: 'researchId is required' },
     };
   }
+  // T12829: a malformed id can never have been stored by append; refuse it
+  // before it reaches the store or any path.
+  const idProblem = manifestEntryIdProblem(researchId);
+  if (idProblem) {
+    return {
+      success: false,
+      error: {
+        code: 'E_VALIDATION',
+        message: `Invalid manifest entry id: ${idProblem}`,
+        details: { field: 'id', length: researchId.length },
+      },
+    };
+  }
 
   try {
     const scope = manifestScope(projectRoot);
@@ -785,11 +876,19 @@ export async function pipelineManifestShow(
         return content;
       });
     } else if (entry.file) {
-      try {
-        fileContent = readFileSync(join(scope.worktreeRoot, entry.file), 'utf-8');
-      } catch (error) {
-        if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
+      // T12829: never read a file reference that escapes the project (or
+      // whose name the filesystem cannot hold) — rows stored before append
+      // validated `file` may carry one. The read resolves real paths, so an
+      // in-project symlink pointing outside the project is refused too.
+      const read = readContainedFile(scope.worktreeRoot, entry.file);
+      if (read.status === 'unsafe') {
+        throw new EngineResultError({
+          code: 'E_MANIFEST_FILE_UNSAFE',
+          message: `Manifest '${researchId}' has an unsafe file reference (${read.reason}); it was not read. Run \`cleo doctor manifest-rows\` to list such rows.`,
+          details: { entryId: researchId, field: 'file' },
+        });
       }
+      if (read.status === 'ok') fileContent = read.content;
     }
 
     return {
@@ -1031,10 +1130,43 @@ export async function pipelineManifestRead(
   }
 }
 
-/** Append to canonical manifest storage after checking both histories for unresolved identities. */
+/** Options for {@link pipelineManifestAppend}. */
+export interface PipelineManifestAppendOptions {
+  /**
+   * Reject an entry whose linked task ids name no task in the project store
+   * (`E_NOT_FOUND`). The CLI/dispatch path sets it; direct SDK callers that
+   * record manifests for tasks held elsewhere may leave it off. Format checks
+   * on the id, linked task ids and file reference always run (T12829).
+   */
+  requireExistingTasks?: boolean;
+}
+
+/**
+ * Build the failure for identity problems, preferring `E_VALIDATION` over
+ * `E_NOT_FOUND` so a malformed value is reported before a missing task.
+ */
+function identityFailure(issues: ManifestIdentityIssue[]): EngineResult {
+  const code = issues.some((i) => i.code === 'E_VALIDATION') ? 'E_VALIDATION' : 'E_NOT_FOUND';
+  const shown = issues.filter((i) => i.code === code);
+  return {
+    success: false,
+    error: {
+      code,
+      message: `Invalid manifest entry: ${shown.map((i) => `${i.field} '${i.value}': ${i.message}`).join('; ')}`,
+      details: { field: shown[0]?.field, issues },
+    },
+  };
+}
+
+/**
+ * Append to canonical manifest storage after checking both histories for
+ * unresolved identities. The entry id, linked task ids and file reference are
+ * validated first (T12829): no input can name a path outside the project.
+ */
 export async function pipelineManifestAppend(
   entry: ExtendedManifestEntry,
   projectRoot?: string,
+  options: PipelineManifestAppendOptions = {},
 ): Promise<EngineResult> {
   if (!entry) {
     return { success: false, error: { code: 'E_INVALID_INPUT', message: 'entry is required' } };
@@ -1058,6 +1190,25 @@ export async function pipelineManifestAppend(
         message: `Invalid manifest entry: ${errors.join(', ')}`,
       },
     };
+  }
+
+  const scope = manifestScope(projectRoot);
+  const issues = manifestIdentityIssues(entry, scope.worktreeRoot);
+  if (issues.length > 0) return identityFailure(issues);
+  if (options.requireExistingTasks === true && (entry.linked_tasks?.length ?? 0) > 0) {
+    const missing = await worktreeScope.run(scope, () =>
+      findMissingLinkedTasks(entry.linked_tasks ?? [], scope.worktreeRoot),
+    );
+    if (missing.length > 0) {
+      return identityFailure(
+        missing.map((id) => ({
+          field: 'linked_tasks',
+          code: 'E_NOT_FOUND',
+          value: id,
+          message: 'no such task in this project',
+        })),
+      );
+    }
   }
 
   try {
@@ -1553,19 +1704,24 @@ export async function distillManifestEntry(
 
 /**
  * Migrate existing .cleo/MANIFEST.jsonl entries into the pipeline_manifest table.
- * Skips entries that already exist (by id). Renames MANIFEST.jsonl to
- * MANIFEST.jsonl.migrated when done.
+ * Skips entries that already exist (by id). Entries whose id, linked task ids
+ * or file reference fail the T12829 identity checks are skipped, not inserted,
+ * and listed in `invalid`. Renames MANIFEST.jsonl to MANIFEST.jsonl.migrated
+ * when done.
  *
- * @returns Count of migrated and skipped entries.
+ * @returns Count of migrated and skipped entries (skipped includes invalid ones),
+ *   and every entry refused for an identity problem.
  */
-export async function migrateManifestJsonlToSqlite(
-  projectRoot?: string,
-): Promise<{ migrated: number; skipped: number }> {
+export async function migrateManifestJsonlToSqlite(projectRoot?: string): Promise<{
+  migrated: number;
+  skipped: number;
+  invalid: Array<{ entryId: string; issues: ManifestIdentityIssue[] }>;
+}> {
   const root = manifestScope(projectRoot).worktreeRoot;
   const manifestPath = join(resolveCleoDir(root), 'MANIFEST.jsonl');
 
   if (!existsSync(manifestPath)) {
-    return { migrated: 0, skipped: 0 };
+    return { migrated: 0, skipped: 0, invalid: [] };
   }
 
   const content = readFileSync(manifestPath, 'utf-8');
@@ -1583,7 +1739,7 @@ export async function migrateManifestJsonlToSqlite(
   }
 
   if (entries.length === 0) {
-    return { migrated: 0, skipped: 0 };
+    return { migrated: 0, skipped: 0, invalid: [] };
   }
 
   const binding = await getBinding(projectRoot);
@@ -1591,9 +1747,18 @@ export async function migrateManifestJsonlToSqlite(
 
   let migrated = 0;
   let skipped = 0;
+  const invalid: Array<{ entryId: string; issues: ManifestIdentityIssue[] }> = [];
 
   for (const entry of entries) {
     if (!entry.id) {
+      skipped++;
+      continue;
+    }
+    // T12829: never import an identity append would refuse (bad id, bad
+    // linked task id, or a file reference that escapes the project).
+    const issues = manifestIdentityIssues(entry, root);
+    if (issues.length > 0) {
+      invalid.push({ entryId: String(entry.id).slice(0, 120), issues });
       skipped++;
       continue;
     }
@@ -1619,5 +1784,5 @@ export async function migrateManifestJsonlToSqlite(
     // Non-fatal — file may already be renamed or locked
   }
 
-  return { migrated, skipped };
+  return { migrated, skipped, invalid };
 }

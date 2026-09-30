@@ -20,6 +20,7 @@ import { safeReadFile } from '../store/atomic.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { appendJsonl, readJson, saveJson } from '../store/json.js';
 import { logOperation } from '../tasks/add.js';
+import { readContainedFile, resolveContainedFile } from './manifest-identity.js';
 
 /** Research entry attached to a task. */
 export interface ResearchEntry {
@@ -554,14 +555,16 @@ export async function showManifestEntry(
 
   const root = getProjectRoot(cwd);
   let fileContent: string | null = null;
-  try {
-    const filePath = resolve(root, entry.file);
-    if (existsSync(filePath)) {
-      fileContent = readFileSync(filePath, 'utf-8');
-    }
-  } catch {
-    // File may not exist or be unreadable
+  // T12829: read only a reference whose real path stays inside the project
+  // (no absolute path, `../`, or symlink out of the project).
+  const read = readContainedFile(root, entry.file);
+  if (read.status === 'unsafe') {
+    throw new CleoError(
+      ExitCode.VALIDATION_ERROR,
+      `Research entry '${researchId}' has an unsafe file reference (${read.reason}); it was not read`,
+    );
   }
+  if (read.status === 'ok') fileContent = read.content;
 
   return {
     ...entry,
@@ -1098,8 +1101,16 @@ export async function validateManifestEntries(
     }
 
     if (entry.file) {
-      const filePath = resolve(root, entry.file);
-      if (!existsSync(filePath)) {
+      // T12829: the existence probe resolves real paths inside the project,
+      // so it cannot be used as an oracle for files outside it.
+      const resolved = resolveContainedFile(root, entry.file);
+      if (resolved.status === 'unsafe') {
+        issues.push({
+          entryId: entry.id,
+          issue: `Unsafe file reference: ${resolved.reason}`,
+          severity: 'error',
+        });
+      } else if (resolved.status === 'not-found') {
         issues.push({
           entryId: entry.id,
           issue: `Output file not found: ${entry.file}`,
