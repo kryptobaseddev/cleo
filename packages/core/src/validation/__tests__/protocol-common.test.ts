@@ -106,9 +106,43 @@ describe('parseReturnMessage (T12521)', () => {
     expect(parseReturnMessage('Research complete. manifest:e1\nblocker: none')).not.toBeNull();
   });
 
+  it('requires a non-none blocker for partial/blocked; legacy form unchanged (F3)', () => {
+    expect(parseReturnMessage('Research partial. manifest:e1')).toBeNull();
+    expect(parseReturnMessage('Research blocked. manifest:e1\nblocker: none')).toBeNull();
+    expect(parseReturnMessage('Research blocked. manifest:e1\nblocker: owner vote')).not.toBeNull();
+    expect(
+      parseReturnMessage('Research partial. Manifest appended to pipeline_manifest.'),
+    ).toMatchObject({ form: 'legacy', status: 'partial', blocker: null });
+  });
+
+  it('accepts manifest:none only for partial/blocked and rejects placeholders (F5)', () => {
+    expect(parseReturnMessage('Research complete. manifest:none')).toBeNull();
+    expect(parseReturnMessage('Research completed. manifest:none\nblocker: none')).toBeNull();
+    expect(
+      parseReturnMessage('Research partial. manifest:none\nblocker: append failed'),
+    ).not.toBeNull();
+    expect(parseReturnMessage('Research complete. manifest:<entryId>')).toBeNull();
+    expect(parseReturnMessage('Research complete. manifest:e<1>')).toBeNull();
+    expect(parseReturnMessage('Research complete. manifest:e1>')).toBeNull();
+  });
+
+  it('strips one surrounding code fence (F6)', () => {
+    const block = 'Research complete. manifest:e1\ncommits: none\nblocker: none';
+    expect(parseReturnMessage(`\`\`\`\n${block}\n\`\`\``)).toMatchObject({
+      form: 'compressed',
+      entryId: 'e1',
+      blocker: 'none',
+    });
+    expect(parseReturnMessage(`\`\`\`text\n${block}\n\`\`\`\n`)).not.toBeNull();
+    expect(parseReturnMessage(`\`\`\`\n\`\`\`\n${block}\n\`\`\`\n\`\`\``)).toBeNull();
+    expect(parseReturnMessage(`\`\`\`\n${block}`)).toBeNull();
+  });
+
   it('restricts the type word when a type list is given', () => {
     expect(parseReturnMessage('Epic created. manifest:e1', ['Research'])).toBeNull();
-    expect(parseReturnMessage('Research partial. manifest:e1', ['Research'])).not.toBeNull();
+    expect(
+      parseReturnMessage('Research partial. manifest:e1\nblocker: CI red', ['Research']),
+    ).not.toBeNull();
   });
 });
 

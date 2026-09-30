@@ -9,7 +9,7 @@
  * return template, once filled, passes every return-message validator.
  */
 import type { Task } from '@cleocode/contracts';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { estimateTokens } from '../../metrics/token-estimation.js';
 import { validateReturnMessage } from '../../skills/validation.js';
 import { checkReturnFormat } from '../../validation/compliance.js';
@@ -17,6 +17,7 @@ import { checkReturnMessageFormat } from '../../validation/protocol-common.js';
 import {
   ALL_SPAWN_PROTOCOL_PHASES,
   buildSpawnPrompt,
+  resetSpawnPromptCache,
   resolveSpawnReturnContract,
   SPAWN_RETURN_CONTRACTS,
   type SpawnProtocolPhase,
@@ -36,7 +37,11 @@ const TASK: Task = {
 /** Estimated tokens of the two blocks before T12521 (implementation, chars / 4). */
 const LEGACY_BLOCKS_TOKENS = 767;
 
-/** Ceiling for the two blocks after T12521, HITL line included (chars / 4). */
+/**
+ * Ceiling for the two blocks after T12521, HITL line included (chars / 4).
+ * Still holds after the review fixes restored the rich-entry capture/readback,
+ * the `E_VALIDATION_FAILED` and the first-task-id rules (F4).
+ */
 const BLOCKS_TOKEN_CEILING = 380;
 
 function contractBlocks(protocol: SpawnProtocolPhase): string {
@@ -105,5 +110,42 @@ describe('rendered return template passes every validator (T12521)', () => {
       expect(checkReturnFormat(message), message).toBe(true);
       expect(validateReturnMessage(message).valid, message).toBe(true);
     }
+  });
+});
+
+describe('tier-2 prompt carries no legacy return instruction (T12521 F1)', () => {
+  beforeEach(() => resetSpawnPromptCache());
+  afterEach(() => resetSpawnPromptCache());
+
+  it.each(
+    ALL_SPAWN_PROTOCOL_PHASES,
+  )('%s embeds the compressed Subagent Protocol Block', (protocol) => {
+    const { prompt } = buildSpawnPrompt({
+      task: TASK,
+      protocol,
+      tier: 2,
+      projectRoot: '/tmp/spawn-prompt-return-contract',
+      harnessHint: 'claude-code',
+    });
+    const block = prompt.split('### Subagent Protocol Block (return-format spec)')[1];
+    expect(block, 'subagent protocol block not embedded').toBeDefined();
+    expect(block).toContain('manifest:<entryId>');
+    expect(block).toContain('HITL: never ask the human.');
+    expect(prompt).not.toContain('Manifest appended to pipeline_manifest');
+    expect(prompt).not.toContain('MUST return ONLY');
+  });
+});
+
+describe('F2/F3/F4 wording (T12521)', () => {
+  it('renders the blocker rule, HITL entry id and restored manifest rules', () => {
+    const blocks = contractBlocks('research');
+    expect(blocks).toContain('blocker: none when complete; required when partial/blocked');
+    expect(blocks).toContain('Return `Research blocked. manifest:<entryId>` + blocker: with');
+    expect(blocks).toContain('First --task/linked_tasks entry = manifest task id');
+    expect(blocks).toContain('actionable (missing → `E_VALIDATION_FAILED`)');
+    expect(blocks).toContain(
+      "Rich `--entry '<json>'` needs id, file, title, date, status, agent_type, topics, actionable",
+    );
+    expect(blocks).toContain('Capture via `--field /data/entryId`; same guard + readback.');
   });
 });

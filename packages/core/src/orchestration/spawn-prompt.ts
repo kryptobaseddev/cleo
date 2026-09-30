@@ -1133,7 +1133,7 @@ function buildQualityGateBlock(): string {
 function buildHitlLine(type: string, askProviderId: string | undefined): string {
   const tool = askProviderId ? getProviderAskTool(askProviderId).toolName : null;
   const how = tool ? `asks via \`${tool}\`` : 'emits one `hitl.request` LAFS envelope';
-  return `HITL: never ask the human. Return \`${type} blocked.\` with {question, options[{label,description}], recommended} in the manifest; the orchestrator ${how}.`;
+  return `HITL: never ask the human. Return \`${type} blocked. manifest:<entryId>\` + blocker: with {question, options[{label,description}], recommended} in the manifest; the orchestrator ${how}.`;
 }
 
 /**
@@ -1205,7 +1205,7 @@ function buildReturnFormatBlock(protocol: string, askProviderId?: string): strin
     'blocker: <≤12 words|none>',
     '```',
     '',
-    '`blocker` is not `none` only when status is `partial` or `blocked`. Findings go to the manifest, the task record (gates, notes) and commits on your branch.',
+    'blocker: none when complete; required when partial/blocked. Findings → manifest, task record (gates, notes), branch commits.',
     buildHitlLine(type, askProviderId),
   ].join('\n');
 }
@@ -1229,7 +1229,7 @@ function buildManifestProtocolBlock(taskId: string, protocol: SpawnProtocolPhase
   return [
     '## Manifest Protocol (MANDATORY · ADR-027)',
     '',
-    'Append ONCE to SQLite `pipeline_manifest`. Never write `.cleo/agent-outputs/*.jsonl`. Set `--status` to completed, partial or blocked: report actual progress.',
+    'Append ONCE to SQLite `pipeline_manifest`; never write `.cleo/agent-outputs/*.jsonl`. `--status`: completed|partial|blocked (actual progress).',
     '',
     '```bash',
     `ENTRY_ID=$(cleo manifest append --task ${taskId} --type ${manifestType} \\`,
@@ -1239,8 +1239,8 @@ function buildManifestProtocolBlock(taskId: string, protocol: SpawnProtocolPhase
     'cleo manifest show "$ENTRY_ID" >/dev/null || exit 1',
     '```',
     '',
-    `Empty \`ENTRY_ID\` or non-zero exit = failure: return \`${type} blocked. manifest:none\` with \`blocker: manifest append failed\`. Never claim an entry you did not read back. Do not append again to verify.`,
-    "Rich entry: `--entry '<json>'` needs id, file, title, date, status, agent_type, topics, actionable; link tasks via `linked_tasks[]`, not `task_id`.",
+    `Empty \`ENTRY_ID\`/non-zero exit → \`${type} blocked. manifest:none\` + \`blocker: manifest append failed\`. Never claim an entry not read back. Do not append again to verify.`,
+    "Rich `--entry '<json>'` needs id, file, title, date, status, agent_type, topics, actionable (missing → `E_VALIDATION_FAILED`); link via `linked_tasks[]`, not `task_id`. First --task/linked_tasks entry = manifest task id. Capture via `--field /data/entryId`; same guard + readback.",
   ].join('\n');
 }
 

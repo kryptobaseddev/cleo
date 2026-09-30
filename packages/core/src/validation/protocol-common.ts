@@ -145,11 +145,16 @@ export interface ParsedReturnMessage {
 /**
  * Parse a subagent return message in the compressed or the legacy form.
  *
- * A compressed message whose status is `complete`/`completed` may not name a
- * blocker other than `none`. Unknown, duplicate or empty detail lines reject
- * the message, and a legacy message must be exactly one line.
+ * One surrounding ``` fence is stripped first. In the compressed form:
+ * `blocker` must be `none` (or absent) when the status is
+ * `complete`/`completed`, and present and not `none` when it is
+ * `partial`/`blocked`; `manifest:none` is accepted only for `partial`/`blocked`;
+ * an entry id containing `<` or `>` (an unfilled `<entryId>` placeholder) is
+ * rejected. Unknown, duplicate or empty detail lines reject the message, and a
+ * legacy message must be exactly one line (its rules are unchanged).
  *
- * @param message - Raw return message (surrounding whitespace is ignored).
+ * @param message - Raw return message (surrounding whitespace and one
+ *   surrounding code fence are ignored).
  * @param types - Allowed type words; omitted, any non-empty type is allowed.
  * @returns The parsed message, or `null` when it matches neither form.
  * @task T12521
@@ -158,7 +163,7 @@ export function parseReturnMessage(
   message: string,
   types?: readonly string[],
 ): ParsedReturnMessage | null {
-  const lines = message.trim().split(/\r?\n/);
+  const lines = stripReturnFence(message.trim().split(/\r?\n/));
   const typePattern = types ? types.map(escapeRegex).join('|') : '.+?';
   const head = new RegExp(
     `^(${typePattern}) (${RETURN_STATUSES.join('|')})\\.(?:${escapeRegex(LEGACY_RETURN_TAIL)}| manifest:(\\S+))$`,
@@ -184,9 +189,26 @@ export function parseReturnMessage(
     if (!key || !value || parsed[key] !== null) return null;
     parsed[key] = value;
   }
+  if (/[<>]/.test(entryId ?? '')) return null;
   const done = status === 'complete' || status === 'completed';
-  if (done && parsed.blocker !== null && parsed.blocker !== 'none') return null;
+  const blocked = parsed.blocker !== null && parsed.blocker !== 'none';
+  if (done && (blocked || entryId === 'none')) return null;
+  if (!done && !blocked) return null;
   return parsed;
+}
+
+/**
+ * Drop one surrounding ``` fence (with an optional info string) from the
+ * lines of a return message, so a block copied verbatim from the spawn
+ * prompt's template still parses (T12521).
+ */
+function stripReturnFence(lines: string[]): string[] {
+  const first = lines[0]?.trim() ?? '';
+  const last = lines[lines.length - 1]?.trim() ?? '';
+  if (lines.length >= 3 && /^```[\w-]*$/.test(first) && last === '```') {
+    return lines.slice(1, -1).map((line) => line.trim());
+  }
+  return lines;
 }
 
 /**

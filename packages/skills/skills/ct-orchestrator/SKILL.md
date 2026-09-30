@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.0.6
+  version: 4.0.7
   tier: core
   install: harness
   covers:
@@ -185,7 +185,7 @@ gates: <gate>=<pass|fail|skip> ...
 blocker: <≤12 words|none>
 ```
 
-`blocker` is not `none` only for `partial`/`blocked`. Validators (`checkReturnMessageFormat`, `checkReturnFormat`, `validateReturnMessage`) still accept the legacy one-liner `"[Type] <complete|partial|blocked>. Manifest appended to pipeline_manifest."`.
+blocker: none when complete; required when partial/blocked. `manifest:none` only for `partial`/`blocked`; fill every `<...>` placeholder (validators reject `<`/`>` in the entry id). Validators (`checkReturnMessageFormat`, `checkReturnFormat`, `validateReturnMessage`) still accept the legacy one-liner `"[Type] <complete|partial|blocked>. Manifest appended to pipeline_manifest."`.
 
 > Detailed spawn workflow, manual protocol injection, skill dispatch matrix: `references/orchestrator-spawning.md`
 
