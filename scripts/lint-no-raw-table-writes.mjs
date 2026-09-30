@@ -268,6 +268,13 @@ export const EXEMPT = {
     _sync_replica: { count: 2, reason: SYNC_BOOKKEEPING },
   },
   'packages/core/src/store/sync/schema.ts': { _sync_meta: { count: 1, reason: SYNC_BOOKKEEPING } },
+  'packages/core/src/store/sync/trigger-classes.ts': {
+    cleo_trigger_suspend: {
+      count: 3,
+      reason:
+        'trigger-suspension flag rows (local-only): inserted and deleted inside one frame transaction; step 0 clears a committed row (T12819)',
+    },
+  },
   'packages/core/src/tasks/backfill-child-projections.ts': {
     task_acceptance_criteria: { count: 2, reason: FROZEN },
     tasks: { count: 1, reason: FROZEN },

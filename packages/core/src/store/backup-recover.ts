@@ -39,6 +39,7 @@ import {
   resolveRoleBackupDirs,
   resolveRoleDbPath,
 } from './recover-malformed-db.js';
+import { ensureTriggerSuspendTableAtPath } from './sync/trigger-suspend-at-path.js';
 import {
   assertOwnerStoreRewriteConfirmed,
   E_WT_STORE_REWRITE_CONFIRM_REQUIRED,
@@ -491,6 +492,10 @@ function runPinnedRestore(args: {
       'E_COPY_FAILED',
     );
   }
+
+  // T12819: a restored project store gets cleo_trigger_suspend before any
+  // other build can open it (the owned triggers read it).
+  if (basename(args.corruptPath) === 'cleo.db') ensureTriggerSuspendTableAtPath(args.corruptPath);
 
   // Final verification — probe via the shared helper.
   const finalProbe = probeSnapshot(args.corruptPath);

@@ -54,6 +54,14 @@ import { CREDENTIAL_COLUMNS } from '../portable-bundle-scan.js';
 import { openSkillsDb } from '../skills-db.js';
 import { getDb } from '../sqlite.js';
 import {
+  classifyTrigger,
+  normalizeSql,
+  OWNED_TRIGGERS,
+  suspendClause,
+  type TriggerClass,
+  verifyOwnedTriggers,
+} from '../sync/trigger-classes.js';
+import {
   classifyTable,
   getTableRegistry,
   isPortableTableClass,
@@ -74,6 +82,10 @@ const columns: Record<TableScope, Map<string, Set<string>>> = {
   global: new Map(),
 };
 let liveProject: Set<string>;
+type TriggerRow = { name: string; tbl_name: string; sql: string };
+const triggers: Record<TableScope, TriggerRow[]> = { project: [], global: [] };
+let liveProjectTriggers: Array<{ name: string; table: string }> = [];
+let ownedFindings: ReturnType<typeof verifyOwnedTriggers> = [];
 
 /**
  * The registry's column snapshot: scope → table → sorted column names, taken
@@ -225,6 +237,12 @@ function columnsOf(db: DatabaseSync, tables: Set<string>): Map<string, Set<strin
   return out;
 }
 
+function triggersOf(db: DatabaseSync): TriggerRow[] {
+  return db
+    .prepare("SELECT name, tbl_name, sql FROM sqlite_master WHERE type = 'trigger' ORDER BY name")
+    .all() as TriggerRow[];
+}
+
 /** Table names from a `type<TAB>name<TAB>tbl_name` dump. */
 function readDump(path: string): Set<string> {
   return new Set(
@@ -289,6 +307,8 @@ beforeAll(async () => {
   await bindConduitDomain(projectDir);
   fresh.project = tablesOf(project.db.$client);
   columns.project = columnsOf(project.db.$client, fresh.project);
+  triggers.project = triggersOf(project.db.$client);
+  ownedFindings = verifyOwnedTriggers(project.db.$client);
 
   // Global: the chokepoint plus the domains with their own meta tables.
   const global = await openDualScopeDb('global');
@@ -296,8 +316,14 @@ beforeAll(async () => {
   await openSkillsDb();
   fresh.global = tablesOf(global.db.$client);
   columns.global = columnsOf(global.db.$client, fresh.global);
+  triggers.global = triggersOf(global.db.$client);
 
   liveProject = readDump(LIVE_PROJECT_DUMP);
+  liveProjectTriggers = readFileSync(LIVE_PROJECT_DUMP, 'utf8')
+    .split('\n')
+    .map((line) => line.split('\t'))
+    .filter(([type]) => type === 'trigger')
+    .map(([, name, table]) => ({ name: name as string, table: table as string }));
 
   if (process.env.CLEO_UPDATE_COLUMN_SNAPSHOT === '1') {
     writeFileSync(COLUMN_SNAPSHOT, `${JSON.stringify(snapshotOf(), null, 2)}\n`);
@@ -642,5 +668,72 @@ describe('Gate A: two-tier policy', () => {
         entry: { status: 'resolved' },
       });
     }
+  });
+});
+
+/**
+ * Every trigger has a class, and a guard or side-effect trigger's LIVE text
+ * carries its suspension clause (journal spec §3.5 Rule 4; C2(b), D4,
+ * T12819, T12827). A frozen-guard never does.
+ */
+describe('Gate A: trigger classes', () => {
+  it.each([
+    'project',
+    'global',
+  ] as const)('%s: every trigger of the fresh store has a class', (scope) => {
+    const unclassified = triggers[scope]
+      .filter((t) => classifyTrigger(scope, t.name, t.tbl_name, t.sql) === undefined)
+      .map((t) => t.name);
+    expect(
+      unclassified,
+      `${scope}: unclassified triggers. Add each to OWNED_TRIGGERS (guard / side-effect, with the ` +
+        'suspension clause in a migration) or make it match a class rule in store/sync/trigger-classes.ts.',
+    ).toEqual([]);
+  });
+
+  it('project: live text matches its class (clause on guard and side-effect, none on frozen-guard)', () => {
+    const bad: string[] = [];
+    for (const t of triggers.project) {
+      const c = classifyTrigger('project', t.name, t.tbl_name, t.sql);
+      if (!c) continue;
+      const text = normalizeSql(t.sql);
+      const hasClause = text.includes('cleo_trigger_suspend');
+      const want: Partial<Record<TriggerClass, boolean>> = {
+        guard: true,
+        'side-effect': true,
+        'frozen-guard': false,
+        'derived-maintenance': false,
+      };
+      if (want[c.class] === undefined) continue;
+      if (want[c.class] !== hasClause) bad.push(`${t.name} (${c.class})`);
+      if (c.class === 'guard' || c.class === 'side-effect') {
+        if (!text.includes(normalizeSql(suspendClause(c.class))))
+          bad.push(`${t.name}: wrong scope`);
+      }
+    }
+    expect(bad).toEqual([]);
+    expect(ownedFindings).toEqual([]);
+    const owned = triggers.project.filter((t) => Object.hasOwn(OWNED_TRIGGERS, t.name));
+    expect(owned).toHaveLength(Object.keys(OWNED_TRIGGERS).length);
+  });
+
+  it('live cleocode shape: every trigger has a class', () => {
+    const freshNames = new Set(triggers.project.map((t) => t.name));
+    const unclassified = liveProjectTriggers
+      .filter((t) => !freshNames.has(t.name))
+      .filter((t) => {
+        if (classifyTrigger('project', t.name, t.table, '')) return false;
+        // Lazily created FTS maintenance (brain-search.ts): `<table>_ai|ad|au`
+        // on a table whose `<table>_fts` index is derived.
+        const m = /^(\w+)_a[idu]$/.exec(t.name);
+        const fts = m ? classifyTable('project', `${m[1]}_fts`) : undefined;
+        return !(
+          fts &&
+          (fts.kind === 'entry' || fts.kind === 'pattern') &&
+          fts.class === 'derived'
+        );
+      })
+      .map((t) => t.name);
+    expect(unclassified).toEqual([]);
   });
 });

@@ -605,6 +605,9 @@
       "weight_after",
       "weight_before"
     ],
+    "cleo_trigger_suspend": [
+      "scope"
+    ],
     "commit_files": [
       "change_type",
       "commit_sha",

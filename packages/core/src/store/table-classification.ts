@@ -418,6 +418,12 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'cleo-dev ruling 2026-09-29 (journal spec review, Q11)',
     note: "supersedes the 2026-09-28 local-only ruling under the owner's direction that the cloud backs up everything: STDP event history is learned state a new device would otherwise lose. Append-only with 14M+ lifetime inserts, so it sets the journal's op-rate ceiling; retention is journal spec Q15",
   },
+  cleo_trigger_suspend: {
+    class: 'local-only',
+    status: 'resolved',
+    source: 'journal spec t12342-t12343-journal-design §3.5 Rule 4, C2 (T12819)',
+    note: 'trigger-suspension flag rows, present only inside a rebase frame transaction on this device; schema-owned and never dropped',
+  },
   commit_files: {
     class: 'local-only',
     status: 'frozen-legacy',

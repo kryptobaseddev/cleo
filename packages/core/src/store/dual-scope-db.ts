@@ -61,13 +61,14 @@ import { getCleoHome, resolveCleoDir } from '../paths.js';
 import { worktreeScope } from '../project-scope.js';
 import { observeOperation } from './background-ops.js';
 import { type ExodusAbortDetail, getRecordedExodusAbort } from './exodus/abort-events.js';
-import { migrateWithRetry, reconcileJournal } from './migration-manager.js';
+import { ForeignKeysNotRestoredError, migrateBracketed } from './migration-runner.js';
 import { assertStoreNotRelocated } from './relocated-store-guard.js';
 import {
   resolveConsolidatedJournalSiblings,
   resolveCorePackageMigrationsFolder,
 } from './resolve-migrations-folder.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
+import { ensureTriggerSuspendTable, verifyOwnedTriggers } from './sync/trigger-classes.js';
 import { explainSchemaWriteDenial, installSchemaWriteGuard } from './worktree-build-guard.js';
 import { assertStorePathIsNotWorktreeResident } from './worktree-isolation-guard.js';
 import {
@@ -504,6 +505,73 @@ export async function openDualScopeDb(
     : open();
 }
 
+/** `PRAGMA foreign_keys` of a handle (0 or 1). */
+function readForeignKeysPragma(nativeDb: DatabaseSync): number {
+  return Number(
+    (nativeDb.prepare('PRAGMA foreign_keys').get() as { foreign_keys: number }).foreign_keys,
+  );
+}
+
+/**
+ * The cold-open schema pass of a consolidated store, under the cold-open
+ * lease (journal spec §2.3a, §3.5 Rule 4; T12796, T12809, T12819):
+ *
+ * 1. **Step 0 (project):** `cleo_trigger_suspend` exists and is empty, BEFORE
+ *    migrations. The owned guard and side-effect triggers read it, so a store
+ *    without it cannot write tasks, sessions or acceptance criteria, and any
+ *    `ALTER … RENAME` fails.
+ * 2. `reconcileJournal` and every pending migration, one bracket per file,
+ *    with the journal drizzle's `migrateSync` would write
+ *    ({@link migrateBracketed}).
+ * 3. **Owned triggers (project):** each owned trigger's live text is
+ *    compared with its owned DDL and repaired when it is missing or differs
+ *    (an older build, or a table rebuild, can leave one without its clause).
+ */
+function migrateScopeSchema(
+  scope: DualScope,
+  nativeDb: DatabaseSync,
+  // biome-ignore lint/suspicious/noExplicitAny: dual-scope handle is untyped at construction
+  db: NodeSQLiteDatabase<any>,
+  migrationsFolder: string,
+  log: ReturnType<typeof getLogger>,
+  execution?: OperationExecutionContext,
+): void {
+  execution?.assertActive();
+  if (scope === 'project') {
+    const step0 = ensureTriggerSuspendTable(nativeDb);
+    if (step0.created)
+      log.warn({ scope }, 'cleo_trigger_suspend was missing; recreated before migrations (T12819)');
+    if (step0.cleared > 0) {
+      log.error(
+        { scope, rows: step0.cleared },
+        'cleo_trigger_suspend held committed suspension rows; cleared (T12819)',
+      );
+    }
+  }
+  execution?.assertActive();
+  const fkBefore = readForeignKeysPragma(nativeDb);
+  migrateBracketed(
+    db,
+    nativeDb,
+    migrationsFolder,
+    existenceTable(scope),
+    `dual-scope-db[${scope}]`,
+    resolveConsolidatedJournalSiblings(migrationsSetName(scope)),
+  );
+  // NEW-6: the handle leaves the schema pass with the foreign-key mode it
+  // was configured with (ON outside vitest, where fixtures may run it off).
+  const fkAfter = readForeignKeysPragma(nativeDb);
+  const expected = process.env.VITEST ? fkBefore : 1;
+  if (fkAfter !== expected) throw new ForeignKeysNotRestoredError(expected, fkAfter);
+  execution?.assertActive();
+  if (scope === 'project') {
+    const findings = verifyOwnedTriggers(nativeDb, { repair: true });
+    if (findings.length > 0) {
+      log.warn({ scope, findings }, 'owned triggers repaired from their owned DDL (T12819)');
+    }
+  }
+}
+
 /**
  * Open a DEDICATED, NON-cached consolidated dual-scope `cleo.db` connection
  * (T11782 · FIX D).
@@ -567,21 +635,7 @@ async function openDedicatedDualScopeDb(
       nativeDb,
       async (): Promise<DualScopeDbHandle> => {
         execution?.assertActive();
-        reconcileJournal(
-          nativeDb,
-          migrationsFolder,
-          existenceTable(scope),
-          `dual-scope-db[${scope}]`,
-          resolveConsolidatedJournalSiblings(migrationsSetName(scope)),
-        );
-        execution?.assertActive();
-        migrateWithRetry(
-          db,
-          migrationsFolder,
-          nativeDb,
-          existenceTable(scope),
-          `dual-scope-db[${scope}]`,
-        );
+        migrateScopeSchema(scope, nativeDb, db, migrationsFolder, log, execution);
 
         execution?.assertActive();
         log.debug({ scope, dbPath }, 'DEDICATED dual-scope cleo.db ready (T11782 FIX D)');
@@ -858,7 +912,7 @@ export async function openDualScopeDbAtPath(
       // primitives resolve it from the exact handle binding (T12042), no
       // longer from a process-global active-scope registry.
       //
-      // The lease wraps ONLY reconcileJournal + migrateWithRetry — the precise write-
+      // The lease wraps ONLY the schema pass (reconcileJournal + migrations) — the precise write-
       // txn that races in T5158. The exodus-on-open hook runs AFTER the lease releases
       // (below): it owns its OWN single-flight lock + dedicated migrate connections,
       // and `runExodusMigrate` CLOSES + re-opens the scope handles, which would
@@ -875,23 +929,7 @@ export async function openDualScopeDbAtPath(
           // OOM root cause: each lineage previously deleted the others' rows so the shared
           // journal never converged).
           execution?.assertActive();
-          reconcileJournal(
-            nativeDb,
-            migrationsFolder,
-            existenceTable(scope),
-            `dual-scope-db[${scope}]`,
-            resolveConsolidatedJournalSiblings(migrationsSetName(scope)),
-          );
-
-          // Run any pending migrations.
-          execution?.assertActive();
-          migrateWithRetry(
-            db,
-            migrationsFolder,
-            nativeDb,
-            existenceTable(scope),
-            `dual-scope-db[${scope}]`,
-          );
+          migrateScopeSchema(scope, nativeDb, db, migrationsFolder, log, execution);
 
           execution?.assertActive();
           log.debug({ scope, dbPath: normalizedPath }, 'dual-scope cleo.db ready');

@@ -47,6 +47,12 @@ const MIGRATION_RETRY_BASE_DELAY_MS = 100;
 const MIGRATION_RETRY_MAX_DELAY_MS = 2000;
 
 /**
+ * Marker comment for a migration that reconcile must never probe-stamp: it
+ * always runs (T12819). Such a migration is idempotent.
+ */
+export const PROBE_NEVER_STAMP_RE = /^--\s*cleo:probe-never-stamp\s*$/m;
+
+/**
  * Strip SQL line (`-- …`) and block (`/* … *​/`) comments from a migration's SQL
  * before scanning it for DDL targets.
  *
@@ -449,6 +455,11 @@ function probeAndMarkApplied(
   consolidationCutoverPrefix: string = CONSOLIDATION_CUTOVER_PREFIX,
 ): boolean {
   const sqlStatements = Array.isArray(migration.sql) ? migration.sql : [migration.sql ?? ''];
+  // T12819: a migration whose targets can exist BEFORE it runs (the C2
+  // migration's table is created by the open pass's step 0, and its triggers
+  // exist under the same names without the suspension clause) must always
+  // RUN. It says so with a marker comment; it is required to be idempotent.
+  if (sqlStatements.some((s) => PROBE_NEVER_STAMP_RE.test(s))) return false;
   // Strip SQL line (`--`) and block (`/* */`) comments BEFORE any DDL-target
   // extraction. Prose comments routinely contain phrases like "the project-side
   // CREATE TABLE half of that move", which would otherwise make createTableRegex
