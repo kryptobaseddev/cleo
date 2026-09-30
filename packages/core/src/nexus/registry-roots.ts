@@ -56,22 +56,21 @@ export function parentRootsOf(projectPaths: readonly string[]): string[] {
 /**
  * Parent directories of every live project checkout in the nexus registry.
  *
- * Best-effort: an unreadable registry yields `[]`, and callers choose their
- * own fallback.
+ * An EMPTY registry yields `[]`, and callers choose their own fallback. An
+ * UNREADABLE registry throws (T12512): falling back to a guessed root would
+ * report a partial or empty fleet as if it were the whole one.
  *
  * @returns Existing parent directories of registered projects, sorted.
+ * @throws {NexusRegistryReadError} When the registry cannot be read.
  * @example
  * ```ts
  * const roots = await listRegistryParentRoots();
  * ```
  * @task T12476
+ * @task T12512
  */
 export async function listRegistryParentRoots(): Promise<string[]> {
-  try {
-    const { nexusList } = await import('./registry.js');
-    const projects = await nexusList();
-    return parentRootsOf(projects.map((p) => p.path));
-  } catch {
-    return [];
-  }
+  const { nexusList } = await import('./registry.js');
+  const projects = await nexusList();
+  return parentRootsOf(projects.map((p) => p.path));
 }

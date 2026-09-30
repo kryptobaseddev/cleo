@@ -38,6 +38,7 @@ import { inArray, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getCleoHome } from '../paths.js';
+import { toRegistryReadError } from './registry-errors.js';
 import { isEphemeralPath } from './registry-hygiene.js';
 
 /** Thrown when no filter criteria are provided to cleanProjects. */
@@ -239,17 +240,24 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
   // rows were deleted from.
   const cleoHome = getCleoHome();
   const storePath = getNexusRegistryDbPath(cleoHome);
-  const db = await getNexusRegistryDb(cleoHome);
-
-  const allRows: RegistryRow[] = db
-    .select({
-      projectId: regTable.projectId,
-      projectPath: regTable.projectPath,
-      healthStatus: regTable.healthStatus,
-      lastIndexed: regTable.lastIndexed,
-    })
-    .from(regTable)
-    .all();
+  // T12512: an unreadable registry is a typed error (E_NEXUS_REGISTRY_READ),
+  // never an empty match set that reads as "nothing to clean".
+  let db: Awaited<ReturnType<typeof getNexusRegistryDb>>;
+  let allRows: RegistryRow[];
+  try {
+    db = await getNexusRegistryDb(cleoHome);
+    allRows = db
+      .select({
+        projectId: regTable.projectId,
+        projectPath: regTable.projectPath,
+        healthStatus: regTable.healthStatus,
+        lastIndexed: regTable.lastIndexed,
+      })
+      .from(regTable)
+      .all();
+  } catch (error) {
+    throw toRegistryReadError('read projects to clean', error);
+  }
 
   const pollutedIds: Set<string> = new Set();
   if (opts.matchPolluted) {
@@ -623,6 +631,7 @@ export async function nexusProjectsClean(opts: {
     const result = await cleanProjects({ dryRun: opts.dryRun ?? false, ...opts });
     return engineSuccess(result);
   } catch (error) {
-    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+    const { nexusCaughtToEngineError } = await import('./registry.js');
+    return nexusCaughtToEngineError(error, 'Failed to clean projects');
   }
 }

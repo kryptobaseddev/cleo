@@ -32,10 +32,11 @@ import { dirname } from 'node:path';
 import type { DbSubstrateAuditResult, DbSubstrateSurveyOptions } from '@cleocode/contracts';
 import { getProjectRoot, pushWarning } from '@cleocode/core';
 import { surveyDbSubstrate, surveyFleetDbSubstrate } from '@cleocode/core/doctor/db-substrate.js';
+import { NexusRegistryReadError } from '@cleocode/core/nexus/registry-errors.js';
 import { listRegistryParentRoots } from '@cleocode/core/nexus/registry-roots.js';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { negatedFlag } from '../lib/negated-flag.js';
-import { cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 /**
  * Fleet roots scanned when `--fleet` is passed without `--fleet-root`
@@ -48,6 +49,29 @@ import { cliOutput } from '../renderers/index.js';
 async function defaultFleetRoots(): Promise<string[]> {
   const roots = await listRegistryParentRoots();
   return roots.length > 0 ? roots : [dirname(getProjectRoot())];
+}
+
+/**
+ * Report an unreadable registry met while deriving the default fleet roots
+ * (T12512): the typed `E_NEXUS_REGISTRY_READ` envelope with exit 75, and a fix
+ * that names `--fleet-root <dir>` — the survey does not need the registry
+ * when the roots are given explicitly.
+ *
+ * @param error - The registry read failure.
+ * @task T12512
+ */
+function reportRegistryReadError(error: NexusRegistryReadError): void {
+  cliError(
+    error.message,
+    error.code,
+    {
+      name: error.codeName,
+      fix: `Pass \`--fleet-root <dir>\` to survey without the registry. ${error.fix ?? ''}`.trim(),
+      details: error.details,
+    },
+    { operation: 'doctor.db-substrate.run' },
+  );
+  process.exitCode = error.code;
 }
 
 /**
@@ -250,14 +274,25 @@ export const doctorDbSubstrateCommand = defineCommand({
       confirmOwnerStore: args['confirm-owner-store'] === true,
     };
 
-    const result: DbSubstrateAuditResult = isFleet
-      ? surveyFleetDbSubstrate(
-          typeof args['fleet-root'] === 'string' && args['fleet-root'].length > 0
-            ? args['fleet-root']
-            : await defaultFleetRoots(),
-          options,
-        )
-      : surveyDbSubstrate(getProjectRoot(), options);
+    let fleetRoots: string | string[] | undefined;
+    if (isFleet) {
+      if (typeof args['fleet-root'] === 'string' && args['fleet-root'].length > 0) {
+        fleetRoots = args['fleet-root'];
+      } else {
+        try {
+          fleetRoots = await defaultFleetRoots();
+        } catch (error) {
+          if (!(error instanceof NexusRegistryReadError)) throw error;
+          reportRegistryReadError(error);
+          return;
+        }
+      }
+    }
+
+    const result: DbSubstrateAuditResult =
+      fleetRoots !== undefined
+        ? surveyFleetDbSubstrate(fleetRoots, options)
+        : surveyDbSubstrate(getProjectRoot(), options);
 
     pushSubstrateWarnings(result);
     pushPerDbWarnings(result);
