@@ -1164,7 +1164,9 @@ export async function renameProject(
     ? 'relink-required'
     : 'not-linked';
   if (nexusLabel === 'relink-required') {
-    hint = `${hint}; run \`cleo project link --name ${JSON.stringify(name)}\` to update the Cleo Nexus label`;
+    // `link` labels the project with getProjectDisplayName — the name just
+    // written — so the plain command re-sends it; it takes no `--name`.
+    hint = `${hint}; run \`cleo project link\` to update the Cleo Nexus label`;
   }
 
   return engineSuccess({
