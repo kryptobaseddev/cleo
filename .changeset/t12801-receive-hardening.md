@@ -23,3 +23,13 @@ summary: The row-uid refill re-derives fingerprints that hashed a stale one, and
 - **Re-key.** `rekeyRowUid` takes the winner's fingerprint as well as the
   loser's. It refuses a pair where the winner is not the smaller of the two,
   or where a row held here has neither fingerprint.
+- **Received tasks** respect the containment depth cap (3) that a local write
+  enforces.
+- **Refused rows.** Only SQLite constraint failures (CHECK, NOT NULL,
+  UNIQUE, FOREIGN KEY and the guard triggers) hold a received row as
+  `invalid`. Any other error is raised.
+- **Re-tried rows.** A re-tried row that is still held is never deleted and
+  re-inserted.
+- **`cleo doctor`.** The `row_identity` check counts held rows by reason and
+  warns when some were refused as invalid.
+

@@ -20,6 +20,7 @@ import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { heldRowCounts, rowIdentityDoctorCheck } from '../../doctor/row-identity.js';
 import { buildAcRowId } from '../../tasks/ac-table.js';
 import {
   applyRekey,
@@ -868,6 +869,138 @@ describe('remintAuthority (spec §9.2, T12750)', () => {
     const shuffled = [...replicas].reverse();
     for (const ms of [0, WINDOW, 3 * WINDOW, 11 * WINDOW]) {
       expect(at(ms, 'dev-c', shuffled)).toEqual(at(ms));
+    }
+  });
+});
+
+describe('receive hardening (T12801 review, probe 1755)', () => {
+  let env: TestDbEnv;
+  let a: DatabaseSync;
+  let b: DatabaseSync;
+  let bPath: string;
+
+  beforeEach(async () => {
+    env = await createTestDb();
+    await seedTasks(env.accessor, [
+      { id: 'T001', title: 'Shared', type: 'task', createdAt: '2026-09-20T09:00:00.000Z' },
+    ]);
+    a = getNativeTasksDb(env.tempDir) as DatabaseSync;
+    bPath = join(env.tempDir, 'b.db');
+    a.exec(`VACUUM INTO '${bPath}'`);
+    b = new DatabaseSync(bPath);
+    prepareRowIdentity(b, 'project');
+  });
+
+  afterEach(async () => {
+    b.close();
+    rmSync(bPath, { force: true });
+    await env.cleanup();
+  });
+
+  it('R1: a re-tried row that is still held keeps its quarantine row (never deleted and re-inserted)', () => {
+    b.prepare(
+      "INSERT INTO tasks_tasks (id,title,status,priority,type,created_at) VALUES ('T010','x','pending','medium','task','2026-09-25T10:00:00.000Z')",
+    ).run();
+    b.prepare(
+      "INSERT INTO tasks_tasks (id,title,status,priority,type,created_at) VALUES ('T011','y','pending','medium','task','2026-09-25T11:00:00.000Z')",
+    ).run();
+    b.prepare(
+      "INSERT INTO tasks_task_dependencies (task_id, depends_on) VALUES ('T010','T011')",
+    ).run();
+    const dep = b.prepare("SELECT uid FROM tasks_task_dependencies WHERE task_id='T010'").get() as {
+      uid: string;
+    };
+    expect(receiveRow(a, wireRowOf(b, 'tasks_task_dependencies', dep.uid)).status).toBe('held');
+    // A second held row, so a delete + re-insert could not reuse the rowid.
+    receiveRow(a, {
+      table: 'tasks_task_labels',
+      uid: 'label-z',
+      birthFp: null,
+      values: { label: 'z' },
+      refs: { task_id: { uid: '0199ffff-0000-7000-8000-000000000001', birthFp: 'x' } },
+    });
+    const snap = () =>
+      a
+        .prepare(
+          "SELECT rowid, reason, row_json FROM tasks_identity_quarantine WHERE entity_table='tasks_task_dependencies'",
+        )
+        .all();
+    const before = snap();
+    // T010 arrives: the dependency is re-tried, and still waits for T011.
+    const t10 = b.prepare("SELECT uid FROM tasks_tasks WHERE id='T010'").get() as { uid: string };
+    expect(receiveRow(a, wireRowOf(b, 'tasks_tasks', t10.uid)).status).toBe('inserted');
+    expect(snap()).toEqual(before);
+  });
+
+  it('a received task deeper than the depth cap is held as invalid (a store without the type-matrix trigger)', () => {
+    a.exec('DROP TRIGGER IF EXISTS tasks_tasks_parent_type_matrix_insert');
+    a.exec(`INSERT INTO tasks_tasks (id,title,status,priority,type,created_at,parent_id) VALUES
+      ('T101','d1','pending','medium','task','2026-09-25T10:00:00.000Z','T001'),
+      ('T102','d2','pending','medium','task','2026-09-25T10:00:01.000Z','T101'),
+      ('T103','d3','pending','medium','task','2026-09-25T10:00:02.000Z','T102')`);
+    const deepest = a.prepare("SELECT uid, birth_fp FROM tasks_tasks WHERE id='T103'").get() as {
+      uid: string;
+      birth_fp: string;
+    };
+    const t = b.prepare("SELECT uid FROM tasks_tasks WHERE id='T001'").get() as { uid: string };
+    const wire = wireRowOf(b, 'tasks_tasks', t.uid);
+    const result = receiveRow(a, {
+      ...wire,
+      uid: 'too-deep',
+      birthFp: 'fp-deep',
+      values: { ...wire.values, id: 'T104' },
+      refs: { ...wire.refs, parent_id: { uid: deepest.uid, birthFp: deepest.birth_fp } },
+    });
+    expect(result).toMatchObject({ status: 'held', reason: 'invalid' });
+    expect(listHeldRows(a).find((h) => h.uid === 'too-deep')?.contestedId).toContain(
+      'E_DEPTH_EXCEEDED',
+    );
+  });
+
+  it('an insert error that is not a constraint is thrown, not held as invalid', () => {
+    const t = b.prepare("SELECT uid FROM tasks_tasks WHERE id='T001'").get() as { uid: string };
+    const wire = wireRowOf(b, 'tasks_tasks', t.uid);
+    // A guard that fails with a plain SQL error (not SQLITE_CONSTRAINT) whose
+    // message still looks like a CLEO code.
+    a.exec(
+      "CREATE TEMP TRIGGER probe_error BEFORE INSERT ON main.tasks_tasks WHEN NEW.id = 'T555' BEGIN SELECT E_NOT_A_CONSTRAINT_INVARIANT(); END",
+    );
+    expect(() =>
+      receiveRow(a, {
+        ...wire,
+        uid: 'u-err',
+        birthFp: 'fp-err',
+        values: { ...wire.values, id: 'T555' },
+      }),
+    ).toThrow(/E_NOT_A_CONSTRAINT_INVARIANT/);
+    expect(listHeldRows(a)).toEqual([]);
+  });
+
+  it('cleo doctor counts held rows by reason', () => {
+    receiveRow(a, {
+      table: 'tasks_task_labels',
+      uid: 'label-z',
+      birthFp: null,
+      values: { label: 'z' },
+      refs: { task_id: { uid: '0199ffff-0000-7000-8000-000000000001', birthFp: 'x' } },
+    });
+    const t = b.prepare("SELECT uid FROM tasks_tasks WHERE id='T001'").get() as { uid: string };
+    const wire = wireRowOf(b, 'tasks_tasks', t.uid);
+    receiveRow(a, {
+      ...wire,
+      uid: 'bad',
+      birthFp: 'fp-bad',
+      values: { ...wire.values, id: 'T990', status: 'bogus' },
+    });
+    expect(heldRowCounts(a)).toEqual({ invalid: 1, 'ref-pending': 1 });
+    process.env.CLEO_DIR = join(env.tempDir, '.cleo');
+    try {
+      const doctor = rowIdentityDoctorCheck(env.tempDir);
+      expect(doctor.status).toBe('warning');
+      expect(doctor.message).toContain('received rows refused as invalid: 1');
+      expect(doctor.details?.held).toEqual({ invalid: 1, 'ref-pending': 1 });
+    } finally {
+      delete process.env.CLEO_DIR;
     }
   });
 });

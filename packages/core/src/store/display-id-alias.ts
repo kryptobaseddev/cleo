@@ -869,7 +869,9 @@ function hold(
   // A still-held row that is held for the same reason is never rewritten (T12801).
   if (
     first &&
-    was === key &&
+    was.entityTable === key.entityTable &&
+    was.uid === key.uid &&
+    was.birthFp === key.birthFp &&
     first.reason === reason &&
     first.contestedId === contestedId &&
     first.rowJson === rowJson
@@ -1006,7 +1008,7 @@ function placeRow(db: DatabaseSync, incoming: WireRow, heldAs?: HeldRowKey): Rec
   }
   // Validate like a local writer would (T12801): a received row is data from
   // another device, never trusted to satisfy this store's invariants.
-  const invalid = validateReceived(wire.table, values);
+  const invalid = validateReceived(db, wire.table, values);
   if (invalid) {
     hold(db, wire, 'invalid', invalid, heldAs);
     return { status: 'held', reason: 'invalid' };
@@ -1029,8 +1031,8 @@ function placeRow(db: DatabaseSync, incoming: WireRow, heldAs?: HeldRowKey): Rec
     // The store's own guards refused it (hierarchy cycle and type-matrix
     // triggers, CHECK and NOT NULL constraints): hold it, never throw the
     // merge away, never insert it.
+    if (!isConstraintError(error)) throw error;
     const message = error instanceof Error ? error.message : String(error);
-    if (!/constraint|E_[A-Z_]+|INVARIANT/i.test(message)) throw error;
     hold(db, wire, 'invalid', message.slice(0, 200), heldAs);
     return { status: 'held', reason: 'invalid' };
   }
@@ -1205,6 +1207,34 @@ export function receiveRow(db: DatabaseSync, wire: WireRow): ReceiveResult {
   });
 }
 
+/** The depth cap a received task must respect (the hierarchy policy default). */
+const RECEIVE_MAX_DEPTH = 3;
+
+/** Depth of a local task (a root is 0), walking its parent chain. */
+function depthOf(db: DatabaseSync, taskId: string): number {
+  const parentOf = db.prepare('SELECT parent_id AS p FROM tasks_tasks WHERE id = ?');
+  let depth = 0;
+  let current: string | null = taskId;
+  for (let hop = 0; hop < 64 && current !== null; hop++) {
+    const row = parentOf.get(current) as { p: string | null } | undefined;
+    current = row?.p ?? null;
+    if (current !== null) depth++;
+  }
+  return depth;
+}
+
+/**
+ * Whether an insert error is the store refusing the row: SQLite's
+ * SQLITE_CONSTRAINT family (CHECK, NOT NULL, UNIQUE, FOREIGN KEY, and the
+ * guard triggers' `RAISE(ABORT, ...)`, which report SQLITE_CONSTRAINT_TRIGGER).
+ * Anything else (a missing table, an I/O error) is not the row's fault and
+ * is thrown.
+ */
+function isConstraintError(error: unknown): boolean {
+  const code = (error as { errcode?: unknown } | null)?.errcode;
+  return typeof code === 'number' && (code & 0xff) === 19; // SQLITE_CONSTRAINT
+}
+
 /** The claim lease columns: local to the device that took the lease, never received. */
 const CLAIM_COLUMNS = ['claimed_by_session', 'claimed_by_agent', 'claimed_at', 'lease_expires_at'];
 
@@ -1217,8 +1247,22 @@ const CLAIM_COLUMNS = ['claimed_by_session', 'claimed_by_agent', 'claimed_at', '
  *
  * @returns Why the row is invalid, or `null`.
  */
-function validateReceived(table: string, values: Record<string, WireValue>): string | null {
+function validateReceived(
+  db: DatabaseSync,
+  table: string,
+  values: Record<string, WireValue>,
+): string | null {
   if (table !== 'tasks_tasks') return null;
+  // The containment depth cap every local task write enforces
+  // (validateHierarchyPlacement): the canonical spine saga(0) → epic(1) →
+  // task(2) → subtask(3), inclusive (T12801 review).
+  const parent = values.parent_id;
+  if (typeof parent === 'string' && parent.length > 0) {
+    const parentDepth = depthOf(db, parent);
+    if (parentDepth + 1 > RECEIVE_MAX_DEPTH) {
+      return `E_DEPTH_EXCEEDED: depth ${parentDepth + 1} under ${parent} exceeds ${RECEIVE_MAX_DEPTH}`;
+    }
+  }
   for (const column of CLAIM_COLUMNS) {
     if (column in values) values[column] = null;
   }
