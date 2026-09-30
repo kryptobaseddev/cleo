@@ -39,7 +39,10 @@ slots, and the unsettled requests of any device an entry replaced.
   `global-salt` (`crypto/credentials.ts`, `store/global-salt.ts`) is now
   exclusive: a process that loses the race reads the winner's file instead of
   replacing it, so two first-time creators can no longer seal under different
-  keys.
+  keys. The temp file is fsynced before it is linked, is named
+  `.<name>.<hex>.tmp` so backup bundles never export it (a leftover is a
+  second hard link to the secret), and stale leftovers are swept on the next
+  read or create.
 - **Durable writes.** `tx.flush()` writes mid-transaction with the lock held,
   so a rotation's `pending` credential is on disk before E8 is sent. Writes go
   to a temp file that is fsynced and renamed; the directory is fsynced. Before

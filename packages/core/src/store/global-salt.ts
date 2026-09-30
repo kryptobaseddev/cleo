@@ -116,6 +116,7 @@ export function loadGlobalSaltAt(cleoHome: string): Buffer {
  */
 export function readGlobalSaltAt(cleoHome: string): Buffer | null {
   const saltPath = path.join(cleoHome, GLOBAL_SALT_FILENAME);
+  sweepStaleSecretTemps(saltPath);
   let stat: fs.Stats;
   try {
     stat = fs.statSync(saltPath);
@@ -160,8 +161,21 @@ export function readGlobalSaltAt(cleoHome: string): Buffer | null {
  * @task T12867
  */
 export function createSecretFileExclusive(filePath: string, data: Buffer, mode: number): boolean {
-  const tmpPath = `${filePath}.tmp-${process.pid}-${crypto.randomBytes(6).toString('hex')}`;
-  fs.writeFileSync(tmpPath, data, { mode, flag: 'wx' });
+  sweepStaleSecretTemps(filePath);
+  // `.<basename>.<hex>.tmp`: hidden, and excluded from backup bundles by the
+  // `.tmp` suffix rule. A crash between link and unlink leaves it as a second
+  // hard link to the live secret, so it must never be exported.
+  const tmpPath = path.join(
+    path.dirname(filePath),
+    `.${path.basename(filePath)}.${crypto.randomBytes(6).toString('hex')}.tmp`,
+  );
+  const fd = fs.openSync(tmpPath, 'wx', mode);
+  try {
+    fs.writeSync(fd, data);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
   try {
     // Explicit chmod in case writeFileSync's mode arg is narrowed by umask or ignored
     fs.chmodSync(tmpPath, mode);
@@ -187,6 +201,41 @@ export function createSecretFileExclusive(filePath: string, data: Buffer, mode: 
       fs.unlinkSync(tmpPath);
     } catch {
       /* already gone */
+    }
+  }
+}
+
+/** Age after which a leftover secret temp file is treated as a crash remnant. */
+const STALE_SECRET_TEMP_MS = 60_000;
+
+/**
+ * Delete temp files that {@link createSecretFileExclusive} left behind for
+ * `filePath` (`.<basename>.<12 hex>.tmp`) when a process crashed between the
+ * link and the unlink. Such a file is a second hard link to the live secret.
+ * Only files older than a minute are removed, so a concurrent creator's
+ * in-flight temp file is never touched. Best effort.
+ *
+ * @param filePath - The secret file (for example `<cleoHome>/machine-key`).
+ * @task T12867
+ */
+export function sweepStaleSecretTemps(filePath: string): void {
+  const dir = path.dirname(filePath);
+  const base = path.basename(filePath).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`^\\.${base}\\.[0-9a-f]{12}\\.tmp$`);
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(dir);
+  } catch {
+    return;
+  }
+  const now = Date.now();
+  for (const entry of entries) {
+    if (!pattern.test(entry)) continue;
+    const full = path.join(dir, entry);
+    try {
+      if (now - fs.lstatSync(full).mtimeMs > STALE_SECRET_TEMP_MS) fs.unlinkSync(full);
+    } catch {
+      /* vanished or not removable: best effort */
     }
   }
 }

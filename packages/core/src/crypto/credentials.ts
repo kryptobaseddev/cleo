@@ -29,6 +29,7 @@ import {
   getGlobalSalt,
   loadGlobalSaltAt,
   readGlobalSaltAt,
+  sweepStaleSecretTemps,
 } from '../store/global-salt.js';
 
 /** AES-256-GCM constants. */
@@ -108,6 +109,7 @@ async function readOrCreateMachineKey(
   create: boolean,
 ): Promise<Buffer | null> {
   const keyPath = getMachineKeyPath(cleoHome);
+  sweepStaleSecretTemps(keyPath);
   try {
     return await readMachineKeyAt(keyPath);
   } catch (err: unknown) {
