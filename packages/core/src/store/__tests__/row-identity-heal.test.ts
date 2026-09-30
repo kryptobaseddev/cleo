@@ -30,6 +30,8 @@ import {
 import {
   healRowIdentitySchema,
   missingRowIdentitySchema,
+  prepareRowIdentity,
+  readRowIdentityHealHistory,
   readRowIdentityHealReceipt,
 } from '../row-identity.js';
 import { setWorktreeBuildGuardForTests } from '../worktree-build-guard.js';
@@ -268,6 +270,109 @@ describe('row-identity schema heal on every open (T12878)', () => {
       }
     } finally {
       rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    }
+  });
+
+  /** Heal with the flag off, change criteria through a plain connection, then open with the fill on. */
+  async function healThenEditThenFill(edit: (raw: DatabaseSync) => void): Promise<DatabaseSync> {
+    (await openProject()).exec('SELECT 1');
+    _resetDualScopeDbCache();
+    simulateStampedMigration();
+    await openProject(); // flag off: the heal restores the graveyard trigger
+    _resetDualScopeDbCache();
+    const raw = new DatabaseSync(dbPath);
+    try {
+      edit(raw);
+      expect(
+        raw.prepare('SELECT count(*) AS n FROM tasks_ac_uid_graveyard').get(),
+        'the restored trigger recorded the flag-off deletion',
+      ).toEqual({ n: 1 });
+    } finally {
+      raw.close();
+    }
+    process.env.CLEO_ROW_UID_FILL = '1';
+    return openProject();
+  }
+
+  it('a criterion deleted and recreated while the flag is off never relinks a stale fingerprint (review F1)', async () => {
+    const db = await healThenEditThenFill((raw) => {
+      raw.exec(`DELETE FROM tasks_task_acceptance_criteria WHERE id = 'ac-1';
+        INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, text, kind, source_key)
+          VALUES ('ac-1', 'T002', 1, 'tests pass', 'text', 'text:1:x');`);
+    });
+    const row = db
+      .prepare("SELECT uid, birth_fp FROM tasks_task_acceptance_criteria WHERE id = 'ac-1'")
+      .get() as { uid: string; birth_fp: string };
+    expect(row.birth_fp).not.toBe('prerelease-fp-c');
+    expect(row.uid).not.toBe('0192d0c0-0000-7000-8000-0000000000c1');
+    expect(db.prepare('SELECT count(*) AS n FROM tasks_ac_uid_graveyard').get()).toEqual({ n: 0 });
+    // It is exactly what the release recipe derives from scratch.
+    const copy = join(testDir, 'copy.db');
+    db.exec(`VACUUM INTO '${copy}'`);
+    const fresh = new DatabaseSync(copy);
+    try {
+      fresh.exec(
+        "UPDATE tasks_task_acceptance_criteria SET uid = NULL, birth_fp = NULL WHERE id = 'ac-1'",
+      );
+      prepareRowIdentity(fresh, 'project');
+      expect(
+        fresh
+          .prepare("SELECT uid, birth_fp FROM tasks_task_acceptance_criteria WHERE id = 'ac-1'")
+          .get(),
+      ).toEqual(row);
+    } finally {
+      fresh.close();
+    }
+  });
+
+  it('a flag-off deletion never hands its uid to an unrelated new criterion (review F1, ordinal fallback)', async () => {
+    const db = await healThenEditThenFill((raw) => {
+      raw.exec(`DELETE FROM tasks_task_acceptance_criteria WHERE id = 'ac-1';
+        INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, text, kind, source_key)
+          VALUES ('ac-2', 'T002', 1, 'docs updated', 'text', 'text:1:y');`);
+    });
+    const row = db
+      .prepare("SELECT uid, birth_fp FROM tasks_task_acceptance_criteria WHERE id = 'ac-2'")
+      .get() as { uid: string; birth_fp: string };
+    expect(row.uid).not.toBe('0192d0c0-0000-7000-8000-0000000000c1');
+    expect(row.birth_fp).not.toBe('prerelease-fp-c');
+  });
+
+  it('reports a missing uid index, heals it, and keeps every earlier receipt (review F2)', async () => {
+    (await openProject()).exec('SELECT 1');
+    _resetDualScopeDbCache();
+    simulateStampedMigration();
+    await openProject();
+    _resetDualScopeDbCache();
+    const raw = new DatabaseSync(dbPath);
+    try {
+      raw.exec('DROP INDEX uq_tasks_tasks_uid');
+      expect(missingRowIdentitySchema(raw)).toEqual(['index uq_tasks_tasks_uid']);
+    } finally {
+      raw.close();
+    }
+    process.env.CLEO_DIR = join(testDir, '.cleo');
+    try {
+      const doctor = rowIdentityDoctorCheck(testDir);
+      expect(doctor.status).toBe('warning');
+      expect(doctor.message).toContain('index uq_tasks_tasks_uid');
+    } finally {
+      delete process.env.CLEO_DIR;
+    }
+    const db = await openProject();
+    expect(missingRowIdentitySchema(db)).toEqual([]);
+    const history = readRowIdentityHealHistory(db);
+    expect(history).toHaveLength(2);
+    expect(history[1]?.objects).toEqual(['index uq_tasks_tasks_uid']);
+    expect(history[0]?.objects).toContain('table tasks_uid_aliases');
+  });
+
+  it('the global store declares no identity table: its heal is a no-op', async () => {
+    const globalDb = new DatabaseSync(join(testDir, 'global.db'));
+    try {
+      expect(healRowIdentitySchema(globalDb, 'global')).toEqual([]);
+    } finally {
+      globalDb.close();
     }
   });
 

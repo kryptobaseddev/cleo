@@ -592,9 +592,10 @@ async function openDedicatedDualScopeDb(
         execution?.assertActive();
         // T12878: the identity schema is healed on every open, flag or not
         // (DDL only); filling values stays opt-in.
+        // The chokepoint writers (the heal receipt, the fill) load lazily.
+        await import('./sqlite-data-accessor.js');
         healRowIdentitySchema(nativeDb, scope);
         if (rowUidFillEnabled()) {
-          await import('./sqlite-data-accessor.js');
           prepareRowIdentity(nativeDb, scope, { triggers: false });
         }
 
@@ -916,11 +917,11 @@ export async function openDualScopeDbAtPath(
           // only: tables, graveyard trigger, early-table columns, uid columns
           // and indexes). A store whose uid migration was journaled without
           // running (9.25 on live cleocode) gets it here. Never throws.
+          // The chokepoint writers (the heal receipt, the fill) load lazily: a
+          // static import would close the store import cycle through sqlite.js.
+          await import('./sqlite-data-accessor.js');
           healRowIdentitySchema(nativeDb, scope);
           if (rowUidFillEnabled()) {
-            // The chokepoint writers load lazily: a static import would close
-            // the store import cycle through sqlite.js.
-            await import('./sqlite-data-accessor.js');
             prepareRowIdentity(nativeDb, scope);
           }
 
