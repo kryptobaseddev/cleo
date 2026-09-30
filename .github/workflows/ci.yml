@@ -1275,6 +1275,46 @@ jobs:
             src/store/__tests__/exodus-representative-data.test.ts \
             src/store/__tests__/verify-migration.test.ts
 
+  row-identity-gate-b:
+    # T12802 — Gate B for row identity (T12341) on FIXTURE stores, the manual
+    # Gate B run on four real stores folded into CI. The fixtures are shaped
+    # like cleocode and llmtxt (no project-id file: compared with a stub; audit
+    # events only in the bare audit_log). It replays each migrated, filled
+    # store against its pre-migration copy with --omit-row-identity, checks two
+    # migrations agree with identity hashed, and refills a 9.25 (v1-recipe)
+    # copy. It must stay green before CLEO_ROW_UID_FILL defaults on.
+    # Pure test invocation — no untrusted input flows into run:.
+    name: Row Identity Gate B on Fixture Stores (T12802)
+    needs: [changes]
+    if: needs.changes.outputs.version_only != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.30.0'
+          run_install: false
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      - run: pnpm install --frozen-lockfile
+      - name: Build contracts
+        run: pnpm --filter @cleocode/contracts run build:ts
+      - name: Run Gate B on the fixture stores
+        run: |
+          pnpm --filter @cleocode/core exec vitest run --reporter=verbose \
+            src/store/__tests__/row-identity-gate-b.test.ts
+
   drizzle-kit-check:
     # T1169: Schema consistency gate — uses drizzle-kit check to verify that
     # schema files match their corresponding migration snapshots. Catches schema
@@ -2276,6 +2316,7 @@ jobs:
       - migration-integrity
       - migration-lint
       - exodus-parity-gate
+      - row-identity-gate-b
       - drizzle-kit-check
       - typecheck
       - build

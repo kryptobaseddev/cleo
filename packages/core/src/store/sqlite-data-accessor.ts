@@ -482,44 +482,60 @@ export interface DisplayIdAliasRow {
 
 /**
  * Insert a display-id alias row. Idempotent on its uid, and order-independent
- * (T12800): when two displacements write one alias uid, the one with the
- * least HLC is kept (a NULL HLC ranks last; then origin, then created_at), so
- * every replica holds the same row whatever order the ops arrived in. Encoded
- * HLCs are fixed-width, so their text order is their HLC order.
+ * (T12800): when two displacements write one alias uid, the stored row is
+ * replaced only when `precedes(incoming, stored)` says the incoming one ranks
+ * first, so every replica keeps the same row whatever order the ops arrived
+ * in. The caller ranks by HLC order (`compareHlc`), never by text: stored
+ * values may be in either HLC format (T12802).
  *
  * @param nativeDb - The project `cleo.db` handle.
  * @param row - The alias.
+ * @param precedes - Whether `incoming` ranks before the `stored` row of the same uid.
  * @task T12341
  */
-export function insertDisplayIdAliasNative(nativeDb: DatabaseSync, row: DisplayIdAliasRow): void {
+export function insertDisplayIdAliasNative(
+  nativeDb: DatabaseSync,
+  row: DisplayIdAliasRow,
+  precedes: (incoming: DisplayIdAliasRow, stored: DisplayIdAliasRow) => boolean,
+): void {
+  const stored = nativeDb
+    .prepare(
+      `SELECT uid, entity_table AS entityTable, display_id AS displayId, entity_uid AS entityUid,
+              reason, origin, displaced_hlc AS displacedHlc, created_at AS createdAt,
+              entity_birth_fp AS entityBirthFp
+         FROM tasks_display_id_aliases WHERE uid = ?`,
+    )
+    .get(row.uid) as DisplayIdAliasRow | undefined;
+  if (!stored) {
+    nativeDb
+      .prepare(
+        `INSERT INTO tasks_display_id_aliases
+           (uid, entity_table, display_id, entity_uid, reason, origin, displaced_hlc, created_at,
+            entity_birth_fp)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        row.uid,
+        row.entityTable,
+        row.displayId,
+        row.entityUid,
+        row.reason,
+        row.origin,
+        row.displacedHlc,
+        row.createdAt,
+        row.entityBirthFp,
+      );
+    return;
+  }
+  if (!precedes(row, stored)) return;
   nativeDb
     .prepare(
-      `INSERT INTO tasks_display_id_aliases
-         (uid, entity_table, display_id, entity_uid, reason, origin, displaced_hlc, created_at,
-          entity_birth_fp)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(uid) DO UPDATE SET
-         origin = excluded.origin,
-         displaced_hlc = excluded.displaced_hlc,
-         created_at = excluded.created_at,
-         entity_birth_fp = coalesce(entity_birth_fp, excluded.entity_birth_fp)
-       WHERE (excluded.displaced_hlc IS NOT NULL
-               AND (displaced_hlc IS NULL OR excluded.displaced_hlc < displaced_hlc))
-          OR (excluded.displaced_hlc IS displaced_hlc
-               AND (coalesce(excluded.origin, ''), excluded.created_at)
-                 < (coalesce(origin, ''), created_at))`,
+      `UPDATE tasks_display_id_aliases
+          SET origin = ?, displaced_hlc = ?, created_at = ?,
+              entity_birth_fp = coalesce(entity_birth_fp, ?)
+        WHERE uid = ?`,
     )
-    .run(
-      row.uid,
-      row.entityTable,
-      row.displayId,
-      row.entityUid,
-      row.reason,
-      row.origin,
-      row.displacedHlc,
-      row.createdAt,
-      row.entityBirthFp,
-    );
+    .run(row.origin, row.displacedHlc, row.createdAt, row.entityBirthFp, row.uid);
 }
 
 /**

@@ -16,6 +16,7 @@
 // Row uids are opt-in (T12341); these tests exercise them.
 process.env.CLEO_ROW_UID_FILL = '1';
 
+import { createHash } from 'node:crypto';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -27,8 +28,9 @@ import { buildAcRowId } from '../../tasks/ac-table.js';
 import {
   applyRekey,
   applyRemintOp,
+  collisionHlcFromBirths,
   collisionLoser,
-  encodeHlc,
+  compareHlc,
   listHeldRows,
   loadReceivePolicy,
   REMINT_TAKEOVER_MS,
@@ -50,6 +52,7 @@ import {
 } from '../row-identity.js';
 import { getNativeTasksDb } from '../sqlite.js';
 import { RENAMED_RECENT_MS } from '../sqlite-data-accessor.js';
+import { encodeHlc } from '../sync/hlc.js';
 import {
   BOUND_TEST_SESSION_ID,
   bindTestSession,
@@ -74,10 +77,16 @@ interface Replica {
 
 const BASE_MS = 1_790_000_000_000;
 let tick = 0;
-/** A fresh HLC value, increasing across the file. */
+/** A stable replica uuid per test device name (HLCs name their replica by uuid). */
+const replica = (name: string) => {
+  const h = createHash('sha256').update(name).digest('hex');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-7${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
+};
+/** A fresh HLC value (the journal's wire form, T12342), increasing across the file. */
 const clock = (node = 'n'): string =>
-  encodeHlc({ physicalMs: BASE_MS + ++tick * 1000, counter: 0, node });
-const hlcAt = (ms: number, node = 'n') => encodeHlc({ physicalMs: BASE_MS + ms, counter: 0, node });
+  encodeHlc({ phys: BASE_MS + ++tick * 1000, ctr: 0, replica: replica(node) });
+const hlcAt = (ms: number, node = 'n') =>
+  encodeHlc({ phys: BASE_MS + ms, ctr: 0, replica: replica(node) });
 
 const tasksOf = (db: DatabaseSync): TaskRow[] =>
   db
@@ -604,6 +613,76 @@ describe('two stores created offline (AC2, AC3)', () => {
     }
   });
 
+  it('alias created_at is derived from the displacement HLC, never the wall clock (T12800 + T12802)', () => {
+    pull(b, a);
+    const alpha = tasksOf(a.db).find((t) => t.title === 'alpha (A)') as TaskRow;
+    const op: RemintOp = {
+      uid: alpha.uid,
+      birthFp: alpha.birth_fp,
+      oldId: 'T004',
+      newId: 'T700',
+      origin: 'device-c',
+      hlc: hlcAt(5_000, 'device-c'),
+    };
+    applyRemintOp(b.db, op);
+    const rows = b.db
+      .prepare(
+        'SELECT displaced_hlc AS hlc, created_at AS at FROM tasks_display_id_aliases WHERE entity_uid = ?',
+      )
+      .all(alpha.uid) as { hlc: string; at: string }[];
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) {
+      expect(r.hlc).toBe(op.hlc);
+      expect(r.at).toBe(new Date(BASE_MS + 5_000).toISOString());
+    }
+  });
+
+  it('alias rows converge across HLC formats: a 9.25 value and a journal value order by HLC, not text (T12800 + T12802)', () => {
+    pull(b, a);
+    const alpha = tasksOf(a.db).find((t) => t.title === 'alpha (A)') as TaskRow;
+    // Same alias (T004 displaced from alpha as a collision re-mint), two
+    // displacements: the 9.25-format one is LATER, but sorts first as text.
+    const legacyLater =
+      `${String(BASE_MS + 20_000).padStart(15, '0')}.000000.device-c` as RemintOp['hlc'];
+    const journalEarlier = hlcAt(10_000, 'device-a');
+    expect(legacyLater < journalEarlier).toBe(true);
+    const early: RemintOp = {
+      uid: alpha.uid,
+      birthFp: alpha.birth_fp,
+      oldId: 'T004',
+      newId: 'T700',
+      origin: 'device-a',
+      hlc: journalEarlier,
+    };
+    const late: RemintOp = { ...early, newId: 'T800', origin: 'device-c', hlc: legacyLater };
+    const cPath = join(env.tempDir, 'device-c-mixed.db');
+    b.db.exec(`VACUUM INTO '${cPath}'`);
+    const c = new DatabaseSync(cPath);
+    try {
+      prepareRowIdentity(c, 'project');
+      for (const op of [early, late]) applyRemintOp(b.db, op);
+      for (const op of [late, early]) applyRemintOp(c, op);
+      const aliases = (db: DatabaseSync) =>
+        db
+          .prepare(
+            `SELECT uid, display_id, reason, origin, displaced_hlc, created_at
+               FROM tasks_display_id_aliases WHERE entity_uid = ? ORDER BY uid`,
+          )
+          .all(alpha.uid);
+      expect(aliases(c)).toEqual(aliases(b.db));
+      // The T004 collision alias keeps the EARLIER displacement (the journal value).
+      const t004 = aliases(b.db).find(
+        (r) => (r as { display_id: string; reason: string }).display_id === 'T004',
+      ) as { displaced_hlc: string };
+      expect(t004.displaced_hlc).toBe(journalEarlier);
+      expect(idByTitle(b.db).get('alpha (A)')).toBe('T800');
+      expect(idByTitle(c).get('alpha (A)')).toBe('T800');
+    } finally {
+      c.close();
+      rmSync(cPath, { force: true });
+    }
+  });
+
   it('a replica that receives the alias rows only through sync derives the same winner (T12800)', () => {
     pull(b, a);
     const alpha = tasksOf(a.db).find((t) => t.title === 'alpha (A)') as TaskRow;
@@ -650,6 +729,32 @@ describe('two stores created offline (AC2, AC3)', () => {
       d.close();
       rmSync(dPath, { force: true });
     }
+  });
+
+  it('a stored HLC in the 9.25 format is still ordered, never thrown on (T12802)', () => {
+    // `<ms 15>.<counter 6>.<node>`: what a 9.25 build wrote with the flag on.
+    const legacy = (ms: number, node: string) =>
+      `${String(BASE_MS + ms).padStart(15, '0')}.000000.${node}` as RemintOp['hlc'];
+    expect(compareHlc(legacy(5_000, 'device-c'), hlcAt(10_000))).toBeLessThan(0);
+    expect(compareHlc(hlcAt(10_000), legacy(5_000, 'device-c'))).toBeGreaterThan(0);
+    expect(compareHlc(legacy(20_000, 'device-c'), hlcAt(10_000))).toBeGreaterThan(0);
+    expect(() => compareHlc('not-an-hlc' as RemintOp['hlc'], hlcAt(1))).toThrow();
+
+    pull(b, a);
+    const alpha = tasksOf(a.db).find((t) => t.title === 'alpha (A)') as TaskRow;
+    const early: RemintOp = {
+      uid: alpha.uid,
+      birthFp: alpha.birth_fp,
+      oldId: 'T004',
+      newId: 'T700',
+      origin: 'device-c',
+      hlc: legacy(5_000, 'device-c'),
+    };
+    const late: RemintOp = { ...early, newId: 'T800', origin: 'device-a', hlc: hlcAt(10_000) };
+    expect(applyRemintOp(b.db, early).status).toBe('recorded');
+    expect(applyRemintOp(b.db, late).status).toBe('applied');
+    expect(applyRemintOp(b.db, early).status).toBe('superseded');
+    expect(idByTitle(b.db).get('alpha (A)')).toBe('T800');
   });
 
   it('receiving a row re-tries only the held rows it may unblock, and never rewrites them (T12801)', () => {
@@ -1271,6 +1376,22 @@ describe('remintAuthority (spec §9.2, T12750)', () => {
     expect(at(0, null)).toEqual({ authority: 'dev-a', reason: 'fallback', slot: 1 });
     expect(at(0, 'dev-a')).toEqual({ authority: 'dev-a', reason: 'origin', slot: 0 });
     expect(at(WINDOW - 1, 'dev-a')).toEqual({ authority: 'dev-b', reason: 'fallback', slot: 1 });
+  });
+
+  it('pre-HLC rows anchor the schedule at the later birth (T12802)', () => {
+    const t0 = BASE_MS + 1000;
+    const anchor = collisionHlcFromBirths(t0, t0 + 500);
+    expect(anchor).toMatch(/^\d{13}-000000-00000000-0000-0000-0000-000000000000$/);
+    expect(anchor).toBe(collisionHlcFromBirths(t0 + 500, t0));
+    expect(
+      remintAuthority({
+        cloudSynced: false,
+        origin: 'dev-c',
+        replicas,
+        collisionHlc: anchor,
+        atHlc: hlcAt(1500 + WINDOW),
+      }),
+    ).toMatchObject({ reason: 'fallback', slot: 1 });
   });
 
   it('is the same on every replica for the same inputs', () => {

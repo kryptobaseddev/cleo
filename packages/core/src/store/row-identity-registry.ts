@@ -83,7 +83,10 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       key: ['id'],
       birth: 'recorded_at',
       content: ['ac_id', 'previous_text', 'reason'],
-      birthFacts: ['ac_id', 'previous_text', 'reason', '@refFp:ac_uid'],
+      // v2 (T12802): no @refFp: the criterion's fingerprint is unknowable when
+      // it was gone before this row got its identity, so it made the value
+      // depend on fill timing. ac_id is always known.
+      birthFacts: ['ac_id', 'previous_text', 'reason'],
       storedRefUids: [{ column: 'ac_uid', from: 'ac_id', table: ACS }],
       task: 'T12341',
     },
@@ -92,7 +95,10 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       kind: 'minted',
       key: ['id'],
       birth: 'created_at',
-      birthFacts: ['evidence_atom_id', 'binding_type', 'ac_text_hash', '@refFp:ac_uid'],
+      // v2 (T12802): ac_id in place of @refFp:ac_uid and ac_text_hash. Both
+      // were filled from the criterion, so a backfilled binding whose
+      // criterion was already gone got a different value (see AC history).
+      birthFacts: ['evidence_atom_id', 'binding_type', 'ac_id'],
       storedRefUids: [
         { column: 'ac_uid', from: 'ac_id', table: ACS },
         { column: 'ac_text_hash', from: 'ac_id', table: ACS, source: 'text_hash' },
