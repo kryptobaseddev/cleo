@@ -103,6 +103,7 @@ export const OWNED_TRIGGERS: Readonly<Record<string, 'guard' | 'side-effect'>> =
   tasks_sessions_release_claims_on_end: 'side-effect',
   tasks_sessions_release_claims_on_delete: 'side-effect',
   tasks_tasks_release_claim_on_terminal: 'side-effect',
+  trg_tasks_ac_uid_graveyard: 'side-effect',
 };
 
 /** Prefix of every capture trigger (S2, §2.3). */

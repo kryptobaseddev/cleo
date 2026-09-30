@@ -76,6 +76,7 @@ import {
   rowIdentitySpec,
   UID_COLUMN,
 } from './row-identity-registry.js';
+import { hasTriggerSuspendTable, ownedTriggerDdl } from './sync/trigger-classes.js';
 
 export { BIRTH_FP_COLUMN, ROW_IDENTITY, rowIdentityColumns, rowIdentitySpec, UID_COLUMN };
 
@@ -1227,7 +1228,11 @@ const IDENTITY_TABLE_DDL: Readonly<Record<string, readonly string[]>> = {
   ],
 };
 
-/** The graveyard's pure-SQL delete trigger (kept equal to the migration's). */
+/**
+ * The graveyard's pure-SQL delete trigger as the t12341 migration created it.
+ * The C2 migration (T12819) owns its current text; this plain form is used
+ * only on a store without `cleo_trigger_suspend`.
+ */
 const AC_UID_GRAVEYARD_TRIGGER = `CREATE TRIGGER IF NOT EXISTS main.trg_tasks_ac_uid_graveyard
 AFTER DELETE ON tasks_task_acceptance_criteria
 WHEN OLD.uid IS NOT NULL
@@ -1277,8 +1282,14 @@ export function ensureIdentityTables(db: DatabaseSync): string[] {
     healed.push(stmt);
   }
   if (!hasObject(db, 'trigger', 'trg_tasks_ac_uid_graveyard')) {
-    db.exec(AC_UID_GRAVEYARD_TRIGGER);
-    healed.push(AC_UID_GRAVEYARD_TRIGGER);
+    // T12819: the trigger is owned by the C2 migration (side-effect, with the
+    // suspension clause). Create that exact text when its flag table exists,
+    // so the open pass never sees a differing copy; otherwise the plain one.
+    const ddl = hasTriggerSuspendTable(db)
+      ? (ownedTriggerDdl().get('trg_tasks_ac_uid_graveyard') ?? AC_UID_GRAVEYARD_TRIGGER)
+      : AC_UID_GRAVEYARD_TRIGGER;
+    db.exec(ddl);
+    healed.push(ddl);
   }
   return healed;
 }

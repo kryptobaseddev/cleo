@@ -20,7 +20,8 @@
 -- working when the store is ATTACHed under another name (exodus, backup).
 -- A `main.` qualifier makes such a schema unreadable.
 -- Released files that first created these triggers
--- (t11884, t12502, t12736) are never edited; this file replaces the triggers.
+-- (t11884, t12502, t12736, t12341) are never edited; this file replaces the
+-- triggers.
 -- The ownership map lives in packages/core/src/store/sync/trigger-classes.ts.
 --
 -- Idempotent (CREATE TABLE IF NOT EXISTS; DROP TRIGGER IF EXISTS before each
@@ -309,4 +310,15 @@ BEGIN
      SET `claimed_by_session` = NULL, `claimed_by_agent` = NULL,
          `claimed_at` = NULL, `lease_expires_at` = NULL
    WHERE `id` = NEW.`id`;
+END;
+--> statement-breakpoint
+DROP TRIGGER IF EXISTS `trg_tasks_ac_uid_graveyard`;
+--> statement-breakpoint
+CREATE TRIGGER `trg_tasks_ac_uid_graveyard`
+AFTER DELETE ON `tasks_task_acceptance_criteria`
+WHEN (OLD.`uid` IS NOT NULL)
+  AND NOT EXISTS (SELECT 1 FROM cleo_trigger_suspend WHERE scope IN ('side-effect', 'all'))
+BEGIN
+  INSERT INTO `tasks_ac_uid_graveyard` (`ac_id`, `uid`, `task_id`, `ordinal`, `text`, `birth_fp`, `deleted_at`)
+  VALUES (OLD.`id`, OLD.`uid`, OLD.`task_id`, OLD.`ordinal`, OLD.`text`, OLD.`birth_fp`, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
 END;
