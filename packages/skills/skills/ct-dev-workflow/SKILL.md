@@ -333,7 +333,7 @@ head SHA is green: `gh pr merge <n> --admin --merge` — see
 ```bash
 # Task lifecycle
 cleo current                 # Current task
-cleo start T123              # Start task (E_SESSION_UNBOUND → cleo session start / resume first)
+cleo start T123              # Start task (on E_SESSION_UNBOUND: bind a session, see above)
 cleo complete T123           # Mark done
 
 # Find existing work
