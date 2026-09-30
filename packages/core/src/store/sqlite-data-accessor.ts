@@ -568,7 +568,12 @@ export interface QuarantineRow {
   readonly entityTable: string;
   readonly uid: string;
   readonly birthFp: string;
-  readonly reason: 'uid-collision' | 'display-id-collision' | 'key-collision' | 'ref-pending';
+  readonly reason:
+    | 'uid-collision'
+    | 'display-id-collision'
+    | 'key-collision'
+    | 'ref-pending'
+    | 'unsupported-wire';
   readonly contestedId: string | null;
   readonly rowJson: string;
   readonly receivedHlc: string | null;
