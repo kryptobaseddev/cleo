@@ -74,13 +74,13 @@ import type { DatabaseSync } from 'node:sqlite';
 import { ExitCode, type RowIdentitySpec, type TaskClaimGuard } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import {
+  AC_UID_GRAVEYARD,
   BIRTH_FP_COLUMN,
   fillTableUids,
   markRowIdentityShared,
   mintRowUid,
   naturalRowUid,
   ROW_IDENTITY,
-  ROW_IDENTITY_META_TABLE,
   registerRowUidFunction,
   rekeyedChildUid,
   rowIdentitySpec,
@@ -91,7 +91,6 @@ import {
   clearRowUidNative,
   deleteDisplayIdAliasNative,
   deleteQuarantineNative,
-  deleteRowIdentityMetaNative,
   insertDisplayIdAliasNative,
   insertIdentityRowNative,
   insertQuarantineNative,
@@ -103,7 +102,6 @@ import {
   setNaturalUidNative,
   setRowUidNative,
   type TaskReferenceColumn,
-  writeRowIdentityMetaNative,
 } from './sqlite-data-accessor.js';
 
 /** Physical name of the display-id alias table. */
@@ -119,6 +117,8 @@ export const QUARANTINE_TABLE = 'tasks_identity_quarantine';
 export type DisplayIdAliasReason =
   | 'collision-remint'
   | 'superseded-remint'
+  /** The display id a re-mint op assigned (the portable re-mint record, T12800). */
+  | 'remint-assigned'
   | 'split-brain-import'
   | 'manual';
 
@@ -210,14 +210,6 @@ function inSavepoint<T>(db: DatabaseSync, name: string, fn: () => T): T {
     db.exec(`RELEASE SAVEPOINT ${sp}`);
     throw error;
   }
-}
-
-/** A row-identity meta value. */
-function readMeta(db: DatabaseSync, key: string): string | undefined {
-  const row = db
-    .prepare(`SELECT value FROM main.${q(ROW_IDENTITY_META_TABLE)} WHERE key = ?`)
-    .get(key) as { value: string } | undefined;
-  return row?.value;
 }
 
 /** The local row of a minted table with this uid AND birth fingerprint. */
@@ -361,10 +353,14 @@ export function recordDisplayIdAlias(
   },
 ): void {
   insertDisplayIdAliasNative(db, {
+    // The reason is part of the key (T12800 review): a `remint-assigned` and a
+    // `collision-remint` alias of one (id, row) are two facts, and neither may
+    // win an insert race and drop the other.
     uid: naturalRowUid('project', DISPLAY_ID_ALIAS_TABLE, [
       entry.table,
       entry.displayId,
       entry.entityUid,
+      entry.reason,
     ]),
     entityTable: entry.table,
     displayId: entry.displayId,
@@ -373,8 +369,20 @@ export function recordDisplayIdAlias(
     reason: entry.reason,
     origin: entry.origin ?? null,
     displacedHlc: entry.displacedHlc ?? null,
-    createdAt: entry.now ?? new Date().toISOString(),
+    // Derived from the displacement's HLC when there is one, so every replica
+    // that records this displacement writes the same row (T12800).
+    createdAt: entry.now ?? hlcTime(entry.displacedHlc) ?? new Date().toISOString(),
   });
+}
+
+/** Wall-clock time of an encoded HLC, or `undefined` when there is none. */
+function hlcTime(hlc: string | null | undefined): string | undefined {
+  if (!hlc) return undefined;
+  try {
+    return new Date(parseHlc(hlc).physicalMs).toISOString();
+  } catch {
+    return undefined;
+  }
 }
 
 /** A row that carries, or carried, a display id. */
@@ -443,6 +451,9 @@ export function resolveDisplayId(
     }[]
   )
     .filter((a) => a.uid !== live?.uid)
+    // One claimant per row: several reasons (collision-remint, remint-assigned)
+    // of one id and row are one history entry here.
+    .filter((a, i, all) => all.findIndex((b) => b.uid === a.uid) === i)
     .map((a) => ({ ...a, via: 'alias' as const }));
   if (live) {
     return {
@@ -543,28 +554,42 @@ export interface RemintReceipt extends RemintOp {
   readonly released: readonly HeldRowKey[];
 }
 
-/** The applied re-mint record of a row (meta key → JSON). */
+/**
+ * The winning re-mint of a row: the op with the greatest HLC. It is DERIVED
+ * from the row's `remint-assigned` display aliases, which are portable (they
+ * sync with the row), so a replica that lost local state, or never had it,
+ * reaches the same answer (T12800).
+ */
 interface RemintRecord {
   readonly newId: string;
   readonly hlc: string;
   readonly origin: string | null;
 }
 
-function remintKey(uid: string, birthFp: string): string {
-  return `remint:tasks_tasks:${uid}:${birthFp}`;
-}
-
 function readRemint(db: DatabaseSync, uid: string, birthFp: string): RemintRecord | undefined {
-  const raw = readMeta(db, remintKey(uid, birthFp));
-  return raw === undefined ? undefined : (JSON.parse(raw) as RemintRecord);
+  const rows = db
+    .prepare(
+      `SELECT display_id AS newId, displaced_hlc AS hlc, origin FROM ${DISPLAY_ID_ALIAS_TABLE}
+        WHERE entity_table = 'tasks_tasks' AND entity_uid = ? AND entity_birth_fp = ?
+          AND reason = 'remint-assigned' AND displaced_hlc IS NOT NULL`,
+    )
+    .all(uid, birthFp) as unknown as RemintRecord[];
+  let best: RemintRecord | undefined;
+  for (const r of rows) if (!best || compareHlc(r.hlc, best.hlc) > 0) best = r;
+  return best;
 }
 
+/** Record the display id an op assigned (every op, winner or not: its number stays an alias). */
 function writeRemint(db: DatabaseSync, op: RemintOp): void {
-  writeRowIdentityMetaNative(
-    db,
-    remintKey(op.uid, op.birthFp),
-    JSON.stringify({ newId: op.newId, hlc: op.hlc, origin: op.origin } satisfies RemintRecord),
-  );
+  recordDisplayIdAlias(db, {
+    table: 'tasks_tasks',
+    displayId: op.newId,
+    entityUid: op.uid,
+    entityBirthFp: op.birthFp,
+    reason: 'remint-assigned',
+    origin: op.origin,
+    displacedHlc: op.hlc,
+  });
 }
 
 /**
@@ -673,7 +698,7 @@ export function applyRemintOp(db: DatabaseSync, op: RemintOp): ApplyRemintResult
     if (order < 0) {
       inSavepoint(db, 'remint_superseded', () => {
         alias(op.oldId, 'collision-remint');
-        if (op.newId !== prior.newId) alias(op.newId, 'superseded-remint');
+        writeRemint(db, op);
       });
       return { status: 'superseded', winner: prior };
     }
@@ -687,7 +712,6 @@ export function applyRemintOp(db: DatabaseSync, op: RemintOp): ApplyRemintResult
   }
   return inSavepoint(db, 'remint_apply', (): ApplyRemintResult => {
     alias(op.oldId, 'collision-remint');
-    if (prior && prior.newId !== op.newId) alias(prior.newId, 'superseded-remint');
     writeRemint(db, op);
     if (!live) return { status: 'recorded', released: releaseHeldRows(db) };
     if (live.key === op.newId) return { status: 'already-applied' };
@@ -706,21 +730,65 @@ export type WireValue = string | number | null;
 
 /** A reference on the wire: the referenced row's uid and birth fingerprint. */
 export interface WireRef {
-  readonly uid: string;
-  /** `null` for a natural target (its uid is a pure function; no fingerprint). */
+  /**
+   * The referenced row's uid; `null` when the SENDER could not find the row
+   * its local key names and knows no uid for it.
+   */
+  readonly uid: string | null;
+  /**
+   * The referenced row's birth fingerprint. A minted target is only ever
+   * matched on uid AND fingerprint, so a reference without one never matches
+   * a row (T12798 review). `null` for a natural target (its uid is a pure
+   * function; no fingerprint).
+   */
   readonly birthFp: string | null;
+  /**
+   * The sender had the reference but no longer has the row it names (deleted
+   * there). The receiver uses the row when it still has it (uid and
+   * fingerprint), else applies the table's `gone` rule instead of waiting
+   * for a row that will never arrive.
+   */
+  readonly gone?: true;
 }
+
+/**
+ * Version of the wire row format. v2 (T12798) carries no local key of
+ * another row in `values`; a row without it (or older) came from a build
+ * whose values hold raw local keys, and is held (`unsupported-wire`) rather
+ * than applied or silently stripped.
+ */
+export const WIRE_VERSION = 2;
+
+/**
+ * AC-history rows whose criterion is gone everywhere are still history: they
+ * are placed with the criterion's uid carried and a key that names no live
+ * criterion (`gone:<uid>`), never held forever.
+ */
+const GONE_CRITERION_PREFIX = 'gone:';
 
 /** An incoming row (the merge engine, T12344, builds these from the outbox). */
 export interface WireRow {
+  /** {@link WIRE_VERSION} of the sender (absent: a v1 sender). */
+  readonly version?: number;
   readonly table: string;
   readonly uid: string;
   /** Birth fingerprint (minted tables); `null` for natural rows. */
   readonly birthFp: string | null;
-  /** Column values. Reference columns are replaced by resolving {@link refs}. */
+  /**
+   * Column values, WITHOUT any local key of another row: reference columns,
+   * stored reference uids and the key columns they come from, and JSON arrays
+   * of ids travel as {@link refs} / {@link jsonRefs} and are resolved on the
+   * receiver (T12798).
+   */
   readonly values: Readonly<Record<string, WireValue>>;
-  /** Reference column → the referenced row's identity, or `null` for NULL. */
+  /**
+   * Reference column → the referenced row's identity, or `null` for NULL.
+   * Also carries each stored reference uid column (`ac_uid`): its resolution
+   * sets both that column and the key column it comes from (`ac_id`).
+   */
   readonly refs?: Readonly<Record<string, WireRef | null>>;
+  /** JSON array of ids column → the identities of its elements, in order. */
+  readonly jsonRefs?: Readonly<Record<string, readonly WireRef[]>>;
 }
 
 /** Why a row is held. */
@@ -801,7 +869,12 @@ function followUidAlias(db: DatabaseSync, table: string, uid: string, birthFp: s
  * @returns Where it points.
  */
 export function resolveWireRef(db: DatabaseSync, table: string, ref: WireRef): WireRefResolution {
+  if (ref.uid === null) return { status: 'pending' };
   const minted = specOf(table).kind === 'minted';
+  // A minted row is identified by uid AND fingerprint: a reference without a
+  // fingerprint never matches one (the other side of a uid collision holds the
+  // same uid).
+  if (minted && ref.birthFp === null) return { status: 'pending' };
   const uid =
     minted && ref.birthFp !== null ? followUidAlias(db, table, ref.uid, ref.birthFp) : ref.uid;
   const row = db
@@ -810,7 +883,7 @@ export function resolveWireRef(db: DatabaseSync, table: string, ref: WireRef): W
          FROM main.${q(table)} WHERE ${q(UID_COLUMN)} = ?`,
     )
     .get(uid) as { key: string; fp: string | null } | undefined;
-  if (row && (!minted || ref.birthFp === null || row.fp === ref.birthFp)) {
+  if (row && (!minted || row.fp === ref.birthFp)) {
     return { status: 'row', key: row.key, uid };
   }
   const held = db
@@ -821,11 +894,46 @@ export function resolveWireRef(db: DatabaseSync, table: string, ref: WireRef): W
   return held ? { status: 'held' } : { status: 'pending' };
 }
 
+/** Whether a column accepts NULL. */
+function nullableColumn(db: DatabaseSync, table: string, column: string): boolean {
+  const info = db
+    .prepare('SELECT "notnull" AS notnull, pk FROM pragma_table_info(?) WHERE name = ?')
+    .get(table, column) as { notnull: number; pk: number } | undefined;
+  return info !== undefined && info.notnull === 0 && info.pk === 0;
+}
+
 /** Reference column → referenced table, for a declared table. */
 function refTargets(spec: RowIdentitySpec): Map<string, string> {
   const out = new Map<string, string>();
   for (const ref of [...(spec.refs ?? []), ...(spec.owners ?? []), ...(spec.keyRefs ?? [])]) {
     out.set(ref.column, ref.table);
+  }
+  return out;
+}
+
+/** Stored reference uid column (`ac_uid`) → its table and key column (`ac_id`). */
+function storedUidRefs(spec: RowIdentitySpec): Map<string, { table: string; from: string }> {
+  const out = new Map<string, { table: string; from: string }>();
+  for (const ref of spec.storedRefUids ?? []) {
+    if ((ref.source ?? 'uid') === 'uid') out.set(ref.column, { table: ref.table, from: ref.from });
+  }
+  return out;
+}
+
+/** JSON array of ids column → referenced table. */
+function jsonArrayTargets(spec: RowIdentitySpec): Map<string, string> {
+  return new Map((spec.jsonArrayRefs ?? []).map((ref) => [ref.column, ref.table]));
+}
+
+/**
+ * Columns that hold another row's LOCAL key: never sent as values (T12798).
+ * `ac_text_hash` (a stored fact, not a key) is kept.
+ */
+function localKeyColumns(spec: RowIdentitySpec): Set<string> {
+  const out = new Set<string>([...refTargets(spec).keys(), ...jsonArrayTargets(spec).keys()]);
+  for (const [column, { from }] of storedUidRefs(spec)) {
+    out.add(column);
+    out.add(from);
   }
   return out;
 }
@@ -861,6 +969,13 @@ function hold(
 function placeRow(db: DatabaseSync, incoming: WireRow, heldAs?: HeldRowKey): ReceiveResult {
   const spec = specOf(incoming.table);
   const minted = spec.kind === 'minted';
+  // A v1 sender's values hold raw local keys of other rows: recognised and
+  // held, never applied and never silently stripped (T12798 review).
+  const version = incoming.version ?? 1;
+  if (version !== WIRE_VERSION) {
+    hold(db, incoming, 'unsupported-wire', `wire v${version}`, heldAs);
+    return { status: 'held', reason: 'unsupported-wire' };
+  }
   if (minted && !incoming.birthFp) {
     throw new Error(`receive: a ${incoming.table} row must carry its birth fingerprint`);
   }
@@ -907,20 +1022,60 @@ function placeRow(db: DatabaseSync, incoming: WireRow, heldAs?: HeldRowKey): Rec
     };
   }
   const values: Record<string, WireValue> = { ...wire.values };
+  // A local key of another row never comes from the sender's values (T12798);
+  // a JSON column that is not an id array travels as a value.
+  const arrayColumns = jsonArrayTargets(spec);
+  for (const column of localKeyColumns(spec)) {
+    if (!arrayColumns.has(column) || wire.jsonRefs?.[column]) delete values[column];
+  }
   const targets = refTargets(spec);
+  const stored = storedUidRefs(spec);
+  const pending = (): ReceiveResult => {
+    hold(db, wire, 'ref-pending', null, heldAs);
+    return { status: 'held', reason: 'ref-pending' };
+  };
   for (const [column, ref] of Object.entries(wire.refs ?? {})) {
-    const target = targets.get(column);
+    const storedRef = stored.get(column);
+    const target = targets.get(column) ?? storedRef?.table;
     if (!target) throw new Error(`receive: ${wire.table}.${column} is not a declared reference`);
     if (ref === null) {
       values[column] = null;
+      if (storedRef) values[storedRef.from] = null;
       continue;
     }
     const resolved = resolveWireRef(db, target, ref);
-    if (resolved.status !== 'row') {
-      hold(db, wire, 'ref-pending', null, heldAs);
-      return { status: 'held', reason: 'ref-pending' };
+    if (resolved.status !== 'row' && ref.gone) {
+      // The sender no longer has the row this names, and neither do we.
+      if (storedRef && wire.table === 'tasks_task_acceptance_criteria_history') {
+        // History of a criterion gone everywhere: keep the history, carry the
+        // criterion's uid, point the key at no live criterion.
+        values[column] = ref.uid;
+        values[storedRef.from] = `${GONE_CRITERION_PREFIX}${ref.uid ?? wire.uid}`;
+        continue;
+      }
+      if (!storedRef && nullableColumn(db, wire.table, column)) {
+        values[column] = null; // a dangling optional reference is dropped
+        continue;
+      }
     }
-    values[column] = resolved.key;
+    if (resolved.status !== 'row') return pending();
+    if (storedRef) {
+      values[storedRef.from] = resolved.key;
+      values[column] = resolved.uid;
+    } else {
+      values[column] = resolved.key;
+    }
+  }
+  for (const [column, refs] of Object.entries(wire.jsonRefs ?? {})) {
+    const target = arrayColumns.get(column);
+    if (!target) throw new Error(`receive: ${wire.table}.${column} is not a declared id array`);
+    const keys: string[] = [];
+    for (const ref of refs) {
+      const resolved = resolveWireRef(db, target, ref);
+      if (resolved.status !== 'row') return pending();
+      keys.push(resolved.key);
+    }
+    values[column] = JSON.stringify(keys);
   }
   if (spec.displayId && minted) {
     const key = keyOf(wire.table);
@@ -945,6 +1100,37 @@ function placeRow(db: DatabaseSync, incoming: WireRow, heldAs?: HeldRowKey): Rec
         },
       };
     }
+  }
+  if (wire.table === DISPLAY_ID_ALIAS_TABLE || wire.table === UID_ALIAS_TABLE) {
+    // An alias row's uid IS its primary key, computed on write from its key
+    // values (none is a reference): derive it the same way here (T12800).
+    const uid = naturalRowUid(
+      'project',
+      wire.table,
+      spec.key.map((k) => (values[k] ?? null) as string | null),
+    );
+    const existed =
+      db.prepare(`SELECT 1 AS x FROM main.${q(wire.table)} WHERE ${q(UID_COLUMN)} = ?`).get(uid) !==
+      undefined;
+    if (wire.table === DISPLAY_ID_ALIAS_TABLE) {
+      // The order-independent upsert: whichever copy arrives first, every
+      // replica keeps the same row.
+      insertDisplayIdAliasNative(db, {
+        uid,
+        entityTable: String(values['entity_table']),
+        displayId: String(values['display_id']),
+        entityUid: String(values['entity_uid']),
+        entityBirthFp: (values['entity_birth_fp'] as string | null) ?? null,
+        reason: String(values['reason']),
+        origin: (values['origin'] as string | null) ?? null,
+        displacedHlc: (values['displaced_hlc'] as string | null) ?? null,
+        createdAt: String(values['created_at']),
+      });
+    } else if (!existed) {
+      insertIdentityRowNative(db, wire.table, { ...values, [UID_COLUMN]: uid });
+    }
+    done();
+    return existed ? { status: 'duplicate', uid } : { status: 'inserted', key: uid, uid };
   }
   if (!minted) {
     const existing = db
@@ -1115,32 +1301,90 @@ export function wireRowOf(db: DatabaseSync, table: string, uid: string): WireRow
     | Record<string, WireValue>
     | undefined;
   if (!row) throw new Error(`wire: no ${table} row with uid ${uid}`);
+  const keyColumns = localKeyColumns(spec);
   const values: Record<string, WireValue> = {};
   for (const [column, value] of Object.entries(row)) {
-    if (column !== UID_COLUMN && column !== BIRTH_FP_COLUMN) values[column] = value;
+    if (column === UID_COLUMN || column === BIRTH_FP_COLUMN || keyColumns.has(column)) continue;
+    values[column] = value;
   }
-  const refs: Record<string, WireRef | null> = {};
-  for (const [column, target] of refTargets(spec)) {
-    const value = row[column];
-    if (value === null || value === undefined) {
-      refs[column] = null;
-      continue;
-    }
+  /** The identity of the target row, by its local key or by its uid. */
+  const identityOf = (target: string, by: 'key' | 'uid', value: WireValue): WireRef => {
     const minted = specOf(target).kind === 'minted';
     const t = db
       .prepare(
         `SELECT ${q(UID_COLUMN)} AS uid, ${minted ? q(BIRTH_FP_COLUMN) : 'NULL'} AS fp
-           FROM main.${q(target)} WHERE ${q(keyOf(target))} = ?`,
+           FROM main.${q(target)} WHERE ${q(by === 'key' ? keyOf(target) : UID_COLUMN)} = ?`,
       )
-      .get(value) as { uid: string; fp: string | null } | undefined;
-    if (t) refs[column] = { uid: t.uid, birthFp: t.fp };
+      .get(value) as { uid: string | null; fp: string | null } | undefined;
+    // A missing target travels as gone (the raw key never travels); one whose
+    // uid is not filled yet travels as uid null (the receiver waits).
+    if (!t) return { uid: null, birthFp: null, gone: true };
+    return t.uid ? { uid: t.uid, birthFp: t.fp } : { uid: null, birthFp: null };
+  };
+  /** The fingerprint a deleted criterion had, from the AC uid graveyard. */
+  const graveyardFp = (acUid: string): string | null => {
+    const has = db
+      .prepare("SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(AC_UID_GRAVEYARD);
+    if (!has) return null;
+    const r = db
+      .prepare(
+        `SELECT birth_fp AS fp FROM ${AC_UID_GRAVEYARD} WHERE uid = ? ORDER BY seq DESC LIMIT 1`,
+      )
+      .get(acUid) as { fp: string | null } | undefined;
+    return r?.fp ?? null;
+  };
+  const refs: Record<string, WireRef | null> = {};
+  for (const [column, target] of refTargets(spec)) {
+    const value = row[column];
+    refs[column] = value === null || value === undefined ? null : identityOf(target, 'key', value);
+  }
+  for (const [column, { table: target, from }] of storedUidRefs(spec)) {
+    const recorded = row[column];
+    const key = row[from];
+    if (recorded !== null && recorded !== undefined) {
+      refs[column] = identityOf(target, 'uid', recorded);
+      // A recorded uid whose row this store no longer has keeps its uid, with
+      // the fingerprint the graveyard kept when there is one; the receiver
+      // never matches it without a fingerprint.
+      if (refs[column]?.uid === null) {
+        refs[column] = {
+          uid: String(recorded),
+          birthFp: graveyardFp(String(recorded)),
+          gone: true,
+        };
+      }
+    } else {
+      refs[column] = key === null || key === undefined ? null : identityOf(target, 'key', key);
+    }
+  }
+  const jsonRefs: Record<string, WireRef[]> = {};
+  for (const [column, target] of jsonArrayTargets(spec)) {
+    const raw = row[column];
+    let ids: unknown;
+    try {
+      ids = typeof raw === 'string' ? JSON.parse(raw) : null;
+    } catch {
+      ids = null;
+    }
+    if (!Array.isArray(ids)) {
+      values[column] = raw ?? null; // not an id array: sent as is
+      continue;
+    }
+    // An id whose task this store no longer has is dropped from the array:
+    // there is nothing it could name on the receiver (T12798 review).
+    jsonRefs[column] = ids
+      .map((id) => identityOf(target, 'key', String(id)))
+      .filter((ref) => !ref.gone);
   }
   return {
+    version: WIRE_VERSION,
     table,
     uid,
     birthFp: spec.kind === 'minted' ? ((row[BIRTH_FP_COLUMN] as string | null) ?? null) : null,
     values,
     refs,
+    ...(Object.keys(jsonRefs).length > 0 ? { jsonRefs } : {}),
   };
 }
 
@@ -1209,7 +1453,12 @@ function followRow(
   }>;
   for (const a of aliases) {
     deleteDisplayIdAliasNative(db, a.uid);
-    const uid = naturalRowUid('project', DISPLAY_ID_ALIAS_TABLE, [table, a.displayId, newUid]);
+    const uid = naturalRowUid('project', DISPLAY_ID_ALIAS_TABLE, [
+      table,
+      a.displayId,
+      newUid,
+      a.reason,
+    ]);
     insertDisplayIdAliasNative(db, {
       uid,
       entityTable: table,
@@ -1222,13 +1471,6 @@ function followRow(
       createdAt: a.createdAt,
     });
     moved.push({ table: DISPLAY_ID_ALIAS_TABLE, oldUid: a.uid, newUid: uid });
-  }
-  if (table === 'tasks_tasks') {
-    const remint = readMeta(db, remintKey(oldUid, birthFp));
-    if (remint !== undefined) {
-      writeRowIdentityMetaNative(db, remintKey(newUid, birthFp), remint);
-      deleteRowIdentityMetaNative(db, remintKey(oldUid, birthFp));
-    }
   }
   insertUidAliasNative(db, {
     uid: naturalRowUid('project', UID_ALIAS_TABLE, [table, oldUid, birthFp]),

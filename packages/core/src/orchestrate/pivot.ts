@@ -29,6 +29,7 @@ import { getProjectRoot } from '../paths.js';
 import {
   readFocusState,
   readLiveFocus,
+  requireFocusSessionId,
   resolveFocusSessionId,
   writeFocusState,
 } from '../sessions/focus-state-store.js';
@@ -197,7 +198,7 @@ async function rollbackPivot(
   fromTaskId: string,
   toTaskId: string,
   claimant: Claimant,
-  focusSessionId: string | null,
+  focusSessionId: string,
   snapshot: PivotSnapshot,
 ): Promise<void> {
   const own = claimant.sessionId;
@@ -333,7 +334,9 @@ export async function pivotTask(
   await assertTaskStartable(acc, toTaskId);
   const claimFlags = { takeOver: opts.takeOver, forceClaim: opts.forceClaim };
   const claimant = await resolveClaimant(root);
-  const focusSessionId = await resolveFocusSessionId(root);
+  // T12501 AC2: refuse an unbound pivot BEFORE the claim — its stop/start
+  // would otherwise write the shared legacy focus key.
+  const focusSessionId = await requireFocusSessionId(`pivot to ${toTaskId}`, root);
   const snapshot: PivotSnapshot = {
     focus: await readFocusState(acc, focusSessionId),
     fromClaim: fromTask.claim ?? null,

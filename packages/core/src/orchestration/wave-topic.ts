@@ -45,6 +45,7 @@ export function coordinationTopic(epicId: string): string {
  * @param epicId - Parent epic.
  * @param taskId - Task to locate.
  * @param accessor - Task accessor.
+ * @param cwd - Project root, for the ranking context's focus phase (T12501).
  * @returns The wave number `cleo orchestrate waves` prints for it, or null.
  * @task T12682
  */
@@ -52,8 +53,9 @@ export async function waveNumberOfTask(
   epicId: string,
   taskId: string,
   accessor: DataAccessor,
+  cwd?: string,
 ): Promise<number | null> {
-  const { waves } = await planEpicWaves(epicId, accessor);
+  const { waves } = await planEpicWaves(epicId, accessor, [epicId], undefined, cwd);
   return waves.find((w) => w.tasks.includes(taskId))?.waveNumber ?? null;
 }
 
@@ -64,16 +66,18 @@ export async function waveNumberOfTask(
  *
  * @param taskId - Task being spawned.
  * @param accessor - Task accessor.
+ * @param cwd - Project root (T12501).
  * @returns The subscription, or undefined.
  * @task T12682
  */
 export async function deriveConduitSubscription(
   taskId: string,
   accessor: DataAccessor,
+  cwd?: string,
 ): Promise<ConduitSubscriptionConfig | undefined> {
   const task = await accessor.loadSingleTask(taskId);
   if (!task?.parentId) return undefined;
-  const waveId = await waveNumberOfTask(task.parentId, taskId, accessor);
+  const waveId = await waveNumberOfTask(task.parentId, taskId, accessor, cwd);
   if (waveId === null) return undefined;
   return { epicId: task.parentId, waveId, peerId: `cleo-agent-${taskId.toLowerCase()}` };
 }

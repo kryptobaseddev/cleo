@@ -16,6 +16,7 @@ import type {
   WorkGraphScaffoldValidationIssue,
 } from '@cleocode/contracts';
 import { captureProjectScope, getProjectRoot, worktreeScope } from '../project-scope.js';
+import { rethrowDependencyCycle } from '../store/dependency-cycles.js';
 import { getDb, getNativeDb } from '../store/sqlite.js';
 import * as schema from '../store/tasks-schema.js';
 import { validateWorkGraphScaffold } from './scaffold-validate.js';
@@ -193,11 +194,18 @@ export async function applyWorkGraphScaffold(
         for (const edge of params.edges) {
           if (edge.source === 'dependency') {
             // Dependency edge → task_dependencies
-            const result = db
-              .insert(schema.taskDependencies)
-              .values({ taskId: edge.fromId, dependsOn: edge.toId })
-              .onConflictDoNothing()
-              .run();
+            const dependency = { taskId: edge.fromId, dependsOn: edge.toId };
+            let result: { changes: number | bigint };
+            try {
+              result = db
+                .insert(schema.taskDependencies)
+                .values(dependency)
+                .onConflictDoNothing()
+                .run();
+            } catch (err) {
+              // T12886: name the cycle the guard trigger refused.
+              rethrowDependencyCycle(db, err, [dependency]);
+            }
             if (result.changes > 0) {
               edgesChanged++;
             }

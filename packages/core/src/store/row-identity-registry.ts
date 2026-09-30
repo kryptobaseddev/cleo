@@ -134,7 +134,9 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       // The uid IS the primary key: display-id-alias.ts computes it on write.
       table: 'tasks_display_id_aliases',
       kind: 'natural',
-      key: ['entity_table', 'display_id', 'entity_uid'],
+      // T12800: the reason is part of the key (collision-remint and
+      // remint-assigned of one id and row are distinct facts).
+      key: ['entity_table', 'display_id', 'entity_uid', 'reason'],
       task: 'T12341',
     },
     {

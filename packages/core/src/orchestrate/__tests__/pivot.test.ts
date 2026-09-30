@@ -16,7 +16,14 @@ import { ExitCode } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CleoError } from '../../errors.js';
 import { mentalModelQueue } from '../../memory/mental-model-queue.js';
-import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
+import { focusStateKey, LEGACY_FOCUS_STATE_KEY } from '../../sessions/focus-state-store.js';
+import {
+  BOUND_TEST_SESSION_ID,
+  bindTestSession,
+  createTestDb,
+  seedTasks,
+  type TestDbEnv,
+} from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { startTask } from '../../task-work/index.js';
 import { PIVOT_AUDIT_FILE, pivotTask } from '../pivot.js';
@@ -29,6 +36,8 @@ describe('pivotTask', () => {
     vi.stubEnv('CLEO_ROOT', undefined);
     vi.stubEnv('CLEO_DIR', undefined);
     env = await createTestDb();
+    // T12501: focus writes need a bound session.
+    await bindTestSession(env);
     accessor = env.accessor;
   });
 
@@ -277,7 +286,7 @@ describe('pivotTask', () => {
       { id: 'T003', title: 'Done', status: 'done', priority: 'medium' },
     ]);
     // Focus points at the finished T003; T001 is neither focus nor in IVTR.
-    await accessor.setMetaValue('focus_state', { currentTask: 'T003' });
+    await accessor.setMetaValue(focusStateKey(BOUND_TEST_SESSION_ID), { currentTask: 'T003' });
     await expect(
       pivotTask('T001', 'T002', { reason: 'not active', projectRoot: env.tempDir, accessor }),
     ).rejects.toMatchObject({ code: ExitCode.ACTIVE_TASK_REQUIRED });
@@ -332,7 +341,11 @@ describe('pivotTask', () => {
     expect(result.auditEntry).toContain(result.pivotId);
 
     // Focus state should now point at toTaskId
-    const focus = await accessor.getMetaValue<{ currentTask?: string }>('focus_state');
+    const focus = await accessor.getMetaValue<{ currentTask?: string }>(
+      focusStateKey(BOUND_TEST_SESSION_ID),
+    );
+    // T12501 AC2: the legacy global key is never written.
+    expect(await accessor.getMetaValue(LEGACY_FOCUS_STATE_KEY)).toBeNull();
     expect(focus?.currentTask).toBe('T002');
   });
 

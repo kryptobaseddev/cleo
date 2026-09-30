@@ -13,10 +13,13 @@
  * @epic T12497
  */
 
+import { readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { TaskWorkState } from '@cleocode/contracts';
+import { fileURLToPath } from 'node:url';
+import { ExitCode, type TaskWorkState } from '@cleocode/contracts';
+import ts from 'typescript';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // session start refreshes GLOBAL provider instruction files; never touch the
@@ -30,9 +33,10 @@ vi.mock('../../injection.js', () => ({
   }),
 }));
 
+import { CleoError } from '../../errors.js';
 import { injectTasks } from '../../inject/index.js';
 import { buildBrainState } from '../../orchestration/bootstrap.js';
-import { sessionStart, sessionStatus } from '../../session/engine-ops.js';
+import { sessionStart, sessionStatus, taskStop } from '../../session/engine-ops.js';
 import { getTaskAccessor } from '../../store/data-accessor.js';
 import { bindTerminalToSession, createSession } from '../../store/session-store.js';
 import { generateInjection } from '../../system/inject-generate.js';
@@ -43,6 +47,7 @@ import {
   LEGACY_FOCUS_STATE_KEY,
   readLiveFocus,
   resolveFocusSessionId,
+  writeFocusState,
 } from '../focus-state-store.js';
 import { SESSION_ENV_KEY_PRECEDENCE } from '../session-id.js';
 import { TERMINAL_KEY_SOURCES } from '../terminal-identity.js';
@@ -207,6 +212,96 @@ describe('one focus-key rule across two terminals (T12501)', () => {
     expect((await readLiveFocus(acc, sessionA)).currentTask).toBeNull();
     // The unbound caller still reads its legacy focus.
     expect((await inTerminal({}, () => currentTask(root))).currentTask).toBe('T2');
+  });
+});
+
+describe('unbound callers never write the legacy focus key (T12501 AC2)', () => {
+  const UNBOUND_X = { TERM_SESSION_ID: 'w0t5p0:XXXX' };
+  const UNBOUND_Y = { TERM_SESSION_ID: 'w0t6p0:YYYY' };
+
+  it('two unbound terminals: start and stop are refused and overwrite nothing', async () => {
+    // A bound session exists elsewhere — it must not be guessed either.
+    const sessionA = await startIn(TERMINAL_A, 'agent-a');
+    const acc = await getTaskAccessor(root);
+
+    const refusedX = await inTerminal(UNBOUND_X, () => startTask('T1', root)).catch((e) => e);
+    const refusedY = await inTerminal(UNBOUND_Y, () => startTask('T2', root)).catch((e) => e);
+    for (const err of [refusedX, refusedY]) {
+      expect(err).toBeInstanceOf(CleoError);
+      expect((err as CleoError).code).toBe(ExitCode.SESSION_UNBOUND);
+      expect((err as CleoError).message).toContain('no session is bound to this terminal');
+      expect((err as CleoError).fix).toContain('cleo session start');
+    }
+    expect(refusedX.message).toContain('Cannot start work on T1');
+
+    const stopX = await inTerminal(UNBOUND_X, () => stopTask(root)).catch((e) => e);
+    expect((stopX as CleoError).code).toBe(ExitCode.SESSION_UNBOUND);
+
+    // Nothing was written: no legacy key, no claim, and A's focus is untouched.
+    expect(await acc.getMetaValue(LEGACY_FOCUS_STATE_KEY)).toBeNull();
+    expect((await acc.loadSingleTask('T1'))?.claim).toBeUndefined();
+    expect((await acc.loadSingleTask('T2'))?.claim).toBeUndefined();
+    expect(await acc.getMetaValue(focusStateKey(sessionA))).toMatchObject({ currentTask: null });
+  });
+
+  it('refuses even when no session exists at all (there is still no key to write)', async () => {
+    const acc = await getTaskAccessor(root);
+    const err = await inTerminal(UNBOUND_X, () => startTask('T1', root)).catch((e) => e);
+    expect((err as CleoError).code).toBe(ExitCode.SESSION_UNBOUND);
+    expect(await acc.getMetaValue(LEGACY_FOCUS_STATE_KEY)).toBeNull();
+  });
+
+  it('taskStop (the `cleo stop` engine op) reports E_SESSION_UNBOUND, not E_NOT_INITIALIZED', async () => {
+    const res = await inTerminal(UNBOUND_X, () => taskStop(root));
+    expect(res.success).toBe(false);
+    expect(res.error?.code).toBe('E_SESSION_UNBOUND');
+    expect(res.error?.message).toContain('Cannot stop work');
+  });
+
+  it('taskStop resolves the session from projectRoot, not the process cwd', async () => {
+    const sessionA = await startIn(TERMINAL_A, 'agent-a', 'T1');
+    // cwd is the repo running the tests, not `root`: resolution must use root.
+    const res = await inTerminal(TERMINAL_A, () => taskStop(root));
+    expect(res.success).toBe(true);
+    expect(res.data?.previousTask).toBe('T1');
+    const acc = await getTaskAccessor(root);
+    expect(await acc.getMetaValue(focusStateKey(sessionA))).toMatchObject({ currentTask: null });
+  });
+
+  it('a shell whose only identity is the ppid fallback is told to use CLEO_SESSION_ID', async () => {
+    const err = await inTerminal({}, () => startTask('T1', root)).catch((e) => e);
+    expect((err as CleoError).code).toBe(ExitCode.SESSION_UNBOUND);
+    expect((err as CleoError).message).toContain(
+      'this shell has no stable terminal identity; prefix commands with CLEO_SESSION_ID=<the id `cleo session start` printed>, or, in a multi-agent host, set CLEO_AGENT_ID per agent',
+    );
+  });
+
+  it('writeFocusState refuses an empty session id at runtime', async () => {
+    const acc = await getTaskAccessor(root);
+    await expect(writeFocusState(acc, '', { currentTask: 'T1' })).rejects.toMatchObject({
+      code: ExitCode.SESSION_UNBOUND,
+    });
+    expect(await acc.getMetaValue(LEGACY_FOCUS_STATE_KEY)).toBeNull();
+  });
+
+  it('writeFocusState declares a non-nullable session id, so tsc rejects a null writer', () => {
+    // Source code is typechecked (tests are not): with `sessionId: string`,
+    // any writer that passes a possibly-null id fails `tsc`. Pin the signature.
+    const path = fileURLToPath(new URL('../focus-state-store.ts', import.meta.url));
+    const source = ts.createSourceFile(
+      path,
+      readFileSync(path, 'utf8'),
+      ts.ScriptTarget.Latest,
+      true,
+    );
+    const fn = source.statements.find(
+      (st): st is ts.FunctionDeclaration =>
+        ts.isFunctionDeclaration(st) && st.name?.text === 'writeFocusState',
+    );
+    const param = fn?.parameters[1];
+    expect(param?.name.getText(source)).toBe('sessionId');
+    expect(param?.questionToken).toBeUndefined();
+    expect(param?.type?.kind).toBe(ts.SyntaxKind.StringKeyword);
   });
 });
 

@@ -16,4 +16,4 @@
 | Returning content | Context bloat | Return only summary message |
 | Pretty-printed JSON | Invalid manifest | Single-line JSON |
 | Loading skills via `@` | Cannot resolve | Skills injected by orchestrator |
-| Skipping task start | Protocol violation | Always `cleo start` first |
+| Skipping task start | Protocol violation | Always `cleo start` first. If `cleo start` fails with `E_SESSION_UNBOUND` (spawned workers and subagents are already bound), run `cleo session start --scope global --name "<name>"` or `cleo session resume <id>` first. |

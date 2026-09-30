@@ -228,6 +228,107 @@ describe('JSON to SQLite migration', () => {
       expect(task!.depends).toContain('T001');
     });
 
+    // T12886: a legacy todo.json can hold a dependency cycle. The cycle guard
+    // refuses the closing edge; the import skips only that edge, warns with
+    // the named cycle, and keeps the task and its other edges.
+    const cyclicTodo = () => ({
+      version: '2.10.0',
+      project: { name: 'test' },
+      _meta: { schemaVersion: '2.10.0' },
+      tasks: [
+        {
+          id: 'T001',
+          title: 'A',
+          status: 'pending',
+          priority: 'medium',
+          depends: ['T003'],
+          createdAt: '2026-01-01T00:00:00.000Z',
+        },
+        {
+          id: 'T002',
+          title: 'B',
+          status: 'pending',
+          priority: 'medium',
+          depends: ['T001'],
+          createdAt: '2026-01-02T00:00:00.000Z',
+        },
+        {
+          id: 'T003',
+          title: 'C',
+          status: 'pending',
+          priority: 'medium',
+          depends: ['T002'],
+          createdAt: '2026-01-03T00:00:00.000Z',
+        },
+        {
+          id: 'T004',
+          title: 'D',
+          status: 'pending',
+          priority: 'medium',
+          createdAt: '2026-01-04T00:00:00.000Z',
+        },
+        {
+          id: 'T005',
+          title: 'E',
+          status: 'pending',
+          priority: 'medium',
+          depends: ['T004', 'T005'],
+          createdAt: '2026-01-05T00:00:00.000Z',
+        },
+      ],
+    });
+
+    function expectCycleSkipped(result: {
+      success: boolean;
+      tasksImported: number;
+      errors: string[];
+      warnings: string[];
+    }): void {
+      expect(result.errors).toEqual([]);
+      expect(result.success).toBe(true);
+      expect(result.tasksImported).toBe(5);
+      const cycleWarnings = result.warnings.filter((w) => w.includes('E_TASK_DEPENDENCY_CYCLE'));
+      expect(cycleWarnings).toEqual([
+        'Task T001: skipped dependency T001 → T003: it would close the dependency cycle T001 → T003 → T002 → T001 (E_TASK_DEPENDENCY_CYCLE)',
+        'Task T005: skipped dependency T005 → T005: it would close the dependency cycle T005 → T005 (E_TASK_DEPENDENCY_CYCLE)',
+      ]);
+    }
+
+    it('skips only a cycle-closing edge from a legacy todo.json (T12886)', async () => {
+      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(cyclicTodo()));
+      const { migrateJsonToSqlite } = await import('../migration-sqlite.js');
+      const result = await migrateJsonToSqlite();
+      expectCycleSkipped(result);
+      const { getTask } = await import('../tasks-sqlite.js');
+      expect((await getTask('T005'))?.depends).toEqual(['T004']);
+      // topoSortTasks imports dependencies first, so T001's edge is the one refused.
+      expect((await getTask('T001'))?.depends ?? []).toEqual([]);
+      expect((await getTask('T002'))?.depends).toEqual(['T001']);
+      expect((await getTask('T003'))?.depends).toEqual(['T002']);
+    });
+
+    it('skips only a cycle-closing edge in the atomic import path (T12886)', async () => {
+      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(cyclicTodo()));
+      const { migrateJsonToSqliteAtomic } = await import('../migration-sqlite.js');
+      const tempDbPath = join(cleoDir, 'tasks.db.migrating');
+      const result = await migrateJsonToSqliteAtomic(tempDir, tempDbPath);
+      expectCycleSkipped(result);
+      const { DatabaseSync } = await import('node:sqlite');
+      const db = new DatabaseSync(tempDbPath, { readOnly: true });
+      try {
+        const edges = (
+          db
+            .prepare(
+              "SELECT task_id || '->' || depends_on AS e FROM tasks_task_dependencies ORDER BY 1",
+            )
+            .all() as Array<{ e: string }>
+        ).map((r) => r.e);
+        expect(edges).toEqual(['T002->T001', 'T003->T002', 'T005->T004']);
+      } finally {
+        db.close();
+      }
+    });
+
     it('preserves all task fields through migration', async () => {
       const todoData = {
         version: '2.10.0',

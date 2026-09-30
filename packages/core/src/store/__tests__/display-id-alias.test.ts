@@ -19,7 +19,9 @@ process.env.CLEO_ROW_UID_FILL = '1';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { ExitCode } from '@cleocode/contracts';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { pivotTask } from '../../orchestrate/pivot.js';
 import { buildAcRowId } from '../../tasks/ac-table.js';
 import {
   applyRekey,
@@ -44,7 +46,14 @@ import {
   rekeyedChildUid,
 } from '../row-identity.js';
 import { getNativeTasksDb } from '../sqlite.js';
-import { createTestDb, seedTasks, type TestDbEnv } from './test-db-helper.js';
+import { RENAMED_RECENT_MS } from '../sqlite-data-accessor.js';
+import {
+  BOUND_TEST_SESSION_ID,
+  bindTestSession,
+  createTestDb,
+  seedTasks,
+  type TestDbEnv,
+} from './test-db-helper.js';
 
 interface TaskRow {
   id: string;
@@ -211,6 +220,7 @@ describe('two stores created offline (AC2, AC3)', () => {
     b.db.close();
     rmSync(bPath, { force: true });
     await env.cleanup();
+    vi.unstubAllEnvs();
   });
 
   it('gives shared history the same uids and new work distinct ones', () => {
@@ -350,6 +360,295 @@ describe('two stores created offline (AC2, AC3)', () => {
     }
   });
 
+  it('the re-mint record is portable: losing local state changes no outcome (T12800)', () => {
+    pull(b, a);
+    const alpha = tasksOf(a.db).find((t) => t.title === 'alpha (A)') as TaskRow;
+    const early: RemintOp = {
+      uid: alpha.uid,
+      birthFp: alpha.birth_fp,
+      oldId: 'T004',
+      newId: 'T700',
+      origin: 'device-c',
+      hlc: hlcAt(5_000, 'device-c'),
+    };
+    const late: RemintOp = { ...early, newId: 'T800', origin: 'device-a', hlc: hlcAt(10_000) };
+    expect(applyRemintOp(b.db, late).status).toBe('recorded');
+    // The replica's local-only state is lost (or was never there).
+    b.db.exec('DELETE FROM tasks_row_identity_meta');
+    expect(applyRemintOp(b.db, early).status).toBe('superseded');
+    expect(idByTitle(b.db).get('alpha (A)')).toBe('T800');
+    // An op recorded before its row arrives still decides where the row lands.
+    const beta = tasksOf(b.db).find((t) => t.title === 'beta (B)') as TaskRow;
+    const moveBeta: RemintOp = {
+      uid: beta.uid,
+      birthFp: beta.birth_fp,
+      oldId: 'T004',
+      newId: 'T901',
+      origin: 'device-b',
+      hlc: hlcAt(20_000, 'device-b'),
+    };
+    expect(applyRemintOp(a.db, moveBeta).status).toBe('recorded');
+    a.db.exec('DELETE FROM tasks_row_identity_meta');
+    expect(receiveRow(a.db, wireRowOf(b.db, 'tasks_tasks', beta.uid))).toMatchObject({
+      status: 'inserted',
+      key: 'T901',
+    });
+  });
+
+  it('a guarded write to a re-numbered id fails with E_TASK_RENAMED, never lands on the new holder (T12800)', async () => {
+    a.db
+      .prepare(
+        `UPDATE tasks_tasks SET claimed_by_session = 'ses-1', claimed_by_agent = 'agent-1',
+           claimed_at = '2026-09-29T00:00:00.000Z', lease_expires_at = '2099-01-01T00:00:00.000Z'
+         WHERE id = 'T004'`,
+      )
+      .run();
+    const read = await env.accessor.loadSingleTask('T004');
+    const readVersion = read?.updatedAt ?? read?.createdAt ?? '';
+    pull(a, b); // alpha (A) loses T004 to beta (B) and is re-minted here
+    const alphaId = idByTitle(a.db).get('alpha (A)') as string;
+    expect(alphaId).not.toBe('T004');
+    const now = '2026-09-30T00:00:00.000Z';
+    const renamed = (p: Promise<unknown>) =>
+      expect(p).rejects.toMatchObject({
+        code: 26,
+        details: { actual: 'T004', expected: alphaId },
+      });
+    await renamed(
+      env.accessor.updateTaskFields(
+        'T004',
+        { title: 'claim holder edit' },
+        { claim: { sessionId: 'ses-1', mode: 'renew', now } },
+      ),
+    );
+    await renamed(
+      env.accessor.updateTaskFields(
+        'T004',
+        { title: 'if-match edit' },
+        { expectedUpdatedAt: readVersion },
+      ),
+    );
+    expect(idByTitle(a.db).get('beta (B)')).toBe('T004');
+    // Addressing the new holder deliberately still works.
+    const betaTask = await env.accessor.loadSingleTask('T004');
+    const betaVersion = betaTask?.updatedAt ?? betaTask?.createdAt ?? '';
+    await env.accessor.updateTaskFields(
+      'T004',
+      { title: 'beta, edited' },
+      { expectedUpdatedAt: betaVersion },
+    );
+    expect(idByTitle(a.db).get('beta, edited')).toBe('T004');
+  });
+
+  it('a stale --if-match on the task that now holds the id is E_CONFLICT, not E_TASK_RENAMED (T12800)', async () => {
+    pull(a, b);
+    const beta = await env.accessor.loadSingleTask('T004');
+    expect(beta?.title).toBe('beta (B)');
+    const staleBeta = beta?.updatedAt ?? beta?.createdAt ?? '';
+    await env.accessor.updateTaskFields('T004', { title: 'beta, first edit' });
+    await expect(
+      env.accessor.updateTaskFields(
+        'T004',
+        { title: 'beta, stale edit' },
+        { expectedUpdatedAt: staleBeta },
+      ),
+    ).rejects.toMatchObject({ code: ExitCode.VERSION_CONFLICT });
+    // A version that was never alpha's under T004 is a plain conflict too.
+    await expect(
+      env.accessor.updateTaskFields(
+        'T004',
+        { title: 'beta, made-up version' },
+        { expectedUpdatedAt: '2001-01-01T00:00:00.000Z' },
+      ),
+    ).rejects.toMatchObject({ code: ExitCode.VERSION_CONFLICT });
+    expect(idByTitle(a.db).get('beta, first edit')).toBe('T004');
+  });
+
+  it('acquiring the new holder is never E_TASK_RENAMED: claim, renew, and a pivot from the renamed task (T12800)', async () => {
+    // The session's focus is resolved from the test project, not the runner's.
+    vi.stubEnv('CLEO_ROOT', undefined);
+    vi.stubEnv('CLEO_DIR', undefined);
+    await bindTestSession(env);
+    const claimant = { sessionId: BOUND_TEST_SESSION_ID, agentId: 'agent-1' };
+    await env.accessor.claimTask('T004', { ...claimant, mode: 'acquire' });
+    await env.accessor.updateTaskFields('T004', { pipelineStage: 'implementation' });
+    pull(a, b);
+    const alphaId = idByTitle(a.db).get('alpha (A)') as string;
+    expect(alphaId).not.toBe('T004');
+    expect((await env.accessor.loadSingleTask(alphaId))?.claim?.sessionId).toBe(
+      BOUND_TEST_SESSION_ID,
+    );
+
+    // Pivot claims its target BEFORE it releases its source: at that moment
+    // the session holds the renamed task and acquires the new holder.
+    const result = await pivotTask(alphaId, 'T004', {
+      reason: 'the id moved; work on beta',
+      projectRoot: env.tempDir,
+      accessor: env.accessor,
+    });
+    expect(result.toTaskId).toBe('T004');
+    const beta = await env.accessor.loadSingleTask('T004');
+    expect(beta?.title).toBe('beta (B)');
+    expect(beta?.claim?.sessionId).toBe(BOUND_TEST_SESSION_ID);
+    // Renewing the lease the session now holds on T004 is its own claim.
+    await env.accessor.claimTask('T004', { ...claimant, mode: 'renew' });
+  });
+
+  it('only a recent rename is E_TASK_RENAMED; an old one falls through to E_CONFLICT (T12800)', async () => {
+    const read = await env.accessor.loadSingleTask('T004');
+    const readVersion = read?.updatedAt ?? read?.createdAt ?? '';
+    pull(a, b);
+    const edit = () =>
+      env.accessor.updateTaskFields(
+        'T004',
+        { title: 'late edit' },
+        { expectedUpdatedAt: readVersion },
+      );
+    await expect(edit()).rejects.toMatchObject({ code: ExitCode.TASK_RENAMED });
+    const old = new Date(Date.now() - RENAMED_RECENT_MS - 60_000).toISOString();
+    a.db
+      .prepare(
+        "UPDATE tasks_row_identity_meta SET value = json_set(value, '$.at', ?) WHERE key = 'renamed_from:tasks_tasks:T004'",
+      )
+      .run(old);
+    await expect(edit()).rejects.toMatchObject({ code: ExitCode.VERSION_CONFLICT });
+    expect(idByTitle(a.db).get('beta (B)')).toBe('T004');
+  });
+
+  it('alias rows converge whatever order the re-mint ops arrive in (T12800)', () => {
+    pull(b, a);
+    const alpha = tasksOf(a.db).find((t) => t.title === 'alpha (A)') as TaskRow;
+    const early: RemintOp = {
+      uid: alpha.uid,
+      birthFp: alpha.birth_fp,
+      oldId: 'T004',
+      newId: 'T700',
+      origin: 'device-c',
+      hlc: hlcAt(5_000, 'device-c'),
+    };
+    const late: RemintOp = { ...early, newId: 'T800', origin: 'device-a', hlc: hlcAt(10_000) };
+    const cPath = join(env.tempDir, 'device-c-order.db');
+    b.db.exec(`VACUUM INTO '${cPath}'`);
+    const c = new DatabaseSync(cPath);
+    try {
+      prepareRowIdentity(c, 'project');
+      for (const op of [early, late]) applyRemintOp(b.db, op);
+      for (const op of [late, early]) applyRemintOp(c, op);
+      const aliases = (db: DatabaseSync) =>
+        db
+          .prepare(
+            `SELECT uid, entity_table, display_id, entity_uid, entity_birth_fp, reason, origin,
+                    displaced_hlc, created_at
+               FROM tasks_display_id_aliases ORDER BY uid`,
+          )
+          .all();
+      expect(aliases(b.db).length).toBeGreaterThan(0);
+      expect(aliases(c)).toEqual(aliases(b.db));
+      // Replaying either op changes nothing.
+      for (const op of [early, late]) applyRemintOp(c, op);
+      expect(aliases(c)).toEqual(aliases(b.db));
+    } finally {
+      c.close();
+      rmSync(cPath, { force: true });
+    }
+  });
+
+  it('an alias row under the pre-review uid (no reason in the key) still resolves once and keeps the winner (T12800)', () => {
+    pull(b, a);
+    const alpha = tasksOf(a.db).find((t) => t.title === 'alpha (A)') as TaskRow;
+    // What a build before the review wrote: the uid hashed without the reason.
+    // (Counted on VACUUM copies of the field stores on 2026-09-30: 0 alias rows.)
+    const staleUid = naturalRowUid('project', 'tasks_display_id_aliases', [
+      'tasks_tasks',
+      'T700',
+      alpha.uid,
+    ]);
+    b.db
+      .prepare(
+        `INSERT INTO tasks_display_id_aliases
+           (uid, entity_table, display_id, entity_uid, entity_birth_fp, reason, origin,
+            displaced_hlc, created_at)
+         VALUES (?, 'tasks_tasks', 'T700', ?, ?, 'remint-assigned', 'device-c', ?, ?)`,
+      )
+      .run(
+        staleUid,
+        alpha.uid,
+        alpha.birth_fp,
+        hlcAt(5_000, 'device-c'),
+        '2026-09-29T00:00:00.000Z',
+      );
+    const late: RemintOp = {
+      uid: alpha.uid,
+      birthFp: alpha.birth_fp,
+      oldId: 'T004',
+      newId: 'T800',
+      origin: 'device-a',
+      hlc: hlcAt(10_000),
+    };
+    const early: RemintOp = {
+      ...late,
+      newId: 'T700',
+      origin: 'device-c',
+      hlc: hlcAt(5_000, 'device-c'),
+    };
+    expect(applyRemintOp(b.db, late).status).toBe('recorded');
+    expect(applyRemintOp(b.db, early).status).toBe('superseded');
+    expect(idByTitle(b.db).get('alpha (A)')).toBe('T800');
+    const r = resolveDisplayId(b.db, 'tasks_tasks', 'T700');
+    expect(r.status).toBe('resolved');
+    if (r.status === 'resolved') {
+      expect([r.claimant, ...r.alsoKnownAs].map((x) => x.uid)).toEqual([alpha.uid]);
+    }
+  });
+
+  it('a replica that receives the alias rows only through sync derives the same winner (T12800)', () => {
+    pull(b, a);
+    const alpha = tasksOf(a.db).find((t) => t.title === 'alpha (A)') as TaskRow;
+    const early: RemintOp = {
+      uid: alpha.uid,
+      birthFp: alpha.birth_fp,
+      oldId: 'T004',
+      newId: 'T700',
+      origin: 'device-c',
+      hlc: hlcAt(5_000, 'device-c'),
+    };
+    const late: RemintOp = { ...early, newId: 'T800', origin: 'device-a', hlc: hlcAt(10_000) };
+    applyRemintOp(b.db, late);
+    applyRemintOp(b.db, early);
+    expect(idByTitle(b.db).get('alpha (A)')).toBe('T800');
+
+    // Replica D never saw either op: it has beta, not alpha, and no aliases.
+    const dPath = join(env.tempDir, 'device-d.db');
+    b.db.exec(`VACUUM INTO '${dPath}'`);
+    const d = new DatabaseSync(dPath);
+    try {
+      prepareRowIdentity(d, 'project');
+      d.exec('DELETE FROM tasks_display_id_aliases');
+      d.exec('DELETE FROM tasks_row_identity_meta');
+      d.prepare('DELETE FROM tasks_tasks WHERE uid = ?').run(alpha.uid);
+      // The alias rows arrive as ordinary synced rows, in reverse order.
+      const aliasUids = (
+        b.db.prepare('SELECT uid FROM tasks_display_id_aliases ORDER BY uid DESC').all() as {
+          uid: string;
+        }[]
+      ).map((r) => r.uid);
+      expect(aliasUids.length).toBeGreaterThan(0);
+      for (const uid of aliasUids) {
+        expect(receiveRow(d, wireRowOf(b.db, 'tasks_display_id_aliases', uid)).status).toBe(
+          'inserted',
+        );
+      }
+      // Then alpha arrives under the id it had where it was authored.
+      const wire = wireRowOf(a.db, 'tasks_tasks', alpha.uid);
+      expect(receiveRow(d, wire)).toMatchObject({ status: 'inserted', key: 'T800' });
+      expect(idByTitle(d).get('alpha (A)')).toBe('T800');
+      expect(idByTitle(d).get('beta (B)')).toBe('T004');
+    } finally {
+      d.close();
+      rmSync(dPath, { force: true });
+    }
+  });
+
   it('a non-authority never allocates: it records, applies, or reports a conflict', () => {
     const alpha = tasksOf(a.db).find((t) => t.title === 'alpha (A)') as TaskRow;
     const op = (newId: string): RemintOp => ({
@@ -420,7 +719,108 @@ describe('two stores created offline (AC2, AC3)', () => {
     expect(a.db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
   });
 
+  it('a received binding never attaches to the wrong criterion after a collision (T12798)', () => {
+    const acId = buildAcRowId('T004', 'tests pass');
+    for (const db of [a.db, b.db]) {
+      db.prepare(
+        "INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, text, kind, source_key) VALUES (?, 'T004', 1, 'tests pass', 'text', 'text:1:x')",
+      ).run(acId);
+    }
+    b.db
+      .prepare(
+        "INSERT INTO tasks_evidence_ac_bindings (id, evidence_atom_id, ac_id, binding_type) VALUES ('bind-beta', 'tool:test', ?, 'direct')",
+      )
+      .run(acId);
+    const acUid = (db: DatabaseSync) =>
+      (
+        db.prepare('SELECT uid FROM tasks_task_acceptance_criteria WHERE id = ?').get(acId) as {
+          uid: string;
+        }
+      ).uid;
+    const alphaAc = acUid(a.db);
+    const betaAc = acUid(b.db);
+    const bindingUid = (
+      b.db.prepare("SELECT uid FROM tasks_evidence_ac_bindings WHERE id = 'bind-beta'").get() as {
+        uid: string;
+      }
+    ).uid;
+    // The binding reaches A before beta's criterion: A's row with that local
+    // id is alpha's criterion, so the binding waits instead of attaching.
+    const wire = wireRowOf(b.db, 'tasks_evidence_ac_bindings', bindingUid);
+    expect(wire.values).not.toHaveProperty('ac_id');
+    expect(wire.refs?.ac_uid).toEqual({ uid: betaAc, birthFp: expect.any(String) });
+    expect(receiveRow(a.db, wire)).toMatchObject({ status: 'held', reason: 'ref-pending' });
+    expect(a.db.prepare('SELECT count(*) AS n FROM tasks_evidence_ac_bindings').get()).toEqual({
+      n: 0,
+    });
+    // A re-mints alpha (its criterion id is re-derived), beta and its criterion
+    // arrive, and the binding lands on beta's criterion.
+    pull(a, b);
+    receiveRow(a.db, wireRowOf(b.db, 'tasks_task_acceptance_criteria', betaAc));
+    // Only gamma (B's T005, waiting for B's re-mint) is still held.
+    expect(listHeldRows(a.db).map((h) => [h.entityTable, h.contestedId])).toEqual([
+      ['tasks_tasks', 'T005'],
+    ]);
+    expect(
+      a.db
+        .prepare(
+          `SELECT b.ac_id AS acId, b.ac_uid AS acUid, c.uid AS criterionUid
+             FROM tasks_evidence_ac_bindings b
+             JOIN tasks_task_acceptance_criteria c ON c.id = b.ac_id
+            WHERE b.id = 'bind-beta'`,
+        )
+        .get(),
+    ).toEqual({ acId, acUid: betaAc, criterionUid: betaAc });
+    expect(alphaAc).not.toBe(betaAc);
+  });
+
+  it('a received JSON id array is translated to local ids, and waits for its tasks (T12798)', () => {
+    b.db
+      .prepare(
+        `INSERT INTO tasks_sessions (id, name, tasks_created_json, tasks_completed_json)
+         VALUES ('ses-b', 'B session', '["T005"]', '["T001"]')`,
+      )
+      .run();
+    const sessionUid = (
+      b.db.prepare("SELECT uid FROM tasks_sessions WHERE id = 'ses-b'").get() as { uid: string }
+    ).uid;
+    pull(a, b); // gamma (B's T005) loses to delta and is held on A
+    const gamma = tasksOf(b.db).find((t) => t.title === 'gamma (B)') as TaskRow;
+    const wire = wireRowOf(b.db, 'tasks_sessions', sessionUid);
+    expect(wire.values).not.toHaveProperty('tasks_created_json');
+    expect(receiveRow(a.db, wire)).toMatchObject({ status: 'held', reason: 'ref-pending' });
+    applyRemintOp(a.db, {
+      uid: gamma.uid,
+      birthFp: gamma.birth_fp,
+      oldId: 'T005',
+      newId: 'T950',
+      origin: 'device-b',
+      hlc: clock('device-b'),
+    });
+    expect(
+      a.db
+        .prepare(
+          "SELECT tasks_created_json AS created, tasks_completed_json AS completed FROM tasks_sessions WHERE id = 'ses-b'",
+        )
+        .get(),
+    ).toEqual({ created: '["T950"]', completed: '["T001"]' });
+  });
+
   it('a received AUTOINCREMENT row drops the sender id and gets a local one (T12799)', () => {
+    // The criterion the history rows point at: B's, received by A first.
+    b.db
+      .prepare(
+        "INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, text, kind, source_key) VALUES ('ac-x', 'T001', 1, 'x', 'text', 'text:1:x')",
+      )
+      .run();
+    const acX = (
+      b.db.prepare("SELECT uid FROM tasks_task_acceptance_criteria WHERE id = 'ac-x'").get() as {
+        uid: string;
+      }
+    ).uid;
+    expect(receiveRow(a.db, wireRowOf(b.db, 'tasks_task_acceptance_criteria', acX)).status).toBe(
+      'inserted',
+    );
     const history = (db: DatabaseSync, text: string) => {
       db.prepare(
         "INSERT INTO tasks_task_acceptance_criteria_history (ac_id, previous_text, reason) VALUES ('ac-x', ?, 'edit')",
@@ -669,7 +1069,10 @@ describe('uid collision: re-key the loser, every replica applies it (T12744, T12
       expect(Z.prepare(`SELECT ac_uid FROM ${table}`).all()).toEqual([{ ac_uid: acLUid }]);
     }
     // Natural rows re-derived and published, the display alias included.
+    // Two display aliases move: the renumbered T100, and T101, the id the
+    // manual re-mint assigned (its portable re-mint record, T12800).
     expect(R.natural.map((n) => n.table).sort()).toEqual([
+      'tasks_display_id_aliases',
       'tasks_display_id_aliases',
       'tasks_task_dependencies',
       'tasks_task_labels',
@@ -777,5 +1180,127 @@ describe('remintAuthority (spec §9.2, T12750)', () => {
     for (const ms of [0, WINDOW, 3 * WINDOW, 11 * WINDOW]) {
       expect(at(ms, 'dev-c', shuffled)).toEqual(at(ms));
     }
+  });
+});
+
+describe('references the sender no longer resolves (T12798 review, probe 1753)', () => {
+  let env: TestDbEnv;
+  let a: DatabaseSync;
+  let b: DatabaseSync;
+  let bPath: string;
+
+  beforeEach(async () => {
+    env = await createTestDb();
+    await seedTasks(env.accessor, [
+      { id: 'T001', title: 'Shared', type: 'task', createdAt: '2026-09-20T09:00:00.000Z' },
+    ]);
+    a = getNativeTasksDb(env.tempDir) as DatabaseSync;
+    bPath = join(env.tempDir, 'b.db');
+    a.exec(`VACUUM INTO '${bPath}'`);
+    b = new DatabaseSync(bPath);
+    prepareRowIdentity(b, 'project');
+  });
+
+  afterEach(async () => {
+    b.close();
+    rmSync(bPath, { force: true });
+    await env.cleanup();
+  });
+
+  it('Q1: history of a criterion deleted on the sender is placed, with its uid carried and no live ac_id', () => {
+    b.prepare(
+      "INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, text, kind, source_key) VALUES ('ac-z','T001',1,'z','text','text:1:z')",
+    ).run();
+    b.prepare(
+      "INSERT INTO tasks_task_acceptance_criteria_history (ac_id, previous_text, reason) VALUES ('ac-z','z','delete')",
+    ).run();
+    b.prepare("DELETE FROM tasks_task_acceptance_criteria WHERE id='ac-z'").run();
+    const h = b.prepare('SELECT uid, ac_uid FROM tasks_task_acceptance_criteria_history').get() as {
+      uid: string;
+      ac_uid: string;
+    };
+    const wire = wireRowOf(b, 'tasks_task_acceptance_criteria_history', h.uid);
+    expect(wire.values).not.toHaveProperty('ac_id');
+    expect(wire.refs?.ac_uid).toMatchObject({ uid: h.ac_uid, gone: true });
+    expect(receiveRow(a, wire).status).toBe('inserted');
+    expect(listHeldRows(a)).toEqual([]);
+    expect(
+      a
+        .prepare('SELECT ac_id, ac_uid FROM tasks_task_acceptance_criteria_history WHERE uid = ?')
+        .get(h.uid),
+    ).toEqual({ ac_id: `gone:${h.ac_uid}`, ac_uid: h.ac_uid });
+  });
+
+  it('Q2: a session whose id array names a task the sender no longer has syncs without it', () => {
+    b.prepare(
+      `INSERT INTO tasks_sessions (id, name, tasks_created_json, tasks_completed_json)
+       VALUES ('ses-b', 's', '["T001"]', '["T999"]')`,
+    ).run();
+    const s = b.prepare("SELECT uid FROM tasks_sessions WHERE id='ses-b'").get() as { uid: string };
+    const wire = wireRowOf(b, 'tasks_sessions', s.uid);
+    expect(wire.jsonRefs?.tasks_completed_json).toEqual([]);
+    expect(receiveRow(a, wire).status).toBe('inserted');
+    expect(
+      a
+        .prepare(
+          "SELECT tasks_created_json AS created, tasks_completed_json AS completed FROM tasks_sessions WHERE id='ses-b'",
+        )
+        .get(),
+    ).toEqual({ created: '["T001"]', completed: '[]' });
+  });
+
+  it('Q3: an orphan recorded ac_uid never attaches to another criterion holding that uid', () => {
+    b.prepare(
+      "INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, text, kind, source_key) VALUES ('ac-b','T001',1,'b-text','text','text:1:b')",
+    ).run();
+    b.prepare(
+      "INSERT INTO tasks_evidence_ac_bindings (id, evidence_atom_id, ac_id, binding_type) VALUES ('bind-b','tool:test','ac-b','direct')",
+    ).run();
+    const acU = (
+      b.prepare("SELECT uid FROM tasks_task_acceptance_criteria WHERE id='ac-b'").get() as {
+        uid: string;
+      }
+    ).uid;
+    b.prepare("DELETE FROM tasks_task_acceptance_criteria WHERE id='ac-b'").run();
+    const bind = b
+      .prepare("SELECT uid FROM tasks_evidence_ac_bindings WHERE id='bind-b'")
+      .get() as {
+      uid: string;
+    };
+    // A holds a DIFFERENT criterion under the same uid (the other side of a collision).
+    a.prepare(
+      "INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, text, kind, source_key, uid, birth_fp) VALUES ('ac-a','T001',1,'a-text','text','text:1:a',?, 'other-fp')",
+    ).run(acU);
+    const wire = wireRowOf(b, 'tasks_evidence_ac_bindings', bind.uid);
+    expect(wire.refs?.ac_uid).toMatchObject({ uid: acU, gone: true });
+    expect(wire.refs?.ac_uid?.birthFp).not.toBe('other-fp');
+    expect(receiveRow(a, wire)).toMatchObject({ status: 'held', reason: 'ref-pending' });
+    expect(
+      a.prepare("SELECT count(*) AS n FROM tasks_evidence_ac_bindings WHERE id='bind-b'").get(),
+    ).toEqual({
+      n: 0,
+    });
+    // A reference that names a uid but no fingerprint never matches a minted row.
+    expect(
+      receiveRow(a, {
+        ...wire,
+        uid: 'no-fp',
+        refs: { ...wire.refs, ac_uid: { uid: acU, birthFp: null } },
+      }),
+    ).toMatchObject({ status: 'held', reason: 'ref-pending' });
+  });
+
+  it('a row from a v1 sender (raw local keys in its values) is recognised and held', () => {
+    const t = b.prepare("SELECT uid FROM tasks_tasks WHERE id='T001'").get() as { uid: string };
+    const { version: _v, ...v1 } = wireRowOf(b, 'tasks_tasks', t.uid);
+    expect(
+      receiveRow(a, { ...v1, uid: 'from-v1', values: { ...v1.values, id: 'T777' } }),
+    ).toMatchObject({
+      status: 'held',
+      reason: 'unsupported-wire',
+    });
+    expect(listHeldRows(a).map((h) => [h.reason, h.contestedId])).toEqual([
+      ['unsupported-wire', 'wire v1'],
+    ]);
   });
 });

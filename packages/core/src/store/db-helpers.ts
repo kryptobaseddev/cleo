@@ -13,6 +13,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
+import { rethrowDependencyCycle } from './dependency-cycles.js';
 import { rowUidFillEnabled } from './row-identity-flag.js';
 import type { NewTaskRow } from './tasks-schema.js';
 import * as schema from './tasks-schema.js';
@@ -510,7 +511,13 @@ export async function batchUpdateDependencies(
   }
 
   if (added.length > 0) {
-    await db.insert(schema.taskDependencies).values(added).onConflictDoNothing().run();
+    // T12886: the cycle-guard trigger refuses an edge that closes a cycle;
+    // rethrowDependencyCycle names the cycle for the caller.
+    try {
+      await db.insert(schema.taskDependencies).values(added).onConflictDoNothing().run();
+    } catch (err) {
+      rethrowDependencyCycle(db, err, added);
+    }
   }
 }
 

@@ -25,7 +25,7 @@ Skills and templates SHOULD reference this file instead of hardcoding CLEO comma
 
 **Purpose**: Mark task as active/in-progress.
 
-**CLEO Default**: `cleo start {{TASK_ID}}`
+**CLEO Default**: `cleo start {{TASK_ID}}`. If `cleo start` fails with `E_SESSION_UNBOUND` (spawned workers and subagents are already bound), run `cleo session start --scope global --name "<name>"` or `cleo session resume <id>` first.
 
 ### Complete Task
 

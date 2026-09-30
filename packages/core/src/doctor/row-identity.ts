@@ -18,8 +18,11 @@ import { resolveDualScopeDbPath } from '../store/dual-scope-db.js';
 import { openCleoDbSnapshot } from '../store/open-cleo-db.js';
 import {
   BIRTH_FP_COLUMN,
+  missingRowIdentitySchema,
   ROW_IDENTITY,
   type RowIdentityFindings,
+  type RowIdentityHealReceipt,
+  readRowIdentityHealReceipt,
   rowIdentityFindings,
   UID_COLUMN,
 } from '../store/row-identity.js';
@@ -42,16 +45,40 @@ export interface RowIdentityDoctorCheck {
  * @task T12341
  */
 export function rowIdentityDoctorCheck(projectRoot: string): RowIdentityDoctorCheck {
-  if (!rowUidFillEnabled()) {
-    return {
-      check: 'row_identity',
-      status: 'ok',
-      message: `row uids are off (set ${ROW_UID_FILL_FLAG}=1 to enable them)`,
-    };
-  }
   const dbPath = resolveDualScopeDbPath('project', projectRoot);
   if (!existsSync(dbPath)) {
     return { check: 'row_identity', status: 'ok', message: 'no project store yet' };
+  }
+  // T12878: the identity SCHEMA is checked whatever the fill flag; every open
+  // heals it and leaves a receipt, shown here.
+  let missing: string[] = [];
+  let receipt: RowIdentityHealReceipt | undefined;
+  try {
+    const snap = openCleoDbSnapshot(dbPath, { readOnly: true });
+    try {
+      missing = missingRowIdentitySchema(snap.db);
+      receipt = readRowIdentityHealReceipt(snap.db);
+    } finally {
+      snap.close();
+    }
+  } catch {
+    // Unreadable here: the fill branch below reports it when the flag is on.
+  }
+  const schemaNote =
+    missing.length > 0
+      ? `identity schema incomplete (${missing.join(', ')}); the next open by a released build heals it`
+      : receipt
+        ? `identity schema healed on ${receipt.at} (${receipt.objects.join(', ')})`
+        : '';
+  const schemaDetails = { missingSchema: missing, healReceipt: receipt ?? null };
+  if (!rowUidFillEnabled()) {
+    const off = `row uids are off (set ${ROW_UID_FILL_FLAG}=1 to enable them)`;
+    return {
+      check: 'row_identity',
+      status: missing.length > 0 ? 'warning' : 'ok',
+      message: schemaNote ? `${off}; ${schemaNote}` : off,
+      details: schemaDetails,
+    };
   }
   let unfilled: Record<string, number>;
   let findings: RowIdentityFindings;
@@ -88,6 +115,7 @@ export function rowIdentityDoctorCheck(projectRoot: string): RowIdentityDoctorCh
       .map(([table, n]) => `${table} (${n})`)
       .join(', ');
   const parts = [
+    missing.length > 0 ? schemaNote : '',
     Object.keys(unfilled).length > 0
       ? `rows without a uid or birth fingerprint, filled at the next open: ${list(unfilled)}`
       : '',
@@ -101,8 +129,9 @@ export function rowIdentityDoctorCheck(projectRoot: string): RowIdentityDoctorCh
       ? `symmetric relations stored in both directions (duplicates to drop): ${list(findings.mirrorEdges)}`
       : '',
   ].filter(Boolean);
-  const details = { dbPath, unfilled, findings };
+  const details = { dbPath, unfilled, findings, ...schemaDetails };
+  const ok = receipt ? `every row has a uid; ${schemaNote}` : 'every row has a uid';
   return parts.length > 0
     ? { check: 'row_identity', status: 'warning', message: parts.join('; '), details }
-    : { check: 'row_identity', status: 'ok', message: 'every row has a uid', details };
+    : { check: 'row_identity', status: 'ok', message: ok, details };
 }

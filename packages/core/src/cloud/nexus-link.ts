@@ -51,6 +51,8 @@ import {
   resolveNexusApiUrl,
 } from './nexus-auth.js';
 import { FileNexusTokenStore } from './nexus-credentials.js';
+import { isNexusDeviceEnabled, type NexusDeviceStore } from './nexus-device.js';
+import { ensureNexusDeviceCredential, nexusApiErrorToAccountError } from './nexus-enrol.js';
 import { registerProject } from './projects.js';
 
 /** File name of the binding, inside the project's `.cleo/` directory. */
@@ -82,6 +84,8 @@ export interface NexusLinkOptions extends NexusFlowOptions {
   projectRoot?: string;
   /** Label to register (`--label`); defaults to {@link getProjectDisplayName}. */
   label?: string;
+  /** Device store (with `CLEO_NEXUS_DEVICE=1`); defaults to `<cleoHome>/nexus-device.json`. */
+  deviceStore?: NexusDeviceStore;
 }
 
 /**
@@ -198,6 +202,30 @@ function toLinkError(err: unknown): Error {
 }
 
 /**
+ * `POST /v1/projects`, retried once on 409 `project-id-taken` (contract
+ * §4.0.4, N3): the same new project id was registered concurrently, so the
+ * retry takes the existing-project path (200, or `project-other-account` when
+ * another account won).
+ */
+async function registerProjectOnce(
+  http: Http,
+  req: Parameters<typeof registerProject>[1],
+): Promise<Awaited<ReturnType<typeof registerProject>>> {
+  try {
+    return await registerProject(http, req);
+  } catch (err) {
+    if (
+      err instanceof NexusError &&
+      err.status === 409 &&
+      err.details?.['reason'] === 'project-id-taken'
+    ) {
+      return registerProject(http, req);
+    }
+    throw err;
+  }
+}
+
+/**
  * Register the project with Nexus (label only, never a path) and persist the
  * binding in `.cleo/nexus-link.json`. Idempotent.
  *
@@ -211,7 +239,26 @@ export async function linkProjectToNexus(
 ): Promise<NexusProjectLinkResult> {
   const apiUrl = resolveNexusApiUrl(opts.apiUrl);
   const store = opts.store ?? new FileNexusTokenStore();
-  const session = await requireNexusSession(apiUrl, store);
+  const deviceMode = isNexusDeviceEnabled();
+  // With CLEO_NEXUS_DEVICE=1 the device credential is used, upgrading a 9.24
+  // session first (contract §3.4); otherwise the 9.24 session, as before.
+  const bearer = deviceMode
+    ? (
+        await ensureNexusDeviceCredential({
+          apiUrl,
+          store,
+          ...(opts.fetch ? { fetch: opts.fetch } : {}),
+          ...(opts.deviceStore ? { deviceStore: opts.deviceStore } : {}),
+        })
+      ).device.currentBearer()
+    : (await requireNexusSession(apiUrl, store)).bearer();
+  if (bearer === null) {
+    throw new NexusAccountError(
+      'E_NEXUS_NOT_SIGNED_IN',
+      `not signed in to Cleo Nexus at ${apiUrl}`,
+      'run `cleo login nexus`',
+    );
+  }
 
   let projectRoot: string;
   try {
@@ -236,14 +283,14 @@ export async function linkProjectToNexus(
 
   const http = new Http({
     baseUrl: apiUrl,
-    token: session.bearer(),
+    token: bearer,
     ...(opts.fetch ? { fetch: opts.fetch } : {}),
   });
   let registered: Awaited<ReturnType<typeof registerProject>>;
   try {
-    registered = await registerProject(http, { projectId, label });
+    registered = await registerProjectOnce(http, { projectId, label });
   } catch (err) {
-    throw toLinkError(err);
+    throw deviceMode ? nexusApiErrorToAccountError(err) : toLinkError(err);
   }
 
   const linkPath = nexusLinkPath(projectRoot);

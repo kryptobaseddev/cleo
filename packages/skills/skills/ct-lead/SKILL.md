@@ -2,13 +2,13 @@
 name: ct-lead
 description: "Phase Lead orchestration playbook for spawning and supervising a parallel worker swarm in one wave. Use when spawned by ct-orchestrator with role=orchestrator to fan out N leaf workers via delegate_task, drain the epic-{TID}.wave-{n} conduit topic plus pipeline_manifest, await rollupWaveStatus convergence, and return ONE rolled-up contract string to the parent Orchestrator. Triggers: 'phase lead', 'wave lead', 'supervise wave', 'fan out workers', 'aggregate worker results', 'rollup wave', any task with role=orchestrator that is itself a child of another orchestrator. Implements ADR-070 hierarchical orchestration."
 metadata:
-  version: 1.0.7
+  version: 1.0.8
   tier: core
   install: harness
   covers:
     - packages/core/src/orchestration/lead-rollup.ts
     - packages/core/src/orchestration/waves.ts
-  lastReviewed: 2026-09-29
+  lastReviewed: 2026-09-30
   stability: stable
 ---
 
@@ -68,6 +68,9 @@ cleo conduit subscribe --topic "epic-${EPIC}.wave-${WAVE}"
 cleo orchestrate ready "${EPIC}"
 cleo orchestrate waves "${EPIC}"
 ```
+
+Run these from the epic's project root (or a worktree of it): member order within
+a wave uses the calling session's focus phase, resolved from that project (T12501).
 
 ### 2. Parallel Fanout (one batch)
 

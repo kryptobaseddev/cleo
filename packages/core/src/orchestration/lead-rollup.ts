@@ -196,7 +196,13 @@ export async function rollupWaveStatus(
   }
   // T12682: the plan `cleo orchestrate waves` prints — same dependency
   // lookup, same 1-based numbers — never a second, differently indexed one.
-  const { children, waves } = await planEpicWaves(epicId, accessor, [epicId], options.ranking);
+  const { children, waves } = await planEpicWaves(
+    epicId,
+    accessor,
+    [epicId],
+    options.ranking,
+    projectRoot,
+  );
   const wave = waves.find((w) => w.waveNumber === waveId);
   if (!wave) {
     return {
@@ -353,8 +359,9 @@ export async function rollupEpicStatus(
 ): Promise<EpicRollup> {
   const accessor = await getTaskAccessor(projectRoot);
   // T12692: load the project-wide ranking context ONCE, not once per wave.
-  const ranking = options.ranking ?? (await loadRankingContext(accessor)).ctx;
-  const { waves } = await planEpicWaves(epicId, accessor, [epicId], ranking);
+  const ranking =
+    options.ranking ?? (await loadRankingContext(accessor, undefined, { cwd: projectRoot })).ctx;
+  const { waves } = await planEpicWaves(epicId, accessor, [epicId], ranking, projectRoot);
 
   const waveRollups: WaveRollup[] = [];
   for (const wave of waves) {

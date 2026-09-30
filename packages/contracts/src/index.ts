@@ -2993,6 +2993,7 @@ export type {
   NexusAccountOrganization,
   NexusAccountStatus,
   NexusAccountUser,
+  NexusLoginDevice,
   NexusLoginResult,
   NexusLogoutResult,
   NexusProjectLink,

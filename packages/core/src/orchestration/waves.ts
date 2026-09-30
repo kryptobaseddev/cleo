@@ -302,6 +302,7 @@ async function loadDependencyClosure(
  *   `cleo next` and `orchestrate waves` use is loaded once (`loadRankingContext`),
  *   so every wave surface orders members identically (T12692). Pass it in when
  *   planning several waves or epics in one call.
+ * @param cwd - Project root, for the ranking context's focus phase (T12501).
  * @returns The selected children, the dependency lookup and the waves.
  * @task T12682
  * @task T12692
@@ -311,6 +312,7 @@ export async function planEpicWaves(
   accessor: DataAccessor,
   parentIds: readonly string[] = [epicId],
   ranking?: ScoreTaskContext,
+  cwd?: string,
 ): Promise<{ children: Task[]; taskMap: Map<string, Task>; waves: Wave[] }> {
   const selected = new Map<string, Task>();
   for (const parentId of new Set(parentIds)) {
@@ -318,7 +320,7 @@ export async function planEpicWaves(
   }
   const children = [...selected.values()];
   const taskMap = await loadDependencyClosure(children, accessor);
-  const ctx = ranking ?? (await loadRankingContext(accessor)).ctx;
+  const ctx = ranking ?? (await loadRankingContext(accessor, undefined, { cwd })).ctx;
   return {
     children,
     taskMap,
@@ -358,7 +360,7 @@ export async function getEnrichedWaves(
   ranking?: ScoreTaskContext,
 ): Promise<{ epicId: string; waves: EnrichedWave[]; totalWaves: number; totalTasks: number }> {
   const acc = accessor ?? (await getTaskAccessor(cwd));
-  const { children, taskMap, waves } = await planEpicWaves(epicId, acc, parentIds, ranking);
+  const { children, taskMap, waves } = await planEpicWaves(epicId, acc, parentIds, ranking, cwd);
 
   const enrichedWaves: EnrichedWave[] = waves.map((w) => {
     const enrichedTasks = w.tasks.map((id) => enrichTask(id, taskMap));

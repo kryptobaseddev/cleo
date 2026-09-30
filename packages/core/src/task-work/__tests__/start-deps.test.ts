@@ -4,7 +4,12 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
+import {
+  bindTestSession,
+  createTestDb,
+  seedTasks,
+  type TestDbEnv,
+} from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { startTask } from '../index.js';
 
@@ -14,6 +19,8 @@ describe('startTask dependency enforcement', () => {
 
   beforeEach(async () => {
     env = await createTestDb();
+    // T12501: focus writes need a bound session.
+    await bindTestSession(env);
     accessor = env.accessor;
   });
 
