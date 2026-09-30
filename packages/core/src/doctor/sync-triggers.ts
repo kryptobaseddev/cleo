@@ -11,7 +11,7 @@
  *   differs from its owned DDL (for example without its suspension clause);
  * - a capture trigger (`_sync_cap_*`) while `_sync_capture` is missing.
  *
- * The repair is the open pass itself: any `cleo` command against the project
+ * The repair is the next open (the open pass itself): any `cleo` command against the project
  * recreates the table (step 0) and re-runs the owned DDL of every differing
  * trigger. A store whose journal has not reached the C2 migration yet is
  * reported as pending, not broken.
@@ -55,7 +55,7 @@ export interface SyncTriggersReport {
 }
 
 const FIX =
-  "Run any 'cleo' command in this project: the open pass recreates cleo_trigger_suspend and repairs owned triggers from their migration DDL";
+  "The next open repairs it: run any 'cleo' command in this project, and the open pass recreates cleo_trigger_suspend (before migrations) and re-runs the owned DDL of every differing trigger";
 
 /** Inspect the project store's triggers. Read-only. */
 export function inspectSyncTriggers(projectRoot: string): SyncTriggersReport {

@@ -40,6 +40,7 @@
  * @module store/migration-runner
  */
 
+import { basename } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { MigrationMeta } from 'drizzle-orm/migrator';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
@@ -88,6 +89,36 @@ export interface MigrationLineage {
     readonly logSubsystem: string;
     readonly siblings?: readonly string[];
   };
+}
+
+/**
+ * Legacy lineages the runner refuses by folder name (cleo-dev ruling on the
+ * S2 runner scope, 2026-09-30). They keep `migrateWithRetry` in their own
+ * binders (`sqlite.ts`, `memory-sqlite.ts`, `nexus-sqlite.ts`,
+ * `conduit-sqlite.ts`, …); only the consolidated `cleo.db` lineages run
+ * bracketed.
+ */
+export const LEGACY_LINEAGES: ReadonlySet<string> = new Set([
+  'drizzle-tasks',
+  'drizzle-brain',
+  'drizzle-nexus',
+  'drizzle-conduit',
+  'drizzle-agent-registry',
+  'drizzle-skills',
+  'drizzle-telemetry',
+  'drizzle-signaldock',
+]);
+
+/** A legacy lineage was handed to the runner. */
+export class LegacyLineageRefusedError extends Error {
+  readonly code = 'E_MIGRATION_RUNNER_LEGACY_LINEAGE';
+
+  constructor(readonly lineage: string) {
+    super(
+      `The bracketed migration runner runs only the consolidated cleo.db lineages; refusing legacy lineage ${lineage}`,
+    );
+    this.name = 'LegacyLineageRefusedError';
+  }
 }
 
 /** What {@link runBracketedMigrations} did. */
@@ -478,6 +509,10 @@ export function runBracketedMigrations(
   const applied: string[] = [];
   const rebuilds: string[] = [];
   let hooked = false;
+  for (const lineage of lineages) {
+    const name = basename(lineage.folder.replace(/[\\/]+$/, ''));
+    if (LEGACY_LINEAGES.has(name)) throw new LegacyLineageRefusedError(name);
+  }
   for (const lineage of lineages) {
     const raw = readMigrationFiles({ migrationsFolder: lineage.folder });
     // T12687: a worktree build never applies its migrations to a foreign store.

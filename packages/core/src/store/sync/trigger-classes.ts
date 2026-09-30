@@ -20,10 +20,12 @@
  * open pass and the doctor compare each owned trigger's LIVE text with that
  * DDL and re-run the DDL when it differs or is missing (C2(b)).
  *
- * A trigger on a `frozen-legacy` table is `frozen-guard` whatever its name:
- * a rebase never touches a frozen twin, and giving such a trigger a clause
- * would make 9.24's replace-if-text-differs (`twin-collapse.ts`) and this
- * build's repair flip its DDL on every open that alternates builds (D4).
+ * A trigger is `frozen-guard` ONLY because of the table it fires ON: a
+ * `frozen-legacy` bare twin. A rebase never touches a frozen twin, and giving
+ * such a trigger a clause would make 9.24's replace-if-text-differs
+ * (`twin-collapse.ts`) and this build's repair flip its DDL on every open
+ * that alternates builds (D4). Its name never decides: a trigger on a live
+ * table (even one named `t12535_*`) is owned, or unclassified.
  *
  * @task T12819
  * @task T12827
@@ -154,9 +156,6 @@ export function classifyTrigger(
       class: 'frozen-guard',
       reason: 'on a frozen-legacy bare twin: no clause, never rewritten (D4)',
     };
-  }
-  if (name.startsWith('t12535_freeze_')) {
-    return { name, table, class: 'frozen-guard', reason: 'twin-collapse freeze trigger (D4)' };
   }
   const owned = OWNED_TRIGGERS[name];
   if (owned !== undefined) {

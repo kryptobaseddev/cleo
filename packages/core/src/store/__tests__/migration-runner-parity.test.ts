@@ -28,6 +28,7 @@ import { drizzle } from 'drizzle-orm/node-sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { migrateSanitized, migrateWithRetry, reconcileJournal } from '../migration-manager.js';
 import {
+  LegacyLineageRefusedError,
   migrateBracketed,
   PINNED_DRIZZLE_VERSION,
   runBracketedMigrations,
@@ -270,18 +271,33 @@ describe('journal parity with migrateSync', () => {
   });
 
   it('two folders sharing one journal (migration-sqlite shape)', () => {
+    // A second lineage under a non-legacy name (the runner refuses legacy
+    // lineages by name): a copy of drizzle-tasks.
+    const second = join(dir, 'second-lineage');
+    cpSync(TASKS, second, { recursive: true });
     const a = open(join(dir, 'a.db'));
     const b = open(join(dir, 'b.db'));
     migrateSanitized(wrap(a), { migrationsFolder: PROJECT });
-    migrateSanitized(wrap(a), { migrationsFolder: TASKS });
-    runBracketedMigrations(b, wrap(b), [{ folder: PROJECT }, { folder: TASKS }]);
+    migrateSanitized(wrap(a), { migrationsFolder: second });
+    runBracketedMigrations(b, wrap(b), [{ folder: PROJECT }, { folder: second }]);
     expectParity(a, b);
-    for (const folder of [PROJECT, TASKS]) {
+    for (const folder of [PROJECT, second]) {
       const pending = getMigrationsToRun({
         localMigrations: readMigrationFiles({ migrationsFolder: folder }),
         dbMigrations: journal(b) as never,
       });
       expect(pending).toEqual([]);
     }
+  });
+});
+
+describe('scope', () => {
+  it('refuses a legacy lineage by name, before touching the store', () => {
+    const b = open(join(dir, 'b.db'));
+    expect(() =>
+      runBracketedMigrations(b, wrap(b), [{ folder: PROJECT }, { folder: TASKS }]),
+    ).toThrow(LegacyLineageRefusedError);
+    expect(schema(b)).toEqual([]);
+    expect(() => migrateBracketed(wrap(b), b, TASKS, 'tasks', LOG)).toThrow(/drizzle-tasks/);
   });
 });

@@ -505,11 +505,21 @@ export async function openDualScopeDb(
     : open();
 }
 
-/** `PRAGMA foreign_keys` of a handle (0 or 1). */
-function readForeignKeysPragma(nativeDb: DatabaseSync): number {
-  return Number(
+/**
+ * Assert a chokepoint handle has `foreign_keys = 1`, at open, after the
+ * schema pass; never per transaction (NEW-6, T12786). Every chokepoint
+ * handle is ON: `applyPerfPragmas` sets it outside vitest, and `node:sqlite`
+ * opens with foreign keys enabled when the pragma is skipped (vitest), so a
+ * test runs on the same mode production does.
+ *
+ * @throws {ForeignKeysNotRestoredError} `E_STORE_FK_OFF` when it is off.
+ */
+export function assertHandleForeignKeys(nativeDb: DatabaseSync): void {
+  const expected = 1;
+  const actual = Number(
     (nativeDb.prepare('PRAGMA foreign_keys').get() as { foreign_keys: number }).foreign_keys,
   );
+  if (actual !== expected) throw new ForeignKeysNotRestoredError(expected, actual);
 }
 
 /**
@@ -549,7 +559,6 @@ function migrateScopeSchema(
     }
   }
   execution?.assertActive();
-  const fkBefore = readForeignKeysPragma(nativeDb);
   migrateBracketed(
     db,
     nativeDb,
@@ -558,11 +567,8 @@ function migrateScopeSchema(
     `dual-scope-db[${scope}]`,
     resolveConsolidatedJournalSiblings(migrationsSetName(scope)),
   );
-  // NEW-6: the handle leaves the schema pass with the foreign-key mode it
-  // was configured with (ON outside vitest, where fixtures may run it off).
-  const fkAfter = readForeignKeysPragma(nativeDb);
-  const expected = process.env.VITEST ? fkBefore : 1;
-  if (fkAfter !== expected) throw new ForeignKeysNotRestoredError(expected, fkAfter);
+  // NEW-6: the handle leaves the schema pass in its configured FK mode.
+  assertHandleForeignKeys(nativeDb);
   execution?.assertActive();
   if (scope === 'project') {
     const findings = verifyOwnedTriggers(nativeDb, { repair: true });
