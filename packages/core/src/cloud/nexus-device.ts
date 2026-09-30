@@ -28,8 +28,10 @@
  * - **Owner-only.** The file is created 0600 (`O_EXCL | O_NOFOLLOW`). Every
  *   read opens it without following links and checks the open descriptor:
  *   a regular file, one link, owned by this user, no group or other bits.
- *   The directory must be owned by this user and not group- or
- *   world-writable. Each refusal names the fix.
+ *   The CLEO home must be owned by this user, inside a parent no other user
+ *   can rewrite; a home the user owns that is group- or world-writable is
+ *   tightened with `chmod go-w` on the first write, with a warning in
+ *   {@link NexusDeviceTransaction.warnings}. Each refusal names the fix.
  * - **Locked, re-read, atomic.** Every mutation runs through
  *   {@link NexusDeviceStore.update}: it takes this store's own cross-process
  *   lock (about a minute of waiting, see {@link NexusDeviceStoreOptions}),
@@ -49,9 +51,15 @@
  *   with `AbortSignal.timeout(...)`, to every HTTP call made under the lock
  *   (E1, E8, E9, E10), so a hung request never holds the lock indefinitely.
  * - **No downgrade.** A file whose `version` is newer than this CLI knows is
- *   refused, never read as empty and never rewritten. A malformed file, or one
- *   whose secrets do not open under this machine's key, is refused the same
- *   way. Unknown fields of a known version, at any depth, are kept on rewrite.
+ *   refused, never read as empty and never rewritten. A malformed file is
+ *   refused the same way. Unknown fields of a known version, at any depth,
+ *   are kept on rewrite.
+ * - **Unreadable entries are carried, not dropped.** An entry whose secrets do
+ *   not open under this machine's key (copied in from another machine) is
+ *   written back byte-identical and never decrypted, rewritten or deleted.
+ *   Updates to other entries go ahead; only an operation on that entry fails
+ *   (`E_NEXUS_DEVICE_UNSEAL_FAILED`), and {@link NexusDeviceStore.list}
+ *   reports it as an {@link UnreadableNexusDevice}.
  * - **Sealed handles.** Nothing handed out prints a secret: entries from
  *   {@link NexusDeviceTransaction.get}, {@link SealedNexusDevice.unseal} and
  *   the `apply*` transitions carry non-enumerable `toJSON` and `util.inspect`
@@ -69,6 +77,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomBytes } from 'node:crypto';
 import {
+  chmodSync,
   closeSync,
   constants as fsConstants,
   fstatSync,
@@ -79,6 +88,7 @@ import {
   readdirSync,
   readFileSync,
   renameSync,
+  type Stats,
   statSync,
   unlinkSync,
   writeSync,
@@ -399,6 +409,8 @@ export function redactNexusDeviceEntry(entry: NexusDeviceEntry): Record<string, 
  * builds an `Authorization` header or signs with the device key.
  */
 export class SealedNexusDevice {
+  /** Always `true`: this entry opened under this machine's key. */
+  readonly readable = true;
   /** API origin. */
   readonly origin: string;
   /** Nexus user id. */
@@ -915,8 +927,44 @@ export interface NexusDeviceTransaction {
    * @throws {NexusDeviceStoreError} `E_NEXUS_DEVICE_LOCK_COMPROMISED` once the lock is lost.
    */
   flush(): Promise<void>;
-  /** Every (origin, userId) pair in the file. */
-  keys(): Array<{ readonly origin: string; readonly userId: string }>;
+  /**
+   * Every (origin, userId) pair in the file. `readable: false` marks an entry
+   * this machine's key cannot open: it is carried through untouched, and any
+   * `get`, `set` or `delete` on it fails with `E_NEXUS_DEVICE_UNSEAL_FAILED`.
+   */
+  keys(): Array<{ readonly origin: string; readonly userId: string; readonly readable: boolean }>;
+  /**
+   * One-line warnings from this transaction (for example, the CLEO home was
+   * tightened with `chmod go-w`). The caller puts them in its result envelope.
+   */
+  readonly warnings: readonly string[];
+}
+
+/** An entry this machine's key cannot open, as {@link NexusDeviceStore.list} reports it. No secrets. */
+export class UnreadableNexusDevice {
+  /** Always `false`: the entry could not be opened here. */
+  readonly readable = false;
+  /** API origin. */
+  readonly origin: string;
+  /** Nexus user id. */
+  readonly userId: string;
+  /** The device id stored in clear, when present. */
+  readonly deviceId: string | null;
+  /** Why it could not be opened. */
+  readonly reason: string;
+
+  /**
+   * @param origin - API origin.
+   * @param userId - Nexus user id.
+   * @param deviceId - The device id stored in clear, when present.
+   */
+  constructor(origin: string, userId: string, deviceId: string | null) {
+    this.origin = origin;
+    this.userId = userId;
+    this.deviceId = deviceId;
+    this.reason =
+      "sealed under another machine's key (copied from another machine or home); kept untouched";
+  }
 }
 
 /** Tuning for {@link NexusDeviceStore}. The defaults suit production; tests shorten them. */
@@ -965,26 +1013,36 @@ export class NexusDeviceStore {
    */
   async get(apiUrl: string, userId: string): Promise<SealedNexusDevice | null> {
     const origin = nexusOriginKey(apiUrl);
-    const sealed = this.readSealed().devices[origin]?.[userId];
+    const sealed = this.readSealed().file.devices[origin]?.[userId];
     if (!sealed) return null;
     return new SealedNexusDevice(origin, userId, await this.open(origin, userId, sealed));
   }
 
   /**
-   * Every entry, sealed, sorted by origin then user id.
+   * Every entry, sorted by origin then user id. An entry this machine's key
+   * cannot open is listed as an {@link UnreadableNexusDevice} (no secrets)
+   * instead of failing the whole listing.
    *
-   * @returns The sealed entries.
-   * @throws {NexusDeviceStoreError} On an unsafe, newer, malformed or foreign-sealed file.
+   * @returns The entries.
+   * @throws {NexusDeviceStoreError} On an unsafe, newer or malformed file.
    */
-  async list(): Promise<SealedNexusDevice[]> {
-    const out: SealedNexusDevice[] = [];
-    const devices = this.readSealed().devices;
+  async list(): Promise<Array<SealedNexusDevice | UnreadableNexusDevice>> {
+    const out: Array<SealedNexusDevice | UnreadableNexusDevice> = [];
+    const devices = this.readSealed().file.devices;
     for (const origin of Object.keys(devices).sort()) {
       const users = devices[origin] ?? {};
       for (const userId of Object.keys(users).sort()) {
         const sealed = users[userId];
-        if (sealed) {
+        if (!sealed) continue;
+        try {
           out.push(new SealedNexusDevice(origin, userId, await this.open(origin, userId, sealed)));
+        } catch (err) {
+          if (
+            !(err instanceof NexusDeviceStoreError && err.code === 'E_NEXUS_DEVICE_UNSEAL_FAILED')
+          ) {
+            throw err;
+          }
+          out.push(new UnreadableNexusDevice(origin, userId, sealed.deviceId));
         }
       }
     }
@@ -1022,7 +1080,9 @@ export class NexusDeviceStore {
         `update() on ${this.location} was called from inside another update() on the same file; do the work in the outer transaction`,
       );
     }
-    this.assertSafeDirectory();
+    const warnings: string[] = [];
+    const tightened = this.prepareDirectory();
+    if (tightened !== null) warnings.push(tightened);
     this.seed();
 
     const controller = new AbortController();
@@ -1057,7 +1117,7 @@ export class NexusDeviceStore {
 
     try {
       return await heldLocks.run(new Set([...(held ?? []), this.location]), () =>
-        this.transact(fn, controller.signal),
+        this.transact(fn, controller.signal, warnings),
       );
     } finally {
       try {
@@ -1072,16 +1132,39 @@ export class NexusDeviceStore {
   private async transact<R>(
     fn: (tx: NexusDeviceTransaction) => R | Promise<R>,
     signal: AbortSignal,
+    warnings: readonly string[],
   ): Promise<R> {
     this.sweepTempFiles();
-    const sealedState = this.readSealed();
+    const { file: sealedState, raw } = this.readSealed();
     const state: Record<string, Record<string, NexusDeviceEntry>> = {};
+    // Entries this machine's key cannot open: kept as their raw JSON and
+    // written back unchanged, never decrypted, rewritten or deleted.
+    const opaque: Record<string, Record<string, unknown>> = {};
     for (const [origin, users] of Object.entries(sealedState.devices)) {
-      state[origin] = {};
       for (const [userId, sealed] of Object.entries(users)) {
-        state[origin][userId] = await this.open(origin, userId, sealed);
+        try {
+          state[origin] = {
+            ...(state[origin] ?? {}),
+            [userId]: await this.open(origin, userId, sealed),
+          };
+        } catch (err) {
+          if (
+            !(err instanceof NexusDeviceStoreError && err.code === 'E_NEXUS_DEVICE_UNSEAL_FAILED')
+          ) {
+            throw err;
+          }
+          opaque[origin] = { ...(opaque[origin] ?? {}), [userId]: rawEntry(raw, origin, userId) };
+        }
       }
     }
+    const refuseOpaque = (origin: string, userId: string): void => {
+      if (opaque[origin]?.[userId] !== undefined) {
+        throw new NexusDeviceStoreError(
+          'E_NEXUS_DEVICE_UNSEAL_FAILED',
+          `the Nexus device entry for ${origin} could not be opened with this machine's key and is kept untouched: ${this.location}. Run \`cleo login nexus\` against another origin or account, or remove the entry by hand`,
+        );
+      }
+    };
     let dirty = false;
     const assertLive = (): void => {
       if (signal.aborted) {
@@ -1093,7 +1176,7 @@ export class NexusDeviceStore {
     const flush = async (): Promise<void> => {
       assertLive();
       if (!dirty) return;
-      const sealed = await this.seal(sealedState, state);
+      const sealed = await this.seal(sealedState, state, opaque);
       assertLive();
       this.writeAtomic(sealed);
       this.purgeBackups();
@@ -1101,12 +1184,16 @@ export class NexusDeviceStore {
     };
     const tx: NexusDeviceTransaction = {
       signal,
+      warnings,
       get: (apiUrl, userId) => {
-        const entry = state[nexusOriginKey(apiUrl)]?.[userId];
+        const origin = nexusOriginKey(apiUrl);
+        refuseOpaque(origin, userId);
+        const entry = state[origin]?.[userId];
         return entry ? guardedCopy(entry) : null;
       },
       set: (apiUrl, userId, entry) => {
         assertLive();
+        refuseOpaque(nexusOriginKey(apiUrl), userId);
         const parsed = entrySchema.safeParse(entry);
         if (!parsed.success) {
           throw new NexusDeviceStoreError(
@@ -1121,6 +1208,7 @@ export class NexusDeviceStore {
       delete: (apiUrl, userId, expected) => {
         assertLive();
         const origin = nexusOriginKey(apiUrl);
+        refuseOpaque(origin, userId);
         const users = state[origin];
         const entry = users?.[userId];
         if (!users || !entry) return false;
@@ -1132,10 +1220,14 @@ export class NexusDeviceStore {
         return true;
       },
       flush,
-      keys: () =>
-        Object.entries(state).flatMap(([origin, users]) =>
-          Object.keys(users).map((userId) => ({ origin, userId })),
+      keys: () => [
+        ...Object.entries(state).flatMap(([origin, users]) =>
+          Object.keys(users).map((userId) => ({ origin, userId, readable: true })),
         ),
+        ...Object.entries(opaque).flatMap(([origin, users]) =>
+          Object.keys(users).map((userId) => ({ origin, userId, readable: false })),
+        ),
+      ],
     };
     const result = await fn(tx);
     await flush();
@@ -1169,19 +1261,28 @@ export class NexusDeviceStore {
     return parsed.data;
   }
 
-  /** Seal the in-memory state into the on-disk form, keeping unknown top-level fields. */
+  /**
+   * Seal the in-memory state into the on-disk form, keeping unknown top-level
+   * fields, and put every unopenable entry back exactly as it was read.
+   */
   private async seal(
     base: SealedFile,
     state: Record<string, Record<string, NexusDeviceEntry>>,
-  ): Promise<SealedFile> {
-    const devices: SealedFile['devices'] = {};
+    opaque: Record<string, Record<string, unknown>>,
+  ): Promise<Record<string, unknown>> {
+    const devices: Record<string, Record<string, unknown>> = {};
+    for (const [origin, users] of Object.entries(opaque)) {
+      devices[origin] = { ...users };
+    }
     for (const [origin, users] of Object.entries(state)) {
-      devices[origin] = {};
       for (const [userId, entry] of Object.entries(users)) {
         const plain = entrySchema.parse(entry); // drops the non-enumerable guards
-        devices[origin][userId] = await mapSecrets(plain, (s) =>
-          encryptGlobal(s, sealId(origin, userId), { cleoHome: this.#cleoHome }),
-        );
+        devices[origin] = {
+          ...(devices[origin] ?? {}),
+          [userId]: await mapSecrets(plain, (s) =>
+            encryptGlobal(s, sealId(origin, userId), { cleoHome: this.#cleoHome }),
+          ),
+        };
       }
     }
     return { ...base, version: NEXUS_DEVICE_FILE_VERSION, devices };
@@ -1193,10 +1294,10 @@ export class NexusDeviceStore {
    * as a known version is refused, never read as empty, so it is never
    * overwritten.
    */
-  private readSealed(): SealedFile {
+  private readSealed(): { readonly file: SealedFile; readonly raw: unknown } {
     this.assertSafeDirectory();
     const raw = this.readPrivate();
-    if (raw === null || !raw.trim()) return emptyFile();
+    if (raw === null || !raw.trim()) return { file: emptyFile(), raw: emptyFile() };
     let json: unknown;
     try {
       json = JSON.parse(raw);
@@ -1221,7 +1322,7 @@ export class NexusDeviceStore {
         `the Nexus device file does not match format version ${NEXUS_DEVICE_FILE_VERSION} and was left untouched: ${this.location} (${issuesText(parsed.error)})`,
       );
     }
-    return parsed.data;
+    return { file: parsed.data, raw: json };
   }
 
   /**
@@ -1299,26 +1400,69 @@ export class NexusDeviceStore {
   }
 
   /**
-   * Refuse a directory that another user could use to replace the file:
-   * owned by someone else, or group- or world-writable (as ssh's StrictModes
-   * refuses `~/.ssh`). Skipped on Windows, where the profile ACL governs.
+   * Refuse a CLEO home another user could use to replace the file: one owned
+   * by someone else, or one inside a parent that another user owns and that
+   * is group- or world-writable without the sticky bit. A home owned by the
+   * caller that is group- or world-writable is allowed here: reads check the
+   * open descriptor, and {@link NexusDeviceStore.prepareDirectory} tightens
+   * it on the first write. Skipped on Windows, where the profile ACL governs.
+   *
+   * @returns The home's stat, or `null` when it does not exist (or on Windows).
    */
-  private assertSafeDirectory(): void {
-    if (process.platform === 'win32') return;
+  private assertSafeDirectory(): Stats | null {
+    if (process.platform === 'win32') return null;
     const dir = dirname(this.location);
     let st: ReturnType<typeof statSync>;
     try {
       st = statSync(dir);
     } catch {
-      return; // absent: created 0700 by seed()
+      return null; // absent: created 0700 by prepareDirectory()
     }
     const uid = typeof process.getuid === 'function' ? process.getuid() : null;
-    if (!st.isDirectory() || (uid !== null && st.uid !== uid) || (st.mode & 0o022) !== 0) {
+    if (!st.isDirectory() || (uid !== null && st.uid !== uid)) {
       throw new NexusDeviceStoreError(
         'E_NEXUS_DEVICE_DIR_UNSAFE',
-        `refusing to use ${this.location}: its directory ${dir} must be owned by you and not writable by group or others (it is ${(st.mode & 0o777).toString(8)}, owner uid ${st.uid}). Run: chmod go-w "${dir}"`,
+        `refusing to use ${this.location}: the CLEO home ${dir} must be a directory owned by you (it is owned by uid ${st.uid}). Fix its owner, for example: sudo chown "$(id -un)" "${dir}"`,
       );
     }
+    const parent = dirname(dir);
+    let pst: Stats | null = null;
+    try {
+      pst = statSync(parent);
+    } catch {
+      pst = null;
+    }
+    if (
+      pst !== null &&
+      uid !== null &&
+      pst.uid !== uid &&
+      (pst.mode & 0o022) !== 0 &&
+      (pst.mode & 0o1000) === 0
+    ) {
+      throw new NexusDeviceStoreError(
+        'E_NEXUS_DEVICE_DIR_UNSAFE',
+        `refusing to use ${this.location}: the CLEO home's parent ${parent} is owned by another user (uid ${pst.uid}) and writable by group or others, so the home could be replaced. Move the CLEO home (CLEO_HOME) somewhere you own`,
+      );
+    }
+    return st;
+  }
+
+  /**
+   * Before a write: create the CLEO home 0700 if it is missing, check it,
+   * and tighten a home the caller owns that is group- or world-writable with
+   * `chmod go-w` (the CLEO home is CLEO's own directory).
+   *
+   * @returns A one-line warning when the home was tightened, else `null`.
+   */
+  private prepareDirectory(): string | null {
+    const dir = dirname(this.location);
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const st = this.assertSafeDirectory();
+    if (st === null || (st.mode & 0o022) === 0) return null;
+    const before = st.mode & 0o7777;
+    const after = before & ~0o022;
+    chmodSync(dir, after);
+    return `W_NEXUS_DEVICE_HOME_TIGHTENED: the CLEO home ${dir} was writable by group or others (${before.toString(8)}); it was changed to ${after.toString(8)} (chmod go-w)`;
   }
 
   /**
@@ -1327,7 +1471,7 @@ export class NexusDeviceStore {
    * fsync the directory so the rename survives a crash. No backup copy is
    * made. On Windows a rename blocked by a scanner (EPERM, EBUSY) is retried.
    */
-  private writeAtomic(state: SealedFile): void {
+  private writeAtomic(state: Record<string, unknown>): void {
     const dir = dirname(this.location);
     const tmp = join(dir, `.${basename(this.location)}.${randomBytes(6).toString('hex')}.tmp`);
     const fd = openSync(
@@ -1360,8 +1504,6 @@ export class NexusDeviceStore {
    * `O_NOFOLLOW` close the window between the symlink check and the create.
    */
   private seed(): void {
-    mkdirSync(dirname(this.location), { recursive: true, mode: 0o700 });
-    this.assertSafeDirectory();
     let fd: number;
     try {
       fd = openSync(
@@ -1439,6 +1581,15 @@ export class NexusDeviceStore {
       }
     }
   }
+}
+
+/** The raw JSON value of one entry, exactly as it was parsed from the file. */
+function rawEntry(raw: unknown, origin: string, userId: string): unknown {
+  if (!isPlainObject(raw)) return undefined;
+  const devices = raw.devices;
+  if (!isPlainObject(devices)) return undefined;
+  const users = devices[origin];
+  return isPlainObject(users) ? users[userId] : undefined;
 }
 
 /** A fresh, empty file value. */

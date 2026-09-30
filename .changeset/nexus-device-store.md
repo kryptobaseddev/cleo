@@ -16,10 +16,15 @@ slots, and the unsettled requests of any device an entry replaced.
   is added beside it, and `nexusCredentialsPath()` now uses it (same path).
 - **Sealed at rest.** Tokens and private keys are encrypted under the machine
   key (id `nexus-device:<origin>:<userId>`), so a copied file opens nowhere
-  else. `cleo backup export` never includes the file, even encrypted.
+  else. `cleo backup export` never includes the file, even encrypted. The
+  first write creates the CLEO home's `machine-key` and `global-salt` if they
+  do not exist yet.
 - **Permissions.** Created 0600. Reads check the open descriptor (regular
-  file, one link, owner, mode). A group- or world-writable or foreign-owned
-  directory is refused. Each refusal names the fix.
+  file, one link, owner, mode). A CLEO home owned by another user, or inside
+  a parent another user can rewrite, is refused. A home the user owns that is
+  group- or world-writable is tightened with `chmod go-w` on the first write,
+  with a one-line warning in the transaction's `warnings`. Each refusal names
+  the fix.
 - **Locking.** The store has its own lock: it waits about a minute, gives a
   typed `E_NEXUS_DEVICE_BUSY`, refuses re-entry, and turns a lost lock into
   an aborted `tx.signal` and `E_NEXUS_DEVICE_LOCK_COMPROMISED` instead of an
@@ -28,9 +33,12 @@ slots, and the unsettled requests of any device an entry replaced.
   so a rotation's `pending` credential is on disk before E8 is sent. Writes go
   to a temp file that is fsynced and renamed; the directory is fsynced. No
   backups are made, and leftover temp files are swept.
-- **No downgrade.** A newer format version, a malformed file or an entry that
-  does not open under this machine's key is refused and left untouched.
-  Unknown fields are kept at every depth.
+- **No downgrade.** A newer format version or a malformed file is refused and
+  left untouched. Unknown fields are kept at every depth.
+- **Foreign entries are kept.** An entry that does not open under this
+  machine's key is carried through byte-identical; updates to other entries go
+  ahead, only operations on that entry fail (`E_NEXUS_DEVICE_UNSEAL_FAILED`),
+  and `list()` reports it as unreadable.
 - **Slots never drop a credential.** Sign-out and revoke put live credentials
   first and refuse rather than truncate. A login refuses to re-enrol a device
   whose revoke is unconfirmed. Promoting `pending` is a compare-and-swap.

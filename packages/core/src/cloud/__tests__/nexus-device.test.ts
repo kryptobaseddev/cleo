@@ -14,7 +14,6 @@
 import { randomBytes } from 'node:crypto';
 import {
   chmodSync,
-  copyFileSync,
   existsSync,
   linkSync,
   mkdirSync,
@@ -52,6 +51,7 @@ import {
   type NexusDeviceKeys,
   NexusDeviceStore,
   NexusDeviceStoreError,
+  type NexusDeviceTransaction,
   nexusDevicePath,
   redactNexusDeviceSecrets,
 } from '../nexus-device.js';
@@ -163,23 +163,56 @@ describe('sealed at rest (machine key)', () => {
     expect((await store.get(API, USER_A))?.currentBearer()).toBe(token);
   });
 
-  it('a file copied to another machine (another machine key) cannot be opened, and is left untouched', async () => {
+  it('a foreign entry is carried through byte-identical while a local entry is updated', async () => {
+    // Machine 1 enrols USER_A; machine 2 (another home, another machine key) enrols USER_B.
     await new NexusDeviceStore(location).update((tx) => tx.set(API, USER_A, enrolled()));
     const otherHome = join(dir, 'other');
     mkdirSync(otherHome, { mode: 0o700 });
-    const copy = join(otherHome, 'nexus-device.json');
-    copyFileSync(location, copy);
-    chmodSync(copy, 0o600);
-    const before = readFileSync(copy, 'utf-8');
+    const local = join(otherHome, 'nexus-device.json');
+    const other = new NexusDeviceStore(local);
+    await other.update((tx) => tx.set(API, USER_B, enrolled()));
 
-    const other = new NexusDeviceStore(copy);
+    // USER_A's sealed entry is copied into machine 2's file.
+    const foreign = JSON.parse(readFileSync(location, 'utf-8')).devices[ORIGIN][USER_A];
+    const json = JSON.parse(readFileSync(local, 'utf-8'));
+    json.devices[ORIGIN][USER_A] = foreign;
+    writeFileSync(local, JSON.stringify(json, null, 2), { mode: 0o600 });
+    const foreignBytes = JSON.stringify(foreign);
+
+    // Updating the local entry goes ahead; the foreign one is kept byte-identical.
+    await other.update((tx) => {
+      expect(tx.keys()).toContainEqual({ origin: ORIGIN, userId: USER_A, readable: false });
+      const e = tx.get(API, USER_B) as NexusDeviceEntry;
+      tx.set(API, USER_B, applyPendingRotation(e, mintToken()));
+    });
+    const after = JSON.parse(readFileSync(local, 'utf-8'));
+    expect(JSON.stringify(after.devices[ORIGIN][USER_A])).toBe(foreignBytes);
+    expect((await other.get(API, USER_B))?.pendingBearer()).not.toBeNull();
+
+    // Only operations on the foreign entry refuse.
     const err = await storeError(other.get(API, USER_A), 'E_NEXUS_DEVICE_UNSEAL_FAILED');
     expect(err.message).toContain('cleo login nexus');
-    await storeError(
-      other.update((tx) => tx.set(API, USER_B, enrolled())),
-      'E_NEXUS_DEVICE_UNSEAL_FAILED',
+    for (const op of [
+      (tx: NexusDeviceTransaction) => tx.get(API, USER_A),
+      (tx: NexusDeviceTransaction) => tx.set(API, USER_A, enrolled()),
+      (tx: NexusDeviceTransaction) =>
+        tx.delete(API, USER_A, { deviceId: foreign.deviceId, credentialId: null }),
+    ]) {
+      await storeError(other.update(op), 'E_NEXUS_DEVICE_UNSEAL_FAILED');
+    }
+    expect(JSON.stringify(JSON.parse(readFileSync(local, 'utf-8')).devices[ORIGIN][USER_A])).toBe(
+      foreignBytes,
     );
-    expect(readFileSync(copy, 'utf-8')).toBe(before);
+
+    // list() reports it as unreadable, without secrets.
+    const listed = await other.list();
+    const unreadable = listed.find((d) => d.userId === USER_A);
+    expect(unreadable?.readable).toBe(false);
+    expect(unreadable?.deviceId).toBe(foreign.deviceId);
+    expect(listed.find((d) => d.userId === USER_B)?.readable).toBe(true);
+    const shown = JSON.stringify(listed) + inspect(listed, { depth: 10 });
+    expect(shown).not.toContain(foreign.current.token);
+    expect(shown).not.toContain(foreign.keys.signing.privateKey);
   });
 
   it('an entry moved under another user id cannot be opened (the seal binds origin and user)', async () => {
@@ -260,21 +293,35 @@ describe('file and directory permissions', () => {
     expect(await store.get(API, USER_A)).not.toBeNull();
   });
 
-  it.skipIf(!posix)('refuses a group- or world-writable directory, with the fix', async () => {
-    for (const mode of [0o777, 0o775]) {
-      rmSync(home, { recursive: true, force: true });
-      mkdirSync(home);
-      chmodSync(home, mode);
-      const store = new NexusDeviceStore(location);
-      const err = await storeError(
-        store.update((tx) => tx.set(API, USER_A, enrolled())),
-        'E_NEXUS_DEVICE_DIR_UNSAFE',
-      );
-      expect(err.message).toContain('chmod go-w');
-      await storeError(store.get(API, USER_A), 'E_NEXUS_DEVICE_DIR_UNSAFE');
-      expect(existsSync(location)).toBe(false);
-    }
-  });
+  it.skipIf(!posix)(
+    'tightens a group- or world-writable home the caller owns, with a warning',
+    async () => {
+      for (const [mode, tightened] of [
+        [0o775, 0o755],
+        [0o777, 0o755],
+      ]) {
+        rmSync(home, { recursive: true, force: true });
+        mkdirSync(home);
+        chmodSync(home, mode);
+        const store = new NexusDeviceStore(location);
+        // A read does not change the home (the open descriptor is checked instead).
+        expect(await store.get(API, USER_A)).toBeNull();
+        expect(statSync(home).mode & 0o777).toBe(mode);
+
+        const warnings = await store.update((tx) => {
+          tx.set(API, USER_A, enrolled());
+          return tx.warnings;
+        });
+        expect(statSync(home).mode & 0o777).toBe(tightened);
+        expect(warnings).toHaveLength(1);
+        expect(warnings[0]).toContain('chmod go-w');
+        expect(warnings[0]).toContain(mode.toString(8));
+        expect(await store.get(API, USER_A)).not.toBeNull();
+        // Once tightened, later writes carry no warning.
+        expect(await store.update((tx) => tx.warnings)).toEqual([]);
+      }
+    },
+  );
 
   it.skipIf(!posix || process.getuid?.() === 0)(
     'maps an unwritable directory to a permissions error, not a symlink error',
