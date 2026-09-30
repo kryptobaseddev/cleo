@@ -2,7 +2,7 @@
 id: t12727-recover-pin-kodomeet
 tasks: [T12727]
 kind: fix
-summary: twin-collapse --recover reports and refuses an unpinned snapshot (--pin-snapshot), and restores a twin-only focus_state
+summary: twin-collapse --recover reports and refuses an unpinned snapshot (--pin-snapshot) and restores a twin-only focus_state; rotation never deletes a marker-referenced snapshot
 ---
 
 `cleo doctor twin-collapse --recover` now checks whether the pre-collapse
@@ -15,6 +15,13 @@ snapshot is pinned; an unpinned one is one rotation away from deletion.
   snapshot's `.meta.json` sidecar, never the snapshot.
 - The check runs before the store opens, because a collapse run while the store opens may pin the snapshot
   on its own.
+
+Backup rotation never deletes a pre-collapse snapshot that a twin-collapse
+marker references, whether it is pinned or not; 2026.9.21 wrote some without
+a pin. Such a snapshot does not count toward the rotation cap. If the markers
+cannot be read, rotation deletes nothing. Every store open still pins the
+marker's snapshot, creating its sidecar when there is none, and it only
+writes that sidecar once.
 
 A `focus_state` that only the twin held (the kodomeet shape), which 2026.9.21
 deleted outright, becomes live again when the store has had no `focus_state`
