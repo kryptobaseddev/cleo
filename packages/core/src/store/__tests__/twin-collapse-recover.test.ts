@@ -14,7 +14,15 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -355,6 +363,7 @@ describe('the pin check and the snapshot path (T12772)', () => {
     mkdirSync(elsewhere, { recursive: true });
     const foreign = join(elsewhere, 'cleo.db.migration-20260928-153200');
     writeFileSync(foreign, readFileSync(snapshotPath()));
+    rmSync(snapshotPath()); // no copy of that name in this store's backups (T12788)
     markersNaming(foreign);
     const digest = kvDigest();
     for (const o of [
@@ -362,9 +371,139 @@ describe('the pin check and the snapshot path (T12772)', () => {
       { ...opts(), pinSnapshot: true },
     ])
       await expect(recoverTwinCollapse(projectDir, o)).rejects.toThrow(
-        /E_TWIN_COLLAPSE_RECOVER: the marker names .*elsewhere.*, outside this store's backup directory/,
+        /E_TWIN_COLLAPSE_RECOVER: the marker names .*elsewhere.*, outside this store's backup directory .*does not exist/,
       );
     expect(existsSync(join(elsewhere, 'migration-20260928-153200.meta.json'))).toBe(false);
+    expect(kvDigest()).toBe(digest);
+  });
+});
+
+describe('a moved store: the snapshot is found by file name in its own backups (T12788)', () => {
+  /** Recreate the 9.21 state, then move the whole project directory, as /mnt → /home or Linux → Mac. */
+  async function movedStore(): Promise<{ oldSnapshot: string; snapshotSha: string }> {
+    await cleocodeShape();
+    const oldSnapshot = snapshotPath();
+    closeBrainDb();
+    resetDbState();
+    const moved = join(root, 'moved', 'project');
+    mkdirSync(join(root, 'moved'), { recursive: true });
+    renameSync(projectDir, moved);
+    projectDir = moved;
+    await getDb(projectDir);
+    await getBrainDb(projectDir);
+    expect(marker()).toBe(oldSnapshot); // the markers still name the old path
+    expect(existsSync(oldSnapshot)).toBe(false);
+    return { oldSnapshot, snapshotSha: sha(readFileSync(snapshotPath())) };
+  }
+  const marker = (): string | undefined =>
+    JSON.parse(meta('tasks_schema_meta', `${TWIN_COLLAPSE_MARKER_PREFIX}schema_meta`) ?? '{}')
+      .snapshot;
+  const repointAudit = () => join(projectDir, '.cleo', 'audit', 'twin-collapse-repoint.jsonl');
+
+  it('dry run uses the local file and writes nothing; apply recovers, re-points the markers, and audits it', async () => {
+    const { oldSnapshot, snapshotSha } = await movedStore();
+    const digest = kvDigest();
+    const dry = await recoverTwinCollapse(projectDir, { ...opts(), dryRun: true });
+    expect(dry.plan).toMatchObject({
+      snapshot: snapshotPath(),
+      movedFrom: oldSnapshot,
+      snapshotExists: true,
+      snapshotPinned: true,
+      changes: true,
+      focusNotesAdded: 1099,
+    });
+    expect(kvDigest()).toBe(digest);
+    expect(existsSync(repointAudit())).toBe(false);
+
+    const applied = await recoverTwinCollapse(projectDir, opts());
+    expect(applied.receipt).toMatchObject({ snapshot: snapshotPath(), focusNotesAdded: 1099 });
+    expect(applied.repointed).toEqual({
+      from: oldSnapshot,
+      to: snapshotPath(),
+      markers: [
+        `tasks_schema_meta:${TWIN_COLLAPSE_MARKER_PREFIX}schema_meta`,
+        `brain_schema_meta:${TWIN_COLLAPSE_MARKER_PREFIX}sticky_tags`,
+      ],
+    });
+    expect(marker()).toBe(snapshotPath());
+    const rows = readFileSync(repointAudit(), 'utf8')
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l));
+    expect(rows).toEqual([
+      expect.objectContaining({
+        operation: 'doctor twin-collapse --recover',
+        from: oldSnapshot,
+        to: snapshotPath(),
+      }),
+    ]);
+    expect(sha(readFileSync(snapshotPath()))).toBe(snapshotSha);
+
+    const again = await recoverTwinCollapse(projectDir, opts());
+    expect(again).toMatchObject({ receipt: null, repointed: null, plan: { movedFrom: null } });
+    expect(readFileSync(repointAudit(), 'utf8').trim().split('\n')).toHaveLength(1);
+  });
+
+  it('--pin-snapshot pins the local file; an unpinned refusal re-points and audits nothing', async () => {
+    await movedStore();
+    rmSync(sidecarPath());
+    await expect(recoverTwinCollapse(projectDir, opts())).rejects.toThrow(/is not pinned/);
+    expect(existsSync(repointAudit())).toBe(false);
+    const applied = await recoverTwinCollapse(projectDir, { ...opts(), pinSnapshot: true });
+    expect(applied.repointed?.to).toBe(snapshotPath());
+    expect(JSON.parse(readFileSync(sidecarPath(), 'utf8'))).toMatchObject({ pinned: true });
+  });
+
+  it('a store recovered before it moved is re-pointed on the next run, with nothing left to recover', async () => {
+    await cleocodeShape();
+    await recoverTwinCollapse(projectDir, opts());
+    const oldSnapshot = snapshotPath();
+    closeBrainDb();
+    resetDbState();
+    const moved = join(root, 'moved-later', 'project');
+    mkdirSync(join(root, 'moved-later'), { recursive: true });
+    renameSync(projectDir, moved);
+    projectDir = moved;
+    await getDb(projectDir);
+    await getBrainDb(projectDir);
+    const result = await recoverTwinCollapse(projectDir, opts());
+    expect(result).toMatchObject({
+      receipt: null,
+      plan: { changes: false },
+      repointed: { from: oldSnapshot, to: snapshotPath() },
+    });
+    expect(marker()).toBe(snapshotPath());
+  });
+
+  it('the apply refuses an unpinned snapshot before it re-points or audits anything', async () => {
+    const { oldSnapshot } = await movedStore();
+    rmSync(sidecarPath());
+    const snap = openCleoDbSnapshot(snapshotPath(), { readOnly: true, applyPragmas: false });
+    try {
+      const preview = planTwinCollapseRecovery(db(), snap.db, { snapshotPath: snapshotPath() });
+      expect(preview).toMatchObject({
+        movedFrom: oldSnapshot,
+        snapshotPinned: false,
+        changes: true,
+      });
+      const audited: unknown[] = [];
+      expect(() => applyTwinCollapseRecovery(db(), preview, (r) => audited.push(r))).toThrow(
+        /is not pinned/,
+      );
+      expect(audited).toEqual([]);
+      expect(marker()).toBe(oldSnapshot);
+    } finally {
+      snap.close();
+    }
+  });
+
+  it('a local file of that name that is not a SQLite snapshot is refused', async () => {
+    await movedStore();
+    writeFileSync(snapshotPath(), 'not a database');
+    const digest = kvDigest();
+    await expect(recoverTwinCollapse(projectDir, { ...opts(), dryRun: true })).rejects.toThrow(
+      /outside this store's backup directory .*is not a migration snapshot/,
+    );
     expect(kvDigest()).toBe(digest);
   });
 });

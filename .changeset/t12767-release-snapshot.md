@@ -25,3 +25,6 @@ cover references it.
 - The snapshot file itself is never touched, and it rotates normally
   afterwards.
 - Run from a git worktree, it needs `--confirm-owner-store`.
+- It releases only this store's own snapshot, one in `<db dir>/backups/sqlite/`
+  (T12772). A moved store's snapshot is found there by file name (T12788), and
+  the audit row records `movedFrom`.

@@ -14,7 +14,15 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
@@ -218,13 +226,14 @@ describe('refused before a recovery', () => {
     mkdirSync(elsewhere, { recursive: true });
     const foreign = join(elsewhere, `cleo.db.${ID}`);
     writeFileSync(foreign, readFileSync(snapshotPath()));
+    rmSync(snapshotPath()); // no copy of that name in this store's backups (T12788)
     markersNaming(foreign);
     for (const o of [
       { ...opts(), dryRun: true },
       { ...opts(), confirm: true },
     ])
       await expect(releaseProjectTwinCollapseSnapshot(projectDir, ID, o)).rejects.toThrow(
-        /E_TWIN_COLLAPSE_RELEASE: the marker names .*elsewhere.*, outside this store's backup directory/,
+        /E_TWIN_COLLAPSE_RELEASE: the marker names .*elsewhere.*, outside this store's backup directory .*does not exist/,
       );
     expect(marker('tasks_schema_meta', 'schema_meta').snapshot).toBe(foreign);
     expect(existsSync(join(elsewhere, `${ID}.meta.json`))).toBe(false);
@@ -306,6 +315,67 @@ describe('released after a recovery, or when nothing needed recovering', () => {
     expect(result.release).toMatchObject({ basis: 'no-recovery-needed' });
     expect(result.plan.receipts).toEqual([]);
     expect(marker('tasks_schema_meta', 'schema_meta').snapshot).toBeNull();
+  });
+});
+
+describe('a moved store (T12788)', () => {
+  /** Move the whole project directory, as /mnt → /home or Linux → Mac; the markers keep the old path. */
+  async function move(): Promise<string> {
+    const old = snapshotPath();
+    closeBrainDb();
+    resetDbState();
+    const moved = join(root, 'moved', 'project');
+    mkdirSync(join(root, 'moved'), { recursive: true });
+    renameSync(projectDir, moved);
+    projectDir = moved;
+    await getDb(projectDir);
+    await getBrainDb(projectDir);
+    expect(marker('tasks_schema_meta', 'schema_meta').snapshot).toBe(old);
+    return old;
+  }
+
+  it('releases the local file on a no-recovery-needed check, and audits where it moved from', async () => {
+    collapsedWithoutLoss();
+    const old = await move();
+    const dry = await releaseProjectTwinCollapseSnapshot(projectDir, ID, {
+      ...opts(),
+      dryRun: true,
+    });
+    expect(dry.plan).toMatchObject({
+      snapshot: snapshotPath(),
+      movedFrom: old,
+      exists: true,
+      basis: 'no-recovery-needed',
+      blockers: [],
+    });
+    const result = await releaseProjectTwinCollapseSnapshot(projectDir, ID, {
+      ...opts(),
+      confirm: true,
+    });
+    expect(result.release).toMatchObject({ snapshot: snapshotPath(), movedFrom: old });
+    expect(marker('tasks_schema_meta', 'schema_meta').snapshot).toBeNull();
+    expect(sidecar()).toMatchObject({ pinned: false });
+    const [row] = readFileSync(auditPath(), 'utf8')
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l));
+    expect(row).toMatchObject({ snapshot: snapshotPath(), movedFrom: old });
+  });
+
+  it('a store that still holds losses is refused until recovered, then released as recovered', async () => {
+    collapsedWithLoss();
+    await move();
+    await expect(
+      releaseProjectTwinCollapseSnapshot(projectDir, ID, { ...opts(), confirm: true }),
+    ).rejects.toThrow(/run --recover first/);
+    const { receipt } = await recoverTwinCollapse(projectDir, opts()); // also re-points the markers
+    expect(marker('tasks_schema_meta', 'schema_meta').snapshot).toBe(snapshotPath());
+    const result = await releaseProjectTwinCollapseSnapshot(projectDir, ID, {
+      ...opts(),
+      confirm: true,
+    });
+    expect(result.release).toMatchObject({ basis: 'recovered', movedFrom: null });
+    expect(result.plan.receipts).toEqual([receipt?.id]);
   });
 });
 
