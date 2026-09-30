@@ -41,6 +41,29 @@
  * be resolved statically. That is the known blind spot of a text scan and an
  * explicit follow-up (T12332 round 2).
  *
+ * ## Non-sync writers are exempt per (file, table), with a reason
+ *
+ * Only a write to a table that SYNCS has to reach the change journal
+ * (T12343). A raw write to a `local-only`, `derived` or `frozen-legacy`
+ * table (a schema stamp, a lease, a queue, an FTS5 index, a dropped twin) is
+ * exempt in {@link EXEMPT}, keyed by (file, table) with the exact site count
+ * and the reason. Never by class or by whole file: a file that later adds a
+ * write to a syncing table still fails. An entry EXPIRES, and the gate fails,
+ * when its table's class becomes portable: the write then needs an accessor.
+ * A count that moves either way fails too, until the entry is edited.
+ *
+ * ## Staged-snapshot sites are marked per site
+ *
+ * A few writers reach STAGED backup snapshots through file paths, never the
+ * live store (`credential-transfer.ts` redaction). Such a site stays raw. It
+ * carries the inline marker `// gate-28: staged-snapshot <function>` on the
+ * write's line or within the {@link MARKER_REACH} lines above it, naming the
+ * enclosing function, and an entry in {@link STAGED_SNAPSHOT} keyed by
+ * (file, table, function). A marker with no entry, an entry with no marker,
+ * or a marker naming the wrong function fails.
+ *
+ * Everything else (the sync-class sites) is the baselined ratchet above.
+ *
  * ## The chokepoint is not an offender
  *
  * The chokepoint is `openDualScopeDb` and the canonical accessors built on
@@ -51,12 +74,24 @@
  * words in prose are listed in {@link PROSE_ONLY} with the reason. Migration
  * `.sql` files are DDL history, not runtime writers, and are not scanned.
  *
+ * ## Drizzle builder writes (report only)
+ *
+ * `--drizzle-report` lists Drizzle builder writes (`db.insert(t)`,
+ * `.update(t)`, `.delete(t)`) whose table binding is declared on a syncing
+ * table, outside the sanctioned files. The binding is resolved by name from
+ * the schema modules, so it is a heuristic: it is reported, never gated
+ * (journal spec §4.6; it becomes a ratchet after wave W1).
+ *
  * Modes:
- *   (default) / --check   fail on a new offender or an un-dropped removal
+ *   (default) / --check   fail on a new offender, an un-dropped removal, or
+ *                         an exemption / marker that no longer holds
  *   --update-baseline     regenerate after a deliberate change
- *   --strict              zero tolerance: fail on ANY raw write site
+ *   --strict              zero tolerance: fail on ANY raw write site that is
+ *                         not exempt or marked
+ *   --drizzle-report      also list the Drizzle builder writes (report only)
  *
  * @task T12332
+ * @task T12343
  */
 
 import { execFileSync } from 'node:child_process';
@@ -103,32 +138,205 @@ export const PROSE_ONLY = new Map([
   ],
 ]);
 
+const SCHEMA_STAMP = 'schema-version stamp for this store file (local-only); never synced';
+const MIGRATION_JOURNAL =
+  'migration journal (local-only): which migrations THIS store applied; never synced';
+const NEXUS_META =
+  'nexus graph state (local-only): index stamps for this checkout, rebuilt by `cleo nexus analyze`';
+const DERIVER_QUEUE = 'deriver work queue (local-only): per-device background queue';
+const FTS5 = 'FTS5 index maintenance (derived): rebuilt from its base table, never synced';
+const FROZEN = 'frozen bare twin (frozen-legacy): dropped by T12535; no reader';
+
+/**
+ * Raw writers of NON-SYNC tables, exempt per (file, table): file → table →
+ * `{ count, reason }`. The count is exact. An entry whose table is portable
+ * (and not `frozen-legacy`) in either scope has EXPIRED and fails the gate.
+ * Keep entries sorted by file.
+ */
+export const EXEMPT = {
+  'crates/cleo-supervisor/src/lease_handler.rs': {
+    _writer_leases: {
+      count: 2,
+      reason: 'writer lease (local-only): a pid and a wall-clock expiry on this device',
+    },
+  },
+  'packages/cleo/src/cli/commands/doctor.ts': { tasks: { count: 1, reason: FROZEN } },
+  'packages/core/src/deriver/enqueue.ts': { deriver_queue: { count: 1, reason: DERIVER_QUEUE } },
+  'packages/core/src/deriver/queue-manager.ts': {
+    deriver_queue: { count: 5, reason: DERIVER_QUEUE },
+  },
+  'packages/core/src/doctor/knowledge.ts': { _nexus_meta: { count: 2, reason: NEXUS_META } },
+  'packages/core/src/llm/catalog-seeder.ts': {
+    __catalog_meta: {
+      count: 1,
+      reason: 'model catalog seed stamp (local-only): when THIS device last seeded models.dev',
+    },
+  },
+  'packages/core/src/memory/brain-search.ts': {
+    brain_decisions_fts: { count: 5, reason: FTS5 },
+    brain_learnings_fts: { count: 5, reason: FTS5 },
+    brain_observations_fts: { count: 5, reason: FTS5 },
+    brain_patterns_fts: { count: 5, reason: FTS5 },
+  },
+  'packages/core/src/memory/decision-cross-link.ts': {
+    _nexus_meta: { count: 1, reason: NEXUS_META },
+  },
+  'packages/core/src/nexus/analyze-orchestrator.ts': {
+    _nexus_meta: { count: 4, reason: NEXUS_META },
+    _nexus_parse_cache: {
+      count: 3,
+      reason: 'nexus parse cache (local-only): keyed by file stat on this checkout',
+    },
+    nexus_symbols_fts: { count: 1, reason: FTS5 },
+  },
+  'packages/core/src/nexus/assessment-store.ts': { _nexus_meta: { count: 3, reason: NEXUS_META } },
+  'packages/core/src/nexus/graph-manifest.ts': { _nexus_meta: { count: 3, reason: NEXUS_META } },
+  'packages/core/src/nexus/tasks-bridge.ts': { _nexus_meta: { count: 1, reason: NEXUS_META } },
+  'packages/core/src/sentient/ingesters/nexus-ingester.ts': {
+    nexus_schema_meta: { count: 2, reason: SCHEMA_STAMP },
+  },
+  'packages/core/src/store/agent-registry-store.ts': {
+    _agent_registry_meta: { count: 1, reason: SCHEMA_STAMP },
+  },
+  'packages/core/src/store/background-jobs.ts': {
+    background_jobs: {
+      count: 2,
+      reason: 'background job queue (local-only): pids and progress of jobs on this device',
+    },
+  },
+  'packages/core/src/store/conduit-sqlite.ts': {
+    _conduit_meta: { count: 1, reason: SCHEMA_STAMP },
+  },
+  'packages/core/src/store/exodus/migrate.ts': {
+    tasks_schema_meta: { count: 1, reason: SCHEMA_STAMP },
+  },
+  'packages/core/src/store/exodus/recovery.ts': {
+    _exodus_database_identity: {
+      count: 1,
+      reason: 'exodus recovery identity (local-only): names this store file during a migration',
+    },
+  },
+  'packages/core/src/store/legacy-tasks-lineage.ts': {
+    __drizzle_migrations: { count: 2, reason: MIGRATION_JOURNAL },
+  },
+  'packages/core/src/store/memory-sqlite.ts': {
+    brain_schema_meta: { count: 1, reason: SCHEMA_STAMP },
+  },
+  'packages/core/src/store/migrate-signaldock-to-conduit.ts': {
+    conduit_messages_fts: { count: 1, reason: FTS5 },
+  },
+  'packages/core/src/store/migration-manager.ts': {
+    __drizzle_migrations: { count: 5, reason: MIGRATION_JOURNAL },
+  },
+  'packages/core/src/store/nexus-sqlite.ts': {
+    nexus_schema_meta: { count: 1, reason: SCHEMA_STAMP },
+    nexus_symbols_fts: { count: 5, reason: FTS5 },
+  },
+  'packages/core/src/store/snapshot-gate.ts': {
+    tasks_schema_meta: { count: 1, reason: SCHEMA_STAMP },
+  },
+  'packages/core/src/store/sqlite.ts': { tasks_schema_meta: { count: 2, reason: SCHEMA_STAMP } },
+  'packages/core/src/tasks/backfill-child-projections.ts': {
+    task_acceptance_criteria: { count: 2, reason: FROZEN },
+    tasks: { count: 1, reason: FROZEN },
+  },
+  'packages/core/src/telemetry/sqlite.ts': {
+    telemetry_schema_meta: { count: 1, reason: SCHEMA_STAMP },
+  },
+};
+
+/** How many lines above a write its staged-snapshot marker may sit. */
+export const MARKER_REACH = 3;
+
+const MARKER_RE = /\/\/\s*gate-28:\s*staged-snapshot\s+([A-Za-z_$][\w$]*)/;
+
+/**
+ * Raw writes to STAGED backup snapshots (reached by file path, never the live
+ * store), per site: file → table → function → `{ count, reason }`. Each site
+ * also carries the inline marker `// gate-28: staged-snapshot <function>`.
+ * A syncing table's LIVE-store write never goes here: it moves behind an
+ * accessor (journal spec §4.6, wave W3).
+ */
+export const STAGED_SNAPSHOT = {
+  'packages/core/src/store/credential-transfer.ts': {
+    agent_registry_agents: {
+      redactCredentialCiphertexts: {
+        count: 1,
+        reason:
+          'blanks device-bound ciphertext in a staged backup snapshot; assertStagedCopy refuses a live store',
+      },
+    },
+    service_connections: {
+      redactCredentialCiphertexts: {
+        count: 1,
+        reason:
+          'blanks device-bound ciphertext in a staged backup snapshot; assertStagedCopy refuses a live store',
+      },
+    },
+    tasks_agent_credentials: {
+      redactCredentialCiphertexts: {
+        count: 1,
+        reason:
+          'blanks device-bound ciphertext in a staged backup snapshot; assertStagedCopy refuses a live store',
+      },
+    },
+  },
+};
+
 const SCAN_GLOBS = ['*.ts', '*.tsx', '*.mjs', '*.js', '*.rs'];
 const SCAN_SCOPE_DESCRIPTION =
   'packages/**, crates/** — *.ts, *.tsx, *.mjs, *.js, *.rs (excluding tests, dist/, .d.ts)';
 
 /**
- * Physical table names classified in the registry, both scopes.
+ * Every explicit registry entry, both scopes: physical name → one
+ * `{ scope, class, status }` per scope that lists it.
  *
  * Parsed from the registry SOURCE (the `*_TABLES` object literals), so the
  * gate needs no build and covers a new classification the moment it lands.
+ * An entry's own `class` and `status` come before its column overrides, so
+ * the first match in the entry body is the table's.
+ *
+ * @param {string} source - `table-classification.ts` contents.
+ * @returns {Map<string, Array<{ scope: string, class: string, status: string }>>}
  */
-function registryTables(source) {
-  const names = new Set();
+export function registryClasses(source) {
+  const out = new Map();
   const blocks = source.matchAll(
-    /const (?:PROJECT|GLOBAL)_TABLES: Readonly<Record<string, TableRegistryEntry>> = \{([\s\S]*?)\n\};/g,
+    /const (PROJECT|GLOBAL)_TABLES: Readonly<Record<string, TableRegistryEntry>> = \{([\s\S]*?)\n\};/g,
   );
-  for (const [, body] of blocks) {
-    for (const m of body.matchAll(/^ {2}(?:'([^']+)'|([A-Za-z_$][\w$]*)): \{/gm)) {
-      names.add(m[1] ?? m[2]);
+  for (const [, scope, body] of blocks) {
+    for (const part of body.split(/^ {2}(?=(?:'[^']+'|[A-Za-z_$][\w$]*): \{)/m)) {
+      const head = /^(?:'([^']+)'|([A-Za-z_$][\w$]*)): \{/.exec(part);
+      if (!head) continue;
+      const name = head[1] ?? head[2];
+      const cls = /\bclass: '([^']+)'/.exec(part)?.[1];
+      const status = /\bstatus: '([^']+)'/.exec(part)?.[1];
+      if (!cls || !status) {
+        throw new Error(`lint-no-raw-table-writes: registry entry ${name} has no class/status`);
+      }
+      if (!out.has(name)) out.set(name, []);
+      out.get(name).push({ scope: scope.toLowerCase(), class: cls, status });
     }
   }
-  if (names.size === 0) {
+  if (out.size === 0) {
     throw new Error(
       `lint-no-raw-table-writes: parsed no tables from ${relative(REPO_ROOT, REGISTRY)}`,
     );
   }
-  return names;
+  return out;
+}
+
+/**
+ * Whether raw writes to a table must reach the change journal: its class is
+ * portable in some scope, and it is not a frozen legacy twin.
+ *
+ * @param {Array<{ class: string, status: string }> | undefined} entries
+ * @returns {boolean}
+ */
+export function isSyncTable(entries) {
+  return (entries ?? []).some(
+    (e) => e.class.startsWith('portable-') && e.status !== 'frozen-legacy',
+  );
 }
 
 /** Keywords after which a `/` starts a regex literal, not a division. */
@@ -360,6 +568,161 @@ export function writeSites(code, tables) {
   return hits;
 }
 
+/**
+ * Staged-snapshot markers that are real comments: the marker text is in the
+ * source and blanked in the comment-stripped code (a marker inside a string
+ * is not a marker).
+ *
+ * @param {string} src - File contents.
+ * @param {string} code - `src` after {@link stripComments}.
+ * @returns {Array<{ line: number, fn: string }>}
+ */
+export function stagedMarkers(src, code) {
+  const srcLines = src.split('\n');
+  const codeLines = code.split('\n');
+  const out = [];
+  for (let i = 0; i < srcLines.length; i++) {
+    const m = MARKER_RE.exec(srcLines[i]);
+    if (!m) continue;
+    if (codeLines[i].slice(m.index, m.index + m[0].length).trim() !== '') continue;
+    out.push({ line: i + 1, fn: m[1] });
+  }
+  return out;
+}
+
+const FUNCTION_DECL =
+  /\bfunction\s*\*?\s*([A-Za-z_$][\w$]*)\s*\(|\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?(?:function\b|\([^)]*\)\s*(?::[^=]*)?=>|[A-Za-z_$][\w$]*\s*=>)|\bfn\s+([A-Za-z_][\w]*)\s*[<(]/g;
+
+/**
+ * The name of the nearest named function declared at or above `line` in
+ * comment-stripped code (`function f`, `const f = (…) =>`, Rust `fn f`).
+ * Anonymous callbacks are skipped, so a write inside `withDb(p, (db) => …)`
+ * belongs to the named function around the callback.
+ *
+ * @param {string} code - Output of {@link stripComments}.
+ * @param {number} line - 1-based line of the write.
+ * @returns {string | undefined}
+ */
+export function enclosingFunction(code, line) {
+  const head = code.split('\n').slice(0, line).join('\n');
+  let name;
+  for (const m of head.matchAll(FUNCTION_DECL)) name = m[1] ?? m[2] ?? m[3];
+  return name;
+}
+
+/**
+ * Bind each staged-snapshot marker to the first write site on its line or
+ * within {@link MARKER_REACH} lines below it. A site takes at most one marker.
+ *
+ * @returns {{ sites: Array<object>, stray: Array<{ line: number, fn: string }> }}
+ *   `sites` with `marker: { fn, enclosing }` set on the marked ones.
+ */
+export function bindMarkers(sites, markers, code) {
+  const out = sites.map((s) => ({ ...s }));
+  const stray = [];
+  for (const mk of markers) {
+    const site = out.find(
+      (s) => !s.marker && s.line >= mk.line && s.line <= mk.line + MARKER_REACH,
+    );
+    if (!site) {
+      stray.push(mk);
+      continue;
+    }
+    site.marker = { fn: mk.fn, enclosing: enclosingFunction(code, site.line) };
+  }
+  return { sites: out, stray };
+}
+
+/**
+ * Split findings into the baselined residue and the exempt / marked sites,
+ * and check every exemption and marker still holds.
+ *
+ * @param {Array<{ file: string, line: number, table: string, marker?: { fn: string, enclosing?: string } }>} findings
+ * @param {Map<string, Array<{ class: string, status: string }>>} classes - {@link registryClasses}.
+ * @param {typeof EXEMPT} exempt
+ * @param {typeof STAGED_SNAPSHOT} staged
+ * @returns {{ residual: typeof findings, exemptSites: number, stagedSites: number, errors: string[] }}
+ */
+export function applyExemptions(findings, classes, exempt, staged) {
+  const errors = [];
+  const residual = [];
+  const exemptSeen = {};
+  const stagedSeen = {};
+  let exemptSites = 0;
+  let stagedSites = 0;
+
+  for (const f of findings) {
+    if (f.marker) {
+      const entry = staged[f.file]?.[f.table]?.[f.marker.fn];
+      if (!entry) {
+        errors.push(
+          `${f.file}:${f.line} [${f.table}]: staged-snapshot marker for ${f.marker.fn} has no STAGED_SNAPSHOT entry`,
+        );
+      } else if (f.marker.enclosing !== f.marker.fn) {
+        errors.push(
+          `${f.file}:${f.line} [${f.table}]: marker names ${f.marker.fn}, but the write is in ${f.marker.enclosing ?? '(no named function)'}`,
+        );
+      }
+      const key = `${f.file}\0${f.table}\0${f.marker.fn}`;
+      stagedSeen[key] = (stagedSeen[key] ?? 0) + 1;
+      stagedSites++;
+      continue;
+    }
+    if (exempt[f.file]?.[f.table]) {
+      const key = `${f.file}\0${f.table}`;
+      exemptSeen[key] = (exemptSeen[key] ?? 0) + 1;
+      exemptSites++;
+      continue;
+    }
+    residual.push(f);
+  }
+
+  for (const [file, tables] of Object.entries(exempt)) {
+    for (const [table, { count, reason }] of Object.entries(tables)) {
+      const entries = classes.get(table);
+      if (!entries) {
+        errors.push(`EXEMPT ${file} [${table}]: not a classified table; drop the entry`);
+        continue;
+      }
+      if (isSyncTable(entries)) {
+        const now = entries.map((e) => `${e.scope} ${e.class}`).join(', ');
+        errors.push(
+          `EXEMPT ${file} [${table}]: EXPIRED, the table now syncs (${now}). ` +
+            'Move the write behind its accessor and drop the entry.',
+        );
+      }
+      if (!reason || reason.trim() === '') errors.push(`EXEMPT ${file} [${table}]: no reason`);
+      const seen = exemptSeen[`${file}\0${table}`] ?? 0;
+      if (seen !== count) {
+        errors.push(
+          `EXEMPT ${file} [${table}]: ${count} site(s) exempt, ${seen} found. ` +
+            (seen > count
+              ? 'A new raw write: move it behind an accessor, or raise the count with a reviewed reason.'
+              : 'Lower the count (drop the entry at 0) so the allowance cannot be reused.'),
+        );
+      }
+    }
+  }
+
+  for (const [file, tables] of Object.entries(staged)) {
+    for (const [table, fns] of Object.entries(tables)) {
+      for (const [fn, { count, reason }] of Object.entries(fns)) {
+        if (!reason || reason.trim() === '') {
+          errors.push(`STAGED_SNAPSHOT ${file} [${table}] ${fn}: no reason`);
+        }
+        const seen = stagedSeen[`${file}\0${table}\0${fn}`] ?? 0;
+        if (seen !== count) {
+          errors.push(
+            `STAGED_SNAPSHOT ${file} [${table}] ${fn}: ${count} marked site(s) expected, ${seen} found`,
+          );
+        }
+      }
+    }
+  }
+
+  return { residual, exemptSites, stagedSites, errors };
+}
+
 function scan() {
   const missing = [...SANCTIONED, ...PROSE_ONLY.keys()].filter(
     (f) => !existsSync(resolve(REPO_ROOT, f)),
@@ -370,14 +733,64 @@ function scan() {
         'Remove them from SANCTIONED / PROSE_ONLY.',
     );
   }
-  const tables = registryTables(readFileSync(REGISTRY, 'utf-8'));
+  const classes = registryClasses(readFileSync(REGISTRY, 'utf-8'));
+  const tables = new Set(classes.keys());
   const findings = [];
+  const stray = [];
+  const sources = [];
   for (const file of sourceFiles()) {
     const lang = file.endsWith('.rs') ? 'rs' : 'js';
-    const code = stripComments(readFileSync(resolve(REPO_ROOT, file), 'utf-8'), lang);
-    for (const hit of writeSites(code, tables)) findings.push({ file, ...hit });
+    const src = readFileSync(resolve(REPO_ROOT, file), 'utf-8');
+    const code = stripComments(src, lang);
+    sources.push({ file, code });
+    const bound = bindMarkers(writeSites(code, tables), stagedMarkers(src, code), code);
+    for (const hit of bound.sites) findings.push({ file, ...hit });
+    for (const mk of bound.stray) stray.push({ file, ...mk });
   }
-  return findings;
+  return { findings, stray, classes, sources };
+}
+
+/**
+ * Drizzle builder writes on a binding declared for a syncing table, outside
+ * the sanctioned files: `db.insert(x)`, `.update(x)`, `.delete(x)`. The
+ * binding → table map comes from `sqliteTable('name', …)` declarations, by
+ * name, so this is a heuristic REPORT, never a gate.
+ *
+ * @param {Array<{ file: string, code: string }>} sources - Scanned files.
+ * @param {Map<string, Array<{ class: string, status: string }>>} classes
+ * @returns {Array<{ file: string, line: number, binding: string, tables: string[] }>}
+ */
+export function drizzleWrites(sources, classes) {
+  const decl = execFileSync('git', ['ls-files', 'packages/*/src/**/*.ts'], {
+    cwd: REPO_ROOT,
+    encoding: 'utf-8',
+  })
+    .split('\n')
+    .filter((f) => f && !/(^|\/)__tests__\//.test(f));
+  const bindings = new Map();
+  for (const f of decl) {
+    const src = readFileSync(resolve(REPO_ROOT, f), 'utf-8');
+    if (!src.includes('sqliteTable(')) continue;
+    for (const m of src.matchAll(
+      /\b(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=\s*sqliteTable\(\s*['"]([a-z_]\w*)['"]/g,
+    )) {
+      if (!bindings.has(m[1])) bindings.set(m[1], new Set());
+      bindings.get(m[1]).add(m[2]);
+    }
+  }
+  const out = [];
+  for (const { file, code } of sources) {
+    for (const m of code.matchAll(
+      /\.(?:insert|update|delete)\(\s*(?:[A-Za-z_$][\w$]*\.)?([A-Za-z_$][\w$]*)\s*\)/g,
+    )) {
+      const names = [...(bindings.get(m[1]) ?? [])].filter((t) => isSyncTable(classes.get(t)));
+      if (names.length === 0) continue;
+      let line = 1;
+      for (let k = 0; k < m.index; k++) if (code.charCodeAt(k) === 10) line++;
+      out.push({ file, line, binding: m[1], tables: names.sort() });
+    }
+  }
+  return out;
 }
 
 /** (file → table → count), sorted for a stable baseline diff. */
@@ -399,9 +812,44 @@ function countByFile(findings) {
 
 function main() {
   const args = new Set(process.argv.slice(2));
-  const findings = scan();
+  const scanned = scan();
+  const { residual, exemptSites, stagedSites, errors } = applyExemptions(
+    scanned.findings,
+    scanned.classes,
+    EXEMPT,
+    STAGED_SNAPSHOT,
+  );
+  for (const mk of scanned.stray) {
+    errors.push(
+      `${mk.file}:${mk.line}: staged-snapshot marker (${mk.fn}) sits over no raw write within ${MARKER_REACH} lines`,
+    );
+  }
+  const findings = residual;
   const counts = countByFile(findings);
   const fileCount = Object.keys(counts).length;
+  const exemptLine = `  exempt: ${exemptSites} non-sync site(s) (EXEMPT), ${stagedSites} staged-snapshot site(s) (STAGED_SNAPSHOT)`;
+
+  if (args.has('--drizzle-report')) {
+    const writes = drizzleWrites(scanned.sources, scanned.classes);
+    console.log(
+      `lint-no-raw-table-writes: REPORT — ${writes.length} Drizzle builder write(s) on syncing tables outside the sanctioned files (heuristic; not gated):`,
+    );
+    for (const w of writes)
+      console.log(`    ${w.file}:${w.line}  ${w.binding} → ${w.tables.join(', ')}`);
+  }
+
+  if (errors.length > 0) {
+    console.error(
+      `lint-no-raw-table-writes: FAIL — ${errors.length} exemption / marker problem(s):\n`,
+    );
+    for (const e of errors) console.error(`  ${e}`);
+    console.error(
+      '\nNon-sync raw writers are exempt per (file, table) in EXEMPT; staged-snapshot sites are\n' +
+        'marked `// gate-28: staged-snapshot <function>` and listed in STAGED_SNAPSHOT. A write to a\n' +
+        'syncing table needs an accessor, never an exemption (journal spec §4.6).\n',
+    );
+    return 1;
+  }
 
   if (args.has('--update-baseline')) {
     writeFileSync(
@@ -409,7 +857,8 @@ function main() {
       `${JSON.stringify(
         {
           note:
-            'Raw SQL writes on classified cleo.db tables outside the sanctioned accessor (T12332). ' +
+            'Raw SQL writes on SYNCING cleo.db tables outside the sanctioned accessor (T12332, T12343). ' +
+            'Non-sync writers are exempt per (file, table) in the script, not here. ' +
             'Counts may only DECREASE, and a decrease must be recorded here. Regenerate with: ' +
             'node scripts/lint-no-raw-table-writes.mjs --update-baseline',
           totalFindings: findings.length,
@@ -422,14 +871,16 @@ function main() {
       'utf-8',
     );
     console.log(
-      `lint-no-raw-table-writes: baseline written — ${findings.length} raw write site(s) across ${fileCount} file(s).`,
+      `lint-no-raw-table-writes: baseline written — ${findings.length} raw write site(s) across ${fileCount} file(s).\n${exemptLine}`,
     );
     return 0;
   }
 
   if (args.has('--strict')) {
     if (findings.length === 0) {
-      console.log('lint-no-raw-table-writes: STRICT OK — no raw write on a classified table.');
+      console.log(
+        `lint-no-raw-table-writes: STRICT OK — no raw write on a syncing table.\n${exemptLine}`,
+      );
       return 0;
     }
     console.error(`lint-no-raw-table-writes: STRICT FAIL — ${findings.length} raw write site(s).`);
@@ -467,6 +918,7 @@ function main() {
   if (added.length === 0 && removed.length === 0) {
     console.log(
       `lint-no-raw-table-writes: OK — ${findings.length} baselined raw write site(s) in ${fileCount} file(s), no new offender.\n` +
+        `${exemptLine}\n` +
         `  scanned: ${SCAN_SCOPE_DESCRIPTION}`,
     );
     return 0;

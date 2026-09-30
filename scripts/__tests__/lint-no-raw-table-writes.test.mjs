@@ -5,14 +5,31 @@
  * blanks code), and the write matcher must catch lower-case and multi-line
  * statements.
  *
+ * Exemptions are keyed per (file, table) and expire when the table's class
+ * becomes portable; staged-snapshot sites are marked per site (T12343 S0).
+ *
  * @task T12332
+ * @task T12343
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { PROSE_ONLY, SANCTIONED, stripComments, writeSites } from '../lint-no-raw-table-writes.mjs';
+import {
+  applyExemptions,
+  bindMarkers,
+  EXEMPT,
+  enclosingFunction,
+  isSyncTable,
+  PROSE_ONLY,
+  registryClasses,
+  SANCTIONED,
+  STAGED_SNAPSHOT,
+  stagedMarkers,
+  stripComments,
+  writeSites,
+} from '../lint-no-raw-table-writes.mjs';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SCRIPT = join(REPO, 'scripts', 'lint-no-raw-table-writes.mjs');
@@ -97,7 +114,195 @@ describe('writeSites', () => {
   });
 });
 
+const REGISTRY_SRC = `
+const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
+  _writer_leases: { class: 'local-only', status: 'draft', source: 'x' },
+  brain_weight_history: {
+    class: 'portable-personal',
+    status: 'resolved',
+    columns: [{ column: 'x', class: 'local-only', reason: 'r' }],
+  },
+  tasks: {
+    class: 'local-only',
+    status: 'frozen-legacy',
+  },
+  tasks_tasks: {
+    class: 'portable-project',
+    status: 'resolved',
+  },
+};
+
+const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
+  nexus_schema_meta: { class: 'local-only', status: 'draft', source: 'draft §3' },
+  _writer_leases: { class: 'local-only', status: 'draft', source: 'draft §3' },
+};
+`;
+
+describe('registryClasses / isSyncTable', () => {
+  const classes = registryClasses(REGISTRY_SRC);
+
+  it('reads the entry class and status, both scopes, one-line or multi-line', () => {
+    expect(classes.get('_writer_leases')).toEqual([
+      { scope: 'project', class: 'local-only', status: 'draft' },
+      { scope: 'global', class: 'local-only', status: 'draft' },
+    ]);
+    // A column override's class never shadows the table's.
+    expect(classes.get('brain_weight_history')).toEqual([
+      { scope: 'project', class: 'portable-personal', status: 'resolved' },
+    ]);
+  });
+
+  it('portable syncs; local-only, derived and frozen twins do not', () => {
+    expect(isSyncTable(classes.get('tasks_tasks'))).toBe(true);
+    expect(isSyncTable(classes.get('brain_weight_history'))).toBe(true);
+    expect(isSyncTable(classes.get('_writer_leases'))).toBe(false);
+    expect(isSyncTable(classes.get('tasks'))).toBe(false);
+    expect(isSyncTable(undefined)).toBe(false);
+  });
+});
+
+describe('applyExemptions', () => {
+  const classes = registryClasses(REGISTRY_SRC);
+  const site = (file, table, line = 1) => ({ file, table, line });
+
+  it('exempts a non-sync (file, table) with the exact count, and baselines the rest', () => {
+    const r = applyExemptions(
+      [
+        site('a.ts', '_writer_leases'),
+        site('a.ts', '_writer_leases', 2),
+        site('a.ts', 'tasks_tasks'),
+      ],
+      classes,
+      { 'a.ts': { _writer_leases: { count: 2, reason: 'lease' } } },
+      {},
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.exemptSites).toBe(2);
+    expect(r.residual).toEqual([site('a.ts', 'tasks_tasks')]);
+  });
+
+  it('keys on (file, table): the same table in another file is not exempt', () => {
+    const r = applyExemptions(
+      [site('b.ts', '_writer_leases')],
+      classes,
+      { 'a.ts': { _writer_leases: { count: 0, reason: 'lease' } } },
+      {},
+    );
+    expect(r.residual).toEqual([site('b.ts', '_writer_leases')]);
+  });
+
+  it('an entry EXPIRES when its table becomes portable', () => {
+    const r = applyExemptions(
+      [site('a.ts', 'brain_weight_history')],
+      classes,
+      { 'a.ts': { brain_weight_history: { count: 1, reason: 'was local-only' } } },
+      {},
+    );
+    expect(r.errors.join('\n')).toMatch(
+      /EXPIRED, the table now syncs \(project portable-personal\)/,
+    );
+  });
+
+  it('fails when the count moves either way, or the reason is empty', () => {
+    const up = applyExemptions(
+      [site('a.ts', '_writer_leases'), site('a.ts', '_writer_leases', 2)],
+      classes,
+      { 'a.ts': { _writer_leases: { count: 1, reason: 'lease' } } },
+      {},
+    );
+    expect(up.errors.join('\n')).toMatch(/1 site\(s\) exempt, 2 found. A new raw write/);
+    const down = applyExemptions(
+      [],
+      classes,
+      { 'a.ts': { _writer_leases: { count: 1, reason: '' } } },
+      {},
+    );
+    expect(down.errors.join('\n')).toMatch(/no reason/);
+    expect(down.errors.join('\n')).toMatch(/1 site\(s\) exempt, 0 found. Lower the count/);
+  });
+
+  it('a marked staged-snapshot site needs its (file, table, function) entry and the right function', () => {
+    const marked = (fn, enclosing) => ({
+      ...site('c.ts', 'tasks_tasks'),
+      marker: { fn, enclosing },
+    });
+    const staged = { 'c.ts': { tasks_tasks: { redact: { count: 1, reason: 'snapshot' } } } };
+    const ok = applyExemptions([marked('redact', 'redact')], classes, {}, staged);
+    expect(ok.errors).toEqual([]);
+    expect(ok.stagedSites).toBe(1);
+    expect(ok.residual).toEqual([]);
+    const wrongFn = applyExemptions([marked('redact', 'unseal')], classes, {}, staged);
+    expect(wrongFn.errors.join('\n')).toMatch(/marker names redact, but the write is in unseal/);
+    const noEntry = applyExemptions([marked('other', 'other')], classes, {}, staged);
+    expect(noEntry.errors.join('\n')).toMatch(/marker for other has no STAGED_SNAPSHOT entry/);
+    expect(noEntry.errors.join('\n')).toMatch(/1 marked site\(s\) expected, 0 found/);
+  });
+});
+
+describe('staged-snapshot markers', () => {
+  const TABLES = new Set(['tasks_tasks']);
+  const bind = (src) => {
+    const code = stripComments(src);
+    return bindMarkers(writeSites(code, TABLES), stagedMarkers(src, code), code);
+  };
+
+  it('binds a marker to the write below it and records the enclosing named function', () => {
+    const src = [
+      'export function redact(p) {',
+      '  withDb(p, (db) => {',
+      '    // gate-28: staged-snapshot redact',
+      '    db.prepare(',
+      "      'UPDATE tasks_tasks SET x = NULL',",
+      '    ).run();',
+      "    db.prepare('UPDATE tasks_tasks SET y = 1').run();",
+      '  });',
+      '}',
+    ].join('\n');
+    const { sites, stray } = bind(src);
+    expect(stray).toEqual([]);
+    expect(sites).toEqual([
+      { line: 5, table: 'tasks_tasks', marker: { fn: 'redact', enclosing: 'redact' } },
+      { line: 7, table: 'tasks_tasks' },
+    ]);
+  });
+
+  it('a marker inside a string is not a marker; a marker over no write is stray', () => {
+    const src = [
+      "const s = '// gate-28: staged-snapshot f';",
+      "run('UPDATE tasks_tasks SET x = 1');",
+      '// gate-28: staged-snapshot g',
+      '',
+      '',
+      '',
+      "run('UPDATE tasks_tasks SET x = 2');",
+    ].join('\n');
+    const { sites, stray } = bind(src);
+    expect(sites.every((s) => !s.marker)).toBe(true);
+    expect(stray).toEqual([{ line: 3, fn: 'g' }]);
+  });
+
+  it('enclosingFunction reads function, arrow const and Rust fn declarations', () => {
+    expect(enclosingFunction('function a() {\n  x;\n}', 2)).toBe('a');
+    expect(enclosingFunction('const b = async (db) => {\n  x;\n};', 2)).toBe('b');
+    expect(enclosingFunction('pub fn c(conn: &Connection) {\n  x;\n}', 2)).toBe('c');
+    expect(enclosingFunction('x;', 1)).toBeUndefined();
+  });
+});
+
 describe('lint-no-raw-table-writes on the real repository', () => {
+  it('every EXEMPT and STAGED_SNAPSHOT file exists and every entry has a reason', () => {
+    for (const [file, tables] of Object.entries(EXEMPT)) {
+      expect(existsSync(join(REPO, file)), file).toBe(true);
+      for (const [t, e] of Object.entries(tables)) expect(e.reason, `${file} ${t}`).toBeTruthy();
+    }
+    for (const [file, tables] of Object.entries(STAGED_SNAPSHOT)) {
+      expect(existsSync(join(REPO, file)), file).toBe(true);
+      for (const fns of Object.values(tables)) {
+        for (const [fn, e] of Object.entries(fns)) expect(e.reason, `${file} ${fn}`).toBeTruthy();
+      }
+    }
+  });
+
   it('every exempt path exists', () => {
     for (const f of [...SANCTIONED, ...PROSE_ONLY.keys()]) {
       expect(existsSync(join(REPO, f)), f).toBe(true);
