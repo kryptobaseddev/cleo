@@ -185,12 +185,29 @@ function carryForward(
       .prepare("SELECT name, sql FROM main.sqlite_master WHERE type='trigger' AND tbl_name=?")
       .all(table) as Array<{ name: string; sql: string | null }>;
     for (const t of triggers) nativeDb.exec(`DROP TRIGGER main.${ident(t.name)}`);
-    const cols = [...shared, ...fill.map((c) => c.name)].map(ident).join(', ');
+    const colNames = [...shared, ...fill.map((c) => c.name)].map(ident);
+    const cols = colNames.join(', ');
     const values = [...shared.map(ident), ...fill.map((c) => typeDefaultLiteral(c.type))].join(
       ', ',
     );
+    // UPSERT, never `INSERT OR REPLACE` (T12787): REPLACE deletes the
+    // conflicting row before re-inserting it, and with foreign keys enforced
+    // SQLite runs the ON DELETE action of every FK that references it, so the
+    // children of a replaced parent row are deleted (CASCADE) or nulled. The
+    // rebuild lifts `foreign_keys` today, but the copy must not depend on it.
+    // The conflict target is omitted, so — like REPLACE — a snapshot row wins
+    // over a seeded row that collides on the primary key OR on any secondary
+    // UNIQUE constraint; the colliding row is updated in place instead of being
+    // deleted. `WHERE true` disambiguates `ON` after a SELECT source.
+    // One behaviour differs: a snapshot row that collides with TWO different
+    // seeded rows (say, one on the PK and another on a UNIQUE column) makes
+    // the untargeted UPSERT raise a constraint error, where REPLACE silently
+    // deleted both. The error propagates out of the rebuild transaction, which
+    // rolls back, so nothing is half-copied or lost — it fails loudly instead.
+    const update = colNames.map((c) => `${c} = excluded.${c}`).join(', ');
     nativeDb.exec(
-      `INSERT OR REPLACE INTO main.${ident(table)} (${cols}) SELECT ${values} FROM ${ident(alias)}.${ident(table)}`,
+      `INSERT INTO main.${ident(table)} (${cols}) SELECT ${values} FROM ${ident(alias)}.${ident(table)} WHERE true ` +
+        `ON CONFLICT DO UPDATE SET ${update}`,
     );
     for (const t of triggers) if (t.sql) nativeDb.exec(t.sql);
     const sharedList = shared.map(ident).join(', ');
