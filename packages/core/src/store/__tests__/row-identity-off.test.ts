@@ -43,4 +43,25 @@ describe('row uids are off by default', () => {
     expect(prepareRowIdentity(db, 'project')).toBeNull();
     expect(rowIdentityDoctorCheck(env.tempDir).message).toContain('row uids are off');
   });
+
+  it('guarded writes work on a store whose uid migration was stamped without its tables (live cleocode after 9.25)', async () => {
+    const db = getNativeTasksDb(env.tempDir);
+    if (!db) throw new Error('no native handle');
+    // The live state: an early alias table (no displaced_hlc / entity_birth_fp),
+    // no uid-alias, graveyard, meta or quarantine table, no graveyard trigger.
+    db.exec(`DROP TRIGGER IF EXISTS trg_tasks_ac_uid_graveyard;
+      DROP TABLE tasks_uid_aliases; DROP TABLE tasks_ac_uid_graveyard;
+      DROP TABLE tasks_row_identity_meta; DROP TABLE tasks_identity_quarantine;
+      ALTER TABLE tasks_display_id_aliases DROP COLUMN displaced_hlc;
+      ALTER TABLE tasks_display_id_aliases DROP COLUMN entity_birth_fp;`);
+    const task = await env.accessor.loadSingleTask('T001');
+    await env.accessor.updateTaskFields(
+      'T001',
+      { title: 'Root, edited' },
+      { expectedUpdatedAt: task?.updatedAt ?? task?.createdAt ?? '' },
+    );
+    expect(db.prepare("SELECT title FROM tasks_tasks WHERE id = 'T001'").get()).toEqual({
+      title: 'Root, edited',
+    });
+  });
 });

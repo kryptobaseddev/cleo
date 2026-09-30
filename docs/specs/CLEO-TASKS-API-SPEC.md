@@ -297,7 +297,9 @@ lists only codes that can surface from `tasks.*` operations.
 | `HAS_DEPENDENTS` | 19 | 409 | Delete with downstream deps |
 | `CONCURRENT_MODIFICATION` | 21 | 409 | Row version mismatch |
 | `INVALID_RETYPE` | 22 | 409 | Retype plan has invalid descendants |
+| `VERSION_CONFLICT` | 23 | 409 | `--if-match` (`expectedUpdatedAt`) differs from the stored version (`E_CONFLICT`; `details` carry the current version) |
 | `SESSION_UNBOUND` | 24 | 409 | Claim override (`takeOver`/`forceClaim`) with no bound session |
+| `TASK_RENAMED` | 26 | 409 | Sync re-numbered the task the caller addressed after a display-id collision (T12800): an `--if-match` of exactly the version it had under the old id, a renew/release of the claim the caller holds on it, or no row holds the old id. `details.expected` is the new id; nothing was written. Local renames of the last 24 h only; otherwise the write falls through to `E_CONFLICT` / `E_TASK_CLAIMED` |
 | `SESSION_EXISTS` | 30 | 409 | Already-active session conflict |
 | `SESSION_NOT_FOUND` | 31 | 404 | start/stop without session |
 | `TASK_CLAIMED` | 35 | 409 | Another session holds the task's claim lease (`E_TASK_CLAIMED`; `details` names the holder and override) |

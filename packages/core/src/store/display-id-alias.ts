@@ -81,7 +81,6 @@ import {
   mintRowUid,
   naturalRowUid,
   ROW_IDENTITY,
-  ROW_IDENTITY_META_TABLE,
   registerRowUidFunction,
   rekeyedChildUid,
   rowIdentitySpec,
@@ -92,7 +91,6 @@ import {
   clearRowUidNative,
   deleteDisplayIdAliasNative,
   deleteQuarantineNative,
-  deleteRowIdentityMetaNative,
   insertDisplayIdAliasNative,
   insertIdentityRowNative,
   insertQuarantineNative,
@@ -104,7 +102,6 @@ import {
   setNaturalUidNative,
   setRowUidNative,
   type TaskReferenceColumn,
-  writeRowIdentityMetaNative,
 } from './sqlite-data-accessor.js';
 
 /** Physical name of the display-id alias table. */
@@ -120,6 +117,8 @@ export const QUARANTINE_TABLE = 'tasks_identity_quarantine';
 export type DisplayIdAliasReason =
   | 'collision-remint'
   | 'superseded-remint'
+  /** The display id a re-mint op assigned (the portable re-mint record, T12800). */
+  | 'remint-assigned'
   | 'split-brain-import'
   | 'manual';
 
@@ -211,14 +210,6 @@ function inSavepoint<T>(db: DatabaseSync, name: string, fn: () => T): T {
     db.exec(`RELEASE SAVEPOINT ${sp}`);
     throw error;
   }
-}
-
-/** A row-identity meta value. */
-function readMeta(db: DatabaseSync, key: string): string | undefined {
-  const row = db
-    .prepare(`SELECT value FROM main.${q(ROW_IDENTITY_META_TABLE)} WHERE key = ?`)
-    .get(key) as { value: string } | undefined;
-  return row?.value;
 }
 
 /** The local row of a minted table with this uid AND birth fingerprint. */
@@ -362,10 +353,14 @@ export function recordDisplayIdAlias(
   },
 ): void {
   insertDisplayIdAliasNative(db, {
+    // The reason is part of the key (T12800 review): a `remint-assigned` and a
+    // `collision-remint` alias of one (id, row) are two facts, and neither may
+    // win an insert race and drop the other.
     uid: naturalRowUid('project', DISPLAY_ID_ALIAS_TABLE, [
       entry.table,
       entry.displayId,
       entry.entityUid,
+      entry.reason,
     ]),
     entityTable: entry.table,
     displayId: entry.displayId,
@@ -374,8 +369,20 @@ export function recordDisplayIdAlias(
     reason: entry.reason,
     origin: entry.origin ?? null,
     displacedHlc: entry.displacedHlc ?? null,
-    createdAt: entry.now ?? new Date().toISOString(),
+    // Derived from the displacement's HLC when there is one, so every replica
+    // that records this displacement writes the same row (T12800).
+    createdAt: entry.now ?? hlcTime(entry.displacedHlc) ?? new Date().toISOString(),
   });
+}
+
+/** Wall-clock time of an encoded HLC, or `undefined` when there is none. */
+function hlcTime(hlc: string | null | undefined): string | undefined {
+  if (!hlc) return undefined;
+  try {
+    return new Date(parseHlc(hlc).physicalMs).toISOString();
+  } catch {
+    return undefined;
+  }
 }
 
 /** A row that carries, or carried, a display id. */
@@ -444,6 +451,9 @@ export function resolveDisplayId(
     }[]
   )
     .filter((a) => a.uid !== live?.uid)
+    // One claimant per row: several reasons (collision-remint, remint-assigned)
+    // of one id and row are one history entry here.
+    .filter((a, i, all) => all.findIndex((b) => b.uid === a.uid) === i)
     .map((a) => ({ ...a, via: 'alias' as const }));
   if (live) {
     return {
@@ -544,28 +554,42 @@ export interface RemintReceipt extends RemintOp {
   readonly released: readonly HeldRowKey[];
 }
 
-/** The applied re-mint record of a row (meta key → JSON). */
+/**
+ * The winning re-mint of a row: the op with the greatest HLC. It is DERIVED
+ * from the row's `remint-assigned` display aliases, which are portable (they
+ * sync with the row), so a replica that lost local state, or never had it,
+ * reaches the same answer (T12800).
+ */
 interface RemintRecord {
   readonly newId: string;
   readonly hlc: string;
   readonly origin: string | null;
 }
 
-function remintKey(uid: string, birthFp: string): string {
-  return `remint:tasks_tasks:${uid}:${birthFp}`;
-}
-
 function readRemint(db: DatabaseSync, uid: string, birthFp: string): RemintRecord | undefined {
-  const raw = readMeta(db, remintKey(uid, birthFp));
-  return raw === undefined ? undefined : (JSON.parse(raw) as RemintRecord);
+  const rows = db
+    .prepare(
+      `SELECT display_id AS newId, displaced_hlc AS hlc, origin FROM ${DISPLAY_ID_ALIAS_TABLE}
+        WHERE entity_table = 'tasks_tasks' AND entity_uid = ? AND entity_birth_fp = ?
+          AND reason = 'remint-assigned' AND displaced_hlc IS NOT NULL`,
+    )
+    .all(uid, birthFp) as unknown as RemintRecord[];
+  let best: RemintRecord | undefined;
+  for (const r of rows) if (!best || compareHlc(r.hlc, best.hlc) > 0) best = r;
+  return best;
 }
 
+/** Record the display id an op assigned (every op, winner or not: its number stays an alias). */
 function writeRemint(db: DatabaseSync, op: RemintOp): void {
-  writeRowIdentityMetaNative(
-    db,
-    remintKey(op.uid, op.birthFp),
-    JSON.stringify({ newId: op.newId, hlc: op.hlc, origin: op.origin } satisfies RemintRecord),
-  );
+  recordDisplayIdAlias(db, {
+    table: 'tasks_tasks',
+    displayId: op.newId,
+    entityUid: op.uid,
+    entityBirthFp: op.birthFp,
+    reason: 'remint-assigned',
+    origin: op.origin,
+    displacedHlc: op.hlc,
+  });
 }
 
 /**
@@ -674,7 +698,7 @@ export function applyRemintOp(db: DatabaseSync, op: RemintOp): ApplyRemintResult
     if (order < 0) {
       inSavepoint(db, 'remint_superseded', () => {
         alias(op.oldId, 'collision-remint');
-        if (op.newId !== prior.newId) alias(op.newId, 'superseded-remint');
+        writeRemint(db, op);
       });
       return { status: 'superseded', winner: prior };
     }
@@ -688,7 +712,6 @@ export function applyRemintOp(db: DatabaseSync, op: RemintOp): ApplyRemintResult
   }
   return inSavepoint(db, 'remint_apply', (): ApplyRemintResult => {
     alias(op.oldId, 'collision-remint');
-    if (prior && prior.newId !== op.newId) alias(prior.newId, 'superseded-remint');
     writeRemint(db, op);
     if (!live) return { status: 'recorded', released: releaseHeldRows(db) };
     if (live.key === op.newId) return { status: 'already-applied' };
@@ -1078,6 +1101,37 @@ function placeRow(db: DatabaseSync, incoming: WireRow, heldAs?: HeldRowKey): Rec
       };
     }
   }
+  if (wire.table === DISPLAY_ID_ALIAS_TABLE || wire.table === UID_ALIAS_TABLE) {
+    // An alias row's uid IS its primary key, computed on write from its key
+    // values (none is a reference): derive it the same way here (T12800).
+    const uid = naturalRowUid(
+      'project',
+      wire.table,
+      spec.key.map((k) => (values[k] ?? null) as string | null),
+    );
+    const existed =
+      db.prepare(`SELECT 1 AS x FROM main.${q(wire.table)} WHERE ${q(UID_COLUMN)} = ?`).get(uid) !==
+      undefined;
+    if (wire.table === DISPLAY_ID_ALIAS_TABLE) {
+      // The order-independent upsert: whichever copy arrives first, every
+      // replica keeps the same row.
+      insertDisplayIdAliasNative(db, {
+        uid,
+        entityTable: String(values['entity_table']),
+        displayId: String(values['display_id']),
+        entityUid: String(values['entity_uid']),
+        entityBirthFp: (values['entity_birth_fp'] as string | null) ?? null,
+        reason: String(values['reason']),
+        origin: (values['origin'] as string | null) ?? null,
+        displacedHlc: (values['displaced_hlc'] as string | null) ?? null,
+        createdAt: String(values['created_at']),
+      });
+    } else if (!existed) {
+      insertIdentityRowNative(db, wire.table, { ...values, [UID_COLUMN]: uid });
+    }
+    done();
+    return existed ? { status: 'duplicate', uid } : { status: 'inserted', key: uid, uid };
+  }
   if (!minted) {
     const existing = db
       .prepare(
@@ -1399,7 +1453,12 @@ function followRow(
   }>;
   for (const a of aliases) {
     deleteDisplayIdAliasNative(db, a.uid);
-    const uid = naturalRowUid('project', DISPLAY_ID_ALIAS_TABLE, [table, a.displayId, newUid]);
+    const uid = naturalRowUid('project', DISPLAY_ID_ALIAS_TABLE, [
+      table,
+      a.displayId,
+      newUid,
+      a.reason,
+    ]);
     insertDisplayIdAliasNative(db, {
       uid,
       entityTable: table,
@@ -1412,13 +1471,6 @@ function followRow(
       createdAt: a.createdAt,
     });
     moved.push({ table: DISPLAY_ID_ALIAS_TABLE, oldUid: a.uid, newUid: uid });
-  }
-  if (table === 'tasks_tasks') {
-    const remint = readMeta(db, remintKey(oldUid, birthFp));
-    if (remint !== undefined) {
-      writeRowIdentityMetaNative(db, remintKey(newUid, birthFp), remint);
-      deleteRowIdentityMetaNative(db, remintKey(oldUid, birthFp));
-    }
   }
   insertUidAliasNative(db, {
     uid: naturalRowUid('project', UID_ALIAS_TABLE, [table, oldUid, birthFp]),

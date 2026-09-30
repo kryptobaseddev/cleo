@@ -235,6 +235,14 @@ const CLEO_ERROR_REGISTRY: CleoRegistryEntry[] = [
     httpStatus: 410,
   },
   {
+    exitCode: ExitCode.TASK_RENAMED,
+    lafsCode: 'E_TASK_RENAMED',
+    category: 'CONFLICT',
+    description: 'Task was re-numbered by sync',
+    retryable: true,
+    httpStatus: 409,
+  },
+  {
     exitCode: ExitCode.WORKTREE_LOCKED,
     lafsCode: 'E_WORKTREE_LOCKED',
     category: 'CONFLICT',

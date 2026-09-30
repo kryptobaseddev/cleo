@@ -118,7 +118,7 @@ const tasksShowOutputContract: OperationOutputContract = {
           updatedAt: {
             type: ['string', 'null'],
             description:
-              'Task version for optimistic concurrency: pass it to `cleo update|complete --if-match`.',
+              'Task version for optimistic concurrency: pass it to `cleo update|complete --if-match`. A stale version fails with E_CONFLICT (23); E_TASK_RENAMED (26) when sync re-numbered the task you read (details.expected is its new id).',
           },
           // T12502: the human assignee and the agent claim lease are separate.
           assignee: {
