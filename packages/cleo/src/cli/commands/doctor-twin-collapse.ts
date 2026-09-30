@@ -17,6 +17,7 @@
 import {
   inspectProjectTwinCollapse,
   recoverTwinCollapse,
+  releaseProjectTwinCollapseSnapshot,
   retryTwinCollapse,
   rollbackTwinCollapse,
 } from '@cleocode/core/doctor/twin-collapse.js';
@@ -36,7 +37,8 @@ export const doctorTwinCollapseCommand = defineCommand({
     name: 'twin-collapse',
     description:
       'Report the twin collapses (bare schema_meta / sticky_tags kept in step with their prefixed ' +
-      'twins): state, last failure, snapshot path and space needed. --retry re-runs them.',
+      'twins): state, last failure, snapshot path and space needed. --retry re-runs them; ' +
+      '--recover restores what 2026.9.21 dropped; --release-snapshot lets a checked snapshot rotate.',
   },
   args: {
     retry: {
@@ -63,6 +65,17 @@ export const doctorTwinCollapseCommand = defineCommand({
       description:
         'Undo one --recover apply by its receipt id (twin_collapse_recovery:<recoveredAt>)',
     },
+    'release-snapshot': {
+      type: 'string',
+      description:
+        'Release a pre-collapse snapshot (backup id, e.g. migration-20260928-153200) after a verified ' +
+        'recovery or a no-recovery-needed check, so it rotates normally. Needs --confirm; --dry-run shows the bytes reclaimed',
+    },
+    confirm: {
+      type: 'boolean',
+      description:
+        "With --release-snapshot: the owner's decision to release (obtained by the calling agent; the CLI never prompts)",
+    },
     'confirm-owner-store': {
       type: 'boolean',
       description:
@@ -76,12 +89,40 @@ export const doctorTwinCollapseCommand = defineCommand({
     const projectRoot = getProjectRoot();
     // T12708: the invocation directory; core never falls back to it.
     const guard = { cwd: process.cwd(), confirmOwnerStore: args['confirm-owner-store'] === true };
+    // One action per run: `--release-snapshot` with `--recover` would release
+    // the snapshot the recovery is about to read (T12767 review).
+    const actions = twinCollapseActions(args);
+    if (actions.length > 1) {
+      cliError(
+        `E_INVALID_INPUT: ${actions.join(' and ')} are separate actions; run them one at a time (--recover before --release-snapshot)`,
+        'E_INVALID_INPUT',
+        { name: 'Error', fix: 'cleo doctor twin-collapse --recover --dry-run' },
+      );
+      process.exitCode = 2;
+      return;
+    }
     try {
       if (typeof args.rollback === 'string' && args.rollback.length > 0) {
         const result = await rollbackTwinCollapse(projectRoot, args.rollback, guard);
         cliOutput(
           { kind: 'generic', ...result },
           { command: 'doctor', operation: 'doctor.twin-collapse.rollback' },
+        );
+        return;
+      }
+      if (typeof args['release-snapshot'] === 'string' && args['release-snapshot'].length > 0) {
+        const result = await releaseProjectTwinCollapseSnapshot(
+          projectRoot,
+          args['release-snapshot'],
+          {
+            ...guard,
+            dryRun: args['dry-run'] === true,
+            confirm: args.confirm === true,
+          },
+        );
+        cliOutput(
+          { kind: 'generic', ...result },
+          { command: 'doctor', operation: 'doctor.twin-collapse.release-snapshot' },
         );
         return;
       }
@@ -134,4 +175,15 @@ function reportTwinCollapseError(error: unknown, retry: boolean): void {
     details: error instanceof CleoError ? error.details : undefined,
   });
   process.exitCode = error instanceof CleoError ? error.code : 1;
+}
+
+/** The mutually exclusive actions a `doctor twin-collapse` run asks for. */
+function twinCollapseActions(args: Record<string, unknown>): string[] {
+  const named = (key: string) => typeof args[key] === 'string' && (args[key] as string).length > 0;
+  return [
+    args.recover === true ? '--recover' : '',
+    named('release-snapshot') ? '--release-snapshot' : '',
+    named('rollback') ? '--rollback' : '',
+    args.retry === true ? '--retry' : '',
+  ].filter(Boolean);
 }
