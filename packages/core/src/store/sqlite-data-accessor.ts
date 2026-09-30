@@ -45,6 +45,13 @@ import {
   worktreeScope,
 } from '../project-scope.js';
 import { acTextHash, buildAcRowId } from '../tasks/ac-table.js';
+import {
+  generateAuditLogId,
+  pruneAcBindingsForAcIds,
+  pruneAcBindingsForTask,
+  pruneOrphanAcBindings,
+  selectOrphanAcBindings,
+} from './ac-binding-prune.js';
 import { withBackgroundOpCommitBoundary } from './background-ops.js';
 import { archivedTaskToRow, rowToSession, rowToTask, taskToRow } from './converters.js';
 import { cleanupBrainRefsOnSessionDelete } from './cross-db-cleanup.js';
@@ -100,16 +107,6 @@ import { runHeartbeatWrite, withWriteRetry } from './with-retry.js';
  * BEGIN IMMEDIATE/COMMIT/ROLLBACK (depth = 0).
  */
 let _txSavepointCounter = 0;
-
-/**
- * Generate a unique audit log entry ID.
- * @task T4837
- */
-function generateAuditLogId(): string {
-  const epoch = Math.floor(Date.now() / 1000);
-  const rand = Math.random().toString(36).slice(2, 8);
-  return `log-${epoch}-${rand}`;
-}
 
 /**
  * Evidence bindings for a set of CURRENT AC ids (T12341).
@@ -1476,6 +1473,12 @@ async function createOwnedSqliteDataAccessor(
       return selectAcBindings(await getDb(cwd), acIds);
     },
 
+    // ---- AC bindings — orphan scan (T12790) ----
+    async findOrphanAcBindings() {
+      const db = await getDb(cwd);
+      return selectOrphanAcBindings(db);
+    },
+
     async archiveSingleTask(taskId: string, fields: ArchiveFields): Promise<void> {
       return accessor.transaction(async () => {
         const db = await getDb(cwd);
@@ -1520,6 +1523,9 @@ async function createOwnedSqliteDataAccessor(
             .delete(schema.taskDependencies)
             .where(eq(schema.taskDependencies.dependsOn, taskId))
             .run();
+          // T12790: the bindings table has no FK to the AC rows that cascade
+          // from tasks_tasks — remove (and audit) them explicitly.
+          await pruneAcBindingsForTask(db, taskId);
           // Delete the task itself
           await db.delete(schema.tasks).where(eq(schema.tasks.id, taskId)).run();
         });
@@ -2162,6 +2168,8 @@ async function createOwnedSqliteDataAccessor(
                       .delete(schema.taskDependencies)
                       .where(eq(schema.taskDependencies.dependsOn, taskId))
                       .run();
+                    // T12790: bindings of the cascading AC rows (no FK).
+                    await pruneAcBindingsForTask(db, taskId);
                     await db.delete(schema.tasks).where(eq(schema.tasks.id, taskId)).run();
                   });
                 },
@@ -2320,17 +2328,42 @@ async function createOwnedSqliteDataAccessor(
                   scope.assertActive();
                   return accessor.transaction(async () => {
                     scope.assertActive();
+                    // T12790: remove (and audit) the departing rows' bindings.
+                    await pruneAcBindingsForTask(db, taskId, 'ac-removed');
                     await db
                       .delete(schema.taskAcceptanceCriteria)
                       .where(eq(schema.taskAcceptanceCriteria.taskId, taskId))
                       .run();
                   });
                 },
-                async deleteAcRowsByIds(taskId: string, ids: readonly string[]): Promise<void> {
+                async deleteAcRowsByIds(
+                  taskId: string,
+                  ids: readonly string[],
+                  keepBindingsForUids: readonly string[] = [],
+                ): Promise<void> {
                   scope.assertActive();
                   if (ids.length === 0) return;
                   return accessor.transaction(async () => {
                     scope.assertActive();
+                    // T12790: only ids this task actually owns leave the set —
+                    // prune (and audit) exactly their bindings.
+                    const owned = await db
+                      .select({ id: schema.taskAcceptanceCriteria.id })
+                      .from(schema.taskAcceptanceCriteria)
+                      .where(
+                        and(
+                          eq(schema.taskAcceptanceCriteria.taskId, taskId),
+                          inArray(schema.taskAcceptanceCriteria.id, ids as string[]),
+                        ),
+                      )
+                      .all();
+                    await pruneAcBindingsForAcIds(
+                      db,
+                      taskId,
+                      owned.map((r) => r.id),
+                      'ac-removed',
+                      keepBindingsForUids,
+                    );
                     await db
                       .delete(schema.taskAcceptanceCriteria)
                       .where(
@@ -2452,6 +2485,14 @@ async function createOwnedSqliteDataAccessor(
                         ],
                       })
                       .run();
+                  });
+                },
+                // ---- AC bindings — orphan repair (T12790) ----
+                async pruneOrphanAcBindings() {
+                  scope.assertActive();
+                  return accessor.transaction(async () => {
+                    scope.assertActive();
+                    return pruneOrphanAcBindings(db);
                   });
                 },
               };

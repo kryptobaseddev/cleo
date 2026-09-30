@@ -76,6 +76,11 @@ export interface NexusIntegrityResult {
   unreachable: number;
   /** Per-project issue strings (populated only for degraded/unreachable). */
   issues: Array<{ projectHash: string; projectPath: string; problems: string[] }>;
+  /**
+   * Set when the registry could not be read (T12512): `total` is then 0
+   * because nothing could be enumerated, not because nothing is registered.
+   */
+  registryError?: string;
 }
 
 /** A single temp-project GC candidate. */
@@ -290,6 +295,7 @@ export async function runNexusIntegrityCheck(): Promise<NexusIntegrityResult> {
     projects = rows.map((r) => ({ hash: r.hash, path: r.path }));
   } catch (err) {
     log.warn({ err }, `${LOG}: step1 — failed to load nexus registry`);
+    result.registryError = err instanceof Error ? err.message : String(err);
     return result;
   }
 
@@ -718,7 +724,12 @@ export async function runCrossProjectHygiene(): Promise<CrossProjectHygieneDiges
   const completedAt = new Date().toISOString();
 
   // Step 5: build human-readable summary.
-  const parts: string[] = [`${nexusIntegrity.healthy}/${nexusIntegrity.total} projects healthy`];
+  // T12512: an unreadable registry is reported as such, never as "0/0 healthy".
+  const parts: string[] = [
+    nexusIntegrity.registryError !== undefined
+      ? `registry unreadable: ${nexusIntegrity.registryError}`
+      : `${nexusIntegrity.healthy}/${nexusIntegrity.total} projects healthy`,
+  ];
   if (nexusIntegrity.degraded > 0) parts.push(`${nexusIntegrity.degraded} degraded`);
   if (nexusIntegrity.unreachable > 0) parts.push(`${nexusIntegrity.unreachable} unreachable`);
   if (tempGc.candidates.length > 0)

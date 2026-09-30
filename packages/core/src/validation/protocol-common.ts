@@ -81,11 +81,24 @@ const VALID_TYPES = [
   'Testing',
   'Specification',
   'Consensus',
+  'ADR',
   'Decomposition',
   'Contribution',
   'Release',
 ];
-const VALID_STATUSES_MSG = MANIFEST_STATUSES.filter((s) => s !== 'archived');
+
+/**
+ * Statuses a return message may carry. `complete` is the spelling the spawn
+ * prompt renders; `completed` is the manifest status and stays accepted.
+ */
+const RETURN_STATUSES = ['complete', ...MANIFEST_STATUSES.filter((s) => s !== 'archived')];
+
+/** Tail of the legacy one-line return message (ADR-027). */
+const LEGACY_RETURN_TAIL = ' Manifest appended to pipeline_manifest.';
+
+/** Keys a compressed return message may carry after its first line (T12521). */
+const RETURN_DETAIL_KEYS = ['commits', 'gates', 'blocker'] as const;
+
 /**
  * Map from protocol type identifiers to the expected message type prefix.
  * When a protocolType is provided, the return message must use the matching type.
@@ -97,41 +110,122 @@ const PROTOCOL_TYPE_MAP: Record<string, string> = {
   testing: 'Testing',
   specification: 'Specification',
   consensus: 'Consensus',
+  architecture_decision: 'ADR',
   decomposition: 'Decomposition',
   contribution: 'Contribution',
   release: 'Release',
 };
 
 /**
- * Check if return message follows protocol format.
- * Expected: "<Type> <status>. Manifest appended to pipeline_manifest."
+ * A subagent return message, parsed (T12521).
+ *
+ * Two forms are accepted:
+ * - **compressed** — line 1 `<Type> <status>. manifest:<entryId>`, then
+ *   optional `commits:`, `gates:` and `blocker:` lines, each at most once.
+ * - **legacy** — the single line
+ *   `<Type> <status>. Manifest appended to pipeline_manifest.`
+ */
+export interface ParsedReturnMessage {
+  /** Which accepted form the message used. */
+  form: 'compressed' | 'legacy';
+  /** Type word, e.g. `Implementation`. */
+  type: string;
+  /** Status word: `complete`, `completed`, `partial` or `blocked`. */
+  status: string;
+  /** Manifest entry id (compressed form only; `null` for legacy). */
+  entryId: string | null;
+  /** `commits:` value, or `null` when the line is absent. */
+  commits: string | null;
+  /** `gates:` value, or `null` when the line is absent. */
+  gates: string | null;
+  /** `blocker:` value, or `null` when the line is absent. */
+  blocker: string | null;
+}
+
+/**
+ * Parse a subagent return message in the compressed or the legacy form.
+ *
+ * One surrounding ``` fence is stripped first. In the compressed form:
+ * `blocker` must be `none` (or absent) when the status is
+ * `complete`/`completed`, and present and not `none` when it is
+ * `partial`/`blocked`; `manifest:none` is accepted only for `partial`/`blocked`;
+ * an entry id containing `<` or `>` (an unfilled `<entryId>` placeholder) is
+ * rejected. Unknown, duplicate or empty detail lines reject the message, and a
+ * legacy message must be exactly one line (its rules are unchanged).
+ *
+ * @param message - Raw return message (surrounding whitespace and one
+ *   surrounding code fence are ignored).
+ * @param types - Allowed type words; omitted, any non-empty type is allowed.
+ * @returns The parsed message, or `null` when it matches neither form.
+ * @task T12521
+ */
+export function parseReturnMessage(
+  message: string,
+  types?: readonly string[],
+): ParsedReturnMessage | null {
+  const lines = stripReturnFence(message.trim().split(/\r?\n/));
+  const typePattern = types ? types.map(escapeRegex).join('|') : '.+?';
+  const head = new RegExp(
+    `^(${typePattern}) (${RETURN_STATUSES.join('|')})\\.(?:${escapeRegex(LEGACY_RETURN_TAIL)}| manifest:(\\S+))$`,
+  ).exec(lines[0] ?? '');
+  const type = head?.[1];
+  const status = head?.[2];
+  if (!type || !status) return null;
+  const entryId = head?.[3] ?? null;
+  const parsed: ParsedReturnMessage = {
+    form: entryId ? 'compressed' : 'legacy',
+    type,
+    status,
+    entryId,
+    commits: null,
+    gates: null,
+    blocker: null,
+  };
+  if (parsed.form === 'legacy') return lines.length === 1 ? parsed : null;
+  for (const line of lines.slice(1)) {
+    const detail = /^(\w+): (\S.*)$/.exec(line.trim());
+    const key = RETURN_DETAIL_KEYS.find((k) => k === detail?.[1]);
+    const value = detail?.[2]?.trim();
+    if (!key || !value || parsed[key] !== null) return null;
+    parsed[key] = value;
+  }
+  if (/[<>]/.test(entryId ?? '')) return null;
+  const done = status === 'complete' || status === 'completed';
+  const blocked = parsed.blocker !== null && parsed.blocker !== 'none';
+  if (done && (blocked || entryId === 'none')) return null;
+  if (!done && !blocked) return null;
+  return parsed;
+}
+
+/**
+ * Drop one surrounding ``` fence (with an optional info string) from the
+ * lines of a return message, so a block copied verbatim from the spawn
+ * prompt's template still parses (T12521).
+ */
+function stripReturnFence(lines: string[]): string[] {
+  const first = lines[0]?.trim() ?? '';
+  const last = lines[lines.length - 1]?.trim() ?? '';
+  if (lines.length >= 3 && /^```[\w-]*$/.test(first) && last === '```') {
+    return lines.slice(1, -1).map((line) => line.trim());
+  }
+  return lines;
+}
+
+/**
+ * Check if return message follows protocol format — the compressed form
+ * (`<Type> <status>. manifest:<entryId>` plus optional detail lines) or the
+ * legacy one-liner (`<Type> <status>. Manifest appended to pipeline_manifest.`).
  *
  * When protocolType is provided, the message type must match the protocol
  * (e.g., a 'research' protocol must produce a "Research ..." message).
  *
  * @task T4527
+ * @task T12521
  */
 export function checkReturnMessageFormat(message: string, protocolType?: string): boolean {
-  const statusPattern = VALID_STATUSES_MSG.join('|');
-
-  // If protocolType is given, constrain the type to the matching prefix
-  let typePattern: string;
-  if (protocolType) {
-    const expectedType = PROTOCOL_TYPE_MAP[protocolType.toLowerCase()];
-    if (!expectedType) {
-      // Unknown protocol type — fall back to allowing any valid type
-      typePattern = VALID_TYPES.join('|');
-    } else {
-      typePattern = expectedType;
-    }
-  } else {
-    typePattern = VALID_TYPES.join('|');
-  }
-
-  const regex = new RegExp(
-    `^(${typePattern}) (${statusPattern})\\. Manifest appended to pipeline_manifest\\.$`,
-  );
-  return regex.test(message);
+  // Unknown protocol type — fall back to allowing any valid type.
+  const expectedType = protocolType ? PROTOCOL_TYPE_MAP[protocolType.toLowerCase()] : undefined;
+  return parseReturnMessage(message, expectedType ? [expectedType] : VALID_TYPES) !== null;
 }
 
 // ============================================================================

@@ -756,7 +756,7 @@ function buildWorkerConstraintsBlock(
     lines.push('**When you reach the warning threshold**:');
     lines.push('1. Immediately commit work in progress with a `WIP:` prefix.');
     lines.push('2. Append a partial manifest entry (`--status partial`).');
-    lines.push('3. Return `Implementation partial. Manifest appended to pipeline_manifest.`');
+    lines.push('3. Return the Return Format Contract block with status `partial`.');
     lines.push('');
     lines.push('Do NOT silently consume the remaining budget. The harness emits');
     lines.push(
@@ -1133,130 +1133,114 @@ function buildQualityGateBlock(): string {
 function buildHitlLine(type: string, askProviderId: string | undefined): string {
   const tool = askProviderId ? getProviderAskTool(askProviderId).toolName : null;
   const how = tool ? `asks via \`${tool}\`` : 'emits one `hitl.request` LAFS envelope';
-  return `HITL: never ask the human. Return \`${type} blocked.\` with {question, options[{label,description}], recommended} in the manifest; the orchestrator ${how}.`;
+  return `HITL: never ask the human. Return \`${type} blocked. manifest:<entryId>\` + blocker: with {question, options[{label,description}], recommended} in the manifest; the orchestrator ${how}.`;
 }
 
-/** Build the return-format contract — exact strings the subagent may return. */
+/**
+ * Return-contract type word and manifest `--type` for one protocol phase.
+ *
+ * @task T12521
+ */
+export interface SpawnReturnContract {
+  /** Type word that opens the return message, e.g. `Implementation`. */
+  readonly type: string;
+  /** `cleo manifest append --type` value (becomes `agent_type`). */
+  readonly manifestType: string;
+}
+
+/**
+ * Return-contract type word and manifest type for every protocol phase
+ * (T12521). Each phase maps to its OWN manifest type: `consensus`,
+ * `specification` and `architecture_decision` used to fall through to
+ * `implementation`.
+ */
+export const SPAWN_RETURN_CONTRACTS: Readonly<Record<SpawnProtocolPhase, SpawnReturnContract>> = {
+  research: { type: 'Research', manifestType: 'research' },
+  consensus: { type: 'Consensus', manifestType: 'consensus' },
+  architecture_decision: { type: 'ADR', manifestType: 'architecture_decision' },
+  specification: { type: 'Specification', manifestType: 'specification' },
+  decomposition: { type: 'Decomposition', manifestType: 'decomposition' },
+  implementation: { type: 'Implementation', manifestType: 'implementation' },
+  validation: { type: 'Validation', manifestType: 'validation' },
+  testing: { type: 'Testing', manifestType: 'testing' },
+  release: { type: 'Release', manifestType: 'release' },
+  contribution: { type: 'Contribution', manifestType: 'contribution' },
+};
+
+/** Narrow a protocol string to a known {@link SpawnProtocolPhase}. */
+function isSpawnProtocolPhase(protocol: string): protocol is SpawnProtocolPhase {
+  return ALL_SPAWN_PROTOCOL_PHASES.some((phase) => phase === protocol);
+}
+
+/**
+ * Resolve the return contract for a protocol; unknown protocols use the
+ * `implementation` contract.
+ *
+ * @param protocol - Protocol phase string.
+ * @returns The phase's {@link SpawnReturnContract}.
+ */
+export function resolveSpawnReturnContract(protocol: string): SpawnReturnContract {
+  return isSpawnProtocolPhase(protocol)
+    ? SPAWN_RETURN_CONTRACTS[protocol]
+    : SPAWN_RETURN_CONTRACTS.implementation;
+}
+
+/**
+ * Build the return-format contract — the compressed cavecrew-style block the
+ * subagent returns (T12521). Validators also accept the legacy one-liner
+ * `<Type> <status>. Manifest appended to pipeline_manifest.` (see
+ * `parseReturnMessage` in `validation/protocol-common.ts`).
+ */
 function buildReturnFormatBlock(protocol: string, askProviderId?: string): string {
-  const type =
-    protocol === 'research'
-      ? 'Research'
-      : protocol === 'consensus'
-        ? 'Consensus'
-        : protocol === 'specification'
-          ? 'Specification'
-          : protocol === 'decomposition'
-            ? 'Decomposition'
-            : protocol === 'architecture_decision'
-              ? 'ADR'
-              : protocol === 'validation'
-                ? 'Validation'
-                : protocol === 'testing'
-                  ? 'Testing'
-                  : protocol === 'release'
-                    ? 'Release'
-                    : protocol === 'contribution'
-                      ? 'Contribution'
-                      : 'Implementation';
+  const { type } = resolveSpawnReturnContract(protocol);
   return [
     '## Return Format Contract (MANDATORY)',
     '',
-    'On completion, return EXACTLY ONE of these strings and nothing else:',
+    'Return EXACTLY this block, nothing else. No findings, no diffs, no prose.',
     '',
     '```',
-    `${type} complete. Manifest appended to pipeline_manifest.`,
-    `${type} partial. Manifest appended to pipeline_manifest.`,
-    `${type} blocked. Manifest appended to pipeline_manifest.`,
+    `${type} <complete|partial|blocked>. manifest:<entryId>`,
+    'commits: <sha7,sha7|none>',
+    'gates: <gate>=<pass|fail|skip> ...',
+    'blocker: <≤12 words|none>',
     '```',
     '',
-    'Do NOT include the actual findings or code diffs in the response. Everything that matters goes to:',
-    '',
-    '1. The `pipeline_manifest` table via `cleo manifest append` (see **Manifest Protocol** below)',
-    '2. The task record itself (gates, status, notes)',
-    '3. Files committed to your branch',
-    '',
+    'blocker: none when complete; required when partial/blocked. Findings → manifest, task record (gates, notes), branch commits.',
     buildHitlLine(type, askProviderId),
   ].join('\n');
 }
 
 /**
  * Build the Manifest Protocol block — instructs the subagent to append the
- * completion record to `pipeline_manifest` via `cleo manifest append`.
+ * completion record to `pipeline_manifest` via `cleo manifest append`, capture
+ * the entry id with `--field /data/entryId` (ADR-086: no JSON pipe through an
+ * interpreter) and read it back before returning.
  *
  * Retired: flat-file manifest append pattern (ADR-027 §6.2, T1096). Replaced by
  * the unified `cleo manifest` CLI dispatching to `pipeline.manifest.*` with
  * SQLite as the single source of truth (no concurrent-append race).
  *
  * @param taskId   - Task the subagent is working on.
- * @param protocol - Protocol phase (maps to the `type` column).
+ * @param protocol - Protocol phase (maps to the `--type` value, T12521).
  * @returns Markdown block ready to concatenate into the spawn prompt.
  */
 function buildManifestProtocolBlock(taskId: string, protocol: SpawnProtocolPhase | string): string {
-  const entryType =
-    protocol === 'implementation'
-      ? 'implementation'
-      : protocol === 'research'
-        ? 'research'
-        : protocol === 'decomposition'
-          ? 'decomposition'
-          : protocol === 'validation'
-            ? 'validation'
-            : protocol === 'testing'
-              ? 'testing'
-              : protocol === 'release'
-                ? 'release'
-                : protocol === 'contribution'
-                  ? 'contribution'
-                  : 'implementation';
+  const { type, manifestType } = resolveSpawnReturnContract(protocol);
   return [
-    '## Manifest Protocol (MANDATORY · ADR-027 · T1096)',
+    '## Manifest Protocol (MANDATORY · ADR-027)',
     '',
-    'Append once to SQLite `pipeline_manifest`; never use `.cleo/agent-outputs/*.jsonl` (retired: concurrent writes lost entries).',
-    'Choose ONE form below; capture its receipt in `APPEND_OUT`. Then verify that same receipt. Do not append again to verify.',
-    '',
-    '### Step 1 — Shorthand (recommended; CLI supplies identity, date, topics and defaults)',
+    'Append ONCE to SQLite `pipeline_manifest`; never write `.cleo/agent-outputs/*.jsonl`. `--status`: completed|partial|blocked (actual progress).',
     '',
     '```bash',
-    `APPEND_OUT=$(cleo manifest append --task ${taskId} --type ${entryType} \\`,
-    '  --content "<summary: work, commits, gates>" --status completed) || exit 1',
-    '# Status: completed | partial | blocked; report actual progress.',
-    '```',
-    '',
-    '### Alternative Step 1 — Rich entry (replace shorthand; do not run both)',
-    '',
-    '```bash',
-    "APPEND_OUT=$(cleo manifest append --entry '{",
-    `  "id": "${taskId}-${entryType}-<YYYYMMDDHHMMSS>",`,
-    `  "file": ".cleo/agent-outputs/${taskId}-${entryType}.md",`,
-    '  "title": "<short headline — max 120 chars>",',
-    '  "date": "<YYYY-MM-DD>",',
-    '  "status": "completed",',
-    `  "agent_type": "${entryType}",`,
-    `  "topics": ["${taskId}", "${entryType}"],`,
-    '  "key_findings": ["<bullet 1>", "<bullet 2>"],',
-    '  "actionable": false,',
-    '  "needs_followup": [],',
-    `  "linked_tasks": ["${taskId}"],`,
-    '  "confidence": 0.9,',
-    '  "file_checksum": "sha256:...",',
-    '  "duration_seconds": 120',
-    "}') || exit 1",
-    '```',
-    '',
-    'Required: `id`, `file`, `title`, `date`, `status`, `agent_type`, `topics`, `actionable` (missing → `E_VALIDATION_FAILED`).',
-    'Optional: `key_findings`, `needs_followup`, `linked_tasks`, `confidence`, `file_checksum`, `duration_seconds`.',
-    'Use `linked_tasks[]` for task association (first becomes DB task_id). Not JSON fields: `task_id`, `type`, `content`, `commits`, `gates_passed`, `files_changed`, `children_completed`.',
-    '',
-    '### Step 2 — Verify BEFORE returning (MANDATORY)',
-    '',
-    'Require `{"success":true,"data":{"appended":true,"entryId":"..."}}` and a successful readback. On any error, stop and report failure; never claim "Manifest appended".',
-    '',
-    '```bash',
-    'ENTRY_ID=$(printf "%s" "$APPEND_OUT" | python3 -c \'import json,sys;r=json.load(sys.stdin);d=r["data"];i=d["entryId"];assert r["success"] is True and d["appended"] is True and isinstance(i,str) and i.strip();print(i)\') || exit 1',
+    `ENTRY_ID=$(cleo manifest append --task ${taskId} --type ${manifestType} \\`,
+    '  --content "<work, commits, gates>" --status completed \\',
+    '  --field /data/entryId) || exit 1',
+    '[ -n "$ENTRY_ID" ] || exit 1',
     'cleo manifest show "$ENTRY_ID" >/dev/null || exit 1',
     '```',
     '',
-    `Retrieve with \`cleo manifest show <entryId>\` or \`cleo manifest list --task ${taskId}\` (id prefix or linked_tasks match).`,
+    `Empty \`ENTRY_ID\`/non-zero exit → \`${type} blocked. manifest:none\` + \`blocker: manifest append failed\`. Never claim an entry not read back. Do not append again to verify.`,
+    "Rich `--entry '<json>'` needs id, file, title, date, status, agent_type, topics, actionable (missing → `E_VALIDATION_FAILED`); link via `linked_tasks[]`, not `task_id`. First --task/linked_tasks entry = manifest task id. Capture via `--field /data/entryId`; same guard + readback.",
   ].join('\n');
 }
 

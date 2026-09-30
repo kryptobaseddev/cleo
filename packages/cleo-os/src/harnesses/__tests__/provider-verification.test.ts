@@ -259,7 +259,13 @@ describe.skipIf(process.platform === 'win32')('bounded external provider observa
           const status = await readFile(`/proc/${pid}/stat`, 'utf8');
           expect(status.slice(status.lastIndexOf(')') + 2).split(' ')[0]).toBe('Z');
         } catch (error) {
-          if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT')
+          // ENOENT: the descendant is already gone. ESRCH: it was reaped between
+          // opening /proc/<pid>/stat and reading it (T12738). Both mean "not running".
+          if (
+            !(error instanceof Error) ||
+            !('code' in error) ||
+            (error.code !== 'ENOENT' && error.code !== 'ESRCH')
+          )
             throw error;
         }
       } finally {

@@ -19,7 +19,7 @@ import type {
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { parseQuery, resolveTask, validateSyntax } from './query.js';
-import { readRegistry } from './registry.js';
+import { nexusCaughtToEngineError, readRegistry } from './registry.js';
 
 // ---------------------------------------------------------------------------
 // Stop-word set for keyword extraction
@@ -178,10 +178,9 @@ export async function discoverRelated(
   const sourceWords = extractKeywords(sourceTitle + ' ' + sourceDesc);
   const parsed = parseQuery(taskQuery);
 
+  // T12512: readRegistry throws a typed error when the registry is unreadable;
+  // it never returns an empty registry that would read as "no related tasks".
   const registry = await readRegistry();
-  if (!registry) {
-    return { query: taskQuery, method, results: [], total: 0 };
-  }
 
   const candidates: NexusDiscoverHit[] = [];
 
@@ -305,10 +304,8 @@ export async function searchAcrossProjects(
     }
   }
 
+  // T12512: an unreadable registry throws a typed error, never zero results.
   const registry = await readRegistry();
-  if (!registry) {
-    return { pattern, results: [], resultCount: 0 };
-  }
 
   const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
   const regexPattern = escaped.replace(/\*/g, '.*');
@@ -407,7 +404,7 @@ export async function nexusDiscover(
     }
     return engineSuccess(result);
   } catch (error) {
-    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+    return nexusCaughtToEngineError(error, 'Failed to discover related tasks');
   }
 }
 
@@ -440,6 +437,6 @@ export async function nexusSearch(
     }
     return engineSuccess(result);
   } catch (error) {
-    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+    return nexusCaughtToEngineError(error, 'Failed to search across projects');
   }
 }

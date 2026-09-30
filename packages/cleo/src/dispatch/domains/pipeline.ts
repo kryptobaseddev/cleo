@@ -289,7 +289,8 @@ async function manifestStatsOp(params: ManifestStatsParams) {
 }
 
 async function manifestAppendOp(params: ManifestAppendParams) {
-  return pipelineManifestAppend(params.entry, getProjectRoot());
+  // T12829: the CLI surface rejects linked tasks that do not exist.
+  return pipelineManifestAppend(params.entry, getProjectRoot(), { requireExistingTasks: true });
 }
 
 async function manifestArchiveOp(params: ManifestArchiveParams) {

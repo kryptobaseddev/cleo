@@ -14,6 +14,8 @@
  *   0   All projects healthy (or only 'unknown' entries).
  *   1   At least one project is 'degraded'.
  *   2   At least one project is 'unreachable', unless --ignore-unreachable.
+ *   75  The registry itself could not be read (`E_NEXUS_REGISTRY_READ`,
+ *       T12512): an error envelope, never an empty "no projects" report.
  *
  * Never throws during the probe itself — the core module captures every
  * failure on the returned report. Any exit-code-worthy condition is surfaced
@@ -30,7 +32,7 @@ import {
 } from '@cleocode/core/internal';
 import { defineCommand } from 'citty';
 import { negatedFlag } from '../lib/negated-flag.js';
-import { cliOutput, humanLine } from '../renderers/index.js';
+import { cliError, cliOutput, humanLine } from '../renderers/index.js';
 
 /** Options understood by {@link runDoctorProjects}. */
 export interface RunDoctorProjectsOptions {
@@ -83,6 +85,20 @@ export function printDoctorProjectsReport(
   opts: RunDoctorProjectsOptions,
   nameLookup: Map<string, string>,
 ): void {
+  // T12512: an unreadable registry is an error (E_NEXUS_REGISTRY_READ, exit
+  // 75), never "No projects registered" with exit 0.
+  if (report.registryError) {
+    const { registryError } = report;
+    cliError(
+      registryError.message,
+      registryError.exitCode,
+      { name: registryError.code, fix: registryError.fix, details: { report } },
+      { operation: 'doctor.projects' },
+    );
+    process.exitCode = registryError.exitCode;
+    return;
+  }
+
   const { summary } = report;
   const exitCode = deriveExitCode(summary, opts.ignoreUnreachable === true);
   process.exitCode = exitCode;
@@ -159,17 +175,20 @@ export async function runDoctorProjects(
     includeGlobal: opts.skipGlobal !== true,
   });
 
-  // Build the name lookup from the registry for nicer table rendering.
-  // Defensive: if nexusList throws, fall back to the '<unnamed>' placeholder.
+  // Build the name lookup from the registry for nicer table rendering. Names
+  // are cosmetic: a failed lookup falls back to '<unnamed>'. An unreadable
+  // registry is already reported through `report.registryError` (T12512).
   const nameLookup = new Map<string, string>();
-  try {
-    const { nexusList } = await import('@cleocode/core/internal');
-    const rows = await nexusList();
-    for (const row of rows) {
-      nameLookup.set(row.hash, row.name);
+  if (!report.registryError) {
+    try {
+      const { nexusList } = await import('@cleocode/core/internal');
+      const rows = await nexusList();
+      for (const row of rows) {
+        nameLookup.set(row.hash, row.name);
+      }
+    } catch {
+      // nexus.db not initialized — continue with an empty lookup.
     }
-  } catch {
-    // nexus.db not initialized — continue with an empty lookup.
   }
 
   printDoctorProjectsReport(report, opts, nameLookup);

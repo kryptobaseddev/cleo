@@ -180,7 +180,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
@@ -190,7 +190,14 @@ import { z } from 'zod';
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
 import { getCleoVersion } from '../scaffold/ensure-config.js';
-import { isPinnedBackup, pinBackup } from './backup-sidecar.js';
+import {
+  type BackupSidecar,
+  isPinnedBackup,
+  pinBackup,
+  readBackupSidecar,
+  restoreBackupSidecar,
+  unpinBackup,
+} from './backup-sidecar.js';
 import { blobFileForRow, pinBlob, restoreBlob } from './blob-keep.js';
 import { planMigrationSnapshot, writeMigrationSnapshot } from './pre-repair-snapshot.js';
 
@@ -1883,7 +1890,11 @@ function collapsePair(
       task: 'T12535',
       collapsedAt: state?.collapsedAt || now,
       lastMergedAt: now,
-      snapshot: state?.snapshot ?? snapshotPath,
+      // Only an initial collapse records the snapshot it took. A later one
+      // keeps what the marker holds, including `null` after an owner
+      // released it (T12767): the snapshot another pair's initial collapse
+      // took is not this pair's pre-collapse store.
+      snapshot: state === undefined ? snapshotPath : state.snapshot,
       hashes: { bare: pair.bareHashes(db), twin: pair.twinHashes(db) },
       dropped: state === undefined ? plan.dropped : state.dropped,
       kept: state === undefined ? plan.kept.slice(0, MAX_CONFLICTS) : state.kept,
@@ -2295,11 +2306,25 @@ export interface TwinCollapseRecoveryPlan {
   readonly receipts: readonly string[];
   /** Whether an apply would write anything. */
   readonly changes: boolean;
+  /**
+   * The path the markers record, when the store moved (`/mnt` → `/home`,
+   * Linux → Mac) and the snapshot was found by file name in the store's own
+   * backup directory instead (T12788); `null` otherwise. An apply re-points
+   * the markers at {@link snapshot}.
+   */
+  readonly movedFrom: string | null;
+}
+
+/** Options of {@link planTwinCollapseRecovery}. */
+export interface TwinCollapseRecoveryPlanOptions {
+  /** The snapshot file to use in place of the markers' path (a moved store, T12788). */
+  readonly snapshotPath?: string;
 }
 
 /** Values a plan computed, and the snapshot it read. */
 interface RecoveryWrites {
   readonly snapshot: DatabaseSync;
+  readonly options: TwinCollapseRecoveryPlanOptions;
   readonly kv: ReadonlyMap<string, string>;
   readonly focusBefore: string | null;
   readonly focusState: string | null;
@@ -2375,9 +2400,11 @@ function stickySetsIfPresent(db: DatabaseSync, table: string): Map<string, strin
 export function planTwinCollapseRecovery(
   live: DatabaseSync,
   snapshot: DatabaseSync | null,
+  options: TwinCollapseRecoveryPlanOptions = {},
 ): TwinCollapseRecoveryPlan {
   const state = readState(live, SCHEMA_META);
-  const snapshotPath = state?.snapshot ?? null;
+  const recorded = state?.snapshot ?? null;
+  const snapshotPath = recorded === null ? null : (options.snapshotPath ?? recorded);
   const liveKv = kvRows(live, 'tasks_schema_meta');
   const receipts = [...recoveryReceipts(live)]
     .filter(([, r]) => r.rolledBackAt === null)
@@ -2393,6 +2420,7 @@ export function planTwinCollapseRecovery(
     stickyArchiveKey: STICKY_ARCHIVE_KEY,
     receipts,
     changes: false,
+    movedFrom: recorded !== null && snapshotPath !== recorded ? recorded : null,
   };
   if (snapshot === null) return empty;
 
@@ -2485,6 +2513,7 @@ export function planTwinCollapseRecovery(
   };
   recoveryWrites.set(plan, {
     snapshot,
+    options,
     kv,
     focusBefore,
     focusState,
@@ -2514,24 +2543,39 @@ export function planTwinCollapseRecovery(
 export function applyTwinCollapseRecovery(
   live: DatabaseSync,
   plan: TwinCollapseRecoveryPlan,
+  onRepoint?: (repoint: TwinCollapseSnapshotRepoint) => void,
 ): {
   readonly plan: TwinCollapseRecoveryPlan;
   readonly receipt: TwinCollapseRecoveryReceipt | null;
+  readonly repointed: TwinCollapseSnapshotRepoint | null;
 } {
-  if (plan.snapshot === null) return { plan, receipt: null };
+  if (plan.snapshot === null) return { plan, receipt: null, repointed: null };
   const preview = recoveryWrites.get(plan);
   if (!plan.snapshotExists || preview === undefined) throw missingSnapshot(plan.snapshot);
   live.exec('BEGIN IMMEDIATE');
   try {
-    const fresh = planTwinCollapseRecovery(live, preview.snapshot);
+    const fresh = planTwinCollapseRecovery(live, preview.snapshot, preview.options);
     const writes = recoveryWrites.get(fresh);
-    if (!fresh.changes || writes === undefined) {
-      live.exec('ROLLBACK');
-      return { plan: fresh, receipt: null };
-    }
     // Only when there is something to write (T12772): a re-run on a
-    // recovered store is a no-op whatever the pin.
-    if (!fresh.snapshotPinned) throw unpinnedSnapshot(fresh.snapshot);
+    // recovered store is a no-op whatever the pin. Checked before anything
+    // (the re-point, its audit row) is written.
+    if (fresh.changes && writes !== undefined && !fresh.snapshotPinned)
+      throw unpinnedSnapshot(fresh.snapshot);
+    // A moved store (T12788): the markers name the file where it lives now,
+    // whether or not anything is left to recover. `onRepoint` audits it just
+    // before COMMIT, so a failure that rolls the re-point back leaves no
+    // audit row claiming it.
+    let repointed: TwinCollapseSnapshotRepoint | null = null;
+    if (fresh.movedFrom !== null && fresh.snapshot !== null)
+      repointed = repointSnapshotMarkers(live, fresh.movedFrom, fresh.snapshot);
+    if (!fresh.changes || writes === undefined) {
+      if (repointed === null) live.exec('ROLLBACK');
+      else {
+        onRepoint?.(repointed);
+        live.exec('COMMIT');
+      }
+      return { plan: fresh, receipt: null, repointed };
+    }
     const recoveredAt = new Date().toISOString();
     let id = `${TWIN_COLLAPSE_RECOVERY_PREFIX}${recoveredAt}`;
     for (let n = 2; readKv(live, 'tasks_schema_meta', id) !== undefined; n++)
@@ -2565,12 +2609,43 @@ export function applyTwinCollapseRecovery(
     if (writes.stickyArchive !== null)
       writeKv(live, 'brain_schema_meta', fresh.stickyArchiveKey, writes.stickyArchive);
     writeKv(live, 'tasks_schema_meta', id, JSON.stringify(receipt));
+    if (repointed !== null) onRepoint?.(repointed);
     live.exec('COMMIT');
-    return { plan: fresh, receipt };
+    return { plan: fresh, receipt, repointed };
   } catch (error) {
     if (live.isTransaction) live.exec('ROLLBACK');
     throw error;
   }
+}
+
+/** Markers re-pointed from a moved store's old snapshot path (T12788). */
+export interface TwinCollapseSnapshotRepoint {
+  /** The path the markers recorded. */
+  readonly from: string;
+  /** The file in the store's own backup directory they name now. */
+  readonly to: string;
+  /** The marker keys rewritten (`<kvTable>:twin_collapse:<table>`). */
+  readonly markers: readonly string[];
+}
+
+/** Point every marker that records `from` at `to` (inside the caller's transaction). */
+function repointSnapshotMarkers(
+  live: DatabaseSync,
+  from: string,
+  to: string,
+): TwinCollapseSnapshotRepoint {
+  const markers: string[] = [];
+  for (const pair of PAIRS) {
+    if (!hasMainTable(live, pair.kvTable)) continue;
+    const key = `${TWIN_COLLAPSE_MARKER_PREFIX}${pair.table}`;
+    const raw = readKv(live, pair.kvTable, key);
+    const parsed = raw === undefined ? undefined : parseJson(raw);
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) continue;
+    if ((parsed as { snapshot?: unknown }).snapshot !== from) continue;
+    writeKv(live, pair.kvTable, key, JSON.stringify({ ...parsed, snapshot: to }));
+    markers.push(`${pair.kvTable}:${key}`);
+  }
+  return { from, to, markers };
 }
 
 /** The error for a recorded snapshot that is not on disk. */
@@ -2756,6 +2831,212 @@ export function rollbackTwinCollapseRecovery(
     return { id, archiveDeleted, archiveKept, focusState, notesRemoved, stickyRemoved };
   } catch (error) {
     if (live.isTransaction) live.exec('ROLLBACK');
+    throw error;
+  }
+}
+
+// ── releasing a pre-collapse snapshot (T12767) ──────────────────────────────
+
+/** Error code of a snapshot release that cannot proceed; nothing was written. */
+export const E_TWIN_COLLAPSE_RELEASE = 'E_TWIN_COLLAPSE_RELEASE';
+
+/** Pairs whose loss the recovery (T12727) verifies; a release covers only these. */
+const RECOVERABLE_PAIRS: readonly TwinPair[] = [SCHEMA_META, STICKY_TAGS];
+
+/** What {@link planSnapshotRelease} found for one pre-collapse snapshot. */
+export interface TwinCollapseSnapshotReleasePlan {
+  /** The snapshot path the markers record, or `null` when none matches. */
+  readonly snapshot: string | null;
+  /** Marker keys that reference it (`<kvTable>:twin_collapse:<table>`). */
+  readonly markers: readonly string[];
+  /** Whether the snapshot is on disk. */
+  readonly exists: boolean;
+  /** Bytes reclaimed once it rotates (the file plus any `-wal`/`-shm`). */
+  readonly bytes: number;
+  /**
+   * `recovered`: a recovery apply (not rolled back) read this snapshot and
+   * nothing is left to recover; `no-recovery-needed`: it holds nothing the
+   * live store lacks; `null`: not releasable (see `blockers`).
+   */
+  readonly basis: 'recovered' | 'no-recovery-needed' | null;
+  /** Recovery receipts (not rolled back) that read this snapshot. */
+  readonly receipts: readonly string[];
+  /** Why it cannot be released; empty when it can. */
+  readonly blockers: readonly string[];
+  /** The path the markers record when the store moved and {@link snapshot} is the local file (T12788). */
+  readonly movedFrom: string | null;
+}
+
+/** Whether a recorded snapshot path is the one `id` names (backup id, file name or path). */
+function namesSnapshot(path: string, id: string): boolean {
+  const want = basename(id);
+  const have = basename(path);
+  return have === want || have.endsWith(`.${want}`);
+}
+
+/**
+ * Plan releasing a pre-collapse snapshot (T12767): which markers reference
+ * it, how many bytes it holds, and whether it may be released. It may only
+ * after a verified recovery or a no-recovery-needed check: the recovery plan
+ * against it ({@link planTwinCollapseRecovery}) must find nothing left to
+ * recover, and only the `schema_meta` / `sticky_tags` markers (the pairs the
+ * recovery covers) may reference it.
+ *
+ * @param live - The project `cleo.db` connection (read-only is enough).
+ * @param id - The snapshot: its backup id (`migration-<timestamp>`), file name or path.
+ * @param snapshot - The snapshot opened read-only, or `null` when it is not on disk.
+ * @returns The plan.
+ * @task T12767
+ */
+export function planSnapshotRelease(
+  live: DatabaseSync,
+  id: string,
+  snapshot: DatabaseSync | null,
+  options: TwinCollapseRecoveryPlanOptions = {},
+): TwinCollapseSnapshotReleasePlan {
+  let path: string | null = null;
+  const markers: string[] = [];
+  const blockers: string[] = [];
+  for (const pair of PAIRS) {
+    if (!hasMainTable(live, pair.kvTable)) continue;
+    const recorded = readState(live, pair)?.snapshot;
+    if (typeof recorded !== 'string' || !namesSnapshot(recorded, id)) continue;
+    path ??= recorded;
+    markers.push(`${pair.kvTable}:${TWIN_COLLAPSE_MARKER_PREFIX}${pair.table}`);
+    if (!RECOVERABLE_PAIRS.includes(pair))
+      blockers.push(
+        `the ${pair.table} marker references it, and the recovery does not cover ${pair.table}`,
+      );
+  }
+  if (path === null)
+    return {
+      snapshot: null,
+      markers,
+      exists: false,
+      bytes: 0,
+      basis: null,
+      receipts: [],
+      blockers: [`no twin-collapse marker references ${id}`],
+      movedFrom: null,
+    };
+  // A moved store (T12788): the markers name the old path; the file is local.
+  const recorded: string = path;
+  path = options.snapshotPath ?? recorded;
+  const exists = existsSync(path);
+  const bytes = [path, `${path}-wal`, `${path}-shm`].reduce(
+    (sum, f) => sum + (existsSync(f) ? statSync(f).size : 0),
+    0,
+  );
+  const receipts = [...recoveryReceipts(live)]
+    .filter(([, r]) => r.rolledBackAt === null && (r.snapshot === path || r.snapshot === recorded))
+    .map(([k]) => k)
+    .sort();
+  if (!exists || snapshot === null)
+    blockers.push('the snapshot is not on disk, so no recovery check can run against it');
+  else {
+    const recovery = planTwinCollapseRecovery(live, snapshot, { snapshotPath: path });
+    if (recovery.changes)
+      blockers.push(
+        `it still holds ${recovery.archive.length} value(s), ${recovery.focusNotesAdded} session note(s) and ` +
+          `${recovery.stickyArchived.length} sticky tag(s) the live store lacks: run --recover first`,
+      );
+  }
+  return {
+    snapshot: path,
+    markers,
+    exists,
+    bytes,
+    basis: blockers.length > 0 ? null : receipts.length > 0 ? 'recovered' : 'no-recovery-needed',
+    receipts,
+    blockers,
+    movedFrom: recorded !== path ? recorded : null,
+  };
+}
+
+/** The release refusal for a plan with blockers. */
+export function releaseRefused(id: string, plan: TwinCollapseSnapshotReleasePlan): CleoError {
+  return new CleoError(
+    ExitCode.VALIDATION_ERROR,
+    `${E_TWIN_COLLAPSE_RELEASE}: ${id} cannot be released: ${plan.blockers.join('; ')}; nothing was changed`,
+    {
+      fix: `cleo doctor twin-collapse --recover --dry-run  # then --recover, and --release-snapshot ${id} --dry-run`,
+      details: { field: 'snapshot', actual: plan.snapshot, blockers: plan.blockers },
+    },
+  );
+}
+
+/** What {@link releaseTwinCollapseSnapshot} did. */
+export interface TwinCollapseSnapshotRelease {
+  readonly snapshot: string;
+  /** Marker keys whose snapshot reference was cleared. */
+  readonly markers: readonly string[];
+  readonly basis: 'recovered' | 'no-recovery-needed';
+  readonly bytes: number;
+  readonly releasedAt: string;
+  /** The path the markers recorded, when the store moved (T12788); `null` otherwise. */
+  readonly movedFrom: string | null;
+}
+
+/**
+ * Release a pre-collapse snapshot, in one `BEGIN IMMEDIATE` transaction: the
+ * plan is re-checked under the write lock, each referencing marker's
+ * `snapshot` is cleared (so an open no longer pins it and rotation no longer
+ * keeps it), its sidecar pin is released, and `audit` records the release
+ * before the commit (a failed audit write refuses it). The snapshot file is
+ * never touched; it rotates normally from then on.
+ *
+ * @param live - The project `cleo.db` connection, outside a transaction.
+ * @param id - The snapshot: backup id, file name or path.
+ * @param snapshot - The snapshot opened read-only, or `null`.
+ * @param audit - Appends the audit row; throws to refuse.
+ * @returns What was released.
+ * @throws {CleoError} {@link E_TWIN_COLLAPSE_RELEASE} when it may not be released.
+ * @task T12767
+ */
+export function releaseTwinCollapseSnapshot(
+  live: DatabaseSync,
+  id: string,
+  snapshot: DatabaseSync | null,
+  audit: (release: TwinCollapseSnapshotRelease & { receipts: readonly string[] }) => void,
+  options: TwinCollapseRecoveryPlanOptions = {},
+): TwinCollapseSnapshotRelease {
+  live.exec('BEGIN IMMEDIATE');
+  let sidecarBefore: BackupSidecar | null | undefined;
+  let path: string | null = null;
+  try {
+    const plan = planSnapshotRelease(live, id, snapshot, options);
+    if (plan.basis === null || plan.snapshot === null) throw releaseRefused(id, plan);
+    path = plan.snapshot;
+    for (const pair of PAIRS) {
+      const key = `${TWIN_COLLAPSE_MARKER_PREFIX}${pair.table}`;
+      if (!plan.markers.includes(`${pair.kvTable}:${key}`)) continue;
+      const raw = readKv(live, pair.kvTable, key);
+      const parsed = raw === undefined ? undefined : parseJson(raw);
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
+        throw releaseRefused(id, { ...plan, blockers: [`the ${pair.table} marker is unreadable`] });
+      writeKv(live, pair.kvTable, key, JSON.stringify({ ...parsed, snapshot: null }));
+    }
+    sidecarBefore = readBackupSidecar(path, 'migration');
+    const sidecar = unpinBackup(
+      path,
+      'migration',
+      `T12767: released by an owner after a ${plan.basis} check`,
+    );
+    const release: TwinCollapseSnapshotRelease = {
+      snapshot: path,
+      markers: plan.markers,
+      basis: plan.basis,
+      bytes: plan.bytes,
+      releasedAt: sidecar.releasedAt ?? new Date().toISOString(),
+      movedFrom: plan.movedFrom,
+    };
+    audit({ ...release, receipts: plan.receipts });
+    live.exec('COMMIT');
+    return release;
+  } catch (error) {
+    if (live.isTransaction) live.exec('ROLLBACK');
+    if (sidecarBefore !== undefined && path !== null)
+      restoreBackupSidecar(path, 'migration', sidecarBefore);
     throw error;
   }
 }

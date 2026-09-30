@@ -118,7 +118,7 @@ export async function scanPendingTranscripts(
       .prepare(
         `SELECT
            source_session_id AS sessionId,
-           text,
+           narrative AS text,
            created_at AS createdAt
          FROM brain_observations
          WHERE title LIKE 'transcript_pending_extraction:%'

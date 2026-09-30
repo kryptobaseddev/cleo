@@ -10,6 +10,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
+import { parseReturnMessage } from '../validation/protocol-common.js';
 import { parseFrontmatter } from './discovery.js';
 import type { SkillFrontmatter } from './types.js';
 
@@ -181,12 +182,16 @@ export function validateSkills(skillDirs: string[]): SkillValidationResult[] {
 }
 
 /**
- * Validate a return message against protocol-compliant patterns.
+ * Validate a return message against protocol-compliant patterns: the
+ * compressed contract (`<Type> <status>. manifest:<entryId>` plus optional
+ * `commits:`, `gates:`, `blocker:` lines — T12521) or a legacy one-liner.
  * @task T4517
+ * @task T12521
  */
 export function validateReturnMessage(message: string): { valid: boolean; error?: string } {
-  // ADR-027: manifest is pipeline_manifest (SQLite). Return messages no longer
-  // reference the flat-file — they say "Manifest appended to pipeline_manifest."
+  // ADR-027: manifest is pipeline_manifest (SQLite). Legacy return messages say
+  // "Manifest appended to pipeline_manifest."; T12521 compressed messages name
+  // the verified entry id instead (`manifest:<entryId>`).
   const validPatterns = [
     /^Research complete\. Manifest appended to pipeline_manifest\.$/,
     /^Epic created\. Manifest appended to pipeline_manifest\.$/,
@@ -200,6 +205,10 @@ export function validateReturnMessage(message: string): { valid: boolean; error?
   const trimmed = message.trim();
   if (!trimmed) {
     return { valid: false, error: 'Return message is empty' };
+  }
+
+  if (parseReturnMessage(trimmed) !== null) {
+    return { valid: true };
   }
 
   for (const pattern of validPatterns) {

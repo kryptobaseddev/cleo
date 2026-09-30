@@ -254,31 +254,29 @@ describe('buildSpawnPrompt — stage-specific guidance', () => {
   });
 });
 
-describe('buildSpawnPrompt — return format contract', () => {
-  it('includes the three exact return strings for implementation', () => {
+describe('buildSpawnPrompt — return format contract (T12521)', () => {
+  it('renders the compressed return block for implementation', () => {
     const result = buildSpawnPrompt({
       task: BASE_TASK,
       protocol: 'implementation',
       projectRoot: PROJECT_ROOT,
     });
     expect(result.prompt).toContain(
-      'Implementation complete. Manifest appended to pipeline_manifest.',
+      'Implementation <complete|partial|blocked>. manifest:<entryId>',
     );
-    expect(result.prompt).toContain(
-      'Implementation partial. Manifest appended to pipeline_manifest.',
-    );
-    expect(result.prompt).toContain(
-      'Implementation blocked. Manifest appended to pipeline_manifest.',
-    );
+    expect(result.prompt).toContain('commits: <sha7,sha7|none>');
+    expect(result.prompt).toContain('gates: <gate>=<pass|fail|skip> ...');
+    expect(result.prompt).toContain('blocker: <≤12 words|none>');
+    expect(result.prompt).toContain('No findings, no diffs, no prose.');
   });
 
-  it('uses the correct verb for research', () => {
+  it('uses the protocol type word on line 1', () => {
     const result = buildSpawnPrompt({
       task: BASE_TASK,
       protocol: 'research',
       projectRoot: PROJECT_ROOT,
     });
-    expect(result.prompt).toContain('Research complete. Manifest appended to pipeline_manifest.');
+    expect(result.prompt).toContain('Research <complete|partial|blocked>. manifest:<entryId>');
   });
 
   it('includes the cleo manifest append instruction (ADR-027 / T1096)', () => {
@@ -293,126 +291,93 @@ describe('buildSpawnPrompt — return format contract', () => {
     expect(result.prompt).not.toContain(['MANIFEST', 'jsonl'].join('.'));
   });
 
-  it('teaches the CORRECT pipeline_manifest schema (v2026.4.113 — T1187 followup)', () => {
+  it('names the required rich-entry fields and steers task links to linked_tasks[]', () => {
     const result = buildSpawnPrompt({
       task: BASE_TASK,
       protocol: 'implementation',
       projectRoot: PROJECT_ROOT,
     });
-    // Every required ManifestEntry field must appear in the rich-entry example so
-    // agents copy a shape that passes pipelineManifestAppend's validator.
-    expect(result.prompt).toContain('"id":');
-    expect(result.prompt).toContain('"file":');
-    expect(result.prompt).toContain('"title":');
-    expect(result.prompt).toContain('"date":');
-    expect(result.prompt).toContain('"status":');
-    expect(result.prompt).toContain('"agent_type":');
-    expect(result.prompt).toContain('"topics":');
-    expect(result.prompt).toContain('"key_findings":');
-    expect(result.prompt).toContain('"actionable":');
-    expect(result.prompt).toContain('"needs_followup":');
-    expect(result.prompt).toContain('"linked_tasks":');
-    // Task association is via linked_tasks[], NOT task_id column directly —
-    // fail fast if the prompt ever reintroduces task_id/type/content as JSON fields.
+    expect(result.prompt).toContain(
+      'needs id, file, title, date, status, agent_type, topics, actionable',
+    );
+    expect(result.prompt).toContain('`linked_tasks[]`, not `task_id`');
+    // Fail fast if the prompt ever reintroduces non-schema JSON fields.
     expect(result.prompt).not.toContain('"task_id":');
     expect(result.prompt).not.toContain('"content":');
     expect(result.prompt).not.toContain('"commits":');
     expect(result.prompt).not.toContain('"gates_passed":');
-    expect(result.prompt).not.toContain('"files_changed":');
-    expect(result.prompt).not.toContain('"children_completed":');
   });
 
-  it('mandates a verification step after cleo manifest append', () => {
-    const result = buildSpawnPrompt({
-      task: BASE_TASK,
-      protocol: 'implementation',
-      projectRoot: PROJECT_ROOT,
-    });
-    // Agents must assert the success path, not hallucinate "Manifest appended".
-    expect(result.prompt).toContain('Verify BEFORE returning');
-    expect(result.prompt).toContain('"appended":true');
-    expect(result.prompt).toContain('cleo manifest show');
+  it('verifies the append with --field and a readback, never a python3 pipe (ADR-086)', () => {
+    for (const protocol of ALL_SPAWN_PROTOCOL_PHASES) {
+      const { prompt } = buildSpawnPrompt({ task: BASE_TASK, protocol, projectRoot: PROJECT_ROOT });
+      expect(prompt, protocol).not.toContain('python3');
+      expect(prompt, protocol).toContain('--field /data/entryId');
+      expect(prompt, protocol).toContain('cleo manifest show "$ENTRY_ID"');
+    }
   });
 });
 
-describe('manifest examples — one append and the same receipt', () => {
-  for (const alternative of [0, 1]) {
-    for (const scenario of [
-      'success',
-      'append-exit',
-      'false-success',
-      'false-appended',
-      'missing-id',
-      'malformed',
-      'show-exit',
-    ]) {
-      it(`validates alternative ${alternative} with ${scenario}`, () => {
-        const { prompt } = buildSpawnPrompt({
-          task: BASE_TASK,
-          protocol: 'implementation',
-          tier: 0,
-          projectRoot: PROJECT_ROOT,
-        });
-        const block = prompt.split('## Manifest Protocol')[1]?.split('## Session Linkage')[0] ?? '';
-        const examples = [...block.matchAll(/```bash\n([\s\S]*?)```/g)].map((match) => match[1]);
-        expect(examples).toHaveLength(3);
-        const append = examples[alternative];
-        const verify = examples[2];
-        expect(append?.match(/cleo manifest append/g)).toHaveLength(1);
-        expect(append).toContain('APPEND_OUT=');
-        expect(verify).not.toContain('cleo manifest append');
-        const receipt =
-          scenario === 'malformed'
-            ? '{broken'
-            : JSON.stringify({
-                success: scenario !== 'false-success',
-                data: {
-                  appended: scenario !== 'false-appended',
-                  entryId: scenario === 'missing-id' ? '' : 'receipt-with-spaces 42',
-                },
-              });
-        // Execute only the rendered examples. The shell function is the entire CLI:
-        // no real provider, CLEO process, database, network or browser can launch.
-        const script = [
-          'cleo() {',
-          '  if [ "$1 $2" = "manifest append" ]; then',
-          '    echo APPEND_CALL >&2',
-          '    printf "%s\\n" "$TEST_RECEIPT"',
-          '    return "$TEST_APPEND_EXIT"',
-          '  fi',
-          '  if [ "$1 $2" = "manifest show" ] && [ "$3" = "receipt-with-spaces 42" ] && [ "$#" = 3 ]; then',
-          '    echo SHOW_SAME_RECEIPT >&2',
-          '    return "$TEST_SHOW_EXIT"',
-          '  fi',
-          '  return 97',
-          '}',
-          append,
-          verify,
-          'echo VERIFIED_RETURN',
-        ].join('\n');
-        const result = spawnSync('/bin/bash', ['--noprofile', '--norc', '-c', script], {
-          encoding: 'utf8',
-          timeout: 5000,
-          env: {
-            PATH: '/usr/bin:/bin',
-            TEST_RECEIPT: receipt,
-            TEST_APPEND_EXIT: scenario === 'append-exit' ? '8' : '0',
-            TEST_SHOW_EXIT: scenario === 'show-exit' ? '4' : '0',
-          },
-        });
-        expect(result.error).toBeUndefined();
-        expect(result.stderr.match(/APPEND_CALL/g)).toHaveLength(1);
-        if (scenario === 'success') {
-          expect(result.status).toBe(0);
-          expect(result.stderr).toContain('SHOW_SAME_RECEIPT');
-          expect(result.stdout).toContain('VERIFIED_RETURN');
-        } else {
-          expect(result.status).not.toBe(0);
-          expect(result.stdout).not.toContain('VERIFIED_RETURN');
-          if (scenario !== 'show-exit') expect(result.stderr).not.toContain('SHOW_SAME_RECEIPT');
-        }
+describe('manifest example — one append, the same entry read back (T12521)', () => {
+  for (const scenario of ['success', 'append-exit', 'pointer-miss', 'show-exit', 'show-other-id']) {
+    it(`handles ${scenario}`, () => {
+      const { prompt } = buildSpawnPrompt({
+        task: BASE_TASK,
+        protocol: 'implementation',
+        tier: 0,
+        projectRoot: PROJECT_ROOT,
       });
-    }
+      const block = prompt.split('## Manifest Protocol')[1]?.split('## Session Linkage')[0] ?? '';
+      const examples = [...block.matchAll(/```bash\n([\s\S]*?)```/g)].map((match) => match[1]);
+      expect(examples).toHaveLength(1);
+      const example = examples[0] ?? '';
+      expect(example.match(/cleo manifest append/g)).toHaveLength(1);
+      // The shell function models the real CLI's `--field` contract: a failed
+      // append exits non-zero; a pointer miss on a mutation exits 0 with empty
+      // stdout (gh#1420). No real provider, CLEO process or database launches.
+      const script = [
+        'cleo() {',
+        '  if [ "$1 $2" = "manifest append" ]; then',
+        '    echo APPEND_CALL >&2',
+        '    case " $* " in *" --field /data/entryId "*) ;; *) return 96 ;; esac',
+        '    [ "$TEST_APPEND_EXIT" = 0 ] || return "$TEST_APPEND_EXIT"',
+        '    printf "%s\\n" "$TEST_ENTRY_ID"',
+        '    return 0',
+        '  fi',
+        '  if [ "$1 $2" = "manifest show" ] && [ "$3" = "$TEST_SHOW_ID" ] && [ "$#" = 3 ]; then',
+        '    echo SHOW_SAME_ENTRY >&2',
+        '    return "$TEST_SHOW_EXIT"',
+        '  fi',
+        '  return 97',
+        '}',
+        example,
+        'echo VERIFIED_RETURN',
+      ].join('\n');
+      const result = spawnSync('/bin/bash', ['--noprofile', '--norc', '-c', script], {
+        encoding: 'utf8',
+        timeout: 5000,
+        env: {
+          PATH: '/usr/bin:/bin',
+          TEST_ENTRY_ID: scenario === 'pointer-miss' ? '' : 'entry with spaces 42',
+          TEST_SHOW_ID: scenario === 'show-other-id' ? 'other' : 'entry with spaces 42',
+          TEST_APPEND_EXIT: scenario === 'append-exit' ? '8' : '0',
+          TEST_SHOW_EXIT: scenario === 'show-exit' ? '4' : '0',
+        },
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.stderr.match(/APPEND_CALL/g)).toHaveLength(1);
+      if (scenario === 'success') {
+        expect(result.status).toBe(0);
+        expect(result.stderr).toContain('SHOW_SAME_ENTRY');
+        expect(result.stdout).toContain('VERIFIED_RETURN');
+      } else {
+        expect(result.status).not.toBe(0);
+        expect(result.stdout).not.toContain('VERIFIED_RETURN');
+        if (scenario === 'append-exit' || scenario === 'pointer-miss') {
+          expect(result.stderr).not.toContain('SHOW_SAME_ENTRY');
+        }
+      }
+    });
   }
 });
 

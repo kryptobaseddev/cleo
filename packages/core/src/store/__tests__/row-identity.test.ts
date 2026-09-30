@@ -401,6 +401,16 @@ describe('uid fill through the open path', () => {
       first.id,
     );
     expect(history).toEqual({ ac_uid: first.uid, previous_text: 'tests pass' });
+    // T12790 pruning follows the uid: the stale binding is not an orphan, and
+    // it goes when its criterion really leaves.
+    expect(await env.accessor.findOrphanAcBindings()).toEqual([]);
+    await env.accessor.transaction(async (tx) => {
+      const existing = await tx.getAcRows('T003');
+      await applyAcPlan(tx, 'T003', planAcUpdate('T003', existing, ['docs updated']));
+    });
+    expect(one("SELECT count(*) AS n FROM tasks_evidence_ac_bindings WHERE id = 'b-1'")).toEqual({
+      n: 0,
+    });
   });
 
   it('a criterion deleted and re-created at the same ordinal inherits the uid, not the evidence', async () => {

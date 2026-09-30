@@ -12,7 +12,7 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { listRegistryParentRoots } from './registry-roots.js';
 
 /** Auto-register error record. */
@@ -374,16 +374,11 @@ export async function scanForProjects(opts: ProjectsScanOptions = {}): Promise<P
 
   const candidates = [...new Set(allCandidates)];
 
-  let registeredPaths = new Set<string>();
-  try {
-    const { nexusList: listProjects } = await import('@cleocode/core/internal' as string);
-    const projectsList = await listProjects();
-    for (const p of projectsList) {
-      registeredPaths.add(path.resolve((p as { path: string }).path));
-    }
-  } catch {
-    registeredPaths = new Set();
-  }
+  // T12512: an unreadable registry is an error, never "nothing is registered" —
+  // that would report every project as unregistered and, with autoRegister,
+  // try to register them all again.
+  const { nexusList } = await import('./registry.js');
+  const registeredPaths = new Set<string>((await nexusList()).map((p) => path.resolve(p.path)));
 
   const unregistered: string[] = [];
   const registered: string[] = [];
@@ -442,6 +437,7 @@ export async function nexusProjectsScan(opts: {
     const result = await scanForProjects(opts);
     return engineSuccess(result);
   } catch (error) {
-    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+    const { nexusCaughtToEngineError } = await import('./registry.js');
+    return nexusCaughtToEngineError(error, 'Failed to scan for projects');
   }
 }

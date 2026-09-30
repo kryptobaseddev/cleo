@@ -1,21 +1,33 @@
 # Subagent Protocol Block
 
-Copy and include this block in EVERY subagent prompt spawned via Task tool.
+Include this block in EVERY subagent prompt spawned via Task tool. It matches the
+spawn prompt's Return Format Contract and Manifest Protocol blocks (T12521).
 
 ## Standard Protocol Block
 
-```
+````
 ## SUBAGENT PROTOCOL (RFC 2119 - MANDATORY)
 
-OUTPUT REQUIREMENTS:
-1. MUST record findings with `cleo docs add {{TASK_ID}} --content - --type <kind> --slug {{TOPIC_SLUG}}` (never a raw file under `.cleo/agent-outputs/`)
-2. MUST append ONE entry via `cleo manifest append --entry '<json>'` (writes to pipeline_manifest table per ADR-027/T1093)
-3. MUST return ONLY: "Research complete. Manifest appended to pipeline_manifest."
-4. MUST NOT return research content in response.
+OUTPUT:
+1. MUST record findings: `cleo docs add {{TASK_ID}} --content - --type <kind> --slug {{TOPIC_SLUG}}`. Never a raw file under `.cleo/agent-outputs/`.
+2. MUST append ONE entry to SQLite `pipeline_manifest` (ADR-027/T1093) and read it back:
+   ENTRY_ID=$(cleo manifest append --task {{TASK_ID}} --type <protocol> \
+     --content "<work, commits, gates>" --status completed \
+     --field /data/entryId) || exit 1
+   [ -n "$ENTRY_ID" ] || exit 1
+   cleo manifest show "$ENTRY_ID" >/dev/null || exit 1
+   `--status`: completed, partial or blocked (actual progress). Do not append again to verify.
+3. MUST NOT return research content, findings, diffs or prose.
+4. MUST return EXACTLY this block, nothing else:
+   <Type> <complete|partial|blocked>. manifest:<entryId>
+   commits: <sha7,sha7|none>
+   gates: <gate>=<pass|fail|skip> ...
+   blocker: <≤12 words|none>
+   blocker: none when complete; required when partial/blocked.
+   Append or readback failed → `<Type> blocked. manifest:none` + `blocker: manifest append failed`. Never claim an entry you did not read back.
 
-MANIFEST ENTRY FORMAT:
-{"id":"YYYY-MM-DD_{topic}","timestamp":"ISO8601","task_id":"TXXXX","agent":"agent-name","status":"complete","key_findings":["finding1","finding2"],"needs_followup":["next-task-id"],"file":"YYYY-MM-DD_{topic}.md"}
-```
+HITL: never ask the human. Return `<Type> blocked. manifest:<entryId>` + blocker: with {question, options[{label,description}], recommended} in the manifest; the orchestrator asks via the ask tool.
+````
 
 ## Usage
 
@@ -28,15 +40,11 @@ When spawning a subagent via Task tool:
 
 ## Example Subagent Prompt
 
-```
+````
 You are the {ROLE} subagent. Your job is to complete CLEO task {TASK_ID}.
 
 ## SUBAGENT PROTOCOL (RFC 2119 - MANDATORY)
-OUTPUT REQUIREMENTS:
-1. MUST record findings with `cleo docs add {{TASK_ID}} --content - --type <kind> --slug {{TOPIC_SLUG}}` (never a raw file under `.cleo/agent-outputs/`)
-2. MUST append ONE entry via `cleo manifest append --entry '<json>'` (writes to pipeline_manifest table per ADR-027/T1093)
-3. MUST return ONLY: "Research complete. Manifest appended to pipeline_manifest."
-4. MUST NOT return research content in response.
+<Standard Protocol Block above, with {{TASK_ID}} and --type filled in>
 
 ## CONTEXT
 - Epic: {EPIC_ID} ({EPIC_TITLE})
@@ -50,17 +58,35 @@ OUTPUT REQUIREMENTS:
 {DETAILED_INSTRUCTIONS}
 
 BEGIN EXECUTION.
+````
+
+Example return:
+
+```
+Research complete. manifest:T1599-research-20260929
+commits: none
+gates: implemented=pass
+blocker: none
 ```
 
-## Manifest Entry Schema
+## Rich Manifest Entry
+
+The shorthand above is preferred. The rich form is
+`cleo manifest append --entry '<json>'`, captured and read back the same way
+(`ENTRY_ID=$(cleo manifest append --entry '<json>' --field /data/entryId)`, same guard).
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| id | string | Yes | Unique identifier (YYYY-MM-DD_{topic}) |
-| timestamp | string | Yes | ISO 8601 timestamp |
-| task_id | string | Yes | CLEO task ID (e.g., T1599) |
-| agent | string | Yes | Agent identifier |
-| status | string | Yes | "complete" or "partial" |
-| key_findings | array | Yes | Summary points (max 5) |
+| id | string | Yes | Unique id, e.g. `T1599-research-<YYYYMMDDHHMMSS>` |
+| file | string | Yes | Output path |
+| title | string | Yes | Headline, max 120 chars |
+| date | string | Yes | `YYYY-MM-DD` |
+| status | string | Yes | `completed`, `partial` or `blocked` |
+| agent_type | string | Yes | Protocol type (`research`, `consensus`, ...) |
+| topics | array | Yes | Topic tags |
+| actionable | boolean | Yes | Needs follow-up action |
+| key_findings | array | No | Summary points (max 5) |
 | needs_followup | array | No | Task IDs requiring followup |
-| file | string | Yes | Output filename |
+| linked_tasks | array | No | Task IDs; the first becomes the manifest task id |
+
+Missing required fields → `E_VALIDATION_FAILED`. Link tasks via `linked_tasks[]`, not `task_id`.

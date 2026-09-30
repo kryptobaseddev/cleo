@@ -6,7 +6,8 @@ import { pipeline } from 'node:stream/promises';
 import { createGunzip } from 'node:zlib';
 import type { LoggingConfig } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { pruneAuditLog } from '../audit-prune.js';
+import { auditPruneCondition, pruneAuditLog } from '../audit-prune.js';
+import { AC_BINDINGS_PRUNED_ACTION } from '../store/ac-binding-prune.js';
 
 /** Insert audit_log rows with given timestamps into a test DB. */
 async function insertAuditRows(
@@ -199,5 +200,50 @@ describe('pruneAuditLog', () => {
       expect(parsed).toHaveProperty('action');
       expect(parsed).toHaveProperty('taskId');
     }
+  });
+
+  it('never prunes ac.bindings.pruned rows, however old (T12790)', async () => {
+    const oldTimestamp = new Date(Date.now() - 400 * 86_400_000).toISOString();
+    await insertAuditRows(projectRoot, [
+      { id: 'old-plain', timestamp: oldTimestamp, action: 'update', taskId: 'T1' },
+      {
+        id: 'old-binding',
+        timestamp: oldTimestamp,
+        action: AC_BINDINGS_PRUNED_ACTION,
+        taskId: 'T1',
+      },
+    ]);
+
+    const result = await pruneAuditLog(cleoDir, defaultConfig);
+
+    expect(result.rowsDeleted).toBe(1);
+    expect(result.rowsArchived).toBe(1);
+    const { getDb } = await import('../store/sqlite.js');
+    const { auditLog } = await import('../store/tasks-schema.js');
+    const db = await getDb(projectRoot);
+    const remaining = await db.select({ id: auditLog.id }).from(auditLog);
+    expect(remaining.map((r) => r.id)).toEqual(['old-binding']);
+  });
+
+  it('applies the same exemption to tasks_audit_log (T12790)', async () => {
+    const { getDb } = await import('../store/sqlite.js');
+    const { tasksAuditLog } = await import('../store/schema/cleo-project/audit.js');
+    const db = await getDb(projectRoot);
+    const oldTimestamp = new Date(Date.now() - 400 * 86_400_000).toISOString();
+    for (const [id, action] of [
+      ['old-plain', 'update'],
+      ['old-binding', AC_BINDINGS_PRUNED_ACTION],
+    ] as const) {
+      await db
+        .insert(tasksAuditLog)
+        .values({ id, timestamp: oldTimestamp, action, taskId: 'T1', actor: 'test' })
+        .run();
+    }
+    const cutoff = new Date(Date.now() - 90 * 86_400_000).toISOString();
+
+    await db.delete(tasksAuditLog).where(auditPruneCondition(tasksAuditLog, cutoff)).run();
+
+    const remaining = await db.select({ id: tasksAuditLog.id }).from(tasksAuditLog);
+    expect(remaining.map((r) => r.id)).toEqual(['old-binding']);
   });
 });

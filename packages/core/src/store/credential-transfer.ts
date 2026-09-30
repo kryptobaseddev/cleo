@@ -462,16 +462,19 @@ export function redactCredentialCiphertexts(sources: CredentialSources): Credent
   const listed = listCredentialsForReentry(sources);
   withDb(sources.projectDbPath, undefined, (db) => {
     if (hasTable(db, 'tasks_agent_credentials', ['api_key_encrypted'])) {
+      // gate-28: staged-snapshot redactCredentialCiphertexts
       db.prepare("UPDATE tasks_agent_credentials SET api_key_encrypted = ''").run();
     }
   });
   withDb(sources.globalDbPath, undefined, (db) => {
     if (hasTable(db, 'service_connections', ['credentials_enc'])) {
+      // gate-28: staged-snapshot redactCredentialCiphertexts
       db.prepare(
         'UPDATE service_connections SET credentials_enc = NULL WHERE credentials_enc IS NOT NULL',
       ).run();
     }
     if (hasTable(db, 'agent_registry_agents', ['api_key_encrypted'])) {
+      // gate-28: staged-snapshot redactCredentialCiphertexts
       db.prepare(
         'UPDATE agent_registry_agents SET api_key_encrypted = NULL WHERE api_key_encrypted IS NOT NULL',
       ).run();

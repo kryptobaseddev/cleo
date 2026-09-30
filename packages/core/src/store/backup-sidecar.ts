@@ -244,6 +244,10 @@ export interface BackupSidecar {
   readonly pinned?: boolean;
   /** Why it is pinned (shown by `cleo backup list`). */
   readonly pinnedReason?: string;
+  /** When an owner released the pin (T12767); rotation treats it as any backup. */
+  readonly releasedAt?: string;
+  /** Why it was released. */
+  readonly releasedReason?: string;
 }
 
 /**
@@ -283,6 +287,8 @@ const backupSidecarSchema = z
     files: z.array(z.string()),
     pinned: z.boolean().optional(),
     pinnedReason: z.string().optional(),
+    releasedAt: z.string().optional(),
+    releasedReason: z.string().optional(),
   })
   .passthrough();
 
@@ -345,4 +351,82 @@ export function pinBackup(snapshotPath: string, backupType: string, reason: stri
   } catch {
     return false;
   }
+}
+
+/**
+ * Release a backup's pin (T12767) so rotation treats it as any other backup:
+ * rewrites its sidecar with `pinned: false`, `releasedAt` and
+ * `releasedReason`, dropping `pinnedReason`. Writes the sidecar only, never
+ * the backup; creates the sidecar when there is none.
+ *
+ * @param snapshotPath - The backup file (`<dir>/<file>.<type>-<timestamp>`).
+ * @param backupType - Its backup type.
+ * @param reason - Why it is released.
+ * @returns The sidecar as written.
+ * @throws When the backup name does not carry `backupType`, or the write fails.
+ * @task T12767
+ */
+export function unpinBackup(
+  snapshotPath: string,
+  backupType: string,
+  reason: string,
+): BackupSidecar {
+  const backupDir = dirname(snapshotPath);
+  const file = basename(snapshotPath);
+  const id = backupIdOf(file, backupType);
+  if (id === null) throw new Error(`${file} is not a ${backupType} backup`);
+  const current = readSidecar(backupDir, id);
+  const { pinnedReason: _dropped, ...kept } = current ?? {
+    backupId: id,
+    type: backupType,
+    timestamp: existsSync(snapshotPath)
+      ? statSync(snapshotPath).mtime.toISOString()
+      : new Date().toISOString(),
+    files: [file.slice(0, file.length - id.length - 1)],
+  };
+  const sidecar: BackupSidecar = {
+    ...kept,
+    pinned: false,
+    releasedAt: new Date().toISOString(),
+    releasedReason: reason,
+  };
+  writeBackupSidecar(backupDir, sidecar);
+  return sidecar;
+}
+
+/**
+ * Put back a sidecar exactly as it was before {@link unpinBackup} (or remove
+ * it when there was none). Best effort, for a release that is rolled back.
+ *
+ * @param snapshotPath - The backup file.
+ * @param backupType - Its backup type.
+ * @param previous - The sidecar before the release, or `null`.
+ * @task T12767
+ */
+export function restoreBackupSidecar(
+  snapshotPath: string,
+  backupType: string,
+  previous: BackupSidecar | null,
+): void {
+  try {
+    const backupDir = dirname(snapshotPath);
+    const id = backupIdOf(basename(snapshotPath), backupType);
+    if (id === null) return;
+    if (previous !== null) writeBackupSidecar(backupDir, previous);
+    else unlinkSync(join(backupDir, `${id}.meta.json`));
+  } catch {
+    /* best effort */
+  }
+}
+
+/**
+ * A backup's sidecar as read back, or `null` (missing, unreadable, malformed).
+ *
+ * @param snapshotPath - The backup file.
+ * @param backupType - Its backup type.
+ * @task T12767
+ */
+export function readBackupSidecar(snapshotPath: string, backupType: string): BackupSidecar | null {
+  const id = backupIdOf(basename(snapshotPath), backupType);
+  return id === null ? null : readSidecar(dirname(snapshotPath), id);
 }

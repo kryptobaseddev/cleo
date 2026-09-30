@@ -38,9 +38,11 @@ describe('spawn prompt HITL line (T12482)', () => {
   it('tells the subagent never to ask and to return blocked with options', () => {
     const line = hitlLine({ askProviderId: 'claude-code' });
     expect(line).toContain('never ask the human');
-    expect(line).toContain('`Implementation blocked.`');
+    expect(line).toContain('`Implementation blocked. manifest:<entryId>` + blocker:');
     expect(line).toContain('{question, options[{label,description}], recommended}');
-    expect(line.length).toBeLessThan(200);
+    // 220, not 200: T12521 F2 names the entry id and the blocker line in the
+    // HITL return (`<Type> blocked. manifest:<entryId>` + blocker:).
+    expect(line.length).toBeLessThan(220);
   });
 
   it.each([

@@ -12,11 +12,17 @@
  * as an alias for the plan: it overrides `--apply`, as in `cleo doctor
  * projects`.
  *
+ * The read-only listing also reports `identity`: rows whose entry id, linked
+ * task ids or file reference append now rejects, and linked task ids with no
+ * task (T12829). These are reported, never rewritten.
+ *
  * @task T12686
+ * @task T12829
  */
 
 import {
   listMalformedManifestRows,
+  listManifestIdentityProblems,
   MANIFEST_ROW_APPLY_COMMAND,
   MANIFEST_ROW_REPAIR_COMMAND,
   repairMalformedManifestRows,
@@ -36,7 +42,7 @@ export const doctorManifestRowsCommand = defineCommand({
   meta: {
     name: 'manifest-rows',
     description:
-      'List manifest rows whose metadata violates the stored field contract. --repair shows the plan (writes nothing); --repair --apply moves each bad field under _malformed (nothing lost) with a receipt; --rollback <receipt> undoes it.',
+      'List manifest rows whose metadata violates the stored field contract, and (read-only) rows with an invalid id, linked task id or file reference. --repair shows the plan (writes nothing); --repair --apply moves each bad field under _malformed (nothing lost) with a receipt; --rollback <receipt> undoes it.',
   },
   args: {
     repair: {
@@ -78,11 +84,17 @@ export const doctorManifestRowsCommand = defineCommand({
       return;
     }
     const rows = await listMalformedManifestRows(projectRoot);
+    const identity = await listManifestIdentityProblems(projectRoot);
     cliOutput(
-      { rows, repair: rows.length > 0 ? MANIFEST_ROW_REPAIR_COMMAND : null },
+      { rows, repair: rows.length > 0 ? MANIFEST_ROW_REPAIR_COMMAND : null, identity },
       { command: 'doctor', operation: 'doctor.manifest-rows.run' },
     );
-    if (rows.length > 0 && (process.exitCode === undefined || process.exitCode === 0)) {
+    // A malformed or unsafe identity fails the check; a missing linked task alone is a warning.
+    const invalidIdentity = identity.some((r) => r.issues.some((i) => i.code === 'E_VALIDATION'));
+    if (
+      (rows.length > 0 || invalidIdentity) &&
+      (process.exitCode === undefined || process.exitCode === 0)
+    ) {
       process.exitCode = 1;
     }
   },

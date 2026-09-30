@@ -1,7 +1,7 @@
 ---
 name: ct-task-executor
 description: General implementation task execution for completing assigned CLEO tasks by following instructions and producing concrete deliverables. Handles coding, configuration, documentation work with quality verification against acceptance criteria and progress reporting. Use when executing implementation tasks, completing assigned work, or producing task deliverables. Triggers on implementation tasks, general execution needs, or task completion work.
-version: 2.7.5
+version: 2.7.6
 protocol: implementation
 adrRefs:
   - ADR-070
@@ -17,7 +17,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.7.5
+  version: 2.7.6
   tier: core
   install: harness
   covers:
@@ -163,7 +163,7 @@ The routing prints a one-line info message to stderr (suppress with
 
 1. MUST record findings with `cleo docs add {{TASK_ID}} --content - --type note --slug {{TOPIC_SLUG}}` (never a raw file under `.cleo/agent-outputs/`)
 2. MUST record ONE manifest entry: `cleo manifest append --entry '<entry JSON>'` (the flat manifest file is retired, ADR-027)
-3. MUST return ONLY: "Implementation complete. Manifest appended to pipeline_manifest."
+3. MUST return ONLY the compressed block: `Implementation complete. manifest:<entryId>` then `commits:`, `gates:` and `blocker: none` lines (T12521; the legacy one-liner "Implementation complete. Manifest appended to pipeline_manifest." is still accepted)
 4. MUST NOT return implementation details in response
 
 ---
@@ -261,7 +261,7 @@ If all deliverables cannot be produced:
 3. Set manifest `"status": "partial"`
 4. Add blocking items to `needs_followup`
 5. Complete task (partial work is progress)
-6. Return: "Implementation partial. Manifest appended to pipeline_manifest."
+6. Return the compressed block with `Implementation partial. manifest:<entryId>` and a `blocker:` line (≤12 words)
 
 ### Blocked Execution
 
@@ -271,7 +271,7 @@ If work cannot proceed (missing dependencies, access issues, unclear requirement
 2. Set manifest `"status": "blocked"`
 3. Add blocker details to `needs_followup`
 4. Do NOT complete task
-5. Return: "Implementation blocked. Manifest appended to pipeline_manifest."
+5. Return the compressed block with `Implementation blocked. manifest:<entryId>` and a `blocker:` line (≤12 words)
 
 ### Acceptance Criteria Failure
 

@@ -123,6 +123,83 @@ describe('AC1/AC3 — a corrupt registry read is a typed error, never [] or null
   });
 });
 
+describe('AC1 — every other registry reader fails typed, never empty (T12512 follow-up)', () => {
+  /** Assert an EngineResult failed with the typed registry error. */
+  function expectTypedFailure(result: {
+    success: boolean;
+    error?: { code?: string | number; exitCode?: number; fix?: unknown };
+  }): void {
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('E_NEXUS_REGISTRY_READ');
+    expect(result.error?.exitCode).toBe(75);
+    expect(result.error?.fix).toMatch(/cleo doctor/);
+  }
+
+  it('listRegistryParentRoots throws instead of returning [] (no guessed roots)', async () => {
+    const { listRegistryParentRoots } = await import('../registry-roots.js');
+    await expect(listRegistryParentRoots()).resolves.toEqual([]);
+    await breakRegistry();
+    await expect(listRegistryParentRoots()).rejects.toBeInstanceOf(NexusRegistryReadError);
+  });
+
+  it('projects scan never reports every project as unregistered, and never auto-registers', async () => {
+    const { nexusProjectsScan, scanForProjects } = await import('../projects-scan.js');
+    await breakRegistry();
+    await expect(scanForProjects({ roots: [testDir], autoRegister: true })).rejects.toBeInstanceOf(
+      NexusRegistryReadError,
+    );
+    expectTypedFailure(await nexusProjectsScan({ roots: testDir, autoRegister: true }));
+  });
+
+  it('projects clean fails typed instead of matching nothing', async () => {
+    const { cleanProjects, nexusProjectsClean } = await import('../projects-clean.js');
+    await breakRegistry();
+    await expect(cleanProjects({ dryRun: true, includeTemp: true })).rejects.toBeInstanceOf(
+      NexusRegistryReadError,
+    );
+    expectTypedFailure(await nexusProjectsClean({ dryRun: true, includeTemp: true }));
+  });
+
+  it('doctor projects (registry integrity) fails typed instead of an empty report', async () => {
+    const { inspectProjectRegistry } = await import('../../doctor/projects.js');
+    await breakRegistry();
+    await expect(inspectProjectRegistry({ roots: [] })).rejects.toMatchObject({
+      codeName: 'E_NEXUS_REGISTRY_READ',
+      code: 75,
+    });
+  });
+
+  it('cross-project search, discover and graph keep the typed code (not E_INTERNAL)', async () => {
+    const { nexusDiscover, nexusSearch } = await import('../discover.js');
+    const { invalidateGraphCache, nexusGraph } = await import('../deps.js');
+    await breakRegistry();
+    expectTypedFailure(await nexusSearch('anything*'));
+    expectTypedFailure(await nexusDiscover('proj:T001'));
+    invalidateGraphCache();
+    expectTypedFailure(await nexusGraph());
+  });
+
+  it('the git-state probe fails typed on a store that is not a database', async () => {
+    const { getNexusRegistryDbPath } = await import('../../store/nexus-sqlite.js');
+    const { nexusProjectsStatus } = await import('../registry.js');
+    await writeFile(
+      getNexusRegistryDbPath(getCleoHome()),
+      'this is not a sqlite database'.repeat(200),
+    );
+    expectTypedFailure(await nexusProjectsStatus('', {}));
+  });
+
+  it('the hygiene loop reports an unreadable registry instead of 0/0 healthy', async () => {
+    const { runNexusIntegrityCheck } = await import('../../sentient/cross-project-hygiene.js');
+    const healthy = await runNexusIntegrityCheck();
+    expect(healthy.registryError).toBeUndefined();
+    await breakRegistry();
+    const broken = await runNexusIntegrityCheck();
+    expect(broken.total).toBe(0);
+    expect(broken.registryError).toMatch(/Cannot read the project registry/);
+  });
+});
+
 describe('AC2 — probes write last_probed_at; only real use writes last_opened_at', () => {
   it('nexusSync moves last_probed_at and leaves last_seen and last_opened_at alone', async () => {
     await nexusRegister(projectDir, 'proj', 'read');
@@ -150,6 +227,8 @@ describe('AC2 — probes write last_probed_at; only real use writes last_opened_
     const broken = await checkAllRegisteredProjects({ includeGlobal: false });
     expect(broken.projects).toEqual([]);
     expect(broken.registryError?.code).toBe('E_NEXUS_REGISTRY_READ');
+    expect(broken.registryError?.exitCode).toBe(75);
+    expect(broken.registryError?.fix).toMatch(/cleo doctor/);
   });
 
   it('markProjectOpened writes once per interval; markProjectsProbed never touches it', async () => {

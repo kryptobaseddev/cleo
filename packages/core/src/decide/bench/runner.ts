@@ -161,8 +161,13 @@ export interface BenchAggregateRow {
   readonly p50Ms: BenchSpread;
   /** p95 latency, ms. */
   readonly p95Ms: BenchSpread;
-  /** Cost per run, micro-dollars. */
+  /** Cost per run, micro-dollars (reported cost, else the estimate). */
   readonly costMicros: BenchSpread;
+  /**
+   * Whether any run's provider reported its cost. False for a plain Jev host
+   * (no `meta.cost_*`): `costMicros` is then only the reservation estimate.
+   */
+  readonly costReported: boolean;
   /** Fallbacks summed over runs, by reason. */
   readonly fallbacks: Readonly<Record<string, number>>;
 }
@@ -370,6 +375,7 @@ function aggregate(
       p50Ms: spreadOf(scored.map((r) => r.latency.p50Ms)),
       p95Ms: spreadOf(scored.map((r) => r.latency.p95Ms)),
       costMicros: spreadOf(results.map((r) => r.costMicros)),
+      costReported: results.some((r) => r.costReported),
       fallbacks,
     });
   };

@@ -164,6 +164,12 @@ export const tasksExperiments = sqliteTable(
  * exodus prefixer; carried here as a plain TEXT id. `evidence_atom_id` is NOT
  * an FK (atoms are derived, not stored normalised).
  *
+ * The consolidated DDL declares NO foreign key on `ac_id` (the legacy
+ * `ON DELETE CASCADE` did not survive consolidation). Bindings are therefore
+ * removed explicitly with their AC by the task accessor
+ * (`store/ac-binding-prune.ts`, T12790), and `cleo doctor ac-bindings`
+ * reports / repairs rows left behind before that.
+ *
  * @task T11360 (target shape) · T10503 (original)
  */
 export const tasksEvidenceAcBindings = sqliteTable(

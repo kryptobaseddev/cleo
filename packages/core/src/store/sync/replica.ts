@@ -1,0 +1,480 @@
+/**
+ * Replica identity: binding a store file to its replica, and rebinding a
+ * copy (journal spec §1.5, H3, N5, N6).
+ *
+ * A replica is one physical store file, not a machine: a worktree copy or a
+ * restored file is a separate replica. The binding is
+ * `(st_ino, st_birthtime, nonce)` plus the stable device id and the device
+ * registry's high-water mark. `st_dev` is NOT used: external volumes, OS
+ * updates, overlay and network mounts renumber it.
+ *
+ * Birthtime (N5): a birthtime of 0, or one equal to the ctime at bind (the
+ * libuv fallback where the filesystem has no birthtime), is stored as NULL,
+ * and birthtimes are compared only when both are non-NULL.
+ *
+ * The open pass rebinds when:
+ * - `file-identity`: the inode differs, or both birthtimes are known and
+ *   differ (a copy, `VACUUM INTO` output, a restore to a new file);
+ * - `foreign-device`: the store was bound on another device;
+ * - `nonce-mismatch`: this device registered the replica id with another
+ *   nonce;
+ * - `rollback`: for some stream the store's persisted `replicaSeq` is below
+ *   the registry's hwm (a restore into the same inode, e.g. `.backup()`).
+ * A store missing from the registry is re-registered, never rebound for that
+ * alone (N6). The server's "seq exists, hash differs" answer is the authority
+ * behind that; S4 reports it through {@link rebindReplica}.
+ *
+ * A rebind retires the old row, mints a new replica id and nonce, carries the
+ * clock forward, and runs the registered {@link RebindHook}s in the same
+ * transaction. Marking inherited journal rows, discarding the pull cursor,
+ * pausing push, the reconcile and the signed retire transaction arrive with
+ * those tables (S4); they plug in as hooks.
+ *
+ * Everything here is behind the store-level `sync.*` flags: with every flag
+ * off, {@link syncOpenPass} reads and writes nothing.
+ *
+ * @task T12342
+ * @module store/sync/replica
+ */
+
+import { randomBytes } from 'node:crypto';
+import { realpathSync, statSync } from 'node:fs';
+import type { DatabaseSync } from 'node:sqlite';
+import { uuidv7 } from '../../cloud/crypto.js';
+import { getStableDeviceId } from '../../llm/stable-device-id.js';
+import { healClock, loadClock, storeClock, withImmediateTransaction } from './clock-store.js';
+import { anySyncFlagOn } from './flags.js';
+import { encodeHlc } from './hlc.js';
+import { ReplicaRegistry, type ReplicaRegistryEntry } from './replica-registry.js';
+import { ensureSyncSchema, hasTable } from './schema.js';
+
+/** Which store a replica is. */
+export type ReplicaScope = 'project' | 'global';
+
+/**
+ * How an open treats sync (§1.5). `off` for every non-canonical open
+ * (backups, snapshots, scratch copies, bundle staging): nothing is read or
+ * written. `live` for the canonical project and global stores. `test` for a
+ * scratch-bound replica that must never touch the device registry: the
+ * caller passes its own registry.
+ */
+export type SyncOpenMode = 'off' | 'live' | 'test';
+
+/** Why a store was rebound. */
+export type RebindReason =
+  | 'file-identity'
+  | 'foreign-device'
+  | 'nonce-mismatch'
+  | 'rollback'
+  | 'server-seq-conflict';
+
+/** What `stat` reports about a store file, in nanoseconds. */
+export interface FileStat {
+  readonly ino: bigint;
+  readonly birthtimeNs: bigint;
+  readonly ctimeNs: bigint;
+}
+
+/** Reads a file's stat. Injectable so tests can simulate filesystems. */
+export type StatFn = (path: string) => FileStat;
+
+/** The part of a file's identity the binding compares. */
+export interface FileIdentity {
+  readonly ino: bigint;
+  /** Birthtime in ns, or null when unknown (N5). */
+  readonly birth: bigint | null;
+}
+
+/** A `_sync_replica` row. */
+export interface ReplicaRow {
+  readonly replicaId: string;
+  readonly scope: ReplicaScope;
+  readonly nonce: string;
+  readonly deviceId: string;
+  readonly fileIno: bigint;
+  readonly fileBirth: bigint | null;
+  readonly boundAt: string;
+  readonly boundWhy: string;
+  readonly retiredAt: string | null;
+  readonly successor: string | null;
+}
+
+/** Context handed to a {@link RebindHook}. */
+export interface RebindContext {
+  readonly previous: ReplicaRow;
+  readonly current: ReplicaRow;
+  readonly reasons: readonly RebindReason[];
+}
+
+/**
+ * Runs inside the rebind transaction, after the new replica is bound. S4
+ * registers the hooks that mark inherited rows, discard the cursor and pause
+ * push. A throw rolls the whole rebind back.
+ */
+export type RebindHook = (db: DatabaseSync, ctx: RebindContext) => void;
+
+const rebindHooks: RebindHook[] = [];
+
+/**
+ * Register a hook that runs on every rebind.
+ *
+ * @returns A function that unregisters it.
+ */
+export function registerRebindHook(hook: RebindHook): () => void {
+  rebindHooks.push(hook);
+  return () => {
+    const i = rebindHooks.indexOf(hook);
+    if (i >= 0) rebindHooks.splice(i, 1);
+  };
+}
+
+/** `fs.statSync` in bigint mode. */
+export const defaultStat: StatFn = (path) => {
+  const s = statSync(path, { bigint: true });
+  return { ino: s.ino, birthtimeNs: s.birthtimeNs, ctimeNs: s.ctimeNs };
+};
+
+/**
+ * The binding identity of a store file. A birthtime of 0 or equal to the
+ * ctime is the filesystem saying "unknown", so it reads as null (N5).
+ */
+export function fileIdentity(path: string, stat: StatFn = defaultStat): FileIdentity {
+  const s = stat(path);
+  const birth = s.birthtimeNs === 0n || s.birthtimeNs === s.ctimeNs ? null : s.birthtimeNs;
+  return { ino: s.ino, birth };
+}
+
+function rowFrom(r: Record<string, unknown>): ReplicaRow {
+  return {
+    replicaId: String(r.replica_id),
+    scope: r.scope as ReplicaScope,
+    nonce: String(r.nonce),
+    deviceId: String(r.device_id),
+    fileIno: BigInt(r.file_ino as bigint | number),
+    fileBirth: r.file_birth === null ? null : BigInt(r.file_birth as bigint | number),
+    boundAt: String(r.bound_at),
+    boundWhy: String(r.bound_why),
+    retiredAt: r.retired_at === null ? null : String(r.retired_at),
+    successor: r.successor === null ? null : String(r.successor),
+  };
+}
+
+/** The active (not retired) replica of a store, if bound. Read-only. */
+export function activeReplica(db: DatabaseSync, scope: ReplicaScope): ReplicaRow | undefined {
+  if (!hasTable(db, '_sync_replica')) return undefined;
+  const stmt = db.prepare(
+    'SELECT * FROM _sync_replica WHERE scope = ? AND retired_at IS NULL ORDER BY bound_at DESC LIMIT 1',
+  );
+  stmt.setReadBigInts(true);
+  const r = stmt.get(scope) as Record<string, unknown> | undefined;
+  return r ? rowFrom(r) : undefined;
+}
+
+/** Every replica row of a store, oldest first. Read-only. */
+export function listReplicas(db: DatabaseSync): ReplicaRow[] {
+  if (!hasTable(db, '_sync_replica')) return [];
+  const stmt = db.prepare('SELECT * FROM _sync_replica ORDER BY bound_at, replica_id');
+  stmt.setReadBigInts(true);
+  return (stmt.all() as Array<Record<string, unknown>>).map(rowFrom);
+}
+
+const SEQ_PREFIX = 'seq:';
+
+/**
+ * The store-side high-water mark: the last `replicaSeq` this store persisted
+ * per stream for a replica. Read-only.
+ */
+export function storeHwm(db: DatabaseSync, replicaId: string): Record<string, number> {
+  if (!hasTable(db, '_sync_meta')) return {};
+  const prefix = `${SEQ_PREFIX}${replicaId}:`;
+  const rows = db
+    .prepare('SELECT key, value FROM _sync_meta WHERE key >= ? AND key < ?')
+    .all(prefix, `${prefix}￿`) as Array<{ key: string; value: string }>;
+  return Object.fromEntries(rows.map((r) => [r.key.slice(prefix.length), Number(r.value)]));
+}
+
+/**
+ * Record, in the caller's transaction, that a segment with `seq` was
+ * persisted for `stream`. S4 calls this in the segment-persist transaction,
+ * then {@link ReplicaRegistry.advanceHwm} after it commits. The value only
+ * moves up.
+ */
+export function persistStoreSeq(
+  db: DatabaseSync,
+  replicaId: string,
+  stream: string,
+  seq: number,
+  now: Date = new Date(),
+): void {
+  if (!db.isTransaction) throw new Error('persistStoreSeq must run inside a transaction');
+  if (!Number.isSafeInteger(seq) || seq < 0) throw new Error(`invalid replicaSeq ${seq}`);
+  db.prepare(
+    'INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?) ' +
+      'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at ' +
+      'WHERE CAST(excluded.value AS INTEGER) > CAST(_sync_meta.value AS INTEGER)',
+  ).run(`${SEQ_PREFIX}${replicaId}:${stream}`, String(seq), now.toISOString());
+}
+
+/**
+ * Why a bound store must rebind, if at all. Pure.
+ *
+ * @param row - The store's active replica row.
+ * @param identity - The file's identity now.
+ * @param deviceId - This device.
+ * @param entry - This device's registry entry for the replica, if any.
+ * @param hwm - The store-side hwm for the replica ({@link storeHwm}).
+ */
+export function rebindReasons(
+  row: ReplicaRow,
+  identity: FileIdentity,
+  deviceId: string,
+  entry: ReplicaRegistryEntry | undefined,
+  hwm: Readonly<Record<string, number>>,
+): RebindReason[] {
+  const out: RebindReason[] = [];
+  const birthDiffers =
+    row.fileBirth !== null && identity.birth !== null && row.fileBirth !== identity.birth;
+  if (row.fileIno !== identity.ino || birthDiffers) out.push('file-identity');
+  if (row.deviceId !== deviceId) out.push('foreign-device');
+  if (entry && entry.nonce !== row.nonce) out.push('nonce-mismatch');
+  if (entry && Object.entries(entry.hwm).some(([stream, seq]) => (hwm[stream] ?? 0) < seq)) {
+    out.push('rollback');
+  }
+  return out;
+}
+
+function insertReplica(db: DatabaseSync, row: ReplicaRow): void {
+  db.prepare(
+    'INSERT INTO _sync_replica (replica_id, scope, nonce, device_id, file_ino, file_birth, bound_at, bound_why) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+  ).run(
+    row.replicaId,
+    row.scope,
+    row.nonce,
+    row.deviceId,
+    row.fileIno,
+    row.fileBirth,
+    row.boundAt,
+    row.boundWhy,
+  );
+}
+
+function mintRow(
+  scope: ReplicaScope,
+  identity: FileIdentity,
+  deviceId: string,
+  why: string,
+  now: Date,
+): ReplicaRow {
+  return {
+    replicaId: uuidv7(now.getTime()),
+    scope,
+    nonce: randomBytes(16).toString('hex'),
+    deviceId,
+    fileIno: identity.ino,
+    fileBirth: identity.birth,
+    boundAt: now.toISOString(),
+    boundWhy: why,
+    retiredAt: null,
+    successor: null,
+  };
+}
+
+/**
+ * Retire `previous` and bind a new replica in its place, in the caller's
+ * transaction. The new replica's clock starts from the old one, so HLCs
+ * issued by this store keep increasing. Runs the rebind hooks.
+ */
+function rebindInTransaction(
+  db: DatabaseSync,
+  previous: ReplicaRow,
+  identity: FileIdentity,
+  deviceId: string,
+  reasons: readonly RebindReason[],
+  now: Date,
+): ReplicaRow {
+  const current = mintRow(previous.scope, identity, deviceId, `rebind:${reasons.join(',')}`, now);
+  db.prepare('UPDATE _sync_replica SET retired_at = ?, successor = ? WHERE replica_id = ?').run(
+    now.toISOString(),
+    current.replicaId,
+    previous.replicaId,
+  );
+  insertReplica(db, current);
+  const old = healClock(db, previous.replicaId);
+  storeClock(db, { phys: old.phys, ctr: old.ctr, replica: current.replicaId });
+  db.prepare(
+    'INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?) ' +
+      'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
+  ).run(
+    'rebind:last',
+    JSON.stringify({ from: previous.replicaId, to: current.replicaId, reasons }),
+    now.toISOString(),
+  );
+  const retired: ReplicaRow = {
+    ...previous,
+    retiredAt: now.toISOString(),
+    successor: current.replicaId,
+  };
+  for (const hook of rebindHooks) hook(db, { previous: retired, current, reasons });
+  return current;
+}
+
+/** Options for {@link syncOpenPass} and {@link rebindReplica}. */
+export interface SyncOpenOptions {
+  /** Path of the store file the handle has open. */
+  readonly dbPath: string;
+  readonly scope: ReplicaScope;
+  readonly mode: SyncOpenMode;
+  /** This device. Defaults to `getStableDeviceId()` (live mode only). */
+  readonly deviceId?: string;
+  /** The device registry. Required in `test` mode; defaults to the device's in `live` mode. */
+  readonly registry?: ReplicaRegistry;
+  readonly stat?: StatFn;
+  readonly now?: () => Date;
+  /** Sync schema folder override (tests). */
+  readonly schemaRoot?: string;
+}
+
+/** What an open pass did. */
+export type SyncOpenResult =
+  | { readonly status: 'off' | 'disabled' }
+  | {
+      readonly status: 'bound' | 'rebound';
+      readonly replicaId: string;
+      readonly previousReplicaId?: string;
+      readonly reasons: readonly RebindReason[];
+      /** Whether the device registry file was written. */
+      readonly registryWritten: boolean;
+    };
+
+function resolveContext(opts: SyncOpenOptions): { deviceId: string; registry: ReplicaRegistry } {
+  if (opts.mode === 'test' && !opts.registry) {
+    throw new Error("sync open mode 'test' needs an explicit registry; it never uses the device's");
+  }
+  const deviceId = opts.deviceId ?? opts.registry?.deviceId ?? getStableDeviceId();
+  const registry = opts.registry ?? ReplicaRegistry.forDevice(deviceId);
+  if (registry.deviceId !== deviceId) {
+    throw new Error(`registry belongs to device ${registry.deviceId}, not ${deviceId}`);
+  }
+  return { deviceId, registry };
+}
+
+function register(
+  registry: ReplicaRegistry,
+  db: DatabaseSync,
+  row: ReplicaRow,
+  realpath: string,
+  now: Date,
+): boolean {
+  return registry.upsert(
+    row.replicaId,
+    { nonce: row.nonce, scope: row.scope, dbRealpath: realpath, hwm: storeHwm(db, row.replicaId) },
+    now,
+  );
+}
+
+/**
+ * The sync open pass for a canonical store open.
+ *
+ * With `mode: 'off'`, or with every `sync.*` flag off on the store, it reads
+ * nothing beyond the flags and writes nothing. Otherwise, under
+ * `BEGIN IMMEDIATE`: it binds an unbound store, rebinds a copy, a rolled-back
+ * or a foreign store, and heals the clock. Then it brings the device registry
+ * up to date (re-registering a store the registry lost, recording a rename).
+ *
+ * Not yet called by `openDualScopeDb`: the capture slice (S2) wires it in.
+ */
+export function syncOpenPass(db: DatabaseSync, opts: SyncOpenOptions): SyncOpenResult {
+  if (opts.mode === 'off') return { status: 'off' };
+  if (!anySyncFlagOn(db)) return { status: 'disabled' };
+  const now = opts.now?.() ?? new Date();
+  const { deviceId, registry } = resolveContext(opts);
+  ensureSyncSchema(db, { root: opts.schemaRoot, now });
+  const identity = fileIdentity(opts.dbPath, opts.stat);
+  const realpath = realpathSync(opts.dbPath);
+  const known = registry.read().replicas;
+
+  const outcome = withImmediateTransaction(db, () => {
+    const row = activeReplica(db, opts.scope);
+    if (!row) {
+      const minted = mintRow(opts.scope, identity, deviceId, 'genesis', now);
+      insertReplica(db, minted);
+      healClock(db, minted.replicaId);
+      return { row: minted, previous: undefined, reasons: [] as RebindReason[] };
+    }
+    const entry = Object.hasOwn(known, row.replicaId) ? known[row.replicaId] : undefined;
+    const reasons = rebindReasons(row, identity, deviceId, entry, storeHwm(db, row.replicaId));
+    if (reasons.length === 0) {
+      healClock(db, row.replicaId);
+      return { row, previous: undefined, reasons };
+    }
+    const current = rebindInTransaction(db, row, identity, deviceId, reasons, now);
+    return { row: current, previous: row, reasons };
+  });
+
+  let registryWritten = false;
+  if (outcome.previous && Object.hasOwn(known, outcome.previous.replicaId)) {
+    const prev = known[outcome.previous.replicaId] as ReplicaRegistryEntry;
+    // Only the device's own registration of the retired replica is marked; a
+    // copy's original keeps its entry untouched when it lives elsewhere.
+    if (prev.dbRealpath === realpath) {
+      registryWritten =
+        registry.upsert(
+          outcome.previous.replicaId,
+          { ...prev, retiredAt: now.toISOString(), successor: outcome.row.replicaId },
+          now,
+        ) || registryWritten;
+    }
+  }
+  registryWritten = register(registry, db, outcome.row, realpath, now) || registryWritten;
+
+  return {
+    status: outcome.previous ? 'rebound' : 'bound',
+    replicaId: outcome.row.replicaId,
+    ...(outcome.previous ? { previousReplicaId: outcome.previous.replicaId } : {}),
+    reasons: outcome.reasons,
+    registryWritten,
+  };
+}
+
+/**
+ * Force a rebind of a bound store: the hook S4 uses when the server answers a
+ * push with "seq exists, hash differs" (N6: the server hwm is authoritative).
+ *
+ * @throws {Error} When the store has no active replica.
+ */
+export function rebindReplica(
+  db: DatabaseSync,
+  opts: SyncOpenOptions,
+  reason: RebindReason = 'server-seq-conflict',
+): { replicaId: string; previousReplicaId: string } {
+  const now = opts.now?.() ?? new Date();
+  const { deviceId, registry } = resolveContext(opts);
+  const identity = fileIdentity(opts.dbPath, opts.stat);
+  const realpath = realpathSync(opts.dbPath);
+  const { previous, current } = withImmediateTransaction(db, () => {
+    const row = activeReplica(db, opts.scope);
+    if (!row) throw new Error(`no active ${opts.scope} replica to rebind`);
+    return {
+      previous: row,
+      current: rebindInTransaction(db, row, identity, deviceId, [reason], now),
+    };
+  });
+  const prev = registry.get(previous.replicaId);
+  if (prev) {
+    registry.upsert(
+      previous.replicaId,
+      { ...prev, retiredAt: now.toISOString(), successor: current.replicaId },
+      now,
+    );
+  }
+  register(registry, db, current, realpath, now);
+  return { replicaId: current.replicaId, previousReplicaId: previous.replicaId };
+}
+
+/** The current clock of the store's active replica, for diagnostics. Read-only. */
+export function currentClock(db: DatabaseSync, scope: ReplicaScope): string | undefined {
+  const row = activeReplica(db, scope);
+  if (!row || !hasTable(db, '_sync_clock')) return undefined;
+  return encodeHlc(loadClock(db, row.replicaId));
+}

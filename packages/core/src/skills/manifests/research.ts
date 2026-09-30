@@ -273,6 +273,8 @@ const MANIFEST_STATUS_SET = new Set(MANIFEST_STATUSES);
 const VALID_AGENT_TYPES = new Set([
   'research',
   'consensus',
+  // T12521: the spawn prompt appends architecture_decision entries with their own type.
+  'architecture_decision',
   'specification',
   'decomposition',
   'implementation',

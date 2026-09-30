@@ -943,33 +943,30 @@ export class MemoryHandler implements DomainHandler {
 
             const whereClause = clauses.join(' AND ');
 
-            let rows: RecentRow[] = [];
-            try {
-              const rawRows = nativeDb
-                .prepare(
-                  `SELECT id, title, text, type, source_session_id, memory_tier, created_at
-                   FROM brain_observations
-                   WHERE ${whereClause}
-                   ORDER BY created_at DESC
-                   LIMIT ?`,
-                )
-                .all(...bindArgs);
-              rows = rawRows.map((raw) => {
-                const r = raw as Record<string, unknown>;
-                return {
-                  id: String(r['id'] ?? ''),
-                  title: r['title'] != null ? String(r['title']) : null,
-                  text: String(r['text'] ?? ''),
-                  type: r['type'] != null ? String(r['type']) : null,
-                  source_session_id:
-                    r['source_session_id'] != null ? String(r['source_session_id']) : null,
-                  memory_tier: r['memory_tier'] != null ? String(r['memory_tier']) : null,
-                  created_at: String(r['created_at'] ?? ''),
-                };
-              });
-            } catch {
-              // brain_observations may not have all columns — return empty
-            }
+            // T12817: no swallowing catch — a failing query is an error envelope,
+            // never a silent empty list (the `text` column never existed).
+            const rawRows = nativeDb
+              .prepare(
+                `SELECT id, title, narrative AS text, type, source_session_id, memory_tier, created_at
+                 FROM brain_observations
+                 WHERE ${whereClause}
+                 ORDER BY created_at DESC
+                 LIMIT ?`,
+              )
+              .all(...bindArgs);
+            const rows: RecentRow[] = rawRows.map((raw) => {
+              const r = raw as Record<string, unknown>;
+              return {
+                id: String(r['id'] ?? ''),
+                title: r['title'] != null ? String(r['title']) : null,
+                text: String(r['text'] ?? ''),
+                type: r['type'] != null ? String(r['type']) : null,
+                source_session_id:
+                  r['source_session_id'] != null ? String(r['source_session_id']) : null,
+                memory_tier: r['memory_tier'] != null ? String(r['memory_tier']) : null,
+                created_at: String(r['created_at'] ?? ''),
+              };
+            });
 
             return wrapResult(
               {
@@ -1018,33 +1015,30 @@ export class MemoryHandler implements DomainHandler {
               created_at: string;
             }
 
-            let rows: DiaryRow[] = [];
-            try {
-              const rawRows = nativeDb
-                .prepare(
-                  `SELECT id, title, text, source_session_id, memory_tier, created_at
-                   FROM brain_observations
-                   WHERE type = 'diary'
-                     AND invalid_at IS NULL
-                   ORDER BY created_at DESC
-                   LIMIT ?`,
-                )
-                .all(limitVal);
-              rows = rawRows.map((raw) => {
-                const r = raw as Record<string, unknown>;
-                return {
-                  id: String(r['id'] ?? ''),
-                  title: r['title'] != null ? String(r['title']) : null,
-                  text: String(r['text'] ?? ''),
-                  source_session_id:
-                    r['source_session_id'] != null ? String(r['source_session_id']) : null,
-                  memory_tier: r['memory_tier'] != null ? String(r['memory_tier']) : null,
-                  created_at: String(r['created_at'] ?? ''),
-                };
-              });
-            } catch {
-              // brain_observations may not have type column — return empty
-            }
+            // T12817: no swallowing catch — a failing query is an error envelope,
+            // never a silent empty list (the `text` column never existed).
+            const rawRows = nativeDb
+              .prepare(
+                `SELECT id, title, narrative AS text, source_session_id, memory_tier, created_at
+                 FROM brain_observations
+                 WHERE type = 'diary'
+                   AND invalid_at IS NULL
+                 ORDER BY created_at DESC
+                 LIMIT ?`,
+              )
+              .all(limitVal);
+            const rows: DiaryRow[] = rawRows.map((raw) => {
+              const r = raw as Record<string, unknown>;
+              return {
+                id: String(r['id'] ?? ''),
+                title: r['title'] != null ? String(r['title']) : null,
+                text: String(r['text'] ?? ''),
+                source_session_id:
+                  r['source_session_id'] != null ? String(r['source_session_id']) : null,
+                memory_tier: r['memory_tier'] != null ? String(r['memory_tier']) : null,
+                created_at: String(r['created_at'] ?? ''),
+              };
+            });
 
             return wrapResult(
               {
@@ -1105,31 +1099,28 @@ export class MemoryHandler implements DomainHandler {
             }
             bindArgs.push(limitVal);
 
-            let rows: WatchRow[] = [];
-            try {
-              const rawRows = nativeDb
-                .prepare(
-                  `SELECT id, title, text, type, memory_tier, created_at
-                   FROM brain_observations
-                   WHERE ${clauses.join(' AND ')}
-                   ORDER BY created_at ASC
-                   LIMIT ?`,
-                )
-                .all(...bindArgs);
-              rows = rawRows.map((raw) => {
-                const r = raw as Record<string, unknown>;
-                return {
-                  id: String(r['id'] ?? ''),
-                  title: r['title'] != null ? String(r['title']) : null,
-                  text: String(r['text'] ?? ''),
-                  type: r['type'] != null ? String(r['type']) : null,
-                  memory_tier: r['memory_tier'] != null ? String(r['memory_tier']) : null,
-                  created_at: String(r['created_at'] ?? ''),
-                };
-              });
-            } catch {
-              // brain_observations may not exist yet
-            }
+            // T12817: no swallowing catch — a failing query is an error envelope,
+            // never a silent empty list (the `text` column never existed).
+            const rawRows = nativeDb
+              .prepare(
+                `SELECT id, title, narrative AS text, type, memory_tier, created_at
+                 FROM brain_observations
+                 WHERE ${clauses.join(' AND ')}
+                 ORDER BY created_at ASC
+                 LIMIT ?`,
+              )
+              .all(...bindArgs);
+            const rows: WatchRow[] = rawRows.map((raw) => {
+              const r = raw as Record<string, unknown>;
+              return {
+                id: String(r['id'] ?? ''),
+                title: r['title'] != null ? String(r['title']) : null,
+                text: String(r['text'] ?? ''),
+                type: r['type'] != null ? String(r['type']) : null,
+                memory_tier: r['memory_tier'] != null ? String(r['memory_tier']) : null,
+                created_at: String(r['created_at'] ?? ''),
+              };
+            });
 
             const nextCursor =
               rows.length > 0 ? rows[rows.length - 1]!.created_at : (cursorParam ?? null);

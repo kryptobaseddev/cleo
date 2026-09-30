@@ -371,6 +371,13 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/docs.js')).docsCommand as CommandDef,
   },
   {
+    exportName: 'doctorAcBindingsCommand',
+    name: 'ac-bindings',
+    description: 'Report evidence bindings whose acceptance criterion no longer exists (dangling ',
+    load: async () =>
+      (await import('../commands/doctor-ac-bindings.js')).doctorAcBindingsCommand as CommandDef,
+  },
+  {
     exportName: 'doctorAcceptanceDriftCommand',
     name: 'acceptance-drift',
     description:
@@ -456,7 +463,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'doctorManifestRowsCommand',
     name: 'manifest-rows',
     description:
-      'List manifest rows whose metadata violates the stored field contract. --repair shows the plan (writes nothing); --repair --apply moves each bad field under _malformed (nothing lost) with a receipt; --rollback <receipt> undoes it.',
+      'List manifest rows whose metadata violates the stored field contract, and (read-only) rows with an invalid id, linked task id or file reference. --repair shows the plan (writes nothing); --repair --apply moves each bad field under _malformed (nothing lost) with a receipt; --rollback <receipt> undoes it.',
     load: async () =>
       (await import('../commands/doctor-manifest-rows.js')).doctorManifestRowsCommand as CommandDef,
   },

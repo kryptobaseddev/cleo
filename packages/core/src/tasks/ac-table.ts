@@ -863,7 +863,13 @@ export async function applyAcPlan(
   const fresh = plan.inserts.filter((row) => !existingById.has(row.id));
 
   if (removedIds.length > 0) {
-    await tx.deleteAcRowsByIds(taskId, removedIds);
+    // An edited criterion leaves under its old id and returns under a new id
+    // with the same uid: its bindings stay (stale until re-verified, T12341).
+    const carried = new Set(fresh.map((row) => row.uid).filter((u): u is string => !!u));
+    const keep = existing
+      .filter((row) => removedIds.includes(row.id) && row.uid && carried.has(row.uid))
+      .map((row) => row.uid as string);
+    await tx.deleteAcRowsByIds(taskId, removedIds, keep);
   }
   if (changed.length > 0) {
     // Park every changed row on a unique negative ordinal and a unique source

@@ -40,8 +40,13 @@ import { classifyTable, isPortableTableClass } from '../table-classification.js'
  * Syncing tables without a declared uid, per scope. Only ever lowered: each
  * follow-up that declares tables lowers it in the same change (spec
  * t12341-uid-scheme §15).
+ *
+ * Raised once, by 2 per scope, when main reclassified `brain_plasticity_events`
+ * and `brain_weight_history` from local-only to portable-personal (cleo-dev
+ * ruling 2026-09-29, journal spec review Q11): newly syncing tables, pending
+ * like every other brain table.
  */
-const PENDING_PINNED: Readonly<Record<TableScope, number>> = { project: 94, global: 43 };
+const PENDING_PINNED: Readonly<Record<TableScope, number>> = { project: 96, global: 45 };
 
 let testRoot: string;
 const stores: Partial<Record<TableScope, DatabaseSync>> = {};
