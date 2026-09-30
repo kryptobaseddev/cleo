@@ -22,16 +22,25 @@
  * in `session-id.ts`, whose values ARE CLEO ids). They are opaque identities
  * that only mean something through a persisted binding.
  *
- * ## ppid-chain fallback
+ * ## Harness-ancestor fallback (T12864)
  *
  * When no environment key is present, the identity falls back to the nearest
- * ancestor process that is not a launcher (node, pnpm, npx, mise, …) — in
- * practice the interactive shell of the terminal tab. The key carries the
- * process start time, so a recycled pid never matches a stale binding. The walk
- * is bounded ({@link PPID_CHAIN_MAX_DEPTH}) and never climbs past the first
- * non-launcher ancestor, because anything above the shell (the terminal
- * emulator, tmux server, launchd) is shared by every tab and would re-create the
- * cross-terminal bleed this module exists to remove.
+ * LONG-LIVED ancestor ({@link resolveAncestorKey}): an interactive or script
+ * shell (the terminal tab's shell, a CI step or cron script), or — past any
+ * throwaway `sh -c` / `bash -c` layers — the first non-shell process, which
+ * for an agent harness (Kimi, aider, OpenCode, Gemini CLI, …) is the harness
+ * itself. Such harnesses run every tool call in a fresh `bash -c`, so the
+ * immediate parent changes on each call; the harness process does not, so the
+ * key stays stable across calls and differs between harness processes. The key
+ * carries the process start time, so a recycled pid never matches a stale
+ * binding. When the walk reaches pid 1 / launchd / systemd / init, cannot read
+ * a shell's arguments, or runs out of depth, there is NO key: the caller is
+ * unidentified and keeps the single-session guard.
+ *
+ * Before T12864 the fallback stopped at the first non-launcher ancestor, which
+ * for a harness is the per-call `bash -c` — a new key on every call, so a
+ * session started in one call was invisible to the next (T12530 therefore
+ * stopped treating it as identity).
  *
  * @module
  * @task T12499
@@ -41,8 +50,12 @@
 import { execFileSync } from 'node:child_process';
 import { PS_STABLE_ENV } from '@cleocode/contracts';
 
-/** Where a terminal key comes from. */
-export type TerminalKeyKind = 'provider' | 'multiplexer' | 'terminal' | 'ppid';
+/**
+ * Where a terminal key comes from. `process` is the harness-ancestor fallback
+ * (T12864); `ppid` is the pre-T12864 per-call fallback, never produced any
+ * more and kept only so rows written before it still type-check.
+ */
+export type TerminalKeyKind = 'provider' | 'multiplexer' | 'terminal' | 'process' | 'ppid';
 
 /**
  * One row of the provider/terminal key map: an environment variable whose value
@@ -52,7 +65,7 @@ export interface TerminalKeySource {
   /** Environment variable carrying the identity value. */
   readonly envVar: string;
   /** Category of identity (drives precedence documentation only). */
-  readonly kind: Exclude<TerminalKeyKind, 'ppid'>;
+  readonly kind: Exclude<TerminalKeyKind, 'ppid' | 'process'>;
   /** Harness / terminal that exports the variable. */
   readonly origin: string;
   /**
@@ -61,6 +74,12 @@ export interface TerminalKeySource {
    * pid, session index) to stay unique across servers.
    */
   readonly qualifierEnvVar?: string;
+  /**
+   * Further qualifiers, applied after {@link qualifierEnvVar} (T12864). A
+   * GitHub Actions run id alone is shared by every job of the run, so it is
+   * qualified by the attempt and the job id.
+   */
+  readonly extraQualifierEnvVars?: readonly string[];
 }
 
 /**
@@ -102,6 +121,31 @@ export const TERMINAL_KEY_SOURCES: readonly TerminalKeySource[] = [
     origin: 'konsole',
     qualifierEnvVar: 'KONSOLE_DBUS_SERVICE',
   },
+  // T12864 — non-terminal callers whose platform exports a per-job / per-login id.
+  // GitHub Actions: GITHUB_RUN_ID is per run and shared by its jobs, so it is
+  // qualified by GITHUB_RUN_ATTEMPT and GITHUB_JOB ("Variables reference",
+  // docs.github.com/en/actions/reference/workflows-and-actions/variables).
+  // Every step of one job shares the key; the steps run sequentially.
+  {
+    envVar: 'GITHUB_RUN_ID',
+    kind: 'terminal',
+    origin: 'github-actions',
+    qualifierEnvVar: 'GITHUB_RUN_ATTEMPT',
+    extraQualifierEnvVars: ['GITHUB_JOB'],
+  },
+  // GitLab CI: CI_JOB_ID is unique per job across the instance ("Predefined
+  // CI/CD variables reference", docs.gitlab.com/ci/variables/predefined_variables).
+  { envVar: 'CI_JOB_ID', kind: 'terminal', origin: 'gitlab-ci' },
+  // OpenSSH login with a tty: SSH_TTY names the login's tty and is set only
+  // when one was allocated; SSH_CONNECTION ("client-ip client-port server-ip
+  // server-port", ssh(1) ENVIRONMENT) disambiguates it across connections. A
+  // one-shot `ssh host 'cmd'` has no tty and falls through to the ancestor walk.
+  {
+    envVar: 'SSH_TTY',
+    kind: 'terminal',
+    origin: 'openssh',
+    qualifierEnvVar: 'SSH_CONNECTION',
+  },
 ];
 
 /**
@@ -133,14 +177,46 @@ export const PPID_CHAIN_LAUNCHERS: ReadonlySet<string> = new Set([
  */
 export { PS_STABLE_ENV };
 
-/** Maximum number of ancestors the ppid-chain walk inspects. */
-export const PPID_CHAIN_MAX_DEPTH = 4 as const;
+/** Maximum number of ancestors the harness-ancestor walk inspects (T12864). */
+export const PPID_CHAIN_MAX_DEPTH = 12 as const;
+
+/**
+ * Thin wrappers a harness may put between its shell and `cleo` (T12864). They
+ * live exactly as long as the command they wrap, so the walk skips them.
+ */
+export const ANCESTOR_WRAPPERS: ReadonlySet<string> = new Set([
+  'env',
+  'timeout',
+  'gtimeout',
+  'nohup',
+  'nice',
+  'time',
+  'xargs',
+  'stdbuf',
+  'sudo',
+  'doas',
+  'npm',
+  'npx',
+  'pnpm',
+  'pnpx',
+  'yarn',
+  'corepack',
+  'mise',
+  'cleo',
+]);
+
+/**
+ * The system's init / service manager (T12864). An ancestor walk that reaches
+ * one of these (or pid 1) found no harness: a daemon or a systemd / launchd job
+ * spawned `cleo` directly, so there is no per-caller process to key on.
+ */
+export const INIT_PROCESSES: ReadonlySet<string> = new Set(['launchd', 'systemd', 'init']);
 
 /** One resolved identity key for the calling terminal. */
 export interface TerminalKey {
-  /** Opaque, stable binding key (`env:<VAR>=<value>` or `ppid:<pid>@<start>`). */
+  /** Opaque, stable binding key (`env:<VAR>=<value>` or `proc:<pid>@<start>`). */
   readonly key: string;
-  /** Environment variable name, or `'ppid'` for the process-chain fallback. */
+  /** Environment variable name, or `'process'` for the harness-ancestor fallback. */
   readonly source: string;
   /** Identity category. */
   readonly kind: TerminalKeyKind;
@@ -161,6 +237,9 @@ export interface ProcessAncestor {
 /** Reads one process-table entry; returns `null` when the pid is unknown. */
 export type ProcessLookup = (pid: number) => ProcessAncestor | null;
 
+/** Reads a process's full command line; returns `null` when it cannot be read (T12864). */
+export type ProcessArgsLookup = (pid: number) => string | null;
+
 /** Inputs for {@link resolveTerminalKeys}; every field defaults to the live process. */
 export interface ResolveTerminalKeysOptions {
   /** Environment to read (defaults to `process.env`). */
@@ -169,6 +248,8 @@ export interface ResolveTerminalKeysOptions {
   readonly ppid?: number;
   /** Process-table reader (defaults to {@link readProcessEntry}). */
   readonly lookupProcess?: ProcessLookup;
+  /** Command-line reader for shells (defaults to {@link readProcessArgs}). */
+  readonly lookupArgs?: ProcessArgsLookup;
 }
 
 /** Non-empty trimmed value of `name` in `env`, or `null`. */
@@ -221,19 +302,106 @@ export function readProcessEntry(pid: number): ProcessAncestor | null {
 }
 
 /**
- * Resolve the ppid-chain fallback key: the nearest non-launcher ancestor.
+ * Read a process's command line via `ps -o args=` (POSIX only, T12864).
+ *
+ * Used only for shells, to tell a throwaway `sh -c '…'` from a long-lived
+ * interactive or script shell. Returns `null` on Windows, for an unknown pid,
+ * or when `ps` fails.
+ *
+ * @param pid - Process id to inspect.
+ * @returns The command line, or `null`.
+ */
+export function readProcessArgs(pid: number): string | null {
+  if (process.platform === 'win32' || !Number.isInteger(pid) || pid <= 1) return null;
+  try {
+    const out = execFileSync('ps', ['-o', 'args=', '-p', String(pid)], {
+      encoding: 'utf8',
+      timeout: 1000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      env: { ...process.env, ...PS_STABLE_ENV },
+    }).trim();
+    return out === '' ? null : out;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether a shell's command line runs a single command string (`sh -c '…'`,
+ * `bash -lc '…'`) — a throwaway shell that exits with the command — rather
+ * than an interactive or script shell that outlives it (T12864).
+ *
+ * Options are read up to the first operand; any short-option cluster that
+ * contains `c` means command mode.
+ *
+ * @param args - The shell's full command line.
+ * @returns `true` for a command-string shell.
+ */
+export function isCommandStringShell(args: string): boolean {
+  const tokens = args.trim().split(/\s+/).slice(1);
+  for (const token of tokens) {
+    if (token === '--') return false;
+    if (token.startsWith('--')) continue;
+    if (!token.startsWith('-') || token === '-') return false;
+    if (token.slice(1).includes('c')) return true;
+  }
+  return false;
+}
+
+/** Key for a long-lived ancestor. */
+function ancestorKey(entry: ProcessAncestor): TerminalKey {
+  return { key: `proc:${entry.pid}@${entry.startedAt}`, source: 'process', kind: 'process' };
+}
+
+/**
+ * Resolve the harness-ancestor fallback key (T12864): the nearest ancestor
+ * that outlives a single `cleo` call.
+ *
+ * Walking up from `cleo`'s parent:
+ *
+ * 1. Launchers and wrappers ({@link PPID_CHAIN_LAUNCHERS},
+ *    {@link ANCESTOR_WRAPPERS}) below the first shell are skipped.
+ * 2. A shell that is NOT a command-string shell (interactive, login, or running
+ *    a script) is long-lived: it is the key — one per terminal tab, CI step or
+ *    cron script.
+ * 3. A command-string shell (`bash -c`) is skipped, as are further shells and
+ *    wrappers above it. The first other process is the key — for an agent
+ *    harness, the harness itself, even when it is a `node` / `python` process.
+ * 4. A non-shell, non-launcher parent below any shell (a harness that spawned
+ *    `cleo` directly) is the key.
+ *
+ * Returns `null` — no identity — when the walk reaches pid 1 or an init
+ * process ({@link INIT_PROCESSES}), when a shell's command line cannot be read
+ * (a guess either way could merge two callers or split one), when the process
+ * table cannot be read, or past {@link PPID_CHAIN_MAX_DEPTH}.
  *
  * @param ppid - Parent pid to start from.
  * @param lookupProcess - Process-table reader.
- * @returns The fallback key, or `null` when the chain cannot be read.
+ * @param lookupArgs - Command-line reader for shells.
+ * @returns The fallback key, or `null`.
+ * @task T12864
  */
-function resolvePpidKey(ppid: number, lookupProcess: ProcessLookup): TerminalKey | null {
+export function resolveAncestorKey(
+  ppid: number,
+  lookupProcess: ProcessLookup,
+  lookupArgs: ProcessArgsLookup,
+): TerminalKey | null {
   let pid = ppid;
-  for (let depth = 0; depth < PPID_CHAIN_MAX_DEPTH && pid > 1; depth++) {
+  let pastShell = false;
+  for (let depth = 0; depth < PPID_CHAIN_MAX_DEPTH; depth++) {
+    if (pid <= 1) return null;
     const entry = lookupProcess(pid);
-    if (!entry) return null;
-    if (!PPID_CHAIN_LAUNCHERS.has(entry.command)) {
-      return { key: `ppid:${entry.pid}@${entry.startedAt}`, source: 'ppid', kind: 'ppid' };
+    if (!entry || entry.pid <= 1 || INIT_PROCESSES.has(entry.command)) return null;
+    if (OWNER_PROCESS_SHELLS.has(entry.command)) {
+      const args = lookupArgs(entry.pid);
+      if (args === null) return null;
+      if (!isCommandStringShell(args)) return ancestorKey(entry);
+      pastShell = true;
+    } else if (
+      !ANCESTOR_WRAPPERS.has(entry.command) &&
+      (pastShell || !PPID_CHAIN_LAUNCHERS.has(entry.command))
+    ) {
+      return ancestorKey(entry);
     }
     pid = entry.ppid;
   }
@@ -292,8 +460,9 @@ export function resolveOwnerProcess(
  * Resolve the calling terminal's identity keys, most specific first (T12499).
  *
  * Every {@link TERMINAL_KEY_SOURCES} row whose variable is set contributes one
- * key. Only when NO row matches does the ppid-chain fallback run, so the common
- * case (an agent harness or a mainstream terminal) never spawns `ps`.
+ * key. Only when NO row matches does the harness-ancestor fallback
+ * ({@link resolveAncestorKey}) run, so the common case (an agent harness or a
+ * mainstream terminal) never spawns `ps`.
  *
  * Synchronous and database-free; binding persistence and lookup live in
  * `store/session-binding-store.ts`.
@@ -313,29 +482,36 @@ export function resolveTerminalKeys(options: ResolveTerminalKeysOptions = {}): T
   for (const source of TERMINAL_KEY_SOURCES) {
     const value = envValue(env, source.envVar);
     if (value === null) continue;
-    const qualifier = envValue(env, source.qualifierEnvVar);
+    const qualifiers = [source.qualifierEnvVar, ...(source.extraQualifierEnvVars ?? [])]
+      .map((name) => envValue(env, name))
+      .filter((q): q is string => q !== null);
     keys.push({
-      key: `env:${source.envVar}=${qualifier === null ? value : `${qualifier}|${value}`}`,
+      key: `env:${source.envVar}=${[...qualifiers, value].join('|')}`,
       source: source.envVar,
       kind: source.kind,
     });
   }
   if (keys.length > 0) return keys;
-  const live = options.ppid === undefined && options.lookupProcess === undefined;
-  let ppidKey: TerminalKey | null;
+  const live =
+    options.ppid === undefined &&
+    options.lookupProcess === undefined &&
+    options.lookupArgs === undefined;
+  let ancestor: TerminalKey | null;
   if (live) {
     // The live process's ancestry cannot change, so `ps` runs at most once per
-    // process even though identity resolution runs on every dispatch.
-    if (livePpidKey === undefined) livePpidKey = resolvePpidKey(process.ppid, readProcessEntry);
-    ppidKey = livePpidKey;
+    // ancestor per process even though identity resolution runs on every dispatch.
+    if (liveAncestorKey === undefined)
+      liveAncestorKey = resolveAncestorKey(process.ppid, readProcessEntry, readProcessArgs);
+    ancestor = liveAncestorKey;
   } else {
-    ppidKey = resolvePpidKey(
+    ancestor = resolveAncestorKey(
       options.ppid ?? process.ppid,
       options.lookupProcess ?? readProcessEntry,
+      options.lookupArgs ?? readProcessArgs,
     );
   }
-  return ppidKey ? [ppidKey] : [];
+  return ancestor ? [ancestor] : [];
 }
 
-/** Memoised ppid-chain key of the live process (`undefined` = not yet read). */
-let livePpidKey: TerminalKey | null | undefined;
+/** Memoised harness-ancestor key of the live process (`undefined` = not yet read). */
+let liveAncestorKey: TerminalKey | null | undefined;

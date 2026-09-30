@@ -107,7 +107,7 @@ describe('resolveTerminalKeys — provider/terminal key map (T12499)', () => {
     ).toEqual([]);
   });
 
-  it('falls back to the nearest non-launcher ancestor when no env key is set', () => {
+  it('falls back to the nearest long-lived ancestor when no env key is set (T12864)', () => {
     const table: Record<number, ProcessAncestor> = {
       40: { pid: 40, ppid: 30, startedAt: 'Sat Sep 27 22:00:01 2026', command: 'pnpm' },
       30: { pid: 30, ppid: 20, startedAt: 'Sat Sep 27 22:00:00 2026', command: 'node' },
@@ -115,11 +115,17 @@ describe('resolveTerminalKeys — provider/terminal key map (T12499)', () => {
       10: { pid: 10, ppid: 1, startedAt: 'Sat Sep 27 20:00:00 2026', command: 'Terminal' },
     };
     const lookup = vi.fn((pid: number) => table[pid] ?? null);
-    const keys = resolveTerminalKeys({ env: {}, ppid: 40, lookupProcess: lookup });
+    // An interactive login shell is long-lived: it is the terminal's identity.
+    const keys = resolveTerminalKeys({
+      env: {},
+      ppid: 40,
+      lookupProcess: lookup,
+      lookupArgs: (pid) => (pid === 20 ? '-zsh' : null),
+    });
     expect(keys).toEqual([
-      { key: 'ppid:20@Sat Sep 27 21:00:00 2026', source: 'ppid', kind: 'ppid' },
+      { key: 'proc:20@Sat Sep 27 21:00:00 2026', source: 'process', kind: 'process' },
     ]);
-    // Never climbs past the shell to the terminal emulator shared by every tab.
+    // Never climbs past a long-lived shell to the emulator shared by every tab.
     expect(lookup).not.toHaveBeenCalledWith(10);
   });
 

@@ -20,6 +20,21 @@ import {
 import { SESSION_ENV_KEY_PRECEDENCE } from '../session-id.js';
 import { TERMINAL_KEY_SOURCES } from '../terminal-identity.js';
 
+// T12864: pin the pre-T12864 identity these scope tests were written for — a
+// per-call `ppid` key: bindings still resolve (session end works), but it does
+// not identify the caller, so the SDK applies its scope-based single-session
+// guard. The live harness-ancestor key would make every start here the SAME
+// caller, which (correctly) refuses a second session in any scope.
+vi.mock('../terminal-identity.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../terminal-identity.js')>();
+  return {
+    ...actual,
+    resolveTerminalKeys: () => [
+      { key: 'ppid:4242@Tue Sep 30 12:00:00 2026', source: 'ppid', kind: 'ppid' as const },
+    ],
+  };
+});
+
 describe('parseScope', () => {
   it('parses global scope', () => {
     expect(parseScope('global')).toEqual({ type: 'global' });
@@ -42,10 +57,9 @@ describe('Session lifecycle', () => {
     // Each test owns a fresh store at the explicitly supplied project root.
     vi.stubEnv('CLEO_ROOT', undefined);
     vi.stubEnv('CLEO_DIR', undefined);
-    // T12530: this process has NO terminal identity (only the ppid fallback,
-    // which does not identify a caller), so the SDK applies the scope-based
-    // single-session guard. Clear the host terminal's keys so the result does
-    // not depend on where the suite runs.
+    // T12530: this process has NO stable terminal identity (see the mock
+    // above), so the SDK applies the scope-based single-session guard. Clear the
+    // host terminal's keys so the result does not depend on where the suite runs.
     for (const s of TERMINAL_KEY_SOURCES) {
       vi.stubEnv(s.envVar, undefined);
       if (s.qualifierEnvVar) vi.stubEnv(s.qualifierEnvVar, undefined);

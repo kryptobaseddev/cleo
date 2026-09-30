@@ -429,7 +429,10 @@ interface TerminalKeyTiers {
   readonly provider: TerminalKey | undefined;
   /** Multiplexer pane (`TMUX_PANE`, `ZELLIJ_PANE_ID`, `WEZTERM_PANE`). */
   readonly pane: TerminalKey | undefined;
-  /** Terminal tab (`TERM_SESSION_ID`, `ITERM_SESSION_ID`, `WT_SESSION`, …) or the ppid fallback. */
+  /**
+   * Terminal tab (`TERM_SESSION_ID`, `ITERM_SESSION_ID`, `WT_SESSION`, …), a CI job
+   * or ssh login, or the harness-ancestor fallback (T12864).
+   */
   readonly tab: TerminalKey | undefined;
 }
 
@@ -443,7 +446,7 @@ function splitTerminalKeys(keys: readonly TerminalKey[]): TerminalKeyTiers {
   return {
     provider: keys.find((k) => k.kind === 'provider'),
     pane: keys.find((k) => k.kind === 'multiplexer'),
-    tab: keys.find((k) => k.kind === 'terminal' || k.kind === 'ppid'),
+    tab: keys.find((k) => k.kind === 'terminal' || k.kind === 'process' || k.kind === 'ppid'),
   };
 }
 
@@ -514,7 +517,7 @@ function upsertBinding(
  *
  * - the **provider** key (an agent process — `CLAUDE_CODE_SESSION_ID`, …), when present;
  * - the **pane** key (`TMUX_PANE`, …), when present;
- * - the **tab** key (`TERM_SESSION_ID`, …, or the ppid fallback) only when there
+ * - the **tab** key (`TERM_SESSION_ID`, …, or the harness-ancestor fallback) only when there
  *   is NO pane key — a pane is its own identity and never shares its tab's.
  *
  * Every row records `bound_by_provider` = "a provider key was present". That is
@@ -620,7 +623,7 @@ export interface TerminalBinding {
  *    the row itself was written by an adoption, `bound_by_provider = 0`).
  * 2. Else the **pane** key, when present. A pane never falls through to its
  *    tab: a sibling pane sharing the tab id resolves nothing.
- * 3. Else the **tab** key (or ppid fallback).
+ * 3. Else the **tab** key (or the harness-ancestor fallback).
  *
  * Steps 2-3 are unconditional for a caller WITHOUT a provider key (a human
  * shell: it may end a session an agent started in its tab). For a caller WITH
@@ -734,11 +737,11 @@ export interface SessionStartConflicts {
   /**
    * `true` when the caller has a STABLE identity to compare against: an active
    * connection or env session, or a provider / pane / tab key from the
-   * environment, and the binding table was readable. A ppid-chain key alone does
-   * NOT count: in agent, CI, cron or `ssh host 'cleo …'` shells the walk stops
-   * at a throwaway `bash -c`, so every call gets a new key and an older session
-   * would always look like another terminal's. When `false`, every candidate
-   * blocks (the pre-T12530 single-session guard).
+   * environment or the harness-ancestor walk (T12864), and the binding table
+   * was readable. A legacy `ppid` key (pre-T12864, stopped at the per-call
+   * `bash -c`, so every call got a new key) does NOT count; the walk returns no
+   * key at all when it finds no long-lived ancestor. When `false`, every
+   * candidate blocks (the pre-T12530 single-session guard).
    */
   readonly identified: boolean;
   /**
@@ -809,7 +812,7 @@ export async function findSessionStartConflicts(
       const byEnv = envId ? await activeById(envId) : null;
       if (byEnv) held = { session: byEnv, via: 'env' };
 
-      // A ppid-chain key is not a stable identity (see `identified`).
+      // A legacy per-call ppid key is not a stable identity (see `identified`).
       const { provider, pane, tab } = splitTerminalKeys(keys.filter((k) => k.kind !== 'ppid'));
       const ownKey = provider ?? pane ?? tab;
       if (!held && !ownKey) return legacy;
