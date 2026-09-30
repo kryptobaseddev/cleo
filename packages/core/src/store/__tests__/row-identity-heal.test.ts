@@ -14,17 +14,25 @@
  * @epic T12323
  */
 
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { rowIdentityDoctorCheck } from '../../doctor/row-identity.js';
 import {
   _resetDualScopeDbCache,
   getDualScopeNativeDb,
   openDualScopeDbAtPath,
 } from '../dual-scope-db.js';
+import {
+  healRowIdentitySchema,
+  missingRowIdentitySchema,
+  readRowIdentityHealReceipt,
+} from '../row-identity.js';
+import { setWorktreeBuildGuardForTests } from '../worktree-build-guard.js';
 
 const UID_MIGRATION = '20260928120000_t12341-row-uids';
 const MISSING_TABLES = [
@@ -44,6 +52,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  setWorktreeBuildGuardForTests(null);
   _resetDualScopeDbCache();
   rmSync(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
@@ -152,7 +161,10 @@ describe('row-identity schema heal on every open (T12878)', () => {
     expect(db.prepare("SELECT uid FROM tasks_tasks WHERE id = 'T003'").get()).toEqual({
       uid: null,
     });
-    expect(db.prepare('SELECT count(*) AS n FROM tasks_row_identity_meta').get()).toEqual({ n: 0 });
+    // The only meta row is the heal's own receipt: no recipe marker (no fill).
+    expect(db.prepare('SELECT key FROM tasks_row_identity_meta').all()).toEqual([
+      { key: 'row_identity_schema_healed' },
+    ]);
     expect(db.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get()).toEqual(
       journalBefore,
     );
@@ -162,6 +174,28 @@ describe('row-identity schema heal on every open (T12878)', () => {
         .prepare("SELECT count(*) AS n FROM sqlite_temp_master WHERE name LIKE 'trg_row_uid_%'")
         .get(),
     ).toEqual({ n: 0 });
+    // The heal is recorded, and `cleo doctor` shows it.
+    const receipt = readRowIdentityHealReceipt(db);
+    expect(receipt?.objects).toEqual(
+      expect.arrayContaining([
+        'table tasks_uid_aliases',
+        'table tasks_ac_uid_graveyard',
+        'table tasks_row_identity_meta',
+        'table tasks_identity_quarantine',
+        'tasks_display_id_aliases.displaced_hlc',
+        'tasks_display_id_aliases.entity_birth_fp',
+      ]),
+    );
+    expect(missingRowIdentitySchema(db)).toEqual([]);
+    process.env.CLEO_DIR = join(testDir, '.cleo');
+    let doctor: ReturnType<typeof rowIdentityDoctorCheck>;
+    try {
+      doctor = rowIdentityDoctorCheck(testDir);
+    } finally {
+      delete process.env.CLEO_DIR;
+    }
+    expect(doctor.status).toBe('ok');
+    expect(doctor.message).toContain('identity schema healed on');
     const schemaAfterFirst = schemaText(db);
     const hashAfterFirst = contentHash(db, dataTablesOf(db));
 
@@ -169,6 +203,72 @@ describe('row-identity schema heal on every open (T12878)', () => {
     const again = await openProject();
     expect(schemaText(again)).toBe(schemaAfterFirst);
     expect(contentHash(again, dataTablesOf(again))).toEqual(hashAfterFirst);
+  });
+
+  it('a worktree-built CLI never heals a store it may not change (T12687 guard)', async () => {
+    (await openProject()).exec('SELECT 1');
+    _resetDualScopeDbCache();
+    simulateStampedMigration();
+    // A main checkout holding this store, and a linked worktree holding a build.
+    const repo = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-row-identity-heal-guard-')));
+    const main = join(repo, 'main');
+    mkdirSync(join(main, '.cleo'), { recursive: true });
+    writeFileSync(join(main, 'README.md'), 'x\n');
+    const git = (cwd: string, ...args: string[]) =>
+      execFileSync('git', args, { cwd, stdio: 'ignore' });
+    git(main, 'init', '-b', 'main');
+    git(main, 'add', 'README.md');
+    git(
+      main,
+      '-c',
+      'user.email=t@example.test',
+      '-c',
+      'user.name=T',
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '--no-verify',
+      '-m',
+      'init',
+    );
+    const worktree = join(repo, 'wt');
+    git(main, 'worktree', 'add', '-b', 'build', worktree, 'main');
+    const build = join(worktree, 'packages', 'core', 'dist', 'store', 'row-identity.js');
+    mkdirSync(join(build, '..'), { recursive: true });
+    writeFileSync(build, '');
+    const store = join(main, '.cleo', 'cleo.db');
+    copyFileSync(dbPath, store);
+    try {
+      setWorktreeBuildGuardForTests({
+        codePath: build,
+        provenance: null,
+        env: {},
+        honourTestSandbox: false,
+      });
+      const refused = new DatabaseSync(store);
+      try {
+        expect(healRowIdentitySchema(refused, 'project')).toEqual([]);
+        expect(missingRowIdentitySchema(refused)).toContain('table tasks_uid_aliases');
+      } finally {
+        refused.close();
+      }
+      // The explicit opt-in (or a released build) heals it.
+      setWorktreeBuildGuardForTests({
+        codePath: build,
+        provenance: null,
+        env: { CLEO_ALLOW_WORKTREE_BUILD_MIGRATIONS: '1' },
+        honourTestSandbox: false,
+      });
+      const allowed = new DatabaseSync(store);
+      try {
+        expect(healRowIdentitySchema(allowed, 'project').length).toBeGreaterThan(0);
+        expect(missingRowIdentitySchema(allowed)).toEqual([]);
+      } finally {
+        allowed.close();
+      }
+    } finally {
+      rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    }
   });
 
   it('a store that already has the full schema is left exactly as it is', async () => {

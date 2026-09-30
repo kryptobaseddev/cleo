@@ -19,3 +19,12 @@ only: the identity tables, the graveyard trigger, the missing columns, and
 the uid columns and indexes. No row value is read or written. Filling
 values, the refill of stale values and the per-connection triggers stay
 opt-in.
+
+The heal never runs from a build that may not change the store's schema. A
+worktree-built CLI on a live store is refused by the T12687 guard; the
+released build heals it. The heal never rewrites or removes the stale
+pre-release uid values; re-deriving them is the job of the opt-in refill.
+When it re-creates anything, the heal leaves a receipt in
+`tasks_row_identity_meta` (`row_identity_schema_healed`). The `row_identity`
+check of `cleo doctor` shows it, along with any identity schema still
+missing.

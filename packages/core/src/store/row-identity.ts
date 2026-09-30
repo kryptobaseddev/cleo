@@ -76,6 +76,7 @@ import {
   rowIdentitySpec,
   UID_COLUMN,
 } from './row-identity-registry.js';
+import { schemaWritesAllowed } from './worktree-build-guard.js';
 
 export { BIRTH_FP_COLUMN, ROW_IDENTITY, rowIdentityColumns, rowIdentitySpec, UID_COLUMN };
 
@@ -1480,6 +1481,13 @@ export function markRowIdentityShared(
  */
 export function healRowIdentitySchema(db: DatabaseSync, scope: TableScope): string[] {
   if (ROW_IDENTITY[scope].length === 0) return [];
+  const log = getLogger('row-identity');
+  // A build that may not change this store's schema (a worktree-built CLI on a
+  // live store, T12687) never heals it: the released build will.
+  if (!schemaWritesAllowed(db)) {
+    log.debug({ scope }, 'row identity schema heal skipped: schema writes refused for this build');
+    return [];
+  }
   try {
     db.exec('SAVEPOINT row_identity_heal');
     try {
@@ -1487,13 +1495,10 @@ export function healRowIdentitySchema(db: DatabaseSync, scope: TableScope): stri
         ...(scope === 'project' ? ensureIdentityTables(db) : []),
         ...ensureRowIdentitySchema(db, scope),
       ];
+      if (healed.length > 0 && scope === 'project') recordHealReceipt(db, healed);
       db.exec('RELEASE SAVEPOINT row_identity_heal');
-      if (healed.length > 0) {
-        getLogger('row-identity').info(
-          { scope, healed: healed.length },
-          'row identity schema healed',
-        );
-      }
+      if (healed.length > 0)
+        log.info({ scope, healed: healed.length }, 'row identity schema healed');
       return healed;
     } catch (error) {
       db.exec('ROLLBACK TO SAVEPOINT row_identity_heal');
@@ -1501,9 +1506,91 @@ export function healRowIdentitySchema(db: DatabaseSync, scope: TableScope): stri
       throw error;
     }
   } catch (error) {
-    getLogger('row-identity').error({ scope, error }, 'row identity schema heal failed');
+    log.error({ scope, error }, 'row identity schema heal failed');
     return [];
   }
+}
+
+/**
+ * Meta key of the heal receipt: when the open last re-created missing
+ * identity schema, and what (T12878). Local-only bookkeeping of the heal
+ * itself, in `tasks_row_identity_meta`; no row value of any other table is
+ * written. `cleo doctor` (the `row_identity` check) shows it.
+ */
+export const ROW_IDENTITY_HEAL_KEY = 'row_identity_schema_healed';
+
+/** The receipt {@link healRowIdentitySchema} leaves when it re-created schema. */
+export interface RowIdentityHealReceipt {
+  readonly at: string;
+  readonly statements: number;
+  /** Objects re-created or columns added (table, index, trigger or `table.column`). */
+  readonly objects: readonly string[];
+}
+
+function recordHealReceipt(db: DatabaseSync, healed: readonly string[]): void {
+  const objects = healed.map((stmt) => {
+    const col = /ALTER TABLE main\.("?)(\w+)\1 ADD COLUMN ("?)(\w+)\3/.exec(stmt);
+    if (col) return `${col[2]}.${col[4]}`;
+    const obj = /(TABLE|INDEX|TRIGGER) IF NOT EXISTS main\.("?)(\w+)\2/.exec(stmt);
+    return obj ? `${(obj[1] as string).toLowerCase()} ${obj[3]}` : stmt.slice(0, 60);
+  });
+  const receipt: RowIdentityHealReceipt = {
+    at: new Date().toISOString(),
+    statements: healed.length,
+    objects,
+  };
+  db.prepare(
+    `INSERT INTO main.${ROW_IDENTITY_META_TABLE} (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+  ).run(ROW_IDENTITY_HEAL_KEY, JSON.stringify(receipt));
+}
+
+/**
+ * The last heal receipt of a store, read-only (`undefined` when the schema
+ * never needed healing).
+ *
+ * @param db - Connection on a project `cleo.db` (read-only is fine).
+ * @returns The receipt.
+ * @task T12878
+ */
+export function readRowIdentityHealReceipt(db: DatabaseSync): RowIdentityHealReceipt | undefined {
+  const raw = readMeta(db, ROW_IDENTITY_HEAL_KEY);
+  if (raw === undefined) return undefined;
+  try {
+    return JSON.parse(raw) as RowIdentityHealReceipt;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Identity schema a project store lacks, read-only: missing identity tables,
+ * the graveyard trigger, and the alias / graveyard columns an early table
+ * lacks (T12878; the open heals them).
+ *
+ * @param db - Connection on a project `cleo.db` (read-only is fine).
+ * @returns What is missing (empty when complete).
+ * @task T12878
+ */
+export function missingRowIdentitySchema(db: DatabaseSync): string[] {
+  if (!hasTable(db, 'tasks_task_acceptance_criteria')) return [];
+  const missing: string[] = [];
+  for (const table of Object.keys(IDENTITY_TABLE_DDL)) {
+    if (!hasTable(db, table)) missing.push(`table ${table}`);
+  }
+  for (const [table, column] of [
+    ['tasks_display_id_aliases', 'displaced_hlc'],
+    ['tasks_display_id_aliases', 'entity_birth_fp'],
+    [AC_UID_GRAVEYARD, 'birth_fp'],
+  ] as const) {
+    if (hasTable(db, table) && !columnsOf(db, table).has(column)) {
+      missing.push(`column ${table}.${column}`);
+    }
+  }
+  if (!hasObject(db, 'trigger', 'trg_tasks_ac_uid_graveyard')) {
+    missing.push('trigger trg_tasks_ac_uid_graveyard');
+  }
+  return missing;
 }
 
 export function prepareRowIdentity(
