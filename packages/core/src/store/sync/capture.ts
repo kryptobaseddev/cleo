@@ -339,6 +339,56 @@ export function captureTriggers(def: CaptureTableDef): CaptureTrigger[] {
   return out;
 }
 
+/**
+ * Re-mint captures (T12806 × S2): a captured write that CLEARED a row's
+ * identity (a snapshot-overwrite import: K old → NULL) is followed by a fill
+ * that mints the new uid outside capture (the open-time fill runs with the
+ * capture triggers dropped). For every such row, write the K that journals
+ * the new identity (NULL → new uid, and birth_fp), so the pair nets to
+ * old → new. Call inside the fill's bracket, after the fill.
+ *
+ * A row qualifies when its latest live K capture set the uid to NULL and the
+ * row now has a uid. Undo is written only while `undo_enabled` (Rule 2).
+ *
+ * @returns K captures written, per table.
+ */
+export function captureRemints(db: DatabaseSync, scope: TableScope): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!hasTable(db, '_sync_capture')) return out;
+  const undoOn =
+    hasTable(db, '_sync_meta') &&
+    (db.prepare(`SELECT ${UNDO_ON} AS v`).get() as { v: number }).v === 1;
+  for (const table of syncSetTables(scope)) {
+    const def = captureTableDef(db, scope, table);
+    if (!def || !hasUid(def)) continue;
+    const idCols = [UID_COLUMN, ...(hasBirthFp(def) ? [BIRTH_FP_COLUMN] : [])];
+    const img = chunkedObject(
+      idCols.map((c) => [c, `json_array('NULL', ${enc(`x.${q(c)}`)})`] as const),
+    );
+    const rows = db
+      .prepare(
+        `SELECT c.rk AS rk, x.rowid AS rid FROM _sync_capture c JOIN ${q(table)} x ON ${rkExpr(def, 'x')} = c.rk ` +
+          `WHERE c.tbl = ${lit(table)} AND c.op = 'K' AND c.state = 'live' ` +
+          `AND c.seq = (SELECT max(m.seq) FROM _sync_capture m WHERE m.tbl = c.tbl AND m.rk = c.rk AND m.op = 'K' AND m.state = 'live') ` +
+          `AND json_extract(c.img, '$.${UID_COLUMN}[1]') = 'NULL' AND x.${q(UID_COLUMN)} IS NOT NULL`,
+      )
+      .all() as Array<{ rk: string; rid: number }>;
+    if (rows.length === 0) continue;
+    const ins = db.prepare(
+      `INSERT INTO _sync_capture (tbl, op, rk, uid, img, at_ms) SELECT ${lit(table)}, 'K', ?, NULL, ${img}, ${AT_MS_SQL} FROM ${q(table)} x WHERE x.rowid = ?`,
+    );
+    const undo = db.prepare(
+      `INSERT INTO _sync_undo (seq, tbl, rk, uid, op, before_full, after_full) SELECT last_insert_rowid(), ${lit(table)}, ?, NULL, 'K', ${img}, ${img} FROM ${q(table)} x WHERE x.rowid = ?`,
+    );
+    for (const r of rows) {
+      ins.run(r.rk, r.rid);
+      if (undoOn) undo.run(r.rk, r.rid);
+    }
+    out[table] = rows.length;
+  }
+  return out;
+}
+
 /** Every capture trigger for the store's sync set. */
 export function generateCaptureTriggers(db: DatabaseSync, scope: TableScope): CaptureTrigger[] {
   const out: CaptureTrigger[] = [];

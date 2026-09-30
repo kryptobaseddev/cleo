@@ -67,10 +67,10 @@ import {
   resolveConsolidatedJournalSiblings,
   resolveCorePackageMigrationsFolder,
 } from './resolve-migrations-folder.js';
-import { prepareRowIdentity } from './row-identity.js';
 import { rowUidFillEnabled } from './row-identity-flag.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
 import { captureBracketHooks, syncCaptureOpenPass } from './sync/capture.js';
+import { prepareRowIdentityUnderCapture } from './sync/identity-fill.js';
 import { ensureTriggerSuspendTable, verifyOwnedTriggers } from './sync/trigger-classes.js';
 import { explainSchemaWriteDenial, installSchemaWriteGuard } from './worktree-build-guard.js';
 import { assertStorePathIsNotWorktreeResident } from './worktree-isolation-guard.js';
@@ -668,7 +668,8 @@ async function openDedicatedDualScopeDb(
         execution?.assertActive();
         if (rowUidFillEnabled()) {
           await import('./sqlite-data-accessor.js');
-          prepareRowIdentity(nativeDb, scope, { triggers: false });
+          // Uncaptured under sync capture, with its tables marked suspect.
+          prepareRowIdentityUnderCapture(nativeDb, scope, { triggers: false });
         }
 
         execution?.assertActive();
@@ -973,7 +974,8 @@ export async function openDualScopeDbAtPath(
             // The chokepoint writers load lazily: a static import would close
             // the store import cycle through sqlite.js.
             await import('./sqlite-data-accessor.js');
-            prepareRowIdentity(nativeDb, scope);
+            // A derived rewrite: uncaptured, its tables marked suspect (S2).
+            prepareRowIdentityUnderCapture(nativeDb, scope);
           }
 
           execution?.assertActive();

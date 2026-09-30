@@ -262,9 +262,9 @@ export const EXEMPT = {
   },
   'packages/core/src/store/sqlite.ts': { tasks_schema_meta: { count: 2, reason: SCHEMA_STAMP } },
   'packages/core/src/store/sync/capture.ts': {
-    _sync_capture: { count: 3, reason: CAPTURE_MACHINERY },
+    _sync_capture: { count: 4, reason: CAPTURE_MACHINERY },
     _sync_frame: { count: 2, reason: CAPTURE_MACHINERY },
-    _sync_undo: { count: 3, reason: CAPTURE_MACHINERY },
+    _sync_undo: { count: 4, reason: CAPTURE_MACHINERY },
   },
   'packages/core/src/store/sync/clock-store.ts': {
     _sync_clock: { count: 1, reason: SYNC_BOOKKEEPING },
