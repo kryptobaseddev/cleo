@@ -356,6 +356,50 @@ describe('frames and the stamp (§2.3, N10)', () => {
   });
 });
 
+describe('update undo holds the changed columns only (D5 amendment, ruling (b))', () => {
+  /** Decode an enc() value back to a SQL value (test-only: literals are evaluated). */
+  const dec = (db: DatabaseSync, v: string): unknown =>
+    v.startsWith('r')
+      ? Number(v.slice(1))
+      : (db.prepare(`SELECT ${v} AS x`).get() as { x: unknown }).x;
+  const snapshot = (db: DatabaseSync, id: string) => {
+    const cols = (db.prepare('PRAGMA table_info(tasks_tasks)').all() as Array<{ name: string }>)
+      .map((c) => `quote("${c.name}") AS "${c.name}"`)
+      .join(', ');
+    return db.prepare(`SELECT ${cols} FROM tasks_tasks WHERE id = ?`).get(id);
+  };
+
+  it('a multi-column update is undone exactly from its before image', async () => {
+    const db = await captureOn();
+    db.exec(
+      "INSERT INTO _sync_meta (key, value, updated_at) VALUES ('undo_enabled', '1', '2026-09-30T00:00:00Z')",
+    );
+    db.exec(`INSERT INTO tasks_tasks (id, title, type, status, description, position, cycle_time_days)
+             VALUES ('T1', 'before', 'task', 'pending', 'some text', 3, 1.5)`);
+    const before = snapshot(db, 'T1');
+    db.exec(`UPDATE tasks_tasks SET title = 'after', description = NULL, position = NULL,
+             cycle_time_days = 2.25 WHERE id = 'T1'`);
+    const u = db
+      .prepare(
+        "SELECT before_full, after_full FROM _sync_undo WHERE op = 'U' ORDER BY seq DESC LIMIT 1",
+      )
+      .get() as { before_full: string; after_full: string };
+    const b = JSON.parse(u.before_full) as Record<string, string>;
+    const a = JSON.parse(u.after_full) as Record<string, string>;
+    expect(Object.keys(b).sort()).toEqual(['cycle_time_days', 'description', 'position', 'title']);
+    expect(Object.keys(a).sort()).toEqual(Object.keys(b).sort());
+    expect(a.description).toBe('NULL');
+    // Undo: write the before values of exactly those columns.
+    const sets = Object.keys(b)
+      .map((k) => `"${k}" = ?`)
+      .join(', ');
+    db.prepare(`UPDATE tasks_tasks SET ${sets} WHERE id = 'T1'`).run(
+      ...(Object.values(b).map((v) => dec(db, v)) as Array<string | number | null>),
+    );
+    expect(snapshot(db, 'T1')).toEqual(before);
+  });
+});
+
 describe('the accessor frame (§2.3)', () => {
   it('accessor.transaction() writes one frame: its captures carry it, kind write', async () => {
     const env = await createTestDb();

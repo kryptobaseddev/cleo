@@ -28,13 +28,17 @@
  * - Each trigger also writes `_sync_undo` for the same seq, but only while
  *   `_sync_meta.undo_enabled` exists (push on, §3.5 Rule 2); S2 runs with it
  *   off (shadow mode). Append-only tables keep only `rk` and `uid` there.
+ *   An update's undo holds only the changed columns, old and new (D5
+ *   amendment); a delete's holds the full row.
+ * - I and D images omit NULL columns: the sender's column set is pinned by
+ *   its trigger set, so an absent column is NULL.
  *
  * The open pass installs the triggers only to match the persisted
  * `sync.capture` flag ({@link syncCaptureOpenPass}); the kill switch
- * `CLEO_SYNC_CAPTURE=0` never touches them (M3). The per-connection TEMP
- * stamp labels each capture with the connection, frame and kind
- * ({@link installCaptureStamp}); `accessor.transaction()` opens a frame
- * ({@link openCaptureFrame}).
+ * `CLEO_SYNC_CAPTURE=0` never touches them (M3). `accessor.transaction()`
+ * opens a frame ({@link openCaptureFrame}); finishing it labels the frame's
+ * captures with the connection, frame and kind in one UPDATE
+ * ({@link finishCaptureFrame}).
  *
  * @task T12343
  * @module store/sync/capture
@@ -246,6 +250,21 @@ function hasBirthFp(def: CaptureTableDef): boolean {
   return def.identity.includes(BIRTH_FP_COLUMN);
 }
 
+/**
+ * The undo image of an update (D5 amendment, S2 ruling (b)): exactly the
+ * changed columns, from `row`, secret ciphertext included (Rule 2). A D keeps
+ * the full row ({@link undoImage}).
+ */
+function changedUndoImage(updatable: readonly string[], row: 'OLD' | 'NEW'): string {
+  const terms = updatable
+    .map(
+      (c) =>
+        `SELECT ${lit(c)} AS k, ${enc(`${row}.${q(c)}`)} AS v WHERE OLD.${q(c)} IS NOT NEW.${q(c)}`,
+    )
+    .join(' UNION ALL ');
+  return `(SELECT json_group_object(k, v) FROM (${terms}))`;
+}
+
 function undoInsert(
   def: CaptureTableDef,
   op: 'I' | 'U' | 'D' | 'K',
@@ -314,7 +333,7 @@ export function captureTriggers(def: CaptureTableDef): CaptureTrigger[] {
         `CREATE TRIGGER ${q(name('u'))} AFTER UPDATE OF ${updatable.map(q).join(', ')} ON ${t} ` +
         `WHEN (${changed}) AND ${CAPTURE_WHEN} BEGIN ` +
         `${ins('U', 'NEW', oldUid, img)} ` +
-        `${undoInsert(def, 'U', 'NEW', oldUid, undoImage(def, 'OLD', false), undoImage(def, 'NEW', false))} END`,
+        `${undoInsert(def, 'U', 'NEW', oldUid, changedUndoImage(updatable, 'OLD'), changedUndoImage(updatable, 'NEW'))} END`,
     });
   }
 
