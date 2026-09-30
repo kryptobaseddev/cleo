@@ -497,6 +497,31 @@ describe('a moved store: the snapshot is found by file name in its own backups (
     }
   });
 
+  it('a failure after the re-point rolls it back and leaves no audit row', async () => {
+    const { oldSnapshot } = await movedStore();
+    // Fail the receipt write: after the re-point, before COMMIT.
+    db().exec(`CREATE TEMP TRIGGER fail_receipt BEFORE INSERT ON main.tasks_schema_meta
+      WHEN NEW.key LIKE 'twin_collapse_recovery:%'
+      BEGIN SELECT RAISE(ABORT, 'injected receipt failure'); END`);
+    const snap = openCleoDbSnapshot(snapshotPath(), { readOnly: true, applyPragmas: false });
+    try {
+      const preview = planTwinCollapseRecovery(db(), snap.db, { snapshotPath: snapshotPath() });
+      const audited: unknown[] = [];
+      expect(() => applyTwinCollapseRecovery(db(), preview, (r) => audited.push(r))).toThrow(
+        /injected receipt failure/,
+      );
+      expect(audited).toEqual([]);
+      expect(marker()).toBe(oldSnapshot);
+    } finally {
+      snap.close();
+    }
+    await expect(recoverTwinCollapse(projectDir, opts())).rejects.toThrow(
+      /injected receipt failure/,
+    );
+    expect(existsSync(repointAudit())).toBe(false);
+    expect(marker()).toBe(oldSnapshot);
+  });
+
   it('a local file of that name that is not a SQLite snapshot is refused', async () => {
     await movedStore();
     writeFileSync(snapshotPath(), 'not a database');
