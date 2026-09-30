@@ -160,6 +160,19 @@ export type VerificationGate =
    */
   | 'nexusImpact';
 
+/**
+ * The part of a verified `pr:` atom that anchors `files:` bytes: its merge
+ * commit, when it merged, and what it changed (T12848).
+ */
+export interface EvidenceMergeAnchor {
+  /** Merge commit SHA whose tree holds the PR's artifact bytes. */
+  mergeCommitSha: string;
+  /** ISO 8601 merge timestamp; the latest merge wins when several PRs changed a path. */
+  mergedAt: string;
+  /** Paths the PR changed. */
+  changedPaths?: readonly string[];
+}
+
 /** Task and criterion scope used while validating evidence, independent of PR metadata. */
 export interface EvidenceValidationContext {
   /** Canonical current task intent; prose is never interpreted as a file declaration. */
@@ -170,6 +183,13 @@ export interface EvidenceValidationContext {
   criteria: ReadonlyArray<Pick<AcRow, 'id' | 'text' | 'updatedAt'>>;
   /** Verified PR merge whose immutable artifact bytes must be inspected. */
   artifactCommitSha?: string;
+  /**
+   * Every verified PR in the evidence write (T12848). When non-empty, each
+   * `files:` path is inspected at the merge commit of the PR that changed it,
+   * so several `pr:` atoms in one write each anchor their own artifacts.
+   * Takes precedence over {@link EvidenceValidationContext.artifactCommitSha}.
+   */
+  artifactPrs?: ReadonlyArray<EvidenceMergeAnchor>;
   /**
    * Validate without persisting anything: `pr:`/`ci:` lookups write neither
    * the PR-result cache nor the branch-protection cache (T12671 review — the

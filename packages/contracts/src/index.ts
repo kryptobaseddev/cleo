@@ -2510,6 +2510,7 @@ export type {
   CriterionEvidenceLink,
   EpicLifecycle,
   EvidenceAtom,
+  EvidenceMergeAnchor,
   EvidenceValidationContext,
   FileMeta,
   GateEvidence,

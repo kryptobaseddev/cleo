@@ -713,7 +713,8 @@ export async function validateGateVerify(
           // T9178: pass taskId for branch-scope commit validation
           const check = await validateEvidenceAtom(atom, projectRoot, taskId, siblingCommitSha, {
             ...evidenceContext,
-            artifactCommitSha: atoms.find((atom) => atom.kind === 'pr')?.mergeCommitSha,
+            // T12848: every PR validated so far anchors its own changed files.
+            artifactPrs: atoms.filter((a) => a.kind === 'pr'),
             ...(params.preview ? { readOnly: true } : {}),
           });
           if (!check.ok) {
@@ -811,7 +812,7 @@ export async function validateGateVerify(
           )) {
             const check = await validateEvidenceAtom(atom, projectRoot, taskId, siblingCommitSha, {
               ...evidenceContext,
-              artifactCommitSha: overrideAtoms.find((atom) => atom.kind === 'pr')?.mergeCommitSha,
+              artifactPrs: overrideAtoms.filter((a) => a.kind === 'pr'),
             });
             if (!check.ok) {
               return engineError(check.codeName, check.reason);
