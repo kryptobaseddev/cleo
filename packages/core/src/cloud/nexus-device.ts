@@ -81,10 +81,11 @@
  *   entry (`{ ...entry }`) produces an unguarded copy: T12868–T12871 must
  *   never spread an entry, or any part of one, into a log line or envelope.
  *
- * Behaviour that uses it ships behind `CLEO_NEXUS_DEVICE=1`
- * ({@link isNexusDeviceEnabled}): login enrolment and the 9.24 upgrade
- * (`nexus-enrol.ts`, T12868), then rotation, logout and the cloud reads
- * (T12869–T12871).
+ * Behaviour that uses it is on by default and switched off with
+ * `CLEO_NEXUS_DEVICE=0` ({@link isNexusDeviceEnabled}, T12904): login
+ * enrolment and the 9.24 upgrade (`nexus-enrol.ts`, T12868), logout and
+ * revoke (`nexus-logout.ts`, T12870), then rotation and the cloud reads
+ * (T12869, T12871).
  *
  * @task T12867
  * @epic T12323
@@ -344,14 +345,20 @@ export class NexusDeviceStoreError extends Error {
   }
 }
 
+/** `CLEO_NEXUS_DEVICE` values that switch device credentials off (case-insensitive, trimmed). */
+const NEXUS_DEVICE_OFF_VALUES: ReadonlySet<string> = new Set(['0', 'false', 'off', 'no']);
+
 /**
- * Whether the device-credential behaviour is switched on (`CLEO_NEXUS_DEVICE=1`).
+ * Whether the device-credential login is on. It is the default (T12904);
+ * `CLEO_NEXUS_DEVICE=0` (or `false`, `off`, `no`) switches back to the 9.24
+ * session login. Status and logout always handle a stored device credential.
  *
  * @param env - Environment to read; defaults to `process.env`.
- * @returns `true` only for the exact value `1`.
+ * @returns `false` only for an off value.
  */
 export function isNexusDeviceEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env[NEXUS_DEVICE_ENV] === '1';
+  const raw = env[NEXUS_DEVICE_ENV];
+  return raw === undefined || !NEXUS_DEVICE_OFF_VALUES.has(raw.trim().toLowerCase());
 }
 
 /**

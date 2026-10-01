@@ -1,7 +1,7 @@
 /**
- * `cleo login nexus` glue (T12868): with `CLEO_NEXUS_DEVICE` unset it runs
- * the 9.24 session login exactly as before; with `CLEO_NEXUS_DEVICE=1` it
- * runs the device enrolment and passes `--read-only` and `--name`.
+ * `cleo login nexus` glue (T12868, T12904): device enrolment is the default
+ * and passes `--read-only` and `--name`; `CLEO_NEXUS_DEVICE=0` runs the 9.24
+ * session login exactly as before.
  *
  * The core flows are mocked; nothing touches the network or a CLEO home.
  *
@@ -16,7 +16,7 @@ const loginToNexusDevice = vi.fn();
 vi.mock('@cleocode/core/cloud/nexus-auth.js', () => ({ loginToNexus }));
 vi.mock('@cleocode/core/cloud/nexus-enrol.js', () => ({ loginToNexusDevice }));
 vi.mock('@cleocode/core/cloud/nexus-device.js', () => ({
-  isNexusDeviceEnabled: () => process.env['CLEO_NEXUS_DEVICE'] === '1',
+  isNexusDeviceEnabled: () => process.env['CLEO_NEXUS_DEVICE'] !== '0',
 }));
 
 const { nexusDeviceLogoutSummary, nexusLoginSummary, runNexusLogin } = await import(
@@ -59,8 +59,8 @@ afterEach(() => {
 });
 
 describe('runNexusLogin', () => {
-  it('with the flag unset, runs the 9.24 session login exactly as before', async () => {
-    delete process.env['CLEO_NEXUS_DEVICE'];
+  it('with CLEO_NEXUS_DEVICE=0, runs the 9.24 session login exactly as before', async () => {
+    process.env['CLEO_NEXUS_DEVICE'] = '0';
     const result = await runNexusLogin({ 'api-url': 'https://api.nexus.test' }, () => {});
     expect(result).toBe(RESULT);
     expect(loginToNexusDevice).not.toHaveBeenCalled();
@@ -75,15 +75,18 @@ describe('runNexusLogin', () => {
     expect(written).not.toContain('CLEO_NEXUS_DEVICE');
   });
 
-  it('with the flag unset, a value other than 1 still runs the session login', async () => {
-    process.env['CLEO_NEXUS_DEVICE'] = 'true';
-    await runNexusLogin({}, () => {});
-    expect(loginToNexus).toHaveBeenCalledTimes(1);
-    expect(loginToNexusDevice).not.toHaveBeenCalled();
+  it('by default (flag unset, or any value but 0), enrols the device (T12904)', async () => {
+    for (const value of [undefined, '1', 'true']) {
+      if (value === undefined) delete process.env['CLEO_NEXUS_DEVICE'];
+      else process.env['CLEO_NEXUS_DEVICE'] = value;
+      await runNexusLogin({}, () => {});
+    }
+    expect(loginToNexusDevice).toHaveBeenCalledTimes(3);
+    expect(loginToNexus).not.toHaveBeenCalled();
   });
 
-  it('with the flag unset, --read-only is REFUSED, never a full-privilege login (review L1)', async () => {
-    delete process.env['CLEO_NEXUS_DEVICE'];
+  it('with CLEO_NEXUS_DEVICE=0, --read-only is REFUSED, never a full-privilege login (review L1)', async () => {
+    process.env['CLEO_NEXUS_DEVICE'] = '0';
     await expect(runNexusLogin({ 'read-only': true }, () => {})).rejects.toMatchObject({
       code: 'E_NEXUS_DEVICE_REQUIRED',
     });

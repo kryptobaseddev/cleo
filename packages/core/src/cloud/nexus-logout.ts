@@ -1,6 +1,6 @@
 /**
- * Cleo Nexus device logout: `cleo logout nexus [--revoke]` behind
- * `CLEO_NEXUS_DEVICE=1` (cleo-nexus device contract §3.5, review M3, T12844).
+ * Cleo Nexus device logout: `cleo logout nexus [--revoke]` with device
+ * credentials (cleo-nexus device contract §3.5, review M3, T12844).
  *
  * A logout never reports success while a credential may still be live:
  *
@@ -543,6 +543,11 @@ export async function logoutNexusDevice(
       ...(opts.fetch ? { fetch: opts.fetch } : {}),
     });
     warnings.push(...session.warnings);
+  }
+  if (action === 'revoke' && devices.length === 0 && session !== null) {
+    warnings.push(
+      `no device credential is stored for ${ctx.apiUrl}, so nothing was revoked; the 9.24 session was signed out`,
+    );
   }
   return { apiUrl: ctx.apiUrl, action, devices, session, warnings };
 }

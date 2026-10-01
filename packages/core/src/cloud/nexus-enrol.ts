@@ -1,9 +1,10 @@
 /**
  * Cleo Nexus device enrolment: the device half of `cleo login nexus` and the
  * one-time upgrade of a 9.24 bearer session (cleo-nexus device contract v2.9,
- * §3.3 steps 4 to 10, §3.4). Everything here runs only behind
- * `CLEO_NEXUS_DEVICE=1` ({@link isNexusDeviceEnabled}); with the switch off
- * the CLI keeps the 9.24 session flow in `nexus-auth.ts` untouched.
+ * §3.3 steps 4 to 10, §3.4). Everything here runs only with device
+ * credentials on ({@link isNexusDeviceEnabled}: the default since T12904);
+ * with `CLEO_NEXUS_DEVICE=0` the CLI keeps the 9.24 session flow in
+ * `nexus-auth.ts` untouched.
  *
  * Lock discipline (v2.9). `nexus-device.json`'s lock is held only around local
  * read-modify-writes, never across a network call:
@@ -1439,7 +1440,7 @@ export interface NexusDeviceCredentialOptions extends NexusDeviceFlowOptions {
 }
 
 /**
- * The device credential for commands that need one (behind `CLEO_NEXUS_DEVICE=1`).
+ * The device credential for commands that need one (with device credentials (the default; `CLEO_NEXUS_DEVICE=0` turns them off)).
  *
  * - A 9.24 session still in `nexus-credentials.json` is upgraded first, once
  *   (§3.4); a leftover session next to an existing credential is signed out

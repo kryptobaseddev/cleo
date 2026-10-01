@@ -15,6 +15,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
@@ -32,6 +33,12 @@ import {
   resolveNexusApiUrl,
 } from '../nexus-auth.js';
 import { FileNexusTokenStore, NEXUS_CREDENTIALS_FILE } from '../nexus-credentials.js';
+import {
+  applyBeginSignOut,
+  applyEnrolment,
+  NexusDeviceEnrolment,
+  NexusDeviceStore,
+} from '../nexus-device.js';
 
 const API = 'https://api.nexus.test';
 const TOKEN = 'tok_SECRET_session_token_0123456789abcdef';
@@ -144,6 +151,28 @@ let sleeps: number[];
 const sleep = async (ms: number) => {
   sleeps.push(ms);
 };
+
+// These tests cover the 9.24 session path: pin device credentials off and
+// sandbox CLEO_HOME so no test reads the real nexus-device.json (T12904).
+let savedDeviceFlag: string | undefined;
+let savedCleoHome: string | undefined;
+let pinnedHome: string;
+beforeEach(() => {
+  savedDeviceFlag = process.env['CLEO_NEXUS_DEVICE'];
+  savedCleoHome = process.env['CLEO_HOME'];
+  process.env['CLEO_NEXUS_DEVICE'] = '0';
+  // Status and logout read nexus-device.json whatever the switch says: point
+  // CLEO_HOME at an empty sandbox so no test ever reads the real one.
+  pinnedHome = mkdtempSync(join(tmpdir(), 'cleo-home-pin-'));
+  process.env['CLEO_HOME'] = pinnedHome;
+});
+afterEach(() => {
+  if (savedDeviceFlag === undefined) delete process.env['CLEO_NEXUS_DEVICE'];
+  else process.env['CLEO_NEXUS_DEVICE'] = savedDeviceFlag;
+  if (savedCleoHome === undefined) delete process.env['CLEO_HOME'];
+  else process.env['CLEO_HOME'] = savedCleoHome;
+  rmSync(pinnedHome, { recursive: true, force: true });
+});
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'nexus-auth-'));
@@ -621,4 +650,149 @@ describe('token store on win32 (T12712 review item 1)', () => {
   function session0() {
     return { token: TOKEN, tokenType: 'Bearer', expiresAt: null, user: null, organization: null };
   }
+});
+
+describe('getNexusAccountStatus with device credentials (T12904)', () => {
+  const DEVICE_TOKEN = `cnx_d1_${'A'.repeat(43)}`;
+  const enrolledEntry = () =>
+    applyEnrolment(
+      null,
+      new NexusDeviceEnrolment({
+        deviceId: '01a0f48f-89db-7e69-95d6-87e4c14da0d1',
+        keys: null,
+        credential: {
+          credentialId: '01a0f48f-8eb4-735f-8483-f167d8d11a5a',
+          token: DEVICE_TOKEN,
+          profile: 'device',
+          scopes: ['account:read'],
+          createdAt: new Date().toISOString(),
+        },
+      }),
+    );
+  const whoami = (status: number) =>
+    vi.fn(async (url: string, init?: RequestInit): Promise<Response> => {
+      expect(new URL(url).pathname).toBe('/v1/whoami');
+      expect(new Headers(init?.headers).get('authorization')).toBe(`Bearer ${DEVICE_TOKEN}`);
+      const body =
+        status === 200
+          ? {
+              success: true,
+              data: {
+                user: { id: 'u-1', email: 'dev@example.test' },
+                organizations: [{ id: 'o-1', name: 'Personal', personal: true }],
+              },
+            }
+          : {
+              success: false,
+              error: {
+                code: 'E_UNAUTHORIZED',
+                message: 'no',
+                requestId: 'r',
+                details: { reason: 'device-signed-out' },
+              },
+            };
+      return new Response(JSON.stringify(body), {
+        status,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+  let devices: NexusDeviceStore;
+  beforeEach(() => {
+    devices = new NexusDeviceStore(join(dir, 'nexus-device.json'));
+  });
+
+  it('a device credential reads as signed in through E2, replacing a leftover session row', async () => {
+    await devices.update((tx) => tx.set(API, 'u-1', enrolledEntry()));
+    await store.put(API, {
+      token: TOKEN,
+      tokenType: 'Bearer',
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      user: { id: 'u-1', email: 'cached@example.test' },
+      organization: null,
+    });
+    const fetchImpl = whoami(200);
+    const rows = await getNexusAccountStatus({
+      store,
+      fetch: fetchImpl,
+      devices: true,
+      deviceStore: devices,
+    });
+    expect(rows).toEqual([
+      expect.objectContaining({
+        apiUrl: API,
+        state: 'signed-in',
+        email: 'dev@example.test',
+        organization: 'Personal',
+      }),
+    ]);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('a signed-out device (401) reads as expired; a locally signed-out device is not signed in', async () => {
+    await devices.update((tx) => tx.set(API, 'u-1', enrolledEntry()));
+    const [row] = await getNexusAccountStatus({
+      store,
+      fetch: whoami(401),
+      devices: true,
+      deviceStore: devices,
+    });
+    expect(row?.state).toBe('expired');
+
+    await devices.update((tx) => {
+      const e = tx.get(API, 'u-1');
+      if (e) tx.set(API, 'u-1', applyBeginSignOut(e));
+    });
+    const none = vi.fn();
+    const [after] = await getNexusAccountStatus({
+      store,
+      fetch: none,
+      devices: true,
+      deviceStore: devices,
+      apiUrl: API,
+    });
+    expect(after?.state).toBe('not-signed-in');
+    expect(none).not.toHaveBeenCalled();
+  });
+
+  it('device rows show even with CLEO_NEXUS_DEVICE=0, so the switch never hides a live credential (review M2)', async () => {
+    await devices.update((tx) => tx.set(API, 'u-1', enrolledEntry()));
+    expect(process.env['CLEO_NEXUS_DEVICE']).toBe('0');
+    const [row] = await getNexusAccountStatus({ store, fetch: whoami(200), deviceStore: devices });
+    expect(row?.state).toBe('signed-in');
+  });
+
+  it('an unreadable device store keeps the session rows and names the error (review M1)', async () => {
+    await store.put(API, {
+      token: TOKEN,
+      tokenType: 'Bearer',
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      user: { id: 'u-1', email: 'cached@example.test' },
+      organization: null,
+    });
+    writeFileSync(devices.location, '{not json');
+    const { fetchImpl } = mockNexus();
+    const rows = await getNexusAccountStatus({ store, fetch: fetchImpl, deviceStore: devices });
+    expect(rows.map((r) => r.state).sort()).toEqual(['signed-in', 'unverified']);
+    expect(rows.find((r) => r.state === 'unverified')?.summary).toMatch(
+      /device credentials unreadable/,
+    );
+  });
+
+  it('a session of another user on the same origin is still shown (review L3)', async () => {
+    await devices.update((tx) => tx.set(API, 'u-1', enrolledEntry()));
+    await store.put(API, {
+      token: TOKEN,
+      tokenType: 'Bearer',
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      user: { id: 'u-2', email: 'other@example.test' },
+      organization: null,
+    });
+    const rows = await getNexusAccountStatus({
+      store,
+      fetch: whoami(200),
+      deviceStore: devices,
+      live: false,
+    });
+    expect(rows.length).toBe(2);
+  });
 });
