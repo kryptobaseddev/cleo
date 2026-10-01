@@ -92,8 +92,10 @@ export function parseArgs(argv) {
     else if (arg === '--base') {
       base = argv[++i];
       if (!base || base.startsWith('--')) return { ok: false, error: '--base needs a git ref' };
-    } else if (arg.startsWith('--base=')) base = arg.slice('--base='.length);
-    else return { ok: false, error: `unknown argument ${arg}` };
+    } else if (arg.startsWith('--base=')) {
+      base = arg.slice('--base='.length);
+      if (!base) return { ok: false, error: '--base needs a git ref' };
+    } else return { ok: false, error: `unknown argument ${arg}` };
   }
   return { ok: true, base, verifyTasks };
 }
@@ -238,9 +240,13 @@ export function scopeProblems({ registry, declared, exempt, pinned, pinnedDigest
 /**
  * Run the gate against the repository's registries.
  *
- * @returns {number} 0 when every syncing table is covered, 1 otherwise.
+ * @param {readonly string[]} [argv] - Command-line arguments.
+ * @param {{ root?: string }} [opts] - `root`: the git checkout `--base` reads
+ *   the base registry from (default: this repository; tests pass a temp repo).
+ * @returns {Promise<number>} 0 when every syncing table is covered, 1 on a
+ *   problem, 2 on a bad argument.
  */
-export async function main(argv = process.argv.slice(2)) {
+export async function main(argv = process.argv.slice(2), { root = REPO_ROOT } = {}) {
   const args = parseArgs(argv);
   if (!args.ok) {
     process.stderr.write(
@@ -272,7 +278,7 @@ export async function main(argv = process.argv.slice(2)) {
   }
   const extra = [];
   if (args.base) {
-    const base = await loadBaseRegistry(REPO_ROOT, args.base);
+    const base = await loadBaseRegistry(root, args.base);
     if (!base) counts.push(`base ${args.base} has no exemptions yet`);
     extra.push(
       ...baseProblems({ exempt: ROW_IDENTITY_EXEMPT, pinned: ROW_IDENTITY_EXEMPT_PINNED }, base),

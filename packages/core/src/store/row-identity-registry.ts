@@ -226,6 +226,13 @@ const BRAIN_AUTOINCREMENT: RowIdentityExemption = {
 const STICKY_REASON =
   'the degraded-mode TEMP shadow tables in store/twin-collapse.ts declare its columns and must carry uid first; that file is being edited by twin-collapse slice 2 (T12535)';
 
+/**
+ * The global sticky tables have no twin: a uid planned with the other
+ * text-keyed (notes) and natural-key (tags) brain tables.
+ */
+const GLOBAL_STICKY_REASON =
+  'global-scope sticky table (no bare twin): uid planned with the other brain tables, notes text-keyed and tags on the (sticky_id, tag) key';
+
 /** The project sticky tables wait on the twin collapse itself (#1764 review L5). */
 const STICKY_TWIN: RowIdentityExemption = {
   category: 'twin-collapse',
@@ -295,8 +302,10 @@ const BRAIN_EXEMPT: Readonly<Record<string, RowIdentityExemption>> = {
     ],
     BRAIN_AUTOINCREMENT,
   ),
-  brain_sticky_notes: { category: 'planned', reason: STICKY_REASON, task: 'T12894' },
-  brain_sticky_tags: { category: 'planned', reason: STICKY_REASON, task: 'T12895' },
+  // Global scope (the project scope overrides both with STICKY_TWIN): the
+  // global store has no bare sticky twin, so nothing waits on the collapse.
+  brain_sticky_notes: { category: 'planned', reason: GLOBAL_STICKY_REASON, task: 'T12894' },
+  brain_sticky_tags: { category: 'planned', reason: GLOBAL_STICKY_REASON, task: 'T12895' },
   brain_embeddings: {
     category: 'not-row-replicated',
     reason:

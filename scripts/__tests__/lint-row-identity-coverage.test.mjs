@@ -24,6 +24,7 @@ import {
 import {
   baseProblems,
   loadBaseRegistry,
+  main,
   parseArgs,
   registrySyncTables,
   scopeProblems,
@@ -214,6 +215,76 @@ describe('PR mode against a base ref (M1)', () => {
   });
 });
 
+describe('main() --base end to end (LOW-1)', () => {
+  const REL = 'packages/core/src/store/row-identity-registry.ts';
+
+  /** A temp git repo whose HEAD holds `source` at the registry path. */
+  function repoWith(source) {
+    const root = mkdtempSync(join(tmpdir(), 'row-identity-main-'));
+    const git = (...args) =>
+      execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+        cwd: root,
+        stdio: 'pipe',
+      });
+    git('init', '-q');
+    mkdirSync(join(root, dirname(REL)), { recursive: true });
+    writeFileSync(join(root, REL), source);
+    git('add', '.');
+    git('commit', '-qm', 'base');
+    return root;
+  }
+
+  /** Run main() with stdout/stderr captured. */
+  async function run(argv, root) {
+    const out = [];
+    const write = (chunk) => {
+      out.push(String(chunk));
+      return true;
+    };
+    const so = process.stdout.write;
+    const se = process.stderr.write;
+    process.stdout.write = write;
+    process.stderr.write = write;
+    try {
+      return { code: await main(argv, { root }), text: out.join('') };
+    } finally {
+      process.stdout.write = so;
+      process.stderr.write = se;
+    }
+  }
+
+  it('passes against a base identical to head', async () => {
+    const root = repoWith(readFileSync(join(REPO, REL), 'utf8'));
+    try {
+      const { code, text } = await run(['--check', '--base', 'HEAD'], root);
+      expect(text).not.toContain('FAIL');
+      expect(code).toBe(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when head raised the pin and exempted a table the base did not', async () => {
+    const head = readFileSync(join(REPO, REL), 'utf8');
+    const base = head
+      .replace(
+        /(ROW_IDENTITY_EXEMPT_PINNED[^=]*=\s*\{\s*project:\s*)(\d+)/,
+        (_, a, n) => `${a}${Number(n) - 1}`,
+      )
+      .replace("        'schedules',\n", '');
+    expect(base).not.toBe(head);
+    const root = repoWith(base);
+    try {
+      const { code, text } = await run(['--check', '--base', 'HEAD'], root);
+      expect(code).toBe(1);
+      expect(text).toContain('[project] ROW_IDENTITY_EXEMPT_PINNED rose');
+      expect(text).toContain('[project] new exemption(s) against the base: schedules');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('exemption tasks (L3)', () => {
   it('fails on a missing or closed task, passes open ones, checks each task once', () => {
     const seen = [];
@@ -243,13 +314,21 @@ describe('arguments (L6)', () => {
     });
     expect(parseArgs(['--update-baseline'])).toMatchObject({ ok: false });
     expect(parseArgs(['--base'])).toMatchObject({ ok: false, error: '--base needs a git ref' });
+    expect(parseArgs(['--base='])).toMatchObject({ ok: false, error: '--base needs a git ref' });
+    expect(parseArgs(['--base=origin/main'])).toMatchObject({ ok: true, base: 'origin/main' });
     expect(parseArgs(['check'])).toMatchObject({ ok: false });
   });
 
-  it('exits 2 on an unknown flag', () => {
+  it('exits 2 on an unknown flag, and on an empty --base= (LOW-2)', () => {
     const run = spawnSync(process.execPath, [SCRIPT, '--bogus'], { cwd: REPO, encoding: 'utf8' });
     expect(run.status).toBe(2);
     expect(run.stderr).toContain('unknown argument --bogus');
+    const empty = spawnSync(process.execPath, [SCRIPT, '--check', '--base='], {
+      cwd: REPO,
+      encoding: 'utf8',
+    });
+    expect(empty.status).toBe(2);
+    expect(empty.stderr).toContain('--base needs a git ref');
   });
 });
 
