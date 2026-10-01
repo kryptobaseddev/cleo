@@ -240,10 +240,32 @@ describe('sealPending', () => {
     });
   });
 
-  it('K moves row meta to the new uid, keeping version and chash', async () => {
+  it('a K on a uid that never left the device is dropped; the row meta follows the row', async () => {
     const db = await store();
     framed(db, () => addTask(db, 'T1'));
     seal(db);
+    const was = meta(db, 'tasks_tasks', 'uid-T1');
+    db.exec('BEGIN IMMEDIATE');
+    rekeyRowUid(db, 'tasks_tasks', 'uid-T1', { loserBirthFp: 'fp-T1', winnerBirthFp: 'fp-T0' });
+    db.exec('COMMIT');
+    const r = seal(db);
+    expect(r.pending).toEqual([]);
+    expect(ops(db).filter((o) => o.o === 'K')).toEqual([]);
+    expect(meta(db, 'tasks_tasks', 'uid-T1')).toBeUndefined();
+    const now = (db.prepare("SELECT uid FROM tasks_tasks WHERE id = 'T1'").get() as { uid: string })
+      .uid;
+    expect(meta(db, 'tasks_tasks', now)).toMatchObject({
+      version: was?.version,
+      chash: was?.chash,
+    });
+    expect(liveCaptures(db)).toBe(0);
+  });
+
+  it('a K on a sent uid is kept and moves row meta to the new uid, keeping chash', async () => {
+    const db = await store();
+    framed(db, () => addTask(db, 'T1'));
+    seal(db);
+    db.exec("UPDATE _sync_row_meta SET sent = 1 WHERE uid = 'uid-T1'");
     const was = meta(db, 'tasks_tasks', 'uid-T1');
     db.exec('BEGIN IMMEDIATE');
     rekeyRowUid(db, 'tasks_tasks', 'uid-T1', { loserBirthFp: 'fp-T1', winnerBirthFp: 'fp-T0' });
@@ -253,11 +275,39 @@ describe('sealPending', () => {
     expect(k).toMatchObject({ t: 'tasks_tasks', u: 'uid-T1' });
     const newUid = k?.nu as string;
     expect(newUid).toBeTruthy();
-    expect(newUid).not.toBe('uid-T1');
     expect(meta(db, 'tasks_tasks', 'uid-T1')).toBeUndefined();
     const moved = meta(db, 'tasks_tasks', newUid);
-    expect(moved?.version).toBeGreaterThan(was?.version ?? 0);
+    expect(moved?.version).toBe((was?.version ?? 0) + 1);
     expect(moved?.chash).toBeTruthy();
+  });
+
+  it('netting in a frame: I then U seals one I; an insert then delete seals nothing', async () => {
+    const db = await store();
+    framed(db, () => {
+      addTask(db, 'T1');
+      db.exec("UPDATE tasks_tasks SET title = 'final' WHERE id = 'T1'");
+      addTask(db, 'T2');
+      db.exec("DELETE FROM tasks_tasks WHERE id = 'T2'");
+    });
+    const r = seal(db);
+    expect(r).toMatchObject({ txns: 1, ops: 1, pending: [] });
+    const [only] = ops(db);
+    expect(only).toMatchObject({ o: 'I', u: 'uid-T1', a: { title: 'final' } });
+    expect(meta(db, 'tasks_tasks', 'uid-T2')).toBeUndefined();
+    expect(db.prepare("SELECT live FROM _sync_ledger WHERE tbl = 'tasks_tasks'").get()).toEqual({
+      live: (db.prepare('SELECT count(*) AS n FROM tasks_tasks').get() as { n: number }).n,
+    });
+  });
+
+  it('a frame whose writes cancel out consumes its captures and writes no transaction', async () => {
+    const db = await store();
+    framed(db, () => {
+      addTask(db, 'T9');
+      db.exec("DELETE FROM tasks_tasks WHERE id = 'T9'");
+    });
+    expect(seal(db)).toMatchObject({ txns: 0, ops: 0, captures: 2 });
+    expect(txns(db)).toEqual([]);
+    expect(liveCaptures(db)).toBe(0);
   });
 
   it('natural rows carry their key with references as uids', async () => {
