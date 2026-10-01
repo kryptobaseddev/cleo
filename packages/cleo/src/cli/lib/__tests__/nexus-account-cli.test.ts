@@ -126,7 +126,7 @@ describe('nexusDeviceLogoutSummary (T12870)', () => {
       devices: [row('confirmed'), row('pending'), row('unconfirmed')],
     });
     expect(line).toBe(
-      'Revoked on https://api.nexus.test: 1 device request(s) confirmed; 2 NOT confirmed (see warnings).',
+      'Revoke NOT fully confirmed on https://api.nexus.test: 1 of 3 device request(s) confirmed; 2 NOT confirmed (see warnings).',
     );
   });
 });

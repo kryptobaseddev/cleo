@@ -11,19 +11,30 @@
  * 2. E9 (`POST /v1/devices/self/sign-out`) or E10 (`DELETE /v1/devices/self`)
  *    is sent with each credential in turn, newest first, with one attempt and
  *    a {@link NEXUS_REVOKE_TIMEOUT_MS} timeout.
- * 3. Only 200, or 401 `device-signed-out` / `device-revoked`, counts as done
- *    (a revoke accepts only `device-revoked`: a signed-out device is not a
- *    revoked one). A 401 for any other reason means that credential is stale,
- *    so the next one is tried. A network error, timeout, 429, 5xx or a route
- *    the server does not have yet stops and keeps the slot.
- * 4. On a confirmed answer the lock is re-taken and the slot is cleared only
- *    if it still holds the credential that was answered (compare-and-swap). A
- *    confirmed revoke removes this (origin, user) entry, keys included; the
- *    store keeps the file while other entries remain.
+ * 3. Done means proved: 200, or a 401 whose reason proves the device state
+ *    (`device-signed-out`, `device-revoked`, or `credential-revoked` with
+ *    `revokedReason` `signed-out` / `revoked`). A revoke needs proof of a
+ *    revoke; a signed-out device is not a revoked one. Any other 401 means
+ *    that credential is dead, so the next one is tried. A network error,
+ *    timeout, 429, 5xx or a route the server does not have yet stops the run:
+ *    the slot is kept and every remaining request is left for the next run
+ *    without another call.
+ * 4. The lock is re-taken and the slot is changed only if it still holds the
+ *    credential that was answered (compare-and-swap):
+ *    - a sign-out (confirmed, or every credential dead) clears
+ *      `pendingSignOut` and keeps the device keys for the next login;
+ *    - a revoke that ended (confirmed, found the device signed out, or every
+ *      credential dead) forgets the device locally ({@link applyForgetDevice}),
+ *      so no later login re-activates the id the user asked to burn. The
+ *      entry is deleted, or kept stripped while `retired` requests of other
+ *      devices remain; the store keeps the file while other entries remain.
+ *    Only a confirmed request is reported `confirmed`; the others name the
+ *    web remedy.
  *
  * Unsettled slots, and the `retired` requests of replaced devices, are
- * retried by every later logout and, best effort, by `cleo login nexus` and
- * every command that needs a device credential ({@link settleNexusDeviceEnds}).
+ * retried by every later logout and, best effort with a shorter timeout, by
+ * `cleo login nexus` and `cleo project link` ({@link retryNexusDeviceEnds}).
+ * Retired requests are sent before the entry's own request.
  *
  * No function here logs, and no result or error carries a token.
  *
@@ -44,14 +55,21 @@ import { FileNexusTokenStore, type NexusTokenStore, nexusOriginKey } from './nex
 import {
   applyBeginRevoke,
   applyBeginSignOut,
+  applyForgetDevice,
   applyRetiredSettled,
-  applyRevokeFoundSignedOut,
   applySignOutConfirmed,
+  isForgottenDevice,
   type NexusDeviceEntry,
   type NexusDeviceSlotCredential,
   NexusDeviceStore,
   UnreadableNexusDevice,
 } from './nexus-device.js';
+
+/**
+ * Timeout of each E9/E10 call when a login or a link only retries on the way
+ * ({@link retryNexusDeviceEnds}); an explicit logout uses {@link NEXUS_REVOKE_TIMEOUT_MS}.
+ */
+export const NEXUS_END_RETRY_TIMEOUT_MS = 2_000;
 
 /** Options for {@link logoutNexusDevice} and {@link settleNexusDeviceEnds}. */
 export interface NexusDeviceLogoutOptions {
@@ -95,9 +113,9 @@ interface EndRequest {
 }
 
 /**
- * What one credential's call established. `signed-out` is E10's 401
- * `device-signed-out`: the device is signed out, not revoked, and no
- * credential of it can revoke it any more (contract v2.13 §E10).
+ * What one credential's call established. `signed-out` is a revoke's proof
+ * that the device is signed out, not revoked: none of its credentials can
+ * revoke it any more (contract v2.13 §E10).
  */
 type CallAnswer = 'done' | 'signed-out' | 'stale' | 'unanswered';
 
@@ -117,11 +135,27 @@ function context(opts: NexusDeviceLogoutOptions): Ctx {
 const endAnswerSchema = z.looseObject({});
 
 /**
+ * What a 401 proves about the device (§4.0.4): `revoked`, `signed-out`, or
+ * nothing (`null`: only this credential is dead).
+ */
+function provenState(
+  details: Record<string, unknown> | undefined,
+): 'revoked' | 'signed-out' | null {
+  const reason = details?.['reason'];
+  const revokedReason = details?.['revokedReason'];
+  if (reason === 'device-revoked') return 'revoked';
+  if (reason === 'device-signed-out') return 'signed-out';
+  if (reason === 'credential-revoked' && revokedReason === 'revoked') return 'revoked';
+  if (reason === 'credential-revoked' && revokedReason === 'signed-out') return 'signed-out';
+  return null;
+}
+
+/**
  * Send E9 or E10 with one credential: one attempt, a plain timeout, no lock held.
  *
- * @returns `done` for 200 or a 401 reason that proves the device state,
- *   `stale` for any other 401 (this credential is dead, not the device),
- *   `unanswered` for everything else, with the reason in `detail`.
+ * @returns `done` for 200 or a 401 that proves the requested state,
+ *   `signed-out` for a revoke that proves only a sign-out, `stale` for any
+ *   other 401, `unanswered` for everything else, with the reason in `detail`.
  */
 async function callEnd(
   ctx: Ctx,
@@ -142,15 +176,14 @@ async function callEnd(
     if (!(err instanceof NexusError)) {
       return { answer: 'unanswered', detail: err instanceof Error ? err.message : String(err) };
     }
-    const reason = err.details?.['reason'];
     if (err.status === 401) {
-      const proves =
-        reason === 'device-revoked' || (action === 'sign-out' && reason === 'device-signed-out');
-      const signedOut = action === 'revoke' && reason === 'device-signed-out';
-      return {
-        answer: proves ? 'done' : signedOut ? 'signed-out' : 'stale',
-        detail: `HTTP 401 ${typeof reason === 'string' ? reason : err.code}`,
-      };
+      const reason = err.details?.['reason'];
+      const detail = `HTTP 401 ${typeof reason === 'string' ? reason : err.code}`;
+      const state = provenState(err.details);
+      if (state === 'revoked' || (state === 'signed-out' && action === 'sign-out')) {
+        return { answer: 'done', detail };
+      }
+      return { answer: state === 'signed-out' ? 'signed-out' : 'stale', detail };
     }
     return {
       answer: 'unanswered',
@@ -159,9 +192,18 @@ async function callEnd(
   }
 }
 
-/** Every unsettled request of one entry: its own slot first, then its `retired` items. */
+/** Every unsettled request of one entry: its `retired` items first, then its own slot. */
 function requestsOf(userId: string, entry: NexusDeviceEntry): EndRequest[] {
   const out: EndRequest[] = [];
+  for (const r of entry.retired ?? []) {
+    out.push({
+      userId,
+      deviceId: r.deviceId,
+      action: r.kind,
+      retired: true,
+      credentials: r.credentials,
+    });
+  }
   const own = entry.pendingRevoke ?? entry.pendingSignOut;
   if (own) {
     out.push({
@@ -170,15 +212,6 @@ function requestsOf(userId: string, entry: NexusDeviceEntry): EndRequest[] {
       action: entry.pendingRevoke ? 'revoke' : 'sign-out',
       retired: false,
       credentials: own.credentials,
-    });
-  }
-  for (const r of entry.retired ?? []) {
-    out.push({
-      userId,
-      deviceId: r.deviceId,
-      action: r.kind,
-      retired: true,
-      credentials: r.credentials,
     });
   }
   return out;
@@ -201,42 +234,44 @@ function slotNow(
   return slot ? slot.credentials : null;
 }
 
+/** How a settle under the lock went. */
+interface Settled {
+  /** `false` when the slot changed since it was read (CAS miss): nothing was written. */
+  readonly applied: boolean;
+  /** `true` when the (origin, user) entry was deleted. */
+  readonly removed: boolean;
+}
+
 /**
- * Settle a confirmed request under the lock, only if its slot still holds the
- * credential the server answered (CAS).
- *
- * @returns `true` when a confirmed revoke removed the entry.
+ * End a request under the lock, only if its slot still holds `token` (CAS):
+ * clear a sign-out slot, settle a retired item, or forget the device after a
+ * revoke. An entry left with nothing to keep is deleted.
  */
-async function settleConfirmed(
-  ctx: Ctx,
-  req: EndRequest,
-  token: string,
-  answer: 'done' | 'signed-out',
-): Promise<boolean> {
+async function settleEnded(ctx: Ctx, req: EndRequest, token: string): Promise<Settled> {
   return ctx.devices.update((tx) => {
     const entry = tx.get(ctx.apiUrl, req.userId);
     const creds = slotNow(entry, req);
-    if (entry === null || creds === null || !creds.some((c) => c.token === token)) return false;
-    if (req.retired) {
-      tx.set(ctx.apiUrl, req.userId, applyRetiredSettled(entry, req.deviceId, req.action));
-      return false;
+    if (entry === null || creds === null || !creds.some((c) => c.token === token)) {
+      return { applied: false, removed: false };
     }
-    if (req.action === 'sign-out') {
-      tx.set(ctx.apiUrl, req.userId, applySignOutConfirmed(entry));
-      return false;
+    const next = req.retired
+      ? applyRetiredSettled(entry, req.deviceId, req.action)
+      : req.action === 'sign-out'
+        ? applySignOutConfirmed(entry)
+        : applyForgetDevice(entry);
+    if (isForgottenDevice(next)) {
+      const removed = tx.delete(ctx.apiUrl, req.userId, {
+        deviceId: entry.deviceId,
+        credentialId: entry.current?.credentialId ?? null,
+      });
+      return { applied: true, removed };
     }
-    if (answer === 'signed-out') {
-      tx.set(ctx.apiUrl, req.userId, applyRevokeFoundSignedOut(entry));
-      return false;
-    }
-    return tx.delete(ctx.apiUrl, req.userId, {
-      deviceId: entry.deviceId,
-      credentialId: entry.current?.credentialId ?? null,
-    });
+    tx.set(ctx.apiUrl, req.userId, next);
+    return { applied: true, removed: false };
   });
 }
 
-/** Try each credential of one request, newest first, and settle it when confirmed. */
+/** Try each credential of one request, newest first, and end it when it can be ended. */
 async function settleRequest(
   ctx: Ctx,
   req: EndRequest,
@@ -251,37 +286,59 @@ async function settleRequest(
     removedLocally,
   });
   const what = `${req.action === 'revoke' ? 'revoke' : 'sign-out'} of device ${req.deviceId}`;
+  const web =
+    req.action === 'revoke'
+      ? `revoke device ${req.deviceId} on cleocode.dev (Devices)`
+      : `sign out or revoke device ${req.deviceId} on cleocode.dev (Devices)`;
+  const end = async (token: string, outcome: NexusDeviceEndOutcome, note: string | null) => {
+    const settled = await settleEnded(ctx, req, token);
+    if (!settled.applied) {
+      warnings.push(
+        `${what}: the local entry changed while the request was in flight (a login or another logout?); this machine may hold a newer credential. Run \`cleo logout nexus${req.action === 'revoke' ? ' --revoke' : ''}\` again`,
+      );
+    } else if (note !== null) {
+      warnings.push(note);
+    }
+    return row(outcome, settled.removed);
+  };
   for (const c of req.credentials) {
     const { answer, detail } = await callEnd(ctx, req.action, c.token);
-    if (answer === 'done') {
-      return row('confirmed', await settleConfirmed(ctx, req, c.token, answer));
-    }
+    if (answer === 'done') return end(c.token, 'confirmed', null);
     if (answer === 'signed-out') {
-      await settleConfirmed(ctx, req, c.token, answer);
-      warnings.push(
-        `device ${req.deviceId} is signed out but not revoked, and a signed-out device's credentials cannot revoke it; revoke device ${req.deviceId} on cleocode.dev (Devices)`,
+      return end(
+        c.token,
+        'signed-out',
+        `device ${req.deviceId} is signed out but not revoked, and a signed-out device's credentials cannot revoke it; this machine forgot the device, so the next login enrols a new one. To burn the old id, ${web}`,
       );
-      return row('signed-out');
     }
     if (answer === 'unanswered') {
       warnings.push(
-        `${what} not confirmed (${detail}); it was kept and is retried by the next \`cleo logout nexus\`, \`cleo login nexus\` or cloud command`,
+        `${what} not confirmed (${detail}); it was kept and is retried by the next \`cleo logout nexus\`, \`cleo login nexus\` or \`cleo project link\``,
       );
       return row('pending');
     }
   }
-  warnings.push(
-    `${what} not confirmed: the server refused every credential this machine holds for it; ${req.action === 'revoke' ? 'revoke' : 'sign out or revoke'} this device on cleocode.dev, then run \`cleo logout nexus${req.action === 'revoke' ? ' --revoke' : ''}\` again to confirm it`,
+  // Every credential is dead: retrying can never succeed, so the request ends here.
+  const first = req.credentials[0];
+  if (first === undefined) return row('unconfirmed');
+  return end(
+    first.token,
+    'unconfirmed',
+    `${what} not confirmed: the server refused every credential this machine held for it as no longer valid, so none is live and none was kept${req.action === 'revoke' && !req.retired ? '; this machine forgot the device' : ''}. To make sure, ${web}`,
   );
-  return row('unconfirmed');
 }
 
 /** Every unsettled request on the origin, plus a warning per entry this machine cannot open. */
-async function unsettled(ctx: Ctx, warnings: string[]): Promise<EndRequest[]> {
+async function unsettled(
+  ctx: Ctx,
+  warnings: string[],
+  warnUnreadable: boolean,
+): Promise<EndRequest[]> {
   const out: EndRequest[] = [];
   for (const d of await ctx.devices.list()) {
     if (d.origin !== ctx.origin) continue;
     if (d instanceof UnreadableNexusDevice) {
+      if (!warnUnreadable) continue;
       warnings.push(
         `the device entry for user ${d.userId}${d.deviceId ? ` (device ${d.deviceId})` : ''} cannot be opened on this machine (${d.reason}); sign it out or revoke it on cleocode.dev`,
       );
@@ -307,13 +364,35 @@ function byUserThenDevice(a: NexusDeviceLogoutRow, b: NexusDeviceLogoutRow): num
  * @returns One row per request tried, and the warnings.
  */
 export async function settleNexusDeviceEnds(
-  opts: NexusDeviceLogoutOptions = {},
+  opts: NexusDeviceLogoutOptions & { warnUnreadable?: boolean } = {},
 ): Promise<{ devices: NexusDeviceLogoutRow[]; warnings: string[] }> {
   const ctx = context(opts);
   const warnings: string[] = [];
   const devices: NexusDeviceLogoutRow[] = [];
-  for (const req of await unsettled(ctx, warnings)) {
-    devices.push(await settleRequest(ctx, req, warnings));
+  let unreachable = false;
+  for (const req of await unsettled(ctx, warnings, opts.warnUnreadable ?? true)) {
+    if (unreachable) {
+      // The server already failed to answer in this run: leave the rest for
+      // the next run rather than wait out one timeout per request.
+      devices.push({
+        userId: req.userId,
+        deviceId: req.deviceId,
+        action: req.action,
+        retired: req.retired,
+        outcome: 'pending',
+        removedLocally: false,
+      });
+      continue;
+    }
+    const r = await settleRequest(ctx, req, warnings);
+    if (r.outcome === 'pending') unreachable = true;
+    devices.push(r);
+  }
+  const skipped = devices.filter((d) => d.outcome === 'pending').length - 1;
+  if (unreachable && skipped > 0) {
+    warnings.push(
+      `${skipped} more unsettled sign-out or revoke request(s) were not sent because Cleo Nexus did not answer; they are retried next time`,
+    );
   }
   return { devices: devices.sort(byUserThenDevice), warnings };
 }
@@ -331,12 +410,52 @@ export async function retryNexusDeviceEnds(
   warnings: string[],
 ): Promise<void> {
   try {
-    warnings.push(...(await settleNexusDeviceEnds(opts)).warnings);
+    const settled = await settleNexusDeviceEnds({
+      timeoutMs: NEXUS_END_RETRY_TIMEOUT_MS,
+      ...opts,
+      warnUnreadable: false,
+    });
+    warnings.push(...settled.warnings);
   } catch (err) {
     warnings.push(
       `could not retry an unsettled Cleo Nexus sign-out (${err instanceof Error ? err.message : String(err)}); \`cleo logout nexus\` retries it`,
     );
   }
+}
+
+/**
+ * Under the lock, move every readable entry on the origin into its
+ * sign-out or revoke slot. A revoke of an entry with no credential left
+ * (already signed out) cannot be sent, so the device is forgotten locally
+ * and the web remedy is returned.
+ *
+ * @returns Warnings for the result envelope.
+ */
+async function beginEnds(ctx: Ctx, action: 'sign-out' | 'revoke'): Promise<string[]> {
+  const begin = action === 'revoke' ? applyBeginRevoke : applyBeginSignOut;
+  return ctx.devices.update((tx) => {
+    const notes: string[] = [];
+    for (const k of tx.keys()) {
+      if (k.origin !== ctx.origin || !k.readable) continue;
+      const entry = tx.get(ctx.apiUrl, k.userId);
+      if (entry === null) continue;
+      const next = begin(entry, ctx.now());
+      if (action === 'revoke' && next.pendingRevoke === null && next.keys !== null) {
+        const forgotten = applyForgetDevice(next);
+        if (isForgottenDevice(forgotten)) {
+          tx.delete(ctx.apiUrl, k.userId, { deviceId: entry.deviceId, credentialId: null });
+        } else {
+          tx.set(ctx.apiUrl, k.userId, forgotten);
+        }
+        notes.push(
+          `device ${next.deviceId} holds no credential (it is signed out), so it cannot be revoked from here; this machine forgot it, so the next login enrols a new device. To burn the old id, revoke device ${next.deviceId} on cleocode.dev (Devices)`,
+        );
+        continue;
+      }
+      tx.set(ctx.apiUrl, k.userId, next);
+    }
+    return [...tx.warnings, ...notes];
+  });
 }
 
 /**
@@ -352,37 +471,31 @@ export async function retryNexusDeviceEnds(
  * @returns The per-device outcomes. A row that is not `confirmed` is also
  *   named in `warnings`; the result never claims a sign-out the server did
  *   not confirm.
- * @throws {NexusDeviceStoreError} When the store cannot be read or locked.
+ * A device file that cannot be read or locked is reported as a warning, and
+ * the 9.24 session is still signed out.
  */
 export async function logoutNexusDevice(
   opts: NexusDeviceLogoutRunOptions = {},
 ): Promise<NexusDeviceLogoutResult> {
   const ctx = context(opts);
   const action = opts.revoke === true ? 'revoke' : 'sign-out';
-  const begin = action === 'revoke' ? applyBeginRevoke : applyBeginSignOut;
-  const begun = await ctx.devices.update((tx) => {
-    const notes: string[] = [];
-    for (const k of tx.keys()) {
-      if (k.origin !== ctx.origin || !k.readable) continue;
-      const entry = tx.get(ctx.apiUrl, k.userId);
-      if (entry === null) continue;
-      const next = begin(entry, ctx.now());
-      tx.set(ctx.apiUrl, k.userId, next);
-      if (action === 'revoke' && next.pendingRevoke === null) {
-        // Already signed out: no credential is left to send E10 with.
-        notes.push(
-          `device ${next.deviceId} holds no credential, so it cannot be revoked from here; revoke it on cleocode.dev`,
-        );
-      }
-    }
-    return [...tx.warnings, ...notes];
-  });
-  const settled = await settleNexusDeviceEnds({
-    ...opts,
-    apiUrl: ctx.apiUrl,
-    deviceStore: ctx.devices,
-  });
-  const warnings = [...begun, ...settled.warnings];
+  const warnings: string[] = [];
+  let devices: NexusDeviceLogoutRow[] = [];
+  try {
+    warnings.push(...(await beginEnds(ctx, action)));
+    const settled = await settleNexusDeviceEnds({
+      ...opts,
+      apiUrl: ctx.apiUrl,
+      deviceStore: ctx.devices,
+    });
+    devices = settled.devices;
+    warnings.push(...settled.warnings);
+  } catch (err) {
+    // A broken device file must not stop the 9.24 session sign-out below.
+    warnings.push(
+      `the device credentials could not be signed out (${err instanceof Error ? err.message : String(err)}); fix the device file and run \`cleo logout nexus\` again`,
+    );
+  }
 
   let session: NexusLogoutResult | null = null;
   const sessions = opts.store ?? new FileNexusTokenStore();
@@ -394,5 +507,5 @@ export async function logoutNexusDevice(
     });
     warnings.push(...session.warnings);
   }
-  return { apiUrl: ctx.apiUrl, action, devices: settled.devices, session, warnings };
+  return { apiUrl: ctx.apiUrl, action, devices, session, warnings };
 }
