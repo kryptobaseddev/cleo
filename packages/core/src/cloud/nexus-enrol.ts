@@ -1043,6 +1043,17 @@ function enrolError(err: unknown, reason: string | null, input: EnrolInput): Err
         BROWSER_LOGIN_FIX,
       );
     }
+    if (
+      err instanceof NexusError &&
+      err.status === 403 &&
+      reason === 'device-flow-session-required'
+    ) {
+      return new NexusAccountError(
+        'E_NEXUS_SESSION_EXPIRED',
+        'the stored session can no longer be upgraded (it was created after the server deploy, and only a `cleo login nexus` device login can enrol a device)',
+        BROWSER_LOGIN_FIX,
+      );
+    }
     const refusedSession =
       err instanceof NexusError &&
       (err.status === 401 ||

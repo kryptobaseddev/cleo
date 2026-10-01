@@ -838,6 +838,15 @@ describe('upgradeNexusSession (§3.4)', () => {
     expect(err.fix).toContain('browser');
   });
 
+  it('T13008: a session the device flow did not mint (403 device-flow-session-required) needs a browser login', async () => {
+    await seedV1Session(false);
+    server.beforeEnrol = async () => fail(403, 'E_FORBIDDEN', 'device-flow-session-required');
+    const err = await accountError(upgradeNexusSession(flow()), 'E_NEXUS_SESSION_EXPIRED');
+    expect(err.fix).toContain('browser');
+    expect(err.message).toMatch(/stored session can no longer be upgraded/);
+    expect(err.message).toContain('device login');
+  });
+
   it('two processes upgrading at once make exactly one E1 call and neither reports expiry (N1)', async () => {
     await seedV1Session();
     server.beforeEnrol = async () => {
@@ -1234,6 +1243,8 @@ describe('nexusApiErrorToAccountError (§4.0.4)', () => {
     expect(map(403, 'session-not-fresh')).toBe('E_NEXUS_SESSION_EXPIRED');
     expect(map(403, 'bearer-session-required')).toBe('E_NEXUS_SESSION_EXPIRED');
     expect(map(403, 'device-limit')).toBe('E_NEXUS_REQUEST_FAILED');
+    expect(map(403, 'device-flow-session-required')).toBe('E_NEXUS_SESSION_EXPIRED');
+    expect(map(403, 'device-not-enrolled')).toBe('E_NEXUS_NOT_SIGNED_IN');
     expect(map(403, 'session-required')).toBe('E_NEXUS_REQUEST_FAILED');
     expect(map(409, 'replica-copied')).toBe('E_NEXUS_REPLICA_COPIED');
     expect(map(409, 'project-other-account')).toBe('E_NEXUS_REQUEST_FAILED');
