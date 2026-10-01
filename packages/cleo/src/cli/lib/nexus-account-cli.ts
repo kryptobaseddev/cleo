@@ -207,8 +207,9 @@ export function nexusDeviceLogoutSummary(r: NexusDeviceLogoutResult): string {
     parts.push(`${confirmed} of ${r.devices.length} device request(s) confirmed`);
   if (open > 0) parts.push(`${open} NOT confirmed (see warnings)`);
   if (r.session !== null) parts.push(`9.24 session ${r.session.revocation}`);
-  const lead =
-    open > 0 || confirmed === 0 ? `${what} NOT fully confirmed on` : `${what} confirmed on`;
+  const notConfirmed =
+    open > 0 || (r.devices.length > 0 && confirmed === 0) || r.session?.revocation === 'failed';
+  const lead = notConfirmed ? `${what} NOT fully confirmed on` : `${what} confirmed on`;
   return `${lead} ${r.apiUrl}: ${parts.join('; ')}.`;
 }
 

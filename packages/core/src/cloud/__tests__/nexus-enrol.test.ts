@@ -38,6 +38,7 @@ import {
   applyDropCurrent,
   applyEnrolIntent,
   applyEnrolment,
+  applyForgetDevice,
   applySetRaceCandidate,
   guardNexusDeviceSecrets,
   NEXUS_DEVICE_ENV,
@@ -446,6 +447,24 @@ async function storedToken(): Promise<string | null> {
 }
 
 // ---------- login ----------
+
+describe('loginToNexusDevice after a revoke forgot the device (review #1762 LOW-C)', () => {
+  it('mints a new device id instead of re-enrolling the forgotten one', async () => {
+    const first = await loginToNexusDevice(flow());
+    const burned = first.device?.deviceId;
+    expect(burned).toBeDefined();
+    await devices.update((tx) => {
+      const e = tx.get(API, USER);
+      if (e) tx.set(API, USER, applyForgetDevice(applyBeginRevoke(e)));
+    });
+    const before = server.count('/v1/devices/enroll');
+    const again = await loginToNexusDevice(flow());
+    expect(again.device?.deviceId).toBeDefined();
+    expect(again.device?.deviceId).not.toBe(burned);
+    // The client minted the new id itself: one E1, never a 409-driven retry.
+    expect(server.count('/v1/devices/enroll')).toBe(before + 1);
+  });
+});
 
 describe('loginToNexusDevice: fresh enrolment (§3.3 steps 1-10)', () => {
   it('enrols, signs the session out, and stores only the sealed device credential at 0600', async () => {

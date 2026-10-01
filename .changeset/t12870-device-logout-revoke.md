@@ -15,10 +15,13 @@ and left the device credential live. It now moves the live credentials into
 **Done means proved (contract §3.5, M3).** A request counts as done only on
 200, or on a 401 that proves the device's state: `device-signed-out` or
 `device-revoked`, or `credential-revoked` with `revokedReason` `signed-out` or
-`revoked`. A revoke needs proof of a revoke. Any other 401 means that one
-credential is dead, so the next is tried. A network error, 429, 5xx or a
-missing route keeps the slot, and the rest of that run's requests are left
-for the next run without waiting out more timeouts.
+`revoked`. A revoke needs proof of a revoke. A credential counts as dead only
+when the Nexus API itself says so (`E_UNAUTHENTICATED` with reason `invalid`,
+`credential-expired` or `credential-revoked`); then the next one is tried. Any
+other 401 proves nothing and keeps the slot: no envelope (a proxy or SSO
+gateway), or reason `missing`. So does a 429, a 5xx or a missing route. Only a
+transport failure (no answer at all) stops the run; the remaining requests are
+left for the next run without waiting out more timeouts.
 
 **Ending.**
 - A sign-out keeps the device keys for the next login.
@@ -27,7 +30,10 @@ for the next run without waiting out more timeouts.
   ends when it is confirmed, when it finds the device already signed out
   (`signed-out`), or when every credential is dead (`unconfirmed`).
 - Requests left by replaced devices (`retired`) are sent first and are never
-  dropped while one is unsettled.
+  dropped while one is unsettled. An HTTP error on one of them never stops the
+  entry's own sign-out or revoke.
+- A login after a revoke forgot the device mints a new device id; it never
+  re-enrols the forgotten one.
 
 Only a confirmed row is reported as `confirmed`; every other row is named in
 `warnings` with the web remedy. A login that changes the entry while a request

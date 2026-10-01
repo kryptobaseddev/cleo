@@ -581,7 +581,17 @@ function prepareInTx(
   const entry = tx.get(ctx.apiUrl, input.userId);
   if (entry !== null) assertEnrolmentAllowed(entry, entry.deviceId);
   const now = ctx.now();
-  const reuse = entry !== null && !replaceIdentity;
+  // A device forgotten by a revoke (applyForgetDevice: no keys, no
+  // credential, at most retired requests left) is never reused: re-enrolling
+  // its id could re-activate the device the user asked to burn.
+  const forgotten =
+    entry !== null &&
+    entry.keys === null &&
+    entry.current === null &&
+    entry.pending === null &&
+    !entry.raceCandidate &&
+    entry.pendingSignOut === null;
+  const reuse = entry !== null && !replaceIdentity && !forgotten;
   const deviceId = reuse ? entry.deviceId : uuidv7(now.getTime());
   const keys = reuse && entry.keys !== null ? entry.keys : freshKeys();
   const intent: NexusDeviceEnrolIntent = {
