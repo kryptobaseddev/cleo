@@ -40,7 +40,7 @@ import lockfile from 'proper-lockfile';
 import { getLogger } from '../logger.js';
 import { getCleoHome } from '../paths.js';
 import type { ResourceSample } from './backend.js';
-import { ResourceMonitor } from './monitor.js';
+import { pressureScore, ResourceMonitor } from './monitor.js';
 import {
   resolveSupervisorSocketPath,
   sendResourceAdmit,
@@ -130,8 +130,8 @@ const MB = 1024 * 1024;
 
 /** Extract `some avg10` (0–100) from a sample; 0 when unavailable. */
 function someAvg10(sample: ResourceSample): number {
-  const some = sample.globalPressure?.some ?? sample.slicePressure?.some;
-  return some?.avg10 ?? 0;
+  // T12981: memory or CPU, whichever is worse (CPU rescaled to this scale).
+  return pressureScore(sample);
 }
 
 /**

@@ -48,7 +48,21 @@
 
 import { EventEmitter } from 'node:events';
 import type { ResourceBackend, ResourceSample } from './backend.js';
+import { DarwinResourceBackend } from './darwin-backend.js';
 import { LinuxResourceBackend } from './linux-backend.js';
+
+/**
+ * The backend for this platform: macOS gets {@link DarwinResourceBackend}
+ * (kernel pressure level + load), everything else {@link LinuxResourceBackend}
+ * (which degrades to availability-only where `/proc` is absent).
+ *
+ * @task T12981
+ */
+export function defaultResourceBackend(
+  platform: NodeJS.Platform = process.platform,
+): ResourceBackend {
+  return platform === 'darwin' ? new DarwinResourceBackend() : new LinuxResourceBackend();
+}
 
 // ---------------------------------------------------------------------------
 // State type
@@ -150,7 +164,15 @@ export interface ResourceMonitorConfig {
   readonly pollIntervalMs?: number;
 
   /**
-   * Platform backend. Defaults to {@link LinuxResourceBackend}.
+   * CPU saturation thresholds, applied to `cpuPressure.some.avg10` when the
+   * backend reports it. Defaults: hold above 33 (load 1.5× cores), backoff
+   * above 50 (2× cores). CPU is looser than memory: a busy box slows down,
+   * a memory-starved one swaps and kills processes.
+   */
+  readonly cpu?: { readonly holdSomeAvg10?: number; readonly backoffSomeAvg10?: number };
+
+  /**
+   * Platform backend. Defaults to {@link defaultResourceBackend}.
    *
    * Inject a different backend for macOS parity or test fakes.
    */
@@ -167,6 +189,8 @@ interface ResolvedThresholds {
   readonly holdFullAvg10: number;
   readonly backoffFullAvg10: number;
   readonly hysteresisPoints: number;
+  readonly holdCpuSomeAvg10: number;
+  readonly backoffCpuSomeAvg10: number;
   readonly headroomBytes: number;
   readonly walWarnThresholdBytes: number;
   readonly pollIntervalMs: number;
@@ -178,6 +202,8 @@ const DEFAULTS: ResolvedThresholds = {
   holdFullAvg10: 5,
   backoffFullAvg10: 10,
   hysteresisPoints: 3,
+  holdCpuSomeAvg10: 33,
+  backoffCpuSomeAvg10: 50,
   headroomBytes: 256 * 1024 * 1024,
   walWarnThresholdBytes: 256 * 1024 * 1024,
   pollIntervalMs: 1500,
@@ -190,6 +216,8 @@ function resolveThresholds(cfg: ResourceMonitorConfig): ResolvedThresholds {
     holdFullAvg10: cfg.psi?.holdFullAvg10 ?? DEFAULTS.holdFullAvg10,
     backoffFullAvg10: cfg.psi?.backoffFullAvg10 ?? DEFAULTS.backoffFullAvg10,
     hysteresisPoints: cfg.hysteresisPoints ?? DEFAULTS.hysteresisPoints,
+    holdCpuSomeAvg10: cfg.cpu?.holdSomeAvg10 ?? DEFAULTS.holdCpuSomeAvg10,
+    backoffCpuSomeAvg10: cfg.cpu?.backoffSomeAvg10 ?? DEFAULTS.backoffCpuSomeAvg10,
     headroomBytes: cfg.headroomBytes ?? DEFAULTS.headroomBytes,
     walWarnThresholdBytes: cfg.walWarnThresholdBytes ?? DEFAULTS.walWarnThresholdBytes,
     pollIntervalMs: cfg.pollIntervalMs ?? DEFAULTS.pollIntervalMs,
@@ -209,6 +237,71 @@ function resolveThresholds(cfg: ResourceMonitorConfig): ResolvedThresholds {
  * @internal
  */
 export function evaluateState(
+  sample: ResourceSample,
+  thresholds: ResolvedThresholds,
+  currentState: PressureState,
+): { state: PressureState; reason: string } {
+  const memory = evaluateMemoryState(sample, thresholds, currentState);
+  const cpu = evaluateCpuState(sample, thresholds, currentState);
+  if (cpu === null || SEVERITY[cpu.state] <= SEVERITY[memory.state]) return memory;
+  return cpu;
+}
+
+const SEVERITY: Record<PressureState, number> = { ok: 0, hold: 1, backoff: 2 };
+
+/**
+ * One pressure number on the MEMORY `some avg10` scale, for callers that size
+ * budgets from a single value (the governor's class budgets, slot scaling):
+ * the worse of memory `some avg10` and CPU `some avg10` rescaled so the CPU
+ * hold/backoff defaults (33/50) land on the memory ones (10/25 floor).
+ *
+ * Linux samples carry no `cpuPressure` today, so this equals the memory value
+ * there.
+ *
+ * @example
+ * ```ts
+ * pressureScore(sample); // memory 4, cpu 60 (load 2.5× cores) → 35: backoff
+ * ```
+ *
+ * @task T12981
+ */
+export function pressureScore(sample: ResourceSample): number {
+  const mem = (sample.globalPressure?.some ?? sample.slicePressure?.some)?.avg10 ?? 0;
+  const cpu = sample.cpuPressure?.some?.avg10;
+  if (cpu === undefined) return mem;
+  const scaled = cpu <= 33 ? (cpu * 10) / 33 : cpu <= 50 ? 10 + ((cpu - 33) * 15) / 17 : cpu - 25;
+  return Math.max(mem, scaled);
+}
+
+/**
+ * CPU saturation verdict, or `null` when the backend reports no CPU signal.
+ * Same hysteresis rule as memory: leaving `hold`/`backoff` needs the signal
+ * below the hold threshold minus the hysteresis band.
+ *
+ * @task T12981
+ */
+function evaluateCpuState(
+  sample: ResourceSample,
+  thresholds: ResolvedThresholds,
+  currentState: PressureState,
+): { state: PressureState; reason: string } | null {
+  const some = sample.cpuPressure?.some?.avg10;
+  if (some === undefined) return null;
+  const tag = `cpu some avg10=${some.toFixed(2)}`;
+  if (some > thresholds.backoffCpuSomeAvg10) {
+    return { state: 'backoff', reason: `${tag} — above cpu backoff threshold` };
+  }
+  if (some > thresholds.holdCpuSomeAvg10) {
+    return { state: 'hold', reason: `${tag} — above cpu hold threshold` };
+  }
+  const floor = thresholds.holdCpuSomeAvg10 - thresholds.hysteresisPoints;
+  if (currentState !== 'ok' && some > floor) {
+    return { state: 'hold', reason: `${tag} — cpu hysteresis hold (floor ${floor})` };
+  }
+  return { state: 'ok', reason: `${tag} — below cpu thresholds` };
+}
+
+function evaluateMemoryState(
   sample: ResourceSample,
   thresholds: ResolvedThresholds,
   currentState: PressureState,
@@ -312,7 +405,7 @@ export class ResourceMonitor extends EventEmitter<ResourceMonitorEvents> {
   constructor(cfg: ResourceMonitorConfig = {}) {
     super();
     this.thresholds = resolveThresholds(cfg);
-    this.backend = cfg.backend ?? new LinuxResourceBackend();
+    this.backend = cfg.backend ?? defaultResourceBackend();
   }
 
   // -------------------------------------------------------------------------

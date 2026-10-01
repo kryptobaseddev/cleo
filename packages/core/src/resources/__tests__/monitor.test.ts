@@ -74,6 +74,8 @@ const DEFAULT_THRESHOLDS = {
   holdFullAvg10: 5,
   backoffFullAvg10: 10,
   hysteresisPoints: 3,
+  holdCpuSomeAvg10: 33,
+  backoffCpuSomeAvg10: 50,
   headroomBytes: 256 * MB,
   walWarnThresholdBytes: 256 * MB,
   pollIntervalMs: 1500,
