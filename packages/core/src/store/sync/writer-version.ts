@@ -93,5 +93,6 @@ export function assertWriterVersion(db: DatabaseSync, version: string = getCleoV
   const required = readMinWriterVersion(db);
   if (required === undefined) return;
   const cmp = compareWriterVersions(version, required);
+  // @sync-invariant none:local-only this build is older than the store's min_writer_version; refuses to open locally
   if (cmp !== null && cmp < 0) throw new StoreWriterTooOldError(required, version);
 }

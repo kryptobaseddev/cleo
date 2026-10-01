@@ -21,6 +21,7 @@ import { createTestDb, seedTasks } from '../../__tests__/test-db-helper.js';
 import { rekeyRowUid } from '../../display-id-alias.js';
 import { _resetDualScopeDbCache, openDualScopeDbAtPath } from '../../dual-scope-db.js';
 import { runBracketedMigrations } from '../../migration-runner.js';
+import { missingRowIdentitySchema } from '../../row-identity.js';
 import { getNativeTasksDb } from '../../sqlite.js';
 import {
   type CaptureTableDef,
@@ -47,7 +48,9 @@ import {
 import {
   classifyStoreTriggers,
   ensureTriggerSuspendTable,
+  OWNED_TRIGGERS,
   TRIGGER_SUSPEND_TABLE_DDL,
+  verifyOwnedTriggers,
 } from '../trigger-classes.js';
 import {
   compareWriterVersions,
@@ -146,6 +149,41 @@ describe('flag off', () => {
       again.prepare("SELECT 1 FROM sqlite_master WHERE name = '_sync_capture'").get(),
     ).toBeDefined();
     void db;
+  });
+});
+
+describe('store at head (T12343 S2)', () => {
+  it('a fresh store reopened with capture on is fully consistent, and a second open changes nothing', async () => {
+    const first = await captureOn();
+    first.exec('SELECT 1');
+    // The persisted flag drives the real open pass from here on.
+    const db = await reopen();
+    const schemaOf = (d: DatabaseSync) =>
+      JSON.stringify(
+        d.prepare('SELECT type, name, sql FROM sqlite_master ORDER BY type, name').all(),
+      );
+    const triggers = classifyStoreTriggers(db, 'project');
+    expect(triggers.unclassified).toEqual([]);
+    expect(verifyOwnedTriggers(db)).toEqual([]);
+    expect(missingRowIdentitySchema(db)).toEqual([]);
+    for (const name of Object.keys(OWNED_TRIGGERS)) {
+      const sql = (
+        db.prepare("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?").get(name) as
+          | { sql: string }
+          | undefined
+      )?.sql;
+      expect(sql, name).toContain('cleo_trigger_suspend');
+    }
+    const capture = new Set(
+      triggers.classified.filter((t) => t.class === 'capture').map((t) => t.name),
+    );
+    for (const t of syncSetTables('project')) {
+      for (const op of ['i', 'd'])
+        expect(capture.has(`_sync_cap_${t}_${op}`), `${t}_${op}`).toBe(true);
+    }
+    expect(db.prepare('SELECT count(*) AS n FROM _sync_capture').get()).toEqual({ n: 0 });
+    const head = schemaOf(db);
+    expect(schemaOf(await reopen())).toBe(head);
   });
 });
 
@@ -273,7 +311,12 @@ describe('re-key through T12341 (H5, T12755)', () => {
                VALUES ('T1', 't', 'task', 'pending', 'uid-t1', 'fp-t1');
              INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, kind, text, uid, birth_fp)
                VALUES ('A1', 'T1', 1, 'text', 'ac', 'uid-a1', 'fp-a1');`);
-    const receipt = rekeyRowUid(db, 'tasks_tasks', 'uid-t1', 'fp-t1');
+    // T12801 signature: the caller names the loser and the (smaller) winner
+    // fingerprint of the collision; the winner arrived from another replica.
+    const receipt = rekeyRowUid(db, 'tasks_tasks', 'uid-t1', {
+      loserBirthFp: 'fp-t1',
+      winnerBirthFp: 'fp-t0',
+    });
     const ks = captures(db).filter((c) => c.op === 'K');
     expect(ks.find((k) => k.tbl === 'tasks_tasks')?.uid).toBe('uid-t1');
     const kTask = ks.find((k) => k.tbl === 'tasks_tasks') as Cap;

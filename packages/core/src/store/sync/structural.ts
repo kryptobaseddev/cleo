@@ -56,6 +56,7 @@ function sleepMs(ms: number): void {
  */
 export function withSyncTriggersSuspended<T>(db: DatabaseSync, scope: TableScope, fn: () => T): T {
   if (db.isTransaction) {
+    // @sync-invariant none:local-only programming-error guard on the local suspension bracket
     throw new BracketTransactionError('withSyncTriggersSuspended must open the only transaction');
   }
   for (let attempt = 1; ; attempt++) {
@@ -73,6 +74,7 @@ export function withSyncTriggersSuspended<T>(db: DatabaseSync, scope: TableScope
       if (capture) dropCaptureTriggers(db);
       const out = fn();
       if (!db.isTransaction) {
+        // @sync-invariant none:local-only programming-error guard on the local suspension bracket
         throw new BracketTransactionError('the bracket body ended its transaction');
       }
       if (capture) installCaptureTriggers(db, scope);

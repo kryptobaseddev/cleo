@@ -276,6 +276,7 @@ export function ownedTriggerDdl(
   }
   const missing = Object.keys(OWNED_TRIGGERS).filter((n) => !ddl.has(n));
   if (missing.length > 0) {
+    // @sync-invariant none:local-only owned-trigger DDL missing from the build; packaging check on local schema
     throw new Error(
       `owned triggers without DDL from ${TRIGGER_CLAUSE_MIGRATION}: ${missing.join(', ')}`,
     );
@@ -433,6 +434,7 @@ export function assertTriggerSuspendEmpty(db: DatabaseSync): void {
     | { scope: string }
     | undefined;
   if (row) {
+    // @sync-invariant none:local-only owned-trigger repair/suspension guard on this store; local schema, not synced rows
     throw Object.assign(
       new Error(
         `E_TRIGGER_SUSPEND_NOT_EMPTY: cleo_trigger_suspend still holds scope '${row.scope}'; refusing to commit a suspension`,
@@ -472,12 +474,14 @@ export function withTriggersSuspended<T>(
   fn: () => T,
 ): T {
   if (!db.isTransaction) {
+    // @sync-invariant none:local-only programming-error guard on the local suspension bracket
     throw new Error('withTriggersSuspended must run inside the caller transaction');
   }
   if (
     (scopes.includes('guard') || scopes.includes('all')) &&
     !GUARD_SUSPEND_PURPOSES.has(purpose)
   ) {
+    // @sync-invariant none:local-only owned-trigger repair/suspension guard on this store; local schema, not synced rows
     throw Object.assign(
       new Error(
         `E_GUARD_SUSPEND_FORWARD: guards may be suspended only to rewind or undo, not for a '${purpose}' write`,

@@ -91,6 +91,7 @@ export function setSyncFlag(
   on: boolean,
   options: { now?: Date; schemaRoot?: string } = {},
 ): boolean {
+  // @sync-invariant none:local-only unknown flag name from a local caller; sync flags are per-store settings, not synced rows
   if (!SYNC_FLAGS.includes(flag)) throw new Error(`unknown sync flag: ${flag}`);
   if (!on && !hasTable(db, '_sync_meta')) return false;
   if (readSyncFlags(db)[flag] === on) return false;

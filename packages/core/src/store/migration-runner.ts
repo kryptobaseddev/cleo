@@ -471,6 +471,7 @@ function migrationBracket(
       // Re-scope after the statements: the rebuild may have created tables.
       const after = foreignKeyViolations(nativeDb, foreignKeyScope(nativeDb, scopeTables));
       const added = newViolations(before, after);
+      // @sync-invariant none:local-only a migration that adds FK violations is refused locally before commit; schema, not synced rows
       if (added.length > 0) throw new MigrationForeignKeyError(migration.name ?? '', added);
     }
     hooks.reinstallCapture?.(nativeDb);
@@ -484,6 +485,7 @@ function migrationBracket(
   nativeDb.exec(`PRAGMA foreign_keys = ${prev}`);
   const now = readForeignKeys(nativeDb);
   if (now !== prev || nativeDb.isTransaction) {
+    // @sync-invariant none:local-only the migration runner restores this handle's FK mode; local schema pass
     throw Object.assign(new ForeignKeysNotRestoredError(prev, now), { cause: failure });
   }
   if (!committed) throw failure;
@@ -511,6 +513,7 @@ export function runBracketedMigrations(
   let hooked = false;
   for (const lineage of lineages) {
     const name = basename(lineage.folder.replace(/[\\/]+$/, ''));
+    // @sync-invariant none:local-only refuses a retired migration lineage on this store; local schema pass
     if (LEGACY_LINEAGES.has(name)) throw new LegacyLineageRefusedError(name);
   }
   for (const lineage of lineages) {

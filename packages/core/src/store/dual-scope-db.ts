@@ -524,6 +524,7 @@ export function assertHandleForeignKeys(nativeDb: DatabaseSync): void {
   const actual = Number(
     (nativeDb.prepare('PRAGMA foreign_keys').get() as { foreign_keys: number }).foreign_keys,
   );
+  // @sync-invariant none:local-only store-open FK mode assert on this handle; no synced row is written
   if (actual !== expected) throw new ForeignKeysNotRestoredError(expected, actual);
 }
 

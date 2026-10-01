@@ -73,6 +73,7 @@ export function syncSchemaFolders(
   root: string = resolveCorePackageMigrationsFolder(SYNC_SCHEMA_SET),
 ): SyncSchemaFolder[] {
   if (!existsSync(root)) {
+    // @sync-invariant none:local-only install-time packaging check for the journal schema folder
     throw new Error(`sync schema folder not found: ${root}`);
   }
   return readdirSync(root, { withFileTypes: true })
@@ -111,6 +112,7 @@ function pending(folders: readonly SyncSchemaFolder[], applied: Map<string, stri
   for (const f of folders) {
     const was = applied.get(f.name);
     if (was !== undefined && was !== f.hash)
+      // @sync-invariant none:local-only a released journal-schema file changed on disk; refuses the local journal migration
       throw new SyncSchemaHashDriftError(f.name, was, f.hash);
   }
   return folders.filter((f) => !applied.has(f.name));
