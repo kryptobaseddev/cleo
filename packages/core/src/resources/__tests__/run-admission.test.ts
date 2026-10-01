@@ -11,7 +11,6 @@
  *   - verify holders: read from the tool semaphore's sidecars
  *   - decidePause: oldest runs, younger pauses, not-pausable, cap + run window
  *   - buildRunDeferral / runningEntries
- *   - heldByAncestor (governor pass-through for nested cleo run)
  *
  * @task T12979
  * @task T12980
@@ -21,7 +20,6 @@ import { mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync 
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { heldByAncestor } from '../governor.js';
 import {
   buildRunDeferral,
   CAP_RUN_WINDOW_MS,
@@ -80,6 +78,16 @@ describe('resolveRunClass', () => {
       'scoped-build',
     );
     expect(resolveRunClass(undefined, ['pnpm', '--filter=x', 'build'], dir)).toBe('scoped-build');
+  });
+
+  it('a recursive build is a full build anywhere (#1777 R3)', () => {
+    expect(resolveRunClass(undefined, ['pnpm', '-r', 'build'], dir)).toBe('full-build');
+    expect(resolveRunClass(undefined, ['pnpm', '--recursive', 'run', 'build'], dir)).toBe(
+      'full-build',
+    );
+    expect(resolveRunClass(undefined, ['pnpm', '-r', '--filter', 'x', 'build'], dir)).toBe(
+      'scoped-build',
+    );
   });
 
   it('defaults everything else to scoped-build', () => {
@@ -201,6 +209,27 @@ describe('job registry', () => {
       },
     });
     expect(signals).toEqual([]);
+  });
+
+  it('a paused group whose leader died is still resumed and stopped (#1777 R2)', () => {
+    const signals: Array<[number, string]> = [];
+    writeRunJob(
+      job({ id: 'dead', startedAtMs: 1, heartbeatAtMs: NOW, childPid: 78, childStart: 'child-t0' }),
+      dir,
+    );
+    listRunJobs(dir, {
+      ...base,
+      alive: () => false,
+      start: () => null, // no process holds the leader's pid any more
+      signal: (pid, sig) => {
+        signals.push([pid, sig]);
+        return true;
+      },
+    });
+    expect(signals).toEqual([
+      [78, 'SIGCONT'],
+      [78, 'SIGTERM'],
+    ]);
   });
 
   it('a stale heartbeat on a reused runner pid counts as dead', () => {
@@ -372,13 +401,5 @@ describe('buildRunDeferral / runningEntries', () => {
     });
     expect(alternatives[0]?.command).toContain('--filter');
     expect(alternatives.some((a) => a.command.includes('ci:'))).toBe(false);
-  });
-});
-
-describe('heldByAncestor', () => {
-  it('passes through a class an ancestor cleo run holds', () => {
-    expect(heldByAncestor('test-run', { CLEO_GOVERNOR_GRANT: 'scoped-build,test-run' })).toBe(true);
-    expect(heldByAncestor('full-build', { CLEO_GOVERNOR_GRANT: 'test-run' })).toBe(false);
-    expect(heldByAncestor('test-run', {})).toBe(false);
   });
 });

@@ -187,20 +187,39 @@ describe('runGoverned', () => {
       spawnError: null,
       pauses: 0,
     });
-    expect(h.spawned[0]?.env).toMatchObject({
-      PATH: '/bin',
-      CLEO_RUN_CLASS: 'test-run',
-      CLEO_GOVERNOR_GRANT: 'test-run',
-    });
+    expect(h.spawned[0]?.env).toMatchObject({ PATH: '/bin', CLEO_RUN_CLASS: 'test-run' });
+    expect(h.spawned[0]?.env).not.toHaveProperty('CLEO_GOVERNOR_GRANT');
     expect(h.released).toBe(1);
     expect(h.signals).toEqual([]);
     expect(readdirSync(join(dir, 'jobs'))).toEqual([]);
   });
 
-  it('appends to an inherited grant marker', async () => {
-    const h = harness({ onSample: (n, hh) => n === 2 && hh.exit(0) });
-    await runGoverned(base(h, { env: { CLEO_GOVERNOR_GRANT: 'scoped-build' } }));
-    expect(h.spawned[0]?.env.CLEO_GOVERNOR_GRANT).toBe('scoped-build,test-run');
+  it('a nested or forged grant marker buys nothing: every run is admitted on its own', async () => {
+    const h = harness({ admissions: ['deny'] });
+    const r = await runGoverned(base(h, { env: { CLEO_GOVERNOR_GRANT: 'test-run' } }));
+    expect(h.acquires).toBe(1);
+    expect(r.kind).toBe('deferred');
+    expect(h.spawned).toEqual([]);
+  });
+
+  it('no barging: while someone waits in the queue, a newcomer defers without trying', async () => {
+    writeQueueTicket(
+      {
+        id: 'ahead',
+        pid: process.pid,
+        runnerStart: null,
+        enqueuedAtMs: 1,
+        heartbeatAtMs: Number.MAX_SAFE_INTEGER,
+        command: 'x',
+      },
+      join(dir, 'queue'),
+    );
+    const h = harness({ admissions: ['grant'] });
+    const r = await runGoverned(base(h));
+    expect(h.acquires).toBe(0);
+    expect(r.kind).toBe('deferred');
+    if (r.kind === 'deferred')
+      expect(r.reason).toMatch(/1 job\(s\) already waiting in the test-run queue/);
   });
 
   it('defers without --wait: nothing spawned, holders listed', async () => {
@@ -229,16 +248,18 @@ describe('runGoverned', () => {
       qdir,
     );
     const h = harness({
-      admissions: ['deny', 'grant'],
+      admissions: ['grant'],
       onSleep: (n) => {
         if (n === 3) rmSync(join(qdir, 'ahead.json'));
       },
+      // sample 1: arrival; 2: the first attempt as head; 3: supervision.
       onSample: (n, hh) => n === 3 && hh.exit(0),
     });
     const r = await runGoverned(base(h, { wait: true, queuePollMs: 1000, timeoutMs: 60_000 }));
     expect(r.kind).toBe('exited');
-    // One initial attempt, then none while behind 'ahead', then one as head.
-    expect(h.acquires).toBe(2);
+    // No attempt on arrival (someone was waiting), none while behind 'ahead',
+    // exactly one as head.
+    expect(h.acquires).toBe(1);
     expect(existsSync(qdir) ? readdirSync(qdir) : []).toEqual([]);
   });
 

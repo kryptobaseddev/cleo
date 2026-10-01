@@ -183,6 +183,20 @@ describe('ResourceGovernor.acquire (T11999)', () => {
     expect(RESOURCE_DEFERRED_CODE).toBe('E_RESOURCE_DEFERRED');
   });
 
+  it('an env grant marker never bypasses admission (#1777 round 2, N1)', async () => {
+    process.env.CLEO_GOVERNOR_GRANT = 'db-heavy';
+    try {
+      const s = makeSample({ someAvg10: 0 }); // db-heavy budget = 1
+      const first = await gov.acquire('db-heavy', { sample: s, blocking: false });
+      const second = await gov.acquire('db-heavy', { sample: s, blocking: false });
+      expect(isResourceGrant(first)).toBe(true);
+      expect(isResourceGrant(second)).toBe(false);
+      if (isResourceGrant(first)) await first.release();
+    } finally {
+      delete process.env.CLEO_GOVERNOR_GRANT;
+    }
+  });
+
   it('a saturated single-slot class defers the second non-blocking acquire, then recovers on release', async () => {
     const s = makeSample({ someAvg10: 0 }); // db-heavy budget = 1
     const first = await gov.acquire('db-heavy', { sample: s, blocking: false });

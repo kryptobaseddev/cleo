@@ -3,8 +3,10 @@
  *
  * The one front door for heavy commands an agent runs itself: test runners,
  * compilers, builds, installs. The command is admitted through the
- * machine-wide ResourceGovernor, so every agent, session and project on the
- * machine shares one budget. The engine is `runGoverned` in core.
+ * machine-wide ResourceGovernor, so every `cleo run` job, from any agent,
+ * session or project, shares one budget per class. (`cleo verify` joins the
+ * same budgets once #1775, T12963, routes it through the governor.) The
+ * engine is `runGoverned` in core.
  *
  * - Admitted: the command runs niced, with heap and worker limits sized for a
  *   heavy tool, as its own process group; its output streams to stderr.

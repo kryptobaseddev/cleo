@@ -31,7 +31,6 @@ import { join } from 'node:path';
 import {
   type AdmissionResult,
   DEFAULT_RESOURCE_RETRY_AFTER_MS,
-  GOVERNOR_GRANT_ENV,
   type GovernorMode,
   type ResourceClass,
   type ResourceDeferral,
@@ -236,12 +235,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/** Whether `GOVERNOR_GRANT_ENV` says an ancestor `cleo run` holds `cls`. */
-export function heldByAncestor(cls: ResourceClass, env: NodeJS.ProcessEnv = process.env): boolean {
-  const raw = env[GOVERNOR_GRANT_ENV];
-  return raw?.split(',').includes(cls) ?? false;
-}
-
 function passThroughGrant(cls: ResourceClass): ResourceGrant {
   return {
     deferred: false,
@@ -307,9 +300,6 @@ export class ResourceGovernor {
     if (mode === 'off' || cls === 'interactive-cli') {
       return passThroughGrant(cls);
     }
-    // T12979: an ancestor `cleo run` already holds a slot of this class for
-    // this process tree (`cleo run -- cleo verify`): do not count it twice.
-    if (heldByAncestor(cls)) return passThroughGrant(cls);
 
     const sample = opts.sample ?? (await (opts.monitor ?? new ResourceMonitor()).sample());
     const budget = computeClassBudget(cls, sample, opts);

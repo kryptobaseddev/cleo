@@ -2265,7 +2265,6 @@ export type {
 // === Resource Governor — Never-OOM admission layer (T11999 / Epic T11992) ===
 export {
   DEFAULT_RESOURCE_RETRY_AFTER_MS,
-  GOVERNOR_GRANT_ENV,
   isResourceGrant,
   RESOURCE_BACKPRESSURE_CODE,
   RESOURCE_CLASSES,

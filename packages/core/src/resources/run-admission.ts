@@ -3,8 +3,10 @@
  * itself (test runners, compilers, builds, installs).
  *
  * Every heavy command goes through the {@link ResourceGovernor} class budgets,
- * so the machine has ONE budget no matter which agent, session or project
- * asks. This module holds the pure pieces; `run-governed.ts` runs the loop.
+ * so all `cleo run` jobs share one machine-wide budget per class, whichever
+ * agent, session or project asks. `cleo verify` still admits through the tool
+ * semaphore until #1775 (T12963) routes it through the governor too. This
+ * module holds the pure pieces; `run-governed.ts` runs the loop.
  *
  * - {@link resolveRunClass} / {@link isPausable}: the governor class and
  *   whether the job may be paused under pressure
@@ -68,7 +70,8 @@ const BUILD_TOOLS =
   /^(tsc|tsup|turbo|vite|esbuild|webpack|rollup|next|nx|biome|eslint|svelte-check)$/;
 const PACKAGE_MANAGERS = /^(npm|pnpm|yarn|bun|npx|pnpx|bunx)$/;
 const INSTALL_VERBS = /^(install|i|ci|add|update|up|upgrade)$/;
-const WORKSPACE_SCOPING = /^(--filter|-F|--workspace|-w|--recursive|-r|-C|--dir|--prefix)$/;
+const WORKSPACE_SCOPING = /^(--filter|-F|--workspace|-w|-C|--dir|--prefix)$/;
+const RECURSIVE = /^(--recursive|-r)$/;
 
 function base(token: string): string {
   return token.split('/').pop() ?? token;
@@ -126,6 +129,8 @@ export function resolveRunClass(
     }
     const builds = words.some((w, i) => i > 0 && /^build(:|$)/.test(w));
     const scoped = argv.some((w) => WORKSPACE_SCOPING.test(w) || w.startsWith('--filter='));
+    // `pnpm -r build` builds every package wherever it runs (#1777 R3).
+    if (builds && !scoped && argv.some((w) => RECURSIVE.test(w))) return 'full-build';
     if (builds && !scoped && isWorkspaceRoot(cwd)) return 'full-build';
   }
   if ((first === 'cargo' || first === 'go') && words[1] === 'test') return 'test-run';
@@ -338,7 +343,13 @@ function runnerDead(job: RunJob, probes: RegistryProbes): boolean {
  */
 function recoverOrphan(job: RunJob, probes: RegistryProbes): void {
   if (job.childPid === null || job.childStart === null) return;
-  if (probes.start(job.childPid) !== job.childStart) return;
+  const start = probes.start(job.childPid);
+  // A different live process now holds the pid: never signal it.
+  if (start !== null && start !== job.childStart) return;
+  // Same leader, or the leader is gone (#1777 round 2, R2): its workers may
+  // still sit SIGSTOPped in the group. No process holds the pid, so nothing
+  // else can lead a group with that id; the group signal reaches only what is
+  // left of ours (or fails with ESRCH).
   probes.signal(job.childPid, 'SIGCONT');
   probes.signal(job.childPid, 'SIGTERM');
 }

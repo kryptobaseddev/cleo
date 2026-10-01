@@ -83,14 +83,6 @@ export const RUN_COMMAND_FAILED_CODE = 'E_COMMAND_FAILED' as const;
 export const RUN_DEFERRED_EXIT_CODE = 75;
 
 /**
- * Env marker naming the governor classes an ancestor `cleo run` already
- * holds (comma-separated). An acquire of a listed class in a descendant is a
- * pass-through, so `cleo run -- cleo verify` is not counted twice.
- * @task T12979
- */
-export const GOVERNOR_GRANT_ENV = 'CLEO_GOVERNOR_GRANT' as const;
-
-/**
  * Soft-signal code raised on the next admit when the host enters `backoff` —
  * asks granted work to checkpoint. Existing grants are NEVER revoked.
  */

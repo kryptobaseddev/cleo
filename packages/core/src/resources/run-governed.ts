@@ -32,7 +32,7 @@
 import { spawn as nodeSpawn } from 'node:child_process';
 import type { EventEmitter } from 'node:events';
 import { setPriority } from 'node:os';
-import { type AdmissionResult, GOVERNOR_GRANT_ENV, type ResourceClass } from '@cleocode/contracts';
+import type { AdmissionResult, ResourceClass } from '@cleocode/contracts';
 import type { ResourceSample } from './backend.js';
 import { governor } from './governor.js';
 import { classifyPressure, type PressureState, pressureScore, ResourceMonitor } from './monitor.js';
@@ -63,7 +63,7 @@ export const RUN_NICENESS = 10;
 
 /** The minimal child-process surface the loop needs (tests fake it). */
 export interface GovernedChild extends EventEmitter {
-  readonly pid: number | undefined;
+  readonly pid?: number | undefined;
 }
 
 /** Injectable effects. Defaults are the real process, governor and clock. */
@@ -148,7 +148,7 @@ function defaultDeps(): RunGovernedDeps {
         // stdout is reserved for the caller's envelope: output goes to stderr.
         stdio: ['inherit', 2, 2],
         detached: true,
-      }) as unknown as GovernedChild,
+      }),
     signal: signalGroup,
     start: processStart,
     renice: (pid) => {
@@ -233,9 +233,20 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
 
   // ---- 1. admission -------------------------------------------------------
   let sample = await d.sample();
-  let admission = await d.tryAcquire(opts.cls, sample);
+  const qdir = d.queueDir(opts.cls);
+  // No barging (#1777 round 2, M5): while anyone waits in this class's queue,
+  // a newcomer queues behind them (or defers) instead of trying first.
+  const waiting = listQueueTickets(qdir, probesOf(d)).length;
+  let admission: AdmissionResult =
+    waiting > 0
+      ? {
+          deferred: true,
+          class: opts.cls,
+          retryAfterMs: opts.queuePollMs ?? 1000,
+          reason: `${waiting} job(s) already waiting in the ${opts.cls} queue`,
+        }
+      : await d.tryAcquire(opts.cls, sample);
   if (admission.deferred && opts.wait) {
-    const qdir = d.queueDir(opts.cls);
     const ticketId = `${d.pid}-${t0}`;
     const ticket = {
       id: ticketId,
@@ -284,12 +295,9 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
   const startedAtMs = d.now();
   const pausable = isPausable(opts.cls, opts.argv);
   const [file, ...args] = opts.argv as [string, ...string[]];
-  const inherited = opts.env[GOVERNOR_GRANT_ENV];
-  const env: NodeJS.ProcessEnv = {
-    ...opts.env,
-    CLEO_RUN_CLASS: opts.cls,
-    [GOVERNOR_GRANT_ENV]: inherited ? `${inherited},${opts.cls}` : opts.cls,
-  };
+  // No inherited grant marker (#1777 round 2): every nested `cleo run` is
+  // admitted on its own; verify joins the same budgets with #1775 (T12963).
+  const env: NodeJS.ProcessEnv = { ...opts.env, CLEO_RUN_CLASS: opts.cls };
 
   let job: RunJob = {
     id: `${d.pid}-${startedAtMs}`,
