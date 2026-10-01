@@ -5,7 +5,7 @@
  * Covers:
  *   - Cache hits return the prior result without re-spawning the tool.
  *   - Cache misses re-spawn and write a fresh entry.
- *   - HEAD changes invalidate the cache.
+ *   - A commit that changes tracked content invalidates the cache.
  *   - Uncommitted-tree edits invalidate the cache.
  *   - Two parallel `runToolCached` calls coalesce: only one spawn occurs;
  *     the second observer reads the result the first wrote.
@@ -25,6 +25,7 @@ import {
   cacheEntryPath,
   captureDirtyFingerprint,
   captureHead,
+  captureTreeHash,
   clearToolCache,
   computeCacheKey,
   DEFAULT_SPAWN_TIMEOUT_MS,
@@ -137,30 +138,19 @@ describe('computeCacheKey', () => {
     args: ['hi'],
     source: 'language-default',
   };
-  const ROOT = '/tmp/cleo-key-root-a';
 
-  it('differs for different HEAD shas', () => {
-    const a = computeCacheKey(cmd, 'abc', 'x', ROOT);
-    const b = computeCacheKey(cmd, 'def', 'x', ROOT);
-    expect(a).not.toBe(b);
-  });
-
-  it('differs for different dirty fingerprints', () => {
-    const a = computeCacheKey(cmd, 'abc', 'x', ROOT);
-    const b = computeCacheKey(cmd, 'abc', 'y', ROOT);
-    expect(a).not.toBe(b);
+  it('differs for different tree hashes', () => {
+    expect(computeCacheKey(cmd, 'tree-a')).not.toBe(computeCacheKey(cmd, 'tree-b'));
   });
 
   it('differs for different args', () => {
-    const a = computeCacheKey(cmd, 'abc', null, ROOT);
-    const b = computeCacheKey({ ...cmd, args: ['bye'] }, 'abc', null, ROOT);
+    const a = computeCacheKey(cmd, 'tree-a');
+    const b = computeCacheKey({ ...cmd, args: ['bye'] }, 'tree-a');
     expect(a).not.toBe(b);
   });
 
   it('is stable for identical inputs', () => {
-    const a = computeCacheKey(cmd, 'abc', 'x', ROOT);
-    const b = computeCacheKey({ ...cmd }, 'abc', 'x', ROOT);
-    expect(a).toBe(b);
+    expect(computeCacheKey(cmd, 'tree-a')).toBe(computeCacheKey({ ...cmd }, 'tree-a'));
   });
 });
 
@@ -708,16 +698,14 @@ describe('runToolCached — lock contention fail-fast (T12025)', () => {
     const cmd = shCommand('echo ok');
 
     // Pre-compute the exact cache path that runToolCached will target.
-    const headVal = await captureHead(dir);
-    const dirtyVal = await captureDirtyFingerprint(dir);
-    const key = computeCacheKey(cmd, headVal, dirtyVal, dir);
+    const key = computeCacheKey(cmd, await captureTreeHash(dir));
     const cachePath = cacheEntryPath(dir, key);
 
     // Ensure the cache directory exists so the write succeeds.
     mkdirSync(join(dir, '.cleo', 'cache', 'evidence'), { recursive: true });
 
     // Write the pending entry so runToolCached doesn't re-create it.
-    writeFileSync(cachePath, JSON.stringify({ schemaVersion: 2, key, pending: true }));
+    writeFileSync(cachePath, JSON.stringify({ schemaVersion: 3, key, pending: true }));
 
     // Hold the lock ourselves — simulates another process running the tool.
     const release = await acquireLock(cachePath, { retries: 0 });
