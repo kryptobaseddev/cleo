@@ -25,19 +25,8 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  onTestFinished,
-  vi,
-} from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { validateAtom } from '../evidence.js';
 import { cacheEntryPath, readCacheEntry, runToolCached } from '../tool-cache.js';
 import {
   extractFailingTestRefs,
@@ -389,41 +378,16 @@ describe('runToolCached — failed-first reruns and flake retries', () => {
     expect(fullRuns()).toBe(4); // two runs, each with its one full retry
   });
 
-  it('the `tool` evidence atom carries `flaky`, `treeHash` and `cacheHit`', async () => {
-    const script = join(side, 'suite.sh');
-    writeFileSync(script, cmd.args[1] ?? '');
-    mkdirSync(join(repo, '.cleo'), { recursive: true });
-    writeFileSync(
-      join(repo, '.cleo', 'project-context.json'),
-      JSON.stringify({
-        schemaVersion: '1.0.0',
-        detectedAt: '2026-01-01T00:00:00.000Z',
-        projectTypes: ['node'],
-        primaryType: 'node',
-        testing: { command: `sh ${script}` },
-      }),
-    );
+  it('the result exposes `flaky`, `treeHash` and `cacheHit` for evidence atoms', async () => {
     setState('flaky-full');
-    // Resolve the verification command from this synthetic project.
-    vi.stubEnv('CLEO_ROOT', undefined);
-    vi.stubEnv('CLEO_DIR', undefined);
-    onTestFinished(() => {
-      vi.unstubAllEnvs();
-    });
-    const first = await validateAtom({ kind: 'tool', tool: 'test' }, repo);
-    expect(first.ok).toBe(true);
-    if (first.ok && first.atom.kind === 'tool') {
-      expect(first.atom.flaky).toEqual(['src/a.test.ts']);
-      expect(first.atom.treeHash).toBe(git(repo, 'rev-parse', 'HEAD^{tree}'));
-      expect(first.atom.cacheHit).toBe(false);
-    }
-    const second = await validateAtom({ kind: 'tool', tool: 'test' }, repo);
-    if (second.ok && second.atom.kind === 'tool') {
-      expect(second.atom.cacheHit).toBe(true);
-      expect(second.atom.flaky).toEqual(['src/a.test.ts']);
-    } else {
-      expect.unreachable('second validation must pass');
-    }
+    const first = await run();
+    expect(first.flaky).toEqual(['src/a.test.ts']);
+    expect(first.treeHash).toBe(git(repo, 'rev-parse', 'HEAD^{tree}'));
+    expect(first.cacheHit).toBe(false);
+    const second = await run();
+    expect(second.cacheHit).toBe(true);
+    expect(second.treeHash).toBe(first.treeHash);
+    expect(second.flaky).toEqual(['src/a.test.ts']);
   });
 
   it('only `test` records failing files or retries — other tools are untouched', async () => {

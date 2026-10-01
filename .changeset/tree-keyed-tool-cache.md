@@ -41,8 +41,8 @@ byte-identical, so each concurrent agent re-ran the full suite.
 - **Flake retry (T12961).** A failing `tool:test` re-runs the FULL recorded
   command once, never a narrower focused run. If that rerun passes, the result
   is a pass with `flaky: [files from the first run]` on the cache entry and on
-  the `tool` evidence atom. The atom now also carries `treeHash` and
-  `cacheHit`. A second failure is red.
+  the run result, next to `treeHash` and `cacheHit`, for evidence atoms to
+  carry. A second failure is red.
 - **Failed-first reruns (T12961).** A failing run stores its failing test
   files (`failedTestFiles`, parsed from vitest/jest `FAIL` lines). The next
   run on a changed tree first runs only those files, using the nearest

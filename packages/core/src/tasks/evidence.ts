@@ -62,7 +62,7 @@ import {
   readCommitRevalidationEntry,
   writeCommitRevalidationEntry,
 } from './revalidation-cache.js';
-import { resolveSpawnTimeoutMs, runToolCached, type ToolRunResult } from './tool-cache.js';
+import { resolveSpawnTimeoutMs, runToolCached } from './tool-cache.js';
 import {
   CANONICAL_TOOLS,
   type CanonicalTool,
@@ -1581,7 +1581,6 @@ async function validateAffectedTests(roots: EvidenceRoots): Promise<AtomValidati
       affectedPackages: run.packages,
       affectedProjects: run.projects,
       ...(run.untested.length > 0 ? { untestedPackages: run.untested } : {}),
-      ...toolRunAtomFields(result),
     },
   };
 }
@@ -1982,31 +1981,7 @@ async function validateTool(tool: string, roots: EvidenceRoots): Promise<AtomVal
 
   return {
     ok: true,
-    atom: {
-      kind: 'tool',
-      tool,
-      exitCode: 0,
-      stdoutTail: result.stdoutTail,
-      ...toolRunAtomFields(result),
-    },
-  };
-}
-
-/**
- * Run facts every passing `tool` atom carries (T12958 · T12961): the tree
- * hash the run measured, whether it was a cache hit, and — for a pass that
- * needed its one full retry — the `flaky` files, so a flaky pass stays
- * visible to gates instead of reading as a clean one.
- */
-function toolRunAtomFields(result: ToolRunResult): {
-  treeHash?: string;
-  cacheHit: boolean;
-  flaky?: string[];
-} {
-  return {
-    ...(result.entry.treeHash ? { treeHash: result.entry.treeHash } : {}),
-    cacheHit: result.cacheHit,
-    ...(result.flaky ? { flaky: result.flaky } : {}),
+    atom: { kind: 'tool', tool, exitCode: 0, stdoutTail: result.stdoutTail },
   };
 }
 

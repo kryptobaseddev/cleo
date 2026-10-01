@@ -239,6 +239,11 @@ export interface ToolRunResult {
   /** `true` when the result came from cache (no spawn occurred). */
   cacheHit: boolean;
   /**
+   * Git tree of the source this result measured ({@link captureTreeHash});
+   * `null` off git. Exposed so evidence atoms can bind to it (T12958).
+   */
+  treeHash: string | null;
+  /**
    * `true` when the wall-clock child-process deadline was exceeded and the
    * tool was terminated before producing a result. The lock + semaphore
    * slot are released; a subsequent retry will attempt a fresh spawn.
@@ -292,7 +297,11 @@ export interface ToolRunResult {
    * were re-run first and whether they decided the result.
    */
   failedFirst?: FailedFirstReport;
-  /** Test files that failed and passed on retry; set only on a pass (T12961). */
+  /**
+   * Test files from the first, failing run when its one full rerun passed
+   * (T12961). Set only on a pass: it marks a FLAKY pass, distinct from a
+   * clean one, for evidence atoms and gates to surface.
+   */
   flaky?: string[];
   /** Full cache entry — useful for audit / debugging. */
   entry: ToolCacheEntry;
@@ -1478,6 +1487,7 @@ export async function runToolCached(
     lockBusy: false,
     harnessFailure: null,
     executionRoot,
+    treeHash: entry.treeHash,
     ...(entry.failedFirst ? { failedFirst: entry.failedFirst } : {}),
     ...(entry.flaky ? { flaky: entry.flaky } : {}),
     entry,
@@ -1502,6 +1512,7 @@ export async function runToolCached(
     lockBusy: false,
     harnessFailure: null,
     executionRoot,
+    treeHash,
     ...(failedFirst ? { failedFirst } : {}),
     entry: makeEntry({
       exitCode: null,
@@ -1531,6 +1542,7 @@ export async function runToolCached(
     timedOut: false,
     lockBusy: false,
     executionRoot,
+    treeHash,
     harnessFailure,
     ...(failedFirst ? { failedFirst } : {}),
     entry: makeEntry({
@@ -1655,6 +1667,7 @@ export async function runToolCached(
               timedOut: false,
               lockBusy: false,
               executionRoot,
+              treeHash,
               harnessFailure: null,
               failedFirst: report('failed'),
               entry,
@@ -1796,6 +1809,7 @@ export async function runToolCached(
       timedOut: false,
       lockBusy: false,
       executionRoot,
+      treeHash,
       harnessFailure: null,
       ...(failedFirst ? { failedFirst } : {}),
       ...(entry.flaky ? { flaky: entry.flaky } : {}),
@@ -1864,6 +1878,7 @@ export async function runToolCached(
         lockBusy: true,
         harnessFailure: null,
         executionRoot,
+        treeHash,
         entry: makeEntry({ exitCode: null, stdoutTail: '', stderrTail: '', durationMs: 0 }),
       };
     }

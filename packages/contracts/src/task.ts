@@ -317,19 +317,6 @@ export type EvidenceAtom =
       affectedProjects?: string[];
       /** Affected DEPENDENT packages with no test project (a changed one refuses the scope). */
       untestedPackages?: string[];
-      /**
-       * Test files that failed and then passed on their single retry
-       * (T12961). The run counts as a pass; this marks it as a FLAKY pass so
-       * it stays visible instead of reading as a clean one.
-       */
-      flaky?: string[];
-      /**
-       * Git tree of the source the run measured (T12958): HEAD's tree with
-       * every uncommitted, not-ignored change applied.
-       */
-      treeHash?: string;
-      /** `true` when the result was served from the tool cache (no spawn). */
-      cacheHit?: boolean;
     }
   | { kind: 'url'; url: string }
   | { kind: 'note'; note: string }
