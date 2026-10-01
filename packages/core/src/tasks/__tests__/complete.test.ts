@@ -796,7 +796,7 @@ describe('completeTask', () => {
     it('refuses completion once the PR has merged and only tool:test-affected backs testsPassed', async () => {
       await seedMerged([affected]);
       await expect(completeTask({ taskId: 'T001' }, env.tempDir, accessor)).rejects.toThrow(
-        /testsPassed \(testsPassed was recorded from an affected-scope run; the merged change needs merged CI/,
+        /testsPassed \(testsPassed was recorded from a scoped run .*the merged change needs merged CI/,
       );
       expect((await accessor.loadSingleTask('T001'))?.status).toBe('active');
     });
@@ -874,6 +874,20 @@ describe('completeTask', () => {
           ),
         });
         expect((await accessor.loadSingleTask('T001'))?.status).toBe('active');
+      });
+
+      it('a final red CI refuses with fix-CI-or-run-full, never a wait', async () => {
+        ciResolver.impl = async () => ({
+          ok: false,
+          codeName: 'E_EVIDENCE_TESTS_FAILED',
+          reason: "Required CI on PR #42's merge commit is not green:\n  - CI: failure",
+        });
+        await seedMerged([affected]);
+        const refusal = completeTask({ taskId: 'T001' }, env.tempDir, accessor);
+        await expect(refusal).rejects.toThrow(/ci:42 does not hold.*CI: failure/s);
+        await expect(refusal).rejects.toMatchObject({
+          fix: expect.stringMatching(/fix CI .*tool:test.*tool:lint;tool:typecheck/),
+        });
       });
     });
   });

@@ -245,8 +245,14 @@ function parseNameStatus(output: string): { files: string[]; deleted: string[] }
   return { files, deleted };
 }
 
-/** `origin/<default>` from `origin/HEAD`, never from a possibly stale local branch. */
-function resolveOriginDefault(root: string): string | null {
+/**
+ * `origin/<default>` from `origin/HEAD`, never from a possibly stale local branch.
+ *
+ * @param root - Repository to ask.
+ * @returns The remote-tracking ref (e.g. `origin/main`), or null when none exists.
+ * @task T12624
+ */
+export function resolveOriginDefault(root: string): string | null {
   const symbolic = git(root, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']);
   if (symbolic) return symbolic.replace(/^refs\/remotes\//, '');
   for (const candidate of ['origin/main', 'origin/master']) {
@@ -254,6 +260,33 @@ function resolveOriginDefault(root: string): string | null {
       return candidate;
   }
   return null;
+}
+
+/**
+ * Whether `sha` has landed on origin's default branch in `root`.
+ *
+ * @param root - Repository to ask.
+ * @param sha - Commit to test.
+ * @returns True when it is an ancestor of `origin/<default>`; false when it is
+ *   not, or when no default branch or the commit is unknown here.
+ * @task T12960
+ */
+export function isLandedOnOriginDefault(root: string, sha: string): boolean {
+  const base = resolveOriginDefault(root);
+  return base !== null && isAncestorCommit(root, sha, base);
+}
+
+/**
+ * Whether `ancestor` is contained in `descendant` in `root`.
+ *
+ * @param root - Repository to ask.
+ * @param ancestor - Commit that should be contained.
+ * @param descendant - Commit or ref that should contain it.
+ * @returns True when it is; false when it is not or either is unknown here.
+ * @task T12960
+ */
+export function isAncestorCommit(root: string, ancestor: string, descendant: string): boolean {
+  return git(root, ['merge-base', '--is-ancestor', ancestor, descendant]) !== null;
 }
 
 /**

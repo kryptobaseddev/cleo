@@ -9,10 +9,12 @@
 import type { EvidenceAtom, Task } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
 import {
-  affectedScopeSupersededReason,
-  isAffectedOnly,
+  isScopedOnly,
   mergeStateOfChangeSet,
-  taskAffectedScopeSupersededReason,
+  scopedRunSupersededReason,
+  taskChangeMergeState,
+  testRunTreeMismatchReason,
+  testsPassedSupersededReason,
 } from '../affected-scope.js';
 import type { ChangeSetDeps } from '../change-set.js';
 
@@ -30,6 +32,7 @@ function task(tests: EvidenceAtom[], implemented: EvidenceAtom[] = []): Task {
   return {
     id: 'T9001',
     title: 'affected-scope fixture',
+    description: 'affected-scope fixture',
     status: 'active',
     priority: 'medium',
     createdAt: now,
@@ -50,22 +53,22 @@ function task(tests: EvidenceAtom[], implemented: EvidenceAtom[] = []): Task {
   } as Task;
 }
 
-describe('affectedScopeSupersededReason', () => {
+describe('scopedRunSupersededReason', () => {
   it('an affected-only result stands before merge and not after', () => {
-    expect(affectedScopeSupersededReason([affected], 'unmerged')).toBeNull();
-    expect(affectedScopeSupersededReason([affected], 'merged')).toMatch(/ci:<pr>.*tool:test/);
+    expect(scopedRunSupersededReason([affected], 'unmerged')).toBeNull();
+    expect(scopedRunSupersededReason([affected], 'merged')).toMatch(/ci:<pr>.*tool:test/);
   });
 
   it('fails closed when the merge state is unknown', () => {
-    expect(affectedScopeSupersededReason([affected], 'unknown')).toMatch(
-      /before merge only.*gh was unreachable.*gh auth status.*retry, or record tool:test/,
+    expect(scopedRunSupersededReason([affected], 'unknown')).toMatch(
+      /before merge only.*gh unreachable.*gh auth status.*retry, or record tool:test/,
     );
   });
 
   it('a full tool:test or ci: result keeps testsPassed standing after merge', () => {
-    expect(affectedScopeSupersededReason([affected, fullTest], 'merged')).toBeNull();
-    expect(isAffectedOnly([fullTest])).toBe(false);
-    expect(isAffectedOnly([])).toBe(false);
+    expect(scopedRunSupersededReason([affected, fullTest], 'merged')).toBeNull();
+    expect(isScopedOnly([fullTest])).toBe(false);
+    expect(isScopedOnly([])).toBe(false);
   });
 
   it('a merged-PR change set is merged; a failed PR lookup is unknown', () => {
@@ -77,45 +80,117 @@ describe('affectedScopeSupersededReason', () => {
   });
 });
 
-describe('taskAffectedScopeSupersededReason', () => {
-  const noCall: ChangeSetDeps = {
+describe('test-runs are scoped too (T12959 review)', () => {
+  const testRun: Extract<EvidenceAtom, { kind: 'test-run' }> = {
+    kind: 'test-run',
+    path: 'r.json',
+    sha256: 'c'.repeat(64),
+    passCount: 1,
+    failCount: 0,
+    skipCount: 0,
+  };
+  it('a targeted test-run stops standing after merge, like an affected run', () => {
+    expect(isScopedOnly([testRun])).toBe(true);
+    expect(scopedRunSupersededReason([testRun], 'unmerged')).toBeNull();
+    expect(scopedRunSupersededReason([testRun], 'merged')).toMatch(/scoped run.*ci:<pr>/);
+    expect(scopedRunSupersededReason([testRun, fullTest], 'merged')).toBeNull();
+  });
+
+  it('a moved tree under a test-run is not judged while a full tool:test stands', async () => {
+    const bound: EvidenceAtom = { ...testRun, treeHash: '1'.repeat(40) };
+    expect(testRunTreeMismatchReason([bound], '2'.repeat(40))).toMatch(/no longer describes/);
+    expect(testRunTreeMismatchReason([bound, fullTest], '2'.repeat(40))).toBeNull();
+    expect(
+      await testsPassedSupersededReason([bound], {
+        mergeState: () => 'unmerged',
+        currentTree: () => '2'.repeat(40),
+      }),
+    ).toMatch(/no longer describes/);
+  });
+});
+
+describe('taskChangeMergeState judges the LATEST implementation (T12960 review)', () => {
+  const pr = (prNumber: number, mergedAt: string): EvidenceAtom => ({
+    kind: 'pr',
+    prNumber,
+    mergeCommitSha: String(prNumber).padStart(40, '0'),
+    mergedAt,
+    successCount: 1,
+    totalChecks: 1,
+  });
+  const commit = (sha: string): EvidenceAtom => ({
+    kind: 'commit',
+    sha,
+    shortSha: sha.slice(0, 7),
+  });
+  const noDerive: ChangeSetDeps = {
     listMergedPrs: async () => {
       throw new Error('must not derive the change set');
     },
   };
 
-  it('a recorded pr: implemented atom proves the merge without deriving anything', async () => {
+  it('a recorded commit that has not landed means unmerged, whatever PR merged earlier', async () => {
+    const t = task([affected], [pr(42, '2026-09-01T00:00:00Z'), commit('f'.repeat(40))]);
+    const info = await taskChangeMergeState(t, '/nonexistent', {
+      changeSet: noDerive,
+      executionRoot: '/repo',
+      isLanded: () => false,
+      contains: () => true,
+    });
+    expect(info).toEqual({ state: 'unmerged', changeSet: null, prRef: null });
+  });
+
+  it('picks the newest merged PR that contains every recorded commit', async () => {
     const t = task(
       [affected],
-      [
-        {
-          kind: 'pr',
-          prNumber: 42,
-          mergeCommitSha: 'a'.repeat(40),
-          mergedAt: '2026-09-28T00:00:00Z',
-          successCount: 1,
-          totalChecks: 1,
-        },
-      ],
+      [pr(50, '2026-09-02T00:00:00Z'), pr(42, '2026-09-01T00:00:00Z'), commit('f'.repeat(40))],
     );
-    expect(await taskAffectedScopeSupersededReason(t, '/nonexistent', noCall)).toMatch(/merged/);
+    const info = await taskChangeMergeState(t, '/nonexistent', {
+      changeSet: noDerive,
+      executionRoot: '/repo',
+      isLanded: () => true,
+      contains: (_r, _a, merge) => merge.endsWith('42'),
+    });
+    expect(info).toMatchObject({ state: 'merged', prRef: '42' });
   });
 
-  it('a task whose testsPassed is not affected-only pays nothing', async () => {
-    expect(await taskAffectedScopeSupersededReason(task([fullTest]), '/nonexistent', noCall)).toBe(
-      null,
-    );
+  it('pr atoms alone: the newest by mergedAt, not the last recorded', async () => {
+    const t = task([affected], [pr(50, '2026-09-02T00:00:00Z'), pr(42, '2026-09-01T00:00:00Z')]);
+    const info = await taskChangeMergeState(t, '/nonexistent', { changeSet: noDerive });
+    expect(info).toMatchObject({ state: 'merged', prRef: '50' });
   });
 
-  it('when the merged-PR lookup fails, an affected-only testsPassed does not stand', async () => {
+  it('commits that landed without a recorded PR are merged (fail closed for scoped evidence)', async () => {
+    const t = task([affected], [commit('f'.repeat(40))]);
+    const info = await taskChangeMergeState(t, '/nonexistent', {
+      changeSet: {
+        listMergedPrs: async () => ({ ok: true, prs: [] }),
+        listTaskDocs: async () => [],
+        listTaskDecisions: async () => [],
+        env: {},
+      },
+      executionRoot: '/repo',
+      isLanded: () => true,
+      contains: () => false,
+    });
+    expect(info.state).toBe('merged');
+    expect(info.prRef).toBeNull();
+    expect(
+      scopedRunSupersededReason(t.verification?.evidence?.testsPassed?.atoms ?? [], info.state),
+    ).toMatch(/merged change needs merged CI/);
+  });
+
+  it('when the merged-PR lookup fails, the state is unknown and a scoped testsPassed does not stand', async () => {
     const failing: ChangeSetDeps = {
       listMergedPrs: async () => ({ ok: false, reason: 'gh unavailable' }),
       listTaskDocs: async () => [],
       listTaskDecisions: async () => [],
       env: {},
     };
-    expect(
-      await taskAffectedScopeSupersededReason(task([affected]), '/nonexistent', failing),
-    ).toMatch(/before merge only/);
+    const info = await taskChangeMergeState(task([affected]), '/nonexistent', {
+      changeSet: failing,
+    });
+    expect(info.state).toBe('unknown');
+    expect(scopedRunSupersededReason([affected], info.state)).toMatch(/before merge only/);
   });
 });

@@ -24,7 +24,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
-import { dirname, isAbsolute, join, relative, resolve as resolvePath } from 'node:path';
+import { dirname, isAbsolute, join, resolve as resolvePath } from 'node:path';
 
 import type {
   EvidenceAtom,
@@ -63,6 +63,11 @@ import {
   readCommitRevalidationEntry,
   writeCommitRevalidationEntry,
 } from './revalidation-cache.js';
+import {
+  coveredTestFiles,
+  TEST_RUN_MAX_RECORDED_FILES,
+  testRunBindingRefusal,
+} from './test-run-binding.js';
 import { resolveSpawnTimeoutMs, runToolCached, type ToolRunResult } from './tool-cache.js';
 import {
   CANONICAL_TOOLS,
@@ -1531,6 +1536,7 @@ async function validateFiles(
 
 interface VitestJsonLike {
   testResults?: Array<{ status?: string; name?: string }>;
+  startTime?: number;
   numTotalTests?: number;
   numPassedTests?: number;
   numFailedTests?: number;
@@ -1593,6 +1599,7 @@ async function runAffectedTests(
       exitCode: 0,
       stdoutTail: result.stdoutTail,
       scope: 'affected',
+      scopeReason: AFFECTED_SCOPE_BASIS,
       affectedPackages: run.packages,
       affectedProjects: run.projects,
       ...(run.untested.length > 0 ? { untestedPackages: run.untested } : {}),
@@ -1600,6 +1607,14 @@ async function runAffectedTests(
     },
   };
 }
+
+/**
+ * What an affected scope rests on (T12959 review): dependents come only from
+ * DECLARED workspace package dependencies, so an undeclared runtime coupling
+ * is not in the set.
+ */
+const AFFECTED_SCOPE_BASIS =
+  'changed packages plus their dependents from declared workspace package dependencies only';
 
 /**
  * Resolve the tree that evidence tools should RUN in, given the CLEO store
@@ -1801,11 +1816,17 @@ async function validateTestRun(path: string, roots: EvidenceRoots): Promise<Atom
     }
   }
 
-  // T12965: bind the report to the code it ran on — HEAD, the tracked tree and
-  // the test files it covered — so `cleo complete` can refuse it once the
-  // tree has moved on. A non-git execution root records no binding.
-  const identity = captureTreeIdentity(executionRoot);
+  // T12965: bind the report to the change it claims to test. A report older
+  // than the change, or covering none of its packages, is refused; HEAD, the
+  // tracked tree and the covered files are recorded so `cleo complete` can
+  // refuse it once the tree moves. See test-run-binding.ts for exactly what
+  // this guarantees (and what it does not). A non-git root records no binding.
   const testFiles = coveredTestFiles(parsed, executionRoot);
+  const identity = captureTreeIdentity(executionRoot);
+  if (identity) {
+    const refusal = testRunBindingRefusal(parsed, abs, executionRoot, testFiles);
+    if (refusal) return { ok: false, reason: refusal, codeName: 'E_EVIDENCE_STALE' };
+  }
   return {
     ok: true,
     atom: {
@@ -1830,23 +1851,6 @@ async function validateTestRun(path: string, roots: EvidenceRoots): Promise<Atom
   };
 }
 
-/**
- * Most test files a `test-run:` atom lists (T12965); `testFileCount` keeps
- * the true total when a full-suite report covers more.
- */
-const TEST_RUN_MAX_RECORDED_FILES = 200;
-
-/** The report's test files, relative to `root` where they lie inside it, sorted and unique. */
-function coveredTestFiles(parsed: VitestJsonLike, root: string): string[] {
-  if (!Array.isArray(parsed.testResults)) return [];
-  const files = parsed.testResults.flatMap((tr) => {
-    if (typeof tr.name !== 'string' || tr.name === '') return [];
-    const rel = isAbsolute(tr.name) ? relative(root, tr.name) : tr.name;
-    return [rel.startsWith('..') || isAbsolute(rel) ? tr.name : rel.split('\\').join('/')];
-  });
-  return [...new Set(files)].sort();
-}
-
 async function validateTool(
   tool: string,
   roots: EvidenceRoots,
@@ -1866,7 +1870,11 @@ async function validateTool(
         ? {
             mergeState: async () => {
               const { taskChangeMergeState } = await import('./affected-scope.js');
-              return (await taskChangeMergeState(task, roots.storeRoot)).state;
+              return (
+                await taskChangeMergeState(task, roots.storeRoot, {
+                  executionRoot: roots.executionRoot,
+                })
+              ).state;
             },
           }
         : {}),

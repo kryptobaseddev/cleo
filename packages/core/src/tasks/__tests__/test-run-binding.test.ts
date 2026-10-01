@@ -38,12 +38,13 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-function report(files: string[]): string {
+function report(files: string[], startTime?: number): string {
   mkdirSync(join(root, 'reports'), { recursive: true });
   const path = join(root, 'reports', 'vitest.json');
   writeFileSync(
     path,
     JSON.stringify({
+      ...(startTime !== undefined ? { startTime } : {}),
       numTotalTests: files.length,
       numPassedTests: files.length,
       numFailedTests: 0,
@@ -166,5 +167,63 @@ describe('testRunTreeMismatchReason', () => {
     expect(testRunTreeMismatchReason(atoms, captureTreeIdentity(root)?.treeHash ?? null)).toMatch(
       /no longer describes this code/,
     );
+  });
+});
+
+describe('a report must be fresher than the change and cover it (T12965 review)', () => {
+  it('refuses a report that started before a tracked file of the change was edited', async () => {
+    writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 9;\n');
+    const path = report([join(root, 'src', 'a.test.ts')], Date.now() - 60_000);
+    const r = await validateAtom({ kind: 'test-run', path }, root);
+    expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_STALE');
+    expect(!r.ok && r.reason).toMatch(/stale.*src\/a\.ts.*after the run/);
+  });
+
+  it('accepts a report that started after the last edit (committing later is fine)', async () => {
+    writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 9;\n');
+    const path = report([join(root, 'src', 'a.test.ts')], Date.now() + 5_000);
+    const r = await validateAtom({ kind: 'test-run', path }, root);
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+  });
+
+  describe('relevance in a workspace with an origin', () => {
+    beforeEach(() => {
+      writeFileSync(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n');
+      for (const name of ['a', 'b']) {
+        mkdirSync(join(root, 'packages', name, 'src'), { recursive: true });
+        writeFileSync(
+          join(root, 'packages', name, 'package.json'),
+          JSON.stringify({ name: `@x/${name}`, scripts: { test: 'vitest run' } }),
+        );
+        writeFileSync(join(root, 'packages', name, 'src', 'index.ts'), 'export {};\n');
+      }
+      git(root, ['add', '.']);
+      git(root, ['commit', '-q', '-m', 'workspace']);
+      const origin = `${root}-origin.git`;
+      execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin]);
+      git(root, ['remote', 'add', 'origin', origin]);
+      git(root, ['push', '-q', '-u', 'origin', 'main']);
+      git(root, ['remote', 'set-head', 'origin', 'main']);
+      git(root, ['switch', '-q', '-c', 'task/T1']);
+      writeFileSync(join(root, 'packages', 'a', 'src', 'index.ts'), 'export const x = 1;\n');
+      git(root, ['commit', '-q', '-am', 'T1: change a']);
+    });
+    afterEach(() => rmSync(`${root}-origin.git`, { recursive: true, force: true }));
+
+    it('refuses a report covering none of the changed packages', async () => {
+      const path = report([join(root, 'packages', 'b', 'src', 'b.test.ts')], Date.now() + 5_000);
+      const r = await validateAtom({ kind: 'test-run', path }, root);
+      expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(
+        /covers none of the changed package\(s\) @x\/a/,
+      );
+    });
+
+    it('accepts a report that covers a changed package', async () => {
+      const path = report([join(root, 'packages', 'a', 'src', 'a.test.ts')], Date.now() + 5_000);
+      const r = await validateAtom({ kind: 'test-run', path }, root);
+      expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({
+        testFiles: ['packages/a/src/a.test.ts'],
+      });
+    });
   });
 });

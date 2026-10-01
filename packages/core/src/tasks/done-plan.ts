@@ -51,7 +51,7 @@ import { readRequiredCheckPins } from '../release/pr-evidence.js';
 
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { planAffectedTestRun } from './affected-packages.js';
-import { affectedScopeSupersededReason, mergeStateOfChangeSet } from './affected-scope.js';
+import { mergeStateOfChangeSet, testsPassedSupersededReason } from './affected-scope.js';
 import { type ChangeSetDeps, deriveTaskChangeSet } from './change-set.js';
 import {
   checkGateEvidenceMinimumDetailed,
@@ -62,6 +62,7 @@ import { extractTypedGates } from './gate-runner.js';
 import { captureTreeHash, computeCacheKey, readCacheEntry } from './tool-cache.js';
 import { captureEnvFingerprint } from './tool-cache-env.js';
 import { type ResolvedToolCommand, resolveToolCommand } from './tool-resolver.js';
+import { captureTreeIdentity } from './tree-identity.js';
 import { loadVerificationGatePolicy } from './verification-policy.js';
 
 /**
@@ -664,12 +665,16 @@ export async function deriveTaskEvidence(
     opts.deps,
   );
   const root = changeSet.executionRoot;
-  // T12635 (D11150): a scope:affected testsPassed only stands before merge.
-  // Once the change set is a merged PR, merged CI or a full run supersedes it.
+  // T12635 (D11150): a scoped testsPassed only stands before merge. Once the
+  // change set is a merged PR, merged CI or a full run supersedes it; a
+  // tree-bound test-run also stops standing once its tree moves (T12965).
   // T12656: the same rule `cleo complete` enforces (one shared function).
-  const supersededReason = affectedScopeSupersededReason(
+  const supersededReason = await testsPassedSupersededReason(
     task.verification?.evidence?.testsPassed?.atoms ?? [],
-    mergeStateOfChangeSet(changeSet),
+    {
+      mergeState: () => mergeStateOfChangeSet(changeSet),
+      currentTree: () => captureTreeIdentity(root)?.treeHash ?? null,
+    },
   );
   const superseded = supersededReason !== null;
   if (supersededReason) changeSet.warnings.push(supersededReason);

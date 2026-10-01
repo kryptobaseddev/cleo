@@ -520,6 +520,30 @@ describe('tool:test-affected evidence', () => {
       expect(r.ok && r.atom.kind === 'tool' && r.atom.scopeReason).toMatch(/merged/);
     });
 
+    it('an affected dependent with no test project fails closed to the full suite', async () => {
+      writeFileSync(
+        join(root, 'packages/b/package.json'),
+        JSON.stringify({ name: '@x/b', dependencies: { '@x/a': 'workspace:*' } }),
+      );
+      initRepo('node -e "process.exit(3)" {packages}');
+      writeFileSync(join(root, 'packages/a/src/index.ts'), "export const n = 'changed';\n");
+      git(root, ['commit', '-q', '-am', 'T1: change a']);
+      const r = await validateAtom({ kind: 'tool', tool: 'test' }, root);
+      expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({ scope: 'full' });
+      expect(r.ok && r.atom.kind === 'tool' && r.atom.scopeReason).toMatch(
+        /@x\/b.*no test project/,
+      );
+    });
+
+    it('an affected atom says its dependents come from declared package deps only', async () => {
+      initRepo(onlyC);
+      changeC();
+      const r = await validateAtom({ kind: 'tool', tool: 'test' }, root);
+      expect(r.ok && r.atom.kind === 'tool' && r.atom.scopeReason).toMatch(
+        /declared workspace package dependencies only/,
+      );
+    });
+
     it('a failing affected run fails tool:test', async () => {
       initRepo('node -e "process.exit(1)" {packages}');
       changeC();

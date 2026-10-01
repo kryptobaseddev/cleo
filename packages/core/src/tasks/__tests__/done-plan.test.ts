@@ -618,7 +618,7 @@ describe('merged-PR CI replaces local tool runs when the project opts in (T12634
     const tests = plan.gates.find((g) => g.gate === 'testsPassed');
     expect(tests?.passed).toBe(false);
     expect(tests?.evidence).toBe(`ci:42;satisfies:${plan.taskId}#AC1`);
-    expect(plan.changeSet.warnings.join(' ')).toMatch(/affected-scope run/);
+    expect(plan.changeSet.warnings.join(' ')).toMatch(/scoped run/);
   });
 
   it('without the opt-in, the same PR still plans local tool runs', async () => {

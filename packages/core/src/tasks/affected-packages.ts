@@ -656,7 +656,8 @@ export type ScopedTestRun =
  * not known to be unmerged (a scoped run counts before merge only, D11150);
  * otherwise whatever {@link planAffectedTestRun} decides, its refusal (root
  * config changed, no origin, nothing touched, …) becoming the full run's
- * recorded reason.
+ * recorded reason. An affected plan that would leave a dependent package
+ * untested (no test project) also runs the full suite.
  *
  * @param storeRoot - CLEO store root (project context).
  * @param root - Execution root whose diff defines the set.
@@ -700,6 +701,14 @@ export async function planScopedTestRun(
     }
   }
   const run = await planAffectedTestRun(storeRoot, root, { wait: opts.wait === true });
+  // T12959 review: an affected dependent with no test project would go
+  // untested — the canonical tool:test fails closed to the full suite.
+  if (run.ok && run.untested.length > 0) {
+    return {
+      scope: 'full',
+      reason: `affected dependent package(s) ${run.untested.join(', ')} have no test project; an affected run would leave them untested`,
+    };
+  }
   if (run.ok) return { scope: 'affected', run };
   if (run.pending) return { scope: 'pending', reason: run.reason };
   return { scope: 'full', reason: run.reason };

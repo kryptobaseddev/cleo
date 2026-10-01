@@ -940,7 +940,7 @@
     "packages/core/src/tasks/axis-filters.ts :: ExitCode.VALIDATION_ERROR": 2,
     "packages/core/src/tasks/child-disposition.ts :: ExitCode.HAS_CHILDREN": 1,
     "packages/core/src/tasks/command-line.ts :: Error": 4,
-    "packages/core/src/tasks/complete.ts :: CleoError": 4,
+    "packages/core/src/tasks/complete.ts :: CleoError": 3,
     "packages/core/src/tasks/complete.ts :: E_EVIDENCE_MISSING": 1,
     "packages/core/src/tasks/complete.ts :: E_EVIDENCE_STALE": 1,
     "packages/core/src/tasks/complete.ts :: E_INTERNAL": 2,

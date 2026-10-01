@@ -332,7 +332,11 @@ export type EvidenceAtom =
        * affected planner refused; `scopeReason` says which when known.
        */
       scope?: 'affected' | 'full';
-      /** Why a scope-aware `tool:test` ran the full suite (with `scope: 'full'`, T12959). */
+      /**
+       * With `scope: 'full'`: why a scope-aware `tool:test` ran the full suite.
+       * With `scope: 'affected'`: what the scope rests on — dependents come
+       * only from declared workspace package dependencies (T12959).
+       */
       scopeReason?: string;
       /** The packages the affected run covered (with `scope: 'affected'`). */
       affectedPackages?: string[];

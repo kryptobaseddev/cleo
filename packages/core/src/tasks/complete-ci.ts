@@ -1,32 +1,40 @@
 /**
  * `cleo complete` proves testsPassed/qaPassed from merged CI itself (T12960).
  *
- * Once a task's PR has merged, its required CI on the merge commit is the
- * strongest test evidence there is (D11149), and the scoped or targeted runs
- * recorded before merge stop counting (D11150, T12656, T12965). Rather than
- * refuse and send the agent off to run the whole suite locally, completion
- * synthesizes the `ci:<pr>` atom, validates it through the one gate-write path
- * (`validateGateVerify`, so nothing here is a second validator), and records it
- * with a note saying who recorded it and why. Red or still-running CI is a
- * refusal that says to wait for CI — never to run the suite.
+ * Once a task's latest implementation has merged, its PR's required CI on the
+ * merge commit is the strongest test evidence there is (D11149), and the
+ * scoped runs recorded before merge stop counting (D11150, T12656, T12965).
+ * Rather than refuse and send the agent off to run the whole suite locally,
+ * completion synthesizes the `ci:<pr>` atom, validates it through the one
+ * gate-write path (`validateGateVerify`, so nothing here is a second
+ * validator), and records it with a note saying who recorded it and why.
+ *
+ * When CI does not hold, the refusal names the remedy that can work: still
+ * pending → wait for CI and retry; a final red, a skipped or missing required
+ * job, or a PR the `pr:` check refuses → fix CI, or record a full `tool:test`
+ * (plus `tool:lint`/`tool:typecheck`). Never an open-ended wait on CI that has
+ * already concluded.
+ *
+ * Gates recorded here persist even when completion then fails on a later,
+ * unrelated check (dependencies, AC coverage, IVTR): they are valid evidence
+ * on their own, validated through the same path as `cleo verify`, and the
+ * next `cleo complete` reuses them instead of resolving CI again.
  *
  * @task T12960
  * @task T12656
  * @task T12965
  */
 
-import type { AcRow, EvidenceAtom, Task, VerificationGate } from '@cleocode/contracts';
+import type { AcRow, Task, VerificationGate } from '@cleocode/contracts';
 import type { EngineResult } from '../engine-result.js';
 import { readCiSatisfies } from '../release/ci-evidence.js';
 import type { GateVerifyParams, GateVerifyResult } from '../validation/engine-ops.js';
 import {
-  affectedScopeSupersededReason,
-  type ChangeMergeState,
-  isAffectedOnly,
+  type MergeProbeDeps,
+  type TaskMergeInfo,
   taskChangeMergeState,
-  testRunTreeMismatchReason,
+  testsPassedSupersededReason,
 } from './affected-scope.js';
-import type { ChangeSetDeps } from './change-set.js';
 import { resolveEvidenceExecutionRoot } from './evidence.js';
 import { captureTreeIdentity } from './tree-identity.js';
 
@@ -35,8 +43,8 @@ const CI_GATES: readonly VerificationGate[] = ['testsPassed', 'qaPassed'];
 
 /** Injectable I/O for {@link satisfyGatesFromMergedCi}. */
 export interface MergedCiDeps {
-  /** Change-set I/O for the merge-state lookup (tests inject `gh`). */
-  changeSet?: ChangeSetDeps;
+  /** Merge-state probes (change-set `gh` lookup, git ancestry). */
+  merge?: MergeProbeDeps;
   /** Whether the project accepts `ci:<pr>` evidence; defaults to `evidence.ciSatisfies`. */
   ciSatisfies?: (storeRoot: string) => boolean;
   /** Current tracked tree hash of the execution root; defaults to `git`. */
@@ -61,12 +69,19 @@ export type MergedCiOutcome =
       gates: VerificationGate[];
     }
   | {
-      /**
-       * The change merged, but its required CI is red or still running: wait
-       * for CI and retry. Running the suite locally is not the remedy.
-       */
+      /** The change merged and its required CI is still running: wait and retry. */
       kind: 'wait-for-ci';
-      /** Why the CI does not hold, for the refusal. */
+      /** Why the CI does not hold yet. */
+      reason: string;
+    }
+  | {
+      /**
+       * The change merged and its required CI concluded without proving the
+       * gates (red, skipped or missing required jobs, or the PR is refused):
+       * fix CI, or record a full local run.
+       */
+      kind: 'ci-red';
+      /** Why the CI does not hold. */
       reason: string;
     }
   | {
@@ -78,14 +93,22 @@ export type MergedCiOutcome =
       ciUnavailable?: string;
     };
 
-/** The `ci:` reference for a task's merged PR, or null when none is known. */
-function prRefFromImplemented(task: Task): string | null {
-  const atoms = task.verification?.evidence?.implemented?.atoms ?? [];
-  const pr = atoms.findLast((a): a is Extract<EvidenceAtom, { kind: 'pr' }> => a.kind === 'pr');
-  if (!pr) return null;
-  return pr.componentPrNumber !== undefined
-    ? `${pr.componentPrNumber}@${pr.prNumber}`
-    : String(pr.prNumber);
+/**
+ * Whether a CI refusal describes checks that have not concluded yet, as
+ * opposed to a final failure. Pending only when the reason names a pending
+ * run and no concluded failure, skip or missing check.
+ *
+ * @param reason - The refusal text from the `ci:`/`pr:` validators.
+ * @returns True when waiting for CI can resolve it.
+ * @task T12960
+ */
+export function isPendingCiReason(reason: string): boolean {
+  return (
+    /\bpending\b|\bin_progress\b|\bqueued\b/i.test(reason) &&
+    !/\b(failure|failed|cancelled|timed_out|action_required|missing|skipped|not found|no SUCCESS)\b/i.test(
+      reason,
+    )
+  );
 }
 
 /** `satisfies:` links for a CI write: the gate's prior criteria, else implemented's. */
@@ -118,21 +141,26 @@ async function defaultAcRows(storeRoot: string, taskId: string): Promise<readonl
   return (await getTaskAccessor(storeRoot)).getAcRows(taskId);
 }
 
+/** Classify a CI refusal as pending (wait) or concluded (fix or run locally). */
+function ciRefusal(reason: string): MergedCiOutcome {
+  return isPendingCiReason(reason) ? { kind: 'wait-for-ci', reason } : { kind: 'ci-red', reason };
+}
+
 /**
  * Satisfy a task's testsPassed/qaPassed from its merged PR's required CI when
  * they are missing or no longer stand, before `cleo complete` checks gates.
  *
  * Runs only for required CI gates that are unrecorded, or a testsPassed that
- * rests on an affected-only run after merge (T12656) or on a `test-run:`
- * whose tree has moved (T12965). Ordinary completions with standing gates pay
- * nothing. The PR comes from the task's `pr:` implemented atom, else from the
- * change-set derivation `cleo done` uses; a stacked PR is not judged here.
+ * {@link testsPassedSupersededReason} no longer accepts (a scoped run after
+ * merge, or a test-run whose tree moved). Ordinary completions with standing
+ * gates pay nothing. The PR is the merged PR that contains the task's latest
+ * implementation ({@link taskChangeMergeState}); a stacked PR is not judged.
  *
  * @param task - The task being completed (as loaded).
  * @param storeRoot - CLEO store root.
  * @param requiredGates - The project's required verification gates.
  * @param deps - Injectable I/O.
- * @returns What was recorded, a wait-for-CI refusal, or why nothing was.
+ * @returns What was recorded, a CI refusal, or why nothing was.
  * @example
  * ```ts
  * const ci = await satisfyGatesFromMergedCi(task, root, ['implemented', 'testsPassed']);
@@ -149,25 +177,19 @@ export async function satisfyGatesFromMergedCi(
   const ciGates = CI_GATES.filter((g) => requiredGates.includes(g));
   if (ciGates.length === 0) return { kind: 'skipped', testsPassedReason: null };
 
-  let merge: Awaited<ReturnType<typeof taskChangeMergeState>> | undefined;
-  const mergeState = async (): Promise<ChangeMergeState> => {
-    merge ??= await taskChangeMergeState(task, storeRoot, deps.changeSet);
-    return merge.state;
+  let merge: TaskMergeInfo | undefined;
+  const mergeInfo = async (): Promise<TaskMergeInfo> => {
+    merge ??= await taskChangeMergeState(task, storeRoot, deps.merge);
+    return merge;
   };
 
-  const testsAtoms = task.verification?.evidence?.testsPassed?.atoms ?? [];
-  let testsPassedReason: string | null = null;
-  if (task.verification?.gates?.testsPassed === true && ciGates.includes('testsPassed')) {
-    if (testsAtoms.some((a) => a.kind === 'test-run' && a.treeHash !== undefined)) {
-      testsPassedReason = testRunTreeMismatchReason(
-        testsAtoms,
-        (deps.currentTree ?? defaultCurrentTree)(storeRoot),
-      );
-    }
-    if (testsPassedReason === null && isAffectedOnly(testsAtoms)) {
-      testsPassedReason = affectedScopeSupersededReason(testsAtoms, await mergeState());
-    }
-  }
+  const testsPassedReason =
+    task.verification?.gates?.testsPassed === true && ciGates.includes('testsPassed')
+      ? await testsPassedSupersededReason(task.verification?.evidence?.testsPassed?.atoms ?? [], {
+          mergeState: async () => (await mergeInfo()).state,
+          currentTree: () => (deps.currentTree ?? defaultCurrentTree)(storeRoot),
+        })
+      : null;
   const needs = ciGates.filter(
     (g) =>
       task.verification?.gates?.[g] !== true || (g === 'testsPassed' && testsPassedReason !== null),
@@ -177,32 +199,22 @@ export async function satisfyGatesFromMergedCi(
     return { kind: 'skipped', testsPassedReason };
   }
 
-  let pr = prRefFromImplemented(task);
-  if (pr === null) {
-    const state = await mergeState();
-    const cs = merge?.changeSet ?? null;
-    if (cs?.source === 'pr' && cs.prNumber !== undefined && cs.stackedOn === undefined) {
-      pr =
-        cs.componentPrNumber !== undefined
-          ? `${cs.componentPrNumber}@${cs.prNumber}`
-          : String(cs.prNumber);
-    } else if (state === 'merged') {
-      // The PR merged, yet the `pr:` check behind the change set refused it —
-      // its required checks are red or have not reported.
-      const why = [...(cs?.warnings ?? []), ...(cs?.blockers.map((b) => b.message) ?? [])].join(
-        ' ',
-      );
-      return {
-        kind: 'wait-for-ci',
-        reason: `the change has merged but its PR's required CI does not hold yet${why ? ` (${why})` : ''}`,
-      };
-    } else {
-      return { kind: 'skipped', testsPassedReason };
-    }
+  const { state, prRef, changeSet } = await mergeInfo();
+  if (state !== 'merged') return { kind: 'skipped', testsPassedReason };
+  if (prRef === null) {
+    // The change landed, yet no merged PR passed the `pr:` check — its
+    // required checks did not hold, or the PR is refused outright.
+    const why = [
+      ...(changeSet?.warnings ?? []),
+      ...(changeSet?.blockers.map((b) => b.message) ?? []),
+    ].join(' ');
+    return ciRefusal(
+      `the change has merged but no merged PR's required CI proves it${why ? ` (${why})` : ''}`,
+    );
   }
 
   const rows = await (deps.acRows ?? defaultAcRows)(storeRoot, task.id);
-  const note = `note:recorded by cleo complete from the required CI of merged PR #${pr} (T12960)`;
+  const note = `note:recorded by cleo complete from the required CI of merged PR #${prRef} (T12960)`;
   const gateEvidence: Partial<Record<VerificationGate, string>> = {};
   for (const gate of needs) {
     const links = criterionLinks(task, gate, rows);
@@ -210,10 +222,10 @@ export async function satisfyGatesFromMergedCi(
       return {
         kind: 'skipped',
         testsPassedReason,
-        ciUnavailable: `merged CI could record ${gate}, but no criterion link is on record to carry over: cleo verify ${task.id} --gate ${gate} --evidence "ci:${pr};satisfies:${task.id}#AC<n>"`,
+        ciUnavailable: `merged CI could record ${gate}, but no criterion link is on record to carry over: cleo verify ${task.id} --gate ${gate} --evidence "ci:${prRef};satisfies:${task.id}#AC<n>"`,
       };
     }
-    gateEvidence[gate] = [`ci:${pr}`, note, ...links].join(';');
+    gateEvidence[gate] = [`ci:${prRef}`, note, ...links].join(';');
   }
 
   const written = await (deps.recordGates ?? defaultRecordGates)(storeRoot, {
@@ -221,11 +233,9 @@ export async function satisfyGatesFromMergedCi(
     gateEvidence,
     agent: 'cleo-complete',
   });
-  if (written.success) return { kind: 'recorded', pr, gates: needs };
+  if (written.success) return { kind: 'recorded', pr: prRef, gates: needs };
   const code = written.error?.code ?? 'E_INTERNAL';
   const message = written.error?.message ?? 'unknown error';
-  if (code === 'E_EVIDENCE_TESTS_FAILED') {
-    return { kind: 'wait-for-ci', reason: `ci:${pr} does not hold: ${message}` };
-  }
-  return { kind: 'skipped', testsPassedReason, ciUnavailable: `ci:${pr} (${code}): ${message}` };
+  if (code === 'E_EVIDENCE_TESTS_FAILED') return ciRefusal(`ci:${prRef} does not hold: ${message}`);
+  return { kind: 'skipped', testsPassedReason, ciUnavailable: `ci:${prRef} (${code}): ${message}` };
 }

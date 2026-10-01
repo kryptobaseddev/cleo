@@ -20,12 +20,11 @@ import type {
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { type EngineResult, engineError, engineSuccess } from '../../engine-result.js';
 import type { GateVerifyParams, GateVerifyResult } from '../../validation/engine-ops.js';
-import type { ChangeMergeState } from '../affected-scope.js';
-import type { ChangeSetDeps } from '../change-set.js';
+import type { TaskMergeInfo } from '../affected-scope.js';
 import { type MergedCiDeps, satisfyGatesFromMergedCi } from '../complete-ci.js';
 
 const mergeOverride = vi.hoisted(() => ({
-  value: null as null | { state: ChangeMergeState; changeSet: TaskChangeSet | null },
+  value: null as null | TaskMergeInfo,
 }));
 
 vi.mock('../affected-scope.js', async (importOriginal) => {
@@ -218,11 +217,11 @@ describe('satisfyGatesFromMergedCi', () => {
     expect(Object.keys(w.calls[0]?.gateEvidence ?? {})).toEqual(['testsPassed']);
   });
 
-  it('red or pending CI is a wait-for-CI refusal, never a local-run demand', async () => {
+  it('pending CI is a wait-for-CI refusal, never a local-run demand', async () => {
     const w = recorder(
       engineError<GateVerifyResult>(
         'E_EVIDENCE_TESTS_FAILED',
-        "Required CI on PR #42's merge commit is not green: CI: in_progress",
+        "Required CI on PR #42's merge commit is not green:\n  - CI: pending (in_progress) on aaaaaaaaaaaa",
       ),
     );
     const out = await satisfyGatesFromMergedCi(
@@ -232,17 +231,34 @@ describe('satisfyGatesFromMergedCi', () => {
       deps({ recordGates: w.recordGates }),
     );
     expect(out.kind).toBe('wait-for-ci');
-    expect(out.kind === 'wait-for-ci' && out.reason).toMatch(/ci:42 does not hold.*in_progress/);
+    expect(out.kind === 'wait-for-ci' && out.reason).toMatch(/ci:42 does not hold.*in_progress/s);
   });
 
-  it('merged, but the PR behind the change set was refused: wait for CI', async () => {
+  it('a final red or a skipped required job is ci-red, never an endless wait', async () => {
+    for (const message of [
+      "Required CI on PR #42's merge commit is not green:\n  - CI: failure on aaaaaaaaaaaa",
+      'testsPassed for code task T9001 needs its jobs to have run on PR #42:\n  - Unit Tests: skipped',
+      "Required CI on PR #42's merge commit is not green:\n  - CI: missing",
+    ]) {
+      const w = recorder(engineError<GateVerifyResult>('E_EVIDENCE_TESTS_FAILED', message));
+      const out = await satisfyGatesFromMergedCi(
+        task({ tests: [affected], qa: true }),
+        '/nonexistent',
+        REQUIRED,
+        deps({ recordGates: w.recordGates }),
+      );
+      expect(out.kind, message).toBe('ci-red');
+    }
+  });
+
+  it('merged, but no merged PR passed the pr: check: ci-red with the refusal', async () => {
     mergeOverride.value = {
       state: 'merged',
+      prRef: null,
       changeSet: changeSet({
         source: 'branch',
         mergeState: 'merged',
-        warnings: ['PR #42 failed the pr: check — derived from the task branch instead.'],
-        blockers: [],
+        warnings: ['PR #42 is documentation-only — derived from the task branch instead.'],
       }),
     };
     const w = recorder(ok);
@@ -255,21 +271,37 @@ describe('satisfyGatesFromMergedCi', () => {
       REQUIRED,
       deps({ recordGates: w.recordGates }),
     );
-    expect(out.kind).toBe('wait-for-ci');
-    expect(out.kind === 'wait-for-ci' && out.reason).toMatch(/merged.*PR #42 failed the pr: check/);
+    expect(out.kind).toBe('ci-red');
+    expect(out.kind === 'ci-red' && out.reason).toMatch(/merged.*PR #42 is documentation-only/);
     expect(w.calls).toHaveLength(0);
   });
 
-  it('a change set from a merged PR supplies the PR when no pr: atom is recorded', async () => {
+  it('merged, and the PR checks are still pending: wait for CI', async () => {
     mergeOverride.value = {
       state: 'merged',
+      prRef: null,
       changeSet: changeSet({
-        source: 'pr',
-        prNumber: 77,
-        warnings: [],
-        blockers: [],
+        source: 'branch',
+        mergeState: 'merged',
+        warnings: [
+          'Required PR checks are still pending: CI (CI). Re-run verify after CI completes.',
+        ],
       }),
     };
+    const out = await satisfyGatesFromMergedCi(
+      task({
+        implemented: [{ kind: 'commit', sha: 'b'.repeat(40), shortSha: 'bbbbbbb' }],
+        tests: [affected],
+      }),
+      '/nonexistent',
+      REQUIRED,
+      deps({ recordGates: recorder(ok).recordGates }),
+    );
+    expect(out.kind).toBe('wait-for-ci');
+  });
+
+  it('the PR that contains the latest implementation is the one recorded', async () => {
+    mergeOverride.value = { state: 'merged', prRef: '77', changeSet: null };
     const w = recorder(ok);
     const out = await satisfyGatesFromMergedCi(
       task({
@@ -281,24 +313,20 @@ describe('satisfyGatesFromMergedCi', () => {
       deps({ recordGates: w.recordGates }),
     );
     expect(out).toEqual({ kind: 'recorded', pr: '77', gates: ['testsPassed'] });
+    expect(w.calls[0]?.gateEvidence?.testsPassed).toMatch(/^ci:77;/);
   });
 
-  it('unmerged: nothing is recorded and an affected-only testsPassed still stands', async () => {
-    const unmerged: ChangeSetDeps = {
-      listMergedPrs: async () => ({ ok: true, prs: [] }),
-      listTaskDocs: async () => [],
-      listTaskDecisions: async () => [],
-      env: {},
-    };
+  it('unmerged: nothing is recorded and a scoped testsPassed still stands', async () => {
+    mergeOverride.value = { state: 'unmerged', prRef: null, changeSet: null };
     const w = recorder(ok);
     const out = await satisfyGatesFromMergedCi(
       task({
-        implemented: [{ kind: 'commit', sha: 'b'.repeat(40), shortSha: 'bbbbbbb' }],
+        implemented: [prAtom, { kind: 'commit', sha: 'b'.repeat(40), shortSha: 'bbbbbbb' }],
         tests: [affected],
       }),
       '/nonexistent',
       REQUIRED,
-      deps({ recordGates: w.recordGates, changeSet: unmerged }),
+      deps({ recordGates: w.recordGates }),
     );
     expect(out).toEqual({ kind: 'skipped', testsPassedReason: null });
     expect(w.calls).toHaveLength(0);
@@ -333,7 +361,7 @@ describe('satisfyGatesFromMergedCi', () => {
       deps({ recordGates: w.recordGates, ciSatisfies: () => false }),
     );
     expect(out.kind).toBe('skipped');
-    expect(out.kind === 'skipped' && out.testsPassedReason).toMatch(/affected-scope run/);
+    expect(out.kind === 'skipped' && out.testsPassedReason).toMatch(/scoped run/);
     expect(w.calls).toHaveLength(0);
   });
 
