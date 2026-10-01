@@ -813,6 +813,16 @@ const checkArchCommand = defineCommand({
         description: 'Every model call site is a registered decision site (ratchet)',
       },
       {
+        // T12897: every syncing cleo.db table is declared in ROW_IDENTITY or
+        // exempt with a reason and a task in ROW_IDENTITY_EXEMPT; a stale
+        // exemption (table gone, no longer syncing, or declared) fails too.
+        // The fresh-store check is store/__tests__/row-identity-gate.test.ts.
+        id: 'gate-37',
+        task: 'T12897',
+        script: 'scripts/lint-row-identity-coverage.mjs',
+        description: 'Every syncing cleo.db table has declared row identity or an exemption',
+      },
+      {
         // T12881: the raw sync applier never runs TypeScript write paths, so
         // every rejection site on a synced write path is tagged
         // `// @sync-invariant <id>` (contracts sync-write-invariants
