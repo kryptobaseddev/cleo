@@ -1435,21 +1435,31 @@ async function seedEntry(userId: string, deviceId: string): Promise<string> {
 describe('review M1: the upgrade intent never goes stale under a live owner', () => {
   it('a live owner past E1 timeout is not taken over: one E1 on one exempt session', async () => {
     await seedV1Session();
-    // Staleness = E2 + E1 timeouts + margin. A wide margin keeps A (about
-    // 500 ms of simulated work) well inside it even on a loaded machine, so
-    // the test checks the takeover rule, not scheduler timing (T12910).
-    const opts = flow({ enrolTimeoutMs: 300, whoamiTimeoutMs: 300, intentMarginMs: 2000 });
+    // Staleness (E2 + E1 timeouts + margin = 11 s) is judged on an injected
+    // clock that only A's simulated work advances: A runs 5.5 s past the E1
+    // timeout, then 1 s more, so its intent is live whatever the machine's
+    // load. The real timeouts are wide enough that no call aborts (T12910).
+    let t = Date.parse('2026-10-01T00:00:00.000Z');
+    const opts = flow({
+      enrolTimeoutMs: 5000,
+      whoamiTimeoutMs: 5000,
+      intentMarginMs: 1000,
+      upgradeWaitMs: 60_000,
+      now: () => new Date(t),
+    });
     const aInWhoami = deferred();
     let first = true;
     server.beforeWhoami = async () => {
       if (first) {
         first = false;
+        t += 5500;
         aInWhoami.resolve();
-        await sleep(250);
+        await sleep(30);
       }
     };
     server.beforeEnrol = async () => {
-      await sleep(250);
+      t += 1000;
+      await sleep(30);
       return undefined;
     };
     const a = upgradeNexusSession(opts).then(
