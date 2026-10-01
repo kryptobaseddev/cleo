@@ -8,7 +8,10 @@
 -- singleton sealed from a capture with no validated frame (ruling (c)).
 --
 -- _sync_row_meta: per-row replication metadata (§1.6). Local-only; travels
--- inside checkpoint bundles (shash stripped).
+-- inside checkpoint bundles (shash stripped). `_sync_row_meta_tomb` indexes
+-- FULL tombstones only (version > 0), the ones GC scans by HLC; a compacted
+-- minimal tombstone (version 0, §1.7) is found by its key and needs no index
+-- entry, which keeps it near the spec's ~190 B (T12986 measured ~155 B).
 --
 -- _sync_ledger: per sync-set table, the sealed row count (`live`) and the
 -- rows a rebase holds unreplayed (`held`, §3.5 Rule 5). The ledger check
@@ -59,7 +62,7 @@ CREATE TABLE IF NOT EXISTS _sync_row_meta (
   shash       TEXT,
   PRIMARY KEY (tbl, uid)
 ) WITHOUT ROWID;
-CREATE INDEX IF NOT EXISTS _sync_row_meta_tomb ON _sync_row_meta (deleted, hlc) WHERE deleted = 1;
+CREATE INDEX IF NOT EXISTS _sync_row_meta_tomb ON _sync_row_meta (hlc) WHERE deleted = 1 AND version > 0;
 CREATE TABLE IF NOT EXISTS _sync_ledger (
   tbl  TEXT PRIMARY KEY,
   live INTEGER NOT NULL,
