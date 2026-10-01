@@ -7,8 +7,9 @@
  * full `tool:test` proves `testsPassed`. A tree-bound `test-run:` also stops
  * counting as soon as the tree it ran on moves (T12965). This module
  * is the single place both rules live: `cleo done` planning and
- * `cleo complete` ask {@link testsPassedSupersededReason}, and a scope-aware
- * `tool:test` asks {@link taskChangeMergeState} (T12959).
+ * `cleo complete` ask {@link testsPassedSupersededReason}, and they and a
+ * scope-aware `tool:test` all judge the merge — and the PR whose CI proves
+ * it — through {@link taskChangeMergeState} (T12959, T12656 AC2).
  *
  * @task T12656
  * @task T12959
@@ -157,16 +158,29 @@ export async function testsPassedSupersededReason(
   return scopedRunSupersededReason(atoms, await probe.mergeState());
 }
 
-/** Git probes {@link taskChangeMergeState} uses; injectable for tests. */
+/** Git and `gh` probes {@link taskChangeMergeState} uses; injectable for tests. */
 export interface MergeProbeDeps {
-  /** Change-set I/O for the merged-PR lookup (tests inject `gh`). */
+  /**
+   * Change-set I/O for the merged-PR lookup (tests inject `gh`). Its `viewPr`
+   * also lists a PR's own commits for the containment check, and its
+   * `listPrsForCommit` finds the PRs GitHub associates with a commit.
+   */
   changeSet?: ChangeSetDeps;
+  /** A change set already derived for this task (`cleo done` planning), so it is not derived twice. */
+  derived?: TaskChangeSet;
   /** Repository the implementation commits live in; defaults to the evidence execution root. */
   executionRoot?: string;
-  /** Whether `sha` is on origin's default branch; defaults to `git merge-base --is-ancestor`. */
+  /**
+   * Whether `sha` is on origin's default branch; defaults to
+   * `git merge-base --is-ancestor`. A positive signal only: a local
+   * `origin/<default>` can be stale, and a squash or rebase merge never makes
+   * the recorded SHA an ancestor.
+   */
   isLanded?: (root: string, sha: string) => boolean;
   /** Whether `ancestor` is contained in `descendant`; defaults to `git merge-base --is-ancestor`. */
   contains?: (root: string, ancestor: string, descendant: string) => boolean;
+  /** Whether `sha`'s patch is among `candidates` (null: cannot tell); defaults to `git patch-id`. */
+  equivalent?: (root: string, sha: string, candidates: readonly string[]) => boolean | null;
 }
 
 /** Where a task's change stands, and the PR whose CI would prove it. */
@@ -176,10 +190,13 @@ export interface TaskMergeInfo {
   /** The derived change set, when one was derived. */
   changeSet: TaskChangeSet | null;
   /**
-   * The merged PR that contains the latest implementation (`<n>` or
-   * `<component>@<n>`), or null when none is known.
+   * The merged PR that carries the latest implementation (`<n>` or
+   * `<component>@<n>`), or null when none is known. Never a PR that merely
+   * cites the task: its CI must have run the recorded commits.
    */
   prRef: string | null;
+  /** With `state: 'merged'` and no {@link prRef}: why no merged PR is named. */
+  unproven?: string;
 }
 
 function prRefOf(pr: { prNumber: number; componentPrNumber?: number }): string {
@@ -197,21 +214,110 @@ function changeSetPrRef(cs: TaskChangeSet): string | null {
     : null;
 }
 
+/** A merged PR whose CI may have run the implementation commits. */
+interface CarrierPr {
+  prNumber: number;
+  componentPrNumber?: number;
+  mergeCommitSha?: string | null;
+}
+
+/** The probes {@link carriesAll} uses, defaults resolved. */
+interface CarrierProbes {
+  contains: NonNullable<MergeProbeDeps['contains']>;
+  equivalent: NonNullable<MergeProbeDeps['equivalent']>;
+  viewPr: NonNullable<ChangeSetDeps['viewPr']>;
+}
+
+/** The same commit, whichever side is abbreviated. */
+function sameCommit(a: string, b: string): boolean {
+  const [x, y] = [a.toLowerCase(), b.toLowerCase()];
+  return x.length >= 7 && y.length >= 7 && (x.startsWith(y) || y.startsWith(x));
+}
+
 /**
- * Whether a task's LATEST implementation has merged, and through which PR.
+ * Whether a merged PR carries every implementation commit, so its CI ran them
+ * (T12959 review). A commit is carried when it is an ancestor of the PR's
+ * merge commit, one of the PR's own commits as `gh` lists them (a squash or
+ * rebase merge rewrites the SHAs; a component's commits count for its
+ * integration PR), or a patch-equivalent of one of them (rebased before the
+ * PR merged). A commit built on top of the merge came after it and is never
+ * carried. `incomplete` when a lookup it needed failed.
+ */
+async function carriesAll(
+  root: string,
+  pr: CarrierPr,
+  commits: readonly string[],
+  probes: CarrierProbes,
+): Promise<{ carried: boolean; incomplete: boolean }> {
+  const merge = pr.mergeCommitSha ?? null;
+  let rest =
+    merge === null ? [...commits] : commits.filter((sha) => !probes.contains(root, sha, merge));
+  if (rest.length === 0) return { carried: true, incomplete: false };
+  if (merge !== null && rest.some((sha) => probes.contains(root, merge, sha))) {
+    return { carried: false, incomplete: false };
+  }
+  let incomplete = false;
+  const own: string[] = [];
+  for (const n of [pr.prNumber, pr.componentPrNumber]) {
+    if (n === undefined) continue;
+    const view = await probes.viewPr(n, root);
+    if (view === null) incomplete = true;
+    else own.push(...(view.commits ?? []));
+  }
+  rest = rest.filter((sha) => !own.some((oid) => sameCommit(oid, sha)));
+  if (rest.length === 0) return { carried: true, incomplete: false };
+  for (const sha of rest) {
+    const equivalent = own.length > 0 ? probes.equivalent(root, sha, own) : false;
+    if (equivalent === null) incomplete = true;
+    if (equivalent !== true) return { carried: false, incomplete };
+  }
+  return { carried: true, incomplete: false };
+}
+
+/** The newest merged PR into the default branch GitHub associates with every commit. */
+async function mergedPrCarryingAll(
+  root: string,
+  commits: readonly string[],
+  list: NonNullable<ChangeSetDeps['listPrsForCommit']>,
+  defaultRef: string | null,
+): Promise<number | null> {
+  const defaultBranch = defaultRef?.replace(/^origin\//, '') ?? null;
+  const perCommit: Array<Map<number, string>> = [];
+  for (const sha of commits) {
+    const merged = new Map<number, string>();
+    for (const pr of await list(sha, root)) {
+      if (pr.mergedAt !== null && (defaultBranch === null || pr.baseRefName === defaultBranch)) {
+        merged.set(pr.number, pr.mergedAt);
+      }
+    }
+    if (merged.size === 0) return null;
+    perCommit.push(merged);
+  }
+  const [first, ...others] = perCommit;
+  const common = [...(first ?? new Map<number, string>())].filter(([n]) =>
+    others.every((m) => m.has(n)),
+  );
+  return common.sort((a, b) => b[1].localeCompare(a[1]))[0]?.[0] ?? null;
+}
+
+/**
+ * Whether a task's LATEST implementation has merged, and through which PR —
+ * the one function `cleo done` planning, `cleo complete` and a scope-aware
+ * `tool:test` all ask (T12656 AC2).
  *
- * Judged on the recorded `implemented` evidence first, never "any `pr:` atom
- * means merged": a `commit:` atom that has not reached origin's default branch
- * means the latest work is unmerged, whatever earlier PR merged. Otherwise
- * the newest merged `pr:` atom that contains every recorded commit is the PR.
- * Commits that all landed without a recorded PR still count as merged (fail
- * closed for scoped evidence); the change-set derivation `cleo done` uses then
- * looks for the PR. With no implementation atoms to judge, the derivation
- * decides.
+ * With recorded `commit:` atoms, the commits decide, never "any merged PR
+ * that cites the task": the PR named is one that carries every commit (see
+ * {@link carriesAll}) — a recorded `pr:` atom first (newest), then the PR the
+ * change-set derivation found, then any merged PR GitHub associates with the
+ * commits. Landing on the local `origin/<default>` is a positive signal only
+ * (merged, but no PR proves it); its absence proves nothing, since the ref may
+ * be stale and squash and rebase merges rewrite SHAs. With no sign of a merge,
+ * the state is unmerged — or unknown when a lookup it needed failed. Without
+ * commit atoms, the newest recorded `pr:` atom, else the derivation, decides.
  *
  * @param task - The task whose change is examined.
  * @param storeRoot - CLEO store root.
- * @param deps - Change-set I/O and git probes.
+ * @param deps - Change-set I/O and git/`gh` probes.
  * @returns The merge state, the PR, and the change set when one was derived.
  * @task T12959
  * @task T12960
@@ -226,42 +332,74 @@ export async function taskChangeMergeState(
   const prs = implemented
     .filter((a): a is Extract<EvidenceAtom, { kind: 'pr' }> => a.kind === 'pr')
     .toSorted((a, b) => (b.mergedAt ?? '').localeCompare(a.mergedAt ?? ''));
+  const cs = await import('./change-set.js');
+  const derive = async (): Promise<TaskChangeSet> =>
+    deps.derived ??
+    (await cs.deriveTaskChangeSet({ task, storeRoot, cwd: storeRoot }, deps.changeSet));
 
-  let rootCache: string | undefined;
-  const root = async (): Promise<string> => {
-    if (rootCache === undefined) {
-      if (deps.executionRoot !== undefined) rootCache = deps.executionRoot;
-      else {
-        const { resolveEvidenceExecutionRoot } = await import('./evidence.js');
-        rootCache = resolveEvidenceExecutionRoot(storeRoot);
-      }
-    }
-    return rootCache;
-  };
-  const { isLandedOnOriginDefault, isAncestorCommit } = await import('./change-set.js');
-  const isLanded = deps.isLanded ?? isLandedOnOriginDefault;
-  const contains = deps.contains ?? isAncestorCommit;
-
-  if (commits.length > 0) {
-    const r = await root();
-    if (commits.some((sha) => !isLanded(r, sha))) {
-      return { state: 'unmerged', changeSet: null, prRef: null };
-    }
+  if (commits.length === 0) {
+    const newest = prs[0];
+    if (newest) return { state: 'merged', changeSet: null, prRef: prRefOf(newest) };
+    const changeSet = await derive();
+    return { state: mergeStateOfChangeSet(changeSet), changeSet, prRef: changeSetPrRef(changeSet) };
   }
-  const chosen =
-    commits.length === 0
-      ? prs[0]
-      : await (async () => {
-          const r = await root();
-          return prs.find((pr) => commits.every((sha) => contains(r, sha, pr.mergeCommitSha)));
-        })();
-  if (chosen) return { state: 'merged', changeSet: null, prRef: prRefOf(chosen) };
 
-  const { deriveTaskChangeSet } = await import('./change-set.js');
-  const changeSet = await deriveTaskChangeSet({ task, storeRoot, cwd: storeRoot }, deps.changeSet);
-  return {
-    state: commits.length > 0 ? 'merged' : mergeStateOfChangeSet(changeSet),
-    changeSet,
-    prRef: changeSetPrRef(changeSet),
+  let root = deps.executionRoot;
+  if (root === undefined) {
+    const { resolveEvidenceExecutionRoot } = await import('./evidence.js');
+    root = resolveEvidenceExecutionRoot(storeRoot);
+  }
+  const at = root;
+  const probes: CarrierProbes = {
+    contains: deps.contains ?? cs.isAncestorCommit,
+    equivalent: deps.equivalent ?? cs.hasPatchEquivalent,
+    viewPr: deps.changeSet?.viewPr ?? cs.defaultViewPr,
   };
+  let incomplete = false;
+  const carries = async (pr: CarrierPr): Promise<boolean> => {
+    const r = await carriesAll(at, pr, commits, probes);
+    incomplete ||= r.incomplete;
+    return r.carried;
+  };
+
+  for (const pr of prs) {
+    if (await carries(pr)) return { state: 'merged', changeSet: null, prRef: prRefOf(pr) };
+  }
+  const changeSet = await derive();
+  const derivedRef = changeSetPrRef(changeSet);
+  if (
+    derivedRef !== null &&
+    changeSet.prNumber !== undefined &&
+    (await carries({
+      prNumber: changeSet.prNumber,
+      ...(changeSet.componentPrNumber !== undefined
+        ? { componentPrNumber: changeSet.componentPrNumber }
+        : {}),
+      mergeCommitSha: changeSet.mergeCommitSha ?? null,
+    }))
+  ) {
+    return { state: 'merged', changeSet, prRef: derivedRef };
+  }
+  const viaGitHub = await mergedPrCarryingAll(
+    at,
+    commits,
+    deps.changeSet?.listPrsForCommit ?? cs.defaultListPrsForCommit,
+    cs.resolveOriginDefault(at),
+  );
+  if (viaGitHub !== null) return { state: 'merged', changeSet, prRef: String(viaGitHub) };
+
+  const isLanded = deps.isLanded ?? cs.isLandedOnOriginDefault;
+  if (commits.every((sha) => isLanded(at, sha))) {
+    const shas = commits.map((sha) => sha.slice(0, 12)).join(', ');
+    return {
+      state: 'merged',
+      changeSet,
+      prRef: null,
+      unproven:
+        `implementation commit(s) ${shas} reached the default branch, but no merged PR is known to carry them` +
+        (derivedRef !== null ? ` (PR #${derivedRef}, which cites ${task.id}, does not)` : ''),
+    };
+  }
+  const unknown = incomplete || mergeStateOfChangeSet(changeSet) === 'unknown';
+  return { state: unknown ? 'unknown' : 'unmerged', changeSet, prRef: null };
 }

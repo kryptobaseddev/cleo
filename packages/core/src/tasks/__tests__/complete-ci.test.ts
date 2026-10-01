@@ -21,7 +21,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { type EngineResult, engineError, engineSuccess } from '../../engine-result.js';
 import type { GateVerifyParams, GateVerifyResult } from '../../validation/engine-ops.js';
 import type { TaskMergeInfo } from '../affected-scope.js';
-import { type MergedCiDeps, satisfyGatesFromMergedCi } from '../complete-ci.js';
+import { isPendingCiReason, type MergedCiDeps, satisfyGatesFromMergedCi } from '../complete-ci.js';
 
 const mergeOverride = vi.hoisted(() => ({
   value: null as null | TaskMergeInfo,
@@ -249,6 +249,65 @@ describe('satisfyGatesFromMergedCi', () => {
       );
       expect(out.kind, message).toBe('ci-red');
     }
+  });
+
+  it('a startup_failure (or any *_failure) beside a pending job is ci-red, never a wait', async () => {
+    expect(isPendingCiReason('CI: startup_failure; Lint: pending (queued)')).toBe(false);
+    expect(isPendingCiReason('Build: some_new_failure; Test: pending (in_progress)')).toBe(false);
+    expect(isPendingCiReason('CI: pending (in_progress)')).toBe(true);
+    const w = recorder(
+      engineError<GateVerifyResult>(
+        'E_EVIDENCE_TESTS_FAILED',
+        "Required CI on PR #42's merge commit is not green:\n  - CI: startup_failure on aaaaaaaaaaaa\n  - Lint: pending (queued) on aaaaaaaaaaaa",
+      ),
+    );
+    const out = await satisfyGatesFromMergedCi(
+      task({ tests: [affected], qa: true }),
+      '/nonexistent',
+      REQUIRED,
+      deps({ recordGates: w.recordGates }),
+    );
+    expect(out.kind).toBe('ci-red');
+  });
+
+  it('T12959 review HIGH: a fix commit the task-citing PR never ran is not proved by that PR', async () => {
+    // T1 shipped in #42; fix commit B landed later on its own. #42's CI never ran B.
+    const B = 'b'.repeat(40);
+    const w = recorder(ok);
+    const out = await satisfyGatesFromMergedCi(
+      task({ implemented: [{ kind: 'commit', sha: B, shortSha: 'bbbbbbb' }], tests: [affected] }),
+      '/nonexistent',
+      REQUIRED,
+      deps({
+        recordGates: w.recordGates,
+        merge: {
+          derived: changeSet({ source: 'pr', prNumber: 42, mergeCommitSha: 'a'.repeat(40) }),
+          changeSet: {
+            viewPr: async (n) => ({
+              number: n,
+              title: '',
+              headRefName: 'task/T9001',
+              baseRefName: 'main',
+              state: 'MERGED',
+              mergedAt: now,
+              headRefOid: null,
+              mergeCommitSha: 'a'.repeat(40),
+              commits: ['c'.repeat(40)],
+            }),
+            listPrsForCommit: async () => [],
+          },
+          executionRoot: '/repo',
+          contains: () => false,
+          equivalent: () => false,
+          isLanded: () => true,
+        },
+      }),
+    );
+    expect(out.kind).toBe('ci-red');
+    expect(out.kind === 'ci-red' && out.reason).toMatch(
+      /no merged PR's required CI proves it.*bbbbbbbbbbbb.*PR #42, which cites T9001, does not/,
+    );
+    expect(w.calls).toHaveLength(0);
   });
 
   it('merged, but no merged PR passed the pr: check: ci-red with the refusal', async () => {

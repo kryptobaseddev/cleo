@@ -7,7 +7,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { EvidenceAtom } from '@cleocode/contracts';
@@ -134,18 +134,63 @@ describe('testRunTreeMismatchReason', () => {
 
 describe('a report must be fresher than the change and cover it (T12965 review)', () => {
   it('refuses a report that started before a tracked file of the change was edited', async () => {
+    // The run starts after the last commit; the edit is dated after the run.
+    const ranAt = Date.now() + 2_000;
     writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 9;\n');
-    const path = report([join(root, 'src', 'a.test.ts')], Date.now() - 60_000);
+    utimesSync(join(root, 'src', 'a.ts'), new Date(ranAt + 10_000), new Date(ranAt + 10_000));
+    const path = report([join(root, 'src', 'a.test.ts')], ranAt);
     const r = await validateAtom({ kind: 'test-run', path }, root);
     expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_STALE');
     expect(!r.ok && r.reason).toMatch(/stale.*src\/a\.ts.*after the run/);
   });
 
-  it('accepts a report that started after the last edit (committing later is fine)', async () => {
+  it('accepts a report that started after the last edit, before any commit', async () => {
     writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 9;\n');
     const path = report([join(root, 'src', 'a.test.ts')], Date.now() + 5_000);
     const r = await validateAtom({ kind: 'test-run', path }, root);
     expect(r.ok, JSON.stringify(r)).toBe(true);
+  });
+
+  it('refuses a report older than HEAD: a commit after the run is not covered by it', async () => {
+    const path = report([join(root, 'src', 'a.test.ts')], Date.now() - 60_000);
+    writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 4;\n');
+    git(root, ['commit', '-q', '-am', 'after the run']);
+    // The edited file's mtime is pushed back too, so only the commit time can tell.
+    utimesSync(
+      join(root, 'src', 'a.ts'),
+      new Date(Date.now() - 120_000),
+      new Date(Date.now() - 120_000),
+    );
+    const r = await validateAtom({ kind: 'test-run', path }, root);
+    expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_STALE');
+    expect(!r.ok && r.reason).toMatch(
+      /stale.*commit [0-9a-f]{12} of the change was made.*after the run/,
+    );
+  });
+
+  it('refuses a report that predates an uncommitted deletion (no mtime of its own)', async () => {
+    writeFileSync(join(root, 'src', 'gone.ts'), 'export {};\n');
+    git(root, ['add', '.']);
+    git(root, ['commit', '-q', '-m', 'add gone']);
+    const ranAt = Date.now() + 2_000;
+    const path = report([join(root, 'src', 'a.test.ts')], ranAt);
+    expect((await validateAtom({ kind: 'test-run', path }, root)).ok).toBe(true);
+    rmSync(join(root, 'src', 'gone.ts'));
+    // The directory records the deletion; date it after the run.
+    utimesSync(join(root, 'src'), new Date(ranAt + 10_000), new Date(ranAt + 10_000));
+    const r = await validateAtom({ kind: 'test-run', path }, root);
+    expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(/src\/gone\.ts was deleted or moved/);
+  });
+
+  it('refuses a report that predates a git mv (the moved file keeps its old mtime)', async () => {
+    const ranAt = Date.now() + 2_000;
+    const path = report([join(root, 'src', 'a.test.ts')], ranAt);
+    mkdirSync(join(root, 'lib'), { recursive: true });
+    git(root, ['mv', 'src/a.ts', 'lib/a.ts']);
+    utimesSync(join(root, 'src'), new Date(ranAt + 10_000), new Date(ranAt + 10_000));
+    utimesSync(join(root, 'lib', 'a.ts'), new Date(ranAt - 60_000), new Date(ranAt - 60_000));
+    const r = await validateAtom({ kind: 'test-run', path }, root);
+    expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(/src\/a\.ts was deleted or moved/);
   });
 
   describe('relevance in a workspace with an origin', () => {
@@ -185,6 +230,37 @@ describe('a report must be fresher than the change and cover it (T12965 review)'
       const r = await validateAtom({ kind: 'test-run', path }, root);
       expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({
         testFiles: ['packages/a/src/a.test.ts'],
+      });
+    });
+
+    describe('a workspace-wide change needs a full-suite report', () => {
+      beforeEach(() => {
+        for (const name of ['a', 'b']) {
+          writeFileSync(join(root, 'packages', name, 'src', `${name}.test.ts`), 'export {};\n');
+        }
+        writeFileSync(join(root, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n');
+        git(root, ['add', '.']);
+        git(root, ['commit', '-q', '-m', 'T1: tests + lockfile']);
+      });
+
+      it('refuses a targeted report that misses a package with tests', async () => {
+        const path = report([join(root, 'packages', 'a', 'src', 'a.test.ts')], Date.now() + 5_000);
+        const r = await validateAtom({ kind: 'test-run', path }, root);
+        expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(
+          /workspace-wide.*pnpm-lock\.yaml.*full suite.*no test file of @x\/b.*full tool:test/,
+        );
+      });
+
+      it('accepts a report that covers every package with tests', async () => {
+        const path = report(
+          [
+            join(root, 'packages', 'a', 'src', 'a.test.ts'),
+            join(root, 'packages', 'b', 'src', 'b.test.ts'),
+          ],
+          Date.now() + 5_000,
+        );
+        const r = await validateAtom({ kind: 'test-run', path }, root);
+        expect(r.ok, JSON.stringify(r)).toBe(true);
       });
     });
   });

@@ -51,7 +51,11 @@ import { readRequiredCheckPins } from '../release/pr-evidence.js';
 
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { planAffectedTestRun } from './affected-packages.js';
-import { mergeStateOfChangeSet, testsPassedSupersededReason } from './affected-scope.js';
+import {
+  type TaskMergeInfo,
+  taskChangeMergeState,
+  testsPassedSupersededReason,
+} from './affected-scope.js';
 import { type ChangeSetDeps, deriveTaskChangeSet } from './change-set.js';
 import {
   checkGateEvidenceMinimumDetailed,
@@ -664,14 +668,26 @@ export async function deriveTaskEvidence(
     opts.deps,
   );
   const root = changeSet.executionRoot;
+  // T12656 AC2: whether the LATEST implementation merged, and through which
+  // PR, is judged by the one function `cleo complete` and `tool:test` use —
+  // on the change set derived above, resolved only when needed.
+  let merge: Promise<TaskMergeInfo> | undefined;
+  const mergeInfo = (): Promise<TaskMergeInfo> => {
+    merge ??= taskChangeMergeState(task, storeRoot, {
+      derived: changeSet,
+      executionRoot: root,
+      ...(opts.deps ? { changeSet: opts.deps } : {}),
+    });
+    return merge;
+  };
   // T12635 (D11150): a scoped testsPassed only stands before merge. Once the
-  // change set is a merged PR, merged CI or a full run supersedes it; a
-  // tree-bound test-run also stops standing once its tree moves (T12965).
-  // T12656: the same rule `cleo complete` enforces (one shared function).
+  // change has merged, merged CI or a full run supersedes it; a tree-bound
+  // test-run also stops standing once its tree moves (T12965). T12656: the
+  // same rule `cleo complete` enforces (one shared function).
   const supersededReason = await testsPassedSupersededReason(
     task.verification?.evidence?.testsPassed?.atoms ?? [],
     {
-      mergeState: () => mergeStateOfChangeSet(changeSet),
+      mergeState: async () => (await mergeInfo()).state,
       currentTree: () => captureTreeHash(root),
     },
   );
@@ -683,24 +699,20 @@ export async function deriveTaskEvidence(
   const decisionOnly =
     changeSet.source === 'docs' && (changeSet.implementedEvidence ?? '').startsWith('decision:');
 
-  // T12634 (D11149): a change set from a merged PR (not stacked) proves
-  // testsPassed/qaPassed by its merge-commit CI when the project opts in, so
-  // no local tool run is planned for them.
+  // T12634 (D11149): a merged PR (not stacked) proves testsPassed/qaPassed by
+  // its merge-commit CI when the project opts in, so no local tool run is
+  // planned for them. T12959 review: only the PR that carries the latest
+  // implementation (as `cleo complete` records it), never one that merely
+  // cites the task. T12671: a component landed by an integration PR is judged
+  // on the integration PR's CI, linked through the component (`<c>@<n>`).
   const ciPr =
-    changeSet.source === 'pr' &&
-    changeSet.prNumber !== undefined &&
-    changeSet.stackedOn === undefined &&
     readCiSatisfies(storeRoot) &&
     ciPlannable(
       storeRoot,
       ![...changeSet.files, ...changeSet.deletedFiles].every(isCiDocumentPath),
       [...changeSet.files, ...changeSet.deletedFiles],
     )
-      ? // T12671: a component landed by an integration PR is judged on the
-        // integration PR's CI, linked through the component.
-        changeSet.componentPrNumber !== undefined
-        ? `${changeSet.componentPrNumber}@${changeSet.prNumber}`
-        : String(changeSet.prNumber)
+      ? await mergeInfo().then((info) => (info.state === 'merged' ? info.prRef : null))
       : null;
   const toolRuns: DonePlanToolRun[] = [];
   if (!decisionOnly && ciPr === null) {
@@ -711,8 +723,8 @@ export async function deriveTaskEvidence(
         // merge state (gh unreachable) plans the full run complete accepts.
         const affected =
           tool === 'test' &&
-          changeSet.source === 'branch' &&
-          mergeStateOfChangeSet(changeSet) === 'unmerged'
+          (changeSet.source === 'branch' || changeSet.source === 'pr') &&
+          (await mergeInfo()).state === 'unmerged'
             ? await planAffectedTestRun(storeRoot, root, { wait: opts.waitForTestSlot === true })
             : null;
         toolRuns.push(

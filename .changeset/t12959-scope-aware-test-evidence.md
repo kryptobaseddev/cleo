@@ -28,16 +28,28 @@ for any CI gate that is missing, or a testsPassed that no longer stands. It
 validates it through the normal gate write and records it with a note and the
 criterion links already on record.
 
-The PR is the merged PR that contains the task's latest implementation:
-- A recorded `commit:` that has not reached origin's default branch means the
-  change is unmerged, whatever earlier PR merged.
-- Otherwise, CLEO uses the newest merged `pr:` that contains every recorded
-  commit.
-- Commits that landed without a known PR count as merged, so scoped evidence
-  fails closed.
+The PR is a merged PR that carries every recorded implementation commit, so
+its CI actually ran them — never a PR that merely cites the task. A commit is
+carried when it is an ancestor of the PR's merge commit, one of the PR's own
+commits as `gh` lists them (squash and rebase merges), or a patch-equivalent of
+one (rebased before merge). CLEO looks at the newest recorded `pr:` first, then
+the PR change-set derivation finds, then any merged PR GitHub associates with
+the commits.
+- Ancestry of the local `origin/<default>` is a positive signal only: a stale
+  ref, a squash merge or a pre-rebase SHA never makes a merged change look
+  unmerged. New work built on top of an earlier merged PR is unmerged.
+- Commits that landed with no PR known to carry them count as merged with no
+  PR, so completion refuses: fix CI, or record a full `tool:test`.
+- A lookup that fails leaves the merge state unknown, so scoped evidence fails
+  closed.
+
+`cleo done` planning, `cleo complete` and a scope-aware `tool:test` all judge
+the merge through this one function (`taskChangeMergeState`), so `cleo done`
+never plans `ci:<pr>` that `cleo complete` would not record.
 
 Required CI that is still pending gives a refusal to wait and retry. A final
-red, a skipped or missing required job, or a PR the `pr:` check refuses gives a
+red (`startup_failure` and every other `*_failure` conclusion included), a
+skipped or missing required job, or a PR the `pr:` check refuses gives a
 refusal to fix CI or record a full `tool:test` (plus `tool:lint` and
 `tool:typecheck`). Neither refusal is an endless wait. Gates recorded this way
 persist when completion then fails a later, unrelated check.
@@ -49,10 +61,14 @@ testsPassed. `cleo done` planning and `cleo complete` share one rule,
 
 **Targeted `test-run:` evidence is bound (T12965).** At verify time, a report is
 refused when:
-- it ran before the newest working-tree edit of any path the change touches
-  (committing after the run is fine);
-- or, in a workspace change, it covers no test file in a directly changed
-  package.
+- it ran before the committer time of HEAD or of any commit the branch adds
+  (record the report before committing, or re-run after);
+- it ran before the newest working-tree edit of any path the change touches;
+- it ran before an uncommitted deletion or rename, dated by the directory the
+  path was removed from (a moved file keeps its old mtime);
+- in a workspace change, it covers no test file in a directly changed package;
+- or the change is workspace-wide (a root config or lockfile) and the report
+  is not a full suite: it must cover a test file in every package with tests.
 
 The atom records HEAD, the tool cache's tree hash and the covered test files (up to
 200, plus `testFileCount`). `cleo complete` refuses a test-run whose tree moved,

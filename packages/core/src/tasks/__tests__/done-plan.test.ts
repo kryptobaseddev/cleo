@@ -38,6 +38,7 @@ import { resetDbState } from '../../store/sqlite.js';
 import { validateGateVerify } from '../../validation/engine-ops.js';
 import { addTask } from '../add.js';
 import type { ChangeSetDeps } from '../change-set.js';
+import { satisfyGatesFromMergedCi } from '../complete-ci.js';
 import { type DeriveTaskEvidenceOptions, deriveTaskEvidence } from '../done-plan.js';
 import { recordTaskDone } from '../done-record.js';
 import {
@@ -56,6 +57,7 @@ function git(dir: string, args: string[]): string {
 
 const deps: ChangeSetDeps = {
   listMergedPrs: async () => ({ ok: true, prs: [] }),
+  listPrsForCommit: async () => [],
   listTaskDocs: async () => [],
   listTaskDecisions: async () => [],
   env: {},
@@ -625,6 +627,109 @@ describe('merged-PR CI replaces local tool runs when the project opts in (T12634
     const plan = await mergedPrPlan(false);
     expect(plan.toolRuns.map((r) => r.tool)).toEqual(['test', 'lint', 'typecheck']);
     expect(plan.gates.find((g) => g.gate === 'testsPassed')?.evidence).toMatch(/^tool:test;/);
+  });
+});
+
+describe('cleo done and cleo complete judge the merge alike (T12656 AC2, T12959 review)', () => {
+  it('a fix commit made after the task PR merged: neither plans nor records ci:<that PR>', async () => {
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    const first = commitOnTaskBranch(id);
+    git(root, ['switch', '-q', 'main']);
+    git(root, ['merge', '-q', '--squash', `task/${id}`]);
+    git(root, ['commit', '-q', '-m', `${id}: squash (#42)`]);
+    const merge = git(root, ['rev-parse', 'HEAD']);
+    git(root, ['push', '-q', 'origin', 'main']);
+    // New work on top of #42's merge, not merged anywhere.
+    git(root, ['switch', '-q', '-c', `task/${id}-fix`]);
+    writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 3;\n');
+    git(root, ['commit', '-q', '-am', `${id}: fix`]);
+    const fix = git(root, ['rev-parse', 'HEAD']);
+    const ctxPath = join(root, '.cleo', 'project-context.json');
+    const ctx = JSON.parse(readFileSync(ctxPath, 'utf-8')) as Record<string, unknown>;
+    writeFileSync(
+      ctxPath,
+      JSON.stringify({
+        ...ctx,
+        evidence: {
+          ciSatisfies: true,
+          ciChecks: {
+            tests: ['CI'],
+            qa: ['CI'],
+            jobs: { tests: ['Unit Tests*'], qa: ['Type Check'] },
+          },
+        },
+      }),
+    );
+    await env.accessor.updateTaskFields(id, {
+      verificationJson: JSON.stringify({
+        passed: false,
+        round: 1,
+        gates: { implemented: true },
+        failureLog: [],
+        lastAgent: null,
+        lastUpdated: null,
+        evidence: {
+          implemented: {
+            atoms: [{ kind: 'commit', sha: fix, shortSha: fix.slice(0, 7) }],
+            capturedAt: '2026-09-28T00:00:00Z',
+            capturedBy: 'test',
+          },
+        },
+      }),
+    });
+    const prDeps: ChangeSetDeps = {
+      ...deps,
+      listMergedPrs: async () => ({
+        ok: true,
+        prs: [{ number: 42, title: `${id}: work`, body: '', headRefName: `task/${id}` }],
+      }),
+      viewPr: async (n) => ({
+        number: n,
+        title: '',
+        headRefName: `task/${id}`,
+        baseRefName: 'main',
+        state: 'MERGED',
+        mergedAt: '2026-09-28T00:00:00Z',
+        headRefOid: first,
+        mergeCommitSha: merge,
+        commits: [first],
+      }),
+      findPrByHead: async () => null,
+      resolvePr: async (n) => ({
+        ok: true,
+        prNumber: n,
+        mergeCommitSha: merge,
+        mergedAt: '2026-09-28T00:00:00Z',
+        successCount: 1,
+        totalChecks: 1,
+        cacheHit: false,
+        title: '',
+        body: '',
+        headRefName: `task/${id}`,
+        changedPaths: ['src/a.ts'],
+        changedFileCount: 1,
+      }),
+    };
+
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      satisfies: 'all',
+      deps: prDeps,
+    });
+    expect(plan.changeSet.prNumber).toBe(42);
+    expect(plan.gates.find((g) => g.gate === 'testsPassed')?.evidence).toMatch(/^tool:test;/);
+
+    const task = await env.accessor.loadSingleTask(id);
+    if (!task) throw new Error('fixture task vanished');
+    const ci = await satisfyGatesFromMergedCi(task, root, ['implemented', 'testsPassed'], {
+      ciSatisfies: () => true,
+      merge: { changeSet: prDeps },
+      recordGates: async () => {
+        throw new Error('must not record ci:42 for a fix #42 never ran');
+      },
+    });
+    expect(ci).toEqual({ kind: 'skipped', testsPassedReason: null });
   });
 });
 

@@ -119,6 +119,8 @@ export interface ChangeSetDeps {
   ) => Promise<{ ok: true; prs: MergedPrSummary[] } | { ok: false; reason: string }>;
   /** One PR's base branch, state and commits (`gh pr view`); null when unknown. */
   viewPr?: (prNumber: number, executionRoot: string) => Promise<PrDetails | null>;
+  /** PRs GitHub associates with a commit, whatever they cite (T12959); empty when unknown. */
+  listPrsForCommit?: (sha: string, executionRoot: string) => Promise<CommitPr[]>;
   /** The PR whose head is `branch` — merged first, else newest; null when none. */
   findPrByHead?: (branch: string, executionRoot: string) => Promise<PrDetails | null>;
   /** Verify one PR through the existing `pr:` provenance code. */
@@ -290,6 +292,66 @@ export function isAncestorCommit(root: string, ancestor: string, descendant: str
 }
 
 /**
+ * Whether `sha` has a patch-equivalent (`git patch-id --stable`) among
+ * `candidates` — a commit rebased or cherry-picked before it merged keeps its
+ * patch but not its SHA (T12959 review).
+ *
+ * @param root - Repository to ask.
+ * @param sha - The recorded commit.
+ * @param candidates - Commits that may carry its patch (a PR's own commits).
+ * @returns True on a match; false when every candidate was compared and none
+ *   matched; null when it cannot tell (`sha` or a candidate is not in the
+ *   local object store, or git failed).
+ * @task T12959
+ */
+export function hasPatchEquivalent(
+  root: string,
+  sha: string,
+  candidates: readonly string[],
+): boolean | null {
+  const resolve = (rev: string): string | null =>
+    git(root, ['rev-parse', '--verify', '--quiet', `${rev}^{commit}`]);
+  const own = resolve(sha);
+  if (own === null) return null;
+  const others = new Set<string>();
+  for (const candidate of candidates) {
+    const full = resolve(candidate);
+    if (full === null) return null;
+    if (full !== own) others.add(full);
+  }
+  if (others.size === 0) return false;
+  let ids: string;
+  try {
+    const patches = execFileSync(
+      'git',
+      ['log', '--no-walk=unsorted', '-p', '--format=commit %H', own, ...others],
+      {
+        cwd: root,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        maxBuffer: 64 * 1024 * 1024,
+      },
+    );
+    ids = execFileSync('git', ['patch-id', '--stable'], {
+      cwd: root,
+      input: patches,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'ignore'],
+    });
+  } catch {
+    return null;
+  }
+  const byCommit = new Map<string, string>();
+  for (const line of ids.split('\n')) {
+    const [patchId, commit] = line.trim().split(/\s+/);
+    if (patchId && commit) byCommit.set(commit, patchId);
+  }
+  const target = byCommit.get(own);
+  // An empty or merge commit has no patch of its own to carry.
+  return target !== undefined && [...others].some((c) => byCommit.get(c) === target);
+}
+
+/**
  * Deadline for one read-only `gh` query (T12656 review): discovery sits on the
  * `cleo complete` path, so a hung `gh` must fail — as an unknown merge state —
  * rather than hang the completion. One value for every evidence `gh` call.
@@ -389,11 +451,74 @@ function ghJson(args: readonly string[], cwd: string): unknown {
   }
 }
 
-/** Default {@link ChangeSetDeps.viewPr}: `gh pr view <n>`. */
-async function defaultViewPr(prNumber: number, executionRoot: string): Promise<PrDetails | null> {
+/**
+ * Default {@link ChangeSetDeps.viewPr}: `gh pr view <n>`.
+ *
+ * @param prNumber - PR to view.
+ * @param executionRoot - Repository `gh` runs in.
+ * @returns The PR's base, state, merge commit and commits, or null when `gh` failed.
+ * @task T12624
+ */
+export async function defaultViewPr(
+  prNumber: number,
+  executionRoot: string,
+): Promise<PrDetails | null> {
   return toPrDetails(
     ghJson(['pr', 'view', String(prNumber), '--json', PR_DETAIL_FIELDS], executionRoot),
   );
+}
+
+/** A PR GitHub associates with a commit. */
+export interface CommitPr {
+  /** PR number. */
+  number: number;
+  /** Merge time, or null when the PR has not merged. */
+  mergedAt: string | null;
+  /** Branch the PR merged (or will merge) into. */
+  baseRefName: string;
+}
+
+/**
+ * The PRs GitHub associates with a commit
+ * (`GET /repos/{owner}/{repo}/commits/<sha>/pulls`): the merged PR that
+ * introduced it to the default branch, or — for a commit a squash or rebase
+ * merge rewrote — the PRs it was pushed in, whatever they cite (T12959
+ * review). Read-only.
+ *
+ * @param sha - The commit.
+ * @param executionRoot - Repository `gh` runs in.
+ * @returns The PRs; empty when GitHub has no such commit (never pushed) or
+ *   the lookup failed, so a caller may use a hit only as a positive signal.
+ * @task T12959
+ */
+export async function defaultListPrsForCommit(
+  sha: string,
+  executionRoot: string,
+): Promise<CommitPr[]> {
+  const { isGhCliAvailable } = await import('../release/github-pr.js');
+  if (!/^[0-9a-f]{7,40}$/i.test(sha) || !isGhCliAvailable()) return [];
+  const rows = ghJson(
+    [
+      'api',
+      `repos/{owner}/{repo}/commits/${sha}/pulls`,
+      '--jq',
+      '[.[] | {number, mergedAt: .merged_at, baseRefName: .base.ref}]',
+    ],
+    executionRoot,
+  );
+  if (!Array.isArray(rows)) return [];
+  return rows.flatMap((row: unknown) => {
+    const r = (row ?? {}) as Record<string, unknown>;
+    return typeof r.number === 'number'
+      ? [
+          {
+            number: r.number,
+            mergedAt: typeof r.mergedAt === 'string' && r.mergedAt !== '' ? r.mergedAt : null,
+            baseRefName: typeof r.baseRefName === 'string' ? r.baseRefName : '',
+          },
+        ]
+      : [];
+  });
 }
 
 /** Default {@link ChangeSetDeps.findPrByHead}: `gh pr list --head <branch> --state all`. */

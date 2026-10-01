@@ -478,6 +478,25 @@ function git(cwd: string, args: readonly string[]): string | null {
 }
 
 /**
+ * The merge-base of HEAD and origin's default branch — where the branch's own
+ * commits begin.
+ *
+ * @param root - Execution root.
+ * @returns The merge-base commit, or null when no origin default branch
+ *   exists or git fails.
+ * @task T12965
+ */
+export function originDefaultMergeBase(root: string): string | null {
+  const symbolic = git(root, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']);
+  const base =
+    symbolic?.replace(/^refs\/remotes\//, '') ??
+    ['origin/main', 'origin/master'].find(
+      (ref) => git(root, ['rev-parse', '--verify', '--quiet', `refs/remotes/${ref}`]) !== null,
+    );
+  return base ? git(root, ['merge-base', base, 'HEAD']) || null : null;
+}
+
+/**
  * Paths the tree under test changed relative to origin's default branch:
  * committed (`merge-base(origin/<default>, HEAD)..HEAD`), uncommitted tracked
  * edits and untracked files — the tests run on the working tree, so all matter.
@@ -488,14 +507,7 @@ function git(cwd: string, args: readonly string[]): string | null {
  * @task T12635
  */
 export function changedPathsSinceDefault(root: string): string[] | null {
-  const symbolic = git(root, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']);
-  const base =
-    symbolic?.replace(/^refs\/remotes\//, '') ??
-    ['origin/main', 'origin/master'].find(
-      (ref) => git(root, ['rev-parse', '--verify', '--quiet', `refs/remotes/${ref}`]) !== null,
-    );
-  if (!base) return null;
-  const mergeBase = git(root, ['merge-base', base, 'HEAD']);
+  const mergeBase = originDefaultMergeBase(root);
   if (!mergeBase) return null;
   // A git failure is not an empty diff (T12657): no answer, so no scoped run.
   const committed = git(root, ['diff', '--name-only', '--no-renames', mergeBase, 'HEAD']);

@@ -96,7 +96,8 @@ export type MergedCiOutcome =
 /**
  * Whether a CI refusal describes checks that have not concluded yet, as
  * opposed to a final failure. Pending only when the reason names a pending
- * run and no concluded failure, skip or missing check.
+ * run and no concluded failure (`startup_failure` and every other
+ * `*_failure` conclusion included), skip or missing check.
  *
  * @param reason - The refusal text from the `ci:`/`pr:` validators.
  * @returns True when waiting for CI can resolve it.
@@ -105,7 +106,8 @@ export type MergedCiOutcome =
 export function isPendingCiReason(reason: string): boolean {
   return (
     /\bpending\b|\bin_progress\b|\bqueued\b/i.test(reason) &&
-    !/\b(failure|failed|cancelled|timed_out|action_required|missing|skipped|not found|no SUCCESS)\b/i.test(
+    // `\w*_failure` covers startup_failure and any other *_failure conclusion.
+    !/\b(\w*_failure|failure|failed|cancelled|timed_out|action_required|missing|skipped|not found|no SUCCESS)\b/i.test(
       reason,
     )
   );
@@ -153,8 +155,9 @@ function ciRefusal(reason: string): MergedCiOutcome {
  * Runs only for required CI gates that are unrecorded, or a testsPassed that
  * {@link testsPassedSupersededReason} no longer accepts (a scoped run after
  * merge, or a test-run whose tree moved). Ordinary completions with standing
- * gates pay nothing. The PR is the merged PR that contains the task's latest
- * implementation ({@link taskChangeMergeState}); a stacked PR is not judged.
+ * gates pay nothing. The PR is the merged PR that carries the task's latest
+ * implementation ({@link taskChangeMergeState}) — never one that merely cites
+ * the task; a stacked PR is not judged.
  *
  * @param task - The task being completed (as loaded).
  * @param storeRoot - CLEO store root.
@@ -199,12 +202,15 @@ export async function satisfyGatesFromMergedCi(
     return { kind: 'skipped', testsPassedReason };
   }
 
-  const { state, prRef, changeSet } = await mergeInfo();
+  const { state, prRef, changeSet, unproven } = await mergeInfo();
   if (state !== 'merged') return { kind: 'skipped', testsPassedReason };
   if (prRef === null) {
-    // The change landed, yet no merged PR passed the `pr:` check — its
-    // required checks did not hold, or the PR is refused outright.
+    // The change landed, yet no merged PR that carries the implementation
+    // passed the `pr:` check — its required checks did not hold, the PR is
+    // refused outright, or the commits reached the default branch some other
+    // way (a PR that cites the task but never ran them proves nothing).
     const why = [
+      ...(unproven ? [unproven] : []),
       ...(changeSet?.warnings ?? []),
       ...(changeSet?.blockers.map((b) => b.message) ?? []),
     ].join(' ');
