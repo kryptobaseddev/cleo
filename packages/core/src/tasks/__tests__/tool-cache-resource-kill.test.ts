@@ -311,6 +311,36 @@ describe('runToolCached — resource kills and resource limits (T12989)', () => 
     expect(readFailedFirstPointer(repo, 'test', root)).toBeNull();
   });
 
+  it('AC1: a flake retry killed for resources decides nothing — the first failure stands', async () => {
+    // First spawn: a genuine assertion failure in a tracked file, which earns
+    // the one full flake retry. Second spawn (the retry): an OOM. The retry
+    // is not a verdict, so the first run's red is the result, and that red is
+    // a real one — cached, with the first run's output and failing files.
+    const cmd = testCommand(
+      [
+        `if [ "$(grep -c . "${spawns}")" -eq 1 ]; then`,
+        '  echo "first-run"; echo " FAIL  src/a.test.ts > suite > case"; exit 1',
+        'fi',
+        `echo "second-run"; echo " FAIL  src/a.test.ts > suite > case"; echo "${OOM_LINE}" >&2; exit 1`,
+      ].join('\n'),
+    );
+
+    const r = await run(cmd);
+    expect(spawnCount()).toBe(2);
+    expect(r.exitCode).toBe(1);
+    expect(r.resourceKill).toBeNull();
+    expect(r.entry.stdoutTail).toContain('first-run');
+    expect(r.entry.stdoutTail).not.toContain('second-run');
+    expect(r.entry.stderrTail).not.toContain('JavaScript heap out of memory');
+    expect(r.entry.failedTestFiles).toEqual(['src/a.test.ts']);
+    expect(readFailedFirstPointer(repo, 'test', root)?.files).toEqual(['src/a.test.ts']);
+
+    const again = await run(cmd);
+    expect(again.cacheHit).toBe(true);
+    expect(again.entry.stdoutTail).toContain('first-run');
+    expect(spawnCount()).toBe(2);
+  });
+
   it('AC1: a focused failed-first run killed for resources is inconclusive', async () => {
     // Fake vitest for the focused stage: it names the failing file AND reports
     // an OOM. A focused run may shorten a red result but never invent one, so
