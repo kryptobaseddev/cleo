@@ -185,6 +185,56 @@ export interface NexusLogoutResult {
 }
 
 /**
+ * What happened to one device's sign-out (E9) or revoke (E10) in
+ * `cleo logout nexus [--revoke]` behind `CLEO_NEXUS_DEVICE=1` (cleo-nexus
+ * device contract §3.5, M3). Holds no secret.
+ *
+ * - `confirmed`: the server answered 200, or 401 `device-signed-out` /
+ *   `device-revoked` (a revoke accepts only `device-revoked`);
+ * - `pending`: no usable answer (network, timeout, 429, 5xx, or a route the
+ *   server does not have yet); the credentials stay in their slot and the
+ *   next `cleo logout nexus`, `cleo login nexus` or cloud command retries;
+ * - `unconfirmed`: every credential held was refused as stale, so the CLI
+ *   cannot finish it; the slot is kept, and a sign-out or revoke of the
+ *   device on cleocode.dev lets the next retry confirm it;
+ * - `signed-out`: a revoke found the device already signed out (E10 401
+ *   `device-signed-out`). Its credentials are dead, so the CLI cannot revoke
+ *   it; the revoke slot is cleared (never retried) and the device must be
+ *   revoked on cleocode.dev.
+ */
+export type NexusDeviceEndOutcome = 'confirmed' | 'pending' | 'unconfirmed' | 'signed-out';
+
+/** One device row of a {@link NexusDeviceLogoutResult}. */
+export interface NexusDeviceLogoutRow {
+  /** Nexus user id of the entry. */
+  userId: string;
+  /** The device the request ended. */
+  deviceId: string;
+  /** `sign-out` (E9) or `revoke` (E10). */
+  action: 'sign-out' | 'revoke';
+  /** `true` for a replaced device's leftover request retried from `retired`. */
+  retired: boolean;
+  /** Server-side outcome. */
+  outcome: NexusDeviceEndOutcome;
+  /** `true` when a confirmed revoke removed the (origin, user) entry from `nexus-device.json`. */
+  removedLocally: boolean;
+}
+
+/** Result of `cleo logout nexus [--revoke]` with device credentials. Holds no secret. */
+export interface NexusDeviceLogoutResult {
+  /** API origin. */
+  apiUrl: string;
+  /** `sign-out` or `revoke` (`--revoke`). */
+  action: 'sign-out' | 'revoke';
+  /** One row per device request settled or retried in this run, sorted by user then device. */
+  devices: NexusDeviceLogoutRow[];
+  /** The 9.24 session sign-out, when a leftover session was found for the origin. */
+  session: NexusLogoutResult | null;
+  /** Non-fatal problems: every non-`confirmed` row is named here. */
+  warnings: string[];
+}
+
+/**
  * The binding of a local CLEO project to its Nexus registration, persisted in
  * the project's machine-local `.cleo/nexus-link.json`, keyed by API origin.
  */

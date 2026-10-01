@@ -1059,6 +1059,51 @@ export function applySignOutConfirmed(entry: NexusDeviceEntry): NexusDeviceEntry
 }
 
 /**
+ * Forget this device locally after a revoke ended (contract §3.5, L6): the
+ * server confirmed it, found the device signed out (E10 401
+ * `device-signed-out`, v2.13), or refused every credential as dead. The keys,
+ * every credential and every slot go, so the next login enrols a fresh
+ * device id and can never re-activate the one the user asked to burn. Only
+ * `retired` survives, because those requests may still hold live credentials
+ * of other devices; the caller deletes the whole entry when there are none.
+ *
+ * @param entry - The entry read under the lock.
+ * @returns The stripped entry, guarded.
+ */
+export function applyForgetDevice(entry: NexusDeviceEntry): NexusDeviceEntry {
+  return guard({
+    ...entry,
+    keys: null,
+    current: null,
+    pending: null,
+    raceCandidate: null,
+    enrolIntent: null,
+    pendingSignOut: null,
+    pendingRevoke: null,
+  });
+}
+
+/**
+ * Whether an entry holds nothing worth keeping: no keys, no credential, no
+ * slot and no retired request (left by {@link applyForgetDevice} once its
+ * retired requests settled).
+ *
+ * @param entry - The entry read under the lock.
+ * @returns `true` when the entry can be deleted.
+ */
+export function isForgottenDevice(entry: NexusDeviceEntry): boolean {
+  return (
+    entry.keys === null &&
+    entry.current === null &&
+    entry.pending === null &&
+    !entry.raceCandidate &&
+    entry.pendingSignOut === null &&
+    entry.pendingRevoke === null &&
+    (entry.retired ?? []).length === 0
+  );
+}
+
+/**
  * Settle a confirmed sign-out or revoke of a retired device.
  *
  * @param entry - The entry read under the lock.

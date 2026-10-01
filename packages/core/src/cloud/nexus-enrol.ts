@@ -78,6 +78,7 @@ import {
   type SealedNexusDevice,
   UnreadableNexusDevice,
 } from './nexus-device.js';
+import { retryNexusDeviceEnds } from './nexus-logout.js';
 import { deviceEnrollmentMessage } from './signing.js';
 import { uuidv7 } from './uuidv7.js';
 
@@ -287,6 +288,11 @@ function client(ctx: Ctx, bearer: string, timeoutMs: number): Http {
   return new Http({ baseUrl: ctx.apiUrl, token: bearer, fetch: timed, maxAttempts: 1 });
 }
 
+/** The logout-retry options for this flow's origin, stores and transport. */
+function endOpts(ctx: Ctx): { apiUrl: string; fetch: FetchLike; deviceStore: NexusDeviceStore } {
+  return { apiUrl: ctx.apiUrl, fetch: ctx.fetch, deviceStore: ctx.devices };
+}
+
 /** A fresh 32-hex intent owner id. */
 function newOwner(): string {
   return randomBytes(16).toString('hex');
@@ -420,7 +426,7 @@ function storeErrorToAccountError(err: unknown): Error {
     return new NexusAccountError(
       'E_NEXUS_REVOKE_PENDING',
       'a revoke of this device is not yet confirmed by the server, so logging in would undo it',
-      'finish the revoke (`cleo logout nexus --revoke` retries it) or cancel it, then log in',
+      'run `cleo logout nexus --revoke` again when Cleo Nexus is reachable to finish the revoke, then log in',
     );
   }
   if (err.code === 'E_NEXUS_DEVICE_BUSY' || err.code === 'E_NEXUS_DEVICE_LOCK_COMPROMISED') {
@@ -552,7 +558,17 @@ function prepareInTx(
   const entry = tx.get(ctx.apiUrl, input.userId);
   if (entry !== null) assertEnrolmentAllowed(entry, entry.deviceId);
   const now = ctx.now();
-  const reuse = entry !== null && !replaceIdentity;
+  // A device forgotten by a revoke (applyForgetDevice: no keys, no
+  // credential, at most retired requests left) is never reused: re-enrolling
+  // its id could re-activate the device the user asked to burn.
+  const forgotten =
+    entry !== null &&
+    entry.keys === null &&
+    entry.current === null &&
+    entry.pending === null &&
+    !entry.raceCandidate &&
+    entry.pendingSignOut === null;
+  const reuse = entry !== null && !replaceIdentity && !forgotten;
   const deviceId = reuse ? entry.deviceId : uuidv7(now.getTime());
   const keys = reuse && entry.keys !== null ? entry.keys : freshKeys();
   const intent: NexusDeviceEnrolIntent = {
@@ -1108,6 +1124,10 @@ export async function loginToNexusDevice(
   opts: NexusDeviceLoginOptions = {},
 ): Promise<NexusLoginResult> {
   const ctx = context(opts);
+  const warnings: string[] = [];
+  // §3.5 L2: an unsettled sign-out or revoke is retried first; a confirmed
+  // revoke clears the `pendingRevoke` that would refuse this login.
+  await retryNexusDeviceEnds(endOpts(ctx), warnings);
   const profile: NexusDeviceProfile = opts.readOnly === true ? 'read-only' : 'device';
   const loginOpts: NexusLoginOptions = {
     ...(opts.fetch ? { fetch: opts.fetch } : {}),
@@ -1122,7 +1142,6 @@ export async function loginToNexusDevice(
     profile === 'read-only' ? 'cleo:read-only' : 'cleo:device',
   );
   const session = token.accessToken;
-  const warnings: string[] = [];
 
   // Step 4: who is signing in.
   let me: Whoami;
@@ -1439,13 +1458,15 @@ export async function ensureNexusDeviceCredential(
   opts: NexusDeviceCredentialOptions = {},
 ): Promise<NexusDeviceCredentialHandle> {
   const ctx = context(opts);
+  const retryWarnings: string[] = [];
+  await retryNexusDeviceEnds(endOpts(ctx), retryWarnings);
   const upgrade = await upgradeNexusSession({
     ...opts,
     apiUrl: ctx.apiUrl,
     deviceStore: ctx.devices,
     store: ctx.sessions,
   });
-  const warnings = [...upgrade.warnings];
+  const warnings = [...retryWarnings, ...upgrade.warnings];
   const notSignedIn = (): NexusAccountError =>
     new NexusAccountError(
       'E_NEXUS_NOT_SIGNED_IN',
