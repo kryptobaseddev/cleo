@@ -105,9 +105,12 @@ export async function runNexusLogin(
     /* webpackIgnore: true */ '@cleocode/core/cloud/nexus-device.js'
   );
   const noBrowser = negatedFlag(args, 'browser');
+  // A staging test-bearer login (CLEO_NEXUS_TEST_BEARER) shows no code.
+  let codeShown = false;
   const hooks = {
     apiUrl: nexusApiUrlArg(args),
     onCode: (code: DeviceCodePromptInfo) => {
+      codeShown = true;
       writeDeviceCodePrompt(code, SERVICE_NAME);
       if (!noBrowser) openBrowser(code.verificationUriComplete ?? code.verificationUri);
     },
@@ -147,9 +150,18 @@ export async function runNexusLogin(
           'warning: --name needs device credentials, which CLEO_NEXUS_DEVICE=0 turns off; ignored\n',
         );
       }
+      const { NEXUS_TEST_BEARER_ENV, W_NEXUS_TEST_BEARER_IGNORED } = await import(
+        /* webpackIgnore: true */ '@cleocode/core/cloud/nexus-enrol.js'
+      );
+      if ((process.env[NEXUS_TEST_BEARER_ENV]?.trim() ?? '') !== '') {
+        // Names the variable only: its value is a secret.
+        process.stderr.write(
+          `warning: ${W_NEXUS_TEST_BEARER_IGNORED}: ${NEXUS_TEST_BEARER_ENV} needs device credentials, which CLEO_NEXUS_DEVICE turns off; ignored\n`,
+        );
+      }
       result = await loginToNexus(hooks);
     }
-    writeDeviceCodeApproved(SERVICE_NAME);
+    if (codeShown) writeDeviceCodeApproved(SERVICE_NAME);
     for (const warning of result.warnings) process.stderr.write(`warning: ${warning}\n`);
     return result;
   } catch (err) {

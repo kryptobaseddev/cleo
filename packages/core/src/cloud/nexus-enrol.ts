@@ -1316,9 +1316,10 @@ type UpgradeStep =
  * retries it.
  *
  * When E1 answers 401 `session-used` (v2.12: a concurrent E1 consumed the
- * session first), `nexus-device.json` is re-read: if another process stored
- * a credential there, the outcome is `already-enrolled`; otherwise the
- * session is removed and `E_NEXUS_SESSION_EXPIRED` asks for a browser login.
+ * session first), the session is removed and `nexus-device.json` is re-read
+ * every `upgradePollMs` for up to `upgradeWaitMs`: once another process has
+ * stored a credential there, the outcome is `already-enrolled`; if none
+ * appears, `E_NEXUS_SESSION_EXPIRED` asks for a browser login.
  *
  * @param opts - API URL, stores and test overrides.
  * @returns What happened; never a secret.
@@ -1372,7 +1373,7 @@ export async function upgradeNexusSession(
     }
     if (step.kind === 'enrolled') {
       await retireLeftoverSession(ctx, session, warnings);
-      const device = await ctx.devices.get(ctx.apiUrl, userId);
+      const device = await readDevice(ctx, userId);
       return { outcome: 'already-enrolled', device, warnings };
     }
     if (step.kind === 'consumed') return { outcome: 'no-session', device: null, warnings };
@@ -1424,10 +1425,8 @@ export async function upgradeNexusSession(
       // its credential is usually already in the device file. The session is
       // dead server-side either way, so it is only removed locally (CAS).
       await ctx.sessions.delete(ctx.apiUrl, session).catch(() => false);
-      const device = await ctx.devices.get(ctx.apiUrl, userId);
-      if (device !== null && device.currentBearer() !== null) {
-        return { outcome: 'already-enrolled', device, warnings };
-      }
+      const device = await awaitStoredCredential(ctx, userId);
+      if (device !== null) return { outcome: 'already-enrolled', device, warnings };
       throw err;
     }
     if (err instanceof NexusAccountError && err.code === 'E_NEXUS_SESSION_EXPIRED') {
@@ -1441,6 +1440,33 @@ export async function upgradeNexusSession(
   // Step 4 of §3.4: E1 deleted the exempt session, so a failed sign-out is expected.
   await finish(ctx, session.bearer(), enrolled.device, true, warnings);
   return { outcome: 'upgraded', device: enrolled.device, warnings };
+}
+
+/** Read the device entry, mapping a store failure (an unreadable file) to a CLI error. */
+async function readDevice(ctx: Ctx, userId: string): Promise<SealedNexusDevice | null> {
+  try {
+    return await ctx.devices.get(ctx.apiUrl, userId);
+  } catch (err) {
+    throw storeErrorToAccountError(err);
+  }
+}
+
+/**
+ * After 401 `session-used`: re-read `nexus-device.json` every
+ * `upgradePollMs`, for up to `upgradeWaitMs`, until the concurrent upgrade
+ * that consumed the session has stored its credential (it may store a moment
+ * after this process's answer).
+ *
+ * @returns The entry holding a credential, or `null` when none appeared in time.
+ */
+async function awaitStoredCredential(ctx: Ctx, userId: string): Promise<SealedNexusDevice | null> {
+  const deadline = ctx.now().getTime() + ctx.upgradeWaitMs;
+  for (;;) {
+    const device = await readDevice(ctx, userId);
+    if (device !== null && device.currentBearer() !== null) return device;
+    if (ctx.now().getTime() >= deadline) return null;
+    await ctx.sleep(ctx.upgradePollMs);
+  }
 }
 
 /**
