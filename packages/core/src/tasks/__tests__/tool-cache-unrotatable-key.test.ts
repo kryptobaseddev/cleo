@@ -51,7 +51,12 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { computeCacheKey, readCacheEntry, runToolCached } from '../tool-cache.js';
+import {
+  computeCacheKey,
+  readCacheEntry,
+  runToolCached,
+  TOOL_CACHE_SCHEMA_VERSION,
+} from '../tool-cache.js';
 import type { ResolvedToolCommand } from '../tool-resolver.js';
 
 function shCommand(script: string, canonical = 'lint'): ResolvedToolCommand {
@@ -76,7 +81,7 @@ function plant(projectRoot: string, key: string, fields: Record<string, unknown>
       // refused for the reason ITS OWN test names, not because it tripped the
       // schema gate on the way in. A fixture that fails early passes the test
       // vacuously (gh#1419).
-      schemaVersion: 3,
+      schemaVersion: TOOL_CACHE_SCHEMA_VERSION,
       executionRoot: projectRoot,
       key,
       canonical: 'lint',
@@ -87,6 +92,7 @@ function plant(projectRoot: string, key: string, fields: Record<string, unknown>
       head: 'abc123',
       treeHash: 'def456',
       envFingerprint: 'none',
+      resourceEnv: 'NODE_OPTIONS=',
       exitCode: 0,
       stdoutTail: '',
       stderrTail: '',
@@ -201,15 +207,17 @@ describe('gh#1404 — the key really is command-only when the tree hash is null'
     const cmd = shCommand('exit 0');
     // This is the property that makes the entry permanent, asserted directly
     // rather than inferred from behaviour.
-    expect(computeCacheKey(cmd, null, 'none')).toBe(computeCacheKey(cmd, null, 'none'));
-    expect(computeCacheKey(cmd, 'tree-one', 'none')).not.toBe(
-      computeCacheKey(cmd, 'tree-two', 'none'),
+    expect(computeCacheKey(cmd, null, 'none', 'res')).toBe(
+      computeCacheKey(cmd, null, 'none', 'res'),
+    );
+    expect(computeCacheKey(cmd, 'tree-one', 'none', 'res')).not.toBe(
+      computeCacheKey(cmd, 'tree-two', 'none', 'res'),
     );
   });
 
   it('only a command change rotates it', () => {
-    expect(computeCacheKey(shCommand('exit 0'), null, 'none')).not.toBe(
-      computeCacheKey(shCommand('exit 1'), null, 'none'),
+    expect(computeCacheKey(shCommand('exit 0'), null, 'none', 'res')).not.toBe(
+      computeCacheKey(shCommand('exit 1'), null, 'none', 'res'),
     );
   });
 });

@@ -52,7 +52,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { readCacheEntry, runToolCached } from '../tool-cache.js';
+import { readCacheEntry, runToolCached, TOOL_CACHE_SCHEMA_VERSION } from '../tool-cache.js';
 import type { ResolvedToolCommand } from '../tool-resolver.js';
 
 function git(dir: string, args: string[]): string {
@@ -235,7 +235,7 @@ describe('gh#1380 — the result of a killed run is never cached', () => {
     writeFileSync(
       join(cacheDir, `${key}.json`),
       JSON.stringify({
-        schemaVersion: 3,
+        schemaVersion: TOOL_CACHE_SCHEMA_VERSION,
         key,
         canonical: 'lint',
         displayName: 'lint',
@@ -246,6 +246,7 @@ describe('gh#1380 — the result of a killed run is never cached', () => {
         head: null,
         treeHash: null,
         envFingerprint: 'none',
+        resourceEnv: 'NODE_OPTIONS=',
         exitCode: null,
         stdoutTail: '',
         stderrTail: '',
@@ -265,7 +266,7 @@ describe('gh#1380 — the result of a killed run is never cached', () => {
     writeFileSync(
       join(cacheDir, `${key}.json`),
       JSON.stringify({
-        schemaVersion: 3,
+        schemaVersion: TOOL_CACHE_SCHEMA_VERSION,
         key,
         canonical: 'lint',
         displayName: 'lint',
@@ -276,6 +277,7 @@ describe('gh#1380 — the result of a killed run is never cached', () => {
         head: 'abc123',
         treeHash: 'def456',
         envFingerprint: 'none',
+        resourceEnv: 'NODE_OPTIONS=',
         exitCode: 0,
         stdoutTail: '',
         stderrTail: '',

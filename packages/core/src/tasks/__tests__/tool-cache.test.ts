@@ -32,8 +32,9 @@ import {
   readCacheEntry,
   resolveSpawnTimeoutMs,
   runToolCached,
+  TOOL_CACHE_SCHEMA_VERSION,
 } from '../tool-cache.js';
-import { captureEnvFingerprint } from '../tool-cache-env.js';
+import { captureEnvFingerprint, captureResourceEnv } from '../tool-cache-env.js';
 import type { ResolvedToolCommand } from '../tool-resolver.js';
 
 function git(dir: string, args: string[]): string {
@@ -141,24 +142,32 @@ describe('computeCacheKey', () => {
   };
 
   it('differs for different tree hashes', () => {
-    expect(computeCacheKey(cmd, 'tree-a', 'env')).not.toBe(computeCacheKey(cmd, 'tree-b', 'env'));
+    expect(computeCacheKey(cmd, 'tree-a', 'env', 'res')).not.toBe(
+      computeCacheKey(cmd, 'tree-b', 'env', 'res'),
+    );
   });
 
   it('differs for different args', () => {
-    const a = computeCacheKey(cmd, 'tree-a', 'env');
-    const b = computeCacheKey({ ...cmd, args: ['bye'] }, 'tree-a', 'env');
+    const a = computeCacheKey(cmd, 'tree-a', 'env', 'res');
+    const b = computeCacheKey({ ...cmd, args: ['bye'] }, 'tree-a', 'env', 'res');
     expect(a).not.toBe(b);
   });
 
   it('differs for different environment fingerprints', () => {
-    expect(computeCacheKey(cmd, 'tree-a', 'env-1')).not.toBe(
-      computeCacheKey(cmd, 'tree-a', 'env-2'),
+    expect(computeCacheKey(cmd, 'tree-a', 'env-1', 'res')).not.toBe(
+      computeCacheKey(cmd, 'tree-a', 'env-2', 'res'),
     );
   });
 
+  it('differs for different resource environments (T12989)', () => {
+    expect(
+      computeCacheKey(cmd, 'tree-a', 'env', 'NODE_OPTIONS=--max-old-space-size=3072'),
+    ).not.toBe(computeCacheKey(cmd, 'tree-a', 'env', 'NODE_OPTIONS=--max-old-space-size=6144'));
+  });
+
   it('is stable for identical inputs', () => {
-    expect(computeCacheKey(cmd, 'tree-a', 'env')).toBe(
-      computeCacheKey({ ...cmd }, 'tree-a', 'env'),
+    expect(computeCacheKey(cmd, 'tree-a', 'env', 'res')).toBe(
+      computeCacheKey({ ...cmd }, 'tree-a', 'env', 'res'),
     );
   });
 });
@@ -710,6 +719,7 @@ describe('runToolCached — lock contention bounded wait (T12025, T12958)', () =
       cmd,
       await captureTreeHash(dir),
       captureEnvFingerprint(dir, 'test'),
+      captureResourceEnv('test'),
     );
     const cachePath = cacheEntryPath(dir, key);
 
@@ -717,7 +727,10 @@ describe('runToolCached — lock contention bounded wait (T12025, T12958)', () =
     mkdirSync(join(dir, '.cleo', 'cache', 'evidence'), { recursive: true });
 
     // Write the pending entry so runToolCached doesn't re-create it.
-    writeFileSync(cachePath, JSON.stringify({ schemaVersion: 3, key, pending: true }));
+    writeFileSync(
+      cachePath,
+      JSON.stringify({ schemaVersion: TOOL_CACHE_SCHEMA_VERSION, key, pending: true }),
+    );
 
     // Hold the lock ourselves — simulates another process running the tool.
     const release = await acquireLock(cachePath, { retries: 0 });
