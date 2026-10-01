@@ -783,6 +783,9 @@ export type {
   InvariantRuntimeGate,
   InvariantSeverity,
   RegisteredInvariant,
+  SyncWriteInvariant,
+  SyncWriteInvariantClass,
+  SyncWriteInvariantPending,
 } from './invariants/index.js';
 export {
   ADR_056_INVARIANTS,
@@ -790,6 +793,7 @@ export {
   getInvariant,
   getInvariantsByAdr,
   INVARIANTS_REGISTRY,
+  SYNC_WRITE_INVARIANTS,
 } from './invariants/index.js';
 // === Background Job Status (T9955 — promoted from core/store/tasks-schema.ts) ===
 export type { BackgroundJobStatus } from './jobs.js';

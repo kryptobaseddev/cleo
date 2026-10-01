@@ -36,6 +36,12 @@ import { ADR_073_INVARIANTS } from './adr-073-saga.js';
 export { ADR_056_INVARIANTS } from './adr-056-release.js';
 export { ADR_070_INVARIANTS } from './adr-070-orchestration.js';
 export { ADR_073_INVARIANTS } from './adr-073-saga.js';
+export type {
+  SyncWriteInvariant,
+  SyncWriteInvariantClass,
+  SyncWriteInvariantPending,
+} from './sync-write-invariants.js';
+export { SYNC_WRITE_INVARIANTS } from './sync-write-invariants.js';
 
 /**
  * Severity tier for a registered invariant.
