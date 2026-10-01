@@ -254,15 +254,24 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
   let sample = await d.sample();
 
   // A nested run (a script under `cleo run` that itself calls `cleo run`)
-  // runs inside its parent job's process tree and on the parent's slot
-  // (#1777 round 3, M-2). See {@link parentRunJob} for why this can't be forged.
-  const parent = parentRunJob({
+  // runs inside its enclosing job's process tree. Of the SAME class it rides
+  // the enclosing job's slot (#1777 round 3, M-2); of another class it takes
+  // its own slot (round 4, MED-1). Either way its child stays in the
+  // enclosing group, is never paused on its own, and is signalled by pid
+  // (round 5, N1). See {@link parentRunJob} for why this can't be forged.
+  const enclosing = parentRunJob({
     pid: d.pid,
-    cls: opts.cls,
     jobsDir: d.jobsDir,
     probes: probesOf(d),
     groupOf: d.groupOf,
   });
+  const nested = enclosing !== null;
+  const parent = enclosing !== null && enclosing.class === opts.cls ? enclosing : null;
+  if (enclosing && !parent) {
+    notice(
+      `nested in a running ${enclosing.class} job (${enclosing.command}): admitted on its own ${opts.cls} slot, inside that job's process group`,
+    );
+  }
   let admission: AdmissionResult;
   if (parent) {
     admission = {
@@ -343,8 +352,8 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
 
   // ---- 2. run -------------------------------------------------------------
   const startedAtMs = d.now();
-  // A nested job lives in its parent's group: the parent's pause covers it.
-  const pausable = parent === null && isPausable(opts.cls, opts.argv);
+  // A nested job lives in its enclosing job's group: never paused on its own.
+  const pausable = !nested && isPausable(opts.cls, opts.argv);
   const [file, ...args] = opts.argv as [string, ...string[]];
   // No inherited grant marker (#1777 round 2): every nested `cleo run` is
   // admitted on its own; verify joins the same budgets with #1775 (T12963).
@@ -364,6 +373,8 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
     pausedAtMs: null,
     pausable,
     heartbeatAtMs: startedAtMs,
+    parentJob: enclosing?.id ?? null,
+    holdsSlot: parent === null,
   };
   writeRunJob(job, d.jobsDir);
 
@@ -375,7 +386,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
 
   let child: GovernedChild;
   try {
-    child = d.spawn(file, args, { cwd: opts.cwd, env, detached: parent === null });
+    child = d.spawn(file, args, { cwd: opts.cwd, env, detached: !nested });
   } catch (err) {
     removeRunJob(job.id, d.jobsDir);
     await grant.release();
@@ -401,10 +412,10 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
     if (!exited) writeRunJob(job, d.jobsDir);
   }
 
-  // A nested child is not a group leader (it lives in its parent job's
+  // A nested child is not a group leader (it lives in the enclosing job's
   // group): signal the process itself, or kill(-pid) would hit ESRCH and the
   // child would keep running (#1777 round 4, L-A).
-  const forwardTo = parent === null ? d.signal : d.signalPid;
+  const forwardTo = nested ? d.signalPid : d.signal;
   const uninstall = d.onRunnerSignal((signal) => {
     if (childPid === undefined || exited) return;
     forwardTo(childPid, 'SIGCONT');

@@ -19,7 +19,7 @@
  */
 
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AdmissionResult, ResourceClass } from '@cleocode/contracts';
@@ -411,6 +411,64 @@ describe('runGoverned', () => {
     const r = await runGoverned(base(h));
     expect(h.acquires).toBe(1);
     expect(r.kind).toBe('deferred');
+  });
+
+  it('a nested run of ANOTHER class takes its own slot but stays in the enclosing group (N1)', async () => {
+    writeRunJob(
+      { ...olderJob(), id: 'outer', class: 'full-build', childPid: 777, childStart: 'start-777' },
+      join(dir, 'jobs'),
+    );
+    let record: RunJob | undefined;
+    const h = harness({
+      groupOf: () => 777,
+      levels: ['ok', 'backoff', 'backoff'],
+      onSample: (n, hh) => {
+        if (n === 2) {
+          const own = readdirSync(join(dir, 'jobs')).find((f) => f !== 'outer.json');
+          record = JSON.parse(readFileSync(join(dir, 'jobs', own as string), 'utf8')) as RunJob;
+          hh.forward('SIGTERM');
+        }
+        if (n === 3) hh.exit(null, 'SIGTERM');
+      },
+    });
+    const r = await runGoverned(base(h));
+    expect(h.acquires).toBe(1);
+    expect(r).toMatchObject({ kind: 'exited', slot: 0, pauses: 0 });
+    expect(h.spawned[0]?.detached).toBe(false);
+    expect(record).toMatchObject({ parentJob: 'outer', holdsSlot: true, pausable: false });
+    // Never SIGSTOPped on its own (backoff, younger), and forwarded by pid.
+    expect(h.signals).toEqual([
+      [500, 'pid:SIGCONT'],
+      [500, 'pid:SIGTERM'],
+    ]);
+  });
+
+  it('a job whose group holds a slot-owning nested run is never paused (N1)', async () => {
+    writeRunJob(olderJob(), join(dir, 'jobs'));
+    const h = harness({
+      levels: ['ok', 'backoff', 'backoff', 'backoff'],
+      onSample: (n, hh) => {
+        if (n === 2) {
+          const own = readdirSync(join(dir, 'jobs')).find((f) => f !== 'older.json') as string;
+          writeRunJob(
+            {
+              ...olderJob(),
+              id: 'inner',
+              class: 'test-run',
+              startedAtMs: hh.clock.t,
+              heartbeatAtMs: hh.clock.t,
+              parentJob: own.replace(/\.json$/, ''),
+              holdsSlot: true,
+            },
+            join(dir, 'jobs'),
+          );
+        }
+        if (n === 4) hh.exit(0);
+      },
+    });
+    const r = await runGoverned(base(h));
+    expect(r).toMatchObject({ kind: 'exited', exitCode: 0, pauses: 0 });
+    expect(h.signals).toEqual([]);
   });
 
   it('a non-nested run is spawned detached as its own group', async () => {

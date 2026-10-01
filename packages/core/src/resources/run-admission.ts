@@ -188,6 +188,14 @@ export interface RunJob {
   readonly pausable: boolean;
   /** Refreshed by the runner on every poll. */
   readonly heartbeatAtMs: number;
+  /**
+   * The enclosing job when this run is nested in another `cleo run` (its
+   * runner lives in that job's process group), else null. Absent in records
+   * from older builds.
+   */
+  readonly parentJob?: string | null;
+  /** Whether this job holds a slot of its own (a same-class nested run does not). */
+  readonly holdsSlot?: boolean;
 }
 
 /** A record whose heartbeat is older than this is checked for a dead runner. */
@@ -562,6 +570,7 @@ export const CAP_RUN_WINDOW_MS = 5 * 60_000;
 export type PauseReason =
   | 'below-backoff'
   | 'not-pausable'
+  | 'nested-slot'
   | 'oldest'
   | 'cap'
   | 'run-window'
@@ -571,6 +580,8 @@ export type PauseReason =
  * Should this job run or pause right now?
  *
  * - Below `backoff`, or a job that may not be paused: run.
+ * - A job with a live nested run that holds its own slot: run
+ *   (`'nested-slot'`), so that run's slot lock never goes stale while frozen.
  * - At `backoff`: the oldest live job keeps running so the machine always
  *   makes progress; every younger pausable job pauses. Pausing frees CPU at
  *   once and stops memory growth; nothing is killed and no work is lost.
@@ -587,7 +598,7 @@ export type PauseReason =
 export function decidePause(input: {
   readonly state: PressureState;
   readonly self: Pick<RunJob, 'id' | 'pausable'>;
-  readonly jobs: readonly Pick<RunJob, 'id'>[];
+  readonly jobs: readonly Pick<RunJob, 'id' | 'parentJob' | 'holdsSlot'>[];
   readonly nowMs: number;
   readonly pausedAtMs?: number | null;
   readonly capResumedAtMs?: number | null;
@@ -595,6 +606,12 @@ export function decidePause(input: {
   readonly runWindowMs?: number;
 }): { decision: 'run' | 'pause'; reason: PauseReason } {
   if (!input.self.pausable) return { decision: 'run', reason: 'not-pausable' };
+  // A nested run holding its own slot lives in this job's group: a SIGSTOP
+  // would freeze its runner, whose slot lock then goes stale and is taken
+  // while its child still runs (#1777 round 5, N1). Never pause over it.
+  if (input.jobs.some((j) => j.parentJob === input.self.id && j.holdsSlot === true)) {
+    return { decision: 'run', reason: 'nested-slot' };
+  }
   if (input.state !== 'backoff') return { decision: 'run', reason: 'below-backoff' };
   const capAt = input.capResumedAtMs ?? null;
   if (capAt !== null && input.nowMs - capAt < (input.runWindowMs ?? CAP_RUN_WINDOW_MS)) {

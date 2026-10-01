@@ -45,15 +45,57 @@ const EXEC_RUNNERS = /^(npx|pnpx|bunx)$/;
 const PREFIX_COMMANDS = /^(env|nice|time|nohup)$/;
 const INSTALL_VERBS = /^(install|i|ci|add|update|up|upgrade)$/;
 const HEAVY_SCRIPTS = /^(test|t|build|typecheck|lint|check|install|i|ci)(:|$)/;
-/** A watch/dev/serve word, as a script or a script segment (`test:watch`, `app:serve`). */
-const WATCH_WORD = /^(dev|start|serve|preview|watch)$/;
+/** Serve/dev words that count only as a name's FIRST segment (`dev:web`, not `build:dev`). */
+const LEADING_WATCH_WORD = /^(dev|start|preview)$/;
+/** Watch/serve words that count in any segment (`test:watch`, `docs:serve`). */
+const ANY_WATCH_WORD = /^(watch|serve)$/;
 /** Watch-mode flags (`-w` is handled per tool: it is maxWorkers for jest). */
 const WATCH_FLAGS = new Set(['--watch', '--watchAll', '--ui']);
 /** Subcommands that serve or watch (only as the first positional word). */
 const WATCH_SUBCOMMANDS = new Set(['watch', 'dev', 'serve', 'start', 'preview']);
 const INFO_FLAGS = new Set(['--version', '--help', '-h']);
-/** Tools where `-v` means verbose, not version. */
-const V_IS_VERBOSE = /^(go|pytest|cargo|jest|vitest|mocha)$/;
+/**
+ * Short flags that mean `--version`, per tool; any other tool: both. `-v` is
+ * verbose for go, pytest and cargo; jest and vitest have no `-V`.
+ */
+const SHORT_VERSION_FLAGS: Readonly<Record<string, readonly string[]>> = {
+  jest: ['-v'],
+  vitest: ['-v'],
+  pytest: ['-V'],
+  mocha: ['-V'],
+  cargo: ['-V'],
+  go: [],
+};
+/** turbo flags that take a value (so the value is never read as a task). */
+const TURBO_VALUE_FLAGS = new Set([
+  '--filter',
+  '-F',
+  '--concurrency',
+  '--cache-dir',
+  '--output-logs',
+  '--log-order',
+  '--log-prefix',
+  '--env-mode',
+  '--cwd',
+  '--team',
+  '--token',
+  '--profile',
+]);
+/** nx flags that take a value. `-t`/`--target(s)` are read as tasks. */
+const NX_VALUE_FLAGS = new Set([
+  '--configuration',
+  '-c',
+  '--projects',
+  '-p',
+  '--exclude',
+  '--parallel',
+  '--base',
+  '--head',
+  '--output-style',
+  '--files',
+]);
+/** nx flags that name the tasks of `run-many` / `affected`. */
+const NX_TARGET_FLAGS = new Set(['-t', '--target', '--targets']);
 /** Package-manager flags that take a value. */
 const PM_VALUE_FLAGS = new Set([
   '--workspace-concurrency',
@@ -184,7 +226,11 @@ export function commandTarget(argv: readonly string[]): CommandTarget {
       k += 1;
     }
     if (verb === 'exec' || verb === 'dlx' || verb === 'x') {
-      while (k < after.length && (after[k] as string).startsWith('-')) k++;
+      // `pnpm dlx -p typescript tsc`: `-p`/`--package` take a value.
+      while (k < after.length && (after[k] as string).startsWith('-')) {
+        const f = after[k] as string;
+        k += f === '-p' || f === '--package' ? 2 : 1;
+      }
       const tool = after[k];
       return {
         tool: tool ? base(tool) : first,
@@ -219,9 +265,10 @@ export function commandTarget(argv: readonly string[]): CommandTarget {
 }
 
 function infoOnly(t: CommandTarget): boolean {
-  return t.rest.some(
-    (w) => INFO_FLAGS.has(w) || ((w === '-v' || w === '-V') && !V_IS_VERBOSE.test(t.tool)),
-  );
+  const short = Object.hasOwn(SHORT_VERSION_FLAGS, t.tool)
+    ? (SHORT_VERSION_FLAGS[t.tool] as readonly string[])
+    : ['-v', '-V'];
+  return t.rest.some((w) => INFO_FLAGS.has(w) || short.includes(w));
 }
 
 /**
@@ -240,21 +287,97 @@ function positionals(rest: readonly string[]): string[] {
   return out;
 }
 
-const hasWatchSegment = (word: string): boolean =>
-  word.split(':').some((seg) => WATCH_WORD.test(seg));
+/**
+ * Whether a script or task name serves or watches: `dev`, `start` or
+ * `preview` as its first segment (`dev`, `dev:web`), or `watch`/`serve` in
+ * any segment (`test:watch`, `docs:serve`). `build:dev`, `build:preview` and
+ * `test:dev` are one-shot runs.
+ */
+export function isWatchName(name: string): boolean {
+  const segs = name.split(':');
+  return LEADING_WATCH_WORD.test(segs[0] ?? '') || segs.some((seg) => ANY_WATCH_WORD.test(seg));
+}
+
+/** The tasks a turbo or nx command runs. */
+interface OrchestratorTasks {
+  /** Task names (`build`, `test`, `serve`), without a `pkg#` prefix or nx project. */
+  readonly tasks: readonly string[];
+  /** Runs across the workspace (`turbo run`, `nx run-many`, `nx affected`). */
+  readonly many: boolean;
+  /** Narrowed to some packages (`--filter`, `--projects`). */
+  readonly scoped: boolean;
+}
+
+/**
+ * The tasks of a turbo or nx command, or null for any other tool.
+ *
+ * - turbo: `turbo run a b`, `turbo a b` (`web#dev` → `dev`); `--filter` scopes.
+ * - nx: `nx run-many|affected -t a b` / `--targets=a,b`; `nx run proj:target[:config]`;
+ *   `nx <target> <project>` (`nx serve app`, `nx --verbose test app`).
+ */
+function orchestratorTasks(t: CommandTarget): OrchestratorTasks | null {
+  if (t.tool === 'turbo') {
+    const words: string[] = [];
+    let scoped = false;
+    for (let x = 0; x < t.rest.length; x++) {
+      const w = t.rest[x] as string;
+      if (w.startsWith('-')) {
+        if (w === '--filter' || w === '-F' || w.startsWith('--filter=')) scoped = true;
+        if (TURBO_VALUE_FLAGS.has(w)) x++;
+        continue;
+      }
+      words.push(w);
+    }
+    if (words[0] === 'run') words.shift();
+    return { tasks: words.map((w) => w.split('#').pop() ?? w), many: true, scoped };
+  }
+  if (t.tool === 'nx') {
+    const tasks: string[] = [];
+    const pos: string[] = [];
+    let scoped = false;
+    for (let x = 0; x < t.rest.length; x++) {
+      const w = t.rest[x] as string;
+      const [flag, value] = w.split('=', 2) as [string, string | undefined];
+      if (NX_TARGET_FLAGS.has(flag)) {
+        if (value !== undefined) tasks.push(...value.split(','));
+        else
+          while (x + 1 < t.rest.length && !(t.rest[x + 1] as string).startsWith('-')) {
+            tasks.push(...(t.rest[++x] as string).split(','));
+          }
+        continue;
+      }
+      if (w.startsWith('-')) {
+        if (flag === '--projects' || flag === '-p') scoped = true;
+        if (value === undefined && NX_VALUE_FLAGS.has(flag)) x++;
+        continue;
+      }
+      pos.push(w);
+    }
+    const sub = pos[0];
+    if (sub === 'run-many' || sub === 'affected') return { tasks, many: true, scoped };
+    // `nx run web:test:ci`: the target is the second segment.
+    if (sub === 'run') {
+      const target = (pos[1] ?? '').split(':')[1];
+      return { tasks: target ? [target] : [], many: false, scoped: true };
+    }
+    return { tasks: sub ? [sub] : [], many: false, scoped: true };
+  }
+  return null;
+}
 
 /** A watcher or server: never heavy, never admitted (it would hold a slot forever). */
 function watching(t: CommandTarget): boolean {
   // `pnpm dev`, `npm run test:watch`, `pnpm build:watch`, `pnpm run serve:docs`.
-  if (t.script !== null && hasWatchSegment(t.script)) return true;
+  if (t.script !== null && isWatchName(t.script)) return true;
   if (t.rest.some((w) => WATCH_FLAGS.has(w))) return true;
   // `-w` is watch for tsc, rollup, vitest…; for jest it is --maxWorkers.
   if (t.script === null && t.tool !== 'jest' && t.rest.includes('-w')) return true;
+  // `turbo run dev`, `nx run-many -t serve`, `nx affected -t dev`, `nx run app:serve`.
+  const orch = orchestratorTasks(t);
+  if (orch) return orch.tasks.some(isWatchName);
   const pos = positionals(t.rest);
-  // `vitest watch`, `next dev`, `nx serve app`.
+  // `vitest watch`, `next dev`.
   if (pos[0] !== undefined && WATCH_SUBCOMMANDS.has(pos[0])) return true;
-  // `nx run app:serve`.
-  if (pos.some((w) => w.includes(':') && hasWatchSegment(w))) return true;
   // `vite` / `next` without a build subcommand serve.
   if ((t.tool === 'vite' || t.tool === 'next') && !pos.includes('build')) return true;
   return false;
@@ -298,10 +421,11 @@ function isWorkspaceRoot(cwd: string): boolean {
  * The governor class for a command.
  *
  * An explicit `--class` wins (aliases above). Otherwise: a test runner, a
- * `test` script, `npm t`, `bun test` or `cargo|go test` is `test-run`; a build
- * that spans the workspace (`-r`, `--workspaces`, `yarn workspaces foreach`,
- * `turbo run build`, `nx run-many`, or an unscoped build at a workspace root)
- * is `full-build`; anything else is `scoped-build`.
+ * `test` script, `npm t`, `bun test`, `cargo|go test`, or turbo/nx running
+ * only test tasks is `test-run`; a build that spans the workspace (`-r`,
+ * `--workspaces`, `yarn workspaces foreach`, an unscoped build at a workspace
+ * root, or any non-test turbo / `nx run-many|affected` run, `build test`
+ * included) is `full-build`; anything else is `scoped-build`.
  *
  * @param explicit - the `--class` value, if given.
  * @param argv - the command.
@@ -328,20 +452,18 @@ export function resolveRunClass(
     return 'test-run';
   }
   if ((t.tool === 'cargo' || t.tool === 'go') && t.rest[0] === 'test') return 'test-run';
-  // `turbo run test`, `turbo test`, `nx affected -t test`, `nx run-many --target=test`.
-  if (
-    (t.tool === 'turbo' || t.tool === 'nx') &&
-    t.rest.some((w) => /^test(:|$)/.test(w) || /^--target=test(:|$)/.test(w))
-  ) {
-    return 'test-run';
+  // turbo / nx: a build (or any non-test task) across the workspace is a full
+  // build, checked BEFORE the test rule so `turbo run build test` keeps the
+  // single full-build slot; tests only are a test run (`nx run web:test`).
+  const orch = orchestratorTasks(t);
+  if (orch) {
+    const isTest = (x: string): boolean => /^test(:|$)/.test(x);
+    if (orch.tasks.length > 0 && orch.tasks.every(isTest)) return 'test-run';
+    return orch.many && !orch.scoped && !t.scoped ? 'full-build' : 'scoped-build';
   }
-  const builds =
-    (t.script !== null && /^build(:|$)/.test(t.script)) ||
-    (t.tool === 'turbo' && t.rest.includes('build')) ||
-    (t.tool === 'nx' && t.rest[0] === 'run-many');
-  if (builds) {
+  if (t.script !== null && /^build(:|$)/.test(t.script)) {
     if (t.scoped) return 'scoped-build';
-    if (t.recursive || t.tool === 'turbo' || t.tool === 'nx') return 'full-build';
+    if (t.recursive) return 'full-build';
     if (t.pm !== null && isWorkspaceRoot(cwd)) return 'full-build';
   }
   return 'scoped-build';

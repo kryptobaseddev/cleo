@@ -495,6 +495,25 @@ describe('decidePause', () => {
     );
   });
 
+  it('a job with a slot-owning nested run is never paused; a slot-less one does not block (N1)', () => {
+    const withInner = (holdsSlot: boolean) => [
+      ...jobs,
+      { id: 'inner', parentJob: 'mid', holdsSlot },
+    ];
+    expect(
+      decidePause({ state: 'backoff', self: self('mid'), jobs: withInner(true), nowMs: 1 }),
+    ).toEqual({ decision: 'run', reason: 'nested-slot' });
+    expect(
+      decidePause({ state: 'backoff', self: self('mid'), jobs: withInner(false), nowMs: 1 })
+        .decision,
+    ).toBe('pause');
+    // Another job's nested run does not protect this one.
+    expect(
+      decidePause({ state: 'backoff', self: self('new'), jobs: withInner(true), nowMs: 1 })
+        .decision,
+    ).toBe('pause');
+  });
+
   it('the starvation cap gives a real run window, then the job can pause again', () => {
     let pausedAtMs: number | null = 0;
     let capResumedAtMs: number | null = null;

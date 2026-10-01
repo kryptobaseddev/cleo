@@ -183,3 +183,99 @@ describe('round 4: watch false positives and recognizer false negatives', () => 
     expect(resolveRunClass(undefined, ['turbo', 'run', 'build'], dir)).toBe('full-build');
   });
 });
+
+describe('round 5 (N5): classifier regressions', () => {
+  it('turbo and nx watchers are never heavy: every task word and -t/--target value counts', () => {
+    for (const argv of [
+      ['turbo', 'run', 'dev'],
+      ['npx', 'turbo', 'run', 'dev'],
+      ['pnpm', 'turbo', 'run', 'dev'],
+      ['turbo', 'run', 'start'],
+      ['turbo', 'serve'],
+      ['turbo', 'run', 'web#dev'],
+      ['turbo', 'run', 'test:watch'],
+      ['nx', 'run-many', '-t', 'serve'],
+      ['nx', 'affected', '-t', 'dev'],
+      ['nx', 'run-many', '--targets=build,serve'],
+      ['nx', '--verbose', 'serve', 'app'],
+      ['nx', 'run', 'app:serve:production'],
+    ]) {
+      expect(looksHeavy(argv), argv.join(' ')).toBe(false);
+    }
+  });
+
+  it('dev/start/preview count only as the first segment; watch/serve anywhere', () => {
+    for (const argv of [
+      ['pnpm', 'build:dev'],
+      ['npm', 'run', 'build:dev'],
+      ['pnpm', 'build:preview'],
+      ['pnpm', 'test:dev'],
+      ['turbo', 'run', 'build:dev'],
+      ['nx', 'run', 'web:build:dev'],
+    ]) {
+      expect(looksHeavy(argv), argv.join(' ')).toBe(true);
+    }
+    for (const argv of [
+      ['pnpm', 'dev'],
+      ['pnpm', 'dev:web'],
+      ['pnpm', 'start'],
+      ['pnpm', 'preview'],
+      ['pnpm', 'docs:serve'],
+      ['pnpm', 'build:watch'],
+    ]) {
+      expect(looksHeavy(argv), argv.join(' ')).toBe(false);
+    }
+  });
+
+  it('-v / -V mean --version per tool', () => {
+    for (const argv of [
+      ['jest', '-v'],
+      ['vitest', '-v'],
+      ['pytest', '-V'],
+      ['mocha', '-V'],
+      ['cargo', '-V'],
+      ['tsc', '-v'],
+      ['tsc', '-V'],
+    ]) {
+      expect(looksHeavy(argv), argv.join(' ')).toBe(false);
+    }
+    for (const argv of [
+      ['pytest', '-v'],
+      ['cargo', 'test', '-v'],
+      ['go', 'test', '-v', './...'],
+      ['go', 'test', '-V'],
+    ]) {
+      expect(looksHeavy(argv), argv.join(' ')).toBe(true);
+    }
+  });
+
+  it('a turbo/nx run with a build is a full build before any test rule', () => {
+    expect(resolveRunClass(undefined, ['turbo', 'run', 'build', 'test'], dir)).toBe('full-build');
+    expect(resolveRunClass(undefined, ['turbo', 'run', 'test', 'build'], dir)).toBe('full-build');
+    expect(resolveRunClass(undefined, ['nx', 'run-many', '-t', 'build', 'test'], dir)).toBe(
+      'full-build',
+    );
+    expect(resolveRunClass(undefined, ['nx', 'run-many', '--targets=test,lint'], dir)).toBe(
+      'full-build',
+    );
+    expect(resolveRunClass(undefined, ['turbo', 'run', 'build', '--filter=web'], dir)).toBe(
+      'scoped-build',
+    );
+    expect(
+      resolveRunClass(undefined, ['nx', 'run-many', '-t', 'build', '--projects=a,b'], dir),
+    ).toBe('scoped-build');
+    expect(resolveRunClass(undefined, ['nx', 'build', 'app'], dir)).toBe('scoped-build');
+  });
+
+  it('nx run <proj>:test and nx <target> test are test runs; dlx -p resolves the tool', () => {
+    expect(resolveRunClass(undefined, ['nx', 'run', 'web:test'], dir)).toBe('test-run');
+    expect(resolveRunClass(undefined, ['nx', 'run', 'web:test:ci'], dir)).toBe('test-run');
+    expect(resolveRunClass(undefined, ['nx', 'test', 'web'], dir)).toBe('test-run');
+    expect(resolveRunClass(undefined, ['nx', 'run-many', '--target', 'test'], dir)).toBe(
+      'test-run',
+    );
+    expect(commandTarget(['pnpm', 'dlx', '-p', 'typescript', 'tsc', '-b']).tool).toBe('tsc');
+    expect(commandTarget(['pnpm', 'dlx', '--package', 'typescript', 'tsc']).tool).toBe('tsc');
+    expect(looksHeavy(['pnpm', 'dlx', '-p', 'typescript', 'tsc', '-b'])).toBe(true);
+  });
+});
