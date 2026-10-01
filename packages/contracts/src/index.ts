@@ -2993,11 +2993,15 @@ export type {
   NexusAccountOrganization,
   NexusAccountStatus,
   NexusAccountUser,
+  NexusDeviceEndOutcome,
+  NexusDeviceLogoutResult,
+  NexusDeviceLogoutRow,
   NexusLoginDevice,
   NexusLoginResult,
   NexusLogoutResult,
   NexusProjectLink,
   NexusProjectLinkResult,
+  NexusReplicaAttachment,
   NexusSessionState,
 } from './nexus-account.js';
 export {

@@ -1,7 +1,7 @@
 /**
- * `cleo login nexus` glue (T12868): with `CLEO_NEXUS_DEVICE` unset it runs
- * the 9.24 session login exactly as before; with `CLEO_NEXUS_DEVICE=1` it
- * runs the device enrolment and passes `--read-only` and `--name`.
+ * `cleo login nexus` glue (T12868, T12904): device enrolment is the default
+ * and passes `--read-only` and `--name`; `CLEO_NEXUS_DEVICE=0` runs the 9.24
+ * session login exactly as before.
  *
  * The core flows are mocked; nothing touches the network or a CLEO home.
  *
@@ -14,12 +14,18 @@ const loginToNexus = vi.fn();
 const loginToNexusDevice = vi.fn();
 
 vi.mock('@cleocode/core/cloud/nexus-auth.js', () => ({ loginToNexus }));
-vi.mock('@cleocode/core/cloud/nexus-enrol.js', () => ({ loginToNexusDevice }));
+vi.mock('@cleocode/core/cloud/nexus-enrol.js', () => ({
+  loginToNexusDevice,
+  NEXUS_TEST_BEARER_ENV: 'CLEO_NEXUS_TEST_BEARER',
+  W_NEXUS_TEST_BEARER_IGNORED: 'W_NEXUS_TEST_BEARER_IGNORED',
+}));
 vi.mock('@cleocode/core/cloud/nexus-device.js', () => ({
-  isNexusDeviceEnabled: () => process.env['CLEO_NEXUS_DEVICE'] === '1',
+  isNexusDeviceEnabled: () => process.env['CLEO_NEXUS_DEVICE'] !== '0',
 }));
 
-const { nexusLoginSummary, runNexusLogin } = await import('../nexus-account-cli.js');
+const { nexusDeviceLogoutSummary, nexusLoginSummary, runNexusLogin } = await import(
+  '../nexus-account-cli.js'
+);
 
 const RESULT = {
   apiUrl: 'https://api.nexus.test',
@@ -31,10 +37,13 @@ const RESULT = {
 };
 
 let saved: string | undefined;
+let savedBearer: string | undefined;
 let stderr: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
   saved = process.env['CLEO_NEXUS_DEVICE'];
+  savedBearer = process.env['CLEO_NEXUS_TEST_BEARER'];
+  delete process.env['CLEO_NEXUS_TEST_BEARER'];
   loginToNexus.mockReset().mockResolvedValue(RESULT);
   loginToNexusDevice.mockReset().mockResolvedValue({
     ...RESULT,
@@ -53,12 +62,14 @@ beforeEach(() => {
 afterEach(() => {
   if (saved === undefined) delete process.env['CLEO_NEXUS_DEVICE'];
   else process.env['CLEO_NEXUS_DEVICE'] = saved;
+  if (savedBearer === undefined) delete process.env['CLEO_NEXUS_TEST_BEARER'];
+  else process.env['CLEO_NEXUS_TEST_BEARER'] = savedBearer;
   stderr.mockRestore();
 });
 
 describe('runNexusLogin', () => {
-  it('with the flag unset, runs the 9.24 session login exactly as before', async () => {
-    delete process.env['CLEO_NEXUS_DEVICE'];
+  it('with CLEO_NEXUS_DEVICE=0, runs the 9.24 session login exactly as before', async () => {
+    process.env['CLEO_NEXUS_DEVICE'] = '0';
     const result = await runNexusLogin({ 'api-url': 'https://api.nexus.test' }, () => {});
     expect(result).toBe(RESULT);
     expect(loginToNexusDevice).not.toHaveBeenCalled();
@@ -73,15 +84,18 @@ describe('runNexusLogin', () => {
     expect(written).not.toContain('CLEO_NEXUS_DEVICE');
   });
 
-  it('with the flag unset, a value other than 1 still runs the session login', async () => {
-    process.env['CLEO_NEXUS_DEVICE'] = 'true';
-    await runNexusLogin({}, () => {});
-    expect(loginToNexus).toHaveBeenCalledTimes(1);
-    expect(loginToNexusDevice).not.toHaveBeenCalled();
+  it('by default (flag unset, or any value but 0), enrols the device (T12904)', async () => {
+    for (const value of [undefined, '1', 'true']) {
+      if (value === undefined) delete process.env['CLEO_NEXUS_DEVICE'];
+      else process.env['CLEO_NEXUS_DEVICE'] = value;
+      await runNexusLogin({}, () => {});
+    }
+    expect(loginToNexusDevice).toHaveBeenCalledTimes(3);
+    expect(loginToNexus).not.toHaveBeenCalled();
   });
 
-  it('with the flag unset, --read-only is REFUSED, never a full-privilege login (review L1)', async () => {
-    delete process.env['CLEO_NEXUS_DEVICE'];
+  it('with CLEO_NEXUS_DEVICE=0, --read-only is REFUSED, never a full-privilege login (review L1)', async () => {
+    process.env['CLEO_NEXUS_DEVICE'] = '0';
     await expect(runNexusLogin({ 'read-only': true }, () => {})).rejects.toMatchObject({
       code: 'E_NEXUS_DEVICE_REQUIRED',
     });
@@ -97,5 +111,71 @@ describe('runNexusLogin', () => {
     expect(opts['readOnly']).toBe(true);
     expect(opts['name']).toBe('ci box');
     expect(nexusLoginSummary(result)).toContain('device d-1');
+  });
+});
+
+describe('runNexusLogin: CLEO_NEXUS_TEST_BEARER (T12902)', () => {
+  const written = (): string => stderr.mock.calls.map((c: unknown[]) => String(c[0])).join('');
+
+  it('with CLEO_NEXUS_DEVICE=0, warns that the test bearer is ignored, never printing it', async () => {
+    process.env['CLEO_NEXUS_DEVICE'] = '0';
+    const bearer = 'sess_secret_value_0123456789abcdef';
+    process.env['CLEO_NEXUS_TEST_BEARER'] = bearer;
+    await runNexusLogin({}, () => {});
+    expect(loginToNexus).toHaveBeenCalledTimes(1);
+    expect(written()).toContain(
+      'warning: W_NEXUS_TEST_BEARER_IGNORED: CLEO_NEXUS_TEST_BEARER needs device credentials, which CLEO_NEXUS_DEVICE turns off; ignored',
+    );
+    expect(written()).not.toContain(bearer);
+  });
+
+  it('prints "authorization approved" only when a device code was shown', async () => {
+    // A test-bearer login: the core flow never calls onCode.
+    await runNexusLogin({}, () => {});
+    expect(written()).not.toContain('authorization approved');
+    // A browser login: onCode fires, then the approval line is printed.
+    loginToNexusDevice.mockImplementationOnce(
+      async (opts: {
+        onCode: (c: { userCode: string; verificationUri: string; expiresIn: number }) => void;
+      }) => {
+        opts.onCode({
+          userCode: 'ABCD-EFGH',
+          verificationUri: 'https://cleocode.dev/device',
+          expiresIn: 900,
+        });
+        return RESULT;
+      },
+    );
+    await runNexusLogin({}, () => {});
+    expect(written()).toContain('authorization approved');
+  });
+});
+
+describe('nexusDeviceLogoutSummary (T12870)', () => {
+  const row = (outcome: 'confirmed' | 'pending' | 'unconfirmed') => ({
+    userId: 'u-1',
+    deviceId: 'd-1',
+    action: 'sign-out' as const,
+    retired: false,
+    outcome,
+    removedLocally: false,
+  });
+  const base = { apiUrl: 'https://api.nexus.test', session: null, warnings: [] };
+
+  it('says nothing to do when nothing was stored', () => {
+    expect(nexusDeviceLogoutSummary({ ...base, action: 'sign-out', devices: [] })).toBe(
+      'Not signed in to https://api.nexus.test; nothing to do.',
+    );
+  });
+
+  it('never claims an unconfirmed sign-out succeeded', () => {
+    const line = nexusDeviceLogoutSummary({
+      ...base,
+      action: 'revoke',
+      devices: [row('confirmed'), row('pending'), row('unconfirmed')],
+    });
+    expect(line).toBe(
+      'Revoke NOT fully confirmed on https://api.nexus.test: 1 of 3 device request(s) confirmed; 2 NOT confirmed (see warnings).',
+    );
   });
 });

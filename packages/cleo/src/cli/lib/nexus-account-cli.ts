@@ -9,7 +9,7 @@
  * @task T12712
  */
 
-import type { NexusLoginResult } from '@cleocode/contracts';
+import type { NexusDeviceLogoutResult, NexusLoginResult } from '@cleocode/contracts';
 import { cliError, cliOutput, humanLine, isHumanOutput } from '../renderers/index.js';
 import {
   type DeviceCodePromptInfo,
@@ -69,6 +69,16 @@ export function failNexus(err: unknown, operation: string): never {
 }
 
 /**
+ * Print a Nexus flow's warnings to stderr, one `warning:` line each. They also
+ * travel in the result envelope's `data.warnings`.
+ *
+ * @param warnings - Warnings from the result (secret-free).
+ */
+export function writeNexusWarnings(warnings: readonly string[]): void {
+  for (const warning of warnings) process.stderr.write(`warning: ${warning}\n`);
+}
+
+/**
  * Emit a result: one human line on a terminal, else the LAFS envelope.
  *
  * @param data - Result payload (secret-free).
@@ -105,9 +115,12 @@ export async function runNexusLogin(
     /* webpackIgnore: true */ '@cleocode/core/cloud/nexus-device.js'
   );
   const noBrowser = negatedFlag(args, 'browser');
+  // A staging test-bearer login (CLEO_NEXUS_TEST_BEARER) shows no code.
+  let codeShown = false;
   const hooks = {
     apiUrl: nexusApiUrlArg(args),
     onCode: (code: DeviceCodePromptInfo) => {
+      codeShown = true;
       writeDeviceCodePrompt(code, SERVICE_NAME);
       if (!noBrowser) openBrowser(code.verificationUriComplete ?? code.verificationUri);
     },
@@ -124,7 +137,7 @@ export async function runNexusLogin(
       ),
       {
         code: 'E_NEXUS_DEVICE_REQUIRED',
-        fix: 'set CLEO_NEXUS_DEVICE=1 to enrol a read-only device, or log in without --read-only',
+        fix: 'unset CLEO_NEXUS_DEVICE (=0 turns device credentials off) to enrol a read-only device, or log in without --read-only',
       },
     );
   }
@@ -144,12 +157,21 @@ export async function runNexusLogin(
     } else {
       if (name !== undefined) {
         process.stderr.write(
-          'warning: --name needs device credentials (CLEO_NEXUS_DEVICE=1); ignored\n',
+          'warning: --name needs device credentials, which CLEO_NEXUS_DEVICE=0 turns off; ignored\n',
+        );
+      }
+      const { NEXUS_TEST_BEARER_ENV, W_NEXUS_TEST_BEARER_IGNORED } = await import(
+        /* webpackIgnore: true */ '@cleocode/core/cloud/nexus-enrol.js'
+      );
+      if ((process.env[NEXUS_TEST_BEARER_ENV]?.trim() ?? '') !== '') {
+        // Names the variable only: its value is a secret.
+        process.stderr.write(
+          `warning: ${W_NEXUS_TEST_BEARER_IGNORED}: ${NEXUS_TEST_BEARER_ENV} needs device credentials, which CLEO_NEXUS_DEVICE turns off; ignored\n`,
         );
       }
       result = await loginToNexus(hooks);
     }
-    writeDeviceCodeApproved(SERVICE_NAME);
+    if (codeShown) writeDeviceCodeApproved(SERVICE_NAME);
     for (const warning of result.warnings) process.stderr.write(`warning: ${warning}\n`);
     return result;
   } catch (err) {
@@ -171,4 +193,57 @@ export function nexusLoginSummary(r: NexusLoginResult): string {
     ? ` This machine is device ${r.device.deviceId}${r.device.name ? ` (${r.device.name})` : ''}, profile ${r.device.profile ?? 'unknown'}.`
     : '';
   return `Signed in to ${r.apiUrl} as ${who}${org}.${device}`;
+}
+
+/**
+ * One human line for a device logout: never claims a sign-out the server did
+ * not confirm.
+ *
+ * @param r - Device logout result.
+ * @returns e.g. `Signed out of https://api.cleocode.dev: 1 device confirmed.`
+ */
+export function nexusDeviceLogoutSummary(r: NexusDeviceLogoutResult): string {
+  const count = (o: string): number => r.devices.filter((d) => d.outcome === o).length;
+  const confirmed = count('confirmed');
+  const open = r.devices.length - confirmed;
+  const what = r.action === 'revoke' ? 'Revoke' : 'Sign-out';
+  if (r.devices.length === 0 && r.session === null) {
+    return r.warnings.length > 0
+      ? `${what} on ${r.apiUrl}: nothing was sent (see warnings).`
+      : `Not signed in to ${r.apiUrl}; nothing to do.`;
+  }
+  const parts: string[] = [];
+  if (r.devices.length > 0)
+    parts.push(`${confirmed} of ${r.devices.length} device request(s) confirmed`);
+  if (open > 0) parts.push(`${open} NOT confirmed (see warnings)`);
+  if (r.session !== null) parts.push(`9.24 session ${r.session.revocation}`);
+  const notConfirmed =
+    open > 0 || (r.devices.length > 0 && confirmed === 0) || r.session?.revocation === 'failed';
+  const lead = notConfirmed ? `${what} NOT fully confirmed on` : `${what} confirmed on`;
+  return `${lead} ${r.apiUrl}: ${parts.join('; ')}.`;
+}
+
+/**
+ * Run `cleo logout nexus [--revoke]`, print warnings to stderr and emit the
+ * result. It ends every stored device credential (sign-out, or revoke with
+ * `--revoke`) and signs out a leftover 9.24 session, whatever
+ * `CLEO_NEXUS_DEVICE` says.
+ *
+ * @param args - Parsed citty args (`--api-url`, `--revoke`).
+ */
+export async function runNexusDeviceLogout(args: Readonly<Record<string, unknown>>): Promise<void> {
+  let result: NexusDeviceLogoutResult;
+  try {
+    const { logoutNexusDevice } = await import(
+      /* webpackIgnore: true */ '@cleocode/core/cloud/nexus-logout.js'
+    );
+    result = await logoutNexusDevice({
+      apiUrl: nexusApiUrlArg(args),
+      revoke: args['revoke'] === true,
+    });
+  } catch (err) {
+    failNexus(err, 'logout.run');
+  }
+  for (const warning of result.warnings) process.stderr.write(`warning: ${warning}\n`);
+  emitNexusResult(result, nexusDeviceLogoutSummary(result), 'logout', 'logout.run');
 }

@@ -44,6 +44,7 @@ import { getCleoDirAbsolute, resolveOrCwd } from '../paths.js';
 import { getProjectDisplayName } from '../project-info.js';
 import { withLock } from '../store/file-utils.js';
 import { Http, NexusError } from './http.js';
+import { attachProjectReplica, type ProjectReplicaBinder } from './nexus-attach.js';
 import {
   NexusAccountError,
   type NexusFlowOptions,
@@ -61,7 +62,7 @@ export const NEXUS_LINK_FILE = 'nexus-link.json';
 /** Longest label the server accepts (`RegisterProjectRequest.label`). */
 export const NEXUS_LABEL_MAX = 120;
 
-const linkSchema = z.object({
+const linkSchema = z.looseObject({
   apiUrl: z.string(),
   localProjectId: z.string(),
   remoteProjectId: z.string(),
@@ -69,12 +70,73 @@ const linkSchema = z.object({
   label: z.string().nullable(),
   streamId: z.string(),
   linkedAt: z.string(),
+  replicaId: z.string().nullish(),
+  nexusDeviceId: z.string().nullish(),
+  attachedAt: z.string().nullish(),
 });
 
-const linkFileSchema = z.object({
+/**
+ * The file envelope. Entries are kept as raw records and parsed one by one
+ * ({@link mergeLinkEntry}), so an entry this version cannot read (written by
+ * a newer CLI) is carried through unchanged instead of dropping the file.
+ */
+const linkFileSchema = z.looseObject({
   version: z.literal(1),
-  links: z.record(z.string(), linkSchema),
+  links: z.record(z.string(), z.record(z.string(), z.json())),
 });
+
+/** A JSON value, as a link entry's raw fields hold them. */
+type LinkJson = z.infer<ReturnType<typeof z.json>>;
+
+/** One parsed entry as the contract type, or `null` when this version cannot read it. */
+function toLink(raw: Record<string, LinkJson> | undefined): NexusProjectLink | null {
+  if (raw === undefined) return null;
+  const parsed = linkSchema.safeParse(raw);
+  if (!parsed.success) return null;
+  const e = parsed.data;
+  return {
+    apiUrl: e.apiUrl,
+    localProjectId: e.localProjectId,
+    remoteProjectId: e.remoteProjectId,
+    organizationId: e.organizationId,
+    label: e.label,
+    streamId: e.streamId,
+    linkedAt: e.linkedAt,
+    ...(e.replicaId ? { replicaId: e.replicaId } : {}),
+    ...(e.nexusDeviceId ? { nexusDeviceId: e.nexusDeviceId } : {}),
+    ...(e.attachedAt ? { attachedAt: e.attachedAt } : {}),
+  };
+}
+
+/**
+ * The entry to store for this link: the new values over the old entry, so a
+ * relink that attached nothing keeps the cached replica fields, and fields a
+ * newer CLI wrote survive.
+ */
+function mergeLinkEntry(
+  old: Record<string, LinkJson> | undefined,
+  link: NexusProjectLink,
+  clearReplica: boolean,
+): Record<string, LinkJson> {
+  const fresh: Record<string, LinkJson> = {
+    apiUrl: link.apiUrl,
+    localProjectId: link.localProjectId,
+    remoteProjectId: link.remoteProjectId,
+    organizationId: link.organizationId,
+    label: link.label,
+    streamId: link.streamId,
+    linkedAt: link.linkedAt,
+    ...(link.replicaId ? { replicaId: link.replicaId } : {}),
+    ...(link.nexusDeviceId ? { nexusDeviceId: link.nexusDeviceId } : {}),
+    ...(link.attachedAt ? { attachedAt: link.attachedAt } : {}),
+  };
+  // A device-mode attach that failed must not leave the old replica and
+  // device ids looking current (review N1): they are cleared.
+  const cleared: Record<string, LinkJson> = clearReplica
+    ? { replicaId: null, nexusDeviceId: null, attachedAt: null }
+    : {};
+  return { ...(old ?? {}), ...cleared, ...fresh };
+}
 
 type NexusLinkFile = z.infer<typeof linkFileSchema>;
 
@@ -84,8 +146,14 @@ export interface NexusLinkOptions extends NexusFlowOptions {
   projectRoot?: string;
   /** Label to register (`--label`); defaults to {@link getProjectDisplayName}. */
   label?: string;
-  /** Device store (with `CLEO_NEXUS_DEVICE=1`); defaults to `<cleoHome>/nexus-device.json`. */
+  /** Device store (with device credentials); defaults to `<cleoHome>/nexus-device.json`. */
   deviceStore?: NexusDeviceStore;
+  /** Replica binding (tests); defaults to the canonical project store. */
+  replicaBinder?: ProjectReplicaBinder;
+  /** CLEO version reported in presence; defaults to the installed one. */
+  cliVersion?: string;
+  /** `--rebind`: give this store a new replica id before attaching (see {@link attachProjectReplica}). */
+  rebind?: boolean;
 }
 
 /**
@@ -182,7 +250,7 @@ function readLinkFile(path: string): NexusLinkFile {
  * @returns The binding, or `null`.
  */
 export function readNexusProjectLink(projectRoot: string, apiUrl: string): NexusProjectLink | null {
-  return readLinkFile(nexusLinkPath(projectRoot)).links[new URL(apiUrl).origin] ?? null;
+  return toLink(readLinkFile(nexusLinkPath(projectRoot)).links[new URL(apiUrl).origin]);
 }
 
 /** Map an API failure to a Nexus error; a 401 means the session expired. */
@@ -240,17 +308,18 @@ export async function linkProjectToNexus(
   const apiUrl = resolveNexusApiUrl(opts.apiUrl);
   const store = opts.store ?? new FileNexusTokenStore();
   const deviceMode = isNexusDeviceEnabled();
-  // With CLEO_NEXUS_DEVICE=1 the device credential is used, upgrading a 9.24
+  // With device credentials (the default) the device credential is used, upgrading a 9.24
   // session first (contract §3.4); otherwise the 9.24 session, as before.
-  const bearer = deviceMode
-    ? (
-        await ensureNexusDeviceCredential({
-          apiUrl,
-          store,
-          ...(opts.fetch ? { fetch: opts.fetch } : {}),
-          ...(opts.deviceStore ? { deviceStore: opts.deviceStore } : {}),
-        })
-      ).device.currentBearer()
+  const handle = deviceMode
+    ? await ensureNexusDeviceCredential({
+        apiUrl,
+        store,
+        ...(opts.fetch ? { fetch: opts.fetch } : {}),
+        ...(opts.deviceStore ? { deviceStore: opts.deviceStore } : {}),
+      })
+    : null;
+  const bearer = handle
+    ? handle.device.currentBearer()
     : (await requireNexusSession(apiUrl, store)).bearer();
   if (bearer === null) {
     throw new NexusAccountError(
@@ -293,6 +362,51 @@ export async function linkProjectToNexus(
     throw deviceMode ? nexusApiErrorToAccountError(err) : toLinkError(err);
   }
 
+  // Steps 3 to 5 of §3.6: attach this store's replica to the device and
+  // report presence. A 9.24 session cannot attach (the route needs a device).
+  // An attach failure never fails the link: the project is registered, the
+  // binding below is still written, and the warning names the remedy.
+  const warnings: string[] = handle ? [...handle.warnings] : [];
+  let replica: NexusProjectLinkResult['replica'] = null;
+  let attachError: NexusProjectLinkResult['attachError'] = null;
+  if (handle === null && opts.rebind === true) {
+    warnings.push(
+      '--rebind needs device credentials (CLEO_NEXUS_DEVICE turns them off), so nothing was attached or rebound',
+    );
+  }
+  if (handle) {
+    try {
+      const attached = await attachProjectReplica({
+        apiUrl,
+        bearer,
+        deviceId: handle.device.deviceId,
+        projectId: registered.project.projectId,
+        projectRoot,
+        cliVersion: opts.cliVersion ?? (await installedCleoVersion()),
+        ...(opts.rebind === true ? { rebind: true } : {}),
+        ...(opts.replicaBinder ? { binder: opts.replicaBinder } : {}),
+        ...(opts.fetch ? { fetch: opts.fetch } : {}),
+      });
+      replica = attached.replica;
+      warnings.push(...attached.warnings);
+    } catch (err) {
+      const mapped = nexusApiErrorToAccountError(err);
+      const code = mapped instanceof NexusAccountError ? mapped.code : 'E_NEXUS_REQUEST_FAILED';
+      const fix =
+        mapped instanceof NexusAccountError && mapped.fix
+          ? mapped.fix
+          : 're-run `cleo project link`';
+      attachError = {
+        code,
+        message: mapped.message,
+        fix: mapped instanceof NexusAccountError && mapped.fix ? mapped.fix : null,
+      };
+      warnings.push(
+        `the project is linked, but this machine's copy was not attached to it (${code}: ${mapped.message}); ${fix}`,
+      );
+    }
+  }
+
   const linkPath = nexusLinkPath(projectRoot);
   const link: NexusProjectLink = {
     apiUrl,
@@ -302,6 +416,13 @@ export async function linkProjectToNexus(
     label: registered.project.label,
     streamId: registered.streamId,
     linkedAt: new Date().toISOString(),
+    ...(replica
+      ? {
+          replicaId: replica.replicaId,
+          nexusDeviceId: replica.deviceId,
+          attachedAt: new Date().toISOString(),
+        }
+      : {}),
   };
   // Locked read-modify-write: concurrent links (other origins, other shells)
   // never drop each other's entries. withLock needs a parseable file to read,
@@ -313,13 +434,40 @@ export async function linkProjectToNexus(
   }
   await withLock<NexusLinkFile>(linkPath, (current) => {
     const parsed = linkFileSchema.safeParse(current);
-    const links = parsed.success ? parsed.data.links : {};
-    return { version: 1, links: { ...links, [apiUrl]: link } };
+    if (!parsed.success) {
+      // Never overwrite a file this version cannot read (a newer format):
+      // that would drop every other origin's binding.
+      throw new NexusAccountError(
+        'E_NEXUS_LINK_FILE_UNSUPPORTED',
+        `${linkPath} is not a version 1 link file this CLEO can update`,
+        'upgrade CLEO, or move the file aside and run `cleo project link` again',
+      );
+    }
+    const links = parsed.data.links;
+    return {
+      ...parsed.data,
+      version: 1,
+      links: {
+        ...links,
+        [apiUrl]: mergeLinkEntry(links[apiUrl], link, handle !== null && replica === null),
+      },
+    };
   });
+  // The envelope reports what is stored, cached replica fields included.
+  const stored = readNexusProjectLink(projectRoot, apiUrl) ?? link;
 
   return {
-    link,
+    link: stored,
     alreadyLinked: !registered.created,
     linkPath,
+    replica,
+    attachError,
+    warnings,
   };
+}
+
+/** The installed CLEO version, for presence. */
+async function installedCleoVersion(): Promise<string> {
+  const { getCleoVersion } = await import('../scaffold/ensure-config.js');
+  return getCleoVersion();
 }

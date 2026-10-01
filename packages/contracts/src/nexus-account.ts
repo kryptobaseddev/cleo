@@ -65,8 +65,10 @@ export const NEXUS_ACCOUNT_ERROR_CODES = [
   'E_NEXUS_BUSY',
   /** Several accounts hold a device credential on one origin and none was named. */
   'E_NEXUS_ACCOUNT_AMBIGUOUS',
-  /** An option that needs device credentials (`--read-only`) without `CLEO_NEXUS_DEVICE=1`. */
+  /** An option that needs device credentials (`--read-only`) with `CLEO_NEXUS_DEVICE=0`. */
   'E_NEXUS_DEVICE_REQUIRED',
+  /** `.cleo/nexus-link.json` is in a format this CLEO cannot update (written by a newer CLEO). */
+  'E_NEXUS_LINK_FILE_UNSUPPORTED',
 ] as const;
 
 /** One of {@link NEXUS_ACCOUNT_ERROR_CODES}. */
@@ -161,9 +163,9 @@ export interface NexusLoginResult {
   credentialsPath: string;
   /** Non-fatal problems, e.g. the account lookup failed after a good login. */
   warnings: string[];
-  /** The enrolled device; present only with `CLEO_NEXUS_DEVICE=1` (device credentials). */
+  /** The enrolled device; present only with device credentials (the default; off with `CLEO_NEXUS_DEVICE=0`). */
   device?: NexusLoginDevice;
-  /** Scopes of the stored device credential; present only with `CLEO_NEXUS_DEVICE=1`. */
+  /** Scopes of the stored device credential; present only with device credentials. */
   scopes?: string[];
 }
 
@@ -181,6 +183,56 @@ export interface NexusLogoutResult {
    */
   revocation: 'revoked' | 'already-invalid' | 'failed' | 'skipped';
   /** Non-fatal problems. */
+  warnings: string[];
+}
+
+/**
+ * What happened to one device's sign-out (E9) or revoke (E10) in
+ * `cleo logout nexus [--revoke]` with device credentials (the default; `CLEO_NEXUS_DEVICE=0` turns them off) (cleo-nexus
+ * device contract §3.5, M3). Holds no secret.
+ *
+ * - `confirmed`: the server answered 200, or 401 `device-signed-out` /
+ *   `device-revoked` (a revoke accepts only `device-revoked`);
+ * - `pending`: no usable answer (network, timeout, 429, 5xx, or a route the
+ *   server does not have yet); the credentials stay in their slot and the
+ *   next `cleo logout nexus`, `cleo login nexus` or cloud command retries;
+ * - `unconfirmed`: every credential held was refused as stale, so the CLI
+ *   cannot finish it; the slot is kept, and a sign-out or revoke of the
+ *   device on cleocode.dev lets the next retry confirm it;
+ * - `signed-out`: a revoke found the device already signed out (E10 401
+ *   `device-signed-out`). Its credentials are dead, so the CLI cannot revoke
+ *   it; the revoke slot is cleared (never retried) and the device must be
+ *   revoked on cleocode.dev.
+ */
+export type NexusDeviceEndOutcome = 'confirmed' | 'pending' | 'unconfirmed' | 'signed-out';
+
+/** One device row of a {@link NexusDeviceLogoutResult}. */
+export interface NexusDeviceLogoutRow {
+  /** Nexus user id of the entry. */
+  userId: string;
+  /** The device the request ended. */
+  deviceId: string;
+  /** `sign-out` (E9) or `revoke` (E10). */
+  action: 'sign-out' | 'revoke';
+  /** `true` for a replaced device's leftover request retried from `retired`. */
+  retired: boolean;
+  /** Server-side outcome. */
+  outcome: NexusDeviceEndOutcome;
+  /** `true` when a confirmed revoke removed the (origin, user) entry from `nexus-device.json`. */
+  removedLocally: boolean;
+}
+
+/** Result of `cleo logout nexus [--revoke]` with device credentials. Holds no secret. */
+export interface NexusDeviceLogoutResult {
+  /** API origin. */
+  apiUrl: string;
+  /** `sign-out` or `revoke` (`--revoke`). */
+  action: 'sign-out' | 'revoke';
+  /** One row per device request settled or retried in this run, sorted by user then device. */
+  devices: NexusDeviceLogoutRow[];
+  /** The 9.24 session sign-out, when a leftover session was found for the origin. */
+  session: NexusLogoutResult | null;
+  /** Non-fatal problems: every non-`confirmed` row is named here. */
   warnings: string[];
 }
 
@@ -203,6 +255,31 @@ export interface NexusProjectLink {
   streamId: string;
   /** ISO time of the last successful link. */
   linkedAt: string;
+  /**
+   * This store's replica id as attached on the server (device contract
+   * §3.6, §3.7). A cache, not the source of truth: the store's active
+   * `_sync_replica` row is. Absent before the first device-credential link.
+   */
+  replicaId?: string;
+  /** The Nexus device id that attached {@link NexusProjectLink.replicaId}. */
+  nexusDeviceId?: string;
+  /** ISO time the replica was last attached or confirmed. */
+  attachedAt?: string;
+}
+
+/**
+ * What `cleo project link` did for this machine's copy of the project with a
+ * device credential (contract §3.6 steps 3 to 5). Holds no path or secret.
+ */
+export interface NexusReplicaAttachment {
+  /** The store's replica id (UUIDv7), now attached on the server. */
+  replicaId: string;
+  /** The Nexus device that holds it. */
+  deviceId: string;
+  /** The retired replica id when this link rebound the store (a copy, or a re-enrolled device). */
+  reboundFrom: string | null;
+  /** Server time the presence report was received, or `null` when sending it failed (see warnings). */
+  presenceAt: string | null;
 }
 
 /** Result of `cleo project link`. */
@@ -217,4 +294,17 @@ export interface NexusProjectLinkResult {
   alreadyLinked: boolean;
   /** Absolute path of the local binding file. */
   linkPath: string;
+  /**
+   * The replica attach and presence report, with device credentials; `null`
+   * with the 9.24 session (`CLEO_NEXUS_DEVICE=0`), which cannot attach.
+   */
+  replica: NexusReplicaAttachment | null;
+  /**
+   * Why this machine's copy was not attached, when device mode tried and
+   * failed (for example `E_NEXUS_REPLICA_COPIED`); `null` otherwise. The same
+   * text is also in {@link NexusProjectLinkResult.warnings}.
+   */
+  attachError: { code: string; message: string; fix: string | null } | null;
+  /** Non-fatal problems (for example, presence could not be sent). */
+  warnings: string[];
 }

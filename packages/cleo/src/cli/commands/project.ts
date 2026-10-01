@@ -32,6 +32,7 @@ import {
   failNexus,
   NEXUS_API_URL_ARG,
   nexusApiUrlArg,
+  writeNexusWarnings,
 } from '../lib/nexus-account-cli.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
@@ -326,6 +327,11 @@ const linkSubCommand = defineCommand({
       description:
         'Name shown in Nexus, sent in plaintext (default: the project name). A name, never a path.',
     },
+    rebind: {
+      type: 'boolean',
+      description:
+        'Use only after E_NEXUS_REPLICA_COPIED: give this copy of the project a new replica id before attaching it (this machine was re-enrolled, or the store was copied). Each run mints a new id and leaves the old one on the server as stale history.',
+    },
     'api-url': NEXUS_API_URL_ARG,
     json: { type: 'boolean', description: 'Output raw JSON envelope.', default: false },
   },
@@ -338,13 +344,18 @@ const linkSubCommand = defineCommand({
       result = await linkProjectToNexus({
         apiUrl: nexusApiUrlArg(args),
         ...(typeof args['label'] === 'string' && args['label'] ? { label: args['label'] } : {}),
+        ...(args['rebind'] === true ? { rebind: true } : {}),
       });
     } catch (err) {
       failNexus(err, 'project.link');
     }
-    const { link } = result;
+    const { link, replica } = result;
     const verb = result.alreadyLinked ? 'Already linked' : 'Linked';
-    const summary = `${verb}: project ${link.localProjectId} as "${link.label ?? ''}" on ${link.apiUrl}.`;
+    const attached = replica
+      ? ` This machine (device ${replica.deviceId}) holds it as replica ${replica.replicaId}${replica.reboundFrom ? ` (rebound from ${replica.reboundFrom})` : ''}${replica.presenceAt ? '; presence reported' : ''}.`
+      : '';
+    const summary = `${verb}: project ${link.localProjectId} as "${link.label ?? ''}" on ${link.apiUrl}.${attached}`;
+    writeNexusWarnings(result.warnings);
     emitNexusResult(result, summary, 'project', 'project.link');
   },
 });

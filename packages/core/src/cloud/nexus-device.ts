@@ -81,10 +81,11 @@
  *   entry (`{ ...entry }`) produces an unguarded copy: T12868–T12871 must
  *   never spread an entry, or any part of one, into a log line or envelope.
  *
- * Behaviour that uses it ships behind `CLEO_NEXUS_DEVICE=1`
- * ({@link isNexusDeviceEnabled}): login enrolment and the 9.24 upgrade
- * (`nexus-enrol.ts`, T12868), then rotation, logout and the cloud reads
- * (T12869–T12871).
+ * Behaviour that uses it is on by default and switched off with
+ * `CLEO_NEXUS_DEVICE=0` ({@link isNexusDeviceEnabled}, T12904): login
+ * enrolment and the 9.24 upgrade (`nexus-enrol.ts`, T12868), logout and
+ * revoke (`nexus-logout.ts`, T12870), then rotation and the cloud reads
+ * (T12869, T12871).
  *
  * @task T12867
  * @epic T12323
@@ -344,14 +345,20 @@ export class NexusDeviceStoreError extends Error {
   }
 }
 
+/** `CLEO_NEXUS_DEVICE` values that switch device credentials off (case-insensitive, trimmed). */
+const NEXUS_DEVICE_OFF_VALUES: ReadonlySet<string> = new Set(['0', 'false', 'off', 'no']);
+
 /**
- * Whether the device-credential behaviour is switched on (`CLEO_NEXUS_DEVICE=1`).
+ * Whether the device-credential login is on. It is the default (T12904);
+ * `CLEO_NEXUS_DEVICE=0` (or `false`, `off`, `no`) switches back to the 9.24
+ * session login. Status and logout always handle a stored device credential.
  *
  * @param env - Environment to read; defaults to `process.env`.
- * @returns `true` only for the exact value `1`.
+ * @returns `false` only for an off value.
  */
 export function isNexusDeviceEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env[NEXUS_DEVICE_ENV] === '1';
+  const raw = env[NEXUS_DEVICE_ENV];
+  return raw === undefined || !NEXUS_DEVICE_OFF_VALUES.has(raw.trim().toLowerCase());
 }
 
 /**
@@ -1056,6 +1063,51 @@ export function applyBeginRevoke(
  */
 export function applySignOutConfirmed(entry: NexusDeviceEntry): NexusDeviceEntry {
   return guard({ ...entry, pendingSignOut: null });
+}
+
+/**
+ * Forget this device locally after a revoke ended (contract §3.5, L6): the
+ * server confirmed it, found the device signed out (E10 401
+ * `device-signed-out`, v2.13), or refused every credential as dead. The keys,
+ * every credential and every slot go, so the next login enrols a fresh
+ * device id and can never re-activate the one the user asked to burn. Only
+ * `retired` survives, because those requests may still hold live credentials
+ * of other devices; the caller deletes the whole entry when there are none.
+ *
+ * @param entry - The entry read under the lock.
+ * @returns The stripped entry, guarded.
+ */
+export function applyForgetDevice(entry: NexusDeviceEntry): NexusDeviceEntry {
+  return guard({
+    ...entry,
+    keys: null,
+    current: null,
+    pending: null,
+    raceCandidate: null,
+    enrolIntent: null,
+    pendingSignOut: null,
+    pendingRevoke: null,
+  });
+}
+
+/**
+ * Whether an entry holds nothing worth keeping: no keys, no credential, no
+ * slot and no retired request (left by {@link applyForgetDevice} once its
+ * retired requests settled).
+ *
+ * @param entry - The entry read under the lock.
+ * @returns `true` when the entry can be deleted.
+ */
+export function isForgottenDevice(entry: NexusDeviceEntry): boolean {
+  return (
+    entry.keys === null &&
+    entry.current === null &&
+    entry.pending === null &&
+    !entry.raceCandidate &&
+    entry.pendingSignOut === null &&
+    entry.pendingRevoke === null &&
+    (entry.retired ?? []).length === 0
+  );
 }
 
 /**
