@@ -26,6 +26,10 @@ picks only the login flow and never hides a live credential.
 
 **Logout always ends the device.** `cleo logout nexus` signs out every stored
 device credential and a leftover 9.24 session, even with `CLEO_NEXUS_DEVICE=0`.
+**Envelope change:** `cleo logout nexus --json` now always returns
+`{apiUrl, action, devices, session, warnings}`. On the session-only path the
+old `{removedLocally, revocation}` fields move under `session`. A `--revoke`
+with only a 9.24 session warns that nothing was revoked.
 `CLEO_NEXUS_DEVICE` accepts `0`, `false`, `off` or `no` (case-insensitive) to
 switch the device login off.
 

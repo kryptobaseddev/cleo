@@ -78,15 +78,25 @@ export function createNexusAccountSection(deps: NexusAccountSectionDeps = {}): W
     optional: true,
 
     async isConfigured(): Promise<boolean> {
+      let apiUrl: string;
       try {
-        const apiUrl = resolveNexusApiUrl();
-        // A stored device credential counts whatever CLEO_NEXUS_DEVICE says.
+        apiUrl = resolveNexusApiUrl();
+      } catch {
+        return false;
+      }
+      // A stored device credential counts whatever CLEO_NEXUS_DEVICE says. An
+      // unreadable device store never hides a valid 9.24 session (review N3).
+      try {
         const origin = nexusOriginKey(apiUrl);
         for (const d of await new NexusDeviceStore().list()) {
           if (d instanceof SealedNexusDevice && d.origin === origin && d.currentBearer()) {
             return true;
           }
         }
+      } catch {
+        /* fall through to the session check */
+      }
+      try {
         return (await new FileNexusTokenStore().get(apiUrl)) !== null;
       } catch {
         return false;

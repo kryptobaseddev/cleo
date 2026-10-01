@@ -161,7 +161,7 @@ async function callEnd(
   ctx: Ctx,
   action: EndRequest['action'],
   token: string,
-): Promise<{ answer: CallAnswer; detail: string }> {
+): Promise<{ answer: CallAnswer; detail: string; transport?: boolean }> {
   const timed: FetchLike = (input, init) =>
     ctx.fetch(input, { ...init, signal: AbortSignal.timeout(ctx.timeoutMs) });
   const http = new Http({ baseUrl: ctx.apiUrl, token, fetch: timed, maxAttempts: 1 });
@@ -174,7 +174,11 @@ async function callEnd(
     return { answer: 'done', detail: 'HTTP 200' };
   } catch (err) {
     if (!(err instanceof NexusError)) {
-      return { answer: 'unanswered', detail: err instanceof Error ? err.message : String(err) };
+      return {
+        answer: 'unanswered',
+        detail: err instanceof Error ? err.message : String(err),
+        transport: true,
+      };
     }
     if (err.status === 401) {
       const reason = err.details?.['reason'];
@@ -183,11 +187,22 @@ async function callEnd(
       if (state === 'revoked' || (state === 'signed-out' && action === 'sign-out')) {
         return { answer: 'done', detail };
       }
-      return { answer: state === 'signed-out' ? 'signed-out' : 'stale', detail };
+      if (state === 'signed-out') return { answer: 'signed-out', detail };
+      // Only the Nexus API's own verdict on this credential counts as dead. A
+      // 401 without its envelope (a proxy or SSO gateway) or with reason
+      // `missing` (an Authorization header stripped on the way) proves
+      // nothing about the credential, so it is treated as no answer.
+      const dead =
+        err.code === 'E_UNAUTHENTICATED' &&
+        (reason === 'invalid' ||
+          reason === 'credential-expired' ||
+          reason === 'credential-revoked');
+      return { answer: dead ? 'stale' : 'unanswered', detail };
     }
     return {
       answer: 'unanswered',
       detail: err.code === 'E_NETWORK' ? 'no answer' : `HTTP ${err.status} ${err.code}`,
+      transport: err.code === 'E_NETWORK',
     };
   }
 }
@@ -276,7 +291,7 @@ async function settleRequest(
   ctx: Ctx,
   req: EndRequest,
   warnings: string[],
-): Promise<NexusDeviceLogoutRow> {
+): Promise<{ row: NexusDeviceLogoutRow; unreachable: boolean }> {
   const row = (outcome: NexusDeviceEndOutcome, removedLocally = false): NexusDeviceLogoutRow => ({
     userId: req.userId,
     deviceId: req.deviceId,
@@ -302,30 +317,33 @@ async function settleRequest(
     return row(outcome, settled.removed);
   };
   for (const c of req.credentials) {
-    const { answer, detail } = await callEnd(ctx, req.action, c.token);
-    if (answer === 'done') return end(c.token, 'confirmed', null);
+    const { answer, detail, transport } = await callEnd(ctx, req.action, c.token);
+    if (answer === 'done')
+      return { row: await end(c.token, 'confirmed', null), unreachable: false };
     if (answer === 'signed-out') {
-      return end(
+      const signedOut = await end(
         c.token,
         'signed-out',
         `device ${req.deviceId} is signed out but not revoked, and a signed-out device's credentials cannot revoke it; this machine forgot the device, so the next login enrols a new one. To burn the old id, ${web}`,
       );
+      return { row: signedOut, unreachable: false };
     }
     if (answer === 'unanswered') {
       warnings.push(
         `${what} not confirmed (${detail}); it was kept and is retried by the next \`cleo logout nexus\`, \`cleo login nexus\` or \`cleo project link\``,
       );
-      return row('pending');
+      return { row: row('pending'), unreachable: transport === true };
     }
   }
   // Every credential is dead: retrying can never succeed, so the request ends here.
   const first = req.credentials[0];
-  if (first === undefined) return row('unconfirmed');
-  return end(
+  if (first === undefined) return { row: row('unconfirmed'), unreachable: false };
+  const ended = await end(
     first.token,
     'unconfirmed',
     `${what} not confirmed: the server refused every credential this machine held for it as no longer valid, so none is live and none was kept${req.action === 'revoke' && !req.retired ? '; this machine forgot the device' : ''}. To make sure, ${web}`,
   );
+  return { row: ended, unreachable: false };
 }
 
 /** Every unsettled request on the origin, plus a warning per entry this machine cannot open. */
@@ -370,8 +388,10 @@ export async function settleNexusDeviceEnds(
   const warnings: string[] = [];
   const devices: NexusDeviceLogoutRow[] = [];
   let unreachable = false;
+  let skipped = 0;
   for (const req of await unsettled(ctx, warnings, opts.warnUnreadable ?? true)) {
     if (unreachable) {
+      skipped += 1;
       // The server already failed to answer in this run: leave the rest for
       // the next run rather than wait out one timeout per request.
       devices.push({
@@ -384,12 +404,29 @@ export async function settleNexusDeviceEnds(
       });
       continue;
     }
-    const r = await settleRequest(ctx, req, warnings);
-    if (r.outcome === 'pending') unreachable = true;
-    devices.push(r);
+    try {
+      const r = await settleRequest(ctx, req, warnings);
+      // Only a transport failure (no answer at all) stops the run: an HTTP
+      // error on one request (a 404, 5xx or 429 for an old device) never
+      // keeps the entry's own sign-out or revoke from being sent.
+      if (r.unreachable) unreachable = true;
+      devices.push(r.row);
+    } catch (err) {
+      // A store failure on one request keeps every row collected so far.
+      warnings.push(
+        `${req.action} of device ${req.deviceId} could not be settled locally (${err instanceof Error ? err.message : String(err)}); it is retried next time`,
+      );
+      devices.push({
+        userId: req.userId,
+        deviceId: req.deviceId,
+        action: req.action,
+        retired: req.retired,
+        outcome: 'pending',
+        removedLocally: false,
+      });
+    }
   }
-  const skipped = devices.filter((d) => d.outcome === 'pending').length - 1;
-  if (unreachable && skipped > 0) {
+  if (skipped > 0) {
     warnings.push(
       `${skipped} more unsettled sign-out or revoke request(s) were not sent because Cleo Nexus did not answer; they are retried next time`,
     );
@@ -506,6 +543,11 @@ export async function logoutNexusDevice(
       ...(opts.fetch ? { fetch: opts.fetch } : {}),
     });
     warnings.push(...session.warnings);
+  }
+  if (action === 'revoke' && devices.length === 0 && session !== null) {
+    warnings.push(
+      `no device credential is stored for ${ctx.apiUrl}, so nothing was revoked; the 9.24 session was signed out`,
+    );
   }
   return { apiUrl: ctx.apiUrl, action, devices, session, warnings };
 }
