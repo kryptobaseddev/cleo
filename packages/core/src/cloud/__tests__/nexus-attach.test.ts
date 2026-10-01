@@ -238,7 +238,10 @@ describe('attachProjectReplica against the deployed server (review H1)', () => {
 
 describe('presence and binding hold their guarantees (review M3)', () => {
   it('presence from a real git repo carries no path, hostname, remote URL, credential or branch', async () => {
-    const git = (...a: string[]) => execFileSync('git', a, { cwd: dir, stdio: 'pipe' });
+    // Isolated from the developer's git config (signing, hooks, templates).
+    const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+    const git = (...a: string[]) =>
+      execFileSync('git', ['-c', 'commit.gpgsign=false', ...a], { cwd: dir, stdio: 'pipe', env });
     git('init', '-q', '-b', 'secret-branch');
     git('config', 'user.email', 't@example.test');
     git('config', 'user.name', 't');

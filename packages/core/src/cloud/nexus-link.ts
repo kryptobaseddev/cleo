@@ -116,6 +116,7 @@ function toLink(raw: Record<string, LinkJson> | undefined): NexusProjectLink | n
 function mergeLinkEntry(
   old: Record<string, LinkJson> | undefined,
   link: NexusProjectLink,
+  clearReplica: boolean,
 ): Record<string, LinkJson> {
   const fresh: Record<string, LinkJson> = {
     apiUrl: link.apiUrl,
@@ -129,7 +130,12 @@ function mergeLinkEntry(
     ...(link.nexusDeviceId ? { nexusDeviceId: link.nexusDeviceId } : {}),
     ...(link.attachedAt ? { attachedAt: link.attachedAt } : {}),
   };
-  return { ...(old ?? {}), ...fresh };
+  // A device-mode attach that failed must not leave the old replica and
+  // device ids looking current (review N1): they are cleared.
+  const cleared: Record<string, LinkJson> = clearReplica
+    ? { replicaId: null, nexusDeviceId: null, attachedAt: null }
+    : {};
+  return { ...(old ?? {}), ...cleared, ...fresh };
 }
 
 type NexusLinkFile = z.infer<typeof linkFileSchema>;
@@ -362,6 +368,12 @@ export async function linkProjectToNexus(
   // binding below is still written, and the warning names the remedy.
   const warnings: string[] = handle ? [...handle.warnings] : [];
   let replica: NexusProjectLinkResult['replica'] = null;
+  let attachError: NexusProjectLinkResult['attachError'] = null;
+  if (handle === null && opts.rebind === true) {
+    warnings.push(
+      '--rebind needs device credentials (CLEO_NEXUS_DEVICE turns them off), so nothing was attached or rebound',
+    );
+  }
   if (handle) {
     try {
       const attached = await attachProjectReplica({
@@ -384,6 +396,11 @@ export async function linkProjectToNexus(
         mapped instanceof NexusAccountError && mapped.fix
           ? mapped.fix
           : 're-run `cleo project link`';
+      attachError = {
+        code,
+        message: mapped.message,
+        fix: mapped instanceof NexusAccountError && mapped.fix ? mapped.fix : null,
+      };
       warnings.push(
         `the project is linked, but this machine's copy was not attached to it (${code}: ${mapped.message}); ${fix}`,
       );
@@ -421,7 +438,7 @@ export async function linkProjectToNexus(
       // Never overwrite a file this version cannot read (a newer format):
       // that would drop every other origin's binding.
       throw new NexusAccountError(
-        'E_NEXUS_REQUEST_FAILED',
+        'E_NEXUS_LINK_FILE_UNSUPPORTED',
         `${linkPath} is not a version 1 link file this CLEO can update`,
         'upgrade CLEO, or move the file aside and run `cleo project link` again',
       );
@@ -430,7 +447,10 @@ export async function linkProjectToNexus(
     return {
       ...parsed.data,
       version: 1,
-      links: { ...links, [apiUrl]: mergeLinkEntry(links[apiUrl], link) },
+      links: {
+        ...links,
+        [apiUrl]: mergeLinkEntry(links[apiUrl], link, handle !== null && replica === null),
+      },
     };
   });
   // The envelope reports what is stored, cached replica fields included.
@@ -441,6 +461,7 @@ export async function linkProjectToNexus(
     alreadyLinked: !registered.created,
     linkPath,
     replica,
+    attachError,
     warnings,
   };
 }

@@ -201,7 +201,9 @@ export async function attachProjectReplica(
   if (opts.rebind === true) {
     const rebound = await binder.rebindReenrolled();
     replicaId = rebound.replicaId;
-    reboundFrom = rebound.previousReplicaId;
+    // If ensure() already rebound a copy, the id that was last attached is
+    // that earlier one: keep it as the reported previous id (review N3b).
+    reboundFrom = reboundFrom ?? rebound.previousReplicaId;
   }
   try {
     await attach(replicaId);

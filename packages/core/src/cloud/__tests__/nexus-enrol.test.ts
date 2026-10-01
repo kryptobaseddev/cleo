@@ -1043,6 +1043,27 @@ describe('linkProjectToNexus with CLEO_NEXUS_DEVICE=1', () => {
         streamId: `project:${PROJECT_ID}`,
       });
     };
+    // A cache from an earlier attach by another (now revoked) device.
+    writeFileSync(
+      join(projectRoot, '.cleo', 'nexus-link.json'),
+      JSON.stringify({
+        version: 1,
+        links: {
+          [API]: {
+            apiUrl: API,
+            localProjectId: PROJECT_ID,
+            remoteProjectId: PROJECT_ID,
+            organizationId: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c',
+            label: 'proj',
+            streamId: `project:${PROJECT_ID}`,
+            linkedAt: '2026-09-30T00:00:00.000Z',
+            replicaId: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a61',
+            nexusDeviceId: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a62',
+            attachedAt: '2026-09-30T00:00:00.000Z',
+          },
+        },
+      }),
+    );
     const result = await linkProjectToNexus({
       apiUrl: API,
       store: sessions,
@@ -1063,6 +1084,13 @@ describe('linkProjectToNexus with CLEO_NEXUS_DEVICE=1', () => {
       /E_NEXUS_REPLICA_COPIED.*cleo project link --rebind/,
     );
     expect(readFileSync(result.linkPath, 'utf8')).toContain(PROJECT_ID);
+    expect(result.attachError?.code).toBe('E_NEXUS_REPLICA_COPIED');
+    expect(result.link.replicaId).toBeUndefined();
+    const file = JSON.parse(readFileSync(result.linkPath, 'utf8')) as {
+      links: Record<string, Record<string, string | null>>;
+    };
+    expect(file.links[API]?.['replicaId']).toBeNull();
+    expect(file.links[API]?.['nexusDeviceId']).toBeNull();
   });
 });
 

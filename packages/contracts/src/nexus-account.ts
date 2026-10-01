@@ -67,6 +67,8 @@ export const NEXUS_ACCOUNT_ERROR_CODES = [
   'E_NEXUS_ACCOUNT_AMBIGUOUS',
   /** An option that needs device credentials (`--read-only`) with `CLEO_NEXUS_DEVICE=0`. */
   'E_NEXUS_DEVICE_REQUIRED',
+  /** `.cleo/nexus-link.json` is in a format this CLEO cannot update (written by a newer CLEO). */
+  'E_NEXUS_LINK_FILE_UNSUPPORTED',
 ] as const;
 
 /** One of {@link NEXUS_ACCOUNT_ERROR_CODES}. */
@@ -297,6 +299,12 @@ export interface NexusProjectLinkResult {
    * with the 9.24 session (`CLEO_NEXUS_DEVICE=0`), which cannot attach.
    */
   replica: NexusReplicaAttachment | null;
+  /**
+   * Why this machine's copy was not attached, when device mode tried and
+   * failed (for example `E_NEXUS_REPLICA_COPIED`); `null` otherwise. The same
+   * text is also in {@link NexusProjectLinkResult.warnings}.
+   */
+  attachError: { code: string; message: string; fix: string | null } | null;
   /** Non-fatal problems (for example, presence could not be sent). */
   warnings: string[];
 }
