@@ -116,6 +116,21 @@ export const W_NEXUS_LOGIN_RACE_BOTH_LIVE = 'W_NEXUS_LOGIN_RACE_BOTH_LIVE';
 /** Warning code: the chosen device name is this machine's hostname (L8). */
 export const W_NEXUS_DEVICE_NAME_IS_HOSTNAME = 'W_NEXUS_DEVICE_NAME_IS_HOSTNAME';
 
+/**
+ * STAGING ONLY: environment variable holding a better-auth session bearer
+ * minted by the staging test-signup endpoint (`POST /v1/test/users` on
+ * {@link NEXUS_STAGING_API_ORIGIN}). With it, {@link loginToNexusDevice}
+ * skips the browser device-code step, for browserless end-to-end tests. It is
+ * honoured only when the login targets exactly {@link NEXUS_STAGING_API_ORIGIN}.
+ */
+export const NEXUS_TEST_BEARER_ENV = 'CLEO_NEXUS_TEST_BEARER';
+
+/** The only API origin that honours {@link NEXUS_TEST_BEARER_ENV}. */
+export const NEXUS_STAGING_API_ORIGIN = 'https://api.staging.cleocode.dev';
+
+/** Warning code: {@link NEXUS_TEST_BEARER_ENV} is set but the login does not target staging, so it was ignored. */
+export const W_NEXUS_TEST_BEARER_IGNORED = 'W_NEXUS_TEST_BEARER_IGNORED';
+
 /** The remedy for any failure that needs a fresh, human, browser login. */
 const BROWSER_LOGIN_FIX =
   'run `cleo login nexus` (needs a browser: on a headless machine a human must complete the login)';
@@ -376,6 +391,13 @@ export function nexusApiErrorToAccountError(err: unknown): Error {
           'E_NEXUS_SESSION_EXPIRED',
           'bearer sessions are no longer accepted',
           'run `cleo login nexus` with the current CLI',
+        );
+      case 'session-used':
+        // v2.12: a concurrent E1 already consumed this one-shot exempt session.
+        return new NexusAccountError(
+          'E_NEXUS_SESSION_EXPIRED',
+          'the stored session was already used by another device enrolment (it can enrol only once)',
+          BROWSER_LOGIN_FIX,
         );
       default:
         return new NexusAccountError(
@@ -1014,9 +1036,28 @@ async function enrolledMeanwhile(
   }
 }
 
+/**
+ * E1 refused the upgrade's exempt session with 401 `session-used` (v2.12): a
+ * concurrent E1 consumed it first. {@link upgradeNexusSession} re-reads
+ * `nexus-device.json` on this error, where the winner usually already stored
+ * its credential (§3.4, §4.0.4).
+ */
+class NexusSessionUsedError extends NexusAccountError {
+  constructor() {
+    super(
+      'E_NEXUS_SESSION_EXPIRED',
+      'the stored session was already used by another device enrolment (it can enrol only once), and no device credential was stored on this CLEO home',
+      BROWSER_LOGIN_FIX,
+    );
+  }
+}
+
 /** The error for a failed E1 (after the internal 409 handling). */
 function enrolError(err: unknown, reason: string | null, input: EnrolInput): Error {
   if (input.kind === 'upgrade') {
+    if (err instanceof NexusError && err.status === 401 && reason === 'session-used') {
+      return new NexusSessionUsedError();
+    }
     if (isUnanswered(err)) {
       return new NexusAccountError(
         'E_NEXUS_SESSION_EXPIRED',
@@ -1100,11 +1141,53 @@ function primaryOrganization(
 }
 
 /**
+ * The staging test bearer from {@link NEXUS_TEST_BEARER_ENV}, or `null`. It
+ * is returned only for exactly {@link NEXUS_STAGING_API_ORIGIN}; for any other
+ * origin a warning is added (naming the variable, never its value) and it is
+ * not used.
+ *
+ * @throws {NexusAccountError} `E_NEXUS_NOT_SIGNED_IN` against staging when
+ *   the value is not a valid header token (never quoting it).
+ */
+function stagingTestBearer(apiUrl: string, warnings: string[]): string | null {
+  const raw = process.env[NEXUS_TEST_BEARER_ENV]?.trim() ?? '';
+  if (raw === '') return null;
+  if (apiUrl === NEXUS_STAGING_API_ORIGIN) {
+    // A value that is not a valid header token would make `fetch` throw an
+    // error quoting the header, so it is refused before any request.
+    if (!/^[\x21-\x7e]+$/.test(raw)) {
+      throw new NexusAccountError(
+        'E_NEXUS_NOT_SIGNED_IN',
+        `${NEXUS_TEST_BEARER_ENV} is not a usable bearer token (printable ASCII, no spaces); nothing was sent`,
+        `set ${NEXUS_TEST_BEARER_ENV} to the token returned by POST /v1/test/users on ${NEXUS_STAGING_API_ORIGIN}, or unset it`,
+      );
+    }
+    return raw;
+  }
+  warnings.push(
+    `${W_NEXUS_TEST_BEARER_IGNORED}: ${NEXUS_TEST_BEARER_ENV} is set but ignored; it is honoured only against ${NEXUS_STAGING_API_ORIGIN}, not ${apiUrl}`,
+  );
+  return null;
+}
+
+/**
  * `cleo login nexus` with device credentials (contract §3.3): the device-code
  * login gives a session held in memory only; the session enrols this machine
  * as a device (E1), is signed out, and only the scoped device credential is
  * stored, sealed, in `nexus-device.json`. `nexus-credentials.json` is never
  * written.
+ *
+ * Environment:
+ *
+ * - `CLEO_NEXUS_API_URL`: the API origin when `opts.apiUrl` is not given.
+ * - `CLEO_NEXUS_TEST_BEARER` ({@link NEXUS_TEST_BEARER_ENV}), STAGING ONLY: a
+ *   better-auth session bearer minted by the staging test-signup endpoint
+ *   (`POST /v1/test/users` on {@link NEXUS_STAGING_API_ORIGIN}). When the
+ *   resolved origin is exactly {@link NEXUS_STAGING_API_ORIGIN}, the
+ *   device-code step is skipped and that bearer runs the same E2 (whoami),
+ *   E1 (enrol) and sign-out path as a browser login. For any other origin it
+ *   is ignored with a {@link W_NEXUS_TEST_BEARER_IGNORED} warning. Its value
+ *   never appears in a result, warning, error or log.
  *
  * @param opts - API URL, profile, name, UI hooks and test overrides.
  * @returns The secret-free login result, with the device and its scopes.
@@ -1127,12 +1210,16 @@ export async function loginToNexusDevice(
     ...(opts.signal ? { signal: opts.signal } : {}),
     ...(opts.pollSleep ? { sleep: opts.pollSleep } : {}),
   };
-  const token = await runNexusDeviceCode(
-    ctx.apiUrl,
-    loginOpts,
-    profile === 'read-only' ? 'cleo:read-only' : 'cleo:device',
-  );
-  const session = token.accessToken;
+  // STAGING ONLY: a test-signup bearer replaces the browser device-code step.
+  const session =
+    stagingTestBearer(ctx.apiUrl, warnings) ??
+    (
+      await runNexusDeviceCode(
+        ctx.apiUrl,
+        loginOpts,
+        profile === 'read-only' ? 'cleo:read-only' : 'cleo:device',
+      )
+    ).accessToken;
 
   // Step 4: who is signing in.
   let me: Whoami;
@@ -1227,6 +1314,11 @@ type UpgradeStep =
  * (the auto-upgrade exemption) and deletes it, so a lost answer is reported
  * as needing a browser login, and the session is removed so no later command
  * retries it.
+ *
+ * When E1 answers 401 `session-used` (v2.12: a concurrent E1 consumed the
+ * session first), `nexus-device.json` is re-read: if another process stored
+ * a credential there, the outcome is `already-enrolled`; otherwise the
+ * session is removed and `E_NEXUS_SESSION_EXPIRED` asks for a browser login.
  *
  * @param opts - API URL, stores and test overrides.
  * @returns What happened; never a secret.
@@ -1327,6 +1419,17 @@ export async function upgradeNexusSession(
   try {
     enrolled = await enrol(ctx, input, prepared, warnings);
   } catch (err) {
+    if (err instanceof NexusSessionUsedError) {
+      // A concurrent upgrade consumed the session first (401 `session-used`):
+      // its credential is usually already in the device file. The session is
+      // dead server-side either way, so it is only removed locally (CAS).
+      await ctx.sessions.delete(ctx.apiUrl, session).catch(() => false);
+      const device = await ctx.devices.get(ctx.apiUrl, userId);
+      if (device !== null && device.currentBearer() !== null) {
+        return { outcome: 'already-enrolled', device, warnings };
+      }
+      throw err;
+    }
     if (err instanceof NexusAccountError && err.code === 'E_NEXUS_SESSION_EXPIRED') {
       // Never retry an exempt session: remove it (CAS on the token).
       await ctx.sessions.delete(ctx.apiUrl, session).catch(() => false);
