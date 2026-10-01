@@ -263,3 +263,37 @@ describe('cleanProjects — T9117 vacuum', () => {
     expect(result.vacuumBytesFreed).toBeGreaterThanOrEqual(0);
   });
 });
+
+describe('cleanProjects — cloud vault placeholders (T12336)', () => {
+  it('never probes or removes a row whose path is a vault placeholder', async () => {
+    const { ghost } = await seedThreeProjects();
+    const { getNexusDb } = await import('../../store/nexus-sqlite.js');
+    const { projectRegistry } = await import('../../store/schema/nexus-schema.js');
+    const db = await getNexusDb();
+    const now = new Date().toISOString();
+    await db.insert(projectRegistry).values({
+      projectId: 'remote-id',
+      projectHash: 'remoteremote',
+      projectPath: 'cleo-vault-remote:nexus_project_registry:["remote-id"]:project_path',
+      name: 'remote',
+      registeredAt: now,
+      lastSeen: now,
+      healthStatus: 'unknown',
+      healthLastCheck: null,
+      permissions: 'read',
+      lastSync: now,
+      taskCount: 0,
+      labelsJson: '[]',
+      brainDbPath: null,
+      tasksDbPath: null,
+      lastIndexed: null,
+      nodeCount: 0,
+      relationCount: 0,
+      fileCount: 0,
+    });
+    const result = await cleanProjects({ dryRun: false, matchOrphaned: true });
+    expect(result.sample).toEqual([ghost]);
+    expect(result.purged).toBe(1);
+    expect(result.remaining).toBe(3);
+  });
+});

@@ -16,6 +16,9 @@
  * when the tri-state probe answers `no`; an unreadable one (EACCES, EPERM,
  * timeout) is never removed and is reported under `unreadable`.
  *
+ * T12336: a row whose `project_path` is a cloud vault placeholder (a project
+ * that lives only on another machine) is neither probed nor removed.
+ *
  * @task T1473
  * @task T12324
  * @task T12471
@@ -38,6 +41,7 @@ import { inArray, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getCleoHome } from '../paths.js';
+import { isVaultRemotePath } from '../store/vault-manifest.js';
 import { toRegistryReadError } from './registry-errors.js';
 import { isEphemeralPath } from './registry-hygiene.js';
 
@@ -321,10 +325,13 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
   // different id declared there) proves a project gone; `unknown` (EACCES,
   // EPERM, timeout) is a live project this process cannot see.
   const { runWithConcurrency } = await import('../lib/concurrency.js');
-  const holdings = await runWithConcurrency(allRows, PROBE_CONCURRENCY, (row) =>
+  // T12336: a row a cloud vault restore brought from another machine holds a
+  // placeholder, not a path. It is that machine's project, never an orphan here.
+  const probed = allRows.filter((row) => !isVaultRemotePath(row.projectPath));
+  const holdings = await runWithConcurrency(probed, PROBE_CONCURRENCY, (row) =>
     probeRowPath(row.projectPath, row.projectId),
   );
-  for (const [index, row] of allRows.entries()) {
+  for (const [index, row] of probed.entries()) {
     const missing = holdings[index] === 'gone';
     if (missing) missingIds.add(row.projectId);
     const holding = holdings[index];

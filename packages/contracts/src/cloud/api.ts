@@ -169,7 +169,10 @@ export const AttachHomeReplicaResult = HomeReplica;
 export type AttachHomeReplicaResult = z.infer<typeof AttachHomeReplicaResult>;
 
 /** `PUT /v1/account/home/replicas/:replicaId/presence` (body: ReplicaPresence). */
-export const HomeReplicaPresenceResult = z.object({ replicaId: ReplicaId, presenceAt: z.iso.datetime() });
+export const HomeReplicaPresenceResult = z.object({
+  replicaId: ReplicaId,
+  presenceAt: z.iso.datetime(),
+});
 export type HomeReplicaPresenceResult = z.infer<typeof HomeReplicaPresenceResult>;
 
 /** `GET /v1/account/home/replicas`: every home replica of the caller's account, oldest attachment first. */

@@ -537,7 +537,7 @@ class FakeNexus {
         parent?.manifest ?? null,
         body['manifest'] as Manifest,
         sumDeltas(between),
-        1,
+        2,
       );
       if (!verdict.ok) {
         this.record(dev, `checkpoint.refused.${verdict.code}`, streamId);
@@ -1347,8 +1347,21 @@ describe('cloud vault concurrency', () => {
     expect(sha256Hex(fs.readFileSync(dbFile))).toBe(before);
     expect(taskCount(a)).toBe(5);
 
-    // An expired lease (its holder died) does not block.
+    // An idle connection another process holds open blocks too (#1773 M4).
     exec(a, 'UPDATE _writer_leases SET heartbeat_at = 0');
+    const beforeIdle = sha256Hex(fs.readFileSync(dbFile));
+    const idle = new DatabaseSync(dbFile);
+    idle.prepare('SELECT COUNT(*) FROM tasks_tasks').get();
+    const open = await failure(
+      on(a, () => restoreNexusVault(vopts(a, { mode: 'pull', force: true }))),
+    );
+    expect(open.code).toBe('E_NEXUS_VAULT_STORE_BUSY');
+    expect(open.message).toContain('open');
+    idle.close();
+    expect(sha256Hex(fs.readFileSync(dbFile))).toBe(beforeIdle);
+    expect(taskCount(a)).toBe(5);
+
+    // An expired lease (its holder died) and no open connection do not block.
     const restored = await on(a, () => restoreNexusVault(vopts(a, { mode: 'pull', force: true })));
     expect(restored.status).toBe('restored');
     expect(taskCount(a)).toBe(6);
@@ -1734,7 +1747,11 @@ describe('cloud vault global scope', () => {
       ),
     ).toEqual([
       { project_id: 'p1', project_path: `${b.home}/projects/p1` },
-      { project_id: 'p2', project_path: `${a.home}/projects/p2` },
+      // p2 lives on A only: its path is a placeholder here, never A's path (#1773 H2).
+      {
+        project_id: 'p2',
+        project_path: 'cleo-vault-remote:nexus_project_registry:["p2"]:project_path',
+      },
     ]);
     // B's credentials survive (T12966); A's account arrives without its secret.
     expect(

@@ -72,9 +72,14 @@ import { extract as tarExtract } from 'tar';
 import { z } from 'zod';
 import { getCleoHome, resolveOrCwd } from '../paths.js';
 import { withLock } from '../store/lock.js';
-import { exportPortableBundle } from '../store/portable-bundle.js';
+import { exportPortableBundle, globalHomeRules } from '../store/portable-bundle.js';
 import { importPortableBundle } from '../store/portable-bundle-import.js';
-import { integrityCheck } from '../store/portable-bundle-scan.js';
+import {
+  integrityCheck,
+  PROJECT_SECTION_RULES,
+  scanSection,
+  sha256File,
+} from '../store/portable-bundle-scan.js';
 import { FIRST_OPEN_LOCK_SUFFIX } from '../store/sqlite.js';
 import { readActiveReplicaId } from '../store/sync/replica.js';
 import {
@@ -91,7 +96,7 @@ import {
   vaultDatabaseKey,
   vaultFilesEntry,
 } from '../store/vault-manifest.js';
-import { foreignWriterLeases } from '../store/writer-lease.js';
+import { foreignWriterLeases, storeOpenElsewhere } from '../store/writer-lease.js';
 import { deriveKey } from './crypto.js';
 import { NexusError } from './http.js';
 import { cursorFromCheckpoint, initialPullCursor, Journal, type PullCursor } from './journal.js';
@@ -132,12 +137,18 @@ export const VAULT_GLOBAL_EXCLUSIONS = {
     'device-heartbeat.stamp': 'machine-local heartbeat; never in a vault snapshot',
     'nexus.db': 'machine-local code index (rebuilt per machine); never in a vault snapshot',
     'exodus-complete': 'machine-local migration marker; never in a vault snapshot',
+    'telemetry-config.json':
+      "this install's telemetry opt-in and anonymous id; never in a vault snapshot",
+    'decide/spend.json':
+      "this machine's decision spend ledger (in-flight reservations); never in a vault snapshot",
+    'decide/budget.json': "this machine's decision request token bucket; never in a vault snapshot",
   },
 } as const;
 
 /**
  * Plain files of a snapshot left out of its file inventory: files a restore
- * rewrites or keeps per machine (the link, relocated config) and per-session
+ * rewrites or keeps per machine (the link, relocated config), files CLEO
+ * regenerates on its own (`memory-bridge.md`, timestamped) and per-session
  * scratch, which would otherwise read as a change on every run.
  */
 function inventoryExcluded(relPath: string): boolean {
@@ -146,6 +157,7 @@ function inventoryExcluded(relPath: string): boolean {
     relPath === 'config.json' ||
     relPath === 'project-context.json' ||
     relPath === 'worktrees.json' ||
+    relPath === 'memory-bridge.md' ||
     (!relPath.includes('/') && relPath.startsWith('.')) ||
     relPath.startsWith('tmp/') ||
     relPath.startsWith('state/')
@@ -489,15 +501,45 @@ async function exportAndRead(
   return { bundlePath, vault };
 }
 
-/** The vault manifest of this machine's store as a push would snapshot it, or `null` when it has none. */
+/**
+ * The vault manifest of this machine's store as a push would snapshot it, or
+ * `null` when it has none, computed from the live databases (one read
+ * transaction each) and a walk with the export's own rules: no export, no
+ * VACUUM, so `cloud vault`, `verify` and the pull checks stay cheap (#1773 P0).
+ * The values match {@link snapshotManifest} of a fresh export: credential
+ * columns hash as NULL in every database, as the export clears them.
+ */
 async function localManifest(t: VaultTarget): Promise<VaultManifest | null> {
   if (!fs.existsSync(t.dbPath)) return null;
-  const work = tempDir('cleo-vault-local-');
-  try {
-    return (await exportAndRead(t, work, `cloud-vault-${t.scope}-check`)).vault;
-  } finally {
-    fs.rmSync(work, { recursive: true, force: true });
+  const sectionRoot = t.scope === 'global' ? t.storeRoot : path.join(t.storeRoot, '.cleo');
+  const rules =
+    t.scope === 'global' ? globalHomeRules(VAULT_GLOBAL_EXCLUSIONS) : PROJECT_SECTION_RULES;
+  const scan = scanSection(sectionRoot, rules);
+  const hashKey = hashKeyOf(t.dataKey);
+  const vault = buildVaultManifest(t.dbPath, {
+    scope: tableScopeOf(t),
+    hashKey,
+    root: t.scope === 'global' ? null : t.storeRoot,
+  }).manifest;
+  const primaryRel = path.relative(sectionRoot, t.dbPath).split(path.sep).join('/');
+  for (const rel of scan.sqlite) {
+    if (rel === primaryRel) continue;
+    try {
+      vault.tables[vaultDatabaseKey(rel)] = vaultDatabaseEntry(path.join(sectionRoot, rel), {
+        hashKey,
+        root: null,
+      });
+    } catch {
+      // Unreadable: the export leaves it out of an unencrypted bundle too.
+    }
   }
+  const files: Array<{ relPath: string; sha256: string }> = [];
+  for (const rel of scan.files) {
+    if (inventoryExcluded(rel)) continue;
+    files.push({ relPath: rel, sha256: await sha256File(path.join(sectionRoot, rel)) });
+  }
+  vault.tables[VAULT_FILES_KEY] = vaultFilesEntry(files, hashKey);
+  return vault;
 }
 
 function tempDir(prefix: string): string {
@@ -595,7 +637,10 @@ async function pushNexusVaultImpl(
       let cp: Checkpoint | null = null;
       // A segment another device appends between our replay and our checkpoint
       // makes the server's count or replica-map check fail: replay once more
-      // (our own delta is then part of the history) and retry (T12975).
+      // (our own delta is then part of the history) and retry (T12975). The
+      // retry seals the bundle under a new checkpoint id (the AAD covers it),
+      // so the first attempt's uploaded blob is left unreferenced: one orphan
+      // per retry, for the server's blob garbage collection.
       for (let attempt = 0; cp === null; attempt++) {
         const replay = await replaySegments(
           journal,
@@ -757,9 +802,12 @@ function carryWarnings(kept: CarriedMachineState): CloudWarning[] {
 }
 
 /**
- * Refuse to replace a store other processes are writing (T12973): a live
- * writer lease held by another process means it would keep writing to the
- * replaced file. This process's own handles are closed first.
+ * Refuse to replace a store another process has open (T12973): a live writer
+ * lease means a write is in flight, and any other open connection (an idle
+ * session, the sentient daemon) would keep writing to the replaced file
+ * afterwards. This process's own handles are closed first. Residual: a
+ * process that opens the store between this check and the placement (a few
+ * milliseconds, under the first-open lock that a store's first open also takes).
  */
 async function assertStoreQuiescent(dbPath: string): Promise<void> {
   const { closeAllDatabases } = await import('../store/sqlite.js');
@@ -772,6 +820,13 @@ async function assertStoreQuiescent(dbPath: string): Promise<void> {
       'E_NEXUS_VAULT_STORE_BUSY',
       `another CLEO process is writing to ${dbPath} (${held.map((h) => `${h.lane} lane, pid ${h.holderPid}`).join('; ')}); restoring now would lose its writes`,
       'wait for it to finish (or stop it), then run the command again',
+    );
+  }
+  if (storeOpenElsewhere(dbPath)) {
+    throw vaultError(
+      'E_NEXUS_VAULT_STORE_BUSY',
+      `another process has ${dbPath} open (a CLEO session, daemon or tool); it would keep writing to the replaced store`,
+      'close it (end the session, stop the daemon with `cleo daemon stop`), then run the command again',
     );
   }
 }
@@ -928,9 +983,14 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
           if (hasLocal) {
             // Keep this machine's own state: local-only tables and columns,
             // credentials (T12966, T12967). Checked again under the lock.
-            if (foreignWriterLeases(t.dbPath).length > 0) await assertStoreQuiescent(t.dbPath);
+            await assertStoreQuiescent(t.dbPath);
             warnings.push(
-              ...carryWarnings(carryMachineState(staged.dbPath, t.dbPath, tableScopeOf(t))),
+              ...carryWarnings(
+                carryMachineState(staged.dbPath, t.dbPath, tableScopeOf(t), {
+                  snapshotRoot:
+                    t.scope === 'global' ? null : (manifest.projects[0]?.originalPath ?? null),
+                }),
+              ),
             );
           }
         },

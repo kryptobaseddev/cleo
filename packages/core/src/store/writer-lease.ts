@@ -78,7 +78,7 @@ import {
   openDualScopeDbAtPath,
   resolveDualScopeDbPath,
 } from './dual-scope-db.js';
-import { openNativeDatabase } from './sqlite-native.js';
+import { getDbSyncConstructor, openNativeDatabase } from './sqlite-native.js';
 import { installSchemaWriteGuard } from './worktree-build-guard.js';
 import {
   assertWriterLeaseActiveIndexPresent,
@@ -1495,6 +1495,35 @@ export function foreignWriterLeases(
       .map((r) => ({ scope: r.scope, lane: r.lane, holderPid: Number(r.holderPid) }));
   } finally {
     db.close();
+  }
+}
+
+/**
+ * Whether any other connection, in this process or another, has the store at
+ * `dbPath` open right now, even an idle one: an exclusive-locking-mode
+ * transaction cannot start while another connection holds the WAL index.
+ * A caller about to replace the store file (a vault restore) refuses while
+ * it does, since that connection would keep writing to the replaced file
+ * (T12336). Close this process's own handles first. `false` when the file
+ * does not exist.
+ *
+ * @param dbPath - The `cleo.db` file.
+ * @returns `true` when the store is held open elsewhere.
+ */
+export function storeOpenElsewhere(dbPath: string): boolean {
+  if (!existsSync(dbPath)) return false;
+  const DatabaseSyncCtor = getDbSyncConstructor();
+  // db-open-allowed: a lock probe; it must not set WAL or touch the store before taking the exclusive lock
+  const probe = new DatabaseSyncCtor(dbPath, { timeout: 0 });
+  try {
+    probe.exec('PRAGMA locking_mode = EXCLUSIVE');
+    probe.exec('BEGIN EXCLUSIVE');
+    probe.exec('COMMIT');
+    return false;
+  } catch {
+    return true;
+  } finally {
+    probe.close();
   }
 }
 

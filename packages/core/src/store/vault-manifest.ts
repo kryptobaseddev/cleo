@@ -45,8 +45,12 @@ const { DatabaseSync } = _require('node:sqlite') as {
   DatabaseSync: new (...args: ConstructorParameters<typeof _DatabaseSyncType>) => DatabaseSync;
 };
 
-/** Version of the manifest computation; recorded as the manifest's `schemaVersion`. */
-export const VAULT_MANIFEST_SCHEMA_VERSION = 1;
+/**
+ * Version of the manifest computation; recorded as the manifest's
+ * `schemaVersion`. 2: non-syncing columns hash as NULL, plus the
+ * `zz_vault_db_*` and `zz_vault_files` entries (T12967, T12969).
+ */
+export const VAULT_MANIFEST_SCHEMA_VERSION = 2;
 
 /** A manifest key the wire contract accepts. */
 const MANIFEST_KEY = /^[a-z][a-z0-9_]{0,62}$/;
@@ -200,7 +204,13 @@ export function buildVaultManifest(
           continue;
         }
         const digests: Buffer[] = [];
-        const cleared = new Set(opts.allTables === true ? [] : vaultLocalColumns(opts.scope, name));
+        // An unencrypted bundle clears credential columns in every database it
+        // carries, so even an unclassified database hashes them as NULL.
+        const cleared = new Set(
+          opts.allTables === true
+            ? (CREDENTIAL_COLUMNS[name] ?? [])
+            : vaultLocalColumns(opts.scope, name),
+        );
         // Mirror relocateDatabase: virtual-table shadow tables are never relocated.
         const shadow = virtualNames.some((v) => name.startsWith(`${v}_`));
         const withoutRowid = (sql ?? '').toUpperCase().includes('WITHOUT ROWID');
@@ -348,14 +358,44 @@ export interface VaultLostCredentials {
 
 /** What {@link carryMachineState} carried into the staged snapshot. */
 export interface CarriedMachineState {
-  /** `local-only` tables whose rows now come from the live store. */
+  /** Tables whose rows now come whole from the live store (`local-only`, or a `portable-secret` table without a stable key). */
   preserved: string[];
-  /** Tables (and their columns) whose non-syncing cells were merged from live rows by primary key. */
+  /** Tables (and their columns) whose non-syncing cells were merged from live rows by a stable key. */
   carried: Array<{ table: string; columns: string[]; rows: number }>;
-  /** Tables left as the snapshot had them (absent here, shaped differently, or without a primary key). */
+  /** Tables left as the snapshot had them (absent here, shaped differently, or without a stable key). */
   skipped: string[];
   /** Live credentials that could not be kept, with their remedy. */
   lost: VaultLostCredentials[];
+  /** Snapshot-only rows whose foreign local paths were cleared or marked remote, per table. */
+  scrubbed: Array<{ table: string; rows: number }>;
+}
+
+/** Options of {@link carryMachineState}. */
+export interface CarryMachineStateOptions {
+  /**
+   * The root the snapshot was taken at, when the restore relocates it onto
+   * this machine afterwards (a project store): paths under it are kept, since
+   * the relocation rewrites them. `null` (a global store): no path is relocated.
+   */
+  snapshotRoot: string | null;
+}
+
+/**
+ * Prefix of the value a NOT NULL machine-local path cell gets in a row that
+ * only another machine has (a project or skill not on this machine): a
+ * placeholder, not a path, so nothing here reads it as a missing directory
+ * (`cleo nexus projects clean --orphans` never removes such a row).
+ */
+export const VAULT_REMOTE_PATH_PREFIX = 'cleo-vault-remote:';
+
+/**
+ * Whether a path cell is the placeholder of a row another machine holds.
+ *
+ * @param value - A path column value.
+ * @returns `true` for {@link VAULT_REMOTE_PATH_PREFIX} values.
+ */
+export function isVaultRemotePath(value: string | null | undefined): boolean {
+  return typeof value === 'string' && value.startsWith(VAULT_REMOTE_PATH_PREFIX);
 }
 
 type Cell = string | number | bigint | null | Uint8Array;
@@ -364,55 +404,118 @@ function hasValue(v: unknown): boolean {
   return v !== null && v !== undefined && v !== '';
 }
 
+interface ColumnInfo {
+  name: string;
+  pk: number;
+  type: string;
+  notnull: number;
+}
+
+/**
+ * The columns rows are matched on across machines: the primary key when it is
+ * stable, else the first non-partial UNIQUE index whose columns both stores
+ * have (a natural key, e.g. `skills_skills.name`, `accounts(provider, label)`).
+ * An integer primary key (a rowid alias or AUTOINCREMENT) is minted per
+ * machine, so it is never used. `null` when there is no stable key.
+ */
+function stableKey(
+  db: DatabaseSync,
+  table: string,
+  sql: string,
+  info: readonly ColumnInfo[],
+  common: ReadonlySet<string>,
+): { key: string[]; unstablePk: string[] } | null {
+  const pk = info
+    .filter((c) => c.pk > 0)
+    .sort((x, y) => x.pk - y.pk)
+    .map((c) => c.name);
+  const unstablePk = /\bAUTOINCREMENT\b/i.test(sql)
+    ? pk
+    : info.filter((c) => c.pk > 0 && /INT/i.test(c.type)).map((c) => c.name);
+  if (pk.length > 0 && unstablePk.length === 0) {
+    return pk.every((k) => common.has(k)) ? { key: pk, unstablePk } : null;
+  }
+  const indexes = (
+    db.prepare(`PRAGMA index_list(${quoteIdent(table)})`).all() as Array<{
+      name: string;
+      unique: number;
+      origin: string;
+      partial: number;
+    }>
+  ).filter((i) => i.unique === 1 && i.partial === 0 && i.origin !== 'pk');
+  for (const i of indexes.sort((x, y) => (x.origin === 'u' ? 0 : 1) - (y.origin === 'u' ? 0 : 1))) {
+    const cols = (
+      db.prepare(`PRAGMA index_info(${quoteIdent(i.name)})`).all() as Array<{ name: string | null }>
+    ).map((c) => c.name);
+    if (cols.length > 0 && cols.every((c): c is string => c !== null && common.has(c))) {
+      return { key: cols as string[], unstablePk };
+    }
+  }
+  return null;
+}
+
 /**
  * Before a vault restore activates a snapshot, carry this machine's own state
  * into the staged copy, so a pull never replaces it with another device's
  * (or with the empty cells an unencrypted bundle carries):
  *
  * - `local-only` tables: all rows come from the live store (replica binding,
- *   registry paths and other machine state belong to this machine).
- * - `portable-secret` tables: live rows are upserted by primary key (the
- *   snapshot's copies arrive with their secrets cleared).
+ *   machine state); a table absent here is emptied.
+ * - `portable-secret` tables: live rows are upserted by a stable key (the
+ *   snapshot's copies arrive with their secrets cleared). Without a stable
+ *   key the live table is kept whole.
  * - Every other table: its non-syncing columns ({@link vaultLocalColumns}:
  *   credentials, machine-local paths, stripped values) are copied from the
- *   live row with the same primary key.
+ *   live row with the same stable key. A table without one is skipped and
+ *   reported; rows are never matched by an integer id, which each machine
+ *   mints for itself.
+ * - Rows only the snapshot has (a project or skill on another machine only)
+ *   never bring that machine's local paths: a non-syncing cell holding an
+ *   absolute path outside `snapshotRoot` is cleared (NULL), or, when the
+ *   column is NOT NULL, set to a {@link VAULT_REMOTE_PATH_PREFIX} placeholder
+ *   that is not a path and is never treated as an orphan.
  *
  * Syncing cells keep the snapshot's values (they are what the manifest
- * verified); derived tables are rebuilt from them. A whole table is carried
- * only when it has the same columns in both stores; a column merge uses the
- * columns both have. A live credential that has nowhere to go (its row is
- * gone from the snapshot, or the table cannot be matched by key) is reported
- * in `lost` with its re-entry remedy.
+ * verified; non-syncing cells hash as NULL, so none of this changes the
+ * manifest). A whole table is carried only when it has the same columns in
+ * both stores; a column merge uses the columns both have. A live credential
+ * that has nowhere to go is reported in `lost` with its re-entry remedy.
  *
  * @param stagedDbPath - The staged snapshot database (written in place).
  * @param liveDbPath - This machine's current database (read only).
  * @param scope - Which `cleo.db` this is.
- * @returns What was carried, skipped and lost.
+ * @param opts - The snapshot's root (see {@link CarryMachineStateOptions}).
+ * @returns What was carried, skipped, lost and scrubbed.
  */
 export function carryMachineState(
   stagedDbPath: string,
   liveDbPath: string,
   scope: TableScope,
+  opts: CarryMachineStateOptions = { snapshotRoot: null },
 ): CarriedMachineState {
-  const out: CarriedMachineState = { preserved: [], carried: [], skipped: [], lost: [] };
+  const out: CarriedMachineState = {
+    preserved: [],
+    carried: [],
+    skipped: [],
+    lost: [],
+    scrubbed: [],
+  };
   const live = new DatabaseSync(liveDbPath, { readOnly: true });
   const staged = new DatabaseSync(stagedDbPath);
+  const snapshotRoot = opts.snapshotRoot === null ? null : opts.snapshotRoot.replace(/[\\/]+$/, '');
   try {
     const tablesOf = (db: DatabaseSync) =>
-      new Set(
+      new Map(
         (
           db
             .prepare(
-              "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND sql NOT LIKE 'CREATE VIRTUAL TABLE%'",
+              "SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND sql NOT LIKE 'CREATE VIRTUAL TABLE%'",
             )
-            .all() as Array<{ name: string }>
-        ).map((r) => r.name),
+            .all() as Array<{ name: string; sql: string | null }>
+        ).map((r) => [r.name, r.sql ?? '']),
       );
     const infoOf = (db: DatabaseSync, t: string) =>
-      db.prepare(`PRAGMA table_info(${quoteIdent(t)})`).all() as Array<{
-        name: string;
-        pk: number;
-      }>;
+      db.prepare(`PRAGMA table_info(${quoteIdent(t)})`).all() as unknown as ColumnInfo[];
     const rowsOf = (db: DatabaseSync, t: string) => {
       const select = db.prepare(`SELECT * FROM ${quoteIdent(t)}`);
       // Integers past 2^53 (nanosecond times, inode numbers) would throw as numbers.
@@ -423,19 +526,42 @@ export function carryMachineState(
     const lose = (table: string, rows: number) => {
       if (rows > 0) out.lost.push({ table, rows, remedy: credentialRemedy(table) });
     };
+    const keyOf = (r: Record<string, Cell>, key: readonly string[]) => {
+      const values = key.map((k) => r[k] ?? null);
+      return values.some((v) => v === null) ? null : JSON.stringify(values.map((v) => String(v)));
+    };
+    const underSnapshotRoot = (v: string) =>
+      snapshotRoot !== null &&
+      (v === snapshotRoot ||
+        (v.startsWith(snapshotRoot) && /^[\\/]/.test(v.slice(snapshotRoot.length))));
+    // An absolute path a restore will not relocate onto this machine (only a
+    // relocatable column under the snapshot's root is rewritten by it).
+    const foreignPath = (v: Cell, relocatable: boolean) =>
+      typeof v === 'string' &&
+      !isVaultRemotePath(v) &&
+      (v.startsWith('/') || /^[A-Za-z]:[\\/]/.test(v) || v.startsWith('\\\\')) &&
+      !(relocatable && underSnapshotRoot(v));
     staged.exec('PRAGMA foreign_keys = OFF');
     staged.exec('BEGIN IMMEDIATE');
     try {
-      for (const t of [...tablesOf(staged)].sort()) {
+      for (const [t, sql] of [...tablesOf(staged)].sort(([a], [b]) =>
+        a < b ? -1 : a > b ? 1 : 0,
+      )) {
         const c = classifyTable(scope, t);
         if (c.kind !== 'entry' && c.kind !== 'pattern') continue;
         const credentialCols = CREDENTIAL_COLUMNS[t] ?? [];
         const stagedInfo = infoOf(staged, t);
+        const stagedCols = stagedInfo.map((x) => x.name);
         const liveInfo = liveTables.has(t) ? infoOf(live, t) : [];
         const liveCols = liveInfo.map((x) => x.name);
-        const liveRows = liveTables.has(t) ? rowsOf(live, t) : [];
+        const sameShape = liveCols.join('\u0000') === stagedCols.join('\u0000');
         const holdsSecret = (r: Record<string, Cell>) =>
           c.class === 'portable-secret' || credentialCols.some((k) => hasValue(r[k]));
+        const replaceWhole = (rows: ReadonlyArray<Record<string, Cell>>) => {
+          staged.prepare(`DELETE FROM ${quoteIdent(t)}`).run();
+          insertRows(staged, t, liveCols, rows);
+          out.preserved.push(t);
+        };
 
         if (c.class === 'local-only') {
           // Machine state never comes from another machine: a table this store
@@ -443,68 +569,109 @@ export function carryMachineState(
           if (!liveTables.has(t)) {
             staged.prepare(`DELETE FROM ${quoteIdent(t)}`).run();
             out.preserved.push(t);
-            continue;
-          }
-          if (liveCols.join('\u0000') !== stagedInfo.map((x) => x.name).join('\u0000')) {
+          } else if (!sameShape) {
             out.skipped.push(t);
-            continue;
+          } else {
+            replaceWhole(rowsOf(live, t));
           }
-          staged.prepare(`DELETE FROM ${quoteIdent(t)}`).run();
-          insertRows(staged, t, liveCols, liveRows);
-          out.preserved.push(t);
           continue;
         }
 
-        const pk = stagedInfo
-          .filter((x) => x.pk > 0)
-          .sort((x, y) => x.pk - y.pk)
-          .map((x) => x.name);
-        const common = new Set(stagedInfo.map((x) => x.name).filter((n) => liveCols.includes(n)));
-        const merge =
-          c.class === 'portable-secret'
-            ? [...common].filter((n) => !pk.includes(n))
-            : vaultLocalColumns(scope, t).filter((n) => common.has(n));
-        if (merge.length === 0 && c.class !== 'portable-secret') continue;
-        if (liveRows.length === 0) continue;
-        if (pk.length === 0 || !pk.every((k) => common.has(k))) {
-          out.skipped.push(t);
-          lose(t, liveRows.filter(holdsSecret).length);
-          continue;
-        }
-        const where = pk.map((k) => `${quoteIdent(k)} IS ?`).join(' AND ');
-        const exists = staged.prepare(`SELECT 1 FROM ${quoteIdent(t)} WHERE ${where} LIMIT 1`);
-        const update =
-          merge.length > 0
-            ? staged.prepare(
-                `UPDATE ${quoteIdent(t)} SET ${merge.map((k) => `${quoteIdent(k)} = ?`).join(', ')} WHERE ${where}`,
-              )
-            : null;
-        const cols = [...common];
-        const insert = staged.prepare(
-          `INSERT INTO ${quoteIdent(t)} (${cols.map(quoteIdent).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
-        );
-        let rows = 0;
-        let lost = 0;
-        for (const r of liveRows) {
-          const key = pk.map((k) => r[k] ?? null);
-          try {
-            if (exists.get(...key) !== undefined) {
-              update?.run(...merge.map((k) => r[k] ?? null), ...key);
-              rows += 1;
-            } else if (c.class === 'portable-secret') {
-              // A secret row this machine holds and the snapshot lacks: keep it.
-              insert.run(...cols.map((k) => r[k] ?? null));
-              rows += 1;
-            } else if (holdsSecret(r)) {
-              lost += 1;
-            }
-          } catch {
-            // A constraint (e.g. a path another snapshot row now owns): the snapshot value stays.
-            if (holdsSecret(r)) lost += 1;
+        const common = new Set(stagedCols.filter((n) => liveCols.includes(n)));
+        const local = vaultLocalColumns(scope, t).filter((n) => stagedCols.includes(n));
+        if (c.class !== 'portable-secret' && local.length === 0) continue;
+        const liveRows = liveTables.has(t) ? rowsOf(live, t) : [];
+        const stable = stableKey(staged, t, sql, stagedInfo, common);
+        const liveKeys = new Set<string>();
+
+        if (stable === null) {
+          if (c.class === 'portable-secret' && liveTables.has(t) && sameShape) {
+            // No key to match rows by: this machine's secrets are kept whole.
+            replaceWhole(liveRows);
+            continue;
           }
+          if (liveRows.length > 0) out.skipped.push(t);
+          lose(t, liveRows.filter(holdsSecret).length);
+        } else {
+          const { key, unstablePk } = stable;
+          const merge =
+            c.class === 'portable-secret'
+              ? [...common].filter((n) => !key.includes(n) && !unstablePk.includes(n))
+              : local.filter((n) => common.has(n));
+          const where = key.map((k) => `${quoteIdent(k)} = ?`).join(' AND ');
+          const exists = staged.prepare(`SELECT 1 FROM ${quoteIdent(t)} WHERE ${where} LIMIT 1`);
+          const update =
+            merge.length > 0
+              ? staged.prepare(
+                  `UPDATE ${quoteIdent(t)} SET ${merge.map((k) => `${quoteIdent(k)} = ?`).join(', ')} WHERE ${where}`,
+                )
+              : null;
+          // A live-only secret row is inserted without its machine-minted integer id.
+          const cols = [...common].filter((n) => !unstablePk.includes(n));
+          const insert = staged.prepare(
+            `INSERT INTO ${quoteIdent(t)} (${cols.map(quoteIdent).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
+          );
+          let rows = 0;
+          let lost = 0;
+          for (const r of liveRows) {
+            const k = keyOf(r, key);
+            if (k === null) {
+              if (holdsSecret(r)) lost += 1;
+              continue;
+            }
+            liveKeys.add(k);
+            const keyValues = key.map((col) => r[col] ?? null);
+            try {
+              if (exists.get(...keyValues) !== undefined) {
+                update?.run(...merge.map((col) => r[col] ?? null), ...keyValues);
+                rows += 1;
+              } else if (c.class === 'portable-secret') {
+                // A secret row this machine holds and the snapshot lacks: keep it.
+                insert.run(...cols.map((col) => r[col] ?? null));
+                rows += 1;
+              } else if (holdsSecret(r)) {
+                lost += 1;
+              }
+            } catch {
+              // A constraint (e.g. a path another snapshot row now owns): the snapshot value stays.
+              if (holdsSecret(r)) lost += 1;
+            }
+          }
+          if (rows > 0) out.carried.push({ table: t, columns: merge, rows });
+          lose(t, lost);
         }
-        if (rows > 0) out.carried.push({ table: t, columns: merge, rows });
-        lose(t, lost);
+
+        // Rows only the snapshot has never bring another machine's local paths.
+        if (c.class === 'portable-secret') continue;
+        // Any non-syncing cell holding an absolute path the restore will not relocate.
+        const pathCols = local;
+        if (pathCols.length === 0 || /WITHOUT ROWID/i.test(sql)) continue;
+        const notNull = new Set(stagedInfo.filter((x) => x.notnull === 1).map((x) => x.name));
+        const scrubKey = stable?.key ?? null;
+        let scrubbed = 0;
+        const select = staged.prepare(`SELECT rowid AS rid, * FROM ${quoteIdent(t)}`);
+        select.setReadBigInts(true);
+        for (const r of select.all() as Array<Record<string, Cell>>) {
+          const k = scrubKey === null ? null : keyOf(r, scrubKey);
+          if (k !== null && liveKeys.has(k)) continue;
+          const sets: string[] = [];
+          const values: Cell[] = [];
+          for (const col of pathCols) {
+            if (!foreignPath(r[col] ?? null, relocatableColumn(t, col, false) === 'path')) continue;
+            sets.push(`${quoteIdent(col)} = ?`);
+            values.push(
+              notNull.has(col)
+                ? `${VAULT_REMOTE_PATH_PREFIX}${t}:${k ?? String(r['rid'])}:${col}`
+                : null,
+            );
+          }
+          if (sets.length === 0) continue;
+          staged
+            .prepare(`UPDATE ${quoteIdent(t)} SET ${sets.join(', ')} WHERE rowid = ?`)
+            .run(...values, r['rid'] ?? null);
+          scrubbed += 1;
+        }
+        if (scrubbed > 0) out.scrubbed.push({ table: t, rows: scrubbed });
       }
       staged.exec('COMMIT');
     } catch (err) {

@@ -22,6 +22,7 @@ import {
   isVaultManifestTable,
   sameVaultManifest,
   VAULT_MANIFEST_SCHEMA_VERSION,
+  VAULT_REMOTE_PATH_PREFIX,
   vaultDatabaseKey,
   vaultFilesEntry,
   vaultLocalColumns,
@@ -464,11 +465,12 @@ describe('column-level local-only cells (T12967)', () => {
         brain_db_path: '/b/p1/.cleo/brain.db',
         name: 'one',
       },
+      // p2 is on the other machine only: its paths are not brought here (#1773 H2).
       {
         project_id: 'p2',
-        project_path: '/a/p2',
+        project_path: `${VAULT_REMOTE_PATH_PREFIX}nexus_project_registry:["p2"]:project_path`,
         project_hash: 'hash:/a/p2',
-        brain_db_path: '/a/p2/.cleo/brain.db',
+        brain_db_path: null,
         name: 'two',
       },
     ]);
@@ -511,5 +513,145 @@ describe('pseudo-table entries (T12969)', () => {
     expect(a.rows).toBe(2);
     expect(edited.rows).toBe(2);
     expect(edited.hash).not.toBe(a.hash);
+  });
+});
+
+describe('carryMachineState keys rows by a stable key, never a machine-minted id (#1773 H1)', () => {
+  function globalDb(name: string, seed: string): string {
+    const file = path.join(tmp, `${name}.db`);
+    const db = new DatabaseSync(file);
+    db.exec(`
+      CREATE TABLE skills_skills (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE,
+        install_path TEXT NOT NULL, canonical_path TEXT, version TEXT);
+      CREATE TABLE accounts (id INTEGER PRIMARY KEY NOT NULL, provider TEXT NOT NULL, label TEXT NOT NULL,
+        auth_type TEXT NOT NULL, secret_enc TEXT);
+      CREATE UNIQUE INDEX ux_accounts_provider_label ON accounts (provider, label);
+      CREATE TABLE agent_service_grants (agent_id TEXT NOT NULL, service_connection_id INTEGER NOT NULL,
+        scope TEXT, PRIMARY KEY (agent_id, service_connection_id));
+      ${seed}
+    `);
+    db.close();
+    return file;
+  }
+  const read = (file: string, sql: string) => {
+    const db = new DatabaseSync(file, { readOnly: true });
+    try {
+      return db.prepare(sql).all();
+    } finally {
+      db.close();
+    }
+  };
+
+  it('matches on the natural key when ids diverge, and inserts live-only secrets with a new id', () => {
+    // The snapshot (machine A) and this machine (B) minted different ids for the same names.
+    const staged = globalDb(
+      'staged',
+      `INSERT INTO skills_skills VALUES (1, 'alpha', '/A/skills/alpha', '/A/c/alpha', '1'),
+                                        (2, 'beta', '/A/skills/beta', NULL, '2');
+       INSERT INTO accounts VALUES (1, 'openai', 'work', 'key', NULL), (2, 'anthropic', 'home', 'key', NULL);
+       INSERT INTO agent_service_grants VALUES ('ag', 1, 'snapshot');`,
+    );
+    const live = globalDb(
+      'live',
+      `INSERT INTO skills_skills VALUES (7, 'beta', '/B/skills/beta', '/B/c/beta', 'old'),
+                                        (1, 'gamma', '/B/skills/gamma', NULL, '1');
+       INSERT INTO accounts VALUES (5, 'anthropic', 'home', 'key', 'SECRET-HOME'),
+                                   (2, 'google', 'x', 'key', 'SECRET-X');
+       INSERT INTO agent_service_grants VALUES ('ag', 5, 'live');`,
+    );
+    const out = carryMachineState(staged, live, 'global');
+    // beta matched by name, not by id 7 or id 2; alpha (id 1) is NOT gamma's id 1.
+    expect(
+      read(
+        staged,
+        'SELECT id, name, install_path, canonical_path, version FROM skills_skills ORDER BY id',
+      ),
+    ).toEqual([
+      {
+        id: 1,
+        name: 'alpha',
+        install_path: `${VAULT_REMOTE_PATH_PREFIX}skills_skills:["alpha"]:install_path`,
+        canonical_path: null,
+        version: '1',
+      },
+      {
+        id: 2,
+        name: 'beta',
+        install_path: '/B/skills/beta',
+        canonical_path: '/B/c/beta',
+        version: '2',
+      },
+    ]);
+    // accounts matched by (provider, label): anthropic/home gets B's secret on A's id 2;
+    // google/x (B only) is inserted under a fresh id, not B's id 2.
+    expect(
+      read(staged, 'SELECT provider, label, secret_enc FROM accounts ORDER BY provider'),
+    ).toEqual([
+      { provider: 'anthropic', label: 'home', secret_enc: 'SECRET-HOME' },
+      { provider: 'google', label: 'x', secret_enc: 'SECRET-X' },
+      { provider: 'openai', label: 'work', secret_enc: null },
+    ]);
+    expect(read(staged, "SELECT id FROM accounts WHERE provider = 'anthropic'")).toEqual([
+      { id: 2 },
+    ]);
+    // agent_service_grants has no stable key (its key holds a machine-minted id): kept whole from live.
+    expect(out.preserved).toContain('agent_service_grants');
+    expect(read(staged, 'SELECT * FROM agent_service_grants')).toEqual([
+      { agent_id: 'ag', service_connection_id: 5, scope: 'live' },
+    ]);
+    expect(out.scrubbed).toEqual([{ table: 'skills_skills', rows: 1 }]);
+    expect(out.lost).toEqual([]);
+  });
+
+  it('skips and reports a table with local columns and no stable key', () => {
+    const mk = (name: string, p: string, secret: string | null) => {
+      const file = path.join(tmp, `${name}.db`);
+      const db = new DatabaseSync(file);
+      // A credential-bearing table keyed only by a machine-minted integer id.
+      db.exec(
+        'CREATE TABLE agent_registry_agents (id INTEGER PRIMARY KEY, name TEXT, cant_path TEXT, api_key_encrypted TEXT)',
+      );
+      db.prepare('INSERT INTO agent_registry_agents VALUES (1, ?, ?, ?)').run('agent', p, secret);
+      db.close();
+      return file;
+    };
+    const staged = mk('staged', '/A/cant', null);
+    const live = mk('live', '/B/cant', 'KEY');
+    const out = carryMachineState(staged, live, 'global');
+    expect(out.skipped).toContain('agent_registry_agents');
+    expect(out.lost.map((l) => l.table)).toEqual(['agent_registry_agents']);
+    // Never merged by id 1: the live key is not copied onto the snapshot's row.
+    expect(read(staged, 'SELECT api_key_encrypted FROM agent_registry_agents')).toEqual([
+      { api_key_encrypted: null },
+    ]);
+  });
+
+  it('keeps a relocatable path under the snapshot root; clears any other foreign path', () => {
+    const file = (name: string, rows: Array<[string, string]>) => {
+      const f = path.join(tmp, `${name}.db`);
+      const db = new DatabaseSync(f);
+      // tasks_tasks: claimed_by_session is non-syncing; tasks_commits: project_hash is.
+      db.exec(
+        'CREATE TABLE docs_manifest_entries (id TEXT PRIMARY KEY, title TEXT, output_file TEXT)',
+      );
+      for (const [id, out] of rows) {
+        db.prepare('INSERT INTO docs_manifest_entries VALUES (?, ?, ?)').run(id, id, out);
+      }
+      db.close();
+      return f;
+    };
+    const staged = file('staged', [
+      ['d1', '/A/root/.cleo/docs/d1.md'],
+      ['d2', '/elsewhere/d2.md'],
+    ]);
+    const live = file('live', []);
+    const out = carryMachineState(staged, live, 'project', { snapshotRoot: '/A/root' });
+    // output_file is not a column the relocation rewrites, so even a path under the
+    // snapshot root would stay the other machine's: both are cleared (nullable).
+    expect(read(staged, 'SELECT id, output_file FROM docs_manifest_entries ORDER BY id')).toEqual([
+      { id: 'd1', output_file: null },
+      { id: 'd2', output_file: null },
+    ]);
+    expect(out.scrubbed).toEqual([{ table: 'docs_manifest_entries', rows: 2 }]);
   });
 });

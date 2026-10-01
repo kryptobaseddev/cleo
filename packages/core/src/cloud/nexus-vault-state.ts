@@ -209,6 +209,28 @@ export class NexusVaultState {
     });
   }
 
+  /**
+   * Read the account's trust state, let `fn` evaluate it, and persist the
+   * trust it returns, all under one lock.
+   *
+   * @param apiUrl - Account API URL.
+   * @param userId - Account user id.
+   * @param fn - Receives the current trust; returns the trust to store and a result.
+   * @returns `fn`'s result.
+   */
+  updateTrust<T>(
+    apiUrl: string,
+    userId: string,
+    fn: (current: TrustState) => { trust: TrustState; result: T },
+  ): T {
+    return this.update((s) => {
+      const a = this.account(s, apiUrl, userId);
+      const { trust, result } = fn(structuredClone(a.trust));
+      a.trust = structuredClone(trust);
+      return result;
+    });
+  }
+
   /** What `storeRoot` last synced with on `streamId`, or `null`. */
   stream(
     apiUrl: string,

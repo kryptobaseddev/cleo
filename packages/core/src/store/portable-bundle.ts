@@ -701,14 +701,7 @@ export async function exportPortableBundle(
           `Global CLEO home does not exist: ${cleoHome}`,
         );
       }
-      const extra = input.globalHomeExclusions;
-      const homeRules = extra
-        ? {
-            ...GLOBAL_HOME_RULES,
-            excludedDirs: { ...GLOBAL_HOME_RULES.excludedDirs, ...extra.dirs },
-            excludedFiles: { ...GLOBAL_HOME_RULES.excludedFiles, ...extra.files },
-          }
-        : GLOBAL_HOME_RULES;
+      const homeRules = globalHomeRules(input.globalHomeExclusions);
       const home = await stageSection(
         state,
         cleoHome,
@@ -886,6 +879,24 @@ function summarise(
     ...(keyCounts ? { keyCounts } : {}),
     excluded: section.excluded,
     requiresReentry: section.requiresReentry,
+  };
+}
+
+/**
+ * The walk rules of the global home, with extra exclusions on top of
+ * {@link GLOBAL_HOME_RULES} (the export's `globalHomeExclusions`).
+ *
+ * @param extra - Extra excluded directories and files, or none.
+ * @returns The rules a global-home walk uses.
+ */
+export function globalHomeRules(
+  extra?: ExportPortableBundleInput['globalHomeExclusions'],
+): SectionRules {
+  if (!extra) return GLOBAL_HOME_RULES;
+  return {
+    ...GLOBAL_HOME_RULES,
+    excludedDirs: { ...GLOBAL_HOME_RULES.excludedDirs, ...extra.dirs },
+    excludedFiles: { ...GLOBAL_HOME_RULES.excludedFiles, ...extra.files },
   };
 }
 

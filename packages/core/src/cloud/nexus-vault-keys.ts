@@ -313,13 +313,18 @@ export async function unlockNexusAccountKey(
     opts.readOnly === true
       ? await conn.call('GET', '/v1/devices/trust', DeviceTrustSchema)
       : await ensureCertified(conn, unlocked.mk, unlocked.kv);
-  const evaluation = certifiedSigners(
-    new Map([[unlocked.kv, unlocked.mk]]),
-    conn.userId,
-    trust,
-    conn.state.trust(conn.apiUrl, conn.userId),
-    unlocked.kv,
-  );
+  // Read, evaluate and persist the trust state under one lock, so two
+  // concurrent commands cannot interleave and lose a narrowed pin.
+  const evaluation = conn.state.updateTrust(conn.apiUrl, conn.userId, (current) => {
+    const e = certifiedSigners(
+      new Map([[unlocked.kv, unlocked.mk]]),
+      conn.userId,
+      trust,
+      current,
+      unlocked.kv,
+    );
+    return { trust: e.keyRotated || e.serverError ? current : e.state, result: e };
+  });
   if (evaluation.keyRotated || evaluation.serverError) {
     throw keyUnavailable(
       evaluation.keyRotated
@@ -327,7 +332,6 @@ export async function unlockNexusAccountKey(
         : 'the server declared an account key version no rotation explains',
     );
   }
-  conn.state.saveTrust(conn.apiUrl, conn.userId, evaluation.state);
   return { masterKey: unlocked.mk, keyVersion: unlocked.kv, signers: evaluation.signers };
 }
 
