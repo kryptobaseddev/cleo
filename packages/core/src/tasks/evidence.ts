@@ -1917,6 +1917,27 @@ async function validateTool(tool: string, roots: EvidenceRoots): Promise<AtomVal
     };
   }
 
+  // T12989: killed for resources with no signal reaching CLEO — a wrapper
+  // (`sh`, `pnpm`) reported the kill as exit 128 + n, or the runner caught a
+  // worker's heap OOM and exited 1. Reported as a failing suite, and cached
+  // as one, it replayed a 3 GB OOM to a retry given 6 GB.
+  if (result.resourceKill !== null) {
+    return {
+      ok: false,
+      reason:
+        `Tool "${tool}" → ${resolution.command.cmd} ${resolution.command.args.join(' ')} ` +
+        `RAN for ${Math.round(result.durationMs / 1000)}s in ${result.executionRoot} and was ` +
+        `KILLED for resources (${result.resourceKill}). This is not a verdict on the code, ` +
+        `and nothing was cached. Raise the heap (NODE_OPTIONS=--max-old-space-size=<MiB>) or lower the worker count ` +
+        `(VITEST_MAX_WORKERS=<n>) and verify again — both are part of the cache key, so the ` +
+        `retry runs fresh.` +
+        (result.stdoutTail || result.stderrTail
+          ? ` Last output: ${tailString(`${result.stdoutTail}\n${result.stderrTail}`, 512)}`
+          : ''),
+      codeName: 'E_EVIDENCE_TOOL_KILLED',
+    };
+  }
+
   // gh#1397: CLEO wraps `test` and `build` in a systemd scope of its own
   // making (T12116). When that wrapper cannot start, `systemd-run` exits 1
   // WITHOUT ever running the tool — and 1 is also what a suite with a failing

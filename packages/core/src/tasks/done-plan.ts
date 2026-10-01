@@ -60,7 +60,7 @@ import {
 } from './evidence.js';
 import { extractTypedGates } from './gate-runner.js';
 import { captureTreeHash, computeCacheKey, readCacheEntry } from './tool-cache.js';
-import { captureEnvFingerprint } from './tool-cache-env.js';
+import { captureEnvFingerprint, captureResourceEnv } from './tool-cache-env.js';
 import { type ResolvedToolCommand, resolveToolCommand } from './tool-resolver.js';
 import { loadVerificationGatePolicy } from './verification-policy.js';
 
@@ -341,6 +341,8 @@ async function planToolRun(
     command,
     await captureTreeHash(root),
     captureEnvFingerprint(root, command.canonical),
+    // T12989: the heap and worker limits a run here would be spawned with.
+    captureResourceEnv(command.canonical),
   );
   const entry = readCacheEntry(storeRoot, key);
   const run: DonePlanToolRun = {

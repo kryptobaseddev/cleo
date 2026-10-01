@@ -291,6 +291,7 @@ export {
   isEntryUsable,
   type RunToolOptions,
   readCacheEntry,
+  resourceKillReason,
   runToolCached,
   TOOL_CACHE_SCHEMA_VERSION,
   TOOL_RUN_IDENTITY_FIELDS,
@@ -299,7 +300,11 @@ export {
   type ToolRunResult,
   writeCacheEntry,
 } from './tool-cache.js';
-export { captureEnvFingerprint, ENV_SENSITIVE_TOOLS } from './tool-cache-env.js';
+export {
+  captureEnvFingerprint,
+  captureResourceEnv,
+  ENV_SENSITIVE_TOOLS,
+} from './tool-cache-env.js';
 // Project-agnostic tool resolution (T1534 / ADR-061)
 export {
   type CanonicalTool,

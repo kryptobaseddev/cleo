@@ -24,6 +24,11 @@
  *      test files; the next run re-runs those first and stops if they still
  *      fail (T12961, see `tool-cache-failed-first.ts`). A failing run is
  *      re-run in full once; a pass then is recorded as `flaky`.
+ *   5. **Resource kills are not results** — a run killed by a signal, an
+ *      exit of 128 + a kill signal, or a heap OOM is returned but never
+ *      cached, and the key includes the heap and worker limits the run was
+ *      given, so a retry with more memory always runs (T12989, see
+ *      {@link resourceKillReason}).
  *
  * Cache layout (under `<projectRoot>/.cleo/cache/evidence/`):
  *
@@ -53,7 +58,7 @@ import {
   utimesSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { constants as osConstants, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { ExitCode } from '@cleocode/contracts';
@@ -65,7 +70,7 @@ import {
   isSystemdRunCommand,
   withMemoryLimit,
 } from './heavy-tool-limit.js';
-import { captureEnvFingerprint } from './tool-cache-env.js';
+import { captureEnvFingerprint, captureResourceEnv } from './tool-cache-env.js';
 import {
   FAILED_FIRST_TOOLS,
   type FailedFirstReport,
@@ -93,14 +98,16 @@ export interface ToolCacheEntry {
    * Schema version for forwards compatibility.
    *
    * Bumped 1 -> 2 by gh#1419, which added {@link ToolCacheEntry.executionRoot}
-   * to the run's identity, and 2 -> 3 by T12958, which replaced HEAD + dirty
-   * fingerprint + execution root with the tree hash. Every entry written under
+   * to the run's identity, 2 -> 3 by T12958, which replaced HEAD + dirty
+   * fingerprint + execution root with the tree hash, and 3 -> 4 by T12989,
+   * which added {@link ToolCacheEntry.resourceEnv}. Every entry written under
    * an older identity is refused wholesale by {@link readCacheEntry} on this
    * one comparison — the retirement mechanism gh#1380 and gh#1404 each rebuilt
    * by hand with a bespoke null-check on the field they had just added.
    *
    * @task T12190 (gh#1419)
    * @task T12958
+   * @task T12989
    */
   schemaVersion: typeof TOOL_CACHE_SCHEMA_VERSION;
   /** Cache key (also encoded in the filename). */
@@ -141,6 +148,17 @@ export interface ToolCacheEntry {
    * @task T12958
    */
   envFingerprint: string;
+  /**
+   * The resource limits the run was spawned with, as readable `NAME=value`
+   * pairs: the heap flags in `NODE_OPTIONS` and, for heavy tools, every worker
+   * count and memory lever `heavyToolEnv` manages (see `captureResourceEnv` in
+   * `tool-cache-env.ts`). Part of the key, so a retry with a larger heap or
+   * fewer workers is a different run rather than a hit on the old result, and
+   * a cached result says which limits produced it.
+   *
+   * @task T12989
+   */
+  resourceEnv: string;
   /** Git HEAD sha at execution time. Informational since T12958: NOT keyed. */
   head: string | null;
   /**
@@ -170,6 +188,15 @@ export interface ToolCacheEntry {
    * it; absent and `null` both mean "not killed by a signal".
    */
   signal?: NodeJS.Signals | null;
+  /**
+   * Why the run is not a verdict on the code: it was killed for resources
+   * ({@link resourceKillReason}). An entry that carries it is never served or
+   * persisted ({@link isEntryUsable}); it appears only on the `entry` of the
+   * result that reports the kill.
+   *
+   * @task T12989
+   */
+  resourceKill?: string;
   /** Last 512 bytes of stdout. */
   stdoutTail: string;
   /** Last 512 bytes of stderr. */
@@ -299,6 +326,17 @@ export interface ToolRunResult {
    * @task T12116 (gh#1397)
    */
   harnessFailure: string | null;
+  /**
+   * Why the run was killed for resources ({@link resourceKillReason}), else
+   * `null`: a signal, an exit of 128 + a kill signal, or output reporting a
+   * heap OOM. Non-null means the exit code is not a verdict on the code and
+   * nothing was cached; a retry runs again, and a retry with a larger heap or
+   * fewer workers runs under a different key. `null` too when `timedOut` or
+   * `harnessFailure` already explains the non-result.
+   *
+   * @task T12989
+   */
+  resourceKill: string | null;
   /**
    * The failed-first stage of this run (T12961), when one ran: which files
    * were re-run first and whether they decided the result.
@@ -609,9 +647,14 @@ export function resolveSpawnTimeoutMs(
  * `envFingerprint` covers the per-checkout state git does not see (installed
  * deps, gitignored build output, `.env*`), so sharing across worktrees
  * happens only when BOTH the source and the environment match.
+ * `resourceEnv` (T12989) covers the limits the run was spawned with — heap
+ * flags and worker counts — which neither the tree nor the checkout shows: a
+ * 3 GB run that ran out of memory and a 6 GB retry of the same code are two
+ * runs, and keying them as one is what replayed the OOM.
  *
  * @task T12190 (gh#1419)
  * @task T12958
+ * @task T12989
  */
 export const TOOL_RUN_IDENTITY_FIELDS = [
   'canonical',
@@ -619,6 +662,7 @@ export const TOOL_RUN_IDENTITY_FIELDS = [
   'args',
   'treeHash',
   'envFingerprint',
+  'resourceEnv',
 ] as const;
 
 /**
@@ -626,8 +670,9 @@ export const TOOL_RUN_IDENTITY_FIELDS = [
  * are refused on read.
  *
  * @task T12958
+ * @task T12989
  */
-export const TOOL_CACHE_SCHEMA_VERSION = 3;
+export const TOOL_CACHE_SCHEMA_VERSION = 4;
 
 /**
  * The identity half of a {@link ToolCacheEntry} — the inputs that determine
@@ -658,8 +703,8 @@ function normalizeExecutionRoot(executionRoot: string): string {
  * Compute the cache key for a resolved tool command + tracked tree content.
  *
  * The key covers exactly {@link TOOL_RUN_IDENTITY_FIELDS} — canonical tool
- * name, resolved command and args, the tree hash and the environment
- * fingerprint. Fields are projected in
+ * name, resolved command and args, the tree hash, the environment
+ * fingerprint and the resource environment. Fields are projected in
  * the order that array declares, so the hashed payload is a function of the
  * array and adding a field there changes every key by construction.
  *
@@ -673,16 +718,19 @@ function normalizeExecutionRoot(executionRoot: string): string {
  * @param command - Resolved tool command.
  * @param treeHash - {@link captureTreeHash} of the execution root.
  * @param envFingerprint - {@link captureEnvFingerprint} of the execution root.
+ * @param resourceEnv - {@link captureResourceEnv} of the spawn environment.
  * @returns 32 hex chars.
  *
  * @task T1534
  * @task T12190 (gh#1419)
  * @task T12958
+ * @task T12989
  */
 export function computeCacheKey(
   command: ResolvedToolCommand,
   treeHash: string | null,
   envFingerprint: string,
+  resourceEnv: string,
 ): string {
   const identity: ToolRunIdentity = {
     canonical: command.canonical,
@@ -690,6 +738,7 @@ export function computeCacheKey(
     args: command.args,
     treeHash,
     envFingerprint,
+    resourceEnv,
   };
   // Projected through TOOL_RUN_IDENTITY_FIELDS rather than written as an
   // object literal: the literal is what drifted from the entry shape before.
@@ -701,14 +750,18 @@ export function computeCacheKey(
  * Whether a cache entry may be SERVED or PERSISTED as a real result.
  *
  * One predicate, used by both {@link readCacheEntry} and the persist guard in
- * `runToolCached`, so the two cannot drift apart. Two rules:
+ * `runToolCached`, so the two cannot drift apart. Three rules:
  *
  *   1. every field in {@link TOOL_RUN_IDENTITY_FIELDS} is present and
  *      non-null — an entry that cannot say which run it describes is not
  *      evidence of anything;
  *   2. `exitCode` is non-null — a run that produced no exit code records that
  *      we do not know what happened, and an unknown must never be cached
- *      (gh#1380).
+ *      (gh#1380);
+ *   3. `resourceKill` is absent — a run killed for resources (an OOM, a heap
+ *      limit, exit 137) has a real exit code that says nothing about the code,
+ *      and caching it replays the kill to every retry, including one given
+ *      the memory it lacked (T12989).
  *
  * Rule 1 subsumes gh#1404's `head === null` clause without naming `head`:
  * when the tool runs off a non-git root `treeHash` is null on EVERY run, so
@@ -723,13 +776,108 @@ export function computeCacheKey(
  * getting valid caching today — they are getting one answer forever.
  *
  * @task T12190 (gh#1419)
+ * @task T12989
  */
 export function isEntryUsable(entry: Partial<ToolCacheEntry>): boolean {
   for (const field of TOOL_RUN_IDENTITY_FIELDS) {
     const value = entry[field];
     if (value === null || value === undefined) return false;
   }
+  if (entry.resourceKill !== undefined && entry.resourceKill !== null) return false;
   return entry.exitCode !== null && entry.exitCode !== undefined;
+}
+
+/**
+ * Signals whose `128 + n` exit status means the run was killed rather than
+ * finishing, when a shell, `pnpm` or a wrapper turns the signal into an exit
+ * code: termination (`TERM`, `INT`, `HUP`), the kernel or cgroup OOM killer's
+ * `KILL`, V8's `abort()` on heap exhaustion (`ABRT`), and the CPU and
+ * file-size rlimits. Numbers come from `os.constants.signals`, so they match
+ * the platform.
+ *
+ * `SEGV` and `BUS` are deliberately absent: a crash in native code can be a
+ * deterministic bug in the code under test, and such a red stays cacheable.
+ *
+ * @task T12989
+ */
+const KILL_SIGNALS = [
+  'SIGHUP',
+  'SIGINT',
+  'SIGABRT',
+  'SIGKILL',
+  'SIGTERM',
+  'SIGXCPU',
+  'SIGXFSZ',
+] as const;
+
+/**
+ * Output only a run that ran out of memory prints: V8's fatal heap messages,
+ * Node's worker heap limit, the OS refusing an allocation, and vitest's report
+ * of a pool worker that vanished — what the kernel OOM-killing one fork looks
+ * like from the pool, which then exits 1 like a failing assertion.
+ *
+ * Matched as literal substrings, and only on a NON-ZERO exit. A false match
+ * (a failing test that happens to print one of these) costs a re-run, never a
+ * wrong verdict: the exit code is still reported, just not cached.
+ *
+ * @task T12989
+ */
+const RESOURCE_KILL_MARKERS: readonly string[] = [
+  'JavaScript heap out of memory',
+  'Reached heap limit',
+  'Ineffective mark-compacts near heap limit',
+  'ERR_WORKER_OUT_OF_MEMORY',
+  'Worker terminated due to reaching memory limit',
+  'Worker exited unexpectedly',
+  'ENOMEM',
+  'Cannot allocate memory',
+];
+
+/**
+ * Why a finished run was killed for resources, or `null` when its outcome is
+ * a real result.
+ *
+ * Decides from the exit and the captured output, in order:
+ *
+ *   1. a terminating `signal` — the process did not exit on its own;
+ *   2. an exit code of `128 + n` for a {@link KILL_SIGNALS} signal — the same
+ *      kill, reported by a wrapper (`sh` exits 137 for a `SIGKILL`ed child);
+ *   3. a non-zero exit whose output carries a {@link RESOURCE_KILL_MARKERS}
+ *      marker — vitest catches a worker's heap OOM and exits 1.
+ *
+ * Exit 0 is always a result, and so is a plain non-zero exit such as a failing
+ * assertion's 1: that red stays cacheable for failed-first reruns. A run that
+ * never started (`exitCode` and `signal` both null) is not a kill; it is
+ * reported, and refused by {@link isEntryUsable}, as an unknown outcome.
+ *
+ * @param run - The finished run's exit code, signal and captured output.
+ * @returns A short reason, e.g. `exit 137 (128 + SIGKILL)`, or `null`.
+ *
+ * @example
+ * ```ts
+ * resourceKillReason({ exitCode: 1, signal: null, stdout: '', stderr: 'FAIL a.test.ts' }); // null
+ * resourceKillReason({ exitCode: 137, signal: null, stdout: '', stderr: '' });
+ * // → 'exit 137 (128 + SIGKILL)'
+ * ```
+ *
+ * @task T12989
+ */
+export function resourceKillReason(run: {
+  exitCode: number | null;
+  signal: NodeJS.Signals | null;
+  stdout: string;
+  stderr: string;
+}): string | null {
+  if (run.signal !== null) return `killed by ${run.signal}`;
+  if (run.exitCode === null || run.exitCode === 0) return null;
+  for (const name of KILL_SIGNALS) {
+    if (run.exitCode === 128 + osConstants.signals[name]) {
+      return `exit ${run.exitCode} (128 + ${name})`;
+    }
+  }
+  const output = `${run.stdout}\n${run.stderr}`;
+  const marker = RESOURCE_KILL_MARKERS.find((m) => output.includes(m));
+  return marker === undefined ? null : `output reports "${marker}"`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1369,7 +1517,8 @@ type FocusedOutcome =
  * heavy-tool env as the normal command, and inside the caller's semaphore
  * slot and per-key lock.
  *
- * Only a real, non-zero exit counts as `failed`. A spawn error, a signal kill
+ * Only a real, non-zero exit counts as `failed`. A spawn error, a signal kill,
+ * any other resource kill ({@link resourceKillReason}: exit 137, a heap OOM)
  * or vitest reporting that the filters matched nothing is `inconclusive`, and
  * the caller falls back to the normal command — a focused run may shorten a
  * red result but must never invent one.
@@ -1379,22 +1528,19 @@ async function runFocused(
   plan: readonly FocusedRun[],
   executionRoot: string,
   spawnTimeoutMs: number,
+  toolEnv: Readonly<Record<string, string>>,
 ): Promise<FocusedOutcome> {
   for (const run of plan) {
     const limited = withMemoryLimit(command.canonical, run.cmd, run.args, { executionRoot });
     const startedAt = Date.now();
-    const result = await spawnCmd(
-      limited.cmd,
-      [...limited.args],
-      run.cwd,
-      spawnTimeoutMs,
-      heavyToolEnv(command.canonical),
-    );
+    const result = await spawnCmd(limited.cmd, [...limited.args], run.cwd, spawnTimeoutMs, toolEnv);
     const durationMs = Date.now() - startedAt;
     if (result.timedOut) return { kind: 'timedOut', result, durationMs, cwd: run.cwd };
     const harnessFailure = confinementStartupFailure(result.stderr, limited.confined);
     if (harnessFailure !== null) return { kind: 'harness', result, durationMs, harnessFailure };
-    if (result.exitCode === null) return { kind: 'inconclusive' };
+    if (result.exitCode === null || resourceKillReason(result) !== null) {
+      return { kind: 'inconclusive' };
+    }
     if (result.exitCode !== 0) {
       if (reportsNoTestFiles(`${result.stdout}\n${result.stderr}`)) return { kind: 'inconclusive' };
       return { kind: 'failed', result, durationMs, cwd: run.cwd };
@@ -1427,7 +1573,8 @@ function listTrackedFiles(root: string): string[] {
  *
  * Flow:
  *
- *   1. Compute cache key (canonical+cmd+args+treeHash).
+ *   1. Compute cache key (canonical+cmd+args+treeHash+envFingerprint+
+ *      resourceEnv).
  *   2. If a fresh entry exists → return it (no spawn).
  *   3. Acquire a `proper-lockfile` on the cache entry path. When another
  *      caller holds it (same command, same content — possibly another
@@ -1440,7 +1587,9 @@ function listTrackedFiles(root: string): string[] {
  *      normal run (T12961).
  *   6. Spawn the tool, capture stdout/stderr tails. For a failing `test`,
  *      re-run the FULL command once; a pass there is a pass marked `flaky`
- *      (T12961). Write the entry, return.
+ *      (T12961). Write the entry, return. A run killed for resources is
+ *      returned with `resourceKill` set and is neither retried, recorded for
+ *      failed-first, nor written (T12989).
  *
  * Locks are auto-released on success or failure. Stale locks are reaped per
  * the `lockStaleMs` option (default 10 min — long enough to cover a full
@@ -1454,6 +1603,7 @@ function listTrackedFiles(root: string): string[] {
  * @task T1534
  * @task T12958
  * @task T12961
+ * @task T12989
  * @adr ADR-061
  */
 export async function runToolCached(
@@ -1484,8 +1634,12 @@ export async function runToolCached(
 
   const treeHash = await captureTreeHash(executionRoot);
   const envFingerprint = captureEnvFingerprint(executionRoot, command.canonical);
+  // T12989: the overlay is computed ONCE and both spawned with and keyed on,
+  // so the key describes the heap and worker limits the run actually got.
+  const toolEnv = heavyToolEnv(command.canonical);
+  const resourceEnv = captureResourceEnv(command.canonical, process.env, toolEnv);
   const head = await captureHead(executionRoot);
-  const key = computeCacheKey(command, treeHash, envFingerprint);
+  const key = computeCacheKey(command, treeHash, envFingerprint, resourceEnv);
 
   const makeEntry = (
     run: Pick<ToolCacheEntry, 'exitCode' | 'stdoutTail' | 'stderrTail' | 'durationMs'> &
@@ -1493,6 +1647,7 @@ export async function runToolCached(
         Pick<
           ToolCacheEntry,
           | 'signal'
+          | 'resourceKill'
           | 'failedTestFiles'
           | 'failedFirst'
           | 'flaky'
@@ -1511,6 +1666,7 @@ export async function runToolCached(
     source: command.source,
     treeHash,
     envFingerprint,
+    resourceEnv,
     head,
     executionRoot: recordedRoot,
     ...run,
@@ -1527,6 +1683,7 @@ export async function runToolCached(
     timedOut: false,
     lockBusy: false,
     harnessFailure: null,
+    resourceKill: null,
     executionRoot,
     treeHash: entry.treeHash,
     ...(entry.failedFirst ? { failedFirst: entry.failedFirst } : {}),
@@ -1552,6 +1709,7 @@ export async function runToolCached(
     timedOut: true,
     lockBusy: false,
     harnessFailure: null,
+    resourceKill: null,
     executionRoot,
     treeHash,
     ...(failedFirst ? { failedFirst } : {}),
@@ -1585,6 +1743,7 @@ export async function runToolCached(
     executionRoot,
     treeHash,
     harnessFailure,
+    resourceKill: null,
     ...(failedFirst ? { failedFirst } : {}),
     entry: makeEntry({
       exitCode: null,
@@ -1668,7 +1827,7 @@ export async function runToolCached(
           files: [...pointer.files],
           outcome,
         });
-        const focused = await runFocused(command, plan, executionRoot, spawnTimeoutMs);
+        const focused = await runFocused(command, plan, executionRoot, spawnTimeoutMs, toolEnv);
         switch (focused.kind) {
           case 'timedOut':
             return timedOutResult(focused.result, focused.durationMs, report('inconclusive'));
@@ -1710,6 +1869,7 @@ export async function runToolCached(
               executionRoot,
               treeHash,
               harnessFailure: null,
+              resourceKill: null,
               failedFirst: report('failed'),
               entry,
             };
@@ -1741,7 +1901,7 @@ export async function runToolCached(
         [...limited.args],
         executionRoot,
         spawnTimeoutMs,
-        heavyToolEnv(command.canonical),
+        toolEnv,
       );
       return { result, durationMs: Date.now() - startedAt };
     };
@@ -1762,10 +1922,17 @@ export async function runToolCached(
     }
 
     let { result, durationMs } = first;
+    // T12989: a run killed for resources — a signal, exit 128 + a kill signal,
+    // or a heap OOM the runner caught and turned into exit 1 — is not a verdict
+    // on the code. It is reported, but not flake-retried (a full rerun at the
+    // same limits under the same pressure doubles the cost of the kill), not
+    // recorded for failed-first (the unknown outcome leaves the pointer) and
+    // not cached (`isEntryUsable` refuses `resourceKill`).
+    const resourceKill = resourceKillReason(result);
     let failedTestFiles: string[] | undefined;
     let flaky: string[] | undefined;
     let flakyFailureTail: string | undefined;
-    if (failedFirstEnabled && result.exitCode !== null) {
+    if (failedFirstEnabled && result.exitCode !== null && resourceKill === null) {
       let files =
         result.exitCode === 0
           ? []
@@ -1776,15 +1943,19 @@ export async function runToolCached(
       // step or a failure that only happens in the suite's context. A pass
       // on that identical rerun is a pass marked `flaky` with the first
       // run's failing files and failure tail; a second failure is red. A
-      // rerun that times out or cannot start decides nothing, and the first
-      // failure stands.
+      // rerun that times out, cannot start or is killed for resources decides
+      // nothing, and the first failure stands.
       //
       // Only a NARROW failure is retried: the failing files must be named and
       // number at most MAX_FLAKE_RETRY_FILES. A broken build or a mass
       // failure is deterministic, and doubling its cost buys nothing.
       if (result.exitCode !== 0 && files.length > 0 && files.length <= MAX_FLAKE_RETRY_FILES) {
         const retry = await spawnNormal();
-        if (!retry.result.timedOut && harnessOf(retry.result) === null) {
+        if (
+          !retry.result.timedOut &&
+          harnessOf(retry.result) === null &&
+          resourceKillReason(retry.result) === null
+        ) {
           if (retry.result.exitCode === 0) {
             flaky = files.length > 0 ? files : ['<unknown>'];
             flakyFailureTail = tailString(`${result.stdout}\n${result.stderr}`, tailBytes);
@@ -1816,6 +1987,7 @@ export async function runToolCached(
       stdoutTail: tailString(result.stdout, tailBytes),
       stderrTail: tailString(result.stderr, tailBytes),
       durationMs,
+      ...(resourceKill !== null ? { resourceKill } : {}),
       ...(failedTestFiles ? { failedTestFiles } : {}),
       ...(failedFirst ? { failedFirst } : {}),
       ...(flaky && result.exitCode === 0 ? { flaky, flakyFailureTail } : {}),
@@ -1834,6 +2006,10 @@ export async function runToolCached(
     //     failure to start. The `timedOut` branch above already returns
     //     without writing for this reason; an OOM kill that is not a CLEO
     //     timeout (gh#1381) had no equivalent guard and fell through here.
+    //   - resource kill (`resourceKill`, T12989) — a REAL exit code that is
+    //     not a verdict: exit 137 from a wrapper, or vitest's exit 1 after a
+    //     worker's heap OOM. Cached, it replayed the 3 GB OOM to a retry
+    //     given 6 GB until the entry was deleted by hand.
     //   - unrotatable key (`treeHash: null`) — costs a non-git CLEO root
     //     all caching. Stated rather than hidden: those projects are not
     //     getting valid caching today, they are getting ONE answer
@@ -1859,6 +2035,7 @@ export async function runToolCached(
       executionRoot,
       treeHash,
       harnessFailure: null,
+      resourceKill,
       ...(failedFirst ? { failedFirst } : {}),
       ...(entry.flaky ? { flaky: entry.flaky } : {}),
       entry,
@@ -1874,7 +2051,7 @@ export async function runToolCached(
   // waiter does not occupy a slot a different key could use.
   //
   // When the holder releases without a usable entry (timeout, harness
-  // failure, crash) the waiter loops and runs the tool itself. The total wait
+  // failure, resource kill, crash) the waiter loops and runs the tool itself. The total wait
   // is bounded by `lockWaitMs`; past it the caller gets `lockBusy`.
   // The holder's worst case is a focused rerun, the normal command and its
   // one flake retry — three spawn deadlines — plus slack.
@@ -1925,6 +2102,7 @@ export async function runToolCached(
         timedOut: false,
         lockBusy: true,
         harnessFailure: null,
+        resourceKill: null,
         executionRoot,
         treeHash,
         entry: makeEntry({ exitCode: null, stdoutTail: '', stderrTail: '', durationMs: 0 }),

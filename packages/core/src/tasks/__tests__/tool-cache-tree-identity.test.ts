@@ -58,9 +58,10 @@ import {
   MAX_UNTRACKED_HASH_BYTES,
   readCacheEntry,
   runToolCached,
+  TOOL_CACHE_SCHEMA_VERSION,
   TOOL_RUN_IDENTITY_FIELDS,
 } from '../tool-cache.js';
-import { captureEnvFingerprint } from '../tool-cache-env.js';
+import { captureEnvFingerprint, captureResourceEnv } from '../tool-cache-env.js';
 import type { ResolvedToolCommand } from '../tool-resolver.js';
 
 function shCommand(script: string): ResolvedToolCommand {
@@ -338,7 +339,7 @@ describe('T12958 — runs are shared by content across worktrees and commits', (
       string,
       unknown
     >;
-    expect(onDisk['schemaVersion']).toBe(3);
+    expect(onDisk['schemaVersion']).toBe(4);
     expect(onDisk['treeHash']).toBe(git(wt, 'rev-parse', 'HEAD^{tree}'));
     expect(onDisk['head']).toBe(git(wt, 'rev-parse', 'HEAD'));
     expect(existsSync(onDisk['executionRoot'] as string)).toBe(true);
@@ -398,10 +399,18 @@ describe('T12958 — concurrent identical runs coalesce on the per-key lock', ()
     timeout: 30_000,
   }, async () => {
     const cmd = shCommand(`printf x >> "${marker}"; echo ok`);
-    const key = computeCacheKey(cmd, await captureTreeHash(repo), 'none');
+    const key = computeCacheKey(
+      cmd,
+      await captureTreeHash(repo),
+      'none',
+      captureResourceEnv(cmd.canonical),
+    );
     const path = cacheEntryPath(repo, key);
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, JSON.stringify({ schemaVersion: 3, key, pending: true }));
+    writeFileSync(
+      path,
+      JSON.stringify({ schemaVersion: TOOL_CACHE_SCHEMA_VERSION, key, pending: true }),
+    );
     // Stands in for a holder that timed out or crashed: it holds the lock,
     // then lets go having written nothing.
     const release = await acquireLock(path, { retries: 0, stale: 10_000 });
@@ -507,6 +516,7 @@ describe('the identity list is the single source of truth', () => {
     args: string[];
     treeHash: string;
     envFingerprint: string;
+    resourceEnv: string;
   }
   const base: Identity = {
     canonical: 'lint',
@@ -514,6 +524,7 @@ describe('the identity list is the single source of truth', () => {
     args: ['-c', 'true'],
     treeHash: 'a'.repeat(40),
     envFingerprint: 'none',
+    resourceEnv: 'NODE_OPTIONS=--max-old-space-size=3072',
   };
 
   it('every identity field is actually in the key', () => {
@@ -531,6 +542,7 @@ describe('the identity list is the single source of truth', () => {
         },
         o.treeHash,
         o.envFingerprint,
+        o.resourceEnv,
       );
     const reference = keyOf(base);
 
@@ -540,6 +552,7 @@ describe('the identity list is the single source of truth', () => {
       args: { ...base, args: ['-c', 'false'] },
       treeHash: { ...base, treeHash: 'b'.repeat(40) },
       envFingerprint: { ...base, envFingerprint: 'e'.repeat(32) },
+      resourceEnv: { ...base, resourceEnv: 'NODE_OPTIONS=--max-old-space-size=6144' },
     };
 
     // Guards the map itself: a new identity field with no perturbation here
@@ -555,7 +568,7 @@ describe('the identity list is the single source of truth', () => {
     ...base,
     displayName: 'lint',
     source: 'language-default',
-    schemaVersion: 3 as const,
+    schemaVersion: 4 as const,
     key: 'k',
     head: 'c'.repeat(40) as string | null,
     executionRoot: '/tmp/tree-a',
@@ -586,6 +599,17 @@ describe('the identity list is the single source of truth', () => {
 
   it('head and executionRoot are NOT identity: a null head is still usable', () => {
     expect(isEntryUsable({ ...complete, head: null })).toBe(true);
+  });
+
+  it('isEntryUsable rejects a resource kill even with a real exit code (T12989)', () => {
+    expect(isEntryUsable({ ...complete, exitCode: 1 })).toBe(true);
+    expect(
+      isEntryUsable({
+        ...complete,
+        exitCode: 1,
+        resourceKill: 'output reports "JavaScript heap out of memory"',
+      }),
+    ).toBe(false);
   });
 });
 
