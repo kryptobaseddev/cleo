@@ -348,14 +348,16 @@ describe('persisted clock', () => {
     const bound = syncOpenPass(db, opts(path));
     if (bound.status !== 'bound') throw new Error('not bound');
     const r = bound.replicaId;
-    db.exec('CREATE TABLE _sync_op (hlc TEXT)');
+    // _sync_op arrives with the sealer's schema (S3a, T12984).
     const mine = encodeHlc({ phys: T0 + 50, ctr: 7, replica: r });
     const foreign = encodeHlc({
       phys: T0 + 99,
       ctr: 0,
       replica: '0192f1c2-0000-7000-8000-00000000000b',
     });
-    db.prepare('INSERT INTO _sync_op VALUES (?), (?)').run(mine, foreign);
+    db.prepare(
+      "INSERT INTO _sync_op (txn, idx, tbl, uid, o, hlc, body) VALUES ('t:1', 0, 'x', 'u1', 'I', ?, '{}'), ('t:2', 0, 'x', 'u2', 'I', ?, '{}')",
+    ).run(mine, foreign);
     const healed = withImmediateTransaction(db, () => healClock(db, r));
     expect(encodeHlc(healed)).toBe(mine);
     expect(withImmediateTransaction(db, () => tickClock(db, r, T0))).toBe(
