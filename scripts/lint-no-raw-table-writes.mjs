@@ -285,7 +285,7 @@ export const EXEMPT = {
     _sync_frame: { count: 1, reason: SEALER },
     _sync_ledger: { count: 1, reason: SEALER },
     _sync_op: { count: 1, reason: SEALER },
-    _sync_row_meta: { count: 3, reason: SEALER },
+    _sync_row_meta: { count: 4, reason: SEALER },
     _sync_txn: { count: 1, reason: SEALER },
   },
   'packages/core/src/store/sync/structural.ts': {
