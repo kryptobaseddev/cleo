@@ -20,11 +20,18 @@ import {
   cpuSomeFromLoad,
   DarwinResourceBackend,
   darwinMemorySome,
+  darwinPressure,
+  effectiveCores,
   parseDarwinSysctl,
 } from '../darwin-backend.js';
 import { computeClassBudget } from '../governor.js';
 import { LinuxResourceBackend } from '../linux-backend.js';
-import { defaultResourceBackend, evaluateState, pressureScore } from '../monitor.js';
+import {
+  classifyPressure,
+  defaultResourceBackend,
+  evaluateState,
+  pressureScore,
+} from '../monitor.js';
 
 const MB = 1024 * 1024;
 const GB = 1024 * MB;
@@ -123,10 +130,39 @@ describe('PSI-equivalent mapping', () => {
     expect(some).toBe(24);
   });
 
-  it('nearly full swap adds to the score', () => {
+  it('swap is reported but not scored (macOS grows swapfiles on demand)', () => {
     const base = darwinMemorySome(parseDarwinSysctl('kern.memorystatus_vm_pressure_level: 2\n'));
-    const withSwap = darwinMemorySome(parseDarwinSysctl(LOADED));
-    expect(withSwap).toBeGreaterThan(base ?? 0);
+    expect(darwinMemorySome(parseDarwinSysctl(LOADED))).toBe(base);
+    expect(base).toBe(15);
+  });
+
+  it('the loaded fixture is exactly hold, not backoff (kernel warning, 41% free, swap 87%)', () => {
+    const s = parseDarwinSysctl(LOADED);
+    const { memory, cpu } = darwinPressure(s);
+    const sampleOf: ResourceSample = {
+      sampledAtMs: 0,
+      pressureAvailable: true,
+      memAvailableBytes: 1,
+      globalPressure: memory,
+      slicePressure: null,
+      cpuPressure: cpu,
+      walObservations: [],
+    };
+    expect(classifyPressure(sampleOf).state).toBe('hold');
+  });
+
+  it('effective cores: performance plus half the efficiency cores', () => {
+    const split = parseDarwinSysctl(
+      'hw.ncpu: 18\nhw.perflevel0.logicalcpu: 6\nhw.perflevel1.logicalcpu: 12\n',
+    );
+    expect(effectiveCores(split)).toBe(12);
+    expect(effectiveCores(parseDarwinSysctl('hw.ncpu: 18\n'))).toBe(18);
+    expect(effectiveCores(parseDarwinSysctl('vm.loadavg: { 1 1 1 }\n'))).toBeNull();
+    // Load 24 on 6P+12E is 2x the effective cores: cpu backoff territory.
+    const loaded = parseDarwinSysctl(
+      'vm.loadavg: { 24.0 24.0 24.0 }\nhw.ncpu: 18\nhw.perflevel0.logicalcpu: 6\nhw.perflevel1.logicalcpu: 12\n',
+    );
+    expect(darwinPressure(loaded).cpu?.some.avg10).toBe(50);
   });
 
   it('returns null when no memory signal is readable', () => {
@@ -151,7 +187,7 @@ describe('DarwinResourceBackend.sample', () => {
     const s = await backend.sample();
     expect(s.pressureAvailable).toBe(true);
     expect(s.memAvailableBytes).toBe(Math.round(0.41 * 48 * GB));
-    expect(s.globalPressure?.some.avg10).toBeGreaterThan(10);
+    expect(s.globalPressure?.some.avg10).toBe(15);
     expect(s.slicePressure).toBeNull();
     expect(s.cpuPressure?.some.avg10).toBeCloseTo((100 * (21.53 / 18 - 1)) / (21.53 / 18), 5);
     expect(s.cpuPressure?.some.avg300).toBeGreaterThan(s.cpuPressure?.some.avg10 ?? 0);

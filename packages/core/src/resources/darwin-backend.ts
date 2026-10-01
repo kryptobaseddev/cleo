@@ -10,8 +10,10 @@
  *   - `kern.memorystatus_level` — free memory as a percentage of RAM, counting
  *     reclaimable pages (unlike `os.freemem()`, which reports only the free
  *     page list and reads near zero on a healthy Mac)
- *   - `vm.swapusage` — swap in use
- *   - `vm.loadavg` + `hw.ncpu` — run-queue length per core (CPU saturation)
+ *   - `vm.swapusage` — swap in use (reported, not scored: macOS allocates
+ *     swapfiles on demand, so used/total sits at 80–95% on a healthy Mac)
+ *   - `vm.loadavg` + `hw.perflevel{0,1}.logicalcpu` (or `hw.ncpu`) —
+ *     run-queue length per effective core (CPU saturation)
  *
  * ## Sampling discipline (darwin amendment)
  *
@@ -26,11 +28,13 @@
  *
  * Memory (`globalPressure`): `some avg10` is the higher of a kernel-level score
  * (warning 15, critical 40) and a free-memory score (`2 × (20 − free%)`,
- * clamped at 0) plus a swap term once swap is over 80% full. `full avg10` is
+ * clamped at 0). `full avg10` is
  * 15 when the kernel reports critical. With the monitor's default thresholds
  * (hold 10 / backoff 20), a kernel warning holds and critical backs off.
  *
- * CPU (`cpuPressure`): with `r = load / cores`, `some = 100 × (r − 1) / r`
+ * CPU (`cpuPressure`): effective cores are performance cores plus half the
+ * efficiency cores (a 6P+12E machine counts as 12; `hw.ncpu` when the split is
+ * unknown). With `r = load / cores`, `some = 100 × (r − 1) / r`
  * once `r > 1`: the share of runnable work that is waiting for a core. A box
  * running twice its cores scores 50. avg10/avg60/avg300 come from the 1/5/15
  * minute load averages. Memory is instantaneous in all three windows.
@@ -60,6 +64,8 @@ export const DARWIN_SYSCTL_NAMES = [
   'vm.swapusage',
   'vm.loadavg',
   'hw.ncpu',
+  'hw.perflevel0.logicalcpu',
+  'hw.perflevel1.logicalcpu',
 ] as const;
 
 /**
@@ -83,6 +89,10 @@ export interface DarwinSignals {
   /** 1, 5 and 15 minute load averages. */
   readonly loadAvg: readonly [number, number, number] | null;
   readonly ncpu: number | null;
+  /** Performance-core logical CPUs (`hw.perflevel0`), when reported. */
+  readonly perfCores: number | null;
+  /** Efficiency-core logical CPUs (`hw.perflevel1`), when reported. */
+  readonly efficiencyCores: number | null;
 }
 
 const MIB = 1024 * 1024;
@@ -145,6 +155,8 @@ export function parseDarwinSysctl(output: string): DarwinSignals {
     swapUsedBytes,
     loadAvg,
     ncpu: int('hw.ncpu'),
+    perfCores: int('hw.perflevel0.logicalcpu'),
+    efficiencyCores: int('hw.perflevel1.logicalcpu'),
   };
 }
 
@@ -160,13 +172,18 @@ export function darwinMemorySome(s: DarwinSignals): number | null {
   if (s.pressureLevel === null && s.freePercent === null) return null;
   const levelScore = s.pressureLevel === 4 ? 40 : s.pressureLevel === 2 ? 15 : 0;
   const freeScore = s.freePercent === null ? 0 : Math.max(0, 2 * (20 - s.freePercent));
-  let swapScore = 0;
-  if (s.swapTotalBytes && s.swapUsedBytes !== null && s.swapTotalBytes > 0) {
-    const used = s.swapUsedBytes / s.swapTotalBytes;
-    // Swap nearly full means the compressor and swap are both exhausted soon.
-    if (used > 0.8) swapScore = (used - 0.8) * 100;
+  return clamp(Math.max(levelScore, freeScore));
+}
+
+/**
+ * Cores that absorb load: performance cores plus half the efficiency cores,
+ * else `hw.ncpu`. `null` when neither is known.
+ */
+export function effectiveCores(s: DarwinSignals): number | null {
+  if (s.perfCores !== null && s.perfCores > 0) {
+    return s.perfCores + (s.efficiencyCores ?? 0) / 2;
   }
-  return clamp(Math.max(levelScore, freeScore) + swapScore);
+  return s.ncpu;
 }
 
 /** CPU waiting share (0–100) for a load average on `ncpu` cores. */
@@ -193,13 +210,14 @@ export function darwinPressure(s: DarwinSignals): {
           full: s.pressureLevel === 4 ? line(15, 15, 15) : line(0, 0, 0),
         };
   let cpu: PsiData | null = null;
-  if (s.loadAvg && s.ncpu) {
+  const cores = effectiveCores(s);
+  if (s.loadAvg && cores) {
     const [l1, l5, l15] = s.loadAvg;
     cpu = {
       some: line(
-        cpuSomeFromLoad(l1, s.ncpu),
-        cpuSomeFromLoad(l5, s.ncpu),
-        cpuSomeFromLoad(l15, s.ncpu),
+        cpuSomeFromLoad(l1, cores),
+        cpuSomeFromLoad(l5, cores),
+        cpuSomeFromLoad(l15, cores),
       ),
       full: null,
     };
