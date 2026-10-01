@@ -355,21 +355,26 @@ describe('baseline (§3.6.7 case 14 and the ratchet)', () => {
   it('H1: a raise is unjustified unless audited with a task or net-zero for its code', () => {
     const base = { 'f.ts :: Error': 1 };
     const next = { 'f.ts :: Error': 2, 'g.ts :: E_X': 1 };
-    expect(unjustifiedRaises(next, base)).toEqual([
-      'f.ts :: Error (1 -> 2)',
-      'g.ts :: E_X (0 -> 1)',
-    ]);
+    const both = ['f.ts :: Error (1 -> 2)', 'g.ts :: E_X (0 -> 1)'];
+    expect(unjustifiedRaises(next, base)).toEqual(both);
     expect(
       unjustifiedRaises(next, base, {
-        audited: { 'f.ts :: Error': 'T1 reviewed', 'g.ts :: E_X': 'no task' },
+        audited: {
+          'f.ts :: Error': { reason: 'T1 reviewed', count: 2 },
+          'g.ts :: E_X': { reason: 'no task', count: 1 },
+        },
       }),
     ).toEqual(['g.ts :: E_X (0 -> 1)']);
+    // An audit approves a count: a legacy string or a lower count approves nothing new.
+    for (const entry of ['T1 reviewed', { reason: 'T1 reviewed', count: 1 }]) {
+      expect(unjustifiedRaises(next, base, { audited: { 'f.ts :: Error': entry } })).toEqual(both);
+    }
     expect(unjustifiedRaises(next, base, { netDelta: { Error: 0, E_X: 0 } })).toEqual([]);
     expect(unjustifiedRaises(next, null)).toEqual([]);
     // Above the sites that exist: never justified, even audited or net-zero.
     expect(
       unjustifiedRaises(next, base, {
-        audited: { 'f.ts :: Error': 'T1 reviewed' },
+        audited: { 'f.ts :: Error': { reason: 'T1 reviewed', count: 2 } },
         netDelta: { Error: 0, E_X: 0 },
         counts: { 'f.ts :: Error': 1, 'g.ts :: E_X': 1 },
       }),
@@ -503,48 +508,54 @@ describe('pending tasks (M3)', () => {
   });
 });
 
-/**
- * PR mode end to end (H1, H2): a temp git repo, main() against a base commit.
- */
-describe('PR mode against a base ref (H1, H2)', () => {
-  const INPUTS = { registry: [REGISTERED], syncTables: SYNC, classified: CLASSIFIED };
-  const BASELINE = 'scripts/.lint-sync-write-invariants-baseline.json';
+// Shared by the PR-mode suites: a temp git repo and main() against a base commit.
+const INPUTS = { registry: [REGISTERED], syncTables: SYNC, classified: CLASSIFIED };
+const BASELINE = 'scripts/.lint-sync-write-invariants-baseline.json';
+const OPEN = () => ({ status: 'pending' });
 
-  function repo(files) {
-    const root = tree(files);
-    const git = (...args) =>
-      execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
-        cwd: root,
-        encoding: 'utf8',
-        stdio: 'pipe',
-      }).trim();
-    git('init', '-q');
-    return { root, git };
-  }
-  const write = (root, files) => {
-    for (const [path, text] of Object.entries(files)) {
+function repo(files) {
+  const root = tree(files);
+  const git = (...args) =>
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: 'pipe',
+    }).trim();
+  git('init', '-q');
+  return { root, git };
+}
+const write = (root, files) => {
+  for (const [path, text] of Object.entries(files)) {
+    if (text === null) rmSync(join(root, path));
+    else {
       mkdirSync(dirname(join(root, path)), { recursive: true });
       writeFileSync(join(root, path), text);
     }
-  };
-  async function run(root, argv) {
-    const out = [];
-    const so = process.stdout.write;
-    const se = process.stderr.write;
-    process.stdout.write = (c) => out.push(String(c)) > 0;
-    process.stderr.write = (c) => out.push(String(c)) > 0;
-    try {
-      return { code: await main(argv, { root, inputs: INPUTS }), text: out.join('') };
-    } finally {
-      process.stdout.write = so;
-      process.stderr.write = se;
-    }
   }
-  const writer = (name, extra = '') => `export function ${name}(db, id) {
+};
+async function run(root, argv, opts = {}) {
+  const out = [];
+  const so = process.stdout.write;
+  const se = process.stderr.write;
+  process.stdout.write = (c) => out.push(String(c)) > 0;
+  process.stderr.write = (c) => out.push(String(c)) > 0;
+  try {
+    return { code: await main(argv, { root, inputs: INPUTS, ...opts }), text: out.join('') };
+  } finally {
+    process.stdout.write = so;
+    process.stderr.write = se;
+  }
+}
+const writer = (name, extra = '') => `export function ${name}(db, id) {
   if (!id) throw new Error('id');${extra}
   db.prepare('UPDATE tasks_tasks SET status = 1 WHERE id = ?').run(id);
 }
 `;
+
+/**
+ * PR mode end to end (H1, H2): a temp git repo, main() against a base commit.
+ */
+describe('PR mode against a base ref (H1, H2)', () => {
   /** A base commit with one write-path module and its seeded baseline. */
   async function seeded(files) {
     const r = repo(files);
@@ -572,7 +583,12 @@ describe('PR mode against a base ref (H1, H2)', () => {
     expect(red.text).toContain('packages/core/src/a.ts :: Error (1 -> 2)');
     // Green: the same raise, audited with a task.
     const doc = JSON.parse(readFileSync(join(r.root, BASELINE), 'utf8'));
-    doc.audited = { 'packages/core/src/a.ts :: Error': 'T12946 reviewed: known legacy check' };
+    doc.audited = {
+      'packages/core/src/a.ts :: Error': {
+        reason: 'T12946 reviewed: known legacy check',
+        count: 2,
+      },
+    };
     writeFileSync(join(r.root, BASELINE), JSON.stringify(doc));
     const green = await run(r.root, ['--check', '--base', r.base]);
     expect(green.text).not.toContain('FAIL');
@@ -600,7 +616,7 @@ describe('PR mode against a base ref (H1, H2)', () => {
       'packages/core/src/fake.ts :: E_FAKE (0 -> 1, but only 0 untagged site(s) exist)',
     );
     // An audit does not excuse an inflated key.
-    doc.audited = { 'packages/core/src/b.ts :: Error': 'T1 reviewed' };
+    doc.audited = { 'packages/core/src/b.ts :: Error': { reason: 'T1 reviewed', count: 5 } };
     delete doc.sites['packages/core/src/fake.ts :: E_FAKE'];
     writeFileSync(join(r.root, BASELINE), JSON.stringify(doc));
     expect((await run(r.root, ['--check', '--base', r.base])).text).toContain(
@@ -668,6 +684,220 @@ export const handler = {
     const pr = await run(r.root, ['--check', '--base', r.base]);
     expect(pr.text).not.toContain('FAIL');
     expect(pr.code).toBe(0);
+  });
+});
+
+/**
+ * T12953: net-zero credit only for sites that were on a write path at the
+ * base. T12954: an audit inherited from the base justifies no new raise, and
+ * --verify-tasks checks audited tasks.
+ */
+describe('PR mode credit and audits (T12953, T12954)', () => {
+  const RAISE = "\n  if (id === 2) throw new Error('two');";
+  const editBaseline = (root, fn) => {
+    const doc = JSON.parse(readFileSync(join(root, BASELINE), 'utf8'));
+    fn(doc);
+    writeFileSync(join(root, BASELINE), JSON.stringify(doc));
+  };
+  /** A base commit with a seeded baseline (optionally edited before the commit). */
+  async function seeded(files, edit, inputs = INPUTS) {
+    const r = repo(files);
+    r.git('add', '-A');
+    expect((await run(r.root, ['--update-baseline', '--seed'], { inputs })).code).toBe(0);
+    if (edit) editBaseline(r.root, edit);
+    r.git('add', '-A');
+    r.git('commit', '-qm', 'base');
+    return { ...r, base: r.git('rev-parse', 'HEAD') };
+  }
+  /** The two PR-mode verdicts: the shrink-only rewrite, then --check after a forced rewrite. */
+  async function verdicts(r) {
+    const update = await run(r.root, ['--update-baseline', '--base', r.base]);
+    expect((await run(r.root, ['--update-baseline', '--seed'])).code).toBe(0);
+    r.git('add', '-A');
+    const check = await run(r.root, ['--check', '--base', r.base]);
+    return { update, check };
+  }
+
+  it('T12953 red/green: deleting a never-baselined file earns no credit for a new site', async () => {
+    const r = await seeded({
+      'packages/core/src/a.ts': writer('a'),
+      // Off every write path: no synced write, nothing imports it.
+      'packages/core/src/z.ts': "export function z(p) { if (!p) throw new Error('z'); }\n",
+    });
+    expect(JSON.parse(readFileSync(join(r.root, BASELINE), 'utf8')).sites).toEqual({
+      'packages/core/src/a.ts :: Error': 1,
+    });
+    write(r.root, { 'packages/core/src/z.ts': null, 'packages/core/src/a.ts': writer('a', RAISE) });
+    r.git('add', '-A');
+    const { update, check } = await verdicts(r);
+    expect(update.code).toBe(1);
+    expect(update.text).toContain(
+      'would add to the baseline: packages/core/src/a.ts :: Error (1 -> 2)',
+    );
+    expect(check.code).toBe(1);
+    expect(check.text).toContain('packages/core/src/a.ts :: Error (1 -> 2)');
+  });
+
+  it('T12953 green: deleting a baselined write-path file still credits a move', async () => {
+    const r = await seeded({
+      'packages/core/src/a.ts': writer('a'),
+      'packages/core/src/c.ts': writer('c'),
+    });
+    write(r.root, { 'packages/core/src/c.ts': null, 'packages/core/src/a.ts': writer('a', RAISE) });
+    r.git('add', '-A');
+    expect((await run(r.root, ['--update-baseline', '--base', r.base])).code).toBe(0);
+    r.git('add', '-A');
+    const pr = await run(r.root, ['--check', '--base', r.base]);
+    expect(pr.text).not.toContain('FAIL');
+    expect(pr.code).toBe(0);
+  });
+
+  const domain = (imports, call) => `${imports}
+export const handler = {
+  async mutate(op, params) { return ${call}; },
+  getSupportedOperations() { return { query: [], mutate: ['add'] }; },
+};
+`;
+  const HELPER_IMPORT = "import { helper } from '../../../../core/src/helper.js';";
+  const helper = (n) =>
+    `export function helper(p) {\n${"  if (!p) throw new Error('p');\n".repeat(n)}  return p;\n}\n`;
+
+  it('T12953 red/green: a newly reachable file that loses throws earns no credit', async () => {
+    const r = await seeded({
+      'packages/core/src/a.ts': writer('a'),
+      'packages/cleo/src/dispatch/domains/d.ts': domain('', 'null'),
+      'packages/core/src/helper.ts': helper(2),
+    });
+    write(r.root, {
+      'packages/cleo/src/dispatch/domains/d.ts': domain(HELPER_IMPORT, 'helper(params)'),
+      'packages/core/src/helper.ts': helper(1),
+      'packages/core/src/a.ts': writer('a', RAISE),
+    });
+    r.git('add', '-A');
+    const { update, check } = await verdicts(r);
+    expect(update.code).toBe(1);
+    expect(update.text).toContain('packages/core/src/a.ts :: Error (1 -> 2)');
+    expect(check.code).toBe(1);
+    expect(check.text).toContain('packages/core/src/a.ts :: Error (1 -> 2)');
+  });
+
+  it('T12953 green: a newly reachable file trimmed in the same edit still costs nothing', async () => {
+    const r = await seeded({
+      'packages/core/src/a.ts': writer('a'),
+      'packages/cleo/src/dispatch/domains/d.ts': domain('', 'null'),
+      'packages/core/src/helper.ts': helper(2),
+    });
+    write(r.root, {
+      'packages/cleo/src/dispatch/domains/d.ts': domain(HELPER_IMPORT, 'helper(params)'),
+      'packages/core/src/helper.ts': helper(1),
+    });
+    r.git('add', '-A');
+    expect((await run(r.root, ['--update-baseline', '--base', r.base])).code).toBe(0);
+    r.git('add', '-A');
+    const pr = await run(r.root, ['--check', '--base', r.base]);
+    expect(pr.text).not.toContain('FAIL');
+    expect(pr.code).toBe(0);
+  });
+
+  it('T12953 red/green: credit is capped by what the base baseline paid for', async () => {
+    // At the base, brain_page_edges was not syncing, so y.ts was never
+    // baselined; the head's classification makes the base scan see it.
+    const baseInputs = { ...INPUTS, syncTables: new Set(['tasks_tasks', 'tasks_sessions']) };
+    const r = await seeded(
+      {
+        'packages/core/src/a.ts': writer('a'),
+        'packages/core/src/y.ts': `export function y(db, id) {
+  if (!id) throw new Error('y');
+  db.prepare('DELETE FROM brain_page_edges WHERE id = ?').run(id);
+}
+`,
+      },
+      undefined,
+      baseInputs,
+    );
+    expect(JSON.parse(readFileSync(join(r.root, BASELINE), 'utf8')).sites).toEqual({
+      'packages/core/src/a.ts :: Error': 1,
+    });
+    write(r.root, { 'packages/core/src/y.ts': null, 'packages/core/src/a.ts': writer('a', RAISE) });
+    r.git('add', '-A');
+    const { update, check } = await verdicts(r);
+    expect(update.code).toBe(1);
+    expect(update.text).toContain('packages/core/src/a.ts :: Error (1 -> 2)');
+    expect(check.code).toBe(1);
+    expect(check.text).toContain('packages/core/src/a.ts :: Error (1 -> 2)');
+  });
+
+  it('T12953 green: renaming a write-path file nets to zero against the base', async () => {
+    const r = await seeded({ 'packages/core/src/a.ts': writer('a') });
+    r.git('mv', 'packages/core/src/a.ts', 'packages/core/src/b.ts');
+    expect((await run(r.root, ['--update-baseline', '--base', r.base])).code).toBe(0);
+    expect(JSON.parse(readFileSync(join(r.root, BASELINE), 'utf8')).sites).toEqual({
+      'packages/core/src/b.ts :: Error': 1,
+    });
+    r.git('add', '-A');
+    const pr = await run(r.root, ['--check', '--base', r.base]);
+    expect(pr.text).not.toContain('FAIL');
+    expect(pr.code).toBe(0);
+  });
+
+  it('T12954 red: a legacy or re-worded audit inherited from the base justifies no new raise', async () => {
+    const KEY = 'packages/core/src/a.ts :: Error';
+    for (const [atBase, atHead] of [
+      ['T1 ok', 'T1 ok '],
+      [
+        { reason: 'T1 ok', count: 1 },
+        { reason: 'T1 ok, again', count: 1 },
+      ],
+    ]) {
+      const r = await seeded({ 'packages/core/src/a.ts': writer('a') }, (doc) => {
+        doc.audited = { [KEY]: atBase };
+      });
+      write(r.root, { 'packages/core/src/a.ts': writer('a', RAISE) });
+      editBaseline(r.root, (doc) => {
+        doc.audited[KEY] = atHead;
+      });
+      r.git('add', '-A');
+      const { update, check } = await verdicts(r);
+      expect(update.code).toBe(1);
+      expect(check.code).toBe(1);
+      expect(check.text).toContain(`${KEY} (1 -> 2)`);
+    }
+  });
+
+  it('T12954 red/green: an audit inherited from the base justifies no new raise', async () => {
+    const KEY = 'packages/core/src/a.ts :: Error';
+    const r = await seeded({ 'packages/core/src/a.ts': writer('a') }, (doc) => {
+      doc.audited = { [KEY]: { reason: 'T12946 reviewed: known legacy check', count: 1 } };
+    });
+    write(r.root, { 'packages/core/src/a.ts': writer('a', RAISE) });
+    r.git('add', '-A');
+    const { update, check } = await verdicts(r);
+    expect(update.code).toBe(1);
+    expect(check.code).toBe(1);
+    expect(check.text).toContain(`${KEY} (1 -> 2)`);
+    // Green: the audit approves the new count.
+    editBaseline(r.root, (doc) => {
+      doc.audited[KEY] = { reason: 'T12999 reviewed: second legacy check', count: 2 };
+    });
+    r.git('add', '-A');
+    const green = await run(r.root, ['--check', '--base', r.base]);
+    expect(green.text).not.toContain('FAIL');
+    expect(green.code).toBe(0);
+  });
+
+  it('T12954 red/green: --verify-tasks checks the tasks audited entries name', async () => {
+    const r = await seeded({ 'packages/core/src/a.ts': writer('a') }, (doc) => {
+      doc.audited = {
+        'packages/core/src/a.ts :: Error': { reason: 'T5 reviewed with T6', count: 1 },
+      };
+    });
+    const statusOf = (t) => (t === 'T6' ? { status: 'done' } : OPEN());
+    const red = await run(r.root, ['--check', '--verify-tasks'], { statusOf });
+    expect(red.code).toBe(1);
+    expect(red.text).toContain('task T6 is done: it must be open');
+    const green = await run(r.root, ['--check', '--verify-tasks'], { statusOf: OPEN });
+    expect(green.text).not.toContain('FAIL');
+    expect(green.code).toBe(0);
   });
 });
 
