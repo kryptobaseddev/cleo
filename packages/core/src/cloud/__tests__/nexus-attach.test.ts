@@ -298,14 +298,19 @@ describe('presence and binding hold their guarantees (review M3)', () => {
         .all() as Array<{ type: string; name: string }>;
       expect(objects.filter((o) => o.type === 'trigger')).toEqual([]);
       const tables = objects.filter((o) => o.type === 'table').map((o) => o.name);
-      // The bookkeeping tables plus S2's capture outbox (T12343): all empty,
-      // all this-device-only; capture triggers come only with a sync.* flag.
+      // The bookkeeping tables, S2's capture outbox (T12343) and S3a's sealer
+      // tables (T12984): all empty, all this-device-only; capture triggers
+      // come only with a sync.* flag.
       expect(tables).toEqual([
         '_sync_capture',
         '_sync_clock',
         '_sync_frame',
+        '_sync_ledger',
         '_sync_meta',
+        '_sync_op',
         '_sync_replica',
+        '_sync_row_meta',
+        '_sync_txn',
         '_sync_undo',
       ]);
       for (const name of tables) expect(classifyTable('project', name).class).toBe('local-only');
