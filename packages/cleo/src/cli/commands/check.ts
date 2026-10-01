@@ -812,6 +812,19 @@ const checkArchCommand = defineCommand({
         script: 'scripts/lint-model-call-sites.mjs',
         description: 'Every model call site is a registered decision site (ratchet)',
       },
+      {
+        // T12881: the raw sync applier never runs TypeScript write paths, so
+        // every rejection site on a synced write path is tagged
+        // `// @sync-invariant <id>` (contracts sync-write-invariants
+        // registry) or an escape with a reason. Untagged sites are baselined
+        // per (file, symbol, code); the baseline only shrinks. Registry
+        // closure: tables classified, triggers created by migrations, no
+        // dead gates (spec t12859 §3.6.7).
+        id: 'gate-38',
+        task: 'T12881',
+        script: 'scripts/lint-sync-write-invariants.mjs',
+        description: 'Every synced-write rejection site is classified (ratchet)',
+      },
     ] as const;
 
     const scriptArgs = strict ? ['--strict'] : ['--check'];
