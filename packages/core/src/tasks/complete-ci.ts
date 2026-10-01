@@ -36,7 +36,7 @@ import {
   testsPassedSupersededReason,
 } from './affected-scope.js';
 import { resolveEvidenceExecutionRoot } from './evidence.js';
-import { captureTreeIdentity } from './tree-identity.js';
+import { captureTreeHash } from './tool-cache.js';
 
 /** Gates merged CI can attest (D11149). */
 const CI_GATES: readonly VerificationGate[] = ['testsPassed', 'qaPassed'];
@@ -47,8 +47,8 @@ export interface MergedCiDeps {
   merge?: MergeProbeDeps;
   /** Whether the project accepts `ci:<pr>` evidence; defaults to `evidence.ciSatisfies`. */
   ciSatisfies?: (storeRoot: string) => boolean;
-  /** Current tracked tree hash of the execution root; defaults to `git`. */
-  currentTree?: (storeRoot: string) => string | null;
+  /** Current tree hash of the execution root; defaults to the tool cache's `captureTreeHash`. */
+  currentTree?: (storeRoot: string) => Promise<string | null> | string | null;
   /** Canonical acceptance criteria of the task; defaults to the task store. */
   acRows?: (storeRoot: string, taskId: string) => Promise<readonly AcRow[]>;
   /** The gate write; defaults to `validateGateVerify`. */
@@ -132,8 +132,8 @@ async function defaultRecordGates(
   return validateGateVerify(storeRoot, params);
 }
 
-function defaultCurrentTree(storeRoot: string): string | null {
-  return captureTreeIdentity(resolveEvidenceExecutionRoot(storeRoot))?.treeHash ?? null;
+function defaultCurrentTree(storeRoot: string): Promise<string | null> {
+  return captureTreeHash(resolveEvidenceExecutionRoot(storeRoot));
 }
 
 async function defaultAcRows(storeRoot: string, taskId: string): Promise<readonly AcRow[]> {

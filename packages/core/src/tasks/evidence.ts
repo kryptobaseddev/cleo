@@ -9,8 +9,9 @@
  * Tool resolution is project-agnostic per T1534 / ADR-061:
  *   - {@link resolveToolCommand} maps `tool:<name>` to a runnable command
  *     using `.cleo/project-context.json` and per-`primaryType` fallbacks.
- *   - {@link runToolCached} memoises results per `(cmd, args, head, dirty)`
- *     and serialises concurrent identical runs via a cross-process lock,
+ *   - {@link runToolCached} memoises results per
+ *     `(canonical, cmd, args, treeHash, envFingerprint)` and serialises
+ *     concurrent identical runs via a cross-process lock,
  *     preventing the resource thrash observed when multiple `cleo verify`
  *     invocations spawned full toolchains in parallel.
  *
@@ -68,7 +69,13 @@ import {
   TEST_RUN_MAX_RECORDED_FILES,
   testRunBindingRefusal,
 } from './test-run-binding.js';
-import { resolveSpawnTimeoutMs, runToolCached, type ToolRunResult } from './tool-cache.js';
+import {
+  captureHead,
+  captureTreeHash,
+  resolveSpawnTimeoutMs,
+  runToolCached,
+  type ToolRunResult,
+} from './tool-cache.js';
 import {
   CANONICAL_TOOLS,
   type CanonicalTool,
@@ -76,7 +83,6 @@ import {
   resolveToolCommand,
 } from './tool-resolver.js';
 import { detectStaticVacuity, probeTscFileCount, VACUOUS_TOOL_FIX } from './tool-vacuity.js';
-import { captureTreeIdentity } from './tree-identity.js';
 
 /**
  * Valid tool names recognised by the `tool:<name>` evidence atom.
@@ -1818,11 +1824,15 @@ async function validateTestRun(path: string, roots: EvidenceRoots): Promise<Atom
 
   // T12965: bind the report to the change it claims to test. A report older
   // than the change, or covering none of its packages, is refused; HEAD, the
-  // tracked tree and the covered files are recorded so `cleo complete` can
+  // tree hash and the covered files are recorded so `cleo complete` can
   // refuse it once the tree moves. See test-run-binding.ts for exactly what
   // this guarantees (and what it does not). A non-git root records no binding.
   const testFiles = coveredTestFiles(parsed, executionRoot);
-  const identity = captureTreeIdentity(executionRoot);
+  // The tree hash is the tool cache's (T12958), so a bound test-run and a
+  // cached tool run of the same content agree.
+  const treeHash = await captureTreeHash(executionRoot);
+  const headSha = treeHash ? await captureHead(executionRoot) : null;
+  const identity = treeHash && headSha ? { treeHash, headSha } : null;
   if (identity) {
     const refusal = testRunBindingRefusal(parsed, abs, executionRoot, testFiles);
     if (refusal) return { ok: false, reason: refusal, codeName: 'E_EVIDENCE_STALE' };

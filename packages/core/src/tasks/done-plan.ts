@@ -62,7 +62,6 @@ import { extractTypedGates } from './gate-runner.js';
 import { captureTreeHash, computeCacheKey, readCacheEntry } from './tool-cache.js';
 import { captureEnvFingerprint } from './tool-cache-env.js';
 import { type ResolvedToolCommand, resolveToolCommand } from './tool-resolver.js';
-import { captureTreeIdentity } from './tree-identity.js';
 import { loadVerificationGatePolicy } from './verification-policy.js';
 
 /**
@@ -673,7 +672,7 @@ export async function deriveTaskEvidence(
     task.verification?.evidence?.testsPassed?.atoms ?? [],
     {
       mergeState: () => mergeStateOfChangeSet(changeSet),
-      currentTree: () => captureTreeIdentity(root)?.treeHash ?? null,
+      currentTree: () => captureTreeHash(root),
     },
   );
   const superseded = supersededReason !== null;

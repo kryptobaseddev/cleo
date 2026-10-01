@@ -295,9 +295,10 @@ export type EvidenceAtom =
        */
       headSha?: string;
       /**
-       * Git tree hash of that checkout's TRACKED working-tree content at
-       * verify time (T12965). `cleo complete` refuses the atom once the tree
-       * no longer matches, unless merged CI (`ci:<pr>`) supersedes it.
+       * Git tree of that checkout at verify time, as the tool cache computes
+       * it (T12958): HEAD's tree with every uncommitted, not-ignored change
+       * applied (T12965). `cleo complete` refuses the atom once the tree no
+       * longer matches, unless `ci:<pr>` or a full tool run carries the gate.
        */
       treeHash?: string;
       /** Test files the report covered, relative to the execution root (capped, T12965). */

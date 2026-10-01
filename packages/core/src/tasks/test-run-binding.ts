@@ -15,7 +15,7 @@
  *     workspace-wide), at least one test file the report covers lies in a
  *     directly changed package or is itself a changed path. Changes that are
  *     workspace-wide, docs-only or outside any workspace are not judged.
- *  3. **Identity.** HEAD and the tracked tree hash at verify time are
+ *  3. **Identity.** HEAD and the tool cache's tree hash (T12958) at verify time are
  *     recorded, and `cleo complete` refuses the atom once that tree moved
  *     (unless merged CI or a full run carries the gate).
  *

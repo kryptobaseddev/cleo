@@ -14,7 +14,7 @@ import type { EvidenceAtom } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { testRunTreeMismatchReason } from '../affected-scope.js';
 import { validateAtom } from '../evidence.js';
-import { captureTreeIdentity } from '../tree-identity.js';
+import { captureTreeHash } from '../tool-cache.js';
 
 function git(dir: string, args: string[]): string {
   return execFileSync('git', args, { cwd: dir, encoding: 'utf-8' }).trim();
@@ -53,42 +53,6 @@ function report(files: string[], startTime?: number): string {
   );
   return path;
 }
-
-describe('captureTreeIdentity', () => {
-  it('ignores untracked files and changes on a tracked edit, staged or not', () => {
-    const clean = captureTreeIdentity(root);
-    expect(clean?.headSha).toBe(git(root, ['rev-parse', 'HEAD']));
-    expect(clean?.treeHash).toBe(git(root, ['rev-parse', 'HEAD^{tree}']));
-    writeFileSync(join(root, 'scratch.txt'), 'untracked\n');
-    expect(captureTreeIdentity(root)?.treeHash).toBe(clean?.treeHash);
-    writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 2;\n');
-    const edited = captureTreeIdentity(root);
-    expect(edited?.treeHash).not.toBe(clean?.treeHash);
-    git(root, ['add', 'src/a.ts']);
-    expect(captureTreeIdentity(root)?.treeHash).toBe(edited?.treeHash);
-    // The live index is never touched by the capture.
-    expect(git(root, ['diff', '--cached', '--name-only'])).toBe('src/a.ts');
-  });
-
-  it('two checkouts with the same tracked content share one tree hash', () => {
-    const other = `${root}-clone`;
-    try {
-      execFileSync('git', ['clone', '-q', root, other]);
-      expect(captureTreeIdentity(other)?.treeHash).toBe(captureTreeIdentity(root)?.treeHash);
-    } finally {
-      rmSync(other, { recursive: true, force: true });
-    }
-  });
-
-  it('is null outside a git checkout', () => {
-    const plain = mkdtempSync(join(tmpdir(), 'not-git-'));
-    try {
-      expect(captureTreeIdentity(plain)).toBeNull();
-    } finally {
-      rmSync(plain, { recursive: true, force: true });
-    }
-  });
-});
 
 describe('test-run atoms are bound at verify time', () => {
   it('records HEAD, the tree hash and the covered test files', async () => {
@@ -160,11 +124,9 @@ describe('testRunTreeMismatchReason', () => {
       root,
     );
     const atoms = r.ok ? [r.atom] : [];
-    expect(
-      testRunTreeMismatchReason(atoms, captureTreeIdentity(root)?.treeHash ?? null),
-    ).toBeNull();
+    expect(testRunTreeMismatchReason(atoms, await captureTreeHash(root))).toBeNull();
     writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 3;\n');
-    expect(testRunTreeMismatchReason(atoms, captureTreeIdentity(root)?.treeHash ?? null)).toMatch(
+    expect(testRunTreeMismatchReason(atoms, await captureTreeHash(root))).toMatch(
       /no longer describes this code/,
     );
   });

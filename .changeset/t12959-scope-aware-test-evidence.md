@@ -54,7 +54,7 @@ refused when:
 - or, in a workspace change, it covers no test file in a directly changed
   package.
 
-The atom records HEAD, the tracked tree hash and the covered test files (up to
+The atom records HEAD, the tool cache's tree hash and the covered test files (up to
 200, plus `testFileCount`). `cleo complete` refuses a test-run whose tree moved,
 unless `ci:<pr>` or a standing full `tool:test` carries the gate. This binding
 guards against stale and irrelevant reports. It does not prove the report came

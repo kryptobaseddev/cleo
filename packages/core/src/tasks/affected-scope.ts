@@ -5,7 +5,7 @@
  * affected packages, or a targeted `test-run:` report) proves what it ran
  * before merge. Once the change has merged, only merged CI (`ci:<pr>`) or a
  * full `tool:test` proves `testsPassed`. A tree-bound `test-run:` also stops
- * counting as soon as the tracked tree it ran on moves (T12965). This module
+ * counting as soon as the tree it ran on moves (T12965). This module
  * is the single place both rules live: `cleo done` planning and
  * `cleo complete` ask {@link testsPassedSupersededReason}, and a scope-aware
  * `tool:test` asks {@link taskChangeMergeState} (T12959).
@@ -89,7 +89,7 @@ export function scopedRunSupersededReason(
 /**
  * Why a recorded `testsPassed` resting on a tree-bound `test-run:` no longer
  * stands, or null when it does (T12965). A targeted report proves the tree it
- * ran on; once the tracked content moved, it proves nothing about the code
+ * ran on; once that content moved, it proves nothing about the code
  * being completed. A `ci:<pr>` or a full tool run in the same gate carries the
  * gate on its own, and atoms recorded before T12965 (no `treeHash`) are not
  * judged.
@@ -113,7 +113,7 @@ export function testRunTreeMismatchReason(
   if (!first?.treeHash) return null;
   return current === null
     ? `testsPassed rests on test-run:${first.path}, bound to tree ${first.treeHash.slice(0, 12)}, and the current tree cannot be computed here (not a git checkout?); complete from the checkout the report ran in, or record ci:<pr> once the PR merges.`
-    : `testsPassed rests on test-run:${first.path}, recorded on tree ${first.treeHash.slice(0, 12)}, but the tracked tree is now ${current.slice(0, 12)}; the report no longer describes this code. Re-run the targeted tests and record a fresh test-run, or record ci:<pr> once the PR merges.`;
+    : `testsPassed rests on test-run:${first.path}, recorded on tree ${first.treeHash.slice(0, 12)}, but the tree is now ${current.slice(0, 12)}; the report no longer describes this code. Re-run the targeted tests and record a fresh test-run, or record ci:<pr> once the PR merges.`;
 }
 
 /**
