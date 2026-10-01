@@ -293,6 +293,13 @@ export const EXEMPT = {
   'packages/core/src/store/sync/structural.ts': {
     _sync_meta: { count: 1, reason: SYNC_BOOKKEEPING },
   },
+  'packages/core/src/store/sync/tombstones.ts': {
+    _sync_row_meta: {
+      count: 1,
+      reason:
+        'tombstone compaction (local-only): shrinks covered full tombstones in THIS store\'s sealer row meta to the minimal form (T12986)',
+    },
+  },
   'packages/core/src/store/sync/trigger-classes.ts': {
     cleo_trigger_suspend: {
       count: 3,
