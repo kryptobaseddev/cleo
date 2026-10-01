@@ -1042,6 +1042,13 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/roadmap.js')).roadmapCommand as CommandDef,
   },
   {
+    exportName: 'runCommand',
+    name: 'run',
+    description:
+      'Run a heavy command (tests, builds, installs) under the machine-wide resource budget: cleo run [--class test|build|full-build] [--wait] -- <command...>',
+    load: async () => (await import('../commands/run.js')).runCommand as CommandDef,
+  },
+  {
     exportName: 'safestopCommand',
     name: 'safestop',
     description: 'Graceful shutdown for agents approaching context limits',

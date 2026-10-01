@@ -250,6 +250,21 @@ export function evaluateState(
 const SEVERITY: Record<PressureState, number> = { ok: 0, hold: 1, backoff: 2 };
 
 /**
+ * Classify a sample with the default thresholds (callers that sample once,
+ * such as `cleo run`, and do not hold a {@link ResourceMonitor} loop).
+ *
+ * @param sample - a backend sample.
+ * @param currentState - the previous verdict, for hysteresis.
+ * @task T12979
+ */
+export function classifyPressure(
+  sample: ResourceSample,
+  currentState: PressureState = 'ok',
+): { state: PressureState; reason: string } {
+  return evaluateState(sample, DEFAULTS, currentState);
+}
+
+/**
  * One pressure number on the MEMORY `some avg10` scale, for callers that size
  * budgets from a single value (the governor's class budgets, slot scaling):
  * the worse of memory `some avg10` and CPU `some avg10` rescaled so the CPU
