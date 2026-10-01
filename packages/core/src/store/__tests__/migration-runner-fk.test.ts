@@ -210,3 +210,65 @@ describe('foreign keys in a rebuild bracket', () => {
     expect([...v.keys()][0]).toContain('K1');
   });
 });
+
+describe('hook order at a migration (NEW-8, spec §2.3a rule 3)', () => {
+  type Hooks = Parameters<typeof runBracketedMigrations>[3];
+  const recorder = (log: string[], opts: { failOn?: string } = {}): Hooks => ({
+    // S3 seals pending captures and runs the repair diff here, BEFORE any bracket.
+    beforeMigrations: () => log.push('before'),
+    suspendCapture: (d) => {
+      const pending = (
+        d.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name = 'q'").get() as {
+          n: number;
+        }
+      ).n;
+      log.push(`suspend(q=${pending})`);
+    },
+    reinstallCapture: () => log.push('reinstall'),
+    // S3 re-baselines chash here, AFTER the bracket committed.
+    afterMigration: (d, m) => {
+      if (m.name === opts.failOn) throw new Error('unreachable: after a failed bracket');
+      const committed = (
+        d.prepare('SELECT count(*) AS n FROM __drizzle_migrations WHERE name = ?').get(m.name) as {
+          n: number;
+        }
+      ).n;
+      log.push(`after(${m.name.split('_').pop()},journaled=${committed})`);
+    },
+  });
+
+  it('pending work first, then each bracket, then its re-baseline once committed', () => {
+    migration('CREATE TABLE q (id TEXT PRIMARY KEY);');
+    migration("INSERT INTO q VALUES ('Q1');");
+    const log: string[] = [];
+    runBracketedMigrations(db, drizzle({ client: db }), [{ folder }], recorder(log));
+    expect(log).toEqual([
+      'before',
+      'suspend(q=0)',
+      'reinstall',
+      'after(m2,journaled=1)',
+      'suspend(q=1)',
+      'reinstall',
+      'after(m3,journaled=1)',
+    ]);
+  });
+
+  it('nothing pending: no hook runs; a failed bracket gets no re-baseline', () => {
+    const idle: string[] = [];
+    runBracketedMigrations(db, drizzle({ client: db }), [{ folder }], recorder(idle));
+    expect(idle).toEqual([]);
+
+    const bad = migration('INSERT INTO nope VALUES (1);');
+    const log: string[] = [];
+    expect(() =>
+      runBracketedMigrations(
+        db,
+        drizzle({ client: db }),
+        [{ folder }],
+        recorder(log, { failOn: bad }),
+      ),
+    ).toThrow();
+    expect(log.filter((l) => l.startsWith('after'))).toEqual([]);
+    expect(log[0]).toBe('before');
+  });
+});
