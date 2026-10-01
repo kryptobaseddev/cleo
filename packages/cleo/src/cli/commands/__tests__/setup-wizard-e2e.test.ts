@@ -284,6 +284,7 @@ class CapturingIO implements WizardIO {
 // all. Same non-hermetic class as T12051's AGENTS_HOME pollution.
 let sandboxDir: string;
 let originalCwd: string;
+let savedCleoHome: string | undefined;
 
 beforeEach(() => {
   originalCwd = process.cwd();
@@ -293,6 +294,9 @@ beforeEach(() => {
   mkdirSync(join(sandboxDir, '.cleo'), { recursive: true });
   mkdirSync(join(sandboxDir, '.git'), { recursive: true });
   process.chdir(sandboxDir);
+  // The nexus-account section reads nexus-device.json under CLEO_HOME: never the real one.
+  savedCleoHome = process.env['CLEO_HOME'];
+  process.env['CLEO_HOME'] = join(sandboxDir, 'cleo-home');
 
   vi.clearAllMocks();
   mockLoadConfigCore.mockResolvedValue({
@@ -303,6 +307,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  if (savedCleoHome === undefined) delete process.env['CLEO_HOME'];
+  else process.env['CLEO_HOME'] = savedCleoHome;
   process.chdir(originalCwd);
   rmSync(sandboxDir, { recursive: true, force: true });
   vi.restoreAllMocks();

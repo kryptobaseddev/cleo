@@ -824,6 +824,29 @@ const checkArchCommand = defineCommand({
         script: 'scripts/lint-sync-schema.mjs',
         description: 'Change-journal schema rules (suspend table, migrations)',
       },
+      {
+        // T12897: every syncing cleo.db table is declared in ROW_IDENTITY or
+        // exempt with a reason and a task in ROW_IDENTITY_EXEMPT; a stale
+        // exemption (table gone, no longer syncing, or declared) fails too.
+        // The fresh-store check is store/__tests__/row-identity-gate.test.ts.
+        id: 'gate-37',
+        task: 'T12897',
+        script: 'scripts/lint-row-identity-coverage.mjs',
+        description: 'Every syncing cleo.db table has declared row identity or an exemption',
+      },
+      {
+        // T12881: the raw sync applier never runs TypeScript write paths, so
+        // every rejection site on a synced write path is tagged
+        // `// @sync-invariant <id>` (contracts sync-write-invariants
+        // registry) or an escape with a reason. Untagged sites are baselined
+        // per (file, symbol, code); the baseline only shrinks. Registry
+        // closure: tables classified, triggers created by migrations, no
+        // dead gates (spec t12859 §3.6.7).
+        id: 'gate-38',
+        task: 'T12881',
+        script: 'scripts/lint-sync-write-invariants.mjs',
+        description: 'Every synced-write rejection site is classified (ratchet)',
+      },
     ] as const;
 
     const scriptArgs = strict ? ['--strict'] : ['--check'];

@@ -469,6 +469,7 @@ async function orchestratePivotOp(params: OrchestratePivotParams) {
     else if (code === 38) errorCode = 'E_NOT_ACTIVE';
     else if (code === 35) errorCode = 'E_TASK_CLAIMED';
     else if (code === 24) errorCode = 'E_SESSION_UNBOUND';
+    else if (code === 26) errorCode = 'E_TASK_RENAMED';
     const cleo = err instanceof CleoError ? err : undefined;
     return {
       success: false,

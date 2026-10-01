@@ -14,7 +14,15 @@
  * @epic T4732
  */
 
-import type { Session, Task, TaskClaim, TaskClaimRequest, TaskStatus } from '@cleocode/contracts';
+import type {
+  Session,
+  Task,
+  TaskClaim,
+  TaskClaimRequest,
+  TaskInsertIdentity,
+  TaskRowIdentity,
+  TaskStatus,
+} from '@cleocode/contracts';
 import { getLogger } from '../logger.js';
 import type {
   ArchiveFile,
@@ -159,12 +167,12 @@ export class SafetyDataAccessor implements DataAccessor {
     );
   }
 
-  async insertNewTask(task: Task): Promise<void> {
+  async insertNewTask(task: Task, identity?: TaskInsertIdentity): Promise<void> {
     this.logVerbose(`Inserting new task ${task.id}`);
     await safeSingleTaskWrite(
       this.inner,
       task.id,
-      () => this.inner.insertNewTask(task),
+      () => this.inner.insertNewTask(task, identity),
       this.cwd,
       this.getSafetyOptions(),
     );
@@ -229,6 +237,10 @@ export class SafetyDataAccessor implements DataAccessor {
   }
 
   // ---- Metadata (pass-through to inner) ----
+
+  async getTaskIdentities(taskIds: readonly string[]): Promise<TaskRowIdentity[]> {
+    return (await this.inner.getTaskIdentities?.(taskIds)) ?? [];
+  }
 
   async getMetaValue<T>(key: string): Promise<T | null> {
     return this.inner.getMetaValue(key);

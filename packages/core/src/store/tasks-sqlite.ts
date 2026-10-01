@@ -36,6 +36,7 @@ import {
   safeUpdateTask,
 } from './data-safety-central.js';
 import { parseLabels, updateTaskLabels } from './db-helpers.js';
+import { rethrowDependencyCycle } from './dependency-cycles.js';
 import { getDb, getNativeDb } from './sqlite.js';
 import { captureTaskAccessorScope, createSqliteDataAccessor } from './sqlite-data-accessor.js';
 import { assertTaskVersion, nextTaskVersion } from './task-version.js';
@@ -82,7 +83,12 @@ async function insertTaskRow(task: Task, cwd?: string): Promise<Task> {
     // an upsert that could overwrite a concurrently-created identity.
     db.insert(schema.tasks).values(row).run();
     for (const depId of task.depends ?? []) {
-      db.insert(schema.taskDependencies).values({ taskId: task.id, dependsOn: depId }).run();
+      const edge = { taskId: task.id, dependsOn: depId };
+      try {
+        db.insert(schema.taskDependencies).values(edge).run();
+      } catch (err) {
+        rethrowDependencyCycle(db, err, [edge]);
+      }
     }
     await updateTaskLabels(db, task.id, parseLabels(row.labelsJson));
     if (task.acceptance !== undefined) {
@@ -378,7 +384,11 @@ export async function addDependency(
 ): Promise<void> {
   return inTaskStoreScope(cwd, async (cwd) => {
     const db = await getDb(cwd);
-    db.insert(schema.taskDependencies).values({ taskId, dependsOn }).onConflictDoNothing().run();
+    try {
+      db.insert(schema.taskDependencies).values({ taskId, dependsOn }).onConflictDoNothing().run();
+    } catch (err) {
+      rethrowDependencyCycle(db, err, [{ taskId, dependsOn }]);
+    }
   });
 }
 

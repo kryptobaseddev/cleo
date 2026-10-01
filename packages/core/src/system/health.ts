@@ -43,6 +43,11 @@ import { checkGlobalSchemas, type CheckResult as SchemaCheckResult } from '../sc
 import { checkpointGitDir } from '../store/checkpoint-git-dir.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import {
+  DEPENDENCY_CYCLE_CODE,
+  type DependencyEdge,
+  detectDependencyCycles,
+} from '../store/dependency-cycles.js';
+import {
   type CheckResult,
   checkCanonicalRcasdPaths,
   checkCleoGitignore,
@@ -88,6 +93,61 @@ function resolveStructuredLogPath(cleoDir: string): string {
     return join(cleoDir, config.logging.filePath);
   } catch {
     return defaultPath;
+  }
+}
+
+/**
+ * Stored dependency cycles, read-only (T12886). `cleo doctor` exits 2 while
+ * one remains; this check is the machine-readable reason in its JSON.
+ */
+function checkDependencyCycles(dbPath: string): HealthCheck | null {
+  if (!databaseSyncCtor) return null;
+  try {
+    const db = new databaseSyncCtor(dbPath, { readOnly: true });
+    let edges: DependencyEdge[] = [];
+    try {
+      const table = db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='tasks_task_dependencies'",
+        )
+        .get() as { name?: string } | undefined;
+      if (!table?.name) return null;
+      edges = (
+        db.prepare('SELECT task_id, depends_on FROM tasks_task_dependencies').all() as Array<{
+          task_id: string;
+          depends_on: string;
+        }>
+      ).map((row) => ({ taskId: row.task_id, dependsOn: row.depends_on }));
+    } finally {
+      db.close();
+    }
+    const report = detectDependencyCycles(edges);
+    const cycleCount = report.components.length;
+    if (cycleCount === 0) {
+      return {
+        name: 'dependency_cycles',
+        status: 'pass',
+        message: `no dependency cycles (${report.edgeCount} edge(s))`,
+        details: { cycleCount: 0, edgeCount: report.edgeCount },
+      };
+    }
+    return {
+      name: 'dependency_cycles',
+      status: 'warn',
+      message:
+        `${DEPENDENCY_CYCLE_CODE}: ${cycleCount} stored dependency cycle(s); cleo doctor exits 2. ` +
+        'Review the repair plan: cleo doctor dep-cycles',
+      details: {
+        code: DEPENDENCY_CYCLE_CODE,
+        exitCode: 2,
+        cycleCount,
+        edgeCount: report.edgeCount,
+        cycles: report.components.map((c) => c.cycle),
+        repairPlan: report.repairPlan.map((r) => r.command),
+      },
+    };
+  } catch {
+    return null;
   }
 }
 
@@ -139,6 +199,8 @@ export interface HealthCheck {
   name: string;
   status: 'pass' | 'warn' | 'fail';
   message?: string;
+  /** Machine-readable detail for checks that carry more than a message (T12886). */
+  details?: Record<string, unknown>;
 }
 
 export interface HealthResult {
@@ -218,6 +280,8 @@ export async function getSystemHealth(
 
   if (existsSync(dbPath)) {
     checks.push(checkAuditLogAvailability(dbPath));
+    const cycles = checkDependencyCycles(dbPath);
+    if (cycles) checks.push(cycles);
   }
 
   // T724 safeguard: detect tasks.db wipe — zero tasks but backups exist indicates

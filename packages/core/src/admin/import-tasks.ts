@@ -215,7 +215,11 @@ export async function importFromPackage(
   // Every transformed task has a remapped, new id: insert, never overwrite, and
   // all in ONE transaction, so a collision leaves nothing half-imported (T12724).
   await accessor.transaction(async (tx) => {
-    for (const task of transformed) await tx.insertNewTask(task);
+    // Imported rows existed before: their uid comes from the deterministic
+    // recipe (their own key and birth), never an import-time v7 (T12806).
+    for (const task of transformed) {
+      await tx.insertNewTask(task, { origin: 'imported' });
+    }
   });
 
   return {

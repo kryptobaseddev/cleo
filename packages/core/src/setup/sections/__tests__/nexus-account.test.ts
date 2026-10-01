@@ -6,8 +6,11 @@
  * @task T12712
  */
 
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { NexusLoginResult } from '@cleocode/contracts';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { loginToNexus } from '../../../cloud/nexus-auth.js';
 import { createBuiltinSections } from '../../index.js';
 import { StubWizardIO } from '../../wizard.js';
@@ -35,6 +38,28 @@ function stubLogin() {
     return RESULT;
   });
 }
+
+// These tests cover the 9.24 session path: pin device credentials off and
+// sandbox CLEO_HOME so no test reads the real nexus-device.json (T12904).
+let savedDeviceFlag: string | undefined;
+let savedCleoHome: string | undefined;
+let pinnedHome: string;
+beforeEach(() => {
+  savedDeviceFlag = process.env['CLEO_NEXUS_DEVICE'];
+  savedCleoHome = process.env['CLEO_HOME'];
+  process.env['CLEO_NEXUS_DEVICE'] = '0';
+  // Status and logout read nexus-device.json whatever the switch says: point
+  // CLEO_HOME at an empty sandbox so no test ever reads the real one.
+  pinnedHome = mkdtempSync(join(tmpdir(), 'cleo-home-pin-'));
+  process.env['CLEO_HOME'] = pinnedHome;
+});
+afterEach(() => {
+  if (savedDeviceFlag === undefined) delete process.env['CLEO_NEXUS_DEVICE'];
+  else process.env['CLEO_NEXUS_DEVICE'] = savedDeviceFlag;
+  if (savedCleoHome === undefined) delete process.env['CLEO_HOME'];
+  else process.env['CLEO_HOME'] = savedCleoHome;
+  rmSync(pinnedHome, { recursive: true, force: true });
+});
 
 describe('nexus-account setup section', () => {
   it('is registered as an optional built-in section', () => {

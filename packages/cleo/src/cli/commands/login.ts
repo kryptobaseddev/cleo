@@ -500,6 +500,16 @@ export const LOGIN_ARGS = {
       'Open the verification URL in a browser (nexus). --no-browser only prints it (SSH, containers).',
     default: true,
   },
+  'read-only': {
+    type: 'boolean',
+    description:
+      'nexus: enrol this machine with the read-only device profile (account, devices and project reads only). Refused with CLEO_NEXUS_DEVICE=0.',
+  },
+  name: {
+    type: 'string',
+    description:
+      'nexus: device name shown on cleocode.dev (default: OS, arch and a short id; never the hostname). Ignored with CLEO_NEXUS_DEVICE=0.',
+  },
   auth: {
     type: 'string',
     description:

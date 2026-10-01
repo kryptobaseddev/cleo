@@ -68,6 +68,15 @@ export enum ExitCode {
    * holder. @task T12506
    */
   WORKTREE_LOCKED = 25,
+  /**
+   * A guarded write (`--if-match`, or a claim holder's write) named a display
+   * id the task no longer carries: sync re-numbered it after a display-id
+   * collision (T12341), and the id now names another task or none. Writing
+   * would hit the wrong task, so the write refuses. LAFS code
+   * `E_TASK_RENAMED`; the details carry the task's current id
+   * (`details.expected`). @task T12800
+   */
+  TASK_RENAMED = 26,
 
   // === SESSION ERRORS (30-39) ===
   SESSION_EXISTS = 30,

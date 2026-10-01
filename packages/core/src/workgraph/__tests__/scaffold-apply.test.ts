@@ -289,6 +289,24 @@ describe('WorkGraph scaffold apply engine', () => {
   // AC2 — idempotency prevents duplicates
   // -----------------------------------------------------------------------
 
+  describe('T12886 — dependency-cycle guard', () => {
+    it('rolls back and names the cycle when an edge closes one with stored edges', async () => {
+      const { applyWorkGraphScaffold } = await import('../scaffold-apply.js');
+      const nodes = [epicNode('CYC-E'), taskNode('CYC-A', 'CYC-E'), taskNode('CYC-B', 'CYC-E')];
+      const first = await applyWorkGraphScaffold(
+        applyParams('CYC-E', nodes, [depEdge('CYC-B', 'CYC-A')]),
+      );
+      expect(first.applied).toBe(true);
+
+      const second = await applyWorkGraphScaffold(
+        applyParams('CYC-E', nodes, [depEdge('CYC-A', 'CYC-B')]),
+      );
+      expect(second.applied).toBe(false);
+      const issue = second.issues.find((i) => i.message.includes('E_TASK_DEPENDENCY_CYCLE'));
+      expect(issue?.message).toContain('CYC-A → CYC-B → CYC-A');
+    });
+  });
+
   describe('AC2 — idempotency prevents duplicates', () => {
     it('skips nodes that already exist', async () => {
       const { createTask } = await import('../../store/tasks-sqlite.js');

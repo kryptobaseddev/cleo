@@ -67,6 +67,11 @@ import {
   resolveConsolidatedJournalSiblings,
   resolveCorePackageMigrationsFolder,
 } from './resolve-migrations-folder.js';
+import {
+  healRowIdentitySchema,
+  missingRowIdentitySchema,
+  ROW_IDENTITY,
+} from './row-identity.js';
 import { rowUidFillEnabled } from './row-identity-flag.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
 import { captureBracketHooks, syncCaptureOpenPass } from './sync/capture.js';
@@ -601,6 +606,15 @@ function migrateScopeSchema(
 }
 
 /**
+ * Whether this open has row-identity work: the fill (flag on), or identity
+ * schema to heal (T12878). A scope with nothing declared has none.
+ */
+function identityWorkOnOpen(nativeDb: DatabaseSync, scope: DualScope): boolean {
+  if (ROW_IDENTITY[scope].length === 0) return false;
+  return rowUidFillEnabled() || missingRowIdentitySchema(nativeDb).length > 0;
+}
+
+/**
  * Open a DEDICATED, NON-cached consolidated dual-scope `cleo.db` connection
  * (T11782 · FIX D).
  *
@@ -670,10 +684,20 @@ async function openDedicatedDualScopeDb(
         // refuses a trigger that calls an opaque function; the next open fills
         // its rows. The chokepoint writers load lazily (store import cycle).
         execution?.assertActive();
-        if (rowUidFillEnabled()) {
+        // T12878: the identity schema is healed on every open, flag or not
+        // (DDL only); filling values stays opt-in.
+        // The chokepoint writers (the heal receipt, the fill) load lazily.
+        // The writers load only when there is work: the fill (flag on) or a
+        // schema to heal. A healthy store with the flag off, or a scope with
+        // nothing declared (the global store), never loads them, as before
+        // T12878; loading them on every open re-entered the store module graph.
+        if (identityWorkOnOpen(nativeDb, scope)) {
           await import('./sqlite-data-accessor.js');
-          // Uncaptured under sync capture, with its tables marked suspect.
-          prepareRowIdentityUnderCapture(nativeDb, scope, { triggers: false });
+          healRowIdentitySchema(nativeDb, scope);
+          if (rowUidFillEnabled()) {
+            // Uncaptured under sync capture, with its tables marked suspect.
+            prepareRowIdentityUnderCapture(nativeDb, scope, { triggers: false });
+          }
         }
 
         execution?.assertActive();
@@ -974,12 +998,20 @@ export async function openDualScopeDbAtPath(
           // deterministically, inside this lease so two processes never fill at
           // once, and arm this connection's uid triggers. Never throws.
           execution?.assertActive();
-          if (rowUidFillEnabled()) {
-            // The chokepoint writers load lazily: a static import would close
-            // the store import cycle through sqlite.js.
+          // T12878: heal the identity schema on every open, flag or not (DDL
+          // only: tables, graveyard trigger, early-table columns, uid columns
+          // and indexes). A store whose uid migration was journaled without
+          // running (9.25 on live cleocode) gets it here. Never throws.
+          // The chokepoint writers (the heal receipt, the fill) load lazily: a
+          // static import would close the store import cycle through sqlite.js.
+          // The writers load only when there is work (see identityWorkOnOpen).
+          if (identityWorkOnOpen(nativeDb, scope)) {
             await import('./sqlite-data-accessor.js');
-            // A derived rewrite: uncaptured, its tables marked suspect (S2).
-            prepareRowIdentityUnderCapture(nativeDb, scope);
+            healRowIdentitySchema(nativeDb, scope);
+            if (rowUidFillEnabled()) {
+              // A derived rewrite: uncaptured, its tables marked suspect (S2).
+              prepareRowIdentityUnderCapture(nativeDb, scope);
+            }
           }
 
           execution?.assertActive();

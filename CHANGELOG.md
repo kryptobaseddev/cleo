@@ -1,5 +1,43 @@
 # Changelog
 
+## [2026.10.1] (2026-10-01)
+
+### Added
+
+- cleo logout nexus signs this machine's device out (E9) and --revoke revokes it (E10); neither reports success until the server confirms, and unsettled requests are retried by the next logout, login or cloud command _(provenance: [T12870](https://github.com/kryptobaseddev/cleo/search?q=T12870&type=commits), [T12844](https://github.com/kryptobaseddev/cleo/search?q=T12844&type=commits))_
+- cleo cloud status, whoami, devices and projects [show] read Cleo Nexus with the device credential, follow every page, report truncation, and send only GET requests; the §4.0.4 error table now lives in @cleocode/contracts _(provenance: [T12871](https://github.com/kryptobaseddev/cleo/search?q=T12871&type=commits))_
+- the 9.24 auto-upgrade maps E1 401 session-used to E_NEXUS_SESSION_EXPIRED and re-reads nexus-device.json first, reporting already-enrolled when a concurrent upgrade stored the credential; a staging-only CLEO_NEXUS_TEST_BEARER lets cleo login nexus enrol without a browser _(provenance: [T12902](https://github.com/kryptobaseddev/cleo/search?q=T12902&type=commits), [T12903](https://github.com/kryptobaseddev/cleo/search?q=T12903&type=commits))_
+- cleo login nexus enrols this machine as a device by default; CLEO_NEXUS_DEVICE=0 keeps the 9.24 session login. cleo status, cleo auth list and the setup wizard report device logins. _(provenance: [T12904](https://github.com/kryptobaseddev/cleo/search?q=T12904&type=commits))_
+- with a device credential, cleo project link now attaches this machine's copy of the project and reports its presence, so cleocode.dev shows the device holding the project _(provenance: [T12905](https://github.com/kryptobaseddev/cleo/search?q=T12905&type=commits))_
+
+## [2026.9.26] (2026-09-30)
+
+### Added
+
+- a typed, sealed, owner-only store for Nexus device credentials (nexus-device.json), dormant until the device login lands, and never exported in backup bundles _(provenance: [T12867](https://github.com/kryptobaseddev/cleo/search?q=T12867&type=commits))_
+- behind CLEO_NEXUS_DEVICE=1, `cleo login nexus` enrols this machine as a Nexus device and stores only a scoped device credential, and a 9.24 session is upgraded once, automatically _(provenance: [T12868](https://github.com/kryptobaseddev/cleo/search?q=T12868&type=commits))_
+
+### Fixed
+
+- a task dependency edge that closes a cycle is refused on every write path, with an error that names the cycle; `cleo doctor dep-cycles` reports cycles already stored _(provenance: [T12886](https://github.com/kryptobaseddev/cleo/search?q=T12886&type=commits))_
+- every focus read and write resolves the caller's session through one function, so each terminal-bound session keeps its own focus _(provenance: [T12501](https://github.com/kryptobaseddev/cleo/search?q=T12501&type=commits), [T12731](https://github.com/kryptobaseddev/cleo/search?q=T12731&type=commits))_
+- cleo start/stop from a terminal with no bound session is refused with E_SESSION_UNBOUND instead of writing the shared legacy focus key _(provenance: [T12501](https://github.com/kryptobaseddev/cleo/search?q=T12501&type=commits))_
+- session start conflicts only with a session the calling terminal already owns, so a second terminal starts its own session without --agent _(provenance: [T12530](https://github.com/kryptobaseddev/cleo/search?q=T12530&type=commits))_
+- A row received by sync never carries another row's local key; every reference travels as a uid and fingerprint, and a row whose target is missing waits (row uids, opt-in) _(provenance: [T12798](https://github.com/kryptobaseddev/cleo/search?q=T12798&type=commits))_
+- A display-id re-mint's outcome no longer depends on local-only state, and a guarded write to a re-numbered task fails with E_TASK_RENAMED (row uids, opt-in) _(provenance: [T12800](https://github.com/kryptobaseddev/cleo/search?q=T12800&type=commits))_
+- With row uids on, imports and snapshot restores keep a task's row identity and never stamp an import-time uid; with them off, nothing changes _(provenance: [T12806](https://github.com/kryptobaseddev/cleo/search?q=T12806&type=commits))_
+- cleo done --field <pointer> no longer leaks the output pointer into its internal tasks.complete step, which refused completion after every gate was recorded _(provenance: [T12839](https://github.com/kryptobaseddev/cleo/search?q=T12839&type=commits))_
+- cleo verify validates each pr: atom in one evidence write against its own merge commit, so pr:A;pr:B;files:… no longer fails E_EVIDENCE_INSUFFICIENT _(provenance: [T12848](https://github.com/kryptobaseddev/cleo/search?q=T12848&type=commits))_
+- Every project open restores the row-identity tables and columns a stamped uid migration left out, with row uids on or off; no row value changes _(provenance: [T12878](https://github.com/kryptobaseddev/cleo/search?q=T12878&type=commits))_
+
+### Also in this release (merged; task still open for follow-up criteria)
+
+- Harness identity for sessions: known agent harnesses (claude, codex, aider, gemini, kimi, cursor-agent, amp), GitHub Actions and GitLab jobs, and interactive ssh logins each keep one stable session identity across separate shell calls; generic hosts need `CLEO_AGENT_ID` or `CLEO_SESSION_ID` _(T12864)_
+- Received rows are validated before apply (cycle, depth and type-matrix guards; constraint failures held as `invalid`), held rows are released by trigger, and `cleo doctor` counts held rows by reason (row uids, opt-in) _(T12801)_
+- Row-identity Gate B runs in CI on fixture stores; the recipe no longer depends on AC existence at fill time, and HLC values use the journal format with 9.25-format values still readable (row uids, opt-in) _(T12802)_
+- The TLS black-hole System One test asserts the deadline fired instead of a tight wall-clock bound _(T12840)_
+- System One: `jev/default` benchmarked ahead of layahost on duplicate detection (64% accuracy, 0% false positives) and observation typing at about half the latency; see the `system-one-bench-2026-09-30` research doc
+
 ## [2026.9.25] (2026-09-30)
 
 ### Added

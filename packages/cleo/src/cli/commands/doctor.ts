@@ -33,6 +33,7 @@ import { doctorAcBindingsCommand } from './doctor-ac-bindings.js';
 import { doctorAcceptanceDriftCommand } from './doctor-acceptance-drift.js';
 import { doctorCredentialsCommand } from './doctor-credentials.js';
 import { doctorDbSubstrateCommand } from './doctor-db-substrate.js';
+import { doctorDepCyclesCommand } from './doctor-dep-cycles.js';
 import { doctorExodusCommand } from './doctor-exodus.js';
 import { doctorExodusResidueCommand } from './doctor-exodus-residue.js';
 import { doctorFkCheckCommand } from './doctor-fk-check.js';
@@ -285,6 +286,8 @@ export const doctorCommand = defineCommand({
     'acceptance-drift': doctorAcceptanceDriftCommand,
     // T12790 — evidence bindings whose AC row is gone (no FK): report + --fix (audited)
     'ac-bindings': doctorAcBindingsCommand,
+    // T12886 — stored task dependency cycles + repair plan (read-only)
+    'dep-cycles': doctorDepCyclesCommand,
     // T12158 — tables nexus resolves by bare name must actually live where it assumes
     'nexus-residency': doctorNexusResidencyCommand,
     // T12113 (gh#1222) — evidence-tool semaphore holders + orphan reaping
@@ -1138,6 +1141,30 @@ export const doctorCommand = defineCommand({
           // soft warning instead.
           const msg = err instanceof Error ? err.message : String(err);
           humanLine(`\nSaga Hierarchy: audit skipped (${msg})`);
+        }
+
+        // T12886 — stored dependency cycles (read-only). New cycles are
+        // refused by the cycle-guard triggers; this surfaces older ones with
+        // the edges to remove. A cycle raises the exit code to 2.
+        try {
+          const { scanDependencyCycles } = await import(
+            '@cleocode/core/doctor/dependency-cycles.js'
+          );
+          const cycles = await scanDependencyCycles(getProjectRoot());
+          humanLine(
+            `\nDependency cycles: ${cycles.cycleCount} (${cycles.edgeCount} edge(s) checked)`,
+          );
+          for (const c of cycles.components) humanLine(`  ${c.cycle.join(' → ')}`);
+          if (cycles.repairPlan.length > 0) {
+            humanLine('  Repair plan (review first; `cleo doctor dep-cycles` for JSON):');
+            for (const r of cycles.repairPlan) humanLine(`    ${r.command}`);
+          }
+          if (cycles.cycleCount > 0 && (process.exitCode === undefined || process.exitCode === 0)) {
+            process.exitCode = 2;
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          humanLine(`\nDependency cycles: check skipped (${msg})`);
         }
       }
     } catch (err) {

@@ -142,10 +142,14 @@ describe('path and switch', () => {
     expect(nexusCredentialsPath()).toBe(join(getCleoHome(), 'nexus-credentials.json'));
   });
 
-  it('is on only for CLEO_NEXUS_DEVICE=1', () => {
-    expect(isNexusDeviceEnabled({})).toBe(false);
-    expect(isNexusDeviceEnabled({ [NEXUS_DEVICE_ENV]: 'true' })).toBe(false);
+  it('is on by default and off only for CLEO_NEXUS_DEVICE=0 (T12904)', () => {
+    expect(isNexusDeviceEnabled({})).toBe(true);
+    expect(isNexusDeviceEnabled({ [NEXUS_DEVICE_ENV]: 'true' })).toBe(true);
     expect(isNexusDeviceEnabled({ [NEXUS_DEVICE_ENV]: '1' })).toBe(true);
+    expect(isNexusDeviceEnabled({ [NEXUS_DEVICE_ENV]: '0' })).toBe(false);
+    for (const off of ['false', 'OFF', ' no ', 'False']) {
+      expect(isNexusDeviceEnabled({ [NEXUS_DEVICE_ENV]: off })).toBe(false);
+    }
   });
 });
 

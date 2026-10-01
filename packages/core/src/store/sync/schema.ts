@@ -3,9 +3,12 @@
  *
  * The DDL lives in `packages/core/migrations/sync-journal/<folder>/migration.sql`,
  * one folder per migration, like the drizzle lineages. It is NOT a drizzle
- * lineage: it runs only when a `sync.*` flag is first enabled on a store
- * ({@link ensureSyncSchema}), so a store with every flag off (the default)
- * never gains a table or a journal row. Applied folders are recorded in
+ * lineage: it runs when a `sync.*` flag is first enabled on a store, or when
+ * `cleo project link` binds the project store to a replica
+ * (`ensureProjectReplica`, device contract §3.7) with every flag still off
+ * ({@link ensureSyncSchema}). A store that is neither synced nor linked never
+ * gains a table or a journal row. (Do not edit migration.sql comments: their
+ * hash is recorded per store.) Applied folders are recorded in
  * `_sync_meta` under `schema:<folder>` with the sha256 of the folder's SQL,
  * never in `__drizzle_migrations`. A folder whose SQL changed after it was
  * applied is refused with {@link SyncSchemaHashDriftError}, never skipped.

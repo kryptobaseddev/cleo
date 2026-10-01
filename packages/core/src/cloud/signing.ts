@@ -242,3 +242,33 @@ export function deviceGrantMessage(parts: {
     parts.signerDeviceId,
   );
 }
+
+/**
+ * The bytes a device signs (Ed25519, with its signing key) to enrol through E1
+ * (cleo-nexus device contract §2.4, §4.1): the proof of possession of the
+ * signing private key. It binds the user, the device, both public keys and the
+ * profile, so a proof cannot be moved to another account, device or profile.
+ * Mirrors cleo-nexus `packages/shared/src/signing.ts`.
+ *
+ * @param parts - The enrolment fields; public keys as lowercase hex of the raw 32 bytes.
+ * @returns `cleo-nexus/device-enroll/v1\nuserId\ndeviceId\nencHex\nsigHex\nprofile` as UTF-8.
+ * @task T12868
+ */
+export function deviceEnrollmentMessage(parts: {
+  userId: string;
+  deviceId: string;
+  /** Hex of the raw 32-byte X25519 public key. */
+  encryptionPublicKeyHex: string;
+  /** Hex of the raw 32-byte Ed25519 public key. */
+  signingPublicKeyHex: string;
+  profile: 'device' | 'read-only';
+}): Uint8Array {
+  return lines(
+    'cleo-nexus/device-enroll/v1',
+    parts.userId,
+    parts.deviceId,
+    parts.encryptionPublicKeyHex,
+    parts.signingPublicKeyHex,
+    parts.profile,
+  );
+}

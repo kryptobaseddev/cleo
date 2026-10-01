@@ -71,8 +71,17 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite';
-import { ExitCode, type RowIdentitySpec, type TaskClaimGuard } from '@cleocode/contracts';
+import {
+  type CleoConfig,
+  ExitCode,
+  type RowIdentitySpec,
+  type TaskClaimGuard,
+} from '@cleocode/contracts';
+import type { Hlc as HlcWire } from '@cleocode/contracts/cloud';
+import { getTableColumns } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
+import { exceedsMaxDepth } from '../tasks/hierarchy.js';
+import { resolveHierarchyPolicy } from '../tasks/hierarchy-policy.js';
 import {
   AC_UID_GRAVEYARD,
   BIRTH_FP_COLUMN,
@@ -81,7 +90,6 @@ import {
   mintRowUid,
   naturalRowUid,
   ROW_IDENTITY,
-  ROW_IDENTITY_META_TABLE,
   registerRowUidFunction,
   rekeyedChildUid,
   rowIdentitySpec,
@@ -90,9 +98,9 @@ import {
 import {
   advanceTaskIdSequence,
   clearRowUidNative,
+  type DisplayIdAliasRow,
   deleteDisplayIdAliasNative,
   deleteQuarantineNative,
-  deleteRowIdentityMetaNative,
   insertDisplayIdAliasNative,
   insertIdentityRowNative,
   insertQuarantineNative,
@@ -104,8 +112,10 @@ import {
   setNaturalUidNative,
   setRowUidNative,
   type TaskReferenceColumn,
-  writeRowIdentityMetaNative,
 } from './sqlite-data-accessor.js';
+import { compareHlc as compareSyncHlc, encodeHlc, type Hlc, parseHlc } from './sync/hlc.js';
+import { tasks as tasksTable } from './tasks-schema.js';
+import { insertTaskSchema } from './validation-schemas.js';
 
 /** Physical name of the display-id alias table. */
 export const DISPLAY_ID_ALIAS_TABLE = 'tasks_display_id_aliases';
@@ -120,61 +130,90 @@ export const QUARANTINE_TABLE = 'tasks_identity_quarantine';
 export type DisplayIdAliasReason =
   | 'collision-remint'
   | 'superseded-remint'
+  /** The display id a re-mint op assigned (the portable re-mint record, T12800). */
+  | 'remint-assigned'
   | 'split-brain-import'
   | 'manual';
 
 // ---- HLC -------------------------------------------------------------------
+//
+// HLC values are the change journal's (T12342): the wire string `Hlc` in
+// `@cleocode/contracts` (`PPPPPPPPPPPPP-CCCCCC-<replica uuid>`), decoded and
+// ordered by `store/sync/hlc.ts`. String order is HLC order.
 
 /**
- * A hybrid logical clock value (T12342 owns the clock; this module needs only
- * its total order and its physical time). Encoded as
- * `<physical ms, 15 digits>.<counter, 6 digits>.<node>` so that string order
- * is HLC order.
- */
-export interface Hlc {
-  readonly physicalMs: number;
-  readonly counter: number;
-  readonly node: string;
-}
-
-const HLC_RE = /^(\d{15})\.(\d{6})\.(.+)$/;
-
-/**
- * Encode an HLC value.
- *
- * @param hlc - The value.
- * @returns Its sortable string form.
- */
-export function encodeHlc(hlc: Hlc): string {
-  return `${String(hlc.physicalMs).padStart(15, '0')}.${String(hlc.counter).padStart(6, '0')}.${hlc.node}`;
-}
-
-/**
- * Parse an encoded HLC value.
- *
- * @param value - Encoded HLC.
- * @returns The value.
- * @throws Error when the value is not an encoded HLC.
- */
-export function parseHlc(value: string): Hlc {
-  const m = HLC_RE.exec(value);
-  if (!m) throw new Error(`not an HLC value: ${value}`);
-  return { physicalMs: Number(m[1]), counter: Number(m[2]), node: m[3] as string };
-}
-
-/**
- * Total order of two encoded HLC values.
+ * Total order of two encoded HLC values (`Hlc` wire strings).
  *
  * @param a - One value.
  * @param b - The other.
  * @returns Negative, zero or positive.
+ * @throws HlcError when a value is not an encoded HLC.
  */
-export function compareHlc(a: string, b: string): number {
-  const x = parseHlc(a);
-  const y = parseHlc(b);
-  if (x.physicalMs !== y.physicalMs) return x.physicalMs < y.physicalMs ? -1 : 1;
-  if (x.counter !== y.counter) return x.counter < y.counter ? -1 : 1;
-  return x.node < y.node ? -1 : x.node > y.node ? 1 : 0;
+export function compareHlc(a: HlcWire, b: HlcWire): number {
+  return compareSyncHlc(storedHlc(a), storedHlc(b));
+}
+
+/** Physical milliseconds of an encoded HLC. */
+function hlcMs(value: HlcWire): number {
+  return storedHlc(value).phys;
+}
+
+/** The format 9.25 wrote with the uid flag on: `<ms 15>.<counter 6>.<node>`. */
+const LEGACY_HLC_RE = /^(\d{15})\.(\d{6})\.(.+)$/;
+
+/**
+ * Decode an HLC this module stored. The journal format is the only one
+ * written; a value in the 9.25 format (written only with
+ * `CLEO_ROW_UID_FILL=1`) is still read, ordered by the same
+ * `(physical, counter, node)` tuple, so an old alias never breaks a re-mint.
+ *
+ * @throws HlcError when the value is in neither format.
+ */
+function storedHlc(value: HlcWire): Hlc {
+  const legacy = LEGACY_HLC_RE.exec(value);
+  if (legacy) {
+    return { phys: Number(legacy[1]), ctr: Number(legacy[2]), replica: legacy[3] as string };
+  }
+  return parseHlc(value);
+}
+
+/**
+ * Whether an incoming alias row ranks before the stored one of the same uid
+ * (T12800): the least displacement HLC by HLC order (a missing one ranks
+ * last), then origin, then `created_at`. The same on every replica.
+ */
+function aliasPrecedes(incoming: DisplayIdAliasRow, stored: DisplayIdAliasRow): boolean {
+  const a = incoming.displacedHlc;
+  const b = stored.displacedHlc;
+  if (a !== null && b === null) return true;
+  if (a === null && b !== null) return false;
+  if (a !== null && b !== null) {
+    const order = compareHlc(a as HlcWire, b as HlcWire);
+    if (order !== 0) return order < 0;
+  }
+  const ao = incoming.origin ?? '';
+  const bo = stored.origin ?? '';
+  if (ao !== bo) return ao < bo;
+  return incoming.createdAt < stored.createdAt;
+}
+
+/** The replica id a pre-HLC value carries: none issued it. */
+export const PRE_HLC_REPLICA = '00000000-0000-0000-0000-000000000000';
+
+/**
+ * The collision HLC of two rows that have no creation HLC (written before the
+ * change journal, T12342): the later of their two BIRTHS, at counter 0, from
+ * no replica ({@link PRE_HLC_REPLICA}). Every replica derives the same value
+ * from the rows' synced births; it only anchors the authority schedule
+ * ({@link remintAuthority}), never a clock (HLC never reads a uid's time).
+ *
+ * @param birthMsA - One row's birth, epoch ms.
+ * @param birthMsB - The other's.
+ * @returns An encoded HLC.
+ * @task T12802
+ */
+export function collisionHlcFromBirths(birthMsA: number, birthMsB: number): HlcWire {
+  return encodeHlc({ phys: Math.max(birthMsA, birthMsB, 0), ctr: 0, replica: PRE_HLC_REPLICA });
 }
 
 // ---- Shared helpers ---------------------------------------------------------
@@ -211,14 +250,6 @@ function inSavepoint<T>(db: DatabaseSync, name: string, fn: () => T): T {
     db.exec(`RELEASE SAVEPOINT ${sp}`);
     throw error;
   }
-}
-
-/** A row-identity meta value. */
-function readMeta(db: DatabaseSync, key: string): string | undefined {
-  const row = db
-    .prepare(`SELECT value FROM main.${q(ROW_IDENTITY_META_TABLE)} WHERE key = ?`)
-    .get(key) as { value: string } | undefined;
-  return row?.value;
 }
 
 /** The local row of a minted table with this uid AND birth fingerprint. */
@@ -305,10 +336,7 @@ export function remintAuthority(input: RemintAuthorityInput): {
 } {
   if (input.cloudSynced) return { authority: 'server', reason: 'server', slot: 0 };
   const window = input.takeoverAfterMs ?? REMINT_TAKEOVER_MS;
-  const elapsed = Math.max(
-    0,
-    parseHlc(input.atHlc).physicalMs - parseHlc(input.collisionHlc).physicalMs,
-  );
+  const elapsed = Math.max(0, hlcMs(input.atHlc) - hlcMs(input.collisionHlc));
   const active = input.replicas
     .filter(
       (r) =>
@@ -361,21 +389,41 @@ export function recordDisplayIdAlias(
     readonly reason: DisplayIdAliasReason;
   },
 ): void {
-  insertDisplayIdAliasNative(db, {
-    uid: naturalRowUid('project', DISPLAY_ID_ALIAS_TABLE, [
-      entry.table,
-      entry.displayId,
-      entry.entityUid,
-    ]),
-    entityTable: entry.table,
-    displayId: entry.displayId,
-    entityUid: entry.entityUid,
-    entityBirthFp: entry.entityBirthFp,
-    reason: entry.reason,
-    origin: entry.origin ?? null,
-    displacedHlc: entry.displacedHlc ?? null,
-    createdAt: entry.now ?? new Date().toISOString(),
-  });
+  insertDisplayIdAliasNative(
+    db,
+    {
+      // The reason is part of the key (T12800 review): a `remint-assigned` and a
+      // `collision-remint` alias of one (id, row) are two facts, and neither may
+      // win an insert race and drop the other.
+      uid: naturalRowUid('project', DISPLAY_ID_ALIAS_TABLE, [
+        entry.table,
+        entry.displayId,
+        entry.entityUid,
+        entry.reason,
+      ]),
+      entityTable: entry.table,
+      displayId: entry.displayId,
+      entityUid: entry.entityUid,
+      entityBirthFp: entry.entityBirthFp,
+      reason: entry.reason,
+      origin: entry.origin ?? null,
+      displacedHlc: entry.displacedHlc ?? null,
+      // Derived from the displacement's HLC when there is one, so every replica
+      // that records this displacement writes the same row (T12800).
+      createdAt: entry.now ?? hlcTime(entry.displacedHlc) ?? new Date().toISOString(),
+    },
+    aliasPrecedes,
+  );
+}
+
+/** Wall-clock time of an encoded HLC, or `undefined` when there is none. */
+function hlcTime(hlc: string | null | undefined): string | undefined {
+  if (!hlc) return undefined;
+  try {
+    return new Date(storedHlc(hlc as HlcWire).phys).toISOString();
+  } catch {
+    return undefined;
+  }
 }
 
 /** A row that carries, or carried, a display id. */
@@ -444,6 +492,9 @@ export function resolveDisplayId(
     }[]
   )
     .filter((a) => a.uid !== live?.uid)
+    // One claimant per row: several reasons (collision-remint, remint-assigned)
+    // of one id and row are one history entry here.
+    .filter((a, i, all) => all.findIndex((b) => b.uid === a.uid) === i)
     .map((a) => ({ ...a, via: 'alias' as const }));
   if (live) {
     return {
@@ -544,28 +595,42 @@ export interface RemintReceipt extends RemintOp {
   readonly released: readonly HeldRowKey[];
 }
 
-/** The applied re-mint record of a row (meta key → JSON). */
+/**
+ * The winning re-mint of a row: the op with the greatest HLC. It is DERIVED
+ * from the row's `remint-assigned` display aliases, which are portable (they
+ * sync with the row), so a replica that lost local state, or never had it,
+ * reaches the same answer (T12800).
+ */
 interface RemintRecord {
   readonly newId: string;
   readonly hlc: string;
   readonly origin: string | null;
 }
 
-function remintKey(uid: string, birthFp: string): string {
-  return `remint:tasks_tasks:${uid}:${birthFp}`;
-}
-
 function readRemint(db: DatabaseSync, uid: string, birthFp: string): RemintRecord | undefined {
-  const raw = readMeta(db, remintKey(uid, birthFp));
-  return raw === undefined ? undefined : (JSON.parse(raw) as RemintRecord);
+  const rows = db
+    .prepare(
+      `SELECT display_id AS newId, displaced_hlc AS hlc, origin FROM ${DISPLAY_ID_ALIAS_TABLE}
+        WHERE entity_table = 'tasks_tasks' AND entity_uid = ? AND entity_birth_fp = ?
+          AND reason = 'remint-assigned' AND displaced_hlc IS NOT NULL`,
+    )
+    .all(uid, birthFp) as unknown as RemintRecord[];
+  let best: RemintRecord | undefined;
+  for (const r of rows) if (!best || compareHlc(r.hlc, best.hlc) > 0) best = r;
+  return best;
 }
 
+/** Record the display id an op assigned (every op, winner or not: its number stays an alias). */
 function writeRemint(db: DatabaseSync, op: RemintOp): void {
-  writeRowIdentityMetaNative(
-    db,
-    remintKey(op.uid, op.birthFp),
-    JSON.stringify({ newId: op.newId, hlc: op.hlc, origin: op.origin } satisfies RemintRecord),
-  );
+  recordDisplayIdAlias(db, {
+    table: 'tasks_tasks',
+    displayId: op.newId,
+    entityUid: op.uid,
+    entityBirthFp: op.birthFp,
+    reason: 'remint-assigned',
+    origin: op.origin,
+    displacedHlc: op.hlc,
+  });
 }
 
 /**
@@ -627,7 +692,11 @@ export function remintTaskDisplayId(
     });
     const op: RemintOp = { uid, birthFp, oldId, newId, origin: options.origin, hlc: options.hlc };
     writeRemint(db, op);
-    return { ...op, rewritten, released: releaseHeldRows(db) };
+    const released = releaseHeldRows(db, [
+      { table: 'tasks_tasks', key: taskId },
+      { table: 'tasks_tasks', key: oldId },
+    ]);
+    return { ...op, rewritten, released };
   });
 }
 
@@ -674,7 +743,7 @@ export function applyRemintOp(db: DatabaseSync, op: RemintOp): ApplyRemintResult
     if (order < 0) {
       inSavepoint(db, 'remint_superseded', () => {
         alias(op.oldId, 'collision-remint');
-        if (op.newId !== prior.newId) alias(op.newId, 'superseded-remint');
+        writeRemint(db, op);
       });
       return { status: 'superseded', winner: prior };
     }
@@ -688,14 +757,23 @@ export function applyRemintOp(db: DatabaseSync, op: RemintOp): ApplyRemintResult
   }
   return inSavepoint(db, 'remint_apply', (): ApplyRemintResult => {
     alias(op.oldId, 'collision-remint');
-    if (prior && prior.newId !== op.newId) alias(prior.newId, 'superseded-remint');
     writeRemint(db, op);
-    if (!live) return { status: 'recorded', released: releaseHeldRows(db) };
+    if (!live) {
+      const held = { entityTable: 'tasks_tasks', uid: op.uid, birthFp: op.birthFp };
+      return {
+        status: 'recorded',
+        released: releaseHeldRows(db, [{ table: 'tasks_tasks', held }]),
+      };
+    }
     if (live.key === op.newId) return { status: 'already-applied' };
     const { rewritten } = renameTaskDisplayIdNative(db, op.uid, op.newId, taskReferenceColumns(db));
     return {
       status: 'applied',
-      receipt: { ...op, rewritten, released: releaseHeldRows(db) },
+      receipt: {
+        ...op,
+        rewritten,
+        released: releaseHeldRows(db, [{ table: 'tasks_tasks', key: live.key }]),
+      },
     };
   });
 }
@@ -925,18 +1003,33 @@ function hold(
 ): void {
   const key: HeldRowKey = { entityTable: wire.table, uid: wire.uid, birthFp: wire.birthFp ?? '' };
   const was = previous ?? key;
+  const rowJson = JSON.stringify(wire);
   const first = db
     .prepare(
-      `SELECT created_at AS createdAt FROM ${QUARANTINE_TABLE}
-        WHERE entity_table = ? AND uid = ? AND birth_fp = ?`,
+      `SELECT created_at AS createdAt, reason, contested_id AS contestedId, row_json AS rowJson
+         FROM ${QUARANTINE_TABLE} WHERE entity_table = ? AND uid = ? AND birth_fp = ?`,
     )
-    .get(was.entityTable, was.uid, was.birthFp) as { createdAt: string } | undefined;
+    .get(was.entityTable, was.uid, was.birthFp) as
+    | { createdAt: string; reason: string; contestedId: string | null; rowJson: string }
+    | undefined;
+  // A still-held row that is held for the same reason is never rewritten (T12801).
+  if (
+    first &&
+    was.entityTable === key.entityTable &&
+    was.uid === key.uid &&
+    was.birthFp === key.birthFp &&
+    first.reason === reason &&
+    first.contestedId === contestedId &&
+    first.rowJson === rowJson
+  ) {
+    return;
+  }
   if (previous) deleteQuarantineNative(db, previous);
   insertQuarantineNative(db, {
     ...key,
     reason,
     contestedId,
-    rowJson: JSON.stringify(wire),
+    rowJson,
     receivedHlc: null,
     createdAt: first?.createdAt ?? new Date().toISOString(),
   });
@@ -1078,6 +1171,41 @@ function placeRow(db: DatabaseSync, incoming: WireRow, heldAs?: HeldRowKey): Rec
       };
     }
   }
+  if (wire.table === DISPLAY_ID_ALIAS_TABLE || wire.table === UID_ALIAS_TABLE) {
+    // An alias row's uid IS its primary key, computed on write from its key
+    // values (none is a reference): derive it the same way here (T12800).
+    const uid = naturalRowUid(
+      'project',
+      wire.table,
+      spec.key.map((k) => (values[k] ?? null) as string | null),
+    );
+    const existed =
+      db.prepare(`SELECT 1 AS x FROM main.${q(wire.table)} WHERE ${q(UID_COLUMN)} = ?`).get(uid) !==
+      undefined;
+    if (wire.table === DISPLAY_ID_ALIAS_TABLE) {
+      // The order-independent upsert: whichever copy arrives first, every
+      // replica keeps the same row.
+      insertDisplayIdAliasNative(
+        db,
+        {
+          uid,
+          entityTable: String(values['entity_table']),
+          displayId: String(values['display_id']),
+          entityUid: String(values['entity_uid']),
+          entityBirthFp: (values['entity_birth_fp'] as string | null) ?? null,
+          reason: String(values['reason']),
+          origin: (values['origin'] as string | null) ?? null,
+          displacedHlc: (values['displaced_hlc'] as string | null) ?? null,
+          createdAt: String(values['created_at']),
+        },
+        aliasPrecedes,
+      );
+    } else if (!existed) {
+      insertIdentityRowNative(db, wire.table, { ...values, [UID_COLUMN]: uid });
+    }
+    done();
+    return existed ? { status: 'duplicate', uid } : { status: 'inserted', key: uid, uid };
+  }
   if (!minted) {
     const existing = db
       .prepare(
@@ -1106,16 +1234,35 @@ function placeRow(db: DatabaseSync, incoming: WireRow, heldAs?: HeldRowKey): Rec
       return { status: 'held', reason: 'key-collision' };
     }
   }
-  if (minted) {
-    insertIdentityRowNative(db, wire.table, {
-      ...values,
-      [UID_COLUMN]: wire.uid,
-      [BIRTH_FP_COLUMN]: wire.birthFp,
+  // Validate like a local writer would (T12801): a received row is data from
+  // another device, never trusted to satisfy this store's invariants.
+  const invalid = validateReceived(db, wire.table, values);
+  if (invalid) {
+    hold(db, wire, 'invalid', invalid, heldAs);
+    return { status: 'held', reason: 'invalid' };
+  }
+  try {
+    inSavepoint(db, 'receive_insert', () => {
+      if (minted) {
+        insertIdentityRowNative(db, wire.table, {
+          ...values,
+          [UID_COLUMN]: wire.uid,
+          [BIRTH_FP_COLUMN]: wire.birthFp,
+        });
+      } else {
+        // A natural uid is a pure function of its endpoints: derive it here.
+        insertIdentityRowNative(db, wire.table, { ...values, [UID_COLUMN]: null });
+        fillTableUids(db, 'project', wire.table);
+      }
     });
-  } else {
-    // A natural uid is a pure function of its endpoints: derive it here.
-    insertIdentityRowNative(db, wire.table, { ...values, [UID_COLUMN]: null });
-    fillTableUids(db, 'project', wire.table);
+  } catch (error) {
+    // The store's own guards refused it (hierarchy cycle and type-matrix
+    // triggers, CHECK and NOT NULL constraints): hold it, never throw the
+    // merge away, never insert it.
+    if (!isConstraintError(error)) throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    hold(db, wire, 'invalid', message.slice(0, 200), heldAs);
+    return { status: 'held', reason: 'invalid' };
   }
   done();
   const key = rowidKey
@@ -1147,31 +1294,156 @@ function rowidKeyOf(db: DatabaseSync, table: string): string | undefined {
   return pk.length === 1 && only && only.type.toUpperCase() === 'INTEGER' ? only.name : undefined;
 }
 
+/** What may unblock held rows: a placed or re-keyed row, a freed key, or one held row. */
+interface ReleaseTrigger {
+  readonly table: string;
+  /** A row with this uid exists now (or an alias now leads to it). */
+  readonly uid?: string;
+  /** This local key / display id is taken or freed now. */
+  readonly key?: string;
+  /** Re-try exactly this held row (its own op or re-key arrived). */
+  readonly held?: HeldRowKey;
+}
+
+type HeldRecord = HeldRowKey & { rowJson: string };
+
+/** Held rows a trigger may unblock (indexed lookups and a JSON text match, never a full retry). */
+function candidatesFor(db: DatabaseSync, t: ReleaseTrigger): HeldRecord[] {
+  const cols = `entity_table AS entityTable, uid, birth_fp AS birthFp, row_json AS rowJson`;
+  const out: HeldRecord[] = [];
+  if (t.held) {
+    const row = db
+      .prepare(
+        `SELECT ${cols} FROM ${QUARANTINE_TABLE} WHERE entity_table = ? AND uid = ? AND birth_fp = ?`,
+      )
+      .get(t.held.entityTable, t.held.uid, t.held.birthFp) as HeldRecord | undefined;
+    if (row) out.push(row);
+  }
+  if (t.key !== undefined) {
+    out.push(
+      ...(db
+        .prepare(
+          `SELECT ${cols} FROM ${QUARANTINE_TABLE} WHERE entity_table = ? AND contested_id = ?
+            ORDER BY created_at, uid`,
+        )
+        .all(t.table, t.key) as unknown as HeldRecord[]),
+    );
+  }
+  if (t.uid !== undefined) {
+    // Rows waiting on a reference to this uid carry it in their wire form,
+    // either as this uid or as an old uid a re-key led here.
+    const uids = new Set([t.uid]);
+    for (let frontier = [t.uid]; frontier.length > 0; ) {
+      const older = db
+        .prepare(
+          `SELECT old_uid AS uid FROM ${UID_ALIAS_TABLE}
+            WHERE entity_table = ? AND new_uid IN (${frontier.map(() => '?').join(', ')})`,
+        )
+        .all(t.table, ...frontier) as { uid: string }[];
+      frontier = older.map((r) => r.uid).filter((u) => !uids.has(u));
+      for (const u of frontier) uids.add(u);
+    }
+    const find = db.prepare(
+      `SELECT ${cols} FROM ${QUARANTINE_TABLE} WHERE instr(row_json, ?) > 0 AND uid <> ?
+        ORDER BY created_at, uid`,
+    );
+    for (const uid of uids) {
+      out.push(...(find.all(`"${uid}"`, t.uid) as unknown as HeldRecord[]));
+    }
+  }
+  return out;
+}
+
 /**
- * Re-try every held row until none moves: a placement can unblock others
- * (a released owner unblocks its children).
+ * Re-try the held rows the triggers may unblock, then the rows each placement
+ * unblocks in turn (a placed owner unblocks its children). A held row is only
+ * re-tried when something it may wait on changed, and a row still held for
+ * the same reason is not rewritten (T12801: no full re-scan per receive).
+ * `'all'` re-tries every held row once (explicit {@link releaseHeld}).
  */
-function releaseHeldRows(db: DatabaseSync): HeldRowKey[] {
+function releaseHeldRows(
+  db: DatabaseSync,
+  triggers: readonly ReleaseTrigger[] | 'all',
+): HeldRowKey[] {
   const released: HeldRowKey[] = [];
-  for (let round = 0; round < 64; round++) {
+  const work: ReleaseTrigger[] = [];
+  const attempt = (h: HeldRecord) => {
+    const key = { entityTable: h.entityTable, uid: h.uid, birthFp: h.birthFp };
+    const result = placeRow(db, JSON.parse(h.rowJson) as WireRow, key);
+    if (result.status === 'held') return;
+    released.push(key);
+    if (result.status === 'inserted') {
+      work.push({ table: h.entityTable, uid: result.uid, key: result.key });
+    }
+  };
+  if (triggers === 'all') {
     const held = db
       .prepare(
         `SELECT entity_table AS entityTable, uid, birth_fp AS birthFp, row_json AS rowJson
            FROM ${QUARANTINE_TABLE} ORDER BY created_at, entity_table, uid`,
       )
-      .all() as unknown as Array<HeldRowKey & { rowJson: string }>;
-    let moved = false;
-    for (const h of held) {
-      const key = { entityTable: h.entityTable, uid: h.uid, birthFp: h.birthFp };
-      const result = placeRow(db, JSON.parse(h.rowJson) as WireRow, key);
-      if (result.status !== 'held') {
-        released.push(key);
-        moved = true;
-      }
+      .all() as unknown as HeldRecord[];
+    for (const h of held) attempt(h);
+  } else {
+    work.push(...triggers);
+  }
+  for (let next = work.shift(); next !== undefined; next = work.shift()) {
+    const seen = new Set<string>();
+    for (const h of candidatesFor(db, next)) {
+      const id = `${h.entityTable}\u0000${h.uid}\u0000${h.birthFp}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      attempt(h);
     }
-    if (!moved) break;
   }
   return released;
+}
+
+/** Release triggers of a re-key receipt: its moved rows and the uids they left and took. */
+function rekeyTriggers(receipt: RekeyReceipt): ReleaseTrigger[] {
+  const out: ReleaseTrigger[] = [
+    { table: receipt.table, uid: receipt.oldUid },
+    { table: receipt.table, uid: receipt.newUid },
+    {
+      table: receipt.table,
+      held: { entityTable: receipt.table, uid: receipt.newUid, birthFp: receipt.birthFp },
+    },
+  ];
+  for (const child of receipt.cascaded) out.push(...rekeyTriggers(child));
+  return out;
+}
+
+/** The project policy a received row is validated against (T12801). */
+export interface ReceivePolicy {
+  /** The resolved `hierarchy.maxDepth` (config, `CLEO_HIERARCHY_MAX_DEPTH`, or the profile). */
+  readonly maxDepth: number;
+}
+
+/** The policy each connection receives under; set by {@link receiveRow}'s `policy`. */
+const receivePolicies = new WeakMap<DatabaseSync, ReceivePolicy>();
+
+/**
+ * Resolve the receive policy of a project from its configuration, exactly as
+ * a local task write does (`resolveHierarchyPolicy(loadConfig())`, so
+ * `hierarchy.maxDepth` and `CLEO_HIERARCHY_MAX_DEPTH` apply). The merge engine
+ * resolves it once per merge and passes it to {@link receiveRow}.
+ *
+ * @param cwd - Project root.
+ * @returns The policy.
+ */
+export async function loadReceivePolicy(cwd?: string): Promise<ReceivePolicy> {
+  // Loaded lazily: config.js is outside the store module graph.
+  const { loadConfig } = await import('../config.js');
+  return { maxDepth: resolveHierarchyPolicy(await loadConfig(cwd)).maxDepth };
+}
+
+/** The policy in force on `db`: the last one passed, else the default profile's. */
+function receivePolicyOf(db: DatabaseSync): ReceivePolicy {
+  return (
+    receivePolicies.get(db) ?? {
+      maxDepth: resolveHierarchyPolicy({} as CleoConfig).maxDepth,
+    }
+  );
 }
 
 /**
@@ -1181,17 +1453,93 @@ function releaseHeldRows(db: DatabaseSync): HeldRowKey[] {
  *
  * @param db - Connection on the project `cleo.db`, inside the merge transaction.
  * @param wire - The incoming row.
+ * @param policy - The project's resolved receive policy ({@link loadReceivePolicy}).
+ *   It stays in force on this connection, also for held rows released later;
+ *   without one, the default hierarchy profile applies.
  * @returns What happened; a `held` result carries the collision for the caller
  *   (the merge engine) to hand to its authority.
  */
-export function receiveRow(db: DatabaseSync, wire: WireRow): ReceiveResult {
+export function receiveRow(db: DatabaseSync, wire: WireRow, policy?: ReceivePolicy): ReceiveResult {
+  if (policy) receivePolicies.set(db, policy);
   registerRowUidFunction(db, 'project');
   return inSavepoint(db, 'receive', () => {
     markRowIdentityShared(db, 'receive');
     const result = placeRow(db, wire);
-    if (result.status === 'inserted') releaseHeldRows(db);
+    if (result.status === 'inserted') {
+      releaseHeldRows(db, [{ table: wire.table, uid: result.uid, key: result.key }]);
+    }
     return result;
   });
+}
+
+/** Depth of a local task (a root is 0), walking its parent chain. */
+function depthOf(db: DatabaseSync, taskId: string): number {
+  const parentOf = db.prepare('SELECT parent_id AS p FROM tasks_tasks WHERE id = ?');
+  let depth = 0;
+  let current: string | null = taskId;
+  for (let hop = 0; hop < 64 && current !== null; hop++) {
+    const row = parentOf.get(current) as { p: string | null } | undefined;
+    current = row?.p ?? null;
+    if (current !== null) depth++;
+  }
+  return depth;
+}
+
+/**
+ * Whether an insert error is the store refusing the row: SQLite's
+ * SQLITE_CONSTRAINT family (CHECK, NOT NULL, UNIQUE, FOREIGN KEY, and the
+ * guard triggers' `RAISE(ABORT, ...)`, which report SQLITE_CONSTRAINT_TRIGGER).
+ * Anything else (a missing table, an I/O error) is not the row's fault and
+ * is thrown.
+ */
+function isConstraintError(error: unknown): boolean {
+  const code = (error as { errcode?: unknown } | null)?.errcode;
+  return typeof code === 'number' && (code & 0xff) === 19; // SQLITE_CONSTRAINT
+}
+
+/** The claim lease columns: local to the device that took the lease, never received. */
+const CLAIM_COLUMNS = ['claimed_by_session', 'claimed_by_agent', 'claimed_at', 'lease_expires_at'];
+
+/**
+ * Per-table validation of a received row, in place (T12801). A task is checked
+ * against `insertTaskSchema` (the schema every local task write satisfies) and
+ * arrives without a claim lease: a lease belongs to the device and session
+ * that took it. The store's triggers (containment cycle, type matrix, status
+ * pipeline) then run on the insert itself.
+ *
+ * @returns Why the row is invalid, or `null`.
+ */
+function validateReceived(
+  db: DatabaseSync,
+  table: string,
+  values: Record<string, WireValue>,
+): string | null {
+  if (table !== 'tasks_tasks') return null;
+  // The containment depth cap every local task write enforces, from the
+  // project's resolved hierarchy policy (T12801 review).
+  const parent = values.parent_id;
+  if (typeof parent === 'string' && parent.length > 0) {
+    const { maxDepth } = receivePolicyOf(db);
+    const parentDepth = depthOf(db, parent);
+    if (exceedsMaxDepth(parentDepth, maxDepth)) {
+      return `E_DEPTH_EXCEEDED: depth ${parentDepth + 1} under ${parent} exceeds ${maxDepth}`;
+    }
+  }
+  for (const column of CLAIM_COLUMNS) {
+    if (column in values) values[column] = null;
+  }
+  const byColumn = new Map(
+    Object.entries(getTableColumns(tasksTable)).map(([prop, col]) => [col.name, prop]),
+  );
+  const candidate: Record<string, unknown> = {};
+  for (const [column, value] of Object.entries(values)) {
+    const prop = byColumn.get(column);
+    if (prop !== undefined && value !== null) candidate[prop] = value;
+  }
+  const parsed = insertTaskSchema.safeParse(candidate);
+  if (parsed.success) return null;
+  const issue = parsed.error.issues[0];
+  return `invalid ${issue?.path.join('.') ?? 'row'}: ${issue?.message ?? 'rejected'}`.slice(0, 200);
 }
 
 /**
@@ -1202,7 +1550,7 @@ export function receiveRow(db: DatabaseSync, wire: WireRow): ReceiveResult {
  */
 export function releaseHeld(db: DatabaseSync): HeldRowKey[] {
   registerRowUidFunction(db, 'project');
-  return inSavepoint(db, 'release', () => releaseHeldRows(db));
+  return inSavepoint(db, 'release', () => releaseHeldRows(db, 'all'));
 }
 
 /** A held row, as `cleo doctor` and the merge status report it. */
@@ -1399,26 +1747,28 @@ function followRow(
   }>;
   for (const a of aliases) {
     deleteDisplayIdAliasNative(db, a.uid);
-    const uid = naturalRowUid('project', DISPLAY_ID_ALIAS_TABLE, [table, a.displayId, newUid]);
-    insertDisplayIdAliasNative(db, {
-      uid,
-      entityTable: table,
-      displayId: a.displayId,
-      entityUid: newUid,
-      entityBirthFp: birthFp,
-      reason: a.reason,
-      origin: a.origin,
-      displacedHlc: a.displacedHlc,
-      createdAt: a.createdAt,
-    });
+    const uid = naturalRowUid('project', DISPLAY_ID_ALIAS_TABLE, [
+      table,
+      a.displayId,
+      newUid,
+      a.reason,
+    ]);
+    insertDisplayIdAliasNative(
+      db,
+      {
+        uid,
+        entityTable: table,
+        displayId: a.displayId,
+        entityUid: newUid,
+        entityBirthFp: birthFp,
+        reason: a.reason,
+        origin: a.origin,
+        displacedHlc: a.displacedHlc,
+        createdAt: a.createdAt,
+      },
+      aliasPrecedes,
+    );
     moved.push({ table: DISPLAY_ID_ALIAS_TABLE, oldUid: a.uid, newUid: uid });
-  }
-  if (table === 'tasks_tasks') {
-    const remint = readMeta(db, remintKey(oldUid, birthFp));
-    if (remint !== undefined) {
-      writeRowIdentityMetaNative(db, remintKey(newUid, birthFp), remint);
-      deleteRowIdentityMetaNative(db, remintKey(oldUid, birthFp));
-    }
   }
   insertUidAliasNative(db, {
     uid: naturalRowUid('project', UID_ALIAS_TABLE, [table, oldUid, birthFp]),
@@ -1600,7 +1950,8 @@ function rekeyDerive(
  * @param db - Connection on the project `cleo.db`.
  * @param table - Minted table of the row.
  * @param uid - The colliding uid.
- * @param loserBirthFp - The loser's birth fingerprint.
+ * @param collision - The loser's and the winner's birth fingerprints (the
+ *   winner must be the smaller; T12801).
  * @param options - The authority and the HLC of the re-key.
  * @returns The receipt to publish, with its cascade and natural uids.
  * @throws CleoError when this replica has no row (uid, loserBirthFp), or the
@@ -1610,11 +1961,24 @@ export function rekeyRowUid(
   db: DatabaseSync,
   table: string,
   uid: string,
-  loserBirthFp: string,
+  collision: { readonly loserBirthFp: string; readonly winnerBirthFp: string },
   options: Displacement = {},
 ): RekeyReceipt {
   if (specOf(table).kind !== 'minted') {
     throw new Error(`rekey: ${table} is not a declared minted table`);
+  }
+  const { loserBirthFp, winnerBirthFp } = collision;
+  // The loser is the greater fingerprint of the pair; the caller names both,
+  // so a swapped or stale pair is refused rather than re-keying the winner.
+  if (!(winnerBirthFp < loserBirthFp)) {
+    throw new CleoError(
+      ExitCode.VALIDATION_ERROR,
+      `rekey: ${loserBirthFp} is not the loser of the ${table} uid collision on ${uid} (the loser is the greater fingerprint; winner ${winnerBirthFp})`,
+      {
+        fix: 'Re-key the row with the greater birth fingerprint; the smaller one keeps the uid.',
+        details: { field: 'loserBirthFp', actual: loserBirthFp, expected: winnerBirthFp },
+      },
+    );
   }
   const rivals = [
     ...(
@@ -1632,7 +1996,7 @@ export function rekeyRowUid(
         .all(table, uid) as { fp: string }[]
     ).map((r) => r.fp),
   ].filter((fp): fp is string => fp !== null && fp !== loserBirthFp);
-  const greater = rivals.find((fp) => fp > loserBirthFp);
+  const greater = rivals.find((fp) => fp > loserBirthFp || fp !== winnerBirthFp);
   if (greater !== undefined) {
     throw new CleoError(
       ExitCode.VALIDATION_ERROR,
@@ -1656,7 +2020,7 @@ export function rekeyRowUid(
   registerRowUidFunction(db, 'project');
   return inSavepoint(db, 'rekey', () => {
     const receipt = rekeyDerive(db, table, uid, loserBirthFp, mintRowUid(), options);
-    releaseHeldRows(db);
+    releaseHeldRows(db, rekeyTriggers(receipt));
     return receipt;
   });
 }
@@ -1725,6 +2089,6 @@ export function applyRekey(
     markRowIdentityShared(db, 'receive');
     const rows: Array<{ table: string; oldUid: string; status: RekeyApplyStatus }> = [];
     applyEntry(db, receipt, rows);
-    return { rows, released: releaseHeldRows(db) };
+    return { rows, released: releaseHeldRows(db, rekeyTriggers(receipt)) };
   });
 }
