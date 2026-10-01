@@ -12,19 +12,29 @@ and left the device credential live. It now moves the live credentials into
 `current`), and sends E9 `POST /v1/devices/self/sign-out` (or E10
 `DELETE /v1/devices/self`) with each credential in turn.
 
-**Done means confirmed (contract §3.5, M3).** Only 200, or 401 `device-signed-out`
-or `device-revoked`, counts as done. A revoke accepts only `device-revoked`. Any
-other 401 means that credential is stale, so the next credential is tried. A
-network error, 429, 5xx or a missing route keeps the slot. A confirmed sign-out
-keeps the device keys for the next login. A confirmed revoke removes the
-(origin, user) entry, and other accounts in the file stay. Each row of the
-envelope is `confirmed`, `pending`, `unconfirmed` or `signed-out`, and every
-row that is not confirmed is also named in `warnings`. `signed-out` means a
-revoke found the device already signed out (E10 401 `device-signed-out`). Its
-credentials are dead and cannot revoke it, so the revoke slot is cleared, never
-retried, and the warning names the device id to revoke on cleocode.dev.
+**Done means proved (contract §3.5, M3).** A request counts as done only on
+200, or on a 401 that proves the device's state: `device-signed-out` or
+`device-revoked`, or `credential-revoked` with `revokedReason` `signed-out` or
+`revoked`. A revoke needs proof of a revoke. Any other 401 means that one
+credential is dead, so the next is tried. A network error, 429, 5xx or a
+missing route keeps the slot, and the rest of that run's requests are left
+for the next run without waiting out more timeouts.
 
-**Retry.** Unsettled slots, and the `retired` requests left by a device change,
-are retried by every later `cleo logout nexus`. `cleo login nexus` and every
-command that needs a device credential also retry them, best effort. `--revoke`
-without `CLEO_NEXUS_DEVICE=1` fails with `E_NEXUS_DEVICE_REQUIRED`.
+**Ending.**
+- A sign-out keeps the device keys for the next login.
+- A revoke that ends forgets the device locally, so the next login enrols a
+  new device and can never re-activate the id you asked to burn. A revoke
+  ends when it is confirmed, when it finds the device already signed out
+  (`signed-out`), or when every credential is dead (`unconfirmed`).
+- Requests left by replaced devices (`retired`) are sent first and are never
+  dropped while one is unsettled.
+
+Only a confirmed row is reported as `confirmed`; every other row is named in
+`warnings` with the web remedy. A login that changes the entry while a request
+is in flight is reported, never passed off as settled. A broken device file no
+longer stops the 9.24 session sign-out.
+
+**Retry.** Unsettled slots are retried by every later `cleo logout nexus`.
+`cleo login nexus` and `cleo project link` also retry them, best effort, with a
+2 s timeout. `--revoke` with `CLEO_NEXUS_DEVICE=0` fails with
+`E_NEXUS_DEVICE_REQUIRED`.

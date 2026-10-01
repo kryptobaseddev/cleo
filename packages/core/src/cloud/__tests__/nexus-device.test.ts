@@ -147,6 +147,9 @@ describe('path and switch', () => {
     expect(isNexusDeviceEnabled({ [NEXUS_DEVICE_ENV]: 'true' })).toBe(true);
     expect(isNexusDeviceEnabled({ [NEXUS_DEVICE_ENV]: '1' })).toBe(true);
     expect(isNexusDeviceEnabled({ [NEXUS_DEVICE_ENV]: '0' })).toBe(false);
+    for (const off of ['false', 'OFF', ' no ', 'False']) {
+      expect(isNexusDeviceEnabled({ [NEXUS_DEVICE_ENV]: off })).toBe(false);
+    }
   });
 });
 
