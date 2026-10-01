@@ -1,0 +1,214 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.10.1",
+  "resolvedVersion": "v2026.10.1",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": "T12323",
+  "releaseKind": "regular",
+  "createdAt": "2026-10-01T04:12:43.305Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.9.24",
+  "previousTag": "v2026.9.24",
+  "previousShippedAt": "2026-09-30T01:16:58.131Z",
+  "tasks": [
+    {
+      "id": "T12870",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "CLI client: logout and --revoke that never report success while a credential is live",
+      "evidenceAtoms": [
+        "pr:1762",
+        "files:.changeset/t12870-device-logout-revoke.md,packages/cleo/src/cli/commands/logout.ts,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/core/src/cloud/__tests__/nexus-enrol.test.ts,packages/core/src/cloud/__tests__/nexus-logout.test.ts,packages/core/src/cloud/nexus-device.ts,packages/core/src/cloud/nexus-enrol.ts,packages/core/src/cloud/nexus-logout.ts",
+        "ci:1762"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12844",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Device client: logout/revoke must not report success while a credential is live (PR15 M3)",
+      "evidenceAtoms": [
+        "pr:1762",
+        "files:.changeset/t12870-device-logout-revoke.md,packages/cleo/src/cli/commands/logout.ts,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/core/src/cloud/__tests__/nexus-enrol.test.ts,packages/core/src/cloud/__tests__/nexus-logout.test.ts,packages/core/src/cloud/nexus-device.ts,packages/core/src/cloud/nexus-enrol.ts,packages/core/src/cloud/nexus-logout.ts",
+        "ci:1762"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12904",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "CLI client: device credentials on by default (CLEO_NEXUS_DEVICE=0 opts out)",
+      "evidenceAtoms": [
+        "pr:1763",
+        "files:.changeset/t12904-device-default-on.md,packages/cleo/src/cli/commands/__tests__/nexus-account-commands.test.ts,packages/cleo/src/cli/commands/__tests__/setup-wizard-e2e.test.ts,packages/cleo/src/cli/commands/login.ts,packages/cleo/src/cli/commands/logout.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/contracts/src/nexus-account.ts,packages/core/src/cloud/__tests__/nexus-auth.test.ts,packages/core/src/cloud/__tests__/nexus-device.test.ts,packages/core/src/cloud/__tests__/nexus-link.test.ts,packages/core/src/cloud/nexus-auth.ts,packages/core/src/cloud/nexus-device.ts,packages/core/src/cloud/nexus-enrol.ts,packages/core/src/cloud/nexus-link.ts,packages/core/src/cloud/nexus-logout.ts,packages/core/src/setup/sections/__tests__/nexus-account.test.ts,packages/core/src/setup/sections/nexus-account.ts",
+        "ci:1763"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12905",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "CLI client: cleo project link attaches this replica and reports presence (contract §3.6 steps 3-7)",
+      "evidenceAtoms": [
+        "pr:1765",
+        "files:.changeset/t12905-link-attach-presence.md,packages/cleo/src/cli/commands/project.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/core/src/cloud/__tests__/nexus-attach.test.ts,packages/core/src/cloud/__tests__/nexus-enrol.test.ts,packages/core/src/cloud/__tests__/nexus-link.test.ts,packages/core/src/cloud/nexus-attach.ts,packages/core/src/cloud/nexus-link.ts,packages/core/src/store/sync/replica.ts,packages/core/src/store/sync/schema.ts",
+        "ci:1765"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12902",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "CLI client: staging-only test bearer for browserless nexus device E2E",
+      "evidenceAtoms": [
+        "ci:1766",
+        "pr:1766",
+        "files:.changeset/t12903-session-used-test-bearer.md,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/core/src/cloud/__tests__/nexus-enrol.test.ts,packages/core/src/cloud/nexus-enrol.ts"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12903",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "CLI client: map E1 401 session-used and re-read nexus-device.json on auto-upgrade",
+      "evidenceAtoms": [
+        "pr:1766",
+        "files:.changeset/t12903-session-used-test-bearer.md,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/core/src/cloud/__tests__/nexus-enrol.test.ts,packages/core/src/cloud/nexus-enrol.ts",
+        "ci:1766"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12871",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "CLI client: cleo cloud status / devices / projects read commands with the device credential",
+      "evidenceAtoms": [
+        "pr:1767",
+        "files:.changeset/t12871-cloud-reads.md,packages/cleo/src/cli/commands/__tests__/cloud-commands.test.ts,packages/cleo/src/cli/commands/cloud.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/cleo/src/cli/lib/nexus-cloud-cli.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-cloud.ts,packages/core/src/cloud/__tests__/nexus-cloud.test.ts,packages/core/src/cloud/nexus-cloud-status.ts,packages/core/src/cloud/nexus-cloud.ts,packages/core/src/cloud/nexus-enrol.ts",
+        "ci:1767"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    }
+  ],
+  "changelog": {
+    "features": [
+      "T12870",
+      "T12844",
+      "T12904",
+      "T12905",
+      "T12902",
+      "T12903",
+      "T12871"
+    ],
+    "fixes": [],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-01T04:12:43.305Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-01T04:12:43.305Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-01T04:12:43.305Z",
+      "resolvedCommand": "pnpm run lint",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-01T04:12:43.305Z",
+      "resolvedCommand": "pnpm run typecheck",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-01T04:12:43.305Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-01T04:12:43.305Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 469 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.10.1 — 2026-10-01\n\n### Added\n\n- behind CLEO_NEXUS_DEVICE=1, cleo logout nexus signs the device out (E9) and --revoke revokes it (E10); neither reports success until the server confirms, and unsettled requests are retried by the next logout, login or cloud command _(provenance: [T12870](https://github.com/kryptobaseddev/cleo/search?q=T12870&type=commits), [T12844](https://github.com/kryptobaseddev/cleo/search?q=T12844&type=commits))_\n- cleo cloud status, whoami, devices and projects [show] read Cleo Nexus with the device credential, follow every page, report truncation, and send only GET requests; the §4.0.4 error table now lives in @cleocode/contracts _(provenance: [T12871](https://github.com/kryptobaseddev/cleo/search?q=T12871&type=commits))_\n- the 9.24 auto-upgrade maps E1 401 session-used to E_NEXUS_SESSION_EXPIRED and re-reads nexus-device.json first, reporting already-enrolled when a concurrent upgrade stored the credential; a staging-only CLEO_NEXUS_TEST_BEARER lets cleo login nexus enrol without a browser _(provenance: [T12902](https://github.com/kryptobaseddev/cleo/search?q=T12902&type=commits), [T12903](https://github.com/kryptobaseddev/cleo/search?q=T12903&type=commits))_\n- cleo login nexus enrols this machine as a device by default; CLEO_NEXUS_DEVICE=0 keeps the 9.24 session login. cleo status, cleo auth list and the setup wizard report device logins. _(provenance: [T12904](https://github.com/kryptobaseddev/cleo/search?q=T12904&type=commits))_\n- with a device credential, cleo project link now attaches this machine's copy of the project and reports its presence, so cleocode.dev shows the device holding the project _(provenance: [T12905](https://github.com/kryptobaseddev/cleo/search?q=T12905&type=commits))_\n",
+    "changesetEntryCount": 5,
+    "changesetIds": [
+      "t12870-device-logout-revoke",
+      "t12871-cloud-reads",
+      "t12903-session-used-test-bearer",
+      "t12904-device-default-on",
+      "t12905-link-attach-presence"
+    ],
+    "taskIds": [
+      "T12870",
+      "T12844",
+      "T12904",
+      "T12905",
+      "T12902",
+      "T12903",
+      "T12871"
+    ]
+  }
+}

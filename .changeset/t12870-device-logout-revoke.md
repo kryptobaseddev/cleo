@@ -2,7 +2,7 @@
 id: t12870-device-logout-revoke
 tasks: [T12870, T12844]
 kind: feat
-summary: behind CLEO_NEXUS_DEVICE=1, cleo logout nexus signs the device out (E9) and --revoke revokes it (E10); neither reports success until the server confirms, and unsettled requests are retried by the next logout, login or cloud command
+summary: cleo logout nexus signs this machine's device out (E9) and --revoke revokes it (E10); neither reports success until the server confirms, and unsettled requests are retried by the next logout, login or cloud command
 ---
 
 **Logout with device credentials.** Before this change, `cleo logout nexus` with
