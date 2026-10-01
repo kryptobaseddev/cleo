@@ -30,13 +30,16 @@
  *     file (tracked, or added by the change) cannot be covered and is
  *     recorded in `untestedPackages`, as `tool:test-affected` records a
  *     dependent with no test project; when no affected package has a test
- *     file, the report is refused. One test file covers its package: a
- *     targeted report speaks for the packages it ran, not for every file in
- *     them — merged CI does that. A workspace-wide change (a path outside
- *     every package, such as a root config or the lockfile) is refused
- *     outright: only a full-suite run speaks for it, and a report cannot show
- *     that it ran the whole suite (test configs exclude tracked test files,
- *     so per-package file counts prove nothing) — `tool:test` runs it.
+ *     file, the report is refused. A test file covers its package when one
+ *     of its tests passed (a file a `-t` filter skipped entirely covers
+ *     nothing); one such file is enough: a targeted report speaks for the
+ *     packages it ran, not for every file in them — merged CI does that. A
+ *     workspace-wide change (a path outside every package, such as a root
+ *     config or the lockfile) is refused outright: only a full-suite run
+ *     speaks for it, and a report cannot show that it ran the whole suite
+ *     (test configs exclude tracked test files, so per-package file counts
+ *     prove nothing) — `tool:test` runs it. A report with no passed test at
+ *     all is refused before any of this.
  *     Docs-only changes, and checkouts with no origin to diff against, are
  *     not judged.
  *  3. **Identity.** HEAD and the tool cache's tree hash (T12958) at verify time are
@@ -62,12 +65,21 @@ import {
   type WorkspacePackage,
 } from './affected-packages.js';
 
-/** The parts of a vitest JSON report the binding reads. */
+/** The parts of a vitest (or jest) JSON report the binding reads. */
 export interface TestRunReport {
-  /** Epoch milliseconds the run started (vitest). */
+  /** Epoch milliseconds the run started. */
   startTime?: number;
-  /** Per-file results; `name` is the test file path. */
-  testResults?: Array<{ status?: string; name?: string }>;
+  /**
+   * Per-file results: `name` is the test file path, `assertionResults` its
+   * tests (`passed`, `failed`, `skipped`/`pending`, `todo`). A file's own
+   * `status` says nothing about whether any test ran: vitest reports a file
+   * whose every test a `-t` filter skipped as `passed`.
+   */
+  testResults?: Array<{
+    status?: string;
+    name?: string;
+    assertionResults?: Array<{ status?: string }>;
+  }>;
 }
 
 /**
@@ -89,8 +101,10 @@ const MAX_REFLOG_ENTRIES = 1000;
 const TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/;
 
 /**
- * The report's test files, relative to `root` where they lie inside it,
- * slash-separated, sorted and unique.
+ * The report's test files that ran at least one passing test, relative to
+ * `root` where they lie inside it, slash-separated, sorted and unique. A file
+ * whose every test was skipped, filtered out (`-t`) or todo covers nothing,
+ * and neither does a file that lists no `assertionResults` (T12965 review).
  *
  * @param report - Parsed report.
  * @param root - Execution root.
@@ -102,6 +116,10 @@ export function coveredTestFiles(report: TestRunReport, root: string): string[] 
   const inside = (rel: string): boolean => !rel.startsWith('..') && !isAbsolute(rel);
   const files = report.testResults.flatMap((tr) => {
     if (typeof tr.name !== 'string' || tr.name === '') return [];
+    const ran = Array.isArray(tr.assertionResults)
+      ? tr.assertionResults.some((a) => a?.status === 'passed')
+      : false;
+    if (!ran) return [];
     let rel = isAbsolute(tr.name) ? relative(root, tr.name) : tr.name;
     // A symlinked spelling of the same checkout (macOS /var → /private/var).
     if (!inside(rel)) rel = relative(realpathOr(root), realpathOr(tr.name));

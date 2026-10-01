@@ -79,10 +79,12 @@ refused when:
 - it ran before the newest working-tree edit of any path the change touches;
 - it ran before an uncommitted deletion or rename, dated by the directory the
   path was removed from (a moved file keeps its old mtime);
+- it shows no passed test (every test skipped, filtered out or todo);
 - in a workspace change, it misses an affected package that has tests: every
   changed package and every package depending on one, the set
-  `tool:test-affected` runs. Affected packages with no test file are recorded
-  as `untestedPackages`;
+  `tool:test-affected` runs. A test file counts only when one of its tests
+  passed, so a file a `-t` filter skipped entirely covers nothing. Affected
+  packages with no test file are recorded as `untestedPackages`;
 - or the change is workspace-wide (a root config, `scripts/` or the lockfile):
   a report cannot show it ran the whole suite, so record `tool:test`.
 

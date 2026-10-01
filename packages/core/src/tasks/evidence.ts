@@ -68,6 +68,7 @@ import {
   bindTestRunReport,
   coveredTestFiles,
   TEST_RUN_MAX_RECORDED_FILES,
+  type TestRunReport,
 } from './test-run-binding.js';
 import {
   captureHead,
@@ -1540,9 +1541,7 @@ async function validateFiles(
   return { ok: true, atom: { kind: 'files', files } };
 }
 
-interface VitestJsonLike {
-  testResults?: Array<{ status?: string; name?: string }>;
-  startTime?: number;
+interface VitestJsonLike extends TestRunReport {
   numTotalTests?: number;
   numPassedTests?: number;
   numFailedTests?: number;
@@ -1810,6 +1809,16 @@ async function validateTestRun(
     return {
       ok: false,
       reason: `test-run reports ${failed} failed tests`,
+      codeName: 'E_EVIDENCE_TESTS_FAILED',
+    };
+  }
+  // T12965 review: a run whose every test was skipped, filtered out (`-t`)
+  // or todo has a positive total and no failure, yet proves nothing.
+  if (passed === 0) {
+    return {
+      ok: false,
+      reason:
+        'test-run reports no passed tests (every test was skipped, filtered out or todo), so nothing was shown to pass',
       codeName: 'E_EVIDENCE_TESTS_FAILED',
     };
   }

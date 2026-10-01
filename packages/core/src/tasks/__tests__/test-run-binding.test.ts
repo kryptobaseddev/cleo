@@ -55,20 +55,39 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-function report(files: string[], startTime?: number): string {
+/** Per-file assertion statuses, keyed by test file path. */
+type FileAssertions = Record<string, string[]>;
+
+/**
+ * A report in vitest's JSON shape: a file's `status` is `passed` even when a
+ * `-t` filter skipped every test in it — only `assertionResults` say what ran.
+ */
+function reportOf(files: FileAssertions, startTime?: number): string {
   mkdirSync(join(root, 'reports'), { recursive: true });
   const path = join(root, 'reports', 'vitest.json');
+  const statuses = Object.values(files).flat();
+  const count = (status: string): number => statuses.filter((s) => s === status).length;
   writeFileSync(
     path,
     JSON.stringify({
       ...(startTime !== undefined ? { startTime } : {}),
-      numTotalTests: files.length,
-      numPassedTests: files.length,
-      numFailedTests: 0,
-      testResults: files.map((name) => ({ name, status: 'passed' })),
+      numTotalTests: statuses.length,
+      numPassedTests: count('passed'),
+      numFailedTests: count('failed'),
+      numPendingTests: count('skipped'),
+      testResults: Object.entries(files).map(([name, assertions]) => ({
+        name,
+        status: 'passed',
+        assertionResults: assertions.map((status, i) => ({ fullName: `t${i}`, status })),
+      })),
     }),
   );
   return path;
+}
+
+/** A report in which every listed file ran one passing test. */
+function report(files: string[], startTime?: number): string {
+  return reportOf(Object.fromEntries(files.map((f) => [f, ['passed']])), startTime);
 }
 
 describe('test-run atoms are bound at verify time', () => {
@@ -90,6 +109,24 @@ describe('test-run atoms are bound at verify time', () => {
     const r = await validateAtom({ kind: 'test-run', path: report(names) }, root);
     expect(r.ok && r.atom.kind === 'test-run' && r.atom.testFiles?.length).toBe(200);
     expect(r.ok && r.atom.kind === 'test-run' && r.atom.testFileCount).toBe(205);
+  });
+});
+
+describe('a report must show tests that passed (T12965 review N1)', () => {
+  it('refuses a report whose every test was skipped or filtered out', async () => {
+    const path = reportOf({ [join(root, 'src', 'a.test.ts')]: ['skipped', 'skipped'] });
+    const r = await validateAtom({ kind: 'test-run', path }, root);
+    expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_TESTS_FAILED');
+    expect(!r.ok && r.reason).toMatch(/no passed tests/);
+  });
+
+  it('jest marks a skipped test pending; only passed files are recorded', async () => {
+    const path = reportOf({
+      [join(root, 'src', 'a.test.ts')]: ['passed'],
+      [join(root, 'src', 'b.test.ts')]: ['pending'],
+    });
+    const r = await validateAtom({ kind: 'test-run', path }, root);
+    expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({ testFiles: ['src/a.test.ts'] });
   });
 });
 
@@ -330,6 +367,41 @@ describe('a report must be fresher than the change and cover it (T12965 review)'
       expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({
         testFiles: ['packages/a/src/a.test.ts', 'packages/c/src/c.test.ts'],
         untestedPackages: ['@x/d'],
+      });
+    });
+
+    it('red (N1): a file whose every test a -t filter skipped covers nothing', async () => {
+      writeFileSync(join(root, 'packages', 'b', 'src', 'index.ts'), 'export const y = 1;\n');
+      git(root, ['commit', '-q', '-am', 'T1: change b too']);
+      // `vitest run -t alpha` over a, b and c: b's only test is filtered out.
+      const path = reportOf(
+        { [pkgTest('a')]: ['passed'], [pkgTest('b')]: ['skipped'], [pkgTest('c')]: ['passed'] },
+        Date.now() + 5_000,
+      );
+      const r = await validateAtom({ kind: 'test-run', path }, root);
+      expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(
+        /covers no test file of @x\/b \(changed\)/,
+      );
+    });
+
+    it('green (N1): one passed test in the file is enough', async () => {
+      writeFileSync(join(root, 'packages', 'b', 'src', 'index.ts'), 'export const y = 1;\n');
+      git(root, ['commit', '-q', '-am', 'T1: change b too']);
+      const path = reportOf(
+        {
+          [pkgTest('a')]: ['passed'],
+          [pkgTest('b')]: ['skipped', 'passed'],
+          [pkgTest('c')]: ['passed', 'todo'],
+        },
+        Date.now() + 5_000,
+      );
+      const r = await validateAtom({ kind: 'test-run', path }, root);
+      expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({
+        testFiles: [
+          'packages/a/src/a.test.ts',
+          'packages/b/src/b.test.ts',
+          'packages/c/src/c.test.ts',
+        ],
       });
     });
 

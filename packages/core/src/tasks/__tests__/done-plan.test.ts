@@ -760,7 +760,13 @@ describe('a worktree-bound test-run is judged in one root (T12965 review M2)', (
           numTotalTests: 1,
           numPassedTests: 1,
           numFailedTests: 0,
-          testResults: [{ name: join(wt, 'pkgs', 'a', 'a.test.ts'), status: 'passed' }],
+          testResults: [
+            {
+              name: join(wt, 'pkgs', 'a', 'a.test.ts'),
+              status: 'passed',
+              assertionResults: [{ fullName: 'x', status: 'passed' }],
+            },
+          ],
         }),
       );
       const wtTree = await captureTreeHash(wt);
