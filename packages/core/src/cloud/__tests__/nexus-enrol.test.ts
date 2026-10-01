@@ -1341,7 +1341,10 @@ async function seedEntry(userId: string, deviceId: string): Promise<string> {
 describe('review M1: the upgrade intent never goes stale under a live owner', () => {
   it('a live owner past E1 timeout is not taken over: one E1 on one exempt session', async () => {
     await seedV1Session();
-    const opts = flow({ enrolTimeoutMs: 300, whoamiTimeoutMs: 300, intentMarginMs: 100 });
+    // Staleness = E2 + E1 timeouts + margin. A wide margin keeps A (about
+    // 500 ms of simulated work) well inside it even on a loaded machine, so
+    // the test checks the takeover rule, not scheduler timing (T12910).
+    const opts = flow({ enrolTimeoutMs: 300, whoamiTimeoutMs: 300, intentMarginMs: 2000 });
     const aInWhoami = deferred();
     let first = true;
     server.beforeWhoami = async () => {
