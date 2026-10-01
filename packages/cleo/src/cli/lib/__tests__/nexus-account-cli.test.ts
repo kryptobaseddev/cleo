@@ -14,7 +14,11 @@ const loginToNexus = vi.fn();
 const loginToNexusDevice = vi.fn();
 
 vi.mock('@cleocode/core/cloud/nexus-auth.js', () => ({ loginToNexus }));
-vi.mock('@cleocode/core/cloud/nexus-enrol.js', () => ({ loginToNexusDevice }));
+vi.mock('@cleocode/core/cloud/nexus-enrol.js', () => ({
+  loginToNexusDevice,
+  NEXUS_TEST_BEARER_ENV: 'CLEO_NEXUS_TEST_BEARER',
+  W_NEXUS_TEST_BEARER_IGNORED: 'W_NEXUS_TEST_BEARER_IGNORED',
+}));
 vi.mock('@cleocode/core/cloud/nexus-device.js', () => ({
   isNexusDeviceEnabled: () => process.env['CLEO_NEXUS_DEVICE'] !== '0',
 }));
@@ -33,10 +37,13 @@ const RESULT = {
 };
 
 let saved: string | undefined;
+let savedBearer: string | undefined;
 let stderr: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
   saved = process.env['CLEO_NEXUS_DEVICE'];
+  savedBearer = process.env['CLEO_NEXUS_TEST_BEARER'];
+  delete process.env['CLEO_NEXUS_TEST_BEARER'];
   loginToNexus.mockReset().mockResolvedValue(RESULT);
   loginToNexusDevice.mockReset().mockResolvedValue({
     ...RESULT,
@@ -55,6 +62,8 @@ beforeEach(() => {
 afterEach(() => {
   if (saved === undefined) delete process.env['CLEO_NEXUS_DEVICE'];
   else process.env['CLEO_NEXUS_DEVICE'] = saved;
+  if (savedBearer === undefined) delete process.env['CLEO_NEXUS_TEST_BEARER'];
+  else process.env['CLEO_NEXUS_TEST_BEARER'] = savedBearer;
   stderr.mockRestore();
 });
 
@@ -102,6 +111,43 @@ describe('runNexusLogin', () => {
     expect(opts['readOnly']).toBe(true);
     expect(opts['name']).toBe('ci box');
     expect(nexusLoginSummary(result)).toContain('device d-1');
+  });
+});
+
+describe('runNexusLogin: CLEO_NEXUS_TEST_BEARER (T12902)', () => {
+  const written = (): string => stderr.mock.calls.map((c: unknown[]) => String(c[0])).join('');
+
+  it('with CLEO_NEXUS_DEVICE=0, warns that the test bearer is ignored, never printing it', async () => {
+    process.env['CLEO_NEXUS_DEVICE'] = '0';
+    const bearer = 'sess_secret_value_0123456789abcdef';
+    process.env['CLEO_NEXUS_TEST_BEARER'] = bearer;
+    await runNexusLogin({}, () => {});
+    expect(loginToNexus).toHaveBeenCalledTimes(1);
+    expect(written()).toContain(
+      'warning: W_NEXUS_TEST_BEARER_IGNORED: CLEO_NEXUS_TEST_BEARER needs device credentials, which CLEO_NEXUS_DEVICE turns off; ignored',
+    );
+    expect(written()).not.toContain(bearer);
+  });
+
+  it('prints "authorization approved" only when a device code was shown', async () => {
+    // A test-bearer login: the core flow never calls onCode.
+    await runNexusLogin({}, () => {});
+    expect(written()).not.toContain('authorization approved');
+    // A browser login: onCode fires, then the approval line is printed.
+    loginToNexusDevice.mockImplementationOnce(
+      async (opts: {
+        onCode: (c: { userCode: string; verificationUri: string; expiresIn: number }) => void;
+      }) => {
+        opts.onCode({
+          userCode: 'ABCD-EFGH',
+          verificationUri: 'https://cleocode.dev/device',
+          expiresIn: 900,
+        });
+        return RESULT;
+      },
+    );
+    await runNexusLogin({}, () => {});
+    expect(written()).toContain('authorization approved');
   });
 });
 
