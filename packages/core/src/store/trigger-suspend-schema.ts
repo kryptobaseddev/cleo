@@ -7,7 +7,7 @@
  * guard and side-effect triggers read it in their `WHEN NOT EXISTS` clause.
  *
  * Schema-owned and never dropped. It is created by the drizzle-cleo-project
- * migration `20260930000000_t12819-trigger-suspend-clause`, and the open pass
+ * migration `20260930170000_t12819-trigger-suspend-clause`, and the open pass
  * recreates it (IF NOT EXISTS) before migrations. The value CHECK lives in
  * that migration's raw SQL, which the typed API does not express.
  *

@@ -20,7 +20,9 @@
 -- working when the store is ATTACHed under another name (exodus, backup).
 -- A `main.` qualifier makes such a schema unreadable.
 -- Released files that first created these triggers
--- (t11884, t12502, t12736) are never edited; this file replaces the triggers.
+-- (t11884, t12502, t12736, t12886) are never edited; this file replaces the
+-- triggers. It is dated after t12886 (the dependency cycle guard, 9.26) so
+-- that file stays a released, pre-clause migration.
 -- The T12341 AC graveyard trigger is owned too, but its DDL lives in code
 -- (store/sync/trigger-classes.ts): a store whose t12341 migration was
 -- probe-stamped has no graveyard TABLE, and creating the trigger here would
@@ -314,4 +316,52 @@ BEGIN
      SET `claimed_by_session` = NULL, `claimed_by_agent` = NULL,
          `claimed_at` = NULL, `lease_expires_at` = NULL
    WHERE `id` = NEW.`id`;
+END;
+--> statement-breakpoint
+DROP TRIGGER IF EXISTS `tasks_task_dependencies_cycle_guard_insert`;
+--> statement-breakpoint
+CREATE TRIGGER `tasks_task_dependencies_cycle_guard_insert`
+BEFORE INSERT ON `tasks_task_dependencies`
+WHEN (NOT EXISTS (
+  SELECT 1
+  FROM `tasks_task_dependencies` existing
+  WHERE existing.`task_id` = NEW.`task_id`
+    AND existing.`depends_on` = NEW.`depends_on`
+))
+  AND NOT EXISTS (SELECT 1 FROM cleo_trigger_suspend WHERE scope IN ('guard', 'all'))
+BEGIN
+  SELECT RAISE(ABORT, 'E_TASK_DEPENDENCY_CYCLE: tasks_task_dependencies edge would close a dependency cycle (a task cannot depend on itself or on a task that already depends on it)')
+  WHERE NEW.`task_id` = NEW.`depends_on`
+    OR EXISTS (
+      WITH RECURSIVE reachable(`id`) AS (
+        SELECT NEW.`depends_on`
+        UNION
+        SELECT dep.`depends_on`
+        FROM `tasks_task_dependencies` dep
+        JOIN reachable ON dep.`task_id` = reachable.`id`
+      )
+      SELECT 1 FROM reachable WHERE reachable.`id` = NEW.`task_id`
+    );
+END;
+--> statement-breakpoint
+DROP TRIGGER IF EXISTS `tasks_task_dependencies_cycle_guard_update`;
+--> statement-breakpoint
+CREATE TRIGGER `tasks_task_dependencies_cycle_guard_update`
+BEFORE UPDATE OF `task_id`, `depends_on` ON `tasks_task_dependencies`
+WHEN (NEW.`task_id` IS NOT OLD.`task_id` OR NEW.`depends_on` IS NOT OLD.`depends_on`)
+  AND NOT EXISTS (SELECT 1 FROM cleo_trigger_suspend WHERE scope IN ('guard', 'all'))
+BEGIN
+  SELECT RAISE(ABORT, 'E_TASK_DEPENDENCY_CYCLE: tasks_task_dependencies edge would close a dependency cycle (a task cannot depend on itself or on a task that already depends on it)')
+  WHERE NEW.`task_id` = NEW.`depends_on`
+    OR EXISTS (
+      WITH RECURSIVE reachable(`id`) AS (
+        SELECT NEW.`depends_on`
+        UNION
+        SELECT dep.`depends_on`
+        FROM `tasks_task_dependencies` dep
+        JOIN reachable ON dep.`task_id` = reachable.`id`
+        WHERE NOT (dep.`task_id` = OLD.`task_id` AND dep.`depends_on` = OLD.`depends_on`)
+      )
+      SELECT 1 FROM reachable WHERE reachable.`id` = NEW.`task_id`
+    );
 END;

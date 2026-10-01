@@ -39,7 +39,7 @@ describe('inspectJournal', () => {
     db.close();
     const r = inspectJournal('project', path, ['drizzle-cleo-project', 'drizzle-tasks'], folderOf);
     expect(r.journalRows).toBe(rows);
-    expect(r.head?.name).toBe('20260930000000_t12819-trigger-suspend-clause');
+    expect(r.head?.name).toBe('20260930170000_t12819-trigger-suspend-clause');
     expect(r.lineages).toEqual([
       expect.objectContaining({ lineage: 'drizzle-cleo-project', applied: rows, pending: [] }),
     ]);
@@ -59,13 +59,13 @@ describe('inspectJournal', () => {
       { folder: folderOf('drizzle-cleo-project') },
     ]);
     db.exec(`
-      DELETE FROM __drizzle_migrations WHERE name = '20260930000000_t12819-trigger-suspend-clause';
+      DELETE FROM __drizzle_migrations WHERE name = '20260930170000_t12819-trigger-suspend-clause';
       UPDATE __drizzle_migrations SET hash = 'deadbeef' WHERE name = '20260929130000_t12736-claim-lease-iso-repair';
       INSERT INTO __drizzle_migrations (hash, created_at, name) VALUES ('cafe', 1, 'from-a-newer-build');
     `);
     db.close();
     const r = inspectJournal('project', path, ['drizzle-cleo-project'], folderOf);
-    expect(r.lineages[0]?.pending).toEqual(['20260930000000_t12819-trigger-suspend-clause']);
+    expect(r.lineages[0]?.pending).toEqual(['20260930170000_t12819-trigger-suspend-clause']);
     expect(r.drift.map((d) => d.name)).toEqual(['20260929130000_t12736-claim-lease-iso-repair']);
     expect(r.unknown.map((u) => u.name)).toEqual(['from-a-newer-build']);
   });

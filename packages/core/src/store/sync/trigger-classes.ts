@@ -64,7 +64,7 @@ export const TRIGGER_SUSPEND_TABLE_DDL = `CREATE TABLE IF NOT EXISTS \`cleo_trig
 )`;
 
 /** The C2 migration folder (drizzle-cleo-project). Owned DDL is read from it on. */
-export const TRIGGER_CLAUSE_MIGRATION = '20260930000000_t12819-trigger-suspend-clause';
+export const TRIGGER_CLAUSE_MIGRATION = '20260930170000_t12819-trigger-suspend-clause';
 
 /** The lineage the owned triggers live in. */
 export const OWNED_TRIGGER_LINEAGE = 'drizzle-cleo-project';
@@ -102,6 +102,10 @@ export const OWNED_TRIGGERS: Readonly<Record<string, 'guard' | 'side-effect'>> =
   trg_tasks_session_handoff_no_update: 'guard',
   tasks_tasks_lease_iso_insert: 'guard',
   tasks_tasks_lease_iso_update: 'guard',
+  // T12886 (9.26): first created by its own released migration; the C2 file
+  // (dated after it) re-creates both with the suspension clause.
+  tasks_task_dependencies_cycle_guard_insert: 'guard',
+  tasks_task_dependencies_cycle_guard_update: 'guard',
   trg_tasks_session_handoff_mirror: 'side-effect',
   tasks_sessions_release_claims_on_end: 'side-effect',
   tasks_sessions_release_claims_on_delete: 'side-effect',

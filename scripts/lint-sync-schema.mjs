@@ -18,7 +18,7 @@
  *
  * Forward-only migration rules (D4): they apply to migration files whose
  * folder timestamp is at or after the WHEN-clause migration
- * (`20260930000000_t12819-trigger-suspend-clause`). Released files are never
+ * (`20260930170000_t12819-trigger-suspend-clause`). Released files are never
  * edited, so older files are never linted for rules they predate.
  *
  *   4. Every `CREATE TRIGGER` of an owned guard or side-effect trigger
@@ -58,7 +58,7 @@ const TRIGGER_CLASSES = join(REPO_ROOT, 'packages/core/src/store/sync/trigger-cl
 const MACHINERY = 'packages/core/src/store/sync/machinery.ts';
 
 /** The first migration the forward-only rules apply to. */
-export const FORWARD_FROM = '20260930000000_t12819-trigger-suspend-clause';
+export const FORWARD_FROM = '20260930170000_t12819-trigger-suspend-clause';
 
 const SCAN_GLOBS = ['*.ts', '*.tsx', '*.mjs', '*.js', '*.rs', '*.sql'];
 

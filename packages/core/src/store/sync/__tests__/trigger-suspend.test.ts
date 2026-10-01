@@ -219,7 +219,7 @@ describe('the open pass', () => {
     expect(verifyOwnedTriggers(again)).toEqual([]);
   });
 
-  it('a store without the AC graveyard table (T12341 probe-stamped) keeps AC deletes working', async () => {
+  it('a store without the AC graveyard table (T12341 probe-stamped) keeps AC deletes working, and the next open heals it', async () => {
     const db = await openStore();
     db.exec('DROP TRIGGER trg_tasks_ac_uid_graveyard; DROP TABLE tasks_ac_uid_graveyard;');
     // The trigger as a migration that created it unconditionally would leave it.
@@ -233,10 +233,16 @@ describe('the open pass', () => {
     expect(verifyOwnedTriggers(db)).toEqual([
       { name: 'trg_tasks_ac_uid_graveyard', problem: 'dangling', repaired: false },
     ]);
+    // The open pass heals the identity schema first (T12878, inside the
+    // schema pass since S2), so the graveyard table is back; owned-trigger
+    // verify then leaves the trigger with its clause and nothing dangles.
     const again = await reopen();
-    expect(liveSql(again, 'trg_tasks_ac_uid_graveyard')).toBeUndefined();
+    expect(liveSql(again, 'trg_tasks_ac_uid_graveyard')).toContain('cleo_trigger_suspend');
     expect(verifyOwnedTriggers(again)).toEqual([]);
     again.exec("DELETE FROM tasks_task_acceptance_criteria WHERE id = 'A2'");
+    expect(again.prepare('SELECT ac_id FROM tasks_ac_uid_graveyard').all()).toEqual([
+      { ac_id: 'A2' },
+    ]);
   });
 
   it('a drizzle-style rebuild of tasks_tasks, then an open, leaves every owned trigger with its clause (C2(d))', async () => {
