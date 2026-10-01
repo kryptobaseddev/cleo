@@ -216,6 +216,13 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/classify.js')).classifyCommand as CommandDef,
   },
   {
+    exportName: 'cloudCommand',
+    name: 'cloud',
+    description:
+      'Cleo Nexus reads with the device credential (GET only; getting the credential may upgrade a 9.24 session or retry unsettled logouts): status (one-call verification), whoami, devices, projects [show].',
+    load: async () => (await import('../commands/cloud.js')).cloudCommand as CommandDef,
+  },
+  {
     exportName: 'codeCommand',
     name: 'code',
     description: 'Code analysis via tree-sitter AST',
