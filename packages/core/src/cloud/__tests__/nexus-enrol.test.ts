@@ -947,8 +947,20 @@ describe('linkProjectToNexus with CLEO_NEXUS_DEVICE=1', () => {
   it('upgrades the v1 session, registers with the device credential, and retries once on project-id-taken', async () => {
     await seedV1Session();
     let posts = 0;
+    const REPLICA = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a60';
     const fetchImpl: FetchLike = async (url, init) => {
-      if (new URL(url).pathname !== '/v1/projects') return server.fetch(url, init);
+      const path = new URL(url).pathname;
+      if (path === `/v1/projects/${PROJECT_ID}/replicas`) {
+        return ok({ projectId: PROJECT_ID, replicaId: REPLICA, deviceId: 'd' });
+      }
+      if (path === `/v1/projects/${PROJECT_ID}/replicas/${REPLICA}/presence`) {
+        return ok({
+          projectId: PROJECT_ID,
+          replicaId: REPLICA,
+          presenceAt: '2026-10-01T00:00:00.000Z',
+        });
+      }
+      if (path !== '/v1/projects') return server.fetch(url, init);
       posts += 1;
       const auth = new Headers(init?.headers).get('authorization') ?? '';
       expect(auth.startsWith('Bearer cnx_d1_')).toBe(true);
@@ -973,9 +985,21 @@ describe('linkProjectToNexus with CLEO_NEXUS_DEVICE=1', () => {
       projectRoot,
       label: 'proj',
       fetch: fetchImpl,
+      cliVersion: '2026.10.0',
+      replicaBinder: {
+        ensure: async () => ({ replicaId: REPLICA }),
+        rebindReenrolled: async () => {
+          throw new Error('not expected');
+        },
+      },
     });
     expect(posts).toBe(2);
     expect(result.alreadyLinked).toBe(true);
+    expect(result.replica).toMatchObject({
+      replicaId: REPLICA,
+      presenceAt: '2026-10-01T00:00:00.000Z',
+    });
+    expect(result.link.replicaId).toBe(REPLICA);
     expect(server.count('/v1/devices/enroll')).toBe(1);
     expect(await sessions.get(API)).toBeNull();
   });

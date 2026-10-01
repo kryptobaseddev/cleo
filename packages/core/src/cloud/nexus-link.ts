@@ -44,6 +44,7 @@ import { getCleoDirAbsolute, resolveOrCwd } from '../paths.js';
 import { getProjectDisplayName } from '../project-info.js';
 import { withLock } from '../store/file-utils.js';
 import { Http, NexusError } from './http.js';
+import { attachProjectReplica, type ProjectReplicaBinder } from './nexus-attach.js';
 import {
   NexusAccountError,
   type NexusFlowOptions,
@@ -69,6 +70,9 @@ const linkSchema = z.object({
   label: z.string().nullable(),
   streamId: z.string(),
   linkedAt: z.string(),
+  replicaId: z.string().optional(),
+  nexusDeviceId: z.string().optional(),
+  attachedAt: z.string().optional(),
 });
 
 const linkFileSchema = z.object({
@@ -86,6 +90,10 @@ export interface NexusLinkOptions extends NexusFlowOptions {
   label?: string;
   /** Device store (with device credentials); defaults to `<cleoHome>/nexus-device.json`. */
   deviceStore?: NexusDeviceStore;
+  /** Replica binding (tests); defaults to the canonical project store. */
+  replicaBinder?: ProjectReplicaBinder;
+  /** CLEO version reported in presence; defaults to the installed one. */
+  cliVersion?: string;
 }
 
 /**
@@ -242,15 +250,16 @@ export async function linkProjectToNexus(
   const deviceMode = isNexusDeviceEnabled();
   // With device credentials (the default) the device credential is used, upgrading a 9.24
   // session first (contract §3.4); otherwise the 9.24 session, as before.
-  const bearer = deviceMode
-    ? (
-        await ensureNexusDeviceCredential({
-          apiUrl,
-          store,
-          ...(opts.fetch ? { fetch: opts.fetch } : {}),
-          ...(opts.deviceStore ? { deviceStore: opts.deviceStore } : {}),
-        })
-      ).device.currentBearer()
+  const handle = deviceMode
+    ? await ensureNexusDeviceCredential({
+        apiUrl,
+        store,
+        ...(opts.fetch ? { fetch: opts.fetch } : {}),
+        ...(opts.deviceStore ? { deviceStore: opts.deviceStore } : {}),
+      })
+    : null;
+  const bearer = handle
+    ? handle.device.currentBearer()
     : (await requireNexusSession(apiUrl, store)).bearer();
   if (bearer === null) {
     throw new NexusAccountError(
@@ -293,6 +302,29 @@ export async function linkProjectToNexus(
     throw deviceMode ? nexusApiErrorToAccountError(err) : toLinkError(err);
   }
 
+  // Steps 3 to 5 of §3.6: attach this store's replica to the device and
+  // report presence. A 9.24 session cannot attach (the route needs a device).
+  const warnings: string[] = handle ? [...handle.warnings] : [];
+  let replica: NexusProjectLinkResult['replica'] = null;
+  if (handle) {
+    try {
+      const attached = await attachProjectReplica({
+        apiUrl,
+        bearer,
+        deviceId: handle.device.deviceId,
+        projectId: registered.project.projectId,
+        projectRoot,
+        cliVersion: opts.cliVersion ?? (await installedCleoVersion()),
+        ...(opts.replicaBinder ? { binder: opts.replicaBinder } : {}),
+        ...(opts.fetch ? { fetch: opts.fetch } : {}),
+      });
+      replica = attached.replica;
+      warnings.push(...attached.warnings);
+    } catch (err) {
+      throw nexusApiErrorToAccountError(err);
+    }
+  }
+
   const linkPath = nexusLinkPath(projectRoot);
   const link: NexusProjectLink = {
     apiUrl,
@@ -302,6 +334,13 @@ export async function linkProjectToNexus(
     label: registered.project.label,
     streamId: registered.streamId,
     linkedAt: new Date().toISOString(),
+    ...(replica
+      ? {
+          replicaId: replica.replicaId,
+          nexusDeviceId: replica.deviceId,
+          attachedAt: new Date().toISOString(),
+        }
+      : {}),
   };
   // Locked read-modify-write: concurrent links (other origins, other shells)
   // never drop each other's entries. withLock needs a parseable file to read,
@@ -321,5 +360,13 @@ export async function linkProjectToNexus(
     link,
     alreadyLinked: !registered.created,
     linkPath,
+    replica,
+    warnings,
   };
+}
+
+/** The installed CLEO version, for presence. */
+async function installedCleoVersion(): Promise<string> {
+  const { getCleoVersion } = await import('../scaffold/ensure-config.js');
+  return getCleoVersion();
 }

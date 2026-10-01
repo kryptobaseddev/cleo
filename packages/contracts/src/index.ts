@@ -3001,6 +3001,7 @@ export type {
   NexusLogoutResult,
   NexusProjectLink,
   NexusProjectLinkResult,
+  NexusReplicaAttachment,
   NexusSessionState,
 } from './nexus-account.js';
 export {

@@ -253,6 +253,31 @@ export interface NexusProjectLink {
   streamId: string;
   /** ISO time of the last successful link. */
   linkedAt: string;
+  /**
+   * This store's replica id as attached on the server (device contract
+   * §3.6, §3.7). A cache, not the source of truth: the store's active
+   * `_sync_replica` row is. Absent before the first device-credential link.
+   */
+  replicaId?: string;
+  /** The Nexus device id that attached {@link NexusProjectLink.replicaId}. */
+  nexusDeviceId?: string;
+  /** ISO time the replica was last attached or confirmed. */
+  attachedAt?: string;
+}
+
+/**
+ * What `cleo project link` did for this machine's copy of the project with a
+ * device credential (contract §3.6 steps 3 to 5). Holds no path or secret.
+ */
+export interface NexusReplicaAttachment {
+  /** The store's replica id (UUIDv7), now attached on the server. */
+  replicaId: string;
+  /** The Nexus device that holds it. */
+  deviceId: string;
+  /** The retired replica id when this link rebound the store (a copy, or a re-enrolled device). */
+  reboundFrom: string | null;
+  /** Server time the presence report was received, or `null` when sending it failed (see warnings). */
+  presenceAt: string | null;
 }
 
 /** Result of `cleo project link`. */
@@ -267,4 +292,11 @@ export interface NexusProjectLinkResult {
   alreadyLinked: boolean;
   /** Absolute path of the local binding file. */
   linkPath: string;
+  /**
+   * The replica attach and presence report, with device credentials; `null`
+   * with the 9.24 session (`CLEO_NEXUS_DEVICE=0`), which cannot attach.
+   */
+  replica: NexusReplicaAttachment | null;
+  /** Non-fatal problems (for example, presence could not be sent). */
+  warnings: string[];
 }

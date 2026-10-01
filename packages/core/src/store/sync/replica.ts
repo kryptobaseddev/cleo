@@ -66,7 +66,13 @@ export type RebindReason =
   | 'foreign-device'
   | 'nonce-mismatch'
   | 'rollback'
-  | 'server-seq-conflict';
+  | 'server-seq-conflict'
+  /**
+   * The Nexus device that held this replica was revoked and the same user
+   * re-enrolled this machine: the server never re-pins a replica, so the
+   * store takes a new id (device contract §3.7, R6).
+   */
+  | 'device-reenrolled';
 
 /** What `stat` reports about a store file, in nanoseconds. */
 export interface FileStat {
@@ -387,6 +393,43 @@ function register(
 export function syncOpenPass(db: DatabaseSync, opts: SyncOpenOptions): SyncOpenResult {
   if (opts.mode === 'off') return { status: 'off' };
   if (!anySyncFlagOn(db)) return { status: 'disabled' };
+  return bindPass(db, opts);
+}
+
+/**
+ * Bind the canonical project store to a replica if it has none, and return
+ * the active replica id (device contract §3.7, the T12675 minimal slice used
+ * by `cleo project link`).
+ *
+ * It applies the sync schema (three local-only bookkeeping tables, no
+ * triggers) and runs the bind half of {@link syncOpenPass} under
+ * `BEGIN IMMEDIATE`, with the same rebind rules, but sets NO `sync.*` flag:
+ * capture, seal, push and pull stay off. Idempotent: once bound, it only
+ * reads (and heals the clock).
+ *
+ * @param db - The canonical project store handle (opened through the chokepoint).
+ * @param opts - Store path and overrides; `scope` is always `project`, and
+ *   `mode` `off` is refused because a link must bind.
+ * @returns The active replica id, and the retired id when this call rebound a copy.
+ * @throws {Error} With `mode: 'off'`.
+ */
+export function ensureProjectReplica(
+  db: DatabaseSync,
+  opts: Omit<SyncOpenOptions, 'scope'>,
+): { replicaId: string; reboundFrom?: string } {
+  if (opts.mode === 'off') throw new Error('ensureProjectReplica needs a live or test open');
+  const result = bindPass(db, { ...opts, scope: 'project' });
+  if (result.status !== 'bound' && result.status !== 'rebound') {
+    throw new Error(`ensureProjectReplica: unexpected status ${result.status}`);
+  }
+  return {
+    replicaId: result.replicaId,
+    ...(result.previousReplicaId ? { reboundFrom: result.previousReplicaId } : {}),
+  };
+}
+
+/** The bind half of {@link syncOpenPass}: everything after the flag check. */
+function bindPass(db: DatabaseSync, opts: SyncOpenOptions): SyncOpenResult {
   const now = opts.now?.() ?? new Date();
   const { deviceId, registry } = resolveContext(opts);
   ensureSyncSchema(db, { root: opts.schemaRoot, now });

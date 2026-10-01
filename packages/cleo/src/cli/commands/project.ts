@@ -342,9 +342,13 @@ const linkSubCommand = defineCommand({
     } catch (err) {
       failNexus(err, 'project.link');
     }
-    const { link } = result;
+    const { link, replica } = result;
     const verb = result.alreadyLinked ? 'Already linked' : 'Linked';
-    const summary = `${verb}: project ${link.localProjectId} as "${link.label ?? ''}" on ${link.apiUrl}.`;
+    const attached = replica
+      ? ` This machine (device ${replica.deviceId}) holds it as replica ${replica.replicaId}${replica.presenceAt ? '; presence reported' : ''}.`
+      : '';
+    const summary = `${verb}: project ${link.localProjectId} as "${link.label ?? ''}" on ${link.apiUrl}.${attached}`;
+    for (const warning of result.warnings) process.stderr.write(`warning: ${warning}\n`);
     emitNexusResult(result, summary, 'project', 'project.link');
   },
 });
