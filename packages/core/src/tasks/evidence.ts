@@ -24,7 +24,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
-import { dirname, isAbsolute, join, resolve as resolvePath } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve as resolvePath } from 'node:path';
 
 import type {
   EvidenceAtom,
@@ -54,6 +54,7 @@ import {
 } from '../git/work-tree.js';
 import { pushWarning } from '../output.js';
 import { getEffectiveHead } from '../worktree/effective-head.js';
+import type { AffectedTestRun } from './affected-packages.js';
 import type { ViewComponentPr } from './component-pr.js';
 import { loadRecordedProjectRoots, rebaseLegacyEvidencePath } from './evidence-paths.js';
 import { DISABLE_ENV, describeMemoryLimit } from './heavy-tool-limit.js';
@@ -70,6 +71,7 @@ import {
   resolveToolCommand,
 } from './tool-resolver.js';
 import { detectStaticVacuity, probeTscFileCount, VACUOUS_TOOL_FIX } from './tool-vacuity.js';
+import { captureTreeIdentity } from './tree-identity.js';
 
 /**
  * Valid tool names recognised by the `tool:<name>` evidence atom.
@@ -427,7 +429,7 @@ export async function validateAtom(
     case 'test-run':
       return validateTestRun(parsed.path, roots);
     case 'tool':
-      return validateTool(parsed.tool, roots);
+      return validateTool(parsed.tool, roots, context);
     case 'url':
       return validateUrl(parsed.url);
     case 'note':
@@ -1558,23 +1560,36 @@ export interface EvidenceExecutionRootHints {
  * the packages, so a receipt never passes for a full run.
  */
 async function validateAffectedTests(roots: EvidenceRoots): Promise<AtomValidation> {
-  const { storeRoot, executionRoot } = roots;
   const { planAffectedTestRun } = await import('./affected-packages.js');
-  const run = await planAffectedTestRun(storeRoot, executionRoot, { wait: true });
+  const run = await planAffectedTestRun(roots.storeRoot, roots.executionRoot, { wait: true });
   if (!run.ok) return { ok: false, codeName: run.codeName, reason: run.reason };
+  return runAffectedTests('test-affected', run, roots);
+}
+
+/**
+ * Run a planned affected-scope test run and record it under `tool` —
+ * `test-affected`, or `test` when a scope-aware `tool:test` chose the
+ * affected scope (T12959).
+ */
+async function runAffectedTests(
+  tool: 'test' | 'test-affected',
+  run: Extract<AffectedTestRun, { ok: true }>,
+  roots: EvidenceRoots,
+): Promise<AtomValidation> {
+  const { storeRoot, executionRoot } = roots;
   const result = await runToolCached(run.command, storeRoot, { executionRoot });
   if (result.exitCode !== 0) {
     return {
       ok: false,
       codeName: result.timedOut ? 'E_EVIDENCE_TOOL_TIMEOUT' : 'E_EVIDENCE_TOOL_FAILED',
-      reason: `tool:test-affected (${[run.command.cmd, ...run.command.args].join(' ')}) exited ${result.exitCode}: ${(result.stderrTail || result.stdoutTail).trim().slice(-300)}`,
+      reason: `tool:${tool} (affected: ${[run.command.cmd, ...run.command.args].join(' ')}) exited ${result.exitCode}: ${(result.stderrTail || result.stdoutTail).trim().slice(-300)}`,
     };
   }
   return {
     ok: true,
     atom: {
       kind: 'tool',
-      tool: 'test-affected',
+      tool,
       exitCode: 0,
       stdoutTail: result.stdoutTail,
       scope: 'affected',
@@ -1786,6 +1801,11 @@ async function validateTestRun(path: string, roots: EvidenceRoots): Promise<Atom
     }
   }
 
+  // T12965: bind the report to the code it ran on — HEAD, the tracked tree and
+  // the test files it covered — so `cleo complete` can refuse it once the
+  // tree has moved on. A non-git execution root records no binding.
+  const identity = captureTreeIdentity(executionRoot);
+  const testFiles = coveredTestFiles(parsed, executionRoot);
   return {
     ok: true,
     atom: {
@@ -1799,12 +1819,68 @@ async function validateTestRun(path: string, roots: EvidenceRoots): Promise<Atom
       passCount: passed,
       failCount: failed,
       skipCount: pending,
+      ...(identity ? { headSha: identity.headSha, treeHash: identity.treeHash } : {}),
+      ...(testFiles.length > 0
+        ? {
+            testFiles: testFiles.slice(0, TEST_RUN_MAX_RECORDED_FILES),
+            testFileCount: testFiles.length,
+          }
+        : {}),
     },
   };
 }
 
-async function validateTool(tool: string, roots: EvidenceRoots): Promise<AtomValidation> {
+/**
+ * Most test files a `test-run:` atom lists (T12965); `testFileCount` keeps
+ * the true total when a full-suite report covers more.
+ */
+const TEST_RUN_MAX_RECORDED_FILES = 200;
+
+/** The report's test files, relative to `root` where they lie inside it, sorted and unique. */
+function coveredTestFiles(parsed: VitestJsonLike, root: string): string[] {
+  if (!Array.isArray(parsed.testResults)) return [];
+  const files = parsed.testResults.flatMap((tr) => {
+    if (typeof tr.name !== 'string' || tr.name === '') return [];
+    const rel = isAbsolute(tr.name) ? relative(root, tr.name) : tr.name;
+    return [rel.startsWith('..') || isAbsolute(rel) ? tr.name : rel.split('\\').join('/')];
+  });
+  return [...new Set(files)].sort();
+}
+
+async function validateTool(
+  tool: string,
+  roots: EvidenceRoots,
+  context?: EvidenceValidationContext,
+): Promise<AtomValidation> {
   if (tool === 'test-affected') return validateAffectedTests(roots);
+  // T12959: `tool:test` runs the affected packages first when a template is
+  // declared; the full suite runs only when that scope cannot be trusted, and
+  // the atom says which scope ran and why.
+  let fullScopeReason: string | null | undefined;
+  if (tool === 'test') {
+    const { planScopedTestRun } = await import('./affected-packages.js');
+    const task = context?.task;
+    const plan = await planScopedTestRun(roots.storeRoot, roots.executionRoot, {
+      wait: true,
+      ...(task
+        ? {
+            mergeState: async () => {
+              const { taskChangeMergeState } = await import('./affected-scope.js');
+              return (await taskChangeMergeState(task, roots.storeRoot)).state;
+            },
+          }
+        : {}),
+    });
+    if (plan.scope === 'affected') return runAffectedTests('test', plan.run, roots);
+    if (plan.scope === 'pending') {
+      return {
+        ok: false,
+        codeName: 'E_EVIDENCE_TOOL_BUSY',
+        reason: `tool:test could not resolve its affected scope yet: ${plan.reason} Retry the verify shortly.`,
+      };
+    }
+    fullScopeReason = plan.reason;
+  }
   const { storeRoot: projectRoot, executionRoot } = roots;
   // T12633: project-context lives in the store; package.json scripts and
   // tsconfig describe the code under test, so they are read where it runs.
@@ -1988,6 +2064,9 @@ async function validateTool(tool: string, roots: EvidenceRoots): Promise<AtomVal
       exitCode: 0,
       stdoutTail: result.stdoutTail,
       ...toolRunAtomFields(result),
+      ...(fullScopeReason !== undefined
+        ? { scope: 'full' as const, ...(fullScopeReason ? { scopeReason: fullScopeReason } : {}) }
+        : {}),
     },
   };
 }

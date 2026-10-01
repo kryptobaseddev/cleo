@@ -27,6 +27,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { EvidenceAtom, EvidenceValidationContext } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   affectedTestTargets,
@@ -266,7 +267,7 @@ describe('buildAffectedTestCommand', () => {
 });
 
 describe('tool:test-affected evidence', () => {
-  function initRepo(affectedCommand?: string): void {
+  function initRepo(affectedCommand?: string, testing: Record<string, unknown> = {}): void {
     git(root, ['init', '-q', '-b', 'main']);
     git(root, ['config', 'user.name', 'T']);
     git(root, ['config', 'user.email', 't@e.x']);
@@ -276,7 +277,11 @@ describe('tool:test-affected evidence', () => {
       join(root, '.cleo', 'project-context.json'),
       JSON.stringify({
         primaryType: 'node',
-        testing: { command: 'node -e 0', ...(affectedCommand ? { affectedCommand } : {}) },
+        testing: {
+          command: 'node -e 0',
+          ...(affectedCommand ? { affectedCommand } : {}),
+          ...testing,
+        },
       }),
     );
     git(root, ['add', '.']);
@@ -410,6 +415,118 @@ describe('tool:test-affected evidence', () => {
     const r = await validateAtom({ kind: 'tool', tool: 'test-affected' }, root);
     expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_TOOL_UNAVAILABLE');
     expect(!r.ok && r.reason).toMatch(/testing\.affectedCommand .*shell syntax.*sh -c/);
+  });
+
+  describe('tool:test is scope-aware (T12959)', () => {
+    const onlyC = `node -e "process.exit(process.argv.slice(1).join(',')==='@x/c'?0:3)" {packages}`;
+    // The fixture has no resolvable CLEO project, so the full suite resolves
+    // through the root package.json `test` script.
+    beforeEach(() => {
+      writeFileSync(
+        join(root, 'package.json'),
+        JSON.stringify({ name: 'root', private: true, scripts: { test: 'node -e 0' } }),
+      );
+    });
+    function changeC(): void {
+      writeFileSync(join(root, 'packages/c/src/index.ts'), "export const n = 'changed';\n");
+      git(root, ['commit', '-q', '-am', 'T1: change c']);
+    }
+    function context(implemented: EvidenceAtom[]): EvidenceValidationContext {
+      return {
+        task: {
+          id: 'T1',
+          verification: {
+            passed: false,
+            round: 1,
+            gates: { implemented: true },
+            lastAgent: null,
+            lastUpdated: null,
+            failureLog: [],
+            evidence: {
+              implemented: { atoms: implemented, capturedAt: 'now', capturedBy: 'test' },
+            },
+          },
+        },
+        gates: ['testsPassed'],
+        criteria: [],
+      };
+    }
+
+    it('runs the affected packages first and records scope:affected under tool:test', async () => {
+      initRepo(onlyC);
+      changeC();
+      const r = await validateAtom({ kind: 'tool', tool: 'test' }, root);
+      expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({
+        kind: 'tool',
+        tool: 'test',
+        scope: 'affected',
+        affectedPackages: ['@x/c'],
+      });
+    });
+
+    it('a root-config change falls back to the full suite and records scope:full with the reason', async () => {
+      initRepo('node -e "process.exit(3)" {packages}');
+      writeFileSync(join(root, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n');
+      git(root, ['add', 'pnpm-lock.yaml']);
+      git(root, ['commit', '-q', '-m', 'T1: lock']);
+      const r = await validateAtom({ kind: 'tool', tool: 'test' }, root);
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      expect(r.ok && r.atom).toMatchObject({ tool: 'test', scope: 'full' });
+      expect(r.ok && r.atom.kind === 'tool' && r.atom.scopeReason).toMatch(/pnpm-lock\.yaml/);
+    });
+
+    it('no origin falls back to the full suite', async () => {
+      initRepo('node -e "process.exit(3)" {packages}');
+      git(root, ['remote', 'remove', 'origin']);
+      changeC();
+      const r = await validateAtom({ kind: 'tool', tool: 'test' }, root);
+      expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({ scope: 'full' });
+      expect(r.ok && r.atom.kind === 'tool' && r.atom.scopeReason).toMatch(/cannot diff/);
+    });
+
+    it('testing.preferAffected=false opts out', async () => {
+      initRepo('node -e "process.exit(3)" {packages}', { preferAffected: false });
+      changeC();
+      const r = await validateAtom({ kind: 'tool', tool: 'test' }, root);
+      expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({
+        scope: 'full',
+        scopeReason: 'testing.preferAffected is false',
+      });
+    });
+
+    it('without an affected template, tool:test is the full suite with no reason', async () => {
+      initRepo();
+      changeC();
+      const r = await validateAtom({ kind: 'tool', tool: 'test' }, root);
+      expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({ scope: 'full' });
+      expect(r.ok && r.atom.kind === 'tool' && r.atom.scopeReason).toBeUndefined();
+    });
+
+    it('a merged change runs the full suite: a scoped run counts before merge only', async () => {
+      initRepo('node -e "process.exit(3)" {packages}');
+      changeC();
+      const merged = context([
+        {
+          kind: 'pr',
+          prNumber: 42,
+          mergeCommitSha: 'a'.repeat(40),
+          mergedAt: 'now',
+          successCount: 1,
+          totalChecks: 1,
+        },
+      ]);
+      const r = await validateAtom({ kind: 'tool', tool: 'test' }, root, 'T1', undefined, merged);
+      expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({ scope: 'full' });
+      expect(r.ok && r.atom.kind === 'tool' && r.atom.scopeReason).toMatch(/merged/);
+    });
+
+    it('a failing affected run fails tool:test', async () => {
+      initRepo('node -e "process.exit(1)" {packages}');
+      changeC();
+      const r = await validateAtom({ kind: 'tool', tool: 'test' }, root);
+      expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_TOOL_FAILED');
+      expect(!r.ok && r.reason).toMatch(/tool:test \(affected:/);
+    });
   });
 
   it('refuses when testing.affectedCommand is not configured', async () => {

@@ -4,13 +4,17 @@
  * A `tool:test-affected` run proves the packages a branch diff touches before
  * merge. Once the change has merged, only merged CI (`ci:<pr>`) or a full
  * `tool:test` proves `testsPassed`. This module is the single place that rule
- * lives: `cleo done` planning and `cleo complete` both ask it.
+ * lives: `cleo done` planning and `cleo complete` both ask it. It also holds
+ * the sibling rule for tree-bound `test-run:` reports (T12965) and the merge
+ * state a scope-aware `tool:test` consults (T12959).
  *
  * @task T12656
+ * @task T12959
+ * @task T12965
  */
 
 import type { ChangeSetMergeState, EvidenceAtom, Task, TaskChangeSet } from '@cleocode/contracts';
-import type { ChangeSetDeps } from './change-set.js';
+import type { ChangeSetDeps, ChangeSetTask } from './change-set.js';
 
 /** Whether the task's change has merged to the default branch. */
 export type ChangeMergeState = ChangeSetMergeState;
@@ -70,6 +74,30 @@ export function affectedScopeSupersededReason(
 }
 
 /**
+ * Whether a task's change has merged, as cheaply as it can be known: a
+ * recorded `pr:` implemented atom proves the merge on its own; otherwise the
+ * change set is derived (the merged-PR lookup `cleo done` planning uses).
+ *
+ * @param task - The task whose change is examined.
+ * @param storeRoot - CLEO store root.
+ * @param deps - Change-set I/O (tests inject `gh`).
+ * @returns The merge state, and the derived change set when one was derived.
+ * @task T12959
+ * @task T12960
+ */
+export async function taskChangeMergeState(
+  task: ChangeSetTask,
+  storeRoot: string,
+  deps?: ChangeSetDeps,
+): Promise<{ state: ChangeMergeState; changeSet: TaskChangeSet | null }> {
+  const implemented = task.verification?.evidence?.implemented?.atoms ?? [];
+  if (implemented.some((a) => a.kind === 'pr')) return { state: 'merged', changeSet: null };
+  const { deriveTaskChangeSet } = await import('./change-set.js');
+  const changeSet = await deriveTaskChangeSet({ task, storeRoot, cwd: storeRoot }, deps);
+  return { state: mergeStateOfChangeSet(changeSet), changeSet };
+}
+
+/**
  * The same rule for a stored task, deriving the merge state only when the
  * recorded `testsPassed` is affected-only (so ordinary completions pay
  * nothing). A recorded `pr:` implemented atom proves the merge on its own.
@@ -87,11 +115,36 @@ export async function taskAffectedScopeSupersededReason(
 ): Promise<string | null> {
   const atoms = task.verification?.evidence?.testsPassed?.atoms ?? [];
   if (!isAffectedOnly(atoms)) return null;
-  const implemented = task.verification?.evidence?.implemented?.atoms ?? [];
-  if (implemented.some((a) => a.kind === 'pr')) {
-    return affectedScopeSupersededReason(atoms, 'merged');
-  }
-  const { deriveTaskChangeSet } = await import('./change-set.js');
-  const changeSet = await deriveTaskChangeSet({ task, storeRoot, cwd: storeRoot }, deps);
-  return affectedScopeSupersededReason(atoms, mergeStateOfChangeSet(changeSet));
+  const { state } = await taskChangeMergeState(task, storeRoot, deps);
+  return affectedScopeSupersededReason(atoms, state);
+}
+
+/**
+ * Why a recorded `testsPassed` resting on a tree-bound `test-run:` no longer
+ * stands, or null when it does (T12965). A targeted report proves the tree it
+ * ran on; once the tracked content moved, it proves nothing about the code
+ * being completed. Merged CI (`ci:<pr>`) in the same gate supersedes it, and
+ * atoms recorded before T12965 (no `treeHash`) are not judged.
+ *
+ * @param atoms - Recorded `testsPassed` atoms.
+ * @param current - The current tree hash of the execution root, or null when
+ *   it cannot be computed (not a git checkout, or git failed).
+ * @returns The reason, or null.
+ * @task T12965
+ */
+export function testRunTreeMismatchReason(
+  atoms: ReadonlyArray<EvidenceAtom>,
+  current: string | null,
+): string | null {
+  if (atoms.some((a) => a.kind === 'ci')) return null;
+  const bound = atoms.filter(
+    (a): a is Extract<EvidenceAtom, { kind: 'test-run' }> =>
+      a.kind === 'test-run' && typeof a.treeHash === 'string',
+  );
+  const moved = bound.filter((a) => a.treeHash !== current);
+  if (moved.length === 0) return null;
+  const first = moved[0]!;
+  return current === null
+    ? `testsPassed rests on test-run:${first.path}, bound to tree ${first.treeHash!.slice(0, 12)}, and the current tree cannot be computed here (not a git checkout?); complete from the checkout the report ran in, or record ci:<pr> once the PR merges.`
+    : `testsPassed rests on test-run:${first.path}, recorded on tree ${first.treeHash!.slice(0, 12)}, but the tracked tree is now ${current.slice(0, 12)}; the report no longer describes this code. Re-run the targeted tests and record a fresh test-run, or record ci:<pr> once the PR merges.`;
 }

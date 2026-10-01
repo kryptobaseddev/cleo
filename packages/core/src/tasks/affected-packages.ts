@@ -27,6 +27,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { promisify } from 'node:util';
+import type { ChangeSetMergeState } from '@cleocode/contracts';
 import { isCiDocumentPath } from '../release/ci-evidence.js';
 import { splitCommandLine } from './command-line.js';
 import type { ResolvedToolCommand } from './tool-resolver.js';
@@ -624,4 +625,82 @@ export async function planAffectedTestRun(
     projects,
     untested,
   };
+}
+
+/** How a scope-aware `tool:test` will run (T12959). */
+export type ScopedTestRun =
+  | {
+      /** Only the affected packages and their dependents. */
+      scope: 'affected';
+      /** The planned affected run. */
+      run: Extract<AffectedTestRun, { ok: true }>;
+    }
+  | {
+      /** The whole suite (`testing.command`). */
+      scope: 'full';
+      /** Why the affected scope was not used; null when none is declared. */
+      reason: string | null;
+    }
+  | {
+      /** Unresolved: the `test` slot was busy while listing test projects. */
+      scope: 'pending';
+      /** The planner's reason. */
+      reason: string;
+    };
+
+/**
+ * Decide how `tool:test` runs (T12959): the affected packages first whenever
+ * `testing.affectedCommand` is declared, the full suite only when that scope
+ * cannot be trusted. Full when the project opts out
+ * (`testing.preferAffected: false`), declares no template, or the change is
+ * not known to be unmerged (a scoped run counts before merge only, D11150);
+ * otherwise whatever {@link planAffectedTestRun} decides, its refusal (root
+ * config changed, no origin, nothing touched, …) becoming the full run's
+ * recorded reason.
+ *
+ * @param storeRoot - CLEO store root (project context).
+ * @param root - Execution root whose diff defines the set.
+ * @param opts - `wait` queues for the `test` slot; `mergeState` resolves the
+ *   task's merge state lazily (omitted when no task is in context).
+ * @returns The scope and the plan, or why the full suite runs.
+ * @example
+ * ```ts
+ * const plan = await planScopedTestRun(storeRoot, executionRoot, { wait: true });
+ * if (plan.scope === 'affected') console.log(plan.run.packages);
+ * ```
+ * @task T12959
+ */
+export async function planScopedTestRun(
+  storeRoot: string,
+  root: string,
+  opts: { wait?: boolean; mergeState?: () => Promise<ChangeSetMergeState> } = {},
+): Promise<ScopedTestRun> {
+  const { readRawProjectContext } = await import('./tool-resolver.js');
+  const testing = (
+    readRawProjectContext(storeRoot) as {
+      testing?: { affectedCommand?: unknown; preferAffected?: unknown };
+    } | null
+  )?.testing;
+  if (typeof testing?.affectedCommand !== 'string' || testing.affectedCommand.trim() === '') {
+    return { scope: 'full', reason: null };
+  }
+  if (testing.preferAffected === false) {
+    return { scope: 'full', reason: 'testing.preferAffected is false' };
+  }
+  if (opts.mergeState) {
+    const state = await opts.mergeState();
+    if (state !== 'unmerged') {
+      return {
+        scope: 'full',
+        reason:
+          state === 'merged'
+            ? 'the change has merged; an affected run counts before merge only'
+            : 'whether the change has merged cannot be determined (gh unreachable); an affected run counts before merge only',
+      };
+    }
+  }
+  const run = await planAffectedTestRun(storeRoot, root, { wait: opts.wait === true });
+  if (run.ok) return { scope: 'affected', run };
+  if (run.pending) return { scope: 'pending', reason: run.reason };
+  return { scope: 'full', reason: run.reason };
 }

@@ -288,6 +288,22 @@ export type EvidenceAtom =
       passCount: number;
       failCount: number;
       skipCount: number;
+      /**
+       * HEAD of the checkout the report was bound to at verify time (T12965).
+       * Absent when the execution root is not a git checkout, and on atoms
+       * recorded before T12965.
+       */
+      headSha?: string;
+      /**
+       * Git tree hash of that checkout's TRACKED working-tree content at
+       * verify time (T12965). `cleo complete` refuses the atom once the tree
+       * no longer matches, unless merged CI (`ci:<pr>`) supersedes it.
+       */
+      treeHash?: string;
+      /** Test files the report covered, relative to the execution root (capped, T12965). */
+      testFiles?: string[];
+      /** Total test files the report covered; exceeds `testFiles.length` when capped. */
+      testFileCount?: number;
     }
   | {
       kind: 'tool';
@@ -309,8 +325,15 @@ export type EvidenceAtom =
        * `affected`: the run covered only the packages the branch diff touches
        * plus their dependents (D11150, T12635). It satisfies testsPassed before
        * merge; merged CI (`ci:`) or a full `tool:test` supersedes it.
+       *
+       * `full`: a scope-aware `tool:test` ran the whole suite (T12959) —
+       * no affected template is declared, the project opted out
+       * (`testing.preferAffected: false`), the change has merged, or the
+       * affected planner refused; `scopeReason` says which when known.
        */
-      scope?: 'affected';
+      scope?: 'affected' | 'full';
+      /** Why a scope-aware `tool:test` ran the full suite (with `scope: 'full'`, T12959). */
+      scopeReason?: string;
       /** The packages the affected run covered (with `scope: 'affected'`). */
       affectedPackages?: string[];
       /** The test projects the affected run actually selected (incl. non-package projects). */
