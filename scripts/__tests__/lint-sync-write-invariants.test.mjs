@@ -366,6 +366,14 @@ describe('baseline (§3.6.7 case 14 and the ratchet)', () => {
     ).toEqual(['g.ts :: E_X (0 -> 1)']);
     expect(unjustifiedRaises(next, base, { netDelta: { Error: 0, E_X: 0 } })).toEqual([]);
     expect(unjustifiedRaises(next, null)).toEqual([]);
+    // Above the sites that exist: never justified, even audited or net-zero.
+    expect(
+      unjustifiedRaises(next, base, {
+        audited: { 'f.ts :: Error': 'T1 reviewed' },
+        netDelta: { Error: 0, E_X: 0 },
+        counts: { 'f.ts :: Error': 1, 'g.ts :: E_X': 1 },
+      }),
+    ).toEqual(['f.ts :: Error (1 -> 2, but only 1 untagged site(s) exist)']);
   });
 });
 
@@ -565,6 +573,41 @@ describe('PR mode against a base ref (H1, H2)', () => {
     // Green: the same raise, audited with a task.
     const doc = JSON.parse(readFileSync(join(r.root, BASELINE), 'utf8'));
     doc.audited = { 'packages/core/src/a.ts :: Error': 'T12946 reviewed: known legacy check' };
+    writeFileSync(join(r.root, BASELINE), JSON.stringify(doc));
+    const green = await run(r.root, ['--check', '--base', r.base]);
+    expect(green.text).not.toContain('FAIL');
+    expect(green.code).toBe(0);
+  });
+
+  it('H1: an inflated count on an untouched file, or a fake key, fails against the base', async () => {
+    const r = await seeded({
+      'packages/core/src/a.ts': writer('a'),
+      'packages/core/src/b.ts': writer('b'),
+    });
+    // b.ts is untouched; a.ts gains a line so a.ts is the changed file.
+    write(r.root, { 'packages/core/src/a.ts': `// touched\n${writer('a')}` });
+    const doc = JSON.parse(readFileSync(join(r.root, BASELINE), 'utf8'));
+    doc.sites['packages/core/src/b.ts :: Error'] = 5;
+    doc.sites['packages/core/src/fake.ts :: E_FAKE'] = 1;
+    writeFileSync(join(r.root, BASELINE), JSON.stringify(doc));
+    r.git('add', '-A');
+    const red = await run(r.root, ['--check', '--base', r.base]);
+    expect(red.code).toBe(1);
+    expect(red.text).toContain(
+      'packages/core/src/b.ts :: Error (1 -> 5, but only 1 untagged site(s) exist)',
+    );
+    expect(red.text).toContain(
+      'packages/core/src/fake.ts :: E_FAKE (0 -> 1, but only 0 untagged site(s) exist)',
+    );
+    // An audit does not excuse an inflated key.
+    doc.audited = { 'packages/core/src/b.ts :: Error': 'T1 reviewed' };
+    delete doc.sites['packages/core/src/fake.ts :: E_FAKE'];
+    writeFileSync(join(r.root, BASELINE), JSON.stringify(doc));
+    expect((await run(r.root, ['--check', '--base', r.base])).text).toContain(
+      'but only 1 untagged',
+    );
+    // Green: back to the true count.
+    doc.sites['packages/core/src/b.ts :: Error'] = 1;
     writeFileSync(join(r.root, BASELINE), JSON.stringify(doc));
     const green = await run(r.root, ['--check', '--base', r.base]);
     expect(green.text).not.toContain('FAIL');

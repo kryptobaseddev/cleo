@@ -971,12 +971,14 @@ export function compareBaseline(counts, baseline, opts = {}) {
 
 /**
  * Keys a new baseline adds or raises against the base baseline that are not
- * justified. A raise is justified when the key is audited (`T####` reason) or
- * when its code is net-zero over the changed files (`netDelta[code] <= 0`).
+ * justified. A raise above the untagged sites that exist (`why.counts`) is
+ * never justified; otherwise a raise is justified when the key is audited
+ * (`T####` reason) or when its code is net-zero over the changed files
+ * (`netDelta[code] <= 0`).
  *
  * @param {Record<string, number>} next
  * @param {Record<string, number> | null} base - `null`: no base baseline (seeding).
- * @param {{ audited?: Record<string, string>, netDelta?: Record<string, number> }} why
+ * @param {{ audited?: Record<string, string>, netDelta?: Record<string, number>, counts?: Record<string, number> }} why
  * @returns {string[]}
  */
 export function unjustifiedRaises(next, base, why = {}) {
@@ -985,6 +987,12 @@ export function unjustifiedRaises(next, base, why = {}) {
   for (const [k, n] of Object.entries(next)) {
     const before = base[k] ?? 0;
     if (n <= before) continue;
+    // A raise above the sites that actually exist is never justified: a
+    // hand-inflated count or a fake key (#1768 re-review H1).
+    if (why.counts && n > (why.counts[k] ?? 0)) {
+      out.push(`${k} (${before} -> ${n}, but only ${why.counts[k] ?? 0} untagged site(s) exist)`);
+      continue;
+    }
     const audit = why.audited?.[k];
     if (audit && /\bT\d+\b/.test(audit)) continue;
     if (why.netDelta && (why.netDelta[keyCode(k)] ?? 0) <= 0) continue;
@@ -1410,7 +1418,11 @@ export async function main(argv = process.argv.slice(2), opts = {}) {
     staleFiles: changed ? new Set(changed) : null,
   });
   const raises = args.base
-    ? unjustifiedRaises(baseline.sites, baseBaseline, { audited: baseline.audited, netDelta })
+    ? unjustifiedRaises(baseline.sites, baseBaseline, {
+        audited: baseline.audited,
+        netDelta,
+        counts,
+      })
     : [];
   const failures = [
     ...tagProblems,

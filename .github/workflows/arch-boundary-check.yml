@@ -687,10 +687,10 @@ jobs:
       - name: Assert the gate 38 baseline only shrinks against the PR base (T12881)
         if: github.event_name == 'pull_request'
         env:
-          BASE_REF: ${{ github.base_ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          git fetch --no-tags --depth=1 origin "$BASE_REF"
-          node scripts/lint-sync-write-invariants.mjs --check --base "origin/$BASE_REF"
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          node scripts/lint-sync-write-invariants.mjs --check --base "$BASE_SHA"
       - name: Assert the gate 38 baseline only shrinks against the merge-queue base (T12881)
         if: github.event_name == 'merge_group'
         env:
