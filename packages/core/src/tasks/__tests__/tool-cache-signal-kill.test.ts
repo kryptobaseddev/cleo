@@ -200,7 +200,7 @@ describe('gh#1380 — the result of a killed run is never cached', () => {
 
     // Same command, same tree, therefore the same cache key. If the killed
     // run had been cached, this would be served from it without spawning —
-    // and in a non-git root, where head and dirtyFingerprint are both null,
+    // and in a non-git root, where the tree hash is null,
     // the key never changes, so it would be served forever.
     const second = await runToolCached(shCommand(SELF_KILL), dir);
     expect(second.cacheHit).toBe(false);
@@ -226,8 +226,8 @@ describe('gh#1380 — the result of a killed run is never cached', () => {
   });
 
   it('refuses a null-exitCode entry already on disk, so shipped ones retire', () => {
-    // Entries written by <= 2026.9.1 cannot clean themselves up: with head and
-    // dirtyFingerprint null the key is frozen, so nothing ever rotates them
+    // Entries written by <= 2026.9.1 cannot clean themselves up: with no git
+    // state the key is frozen, so nothing ever rotates them
     // out. Refusing them on READ is what retires them.
     const key = 'deadbeefcafe0001';
     const cacheDir = join(dir, '.cleo', 'cache', 'evidence');
@@ -235,7 +235,7 @@ describe('gh#1380 — the result of a killed run is never cached', () => {
     writeFileSync(
       join(cacheDir, `${key}.json`),
       JSON.stringify({
-        schemaVersion: 2,
+        schemaVersion: 3,
         key,
         canonical: 'lint',
         displayName: 'lint',
@@ -244,7 +244,8 @@ describe('gh#1380 — the result of a killed run is never cached', () => {
         source: 'language-default',
         executionRoot: dir,
         head: null,
-        dirtyFingerprint: null,
+        treeHash: null,
+        envFingerprint: 'none',
         exitCode: null,
         stdoutTail: '',
         stderrTail: '',
@@ -264,7 +265,7 @@ describe('gh#1380 — the result of a killed run is never cached', () => {
     writeFileSync(
       join(cacheDir, `${key}.json`),
       JSON.stringify({
-        schemaVersion: 2,
+        schemaVersion: 3,
         key,
         canonical: 'lint',
         displayName: 'lint',
@@ -273,7 +274,8 @@ describe('gh#1380 — the result of a killed run is never cached', () => {
         source: 'language-default',
         executionRoot: dir,
         head: 'abc123',
-        dirtyFingerprint: 'def456',
+        treeHash: 'def456',
+        envFingerprint: 'none',
         exitCode: 0,
         stdoutTail: '',
         stderrTail: '',

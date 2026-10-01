@@ -36,6 +36,7 @@ import type {
   TaskViewNextAction,
 } from '@cleocode/contracts';
 import { getNativeTasksDb } from '../store/sqlite.js';
+import { describeGateNotes } from './gate-notes.js';
 
 // =============================================================================
 // INTERNAL HELPERS
@@ -216,6 +217,12 @@ function fetchLifecycleProgress(taskIds: string[]): Map<string, TaskViewLifecycl
   }
 
   return empty;
+}
+
+/** `{ gateNotes }` when a passed gate has a note (T12961), else `{}`. */
+function gateNotesOf(task: Task): { gateNotes?: Partial<Record<string, string>> } {
+  const notes = describeGateNotes(task.verification);
+  return Object.keys(notes).length > 0 ? { gateNotes: notes } : {};
 }
 
 /**
@@ -416,6 +423,7 @@ export async function computeTaskViews(
       lifecycleProgress,
       childRollup,
       gatesStatus,
+      ...gateNotesOf(task),
       readyToComplete,
       nextAction,
     });

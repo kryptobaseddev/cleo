@@ -56,6 +56,7 @@ import {
   validateAtom,
 } from '../tasks/evidence.js';
 import { appendForceBypassLine, appendGateAuditLine } from '../tasks/gate-audit.js';
+import { describeGateNotes } from '../tasks/gate-notes.js';
 import { readAllowCachedGates } from '../tasks/gate-result-cache.js';
 import {
   createTaskGateReceipt,
@@ -360,6 +361,12 @@ export interface GateVerifyResult {
    * Fixes GH #94 / T919.
    */
   hint?: string;
+  /**
+   * Notes on passed gates, e.g. `{ testsPassed: 'passed (flaky: <files>)' }`
+   * when the gate's tool run passed only on its one full rerun (T12961).
+   * Absent when there is nothing to note.
+   */
+  gateNotes?: Partial<Record<VerificationGate, string>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -379,6 +386,14 @@ function protocolCatch(err: unknown): EngineResult {
 // ---------------------------------------------------------------------------
 // Gate verification
 // ---------------------------------------------------------------------------
+
+/** `{ gateNotes }` when any passed gate has a note (T12961), else `{}`. */
+function gateNotesField(verification: TaskVerification): {
+  gateNotes?: Partial<Record<VerificationGate, string>>;
+} {
+  const notes = describeGateNotes(verification);
+  return Object.keys(notes).length > 0 ? { gateNotes: notes } : {};
+}
 
 /**
  * check.gate.verify — View or modify verification gates for a task.
@@ -547,6 +562,7 @@ export async function validateGateVerify(
         requiredGates: configGates,
         missingGates: missing,
         action: 'view',
+        ...gateNotesField(verification),
       });
     }
 
@@ -1194,6 +1210,7 @@ export async function validateGateVerify(
       result.evidenceStored = evidenceStored;
       result.override = override.override;
     }
+    Object.assign(result, gateNotesField(verification));
 
     // GH #94 / T919 / T9900 — policy (b): verify NEVER auto-completes.
     // When the final gate write drives verification.passed to true, emit a

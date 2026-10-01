@@ -59,12 +59,8 @@ import {
   extractTaskAcFilesWithProvenance,
 } from './evidence.js';
 import { extractTypedGates } from './gate-runner.js';
-import {
-  captureDirtyFingerprint,
-  captureHead,
-  computeCacheKey,
-  readCacheEntry,
-} from './tool-cache.js';
+import { captureTreeHash, computeCacheKey, readCacheEntry } from './tool-cache.js';
+import { captureEnvFingerprint } from './tool-cache-env.js';
 import { type ResolvedToolCommand, resolveToolCommand } from './tool-resolver.js';
 import { loadVerificationGatePolicy } from './verification-policy.js';
 
@@ -343,9 +339,8 @@ async function planToolRun(
   const { command } = resolution;
   const key = computeCacheKey(
     command,
-    await captureHead(root),
-    await captureDirtyFingerprint(root),
-    root,
+    await captureTreeHash(root),
+    captureEnvFingerprint(root, command.canonical),
   );
   const entry = readCacheEntry(storeRoot, key);
   const run: DonePlanToolRun = {

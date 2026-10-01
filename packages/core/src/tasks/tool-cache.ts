@@ -8,15 +8,22 @@
  *
  * This module wraps tool execution with:
  *
- *   1. **Content-addressed cache** — keyed on `(canonical, cmd, args, head,
- *      dirtyFingerprint)`. Cache hits return the prior `exitCode + stdoutTail`
- *      without spawning the tool.
+ *   1. **Content-addressed cache** — keyed on `(canonical, cmd, args,
+ *      treeHash)`, where `treeHash` is the git tree of the tracked content as
+ *      it sits in the working tree (T12958, see {@link captureTreeHash}).
+ *      Cache hits return the prior `exitCode + stdoutTail` without spawning
+ *      the tool. Two worktrees holding the same content, or a commit, rebase
+ *      or amend that leaves the tree unchanged, share one result.
  *   2. **Cross-process semaphore** — when N processes simultaneously miss the
  *      cache, only one runs the tool; the rest block on a `proper-lockfile`
  *      and read the freshly-written cache entry.
- *   3. **Automatic invalidation** — entries become stale when `git HEAD`
- *      changes or when uncommitted-tree fingerprint changes. Stale entries
- *      are discarded on access (no GC daemon required).
+ *   3. **Automatic invalidation** — entries become unreachable as soon as the
+ *      tracked content changes, because the key moves with it. Nothing is
+ *      deleted on access (no GC daemon required).
+ *   4. **Failed-first reruns** — a failing `test` run remembers its failing
+ *      test files; the next run re-runs those first and stops if they still
+ *      fail (T12961, see `tool-cache-failed-first.ts`). A failing run is
+ *      re-run in full once; a pass then is recorded as `flaky`.
  *
  * Cache layout (under `<projectRoot>/.cleo/cache/evidence/`):
  *
@@ -33,26 +40,42 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
   realpathSync,
   renameSync,
   rmSync,
+  statSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
-import { withLock } from '../store/lock.js';
+import { isLocked, withLock } from '../store/lock.js';
 import { heavyToolEnv } from './heavy-tool-env.js';
 import {
   confinementStartupFailure,
   isSystemdRunCommand,
   withMemoryLimit,
 } from './heavy-tool-limit.js';
+import { captureEnvFingerprint } from './tool-cache-env.js';
+import {
+  FAILED_FIRST_TOOLS,
+  type FailedFirstReport,
+  type FocusedRun,
+  parseFailingTestFiles,
+  planFocusedRuns,
+  readFailedFirstPointer,
+  reportsNoTestFiles,
+  writeFailedFirstPointer,
+} from './tool-cache-failed-first.js';
 import type { ResolvedToolCommand } from './tool-resolver.js';
 import { type AcquireSlotOptions, acquireGlobalSlot } from './tool-semaphore.js';
 
@@ -70,20 +93,16 @@ export interface ToolCacheEntry {
    * Schema version for forwards compatibility.
    *
    * Bumped 1 -> 2 by gh#1419, which added {@link ToolCacheEntry.executionRoot}
-   * to the run's identity. Every entry written before that field existed is
-   * refused wholesale by {@link readCacheEntry} on this one comparison.
-   *
-   * That is the mechanism gh#1380 and gh#1404 each rebuilt by hand. Both
-   * needed to retire entries already on disk in consumers' caches, and both
-   * did it with a bespoke null-check on the field they had just added —
-   * `exitCode === null`, then `head === null` — while this field, whose entire
-   * purpose is to retire incompatible entries, stayed at 1 through both.
-   * Two defects, two hand-written retirement clauses, one unused version
-   * counter sitting between them.
+   * to the run's identity, and 2 -> 3 by T12958, which replaced HEAD + dirty
+   * fingerprint + execution root with the tree hash. Every entry written under
+   * an older identity is refused wholesale by {@link readCacheEntry} on this
+   * one comparison — the retirement mechanism gh#1380 and gh#1404 each rebuilt
+   * by hand with a bespoke null-check on the field they had just added.
    *
    * @task T12190 (gh#1419)
+   * @task T12958
    */
-  schemaVersion: 2;
+  schemaVersion: typeof TOOL_CACHE_SCHEMA_VERSION;
   /** Cache key (also encoded in the filename). */
   key: string;
   /** Canonical tool name from the resolver. */
@@ -96,28 +115,50 @@ export interface ToolCacheEntry {
   args: string[];
   /** Resolution source from the resolver. */
   source: string;
-  /** Git HEAD sha at execution time. */
+  /**
+   * Git tree object of the tracked content the run measured — HEAD's tree with
+   * every uncommitted tracked change applied (see {@link captureTreeHash}).
+   *
+   * This is the run's content IDENTITY and the only repo-state input to the
+   * key (T12958). It replaced `head` + `dirtyFingerprint` + `executionRoot`,
+   * which named WHERE and AFTER WHICH COMMIT a run happened rather than WHAT it
+   * measured, so every worktree and every commit missed — including an empty
+   * commit or a rebase that left the content byte-identical.
+   *
+   * The tree object is written to the repository's (shared) object database,
+   * so a hit stays auditable after the worktree that produced it is deleted:
+   * `git ls-tree <treeHash>` shows exactly the content that ran.
+   *
+   * @task T12958
+   */
+  treeHash: string | null;
+  /**
+   * Fingerprint of the per-checkout environment the run depended on — the
+   * installed-lockfile snapshot, workspace `dist/` file sizes and `.env*`
+   * content (see `tool-cache-env.ts`). `'none'` for tools that read only
+   * source. Part of the key.
+   *
+   * @task T12958
+   */
+  envFingerprint: string;
+  /** Git HEAD sha at execution time. Informational since T12958: NOT keyed. */
   head: string | null;
-  /** sha256 of `git diff HEAD` — CONTENT of the uncommitted tracked changes (gh#1452). */
-  dirtyFingerprint: string | null;
   /**
    * Absolute, symlink-resolved path of the tree the tool actually ran in.
    *
-   * Part of the run's IDENTITY (see {@link TOOL_RUN_IDENTITY_FIELDS}), so it
-   * is in the cache key: two clean worktrees at the same HEAD no longer
-   * collide. They used to by construction — a clean tree's
-   * `dirtyFingerprint` is the empty-input hash in every worktree, so the old
-   * key `{canonical, cmd, args, head, dirtyFingerprint}` was byte-identical
-   * across them.
+   * Recorded for audit, NOT part of the key since T12958. gh#1419 keyed it to
+   * stop two worktrees at one HEAD sharing a result while their content
+   * differed; the tree hash keys on the content itself, so two trees share a
+   * result exactly when they hold the same tracked content, which is the case
+   * sharing is correct for. Nothing the tool returns depends on the directory
+   * name: the command and args are keyed, and script resolution is a function
+   * of the tracked `package.json` content the tree hash covers.
    *
-   * Stored as well as keyed, so a hit can be AUDITED. Before this field,
-   * `ToolCacheEntry` carried no directory at all: a field survey of 259 tool
-   * entries found 0 that could say which tree produced them, and 8 that had
-   * been produced in worktrees since deleted — every one `exitCode: 0` and
-   * still servable, which makes the evidence unfalsifiable rather than merely
-   * stale. Nobody can go and look.
+   * The gh#1419 "unfalsifiable after the worktree is deleted" concern is met by
+   * {@link ToolCacheEntry.treeHash}: the content is a git object, not a path.
    *
    * @task T12190 (gh#1419)
+   * @task T12958
    */
   executionRoot: string;
   /** Process exit code. */
@@ -137,6 +178,50 @@ export interface ToolCacheEntry {
   durationMs: number;
   /** ISO 8601 wall-clock timestamp of the run. */
   capturedAt: string;
+  /**
+   * Test files (relative to the execution root) that failed in this run, when
+   * the tool is `test`, the run failed and the runner's output named them.
+   * Absent when unknown.
+   *
+   * @task T12961
+   */
+  failedTestFiles?: string[];
+  /**
+   * Present when a failed-first stage ran before this result. An entry whose
+   * `failedFirst.outcome` is `failed` was decided by the focused rerun alone:
+   * the previously failing files still failed, so the normal command was
+   * never spawned. A failing subset is a failing suite, which is why that
+   * result is cached under the normal command's key.
+   *
+   * @task T12961
+   */
+  failedFirst?: FailedFirstReport;
+  /**
+   * Test files that failed and then passed on their single retry (T12961).
+   * Present only on a PASSING entry: the run counts as a pass, but a flaky
+   * pass, which is visible here rather than indistinguishable from a clean
+   * one.
+   *
+   * @task T12961
+   */
+  flaky?: string[];
+  /**
+   * The tail of the first, failing run's output when the entry is a flaky
+   * pass — the audit trail of what failed before the rerun passed.
+   *
+   * @task T12961
+   */
+  flakyFailureTail?: string;
+  /**
+   * `focused`: this record describes a failed-first run of only
+   * {@link ToolCacheEntry.ranFiles}, not the recorded command. Such records
+   * are returned to the caller but never persisted under the command's key.
+   *
+   * @task T12961
+   */
+  scope?: 'focused';
+  /** The test files a `scope: 'focused'` run executed. */
+  ranFiles?: string[];
 }
 
 /**
@@ -160,6 +245,11 @@ export interface ToolRunResult {
   durationMs: number;
   /** `true` when the result came from cache (no spawn occurred). */
   cacheHit: boolean;
+  /**
+   * Git tree of the source this result measured ({@link captureTreeHash});
+   * `null` off git. Exposed so evidence atoms can bind to it (T12958).
+   */
+  treeHash: string | null;
   /**
    * `true` when the wall-clock child-process deadline was exceeded and the
    * tool was terminated before producing a result. The lock + semaphore
@@ -209,6 +299,17 @@ export interface ToolRunResult {
    * @task T12116 (gh#1397)
    */
   harnessFailure: string | null;
+  /**
+   * The failed-first stage of this run (T12961), when one ran: which files
+   * were re-run first and whether they decided the result.
+   */
+  failedFirst?: FailedFirstReport;
+  /**
+   * Test files from the first, failing run when its one full rerun passed
+   * (T12961). Set only on a pass: it marks a FLAKY pass, distinct from a
+   * clean one, for evidence atoms and gates to surface.
+   */
+  flaky?: string[];
   /** Full cache entry — useful for audit / debugging. */
   entry: ToolCacheEntry;
 }
@@ -224,10 +325,9 @@ export interface RunToolOptions {
    * written to cache for subsequent calls.
    *
    * When omitted, `CLEO_EVIDENCE_FRESH=1` in the environment turns this on.
-   * That is the documented escape hatch for the tracked-only fingerprint
-   * (see {@link captureDirtyFingerprint}): an uncommitted NEW file does not
-   * move the cache key, so this is how an operator forces a measured run
-   * without committing first.
+   * It is the escape hatch for anything the key cannot see — a change under
+   * an excluded or gitignored path, or environment state outside the
+   * fingerprint. It also skips failed-first reruns (T12961).
    *
    * @defaultValue `false` (or `CLEO_EVIDENCE_FRESH === '1'`)
    * @task T12112 (gh#1221)
@@ -295,11 +395,37 @@ export interface RunToolOptions {
    * @task T12112 (gh#1220, gh#1226, gh#1230)
    */
   executionRoot?: string;
+  /**
+   * How long a caller that finds this key's lock held waits for the holder's
+   * result before giving up with `lockBusy` (T12958). The holder is running
+   * the identical command on identical content, so waiting and reusing its
+   * result is always cheaper than running in parallel.
+   *
+   * @defaultValue 3 × the spawn deadline + 60 s (focused rerun + normal run
+   *   + one flake retry)
+   */
+  lockWaitMs?: number;
+  /**
+   * Poll interval while waiting on a held lock.
+   *
+   * @defaultValue `1_000`
+   * @internal
+   */
+  lockPollMs?: number;
 }
 
 // ---------------------------------------------------------------------------
 // Wall-clock deadline resolution (T12105 / gh#1193)
 // ---------------------------------------------------------------------------
+
+/**
+ * Most failing test files a failed `test` run may name and still get its one
+ * full flake retry (T12961). More, or none named, is treated as a
+ * deterministic failure: no retry.
+ *
+ * @task T12961
+ */
+export const MAX_FLAKE_RETRY_FILES = 3;
 
 /**
  * Default wall-clock deadline for one evidence-tool child process, in ms.
@@ -475,16 +601,33 @@ export function resolveSpawnTimeoutMs(
  * {@link isEntryUsable} (gh#1380: an unknown outcome must never be cached).
  * Putting it here would key the cache on its own answer.
  *
+ * `head` and `executionRoot` are recorded on every entry but are no longer
+ * identity (T12958). Both name a LOCATION — which commit, which directory —
+ * rather than the content measured, so keying on them made every worktree and
+ * every commit a miss even when the tracked content was byte-identical.
+ * `treeHash` is the content itself; it subsumes the old `dirtyFingerprint`.
+ * `envFingerprint` covers the per-checkout state git does not see (installed
+ * deps, gitignored build output, `.env*`), so sharing across worktrees
+ * happens only when BOTH the source and the environment match.
+ *
  * @task T12190 (gh#1419)
+ * @task T12958
  */
 export const TOOL_RUN_IDENTITY_FIELDS = [
   'canonical',
   'cmd',
   'args',
-  'head',
-  'dirtyFingerprint',
-  'executionRoot',
+  'treeHash',
+  'envFingerprint',
 ] as const;
+
+/**
+ * Current {@link ToolCacheEntry.schemaVersion}. Entries of any other version
+ * are refused on read.
+ *
+ * @task T12958
+ */
+export const TOOL_CACHE_SCHEMA_VERSION = 3;
 
 /**
  * The identity half of a {@link ToolCacheEntry} — the inputs that determine
@@ -497,14 +640,9 @@ export type ToolRunIdentity = Pick<ToolCacheEntry, (typeof TOOL_RUN_IDENTITY_FIE
 /**
  * Normalise an execution root to a stable, comparable absolute path.
  *
- * Symlinks are resolved so that two spellings of one directory produce one
- * key — the safe direction, since collapsing an alias can only merge entries
- * that genuinely describe the same tree, while failing to collapse it would
- * split one tree's cache across spellings. A path that cannot be resolved
- * (it has been deleted) falls back to lexical resolution rather than
- * throwing: callers of {@link computeCacheKey} must be able to compute the
- * key of a run whose directory is already gone, precisely so
- * {@link readCacheEntry} can then refuse it.
+ * Symlinks are resolved so two spellings of one directory compare equal. A
+ * path that cannot be resolved (it has been deleted) falls back to lexical
+ * resolution rather than throwing.
  *
  * @task T12190 (gh#1419)
  */
@@ -517,39 +655,41 @@ function normalizeExecutionRoot(executionRoot: string): string {
 }
 
 /**
- * Compute the cache key for a resolved tool command + repo state.
+ * Compute the cache key for a resolved tool command + tracked tree content.
  *
  * The key covers exactly {@link TOOL_RUN_IDENTITY_FIELDS} — canonical tool
- * name, resolved command and args, git HEAD, dirty-tree fingerprint, and the
- * normalised execution root. Fields are projected in the order that array
- * declares, so the hashed payload is a function of the array and adding a
- * field there changes every key by construction.
+ * name, resolved command and args, the tree hash and the environment
+ * fingerprint. Fields are projected in
+ * the order that array declares, so the hashed payload is a function of the
+ * array and adding a field there changes every key by construction.
  *
- * `executionRoot` is a REQUIRED parameter, deliberately. A defaulted one
- * would let every callsite that was not updated keep computing the old,
- * colliding key while the type-checker reported success — which is the exact
- * shape of the defect this fixes, since `executionRoot` already existed and
- * already reached this function's caller.
+ * There is deliberately no directory parameter (T12958): two checkouts with
+ * the same tracked content get the same key, which is what lets parallel
+ * worktrees and post-rebase re-verifies reuse one run.
  *
  * Using `createHash('sha256')` makes the key collision-resistant and bounded
  * to 32 hex chars regardless of input size.
  *
+ * @param command - Resolved tool command.
+ * @param treeHash - {@link captureTreeHash} of the execution root.
+ * @param envFingerprint - {@link captureEnvFingerprint} of the execution root.
+ * @returns 32 hex chars.
+ *
  * @task T1534
  * @task T12190 (gh#1419)
+ * @task T12958
  */
 export function computeCacheKey(
   command: ResolvedToolCommand,
-  head: string | null,
-  dirtyFingerprint: string | null,
-  executionRoot: string,
+  treeHash: string | null,
+  envFingerprint: string,
 ): string {
   const identity: ToolRunIdentity = {
     canonical: command.canonical,
     cmd: command.cmd,
     args: command.args,
-    head,
-    dirtyFingerprint,
-    executionRoot: normalizeExecutionRoot(executionRoot),
+    treeHash,
+    envFingerprint,
   };
   // Projected through TOOL_RUN_IDENTITY_FIELDS rather than written as an
   // object literal: the literal is what drifted from the entry shape before.
@@ -571,8 +711,8 @@ export function computeCacheKey(
  *      (gh#1380).
  *
  * Rule 1 subsumes gh#1404's `head === null` clause without naming `head`:
- * when the tool runs off a non-git root both git fields are null on EVERY
- * run, so the key is a function of the command alone and nothing a developer
+ * when the tool runs off a non-git root `treeHash` is null on EVERY run, so
+ * the key is a function of the command alone and nothing a developer
  * does to the source can rotate it. That is not a cache, it is a hardcoded
  * answer with a filename — and unlike gh#1380 it holds a real exit code,
  * which can be a PASS. A poisoned red is investigated within minutes; nobody
@@ -841,6 +981,11 @@ export async function captureHead(projectRoot: string): Promise<string | null> {
  * why NOT `git status --porcelain`). Returns `null` for
  * non-git roots.
  *
+ * Since T12958 this is NOT part of the tool-cache key — {@link captureTreeHash}
+ * replaced it there, and (unlike this function) counts untracked, not-ignored
+ * files. It remains the dirty-tree identity for the gate-result cache, where
+ * the tracked-only rule below still applies.
+ *
  * Two repos with identical tracked content but different uncommitted edits
  * produce different fingerprints — so editing a tracked file before
  * re-verifying always invalidates the cache for tools sensitive to that file.
@@ -954,6 +1099,136 @@ export async function captureDirtyFingerprint(projectRoot: string): Promise<stri
   return hashGitStdout(['diff', 'HEAD', ...FINGERPRINT_PATHSPEC], projectRoot);
 }
 
+/**
+ * Untracked paths {@link captureTreeHash} leaves out: CLEO's runtime state
+ * (`.cleo/`, written on every command) and the well-known untracked outputs
+ * of test and build tools that are not always gitignored. Neither a CLEO
+ * command nor the tool under test can therefore move the key it is stored
+ * under — the self-invalidation gh#1221 was about.
+ *
+ * Applies to UNTRACKED additions only. A tracked file under one of these
+ * paths (`.cleo/canon.yml`, a lint baseline, a tracked fixture `.log`) is
+ * source: its uncommitted edits always count.
+ */
+function isUntrackedRuntimeOutput(path: string): boolean {
+  if (path.startsWith('.cleo/')) return true;
+  if (path.endsWith('.log') || path.endsWith('.tsbuildinfo')) return true;
+  return path
+    .split('/')
+    .some((seg) => ['coverage', '.vitest', '.nyc_output', '.turbo', 'test-results'].includes(seg));
+}
+
+/**
+ * Untracked files larger than this are left out of {@link captureTreeHash}
+ * rather than hashed into the object database on every call. Such files are
+ * rarely source; a change to one does not move the key (force a run with
+ * `CLEO_EVIDENCE_FRESH=1`).
+ */
+export const MAX_UNTRACKED_HASH_BYTES = 5 * 1024 * 1024;
+
+/**
+ * Capture the git tree hash of the working tree's SOURCE content: HEAD's tree
+ * with every uncommitted change applied — staged or not, to tracked files and
+ * to untracked files that are not gitignored. Returns `null` for non-git
+ * roots or on any git failure (the entry is then unusable and nothing is
+ * cached).
+ *
+ * ## How (T12958)
+ *
+ * 1. Copy the checkout's own index to a private temporary file, preserving
+ *    its atime/mtime. The copy keeps the index's stat cache, so git re-hashes
+ *    only files whose stat changed. The preserved mtime matters: git's
+ *    racy-clean check compares each entry's mtime with the INDEX FILE's
+ *    mtime, and a fresh mtime on the copy would let a same-size edit made in
+ *    the same timestamp tick as the last index write read as clean. The real
+ *    index is never touched.
+ * 2. `GIT_INDEX_FILE=<copy> git add -u -- .` stages every modified or deleted
+ *    TRACKED path — all of them, including tracked files under `.cleo/`.
+ * 3. `git ls-files -o --exclude-standard -z` lists untracked, not-ignored
+ *    files; those that are not runtime output ({@link isUntrackedRuntimeOutput})
+ *    and not over {@link MAX_UNTRACKED_HASH_BYTES} are added with
+ *    `git update-index --add -z --stdin`.
+ * 4. `GIT_INDEX_FILE=<copy> git write-tree` prints the tree.
+ *
+ * A clean checkout yields exactly `HEAD^{tree}`. Two worktrees with the same
+ * source yield the same hash wherever they live, and an empty commit, an
+ * amend of only the message, or a rebase that reproduces the same content
+ * leave it unchanged.
+ *
+ * ## Untracked files (review of #1774, supersedes the gh#1221 tracked-only rule)
+ *
+ * An untracked, not-ignored file IS part of the hash. Tracked-only was safe
+ * while the key also carried the execution root; once the key is shared
+ * across worktrees it is a false pass: a worker's new, uncommitted module and
+ * failing test leave the tracked tree equal to main's, and main's cached pass
+ * would be served without the worker's tests ever running.
+ *
+ * Side effect: staging writes blob objects for dirty and new files into the
+ * repository's object database, and `write-tree` writes tree objects. Both
+ * are ordinary unreferenced loose objects: `git gc` prunes them after
+ * `gc.pruneExpire` (two weeks by default), so `git ls-tree <treeHash>` as an
+ * audit of an old entry is best-effort.
+ *
+ * @param root - Directory to fingerprint (the execution root).
+ * @returns 40/64 hex chars of the tree object id, or `null`.
+ *
+ * @task T12958
+ */
+export async function captureTreeHash(root: string): Promise<string | null> {
+  // `--absolute-git-dir`, not `--git-path index`: the latter answers with an
+  // inherited `GIT_INDEX_FILE` (e.g. inside a git hook), which is not this
+  // checkout's index.
+  const gitDir = await spawnCmd('git', ['rev-parse', '--absolute-git-dir'], root);
+  if (gitDir.exitCode !== 0) return null;
+  const realIndex = join(gitDir.stdout.trim(), 'index');
+  let tmpDir: string | null = null;
+  try {
+    tmpDir = mkdtempSync(join(tmpdir(), 'cleo-tree-'));
+    const indexFile = join(tmpDir, 'index');
+    const env = { GIT_INDEX_FILE: indexFile };
+    if (existsSync(realIndex)) {
+      copyFileSync(realIndex, indexFile);
+      const st = statSync(realIndex);
+      utimesSync(indexFile, st.atime, st.mtime);
+    } else {
+      // No index yet: seed from HEAD. An unborn HEAD leaves the index empty,
+      // which is correct — nothing is tracked.
+      await spawnCmd('git', ['read-tree', 'HEAD'], root, undefined, env);
+    }
+    const tracked = await spawnCmd('git', ['add', '-u', '--', '.'], root, undefined, env);
+    if (tracked.exitCode !== 0) return null;
+
+    const listed = execFileSync('git', ['ls-files', '-o', '--exclude-standard', '-z', '--', '.'], {
+      cwd: root,
+      encoding: 'utf-8',
+      maxBuffer: 256 * 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      env: { ...process.env, ...env },
+    });
+    const untracked = listed.split('\0').filter((p) => {
+      if (p === '' || isUntrackedRuntimeOutput(p)) return false;
+      const st = statSync(join(root, p), { throwIfNoEntry: false });
+      return st?.isFile() === true && st.size <= MAX_UNTRACKED_HASH_BYTES;
+    });
+    if (untracked.length > 0) {
+      execFileSync('git', ['update-index', '--add', '-z', '--stdin'], {
+        cwd: root,
+        input: `${untracked.join('\0')}\0`,
+        stdio: ['pipe', 'ignore', 'ignore'],
+        env: { ...process.env, ...env },
+      });
+    }
+
+    const tree = await spawnCmd('git', ['write-tree'], root, undefined, env);
+    if (tree.exitCode !== 0) return null;
+    return tree.stdout.trim() || null;
+  } catch {
+    return null;
+  } finally {
+    if (tmpDir !== null) rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Cache directory + entry IO
 // ---------------------------------------------------------------------------
@@ -991,12 +1266,9 @@ export function readCacheEntry(projectRoot: string, key: string): ToolCacheEntry
       pending?: boolean;
     };
 
-    // Schema gate. Bumped to 2 by gh#1419; every entry written before
-    // `executionRoot` was part of a run's identity is refused here, on this
-    // one line. gh#1380 and gh#1404 each needed exactly this and each
-    // reimplemented it as a bespoke null-check on their own field, while this
-    // counter sat unused at 1 through both.
-    if (parsed.schemaVersion !== 2 || parsed.key !== key) return null;
+    // Schema gate. Bumped to 2 by gh#1419 and to 3 by T12958; every entry
+    // written under an older identity is refused here, on this one line.
+    if (parsed.schemaVersion !== TOOL_CACHE_SCHEMA_VERSION || parsed.key !== key) return null;
 
     // A placeholder written by `runToolCached` to satisfy proper-lockfile's
     // "file must exist" requirement. It carries no real result — treat as
@@ -1009,23 +1281,57 @@ export function readCacheEntry(projectRoot: string, key: string): ToolCacheEntry
     // shared verbatim with the persist guard in `runToolCached`.
     if (!isEntryUsable(parsed)) return null;
 
-    // gh#1419: refuse a hit whose originating tree is GONE.
-    //
-    // Keying on `executionRoot` stops one live worktree from being served
-    // another live worktree's result. It does not address the worse case the
-    // field survey actually found: 8 entries produced in worktrees that had
-    // since been deleted, all `exitCode: 0`, all still servable. A stale
-    // result is merely wrong; a result whose tree no longer exists is
-    // UNFALSIFIABLE — there is nowhere left to go and check what ran.
-    //
-    // This is the one rule that is genuinely read-only. At write time the
-    // directory exists by construction, so it cannot live in `isEntryUsable`
-    // alongside the rules both paths share.
+    // gh#1419: refuse a hit whose recorded tree is GONE. Kept under the
+    // content key (review of #1774): the tree hash and environment
+    // fingerprint identify what ran, but a result whose checkout no longer
+    // exists cannot be re-examined for anything the fingerprints do not cover.
     if (!existsSync(parsed.executionRoot as string)) return null;
 
     return parsed as ToolCacheEntry;
   } catch {
     return null;
+  }
+}
+
+const legacySwept = new Set<string>();
+
+/**
+ * Delete tool-cache entries written under an older schema, once per process
+ * and store root.
+ *
+ * Their keys can never be computed again (the identity changed with the
+ * schema), so nothing would ever read or overwrite them. Only files named
+ * like a tool-cache key (32 hex chars) are considered; the `pr-`, `gate-`,
+ * `reval-` and `failed-first-` files sharing the directory are left alone.
+ *
+ * @task T12958
+ */
+function sweepLegacyEntriesOnce(projectRoot: string): void {
+  if (legacySwept.has(projectRoot)) return;
+  legacySwept.add(projectRoot);
+  const dir = join(projectRoot, '.cleo', 'cache', 'evidence');
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    if (!/^[0-9a-f]{32}\.json$/.test(name)) continue;
+    // A sibling lock means a process may be working on this key right now.
+    if (existsSync(join(dir, `${name}.lock`))) continue;
+    try {
+      const parsed = JSON.parse(readFileSync(join(dir, name), 'utf-8')) as {
+        schemaVersion?: number;
+        pending?: boolean;
+      };
+      if (parsed.pending === true) continue;
+      if (parsed.schemaVersion !== TOOL_CACHE_SCHEMA_VERSION) {
+        rmSync(join(dir, name), { force: true });
+      }
+    } catch {
+      // unreadable or mid-write: leave it
+    }
   }
 }
 
@@ -1048,16 +1354,93 @@ export function writeCacheEntry(projectRoot: string, entry: ToolCacheEntry): voi
 // ---------------------------------------------------------------------------
 
 /**
+ * Outcome of the failed-first stage, before it is turned into a result.
+ *
+ * @internal
+ */
+type FocusedOutcome =
+  | { kind: 'passed' | 'inconclusive' }
+  | { kind: 'timedOut' | 'failed'; result: CommandResult; durationMs: number; cwd: string }
+  | { kind: 'harness'; result: CommandResult; durationMs: number; harnessFailure: string };
+
+/**
+ * Run the planned focused invocations in order, stopping at the first one
+ * that decides anything (T12961). Each runs under the same memory bound and
+ * heavy-tool env as the normal command, and inside the caller's semaphore
+ * slot and per-key lock.
+ *
+ * Only a real, non-zero exit counts as `failed`. A spawn error, a signal kill
+ * or vitest reporting that the filters matched nothing is `inconclusive`, and
+ * the caller falls back to the normal command — a focused run may shorten a
+ * red result but must never invent one.
+ */
+async function runFocused(
+  command: ResolvedToolCommand,
+  plan: readonly FocusedRun[],
+  executionRoot: string,
+  spawnTimeoutMs: number,
+): Promise<FocusedOutcome> {
+  for (const run of plan) {
+    const limited = withMemoryLimit(command.canonical, run.cmd, run.args, { executionRoot });
+    const startedAt = Date.now();
+    const result = await spawnCmd(
+      limited.cmd,
+      [...limited.args],
+      run.cwd,
+      spawnTimeoutMs,
+      heavyToolEnv(command.canonical),
+    );
+    const durationMs = Date.now() - startedAt;
+    if (result.timedOut) return { kind: 'timedOut', result, durationMs, cwd: run.cwd };
+    const harnessFailure = confinementStartupFailure(result.stderr, limited.confined);
+    if (harnessFailure !== null) return { kind: 'harness', result, durationMs, harnessFailure };
+    if (result.exitCode === null) return { kind: 'inconclusive' };
+    if (result.exitCode !== 0) {
+      if (reportsNoTestFiles(`${result.stdout}\n${result.stderr}`)) return { kind: 'inconclusive' };
+      return { kind: 'failed', result, durationMs, cwd: run.cwd };
+    }
+  }
+  return { kind: 'passed' };
+}
+
+/**
+ * Tracked files of `root`, relative to it, for failing-file suffix lookup.
+ * Empty on any git failure.
+ */
+function listTrackedFiles(root: string): string[] {
+  try {
+    return execFileSync('git', ['ls-files', '-z'], {
+      cwd: root,
+      encoding: 'utf-8',
+      maxBuffer: 64 * 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+      .split('\0')
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Run a resolved tool command with caching + cross-process locking.
  *
  * Flow:
  *
- *   1. Compute cache key (canonical+cmd+args+head+dirtyFingerprint).
+ *   1. Compute cache key (canonical+cmd+args+treeHash).
  *   2. If a fresh entry exists → return it (no spawn).
- *   3. Acquire a `proper-lockfile` on the cache entry path.
+ *   3. Acquire a `proper-lockfile` on the cache entry path. When another
+ *      caller holds it (same command, same content — possibly another
+ *      worktree), wait for its result and reuse it (T12958).
  *   4. Re-check cache inside the lock (another process may have written it
  *      while we were waiting).
- *   5. Spawn the tool, capture stdout/stderr tails, write the entry, return.
+ *   5. For `test`, when the previous run in this execution root failed on a
+ *      different tree, re-run only its failing files first; if they still
+ *      fail, return that (uncached, `scope: 'focused'`) failure without the
+ *      normal run (T12961).
+ *   6. Spawn the tool, capture stdout/stderr tails. For a failing `test`,
+ *      re-run the FULL command once; a pass there is a pass marked `flaky`
+ *      (T12961). Write the entry, return.
  *
  * Locks are auto-released on success or failure. Stale locks are reaped per
  * the `lockStaleMs` option (default 10 min — long enough to cover a full
@@ -1069,6 +1452,8 @@ export function writeCacheEntry(projectRoot: string, entry: ToolCacheEntry): voi
  * @returns Result envelope with `exitCode`, `stdoutTail`, `cacheHit`, etc.
  *
  * @task T1534
+ * @task T12958
+ * @task T12961
  * @adr ADR-061
  */
 export async function runToolCached(
@@ -1076,6 +1461,7 @@ export async function runToolCached(
   projectRoot: string,
   opts: RunToolOptions = {},
 ): Promise<ToolRunResult> {
+  const callStartedAt = Date.now();
   const tailBytes = opts.tailBytes ?? 512;
   const lockStaleMs = opts.lockStaleMs ?? 600_000;
   // T12105 / gh#1193: an explicit opts value (tests) wins; otherwise the
@@ -1085,38 +1471,134 @@ export async function runToolCached(
   // gh#1220/#1226/#1230: the tool runs in — and is fingerprinted against —
   // the caller's tree, which is NOT necessarily the store root. The cache
   // ENTRY still lives under `projectRoot` so every worktree shares one cache;
-  // that is sound because the key is content-addressed (HEAD + tracked
-  // fingerprint), so two trees only collide when they hold the same code.
+  // that is sound because the key is content-addressed (the tracked tree
+  // hash, T12958), so two trees share an entry exactly when they hold the
+  // same tracked code.
   const executionRoot = opts.executionRoot ?? projectRoot;
+  const recordedRoot = normalizeExecutionRoot(executionRoot);
 
-  // gh#1221 escape hatch. The fingerprint covers TRACKED content only, so an
-  // uncommitted NEW file does not invalidate the cache; this is the
-  // documented way to force a measured run without committing first.
-  // An explicit option always wins over the env var.
+  // Escape hatch for anything the key cannot see (an ignored or excluded
+  // path, environment state outside the fingerprint). An explicit option
+  // always wins over the env var.
   const bypassCache = opts.bypassCache ?? process.env['CLEO_EVIDENCE_FRESH'] === '1';
 
+  const treeHash = await captureTreeHash(executionRoot);
+  const envFingerprint = captureEnvFingerprint(executionRoot, command.canonical);
   const head = await captureHead(executionRoot);
-  const dirtyFingerprint = await captureDirtyFingerprint(executionRoot);
-  const key = computeCacheKey(command, head, dirtyFingerprint, executionRoot);
+  const key = computeCacheKey(command, treeHash, envFingerprint);
+
+  const makeEntry = (
+    run: Pick<ToolCacheEntry, 'exitCode' | 'stdoutTail' | 'stderrTail' | 'durationMs'> &
+      Partial<
+        Pick<
+          ToolCacheEntry,
+          | 'signal'
+          | 'failedTestFiles'
+          | 'failedFirst'
+          | 'flaky'
+          | 'flakyFailureTail'
+          | 'scope'
+          | 'ranFiles'
+        >
+      >,
+  ): ToolCacheEntry => ({
+    schemaVersion: TOOL_CACHE_SCHEMA_VERSION,
+    key,
+    canonical: command.canonical,
+    displayName: command.displayName,
+    cmd: command.cmd,
+    args: command.args,
+    source: command.source,
+    treeHash,
+    envFingerprint,
+    head,
+    executionRoot: recordedRoot,
+    ...run,
+    capturedAt: new Date().toISOString(),
+  });
+
+  const hit = (entry: ToolCacheEntry): ToolRunResult => ({
+    exitCode: entry.exitCode,
+    signal: entry.signal ?? null,
+    stdoutTail: entry.stdoutTail,
+    stderrTail: entry.stderrTail,
+    durationMs: entry.durationMs,
+    cacheHit: true,
+    timedOut: false,
+    lockBusy: false,
+    harnessFailure: null,
+    executionRoot,
+    treeHash: entry.treeHash,
+    ...(entry.failedFirst ? { failedFirst: entry.failedFirst } : {}),
+    ...(entry.flaky ? { flaky: entry.flaky } : {}),
+    entry,
+  });
+
+  // T12025: when the child exceeded its wall-clock deadline, do NOT persist a
+  // cache entry — the run produced no real result. The lock is released via
+  // withLock's finally so a subsequent retry can acquire it and attempt a
+  // fresh spawn from the same pending entry.
+  const timedOutResult = (
+    result: CommandResult,
+    durationMs: number,
+    failedFirst?: FailedFirstReport,
+  ): ToolRunResult => ({
+    exitCode: result.exitCode,
+    signal: result.signal,
+    stdoutTail: tailString(result.stdout, tailBytes),
+    stderrTail: tailString(result.stderr, tailBytes),
+    durationMs,
+    cacheHit: false,
+    timedOut: true,
+    lockBusy: false,
+    harnessFailure: null,
+    executionRoot,
+    treeHash,
+    ...(failedFirst ? { failedFirst } : {}),
+    entry: makeEntry({
+      exitCode: null,
+      signal: result.signal,
+      stdoutTail: '',
+      stderrTail: '',
+      durationMs,
+    }),
+  });
+
+  // gh#1397: a failure of CLEO's own confinement WRAPPER is not a verdict on
+  // the project's tool. Like the `timedOut` branch, this run produced no
+  // result to cache — caching one would serve a fabricated "your tests
+  // failed" from a key that cannot rotate until the tree changes.
+  const harnessResult = (
+    result: CommandResult,
+    durationMs: number,
+    harnessFailure: string,
+    failedFirst?: FailedFirstReport,
+  ): ToolRunResult => ({
+    exitCode: result.exitCode,
+    signal: result.signal,
+    stdoutTail: tailString(result.stdout, tailBytes),
+    stderrTail: tailString(result.stderr, tailBytes),
+    durationMs,
+    cacheHit: false,
+    timedOut: false,
+    lockBusy: false,
+    executionRoot,
+    treeHash,
+    harnessFailure,
+    ...(failedFirst ? { failedFirst } : {}),
+    entry: makeEntry({
+      exitCode: null,
+      signal: result.signal,
+      stdoutTail: '',
+      stderrTail: tailString(result.stderr, tailBytes),
+      durationMs,
+    }),
+  });
 
   // Fast path — fresh cache hit
   if (!bypassCache) {
     const existing = readCacheEntry(projectRoot, key);
-    if (existing) {
-      return {
-        exitCode: existing.exitCode,
-        signal: existing.signal ?? null,
-        stdoutTail: existing.stdoutTail,
-        stderrTail: existing.stderrTail,
-        durationMs: existing.durationMs,
-        cacheHit: true,
-        timedOut: false,
-        lockBusy: false,
-        harnessFailure: null,
-        executionRoot,
-        entry: existing,
-      };
-    }
+    if (existing) return hit(existing);
   }
 
   // Slow path:
@@ -1135,255 +1617,320 @@ export async function runToolCached(
   ensureCacheDir(projectRoot);
   const cachePath = cacheEntryPath(projectRoot, key);
   if (!existsSync(cachePath)) {
-    writeFileSync(cachePath, JSON.stringify({ schemaVersion: 2, key, pending: true }), 'utf-8');
+    writeFileSync(
+      cachePath,
+      JSON.stringify({ schemaVersion: TOOL_CACHE_SCHEMA_VERSION, key, pending: true }),
+      'utf-8',
+    );
   }
 
-  const releaseSemaphore = opts.skipGlobalSemaphore
-    ? undefined
-    : await acquireGlobalSlot(command.canonical, opts.semaphoreOptions);
+  // The body run under the per-key lock: re-check, failed-first, spawn.
+  const runLocked = async (): Promise<ToolRunResult> => {
+    // Inside the lock — re-check the cache. If another process beat us to
+    // it, prefer its result.
+    if (!bypassCache) {
+      const fresh = readCacheEntry(projectRoot, key);
+      if (fresh) return hit(fresh);
+    }
+    sweepLegacyEntriesOnce(projectRoot);
 
-  try {
-    return await withLock(
-      cachePath,
-      async () => {
-        // Inside the lock — re-check the cache. If another process beat us to
-        // it, prefer its result.
-        if (!bypassCache) {
-          const fresh = readCacheEntry(projectRoot, key);
-          if (fresh) {
+    const failedFirstEnabled = FAILED_FIRST_TOOLS.has(command.canonical);
+    let trackedCache: string[] | null = null;
+    const tracked = (): string[] => {
+      trackedCache ??= listTrackedFiles(executionRoot);
+      return trackedCache;
+    };
+
+    // T12961: failed-first. When the last run of this tool in this tree
+    // failed on a DIFFERENT tree (i.e. something changed since), re-run only
+    // its failing files before the normal command.
+    //
+    // Liveness rules (review of #1774), so a pointer can never pin a tree red:
+    //   - `bypassCache` (`CLEO_EVIDENCE_FRESH=1`) skips failed-first entirely;
+    //   - a pointer recorded on THIS tree is not re-focused: the normal
+    //     command runs and decides (a file that fails only in isolation is
+    //     thereby re-judged by the real suite);
+    //   - a focused run with no parseable FAIL line (a startup or config
+    //     crash) is inconclusive and also runs the normal command.
+    // A focused red is returned but NEVER cached under the normal command's
+    // key: the suite did not run, so it must not be served as the suite's
+    // result. Its record lives in the pointer (now on this tree), so the next
+    // run here goes straight to the normal command.
+    let failedFirst: FailedFirstReport | undefined;
+    if (failedFirstEnabled && !bypassCache) {
+      const pointer = readFailedFirstPointer(projectRoot, command.canonical, recordedRoot);
+      const plan =
+        pointer && pointer.treeHash !== treeHash
+          ? planFocusedRuns(pointer.files, executionRoot)
+          : null;
+      if (pointer && plan) {
+        const report = (outcome: FailedFirstReport['outcome']): FailedFirstReport => ({
+          files: [...pointer.files],
+          outcome,
+        });
+        const focused = await runFocused(command, plan, executionRoot, spawnTimeoutMs);
+        switch (focused.kind) {
+          case 'timedOut':
+            return timedOutResult(focused.result, focused.durationMs, report('inconclusive'));
+          case 'harness':
+            return harnessResult(
+              focused.result,
+              focused.durationMs,
+              focused.harnessFailure,
+              report('inconclusive'),
+            );
+          case 'failed': {
+            const out = `${focused.result.stdout}\n${focused.result.stderr}`;
+            const files = parseFailingTestFiles(out, executionRoot, tracked, focused.cwd);
+            if (files.length === 0) {
+              failedFirst = report('inconclusive');
+              break;
+            }
+            writeFailedFirstPointer(projectRoot, command.canonical, recordedRoot, files, treeHash);
+            const entry = makeEntry({
+              exitCode: focused.result.exitCode,
+              signal: focused.result.signal,
+              stdoutTail: tailString(focused.result.stdout, tailBytes),
+              stderrTail: tailString(focused.result.stderr, tailBytes),
+              durationMs: focused.durationMs,
+              failedTestFiles: files,
+              failedFirst: report('failed'),
+              scope: 'focused',
+              ranFiles: [...pointer.files],
+            });
             return {
-              exitCode: fresh.exitCode,
-              signal: fresh.signal ?? null,
-              stdoutTail: fresh.stdoutTail,
-              stderrTail: fresh.stderrTail,
-              durationMs: fresh.durationMs,
-              cacheHit: true,
+              exitCode: entry.exitCode,
+              signal: entry.signal ?? null,
+              stdoutTail: entry.stdoutTail,
+              stderrTail: entry.stderrTail,
+              durationMs: entry.durationMs,
+              cacheHit: false,
               timedOut: false,
               lockBusy: false,
-              harnessFailure: null,
               executionRoot,
-              entry: fresh,
+              treeHash,
+              harnessFailure: null,
+              failedFirst: report('failed'),
+              entry,
             };
           }
+          default:
+            failedFirst = report(focused.kind);
         }
-
-        // Spawn the tool ourselves.
-        //
-        // T12116: `test` and `build` run inside a transient systemd scope with
-        // a hard `MemoryMax` and `MemorySwapMax=0`, so the kernel bounds the
-        // ENTIRE process tree — a `pnpm -r` fan-out into fifteen packages is
-        // still one cgroup, which is the multiplier the semaphore could not
-        // see. Denying swap is the point: the failure this guards against was
-        // a throttle-and-thrash host freeze, not an OOM kill. Degrades to an
-        // unwrapped spawn off Linux or without a user systemd manager.
-        const limited = withMemoryLimit(command.canonical, command.cmd, command.args, {
-          // The scope name's rootHash8 comes off the SAME execution root the
-          // cache key uses (T12112 / gh#1220), so the scope and the cache agree
-          // on what "the tree under test" means.
-          executionRoot,
-        });
-        const startedAt = Date.now();
-        const result = await spawnCmd(
-          limited.cmd,
-          [...limited.args],
-          executionRoot,
-          spawnTimeoutMs,
-          heavyToolEnv(command.canonical),
-        );
-        const durationMs = Date.now() - startedAt;
-
-        // T12025: when the child exceeded its wall-clock deadline, do NOT
-        // persist a cache entry — the run produced no real result. The lock
-        // is released via withLock's finally so a subsequent retry can
-        // acquire it and attempt a fresh spawn from the same pending entry.
-        if (result.timedOut) {
-          return {
-            exitCode: result.exitCode,
-            signal: result.signal,
-            stdoutTail: tailString(result.stdout, tailBytes),
-            stderrTail: tailString(result.stderr, tailBytes),
-            durationMs,
-            cacheHit: false,
-            timedOut: true,
-            lockBusy: false,
-            harnessFailure: null,
-            executionRoot,
-            entry: {
-              schemaVersion: 2,
-              key,
-              canonical: command.canonical,
-              displayName: command.displayName,
-              cmd: command.cmd,
-              args: command.args,
-              source: command.source,
-              head,
-              dirtyFingerprint,
-              executionRoot,
-              exitCode: null,
-              signal: result.signal,
-              stdoutTail: '',
-              stderrTail: '',
-              durationMs,
-              capturedAt: new Date().toISOString(),
-            },
-          };
-        }
-
-        // gh#1397: CLEO wrapped this spawn itself (T12116), so a failure of
-        // the WRAPPER is CLEO's own fault and not a verdict on the project's
-        // tool. Checked before the cache entry is built because, like the
-        // `timedOut` branch above, this run produced no result to cache — and
-        // caching one would serve a fabricated "your tests failed" from a
-        // key that cannot rotate until the tree changes.
-        // `limited.confined` OR the project's own pinned wrapper: post-detection
-        // (gh#1396) CLEO declines to wrap a command that is already
-        // `systemd-run`, so `confined` is false for exactly the project whose
-        // harness failures prompted gh#1397.
-        const harnessFailure = confinementStartupFailure(
-          result.stderr,
-          limited.confined || isSystemdRunCommand(command.cmd),
-        );
-        if (harnessFailure !== null) {
-          return {
-            exitCode: result.exitCode,
-            signal: result.signal,
-            stdoutTail: tailString(result.stdout, tailBytes),
-            stderrTail: tailString(result.stderr, tailBytes),
-            durationMs,
-            cacheHit: false,
-            timedOut: false,
-            lockBusy: false,
-            executionRoot,
-            harnessFailure,
-            entry: {
-              schemaVersion: 2,
-              key,
-              canonical: command.canonical,
-              displayName: command.displayName,
-              cmd: command.cmd,
-              args: command.args,
-              source: command.source,
-              head,
-              dirtyFingerprint,
-              executionRoot,
-              exitCode: null,
-              signal: result.signal,
-              stdoutTail: '',
-              stderrTail: tailString(result.stderr, tailBytes),
-              durationMs,
-              capturedAt: new Date().toISOString(),
-            },
-          };
-        }
-
-        const entry: ToolCacheEntry = {
-          schemaVersion: 2,
-          key,
-          canonical: command.canonical,
-          displayName: command.displayName,
-          cmd: command.cmd,
-          args: command.args,
-          source: command.source,
-          head,
-          dirtyFingerprint,
-          executionRoot,
-          exitCode: result.exitCode,
-          signal: result.signal,
-          stdoutTail: tailString(result.stdout, tailBytes),
-          stderrTail: tailString(result.stderr, tailBytes),
-          durationMs,
-          capturedAt: new Date().toISOString(),
-        };
-
-        // Persist only a usable entry. `isEntryUsable` is the SAME predicate
-        // `readCacheEntry` applies, which is the point: these two guards used
-        // to be independent transcriptions of one rule — `exitCode !== null
-        // && head !== null`, written out twice — so a field added to one had
-        // to be remembered into the other. gh#1380 and gh#1404 each edited
-        // both, and nothing checked that they still agreed.
-        //
-        // What the shared predicate refuses, and why none of it is an
-        // overcorrection:
-        //   - unknown outcome (`exitCode: null`) — a signal kill, or a
-        //     failure to start. The `timedOut` branch above already returns
-        //     without writing for this reason; an OOM kill that is not a CLEO
-        //     timeout (gh#1381) had no equivalent guard and fell through here.
-        //   - unrotatable key (`head: null`) — costs a non-git CLEO root all
-        //     caching. Stated rather than hidden: those projects are not
-        //     getting valid caching today, they are getting ONE answer
-        //     forever, and a slow correct answer beats a fast fabricated one.
-        //   - unattributable run (`executionRoot` absent) — cannot occur on
-        //     this path, and is required here anyway so that read and write
-        //     stay ONE rule rather than two that happen to match today.
-        //
-        // Deliberately narrow in the other direction too: refusing, say, all
-        // non-zero exits would trade a fabricated pass for a permanent cache
-        // miss on healthy projects — the same overcorrection pointed the
-        // other way.
-        if (isEntryUsable(entry)) {
-          writeCacheEntry(projectRoot, entry);
-        }
-
-        return {
-          exitCode: entry.exitCode,
-          signal: entry.signal ?? null,
-          stdoutTail: entry.stdoutTail,
-          stderrTail: entry.stderrTail,
-          durationMs: entry.durationMs,
-          cacheHit: false,
-          timedOut: false,
-          lockBusy: false,
-          executionRoot,
-          harnessFailure: null,
-          entry,
-        };
-      },
-      { stale: lockStaleMs, retries: 3 },
-    );
-  } catch (err: unknown) {
-    // T12025 (lock contention): a held cache lock causes ~47 s of blind
-    // proper-lockfile retries (50 × exponential backoff). Reduce to 3
-    // retries (~0.7 s fail-fast) and return a typed actionable result
-    // so callers surface E_EVIDENCE_TOOL_BUSY instead of a generic error.
-    // Only surface lockBusy for actual ELOCKED contention — permission
-    // errors and other lock failures are re-thrown as real errors.
-    if (err instanceof CleoError && err.code === ExitCode.LOCK_TIMEOUT) {
-      const causeCode = (err.cause as { code?: string } | undefined)?.code;
-      if (causeCode === 'ELOCKED') {
-        return {
-          exitCode: null,
-          signal: null,
-          stdoutTail: '',
-          stderrTail: '',
-          durationMs: 0,
-          cacheHit: false,
-          timedOut: false,
-          lockBusy: true,
-          harnessFailure: null,
-          executionRoot,
-          entry: {
-            schemaVersion: 2,
-            key,
-            canonical: command.canonical,
-            displayName: command.displayName,
-            cmd: command.cmd,
-            args: command.args,
-            source: command.source,
-            head,
-            dirtyFingerprint,
-            executionRoot,
-            exitCode: null,
-            stdoutTail: '',
-            stderrTail: '',
-            durationMs: 0,
-            capturedAt: new Date().toISOString(),
-          },
-        };
       }
     }
-    throw err;
-  } finally {
-    if (releaseSemaphore) await releaseSemaphore();
+
+    // Spawn the tool ourselves.
+    //
+    // T12116: `test` and `build` run inside a transient systemd scope with
+    // a hard `MemoryMax` and `MemorySwapMax=0`, so the kernel bounds the
+    // ENTIRE process tree — a `pnpm -r` fan-out into fifteen packages is
+    // still one cgroup, which is the multiplier the semaphore could not
+    // see. Denying swap is the point: the failure this guards against was
+    // a throttle-and-thrash host freeze, not an OOM kill. Degrades to an
+    // unwrapped spawn off Linux or without a user systemd manager.
+    const limited = withMemoryLimit(command.canonical, command.cmd, command.args, {
+      // The scope name's rootHash8 comes off the execution root the tool
+      // runs in (T12112 / gh#1220).
+      executionRoot,
+    });
+    const spawnNormal = async (): Promise<{ result: CommandResult; durationMs: number }> => {
+      const startedAt = Date.now();
+      const result = await spawnCmd(
+        limited.cmd,
+        [...limited.args],
+        executionRoot,
+        spawnTimeoutMs,
+        heavyToolEnv(command.canonical),
+      );
+      return { result, durationMs: Date.now() - startedAt };
+    };
+    // gh#1397: `limited.confined` OR the project's own pinned wrapper:
+    // post-detection (gh#1396) CLEO declines to wrap a command that is
+    // already `systemd-run`, so `confined` is false for exactly the project
+    // whose harness failures prompted gh#1397.
+    const harnessOf = (r: CommandResult): string | null =>
+      confinementStartupFailure(r.stderr, limited.confined || isSystemdRunCommand(command.cmd));
+
+    const first = await spawnNormal();
+    if (first.result.timedOut) {
+      return timedOutResult(first.result, first.durationMs, failedFirst);
+    }
+    const firstHarness = harnessOf(first.result);
+    if (firstHarness !== null) {
+      return harnessResult(first.result, first.durationMs, firstHarness, failedFirst);
+    }
+
+    let { result, durationMs } = first;
+    let failedTestFiles: string[] | undefined;
+    let flaky: string[] | undefined;
+    let flakyFailureTail: string | undefined;
+    if (failedFirstEnabled && result.exitCode !== null) {
+      let files =
+        result.exitCode === 0
+          ? []
+          : parseFailingTestFiles(`${result.stdout}\n${result.stderr}`, executionRoot, tracked);
+      // T12961 flake check (review of #1774): on a failure, re-run the FULL
+      // recorded command once — never a narrower focused or per-package run,
+      // which cannot see a `pnpm -r` bail, a coverage threshold, a non-vitest
+      // step or a failure that only happens in the suite's context. A pass
+      // on that identical rerun is a pass marked `flaky` with the first
+      // run's failing files and failure tail; a second failure is red. A
+      // rerun that times out or cannot start decides nothing, and the first
+      // failure stands.
+      //
+      // Only a NARROW failure is retried: the failing files must be named and
+      // number at most MAX_FLAKE_RETRY_FILES. A broken build or a mass
+      // failure is deterministic, and doubling its cost buys nothing.
+      if (result.exitCode !== 0 && files.length > 0 && files.length <= MAX_FLAKE_RETRY_FILES) {
+        const retry = await spawnNormal();
+        if (!retry.result.timedOut && harnessOf(retry.result) === null) {
+          if (retry.result.exitCode === 0) {
+            flaky = files.length > 0 ? files : ['<unknown>'];
+            flakyFailureTail = tailString(`${result.stdout}\n${result.stderr}`, tailBytes);
+            files = [];
+            result = retry.result;
+            durationMs += retry.durationMs;
+          } else if (retry.result.exitCode !== null) {
+            const again = parseFailingTestFiles(
+              `${retry.result.stdout}\n${retry.result.stderr}`,
+              executionRoot,
+              tracked,
+            );
+            if (again.length > 0) files = again;
+            result = retry.result;
+            durationMs += retry.durationMs;
+          }
+        }
+      }
+      // Remember which test files failed, so the next run on a changed tree
+      // can try them first. A pass, or a failure whose files cannot be
+      // named, clears the pointer; an unknown outcome leaves it.
+      if (files.length > 0) failedTestFiles = files;
+      writeFailedFirstPointer(projectRoot, command.canonical, recordedRoot, files, treeHash);
+    }
+
+    const entry = makeEntry({
+      exitCode: result.exitCode,
+      signal: result.signal,
+      stdoutTail: tailString(result.stdout, tailBytes),
+      stderrTail: tailString(result.stderr, tailBytes),
+      durationMs,
+      ...(failedTestFiles ? { failedTestFiles } : {}),
+      ...(failedFirst ? { failedFirst } : {}),
+      ...(flaky && result.exitCode === 0 ? { flaky, flakyFailureTail } : {}),
+    });
+
+    // Persist only a usable entry. `isEntryUsable` is the SAME predicate
+    // `readCacheEntry` applies, which is the point: these two guards used
+    // to be independent transcriptions of one rule — `exitCode !== null
+    // && head !== null`, written out twice — so a field added to one had
+    // to be remembered into the other. gh#1380 and gh#1404 each edited
+    // both, and nothing checked that they still agreed.
+    //
+    // What the shared predicate refuses, and why none of it is an
+    // overcorrection:
+    //   - unknown outcome (`exitCode: null`) — a signal kill, or a
+    //     failure to start. The `timedOut` branch above already returns
+    //     without writing for this reason; an OOM kill that is not a CLEO
+    //     timeout (gh#1381) had no equivalent guard and fell through here.
+    //   - unrotatable key (`treeHash: null`) — costs a non-git CLEO root
+    //     all caching. Stated rather than hidden: those projects are not
+    //     getting valid caching today, they are getting ONE answer
+    //     forever, and a slow correct answer beats a fast fabricated one.
+    //
+    // Deliberately narrow in the other direction too: refusing, say, all
+    // non-zero exits would trade a fabricated pass for a permanent cache
+    // miss on healthy projects — the same overcorrection pointed the
+    // other way.
+    if (isEntryUsable(entry)) {
+      writeCacheEntry(projectRoot, entry);
+    }
+
+    return {
+      exitCode: entry.exitCode,
+      signal: entry.signal ?? null,
+      stdoutTail: entry.stdoutTail,
+      stderrTail: entry.stderrTail,
+      durationMs: entry.durationMs,
+      cacheHit: false,
+      timedOut: false,
+      lockBusy: false,
+      executionRoot,
+      treeHash,
+      harnessFailure: null,
+      ...(failedFirst ? { failedFirst } : {}),
+      ...(entry.flaky ? { flaky: entry.flaky } : {}),
+      entry,
+    };
+  };
+
+  // Coalescing (T12958): with a content key, N agents in N worktrees at the
+  // same tree compute the SAME key, so the per-key lock is what turns N
+  // identical suites into one. A caller that finds the lock held WAITS for
+  // the holder's result instead of failing fast (T12025's ~0.7 s give-up
+  // made every second caller report E_EVIDENCE_TOOL_BUSY and retry, i.e.
+  // run the suite anyway). The wait happens OUTSIDE the global semaphore so a
+  // waiter does not occupy a slot a different key could use.
+  //
+  // When the holder releases without a usable entry (timeout, harness
+  // failure, crash) the waiter loops and runs the tool itself. The total wait
+  // is bounded by `lockWaitMs`; past it the caller gets `lockBusy`.
+  // The holder's worst case is a focused rerun, the normal command and its
+  // one flake retry — three spawn deadlines — plus slack.
+  const lockWaitMs = opts.lockWaitMs ?? 3 * spawnTimeoutMs + 60_000;
+  const lockPollMs = opts.lockPollMs ?? 1_000;
+  const waitDeadline = Date.now() + lockWaitMs;
+  // A bypassing caller must not accept the entry it chose to bypass.
+  const acceptable = (e: ToolCacheEntry): boolean =>
+    !bypassCache || Date.parse(e.capturedAt) >= callStartedAt;
+
+  for (;;) {
+    const releaseSemaphore = opts.skipGlobalSemaphore
+      ? undefined
+      : await acquireGlobalSlot(command.canonical, opts.semaphoreOptions);
+    try {
+      return await withLock(cachePath, runLocked, { stale: lockStaleMs, retries: 3 });
+    } catch (err: unknown) {
+      // Only ELOCKED contention is waited out — permission errors and other
+      // lock failures are re-thrown as real errors.
+      const causeCode =
+        err instanceof CleoError && err.code === ExitCode.LOCK_TIMEOUT
+          ? (err.cause as { code?: string } | undefined)?.code
+          : undefined;
+      if (causeCode !== 'ELOCKED') throw err;
+    } finally {
+      if (releaseSemaphore) await releaseSemaphore();
+    }
+
+    // Another caller is running this exact key. Wait for its result.
+    while (Date.now() < waitDeadline) {
+      const done = readCacheEntry(projectRoot, key);
+      if (done && acceptable(done)) return hit(done);
+      if (!(await isLocked(cachePath, { stale: lockStaleMs }))) break;
+      await new Promise((r) => setTimeout(r, Math.min(lockPollMs, waitDeadline - Date.now())));
+    }
+    const done = readCacheEntry(projectRoot, key);
+    if (done && acceptable(done)) return hit(done);
+    if (Date.now() >= waitDeadline) {
+      // T12025: a typed, actionable result so callers surface
+      // E_EVIDENCE_TOOL_BUSY instead of a generic error.
+      return {
+        exitCode: null,
+        signal: null,
+        stdoutTail: '',
+        stderrTail: '',
+        durationMs: 0,
+        cacheHit: false,
+        timedOut: false,
+        lockBusy: true,
+        harnessFailure: null,
+        executionRoot,
+        treeHash,
+        entry: makeEntry({ exitCode: null, stdoutTail: '', stderrTail: '', durationMs: 0 }),
+      };
+    }
+    // The holder released without a usable result: run it ourselves.
   }
 }
 

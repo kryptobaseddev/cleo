@@ -3,8 +3,9 @@
  *
  * ## The defect, and why it is worse than gh#1380
  *
- * `computeCacheKey` hashes `{canonical, cmd, args, head, dirtyFingerprint}`.
- * When both git fields are `null` the key is a function of the COMMAND ALONE.
+ * `computeCacheKey` hashed `{canonical, cmd, args, head, dirtyFingerprint}`
+ * (since T12958: `{canonical, cmd, args, treeHash}`). When the git fields are
+ * `null` the key is a function of the COMMAND ALONE.
  * Editing source does not change it. Committing does not change it. Only
  * editing the tool command changes it — a config change, not a code change.
  *
@@ -71,11 +72,11 @@ function plant(projectRoot: string, key: string, fields: Record<string, unknown>
   writeFileSync(
     join(dir, `${key}.json`),
     JSON.stringify({
-      // schemaVersion 2 and a live executionRoot are deliberate: a planted
-      // entry must be refused for the reason ITS OWN test names, not because
-      // it tripped the schema gate or the missing-tree gate on the way in.
-      // A fixture that fails early passes the test vacuously (gh#1419).
-      schemaVersion: 2,
+      // The current schemaVersion is deliberate: a planted entry must be
+      // refused for the reason ITS OWN test names, not because it tripped the
+      // schema gate on the way in. A fixture that fails early passes the test
+      // vacuously (gh#1419).
+      schemaVersion: 3,
       executionRoot: projectRoot,
       key,
       canonical: 'lint',
@@ -84,7 +85,8 @@ function plant(projectRoot: string, key: string, fields: Record<string, unknown>
       args: ['-c', 'true'],
       source: 'language-default',
       head: 'abc123',
-      dirtyFingerprint: 'def456',
+      treeHash: 'def456',
+      envFingerprint: 'none',
       exitCode: 0,
       stdoutTail: '',
       stderrTail: '',
@@ -127,34 +129,34 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-describe('gh#1404 — an entry with a null head is refused on read', () => {
+describe('gh#1404 — an entry with a null tree hash is refused on read', () => {
   it('REFUSES A CACHED PASS — the case gh#1380 cannot catch', () => {
     // THE regression. exitCode 0 is a perfectly valid result; the key it sits
     // under is the problem. gh#1380's guard (`exitCode === null`) passes this
     // entry straight through.
-    plant(dir, 'aaaa000000000001', { exitCode: 0, head: null, dirtyFingerprint: null });
+    plant(dir, 'aaaa000000000001', { exitCode: 0, head: null, treeHash: null });
     expect(readCacheEntry(dir, 'aaaa000000000001')).toBeNull();
   });
 
-  it('refuses a cached failure with a null head too', () => {
-    plant(dir, 'aaaa000000000002', { exitCode: 7, head: null, dirtyFingerprint: null });
+  it('refuses a cached failure with a null tree hash too', () => {
+    plant(dir, 'aaaa000000000002', { exitCode: 7, head: null, treeHash: null });
     expect(readCacheEntry(dir, 'aaaa000000000002')).toBeNull();
   });
 
-  it('refuses when head is absent rather than explicitly null', () => {
-    plant(dir, 'aaaa000000000003', { exitCode: 0, head: undefined });
+  it('refuses when the tree hash is absent rather than explicitly null', () => {
+    plant(dir, 'aaaa000000000003', { exitCode: 0, treeHash: undefined });
     expect(readCacheEntry(dir, 'aaaa000000000003')).toBeNull();
   });
 
-  it('STILL RETURNS a well-formed entry with a real head', () => {
+  it('STILL RETURNS a well-formed entry with a real tree hash', () => {
     // The guard must stay narrow. Refusing more broadly would trade a
     // fabricated pass for a permanent cache miss on healthy projects.
-    plant(dir, 'aaaa000000000004', { exitCode: 0, head: 'abc123' });
+    plant(dir, 'aaaa000000000004', { exitCode: 0, treeHash: 'abc123' });
     expect(readCacheEntry(dir, 'aaaa000000000004')?.exitCode).toBe(0);
   });
 
-  it('still returns a cached NON-ZERO exit with a real head', () => {
-    plant(dir, 'aaaa000000000005', { exitCode: 7, head: 'abc123' });
+  it('still returns a cached NON-ZERO exit with a real tree hash', () => {
+    plant(dir, 'aaaa000000000005', { exitCode: 7, treeHash: 'abc123' });
     expect(readCacheEntry(dir, 'aaaa000000000005')?.exitCode).toBe(7);
   });
 });
@@ -194,22 +196,20 @@ describe('gh#1404 — nothing is written when the key cannot rotate', () => {
   });
 });
 
-describe('gh#1404 — the key really is command-only when the git fields are null', () => {
-  it('two different commits produce the SAME key once head is null', () => {
+describe('gh#1404 — the key really is command-only when the tree hash is null', () => {
+  it('two different trees produce the SAME key once the tree hash is null', () => {
     const cmd = shCommand('exit 0');
     // This is the property that makes the entry permanent, asserted directly
     // rather than inferred from behaviour.
-    expect(computeCacheKey(cmd, null, null, '/tmp/uk-root')).toBe(
-      computeCacheKey(cmd, null, null, '/tmp/uk-root'),
-    );
-    expect(computeCacheKey(cmd, 'head-one', null, '/tmp/uk-root')).not.toBe(
-      computeCacheKey(cmd, 'head-two', null, '/tmp/uk-root'),
+    expect(computeCacheKey(cmd, null, 'none')).toBe(computeCacheKey(cmd, null, 'none'));
+    expect(computeCacheKey(cmd, 'tree-one', 'none')).not.toBe(
+      computeCacheKey(cmd, 'tree-two', 'none'),
     );
   });
 
   it('only a command change rotates it', () => {
-    expect(computeCacheKey(shCommand('exit 0'), null, null, '/tmp/uk-root')).not.toBe(
-      computeCacheKey(shCommand('exit 1'), null, null, '/tmp/uk-root'),
+    expect(computeCacheKey(shCommand('exit 0'), null, 'none')).not.toBe(
+      computeCacheKey(shCommand('exit 1'), null, 'none'),
     );
   });
 });

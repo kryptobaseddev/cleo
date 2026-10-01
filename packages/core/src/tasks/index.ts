@@ -285,18 +285,21 @@ export {
   cacheEntryPath,
   captureDirtyFingerprint,
   captureHead,
+  captureTreeHash,
   clearToolCache,
   computeCacheKey,
   isEntryUsable,
   type RunToolOptions,
   readCacheEntry,
   runToolCached,
+  TOOL_CACHE_SCHEMA_VERSION,
   TOOL_RUN_IDENTITY_FIELDS,
   type ToolCacheEntry,
   type ToolRunIdentity,
   type ToolRunResult,
   writeCacheEntry,
 } from './tool-cache.js';
+export { captureEnvFingerprint, ENV_SENSITIVE_TOOLS } from './tool-cache-env.js';
 // Project-agnostic tool resolution (T1534 / ADR-061)
 export {
   type CanonicalTool,
