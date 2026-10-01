@@ -266,15 +266,16 @@ describe('the PR named must carry the implementation commits (T12959 review HIGH
     expect(info).toMatchObject({ state: 'merged', prRef: '10' });
   });
 
-  it('green: a merged PR GitHub associates with B is named, though it does not cite the task', async () => {
+  it('green: a merged PR GitHub associates with B is named when it carries B, though it does not cite the task', async () => {
     const info = await taskChangeMergeState(implementedB(), '/nonexistent', {
       derived: derived(),
       changeSet: {
-        viewPr: view({ 10: ['a'.repeat(40)] }),
+        viewPr: view({ 10: ['a'.repeat(40)], 12: [B] }),
         listPrsForCommit: async () => [
           { number: 12, mergedAt: '2026-09-05T00:00:00Z', baseRefName: 'main' },
           { number: 11, mergedAt: null, baseRefName: 'main' },
         ],
+        defaultBranch: () => 'main',
       },
       executionRoot: '/repo',
       contains: () => false,
@@ -282,6 +283,68 @@ describe('the PR named must carry the implementation commits (T12959 review HIGH
       isLanded: () => false,
     });
     expect(info).toMatchObject({ state: 'merged', prRef: '12' });
+  });
+
+  it('red (L2): a PR GitHub associates with B but whose commits do not carry it is never named', async () => {
+    const info = await taskChangeMergeState(implementedB(), '/nonexistent', {
+      derived: derived(),
+      changeSet: {
+        viewPr: view({ 10: ['a'.repeat(40)], 12: ['e'.repeat(40)] }),
+        listPrsForCommit: async () => [
+          { number: 12, mergedAt: '2026-09-05T00:00:00Z', baseRefName: 'main' },
+        ],
+        defaultBranch: () => 'main',
+      },
+      executionRoot: '/repo',
+      contains: () => false,
+      equivalent: () => false,
+      isLanded: () => false,
+    });
+    expect(info).toMatchObject({ state: 'unmerged', prRef: null });
+  });
+
+  it('red (L2): with no origin default ref, a PR merged into another branch (a stacked base) never counts', async () => {
+    const opts = (base: string) => ({
+      derived: derived(),
+      changeSet: {
+        viewPr: view({ 10: ['a'.repeat(40)], 12: [B] }),
+        listPrsForCommit: async () => [
+          { number: 12, mergedAt: '2026-09-05T00:00:00Z', baseRefName: base },
+        ],
+        defaultBranch: () => 'main',
+      },
+      executionRoot: '/repo',
+      contains: () => false,
+      equivalent: () => false,
+      isLanded: () => false,
+    });
+    expect(
+      await taskChangeMergeState(implementedB(), '/nonexistent', opts('feat/T1-base')),
+    ).toMatchObject({ state: 'unmerged', prRef: null });
+    expect(await taskChangeMergeState(implementedB(), '/nonexistent', opts('main'))).toMatchObject({
+      state: 'merged',
+      prRef: '12',
+    });
+  });
+
+  it('an unresolvable default branch is a failed lookup, never an unfiltered match', async () => {
+    const info = await taskChangeMergeState(implementedB(), '/nonexistent', {
+      derived: derived(),
+      changeSet: {
+        viewPr: view({ 10: ['a'.repeat(40)], 12: [B] }),
+        listPrsForCommit: async () => [
+          { number: 12, mergedAt: '2026-09-05T00:00:00Z', baseRefName: 'main' },
+        ],
+        defaultBranch: () => null,
+      },
+      executionRoot: '/repo',
+      contains: () => false,
+      equivalent: () => false,
+      isLanded: () => false,
+    });
+    expect(info.state).toBe('unknown');
+    expect(info.prRef).toBeNull();
+    expect(info.lookupFailed).toMatch(/default branch is unknown/);
   });
 
   it('green: a commit rebased before its PR merged is carried by patch equivalence', async () => {
@@ -363,6 +426,109 @@ describe('ancestry is a positive signal only (T12959 review MEDIUM)', () => {
     expect(info.state).toBe('unknown');
   });
 
+  it('L1: landed, and the carrier lookup failed (gh pr view): carrier unknown, never "no PR carries it"', async () => {
+    const info = await taskChangeMergeState(implementedB(), '/nonexistent', {
+      derived,
+      changeSet: { viewPr: async () => null, listPrsForCommit: async () => [] },
+      executionRoot: '/repo',
+      contains: () => false,
+      equivalent: () => false,
+      isLanded: () => true,
+    });
+    expect(info).toMatchObject({ state: 'merged', prRef: null });
+    expect(info.unproven).toBeUndefined();
+    expect(info.lookupFailed).toMatch(/gh pr view 12 failed.*gh unreachable/);
+  });
+
+  it('L1: a commits/<sha>/pulls failure is reported apart from "no PRs"', async () => {
+    const base = {
+      derived: { ...derived, mergeCommitSha: undefined },
+      executionRoot: '/repo',
+      contains: () => false,
+      equivalent: () => false,
+    };
+    const viewPr = async (n: number) => ({
+      number: n,
+      title: '',
+      headRefName: 'task/T9001',
+      baseRefName: 'main',
+      state: 'MERGED',
+      mergedAt: '2026-09-05T00:00:00Z',
+      headRefOid: null,
+      mergeCommitSha: null,
+      commits: ['c'.repeat(40)],
+    });
+    const failed = await taskChangeMergeState(implementedB(), '/nonexistent', {
+      ...base,
+      changeSet: { viewPr, listPrsForCommit: async () => null },
+      isLanded: () => true,
+    });
+    expect(failed.lookupFailed).toMatch(/commits\/bbbbbbbbbbbb\/pulls failed/);
+    expect(failed.unproven).toBeUndefined();
+    const none = await taskChangeMergeState(implementedB(), '/nonexistent', {
+      ...base,
+      changeSet: { viewPr, listPrsForCommit: async () => [] },
+      isLanded: () => true,
+    });
+    expect(none.lookupFailed).toBeUndefined();
+    expect(none.unproven).toMatch(/no merged PR is known to carry them/);
+    const notLanded = await taskChangeMergeState(implementedB(), '/nonexistent', {
+      ...base,
+      changeSet: { viewPr, listPrsForCommit: async () => null },
+      isLanded: () => false,
+    });
+    expect(notLanded.state).toBe('unknown');
+  });
+
+  it('L1: a failed merged-PR discovery behind a landed commit is a carrier-unknown result', async () => {
+    const info = await taskChangeMergeState(implementedB(), '/nonexistent', {
+      derived: {
+        ...derived,
+        source: 'branch',
+        prNumber: undefined,
+        mergeState: 'unknown',
+        prDiscoveryFailed: true,
+      },
+      changeSet: { viewPr: async () => null, listPrsForCommit: async () => [] },
+      executionRoot: '/repo',
+      contains: () => false,
+      equivalent: () => false,
+      isLanded: () => true,
+    });
+    expect(info).toMatchObject({ state: 'merged', prRef: null });
+    expect(info.lookupFailed).toMatch(/merged-PR lookup failed/);
+  });
+
+  it('commits missing locally are named as such, not as gh unreachable', async () => {
+    const info = await taskChangeMergeState(implementedB(), '/nonexistent', {
+      derived,
+      changeSet: {
+        viewPr: async (n) => ({
+          number: n,
+          title: '',
+          headRefName: 'task/T9001',
+          baseRefName: 'main',
+          state: 'MERGED',
+          mergedAt: '2026-09-05T00:00:00Z',
+          headRefOid: null,
+          mergeCommitSha: null,
+          commits: ['d'.repeat(40)],
+        }),
+        listPrsForCommit: async () => [],
+      },
+      executionRoot: '/repo',
+      contains: () => false,
+      equivalent: () => ({ missing: ['d'.repeat(40)] }),
+      isLanded: () => false,
+    });
+    expect(info.state).toBe('unknown');
+    expect(info.lookupFailed).toMatch(/dddddddddddd are not in the local object store.*git fetch/);
+    expect(info.lookupFailed).not.toMatch(/gh unreachable/);
+    expect(scopedRunSupersededReason([affected], info.state, info.lookupFailed)).toMatch(
+      /cannot be determined \(commit\(s\) dddddddddddd are not in the local object store/,
+    );
+  });
+
   it('a commit no PR carries and that never landed is unmerged', async () => {
     const info = await taskChangeMergeState(implementedB(), '/nonexistent', {
       derived: {
@@ -416,7 +582,12 @@ describe('hasPatchEquivalent (real git)', () => {
       expect(rebased).not.toBe(original);
       expect(hasPatchEquivalent(dir, original, [rebased])).toBe(true);
       expect(hasPatchEquivalent(dir, original, [other])).toBe(false);
-      expect(hasPatchEquivalent(dir, original, ['4'.repeat(40)])).toBeNull();
+      const absent = '4'.repeat(40);
+      expect(hasPatchEquivalent(dir, original, [absent])).toEqual({ missing: [absent] });
+      // A missing candidate does not hide a match among the present ones.
+      expect(hasPatchEquivalent(dir, original, [absent, rebased])).toBe(true);
+      expect(hasPatchEquivalent(dir, original, [absent, other])).toEqual({ missing: [absent] });
+      expect(hasPatchEquivalent(dir, absent, [rebased])).toEqual({ missing: [absent] });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -27,8 +27,8 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { promisify } from 'node:util';
-import type { ChangeSetMergeState } from '@cleocode/contracts';
 import { isCiDocumentPath } from '../release/ci-evidence.js';
+import type { MergeVerdict } from './affected-scope.js';
 import { splitCommandLine } from './command-line.js';
 import type { ResolvedToolCommand } from './tool-resolver.js';
 import { acquireGlobalSlot, type ReleaseSlotFn } from './tool-semaphore.js';
@@ -674,7 +674,8 @@ export type ScopedTestRun =
  * @param storeRoot - CLEO store root (project context).
  * @param root - Execution root whose diff defines the set.
  * @param opts - `wait` queues for the `test` slot; `mergeState` resolves the
- *   task's merge state lazily (omitted when no task is in context).
+ *   task's merge state lazily, with why a lookup failed when one did (omitted
+ *   when no task is in context).
  * @returns The scope and the plan, or why the full suite runs.
  * @example
  * ```ts
@@ -686,7 +687,7 @@ export type ScopedTestRun =
 export async function planScopedTestRun(
   storeRoot: string,
   root: string,
-  opts: { wait?: boolean; mergeState?: () => Promise<ChangeSetMergeState> } = {},
+  opts: { wait?: boolean; mergeState?: () => Promise<MergeVerdict> } = {},
 ): Promise<ScopedTestRun> {
   const { readRawProjectContext } = await import('./tool-resolver.js');
   const testing = (
@@ -701,14 +702,14 @@ export async function planScopedTestRun(
     return { scope: 'full', reason: 'testing.preferAffected is false' };
   }
   if (opts.mergeState) {
-    const state = await opts.mergeState();
+    const { state, lookupFailed } = await opts.mergeState();
     if (state !== 'unmerged') {
       return {
         scope: 'full',
         reason:
           state === 'merged'
             ? 'the change has merged; an affected run counts before merge only'
-            : 'whether the change has merged cannot be determined (gh unreachable); an affected run counts before merge only',
+            : `whether the change has merged cannot be determined (${lookupFailed ?? 'gh unreachable'}); an affected run counts before merge only`,
       };
     }
   }

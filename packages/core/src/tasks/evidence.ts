@@ -65,9 +65,9 @@ import {
   writeCommitRevalidationEntry,
 } from './revalidation-cache.js';
 import {
+  bindTestRunReport,
   coveredTestFiles,
   TEST_RUN_MAX_RECORDED_FILES,
-  testRunBindingRefusal,
 } from './test-run-binding.js';
 import {
   captureHead,
@@ -438,7 +438,7 @@ export async function validateAtom(
         Boolean(artifactPrs ?? context?.artifactCommitSha),
       );
     case 'test-run':
-      return validateTestRun(parsed.path, roots);
+      return validateTestRun(parsed.path, roots, taskId ?? context?.task.id);
     case 'tool':
       return validateTool(parsed.tool, roots, context);
     case 'url':
@@ -1743,7 +1743,11 @@ export function resolveEvidenceExecutionRoot(
   return projectRoot;
 }
 
-async function validateTestRun(path: string, roots: EvidenceRoots): Promise<AtomValidation> {
+async function validateTestRun(
+  path: string,
+  roots: EvidenceRoots,
+  taskId?: string,
+): Promise<AtomValidation> {
   const { storeRoot: projectRoot, executionRoot } = roots;
   // gh#1226: a relative test-run path names a report the caller just wrote,
   // in the caller's tree. Resolving it against the shared store root made a
@@ -1823,19 +1827,27 @@ async function validateTestRun(path: string, roots: EvidenceRoots): Promise<Atom
   }
 
   // T12965: bind the report to the change it claims to test. A report older
-  // than the change, or covering none of its packages, is refused; HEAD, the
-  // tree hash and the covered files are recorded so `cleo complete` can
-  // refuse it once the tree moves. See test-run-binding.ts for exactly what
-  // this guarantees (and what it does not). A non-git root records no binding.
-  const testFiles = coveredTestFiles(parsed, executionRoot);
+  // than the change, or not covering it, is refused; HEAD, the tree hash and
+  // the covered files are recorded so `cleo complete` can refuse it once the
+  // tree moves. See test-run-binding.ts for exactly what this guarantees (and
+  // what it does not). A non-git root records no binding.
+  // T12965 review M2: with a task in context, bind in the task's change-set
+  // root — its worktree when one is registered — the one root `cleo done`
+  // and `cleo complete` recompute the tree in, wherever each is run from.
+  const bindRoot = taskId
+    ? (await import('./change-set.js')).resolveChangeSetRoot(projectRoot, taskId).root
+    : executionRoot;
+  const testFiles = coveredTestFiles(parsed, bindRoot);
   // The tree hash is the tool cache's (T12958), so a bound test-run and a
   // cached tool run of the same content agree.
-  const treeHash = await captureTreeHash(executionRoot);
-  const headSha = treeHash ? await captureHead(executionRoot) : null;
+  const treeHash = await captureTreeHash(bindRoot);
+  const headSha = treeHash ? await captureHead(bindRoot) : null;
   const identity = treeHash && headSha ? { treeHash, headSha } : null;
+  let untestedPackages: string[] = [];
   if (identity) {
-    const refusal = testRunBindingRefusal(parsed, abs, executionRoot, testFiles);
-    if (refusal) return { ok: false, reason: refusal, codeName: 'E_EVIDENCE_STALE' };
+    const binding = bindTestRunReport(parsed, abs, bindRoot, testFiles);
+    if (!binding.ok) return { ok: false, reason: binding.reason, codeName: binding.codeName };
+    untestedPackages = binding.untestedPackages;
   }
   return {
     ok: true,
@@ -1857,6 +1869,7 @@ async function validateTestRun(path: string, roots: EvidenceRoots): Promise<Atom
             testFileCount: testFiles.length,
           }
         : {}),
+      ...(untestedPackages.length > 0 ? { untestedPackages } : {}),
     },
   };
 }
@@ -1880,11 +1893,9 @@ async function validateTool(
         ? {
             mergeState: async () => {
               const { taskChangeMergeState } = await import('./affected-scope.js');
-              return (
-                await taskChangeMergeState(task, roots.storeRoot, {
-                  executionRoot: roots.executionRoot,
-                })
-              ).state;
+              return taskChangeMergeState(task, roots.storeRoot, {
+                executionRoot: roots.executionRoot,
+              });
             },
           }
         : {}),

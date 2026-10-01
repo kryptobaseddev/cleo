@@ -289,9 +289,10 @@ export type EvidenceAtom =
       failCount: number;
       skipCount: number;
       /**
-       * HEAD of the checkout the report was bound to at verify time (T12965).
-       * Absent when the execution root is not a git checkout, and on atoms
-       * recorded before T12965.
+       * HEAD of the checkout the report was bound to at verify time (T12965):
+       * the task's change-set root (its worktree when one is registered), the
+       * root `cleo done` and `cleo complete` recompute the tree in. Absent when
+       * that root is not a git checkout, and on atoms recorded before T12965.
        */
       headSha?: string;
       /**
@@ -301,10 +302,16 @@ export type EvidenceAtom =
        * longer matches, unless `ci:<pr>` or a full tool run carries the gate.
        */
       treeHash?: string;
-      /** Test files the report covered, relative to the execution root (capped, T12965). */
+      /** Test files the report covered, relative to the bound checkout (capped, T12965). */
       testFiles?: string[];
       /** Total test files the report covered; exceeds `testFiles.length` when capped. */
       testFileCount?: number;
+      /**
+       * Affected packages (changed, or depending on a changed one) with no
+       * test file, so no report could cover them — recorded like
+       * `tool:test-affected`'s `untestedPackages` (T12965 review).
+       */
+      untestedPackages?: string[];
     }
   | {
       kind: 'tool';

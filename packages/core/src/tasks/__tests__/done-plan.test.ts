@@ -47,7 +47,7 @@ import {
   parseEvidence,
   validateAtom,
 } from '../evidence.js';
-import { runToolCached } from '../tool-cache.js';
+import { captureTreeHash, runToolCached } from '../tool-cache.js';
 import { resolveToolCommand } from '../tool-resolver.js';
 import { acquireGlobalSlot } from '../tool-semaphore.js';
 
@@ -733,6 +733,80 @@ describe('cleo done and cleo complete judge the merge alike (T12656 AC2, T12959 
   });
 });
 
+describe('a worktree-bound test-run is judged in one root (T12965 review M2)', () => {
+  it('bound in the task worktree; done --plan and complete, run from the main checkout, agree it stands', async () => {
+    writeFileSync(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "pkgs/*"\n');
+    mkdirSync(join(root, 'pkgs', 'a'), { recursive: true });
+    writeFileSync(join(root, 'pkgs', 'a', 'package.json'), JSON.stringify({ name: '@w/a' }));
+    writeFileSync(join(root, 'pkgs', 'a', 'i.ts'), 'export const x = 1;\n');
+    writeFileSync(join(root, 'pkgs', 'a', 'a.test.ts'), 'export {};\n');
+    writeFileSync(join(root, '.gitignore'), '.cleo/\n.cleo-home/\nreports/\n');
+    git(root, ['add', '.']);
+    git(root, ['commit', '-q', '-m', 'workspace']);
+    git(root, ['push', '-q', 'origin', 'main']);
+    const id = await seedTask(['Change pkgs/a/i.ts']);
+    git(root, ['branch', `task/${id}`]);
+    const wt = `${root}-wt`;
+    git(root, ['worktree', 'add', '-q', wt, `task/${id}`]);
+    try {
+      writeFileSync(join(wt, 'pkgs', 'a', 'i.ts'), 'export const x = 2;\n');
+      git(wt, ['commit', '-q', '-am', `${id}: a`]);
+      mkdirSync(join(wt, 'reports'), { recursive: true });
+      const reportPath = join(wt, 'reports', 'vitest.json');
+      writeFileSync(
+        reportPath,
+        JSON.stringify({
+          startTime: Date.now() + 5_000,
+          numTotalTests: 1,
+          numPassedTests: 1,
+          numFailedTests: 0,
+          testResults: [{ name: join(wt, 'pkgs', 'a', 'a.test.ts'), status: 'passed' }],
+        }),
+      );
+      const wtTree = await captureTreeHash(wt);
+      expect(wtTree).not.toBe(await captureTreeHash(root));
+
+      // Bound from the main checkout: the task's worktree is the tree bound.
+      const bound = await validateAtom({ kind: 'test-run', path: reportPath }, root, id);
+      expect(bound.ok, JSON.stringify(bound)).toBe(true);
+      if (!bound.ok) return;
+      expect(bound.atom).toMatchObject({ treeHash: wtTree });
+      const verification = {
+        passed: false,
+        round: 1,
+        gates: { testsPassed: true },
+        failureLog: [],
+        lastAgent: null,
+        lastUpdated: null,
+        evidence: {
+          testsPassed: {
+            atoms: [bound.atom],
+            capturedAt: '2026-10-01T00:00:00Z',
+            capturedBy: 'test',
+          },
+        },
+      };
+      await env.accessor.updateTaskFields(id, { verificationJson: JSON.stringify(verification) });
+
+      const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
+      expect(plan.changeSet.rootSource).toBe('task-worktree');
+      expect(plan.gates.find((g) => g.gate === 'testsPassed')?.passed).toBe(true);
+      expect(plan.changeSet.warnings.join(' ')).not.toMatch(/no longer describes/);
+
+      const task = await env.accessor.loadSingleTask(id);
+      if (!task) throw new Error('fixture task vanished');
+      const ci = await satisfyGatesFromMergedCi(task, root, ['testsPassed'], {
+        ciSatisfies: () => false,
+        merge: { changeSet: deps },
+      });
+      expect(ci).toEqual({ kind: 'skipped', testsPassedReason: null });
+    } finally {
+      git(root, ['worktree', 'remove', '--force', wt]);
+      rmSync(wt, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('affected-scope test runs (T12635, D11150)', () => {
   function workspaceWithPackages(withVitest = true): void {
     writeFileSync(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "pkgs/*"\n');
@@ -789,6 +863,30 @@ describe('affected-scope test runs (T12635, D11150)', () => {
     });
     expect(plan.gates.find((g) => g.gate === 'testsPassed')?.evidence).toBe(
       `tool:test-affected;satisfies:${id}#AC1`,
+    );
+  });
+
+  it('T12959 review (L4): testing.preferAffected false plans the full tool:test, as tool:test runs it', async () => {
+    workspaceWithPackages();
+    const ctxPath = join(root, '.cleo', 'project-context.json');
+    const ctx = JSON.parse(readFileSync(ctxPath, 'utf-8')) as { testing: Record<string, unknown> };
+    writeFileSync(
+      ctxPath,
+      JSON.stringify({ ...ctx, testing: { ...ctx.testing, preferAffected: false } }),
+    );
+    const id = await seedTask(['Change pkgs/a/i.ts']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    writeFileSync(join(root, 'pkgs', 'a', 'i.ts'), 'export const x = 2;\n');
+    git(root, ['commit', '-q', '-am', `${id}: a`]);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+    });
+    expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')?.tool).toBe('test');
+    expect(plan.gates.find((g) => g.gate === 'testsPassed')?.evidence).toBe(
+      `tool:test;satisfies:${id}#AC1`,
     );
   });
 

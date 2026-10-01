@@ -32,20 +32,30 @@ The PR is a merged PR that carries every recorded implementation commit, so
 its CI actually ran them — never a PR that merely cites the task. A commit is
 carried when it is an ancestor of the PR's merge commit, one of the PR's own
 commits as `gh` lists them (squash and rebase merges), or a patch-equivalent of
-one (rebased before merge). CLEO looks at the newest recorded `pr:` first, then
-the PR change-set derivation finds, then any merged PR GitHub associates with
-the commits.
+one (rebased before merge; the candidates present locally are compared first).
+CLEO looks at the newest recorded `pr:` first, then the PR change-set
+derivation finds, then a merged PR into the default branch that GitHub
+associates with the commits. Every candidate, the GitHub one included, must
+carry the commits. The default branch comes from origin's ref, else from `gh`,
+so a stacked PR merged into a feature branch never counts.
 - Ancestry of the local `origin/<default>` is a positive signal only: a stale
   ref, a squash merge or a pre-rebase SHA never makes a merged change look
   unmerged. New work built on top of an earlier merged PR is unmerged.
-- Commits that landed with no PR known to carry them count as merged with no
-  PR, so completion refuses: fix CI, or record a full `tool:test`.
-- A lookup that fails leaves the merge state unknown, so scoped evidence fails
-  closed.
+- Commits that landed with no PR known to carry them, after every lookup
+  answered, count as merged with no PR, so completion refuses: fix CI, or
+  record a full `tool:test`.
+- A lookup that fails (`gh` unreachable, or commits missing from the local
+  object store, each named as such) leaves the merge state unknown, so scoped
+  evidence fails closed. When the commits landed but a lookup failed, the
+  carrier is unknown: completion records nothing and says to retry or record
+  `tool:test`, never to fix a CI that may be green.
 
 `cleo done` planning, `cleo complete` and a scope-aware `tool:test` all judge
 the merge through this one function (`taskChangeMergeState`), so `cleo done`
-never plans `ci:<pr>` that `cleo complete` would not record.
+never plans `ci:<pr>` that `cleo complete` would not record. `cleo done` also
+plans its test run through the planner `tool:test` uses
+(`testing.preferAffected`, the merge state, untested dependents), so the run it
+makes is the run validation repeats.
 
 Required CI that is still pending gives a refusal to wait and retry. A final
 red (`startup_failure` and every other `*_failure` conclusion included), a
@@ -61,16 +71,25 @@ testsPassed. `cleo done` planning and `cleo complete` share one rule,
 
 **Targeted `test-run:` evidence is bound (T12965).** At verify time, a report is
 refused when:
-- it ran before the committer time of HEAD or of any commit the branch adds
-  (record the report before committing, or re-run after);
+- it ran before the committer time of HEAD or of any commit the branch adds,
+  unless those commits only recorded what was on disk when it ran (HEAD as of
+  the run is in the reflog and nothing differing from it was modified, deleted
+  or moved since): edit, test, commit, verify works; otherwise bind test-run
+  before committing, or re-run;
 - it ran before the newest working-tree edit of any path the change touches;
 - it ran before an uncommitted deletion or rename, dated by the directory the
   path was removed from (a moved file keeps its old mtime);
-- in a workspace change, it covers no test file in a directly changed package;
-- or the change is workspace-wide (a root config or lockfile) and the report
-  is not a full suite: it must cover a test file in every package with tests.
+- in a workspace change, it misses an affected package that has tests: every
+  changed package and every package depending on one, the set
+  `tool:test-affected` runs. Affected packages with no test file are recorded
+  as `untestedPackages`;
+- or the change is workspace-wide (a root config, `scripts/` or the lockfile):
+  a report cannot show it ran the whole suite, so record `tool:test`.
 
-The atom records HEAD, the tool cache's tree hash and the covered test files (up to
+With a task in context, the report is bound in the task's change-set root (its
+worktree when one is registered), the root `cleo done` and `cleo complete`
+recompute the tree in, so the three agree wherever each is run from. The atom
+records HEAD, the tool cache's tree hash and the covered test files (up to
 200, plus `testFileCount`). `cleo complete` refuses a test-run whose tree moved,
 unless `ci:<pr>` or a standing full `tool:test` carries the gate. This binding
 guards against stale and irrelevant reports. It does not prove the report came

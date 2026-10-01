@@ -335,6 +335,31 @@ describe('satisfyGatesFromMergedCi', () => {
     expect(w.calls).toHaveLength(0);
   });
 
+  it('L1: merged, but a lookup failed: carrier unknown is skipped (retry or tool:test), never "fix CI"', async () => {
+    mergeOverride.value = {
+      state: 'merged',
+      prRef: null,
+      changeSet: changeSet({ source: 'branch', mergeState: 'merged' }),
+      lookupFailed: 'gh pr view 42 failed (gh unreachable — check `gh auth status`)',
+    };
+    const w = recorder(ok);
+    const out = await satisfyGatesFromMergedCi(
+      task({
+        implemented: [{ kind: 'commit', sha: 'b'.repeat(40), shortSha: 'bbbbbbb' }],
+        tests: [affected],
+      }),
+      '/nonexistent',
+      REQUIRED,
+      deps({ recordGates: w.recordGates }),
+    );
+    expect(out.kind).toBe('skipped');
+    expect(out.kind === 'skipped' && out.ciUnavailable).toMatch(
+      /merged, but which merged PR carries it cannot be determined \(gh pr view 42 failed \(gh unreachable.*retry, or record tool:test/,
+    );
+    expect(out.kind === 'skipped' && out.testsPassedReason).toMatch(/scoped run/);
+    expect(w.calls).toHaveLength(0);
+  });
+
   it('merged, and the PR checks are still pending: wait for CI', async () => {
     mergeOverride.value = {
       state: 'merged',

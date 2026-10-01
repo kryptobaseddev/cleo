@@ -18,10 +18,31 @@
  */
 
 import type { ChangeSetMergeState, EvidenceAtom, TaskChangeSet } from '@cleocode/contracts';
-import type { ChangeSetDeps, ChangeSetTask } from './change-set.js';
+import type {
+  ChangeSetDeps,
+  ChangeSetTask,
+  CommitPr,
+  PatchEquivalenceUnknown,
+} from './change-set.js';
 
 /** Whether the task's change has merged to the default branch. */
 export type ChangeMergeState = ChangeSetMergeState;
+
+/** A merge state and, when a lookup it needed failed, which one (T12959 review). */
+export interface MergeVerdict {
+  /** Merge state of the task's latest implementation. */
+  state: ChangeMergeState;
+  /**
+   * Why a lookup failed — `gh` unreachable, or commits missing from the
+   * local object store. With `state: 'unknown'` it is why the state is
+   * unknown; with `state: 'merged'` and no PR named, why the PR that carries
+   * the change is unknown.
+   */
+  lookupFailed?: string;
+}
+
+/** What a failed `gh` lookup means for the caller, and the first thing to check. */
+const GH_UNREACHABLE = 'gh unreachable — check `gh auth status`';
 
 /** A full (unscoped) tool run that actually executed. */
 function isFullToolRun(a: EvidenceAtom): boolean {
@@ -74,17 +95,19 @@ export function mergeStateOfChangeSet(
  *
  * @param atoms - Recorded `testsPassed` atoms.
  * @param state - Merge state of the task's change.
+ * @param lookupFailed - With `state: 'unknown'`, why (defaults to `gh` unreachable).
  * @returns The reason, or null.
  * @task T12656
  */
 export function scopedRunSupersededReason(
   atoms: ReadonlyArray<EvidenceAtom>,
   state: ChangeMergeState,
+  lookupFailed?: string,
 ): string | null {
   if (state === 'unmerged' || !isScopedOnly(atoms)) return null;
   return state === 'merged'
     ? 'testsPassed was recorded from a scoped run (affected packages or a targeted test-run); the merged change needs merged CI (ci:<pr>) or a full run (tool:test).'
-    : 'testsPassed was recorded from a scoped run (affected packages or a targeted test-run), which counts before merge only, and whether the change has merged cannot be determined (gh unreachable — check `gh auth status`); retry, or record tool:test (or ci:<pr>).';
+    : `testsPassed was recorded from a scoped run (affected packages or a targeted test-run), which counts before merge only, and whether the change has merged cannot be determined (${lookupFailed ?? GH_UNREACHABLE}); retry, or record tool:test (or ci:<pr>).`;
 }
 
 /**
@@ -138,7 +161,8 @@ export function hasTreeBoundTestRun(atoms: ReadonlyArray<EvidenceAtom>): boolean
  * when the recorded atoms make it relevant.
  *
  * @param atoms - Recorded `testsPassed` atoms.
- * @param probe - Lazy merge state and current tree hash.
+ * @param probe - Lazy merge state (with why a lookup failed, when known) and
+ *   current tree hash.
  * @returns The reason it no longer stands, or null.
  * @task T12656
  * @task T12965
@@ -146,7 +170,7 @@ export function hasTreeBoundTestRun(atoms: ReadonlyArray<EvidenceAtom>): boolean
 export async function testsPassedSupersededReason(
   atoms: ReadonlyArray<EvidenceAtom>,
   probe: {
-    mergeState: () => Promise<ChangeMergeState> | ChangeMergeState;
+    mergeState: () => Promise<ChangeMergeState | MergeVerdict> | ChangeMergeState | MergeVerdict;
     currentTree: () => Promise<string | null> | string | null;
   },
 ): Promise<string | null> {
@@ -155,7 +179,9 @@ export async function testsPassedSupersededReason(
     if (moved) return moved;
   }
   if (!isScopedOnly(atoms)) return null;
-  return scopedRunSupersededReason(atoms, await probe.mergeState());
+  const merge = await probe.mergeState();
+  const verdict = typeof merge === 'string' ? { state: merge } : merge;
+  return scopedRunSupersededReason(atoms, verdict.state, verdict.lookupFailed);
 }
 
 /** Git and `gh` probes {@link taskChangeMergeState} uses; injectable for tests. */
@@ -168,7 +194,10 @@ export interface MergeProbeDeps {
   changeSet?: ChangeSetDeps;
   /** A change set already derived for this task (`cleo done` planning), so it is not derived twice. */
   derived?: TaskChangeSet;
-  /** Repository the implementation commits live in; defaults to the evidence execution root. */
+  /**
+   * Repository the implementation commits live in; defaults to the task's
+   * change-set root (its worktree when one is registered, T12965 review).
+   */
   executionRoot?: string;
   /**
    * Whether `sha` is on origin's default branch; defaults to
@@ -179,14 +208,19 @@ export interface MergeProbeDeps {
   isLanded?: (root: string, sha: string) => boolean;
   /** Whether `ancestor` is contained in `descendant`; defaults to `git merge-base --is-ancestor`. */
   contains?: (root: string, ancestor: string, descendant: string) => boolean;
-  /** Whether `sha`'s patch is among `candidates` (null: cannot tell); defaults to `git patch-id`. */
-  equivalent?: (root: string, sha: string, candidates: readonly string[]) => boolean | null;
+  /**
+   * Whether `sha`'s patch is among `candidates`: null when git failed,
+   * `{ missing }` when commits it needs are not local; defaults to `git patch-id`.
+   */
+  equivalent?: (
+    root: string,
+    sha: string,
+    candidates: readonly string[],
+  ) => boolean | null | PatchEquivalenceUnknown;
 }
 
 /** Where a task's change stands, and the PR whose CI would prove it. */
-export interface TaskMergeInfo {
-  /** Merge state of the task's LATEST implementation. */
-  state: ChangeMergeState;
+export interface TaskMergeInfo extends MergeVerdict {
   /** The derived change set, when one was derived. */
   changeSet: TaskChangeSet | null;
   /**
@@ -195,7 +229,10 @@ export interface TaskMergeInfo {
    * cites the task: its CI must have run the recorded commits.
    */
   prRef: string | null;
-  /** With `state: 'merged'` and no {@link prRef}: why no merged PR is named. */
+  /**
+   * With `state: 'merged'`, no {@link prRef} and no `lookupFailed`: why no
+   * merged PR is named — every lookup answered, and none carries the change.
+   */
   unproven?: string;
 }
 
@@ -234,6 +271,11 @@ function sameCommit(a: string, b: string): boolean {
   return x.length >= 7 && y.length >= 7 && (x.startsWith(y) || y.startsWith(x));
 }
 
+/** The first 12 characters of each commit, comma-separated. */
+function shortShas(shas: readonly string[]): string {
+  return shas.map((sha) => sha.slice(0, 12)).join(', ');
+}
+
 /**
  * Whether a merged PR carries every implementation commit, so its CI ran them
  * (T12959 review). A commit is carried when it is an ancestor of the PR's
@@ -241,63 +283,87 @@ function sameCommit(a: string, b: string): boolean {
  * rebase merge rewrites the SHAs; a component's commits count for its
  * integration PR), or a patch-equivalent of one of them (rebased before the
  * PR merged). A commit built on top of the merge came after it and is never
- * carried. `incomplete` when a lookup it needed failed.
+ * carried. `incomplete` names a lookup it needed that failed.
  */
 async function carriesAll(
   root: string,
   pr: CarrierPr,
   commits: readonly string[],
   probes: CarrierProbes,
-): Promise<{ carried: boolean; incomplete: boolean }> {
+): Promise<{ carried: boolean; incomplete: string | null }> {
   const merge = pr.mergeCommitSha ?? null;
   let rest =
     merge === null ? [...commits] : commits.filter((sha) => !probes.contains(root, sha, merge));
-  if (rest.length === 0) return { carried: true, incomplete: false };
+  if (rest.length === 0) return { carried: true, incomplete: null };
   if (merge !== null && rest.some((sha) => probes.contains(root, merge, sha))) {
-    return { carried: false, incomplete: false };
+    return { carried: false, incomplete: null };
   }
-  let incomplete = false;
+  let incomplete: string | null = null;
   const own: string[] = [];
   for (const n of [pr.prNumber, pr.componentPrNumber]) {
     if (n === undefined) continue;
     const view = await probes.viewPr(n, root);
-    if (view === null) incomplete = true;
+    if (view === null) incomplete ??= `gh pr view ${n} failed (${GH_UNREACHABLE})`;
     else own.push(...(view.commits ?? []));
   }
   rest = rest.filter((sha) => !own.some((oid) => sameCommit(oid, sha)));
-  if (rest.length === 0) return { carried: true, incomplete: false };
+  if (rest.length === 0) return { carried: true, incomplete: null };
   for (const sha of rest) {
     const equivalent = own.length > 0 ? probes.equivalent(root, sha, own) : false;
-    if (equivalent === null) incomplete = true;
-    if (equivalent !== true) return { carried: false, incomplete };
+    if (equivalent === true) continue;
+    if (equivalent === null) {
+      incomplete ??= `git could not compare ${shortShas([sha])} with the commits of PR #${pr.prNumber}`;
+    } else if (equivalent !== false) {
+      incomplete ??= `commit(s) ${shortShas(equivalent.missing)} are not in the local object store — run \`git fetch\``;
+    }
+    return { carried: false, incomplete };
   }
-  return { carried: true, incomplete: false };
+  return { carried: true, incomplete: null };
 }
 
-/** The newest merged PR into the default branch GitHub associates with every commit. */
-async function mergedPrCarryingAll(
+/**
+ * Merged PRs into the default branch that GitHub associates with every
+ * commit, newest first — candidates only, which {@link carriesAll} then
+ * checks. `failed` names a lookup that failed: a `gh` call, or the default
+ * branch, which comes from origin's ref, else from `gh` (a PR merged into any
+ * other branch, such as a stacked PR's base, never counts).
+ */
+async function githubCarrierCandidates(
   root: string,
   commits: readonly string[],
   list: NonNullable<ChangeSetDeps['listPrsForCommit']>,
-  defaultRef: string | null,
-): Promise<number | null> {
-  const defaultBranch = defaultRef?.replace(/^origin\//, '') ?? null;
-  const perCommit: Array<Map<number, string>> = [];
+  defaultBranch: () => Promise<string | null>,
+): Promise<{ prs: CarrierPr[]; failed: string | null }> {
+  const perCommit: Array<Map<number, CommitPr>> = [];
   for (const sha of commits) {
-    const merged = new Map<number, string>();
-    for (const pr of await list(sha, root)) {
-      if (pr.mergedAt !== null && (defaultBranch === null || pr.baseRefName === defaultBranch)) {
-        merged.set(pr.number, pr.mergedAt);
-      }
+    const rows = await list(sha, root);
+    if (rows === null) {
+      return {
+        prs: [],
+        failed: `gh api commits/${shortShas([sha])}/pulls failed (${GH_UNREACHABLE})`,
+      };
     }
-    if (merged.size === 0) return null;
+    const merged = new Map(rows.filter((pr) => pr.mergedAt !== null).map((pr) => [pr.number, pr]));
+    if (merged.size === 0) return { prs: [], failed: null };
     perCommit.push(merged);
   }
   const [first, ...others] = perCommit;
-  const common = [...(first ?? new Map<number, string>())].filter(([n]) =>
-    others.every((m) => m.has(n)),
-  );
-  return common.sort((a, b) => b[1].localeCompare(a[1]))[0]?.[0] ?? null;
+  const common = [...(first?.values() ?? [])].filter((pr) => others.every((m) => m.has(pr.number)));
+  if (common.length === 0) return { prs: [], failed: null };
+  const base = await defaultBranch();
+  if (base === null) {
+    return {
+      prs: [],
+      failed: `the default branch is unknown (no origin/HEAD, origin/main or origin/master, and gh repo view failed: ${GH_UNREACHABLE})`,
+    };
+  }
+  return {
+    prs: common
+      .filter((pr) => pr.baseRefName === base)
+      .sort((a, b) => (b.mergedAt ?? '').localeCompare(a.mergedAt ?? ''))
+      .map((pr) => ({ prNumber: pr.number, mergeCommitSha: pr.mergeCommitSha ?? null })),
+    failed: null,
+  };
 }
 
 /**
@@ -308,17 +374,21 @@ async function mergedPrCarryingAll(
  * With recorded `commit:` atoms, the commits decide, never "any merged PR
  * that cites the task": the PR named is one that carries every commit (see
  * {@link carriesAll}) — a recorded `pr:` atom first (newest), then the PR the
- * change-set derivation found, then any merged PR GitHub associates with the
- * commits. Landing on the local `origin/<default>` is a positive signal only
- * (merged, but no PR proves it); its absence proves nothing, since the ref may
- * be stale and squash and rebase merges rewrite SHAs. With no sign of a merge,
- * the state is unmerged — or unknown when a lookup it needed failed. Without
- * commit atoms, the newest recorded `pr:` atom, else the derivation, decides.
+ * change-set derivation found, then a merged PR into the default branch that
+ * GitHub associates with the commits. Landing on the local `origin/<default>`
+ * is a positive signal only (merged, but no PR proves it); its absence proves
+ * nothing, since the ref may be stale and squash and rebase merges rewrite
+ * SHAs. With no sign of a merge, the state is unmerged — or unknown when a
+ * lookup it needed failed. A landed change with no carrier and a failed lookup
+ * names that lookup (`lookupFailed`): the carrier is unknown, which is not
+ * "no PR carries it" (`unproven`). Without commit atoms, the newest recorded
+ * `pr:` atom, else the derivation, decides.
  *
  * @param task - The task whose change is examined.
  * @param storeRoot - CLEO store root.
  * @param deps - Change-set I/O and git/`gh` probes.
- * @returns The merge state, the PR, and the change set when one was derived.
+ * @returns The merge state, the PR, the change set when one was derived, and
+ *   any lookup that failed.
  * @task T12959
  * @task T12960
  */
@@ -336,29 +406,38 @@ export async function taskChangeMergeState(
   const derive = async (): Promise<TaskChangeSet> =>
     deps.derived ??
     (await cs.deriveTaskChangeSet({ task, storeRoot, cwd: storeRoot }, deps.changeSet));
+  const failures: string[] = [];
+  const derivedFailure = (changeSet: TaskChangeSet): void => {
+    if (mergeStateOfChangeSet(changeSet) === 'unknown') {
+      failures.push(`the merged-PR lookup failed (${GH_UNREACHABLE})`);
+    }
+  };
+  const lookupFailed = (): Pick<MergeVerdict, 'lookupFailed'> =>
+    failures.length > 0 ? { lookupFailed: [...new Set(failures)].join('; ') } : {};
 
   if (commits.length === 0) {
     const newest = prs[0];
     if (newest) return { state: 'merged', changeSet: null, prRef: prRefOf(newest) };
     const changeSet = await derive();
-    return { state: mergeStateOfChangeSet(changeSet), changeSet, prRef: changeSetPrRef(changeSet) };
+    derivedFailure(changeSet);
+    return {
+      state: mergeStateOfChangeSet(changeSet),
+      changeSet,
+      prRef: changeSetPrRef(changeSet),
+      ...lookupFailed(),
+    };
   }
 
-  let root = deps.executionRoot;
-  if (root === undefined) {
-    const { resolveEvidenceExecutionRoot } = await import('./evidence.js');
-    root = resolveEvidenceExecutionRoot(storeRoot);
-  }
-  const at = root;
+  // T12965 review M2: the same root `cleo done` reads the change set from.
+  const at = deps.executionRoot ?? cs.resolveChangeSetRoot(storeRoot, task.id).root;
   const probes: CarrierProbes = {
     contains: deps.contains ?? cs.isAncestorCommit,
     equivalent: deps.equivalent ?? cs.hasPatchEquivalent,
     viewPr: deps.changeSet?.viewPr ?? cs.defaultViewPr,
   };
-  let incomplete = false;
   const carries = async (pr: CarrierPr): Promise<boolean> => {
     const r = await carriesAll(at, pr, commits, probes);
-    incomplete ||= r.incomplete;
+    if (r.incomplete !== null) failures.push(r.incomplete);
     return r.carried;
   };
 
@@ -366,6 +445,7 @@ export async function taskChangeMergeState(
     if (await carries(pr)) return { state: 'merged', changeSet: null, prRef: prRefOf(pr) };
   }
   const changeSet = await derive();
+  derivedFailure(changeSet);
   const derivedRef = changeSetPrRef(changeSet);
   if (
     derivedRef !== null &&
@@ -380,26 +460,43 @@ export async function taskChangeMergeState(
   ) {
     return { state: 'merged', changeSet, prRef: derivedRef };
   }
-  const viaGitHub = await mergedPrCarryingAll(
+  // T12959 review: a PR GitHub associates with the commits is a candidate
+  // only; it is named when it carries them, like every other candidate.
+  const github = await githubCarrierCandidates(
     at,
     commits,
     deps.changeSet?.listPrsForCommit ?? cs.defaultListPrsForCommit,
-    cs.resolveOriginDefault(at),
+    async () => {
+      const ref = cs.resolveOriginDefault(at);
+      if (ref !== null) return ref.replace(/^origin\//, '');
+      const ask =
+        deps.changeSet?.defaultBranch ??
+        (await import('../release/ci-evidence.js')).ghDefaultBranch;
+      return ask(at);
+    },
   );
-  if (viaGitHub !== null) return { state: 'merged', changeSet, prRef: String(viaGitHub) };
+  if (github.failed !== null) failures.push(github.failed);
+  for (const pr of github.prs) {
+    if (await carries(pr)) return { state: 'merged', changeSet, prRef: prRefOf(pr) };
+  }
 
   const isLanded = deps.isLanded ?? cs.isLandedOnOriginDefault;
   if (commits.every((sha) => isLanded(at, sha))) {
-    const shas = commits.map((sha) => sha.slice(0, 12)).join(', ');
+    // T12959 review: with a failed lookup the carrier is unknown, not absent.
+    if (failures.length > 0) return { state: 'merged', changeSet, prRef: null, ...lookupFailed() };
     return {
       state: 'merged',
       changeSet,
       prRef: null,
       unproven:
-        `implementation commit(s) ${shas} reached the default branch, but no merged PR is known to carry them` +
+        `implementation commit(s) ${shortShas(commits)} reached the default branch, but no merged PR is known to carry them` +
         (derivedRef !== null ? ` (PR #${derivedRef}, which cites ${task.id}, does not)` : ''),
     };
   }
-  const unknown = incomplete || mergeStateOfChangeSet(changeSet) === 'unknown';
-  return { state: unknown ? 'unknown' : 'unmerged', changeSet, prRef: null };
+  return {
+    state: failures.length > 0 ? 'unknown' : 'unmerged',
+    changeSet,
+    prRef: null,
+    ...lookupFailed(),
+  };
 }

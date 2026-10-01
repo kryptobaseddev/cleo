@@ -13,7 +13,9 @@
  * pending → wait for CI and retry; a final red, a skipped or missing required
  * job, or a PR the `pr:` check refuses → fix CI, or record a full `tool:test`
  * (plus `tool:lint`/`tool:typecheck`). Never an open-ended wait on CI that has
- * already concluded.
+ * already concluded. When a lookup failed (`gh` unreachable, commits missing
+ * locally), which PR carries the change is unknown: nothing is recorded and
+ * the agent is told to retry or record `tool:test`, never to fix CI.
  *
  * Gates recorded here persist even when completion then fails on a later,
  * unrelated check (dependencies, AC coverage, IVTR): they are valid evidence
@@ -35,7 +37,7 @@ import {
   taskChangeMergeState,
   testsPassedSupersededReason,
 } from './affected-scope.js';
-import { resolveEvidenceExecutionRoot } from './evidence.js';
+import { resolveChangeSetRoot } from './change-set.js';
 import { captureTreeHash } from './tool-cache.js';
 
 /** Gates merged CI can attest (D11149). */
@@ -47,8 +49,12 @@ export interface MergedCiDeps {
   merge?: MergeProbeDeps;
   /** Whether the project accepts `ci:<pr>` evidence; defaults to `evidence.ciSatisfies`. */
   ciSatisfies?: (storeRoot: string) => boolean;
-  /** Current tree hash of the execution root; defaults to the tool cache's `captureTreeHash`. */
-  currentTree?: (storeRoot: string) => Promise<string | null> | string | null;
+  /**
+   * Current tree hash of the task's tree; defaults to the tool cache's
+   * `captureTreeHash` in the task's change-set root — the root `cleo done`
+   * and the `test-run:` binding use (T12965 review M2).
+   */
+  currentTree?: (storeRoot: string, taskId: string) => Promise<string | null> | string | null;
   /** Canonical acceptance criteria of the task; defaults to the task store. */
   acRows?: (storeRoot: string, taskId: string) => Promise<readonly AcRow[]>;
   /** The gate write; defaults to `validateGateVerify`. */
@@ -134,8 +140,8 @@ async function defaultRecordGates(
   return validateGateVerify(storeRoot, params);
 }
 
-function defaultCurrentTree(storeRoot: string): Promise<string | null> {
-  return captureTreeHash(resolveEvidenceExecutionRoot(storeRoot));
+function defaultCurrentTree(storeRoot: string, taskId: string): Promise<string | null> {
+  return captureTreeHash(resolveChangeSetRoot(storeRoot, taskId).root);
 }
 
 async function defaultAcRows(storeRoot: string, taskId: string): Promise<readonly AcRow[]> {
@@ -189,8 +195,8 @@ export async function satisfyGatesFromMergedCi(
   const testsPassedReason =
     task.verification?.gates?.testsPassed === true && ciGates.includes('testsPassed')
       ? await testsPassedSupersededReason(task.verification?.evidence?.testsPassed?.atoms ?? [], {
-          mergeState: async () => (await mergeInfo()).state,
-          currentTree: () => (deps.currentTree ?? defaultCurrentTree)(storeRoot),
+          mergeState: mergeInfo,
+          currentTree: () => (deps.currentTree ?? defaultCurrentTree)(storeRoot, task.id),
         })
       : null;
   const needs = ciGates.filter(
@@ -202,8 +208,18 @@ export async function satisfyGatesFromMergedCi(
     return { kind: 'skipped', testsPassedReason };
   }
 
-  const { state, prRef, changeSet, unproven } = await mergeInfo();
+  const { state, prRef, changeSet, unproven, lookupFailed } = await mergeInfo();
   if (state !== 'merged') return { kind: 'skipped', testsPassedReason };
+  if (prRef === null && lookupFailed !== undefined) {
+    // T12959 review: a lookup failed, so which PR carries the change is
+    // unknown — not "CI concluded without proving it". Never tell the agent to
+    // fix a CI that may be green.
+    return {
+      kind: 'skipped',
+      testsPassedReason,
+      ciUnavailable: `the change has merged, but which merged PR carries it cannot be determined (${lookupFailed}); retry, or record tool:test`,
+    };
+  }
   if (prRef === null) {
     // The change landed, yet no merged PR that carries the implementation
     // passed the `pr:` check — its required checks did not hold, the PR is

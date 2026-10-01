@@ -50,7 +50,7 @@ import { isCiDocumentPath, readCiChecks, readCiSatisfies } from '../release/ci-e
 import { readRequiredCheckPins } from '../release/pr-evidence.js';
 
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { planAffectedTestRun } from './affected-packages.js';
+import { planScopedTestRun } from './affected-packages.js';
 import {
   type TaskMergeInfo,
   taskChangeMergeState,
@@ -687,7 +687,9 @@ export async function deriveTaskEvidence(
   const supersededReason = await testsPassedSupersededReason(
     task.verification?.evidence?.testsPassed?.atoms ?? [],
     {
-      mergeState: async () => (await mergeInfo()).state,
+      mergeState: mergeInfo,
+      // T12965 review M2: the change-set root, as `cleo complete` and the
+      // `test-run:` binding compute it.
       currentTree: () => captureTreeHash(root),
     },
   );
@@ -719,25 +721,29 @@ export async function deriveTaskEvidence(
     for (const gate of pending) {
       for (const tool of GATE_TOOLS[gate] ?? []) {
         // T12635: before merge, test only the affected packages when declared.
-        // T12656 review: only when the change is KNOWN unmerged — an unknown
-        // merge state (gh unreachable) plans the full run complete accepts.
-        const affected =
-          tool === 'test' &&
-          (changeSet.source === 'branch' || changeSet.source === 'pr') &&
-          (await mergeInfo()).state === 'unmerged'
-            ? await planAffectedTestRun(storeRoot, root, { wait: opts.waitForTestSlot === true })
+        // T12959 review: the plan asks the one planner a scope-aware tool:test
+        // asks (`testing.preferAffected`, the merge state — an unknown one
+        // plans the full run complete accepts — and untested dependents), so
+        // the run `cleo done` makes is the run validation repeats, never a
+        // second one with another scope.
+        const scoped =
+          tool === 'test'
+            ? await planScopedTestRun(storeRoot, root, {
+                wait: opts.waitForTestSlot === true,
+                mergeState: mergeInfo,
+              })
             : null;
         toolRuns.push(
-          affected?.ok
-            ? await planToolRun('test-affected', gate, storeRoot, root, affected.command)
-            : affected?.pending
+          scoped?.scope === 'affected'
+            ? await planToolRun('test-affected', gate, storeRoot, root, scoped.run.command)
+            : scoped?.scope === 'pending'
               ? {
                   tool: 'test-affected',
                   gate,
                   command: null,
                   source: 'project-context',
                   cache: 'miss',
-                  reason: affected.reason,
+                  reason: scoped.reason,
                 }
               : await planToolRun(tool, gate, storeRoot, root),
         );

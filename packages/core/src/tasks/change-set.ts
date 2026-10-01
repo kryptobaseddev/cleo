@@ -119,8 +119,17 @@ export interface ChangeSetDeps {
   ) => Promise<{ ok: true; prs: MergedPrSummary[] } | { ok: false; reason: string }>;
   /** One PR's base branch, state and commits (`gh pr view`); null when unknown. */
   viewPr?: (prNumber: number, executionRoot: string) => Promise<PrDetails | null>;
-  /** PRs GitHub associates with a commit, whatever they cite (T12959); empty when unknown. */
-  listPrsForCommit?: (sha: string, executionRoot: string) => Promise<CommitPr[]>;
+  /**
+   * PRs GitHub associates with a commit, whatever they cite (T12959): empty
+   * when GitHub has none (or does not know the commit), null when the lookup
+   * failed.
+   */
+  listPrsForCommit?: (sha: string, executionRoot: string) => Promise<CommitPr[] | null>;
+  /**
+   * The repository's default branch from `gh`, asked only when origin has no
+   * default ref (T12959 review); null when unknown.
+   */
+  defaultBranch?: (executionRoot: string) => string | null;
   /** The PR whose head is `branch` — merged first, else newest; null when none. */
   findPrByHead?: (branch: string, executionRoot: string) => Promise<PrDetails | null>;
   /** Verify one PR through the existing `pr:` provenance code. */
@@ -291,35 +300,45 @@ export function isAncestorCommit(root: string, ancestor: string, descendant: str
   return git(root, ['merge-base', '--is-ancestor', ancestor, descendant]) !== null;
 }
 
+/** Why {@link hasPatchEquivalent} could not decide: commits git does not have here. */
+export interface PatchEquivalenceUnknown {
+  /** Commits missing from the local object store (`git fetch` brings them). */
+  missing: string[];
+}
+
 /**
  * Whether `sha` has a patch-equivalent (`git patch-id --stable`) among
  * `candidates` — a commit rebased or cherry-picked before it merged keeps its
- * patch but not its SHA (T12959 review).
+ * patch but not its SHA (T12959 review). The candidates present locally are
+ * compared first, so one missing candidate does not hide a match among the
+ * others.
  *
  * @param root - Repository to ask.
  * @param sha - The recorded commit.
  * @param candidates - Commits that may carry its patch (a PR's own commits).
  * @returns True on a match; false when every candidate was compared and none
- *   matched; null when it cannot tell (`sha` or a candidate is not in the
- *   local object store, or git failed).
+ *   matched; `{ missing }` when no present candidate matched and `sha` or
+ *   some candidate is not in the local object store; null when git failed.
  * @task T12959
  */
 export function hasPatchEquivalent(
   root: string,
   sha: string,
   candidates: readonly string[],
-): boolean | null {
+): boolean | null | PatchEquivalenceUnknown {
   const resolve = (rev: string): string | null =>
     git(root, ['rev-parse', '--verify', '--quiet', `${rev}^{commit}`]);
   const own = resolve(sha);
-  if (own === null) return null;
+  if (own === null) return { missing: [sha] };
   const others = new Set<string>();
+  const missing: string[] = [];
   for (const candidate of candidates) {
     const full = resolve(candidate);
-    if (full === null) return null;
-    if (full !== own) others.add(full);
+    if (full === null) missing.push(candidate);
+    else if (full !== own) others.add(full);
   }
-  if (others.size === 0) return false;
+  const noMatch = missing.length > 0 ? { missing } : false;
+  if (others.size === 0) return noMatch;
   let ids: string;
   try {
     const patches = execFileSync(
@@ -348,7 +367,8 @@ export function hasPatchEquivalent(
   }
   const target = byCommit.get(own);
   // An empty or merge commit has no patch of its own to carry.
-  return target !== undefined && [...others].some((c) => byCommit.get(c) === target);
+  if (target === undefined) return false;
+  return [...others].some((c) => byCommit.get(c) === target) || noMatch;
 }
 
 /**
@@ -476,6 +496,8 @@ export interface CommitPr {
   mergedAt: string | null;
   /** Branch the PR merged (or will merge) into. */
   baseRefName: string;
+  /** The PR's merge commit, when GitHub reports one. */
+  mergeCommitSha?: string | null;
 }
 
 /**
@@ -483,30 +505,52 @@ export interface CommitPr {
  * (`GET /repos/{owner}/{repo}/commits/<sha>/pulls`): the merged PR that
  * introduced it to the default branch, or — for a commit a squash or rebase
  * merge rewrote — the PRs it was pushed in, whatever they cite (T12959
- * review). Read-only.
+ * review). Candidates only: a caller checks that a PR carries the commit.
+ * Read-only.
  *
  * @param sha - The commit.
  * @param executionRoot - Repository `gh` runs in.
- * @returns The PRs; empty when GitHub has no such commit (never pushed) or
- *   the lookup failed, so a caller may use a hit only as a positive signal.
+ * @returns The PRs; empty when GitHub has none, or does not know the commit
+ *   (never pushed: HTTP 422); null when the lookup failed (`gh` missing,
+ *   unauthenticated, unreachable or timed out), which is not "no PRs".
  * @task T12959
  */
 export async function defaultListPrsForCommit(
   sha: string,
   executionRoot: string,
-): Promise<CommitPr[]> {
+): Promise<CommitPr[] | null> {
+  if (!/^[0-9a-f]{7,40}$/i.test(sha)) return [];
   const { isGhCliAvailable } = await import('../release/github-pr.js');
-  if (!/^[0-9a-f]{7,40}$/i.test(sha) || !isGhCliAvailable()) return [];
-  const rows = ghJson(
-    [
-      'api',
-      `repos/{owner}/{repo}/commits/${sha}/pulls`,
-      '--jq',
-      '[.[] | {number, mergedAt: .merged_at, baseRefName: .base.ref}]',
-    ],
-    executionRoot,
-  );
-  if (!Array.isArray(rows)) return [];
+  if (!isGhCliAvailable()) return null;
+  let out: string;
+  try {
+    out = execFileSync(
+      'gh',
+      [
+        'api',
+        `repos/{owner}/{repo}/commits/${sha}/pulls`,
+        '--jq',
+        '[.[] | {number, mergedAt: .merged_at, baseRefName: .base.ref, mergeCommitSha: .merge_commit_sha}]',
+      ],
+      {
+        cwd: executionRoot,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: ghQueryTimeoutMs(),
+      },
+    );
+  } catch (err) {
+    const stderr = String((err as { stderr?: unknown }).stderr ?? '');
+    // GitHub answers 422 for a commit it has never seen: no PR carries it.
+    return /HTTP 422|No commit found/i.test(stderr) ? [] : null;
+  }
+  let rows: unknown;
+  try {
+    rows = JSON.parse(out);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(rows)) return null;
   return rows.flatMap((row: unknown) => {
     const r = (row ?? {}) as Record<string, unknown>;
     return typeof r.number === 'number'
@@ -515,6 +559,10 @@ export async function defaultListPrsForCommit(
             number: r.number,
             mergedAt: typeof r.mergedAt === 'string' && r.mergedAt !== '' ? r.mergedAt : null,
             baseRefName: typeof r.baseRefName === 'string' ? r.baseRefName : '',
+            mergeCommitSha:
+              typeof r.mergeCommitSha === 'string' && r.mergeCommitSha !== ''
+                ? r.mergeCommitSha
+                : null,
           },
         ]
       : [];
