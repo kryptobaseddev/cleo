@@ -45,15 +45,19 @@ import {
   NexusDeviceEnrolment,
   type NexusDeviceKeys,
   NexusDeviceStore,
+  NexusDeviceStoreError,
 } from '../nexus-device.js';
 import {
   defaultNexusDeviceName,
   ensureNexusDeviceCredential,
   loginToNexusDevice,
+  NEXUS_STAGING_API_ORIGIN,
+  NEXUS_TEST_BEARER_ENV,
   nexusApiErrorToAccountError,
   upgradeNexusSession,
   W_NEXUS_DEVICE_NAME_IS_HOSTNAME,
   W_NEXUS_LOGIN_RACE_BOTH_LIVE,
+  W_NEXUS_TEST_BEARER_IGNORED,
 } from '../nexus-enrol.js';
 import { linkProjectToNexus } from '../nexus-link.js';
 
@@ -136,6 +140,10 @@ function serverUuid(): string {
 
 class MockNexus {
   readonly sessions = new Map<string, { userId: string; exempt: boolean }>();
+  /** Exempt sessions an E1 consumed: a later E1 with one gets 401 `session-used` (v2.12). */
+  readonly consumed = new Set<string>();
+  /** The device-code `verification_uri` (must sit under the API's web host). */
+  verificationUri = 'https://nexus.test/device';
   readonly devices = new Map<string, ServerDevice>();
   readonly creds: ServerCred[] = [];
   readonly calls: Call[] = [];
@@ -192,7 +200,7 @@ class MockNexus {
         return json(200, {
           device_code: 'dev-code',
           user_code: 'ABCD-EFGH',
-          verification_uri: 'https://nexus.test/device',
+          verification_uri: this.verificationUri,
           expires_in: 900,
           interval: 1,
         });
@@ -255,7 +263,9 @@ class MockNexus {
     const early = this.beforeEnrol ? await this.beforeEnrol(n, body) : undefined;
     if (early instanceof Response) return early;
     const session = this.sessions.get(auth);
-    if (!session) return fail(401, 'E_UNAUTHENTICATED', 'invalid');
+    if (!session) {
+      return fail(401, 'E_UNAUTHENTICATED', this.consumed.has(auth) ? 'session-used' : 'invalid');
+    }
     const deviceId = String(body['deviceId']);
     const enc = String(body['encryptionPublicKey']);
     const sig = String(body['signingPublicKey']);
@@ -308,7 +318,10 @@ class MockNexus {
       scopes: profile === 'read-only' ? SCOPES_DEVICE.slice(0, 3) : SCOPES_DEVICE,
     };
     this.creds.push(cred);
-    if (session.exempt) this.sessions.delete(auth); // one shot (M2)
+    if (session.exempt) {
+      this.sessions.delete(auth); // one shot (M2)
+      this.consumed.add(auth);
+    }
     const answer = ok(
       {
         device: { deviceId, name: String(body['name']), state: 'active', profile },
@@ -339,6 +352,7 @@ let devices: NexusDeviceStore;
 let sessions: FileNexusTokenStore;
 let savedHome: string | undefined;
 let savedFlag: string | undefined;
+let savedTestBearer: string | undefined;
 
 beforeEach(() => {
   base = mkdtempSync(join(tmpdir(), 'nexus-enrol-'));
@@ -346,6 +360,8 @@ beforeEach(() => {
   mkdirSync(home, { recursive: true, mode: 0o700 });
   savedHome = process.env['CLEO_HOME'];
   savedFlag = process.env[NEXUS_DEVICE_ENV];
+  savedTestBearer = process.env[NEXUS_TEST_BEARER_ENV];
+  delete process.env[NEXUS_TEST_BEARER_ENV];
   process.env['CLEO_HOME'] = home;
   process.env[NEXUS_DEVICE_ENV] = '1';
   server = new MockNexus();
@@ -361,6 +377,8 @@ afterEach(() => {
   else process.env['CLEO_HOME'] = savedHome;
   if (savedFlag === undefined) delete process.env[NEXUS_DEVICE_ENV];
   else process.env[NEXUS_DEVICE_ENV] = savedFlag;
+  if (savedTestBearer === undefined) delete process.env[NEXUS_TEST_BEARER_ENV];
+  else process.env[NEXUS_TEST_BEARER_ENV] = savedTestBearer;
 });
 
 const noSleep = async (): Promise<void> => {};
@@ -835,6 +853,158 @@ describe('upgradeNexusSession (§3.4)', () => {
     expect(one.device?.currentBearer()).toBe(two.device?.currentBearer());
   });
 
+  it('T12903: two concurrent upgrades; the loser gets 401 session-used, re-reads the device file and reports already-enrolled', async () => {
+    await seedV1Session();
+    const aInE1 = deferred();
+    const releaseA = deferred();
+    let aDone: Promise<unknown> = Promise.resolve();
+    server.beforeEnrol = async (n) => {
+      if (n === 1) {
+        // A is inside E1 and has not committed yet.
+        aInE1.resolve();
+        await releaseA.promise;
+      } else {
+        // B's E1 arrives: A commits (consuming the session) and stores first.
+        releaseA.resolve();
+        await aDone;
+      }
+      return undefined;
+    };
+    const a = upgradeNexusSession(flow());
+    aDone = a.then(
+      () => undefined,
+      () => undefined,
+    );
+    await aInE1.promise;
+    // B sees A's intent as stale (its clock is ahead) and takes it over, so
+    // both processes send the one-shot session to E1.
+    const b = upgradeNexusSession(flow({ now: () => new Date(Date.now() + 10 * 60_000) }));
+    const [ra, rb] = await Promise.all([a, b]);
+
+    expect(server.count('/v1/devices/enroll')).toBe(2);
+    const second = server.calls.filter((c) => c.path === '/v1/devices/enroll')[1];
+    expect(second?.auth).toBe(server.calls.find((c) => c.path === '/v1/devices/enroll')?.auth);
+    expect(ra.outcome).toBe('upgraded');
+    expect(rb.outcome).toBe('already-enrolled');
+    expect(rb.device?.currentBearer()).toBe(ra.device?.currentBearer());
+    expect(rb.device?.currentBearer()).not.toBeNull();
+    expect(await sessions.get(API)).toBeNull();
+    expect((await devices.get(API, USER))?.unseal().enrolIntent ?? null).toBeNull();
+  });
+
+  it('T12903: 401 session-used with no credential stored here is E_NEXUS_SESSION_EXPIRED (browser login); the session is removed', async () => {
+    await seedV1Session();
+    server.beforeEnrol = async () => fail(401, 'E_UNAUTHENTICATED', 'session-used');
+    const err = await accountError(
+      upgradeNexusSession(flow({ upgradeWaitMs: 100 })),
+      'E_NEXUS_SESSION_EXPIRED',
+    );
+    expect(err.fix).toContain('browser');
+    expect(err.message).toContain('already used');
+    expect(server.count('/v1/devices/enroll')).toBe(1);
+    expect(await sessions.get(API)).toBeNull();
+    expect(await storedToken()).toBeNull();
+  });
+
+  it('T12903 review LOW-1: the winner stores AFTER the loser got session-used; the loser polls and reports already-enrolled', async () => {
+    const token = await seedV1Session();
+    const aInE1 = deferred();
+    const releaseA = deferred();
+    const releaseStore = deferred();
+    server.beforeEnrol = async (n) => {
+      if (n === 1) {
+        aInE1.resolve();
+        await releaseA.promise;
+      } else {
+        // Let A commit (consume the session) before B's E1 is answered.
+        releaseA.resolve();
+        while (!server.consumed.has(token)) await sleep(5);
+      }
+      return undefined;
+    };
+    // A's answer (and so its store) is held until B has its 401.
+    server.afterEnrol = async (n) => {
+      if (n === 1) await releaseStore.promise;
+      return undefined;
+    };
+    let bGotSessionUsed = false;
+    const bFetch: FetchLike = async (url, init) => {
+      const res = await server.fetch(url, init);
+      if (new URL(url).pathname === '/v1/devices/enroll' && res.status === 401) {
+        bGotSessionUsed = true;
+      }
+      return res;
+    };
+    // B's first device-file read after its 401 finds nothing (A has not
+    // stored yet); only then is A allowed to store.
+    class GatedStore extends NexusDeviceStore {
+      override async get(apiUrl: string, userId: string) {
+        const found = await super.get(apiUrl, userId);
+        if (bGotSessionUsed) {
+          expect(found?.currentBearer() ?? null).toBeNull();
+          releaseStore.resolve();
+          bGotSessionUsed = false;
+        }
+        return found;
+      }
+    }
+    const bDevices = new GatedStore(join(home, 'nexus-device.json'), {
+      cleoHome: home,
+      lockWaitMs: 10_000,
+    });
+    const a = upgradeNexusSession(flow());
+    await aInE1.promise;
+    const b = upgradeNexusSession(
+      flow({
+        fetch: bFetch,
+        deviceStore: bDevices,
+        now: () => new Date(Date.now() + 10 * 60_000),
+      }),
+    );
+    const [ra, rb] = await Promise.all([a, b]);
+    expect(server.count('/v1/devices/enroll')).toBe(2);
+    expect(ra.outcome).toBe('upgraded');
+    expect(rb.outcome).toBe('already-enrolled');
+    expect(rb.device?.currentBearer()).toBe(ra.device?.currentBearer());
+    expect(rb.device?.currentBearer()).not.toBeNull();
+  });
+
+  it('T12903 review LOW-2: an unreadable device store during the re-reads is a CLI error, not a raw store error', async () => {
+    class BrokenStore extends NexusDeviceStore {
+      broken = false;
+      override async get(apiUrl: string, userId: string) {
+        if (this.broken) {
+          throw new NexusDeviceStoreError('E_NEXUS_DEVICE_UNSEAL_FAILED', 'cannot unseal');
+        }
+        return super.get(apiUrl, userId);
+      }
+    }
+    const broken = new BrokenStore(join(home, 'nexus-device.json'), {
+      cleoHome: home,
+      lockWaitMs: 10_000,
+    });
+    // session-used path.
+    await seedV1Session();
+    server.beforeEnrol = async () => {
+      broken.broken = true;
+      return fail(401, 'E_UNAUTHENTICATED', 'session-used');
+    };
+    await accountError(
+      upgradeNexusSession(flow({ deviceStore: broken })),
+      'E_NEXUS_REQUEST_FAILED',
+    );
+    // 'enrolled' path: a credential exists, then the store breaks.
+    broken.broken = false;
+    server.beforeEnrol = null;
+    await loginToNexusDevice(flow({ deviceStore: broken }));
+    await seedV1Session();
+    broken.broken = true;
+    await accountError(
+      upgradeNexusSession(flow({ deviceStore: broken })),
+      'E_NEXUS_REQUEST_FAILED',
+    );
+  });
+
   it('waits for a live upgrade intent without calling E1, and gives up after the budget', async () => {
     await seedV1Session();
     await devices.update((tx) => {
@@ -899,6 +1069,143 @@ describe('upgradeNexusSession (§3.4)', () => {
   });
 });
 
+// ---------- staging test bearer (T12902) ----------
+
+describe('loginToNexusDevice: CLEO_NEXUS_TEST_BEARER (staging only, T12902)', () => {
+  /** Every surface a secret could leak through. */
+  function expectNoLeak(value: unknown, secret: string): void {
+    expect(JSON.stringify(value) ?? '').not.toContain(secret);
+    expect(inspect(value, { depth: 10 })).not.toContain(secret);
+    if (value instanceof Error) {
+      expect(value.message).not.toContain(secret);
+      expect(String((value as NexusAccountError).fix ?? '')).not.toContain(secret);
+    }
+  }
+
+  it('against staging, skips the device code and runs E2 then E1 with the bearer, storing nexus-device.json', async () => {
+    const bearer = server.session();
+    process.env[NEXUS_TEST_BEARER_ENV] = bearer;
+    let codes = 0;
+    const result = await loginToNexusDevice(
+      flow({
+        apiUrl: NEXUS_STAGING_API_ORIGIN,
+        onCode: () => {
+          codes += 1;
+        },
+      }),
+    );
+    expect(codes).toBe(0);
+    expect(server.calls.some((c) => c.path.startsWith('/api/auth/device'))).toBe(false);
+    expect(server.calls.map((c) => c.path)).toEqual([
+      '/v1/whoami',
+      '/v1/devices/enroll',
+      '/api/auth/sign-out',
+      '/v1/whoami',
+    ]);
+    expect(server.calls[0]?.auth).toBe(bearer);
+    expect(server.calls[1]?.auth).toBe(bearer);
+    expect(result.apiUrl).toBe(NEXUS_STAGING_API_ORIGIN);
+    expect(result.device?.created).toBe(true);
+    const stored = (await devices.get(NEXUS_STAGING_API_ORIGIN, USER))?.currentBearer() ?? null;
+    expect(stored).toBe(server.live(result.device?.deviceId ?? '')[0]?.token);
+    expect(result.warnings.some((w) => w.includes(W_NEXUS_TEST_BEARER_IGNORED))).toBe(false);
+    expectNoLeak(result, bearer);
+    expect(readFileSync(devices.location, 'utf-8')).not.toContain(bearer);
+  });
+
+  it('against any other origin, is ignored with a warning and never sent: the device code runs', async () => {
+    const bearer = server.session();
+    process.env[NEXUS_TEST_BEARER_ENV] = bearer;
+    const others = [
+      ['https://api.cleocode.dev', 'https://cleocode.dev/device'],
+      ['https://api.staging.cleocode.dev:8443', 'https://staging.cleocode.dev/device'],
+      [API, 'https://nexus.test/device'],
+    ] as const;
+    for (const [apiUrl, verificationUri] of others) {
+      server.calls.length = 0;
+      server.verificationUri = verificationUri;
+      const result = await loginToNexusDevice(flow({ apiUrl }));
+      expect(server.count('/api/auth/device/code')).toBe(1);
+      expect(server.calls.some((c) => c.auth === bearer)).toBe(false);
+      const warning = result.warnings.find((w) => w.startsWith(W_NEXUS_TEST_BEARER_IGNORED));
+      expect(warning).toContain(NEXUS_TEST_BEARER_ENV);
+      expectNoLeak(result, bearer);
+    }
+  });
+
+  it('review LOW-4: the staging guard compares the resolved origin, exactly', async () => {
+    const honoured = [
+      'HTTPS://API.STAGING.CLEOCODE.DEV',
+      'https://api.staging.cleocode.dev:443/',
+      'https://api.staging.cleocode.dev/some/path',
+    ];
+    for (const apiUrl of honoured) {
+      const bearer = server.session();
+      process.env[NEXUS_TEST_BEARER_ENV] = bearer;
+      server.calls.length = 0;
+      const result = await loginToNexusDevice(flow({ apiUrl }));
+      expect(result.apiUrl).toBe(NEXUS_STAGING_API_ORIGIN);
+      expect(server.count('/api/auth/device/code')).toBe(0);
+      expect(server.calls[0]?.auth).toBe(bearer);
+      expect(result.warnings.some((w) => w.includes(W_NEXUS_TEST_BEARER_IGNORED))).toBe(false);
+    }
+    const ignored = [
+      ['https://api.staging.cleocode.dev.', 'https://staging.cleocode.dev./device'],
+      ['https://api.staging.cleocode.dev.evil.com', 'https://staging.cleocode.dev.evil.com/device'],
+      ['https://evil.com/api.staging.cleocode.dev', 'https://evil.com/device'],
+    ] as const;
+    for (const [apiUrl, verificationUri] of ignored) {
+      const bearer = server.session();
+      process.env[NEXUS_TEST_BEARER_ENV] = bearer;
+      server.calls.length = 0;
+      server.verificationUri = verificationUri;
+      const result = await loginToNexusDevice(flow({ apiUrl }));
+      expect(server.count('/api/auth/device/code')).toBe(1);
+      expect(server.calls.some((c) => c.auth === bearer)).toBe(false);
+      expect(result.warnings.some((w) => w.startsWith(W_NEXUS_TEST_BEARER_IGNORED))).toBe(true);
+      expect(JSON.stringify(result)).not.toContain(bearer);
+    }
+    for (const apiUrl of [
+      'http://api.staging.cleocode.dev',
+      'https://u:p@api.staging.cleocode.dev',
+    ]) {
+      const bearer = server.session();
+      process.env[NEXUS_TEST_BEARER_ENV] = bearer;
+      server.calls.length = 0;
+      const err = await accountError(
+        loginToNexusDevice(flow({ apiUrl })),
+        'E_NEXUS_INVALID_API_URL',
+      );
+      expect(err.message).not.toContain(bearer);
+      expect(server.calls.some((c) => c.auth === bearer)).toBe(false);
+    }
+  });
+
+  it('a bearer the staging server refuses fails without quoting it', async () => {
+    const bearer = `sess_${randomBytes(16).toString('hex')}`; // never minted
+    process.env[NEXUS_TEST_BEARER_ENV] = bearer;
+    const err = await accountError(
+      loginToNexusDevice(flow({ apiUrl: NEXUS_STAGING_API_ORIGIN })),
+      'E_NEXUS_NOT_SIGNED_IN',
+    );
+    expectNoLeak(err, bearer);
+    expect(server.count('/api/auth/device/code')).toBe(0);
+    expect(server.count('/v1/devices/enroll')).toBe(0);
+  });
+
+  it('a value that is not a header token is refused before any request, without quoting it', async () => {
+    const bearer = `bad token\n${randomBytes(8).toString('hex')}`;
+    process.env[NEXUS_TEST_BEARER_ENV] = bearer;
+    const err = await accountError(
+      loginToNexusDevice(flow({ apiUrl: NEXUS_STAGING_API_ORIGIN })),
+      'E_NEXUS_NOT_SIGNED_IN',
+    );
+    expectNoLeak(err, bearer);
+    expect(err.message).toContain(NEXUS_TEST_BEARER_ENV);
+    expect(server.calls.filter((c) => c.path !== '/api/auth/sign-out')).toHaveLength(0);
+  });
+});
+
 // ---------- error mapping (§4.0.4) ----------
 
 describe('nexusApiErrorToAccountError (§4.0.4)', () => {
@@ -922,6 +1229,7 @@ describe('nexusApiErrorToAccountError (§4.0.4)', () => {
     expect(map(401, 'device-signed-out')).toBe('E_NEXUS_DEVICE_SIGNED_OUT');
     expect(map(401, 'device-revoked')).toBe('E_NEXUS_DEVICE_REVOKED');
     expect(map(401, 'session-bearer-retired')).toBe('E_NEXUS_SESSION_EXPIRED');
+    expect(map(401, 'session-used')).toBe('E_NEXUS_SESSION_EXPIRED');
     expect(map(403, 'insufficient-scope')).toBe('E_NEXUS_INSUFFICIENT_SCOPE');
     expect(map(403, 'session-not-fresh')).toBe('E_NEXUS_SESSION_EXPIRED');
     expect(map(403, 'bearer-session-required')).toBe('E_NEXUS_SESSION_EXPIRED');
@@ -1127,7 +1435,10 @@ async function seedEntry(userId: string, deviceId: string): Promise<string> {
 describe('review M1: the upgrade intent never goes stale under a live owner', () => {
   it('a live owner past E1 timeout is not taken over: one E1 on one exempt session', async () => {
     await seedV1Session();
-    const opts = flow({ enrolTimeoutMs: 300, whoamiTimeoutMs: 300, intentMarginMs: 100 });
+    // Staleness = E2 + E1 timeouts + margin. A wide margin keeps A (about
+    // 500 ms of simulated work) well inside it even on a loaded machine, so
+    // the test checks the takeover rule, not scheduler timing (T12910).
+    const opts = flow({ enrolTimeoutMs: 300, whoamiTimeoutMs: 300, intentMarginMs: 2000 });
     const aInWhoami = deferred();
     let first = true;
     server.beforeWhoami = async () => {
