@@ -39,6 +39,7 @@ import {
   type ResolveToolResult,
   resolveToolCommand,
 } from '../tasks/tool-resolver.js';
+import { readSentinelIndex } from '../worktree/sentinel-index.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -128,9 +129,17 @@ export interface WorkerMismatchAuditEntry {
 export interface ReVerifyResult {
   /** True only when every re-verified dimension matches the worker's claim. */
   accepted: boolean;
+  /**
+   * The verdict is not in yet: the only gap is a test run that could not
+   * resolve its scope (test slot busy). Retry later; this is not a failed
+   * attempt, and no mismatch audit row is written.
+   *
+   * @task T12962
+   */
+  pending?: true;
   /** Human-readable mismatch summaries (one per failed dimension). */
   mismatches: string[];
-  /** Audit row written when `accepted === false`; `null` on acceptance. */
+  /** Audit row written on a real rejection; `null` on acceptance or `pending`. */
   auditEntry: WorkerMismatchAuditEntry | null;
 }
 
@@ -231,10 +240,29 @@ const defaultProjectTestDeps: Required<ProjectTestDeps> = {
   },
 };
 
+/** Whether `path` is the toplevel of a git checkout, not merely inside one. */
+function isCheckoutToplevel(path: string): boolean {
+  try {
+    if (!existsSync(path)) return false;
+    const top = gitToplevel(path);
+    return top !== null && realpathSync(top) === realpathSync(path);
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Locate the worker's git worktree for `taskId`: the canonical
- * `<cleoHome>/worktrees/<projectHash>/<taskId>/` checkout (ADR-055), when it
- * exists and is a work tree. `null` means the worker's tree is unknown.
+ * Locate the worker's git worktree for `taskId`. `null` means the worker's
+ * tree is unknown.
+ *
+ * 1. The canonical `<cleoHome>/worktrees/<projectHash>/<taskId>/` checkout
+ *    (ADR-055).
+ * 2. Otherwise a worktree registered for the task with `cleo worktree adopt`
+ *    (the `.cleo/worktrees.json` sentinel index, e.g. a Claude Code
+ *    `.claude/worktrees/<id>/` tree). Only an unambiguous match counts: two
+ *    adopted trees for one task is unknown, never a guess.
+ *
+ * Either way the directory must be a checkout's toplevel.
  *
  * @param projectRoot - Project root the worker was spawned from.
  * @param taskId - The worker's task.
@@ -244,14 +272,18 @@ const defaultProjectTestDeps: Required<ProjectTestDeps> = {
  */
 export function resolveWorkerWorktree(projectRoot: string, taskId: string): string | null {
   try {
-    const path = resolveTaskWorktreePath(computeProjectHash(projectRoot), taskId);
-    if (!existsSync(path)) return null;
-    // The directory must BE a checkout's toplevel, not merely sit inside one.
-    const top = gitToplevel(path);
-    return top !== null && realpathSync(top) === realpathSync(path) ? path : null;
+    const canonical = resolveTaskWorktreePath(computeProjectHash(projectRoot), taskId);
+    if (isCheckoutToplevel(canonical)) return canonical;
   } catch {
-    return null;
+    // An unresolvable canonical path still leaves the adopted registry.
   }
+  // Keyed by real path, so one tree registered under two spellings is one match.
+  const adopted = new Map(
+    readSentinelIndex(projectRoot)
+      .filter((e) => e.taskId === taskId && isCheckoutToplevel(e.path))
+      .map((e) => [realpathSync(e.path), e.path] as const),
+  );
+  return adopted.size === 1 ? ([...adopted.values()][0] ?? null) : null;
 }
 
 /**
@@ -458,6 +490,16 @@ export async function reVerifyWorkerReport(
 
   if (mismatches.length === 0) {
     return { accepted: true, mismatches: [], auditEntry: null };
+  }
+  // T12962: a busy test slot is no evidence against the worker. When it is the
+  // only gap, the verdict is deferred rather than recorded as a mismatch.
+  if (testResult.pending === true && mismatches.length === 1 && mismatches[0]?.kind === 'tests') {
+    return {
+      accepted: false,
+      pending: true,
+      mismatches: mismatches.map((m) => `${m.kind}: ${m.reason}`),
+      auditEntry: null,
+    };
   }
 
   // -- Build + write audit row --------------------------------------------

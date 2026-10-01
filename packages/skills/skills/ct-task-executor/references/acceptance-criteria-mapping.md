@@ -53,7 +53,7 @@ condition."
 | Count | "with N files", "≥3 entries" | `find -type f | wc -l` |
 | Length/size | "≥50 lines", "≥10K bytes" | `wc -l`, `wc -c` |
 | Linkage | "linked from", "referenced in" | `grep -F` |
-| Tests pass | "all tests pass", "no regressions" | `ci:<pr>` after merge (with `evidence.ciSatisfies`); else `tool:test-affected` or a targeted `test-run:<json>` |
+| Tests pass | "all tests pass", "no regressions" | `ci:<pr>` after merge (with `evidence.ciSatisfies`); else `tool:test-affected` (with `testing.affectedCommand`), a targeted `test-run:<json>`, or `tool:test` |
 | Lint clean | "biome check passes" | `pnpm biome check .` |
 | Build clean | "compiles", "type-checks" | `pnpm run build && pnpm run typecheck` |
 | Spec match | "satisfies REQ-NNN" | manual trace + test |

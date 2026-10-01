@@ -20,6 +20,7 @@ import { computeProjectHash, resolveTaskWorktreePath } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { AffectedTestRun } from '../../tasks/affected-packages.js';
 import type { ResolvedToolCommand } from '../../tasks/tool-resolver.js';
+import { upsertSentinelEntry } from '../../worktree/sentinel-index.js';
 import {
   defaultRunProjectTests,
   type ProjectTestDeps,
@@ -193,8 +194,35 @@ describe('reVerifyWorkerReport hands the runner the worker tree (T12962)', () =>
       },
     );
     expect(result.accepted).toBe(false);
+    expect(result.pending).toBe(true);
     expect(result.mismatches[0]).toMatch(/retry later/);
-    expect(result.auditEntry?.mismatches[0]?.actual).toBe('tool:test-affected failed: busy');
+    // A busy slot is no evidence against the worker: no mismatch audit row.
+    expect(result.auditEntry).toBeNull();
+  });
+
+  it('a pending test run next to a real mismatch is a real rejection', async () => {
+    const result = await reVerifyWorkerReport(
+      {
+        taskId: 'T1',
+        selfReportSuccess: true,
+        evidenceAtoms: ['tool:test'],
+        touchedFiles: ['src/a.ts'],
+        worktreePath: '/wt/T1',
+      },
+      {
+        projectRoot: '/nonexistent-worker-verify-scope',
+        runProjectTests: async () => ({
+          ok: false,
+          scope: 'affected',
+          pending: true,
+          reason: 'busy',
+        }),
+        listChangedFiles: async () => ['src/a.ts', 'src/b.ts'],
+      },
+    );
+    expect(result.accepted).toBe(false);
+    expect(result.pending).toBeUndefined();
+    expect(result.auditEntry?.mismatches.map((m) => m.kind)).toEqual(['tests', 'files']);
   });
 });
 
@@ -249,5 +277,41 @@ describe('resolveWorkerWorktree (T12962)', () => {
     const path = resolveTaskWorktreePath(computeProjectHash(project), 'T43');
     mkdirSync(path, { recursive: true });
     expect(resolveWorkerWorktree(project, 'T43')).toBeNull();
+  });
+
+  /** Add a worktree for `taskId` outside the canonical layout and adopt it. */
+  function adopt(taskId: string, dir: string): string {
+    const path = join(project, '.claude', 'worktrees', dir);
+    mkdirSync(join(path, '..'), { recursive: true });
+    git(project, ['worktree', 'add', '-q', '-b', `adopted/${dir}`, path]);
+    upsertSentinelEntry(project, {
+      path,
+      branch: `adopted/${dir}`,
+      taskId,
+      source: 'claude-agent',
+      adoptedAt: new Date().toISOString(),
+      adoptedBy: 'test',
+    });
+    return path;
+  }
+
+  it('returns a worktree adopted for the task via `cleo worktree adopt`', () => {
+    const path = adopt('T44', 'agent-a');
+    expect(resolveWorkerWorktree(project, 'T44')).toBe(path);
+    expect(resolveWorkerWorktree(project, 'T45')).toBeNull();
+  });
+
+  it('prefers the canonical worktree over an adopted one', () => {
+    adopt('T46', 'agent-b');
+    const canonical = resolveTaskWorktreePath(computeProjectHash(project), 'T46');
+    mkdirSync(join(canonical, '..'), { recursive: true });
+    git(project, ['worktree', 'add', '-q', '-b', 'task/T46', canonical]);
+    expect(resolveWorkerWorktree(project, 'T46')).toBe(canonical);
+  });
+
+  it('treats two adopted worktrees for one task as unknown', () => {
+    adopt('T47', 'agent-c');
+    adopt('T47', 'agent-d');
+    expect(resolveWorkerWorktree(project, 'T47')).toBeNull();
   });
 });

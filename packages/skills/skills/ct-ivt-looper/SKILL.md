@@ -106,7 +106,7 @@ This skill does NOT:
 | `ct-ivt-looper` → `ct-validator` | Loop converged; need to audit the resulting artifacts (e.g. final manifest, spec back-references) against schema/compliance | Emit the convergence manifest entry, then dispatch the `validation` stage |
 | `ct-validator` → `ct-ivt-looper` | Spec is valid but implementation needs dynamic verification | Receive a dispatch from the `validation` stage; iterate the IVT loop on the worktree |
 
-Governance: see **ADR-051** (programmatic gate integrity) which defines the evidence atoms (`tool:test-affected`, `test-run:<json>`, `ci:<pr>` after merge, full `tool:test` only for root-config changes) the loop emits and that downstream `cleo verify --gate testsPassed` re-validates, and **ADR-061** (project-agnostic verify tools) which defines the canonical tool-resolution layer.
+Governance: see **ADR-051** (programmatic gate integrity) which defines the evidence atoms (`test-run:<json>`, `tool:test`, `tool:test-affected` where `testing.affectedCommand` is configured — a full `tool:test` then only for root-config changes — and `ci:<pr>` once the PR merged in a project that sets `evidence.ciSatisfies`) the loop emits and that downstream `cleo verify --gate testsPassed` re-validates, and **ADR-061** (project-agnostic verify tools) which defines the canonical tool-resolution layer.
 
 ## Framework Detection
 
@@ -195,7 +195,7 @@ cleo check protocol validation \
 | Deleting assertions to force green | Tests pass but the spec is not met | The skill requires spec-to-test traceability; gaps block convergence |
 | Skipping the validation phase | Lint or type errors slip through | The loop MUST run lint and type check before the test phase every iteration |
 | Treating testing as "just run the tests" | Misses the loop; one-shot runs are not compliant | Testing is a loop, not a single call; record `ivtLoopIterations` |
-| Running the full suite on every iteration | Burns CPU/RAM shared with other agents; the cache misses on every edit | Iterate on the failing or changed test files; record `tool:test-affected` (or `ci:<pr>` after merge) once at the end |
+| Running the full suite on every iteration | Burns CPU/RAM shared with other agents; the cache misses on every edit | Iterate on the failing or changed test files; record evidence once at the end: `tool:test-affected` when `testing.affectedCommand` is configured, else a targeted `test-run:<json>` or `tool:test`; `ci:<pr>` once the PR merged when the project sets `evidence.ciSatisfies` |
 | Exiting without writing the manifest | Downstream skills cannot see the outcome | Always write the manifest entry — converged or not — before exiting |
 | Reverting the worktree on escalation | Destroys diagnostic evidence | Leave the failed state; the human reviewer needs it |
 
@@ -214,7 +214,7 @@ cleo check protocol validation \
 
 This skill binds to the **testing** LOOM lifecycle stage. Governing ADRs:
 
-- [ADR-051 — programmatic gate integrity](../../../../.cleo/adrs/ADR-051-programmatic-gate-integrity.md) — defines the evidence atoms (`tool:test-affected`, `test-run:<json>`, `ci:<pr>`; full `tool:test` only for root-config changes) that the IVT loop emits and that downstream `cleo verify --gate testsPassed` re-validates.
+- [ADR-051 — programmatic gate integrity](../../../../.cleo/adrs/ADR-051-programmatic-gate-integrity.md) — defines the evidence atoms (`test-run:<json>`, `tool:test`, `tool:test-affected` with `testing.affectedCommand`, `ci:<pr>` after merge with `evidence.ciSatisfies`) that the IVT loop emits and that downstream `cleo verify --gate testsPassed` re-validates.
 - [ADR-061 — project-agnostic verify tools](../../../../.cleo/adrs/ADR-061-project-agnostic-verify-tools.md) — defines the canonical tool-resolution layer (`test`, `build`, `lint`, `typecheck`) that the loop walks for framework-agnostic execution.
 
 LOOM coverage matrix: [docs/skills/loom-coverage-matrix.md](../../../../docs/skills/loom-coverage-matrix.md).

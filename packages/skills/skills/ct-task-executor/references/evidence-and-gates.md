@@ -137,7 +137,7 @@ SHA=$(git rev-parse HEAD)
 FILES=$(git diff-tree --no-commit-id --name-only -r HEAD | paste -sd,)
 
 cleo verify T### --gate implemented --evidence "commit:$SHA;files:$FILES"
-cleo verify T### --gate testsPassed --evidence "tool:test-affected"   # merged + evidence.ciSatisfies: ci:<pr>
+cleo verify T### --gate testsPassed --evidence "tool:test-affected"   # needs testing.affectedCommand (else tool:test); merged + evidence.ciSatisfies: ci:<pr>
 cleo verify T### --gate qaPassed --evidence "tool:lint;tool:typecheck"   # merged + evidence.ciSatisfies: ci:<pr>
 cleo verify T### --gate documented --evidence "files:docs/path/to/note.md"
 cleo verify T### --gate securityPassed --evidence "note:no network surface"
@@ -166,7 +166,9 @@ cleo memory observe "..." --title "..."
 ## Cache Behavior
 
 Tool-evidence results are cached under `.cleo/cache/evidence/<key>.json`,
-keyed on (canonical, cmd, args, HEAD, dirty-tree fingerprint). Parallel
+keyed on (canonical, cmd, args) and the tracked tree content under test:
+two worktrees holding the same content, or a commit, rebase or amend that
+leaves the tree unchanged, share one result. Parallel
 verifies against identical state coalesce to one execution via a per-key
 lock. Cross-worktree parallelism is bounded by a machine-wide per-tool
 semaphore at `~/.local/share/cleo/locks/tool-<canonical>/`.

@@ -15,6 +15,8 @@
  *   RVG-5: Injected `reVerify` is preferred over the built-in default.
  *   RVG-6: Rejected report increments `tasksFailed` and schedules backoff.
  *   RVG-7: Reject detail string contains the T1589/T11498 marker.
+ *   RVG-8: A `pending` verdict (test slot busy) is retry-later: no attempt
+ *           is consumed and `tasksFailed` is untouched (T12962).
  *
  * All tests inject a `reVerify` stub (or set `skipReVerify`) to avoid
  * spawning real `pnpm test` / `git status` processes.
@@ -186,5 +188,46 @@ describe('re-verify gate — T11498 AC1', () => {
 
     expect(outcome.kind).toBe('failure');
     expect(outcome.detail).toMatch(/T1589\/T11498/);
+  });
+
+  // RVG-8: a pending verdict costs no attempt (T12962)
+  it('RVG-8: a pending verdict schedules a retry without consuming an attempt', async () => {
+    const pending: NonNullable<TickOptions['reVerify']> = async () => ({
+      accepted: false,
+      pending: true,
+    });
+    const outcome = await runTick(mkTickOpts(root, { reVerify: pending }));
+
+    expect(outcome.kind).toBe('backoff');
+    expect(outcome.detail).toMatch(/pending/);
+    const state = await readSentientState(statePath);
+    expect(state.stats.tasksFailed).toBe(0);
+    expect(state.stuckTasks['T777'].attempts).toBe(0);
+    expect(state.stuckTasks['T777'].nextRetryAt).toBeGreaterThan(Date.now());
+  });
+
+  it('RVG-8b: a pending verdict keeps the attempts a task already used', async () => {
+    const before = await readSentientState(statePath);
+    await writeSentientState(statePath, {
+      ...before,
+      stuckTasks: {
+        T777: {
+          attempts: 2,
+          lastFailureAt: new Date(0).toISOString(),
+          nextRetryAt: 0,
+          lastReason: 'earlier failure',
+        },
+      },
+    });
+    const pending: NonNullable<TickOptions['reVerify']> = async () => ({
+      accepted: false,
+      pending: true,
+    });
+    const outcome = await runTick(mkTickOpts(root, { reVerify: pending }));
+
+    expect(outcome.kind).toBe('backoff');
+    const state = await readSentientState(statePath);
+    expect(state.stuckTasks['T777'].attempts).toBe(2);
+    expect(state.stats.tasksFailed).toBe(0);
   });
 });

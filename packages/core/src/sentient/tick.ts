@@ -234,7 +234,10 @@ export interface TickOptions {
    *
    * @task T1589
    */
-  reVerify?: (report: WorkerReport, options: ReVerifyOptions) => Promise<{ accepted: boolean }>;
+  reVerify?: (
+    report: WorkerReport,
+    options: ReVerifyOptions,
+  ) => Promise<{ accepted: boolean; pending?: true }>;
   /**
    * Disable the worker re-verification gate entirely. Defaults to `false`
    * (gate enabled). Only set to `true` for `--dry-run` ticks or controlled
@@ -895,6 +898,34 @@ export async function runTick(options: TickOptions): Promise<TickOutcome> {
         touchedFiles: [],
       };
       const verdict = await verifier(report, { projectRoot });
+      if (!verdict.accepted && verdict.pending === true) {
+        // T12962: the re-verification could not run yet (test slot busy). That
+        // says nothing about the worker, so it costs no attempt: keep the
+        // attempt count and retry after the first backoff step, counted from
+        // the verdict rather than the tick start (the spawn may have run long).
+        const retryAt = Date.now() + (RETRY_BACKOFF_MS[0] ?? 30_000);
+        const pendingReason = 'worker re-verify pending (T12962): test slot busy; retry later';
+        const postPending = await readSentientState(statePath);
+        await patchSentientState(statePath, {
+          stuckTasks: {
+            ...postPending.stuckTasks,
+            [task.id]: {
+              attempts: existingStuck?.attempts ?? 0,
+              lastFailureAt: existingStuck?.lastFailureAt ?? new Date(now).toISOString(),
+              nextRetryAt: retryAt,
+              lastReason: pendingReason,
+            },
+          },
+          activeTaskId: null,
+          lastTickAt: new Date(now).toISOString(),
+        });
+        await incrementStats(statePath, { ticksExecuted: 1 });
+        return {
+          kind: 'backoff',
+          taskId: task.id,
+          detail: `${pendingReason}; retry scheduled at ${new Date(retryAt).toISOString()}`,
+        };
+      }
       if (!verdict.accepted) {
         const currentAttempts = existingStuck?.attempts ?? 0;
         const nextAttempts = currentAttempts + 1;

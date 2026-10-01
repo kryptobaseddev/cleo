@@ -330,8 +330,8 @@ files between `verify` and `complete` triggers `E_EVIDENCE_STALE`.
 | Gate | Required atoms |
 |------|---------------|
 | `implemented` | `commit:<sha>` AND `files:<comma-separated>` |
-| `testsPassed` | `ci:<pr>` after merge (with `evidence.ciSatisfies`); else `tool:test-affected` (needs `testing.affectedCommand`) OR `test-run:<vitest-json>` |
-| `qaPassed` | `ci:<pr>` after merge; before it `tool:biome` AND `tool:tsc` (OR `tool:pnpm-build`) |
+| `testsPassed` | `ci:<pr>` once the PR merged, when the project sets `evidence.ciSatisfies`; else `tool:test-affected` when `testing.affectedCommand` is configured; else `test-run:<vitest-json>` OR `tool:test` |
+| `qaPassed` | `ci:<pr>` under the same two conditions; else `tool:biome` AND `tool:tsc` (OR `tool:pnpm-build`) |
 | `documented` | `files:<docs-path>` OR `url:<doc-url>` |
 | `securityPassed` | `tool:security-scan` OR `note:<waiver>` |
 | `cleanupDone` | `note:<summary>` |
@@ -343,18 +343,18 @@ Orchestrator workflow for each completing task:
 # 2. Orchestrator plans, then records (cleo done picks affected → ci → full):
 cleo done <taskId> --plan
 cleo verify <taskId> --gate implemented --evidence "commit:$(git rev-parse HEAD);files:<list>"
-cleo verify <taskId> --gate testsPassed --evidence "ci:<pr>"   # merged + evidence.ciSatisfies; else tool:test-affected
-cleo verify <taskId> --gate qaPassed   --evidence "ci:<pr>"   # same; else tool:biome;tool:tsc
+cleo verify <taskId> --gate testsPassed --evidence "ci:<pr>"   # merged + evidence.ciSatisfies; else tool:test-affected (needs testing.affectedCommand), else tool:test
+cleo verify <taskId> --gate qaPassed   --evidence "ci:<pr>"   # merged + evidence.ciSatisfies; else tool:biome;tool:tsc
 # 3. Close:
 cleo complete <taskId>
 ```
 
 Never re-run a worker's full suite to "double-check": a worker's
 `tool:test-affected` or `tool:test` result for the same tree is a cache
-hit, and once the PR merges `ci:<pr>` (with `evidence.ciSatisfies`) needs
-no local run at all. A full
-`tool:test` is only for changes to root config, which affected planning
-refuses.
+hit, and once the PR merges, a project that sets `evidence.ciSatisfies`
+needs no local run at all (`ci:<pr>`). When `testing.affectedCommand` is
+configured, a full `tool:test` is only for changes to root config, which
+affected planning refuses; without it, `tool:test` is the normal run.
 
 Emergency: set `CLEO_OWNER_OVERRIDE=1` and `CLEO_OWNER_OVERRIDE_REASON="<reason>"`
 before the verify call — audited to `.cleo/audit/force-bypass.jsonl`.

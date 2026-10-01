@@ -38,10 +38,10 @@ token spend on the task.
 **Detection.** A full manual run in the transcript followed by a
 `tool:test` evidence write on the same change.
 
-**Cost.** The cache only helps when the tree is unchanged, and it does
-not carry over between worktrees or commits. With several agents
-working at once, each double run is another full suite competing for
-CPU and RAM.
+**Cost.** The manual run records nothing, so the evidence run repeats
+it; only the evidence run's result is cached (and reused for the same
+tree content). With several agents working at once, each double run is
+another full suite competing for CPU and RAM.
 
 **Correct pattern.** Never run the full suite manually. With
 `testing.affectedCommand` configured, run a full `tool:test` only when the
