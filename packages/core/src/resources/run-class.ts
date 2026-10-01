@@ -45,11 +45,20 @@ const EXEC_RUNNERS = /^(npx|pnpx|bunx)$/;
 const PREFIX_COMMANDS = /^(env|nice|time|nohup)$/;
 const INSTALL_VERBS = /^(install|i|ci|add|update|up|upgrade)$/;
 const HEAVY_SCRIPTS = /^(test|t|build|typecheck|lint|check|install|i|ci)(:|$)/;
-const WATCH_SCRIPTS = /^(dev|start|serve|preview|watch)(:|$)/;
-const WATCH_FLAGS = new Set(['--watch', '--watchAll', 'watch', 'dev', 'serve', 'start', 'preview']);
-const INFO_FLAGS = new Set(['--version', '-v', '-V', '--help', '-h']);
+/** A watch/dev/serve word, as a script or a script segment (`test:watch`, `app:serve`). */
+const WATCH_WORD = /^(dev|start|serve|preview|watch)$/;
+/** Watch-mode flags (`-w` is handled per tool: it is maxWorkers for jest). */
+const WATCH_FLAGS = new Set(['--watch', '--watchAll', '--ui']);
+/** Subcommands that serve or watch (only as the first positional word). */
+const WATCH_SUBCOMMANDS = new Set(['watch', 'dev', 'serve', 'start', 'preview']);
+const INFO_FLAGS = new Set(['--version', '--help', '-h']);
+/** Tools where `-v` means verbose, not version. */
+const V_IS_VERBOSE = /^(go|pytest|cargo|jest|vitest|mocha)$/;
 /** Package-manager flags that take a value. */
 const PM_VALUE_FLAGS = new Set([
+  '--workspace-concurrency',
+  '--reporter',
+  '--loglevel',
   '--filter',
   '-F',
   '-C',
@@ -112,7 +121,9 @@ export function commandTarget(argv: readonly string[]): CommandTarget {
       i++;
       // The prefix's own flags: `nice -n 10`, `env -i`, `time -p`.
       while (i < argv.length && (argv[i] as string).startsWith('-')) {
-        i += b === 'nice' && argv[i] === '-n' ? 2 : 1;
+        const f = argv[i] as string;
+        i +=
+          (b === 'nice' && f === '-n') || (b === 'env' && (f === '-u' || f === '--unset')) ? 2 : 1;
       }
       continue;
     }
@@ -126,7 +137,19 @@ export function commandTarget(argv: readonly string[]): CommandTarget {
   const after = argv.slice(i + 1);
 
   if (EXEC_RUNNERS.test(first)) {
-    const at = after.findIndex((w) => !w.startsWith('-'));
+    // `npx -p pkg cmd`, `npx --package=pkg cmd`: skip value-taking flags.
+    let at = -1;
+    for (let x = 0; x < after.length; x++) {
+      const w = after[x] as string;
+      if (w === '-p' || w === '--package') {
+        x++;
+        continue;
+      }
+      if (!w.startsWith('-')) {
+        at = x;
+        break;
+      }
+    }
     return {
       tool: at < 0 ? first : base(after[at] as string),
       script: null,
@@ -173,10 +196,13 @@ export function commandTarget(argv: readonly string[]): CommandTarget {
       };
     }
     if (verb === 'run' || verb === 'run-script') {
+      // `pnpm run --filter x build`: flags (and their values) before the script.
       while (k < after.length && (after[k] as string).startsWith('-')) {
         const f = after[k] as string;
         if (RECURSIVE_FLAGS.has(f)) recursive = true;
-        k++;
+        if (SCOPING_FLAGS.has(f) || f.startsWith('--filter=') || f.startsWith('--dir='))
+          scoped = true;
+        k += PM_VALUE_FLAGS.has(f) && !(first === 'pnpm' && f === '-w') ? 2 : 1;
       }
       verb = after[k] ?? null;
       k += 1;
@@ -193,16 +219,44 @@ export function commandTarget(argv: readonly string[]): CommandTarget {
 }
 
 function infoOnly(t: CommandTarget): boolean {
-  return t.rest.some((w) => INFO_FLAGS.has(w));
+  return t.rest.some(
+    (w) => INFO_FLAGS.has(w) || ((w === '-v' || w === '-V') && !V_IS_VERBOSE.test(t.tool)),
+  );
 }
+
+/**
+ * Positional words of `rest`: not flags, and not the value right after a
+ * long `--flag` given without `=` (so `--mode dev`, `--project dev`,
+ * `--profile dev` never read as a `dev` subcommand).
+ */
+function positionals(rest: readonly string[]): string[] {
+  const out: string[] = [];
+  rest.forEach((w, x) => {
+    if (w.startsWith('-')) return;
+    const prev = rest[x - 1];
+    if (prev?.startsWith('--') && !prev.includes('=')) return;
+    out.push(w);
+  });
+  return out;
+}
+
+const hasWatchSegment = (word: string): boolean =>
+  word.split(':').some((seg) => WATCH_WORD.test(seg));
 
 /** A watcher or server: never heavy, never admitted (it would hold a slot forever). */
 function watching(t: CommandTarget): boolean {
-  if (t.script !== null && WATCH_SCRIPTS.test(t.script)) return true;
+  // `pnpm dev`, `npm run test:watch`, `pnpm build:watch`, `pnpm run serve:docs`.
+  if (t.script !== null && hasWatchSegment(t.script)) return true;
   if (t.rest.some((w) => WATCH_FLAGS.has(w))) return true;
-  if ((t.tool === 'tsc' || t.tool === 'jest') && t.rest.includes('-w')) return true;
+  // `-w` is watch for tsc, rollup, vitest…; for jest it is --maxWorkers.
+  if (t.script === null && t.tool !== 'jest' && t.rest.includes('-w')) return true;
+  const pos = positionals(t.rest);
+  // `vitest watch`, `next dev`, `nx serve app`.
+  if (pos[0] !== undefined && WATCH_SUBCOMMANDS.has(pos[0])) return true;
+  // `nx run app:serve`.
+  if (pos.some((w) => w.includes(':') && hasWatchSegment(w))) return true;
   // `vite` / `next` without a build subcommand serve.
-  if ((t.tool === 'vite' || t.tool === 'next') && !t.rest.includes('build')) return true;
+  if ((t.tool === 'vite' || t.tool === 'next') && !pos.includes('build')) return true;
   return false;
 }
 
@@ -274,6 +328,13 @@ export function resolveRunClass(
     return 'test-run';
   }
   if ((t.tool === 'cargo' || t.tool === 'go') && t.rest[0] === 'test') return 'test-run';
+  // `turbo run test`, `turbo test`, `nx affected -t test`, `nx run-many --target=test`.
+  if (
+    (t.tool === 'turbo' || t.tool === 'nx') &&
+    t.rest.some((w) => /^test(:|$)/.test(w) || /^--target=test(:|$)/.test(w))
+  ) {
+    return 'test-run';
+  }
   const builds =
     (t.script !== null && /^build(:|$)/.test(t.script)) ||
     (t.tool === 'turbo' && t.rest.includes('build')) ||

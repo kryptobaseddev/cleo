@@ -306,7 +306,8 @@ export class ResourceGovernor {
     // of a budget-1 class would wait on ourselves (#1777 round 3, M-2). The
     // env var only says "look"; parentRunJob's group + start-time check is
     // what decides, so setting it by hand grants nothing.
-    if (process.env.CLEO_RUN_CLASS !== undefined && parentRunJob({ pid: process.pid })) {
+    // Only a parent holding THIS class covers it (#1777 round 4, MED-1).
+    if (process.env.CLEO_RUN_CLASS !== undefined && parentRunJob({ pid: process.pid, cls })) {
       return passThroughGrant(cls);
     }
 

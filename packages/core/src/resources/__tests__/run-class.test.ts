@@ -133,3 +133,53 @@ describe('isPausable', () => {
     expect(isPausable('test-run', ['npx', 'vitest', 'run'])).toBe(true);
   });
 });
+
+describe('round 4: watch false positives and recognizer false negatives', () => {
+  it('watch scripts, -w/--watch/--ui and serve targets are never heavy', () => {
+    for (const argv of [
+      ['pnpm', 'test:watch'],
+      ['npm', 'run', 'test:watch'],
+      ['pnpm', 'build:watch'],
+      ['rollup', '-c', '-w'],
+      ['vitest', '--ui'],
+      ['nx', 'run', 'app:serve'],
+      ['tsc', '-w'],
+    ]) {
+      expect(looksHeavy(argv), argv.join(' ')).toBe(false);
+    }
+  });
+
+  it('jest -w is maxWorkers, and -v is verbose for go test, pytest and cargo', () => {
+    for (const argv of [
+      ['jest', '-w', '2'],
+      ['go', 'test', '-v', './...'],
+      ['pytest', '-v'],
+      ['cargo', 'test', '-v'],
+    ]) {
+      expect(looksHeavy(argv), argv.join(' ')).toBe(true);
+    }
+    expect(looksHeavy(['tsc', '-v'])).toBe(false); // version
+  });
+
+  it('dev as a flag value is not a dev mode', () => {
+    expect(looksHeavy(['vite', 'build', '--mode', 'dev'])).toBe(true);
+    expect(looksHeavy(['vitest', 'run', '--project', 'dev'])).toBe(true);
+  });
+
+  it('value-taking flags, npx -p and env -u resolve the real command word', () => {
+    expect(commandTarget(['pnpm', 'run', '--filter', 'x', 'build'])).toMatchObject({
+      script: 'build',
+      scoped: true,
+    });
+    expect(commandTarget(['pnpm', '--reporter', 'append-only', 'test']).script).toBe('test');
+    expect(commandTarget(['npx', '-p', 'typescript', 'tsc', '-b']).tool).toBe('tsc');
+    expect(commandTarget(['env', '-u', 'FOO', 'tsc', '-b']).tool).toBe('tsc');
+  });
+
+  it('turbo and nx test tasks are test runs', () => {
+    expect(resolveRunClass(undefined, ['turbo', 'run', 'test'], dir)).toBe('test-run');
+    expect(resolveRunClass(undefined, ['turbo', 'test'], dir)).toBe('test-run');
+    expect(resolveRunClass(undefined, ['nx', 'affected', '-t', 'test'], dir)).toBe('test-run');
+    expect(resolveRunClass(undefined, ['turbo', 'run', 'build'], dir)).toBe('full-build');
+  });
+});

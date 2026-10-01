@@ -131,6 +131,10 @@ function harness(opts: {
       h.signals.push([pid, sig]);
       return true;
     },
+    signalPid: (pid, sig) => {
+      h.signals.push([pid, `pid:${sig}`]);
+      return true;
+    },
     start: (pid) => `start-${pid}`,
     renice: () => {},
     now: () => clock.t,
@@ -375,6 +379,38 @@ describe('runGoverned', () => {
     expect(h.acquires).toBe(0);
     expect(h.spawned[0]?.detached).toBe(false);
     expect(h.signals).toEqual([]);
+  });
+
+  it('a nested run forwards runner signals to the child process, not its group (L-A)', async () => {
+    writeRunJob(
+      { ...olderJob(), id: 'outer', childPid: 777, childStart: 'start-777' },
+      join(dir, 'jobs'),
+    );
+    const h = harness({
+      groupOf: () => 777,
+      onSample: (n, hh) => {
+        if (n === 2) {
+          hh.forward('SIGTERM');
+          hh.exit(null, 'SIGTERM');
+        }
+      },
+    });
+    await runGoverned(base(h));
+    expect(h.signals).toEqual([
+      [500, 'pid:SIGCONT'],
+      [500, 'pid:SIGTERM'],
+    ]);
+  });
+
+  it('a nested run under a parent of ANOTHER class is admitted on its own (MED-1)', async () => {
+    writeRunJob(
+      { ...olderJob(), id: 'outer', class: 'full-build', childPid: 777, childStart: 'start-777' },
+      join(dir, 'jobs'),
+    );
+    const h = harness({ groupOf: () => 777, admissions: ['deny'] });
+    const r = await runGoverned(base(h));
+    expect(h.acquires).toBe(1);
+    expect(r.kind).toBe('deferred');
   });
 
   it('a non-nested run is spawned detached as its own group', async () => {

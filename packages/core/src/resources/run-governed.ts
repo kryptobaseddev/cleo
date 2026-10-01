@@ -64,6 +64,7 @@ import {
   runningEntries,
   runQueueDir,
   signalGroup,
+  signalPid,
   writeQueueTicket,
   writeRunJob,
 } from './run-admission.js';
@@ -86,6 +87,8 @@ export interface RunGovernedDeps {
     opts: { cwd: string; env: NodeJS.ProcessEnv; detached: boolean },
   ) => GovernedChild;
   readonly signal: (pid: number, signal: NodeJS.Signals) => boolean;
+  /** Signal a single process (a nested job's child shares its parent's group). */
+  readonly signalPid: (pid: number, signal: NodeJS.Signals) => boolean;
   readonly start: (pid: number) => string | null;
   readonly renice: (pid: number) => void;
   readonly now: () => number;
@@ -162,6 +165,7 @@ function defaultDeps(): RunGovernedDeps {
         detached: opts.detached,
       }),
     signal: signalGroup,
+    signalPid,
     start: processStart,
     renice: (pid) => {
       try {
@@ -254,6 +258,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
   // (#1777 round 3, M-2). See {@link parentRunJob} for why this can't be forged.
   const parent = parentRunJob({
     pid: d.pid,
+    cls: opts.cls,
     jobsDir: d.jobsDir,
     probes: probesOf(d),
     groupOf: d.groupOf,
@@ -396,10 +401,14 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
     if (!exited) writeRunJob(job, d.jobsDir);
   }
 
+  // A nested child is not a group leader (it lives in its parent job's
+  // group): signal the process itself, or kill(-pid) would hit ESRCH and the
+  // child would keep running (#1777 round 4, L-A).
+  const forwardTo = parent === null ? d.signal : d.signalPid;
   const uninstall = d.onRunnerSignal((signal) => {
     if (childPid === undefined || exited) return;
-    d.signal(childPid, 'SIGCONT');
-    d.signal(childPid, signal);
+    forwardTo(childPid, 'SIGCONT');
+    forwardTo(childPid, signal);
   });
 
   // ---- 3. supervise (serialized: one tick at a time) ----------------------

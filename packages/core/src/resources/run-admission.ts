@@ -97,13 +97,27 @@ export function redactCommand(argv: readonly string[]): string {
 /** Process start time as `ps` prints it, or `null` when the pid is gone. */
 export type ProcessStartFn = (pid: number) => string | null;
 
+/**
+ * `ps` with a fixed locale and timezone. `lstart` is formatted per LC_TIME and
+ * TZ, so two processes with different environments (`cleo run -- env TZ=UTC …`)
+ * would print different strings for the same start time (#1777 round 4, MED-2).
+ */
+const PS_ENV: NodeJS.ProcessEnv = { ...process.env, LC_ALL: 'C', TZ: 'UTC' };
+
+/** A pid we may ever signal or probe: an integer above 1 (never 0, 1 or -1). */
+export function isSignalablePid(pid: unknown): pid is number {
+  return typeof pid === 'number' && Number.isInteger(pid) && pid > 1;
+}
+
 /** One `ps -o lstart=` exec. Used only off the hot path (spawn, stale records). */
 export const processStart: ProcessStartFn = (pid) => {
+  if (!isSignalablePid(pid)) return null;
   try {
     const out = execFileSync('/bin/ps', ['-o', 'lstart=', '-p', String(pid)], {
       encoding: 'utf-8',
       timeout: 2000,
       stdio: ['ignore', 'pipe', 'ignore'],
+      env: PS_ENV,
     }).trim();
     return out.length > 0 ? out : null;
   } catch {
@@ -112,6 +126,7 @@ export const processStart: ProcessStartFn = (pid) => {
 };
 
 function pidAlive(pid: number): boolean {
+  if (!isSignalablePid(pid)) return false;
   try {
     process.kill(pid, 0);
     return true;
@@ -121,8 +136,21 @@ function pidAlive(pid: number): boolean {
   }
 }
 
+/** Signal one process (a nested job's non-detached child). Refuses pid ≤ 1. */
+export function signalPid(pid: number, signal: NodeJS.Signals): boolean {
+  if (!isSignalablePid(pid)) return false;
+  try {
+    process.kill(pid, signal);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Signal a whole process group. Never falls back to a bare pid. */
 export function signalGroup(pid: number, signal: NodeJS.Signals): boolean {
+  // kill(0) is our own group and kill(-1) every process we own: never.
+  if (!isSignalablePid(pid)) return false;
   try {
     process.kill(-pid, signal);
     return true;
@@ -253,7 +281,7 @@ function heartbeatStale(at: number, now: number): boolean {
  * @returns `done` when the record may be removed, `retry` to keep it.
  */
 function recoverOrphan(job: RunJob, probes: RegistryProbes): 'done' | 'retry' {
-  if (job.childPid === null || job.childStart === null) return 'done';
+  if (!isSignalablePid(job.childPid) || job.childStart === null) return 'done';
   if (probes.alive(job.childPid)) {
     const start = probes.start(job.childPid);
     if (start === null) return 'retry';
@@ -270,7 +298,8 @@ function isJob(v: unknown): v is RunJob {
     typeof j === 'object' &&
     j !== null &&
     typeof j.id === 'string' &&
-    typeof j.pid === 'number' &&
+    isSignalablePid(j.pid) &&
+    (j.childPid === null || j.childPid === undefined || isSignalablePid(j.childPid)) &&
     typeof j.startedAtMs === 'number' &&
     typeof j.heartbeatAtMs === 'number'
   );
@@ -356,6 +385,7 @@ export function processGroupOf(pid: number): number | null {
       encoding: 'utf-8',
       timeout: 2000,
       stdio: ['ignore', 'pipe', 'ignore'],
+      env: PS_ENV,
     }).trim();
     const n = Number.parseInt(out, 10);
     return Number.isInteger(n) && n > 0 ? n : null;
@@ -377,16 +407,21 @@ export function processGroupOf(pid: number): number | null {
  */
 export function parentRunJob(input: {
   readonly pid: number;
+  /** Only a parent holding THIS class passes a nested run through (#1777 round 4, MED-1). */
+  readonly cls?: ResourceClass;
   readonly jobsDir?: string;
   readonly probes?: Partial<RegistryProbes>;
   readonly groupOf?: (pid: number) => number | null;
 }): RunJob | null {
   const pgid = (input.groupOf ?? processGroupOf)(input.pid);
+  if (pgid !== null && !isSignalablePid(pgid)) return null;
   // pgid === pid is fine: `cleo run -- cleo run -- …` makes the inner runner
   // the outer job's child and its group leader, and it is nested.
   if (pgid === null) return null;
   const p: RegistryProbes = { ...DEFAULT_PROBES, ...input.probes };
-  const job = listRunJobs(input.jobsDir ?? runJobsDir(), p).find((j) => j.childPid === pgid);
+  const job = listRunJobs(input.jobsDir ?? runJobsDir(), p).find(
+    (j) => j.childPid === pgid && (input.cls === undefined || j.class === input.cls),
+  );
   if (!job || job.childStart === null) return null;
   return p.start(pgid) === job.childStart ? job : null;
 }
@@ -417,7 +452,7 @@ function isTicket(v: unknown): v is QueueTicket {
     typeof t === 'object' &&
     t !== null &&
     typeof t.id === 'string' &&
-    typeof t.pid === 'number' &&
+    isSignalablePid(t.pid) &&
     typeof t.enqueuedAtMs === 'number' &&
     typeof t.heartbeatAtMs === 'number'
   );

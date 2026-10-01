@@ -19,7 +19,7 @@
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildRunDeferral,
   CAP_RUN_WINDOW_MS,
@@ -38,6 +38,8 @@ import {
   resolveRunClass,
   runnerState,
   runningEntries,
+  signalGroup,
+  signalPid,
   writeQueueTicket,
   writeRunJob,
 } from '../run-admission.js';
@@ -305,6 +307,40 @@ describe('job registry', () => {
     expect(readdirSync(dir).sort()).toEqual(['new.json']);
   });
 
+  it('a corrupt record with pid or childPid 0/1 is ignored and never signalled (L-I)', () => {
+    const r = recorder();
+    for (const [id, over] of [
+      ['zero-child', { childPid: 0, childStart: 'c' }],
+      ['one-child', { childPid: 1, childStart: 'c' }],
+      ['one-runner', { pid: 1 }],
+    ] as const) {
+      writeRunJob(job({ id, startedAtMs: 1, heartbeatAtMs: NOW, ...over }), dir);
+    }
+    const probes = { ...base, alive: () => false, start: () => null, signal: r.signal };
+    reapOrphans(dir, probes);
+    expect(r.signals).toEqual([]);
+    expect(listRunJobs(dir, { ...base, signal: r.signal })).toEqual([]);
+  });
+
+  it('signalGroup / signalPid refuse pid 0, 1 and -1 without reaching kill(2) (L-I)', () => {
+    // Stubbed: if the guard ever regressed, a real kill(-1) signals every
+    // process the user owns and kill(0) the test runner's own group.
+    const sent: Array<[number, unknown]> = [];
+    const kill = vi.spyOn(process, 'kill').mockImplementation((pid, sig) => {
+      sent.push([pid, sig]);
+      return true;
+    });
+    try {
+      for (const pid of [1, 0, -1, 1.5, Number.NaN]) {
+        expect(signalGroup(pid, 'SIGTERM')).toBe(false);
+        expect(signalPid(pid, 'SIGTERM')).toBe(false);
+      }
+      expect(sent).toEqual([]);
+    } finally {
+      kill.mockRestore();
+    }
+  });
+
   it('really detects the current process as alive', () => {
     writeRunJob(
       job({ id: 'me', startedAtMs: 1, pid: process.pid, heartbeatAtMs: Date.now() }),
@@ -333,6 +369,18 @@ describe('parentRunJob (nested runs, M-2)', () => {
       }),
       dir,
     );
+  });
+
+  it('only a parent holding the same class passes a nested run through (MED-1)', () => {
+    expect(
+      parentRunJob({ pid: 9001, cls: 'test-run', jobsDir: dir, probes, groupOf: () => 500 })?.id,
+    ).toBe('outer');
+    expect(
+      parentRunJob({ pid: 9001, cls: 'full-build', jobsDir: dir, probes, groupOf: () => 500 }),
+    ).toBeNull();
+    expect(
+      parentRunJob({ pid: 9001, cls: 'db-heavy', jobsDir: dir, probes, groupOf: () => 500 }),
+    ).toBeNull();
   });
 
   it("a process in a live job's child group is nested in it", () => {
@@ -370,7 +418,7 @@ describe('wait queue', () => {
   const NOW = 5_000_000;
   const ticket = (id: string, enqueuedAtMs: number, heartbeatAtMs = NOW) => ({
     id,
-    pid: 1,
+    pid: 4242, // valid (> 1); liveness is faked by the probes
     runnerStart: null,
     enqueuedAtMs,
     heartbeatAtMs,
@@ -390,7 +438,7 @@ describe('wait queue', () => {
     writeQueueTicket(ticket('future', 1, NOW + JOB_STALE_MS + 1), dir);
     writeFileSync(
       join(dir, 'bad.json'),
-      JSON.stringify({ id: 'bad', pid: 1, enqueuedAtMs: 0, heartbeatAtMs: 'soon' }),
+      JSON.stringify({ id: 'bad', pid: 4242, enqueuedAtMs: 0, heartbeatAtMs: 'soon' }),
     );
     const q = listQueueTickets(dir, { alive: () => true, now: () => NOW });
     expect(q.map((t) => t.id)).toEqual(['ok']);
