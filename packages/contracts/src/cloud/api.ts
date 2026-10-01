@@ -135,6 +135,47 @@ export const ReplicaPresence = z.object({
 });
 export type ReplicaPresence = z.infer<typeof ReplicaPresence>;
 
+// ---------- home-stream replicas (T084) ----------
+
+/**
+ * `POST /v1/account/home/replicas`: the calling device attaches the replica of its global store (the one that
+ * writes `home:<userId>`) to the account. Like a project replica, the replica is pinned to one device for good.
+ */
+export const AttachHomeReplicaRequest = z.object({
+  /** The calling device. */
+  deviceId: DeviceId,
+  replicaId: ReplicaId,
+});
+export type AttachHomeReplicaRequest = z.infer<typeof AttachHomeReplicaRequest>;
+
+/** A home-stream replica as the account lists it (`GET /v1/account/home/replicas`). */
+export const HomeReplica = z.object({
+  replicaId: ReplicaId,
+  deviceId: DeviceId,
+  deviceState: z.enum(['active', 'signed-out', 'revoked']),
+  attachedAt: z.iso.datetime(),
+  /** The last segment this replica appended to the home stream. */
+  lastSyncAt: z.iso.datetime().nullable(),
+  presence: ReplicaPresence.nullable(),
+  presenceAt: z.iso.datetime().nullable(),
+});
+export type HomeReplica = z.infer<typeof HomeReplica>;
+
+/**
+ * `POST /v1/account/home/replicas`: the attached replica, flat like the project attach answer (`replicaId` at the
+ * top). 201 on the first attach, 200 when this device already holds it.
+ */
+export const AttachHomeReplicaResult = HomeReplica;
+export type AttachHomeReplicaResult = z.infer<typeof AttachHomeReplicaResult>;
+
+/** `PUT /v1/account/home/replicas/:replicaId/presence` (body: ReplicaPresence). */
+export const HomeReplicaPresenceResult = z.object({ replicaId: ReplicaId, presenceAt: z.iso.datetime() });
+export type HomeReplicaPresenceResult = z.infer<typeof HomeReplicaPresenceResult>;
+
+/** `GET /v1/account/home/replicas`: every home replica of the caller's account, oldest attachment first. */
+export const ListHomeReplicasResult = z.object({ replicas: z.array(HomeReplica) });
+export type ListHomeReplicasResult = z.infer<typeof ListHomeReplicasResult>;
+
 // ---------- journal segments ----------
 
 /**
