@@ -82,24 +82,24 @@ const AMPLE_RAM_GIB = 1024;
 
 describe('defaultMaxConcurrent', () => {
   it('returns max(1, cpus/4) for test/build when RAM is not the binding constraint', () => {
-    expect(defaultMaxConcurrent('test', 16, AMPLE_RAM_GIB)).toBe(4);
-    expect(defaultMaxConcurrent('build', 16, AMPLE_RAM_GIB)).toBe(4);
-    expect(defaultMaxConcurrent('test', 1, AMPLE_RAM_GIB)).toBe(1);
-    expect(defaultMaxConcurrent('test', 2, AMPLE_RAM_GIB)).toBe(1);
-    expect(defaultMaxConcurrent('test', 8, AMPLE_RAM_GIB)).toBe(2);
+    expect(defaultMaxConcurrent('test', 16, AMPLE_RAM_GIB, 'linux')).toBe(4);
+    expect(defaultMaxConcurrent('build', 16, AMPLE_RAM_GIB, 'linux')).toBe(4);
+    expect(defaultMaxConcurrent('test', 1, AMPLE_RAM_GIB, 'linux')).toBe(1);
+    expect(defaultMaxConcurrent('test', 2, AMPLE_RAM_GIB, 'linux')).toBe(1);
+    expect(defaultMaxConcurrent('test', 8, AMPLE_RAM_GIB, 'linux')).toBe(2);
   });
 
   it('lets RAM bind BELOW the core budget for test/build', () => {
     // The measured freeze: 24 cores / 62 GiB permitted 6 concurrent suites at
     // 6 forks × 4 GiB each = 144 GiB of heap on a 62 GiB box.
-    expect(defaultMaxConcurrent('test', 24, 62)).toBe(2);
-    expect(defaultMaxConcurrent('build', 24, 62)).toBe(2);
+    expect(defaultMaxConcurrent('test', 24, 62, 'linux')).toBe(2);
+    expect(defaultMaxConcurrent('build', 24, 62, 'linux')).toBe(2);
   });
 
   it('floors to ONE slot when a single run exceeds total RAM', () => {
     // A many-core, low-RAM VM is the worst case for the old rule: it got 6.
-    expect(defaultMaxConcurrent('test', 24, 16)).toBe(1);
-    expect(defaultMaxConcurrent('test', 64, 8)).toBe(1);
+    expect(defaultMaxConcurrent('test', 24, 16, 'linux')).toBe(1);
+    expect(defaultMaxConcurrent('test', 64, 8, 'linux')).toBe(1);
   });
 
   it('never returns below 1, whatever the inputs', () => {
@@ -163,24 +163,24 @@ describe('resolveMaxConcurrent', () => {
   });
 
   it('falls back to defaultMaxConcurrent when env is unset', () => {
-    expect(resolveMaxConcurrent('test', 16, AMPLE_RAM_GIB)).toBe(4);
+    expect(resolveMaxConcurrent('test', 16, AMPLE_RAM_GIB, 'linux')).toBe(4);
   });
 
   it('ignores non-numeric env values', () => {
     process.env.CLEO_TOOL_CONCURRENCY_TEST = 'abc';
-    expect(resolveMaxConcurrent('test', 16, AMPLE_RAM_GIB)).toBe(4);
+    expect(resolveMaxConcurrent('test', 16, AMPLE_RAM_GIB, 'linux')).toBe(4);
   });
 
   it('lets RAM bind the fallback below the core budget (T12091)', () => {
     // Without an env override, a low-RAM host must not be handed the core
     // budget — this is the composition that froze the workstation.
-    expect(resolveMaxConcurrent('test', 24, 62)).toBe(2);
-    expect(resolveMaxConcurrent('test', 24, 16)).toBe(1);
+    expect(resolveMaxConcurrent('test', 24, 62, 'linux')).toBe(2);
+    expect(resolveMaxConcurrent('test', 24, 16, 'linux')).toBe(1);
   });
 
   it('an env override still bypasses the RAM bound — it is the one escape hatch', () => {
     process.env.CLEO_TOOL_CONCURRENCY_TEST = '8';
-    expect(resolveMaxConcurrent('test', 24, 16)).toBe(8);
+    expect(resolveMaxConcurrent('test', 24, 16, 'linux')).toBe(8);
   });
 });
 
@@ -310,6 +310,8 @@ describe('acquireGlobalSlot pressure scaling (T12001)', () => {
       pressureSample: high,
       cpuCount: 16,
       totalRamGib: AMPLE_RAM_GIB,
+      platform: 'linux',
+      skipGovernor: true,
     });
     try {
       // Only one slot is eligible under high pressure → second acquire times out.
@@ -318,6 +320,8 @@ describe('acquireGlobalSlot pressure scaling (T12001)', () => {
           pressureSample: high,
           cpuCount: 16,
           totalRamGib: AMPLE_RAM_GIB,
+          platform: 'linux',
+          skipGovernor: true,
           pollMs: 10,
           timeoutMs: 100,
         }),
@@ -330,6 +334,8 @@ describe('acquireGlobalSlot pressure scaling (T12001)', () => {
       pressureSample: high,
       cpuCount: 16,
       totalRamGib: AMPLE_RAM_GIB,
+      platform: 'linux',
+      skipGovernor: true,
       timeoutMs: 200,
     });
     await again();
@@ -342,12 +348,16 @@ describe('acquireGlobalSlot pressure scaling (T12001)', () => {
       pressureSample: low,
       cpuCount: 16,
       totalRamGib: AMPLE_RAM_GIB,
+      platform: 'linux',
+      skipGovernor: true,
       timeoutMs: 500,
     });
     const b = await acquireGlobalSlot('test', {
       pressureSample: low,
       cpuCount: 16,
       totalRamGib: AMPLE_RAM_GIB,
+      platform: 'linux',
+      skipGovernor: true,
       timeoutMs: 500,
     });
     // Two concurrent grants coexist under low pressure.

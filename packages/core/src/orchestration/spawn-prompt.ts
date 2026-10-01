@@ -990,7 +990,7 @@ function buildStageGuidance(protocol: string, rcasdDir: string, outputDir: strin
       '- Import types from `@cleocode/contracts` — never inline/mock',
       '- `pnpm biome check --write .` must show no warnings',
       '- `pnpm run build` must succeed (full dep graph)',
-      '- `pnpm run test` must show zero new failures',
+      '- Zero new test failures — prove it with affected or targeted runs, never a manual full suite (see Quality Gates)',
       '',
       '**FISE-2 (T9231 / ADR-070)**: If `CLEO_AGENT_ROLE=lead`, you MUST use `delegate_task`',
       'to dispatch implementation work to a Worker sub-agent before writing the `implemented`',
@@ -1017,7 +1017,7 @@ function buildStageGuidance(protocol: string, rcasdDir: string, outputDir: strin
       '- Unit tests for every new code path (vitest `describe`/`it` blocks)',
       '- Integration tests under `packages/<pkg>/src/**/__tests__/*.test.ts`',
       `- Vitest JSON output captured at \`${outputDir}/<taskId>-vitest.json\``,
-      '- Evidence atom: `tool:test` (executes resolved testing.command) or `test-run:<json>` (pre-recorded structured output)',
+      '- Evidence atom: `tool:test-affected` (affected packages only) before merge, `ci:<pr>` after merge, or `test-run:<json>` (pre-recorded structured output of a targeted run). Full `tool:test` (executes resolved testing.command) only when root config changes',
     ].join('\n'),
     release: [
       '## Stage-Specific Guidance — Release (IVTR)',
@@ -1059,14 +1059,18 @@ function buildEvidenceGateBlock(taskId: string): string {
     `cleo verify ${taskId} --gate implemented \\`,
     '  --evidence "commit:$(git rev-parse HEAD);files:<comma-separated-paths>"',
     '',
-    '# testsPassed — tool run or vitest json',
-    `cleo verify ${taskId} --gate testsPassed --evidence "tool:test"`,
-    '#  OR',
+    '# Plan first: picks affected → ci → full and shows each tool cache state',
+    `cleo done ${taskId} --plan`,
+    '',
+    '# testsPassed — after the PR merges: CI on the merge commit, no local run',
+    `cleo verify ${taskId} --gate testsPassed --evidence "ci:<pr>"`,
+    '#  before merge: affected packages, or a targeted vitest json',
+    `cleo verify ${taskId} --gate testsPassed --evidence "tool:test-affected"`,
     `cleo verify ${taskId} --gate testsPassed --evidence "test-run:/tmp/vitest-out.json"`,
     '',
-    '// `tool:<name>` executes the resolved command (from project-context.json or language defaults); `test-run:<json>` records a pre-existing scoped run.',
+    '// `tool:<name>` executes the resolved command (from project-context.json or language defaults); `test-run:<json>` records a pre-existing scoped run. Never run the suite by hand and then again via `tool:test`; a full `tool:test` is only for root-config changes.',
     '',
-    '# qaPassed — biome + tsc exit 0',
+    '# qaPassed — after merge `ci:<pr>`; before it biome + tsc exit 0',
     `cleo verify ${taskId} --gate qaPassed --evidence "tool:biome;tool:tsc"`,
     '',
     '# documented — docs path',
@@ -1101,7 +1105,7 @@ function buildEvidenceGateBlock(taskId: string): string {
 // briefly restored this function as an orphan unused declaration. Removed
 // here per T10452's design intent — the single inlined version is the SSoT.
 
-/** Build the quality-gate block — biome + build + test + changeset hygiene. */
+/** Build the quality-gate block — biome + build + scoped test evidence + changeset hygiene. */
 function buildQualityGateBlock(): string {
   return [
     '## Quality Gates (run before every `cleo complete`)',
@@ -1109,10 +1113,11 @@ function buildQualityGateBlock(): string {
     '```bash',
     'pnpm biome ci .        # full repo, strict — same as CI',
     'pnpm run build         # full dep graph build',
-    'pnpm run test          # zero new failures vs main',
     'node scripts/lint-changesets.mjs  # validate .changeset/*.md entries (T10448)',
     'git diff --stat HEAD   # verify the diff matches the story',
     '```',
+    '',
+    'Tests (zero new failures vs main): while iterating, run only the failing or changed test files. Record evidence once — `tool:test-affected` or a targeted `test-run:<json>` before merge, `ci:<pr>` after it (`cleo done <id> --plan` picks for you). Never run the full suite manually; a full `tool:test` is only for root-config changes.',
     '',
     'If ANY gate fails, fix it before completing. Do not bypass. Do not `--no-verify`. Do not amend published commits.',
   ].join('\n');

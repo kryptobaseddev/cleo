@@ -86,7 +86,7 @@ export const verifyCommand = defineCommand({
     evidence: {
       type: 'string',
       description:
-        "Evidence for the gate (T832/ADR-051). Semicolon-separated atoms: 'commit:<sha>', 'files:<p1,p2>', 'test-run:<json>', 'tool:<name>', 'url:<url>', 'note:<text>', 'ci:<pr>' (required CI green on the merged PR's merge commit; testsPassed/qaPassed, opt-in via evidence.ciSatisfies).",
+        "Evidence for the gate (T832/ADR-051). Semicolon-separated atoms: 'commit:<sha>', 'files:<p1,p2>', 'test-run:<json>', 'tool:<name>' (e.g. tool:test, tool:test-affected, tool:lint), 'url:<url>', 'note:<text>', 'ci:<pr>' (required CI green on the merged PR's merge commit; testsPassed/qaPassed, opt-in via evidence.ciSatisfies).",
     },
     explain: {
       type: 'boolean',
@@ -111,6 +111,11 @@ export const verifyCommand = defineCommand({
       type: 'string',
       description: 'With --auto: the merged PR that implements the task',
     },
+    fresh: {
+      type: 'boolean',
+      description:
+        'Bypass the ADR-061 tool cache and re-run every tool: atom (same as CLEO_EVIDENCE_FRESH=1, which still works). Use only when a cached result is suspect, e.g. after adding an untracked file (T12964).',
+    },
     'shared-evidence': {
       type: 'boolean',
       description:
@@ -124,6 +129,10 @@ export const verifyCommand = defineCommand({
     }
 
     const isWrite = !!(args.gate || args.all || args.reset);
+
+    // T12964: `--fresh` is the flag form of CLEO_EVIDENCE_FRESH=1. Dispatch runs
+    // in this process, so setting the variable reaches every runToolCached call.
+    if (args.fresh === true) process.env['CLEO_EVIDENCE_FRESH'] = '1';
 
     // T12625: `--auto` is `cleo done` without the completion step.
     if (args.auto === true) {

@@ -6,7 +6,11 @@
  * re-validates a worker's claim BEFORE the orchestrator accepts completion.
  *
  * Project-agnostic: uses canonical `tool:test` resolution per ADR-061 so
- * pnpm/npm/cargo/pytest/go all work identically. Git operations go through
+ * pnpm/npm/cargo/pytest/go all work identically. The test re-run is scoped
+ * (T12962): `tool:test-affected` for the worker's change first, the full
+ * `tool:test` only when affected planning refuses, and both go through the
+ * ADR-061 cache, so a result the worker already recorded for the same tree is
+ * reused instead of re-run. Git operations go through
  * the standard `git` CLI. The audit log lives at the project's
  * `.cleo/audit/worker-mismatch.jsonl` (matches `force-bypass.jsonl` /
  * `contract-violations.jsonl` conventions).
@@ -26,7 +30,7 @@ import { spawn } from 'node:child_process';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-import { parseEvidence, validateAtom } from '../tasks/evidence.js';
+import { type AtomValidation, parseEvidence, validateAtom } from '../tasks/evidence.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -46,7 +50,8 @@ export interface WorkerReport {
   /**
    * Evidence atoms the worker captured (CLI `--evidence` syntax, e.g.
    * `tool:test`, `commit:<sha>;files:a.ts,b.ts`). Used for cross-checking;
-   * re-verify always runs `tool:test` regardless of what the worker claimed.
+   * re-verify always re-runs the tests (affected scope first, T12962)
+   * regardless of what the worker claimed.
    */
   evidenceAtoms: string[];
   /**
@@ -149,37 +154,85 @@ export interface ReVerifyOptions {
 export interface TestRunResult {
   ok: boolean;
   reason?: string;
+  /**
+   * Which run produced the verdict: `affected` (`tool:test-affected`) or
+   * `full` (`tool:test`). Absent from injected stubs.
+   *
+   * @task T12962
+   */
+  scope?: 'affected' | 'full';
 }
+
+/**
+ * Injection seam for {@link defaultRunProjectTests}: validates one evidence
+ * atom string (e.g. `tool:test-affected`). Production uses {@link validateAtom}.
+ *
+ * @task T12962
+ */
+export type ValidateToolAtom = (atom: string, projectRoot: string) => Promise<AtomValidation>;
+
+/**
+ * Refusal codes from affected-scope PLANNING (no template, no default branch,
+ * a workspace-wide change, an empty or unresolvable scope). Any other failure
+ * of `tool:test-affected` means the affected tests ran and failed.
+ */
+const AFFECTED_PLAN_REFUSALS: ReadonlySet<string> = new Set([
+  'E_EVIDENCE_TOOL_UNAVAILABLE',
+  'E_EVIDENCE_INSUFFICIENT',
+]);
 
 // ---------------------------------------------------------------------------
 // Default implementations (production)
 // ---------------------------------------------------------------------------
 
+/** Production {@link ValidateToolAtom}: parse one atom and run {@link validateAtom}. */
+const validateToolAtom: ValidateToolAtom = async (atomText, projectRoot) => {
+  const atom = parseEvidence(atomText).atoms[0];
+  if (!atom) {
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_INVALID',
+      reason: `${atomText} parse returned no atom`,
+    };
+  }
+  return validateAtom(atom, projectRoot);
+};
+
 /**
- * Default `tool:test` runner. Reuses {@link validateAtom} so the same
- * project-context.json resolution + ADR-061 evidence cache applies.
+ * Default test runner for worker re-verification (T1589, scoped by T12962).
  *
- * No task is passed, so the scope-aware `tool:test` (T12959) runs WITHOUT a
- * merge check: when `testing.affectedCommand` is declared it runs the affected
- * packages of the checkout's diff against origin's default branch (the full
- * suite only when that scope is refused), whether or not the work has merged.
- * That fits a pre-merge re-verify of a worker's report; it is not
- * `testsPassed` evidence for a merged change, which `cleo complete` judges
- * separately.
+ * 1. `tool:test-affected` — the packages the worker's branch diff touches plus
+ *    their dependents.
+ * 2. `tool:test` — only when affected planning REFUSES (no
+ *    `testing.affectedCommand`, no default branch, a root-config change, an
+ *    empty or unresolvable scope). A failing affected run is the verdict; it
+ *    never escalates to the full suite.
+ *
+ * Both atoms run through {@link validateAtom}, so project-context resolution
+ * and the ADR-061 cache apply: a result the worker already recorded for the
+ * same tree is reused, not re-run. This used to run a full `tool:test` for
+ * every worker exit, whatever the worker claimed.
+ *
+ * @param projectRoot - Project root the worker ran against.
+ * @param validate - Atom validator; tests inject a stub.
+ * @returns The verdict and which scope produced it.
  *
  * @task T1589
- * @task T12959
+ * @task T12962
  * @adr ADR-061
  */
-export async function defaultRunProjectTests(projectRoot: string): Promise<TestRunResult> {
-  const parsed = parseEvidence('tool:test');
-  const atom = parsed.atoms[0];
-  if (!atom) {
-    return { ok: false, reason: 'tool:test parse returned no atom' };
+export async function defaultRunProjectTests(
+  projectRoot: string,
+  validate: ValidateToolAtom = validateToolAtom,
+): Promise<TestRunResult> {
+  const affected = await validate('tool:test-affected', projectRoot);
+  if (affected.ok) return { ok: true, scope: 'affected' };
+  if (!AFFECTED_PLAN_REFUSALS.has(affected.codeName)) {
+    return { ok: false, reason: affected.reason, scope: 'affected' };
   }
-  const result = await validateAtom(atom, projectRoot);
-  if (result.ok) return { ok: true };
-  return { ok: false, reason: result.reason };
+  const full = await validate('tool:test', projectRoot);
+  if (full.ok) return { ok: true, scope: 'full' };
+  return { ok: false, reason: full.reason, scope: 'full' };
 }
 
 /**
@@ -227,8 +280,8 @@ export async function defaultListChangedFiles(projectRoot: string): Promise<stri
  * Performs three independent checks and rejects on any hard-evidence
  * mismatch:
  *
- * 1. **Test status** — runs `tool:test` (project-resolved per ADR-061) and
- *    compares the exit code against the worker's `selfReportSuccess` claim.
+ * 1. **Test status** — runs the affected tests, or the full `tool:test` when
+ *    affected planning refuses (project-resolved per ADR-061), and compares the exit code against the worker's `selfReportSuccess` claim.
  *    Worker says success but tests fail → reject.
  * 2. **Touched files** — compares `touchedFiles` against `git status
  *    --porcelain`. Sets must match exactly (order-independent). Counts
@@ -269,11 +322,12 @@ export async function reVerifyWorkerReport(
 
   // -- 1. Test status check ------------------------------------------------
   const testResult = await runTests(options.projectRoot);
+  const testAtom = testResult.scope === 'affected' ? 'tool:test-affected' : 'tool:test';
   if (report.selfReportSuccess && !testResult.ok) {
     mismatches.push({
       kind: 'tests',
       claimed: 'success',
-      actual: `tool:test failed${testResult.reason ? `: ${testResult.reason}` : ''}`,
+      actual: `${testAtom} failed${testResult.reason ? `: ${testResult.reason}` : ''}`,
       reason: 'Worker claimed success but project test command failed.',
     });
   } else if (!report.selfReportSuccess && testResult.ok) {
@@ -282,7 +336,7 @@ export async function reVerifyWorkerReport(
     mismatches.push({
       kind: 'tests',
       claimed: 'failure',
-      actual: 'tool:test passed',
+      actual: `${testAtom} passed`,
       reason: 'Worker claimed failure but project test command exited 0.',
     });
   }

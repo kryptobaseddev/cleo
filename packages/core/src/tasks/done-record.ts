@@ -123,8 +123,12 @@ async function versionConflict(
   }
 }
 
-/** Default tool runner: resolve through ADR-061 and run through its cache. */
-const defaultRunTool: DoneToolRunner = async (tool, storeRoot, executionRoot) => {
+/**
+ * Default tool runner: resolve through ADR-061 and run through its cache.
+ *
+ * @internal Exported for tests only.
+ */
+export const defaultRunTool: DoneToolRunner = async (tool, storeRoot, executionRoot) => {
   if (tool === 'test-affected') {
     const { planAffectedTestRun } = await import('./affected-packages.js');
     const affected = await planAffectedTestRun(storeRoot, executionRoot, { wait: true });
@@ -147,7 +151,9 @@ const defaultRunTool: DoneToolRunner = async (tool, storeRoot, executionRoot) =>
       tail: (r.stderrTail || r.stdoutTail).trim().slice(-400),
     };
   }
-  const resolved = resolveToolCommand(tool, storeRoot);
+  // T12964: package.json scripts and tsconfig describe the code under test,
+  // so they are read in the execution root, exactly as `validateTool` does.
+  const resolved = resolveToolCommand(tool, storeRoot, { executionRoot });
   if (!resolved.ok) {
     return {
       exitCode: null,

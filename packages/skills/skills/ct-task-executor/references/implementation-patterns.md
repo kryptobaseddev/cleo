@@ -134,9 +134,14 @@ v2026.4.69) in past sessions.
 pnpm biome check --write .   # 1. format + lint
 pnpm run build               # 2. build (includes typecheck via tsc -b)
 pnpm run typecheck           # 3. typecheck — strict TS project refs
-pnpm run test                # 4. test (zero new failures)
+cleo done <TASK_ID> --plan   # 4. tests: affected → ci → full (zero new failures)
 git diff --stat HEAD         # 5. verify scope matches intent
 ```
+
+Step 4 never means a manual full suite. Before merge record
+`tool:test-affected` (or `test-run:<json>` from the changed test files);
+after merge record `ci:<pr>`. While iterating, run only the failing or
+changed test files.
 
 Note: `pnpm run build` (esbuild) does NOT run the strict TS project-reference
 typecheck. Always run `pnpm run typecheck` separately before tagging or

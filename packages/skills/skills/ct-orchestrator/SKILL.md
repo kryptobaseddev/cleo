@@ -2,13 +2,13 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.0.7
+  version: 4.0.8
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/orchestrate.ts
     - packages/core/src/orchestration/spawn-prompt.ts
-  lastReviewed: 2026-09-29
+  lastReviewed: 2026-10-01
   stability: stable
 ---
 
@@ -330,8 +330,8 @@ files between `verify` and `complete` triggers `E_EVIDENCE_STALE`.
 | Gate | Required atoms |
 |------|---------------|
 | `implemented` | `commit:<sha>` AND `files:<comma-separated>` |
-| `testsPassed` | `tool:pnpm-test` OR `test-run:<vitest-json>` |
-| `qaPassed` | `tool:biome` AND `tool:tsc` (OR `tool:pnpm-build`) |
+| `testsPassed` | `ci:<pr>` after merge; before it `tool:test-affected` OR `test-run:<vitest-json>` |
+| `qaPassed` | `ci:<pr>` after merge; before it `tool:biome` AND `tool:tsc` (OR `tool:pnpm-build`) |
 | `documented` | `files:<docs-path>` OR `url:<doc-url>` |
 | `securityPassed` | `tool:security-scan` OR `note:<waiver>` |
 | `cleanupDone` | `note:<summary>` |
@@ -340,13 +340,20 @@ Orchestrator workflow for each completing task:
 
 ```bash
 # 1. Worker reports done with evidence atoms in manifest key_findings
-# 2. Orchestrator runs:
+# 2. Orchestrator plans, then records (cleo done picks affected → ci → full):
+cleo done <taskId> --plan
 cleo verify <taskId> --gate implemented --evidence "commit:$(git rev-parse HEAD);files:<list>"
-cleo verify <taskId> --gate testsPassed --evidence "tool:pnpm-test"
-cleo verify <taskId> --gate qaPassed   --evidence "tool:biome;tool:tsc"
+cleo verify <taskId> --gate testsPassed --evidence "ci:<pr>"   # before merge: tool:test-affected
+cleo verify <taskId> --gate qaPassed   --evidence "ci:<pr>"   # before merge: tool:biome;tool:tsc
 # 3. Close:
 cleo complete <taskId>
 ```
+
+Never re-run a worker's full suite to "double-check": a worker's
+`tool:test-affected` or `tool:test` result for the same tree is a cache
+hit, and once the PR merges `ci:<pr>` needs no local run at all. A full
+`tool:test` is only for changes to root config, which affected planning
+refuses.
 
 Emergency: set `CLEO_OWNER_OVERRIDE=1` and `CLEO_OWNER_OVERRIDE_REASON="<reason>"`
 before the verify call — audited to `.cleo/audit/force-bypass.jsonl`.
