@@ -329,7 +329,7 @@ const linkSubCommand = defineCommand({
     rebind: {
       type: 'boolean',
       description:
-        'Give this copy of the project a new replica id before attaching it: the fix for E_NEXUS_REPLICA_COPIED (this machine was re-enrolled, or the store was copied from another machine).',
+        'Use only after E_NEXUS_REPLICA_COPIED: give this copy of the project a new replica id before attaching it (this machine was re-enrolled, or the store was copied). Each run mints a new id and leaves the old one on the server as stale history.',
     },
     'api-url': NEXUS_API_URL_ARG,
     json: { type: 'boolean', description: 'Output raw JSON envelope.', default: false },
