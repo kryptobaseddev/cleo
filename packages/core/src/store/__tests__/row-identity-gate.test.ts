@@ -1,6 +1,6 @@
 /**
- * Row-identity gate (T12341): every syncing table either carries a declared
- * uid or is counted as pending, and the pending count only shrinks.
+ * Row-identity gate (T12341, T12897): every syncing table either carries a
+ * declared uid or is exempt with a reason, checked on fresh stores.
  *
  * The table set comes from `sqlite_master` of fresh stores built through the
  * runtime path, like Gate A (`table-classification-gate.test.ts`). A table is
@@ -10,12 +10,17 @@
  * - declared in `ROW_IDENTITY` (`store/row-identity.ts`), with its uid column,
  *   its uid index (or uid primary key) and every column the declaration names
  *   physically present; or
- * - PENDING: not declared yet. The pending count per scope is pinned in
- *   {@link PENDING_PINNED}. A new syncing table raises it and fails: declare
- *   the table instead. Declaring one lowers it and fails too, until the pin is
- *   lowered in the same change, so the allowance cannot be spent again.
+ * - EXEMPT: listed in `ROW_IDENTITY_EXEMPT` (`store/row-identity-registry.ts`)
+ *   with a reason and the task that ends the exemption. An exemption whose
+ *   table is declared, absent from the store (unless optional-transient) or no
+ *   longer syncing is stale and fails. The exemption count is pinned in
+ *   `ROW_IDENTITY_EXEMPT_PINNED` and only shrinks.
+ *
+ * The same check runs against the classification registry source, with no
+ * store, as arch gate 37 (`scripts/lint-row-identity-coverage.mjs`).
  *
  * @task T12341
+ * @task T12897
  * @epic T12323
  */
 
@@ -31,22 +36,14 @@ import { _resetDualScopeDbCache, openDualScopeDb } from '../dual-scope-db.js';
 import { getBrainDb } from '../memory-sqlite.js';
 import { getNexusDb } from '../nexus-sqlite.js';
 import { ROW_IDENTITY, rowIdentityColumns, UID_COLUMN } from '../row-identity.js';
-import { ROW_IDENTITY_PENDING_REASONS } from '../row-identity-registry.js';
+import {
+  checkRowIdentityCoverage,
+  ROW_IDENTITY_EXEMPT,
+  ROW_IDENTITY_EXEMPT_PINNED,
+} from '../row-identity-registry.js';
 import { openSkillsDb } from '../skills-db.js';
 import { getDb } from '../sqlite.js';
-import { classifyTable, isPortableTableClass } from '../table-classification.js';
-
-/**
- * Syncing tables without a declared uid, per scope. Only ever lowered: each
- * follow-up that declares tables lowers it in the same change (spec
- * t12341-uid-scheme §15).
- *
- * Raised once, by 2 per scope, when main reclassified `brain_plasticity_events`
- * and `brain_weight_history` from local-only to portable-personal (cleo-dev
- * ruling 2026-09-29, journal spec review Q11): newly syncing tables, pending
- * like every other brain table.
- */
-const PENDING_PINNED: Readonly<Record<TableScope, number>> = { project: 96, global: 45 };
+import { classifyTable, getTableRegistry, isPortableTableClass } from '../table-classification.js';
 
 let testRoot: string;
 const stores: Partial<Record<TableScope, DatabaseSync>> = {};
@@ -155,25 +152,24 @@ describe.each(['project', 'global'] as const)('row identity: %s store', (scope) 
     }
   });
 
-  it('names only undeclared syncing tables as pending with a reason', () => {
-    if (scope !== 'project') return;
-    const syncing = new Set(syncingTables(scope, store(scope)));
-    const declared = new Set(ROW_IDENTITY[scope].map((s) => s.table));
-    for (const table of Object.keys(ROW_IDENTITY_PENDING_REASONS)) {
-      expect(syncing.has(table), `${table} is not a syncing table`).toBe(true);
-      expect(declared.has(table), `${table} is declared; drop its pending reason`).toBe(false);
-    }
-  });
-
-  it('the pending count is pinned and only shrinks', () => {
-    const declared = new Set(ROW_IDENTITY[scope].map((s) => s.table));
-    const pending = syncingTables(scope, store(scope)).filter((t) => !declared.has(t));
-    console.log(`[row-identity] ${scope}: ${declared.size} declared, ${pending.length} pending`);
-    expect(
-      pending.length,
-      pending.length > PENDING_PINNED[scope]
-        ? `a syncing table has no declared uid; declare it in store/row-identity.ts (pending: ${pending.join(', ')})`
-        : `tables were declared; lower PENDING_PINNED.${scope} to ${pending.length}`,
-    ).toBe(PENDING_PINNED[scope]);
+  it('every syncing table is declared or exempt, and no exemption is stale', () => {
+    const declared = ROW_IDENTITY[scope].map((s) => s.table);
+    const exempt = ROW_IDENTITY_EXEMPT[scope];
+    // A fresh store leaves out optional-transient tables; their exemptions
+    // stay valid while the registry still classifies them as syncing.
+    const mayBeAbsent = Object.entries(getTableRegistry(scope).tables)
+      .filter(([, e]) => e.status === 'optional-transient' && isPortableTableClass(e.class))
+      .map(([table]) => table);
+    const problems = checkRowIdentityCoverage({
+      syncing: syncingTables(scope, store(scope)),
+      declared,
+      exempt,
+      pinned: ROW_IDENTITY_EXEMPT_PINNED[scope],
+      mayBeAbsent,
+    });
+    console.log(
+      `[row-identity] ${scope}: ${declared.length} declared, ${Object.keys(exempt).length} exempt`,
+    );
+    expect(problems.map((p) => p.message)).toEqual([]);
   });
 });

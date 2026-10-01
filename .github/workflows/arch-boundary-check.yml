@@ -628,6 +628,8 @@ jobs:
         run: node scripts/lint-hitl-rule-delivery.mjs
       - name: Assert no new raw write on a classified cleo.db table (gate 28 · T12332)
         run: node scripts/lint-no-raw-table-writes.mjs
+      - name: Assert every syncing cleo.db table has row identity or an exemption (gate 37 · T12897)
+        run: node scripts/lint-row-identity-coverage.mjs
 
   model-call-sites:
     # Gate 35 (T12663 · spec system-one-integration §3.5 · D11158). Every

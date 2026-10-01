@@ -812,6 +812,16 @@ const checkArchCommand = defineCommand({
         script: 'scripts/lint-model-call-sites.mjs',
         description: 'Every model call site is a registered decision site (ratchet)',
       },
+      {
+        // T12897: every syncing cleo.db table is declared in ROW_IDENTITY or
+        // exempt with a reason and a task in ROW_IDENTITY_EXEMPT; a stale
+        // exemption (table gone, no longer syncing, or declared) fails too.
+        // The fresh-store check is store/__tests__/row-identity-gate.test.ts.
+        id: 'gate-37',
+        task: 'T12897',
+        script: 'scripts/lint-row-identity-coverage.mjs',
+        description: 'Every syncing cleo.db table has declared row identity or an exemption',
+      },
     ] as const;
 
     const scriptArgs = strict ? ['--strict'] : ['--check'];

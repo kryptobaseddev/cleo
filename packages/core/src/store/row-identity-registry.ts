@@ -7,6 +7,7 @@
  *
  * @module
  * @task T12341
+ * @task T12897
  * @epic T12323
  */
 
@@ -24,9 +25,8 @@ const ACS: RowIdentityRef['table'] = 'tasks_task_acceptance_criteria';
 
 /**
  * Declared row identity, per scope. Every syncing table is either declared
- * here or counted as pending by the row-identity gate
- * (`__tests__/row-identity-gate.test.ts`), whose pinned pending count may
- * only shrink.
+ * here or exempt with a reason in {@link ROW_IDENTITY_EXEMPT} (T12897); the
+ * row-identity coverage gate fails on a table in neither.
  *
  * Tables whose bare twin is still the live write target (attachments, ADRs,
  * token usage, …) are declared when their twin collapse lands (spec §10).
@@ -174,15 +174,401 @@ export const ROW_IDENTITY_TABLES: Readonly<Record<TableScope, readonly string[]>
 };
 
 /**
- * Named syncing tables that are deliberately NOT declared yet, and why. The
- * row-identity gate counts every undeclared syncing table as pending; these
- * are the ones with a reason beyond "not reached yet".
+ * Why a syncing table syncs without declared row identity (T12897).
+ *
+ * - `planned` — a filed task gives the table its uid; it syncs without one
+ *   until then.
+ * - `twin-collapse` — one of a live exodus twin pair that both sync; the uid
+ *   goes on the survivor once T12535 collapses the pair (spec §10).
+ * - `unscheduled` — no uid scheme is designed or filed yet; the table waits on
+ *   the sync-coverage epic.
+ * - `not-row-replicated` — the table does not travel as rows at all.
+ *
+ * @task T12897
  */
-export const ROW_IDENTITY_PENDING_REASONS: Readonly<Record<string, string>> = {
-  brain_sticky_tags:
-    'twin-collapse slice 1 table: the degraded-mode TEMP shadow tables in store/twin-collapse.ts declare its columns and must carry uid first; that file is being edited by slice 2 (T12535)',
-  brain_sticky_notes: 'parent of brain_sticky_tags; declared together with it (same reason)',
+export type RowIdentityExemptionCategory =
+  | 'planned'
+  | 'twin-collapse'
+  | 'unscheduled'
+  | 'not-row-replicated';
+
+/**
+ * A syncing table's declared reason for having no {@link ROW_IDENTITY} entry.
+ *
+ * @task T12897
+ */
+export interface RowIdentityExemption {
+  /** Kind of reason. */
+  readonly category: RowIdentityExemptionCategory;
+  /** Why the table syncs without row identity, and what ends the exemption. */
+  readonly reason: string;
+  /** The task that ends the exemption (for `unscheduled`, the epic). */
+  readonly task: string;
+}
+
+const BRAIN_TEXT_KEY: RowIdentityExemption = {
+  category: 'planned',
+  reason:
+    'text-keyed brain table: uid and birth_fp with a deterministic fill and uq index are planned',
+  task: 'T12894',
 };
+
+const BRAIN_NATURAL_KEY: RowIdentityExemption = {
+  category: 'planned',
+  reason: 'natural composite key: a uid derived from the key columns is planned',
+  task: 'T12895',
+};
+
+const BRAIN_AUTOINCREMENT: RowIdentityExemption = {
+  category: 'planned',
+  reason:
+    'INTEGER AUTOINCREMENT id collides across replicas: a uid with a local rowid remap, or reclassification as a per-replica append-only stream, is planned',
+  task: 'T12896',
+};
+
+/** Kept from the T12341 pending reasons: the sticky tables go together. */
+const STICKY_REASON =
+  'the degraded-mode TEMP shadow tables in store/twin-collapse.ts declare its columns and must carry uid first; that file is being edited by twin-collapse slice 2 (T12535)';
+
+const TWIN: RowIdentityExemption = {
+  category: 'twin-collapse',
+  reason:
+    'one of a live exodus twin pair (store/exodus/table-name-map.ts) whose twins both sync; row identity is declared on the survivor when the pair collapses (spec §10)',
+  task: 'T12535',
+};
+
+const UNSCHEDULED: RowIdentityExemption = {
+  category: 'unscheduled',
+  reason:
+    'not reached yet: no uid scheme designed or filed; rows merge on their local primary key until one is',
+  task: 'T12323',
+};
+
+function exempt(
+  tables: readonly string[],
+  exemption: RowIdentityExemption,
+): Record<string, RowIdentityExemption> {
+  return Object.fromEntries(tables.map((table) => [table, exemption]));
+}
+
+/** Brain tables of both scopes, by the task that gives them a uid. */
+const BRAIN_EXEMPT: Readonly<Record<string, RowIdentityExemption>> = {
+  ...exempt(
+    [
+      'brain_attention',
+      'brain_backfill_runs',
+      'brain_decisions',
+      'brain_learnings',
+      'brain_observations',
+      'brain_observations_staging',
+      'brain_page_nodes',
+      'brain_patterns',
+      'brain_promotion_log',
+      'brain_session_narrative',
+      'brain_transcript_events',
+    ],
+    BRAIN_TEXT_KEY,
+  ),
+  ...exempt(['brain_memory_links', 'brain_page_edges'], BRAIN_NATURAL_KEY),
+  ...exempt(
+    [
+      'brain_consolidation_events',
+      'brain_memory_trees',
+      'brain_modulators',
+      'brain_plasticity_events',
+      'brain_retrieval_log',
+      'brain_usage_log',
+      'brain_weight_history',
+    ],
+    BRAIN_AUTOINCREMENT,
+  ),
+  brain_sticky_notes: { category: 'planned', reason: STICKY_REASON, task: 'T12894' },
+  brain_sticky_tags: { category: 'planned', reason: STICKY_REASON, task: 'T12895' },
+  brain_embeddings: {
+    category: 'not-row-replicated',
+    reason:
+      'vec0 virtual table: the session extension cannot capture it, so it ships as a content-addressed cache blob, never as rows (classification registry note)',
+    task: 'T12323',
+  },
+};
+
+/**
+ * Every syncing table WITHOUT a {@link ROW_IDENTITY} entry, with the reason it
+ * syncs without one. A syncing table in neither place fails the row-identity
+ * coverage gate (`scripts/lint-row-identity-coverage.mjs` against the
+ * classification registry, `__tests__/row-identity-gate.test.ts` against
+ * fresh stores), and so does an exemption whose table is declared, no longer
+ * exists or no longer syncs. Declaring a table drops its exemption in the
+ * same change.
+ *
+ * @task T12897
+ */
+export const ROW_IDENTITY_EXEMPT: Readonly<
+  Record<TableScope, Readonly<Record<string, RowIdentityExemption>>>
+> = {
+  project: {
+    ...BRAIN_EXEMPT,
+    brain_task_observations: BRAIN_AUTOINCREMENT,
+    tasks_brain_release_links: BRAIN_NATURAL_KEY,
+    // Both twins of each pair. brain_session_narrative (twin of
+    // session_narrative) and brain_observations_staging already have a uid
+    // plan (T12894), so only their bare sides wait on the collapse.
+    ...exempt(
+      [
+        'adr_relations',
+        'tasks_adr_relations',
+        'adr_task_links',
+        'tasks_adr_task_links',
+        'agent_error_log',
+        'tasks_agent_error_log',
+        'architecture_decisions',
+        'tasks_architecture_decisions',
+        'audit_log',
+        'tasks_audit_log',
+        'experiments',
+        'tasks_experiments',
+        'manifest_entries',
+        'docs_manifest_entries',
+        'pipeline_manifest',
+        'docs_pipeline_manifest',
+        'playbook_approvals',
+        'tasks_playbook_approvals',
+        'playbook_runs',
+        'tasks_playbook_runs',
+        'token_usage',
+        'tasks_token_usage',
+        'warp_chains',
+        'tasks_warp_chains',
+        'warp_chain_instances',
+        'tasks_warp_chain_instances',
+        'session_narrative',
+      ],
+      TWIN,
+    ),
+    brain_v2_candidate: {
+      category: 'twin-collapse',
+      reason:
+        'pre-T1402 name of brain_observations_staging; dropped by the twin collapse, never given a uid',
+      task: 'T12535',
+    },
+    ...exempt(
+      [
+        'conduit_attachment_approvals',
+        'conduit_attachment_contributors',
+        'conduit_attachment_versions',
+        'conduit_attachments',
+        'conduit_conversations',
+        'conduit_message_pins',
+        'conduit_messages',
+        'conduit_project_agent_refs',
+        'conduit_topic_message_acks',
+        'conduit_topic_messages',
+        'conduit_topic_subscriptions',
+        'conduit_topics',
+        'docs_attachment_refs',
+        'docs_attachments',
+        'docs_wikilinks',
+        'nexus_relation_weights',
+        'pi_session_entries',
+        'pi_session_leaf',
+        'schedules',
+        'selfimprove_dhq',
+        'tasks_acceptance_projection_dirty',
+        'tasks_acceptance_projection_state',
+        'tasks_agent_credentials',
+        'tasks_commit_files',
+        'tasks_commits',
+        'tasks_external_task_links',
+        'tasks_goal',
+        'tasks_lifecycle_evidence',
+        'tasks_lifecycle_gate_results',
+        'tasks_lifecycle_pipelines',
+        'tasks_lifecycle_stages',
+        'tasks_lifecycle_transitions',
+        'tasks_pr_commits',
+        'tasks_pr_tasks',
+        'tasks_pull_requests',
+        'tasks_release_artifacts',
+        'tasks_release_changes',
+        'tasks_release_changesets',
+        'tasks_release_commits',
+        'tasks_releases',
+        'tasks_session_handoff_entries',
+        'tasks_task_commits',
+        'tasks_task_work_history',
+      ],
+      UNSCHEDULED,
+    ),
+  },
+  global: {
+    ...BRAIN_EXEMPT,
+    ...exempt(
+      [
+        'accounts',
+        'agent_registry_accounts',
+        'agent_registry_agent_capabilities',
+        'agent_registry_agent_skills',
+        'agent_registry_agents',
+        'agent_registry_capabilities',
+        'agent_registry_org_agent_keys',
+        'agent_registry_skills',
+        'agent_service_grants',
+        'nexus_audit_log',
+        'nexus_devices',
+        'nexus_project_git_state',
+        'nexus_project_id_aliases',
+        'nexus_project_locations',
+        'nexus_project_registry',
+        'nexus_sigils',
+        'nexus_user_profile',
+        'service_configs',
+        'service_connections',
+        'skills_skill_patches',
+        'skills_skill_reviews',
+        'skills_skill_usage',
+        'skills_skills',
+      ],
+      UNSCHEDULED,
+    ),
+  },
+};
+
+/**
+ * The exemption count per scope. Only ever lowered: a change that declares
+ * tables lowers it in the same change, so the allowance cannot be spent again,
+ * and a new syncing table is declared rather than exempted unless the change
+ * raises this on purpose.
+ *
+ * At T12897 ({@link rowIdentityExemptionSummary} prints the live numbers):
+ *
+ * | category             | task   | project | global |
+ * |----------------------|--------|---------|--------|
+ * | planned              | T12894 | 12      | 12     |
+ * | planned              | T12895 | 4       | 3      |
+ * | planned              | T12896 | 8       | 7      |
+ * | twin-collapse        | T12535 | 28      | 0      |
+ * | unscheduled          | T12323 | 43      | 23     |
+ * | not-row-replicated   | T12323 | 1       | 1      |
+ * | total                |        | 96      | 46     |
+ *
+ * @task T12897
+ */
+export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = {
+  project: 96,
+  global: 46,
+};
+
+/**
+ * Exemption counts of one scope, by category and by `category task`.
+ *
+ * @param scope - Store scope.
+ * @returns `total`, `byCategory` and `byTask` (key `<category> <task>`),
+ *   keys sorted.
+ * @task T12897
+ */
+export function rowIdentityExemptionSummary(scope: TableScope): {
+  total: number;
+  byCategory: Record<string, number>;
+  byTask: Record<string, number>;
+} {
+  const byCategory: Record<string, number> = {};
+  const byTask: Record<string, number> = {};
+  const exemptions = Object.values(ROW_IDENTITY_EXEMPT[scope]);
+  for (const { category, task } of exemptions) {
+    byCategory[category] = (byCategory[category] ?? 0) + 1;
+    byTask[`${category} ${task}`] = (byTask[`${category} ${task}`] ?? 0) + 1;
+  }
+  const sorted = (o: Record<string, number>) =>
+    Object.fromEntries(Object.entries(o).sort(([a], [b]) => a.localeCompare(b)));
+  return { total: exemptions.length, byCategory: sorted(byCategory), byTask: sorted(byTask) };
+}
+
+/**
+ * One problem the row-identity coverage gate reports.
+ *
+ * - `missing` — a syncing table with neither a declared uid nor an exemption.
+ * - `stale` — an exemption whose table is not a syncing table (gone, or
+ *   reclassified to a class that does not sync).
+ * - `declared` — an exemption whose table is also declared.
+ * - `invalid` — an exemption without a reason or a `T<digits>` task.
+ * - `pinned` — the exemption count differs from its pin.
+ *
+ * @task T12897
+ */
+export interface RowIdentityCoverageProblem {
+  readonly kind: 'missing' | 'stale' | 'declared' | 'invalid' | 'pinned';
+  readonly table?: string;
+  readonly message: string;
+}
+
+/**
+ * Check that every syncing table is declared or exempt, and that every
+ * exemption still names an undeclared syncing table. Pure: the caller supplies
+ * the syncing set (from the classification registry or a physical store).
+ *
+ * @param input - `syncing`: the scope's syncing tables; `declared`: tables
+ *   with a {@link ROW_IDENTITY} entry; `exempt`: the scope's exemptions;
+ *   `pinned`: the expected exemption count (omit to skip); `mayBeAbsent`:
+ *   exempt tables allowed to be missing from `syncing` (a fresh store leaves
+ *   out optional-transient tables).
+ * @returns The problems; empty when every syncing table is covered.
+ * @task T12897
+ */
+export function checkRowIdentityCoverage(input: {
+  readonly syncing: Iterable<string>;
+  readonly declared: Iterable<string>;
+  readonly exempt: Readonly<Record<string, RowIdentityExemption>>;
+  readonly pinned?: number;
+  readonly mayBeAbsent?: Iterable<string>;
+}): RowIdentityCoverageProblem[] {
+  const syncing = new Set(input.syncing);
+  const declared = new Set(input.declared);
+  const mayBeAbsent = new Set(input.mayBeAbsent ?? []);
+  const problems: RowIdentityCoverageProblem[] = [];
+  for (const table of [...syncing].sort()) {
+    if (!declared.has(table) && !Object.hasOwn(input.exempt, table)) {
+      problems.push({
+        kind: 'missing',
+        table,
+        message: `${table} syncs with neither a ROW_IDENTITY entry nor a ROW_IDENTITY_EXEMPT reason`,
+      });
+    }
+  }
+  const exemptTables = Object.keys(input.exempt).sort();
+  for (const table of exemptTables) {
+    const exemption = input.exempt[table];
+    if (declared.has(table)) {
+      problems.push({
+        kind: 'declared',
+        table,
+        message: `${table} is declared in ROW_IDENTITY; drop its exemption`,
+      });
+    } else if (!syncing.has(table) && !mayBeAbsent.has(table)) {
+      problems.push({
+        kind: 'stale',
+        table,
+        message: `${table} is exempt but is not a syncing table (gone or reclassified); drop its exemption`,
+      });
+    }
+    if (!exemption?.reason.trim() || !/^T\d+$/.test(exemption.task)) {
+      problems.push({
+        kind: 'invalid',
+        table,
+        message: `${table}: an exemption needs a reason and a T<digits> task`,
+      });
+    }
+  }
+  if (input.pinned !== undefined && exemptTables.length !== input.pinned) {
+    problems.push({
+      kind: 'pinned',
+      message:
+        exemptTables.length > input.pinned
+          ? `${exemptTables.length} exemptions, pinned at ${input.pinned}: declare the new table's row identity instead of exempting it`
+          : `${exemptTables.length} exemptions, pinned at ${input.pinned}: lower ROW_IDENTITY_EXEMPT_PINNED to ${exemptTables.length}`,
+    });
+  }
+  return problems;
+}
 
 /**
  * The declared identity of a table, or `undefined` when it has none (yet).
