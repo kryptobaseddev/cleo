@@ -192,37 +192,36 @@ export function nexusLoginSummary(r: NexusLoginResult): string {
  * @returns e.g. `Signed out of https://api.cleocode.dev: 1 device confirmed.`
  */
 export function nexusDeviceLogoutSummary(r: NexusDeviceLogoutResult): string {
-  const verb = r.action === 'revoke' ? 'Revoked on' : 'Signed out of';
-  if (r.devices.length === 0 && r.session === null) {
-    return `Not signed in to ${r.apiUrl}; nothing to do.`;
-  }
   const count = (o: string): number => r.devices.filter((d) => d.outcome === o).length;
-  const open = count('pending') + count('unconfirmed') + count('signed-out');
-  const parts = [`${count('confirmed')} device request(s) confirmed`];
+  const confirmed = count('confirmed');
+  const open = r.devices.length - confirmed;
+  const what = r.action === 'revoke' ? 'Revoke' : 'Sign-out';
+  if (r.devices.length === 0 && r.session === null) {
+    return r.warnings.length > 0
+      ? `${what} on ${r.apiUrl}: nothing was sent (see warnings).`
+      : `Not signed in to ${r.apiUrl}; nothing to do.`;
+  }
+  const parts: string[] = [];
+  if (r.devices.length > 0)
+    parts.push(`${confirmed} of ${r.devices.length} device request(s) confirmed`);
   if (open > 0) parts.push(`${open} NOT confirmed (see warnings)`);
   if (r.session !== null) parts.push(`9.24 session ${r.session.revocation}`);
-  return `${verb} ${r.apiUrl}: ${parts.join('; ')}.`;
+  const lead =
+    open > 0 || confirmed === 0 ? `${what} NOT fully confirmed on` : `${what} confirmed on`;
+  return `${lead} ${r.apiUrl}: ${parts.join('; ')}.`;
 }
 
 /**
- * Run `cleo logout nexus [--revoke]` with device credentials, print warnings
- * to stderr and emit the result. `--revoke` with `CLEO_NEXUS_DEVICE=0`
- * fails rather than silently signing out a 9.24 session.
+ * Run `cleo logout nexus [--revoke]`, print warnings to stderr and emit the
+ * result. It ends every stored device credential (sign-out, or revoke with
+ * `--revoke`) and signs out a leftover 9.24 session, whatever
+ * `CLEO_NEXUS_DEVICE` says.
  *
  * @param args - Parsed citty args (`--api-url`, `--revoke`).
  */
 export async function runNexusDeviceLogout(args: Readonly<Record<string, unknown>>): Promise<void> {
-  const { isNexusDeviceEnabled } = await import(
-    /* webpackIgnore: true */ '@cleocode/core/cloud/nexus-device.js'
-  );
   let result: NexusDeviceLogoutResult;
   try {
-    if (!isNexusDeviceEnabled()) {
-      throw Object.assign(new Error('--revoke needs device credentials, which are not enabled'), {
-        code: 'E_NEXUS_DEVICE_REQUIRED',
-        fix: 'unset CLEO_NEXUS_DEVICE (=0 turns device credentials off) to revoke this device, or revoke it on cleocode.dev',
-      });
-    }
     const { logoutNexusDevice } = await import(
       /* webpackIgnore: true */ '@cleocode/core/cloud/nexus-logout.js'
     );
