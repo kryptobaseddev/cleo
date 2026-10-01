@@ -126,17 +126,15 @@ Before `cleo complete <id>`, every gate requires programmatic evidence validated
 | gate | evidence that satisfies it |
 |------|----------------------------|
 | `implemented` | `commit:<sha>;files:path/a.ts,path/b.ts` — or `pr:<number>` with `files:<changed-paths>`, or `decision:<id>` for decision-only tasks |
-| `testsPassed` | `ci:<pr>` once merged; else `tool:test-affected` or targeted `test-run:<json>` |
-| `qaPassed` | `tool:lint;tool:typecheck`, or `ci:<pr>` once merged |
+| `testsPassed` | `ci:<pr>` if merged and `evidence.ciSatisfies`; else `tool:test-affected` (needs `testing.affectedCommand`), changed-file `test-run:<json>`, or `tool:test` |
+| `qaPassed` | `ci:<pr>` likewise, else `tool:lint;tool:typecheck` |
 | `documented` | `files:docs/spec.md` |
 | `securityPassed` | `tool:security-scan` |
 | `cleanupDone` | `note:removed dead branches` |
 
-Start with `cleo done <id> --plan` (affected → ci → full). Iterate on failing or changed test files only; full `tool:test` is for root-config changes.
-
 Name the acceptance criteria each result proves: `cleo verify T1234 --gate implemented --evidence "commit:abc123;files:src/fix.ts;satisfies:T1234#AC1"`. Record `testsPassed` and `qaPassed` separately with actual verification results and explicit criterion links. Documentation-only PRs cannot implement a code-fix task; changed criteria require fresh evidence, and a child waiver does not waive parent criteria. Then `cleo complete T###` re-validates every hard atom (commit reachable, file sha256, test-run hash); tampering → `E_EVIDENCE_STALE`. Typed gates, `pr:` rules, tool timeouts and the audited owner override: `cleo briefing inject --section evidence`.
 
-Anti-patterns: completing without test evidence · running tests by hand, then again via `tool:test` · modifying files between `cleo verify` and `cleo complete`.
+Anti-patterns: completing without running tests · `cleo verify --all` without `--evidence` · self-attesting without programmatic proof · running tests by hand, then again via `tool:test` · modifying files between `cleo verify` and `cleo complete`.
 <!-- /CLEO-INJECTION:section=pre-complete-gate -->
 
 <!-- CLEO-INJECTION:section=rules -->

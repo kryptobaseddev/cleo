@@ -27,10 +27,18 @@
  */
 
 import { spawn } from 'node:child_process';
-import { appendFileSync, mkdirSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-import { type AtomValidation, parseEvidence, validateAtom } from '../tasks/evidence.js';
+import { computeProjectHash, resolveTaskWorktreePath } from '@cleocode/paths';
+import { gitToplevel } from '../git/work-tree.js';
+import type { AffectedTestRun } from '../tasks/affected-packages.js';
+import type { ToolRunResult } from '../tasks/tool-cache.js';
+import {
+  type ResolvedToolCommand,
+  type ResolveToolResult,
+  resolveToolCommand,
+} from '../tasks/tool-resolver.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -60,6 +68,15 @@ export interface WorkerReport {
    * branch.
    */
   touchedFiles: string[];
+  /**
+   * Absolute path of the worker's git worktree — the tree its tests must run
+   * in. `undefined` asks {@link reVerifyWorkerReport} to locate it with
+   * {@link resolveWorkerWorktree}; `null` declares it unknown, which runs the
+   * full suite in the project root.
+   *
+   * @task T12962
+   */
+  worktreePath?: string | null;
 }
 
 /**
@@ -138,11 +155,19 @@ export interface ReVerifyOptions {
   /** Absolute path to the project root (where `.cleo/` and `.git/` live). */
   projectRoot: string;
   /**
-   * Override the default `tool:test` runner. Returns `{ ok: true }` when the
-   * project test command exits 0, `{ ok: false, reason }` otherwise. Tests
-   * inject a stub here; production calls {@link defaultRunProjectTests}.
+   * Override the default test runner. Receives the project root and the
+   * worker's worktree (`null` when unknown). Returns `{ ok: true }` when the
+   * tests pass, `{ ok: false, reason }` otherwise. Tests inject a stub here;
+   * production calls {@link defaultRunProjectTests}.
    */
-  runProjectTests?: (projectRoot: string) => Promise<TestRunResult>;
+  runProjectTests?: (projectRoot: string, workerTree: string | null) => Promise<TestRunResult>;
+  /**
+   * Override how the worker's worktree is located when the report does not
+   * carry one. Production calls {@link resolveWorkerWorktree}.
+   *
+   * @task T12962
+   */
+  resolveWorkerTree?: (projectRoot: string, taskId: string) => string | null;
   /**
    * Override the default `git status --porcelain` reader. Tests inject a
    * stub. Production calls {@link defaultListChangedFiles}.
@@ -161,60 +186,98 @@ export interface TestRunResult {
    * @task T12962
    */
   scope?: 'affected' | 'full';
+  /**
+   * The verdict is not in yet: the affected scope could not be resolved
+   * because the test slot was busy. Retry later; never a full-suite fallback.
+   *
+   * @task T12962
+   */
+  pending?: true;
 }
 
 /**
- * Injection seam for {@link defaultRunProjectTests}: validates one evidence
- * atom string (e.g. `tool:test-affected`). Production uses {@link validateAtom}.
+ * Injection seams for {@link defaultRunProjectTests}. Production resolves each
+ * from the evidence layer; tests inject stubs.
  *
  * @task T12962
  */
-export type ValidateToolAtom = (atom: string, projectRoot: string) => Promise<AtomValidation>;
-
-/**
- * Refusal codes from affected-scope PLANNING (no template, no default branch,
- * a workspace-wide change, an empty or unresolvable scope). Any other failure
- * of `tool:test-affected` means the affected tests ran and failed.
- */
-const AFFECTED_PLAN_REFUSALS: ReadonlySet<string> = new Set([
-  'E_EVIDENCE_TOOL_UNAVAILABLE',
-  'E_EVIDENCE_INSUFFICIENT',
-]);
+export interface ProjectTestDeps {
+  /** Plan the affected-scope run for the tree at `executionRoot`. */
+  planAffected?: (storeRoot: string, executionRoot: string) => Promise<AffectedTestRun>;
+  /** Resolve the full `tool:test` command, reading scripts in `executionRoot`. */
+  resolveTest?: (storeRoot: string, executionRoot: string) => ResolveToolResult;
+  /** Run a resolved command through the ADR-061 cache in `executionRoot`. */
+  runCached?: (
+    command: ResolvedToolCommand,
+    storeRoot: string,
+    executionRoot: string,
+  ) => Promise<Pick<ToolRunResult, 'exitCode' | 'timedOut' | 'stdoutTail' | 'stderrTail'>>;
+}
 
 // ---------------------------------------------------------------------------
 // Default implementations (production)
 // ---------------------------------------------------------------------------
 
-/** Production {@link ValidateToolAtom}: parse one atom and run {@link validateAtom}. */
-const validateToolAtom: ValidateToolAtom = async (atomText, projectRoot) => {
-  const atom = parseEvidence(atomText).atoms[0];
-  if (!atom) {
-    return {
-      ok: false,
-      codeName: 'E_EVIDENCE_INVALID',
-      reason: `${atomText} parse returned no atom`,
-    };
-  }
-  return validateAtom(atom, projectRoot);
+const defaultProjectTestDeps: Required<ProjectTestDeps> = {
+  planAffected: async (storeRoot, executionRoot) => {
+    const { planAffectedTestRun } = await import('../tasks/affected-packages.js');
+    return planAffectedTestRun(storeRoot, executionRoot, { wait: true });
+  },
+  resolveTest: (storeRoot, executionRoot) =>
+    resolveToolCommand('test', storeRoot, { executionRoot }),
+  runCached: async (command, storeRoot, executionRoot) => {
+    const { runToolCached } = await import('../tasks/tool-cache.js');
+    return runToolCached(command, storeRoot, { executionRoot });
+  },
 };
+
+/**
+ * Locate the worker's git worktree for `taskId`: the canonical
+ * `<cleoHome>/worktrees/<projectHash>/<taskId>/` checkout (ADR-055), when it
+ * exists and is a work tree. `null` means the worker's tree is unknown.
+ *
+ * @param projectRoot - Project root the worker was spawned from.
+ * @param taskId - The worker's task.
+ * @returns Absolute worktree path, or `null`.
+ *
+ * @task T12962
+ */
+export function resolveWorkerWorktree(projectRoot: string, taskId: string): string | null {
+  try {
+    const path = resolveTaskWorktreePath(computeProjectHash(projectRoot), taskId);
+    if (!existsSync(path)) return null;
+    // The directory must BE a checkout's toplevel, not merely sit inside one.
+    const top = gitToplevel(path);
+    return top !== null && realpathSync(top) === realpathSync(path) ? path : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Default test runner for worker re-verification (T1589, scoped by T12962).
  *
- * 1. `tool:test-affected` — the packages the worker's branch diff touches plus
- *    their dependents.
- * 2. `tool:test` — only when affected planning REFUSES (no
- *    `testing.affectedCommand`, no default branch, a root-config change, an
- *    empty or unresolvable scope). A failing affected run is the verdict; it
- *    never escalates to the full suite.
+ * The tests run in the WORKER's tree, never in whatever directory the daemon
+ * happens to run from: an affected diff taken in the main checkout would
+ * measure unrelated edits there and could accept an untested change.
  *
- * Both atoms run through {@link validateAtom}, so project-context resolution
- * and the ADR-061 cache apply: a result the worker already recorded for the
- * same tree is reused, not re-run. This used to run a full `tool:test` for
- * every worker exit, whatever the worker claimed.
+ * - Worker tree known: plan `tool:test-affected` there (the packages its
+ *   branch diff touches plus their dependents). Run the full `tool:test` in
+ *   that tree only when affected planning REFUSES (no
+ *   `testing.affectedCommand`, no default branch, a root-config change, an
+ *   empty or unresolvable scope). A failing affected run is the verdict; it
+ *   never escalates. A busy test slot is not a refusal: the result is a
+ *   retryable rejection, never a full run.
+ * - Worker tree unknown (`null`): the full `tool:test` in `projectRoot`.
+ *   Affected tests never run on a tree that is not the worker's.
  *
- * @param projectRoot - Project root the worker ran against.
- * @param validate - Atom validator; tests inject a stub.
+ * Every run goes through the ADR-061 cache, so a result the worker already
+ * recorded for the same tree is reused, not re-run. This used to run a full
+ * `tool:test` for every worker exit, whatever the worker claimed.
+ *
+ * @param projectRoot - CLEO store root.
+ * @param workerTree - The worker's worktree, or `null` when unknown.
+ * @param deps - Injection seams; production defaults when omitted.
  * @returns The verdict and which scope produced it.
  *
  * @task T1589
@@ -223,16 +286,43 @@ const validateToolAtom: ValidateToolAtom = async (atomText, projectRoot) => {
  */
 export async function defaultRunProjectTests(
   projectRoot: string,
-  validate: ValidateToolAtom = validateToolAtom,
+  workerTree: string | null = null,
+  deps: ProjectTestDeps = {},
 ): Promise<TestRunResult> {
-  const affected = await validate('tool:test-affected', projectRoot);
-  if (affected.ok) return { ok: true, scope: 'affected' };
-  if (!AFFECTED_PLAN_REFUSALS.has(affected.codeName)) {
-    return { ok: false, reason: affected.reason, scope: 'affected' };
+  const d = { ...defaultProjectTestDeps, ...deps };
+  const runIn = async (
+    command: ResolvedToolCommand,
+    root: string,
+    scope: 'affected' | 'full',
+  ): Promise<TestRunResult> => {
+    const r = await d.runCached(command, projectRoot, root);
+    if (r.exitCode === 0) return { ok: true, scope };
+    const tail = (r.stderrTail || r.stdoutTail).trim().slice(-300);
+    return {
+      ok: false,
+      scope,
+      reason: `${[command.cmd, ...command.args].join(' ')} ${r.timedOut ? 'timed out' : `exited ${r.exitCode}`}: ${tail}`,
+    };
+  };
+  const runFull = async (root: string): Promise<TestRunResult> => {
+    const resolved = d.resolveTest(projectRoot, root);
+    if (!resolved.ok) return { ok: false, scope: 'full', reason: resolved.reason };
+    return runIn(resolved.command, root, 'full');
+  };
+
+  if (workerTree === null) return runFull(projectRoot);
+
+  const affected = await d.planAffected(projectRoot, workerTree);
+  if (affected.ok) return runIn(affected.command, workerTree, 'affected');
+  if (affected.pending === true) {
+    return {
+      ok: false,
+      scope: 'affected',
+      pending: true,
+      reason: `affected scope unresolved (${affected.reason}); retry later`,
+    };
   }
-  const full = await validate('tool:test', projectRoot);
-  if (full.ok) return { ok: true, scope: 'full' };
-  return { ok: false, reason: full.reason, scope: 'full' };
+  return runFull(workerTree);
 }
 
 /**
@@ -280,8 +370,9 @@ export async function defaultListChangedFiles(projectRoot: string): Promise<stri
  * Performs three independent checks and rejects on any hard-evidence
  * mismatch:
  *
- * 1. **Test status** — runs the affected tests, or the full `tool:test` when
- *    affected planning refuses (project-resolved per ADR-061), and compares the exit code against the worker's `selfReportSuccess` claim.
+ * 1. **Test status** — runs the tests in the worker's worktree (see
+ *    {@link defaultRunProjectTests}: affected first, the full `tool:test` on a
+ *    planning refusal or when the worker's tree is unknown), and compares the exit code against the worker's `selfReportSuccess` claim.
  *    Worker says success but tests fail → reject.
  * 2. **Touched files** — compares `touchedFiles` against `git status
  *    --porcelain`. Sets must match exactly (order-independent). Counts
@@ -321,14 +412,20 @@ export async function reVerifyWorkerReport(
   const mismatches: WorkerMismatch[] = [];
 
   // -- 1. Test status check ------------------------------------------------
-  const testResult = await runTests(options.projectRoot);
+  const workerTree =
+    report.worktreePath !== undefined
+      ? report.worktreePath
+      : (options.resolveWorkerTree ?? resolveWorkerWorktree)(options.projectRoot, report.taskId);
+  const testResult = await runTests(options.projectRoot, workerTree);
   const testAtom = testResult.scope === 'affected' ? 'tool:test-affected' : 'tool:test';
   if (report.selfReportSuccess && !testResult.ok) {
     mismatches.push({
       kind: 'tests',
       claimed: 'success',
       actual: `${testAtom} failed${testResult.reason ? `: ${testResult.reason}` : ''}`,
-      reason: 'Worker claimed success but project test command failed.',
+      reason: testResult.pending
+        ? 'Re-verification pending: the affected test scope is unresolved (test slot busy); retry later.'
+        : 'Worker claimed success but project test command failed.',
     });
   } else if (!report.selfReportSuccess && testResult.ok) {
     // Worker reported failure but tests passed — log as evidence mismatch
@@ -342,7 +439,8 @@ export async function reVerifyWorkerReport(
   }
 
   // -- 2. Touched-files check ----------------------------------------------
-  const actualFiles = await listFiles(options.projectRoot);
+  // T12962: the worker's own tree, like the tests — not the daemon's checkout.
+  const actualFiles = await listFiles(workerTree ?? options.projectRoot);
   const fileMismatch = compareFileSets(report.touchedFiles, actualFiles);
   if (fileMismatch !== null) {
     mismatches.push(fileMismatch);

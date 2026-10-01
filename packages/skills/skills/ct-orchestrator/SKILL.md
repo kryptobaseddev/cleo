@@ -330,7 +330,7 @@ files between `verify` and `complete` triggers `E_EVIDENCE_STALE`.
 | Gate | Required atoms |
 |------|---------------|
 | `implemented` | `commit:<sha>` AND `files:<comma-separated>` |
-| `testsPassed` | `ci:<pr>` after merge; before it `tool:test-affected` OR `test-run:<vitest-json>` |
+| `testsPassed` | `ci:<pr>` after merge (with `evidence.ciSatisfies`); else `tool:test-affected` (needs `testing.affectedCommand`) OR `test-run:<vitest-json>` |
 | `qaPassed` | `ci:<pr>` after merge; before it `tool:biome` AND `tool:tsc` (OR `tool:pnpm-build`) |
 | `documented` | `files:<docs-path>` OR `url:<doc-url>` |
 | `securityPassed` | `tool:security-scan` OR `note:<waiver>` |
@@ -343,15 +343,16 @@ Orchestrator workflow for each completing task:
 # 2. Orchestrator plans, then records (cleo done picks affected → ci → full):
 cleo done <taskId> --plan
 cleo verify <taskId> --gate implemented --evidence "commit:$(git rev-parse HEAD);files:<list>"
-cleo verify <taskId> --gate testsPassed --evidence "ci:<pr>"   # before merge: tool:test-affected
-cleo verify <taskId> --gate qaPassed   --evidence "ci:<pr>"   # before merge: tool:biome;tool:tsc
+cleo verify <taskId> --gate testsPassed --evidence "ci:<pr>"   # merged + evidence.ciSatisfies; else tool:test-affected
+cleo verify <taskId> --gate qaPassed   --evidence "ci:<pr>"   # same; else tool:biome;tool:tsc
 # 3. Close:
 cleo complete <taskId>
 ```
 
 Never re-run a worker's full suite to "double-check": a worker's
 `tool:test-affected` or `tool:test` result for the same tree is a cache
-hit, and once the PR merges `ci:<pr>` needs no local run at all. A full
+hit, and once the PR merges `ci:<pr>` (with `evidence.ciSatisfies`) needs
+no local run at all. A full
 `tool:test` is only for changes to root config, which affected planning
 refuses.
 

@@ -225,8 +225,10 @@ export interface TickOptions {
   /**
    * Override for the orchestrator-side worker re-verification gate (T1589).
    *
-   * When omitted, the default {@link reVerifyWorkerReport} runs `tool:test`
-   * (project-resolved per ADR-061) and compares the worker's claimed
+   * When omitted, the default {@link reVerifyWorkerReport} runs the tests in
+   * the worker's worktree — affected scope first, the full `tool:test` on a
+   * planning refusal or in the project root when that tree is unknown
+   * (T12962) — and compares the worker's claimed
    * touched-files against `git status --porcelain`. Tests inject a stub to
    * force accept/reject without spawning real subprocesses.
    *

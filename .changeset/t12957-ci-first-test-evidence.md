@@ -11,19 +11,27 @@ ct-orchestrator and ct-ivt-looper skills no longer tell agents to run
 `pnpm run test` and then record `tool:test`, which ran the suite twice. They
 now say:
 - Start with `cleo done <id> --plan`.
-- After the PR merges, record `testsPassed`/`qaPassed` with `ci:<pr>`.
-- Before merge, record `tool:test-affected` or a targeted `test-run:<json>`.
+- When the PR has merged and the project sets `evidence.ciSatisfies`, record
+  `testsPassed`/`qaPassed` with `ci:<pr>`.
+- Otherwise record `tool:test-affected` when `testing.affectedCommand` is
+  configured, else a targeted `test-run:<json>` or `tool:test`.
 - While iterating, run only the failing or changed test files.
-- A full `tool:test` is only for changes to root config.
+- With an affected command configured, a full `tool:test` is only for changes
+  to root config.
 
 CLEO-REFERENCE.md also describes the tool cache as keyed on the command and
 the tree content under test, with failed-first and flaky reruns (T12958).
 
 **Worker re-verification is scoped (T12962).** `defaultRunProjectTests`, used
-by the sentient daemon to re-check a worker's exit, runs `tool:test-affected`
-first. It runs the full `tool:test` only when affected planning refuses. Both
-go through the ADR-061 cache, so a result the worker already recorded for the
-same tree is reused. Mismatch audit rows name the scope that failed.
+by the sentient daemon to re-check a worker's exit, now runs in the worker's
+own worktree (`WorkerReport.worktreePath`, or the canonical task worktree),
+never in the daemon's checkout. There it runs `tool:test-affected` first, and
+the full `tool:test` only when affected planning refuses. A busy test slot is a
+retry-later rejection, not a full run. When the worker's tree is unknown, the
+full suite runs in the project root. Every run goes through the ADR-061 cache,
+so a result the worker already recorded for the same tree is reused. Mismatch
+audit rows name the scope that failed, and `git status` is also read in the
+worker's tree.
 
 **Machine-wide heavy-run admission (T12963).** A `test` or `build` evidence run
 that misses the cache now also takes a slot of the resource governor's
@@ -35,7 +43,8 @@ override skips the governor.
 
 **Evidence ergonomics (T12964).**
 - `cleo verify --fresh` bypasses the tool cache for one call. It sets
-  `CLEO_EVIDENCE_FRESH=1`, which still works on its own.
+  `CLEO_EVIDENCE_FRESH=1` for the command and restores it afterwards; the
+  variable still works on its own.
 - `test-affected` is in `listValidToolNames()` / `VALID_TOOLS` and in the
   `--evidence` help.
 - `cleo done` resolves tool commands in the execution root, as `cleo verify`

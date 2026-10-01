@@ -56,6 +56,18 @@ describe('cleo verify --fresh (T12964)', () => {
     expect(seen).toBe('1');
   });
 
+  it('restores CLEO_EVIDENCE_FRESH when the command ends', async () => {
+    delete process.env['CLEO_EVIDENCE_FRESH'];
+    await freshSeenAtDispatch({
+      taskId: 'T1',
+      gate: 'testsPassed',
+      evidence: 'tool:test',
+      fresh: true,
+      value: 'true',
+    });
+    expect(process.env['CLEO_EVIDENCE_FRESH']).toBeUndefined();
+  });
+
   it('leaves the cache on without the flag', async () => {
     delete process.env['CLEO_EVIDENCE_FRESH'];
     const seen = await freshSeenAtDispatch({

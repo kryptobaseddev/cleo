@@ -299,7 +299,7 @@ All overrides append a line to `.cleo/audit/force-bypass.jsonl`. Use sparingly.
 
 ### Test evidence without churn (T12957)
 
-The evidence run is the one run. Start with `cleo done <id> --plan`, which picks affected → ci → full and shows each tool's cache state. After the PR merges, record `testsPassed`/`qaPassed` with `ci:<pr>` and run nothing locally. Before merge, use `tool:test-affected` (packages the diff touches plus dependents) or a targeted `test-run:<json>` of the test files you changed. While iterating, run only the failing or changed test files; never run the suite by hand and then again through `tool:test`. A full `tool:test` is for changes to root config, which affected planning refuses. On macOS heavy `test`/`build` runs take one machine-wide slot by default (`CLEO_TOOL_CONCURRENCY_TEST=<n>` raises it).
+The evidence run is the one run. Start with `cleo done <id> --plan`, which picks affected → ci → full and shows each tool's cache state. When the PR has merged and the project sets `evidence.ciSatisfies`, record `testsPassed`/`qaPassed` with `ci:<pr>` and run nothing locally. Otherwise, when `testing.affectedCommand` is configured, use `tool:test-affected` (packages the diff touches plus dependents); a full `tool:test` is then only for changes to root config, which affected planning refuses. Without it, use a targeted `test-run:<json>` of the test files you changed, or `tool:test`. While iterating, run only the failing or changed test files; never run the suite by hand and then again through `tool:test`. On macOS heavy `test`/`build` runs take one machine-wide slot by default (`CLEO_TOOL_CONCURRENCY_TEST=<n>` raises it).
 
 ### `pr:<number>` retroactive atom (T9764)
 

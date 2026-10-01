@@ -377,6 +377,7 @@ async function admitThroughGovernor(
     ...(opts.pressureSample ? { sample: opts.pressureSample } : {}),
   });
   if (admission.deferred) {
+    // @sync-invariant none:local-only machine-wide admission timeout; no store write
     throw new Error(
       `Timed out waiting for the '${cls}' resource budget for a '${canonical}' run: ` +
         `${admission.reason}. Override with ` +

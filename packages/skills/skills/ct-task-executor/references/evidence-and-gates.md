@@ -14,8 +14,8 @@ task; the standard set is non-negotiable.
 | Gate | Meaning | Evidence kind |
 |------|---------|---------------|
 | implemented | Code change exists | `commit:<sha>` + `files:<list>` |
-| testsPassed | Tests green | `ci:<pr>` after merge; before it `tool:test-affected` or `test-run:<json>` |
-| qaPassed | Lint + typecheck clean | `ci:<pr>` after merge; before it `tool:lint` + `tool:typecheck` |
+| testsPassed | Tests green | `ci:<pr>` after merge (with `evidence.ciSatisfies`); else `tool:test-affected` (with `testing.affectedCommand`), a targeted `test-run:<json>`, or `tool:test` |
+| qaPassed | Lint + typecheck clean | `ci:<pr>` under the same conditions; else `tool:lint` + `tool:typecheck` |
 | documented | Docs updated | `files:<docs-paths>` |
 | securityPassed | Security scan or waiver | `tool:security-scan` or `note:<rationale>` |
 | cleanupDone | Branch/cleanup summary | `note:<text>` |
@@ -137,8 +137,8 @@ SHA=$(git rev-parse HEAD)
 FILES=$(git diff-tree --no-commit-id --name-only -r HEAD | paste -sd,)
 
 cleo verify T### --gate implemented --evidence "commit:$SHA;files:$FILES"
-cleo verify T### --gate testsPassed --evidence "tool:test-affected"   # after merge: ci:<pr>
-cleo verify T### --gate qaPassed --evidence "tool:lint;tool:typecheck"   # after merge: ci:<pr>
+cleo verify T### --gate testsPassed --evidence "tool:test-affected"   # merged + evidence.ciSatisfies: ci:<pr>
+cleo verify T### --gate qaPassed --evidence "tool:lint;tool:typecheck"   # merged + evidence.ciSatisfies: ci:<pr>
 cleo verify T### --gate documented --evidence "files:docs/path/to/note.md"
 cleo verify T### --gate securityPassed --evidence "note:no network surface"
 cleo verify T### --gate cleanupDone --evidence "note:branch task/T### ready for merge"
