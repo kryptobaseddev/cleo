@@ -1,12 +1,15 @@
 /**
  * Tests for `scripts/lint-sync-write-invariants.mjs` (T12881, arch gate 38):
  * the fifteen self-test cases of spec t12859-sync-write-validator-inventory
- * §3.6.7, each on a throwaway fixture tree, plus the repository itself.
+ * §3.6.7, each on a throwaway fixture tree, the #1768 review fixes (H1
+ * shrink-only against the base, H2 net-zero refactors, H3 factory-built
+ * rejections, M1-M3 and the cheap lows), each red/green, plus the repository
+ * itself.
  *
  * @task T12881
  */
-import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,9 +19,14 @@ import {
   checkSites,
   closureHelpers,
   compareBaseline,
+  countKeys,
+  main,
+  parseArgs,
   readMigrationSql,
   scanTree,
   siteKey,
+  taskProblems,
+  unjustifiedRaises,
 } from '../lint-sync-write-invariants.mjs';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -56,8 +64,8 @@ function tree(files) {
 function sitesOf(files, registry = [REGISTERED]) {
   const root = tree(files);
   const scan = scanTree({ root, syncTables: SYNC });
-  const { untagged, problems } = checkSites(scan.sites, new Set(registry.map((e) => e.id)));
-  const { added } = compareBaseline(untagged, {});
+  const { untagged, problems } = checkSites(scan.sites, registry);
+  const { added } = compareBaseline(countKeys(untagged), {});
   return { scan, untagged, problems, added };
 }
 
@@ -94,9 +102,7 @@ describe('rejection sites (§3.6.7 cases 1-8)', () => {
   it('1: an untagged throw in a module that updates tasks_tasks fails', () => {
     const { added, scan } = sitesOf(withTag(''));
     expect(scan.writePath.has('packages/core/src/set-status.ts')).toBe(true);
-    expect(added).toEqual([
-      expect.stringContaining('set-status.ts :: setStatus :: ExitCode.VALIDATION_ERROR'),
-    ]);
+    expect(added).toEqual([expect.stringContaining('set-status.ts :: ExitCode.VALIDATION_ERROR')]);
   });
 
   it('2: the same site tagged with a registered id passes', () => {
@@ -136,14 +142,20 @@ describe('rejection sites (§3.6.7 cases 1-8)', () => {
 
   it('6: an untagged engineError reachable from a mutate op (through a barrel) fails', () => {
     const { scan, added } = sitesOf({
-      'packages/cleo/src/dispatch/domains/things.ts': `import { checkThing } from '@cleocode/core';
+      'packages/cleo/src/dispatch/domains/things.ts': `import { checkThing, listThings } from '@cleocode/core';
+const handlers = {
+  list: async (p) => listThings(p),
+  add: async (p) => checkThing(p),
+};
 export const handler = {
-  async query() { return null; },
-  async mutate(op, params) { return checkThing(params); },
+  async query(op, params) { return handlers[op](params); },
+  async mutate(op, params) { return handlers[op](params); },
+  getSupportedOperations() { return { query: ['list'], mutate: ['add'] }; },
 };
 `,
+      'packages/core/src/things/list.ts': `export function listThings() { throw new Error('query only'); }\n`,
       'packages/core/src/index.ts':
-        "export { checkThing } from './things/check.js';\nexport { other } from './other.js';\n",
+        "export { checkThing } from './things/check.js';\nexport { other } from './other.js';\nexport { listThings } from './things/list.js';\n",
       'packages/core/src/things/check.ts': `import { engineError } from '../engine.js';
 export function checkThing(p) {
   if (!p) return engineError('E_FOO', 'missing');
@@ -157,7 +169,9 @@ export function checkThing(p) {
     expect(scan.reachable.has('packages/core/src/things/check.ts')).toBe(true);
     // The barrel's other export is not pulled in by a named import of checkThing.
     expect(scan.reachable.has('packages/core/src/other.ts')).toBe(false);
-    expect(added).toEqual([expect.stringContaining('things/check.ts :: checkThing :: E_FOO')]);
+    // M2: a handler only a query op names is not on the mutate path.
+    expect(scan.reachable.has('packages/core/src/things/list.ts')).toBe(false);
+    expect(added).toEqual([expect.stringContaining('things/check.ts :: E_FOO')]);
   });
 
   it('7: an untagged SQL counter (weight = weight + 1) fails', () => {
@@ -167,7 +181,7 @@ export function checkThing(p) {
 }
 `,
     });
-    expect(added).toEqual([expect.stringContaining('edges.ts :: bump :: silent:counter')]);
+    expect(added).toEqual([expect.stringContaining('edges.ts :: silent:counter')]);
   });
 
   it('8: an untagged cascade (reads children, updates the parent) fails; tagged passes', () => {
@@ -181,7 +195,7 @@ export function rollUp(db, parentId) {
 `,
     });
     expect(sitesOf(cascade('')).added).toEqual([
-      expect.stringContaining('rollup.ts :: rollUp :: silent:cascade'),
+      expect.stringContaining('rollup.ts :: silent:cascade'),
     ]);
     const tagged = sitesOf(cascade('// @sync-side-effect task.status.absorbing'));
     expect(tagged.added).toEqual([]);
@@ -316,19 +330,301 @@ describe('registry closure (§3.6.7 cases 9-13, 15)', () => {
 describe('baseline (§3.6.7 case 14 and the ratchet)', () => {
   const site = { file: 'packages/core/src/a.ts', symbol: 'f', code: 'Error' };
 
-  it('a baselined untagged site passes; a second one with the same key fails', () => {
+  it('keys are file :: code; a baselined untagged site passes, a second one fails', () => {
+    expect(siteKey(site)).toBe('packages/core/src/a.ts :: Error');
     const baseline = { [siteKey(site)]: 1 };
-    expect(compareBaseline([site], baseline)).toMatchObject({ added: [], stale: [] });
-    expect(compareBaseline([site, site], baseline).added).toEqual([
+    expect(compareBaseline(countKeys([site]), baseline)).toMatchObject({ added: [], stale: [] });
+    expect(compareBaseline(countKeys([site, site]), baseline).added).toEqual([
       expect.stringContaining('2 untagged, baseline 1'),
     ]);
   });
 
   it('14: a baseline site removed from code but still in the baseline fails as stale', () => {
-    const baseline = { [siteKey(site)]: 1, 'packages/core/src/gone.ts :: g :: Error': 1 };
-    expect(compareBaseline([site], baseline).stale).toEqual([
-      expect.stringContaining('gone.ts :: g :: Error (baseline 1, now 0)'),
+    const baseline = { [siteKey(site)]: 1, 'packages/core/src/gone.ts :: Error': 1 };
+    expect(compareBaseline(countKeys([site]), baseline).stale).toEqual([
+      expect.stringContaining('gone.ts :: Error (baseline 1, now 0)'),
     ]);
+  });
+
+  it('M1: in PR mode only keys of changed files are judged stale', () => {
+    const baseline = { [siteKey(site)]: 1, 'packages/core/src/gone.ts :: Error': 1 };
+    const opts = { staleFiles: new Set(['packages/core/src/a.ts']) };
+    expect(compareBaseline(countKeys([site]), baseline, opts).stale).toEqual([]);
+  });
+
+  it('H1: a raise is unjustified unless audited with a task or net-zero for its code', () => {
+    const base = { 'f.ts :: Error': 1 };
+    const next = { 'f.ts :: Error': 2, 'g.ts :: E_X': 1 };
+    expect(unjustifiedRaises(next, base)).toEqual([
+      'f.ts :: Error (1 -> 2)',
+      'g.ts :: E_X (0 -> 1)',
+    ]);
+    expect(
+      unjustifiedRaises(next, base, {
+        audited: { 'f.ts :: Error': 'T1 reviewed', 'g.ts :: E_X': 'no task' },
+      }),
+    ).toEqual(['g.ts :: E_X (0 -> 1)']);
+    expect(unjustifiedRaises(next, base, { netDelta: { Error: 0, E_X: 0 } })).toEqual([]);
+    expect(unjustifiedRaises(next, null)).toEqual([]);
+  });
+});
+
+describe('factory-built rejections (H3)', () => {
+  it('counts throw f(…) with the callee as the code, and return new XError in a factory', () => {
+    const { added } = sitesOf({
+      'packages/core/src/store/deps.ts': `function dependencyCycleError(edge, cycle) {
+  return new CleoError(ExitCode.DEPENDENCY_CYCLE, 'cycle');
+}
+const taskClaimedError = (id) => new TaskClaimedError(id);
+export function addDep(db, edge, cycle) {
+  if (cycle) throw dependencyCycleError(edge, cycle);
+  if (!edge) throw taskClaimedError(edge);
+  db.prepare('INSERT INTO tasks_tasks (id) VALUES (?)').run(edge);
+}
+export function notAFactory() { return new Map(); }
+`,
+    });
+    expect(added).toEqual([
+      expect.stringContaining('deps.ts :: ExitCode.DEPENDENCY_CYCLE'),
+      expect.stringContaining('deps.ts :: TaskClaimedError'),
+      expect.stringContaining('deps.ts :: dependencyCycleError'),
+      expect.stringContaining('deps.ts :: taskClaimedError'),
+    ]);
+
+    // Green: the same throws, tagged.
+    const tagged = sitesOf({
+      'packages/core/src/store/deps.ts': `export function addDep(db, edge, cycle) {
+  // @sync-invariant task.status.absorbing
+  if (cycle) throw dependencyCycleError(edge, cycle);
+  db.prepare('INSERT INTO tasks_tasks (id) VALUES (?)').run(edge);
+}
+`,
+    });
+    expect(tagged.added).toEqual([]);
+    expect(tagged.problems).toEqual([]);
+  });
+});
+
+describe('scope (M2) and tags (lows)', () => {
+  it('Array.from(<table symbol>) is not a read and logger.appendLog is not a write', () => {
+    const { scan } = sitesOf({
+      'packages/core/src/schema.ts': "export const tasks = sqliteTable('tasks_tasks', {});\n",
+      'packages/core/src/x.ts': `import { tasks } from './schema.js';
+export function f(logger) {
+  const all = Array.from(tasks);
+  logger.appendLog('x');
+  if (!all) throw new Error('x');
+}
+`,
+    });
+    expect(scan.writePath.has('packages/core/src/x.ts')).toBe(false);
+    const accessor = sitesOf({
+      'packages/core/src/y.ts': `export function g(accessor) {
+  if (!accessor) throw new Error('x');
+  return accessor.appendLog('x');
+}
+`,
+    });
+    expect(accessor.scan.writePath.has('packages/core/src/y.ts')).toBe(true);
+  });
+
+  it('a tag must name an entry covering a table the site writes', () => {
+    const brainEntry = { ...REGISTERED, id: 'brain.edge.weight', tables: ['brain_page_edges'] };
+    const { problems } = sitesOf(withTag('    // @sync-invariant brain.edge.weight'), [
+      REGISTERED,
+      brainEntry,
+    ]);
+    expect(problems).toEqual([
+      expect.stringContaining(
+        'tag brain.edge.weight covers brain_page_edges but the site writes tasks_tasks',
+      ),
+    ]);
+  });
+
+  it("a nested site is not tagged by its enclosing statement's comment", () => {
+    const { added } = sitesOf({
+      'packages/core/src/z.ts': `export function h(db, ok) {
+  // @sync-invariant task.status.absorbing
+  const v = ok
+    ? 1
+    : (() => {
+        throw new Error('nested');
+      })();
+  db.prepare('UPDATE tasks_tasks SET status = ? WHERE id = ?').run(v, 1);
+}
+`,
+    });
+    expect(added).toEqual([expect.stringContaining('z.ts :: Error')]);
+  });
+
+  it('a module-level silent site is taggable', () => {
+    const files = (tag) => ({
+      'packages/core/src/top.ts': `const db = open();
+${tag}
+db.prepare('UPDATE brain_page_edges SET weight = weight + 1').run();
+`,
+    });
+    const brainEntry = { ...REGISTERED, id: 'brain.edge.weight', tables: ['brain_page_edges'] };
+    expect(sitesOf(files(''), [brainEntry]).added).toEqual([
+      expect.stringContaining('top.ts :: silent:counter'),
+    ]);
+    const tagged = sitesOf(files('// @sync-side-effect brain.edge.weight'), [brainEntry]);
+    expect(tagged.added).toEqual([]);
+    expect(tagged.problems).toEqual([]);
+  });
+});
+
+describe('pending tasks (M3)', () => {
+  it('fails on a missing or closed task, passes open ones', () => {
+    const statusOf = (t) =>
+      ({ T1: { status: 'pending' }, T2: { status: 'done' }, T3: { error: 'not found' } })[t];
+    expect(taskProblems(['T1', 'T2', 'T3', 'T1'], statusOf)).toEqual([
+      'task T2 is done: it must be open',
+      'task T3: not found',
+    ]);
+  });
+
+  it('parseArgs refuses unknown flags and an empty --base', () => {
+    expect(parseArgs(['--check', '--base', 'origin/main', '--verify-tasks'])).toMatchObject({
+      mode: 'check',
+      base: 'origin/main',
+      verifyTasks: true,
+    });
+    expect(parseArgs(['--base='])).toEqual({ error: '--base needs a git ref' });
+    expect(parseArgs(['--bogus'])).toEqual({ error: 'unknown argument --bogus' });
+  });
+});
+
+/**
+ * PR mode end to end (H1, H2): a temp git repo, main() against a base commit.
+ */
+describe('PR mode against a base ref (H1, H2)', () => {
+  const INPUTS = { registry: [REGISTERED], syncTables: SYNC, classified: CLASSIFIED };
+  const BASELINE = 'scripts/.lint-sync-write-invariants-baseline.json';
+
+  function repo(files) {
+    const root = tree(files);
+    const git = (...args) =>
+      execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+        cwd: root,
+        encoding: 'utf8',
+        stdio: 'pipe',
+      }).trim();
+    git('init', '-q');
+    return { root, git };
+  }
+  const write = (root, files) => {
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(dirname(join(root, path)), { recursive: true });
+      writeFileSync(join(root, path), text);
+    }
+  };
+  async function run(root, argv) {
+    const out = [];
+    const so = process.stdout.write;
+    const se = process.stderr.write;
+    process.stdout.write = (c) => out.push(String(c)) > 0;
+    process.stderr.write = (c) => out.push(String(c)) > 0;
+    try {
+      return { code: await main(argv, { root, inputs: INPUTS }), text: out.join('') };
+    } finally {
+      process.stdout.write = so;
+      process.stderr.write = se;
+    }
+  }
+  const writer = (name, extra = '') => `export function ${name}(db, id) {
+  if (!id) throw new Error('id');${extra}
+  db.prepare('UPDATE tasks_tasks SET status = 1 WHERE id = ?').run(id);
+}
+`;
+  /** A base commit with one write-path module and its seeded baseline. */
+  async function seeded(files) {
+    const r = repo(files);
+    // Sources are listed with git ls-files, so they must be tracked.
+    r.git('add', '-A');
+    expect((await run(r.root, ['--update-baseline', '--seed'])).code).toBe(0);
+    r.git('add', '-A');
+    r.git('commit', '-qm', 'base');
+    return { ...r, base: r.git('rev-parse', 'HEAD') };
+  }
+
+  it('H1 red/green: a raised baseline fails against the base unless audited', async () => {
+    const r = await seeded({ 'packages/core/src/a.ts': writer('a') });
+    write(r.root, {
+      'packages/core/src/a.ts': writer('a', "\n  if (id === 2) throw new Error('two');"),
+    });
+    // The shrink-only rewrite refuses the new site, even against the base.
+    expect((await run(r.root, ['--update-baseline', '--base', r.base])).code).toBe(1);
+    // Forced through with --seed, PR mode catches the raise.
+    expect((await run(r.root, ['--update-baseline', '--seed'])).code).toBe(0);
+    r.git('add', '-A');
+    const red = await run(r.root, ['--check', '--base', r.base]);
+    expect(red.code).toBe(1);
+    expect(red.text).toContain('baseline raised against');
+    expect(red.text).toContain('packages/core/src/a.ts :: Error (1 -> 2)');
+    // Green: the same raise, audited with a task.
+    const doc = JSON.parse(readFileSync(join(r.root, BASELINE), 'utf8'));
+    doc.audited = { 'packages/core/src/a.ts :: Error': 'T12946 reviewed: known legacy check' };
+    writeFileSync(join(r.root, BASELINE), JSON.stringify(doc));
+    const green = await run(r.root, ['--check', '--base', r.base]);
+    expect(green.text).not.toContain('FAIL');
+    expect(green.code).toBe(0);
+  });
+
+  it('H2: renaming the function that holds a site costs nothing', async () => {
+    const r = await seeded({ 'packages/core/src/a.ts': writer('completeTask') });
+    write(r.root, { 'packages/core/src/a.ts': writer('completeTaskRenamed') });
+    r.git('add', '-A');
+    expect((await run(r.root, ['--check'])).code).toBe(0);
+    expect((await run(r.root, ['--check', '--base', r.base])).code).toBe(0);
+  });
+
+  it('H2: moving a throwing helper to another file nets to zero against the base', async () => {
+    const helper = "export function need(id) { if (!id) throw new Error('need'); }\n";
+    const r = await seeded({
+      'packages/core/src/a.ts': `${helper}${writer('a')}`,
+      'packages/core/src/b.ts': writer('b'),
+    });
+    write(r.root, {
+      'packages/core/src/a.ts': writer('a'),
+      'packages/core/src/b.ts': `${helper}${writer('b')}`,
+    });
+    r.git('add', '-A');
+    // Red without a base: b.ts gained a site its baseline key lacks.
+    expect((await run(r.root, ['--check'])).code).toBe(1);
+    // Green: the rewrite against the base accepts the move, and PR mode passes.
+    expect((await run(r.root, ['--update-baseline', '--base', r.base])).code).toBe(0);
+    r.git('add', '-A');
+    const pr = await run(r.root, ['--check', '--base', r.base]);
+    expect(pr.text).not.toContain('FAIL');
+    expect(pr.code).toBe(0);
+  });
+
+  it('H2: a new import that makes a module reachable nets to zero against the base', async () => {
+    const domain = (imports, call) => `${imports}
+export const handler = {
+  async mutate(op, params) { return ${call}; },
+  getSupportedOperations() { return { query: [], mutate: ['add'] }; },
+};
+`;
+    const r = await seeded({
+      'packages/cleo/src/dispatch/domains/d.ts': domain('', 'null'),
+      'packages/core/src/helper.ts':
+        "export function helper(p) { if (!p) throw new Error('p'); return p; }\n",
+    });
+    write(r.root, {
+      'packages/cleo/src/dispatch/domains/d.ts': domain(
+        "import { helper } from '../../../../core/src/helper.js';",
+        'helper(params)',
+      ),
+    });
+    r.git('add', '-A');
+    expect((await run(r.root, ['--check'])).code).toBe(1);
+    expect((await run(r.root, ['--update-baseline', '--base', r.base])).code).toBe(0);
+    r.git('add', '-A');
+    const pr = await run(r.root, ['--check', '--base', r.base]);
+    expect(pr.text).not.toContain('FAIL');
+    expect(pr.code).toBe(0);
   });
 });
 

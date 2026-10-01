@@ -5,65 +5,92 @@
  * The raw sync applier never runs the TypeScript write paths, so every rule
  * TypeScript enforces on a write to a synced table must be classified (spec
  * `t12859-sync-write-validator-inventory` §3.6.7). Each rejection site on a
- * synced write path carries a tag on the line above it (or trailing it):
+ * synced write path carries a tag in its own leading comment (the comment
+ * lines directly above the site's line) or trailing on that line:
  *
  *   // @sync-invariant task.status.absorbing
  *   // @sync-invariant none:input-shape <reason>
  *   // @sync-invariant none:local-only <reason>
  *
  * naming an entry of `packages/contracts/src/invariants/sync-write-invariants.ts`
- * or an escape with a non-empty reason.
+ * whose `tables` include a table the site's function (or module) writes, or an
+ * escape with a non-empty reason.
  *
  * ## Detection (TypeScript compiler API, not regex over code)
  *
- * 1. WRITE-PATH MODULES: non-test `.ts` under `packages/{core,cleo,playbooks}/src`
- *    that write a synced table (Drizzle `.insert/.update/.delete(<table symbol>)`,
- *    raw `INSERT|UPDATE|DELETE|REPLACE` SQL in a string or template literal, or
- *    a mutating `DataAccessor` method), or that are reachable in the import
- *    graph from a dispatch domain handler with a `mutate` method. Named
- *    imports are resolved through barrel re-exports to their defining module,
- *    so a barrel does not pull in every module it re-exports.
- * 2. REJECTION SITES in those modules: `throw new X(…)`, `engineError(…)`,
- *    `emitFailure(…)`, `cliError(…)`, `{ success: false, error: … }`, a
- *    `return` from a `validate*`/`assert*` function declared to return
- *    `RuleViolation[]`, and an `E_*`/`W_*`/`*_INVARIANT_VIOLATION` string used
- *    as a `code:` value or call argument outside those forms.
- * 3. SILENT RULES: a function that writes synced table T and reads a
- *    different synced table, or reads T by a column other than its key
- *    (cascade), or increments a column in SQL (`x = x + …`, counter). The
- *    function carries `@sync-invariant <id>` or `@sync-side-effect <id>`.
+ * 1. WRITE-PATH MODULES, among the tracked (`git ls-files`) non-test `.ts`
+ *    under `packages/{core,cleo,playbooks,studio}/src`:
+ *    - modules that write a synced table: Drizzle `.insert/.update/.delete(<table
+ *      symbol>)`, raw `INSERT|UPDATE|DELETE|REPLACE` SQL in a string or
+ *      template literal, or a mutating `DataAccessor` method called on an
+ *      accessor-like receiver (`accessor`, `acc`, `tx`, `transaction`,
+ *      `this.inner`, `*Accessor`);
+ *    - modules reachable from a dispatch domain's MUTATE path: only the
+ *      imports referenced from the `mutate` method and from handler entries
+ *      named by the domain's mutate operations (query-only handlers are
+ *      excluded), then the import graph from there, with named imports
+ *      resolved through barrel re-exports to their defining module.
+ * 2. REJECTION SITES in those modules: `throw new X(…)`, `throw f(…)` (a
+ *    factory-built error; the callee name is the code), `return new XError(…)`
+ *    inside an Error-returning factory, `engineError(…)`, `emitFailure(…)`,
+ *    `cliError(…)`, `{ success: false, error: … }`, a `return` from a
+ *    `validate*`/`assert*` function declared to return `RuleViolation[]`, and
+ *    an `E_*`/`W_*`/`*_INVARIANT_VIOLATION` string used as a `code:` value or
+ *    call argument outside those forms.
+ * 3. SILENT RULES: a function (or module top level) that writes synced table
+ *    T and reads a different synced table, or reads T by a column other than
+ *    its key (cascade), or increments a column in SQL (`x = x + …`, counter).
+ *    It carries `@sync-invariant <id>` or `@sync-side-effect <id>`.
  *
- * A site is keyed (file, enclosing symbol, code) without line numbers. An
- * untagged site must be in the committed baseline
- * (`packages/core/src/store/__tests__/fixtures/sync-write-sites.baseline.json`,
- * a count per key), which may only shrink: a key whose count fell, or that is
- * gone, fails until `--update-baseline` rewrites it.
+ * ## Shrink-only baseline
+ *
+ * Untagged sites are counted per `file :: code` (no symbol, no line), so a
+ * rename inside a file costs nothing. The baseline
+ * (`scripts/.lint-sync-write-invariants-baseline.json`) may only shrink:
+ *
+ * - every run: a write-path `file :: code` with more untagged sites than the
+ *   baseline fails (tag the site);
+ * - without `--base` (push to main, local): a baseline count above the current
+ *   count is stale and fails;
+ * - with `--base <ref>` (PR and merge-queue mode; CI passes the base): only
+ *   keys of files changed against the base are judged stale, so two shrinking
+ *   PRs merge cleanly; and every key the baseline added or raised against the
+ *   base's baseline (`git show`) must be justified: either listed in the
+ *   baseline's `audited` map with a `T####` reason, or net-zero for its code
+ *   over the changed files (the sites already existed at the base: a move
+ *   between files, or a module newly reachable through a new import).
+ *
+ * `--update-baseline` rewrites the baseline under the same rule: it refuses an
+ * unjustified add or raise unless `--seed` is passed (pass `--base <ref>` so
+ * moves and newly reachable modules are justified).
  *
  * ## Registry closure (§3.6.7 rules 5-6)
  *
  * - every `tables[]` entry is classified by Gate A;
  * - `trigger-covered`: each trigger or index is created by a migration SQL
- *   file (a name created only in runtime code fails: the D28 class);
- *   `fresh-store` existence is checked by
- *   `store/__tests__/sync-write-invariants-gate.test.ts`;
+ *   file (a name created only in runtime code fails: the D28 class); the
+ *   fresh-store check is `store/__tests__/sync-write-invariants-gate.test.ts`;
  * - `post-apply-check`: a non-empty footprint, and (unless `pending`) a
  *   `check.functionName` exported by `check.module`;
  * - `monotonic-merge-rule`: names a classified table and at least one column;
  * - `readsNonSynced` on a post-apply-check needs `pinnedPolicy: true`;
  * - a `runtimeGate` or `check.functionName` with no non-test caller is a dead
  *   gate;
- * - `not-sync-relevant` and `identity-layer` need a reason; ids are unique.
+ * - `pending` names a `T####` task; `--verify-tasks` checks each pending task
+ *   and the baseline's burn-down task exist and are open, through the released
+ *   CLI (`${CLEO_BIN:-cleo} show`, in `$CLEO_TASKS_CWD` or the repo root). CI
+ *   has no task store, so CI does not pass it.
  *
- * Usage: node scripts/lint-sync-write-invariants.mjs [--check|--strict|--update-baseline [--seed]|--report]
- *   default/--check: fail on a new untagged site, a stale baseline or a
- *   registry problem. --strict also fails on any baselined site.
- *   --update-baseline rewrites the baseline but refuses to add or raise an
- *   entry unless --seed is passed (the initial seeding, or a reviewed raise).
+ * Usage: node scripts/lint-sync-write-invariants.mjs
+ *          [--check|--strict] [--base <ref>] [--verify-tasks]
+ *          [--update-baseline [--seed]] [--report]
+ *   --strict also fails on any baselined site.
  *
  * @task T12881
  */
 
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import ts from 'typescript';
 import { isMain } from './lib/is-main.mjs';
@@ -71,11 +98,18 @@ import { isMain } from './lib/is-main.mjs';
 const REPO_ROOT = resolve(import.meta.dirname, '..');
 
 /** Repo-relative path of the shrink-only baseline. */
-export const BASELINE_PATH =
-  'packages/core/src/store/__tests__/fixtures/sync-write-sites.baseline.json';
+export const BASELINE_PATH = 'scripts/.lint-sync-write-invariants-baseline.json';
 
 /** Packages whose `src/` is scanned. */
-export const SOURCE_DIRS = ['packages/core/src', 'packages/cleo/src', 'packages/playbooks/src'];
+export const SOURCE_DIRS = [
+  'packages/core/src',
+  'packages/cleo/src',
+  'packages/playbooks/src',
+  'packages/studio/src',
+];
+
+/** Dispatch domains: the mutate entry points. */
+export const ENTRY_PREFIX = 'packages/cleo/src/dispatch/domains/';
 
 /** `DataAccessor` methods that write (packages/contracts/src/data-accessor.ts). */
 export const ACCESSOR_MUTATORS = new Set([
@@ -109,11 +143,15 @@ export const ACCESSOR_NON_KEY_READS = new Set([
   'queryTasks',
 ]);
 
+/** A receiver that is a DataAccessor (or a transaction over one). */
+const ACCESSOR_RECEIVER = /(^|\.)(accessor|acc|tx|transaction|inner|dataAccessor|\w*Accessor)$/;
+
 const FAILURE_CALLEES = new Set(['engineError', 'emitFailure', 'cliError']);
 const CODE_LITERAL = /^[EW]_[A-Z0-9_]+$|_INVARIANT_VIOLATION$/;
 const TAG = /@sync-(invariant|side-effect)[ \t]+(\S+)(?:[ \t]+([^\n*]*))?/g;
 const ESCAPES = new Set(['none:input-shape', 'none:local-only']);
 const KEY_COLUMNS = new Set(['id', 'uid']);
+const CLOSED_STATUSES = new Set(['done', 'cancelled', 'archived', 'completed', 'deleted']);
 
 const SQL_WRITE =
   /\b(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|REPLACE\s+INTO|UPDATE(?:\s+OR\s+\w+)?|DELETE\s+FROM)\s+[`"[]?(?:\w+\.)?([A-Za-z_]\w*)/gi;
@@ -126,27 +164,40 @@ const SQL_COUNTER = /\b(\w+)\s*=\s*(?:\w+\.)?\1\s*[+-]/i;
 // Files and modules
 // ---------------------------------------------------------------------------
 
+const isSource = (f) =>
+  f.endsWith('.ts') &&
+  !f.endsWith('.d.ts') &&
+  !/\.(test|spec)\.ts$/.test(f) &&
+  !f.split('/').some((seg) => seg === '__tests__' || seg === 'node_modules' || seg === 'dist');
+
 /**
- * Non-test `.ts` files under the given directories, repo-relative with `/`.
+ * Tracked non-test `.ts` files under the given directories, repo-relative
+ * with `/`. Uses `git ls-files`; falls back to walking the tree outside git.
  *
  * @param {string} root
  * @param {readonly string[]} dirs
  * @returns {string[]}
  */
 export function listSources(root, dirs) {
+  const run = spawnSync('git', ['ls-files', '-z', '--', ...dirs], {
+    cwd: root,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (run.status === 0) {
+    return run.stdout
+      .split('\0')
+      .filter((f) => f && isSource(f) && existsSync(join(root, f)))
+      .sort();
+  }
   const out = [];
   const walk = (abs) => {
     for (const name of readdirSync(abs)) {
-      if (name === 'node_modules' || name === '__tests__' || name === 'dist') continue;
       const full = join(abs, name);
-      const st = statSync(full);
-      if (st.isDirectory()) walk(full);
-      else if (
-        name.endsWith('.ts') &&
-        !name.endsWith('.d.ts') &&
-        !/\.(test|spec)\.ts$/.test(name)
-      ) {
-        out.push(relative(root, full).split(sep).join('/'));
+      if (statSync(full).isDirectory()) walk(full);
+      else {
+        const rel = relative(root, full).split(sep).join('/');
+        if (isSource(rel)) out.push(rel);
       }
     }
   };
@@ -222,44 +273,40 @@ function enclosingFunction(node) {
   return undefined;
 }
 
-function enclosingStatement(node) {
-  let n = node;
-  while (
-    n.parent &&
-    !ts.isSourceFile(n.parent) &&
-    !ts.isBlock(n.parent) &&
-    !ts.isCaseClause(n.parent)
-  ) {
-    if (ts.isStatement(n) && !ts.isBlock(n)) break;
-    n = n.parent;
-  }
-  return n;
+function functionName(fn) {
+  if (!fn) return '';
+  if (fn.name) return fn.name.getText();
+  const p = fn.parent;
+  if (p && (ts.isVariableDeclaration(p) || ts.isPropertyAssignment(p))) return p.name.getText();
+  return '';
 }
 
-/** Tags in the comment block directly above `node`'s statement, or trailing its first line. */
+/**
+ * Tags in the site's OWN comments: its leading comment, the comment lines
+ * directly above its first line, or a comment trailing that line. Never the
+ * enclosing statement's comment.
+ */
 function tagsFor(sf, text, node) {
-  const stmt = enclosingStatement(node);
-  const comments = [
-    ...(ts.getLeadingCommentRanges(text, stmt.getFullStart()) ?? []),
-    ...(ts.getTrailingCommentRanges(text, node.getEnd()) ?? []),
-  ];
-  // A site nested inside a statement (e.g. a `throw` inside an arrow body on
-  // one line) also accepts the comment on its own line.
-  const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line;
-  const lineStart = sf.getPositionOfLineAndCharacter(line, 0);
-  const lineEnd = line + 1 < sf.getLineStarts().length ? sf.getLineStarts()[line + 1] : text.length;
-  const lineText = text.slice(lineStart, lineEnd);
   const tags = [];
   const scan = (s) => {
     for (const m of s.matchAll(TAG))
       tags.push({ kind: m[1], id: m[2], reason: (m[3] ?? '').trim() });
   };
-  for (const c of comments) scan(text.slice(c.pos, c.end));
-  if (lineText.includes('@sync-')) scan(lineText.slice(lineText.indexOf('//')));
-  // The comment line(s) directly above the site's own line.
-  const lines = text.slice(0, lineStart).split('\n');
-  lines.pop();
-  for (let i = lines.length - 1; i >= 0 && /^\s*(\/\/|\*|\/\*)/.test(lines[i]); i--) scan(lines[i]);
+  for (const c of ts.getLeadingCommentRanges(text, node.getFullStart()) ?? [])
+    scan(text.slice(c.pos, c.end));
+  const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line;
+  const starts = sf.getLineStarts();
+  const lineText = text.slice(
+    starts[line],
+    line + 1 < starts.length ? starts[line + 1] : text.length,
+  );
+  const trailing = lineText.indexOf('//');
+  if (trailing !== -1) scan(lineText.slice(trailing));
+  for (let i = line - 1; i >= 0; i--) {
+    const l = text.slice(starts[i], starts[i + 1]);
+    if (!/^\s*(\/\/|\*|\/\*)/.test(l)) break;
+    scan(l);
+  }
   const seen = new Set();
   return tags.filter((t) => {
     const k = `${t.kind} ${t.id} ${t.reason}`;
@@ -288,6 +335,105 @@ function errorCodeOf(args) {
   return null;
 }
 
+function calleeName(expr) {
+  if (ts.isIdentifier(expr)) return expr.text;
+  if (ts.isPropertyAccessExpression(expr)) return expr.name.text;
+  return expr.getText();
+}
+
+/** String values of an array literal or `new Set([...])`, resolving one identifier hop. */
+function stringsOf(expr, consts) {
+  if (!expr) return [];
+  if (ts.isIdentifier(expr) && consts.has(expr.text))
+    return stringsOf(consts.get(expr.text), consts);
+  if (ts.isNewExpression(expr)) return stringsOf(expr.arguments?.[0], consts);
+  if (ts.isArrayLiteralExpression(expr)) {
+    return expr.elements.flatMap((e) =>
+      ts.isSpreadElement(e) ? stringsOf(e.expression, consts) : (literalText(e) ?? []),
+    );
+  }
+  return [];
+}
+
+/**
+ * The identifiers a dispatch domain's mutate path references: the `mutate`
+ * method body, plus object-literal entries named by mutate operations, plus
+ * (transitively) same-file declarations they reference. Entries named only
+ * by query operations are skipped. `null` when the file declares no mutate
+ * operations.
+ */
+function mutateReferences(sf) {
+  const consts = new Map();
+  const decls = new Map();
+  let mutateMethod;
+  let mutateOps;
+  let queryOps = [];
+  const visit = (n) => {
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer) {
+      consts.set(n.name.text, n.initializer);
+      decls.set(n.name.text, n.initializer);
+    }
+    if (ts.isFunctionDeclaration(n) && n.name) decls.set(n.name.text, n);
+    if (
+      !mutateMethod &&
+      n.name?.getText() === 'mutate' &&
+      (ts.isMethodDeclaration(n) ||
+        (ts.isPropertyAssignment(n) &&
+          (ts.isArrowFunction(n.initializer) || ts.isFunctionExpression(n.initializer))))
+    )
+      mutateMethod = n;
+    if (ts.isMethodDeclaration(n) && n.name?.getText() === 'getSupportedOperations' && n.body) {
+      const walk = (m) => {
+        if (ts.isPropertyAssignment(m) && m.name.getText() === 'mutate')
+          mutateOps = stringsOf(m.initializer, consts);
+        if (ts.isPropertyAssignment(m) && m.name.getText() === 'query')
+          queryOps = stringsOf(m.initializer, consts);
+        ts.forEachChild(m, walk);
+      };
+      walk(n.body);
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  if (!mutateMethod || !mutateOps) return null;
+  const mutate = new Set(mutateOps);
+  const queryOnly = new Set(queryOps.filter((q) => !mutate.has(q)));
+  const refs = new Set();
+  const seen = new Set();
+  const collect = (node) => {
+    if (seen.has(node)) return;
+    seen.add(node);
+    const walk = (m) => {
+      if (
+        (ts.isPropertyAssignment(m) || ts.isMethodDeclaration(m)) &&
+        m.name &&
+        queryOnly.has(m.name.getText().replace(/^['"]|['"]$/g, ''))
+      )
+        return;
+      if (ts.isIdentifier(m)) {
+        refs.add(m.text);
+        const d = decls.get(m.text);
+        if (d && d !== node) collect(d);
+      }
+      ts.forEachChild(m, walk);
+    };
+    walk(node);
+  };
+  collect(mutateMethod);
+  // Handler entries named by a mutate op anywhere in the file.
+  const entries = (m) => {
+    if (
+      (ts.isPropertyAssignment(m) || ts.isMethodDeclaration(m)) &&
+      m.name &&
+      mutate.has(m.name.getText().replace(/^['"]|['"]$/g, ''))
+    )
+      collect(m);
+    ts.forEachChild(m, entries);
+  };
+  entries(sf);
+  return refs;
+}
+
 /**
  * Analyse one source file.
  *
@@ -308,7 +454,7 @@ export function analyseFile(file, text, ctx) {
   const declaredTables = [];
   let writesSync = false;
   let hasMutateHandler = false;
-  /** @type {Map<ts.Node, { writes: Set<string>, reads: Set<string>, nonKeyReads: Set<string>, counter: boolean }>} */
+  /** @type {Map<ts.Node, { writes: Set<string>, reads: Set<string>, nonKeyReads: Set<string>, counter: boolean, first?: ts.Node }>} */
   const fnFacts = new Map();
   const factsOf = (node) => {
     const fn = enclosingFunction(node) ?? sf;
@@ -317,6 +463,7 @@ export function analyseFile(file, text, ctx) {
       f = { writes: new Set(), reads: new Set(), nonKeyReads: new Set(), counter: false };
       fnFacts.set(fn, f);
     }
+    f.first ??= node;
     return f;
   };
   const consumed = new Set();
@@ -330,23 +477,39 @@ export function analyseFile(file, text, ctx) {
     };
     walk(node);
   };
+  const isErrorFactory = (fn) =>
+    !!fn && (/Error$/.test(functionName(fn)) || /\b\w*Error\b/.test(fn.type?.getText() ?? ''));
 
   const visit = (node) => {
-    // Imports and re-exports.
+    // Imports.
     if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
       const clause = node.importClause;
       if (!clause?.isTypeOnly) {
         const names = [];
+        const locals = [];
         let whole = !clause || !!clause.name;
+        let namespace;
         const bindings = clause?.namedBindings;
-        if (bindings && ts.isNamespaceImport(bindings)) whole = true;
+        if (bindings && ts.isNamespaceImport(bindings)) {
+          whole = true;
+          namespace = bindings.name.text;
+        }
         if (bindings && ts.isNamedImports(bindings)) {
           for (const el of bindings.elements) {
-            if (!el.isTypeOnly) names.push((el.propertyName ?? el.name).text);
+            if (el.isTypeOnly) continue;
+            names.push((el.propertyName ?? el.name).text);
+            locals.push(el.name.text);
           }
         }
         if (whole || names.length > 0)
-          imports.push({ spec: node.moduleSpecifier.text, names, whole });
+          imports.push({
+            spec: node.moduleSpecifier.text,
+            names,
+            locals,
+            whole,
+            namespace,
+            defaultName: clause?.name?.text,
+          });
       }
     }
     if (
@@ -355,7 +518,13 @@ export function analyseFile(file, text, ctx) {
       node.arguments[0] &&
       ts.isStringLiteral(node.arguments[0])
     ) {
-      imports.push({ spec: node.arguments[0].text, names: [], whole: true });
+      imports.push({
+        spec: node.arguments[0].text,
+        names: [],
+        locals: [],
+        whole: true,
+        dynamic: true,
+      });
     }
 
     // Schema symbols: const x = sqliteTable('name', …).
@@ -370,7 +539,6 @@ export function analyseFile(file, text, ctx) {
       declaredTables.push([node.name.getText(), node.initializer.arguments[0].text]);
     }
 
-    // Dispatch domain handler with a mutate method.
     if (
       (ts.isMethodDeclaration(node) || ts.isPropertyAssignment(node)) &&
       node.name?.getText() === 'mutate'
@@ -381,26 +549,29 @@ export function analyseFile(file, text, ctx) {
     // SQL in literals.
     const lit = literalText(node);
     if (lit !== null && /\b(INSERT|UPDATE|DELETE|REPLACE|SELECT)\b/i.test(lit)) {
-      const f = factsOf(node);
       let wroteHere = false;
-      for (const m of lit.matchAll(SQL_WRITE)) {
-        if (isSync(m[1])) {
-          f.writes.add(m[1]);
+      const writes = [...lit.matchAll(SQL_WRITE)].map((m) => m[1]).filter(isSync);
+      const reads = [...lit.matchAll(SQL_READ_ANY)].map((m) => m[1]).filter(isSync);
+      const nonKey = [...lit.matchAll(SQL_READ)]
+        .filter((m) => isSync(m[1]) && !KEY_COLUMNS.has(m[2]))
+        .map((m) => m[1]);
+      if (writes.length + reads.length > 0) {
+        const f = factsOf(node);
+        for (const t of writes) {
+          f.writes.add(t);
           writesSync = true;
           wroteHere = true;
         }
-      }
-      if (wroteHere && SQL_COUNTER.test(lit)) f.counter = true;
-      for (const m of lit.matchAll(SQL_READ_ANY)) if (isSync(m[1])) f.reads.add(m[1]);
-      for (const m of lit.matchAll(SQL_READ)) {
-        if (isSync(m[1]) && !KEY_COLUMNS.has(m[2])) f.nonKeyReads.add(m[1]);
+        if (wroteHere && SQL_COUNTER.test(lit)) f.counter = true;
+        for (const t of reads) f.reads.add(t);
+        for (const t of nonKey) f.nonKeyReads.add(t);
       }
     }
 
     if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
       const method = node.expression.name.text;
+      const receiver = node.expression.expression;
       const arg = node.arguments[0];
-      // Drizzle writes and reads on a table symbol.
       if ((method === 'insert' || method === 'update' || method === 'delete') && arg) {
         const t = tableOfSymbol(arg);
         if (t && isSync(t)) {
@@ -408,21 +579,25 @@ export function analyseFile(file, text, ctx) {
           writesSync = true;
         }
       }
-      if (method === 'from' && arg) {
+      // A Drizzle read: `.from(<table>)` on a `.select…()` chain only (not Array.from).
+      if (
+        method === 'from' &&
+        arg &&
+        ts.isCallExpression(receiver) &&
+        ts.isPropertyAccessExpression(receiver.expression) &&
+        /^select/.test(receiver.expression.name.text)
+      ) {
         const t = tableOfSymbol(arg);
         if (t && isSync(t)) {
           const f = factsOf(node);
           f.reads.add(t);
-          // A .where(…) on the same chain naming a non-key column of the table.
-          const chain = node.parent;
-          const whereText = chain?.parent?.getText() ?? '';
+          const whereText = node.parent?.parent?.getText() ?? '';
           const sym = ts.isPropertyAccessExpression(arg) ? arg.name.text : arg.getText();
           for (const m of whereText.matchAll(new RegExp(`\\b${sym}\\.(\\w+)`, 'g'))) {
             if (!KEY_COLUMNS.has(m[1])) f.nonKeyReads.add(t);
           }
         }
       }
-      // Drizzle counter: .set({ x: sql`${t.x} + 1` }).
       if (method === 'set' && arg && ts.isObjectLiteralExpression(arg)) {
         for (const p of arg.properties) {
           if (
@@ -433,15 +608,17 @@ export function analyseFile(file, text, ctx) {
             factsOf(node).counter = true;
         }
       }
-      // DataAccessor.
-      if (ACCESSOR_MUTATORS.has(method)) {
-        factsOf(node).writes.add('tasks_tasks');
-        writesSync = true;
-      }
-      if (ACCESSOR_NON_KEY_READS.has(method)) {
-        const f = factsOf(node);
-        f.reads.add('tasks_tasks');
-        f.nonKeyReads.add('tasks_tasks');
+      const receiverText = receiver.getText();
+      if (ACCESSOR_RECEIVER.test(receiverText)) {
+        if (ACCESSOR_MUTATORS.has(method)) {
+          factsOf(node).writes.add('tasks_tasks');
+          writesSync = true;
+        }
+        if (ACCESSOR_NON_KEY_READS.has(method)) {
+          const f = factsOf(node);
+          f.reads.add('tasks_tasks');
+          f.nonKeyReads.add('tasks_tasks');
+        }
       }
     }
 
@@ -450,6 +627,33 @@ export function analyseFile(file, text, ctx) {
       const ne = node.expression;
       site(node, errorCodeOf(ne.arguments) ?? ne.expression.getText());
       markConsumed(node);
+    } else if (
+      ts.isThrowStatement(node) &&
+      node.expression &&
+      ts.isCallExpression(node.expression)
+    ) {
+      // A factory-built error: throw dependencyCycleError(…).
+      site(node, calleeName(node.expression.expression));
+      markConsumed(node);
+    } else if (
+      ts.isReturnStatement(node) &&
+      node.expression &&
+      ts.isNewExpression(node.expression) &&
+      /Error$/.test(node.expression.expression.getText()) &&
+      isErrorFactory(enclosingFunction(node))
+    ) {
+      const ne = node.expression;
+      site(node, errorCodeOf(ne.arguments) ?? ne.expression.getText());
+      markConsumed(node);
+    } else if (
+      ts.isArrowFunction(node) &&
+      !ts.isBlock(node.body) &&
+      ts.isNewExpression(node.body) &&
+      /Error$/.test(node.body.expression.getText()) &&
+      isErrorFactory(node)
+    ) {
+      site(node.body, errorCodeOf(node.body.arguments) ?? node.body.expression.getText());
+      markConsumed(node.body);
     } else if (
       ts.isCallExpression(node) &&
       ts.isIdentifier(node.expression) &&
@@ -504,31 +708,26 @@ export function analyseFile(file, text, ctx) {
   };
   visit(sf);
 
-  // Silent rules, per function.
+  // Silent rules, per function (or the module top level).
   for (const [fn, f] of fnFacts) {
     if (f.writes.size === 0) continue;
     const cascade = [...f.writes].some(
       (t) => [...f.reads].some((r) => r !== t) || f.nonKeyReads.has(t),
     );
-    const node = fn === sf ? sf : fn;
-    const anchor = fn === sf ? (sf.statements[0] ?? sf) : fn;
-    if (cascade)
-      sites.push({
-        node: anchor,
-        code: 'silent:cascade',
-        symbol: fn === sf ? '<module>' : symbolName(fn.body ?? fn),
-        silent: true,
-        tags: fn === sf ? [] : tagsFor(sf, text, node),
-      });
-    if (f.counter)
-      sites.push({
-        node: anchor,
-        code: 'silent:counter',
-        symbol: fn === sf ? '<module>' : symbolName(fn.body ?? fn),
-        silent: true,
-        tags: fn === sf ? [] : tagsFor(sf, text, node),
-      });
+    const anchor = fn === sf ? f.first : fn;
+    const symbol = fn === sf ? '<module>' : symbolName(fn.body ?? fn);
+    const tags = tagsFor(sf, text, anchor);
+    if (cascade) sites.push({ node: anchor, code: 'silent:cascade', symbol, silent: true, tags });
+    if (f.counter) sites.push({ node: anchor, code: 'silent:counter', symbol, silent: true, tags });
   }
+
+  // The synced tables each site's function (else the module) writes.
+  const moduleWrites = new Set([...fnFacts.values()].flatMap((f) => [...f.writes]));
+  const tablesFor = (node) => {
+    const own = ts.isFunctionLike(node) ? node : enclosingFunction(node);
+    const f = fnFacts.get(own ?? sf);
+    return f?.writes.size ? [...f.writes] : [...moduleWrites];
+  };
 
   // Re-exports (for barrel resolution) and local exports.
   const localExports = new Set();
@@ -566,12 +765,14 @@ export function analyseFile(file, text, ctx) {
       symbol,
       tags,
       silent: !!silent,
+      tables: tablesFor(node),
       line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1,
     })),
     imports,
     declaredTables,
     writesSync,
     hasMutateHandler,
+    mutateRefs: hasMutateHandler ? mutateReferences(sf) : null,
     localExports,
     reexports,
   };
@@ -594,22 +795,18 @@ export function analyseFile(file, text, ctx) {
 export function scanTree({ root, dirs = SOURCE_DIRS, syncTables, entryFilter }) {
   const files = listSources(root, dirs);
   const texts = new Map(files.map((f) => [f, readFileSync(join(root, f), 'utf8')]));
-  // Pass 1: schema symbols.
   const schemaSymbols = new Map();
   for (const [f, text] of texts) {
     if (!text.includes('sqliteTable(')) continue;
     for (const [sym, table] of analyseFile(f, text, { syncTables, schemaSymbols: new Map() })
       .declaredTables) {
-      // A symbol bound to a synced table anywhere is treated as synced.
       if (!schemaSymbols.has(sym) || syncTables.has(table)) schemaSymbols.set(sym, table);
     }
   }
-  // Pass 2: everything else.
+  const ctx = { syncTables, schemaSymbols };
   const analysed = new Map();
-  for (const [f, text] of texts)
-    analysed.set(f, analyseFile(f, text, { syncTables, schemaSymbols }));
+  for (const [f, text] of texts) analysed.set(f, analyseFile(f, text, ctx));
 
-  // Barrel-aware import graph.
   const resolveCache = new Map();
   const resolveExport = (mod, name, seen = new Set()) => {
     const key = `${mod}#${name}`;
@@ -632,22 +829,45 @@ export function scanTree({ root, dirs = SOURCE_DIRS, syncTables, entryFilter }) 
     resolveCache.set(key, out);
     return out;
   };
-  const edges = new Map();
-  for (const [f, a] of analysed) {
+  /** Modules an import edge set reaches; `only` limits it to referenced local names. */
+  const targetsOf = (f, only) => {
+    const a = analysed.get(f);
     const targets = new Set();
     for (const imp of a.imports) {
       const target = resolveSpecifier(root, f, imp.spec);
       if (!target || !analysed.has(target)) continue;
+      if (only) {
+        const usedWhole =
+          (imp.namespace && only.has(imp.namespace)) ||
+          (imp.defaultName && only.has(imp.defaultName));
+        if (usedWhole) targets.add(target);
+        imp.names.forEach((name, i) => {
+          if (only.has(imp.locals[i])) for (const t of resolveExport(target, name)) targets.add(t);
+        });
+        continue;
+      }
       if (imp.whole) targets.add(target);
       for (const name of imp.names) for (const t of resolveExport(target, name)) targets.add(t);
     }
-    edges.set(f, targets);
-  }
+    return targets;
+  };
+  const edges = new Map();
+  for (const f of analysed.keys()) edges.set(f, targetsOf(f));
+
   const entries = [...analysed.values()]
     .filter((a) => a.hasMutateHandler && (entryFilter ? entryFilter(a.file) : true))
     .map((a) => a.file);
   const reachable = new Set(entries);
-  const queue = [...entries];
+  const queue = [];
+  for (const e of entries) {
+    const refs = analysed.get(e).mutateRefs;
+    for (const t of refs ? targetsOf(e, refs) : edges.get(e)) {
+      if (!reachable.has(t)) {
+        reachable.add(t);
+        queue.push(t);
+      }
+    }
+  }
   while (queue.length > 0) {
     const f = queue.pop();
     for (const t of edges.get(f) ?? []) {
@@ -665,21 +885,31 @@ export function scanTree({ root, dirs = SOURCE_DIRS, syncTables, entryFilter }) 
   for (const f of writePath) {
     for (const s of analysed.get(f).sites) sites.push({ file: f, ...s });
   }
-  return { files, analysed, writePath, reachable, entries, sites, texts };
+  return { files, analysed, writePath, reachable, entries, sites, texts, ctx };
 }
 
-/** Baseline key of a site. */
+/** Baseline key of a site: `file :: code` (no symbol, no line). */
 export function siteKey(s) {
-  return `${s.file} :: ${s.symbol} :: ${s.code}`;
+  return `${s.file} :: ${s.code}`;
 }
+
+/** File of a baseline key. */
+export const keyFile = (key) => key.slice(0, key.indexOf(' :: '));
+/** Code of a baseline key. */
+export const keyCode = (key) => key.slice(key.indexOf(' :: ') + 4);
 
 /**
- * Classify sites against the registry: tagged-ok, untagged, and tag problems.
+ * Classify sites against the registry: untagged sites and tag problems.
  *
  * @param {ReturnType<typeof scanTree>['sites']} sites
- * @param {Set<string>} registryIds
+ * @param {readonly { id: string, tables: readonly string[] }[] | Set<string>} registry
  */
-export function checkSites(sites, registryIds) {
+export function checkSites(sites, registry) {
+  const byId = new Map(
+    registry instanceof Set
+      ? [...registry].map((id) => [id, null])
+      : registry.map((e) => [e.id, e]),
+  );
   const untagged = [];
   const problems = [];
   for (const s of sites) {
@@ -692,26 +922,39 @@ export function checkSites(sites, registryIds) {
       if (t.id.startsWith('none:')) {
         if (!ESCAPES.has(t.id)) problems.push(`${s.file}:${s.line} unknown escape tag ${t.id}`);
         else if (!t.reason) problems.push(`${s.file}:${s.line} ${t.id} needs a reason`);
-      } else if (!registryIds.has(t.id)) {
+      } else if (!byId.has(t.id)) {
         problems.push(
           `${s.file}:${s.line} dangling tag @sync-${t.kind} ${t.id} (no registry entry)`,
         );
+      } else {
+        const entry = byId.get(t.id);
+        if (entry && s.tables?.length && !entry.tables.some((x) => s.tables.includes(x))) {
+          problems.push(
+            `${s.file}:${s.line} tag ${t.id} covers ${entry.tables.join(', ')} but the site writes ${s.tables.join(', ')}`,
+          );
+        }
       }
     }
   }
   return { untagged, problems };
 }
 
-/**
- * Compare untagged sites with the baseline (a count per key).
- *
- * @param {{ file: string, symbol: string, code: string }[]} untagged
- * @param {Record<string, number>} baseline
- * @returns {{ added: string[], stale: string[], counts: Record<string, number> }}
- */
-export function compareBaseline(untagged, baseline) {
+/** Untagged site counts per key. */
+export function countKeys(untagged) {
   const counts = {};
   for (const s of untagged) counts[siteKey(s)] = (counts[siteKey(s)] ?? 0) + 1;
+  return counts;
+}
+
+/**
+ * Compare untagged sites with the baseline.
+ *
+ * @param {Record<string, number>} counts - Current untagged counts per key.
+ * @param {Record<string, number>} baseline
+ * @param {{ staleFiles?: Set<string> | null }} [opts] - When set, only keys of
+ *   these files are judged stale (PR mode); otherwise every key is.
+ */
+export function compareBaseline(counts, baseline, opts = {}) {
   const added = [];
   const stale = [];
   for (const [k, n] of Object.entries(counts)) {
@@ -719,10 +962,65 @@ export function compareBaseline(untagged, baseline) {
     if (n > allowed) added.push(`${k} (${n} untagged, baseline ${allowed})`);
   }
   for (const [k, n] of Object.entries(baseline)) {
+    if (opts.staleFiles && !opts.staleFiles.has(keyFile(k))) continue;
     const now = counts[k] ?? 0;
     if (now < n) stale.push(`${k} (baseline ${n}, now ${now})`);
   }
-  return { added: added.sort(), stale: stale.sort(), counts };
+  return { added: added.sort(), stale: stale.sort() };
+}
+
+/**
+ * Keys a new baseline adds or raises against the base baseline that are not
+ * justified. A raise is justified when the key is audited (`T####` reason) or
+ * when its code is net-zero over the changed files (`netDelta[code] <= 0`).
+ *
+ * @param {Record<string, number>} next
+ * @param {Record<string, number> | null} base - `null`: no base baseline (seeding).
+ * @param {{ audited?: Record<string, string>, netDelta?: Record<string, number> }} why
+ * @returns {string[]}
+ */
+export function unjustifiedRaises(next, base, why = {}) {
+  if (!base) return [];
+  const out = [];
+  for (const [k, n] of Object.entries(next)) {
+    const before = base[k] ?? 0;
+    if (n <= before) continue;
+    const audit = why.audited?.[k];
+    if (audit && /\bT\d+\b/.test(audit)) continue;
+    if (why.netDelta && (why.netDelta[keyCode(k)] ?? 0) <= 0) continue;
+    out.push(`${k} (${before} -> ${n})`);
+  }
+  return out.sort();
+}
+
+/**
+ * Net change in untagged sites per code over the files changed against a
+ * base, counting only files that are on a write path at head. A move between
+ * files or a rename nets to zero; a new untagged site counts +1.
+ *
+ * @param {{ changed: readonly string[], headText: (f: string) => string | null,
+ *   baseText: (f: string) => string | null, writePath: Set<string>,
+ *   ctx: { syncTables: Set<string>, schemaSymbols: Map<string, string> },
+ *   registry: readonly { id: string, tables: readonly string[] }[] }} input
+ * @returns {Record<string, number>}
+ */
+export function netDeltaByCode({ changed, headText, baseText, writePath, ctx, registry }) {
+  const delta = {};
+  const add = (text, file, sign) => {
+    if (text === null) return;
+    const { sites } = analyseFile(file, text, ctx);
+    const { untagged } = checkSites(
+      sites.map((s) => ({ ...s, file })),
+      registry,
+    );
+    for (const s of untagged) delta[s.code] = (delta[s.code] ?? 0) + sign;
+  };
+  const scoped = changed.filter((f) => writePath.has(f) || headText(f) === null);
+  for (const f of scoped) {
+    add(headText(f), f, +1);
+    add(baseText(f), f, -1);
+  }
+  return delta;
 }
 
 /**
@@ -869,9 +1167,92 @@ export function closureHelpers(root, scan) {
   return { exportsOf, callersOf, runtimeSql };
 }
 
+/**
+ * Check that tasks exist and are open.
+ *
+ * @param {Iterable<string>} tasks
+ * @param {(task: string) => { status?: string, error?: string }} statusOf
+ * @returns {string[]}
+ */
+export function taskProblems(tasks, statusOf) {
+  const problems = [];
+  for (const task of [...new Set(tasks)].sort()) {
+    const { status, error } = statusOf(task);
+    if (error) problems.push(`task ${task}: ${error}`);
+    else if (status && CLOSED_STATUSES.has(status))
+      problems.push(`task ${task} is ${status}: it must be open`);
+  }
+  return problems;
+}
+
+function cliStatusOf(task) {
+  const bin = process.env.CLEO_BIN || 'cleo';
+  const run = spawnSync(bin, ['show', task, '--field', '/data/task/status'], {
+    cwd: process.env.CLEO_TASKS_CWD || REPO_ROOT,
+    encoding: 'utf8',
+    timeout: 30_000,
+  });
+  if (run.error) return { error: `cannot run ${bin}: ${run.error.message}` };
+  if (run.status !== 0) return { error: `not found (cleo show exited ${run.status})` };
+  return { status: run.stdout.trim() };
+}
+
+// ---------------------------------------------------------------------------
+// Git helpers (PR mode)
+// ---------------------------------------------------------------------------
+
+function git(root, args) {
+  return execFileSync('git', args, {
+    cwd: root,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
+
+/** A file's text at a ref, or `null` when it does not exist there. */
+export function textAt(root, ref, file) {
+  try {
+    return git(root, ['show', `${ref}:${file}`]);
+  } catch {
+    return null;
+  }
+}
+
+/** Scanned files changed between a ref and the working tree. */
+export function changedFiles(root, ref, dirs = SOURCE_DIRS) {
+  return git(root, ['diff', '--name-only', ref, '--', ...dirs])
+    .split('\n')
+    .filter((f) => f && isSource(f));
+}
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
+
+/**
+ * Parse the command line.
+ *
+ * @param {readonly string[]} argv
+ */
+export function parseArgs(argv) {
+  const out = { mode: 'check', base: undefined, seed: false, verifyTasks: false };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--check') out.mode = out.mode === 'strict' ? 'strict' : 'check';
+    else if (a === '--strict') out.mode = 'strict';
+    else if (a === '--update-baseline') out.mode = 'update';
+    else if (a === '--report') out.mode = 'report';
+    else if (a === '--seed') out.seed = true;
+    else if (a === '--verify-tasks') out.verifyTasks = true;
+    else if (a === '--base' || a.startsWith('--base=')) {
+      const v = a === '--base' ? argv[++i] : a.slice('--base='.length);
+      if (!v || v.startsWith('--')) return { error: '--base needs a git ref' };
+      out.base = v;
+    } else return { error: `unknown argument ${a}` };
+  }
+  return out;
+}
 
 async function loadRepoInputs() {
   const { SYNC_WRITE_INVARIANTS } = await import(
@@ -891,33 +1272,39 @@ async function loadRepoInputs() {
   return { registry: SYNC_WRITE_INVARIANTS, syncTables, classified };
 }
 
+/** Read a baseline document (or the empty one). */
+export function parseBaseline(text) {
+  if (!text) return { sites: {}, audited: {}, burnDown: undefined };
+  const doc = JSON.parse(text);
+  return { sites: doc.sites ?? {}, audited: doc.audited ?? {}, burnDown: doc.burnDown };
+}
+
 /**
- * Run the gate on the repository.
+ * Run the gate.
  *
- * @param {string[]} argv
- * @returns {Promise<number>}
+ * @param {readonly string[]} [argv]
+ * @param {{ root?: string, inputs?: { registry: readonly any[], syncTables: Set<string>, classified: Set<string> }, statusOf?: (t: string) => { status?: string, error?: string } }} [opts]
+ * @returns {Promise<number>} 0 OK, 1 problems, 2 bad arguments.
  */
-export async function main(argv = process.argv.slice(2)) {
-  const mode = argv.includes('--update-baseline')
-    ? 'update'
-    : argv.includes('--strict')
-      ? 'strict'
-      : argv.includes('--report')
-        ? 'report'
-        : 'check';
-  const { registry, syncTables, classified } = await loadRepoInputs();
+export async function main(argv = process.argv.slice(2), opts = {}) {
+  const args = parseArgs(argv);
+  if (args.error) {
+    process.stderr.write(`lint-sync-write-invariants: ${args.error}\n`);
+    return 2;
+  }
+  const root = opts.root ?? REPO_ROOT;
+  const { registry, syncTables, classified } = opts.inputs ?? (await loadRepoInputs());
   const scan = scanTree({
-    root: REPO_ROOT,
+    root,
     syncTables,
-    entryFilter: (f) => f.startsWith('packages/cleo/src/dispatch/domains/'),
+    entryFilter: (f) => f.startsWith(ENTRY_PREFIX),
   });
-  const ids = new Set(registry.map((e) => e.id));
-  const { untagged, problems: tagProblems } = checkSites(scan.sites, ids);
-  const { exportsOf, callersOf, runtimeSql } = closureHelpers(REPO_ROOT, scan);
+  const { untagged, problems: tagProblems } = checkSites(scan.sites, registry);
+  const { exportsOf, callersOf, runtimeSql } = closureHelpers(root, scan);
   const registryProblems = checkRegistry({
     registry,
     classified,
-    migrationSql: readMigrationSql(REPO_ROOT, [
+    migrationSql: readMigrationSql(root, [
       'packages/core/migrations',
       'packages/cleo/src/migrations',
     ]),
@@ -925,46 +1312,82 @@ export async function main(argv = process.argv.slice(2)) {
     exportsOf,
     callersOf,
   });
-  const baselineFile = join(REPO_ROOT, BASELINE_PATH);
-  const baseline = existsSync(baselineFile)
-    ? JSON.parse(readFileSync(baselineFile, 'utf8')).sites
-    : {};
-  const { added, stale, counts } = compareBaseline(untagged, baseline);
+  const baselineFile = join(root, BASELINE_PATH);
+  const baseline = parseBaseline(
+    existsSync(baselineFile) ? readFileSync(baselineFile, 'utf8') : '',
+  );
+  const counts = countKeys(untagged);
+
+  // PR mode inputs.
+  let changed = null;
+  let netDelta;
+  let baseBaseline = null;
+  if (args.base) {
+    changed = changedFiles(root, args.base);
+    netDelta = netDeltaByCode({
+      changed,
+      headText: (f) =>
+        scan.texts.get(f) ??
+        (existsSync(join(root, f)) ? readFileSync(join(root, f), 'utf8') : null),
+      baseText: (f) => textAt(root, args.base, f),
+      writePath: scan.writePath,
+      ctx: scan.ctx,
+      registry,
+    });
+    const baseText = textAt(root, args.base, BASELINE_PATH);
+    baseBaseline = baseText ? parseBaseline(baseText).sites : null;
+  }
+
+  const taskIssues = args.verifyTasks
+    ? taskProblems(
+        [
+          ...registry.filter((e) => e.pending).map((e) => e.pending.task),
+          ...(baseline.burnDown ? [baseline.burnDown] : []),
+        ],
+        opts.statusOf ?? cliStatusOf,
+      )
+    : [];
+
   const pending = registry.filter((e) => e.pending).length;
   const summary =
     `${scan.writePath.size} write-path modules (${scan.entries.length} mutate entry points), ` +
     `${scan.sites.length} sites, ${untagged.length} untagged in ${Object.keys(counts).length} keys; ` +
     `registry ${registry.length} entries (${pending} pending)`;
 
-  if (mode === 'update') {
-    if (tagProblems.length + registryProblems.length > 0) {
-      for (const p of [...tagProblems, ...registryProblems]) process.stderr.write(`FAIL ${p}\n`);
+  if (args.mode === 'update') {
+    const fatal = [...tagProblems, ...registryProblems, ...taskIssues];
+    if (fatal.length > 0) {
+      for (const p of fatal) process.stderr.write(`FAIL ${p}\n`);
       process.stderr.write(
         'lint-sync-write-invariants: fix the problems above before rewriting the baseline.\n',
       );
       return 1;
     }
-    // Shrink-only: rewriting may drop or lower entries, never add or raise
-    // one. --seed is for the initial seeding and for a deliberate, reviewed
-    // raise; the diff of the baseline file shows it.
-    if (added.length > 0 && !argv.includes('--seed')) {
-      for (const k of added) process.stderr.write(`FAIL would add to the baseline: ${k}\n`);
+    // Against the base when given; otherwise against the committed baseline.
+    const raises = args.seed
+      ? []
+      : unjustifiedRaises(counts, args.base ? (baseBaseline ?? {}) : baseline.sites, {
+          audited: baseline.audited,
+          netDelta,
+        });
+    if (raises.length > 0) {
+      for (const k of raises) process.stderr.write(`FAIL would add to the baseline: ${k}\n`);
       process.stderr.write(
-        'lint-sync-write-invariants: the baseline only shrinks. Tag the new site(s) instead (or pass --seed for a reviewed raise).\n',
+        'lint-sync-write-invariants: the baseline only shrinks. Tag the new site(s), pass --base <ref> so moves and newly reachable modules net to zero, or list a reviewed raise in "audited" with a T#### reason.\n',
       );
       return 1;
     }
-    const grows = added.length > 0;
     const sorted = Object.fromEntries(
       Object.entries(counts).sort(([a], [b]) => a.localeCompare(b)),
     );
+    mkdirSync(dirname(baselineFile), { recursive: true });
     writeFileSync(
       baselineFile,
       `${JSON.stringify(
         {
-          $comment:
-            'Untagged rejection sites on synced write paths, per (file :: symbol :: code). Shrink-only (T12881, gate 38): tag a site with // @sync-invariant <id> and regenerate with node scripts/lint-sync-write-invariants.mjs --update-baseline.',
-          total: untagged.length,
+          $comment: `Untagged rejection sites on synced write paths, per (file :: code). Shrink-only (T12881, gate 38): tag each site with // @sync-invariant <id> and regenerate with node scripts/lint-sync-write-invariants.mjs --update-baseline --base origin/main. Burn-down: ${baseline.burnDown ?? 'T12946'}.`,
+          burnDown: baseline.burnDown ?? 'T12946',
+          audited: baseline.audited,
           sites: sorted,
         },
         null,
@@ -972,23 +1395,33 @@ export async function main(argv = process.argv.slice(2)) {
       )}\n`,
     );
     process.stdout.write(
-      `lint-sync-write-invariants: baseline written (${untagged.length} sites, ${Object.keys(sorted).length} keys)${grows ? ' — seeded/raised with --seed' : ''}.\n`,
+      `lint-sync-write-invariants: baseline written (${untagged.length} sites, ${Object.keys(sorted).length} keys).\n`,
     );
     return 0;
   }
-  if (mode === 'report') {
+  if (args.mode === 'report') {
     process.stdout.write(`${summary}\n`);
     for (const e of registry.filter((x) => x.pending))
       process.stdout.write(`  pending ${e.id}: ${e.pending.task} ${e.pending.reason}\n`);
     return 0;
   }
 
+  const { added, stale } = compareBaseline(counts, baseline.sites, {
+    staleFiles: changed ? new Set(changed) : null,
+  });
+  const raises = args.base
+    ? unjustifiedRaises(baseline.sites, baseBaseline, { audited: baseline.audited, netDelta })
+    : [];
   const failures = [
     ...tagProblems,
     ...registryProblems,
+    ...taskIssues,
     ...added.map((k) => `untagged rejection site on a synced write path: ${k}`),
     ...stale.map((k) => `stale baseline entry (shrink it with --update-baseline): ${k}`),
-    ...(mode === 'strict' ? Object.keys(counts).map((k) => `baselined untagged site: ${k}`) : []),
+    ...raises.map((k) => `baseline raised against ${args.base} without justification: ${k}`),
+    ...(args.mode === 'strict'
+      ? Object.keys(counts).map((k) => `baselined untagged site: ${k}`)
+      : []),
   ];
   if (failures.length > 0) {
     for (const f of failures) process.stderr.write(`FAIL ${f}\n`);
@@ -999,7 +1432,9 @@ export async function main(argv = process.argv.slice(2)) {
     );
     return 1;
   }
-  process.stdout.write(`lint-sync-write-invariants: OK — ${summary}.\n`);
+  process.stdout.write(
+    `lint-sync-write-invariants: OK — ${summary}${args.base ? ` (against ${args.base})` : ''}.\n`,
+  );
   return 0;
 }
 

@@ -650,6 +650,8 @@ jobs:
 
   sync-write-invariants:
     # Gate 38 (T12881 · spec t12859-sync-write-validator-inventory §3.6.7).
+    # PR and merge-queue runs pass the base, so the baseline is shrink-only
+    # against it (an added or raised key needs a net-zero move or an audit).
     # Every rejection site on a synced write path carries
     # `// @sync-invariant <id>` naming a registry entry
     # (packages/contracts/src/invariants/sync-write-invariants.ts) or an escape
@@ -680,7 +682,22 @@ jobs:
             ${{ runner.os }}-pnpm-store-
       - run: pnpm install --frozen-lockfile
       - name: Assert every synced-write rejection site is classified (gate 38 · T12881)
+        if: github.event_name != 'pull_request' && github.event_name != 'merge_group'
         run: node scripts/lint-sync-write-invariants.mjs --check
+      - name: Assert the gate 38 baseline only shrinks against the PR base (T12881)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_REF"
+          node scripts/lint-sync-write-invariants.mjs --check --base "origin/$BASE_REF"
+      - name: Assert the gate 38 baseline only shrinks against the merge-queue base (T12881)
+        if: github.event_name == 'merge_group'
+        env:
+          BASE_SHA: ${{ github.event.merge_group.base_sha }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          node scripts/lint-sync-write-invariants.mjs --check --base "$BASE_SHA"
 
   merge-bar-aggregate:
     # T11955 · DHQ-072 · Epic T11679 (DHQ burn-down)
