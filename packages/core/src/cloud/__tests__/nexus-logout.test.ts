@@ -109,7 +109,11 @@ function mockApi(
         success: false,
         error: {
           code:
-            a.status === 401 ? 'E_UNAUTHORIZED' : a.status === 404 ? 'E_NOT_FOUND' : 'E_INTERNAL',
+            a.status === 401
+              ? 'E_UNAUTHENTICATED'
+              : a.status === 404
+                ? 'E_NOT_FOUND'
+                : 'E_INTERNAL',
           message: 'no',
           requestId: 'r1',
           ...(a.reason
@@ -439,7 +443,7 @@ describe('cleo logout nexus --revoke (E10)', () => {
     expect(await read(USER_A)).toBeNull();
   });
 
-  it('a confirmed own revoke never drops an unsettled retired request (review HIGH-1)', async () => {
+  it('a confirmed own revoke never drops an unsettled retired request (review HIGH-1, NEW-B)', async () => {
     const old = mintToken();
     const signingOut = applyBeginSignOut(enrolled(old));
     const c1 = mintToken();
@@ -465,25 +469,44 @@ describe('cleo logout nexus --revoke (E10)', () => {
       ]),
     );
     const r = await run(api.fetch, true);
-    // The retired request goes first; the server's silence stops the run.
-    expect(api.calls.map((c) => c.token)).toEqual([old]);
+    // An HTTP error on the old device's request never blocks the own revoke.
+    expect(api.calls.map((c) => c.token)).toEqual([old, c1]);
     expect(r.devices.find((d) => d.retired)?.outcome).toBe('pending');
+    expect(r.devices.find((d) => !d.retired)).toMatchObject({
+      outcome: 'confirmed',
+      removedLocally: false,
+    });
     const kept = await read(USER_A);
+    expect(kept?.keys).toBeNull();
+    expect(kept?.current).toBeNull();
     expect(kept?.retired?.[0]?.credentials.map((c) => c.token)).toEqual([old]);
-    expect(kept?.pendingRevoke?.credentials.map((c) => c.token)).toEqual([c1]);
 
-    // Next run: the retired settles, then the own revoke; only then is the entry gone.
-    const ok = mockApi(
-      new Map<string, Answer>([
-        [old, { status: 200 }],
-        [c1, { status: 200 }],
-      ]),
-    );
+    // The next run settles the retired request; only then is the entry gone.
+    const ok = mockApi(new Map<string, Answer>([[old, { status: 200 }]]));
     const done = await settleNexusDeviceEnds({ apiUrl: API, fetch: ok.fetch, deviceStore: store });
-    expect(done.devices.map((d) => d.outcome)).toEqual(['confirmed', 'confirmed']);
+    expect(done.devices.map((d) => d.outcome)).toEqual(['confirmed']);
     expect(await read(USER_A)).toBeNull();
   });
 
+  it('a 401 the API did not judge (no envelope, or reason missing) keeps the credential (review NEW-A)', async () => {
+    const c0 = mintToken();
+    await seed(USER_A, enrolled(c0));
+    const proxy: FetchLike = async () =>
+      new Response('<html>Sign in to the corporate proxy</html>', {
+        status: 401,
+        headers: { 'content-type': 'text/html' },
+      });
+    const r = await run(proxy);
+    expect(r.devices[0]?.outcome).toBe('pending');
+    expect((await read(USER_A))?.pendingSignOut?.credentials.map((c) => c.token)).toEqual([c0]);
+
+    const stripped = await run(
+      mockApi(new Map([[c0, { status: 401, reason: 'missing' }]])).fetch,
+      true,
+    );
+    expect(stripped.devices[0]?.outcome).toBe('pending');
+    expect((await read(USER_A))?.pendingRevoke?.credentials.map((c) => c.token)).toEqual([c0]);
+  });
   it('forgetting a device keeps open retired requests; an empty shell is deletable', () => {
     const old = mintToken();
     const moved = applyEnrolment(
