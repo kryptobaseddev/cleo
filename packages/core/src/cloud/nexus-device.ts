@@ -345,15 +345,20 @@ export class NexusDeviceStoreError extends Error {
   }
 }
 
+/** `CLEO_NEXUS_DEVICE` values that switch device credentials off (case-insensitive, trimmed). */
+const NEXUS_DEVICE_OFF_VALUES: ReadonlySet<string> = new Set(['0', 'false', 'off', 'no']);
+
 /**
- * Whether the device-credential behaviour is on. It is the default (T12904);
- * `CLEO_NEXUS_DEVICE=0` switches back to the 9.24 session login.
+ * Whether the device-credential login is on. It is the default (T12904);
+ * `CLEO_NEXUS_DEVICE=0` (or `false`, `off`, `no`) switches back to the 9.24
+ * session login. Status and logout always handle a stored device credential.
  *
  * @param env - Environment to read; defaults to `process.env`.
- * @returns `false` only for the exact value `0`.
+ * @returns `false` only for an off value.
  */
 export function isNexusDeviceEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env[NEXUS_DEVICE_ENV] !== '0';
+  const raw = env[NEXUS_DEVICE_ENV];
+  return raw === undefined || !NEXUS_DEVICE_OFF_VALUES.has(raw.trim().toLowerCase());
 }
 
 /**

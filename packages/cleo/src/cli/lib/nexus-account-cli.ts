@@ -201,24 +201,16 @@ export function nexusDeviceLogoutSummary(r: NexusDeviceLogoutResult): string {
 }
 
 /**
- * Run `cleo logout nexus [--revoke]` with device credentials, print warnings
- * to stderr and emit the result. `--revoke` with `CLEO_NEXUS_DEVICE=0`
- * fails rather than silently signing out a 9.24 session.
+ * Run `cleo logout nexus [--revoke]`, print warnings to stderr and emit the
+ * result. It ends every stored device credential (sign-out, or revoke with
+ * `--revoke`) and signs out a leftover 9.24 session, whatever
+ * `CLEO_NEXUS_DEVICE` says.
  *
  * @param args - Parsed citty args (`--api-url`, `--revoke`).
  */
 export async function runNexusDeviceLogout(args: Readonly<Record<string, unknown>>): Promise<void> {
-  const { isNexusDeviceEnabled } = await import(
-    /* webpackIgnore: true */ '@cleocode/core/cloud/nexus-device.js'
-  );
   let result: NexusDeviceLogoutResult;
   try {
-    if (!isNexusDeviceEnabled()) {
-      throw Object.assign(new Error('--revoke needs device credentials, which are not enabled'), {
-        code: 'E_NEXUS_DEVICE_REQUIRED',
-        fix: 'unset CLEO_NEXUS_DEVICE (=0 turns device credentials off) to revoke this device, or revoke it on cleocode.dev',
-      });
-    }
     const { logoutNexusDevice } = await import(
       /* webpackIgnore: true */ '@cleocode/core/cloud/nexus-logout.js'
     );

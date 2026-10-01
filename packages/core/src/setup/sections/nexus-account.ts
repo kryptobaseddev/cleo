@@ -80,12 +80,11 @@ export function createNexusAccountSection(deps: NexusAccountSectionDeps = {}): W
     async isConfigured(): Promise<boolean> {
       try {
         const apiUrl = resolveNexusApiUrl();
-        if (isNexusDeviceEnabled()) {
-          const origin = nexusOriginKey(apiUrl);
-          for (const d of await new NexusDeviceStore().list()) {
-            if (d instanceof SealedNexusDevice && d.origin === origin && d.currentBearer()) {
-              return true;
-            }
+        // A stored device credential counts whatever CLEO_NEXUS_DEVICE says.
+        const origin = nexusOriginKey(apiUrl);
+        for (const d of await new NexusDeviceStore().list()) {
+          if (d instanceof SealedNexusDevice && d.origin === origin && d.currentBearer()) {
+            return true;
           }
         }
         return (await new FileNexusTokenStore().get(apiUrl)) !== null;
