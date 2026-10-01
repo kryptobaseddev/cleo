@@ -56,13 +56,24 @@ export function failNexus(err: unknown, operation: string): never {
   const exitCode =
     code === 'E_NEXUS_INVALID_API_URL' ||
     code === 'E_NEXUS_INVALID_LABEL' ||
-    code === 'E_NEXUS_DEVICE_REQUIRED'
+    code === 'E_NEXUS_DEVICE_REQUIRED' ||
+    code === 'E_VALIDATION'
       ? 6
       : 1;
+  // Structured, secret-free details some failures carry (e.g. `cleo cloud
+  // status` offline: the local facts, contract §4.4).
+  const details =
+    err instanceof Error && 'details' in err && typeof err.details === 'object' && err.details
+      ? err.details
+      : undefined;
   cliError(
     err instanceof Error ? err.message : String(err),
     exitCode,
-    { name: code ?? 'E_NEXUS_REQUEST_FAILED', ...(fix ? { fix } : {}) },
+    {
+      name: code ?? 'E_NEXUS_REQUEST_FAILED',
+      ...(fix ? { fix } : {}),
+      ...(details ? { details } : {}),
+    },
     { operation },
   );
   process.exit(exitCode);

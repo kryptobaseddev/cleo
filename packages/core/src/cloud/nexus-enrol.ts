@@ -32,8 +32,14 @@
 import { randomBytes } from 'node:crypto';
 import { hostname as osHostname } from 'node:os';
 import {
+  NEXUS_CONFLICT_ERRORS,
+  NEXUS_FORBIDDEN_ERRORS,
+  NEXUS_REVOKED_REASON_ERRORS,
+  NEXUS_UNAUTHENTICATED_ERRORS,
+  NEXUS_UNREACHABLE_ERROR,
   type NexusAccountOrganization,
   type NexusAccountUser,
+  type NexusErrorMapping,
   type NexusLoginResult,
   nexusAccountOrganizationSchema,
 } from '@cleocode/contracts';
@@ -327,96 +333,65 @@ export function nexusApiErrorToAccountError(err: unknown): Error {
   if (err instanceof NexusAccountError || !(err instanceof NexusError)) {
     return err instanceof Error ? err : new Error(String(err));
   }
-  const reason = reasonOf(err);
   const remedy = typeof err.details?.['remedy'] === 'string' ? err.details['remedy'] : undefined;
-  if (err.code === 'E_NETWORK') {
-    return new NexusAccountError(
-      'E_NEXUS_UNREACHABLE',
-      `Cleo Nexus did not answer: ${err.message}`,
-      'check your network and retry',
-    );
+  const mapped = nexusErrorMappingOf(err);
+  if (mapped === null) {
+    const retry = err.status === 429 || err.status >= 500 ? ' (retryable)' : '';
+    return new NexusAccountError('E_NEXUS_REQUEST_FAILED', `${err.message}${retry}`, remedy);
   }
+  let message = mapped.message ?? err.message;
+  if (mapped.code === 'E_NEXUS_UNREACHABLE') message = `Cleo Nexus did not answer: ${err.message}`;
+  const scope = err.details?.['requiredScope'];
+  if (mapped.code === 'E_NEXUS_INSUFFICIENT_SCOPE' && typeof scope === 'string') {
+    message = `${message} (${scope})`;
+  }
+  // A plain refusal prefers the server's own remedy; a credential problem keeps the CLI's.
+  const fix =
+    mapped.code === 'E_NEXUS_REQUEST_FAILED' || mapped.code === 'E_NEXUS_REPLICA_COPIED'
+      ? (remedy ?? mapped.fix ?? undefined)
+      : (mapped.fix ?? remedy);
+  return new NexusAccountError(mapped.code, message, fix);
+}
+
+/** True when `key` is an own key of `table`, narrowing it to the table's keys. */
+function isKeyOf<T extends object>(
+  table: T,
+  key: string | undefined,
+): key is Extract<keyof T, string> {
+  return key !== undefined && Object.hasOwn(table, key);
+}
+
+/**
+ * The §4.0.4 row for an API failure, read from the tables in
+ * `@cleocode/contracts` (the mapping's single source, T12871), or `null` when
+ * the failure is reported as `E_NEXUS_REQUEST_FAILED` with the server's
+ * message.
+ */
+function nexusErrorMappingOf(err: NexusError): NexusErrorMapping | null {
+  if (err.code === 'E_NETWORK') return NEXUS_UNREACHABLE_ERROR;
+  const reason = reasonOf(err);
   if (err.status === 401) {
-    switch (reason) {
-      case 'credential-revoked':
-        if (err.details?.['revokedReason'] === 'reenrolled') {
-          // Replaced by a newer login of this device, not stolen: a login
-          // fixes it, and the device id stays (security review M2b).
-          return new NexusAccountError(
-            'E_NEXUS_NOT_SIGNED_IN',
-            "this device's credential was replaced by a newer login of the same device",
-            'run `cleo login nexus`',
-          );
-        }
-        return new NexusAccountError(
-          'E_NEXUS_CREDENTIAL_COMPROMISED',
-          "this device's credential was replaced or revoked elsewhere, possibly used from another machine",
-          'revoke this device on cleocode.dev and sign in again with `cleo login nexus`',
-        );
-      case 'credential-expired':
-        return new NexusAccountError(
-          'E_NEXUS_SESSION_EXPIRED',
-          'the device credential expired after 90 days without use',
-          'run `cleo login nexus`',
-        );
-      case 'device-signed-out':
-        return new NexusAccountError(
-          'E_NEXUS_DEVICE_SIGNED_OUT',
-          'this device was signed out',
-          'run `cleo login nexus`',
-        );
-      case 'device-revoked':
-        return new NexusAccountError(
-          'E_NEXUS_DEVICE_REVOKED',
-          'this device was revoked',
-          'run `cleo login nexus` to enrol this machine as a new device',
-        );
-      case 'session-bearer-retired':
-        return new NexusAccountError(
-          'E_NEXUS_SESSION_EXPIRED',
-          'bearer sessions are no longer accepted',
-          'run `cleo login nexus` with the current CLI',
-        );
-      default:
-        return new NexusAccountError(
-          'E_NEXUS_NOT_SIGNED_IN',
-          'not signed in to Cleo Nexus (the credential is missing or invalid)',
-          'run `cleo login nexus`',
-        );
+    if (reason === 'credential-revoked') {
+      // Why it was revoked decides it (v2.11, M2b): a re-enrolment or a
+      // sign-out needs a login, never a "possibly stolen" report.
+      const why = err.details?.['revokedReason'];
+      const key = typeof why === 'string' ? why : undefined;
+      return isKeyOf(NEXUS_REVOKED_REASON_ERRORS, key)
+        ? NEXUS_REVOKED_REASON_ERRORS[key]
+        : NEXUS_REVOKED_REASON_ERRORS.rotated;
     }
+    return isKeyOf(NEXUS_UNAUTHENTICATED_ERRORS, reason)
+      ? NEXUS_UNAUTHENTICATED_ERRORS[reason]
+      : NEXUS_UNAUTHENTICATED_ERRORS.invalid;
   }
-  if (err.status === 403) {
-    if (reason === 'insufficient-scope') {
-      return new NexusAccountError(
-        'E_NEXUS_INSUFFICIENT_SCOPE',
-        `this device's credential lacks the scope for that request${typeof err.details?.['requiredScope'] === 'string' ? ` (${err.details['requiredScope']})` : ''}`,
-        'run `cleo login nexus` without --read-only to enrol with the full device profile',
-      );
-    }
-    if (reason === 'bearer-session-required' || reason === 'session-not-fresh') {
-      return new NexusAccountError(
-        'E_NEXUS_SESSION_EXPIRED',
-        'the session is too old to enrol this device',
-        BROWSER_LOGIN_FIX,
-      );
-    }
-    if (reason === 'device-limit') {
-      return new NexusAccountError(
-        'E_NEXUS_REQUEST_FAILED',
-        'the account has reached its device limit',
-        remedy ?? 'revoke unused devices on cleocode.dev, then retry',
-      );
-    }
+  if (err.status === 403 && isKeyOf(NEXUS_FORBIDDEN_ERRORS, reason)) {
+    const row = NEXUS_FORBIDDEN_ERRORS[reason];
+    return row.message === null ? null : row;
   }
-  if (err.status === 409 && reason === 'replica-copied') {
-    return new NexusAccountError(
-      'E_NEXUS_REPLICA_COPIED',
-      'this project store is attached from another device (a copied store)',
-      remedy,
-    );
+  if (err.status === 409 && isKeyOf(NEXUS_CONFLICT_ERRORS, reason)) {
+    return NEXUS_CONFLICT_ERRORS[reason] ?? null;
   }
-  const retry = err.status === 429 || err.status >= 500 ? ' (retryable)' : '';
-  return new NexusAccountError('E_NEXUS_REQUEST_FAILED', `${err.message}${retry}`, remedy);
+  return null;
 }
 
 /** Map a device-store failure to a CLI error, keeping its message (never a secret). */
