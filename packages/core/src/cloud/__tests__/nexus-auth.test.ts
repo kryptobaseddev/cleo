@@ -15,6 +15,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
@@ -151,16 +152,26 @@ const sleep = async (ms: number) => {
   sleeps.push(ms);
 };
 
-// These tests cover the 9.24 session path: pin device credentials off so no
-// test reads the real nexus-device.json (T12904 made them the default).
+// These tests cover the 9.24 session path: pin device credentials off and
+// sandbox CLEO_HOME so no test reads the real nexus-device.json (T12904).
 let savedDeviceFlag: string | undefined;
+let savedCleoHome: string | undefined;
+let pinnedHome: string;
 beforeEach(() => {
   savedDeviceFlag = process.env['CLEO_NEXUS_DEVICE'];
+  savedCleoHome = process.env['CLEO_HOME'];
   process.env['CLEO_NEXUS_DEVICE'] = '0';
+  // Status and logout read nexus-device.json whatever the switch says: point
+  // CLEO_HOME at an empty sandbox so no test ever reads the real one.
+  pinnedHome = mkdtempSync(join(tmpdir(), 'cleo-home-pin-'));
+  process.env['CLEO_HOME'] = pinnedHome;
 });
 afterEach(() => {
   if (savedDeviceFlag === undefined) delete process.env['CLEO_NEXUS_DEVICE'];
   else process.env['CLEO_NEXUS_DEVICE'] = savedDeviceFlag;
+  if (savedCleoHome === undefined) delete process.env['CLEO_HOME'];
+  else process.env['CLEO_HOME'] = savedCleoHome;
+  rmSync(pinnedHome, { recursive: true, force: true });
 });
 
 beforeEach(() => {
@@ -741,5 +752,47 @@ describe('getNexusAccountStatus with device credentials (T12904)', () => {
     });
     expect(after?.state).toBe('not-signed-in');
     expect(none).not.toHaveBeenCalled();
+  });
+
+  it('device rows show even with CLEO_NEXUS_DEVICE=0, so the switch never hides a live credential (review M2)', async () => {
+    await devices.update((tx) => tx.set(API, 'u-1', enrolledEntry()));
+    expect(process.env['CLEO_NEXUS_DEVICE']).toBe('0');
+    const [row] = await getNexusAccountStatus({ store, fetch: whoami(200), deviceStore: devices });
+    expect(row?.state).toBe('signed-in');
+  });
+
+  it('an unreadable device store keeps the session rows and names the error (review M1)', async () => {
+    await store.put(API, {
+      token: TOKEN,
+      tokenType: 'Bearer',
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      user: { id: 'u-1', email: 'cached@example.test' },
+      organization: null,
+    });
+    writeFileSync(devices.location, '{not json');
+    const { fetchImpl } = mockNexus();
+    const rows = await getNexusAccountStatus({ store, fetch: fetchImpl, deviceStore: devices });
+    expect(rows.map((r) => r.state).sort()).toEqual(['signed-in', 'unverified']);
+    expect(rows.find((r) => r.state === 'unverified')?.summary).toMatch(
+      /device credentials unreadable/,
+    );
+  });
+
+  it('a session of another user on the same origin is still shown (review L3)', async () => {
+    await devices.update((tx) => tx.set(API, 'u-1', enrolledEntry()));
+    await store.put(API, {
+      token: TOKEN,
+      tokenType: 'Bearer',
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      user: { id: 'u-2', email: 'other@example.test' },
+      organization: null,
+    });
+    const rows = await getNexusAccountStatus({
+      store,
+      fetch: whoami(200),
+      deviceStore: devices,
+      live: false,
+    });
+    expect(rows.length).toBe(2);
   });
 });

@@ -14,8 +14,20 @@ session is upgraded to a device on first use, with no second approval.
 login.
 
 **Status shows devices.** `cleo status`, `cleo auth list` and the setup wizard
-read `nexus-device.json`. A device credential is checked live through
-`GET /v1/whoami`; a 401 reads as expired. A device signed out locally reads as
-not signed in. A device row replaces any leftover session row for its origin.
-The wizard logs in with device enrolment too, and treats a stored device
-credential as already configured.
+always read `nexus-device.json`, whatever `CLEO_NEXUS_DEVICE` says: the switch
+picks only the login flow and never hides a live credential.
+- A device credential is checked live through `GET /v1/whoami`, with the
+  current credential only; a 401 reads as expired.
+- A device signed out locally reads as not signed in.
+- A device row replaces a leftover session row of the same user; a session of
+  another user still shows.
+- A device file that cannot be read becomes one row naming the error, and the
+  session rows stay.
+
+**Logout always ends the device.** `cleo logout nexus` signs out every stored
+device credential and a leftover 9.24 session, even with `CLEO_NEXUS_DEVICE=0`.
+`CLEO_NEXUS_DEVICE` accepts `0`, `false`, `off` or `no` (case-insensitive) to
+switch the device login off.
+
+The wizard logs in with device enrolment, and treats a stored device credential
+as already configured.

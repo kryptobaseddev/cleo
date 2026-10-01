@@ -10,7 +10,7 @@
  * @task T12712
  */
 
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -109,16 +109,26 @@ function mockProjects(opts: { status?: 401 | 409 } = {}) {
   return { fetchImpl, bodies, labels };
 }
 
-// These tests cover the 9.24 session path: pin device credentials off so no
-// test reads the real nexus-device.json (T12904 made them the default).
+// These tests cover the 9.24 session path: pin device credentials off and
+// sandbox CLEO_HOME so no test reads the real nexus-device.json (T12904).
 let savedDeviceFlag: string | undefined;
+let savedCleoHome: string | undefined;
+let pinnedHome: string;
 beforeEach(() => {
   savedDeviceFlag = process.env['CLEO_NEXUS_DEVICE'];
+  savedCleoHome = process.env['CLEO_HOME'];
   process.env['CLEO_NEXUS_DEVICE'] = '0';
+  // Status and logout read nexus-device.json whatever the switch says: point
+  // CLEO_HOME at an empty sandbox so no test ever reads the real one.
+  pinnedHome = mkdtempSync(join(tmpdir(), 'cleo-home-pin-'));
+  process.env['CLEO_HOME'] = pinnedHome;
 });
 afterEach(() => {
   if (savedDeviceFlag === undefined) delete process.env['CLEO_NEXUS_DEVICE'];
   else process.env['CLEO_NEXUS_DEVICE'] = savedDeviceFlag;
+  if (savedCleoHome === undefined) delete process.env['CLEO_HOME'];
+  else process.env['CLEO_HOME'] = savedCleoHome;
+  rmSync(pinnedHome, { recursive: true, force: true });
 });
 
 beforeEach(async () => {

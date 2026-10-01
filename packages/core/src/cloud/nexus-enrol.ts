@@ -449,7 +449,7 @@ function storeErrorToAccountError(err: unknown): Error {
     return new NexusAccountError(
       'E_NEXUS_REVOKE_PENDING',
       'a revoke of this device is not yet confirmed by the server, so logging in would undo it',
-      'finish the revoke (`cleo logout nexus --revoke` retries it) or cancel it, then log in',
+      'run `cleo logout nexus --revoke` again when Cleo Nexus is reachable to finish the revoke, then log in',
     );
   }
   if (err.code === 'E_NEXUS_DEVICE_BUSY' || err.code === 'E_NEXUS_DEVICE_LOCK_COMPROMISED') {

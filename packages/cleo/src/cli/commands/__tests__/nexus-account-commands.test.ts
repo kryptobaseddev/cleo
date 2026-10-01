@@ -216,16 +216,26 @@ function capture() {
 
 const savedTTY = process.stdin.isTTY;
 
-// These tests cover the 9.24 session path: pin device credentials off so no
-// test reads the real nexus-device.json (T12904 made them the default).
+// These tests cover the 9.24 session path: pin device credentials off and
+// sandbox CLEO_HOME so no test reads the real nexus-device.json (T12904).
 let savedDeviceFlag: string | undefined;
+let savedCleoHome: string | undefined;
+let pinnedHome: string;
 beforeEach(() => {
   savedDeviceFlag = process.env['CLEO_NEXUS_DEVICE'];
+  savedCleoHome = process.env['CLEO_HOME'];
   process.env['CLEO_NEXUS_DEVICE'] = '0';
+  // Status and logout read nexus-device.json whatever the switch says: point
+  // CLEO_HOME at an empty sandbox so no test ever reads the real one.
+  pinnedHome = mkdtempSync(join(tmpdir(), 'cleo-home-pin-'));
+  process.env['CLEO_HOME'] = pinnedHome;
 });
 afterEach(() => {
   if (savedDeviceFlag === undefined) delete process.env['CLEO_NEXUS_DEVICE'];
   else process.env['CLEO_NEXUS_DEVICE'] = savedDeviceFlag;
+  if (savedCleoHome === undefined) delete process.env['CLEO_HOME'];
+  else process.env['CLEO_HOME'] = savedCleoHome;
+  rmSync(pinnedHome, { recursive: true, force: true });
 });
 
 beforeEach(() => {
@@ -396,7 +406,7 @@ describe('login picker', () => {
 });
 
 describe('cleo logout', () => {
-  it('nexus (the default): revokes server-side with the bearer token and deletes locally', async () => {
+  it('nexus (the default): with CLEO_NEXUS_DEVICE=0, still signs out the 9.24 session server-side and deletes it locally', async () => {
     const cap = capture();
     try {
       await run(loginCommand, { provider: 'nexus', browser: false });
@@ -409,7 +419,13 @@ describe('cleo logout', () => {
     expect(signOut?.headers['authorization']).toBe(`Bearer ${TOKEN}`);
     const env = cap.envelope();
     expect(env.meta.operation).toBe('logout.run');
-    expect(env.data).toMatchObject({ removedLocally: true, revocation: 'revoked' });
+    // Logout always runs the device logout, which also ends a leftover 9.24
+    // session (T12904 review M2); the session outcome sits under `session`.
+    expect(env.data).toMatchObject({
+      action: 'sign-out',
+      devices: [],
+      session: { removedLocally: true, revocation: 'revoked' },
+    });
     const { FileNexusTokenStore } = await import('@cleocode/core/cloud/nexus-credentials.js');
     expect(await new FileNexusTokenStore().get(API)).toBeNull();
     expect(`${cap.out.join('')}${cap.err.join('')}`).not.toContain(TOKEN);

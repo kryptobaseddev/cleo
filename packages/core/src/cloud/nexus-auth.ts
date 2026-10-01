@@ -50,7 +50,7 @@ import {
   type NexusTokenStore,
   type SealedNexusSession,
 } from './nexus-credentials.js';
-import { isNexusDeviceEnabled, NexusDeviceStore, SealedNexusDevice } from './nexus-device.js';
+import { NexusDeviceStore, SealedNexusDevice } from './nexus-device.js';
 
 /** Environment override for the default API origin (e.g. staging). */
 export const NEXUS_API_URL_ENV = 'CLEO_NEXUS_API_URL';
@@ -119,9 +119,9 @@ export interface NexusStatusOptions {
   /** Time budget per live check. */
   timeoutMs?: number;
   /**
-   * Report device credentials (`nexus-device.json`) too; default
-   * {@link isNexusDeviceEnabled}. A device credential replaces any 9.24
-   * session row for its origin.
+   * Report device credentials (`nexus-device.json`) too; default `true`,
+   * whatever `CLEO_NEXUS_DEVICE` says. A device credential replaces the 9.24
+   * session row of the same user on its origin.
    */
   devices?: boolean;
   /** Device store; defaults to `<cleoHome>/nexus-device.json`. */
@@ -559,25 +559,57 @@ export async function getNexusAccountStatus(
   const store = opts.store ?? new FileNexusTokenStore();
   const only = opts.apiUrl !== undefined ? resolveNexusApiUrl(opts.apiUrl) : null;
   const checks: Promise<NexusAccountStatus>[] = [];
+  const extra: NexusAccountStatus[] = [];
+  /** `origin\u0000userId` pairs a device credential covers; a session of the same user is a leftover. */
   const covered = new Set<string>();
-  if (opts.devices ?? isNexusDeviceEnabled()) {
-    for (const d of await (opts.deviceStore ?? new NexusDeviceStore()).list()) {
-      if (!(d instanceof SealedNexusDevice) || (only !== null && d.origin !== only)) continue;
-      const bearer = d.pendingBearer() ?? d.currentBearer();
-      if (bearer === null) continue;
-      covered.add(d.origin);
-      checks.push(checkDevice(d, bearer, opts));
+  // Device credentials are always reported, whatever CLEO_NEXUS_DEVICE says:
+  // the switch picks the login flow, and hiding a live credential would let
+  // `CLEO_NEXUS_DEVICE=0` users believe they are signed out (review M2).
+  if (opts.devices ?? true) {
+    try {
+      for (const d of await (opts.deviceStore ?? new NexusDeviceStore()).list()) {
+        if (only !== null && d.origin !== only) continue;
+        if (!(d instanceof SealedNexusDevice)) {
+          extra.push({
+            apiUrl: d.origin,
+            state: 'unverified',
+            email: null,
+            organization: null,
+            expiresAt: null,
+            summary: `device entry for user ${d.userId} cannot be opened on this machine (${d.reason}); run \`cleo login nexus\` to enrol this machine`,
+          });
+          continue;
+        }
+        // Status reads only the current credential: probing a pending
+        // rotation credential would be its first use (§2.5), a write.
+        const bearer = d.currentBearer();
+        if (bearer === null) continue;
+        covered.add(`${d.origin}\u0000${d.userId}`);
+        checks.push(checkDevice(d, bearer, opts));
+      }
+    } catch (err) {
+      // A device file that cannot be read never hides the session rows (review M1).
+      extra.push({
+        apiUrl: only ?? resolveNexusApiUrl(),
+        state: 'unverified',
+        email: null,
+        organization: null,
+        expiresAt: null,
+        summary: `device credentials unreadable: ${err instanceof Error ? err.message : String(err)}`,
+      });
     }
   }
   for (const s of await store.list()) {
-    if ((only === null || s.apiUrl === only) && !covered.has(s.apiUrl)) {
-      checks.push(checkSession(s, opts));
-    }
+    if (only !== null && s.apiUrl !== only) continue;
+    // A leftover 9.24 session of the user a device credential already covers
+    // is not shown twice; a session of any other user is (review L3).
+    if (s.user !== null && covered.has(`${s.apiUrl}\u0000${s.user.id}`)) continue;
+    checks.push(checkSession(s, opts));
   }
-  if (checks.length === 0) {
+  const rows = [...(await Promise.all(checks)), ...extra];
+  if (rows.length === 0) {
     return [statusRow(only ?? resolveNexusApiUrl(), 'not-signed-in', null, null)];
   }
-  const rows = await Promise.all(checks);
   return rows.sort((a, b) => a.apiUrl.localeCompare(b.apiUrl));
 }
 

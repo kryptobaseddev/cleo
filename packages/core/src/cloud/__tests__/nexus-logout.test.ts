@@ -22,7 +22,10 @@ import { FileNexusTokenStore } from '../nexus-credentials.js';
 import {
   applyBeginSignOut,
   applyEnrolment,
+  applyForgetDevice,
   applyPendingRotation,
+  applyRetiredSettled,
+  isForgottenDevice,
   NexusDeviceEnrolment,
   type NexusDeviceEntry,
   type NexusDeviceKeys,
@@ -72,7 +75,7 @@ function enrolled(token: string, deviceId = uuidv7()): NexusDeviceEntry {
 // ---------- the scripted API ----------
 
 /** How the mock answers one bearer: a status and optional 401 reason, or a thrown network error. */
-type Answer = { status: number; reason?: string } | 'network';
+type Answer = { status: number; reason?: string; revokedReason?: string } | 'network';
 
 interface Call {
   method: string;
@@ -109,7 +112,14 @@ function mockApi(
             a.status === 401 ? 'E_UNAUTHORIZED' : a.status === 404 ? 'E_NOT_FOUND' : 'E_INTERNAL',
           message: 'no',
           requestId: 'r1',
-          ...(a.reason ? { details: { reason: a.reason } } : {}),
+          ...(a.reason
+            ? {
+                details: {
+                  reason: a.reason,
+                  ...(a.revokedReason ? { revokedReason: a.revokedReason } : {}),
+                },
+              }
+            : {}),
         },
       }),
       { status: a.status, headers: { 'content-type': 'application/json' } },
@@ -219,7 +229,7 @@ describe('cleo logout nexus (E9)', () => {
     }
   });
 
-  it('never reports done when every credential is refused as stale; the slot stays', async () => {
+  it('every credential dead: not confirmed, names the web remedy, and ends (never retried)', async () => {
     const c0 = mintToken();
     await seed(USER_A, enrolled(c0));
     const r = await run(
@@ -227,12 +237,15 @@ describe('cleo logout nexus (E9)', () => {
     );
 
     expect(r.devices[0]?.outcome).toBe('unconfirmed');
-    expect(r.warnings.join('\n')).toMatch(/not confirmed.*cleocode\.dev/);
+    expect(r.warnings.join('\n')).toMatch(/not confirmed.*none is live.*cleocode\.dev/);
     const after = await read(USER_A);
-    expect(after?.pendingSignOut?.credentials.map((c) => c.token)).toEqual([c0]);
+    expect(after?.pendingSignOut).toBeNull();
     expect(after?.current).toBeNull();
+    expect(after?.keys).not.toBeNull();
+    const api = mockApi(new Map());
+    await settleNexusDeviceEnds({ apiUrl: API, fetch: api.fetch, deviceStore: store });
+    expect(api.calls).toEqual([]);
   });
-
   it('offline: keeps pendingSignOut, then the next run retries and confirms', async () => {
     const c0 = mintToken();
     await seed(USER_A, enrolled(c0));
@@ -326,7 +339,7 @@ describe('cleo logout nexus --revoke (E10)', () => {
     expect(await read(USER_A)).toBeNull();
   });
 
-  it('401 device-signed-out on a revoke ends it: web revoke named, slot cleared, never retried', async () => {
+  it('401 device-signed-out on a revoke: forgets the device so no login re-activates it', async () => {
     const c0 = mintToken();
     const entry = enrolled(c0);
     await seed(USER_A, entry);
@@ -334,13 +347,11 @@ describe('cleo logout nexus --revoke (E10)', () => {
       mockApi(new Map([[c0, { status: 401, reason: 'device-signed-out' }]])).fetch,
       true,
     );
-    expect(signedOut.devices[0]).toMatchObject({ outcome: 'signed-out', removedLocally: false });
+    expect(signedOut.devices[0]).toMatchObject({ outcome: 'signed-out', removedLocally: true });
     expect(signedOut.warnings.join('\n')).toContain(
       `revoke device ${entry.deviceId} on cleocode.dev`,
     );
-    const after = await read(USER_A);
-    expect(after?.pendingRevoke).toBeNull();
-    expect(after?.keys).not.toBeNull();
+    expect(await read(USER_A)).toBeNull();
 
     const api = mockApi(new Map());
     const retry = await settleNexusDeviceEnds({
@@ -352,6 +363,37 @@ describe('cleo logout nexus --revoke (E10)', () => {
     expect(retry.devices).toEqual([]);
   });
 
+  it('a revoke whose credentials are all dead forgets the device and never blocks login', async () => {
+    const c0 = mintToken();
+    await seed(USER_A, enrolled(c0));
+    const r = await run(
+      mockApi(new Map([[c0, { status: 401, reason: 'credential-expired' }]])).fetch,
+      true,
+    );
+    expect(r.devices[0]).toMatchObject({ outcome: 'unconfirmed', removedLocally: true });
+    expect(await read(USER_A)).toBeNull();
+  });
+
+  it('401 credential-revoked with revokedReason proves the state (contract §4.0.4)', async () => {
+    const c0 = mintToken();
+    await seed(USER_A, enrolled(c0));
+    const r = await run(
+      mockApi(
+        new Map([[c0, { status: 401, reason: 'credential-revoked', revokedReason: 'revoked' }]]),
+      ).fetch,
+      true,
+    );
+    expect(r.devices[0]).toMatchObject({ outcome: 'confirmed', removedLocally: true });
+
+    const c1 = mintToken();
+    await seed(USER_B, enrolled(c1));
+    const s = await run(
+      mockApi(
+        new Map([[c1, { status: 401, reason: 'credential-revoked', revokedReason: 'signed-out' }]]),
+      ).fetch,
+    );
+    expect(s.devices[0]?.outcome).toBe('confirmed');
+  });
   it('401 device-revoked confirms a revoke and removes the entry', async () => {
     const c0 = mintToken();
     await seed(USER_A, enrolled(c0));
@@ -384,14 +426,149 @@ describe('cleo logout nexus --revoke (E10)', () => {
     expect(readFileSync(store.location, 'utf8')).toContain(USER_B);
   });
 
-  it('a signed-out device with no credential left warns instead of pretending', async () => {
+  it('--revoke on a signed-out device (no credential left) forgets it and names the web remedy', async () => {
     const c0 = mintToken();
-    await seed(USER_A, enrolled(c0));
+    const entry = enrolled(c0);
+    await seed(USER_A, entry);
     await run(mockApi(new Map([[c0, { status: 200 }]])).fetch);
     const api = mockApi(new Map());
     const r = await run(api.fetch, true);
     expect(api.calls).toEqual([]);
     expect(r.devices).toEqual([]);
-    expect(r.warnings.join('\n')).toMatch(/holds no credential.*revoke it on cleocode\.dev/);
+    expect(r.warnings.join('\n')).toMatch(/holds no credential.*forgot it.*cleocode\.dev/);
+    expect(await read(USER_A)).toBeNull();
+  });
+
+  it('a confirmed own revoke never drops an unsettled retired request (review HIGH-1)', async () => {
+    const old = mintToken();
+    const signingOut = applyBeginSignOut(enrolled(old));
+    const c1 = mintToken();
+    const moved = applyEnrolment(
+      signingOut,
+      new NexusDeviceEnrolment({
+        deviceId: uuidv7(),
+        keys: keys(),
+        credential: {
+          credentialId: uuidv7(),
+          token: c1,
+          profile: 'device',
+          scopes: [],
+          createdAt: new Date().toISOString(),
+        },
+      }),
+    );
+    await seed(USER_A, moved);
+    const api = mockApi(
+      new Map<string, Answer>([
+        [old, { status: 503 }],
+        [c1, { status: 200 }],
+      ]),
+    );
+    const r = await run(api.fetch, true);
+    // The retired request goes first; the server's silence stops the run.
+    expect(api.calls.map((c) => c.token)).toEqual([old]);
+    expect(r.devices.find((d) => d.retired)?.outcome).toBe('pending');
+    const kept = await read(USER_A);
+    expect(kept?.retired?.[0]?.credentials.map((c) => c.token)).toEqual([old]);
+    expect(kept?.pendingRevoke?.credentials.map((c) => c.token)).toEqual([c1]);
+
+    // Next run: the retired settles, then the own revoke; only then is the entry gone.
+    const ok = mockApi(
+      new Map<string, Answer>([
+        [old, { status: 200 }],
+        [c1, { status: 200 }],
+      ]),
+    );
+    const done = await settleNexusDeviceEnds({ apiUrl: API, fetch: ok.fetch, deviceStore: store });
+    expect(done.devices.map((d) => d.outcome)).toEqual(['confirmed', 'confirmed']);
+    expect(await read(USER_A)).toBeNull();
+  });
+
+  it('forgetting a device keeps open retired requests; an empty shell is deletable', () => {
+    const old = mintToken();
+    const moved = applyEnrolment(
+      applyBeginSignOut(enrolled(old)),
+      new NexusDeviceEnrolment({
+        deviceId: uuidv7(),
+        keys: keys(),
+        credential: {
+          credentialId: uuidv7(),
+          token: mintToken(),
+          profile: 'device',
+          scopes: [],
+          createdAt: new Date().toISOString(),
+        },
+      }),
+    );
+    const forgotten = applyForgetDevice(moved);
+    expect(forgotten.keys).toBeNull();
+    expect(forgotten.current).toBeNull();
+    expect(forgotten.retired?.length).toBe(1);
+    expect(isForgottenDevice(forgotten)).toBe(false);
+    const settled = applyRetiredSettled(forgotten, moved.retired?.[0]?.deviceId ?? '', 'sign-out');
+    expect(isForgottenDevice(settled)).toBe(true);
+  });
+
+  it('stops calling after the first unanswered request in a run (review MEDIUM-4)', async () => {
+    const a = mintToken();
+    const b = mintToken();
+    await seed(USER_A, enrolled(a));
+    await seed(USER_B, enrolled(b));
+    const api = mockApi(new Map(), 'network');
+    const r = await run(api.fetch);
+    expect(api.calls.length).toBe(1);
+    expect(r.devices.map((d) => d.outcome)).toEqual(['pending', 'pending']);
+    expect(r.warnings.join('\n')).toMatch(/1 more unsettled .* not sent/);
+  });
+
+  it('a slot changed in flight (a re-login) is reported, not passed off as settled (review LOW-7)', async () => {
+    const c0 = mintToken();
+    const entry = enrolled(c0);
+    await seed(USER_A, entry);
+    const fresh = mintToken();
+    const fetch: FetchLike = async (input, init) => {
+      // A login re-enrols the same device while E9 is in flight.
+      await store.update((tx) => {
+        const e = tx.get(API, USER_A);
+        if (e) {
+          tx.set(
+            API,
+            USER_A,
+            applyEnrolment(
+              e,
+              new NexusDeviceEnrolment({
+                deviceId: entry.deviceId,
+                keys: null,
+                credential: {
+                  credentialId: uuidv7(),
+                  token: fresh,
+                  profile: 'device',
+                  scopes: [],
+                  createdAt: new Date().toISOString(),
+                },
+              }),
+            ),
+          );
+        }
+      });
+      return mockApi(new Map([[c0, { status: 200 }]])).fetch(input, init);
+    };
+    const r = await run(fetch);
+    expect(r.warnings.join('\n')).toMatch(/changed while the request was in flight/);
+    expect((await read(USER_A))?.current?.token).toBe(fresh);
+  });
+
+  it('no result or warning ever carries a credential', async () => {
+    const a = mintToken();
+    const b = mintToken();
+    await seed(USER_A, applyPendingRotation(enrolled(a), b));
+    for (const answer of [
+      { status: 503 },
+      { status: 401, reason: 'invalid' },
+      'network',
+    ] as Answer[]) {
+      const r = await run(mockApi(new Map(), answer).fetch, true);
+      expect(JSON.stringify(r)).not.toMatch(/cnx_d1_/);
+    }
   });
 });
