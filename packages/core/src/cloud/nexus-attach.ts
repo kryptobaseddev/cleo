@@ -102,6 +102,33 @@ export function canonicalReplicaBinder(projectRoot: string): ProjectReplicaBinde
   };
 }
 
+/**
+ * The binder over the global store (`<cleoHome>/cleo.db`): binds its
+ * global-scope replica, the one the account's `home:` stream knows this
+ * device's main brain by (T12952).
+ *
+ * @returns A binder for {@link attachHomeReplica}.
+ */
+export function canonicalGlobalReplicaBinder(): ProjectReplicaBinder {
+  const open = async () => {
+    const { openDualScopeDb, getDualScopeNativeDb } = await import('../store/dual-scope-db.js');
+    const handle = await openDualScopeDb('global');
+    return { db: getDualScopeNativeDb(handle), dbPath: handle.dbPath };
+  };
+  return {
+    async ensure() {
+      const { ensureGlobalReplica } = await import('../store/sync/replica.js');
+      const { db, dbPath } = await open();
+      return ensureGlobalReplica(db, { dbPath, mode: 'live' });
+    },
+    async rebindReenrolled() {
+      const { rebindReplica } = await import('../store/sync/replica.js');
+      const { db, dbPath } = await open();
+      return rebindReplica(db, { dbPath, scope: 'global', mode: 'live' }, 'device-reenrolled');
+    },
+  };
+}
+
 /** True for the 409 the contract answers when this machine's own revoked device holds the replica. */
 function isReenrolledHolder(err: unknown): boolean {
   return (
@@ -181,7 +208,83 @@ async function presenceBody(opts: AttachProjectReplicaOptions, replicaId: string
 export async function attachProjectReplica(
   opts: AttachProjectReplicaOptions,
 ): Promise<{ replica: NexusReplicaAttachment; warnings: string[] }> {
-  const binder = opts.binder ?? canonicalReplicaBinder(opts.projectRoot);
+  return attachReplicaAt(
+    {
+      ...opts,
+      binder: opts.binder ?? canonicalReplicaBinder(opts.projectRoot),
+      what: "this project's store",
+      relink: '`cleo project link`',
+    },
+    `/v1/projects/${encodeURIComponent(opts.projectId)}/replicas`,
+    (replicaId) => presenceBody(opts, replicaId),
+  );
+}
+
+/** Options for {@link attachHomeReplica}. */
+export interface AttachHomeReplicaOptions
+  extends Omit<AttachProjectReplicaOptions, 'projectId' | 'projectRoot'> {}
+
+/**
+ * Attach this device's global store (the main brain) to the account's
+ * `home:` stream and report its presence (T12952; cleo-nexus T084): the
+ * same rules as {@link attachProjectReplica}, on `/v1/account/home/replicas`.
+ * Presence carries no git block (the global store is not a repository).
+ *
+ * @param opts - Origin, credential, ids and test overrides.
+ * @returns The attachment and any warnings.
+ * @throws {NexusAccountError} `E_NEXUS_REPLICA_COPIED`, or an API error.
+ */
+export async function attachHomeReplica(
+  opts: AttachHomeReplicaOptions,
+): Promise<{ replica: NexusReplicaAttachment; warnings: string[] }> {
+  return attachReplicaAt(
+    {
+      ...opts,
+      binder: opts.binder ?? canonicalGlobalReplicaBinder(),
+      what: 'your global CLEO store',
+      relink: '`cleo login nexus`',
+    },
+    '/v1/account/home/replicas',
+    (replicaId) =>
+      toReplicaPresence(
+        {
+          deviceId: opts.deviceId,
+          replicaId,
+          hostname: null,
+          current: true,
+          path: '',
+          state: 'live',
+          lastSeen: (opts.now ?? (() => new Date()))().toISOString(),
+          git: null,
+          flags: [],
+        },
+        {
+          deviceId: opts.deviceId,
+          hostname: null,
+          os: null,
+          arch: null,
+          cleoVersion: opts.cliVersion,
+          lastHeartbeatAt: null,
+          heartbeatStale: false,
+          current: true,
+        },
+      ),
+  );
+}
+
+/** Shared attach flow over one replicas collection path. */
+async function attachReplicaAt(
+  opts: Omit<AttachProjectReplicaOptions, 'projectId' | 'projectRoot'> & {
+    binder: ProjectReplicaBinder;
+    /** What the store is called in messages. */
+    what: string;
+    /** The command that re-runs the attach. */
+    relink: string;
+  },
+  path: string,
+  presenceOf: (replicaId: string) => unknown,
+): Promise<{ replica: NexusReplicaAttachment; warnings: string[] }> {
+  const binder = opts.binder;
   const timeoutMs = opts.timeoutMs ?? NEXUS_ATTACH_TIMEOUT_MS;
   const base = opts.fetch ?? ((input: string, init?: RequestInit) => globalThis.fetch(input, init));
   const http = new Http({
@@ -191,7 +294,6 @@ export async function attachProjectReplica(
     fetch: (input, init) => base(input, { ...init, signal: AbortSignal.timeout(timeoutMs) }),
     maxAttempts: 2,
   });
-  const path = `/v1/projects/${encodeURIComponent(opts.projectId)}/replicas`;
   const attach = (replicaId: string) =>
     http.request('POST', path, attachAnswer, { deviceId: opts.deviceId, replicaId });
 
@@ -215,8 +317,10 @@ export async function attachProjectReplica(
         // one remedy that fixes either: a new replica id.
         throw new NexusAccountError(
           'E_NEXUS_REPLICA_COPIED',
-          `this project's store (replica ${replicaId}) is already attached from another Nexus device: either this machine was re-enrolled as a new device (after a revoke), or the store was copied from another machine`,
-          'run `cleo project link --rebind` to give this copy a new replica id and attach it; if another machine holds the original, it keeps its own',
+          `${opts.what} (replica ${replicaId}) is already attached from another Nexus device: either this machine was re-enrolled as a new device (after a revoke), or the store was copied from another machine`,
+          opts.relink === '`cleo project link`'
+            ? 'run `cleo project link --rebind` to give this copy a new replica id and attach it; if another machine holds the original, it keeps its own'
+            : 'revoke the stale device on cleocode.dev, then run `cleo login nexus` again',
         );
       }
       throw err;
@@ -230,7 +334,7 @@ export async function attachProjectReplica(
       throw new NexusAccountError(
         'E_NEXUS_REQUEST_FAILED',
         `this store was rebound from replica ${rebound.previousReplicaId} to ${replicaId} (this machine was re-enrolled), but attaching the new id failed: ${second instanceof Error ? second.message : String(second)}`,
-        're-run `cleo project link` to finish the attach',
+        `re-run ${opts.relink} to finish the attach`,
       );
     }
   }
@@ -238,7 +342,7 @@ export async function attachProjectReplica(
   const warnings: string[] = [];
   let presenceAt: string | null = null;
   try {
-    const body = ReplicaPresence.parse(await presenceBody(opts, replicaId));
+    const body = ReplicaPresence.parse(await presenceOf(replicaId));
     const answer = await http.request(
       'PUT',
       `${path}/${encodeURIComponent(replicaId)}/presence`,
@@ -248,7 +352,7 @@ export async function attachProjectReplica(
     presenceAt = answer.presenceAt;
   } catch (err) {
     warnings.push(
-      `the project is attached, but its presence report failed (${err instanceof Error ? err.message : String(err)}); re-run \`cleo project link\` to send it`,
+      `${opts.what} is attached, but its presence report failed (${err instanceof Error ? err.message : String(err)}); re-run ${opts.relink} to send it`,
     );
   }
   return {

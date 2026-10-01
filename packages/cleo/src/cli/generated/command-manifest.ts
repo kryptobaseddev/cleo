@@ -219,7 +219,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'cloudCommand',
     name: 'cloud',
     description:
-      'Cleo Nexus reads with the device credential (GET only; getting the credential may upgrade a 9.24 session or retry unsettled logouts): status (one-call verification), whoami, devices, projects [show].',
+      'Cleo Nexus with the device credential: status (one-call verification), whoami, devices, projects [show], activity; the encrypted vault: push, pull, restore, verify, vault, lease release.',
     load: async () => (await import('../commands/cloud.js')).cloudCommand as CommandDef,
   },
   {

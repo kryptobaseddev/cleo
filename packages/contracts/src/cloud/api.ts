@@ -360,8 +360,10 @@ export type BlobDownload = z.infer<typeof BlobDownload>;
  * Roles that must run on exactly one replica per stream (cleo-dev review R4). Consolidation
  * writes (invalid_at, citation_count), sentient proposals and checkpoint authoring would otherwise
  * produce op storms or duplicates. Ordinary journal appends are not leased, because merge handles concurrency.
+ * `writer` is the CLI's single-writer lease (T083): the one replica that pushes a stream while concurrent
+ * writers are not supported.
  */
-export const LeaseRole = z.enum(['consolidator', 'sentient', 'checkpointer']);
+export const LeaseRole = z.enum(['consolidator', 'sentient', 'checkpointer', 'writer']);
 export type LeaseRole = z.infer<typeof LeaseRole>;
 
 export const AcquireLeaseRequest = z.object({
@@ -382,6 +384,22 @@ export const Lease = z.object({
   forkedFromReplicaId: ReplicaId.nullable(),
 });
 export type Lease = z.infer<typeof Lease>;
+
+/** A live lease as `GET /v1/streams/:streamId/leases` lists it (T083). */
+export const ListedLease = Lease.extend({
+  /**
+   * The device holding the lease: the device that acquired it, else the device the replica is attached
+   * from (project streams). Null when neither is known (a lease from before this was recorded).
+   */
+  deviceId: DeviceId.nullable(),
+  /** When the current holder took the lease (a renewal keeps it). */
+  acquiredAt: z.iso.datetime(),
+});
+export type ListedLease = z.infer<typeof ListedLease>;
+
+/** `GET /v1/streams/:streamId/leases`: the stream's live leases, by role. Expired leases are omitted. */
+export const ListLeasesResult = z.object({ leases: z.array(ListedLease) });
+export type ListLeasesResult = z.infer<typeof ListLeasesResult>;
 
 // ---------- keys (E2E; the server stores wrapped keys only) ----------
 
@@ -444,6 +462,53 @@ export type PutDeviceWrappedKeyRequest = z.infer<typeof PutDeviceWrappedKeyReque
 /** What the server returns for `GET /v1/devices/:deviceId/key`. */
 export const DeviceKeyGrant = PutDeviceWrappedKeyRequest.extend({ deviceId: DeviceId });
 export type DeviceKeyGrant = z.infer<typeof DeviceKeyGrant>;
+
+// ---------- account key escrow (T082) ----------
+
+/** Unpadded base64url (RFC 4648 §5). */
+const Base64Url = z.string().regex(/^[A-Za-z0-9_-]*$/, 'expected unpadded base64url');
+
+/** Exactly 32 bytes as unpadded base64url: 43 characters, the last carrying 2 bits of padding. */
+const Key32Base64Url = z
+  .string()
+  .regex(/^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/, 'expected 32 bytes as unpadded base64url');
+
+/**
+ * `PUT /v1/account/keys/escrow`: a device that holds the master key escrows it with the server, so a new
+ * device needs only `cleo login` and its browser approval to receive it (owner decision, T082). The server
+ * stores it encrypted under a server-held key and hands it out only sealed to an active device of the account.
+ */
+export const PutKeyEscrowRequest = z.object({
+  /** The user master key, in clear over TLS: 32 bytes. */
+  masterKey: Key32Base64Url,
+  keyVersion: KeyVersion,
+  /** masterKeyVerifier(masterKey). The server recomputes it and refuses a mismatch. */
+  masterKeyVerifier: Sha256Hex,
+});
+export type PutKeyEscrowRequest = z.infer<typeof PutKeyEscrowRequest>;
+
+/** What the server returns for `PUT /v1/account/keys/escrow`: the stored escrow's identity, never the key. */
+export const PutKeyEscrowResult = z.object({
+  keyVersion: KeyVersion,
+  masterKeyVerifier: Sha256Hex,
+  updatedAt: z.iso.datetime(),
+});
+export type PutKeyEscrowResult = z.infer<typeof PutKeyEscrowResult>;
+
+/**
+ * What the server returns for `GET /v1/account/keys/escrow`: the master key sealed (sealTo) to the calling
+ * device's X25519 key, under the context `cleo-nexus/escrow/v1:<userId>:<deviceId>`. The device opens it
+ * and checks it against `masterKeyVerifier` before use.
+ */
+export const KeyEscrowGrant = z.object({
+  sealedMasterKey: Base64Url,
+  keyVersion: KeyVersion,
+  masterKeyVerifier: Sha256Hex,
+  /** The device the key is sealed to: the calling device. */
+  deviceId: DeviceId,
+  updatedAt: z.iso.datetime(),
+});
+export type KeyEscrowGrant = z.infer<typeof KeyEscrowGrant>;
 
 /**
  * Where a revoked signing key stops being trusted: per replica, the last replicaSeq it may have signed,

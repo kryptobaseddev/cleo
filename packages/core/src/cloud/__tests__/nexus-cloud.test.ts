@@ -51,6 +51,9 @@ const REMOTE_PROJECT_ID = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a99';
 const REPLICA = '0198a1b2-0000-7000-8000-0000000000e1';
 const ORG = '0198a1b2-0000-7000-8000-0000000000f1';
 const NOW = '2026-09-30T12:00:00.000Z';
+const GLOBAL_REPLICA = '0198a1b2-0000-7000-8000-0000000000e7';
+const OTHER_GLOBAL_REPLICA = '0198a1b2-0000-7000-8000-0000000000e8';
+const THIRD_GLOBAL_REPLICA = '0198a1b2-0000-7000-8000-0000000000e9';
 
 function json(status: number, body: object): Response {
   return new Response(JSON.stringify(body), {
@@ -684,6 +687,74 @@ describe('cloud status (E3, §4.4)', () => {
     });
     const result = await getNexusCloudStatus({ ...opts(server.fetch), projectRoot: outside });
     expect(result.verdict).toBe('not-registered');
+  });
+
+  it('adds the global store: attached, its replica and the devices with one', async () => {
+    await signIn();
+    linkProject();
+    bindReplica();
+    const server = mockServer({
+      '/v1/status': () => ok(remote),
+      '/v1/account/home/replicas': () =>
+        ok({
+          replicas: [
+            { replicaId: GLOBAL_REPLICA, deviceId: DEVICE, presenceAt: NOW, attachedAt: NOW },
+            { replicaId: OTHER_GLOBAL_REPLICA, deviceId: OTHER_DEVICE, presenceAt: null },
+            { replicaId: THIRD_GLOBAL_REPLICA, deviceId: OTHER_DEVICE, presenceAt: null },
+          ],
+        }),
+    });
+    const result = await getNexusCloudStatus(opts(server.fetch));
+    expect(result.verdict).toBe('ok');
+    expect(result.global).toEqual({
+      supported: true,
+      attached: true,
+      replicaId: GLOBAL_REPLICA,
+      presenceAt: NOW,
+      devices: 2,
+    });
+    expect(result.warnings.map((w) => w.code)).not.toContain('W_NEXUS_GLOBAL_NOT_ATTACHED');
+    expect(server.calls.every((c) => c.method === 'GET')).toBe(true);
+  });
+
+  it("warns W_NEXUS_GLOBAL_NOT_ATTACHED when this device's global store is not listed", async () => {
+    await signIn();
+    linkProject();
+    bindReplica();
+    const server = mockServer({
+      '/v1/status': () => ok(remote),
+      '/v1/account/home/replicas': () =>
+        ok({ replicas: [{ replicaId: OTHER_GLOBAL_REPLICA, deviceId: OTHER_DEVICE }] }),
+    });
+    const result = await getNexusCloudStatus(opts(server.fetch));
+    expect(result.global).toEqual({
+      supported: true,
+      attached: false,
+      replicaId: null,
+      presenceAt: null,
+      devices: 1,
+    });
+    const w = result.warnings.find((x) => x.code === 'W_NEXUS_GLOBAL_NOT_ATTACHED');
+    expect(w?.message).toContain('cleo login nexus');
+    // The global store does not change the project verdict.
+    expect(result.verdict).toBe('ok');
+  });
+
+  it('reports the global store as unsupported when the server answers 404', async () => {
+    await signIn();
+    linkProject();
+    bindReplica();
+    const server = mockServer({ '/v1/status': () => ok(remote) });
+    const result = await getNexusCloudStatus(opts(server.fetch));
+    expect(result.global).toEqual({
+      supported: false,
+      attached: false,
+      replicaId: null,
+      presenceAt: null,
+      devices: 0,
+    });
+    expect(result.warnings.map((w) => w.code)).not.toContain('W_NEXUS_GLOBAL_NOT_ATTACHED');
+    expect(result.verdict).toBe('ok');
   });
 });
 

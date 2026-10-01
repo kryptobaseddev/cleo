@@ -69,6 +69,23 @@ export const NEXUS_ACCOUNT_ERROR_CODES = [
   'E_NEXUS_DEVICE_REQUIRED',
   /** `.cleo/nexus-link.json` is in a format this CLEO cannot update (written by a newer CLEO). */
   'E_NEXUS_LINK_FILE_UNSUPPORTED',
+  // Cloud vault (encrypted snapshots, T12336 / T12337 / T12338).
+  /** Another device holds this stream's write lease (`--force` takes it and labels a fork). */
+  'E_NEXUS_VAULT_LEASE_HELD',
+  /** Another device pushed a newer snapshot than this machine last pushed or restored: pull first. */
+  'E_NEXUS_VAULT_BEHIND',
+  /** Local data changed since the last push or restore; pulling would overwrite it. */
+  'E_NEXUS_VAULT_LOCAL_CHANGES',
+  /** A snapshot's counts or hashes do not match its manifest; nothing was activated. */
+  'E_NEXUS_VAULT_VERIFY_FAILED',
+  /** The account encryption key could not be obtained for this device. */
+  'E_NEXUS_VAULT_KEY_UNAVAILABLE',
+  /** The project is not linked to Cleo Nexus (`cleo project link`). */
+  'E_NEXUS_VAULT_NOT_LINKED',
+  /** The cloud holds no snapshot to restore. */
+  'E_NEXUS_VAULT_EMPTY',
+  /** The server refused the snapshot (lineage or regression check). */
+  'E_NEXUS_VAULT_REFUSED',
 ] as const;
 
 /** One of {@link NEXUS_ACCOUNT_ERROR_CODES}. */

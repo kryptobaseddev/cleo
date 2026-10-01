@@ -155,6 +155,18 @@ export function resolveNexusDevicePath(): string {
 }
 
 /**
+ * Path of this machine's cloud vault state — `<cleoHome>/nexus-vault.json`.
+ *
+ * Machine-local and secret-free: per stream, the snapshot this machine last
+ * pushed or restored and the signer trust state it has learned (T12336).
+ *
+ * @returns Absolute path of the vault state file.
+ */
+export function resolveNexusVaultStatePath(): string {
+  return join(getCleoHome(), 'nexus-vault.json');
+}
+
+/**
  * Path of this device's sync replica registry —
  * `<cleoStateDir>/sync/replicas-<deviceId>.json`.
  *

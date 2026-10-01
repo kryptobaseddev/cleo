@@ -169,6 +169,25 @@ export async function runNexusLogin(
         readOnly,
         ...(name !== undefined ? { name } : {}),
       });
+      if (!readOnly) {
+        // T12952: login is the only setup step, so it also attaches this
+        // device's global store (the main brain) to the account.
+        const { attachNexusGlobalStore } = await import(
+          /* webpackIgnore: true */ '@cleocode/core/cloud/nexus-home.js'
+        );
+        try {
+          const global = await attachNexusGlobalStore({ apiUrl: hooks.apiUrl });
+          result = { ...result, warnings: [...result.warnings, ...global.warnings] };
+        } catch (err) {
+          result = {
+            ...result,
+            warnings: [
+              ...result.warnings,
+              `signed in, but attaching this device's global store failed (${err instanceof Error ? err.message : String(err)}); run \`cleo login nexus\` again`,
+            ],
+          };
+        }
+      }
     } else {
       if (name !== undefined) {
         process.stderr.write(

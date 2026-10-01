@@ -167,6 +167,10 @@ export const GLOBAL_HOME_RULES: SectionRules = {
     // suffix rule above.
     'nexus-device.json':
       'Nexus device credential and device keys; device-local, never exported, even encrypted. Run `cleo login nexus` on the target machine to enrol it as its own device',
+    // Machine-local cloud vault bookkeeping (T12336): which snapshot each local
+    // store last synced, and the signer trust this machine learned.
+    'nexus-vault.json':
+      'cloud vault state; machine-local (which snapshot each store on this machine last synced)',
   },
   secretRemedy: (relPath) => {
     const explicit = GLOBAL_SECRETS[relPath];

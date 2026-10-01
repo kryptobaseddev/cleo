@@ -432,6 +432,32 @@ export function ensureProjectReplica(
   };
 }
 
+/**
+ * {@link ensureProjectReplica} for the global store (`<cleoHome>/cleo.db`):
+ * bind it to one global-scope replica, with no `sync.*` flag set (T12952).
+ * The replica is what the account's `home:` stream knows this device's
+ * global store (the main brain) by.
+ *
+ * @param db - The canonical global store handle (opened through the chokepoint).
+ * @param opts - Store path and overrides; `scope` is always `global`.
+ * @returns The active replica id, and the retired id when this call rebound a copy.
+ * @throws {Error} With `mode: 'off'`.
+ */
+export function ensureGlobalReplica(
+  db: DatabaseSync,
+  opts: Omit<SyncOpenOptions, 'scope'>,
+): { replicaId: string; reboundFrom?: string } {
+  if (opts.mode === 'off') throw new Error('ensureGlobalReplica needs a live or test open');
+  const result = bindPass(db, { ...opts, scope: 'global' });
+  if (result.status !== 'bound' && result.status !== 'rebound') {
+    throw new Error(`ensureGlobalReplica: unexpected status ${result.status}`);
+  }
+  return {
+    replicaId: result.replicaId,
+    ...(result.previousReplicaId ? { reboundFrom: result.previousReplicaId } : {}),
+  };
+}
+
 /** The bind half of {@link syncOpenPass}: everything after the flag check. */
 function bindPass(db: DatabaseSync, opts: SyncOpenOptions): SyncOpenResult {
   const now = opts.now?.() ?? new Date();

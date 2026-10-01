@@ -457,8 +457,24 @@ export interface CloudStatusResult {
   local: CloudStatusLocal;
   /** E3's answer (or the same shape composed from E2/E14/E15), or `null` when not signed in. */
   remote: NexusCloudStatus | null;
+  /** This device's global store on the account's home stream (T12952); absent when not signed in. */
+  global?: CloudStatusGlobalStore;
   /** Non-fatal problems. */
   warnings: CloudWarning[];
+}
+
+/** `cleo cloud status`: this device's global store (the main brain) on Cleo Nexus (T12952). */
+export interface CloudStatusGlobalStore {
+  /** The server lists home-stream replicas. */
+  supported: boolean;
+  /** This device's global store is attached. */
+  attached: boolean;
+  /** Its replica id. */
+  replicaId: string | null;
+  /** When its presence was last reported. */
+  presenceAt: string | null;
+  /** Devices with a global store attached to the account. */
+  devices: number;
 }
 
 /** `details` of the `E_NEXUS_UNREACHABLE` failure of `cleo cloud status` (§4.4 "Offline"). */

@@ -50,6 +50,7 @@ export {
   resolveLegacyCleoDir,
   resolveNexusCredentialsPath,
   resolveNexusDevicePath,
+  resolveNexusVaultStatePath,
   resolveProjectByCwd,
   resolveStableDeviceIdPath,
   resolveSyncReplicaRegistryPath,

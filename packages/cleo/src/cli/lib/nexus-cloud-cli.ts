@@ -24,7 +24,7 @@ import { emitNexusResult, failNexus, nexusApiUrlArg } from './nexus-account-cli.
 type Args = Readonly<Record<string, unknown>>;
 
 /** A non-empty string flag, or `undefined`. */
-function stringArg(args: Args, name: string): string | undefined {
+export function stringArg(args: Args, name: string): string | undefined {
   const raw = args[name];
   return typeof raw === 'string' && raw !== '' ? raw : undefined;
 }
@@ -81,7 +81,7 @@ export function cloudStatusSummary(r: CloudStatusResult): string {
  * @param call - The core call.
  * @param summary - Human line for the result.
  */
-async function runCloudRead<R extends { warnings: CloudWarning[] }>(
+export async function runCloudRead<R extends { warnings: CloudWarning[] }>(
   operation: string,
   call: () => Promise<R>,
   summary: (r: R) => string,

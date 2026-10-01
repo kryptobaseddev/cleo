@@ -113,6 +113,13 @@ export interface ImportPortableBundleInput {
     projectId: string | null,
     newRoot: string,
   ) => Promise<NonNullable<PortableImportSectionResult['registry']>>;
+  /**
+   * Called after the staged bundle is extracted and its integrity verified,
+   * before anything is placed (T12336). A throw aborts the import with
+   * nothing activated: the cloud vault checks the snapshot's per-table counts
+   * and hashes here.
+   */
+  onStaged?: (extractDir: string, manifest: PortableBundleManifest) => void | Promise<void>;
 }
 
 /**
@@ -598,6 +605,7 @@ export async function importPortableBundle(
 
     // ----- 2. verify ------------------------------------------------------
     const manifest = await verifyStaged(extractDir);
+    if (input.onStaged) await input.onStaged(extractDir, manifest);
 
     // ----- 3. plan + pre-check -------------------------------------------
     const plans = planPlacements(manifest, input, cleoHome, configHome);
