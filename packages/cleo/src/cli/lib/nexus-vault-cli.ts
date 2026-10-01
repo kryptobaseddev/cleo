@@ -47,7 +47,7 @@ function common(args: Args, operation: string) {
 const who = (name: string | null, id: string) => name ?? id;
 
 /**
- * `cleo cloud push [--scope] [--force]`.
+ * `cleo cloud push [--scope] [--force] [--hold]`.
  *
  * @param args - Parsed args.
  */
@@ -58,6 +58,7 @@ export async function runCloudPush(args: Args): Promise<void> {
       (await vaultModule()).pushNexusVault({
         ...common(args, 'cloud.push'),
         force: args['force'] === true,
+        hold: args['hold'] === true,
       }),
     (r) =>
       r.status === 'up-to-date'

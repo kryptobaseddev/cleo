@@ -126,7 +126,7 @@ const pushSubCommand = defineCommand({
   meta: {
     name: 'push',
     description:
-      'Back up this store to Cleo Nexus as an end-to-end encrypted snapshot (the cloud sees only ciphertext plus per-table counts and keyed hashes). Takes the write lease; refused when another device holds it or pushed since this machine last synced (pull first). --force takes the lease and pushes anyway as a labelled fork.',
+      'Back up this store to Cleo Nexus as an encrypted snapshot; the key is escrowed on Cleo Nexus (released only to your approved devices), so this is encrypted at rest, not zero-knowledge. The server also stores per-table row counts and keyed hashes in plaintext. Refused when another device holds the write lease or pushed since this machine last synced (pull first); --force takes the lease and pushes anyway as a labelled fork. The lease is released when the push ends unless --hold.',
   },
   args: {
     scope: SCOPE_ARG,
@@ -134,6 +134,11 @@ const pushSubCommand = defineCommand({
       type: 'boolean',
       description:
         'Take the lease from another device / push over a newer snapshot (a labelled fork).',
+    },
+    hold: {
+      type: 'boolean',
+      description:
+        'Keep the write lease after the push (another device cannot push until it expires or `cleo cloud lease release`).',
     },
     'api-url': NEXUS_API_URL_ARG,
     json: JSON_ARG,

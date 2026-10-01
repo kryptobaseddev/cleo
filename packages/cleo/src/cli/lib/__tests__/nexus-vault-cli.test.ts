@@ -134,14 +134,15 @@ afterEach(() => {
 const opts = (fn: ReturnType<typeof vi.fn>) => fn.mock.calls[0]?.[0] as Record<string, unknown>;
 
 describe('flags reach the core calls', () => {
-  it('push passes scope, force and the API URL', async () => {
-    await runCloudPush({ 'api-url': API, scope: 'global', force: true });
-    expect(opts(pushNexusVault)).toEqual({ apiUrl: API, scope: 'global', force: true });
+  it('push passes scope, force, hold and the API URL', async () => {
+    await runCloudPush({ 'api-url': API, scope: 'global', force: true, hold: true });
+    expect(opts(pushNexusVault)).toEqual({ apiUrl: API, scope: 'global', force: true, hold: true });
     await runCloudPush({});
     expect(pushNexusVault.mock.calls[1]?.[0]).toEqual({
       apiUrl: undefined,
       scope: 'project',
       force: false,
+      hold: false,
     });
     expect(written()).toContain('cp-1');
   });
@@ -232,13 +233,27 @@ describe('invalid input', () => {
     expect(releaseNexusVaultLease).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['E_NEXUS_VAULT_LEASE_HELD', 7],
+    ['E_NEXUS_VAULT_STORE_BUSY', 7],
+    ['E_NEXUS_VAULT_BEHIND', 23],
+    ['E_NEXUS_VAULT_LOCAL_CHANGES', 21],
+    ['E_NEXUS_VAULT_VERIFY_FAILED', 20],
+    ['E_NEXUS_VAULT_REFUSED', 1],
+  ])('the refusal %s exits %i (T12976)', async (code, exitCode) => {
+    pushNexusVault.mockRejectedValueOnce(Object.assign(new Error('refused'), { code }));
+    await expect(runCloudPush({})).rejects.toThrow(/^exit:/);
+    expect(exits).toEqual([exitCode]);
+    expect(written()).toContain(code);
+  });
+
   it('a core failure exits 1 with its code', async () => {
     pushNexusVault.mockRejectedValueOnce(
-      Object.assign(new Error('another device pushed'), { code: 'E_NEXUS_VAULT_BEHIND' }),
+      Object.assign(new Error('server said no'), { code: 'E_NEXUS_REQUEST_FAILED' }),
     );
     await expect(runCloudPush({})).rejects.toThrow(/^exit:/);
     expect(exits).toEqual([1]);
-    expect(written()).toContain('E_NEXUS_VAULT_BEHIND');
+    expect(written()).toContain('E_NEXUS_REQUEST_FAILED');
   });
 });
 
