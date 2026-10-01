@@ -56,13 +56,15 @@
  *   keys of files changed against the base are judged stale, so two shrinking
  *   PRs merge cleanly; and every key the baseline added or raised against the
  *   base's baseline (`git show`) must be justified: either listed in the
- *   baseline's `audited` map with a `T####` reason that is new or changed
- *   against the base's `audited` (an inherited audit justifies nothing new),
+ *   baseline's `audited` map as `{ "reason": "T#### …", "count": n }` whose
+ *   count covers the new count and rose against the base's audited count
+ *   (an inherited or re-worded audit justifies nothing new),
  *   or net-zero for its code over the changed files (the sites already
  *   existed at the base: a move between files, or a module newly reachable
  *   through a new import). The base side counts only sites that were on a
- *   write path at the base (the base tree is scanned too), so deleting or
- *   trimming a never-baselined file earns no credit.
+ *   write path at the base (the base tree is scanned too) and that the
+ *   base's baseline paid for, so deleting or trimming a never-baselined
+ *   file earns no credit.
  *
  * `--update-baseline` rewrites the baseline under the same rule: it refuses an
  * unjustified add or raise unless `--seed` is passed (pass `--base <ref>` so
@@ -1016,17 +1018,32 @@ export function compareBaseline(counts, baseline, opts = {}) {
 }
 
 /**
+ * The count an `audited` entry approves, or `null` when it approves nothing:
+ * an entry is `{ reason, count }` with a `T####` in the reason and a
+ * non-negative integer count. The legacy string form approves nothing new.
+ *
+ * @param {string | { reason?: string, count?: number } | undefined} entry
+ * @returns {number | null}
+ */
+export function auditedCount(entry) {
+  if (!entry || typeof entry !== 'object') return null;
+  if (!/\bT\d+\b/.test(String(entry.reason ?? ''))) return null;
+  return Number.isInteger(entry.count) && entry.count >= 0 ? entry.count : null;
+}
+
+/**
  * Keys a new baseline adds or raises against the base baseline that are not
  * justified. A raise above the untagged sites that exist (`why.counts`) is
- * never justified; otherwise a raise is justified when the key is audited
- * (`T####` reason) or when its code is net-zero over the changed files
- * (`netDelta[code] <= 0`). Given `why.baseAudited` (PR mode), only an audit
- * that is new or changed against the base baseline justifies a raise: an
- * audit inherited from the base already paid for the base's count (T12954).
+ * never justified; otherwise a raise to `n` is justified when the key's
+ * audit approves at least `n` (`auditedCount`) or when its code is net-zero
+ * over the changed files (`netDelta[code] <= 0`). Given `why.baseAudited`
+ * (PR mode), the audited count must also have risen against the base's
+ * (absent or legacy at the base: the base's own count), so an audit
+ * inherited from the base, or re-worded, justifies nothing new (T12954).
  *
  * @param {Record<string, number>} next
  * @param {Record<string, number> | null} base - `null`: no base baseline (seeding).
- * @param {{ audited?: Record<string, string>, baseAudited?: Record<string, string>, netDelta?: Record<string, number>, counts?: Record<string, number> }} why
+ * @param {{ audited?: Record<string, unknown>, baseAudited?: Record<string, unknown>, netDelta?: Record<string, number>, counts?: Record<string, number> }} why
  * @returns {string[]}
  */
 export function unjustifiedRaises(next, base, why = {}) {
@@ -1041,8 +1058,9 @@ export function unjustifiedRaises(next, base, why = {}) {
       out.push(`${k} (${before} -> ${n}, but only ${why.counts[k] ?? 0} untagged site(s) exist)`);
       continue;
     }
-    const audit = why.audited?.[k];
-    if (audit && /\bT\d+\b/.test(audit) && why.baseAudited?.[k] !== audit) continue;
+    const approved = auditedCount(why.audited?.[k]);
+    const floor = why.baseAudited ? (auditedCount(why.baseAudited[k]) ?? before) : -1;
+    if (approved !== null && approved >= n && approved > floor) continue;
     if (why.netDelta && (why.netDelta[keyCode(k)] ?? 0) <= 0) continue;
     out.push(`${k} (${before} -> ${n})`);
   }
@@ -1056,8 +1074,11 @@ export function unjustifiedRaises(next, base, why = {}) {
  * write path at the base (`baseWritePath`): a site that was never baselined
  * earns no credit (T12953). Per changed file:
  *
- * - on both write paths: head minus base (a move or rename nets to zero);
- * - on the base write path only (deleted, or no longer reachable): minus base;
+ * - on the base write path (a move, rename or deletion nets to zero): head
+ *   minus base, where a loss earns credit only for base sites the base
+ *   baseline paid for (`baseBaseline[file :: code]`): the base baseline is
+ *   the record of what was paid, whatever the base scan (run with the head's
+ *   table classification) finds;
  * - on the head write path only (new, or newly reachable): the head sites
  *   above the base file's own count, so its pre-existing sites cost nothing
  *   and the sites it loses earn nothing;
@@ -1065,7 +1086,7 @@ export function unjustifiedRaises(next, base, why = {}) {
  *
  * @param {{ changed: readonly string[], headText: (f: string) => string | null,
  *   baseText: (f: string) => string | null, writePath: Set<string>,
- *   baseWritePath: Set<string>,
+ *   baseWritePath: Set<string>, baseBaseline?: Record<string, number> | null,
  *   ctx: { syncTables: Set<string>, schemaSymbols: Map<string, string> },
  *   baseCtx?: { syncTables: Set<string>, schemaSymbols: Map<string, string> },
  *   registry: readonly { id: string, tables: readonly string[] }[] }} input
@@ -1077,6 +1098,7 @@ export function netDeltaByCode({
   baseText,
   writePath,
   baseWritePath,
+  baseBaseline = null,
   ctx,
   baseCtx = ctx,
   registry,
@@ -1102,7 +1124,12 @@ export function netDeltaByCode({
     for (const code of new Set([...Object.keys(head), ...Object.keys(base)])) {
       const h = head[code] ?? 0;
       const b = base[code] ?? 0;
-      const d = baseOn ? h - b : Math.max(0, h - b);
+      let d;
+      if (!baseOn || h >= b) d = Math.max(0, h - b);
+      else {
+        const paid = baseBaseline ? (baseBaseline[`${f} :: ${code}`] ?? 0) : b;
+        d = -Math.max(0, Math.min(b, paid) - h);
+      }
       if (d !== 0) delta[code] = (delta[code] ?? 0) + d;
     }
   }
@@ -1111,7 +1138,10 @@ export function netDeltaByCode({
 
 /** The `T####` task ids an `audited` map's reasons name. */
 export function auditedTasks(audited) {
-  return Object.values(audited ?? {}).flatMap((reason) => String(reason).match(/\bT\d+\b/g) ?? []);
+  return Object.values(audited ?? {}).flatMap(
+    (entry) =>
+      String(entry && typeof entry === 'object' ? entry.reason : entry).match(/\bT\d+\b/g) ?? [],
+  );
 }
 
 /**
@@ -1310,9 +1340,12 @@ export function textAt(root, ref, file) {
   }
 }
 
-/** Scanned files changed between a ref and the working tree. */
+/**
+ * Scanned files changed between a ref and the working tree. `--no-renames`
+ * lists both sides of a rename, so the old path's sites are subtracted.
+ */
 export function changedFiles(root, ref, dirs = SOURCE_DIRS) {
-  return git(root, ['diff', '--name-only', ref, '--', ...dirs])
+  return git(root, ['diff', '--name-only', '--no-renames', ref, '--', ...dirs])
     .split('\n')
     .filter((f) => f && isSource(f));
 }
@@ -1416,6 +1449,10 @@ export async function main(argv = process.argv.slice(2), opts = {}) {
   let baseAudited;
   if (args.base) {
     changed = changedFiles(root, args.base);
+    const baseText = textAt(root, args.base, BASELINE_PATH);
+    const parsed = baseText ? parseBaseline(baseText) : null;
+    baseBaseline = parsed?.sites ?? null;
+    baseAudited = parsed?.audited ?? {};
     const baseScan = scanTree({
       root,
       syncTables,
@@ -1430,14 +1467,11 @@ export async function main(argv = process.argv.slice(2), opts = {}) {
       baseText: (f) => textAt(root, args.base, f),
       writePath: scan.writePath,
       baseWritePath: baseScan.writePath,
+      baseBaseline,
       ctx: scan.ctx,
       baseCtx: baseScan.ctx,
       registry,
     });
-    const baseText = textAt(root, args.base, BASELINE_PATH);
-    const parsed = baseText ? parseBaseline(baseText) : null;
-    baseBaseline = parsed?.sites ?? null;
-    baseAudited = parsed?.audited ?? {};
   }
 
   const taskIssues = args.verifyTasks
