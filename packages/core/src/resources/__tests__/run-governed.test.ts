@@ -56,7 +56,12 @@ interface Harness {
   deps: Partial<RunGovernedDeps>;
   child: GovernedChild & { pid: number };
   signals: Array<[number, string]>;
-  spawned: Array<{ file: string; args: readonly string[]; env: NodeJS.ProcessEnv }>;
+  spawned: Array<{
+    file: string;
+    args: readonly string[];
+    env: NodeJS.ProcessEnv;
+    detached: boolean;
+  }>;
   acquires: number;
   released: number;
   clock: { t: number };
@@ -71,6 +76,8 @@ function harness(opts: {
   onSample?: (n: number, h: Harness) => void;
   onSleep?: (n: number, h: Harness) => void;
   spawnThrows?: boolean;
+  groupOf?: (pid: number) => number | null;
+  onAcquire?: (h: Harness) => void;
 }): Harness {
   const clock = { t: 1_000_000 };
   let calls = 0;
@@ -109,6 +116,7 @@ function harness(opts: {
     },
     tryAcquire: async (cls: ResourceClass) => {
       h.acquires++;
+      opts.onAcquire?.(h);
       const next = admissions.length > 1 ? admissions.shift() : admissions[0];
       return next === 'grant'
         ? grant()
@@ -116,7 +124,7 @@ function harness(opts: {
     },
     spawn: (file, args, o) => {
       if (opts.spawnThrows) throw new Error('ENOENT: no such file');
-      h.spawned.push({ file, args, env: o.env });
+      h.spawned.push({ file, args, env: o.env, detached: o.detached });
       return child;
     },
     signal: (pid, sig) => {
@@ -142,9 +150,13 @@ function harness(opts: {
     queueDir: () => join(dir, 'queue'),
     verifyHolders: () => [],
     pid: process.pid, // alive for the registry's liveness probe
+    groupOf: opts.groupOf ?? (() => null),
   };
   return h;
 }
+
+/** A heartbeat within the stale window for every test's fake-clock span. */
+const FRESH = 1_030_000;
 
 /** An older live job, so this one is "younger" under backoff. */
 function olderJob(): RunJob {
@@ -161,7 +173,7 @@ function olderJob(): RunJob {
     sessionId: null,
     pausedAtMs: null,
     pausable: true,
-    heartbeatAtMs: Number.MAX_SAFE_INTEGER, // never stale under the fake clock
+    heartbeatAtMs: FRESH, // fresh for the fake clock's first minute
   };
 }
 
@@ -209,7 +221,7 @@ describe('runGoverned', () => {
         pid: process.pid,
         runnerStart: null,
         enqueuedAtMs: 1,
-        heartbeatAtMs: Number.MAX_SAFE_INTEGER,
+        heartbeatAtMs: FRESH,
         command: 'x',
       },
       join(dir, 'queue'),
@@ -218,8 +230,7 @@ describe('runGoverned', () => {
     const r = await runGoverned(base(h));
     expect(h.acquires).toBe(0);
     expect(r.kind).toBe('deferred');
-    if (r.kind === 'deferred')
-      expect(r.reason).toMatch(/1 job\(s\) already waiting in the test-run queue/);
+    if (r.kind === 'deferred') expect(r.reason).toMatch(/1 job\(s\) ahead in the test-run queue/);
   });
 
   it('defers without --wait: nothing spawned, holders listed', async () => {
@@ -242,7 +253,7 @@ describe('runGoverned', () => {
         pid: process.pid,
         runnerStart: null,
         enqueuedAtMs: 1,
-        heartbeatAtMs: Number.MAX_SAFE_INTEGER,
+        heartbeatAtMs: FRESH,
         command: 'x',
       },
       qdir,
@@ -347,6 +358,43 @@ describe('runGoverned', () => {
       [500, 'SIGTERM'],
     ]);
     expect(r).toMatchObject({ kind: 'exited', signal: 'SIGTERM' });
+  });
+
+  it("a nested run inside a live job's group runs on its slot: no acquire, not detached, never paused", async () => {
+    writeRunJob(
+      { ...olderJob(), id: 'outer', childPid: 777, childStart: 'start-777' },
+      join(dir, 'jobs'),
+    );
+    const h = harness({
+      groupOf: () => 777,
+      levels: ['ok', 'backoff', 'backoff'],
+      onSample: (n, hh) => n === 3 && hh.exit(0),
+    });
+    const r = await runGoverned(base(h));
+    expect(r).toMatchObject({ kind: 'exited', exitCode: 0, slot: -1, pauses: 0 });
+    expect(h.acquires).toBe(0);
+    expect(h.spawned[0]?.detached).toBe(false);
+    expect(h.signals).toEqual([]);
+  });
+
+  it('a non-nested run is spawned detached as its own group', async () => {
+    const h = harness({ onSample: (n, hh) => n === 2 && hh.exit(0) });
+    await runGoverned(base(h));
+    expect(h.spawned[0]?.detached).toBe(true);
+  });
+
+  it('with --wait the ticket is written before the first try (L-1)', async () => {
+    let ticketsAtFirstTry = -1;
+    const h = harness({
+      admissions: ['grant'],
+      onAcquire: () => {
+        if (ticketsAtFirstTry < 0) ticketsAtFirstTry = readdirSync(join(dir, 'queue')).length;
+      },
+      onSample: (n, hh) => n === 2 && hh.exit(0),
+    });
+    await runGoverned(base(h, { wait: true, queuePollMs: 1000, timeoutMs: 60_000 }));
+    expect(ticketsAtFirstTry).toBe(1);
+    expect(readdirSync(join(dir, 'queue'))).toEqual([]); // removed once admitted
   });
 
   it('a spawn failure releases the grant and leaves no record', async () => {

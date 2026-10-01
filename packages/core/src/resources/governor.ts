@@ -41,6 +41,7 @@ import { getLogger } from '../logger.js';
 import { getCleoHome } from '../paths.js';
 import type { ResourceSample } from './backend.js';
 import { pressureScore, ResourceMonitor } from './monitor.js';
+import { parentRunJob } from './run-admission.js';
 import {
   resolveSupervisorSocketPath,
   sendResourceAdmit,
@@ -300,6 +301,14 @@ export class ResourceGovernor {
     if (mode === 'off' || cls === 'interactive-cli') {
       return passThroughGrant(cls);
     }
+    // Inside a running `cleo run` job (e.g. `cleo run -- cleo verify`), the
+    // job's slot already covers this process tree: waiting for another slot
+    // of a budget-1 class would wait on ourselves (#1777 round 3, M-2). The
+    // env var only says "look"; parentRunJob's group + start-time check is
+    // what decides, so setting it by hand grants nothing.
+    if (process.env.CLEO_RUN_CLASS !== undefined && parentRunJob({ pid: process.pid })) {
+      return passThroughGrant(cls);
+    }
 
     const sample = opts.sample ?? (await (opts.monitor ?? new ResourceMonitor()).sample());
     const budget = computeClassBudget(cls, sample, opts);
@@ -341,6 +350,16 @@ export class ResourceGovernor {
             retries: 0,
             stale: STALE_MS,
             realpath: false,
+            // A long grant (cleo run) can outlive a lid-closed sleep; another
+            // process may then reclaim the "stale" slot. proper-lockfile's
+            // default throws from a timer and crashes the holder; log instead
+            // and keep running (#1777 round 3, L-7).
+            onCompromised: (err: Error) => {
+              getLogger('resource-governor').warn(
+                { cls, slot: idx, err: err.message },
+                'governor slot lock compromised (likely sleep or a stale reclaim); continuing',
+              );
+            },
           });
           let released = false;
           return {

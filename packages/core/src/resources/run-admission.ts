@@ -13,9 +13,10 @@
  * - the machine-wide job registry (`<cleoHome>/run/jobs/*.json`): who is
  *   running what, with a heartbeat, so the soft-stop envelope can name the
  *   holders and runners can coordinate pauses
- * - orphan recovery: a runner killed outright (SIGKILL, jetsam) leaves its
- *   detached child group behind; the next reader resumes and terminates it
- *   after checking it is the same process (start time)
+ * - orphan recovery ({@link reapOrphans}): a runner killed outright
+ *   (SIGKILL, jetsam) leaves its detached child group behind; the next reap
+ *   resumes and terminates it after checking it is the same process (start
+ *   time). A failed `ps` is "unknown" and never acted on.
  * - {@link decidePause}: under `backoff` only the oldest job runs; a job
  *   resumed by the starvation cap gets a guaranteed run window
  * - {@link buildRunDeferral}: the `E_RESOURCE_DEFERRED` details and the ways
@@ -44,129 +45,19 @@ import { hostname } from 'node:os';
 import { join } from 'node:path';
 import type { ResourceClass } from '@cleocode/contracts';
 import { getCleoHome } from '../paths.js';
-import type { CanonicalTool } from '../tasks/tool-resolver.js';
 import type { PressureState } from './monitor.js';
 
-// ---------------------------------------------------------------------------
-// Class resolution
-// ---------------------------------------------------------------------------
-
-/** Short class names accepted by `cleo run --class`. */
-export const RUN_CLASS_ALIASES: Readonly<Record<string, ResourceClass>> = Object.freeze({
-  test: 'test-run',
-  'test-run': 'test-run',
-  build: 'scoped-build',
-  'scoped-build': 'scoped-build',
-  typecheck: 'scoped-build',
-  install: 'scoped-build',
-  scan: 'scoped-build',
-  'full-build': 'full-build',
-  db: 'db-heavy',
-  'db-heavy': 'db-heavy',
-});
-
-const TEST_RUNNERS = /^(vitest|jest|mocha|ava|tap|playwright|pytest|rspec|phpunit)$/;
-const BUILD_TOOLS =
-  /^(tsc|tsup|turbo|vite|esbuild|webpack|rollup|next|nx|biome|eslint|svelte-check)$/;
-const PACKAGE_MANAGERS = /^(npm|pnpm|yarn|bun|npx|pnpx|bunx)$/;
-const INSTALL_VERBS = /^(install|i|ci|add|update|up|upgrade)$/;
-const WORKSPACE_SCOPING = /^(--filter|-F|--workspace|-w|-C|--dir|--prefix)$/;
-const RECURSIVE = /^(--recursive|-r)$/;
-
-function base(token: string): string {
-  return token.split('/').pop() ?? token;
-}
-
-function isWorkspaceRoot(cwd: string): boolean {
-  return (
-    existsSync(join(cwd, 'pnpm-workspace.yaml')) ||
-    existsSync(join(cwd, 'turbo.json')) ||
-    existsSync(join(cwd, 'nx.json'))
-  );
-}
-
-/**
- * The governor class for a command.
- *
- * An explicit `--class` wins (aliases above). Otherwise the command is
- * inferred: a test runner, a `test` script or `npm t` is `test-run`; an
- * unscoped `<pm> build` at a workspace root is `full-build`; anything else is
- * `scoped-build`, the default for heavy work.
- *
- * @param explicit - the `--class` value, if given.
- * @param argv - the command.
- * @param cwd - where it runs (for the workspace-root check).
- * @throws {Error} when `explicit` is not a known class or alias.
- *
- * @example
- * ```ts
- * resolveRunClass(undefined, ['pnpm', 'vitest', 'run', 'a.test.ts']); // 'test-run'
- * resolveRunClass(undefined, ['npx', 'tsc', '-b']);                   // 'scoped-build'
- * resolveRunClass(undefined, ['pnpm', 'build'], '/monorepo');         // 'full-build'
- * ```
- */
-export function resolveRunClass(
-  explicit: string | undefined,
-  argv: readonly string[],
-  cwd: string = process.cwd(),
-): ResourceClass {
-  if (explicit !== undefined) {
-    const cls = RUN_CLASS_ALIASES[explicit];
-    if (!cls) {
-      throw new Error(
-        `unknown --class '${explicit}' (expected one of: ${Object.keys(RUN_CLASS_ALIASES).join(', ')})`,
-      );
-    }
-    return cls;
-  }
-  const words = argv.map(base);
-  if (words.some((w) => TEST_RUNNERS.test(w))) return 'test-run';
-  const first = words[0] ?? '';
-  if (PACKAGE_MANAGERS.test(first)) {
-    // `pnpm test`, `npm run test`, `npm t`, `pnpm --filter x test:unit`
-    if (words[1] === 't' || words.some((w, i) => i > 0 && /^test(:|$)/.test(w))) {
-      return 'test-run';
-    }
-    const builds = words.some((w, i) => i > 0 && /^build(:|$)/.test(w));
-    const scoped = argv.some((w) => WORKSPACE_SCOPING.test(w) || w.startsWith('--filter='));
-    // `pnpm -r build` builds every package wherever it runs (#1777 R3).
-    if (builds && !scoped && argv.some((w) => RECURSIVE.test(w))) return 'full-build';
-    if (builds && !scoped && isWorkspaceRoot(cwd)) return 'full-build';
-  }
-  if ((first === 'cargo' || first === 'go') && words[1] === 'test') return 'test-run';
-  return 'scoped-build';
-}
-
-/** The `heavyToolEnv` canonical tool a run class sizes its env from. */
-export function canonicalForClass(cls: ResourceClass): CanonicalTool {
-  return cls === 'test-run' ? 'test' : 'build';
-}
-
-/**
- * Whether a job may be SIGSTOPped under pressure. Installs and db-heavy work
- * hold shared locks (package store, registry caches, SQLite writers) that
- * the oldest job may need, so pausing them can stall the one job that is
- * meant to keep the machine moving.
- */
-export function isPausable(cls: ResourceClass, argv: readonly string[]): boolean {
-  if (cls === 'db-heavy') return false;
-  const words = argv.map(base);
-  const first = words[0] ?? '';
-  if (PACKAGE_MANAGERS.test(first) && INSTALL_VERBS.test(words[1] ?? '')) return false;
-  if (first === 'cargo' && words[1] === 'fetch') return false;
-  return true;
-}
-
-/** Whether `argv` looks like a heavy command (test runner, compiler, build, install); for hooks. */
-export function looksHeavy(argv: readonly string[]): boolean {
-  const words = argv.map(base);
-  const first = words[0] ?? '';
-  if (words.some((w) => TEST_RUNNERS.test(w) || BUILD_TOOLS.test(w))) return true;
-  if (PACKAGE_MANAGERS.test(first)) {
-    return words.some((w, i) => i > 0 && /^(test|t|build|install|i|ci|typecheck)(:|$)/.test(w));
-  }
-  return (first === 'cargo' || first === 'go') && /^(build|test)$/.test(words[1] ?? '');
-}
+// Class resolution lives in the dependency-free run-class module (the provider
+// hook imports it on every Bash call); re-exported here for existing callers.
+export {
+  type CommandTarget,
+  canonicalForClass,
+  commandTarget,
+  isPausable,
+  looksHeavy,
+  RUN_CLASS_ALIASES,
+  resolveRunClass,
+} from './run-class.js';
 
 // ---------------------------------------------------------------------------
 // Redaction
@@ -324,79 +215,180 @@ const DEFAULT_PROBES: RegistryProbes = {
   now: Date.now,
 };
 
+/** What a record says about its runner, from probes that may fail. */
+export type RunnerState = 'live' | 'dead' | 'unknown';
+
 /**
- * Whether a record's runner is gone: the pid is free, or (only once the
- * heartbeat is stale, to keep `ps` off the hot path) the pid now belongs to a
- * different process.
+ * The runner of a record: `dead` when its pid is free, or (only once the
+ * heartbeat is stale, keeping `ps` off the hot path) when the pid now belongs
+ * to a different process. A failed `ps` is `unknown`, never `dead`: under the
+ * very overload this governor exists for, `ps` times out or cannot fork, and
+ * acting on that would signal live jobs (#1777 round 3, H-1).
  */
-function runnerDead(job: RunJob, probes: RegistryProbes): boolean {
-  if (!probes.alive(job.pid)) return true;
-  if (probes.now() - job.heartbeatAtMs <= JOB_STALE_MS) return false;
+export function runnerState(job: RunJob, probes: RegistryProbes): RunnerState {
+  if (!probes.alive(job.pid)) return 'dead';
+  if (!heartbeatStale(job.heartbeatAtMs, probes.now())) return 'live';
   const start = probes.start(job.pid);
-  return start === null || (job.runnerStart !== null && start !== job.runnerStart);
+  if (start === null) return 'unknown';
+  if (job.runnerStart !== null && start !== job.runnerStart) return 'dead';
+  return 'live';
+}
+
+/** A heartbeat older than the window, or implausibly far in the future. */
+function heartbeatStale(at: number, now: number): boolean {
+  return now - at > JOB_STALE_MS || at - now > JOB_STALE_MS;
 }
 
 /**
- * A dead runner's detached child group keeps running, possibly SIGSTOPped
- * forever. Resume it and terminate it, but only when the child pid is still
- * the same process (start time matches): never signal a reused pid.
+ * Resume and stop a dead runner's detached child group, which keeps running
+ * and may sit SIGSTOPped forever.
+ *
+ * - The child pid is held by a process: signal only when its start time
+ *   matches the record (never a reused pid); when `ps` fails, `retry` later.
+ * - No process holds the pid: the leader is gone, but its workers may still
+ *   be stopped in the group. Nothing else can lead a group with that id while
+ *   the pid is free, so the group signal reaches only what is left of ours
+ *   (or fails with ESRCH).
+ *
+ * @returns `done` when the record may be removed, `retry` to keep it.
  */
-function recoverOrphan(job: RunJob, probes: RegistryProbes): void {
-  if (job.childPid === null || job.childStart === null) return;
-  const start = probes.start(job.childPid);
-  // A different live process now holds the pid: never signal it.
-  if (start !== null && start !== job.childStart) return;
-  // Same leader, or the leader is gone (#1777 round 2, R2): its workers may
-  // still sit SIGSTOPped in the group. No process holds the pid, so nothing
-  // else can lead a group with that id; the group signal reaches only what is
-  // left of ours (or fails with ESRCH).
+function recoverOrphan(job: RunJob, probes: RegistryProbes): 'done' | 'retry' {
+  if (job.childPid === null || job.childStart === null) return 'done';
+  if (probes.alive(job.childPid)) {
+    const start = probes.start(job.childPid);
+    if (start === null) return 'retry';
+    if (start !== job.childStart) return 'done';
+  }
   probes.signal(job.childPid, 'SIGCONT');
   probes.signal(job.childPid, 'SIGTERM');
+  return 'done';
 }
 
-/**
- * Live jobs, oldest first. Records of dead runners are deleted (and their
- * orphaned child groups resumed and terminated); records whose heartbeat is
- * stale but whose runner is alive (a suspended machine) are skipped, not
- * deleted. Unreadable files older than the stale window are removed.
- */
-export function listRunJobs(
-  dir: string = runJobsDir(),
-  probes: Partial<RegistryProbes> = {},
-): RunJob[] {
-  const p: RegistryProbes = { ...DEFAULT_PROBES, ...probes };
+function isJob(v: unknown): v is RunJob {
+  const j = v as Partial<RunJob> | null;
+  return (
+    typeof j === 'object' &&
+    j !== null &&
+    typeof j.id === 'string' &&
+    typeof j.pid === 'number' &&
+    typeof j.startedAtMs === 'number' &&
+    typeof j.heartbeatAtMs === 'number'
+  );
+}
+
+/** Parsed records; `null` for an unreadable file. */
+function readRecords(dir: string): Array<{ path: string; job: RunJob | null }> {
   let names: string[];
   try {
     names = readdirSync(dir).filter((n) => n.endsWith('.json') && !n.startsWith('.'));
   } catch {
     return [];
   }
-  const jobs: RunJob[] = [];
-  for (const name of names) {
+  return names.map((name) => {
     const path = join(dir, name);
-    let job: RunJob;
     try {
-      job = JSON.parse(readFileSync(path, 'utf-8')) as RunJob;
-      if (typeof job.pid !== 'number' || typeof job.heartbeatAtMs !== 'number') {
-        throw new Error('not a job record');
-      }
+      const v: unknown = JSON.parse(readFileSync(path, 'utf-8'));
+      return { path, job: isJob(v) ? v : null };
     } catch {
+      return { path, job: null };
+    }
+  });
+}
+
+/**
+ * Live jobs, oldest first. A pure read: it never signals or deletes (reaping
+ * is {@link reapOrphans}). Records whose runner is dead, unknown, or alive
+ * with a stale heartbeat (a suspended machine) are left out.
+ */
+export function listRunJobs(
+  dir: string = runJobsDir(),
+  probes: Partial<RegistryProbes> = {},
+): RunJob[] {
+  const p: RegistryProbes = { ...DEFAULT_PROBES, ...probes };
+  const jobs: RunJob[] = [];
+  for (const { job } of readRecords(dir)) {
+    if (!job || heartbeatStale(job.heartbeatAtMs, p.now())) continue;
+    if (runnerState(job, p) === 'live') jobs.push(job);
+  }
+  return jobs.sort((a, b) => a.startedAtMs - b.startedAtMs || a.pid - b.pid);
+}
+
+/**
+ * Reap the records of dead runners: resume and stop their orphaned child
+ * groups ({@link recoverOrphan}) and delete the record, unless the child's
+ * identity could not be read (kept for the next reap). Records whose runner
+ * is `unknown` are never touched. Unreadable files older than the stale
+ * window are removed.
+ *
+ * @returns how many records were removed.
+ */
+export function reapOrphans(
+  dir: string = runJobsDir(),
+  probes: Partial<RegistryProbes> = {},
+): number {
+  const p: RegistryProbes = { ...DEFAULT_PROBES, ...probes };
+  let removed = 0;
+  for (const { path, job } of readRecords(dir)) {
+    if (!job) {
       try {
-        if (p.now() - statSync(path).mtimeMs > JOB_STALE_MS) rmSync(path, { force: true });
+        if (p.now() - statSync(path).mtimeMs > JOB_STALE_MS) {
+          rmSync(path, { force: true });
+          removed++;
+        }
       } catch {
         // Gone already.
       }
       continue;
     }
-    if (runnerDead(job, p)) {
-      recoverOrphan(job, p);
+    if (runnerState(job, p) !== 'dead') continue;
+    if (recoverOrphan(job, p) === 'done') {
       rmSync(path, { force: true });
-      continue;
+      removed++;
     }
-    if (p.now() - job.heartbeatAtMs > JOB_STALE_MS) continue;
-    jobs.push(job);
   }
-  return jobs.sort((a, b) => a.startedAtMs - b.startedAtMs || a.pid - b.pid);
+  return removed;
+}
+
+/** The process group a pid belongs to, from one `ps` exec; null when unknown. */
+export function processGroupOf(pid: number): number | null {
+  try {
+    const out = execFileSync('/bin/ps', ['-o', 'pgid=', '-p', String(pid)], {
+      encoding: 'utf-8',
+      timeout: 2000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    const n = Number.parseInt(out, 10);
+    return Number.isInteger(n) && n > 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The running `cleo run` job whose process tree `pid` belongs to, or null.
+ *
+ * A governed child is spawned detached, so it leads its own session and
+ * process group (pgid = its pid). A process whose group id equals a live
+ * job's `childPid`, with the leader's start time matching the record, runs
+ * inside that job. This cannot be forged from outside: a session leader's
+ * group can only be joined by processes in its own session, and the
+ * start-time check rules out a reused pid. Any failure to read `ps` returns
+ * null (normal admission).
+ */
+export function parentRunJob(input: {
+  readonly pid: number;
+  readonly jobsDir?: string;
+  readonly probes?: Partial<RegistryProbes>;
+  readonly groupOf?: (pid: number) => number | null;
+}): RunJob | null {
+  const pgid = (input.groupOf ?? processGroupOf)(input.pid);
+  // pgid === pid is fine: `cleo run -- cleo run -- …` makes the inner runner
+  // the outer job's child and its group leader, and it is nested.
+  if (pgid === null) return null;
+  const p: RegistryProbes = { ...DEFAULT_PROBES, ...input.probes };
+  const job = listRunJobs(input.jobsDir ?? runJobsDir(), p).find((j) => j.childPid === pgid);
+  if (!job || job.childStart === null) return null;
+  return p.start(pgid) === job.childStart ? job : null;
 }
 
 /** A job waiting in the `--wait` queue. */
@@ -419,7 +411,24 @@ export function removeQueueTicket(id: string, dir: string): void {
   removeRunJob(id, dir);
 }
 
-/** Live tickets in arrival order (FIFO); dead or stale ones are dropped. */
+function isTicket(v: unknown): v is QueueTicket {
+  const t = v as Partial<QueueTicket> | null;
+  return (
+    typeof t === 'object' &&
+    t !== null &&
+    typeof t.id === 'string' &&
+    typeof t.pid === 'number' &&
+    typeof t.enqueuedAtMs === 'number' &&
+    typeof t.heartbeatAtMs === 'number'
+  );
+}
+
+/**
+ * Live tickets in arrival order (FIFO). Invalid tickets, tickets of a dead
+ * runner, and tickets whose heartbeat is stale or implausibly far in the
+ * future are dropped (#1777 round 3, L-2): an abandoned ticket never blocks
+ * a class for longer than the stale window.
+ */
 export function listQueueTickets(dir: string, probes: Partial<RegistryProbes> = {}): QueueTicket[] {
   const p: RegistryProbes = { ...DEFAULT_PROBES, ...probes };
   let names: string[];
@@ -431,17 +440,17 @@ export function listQueueTickets(dir: string, probes: Partial<RegistryProbes> = 
   const tickets: QueueTicket[] = [];
   for (const name of names) {
     const path = join(dir, name);
+    let v: unknown;
     try {
-      const t = JSON.parse(readFileSync(path, 'utf-8')) as QueueTicket;
-      const stale = p.now() - t.heartbeatAtMs > JOB_STALE_MS;
-      if (!p.alive(t.pid) || stale) {
-        rmSync(path, { force: true });
-        continue;
-      }
-      tickets.push(t);
+      v = JSON.parse(readFileSync(path, 'utf-8'));
     } catch {
-      // Torn write: its owner rewrites it within a poll.
+      continue; // Torn write: its owner rewrites it within a poll.
     }
+    if (!isTicket(v) || heartbeatStale(v.heartbeatAtMs, p.now()) || !p.alive(v.pid)) {
+      rmSync(path, { force: true });
+      continue;
+    }
+    tickets.push(v);
   }
   return tickets.sort((a, b) => a.enqueuedAtMs - b.enqueuedAtMs || a.pid - b.pid);
 }
@@ -688,6 +697,9 @@ export function buildRunDeferral(input: {
       running: input.running,
     },
     alternatives,
-    fix: `The machine is busy (${input.pressure.state}); nothing was started. Continue other work, or re-run with --wait to queue.`,
+    fix:
+      input.pressure.state === 'ok'
+        ? `The ${input.cls} class is at capacity; nothing was started. Continue other work, or re-run with --wait to queue.`
+        : `The machine is under pressure (${input.pressure.state}) and the ${input.cls} class is at capacity; nothing was started. Continue other work, or re-run with --wait to queue.`,
   };
 }

@@ -5,10 +5,13 @@
  *
  * Lifecycle:
  *
- * 1. **Admission.** Non-blocking by default: a denied admission returns a
- *    `deferred` result (nothing started). With `wait`, the job takes a ticket
- *    in the class's FIFO queue; only the head of the queue tries to acquire,
- *    re-sampling pressure each time, until admitted or `timeoutMs`.
+ * 1. **Admission.** First, orphans of dead runners are reaped. A run nested
+ *    inside a running job's process group runs on that job's slot. Otherwise
+ *    admission is non-blocking by default: a denied admission (or anyone
+ *    already waiting) returns a `deferred` result, with nothing started. With
+ *    `wait`, the job takes a ticket in the class's FIFO queue before its
+ *    first try; only the head of the queue tries to acquire, re-sampling
+ *    pressure each time, until admitted or `timeoutMs`.
  * 2. **Run.** The command is spawned as its own process group (so a pause or
  *    a cancel reaches its workers too), niced, with the caller's env. The job
  *    is recorded in the registry with its start times and a heartbeat.
@@ -20,7 +23,7 @@
  *    of a killed leader must not stay stopped); the record is removed and the
  *    slot released. SIGINT, SIGTERM and SIGHUP to the runner are forwarded to
  *    the group (after a SIGCONT). A runner killed outright is recovered by the
- *    next registry reader (`listRunJobs`).
+ *    next {@link reapOrphans}, which never acts on an unreadable `ps`.
  *
  * @module resources/run-governed
  * @task T12979
@@ -32,7 +35,11 @@
 import { spawn as nodeSpawn } from 'node:child_process';
 import type { EventEmitter } from 'node:events';
 import { setPriority } from 'node:os';
-import type { AdmissionResult, ResourceClass } from '@cleocode/contracts';
+import {
+  type AdmissionResult,
+  DEFAULT_RESOURCE_RETRY_AFTER_MS,
+  type ResourceClass,
+} from '@cleocode/contracts';
 import type { ResourceSample } from './backend.js';
 import { governor } from './governor.js';
 import { classifyPressure, type PressureState, pressureScore, ResourceMonitor } from './monitor.js';
@@ -43,10 +50,13 @@ import {
   listQueueTickets,
   listRunJobs,
   listVerifyHolders,
+  parentRunJob,
+  processGroupOf,
   processStart,
   type RunAlternative,
   type RunDeferralDetails,
   type RunJob,
+  reapOrphans,
   redactCommand,
   removeQueueTicket,
   removeRunJob,
@@ -73,7 +83,7 @@ export interface RunGovernedDeps {
   readonly spawn: (
     file: string,
     args: readonly string[],
-    opts: { cwd: string; env: NodeJS.ProcessEnv },
+    opts: { cwd: string; env: NodeJS.ProcessEnv; detached: boolean },
   ) => GovernedChild;
   readonly signal: (pid: number, signal: NodeJS.Signals) => boolean;
   readonly start: (pid: number) => string | null;
@@ -90,6 +100,8 @@ export interface RunGovernedDeps {
   readonly queueDir: (cls: ResourceClass) => string;
   readonly verifyHolders: () => ReturnType<typeof listVerifyHolders>;
   readonly pid: number;
+  /** Process group of a pid (`ps -o pgid=`), or null when unknown. */
+  readonly groupOf: (pid: number) => number | null;
 }
 
 /** Options for {@link runGoverned}. */
@@ -147,7 +159,7 @@ function defaultDeps(): RunGovernedDeps {
         env: opts.env,
         // stdout is reserved for the caller's envelope: output goes to stderr.
         stdio: ['inherit', 2, 2],
-        detached: true,
+        detached: opts.detached,
       }),
     signal: signalGroup,
     start: processStart,
@@ -187,6 +199,7 @@ function defaultDeps(): RunGovernedDeps {
     queueDir: (cls) => runQueueDir(cls),
     verifyHolders: () => listVerifyHolders(),
     pid: process.pid,
+    groupOf: processGroupOf,
   };
 }
 
@@ -232,21 +245,31 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
   const t0 = d.now();
 
   // ---- 1. admission -------------------------------------------------------
+  // Reap what dead runners left behind (never on an unreadable `ps`).
+  reapOrphans(d.jobsDir, probesOf(d));
   let sample = await d.sample();
-  const qdir = d.queueDir(opts.cls);
-  // No barging (#1777 round 2, M5): while anyone waits in this class's queue,
-  // a newcomer queues behind them (or defers) instead of trying first.
-  const waiting = listQueueTickets(qdir, probesOf(d)).length;
-  let admission: AdmissionResult =
-    waiting > 0
-      ? {
-          deferred: true,
-          class: opts.cls,
-          retryAfterMs: opts.queuePollMs ?? 1000,
-          reason: `${waiting} job(s) already waiting in the ${opts.cls} queue`,
-        }
-      : await d.tryAcquire(opts.cls, sample);
-  if (admission.deferred && opts.wait) {
+
+  // A nested run (a script under `cleo run` that itself calls `cleo run`)
+  // runs inside its parent job's process tree and on the parent's slot
+  // (#1777 round 3, M-2). See {@link parentRunJob} for why this can't be forged.
+  const parent = parentRunJob({
+    pid: d.pid,
+    jobsDir: d.jobsDir,
+    probes: probesOf(d),
+    groupOf: d.groupOf,
+  });
+  let admission: AdmissionResult;
+  if (parent) {
+    admission = {
+      deferred: false,
+      class: opts.cls,
+      slot: -1,
+      acquiredAtMs: d.now(),
+      release: async () => {},
+    };
+    notice(`nested in a running ${parent.class} job (${parent.command}): running on its slot`);
+  } else {
+    const qdir = d.queueDir(opts.cls);
     const ticketId = `${d.pid}-${t0}`;
     const ticket = {
       id: ticketId,
@@ -256,34 +279,56 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
       heartbeatAtMs: t0,
       command,
     };
-    writeQueueTicket(ticket, qdir);
-    const deadline = t0 + (opts.timeoutMs ?? 30 * 60_000);
-    let position = 0;
+    // With --wait the ticket goes in BEFORE the first try (L-1): nobody can
+    // slip in between a denied try and the enqueue.
+    if (opts.wait) writeQueueTicket(ticket, qdir);
+    /** How many tickets are ahead of this job (all of them without --wait). */
+    const ahead = (): number => {
+      const queue = listQueueTickets(qdir, probesOf(d));
+      if (!opts.wait) return queue.length;
+      const at = queue.findIndex((t) => t.id === ticketId);
+      if (at >= 0) return at;
+      writeQueueTicket({ ...ticket, heartbeatAtMs: d.now() }, qdir); // lost: re-enqueue
+      return queue.length;
+    };
+    const queued = (n: number): AdmissionResult => ({
+      deferred: true,
+      class: opts.cls,
+      retryAfterMs: DEFAULT_RESOURCE_RETRY_AFTER_MS,
+      reason: `${n} job(s) ahead in the ${opts.cls} queue`,
+    });
     try {
-      while (admission.deferred) {
-        if (d.now() >= deadline) {
-          return await deferral(
-            opts,
-            d,
-            `timed out after ${Math.round((d.now() - t0) / 1000)}s in the ${opts.cls} queue (position ${position + 1}): ${admission.reason}`,
-            admission.retryAfterMs,
-            sample,
-            position + 1,
-          );
+      // No barging (M5): while anyone waits ahead, never try first.
+      let position = ahead();
+      admission = position > 0 ? queued(position) : await d.tryAcquire(opts.cls, sample);
+      if (admission.deferred && opts.wait) {
+        const deadline = t0 + (opts.timeoutMs ?? 30 * 60_000);
+        while (admission.deferred) {
+          if (d.now() >= deadline) {
+            return await deferral(
+              opts,
+              d,
+              `timed out after ${Math.round((d.now() - t0) / 1000)}s in the ${opts.cls} queue (position ${position + 1}): ${admission.reason}`,
+              admission.retryAfterMs,
+              sample,
+              position + 1,
+            );
+          }
+          await d.sleep(opts.queuePollMs ?? 1000);
+          writeQueueTicket({ ...ticket, heartbeatAtMs: d.now() }, qdir);
+          position = ahead();
+          if (position !== 0) {
+            admission = queued(position);
+            continue; // FIFO: only the head tries.
+          }
+          sample = await d.sample();
+          admission = await d.tryAcquire(opts.cls, sample);
         }
-        await d.sleep(opts.queuePollMs ?? 1000);
-        writeQueueTicket({ ...ticket, heartbeatAtMs: d.now() }, qdir);
-        const queue = listQueueTickets(qdir, probesOf(d));
-        const at = queue.findIndex((t) => t.id === ticketId);
-        position = at < 0 ? 0 : at;
-        if (position !== 0) continue; // FIFO: only the head tries.
-        sample = await d.sample();
-        admission = await d.tryAcquire(opts.cls, sample);
+        notice(`admitted after ${Math.round((d.now() - t0) / 1000)}s in the ${opts.cls} queue`);
       }
     } finally {
-      removeQueueTicket(ticketId, qdir);
+      if (opts.wait) removeQueueTicket(ticketId, qdir);
     }
-    notice(`admitted after ${Math.round((d.now() - t0) / 1000)}s in the ${opts.cls} queue`);
   }
   if (admission.deferred) {
     return deferral(opts, d, admission.reason, admission.retryAfterMs, sample, null);
@@ -293,7 +338,8 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
 
   // ---- 2. run -------------------------------------------------------------
   const startedAtMs = d.now();
-  const pausable = isPausable(opts.cls, opts.argv);
+  // A nested job lives in its parent's group: the parent's pause covers it.
+  const pausable = parent === null && isPausable(opts.cls, opts.argv);
   const [file, ...args] = opts.argv as [string, ...string[]];
   // No inherited grant marker (#1777 round 2): every nested `cleo run` is
   // admitted on its own; verify joins the same budgets with #1775 (T12963).
@@ -324,7 +370,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
 
   let child: GovernedChild;
   try {
-    child = d.spawn(file, args, { cwd: opts.cwd, env });
+    child = d.spawn(file, args, { cwd: opts.cwd, env, detached: parent === null });
   } catch (err) {
     removeRunJob(job.id, d.jobsDir);
     await grant.release();

@@ -183,6 +183,20 @@ describe('ResourceGovernor.acquire (T11999)', () => {
     expect(RESOURCE_DEFERRED_CODE).toBe('E_RESOURCE_DEFERRED');
   });
 
+  it('a forged CLEO_RUN_CLASS outside any cleo run job grants nothing (#1777 round 3, M-2)', async () => {
+    process.env.CLEO_RUN_CLASS = 'db-heavy';
+    try {
+      const s = makeSample({ someAvg10: 0 }); // db-heavy budget = 1
+      const first = await gov.acquire('db-heavy', { sample: s, blocking: false });
+      const second = await gov.acquire('db-heavy', { sample: s, blocking: false });
+      expect(isResourceGrant(first)).toBe(true);
+      expect(isResourceGrant(second)).toBe(false);
+      if (isResourceGrant(first)) await first.release();
+    } finally {
+      delete process.env.CLEO_RUN_CLASS;
+    }
+  });
+
   it('an env grant marker never bypasses admission (#1777 round 2, N1)', async () => {
     process.env.CLEO_GOVERNOR_GRANT = 'db-heavy';
     try {

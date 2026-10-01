@@ -31,9 +31,12 @@ import {
   listVerifyHolders,
   looksHeavy,
   MAX_PAUSE_MS,
+  parentRunJob,
   type RunJob,
+  reapOrphans,
   redactCommand,
   resolveRunClass,
+  runnerState,
   runningEntries,
   writeQueueTicket,
   writeRunJob,
@@ -163,6 +166,28 @@ describe('job registry', () => {
     signal: () => true,
     now: () => NOW,
   };
+  const recorder = () => {
+    const signals: Array<[number, string]> = [];
+    return {
+      signals,
+      signal: (pid: number, sig: NodeJS.Signals) => {
+        signals.push([pid, sig]);
+        return true;
+      },
+    };
+  };
+  const deadRunner = (over: Partial<RunJob> = {}) =>
+    writeRunJob(
+      job({
+        id: 'dead',
+        startedAtMs: 1,
+        heartbeatAtMs: NOW,
+        childPid: 77,
+        childStart: 'child-t0',
+        ...over,
+      }),
+      dir,
+    );
 
   it('lists live jobs oldest first', () => {
     writeRunJob(job({ id: 'b', startedAtMs: 2, heartbeatAtMs: NOW }), dir);
@@ -170,89 +195,113 @@ describe('job registry', () => {
     expect(listRunJobs(dir, base).map((j) => j.id)).toEqual(['a', 'b']);
   });
 
-  it('prunes a dead runner and recovers its orphaned child group (same process only)', () => {
-    const signals: Array<[number, string]> = [];
-    writeRunJob(
-      job({ id: 'dead', startedAtMs: 1, heartbeatAtMs: NOW, childPid: 77, childStart: 'child-t0' }),
-      dir,
-    );
-    const probes = {
+  it('listRunJobs is a pure read: it never signals or deletes (L-4)', () => {
+    deadRunner();
+    const r = recorder();
+    expect(listRunJobs(dir, { ...base, alive: () => false, signal: r.signal })).toEqual([]);
+    expect(r.signals).toEqual([]);
+    expect(readdirSync(dir)).toHaveLength(1);
+  });
+
+  it("reapOrphans resumes and stops a dead runner's child group (same process) and deletes the record", () => {
+    deadRunner();
+    const r = recorder();
+    const n = reapOrphans(dir, {
       ...base,
-      alive: () => false,
-      start: (pid: number) => (pid === 77 ? 'child-t0' : null),
-      signal: (pid: number, sig: NodeJS.Signals) => {
-        signals.push([pid, sig]);
-        return true;
-      },
-    };
-    expect(listRunJobs(dir, probes)).toEqual([]);
-    expect(signals).toEqual([
+      alive: (pid) => pid === 77, // runner gone, child still there
+      start: (pid) => (pid === 77 ? 'child-t0' : null),
+      signal: r.signal,
+    });
+    expect(n).toBe(1);
+    expect(r.signals).toEqual([
       [77, 'SIGCONT'],
       [77, 'SIGTERM'],
     ]);
-    expect(listRunJobs(dir, base)).toEqual([]); // deleted, not just filtered
+    expect(readdirSync(dir)).toEqual([]);
   });
 
   it('never signals a child pid that now belongs to another process', () => {
-    const signals: string[] = [];
-    writeRunJob(
-      job({ id: 'dead', startedAtMs: 1, heartbeatAtMs: NOW, childPid: 77, childStart: 'child-t0' }),
-      dir,
-    );
-    listRunJobs(dir, {
+    deadRunner();
+    const r = recorder();
+    reapOrphans(dir, {
       ...base,
-      alive: () => false,
+      alive: (pid) => pid === 77,
       start: () => 'someone-else',
-      signal: (_p, s) => {
-        signals.push(s);
-        return true;
-      },
+      signal: r.signal,
     });
-    expect(signals).toEqual([]);
+    expect(r.signals).toEqual([]);
+    expect(readdirSync(dir)).toEqual([]); // nothing of ours left to recover
   });
 
   it('a paused group whose leader died is still resumed and stopped (#1777 R2)', () => {
-    const signals: Array<[number, string]> = [];
-    writeRunJob(
-      job({ id: 'dead', startedAtMs: 1, heartbeatAtMs: NOW, childPid: 78, childStart: 'child-t0' }),
-      dir,
-    );
-    listRunJobs(dir, {
-      ...base,
-      alive: () => false,
-      start: () => null, // no process holds the leader's pid any more
-      signal: (pid, sig) => {
-        signals.push([pid, sig]);
-        return true;
-      },
-    });
-    expect(signals).toEqual([
+    deadRunner({ childPid: 78 });
+    const r = recorder();
+    reapOrphans(dir, { ...base, alive: () => false, start: () => null, signal: r.signal });
+    expect(r.signals).toEqual([
       [78, 'SIGCONT'],
       [78, 'SIGTERM'],
     ]);
   });
 
-  it('a stale heartbeat on a reused runner pid counts as dead', () => {
-    writeRunJob(job({ id: 'reused', startedAtMs: 1, heartbeatAtMs: NOW - JOB_STALE_MS - 1 }), dir);
-    expect(listRunJobs(dir, { ...base, start: () => 'a-different-process' })).toEqual([]);
-    expect(listRunJobs(dir, base)).toEqual([]);
+  it('a failed ps on a LIVE child is unknown: no signal, record kept for the next reap (H-1)', () => {
+    deadRunner();
+    const r = recorder();
+    const n = reapOrphans(dir, {
+      ...base,
+      alive: (pid) => pid === 77,
+      start: () => null, // ps timed out / could not fork
+      signal: r.signal,
+    });
+    expect(n).toBe(0);
+    expect(r.signals).toEqual([]);
+    expect(readdirSync(dir)).toHaveLength(1);
   });
 
-  it('a stale heartbeat on the same live runner is skipped, not deleted (suspended machine)', () => {
+  it('a failed ps on a live runner with a stale heartbeat is unknown, never dead (H-1)', () => {
+    writeRunJob(
+      job({
+        id: 'busy',
+        startedAtMs: 1,
+        heartbeatAtMs: NOW - JOB_STALE_MS - 1,
+        childPid: 79,
+        childStart: 'c',
+      }),
+      dir,
+    );
+    const r = recorder();
+    const probes = { ...base, start: () => null, signal: r.signal };
+    expect(
+      runnerState(job({ id: 'x', startedAtMs: 1, heartbeatAtMs: NOW - JOB_STALE_MS - 1 }), probes),
+    ).toBe('unknown');
+    expect(reapOrphans(dir, probes)).toBe(0);
+    expect(r.signals).toEqual([]);
+    expect(listRunJobs(dir, probes)).toEqual([]); // not listed either
+    expect(readdirSync(dir)).toHaveLength(1);
+  });
+
+  it('a stale heartbeat on a reused runner pid counts as dead', () => {
+    writeRunJob(job({ id: 'reused', startedAtMs: 1, heartbeatAtMs: NOW - JOB_STALE_MS - 1 }), dir);
+    const probes = { ...base, start: () => 'a-different-process' };
+    expect(listRunJobs(dir, probes)).toEqual([]);
+    expect(reapOrphans(dir, probes)).toBe(1);
+  });
+
+  it('a stale heartbeat on the same live runner is skipped, not reaped (suspended machine)', () => {
     writeRunJob(job({ id: 'asleep', startedAtMs: 1, heartbeatAtMs: NOW - JOB_STALE_MS - 1 }), dir);
     expect(listRunJobs(dir, base)).toEqual([]);
+    expect(reapOrphans(dir, base)).toBe(0);
     expect(listRunJobs(dir, { ...base, now: () => NOW - JOB_STALE_MS }).map((j) => j.id)).toEqual([
       'asleep',
     ]);
   });
 
-  it('removes old junk files, keeps fresh ones, survives a missing dir', () => {
+  it('reapOrphans removes old junk files, keeps fresh ones, survives a missing dir', () => {
     writeFileSync(join(dir, 'old.json'), '{not json');
     writeFileSync(join(dir, 'new.json'), '{not json');
     const old = (Date.now() - 2 * JOB_STALE_MS) / 1000;
     utimesSync(join(dir, 'old.json'), old, old);
-    listRunJobs(dir, { ...base, now: Date.now });
-    expect(listRunJobs(join(dir, 'nope'), base)).toEqual([]);
+    reapOrphans(dir, { ...base, now: Date.now });
+    expect(reapOrphans(join(dir, 'nope'), base)).toBe(0);
     expect(readdirSync(dir).sort()).toEqual(['new.json']);
   });
 
@@ -262,6 +311,58 @@ describe('job registry', () => {
       dir,
     );
     expect(listRunJobs(dir)).toHaveLength(1);
+  });
+});
+
+describe('parentRunJob (nested runs, M-2)', () => {
+  const NOW = 10_000_000;
+  const probes = {
+    alive: () => true,
+    start: (pid: number) => `start-${pid}`,
+    signal: () => true,
+    now: () => NOW,
+  };
+  beforeEach(() => {
+    writeRunJob(
+      job({
+        id: 'outer',
+        startedAtMs: 1,
+        heartbeatAtMs: NOW,
+        childPid: 500,
+        childStart: 'start-500',
+      }),
+      dir,
+    );
+  });
+
+  it("a process in a live job's child group is nested in it", () => {
+    expect(parentRunJob({ pid: 9001, jobsDir: dir, probes, groupOf: () => 500 })?.id).toBe('outer');
+  });
+
+  it('`cleo run -- cleo run …`: the inner runner IS the outer child and leads its group', () => {
+    expect(parentRunJob({ pid: 500, jobsDir: dir, probes, groupOf: () => 500 })?.id).toBe('outer');
+  });
+
+  it('a group leader of its own, an unknown group or a reused leader pid is not nested', () => {
+    expect(parentRunJob({ pid: 9001, jobsDir: dir, probes, groupOf: () => 9001 })).toBeNull();
+    expect(parentRunJob({ pid: 9001, jobsDir: dir, probes, groupOf: () => null })).toBeNull();
+    expect(parentRunJob({ pid: 9001, jobsDir: dir, probes, groupOf: () => 600 })).toBeNull();
+    expect(
+      parentRunJob({
+        pid: 9001,
+        jobsDir: dir,
+        probes: { ...probes, start: () => 'reused' },
+        groupOf: () => 500,
+      }),
+    ).toBeNull();
+    expect(
+      parentRunJob({
+        pid: 9001,
+        jobsDir: dir,
+        probes: { ...probes, start: () => null },
+        groupOf: () => 500,
+      }),
+    ).toBeNull();
   });
 });
 
@@ -282,6 +383,18 @@ describe('wait queue', () => {
     writeQueueTicket(ticket('stale', 5, NOW - JOB_STALE_MS - 1), dir);
     const q = listQueueTickets(dir, { alive: () => true, now: () => NOW });
     expect(q.map((t) => t.id)).toEqual(['early', 'late']);
+  });
+
+  it('drops invalid and future-dated tickets so none can block a class forever (L-2)', () => {
+    writeQueueTicket(ticket('ok', 10), dir);
+    writeQueueTicket(ticket('future', 1, NOW + JOB_STALE_MS + 1), dir);
+    writeFileSync(
+      join(dir, 'bad.json'),
+      JSON.stringify({ id: 'bad', pid: 1, enqueuedAtMs: 0, heartbeatAtMs: 'soon' }),
+    );
+    const q = listQueueTickets(dir, { alive: () => true, now: () => NOW });
+    expect(q.map((t) => t.id)).toEqual(['ok']);
+    expect(readdirSync(dir).sort()).toEqual(['ok.json']);
   });
 });
 

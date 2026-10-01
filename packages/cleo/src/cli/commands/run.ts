@@ -15,7 +15,8 @@
  *   75, with who is running what and concrete ways to keep making progress.
  *   Nothing was started. `--wait` joins the class's FIFO queue instead.
  * - While it runs: at `backoff` only the oldest `cleo run` job keeps going;
- *   younger pausable ones are SIGSTOPped and resumed later. Nothing is killed.
+ *   younger pausable ones are SIGSTOPped and resumed later; pressure never
+ *   kills a job. (Only the orphaned group of a runner that died is stopped.)
  *
  * Exit codes: the child's own code; 128+n when a signal killed it; 127 when
  * it could not be started; 75 when not admitted; 6 on invalid input.
@@ -120,7 +121,8 @@ export const runCommand = defineCommand({
       sessionId: process.env.CLEO_SESSION_ID ?? process.env.CLAUDE_CODE_SESSION_ID ?? null,
       wait: Boolean(args.wait),
       timeoutMs,
-      notice: (line) => process.stderr.write(`[cleo run] ${line}\n`),
+      // Progress notices go to stderr; stdout carries only the final LAFS envelope.
+      notice: (line) => process.stderr.write(`[cleo run] ${line}\n`), // json-stream-hygiene-allowed: progress notices, not data
     });
 
     if (result.kind === 'deferred') {
