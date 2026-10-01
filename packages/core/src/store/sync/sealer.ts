@@ -52,63 +52,11 @@ import {
 } from './capture.js';
 import { tickClock, withImmediateTransaction } from './clock-store.js';
 import { isSyncFlagOn } from './flags.js';
+import { type DraftOp, type MetaFacts, type NettedOp, netTransaction } from './netting.js';
 import { hasTable } from './schema.js';
+import { canonicalJson, decodeEnc, type WireValue } from './sealer-values.js';
 
-// ---------------------------------------------------------------------------
-// Wire values (§2.6)
-// ---------------------------------------------------------------------------
-
-/** A typed wire value (§2.6): canonical JSON with typed escapes. */
-export type WireValue =
-  | string
-  | number
-  | null
-  | { readonly $i: string }
-  | { readonly $r: string }
-  | { readonly $b: string };
-
-/**
- * Decode one `enc()` text (SQLite `quote()`, or `r<%!.17g>` for REAL) to a
- * typed wire value.
- *
- * @example
- * ```ts
- * decodeEnc("'it''s'");          // "it's"
- * decodeEnc('42');               // 42
- * decodeEnc('9007199254740993'); // { $i: '9007199254740993' }
- * decodeEnc('r0.10000000000000001'); // { $r: '0.10000000000000001' }
- * decodeEnc("X'00FF'");          // { $b: 'AP8=' }
- * decodeEnc('NULL');             // null
- * ```
- * @throws {Error} on text no `enc()` can produce.
- */
-export function decodeEnc(text: string): WireValue {
-  if (text === 'NULL') return null;
-  if (text.startsWith("'") && text.endsWith("'") && text.length >= 2) {
-    return text.slice(1, -1).replaceAll("''", "'");
-  }
-  if (text.startsWith('r')) return { $r: text.slice(1) };
-  if (/^[Xx]'[0-9A-Fa-f]*'$/.test(text)) {
-    return { $b: Buffer.from(text.slice(2, -1), 'hex').toString('base64') };
-  }
-  if (/^-?\d+$/.test(text)) {
-    const n = Number(text);
-    return Number.isSafeInteger(n) ? n : { $i: text };
-  }
-  throw new Error(`sealer: not an enc() value: ${text.slice(0, 40)}`);
-}
-
-/** Canonical JSON: keys sorted at every level. */
-export function canonicalJson(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  const obj = value as Record<string, unknown>;
-  return `{${Object.keys(obj)
-    .filter((k) => obj[k] !== undefined)
-    .sort()
-    .map((k) => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`)
-    .join(',')}}`;
-}
+export { canonicalJson, decodeEnc, type WireValue } from './sealer-values.js';
 
 // ---------------------------------------------------------------------------
 // Ops (§2.6)
@@ -295,17 +243,36 @@ function str(v: WireValue | undefined): string | undefined {
   return typeof v === 'string' ? v : undefined;
 }
 
-/** Build one op (without its HLC) or the reason its group must wait. */
-function buildOp(
-  ctx: TableContext,
-  c: CaptureRow,
-): { op: Omit<SealedOp, 'h'> } | { pending: string } {
+/**
+ * Build one draft op from a capture (S3b: netting runs on drafts). The uid
+ * may stay NULL here; the netted op is checked afterwards, so a clear-and-
+ * refill pair (K x → NULL, K NULL → y) can net to one K first (N8).
+ */
+function buildDraft(ctx: TableContext, c: CaptureRow): DraftOp {
   const def = ctx.def(c.tbl);
   const img = JSON.parse(c.img) as Record<string, unknown>;
   const minted = ctx.minted(c.tbl);
   const natural = !minted ? { k: naturalKey(ctx, def, c.rk) } : {};
+  const base = { t: c.tbl, rk: c.rk, seq: c.seq };
+  if (c.op === 'K') {
+    const pair = (col: string) => {
+      const p = img[col] as [string, string] | undefined;
+      return p ? [str(decodeEnc(p[0])), str(decodeEnc(p[1]))] : [undefined, undefined];
+    };
+    const [, nu] = pair(UID_COLUMN);
+    const [obfp, bfp] = pair(BIRTH_FP_COLUMN);
+    return {
+      ...base,
+      o: 'K',
+      u: c.uid,
+      nu: nu ?? null,
+      ...(bfp ? { bfp } : {}),
+      ...(obfp ? { obfp } : {}),
+      ...natural,
+    };
+  }
   let uid = c.uid;
-  if (uid === null && c.op !== 'K' && def.identity.includes(UID_COLUMN)) {
+  if (uid === null && def.identity.includes(UID_COLUMN)) {
     const raw = img[UID_COLUMN];
     if (typeof raw === 'string') uid = str(decodeEnc(raw)) ?? null;
   }
@@ -315,23 +282,17 @@ function buildOp(
   // (T12341 §5.3), so a capture taken before the fill still seals. Symmetric
   // edges need the fill's twin rule and wait for it (the step-0 fill, S3d).
   if (uid === null && !minted && natural.k) uid = ctx.naturalUid(c.tbl, natural.k);
-  if (uid === null) return { pending: `${c.tbl} seq ${c.seq}: row has no uid` };
 
   switch (c.op) {
     case 'I': {
       const bfp = str(columnValue(ctx, def, BIRTH_FP_COLUMN, img[BIRTH_FP_COLUMN] ?? 'NULL'));
-      if (minted && def.identity.includes(BIRTH_FP_COLUMN) && bfp === undefined) {
-        return { pending: `${c.tbl} seq ${c.seq}: minted row has no birth_fp` };
-      }
       return {
-        op: {
-          t: c.tbl,
-          u: uid,
-          o: 'I',
-          ...(bfp ? { bfp } : {}),
-          ...natural,
-          a: imageValues(ctx, def, img, true),
-        },
+        ...base,
+        o: 'I',
+        u: uid,
+        ...(bfp ? { bfp } : {}),
+        ...natural,
+        a: imageValues(ctx, def, img, true),
       };
     }
     case 'U': {
@@ -344,43 +305,37 @@ function buildOp(
         if (nv !== undefined) a[col] = nv;
         if (ov !== undefined) b[col] = ov;
       }
-      const bfp = minted ? ctx.liveBirthFp(c.tbl, uid) : undefined;
-      return { op: { t: c.tbl, u: uid, o: 'U', ...(bfp ? { bfp } : {}), ...natural, a, b } };
+      const bfp = minted && uid !== null ? ctx.liveBirthFp(c.tbl, uid) : undefined;
+      return { ...base, o: 'U', u: uid, ...(bfp ? { bfp } : {}), ...natural, a, b };
     }
     case 'D': {
       const bfp = str(columnValue(ctx, def, BIRTH_FP_COLUMN, img[BIRTH_FP_COLUMN] ?? 'NULL'));
       return {
-        op: {
-          t: c.tbl,
-          u: uid,
-          o: 'D',
-          ...(bfp ? { bfp } : {}),
-          ...natural,
-          b: imageValues(ctx, def, img, true),
-        },
-      };
-    }
-    case 'K': {
-      const pair = (col: string) => {
-        const p = img[col] as [string, string] | undefined;
-        return p ? [str(decodeEnc(p[0])), str(decodeEnc(p[1]))] : [undefined, undefined];
-      };
-      const [, nu] = pair(UID_COLUMN);
-      const [obfp, bfp] = pair(BIRTH_FP_COLUMN);
-      if (nu === undefined) return { pending: `${c.tbl} seq ${c.seq}: re-key to a NULL uid` };
-      return {
-        op: {
-          t: c.tbl,
-          u: uid,
-          o: 'K',
-          nu,
-          ...(bfp ? { bfp } : {}),
-          ...(obfp ? { obfp } : {}),
-          ...natural,
-        },
+        ...base,
+        o: 'D',
+        u: uid,
+        ...(bfp ? { bfp } : {}),
+        ...natural,
+        b: imageValues(ctx, def, img, true),
       };
     }
   }
+}
+
+/** Why a netted op cannot be sealed yet, or null. */
+function unsealable(ctx: TableContext, op: NettedOp): string | null {
+  if (op.u === null) return `${op.t} seq ${op.seq}: row has no uid`;
+  if (op.o === 'K' && (op.nu ?? null) === null)
+    return `${op.t} seq ${op.seq}: re-key to a NULL uid`;
+  if (
+    op.o === 'I' &&
+    ctx.minted(op.t) &&
+    ctx.def(op.t).identity.includes(BIRTH_FP_COLUMN) &&
+    op.bfp === undefined
+  ) {
+    return `${op.t} seq ${op.seq}: minted row has no birth_fp`;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -552,28 +507,51 @@ function sealInTransaction(
   const touched = new Map<string, { tbl: string; uid: string; rk: string }>();
   const ledgerDelta = new Map<string, number>();
 
+  const metaFacts: MetaFacts = {
+    sent: (t, u) =>
+      (
+        db.prepare('SELECT sent FROM _sync_row_meta WHERE tbl = ? AND uid = ?').get(t, u) as
+          | { sent: number }
+          | undefined
+      )?.sent === 1,
+    live: (t, u) =>
+      (
+        db.prepare('SELECT deleted FROM _sync_row_meta WHERE tbl = ? AND uid = ?').get(t, u) as
+          | { deleted: number }
+          | undefined
+      )?.deleted === 0,
+  };
+  const moveMeta = db.prepare('UPDATE _sync_row_meta SET uid = ? WHERE tbl = ? AND uid = ?');
+
   for (const g of groups) {
-    const built: Array<Omit<SealedOp, 'h'>> = [];
-    let wait: string | null = null;
-    for (const c of g.captures) {
-      const r = buildOp(ctx, c);
-      if ('pending' in r) {
-        wait = r.pending;
-        break;
-      }
-      built.push(r.op);
-    }
+    const capOf = new Map(g.captures.map((c) => [c.seq, c] as const));
+    const netted = netTransaction(
+      g.captures.map((c) => buildDraft(ctx, c)),
+      metaFacts,
+    );
+    const wait = netted.ops.map((op) => unsealable(ctx, op)).find((r) => r !== null) ?? null;
     if (wait !== null) {
       pending.push({ firstSeq: g.captures[0]?.seq ?? 0, reason: wait });
       continue;
     }
+    // Dropped re-keys (uid never left the device): the meta follows the row.
+    for (const r of netted.renames) {
+      meta.remove.run(r.t, r.to);
+      moveMeta.run(r.to, r.t, r.from);
+    }
+    for (const c of g.captures) consumed.push(c.seq);
+    if (netted.ops.length === 0) continue; // everything netted away
 
     localSeq += 1;
     const txn = `${opts.replica}:${localSeq}`;
-    const sealedOps: SealedOp[] = built.map((op, i) => ({
-      ...op,
-      h: tickClock(db, opts.replica, g.captures[i]?.at_ms ?? now()),
-    }));
+    const sealedOps: Array<SealedOp & { readonly seq: number }> = netted.ops.map((op) => {
+      const { seq, ...rest } = op;
+      return {
+        ...(rest as Omit<SealedOp, 'h'>),
+        seq,
+        h: tickClock(db, opts.replica, capOf.get(seq)?.at_ms ?? now()),
+      };
+    });
     const txnHlc = sealedOps.reduce((m, o) => (o.h > m ? o.h : m), sealedOps[0]?.h ?? '');
     const kind = g.frame !== null && TXN_KINDS.has(g.kind) ? g.kind : 'write';
     insTxn.run(
@@ -590,7 +568,8 @@ function sealInTransaction(
       sealedOps.length,
       now(),
     );
-    sealedOps.forEach((op, i) => {
+    sealedOps.forEach(({ seq, ...op }, i) => {
+      const rk = capOf.get(seq)?.rk ?? '';
       insOp.run(txn, i, op.t, op.u, op.o, op.h, canonicalJson(op));
       const def = ctx.def(op.t);
       const prev = meta.get.get(op.t, op.u) as MetaRow | undefined;
@@ -611,11 +590,7 @@ function sealInTransaction(
           prev?.chash ?? null,
         );
         touched.delete(`${op.t}\u0000${op.u}`);
-        touched.set(`${op.t}\u0000${op.nu}`, {
-          tbl: op.t,
-          uid: op.nu,
-          rk: g.captures[i]?.rk ?? '',
-        });
+        touched.set(`${op.t}\u0000${op.nu}`, { tbl: op.t, uid: op.nu, rk });
         return;
       }
       const changed = op.o === 'U' ? Object.keys(op.a ?? {}) : [];
@@ -635,10 +610,8 @@ function sealInTransaction(
       if (op.o === 'I') ledgerDelta.set(op.t, (ledgerDelta.get(op.t) ?? 0) + 1);
       if (op.o === 'D') ledgerDelta.set(op.t, (ledgerDelta.get(op.t) ?? 0) - 1);
       if (op.o === 'D') touched.delete(`${op.t}\u0000${op.u}`);
-      else
-        touched.set(`${op.t}\u0000${op.u}`, { tbl: op.t, uid: op.u, rk: g.captures[i]?.rk ?? '' });
+      else touched.set(`${op.t}\u0000${op.u}`, { tbl: op.t, uid: op.u, rk });
     });
-    for (const c of g.captures) consumed.push(c.seq);
     txns += 1;
     ops += sealedOps.length;
     if (g.frame === null) unframed += 1;
