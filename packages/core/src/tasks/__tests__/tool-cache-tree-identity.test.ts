@@ -18,11 +18,15 @@
  *
  *   - `captureTreeHash` semantics: clean tree = HEAD^{tree}, tracked edits
  *     rotate it, reverting restores it, staging does not matter, untracked
- *     files never count (the gh#1221 rule).
- *   - Worktree sharing, dirty-tree invalidation, empty-commit, commit-the-
- *     measured-content and rebase hits.
- *   - A result from a deleted worktree stays servable and auditable: its tree
- *     is a git object, not a path.
+ *     not-ignored files count, gitignored files / `.cleo/` / tool output do
+ *     not (gh#1221), and a racy same-size edit is seen.
+ *   - Worktree sharing, dirty-tree and untracked-file invalidation,
+ *     empty-commit, commit-the-measured-content and rebase hits.
+ *   - The environment fingerprint: build-output tools share only between
+ *     equally installed and built checkouts.
+ *   - A result from a deleted worktree is refused (gh#1419), though its tree
+ *     object stays auditable.
+ *   - Concurrent identical runs coalesce on the per-key lock.
  *   - The structural guard carried over from gh#1419: every member of
  *     TOOL_RUN_IDENTITY_FIELDS changes the key, and `isEntryUsable` requires
  *     every one.
@@ -32,7 +36,15 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -47,6 +59,7 @@ import {
   runToolCached,
   TOOL_RUN_IDENTITY_FIELDS,
 } from '../tool-cache.js';
+import { captureEnvFingerprint } from '../tool-cache-env.js';
 import type { ResolvedToolCommand } from '../tool-resolver.js';
 
 function shCommand(script: string): ResolvedToolCommand {
@@ -128,10 +141,44 @@ describe('captureTreeHash', () => {
     expect(await captureTreeHash(dir)).not.toBe(clean);
   });
 
-  it('IGNORES untracked files — the gh#1221 rule is unchanged', async () => {
+  it('COUNTS an untracked, not-ignored file (review of #1774)', async () => {
     const clean = await captureTreeHash(dir);
-    writeFileSync(join(dir, 'untracked.txt'), 'tool output\n');
+    writeFileSync(join(dir, 'new-module.ts'), 'export const x = 1;\n');
+    expect(await captureTreeHash(dir)).not.toBe(clean);
+  });
+
+  it('ignores gitignored files, untracked .cleo/ state and tool output (gh#1221)', async () => {
+    writeFileSync(join(dir, '.gitignore'), 'dist/\n');
+    git(dir, 'add', '.gitignore');
+    git(dir, 'commit', '-qm', 'ignore');
+    const clean = await captureTreeHash(dir);
+    mkdirSync(join(dir, 'dist'));
+    writeFileSync(join(dir, 'dist', 'index.js'), 'built\n');
+    mkdirSync(join(dir, '.cleo', 'cache'), { recursive: true });
+    writeFileSync(join(dir, '.cleo', 'cache', 'x.json'), '{}');
+    mkdirSync(join(dir, 'coverage'));
+    writeFileSync(join(dir, 'coverage', 'lcov.info'), 'x');
+    writeFileSync(join(dir, 'vitest.log'), 'x');
     expect(await captureTreeHash(dir)).toBe(clean);
+  });
+
+  it('sees a same-size edit with an unchanged mtime (racy-clean index copy)', async () => {
+    // With ctime ignored, a same-size in-place rewrite whose mtime equals the
+    // index entry's is invisible to git's stat check; only the racy-clean rule
+    // (entry mtime >= index FILE mtime) forces a re-hash. A copy of the index
+    // with a fresh mtime defeats that rule.
+    git(dir, 'config', 'core.trustctime', 'false');
+    const past = new Date(Date.now() - 60_000);
+    utimesSync(join(dir, 'a.txt'), past, past);
+    git(dir, 'update-index', '--refresh');
+    const indexPath = join(dir, '.git', 'index');
+    utimesSync(indexPath, past, past);
+    const before = await captureTreeHash(dir);
+
+    writeFileSync(join(dir, 'a.txt'), 'HELLO\n'); // same size as 'hello\n'
+    utimesSync(join(dir, 'a.txt'), past, past);
+    const after = await captureTreeHash(dir);
+    expect(after).not.toBe(before);
   });
 
   it('never touches the real index', async () => {
@@ -196,7 +243,17 @@ describe('T12958 — runs are shared by content across worktrees and commits', (
     expect(spawns()).toBe(2);
   });
 
-  it('an untracked file in the second worktree still HITS (gh#1221 rule)', async () => {
+  it('an untracked failing test in worktree B MISSES worktree A’s entry (review of #1774)', async () => {
+    // The false pass this guards: B's new, uncommitted test leaves the
+    // tracked tree equal to A's, so a tracked-only key served A's pass.
+    await runToolCached(cmd, repo, { executionRoot: repo });
+    writeFileSync(join(wt, 'new.test.ts'), 'throw new Error("red");\n');
+    const r = await runToolCached(cmd, repo, { executionRoot: wt });
+    expect(r.cacheHit).toBe(false);
+    expect(spawns()).toBe(2);
+  });
+
+  it('untracked tool output in worktree B still HITS (gh#1221)', async () => {
     await runToolCached(cmd, repo, { executionRoot: repo });
     writeFileSync(join(wt, 'scratch.log'), 'untracked\n');
     const r = await runToolCached(cmd, repo, { executionRoot: wt });
@@ -239,15 +296,16 @@ describe('T12958 — runs are shared by content across worktrees and commits', (
     expect(spawns()).toBe(1);
   });
 
-  it('a result from a DELETED worktree is still served, and its tree is auditable', async () => {
+  it('a result from a DELETED worktree is refused, but its tree stays auditable', async () => {
     const first = await runToolCached(cmd, repo, { executionRoot: wt });
     git(repo, 'worktree', 'remove', '--force', wt);
     expect(existsSync(wt)).toBe(false);
 
+    // gh#1419's refusal is kept: the recorded checkout is gone.
     const r = await runToolCached(cmd, repo, { executionRoot: repo });
-    expect(r.cacheHit).toBe(true);
-    // gh#1419's concern was that nobody could check what ran. The tree object
-    // lives in the shared object database: `git ls-tree` still answers.
+    expect(r.cacheHit).toBe(false);
+    expect(spawns()).toBe(2);
+    // The tree object is still in the shared object database (until gc).
     const treeHash = first.entry.treeHash as string;
     expect(git(repo, 'cat-file', '-t', treeHash)).toBe('tree');
     expect(git(repo, 'ls-tree', '--name-only', treeHash)).toContain('a.txt');
@@ -319,7 +377,7 @@ describe('T12958 — concurrent identical runs coalesce on the per-key lock', ()
     timeout: 30_000,
   }, async () => {
     const cmd = shCommand(`printf x >> "${marker}"; echo ok`);
-    const key = computeCacheKey(cmd, await captureTreeHash(repo));
+    const key = computeCacheKey(cmd, await captureTreeHash(repo), 'none');
     const path = cacheEntryPath(repo, key);
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, JSON.stringify({ schemaVersion: 3, key, pending: true }));
@@ -345,18 +403,96 @@ describe('T12958 — concurrent identical runs coalesce on the per-key lock', ()
   });
 });
 
+describe('T12958 — the environment fingerprint gates sharing for build-output tools', () => {
+  let repo: string;
+  let wtParent: string;
+  let wt: string;
+  let markerDir: string;
+  let marker: string;
+  const testCmd = (): ResolvedToolCommand => ({
+    canonical: 'test',
+    displayName: 'test',
+    cmd: 'sh',
+    args: ['-c', `printf x >> "${marker}"; echo ok`],
+    source: 'language-default',
+  });
+
+  beforeEach(() => {
+    repo = mkdtempSync(join(tmpdir(), 'tree-env-repo-'));
+    initRepo(repo);
+    writeFileSync(join(repo, 'package.json'), '{"name":"root"}\n');
+    mkdirSync(join(repo, 'pkg'));
+    writeFileSync(join(repo, 'pkg', 'package.json'), '{"name":"pkg"}\n');
+    writeFileSync(join(repo, '.gitignore'), 'dist/\nnode_modules/\n.env\n');
+    git(repo, 'add', '.');
+    git(repo, 'commit', '-qm', 'pkgs');
+    wtParent = mkdtempSync(join(tmpdir(), 'tree-env-wt-'));
+    wt = join(wtParent, 'wt');
+    git(repo, 'worktree', 'add', '-q', '-b', 'feature', wt);
+    markerDir = mkdtempSync(join(tmpdir(), 'tree-env-marker-'));
+    marker = join(markerDir, 'spawns.txt');
+    for (const root of [repo, wt]) {
+      mkdirSync(join(root, 'pkg', 'dist'), { recursive: true });
+      writeFileSync(join(root, 'pkg', 'dist', 'index.js'), 'export const v = 1;\n');
+      mkdirSync(join(root, 'node_modules', '.pnpm'), { recursive: true });
+      writeFileSync(join(root, 'node_modules', '.pnpm', 'lock.yaml'), 'lockfileVersion: 9\n');
+    }
+  });
+  afterEach(() => {
+    for (const d of [repo, wtParent, markerDir]) rmSync(d, { recursive: true, force: true });
+  });
+
+  const spawns = (): number => (existsSync(marker) ? readFileSync(marker, 'utf-8').length : 0);
+
+  it('equally built and installed worktrees share a `test` result', async () => {
+    expect(captureEnvFingerprint(repo, 'test')).toBe(captureEnvFingerprint(wt, 'test'));
+    await runToolCached(testCmd(), repo, { executionRoot: repo });
+    const r = await runToolCached(testCmd(), repo, { executionRoot: wt });
+    expect(r.cacheHit).toBe(true);
+    expect(spawns()).toBe(1);
+  });
+
+  it('a stale gitignored dist/ in worktree B misses', async () => {
+    await runToolCached(testCmd(), repo, { executionRoot: repo });
+    writeFileSync(join(wt, 'pkg', 'dist', 'index.js'), 'export const v = 1; // stale build\n');
+    const r = await runToolCached(testCmd(), repo, { executionRoot: wt });
+    expect(r.cacheHit).toBe(false);
+    expect(spawns()).toBe(2);
+  });
+
+  it('a different or missing install in worktree B misses', async () => {
+    await runToolCached(testCmd(), repo, { executionRoot: repo });
+    rmSync(join(wt, 'node_modules'), { recursive: true, force: true });
+    const r = await runToolCached(testCmd(), repo, { executionRoot: wt });
+    expect(r.cacheHit).toBe(false);
+  });
+
+  it('a different gitignored .env in worktree B misses', async () => {
+    await runToolCached(testCmd(), repo, { executionRoot: repo });
+    writeFileSync(join(wt, '.env'), 'API=other\n');
+    const r = await runToolCached(testCmd(), repo, { executionRoot: wt });
+    expect(r.cacheHit).toBe(false);
+  });
+
+  it('source-only tools ignore the environment', () => {
+    expect(captureEnvFingerprint(repo, 'lint')).toBe('none');
+  });
+});
+
 describe('the identity list is the single source of truth', () => {
   interface Identity {
     canonical: ResolvedToolCommand['canonical'];
     cmd: string;
     args: string[];
     treeHash: string;
+    envFingerprint: string;
   }
   const base: Identity = {
     canonical: 'lint',
     cmd: 'sh',
     args: ['-c', 'true'],
     treeHash: 'a'.repeat(40),
+    envFingerprint: 'none',
   };
 
   it('every identity field is actually in the key', () => {
@@ -373,6 +509,7 @@ describe('the identity list is the single source of truth', () => {
           source: 'language-default',
         },
         o.treeHash,
+        o.envFingerprint,
       );
     const reference = keyOf(base);
 
@@ -381,6 +518,7 @@ describe('the identity list is the single source of truth', () => {
       cmd: { ...base, cmd: 'bash' },
       args: { ...base, args: ['-c', 'false'] },
       treeHash: { ...base, treeHash: 'b'.repeat(40) },
+      envFingerprint: { ...base, envFingerprint: 'e'.repeat(32) },
     };
 
     // Guards the map itself: a new identity field with no perturbation here

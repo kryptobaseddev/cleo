@@ -323,6 +323,13 @@ export type EvidenceAtom =
        * it stays visible instead of reading as a clean one.
        */
       flaky?: string[];
+      /**
+       * Git tree of the source the run measured (T12958): HEAD's tree with
+       * every uncommitted, not-ignored change applied.
+       */
+      treeHash?: string;
+      /** `true` when the result was served from the tool cache (no spawn). */
+      cacheHit?: boolean;
     }
   | { kind: 'url'; url: string }
   | { kind: 'note'; note: string }

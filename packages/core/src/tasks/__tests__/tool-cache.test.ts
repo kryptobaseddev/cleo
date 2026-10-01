@@ -33,6 +33,7 @@ import {
   resolveSpawnTimeoutMs,
   runToolCached,
 } from '../tool-cache.js';
+import { captureEnvFingerprint } from '../tool-cache-env.js';
 import type { ResolvedToolCommand } from '../tool-resolver.js';
 
 function git(dir: string, args: string[]): string {
@@ -140,17 +141,25 @@ describe('computeCacheKey', () => {
   };
 
   it('differs for different tree hashes', () => {
-    expect(computeCacheKey(cmd, 'tree-a')).not.toBe(computeCacheKey(cmd, 'tree-b'));
+    expect(computeCacheKey(cmd, 'tree-a', 'env')).not.toBe(computeCacheKey(cmd, 'tree-b', 'env'));
   });
 
   it('differs for different args', () => {
-    const a = computeCacheKey(cmd, 'tree-a');
-    const b = computeCacheKey({ ...cmd, args: ['bye'] }, 'tree-a');
+    const a = computeCacheKey(cmd, 'tree-a', 'env');
+    const b = computeCacheKey({ ...cmd, args: ['bye'] }, 'tree-a', 'env');
     expect(a).not.toBe(b);
   });
 
+  it('differs for different environment fingerprints', () => {
+    expect(computeCacheKey(cmd, 'tree-a', 'env-1')).not.toBe(
+      computeCacheKey(cmd, 'tree-a', 'env-2'),
+    );
+  });
+
   it('is stable for identical inputs', () => {
-    expect(computeCacheKey(cmd, 'tree-a')).toBe(computeCacheKey({ ...cmd }, 'tree-a'));
+    expect(computeCacheKey(cmd, 'tree-a', 'env')).toBe(
+      computeCacheKey({ ...cmd }, 'tree-a', 'env'),
+    );
   });
 });
 
@@ -267,17 +276,16 @@ describe('runToolCached — invalidation', () => {
     expect(r2.cacheHit).toBe(false);
   });
 
-  it('does NOT invalidate when an untracked file is added (gh#1221 tradeoff)', async () => {
-    // See captureDirtyFingerprint's docblock. Untracked output from the tool
-    // itself is indistinguishable from untracked input by the operator, and
-    // counting either one made caching impossible in practice.
+  it('invalidates when an untracked, not-ignored file is added (review of #1774)', async () => {
+    // Untracked source counts once keys are shared across worktrees; tool
+    // output is kept out by the tree pathspec, not by ignoring all untracked.
     const cmd = shCommand(`printf x >> "${markerFile}"; echo ok`);
     await runToolCached(cmd, dir);
 
     writeFileSync(join(dir, 'untracked.txt'), 'hello\n');
 
     const r2 = await runToolCached(cmd, dir);
-    expect(r2.cacheHit).toBe(true);
+    expect(r2.cacheHit).toBe(false);
   });
 });
 
@@ -698,7 +706,11 @@ describe('runToolCached — lock contention bounded wait (T12025, T12958)', () =
     const cmd = shCommand('echo ok');
 
     // Pre-compute the exact cache path that runToolCached will target.
-    const key = computeCacheKey(cmd, await captureTreeHash(dir));
+    const key = computeCacheKey(
+      cmd,
+      await captureTreeHash(dir),
+      captureEnvFingerprint(dir, 'test'),
+    );
     const cachePath = cacheEntryPath(dir, key);
 
     // Ensure the cache directory exists so the write succeeds.

@@ -22,7 +22,8 @@
  *      deleted on access (no GC daemon required).
  *   4. **Failed-first reruns** — a failing `test` run remembers its failing
  *      test files; the next run re-runs those first and stops if they still
- *      fail (T12961, see `tool-cache-failed-first.ts`).
+ *      fail (T12961, see `tool-cache-failed-first.ts`). A failing run is
+ *      re-run in full once; a pass then is recorded as `flaky`.
  *
  * Cache layout (under `<projectRoot>/.cleo/cache/evidence/`):
  *
@@ -48,6 +49,8 @@ import {
   realpathSync,
   renameSync,
   rmSync,
+  statSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -62,6 +65,7 @@ import {
   isSystemdRunCommand,
   withMemoryLimit,
 } from './heavy-tool-limit.js';
+import { captureEnvFingerprint } from './tool-cache-env.js';
 import {
   FAILED_FIRST_TOOLS,
   type FailedFirstReport,
@@ -70,7 +74,6 @@ import {
   planFocusedRuns,
   readFailedFirstPointer,
   reportsNoTestFiles,
-  summarizedFailedFileCount,
   writeFailedFirstPointer,
 } from './tool-cache-failed-first.js';
 import type { ResolvedToolCommand } from './tool-resolver.js';
@@ -129,6 +132,15 @@ export interface ToolCacheEntry {
    * @task T12958
    */
   treeHash: string | null;
+  /**
+   * Fingerprint of the per-checkout environment the run depended on — the
+   * installed-lockfile snapshot, workspace `dist/` file sizes and `.env*`
+   * content (see `tool-cache-env.ts`). `'none'` for tools that read only
+   * source. Part of the key.
+   *
+   * @task T12958
+   */
+  envFingerprint: string;
   /** Git HEAD sha at execution time. Informational since T12958: NOT keyed. */
   head: string | null;
   /**
@@ -193,6 +205,16 @@ export interface ToolCacheEntry {
    * @task T12961
    */
   flaky?: string[];
+  /**
+   * `focused`: this record describes a failed-first run of only
+   * {@link ToolCacheEntry.ranFiles}, not the recorded command. Such records
+   * are returned to the caller but never persisted under the command's key.
+   *
+   * @task T12961
+   */
+  scope?: 'focused';
+  /** The test files a `scope: 'focused'` run executed. */
+  ranFiles?: string[];
 }
 
 /**
@@ -287,10 +309,9 @@ export interface RunToolOptions {
    * written to cache for subsequent calls.
    *
    * When omitted, `CLEO_EVIDENCE_FRESH=1` in the environment turns this on.
-   * That is the documented escape hatch for the tracked-only fingerprint
-   * (see {@link captureDirtyFingerprint}): an uncommitted NEW file does not
-   * move the cache key, so this is how an operator forces a measured run
-   * without committing first.
+   * It is the escape hatch for anything the key cannot see — a change under
+   * an excluded or gitignored path, or environment state outside the
+   * fingerprint. It also skips failed-first reruns (T12961).
    *
    * @defaultValue `false` (or `CLEO_EVIDENCE_FRESH === '1'`)
    * @task T12112 (gh#1221)
@@ -364,7 +385,8 @@ export interface RunToolOptions {
    * the identical command on identical content, so waiting and reusing its
    * result is always cheaper than running in parallel.
    *
-   * @defaultValue the spawn deadline + 60 s
+   * @defaultValue 3 × the spawn deadline + 60 s (focused rerun + normal run
+   *   + one flake retry)
    */
   lockWaitMs?: number;
   /**
@@ -559,11 +581,20 @@ export function resolveSpawnTimeoutMs(
  * rather than the content measured, so keying on them made every worktree and
  * every commit a miss even when the tracked content was byte-identical.
  * `treeHash` is the content itself; it subsumes the old `dirtyFingerprint`.
+ * `envFingerprint` covers the per-checkout state git does not see (installed
+ * deps, gitignored build output, `.env*`), so sharing across worktrees
+ * happens only when BOTH the source and the environment match.
  *
  * @task T12190 (gh#1419)
  * @task T12958
  */
-export const TOOL_RUN_IDENTITY_FIELDS = ['canonical', 'cmd', 'args', 'treeHash'] as const;
+export const TOOL_RUN_IDENTITY_FIELDS = [
+  'canonical',
+  'cmd',
+  'args',
+  'treeHash',
+  'envFingerprint',
+] as const;
 
 /**
  * Current {@link ToolCacheEntry.schemaVersion}. Entries of any other version
@@ -602,7 +633,8 @@ function normalizeExecutionRoot(executionRoot: string): string {
  * Compute the cache key for a resolved tool command + tracked tree content.
  *
  * The key covers exactly {@link TOOL_RUN_IDENTITY_FIELDS} — canonical tool
- * name, resolved command and args, and the tree hash. Fields are projected in
+ * name, resolved command and args, the tree hash and the environment
+ * fingerprint. Fields are projected in
  * the order that array declares, so the hashed payload is a function of the
  * array and adding a field there changes every key by construction.
  *
@@ -615,18 +647,24 @@ function normalizeExecutionRoot(executionRoot: string): string {
  *
  * @param command - Resolved tool command.
  * @param treeHash - {@link captureTreeHash} of the execution root.
+ * @param envFingerprint - {@link captureEnvFingerprint} of the execution root.
  * @returns 32 hex chars.
  *
  * @task T1534
  * @task T12190 (gh#1419)
  * @task T12958
  */
-export function computeCacheKey(command: ResolvedToolCommand, treeHash: string | null): string {
+export function computeCacheKey(
+  command: ResolvedToolCommand,
+  treeHash: string | null,
+  envFingerprint: string,
+): string {
   const identity: ToolRunIdentity = {
     canonical: command.canonical,
     cmd: command.cmd,
     args: command.args,
     treeHash,
+    envFingerprint,
   };
   // Projected through TOOL_RUN_IDENTITY_FIELDS rather than written as an
   // object literal: the literal is what drifted from the entry shape before.
@@ -919,8 +957,9 @@ export async function captureHead(projectRoot: string): Promise<string | null> {
  * non-git roots.
  *
  * Since T12958 this is NOT part of the tool-cache key — {@link captureTreeHash}
- * replaced it there. It remains the dirty-tree identity for the gate-result
- * cache, and the untracked-file rule below applies to both.
+ * replaced it there, and (unlike this function) counts untracked, not-ignored
+ * files. It remains the dirty-tree identity for the gate-result cache, where
+ * the tracked-only rule below still applies.
  *
  * Two repos with identical tracked content but different uncommitted edits
  * produce different fingerprints — so editing a tracked file before
@@ -1036,44 +1075,76 @@ export async function captureDirtyFingerprint(projectRoot: string): Promise<stri
 }
 
 /**
- * Capture the git tree hash of the TRACKED content as it sits in the working
- * tree: HEAD's tree with every uncommitted change to a tracked file applied,
- * whether staged or not. Returns `null` for non-git roots or on any git
- * failure (the entry is then unusable and nothing is cached).
+ * Paths {@link captureTreeHash} resets to their HEAD state after staging.
+ *
+ * All of `.cleo/` (CLEO writes untracked runtime files there on every
+ * command) and the well-known untracked outputs of test and build tools that
+ * are not always gitignored. Neither a CLEO command nor the tool under test
+ * can therefore move the key it is stored under — the self-invalidation
+ * gh#1221 was about.
+ *
+ * Applied with `git reset` rather than as `:(exclude)` pathspecs on
+ * `git add -A`: `add` refuses (exit 1) when an exclude pathspec names a path
+ * that is gitignored, which `.cleo/` usually is.
+ */
+const TREE_RESET_PATHSPEC: readonly string[] = [
+  '--',
+  ':(glob).cleo/**',
+  ':(glob)**/coverage/**',
+  ':(glob)**/.vitest/**',
+  ':(glob)**/.nyc_output/**',
+  ':(glob)**/.turbo/**',
+  ':(glob)**/test-results/**',
+  ':(glob)**/*.log',
+  ':(glob)**/*.tsbuildinfo',
+];
+
+/**
+ * Capture the git tree hash of the working tree's SOURCE content: HEAD's tree
+ * with every uncommitted change applied — staged or not, to tracked files and
+ * to untracked files that are not gitignored. Returns `null` for non-git
+ * roots or on any git failure (the entry is then unusable and nothing is
+ * cached).
  *
  * ## How (T12958)
  *
- * 1. Copy the checkout's own index to a private temporary file. The copy keeps
- *    the index's stat cache, so git re-hashes only files whose stat changed —
- *    ~90 ms on this ~10k-file monorepo. The real index is never touched, so
- *    this is safe to run while an agent is mid-`git add`.
- * 2. `GIT_INDEX_FILE=<copy> git add -u -- <pathspec>` stages every modified or
- *    deleted TRACKED path into the copy. `-u` never adds untracked files.
+ * 1. Copy the checkout's own index to a private temporary file, preserving
+ *    its atime/mtime. The copy keeps the index's stat cache, so git re-hashes
+ *    only files whose stat changed — ~90 ms on this ~10k-file monorepo. The
+ *    preserved mtime matters: git's racy-clean check compares each entry's
+ *    mtime with the INDEX FILE's mtime, and a fresh mtime on the copy would
+ *    let a same-size edit made in the same timestamp tick as the last index
+ *    write read as clean. The real index is never touched.
+ * 2. `GIT_INDEX_FILE=<copy> git add -A -- .` stages every modified, deleted
+ *    and new path into the copy. `-A` honours `.gitignore`, so
+ *    `node_modules/`, `dist/` and other ignored output stay out. Then
+ *    `git reset -- <TREE_RESET_PATHSPEC>` puts CLEO state and tool output
+ *    back to their HEAD state.
  * 3. `GIT_INDEX_FILE=<copy> git write-tree` prints the tree.
  *
  * A clean checkout yields exactly `HEAD^{tree}`. Two worktrees with the same
- * tracked content yield the same hash wherever they live, and an empty commit,
- * an amend of only the message, or a rebase that reproduces the same content
- * leave it unchanged — all of which used to miss.
+ * source yield the same hash wherever they live, and an empty commit, an
+ * amend of only the message, or a rebase that reproduces the same content
+ * leave it unchanged.
  *
- * Rejected alternatives: `git stash create` prints nothing for a clean tree,
- * writes a commit object per call, and keys on the stash commit rather than
- * the tree; `HEAD^{tree}` + {@link captureDirtyFingerprint} would still split
- * one content across commits (the diff is relative to a moving HEAD).
+ * ## Untracked files (review of #1774, supersedes the gh#1221 tracked-only rule)
  *
- * ## Untracked files
+ * An untracked, not-ignored file IS part of the hash. Tracked-only was safe
+ * while the key also carried the execution root; once the key is shared
+ * across worktrees it is a false pass: a worker's new, uncommitted module and
+ * failing test leave the tracked tree equal to main's, and main's cached pass
+ * would be served without the worker's tests ever running. The gh#1221
+ * self-invalidation hazard is handled by {@link TREE_RESET_PATHSPEC} instead.
  *
- * Unchanged from the gh#1221 rule documented on
- * {@link captureDirtyFingerprint}: untracked files are NOT part of the key, so
- * a tool that writes artifacts cannot invalidate its own entry. Paths in
- * {@link FINGERPRINT_PATHSPEC}'s exclusions (CLEO runtime state) keep their
- * index state rather than their working-tree state. The escape hatch for a
- * brand-new untracked source file is still `CLEO_EVIDENCE_FRESH=1`.
+ * Rejected alternatives: `git stash create` prints nothing for a clean tree
+ * and writes a commit per call; `HEAD^{tree}` + {@link captureDirtyFingerprint}
+ * would split one content across commits.
  *
- * Side effect: `git add -u` writes blob objects for dirty files into the
- * repository's object database. They are ordinary loose objects that
- * `git gc` prunes once unreferenced, and they are what keeps the tree
- * auditable after the worktree is gone.
+ * Side effect: `git add -A` writes blob objects for dirty and new files into
+ * the repository's object database. Tree objects are written by `write-tree`.
+ * Both are ordinary unreferenced loose objects: `git gc` prunes them after
+ * `gc.pruneExpire` (two weeks by default), so `git ls-tree <treeHash>` as an
+ * audit of an old entry is best-effort.
  *
  * @param root - Directory to fingerprint (the execution root).
  * @returns 40/64 hex chars of the tree object id, or `null`.
@@ -1081,28 +1152,35 @@ export async function captureDirtyFingerprint(projectRoot: string): Promise<stri
  * @task T12958
  */
 export async function captureTreeHash(root: string): Promise<string | null> {
-  const gitPath = await spawnCmd('git', ['rev-parse', '--git-path', 'index'], root);
-  if (gitPath.exitCode !== 0) return null;
-  const realIndex = resolve(root, gitPath.stdout.trim());
+  // `--absolute-git-dir`, not `--git-path index`: the latter answers with an
+  // inherited `GIT_INDEX_FILE` (e.g. inside a git hook), which is not this
+  // checkout's index.
+  const gitDir = await spawnCmd('git', ['rev-parse', '--absolute-git-dir'], root);
+  if (gitDir.exitCode !== 0) return null;
+  const realIndex = join(gitDir.stdout.trim(), 'index');
   let tmpDir: string | null = null;
   try {
     tmpDir = mkdtempSync(join(tmpdir(), 'cleo-tree-'));
     const env = { GIT_INDEX_FILE: join(tmpDir, 'index') };
     if (existsSync(realIndex)) {
       copyFileSync(realIndex, env.GIT_INDEX_FILE);
+      const st = statSync(realIndex);
+      utimesSync(env.GIT_INDEX_FILE, st.atime, st.mtime);
     } else {
       // No index yet: seed from HEAD. An unborn HEAD leaves the index empty,
       // which is correct — nothing is tracked.
       await spawnCmd('git', ['read-tree', 'HEAD'], root, undefined, env);
     }
-    const added = await spawnCmd(
+    const added = await spawnCmd('git', ['add', '-A', '--', '.'], root, undefined, env);
+    if (added.exitCode !== 0) return null;
+    const reset = await spawnCmd(
       'git',
-      ['add', '-u', ...FINGERPRINT_PATHSPEC],
+      ['reset', '-q', ...TREE_RESET_PATHSPEC],
       root,
       undefined,
       env,
     );
-    if (added.exitCode !== 0) return null;
+    if (reset.exitCode !== 0) return null;
     const tree = await spawnCmd('git', ['write-tree'], root, undefined, env);
     if (tree.exitCode !== 0) return null;
     return tree.stdout.trim() || null;
@@ -1165,16 +1243,51 @@ export function readCacheEntry(projectRoot: string, key: string): ToolCacheEntry
     // shared verbatim with the persist guard in `runToolCached`.
     if (!isEntryUsable(parsed)) return null;
 
-    // No "originating directory still exists" check since T12958. gh#1419
-    // refused hits from deleted worktrees because a path was the only record
-    // of what ran; the entry now names the content itself (`treeHash`, a git
-    // object in the shared object database), and the key guarantees the
-    // reader holds that same content. Refusing on a deleted directory would
-    // only force a re-run of identical code in a live sibling worktree.
+    // gh#1419: refuse a hit whose recorded tree is GONE. Kept under the
+    // content key (review of #1774): the tree hash and environment
+    // fingerprint identify what ran, but a result whose checkout no longer
+    // exists cannot be re-examined for anything the fingerprints do not cover.
+    if (!existsSync(parsed.executionRoot as string)) return null;
 
     return parsed as ToolCacheEntry;
   } catch {
     return null;
+  }
+}
+
+let legacySwept = false;
+
+/**
+ * Delete tool-cache entries written under an older schema, once per process.
+ *
+ * Their keys can never be computed again (the identity changed with the
+ * schema), so nothing would ever read or overwrite them. Only files named
+ * like a tool-cache key (32 hex chars) are considered; the `pr-`, `gate-`,
+ * `reval-` and `failed-first-` files sharing the directory are left alone.
+ *
+ * @task T12958
+ */
+function sweepLegacyEntriesOnce(projectRoot: string): void {
+  if (legacySwept) return;
+  legacySwept = true;
+  const dir = join(projectRoot, '.cleo', 'cache', 'evidence');
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    if (!/^[0-9a-f]{32}\.json$/.test(name)) continue;
+    try {
+      const parsed = JSON.parse(readFileSync(join(dir, name), 'utf-8')) as {
+        schemaVersion?: number;
+      };
+      if (parsed.schemaVersion !== TOOL_CACHE_SCHEMA_VERSION)
+        rmSync(join(dir, name), { force: true });
+    } catch {
+      // unreadable or mid-write: leave it
+    }
   }
 }
 
@@ -1277,11 +1390,12 @@ function listTrackedFiles(root: string): string[] {
  *      worktree), wait for its result and reuse it (T12958).
  *   4. Re-check cache inside the lock (another process may have written it
  *      while we were waiting).
- *   5. For `test`, when the previous run in this execution root failed, re-run
- *      only its failing files first; if they still fail (twice), cache and
- *      return that failure without the normal run (T12961).
+ *   5. For `test`, when the previous run in this execution root failed on a
+ *      different tree, re-run only its failing files first; if they still
+ *      fail, return that (uncached, `scope: 'focused'`) failure without the
+ *      normal run (T12961).
  *   6. Spawn the tool, capture stdout/stderr tails. For a failing `test`,
- *      re-run the failing files once; a pass there is a `flaky` pass
+ *      re-run the FULL command once; a pass there is a pass marked `flaky`
  *      (T12961). Write the entry, return.
  *
  * Locks are auto-released on success or failure. Stale locks are reaped per
@@ -1319,19 +1433,24 @@ export async function runToolCached(
   const executionRoot = opts.executionRoot ?? projectRoot;
   const recordedRoot = normalizeExecutionRoot(executionRoot);
 
-  // gh#1221 escape hatch. The tree hash covers TRACKED content only, so an
-  // uncommitted NEW file does not invalidate the cache; this is the
-  // documented way to force a measured run without committing first.
-  // An explicit option always wins over the env var.
+  // Escape hatch for anything the key cannot see (an ignored or excluded
+  // path, environment state outside the fingerprint). An explicit option
+  // always wins over the env var.
   const bypassCache = opts.bypassCache ?? process.env['CLEO_EVIDENCE_FRESH'] === '1';
 
   const treeHash = await captureTreeHash(executionRoot);
+  const envFingerprint = captureEnvFingerprint(executionRoot, command.canonical);
   const head = await captureHead(executionRoot);
-  const key = computeCacheKey(command, treeHash);
+  const key = computeCacheKey(command, treeHash, envFingerprint);
 
   const makeEntry = (
     run: Pick<ToolCacheEntry, 'exitCode' | 'stdoutTail' | 'stderrTail' | 'durationMs'> &
-      Partial<Pick<ToolCacheEntry, 'signal' | 'failedTestFiles' | 'failedFirst' | 'flaky'>>,
+      Partial<
+        Pick<
+          ToolCacheEntry,
+          'signal' | 'failedTestFiles' | 'failedFirst' | 'flaky' | 'scope' | 'ranFiles'
+        >
+      >,
   ): ToolCacheEntry => ({
     schemaVersion: TOOL_CACHE_SCHEMA_VERSION,
     key,
@@ -1341,6 +1460,7 @@ export async function runToolCached(
     args: command.args,
     source: command.source,
     treeHash,
+    envFingerprint,
     head,
     executionRoot: recordedRoot,
     ...run,
@@ -1459,43 +1579,43 @@ export async function runToolCached(
       const fresh = readCacheEntry(projectRoot, key);
       if (fresh) return hit(fresh);
     }
+    sweepLegacyEntriesOnce(projectRoot);
 
-    // T12961: failed-first. When the last run of this tool in this tree
-    // failed, re-run only its failing files before the normal command.
     const failedFirstEnabled = FAILED_FIRST_TOOLS.has(command.canonical);
     let trackedCache: string[] | null = null;
     const tracked = (): string[] => {
       trackedCache ??= listTrackedFiles(executionRoot);
       return trackedCache;
     };
-    // Files that failed once and then passed on their single retry.
-    let flaky: string[] | undefined;
+
+    // T12961: failed-first. When the last run of this tool in this tree
+    // failed on a DIFFERENT tree (i.e. something changed since), re-run only
+    // its failing files before the normal command.
+    //
+    // Liveness rules (review of #1774), so a pointer can never pin a tree red:
+    //   - `bypassCache` (`CLEO_EVIDENCE_FRESH=1`) skips failed-first entirely;
+    //   - a pointer recorded on THIS tree is not re-focused: the normal
+    //     command runs and decides (a file that fails only in isolation is
+    //     thereby re-judged by the real suite);
+    //   - a focused run with no parseable FAIL line (a startup or config
+    //     crash) is inconclusive and also runs the normal command.
+    // A focused red is returned but NEVER cached under the normal command's
+    // key: the suite did not run, so it must not be served as the suite's
+    // result. Its record lives in the pointer (now on this tree), so the next
+    // run here goes straight to the normal command.
     let failedFirst: FailedFirstReport | undefined;
-    if (failedFirstEnabled) {
+    if (failedFirstEnabled && !bypassCache) {
       const pointer = readFailedFirstPointer(projectRoot, command.canonical, recordedRoot);
-      const plan = pointer ? planFocusedRuns(pointer.files, executionRoot) : null;
+      const plan =
+        pointer && pointer.treeHash !== treeHash
+          ? planFocusedRuns(pointer.files, executionRoot)
+          : null;
       if (pointer && plan) {
         const report = (outcome: FailedFirstReport['outcome']): FailedFirstReport => ({
           files: [...pointer.files],
           outcome,
         });
-        let focused = await runFocused(command, plan, executionRoot, spawnTimeoutMs);
-        let firstFailure: string[] | null = null;
-        if (focused.kind === 'failed') {
-          // Flake check: one retry of the files that just failed. A pass
-          // here does not skip anything — the normal command still runs and
-          // decides — it only stops a load-induced flake from being reported
-          // as the suite's result without a second look.
-          const out = `${focused.result.stdout}\n${focused.result.stderr}`;
-          const parsed = parseFailingTestFiles(out, executionRoot, tracked, focused.cwd);
-          firstFailure = parsed.length > 0 ? parsed : [...pointer.files];
-          const retryPlan = planFocusedRuns(firstFailure, executionRoot);
-          if (retryPlan) {
-            const retry = await runFocused(command, retryPlan, executionRoot, spawnTimeoutMs);
-            if (retry.kind === 'passed') flaky = firstFailure;
-            else if (retry.kind === 'failed') focused = retry;
-          }
-        }
+        const focused = await runFocused(command, plan, executionRoot, spawnTimeoutMs);
         switch (focused.kind) {
           case 'timedOut':
             return timedOutResult(focused.result, focused.durationMs, report('inconclusive'));
@@ -1507,15 +1627,13 @@ export async function runToolCached(
               report('inconclusive'),
             );
           case 'failed': {
-            if (flaky) {
-              failedFirst = report('passed');
+            const out = `${focused.result.stdout}\n${focused.result.stderr}`;
+            const files = parseFailingTestFiles(out, executionRoot, tracked, focused.cwd);
+            if (files.length === 0) {
+              failedFirst = report('inconclusive');
               break;
             }
-            // Still red, twice: this IS the suite's result. A failing subset
-            // is a failing suite, so it is cached under the normal key.
-            const out = `${focused.result.stdout}\n${focused.result.stderr}`;
-            const parsed = parseFailingTestFiles(out, executionRoot, tracked, focused.cwd);
-            const files = parsed.length > 0 ? parsed : (firstFailure ?? [...pointer.files]);
+            writeFailedFirstPointer(projectRoot, command.canonical, recordedRoot, files, treeHash);
             const entry = makeEntry({
               exitCode: focused.result.exitCode,
               signal: focused.result.signal,
@@ -1524,9 +1642,9 @@ export async function runToolCached(
               durationMs: focused.durationMs,
               failedTestFiles: files,
               failedFirst: report('failed'),
+              scope: 'focused',
+              ranFiles: [...pointer.files],
             });
-            if (isEntryUsable(entry)) writeCacheEntry(projectRoot, entry);
-            writeFailedFirstPointer(projectRoot, command.canonical, recordedRoot, files, treeHash);
             return {
               exitCode: entry.exitCode,
               signal: entry.signal ?? null,
@@ -1562,78 +1680,84 @@ export async function runToolCached(
       // runs in (T12112 / gh#1220).
       executionRoot,
     });
-    const startedAt = Date.now();
-    const result = await spawnCmd(
-      limited.cmd,
-      [...limited.args],
-      executionRoot,
-      spawnTimeoutMs,
-      heavyToolEnv(command.canonical),
-    );
-    const durationMs = Date.now() - startedAt;
+    const spawnNormal = async (): Promise<{ result: CommandResult; durationMs: number }> => {
+      const startedAt = Date.now();
+      const result = await spawnCmd(
+        limited.cmd,
+        [...limited.args],
+        executionRoot,
+        spawnTimeoutMs,
+        heavyToolEnv(command.canonical),
+      );
+      return { result, durationMs: Date.now() - startedAt };
+    };
+    // gh#1397: `limited.confined` OR the project's own pinned wrapper:
+    // post-detection (gh#1396) CLEO declines to wrap a command that is
+    // already `systemd-run`, so `confined` is false for exactly the project
+    // whose harness failures prompted gh#1397.
+    const harnessOf = (r: CommandResult): string | null =>
+      confinementStartupFailure(r.stderr, limited.confined || isSystemdRunCommand(command.cmd));
 
-    if (result.timedOut) return timedOutResult(result, durationMs, failedFirst);
-
-    // gh#1397: checked before the cache entry is built — see
-    // `harnessResult`. `limited.confined` OR the project's own pinned
-    // wrapper: post-detection (gh#1396) CLEO declines to wrap a command
-    // that is already `systemd-run`, so `confined` is false for exactly
-    // the project whose harness failures prompted gh#1397.
-    const harnessFailure = confinementStartupFailure(
-      result.stderr,
-      limited.confined || isSystemdRunCommand(command.cmd),
-    );
-    if (harnessFailure !== null) {
-      return harnessResult(result, durationMs, harnessFailure, failedFirst);
+    const first = await spawnNormal();
+    if (first.result.timedOut) {
+      return timedOutResult(first.result, first.durationMs, failedFirst);
+    }
+    const firstHarness = harnessOf(first.result);
+    if (firstHarness !== null) {
+      return harnessResult(first.result, first.durationMs, firstHarness, failedFirst);
     }
 
-    // T12961: remember which test files failed, so the next run can try
-    // them first. A pass, or a failure whose files cannot be named,
-    // clears the pointer; an unknown outcome (signal kill) leaves it.
-    let exitCode = result.exitCode;
+    let { result, durationMs } = first;
     let failedTestFiles: string[] | undefined;
-    if (failedFirstEnabled && exitCode !== null) {
-      const out = `${result.stdout}\n${result.stderr}`;
-      let files = exitCode === 0 ? [] : parseFailingTestFiles(out, executionRoot, tracked);
-      // Flake check: re-run the failing files ONCE before deciding. Only when
-      // the parsed files are provably the WHOLE failure — the runner's own
-      // summary counts exactly that many failed files and no unhandled
-      // errors — may a passing retry turn the run into a (flaky) pass.
-      // Anything else (a crash outside a test file, a coverage threshold, a
-      // truncated tail) stays a failure.
-      const retryPlan =
-        files.length > 0 && summarizedFailedFileCount(out) === files.length
-          ? planFocusedRuns(files, executionRoot)
-          : null;
-      if (retryPlan) {
-        const retry = await runFocused(command, retryPlan, executionRoot, spawnTimeoutMs);
-        if (retry.kind === 'passed') {
-          flaky = [...(flaky ?? []), ...files];
-          exitCode = 0;
-          files = [];
-        } else if (retry.kind === 'failed') {
-          const again = parseFailingTestFiles(
-            `${retry.result.stdout}\n${retry.result.stderr}`,
-            executionRoot,
-            tracked,
-            retry.cwd,
-          );
-          if (again.length > 0) files = again;
+    let flaky: string[] | undefined;
+    if (failedFirstEnabled && result.exitCode !== null) {
+      let files =
+        result.exitCode === 0
+          ? []
+          : parseFailingTestFiles(`${result.stdout}\n${result.stderr}`, executionRoot, tracked);
+      // T12961 flake check (review of #1774): on a failure, re-run the FULL
+      // recorded command once — never a narrower focused or per-package run,
+      // which cannot see a `pnpm -r` bail, a coverage threshold, a non-vitest
+      // step or a failure that only happens in the suite's context. A pass
+      // on that identical rerun is a pass marked `flaky` with the first
+      // run's failing files; a second failure is red. A rerun that times out
+      // or cannot start decides nothing, and the first failure stands.
+      if (result.exitCode !== 0) {
+        const retry = await spawnNormal();
+        if (!retry.result.timedOut && harnessOf(retry.result) === null) {
+          if (retry.result.exitCode === 0) {
+            flaky = files;
+            files = [];
+            result = retry.result;
+            durationMs += retry.durationMs;
+          } else if (retry.result.exitCode !== null) {
+            const again = parseFailingTestFiles(
+              `${retry.result.stdout}\n${retry.result.stderr}`,
+              executionRoot,
+              tracked,
+            );
+            if (again.length > 0) files = again;
+            result = retry.result;
+            durationMs += retry.durationMs;
+          }
         }
       }
+      // Remember which test files failed, so the next run on a changed tree
+      // can try them first. A pass, or a failure whose files cannot be
+      // named, clears the pointer; an unknown outcome leaves it.
       if (files.length > 0) failedTestFiles = files;
       writeFailedFirstPointer(projectRoot, command.canonical, recordedRoot, files, treeHash);
     }
 
     const entry = makeEntry({
-      exitCode,
+      exitCode: result.exitCode,
       signal: result.signal,
       stdoutTail: tailString(result.stdout, tailBytes),
       stderrTail: tailString(result.stderr, tailBytes),
       durationMs,
       ...(failedTestFiles ? { failedTestFiles } : {}),
       ...(failedFirst ? { failedFirst } : {}),
-      ...(flaky && exitCode === 0 ? { flaky: [...new Set(flaky)].sort() } : {}),
+      ...(flaky && result.exitCode === 0 ? { flaky } : {}),
     });
 
     // Persist only a usable entry. `isEntryUsable` is the SAME predicate
@@ -1690,7 +1814,9 @@ export async function runToolCached(
   // When the holder releases without a usable entry (timeout, harness
   // failure, crash) the waiter loops and runs the tool itself. The total wait
   // is bounded by `lockWaitMs`; past it the caller gets `lockBusy`.
-  const lockWaitMs = opts.lockWaitMs ?? spawnTimeoutMs + 60_000;
+  // The holder's worst case is a focused rerun, the normal command and its
+  // one flake retry — three spawn deadlines — plus slack.
+  const lockWaitMs = opts.lockWaitMs ?? 3 * spawnTimeoutMs + 60_000;
   const lockPollMs = opts.lockPollMs ?? 1_000;
   const waitDeadline = Date.now() + lockWaitMs;
   // A bypassing caller must not accept the entry it chose to bypass.

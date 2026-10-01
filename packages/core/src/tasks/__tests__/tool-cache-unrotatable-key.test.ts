@@ -86,6 +86,7 @@ function plant(projectRoot: string, key: string, fields: Record<string, unknown>
       source: 'language-default',
       head: 'abc123',
       treeHash: 'def456',
+      envFingerprint: 'none',
       exitCode: 0,
       stdoutTail: '',
       stderrTail: '',
@@ -200,13 +201,15 @@ describe('gh#1404 — the key really is command-only when the tree hash is null'
     const cmd = shCommand('exit 0');
     // This is the property that makes the entry permanent, asserted directly
     // rather than inferred from behaviour.
-    expect(computeCacheKey(cmd, null)).toBe(computeCacheKey(cmd, null));
-    expect(computeCacheKey(cmd, 'tree-one')).not.toBe(computeCacheKey(cmd, 'tree-two'));
+    expect(computeCacheKey(cmd, null, 'none')).toBe(computeCacheKey(cmd, null, 'none'));
+    expect(computeCacheKey(cmd, 'tree-one', 'none')).not.toBe(
+      computeCacheKey(cmd, 'tree-two', 'none'),
+    );
   });
 
   it('only a command change rotates it', () => {
-    expect(computeCacheKey(shCommand('exit 0'), null)).not.toBe(
-      computeCacheKey(shCommand('exit 1'), null),
+    expect(computeCacheKey(shCommand('exit 0'), null, 'none')).not.toBe(
+      computeCacheKey(shCommand('exit 1'), null, 'none'),
     );
   });
 });

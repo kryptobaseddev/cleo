@@ -1713,6 +1713,7 @@ export {
   type CanonicalTool,
   cacheEntryPath,
   captureDirtyFingerprint,
+  captureEnvFingerprint,
   captureHead,
   captureTreeHash,
   clearToolCache,

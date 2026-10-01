@@ -25,16 +25,26 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from 'vitest';
 
-import { runToolCached } from '../tool-cache.js';
+import { validateAtom } from '../evidence.js';
+import { cacheEntryPath, readCacheEntry, runToolCached } from '../tool-cache.js';
 import {
   extractFailingTestRefs,
   failedFirstPointerPath,
   parseFailingTestFiles,
   planFocusedRuns,
   readFailedFirstPointer,
-  summarizedFailedFileCount,
 } from '../tool-cache-failed-first.js';
 import type { ResolvedToolCommand } from '../tool-resolver.js';
 
@@ -168,35 +178,20 @@ describe('runToolCached — failed-first reruns and flake retries', () => {
   let root: string;
 
   /**
-   * Shared state for the fake suite and the fake vitest:
+   * Shared state for the fake full suite and the fake vitest:
    *   red        — both fail (a real failure)
    *   green      — both pass
-   *   flaky      — the full suite fails, every focused re-run passes
-   *   flaky-once — the FIRST focused call fails, later ones pass; full passes
-   *   nofiles    — focused runs report "No test files found"
+   *   flaky-full — the full suite fails on its FIRST run only, then passes
+   *   isolated   — the focused file fails, the full suite passes
+   *   crash      — focused vitest exits 1 with no FAIL line (startup crash)
+   *   nofiles    — focused vitest reports "No test files found"
    */
-  type State = 'red' | 'green' | 'flaky' | 'flaky-once' | 'nofiles';
+  type State = 'red' | 'green' | 'flaky-full' | 'isolated' | 'crash' | 'nofiles';
   const setState = (value: State): void => writeFileSync(state, value);
-  const fullRuns = (): number =>
-    existsSync(fullLog) ? readFileSync(fullLog, 'utf-8').split('\n').filter(Boolean).length : 0;
-  const focusedCalls = (): string[] =>
-    existsSync(focusedLog) ? readFileSync(focusedLog, 'utf-8').split('\n').filter(Boolean) : [];
-  /** A full-suite script printing `body` and exiting 1 when the state is red or flaky. */
-  const suite = (failBody: string): ResolvedToolCommand => ({
-    canonical: 'test',
-    displayName: 'test',
-    cmd: 'sh',
-    args: [
-      '-c',
-      [
-        `echo run >> "${fullLog}"`,
-        `s=$(cat "${state}")`,
-        `if [ "$s" = red ] || [ "$s" = flaky ]; then ${failBody}; exit 1; fi`,
-        'echo " Test Files  2 passed (2)"; exit 0',
-      ].join('\n'),
-    ],
-    source: 'language-default',
-  });
+  const lines = (f: string): string[] =>
+    existsSync(f) ? readFileSync(f, 'utf-8').split('\n').filter(Boolean) : [];
+  const fullRuns = (): number => lines(fullLog).length;
+  const focusedCalls = (): string[] => lines(focusedLog);
 
   beforeEach(() => {
     repo = mkdtempSync(join(tmpdir(), 'ff-repo-'));
@@ -217,18 +212,16 @@ describe('runToolCached — failed-first reruns and flake retries', () => {
     git(repo, 'commit', '-qm', 'init');
     root = git(repo, 'rev-parse', '--show-toplevel');
 
-    // Fake vitest: log argv, then behave per the state file.
     mkdirSync(join(repo, 'node_modules', '.bin'), { recursive: true });
     const bin = join(repo, 'node_modules', '.bin', 'vitest');
-    const once = join(side, 'failed-once');
     writeFileSync(
       bin,
       [
         '#!/bin/sh',
         `echo "$(pwd -P) $*" >> "${focusedLog}"`,
         `s=$(cat "${state}")`,
-        'if [ "$s" = red ]; then echo " FAIL  src/a.test.ts > suite > case"; exit 1; fi',
-        `if [ "$s" = flaky-once ] && [ ! -f "${once}" ]; then touch "${once}"; echo " FAIL  src/a.test.ts > s"; exit 1; fi`,
+        'if [ "$s" = red ] || [ "$s" = isolated ]; then echo " FAIL  src/a.test.ts > suite > case"; exit 1; fi',
+        'if [ "$s" = crash ]; then echo "Error: failed to load config"; exit 1; fi',
         'if [ "$s" = nofiles ]; then echo "No test files found, exiting with code 1"; exit 1; fi',
         'echo " ✓ src/a.test.ts (1 test)"; exit 0',
         '',
@@ -236,132 +229,142 @@ describe('runToolCached — failed-first reruns and flake retries', () => {
     );
     chmodSync(bin, 0o755);
 
-    cmd = suite(
-      'echo " FAIL  src/a.test.ts > suite > case"; echo " Test Files  1 failed | 1 passed (2)"',
-    );
+    const once = join(side, 'full-failed-once');
+    cmd = {
+      canonical: 'test',
+      displayName: 'test',
+      cmd: 'sh',
+      args: [
+        '-c',
+        [
+          `echo run >> "${fullLog}"`,
+          `s=$(cat "${state}")`,
+          `if [ "$s" = flaky-full ] && [ ! -f "${once}" ]; then touch "${once}"; s=red; fi`,
+          'if [ "$s" = red ]; then echo " FAIL  src/a.test.ts > suite > case"; exit 1; fi',
+          'echo " Test Files  2 passed (2)"; exit 0',
+        ].join('\n'),
+      ],
+      source: 'language-default',
+    };
   });
   afterEach(() => {
     rmSync(repo, { recursive: true, force: true });
     rmSync(side, { recursive: true, force: true });
   });
 
-  const run = () => runToolCached(cmd, repo, { skipGlobalSemaphore: true, spawnTimeoutMs: 30_000 });
+  const run = (extra: { bypassCache?: boolean } = {}) =>
+    runToolCached(cmd, repo, { skipGlobalSemaphore: true, spawnTimeoutMs: 30_000, ...extra });
   /** A tracked edit, so the next run is on a new tree (a cache miss). */
   const edit = (label: string): void =>
     writeFileSync(join(repo, 'src', 'a.test.ts'), `// ${label}\n`);
   const focusedA = (): string => `${root} run src/a.test.ts`;
 
-  it('a failing run is retried once, then stores the failing files on the entry and pointer', async () => {
+  it('a failing run is re-run in FULL once, then stores the failing files on the entry and pointer', async () => {
     setState('red');
     const r = await run();
     expect(r.exitCode).toBe(1);
-    expect(focusedCalls()).toEqual([focusedA()]); // the single flake retry
+    expect(fullRuns()).toBe(2); // the run + its one full retry
+    expect(focusedCalls()).toEqual([]); // never a focused retry
     expect(r.entry.failedTestFiles).toEqual(['src/a.test.ts']);
     expect(r.flaky).toBeUndefined();
-    expect(r.failedFirst).toBeUndefined();
     expect(readFailedFirstPointer(repo, 'test', root)?.files).toEqual(['src/a.test.ts']);
   });
 
-  it('fail-then-fix: re-runs the failing file first, then the full suite, then clears', async () => {
-    setState('red');
-    await run();
-    expect(fullRuns()).toBe(1);
-    expect(focusedCalls()).toHaveLength(1);
-
-    edit('fixed');
-    setState('green');
+  it('FLAKE: a failure whose full rerun passes is a pass marked `flaky` with the first run’s files', async () => {
+    setState('flaky-full');
     const r = await run();
-
-    expect(focusedCalls()).toEqual([focusedA(), focusedA()]);
-    expect(r.failedFirst).toEqual({ files: ['src/a.test.ts'], outcome: 'passed' });
-    expect(r.exitCode).toBe(0);
-    expect(r.flaky).toBeUndefined();
-    expect(r.cacheHit).toBe(false);
     expect(fullRuns()).toBe(2);
-    expect(existsSync(failedFirstPointerPath(repo, 'test', root))).toBe(false);
-
-    // A later run on a new tree has nothing to try first.
-    edit('later');
-    await run();
-    expect(focusedCalls()).toHaveLength(2);
-    expect(fullRuns()).toBe(3);
-  });
-
-  it('fail-then-still-fail: stops after the focused run (and its retry), never spawning the full suite', async () => {
-    setState('red');
-    await run();
-    expect(fullRuns()).toBe(1);
-
-    edit('attempted fix');
-    const r = await run();
-
-    // focused + its one retry
-    expect(focusedCalls()).toHaveLength(3);
-    expect(fullRuns()).toBe(1);
-    expect(r.exitCode).toBe(1);
-    expect(r.failedFirst).toEqual({ files: ['src/a.test.ts'], outcome: 'failed' });
-    expect(r.entry.failedTestFiles).toEqual(['src/a.test.ts']);
-    expect(r.stdoutTail).toContain('FAIL  src/a.test.ts');
-
-    // The focused failure is cached under the normal key: same tree, no spawn.
-    const again = await run();
-    expect(again.cacheHit).toBe(true);
-    expect(again.exitCode).toBe(1);
-    expect(again.failedFirst?.outcome).toBe('failed');
-    expect(focusedCalls()).toHaveLength(3);
-    expect(fullRuns()).toBe(1);
-  });
-
-  it('FLAKE: a failure whose files pass on the single retry is a pass marked `flaky`', async () => {
-    setState('flaky');
-    const r = await run();
-    expect(fullRuns()).toBe(1);
-    expect(focusedCalls()).toEqual([focusedA()]);
     expect(r.exitCode).toBe(0);
     expect(r.flaky).toEqual(['src/a.test.ts']);
     expect(r.entry.flaky).toEqual(['src/a.test.ts']);
     expect(r.entry.failedTestFiles).toBeUndefined();
-    // Not a failure: nothing to try first next time.
     expect(existsSync(failedFirstPointerPath(repo, 'test', root))).toBe(false);
 
     // Cached as a flaky pass — visible on every hit, not a clean pass.
     const again = await run();
     expect(again.cacheHit).toBe(true);
-    expect(again.exitCode).toBe(0);
     expect(again.flaky).toEqual(['src/a.test.ts']);
+    expect(fullRuns()).toBe(2);
   });
 
-  it('FLAKE guard: no retry when the summary counts more failed files than were named', async () => {
-    cmd = suite('echo " FAIL  src/a.test.ts > suite > case"; echo " Test Files  2 failed (2)"');
-    setState('flaky');
-    const r = await run();
-    expect(focusedCalls()).toEqual([]);
-    expect(r.exitCode).toBe(1);
-    expect(r.flaky).toBeUndefined();
-  });
-
-  it('FLAKE guard: no retry when vitest reports unhandled Errors', async () => {
-    cmd = suite(
-      'echo " FAIL  src/a.test.ts > s"; echo " Test Files  1 failed | 1 passed (2)"; echo "      Errors  1 error"',
-    );
-    setState('flaky');
-    const r = await run();
-    expect(focusedCalls()).toEqual([]);
-    expect(r.exitCode).toBe(1);
-  });
-
-  it('FLAKE in failed-first: a focused failure that passes on retry continues to the full run', async () => {
+  it('fail-then-fix: re-runs the failing file first, then the full suite, then clears', async () => {
     setState('red');
     await run();
     edit('fixed');
-    setState('flaky-once');
+    setState('green');
     const r = await run();
-    // focused (fails once) + its retry (passes), then the full suite
-    expect(focusedCalls()).toHaveLength(3);
-    expect(fullRuns()).toBe(2);
+
+    expect(focusedCalls()).toEqual([focusedA()]);
+    expect(r.failedFirst).toEqual({ files: ['src/a.test.ts'], outcome: 'passed' });
+    expect(r.entry.failedFirst?.outcome).toBe('passed');
     expect(r.exitCode).toBe(0);
-    expect(r.failedFirst?.outcome).toBe('passed');
-    expect(r.flaky).toEqual(['src/a.test.ts']);
+    expect(r.cacheHit).toBe(false);
+    expect(fullRuns()).toBe(3);
+    expect(existsSync(failedFirstPointerPath(repo, 'test', root))).toBe(false);
+  });
+
+  it('fail-then-still-fail: the focused red returns at once, uncached and marked focused', async () => {
+    setState('red');
+    await run();
+    expect(fullRuns()).toBe(2);
+
+    edit('attempted fix');
+    const r = await run();
+    expect(focusedCalls()).toEqual([focusedA()]);
+    expect(fullRuns()).toBe(2); // the full suite did not run
+    expect(r.exitCode).toBe(1);
+    expect(r.failedFirst).toEqual({ files: ['src/a.test.ts'], outcome: 'failed' });
+    expect(r.entry.scope).toBe('focused');
+    expect(r.entry.ranFiles).toEqual(['src/a.test.ts']);
+    expect(existsSync(cacheEntryPath(repo, r.entry.key))).toBe(true); // only the pending placeholder
+    expect(readCacheEntry(repo, r.entry.key)).toBeNull(); // never served as the suite's result
+
+    // Same tree again: the pointer is on this tree, so the normal command
+    // decides (and its red result is cached).
+    const again = await run();
+    expect(focusedCalls()).toHaveLength(1);
+    expect(fullRuns()).toBe(4);
+    expect(again.exitCode).toBe(1);
+    expect(again.entry.scope).toBeUndefined();
+    const third = await run();
+    expect(third.cacheHit).toBe(true);
+  });
+
+  it('LIVENESS: a file that fails only in isolation cannot pin the tree red', async () => {
+    setState('red');
+    await run();
+    edit('changed');
+    setState('isolated');
+    const focusedRed = await run();
+    expect(focusedRed.exitCode).toBe(1);
+    expect(focusedRed.entry.scope).toBe('focused');
+    // Next run on the same tree: the real suite runs and passes.
+    const r = await run();
+    expect(r.exitCode).toBe(0);
+    expect(r.entry.scope).toBeUndefined();
+    expect(existsSync(failedFirstPointerPath(repo, 'test', root))).toBe(false);
+  });
+
+  it('LIVENESS: CLEO_EVIDENCE_FRESH / bypassCache skips failed-first', async () => {
+    setState('red');
+    await run();
+    edit('changed');
+    setState('green');
+    const r = await run({ bypassCache: true });
+    expect(focusedCalls()).toEqual([]);
+    expect(r.failedFirst).toBeUndefined();
+    expect(r.exitCode).toBe(0);
+  });
+
+  it('LIVENESS: a focused run with no FAIL line (startup crash) is inconclusive and runs the normal command', async () => {
+    setState('red');
+    await run();
+    edit('changed');
+    setState('crash');
+    const r = await run();
+    expect(r.failedFirst?.outcome).toBe('inconclusive');
+    expect(r.exitCode).toBe(0); // the full suite passes in the crash state
+    expect(fullRuns()).toBe(3);
   });
 
   it('"No test files found" is inconclusive: falls back to the full suite', async () => {
@@ -371,7 +374,7 @@ describe('runToolCached — failed-first reruns and flake retries', () => {
     setState('nofiles');
     const r = await run();
     expect(r.failedFirst?.outcome).toBe('inconclusive');
-    expect(fullRuns()).toBe(2);
+    expect(fullRuns()).toBe(3);
   });
 
   it('falls back to today’s behaviour when the failing files cannot be named', async () => {
@@ -383,31 +386,53 @@ describe('runToolCached — failed-first reruns and flake retries', () => {
     const r = await run();
     expect(r.failedFirst).toBeUndefined();
     expect(focusedCalls()).toEqual([]);
-    expect(fullRuns()).toBe(2);
+    expect(fullRuns()).toBe(4); // two runs, each with its one full retry
   });
 
-  it('only `test` records failing files — other tools are untouched', async () => {
+  it('the `tool` evidence atom carries `flaky`, `treeHash` and `cacheHit`', async () => {
+    const script = join(side, 'suite.sh');
+    writeFileSync(script, cmd.args[1] ?? '');
+    mkdirSync(join(repo, '.cleo'), { recursive: true });
+    writeFileSync(
+      join(repo, '.cleo', 'project-context.json'),
+      JSON.stringify({
+        schemaVersion: '1.0.0',
+        detectedAt: '2026-01-01T00:00:00.000Z',
+        projectTypes: ['node'],
+        primaryType: 'node',
+        testing: { command: `sh ${script}` },
+      }),
+    );
+    setState('flaky-full');
+    // Resolve the verification command from this synthetic project.
+    vi.stubEnv('CLEO_ROOT', undefined);
+    vi.stubEnv('CLEO_DIR', undefined);
+    onTestFinished(() => {
+      vi.unstubAllEnvs();
+    });
+    const first = await validateAtom({ kind: 'tool', tool: 'test' }, repo);
+    expect(first.ok).toBe(true);
+    if (first.ok && first.atom.kind === 'tool') {
+      expect(first.atom.flaky).toEqual(['src/a.test.ts']);
+      expect(first.atom.treeHash).toBe(git(repo, 'rev-parse', 'HEAD^{tree}'));
+      expect(first.atom.cacheHit).toBe(false);
+    }
+    const second = await validateAtom({ kind: 'tool', tool: 'test' }, repo);
+    if (second.ok && second.atom.kind === 'tool') {
+      expect(second.atom.cacheHit).toBe(true);
+      expect(second.atom.flaky).toEqual(['src/a.test.ts']);
+    } else {
+      expect.unreachable('second validation must pass');
+    }
+  });
+
+  it('only `test` records failing files or retries — other tools are untouched', async () => {
     setState('red');
     cmd = { ...cmd, canonical: 'lint', displayName: 'lint' };
     const r = await run();
+    expect(r.exitCode).toBe(1);
+    expect(fullRuns()).toBe(1);
     expect(r.entry.failedTestFiles).toBeUndefined();
-    expect(focusedCalls()).toEqual([]);
     expect(existsSync(failedFirstPointerPath(repo, 'lint', root))).toBe(false);
-  });
-});
-
-describe('summarizedFailedFileCount', () => {
-  it('sums vitest and jest summaries, null without one or with unhandled errors', () => {
-    expect(summarizedFailedFileCount(' Test Files  1 failed | 3 passed (4)')).toBe(1);
-    expect(
-      summarizedFailedFileCount(
-        'packages/a test:  Test Files  2 failed (2)\npackages/b test:  Test Files  1 failed (5)',
-      ),
-    ).toBe(3);
-    expect(summarizedFailedFileCount('Test Suites: 2 failed, 8 passed, 10 total')).toBe(2);
-    expect(summarizedFailedFileCount('exit 1')).toBeNull();
-    expect(
-      summarizedFailedFileCount(' Test Files  1 failed (1)\n      Errors  2 errors'),
-    ).toBeNull();
   });
 });

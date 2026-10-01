@@ -299,6 +299,7 @@ export {
   type ToolRunResult,
   writeCacheEntry,
 } from './tool-cache.js';
+export { captureEnvFingerprint, ENV_SENSITIVE_TOOLS } from './tool-cache-env.js';
 // Project-agnostic tool resolution (T1534 / ADR-061)
 export {
   type CanonicalTool,

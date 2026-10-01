@@ -159,24 +159,34 @@ describe('gh#1221 cause 2 — a tool must not invalidate its own cache by runnin
     expect(spawnCount(markerDir)).toBe(2);
   }, 30_000);
 
-  it('TRADEOFF: a new UNTRACKED source file does NOT invalidate — CLEO_EVIDENCE_FRESH is the escape hatch', async () => {
-    // Deliberate and documented. Excluding untracked files is what stops a
-    // tool invalidating itself; the cost is that an uncommitted NEW file is
-    // not seen either. Named loudly so the next reader meets the tradeoff
-    // rather than discovering it as a stale pass.
+  it('a new UNTRACKED, not-ignored source file DOES invalidate (review of #1774)', async () => {
+    // The tracked-only rule was safe only while the key carried the
+    // execution root. With content keys shared across worktrees, a worker's
+    // new uncommitted test must move the key, or main's cached pass is
+    // served without that test ever running. Tool output stays out through
+    // the tree pathspec's exclusions (see the coverage/ case above).
     const cmd = shCommand(`echo run >> "${markerDir}/spawns.log"; exit 0`);
 
     await runToolCached(cmd, dir, { spawnTimeoutMs: 30_000 });
     writeFileSync(join(dir, 'new-feature.test.ts'), 'it("x", () => {});\n');
 
-    const stale = await runToolCached(cmd, dir, { spawnTimeoutMs: 30_000 });
-    expect(stale.cacheHit).toBe(true); // the tradeoff, pinned
-    expect(spawnCount(markerDir)).toBe(1);
-
-    process.env.CLEO_EVIDENCE_FRESH = '1';
-    const fresh = await runToolCached(cmd, dir, { spawnTimeoutMs: 30_000 });
-    expect(fresh.cacheHit).toBe(false);
+    const r2 = await runToolCached(cmd, dir, { spawnTimeoutMs: 30_000 });
+    expect(r2.cacheHit).toBe(false);
     expect(spawnCount(markerDir)).toBe(2);
+  }, 30_000);
+
+  it('a new GITIGNORED file does not invalidate', async () => {
+    const cmd = shCommand(`echo run >> "${markerDir}/spawns.log"; exit 0`);
+    writeFileSync(join(dir, '.gitignore'), 'build-out/\n');
+    git(dir, ['add', '.gitignore']);
+    git(dir, ['commit', '-q', '-m', 'ignore']);
+
+    await runToolCached(cmd, dir, { spawnTimeoutMs: 30_000 });
+    execFileSync('mkdir', ['-p', join(dir, 'build-out')]);
+    writeFileSync(join(dir, 'build-out', 'x.js'), 'x\n');
+    const r2 = await runToolCached(cmd, dir, { spawnTimeoutMs: 30_000 });
+    expect(r2.cacheHit).toBe(true);
+    expect(spawnCount(markerDir)).toBe(1);
   }, 30_000);
 });
 

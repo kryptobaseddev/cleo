@@ -6,16 +6,23 @@
  * normally after an attempted fix, so on a different tree and a cache miss —
  * runs only those files first:
  *
- *   - still failing → that IS a failing suite; the failure is recorded and the
- *     full run is skipped entirely,
- *   - passing → the normal run (full or affected) proceeds as before.
+ *   - still failing (with a parseable FAIL line) → the caller gets that red
+ *     result at once and the full run is skipped. It is NOT cached under the
+ *     full command's key — the suite did not run — and the pointer moves to
+ *     the current tree, so the next run on this same tree runs the normal
+ *     command, which decides;
+ *   - passing, or no FAIL line (a startup crash) → the normal run (full or
+ *     affected) proceeds as before.
  *
  * Everything here is best-effort and fails OPEN to today's behaviour: when the
  * failing files cannot be parsed, resolved to tracked files, or mapped to a
  * runnable vitest binary and config, no focused run is planned and the normal
- * command runs unchanged. A focused run can only ever *shorten* a red result;
- * it can never produce a pass, because a pass always falls through to the
- * normal command.
+ * command runs unchanged. `CLEO_EVIDENCE_FRESH=1` skips failed-first. A
+ * focused run can only ever *shorten* a red result; it can never produce or
+ * cache a pass, because a pass always falls through to the normal command.
+ *
+ * The flake retry lives in `runToolCached`: a failing normal run is re-run in
+ * FULL once, never through a focused run.
  *
  * ## Why the default reporter's text, not a JSON reporter
  *
@@ -189,33 +196,6 @@ export function parseFailingTestFiles(
   }
   if (found.size > MAX_FAILED_TEST_FILES) return [];
   return [...found].sort();
-}
-
-/**
- * The number of failed test FILES the runner's own summary reports, or `null`
- * when it cannot be trusted to account for the whole failure.
- *
- * Sums every vitest `Test Files  N failed` and jest `Test Suites: N failed`
- * line (a `pnpm -r` run prints one per package). Returns `null` when no
- * summary is present, or when vitest reports unhandled `Errors` — those fail
- * the run without belonging to any one test file, so re-running the files
- * cannot clear them.
- *
- * Used to gate the flake retry: a failing run may only become a (flaky) pass
- * when the files that passed on retry are provably ALL that failed.
- *
- * @task T12961
- */
-export function summarizedFailedFileCount(output: string): number | null {
-  const text = output.replace(ANSI, '');
-  if (/^\s*Errors\s+\d+\s+errors?\b/m.test(text)) return null;
-  let total = 0;
-  let seen = false;
-  for (const m of text.matchAll(/^.*?(?:Test Files|Test Suites:)\s+(\d+)\s+failed\b/gm)) {
-    total += Number(m[1]);
-    seen = true;
-  }
-  return seen ? total : null;
 }
 
 /** `true` when vitest reported that the filters matched no test file. */
