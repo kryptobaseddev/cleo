@@ -10,8 +10,9 @@
  * @task T12905
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
+import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -191,6 +192,112 @@ describe('ensureProjectReplica', () => {
     const db = new DatabaseSync(dbPath);
     try {
       expect(() => ensureProjectReplica(db, { dbPath, mode: 'off' })).toThrow(/live or test/);
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe('attachProjectReplica against the deployed server (review H1)', () => {
+  it("today's 409 (details: { remedy } only) names both causes and the --rebind remedy", async () => {
+    const m = api((call) =>
+      call.method === 'POST'
+        ? {
+            status: 409,
+            details: { remedy: 'the copied store must mint a new replica id before syncing' },
+          }
+        : ok(call),
+    );
+    const b = binder();
+    const err = await run(m.fetch, b).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(NexusAccountError);
+    expect((err as NexusAccountError).code).toBe('E_NEXUS_REPLICA_COPIED');
+    expect((err as NexusAccountError).fix).toContain('cleo project link --rebind');
+    expect(b.rebinds).toBe(0);
+  });
+
+  it('--rebind mints a new replica id before attaching, and attaches that one', async () => {
+    const m = api(ok);
+    const b = binder();
+    const r = await attachProjectReplica({
+      apiUrl: API,
+      bearer: TOKEN,
+      deviceId: DEVICE,
+      projectId: PROJECT,
+      projectRoot: dir,
+      cliVersion: '2026.10.0',
+      binder: b,
+      fetch: m.fetch,
+      rebind: true,
+    });
+    expect(b.rebinds).toBe(1);
+    expect(r.replica).toMatchObject({ replicaId: R2, reboundFrom: R1 });
+    expect(m.calls[0]?.body).toEqual({ deviceId: DEVICE, replicaId: R2 });
+  });
+});
+
+describe('presence and binding hold their guarantees (review M3)', () => {
+  it('presence from a real git repo carries no path, hostname, remote URL, credential or branch', async () => {
+    const git = (...a: string[]) => execFileSync('git', a, { cwd: dir, stdio: 'pipe' });
+    git('init', '-q', '-b', 'secret-branch');
+    git('config', 'user.email', 't@example.test');
+    git('config', 'user.name', 't');
+    git('remote', 'add', 'origin', 'https://user:tok123@git.example.test/x.git');
+    writeFileSync(join(dir, 'f.txt'), 'x');
+    git('add', '.');
+    git('commit', '-q', '-m', 'init');
+    const m = api(ok);
+    await run(m.fetch, binder());
+    const body = JSON.stringify(m.calls[1]?.body);
+    expect(body).toContain('"git"');
+    for (const leak of [dir, hostname(), 'git.example.test', 'tok123', 'secret-branch']) {
+      expect(body).not.toContain(leak);
+    }
+  });
+
+  it('a copied store rebinds to a new replica id; the original keeps its own', () => {
+    const dbPath = join(dir, 'cleo.db');
+    const registry = new ReplicaRegistry(join(dir, 'registry.json'), 'host-1');
+    const db = new DatabaseSync(dbPath);
+    const first = ensureProjectReplica(db, { dbPath, mode: 'test', registry });
+    db.close();
+    const copyPath = join(dir, 'copy.db');
+    copyFileSync(dbPath, copyPath);
+    const copy = new DatabaseSync(copyPath);
+    const original = new DatabaseSync(dbPath);
+    try {
+      const copied = ensureProjectReplica(copy, { dbPath: copyPath, mode: 'test', registry });
+      expect(copied.reboundFrom).toBe(first.replicaId);
+      expect(copied.replicaId).not.toBe(first.replicaId);
+      expect(ensureProjectReplica(original, { dbPath, mode: 'test', registry }).replicaId).toBe(
+        first.replicaId,
+      );
+    } finally {
+      copy.close();
+      original.close();
+    }
+  });
+
+  it('binding adds only the three local _sync tables and no trigger', () => {
+    const dbPath = join(dir, 'cleo.db');
+    const db = new DatabaseSync(dbPath);
+    try {
+      ensureProjectReplica(db, {
+        dbPath,
+        mode: 'test',
+        registry: new ReplicaRegistry(join(dir, 'registry.json'), 'host-1'),
+      });
+      const objects = db
+        .prepare(
+          "SELECT type, name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY name",
+        )
+        .all() as Array<{ type: string; name: string }>;
+      expect(objects.filter((o) => o.type === 'trigger')).toEqual([]);
+      expect(objects.filter((o) => o.type === 'table').map((o) => o.name)).toEqual([
+        '_sync_clock',
+        '_sync_meta',
+        '_sync_replica',
+      ]);
     } finally {
       db.close();
     }

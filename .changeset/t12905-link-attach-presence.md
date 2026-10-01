@@ -20,10 +20,17 @@ of contract §3.6:
 3. `PUT …/replicas/:replicaId/presence` sends path-free presence (git dirty,
    ahead/behind, remote state, CLI version), never a path or hostname.
 
-A 409 means the replica is already attached from another device. When the
-holder is this user's own revoked device (after a re-enrolment), the store
-rebinds to a new id (`device-reenrolled`) and attaches that. Any other holder
-is a copied store and fails with `E_NEXUS_REPLICA_COPIED`; there is no
-automatic rebind. A failed presence report is a warning. `nexus-link.json`
-caches `replicaId`, `nexusDeviceId` and `attachedAt`, and the result envelope
-gains `replica` and `warnings`.
+A 409 means the replica is already attached from another Nexus device.
+- When the server says the holder is this user's own revoked device, the store
+  rebinds itself (`device-reenrolled`) and attaches the new id.
+- Otherwise the warning names both possible causes, a re-enrolled machine or a
+  copied store, and the one fix for either: `cleo project link --rebind`, which
+  gives this copy a new replica id and attaches it.
+
+An attach or presence failure never fails the link. The project is registered,
+`nexus-link.json` is written, and a warning names the remedy. The file is
+updated entry by entry: an origin written by a newer CLEO is carried through
+untouched, a relink that attached nothing keeps the cached `replicaId`,
+`nexusDeviceId` and `attachedAt`, and a newer-format file is refused rather
+than overwritten. The result envelope gains `replica` and `warnings`, and the
+summary says when the store was rebound.

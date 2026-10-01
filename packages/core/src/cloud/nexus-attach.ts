@@ -63,6 +63,13 @@ export interface AttachProjectReplicaOptions {
   now?: () => Date;
   /** Per-call timeout; default {@link NEXUS_ATTACH_TIMEOUT_MS}. */
   timeoutMs?: number;
+  /**
+   * `cleo project link --rebind`: retire the store's replica and mint a new id
+   * before attaching. The remedy when the old id is held by another device:
+   * this machine's revoked device after a re-enrolment (when the server cannot
+   * say so itself), or the original of a copied store.
+   */
+  rebind?: boolean;
 }
 
 const attachAnswer = z.looseObject({ replicaId: z.string() });
@@ -191,15 +198,23 @@ export async function attachProjectReplica(
   const bound = await binder.ensure();
   let replicaId = bound.replicaId;
   let reboundFrom = bound.reboundFrom ?? null;
+  if (opts.rebind === true) {
+    const rebound = await binder.rebindReenrolled();
+    replicaId = rebound.replicaId;
+    reboundFrom = rebound.previousReplicaId;
+  }
   try {
     await attach(replicaId);
   } catch (err) {
     if (!isReenrolledHolder(err)) {
       if (err instanceof NexusError && err.status === 409) {
+        // The deployed server's 409 does not say who holds the replica
+        // (no holderState/holderSameUser yet), so name both causes and the
+        // one remedy that fixes either: a new replica id.
         throw new NexusAccountError(
           'E_NEXUS_REPLICA_COPIED',
-          `this project's store (replica ${replicaId}) is already attached from another device: it was copied from another machine or account`,
-          'a copied store must take a new replica id before it syncs; keep only one copy linked, or ask for help with `cleo doctor`',
+          `this project's store (replica ${replicaId}) is already attached from another Nexus device: either this machine was re-enrolled as a new device (after a revoke), or the store was copied from another machine`,
+          'run `cleo project link --rebind` to give this copy a new replica id and attach it; if another machine holds the original, it keeps its own',
         );
       }
       throw err;
@@ -207,7 +222,15 @@ export async function attachProjectReplica(
     const rebound = await binder.rebindReenrolled();
     replicaId = rebound.replicaId;
     reboundFrom = rebound.previousReplicaId;
-    await attach(replicaId);
+    try {
+      await attach(replicaId);
+    } catch (second) {
+      throw new NexusAccountError(
+        'E_NEXUS_REQUEST_FAILED',
+        `this store was rebound from replica ${rebound.previousReplicaId} to ${replicaId} (this machine was re-enrolled), but attaching the new id failed: ${second instanceof Error ? second.message : String(second)}`,
+        're-run `cleo project link` to finish the attach',
+      );
+    }
   }
 
   const warnings: string[] = [];

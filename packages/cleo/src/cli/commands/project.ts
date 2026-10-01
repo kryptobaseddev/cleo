@@ -326,6 +326,11 @@ const linkSubCommand = defineCommand({
       description:
         'Name shown in Nexus, sent in plaintext (default: the project name). A name, never a path.',
     },
+    rebind: {
+      type: 'boolean',
+      description:
+        'Give this copy of the project a new replica id before attaching it: the fix for E_NEXUS_REPLICA_COPIED (this machine was re-enrolled, or the store was copied from another machine).',
+    },
     'api-url': NEXUS_API_URL_ARG,
     json: { type: 'boolean', description: 'Output raw JSON envelope.', default: false },
   },
@@ -338,6 +343,7 @@ const linkSubCommand = defineCommand({
       result = await linkProjectToNexus({
         apiUrl: nexusApiUrlArg(args),
         ...(typeof args['label'] === 'string' && args['label'] ? { label: args['label'] } : {}),
+        ...(args['rebind'] === true ? { rebind: true } : {}),
       });
     } catch (err) {
       failNexus(err, 'project.link');
@@ -345,7 +351,7 @@ const linkSubCommand = defineCommand({
     const { link, replica } = result;
     const verb = result.alreadyLinked ? 'Already linked' : 'Linked';
     const attached = replica
-      ? ` This machine (device ${replica.deviceId}) holds it as replica ${replica.replicaId}${replica.presenceAt ? '; presence reported' : ''}.`
+      ? ` This machine (device ${replica.deviceId}) holds it as replica ${replica.replicaId}${replica.reboundFrom ? ` (rebound from ${replica.reboundFrom})` : ''}${replica.presenceAt ? '; presence reported' : ''}.`
       : '';
     const summary = `${verb}: project ${link.localProjectId} as "${link.label ?? ''}" on ${link.apiUrl}.${attached}`;
     for (const warning of result.warnings) process.stderr.write(`warning: ${warning}\n`);

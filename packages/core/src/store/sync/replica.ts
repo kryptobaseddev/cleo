@@ -30,8 +30,10 @@
  * pausing push, the reconcile and the signed retire transaction arrive with
  * those tables (S4); they plug in as hooks.
  *
- * Everything here is behind the store-level `sync.*` flags: with every flag
- * off, {@link syncOpenPass} reads and writes nothing.
+ * {@link syncOpenPass} is behind the store-level `sync.*` flags: with every
+ * flag off it reads and writes nothing. The one exception is
+ * {@link ensureProjectReplica}, which `cleo project link` calls to bind the
+ * project store with every flag still off (device contract §3.7).
  *
  * @task T12342
  * @module store/sync/replica
@@ -404,8 +406,10 @@ export function syncOpenPass(db: DatabaseSync, opts: SyncOpenOptions): SyncOpenR
  * It applies the sync schema (three local-only bookkeeping tables, no
  * triggers) and runs the bind half of {@link syncOpenPass} under
  * `BEGIN IMMEDIATE`, with the same rebind rules, but sets NO `sync.*` flag:
- * capture, seal, push and pull stay off. Idempotent: once bound, it only
- * reads (and heals the clock).
+ * capture, seal, push and pull stay off. Idempotent in effect: once bound it
+ * keeps the same replica id, but every call still takes the write lock
+ * (waiting on a busy store), may heal the clock row, and refreshes the
+ * device replica registry file.
  *
  * @param db - The canonical project store handle (opened through the chokepoint).
  * @param opts - Store path and overrides; `scope` is always `project`, and
