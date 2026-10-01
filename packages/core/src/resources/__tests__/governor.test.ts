@@ -17,6 +17,13 @@ import {
   ResourceGovernor,
   resolveGovernorMode,
 } from '../governor.js';
+import {
+  processGroupOf,
+  processStart,
+  type RunJob,
+  removeRunJob,
+  writeRunJob,
+} from '../run-admission.js';
 
 const GB = 1024 * 1024 * 1024;
 
@@ -209,6 +216,66 @@ describe('ResourceGovernor.acquire (T11999)', () => {
     } finally {
       delete process.env.CLEO_GOVERNOR_GRANT;
     }
+  });
+
+  describe('a live job record covers a nested acquire only on an exact match (#1777 round 4)', () => {
+    // Real `ps` for our own group and its leader's start time (read-only).
+    const pgid = processGroupOf(process.pid);
+    const leaderStart = pgid === null ? null : processStart(pgid);
+
+    /** With a db-heavy slot held, can a CLEO_RUN_CLASS acquire get another? */
+    async function nestedGetsThrough(over: Partial<RunJob>): Promise<boolean> {
+      const now = Date.now();
+      const record: RunJob = {
+        id: `${process.pid}-${now}`,
+        pid: process.pid,
+        runnerStart: null,
+        childPid: pgid,
+        childStart: leaderStart,
+        class: 'db-heavy',
+        command: 'pnpm test',
+        cwd: '/',
+        startedAtMs: now,
+        sessionId: null,
+        pausedAtMs: null,
+        pausable: true,
+        heartbeatAtMs: now,
+        ...over,
+      };
+      writeRunJob(record);
+      process.env.CLEO_RUN_CLASS = 'db-heavy';
+      const s = makeSample({ someAvg10: 0 }); // db-heavy budget = 1
+      const first = await gov.acquire('db-heavy', { sample: s, blocking: false });
+      try {
+        const second = await gov.acquire('db-heavy', { sample: s, blocking: false });
+        if (isResourceGrant(second)) await second.release();
+        return isResourceGrant(second);
+      } finally {
+        if (isResourceGrant(first)) await first.release();
+        delete process.env.CLEO_RUN_CLASS;
+        removeRunJob(record.id);
+      }
+    }
+
+    it('our group with a different leader start time: no pass-through', async () => {
+      expect(pgid).not.toBeNull();
+      expect(await nestedGetsThrough({ childStart: 'Thu Jan  1 00:00:00 1970' })).toBe(false);
+    });
+
+    it("another group with our leader's start time: no pass-through", async () => {
+      expect(await nestedGetsThrough({ childPid: 999_999 })).toBe(false);
+    });
+
+    it('a matching job of another class: no pass-through (MED-1)', async () => {
+      expect(await nestedGetsThrough({ class: 'full-build' })).toBe(false);
+    });
+
+    // Control: the same record with group, start and class all matching does
+    // pass through, so the cases above fail for the reason they name. Skipped
+    // only where our group leader has exited and `ps` cannot read its start.
+    it.skipIf(leaderStart === null)('an exact match passes through (control)', async () => {
+      expect(await nestedGetsThrough({})).toBe(true);
+    });
   });
 
   it('a saturated single-slot class defers the second non-blocking acquire, then recovers on release', async () => {
