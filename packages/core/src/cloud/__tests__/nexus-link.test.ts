@@ -203,6 +203,53 @@ describe('linkProjectToNexus', () => {
     expect(result.linkPath).toBe(nexusLinkPath(projectRoot));
     expect(readNexusProjectLink(projectRoot, API)?.remoteProjectId).toBe(PROJECT_ID);
     expect(readFileSync(result.linkPath, 'utf-8')).not.toContain(TOKEN);
+    // The 9.24 session (CLEO_NEXUS_DEVICE=0) cannot attach a replica.
+    expect(result.replica).toBeNull();
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('keeps other origins it cannot read, and cached replica fields, on rewrite (review L4)', async () => {
+    const { fetchImpl } = mockProjects();
+    const path = nexusLinkPath(projectRoot);
+    const future = { apiUrl: 'https://other.test', shape: 'from-a-newer-cleo', replicaId: null };
+    writeFileSync(
+      path,
+      JSON.stringify({
+        version: 1,
+        links: {
+          'https://other.test': future,
+          [API]: {
+            apiUrl: API,
+            localProjectId: PROJECT_ID,
+            remoteProjectId: PROJECT_ID,
+            organizationId: ORG_ID,
+            label: 'Team Board',
+            streamId: `project:${PROJECT_ID}`,
+            linkedAt: '2026-09-30T00:00:00.000Z',
+            replicaId: '01a0f50d-96e7-7dac-a9d7-edc4953e6327',
+            nexusDeviceId: '01a0f48f-89db-7e69-95d6-87e4c14da0d1',
+            attachedAt: '2026-09-30T00:00:00.000Z',
+          },
+        },
+      }),
+    );
+    const result = await linkProjectToNexus({ apiUrl: API, store, projectRoot, fetch: fetchImpl });
+    const file = JSON.parse(readFileSync(path, 'utf-8')) as {
+      links: Record<string, Record<string, string | null>>;
+    };
+    expect(file.links['https://other.test']).toEqual(future);
+    expect(file.links[API]?.['replicaId']).toBe('01a0f50d-96e7-7dac-a9d7-edc4953e6327');
+    expect(result.link.replicaId).toBe('01a0f50d-96e7-7dac-a9d7-edc4953e6327');
+  });
+
+  it('refuses to rewrite a link file in a newer format', async () => {
+    const { fetchImpl } = mockProjects();
+    const path = nexusLinkPath(projectRoot);
+    writeFileSync(path, JSON.stringify({ version: 2, links: {} }));
+    await expect(
+      linkProjectToNexus({ apiUrl: API, store, projectRoot, fetch: fetchImpl }),
+    ).rejects.toThrow(/not a version 1 link file/);
+    expect(JSON.parse(readFileSync(path, 'utf-8')).version).toBe(2);
   });
 
   it('is idempotent: a repeat link answers 200 and reports alreadyLinked', async () => {
