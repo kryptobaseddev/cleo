@@ -56,9 +56,13 @@
  *   keys of files changed against the base are judged stale, so two shrinking
  *   PRs merge cleanly; and every key the baseline added or raised against the
  *   base's baseline (`git show`) must be justified: either listed in the
- *   baseline's `audited` map with a `T####` reason, or net-zero for its code
- *   over the changed files (the sites already existed at the base: a move
- *   between files, or a module newly reachable through a new import).
+ *   baseline's `audited` map with a `T####` reason that is new or changed
+ *   against the base's `audited` (an inherited audit justifies nothing new),
+ *   or net-zero for its code over the changed files (the sites already
+ *   existed at the base: a move between files, or a module newly reachable
+ *   through a new import). The base side counts only sites that were on a
+ *   write path at the base (the base tree is scanned too), so deleting or
+ *   trimming a never-baselined file earns no credit.
  *
  * `--update-baseline` rewrites the baseline under the same rule: it refuses an
  * unjustified add or raise unless `--seed` is passed (pass `--base <ref>` so
@@ -76,8 +80,9 @@
  * - `readsNonSynced` on a post-apply-check needs `pinnedPolicy: true`;
  * - a `runtimeGate` or `check.functionName` with no non-test caller is a dead
  *   gate;
- * - `pending` names a `T####` task; `--verify-tasks` checks each pending task
- *   and the baseline's burn-down task exist and are open, through the released
+ * - `pending` names a `T####` task; `--verify-tasks` checks each pending task,
+ *   the baseline's burn-down task and each task an `audited` reason names
+ *   exist and are open, through the released
  *   CLI (`${CLEO_BIN:-cleo} show`, in `$CLEO_TASKS_CWD` or the repo root). CI
  *   has no task store, so CI does not pass it.
  *
@@ -211,9 +216,11 @@ export function listSources(root, dirs) {
  * @param {string} root
  * @param {string} fromFile
  * @param {string} spec
+ * @param {(file: string) => boolean} [exists] - Whether a repo-relative file
+ *   exists in the tree being scanned (default: on disk under `root`).
  * @returns {string | null}
  */
-export function resolveSpecifier(root, fromFile, spec) {
+export function resolveSpecifier(root, fromFile, spec, exists = (f) => existsSync(join(root, f))) {
   let base;
   if (spec.startsWith('.')) base = join(dirname(fromFile), spec);
   else {
@@ -226,9 +233,46 @@ export function resolveSpecifier(root, fromFile, spec) {
     .join('/')
     .replace(/\.(m?js|ts)$/, '');
   for (const candidate of [`${base}.ts`, `${base}/index.ts`]) {
-    if (existsSync(join(root, candidate))) return candidate;
+    if (exists(candidate)) return candidate;
   }
   return null;
+}
+
+/**
+ * The scanned sources of a git tree at a ref, read in one `git cat-file
+ * --batch` pass, in the shape `scanTree` takes as `tree`. PR mode scans the
+ * base this way to know which modules were on a write path at the base.
+ *
+ * @param {string} root
+ * @param {string} ref
+ * @param {readonly string[]} [dirs]
+ * @returns {{ files: string[], texts: Map<string, string>, exists: (file: string) => boolean }}
+ */
+export function treeAt(root, ref, dirs = SOURCE_DIRS) {
+  const all = git(root, ['ls-tree', '-r', '-z', '--name-only', ref, '--', ...dirs])
+    .split('\0')
+    .filter(Boolean);
+  const files = all.filter(isSource).sort();
+  const texts = new Map();
+  if (files.length > 0) {
+    const buf = execFileSync('git', ['cat-file', '--batch'], {
+      cwd: root,
+      input: `${files.map((f) => `${ref}:${f}`).join('\n')}\n`,
+      maxBuffer: 1024 * 1024 * 1024,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let pos = 0;
+    for (const f of files) {
+      const eol = buf.indexOf(0x0a, pos);
+      const header = buf.subarray(pos, eol).toString('utf8');
+      const size = Number(/^\S+ blob (\d+)$/.exec(header)?.[1]);
+      if (!Number.isFinite(size)) throw new Error(`git cat-file ${ref}:${f}: ${header}`);
+      texts.set(f, buf.subarray(eol + 1, eol + 1 + size).toString('utf8'));
+      pos = eol + 1 + size + 1;
+    }
+  }
+  const present = new Set(all);
+  return { files, texts, exists: (f) => present.has(f) };
 }
 
 // ---------------------------------------------------------------------------
@@ -790,11 +834,13 @@ export function analyseFile(file, text, ctx) {
  *   dirs?: readonly string[],
  *   syncTables: Set<string>,
  *   entryFilter?: (file: string) => boolean,
- * }} opts
+ *   tree?: ReturnType<typeof treeAt>,
+ * }} opts - `tree`: scan these files instead of the working tree (`treeAt`).
  */
-export function scanTree({ root, dirs = SOURCE_DIRS, syncTables, entryFilter }) {
-  const files = listSources(root, dirs);
-  const texts = new Map(files.map((f) => [f, readFileSync(join(root, f), 'utf8')]));
+export function scanTree({ root, dirs = SOURCE_DIRS, syncTables, entryFilter, tree }) {
+  const files = tree?.files ?? listSources(root, dirs);
+  const texts = tree?.texts ?? new Map(files.map((f) => [f, readFileSync(join(root, f), 'utf8')]));
+  const exists = tree?.exists ?? ((f) => existsSync(join(root, f)));
   const schemaSymbols = new Map();
   for (const [f, text] of texts) {
     if (!text.includes('sqliteTable(')) continue;
@@ -819,7 +865,7 @@ export function scanTree({ root, dirs = SOURCE_DIRS, syncTables, entryFilter }) 
     if (a.localExports.has(name)) out = [mod];
     else {
       for (const r of a.reexports) {
-        const target = resolveSpecifier(root, mod, r.from);
+        const target = resolveSpecifier(root, mod, r.from, exists);
         if (!target) continue;
         if (r.star) out.push(...resolveExport(target, name, seen));
         else if (r.name === name) out.push(...resolveExport(target, r.as, seen));
@@ -834,7 +880,7 @@ export function scanTree({ root, dirs = SOURCE_DIRS, syncTables, entryFilter }) 
     const a = analysed.get(f);
     const targets = new Set();
     for (const imp of a.imports) {
-      const target = resolveSpecifier(root, f, imp.spec);
+      const target = resolveSpecifier(root, f, imp.spec, exists);
       if (!target || !analysed.has(target)) continue;
       if (only) {
         const usedWhole =
@@ -974,11 +1020,13 @@ export function compareBaseline(counts, baseline, opts = {}) {
  * justified. A raise above the untagged sites that exist (`why.counts`) is
  * never justified; otherwise a raise is justified when the key is audited
  * (`T####` reason) or when its code is net-zero over the changed files
- * (`netDelta[code] <= 0`).
+ * (`netDelta[code] <= 0`). Given `why.baseAudited` (PR mode), only an audit
+ * that is new or changed against the base baseline justifies a raise: an
+ * audit inherited from the base already paid for the base's count (T12954).
  *
  * @param {Record<string, number>} next
  * @param {Record<string, number> | null} base - `null`: no base baseline (seeding).
- * @param {{ audited?: Record<string, string>, netDelta?: Record<string, number>, counts?: Record<string, number> }} why
+ * @param {{ audited?: Record<string, string>, baseAudited?: Record<string, string>, netDelta?: Record<string, number>, counts?: Record<string, number> }} why
  * @returns {string[]}
  */
 export function unjustifiedRaises(next, base, why = {}) {
@@ -994,7 +1042,7 @@ export function unjustifiedRaises(next, base, why = {}) {
       continue;
     }
     const audit = why.audited?.[k];
-    if (audit && /\bT\d+\b/.test(audit)) continue;
+    if (audit && /\bT\d+\b/.test(audit) && why.baseAudited?.[k] !== audit) continue;
     if (why.netDelta && (why.netDelta[keyCode(k)] ?? 0) <= 0) continue;
     out.push(`${k} (${before} -> ${n})`);
   }
@@ -1003,32 +1051,67 @@ export function unjustifiedRaises(next, base, why = {}) {
 
 /**
  * Net change in untagged sites per code over the files changed against a
- * base, counting only files that are on a write path at head. A move between
- * files or a rename nets to zero; a new untagged site counts +1.
+ * base. A site counts on the head side only when its file is on a write path
+ * at head (`writePath`), and on the base side only when its file was on a
+ * write path at the base (`baseWritePath`): a site that was never baselined
+ * earns no credit (T12953). Per changed file:
+ *
+ * - on both write paths: head minus base (a move or rename nets to zero);
+ * - on the base write path only (deleted, or no longer reachable): minus base;
+ * - on the head write path only (new, or newly reachable): the head sites
+ *   above the base file's own count, so its pre-existing sites cost nothing
+ *   and the sites it loses earn nothing;
+ * - on neither: nothing.
  *
  * @param {{ changed: readonly string[], headText: (f: string) => string | null,
  *   baseText: (f: string) => string | null, writePath: Set<string>,
+ *   baseWritePath: Set<string>,
  *   ctx: { syncTables: Set<string>, schemaSymbols: Map<string, string> },
+ *   baseCtx?: { syncTables: Set<string>, schemaSymbols: Map<string, string> },
  *   registry: readonly { id: string, tables: readonly string[] }[] }} input
  * @returns {Record<string, number>}
  */
-export function netDeltaByCode({ changed, headText, baseText, writePath, ctx, registry }) {
+export function netDeltaByCode({
+  changed,
+  headText,
+  baseText,
+  writePath,
+  baseWritePath,
+  ctx,
+  baseCtx = ctx,
+  registry,
+}) {
   const delta = {};
-  const add = (text, file, sign) => {
-    if (text === null) return;
-    const { sites } = analyseFile(file, text, ctx);
+  const countsOf = (text, file, c) => {
+    const out = {};
+    if (text === null) return out;
+    const { sites } = analyseFile(file, text, c);
     const { untagged } = checkSites(
       sites.map((s) => ({ ...s, file })),
       registry,
     );
-    for (const s of untagged) delta[s.code] = (delta[s.code] ?? 0) + sign;
+    for (const s of untagged) out[s.code] = (out[s.code] ?? 0) + 1;
+    return out;
   };
-  const scoped = changed.filter((f) => writePath.has(f) || headText(f) === null);
-  for (const f of scoped) {
-    add(headText(f), f, +1);
-    add(baseText(f), f, -1);
+  for (const f of changed) {
+    const headOn = writePath.has(f) && headText(f) !== null;
+    const baseOn = baseWritePath.has(f);
+    if (!headOn && !baseOn) continue;
+    const head = headOn ? countsOf(headText(f), f, ctx) : {};
+    const base = countsOf(baseText(f), f, baseCtx);
+    for (const code of new Set([...Object.keys(head), ...Object.keys(base)])) {
+      const h = head[code] ?? 0;
+      const b = base[code] ?? 0;
+      const d = baseOn ? h - b : Math.max(0, h - b);
+      if (d !== 0) delta[code] = (delta[code] ?? 0) + d;
+    }
   }
   return delta;
+}
+
+/** The `T####` task ids an `audited` map's reasons name. */
+export function auditedTasks(audited) {
+  return Object.values(audited ?? {}).flatMap((reason) => String(reason).match(/\bT\d+\b/g) ?? []);
 }
 
 /**
@@ -1330,8 +1413,15 @@ export async function main(argv = process.argv.slice(2), opts = {}) {
   let changed = null;
   let netDelta;
   let baseBaseline = null;
+  let baseAudited;
   if (args.base) {
     changed = changedFiles(root, args.base);
+    const baseScan = scanTree({
+      root,
+      syncTables,
+      entryFilter: (f) => f.startsWith(ENTRY_PREFIX),
+      tree: treeAt(root, args.base),
+    });
     netDelta = netDeltaByCode({
       changed,
       headText: (f) =>
@@ -1339,11 +1429,15 @@ export async function main(argv = process.argv.slice(2), opts = {}) {
         (existsSync(join(root, f)) ? readFileSync(join(root, f), 'utf8') : null),
       baseText: (f) => textAt(root, args.base, f),
       writePath: scan.writePath,
+      baseWritePath: baseScan.writePath,
       ctx: scan.ctx,
+      baseCtx: baseScan.ctx,
       registry,
     });
     const baseText = textAt(root, args.base, BASELINE_PATH);
-    baseBaseline = baseText ? parseBaseline(baseText).sites : null;
+    const parsed = baseText ? parseBaseline(baseText) : null;
+    baseBaseline = parsed?.sites ?? null;
+    baseAudited = parsed?.audited ?? {};
   }
 
   const taskIssues = args.verifyTasks
@@ -1351,6 +1445,7 @@ export async function main(argv = process.argv.slice(2), opts = {}) {
         [
           ...registry.filter((e) => e.pending).map((e) => e.pending.task),
           ...(baseline.burnDown ? [baseline.burnDown] : []),
+          ...auditedTasks(baseline.audited),
         ],
         opts.statusOf ?? cliStatusOf,
       )
@@ -1376,6 +1471,7 @@ export async function main(argv = process.argv.slice(2), opts = {}) {
       ? []
       : unjustifiedRaises(counts, args.base ? (baseBaseline ?? {}) : baseline.sites, {
           audited: baseline.audited,
+          baseAudited,
           netDelta,
         });
     if (raises.length > 0) {
@@ -1420,6 +1516,7 @@ export async function main(argv = process.argv.slice(2), opts = {}) {
   const raises = args.base
     ? unjustifiedRaises(baseline.sites, baseBaseline, {
         audited: baseline.audited,
+        baseAudited,
         netDelta,
         counts,
       })

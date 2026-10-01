@@ -672,7 +672,7 @@ jobs:
     # Every rejection site on a synced write path carries
     # `// @sync-invariant <id>` naming a registry entry
     # (packages/contracts/src/invariants/sync-write-invariants.ts) or an escape
-    # with a reason; untagged sites are baselined per (file, symbol, code) and
+    # with a reason; untagged sites are baselined per (file :: code) and
     # the baseline only shrinks. Also checks registry closure. Needs the
     # installed `typescript` package (compiler-API detection), so it installs.
     # Pure static analysis of checked-in source — no untrusted input.
@@ -681,6 +681,10 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+        with:
+          # A pull_request run checks out the merge commit; its first parent
+          # is the base the PR is judged against (T12954).
+          fetch-depth: 2
       - uses: actions/setup-node@v4
         with:
           node-version: '24.16.0'
@@ -703,10 +707,11 @@ jobs:
         run: node scripts/lint-sync-write-invariants.mjs --check
       - name: Assert the gate 38 baseline only shrinks against the PR base (T12881)
         if: github.event_name == 'pull_request'
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        # The merge commit's first parent, not pull_request.base.sha: the
+        # event's base can lag the branch the merge commit was built on, and
+        # the diff must be taken against the tree the checkout merged (T12954).
         run: |
-          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          BASE_SHA=$(git rev-parse HEAD^1)
           node scripts/lint-sync-write-invariants.mjs --check --base "$BASE_SHA"
       - name: Assert the gate 38 baseline only shrinks against the merge-queue base (T12881)
         if: github.event_name == 'merge_group'
