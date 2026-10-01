@@ -16,6 +16,9 @@ now say:
 - While iterating, run only the failing or changed test files.
 - A full `tool:test` is only for changes to root config.
 
+CLEO-REFERENCE.md also describes the tool cache as keyed on the command and
+the tree content under test, with failed-first and flaky reruns (T12958).
+
 **Worker re-verification is scoped (T12962).** `defaultRunProjectTests`, used
 by the sentient daemon to re-check a worker's exit, runs `tool:test-affected`
 first. It runs the full `tool:test` only when affected planning refuses. Both
