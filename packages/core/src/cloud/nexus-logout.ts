@@ -544,5 +544,10 @@ export async function logoutNexusDevice(
     });
     warnings.push(...session.warnings);
   }
+  if (action === 'revoke' && devices.length === 0 && session !== null) {
+    warnings.push(
+      `no device credential is stored for ${ctx.apiUrl}, so nothing was revoked; the 9.24 session was signed out`,
+    );
+  }
   return { apiUrl: ctx.apiUrl, action, devices, session, warnings };
 }
