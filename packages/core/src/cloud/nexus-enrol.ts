@@ -1047,7 +1047,9 @@ function enrolError(err: unknown, reason: string | null, input: EnrolInput): Err
       err instanceof NexusError &&
       (err.status === 401 ||
         (err.status === 403 &&
-          (reason === 'session-not-fresh' || reason === 'bearer-session-required')));
+          (reason === 'session-not-fresh' ||
+            reason === 'bearer-session-required' ||
+            reason === 'device-flow-session-required')));
     if (refusedSession) {
       return new NexusAccountError(
         'E_NEXUS_SESSION_EXPIRED',

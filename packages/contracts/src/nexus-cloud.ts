@@ -497,6 +497,8 @@ export const NEXUS_FORBIDDEN_REASONS = [
   'bearer-session-required',
   'session-not-fresh',
   'device-limit',
+  'device-flow-session-required',
+  'device-not-enrolled',
 ] as const;
 
 /** `details.revokedReason` values of a 401 `credential-revoked` (§4.0.4, v2.11). */
@@ -617,6 +619,17 @@ export const NEXUS_FORBIDDEN_ERRORS: Readonly<
     code: 'E_NEXUS_REQUEST_FAILED',
     message: 'the account has reached its device limit',
     fix: 'revoke unused devices on cleocode.dev, then retry',
+  },
+  'device-flow-session-required': {
+    code: 'E_NEXUS_SESSION_EXPIRED',
+    message:
+      'this session was not issued to the CLI by `cleo login nexus`, so it cannot enrol a device',
+    fix: SESSION_EXPIRED_LOGIN.fix,
+  },
+  'device-not-enrolled': {
+    code: 'E_NEXUS_NOT_SIGNED_IN',
+    message: 'this device is not enrolled with Cleo Nexus',
+    fix: LOGIN,
   },
 };
 
