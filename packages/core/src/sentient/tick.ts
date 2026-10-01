@@ -96,6 +96,17 @@ export const RETRY_BACKOFF_MS: readonly number[] = [30_000, 300_000, 1_800_000];
 export const MAX_TASK_ATTEMPTS = RETRY_BACKOFF_MS.length;
 
 /**
+ * Consecutive `pending` re-verifications (test slot busy) a task may collect
+ * before the next one counts as a failed attempt (T12962). Each waits twice
+ * as long as the one before, from `RETRY_BACKOFF_MS[0]`, capped at
+ * {@link PENDING_VERIFY_MAX_BACKOFF_MS}: 30 s, 1, 2, 4, 8, 16 min.
+ */
+export const MAX_PENDING_VERIFY = 6;
+
+/** Longest wait between two pending re-verifications of one task (T12962). */
+export const PENDING_VERIFY_MAX_BACKOFF_MS = 1_800_000;
+
+/**
  * Threshold for self-pause: if this many tasks become `stuck` within a
  * rolling 1-hour window, the daemon flips killSwitch=true and exits.
  */
@@ -843,11 +854,20 @@ export async function runTick(options: TickOptions): Promise<TickOutcome> {
   await patchSentientState(statePath, { activeTaskId: task.id });
 
   // -- Spawn worker ---------------------------------------------------------
+  // T12962: the worker already exited 0 and only its re-verification is
+  // outstanding (the test slot was busy): run the verification, not the worker.
+  const pendingVerify = existingStuck?.pendingVerify ?? 0;
   let spawnResult: SpawnResult;
   if (options.dryRun === true) {
     spawnResult = {
       exitCode: 0,
       stdout: '[dry-run] spawn skipped',
+      stderr: '',
+    };
+  } else if (pendingVerify > 0) {
+    spawnResult = {
+      exitCode: 0,
+      stdout: `[re-verify] worker exited 0 earlier; verification pending ${pendingVerify}x, re-running it only`,
       stderr: '',
     };
   } else {
@@ -898,13 +918,21 @@ export async function runTick(options: TickOptions): Promise<TickOutcome> {
         touchedFiles: [],
       };
       const verdict = await verifier(report, { projectRoot });
-      if (!verdict.accepted && verdict.pending === true) {
+      const pendingCount = pendingVerify + 1;
+      const pendingExhausted = verdict.pending === true && pendingCount > MAX_PENDING_VERIFY;
+      if (!verdict.accepted && verdict.pending === true && !pendingExhausted) {
         // T12962: the re-verification could not run yet (test slot busy). That
         // says nothing about the worker, so it costs no attempt: keep the
-        // attempt count and retry after the first backoff step, counted from
-        // the verdict rather than the tick start (the spawn may have run long).
-        const retryAt = Date.now() + (RETRY_BACKOFF_MS[0] ?? 30_000);
-        const pendingReason = 'worker re-verify pending (T12962): test slot busy; retry later';
+        // attempt count, and retry only the verification after an exponential
+        // backoff counted from the verdict (the spawn may have run long).
+        const backoff = Math.min(
+          (RETRY_BACKOFF_MS[0] ?? 30_000) * 2 ** (pendingCount - 1),
+          PENDING_VERIFY_MAX_BACKOFF_MS,
+        );
+        const retryAt = Date.now() + backoff;
+        const pendingReason =
+          `worker re-verify pending (T12962): test slot busy; ` +
+          `pending ${pendingCount}/${MAX_PENDING_VERIFY}, retry later`;
         const postPending = await readSentientState(statePath);
         await patchSentientState(statePath, {
           stuckTasks: {
@@ -914,6 +942,7 @@ export async function runTick(options: TickOptions): Promise<TickOutcome> {
               lastFailureAt: existingStuck?.lastFailureAt ?? new Date(now).toISOString(),
               nextRetryAt: retryAt,
               lastReason: pendingReason,
+              pendingVerify: pendingCount,
             },
           },
           activeTaskId: null,
@@ -929,7 +958,11 @@ export async function runTick(options: TickOptions): Promise<TickOutcome> {
       if (!verdict.accepted) {
         const currentAttempts = existingStuck?.attempts ?? 0;
         const nextAttempts = currentAttempts + 1;
-        const failureReason = `worker re-verify rejected (T1589/T11498): exit=0 but gates failed`;
+        // T12962: a verification that stayed pending past the cap is escalated
+        // as a failed attempt; the next attempt runs the worker again.
+        const failureReason = pendingExhausted
+          ? `worker re-verify rejected (T1589/T11498, T12962): verification still pending after ${MAX_PENDING_VERIFY} retries`
+          : `worker re-verify rejected (T1589/T11498): exit=0 but gates failed`;
         await writeFailureReceipt(
           projectRoot,
           task.id,

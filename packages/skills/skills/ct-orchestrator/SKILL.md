@@ -350,8 +350,8 @@ cleo complete <taskId>
 ```
 
 Never re-run a worker's full suite to "double-check": a worker's
-`tool:test-affected` or `tool:test` result for the same tree is a cache
-hit, and once the PR merges, a project that sets `evidence.ciSatisfies`
+`tool:test-affected` or `tool:test` result for the same tree and the
+same resource limits is a cache hit, and once the PR merges, a project that sets `evidence.ciSatisfies`
 needs no local run at all (`ci:<pr>`). When `testing.affectedCommand` is
 configured, a full `tool:test` is only for changes to root config, which
 affected planning refuses; without it, `tool:test` is the normal run.

@@ -9,8 +9,8 @@
  * pnpm/npm/cargo/pytest/go all work identically. The test re-run is scoped
  * (T12962): `tool:test-affected` for the worker's change first, the full
  * `tool:test` only when affected planning refuses, and both go through the
- * ADR-061 cache, so a result the worker already recorded for the same tree is
- * reused instead of re-run. Git operations go through
+ * ADR-061 cache, so a result the worker already recorded for the same tree
+ * and resource limits is reused instead of re-run. Git operations go through
  * the standard `git` CLI. The audit log lives at the project's
  * `.cleo/audit/worker-mismatch.jsonl` (matches `force-bypass.jsonl` /
  * `contract-violations.jsonl` conventions).
@@ -277,13 +277,18 @@ export function resolveWorkerWorktree(projectRoot: string, taskId: string): stri
   } catch {
     // An unresolvable canonical path still leaves the adopted registry.
   }
-  // Keyed by real path, so one tree registered under two spellings is one match.
-  const adopted = new Map(
-    readSentinelIndex(projectRoot)
-      .filter((e) => e.taskId === taskId && isCheckoutToplevel(e.path))
-      .map((e) => [realpathSync(e.path), e.path] as const),
-  );
-  return adopted.size === 1 ? ([...adopted.values()][0] ?? null) : null;
+  try {
+    // Keyed by real path, so one tree registered under two spellings is one match.
+    const adopted = new Map(
+      readSentinelIndex(projectRoot)
+        .filter((e) => e.taskId === taskId && isCheckoutToplevel(e.path))
+        .map((e) => [realpathSync(e.path), e.path] as const),
+    );
+    return adopted.size === 1 ? ([...adopted.values()][0] ?? null) : null;
+  } catch {
+    // An unreadable registry, or a tree removed mid-check, is an unknown tree.
+    return null;
+  }
 }
 
 /**
@@ -304,8 +309,9 @@ export function resolveWorkerWorktree(projectRoot: string, taskId: string): stri
  *   Affected tests never run on a tree that is not the worker's.
  *
  * Every run goes through the ADR-061 cache, so a result the worker already
- * recorded for the same tree is reused, not re-run. This used to run a full
- * `tool:test` for every worker exit, whatever the worker claimed.
+ * recorded for the same tree and resource limits is reused, not re-run. This
+ * used to run a full `tool:test` for every worker exit, whatever the worker
+ * claimed.
  *
  * @param projectRoot - CLEO store root.
  * @param workerTree - The worker's worktree, or `null` when unknown.

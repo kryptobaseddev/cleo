@@ -59,6 +59,16 @@ import { getCleoHome } from '../paths.js';
 import type { ResourceSample } from '../resources/backend.js';
 import { governor } from '../resources/governor.js';
 import { ResourceMonitor } from '../resources/monitor.js';
+import {
+  assessSlotHolder,
+  currentLockId,
+  GOVERNOR_SLOT_STALE_MS,
+  ownProcessStartedAt,
+  reapSlotIfHolderDead,
+  recordToolGroupsWhileHeld,
+  type SlotHolderIdentity,
+  writeHolderRecord,
+} from '../resources/slot-holder.js';
 import { isHeavyTool } from './heavy-tool-env.js';
 import type { CanonicalTool } from './tool-resolver.js';
 
@@ -418,9 +428,16 @@ export function semaphoreDir(canonical: CanonicalTool): string {
  * owner is a dead pid on this host is orphaned NOW, not in ten minutes, and
  * the operator can be told which process to look at.
  *
+ * Since T12963 the record also carries the holder's process start time, the
+ * lock directory it describes and the process groups of the tools it started
+ * ({@link SlotHolderIdentity}): a slot is orphaned only when the holder pid
+ * AND those tool groups are gone, because a tool spawned detached keeps
+ * running after a SIGKILLed cleo.
+ *
  * @task T12113 (gh#1222)
+ * @task T12963
  */
-export interface SlotHolder {
+export interface SlotHolder extends SlotHolderIdentity {
   /** OS process id of the holder. */
   pid: number;
   /** Host that pid is meaningful on. Liveness is only decided on a match. */
@@ -448,26 +465,32 @@ function holderPath(slotPath: string): string {
 }
 
 /**
- * Record who holds a slot. Best-effort: a failure here must never fail an
- * acquire that has already succeeded, because the slot IS held at that point
- * and throwing would leak it.
+ * Record who holds a slot, and keep the record listing every tool group this
+ * process starts while it holds the slot (T12963). Best-effort: a failure here
+ * must never fail an acquire that has already succeeded, because the slot IS
+ * held at that point and throwing would leak it.
+ *
+ * @returns Stops recording tool groups; call it on release.
  *
  * @internal
  * @task T12113 (gh#1222)
+ * @task T12963
  */
-function writeHolder(slotPath: string, canonical: string): void {
-  const holder: SlotHolder = {
+function writeHolder(slotPath: string, canonical: string): () => void {
+  let holder: SlotHolder;
+  const recording = recordToolGroupsWhileHeld(slotPath, () => holder);
+  holder = {
     pid: process.pid,
     host: hostname(),
     acquiredAt: new Date().toISOString(),
     canonical,
     slot: slotPath,
+    startedAt: ownProcessStartedAt(),
+    lockId: currentLockId(slotPath),
+    toolGroups: [...recording.groups],
   };
-  try {
-    writeFileSync(holderPath(slotPath), JSON.stringify(holder), 'utf-8');
-  } catch {
-    /* best-effort — never fail an acquire that succeeded */
-  }
+  writeHolderRecord(slotPath, holder);
+  return recording.stop;
 }
 
 /**
@@ -493,23 +516,20 @@ export function readHolder(slotPath: string): SlotHolder | null {
  * Fails SAFE: an unknown holder, a holder on another host, or any error is
  * reported as ALIVE. Reaping a live holder's slot would let two heavy suites
  * run against one bound — the exact oversubscription the semaphore exists to
- * prevent — so uncertainty must never authorise a reap.
+ * prevent — so uncertainty must never authorise a reap. A holder whose pid is
+ * gone but whose tool group still has a member is ALIVE (T12963).
  *
  * @param holder - Holder record, or `null` when none could be read.
+ * @param slotPath - The slot the record belongs to. With it, a record that
+ *   does not describe the slot's current lock (or one written before T12963,
+ *   which names no lock) is alive, and a recycled pid is dead.
  * @returns `true` when the slot must be treated as legitimately held.
  *
  * @task T12113 (gh#1222)
+ * @task T12963
  */
-export function isHolderAlive(holder: SlotHolder | null): boolean {
-  if (!holder) return true; // unknown — assume alive
-  if (holder.host !== hostname()) return true; // pid is not ours to judge
-  try {
-    process.kill(holder.pid, 0); // signal 0 = existence check, sends nothing
-    return true;
-  } catch (err) {
-    // EPERM means the process exists but belongs to another user.
-    return (err as NodeJS.ErrnoException).code === 'EPERM';
-  }
+export function isHolderAlive(holder: SlotHolder | null, slotPath?: string): boolean {
+  return assessSlotHolder(holder, slotPath) !== 'dead';
 }
 
 /**
@@ -517,23 +537,22 @@ export function isHolderAlive(holder: SlotHolder | null): boolean {
  *
  * Removes `proper-lockfile`'s lock directory directly — the same thing its own
  * stale recovery does, but decided by process liveness instead of by a 10
- * minute mtime timeout.
+ * minute mtime timeout. Since T12963 the holder's tool groups must be gone
+ * too, the record must describe the current lock, and the reap runs under a
+ * per-slot guard ({@link reapSlotIfHolderDead}).
  *
  * @param slotPath - Slot lock file path.
+ * @param staleMs - The slot's `proper-lockfile` stale threshold.
  * @returns `true` when an orphaned slot was actually reaped.
  *
  * @task T12113 (gh#1222)
+ * @task T12963
  */
-export function reapSlotIfOrphaned(slotPath: string): boolean {
-  const holder = readHolder(slotPath);
-  if (isHolderAlive(holder)) return false;
-  try {
-    rmSync(`${slotPath}.lock`, { recursive: true, force: true });
-    rmSync(holderPath(slotPath), { force: true });
-    return true;
-  } catch {
-    return false;
-  }
+export function reapSlotIfOrphaned(
+  slotPath: string,
+  staleMs: number = GOVERNOR_SLOT_STALE_MS,
+): boolean {
+  return reapSlotIfHolderDead(slotPath, readHolder, { staleMs });
 }
 
 /**
@@ -567,7 +586,7 @@ export function listSlotHolders(
       slot: slotPath,
       held: existsSync(`${slotPath}.lock`),
       holder,
-      alive: isHolderAlive(holder),
+      alive: isHolderAlive(holder, slotPath),
     });
   }
   return rows;
@@ -698,7 +717,7 @@ export async function acquireGlobalSlot(
         // indistinguishable from a legitimately slow suite. Ask the holder
         // record instead: a dead pid on this host is orphaned NOW. Fails
         // safe — an unknown or remote holder is treated as alive.
-        if (reapSlotIfOrphaned(path)) {
+        if (reapSlotIfOrphaned(path, staleMs)) {
           try {
             acquired = await lockfile.lock(path, { retries: 0, stale: staleMs, realpath: false });
           } catch {
@@ -708,19 +727,22 @@ export async function acquireGlobalSlot(
       }
       if (acquired) {
         const release = acquired;
-        writeHolder(path, canonical);
+        const stopRecording = writeHolder(path, canonical);
         const releaseSlot = async (): Promise<void> => {
+          stopRecording();
+          // Record first, lock second: once the lock is gone the next holder
+          // writes its own record, which ours must not delete (T12963).
+          try {
+            rmSync(holderPath(path), { force: true });
+          } catch {
+            /* best-effort — a stale holder record is only ever advisory */
+          }
           try {
             await release();
           } catch {
             // proper-lockfile throws if the lock was already released
             // (e.g. via stale recovery). Swallow — the post-condition
             // is "slot is free", which is true either way.
-          }
-          try {
-            rmSync(`${path}.holder.json`, { force: true });
-          } catch {
-            /* best-effort — a stale holder record is only ever advisory */
           }
         };
         // T12963: the governor slot is taken AFTER the tool slot, so a run
@@ -756,7 +778,8 @@ export async function acquireGlobalSlot(
     .map((r) => {
       const h = r.holder;
       if (!h) return `${r.slot}: holder unknown`;
-      return `${r.slot}: pid ${h.pid} on ${h.host} since ${h.acquiredAt}${r.alive ? '' : ' (DEAD)'}`;
+      const groups = h.toolGroups?.length ? ` with tool group(s) ${h.toolGroups.join(',')}` : '';
+      return `${r.slot}: pid ${h.pid} on ${h.host}${groups} since ${h.acquiredAt}${r.alive ? '' : ' (DEAD)'}`;
     });
   throw new Error(
     `Timed out after ${timeoutMs}ms waiting for a free '${canonical}' tool slot ` +

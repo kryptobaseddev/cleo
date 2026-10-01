@@ -63,6 +63,7 @@ import { join, resolve } from 'node:path';
 
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import { activeToolGroups, trackToolGroup } from '../resources/tool-groups.js';
 import { isLocked, withLock } from '../store/lock.js';
 import { heavyToolEnv } from './heavy-tool-env.js';
 import {
@@ -1018,6 +1019,65 @@ function killProcessTree(pid: number, signal: 'SIGTERM' | 'SIGKILL'): void {
   }
 }
 
+/** Signals whose default action would end cleo and orphan the tool groups it started. */
+const TERMINATION_SIGNALS = ['SIGHUP', 'SIGINT', 'SIGTERM'] as const;
+
+/** A signal {@link terminateToolGroupsOnSignal} handles. */
+type TerminationSignal = (typeof TERMINATION_SIGNALS)[number];
+
+/** Exit status the default action of each termination signal produces (128 + signal number). */
+const TERMINATION_SIGNAL_EXIT: Readonly<Record<TerminationSignal, number>> = {
+  SIGHUP: 129,
+  SIGINT: 130,
+  SIGTERM: 143,
+};
+
+let terminationCleanupInstalled = false;
+
+function onTerminationSignal(signal: NodeJS.Signals): void {
+  if (signal === 'SIGHUP' || signal === 'SIGINT' || signal === 'SIGTERM') {
+    terminateToolGroupsOnSignal(signal);
+  }
+}
+
+/** Add or remove the signal listeners that pass a termination on to running tools. */
+function setTerminationCleanup(on: boolean): void {
+  if (on === terminationCleanupInstalled) return;
+  terminationCleanupInstalled = on;
+  for (const signal of TERMINATION_SIGNALS) {
+    if (on) process.on(signal, onTerminationSignal);
+    else process.off(signal, onTerminationSignal);
+  }
+}
+
+/** Install the cleanup while a tool group runs; remove it once none does. */
+function syncTerminationCleanup(): void {
+  setTerminationCleanup(activeToolGroups().length > 0);
+}
+
+/**
+ * SIGTERM every tool group this process started, then end the process as the
+ * signal would have when nothing else handles it (T12963).
+ *
+ * Tools run detached, in their own process group, so a signal that ends cleo
+ * (Ctrl-C reaches only the terminal's foreground group) never reaches them:
+ * the tool kept running, and the slot it held looked free once cleo was gone.
+ * Installed only while a tool group runs. When another listener handles the
+ * signal, that listener decides how the process ends.
+ *
+ * @param signal - The signal received.
+ *
+ * @internal Exported for tests.
+ * @task T12963
+ */
+export function terminateToolGroupsOnSignal(signal: TerminationSignal): void {
+  for (const pgid of activeToolGroups()) killProcessTree(pgid, 'SIGTERM');
+  const ours = terminationCleanupInstalled ? 1 : 0;
+  if (process.listenerCount(signal) > ours) return;
+  setTerminationCleanup(false);
+  process.exit(TERMINATION_SIGNAL_EXIT[signal]);
+}
+
 function spawnCmd(
   cmd: string,
   args: string[],
@@ -1044,6 +1104,10 @@ function spawnCmd(
       // preventing the `close` event from ever firing.
       detached: true,
     });
+    // T12963: while this group runs, every slot this process holds stays held
+    // even if cleo dies first, and a terminating signal is passed on to it.
+    const untrackGroup = trackToolGroup(child.pid);
+    syncTerminationCleanup();
     child.stdout?.on('data', (d: Buffer) => {
       stdoutBuf.append(d);
     });
@@ -1063,6 +1127,8 @@ function spawnCmd(
     let spawnError: string | null = null;
     const finalise = (exitCode: number | null, signal: NodeJS.Signals | null) => {
       clearTimers();
+      untrackGroup();
+      syncTerminationCleanup();
       const stderr = stderrBuf.toString();
       resolve({
         exitCode,

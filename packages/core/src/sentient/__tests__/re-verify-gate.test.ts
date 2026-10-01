@@ -17,6 +17,9 @@
  *   RVG-7: Reject detail string contains the T1589/T11498 marker.
  *   RVG-8: A `pending` verdict (test slot busy) is retry-later: no attempt
  *           is consumed and `tasksFailed` is untouched (T12962).
+ *   RVG-9: While a verification is pending, the next tick re-runs only the
+ *           verification, never the worker, with exponential backoff; past
+ *           MAX_PENDING_VERIFY it counts as a failed attempt (T12962).
  *
  * All tests inject a `reVerify` stub (or set `skipReVerify`) to avoid
  * spawning real `pnpm test` / `git status` processes.
@@ -34,7 +37,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SENTIENT_STATE_FILE } from '../daemon.js';
 import { DEFAULT_SENTIENT_STATE, readSentientState, writeSentientState } from '../state.js';
-import { runTick, type TickOptions } from '../tick.js';
+import {
+  MAX_PENDING_VERIFY,
+  PENDING_VERIFY_MAX_BACKOFF_MS,
+  RETRY_BACKOFF_MS,
+  runTick,
+  type TickOptions,
+} from '../tick.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -203,6 +212,7 @@ describe('re-verify gate — T11498 AC1', () => {
     const state = await readSentientState(statePath);
     expect(state.stats.tasksFailed).toBe(0);
     expect(state.stuckTasks['T777'].attempts).toBe(0);
+    expect(state.stuckTasks['T777'].pendingVerify).toBe(1);
     expect(state.stuckTasks['T777'].nextRetryAt).toBeGreaterThan(Date.now());
   });
 
@@ -229,5 +239,67 @@ describe('re-verify gate — T11498 AC1', () => {
     const state = await readSentientState(statePath);
     expect(state.stuckTasks['T777'].attempts).toBe(2);
     expect(state.stats.tasksFailed).toBe(0);
+  });
+  /** Seed a T777 stuck entry whose verification has been pending `n` times. */
+  async function seedPending(n: number, attempts = 0): Promise<void> {
+    const before = await readSentientState(statePath);
+    await writeSentientState(statePath, {
+      ...before,
+      stuckTasks: {
+        T777: {
+          attempts,
+          lastFailureAt: new Date(0).toISOString(),
+          nextRetryAt: 0,
+          lastReason: 'pending',
+          pendingVerify: n,
+        },
+      },
+    });
+  }
+
+  const pendingVerdict: NonNullable<TickOptions['reVerify']> = async () => ({
+    accepted: false,
+    pending: true,
+  });
+
+  // RVG-9: a pending verification is retried without re-running the worker (T12962)
+  it('RVG-9: while verification is pending the worker is not spawned again', async () => {
+    await seedPending(1);
+    const spawn = vi.fn(async () => ({ exitCode: 0, stdout: 'ok', stderr: '' }));
+    const verify = vi.fn(alwaysAccept);
+    const outcome = await runTick(mkTickOpts(root, { spawn, reVerify: verify }));
+
+    expect(spawn).not.toHaveBeenCalled();
+    expect(verify).toHaveBeenCalledTimes(1);
+    expect(outcome.kind).toBe('success');
+    const state = await readSentientState(statePath);
+    expect(state.stuckTasks['T777']).toBeUndefined();
+  });
+
+  it('RVG-9b: each pending verdict doubles the wait, capped', async () => {
+    await seedPending(3);
+    const started = Date.now();
+    await runTick(mkTickOpts(root, { reVerify: pendingVerdict }));
+    const state = await readSentientState(statePath);
+    const base = RETRY_BACKOFF_MS[0] ?? 30_000;
+    expect(state.stuckTasks['T777'].pendingVerify).toBe(4);
+    expect(state.stuckTasks['T777'].nextRetryAt).toBeGreaterThanOrEqual(started + base * 8);
+    expect(state.stuckTasks['T777'].nextRetryAt).toBeLessThanOrEqual(
+      Date.now() + Math.min(base * 8, PENDING_VERIFY_MAX_BACKOFF_MS),
+    );
+    expect(state.stuckTasks['T777'].attempts).toBe(0);
+  });
+
+  it('RVG-9c: a verification still pending past the cap counts as a failed attempt', async () => {
+    await seedPending(MAX_PENDING_VERIFY, 1);
+    const outcome = await runTick(mkTickOpts(root, { reVerify: pendingVerdict }));
+
+    expect(outcome.kind).toBe('failure');
+    expect(outcome.detail).toMatch(/still pending/);
+    const state = await readSentientState(statePath);
+    expect(state.stats.tasksFailed).toBe(1);
+    expect(state.stuckTasks['T777'].attempts).toBe(2);
+    // The escalation clears the pending count: the next attempt runs the worker.
+    expect(state.stuckTasks['T777'].pendingVerify).toBeUndefined();
   });
 });

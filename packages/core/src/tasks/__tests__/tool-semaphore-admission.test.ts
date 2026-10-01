@@ -19,7 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ResourceSample } from '../../resources/backend.js';
 import { _resetGovernorStateForTest, governor, governorSlotDir } from '../../resources/governor.js';
-import { writeGovernorHolder } from '../../resources/slot-holder.js';
+import { currentLockId, writeGovernorHolder } from '../../resources/slot-holder.js';
 import {
   acquireGlobalSlot,
   defaultMaxConcurrent,
@@ -223,6 +223,8 @@ describe('a killed heavy run frees both slots (T12963)', () => {
         acquiredAt: new Date().toISOString(),
         canonical: 'test',
         slot: toolSlot,
+        startedAt: null,
+        lockId: currentLockId(toolSlot),
       }),
     );
 

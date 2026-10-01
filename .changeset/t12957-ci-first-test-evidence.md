@@ -2,7 +2,7 @@
 id: t12957-ci-first-test-evidence
 tasks: [T12957, T12962, T12963, T12964]
 kind: feat
-summary: Agent instructions recommend cleo done --plan, ci:<pr> after merge and tool:test-affected before it; worker re-verification runs affected tests first in the worker's (or adopted) worktree, and a busy test slot costs no attempt; heavy tool runs take a governor slot and default to one machine-wide slot on macOS; governor slots held by a dead process are reaped at once; cleo verify --fresh; test-affected is a listed tool name.
+summary: Agent instructions recommend cleo done --plan, ci:<pr> after merge and tool:test-affected before it; worker re-verification runs affected tests first in the worker's (or adopted) worktree, and a busy test slot costs no attempt; heavy tool runs take a governor slot and default to one machine-wide slot on macOS; a governor or tool slot whose holder process and tool are both gone is reaped at once, and a terminating signal is passed on to running tools; cleo verify --fresh; test-affected is a listed tool name.
 ---
 
 **CI-first, scoped test guidance (T12957).** CLEO-INJECTION.md,
@@ -32,13 +32,14 @@ own worktree (`WorkerReport.worktreePath`, the canonical task worktree, or a
 worktree adopted for the task with `cleo worktree adopt`, when exactly one is),
 never in the daemon's checkout. There it runs `tool:test-affected` first, and
 the full `tool:test` only when affected planning refuses. A busy test slot is
-retry-later, not a full run: the tick reschedules the task after the first
-backoff step without consuming an attempt or counting a failure, and writes no
-mismatch audit row. When the worker's tree is unknown, the
-full suite runs in the project root. Every run goes through the ADR-061 cache,
-so a result the worker already recorded for the same tree is reused. Mismatch
-audit rows name the scope that failed, and `git status` is also read in the
-worker's tree.
+retry-later, not a full run: it consumes no attempt, counts no failure and
+writes no mismatch audit row. The next tick re-runs only the verification, not
+the worker, after a backoff that doubles each time (30 s up to 16 min); a
+verification still pending after six retries counts as a failed attempt. When
+the worker's tree is unknown, the full suite runs in the project root. Every
+run goes through the ADR-061 cache, so a result the worker already recorded
+for the same tree and resource limits is reused. Mismatch audit rows name the
+scope that failed, and `git status` is also read in the worker's tree.
 
 **Machine-wide heavy-run admission (T12963).** A `test` or `build` evidence run
 that misses the cache now also takes a slot of the resource governor's
@@ -48,15 +49,21 @@ together. On macOS, which has no PSI to scale the budget down under pressure,
 `CLEO_TOOL_CONCURRENCY_TEST` / `_BUILD` still set the count, and an explicit
 override skips the governor.
 
-**Dead governor holders are reaped (T12963).** Each local governor slot now
-carries a `<slot>.holder.json` record: pid, the process start time (`ps lstart`
-under `LC_ALL=C TZ=UTC`), host and lock identity. A slot whose holder process
-is gone is freed at once instead of after the 10-minute stale timeout, as is
-one whose lock stopped being refreshed and whose pid now belongs to a process
-with a different start time (a recycled pid). A SIGKILLed
-`cleo verify tool:test` no longer blocks the next heavy run. A holder on
-another host, an unreadable record, or a failed `kill`/`ps` probe is never
-reaped. Deferrals, and the timeout errors built from them, name each holder.
+**Dead slot holders are reaped (T12963).** Each local governor slot and each
+tool-semaphore slot carries a `<slot>.holder.json` record: pid, the process
+start time (`ps lstart` under `LC_ALL=C TZ=UTC`), host, lock identity, and the
+process groups of the tools the holder started while holding it. Tools run
+detached, in their own process group, so a tool outlives a SIGKILLed cleo: a
+slot is freed only when its holder pid is gone (or, once the lock stopped
+being refreshed, recycled to a process with a different start time) AND every
+recorded tool group is gone. It is then freed at once instead of after the
+10-minute stale timeout. A holder on another host, a record that does not
+describe the current lock (or a lock with no birth time), a lock close to
+proper-lockfile's own stale threshold, or a failed `kill`/`ps` probe is never
+reaped, and reaps run under a per-slot guard. Deferrals and timeout errors
+name each holder and its tool groups. While a tool runs, SIGTERM, SIGINT and
+SIGHUP are passed on to its process group, so ending cleo no longer leaves
+the tool running.
 
 **Evidence ergonomics (T12964).**
 - `cleo verify --fresh` bypasses the tool cache for one call. It sets

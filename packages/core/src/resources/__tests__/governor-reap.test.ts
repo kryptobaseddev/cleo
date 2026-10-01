@@ -9,8 +9,11 @@
  *
  * A dead holder is planted on disk the way a SIGKILL leaves it: the lock
  * directory plus the holder record. `process.kill` is stubbed for every test:
- * {@link GONE_PID} answers ESRCH, this process answers alive, and the real
- * `process.kill` is never reached.
+ * this process and the groups in {@link liveGroups} answer alive, everything
+ * else ESRCH, and the real `process.kill` is never reached.
+ *
+ * A dead holder whose tool group still has a member keeps its slot: the tool
+ * was started detached and outlives a SIGKILLed cleo (re-review F1).
  *
  * @task T12963
  */
@@ -26,10 +29,13 @@ import { _resetGovernorStateForTest, governorSlotDir, ResourceGovernor } from '.
 import {
   assessGovernorHolder,
   type GovernorSlotHolder,
+  lockIdentity,
+  lockSlot,
   type PidProbe,
   readGovernorHolder,
   writeGovernorHolder,
 } from '../slot-holder.js';
+import { _resetToolGroupsForTest, trackToolGroup } from '../tool-groups.js';
 
 /** No pressure: `db-heavy` has a budget of exactly one slot. */
 const SAMPLE: ResourceSample = {
@@ -50,16 +56,23 @@ const GONE_PID = 4_000_001;
 /** A start time no live process has. */
 const WRONG_START = 'Thu Jan 1 00:00:00 1970';
 
+/** A tool process group the stubbed `process.kill` reports per {@link liveGroups}. */
+const TOOL_GROUP = 4_000_002;
+
 /** Pids the stubbed `process.kill` was asked about, with their signal. */
 let killCalls: Array<[number, string | number | undefined]>;
 
-/** Stub `process.kill`: this process is alive, everything else is gone. */
+/** Process groups the stubbed `kill(-pgid, 0)` reports as alive. */
+let liveGroups: Set<number>;
+
+/** Stub `process.kill`: this process and {@link liveGroups} are alive, everything else is gone. */
 function stubKill(): void {
   killCalls = [];
+  liveGroups = new Set();
   vi.spyOn(process, 'kill').mockImplementation((pid: number, signal?: string | number) => {
     killCalls.push([pid, signal]);
     if (signal !== 0) throw new Error(`test sent signal ${String(signal)} to ${pid}`);
-    if (pid === process.pid) return true;
+    if (pid === process.pid || (pid < 0 && liveGroups.has(-pid))) return true;
     const err: NodeJS.ErrnoException = new Error('kill ESRCH');
     err.code = 'ESRCH';
     throw err;
@@ -76,20 +89,22 @@ function ownStart(): string {
 /**
  * Plant a held `db-heavy` slot 0 with the given holder, as a crash leaves it.
  * `staleLock` ages the lock past the window a live holder's refresh timer
- * keeps it in, but short of proper-lockfile's own 10 min stale recovery. The
- * record is written after aging: APFS moves birthtime back with an older
- * mtime, which changes the lock identity the record carries.
+ * keeps it in (7 min by default), but short of proper-lockfile's own 10 min
+ * stale recovery. The record is written after aging: APFS moves birthtime
+ * back with an older mtime, which changes the lock identity the record
+ * carries.
  */
 function plantHeldSlot(
   holder: Partial<Omit<GovernorSlotHolder, 'lockId'>> = {},
-  staleLock = false,
+  staleLock: boolean | number = false,
 ): string {
   const dir = governorSlotDir('db-heavy');
   mkdirSync(dir, { recursive: true });
   const slot = join(dir, 'slot-0.lock');
   mkdirSync(`${slot}.lock`);
-  if (staleLock) {
-    const old = new Date(Date.now() - 7 * 60_000);
+  if (staleLock !== false) {
+    const ageMs = staleLock === true ? 7 * 60_000 : staleLock;
+    const old = new Date(Date.now() - ageMs);
     utimesSync(`${slot}.lock`, old, old);
   }
   writeGovernorHolder(slot, {
@@ -112,11 +127,13 @@ beforeEach(() => {
   process.env.CLEO_HOME = home;
   delete process.env.CLEO_RESOURCES_MODE;
   _resetGovernorStateForTest();
+  _resetToolGroupsForTest();
   stubKill();
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
+  _resetToolGroupsForTest();
   if (savedHome === undefined) delete process.env.CLEO_HOME;
   else process.env.CLEO_HOME = savedHome;
   rmSync(home, { recursive: true, force: true });
@@ -198,11 +215,87 @@ describe('live and unprovable holders keep their slot (T12963)', () => {
   });
 });
 
+describe('a dead holder whose tool still runs keeps its slot (T12963 re-review F1)', () => {
+  it('is not reaped while its tool group has a member, and is once the group is gone', async () => {
+    liveGroups.add(TOOL_GROUP);
+    plantHeldSlot({ pid: GONE_PID, toolGroups: [TOOL_GROUP] });
+    const held = await gov.tryAcquire('db-heavy', { sample: SAMPLE });
+    expect(isResourceGrant(held)).toBe(false);
+    if (!isResourceGrant(held)) {
+      expect(held.reason).toContain(`with tool group(s) ${TOOL_GROUP}`);
+      expect(held.reason).toContain('(alive)');
+    }
+    expect(killCalls).toContainEqual([-TOOL_GROUP, 0]);
+
+    liveGroups.delete(TOOL_GROUP);
+    const freed = await gov.tryAcquire('db-heavy', { sample: SAMPLE });
+    expect(isResourceGrant(freed)).toBe(true);
+    if (isResourceGrant(freed)) await freed.release();
+  });
+
+  it('records each tool group started while the grant is held', async () => {
+    const r = await gov.tryAcquire('db-heavy', { sample: SAMPLE });
+    expect(isResourceGrant(r)).toBe(true);
+    const slot = join(governorSlotDir('db-heavy'), 'slot-0.lock');
+    expect(readGovernorHolder(slot)?.toolGroups).toEqual([]);
+    trackToolGroup(TOOL_GROUP);
+    trackToolGroup(TOOL_GROUP + 1);
+    expect(readGovernorHolder(slot)?.toolGroups).toEqual([TOOL_GROUP, TOOL_GROUP + 1]);
+    if (isResourceGrant(r)) await r.release();
+    expect(readGovernorHolder(slot)).toBeNull();
+    // A group started after the release touches no record.
+    trackToolGroup(TOOL_GROUP + 2);
+    expect(readGovernorHolder(slot)).toBeNull();
+  });
+
+  it('a record whose tool group id is 1 or below is unknown, never dead', () => {
+    const slot = plantHeldSlot({ pid: GONE_PID, toolGroups: [1] });
+    expect(assessGovernorHolder(readGovernorHolder(slot), slot)).toBe('unknown');
+    expect(killCalls.some(([pid]) => pid === -1)).toBe(false);
+  });
+});
+
+describe('reaps never race proper-lockfile or each other (T12963 re-review F2/F3)', () => {
+  it("leaves a lock near proper-lockfile's own stale threshold to proper-lockfile", async () => {
+    plantHeldSlot({ pid: GONE_PID }, 9.5 * 60_000);
+    const r = await gov.tryAcquire('db-heavy', { sample: SAMPLE });
+    expect(isResourceGrant(r)).toBe(false);
+  });
+
+  it('two concurrent acquirers of a dead-held slot get exactly one grant', async () => {
+    const slot = plantHeldSlot({ pid: GONE_PID });
+    const results = await Promise.all([lockSlot(slot, 'db-heavy'), lockSlot(slot, 'db-heavy')]);
+    const grants = results.filter((r) => r !== null);
+    expect(grants).toHaveLength(1);
+    for (const release of grants) await release?.();
+  });
+
+  it('a lock with no birth time has no identity, so its record never authorises a reap', () => {
+    expect(lockIdentity(12345, 0)).toBeNull();
+    expect(lockIdentity(12345, Number.NaN)).toBeNull();
+    expect(lockIdentity(12345, 1_790_000_000_123.9)).toBe('12345:1790000000123');
+  });
+});
+
 describe('assessGovernorHolder (T12963)', () => {
   const probe = (p: Partial<PidProbe>): PidProbe => ({
     liveness: () => 'alive',
     startedAt: () => null,
+    groupLiveness: () => 'gone',
     ...p,
+  });
+
+  it('a gone pid with a running or unprobeable tool group is not dead', () => {
+    const slot = plantHeldSlot({ toolGroups: [TOOL_GROUP] });
+    const holder = readGovernorHolder(slot);
+    const gonePid = { liveness: () => 'gone' as const };
+    expect(
+      assessGovernorHolder(holder, slot, probe({ ...gonePid, groupLiveness: () => 'alive' })),
+    ).toBe('alive');
+    expect(
+      assessGovernorHolder(holder, slot, probe({ ...gonePid, groupLiveness: () => 'unknown' })),
+    ).toBe('unknown');
+    expect(assessGovernorHolder(holder, slot, probe(gonePid))).toBe('dead');
   });
 
   it('a gone pid is dead', () => {
