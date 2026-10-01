@@ -183,6 +183,32 @@ describe('cleo cloud', () => {
     expect(r.out + r.err).not.toContain(token);
   });
 
+  it('status offline prints the warnings collected before the failure (review LOW-4)', async () => {
+    await signIn();
+    writeFileSync(join(process.env['CLEO_DIR'] ?? '', 'cleo.db'), 'not a sqlite database');
+    const r = await run('status', {});
+    expect(r.exit).toBe('__EXIT_1__');
+    expect(r.err).toContain('W_NEXUS_REPLICA_UNREADABLE');
+    expect(r.envelope.error.details.warnings[0].code).toBe('W_NEXUS_REPLICA_UNREADABLE');
+  });
+
+  it('forwards no details from an ordinary error (review LOW-6)', async () => {
+    await signIn();
+    mockFetch.mockImplementationOnce(
+      async () =>
+        new Response(
+          JSON.stringify({
+            success: false,
+            error: { code: 'E_FORBIDDEN', message: 'no', requestId: 'r', details: { x: 'y' } },
+          }),
+          { status: 403, headers: { 'content-type': 'application/json' } },
+        ),
+    );
+    const r = await run('whoami', {});
+    expect(r.exit).toBe('__EXIT_1__');
+    expect(r.envelope.error.details).toBeUndefined();
+  });
+
   it('whoami: envelope with the user, the token never printed', async () => {
     await signIn();
     const r = await run('whoami', {});

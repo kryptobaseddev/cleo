@@ -8,7 +8,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -27,7 +27,10 @@ import {
   getNexusCloudStatus,
   NexusCloudOfflineError,
   nexusStatusVerdict,
+  readNexusLocalReplicaId,
+  W_NEXUS_NO_REPLICA,
   W_NEXUS_NOT_LINKED_LOCALLY,
+  W_NEXUS_REPLICA_UNREADABLE,
   W_NEXUS_STATUS_COMPOSED,
 } from '../nexus-cloud-status.js';
 import { FileNexusTokenStore } from '../nexus-credentials.js';
@@ -44,6 +47,7 @@ const USER = '0198a1b2-0000-7000-8000-0000000000aa';
 const DEVICE = '0198a1b2-0000-7000-8000-0000000000d1';
 const OTHER_DEVICE = '0198a1b2-0000-7000-8000-0000000000d2';
 const PROJECT_ID = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b';
+const REMOTE_PROJECT_ID = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a99';
 const REPLICA = '0198a1b2-0000-7000-8000-0000000000e1';
 const ORG = '0198a1b2-0000-7000-8000-0000000000f1';
 const NOW = '2026-09-30T12:00:00.000Z';
@@ -239,7 +243,7 @@ async function signIn(): Promise<void> {
   });
 }
 
-function linkProject(): void {
+function linkProject(remoteProjectId = PROJECT_ID): void {
   writeFileSync(
     join(projectRoot, '.cleo', 'nexus-link.json'),
     JSON.stringify({
@@ -248,7 +252,7 @@ function linkProject(): void {
         [API]: {
           apiUrl: API,
           localProjectId: PROJECT_ID,
-          remoteProjectId: PROJECT_ID,
+          remoteProjectId,
           organizationId: ORG,
           label: 'proj',
           streamId: `project:${PROJECT_ID}`,
@@ -580,10 +584,23 @@ describe('cloud status (E3, §4.4)', () => {
     const err = await failure(getNexusCloudStatus(opts(fetch)));
     expect(err).toBeInstanceOf(NexusCloudOfflineError);
     expect(err.code).toBe('E_NEXUS_UNREACHABLE');
-    const details = (err as NexusCloudOfflineError).details;
+    const details = (err as NexusCloudOfflineError).publicDetails;
     expect(details.local.projectId).toBe(PROJECT_ID);
     expect(details.local.signedIn).toBe(true);
     expect(details.summary.headSeq).toBeNull();
+    expect(Array.isArray(details.warnings)).toBe(true);
+  });
+
+  it('offline keeps the warnings collected before the failure', async () => {
+    await signIn();
+    linkProject();
+    writeFileSync(join(projectRoot, '.cleo', 'cleo.db'), 'this is not a sqlite database');
+    const fetch: FetchLike = async () => {
+      throw new Error('getaddrinfo ENOTFOUND');
+    };
+    const err = await failure(getNexusCloudStatus(opts(fetch)));
+    const codes = (err as NexusCloudOfflineError).publicDetails.warnings.map((w) => w.code);
+    expect(codes).toContain(W_NEXUS_REPLICA_UNREADABLE);
   });
 
   it('a revoked device is mapped, not reported as a verdict', async () => {
@@ -593,6 +610,80 @@ describe('cloud status (E3, §4.4)', () => {
     });
     const err = await failure(getNexusCloudStatus(opts(server.fetch)));
     expect(err.code).toBe('E_NEXUS_DEVICE_REVOKED');
+  });
+
+  it('review M1: an unreadable store is attention, never not-linked, and not reported as unbound', async () => {
+    await signIn();
+    linkProject();
+    writeFileSync(join(projectRoot, '.cleo', 'cleo.db'), 'this is not a sqlite database');
+    const server = mockServer({ '/v1/status': () => ok({ ...remote, replica: null }) });
+    const result = await getNexusCloudStatus(opts(server.fetch));
+    const codes = result.warnings.map((w) => w.code);
+    expect(result.local.replicaId).toBeNull();
+    expect(result.verdict).toBe('attention');
+    expect(codes).toContain(W_NEXUS_REPLICA_UNREADABLE);
+    expect(codes).not.toContain(W_NEXUS_NO_REPLICA);
+  });
+
+  it('review LOW-1: no -wal and a read-only .cleo directory skips the open (no sidecars)', async () => {
+    await signIn();
+    linkProject();
+    bindReplica();
+    const dir = join(projectRoot, '.cleo');
+    chmodSync(dir, 0o500);
+    try {
+      const read = await readNexusLocalReplicaId(projectRoot);
+      expect(read.unreadable).toBe(true);
+      expect(read.replicaId).toBeNull();
+      expect(existsSync(join(dir, 'cleo.db-shm'))).toBe(false);
+    } finally {
+      chmodSync(dir, 0o700);
+    }
+  });
+
+  it('review LOW-5: --project naming the local id asks about the linked remote id', async () => {
+    await signIn();
+    linkProject(REMOTE_PROJECT_ID);
+    bindReplica();
+    const server = mockServer({ '/v1/status': () => ok(remote) });
+    const result = await getNexusCloudStatus({ ...opts(server.fetch), projectId: PROJECT_ID });
+    expect(server.calls[0]?.url.searchParams.get('projectId')).toBe(REMOTE_PROJECT_ID);
+    expect(server.calls[0]?.url.searchParams.get('replicaId')).toBe(REPLICA);
+    expect(result.local.projectId).toBe(REMOTE_PROJECT_ID);
+  });
+
+  it('review LOW-3: unknown check ids are dropped, an unknown device state is not active, an unknown verdict is attention', async () => {
+    await signIn();
+    linkProject();
+    bindReplica();
+    const server = mockServer({
+      '/v1/status': () =>
+        ok({
+          ...remote,
+          device: { ...deviceView, state: 'quarantined' },
+          checks: [
+            ...remote.checks,
+            { id: 'device.future', ok: false, required: true, detail: '' },
+          ],
+          verdict: 'needs-review',
+        }),
+    });
+    const result = await getNexusCloudStatus(opts(server.fetch));
+    expect(result.remote?.checks.map((c) => c.id)).not.toContain('device.future');
+    expect(result.remote?.device?.state).toBe('unknown');
+    expect(result.remote?.verdict).toBe('attention');
+    expect(result.verdict).toBe('attention');
+  });
+
+  it('review LOW-3 (composed): an unknown device state fails device.active', async () => {
+    await signIn();
+    const outside = join(base, 'empty');
+    mkdirSync(outside);
+    const server = mockServer({
+      '/v1/whoami': () => ok({ ...whoami, device: { ...deviceView, state: 'quarantined' } }),
+    });
+    const result = await getNexusCloudStatus({ ...opts(server.fetch), projectRoot: outside });
+    expect(result.verdict).toBe('not-registered');
   });
 });
 

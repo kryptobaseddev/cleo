@@ -9,16 +9,20 @@
  * - no credential: verdict `not-signed-in`, and no network call is made;
  * - the server's verdict is downgraded to `not-linked` when the current
  *   project has no local link entry or no bound replica;
- * - unreachable: `E_NEXUS_UNREACHABLE`, its `details` carrying `local` and a
+ * - unreachable: `E_NEXUS_UNREACHABLE`, its `publicDetails` (the envelope's `error.details`) carrying `local` and a
  *   summary whose remote fields are null ({@link NexusCloudOfflineError});
  * - outside a project (or `--project` naming an unknown id) the device and
  *   account parts are still reported and the verdict comes from the device
  *   checks only.
  *
- * Read-only. The replica id is read through `activeReplica(db, 'project')` on
- * a read-only snapshot handle (`openCleoDbSnapshot`, no migrations, no
- * pragmas): this command never binds a replica or writes `cleo.db`. When the
- * store cannot be read that way, `replicaId` is `null` with a warning.
+ * Every request is a GET. Getting the credential may still upgrade a 9.24
+ * session (E1) and retry unsettled logouts (E9/E10), as every device-credential
+ * command does (§3.4, §3.5). The replica id is read through
+ * `activeReplica(db, 'project')` on a read-only snapshot handle
+ * (`openCleoDbSnapshot`, no migrations, no pragmas): this command never binds
+ * a replica or writes `cleo.db`. When the store cannot be read that way,
+ * `replicaId` is `null` with `W_NEXUS_REPLICA_UNREADABLE` and the verdict is
+ * `attention`, never `not-linked`: unknown is not unbound.
  *
  * A server without E3 (404 `E_NOT_FOUND` on `/v1/status`) gets the same
  * `NexusStatus` shape composed client-side from E2, E14 and E15 with the
@@ -32,7 +36,7 @@
  * @epic T12323
  */
 
-import { existsSync } from 'node:fs';
+import { accessSync, existsSync, constants as fsConstants } from 'node:fs';
 import { join } from 'node:path';
 import {
   type CloudStatusLocal,
@@ -93,18 +97,22 @@ export interface NexusCloudStatusOptions extends NexusCloudOptions {
  * (§4.4 "Offline"). Holds no secret.
  */
 export class NexusCloudOfflineError extends NexusAccountError {
-  /** Local state and a summary with every remote field null. */
-  readonly details: CloudStatusOfflineDetails;
+  /**
+   * Local state, a summary with every remote field null, and the warnings
+   * collected so far. Named `publicDetails`: the CLI forwards only this
+   * explicitly secret-free field into the error envelope.
+   */
+  readonly publicDetails: CloudStatusOfflineDetails;
 
   /**
    * @param message - Human message.
-   * @param details - Local state and summary.
+   * @param publicDetails - Local state, summary and warnings.
    * @param fix - Remedy.
    */
-  constructor(message: string, details: CloudStatusOfflineDetails, fix?: string) {
+  constructor(message: string, publicDetails: CloudStatusOfflineDetails, fix?: string) {
     super('E_NEXUS_UNREACHABLE', message, fix);
     this.name = 'NexusCloudOfflineError';
-    this.details = details;
+    this.publicDetails = publicDetails;
   }
 }
 
@@ -130,35 +138,77 @@ function deviceOnly(checks: readonly NexusCloudStatusCheck[]): NexusCloudStatusC
   return checks.filter((c) => c.id.startsWith('credential.') || c.id.startsWith('device.'));
 }
 
+/** What {@link readNexusLocalReplicaId} learned about the store's replica. */
+export interface NexusLocalReplicaRead {
+  /** The active replica id, or `null` (no store, no bound replica, or unreadable). */
+  readonly replicaId: string | null;
+  /**
+   * `true` when the store exists but could not be read: `replicaId: null` then
+   * means "unknown", not "unbound", so the caller must not conclude not-linked.
+   */
+  readonly unreadable: boolean;
+  /** `W_NEXUS_REPLICA_UNREADABLE` when `unreadable`. */
+  readonly warning: CloudWarning | null;
+}
+
+/** An unreadable-store result with its warning. */
+function unreadableStore(reason: string): NexusLocalReplicaRead {
+  return {
+    replicaId: null,
+    unreadable: true,
+    warning: {
+      code: W_NEXUS_REPLICA_UNREADABLE,
+      message: `could not read the project store read-only, so the replica id is unknown: ${reason}`,
+    },
+  };
+}
+
 /**
  * The active replica id of a project store, read-only: a snapshot handle with
- * no migrations and no pragmas, closed before returning. Never binds.
+ * no migrations and no pragmas, closed before returning. Never binds and never
+ * writes a row.
+ *
+ * SQLite side effect: a read-only open of a WAL-mode store needs the `-wal`
+ * and `-shm` sidecars, and SQLite creates them (empty) when they are missing
+ * and the directory is writable. Run as another user (for example under
+ * `sudo`), those sidecars would be left owned by that user, so when the store
+ * has no `-wal` and the directory is not writable by the caller the open is
+ * skipped and the store reported unreadable instead.
  *
  * @param projectRoot - Project root.
- * @returns The replica id (or `null`) and a warning when the store could not be read.
+ * @returns The replica id, whether the store was unreadable, and a warning.
  */
-export async function readNexusLocalReplicaId(
-  projectRoot: string,
-): Promise<{ replicaId: string | null; warning: CloudWarning | null }> {
+export async function readNexusLocalReplicaId(projectRoot: string): Promise<NexusLocalReplicaRead> {
   // The project store path, as resolveDualScopeDbPath('project', root) builds it.
-  const path = join(resolveCleoDir(projectRoot), 'cleo.db');
-  if (!existsSync(path)) return { replicaId: null, warning: null };
+  const dir = resolveCleoDir(projectRoot);
+  const path = join(dir, 'cleo.db');
+  if (!existsSync(path)) return { replicaId: null, unreadable: false, warning: null };
+  if (!existsSync(`${path}-wal`) && !isWritable(dir)) {
+    return unreadableStore(
+      'the store has no -wal file and its directory is not writable, so a read-only open would fail or leave sidecars behind',
+    );
+  }
   const { openCleoDbSnapshot } = await import('../store/open-cleo-db.js');
   const { activeReplica } = await import('../store/sync/replica.js');
   let snap: ReturnType<typeof openCleoDbSnapshot> | undefined;
   try {
     snap = openCleoDbSnapshot(path, { readOnly: true, applyPragmas: false });
-    return { replicaId: activeReplica(snap.db, 'project')?.replicaId ?? null, warning: null };
+    const replicaId = activeReplica(snap.db, 'project')?.replicaId ?? null;
+    return { replicaId, unreadable: false, warning: null };
   } catch (err) {
-    return {
-      replicaId: null,
-      warning: {
-        code: W_NEXUS_REPLICA_UNREADABLE,
-        message: `could not read the project store read-only, so the replica id is unknown: ${err instanceof Error ? err.message : String(err)}`,
-      },
-    };
+    return unreadableStore(err instanceof Error ? err.message : String(err));
   } finally {
     snap?.close();
+  }
+}
+
+/** True when the caller may write into `dir`. */
+function isWritable(dir: string): boolean {
+  try {
+    accessSync(dir, fsConstants.W_OK);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -369,7 +419,7 @@ function localVerdict(
   remote: NexusCloudStatus,
   project: NexusCloudProject | null,
   isLocal: boolean,
-  replicaId: string | null,
+  replica: NexusLocalReplicaRead,
   warnings: CloudWarning[],
 ): CloudStatusVerdict {
   if (remote.project !== null && !remote.project.registered && !isLocal) {
@@ -390,7 +440,12 @@ function localVerdict(
     });
     return 'not-linked';
   }
-  if (replicaId === null) {
+  if (replica.unreadable) {
+    // Unknown is not unbound: never conclude not-linked from an unreadable
+    // store (W_NEXUS_REPLICA_UNREADABLE already says why).
+    return 'attention';
+  }
+  if (replica.replicaId === null) {
     warnings.push({
       code: W_NEXUS_NO_REPLICA,
       message: "this project's store has no bound replica; run `cleo project link`",
@@ -448,13 +503,15 @@ export async function getNexusCloudStatus(
     (opts.projectId === undefined ||
       opts.projectId === project.projectId ||
       opts.projectId === project.link?.remoteProjectId);
-  const projectId = opts.projectId ?? projectHere;
-  let replicaId: string | null = null;
+  // The current project (bare, or named by its local or remote id) is asked
+  // about by its linked remote id, like the bare command.
+  const projectId = isLocal ? projectHere : (opts.projectId ?? null);
+  let replica: NexusLocalReplicaRead = { replicaId: null, unreadable: false, warning: null };
   if (isLocal && project !== null) {
-    const read = await readNexusLocalReplicaId(project.root);
-    replicaId = read.replicaId;
-    if (read.warning) warnings.push(read.warning);
+    replica = await readNexusLocalReplicaId(project.root);
+    if (replica.warning) warnings.push(replica.warning);
   }
+  const replicaId = replica.replicaId;
   const local: CloudStatusLocal = {
     apiUrl,
     signedIn: false,
@@ -485,7 +542,7 @@ export async function getNexusCloudStatus(
     local.nexusDeviceId = conn.device.deviceId;
     local.profile = conn.device.unseal().current?.profile ?? null;
     const remote = await remoteStatus(conn, projectId, replicaId, opts.now, warnings);
-    const verdict = localVerdict(remote, project, isLocal, replicaId, warnings);
+    const verdict = localVerdict(remote, project, isLocal, replica, warnings);
     return {
       verdict,
       summary: summaryOf(remote, local, project, isLocal),
@@ -504,7 +561,7 @@ export async function getNexusCloudStatus(
     if (err instanceof NexusAccountError && err.code === 'E_NEXUS_UNREACHABLE') {
       throw new NexusCloudOfflineError(
         err.message,
-        { local, summary: emptySummary(local) },
+        { local, summary: emptySummary(local), warnings },
         err.fix,
       );
     }

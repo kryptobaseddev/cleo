@@ -90,6 +90,12 @@ async function runCloudRead<R extends { warnings: CloudWarning[] }>(
   try {
     result = await call();
   } catch (err) {
+    // Warnings collected before the failure (e.g. a logout retry, an
+    // unreadable store) are printed, not lost with the result.
+    const { NexusCloudOfflineError } = await import(
+      /* webpackIgnore: true */ '@cleocode/core/cloud/nexus-cloud-status.js'
+    );
+    if (err instanceof NexusCloudOfflineError) writeWarnings(err.publicDetails.warnings);
     failNexus(err, operation);
   }
   writeWarnings(result.warnings);

@@ -10,7 +10,10 @@
  * - `cleo cloud projects [--org <id>]` — E13, following cursors.
  * - `cleo cloud projects show [<id>]` — E14 (default: the current project).
  *
- * Nothing here writes to the server. Thin handlers: the flows live in
+ * Every request these commands make is a GET. Getting the device credential
+ * can still write, as every device-credential command does (contract §3.4,
+ * §3.5): a 9.24 session is upgraded once through E1, and unsettled logouts are
+ * retried through E9/E10. Thin handlers: the flows live in
  * `@cleocode/core/cloud/nexus-cloud.js` and `nexus-cloud-status.js`.
  *
  * @module cli/commands/cloud
@@ -33,7 +36,7 @@ const statusSubCommand = defineCommand({
   meta: {
     name: 'status',
     description:
-      'Verify this machine against Cleo Nexus in one call: device, credential, project link, replica and stream. Returns { verdict, summary, local, remote, warnings }; verdict is ok, attention, not-linked, not-registered or not-signed-in. Read-only (never binds a replica).',
+      'Verify this machine against Cleo Nexus in one call: device, credential, project link, replica and stream. Returns { verdict, summary, local, remote, warnings }; verdict is ok, attention, not-linked, not-registered or not-signed-in. Reads only (GET; never binds a replica), except that getting the credential may upgrade a 9.24 session (E1) and retry unsettled logouts (E9/E10).',
   },
   args: {
     project: {
@@ -113,7 +116,7 @@ export const cloudCommand = defineCommand({
   meta: {
     name: 'cloud',
     description:
-      'Read-only Cleo Nexus reads with the device credential: status (one-call verification), whoami, devices, projects [show].',
+      'Cleo Nexus reads with the device credential (GET only; getting the credential may upgrade a 9.24 session or retry unsettled logouts): status (one-call verification), whoami, devices, projects [show].',
   },
   subCommands: {
     status: statusSubCommand,

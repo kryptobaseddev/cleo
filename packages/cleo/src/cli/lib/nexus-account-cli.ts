@@ -60,11 +60,15 @@ export function failNexus(err: unknown, operation: string): never {
     code === 'E_VALIDATION'
       ? 6
       : 1;
-  // Structured, secret-free details some failures carry (e.g. `cleo cloud
-  // status` offline: the local facts, contract §4.4).
+  // Only an error that opts in with an explicit, secret-free `publicDetails`
+  // (`cleo cloud status` offline: the local facts, contract §4.4) has its
+  // details forwarded; an arbitrary error's `details` never reaches the envelope.
   const details =
-    err instanceof Error && 'details' in err && typeof err.details === 'object' && err.details
-      ? err.details
+    err instanceof Error &&
+    'publicDetails' in err &&
+    typeof err.publicDetails === 'object' &&
+    err.publicDetails
+      ? err.publicDetails
       : undefined;
   cliError(
     err instanceof Error ? err.message : String(err),

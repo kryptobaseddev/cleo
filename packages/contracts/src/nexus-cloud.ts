@@ -46,14 +46,25 @@ export const NEXUS_CLOUD_MAX_PAGES = 25;
 /** Seconds within which a replica's presence counts as fresh (§4.1 `PRESENCE_FRESH_SECONDS`). */
 export const NEXUS_PRESENCE_FRESH_SECONDS = 86_400;
 
+/**
+ * The device state a newer server value parses as. Not `active`, so every
+ * active-only check fails closed instead of the whole command failing.
+ */
+export const NEXUS_DEVICE_STATE_UNKNOWN = 'unknown';
+
 const isoTime = z.iso.datetime({ offset: true });
-const profile = z.enum(NEXUS_CLOUD_PROFILES);
+/** A profile the CLI does not know reads as none, never as a parse failure. */
+const profile = z.enum(NEXUS_CLOUD_PROFILES).nullable().catch(null);
+/** A device state; a value added by a newer server reads as `unknown` (not active). */
+const deviceState = z
+  .enum([...NEXUS_DEVICE_STATES, NEXUS_DEVICE_STATE_UNKNOWN])
+  .catch(NEXUS_DEVICE_STATE_UNKNOWN);
 
 /** `CredentialInfo` (§4.1): the credential that made the request. */
 export const nexusCloudCredentialSchema = z.object({
   kind: z.enum(['device', 'session']),
   credentialId: z.string().nullable().optional(),
-  profile: profile.nullable().optional(),
+  profile: profile.optional(),
   scopes: z.array(z.string()).default([]),
   createdAt: isoTime.nullable().optional(),
   lastUsedAt: isoTime.nullable().optional(),
@@ -70,12 +81,12 @@ export const nexusCloudDeviceSchema = z.object({
   cliVersion: z.string().nullable().optional(),
   createdAt: isoTime.optional(),
   lastSeenAt: isoTime.nullable().optional(),
-  state: z.enum(NEXUS_DEVICE_STATES),
+  state: deviceState,
   signedOutAt: isoTime.nullable().optional(),
   /** Base64 device certificate; null until the device holds a key grant. */
   certificate: z.string().nullable().optional(),
   /** The current credential's profile, or null with none (signed out or revoked). */
-  profile: profile.nullable().optional(),
+  profile: profile.optional(),
   /** True for the device whose credential made this request. */
   current: z.boolean().default(false),
   projects: z.number().int().nonnegative().optional(),
@@ -129,7 +140,7 @@ export const nexusCloudReplicaSchema = z.object({
   replicaId: z.string(),
   deviceId: z.string(),
   deviceName: z.string(),
-  deviceState: z.enum(NEXUS_DEVICE_STATES).optional(),
+  deviceState: deviceState.optional(),
   attachedAt: isoTime.optional(),
   lastSyncAt: isoTime.nullable(),
   presence: nexusCloudPresenceSchema.nullable(),
@@ -236,6 +247,8 @@ export const CLOUD_STATUS_VERDICTS = [...NEXUS_STATUS_VERDICTS, 'not-signed-in']
 /** One of {@link CLOUD_STATUS_VERDICTS}. */
 export type CloudStatusVerdict = (typeof CLOUD_STATUS_VERDICTS)[number];
 
+const knownCheckId = z.enum(NEXUS_STATUS_CHECK_IDS);
+
 /** `StatusCheck` (§4.1). Only required checks drive the verdict. */
 export const nexusCloudStatusCheckSchema = z.object({
   id: z.enum(NEXUS_STATUS_CHECK_IDS),
@@ -280,8 +293,15 @@ export const nexusCloudStatusSchema = z.object({
       devices: nexusCloudDeviceCountsSchema,
     })
     .nullable(),
-  checks: z.array(nexusCloudStatusCheckSchema),
-  verdict: z.enum(NEXUS_STATUS_VERDICTS),
+  /** Check ids added by a newer server are dropped, never a parse failure. */
+  checks: z.array(nexusCloudStatusCheckSchema.extend({ id: z.string() })).transform((list) =>
+    list.flatMap((c) => {
+      const id = knownCheckId.safeParse(c.id);
+      return id.success ? [{ ...c, id: id.data }] : [];
+    }),
+  ),
+  /** A verdict added by a newer server reads as `attention`: never `ok` by accident. */
+  verdict: z.enum(NEXUS_STATUS_VERDICTS).catch('attention'),
 });
 
 /** Parsed `CredentialInfo`. */
@@ -447,6 +467,8 @@ export interface CloudStatusOfflineDetails {
   local: CloudStatusLocal;
   /** The summary with every remote field null or false. */
   summary: CloudStatusSummary;
+  /** Warnings collected before the server stopped answering. */
+  warnings: CloudWarning[];
 }
 
 // ---------- error mapping (§4.0.4) ----------

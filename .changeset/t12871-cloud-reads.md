@@ -2,11 +2,14 @@
 id: t12871-cloud-reads
 tasks: [T12871]
 kind: feat
-summary: cleo cloud status, whoami, devices and projects [show] read Cleo Nexus with the device credential, follow every page, report truncation, and never write; the §4.0.4 error table now lives in @cleocode/contracts
+summary: cleo cloud status, whoami, devices and projects [show] read Cleo Nexus with the device credential, follow every page, report truncation, and send only GET requests; the §4.0.4 error table now lives in @cleocode/contracts
 ---
 
-**`cleo cloud` (contract §4.4, D6).** Five read-only commands that use this
-machine's device credential:
+**`cleo cloud` (contract §4.4, D6).** Five commands that read with this
+machine's device credential. Every request they make is a GET. Getting the
+credential can still write, as for every device-credential command (contract
+§3.4, §3.5): a 9.24 session is upgraded once through E1, and unsettled logouts
+are retried through E9/E10.
 
 - `cleo cloud status [--project <id>]` (operation `cloud.status`) is the agent's
   single verification call. It returns `{ verdict, summary, local, remote,
@@ -14,9 +17,13 @@ machine's device credential:
   is made. The server's verdict is downgraded to `not-linked` when the current
   project has no `.cleo/nexus-link.json` entry or no bound replica. Offline, the
   envelope is `E_NEXUS_UNREACHABLE` with `error.details.local` and a summary
-  whose remote fields are null. Outside a project only the device is checked.
+  whose remote fields are null, and the warnings collected so far. Outside a project only the device is checked.
   The replica id is read through `activeReplica(db, 'project')` on a read-only
-  snapshot handle, so the command never binds a replica or writes `cleo.db`.
+  snapshot handle, so the command never binds a replica or writes `cleo.db`. When
+  the store cannot be read, `replicaId` is null with `W_NEXUS_REPLICA_UNREADABLE`
+  and the verdict is `attention`, never `not-linked` (unknown is not unbound).
+  The open is skipped when the store has no `-wal` and its directory is not
+  writable, so no sidecar is left behind.
   A server without `GET /v1/status` gets the same shape composed from
   `/v1/whoami` and the project reads, with a `W_NEXUS_STATUS_COMPOSED` warning.
   `--report` (presence) is not part of this change (T12905).
