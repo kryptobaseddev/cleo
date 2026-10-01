@@ -11,6 +11,7 @@
  * @epic T12323
  */
 
+import { createHash } from 'node:crypto';
 import type { RowIdentityRef, RowIdentitySpec, TableScope } from '@cleocode/contracts';
 
 /** Physical name of every uid column. */
@@ -178,19 +179,14 @@ export const ROW_IDENTITY_TABLES: Readonly<Record<TableScope, readonly string[]>
  *
  * - `planned` — a filed task gives the table its uid; it syncs without one
  *   until then.
- * - `twin-collapse` — one of a live exodus twin pair that both sync; the uid
- *   goes on the survivor once T12535 collapses the pair (spec §10).
- * - `unscheduled` — no uid scheme is designed or filed yet; the table waits on
- *   the sync-coverage epic.
+ * - `twin-collapse` — one of a live exodus twin pair that both sync, or a
+ *   table the collapse must change first; the uid goes on the survivor once
+ *   T12535 collapses the pair (spec §10).
  * - `not-row-replicated` — the table does not travel as rows at all.
  *
  * @task T12897
  */
-export type RowIdentityExemptionCategory =
-  | 'planned'
-  | 'twin-collapse'
-  | 'unscheduled'
-  | 'not-row-replicated';
+export type RowIdentityExemptionCategory = 'planned' | 'twin-collapse' | 'not-row-replicated';
 
 /**
  * A syncing table's declared reason for having no {@link ROW_IDENTITY} entry.
@@ -202,7 +198,7 @@ export interface RowIdentityExemption {
   readonly category: RowIdentityExemptionCategory;
   /** Why the table syncs without row identity, and what ends the exemption. */
   readonly reason: string;
-  /** The task that ends the exemption (for `unscheduled`, the epic). */
+  /** The task that ends the exemption; it must exist and be open. */
   readonly task: string;
 }
 
@@ -230,6 +226,13 @@ const BRAIN_AUTOINCREMENT: RowIdentityExemption = {
 const STICKY_REASON =
   'the degraded-mode TEMP shadow tables in store/twin-collapse.ts declare its columns and must carry uid first; that file is being edited by twin-collapse slice 2 (T12535)';
 
+/** The project sticky tables wait on the twin collapse itself (#1764 review L5). */
+const STICKY_TWIN: RowIdentityExemption = {
+  category: 'twin-collapse',
+  reason: STICKY_REASON,
+  task: 'T12535',
+};
+
 const TWIN: RowIdentityExemption = {
   category: 'twin-collapse',
   reason:
@@ -237,12 +240,22 @@ const TWIN: RowIdentityExemption = {
   task: 'T12535',
 };
 
-const UNSCHEDULED: RowIdentityExemption = {
-  category: 'unscheduled',
-  reason:
-    'not reached yet: no uid scheme designed or filed; rows merge on their local primary key until one is',
-  task: 'T12323',
-};
+/** A cluster of tables whose row identity one filed task plans (#1764 review M2). */
+function cluster(task: string): RowIdentityExemption {
+  return {
+    category: 'planned',
+    reason: `uid scheme not designed yet; rows merge on their local primary key until ${task} lands`,
+    task,
+  };
+}
+
+const CONDUIT = cluster('T12913');
+const LIFECYCLE_RELEASE_GIT = cluster('T12914');
+const AGENT_ACCOUNTS_SERVICE = cluster('T12915');
+const NEXUS_REGISTRY = cluster('T12916');
+const SKILLS = cluster('T12917');
+const DOCS = cluster('T12919');
+const PROJECT_MISC = cluster('T12920');
 
 function exempt(
   tables: readonly string[],
@@ -288,7 +301,7 @@ const BRAIN_EXEMPT: Readonly<Record<string, RowIdentityExemption>> = {
     category: 'not-row-replicated',
     reason:
       'vec0 virtual table: the session extension cannot capture it, so it ships as a content-addressed cache blob, never as rows (classification registry note)',
-    task: 'T12323',
+    task: 'T12918',
   },
 };
 
@@ -345,6 +358,8 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
       ],
       TWIN,
     ),
+    brain_sticky_notes: STICKY_TWIN,
+    brain_sticky_tags: STICKY_TWIN,
     brain_v2_candidate: {
       category: 'twin-collapse',
       reason:
@@ -365,21 +380,13 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
         'conduit_topic_messages',
         'conduit_topic_subscriptions',
         'conduit_topics',
-        'docs_attachment_refs',
-        'docs_attachments',
-        'docs_wikilinks',
-        'nexus_relation_weights',
-        'pi_session_entries',
-        'pi_session_leaf',
-        'schedules',
-        'selfimprove_dhq',
-        'tasks_acceptance_projection_dirty',
-        'tasks_acceptance_projection_state',
-        'tasks_agent_credentials',
+      ],
+      CONDUIT,
+    ),
+    ...exempt(
+      [
         'tasks_commit_files',
         'tasks_commits',
-        'tasks_external_task_links',
-        'tasks_goal',
         'tasks_lifecycle_evidence',
         'tasks_lifecycle_gate_results',
         'tasks_lifecycle_pipelines',
@@ -393,11 +400,27 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
         'tasks_release_changesets',
         'tasks_release_commits',
         'tasks_releases',
-        'tasks_session_handoff_entries',
         'tasks_task_commits',
+      ],
+      LIFECYCLE_RELEASE_GIT,
+    ),
+    ...exempt(['docs_attachment_refs', 'docs_attachments', 'docs_wikilinks'], DOCS),
+    ...exempt(
+      [
+        'nexus_relation_weights',
+        'pi_session_entries',
+        'pi_session_leaf',
+        'schedules',
+        'selfimprove_dhq',
+        'tasks_acceptance_projection_dirty',
+        'tasks_acceptance_projection_state',
+        'tasks_agent_credentials',
+        'tasks_external_task_links',
+        'tasks_goal',
+        'tasks_session_handoff_entries',
         'tasks_task_work_history',
       ],
-      UNSCHEDULED,
+      PROJECT_MISC,
     ),
   },
   global: {
@@ -413,6 +436,13 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
         'agent_registry_org_agent_keys',
         'agent_registry_skills',
         'agent_service_grants',
+        'service_configs',
+        'service_connections',
+      ],
+      AGENT_ACCOUNTS_SERVICE,
+    ),
+    ...exempt(
+      [
         'nexus_audit_log',
         'nexus_devices',
         'nexus_project_git_state',
@@ -421,14 +451,12 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
         'nexus_project_registry',
         'nexus_sigils',
         'nexus_user_profile',
-        'service_configs',
-        'service_connections',
-        'skills_skill_patches',
-        'skills_skill_reviews',
-        'skills_skill_usage',
-        'skills_skills',
       ],
-      UNSCHEDULED,
+      NEXUS_REGISTRY,
+    ),
+    ...exempt(
+      ['skills_skill_patches', 'skills_skill_reviews', 'skills_skill_usage', 'skills_skills'],
+      SKILLS,
     ),
   },
 };
@@ -443,12 +471,18 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  *
  * | category             | task   | project | global |
  * |----------------------|--------|---------|--------|
- * | planned              | T12894 | 12      | 12     |
- * | planned              | T12895 | 4       | 3      |
+ * | planned              | T12894 | 11      | 12     |
+ * | planned              | T12895 | 3       | 3      |
  * | planned              | T12896 | 8       | 7      |
- * | twin-collapse        | T12535 | 28      | 0      |
- * | unscheduled          | T12323 | 43      | 23     |
- * | not-row-replicated   | T12323 | 1       | 1      |
+ * | planned (conduit)    | T12913 | 12      | 0      |
+ * | planned (lifecycle…) | T12914 | 16      | 0      |
+ * | planned (agents…)    | T12915 | 0       | 11     |
+ * | planned (nexus)      | T12916 | 0       | 8      |
+ * | planned (skills)     | T12917 | 0       | 4      |
+ * | planned (docs)       | T12919 | 3       | 0      |
+ * | planned (misc)       | T12920 | 12      | 0      |
+ * | twin-collapse        | T12535 | 30      | 0      |
+ * | not-row-replicated   | T12918 | 1       | 1      |
  * | total                |        | 96      | 46     |
  *
  * @task T12897
@@ -457,6 +491,32 @@ export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = 
   project: 96,
   global: 46,
 };
+
+/**
+ * sha256 of each scope's sorted exempt table names
+ * ({@link rowIdentityExemptDigest}), pinned with the count so swapping one
+ * exempt table for another fails too (#1764 review L4). Update it in the same
+ * change that drops an exemption; the gate prints the new value.
+ *
+ * @task T12897
+ */
+export const ROW_IDENTITY_EXEMPT_NAMES_SHA256: Readonly<Record<TableScope, string>> = {
+  project: '2e020a2f47d461aa646565fd42989a38a02e4321fe57871a26ba57c3532c4a19',
+  global: '4c9328298796b78cdb2ed769e29726530eddf625f300e5051e9ec1345a002268',
+};
+
+/**
+ * sha256 (hex) of a set of table names, sorted and newline-joined.
+ *
+ * @param names - Table names.
+ * @returns The hex digest.
+ * @task T12897
+ */
+export function rowIdentityExemptDigest(names: Iterable<string>): string {
+  return createHash('sha256')
+    .update([...names].sort().join('\n'))
+    .digest('hex');
+}
 
 /**
  * Exemption counts of one scope, by category and by `category task`.
@@ -491,7 +551,8 @@ export function rowIdentityExemptionSummary(scope: TableScope): {
  *   reclassified to a class that does not sync).
  * - `declared` — an exemption whose table is also declared.
  * - `invalid` — an exemption without a reason or a `T<digits>` task.
- * - `pinned` — the exemption count differs from its pin.
+ * - `pinned` — the exemption count or the digest of the exempt names differs
+ *   from its pin.
  *
  * @task T12897
  */
@@ -508,7 +569,9 @@ export interface RowIdentityCoverageProblem {
  *
  * @param input - `syncing`: the scope's syncing tables; `declared`: tables
  *   with a {@link ROW_IDENTITY} entry; `exempt`: the scope's exemptions;
- *   `pinned`: the expected exemption count (omit to skip); `mayBeAbsent`:
+ *   `pinned`: the expected exemption count (omit to skip); `pinnedDigest`:
+ *   the expected {@link rowIdentityExemptDigest} of the exempt names (omit to
+ *   skip); `mayBeAbsent`:
  *   exempt tables allowed to be missing from `syncing` (a fresh store leaves
  *   out optional-transient tables).
  * @returns The problems; empty when every syncing table is covered.
@@ -519,6 +582,7 @@ export function checkRowIdentityCoverage(input: {
   readonly declared: Iterable<string>;
   readonly exempt: Readonly<Record<string, RowIdentityExemption>>;
   readonly pinned?: number;
+  readonly pinnedDigest?: string;
   readonly mayBeAbsent?: Iterable<string>;
 }): RowIdentityCoverageProblem[] {
   const syncing = new Set(input.syncing);
@@ -566,6 +630,15 @@ export function checkRowIdentityCoverage(input: {
           ? `${exemptTables.length} exemptions, pinned at ${input.pinned}: declare the new table's row identity instead of exempting it`
           : `${exemptTables.length} exemptions, pinned at ${input.pinned}: lower ROW_IDENTITY_EXEMPT_PINNED to ${exemptTables.length}`,
     });
+  }
+  if (input.pinnedDigest !== undefined && exemptTables.length === input.pinned) {
+    const digest = rowIdentityExemptDigest(exemptTables);
+    if (digest !== input.pinnedDigest) {
+      problems.push({
+        kind: 'pinned',
+        message: `the exempt table names changed at the same count (a swap): their digest is ${digest}, pinned ${input.pinnedDigest}. Declare the new table instead; if the change is a reviewed reclassification, update ROW_IDENTITY_EXEMPT_NAMES_SHA256`,
+      });
+    }
   }
   return problems;
 }

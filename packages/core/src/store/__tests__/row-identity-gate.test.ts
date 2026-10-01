@@ -39,6 +39,7 @@ import { ROW_IDENTITY, rowIdentityColumns, UID_COLUMN } from '../row-identity.js
 import {
   checkRowIdentityCoverage,
   ROW_IDENTITY_EXEMPT,
+  ROW_IDENTITY_EXEMPT_NAMES_SHA256,
   ROW_IDENTITY_EXEMPT_PINNED,
 } from '../row-identity-registry.js';
 import { openSkillsDb } from '../skills-db.js';
@@ -165,6 +166,7 @@ describe.each(['project', 'global'] as const)('row identity: %s store', (scope) 
       declared,
       exempt,
       pinned: ROW_IDENTITY_EXEMPT_PINNED[scope],
+      pinnedDigest: ROW_IDENTITY_EXEMPT_NAMES_SHA256[scope],
       mayBeAbsent,
     });
     console.log(

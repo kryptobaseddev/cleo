@@ -629,7 +629,15 @@ jobs:
       - name: Assert no new raw write on a classified cleo.db table (gate 28 · T12332)
         run: node scripts/lint-no-raw-table-writes.mjs
       - name: Assert every syncing cleo.db table has row identity or an exemption (gate 37 · T12897)
-        run: node scripts/lint-row-identity-coverage.mjs
+        if: github.event_name != 'pull_request'
+        run: node scripts/lint-row-identity-coverage.mjs --check
+      - name: Assert row-identity exemptions only shrink against the PR base (gate 37 PR mode · T12897)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_REF"
+          node scripts/lint-row-identity-coverage.mjs --check --base "origin/$BASE_REF"
 
   model-call-sites:
     # Gate 35 (T12663 · spec system-one-integration §3.5 · D11158). Every
