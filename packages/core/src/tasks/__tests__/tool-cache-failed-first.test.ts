@@ -27,7 +27,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { cacheEntryPath, readCacheEntry, runToolCached } from '../tool-cache.js';
+import {
+  cacheEntryPath,
+  MAX_FLAKE_RETRY_FILES,
+  readCacheEntry,
+  runToolCached,
+} from '../tool-cache.js';
 import {
   extractFailingTestRefs,
   failedFirstPointerPath,
@@ -266,6 +271,7 @@ describe('runToolCached — failed-first reruns and flake retries', () => {
     expect(r.exitCode).toBe(0);
     expect(r.flaky).toEqual(['src/a.test.ts']);
     expect(r.entry.flaky).toEqual(['src/a.test.ts']);
+    expect(r.entry.flakyFailureTail).toContain('FAIL  src/a.test.ts');
     expect(r.entry.failedTestFiles).toBeUndefined();
     expect(existsSync(failedFirstPointerPath(repo, 'test', root))).toBe(false);
 
@@ -274,6 +280,19 @@ describe('runToolCached — failed-first reruns and flake retries', () => {
     expect(again.cacheHit).toBe(true);
     expect(again.flaky).toEqual(['src/a.test.ts']);
     expect(fullRuns()).toBe(2);
+  });
+
+  it('FLAKE retry only for a NARROW failure: more than MAX_FLAKE_RETRY_FILES named files are not retried', async () => {
+    const many = Array.from({ length: MAX_FLAKE_RETRY_FILES + 1 }, (_, i) => `src/m${i}.test.ts`);
+    for (const f of many) writeFileSync(join(repo, f), '// m\n');
+    git(repo, 'add', '.');
+    git(repo, 'commit', '-qm', 'many');
+    const fails = many.map((f) => `echo " FAIL  ${f} > s"`).join('; ');
+    cmd = { ...cmd, args: ['-c', `echo run >> "${fullLog}"; ${fails}; exit 1`] };
+    const r = await run();
+    expect(r.exitCode).toBe(1);
+    expect(fullRuns()).toBe(1);
+    expect(r.entry.failedTestFiles).toHaveLength(MAX_FLAKE_RETRY_FILES + 1);
   });
 
   it('fail-then-fix: re-runs the failing file first, then the full suite, then clears', async () => {
@@ -375,7 +394,7 @@ describe('runToolCached — failed-first reruns and flake retries', () => {
     const r = await run();
     expect(r.failedFirst).toBeUndefined();
     expect(focusedCalls()).toEqual([]);
-    expect(fullRuns()).toBe(4); // two runs, each with its one full retry
+    expect(fullRuns()).toBe(2); // unnamed failing files: no flake retry
   });
 
   it('the result exposes `flaky`, `treeHash` and `cacheHit` for evidence atoms', async () => {

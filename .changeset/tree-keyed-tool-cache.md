@@ -14,13 +14,14 @@ byte-identical, so each concurrent agent re-ran the full suite.
   envFingerprint}`.
   - `treeHash` is the git tree of the working tree's source. The checkout's
     index is copied to a private temp file with its mtime preserved, so git's
-    racy-clean check still works. `git add -A` then stages tracked changes and
-    untracked, not-ignored files into the copy. `.cleo/` and common tool
-    output (`coverage/`, `.vitest/`, `*.log`, …) are reset to their HEAD
-    state, and `git write-tree` prints the tree. A clean checkout hashes to
-    `HEAD^{tree}`, and the real index is never touched.
-  - Untracked, not-ignored files now count. Otherwise a worker's uncommitted
-    new test would be served main's pass.
+    racy-clean check still works. `git add -u` stages every tracked change,
+    including tracked files under `.cleo/` or named `*.log`.
+  - Untracked, not-ignored files are then added with `update-index`, except
+    CLEO runtime state (`.cleo/`), common tool output (`coverage/`, `.vitest/`,
+    `*.log`, …) and files over 5 MB. `git write-tree` prints the tree. A clean
+    checkout hashes to `HEAD^{tree}`, and the real index is never touched.
+  - Untracked files count now. Otherwise a worker's uncommitted new test would
+    be served main's pass.
 - **Environment fingerprint (T12958).** For `test`, `build` and `typecheck`
   the key also covers state git cannot see: the installed-lockfile snapshot
   inside `node_modules`, the path and size of every file under each workspace
@@ -38,11 +39,17 @@ byte-identical, so each concurrent agent re-ran the full suite.
   releases without a result, the waiter runs the tool itself. The wait is
   bounded by `lockWaitMs`, which defaults to 3× the spawn deadline + 60 s;
   past it the caller gets `E_EVIDENCE_TOOL_BUSY`.
-- **Flake retry (T12961).** A failing `tool:test` re-runs the FULL recorded
-  command once, never a narrower focused run. If that rerun passes, the result
-  is a pass with `flaky: [files from the first run]` on the cache entry and on
-  the run result, next to `treeHash` and `cacheHit`, for evidence atoms to
-  carry. A second failure is red.
+- **Flake retry (T12961).** A failing `tool:test` that names at most 3
+  failing files re-runs the FULL recorded command once, never a narrower
+  focused run. A broken build or a mass failure gets no retry.
+  - If the rerun passes, the result is a pass with `flaky: [files from the
+    first run]` and the first run's failure tail (`flakyFailureTail`) on the
+    cache entry.
+  - The `tool` evidence atom carries `flaky`, `treeHash` and `cacheHit`.
+  - A flaky pass counts toward `testsPassed` but stays visible: `cleo verify`
+    and `cleo show --full` report the gate as `passed (flaky: <files>)` in
+    `gateNotes`.
+  - A second failure is red.
 - **Failed-first reruns (T12961).** A failing run stores its failing test
   files (`failedTestFiles`, parsed from vitest/jest `FAIL` lines). The next
   run on a changed tree first runs only those files, using the nearest

@@ -206,6 +206,13 @@ export interface ToolCacheEntry {
    */
   flaky?: string[];
   /**
+   * The tail of the first, failing run's output when the entry is a flaky
+   * pass — the audit trail of what failed before the rerun passed.
+   *
+   * @task T12961
+   */
+  flakyFailureTail?: string;
+  /**
    * `focused`: this record describes a failed-first run of only
    * {@link ToolCacheEntry.ranFiles}, not the recorded command. Such records
    * are returned to the caller but never persisted under the command's key.
@@ -410,6 +417,15 @@ export interface RunToolOptions {
 // ---------------------------------------------------------------------------
 // Wall-clock deadline resolution (T12105 / gh#1193)
 // ---------------------------------------------------------------------------
+
+/**
+ * Most failing test files a failed `test` run may name and still get its one
+ * full flake retry (T12961). More, or none named, is treated as a
+ * deterministic failure: no retry.
+ *
+ * @task T12961
+ */
+export const MAX_FLAKE_RETRY_FILES = 3;
 
 /**
  * Default wall-clock deadline for one evidence-tool child process, in ms.
@@ -1084,29 +1100,31 @@ export async function captureDirtyFingerprint(projectRoot: string): Promise<stri
 }
 
 /**
- * Paths {@link captureTreeHash} resets to their HEAD state after staging.
+ * Untracked paths {@link captureTreeHash} leaves out: CLEO's runtime state
+ * (`.cleo/`, written on every command) and the well-known untracked outputs
+ * of test and build tools that are not always gitignored. Neither a CLEO
+ * command nor the tool under test can therefore move the key it is stored
+ * under — the self-invalidation gh#1221 was about.
  *
- * All of `.cleo/` (CLEO writes untracked runtime files there on every
- * command) and the well-known untracked outputs of test and build tools that
- * are not always gitignored. Neither a CLEO command nor the tool under test
- * can therefore move the key it is stored under — the self-invalidation
- * gh#1221 was about.
- *
- * Applied with `git reset` rather than as `:(exclude)` pathspecs on
- * `git add -A`: `add` refuses (exit 1) when an exclude pathspec names a path
- * that is gitignored, which `.cleo/` usually is.
+ * Applies to UNTRACKED additions only. A tracked file under one of these
+ * paths (`.cleo/canon.yml`, a lint baseline, a tracked fixture `.log`) is
+ * source: its uncommitted edits always count.
  */
-const TREE_RESET_PATHSPEC: readonly string[] = [
-  '--',
-  ':(glob).cleo/**',
-  ':(glob)**/coverage/**',
-  ':(glob)**/.vitest/**',
-  ':(glob)**/.nyc_output/**',
-  ':(glob)**/.turbo/**',
-  ':(glob)**/test-results/**',
-  ':(glob)**/*.log',
-  ':(glob)**/*.tsbuildinfo',
-];
+function isUntrackedRuntimeOutput(path: string): boolean {
+  if (path.startsWith('.cleo/')) return true;
+  if (path.endsWith('.log') || path.endsWith('.tsbuildinfo')) return true;
+  return path
+    .split('/')
+    .some((seg) => ['coverage', '.vitest', '.nyc_output', '.turbo', 'test-results'].includes(seg));
+}
+
+/**
+ * Untracked files larger than this are left out of {@link captureTreeHash}
+ * rather than hashed into the object database on every call. Such files are
+ * rarely source; a change to one does not move the key (force a run with
+ * `CLEO_EVIDENCE_FRESH=1`).
+ */
+export const MAX_UNTRACKED_HASH_BYTES = 5 * 1024 * 1024;
 
 /**
  * Capture the git tree hash of the working tree's SOURCE content: HEAD's tree
@@ -1119,17 +1137,18 @@ const TREE_RESET_PATHSPEC: readonly string[] = [
  *
  * 1. Copy the checkout's own index to a private temporary file, preserving
  *    its atime/mtime. The copy keeps the index's stat cache, so git re-hashes
- *    only files whose stat changed — ~90 ms on this ~10k-file monorepo. The
- *    preserved mtime matters: git's racy-clean check compares each entry's
- *    mtime with the INDEX FILE's mtime, and a fresh mtime on the copy would
- *    let a same-size edit made in the same timestamp tick as the last index
- *    write read as clean. The real index is never touched.
- * 2. `GIT_INDEX_FILE=<copy> git add -A -- .` stages every modified, deleted
- *    and new path into the copy. `-A` honours `.gitignore`, so
- *    `node_modules/`, `dist/` and other ignored output stay out. Then
- *    `git reset -- <TREE_RESET_PATHSPEC>` puts CLEO state and tool output
- *    back to their HEAD state.
- * 3. `GIT_INDEX_FILE=<copy> git write-tree` prints the tree.
+ *    only files whose stat changed. The preserved mtime matters: git's
+ *    racy-clean check compares each entry's mtime with the INDEX FILE's
+ *    mtime, and a fresh mtime on the copy would let a same-size edit made in
+ *    the same timestamp tick as the last index write read as clean. The real
+ *    index is never touched.
+ * 2. `GIT_INDEX_FILE=<copy> git add -u -- .` stages every modified or deleted
+ *    TRACKED path — all of them, including tracked files under `.cleo/`.
+ * 3. `git ls-files -o --exclude-standard -z` lists untracked, not-ignored
+ *    files; those that are not runtime output ({@link isUntrackedRuntimeOutput})
+ *    and not over {@link MAX_UNTRACKED_HASH_BYTES} are added with
+ *    `git update-index --add -z --stdin`.
+ * 4. `GIT_INDEX_FILE=<copy> git write-tree` prints the tree.
  *
  * A clean checkout yields exactly `HEAD^{tree}`. Two worktrees with the same
  * source yield the same hash wherever they live, and an empty commit, an
@@ -1142,16 +1161,11 @@ const TREE_RESET_PATHSPEC: readonly string[] = [
  * while the key also carried the execution root; once the key is shared
  * across worktrees it is a false pass: a worker's new, uncommitted module and
  * failing test leave the tracked tree equal to main's, and main's cached pass
- * would be served without the worker's tests ever running. The gh#1221
- * self-invalidation hazard is handled by {@link TREE_RESET_PATHSPEC} instead.
+ * would be served without the worker's tests ever running.
  *
- * Rejected alternatives: `git stash create` prints nothing for a clean tree
- * and writes a commit per call; `HEAD^{tree}` + {@link captureDirtyFingerprint}
- * would split one content across commits.
- *
- * Side effect: `git add -A` writes blob objects for dirty and new files into
- * the repository's object database. Tree objects are written by `write-tree`.
- * Both are ordinary unreferenced loose objects: `git gc` prunes them after
+ * Side effect: staging writes blob objects for dirty and new files into the
+ * repository's object database, and `write-tree` writes tree objects. Both
+ * are ordinary unreferenced loose objects: `git gc` prunes them after
  * `gc.pruneExpire` (two weeks by default), so `git ls-tree <treeHash>` as an
  * audit of an old entry is best-effort.
  *
@@ -1170,26 +1184,41 @@ export async function captureTreeHash(root: string): Promise<string | null> {
   let tmpDir: string | null = null;
   try {
     tmpDir = mkdtempSync(join(tmpdir(), 'cleo-tree-'));
-    const env = { GIT_INDEX_FILE: join(tmpDir, 'index') };
+    const indexFile = join(tmpDir, 'index');
+    const env = { GIT_INDEX_FILE: indexFile };
     if (existsSync(realIndex)) {
-      copyFileSync(realIndex, env.GIT_INDEX_FILE);
+      copyFileSync(realIndex, indexFile);
       const st = statSync(realIndex);
-      utimesSync(env.GIT_INDEX_FILE, st.atime, st.mtime);
+      utimesSync(indexFile, st.atime, st.mtime);
     } else {
       // No index yet: seed from HEAD. An unborn HEAD leaves the index empty,
       // which is correct — nothing is tracked.
       await spawnCmd('git', ['read-tree', 'HEAD'], root, undefined, env);
     }
-    const added = await spawnCmd('git', ['add', '-A', '--', '.'], root, undefined, env);
-    if (added.exitCode !== 0) return null;
-    const reset = await spawnCmd(
-      'git',
-      ['reset', '-q', ...TREE_RESET_PATHSPEC],
-      root,
-      undefined,
-      env,
-    );
-    if (reset.exitCode !== 0) return null;
+    const tracked = await spawnCmd('git', ['add', '-u', '--', '.'], root, undefined, env);
+    if (tracked.exitCode !== 0) return null;
+
+    const listed = execFileSync('git', ['ls-files', '-o', '--exclude-standard', '-z', '--', '.'], {
+      cwd: root,
+      encoding: 'utf-8',
+      maxBuffer: 256 * 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      env: { ...process.env, ...env },
+    });
+    const untracked = listed.split('\0').filter((p) => {
+      if (p === '' || isUntrackedRuntimeOutput(p)) return false;
+      const st = statSync(join(root, p), { throwIfNoEntry: false });
+      return st?.isFile() === true && st.size <= MAX_UNTRACKED_HASH_BYTES;
+    });
+    if (untracked.length > 0) {
+      execFileSync('git', ['update-index', '--add', '-z', '--stdin'], {
+        cwd: root,
+        input: `${untracked.join('\0')}\0`,
+        stdio: ['pipe', 'ignore', 'ignore'],
+        env: { ...process.env, ...env },
+      });
+    }
+
     const tree = await spawnCmd('git', ['write-tree'], root, undefined, env);
     if (tree.exitCode !== 0) return null;
     return tree.stdout.trim() || null;
@@ -1264,10 +1293,11 @@ export function readCacheEntry(projectRoot: string, key: string): ToolCacheEntry
   }
 }
 
-let legacySwept = false;
+const legacySwept = new Set<string>();
 
 /**
- * Delete tool-cache entries written under an older schema, once per process.
+ * Delete tool-cache entries written under an older schema, once per process
+ * and store root.
  *
  * Their keys can never be computed again (the identity changed with the
  * schema), so nothing would ever read or overwrite them. Only files named
@@ -1277,8 +1307,8 @@ let legacySwept = false;
  * @task T12958
  */
 function sweepLegacyEntriesOnce(projectRoot: string): void {
-  if (legacySwept) return;
-  legacySwept = true;
+  if (legacySwept.has(projectRoot)) return;
+  legacySwept.add(projectRoot);
   const dir = join(projectRoot, '.cleo', 'cache', 'evidence');
   let names: string[];
   try {
@@ -1288,12 +1318,17 @@ function sweepLegacyEntriesOnce(projectRoot: string): void {
   }
   for (const name of names) {
     if (!/^[0-9a-f]{32}\.json$/.test(name)) continue;
+    // A sibling lock means a process may be working on this key right now.
+    if (existsSync(join(dir, `${name}.lock`))) continue;
     try {
       const parsed = JSON.parse(readFileSync(join(dir, name), 'utf-8')) as {
         schemaVersion?: number;
+        pending?: boolean;
       };
-      if (parsed.schemaVersion !== TOOL_CACHE_SCHEMA_VERSION)
+      if (parsed.pending === true) continue;
+      if (parsed.schemaVersion !== TOOL_CACHE_SCHEMA_VERSION) {
         rmSync(join(dir, name), { force: true });
+      }
     } catch {
       // unreadable or mid-write: leave it
     }
@@ -1457,7 +1492,13 @@ export async function runToolCached(
       Partial<
         Pick<
           ToolCacheEntry,
-          'signal' | 'failedTestFiles' | 'failedFirst' | 'flaky' | 'scope' | 'ranFiles'
+          | 'signal'
+          | 'failedTestFiles'
+          | 'failedFirst'
+          | 'flaky'
+          | 'flakyFailureTail'
+          | 'scope'
+          | 'ranFiles'
         >
       >,
   ): ToolCacheEntry => ({
@@ -1723,6 +1764,7 @@ export async function runToolCached(
     let { result, durationMs } = first;
     let failedTestFiles: string[] | undefined;
     let flaky: string[] | undefined;
+    let flakyFailureTail: string | undefined;
     if (failedFirstEnabled && result.exitCode !== null) {
       let files =
         result.exitCode === 0
@@ -1733,13 +1775,19 @@ export async function runToolCached(
       // which cannot see a `pnpm -r` bail, a coverage threshold, a non-vitest
       // step or a failure that only happens in the suite's context. A pass
       // on that identical rerun is a pass marked `flaky` with the first
-      // run's failing files; a second failure is red. A rerun that times out
-      // or cannot start decides nothing, and the first failure stands.
-      if (result.exitCode !== 0) {
+      // run's failing files and failure tail; a second failure is red. A
+      // rerun that times out or cannot start decides nothing, and the first
+      // failure stands.
+      //
+      // Only a NARROW failure is retried: the failing files must be named and
+      // number at most MAX_FLAKE_RETRY_FILES. A broken build or a mass
+      // failure is deterministic, and doubling its cost buys nothing.
+      if (result.exitCode !== 0 && files.length > 0 && files.length <= MAX_FLAKE_RETRY_FILES) {
         const retry = await spawnNormal();
         if (!retry.result.timedOut && harnessOf(retry.result) === null) {
           if (retry.result.exitCode === 0) {
-            flaky = files;
+            flaky = files.length > 0 ? files : ['<unknown>'];
+            flakyFailureTail = tailString(`${result.stdout}\n${result.stderr}`, tailBytes);
             files = [];
             result = retry.result;
             durationMs += retry.durationMs;
@@ -1770,7 +1818,7 @@ export async function runToolCached(
       durationMs,
       ...(failedTestFiles ? { failedTestFiles } : {}),
       ...(failedFirst ? { failedFirst } : {}),
-      ...(flaky && result.exitCode === 0 ? { flaky } : {}),
+      ...(flaky && result.exitCode === 0 ? { flaky, flakyFailureTail } : {}),
     });
 
     // Persist only a usable entry. `isEntryUsable` is the SAME predicate

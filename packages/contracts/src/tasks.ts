@@ -276,6 +276,12 @@ export interface TaskView {
    */
   gatesStatus: TaskViewGatesStatus;
   /**
+   * Notes on passed gates, e.g. `{ testsPassed: 'passed (flaky: <files>)' }`
+   * when the gate's tool run passed only on its one full rerun (T12961).
+   * Absent when there is nothing to note.
+   */
+  gateNotes?: Partial<Record<string, string>>;
+  /**
    * Whether the task is ready to be marked complete.
    * True when: required gates all green AND no unresolved blocking deps AND
    * status is not already a terminal value.

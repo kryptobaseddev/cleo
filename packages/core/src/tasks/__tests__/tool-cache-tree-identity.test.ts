@@ -55,6 +55,7 @@ import {
   captureTreeHash,
   computeCacheKey,
   isEntryUsable,
+  MAX_UNTRACKED_HASH_BYTES,
   readCacheEntry,
   runToolCached,
   TOOL_RUN_IDENTITY_FIELDS,
@@ -159,6 +160,26 @@ describe('captureTreeHash', () => {
     mkdirSync(join(dir, 'coverage'));
     writeFileSync(join(dir, 'coverage', 'lcov.info'), 'x');
     writeFileSync(join(dir, 'vitest.log'), 'x');
+    expect(await captureTreeHash(dir)).toBe(clean);
+  });
+
+  it('COUNTS an uncommitted edit to a TRACKED file under .cleo/ or named *.log (review of #1774)', async () => {
+    mkdirSync(join(dir, '.cleo'));
+    writeFileSync(join(dir, '.cleo', 'canon.yml'), 'kinds: []\n');
+    writeFileSync(join(dir, 'fixture.log'), 'expected output\n');
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-qm', 'tracked runtime-looking files');
+    const clean = await captureTreeHash(dir);
+    writeFileSync(join(dir, '.cleo', 'canon.yml'), 'kinds: [adr]\n');
+    const cleoEdit = await captureTreeHash(dir);
+    expect(cleoEdit).not.toBe(clean);
+    writeFileSync(join(dir, 'fixture.log'), 'changed output\n');
+    expect(await captureTreeHash(dir)).not.toBe(cleoEdit);
+  });
+
+  it(`leaves out untracked files over ${MAX_UNTRACKED_HASH_BYTES} bytes (documented)`, async () => {
+    const clean = await captureTreeHash(dir);
+    writeFileSync(join(dir, 'big.bin'), Buffer.alloc(MAX_UNTRACKED_HASH_BYTES + 1));
     expect(await captureTreeHash(dir)).toBe(clean);
   });
 
@@ -565,5 +586,34 @@ describe('the identity list is the single source of truth', () => {
 
   it('head and executionRoot are NOT identity: a null head is still usable', () => {
     expect(isEntryUsable({ ...complete, head: null })).toBe(true);
+  });
+});
+
+describe('T12958 — legacy entries are swept once per store root', () => {
+  let repo: string;
+  beforeEach(() => {
+    repo = mkdtempSync(join(tmpdir(), 'tree-sweep-'));
+    initRepo(repo);
+  });
+  afterEach(() => rmSync(repo, { recursive: true, force: true }));
+
+  it('deletes a schema-2 entry but leaves pending and locked ones', async () => {
+    const dir = join(repo, '.cleo', 'cache', 'evidence');
+    mkdirSync(dir, { recursive: true });
+    const old = `${'a'.repeat(32)}.json`;
+    const pending = `${'b'.repeat(32)}.json`;
+    const locked = `${'c'.repeat(32)}.json`;
+    writeFileSync(join(dir, old), JSON.stringify({ schemaVersion: 2, key: 'a'.repeat(32) }));
+    writeFileSync(join(dir, pending), JSON.stringify({ schemaVersion: 2, pending: true }));
+    writeFileSync(join(dir, locked), JSON.stringify({ schemaVersion: 2, key: 'c'.repeat(32) }));
+    mkdirSync(join(dir, `${locked}.lock`));
+    writeFileSync(join(dir, 'pr-12.json'), JSON.stringify({ schemaVersion: 2 }));
+
+    await runToolCached(shCommand('exit 0'), repo, { skipGlobalSemaphore: true });
+
+    expect(existsSync(join(dir, old))).toBe(false);
+    expect(existsSync(join(dir, pending))).toBe(true);
+    expect(existsSync(join(dir, locked))).toBe(true);
+    expect(existsSync(join(dir, 'pr-12.json'))).toBe(true);
   });
 });
