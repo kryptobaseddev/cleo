@@ -1,5 +1,15 @@
 # Changelog
 
+## [2026.10.1] (2026-10-01)
+
+### Added
+
+- cleo logout nexus signs this machine's device out (E9) and --revoke revokes it (E10); neither reports success until the server confirms, and unsettled requests are retried by the next logout, login or cloud command _(provenance: [T12870](https://github.com/kryptobaseddev/cleo/search?q=T12870&type=commits), [T12844](https://github.com/kryptobaseddev/cleo/search?q=T12844&type=commits))_
+- cleo cloud status, whoami, devices and projects [show] read Cleo Nexus with the device credential, follow every page, report truncation, and send only GET requests; the §4.0.4 error table now lives in @cleocode/contracts _(provenance: [T12871](https://github.com/kryptobaseddev/cleo/search?q=T12871&type=commits))_
+- the 9.24 auto-upgrade maps E1 401 session-used to E_NEXUS_SESSION_EXPIRED and re-reads nexus-device.json first, reporting already-enrolled when a concurrent upgrade stored the credential; a staging-only CLEO_NEXUS_TEST_BEARER lets cleo login nexus enrol without a browser _(provenance: [T12902](https://github.com/kryptobaseddev/cleo/search?q=T12902&type=commits), [T12903](https://github.com/kryptobaseddev/cleo/search?q=T12903&type=commits))_
+- cleo login nexus enrols this machine as a device by default; CLEO_NEXUS_DEVICE=0 keeps the 9.24 session login. cleo status, cleo auth list and the setup wizard report device logins. _(provenance: [T12904](https://github.com/kryptobaseddev/cleo/search?q=T12904&type=commits))_
+- with a device credential, cleo project link now attaches this machine's copy of the project and reports its presence, so cleocode.dev shows the device holding the project _(provenance: [T12905](https://github.com/kryptobaseddev/cleo/search?q=T12905&type=commits))_
+
 ## [2026.9.26] (2026-09-30)
 
 ### Added
