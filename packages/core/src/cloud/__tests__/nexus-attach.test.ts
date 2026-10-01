@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { anySyncFlagOn } from '../../store/sync/flags.js';
 import { activeReplica, ensureProjectReplica } from '../../store/sync/replica.js';
 import { ReplicaRegistry } from '../../store/sync/replica-registry.js';
+import { classifyTable } from '../../store/table-classification.js';
 import type { FetchLike } from '../http.js';
 import { attachProjectReplica, type ProjectReplicaBinder } from '../nexus-attach.js';
 import { NexusAccountError } from '../nexus-auth.js';
@@ -281,7 +282,7 @@ describe('presence and binding hold their guarantees (review M3)', () => {
     }
   });
 
-  it('binding adds only the three local _sync tables and no trigger', () => {
+  it('binding adds only local-only _sync tables and no trigger', () => {
     const dbPath = join(dir, 'cleo.db');
     const db = new DatabaseSync(dbPath);
     try {
@@ -296,11 +297,18 @@ describe('presence and binding hold their guarantees (review M3)', () => {
         )
         .all() as Array<{ type: string; name: string }>;
       expect(objects.filter((o) => o.type === 'trigger')).toEqual([]);
-      expect(objects.filter((o) => o.type === 'table').map((o) => o.name)).toEqual([
+      const tables = objects.filter((o) => o.type === 'table').map((o) => o.name);
+      // The bookkeeping tables plus S2's capture outbox (T12343): all empty,
+      // all this-device-only; capture triggers come only with a sync.* flag.
+      expect(tables).toEqual([
+        '_sync_capture',
         '_sync_clock',
+        '_sync_frame',
         '_sync_meta',
         '_sync_replica',
+        '_sync_undo',
       ]);
+      for (const name of tables) expect(classifyTable('project', name).class).toBe('local-only');
     } finally {
       db.close();
     }
