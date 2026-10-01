@@ -8,8 +8,12 @@
  *   restored, which decides "behind" (another device pushed since) and
  *   "pending changes" (this store changed since).
  *
- * Writes are atomic (temp file + rename). Nothing here is secret: keys and
- * tokens stay in the sealed device store.
+ * Every read-modify-write runs under a lock file and writes atomically (temp
+ * file + rename). A file this version cannot read (truncated, invalid, or
+ * written by a newer CLEO) is moved aside with a warning, never reset in
+ * place, so a downgrade or a torn write cannot silently discard the signer
+ * pins. Nothing here is secret: keys and tokens stay in the sealed device
+ * store.
  *
  * @task T12336
  * @epic T12322
@@ -17,7 +21,9 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import type { CloudWarning } from '@cleocode/contracts';
 import { resolveNexusVaultStatePath } from '@cleocode/paths';
+import lockfile from 'proper-lockfile';
 import { z } from 'zod';
 import { initialTrustState, type TrustState } from './keys.js';
 
@@ -43,7 +49,6 @@ const streamStateSchema = z.looseObject({
 
 const accountStateSchema = z.looseObject({
   trust: trustStateSchema,
-  /** This machine's replica id on the account's `home:` stream. */
   streams: z.record(z.string(), streamStateSchema).default({}),
 });
 
@@ -64,36 +69,125 @@ const accountKey = (apiUrl: string, userId: string) => `${apiUrl} ${userId}`;
 export const vaultStreamKey = (streamId: string, storeRoot: string) =>
   `${streamId}|${path.resolve(storeRoot)}`;
 
+/** How long a state access waits for another process's lock. */
+const LOCK_WAIT_MS = 15_000;
+
+/** Age after which a lock whose holder stopped refreshing it may be taken over. */
+const LOCK_STALE_MS = 10_000;
+
+/** Warning code: the state file was unreadable or newer, and was moved aside. */
+export const W_NEXUS_VAULT_STATE_MOVED = 'W_NEXUS_VAULT_STATE_MOVED';
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
 /**
  * Read/modify/write access to the vault state file.
  */
 export class NexusVaultState {
   /** Absolute path of the state file. */
   readonly path: string;
+  private warnings: CloudWarning[] = [];
 
   /** @param filePath - Override for tests; defaults to {@link resolveNexusVaultStatePath}. */
   constructor(filePath?: string) {
     this.path = filePath ?? resolveNexusVaultStatePath();
   }
 
+  /** Warnings raised since the last call (a moved-aside file), for the command's result. */
+  drainWarnings(): CloudWarning[] {
+    const out = this.warnings;
+    this.warnings = [];
+    return out;
+  }
+
+  /** Run `fn` holding the state file's lock. */
+  private locked<T>(fn: () => T): T {
+    fs.mkdirSync(path.dirname(this.path), { recursive: true });
+    const deadline = Date.now() + LOCK_WAIT_MS;
+    let release: () => void;
+    for (;;) {
+      try {
+        release = lockfile.lockSync(this.path, { realpath: false, stale: LOCK_STALE_MS });
+        break;
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code !== 'ELOCKED' || Date.now() > deadline) {
+          throw new Error(
+            `cannot lock the cloud vault state ${this.path}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+        sleepSync(25);
+      }
+    }
+    try {
+      return fn();
+    } finally {
+      release();
+    }
+  }
+
+  /** Move an unusable file aside (never overwrite it) and start empty. */
+  private moveAside(why: 'unreadable' | 'newer'): VaultStateFile {
+    const aside = `${this.path}.${why}-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+    fs.renameSync(this.path, aside);
+    this.warnings.push({
+      code: W_NEXUS_VAULT_STATE_MOVED,
+      message:
+        why === 'newer'
+          ? `the cloud vault state was written by a newer CLEO; it was moved to ${aside} and this machine starts with empty vault state (re-run with the newer CLEO, or restore that file after upgrading)`
+          : `the cloud vault state could not be read; it was moved to ${aside} and this machine starts with empty vault state (signer trust is re-learned on the next command; the next push or pull resyncs)`,
+    });
+    return { version: 1, accounts: {} };
+  }
+
   private read(): VaultStateFile {
     let raw: string;
     try {
       raw = fs.readFileSync(this.path, 'utf8');
-    } catch {
-      return { version: 1, accounts: {} };
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { version: 1, accounts: {} };
+      throw err;
     }
-    const parsed = stateSchema.safeParse(JSON.parse(raw));
-    // An unreadable or newer file is never overwritten silently with less: start
-    // from empty only when it is not ours to keep (a parse failure of v1 data).
-    return parsed.success ? parsed.data : { version: 1, accounts: {} };
+    let json: unknown;
+    try {
+      json = JSON.parse(raw);
+    } catch {
+      return this.moveAside('unreadable');
+    }
+    const version =
+      json !== null && typeof json === 'object' ? (json as { version?: unknown }).version : null;
+    if (typeof version === 'number' && version > 1) return this.moveAside('newer');
+    const parsed = stateSchema.safeParse(json);
+    return parsed.success ? parsed.data : this.moveAside('unreadable');
   }
 
   private write(state: VaultStateFile): void {
-    fs.mkdirSync(path.dirname(this.path), { recursive: true });
     const tmp = `${this.path}.${process.pid}.${Date.now()}.tmp`;
-    fs.writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+    const fd = fs.openSync(tmp, 'w', 0o600);
+    try {
+      fs.writeSync(fd, `${JSON.stringify(state, null, 2)}\n`);
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
     fs.renameSync(tmp, this.path);
+  }
+
+  /** Read, let `fn` change the state, and write it back, all under the lock. */
+  private update<T>(fn: (state: VaultStateFile) => T): T {
+    return this.locked(() => {
+      const state = this.read();
+      const out = fn(state);
+      this.write(state);
+      return out;
+    });
+  }
+
+  /** Read under the lock (moving an unusable file aside). */
+  private snapshot(): VaultStateFile {
+    return this.locked(() => this.read());
   }
 
   private account(state: VaultStateFile, apiUrl: string, userId: string) {
@@ -104,15 +198,15 @@ export class NexusVaultState {
 
   /** The account's persisted signer trust state. */
   trust(apiUrl: string, userId: string): TrustState {
-    const s = this.read();
+    const s = this.snapshot();
     return structuredClone(this.account(s, apiUrl, userId).trust);
   }
 
   /** Persist the trust state returned by `certifiedSigners`. */
   saveTrust(apiUrl: string, userId: string, trust: TrustState): void {
-    const s = this.read();
-    this.account(s, apiUrl, userId).trust = structuredClone(trust);
-    this.write(s);
+    this.update((s) => {
+      this.account(s, apiUrl, userId).trust = structuredClone(trust);
+    });
   }
 
   /** What `storeRoot` last synced with on `streamId`, or `null`. */
@@ -122,7 +216,7 @@ export class NexusVaultState {
     streamId: string,
     storeRoot: string,
   ): VaultStreamState | null {
-    const s = this.read();
+    const s = this.snapshot();
     return this.account(s, apiUrl, userId).streams[vaultStreamKey(streamId, storeRoot)] ?? null;
   }
 
@@ -134,11 +228,11 @@ export class NexusVaultState {
     storeRoot: string,
     value: { lastCheckpointId: string; lastCoversSeq: number },
   ): void {
-    const s = this.read();
-    this.account(s, apiUrl, userId).streams[vaultStreamKey(streamId, storeRoot)] = {
-      ...value,
-      updatedAt: new Date().toISOString(),
-    };
-    this.write(s);
+    this.update((s) => {
+      this.account(s, apiUrl, userId).streams[vaultStreamKey(streamId, storeRoot)] = {
+        ...value,
+        updatedAt: new Date().toISOString(),
+      };
+    });
   }
 }
