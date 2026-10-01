@@ -32,6 +32,7 @@ import {
   failNexus,
   NEXUS_API_URL_ARG,
   nexusApiUrlArg,
+  writeNexusWarnings,
 } from '../lib/nexus-account-cli.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
@@ -354,7 +355,7 @@ const linkSubCommand = defineCommand({
       ? ` This machine (device ${replica.deviceId}) holds it as replica ${replica.replicaId}${replica.reboundFrom ? ` (rebound from ${replica.reboundFrom})` : ''}${replica.presenceAt ? '; presence reported' : ''}.`
       : '';
     const summary = `${verb}: project ${link.localProjectId} as "${link.label ?? ''}" on ${link.apiUrl}.${attached}`;
-    for (const warning of result.warnings) process.stderr.write(`warning: ${warning}\n`);
+    writeNexusWarnings(result.warnings);
     emitNexusResult(result, summary, 'project', 'project.link');
   },
 });
