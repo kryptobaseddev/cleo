@@ -828,7 +828,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'logoutCommand',
     name: 'logout',
     description:
-      'Sign out. cleo logout [nexus] revokes the Cleo Nexus session server-side and deletes the stored token; cleo logout <provider> [label] removes an LLM credential exactly like cleo auth remove (the label may be omitted when the provider has one credential).',
+      'Sign out. cleo logout [nexus] signs this machine out of Cleo Nexus (the device keeps its id for the next login; --revoke burns it), confirmed by the server; cleo logout <provider> [label] removes an LLM credential exactly like cleo auth remove (the label may be omitted when the provider has one credential).',
     load: async () => (await import('../commands/logout.js')).logoutCommand as CommandDef,
   },
   {
