@@ -10,7 +10,13 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { commandTarget, isPausable, looksHeavy, resolveRunClass } from '../run-class.js';
+import {
+  commandTarget,
+  isPausable,
+  isWatchCommand,
+  looksHeavy,
+  resolveRunClass,
+} from '../run-class.js';
 
 let dir: string;
 beforeEach(() => {
@@ -277,5 +283,56 @@ describe('round 5 (N5): classifier regressions', () => {
     expect(commandTarget(['pnpm', 'dlx', '-p', 'typescript', 'tsc', '-b']).tool).toBe('tsc');
     expect(commandTarget(['pnpm', 'dlx', '--package', 'typescript', 'tsc']).tool).toBe('tsc');
     expect(looksHeavy(['pnpm', 'dlx', '-p', 'typescript', 'tsc', '-b'])).toBe(true);
+  });
+});
+
+describe('round 6 (R6-3): turbo value flags, --ui per tool, admin subcommands', () => {
+  it('turbo --ui and --global-deps take a value: the run stays heavy and keeps its class', () => {
+    expect(looksHeavy(['turbo', 'run', 'build', '--ui', 'stream'])).toBe(true);
+    expect(resolveRunClass(undefined, ['turbo', 'run', 'build', '--ui', 'stream'], dir)).toBe(
+      'full-build',
+    );
+    expect(resolveRunClass(undefined, ['turbo', 'run', 'test', '--ui', 'stream'], dir)).toBe(
+      'test-run',
+    );
+    expect(resolveRunClass(undefined, ['turbo', 'run', 'test', '--global-deps', 'x'], dir)).toBe(
+      'test-run',
+    );
+    expect(looksHeavy(['turbo', 'run', 'build', '--ui=stream'])).toBe(true);
+  });
+
+  it('--ui is a watcher only for vitest and playwright', () => {
+    expect(isWatchCommand(['vitest', '--ui'])).toBe(true);
+    expect(isWatchCommand(['npx', 'playwright', 'test', '--ui'])).toBe(true);
+    expect(isWatchCommand(['turbo', 'run', 'test', '--ui', 'tui'])).toBe(false);
+  });
+
+  it('turbo watch and nx watch are watchers; admin subcommands are not heavy', () => {
+    expect(isWatchCommand(['turbo', 'watch', 'build'])).toBe(true);
+    expect(isWatchCommand(['nx', 'watch', '--all', '--', 'echo'])).toBe(true);
+    for (const argv of [
+      ['turbo', 'login'],
+      ['turbo', 'prune', 'web'],
+      ['nx', 'graph'],
+      ['nx', 'show', 'projects'],
+      ['nx', 'reset'],
+    ]) {
+      expect(looksHeavy(argv), argv.join(' ')).toBe(false);
+    }
+    expect(looksHeavy(['turbo', 'run', 'build'])).toBe(true);
+    expect(looksHeavy(['nx', 'build', 'web'])).toBe(true);
+  });
+
+  it('isWatchCommand matches every watcher looksHeavy rejects', () => {
+    for (const argv of [
+      ['pnpm', 'dev'],
+      ['turbo', 'run', 'dev'],
+      ['nx', 'run', 'app:serve'],
+      ['tsc', '-w'],
+      ['vite'],
+    ]) {
+      expect(isWatchCommand(argv), argv.join(' ')).toBe(true);
+    }
+    expect(isWatchCommand(['pnpm', 'build:dev'])).toBe(false);
   });
 });

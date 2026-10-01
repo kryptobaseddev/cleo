@@ -54,6 +54,7 @@ export {
   canonicalForClass,
   commandTarget,
   isPausable,
+  isWatchCommand,
   looksHeavy,
   RUN_CLASS_ALIASES,
   resolveRunClass,
@@ -240,7 +241,10 @@ export function removeRunJob(id: string, dir: string = runJobsDir()): void {
 export interface RegistryProbes {
   readonly alive: (pid: number) => boolean;
   readonly start: ProcessStartFn;
+  /** Signal a process group (a detached job's child leads its own). */
   readonly signal: (pid: number, signal: NodeJS.Signals) => boolean;
+  /** Signal one process (a nested job's child, which leads no group). */
+  readonly signalPid: (pid: number, signal: NodeJS.Signals) => boolean;
   readonly now: () => number;
 }
 
@@ -248,6 +252,7 @@ const DEFAULT_PROBES: RegistryProbes = {
   alive: pidAlive,
   start: processStart,
   signal: signalGroup,
+  signalPid,
   now: Date.now,
 };
 
@@ -290,13 +295,19 @@ function heartbeatStale(at: number, now: number): boolean {
  */
 function recoverOrphan(job: RunJob, probes: RegistryProbes): 'done' | 'retry' {
   if (!isSignalablePid(job.childPid) || job.childStart === null) return 'done';
+  // A nested job's child leads no group: signal the process itself, and only
+  // while it is provably the same process (T13001).
+  const nested = typeof job.parentJob === 'string';
   if (probes.alive(job.childPid)) {
     const start = probes.start(job.childPid);
     if (start === null) return 'retry';
     if (start !== job.childStart) return 'done';
+  } else if (nested) {
+    return 'done';
   }
-  probes.signal(job.childPid, 'SIGCONT');
-  probes.signal(job.childPid, 'SIGTERM');
+  const signal = nested ? probes.signalPid : probes.signal;
+  signal(job.childPid, 'SIGCONT');
+  signal(job.childPid, 'SIGTERM');
   return 'done';
 }
 
@@ -560,8 +571,18 @@ export function listVerifyHolders(
 // Pause policy
 // ---------------------------------------------------------------------------
 
-/** A paused job resumes after this long even under pressure (no starvation). */
-export const MAX_PAUSE_MS = 15 * 60_000;
+/**
+ * A paused job resumes after this long even under pressure (no starvation).
+ *
+ * Kept below the slot-lock steal threshold: a pause freezes every process in
+ * the job's group, including any slot holder nested in it (a `cleo run`
+ * runner, or an in-process governor grant such as exodus-on-open or verify),
+ * whose lock then stops refreshing. A lock refreshes every
+ * `SLOT_LOCK_UPDATE_MS` (15 s) and is stolen once older than
+ * `SLOT_LOCK_STALE_MS` (10 min), so a holder frozen for less than 9 min 45 s
+ * keeps its slot (#1777 round 6, R6-1).
+ */
+export const MAX_PAUSE_MS = 9 * 60_000;
 
 /** After a cap resume, the job runs at least this long before it can pause again. */
 export const CAP_RUN_WINDOW_MS = 5 * 60_000;

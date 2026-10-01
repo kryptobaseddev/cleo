@@ -209,7 +209,7 @@ function defaultDeps(): RunGovernedDeps {
 
 /** Registry probes bound to the injected clock, start-time probe and signaller. */
 function probesOf(d: RunGovernedDeps) {
-  return { now: d.now, start: d.start, signal: d.signal };
+  return { now: d.now, start: d.start, signal: d.signal, signalPid: d.signalPid };
 }
 
 async function deferral(

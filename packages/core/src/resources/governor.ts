@@ -230,7 +230,14 @@ function ensureSlotFiles(dir: string, count: number): string[] {
   return paths;
 }
 
-const STALE_MS = 600_000;
+/** A slot lock older than this may be stolen (its holder presumed dead). */
+export const SLOT_LOCK_STALE_MS = 600_000;
+/**
+ * How often a holder refreshes its slot lock. Short, so a holder frozen by a
+ * job pause keeps its slot for nearly the whole stale window (#1777 round 6).
+ */
+export const SLOT_LOCK_UPDATE_MS = 15_000;
+const STALE_MS = SLOT_LOCK_STALE_MS;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -350,6 +357,7 @@ export class ResourceGovernor {
           const release = await lockfile.lock(path, {
             retries: 0,
             stale: STALE_MS,
+            update: SLOT_LOCK_UPDATE_MS,
             realpath: false,
             // A long grant (cleo run) can outlive a lid-closed sleep; another
             // process may then reclaim the "stale" slot. proper-lockfile's

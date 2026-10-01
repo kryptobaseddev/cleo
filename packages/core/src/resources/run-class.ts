@@ -49,8 +49,10 @@ const HEAVY_SCRIPTS = /^(test|t|build|typecheck|lint|check|install|i|ci)(:|$)/;
 const LEADING_WATCH_WORD = /^(dev|start|preview)$/;
 /** Watch/serve words that count in any segment (`test:watch`, `docs:serve`). */
 const ANY_WATCH_WORD = /^(watch|serve)$/;
-/** Watch-mode flags (`-w` is handled per tool: it is maxWorkers for jest). */
-const WATCH_FLAGS = new Set(['--watch', '--watchAll', '--ui']);
+/** Watch-mode flags (`-w` is per tool: maxWorkers for jest; `--ui` per tool: a value for turbo). */
+const WATCH_FLAGS = new Set(['--watch', '--watchAll']);
+/** Tools whose `--ui` opens a long-lived UI server. */
+const UI_SERVES = /^(vitest|playwright)$/;
 /** Subcommands that serve or watch (only as the first positional word). */
 const WATCH_SUBCOMMANDS = new Set(['watch', 'dev', 'serve', 'start', 'preview']);
 const INFO_FLAGS = new Set(['--version', '--help', '-h']);
@@ -71,15 +73,70 @@ const TURBO_VALUE_FLAGS = new Set([
   '--filter',
   '-F',
   '--concurrency',
+  '--cache',
   '--cache-dir',
+  '--cache-workers',
   '--output-logs',
   '--log-order',
   '--log-prefix',
   '--env-mode',
+  '--global-deps',
+  '--ui',
   '--cwd',
   '--team',
   '--token',
+  '--api',
+  '--login',
+  '--heap',
+  '--trace',
+  '--cpuprofile',
   '--profile',
+  '--anon-profile',
+  '--remote-cache-timeout',
+  '--pkg-inference-root',
+  '--root-turbo-json',
+]);
+/** turbo subcommands that run no task (`turbo login`, `turbo prune`). `turbo watch` watches. */
+const TURBO_ADMIN = new Set([
+  'login',
+  'logout',
+  'link',
+  'unlink',
+  'prune',
+  'gen',
+  'generate',
+  'daemon',
+  'info',
+  'ls',
+  'query',
+  'scan',
+  'telemetry',
+  'bin',
+  'completion',
+  'boundaries',
+]);
+/** nx subcommands that run no target (`nx graph`, `nx show`). `nx watch` watches. */
+const NX_ADMIN = new Set([
+  'graph',
+  'show',
+  'report',
+  'list',
+  'migrate',
+  'g',
+  'generate',
+  'reset',
+  'daemon',
+  'init',
+  'add',
+  'release',
+  'connect',
+  'connect-to-nx-cloud',
+  'login',
+  'logout',
+  'repair',
+  'sync',
+  'view-logs',
+  'import',
 ]);
 /** nx flags that take a value. `-t`/`--target(s)` are read as tasks. */
 const NX_VALUE_FLAGS = new Set([
@@ -302,6 +359,10 @@ export function isWatchName(name: string): boolean {
 interface OrchestratorTasks {
   /** Task names (`build`, `test`, `serve`), without a `pkg#` prefix or nx project. */
   readonly tasks: readonly string[];
+  /** An admin subcommand that runs no task (`turbo login`, `nx graph`): never heavy. */
+  readonly admin: boolean;
+  /** `turbo watch` / `nx watch`: a watcher whatever its tasks. */
+  readonly watch: boolean;
   /** Runs across the workspace (`turbo run`, `nx run-many`, `nx affected`). */
   readonly many: boolean;
   /** Narrowed to some packages (`--filter`, `--projects`). */
@@ -328,8 +389,19 @@ function orchestratorTasks(t: CommandTarget): OrchestratorTasks | null {
       }
       words.push(w);
     }
-    if (words[0] === 'run') words.shift();
-    return { tasks: words.map((w) => w.split('#').pop() ?? w), many: true, scoped };
+    const sub = words[0];
+    if (sub !== undefined && TURBO_ADMIN.has(sub)) {
+      return { tasks: [], admin: true, watch: false, many: false, scoped };
+    }
+    const watch = sub === 'watch';
+    if (sub === 'run' || watch) words.shift();
+    return {
+      tasks: words.map((w) => w.split('#').pop() ?? w),
+      admin: false,
+      watch,
+      many: true,
+      scoped,
+    };
   }
   if (t.tool === 'nx') {
     const tasks: string[] = [];
@@ -354,13 +426,18 @@ function orchestratorTasks(t: CommandTarget): OrchestratorTasks | null {
       pos.push(w);
     }
     const sub = pos[0];
-    if (sub === 'run-many' || sub === 'affected') return { tasks, many: true, scoped };
+    const none = { admin: false, watch: false } as const;
+    if (sub !== undefined && NX_ADMIN.has(sub)) {
+      return { tasks: [], admin: true, watch: false, many: false, scoped: true };
+    }
+    if (sub === 'watch') return { tasks, admin: false, watch: true, many: false, scoped: true };
+    if (sub === 'run-many' || sub === 'affected') return { tasks, ...none, many: true, scoped };
     // `nx run web:test:ci`: the target is the second segment.
     if (sub === 'run') {
       const target = (pos[1] ?? '').split(':')[1];
-      return { tasks: target ? [target] : [], many: false, scoped: true };
+      return { tasks: target ? [target] : [], ...none, many: false, scoped: true };
     }
-    return { tasks: sub ? [sub] : [], many: false, scoped: true };
+    return { tasks: sub ? [sub] : [], ...none, many: false, scoped: true };
   }
   return null;
 }
@@ -370,11 +447,13 @@ function watching(t: CommandTarget): boolean {
   // `pnpm dev`, `npm run test:watch`, `pnpm build:watch`, `pnpm run serve:docs`.
   if (t.script !== null && isWatchName(t.script)) return true;
   if (t.rest.some((w) => WATCH_FLAGS.has(w))) return true;
+  // `vitest --ui`, `playwright test --ui`; for turbo `--ui` takes a value (`--ui stream`).
+  if (UI_SERVES.test(t.tool) && t.rest.includes('--ui')) return true;
   // `-w` is watch for tsc, rollup, vitest…; for jest it is --maxWorkers.
   if (t.script === null && t.tool !== 'jest' && t.rest.includes('-w')) return true;
   // `turbo run dev`, `nx run-many -t serve`, `nx affected -t dev`, `nx run app:serve`.
   const orch = orchestratorTasks(t);
-  if (orch) return orch.tasks.some(isWatchName);
+  if (orch) return orch.watch || orch.tasks.some(isWatchName);
   const pos = positionals(t.rest);
   // `vitest watch`, `next dev`.
   if (pos[0] !== undefined && WATCH_SUBCOMMANDS.has(pos[0])) return true;
@@ -400,6 +479,7 @@ function watching(t: CommandTarget): boolean {
 export function looksHeavy(argv: readonly string[]): boolean {
   const t = commandTarget(argv);
   if (infoOnly(t) || watching(t)) return false;
+  if (orchestratorTasks(t)?.admin === true) return false;
   if (TEST_RUNNERS.test(t.tool) || BUILD_TOOLS.test(t.tool)) return true;
   if (t.pm !== null) {
     if (t.script === null) return false;
@@ -407,6 +487,15 @@ export function looksHeavy(argv: readonly string[]): boolean {
     return HEAVY_SCRIPTS.test(t.script) || INSTALL_VERBS.test(t.script);
   }
   return (t.tool === 'cargo' || t.tool === 'go') && /^(build|test)$/.test(t.rest[0] ?? '');
+}
+
+/**
+ * Whether `argv` is a watcher or server (`pnpm dev`, `turbo run dev`,
+ * `vitest --ui`): it never exits, so `cleo run` refuses it rather than let it
+ * hold a slot forever.
+ */
+export function isWatchCommand(argv: readonly string[]): boolean {
+  return watching(commandTarget(argv));
 }
 
 function isWorkspaceRoot(cwd: string): boolean {

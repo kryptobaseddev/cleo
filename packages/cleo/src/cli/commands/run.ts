@@ -33,7 +33,11 @@ import {
   RUN_COMMAND_FAILED_CODE,
   RUN_DEFERRED_EXIT_CODE,
 } from '@cleocode/contracts';
-import { canonicalForClass, resolveRunClass } from '@cleocode/core/resources/run-admission.js';
+import {
+  canonicalForClass,
+  isWatchCommand,
+  resolveRunClass,
+} from '@cleocode/core/resources/run-admission.js';
 import { runGoverned } from '@cleocode/core/resources/run-governed.js';
 import { heavyToolEnv } from '@cleocode/core/tasks/heavy-tool-env.js';
 import { defineCommand } from '../lib/define-cli-command.js';
@@ -89,6 +93,15 @@ export const runCommand = defineCommand({
       invalid(
         'cleo run needs a command after --',
         'cleo run --class test -- npx vitest run path/to/file.test.ts',
+      );
+    }
+
+    // A watcher or server never exits: admitted, it would hold its slot (for
+    // turbo/nx, the single machine-wide full-build slot) forever.
+    if (isWatchCommand(argv)) {
+      invalid(
+        `cleo run refuses watch/dev/serve commands, which never exit and would hold a resource slot forever: ${argv.join(' ')}`,
+        'Run the watcher directly, without cleo run',
       );
     }
 

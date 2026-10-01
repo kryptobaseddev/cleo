@@ -20,6 +20,7 @@ import { mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync 
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { SLOT_LOCK_STALE_MS, SLOT_LOCK_UPDATE_MS } from '../governor.js';
 import {
   buildRunDeferral,
   CAP_RUN_WINDOW_MS,
@@ -162,10 +163,12 @@ function job(over: Partial<RunJob> & { id: string; startedAtMs: number }): RunJo
 
 describe('job registry', () => {
   const NOW = 10_000_000;
+  // Every signal probe is stubbed: a fixture pid must never reach kill(2).
   const base = {
     alive: () => true,
     start: () => 'start-runner',
     signal: () => true,
+    signalPid: () => true,
     now: () => NOW,
   };
   const recorder = () => {
@@ -174,6 +177,10 @@ describe('job registry', () => {
       signals,
       signal: (pid: number, sig: NodeJS.Signals) => {
         signals.push([pid, sig]);
+        return true;
+      },
+      signalPid: (pid: number, sig: NodeJS.Signals) => {
+        signals.push([pid, `pid:${sig}`]);
         return true;
       },
     };
@@ -243,6 +250,37 @@ describe('job registry', () => {
       [78, 'SIGCONT'],
       [78, 'SIGTERM'],
     ]);
+  });
+
+  it("a dead runner's NESTED child is signalled by pid, never by group (T13001)", () => {
+    deadRunner({ parentJob: 'outer', holdsSlot: true });
+    const r = recorder();
+    reapOrphans(dir, {
+      ...base,
+      alive: (pid) => pid === 77,
+      start: (pid) => (pid === 77 ? 'child-t0' : null),
+      signal: r.signal,
+      signalPid: r.signalPid,
+    });
+    expect(r.signals).toEqual([
+      [77, 'pid:SIGCONT'],
+      [77, 'pid:SIGTERM'],
+    ]);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it('a nested child that is gone gets no signal: it led no group (T13001)', () => {
+    deadRunner({ parentJob: 'outer', childPid: 78 });
+    const r = recorder();
+    reapOrphans(dir, {
+      ...base,
+      alive: () => false,
+      start: () => null,
+      signal: r.signal,
+      signalPid: r.signalPid,
+    });
+    expect(r.signals).toEqual([]);
+    expect(readdirSync(dir)).toEqual([]);
   });
 
   it('a failed ps on a LIVE child is unknown: no signal, record kept for the next reap (H-1)', () => {
@@ -512,6 +550,13 @@ describe('decidePause', () => {
       decidePause({ state: 'backoff', self: self('new'), jobs: withInner(true), nowMs: 1 })
         .decision,
     ).toBe('pause');
+  });
+
+  it('the pause cap ends before a frozen slot holder can lose its lock (R6-1)', () => {
+    // A nested holder's last refresh can land SLOT_LOCK_UPDATE_MS before the
+    // freeze; the lock is stealable once SLOT_LOCK_STALE_MS old.
+    expect(MAX_PAUSE_MS).toBeLessThan(SLOT_LOCK_STALE_MS - SLOT_LOCK_UPDATE_MS);
+    expect(SLOT_LOCK_UPDATE_MS).toBeLessThanOrEqual(SLOT_LOCK_STALE_MS / 2);
   });
 
   it('the starvation cap gives a real run window, then the job can pause again', () => {

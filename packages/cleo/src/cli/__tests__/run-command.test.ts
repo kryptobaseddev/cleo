@@ -5,8 +5,13 @@
  * @task T12979
  */
 
-import { describe, expect, it } from 'vitest';
-import { runExitCode } from '../commands/run.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+// Never spawn a real command from this file, even if the refusal regresses.
+const runGoverned = vi.hoisted(() => vi.fn());
+vi.mock('@cleocode/core/resources/run-governed.js', () => ({ runGoverned }));
+
+import { runCommand, runExitCode } from '../commands/run.js';
 import { extractIdempotencyKeyArg } from '../idempotency-context.js';
 
 describe('cleo run argv', () => {
@@ -30,5 +35,34 @@ describe('runExitCode', () => {
     expect(runExitCode({ exitCode: null, signal: 'SIGTERM', spawnError: null })).toBe(143);
     expect(runExitCode({ exitCode: null, signal: 'SIGKILL', spawnError: null })).toBe(137);
     expect(runExitCode({ exitCode: null, signal: null, spawnError: 'ENOENT' })).toBe(127);
+  });
+});
+
+describe('cleo run refuses watchers (#1777 round 6)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    runGoverned.mockReset();
+  });
+
+  it.each([
+    [['turbo', 'run', 'dev']],
+    [['pnpm', 'dev']],
+    [['vitest', '--ui']],
+    [['nx', 'run', 'app:serve']],
+  ])('%j exits E_VALIDATION (6) without admission', async (argv) => {
+    const exit = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit ${code}`);
+    }) as never);
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const run = runCommand.run as (ctx: {
+      args: Record<string, unknown>;
+      rawArgs: string[];
+    }) => Promise<void>;
+    await expect(run({ args: { wait: false }, rawArgs: ['--', ...argv] })).rejects.toThrow(
+      'exit 6',
+    );
+    expect(exit).toHaveBeenCalledWith(6);
+    expect(runGoverned).not.toHaveBeenCalled();
   });
 });
