@@ -854,7 +854,9 @@ export async function checkAllRegisteredProjects(
   let registryError: FullHealthReport['registryError'];
   try {
     const { nexusList } = await import('../nexus/registry.js');
-    const rows = await nexusList();
+    // T13006: a project that lives on another machine (a cloud vault
+    // placeholder row) has nothing here to probe; it is not unreachable.
+    const rows = (await nexusList()).filter((row) => !row.remote);
     projects = await runWithConcurrency(rows, parallelism, (row) =>
       checkProjectHealth(row.path, row.hash),
     );

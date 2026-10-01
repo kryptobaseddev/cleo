@@ -33,3 +33,30 @@ export function isAbsolutePath(path: string): boolean {
   if (path.startsWith('\\\\')) return true;
   return false;
 }
+
+/**
+ * Prefix of the value a NOT NULL machine-local path cell holds in a row that
+ * only another machine has (a project or skill restored by the cloud vault
+ * that does not live on this machine): a placeholder, not a path (T12336).
+ */
+export const VAULT_REMOTE_PATH_PREFIX = 'cleo-vault-remote:';
+
+/**
+ * Whether a path value is the cloud vault's placeholder for a row another
+ * machine holds. Such a value names no location here: nothing may resolve,
+ * probe or open it as a path (T13006).
+ *
+ * @param value - A path value (a registry `project_path`, a `cwd`).
+ * @returns `true` for {@link VAULT_REMOTE_PATH_PREFIX} values.
+ *
+ * @example
+ * ```typescript
+ * isVaultRemotePath('cleo-vault-remote:nexus_project_registry:["p2"]:project_path'); // true
+ * isVaultRemotePath('/home/me/p2'); // false
+ * ```
+ *
+ * @public
+ */
+export function isVaultRemotePath(value: string | null | undefined): boolean {
+  return typeof value === 'string' && value.startsWith(VAULT_REMOTE_PATH_PREFIX);
+}

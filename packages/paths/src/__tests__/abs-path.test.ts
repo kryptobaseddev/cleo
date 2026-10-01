@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isAbsolutePath } from '../abs-path.js';
+import { isAbsolutePath, isVaultRemotePath, VAULT_REMOTE_PATH_PREFIX } from '../abs-path.js';
 
 describe('isAbsolutePath', () => {
   it('treats POSIX absolute paths as absolute', () => {
@@ -27,5 +27,18 @@ describe('isAbsolutePath', () => {
   it('rejects strings that look like drives but lack a separator', () => {
     expect(isAbsolutePath('C:')).toBe(false);
     expect(isAbsolutePath('CC:\\')).toBe(false);
+  });
+});
+
+describe('isVaultRemotePath (T13006)', () => {
+  it('recognises the cloud vault placeholder and nothing else', () => {
+    expect(
+      isVaultRemotePath(`${VAULT_REMOTE_PATH_PREFIX}nexus_project_registry:["p2"]:project_path`),
+    ).toBe(true);
+    expect(isVaultRemotePath('/home/me/p2')).toBe(false);
+    expect(isVaultRemotePath('superseded:p2')).toBe(false);
+    expect(isVaultRemotePath('')).toBe(false);
+    expect(isVaultRemotePath(null)).toBe(false);
+    expect(isVaultRemotePath(undefined)).toBe(false);
   });
 });

@@ -54,8 +54,11 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import { ExitCode } from '@cleocode/contracts';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
+import { isVaultRemotePath } from '@cleocode/paths';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
+import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
 import { getCleoHome, resolveCleoDir } from '../paths.js';
 import { worktreeScope } from '../project-scope.js';
@@ -316,12 +319,14 @@ function cacheKey(scope: DualScope, dbPath: string): CacheKey {
 /**
  * Resolve the absolute path to the dual-scope `cleo.db` for the given scope.
  *
- * - `project`: `resolveCleoDir(cwd)` + `'cleo.db'` (falls under `<root>/.cleo/`)
+ * - `project`: `resolveCleoDir(cwd)` + `'cleo.db'` (falls under `<root>/.cleo/`); a cloud
+ *   vault placeholder `cwd` (a project on another machine) is refused with `E_NOT_FOUND`
  * - `global`: `getCleoHome()` + `'cleo.db'` (falls under XDG data home `/cleo/`).
  * @param scope - Project or global storage ownership.
  * @param cwd - Explicit project root when resolving project storage.
  * @param capturedGlobalHome - Previously captured global home, independent of later environment changes.
  * @returns Canonical consolidated store path.
+ * @throws {CleoError} `NOT_FOUND` when `cwd` is a cloud vault placeholder (T13006).
  * @remarks Omitting the captured home preserves ambient global routing. A project
  * resolution never uses the global home override. Capture ownership before awaiting.
  * @example
@@ -335,6 +340,18 @@ export function resolveDualScopeDbPath(
   capturedGlobalHome?: string,
 ): string {
   if (scope === 'project') {
+    // T13006: a cloud vault placeholder names a project on another machine. Resolved
+    // as a cwd it would open (or create) a store under the caller's directory.
+    if (isVaultRemotePath(cwd)) {
+      // @sync-invariant none:local-only a placeholder path names no location on this machine; it gates a local store open, never a synced write
+      throw new CleoError(
+        ExitCode.NOT_FOUND,
+        `'${cwd}' is a cloud vault placeholder for a project that lives on another machine, not a path; it has no store here`,
+        {
+          fix: 'restore the project onto this machine with `cleo cloud restore --project <id> --into <dir>`',
+        },
+      );
+    }
     return join(resolveCleoDir(cwd), 'cleo.db');
   }
   return join(capturedGlobalHome ?? getCleoHome(), 'cleo.db');

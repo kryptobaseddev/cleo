@@ -13,19 +13,24 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
+import { VAULT_REMOTE_PATH_PREFIX } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   buildVaultManifest,
   carryMachineState,
   compareVaultManifests,
   emptyVaultTableHash,
+  isVaultForkManifest,
   isVaultManifestTable,
   sameVaultManifest,
+  VAULT_FORK_KEY,
   VAULT_MANIFEST_SCHEMA_VERSION,
-  VAULT_REMOTE_PATH_PREFIX,
   vaultDatabaseKey,
+  vaultFileDigest,
   vaultFilesEntry,
+  vaultForkEntry,
   vaultLocalColumns,
+  vaultStripColumns,
 } from '../vault-manifest.js';
 
 const _require = createRequire(import.meta.url);
@@ -653,5 +658,99 @@ describe('carryMachineState keys rows by a stable key, never a machine-minted id
       { id: 'd2', output_file: null },
     ]);
     expect(out.scrubbed).toEqual([{ table: 'docs_manifest_entries', rows: 2 }]);
+  });
+});
+
+describe('round 3 (#1773)', () => {
+  it('compares an absent table as equal to an emptied one, and ignores the fork label', () => {
+    const a = build(projectDb('a')).manifest;
+    const emptied = {
+      tables: {
+        ...a.tables,
+        zz_vault_db_blobs_manifest_db: { rows: 0, hash: emptyVaultTableHash(KEY, 'x') },
+        [VAULT_FORK_KEY]: vaultForkEntry(KEY, 'cp-1'),
+      },
+    };
+    expect(sameVaultManifest(a, emptied)).toBe(true);
+    expect(compareVaultManifests(a, emptied).map((d) => d.table)).not.toContain(VAULT_FORK_KEY);
+    expect(isVaultForkManifest(emptied)).toBe(true);
+    expect(isVaultForkManifest(a)).toBe(false);
+    expect(vaultForkEntry(KEY, 'cp-1')).toEqual({
+      rows: 0,
+      hash: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
+    const nonEmpty = { tables: { ...a.tables, zz_vault_db_x: { rows: 1, hash: 'f'.repeat(64) } } };
+    expect(sameVaultManifest(a, nonEmpty)).toBe(false);
+  });
+
+  it('hashes config.json relocation-aware: a relocated copy matches, an edit does not', async () => {
+    const write = (name: string, body: object) => {
+      const f = path.join(tmp, name);
+      fs.writeFileSync(f, JSON.stringify(body, null, 2));
+      return f;
+    };
+    const atA = write('a.json', { root: '/A/proj/data', note: 'x' });
+    const source = await vaultFileDigest(atA, 'config.json', '/A/proj');
+    // The relocated copy (other root, other formatting) hashes like its source.
+    const atB = path.join(tmp, 'b.json');
+    fs.writeFileSync(atB, JSON.stringify({ root: '/B/proj/data', note: 'x' }));
+    expect(await vaultFileDigest(atB, 'config.json', '/B/proj')).toBe(source);
+    const edited = write('c.json', { root: '/B/proj/data', note: 'y' });
+    expect(await vaultFileDigest(edited, 'config.json', '/B/proj')).not.toBe(source);
+    // Any other file, or a store a restore does not relocate, is its plain SHA-256.
+    const plain = crypto.createHash('sha256').update(fs.readFileSync(atA)).digest('hex');
+    expect(await vaultFileDigest(atA, 'notes.json', '/A/proj')).toBe(plain);
+    expect(await vaultFileDigest(atA, 'config.json', null)).toBe(plain);
+  });
+
+  it('lists the registry strip columns a snapshot never carries', () => {
+    expect(vaultStripColumns('global')['nexus_project_git_state']).toEqual(['remote_url']);
+    expect(Object.values(vaultStripColumns('project')).flat()).not.toContain('verification_json');
+  });
+
+  it('carries against no store: local-only tables emptied, non-syncing cells cleared', () => {
+    const file = path.join(tmp, 'staged.db');
+    const db = new DatabaseSync(file);
+    db.exec(`
+      CREATE TABLE tasks_tasks (id TEXT PRIMARY KEY, title TEXT, claimed_by_session TEXT, lease_expires_at INTEGER);
+      CREATE TABLE _sync_replica (replica_id TEXT PRIMARY KEY, device_id TEXT);
+      INSERT INTO tasks_tasks VALUES ('T1', 'one', 'sess-a', 99);
+      INSERT INTO _sync_replica VALUES ('r-a', 'd-a');
+    `);
+    db.close();
+    const out = carryMachineState(file, null, 'project', { snapshotRoot: '/A/root' });
+    const read = (q: string) => {
+      const r = new DatabaseSync(file, { readOnly: true });
+      try {
+        return r.prepare(q).all();
+      } finally {
+        r.close();
+      }
+    };
+    expect(read('SELECT * FROM _sync_replica')).toEqual([]);
+    expect(read('SELECT id, title, claimed_by_session, lease_expires_at FROM tasks_tasks')).toEqual(
+      [{ id: 'T1', title: 'one', claimed_by_session: null, lease_expires_at: null }],
+    );
+    expect(out.lost).toEqual([]);
+
+    // Global: a NOT NULL path becomes a placeholder; a NOT NULL counter its default.
+    const g = path.join(tmp, 'global.db');
+    const gdb = new DatabaseSync(g);
+    gdb.exec(`CREATE TABLE nexus_project_registry (project_id TEXT PRIMARY KEY, project_hash TEXT NOT NULL,
+        project_path TEXT NOT NULL UNIQUE, name TEXT NOT NULL, task_count INTEGER NOT NULL DEFAULT 0);
+      INSERT INTO nexus_project_registry VALUES ('p1', 'h1', '/A/p1', 'one', 12);`);
+    gdb.close();
+    carryMachineState(g, null, 'global');
+    const r = new DatabaseSync(g, { readOnly: true });
+    expect(
+      r.prepare('SELECT project_hash, project_path, task_count FROM nexus_project_registry').all(),
+    ).toEqual([
+      {
+        project_hash: 'h1',
+        project_path: `${VAULT_REMOTE_PATH_PREFIX}nexus_project_registry:["p1"]:project_path`,
+        task_count: 0,
+      },
+    ]);
+    r.close();
   });
 });

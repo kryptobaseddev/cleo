@@ -26,11 +26,16 @@
  * - **Lease**: a push takes the stream's `writer` lease. Another device's
  *   live lease refuses the push (`E_NEXUS_VAULT_LEASE_HELD`); `--force`
  *   takes it, and the server labels the take as a fork from the holder.
+ * - **Fork label**: a `--force` push over a head this store had not synced,
+ *   or over another device's lease, carries `zz_vault_fork` (0 rows) in its
+ *   signed manifest, so every device's verify still sees the fork after the
+ *   lease is released (T13007).
  *
  * Restore downloads, verifies the author's signature, decrypts, and checks
  * every table's count and hash against the manifest before anything is
  * placed; this machine's `local-only` rows are carried into the snapshot so
- * machine state (replica binding, registry paths) is never overwritten.
+ * machine state (replica binding, registry paths) is never overwritten, and
+ * what the snapshot no longer lists is removed afterwards (T13004).
  *
  * Nothing here blocks normal commands: the vault runs only when asked.
  *
@@ -77,8 +82,8 @@ import { importPortableBundle } from '../store/portable-bundle-import.js';
 import {
   integrityCheck,
   PROJECT_SECTION_RULES,
+  type SectionScan,
   scanSection,
-  sha256File,
 } from '../store/portable-bundle-scan.js';
 import { FIRST_OPEN_LOCK_SUFFIX } from '../store/sqlite.js';
 import { readActiveReplicaId } from '../store/sync/replica.js';
@@ -88,13 +93,18 @@ import {
   carryMachineState,
   compareVaultManifests,
   emptyVaultTableHash,
+  isVaultForkManifest,
   sameVaultManifest,
   VAULT_FILES_KEY,
+  VAULT_FORK_KEY,
   VAULT_MANIFEST_SCHEMA_VERSION,
   type VaultManifest,
   vaultDatabaseEntry,
   vaultDatabaseKey,
+  vaultFileDigest,
   vaultFilesEntry,
+  vaultForkEntry,
+  vaultStripColumns,
 } from '../store/vault-manifest.js';
 import { foreignWriterLeases, storeOpenElsewhere } from '../store/writer-lease.js';
 import { deriveKey } from './crypto.js';
@@ -104,7 +114,7 @@ import type { TrustedSigners } from './keys.js';
 import { canonicalGlobalReplicaBinder } from './nexus-attach.js';
 import { NexusAccountError } from './nexus-auth.js';
 import { nexusApiErrorToAccountError } from './nexus-enrol.js';
-import { nexusLinkPath, readNexusProjectLink } from './nexus-link.js';
+import { readNexusProjectLink } from './nexus-link.js';
 import {
   connectNexusVault,
   type NexusVaultConnection,
@@ -113,6 +123,7 @@ import {
   nexusProjectDataKey,
   unlockNexusAccountKey,
 } from './nexus-vault-keys.js';
+import type { VaultStreamState } from './nexus-vault-state.js';
 import { homeStream, projectStream } from './streams.js';
 
 /** Default lease length of a push: long enough for a large upload, short enough to hand off. */
@@ -146,23 +157,34 @@ export const VAULT_GLOBAL_EXCLUSIONS = {
 } as const;
 
 /**
- * Plain files of a snapshot left out of its file inventory: files a restore
- * rewrites or keeps per machine (the link, relocated config), files CLEO
- * regenerates on its own (`memory-bridge.md`, timestamped) and per-session
- * scratch, which would otherwise read as a change on every run.
+ * Plain files of a snapshot that belong to the machine, not to the store
+ * (T13005), so they are outside its hashed file inventory and a restore never
+ * overwrites them:
+ *
+ * - `skip`: never placed from a snapshot (`worktrees.json` names this
+ *   machine's worktrees).
+ * - `keep`: this machine's copy stays; the snapshot's is placed only where
+ *   this machine has none: the replica link (`nexus-link.json`), files CLEO
+ *   regenerates on its own (`memory-bridge.md`, timestamped) and per-session
+ *   scratch (top-level dotfiles, `tmp/`, `state/`), which would otherwise read
+ *   as a change on every run.
+ *
+ * Everything else, `config.json` and `project-context.json` included, is in
+ * the inventory: hashed (relocation-aware, {@link vaultFileDigest}) and placed.
  */
-function inventoryExcluded(relPath: string): boolean {
-  return (
-    relPath === 'nexus-link.json' ||
-    relPath === 'config.json' ||
-    relPath === 'project-context.json' ||
-    relPath === 'worktrees.json' ||
+function machineLocalFile(relPath: string): 'keep' | 'skip' | null {
+  if (relPath === 'worktrees.json') return 'skip';
+  return relPath === 'nexus-link.json' ||
     relPath === 'memory-bridge.md' ||
     (!relPath.includes('/') && relPath.startsWith('.')) ||
     relPath.startsWith('tmp/') ||
     relPath.startsWith('state/')
-  );
+    ? 'keep'
+    : null;
 }
+
+/** A plain file outside the vault's hashed inventory ({@link machineLocalFile}). */
+const inventoryExcluded = (relPath: string): boolean => machineLocalFile(relPath) !== null;
 
 /** Options shared by the vault commands. */
 export interface NexusVaultCommandOptions extends NexusVaultOptions {
@@ -432,8 +454,85 @@ async function replaySegments(
 }
 
 /**
- * Export the store the way the vault snapshots it: no secrets, and for the
- * global store without machine-local state or the config home (T12968).
+ * The checkpoints whose author signature (or a live device's endorsement)
+ * verifies against the trusted signers. Each one that does not is reported
+ * when `warnings` is given and left out (T13007), so no verdict, comparison
+ * or refusal is decided from a manifest the server could have forged.
+ */
+function trustedCheckpoints(
+  journal: Journal,
+  cps: readonly Checkpoint[],
+  signers: TrustedSigners,
+  warnings: CloudWarning[] | null,
+): Checkpoint[] {
+  return cps.filter((cp) => {
+    try {
+      journal.verifyCheckpoint(cp, signers);
+      return true;
+    } catch (err) {
+      warnings?.push({
+        code: 'W_NEXUS_VAULT_UNTRUSTED_SNAPSHOT',
+        message: `snapshot ${cp.checkpointId}: ${err instanceof Error ? err.message : String(err)}`,
+      });
+      return false;
+    }
+  });
+}
+
+/**
+ * What this store last synced with on the stream. A push whose state write
+ * was lost (a crash between the checkpoint and the state file, T13007) left
+ * its in-flight mark and the head as this device and replica's own snapshot
+ * over the marked parent: that head is what this store holds, so it counts
+ * as synced (`adopted`; push and pull record it). Without the mark (a store
+ * restored to an older snapshot of its own) nothing is adopted.
+ */
+function syncedState(
+  conn: NexusVaultConnection,
+  t: VaultTarget,
+  trusted: readonly Checkpoint[],
+  headCheckpointId: string | null,
+): { state: VaultStreamState | null; adopted: Checkpoint | null } {
+  const recorded = conn.state.stream(conn.apiUrl, conn.userId, t.streamId, t.storeRoot);
+  const head = trusted.find((c) => c.checkpointId === headCheckpointId);
+  if (
+    head !== undefined &&
+    t.replicaId !== null &&
+    head.deviceId === conn.deviceId &&
+    head.replicaId === t.replicaId &&
+    recorded?.pushInFlight !== undefined &&
+    head.checkpointId !== recorded.lastCheckpointId &&
+    head.parentCheckpointId === recorded.pushInFlight.parentCheckpointId
+  ) {
+    return {
+      state: {
+        lastCheckpointId: head.checkpointId,
+        lastCoversSeq: head.coversSeq,
+        updatedAt: head.createdAt,
+      },
+      adopted: head,
+    };
+  }
+  return { state: recorded, adopted: null };
+}
+
+/** Record that this store holds `cp` on the stream. */
+function saveSynced(
+  conn: NexusVaultConnection,
+  t: VaultTarget,
+  cp: Checkpoint,
+  streamId = t.streamId,
+): void {
+  conn.state.saveStream(conn.apiUrl, conn.userId, streamId, t.storeRoot, {
+    lastCheckpointId: cp.checkpointId,
+    lastCoversSeq: cp.coversSeq,
+  });
+}
+
+/**
+ * Export the store the way the vault snapshots it: no secrets, no `strip`
+ * columns (T13007), and for the global store without machine-local state or
+ * the config home (T12968).
  */
 async function exportVaultBundle(t: VaultTarget, outputPath: string, label: string): Promise<void> {
   await exportPortableBundle({
@@ -442,6 +541,7 @@ async function exportVaultBundle(t: VaultTarget, outputPath: string, label: stri
     ...(t.scope === 'global'
       ? { globalHomeExclusions: VAULT_GLOBAL_EXCLUSIONS, includeConfigHome: false }
       : {}),
+    stripColumns: vaultStripColumns(tableScopeOf(t)),
     outputPath,
     label,
   });
@@ -476,10 +576,15 @@ async function snapshotManifest(
       { hashKey, root: null },
     );
   }
-  vault.tables[VAULT_FILES_KEY] = vaultFilesEntry(
-    section.files.filter((f) => !f.secret && !inventoryExcluded(f.relPath)),
-    hashKey,
-  );
+  const files: Array<{ relPath: string; sha256: string }> = [];
+  for (const f of section.files) {
+    if (f.secret || inventoryExcluded(f.relPath)) continue;
+    files.push({
+      relPath: f.relPath,
+      sha256: await vaultFileDigest(path.join(extractDir, f.bundlePath), f.relPath, root, f.sha256),
+    });
+  }
+  vault.tables[VAULT_FILES_KEY] = vaultFilesEntry(files, hashKey);
   return { vault, dbPath };
 }
 
@@ -511,17 +616,10 @@ async function exportAndRead(
  */
 async function localManifest(t: VaultTarget): Promise<VaultManifest | null> {
   if (!fs.existsSync(t.dbPath)) return null;
-  const sectionRoot = t.scope === 'global' ? t.storeRoot : path.join(t.storeRoot, '.cleo');
-  const rules =
-    t.scope === 'global' ? globalHomeRules(VAULT_GLOBAL_EXCLUSIONS) : PROJECT_SECTION_RULES;
-  const scan = scanSection(sectionRoot, rules);
+  const { sectionRoot, scan, primaryRel } = sectionScan(t);
   const hashKey = hashKeyOf(t.dataKey);
-  const vault = buildVaultManifest(t.dbPath, {
-    scope: tableScopeOf(t),
-    hashKey,
-    root: t.scope === 'global' ? null : t.storeRoot,
-  }).manifest;
-  const primaryRel = path.relative(sectionRoot, t.dbPath).split(path.sep).join('/');
+  const root = t.scope === 'global' ? null : t.storeRoot;
+  const vault = buildVaultManifest(t.dbPath, { scope: tableScopeOf(t), hashKey, root }).manifest;
   for (const rel of scan.sqlite) {
     if (rel === primaryRel) continue;
     try {
@@ -536,10 +634,33 @@ async function localManifest(t: VaultTarget): Promise<VaultManifest | null> {
   const files: Array<{ relPath: string; sha256: string }> = [];
   for (const rel of scan.files) {
     if (inventoryExcluded(rel)) continue;
-    files.push({ relPath: rel, sha256: await sha256File(path.join(sectionRoot, rel)) });
+    files.push({
+      relPath: rel,
+      sha256: await vaultFileDigest(path.join(sectionRoot, rel), rel, root),
+    });
   }
   vault.tables[VAULT_FILES_KEY] = vaultFilesEntry(files, hashKey);
   return vault;
+}
+
+/**
+ * This store's section as a vault snapshot walks it: the section root, the
+ * export's walk rules (so secrets, excluded directories and machine-local
+ * global state are never in it) and the primary store's path in it.
+ */
+function sectionScan(t: VaultTarget): {
+  sectionRoot: string;
+  scan: SectionScan;
+  primaryRel: string;
+} {
+  const sectionRoot = t.scope === 'global' ? t.storeRoot : path.join(t.storeRoot, '.cleo');
+  const rules =
+    t.scope === 'global' ? globalHomeRules(VAULT_GLOBAL_EXCLUSIONS) : PROJECT_SECTION_RULES;
+  return {
+    sectionRoot,
+    scan: scanSection(sectionRoot, rules),
+    primaryRel: path.relative(sectionRoot, t.dbPath).split(path.sep).join('/'),
+  };
 }
 
 function tempDir(prefix: string): string {
@@ -566,18 +687,6 @@ async function pushNexusVaultImpl(
   const force = opts.force === true;
   const journal = journalFor(conn, t);
   const head = await streamHead(conn, t.streamId);
-  const synced = conn.state.stream(conn.apiUrl, conn.userId, t.streamId, t.storeRoot);
-  if (
-    head.headCheckpointId !== null &&
-    head.headCheckpointId !== synced?.lastCheckpointId &&
-    !force
-  ) {
-    throw vaultError(
-      'E_NEXUS_VAULT_BEHIND',
-      `another device pushed snapshot ${head.headCheckpointId} after this machine's last sync`,
-      'run `cleo cloud pull` first (it refuses to overwrite local changes), or `--force` to push this store as a labelled fork',
-    );
-  }
   const checkpoints = head.headCheckpointId ? await listCheckpoints(conn, t.streamId) : [];
   const parent = checkpoints.find((c) => c.checkpointId === head.headCheckpointId) ?? null;
   if (head.headCheckpointId && !parent) {
@@ -587,6 +696,24 @@ async function pushNexusVaultImpl(
     );
   }
   if (parent) journal.verifyCheckpoint(parent, key.signers);
+  const { state: synced, adopted } = syncedState(
+    conn,
+    t,
+    parent ? [parent] : [],
+    head.headCheckpointId,
+  );
+  if (adopted) saveSynced(conn, t, adopted);
+  // Another device pushed since this store last synced: only `--force` pushes
+  // over it, and that snapshot is labelled a fork on the checkpoint (T13007).
+  const overUnsynced =
+    head.headCheckpointId !== null && head.headCheckpointId !== synced?.lastCheckpointId;
+  if (overUnsynced && !force) {
+    throw vaultError(
+      'E_NEXUS_VAULT_BEHIND',
+      `another device pushed snapshot ${head.headCheckpointId} after this machine's last sync`,
+      'run `cleo cloud pull` first (it refuses to overwrite local changes), or `--force` to push this store as a labelled fork',
+    );
+  }
 
   const work = tempDir('cleo-vault-push-');
   try {
@@ -594,10 +721,7 @@ async function pushNexusVaultImpl(
     const names = await deviceNames(conn);
     // Nothing changed since the head: no lease, no upload (T12971).
     if (parent && sameVaultManifest(vault, parent.manifest)) {
-      conn.state.saveStream(conn.apiUrl, conn.userId, t.streamId, t.storeRoot, {
-        lastCheckpointId: parent.checkpointId,
-        lastCoversSeq: parent.coversSeq,
-      });
+      saveSynced(conn, t, parent);
       warnings.push(...conn.state.drainWarnings());
       return {
         apiUrl: conn.apiUrl,
@@ -613,26 +737,44 @@ async function pushNexusVaultImpl(
       };
     }
 
-    // A table the parent lists must stay listed (0 rows when it is gone).
+    // A table the parent lists must stay listed (0 rows when it is gone); the
+    // parent's fork label is not a table and is not carried.
     const manifest: VaultManifest = {
       schemaVersion: VAULT_MANIFEST_SCHEMA_VERSION,
       tables: { ...vault.tables },
     };
     if (parent) {
       for (const table of Object.keys(parent.manifest.tables)) {
+        if (table === VAULT_FORK_KEY) continue;
         manifest.tables[table] ??= { rows: 0, hash: buildEmptyHash(t, table) };
       }
     }
 
     // The lease is taken only after the cheap refusals and the up-to-date
     // check, and handed back when the push ends (kept only with `hold`).
-    const { lease, forked } = await acquireLease(
+    const acquired = await acquireLease(
       conn,
       t,
       force,
       force ? 'cleo cloud push --force' : 'cleo cloud push',
     );
+    const { lease } = acquired;
+    // A fork: over a head this store had not synced, or over another device's
+    // live lease. Labelled on the signed checkpoint, so every device's verify
+    // still sees it after the lease is handed back (T13007).
+    const forked = overUnsynced || acquired.forked;
+    if (forked && parent) {
+      manifest.tables[VAULT_FORK_KEY] = vaultForkEntry(hashKeyOf(t.dataKey), parent.checkpointId);
+    }
     try {
+      // A crash before the snapshot is recorded must not leave this store behind its own push.
+      conn.state.markPushInFlight(
+        conn.apiUrl,
+        conn.userId,
+        t.streamId,
+        t.storeRoot,
+        parent?.checkpointId ?? null,
+      );
       let deltaSegmentSeq: number | null = null;
       let cp: Checkpoint | null = null;
       // A segment another device appends between our replay and our checkpoint
@@ -735,10 +877,7 @@ async function pushNexusVaultImpl(
           throw err;
         }
       }
-      conn.state.saveStream(conn.apiUrl, conn.userId, t.streamId, t.storeRoot, {
-        lastCheckpointId: cp.checkpointId,
-        lastCoversSeq: cp.coversSeq,
-      });
+      saveSynced(conn, t, cp);
       if (opts.hold !== true) await releaseLeaseQuietly(conn, t);
       warnings.push(...conn.state.drainWarnings());
       return {
@@ -805,30 +944,94 @@ function carryWarnings(kept: CarriedMachineState): CloudWarning[] {
  * Refuse to replace a store another process has open (T12973): a live writer
  * lease means a write is in flight, and any other open connection (an idle
  * session, the sentient daemon) would keep writing to the replaced file
- * afterwards. This process's own handles are closed first. Residual: a
- * process that opens the store between this check and the placement (a few
+ * afterwards. Every database the restore replaces is checked: the primary
+ * store and the section's others (blobs manifest, attachments index, a legacy
+ * `brain.db`, T13007). This process's own handles are closed first. Residual:
+ * a process that opens a store between this check and the placement (a few
  * milliseconds, under the first-open lock that a store's first open also takes).
  */
-async function assertStoreQuiescent(dbPath: string): Promise<void> {
+async function assertStoreQuiescent(t: VaultTarget): Promise<void> {
   const { closeAllDatabases } = await import('../store/sqlite.js');
   await closeAllDatabases();
   const { _resetDualScopeDbCache } = await import('../store/dual-scope-db.js');
   _resetDualScopeDbCache();
-  const held = foreignWriterLeases(dbPath);
+  const held = foreignWriterLeases(t.dbPath);
   if (held.length > 0) {
     throw vaultError(
       'E_NEXUS_VAULT_STORE_BUSY',
-      `another CLEO process is writing to ${dbPath} (${held.map((h) => `${h.lane} lane, pid ${h.holderPid}`).join('; ')}); restoring now would lose its writes`,
+      `another CLEO process is writing to ${t.dbPath} (${held.map((h) => `${h.lane} lane, pid ${h.holderPid}`).join('; ')}); restoring now would lose its writes`,
       'wait for it to finish (or stop it), then run the command again',
     );
   }
-  if (storeOpenElsewhere(dbPath)) {
+  const { sectionRoot, scan, primaryRel } = sectionScan(t);
+  const open = [
+    t.dbPath,
+    ...scan.sqlite.filter((rel) => rel !== primaryRel).map((rel) => path.join(sectionRoot, rel)),
+  ].filter((db) => storeOpenElsewhere(db));
+  if (open.length > 0) {
     throw vaultError(
       'E_NEXUS_VAULT_STORE_BUSY',
-      `another process has ${dbPath} open (a CLEO session, daemon or tool); it would keep writing to the replaced store`,
+      `another process has ${open.join(', ')} open (a CLEO session, daemon or tool); it would keep writing to the replaced store`,
       'close it (end the session, stop the daemon with `cleo daemon stop`), then run the command again',
     );
   }
+}
+
+/** Safety bundles kept per store under `backups/vault`; older ones are removed (T13007). */
+export const NEXUS_VAULT_SAFETY_BUNDLES_KEPT = 10;
+
+/** Keep the newest {@link NEXUS_VAULT_SAFETY_BUNDLES_KEPT} safety bundles in `dir`. */
+function rotateSafetyBundles(dir: string): void {
+  const bundles = fs
+    .readdirSync(dir)
+    .filter((name) => /^pre-restore-.+\.cleobundle\.tar\.gz$/.test(name))
+    .sort();
+  for (const name of bundles.slice(
+    0,
+    Math.max(0, bundles.length - NEXUS_VAULT_SAFETY_BUNDLES_KEPT),
+  )) {
+    fs.rmSync(path.join(dir, name), { force: true });
+  }
+}
+
+/**
+ * After a verified snapshot is placed, remove what this store holds inside
+ * the vault's inventory scope that the snapshot does not list (T13004), so a
+ * file or database another device deleted is deleted here too: inventory
+ * files, and databases other than the primary store (with their sidecars).
+ * Machine-local files ({@link machineLocalFile}), secrets and excluded
+ * directories are outside that scope and never touched. Runs only after the
+ * safety backup, under the store's first-open lock.
+ *
+ * @returns The removed paths, relative to the section root.
+ */
+function pruneUnlisted(t: VaultTarget, listed: ReadonlySet<string>): string[] {
+  const { sectionRoot, scan, primaryRel } = sectionScan(t);
+  const removed: string[] = [];
+  const remove = (rel: string, sidecars: boolean) => {
+    const abs = path.join(sectionRoot, rel);
+    fs.rmSync(abs, { force: true });
+    if (sidecars) {
+      for (const suffix of ['-wal', '-shm', '-journal'])
+        fs.rmSync(`${abs}${suffix}`, { force: true });
+    }
+    // Leave no emptied directory behind (never the section root itself).
+    for (
+      let dir = path.dirname(abs);
+      dir.startsWith(`${sectionRoot}${path.sep}`);
+      dir = path.dirname(dir)
+    ) {
+      try {
+        fs.rmdirSync(dir);
+      } catch {
+        break;
+      }
+    }
+    removed.push(rel);
+  };
+  for (const rel of scan.files) if (!inventoryExcluded(rel) && !listed.has(rel)) remove(rel, false);
+  for (const rel of scan.sqlite) if (rel !== primaryRel && !listed.has(rel)) remove(rel, true);
+  return removed;
 }
 
 /** `cleo cloud pull` and `cleo cloud restore`. */
@@ -871,10 +1074,13 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
       'run `cleo cloud push` on a device that has the data',
     );
   }
-  const synced = conn.state.stream(conn.apiUrl, conn.userId, t.streamId, t.storeRoot);
+  const cps = await listCheckpoints(conn, t.streamId);
+  // Only a snapshot whose signature verifies says what this store holds (T13007).
+  const trusted = trustedCheckpoints(journal, cps, key.signers, null);
+  const { state: synced, adopted } = syncedState(conn, t, trusted, head.headCheckpointId);
+  if (adopted) saveSynced(conn, t, adopted);
   const names = await deviceNames(conn);
   if (opts.mode === 'pull' && synced?.lastCheckpointId === target && opts.force !== true) {
-    const cps = await listCheckpoints(conn, t.streamId);
     const cp = cps.find((c) => c.checkpointId === target) ?? null;
     warnings.push(...conn.state.drainWarnings());
     return {
@@ -895,8 +1101,9 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
   const hasLocal = fs.existsSync(t.dbPath);
   const local = hasLocal && opts.force !== true ? await localManifest(t) : null;
   if (local !== null) {
-    const cps = await listCheckpoints(conn, t.streamId);
-    const last = synced ? cps.find((c) => c.checkpointId === synced.lastCheckpointId) : undefined;
+    const last = synced
+      ? trusted.find((c) => c.checkpointId === synced.lastCheckpointId)
+      : undefined;
     const hasRows = Object.entries(local.tables).some(
       ([name, x]) => x.rows > 0 && name !== VAULT_FILES_KEY,
     );
@@ -923,7 +1130,7 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
   try {
     const bundlePath = path.join(work, 'snapshot.cleobundle.tar.gz');
     fs.writeFileSync(bundlePath, restored.bundle);
-    if (hasLocal) await assertStoreQuiescent(t.dbPath);
+    if (hasLocal) await assertStoreQuiescent(t);
     let safetyBackup: string | null = null;
     if (hasLocal) {
       const dir =
@@ -941,13 +1148,12 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
         outputPath: safetyBackup,
         label: 'cloud-vault-pre-restore',
       });
+      rotateSafetyBundles(dir);
     }
     let tables = 0;
+    // Every path the snapshot lists in its section; the rest of the inventory is removed.
+    const listed = new Set<string>();
     if (t.scope === 'project') fs.mkdirSync(t.storeRoot, { recursive: true });
-    // The bundle carries the pushing machine's `nexus-link.json` (its replica
-    // binding); this machine keeps its own.
-    const linkFile = t.scope === 'project' ? nexusLinkPath(t.storeRoot) : null;
-    const ownLink = linkFile !== null && fs.existsSync(linkFile) ? fs.readFileSync(linkFile) : null;
     const place = () =>
       importPortableBundle({
         bundlePath,
@@ -956,6 +1162,8 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
         cwd: t.storeRoot,
         confirmOwnerStore: true,
         requireLossless: false,
+        // This machine keeps its own link, worktree index and scratch (T13005).
+        machineLocalFile,
         onStaged: async (extractDir, manifest) => {
           // A project restored onto this machine never lands on another project (T12976).
           if (opts.projectId && opts.force !== true) {
@@ -971,7 +1179,7 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
           }
           const staged = await snapshotManifest(extractDir, manifest, t);
           const diff = compareVaultManifests(staged.vault, restored.checkpoint.manifest).filter(
-            (d) => !d.match && !(d.localRows === null && d.cloudRows === 0),
+            (d) => !d.match,
           );
           if (diff.length > 0) {
             throw vaultError(
@@ -979,40 +1187,60 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
               `snapshot ${target} does not match its manifest (${diff.map((d) => d.table).join(', ')}); nothing was restored`,
             );
           }
-          tables = Object.keys(restored.checkpoint.manifest.tables).length;
-          if (hasLocal) {
-            // Keep this machine's own state: local-only tables and columns,
-            // credentials (T12966, T12967). Checked again under the lock.
-            await assertStoreQuiescent(t.dbPath);
-            warnings.push(
-              ...carryWarnings(
-                carryMachineState(staged.dbPath, t.dbPath, tableScopeOf(t), {
-                  snapshotRoot:
-                    t.scope === 'global' ? null : (manifest.projects[0]?.originalPath ?? null),
-                }),
-              ),
-            );
+          tables = Object.keys(restored.checkpoint.manifest.tables).filter(
+            (k) => k !== VAULT_FORK_KEY,
+          ).length;
+          const section = t.scope === 'global' ? manifest.global?.home : manifest.projects[0];
+          for (const e of [
+            ...(section?.files ?? []),
+            ...(section?.databases ?? []),
+            ...(section?.symlinks ?? []),
+          ]) {
+            listed.add(e.relPath);
           }
+          // Checked again under the lock.
+          if (hasLocal) await assertStoreQuiescent(t);
+          // Keep this machine's own state: local-only tables and columns,
+          // credentials (T12966, T12967). A store new to this machine is
+          // carried against none, so no machine state of the pusher's arrives
+          // (T13007).
+          warnings.push(
+            ...carryWarnings(
+              carryMachineState(staged.dbPath, hasLocal ? t.dbPath : null, tableScopeOf(t), {
+                snapshotRoot:
+                  t.scope === 'global' ? null : (manifest.projects[0]?.originalPath ?? null),
+              }),
+            ),
+          );
         },
       });
+    const placeAndPrune = async () => {
+      await place();
+      // Deletions propagate: what the snapshot no longer lists goes (T13004).
+      if (!hasLocal) return;
+      const removed = pruneUnlisted(t, listed);
+      if (removed.length > 0) {
+        warnings.push({
+          code: 'W_NEXUS_VAULT_REMOVED',
+          message: `removed ${removed.length} file(s) the snapshot no longer has (the safety backup ${safetyBackup} keeps a copy): ${removed.slice(0, 8).join(', ')}${removed.length > 8 ? ', …' : ''}`,
+        });
+      }
+    };
     // Serialise with first-open migrations and auto-recovery of the same store.
     if (hasLocal) {
-      await withLock(t.dbPath + FIRST_OPEN_LOCK_SUFFIX, place);
+      await withLock(t.dbPath + FIRST_OPEN_LOCK_SUFFIX, placeAndPrune);
     } else {
-      await place();
+      await placeAndPrune();
     }
-    if (linkFile !== null && ownLink !== null) {
-      const tmp = `${linkFile}.${process.pid}.tmp`;
-      fs.writeFileSync(tmp, ownLink);
-      fs.renameSync(tmp, linkFile);
-    }
-    conn.state.saveStream(conn.apiUrl, conn.userId, t.streamId, t.storeRoot, {
-      lastCheckpointId: restored.checkpoint.checkpointId,
-      lastCoversSeq: restored.checkpoint.coversSeq,
-    });
+    saveSynced(conn, t, restored.checkpoint);
     if (t.scope === 'project' && opts.relink) {
       for (const message of await opts.relink(t.storeRoot)) {
         warnings.push({ code: 'W_NEXUS_VAULT_RELINK', message });
+      }
+      // Later commands key this store by the stream its link names (T13007).
+      const linked = readNexusProjectLink(t.storeRoot, conn.apiUrl);
+      if (linked?.streamId && linked.streamId !== t.streamId) {
+        saveSynced(conn, t, restored.checkpoint, linked.streamId);
       }
     }
     warnings.push(...conn.state.drainWarnings());
@@ -1047,8 +1275,9 @@ async function nexusVaultStatusImpl(
   const lineage = cps.map((c) => snapshotOf(c, names));
   const byDevice = new Map<string, CloudVaultSnapshot>();
   for (const s of lineage) if (!byDevice.has(s.deviceId)) byDevice.set(s.deviceId, s);
-  const synced = conn.state.stream(conn.apiUrl, conn.userId, t.streamId, t.storeRoot);
-  const last = synced ? cps.find((c) => c.checkpointId === synced.lastCheckpointId) : undefined;
+  const trusted = trustedCheckpoints(journalFor(conn, t), cps, key.signers, warnings);
+  const { state: synced } = syncedState(conn, t, trusted, head.headCheckpointId);
+  const last = synced ? trusted.find((c) => c.checkpointId === synced.lastCheckpointId) : undefined;
   const local = await localManifest(t);
   const pendingChanges: CloudVaultTableDiff[] =
     local && last ? compareVaultManifests(local, last.manifest).filter((d) => !d.match) : [];
@@ -1072,6 +1301,31 @@ async function nexusVaultStatusImpl(
   };
 }
 
+/**
+ * The fork labels this store has not synced past: labelled snapshots
+ * ({@link VAULT_FORK_KEY}) on the lineage from the head back to the
+ * snapshot this store last synced, exclusive, by another device (T13007).
+ * A store that never synced sees only the head's label.
+ */
+function unsyncedForks(
+  trusted: readonly Checkpoint[],
+  headCheckpointId: string | null,
+  syncedCheckpointId: string | null,
+  deviceId: string,
+): Checkpoint[] {
+  const byId = new Map(trusted.map((c) => [c.checkpointId, c]));
+  const out: Checkpoint[] = [];
+  let id = headCheckpointId;
+  for (let walked = 0; id !== null && id !== syncedCheckpointId && walked < byId.size; walked++) {
+    const cp = byId.get(id);
+    if (!cp) break;
+    if (isVaultForkManifest(cp.manifest) && cp.deviceId !== deviceId) out.push(cp);
+    if (syncedCheckpointId === null) break;
+    id = cp.parentCheckpointId;
+  }
+  return out;
+}
+
 /** `cleo cloud verify`: local integrity, local vs head per table, and every device's newest snapshot vs the head. */
 async function verifyNexusVaultImpl(
   opts: NexusVaultCommandOptions = {},
@@ -1084,27 +1338,21 @@ async function verifyNexusVaultImpl(
   const journal = journalFor(conn, t);
   const head = await streamHead(conn, t.streamId);
   const cps = await listCheckpoints(conn, t.streamId);
-  const headCp = cps.find((c) => c.checkpointId === head.headCheckpointId) ?? null;
-  for (const cp of cps) {
-    try {
-      journal.verifyCheckpoint(cp, key.signers);
-    } catch (err) {
-      warnings.push({
-        code: 'W_NEXUS_VAULT_UNTRUSTED_SNAPSHOT',
-        message: `snapshot ${cp.checkpointId}: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
-  }
+  // A snapshot whose signature does not verify is reported and decides nothing (T13007).
+  const trusted = trustedCheckpoints(journal, cps, key.signers, warnings);
+  const headCp = trusted.find((c) => c.checkpointId === head.headCheckpointId) ?? null;
+  const headUntrusted = head.headCheckpointId !== null && headCp === null;
   const localIntegrity = fs.existsSync(t.dbPath) ? integrityCheck(t.dbPath) === 'ok' : false;
   const local = (await localManifest(t)) ?? {
     schemaVersion: VAULT_MANIFEST_SCHEMA_VERSION,
     tables: {},
   };
-  const synced = conn.state.stream(conn.apiUrl, conn.userId, t.streamId, t.storeRoot);
-  const last = synced ? cps.find((c) => c.checkpointId === synced.lastCheckpointId) : undefined;
+  const { state: synced } = syncedState(conn, t, trusted, head.headCheckpointId);
+  const last = synced ? trusted.find((c) => c.checkpointId === synced.lastCheckpointId) : undefined;
   const tables = headCp ? compareVaultManifests(local, headCp.manifest) : [];
   let verdict: CloudVerifyResult['verdict'];
-  if (!headCp) verdict = 'empty';
+  if (headUntrusted) verdict = 'untrusted';
+  else if (!headCp) verdict = 'empty';
   else if (tables.every((x) => x.match)) verdict = 'match';
   else {
     const localChanged = last ? !sameVaultManifest(local, last.manifest) : true;
@@ -1112,8 +1360,16 @@ async function verifyNexusVaultImpl(
     verdict = localChanged && cloudAdvanced ? 'diverged' : cloudAdvanced ? 'behind' : 'ahead';
   }
   const newest = new Map<string, Checkpoint>();
-  for (const cp of cps) if (!newest.has(cp.deviceId)) newest.set(cp.deviceId, cp);
-  // Only a fork taken since this machine last synced is news to it (T12976).
+  for (const cp of trusted) if (!newest.has(cp.deviceId)) newest.set(cp.deviceId, cp);
+  // Only a fork this machine has not synced past is news to it (T12976). The
+  // label is on the checkpoint, so it outlives the lease (T13007); a forced
+  // lease whose push has not landed yet is reported from the lease.
+  const fork = unsyncedForks(
+    trusted,
+    headCp?.checkpointId ?? null,
+    synced?.lastCheckpointId ?? null,
+    conn.deviceId,
+  )[0];
   const forkedLease = (await leasesOf(conn, t, names, warnings)).find(
     (l) =>
       l.forkedFromReplicaId !== null &&
@@ -1123,24 +1379,32 @@ async function verifyNexusVaultImpl(
         l.acquiredAt === undefined ||
         l.acquiredAt > synced.updatedAt),
   );
-  if (forkedLease) {
+  if (fork) {
+    const over = trusted.find((c) => c.checkpointId === fork.parentCheckpointId);
+    warnings.push({
+      code: 'W_NEXUS_VAULT_FORK',
+      message: `snapshot ${fork.checkpointId} by ${names.get(fork.deviceId) ?? fork.deviceId} is a labelled fork: pushed with --force over snapshot ${fork.parentCheckpointId}${over ? ` (replica ${over.replicaId})` : ''}, which that device had not synced${forkedLease ? `; the write lease was taken by force from replica ${forkedLease.forkedFromReplicaId}` : ''}`,
+    });
+  } else if (forkedLease) {
     warnings.push({
       code: 'W_NEXUS_VAULT_FORK',
       message: `the write lease was taken by force from replica ${forkedLease.forkedFromReplicaId}: the newest snapshot is a labelled fork`,
     });
   }
   const remedy =
-    verdict === 'behind'
-      ? 'run `cleo cloud pull` to bring this machine to the newest snapshot'
-      : verdict === 'ahead'
-        ? 'run `cleo cloud push` to back up the local changes'
-        : verdict === 'diverged'
-          ? 'both sides changed: run `cleo cloud push --force` to keep this machine (a labelled fork), or `cleo cloud pull --force` to take the cloud (a safety backup is taken first)'
-          : verdict === 'empty'
-            ? 'run `cleo cloud push` to make the first snapshot'
-            : !localIntegrity
-              ? 'the local store failed its integrity check: run `cleo doctor` and `cleo cloud restore`'
-              : null;
+    verdict === 'untrusted'
+      ? `the newest snapshot ${head.headCheckpointId} is not signed by a device this account trusts: do not pull it; see which device pushed it with \`cleo cloud vault\` and \`cleo cloud activity\`, and revoke that device if you do not recognise it`
+      : verdict === 'behind'
+        ? 'run `cleo cloud pull` to bring this machine to the newest snapshot'
+        : verdict === 'ahead'
+          ? 'run `cleo cloud push` to back up the local changes'
+          : verdict === 'diverged'
+            ? 'both sides changed: run `cleo cloud push --force` to keep this machine (a labelled fork), or `cleo cloud pull --force` to take the cloud (a safety backup is taken first)'
+            : verdict === 'empty'
+              ? 'run `cleo cloud push` to make the first snapshot'
+              : !localIntegrity
+                ? 'the local store failed its integrity check: run `cleo doctor` and `cleo cloud restore`'
+                : null;
   return {
     apiUrl: conn.apiUrl,
     scope: t.scope,

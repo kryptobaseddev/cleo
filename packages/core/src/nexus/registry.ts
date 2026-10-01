@@ -32,7 +32,7 @@ import {
   type NexusUnregisterParams,
 } from '@cleocode/contracts';
 import { pushWarning } from '@cleocode/lafs';
-import { readPortableProjectId } from '@cleocode/paths';
+import { isVaultRemotePath, readPortableProjectId } from '@cleocode/paths';
 import { desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
@@ -114,6 +114,12 @@ export interface NexusProject {
   lastProbedAt?: string | null;
   /** ISO 8601 instant of the last real CLI use inside the project (T12512); null if never. */
   lastOpenedAt?: string | null;
+  /**
+   * The project lives on another machine (a row a cloud vault restore brought):
+   * `path` is a placeholder, not a location here, so nothing may probe or open
+   * it (T13006). Absent for a project on this machine.
+   */
+  remote?: true;
 }
 
 /** Legacy registry file shape (pre-SQLite). Retained for migration compatibility. */
@@ -146,8 +152,13 @@ export function getRegistryPath(): string {
 
 // ── Row-to-NexusProject mapping ─────────────────────────────────────
 
-/** Convert a project_registry row to a NexusProject object. */
+/**
+ * Convert a project_registry row to a NexusProject object. A row whose path
+ * is a cloud vault placeholder is flagged `remote` (T13006).
+ */
 function rowToProject(row: ProjectRegistryRow): NexusProject {
+  const remote = isVaultRemotePath(row.projectPath);
+  const noLocation = remote || isSupersededRegistryPath(row.projectPath);
   let labels: string[] = [];
   try {
     labels = JSON.parse(row.labelsJson);
@@ -179,17 +190,15 @@ function rowToProject(row: ProjectRegistryRow): NexusProject {
     taskCount: row.taskCount,
     labels,
     // T12469: derived from the path at runtime; the stored columns are a
-    // legacy mirror for older binaries and are never read.
-    brainDbPath: isSupersededRegistryPath(row.projectPath)
-      ? null
-      : registryStorePath(row.projectPath),
-    tasksDbPath: isSupersededRegistryPath(row.projectPath)
-      ? null
-      : registryStorePath(row.projectPath),
+    // legacy mirror for older binaries and are never read. A placeholder
+    // (superseded, or another machine's project, T13006) has no store here.
+    brainDbPath: noLocation ? null : registryStorePath(row.projectPath),
+    tasksDbPath: noLocation ? null : registryStorePath(row.projectPath),
     lastIndexed: row.lastIndexed ?? null,
     stats,
     lastProbedAt: row.lastProbedAt ?? null,
     lastOpenedAt: row.lastOpenedAt ?? null,
+    ...(remote ? { remote: true as const } : {}),
   };
 }
 
@@ -342,6 +351,17 @@ export async function nexusInit(_projectRoot = '', _params: NexusInitParams = {}
 async function readProjectMeta(
   projectPath: string,
 ): Promise<{ taskCount: number; labels: string[] }> {
+  if (isVaultRemotePath(projectPath)) {
+    // T13006: another machine's project; opening it would create a store here.
+    // @sync-invariant none:local-only a placeholder path names no location on this machine; it gates a local store open, never a synced write
+    throw new CleoError(
+      ExitCode.NOT_FOUND,
+      `This project lives on another machine (restored from the cloud vault); it has no task store here: ${projectPath}`,
+      {
+        fix: 'Run `cleo cloud restore --project <id> --into <dir>` to bring it onto this machine.',
+      },
+    );
+  }
   try {
     const accessor = await getTaskAccessor(projectPath);
     const { tasks } = await accessor.queryTasks({});
@@ -906,7 +926,8 @@ export async function nexusSync(
 }
 
 /**
- * Sync all registered projects.
+ * Sync all registered projects. A project that lives on another machine (a
+ * cloud vault placeholder row) is skipped: it has no store here (T13006).
  * @returns Counts of synced and failed projects.
  */
 export async function nexusSyncAll(): Promise<{ synced: number; failed: number }> {
@@ -917,6 +938,8 @@ export async function nexusSyncAll(): Promise<{ synced: number; failed: number }
   const { eq } = await import('drizzle-orm');
 
   for (const project of projects) {
+    // T13006: another machine's project has no store here to sync from.
+    if (project.remote) continue;
     try {
       // readProjectMeta opens the TARGET project's own `cleo.db` (a different
       // project than the open nexus handle). Under the ADR-090 · T11648 residency

@@ -363,7 +363,11 @@ export function relocateDatabase(
 }
 
 /** Project JSON files whose string values are relocated wholesale. */
-const RELOCATED_JSON_FILES = ['config.json', 'project-context.json', 'worktrees.json'];
+export const RELOCATED_JSON_FILES: readonly string[] = [
+  'config.json',
+  'project-context.json',
+  'worktrees.json',
+];
 
 /** Rewrite every string value under `from` in a parsed JSON value. */
 function rewriteAllStrings(
@@ -396,6 +400,26 @@ function rewriteAllStrings(
     return { value, changed };
   }
   return { value: node, changed: 0 };
+}
+
+/**
+ * A {@link RELOCATED_JSON_FILES} file's JSON with every string value that is
+ * an absolute path under `from` re-rooted onto `to`, serialised compactly, so
+ * two copies of one file relocated to different roots compare equal (the
+ * cloud vault hashes them this way, T13005).
+ *
+ * @param text - File content.
+ * @param from - Old root.
+ * @param to - New root.
+ * @returns Compact JSON, or `null` when `text` is not JSON.
+ * @task T13005
+ */
+export function relocatedJsonText(text: string, from: string, to: string): string | null {
+  try {
+    return JSON.stringify(rewriteAllStrings(JSON.parse(text), from, to).value);
+  } catch {
+    return null;
+  }
 }
 
 /**

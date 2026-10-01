@@ -226,6 +226,19 @@ describe('invalid input', () => {
     }
   });
 
+  it.each([
+    'abc',
+    '0',
+    '201',
+    '2.5',
+    '-1',
+  ])('activity --limit %s fails with E_VALIDATION (exit 6) before any call (T13007)', async (limit) => {
+    await expect(runCloudActivity({ limit })).rejects.toThrow(/^exit:/);
+    expect(exits[0]).toBe(6);
+    expect(written()).toContain('E_VALIDATION');
+    expect(nexusCloudActivity).not.toHaveBeenCalled();
+  });
+
   it('lease foo fails with E_VALIDATION (exit 6) and releases nothing', async () => {
     await expect(runCloudLease({ action: 'foo' })).rejects.toThrow(/^exit:/);
     expect(exits).toEqual([6]);
@@ -239,6 +252,7 @@ describe('invalid input', () => {
     ['E_NEXUS_VAULT_BEHIND', 23],
     ['E_NEXUS_VAULT_LOCAL_CHANGES', 21],
     ['E_NEXUS_VAULT_VERIFY_FAILED', 20],
+    ['E_NEXUS_VAULT_TARGET_OCCUPIED', 22],
     ['E_NEXUS_VAULT_REFUSED', 1],
   ])('the refusal %s exits %i (T12976)', async (code, exitCode) => {
     pushNexusVault.mockRejectedValueOnce(Object.assign(new Error('refused'), { code }));

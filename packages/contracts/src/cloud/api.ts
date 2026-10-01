@@ -445,7 +445,7 @@ export type ListedLease = z.infer<typeof ListedLease>;
 export const ListLeasesResult = z.object({ leases: z.array(ListedLease) });
 export type ListLeasesResult = z.infer<typeof ListLeasesResult>;
 
-// ---------- keys (E2E; the server stores wrapped keys only) ----------
+// ---------- keys (wrapped project keys; the account master key is escrowed on the server, T082: encryption at rest, not end-to-end) ----------
 
 /**
  * Bounds on Argon2id parameters. The server stores the parameters, so a client must not trust them: too
@@ -611,7 +611,7 @@ export const PutProjectKeyRequest = z.object({
   keyVersion: KeyVersion,
 });
 
-// ---------- conflicts (metadata only; the content stays E2E) ----------
+// ---------- conflicts (metadata only; the content stays encrypted) ----------
 
 export const ConflictSummary = z.object({
   replicaId: ReplicaId,

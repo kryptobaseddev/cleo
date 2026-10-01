@@ -47,6 +47,24 @@ function common(args: Args, operation: string) {
 const who = (name: string | null, id: string) => name ?? id;
 
 /**
+ * `--limit` of `cleo cloud activity`, validated (T13007): a whole number from
+ * 1 to 200, else E_VALIDATION (exit 6 via `failNexus`).
+ *
+ * @param args - Parsed args.
+ * @returns The limit, or `undefined` for the default.
+ */
+function activityLimitArg(args: Args): number | undefined {
+  const raw = stringArg(args, 'limit');
+  if (raw === undefined) return undefined;
+  const limit = Number(raw);
+  if (/^\d+$/.test(raw) && Number.isSafeInteger(limit) && limit >= 1 && limit <= 200) return limit;
+  throw Object.assign(new Error(`--limit must be a whole number from 1 to 200, got '${raw}'`), {
+    code: 'E_VALIDATION',
+    fix: 'pass --limit 1..200 (default 50)',
+  });
+}
+
+/**
  * `cleo cloud push [--scope] [--force] [--hold]`.
  *
  * @param args - Parsed args.
@@ -199,14 +217,14 @@ export async function runCloudActivity(args: Args): Promise<void> {
       const { nexusCloudActivity } = await import(
         /* webpackIgnore: true */ '@cleocode/core/cloud/nexus-cloud-activity.js'
       );
-      const limit = stringArg(args, 'limit');
+      const limit = activityLimitArg(args);
       const before = stringArg(args, 'before');
       const projectId = stringArg(args, 'project');
       const deviceId = stringArg(args, 'device');
       return nexusCloudActivity({
         ...(deviceId !== undefined ? { deviceId } : {}),
         apiUrl: nexusApiUrlArg(args),
-        ...(limit !== undefined ? { limit: Number(limit) } : {}),
+        ...(limit !== undefined ? { limit } : {}),
         ...(before !== undefined ? { before } : {}),
         ...(projectId !== undefined ? { projectId } : {}),
       });

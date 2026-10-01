@@ -69,6 +69,7 @@ import {
 import { resolveDualScopeDbPath } from './dual-scope-db.js';
 import {
   CONFIG_HOME_RULES,
+  clearSnapshotColumns,
   countRows,
   GLOBAL_HOME_RULES,
   LEGACY_STORE_BASENAMES,
@@ -188,6 +189,13 @@ export interface ExportPortableBundleInput {
   };
   /** Stage the config home with the global home (default `true`). */
   includeConfigHome?: boolean;
+  /**
+   * Columns cleared in every primary store snapshot, on top of an unencrypted
+   * bundle's credential columns (table to column names). The cloud vault
+   * passes the classification registry's `strip` columns, such as a git
+   * remote URL, which can embed a token (T13007). Rows are kept.
+   */
+  stripColumns?: Readonly<Record<string, readonly string[]>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -320,6 +328,8 @@ interface StagingState {
   passphrase: string | null;
   /** Source CLEO home, whose machine-key decrypts the credentials being sealed. */
   cleoHome: string;
+  /** Columns cleared in every primary store snapshot ({@link ExportPortableBundleInput.stripColumns}). */
+  stripColumns: Readonly<Record<string, readonly string[]>> | null;
 }
 
 /** Credential tables whose rows {@link listCredentialsForReentry} enumerates, by store. */
@@ -476,6 +486,16 @@ async function stageSection(
         throw new PortableBundleError(
           'E_REDACTION_FAILED',
           `Cannot clear credential columns in the snapshot of ${path.join(root, relPath)}; refusing to write an unencrypted bundle that could carry them (use --encrypt): ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    if (isPrimary && state.stripColumns !== null) {
+      try {
+        clearSnapshotColumns(staged, state.stripColumns);
+      } catch (err) {
+        throw new PortableBundleError(
+          'E_REDACTION_FAILED',
+          `Cannot clear stripped columns in the snapshot of ${path.join(root, relPath)}: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }
@@ -684,6 +704,7 @@ export async function exportPortableBundle(
     includeSecrets: encrypt,
     passphrase: encrypt && input.passphrase ? input.passphrase : null,
     cleoHome,
+    stripColumns: input.stripColumns ?? null,
   };
 
   try {

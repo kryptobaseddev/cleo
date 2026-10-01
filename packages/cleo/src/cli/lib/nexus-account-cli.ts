@@ -52,12 +52,14 @@ const VAULT_REFUSAL_EXIT_CODES: Readonly<Record<string, number>> = {
   E_NEXUS_VAULT_BEHIND: ExitCode.VERSION_CONFLICT,
   E_NEXUS_VAULT_LOCAL_CHANGES: ExitCode.CONCURRENT_MODIFICATION,
   E_NEXUS_VAULT_VERIFY_FAILED: ExitCode.CHECKSUM_MISMATCH,
+  E_NEXUS_VAULT_TARGET_OCCUPIED: ExitCode.ID_COLLISION,
 };
 
 /**
  * Emit a Nexus flow failure (LAFS error envelope or a human line) and exit.
  * Invalid input exits 6; the vault refusals exit with their own codes
- * (lease held / store busy 7, behind 23, local changes 21, verify failed 20);
+ * (lease held / store busy 7, behind 23, local changes 21, verify failed 20,
+ * restore target holds another project 22);
  * everything else exits 1.
  *
  * @param err - The thrown error.

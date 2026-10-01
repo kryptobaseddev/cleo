@@ -166,7 +166,10 @@ export interface CloudPushResult {
   deltaSegmentSeq: number | null;
   /** The lease this push holds. */
   lease: CloudVaultLease | null;
-  /** The push took the lease from another device and descends from its snapshot: a labelled fork. */
+  /**
+   * A labelled fork: pushed with `--force` over a head this store had not synced, or after
+   * taking another device's live lease. The label is on the snapshot itself (T13007).
+   */
   forked: boolean;
   warnings: CloudWarning[];
 }
@@ -195,8 +198,8 @@ export interface CloudVerifyResult {
   apiUrl: string;
   scope: CloudVaultScope;
   streamId: string;
-  /** `match`: local equals the head snapshot; `ahead`: local changed since this machine's last snapshot; `behind`: the cloud has a newer snapshot; `diverged`: both; `empty`: no snapshot yet. */
-  verdict: 'match' | 'ahead' | 'behind' | 'diverged' | 'empty';
+  /** `match`: local equals the head snapshot; `ahead`: local changed since this machine's last snapshot; `behind`: the cloud has a newer snapshot; `diverged`: both; `empty`: no snapshot yet; `untrusted`: the head snapshot's signature does not verify against a trusted device key (nothing is compared with it). */
+  verdict: 'match' | 'ahead' | 'behind' | 'diverged' | 'empty' | 'untrusted';
   /** What to do about a verdict other than `match` (or a failed integrity check); `null` when nothing. */
   remedy: string | null;
   /** Local store passed SQLite integrity_check. */

@@ -23,6 +23,7 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
+import { gunzipSync } from 'node:zlib';
 import type {
   Checkpoint,
   DeviceCertificateRecord,
@@ -38,6 +39,7 @@ import {
   generateEd25519,
   generateX25519,
   type KeyPair,
+  open as openAead,
   sealTo,
   sha256Hex,
   uuidv7,
@@ -62,7 +64,12 @@ import {
   restoreNexusVault,
   verifyNexusVault,
 } from '../nexus-vault.js';
-import { connectNexusVault, escrowContext, unlockNexusAccountKey } from '../nexus-vault-keys.js';
+import {
+  connectNexusVault,
+  escrowContext,
+  nexusHomeDataKey,
+  unlockNexusAccountKey,
+} from '../nexus-vault-keys.js';
 import { NexusVaultState } from '../nexus-vault-state.js';
 import { replicasCanonical } from '../signing.js';
 
@@ -1361,6 +1368,20 @@ describe('cloud vault concurrency', () => {
     expect(sha256Hex(fs.readFileSync(dbFile))).toBe(beforeIdle);
     expect(taskCount(a)).toBe(5);
 
+    // So does another database the restore replaces, held open elsewhere (T13007).
+    const blobsFile = path.join(a.root, '.cleo', 'blobs', 'manifest.db');
+    fs.mkdirSync(path.dirname(blobsFile), { recursive: true });
+    const blobsHeld = new DatabaseSync(blobsFile);
+    blobsHeld.exec('PRAGMA journal_mode = WAL; CREATE TABLE blobs (sha TEXT PRIMARY KEY);');
+    blobsHeld.prepare('SELECT COUNT(*) FROM blobs').get();
+    const blobsBusy = await failure(
+      on(a, () => restoreNexusVault(vopts(a, { mode: 'pull', force: true }))),
+    );
+    expect(blobsBusy.code).toBe('E_NEXUS_VAULT_STORE_BUSY');
+    expect(blobsBusy.message).toContain('manifest.db');
+    blobsHeld.close();
+    expect(taskCount(a)).toBe(5);
+
     // An expired lease (its holder died) and no open connection do not block.
     const restored = await on(a, () => restoreNexusVault(vopts(a, { mode: 'pull', force: true })));
     expect(restored.status).toBe('restored');
@@ -1702,6 +1723,14 @@ describe('cloud vault global scope', () => {
     }
     fs.mkdirSync(path.join(a.home, 'keys'), { recursive: true });
     fs.writeFileSync(path.join(a.home, 'keys', 'evidence-cache.key'), 'key a');
+    // A git remote URL can embed a token: a `strip` column, never in a snapshot (T13007).
+    const gitDb = new DatabaseSync(path.join(a.home, 'cleo.db'));
+    gitDb
+      .prepare(
+        "INSERT INTO nexus_project_git_state (project_id, device_id, path, remote_url, probed_at) VALUES ('p2', 'device-a', '/a/p2', ?, '2026-10-01T00:00:00Z')",
+      )
+      .run('https://user:SEKRIT-TOKEN@git.example/r.git');
+    gitDb.close();
     const tableExists = (m: Machine, t: string) =>
       homeSql(m, `SELECT name FROM sqlite_master WHERE type = 'table' AND name = '${t}'`).length >
       0;
@@ -1712,6 +1741,18 @@ describe('cloud vault global scope', () => {
     expect(pushed.streamId).toBe(HOME_STREAM);
     const cp = fake.stream(HOME_STREAM).checkpoints[0];
     expect(cp?.manifest.tables['nexus_project_registry']?.rows).toBe(2);
+    if (!cp || !fake.escrow) throw new Error('fixture');
+    const sealed = fake.blobs.get(cp.blobSha256)?.bytes ?? Buffer.alloc(0);
+    const tar = gunzipSync(
+      openAead(
+        nexusHomeDataKey(fake.escrow.mk),
+        sealed,
+        'checkpoint',
+        `checkpoint/v2\n${cp.streamId}\n${cp.checkpointId}\n${cp.coversSeq}`,
+      ),
+    );
+    expect(tar.includes(Buffer.from('nexus_project_git_state'))).toBe(true);
+    expect(tar.includes(Buffer.from('SEKRIT-TOKEN'))).toBe(false);
     expect(cp?.manifest.tables['_sync_replica']).toBeUndefined();
     expect(cp?.manifest.tables['accounts']).toBeUndefined();
     // The snapshot names A's own global replica (bound by the push).
@@ -1805,6 +1846,10 @@ describe('cloud vault global scope', () => {
     expect(
       homeSql(a, "SELECT project_path FROM nexus_project_registry WHERE project_id = 'p1'"),
     ).toEqual([{ project_path: `${a.home}/projects/p1` }]);
+    // A keeps its own git remote URL (a non-syncing cell, carried by key).
+    expect(homeSql(a, 'SELECT remote_url FROM nexus_project_git_state')).toEqual([
+      { remote_url: 'https://user:SEKRIT-TOKEN@git.example/r.git' },
+    ]);
     expect(replicaRows(a)).toEqual(replicasA);
     expect(fs.readFileSync(path.join(a.home, 'device-id'), 'utf8')).toBe('device-a\n');
     // A's agent key had nowhere to go (B deleted the agent): reported with its remedy.
@@ -1813,5 +1858,331 @@ describe('cloud vault global scope', () => {
     expect(lost?.message).toContain('re-issue agent keys');
     const va = await on(a, () => verifyNexusVault(vopts(a, { scope: 'global' })));
     expect(va.verdict).toBe('match');
+  });
+});
+
+describe('cloud vault round 3 (#1773)', () => {
+  const insertTask = (m: Machine, id: string, title = 'new') =>
+    exec(m, `INSERT INTO tasks_tasks (id, title) VALUES ('${id}', '${title}')`);
+  const warning = (r: { warnings: Array<{ code: string; message: string }> }, code: string) =>
+    r.warnings.find((w) => w.code === code);
+
+  it('R3PROBE-1: a file or database another device deleted is deleted here too (T13004)', async () => {
+    const { a, b } = await twoMachines();
+    const adr = (m: Machine) => path.join(m.root, '.cleo', 'adrs', 'old.md');
+    const blobsDb = (m: Machine) => path.join(m.root, '.cleo', 'blobs', 'manifest.db');
+    fs.mkdirSync(path.dirname(adr(a)), { recursive: true });
+    fs.writeFileSync(adr(a), '# old\n');
+    fs.mkdirSync(path.dirname(blobsDb(a)), { recursive: true });
+    const blobs = new DatabaseSync(blobsDb(a));
+    blobs.exec("CREATE TABLE blobs (sha TEXT PRIMARY KEY); INSERT INTO blobs VALUES ('aa');");
+    blobs.close();
+    // The docs audit key is a secret: never in a snapshot (T13007).
+    fs.mkdirSync(path.join(a.root, '.cleo', 'audit'), { recursive: true });
+    fs.writeFileSync(path.join(a.root, '.cleo', 'audit', '.audit-secret'), 'a'.repeat(64));
+    await on(a, () => pushNexusVault(vopts(a)));
+    await restoreOntoB(b);
+    expect(fs.existsSync(adr(b))).toBe(true);
+    expect(fs.existsSync(blobsDb(b))).toBe(true);
+    expect(fs.existsSync(path.join(b.root, '.cleo', 'audit', '.audit-secret'))).toBe(false);
+    // B's own machine-local files and secrets are never removed.
+    fs.writeFileSync(path.join(b.root, '.cleo', 'worktrees.json'), '{"b":1}');
+    fs.mkdirSync(path.join(b.root, '.cleo', 'audit'), { recursive: true });
+    fs.writeFileSync(path.join(b.root, '.cleo', 'audit', '.audit-secret'), 'b'.repeat(64));
+    fs.mkdirSync(path.join(b.root, '.cleo', 'keys'), { recursive: true });
+    fs.writeFileSync(path.join(b.root, '.cleo', 'keys', 'identity.key'), 'B-KEY');
+
+    fs.rmSync(adr(a));
+    fs.rmSync(blobsDb(a));
+    const pushed = await on(a, () => pushNexusVault(vopts(a)));
+    expect(pushed.status).toBe('pushed');
+    const pulled = await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' })));
+    expect(pulled.status).toBe('restored');
+    expect(fs.existsSync(adr(b))).toBe(false);
+    expect(fs.existsSync(path.dirname(adr(b)))).toBe(false);
+    expect(fs.existsSync(blobsDb(b))).toBe(false);
+    const removed = warning(pulled, 'W_NEXUS_VAULT_REMOVED')?.message;
+    expect(removed).toContain('adrs/old.md');
+    expect(removed).toContain('blobs/manifest.db');
+    expect(fs.readFileSync(path.join(b.root, '.cleo', 'worktrees.json'), 'utf8')).toBe('{"b":1}');
+    expect(fs.readFileSync(path.join(b.root, '.cleo', 'audit', '.audit-secret'), 'utf8')).toBe(
+      'b'.repeat(64),
+    );
+    expect(fs.readFileSync(path.join(b.root, '.cleo', 'keys', 'identity.key'), 'utf8')).toBe(
+      'B-KEY',
+    );
+    expect(fs.existsSync(path.join(b.root, '.cleo', 'nexus-link.json'))).toBe(true);
+    const vb = await on(b, () => verifyNexusVault(vopts(b)));
+    expect(vb.verdict).toBe('match');
+
+    // A's next push: B's plain pull works (nothing stale is left to look like a local change).
+    insertTask(a, 'A1');
+    await on(a, () => pushNexusVault(vopts(a)));
+    const again = await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' })));
+    expect(again.status).toBe('restored');
+    expect(taskCount(b)).toBe(6);
+  });
+
+  it('R3PROBE-2: a local config.json edit blocks a plain pull; machine-local files stay (T13005)', async () => {
+    const { a, b } = await twoMachines();
+    const cfg = (m: Machine) => path.join(m.root, '.cleo', 'config.json');
+    const worktrees = (m: Machine) => path.join(m.root, '.cleo', 'worktrees.json');
+    fs.writeFileSync(
+      cfg(a),
+      JSON.stringify({ storage: { root: `${a.root}/data` }, mode: 'a' }, null, 2),
+    );
+    fs.writeFileSync(path.join(a.root, '.cleo', 'project-context.json'), '{"primaryType":"node"}');
+    fs.writeFileSync(worktrees(a), '{"from":"a"}');
+    await on(a, () => pushNexusVault(vopts(a)));
+    await restoreOntoB(b);
+    // The config's paths follow the store, and the relocated copy still verifies.
+    expect(JSON.parse(fs.readFileSync(cfg(b), 'utf8'))).toEqual({
+      storage: { root: `${b.root}/data` },
+      mode: 'a',
+    });
+    // A's worktree index never arrives: it names A's worktrees.
+    expect(fs.existsSync(worktrees(b))).toBe(false);
+    expect((await on(b, () => verifyNexusVault(vopts(b)))).verdict).toBe('match');
+    fs.writeFileSync(worktrees(b), '{"from":"b"}');
+
+    // B edits its config after its last sync, then A pushes.
+    fs.writeFileSync(
+      cfg(b),
+      JSON.stringify({ storage: { root: `${b.root}/data` }, mode: 'b' }, null, 2),
+    );
+    const vb = await on(b, () => verifyNexusVault(vopts(b)));
+    expect(vb.verdict).toBe('ahead');
+    insertTask(a, 'A1');
+    await on(a, () => pushNexusVault(vopts(a)));
+    const refused = await failure(on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' }))));
+    expect(refused.code).toBe('E_NEXUS_VAULT_LOCAL_CHANGES');
+    expect(refused.message).toContain('zz_vault_files');
+    expect(JSON.parse(fs.readFileSync(cfg(b), 'utf8')).mode).toBe('b');
+
+    // --force takes the cloud's config (relocated here) and keeps B's worktree index.
+    const forced = await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull', force: true })));
+    expect(forced.status).toBe('restored');
+    expect(JSON.parse(fs.readFileSync(cfg(b), 'utf8'))).toEqual({
+      storage: { root: `${b.root}/data` },
+      mode: 'a',
+    });
+    expect(fs.readFileSync(worktrees(b), 'utf8')).toBe('{"from":"b"}');
+    expect((await on(b, () => verifyNexusVault(vopts(b)))).verdict).toBe('match');
+  });
+
+  it('N4: --force over a newer head with no lease is a labelled fork; synced past it, no warning', async () => {
+    const { a, b } = await twoMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    await restoreOntoB(b);
+    insertTask(a, 'A1');
+    const a2 = await on(a, () => pushNexusVault(vopts(a)));
+    insertTask(b, 'B1');
+    const stale = await failure(on(b, () => pushNexusVault(vopts(b))));
+    expect(stale.code).toBe('E_NEXUS_VAULT_BEHIND');
+
+    // No hold: the lease is handed back, and the label stays on the snapshot.
+    const forked = await on(b, () => pushNexusVault(vopts(b, { force: true })));
+    expect(forked.status).toBe('pushed');
+    expect(forked.forked).toBe(true);
+    expect(forked.parentCheckpointId).toBe(a2.snapshot?.checkpointId);
+    expect(fake.leases.size).toBe(0);
+    expect(fake.activity.some((e) => e.action === 'lease.force_take')).toBe(false);
+    expect(fake.stream(STREAM).checkpoints.at(-1)?.manifest.tables['zz_vault_fork']?.rows).toBe(0);
+
+    const va = await on(a, () => verifyNexusVault(vopts(a)));
+    expect(va.verdict).toBe('behind');
+    expect(va.tables.map((t) => t.table)).not.toContain('zz_vault_fork');
+    const fork = warning(va, 'W_NEXUS_VAULT_FORK')?.message;
+    expect(fork).toContain(forked.snapshot?.checkpointId);
+    expect(fork).toContain(REPLICA_A);
+    // The device that forked is not warned about its own fork.
+    const vb = await on(b, () => verifyNexusVault(vopts(b)));
+    expect(vb.verdict).toBe('match');
+    expect(warning(vb, 'W_NEXUS_VAULT_FORK')).toBeUndefined();
+
+    // A fork older than this machine's last sync is no news: no warning once A pulled it.
+    const pulled = await on(a, () => restoreNexusVault(vopts(a, { mode: 'pull' })));
+    expect(pulled.status).toBe('restored');
+    const after = await on(a, () => verifyNexusVault(vopts(a)));
+    expect(after.verdict).toBe('match');
+    expect(warning(after, 'W_NEXUS_VAULT_FORK')).toBeUndefined();
+
+    // The next ordinary push is not a fork and does not carry the label.
+    insertTask(a, 'A2');
+    const next = await on(a, () => pushNexusVault(vopts(a)));
+    expect(next.forked).toBe(false);
+    expect(
+      fake.stream(STREAM).checkpoints.at(-1)?.manifest.tables['zz_vault_fork'],
+    ).toBeUndefined();
+    expect(fake.activity.some((e) => e.action.startsWith('checkpoint.refused'))).toBe(false);
+  });
+
+  it('N5: a project restored onto a new machine carries none of the pusher machine state', async () => {
+    const { a, b } = await twoMachines();
+    exec(
+      a,
+      `ALTER TABLE tasks_tasks ADD COLUMN claimed_by_session TEXT;
+       ALTER TABLE tasks_tasks ADD COLUMN lease_expires_at INTEGER;
+       UPDATE tasks_tasks SET claimed_by_session = 'sess-a', lease_expires_at = 99 WHERE id = 'T0';
+       CREATE TABLE _writer_leases (id INTEGER PRIMARY KEY, scope TEXT NOT NULL, lane TEXT NOT NULL,
+         holder_id TEXT NOT NULL, holder_pid INTEGER NOT NULL, epoch INTEGER NOT NULL,
+         acquired_at INTEGER NOT NULL, heartbeat_at INTEGER NOT NULL, ttl_ms INTEGER NOT NULL,
+         reentrancy_depth INTEGER NOT NULL DEFAULT 1, active INTEGER NOT NULL DEFAULT 1);
+       INSERT INTO _writer_leases (scope, lane, holder_id, holder_pid, epoch, acquired_at, heartbeat_at, ttl_ms)
+         VALUES ('project', 'tasks', 'a-writer', 4242, 1, ${Date.now()}, ${Date.now()}, 60000);`,
+    );
+    await on(a, () => pushNexusVault(vopts(a)));
+    await restoreOntoB(b);
+    // Machine-local tables arrive empty, and another machine's claim is not B's.
+    expect(sql(b, 'SELECT replica_id FROM _sync_replica')).toEqual([]);
+    expect(sql(b, 'SELECT holder_pid FROM _writer_leases')).toEqual([]);
+    expect(
+      sql(b, "SELECT claimed_by_session, lease_expires_at FROM tasks_tasks WHERE id = 'T0'"),
+    ).toEqual([{ claimed_by_session: null, lease_expires_at: null }]);
+    expect((await on(b, () => verifyNexusVault(vopts(b)))).verdict).toBe('match');
+
+    // A later pull keeps B's own claim on a row it has, and brings none for a new row.
+    exec(b, "UPDATE tasks_tasks SET claimed_by_session = 'sess-b' WHERE id = 'T1'");
+    exec(
+      a,
+      "INSERT INTO tasks_tasks (id, title, claimed_by_session, lease_expires_at) VALUES ('A1', 'new', 'sess-a', 7)",
+    );
+    await on(a, () => pushNexusVault(vopts(a)));
+    const pulled = await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' })));
+    expect(pulled.status).toBe('restored');
+    expect(
+      sql(
+        b,
+        "SELECT id, claimed_by_session, lease_expires_at FROM tasks_tasks WHERE id IN ('A1', 'T1') ORDER BY id",
+      ),
+    ).toEqual([
+      { id: 'A1', claimed_by_session: null, lease_expires_at: null },
+      { id: 'T1', claimed_by_session: 'sess-b', lease_expires_at: null },
+    ]);
+  });
+
+  it('N6: a push whose state write was lost does not leave the device behind its own snapshot', async () => {
+    const { a, b } = await twoMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    insertTask(a, 'A1');
+    // The crash: the checkpoint lands, the state write never happens.
+    const saveStream = a.state.saveStream.bind(a.state);
+    a.state.saveStream = () => {
+      throw new Error('crashed before recording the snapshot');
+    };
+    await expect(on(a, () => pushNexusVault(vopts(a)))).rejects.toThrow(/crashed/);
+    a.state.saveStream = saveStream;
+    const pushed = { snapshot: fake.stream(STREAM).checkpoints.at(-1) ?? null };
+    expect(pushed.snapshot?.deviceId).toBe(DEVICE_A);
+    const v = await on(a, () => verifyNexusVault(vopts(a)));
+    expect(v.verdict).toBe('match');
+    expect(v.lastSynced).toBe(pushed.snapshot?.checkpointId);
+    const pull = await on(a, () => restoreNexusVault(vopts(a, { mode: 'pull' })));
+    expect(pull.status).toBe('up-to-date');
+    insertTask(a, 'A2');
+    const next = await on(a, () => pushNexusVault(vopts(a)));
+    expect(next.status).toBe('pushed');
+    expect(next.parentCheckpointId).toBe(pushed.snapshot?.checkpointId);
+
+    // Another device's snapshot is never taken as this store's own.
+    await restoreOntoB(b);
+    insertTask(a, 'A3');
+    await on(a, () => pushNexusVault(vopts(a)));
+    insertTask(b, 'B1');
+    const behind = await failure(on(b, () => pushNexusVault(vopts(b))));
+    expect(behind.code).toBe('E_NEXUS_VAULT_BEHIND');
+  });
+
+  it('verify and pull decide nothing from a snapshot whose signature fails', async () => {
+    const { a, b } = await twoMachines();
+    const v1 = await on(a, () => pushNexusVault(vopts(a)));
+    await restoreOntoB(b);
+    insertTask(a, 'X1', 'same');
+    const v2 = await on(a, () => pushNexusVault(vopts(a)));
+    // B makes exactly A's change: its store now hashes like v2, not like v1.
+    insertTask(b, 'X1', 'same');
+    insertTask(a, 'X2', 'more');
+    await on(a, () => pushNexusVault(vopts(a)));
+    // The server swaps v1's manifest for v2's, so B would look unchanged since its sync.
+    const s = fake.stream(STREAM);
+    const forged = s.checkpoints.find((c) => c.checkpointId === v1.snapshot?.checkpointId);
+    const real = s.checkpoints.find((c) => c.checkpointId === v2.snapshot?.checkpointId);
+    if (!forged || !real) throw new Error('fixture');
+    forged.manifest = structuredClone(real.manifest);
+    const refused = await failure(on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' }))));
+    expect(refused.code).toBe('E_NEXUS_VAULT_LOCAL_CHANGES');
+    expect(taskCount(b)).toBe(6);
+    const vb = await on(b, () => verifyNexusVault(vopts(b)));
+    expect(
+      vb.warnings.some(
+        (w) =>
+          w.code === 'W_NEXUS_VAULT_UNTRUSTED_SNAPSHOT' && w.message.includes(forged.checkpointId),
+      ),
+    ).toBe(true);
+
+    // A forged head: nothing is compared with it.
+    const head = s.checkpoints.at(-1);
+    if (!head) throw new Error('fixture');
+    head.signature = Buffer.alloc(64).toString('base64');
+    const va = await on(a, () => verifyNexusVault(vopts(a)));
+    expect(va.verdict).toBe('untrusted');
+    expect(va.tables).toEqual([]);
+    expect(va.head).toBeNull();
+    expect(va.remedy).toContain('do not pull it');
+    expect(va.devices.map((d) => d.checkpointId)).not.toContain(head.checkpointId);
+  });
+
+  it('safety bundles are rotated, keeping the newest ten', async () => {
+    const { a, b } = await twoMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    await restoreOntoB(b);
+    const dir = path.join(b.root, '.cleo', 'backups', 'vault');
+    fs.mkdirSync(dir, { recursive: true });
+    for (let i = 1; i <= 12; i++) {
+      const day = String(i).padStart(2, '0');
+      fs.writeFileSync(
+        path.join(dir, `pre-restore-2026-01-${day}T00-00-00-000Z.cleobundle.tar.gz`),
+        'old',
+      );
+    }
+    fs.writeFileSync(path.join(dir, 'notes.txt'), 'kept');
+    const forced = await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull', force: true })));
+    const left = fs
+      .readdirSync(dir)
+      .filter((n) => n.startsWith('pre-restore-'))
+      .sort();
+    expect(left).toHaveLength(10);
+    expect(left[0]).toBe('pre-restore-2026-01-04T00-00-00-000Z.cleobundle.tar.gz');
+    expect(left).toContain(path.basename(forced.safetyBackup ?? ''));
+    expect(fs.readFileSync(path.join(dir, 'notes.txt'), 'utf8')).toBe('kept');
+  });
+
+  it('a project restored onto a new machine records its sync under the stream its link names', async () => {
+    const { a, b } = await twoMachines();
+    const pushed = await on(a, () => pushNexusVault(vopts(a)));
+    const linkedStream = `project:${REMOTE_PROJECT}:linked`;
+    await on(b, () =>
+      restoreNexusVault(
+        vopts(b, {
+          mode: 'restore',
+          projectId: REMOTE_PROJECT,
+          into: b.root,
+          relink: async () => {
+            link(b);
+            const file = path.join(b.root, '.cleo', 'nexus-link.json');
+            const doc = JSON.parse(fs.readFileSync(file, 'utf8')) as {
+              links: Record<string, { streamId: string }>;
+            };
+            const entry = doc.links[API];
+            if (entry) entry.streamId = linkedStream;
+            fs.writeFileSync(file, JSON.stringify(doc));
+            return [];
+          },
+        }),
+      ),
+    );
+    expect(b.state.stream(API, USER, linkedStream, b.root)?.lastCheckpointId).toBe(
+      pushed.snapshot?.checkpointId,
+    );
   });
 });

@@ -36,12 +36,11 @@ import type {
   NexusProjectsCleanResult,
   NexusRegistryClassification,
 } from '@cleocode/contracts';
-import { getCleoStateDir, readDeclaredProjectIdentity } from '@cleocode/paths';
+import { getCleoStateDir, isVaultRemotePath, readDeclaredProjectIdentity } from '@cleocode/paths';
 import { inArray, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getCleoHome } from '../paths.js';
-import { isVaultRemotePath } from '../store/vault-manifest.js';
 import { toRegistryReadError } from './registry-errors.js';
 import { isEphemeralPath } from './registry-hygiene.js';
 

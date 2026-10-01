@@ -45,6 +45,11 @@ const streamStateSchema = z.looseObject({
   /** Its coversSeq: an older snapshot is never restored over it without `--checkpoint`. */
   lastCoversSeq: z.number().int().nonnegative(),
   updatedAt: z.string(),
+  /**
+   * A push from this store that had not recorded its snapshot yet: the parent it
+   * pushed over (T13007). Cleared when the snapshot is recorded.
+   */
+  pushInFlight: z.object({ parentCheckpointId: z.string().nullable(), at: z.string() }).optional(),
 });
 
 const accountStateSchema = z.looseObject({
@@ -240,6 +245,34 @@ export class NexusVaultState {
   ): VaultStreamState | null {
     const s = this.snapshot();
     return this.account(s, apiUrl, userId).streams[vaultStreamKey(streamId, storeRoot)] ?? null;
+  }
+
+  /**
+   * Record that a push from `storeRoot` is about to create a snapshot over
+   * `parentCheckpointId` (T13007). {@link saveStream} clears the mark; when a
+   * crash loses that write, the mark tells the next command that the head
+   * this device and replica pushed over that parent is this store's own.
+   */
+  markPushInFlight(
+    apiUrl: string,
+    userId: string,
+    streamId: string,
+    storeRoot: string,
+    parentCheckpointId: string | null,
+  ): void {
+    this.update((s) => {
+      const streams = this.account(s, apiUrl, userId).streams;
+      const key = vaultStreamKey(streamId, storeRoot);
+      const prior = streams[key];
+      streams[key] = {
+        ...prior,
+        lastCheckpointId: prior?.lastCheckpointId ?? null,
+        lastCoversSeq: prior?.lastCoversSeq ?? 0,
+        // Never synced: any fork is news to this store.
+        updatedAt: prior?.updatedAt ?? new Date(0).toISOString(),
+        pushInFlight: { parentCheckpointId, at: new Date().toISOString() },
+      };
+    });
   }
 
   /** Record that `storeRoot` now holds `checkpointId` on `streamId`. */

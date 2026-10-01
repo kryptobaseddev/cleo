@@ -195,7 +195,7 @@ const verifyVaultSubCommand = defineCommand({
   meta: {
     name: 'verify',
     description:
-      "Integrity check across machines: SQLite integrity of this store, its per-table counts and keyed hashes against the cloud's newest snapshot, and every device's newest snapshot against it. Verdict: match, ahead, behind, diverged or empty.",
+      "Integrity check across machines: SQLite integrity of this store, its per-table counts and keyed hashes against the cloud's newest snapshot, and every device's newest snapshot against it. Verdict: match, ahead, behind, diverged, empty, or untrusted (the newest snapshot's signature does not verify).",
   },
   args: { scope: SCOPE_ARG, 'api-url': NEXUS_API_URL_ARG, json: JSON_ARG },
   async run({ args }) {

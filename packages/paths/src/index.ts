@@ -17,7 +17,8 @@
  * - {@link getCleoStateDir} — CLEO state dir (XDG state on Linux, `<cleoHome>/state` elsewhere)
  * - {@link resolveSyncReplicaRegistryPath} — this device's sync replica registry (state dir, never synced)
  * - {@link expandTildePath} — `~` expansion via `os.homedir()`
- * - {@link isAbsolutePath} — cross-platform abs-path check
+ * - {@link isAbsolutePath} — cross-platform abs-path check; {@link isVaultRemotePath} — the cloud
+ *   vault's placeholder for a path on another machine
  * - Executable search: {@link findOnPath}, {@link prependPathEntry},
  *   {@link splitPathEnv} (PATH delimiter + PATHEXT aware, T12605)
  * - Portable identity: {@link readPortableProjectId} (tracked `.cleo/project.json`, then the
@@ -28,7 +29,7 @@
  * @task T11008
  */
 
-export { isAbsolutePath } from './abs-path.js';
+export { isAbsolutePath, isVaultRemotePath, VAULT_REMOTE_PATH_PREFIX } from './abs-path.js';
 export {
   _resetCleoPlatformPathsCache,
   canonicalizePath,

@@ -43,7 +43,10 @@ export async function nexusCloudActivity(
   opts: NexusCloudActivityOptions = {},
 ): Promise<CloudActivityResult> {
   const conn = await connectNexusCloud(opts);
-  const limit = Math.min(Math.max(opts.limit ?? 50, 1), NEXUS_ACTIVITY_PAGE_MAX);
+  // A limit that is not a number (NaN) falls back to the default (T13007).
+  const requested =
+    opts.limit !== undefined && Number.isFinite(opts.limit) ? Math.trunc(opts.limit) : 50;
+  const limit = Math.min(Math.max(requested, 1), NEXUS_ACTIVITY_PAGE_MAX);
   const project = opts.projectId;
   const about = (target: string | null | undefined) =>
     project === undefined ||

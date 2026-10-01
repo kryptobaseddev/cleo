@@ -30,13 +30,20 @@
  */
 
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import type { TableScope } from '@cleocode/contracts';
-import { relocatableColumn, relocateCell } from './portable-bundle-relocate.js';
-import { CREDENTIAL_COLUMNS, credentialRemedy } from './portable-bundle-scan.js';
+import { isVaultRemotePath, VAULT_REMOTE_PATH_PREFIX } from '@cleocode/paths';
+import {
+  RELOCATED_JSON_FILES,
+  relocatableColumn,
+  relocateCell,
+  relocatedJsonText,
+} from './portable-bundle-relocate.js';
+import { CREDENTIAL_COLUMNS, credentialRemedy, sha256File } from './portable-bundle-scan.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
-import { classifyTable, isPortableTableClass } from './table-classification.js';
+import { classifyTable, getTableRegistry, isPortableTableClass } from './table-classification.js';
 
 // node:sqlite interop (createRequire — Vitest strips `node:` prefix)
 const _require = createRequire(import.meta.url);
@@ -116,6 +123,27 @@ export function vaultLocalColumns(scope: TableScope, table: string): readonly st
     for (const col of c.entry.columns ?? []) if (col.jsonPath === undefined) out.add(col.column);
   }
   return [...out];
+}
+
+/**
+ * Whole columns the classification registry gives the `strip` class (a value
+ * stripped from everything that leaves the device, such as a git remote URL,
+ * which can embed a token), by table. A vault snapshot never carries them
+ * (T13007); like every non-syncing column they hash as NULL and a restore
+ * keeps this machine's values.
+ *
+ * @param scope - Store scope.
+ * @returns Table to stripped column names.
+ */
+export function vaultStripColumns(scope: TableScope): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const [table, entry] of Object.entries(getTableRegistry(scope).tables)) {
+    const cols = (entry.columns ?? [])
+      .filter((c) => c.class === 'strip' && c.jsonPath === undefined)
+      .map((c) => c.column);
+    if (cols.length > 0) out[table] = cols;
+  }
+  return out;
 }
 
 /** Options for {@link buildVaultManifest}. */
@@ -280,6 +308,39 @@ export function vaultDatabaseEntry(
 }
 
 /**
+ * The digest a vault file inventory records for one plain file (T13005). The
+ * project JSON files a restore relocates ({@link RELOCATED_JSON_FILES}:
+ * `config.json`, `project-context.json`) are hashed with their paths re-rooted
+ * from `root` onto a placeholder, as parsed JSON, so a relocated copy hashes
+ * like its source and an edit is still a change. Every other file (and every
+ * file of a store a restore does not relocate, `root` null) is its SHA-256.
+ *
+ * @param absPath - The file.
+ * @param relPath - Its path in the section.
+ * @param root - The store's root as written in the file, or `null`.
+ * @param sha256 - The file's SHA-256 when already known (a bundle manifest lists it).
+ * @returns Hex digest.
+ */
+export async function vaultFileDigest(
+  absPath: string,
+  relPath: string,
+  root: string | null,
+  sha256?: string,
+): Promise<string> {
+  if (root !== null && RELOCATED_JSON_FILES.includes(relPath)) {
+    const canonical = relocatedJsonText(
+      fs.readFileSync(absPath, 'utf8'),
+      root.replace(/[\\/]+$/, ''),
+      ROOT_PLACEHOLDER,
+    );
+    if (canonical !== null) {
+      return crypto.createHash('sha256').update(`cleo-vault-json/v1\n${canonical}`).digest('hex');
+    }
+  }
+  return sha256 ?? sha256File(absPath);
+}
+
+/**
  * One manifest entry for a snapshot's plain files: the count, and a keyed
  * hash over every (path, sha256) pair, sorted by path.
  *
@@ -310,7 +371,46 @@ export interface VaultTableComparison {
 }
 
 /**
- * Compare two manifests table by table (union of both key sets, sorted).
+ * Manifest key that labels a snapshot as a fork (T13007): pushed with
+ * `--force` over a head its device had not synced, or after taking another
+ * device's live lease. Zero rows, so the server's count check is unaffected;
+ * an annotation, never a table, so comparisons ignore it. Being on the signed
+ * checkpoint, the label outlives the lease.
+ */
+export const VAULT_FORK_KEY = 'zz_vault_fork';
+
+/**
+ * The {@link VAULT_FORK_KEY} entry of a fork pushed over `overCheckpointId`.
+ *
+ * @param hashKey - The manifest hash key.
+ * @param overCheckpointId - The head the fork was pushed over.
+ * @returns The entry (0 rows; the hash binds it to that head).
+ */
+export function vaultForkEntry(hashKey: Uint8Array, overCheckpointId: string): VaultTableEntry {
+  return {
+    rows: 0,
+    hash: crypto
+      .createHmac('sha256', Buffer.from(hashKey))
+      .update(`cleo-vault-fork/v1\n${overCheckpointId}\n`)
+      .digest('hex'),
+  };
+}
+
+/**
+ * Whether a snapshot manifest carries the fork label.
+ *
+ * @param manifest - A checkpoint's manifest.
+ * @returns `true` when {@link VAULT_FORK_KEY} is present.
+ */
+export function isVaultForkManifest(manifest: Pick<VaultManifest, 'tables'>): boolean {
+  return Object.hasOwn(manifest.tables, VAULT_FORK_KEY);
+}
+
+/**
+ * Compare two manifests table by table (union of both key sets, sorted). A
+ * table one side does not list and the other lists with 0 rows is the same
+ * (an emptied table stays listed on the cloud side); the fork label
+ * ({@link VAULT_FORK_KEY}) is not a table and is left out.
  *
  * @param local - This side.
  * @param cloud - The other side.
@@ -320,15 +420,20 @@ export function compareVaultManifests(
   local: Pick<VaultManifest, 'tables'>,
   cloud: Pick<VaultManifest, 'tables'>,
 ): VaultTableComparison[] {
-  const names = [...new Set([...Object.keys(local.tables), ...Object.keys(cloud.tables)])].sort();
+  const names = [...new Set([...Object.keys(local.tables), ...Object.keys(cloud.tables)])]
+    .filter((table) => table !== VAULT_FORK_KEY)
+    .sort();
   return names.map((table) => {
     const l = local.tables[table];
     const c = cloud.tables[table];
+    const emptyVsAbsent = (l === undefined && c?.rows === 0) || (c === undefined && l?.rows === 0);
     return {
       table,
       localRows: l?.rows ?? null,
       cloudRows: c?.rows ?? null,
-      match: l !== undefined && c !== undefined && l.rows === c.rows && l.hash === c.hash,
+      match:
+        emptyVsAbsent ||
+        (l !== undefined && c !== undefined && l.rows === c.rows && l.hash === c.hash),
     };
   });
 }
@@ -380,24 +485,6 @@ export interface CarryMachineStateOptions {
   snapshotRoot: string | null;
 }
 
-/**
- * Prefix of the value a NOT NULL machine-local path cell gets in a row that
- * only another machine has (a project or skill not on this machine): a
- * placeholder, not a path, so nothing here reads it as a missing directory
- * (`cleo nexus projects clean --orphans` never removes such a row).
- */
-export const VAULT_REMOTE_PATH_PREFIX = 'cleo-vault-remote:';
-
-/**
- * Whether a path cell is the placeholder of a row another machine holds.
- *
- * @param value - A path column value.
- * @returns `true` for {@link VAULT_REMOTE_PATH_PREFIX} values.
- */
-export function isVaultRemotePath(value: string | null | undefined): boolean {
-  return typeof value === 'string' && value.startsWith(VAULT_REMOTE_PATH_PREFIX);
-}
-
 type Cell = string | number | bigint | null | Uint8Array;
 
 function hasValue(v: unknown): boolean {
@@ -409,6 +496,7 @@ interface ColumnInfo {
   pk: number;
   type: string;
   notnull: number;
+  dflt_value: string | null;
 }
 
 /**
@@ -469,11 +557,14 @@ function stableKey(
  *   live row with the same stable key. A table without one is skipped and
  *   reported; rows are never matched by an integer id, which each machine
  *   mints for itself.
- * - Rows only the snapshot has (a project or skill on another machine only)
- *   never bring that machine's local paths: a non-syncing cell holding an
- *   absolute path outside `snapshotRoot` is cleared (NULL), or, when the
- *   column is NOT NULL, set to a {@link VAULT_REMOTE_PATH_PREFIX} placeholder
- *   that is not a path and is never treated as an orphan.
+ * - Rows only the snapshot has (a project or skill on another machine only,
+ *   a task this machine has not seen) never bring that machine's own values:
+ *   every non-syncing cell (claims, leases, counters, paths) is cleared (NULL).
+ *   A NOT NULL path outside `snapshotRoot` becomes a
+ *   {@link VAULT_REMOTE_PATH_PREFIX} placeholder that is not a path and is
+ *   never treated as an orphan; another NOT NULL cell takes its declared
+ *   default, or stays when it has none. A path under `snapshotRoot` in a
+ *   column the relocation rewrites stays (it becomes this machine's path).
  *
  * Syncing cells keep the snapshot's values (they are what the manifest
  * verified; non-syncing cells hash as NULL, so none of this changes the
@@ -482,14 +573,15 @@ function stableKey(
  * that has nowhere to go is reported in `lost` with its re-entry remedy.
  *
  * @param stagedDbPath - The staged snapshot database (written in place).
- * @param liveDbPath - This machine's current database (read only).
+ * @param liveDbPath - This machine's current database (read only), or `null` when it has none
+ *   yet (a project restored onto this machine): every row is then a snapshot-only row.
  * @param scope - Which `cleo.db` this is.
  * @param opts - The snapshot's root (see {@link CarryMachineStateOptions}).
  * @returns What was carried, skipped, lost and scrubbed.
  */
 export function carryMachineState(
   stagedDbPath: string,
-  liveDbPath: string,
+  liveDbPath: string | null,
   scope: TableScope,
   opts: CarryMachineStateOptions = { snapshotRoot: null },
 ): CarriedMachineState {
@@ -500,7 +592,12 @@ export function carryMachineState(
     lost: [],
     scrubbed: [],
   };
-  const live = new DatabaseSync(liveDbPath, { readOnly: true });
+  // No store here yet (a project restored onto this machine): carry against an
+  // empty one, so no local-only row and no non-syncing cell of the pusher's arrives.
+  const live =
+    liveDbPath === null
+      ? new DatabaseSync(':memory:') // schema-guard-exempt: an empty in-memory stand-in for a store this machine does not have; only read
+      : new DatabaseSync(liveDbPath, { readOnly: true });
   const staged = new DatabaseSync(stagedDbPath); // schema-guard-exempt: the staged restore copy this step owns; carrying machine state is DML only
   const snapshotRoot = opts.snapshotRoot === null ? null : opts.snapshotRoot.replace(/[\\/]+$/, '');
   try {
@@ -534,13 +631,18 @@ export function carryMachineState(
       snapshotRoot !== null &&
       (v === snapshotRoot ||
         (v.startsWith(snapshotRoot) && /^[\\/]/.test(v.slice(snapshotRoot.length))));
-    // An absolute path a restore will not relocate onto this machine (only a
-    // relocatable column under the snapshot's root is rewritten by it).
+    const absolute = (v: string) =>
+      v.startsWith('/') || /^[A-Za-z]:[\\/]/.test(v) || v.startsWith('\\\\');
+    // A path the restore relocates onto this machine: a relocatable column
+    // under the snapshot's root (the relocation rewrites it).
+    const relocatedHere = (v: Cell, relocatable: boolean) =>
+      relocatable && typeof v === 'string' && absolute(v) && underSnapshotRoot(v);
+    // An absolute path a restore will not relocate onto this machine.
     const foreignPath = (v: Cell, relocatable: boolean) =>
       typeof v === 'string' &&
       !isVaultRemotePath(v) &&
-      (v.startsWith('/') || /^[A-Za-z]:[\\/]/.test(v) || v.startsWith('\\\\')) &&
-      !(relocatable && underSnapshotRoot(v));
+      absolute(v) &&
+      !relocatedHere(v, relocatable);
     staged.exec('PRAGMA foreign_keys = OFF');
     staged.exec('BEGIN IMMEDIATE');
     try {
@@ -581,7 +683,14 @@ export function carryMachineState(
         const local = vaultLocalColumns(scope, t).filter((n) => stagedCols.includes(n));
         if (c.class !== 'portable-secret' && local.length === 0) continue;
         const liveRows = liveTables.has(t) ? rowsOf(live, t) : [];
-        const stable = stableKey(staged, t, sql, stagedInfo, common);
+        // A table this store lacks matches no live row; its key still names placeholders.
+        const stable = stableKey(
+          staged,
+          t,
+          sql,
+          stagedInfo,
+          liveTables.has(t) ? common : new Set(stagedCols),
+        );
         const liveKeys = new Set<string>();
 
         if (stable === null) {
@@ -608,9 +717,12 @@ export function carryMachineState(
               : null;
           // A live-only secret row is inserted without its machine-minted integer id.
           const cols = [...common].filter((n) => !unstablePk.includes(n));
-          const insert = staged.prepare(
-            `INSERT INTO ${quoteIdent(t)} (${cols.map(quoteIdent).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
-          );
+          const insert =
+            cols.length > 0
+              ? staged.prepare(
+                  `INSERT INTO ${quoteIdent(t)} (${cols.map(quoteIdent).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
+                )
+              : null;
           let rows = 0;
           let lost = 0;
           for (const r of liveRows) {
@@ -625,7 +737,7 @@ export function carryMachineState(
               if (exists.get(...keyValues) !== undefined) {
                 update?.run(...merge.map((col) => r[col] ?? null), ...keyValues);
                 rows += 1;
-              } else if (c.class === 'portable-secret') {
+              } else if (c.class === 'portable-secret' && insert !== null) {
                 // A secret row this machine holds and the snapshot lacks: keep it.
                 insert.run(...cols.map((col) => r[col] ?? null));
                 rows += 1;
@@ -641,12 +753,10 @@ export function carryMachineState(
           lose(t, lost);
         }
 
-        // Rows only the snapshot has never bring another machine's local paths.
+        // Rows only the snapshot has never bring another machine's own values.
         if (c.class === 'portable-secret') continue;
-        // Any non-syncing cell holding an absolute path the restore will not relocate.
-        const pathCols = local;
-        if (pathCols.length === 0 || /WITHOUT ROWID/i.test(sql)) continue;
-        const notNull = new Set(stagedInfo.filter((x) => x.notnull === 1).map((x) => x.name));
+        if (local.length === 0 || /WITHOUT ROWID/i.test(sql)) continue;
+        const info = new Map(stagedInfo.map((x) => [x.name, x]));
         const scrubKey = stable?.key ?? null;
         let scrubbed = 0;
         const select = staged.prepare(`SELECT rowid AS rid, * FROM ${quoteIdent(t)}`);
@@ -656,19 +766,38 @@ export function carryMachineState(
           if (k !== null && liveKeys.has(k)) continue;
           const sets: string[] = [];
           const values: Cell[] = [];
-          for (const col of pathCols) {
-            if (!foreignPath(r[col] ?? null, relocatableColumn(t, col, false) === 'path')) continue;
-            sets.push(`${quoteIdent(col)} = ?`);
-            values.push(
-              notNull.has(col)
-                ? `${VAULT_REMOTE_PATH_PREFIX}${t}:${k ?? String(r['rid'])}:${col}`
-                : null,
-            );
+          const defaults: string[] = [];
+          for (const col of local) {
+            const v = r[col] ?? null;
+            if (!hasValue(v) || isVaultRemotePath(typeof v === 'string' ? v : null)) continue;
+            const relocatable = relocatableColumn(t, col, false) === 'path';
+            if (relocatedHere(v, relocatable)) continue;
+            const column = info.get(col);
+            if (column?.notnull !== 1) {
+              // Another machine's claim, lease, counter or path (T13007 N5): NULL here.
+              sets.push(`${quoteIdent(col)} = NULL`);
+            } else if (foreignPath(v, relocatable)) {
+              // A NOT NULL path: a placeholder that is not a path and never an orphan.
+              sets.push(`${quoteIdent(col)} = ?`);
+              values.push(`${VAULT_REMOTE_PATH_PREFIX}${t}:${k ?? String(r['rid'])}:${col}`);
+            } else if (column.dflt_value !== null) {
+              // A NOT NULL value with a declared default: the default (the schema's own text).
+              defaults.push(`${quoteIdent(col)} = ${column.dflt_value}`);
+            }
           }
-          if (sets.length === 0) continue;
-          staged
-            .prepare(`UPDATE ${quoteIdent(t)} SET ${sets.join(', ')} WHERE rowid = ?`)
-            .run(...values, r['rid'] ?? null);
+          if (sets.length + defaults.length === 0) continue;
+          const scrub = (assignments: readonly string[]) =>
+            staged
+              .prepare(`UPDATE ${quoteIdent(t)} SET ${assignments.join(', ')} WHERE rowid = ?`)
+              .run(...values, r['rid'] ?? null);
+          try {
+            scrub([...sets, ...defaults]);
+          } catch (err) {
+            // A default another row already holds under a UNIQUE index: that value stays.
+            if (sets.length === 0) continue;
+            if (defaults.length === 0) throw err;
+            scrub(sets);
+          }
           scrubbed += 1;
         }
         if (scrubbed > 0) out.scrubbed.push({ table: t, rows: scrubbed });

@@ -96,6 +96,12 @@ const EXCLUDED_FILE_SUFFIXES: ReadonlyArray<readonly [string, string]> = [
 const IDENTITY_REMEDY =
   'Project signing identity (Ed25519). Without it, run any severity-signing command to mint a new key; previously signed audit lines keep verifying against their embedded public key.';
 
+/** The docs audit trail's HMAC key (`docs/docs-audit.ts`), a secret like the signing identity (T13007). */
+const AUDIT_SECRET_REL = 'audit/.audit-secret';
+
+const AUDIT_SECRET_REMEDY =
+  'Docs audit checkpoint key (HMAC). Without it, the next read or write of the docs audit trail mints a new key, and checkpoints written under the old key no longer verify on this machine.';
+
 /** Walk rules for a project `.cleo/` directory. */
 export const PROJECT_SECTION_RULES: SectionRules = {
   excludedDirs: {
@@ -110,7 +116,12 @@ export const PROJECT_SECTION_RULES: SectionRules = {
     node_modules: 'dependency install (regenerable)',
     __pycache__: 'Python bytecode cache (regenerable)',
   },
-  secretRemedy: (relPath) => (relPath.startsWith('keys/') ? IDENTITY_REMEDY : null),
+  secretRemedy: (relPath) =>
+    relPath.startsWith('keys/')
+      ? IDENTITY_REMEDY
+      : relPath === AUDIT_SECRET_REL
+        ? AUDIT_SECRET_REMEDY
+        : null,
 };
 
 /** Secret files in the global CLEO home and what losing each one costs. */
@@ -632,11 +643,29 @@ export interface CredentialRedaction {
  *   not ship the snapshot.
  */
 export function redactCredentials(snapshotPath: string): CredentialRedaction[] {
+  return clearSnapshotColumns(snapshotPath, CREDENTIAL_COLUMNS);
+}
+
+/**
+ * Clear the given columns in a SNAPSHOT (never a live store), as
+ * {@link redactCredentials} does for the credential columns: NULL (or `''`
+ * when NOT NULL), then `secure_delete` + `VACUUM`. Rows are kept.
+ *
+ * @param snapshotPath - A VACUUM snapshot owned by the export staging area.
+ * @param columns - Table to column names; absent tables and columns are skipped.
+ * @returns Per-table clearings (tables with no values are omitted).
+ * @throws {Error} When a column cannot be cleared; the caller must not ship the snapshot.
+ * @task T13007
+ */
+export function clearSnapshotColumns(
+  snapshotPath: string,
+  columns: Readonly<Record<string, readonly string[]>>,
+): CredentialRedaction[] {
   const out: CredentialRedaction[] = [];
   const db = new DatabaseSync(snapshotPath); // schema-guard-exempt: a snapshot copy this step owns; credential redaction is DML only
   try {
     db.exec('PRAGMA secure_delete = ON');
-    for (const [table, wanted] of Object.entries(CREDENTIAL_COLUMNS)) {
+    for (const [table, wanted] of Object.entries(columns)) {
       const present = (
         db.prepare(`PRAGMA table_info("${table}")`).all() as Array<{
           name: string;
