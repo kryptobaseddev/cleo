@@ -55,10 +55,18 @@ export async function acquireLock(
 
 /**
  * Check if a file is currently locked.
+ *
+ * @param filePath - The locked file.
+ * @param options - `stale` must match the holder's `stale` (ms): a holder
+ *   refreshes its lock every `stale / 2`, so checking with a shorter window
+ *   reports a live long-running holder as unlocked.
  */
-export async function isLocked(filePath: string): Promise<boolean> {
+export async function isLocked(filePath: string, options?: { stale?: number }): Promise<boolean> {
   try {
-    return await lockfile.check(filePath, { realpath: false });
+    return await lockfile.check(filePath, {
+      realpath: false,
+      ...(options?.stale !== undefined && { stale: options.stale }),
+    });
   } catch {
     return false;
   }

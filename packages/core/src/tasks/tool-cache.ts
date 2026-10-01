@@ -55,7 +55,7 @@ import { join, resolve } from 'node:path';
 
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
-import { withLock } from '../store/lock.js';
+import { isLocked, withLock } from '../store/lock.js';
 import { heavyToolEnv } from './heavy-tool-env.js';
 import {
   confinementStartupFailure,
@@ -70,6 +70,7 @@ import {
   planFocusedRuns,
   readFailedFirstPointer,
   reportsNoTestFiles,
+  summarizedFailedFileCount,
   writeFailedFirstPointer,
 } from './tool-cache-failed-first.js';
 import type { ResolvedToolCommand } from './tool-resolver.js';
@@ -183,6 +184,15 @@ export interface ToolCacheEntry {
    * @task T12961
    */
   failedFirst?: FailedFirstReport;
+  /**
+   * Test files that failed and then passed on their single retry (T12961).
+   * Present only on a PASSING entry: the run counts as a pass, but a flaky
+   * pass, which is visible here rather than indistinguishable from a clean
+   * one.
+   *
+   * @task T12961
+   */
+  flaky?: string[];
 }
 
 /**
@@ -260,6 +270,8 @@ export interface ToolRunResult {
    * were re-run first and whether they decided the result.
    */
   failedFirst?: FailedFirstReport;
+  /** Test files that failed and passed on retry; set only on a pass (T12961). */
+  flaky?: string[];
   /** Full cache entry — useful for audit / debugging. */
   entry: ToolCacheEntry;
 }
@@ -346,6 +358,22 @@ export interface RunToolOptions {
    * @task T12112 (gh#1220, gh#1226, gh#1230)
    */
   executionRoot?: string;
+  /**
+   * How long a caller that finds this key's lock held waits for the holder's
+   * result before giving up with `lockBusy` (T12958). The holder is running
+   * the identical command on identical content, so waiting and reusing its
+   * result is always cheaper than running in parallel.
+   *
+   * @defaultValue the spawn deadline + 60 s
+   */
+  lockWaitMs?: number;
+  /**
+   * Poll interval while waiting on a held lock.
+   *
+   * @defaultValue `1_000`
+   * @internal
+   */
+  lockPollMs?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -1244,13 +1272,17 @@ function listTrackedFiles(root: string): string[] {
  *
  *   1. Compute cache key (canonical+cmd+args+treeHash).
  *   2. If a fresh entry exists → return it (no spawn).
- *   3. Acquire a `proper-lockfile` on the cache entry path.
+ *   3. Acquire a `proper-lockfile` on the cache entry path. When another
+ *      caller holds it (same command, same content — possibly another
+ *      worktree), wait for its result and reuse it (T12958).
  *   4. Re-check cache inside the lock (another process may have written it
  *      while we were waiting).
  *   5. For `test`, when the previous run in this execution root failed, re-run
- *      only its failing files first; if they still fail, cache and return that
- *      failure without the normal run (T12961).
- *   6. Spawn the tool, capture stdout/stderr tails, write the entry, return.
+ *      only its failing files first; if they still fail (twice), cache and
+ *      return that failure without the normal run (T12961).
+ *   6. Spawn the tool, capture stdout/stderr tails. For a failing `test`,
+ *      re-run the failing files once; a pass there is a `flaky` pass
+ *      (T12961). Write the entry, return.
  *
  * Locks are auto-released on success or failure. Stale locks are reaped per
  * the `lockStaleMs` option (default 10 min — long enough to cover a full
@@ -1271,6 +1303,7 @@ export async function runToolCached(
   projectRoot: string,
   opts: RunToolOptions = {},
 ): Promise<ToolRunResult> {
+  const callStartedAt = Date.now();
   const tailBytes = opts.tailBytes ?? 512;
   const lockStaleMs = opts.lockStaleMs ?? 600_000;
   // T12105 / gh#1193: an explicit opts value (tests) wins; otherwise the
@@ -1298,7 +1331,7 @@ export async function runToolCached(
 
   const makeEntry = (
     run: Pick<ToolCacheEntry, 'exitCode' | 'stdoutTail' | 'stderrTail' | 'durationMs'> &
-      Partial<Pick<ToolCacheEntry, 'signal' | 'failedTestFiles' | 'failedFirst'>>,
+      Partial<Pick<ToolCacheEntry, 'signal' | 'failedTestFiles' | 'failedFirst' | 'flaky'>>,
   ): ToolCacheEntry => ({
     schemaVersion: TOOL_CACHE_SCHEMA_VERSION,
     key,
@@ -1326,6 +1359,7 @@ export async function runToolCached(
     harnessFailure: null,
     executionRoot,
     ...(entry.failedFirst ? { failedFirst: entry.failedFirst } : {}),
+    ...(entry.flaky ? { flaky: entry.flaky } : {}),
     entry,
   });
 
@@ -1417,226 +1451,297 @@ export async function runToolCached(
     );
   }
 
-  const releaseSemaphore = opts.skipGlobalSemaphore
-    ? undefined
-    : await acquireGlobalSlot(command.canonical, opts.semaphoreOptions);
+  // The body run under the per-key lock: re-check, failed-first, spawn.
+  const runLocked = async (): Promise<ToolRunResult> => {
+    // Inside the lock — re-check the cache. If another process beat us to
+    // it, prefer its result.
+    if (!bypassCache) {
+      const fresh = readCacheEntry(projectRoot, key);
+      if (fresh) return hit(fresh);
+    }
 
-  try {
-    return await withLock(
-      cachePath,
-      async () => {
-        // Inside the lock — re-check the cache. If another process beat us to
-        // it, prefer its result.
-        if (!bypassCache) {
-          const fresh = readCacheEntry(projectRoot, key);
-          if (fresh) return hit(fresh);
-        }
-
-        // T12961: failed-first. When the last run of this tool in this tree
-        // failed, re-run only its failing files before the normal command.
-        const failedFirstEnabled = FAILED_FIRST_TOOLS.has(command.canonical);
-        let trackedCache: string[] | null = null;
-        const tracked = (): string[] => {
-          trackedCache ??= listTrackedFiles(executionRoot);
-          return trackedCache;
-        };
-        let failedFirst: FailedFirstReport | undefined;
-        if (failedFirstEnabled) {
-          const pointer = readFailedFirstPointer(projectRoot, command.canonical, recordedRoot);
-          const plan = pointer ? planFocusedRuns(pointer.files, executionRoot) : null;
-          if (pointer && plan) {
-            const focused = await runFocused(command, plan, executionRoot, spawnTimeoutMs);
-            const report = (outcome: FailedFirstReport['outcome']): FailedFirstReport => ({
-              files: [...pointer.files],
-              outcome,
-            });
-            switch (focused.kind) {
-              case 'timedOut':
-                return timedOutResult(focused.result, focused.durationMs, report('inconclusive'));
-              case 'harness':
-                return harnessResult(
-                  focused.result,
-                  focused.durationMs,
-                  focused.harnessFailure,
-                  report('inconclusive'),
-                );
-              case 'failed': {
-                // Still red: this IS the suite's result. A failing subset is
-                // a failing suite, so it is cached under the normal key.
-                const out = `${focused.result.stdout}\n${focused.result.stderr}`;
-                const parsed = parseFailingTestFiles(out, executionRoot, tracked, focused.cwd);
-                const files = parsed.length > 0 ? parsed : [...pointer.files];
-                const entry = makeEntry({
-                  exitCode: focused.result.exitCode,
-                  signal: focused.result.signal,
-                  stdoutTail: tailString(focused.result.stdout, tailBytes),
-                  stderrTail: tailString(focused.result.stderr, tailBytes),
-                  durationMs: focused.durationMs,
-                  failedTestFiles: files,
-                  failedFirst: report('failed'),
-                });
-                if (isEntryUsable(entry)) writeCacheEntry(projectRoot, entry);
-                writeFailedFirstPointer(
-                  projectRoot,
-                  command.canonical,
-                  recordedRoot,
-                  files,
-                  treeHash,
-                );
-                return {
-                  exitCode: entry.exitCode,
-                  signal: entry.signal ?? null,
-                  stdoutTail: entry.stdoutTail,
-                  stderrTail: entry.stderrTail,
-                  durationMs: entry.durationMs,
-                  cacheHit: false,
-                  timedOut: false,
-                  lockBusy: false,
-                  executionRoot,
-                  harnessFailure: null,
-                  failedFirst: report('failed'),
-                  entry,
-                };
-              }
-              default:
-                failedFirst = report(focused.kind);
-            }
+    // T12961: failed-first. When the last run of this tool in this tree
+    // failed, re-run only its failing files before the normal command.
+    const failedFirstEnabled = FAILED_FIRST_TOOLS.has(command.canonical);
+    let trackedCache: string[] | null = null;
+    const tracked = (): string[] => {
+      trackedCache ??= listTrackedFiles(executionRoot);
+      return trackedCache;
+    };
+    // Files that failed once and then passed on their single retry.
+    let flaky: string[] | undefined;
+    let failedFirst: FailedFirstReport | undefined;
+    if (failedFirstEnabled) {
+      const pointer = readFailedFirstPointer(projectRoot, command.canonical, recordedRoot);
+      const plan = pointer ? planFocusedRuns(pointer.files, executionRoot) : null;
+      if (pointer && plan) {
+        const report = (outcome: FailedFirstReport['outcome']): FailedFirstReport => ({
+          files: [...pointer.files],
+          outcome,
+        });
+        let focused = await runFocused(command, plan, executionRoot, spawnTimeoutMs);
+        let firstFailure: string[] | null = null;
+        if (focused.kind === 'failed') {
+          // Flake check: one retry of the files that just failed. A pass
+          // here does not skip anything — the normal command still runs and
+          // decides — it only stops a load-induced flake from being reported
+          // as the suite's result without a second look.
+          const out = `${focused.result.stdout}\n${focused.result.stderr}`;
+          const parsed = parseFailingTestFiles(out, executionRoot, tracked, focused.cwd);
+          firstFailure = parsed.length > 0 ? parsed : [...pointer.files];
+          const retryPlan = planFocusedRuns(firstFailure, executionRoot);
+          if (retryPlan) {
+            const retry = await runFocused(command, retryPlan, executionRoot, spawnTimeoutMs);
+            if (retry.kind === 'passed') flaky = firstFailure;
+            else if (retry.kind === 'failed') focused = retry;
           }
         }
-
-        // Spawn the tool ourselves.
-        //
-        // T12116: `test` and `build` run inside a transient systemd scope with
-        // a hard `MemoryMax` and `MemorySwapMax=0`, so the kernel bounds the
-        // ENTIRE process tree — a `pnpm -r` fan-out into fifteen packages is
-        // still one cgroup, which is the multiplier the semaphore could not
-        // see. Denying swap is the point: the failure this guards against was
-        // a throttle-and-thrash host freeze, not an OOM kill. Degrades to an
-        // unwrapped spawn off Linux or without a user systemd manager.
-        const limited = withMemoryLimit(command.canonical, command.cmd, command.args, {
-          // The scope name's rootHash8 comes off the execution root the tool
-          // runs in (T12112 / gh#1220).
-          executionRoot,
-        });
-        const startedAt = Date.now();
-        const result = await spawnCmd(
-          limited.cmd,
-          [...limited.args],
-          executionRoot,
-          spawnTimeoutMs,
-          heavyToolEnv(command.canonical),
-        );
-        const durationMs = Date.now() - startedAt;
-
-        if (result.timedOut) return timedOutResult(result, durationMs, failedFirst);
-
-        // gh#1397: checked before the cache entry is built — see
-        // `harnessResult`. `limited.confined` OR the project's own pinned
-        // wrapper: post-detection (gh#1396) CLEO declines to wrap a command
-        // that is already `systemd-run`, so `confined` is false for exactly
-        // the project whose harness failures prompted gh#1397.
-        const harnessFailure = confinementStartupFailure(
-          result.stderr,
-          limited.confined || isSystemdRunCommand(command.cmd),
-        );
-        if (harnessFailure !== null) {
-          return harnessResult(result, durationMs, harnessFailure, failedFirst);
+        switch (focused.kind) {
+          case 'timedOut':
+            return timedOutResult(focused.result, focused.durationMs, report('inconclusive'));
+          case 'harness':
+            return harnessResult(
+              focused.result,
+              focused.durationMs,
+              focused.harnessFailure,
+              report('inconclusive'),
+            );
+          case 'failed': {
+            if (flaky) {
+              failedFirst = report('passed');
+              break;
+            }
+            // Still red, twice: this IS the suite's result. A failing subset
+            // is a failing suite, so it is cached under the normal key.
+            const out = `${focused.result.stdout}\n${focused.result.stderr}`;
+            const parsed = parseFailingTestFiles(out, executionRoot, tracked, focused.cwd);
+            const files = parsed.length > 0 ? parsed : (firstFailure ?? [...pointer.files]);
+            const entry = makeEntry({
+              exitCode: focused.result.exitCode,
+              signal: focused.result.signal,
+              stdoutTail: tailString(focused.result.stdout, tailBytes),
+              stderrTail: tailString(focused.result.stderr, tailBytes),
+              durationMs: focused.durationMs,
+              failedTestFiles: files,
+              failedFirst: report('failed'),
+            });
+            if (isEntryUsable(entry)) writeCacheEntry(projectRoot, entry);
+            writeFailedFirstPointer(projectRoot, command.canonical, recordedRoot, files, treeHash);
+            return {
+              exitCode: entry.exitCode,
+              signal: entry.signal ?? null,
+              stdoutTail: entry.stdoutTail,
+              stderrTail: entry.stderrTail,
+              durationMs: entry.durationMs,
+              cacheHit: false,
+              timedOut: false,
+              lockBusy: false,
+              executionRoot,
+              harnessFailure: null,
+              failedFirst: report('failed'),
+              entry,
+            };
+          }
+          default:
+            failedFirst = report(focused.kind);
         }
-
-        // T12961: remember which test files failed, so the next run can try
-        // them first. A pass, or a failure whose files cannot be named,
-        // clears the pointer; an unknown outcome (signal kill) leaves it.
-        let failedTestFiles: string[] | undefined;
-        if (failedFirstEnabled && result.exitCode !== null) {
-          const files =
-            result.exitCode === 0
-              ? []
-              : parseFailingTestFiles(`${result.stdout}\n${result.stderr}`, executionRoot, tracked);
-          if (files.length > 0) failedTestFiles = files;
-          writeFailedFirstPointer(projectRoot, command.canonical, recordedRoot, files, treeHash);
-        }
-
-        const entry = makeEntry({
-          exitCode: result.exitCode,
-          signal: result.signal,
-          stdoutTail: tailString(result.stdout, tailBytes),
-          stderrTail: tailString(result.stderr, tailBytes),
-          durationMs,
-          ...(failedTestFiles ? { failedTestFiles } : {}),
-          ...(failedFirst ? { failedFirst } : {}),
-        });
-
-        // Persist only a usable entry. `isEntryUsable` is the SAME predicate
-        // `readCacheEntry` applies, which is the point: these two guards used
-        // to be independent transcriptions of one rule — `exitCode !== null
-        // && head !== null`, written out twice — so a field added to one had
-        // to be remembered into the other. gh#1380 and gh#1404 each edited
-        // both, and nothing checked that they still agreed.
-        //
-        // What the shared predicate refuses, and why none of it is an
-        // overcorrection:
-        //   - unknown outcome (`exitCode: null`) — a signal kill, or a
-        //     failure to start. The `timedOut` branch above already returns
-        //     without writing for this reason; an OOM kill that is not a CLEO
-        //     timeout (gh#1381) had no equivalent guard and fell through here.
-        //   - unrotatable key (`treeHash: null`) — costs a non-git CLEO root
-        //     all caching. Stated rather than hidden: those projects are not
-        //     getting valid caching today, they are getting ONE answer
-        //     forever, and a slow correct answer beats a fast fabricated one.
-        //
-        // Deliberately narrow in the other direction too: refusing, say, all
-        // non-zero exits would trade a fabricated pass for a permanent cache
-        // miss on healthy projects — the same overcorrection pointed the
-        // other way.
-        if (isEntryUsable(entry)) {
-          writeCacheEntry(projectRoot, entry);
-        }
-
-        return {
-          exitCode: entry.exitCode,
-          signal: entry.signal ?? null,
-          stdoutTail: entry.stdoutTail,
-          stderrTail: entry.stderrTail,
-          durationMs: entry.durationMs,
-          cacheHit: false,
-          timedOut: false,
-          lockBusy: false,
-          executionRoot,
-          harnessFailure: null,
-          ...(failedFirst ? { failedFirst } : {}),
-          entry,
-        };
-      },
-      { stale: lockStaleMs, retries: 3 },
-    );
-  } catch (err: unknown) {
-    // T12025 (lock contention): a held cache lock causes ~47 s of blind
-    // proper-lockfile retries (50 × exponential backoff). Reduce to 3
-    // retries (~0.7 s fail-fast) and return a typed actionable result
-    // so callers surface E_EVIDENCE_TOOL_BUSY instead of a generic error.
-    // Only surface lockBusy for actual ELOCKED contention — permission
-    // errors and other lock failures are re-thrown as real errors.
-    if (err instanceof CleoError && err.code === ExitCode.LOCK_TIMEOUT) {
-      const causeCode = (err.cause as { code?: string } | undefined)?.code;
-      if (causeCode === 'ELOCKED') {
-        return {
-          exitCode: null,
-          signal: null,
-          stdoutTail: '',
-          stderrTail: '',
-          durationMs: 0,
-          cacheHit: false,
-          timedOut: false,
-          lockBusy: true,
-          harnessFailure: null,
-          executionRoot,
-          entry: makeEntry({ exitCode: null, stdoutTail: '', stderrTail: '', durationMs: 0 }),
-        };
       }
     }
-    throw err;
-  } finally {
-    if (releaseSemaphore) await releaseSemaphore();
+
+    // Spawn the tool ourselves.
+    //
+    // T12116: `test` and `build` run inside a transient systemd scope with
+    // a hard `MemoryMax` and `MemorySwapMax=0`, so the kernel bounds the
+    // ENTIRE process tree — a `pnpm -r` fan-out into fifteen packages is
+    // still one cgroup, which is the multiplier the semaphore could not
+    // see. Denying swap is the point: the failure this guards against was
+    // a throttle-and-thrash host freeze, not an OOM kill. Degrades to an
+    // unwrapped spawn off Linux or without a user systemd manager.
+    const limited = withMemoryLimit(command.canonical, command.cmd, command.args, {
+      // The scope name's rootHash8 comes off the execution root the tool
+      // runs in (T12112 / gh#1220).
+      executionRoot,
+    });
+    const startedAt = Date.now();
+    const result = await spawnCmd(
+      limited.cmd,
+      [...limited.args],
+      executionRoot,
+      spawnTimeoutMs,
+      heavyToolEnv(command.canonical),
+    );
+    const durationMs = Date.now() - startedAt;
+
+    if (result.timedOut) return timedOutResult(result, durationMs, failedFirst);
+
+    // gh#1397: checked before the cache entry is built — see
+    // `harnessResult`. `limited.confined` OR the project's own pinned
+    // wrapper: post-detection (gh#1396) CLEO declines to wrap a command
+    // that is already `systemd-run`, so `confined` is false for exactly
+    // the project whose harness failures prompted gh#1397.
+    const harnessFailure = confinementStartupFailure(
+      result.stderr,
+      limited.confined || isSystemdRunCommand(command.cmd),
+    );
+    if (harnessFailure !== null) {
+      return harnessResult(result, durationMs, harnessFailure, failedFirst);
+    }
+
+    // T12961: remember which test files failed, so the next run can try
+    // them first. A pass, or a failure whose files cannot be named,
+    // clears the pointer; an unknown outcome (signal kill) leaves it.
+    let exitCode = result.exitCode;
+    let failedTestFiles: string[] | undefined;
+    if (failedFirstEnabled && exitCode !== null) {
+      const out = `${result.stdout}\n${result.stderr}`;
+      let files = exitCode === 0 ? [] : parseFailingTestFiles(out, executionRoot, tracked);
+      // Flake check: re-run the failing files ONCE before deciding. Only when
+      // the parsed files are provably the WHOLE failure — the runner's own
+      // summary counts exactly that many failed files and no unhandled
+      // errors — may a passing retry turn the run into a (flaky) pass.
+      // Anything else (a crash outside a test file, a coverage threshold, a
+      // truncated tail) stays a failure.
+      const retryPlan =
+        files.length > 0 && summarizedFailedFileCount(out) === files.length
+          ? planFocusedRuns(files, executionRoot)
+          : null;
+      if (retryPlan) {
+        const retry = await runFocused(command, retryPlan, executionRoot, spawnTimeoutMs);
+        if (retry.kind === 'passed') {
+          flaky = [...(flaky ?? []), ...files];
+          exitCode = 0;
+          files = [];
+        } else if (retry.kind === 'failed') {
+          const again = parseFailingTestFiles(
+            `${retry.result.stdout}\n${retry.result.stderr}`,
+            executionRoot,
+            tracked,
+            retry.cwd,
+          );
+          if (again.length > 0) files = again;
+        }
+      }
+      if (files.length > 0) failedTestFiles = files;
+      writeFailedFirstPointer(projectRoot, command.canonical, recordedRoot, files, treeHash);
+    }
+
+    const entry = makeEntry({
+      exitCode,
+      signal: result.signal,
+      stdoutTail: tailString(result.stdout, tailBytes),
+      stderrTail: tailString(result.stderr, tailBytes),
+      durationMs,
+      ...(failedTestFiles ? { failedTestFiles } : {}),
+      ...(failedFirst ? { failedFirst } : {}),
+      ...(flaky && exitCode === 0 ? { flaky: [...new Set(flaky)].sort() } : {}),
+    });
+
+    // Persist only a usable entry. `isEntryUsable` is the SAME predicate
+    // `readCacheEntry` applies, which is the point: these two guards used
+    // to be independent transcriptions of one rule — `exitCode !== null
+    // && head !== null`, written out twice — so a field added to one had
+    // to be remembered into the other. gh#1380 and gh#1404 each edited
+    // both, and nothing checked that they still agreed.
+    //
+    // What the shared predicate refuses, and why none of it is an
+    // overcorrection:
+    //   - unknown outcome (`exitCode: null`) — a signal kill, or a
+    //     failure to start. The `timedOut` branch above already returns
+    //     without writing for this reason; an OOM kill that is not a CLEO
+    //     timeout (gh#1381) had no equivalent guard and fell through here.
+    //   - unrotatable key (`treeHash: null`) — costs a non-git CLEO root
+    //     all caching. Stated rather than hidden: those projects are not
+    //     getting valid caching today, they are getting ONE answer
+    //     forever, and a slow correct answer beats a fast fabricated one.
+    //
+    // Deliberately narrow in the other direction too: refusing, say, all
+    // non-zero exits would trade a fabricated pass for a permanent cache
+    // miss on healthy projects — the same overcorrection pointed the
+    // other way.
+    if (isEntryUsable(entry)) {
+      writeCacheEntry(projectRoot, entry);
+    }
+
+    return {
+      exitCode: entry.exitCode,
+      signal: entry.signal ?? null,
+      stdoutTail: entry.stdoutTail,
+      stderrTail: entry.stderrTail,
+      durationMs: entry.durationMs,
+      cacheHit: false,
+      timedOut: false,
+      lockBusy: false,
+      executionRoot,
+      harnessFailure: null,
+      ...(failedFirst ? { failedFirst } : {}),
+      ...(entry.flaky ? { flaky: entry.flaky } : {}),
+      entry,
+    };
+  };
+
+  // Coalescing (T12958): with a content key, N agents in N worktrees at the
+  // same tree compute the SAME key, so the per-key lock is what turns N
+  // identical suites into one. A caller that finds the lock held WAITS for
+  // the holder's result instead of failing fast (T12025's ~0.7 s give-up
+  // made every second caller report E_EVIDENCE_TOOL_BUSY and retry, i.e.
+  // run the suite anyway). The wait happens OUTSIDE the global semaphore so a
+  // waiter does not occupy a slot a different key could use.
+  //
+  // When the holder releases without a usable entry (timeout, harness
+  // failure, crash) the waiter loops and runs the tool itself. The total wait
+  // is bounded by `lockWaitMs`; past it the caller gets `lockBusy`.
+  const lockWaitMs = opts.lockWaitMs ?? spawnTimeoutMs + 60_000;
+  const lockPollMs = opts.lockPollMs ?? 1_000;
+  const waitDeadline = Date.now() + lockWaitMs;
+  // A bypassing caller must not accept the entry it chose to bypass.
+  const acceptable = (e: ToolCacheEntry): boolean =>
+    !bypassCache || Date.parse(e.capturedAt) >= callStartedAt;
+
+  for (;;) {
+    const releaseSemaphore = opts.skipGlobalSemaphore
+      ? undefined
+      : await acquireGlobalSlot(command.canonical, opts.semaphoreOptions);
+    try {
+      return await withLock(cachePath, runLocked, { stale: lockStaleMs, retries: 3 });
+    } catch (err: unknown) {
+      // Only ELOCKED contention is waited out — permission errors and other
+      // lock failures are re-thrown as real errors.
+      const causeCode =
+        err instanceof CleoError && err.code === ExitCode.LOCK_TIMEOUT
+          ? (err.cause as { code?: string } | undefined)?.code
+          : undefined;
+      if (causeCode !== 'ELOCKED') throw err;
+    } finally {
+      if (releaseSemaphore) await releaseSemaphore();
+    }
+
+    // Another caller is running this exact key. Wait for its result.
+    while (Date.now() < waitDeadline) {
+      const done = readCacheEntry(projectRoot, key);
+      if (done && acceptable(done)) return hit(done);
+      if (!(await isLocked(cachePath, { stale: lockStaleMs }))) break;
+      await new Promise((r) => setTimeout(r, Math.min(lockPollMs, waitDeadline - Date.now())));
+    }
+    const done = readCacheEntry(projectRoot, key);
+    if (done && acceptable(done)) return hit(done);
+    if (Date.now() >= waitDeadline) {
+      // T12025: a typed, actionable result so callers surface
+      // E_EVIDENCE_TOOL_BUSY instead of a generic error.
+      return {
+        exitCode: null,
+        signal: null,
+        stdoutTail: '',
+        stderrTail: '',
+        durationMs: 0,
+        cacheHit: false,
+        timedOut: false,
+        lockBusy: true,
+        harnessFailure: null,
+        executionRoot,
+        entry: makeEntry({ exitCode: null, stdoutTail: '', stderrTail: '', durationMs: 0 }),
+      };
+    }
+    // The holder released without a usable result: run it ourselves.
   }
 }
 

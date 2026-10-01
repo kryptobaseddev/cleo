@@ -191,6 +191,33 @@ export function parseFailingTestFiles(
   return [...found].sort();
 }
 
+/**
+ * The number of failed test FILES the runner's own summary reports, or `null`
+ * when it cannot be trusted to account for the whole failure.
+ *
+ * Sums every vitest `Test Files  N failed` and jest `Test Suites: N failed`
+ * line (a `pnpm -r` run prints one per package). Returns `null` when no
+ * summary is present, or when vitest reports unhandled `Errors` — those fail
+ * the run without belonging to any one test file, so re-running the files
+ * cannot clear them.
+ *
+ * Used to gate the flake retry: a failing run may only become a (flaky) pass
+ * when the files that passed on retry are provably ALL that failed.
+ *
+ * @task T12961
+ */
+export function summarizedFailedFileCount(output: string): number | null {
+  const text = output.replace(ANSI, '');
+  if (/^\s*Errors\s+\d+\s+errors?\b/m.test(text)) return null;
+  let total = 0;
+  let seen = false;
+  for (const m of text.matchAll(/^.*?(?:Test Files|Test Suites:)\s+(\d+)\s+failed\b/gm)) {
+    total += Number(m[1]);
+    seen = true;
+  }
+  return seen ? total : null;
+}
+
 /** `true` when vitest reported that the filters matched no test file. */
 export function reportsNoTestFiles(output: string): boolean {
   return /No test files found/i.test(output.replace(ANSI, ''));

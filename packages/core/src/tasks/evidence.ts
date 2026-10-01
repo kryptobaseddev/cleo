@@ -1581,6 +1581,7 @@ async function validateAffectedTests(roots: EvidenceRoots): Promise<AtomValidati
       affectedPackages: run.packages,
       affectedProjects: run.projects,
       ...(run.untested.length > 0 ? { untestedPackages: run.untested } : {}),
+      ...(result.flaky ? { flaky: result.flaky } : {}),
     },
   };
 }
@@ -1981,7 +1982,14 @@ async function validateTool(tool: string, roots: EvidenceRoots): Promise<AtomVal
 
   return {
     ok: true,
-    atom: { kind: 'tool', tool, exitCode: 0, stdoutTail: result.stdoutTail },
+    atom: {
+      kind: 'tool',
+      tool,
+      exitCode: 0,
+      stdoutTail: result.stdoutTail,
+      // T12961: a pass that needed a retry is recorded as flaky, not clean.
+      ...(result.flaky ? { flaky: result.flaky } : {}),
+    },
   };
 }
 

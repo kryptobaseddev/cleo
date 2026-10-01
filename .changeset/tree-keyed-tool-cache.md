@@ -2,7 +2,7 @@
 id: tree-keyed-tool-cache
 tasks: [T12958, T12961]
 kind: feat
-summary: the evidence tool cache is keyed on tracked tree content, so worktrees and commits with the same content share one run; a failing `tool:test` re-runs only its failing files first after a fix
+summary: the evidence tool cache is keyed on tracked tree content, so worktrees and commits with the same content share one run and concurrent identical runs coalesce; a failing `tool:test` retries its failing files once (flaky passes are marked) and re-runs only them first after a fix
 ---
 
 `tool:<name>` evidence results were cached under `{canonical, cmd, args,
@@ -36,3 +36,21 @@ byte-identical, so each concurrent agent re-ran the full suite.
   normal command runs. When the files cannot be named or run (no vitest, no
   config, `No test files found`, spawn error), the run falls back to today's
   behaviour.
+- **Flake retry (T12961).** When a test run fails, its failing files are re-run
+  ONCE before deciding. If they now pass, the run is recorded as a pass with
+  `flaky: [files]` on the cache entry and on the `tool` evidence atom, so it is
+  visible and distinct from a clean pass. The retry can only turn the run into
+  a pass when the runner's summary (`Test Files  N failed` /
+  `Test Suites: N failed`) counts exactly the named files and reports no
+  unhandled `Errors`. A failure the named files cannot fully explain stays a
+  failure. A failed-first rerun that fails also gets one retry before it
+  counts as the result.
+- **Coalescing (T12958).** A caller that finds the per-key lock held, meaning
+  the same command on the same content, possibly from another worktree, now
+  waits for that run and reuses its result. It used to give up after about
+  0.7 s with `E_EVIDENCE_TOOL_BUSY` and then run the suite anyway. The wait
+  happens outside the global semaphore. If the holder releases without a
+  result (timeout, harness failure, crash), the waiter runs the tool itself.
+  The wait is bounded by `lockWaitMs` (default: the spawn deadline + 60 s),
+  and a caller still waiting at that bound gets `lockBusy` /
+  `E_EVIDENCE_TOOL_BUSY`.

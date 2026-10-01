@@ -34,6 +34,7 @@ import {
   parseFailingTestFiles,
   planFocusedRuns,
   readFailedFirstPointer,
+  summarizedFailedFileCount,
 } from '../tool-cache-failed-first.js';
 import type { ResolvedToolCommand } from '../tool-resolver.js';
 
@@ -157,20 +158,45 @@ describe('planFocusedRuns', () => {
   });
 });
 
-describe('runToolCached — failed-first reruns', () => {
+describe('runToolCached — failed-first reruns and flake retries', () => {
   let repo: string;
   let side: string;
   let state: string;
   let fullLog: string;
   let focusedLog: string;
   let cmd: ResolvedToolCommand;
+  let root: string;
 
-  /** Red/green state shared by the fake suite and the fake vitest. */
-  const setState = (value: 'red' | 'green' | 'nofiles'): void => writeFileSync(state, value);
+  /**
+   * Shared state for the fake suite and the fake vitest:
+   *   red        — both fail (a real failure)
+   *   green      — both pass
+   *   flaky      — the full suite fails, every focused re-run passes
+   *   flaky-once — the FIRST focused call fails, later ones pass; full passes
+   *   nofiles    — focused runs report "No test files found"
+   */
+  type State = 'red' | 'green' | 'flaky' | 'flaky-once' | 'nofiles';
+  const setState = (value: State): void => writeFileSync(state, value);
   const fullRuns = (): number =>
     existsSync(fullLog) ? readFileSync(fullLog, 'utf-8').split('\n').filter(Boolean).length : 0;
   const focusedCalls = (): string[] =>
     existsSync(focusedLog) ? readFileSync(focusedLog, 'utf-8').split('\n').filter(Boolean) : [];
+  /** A full-suite script printing `body` and exiting 1 when the state is red or flaky. */
+  const suite = (failBody: string): ResolvedToolCommand => ({
+    canonical: 'test',
+    displayName: 'test',
+    cmd: 'sh',
+    args: [
+      '-c',
+      [
+        `echo run >> "${fullLog}"`,
+        `s=$(cat "${state}")`,
+        `if [ "$s" = red ] || [ "$s" = flaky ]; then ${failBody}; exit 1; fi`,
+        'echo " Test Files  2 passed (2)"; exit 0',
+      ].join('\n'),
+    ],
+    source: 'language-default',
+  });
 
   beforeEach(() => {
     repo = mkdtempSync(join(tmpdir(), 'ff-repo-'));
@@ -189,10 +215,12 @@ describe('runToolCached — failed-first reruns', () => {
     writeFileSync(join(repo, '.gitignore'), 'node_modules\n.cleo\n');
     git(repo, 'add', '.');
     git(repo, 'commit', '-qm', 'init');
+    root = git(repo, 'rev-parse', '--show-toplevel');
 
     // Fake vitest: log argv, then behave per the state file.
     mkdirSync(join(repo, 'node_modules', '.bin'), { recursive: true });
     const bin = join(repo, 'node_modules', '.bin', 'vitest');
+    const once = join(side, 'failed-once');
     writeFileSync(
       bin,
       [
@@ -200,6 +228,7 @@ describe('runToolCached — failed-first reruns', () => {
         `echo "$(pwd -P) $*" >> "${focusedLog}"`,
         `s=$(cat "${state}")`,
         'if [ "$s" = red ]; then echo " FAIL  src/a.test.ts > suite > case"; exit 1; fi',
+        `if [ "$s" = flaky-once ] && [ ! -f "${once}" ]; then touch "${once}"; echo " FAIL  src/a.test.ts > s"; exit 1; fi`,
         'if [ "$s" = nofiles ]; then echo "No test files found, exiting with code 1"; exit 1; fi',
         'echo " ✓ src/a.test.ts (1 test)"; exit 0',
         '',
@@ -207,22 +236,9 @@ describe('runToolCached — failed-first reruns', () => {
     );
     chmodSync(bin, 0o755);
 
-    // The "full suite": counts its spawns; red names a.test.ts as failing.
-    cmd = {
-      canonical: 'test',
-      displayName: 'test',
-      cmd: 'sh',
-      args: [
-        '-c',
-        [
-          `echo run >> "${fullLog}"`,
-          `s=$(cat "${state}")`,
-          'if [ "$s" = red ]; then echo " FAIL  src/a.test.ts > suite > case"; echo " Test Files  1 failed | 1 passed (2)"; exit 1; fi',
-          'echo " Test Files  2 passed (2)"; exit 0',
-        ].join('\n'),
-      ],
-      source: 'language-default',
-    };
+    cmd = suite(
+      'echo " FAIL  src/a.test.ts > suite > case"; echo " Test Files  1 failed | 1 passed (2)"',
+    );
   });
   afterEach(() => {
     rmSync(repo, { recursive: true, force: true });
@@ -233,14 +249,16 @@ describe('runToolCached — failed-first reruns', () => {
   /** A tracked edit, so the next run is on a new tree (a cache miss). */
   const edit = (label: string): void =>
     writeFileSync(join(repo, 'src', 'a.test.ts'), `// ${label}\n`);
+  const focusedA = (): string => `${root} run src/a.test.ts`;
 
-  it('a failing run stores the failing test files on the entry and in the pointer', async () => {
+  it('a failing run is retried once, then stores the failing files on the entry and pointer', async () => {
     setState('red');
     const r = await run();
     expect(r.exitCode).toBe(1);
+    expect(focusedCalls()).toEqual([focusedA()]); // the single flake retry
     expect(r.entry.failedTestFiles).toEqual(['src/a.test.ts']);
+    expect(r.flaky).toBeUndefined();
     expect(r.failedFirst).toBeUndefined();
-    const root = git(repo, 'rev-parse', '--show-toplevel');
     expect(readFailedFirstPointer(repo, 'test', root)?.files).toEqual(['src/a.test.ts']);
   });
 
@@ -248,29 +266,28 @@ describe('runToolCached — failed-first reruns', () => {
     setState('red');
     await run();
     expect(fullRuns()).toBe(1);
+    expect(focusedCalls()).toHaveLength(1);
 
     edit('fixed');
     setState('green');
     const r = await run();
 
-    expect(focusedCalls()).toEqual([
-      `${git(repo, 'rev-parse', '--show-toplevel')} run src/a.test.ts`,
-    ]);
+    expect(focusedCalls()).toEqual([focusedA(), focusedA()]);
     expect(r.failedFirst).toEqual({ files: ['src/a.test.ts'], outcome: 'passed' });
     expect(r.exitCode).toBe(0);
+    expect(r.flaky).toBeUndefined();
     expect(r.cacheHit).toBe(false);
     expect(fullRuns()).toBe(2);
-    const root = git(repo, 'rev-parse', '--show-toplevel');
     expect(existsSync(failedFirstPointerPath(repo, 'test', root))).toBe(false);
 
     // A later run on a new tree has nothing to try first.
     edit('later');
     await run();
-    expect(focusedCalls()).toHaveLength(1);
+    expect(focusedCalls()).toHaveLength(2);
     expect(fullRuns()).toBe(3);
   });
 
-  it('fail-then-still-fail: stops after the focused run, never spawning the full suite', async () => {
+  it('fail-then-still-fail: stops after the focused run (and its retry), never spawning the full suite', async () => {
     setState('red');
     await run();
     expect(fullRuns()).toBe(1);
@@ -278,7 +295,8 @@ describe('runToolCached — failed-first reruns', () => {
     edit('attempted fix');
     const r = await run();
 
-    expect(focusedCalls()).toHaveLength(1);
+    // focused + its one retry
+    expect(focusedCalls()).toHaveLength(3);
     expect(fullRuns()).toBe(1);
     expect(r.exitCode).toBe(1);
     expect(r.failedFirst).toEqual({ files: ['src/a.test.ts'], outcome: 'failed' });
@@ -290,8 +308,60 @@ describe('runToolCached — failed-first reruns', () => {
     expect(again.cacheHit).toBe(true);
     expect(again.exitCode).toBe(1);
     expect(again.failedFirst?.outcome).toBe('failed');
-    expect(focusedCalls()).toHaveLength(1);
+    expect(focusedCalls()).toHaveLength(3);
     expect(fullRuns()).toBe(1);
+  });
+
+  it('FLAKE: a failure whose files pass on the single retry is a pass marked `flaky`', async () => {
+    setState('flaky');
+    const r = await run();
+    expect(fullRuns()).toBe(1);
+    expect(focusedCalls()).toEqual([focusedA()]);
+    expect(r.exitCode).toBe(0);
+    expect(r.flaky).toEqual(['src/a.test.ts']);
+    expect(r.entry.flaky).toEqual(['src/a.test.ts']);
+    expect(r.entry.failedTestFiles).toBeUndefined();
+    // Not a failure: nothing to try first next time.
+    expect(existsSync(failedFirstPointerPath(repo, 'test', root))).toBe(false);
+
+    // Cached as a flaky pass — visible on every hit, not a clean pass.
+    const again = await run();
+    expect(again.cacheHit).toBe(true);
+    expect(again.exitCode).toBe(0);
+    expect(again.flaky).toEqual(['src/a.test.ts']);
+  });
+
+  it('FLAKE guard: no retry when the summary counts more failed files than were named', async () => {
+    cmd = suite('echo " FAIL  src/a.test.ts > suite > case"; echo " Test Files  2 failed (2)"');
+    setState('flaky');
+    const r = await run();
+    expect(focusedCalls()).toEqual([]);
+    expect(r.exitCode).toBe(1);
+    expect(r.flaky).toBeUndefined();
+  });
+
+  it('FLAKE guard: no retry when vitest reports unhandled Errors', async () => {
+    cmd = suite(
+      'echo " FAIL  src/a.test.ts > s"; echo " Test Files  1 failed | 1 passed (2)"; echo "      Errors  1 error"',
+    );
+    setState('flaky');
+    const r = await run();
+    expect(focusedCalls()).toEqual([]);
+    expect(r.exitCode).toBe(1);
+  });
+
+  it('FLAKE in failed-first: a focused failure that passes on retry continues to the full run', async () => {
+    setState('red');
+    await run();
+    edit('fixed');
+    setState('flaky-once');
+    const r = await run();
+    // focused (fails once) + its retry (passes), then the full suite
+    expect(focusedCalls()).toHaveLength(3);
+    expect(fullRuns()).toBe(2);
+    expect(r.exitCode).toBe(0);
+    expect(r.failedFirst?.outcome).toBe('passed');
+    expect(r.flaky).toEqual(['src/a.test.ts']);
   });
 
   it('"No test files found" is inconclusive: falls back to the full suite', async () => {
@@ -321,7 +391,23 @@ describe('runToolCached — failed-first reruns', () => {
     cmd = { ...cmd, canonical: 'lint', displayName: 'lint' };
     const r = await run();
     expect(r.entry.failedTestFiles).toBeUndefined();
-    const root = git(repo, 'rev-parse', '--show-toplevel');
+    expect(focusedCalls()).toEqual([]);
     expect(existsSync(failedFirstPointerPath(repo, 'lint', root))).toBe(false);
+  });
+});
+
+describe('summarizedFailedFileCount', () => {
+  it('sums vitest and jest summaries, null without one or with unhandled errors', () => {
+    expect(summarizedFailedFileCount(' Test Files  1 failed | 3 passed (4)')).toBe(1);
+    expect(
+      summarizedFailedFileCount(
+        'packages/a test:  Test Files  2 failed (2)\npackages/b test:  Test Files  1 failed (5)',
+      ),
+    ).toBe(3);
+    expect(summarizedFailedFileCount('Test Suites: 2 failed, 8 passed, 10 total')).toBe(2);
+    expect(summarizedFailedFileCount('exit 1')).toBeNull();
+    expect(
+      summarizedFailedFileCount(' Test Files  1 failed (1)\n      Errors  2 errors'),
+    ).toBeNull();
   });
 });

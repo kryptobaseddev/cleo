@@ -32,11 +32,12 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
+import { acquireLock } from '../../store/lock.js';
 import {
   cacheEntryPath,
   captureTreeHash,
@@ -270,6 +271,77 @@ describe('T12958 — runs are shared by content across worktrees and commits', (
     const onDisk = JSON.parse(readFileSync(path, 'utf-8')) as Record<string, unknown>;
     writeFileSync(path, JSON.stringify({ ...onDisk, schemaVersion: 2 }));
     expect(readCacheEntry(repo, r.entry.key)).toBeNull();
+  });
+});
+
+describe('T12958 — concurrent identical runs coalesce on the per-key lock', () => {
+  let repo: string;
+  let wtParent: string;
+  let wt: string;
+  let markerDir: string;
+  let marker: string;
+
+  beforeEach(() => {
+    repo = mkdtempSync(join(tmpdir(), 'tree-lock-repo-'));
+    initRepo(repo);
+    wtParent = mkdtempSync(join(tmpdir(), 'tree-lock-wt-'));
+    wt = join(wtParent, 'wt');
+    git(repo, 'worktree', 'add', '-q', '-b', 'feature', wt);
+    markerDir = mkdtempSync(join(tmpdir(), 'tree-lock-marker-'));
+    marker = join(markerDir, 'spawns.txt');
+  });
+  afterEach(() => {
+    for (const d of [repo, wtParent, markerDir]) rmSync(d, { recursive: true, force: true });
+  });
+
+  const spawns = (): number => (existsSync(marker) ? readFileSync(marker, 'utf-8').length : 0);
+
+  it('two worktrees verifying the same content at once spawn ONE run; the second waits and reuses it', {
+    timeout: 30_000,
+  }, async () => {
+    // Longer than the ~0.7 s lock-acquire retry window, so the second caller
+    // genuinely finds the lock held and has to wait.
+    const cmd = shCommand(`printf x >> "${marker}"; sleep 2; echo ok`);
+    const opts = { skipGlobalSemaphore: true, lockPollMs: 50 };
+    const [a, b] = await Promise.all([
+      runToolCached(cmd, repo, { ...opts, executionRoot: repo }),
+      runToolCached(cmd, repo, { ...opts, executionRoot: wt }),
+    ]);
+    expect(spawns()).toBe(1);
+    expect([a.cacheHit, b.cacheHit].sort()).toEqual([false, true]);
+    expect(a.lockBusy || b.lockBusy).toBe(false);
+    expect(a.exitCode).toBe(0);
+    expect(b.exitCode).toBe(0);
+    expect(a.entry.key).toBe(b.entry.key);
+  });
+
+  it('a waiter whose holder releases WITHOUT a result runs the tool itself', {
+    timeout: 30_000,
+  }, async () => {
+    const cmd = shCommand(`printf x >> "${marker}"; echo ok`);
+    const key = computeCacheKey(cmd, await captureTreeHash(repo));
+    const path = cacheEntryPath(repo, key);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, JSON.stringify({ schemaVersion: 3, key, pending: true }));
+    // Stands in for a holder that timed out or crashed: it holds the lock,
+    // then lets go having written nothing.
+    const release = await acquireLock(path, { retries: 0, stale: 10_000 });
+    const releaseLater = new Promise<void>((r) =>
+      setTimeout(() => {
+        void release().then(r);
+      }, 1_500),
+    );
+
+    const r = await runToolCached(cmd, repo, {
+      skipGlobalSemaphore: true,
+      lockStaleMs: 10_000,
+      lockPollMs: 50,
+    });
+    await releaseLater;
+    expect(r.lockBusy).toBe(false);
+    expect(r.cacheHit).toBe(false);
+    expect(r.exitCode).toBe(0);
+    expect(spawns()).toBe(1);
   });
 });
 

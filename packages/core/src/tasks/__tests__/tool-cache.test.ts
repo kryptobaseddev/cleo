@@ -645,7 +645,7 @@ describe('runToolCached — wall-clock spawn deadline (T12025)', () => {
 // T12025: lock contention — fail-fast typed busy outcome + retry recovery
 // ---------------------------------------------------------------------------
 
-describe('runToolCached — lock contention fail-fast (T12025)', () => {
+describe('runToolCached — lock contention bounded wait (T12025, T12958)', () => {
   let dir: string;
   /**
    * Staleness window handed to `runToolCached`, and the bound the assertion
@@ -712,8 +712,14 @@ describe('runToolCached — lock contention fail-fast (T12025)', () => {
 
     try {
       const startedAt = Date.now();
+      // T12958: a held lock is now WAITED on (the holder is running the same
+      // command on the same content), bounded by `lockWaitMs`. This lock is
+      // never released and never produces an entry, so the bounded wait must
+      // end in `lockBusy` — well before `lockStaleMs`.
       const r = await runToolCached(cmd, dir, {
         lockStaleMs: LOCK_STALE_MS,
+        lockWaitMs: 2_000,
+        lockPollMs: 100,
         skipGlobalSemaphore: true,
       });
       const elapsedMs = Date.now() - startedAt;
