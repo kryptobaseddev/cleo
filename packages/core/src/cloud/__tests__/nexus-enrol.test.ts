@@ -843,6 +843,8 @@ describe('upgradeNexusSession (§3.4)', () => {
     server.beforeEnrol = async () => fail(403, 'E_FORBIDDEN', 'device-flow-session-required');
     const err = await accountError(upgradeNexusSession(flow()), 'E_NEXUS_SESSION_EXPIRED');
     expect(err.fix).toContain('browser');
+    expect(err.message).toMatch(/stored session can no longer be upgraded/);
+    expect(err.message).toContain('device login');
   });
 
   it('two processes upgrading at once make exactly one E1 call and neither reports expiry (N1)', async () => {
