@@ -501,7 +501,7 @@ export function carryMachineState(
     scrubbed: [],
   };
   const live = new DatabaseSync(liveDbPath, { readOnly: true });
-  const staged = new DatabaseSync(stagedDbPath);
+  const staged = new DatabaseSync(stagedDbPath); // schema-guard-exempt: the staged restore copy this step owns; carrying machine state is DML only
   const snapshotRoot = opts.snapshotRoot === null ? null : opts.snapshotRoot.replace(/[\\/]+$/, '');
   try {
     const tablesOf = (db: DatabaseSync) =>

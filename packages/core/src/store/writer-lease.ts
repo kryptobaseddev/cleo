@@ -1514,7 +1514,7 @@ export function storeOpenElsewhere(dbPath: string): boolean {
   if (!existsSync(dbPath)) return false;
   const DatabaseSyncCtor = getDbSyncConstructor();
   // db-open-allowed: a lock probe; it must not set WAL or touch the store before taking the exclusive lock
-  const probe = new DatabaseSyncCtor(dbPath, { timeout: 0 });
+  const probe = new DatabaseSyncCtor(dbPath, { timeout: 0 }); // schema-guard-exempt: a lock probe; it runs only BEGIN EXCLUSIVE and COMMIT
   try {
     probe.exec('PRAGMA locking_mode = EXCLUSIVE');
     probe.exec('BEGIN EXCLUSIVE');

@@ -659,6 +659,7 @@ export function redactCredentials(snapshotPath: string): CredentialRedaction[] {
         (db.prepare(`SELECT COUNT(*) AS n FROM "${table}" WHERE ${cond}`).get() as { n: number }).n,
       );
       if (left !== 0)
+        // @sync-invariant none:local-only checks the redaction of a snapshot copy this export owns; it never writes a synced store
         throw new Error(`credential columns of ${table} were not cleared (${left} rows remain)`);
       out.push({
         table,
