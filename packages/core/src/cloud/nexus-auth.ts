@@ -50,6 +50,7 @@ import {
   type NexusTokenStore,
   type SealedNexusSession,
 } from './nexus-credentials.js';
+import { isNexusDeviceEnabled, NexusDeviceStore, SealedNexusDevice } from './nexus-device.js';
 
 /** Environment override for the default API origin (e.g. staging). */
 export const NEXUS_API_URL_ENV = 'CLEO_NEXUS_API_URL';
@@ -117,6 +118,14 @@ export interface NexusStatusOptions {
   live?: boolean;
   /** Time budget per live check. */
   timeoutMs?: number;
+  /**
+   * Report device credentials (`nexus-device.json`) too; default
+   * {@link isNexusDeviceEnabled}. A device credential replaces any 9.24
+   * session row for its origin.
+   */
+  devices?: boolean;
+  /** Device store; defaults to `<cleoHome>/nexus-device.json`. */
+  deviceStore?: NexusDeviceStore;
 }
 
 /**
@@ -504,11 +513,44 @@ async function checkSession(
 }
 
 /**
+ * Check one device credential against the API (E2 `GET /v1/whoami`, the call
+ * the device contract prefers for status). A 401 (signed out, revoked or
+ * expired) reads as `expired`; no answer reads as `unverified`.
+ */
+async function checkDevice(
+  device: SealedNexusDevice,
+  bearer: string,
+  opts: NexusStatusOptions,
+): Promise<NexusAccountStatus> {
+  if (opts.live === false) return statusRow(device.origin, 'unverified', null, null);
+  const timeoutMs = opts.timeoutMs ?? NEXUS_STATUS_TIMEOUT_MS;
+  const base = opts.fetch ?? ((input: string, init?: RequestInit) => fetch(input, init));
+  const http = new Http({
+    baseUrl: device.origin,
+    token: bearer,
+    fetch: (input, init) => base(input, { ...init, signal: AbortSignal.timeout(timeoutMs) }),
+    maxAttempts: 1,
+  });
+  try {
+    const me = await http.request('GET', '/v1/whoami', nexusAccountMeSchema);
+    return statusRow(device.origin, 'signed-in', null, me);
+  } catch (err) {
+    if (err instanceof NexusError && err.status === 401) {
+      return statusRow(device.origin, 'expired', null, null);
+    }
+    return statusRow(device.origin, 'unverified', null, null);
+  }
+}
+
+/**
  * Secret-free status rows for `cleo status` and `cleo auth list`: one per
- * stored session, or one "not signed in" row for the default origin. Makes a
- * network call only when a token is stored.
+ * device credential (when device credentials are on) and one per stored 9.24
+ * session on an origin no device credential covers, or one "not signed in"
+ * row for the default origin. Makes a network call only when a credential is
+ * stored. A device that is signed out locally (no current credential) is not
+ * signed in.
  *
- * @param opts - Origin filter, store, liveness and test overrides.
+ * @param opts - Origin filter, stores, liveness and test overrides.
  * @returns Status rows, sorted by origin.
  */
 export async function getNexusAccountStatus(
@@ -516,11 +558,27 @@ export async function getNexusAccountStatus(
 ): Promise<NexusAccountStatus[]> {
   const store = opts.store ?? new FileNexusTokenStore();
   const only = opts.apiUrl !== undefined ? resolveNexusApiUrl(opts.apiUrl) : null;
-  const sessions = (await store.list()).filter((s) => only === null || s.apiUrl === only);
-  if (sessions.length === 0) {
+  const checks: Promise<NexusAccountStatus>[] = [];
+  const covered = new Set<string>();
+  if (opts.devices ?? isNexusDeviceEnabled()) {
+    for (const d of await (opts.deviceStore ?? new NexusDeviceStore()).list()) {
+      if (!(d instanceof SealedNexusDevice) || (only !== null && d.origin !== only)) continue;
+      const bearer = d.pendingBearer() ?? d.currentBearer();
+      if (bearer === null) continue;
+      covered.add(d.origin);
+      checks.push(checkDevice(d, bearer, opts));
+    }
+  }
+  for (const s of await store.list()) {
+    if ((only === null || s.apiUrl === only) && !covered.has(s.apiUrl)) {
+      checks.push(checkSession(s, opts));
+    }
+  }
+  if (checks.length === 0) {
     return [statusRow(only ?? resolveNexusApiUrl(), 'not-signed-in', null, null)];
   }
-  return Promise.all(sessions.map((s) => checkSession(s, opts)));
+  const rows = await Promise.all(checks);
+  return rows.sort((a, b) => a.apiUrl.localeCompare(b.apiUrl));
 }
 
 /**

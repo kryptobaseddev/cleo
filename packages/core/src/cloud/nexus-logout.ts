@@ -1,6 +1,6 @@
 /**
- * Cleo Nexus device logout: `cleo logout nexus [--revoke]` behind
- * `CLEO_NEXUS_DEVICE=1` (cleo-nexus device contract §3.5, review M3, T12844).
+ * Cleo Nexus device logout: `cleo logout nexus [--revoke]` with device
+ * credentials (cleo-nexus device contract §3.5, review M3, T12844).
  *
  * A logout never reports success while a credential may still be live:
  *

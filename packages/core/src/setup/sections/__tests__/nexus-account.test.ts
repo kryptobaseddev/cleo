@@ -7,7 +7,7 @@
  */
 
 import type { NexusLoginResult } from '@cleocode/contracts';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { loginToNexus } from '../../../cloud/nexus-auth.js';
 import { createBuiltinSections } from '../../index.js';
 import { StubWizardIO } from '../../wizard.js';
@@ -35,6 +35,18 @@ function stubLogin() {
     return RESULT;
   });
 }
+
+// These tests cover the 9.24 session path: pin device credentials off so no
+// test reads the real nexus-device.json (T12904 made them the default).
+let savedDeviceFlag: string | undefined;
+beforeEach(() => {
+  savedDeviceFlag = process.env['CLEO_NEXUS_DEVICE'];
+  process.env['CLEO_NEXUS_DEVICE'] = '0';
+});
+afterEach(() => {
+  if (savedDeviceFlag === undefined) delete process.env['CLEO_NEXUS_DEVICE'];
+  else process.env['CLEO_NEXUS_DEVICE'] = savedDeviceFlag;
+});
 
 describe('nexus-account setup section', () => {
   it('is registered as an optional built-in section', () => {

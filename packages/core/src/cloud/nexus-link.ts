@@ -84,7 +84,7 @@ export interface NexusLinkOptions extends NexusFlowOptions {
   projectRoot?: string;
   /** Label to register (`--label`); defaults to {@link getProjectDisplayName}. */
   label?: string;
-  /** Device store (with `CLEO_NEXUS_DEVICE=1`); defaults to `<cleoHome>/nexus-device.json`. */
+  /** Device store (with device credentials); defaults to `<cleoHome>/nexus-device.json`. */
   deviceStore?: NexusDeviceStore;
 }
 
@@ -240,7 +240,7 @@ export async function linkProjectToNexus(
   const apiUrl = resolveNexusApiUrl(opts.apiUrl);
   const store = opts.store ?? new FileNexusTokenStore();
   const deviceMode = isNexusDeviceEnabled();
-  // With CLEO_NEXUS_DEVICE=1 the device credential is used, upgrading a 9.24
+  // With device credentials (the default) the device credential is used, upgrading a 9.24
   // session first (contract §3.4); otherwise the 9.24 session, as before.
   const bearer = deviceMode
     ? (

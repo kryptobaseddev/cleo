@@ -65,7 +65,7 @@ export const NEXUS_ACCOUNT_ERROR_CODES = [
   'E_NEXUS_BUSY',
   /** Several accounts hold a device credential on one origin and none was named. */
   'E_NEXUS_ACCOUNT_AMBIGUOUS',
-  /** An option that needs device credentials (`--read-only`) without `CLEO_NEXUS_DEVICE=1`. */
+  /** An option that needs device credentials (`--read-only`) with `CLEO_NEXUS_DEVICE=0`. */
   'E_NEXUS_DEVICE_REQUIRED',
 ] as const;
 
@@ -161,9 +161,9 @@ export interface NexusLoginResult {
   credentialsPath: string;
   /** Non-fatal problems, e.g. the account lookup failed after a good login. */
   warnings: string[];
-  /** The enrolled device; present only with `CLEO_NEXUS_DEVICE=1` (device credentials). */
+  /** The enrolled device; present only with device credentials (the default; off with `CLEO_NEXUS_DEVICE=0`). */
   device?: NexusLoginDevice;
-  /** Scopes of the stored device credential; present only with `CLEO_NEXUS_DEVICE=1`. */
+  /** Scopes of the stored device credential; present only with device credentials. */
   scopes?: string[];
 }
 
@@ -186,7 +186,7 @@ export interface NexusLogoutResult {
 
 /**
  * What happened to one device's sign-out (E9) or revoke (E10) in
- * `cleo logout nexus [--revoke]` behind `CLEO_NEXUS_DEVICE=1` (cleo-nexus
+ * `cleo logout nexus [--revoke]` with device credentials (the default; `CLEO_NEXUS_DEVICE=0` turns them off) (cleo-nexus
  * device contract §3.5, M3). Holds no secret.
  *
  * - `confirmed`: the server answered 200, or 401 `device-signed-out` /

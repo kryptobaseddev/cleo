@@ -503,12 +503,12 @@ export const LOGIN_ARGS = {
   'read-only': {
     type: 'boolean',
     description:
-      'nexus with CLEO_NEXUS_DEVICE=1: enrol this machine with the read-only device profile (account, devices and project reads only). Refused without CLEO_NEXUS_DEVICE=1.',
+      'nexus: enrol this machine with the read-only device profile (account, devices and project reads only). Refused with CLEO_NEXUS_DEVICE=0.',
   },
   name: {
     type: 'string',
     description:
-      'nexus with CLEO_NEXUS_DEVICE=1: device name shown on cleocode.dev (default: OS, arch and a short id; never the hostname).',
+      'nexus: device name shown on cleocode.dev (default: OS, arch and a short id; never the hostname). Ignored with CLEO_NEXUS_DEVICE=0.',
   },
   auth: {
     type: 'string',

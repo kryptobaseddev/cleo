@@ -109,6 +109,18 @@ function mockProjects(opts: { status?: 401 | 409 } = {}) {
   return { fetchImpl, bodies, labels };
 }
 
+// These tests cover the 9.24 session path: pin device credentials off so no
+// test reads the real nexus-device.json (T12904 made them the default).
+let savedDeviceFlag: string | undefined;
+beforeEach(() => {
+  savedDeviceFlag = process.env['CLEO_NEXUS_DEVICE'];
+  process.env['CLEO_NEXUS_DEVICE'] = '0';
+});
+afterEach(() => {
+  if (savedDeviceFlag === undefined) delete process.env['CLEO_NEXUS_DEVICE'];
+  else process.env['CLEO_NEXUS_DEVICE'] = savedDeviceFlag;
+});
+
 beforeEach(async () => {
   base = mkdtempSync(join(tmpdir(), 'nexus-link-'));
   projectRoot = join(base, 'my-project');

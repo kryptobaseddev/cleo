@@ -4,7 +4,7 @@
  * - `nexus` (the default): revoke the Cleo Nexus session server-side, then
  *   delete the stored token (`<cleoHome>/nexus-credentials.json`). The local
  *   token is deleted even when the revocation call fails; the envelope says so.
- *   With `CLEO_NEXUS_DEVICE=1`, sign the device out (E9) or, with `--revoke`,
+ *   With device credentials (the default; `CLEO_NEXUS_DEVICE=0` turns them off), sign the device out (E9) or, with `--revoke`,
  *   revoke it (E10); nothing is reported done until the server confirms it
  *   (device contract §3.5, T12870).
  * - `<provider> [label]`: remove an LLM credential through the SAME logic as
@@ -73,7 +73,7 @@ export const logoutCommand = defineCommand({
     revoke: {
       type: 'boolean',
       description:
-        'Hard-revoke this device (needs CLEO_NEXUS_DEVICE=1): destroys its key grant and burns the device id. Without it, logout signs the device out and keeps it for the next login.',
+        'Hard-revoke this device (refused with CLEO_NEXUS_DEVICE=0): destroys its key grant and burns the device id. Without it, logout signs the device out and keeps it for the next login.',
     },
     json: { type: 'boolean', description: 'Output as JSON envelope' },
   },

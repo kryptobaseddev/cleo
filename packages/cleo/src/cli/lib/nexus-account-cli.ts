@@ -124,7 +124,7 @@ export async function runNexusLogin(
       ),
       {
         code: 'E_NEXUS_DEVICE_REQUIRED',
-        fix: 'set CLEO_NEXUS_DEVICE=1 to enrol a read-only device, or log in without --read-only',
+        fix: 'unset CLEO_NEXUS_DEVICE (=0 turns device credentials off) to enrol a read-only device, or log in without --read-only',
       },
     );
   }
@@ -144,7 +144,7 @@ export async function runNexusLogin(
     } else {
       if (name !== undefined) {
         process.stderr.write(
-          'warning: --name needs device credentials (CLEO_NEXUS_DEVICE=1); ignored\n',
+          'warning: --name needs device credentials, which CLEO_NEXUS_DEVICE=0 turns off; ignored\n',
         );
       }
       result = await loginToNexus(hooks);
@@ -195,7 +195,7 @@ export function nexusDeviceLogoutSummary(r: NexusDeviceLogoutResult): string {
 
 /**
  * Run `cleo logout nexus [--revoke]` with device credentials, print warnings
- * to stderr and emit the result. `--revoke` without `CLEO_NEXUS_DEVICE=1`
+ * to stderr and emit the result. `--revoke` with `CLEO_NEXUS_DEVICE=0`
  * fails rather than silently signing out a 9.24 session.
  *
  * @param args - Parsed citty args (`--api-url`, `--revoke`).
@@ -209,7 +209,7 @@ export async function runNexusDeviceLogout(args: Readonly<Record<string, unknown
     if (!isNexusDeviceEnabled()) {
       throw Object.assign(new Error('--revoke needs device credentials, which are not enabled'), {
         code: 'E_NEXUS_DEVICE_REQUIRED',
-        fix: 'set CLEO_NEXUS_DEVICE=1 to revoke this device, or revoke it on cleocode.dev',
+        fix: 'unset CLEO_NEXUS_DEVICE (=0 turns device credentials off) to revoke this device, or revoke it on cleocode.dev',
       });
     }
     const { logoutNexusDevice } = await import(
