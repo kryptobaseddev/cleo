@@ -177,6 +177,17 @@ export interface ExportPortableBundleInput {
   configHome?: string;
   /** Machine scope: predicate for temp/fixture paths (defaults to {@link isTempProjectPath}). */
   isTempPath?: (absPath: string) => boolean;
+  /**
+   * Extra exclusions for the global home, on top of {@link GLOBAL_HOME_RULES}
+   * (relative paths mapped to the reason recorded in the manifest). The cloud
+   * vault uses this to leave machine-local state out (T12336).
+   */
+  globalHomeExclusions?: {
+    dirs?: Readonly<Record<string, string>>;
+    files?: Readonly<Record<string, string>>;
+  };
+  /** Stage the config home with the global home (default `true`). */
+  includeConfigHome?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -690,17 +701,33 @@ export async function exportPortableBundle(
           `Global CLEO home does not exist: ${cleoHome}`,
         );
       }
+      const extra = input.globalHomeExclusions;
+      const homeRules = extra
+        ? {
+            ...GLOBAL_HOME_RULES,
+            excludedDirs: { ...GLOBAL_HOME_RULES.excludedDirs, ...extra.dirs },
+            excludedFiles: { ...GLOBAL_HOME_RULES.excludedFiles, ...extra.files },
+          }
+        : GLOBAL_HOME_RULES;
       const home = await stageSection(
         state,
         cleoHome,
         'global/home',
-        GLOBAL_HOME_RULES,
+        homeRules,
         'global',
         primaryRel,
       );
-      const config = fs.existsSync(configHome)
-        ? await stageSection(state, configHome, 'global/config', CONFIG_HOME_RULES, 'config', null)
-        : null;
+      const config =
+        input.includeConfigHome !== false && fs.existsSync(configHome)
+          ? await stageSection(
+              state,
+              configHome,
+              'global/config',
+              CONFIG_HOME_RULES,
+              'config',
+              null,
+            )
+          : null;
       const primary = home.databases.find((d) => d.role === 'primary');
       if (primary) {
         await sealSectionCredentials(state, home, 'global-home', {

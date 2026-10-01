@@ -10,8 +10,10 @@
  *
  * Keys (owner decision 2026-10-01): adding a device needs only `cleo login`
  * and the one-time browser approval. The account master key is escrowed on
- * the server and released only to an approved, active device, sealed to that
- * device's X25519 key (`GET /v1/account/keys/escrow`).
+ * the server (stored encrypted under a server-held key, cleo-nexus T082) and
+ * released only to an approved, active device, sealed to that device's X25519
+ * key (`GET /v1/account/keys/escrow`). Snapshots are encrypted, but with keys
+ * the server can recover: server-escrowed encryption, not zero-knowledge.
  *
  * The response schemas here parse what the API returns for the endpoints the
  * wire contract (`./cloud/api.ts`, mirrored from cleo-nexus) does not yet
@@ -144,6 +146,8 @@ export interface CloudVaultLease {
   expiresAt: string;
   /** Set when the lease was taken by force: a labelled fork. */
   forkedFromReplicaId: string | null;
+  /** When the current holder took it, when the server says. */
+  acquiredAt?: string | null;
   /** This machine holds it. */
   mine: boolean;
 }

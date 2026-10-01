@@ -40,7 +40,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { realpathSync, statSync } from 'node:fs';
+import { existsSync, realpathSync, statSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
 import { uuidv7 } from '../../cloud/crypto.js';
 import { getStableDeviceId } from '../../llm/stable-device-id.js';
@@ -176,6 +176,29 @@ export function activeReplica(db: DatabaseSync, scope: ReplicaScope): ReplicaRow
   stmt.setReadBigInts(true);
   const r = stmt.get(scope) as Record<string, unknown> | undefined;
   return r ? rowFrom(r) : undefined;
+}
+
+/**
+ * The active replica id of `scope` in the store at `dbPath`, read without
+ * binding or migrating anything: a read-only open, `null` when the store or
+ * its replica table does not exist yet (T12336: vault reads never write).
+ *
+ * @param dbPath - The `cleo.db` file.
+ * @param scope - Which replica to read.
+ * @returns The replica id, or `null`.
+ */
+export async function readActiveReplicaId(
+  dbPath: string,
+  scope: ReplicaScope,
+): Promise<string | null> {
+  if (!existsSync(dbPath)) return null;
+  const { openNativeDatabase } = await import('../sqlite-native.js');
+  const db = openNativeDatabase(dbPath, { readonly: true, enableWal: false });
+  try {
+    return activeReplica(db, scope)?.replicaId ?? null;
+  } finally {
+    db.close();
+  }
 }
 
 /** Every replica row of a store, oldest first. Read-only. */

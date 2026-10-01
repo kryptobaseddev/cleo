@@ -16,9 +16,14 @@
  *   {@link relocatableColumn} decides) are hashed as if relocated to a
  *   placeholder root, so a relocated store hashes the same as its source.
  *   Historical text, which a restore leaves as written, is hashed as is.
- * - Credential columns ({@link CREDENTIAL_COLUMNS}) hash as NULL: an
- *   unencrypted bundle clears them, so the live store and its snapshot must
- *   agree without them.
+ * - Cells that never sync hash as NULL ({@link vaultLocalColumns}): credential
+ *   columns (an unencrypted bundle clears them) and every column the
+ *   classification registry gives its own `local-only`, `portable-secret` or
+ *   `strip` class. A restore keeps this machine's values for them
+ *   ({@link carryMachineState}), so the two sides must agree without them.
+ * - The rest of a snapshot (other primary databases, plain files) is folded
+ *   into pseudo-table entries ({@link vaultDatabaseEntry},
+ *   {@link vaultFilesEntry}) so a change anywhere in the bundle is seen.
  *
  * @task T12336
  * @epic T12322
@@ -29,7 +34,7 @@ import { createRequire } from 'node:module';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import type { TableScope } from '@cleocode/contracts';
 import { relocatableColumn, relocateCell } from './portable-bundle-relocate.js';
-import { CREDENTIAL_COLUMNS } from './portable-bundle-scan.js';
+import { CREDENTIAL_COLUMNS, credentialRemedy } from './portable-bundle-scan.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
 import { classifyTable, isPortableTableClass } from './table-classification.js';
 
@@ -65,10 +70,56 @@ export interface VaultManifest {
   tables: Record<string, VaultTableEntry>;
 }
 
+/** Manifest key of a snapshot's plain-file inventory (rows: files, hash: keyed inventory hash). */
+export const VAULT_FILES_KEY = 'zz_vault_files';
+
+/** Prefix of the manifest key of each primary database other than `cleo.db`. */
+export const VAULT_DB_KEY_PREFIX = 'zz_vault_db_';
+
+/**
+ * The manifest key of a non-`cleo.db` primary database, from its path in the
+ * section (`blobs/manifest.db` -> `zz_vault_db_blobs_manifest_db`).
+ *
+ * @param relPath - Path relative to the section root.
+ * @returns A key the wire contract accepts.
+ */
+export function vaultDatabaseKey(relPath: string): string {
+  const slug = relPath
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  const key = `${VAULT_DB_KEY_PREFIX}${slug}`;
+  if (key.length <= 63) return key;
+  const digest = crypto.createHash('sha256').update(relPath).digest('hex').slice(0, 8);
+  return `${key.slice(0, 54)}_${digest}`;
+}
+
+/**
+ * Columns of `table` that never sync, so the vault neither compares nor
+ * restores them over this machine's values: credential columns
+ * ({@link CREDENTIAL_COLUMNS}) and whole-column overrides of the
+ * classification registry (`local-only`, `portable-secret`, `strip`). A
+ * JSON-path override (part of a value) does not exclude the column.
+ *
+ * @param scope - Store scope.
+ * @param table - Table name.
+ * @returns Column names (possibly absent from the actual table).
+ */
+export function vaultLocalColumns(scope: TableScope, table: string): readonly string[] {
+  const out = new Set(CREDENTIAL_COLUMNS[table] ?? []);
+  const c = classifyTable(scope, table);
+  if (c.kind === 'entry') {
+    for (const col of c.entry.columns ?? []) if (col.jsonPath === undefined) out.add(col.column);
+  }
+  return [...out];
+}
+
 /** Options for {@link buildVaultManifest}. */
 export interface BuildVaultManifestOptions {
   /** Which `cleo.db` this is (decides the table classes). */
   scope: TableScope;
+  /** List every table, classified or not (a primary database other than `cleo.db`). */
+  allTables?: boolean;
   /** Key the hashes are made with (derive it from the stream data key). */
   hashKey: Uint8Array;
   /** The store's root as written in its rows; relocatable cells are re-rooted from it. `null`: none (a store a restore does not relocate). */
@@ -139,14 +190,17 @@ export function buildVaultManifest(
       const isVirtual = (t: { sql: string | null }) =>
         (t.sql ?? '').toUpperCase().startsWith('CREATE VIRTUAL TABLE');
       const virtualNames = all.filter(isVirtual).map((t) => t.name);
-      const names = all.filter((t) => !isVirtual(t) && isVaultManifestTable(opts.scope, t.name));
+      const names = all.filter(
+        (t) =>
+          !isVirtual(t) && (opts.allTables === true || isVaultManifestTable(opts.scope, t.name)),
+      );
       for (const { name, sql } of names) {
-        if (!MANIFEST_KEY.test(name)) {
+        if (opts.allTables !== true && !MANIFEST_KEY.test(name)) {
           skipped.push(name);
           continue;
         }
         const digests: Buffer[] = [];
-        const cleared = new Set(CREDENTIAL_COLUMNS[name] ?? []);
+        const cleared = new Set(opts.allTables === true ? [] : vaultLocalColumns(opts.scope, name));
         // Mirror relocateDatabase: virtual-table shadow tables are never relocated.
         const shadow = virtualNames.some((v) => name.startsWith(`${v}_`));
         const withoutRowid = (sql ?? '').toUpperCase().includes('WITHOUT ROWID');
@@ -183,6 +237,58 @@ export function buildVaultManifest(
     db.close();
   }
   return { manifest: { schemaVersion: VAULT_MANIFEST_SCHEMA_VERSION, tables }, skipped };
+}
+
+/**
+ * One manifest entry for a whole primary database other than `cleo.db`
+ * (blobs manifest, attachments index): every table, relocation-aware like
+ * {@link buildVaultManifest}, folded into one count and keyed hash.
+ *
+ * @param dbPath - The database file.
+ * @param opts - Hash key and root to normalise.
+ * @returns Rows over all tables, and the keyed hash over every table's hash.
+ */
+export function vaultDatabaseEntry(
+  dbPath: string,
+  opts: { hashKey: Uint8Array; root: string | null },
+): VaultTableEntry {
+  const { manifest } = buildVaultManifest(dbPath, {
+    scope: 'project',
+    allTables: true,
+    hashKey: opts.hashKey,
+    root: opts.root,
+  });
+  const mac = crypto.createHmac('sha256', Buffer.from(opts.hashKey));
+  mac.update('cleo-vault-db/v1\n');
+  let rows = 0;
+  for (const name of Object.keys(manifest.tables).sort()) {
+    const t = manifest.tables[name] as VaultTableEntry;
+    rows += t.rows;
+    mac.update(`${name}\n${t.rows}\n${t.hash}\n`);
+  }
+  return { rows, hash: mac.digest('hex') };
+}
+
+/**
+ * One manifest entry for a snapshot's plain files: the count, and a keyed
+ * hash over every (path, sha256) pair, sorted by path.
+ *
+ * @param files - Files as the bundle manifest lists them.
+ * @param hashKey - The manifest hash key.
+ * @returns The entry.
+ */
+export function vaultFilesEntry(
+  files: ReadonlyArray<{ relPath: string; sha256: string }>,
+  hashKey: Uint8Array,
+): VaultTableEntry {
+  const mac = crypto.createHmac('sha256', Buffer.from(hashKey));
+  mac.update(`cleo-vault-files/v1\n${files.length}\n`);
+  for (const f of [...files].sort((a, b) =>
+    a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0,
+  )) {
+    mac.update(`${f.relPath}\u0000${f.sha256}\n`);
+  }
+  return { rows: files.length, hash: mac.digest('hex') };
 }
 
 /** One table's comparison. */
@@ -231,37 +337,64 @@ export function sameVaultManifest(
   return compareVaultManifests(a, b).every((t) => t.match);
 }
 
-/** What {@link preserveLocalTables} carried over. */
-export interface PreservedLocalTables {
-  /** Tables whose rows now come from the live store. */
+/** Rows this machine held that a restore could not keep. */
+export interface VaultLostCredentials {
+  table: string;
+  /** Rows whose credential or machine-local values were dropped. */
+  rows: number;
+  /** How to re-enter them. */
+  remedy: string;
+}
+
+/** What {@link carryMachineState} carried into the staged snapshot. */
+export interface CarriedMachineState {
+  /** `local-only` tables whose rows now come from the live store. */
   preserved: string[];
-  /** Local-only tables left as the snapshot had them (absent or shaped differently here). */
+  /** Tables (and their columns) whose non-syncing cells were merged from live rows by primary key. */
+  carried: Array<{ table: string; columns: string[]; rows: number }>;
+  /** Tables left as the snapshot had them (absent here, shaped differently, or without a primary key). */
   skipped: string[];
+  /** Live credentials that could not be kept, with their remedy. */
+  lost: VaultLostCredentials[];
+}
+
+type Cell = string | number | bigint | null | Uint8Array;
+
+function hasValue(v: unknown): boolean {
+  return v !== null && v !== undefined && v !== '';
 }
 
 /**
- * Before a vault restore activates a snapshot, carry this machine's
- * `local-only` rows into the staged copy: the replica binding, the project
- * registry's paths and other machine state belong to this machine, not to
- * the device that pushed the snapshot. Syncing tables keep the snapshot's
- * rows (they are what the manifest verified); derived tables are rebuilt
- * from them.
+ * Before a vault restore activates a snapshot, carry this machine's own state
+ * into the staged copy, so a pull never replaces it with another device's
+ * (or with the empty cells an unencrypted bundle carries):
  *
- * A table is carried over only when it exists in both stores with the same
- * columns in the same order; otherwise the snapshot's rows are kept and the
- * table is reported as skipped.
+ * - `local-only` tables: all rows come from the live store (replica binding,
+ *   registry paths and other machine state belong to this machine).
+ * - `portable-secret` tables: live rows are upserted by primary key (the
+ *   snapshot's copies arrive with their secrets cleared).
+ * - Every other table: its non-syncing columns ({@link vaultLocalColumns}:
+ *   credentials, machine-local paths, stripped values) are copied from the
+ *   live row with the same primary key.
+ *
+ * Syncing cells keep the snapshot's values (they are what the manifest
+ * verified); derived tables are rebuilt from them. A whole table is carried
+ * only when it has the same columns in both stores; a column merge uses the
+ * columns both have. A live credential that has nowhere to go (its row is
+ * gone from the snapshot, or the table cannot be matched by key) is reported
+ * in `lost` with its re-entry remedy.
  *
  * @param stagedDbPath - The staged snapshot database (written in place).
  * @param liveDbPath - This machine's current database (read only).
  * @param scope - Which `cleo.db` this is.
- * @returns The tables carried over and those skipped.
+ * @returns What was carried, skipped and lost.
  */
-export function preserveLocalTables(
+export function carryMachineState(
   stagedDbPath: string,
   liveDbPath: string,
   scope: TableScope,
-): PreservedLocalTables {
-  const out: PreservedLocalTables = { preserved: [], skipped: [] };
+): CarriedMachineState {
+  const out: CarriedMachineState = { preserved: [], carried: [], skipped: [], lost: [] };
   const live = new DatabaseSync(liveDbPath, { readOnly: true });
   const staged = new DatabaseSync(stagedDbPath);
   try {
@@ -275,46 +408,103 @@ export function preserveLocalTables(
             .all() as Array<{ name: string }>
         ).map((r) => r.name),
       );
-    const columnsOf = (db: DatabaseSync, t: string) =>
-      (db.prepare(`PRAGMA table_info(${quoteIdent(t)})`).all() as Array<{ name: string }>)
-        .map((c) => c.name)
-        .join('\u0000');
+    const infoOf = (db: DatabaseSync, t: string) =>
+      db.prepare(`PRAGMA table_info(${quoteIdent(t)})`).all() as Array<{
+        name: string;
+        pk: number;
+      }>;
+    const rowsOf = (db: DatabaseSync, t: string) => {
+      const select = db.prepare(`SELECT * FROM ${quoteIdent(t)}`);
+      // Integers past 2^53 (nanosecond times, inode numbers) would throw as numbers.
+      select.setReadBigInts(true);
+      return select.all() as Array<Record<string, Cell>>;
+    };
     const liveTables = tablesOf(live);
-    const local = [...tablesOf(staged)]
-      .filter((t) => {
-        const c = classifyTable(scope, t);
-        return (c.kind === 'entry' || c.kind === 'pattern') && c.class === 'local-only';
-      })
-      .sort();
+    const lose = (table: string, rows: number) => {
+      if (rows > 0) out.lost.push({ table, rows, remedy: credentialRemedy(table) });
+    };
     staged.exec('PRAGMA foreign_keys = OFF');
     staged.exec('BEGIN IMMEDIATE');
     try {
-      for (const t of local) {
-        if (!liveTables.has(t) || columnsOf(live, t) !== columnsOf(staged, t)) {
-          out.skipped.push(t);
+      for (const t of [...tablesOf(staged)].sort()) {
+        const c = classifyTable(scope, t);
+        if (c.kind !== 'entry' && c.kind !== 'pattern') continue;
+        const credentialCols = CREDENTIAL_COLUMNS[t] ?? [];
+        const stagedInfo = infoOf(staged, t);
+        const liveInfo = liveTables.has(t) ? infoOf(live, t) : [];
+        const liveCols = liveInfo.map((x) => x.name);
+        const liveRows = liveTables.has(t) ? rowsOf(live, t) : [];
+        const holdsSecret = (r: Record<string, Cell>) =>
+          c.class === 'portable-secret' || credentialCols.some((k) => hasValue(r[k]));
+
+        if (c.class === 'local-only') {
+          // Machine state never comes from another machine: a table this store
+          // does not have yet is emptied, not filled with the pusher's rows.
+          if (!liveTables.has(t)) {
+            staged.prepare(`DELETE FROM ${quoteIdent(t)}`).run();
+            out.preserved.push(t);
+            continue;
+          }
+          if (liveCols.join('\u0000') !== stagedInfo.map((x) => x.name).join('\u0000')) {
+            out.skipped.push(t);
+            continue;
+          }
+          staged.prepare(`DELETE FROM ${quoteIdent(t)}`).run();
+          insertRows(staged, t, liveCols, liveRows);
+          out.preserved.push(t);
           continue;
         }
-        const cols = (
-          live.prepare(`PRAGMA table_info(${quoteIdent(t)})`).all() as Array<{
-            name: string;
-          }>
-        ).map((c) => c.name);
-        const select = live.prepare(`SELECT * FROM ${quoteIdent(t)}`);
-        select.setReadBigInts(true);
-        const rows = select.all() as Array<Record<string, unknown>>;
-        // gate-28: local-only table, restored onto a staged snapshot before activation
-        staged.prepare(`DELETE FROM ${quoteIdent(t)}`).run();
-        if (rows.length > 0) {
-          const insert = staged.prepare(
-            `INSERT INTO ${quoteIdent(t)} (${cols.map(quoteIdent).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
-          );
-          for (const row of rows) {
-            insert.run(
-              ...(cols.map((c) => row[c]) as Array<string | number | bigint | null | Uint8Array>),
-            );
+
+        const pk = stagedInfo
+          .filter((x) => x.pk > 0)
+          .sort((x, y) => x.pk - y.pk)
+          .map((x) => x.name);
+        const common = new Set(stagedInfo.map((x) => x.name).filter((n) => liveCols.includes(n)));
+        const merge =
+          c.class === 'portable-secret'
+            ? [...common].filter((n) => !pk.includes(n))
+            : vaultLocalColumns(scope, t).filter((n) => common.has(n));
+        if (merge.length === 0 && c.class !== 'portable-secret') continue;
+        if (liveRows.length === 0) continue;
+        if (pk.length === 0 || !pk.every((k) => common.has(k))) {
+          out.skipped.push(t);
+          lose(t, liveRows.filter(holdsSecret).length);
+          continue;
+        }
+        const where = pk.map((k) => `${quoteIdent(k)} IS ?`).join(' AND ');
+        const exists = staged.prepare(`SELECT 1 FROM ${quoteIdent(t)} WHERE ${where} LIMIT 1`);
+        const update =
+          merge.length > 0
+            ? staged.prepare(
+                `UPDATE ${quoteIdent(t)} SET ${merge.map((k) => `${quoteIdent(k)} = ?`).join(', ')} WHERE ${where}`,
+              )
+            : null;
+        const cols = [...common];
+        const insert = staged.prepare(
+          `INSERT INTO ${quoteIdent(t)} (${cols.map(quoteIdent).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
+        );
+        let rows = 0;
+        let lost = 0;
+        for (const r of liveRows) {
+          const key = pk.map((k) => r[k] ?? null);
+          try {
+            if (exists.get(...key) !== undefined) {
+              update?.run(...merge.map((k) => r[k] ?? null), ...key);
+              rows += 1;
+            } else if (c.class === 'portable-secret') {
+              // A secret row this machine holds and the snapshot lacks: keep it.
+              insert.run(...cols.map((k) => r[k] ?? null));
+              rows += 1;
+            } else if (holdsSecret(r)) {
+              lost += 1;
+            }
+          } catch {
+            // A constraint (e.g. a path another snapshot row now owns): the snapshot value stays.
+            if (holdsSecret(r)) lost += 1;
           }
         }
-        out.preserved.push(t);
+        if (rows > 0) out.carried.push({ table: t, columns: merge, rows });
+        lose(t, lost);
       }
       staged.exec('COMMIT');
     } catch (err) {
@@ -326,6 +516,19 @@ export function preserveLocalTables(
     live.close();
   }
   return out;
+}
+
+function insertRows(
+  db: DatabaseSync,
+  table: string,
+  cols: readonly string[],
+  rows: ReadonlyArray<Record<string, Cell>>,
+): void {
+  if (rows.length === 0) return;
+  const insert = db.prepare(
+    `INSERT INTO ${quoteIdent(table)} (${cols.map(quoteIdent).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
+  );
+  for (const row of rows) insert.run(...cols.map((c) => row[c] ?? null));
 }
 
 /**

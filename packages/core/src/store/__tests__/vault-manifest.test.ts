@@ -1,7 +1,7 @@
 /**
  * The cloud vault manifest over real temp SQLite files with real classified
  * table names: what is listed, how the keyed hash behaves, and how
- * `preserveLocalTables` carries machine-local rows into a staged snapshot.
+ * `carryMachineState` carries machine-local rows into a staged snapshot.
  *
  * @task T12336
  * @epic T12322
@@ -16,12 +16,15 @@ import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   buildVaultManifest,
+  carryMachineState,
   compareVaultManifests,
   emptyVaultTableHash,
   isVaultManifestTable,
-  preserveLocalTables,
   sameVaultManifest,
   VAULT_MANIFEST_SCHEMA_VERSION,
+  vaultDatabaseKey,
+  vaultFilesEntry,
+  vaultLocalColumns,
 } from '../vault-manifest.js';
 
 const _require = createRequire(import.meta.url);
@@ -257,7 +260,7 @@ describe('emptyVaultTableHash', () => {
   });
 });
 
-describe('preserveLocalTables', () => {
+describe('carryMachineState', () => {
   const rows = (file: string, sql: string) => {
     const db = new DatabaseSync(file, { readOnly: true });
     try {
@@ -275,7 +278,7 @@ describe('preserveLocalTables', () => {
       ],
     });
     const live = projectDb('live', { tasks: [['T1', 'live']] });
-    const out = preserveLocalTables(staged, live, 'project');
+    const out = carryMachineState(staged, live, 'project');
     expect(out.preserved).toEqual(['_sync_replica']);
     expect(out.skipped).toEqual([]);
     expect(rows(staged, 'SELECT * FROM _sync_replica')).toEqual([
@@ -303,7 +306,7 @@ describe('preserveLocalTables', () => {
     sdb.exec('DROP TABLE _sync_replica');
     sdb.exec('CREATE TABLE _sync_replica (replica_id TEXT PRIMARY KEY, device_id INTEGER)');
     sdb.close();
-    expect(preserveLocalTables(staged, live, 'project').preserved).toEqual(['_sync_replica']);
+    expect(carryMachineState(staged, live, 'project').preserved).toEqual(['_sync_replica']);
     const db = new DatabaseSync(staged, { readOnly: true });
     const select = db.prepare('SELECT device_id FROM _sync_replica');
     select.setReadBigInts(true);
@@ -311,7 +314,7 @@ describe('preserveLocalTables', () => {
     db.close();
   });
 
-  it('skips a local-only table that is absent here or shaped differently', () => {
+  it('empties a local-only table absent here, and skips one shaped differently', () => {
     const staged = projectDb('staged');
     const sdb = new DatabaseSync(staged);
     sdb.exec(`CREATE TABLE _sync_clock (k TEXT PRIMARY KEY, v INTEGER);
@@ -323,13 +326,14 @@ describe('preserveLocalTables', () => {
     ldb.exec(`CREATE TABLE _sync_replica (replica_id TEXT PRIMARY KEY, device_id TEXT, extra TEXT);
       INSERT INTO _sync_replica VALUES ('r-live', 'd-live', 'x');`);
     ldb.close();
-    const out = preserveLocalTables(staged, live, 'project');
-    expect(out.preserved).toEqual([]);
-    expect(out.skipped).toEqual(['_sync_clock', '_sync_replica']);
+    const out = carryMachineState(staged, live, 'project');
+    // Machine state never comes from another machine: absent here means empty here.
+    expect(out.preserved).toEqual(['_sync_clock']);
+    expect(rows(staged, 'SELECT * FROM _sync_clock')).toEqual([]);
+    expect(out.skipped).toEqual(['_sync_replica']);
     expect(rows(staged, 'SELECT * FROM _sync_replica')).toEqual([
       { replica_id: 'r-staged', device_id: 'd-staged' },
     ]);
-    expect(rows(staged, 'SELECT * FROM _sync_clock')).toEqual([{ k: 'snap', v: 1 }]);
   });
 
   it('empties a local-only table the live store holds no rows in', () => {
@@ -338,8 +342,174 @@ describe('preserveLocalTables', () => {
     const ldb = new DatabaseSync(live);
     ldb.exec('DELETE FROM _sync_replica');
     ldb.close();
-    const out = preserveLocalTables(staged, live, 'project');
+    const out = carryMachineState(staged, live, 'project');
     expect(out.preserved).toEqual(['_sync_replica']);
     expect(rows(staged, 'SELECT * FROM _sync_replica')).toEqual([]);
+  });
+
+  it('carries credential cells and portable-secret rows from live rows by primary key (T12966)', () => {
+    // The snapshot: credentials cleared, as an unencrypted bundle carries them.
+    const staged = projectDb('staged', { token: null });
+    const sdb = new DatabaseSync(staged);
+    sdb.exec(`UPDATE tasks_agent_credentials SET api_key_encrypted = NULL;
+      INSERT INTO tasks_sessions VALUES ('S2', NULL);
+      INSERT INTO tasks_agent_credentials VALUES ('C2', NULL);`);
+    sdb.close();
+    const live = projectDb('live', { token: 'LIVE-TOKEN' });
+    const ldb = new DatabaseSync(live);
+    ldb.exec(`UPDATE tasks_agent_credentials SET api_key_encrypted = 'K1';
+      INSERT INTO tasks_sessions VALUES ('S3', 'GONE-TOKEN');
+      INSERT INTO tasks_agent_credentials VALUES ('C3', 'K3');`);
+    ldb.close();
+    const out = carryMachineState(staged, live, 'project');
+    expect(rows(staged, 'SELECT id, owner_auth_token FROM tasks_sessions ORDER BY id')).toEqual([
+      { id: 'S1', owner_auth_token: 'LIVE-TOKEN' },
+      { id: 'S2', owner_auth_token: null },
+    ]);
+    // A secret row this machine holds and the snapshot lacks is kept.
+    expect(
+      rows(staged, 'SELECT id, api_key_encrypted FROM tasks_agent_credentials ORDER BY id'),
+    ).toEqual([
+      { id: 'C1', api_key_encrypted: 'K1' },
+      { id: 'C2', api_key_encrypted: null },
+      { id: 'C3', api_key_encrypted: 'K3' },
+    ]);
+    expect(out.carried).toEqual(
+      expect.arrayContaining([
+        { table: 'tasks_sessions', columns: ['owner_auth_token'], rows: 1 },
+        { table: 'tasks_agent_credentials', columns: ['api_key_encrypted'], rows: 2 },
+      ]),
+    );
+    // S3's token has no row to go to in the snapshot: reported with its remedy.
+    expect(out.lost).toEqual([
+      {
+        table: 'tasks_sessions',
+        rows: 1,
+        remedy: expect.stringContaining('cleo session start'),
+      },
+    ]);
+  });
+
+  it('reports credentials of a table it cannot match by key', () => {
+    const staged = projectDb('staged', { token: null });
+    const live = projectDb('live', { token: 'LIVE-TOKEN' });
+    for (const f of [staged, live]) {
+      const db = new DatabaseSync(f);
+      db.exec(
+        `DROP TABLE tasks_sessions; CREATE TABLE tasks_sessions (id TEXT, owner_auth_token TEXT);`,
+      );
+      db.prepare('INSERT INTO tasks_sessions VALUES (?, ?)').run(
+        'S1',
+        f === live ? 'LIVE-TOKEN' : null,
+      );
+      db.close();
+    }
+    const out = carryMachineState(staged, live, 'project');
+    expect(out.skipped).toContain('tasks_sessions');
+    expect(out.lost.map((l) => l.table)).toEqual(['tasks_sessions']);
+  });
+});
+
+describe('column-level local-only cells (T12967)', () => {
+  function registryDb(name: string, rowsIn: Array<[string, string, string]>): string {
+    const file = path.join(tmp, `${name}.db`);
+    const db = new DatabaseSync(file);
+    db.exec(`CREATE TABLE nexus_project_registry (project_id TEXT PRIMARY KEY, project_hash TEXT NOT NULL,
+      project_path TEXT NOT NULL UNIQUE, name TEXT NOT NULL, brain_db_path TEXT)`);
+    const ins = db.prepare('INSERT INTO nexus_project_registry VALUES (?, ?, ?, ?, ?)');
+    for (const [id, p, n] of rowsIn) ins.run(id, `hash:${p}`, p, n, `${p}/.cleo/brain.db`);
+    db.close();
+    return file;
+  }
+  const hashOf = (file: string) =>
+    buildVaultManifest(file, { scope: 'global', hashKey: KEY, root: null }).manifest.tables[
+      'nexus_project_registry'
+    ];
+
+  it('lists the registry columns that never sync', () => {
+    expect(vaultLocalColumns('global', 'nexus_project_registry')).toEqual(
+      expect.arrayContaining(['project_path', 'project_hash', 'brain_db_path', 'tasks_db_path']),
+    );
+    expect(vaultLocalColumns('global', 'nexus_project_registry')).not.toContain('name');
+    expect(vaultLocalColumns('project', 'tasks_sessions')).toEqual(['owner_auth_token']);
+  });
+
+  it('hashes them as NULL: machines that differ only in paths match', () => {
+    const a = hashOf(registryDb('a', [['p1', '/a/p1', 'one']]));
+    const b = hashOf(registryDb('b', [['p1', '/b/p1', 'one']]));
+    const renamed = hashOf(registryDb('c', [['p1', '/a/p1', 'ONE']]));
+    expect(b).toEqual(a);
+    expect(renamed?.hash).not.toBe(a?.hash);
+  });
+
+  it("restore keeps this machine's values for them, by primary key", () => {
+    const staged = registryDb('staged', [
+      ['p1', '/a/p1', 'one'],
+      ['p2', '/a/p2', 'two'],
+    ]);
+    const live = registryDb('live', [['p1', '/b/p1', 'one (old name)']]);
+    const out = carryMachineState(staged, live, 'global');
+    const db = new DatabaseSync(staged, { readOnly: true });
+    const got = db
+      .prepare(
+        'SELECT project_id, project_path, project_hash, brain_db_path, name FROM nexus_project_registry ORDER BY 1',
+      )
+      .all();
+    db.close();
+    expect(got).toEqual([
+      {
+        project_id: 'p1',
+        project_path: '/b/p1',
+        project_hash: 'hash:/b/p1',
+        brain_db_path: '/b/p1/.cleo/brain.db',
+        name: 'one',
+      },
+      {
+        project_id: 'p2',
+        project_path: '/a/p2',
+        project_hash: 'hash:/a/p2',
+        brain_db_path: '/a/p2/.cleo/brain.db',
+        name: 'two',
+      },
+    ]);
+    expect(out.carried.map((c) => c.table)).toEqual(['nexus_project_registry']);
+    expect(out.lost).toEqual([]);
+  });
+});
+
+describe('pseudo-table entries (T12969)', () => {
+  it('keys other databases with names the wire contract accepts', () => {
+    expect(vaultDatabaseKey('blobs/manifest.db')).toBe('zz_vault_db_blobs_manifest_db');
+    expect(vaultDatabaseKey('attachments/index.db')).toBe('zz_vault_db_attachments_index_db');
+    const long = vaultDatabaseKey(`${'deep/'.repeat(20)}x.db`);
+    expect(long).toMatch(/^[a-z][a-z0-9_]{0,62}$/);
+  });
+
+  it('hashes the file inventory by path and content, independent of order', () => {
+    const a = vaultFilesEntry(
+      [
+        { relPath: 'adrs/1.md', sha256: 'a'.repeat(64) },
+        { relPath: 'notes/x.md', sha256: 'b'.repeat(64) },
+      ],
+      KEY,
+    );
+    const b = vaultFilesEntry(
+      [
+        { relPath: 'notes/x.md', sha256: 'b'.repeat(64) },
+        { relPath: 'adrs/1.md', sha256: 'a'.repeat(64) },
+      ],
+      KEY,
+    );
+    const edited = vaultFilesEntry(
+      [
+        { relPath: 'adrs/1.md', sha256: 'c'.repeat(64) },
+        { relPath: 'notes/x.md', sha256: 'b'.repeat(64) },
+      ],
+      KEY,
+    );
+    expect(a).toEqual(b);
+    expect(a.rows).toBe(2);
+    expect(edited.rows).toBe(2);
+    expect(edited.hash).not.toBe(a.hash);
   });
 });

@@ -86,6 +86,10 @@ export const NEXUS_ACCOUNT_ERROR_CODES = [
   'E_NEXUS_VAULT_EMPTY',
   /** The server refused the snapshot (lineage or regression check). */
   'E_NEXUS_VAULT_REFUSED',
+  /** Another CLEO process is writing to the store a restore would replace. */
+  'E_NEXUS_VAULT_STORE_BUSY',
+  /** A project restore target already holds a different project. */
+  'E_NEXUS_VAULT_TARGET_OCCUPIED',
 ] as const;
 
 /** One of {@link NEXUS_ACCOUNT_ERROR_CODES}. */

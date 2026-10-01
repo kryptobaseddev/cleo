@@ -18,6 +18,14 @@
  * 4. Signer trust comes from `certifiedSigners` over `GET /v1/devices/trust`,
  *    with the trust state persisted in {@link NexusVaultState}.
  *
+ * Threat model (cleo-nexus T082): the escrow `PUT` sends MK to the server
+ * over TLS, and the server stores it encrypted under a server-held key
+ * (`KEY_ESCROW_SECRET`). Snapshots are therefore encrypted at rest with keys
+ * Cleo Nexus can recover: this is server-escrowed encryption, not
+ * zero-knowledge end-to-end encryption. What the escrow does guarantee is
+ * that MK is released only to an approved, active device of the account,
+ * sealed to that device's key.
+ *
  * A project's data key (PDK) is minted by its first pusher and stored
  * wrapped by MK (`PUT /v1/projects/:id/keys/:userId`); the home stream key
  * is derived from MK.
@@ -280,7 +288,8 @@ async function ensureCertified(
  * the account's first vault use, and certify this device under it.
  *
  * @param conn - A vault connection.
- * @param opts - `readOnly`: never mint, escrow or certify (GET only); a missing escrow is an error.
+ * @param opts - `readOnly`: never mint, escrow or certify (GET only); a missing escrow is
+ *   `E_NEXUS_VAULT_EMPTY`.
  * @returns The key, its version and the trusted signers.
  * @throws {NexusAccountError} `E_NEXUS_VAULT_KEY_UNAVAILABLE` when the key
  *   cannot be obtained or verified; a mapped API error otherwise.
@@ -291,9 +300,12 @@ export async function unlockNexusAccountKey(
 ): Promise<NexusAccountKey> {
   const escrowed = await openEscrow(conn);
   if (escrowed === null && opts.readOnly === true) {
-    throw keyUnavailable(
-      'this account has no vault key yet: nothing has been pushed',
-      'run `cleo cloud push` to make the first snapshot',
+    // Nothing was ever pushed from any device: a read has nothing to read, and
+    // must not mint the account key as a side effect.
+    throw new NexusAccountError(
+      'E_NEXUS_VAULT_EMPTY',
+      'the cloud vault is empty: no device has pushed a snapshot to this account yet',
+      'run `cleo cloud push` on a device that has the data',
     );
   }
   const unlocked = escrowed ?? (await mintEscrow(conn));

@@ -65,7 +65,7 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
-import { realpathSync, statSync } from 'node:fs';
+import { existsSync, realpathSync, statSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { LeaseLane, LeaseScope } from '@cleocode/contracts';
@@ -1447,6 +1447,54 @@ export async function withWriterLease<T>(
     return await fn(handle);
   } finally {
     await handle.release();
+  }
+}
+
+/** A live writer lease another process holds on a store. */
+export interface ForeignWriterLease {
+  scope: string;
+  lane: string;
+  holderPid: number;
+}
+
+/**
+ * The live writer leases on the store at `dbPath` held by OTHER processes:
+ * active rows whose heartbeat is within their TTL. Read-only; `[]` when the
+ * store or the lease table does not exist. A caller about to replace the
+ * store file (a vault restore) refuses while any are held, since those
+ * writers would keep writing to the replaced file (T12336).
+ *
+ * @param dbPath - The `cleo.db` file.
+ * @param now - Clock (ms since epoch).
+ * @returns The foreign live leases.
+ */
+export function foreignWriterLeases(
+  dbPath: string,
+  now: number = Date.now(),
+): ForeignWriterLease[] {
+  if (!existsSync(dbPath)) return [];
+  const db = openNativeDatabase(dbPath, { readonly: true, enableWal: false });
+  try {
+    const present = db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(WRITER_LEASES_TABLE);
+    if (present === undefined) return [];
+    const rows = db
+      .prepare(
+        `SELECT scope, lane, holder_pid AS holderPid, heartbeat_at AS heartbeatAt, ttl_ms AS ttlMs FROM ${WRITER_LEASES_TABLE} WHERE active = 1`,
+      )
+      .all() as Array<{
+      scope: string;
+      lane: string;
+      holderPid: number;
+      heartbeatAt: number;
+      ttlMs: number;
+    }>;
+    return rows
+      .filter((r) => r.holderPid !== process.pid && Number(r.heartbeatAt) + Number(r.ttlMs) > now)
+      .map((r) => ({ scope: r.scope, lane: r.lane, holderPid: Number(r.holderPid) }));
+  } finally {
+    db.close();
   }
 }
 

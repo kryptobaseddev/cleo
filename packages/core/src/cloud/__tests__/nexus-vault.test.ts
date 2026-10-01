@@ -160,8 +160,12 @@ class FakeNexus {
   blobs = new Map<string, { size: number; bytes: Buffer | null; verified: boolean }>();
   leases = new Map<string, FakeLease>();
   activity: FakeActivity[] = [];
-  /** When set, the next checkpoint create is refused with this code. */
-  refuseCheckpoint: string | null = null;
+  /** Every mutating API request (method and path), in order. */
+  writes: string[] = [];
+  /** Runs once before the next segment append by `deviceId` (simulates a concurrent device). */
+  beforeSegment: { deviceId: string; run: () => Promise<void> } | null = null;
+  /** Codes the next checkpoint creates are refused with, in order. */
+  refuseCheckpoint: string[] = [];
   /** Largest activity page this server serves (the real one: 200). */
   activityPageSize = 200;
   now = () => new Date();
@@ -221,6 +225,17 @@ class FakeNexus {
       if (!device) throw new ApiFail(401, 'E_UNAUTHENTICATED');
       const body =
         typeof init?.body === 'string' ? (JSON.parse(init.body) as Record<string, unknown>) : {};
+      if (method !== 'GET') this.writes.push(`${method} ${url.pathname}`);
+      const hook = this.beforeSegment;
+      if (
+        hook !== null &&
+        hook.deviceId === device.deviceId &&
+        method === 'POST' &&
+        url.pathname.endsWith('/segments')
+      ) {
+        this.beforeSegment = null;
+        await hook.run();
+      }
       return this.route(device, method, url, body);
     } catch (err) {
       if (err instanceof ApiFail) {
@@ -492,11 +507,8 @@ class FakeNexus {
     }
     if (route === 'POST /checkpoints') {
       if (body['deviceId'] !== dev.deviceId) throw new ApiFail(403, 'E_FORBIDDEN');
-      if (this.refuseCheckpoint !== null) {
-        const code = this.refuseCheckpoint;
-        this.refuseCheckpoint = null;
-        throw new ApiFail(409, code);
-      }
+      const refuse = this.refuseCheckpoint.shift();
+      if (refuse !== undefined) throw new ApiFail(409, refuse);
       const parentId = (body['parentCheckpointId'] as string | null) ?? null;
       if (parentId !== s.headCheckpointId) {
         throw new ApiFail(409, 'E_LINEAGE', {
@@ -870,15 +882,19 @@ describe('cloud vault push (lineage, regression rule)', () => {
     expect(first.parentCheckpointId).toBeNull();
     expect(first.deltaSegmentSeq).toBeNull();
     expect(first.forked).toBe(false);
-    expect(first.lease?.mine).toBe(true);
+    // The lease is handed back once the push is done (T12971).
+    expect(first.lease).toBeNull();
+    expect(fake.leases.size).toBe(0);
     expect(first.snapshot?.deviceName).toBe('a-laptop');
     const cp = fake.stream(STREAM).checkpoints[0];
     expect(cp?.parentCheckpointId).toBeNull();
     // Only syncing, non-secret tables are in the plaintext manifest.
+    // (plus the plain-file inventory, T12969).
     expect(Object.keys(cp?.manifest.tables ?? {}).sort()).toEqual([
       'brain_observations',
       'tasks_sessions',
       'tasks_tasks',
+      'zz_vault_files',
     ]);
     expect(cp?.manifest.tables['tasks_tasks']?.rows).toBe(5);
     // The uploaded bundle is ciphertext: no plaintext row content or credential leaks.
@@ -889,6 +905,7 @@ describe('cloud vault push (lineage, regression rule)', () => {
 
     const again = await on(a, () => pushNexusVault(vopts(a)));
     expect(again.status).toBe('up-to-date');
+    expect(again.lease).toBeNull();
     expect(again.snapshot?.checkpointId).toBe(cp?.checkpointId);
     expect(fake.stream(STREAM).checkpoints).toHaveLength(1);
     // The account key was minted once and escrowed; the device certified itself.
@@ -941,9 +958,7 @@ describe('cloud vault push (lineage, regression rule)', () => {
     );
     expect(status.head?.checkpointId).toBe(third.snapshot?.checkpointId);
     expect(status.pendingChanges).toEqual([]);
-    expect(status.leases).toHaveLength(1);
-    expect(status.leases[0]?.mine).toBe(true);
-    expect(status.leases[0]?.deviceName).toBe('a-laptop');
+    expect(status.leases).toEqual([]);
   });
 });
 
@@ -972,7 +987,8 @@ describe('cloud vault restore and verify across two devices', () => {
       { owner_auth_token: null },
     ]);
     // B obtained the same account key from escrow and certified itself.
-    expect(fake.certificates.map((c) => c.deviceId).sort()).toEqual([DEVICE_A, DEVICE_B]);
+    // B's restore is read-only: it opened the escrowed key but certified nothing (T12974).
+    expect(fake.certificates.map((c) => c.deviceId)).toEqual([DEVICE_A]);
 
     const vb = await on(b, () => verifyNexusVault(vopts(b)));
     const va = await on(a, () => verifyNexusVault(vopts(a)));
@@ -985,13 +1001,29 @@ describe('cloud vault restore and verify across two devices', () => {
     ]);
   });
 
+  it('a project restore refuses a target holding another project unless --force (T12976)', async () => {
+    const { a } = await twoMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    const c = await machine('c', '0198a1b2-0000-7000-8000-0000000000d3', uuidv7());
+    fs.mkdirSync(path.join(c.root, '.cleo'), { recursive: true });
+    fs.writeFileSync(path.join(c.root, '.cleo', 'project-id'), `${OTHER_PROJECT}\n`);
+    const opts = { mode: 'restore', projectId: REMOTE_PROJECT, into: c.root } as const;
+    const err = await failure(on(c, () => restoreNexusVault(vopts(c, opts))));
+    expect(err.code).toBe('E_NEXUS_VAULT_TARGET_OCCUPIED');
+    expect(err.message).toContain(OTHER_PROJECT);
+    expect(fs.existsSync(path.join(c.root, '.cleo', 'cleo.db'))).toBe(false);
+    const forced = await on(c, () => restoreNexusVault(vopts(c, { ...opts, force: true })));
+    expect(forced.status).toBe('restored');
+    expect(taskCount(c)).toBe(5);
+  });
+
   it('d: a stale push is refused, a pull never overwrites local changes, --force does with a backup', async () => {
     const { a, b } = await twoMachines();
     await on(a, () => pushNexusVault(vopts(a)));
     await restoreOntoB(b);
-    // A hands the write lease back so B can push.
+    // A's push already handed the write lease back.
     const released = await on(a, () => releaseNexusVaultLease(vopts(a)));
-    expect(released.released).toBe(true);
+    expect(released.released).toBe(false);
 
     exec(b, "INSERT INTO tasks_tasks (id, title) VALUES ('B1', 'from b'), ('B2', 'from b')");
     const pushedB = await on(b, () => pushNexusVault(vopts(b)));
@@ -1025,6 +1057,14 @@ describe('cloud vault restore and verify across two devices', () => {
     ).toEqual(['B1', 'B2', 'T0', 'T1', 'T2', 'T3', 'T4']);
     // A's machine-local rows survive; its link still names A's own replica.
     expect(sql(a, 'SELECT replica_id FROM _sync_replica')).toEqual([{ replica_id: 'local-a' }]);
+    // A's credentials survive: the snapshot carried them cleared (T12966).
+    expect(sql(a, 'SELECT owner_auth_token FROM tasks_sessions')).toEqual([
+      { owner_auth_token: 'OWNER-TOKEN-SECRET' },
+    ]);
+    expect(sql(a, 'SELECT api_key_encrypted FROM tasks_agent_credentials')).toEqual([
+      { api_key_encrypted: 'API-KEY-SECRET' },
+    ]);
+    expect(forced.warnings.some((w) => w.code === 'W_NEXUS_VAULT_CREDENTIALS_LOST')).toBe(false);
     const after = await on(a, () => verifyNexusVault(vopts(a)));
     expect(after.verdict).toBe('match');
     // A can push again from here (its replica binding was not replaced by B's).
@@ -1101,7 +1141,8 @@ describe('cloud vault point-in-time restore', () => {
 describe('cloud vault write lease', () => {
   it('e: a live lease refuses another device; --force takes it as a labelled fork', async () => {
     const { a, b } = await twoMachines();
-    await on(a, () => pushNexusVault(vopts(a)));
+    const heldPush = await on(a, () => pushNexusVault(vopts(a, { hold: true })));
+    expect(heldPush.lease?.mine).toBe(true);
     await restoreOntoB(b);
     exec(b, "INSERT INTO tasks_tasks (id, title) VALUES ('B1', 'from b')");
 
@@ -1109,7 +1150,7 @@ describe('cloud vault write lease', () => {
     expect(held.code).toBe('E_NEXUS_VAULT_LEASE_HELD');
     expect(held.message).toContain(REPLICA_A);
 
-    const forced = await on(b, () => pushNexusVault(vopts(b, { force: true })));
+    const forced = await on(b, () => pushNexusVault(vopts(b, { force: true, hold: true })));
     expect(forced.status).toBe('pushed');
     expect(forced.forked).toBe(true);
     expect(forced.lease?.forkedFromReplicaId).toBe(REPLICA_A);
@@ -1142,9 +1183,8 @@ describe('cloud vault lease on a failed push', () => {
     const { a, b } = await twoMachines();
     await on(a, () => pushNexusVault(vopts(a)));
     await restoreOntoB(b);
-    await on(a, () => releaseNexusVaultLease(vopts(a)));
     exec(b, "INSERT INTO tasks_tasks (id, title) VALUES ('B1', 'from b')");
-    await on(b, () => pushNexusVault(vopts(b)));
+    await on(b, () => pushNexusVault(vopts(b, { hold: true })));
     // B still holds its lease: A is told it is behind (the cheaper, truer refusal), not that the lease is held.
     exec(a, "INSERT INTO tasks_tasks (id, title) VALUES ('A1', 'from a')");
     const stale = await failure(on(a, () => pushNexusVault(vopts(a))));
@@ -1162,9 +1202,9 @@ describe('cloud vault lease on a failed push', () => {
   it('a push that fails after taking the lease hands it back', async () => {
     const { a, b } = await twoMachines();
     await on(a, () => pushNexusVault(vopts(a)));
-    await on(a, () => releaseNexusVaultLease(vopts(a)));
     exec(a, "INSERT INTO tasks_tasks (id, title) VALUES ('A1', 'from a')");
-    fake.refuseCheckpoint = 'E_REGRESSION';
+    // Refused twice: the retry after a re-replay (T12975) is refused too.
+    fake.refuseCheckpoint = ['E_REGRESSION', 'E_REGRESSION'];
     const refused = await failure(on(a, () => pushNexusVault(vopts(a))));
     expect(refused.code).toBe('E_NEXUS_VAULT_REFUSED');
     expect(fake.leases.size).toBe(0);
@@ -1178,6 +1218,140 @@ describe('cloud vault lease on a failed push', () => {
     const pushedB = await on(b, () => pushNexusVault(vopts(b)));
     expect(pushedB.status).toBe('pushed');
     expect(pushedB.forked).toBe(false);
+  });
+});
+
+describe('cloud vault snapshot coverage beyond cleo.db (T12969)', () => {
+  it('a new doc is pushed, and an unsynced doc change blocks a pull without --force', async () => {
+    const { a, b } = await twoMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    const filesBefore = fake.stream(STREAM).checkpoints[0]?.manifest.tables['zz_vault_files'];
+
+    // `cleo docs add` writes a document and a blob manifest row.
+    fs.mkdirSync(path.join(a.root, '.cleo', 'adrs'), { recursive: true });
+    fs.writeFileSync(path.join(a.root, '.cleo', 'adrs', 'adr-1.md'), '# ADR 1\n');
+    fs.mkdirSync(path.join(a.root, '.cleo', 'blobs'), { recursive: true });
+    const blobs = new DatabaseSync(path.join(a.root, '.cleo', 'blobs', 'manifest.db'));
+    blobs.exec(
+      "CREATE TABLE blobs (sha TEXT PRIMARY KEY, size INTEGER); INSERT INTO blobs VALUES ('aa', 1);",
+    );
+    blobs.close();
+    const pushed = await on(a, () => pushNexusVault(vopts(a)));
+    expect(pushed.status).toBe('pushed');
+    const cp = fake.stream(STREAM).checkpoints.at(-1);
+    expect(cp?.manifest.tables['zz_vault_files']?.rows).toBe((filesBefore?.rows ?? 0) + 1);
+    expect(cp?.manifest.tables['zz_vault_db_blobs_manifest_db']?.rows).toBe(1);
+    expect(fake.stream(STREAM).segments.at(-1)?.deltas).toEqual({
+      zz_vault_files: { created: 1, deleted: 0 },
+      zz_vault_db_blobs_manifest_db: { created: 1, deleted: 0 },
+    });
+    // Editing the doc alone is a change too (same count, new hash).
+    fs.writeFileSync(path.join(a.root, '.cleo', 'adrs', 'adr-1.md'), '# ADR 1, revised\n');
+    const edited = await on(a, () => pushNexusVault(vopts(a)));
+    expect(edited.status).toBe('pushed');
+    expect(edited.deltaSegmentSeq).toBeNull();
+
+    // B gets the doc; B pushes; A changes the doc without pushing, so A's pull refuses.
+    await restoreOntoB(b);
+    expect(fs.readFileSync(path.join(b.root, '.cleo', 'adrs', 'adr-1.md'), 'utf8')).toBe(
+      '# ADR 1, revised\n',
+    );
+    const vb = await on(b, () => verifyNexusVault(vopts(b)));
+    expect(vb.verdict).toBe('match');
+    exec(b, "INSERT INTO tasks_tasks (id, title) VALUES ('B1', 'from b')");
+    await on(b, () => pushNexusVault(vopts(b)));
+    fs.writeFileSync(path.join(a.root, '.cleo', 'adrs', 'adr-1.md'), '# ADR 1, local edit\n');
+    const refused = await failure(on(a, () => restoreNexusVault(vopts(a, { mode: 'pull' }))));
+    expect(refused.code).toBe('E_NEXUS_VAULT_LOCAL_CHANGES');
+    expect(refused.message).toContain('zz_vault_files');
+    expect(fs.readFileSync(path.join(a.root, '.cleo', 'adrs', 'adr-1.md'), 'utf8')).toBe(
+      '# ADR 1, local edit\n',
+    );
+    const forced = await on(a, () => restoreNexusVault(vopts(a, { mode: 'pull', force: true })));
+    expect(forced.status).toBe('restored');
+    expect(fs.readFileSync(path.join(a.root, '.cleo', 'adrs', 'adr-1.md'), 'utf8')).toBe(
+      '# ADR 1, revised\n',
+    );
+  });
+});
+
+describe('cloud vault concurrency', () => {
+  it('a segment another device appends mid-push is replayed once, and the push lands (T12975)', async () => {
+    const { a, b } = await twoMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    // B is certified, so A trusts its signature.
+    await on(b, async () => unlockNexusAccountKey(await connectNexusVault(vopts(b))));
+    const mk = fake.escrow?.mk ?? Buffer.alloc(0);
+    const wrapped = fake.projectKeys.get(REMOTE_PROJECT)?.[0];
+    const pdk = unwrapProjectKey(mk, wrapped?.wrappedProjectKey ?? '', REMOTE_PROJECT, 1);
+    fake.beforeSegment = {
+      deviceId: DEVICE_A,
+      run: async () => {
+        const journal = new Journal({
+          http: new Http({ baseUrl: API, token: b.token, deviceId: b.deviceId, fetch: fake.fetch }),
+          streamId: STREAM,
+          replicaId: REPLICA_B,
+          deviceId: DEVICE_B,
+          signing: b.keys.signing,
+          key: pdk,
+          fetch: fake.fetch,
+        });
+        const hlc = `${String(Date.now()).padStart(13, '0')}-000000-${REPLICA_B}`;
+        await journal.push(0, Buffer.from('{}'), {
+          opCount: 1,
+          hlcMin: hlc,
+          hlcMax: hlc,
+          deltas: { tasks_tasks: { created: 1, deleted: 0 } },
+          schemaVersion: 1,
+        });
+      },
+    };
+    exec(a, "INSERT INTO tasks_tasks (id, title) VALUES ('A1', 'from a')");
+    const pushed = await on(a, () => pushNexusVault(vopts(a)));
+    expect(pushed.status).toBe('pushed');
+    const s = fake.stream(STREAM);
+    expect(s.segments.map((x) => [x.replicaId, x.replicaSeq])).toEqual([
+      [REPLICA_B, 0],
+      [REPLICA_A, 0],
+      [REPLICA_A, 1],
+    ]);
+    // The retry's own correction makes the counts reconcile with B's segment counted.
+    expect(s.segments[2]?.deltas).toEqual({ tasks_tasks: { created: 0, deleted: 1 } });
+    expect(s.checkpoints.at(-1)?.coversSeq).toBe(3);
+    expect(s.checkpoints.at(-1)?.manifest.tables['tasks_tasks']?.rows).toBe(6);
+    expect(fake.leases.size).toBe(0);
+  });
+
+  it('a restore refuses while another process holds a writer lease on the store (T12973)', async () => {
+    const { a, b } = await twoMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    await restoreOntoB(b);
+    exec(b, "INSERT INTO tasks_tasks (id, title) VALUES ('B1', 'from b')");
+    await on(b, () => pushNexusVault(vopts(b)));
+    exec(
+      a,
+      `CREATE TABLE _writer_leases (id INTEGER PRIMARY KEY, scope TEXT NOT NULL, lane TEXT NOT NULL,
+         holder_id TEXT NOT NULL, holder_pid INTEGER NOT NULL, epoch INTEGER NOT NULL,
+         acquired_at INTEGER NOT NULL, heartbeat_at INTEGER NOT NULL, ttl_ms INTEGER NOT NULL,
+         reentrancy_depth INTEGER NOT NULL DEFAULT 1, active INTEGER NOT NULL DEFAULT 1);
+       INSERT INTO _writer_leases (scope, lane, holder_id, holder_pid, epoch, acquired_at, heartbeat_at, ttl_ms)
+         VALUES ('project', 'tasks', 'other', ${process.pid + 100000}, 1, ${Date.now()}, ${Date.now()}, 60000);`,
+    );
+    const dbFile = path.join(a.root, '.cleo', 'cleo.db');
+    const before = sha256Hex(fs.readFileSync(dbFile));
+    const busy = await failure(
+      on(a, () => restoreNexusVault(vopts(a, { mode: 'pull', force: true }))),
+    );
+    expect(busy.code).toBe('E_NEXUS_VAULT_STORE_BUSY');
+    expect(busy.message).toContain('tasks lane');
+    expect(sha256Hex(fs.readFileSync(dbFile))).toBe(before);
+    expect(taskCount(a)).toBe(5);
+
+    // An expired lease (its holder died) does not block.
+    exec(a, 'UPDATE _writer_leases SET heartbeat_at = 0');
+    const restored = await on(a, () => restoreNexusVault(vopts(a, { mode: 'pull', force: true })));
+    expect(restored.status).toBe('restored');
+    expect(taskCount(a)).toBe(6);
   });
 });
 
@@ -1268,11 +1442,26 @@ describe('cloud vault key escrow', () => {
     link(a);
     for (const run of [verifyNexusVault, nexusVaultStatus]) {
       const err = await failure(on(a, () => run(vopts(a))));
-      expect(err.code).toBe('E_NEXUS_VAULT_KEY_UNAVAILABLE');
+      expect(err.code).toBe('E_NEXUS_VAULT_EMPTY');
     }
     expect(fake.escrow).toBeNull();
     expect(fake.certificates).toEqual([]);
     expect(fake.projectKeys.size).toBe(0);
+    expect(fake.writes).toEqual([]);
+  });
+
+  it('a restore on an account that never pushed is EMPTY and writes nothing (T12974)', async () => {
+    const c = await machine('c', DEVICE_B, REPLICA_B);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_B]: DEVICE_B });
+    const err = await failure(
+      on(c, () =>
+        restoreNexusVault(vopts(c, { mode: 'restore', projectId: REMOTE_PROJECT, into: c.root })),
+      ),
+    );
+    expect(err.code).toBe('E_NEXUS_VAULT_EMPTY');
+    expect(fake.writes).toEqual([]);
+    expect(fake.escrow).toBeNull();
+    expect(fs.existsSync(path.join(c.root, '.cleo', 'cleo.db'))).toBe(false);
   });
 
   it('g: verify on a device that never certified reads trust without writing it', async () => {
@@ -1454,7 +1643,7 @@ describe('cloud vault global scope', () => {
     const ins = db.prepare(
       'INSERT INTO nexus_project_registry (project_id, project_hash, project_path, name) VALUES (?, ?, ?, ?)',
     );
-    for (const id of registry) ins.run(id, `hash-${id}`, `/projects/${id}`, id);
+    for (const id of registry) ins.run(id, `hash-${m.name}-${id}`, `${m.home}/projects/${id}`, id);
     db.close();
   }
 
@@ -1467,14 +1656,42 @@ describe('cloud vault global scope', () => {
     }
   }
 
-  it('i: pushes the home stream and restores it on another device, keeping machine-local rows', async () => {
+  it('i: pushes the home stream and restores it on another device, keeping machine-local state', async () => {
     const a = await machine('a', DEVICE_A, REPLICA_A);
     const b = await machine('b', DEVICE_B, REPLICA_B);
     await seedHome(a, ['p1', 'p2']);
-    await seedHome(b, []);
-    // Each machine binds its own global replica (machine-local `_sync_replica` rows).
-    const replicaRows = (m: Machine) =>
-      homeSql<{ replica_id: string }>(m, 'SELECT replica_id FROM _sync_replica ORDER BY 1');
+    await seedHome(b, ['p1']);
+    for (const m of [a, b]) {
+      // Machine identity and runtime state (T12968).
+      fs.writeFileSync(path.join(m.home, 'device-id'), `device-${m.name}\n`);
+      fs.mkdirSync(path.join(m.home, 'state', 'sync'), { recursive: true });
+      fs.writeFileSync(
+        path.join(m.home, 'state', 'sync', `replicas-${m.name}.json`),
+        `{"m":"${m.name}"}`,
+      );
+      // Credentials (T12966): an account secret (portable-secret table) and an agent key.
+      const db = new DatabaseSync(path.join(m.home, 'cleo.db'));
+      db.prepare(
+        "INSERT INTO accounts (id, provider, label, auth_type, secret_enc) VALUES (?, 'p', ?, 'key', ?)",
+      ).run(m.name === 'a' ? 1 : 2, `acct-${m.name}`, `SECRET-${m.name}`);
+      db.prepare(
+        "INSERT INTO agent_registry_agents (id, agent_id, name, created_at, updated_at, api_key_encrypted) VALUES ('ag1', 'ag1', 'agent', '2026-10-01', '2026-10-01', ?)",
+      ).run(`KEY-${m.name}`);
+      db.close();
+    }
+    for (const f of [
+      'web-server.json',
+      'sentient-state.json',
+      'device-heartbeat.stamp',
+      'nexus.db',
+    ]) {
+      fs.writeFileSync(path.join(a.home, f), 'machine a');
+    }
+    fs.mkdirSync(path.join(a.home, 'keys'), { recursive: true });
+    fs.writeFileSync(path.join(a.home, 'keys', 'evidence-cache.key'), 'key a');
+    const tableExists = (m: Machine, t: string) =>
+      homeSql(m, `SELECT name FROM sqlite_master WHERE type = 'table' AND name = '${t}'`).length >
+      0;
 
     const pushed = await on(a, () => pushNexusVault(vopts(a, { scope: 'global' })));
     expect(pushed.status).toBe('pushed');
@@ -1483,42 +1700,83 @@ describe('cloud vault global scope', () => {
     const cp = fake.stream(HOME_STREAM).checkpoints[0];
     expect(cp?.manifest.tables['nexus_project_registry']?.rows).toBe(2);
     expect(cp?.manifest.tables['_sync_replica']).toBeUndefined();
-    // The snapshot names A's own global replica.
+    expect(cp?.manifest.tables['accounts']).toBeUndefined();
+    // The snapshot names A's own global replica (bound by the push).
+    const replicaRows = (m: Machine) =>
+      tableExists(m, '_sync_replica')
+        ? homeSql<{ replica_id: string }>(m, 'SELECT replica_id FROM _sync_replica ORDER BY 1')
+        : [];
     const replicasA = replicaRows(a);
     expect(replicasA.map((r) => r.replica_id)).toContain(cp?.replicaId);
     const again = await on(a, () => pushNexusVault(vopts(a, { scope: 'global' })));
     expect(again.status).toBe('up-to-date');
 
-    // B binds its replica on its first vault command (a status read).
+    // Reads never write (T12974): B's status binds no replica.
     await on(b, () => nexusVaultStatus(vopts(b, { scope: 'global' })));
-    const replicasB = replicaRows(b);
-    expect(replicasB.length).toBeGreaterThan(0);
-    expect(replicasB).not.toEqual(replicasA);
+    expect(tableExists(b, '_sync_replica')).toBe(false);
+
+    // B never synced its registry row, so the pull needs --force.
+    const refused = await failure(
+      on(b, () => restoreNexusVault(vopts(b, { scope: 'global', mode: 'pull' }))),
+    );
+    expect(refused.code).toBe('E_NEXUS_VAULT_LOCAL_CHANGES');
     const restored = await on(b, () =>
-      restoreNexusVault(vopts(b, { scope: 'global', mode: 'pull' })),
+      restoreNexusVault(vopts(b, { scope: 'global', mode: 'pull', force: true })),
     );
     expect(restored.status).toBe('restored');
     expect(restored.verified).toBe(true);
     expect(restored.target).toBe(b.home);
+    // The registry rows come from the snapshot, but this machine keeps its own paths (T12967).
     expect(
-      homeSql<{ project_id: string }>(
+      homeSql<{ project_id: string; project_path: string }>(
         b,
-        'SELECT project_id FROM nexus_project_registry ORDER BY 1',
+        'SELECT project_id, project_path FROM nexus_project_registry ORDER BY 1',
       ),
-    ).toEqual([{ project_id: 'p1' }, { project_id: 'p2' }]);
-    expect(replicaRows(b)).toEqual(replicasB);
-    // B's device credential and vault state are still its own.
+    ).toEqual([
+      { project_id: 'p1', project_path: `${b.home}/projects/p1` },
+      { project_id: 'p2', project_path: `${a.home}/projects/p2` },
+    ]);
+    // B's credentials survive (T12966); A's account arrives without its secret.
+    expect(
+      homeSql<{ label: string; secret_enc: string | null }>(
+        b,
+        'SELECT label, secret_enc FROM accounts ORDER BY id',
+      ),
+    ).toEqual([
+      { label: 'acct-a', secret_enc: null },
+      { label: 'acct-b', secret_enc: 'SECRET-b' },
+    ]);
+    expect(
+      homeSql(b, "SELECT api_key_encrypted FROM agent_registry_agents WHERE agent_id = 'ag1'"),
+    ).toEqual([{ api_key_encrypted: 'KEY-b' }]);
+    // Machine identity and runtime state are not in the snapshot (T12968).
+    expect(fs.readFileSync(path.join(b.home, 'device-id'), 'utf8')).toBe('device-b\n');
+    expect(fs.readFileSync(path.join(b.home, 'state', 'sync', 'replicas-b.json'), 'utf8')).toBe(
+      '{"m":"b"}',
+    );
+    expect(fs.existsSync(path.join(b.home, 'state', 'sync', 'replicas-a.json'))).toBe(false);
+    for (const f of [
+      'web-server.json',
+      'sentient-state.json',
+      'device-heartbeat.stamp',
+      'nexus.db',
+      'keys',
+    ]) {
+      expect(fs.existsSync(path.join(b.home, f))).toBe(false);
+    }
+    // Machine-local tables are never taken from another machine.
+    expect(replicaRows(b)).toEqual([]);
     expect(fs.existsSync(path.join(b.home, 'nexus-device.json'))).toBe(true);
     const vb = await on(b, () => verifyNexusVault(vopts(b, { scope: 'global' })));
     expect(vb.verdict).toBe('match');
 
-    // B changes the global store and pushes; A pulls it.
+    // B changes the global store and pushes; A pulls it, keeping its own paths and secrets.
     const db = new DatabaseSync(path.join(b.home, 'cleo.db'));
     db.exec(
       "INSERT INTO nexus_project_registry (project_id, project_hash, project_path, name) VALUES ('p3', 'hash-p3', '/projects/p3', 'p3')",
     );
+    db.exec("DELETE FROM agent_registry_agents WHERE agent_id = 'ag1'");
     db.close();
-    await on(a, () => releaseNexusVaultLease(vopts(a, { scope: 'global' })));
     const pushedB = await on(b, () => pushNexusVault(vopts(b, { scope: 'global' })));
     expect(pushedB.status).toBe('pushed');
     expect(pushedB.parentCheckpointId).toBe(cp?.checkpointId);
@@ -1527,6 +1785,16 @@ describe('cloud vault global scope', () => {
     );
     expect(pulled.status).toBe('restored');
     expect(homeSql(a, 'SELECT COUNT(*) AS n FROM nexus_project_registry')).toEqual([{ n: 3 }]);
+    expect(
+      homeSql(a, "SELECT project_path FROM nexus_project_registry WHERE project_id = 'p1'"),
+    ).toEqual([{ project_path: `${a.home}/projects/p1` }]);
     expect(replicaRows(a)).toEqual(replicasA);
+    expect(fs.readFileSync(path.join(a.home, 'device-id'), 'utf8')).toBe('device-a\n');
+    // A's agent key had nowhere to go (B deleted the agent): reported with its remedy.
+    const lost = pulled.warnings.find((w) => w.code === 'W_NEXUS_VAULT_CREDENTIALS_LOST');
+    expect(lost?.message).toContain('agent_registry_agents');
+    expect(lost?.message).toContain('re-issue agent keys');
+    const va = await on(a, () => verifyNexusVault(vopts(a, { scope: 'global' })));
+    expect(va.verdict).toBe('match');
   });
 });

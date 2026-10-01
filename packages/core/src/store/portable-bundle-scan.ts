@@ -589,6 +589,17 @@ const CREDENTIAL_REMEDIES: Readonly<Record<string, string>> = {
   service_connections: 'Service connection credentials: reconnect the services.',
 };
 
+/**
+ * What losing one credential table's secrets costs, as re-entry advice.
+ *
+ * @param table - Table name.
+ * @returns The remedy text (a generic one for a table without its own).
+ * @task T12336
+ */
+export function credentialRemedy(table: string): string {
+  return CREDENTIAL_REMEDIES[table] ?? 'Re-enter the credentials.';
+}
+
 /** Memory (ADR-093 `portable`) tables whose counts are disclosed on export. */
 export const MEMORY_TABLES: readonly string[] = [
   'brain_observations',
@@ -653,7 +664,7 @@ export function redactCredentials(snapshotPath: string): CredentialRedaction[] {
         table,
         columns: present.map((c) => c.name),
         rows,
-        remedy: CREDENTIAL_REMEDIES[table] ?? 'Re-enter the credentials.',
+        remedy: credentialRemedy(table),
       });
     }
     if (out.length > 0) db.exec('VACUUM');

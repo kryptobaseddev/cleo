@@ -214,6 +214,7 @@ export async function attachProjectReplica(
       binder: opts.binder ?? canonicalReplicaBinder(opts.projectRoot),
       what: "this project's store",
       relink: '`cleo project link`',
+      kind: 'project',
     },
     `/v1/projects/${encodeURIComponent(opts.projectId)}/replicas`,
     (replicaId) => presenceBody(opts, replicaId),
@@ -243,6 +244,7 @@ export async function attachHomeReplica(
       binder: opts.binder ?? canonicalGlobalReplicaBinder(),
       what: 'your global CLEO store',
       relink: '`cleo login nexus`',
+      kind: 'home',
     },
     '/v1/account/home/replicas',
     (replicaId) =>
@@ -280,6 +282,8 @@ async function attachReplicaAt(
     what: string;
     /** The command that re-runs the attach. */
     relink: string;
+    /** Which store this is: decides the remedy of a copied-store refusal. */
+    kind: 'project' | 'home';
   },
   path: string,
   presenceOf: (replicaId: string) => unknown,
@@ -318,7 +322,7 @@ async function attachReplicaAt(
         throw new NexusAccountError(
           'E_NEXUS_REPLICA_COPIED',
           `${opts.what} (replica ${replicaId}) is already attached from another Nexus device: either this machine was re-enrolled as a new device (after a revoke), or the store was copied from another machine`,
-          opts.relink === '`cleo project link`'
+          opts.kind === 'project'
             ? 'run `cleo project link --rebind` to give this copy a new replica id and attach it; if another machine holds the original, it keeps its own'
             : 'revoke the stale device on cleocode.dev, then run `cleo login nexus` again',
         );
