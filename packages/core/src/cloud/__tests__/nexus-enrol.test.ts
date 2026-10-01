@@ -1274,8 +1274,20 @@ describe('linkProjectToNexus with CLEO_NEXUS_DEVICE=1', () => {
   it('upgrades the v1 session, registers with the device credential, and retries once on project-id-taken', async () => {
     await seedV1Session();
     let posts = 0;
+    const REPLICA = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a60';
     const fetchImpl: FetchLike = async (url, init) => {
-      if (new URL(url).pathname !== '/v1/projects') return server.fetch(url, init);
+      const path = new URL(url).pathname;
+      if (path === `/v1/projects/${PROJECT_ID}/replicas`) {
+        return ok({ projectId: PROJECT_ID, replicaId: REPLICA, deviceId: 'd' });
+      }
+      if (path === `/v1/projects/${PROJECT_ID}/replicas/${REPLICA}/presence`) {
+        return ok({
+          projectId: PROJECT_ID,
+          replicaId: REPLICA,
+          presenceAt: '2026-10-01T00:00:00.000Z',
+        });
+      }
+      if (path !== '/v1/projects') return server.fetch(url, init);
       posts += 1;
       const auth = new Headers(init?.headers).get('authorization') ?? '';
       expect(auth.startsWith('Bearer cnx_d1_')).toBe(true);
@@ -1300,11 +1312,93 @@ describe('linkProjectToNexus with CLEO_NEXUS_DEVICE=1', () => {
       projectRoot,
       label: 'proj',
       fetch: fetchImpl,
+      cliVersion: '2026.10.0',
+      replicaBinder: {
+        ensure: async () => ({ replicaId: REPLICA }),
+        rebindReenrolled: async () => {
+          throw new Error('not expected');
+        },
+      },
     });
     expect(posts).toBe(2);
     expect(result.alreadyLinked).toBe(true);
+    expect(result.replica).toMatchObject({
+      replicaId: REPLICA,
+      presenceAt: '2026-10-01T00:00:00.000Z',
+    });
+    expect(result.link.replicaId).toBe(REPLICA);
     expect(server.count('/v1/devices/enroll')).toBe(1);
     expect(await sessions.get(API)).toBeNull();
+  });
+  it('an attach the server refuses never fails the link: the binding is written and the warning names --rebind (review M1)', async () => {
+    await seedV1Session();
+    const fetchImpl: FetchLike = async (url, init) => {
+      const path = new URL(url).pathname;
+      if (path === `/v1/projects/${PROJECT_ID}/replicas`) {
+        return fail(409, 'E_CONFLICT', 'x');
+      }
+      if (path !== '/v1/projects') return server.fetch(url, init);
+      return ok({
+        project: {
+          projectId: PROJECT_ID,
+          label: 'proj',
+          encryptedName: null,
+          remoteUrl: null,
+          organizationId: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c',
+          createdByUserId: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5d',
+          createdAt: '2026-09-28T00:00:00.000Z',
+        },
+        streamId: `project:${PROJECT_ID}`,
+      });
+    };
+    // A cache from an earlier attach by another (now revoked) device.
+    writeFileSync(
+      join(projectRoot, '.cleo', 'nexus-link.json'),
+      JSON.stringify({
+        version: 1,
+        links: {
+          [API]: {
+            apiUrl: API,
+            localProjectId: PROJECT_ID,
+            remoteProjectId: PROJECT_ID,
+            organizationId: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c',
+            label: 'proj',
+            streamId: `project:${PROJECT_ID}`,
+            linkedAt: '2026-09-30T00:00:00.000Z',
+            replicaId: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a61',
+            nexusDeviceId: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a62',
+            attachedAt: '2026-09-30T00:00:00.000Z',
+          },
+        },
+      }),
+    );
+    const result = await linkProjectToNexus({
+      apiUrl: API,
+      store: sessions,
+      deviceStore: devices,
+      projectRoot,
+      label: 'proj',
+      fetch: fetchImpl,
+      cliVersion: '2026.10.0',
+      replicaBinder: {
+        ensure: async () => ({ replicaId: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a60' }),
+        rebindReenrolled: async () => {
+          throw new Error('not expected');
+        },
+      },
+    });
+    expect(result.replica).toBeNull();
+    expect(result.warnings.join('\n')).toMatch(
+      /E_NEXUS_REPLICA_COPIED.*cleo project link --rebind/,
+    );
+    expect(readFileSync(result.linkPath, 'utf8')).toContain(PROJECT_ID);
+    expect(result.attachError?.code).toBe('E_NEXUS_REPLICA_COPIED');
+    expect(result.link.replicaId).toBeUndefined();
+    const file = JSON.parse(readFileSync(result.linkPath, 'utf8')) as {
+      links: Record<string, Record<string, string | null>>;
+    };
+    expect(file.links[API]?.['replicaId']).toBeNull();
+    expect(file.links[API]?.['nexusDeviceId']).toBeNull();
   });
 });
 

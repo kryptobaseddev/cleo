@@ -84,6 +84,16 @@ export function failNexus(err: unknown, operation: string): never {
 }
 
 /**
+ * Print a Nexus flow's warnings to stderr, one `warning:` line each. They also
+ * travel in the result envelope's `data.warnings`.
+ *
+ * @param warnings - Warnings from the result (secret-free).
+ */
+export function writeNexusWarnings(warnings: readonly string[]): void {
+  for (const warning of warnings) process.stderr.write(`warning: ${warning}\n`);
+}
+
+/**
  * Emit a result: one human line on a terminal, else the LAFS envelope.
  *
  * @param data - Result payload (secret-free).
