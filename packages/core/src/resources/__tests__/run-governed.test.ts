@@ -19,7 +19,7 @@
  */
 
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AdmissionResult, ResourceClass } from '@cleocode/contracts';
@@ -78,6 +78,8 @@ function harness(opts: {
   spawnThrows?: boolean;
   groupOf?: (pid: number) => number | null;
   onAcquire?: (h: Harness) => void;
+  acquireThrows?: Error;
+  jobsDir?: string;
 }): Harness {
   const clock = { t: 1_000_000 };
   let calls = 0;
@@ -117,6 +119,7 @@ function harness(opts: {
     tryAcquire: async (cls: ResourceClass) => {
       h.acquires++;
       opts.onAcquire?.(h);
+      if (opts.acquireThrows) throw opts.acquireThrows;
       const next = admissions.length > 1 ? admissions.shift() : admissions[0];
       return next === 'grant'
         ? grant()
@@ -150,7 +153,7 @@ function harness(opts: {
         handler = null;
       };
     },
-    jobsDir: join(dir, 'jobs'),
+    jobsDir: opts.jobsDir ?? join(dir, 'jobs'),
     queueDir: () => join(dir, 'queue'),
     verifyHolders: () => [],
     pid: process.pid, // alive for the registry's liveness probe
@@ -497,5 +500,73 @@ describe('runGoverned', () => {
     expect(r).toMatchObject({ kind: 'exited', exitCode: null, spawnError: 'ENOENT: no such file' });
     expect(h.released).toBe(1);
     expect(readdirSync(join(dir, 'jobs'))).toEqual([]);
+  });
+});
+
+describe('fail open when the governor cannot write its state (#1781 review, HIGH)', () => {
+  const ioError = (code: string) =>
+    Object.assign(new Error(`${code}: mkdir '/sandbox/cleo/locks/resource-test-run'`), {
+      code,
+      path: '/sandbox/cleo/locks/resource-test-run',
+    });
+
+  it.each([
+    'EACCES',
+    'EPERM',
+    'EROFS',
+    'ENOSPC',
+    'ENOTDIR',
+  ])('%s on the slot acquire: the command runs ungoverned, its exit code passes through', async (code) => {
+    writeRunJob(olderJob(), join(dir, 'jobs'));
+    const notices: string[] = [];
+    const h = harness({
+      acquireThrows: ioError(code),
+      levels: ['ok', 'backoff', 'backoff'],
+      onSample: (n, hh) => n === 3 && hh.exit(3),
+    });
+    const r = await runGoverned(base(h, { notice: (m: string) => notices.push(m) }));
+    expect(r).toMatchObject({
+      kind: 'exited',
+      exitCode: 3,
+      slot: -1,
+      pauses: 0, // ungoverned: never paused, even younger at backoff
+      ungoverned: { code, path: '/sandbox/cleo/locks/resource-test-run' },
+    });
+    expect(h.spawned).toHaveLength(1);
+    expect(h.signals).toEqual([]);
+    expect(notices.some((m) => m.includes(code) && m.includes('running ungoverned'))).toBe(true);
+  });
+
+  it('with --wait as well', async () => {
+    const h = harness({
+      acquireThrows: ioError('EACCES'),
+      onSample: (n, hh) => n === 2 && hh.exit(0),
+    });
+    const r = await runGoverned(base(h, { wait: true, queuePollMs: 1000, timeoutMs: 60_000 }));
+    expect(r).toMatchObject({ kind: 'exited', exitCode: 0, ungoverned: { code: 'EACCES' } });
+  });
+
+  it('an unwritable job registry never blocks the run (writes are best effort)', async () => {
+    const file = join(dir, 'not-a-dir');
+    writeFileSync(file, 'x');
+    const h = harness({
+      jobsDir: join(file, 'jobs'), // mkdir fails with ENOTDIR
+      onSample: (n, hh) => n === 2 && hh.exit(0),
+    });
+    const r = await runGoverned(base(h));
+    expect(r).toMatchObject({ kind: 'exited', exitCode: 0, slot: 0, ungoverned: null });
+  });
+
+  it('any other acquire error is a bug: it propagates and nothing runs', async () => {
+    const h = harness({ acquireThrows: new TypeError('cannot read properties of undefined') });
+    await expect(runGoverned(base(h))).rejects.toThrow(TypeError);
+    expect(h.spawned).toEqual([]);
+  });
+
+  it('a deferral is unchanged: E_RESOURCE_DEFERRED, nothing spawned', async () => {
+    const h = harness({ admissions: ['deny'] });
+    const r = await runGoverned(base(h));
+    expect(r.kind).toBe('deferred');
+    expect(h.spawned).toEqual([]);
   });
 });

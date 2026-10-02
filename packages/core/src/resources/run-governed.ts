@@ -149,7 +149,35 @@ export type RunGovernedResult =
       readonly pausedMs: number;
       readonly pauses: number;
       readonly slot: number;
+      /**
+       * Set when the governor's state could not be written (a sandboxed or read-only CLEO home, a
+       * full disk): the command ran ungoverned rather than not at all.
+       */
+      readonly ungoverned: { readonly code: string; readonly path: string | null } | null;
     };
+
+/** Filesystem errors meaning the governor's state can't be written here. */
+const GOVERNOR_IO_CODES = new Set([
+  'EACCES',
+  'EPERM',
+  'EROFS',
+  'ENOSPC',
+  'EDQUOT',
+  'ENOTDIR',
+  'ELOOP',
+]);
+
+/**
+ * The code and path of an error that means "the governor cannot keep state here" (a sandbox that
+ * blocks writes to the CLEO home, a read-only or full disk, a broken CLEO home), or null for any
+ * other error, which is a bug and must not be hidden.
+ */
+export function governorIoError(err: unknown): { code: string; path: string | null } | null {
+  const e = err as NodeJS.ErrnoException | null;
+  if (!e || typeof e !== 'object' || typeof e.code !== 'string') return null;
+  if (!GOVERNOR_IO_CODES.has(e.code)) return null;
+  return { code: e.code, path: typeof e.path === 'string' ? e.path : null };
+}
 
 function defaultDeps(): RunGovernedDeps {
   const monitor = new ResourceMonitor();
@@ -272,6 +300,30 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
       `nested in a running ${enclosing.class} job (${enclosing.command}): admitted on its own ${opts.cls} slot, inside that job's process group`,
     );
   }
+  // Fail open (#1781 review, HIGH): when the governor cannot write its slot locks (Codex's
+  // workspace-write sandbox, Claude Code's sandboxed Bash, a read-only CLEO home), run the command
+  // ungoverned instead of failing a test that would have passed. Only filesystem errors; anything
+  // else is a bug and propagates. E_RESOURCE_DEFERRED is unchanged.
+  let ungoverned: { code: string; path: string | null } | null = null;
+  const tryAcquire = async (s: ResourceSample): Promise<AdmissionResult> => {
+    try {
+      return await d.tryAcquire(opts.cls, s);
+    } catch (err) {
+      const io = governorIoError(err);
+      if (io === null) throw err;
+      ungoverned = io;
+      notice(
+        `governor state is not writable (${io.code}${io.path ? ` ${io.path}` : ''}): running ungoverned`,
+      );
+      return {
+        deferred: false,
+        class: opts.cls,
+        slot: -1,
+        acquiredAtMs: d.now(),
+        release: async () => {},
+      };
+    }
+  };
   let admission: AdmissionResult;
   if (parent) {
     admission = {
@@ -314,7 +366,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
     try {
       // No barging (M5): while anyone waits ahead, never try first.
       let position = ahead();
-      admission = position > 0 ? queued(position) : await d.tryAcquire(opts.cls, sample);
+      admission = position > 0 ? queued(position) : await tryAcquire(sample);
       if (admission.deferred && opts.wait) {
         const deadline = t0 + (opts.timeoutMs ?? 30 * 60_000);
         while (admission.deferred) {
@@ -336,7 +388,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
             continue; // FIFO: only the head tries.
           }
           sample = await d.sample();
-          admission = await d.tryAcquire(opts.cls, sample);
+          admission = await tryAcquire(sample);
         }
         notice(`admitted after ${Math.round((d.now() - t0) / 1000)}s in the ${opts.cls} queue`);
       }
@@ -353,7 +405,8 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
   // ---- 2. run -------------------------------------------------------------
   const startedAtMs = d.now();
   // A nested job lives in its enclosing job's group: never paused on its own.
-  const pausable = !nested && isPausable(opts.cls, opts.argv);
+  // Ungoverned, it holds no slot and keeps no reliable record: never paused either.
+  const pausable = !nested && ungoverned === null && isPausable(opts.cls, opts.argv);
   const [file, ...args] = opts.argv as [string, ...string[]];
   // No inherited grant marker (#1777 round 2): every nested `cleo run` is
   // admitted on its own; verify joins the same budgets with #1775 (T12963).
@@ -499,6 +552,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
       pausedMs: pausedTotalMs,
       pauses,
       slot: grant.slot,
+      ungoverned,
     };
   }
 }
