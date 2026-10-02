@@ -31,9 +31,11 @@
  * 6. **Consume.** Sealed, dropped and quarantined captures are deleted, and
  *    frames no live capture references.
  *
- * Canonical wire timestamps and tombstone compaction are S3c; the step-0
- * fill and the repair diff of suspect tables are S3d. `sync.seal` stays
- * unreleased until those land: the sealer refuses a persisted flag too.
+ * S3c: timestamp columns are canonical on the wire and in `chash`
+ * ({@link canonicalStoreTimestamp}; local rows are never rewritten here), and
+ * a delete in an append-only table leaves no per-row tombstone (§1.7 R5-5).
+ * The step-0 fill and the repair diff of suspect tables are S3d. `sync.seal`
+ * stays unreleased until those land: the sealer refuses a persisted flag too.
  *
  * Phase B is synchronous: one `BEGIN IMMEDIATE` … `COMMIT` with no await, so
  * a caller on the accessor's transaction queue serializes it with every
@@ -63,6 +65,7 @@ import { activeReplica } from './replica.js';
 import { hasTable } from './schema.js';
 import { canonicalJson, decodeEnc, type WireValue } from './sealer-values.js';
 import { markSuspect } from './structural.js';
+import { canonicalStoreTimestamp, timestampColumns } from './timestamps.js';
 
 export { sealBacklog } from './seal-backlog.js';
 export { canonicalJson, decodeEnc, type WireValue } from './sealer-values.js';
@@ -176,6 +179,7 @@ class TableContext {
   private readonly defs = new Map<string, CaptureTableDef | null>();
   private readonly stmts = new Map<string, StatementSync>();
   private readonly sources = new Map<string, ReadonlySet<string>>();
+  private readonly stamps = new Map<string, ReadonlySet<string>>();
   constructor(
     readonly db: DatabaseSync,
     readonly scope: TableScope,
@@ -266,6 +270,16 @@ class TableContext {
     return rowIdentitySpec(this.scope, table)?.kind === 'minted';
   }
 
+  /** The table's captured timestamp columns (§1.8). */
+  timestamps(table: string): ReadonlySet<string> {
+    let t = this.stamps.get(table);
+    if (!t) {
+      t = timestampColumns(this.scope, table);
+      this.stamps.set(table, t);
+    }
+    return t;
+  }
+
   /** The uid of `table`'s row whose first key column is `key`. */
   uidOf(table: string, keyColumn: string, key: WireValue): string | null {
     if (key === null || typeof key === 'object') return null;
@@ -288,9 +302,19 @@ class TableContext {
 }
 
 /**
- * A decoded column value: references become uids, secrets disappear. Decoded
- * by the value's shape (T13029): a `[local key, uid]` pair is a reference
- * however the column is declared now, a string is an `enc()` value.
+ * A timestamp column's wire value: canonical when the canonicalizer accepts
+ * it, else the raw text (`timestamp_ambiguous`, §1.8).
+ */
+function wireTimestamp(stamps: ReadonlySet<string>, col: string, v: WireValue): WireValue {
+  if (typeof v !== 'string' || !stamps.has(col)) return v;
+  return canonicalStoreTimestamp(v) ?? v;
+}
+
+/**
+ * A decoded column value: references become uids, secrets disappear,
+ * timestamps are canonical. Decoded by the value's shape (T13029): a
+ * `[local key, uid]` pair is a reference however the column is declared now,
+ * a string is an `enc()` value.
  */
 function columnValue(
   ctx: TableContext,
@@ -310,11 +334,13 @@ function columnValue(
   if (typeof raw !== 'string')
     throw new SealInputError(`${def.table}.${col}: unexpected image value`);
   if (raw === SECRET_MARKER) return undefined;
+  let v: WireValue;
   try {
-    return decodeEnc(raw);
+    v = decodeEnc(raw);
   } catch (err) {
     throw new SealInputError(`${def.table}.${col}: ${(err as Error).message}`);
   }
+  return wireTimestamp(ctx.timestamps(def.table), col, v);
 }
 
 function imageValues(
@@ -543,7 +569,9 @@ interface MetaRow {
  * op of the row would carry, so every replica hashes identical bytes. Secret
  * columns, uid and birth_fp, and a minted table's local key (a display id or
  * an autoincrement id, which differ per replica) are left out; references are
- * their uids; NULL columns are omitted, as in an I image.
+ * their uids; NULL columns are omitted, as in an I image; and timestamp
+ * columns hash their canonical form (§1.8), so a replica holding legacy text
+ * hashes like one that received the canonical value.
  */
 export function rowChash(
   db: DatabaseSync,
@@ -562,6 +590,7 @@ function chashOf(ctx: TableContext, def: CaptureTableDef, uid: string): string |
     (c) => !def.secret.has(c) && !OP_IDENTITY.has(c) && !localKey.has(c) && !sources.has(c),
   );
   if (cols.length === 0) return null;
+  const stamps = ctx.timestamps(def.table);
   const row = ctx
     .stmt(
       `SELECT ${chunkedObject(cols.map((c) => [c, enc(q(c))] as const))} AS img FROM ${q(def.table)} WHERE ${q(UID_COLUMN)} = ?`,
@@ -572,7 +601,10 @@ function chashOf(ctx: TableContext, def: CaptureTableDef, uid: string): string |
   for (const [col, raw] of Object.entries(JSON.parse(row.img) as Record<string, string>)) {
     const local = decodeEnc(raw);
     const ref = def.refs.get(col);
-    const v = ref && local !== null ? ctx.uidOf(ref.table, ref.key, local) : local;
+    const v =
+      ref && local !== null
+        ? ctx.uidOf(ref.table, ref.key, local)
+        : wireTimestamp(stamps, col, local);
     if (v !== null) wire[col] = v;
   }
   return createHash('sha256').update(canonicalJson(wire)).digest('hex');
@@ -1033,6 +1065,14 @@ function sealInTransaction(
         }
         touched.delete(rowKey(op.t, op.u));
         touched.set(rowKey(op.t, op.nu), { tbl: op.t, uid: op.nu, rk });
+        return;
+      }
+      if (op.o === 'D' && def.appendOnly) {
+        // §1.7 R5-5: append-only rows get no per-row tombstone; deleted vs
+        // never seen is decided by the prune cutoff. The D op still travels.
+        meta.remove.run(op.t, op.u);
+        ledgerDelta.set(op.t, (ledgerDelta.get(op.t) ?? 0) - 1);
+        touched.delete(rowKey(op.t, op.u));
         return;
       }
       const changed = op.o === 'U' ? Object.keys(op.a ?? {}) : [];

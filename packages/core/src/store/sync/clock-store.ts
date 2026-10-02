@@ -40,6 +40,7 @@ const REPLICA_OFFSET = 21;
 
 function assertInTransaction(db: DatabaseSync, what: string): void {
   if (!db.isTransaction) {
+    // @sync-invariant none:local-only a caller bug (clock bookkeeping outside its transaction); the clock is per-store state, not a synced row
     throw new Error(`${what} must run inside the caller's BEGIN IMMEDIATE transaction`);
   }
 }
@@ -115,6 +116,7 @@ export function healClock(
   let best = loadClock(db, replica);
   for (const { table, column } of sources) {
     if (!/^[a-z_][a-z0-9_]*$/.test(table) || !/^[a-z_][a-z0-9_]*$/.test(column)) {
+      // @sync-invariant none:local-only a heal source is a compiled-in identifier, not row data; the clock is per-store state
       throw new Error(`invalid clock heal source ${table}.${column}`);
     }
     if (!hasTable(db, table)) continue;

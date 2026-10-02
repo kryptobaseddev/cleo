@@ -57,6 +57,7 @@ import {
 import { classifyTable, isPortableTableClass } from '../table-classification.js';
 import { readSyncFlags, setSyncFlag } from './flags.js';
 import { ensureSyncSchema, hasTable, healSyncSchema } from './schema.js';
+import { canonicalizeStoreTimestamps } from './timestamps.js';
 import {
   atomicDdl,
   CAPTURE_TRIGGER_PREFIX,
@@ -666,6 +667,8 @@ export function setCaptureEnabled(
     setSyncFlag(db, 'sync.capture', on, { schemaRoot: options.schemaRoot });
     // Ruling (c): a store with capture on requires a framing writer.
     if (on) raiseMinWriterVersion(db);
+    // §1.8: the one-time timestamp rewrite runs before the triggers go in.
+    if (on) canonicalizeStoreTimestamps(db, scope);
     const report = on ? installCaptureTriggers(db, scope) : { dropped: dropCaptureTriggers(db) };
     db.exec('COMMIT');
     if (on) installCaptureStamp(db);
@@ -704,6 +707,9 @@ export function syncCaptureOpenPass(
   healSyncSchema(db, ['_sync_capture', '_sync_frame', '_sync_undo', '_sync_meta'], {
     root: options.schemaRoot,
   });
+  // §1.8: a store whose capture went on before S3c gets its one-time
+  // timestamp rewrite here, with capture suspended, before the reinstall.
+  canonicalizeStoreTimestamps(db, scope);
   const report = installCaptureTriggers(db, scope);
   return { capture: 'on', report, conn: installCaptureStamp(db) };
 }

@@ -836,3 +836,102 @@ describe('#1779 round 3 (T13041)', () => {
     ).toEqual({ ok: 1 });
   });
 });
+
+describe('S3c: canonical wire timestamps and append-only tombstones (T12986)', () => {
+  it('timestamps are canonical on the wire; the sealer never rewrites the local row', async () => {
+    const db = await store();
+    framed(db, () =>
+      db
+        .prepare(
+          `INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp, created_at, updated_at)
+           VALUES ('T1', 't', 'task', 'pending', 'medium', 'uid-T1', 'fp-T1', '2026-09-14 19:56:01', '2026-09-14 21:56:01')`,
+        )
+        .run(),
+    );
+    seal(db);
+    const [op] = ops(db);
+    expect(op?.a).toMatchObject({
+      created_at: '2026-09-14T19:56:01.000Z',
+      updated_at: '2026-09-14T21:56:01.000Z',
+    });
+    expect(
+      db.prepare("SELECT created_at, updated_at FROM tasks_tasks WHERE id = 'T1'").get(),
+    ).toEqual({ created_at: '2026-09-14 19:56:01', updated_at: '2026-09-14 21:56:01' });
+  });
+
+  it('a format-only rewrite of the same instant seals nothing', async () => {
+    const db = await store();
+    framed(db, () =>
+      db
+        .prepare(
+          `INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp, created_at)
+           VALUES ('T1', 't', 'task', 'pending', 'medium', 'uid-T1', 'fp-T1', '2026-09-14 19:56:01')`,
+        )
+        .run(),
+    );
+    seal(db);
+    const before = txns(db).length;
+    framed(db, () =>
+      db
+        .prepare("UPDATE tasks_tasks SET created_at = '2026-09-14T19:56:01.000Z' WHERE id = 'T1'")
+        .run(),
+    );
+    const r = seal(db);
+    expect(r.captures).toBe(1);
+    expect(txns(db)).toHaveLength(before);
+  });
+
+  it('chash hashes the canonical form: legacy and canonical text hash alike', async () => {
+    const db = await store();
+    addTask(db, 'T1');
+    const def = captureTableDef(db, 'project', 'tasks_tasks');
+    if (!def) throw new Error('no def');
+    db.prepare("UPDATE tasks_tasks SET created_at = '2026-09-14 19:56:01' WHERE id = 'T1'").run();
+    const legacy = rowChash(db, 'project', def, 'uid-T1');
+    db.prepare(
+      "UPDATE tasks_tasks SET created_at = '2026-09-14T19:56:01.000Z' WHERE id = 'T1'",
+    ).run();
+    expect(rowChash(db, 'project', def, 'uid-T1')).toBe(legacy);
+    // Another instant still hashes differently.
+    db.prepare(
+      "UPDATE tasks_tasks SET created_at = '2026-09-14T19:56:02.000Z' WHERE id = 'T1'",
+    ).run();
+    expect(rowChash(db, 'project', def, 'uid-T1')).not.toBe(legacy);
+  });
+
+  it('a delete in an append-only table leaves no per-row tombstone; the D op still travels', async () => {
+    const db = await store();
+    const hist = 'tasks_task_acceptance_criteria_history';
+    expect(captureTableDef(db, 'project', hist)?.appendOnly).toBe(true);
+    framed(db, () =>
+      db
+        .prepare(
+          `INSERT INTO ${hist} (ac_id, previous_text, reason, uid, birth_fp) VALUES ('AC1', 'old', 'edit', 'uid-H1', 'fp-H1')`,
+        )
+        .run(),
+    );
+    seal(db);
+    expect(meta(db, hist, 'uid-H1')).toMatchObject({ deleted: 0 });
+    framed(db, () => db.prepare(`DELETE FROM ${hist} WHERE uid = 'uid-H1'`).run());
+    seal(db);
+    expect(meta(db, hist, 'uid-H1')).toBeUndefined();
+    expect(
+      ops(db)
+        .filter((o) => o.t === hist)
+        .map((o) => o.o),
+    ).toEqual(['I', 'D']);
+    const ledger = db.prepare('SELECT live FROM _sync_ledger WHERE tbl = ?').get(hist) as {
+      live: number;
+    };
+    expect(ledger.live).toBe(0);
+  });
+
+  it('a delete in an ordinary table keeps its full tombstone', async () => {
+    const db = await store();
+    framed(db, () => addTask(db, 'T1'));
+    seal(db);
+    framed(db, () => db.prepare("DELETE FROM tasks_tasks WHERE id = 'T1'").run());
+    seal(db);
+    expect(meta(db, 'tasks_tasks', 'uid-T1')).toMatchObject({ deleted: 1 });
+  });
+});

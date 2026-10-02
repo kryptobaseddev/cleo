@@ -54,12 +54,15 @@ export class HlcError extends Error {
 
 function assertParts(phys: number, ctr: number, replica: string): void {
   if (!Number.isSafeInteger(phys) || phys < 0 || phys > MAX_PHYS) {
+    // @sync-invariant none:input-shape an HLC is a fixed-format value; a malformed one is refused wherever it arrives
     throw new HlcError(`HLC physical time out of range: ${phys}`);
   }
   if (!Number.isSafeInteger(ctr) || ctr < 0 || ctr > MAX_COUNTER) {
+    // @sync-invariant none:input-shape an HLC is a fixed-format value; a malformed one is refused wherever it arrives
     throw new HlcError(`HLC counter out of range: ${ctr}`);
   }
   if (!REPLICA_RE.test(replica)) {
+    // @sync-invariant none:input-shape an HLC is a fixed-format value; a malformed one is refused wherever it arrives
     throw new HlcError(`HLC replica id is not a lowercase UUID: ${replica}`);
   }
 }
@@ -85,6 +88,7 @@ export function encodeHlc(h: Hlc): string {
  */
 export function parseHlc(s: string): Hlc {
   const m = HLC_RE.exec(s);
+  // @sync-invariant none:input-shape an HLC is a fixed-format value; a malformed one is refused wherever it arrives
   if (!m) throw new HlcError(`not an encoded HLC: ${s}`);
   const h = { phys: Number(m[1]), ctr: Number(m[2]), replica: m[3] as string };
   assertParts(h.phys, h.ctr, h.replica);
