@@ -69,7 +69,7 @@ import {
   replicasHash,
   segmentMetaHash,
 } from '../journal.js';
-import { masterKeyVerifier, unwrapProjectKey } from '../keys.js';
+import { masterKeyVerifier, unwrapProjectKey, wrapProjectKey } from '../keys.js';
 import {
   checkManifestV3,
   type DeclaredTxn,
@@ -227,6 +227,10 @@ class FakeNexus {
   escrowHtml404 = false;
   /** Runs before an escrow PUT is applied (simulates a concurrent first device). */
   beforeEscrowPut: (() => void) | null = null;
+  /** Runs before a project key PUT is judged, e.g. to let another device store version 1 first (T13098). */
+  beforeProjectKeyPut: ((projectId: string) => void) | null = null;
+  /** Every project key PUT body, in order (T13098). */
+  projectKeyPuts: Array<Record<string, unknown>> = [];
   projectKeys = new Map<string, Array<{ wrappedProjectKey: string; keyVersion: number }>>();
   /** projectId -> replicaId -> deviceId. */
   replicas = new Map<string, Map<string, string>>();
@@ -477,7 +481,26 @@ class FakeNexus {
     if (m) {
       const projectId = decodeURIComponent(m[1] ?? '');
       if (decodeURIComponent(m[2] ?? '') !== USER) throw new ApiFail(403, 'E_FORBIDDEN');
-      if ((this.projectKeys.get(projectId) ?? []).length > 0) {
+      this.projectKeyPuts.push(body);
+      this.beforeProjectKeyPut?.(projectId);
+      // As cleo-nexus does (T12856): a new key version, the first included, is accepted only as a
+      // rotation naming the current highest version (T13098).
+      const existing = this.projectKeys.get(projectId) ?? [];
+      const max = existing.reduce((acc, k) => Math.max(acc, k.keyVersion), 0);
+      const kv = body['keyVersion'] as number;
+      if (body['rotate'] === true) {
+        if (kv !== max + 1 || body['expectedMax'] !== max) {
+          throw new ApiFail(409, 'E_CONFLICT', { reason: 'rotation-stale', max });
+        }
+      } else if (!existing.some((k) => k.keyVersion === kv)) {
+        throw new ApiFail(
+          409,
+          'E_CONFLICT',
+          { reason: kv === max + 1 ? 'rotation-required' : 'key-version-gap', max },
+          max === 0 ? 'the first project key version must be 1, as a rotation' : undefined,
+        );
+      }
+      if (existing.some((k) => k.keyVersion === kv)) {
         throw new ApiFail(409, 'E_CONFLICT', { reason: 'keys-exist' });
       }
       this.projectKeys.set(projectId, [
@@ -1733,6 +1756,64 @@ describe('cloud vault key escrow', () => {
     expect(fake.certificates).toHaveLength(before);
     expect(vb.head?.deviceId).toBe(DEVICE_A);
     expect(vb.warnings.some((w) => w.code === 'W_NEXUS_VAULT_UNTRUSTED_SNAPSHOT')).toBe(false);
+  });
+
+  it('the first push mints the project key as a rotation to version 1 (T13098)', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A });
+    seedProject(a, 2);
+    link(a);
+    const pushed = await on(a, () => pushNexusVault(vopts(a)));
+    expect(pushed.status).toBe('pushed');
+    expect(fake.projectKeyPuts).toHaveLength(1);
+    expect(fake.projectKeyPuts[0]).toMatchObject({ keyVersion: 1, rotate: true, expectedMax: 0 });
+    expect(fake.projectKeys.get(REMOTE_PROJECT)?.map((k) => k.keyVersion)).toEqual([1]);
+  });
+
+  it('a first push that loses the project key race uses the winner key (T13098)', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A });
+    seedProject(a, 2);
+    link(a);
+    const winner = randomBytes(32);
+    fake.beforeProjectKeyPut = (projectId) => {
+      fake.beforeProjectKeyPut = null;
+      if (!fake.escrow) throw new Error('fixture: escrow first');
+      fake.projectKeys.set(projectId, [
+        { wrappedProjectKey: wrapProjectKey(fake.escrow.mk, winner, projectId, 1), keyVersion: 1 },
+      ]);
+    };
+    const pushed = await on(a, () => pushNexusVault(vopts(a)));
+    expect(pushed.status).toBe('pushed');
+    const stored = fake.projectKeys.get(REMOTE_PROJECT) ?? [];
+    expect(stored).toHaveLength(1);
+    if (!fake.escrow || !stored[0]) throw new Error('fixture');
+    expect(
+      unwrapProjectKey(fake.escrow.mk, stored[0].wrappedProjectKey, REMOTE_PROJECT, 1).equals(
+        winner,
+      ),
+    ).toBe(true);
+  });
+
+  it("any other refusal of the project key names the server's reason, never 'not readable' (T13098)", async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A });
+    seedProject(a, 2);
+    link(a);
+    fake.beforeProjectKeyPut = () => {
+      fake.beforeProjectKeyPut = null;
+      throw new ApiFail(
+        409,
+        'E_CONFLICT',
+        { reason: 'key-version-not-creator' },
+        'only the user who created this key version may add to it',
+      );
+    };
+    const err = await failure(on(a, () => pushNexusVault(vopts(a))));
+    expect(err.code).toBe('E_NEXUS_VAULT_KEY_UNAVAILABLE');
+    expect(err.message).toMatch(/key-version-not-creator/);
+    expect(err.message).toMatch(/only the user who created this key version/);
+    expect(err.message).not.toMatch(/not readable/);
   });
 
   it('g: a device that loses the escrow race reads the winner key', async () => {

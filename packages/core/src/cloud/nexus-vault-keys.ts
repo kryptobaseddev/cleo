@@ -405,13 +405,33 @@ export async function nexusProjectDataKey(
     await conn.raw('PUT', `${path}/${encodeURIComponent(conn.userId)}`, z.looseObject({}), {
       wrappedProjectKey: wrapProjectKey(mk, pdk, projectId, 1),
       keyVersion: 1,
+      // Cleo Nexus accepts a new key version, the first one included, only as a rotation naming
+      // the current highest version (cleo-nexus T12856). The two fields stay out of the shared
+      // contract until cleo-nexus adds them there too (T064), as the server does.
+      rotate: true,
+      expectedMax: 0,
     });
     return pdk;
   } catch (err) {
-    if (!isConflict(err)) throw nexusApiErrorToAccountError(err);
-    const won = await read();
-    if (won === null) throw keyUnavailable(`the project key of ${projectId} is not readable`);
-    return won;
+    if (isConflict(err, 'rotation-stale') || isConflict(err, 'keys-exist')) {
+      // Another device created version 1 first: use its key (T13098).
+      const won = await read();
+      if (won === null) {
+        throw keyUnavailable(
+          `the project key of ${projectId} was created by another account and has not been shared with this one`,
+          'ask the project owner to share the project with this account',
+        );
+      }
+      return won;
+    }
+    if (isConflict(err)) {
+      const e = err as NexusError;
+      const reason = typeof e.details?.['reason'] === 'string' ? ` (${e.details['reason']})` : '';
+      throw keyUnavailable(
+        `Cleo Nexus refused to store the project key of ${projectId}${reason}: ${e.serverMessage}`,
+      );
+    }
+    throw nexusApiErrorToAccountError(err);
   }
 }
 
