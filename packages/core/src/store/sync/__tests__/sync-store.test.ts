@@ -137,13 +137,16 @@ describe('flags', () => {
   it('turning one on applies the sync schema once and persists the flag', () => {
     const { db } = freshStore();
     enable(db);
-    expect(syncTables(db)).toEqual([
-      '_sync_clock',
-      '_sync_meta',
-      '_sync_replica',
-      '_sync_replica_active',
-    ]);
-    expect(appliedSyncSchema(db)).toEqual(['20260929140000_t12342-sync-clock']);
+    expect(syncTables(db)).toEqual(
+      expect.arrayContaining([
+        '_sync_clock',
+        '_sync_meta',
+        '_sync_replica',
+        '_sync_replica_active',
+      ]),
+    );
+    expect(appliedSyncSchema(db)).toEqual(syncSchemaFolders(SCHEMA_ROOT).map((f) => f.name));
+    expect(appliedSyncSchema(db)[0]).toBe('20260929140000_t12342-sync-clock');
     expect(ensureSyncSchema(db, { root: SCHEMA_ROOT })).toEqual([]);
     expect(readSyncFlags(db)['sync.capture']).toBe(true);
     expect(readSyncFlags(db)['sync.push']).toBe(false);
@@ -179,7 +182,7 @@ describe('sync schema journal', () => {
   it('records the sha256 of each applied folder', () => {
     const { db } = freshStore();
     const root = schemaCopy();
-    expect(ensureSyncSchema(db, { root })).toEqual([FOLDER]);
+    expect(ensureSyncSchema(db, { root })).toEqual(syncSchemaFolders(root).map((f) => f.name));
     const sql = readFileSync(join(root, FOLDER, 'migration.sql'), 'utf8');
     expect(appliedSyncSchemaHashes(db).get(FOLDER)).toBe(
       createHash('sha256').update(sql).digest('hex'),
@@ -220,7 +223,7 @@ describe('sync schema journal', () => {
         raced = ensureSyncSchema(other, { root: SCHEMA_ROOT, now: new Date(T0) });
       },
     });
-    expect(raced).toEqual([FOLDER]);
+    expect(raced).toEqual(syncSchemaFolders(SCHEMA_ROOT).map((f) => f.name));
     expect(applied).toEqual([]);
     const row = db
       .prepare('SELECT updated_at FROM _sync_meta WHERE key = ?')

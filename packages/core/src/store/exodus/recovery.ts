@@ -233,6 +233,23 @@ function inspectEffects(
         name === 'tasks_ac_uid_graveyard'
       )
         return constants.SQLITE_OK;
+      // T12343 (§2.3 mixed versions): a capture trigger records the copy in
+      // the local-only outbox (`_sync_capture`, and `_sync_undo` while undo
+      // is on), its identity-fill patch updates the latest capture, and the
+      // connection's TEMP stamps label both. The
+      // outbox is the journal of the copy itself, not an untracked effect:
+      // a reverted row is captured again as its delete.
+      if (
+        trigger &&
+        dbName === schema &&
+        ((code === constants.SQLITE_INSERT &&
+          (name === '_sync_capture' || name === '_sync_undo' || name === '_sync_frame')) ||
+          (code === constants.SQLITE_UPDATE &&
+            (name === '_sync_capture' || name === '_sync_undo')) ||
+          // The connection's TEMP undo stamp drops apply/rebase undo (D1).
+          (code === constants.SQLITE_DELETE && name === '_sync_undo'))
+      )
+        return constants.SQLITE_OK;
       refusal = `untracked trigger side effects: ${String(dbName)}.${String(name)} ${String(column)}`;
       return constants.SQLITE_DENY;
     }

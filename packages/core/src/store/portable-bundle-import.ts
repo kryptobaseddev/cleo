@@ -55,6 +55,7 @@ import {
   relocateProjectFiles,
 } from './portable-bundle-relocate.js';
 import { countRows, integrityCheck, KEY_COUNT_TABLES, sha256File } from './portable-bundle-scan.js';
+import { ensureTriggerSuspendTableAtPath } from './sync/trigger-suspend-at-path.js';
 import { installSchemaWriteGuard } from './worktree-build-guard.js';
 import { assertOwnerStoreRewriteConfirmed } from './worktree-isolation-guard.js';
 
@@ -662,6 +663,13 @@ export async function importPortableBundle(
         plan,
         rewrittenEntries(plan, relocations, registryOutcomes),
       );
+      // T12819: a placed project store gets cleo_trigger_suspend, after the
+      // count and hash checks (they compare the bundle's own tables).
+      for (const d of plan.section.databases) {
+        if (path.basename(d.relPath) === 'cleo.db') {
+          ensureTriggerSuspendTableAtPath(path.join(plan.destDir, d.relPath));
+        }
+      }
       const result: PortableImportSectionResult = {
         kind: plan.kind,
         originalRoot: plan.section.originalRoot,

@@ -403,8 +403,8 @@ export function syncOpenPass(db: DatabaseSync, opts: SyncOpenOptions): SyncOpenR
  * the active replica id (device contract §3.7, the T12675 minimal slice used
  * by `cleo project link`).
  *
- * It applies the sync schema (three local-only bookkeeping tables, no
- * triggers) and runs the bind half of {@link syncOpenPass} under
+ * It applies the sync schema (local-only bookkeeping and capture-outbox
+ * tables, no triggers) and runs the bind half of {@link syncOpenPass} under
  * `BEGIN IMMEDIATE`, with the same rebind rules, but sets NO `sync.*` flag:
  * capture, seal, push and pull stay off. Idempotent in effect: once bound it
  * keeps the same replica id, but every call still takes the write lock

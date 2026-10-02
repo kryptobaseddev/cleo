@@ -34,7 +34,11 @@ import {
   readRowIdentityHealHistory,
   readRowIdentityHealReceipt,
 } from '../row-identity.js';
+import { setSyncFlag } from '../sync/flags.js';
+import { verifyOwnedTriggers } from '../sync/trigger-classes.js';
 import { setWorktreeBuildGuardForTests } from '../worktree-build-guard.js';
+
+const SYNC_SCHEMA_ROOT = join(import.meta.dirname, '../../../migrations/sync-journal');
 
 const UID_MIGRATION = '20260928120000_t12341-row-uids';
 const MISSING_TABLES = [
@@ -205,6 +209,50 @@ describe('row-identity schema heal on every open (T12878)', () => {
     const again = await openProject();
     expect(schemaText(again)).toBe(schemaAfterFirst);
     expect(contentHash(again, dataTablesOf(again))).toEqual(hashAfterFirst);
+  });
+
+  it('with sync capture on, the heal runs inside the schema pass before capture is installed (T12343 S2 order)', async () => {
+    (await openProject()).exec('SELECT 1');
+    _resetDualScopeDbCache();
+    simulateStampedMigration();
+    // A captured table also lost its identity columns (and their indexes), so
+    // capture installed BEFORE the heal would be built without them.
+    const raw = new DatabaseSync(dbPath);
+    try {
+      for (const { name } of raw
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'tasks_task_labels' AND sql LIKE '%uid%'",
+        )
+        .all() as { name: string }[]) {
+        raw.exec(`DROP INDEX "${name}"`);
+      }
+      raw.exec('ALTER TABLE tasks_task_labels DROP COLUMN uid');
+      setSyncFlag(raw, 'sync.capture', true, { schemaRoot: SYNC_SCHEMA_ROOT });
+    } finally {
+      raw.close();
+    }
+
+    const db = await openProject();
+    expect(missingRowIdentitySchema(db)).toEqual([]);
+    expect(columns(db, 'tasks_task_labels')).toContain('uid');
+    // Capture saw the healed shape: the re-key trigger exists (it needs uid)
+    // and the insert image carries the healed column.
+    const capture = names(db, 'trigger').filter((t) =>
+      t.startsWith('_sync_cap_tasks_task_labels_'),
+    );
+    expect(capture).toEqual(
+      expect.arrayContaining(['_sync_cap_tasks_task_labels_i', '_sync_cap_tasks_task_labels_k']),
+    );
+    const insertSql = (
+      db
+        .prepare("SELECT sql FROM sqlite_master WHERE name = '_sync_cap_tasks_task_labels_i'")
+        .get() as { sql: string }
+    ).sql;
+    expect(insertSql).toContain('uid');
+    // The heal and its receipt were never journaled, and every owned trigger
+    // matches its owned DDL after the pass.
+    expect(db.prepare('SELECT count(*) AS n FROM _sync_capture').get()).toEqual({ n: 0 });
+    expect(verifyOwnedTriggers(db)).toEqual([]);
   });
 
   it('a worktree-built CLI never heals a store it may not change (T12687 guard)', async () => {

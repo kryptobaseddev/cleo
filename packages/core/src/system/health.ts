@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import type { DependencyReport } from '@cleocode/contracts';
 import { findOnPath } from '@cleocode/paths';
 import { rowIdentityDoctorCheck } from '../doctor/row-identity.js';
+import { syncTriggersDoctorCheck } from '../doctor/sync-triggers.js';
 import { twinCollapseDoctorCheck } from '../doctor/twin-collapse.js';
 import { checkGitHooks, type HookCheckResult } from '../hooks.js';
 import { checkCaampBinary, checkGlobalInstructionDelivery, checkInjection } from '../injection.js';
@@ -479,6 +480,14 @@ export async function getSystemHealth(
       name: twin.check,
       status: twin.status === 'error' ? 'fail' : twin.status === 'warning' ? 'warn' : 'pass',
       message: twin.fix ? `${twin.message}. ${twin.fix}` : twin.message,
+    });
+    // T12819: the trigger-suspension table and the owned triggers' clause.
+    const triggers = syncTriggersDoctorCheck(projectRoot);
+    checks.push({
+      name: triggers.check,
+      status:
+        triggers.status === 'error' ? 'fail' : triggers.status === 'warning' ? 'warn' : 'pass',
+      message: triggers.fix ? `${triggers.message}. ${triggers.fix}` : triggers.message,
     });
   }
 
@@ -1069,6 +1078,9 @@ export async function coreDoctorReport(projectRoot: string): Promise<DoctorRepor
 
   // T12341: rows without a uid yet, and rows the uid recipes flag.
   checks.push(rowIdentityDoctorCheck(projectRoot));
+  // T12819: the trigger-suspension table and the owned triggers' clause
+  // (read-only; the next open repairs).
+  checks.push(syncTriggersDoctorCheck(projectRoot));
 
   // Agent definition presence check
   const agentDefPath = join(getAgentsHome(), 'agents', 'cleo-subagent');

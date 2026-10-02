@@ -628,6 +628,10 @@ jobs:
         run: node scripts/lint-hitl-rule-delivery.mjs
       - name: Assert no new raw write on a classified cleo.db table (gate 28 · T12332)
         run: node scripts/lint-no-raw-table-writes.mjs
+      - name: Fetch the base ref for the released-migration check (gate 36)
+        run: git fetch --no-tags --depth=1 origin "${{ github.base_ref || 'main' }}"
+      - name: Assert the change-journal schema rules (gate 36 · T12819)
+        run: node scripts/lint-sync-schema.mjs --base "origin/${{ github.base_ref || 'main' }}"
       - name: Assert every syncing cleo.db table has row identity or an exemption (gate 37 · T12897)
         if: github.event_name != 'pull_request' && github.event_name != 'merge_group'
         run: node scripts/lint-row-identity-coverage.mjs --check

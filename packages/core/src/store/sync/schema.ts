@@ -73,6 +73,7 @@ export function syncSchemaFolders(
   root: string = resolveCorePackageMigrationsFolder(SYNC_SCHEMA_SET),
 ): SyncSchemaFolder[] {
   if (!existsSync(root)) {
+    // @sync-invariant none:local-only install-time packaging check for the journal schema folder
     throw new Error(`sync schema folder not found: ${root}`);
   }
   return readdirSync(root, { withFileTypes: true })
@@ -111,6 +112,7 @@ function pending(folders: readonly SyncSchemaFolder[], applied: Map<string, stri
   for (const f of folders) {
     const was = applied.get(f.name);
     if (was !== undefined && was !== f.hash)
+      // @sync-invariant none:local-only a released journal-schema file changed on disk; refuses the local journal migration
       throw new SyncSchemaHashDriftError(f.name, was, f.hash);
   }
   return folders.filter((f) => !applied.has(f.name));
@@ -156,4 +158,26 @@ export function ensureSyncSchema(
     db.exec(nested ? 'ROLLBACK TO sync_schema; RELEASE sync_schema' : 'ROLLBACK');
     throw err;
   }
+}
+
+/**
+ * Re-run every APPLIED sync schema folder's SQL (all `CREATE … IF NOT
+ * EXISTS`) when one of the sync tables is missing: a store whose
+ * `_sync_capture` was dropped with capture triggers still present fails every
+ * captured write, and the journal already says the folder ran (§2.3a
+ * rule 9). A store with every table present is left untouched.
+ *
+ * @returns Whether anything was re-run.
+ */
+export function healSyncSchema(
+  db: DatabaseSync,
+  expected: readonly string[],
+  options: { root?: string } = {},
+): boolean {
+  if (expected.every((t) => hasTable(db, t))) return false;
+  const applied = appliedSyncSchemaHashes(db);
+  for (const f of syncSchemaFolders(options.root)) {
+    if (applied.has(f.name)) db.exec(f.sql);
+  }
+  return true;
 }

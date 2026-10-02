@@ -94,6 +94,7 @@ import { tasksAuditLog } from './schema/cleo-project/audit.js';
 import { resolveCurrentSession } from './session-store.js';
 import { closeDb, getDb, getNativeTasksDb } from './sqlite.js';
 import { TERMINAL_TASK_STATUSES } from './status-registry.js';
+import { clearCaptureFrame, finishCaptureFrame, openCaptureFrame } from './sync/capture.js';
 import {
   claimAllows,
   claimColumnsOf,
@@ -2416,7 +2417,14 @@ async function createOwnedSqliteDataAccessor(
             } else {
               nativeDb.prepare(`SAVEPOINT ${spName}`).run();
             }
+            // T12343: the outer transaction is one capture frame (null when
+            // capture is off on this connection: nothing is written). Opened
+            // inside the try, so a failed frame INSERT (the table dropped by
+            // another process, SQLITE_FULL) rolls back instead of leaving the
+            // connection in its transaction holding RESERVED (T13024).
+            let frame: string | null = null;
             try {
+              frame = isOuter ? openCaptureFrame(nativeDb, 'write') : null;
               // The birth of each task an upsert replaced, for clearTaskIdentity
               // (T12806): sameness is decided on the birth before the overwrite.
               const replacedBirths = new Map<string, ReplacedTaskBirth>();
@@ -2812,6 +2820,7 @@ async function createOwnedSqliteDataAccessor(
               const result = await fn(bindTaskAccessorScope(tx, accessorScope));
               await scope.pending;
               if (isOuter) {
+                finishCaptureFrame(nativeDb, frame);
                 nativeDb.prepare('COMMIT').run();
               } else {
                 nativeDb.prepare(`RELEASE SAVEPOINT ${spName}`).run();
@@ -2832,6 +2841,7 @@ async function createOwnedSqliteDataAccessor(
               throw err;
             } finally {
               scope.active = false;
+              clearCaptureFrame(nativeDb, frame);
             }
           });
         };

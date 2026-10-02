@@ -112,6 +112,24 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     status: 'draft',
     source: 'table-classification-draft.md',
   },
+  _sync_capture: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §2.3, §3.5 Rule 2 (T12343)',
+    note: 'the capture outbox: one row per captured change, until sealed; this device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)',
+  },
+  _sync_frame: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §2.3, §3.5 Rule 2 (T12343)',
+    note: 'one row per chokepoint transaction frame, deleted when unused; this device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)',
+  },
+  _sync_undo: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §2.3, §3.5 Rule 2 (T12343)',
+    note: 'full before/after images for rewind, written only while push is on; this device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)',
+  },
   _sync_clock: {
     class: 'local-only',
     status: 'optional-transient',
@@ -417,6 +435,12 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-29 (journal spec review, Q11)',
     note: "supersedes the 2026-09-28 local-only ruling under the owner's direction that the cloud backs up everything: STDP event history is learned state a new device would otherwise lose. Append-only with 14M+ lifetime inserts, so it sets the journal's op-rate ceiling; retention is journal spec Q15",
+  },
+  cleo_trigger_suspend: {
+    class: 'local-only',
+    status: 'resolved',
+    source: 'journal spec t12342-t12343-journal-design §3.5 Rule 4, C2 (T12819)',
+    note: 'trigger-suspension flag rows, present only inside a rebase frame transaction on this device; schema-owned and never dropped',
   },
   commit_files: {
     class: 'local-only',
@@ -1238,6 +1262,24 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
   __drizzle_migrations: { class: 'local-only', status: 'draft', source: 'draft §3' },
   _agent_registry_meta: { class: 'local-only', status: 'draft', source: 'draft §3' },
   _agent_registry_migrations: { class: 'local-only', status: 'draft', source: 'draft §3' },
+  _sync_capture: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §2.3, §3.5 Rule 2 (T12343)',
+    note: 'the capture outbox: one row per captured change, until sealed; this device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)',
+  },
+  _sync_frame: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §2.3, §3.5 Rule 2 (T12343)',
+    note: 'one row per chokepoint transaction frame, deleted when unused; this device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)',
+  },
+  _sync_undo: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §2.3, §3.5 Rule 2 (T12343)',
+    note: 'full before/after images for rewind, written only while push is on; this device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)',
+  },
   _sync_clock: {
     class: 'local-only',
     status: 'optional-transient',

@@ -61,20 +61,19 @@ import { getCleoHome, resolveCleoDir } from '../paths.js';
 import { worktreeScope } from '../project-scope.js';
 import { observeOperation } from './background-ops.js';
 import { type ExodusAbortDetail, getRecordedExodusAbort } from './exodus/abort-events.js';
-import { migrateWithRetry, reconcileJournal } from './migration-manager.js';
+import { ForeignKeysNotRestoredError, migrateBracketed } from './migration-runner.js';
 import { assertStoreNotRelocated } from './relocated-store-guard.js';
 import {
   resolveConsolidatedJournalSiblings,
   resolveCorePackageMigrationsFolder,
 } from './resolve-migrations-folder.js';
-import {
-  healRowIdentitySchema,
-  missingRowIdentitySchema,
-  prepareRowIdentity,
-  ROW_IDENTITY,
-} from './row-identity.js';
+import { healRowIdentitySchema, missingRowIdentitySchema, ROW_IDENTITY } from './row-identity.js';
 import { rowUidFillEnabled } from './row-identity-flag.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
+import { captureBracketHooks, syncCaptureOpenPass } from './sync/capture.js';
+import { prepareRowIdentityUnderCapture } from './sync/identity-fill.js';
+import { ensureTriggerSuspendTable, verifyOwnedTriggers } from './sync/trigger-classes.js';
+import { assertWriterVersion } from './sync/writer-version.js';
 import { explainSchemaWriteDenial, installSchemaWriteGuard } from './worktree-build-guard.js';
 import { assertStorePathIsNotWorktreeResident } from './worktree-isolation-guard.js';
 import {
@@ -512,6 +511,113 @@ export async function openDualScopeDb(
 }
 
 /**
+ * Assert a chokepoint handle has `foreign_keys = 1`, at open, after the
+ * schema pass; never per transaction (NEW-6, T12786). Every chokepoint
+ * handle is ON: `applyPerfPragmas` sets it outside vitest, and `node:sqlite`
+ * opens with foreign keys enabled when the pragma is skipped (vitest), so a
+ * test runs on the same mode production does.
+ *
+ * @throws {ForeignKeysNotRestoredError} `E_STORE_FK_OFF` when it is off.
+ */
+export function assertHandleForeignKeys(nativeDb: DatabaseSync): void {
+  const expected = 1;
+  const actual = Number(
+    (nativeDb.prepare('PRAGMA foreign_keys').get() as { foreign_keys: number }).foreign_keys,
+  );
+  // @sync-invariant none:local-only store-open FK mode assert on this handle; no synced row is written
+  if (actual !== expected) throw new ForeignKeysNotRestoredError(expected, actual);
+}
+
+/**
+ * The cold-open schema pass of a consolidated store, under the cold-open
+ * lease (journal spec §2.3a, §3.5 Rule 4; T12796, T12809, T12819):
+ *
+ * 1. **Step 0 (project):** `cleo_trigger_suspend` exists and is empty, BEFORE
+ *    migrations. The owned guard and side-effect triggers read it, so a store
+ *    without it cannot write tasks, sessions or acceptance criteria, and any
+ *    `ALTER … RENAME` fails.
+ * 2. `reconcileJournal` and every pending migration, one bracket per file,
+ *    with the journal drizzle's `migrateSync` would write
+ *    ({@link migrateBracketed}).
+ * 3. **Identity heal (T12878):** missing row-identity DDL is recreated, before
+ *    any trigger is verified or capture installed.
+ * 4. **Owned triggers (project):** each owned trigger's live text is
+ *    compared with its owned DDL and repaired when it is missing or differs
+ *    (an older build, or a table rebuild, can leave one without its clause).
+ */
+async function migrateScopeSchema(
+  scope: DualScope,
+  nativeDb: DatabaseSync,
+  // biome-ignore lint/suspicious/noExplicitAny: dual-scope handle is untyped at construction
+  db: NodeSQLiteDatabase<any>,
+  migrationsFolder: string,
+  log: ReturnType<typeof getLogger>,
+  execution?: OperationExecutionContext,
+): Promise<void> {
+  execution?.assertActive();
+  // S2 ruling (c): before any write, refuse a store that requires a newer
+  // writer (sync capture on under a newer build).
+  assertWriterVersion(nativeDb);
+  if (scope === 'project') {
+    const step0 = ensureTriggerSuspendTable(nativeDb);
+    if (step0.created)
+      log.warn({ scope }, 'cleo_trigger_suspend was missing; recreated before migrations (T12819)');
+    if (step0.cleared > 0) {
+      log.error(
+        { scope, rows: step0.cleared },
+        'cleo_trigger_suspend held committed suspension rows; cleared (T12819)',
+      );
+    }
+  }
+  execution?.assertActive();
+  migrateBracketed(
+    db,
+    nativeDb,
+    migrationsFolder,
+    existenceTable(scope),
+    `dual-scope-db[${scope}]`,
+    resolveConsolidatedJournalSiblings(migrationsSetName(scope)),
+    captureBracketHooks(nativeDb, scope),
+  );
+  // NEW-6: the handle leaves the schema pass in its configured FK mode.
+  assertHandleForeignKeys(nativeDb);
+  execution?.assertActive();
+  // T12878 heal, inside the schema pass (journal S2 order: runner -> heal ->
+  // owned triggers -> capture). DDL only: identity tables, the graveyard
+  // trigger, early-table and uid columns, indexes. Healing here, before the
+  // capture triggers are installed, keeps the heal (and its receipt) out of
+  // the change journal and lets verifyOwnedTriggers see the healed shape.
+  // The chokepoint writers (the heal receipt) load lazily and only when there
+  // is work (see identityWorkOnOpen): a static import closes the store import
+  // cycle through sqlite.js, and loading them on every open re-entered it.
+  if (identityWorkOnOpen(nativeDb, scope)) {
+    await import('./sqlite-data-accessor.js');
+    healRowIdentitySchema(nativeDb, scope);
+  }
+  execution?.assertActive();
+  if (scope === 'project') {
+    const findings = verifyOwnedTriggers(nativeDb, { repair: true });
+    if (findings.length > 0) {
+      log.warn({ scope, findings }, 'owned triggers repaired from their owned DDL (T12819)');
+    }
+  }
+  // T12343 (S2): capture triggers match the persisted sync.capture flag;
+  // with the flag off and no trigger present this only reads.
+  const capture = syncCaptureOpenPass(nativeDb, scope);
+  if (
+    capture.capture === 'on' &&
+    capture.report.installed.length + capture.report.replaced.length > 0
+  ) {
+    log.info({ scope, report: capture.report }, 'capture triggers installed (T12343)');
+  } else if (capture.capture === 'off' && capture.dropped.length > 0) {
+    log.info(
+      { scope, dropped: capture.dropped },
+      'capture triggers dropped: sync.capture is off (T12343)',
+    );
+  }
+}
+
+/**
  * Whether this open has row-identity work: the fill (flag on), or identity
  * schema to heal (T12878). A scope with nothing declared has none.
  */
@@ -583,40 +689,18 @@ async function openDedicatedDualScopeDb(
       nativeDb,
       async (): Promise<DualScopeDbHandle> => {
         execution?.assertActive();
-        reconcileJournal(
-          nativeDb,
-          migrationsFolder,
-          existenceTable(scope),
-          `dual-scope-db[${scope}]`,
-          resolveConsolidatedJournalSiblings(migrationsSetName(scope)),
-        );
-        execution?.assertActive();
-        migrateWithRetry(
-          db,
-          migrationsFolder,
-          nativeDb,
-          existenceTable(scope),
-          `dual-scope-db[${scope}]`,
-        );
+        await migrateScopeSchema(scope, nativeDb, db, migrationsFolder, log, execution);
 
         // T12341: fill row uids (opt-in). No per-connection uid triggers:
         // dedicated handles run the exodus copy, whose effect inspection
         // refuses a trigger that calls an opaque function; the next open fills
-        // its rows. The chokepoint writers load lazily (store import cycle).
+        // its rows. The identity schema was healed in the schema pass; the
+        // writers were loaded there when the fill is on.
         execution?.assertActive();
-        // T12878: the identity schema is healed on every open, flag or not
-        // (DDL only); filling values stays opt-in.
-        // The chokepoint writers (the heal receipt, the fill) load lazily.
-        // The writers load only when there is work: the fill (flag on) or a
-        // schema to heal. A healthy store with the flag off, or a scope with
-        // nothing declared (the global store), never loads them, as before
-        // T12878; loading them on every open re-entered the store module graph.
-        if (identityWorkOnOpen(nativeDb, scope)) {
+        if (rowUidFillEnabled() && ROW_IDENTITY[scope].length > 0) {
           await import('./sqlite-data-accessor.js');
-          healRowIdentitySchema(nativeDb, scope);
-          if (rowUidFillEnabled()) {
-            prepareRowIdentity(nativeDb, scope, { triggers: false });
-          }
+          // Uncaptured under sync capture, with its tables marked suspect.
+          prepareRowIdentityUnderCapture(nativeDb, scope, { triggers: false });
         }
 
         execution?.assertActive();
@@ -894,7 +978,7 @@ export async function openDualScopeDbAtPath(
       // primitives resolve it from the exact handle binding (T12042), no
       // longer from a process-global active-scope registry.
       //
-      // The lease wraps ONLY reconcileJournal + migrateWithRetry — the precise write-
+      // The lease wraps ONLY the schema pass (reconcileJournal + migrations) — the precise write-
       // txn that races in T5158. The exodus-on-open hook runs AFTER the lease releases
       // (below): it owns its OWN single-flight lock + dedicated migrate connections,
       // and `runExodusMigrate` CLOSES + re-opens the scope handles, which would
@@ -911,41 +995,18 @@ export async function openDualScopeDbAtPath(
           // OOM root cause: each lineage previously deleted the others' rows so the shared
           // journal never converged).
           execution?.assertActive();
-          reconcileJournal(
-            nativeDb,
-            migrationsFolder,
-            existenceTable(scope),
-            `dual-scope-db[${scope}]`,
-            resolveConsolidatedJournalSiblings(migrationsSetName(scope)),
-          );
-
-          // Run any pending migrations.
-          execution?.assertActive();
-          migrateWithRetry(
-            db,
-            migrationsFolder,
-            nativeDb,
-            existenceTable(scope),
-            `dual-scope-db[${scope}]`,
-          );
+          // The schema pass also heals the identity schema (T12878), on every
+          // open, flag or not, before capture is installed.
+          await migrateScopeSchema(scope, nativeDb, db, migrationsFolder, log, execution);
 
           // T12341 (opt-in, CLEO_ROW_UID_FILL=1): fill every NULL row uid
           // deterministically, inside this lease so two processes never fill at
           // once, and arm this connection's uid triggers. Never throws.
           execution?.assertActive();
-          // T12878: heal the identity schema on every open, flag or not (DDL
-          // only: tables, graveyard trigger, early-table columns, uid columns
-          // and indexes). A store whose uid migration was journaled without
-          // running (9.25 on live cleocode) gets it here. Never throws.
-          // The chokepoint writers (the heal receipt, the fill) load lazily: a
-          // static import would close the store import cycle through sqlite.js.
-          // The writers load only when there is work (see identityWorkOnOpen).
-          if (identityWorkOnOpen(nativeDb, scope)) {
+          if (rowUidFillEnabled() && ROW_IDENTITY[scope].length > 0) {
             await import('./sqlite-data-accessor.js');
-            healRowIdentitySchema(nativeDb, scope);
-            if (rowUidFillEnabled()) {
-              prepareRowIdentity(nativeDb, scope);
-            }
+            // A derived rewrite: uncaptured, its tables marked suspect (S2).
+            prepareRowIdentityUnderCapture(nativeDb, scope);
           }
 
           execution?.assertActive();
