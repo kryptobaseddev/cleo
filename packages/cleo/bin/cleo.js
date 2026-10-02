@@ -105,7 +105,23 @@ function heapCapApplied() {
   return carriesCap((process.env.NODE_OPTIONS ?? '').split(/\s+/));
 }
 
-if (heapCapApplied()) {
+if (
+  args[0] === 'hook' &&
+  args[1] === 'heavy-command' &&
+  !args.includes('--help') &&
+  !args.includes('-h')
+) {
+  // T12983: `cleo hook heavy-command` runs before every shell command an agent
+  // issues, so it skips the re-exec and the CLI bootstrap and loads only the
+  // hook runtime (`cleo hook --help` still goes through the CLI). Hooks are
+  // fail-open: a failure here exits 0 and the agent's command runs unchanged.
+  try {
+    const { runHookCli } = await import(resolve(__dirname, '../dist/cli/hook-entry.js'));
+    process.exitCode = await runHookCli(args.slice(1));
+  } catch (err) {
+    process.stderr.write(`[cleo hook] skipped: ${err instanceof Error ? err.message : err}\n`);
+  }
+} else if (heapCapApplied()) {
   // Single-process path: signals reach the CLI directly, no child to orphan.
   await import(cliPath);
 } else {

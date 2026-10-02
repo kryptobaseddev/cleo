@@ -5,6 +5,8 @@
  * @task T5240
  */
 
+import type { HeavyCommandHookMode } from './heavy-command-hook.js';
+
 export interface AdapterInstallProvider {
   install(options: InstallOptions): Promise<InstallResult>;
   uninstall(): Promise<void>;
@@ -16,6 +18,13 @@ export interface AdapterInstallProvider {
 export interface InstallOptions {
   projectDir: string;
   global?: boolean;
+  /**
+   * The heavy-command hook mode (`resources.heavyCommandHook`, T12983).
+   * `rewrite`/`warn` install or refresh the project-level hook entry, `off`
+   * removes it, and `undefined` leaves the hook alone (callers that are not a
+   * project init/upgrade, such as global bootstrap, pass nothing).
+   */
+  heavyCommandHook?: HeavyCommandHookMode;
 }
 
 export interface InstallResult {

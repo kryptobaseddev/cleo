@@ -9,6 +9,7 @@
  * @task T5710
  */
 
+import type { HeavyCommandHookMode } from './heavy-command-hook.js';
 import type { ModelTransport } from './operations/llm.js';
 
 /** Output format options. */
@@ -878,6 +879,18 @@ export interface ResourcesConfig {
    * @defaultValue 256
    */
   headroomMb?: number;
+  /**
+   * The heavy-command provider hook: `rewrite` wraps heavy shell commands in
+   * `cleo run` (in harness sessions that run in `bypassPermissions` or `auto`
+   * mode; in any other mode the hook only suggests the governed command), `warn` only
+   * adds a context line, `off` disables it (and `cleo init` / `cleo upgrade`
+   * remove the installed hook). The `CLEO_HEAVY_COMMAND_HOOK` environment
+   * variable overrides it at run time.
+   *
+   * @defaultValue 'rewrite'
+   * @task T12983
+   */
+  heavyCommandHook?: HeavyCommandHookMode;
 }
 
 /** CLEO project configuration (config.json). */

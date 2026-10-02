@@ -4,16 +4,22 @@
  * Handles CLEO installation into OpenCode environments:
  * - Ensures AGENTS.md has CLEO @-references via CAAMP
  * - Installs PreCompact hook shell shims + a JS plugin wrapper (T1013)
+ * - Installs the heavy-command `tool.execute.before` plugin (T12983)
  *
  * @task T5240
  * @task T1013
  * @task T9019
+ * @task T12983
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ensureProviderInstructionFile } from '@cleocode/caamp';
 import type { AdapterInstallProvider, InstallOptions, InstallResult } from '@cleocode/contracts';
+import {
+  isUserHomeDir,
+  syncOpencodeHeavyCommandPlugin,
+} from '../shared/heavy-command-hook-install.js';
 import {
   type InstallHookTemplatesResult,
   installProviderHookTemplates,
@@ -69,8 +75,25 @@ export class OpenCodeInstallProvider implements AdapterInstallProvider {
       details.hookTemplates = hookResult;
     }
 
+    // Step 3 (T12983): `.opencode/plugins/cleo-heavy-command.js` routes heavy
+    // shell commands through `cleo run`.
+    let success = true;
+    if (options.heavyCommandHook !== undefined && isUserHomeDir(projectDir)) {
+      details.heavyCommandHook = 'skipped';
+    } else if (options.heavyCommandHook !== undefined) {
+      try {
+        details.heavyCommandHook = syncOpencodeHeavyCommandPlugin(
+          projectDir,
+          options.heavyCommandHook,
+        );
+      } catch (err) {
+        details.settingsErrors = [err instanceof Error ? err.message : String(err)];
+        success = false;
+      }
+    }
+
     return {
-      success: true,
+      success,
       installedAt,
       instructionFileUpdated,
       details,

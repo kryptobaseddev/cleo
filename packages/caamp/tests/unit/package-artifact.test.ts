@@ -20,6 +20,7 @@ import {
 // Independent required resources: never generated from the validator's policy.
 const resources = [
   'dist/cli/index.js',
+  'dist/cli/hook-entry.js',
   'studio-dist/index.js',
   'studio-dist/handler.js',
   'studio-dist/server/index.js',
@@ -157,9 +158,9 @@ describe('semantic artifact requirements', () => {
     const result = validatePackageArtifact(fixture(), policy);
     expect(result.valid).toBe(true);
     expect(result.issues).toEqual([]);
-    expect(result.requirements).toHaveLength(7);
+    expect(result.requirements).toHaveLength(resources.length);
     expect(result.requirements.every((item) => item.satisfied)).toBe(true);
-    expect(result.unpackedBytes).toBe(payload.length * 7);
+    expect(result.unpackedBytes).toBe(payload.length * resources.length);
     expect(result.inventory.source).toBe('fixture');
     expect(result.runtime).toBe('not-assessed');
     expect(result.hashComparison).toBe('not-requested');
@@ -180,7 +181,9 @@ describe('semantic artifact requirements', () => {
   it('rejects an empty package even though it has zero installation cost', () => {
     const result = validatePackageArtifact(fixture([]), policy);
     expect(result.valid).toBe(false);
-    expect(result.issues.filter((issue) => issue.code === 'missing')).toHaveLength(7);
+    expect(result.issues.filter((issue) => issue.code === 'missing')).toHaveLength(
+      resources.length,
+    );
   });
 
   it.each(
@@ -424,14 +427,23 @@ describe('independent real npm-packed fixtures', () => {
 });
 
 describe('published CLI build shape', () => {
-  it('accepts the declared CLI bundle and Studio resources', () => {
+  it('accepts the declared CLI bundle, hook runtime and Studio resources', () => {
     expect(assertCleoShippedBuildShape(fixture().files)).toEqual([]);
+  });
+  it('requires the hook runtime that bin/cleo.js imports for cleo hook (T12983)', () => {
+    const files = fixture().files.filter((file) => file.path !== 'dist/cli/hook-entry.js');
+    const result = validatePackageArtifact(fixture(files), policy);
+    expect(result.valid).toBe(false);
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({ code: 'missing', subject: 'cli-hook-entry' }),
+    );
   });
   it.each([
     'dist/cli/index.d.ts',
     'dist/cli/index.d.ts.map',
     'dist/extra.js',
     'dist/nested/index.js',
+    'dist/cli/other-entry.js',
   ])('rejects development output %s', (path) => {
     expect(assertCleoShippedBuildShape([...fixture().files, { path, size: 1 }])).not.toEqual([]);
   });

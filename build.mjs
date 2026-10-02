@@ -403,6 +403,9 @@ const coreBuildOptions = {
 const cleoBuildOptions = {
   entryPoints: [
     { in: 'packages/cleo/src/cli/index.ts', out: 'cli/index' },
+    // T12983: `bin/cleo.js` imports this directly for `cleo hook …` (a hook
+    // runs before every agent shell command, so it skips the CLI bootstrap).
+    { in: 'packages/cleo/src/cli/hook-entry.ts', out: 'cli/hook-entry' },
   ],
   bundle: true,
   platform: 'node',

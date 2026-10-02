@@ -774,6 +774,18 @@ export {
   confidenceLabelFromNumeric,
   provenanceFromNumeric,
 } from './graph.js';
+// === Heavy-command provider hook (T12983 / Epic T12978) ===
+export type {
+  HeavyCommandHookMode,
+  HeavyCommandHookProvider,
+  HeavyCommandPlan,
+  HeavyCommandSegment,
+  HookJsonValue,
+  OpencodeHeavyCommandAnswer,
+  PreToolUseHookInput,
+  PreToolUseHookOutput,
+  ShellToolInput,
+} from './heavy-command-hook.js';
 export type { AdapterHookProvider } from './hooks.js';
 export type { AdapterInstallProvider, InstallOptions, InstallResult } from './install.js';
 // === Invariants Registry (Saga T10326 / Epic T10327 / Task T10335 — SG-SUBSTRATE-RECONCILIATION) ===

@@ -1210,11 +1210,20 @@ export async function runUpgrade(
       const manifests = mgr.discover();
       if (manifests.length > 0) {
         const detected = mgr.detectActive();
+        // T12983: the heavy-command hook mode (`resources.heavyCommandHook`).
+        const { configuredHeavyHookMode, resolveHeavyHookMode } = await import(
+          './resources/heavy-command.js'
+        );
+        const heavyCommandHook = resolveHeavyHookMode(
+          undefined,
+          await configuredHeavyHookMode(projectRootForMaint),
+        );
         for (const adapterId of detected) {
           try {
             const adapter = await mgr.activate(adapterId);
             const installResult = await adapter.install.install({
               projectDir: projectRootForMaint,
+              heavyCommandHook,
             });
             if (installResult.success) {
               actions.push({

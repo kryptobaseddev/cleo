@@ -4,18 +4,25 @@
  * Handles CLEO installation into Claude Code environments:
  * - Ensures CLAUDE.md has CLEO @-references
  * - Manages plugin registration in ~/.claude/settings.json
+ * - Installs the heavy-command `PreToolUse` hook in the PROJECT's
+ *   `.claude/settings.local.json` (T12983)
  *
  * Migrated from src/core/install/claude-plugin.ts
  *
  * @task T5240
+ * @task T12983
  */
 
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensureProviderInstructionFile, updateJsonConfigFile } from '@cleocode/caamp';
 import type { AdapterInstallProvider, InstallOptions, InstallResult } from '@cleocode/contracts';
+import {
+  isUserHomeDir,
+  syncClaudeCodeHeavyCommandHook,
+} from '../shared/heavy-command-hook-install.js';
 import {
   type InstallHookTemplatesResult,
   installProviderHookTemplates,
@@ -47,6 +54,9 @@ function getAdapterCommandsDir(): string {
  * 1. Ensuring CLAUDE.md contains @-references to CLEO instruction files
  * 2. Installing adapter-provided commands to .claude/commands/
  * 3. Registering the brain observation plugin in ~/.claude/settings.json
+ * 4. Installing PreCompact hook templates
+ * 5. Installing the heavy-command `PreToolUse` hook in the project's
+ *    `.claude/settings.local.json`, when `options.heavyCommandHook` is set
  *
  * @remarks
  * Installation is idempotent -- running install multiple times on the same
@@ -103,6 +113,24 @@ export class ClaudeCodeInstallProvider implements AdapterInstallProvider {
       }
     } catch (err) {
       settingsErrors.push(err instanceof Error ? err.message : String(err));
+    }
+
+    // Step 5 (T12983): route heavy shell commands through `cleo run`.
+    // Project-level settings only; the user's ~/.claude is never touched.
+    if (options.heavyCommandHook !== undefined) {
+      const projectSettings = join(projectDir, '.claude', 'settings.json');
+      if (isUserHomeDir(projectDir) || resolve(projectSettings) === resolve(claudeSettingsPath())) {
+        details.heavyCommandHook = 'skipped';
+      } else {
+        try {
+          details.heavyCommandHook = await syncClaudeCodeHeavyCommandHook(
+            projectDir,
+            options.heavyCommandHook,
+          );
+        } catch (err) {
+          settingsErrors.push(err instanceof Error ? err.message : String(err));
+        }
+      }
     }
 
     if (settingsErrors.length > 0) {

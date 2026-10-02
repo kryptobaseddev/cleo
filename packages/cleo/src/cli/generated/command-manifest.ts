@@ -725,6 +725,13 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/history.js')).historyCommand as CommandDef,
   },
   {
+    exportName: 'hookCommand',
+    name: 'hook',
+    description:
+      'Agent-harness hooks installed by cleo init/upgrade; stdout is the harness hook protocol, not LAFS: cleo hook heavy-command --provider claude-code|codex|kimi|opencode',
+    load: async () => (await import('../commands/hook.js')).hookCommand as CommandDef,
+  },
+  {
     exportName: 'hygieneCommand',
     name: 'hygiene',
     description: 'Run spawn-readiness hygiene checks',
