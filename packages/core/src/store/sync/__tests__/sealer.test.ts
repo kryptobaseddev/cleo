@@ -22,6 +22,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { syncSealerDoctorCheck } from '../../../doctor/sync-sealer.js';
 import { rekeyRowUid } from '../../display-id-alias.js';
 import { _resetDualScopeDbCache, openDualScopeDbAtPath } from '../../dual-scope-db.js';
 import { naturalRowUid } from '../../row-identity.js';
@@ -32,6 +33,7 @@ import {
   setCaptureEnabled,
 } from '../capture.js';
 import { setSyncFlag } from '../flags.js';
+import { parseHlc } from '../hlc.js';
 import { ensureProjectReplica } from '../replica.js';
 import { ReplicaRegistry } from '../replica-registry.js';
 import {
@@ -78,7 +80,14 @@ async function store(opts: { seal?: boolean } = {}): Promise<DatabaseSync> {
 
 let clock = T0;
 const seal = (db: DatabaseSync, budget?: number) =>
-  sealPending(db, { scope: 'project', replica: REPLICA, budget, now: () => ++clock, env: {} });
+  sealPending(db, {
+    scope: 'project',
+    replica: REPLICA,
+    budget,
+    now: () => ++clock,
+    env: {},
+    allowUnreleased: true,
+  });
 
 /** A framed write, the way accessor.transaction() labels it. */
 function framed(db: DatabaseSync, fn: () => void): void {
@@ -251,7 +260,25 @@ describe('sealPending', () => {
     });
   });
 
-  it('a K on a uid that never left the device is dropped; the row meta follows the row', async () => {
+  it("a K in the same transaction as the row's insert is dropped: the I takes the final uid", async () => {
+    const db = await store();
+    framed(db, () => {
+      addTask(db, 'T1');
+      rekeyRowUid(db, 'tasks_tasks', 'uid-T1', { loserBirthFp: 'fp-T1', winnerBirthFp: 'fp-T0' });
+    });
+    const r = seal(db);
+    expect(r.pending).toEqual([]);
+    const now = (db.prepare("SELECT uid FROM tasks_tasks WHERE id = 'T1'").get() as { uid: string })
+      .uid;
+    expect(now).not.toBe('uid-T1');
+    const taskOps = ops(db).filter((o) => o.t === 'tasks_tasks');
+    expect(taskOps.map((o) => [o.o, o.u])).toEqual([['I', now]]);
+    expect(meta(db, 'tasks_tasks', 'uid-T1')).toBeUndefined();
+    expect(meta(db, 'tasks_tasks', now)).toMatchObject({ version: 1, deleted: 0 });
+    expect(liveCaptures(db)).toBe(0);
+  });
+
+  it('a K on an unsent uid that an earlier transaction sealed is kept, linking its ops (T13035, P1)', async () => {
     const db = await store();
     framed(db, () => addTask(db, 'T1'));
     seal(db);
@@ -259,17 +286,20 @@ describe('sealPending', () => {
     db.exec('BEGIN IMMEDIATE');
     rekeyRowUid(db, 'tasks_tasks', 'uid-T1', { loserBirthFp: 'fp-T1', winnerBirthFp: 'fp-T0' });
     db.exec('COMMIT');
-    const r = seal(db);
-    expect(r.pending).toEqual([]);
-    expect(ops(db).filter((o) => o.o === 'K')).toEqual([]);
-    expect(meta(db, 'tasks_tasks', 'uid-T1')).toBeUndefined();
+    seal(db);
+    framed(db, () => db.prepare("UPDATE tasks_tasks SET title = 'after' WHERE id = 'T1'").run());
+    seal(db);
     const now = (db.prepare("SELECT uid FROM tasks_tasks WHERE id = 'T1'").get() as { uid: string })
       .uid;
-    expect(meta(db, 'tasks_tasks', now)).toMatchObject({
-      version: was?.version,
-      chash: was?.chash,
-    });
-    expect(liveCaptures(db)).toBe(0);
+    const taskOps = ops(db).filter((o) => o.t === 'tasks_tasks');
+    expect(taskOps.map((o) => [o.o, o.u, o.o === 'K' ? o.nu : undefined])).toEqual([
+      ['I', 'uid-T1', undefined],
+      ['K', 'uid-T1', now],
+      ['U', now, undefined],
+    ]);
+    expect(meta(db, 'tasks_tasks', 'uid-T1')).toBeUndefined();
+    expect(meta(db, 'tasks_tasks', now)).toMatchObject({ hlc: expect.any(String) });
+    expect(meta(db, 'tasks_tasks', now)?.version).toBeGreaterThan(was?.version ?? 0);
   });
 
   it('a K on a sent uid is kept and moves row meta to the new uid, keeping hlc, version and chash (§2.5, T13031)', async () => {
@@ -405,18 +435,30 @@ describe('#1779 review fixes (T13029–T13033)', () => {
     expect(liveCaptures(db)).toBe(2);
   });
 
-  it('an unreadable capture is reported, never aborts the batch (T13029)', async () => {
+  it('an unreadable capture is quarantined, never stalls the outbox (T13029, T13036)', async () => {
     const db = await store();
     framed(db, () => addTask(db, 'T1'));
     db.prepare(
       "INSERT INTO _sync_capture (seq, tbl, op, rk, uid, img, at_ms, state) VALUES ((SELECT max(seq) + 1 FROM _sync_capture), 'not_a_sync_table', 'I', '[\"\\u0027x\\u0027\"]', 'u-x', '{}', 1, 'live')",
     ).run();
+    framed(db, () => addTask(db, 'T2'));
     let r: ReturnType<typeof seal> | undefined;
     expect(() => {
       r = seal(db);
     }).not.toThrow();
-    expect(r?.txns).toBe(1); // T1 seals; the poison capture holds the head after it
-    expect(r?.pending[0]?.reason).toMatch(/not in the sync set/);
+    expect(r?.txns).toBe(2); // T1 and T2 both seal; the poison capture is set aside
+    expect(r?.pending).toEqual([]);
+    expect(r?.quarantined).toEqual([
+      {
+        seq: expect.any(Number),
+        tbl: 'not_a_sync_table',
+        reason: expect.stringMatching(/not in the sync set/),
+      },
+    ]);
+    expect(liveCaptures(db)).toBe(0);
+    expect(db.prepare('SELECT tbl, op, uid FROM _sync_quarantine').all()).toEqual([
+      { tbl: 'not_a_sync_table', op: 'I', uid: 'u-x' },
+    ]);
   });
 
   it('stored ref uids stay in the image; only uid and birth_fp move to u/bfp (T13030)', async () => {
@@ -482,14 +524,16 @@ describe('#1779 review fixes (T13029–T13033)', () => {
   it('the replica defaults to the bound one, and nothing seals without one', async () => {
     const db = await store();
     framed(db, () => addTask(db, 'T1'));
-    expect(sealPending(db, { scope: 'project', env: {} }).refused).toBe('no bound replica');
+    expect(sealPending(db, { scope: 'project', env: {}, allowUnreleased: true }).refused).toBe(
+      'no bound replica',
+    );
     expect(liveCaptures(db)).toBeGreaterThan(0);
     const { replicaId } = ensureProjectReplica(db, {
       dbPath,
       mode: 'test',
       registry: new ReplicaRegistry(join(dir, 'registry.json'), 'host-1'),
     });
-    const r = sealPending(db, { scope: 'project', env: {} });
+    const r = sealPending(db, { scope: 'project', env: {}, allowUnreleased: true });
     expect(r.refused).toBeNull();
     expect(txns(db)[0]?.txn).toBe(`${replicaId}:1`);
   });
@@ -500,5 +544,177 @@ describe('#1779 review fixes (T13029–T13033)', () => {
     const b = sealBacklog(db);
     expect(b.live).toBeGreaterThan(0);
     expect(b.oldestSeq).toBeTypeOf('number');
+  });
+});
+
+describe('#1779 round 2 (T13035–T13037)', () => {
+  const A = 'tasks_task_acceptance_criteria';
+  const addAc = (db: DatabaseSync, id: string, text: string, uid = 'uid-X') =>
+    db
+      .prepare(
+        `INSERT INTO ${A} (id, task_id, ordinal, text, created_at, uid, birth_fp)
+         VALUES (?, 'T1', 1, ?, '2026-09-01 00:00:00', ?, 'fp-X')`,
+      )
+      .run(id, text, uid);
+
+  it('an AC relinked in one frame (delete A1 uid X, insert A2 uid X) seals one U of the text (T13035, P3)', async () => {
+    const db = await store();
+    framed(db, () => {
+      addTask(db, 'T1');
+      addAc(db, 'A1', 'old');
+    });
+    seal(db);
+    framed(db, () => {
+      db.prepare(`DELETE FROM ${A} WHERE id = 'A1'`).run();
+      addAc(db, 'A2', 'new');
+    });
+    expect(seal(db).pending).toEqual([]);
+    const last = txns(db).at(-1)?.txn;
+    const acOps = ops(db, last).filter((o) => o.t === A);
+    expect(acOps.map((o) => [o.o, o.u, o.a])).toEqual([['U', 'uid-X', { text: 'new' }]]);
+    expect(meta(db, A, 'uid-X')).toMatchObject({ deleted: 0, version: 2 });
+  });
+
+  it('a dead incarnation (a no-uid insert and its delete, unframed) never stalls the outbox (T13036, P2)', async () => {
+    const db = await store();
+    addTask(db, 'T1', null); // a pre-S2 binary: unframed, no uid
+    db.exec("DELETE FROM tasks_tasks WHERE id = 'T1'");
+    framed(db, () => addTask(db, 'T2'));
+    const r = seal(db);
+    expect(r.pending).toEqual([]);
+    expect(r.dropped).toBe(2);
+    expect(liveCaptures(db)).toBe(0);
+    expect(ops(db).map((o) => [o.o, o.u])).toEqual([['I', 'uid-T2']]);
+  });
+
+  it('a no-uid row that is still live keeps waiting for the fill', async () => {
+    const db = await store();
+    addTask(db, 'T1', null);
+    const r = seal(db);
+    expect(r.dropped).toBe(0);
+    expect(r.pending[0]?.reason).toMatch(/no uid/);
+  });
+
+  it('an op takes its HLC time from its last capture (T13037, P4)', async () => {
+    const db = await store();
+    framed(db, () => {
+      addTask(db, 'T1');
+      db.exec("UPDATE tasks_tasks SET title = 'b' WHERE id = 'T1'");
+    });
+    const seqs = (
+      db
+        .prepare("SELECT seq FROM _sync_capture WHERE tbl = 'tasks_tasks' ORDER BY seq")
+        .all() as Array<{
+        seq: number;
+      }>
+    ).map((r) => r.seq);
+    const late = Date.now() + 10 * 86_400_000;
+    db.prepare('UPDATE _sync_capture SET at_ms = ? WHERE seq = ?').run(late, seqs[0] ?? 0);
+    db.prepare('UPDATE _sync_capture SET at_ms = ? WHERE seq = ?').run(late + 5000, seqs[1] ?? 0);
+    seal(db);
+    const [i] = ops(db).filter((o) => o.t === 'tasks_tasks');
+    expect(i?.o).toBe('I');
+    expect(parseHlc(i?.h ?? '').phys).toBe(late + 5000);
+  });
+
+  it("the ledger's first sight counts a waiting foreign REPLACE as no new row (T13037)", async () => {
+    const db = await store();
+    framed(db, () => addTask(db, 'T1'));
+    // A foreign connection without recursive triggers: REPLACE captures an I only.
+    db.exec('PRAGMA recursive_triggers = OFF');
+    db.prepare(
+      `INSERT OR REPLACE INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp)
+       VALUES ('T1', 'replaced', 'task', 'pending', 'medium', 'uid-T1', 'fp-T1')`,
+    ).run();
+    db.exec('PRAGMA recursive_triggers = ON');
+    seal(db, 1); // the frame seals; the REPLACE waits; the ledger sees tasks_tasks first
+    seal(db);
+    const live = (
+      db.prepare("SELECT live FROM _sync_ledger WHERE tbl = 'tasks_tasks'").get() as {
+        live: number;
+      }
+    ).live;
+    const count = (db.prepare('SELECT count(*) AS n FROM tasks_tasks').get() as { n: number }).n;
+    expect(live).toBe(count);
+  });
+
+  it('a K that changes only birth_fp keeps the row meta and carries the new bfp (T13037)', async () => {
+    const db = await store();
+    framed(db, () => addTask(db, 'T1'));
+    seal(db);
+    framed(db, () => db.exec("UPDATE tasks_tasks SET birth_fp = 'fp-T9' WHERE id = 'T1'"));
+    seal(db);
+    expect(ops(db).find((o) => o.o === 'K')).toMatchObject({
+      u: 'uid-T1',
+      nu: 'uid-T1',
+      bfp: 'fp-T9',
+    });
+    expect(meta(db, 'tasks_tasks', 'uid-T1')).toMatchObject({ deleted: 0 });
+    framed(db, () => db.exec("UPDATE tasks_tasks SET title = 'later' WHERE id = 'T1'"));
+    seal(db);
+    expect(
+      ops(db)
+        .filter((o) => o.o === 'U')
+        .at(-1),
+    ).toMatchObject({ bfp: 'fp-T9' });
+  });
+
+  it('an apply frame waits for S5 intent subtraction (T13037)', async () => {
+    const db = await store();
+    db.exec('BEGIN IMMEDIATE');
+    const frame = openCaptureFrame(db, 'apply', 'test');
+    addTask(db, 'T1');
+    finishCaptureFrame(db, frame);
+    db.exec('COMMIT');
+    const r = seal(db);
+    expect(r.txns).toBe(0);
+    expect(r.pending[0]?.reason).toMatch(/apply frames wait for S5/);
+  });
+
+  it('a persisted sync.seal is refused while the flag is unreleased (T13037)', async () => {
+    const db = await store();
+    framed(db, () => addTask(db, 'T1'));
+    const r = sealPending(db, { scope: 'project', replica: REPLICA, env: {} });
+    expect(r.refused).toMatch(/unreleased/);
+    expect(liveCaptures(db)).toBeGreaterThan(0);
+  });
+
+  it('the local column a stored ref uid comes from (ac_id) neither travels nor hashes (T13037)', async () => {
+    const db = await store();
+    const hist = 'tasks_task_acceptance_criteria_history';
+    framed(db, () =>
+      db
+        .prepare(
+          `INSERT INTO ${hist} (ac_id, previous_text, reason, uid, birth_fp, ac_uid) VALUES ('AC1', 'old', 'edit', 'uid-H1', 'fp-H1', 'uid-AC1')`,
+        )
+        .run(),
+    );
+    seal(db);
+    const [i] = ops(db).filter((o) => o.t === hist);
+    expect(i?.a).not.toHaveProperty('ac_id');
+    expect(i?.a).toMatchObject({ ac_uid: 'uid-AC1' });
+    const def = captureTableDef(db, 'project', hist);
+    if (!def) throw new Error('no def');
+    const before = rowChash(db, 'project', def, 'uid-H1');
+    db.prepare(`UPDATE ${hist} SET ac_id = 'AC9' WHERE uid = 'uid-H1'`).run();
+    expect(rowChash(db, 'project', def, 'uid-H1')).toBe(before);
+  });
+
+  it('doctor reports the backlog head, quarantined tables and a persisted unreleased flag (T13036)', async () => {
+    const db = await store();
+    framed(db, () => addTask(db, 'T1', null)); // waits for the fill
+    db.prepare(
+      "INSERT INTO _sync_capture (seq, tbl, op, rk, uid, img, at_ms, state) VALUES ((SELECT max(seq) + 1 FROM _sync_capture), 'not_a_sync_table', 'I', '[\"\\u0027x\\u0027\"]', 'u-x', '{}', 1, 'live')",
+    ).run();
+    // The no-uid head stops the batch before the poison capture: quarantine
+    // it through a second store state instead.
+    db.prepare(
+      "INSERT INTO _sync_quarantine (seq, tbl, op, rk, uid, img, at_ms, reason, quarantined_at_ms) VALUES (999, 'not_a_sync_table', 'I', 'x', NULL, '{}', 1, 'test', 1)",
+    ).run();
+    const row = syncSealerDoctorCheck(join(dir, 'project'));
+    expect(row.status).toBe('warning');
+    expect(row.message).toMatch(/not_a_sync_table \(1\)/);
+    expect(row.message).toMatch(/sync\.seal/);
+    expect(row.message).toMatch(/2 capture\(s\) waiting, head seq/);
   });
 });

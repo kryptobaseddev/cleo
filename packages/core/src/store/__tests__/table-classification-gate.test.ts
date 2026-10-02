@@ -199,6 +199,7 @@ const SYNC_JOURNAL_TABLES = {
   _sync_op: { class: 'local-only', ddl: SYNC_SEALER_DDL },
   _sync_row_meta: { class: 'local-only', ddl: SYNC_SEALER_DDL },
   _sync_ledger: { class: 'local-only', ddl: SYNC_SEALER_DDL },
+  _sync_quarantine: { class: 'local-only', ddl: SYNC_SEALER_DDL },
   _sync_clock: { class: 'local-only', ddl: SYNC_JOURNAL_DDL },
   _sync_meta: { class: 'local-only', ddl: SYNC_JOURNAL_DDL },
   _sync_replica: { class: 'local-only', ddl: SYNC_JOURNAL_DDL },

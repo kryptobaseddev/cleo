@@ -1,5 +1,6 @@
 /**
- * The sealer, S3a (journal spec §2.5 phase B, §1.6, §2.6, §4.3; T12984).
+ * The sealer, S3a + S3b (journal spec §2.5 phase B, §2.4, §1.6, §2.6, §4.3;
+ * T12984, T12985).
  *
  * `sealPending` turns live `_sync_capture` rows into sealed transactions:
  *
@@ -7,27 +8,32 @@
  *    one transaction. Every capture with no validated frame is a singleton
  *    transaction flagged `unframed`, provenance `foreign` (ruling (c)): the
  *    sealer never claims atomicity it did not observe. A batch ends on a
- *    group boundary.
- * 2. **Ops (§2.6).** Each capture becomes one op. Values are decoded from the
- *    capture's `enc()` text to typed wire values; references become uids
- *    (resolved from the local key when the capture saw none); secret columns
- *    are removed (their home-stream companion ops are S3c). Natural rows
- *    carry `k`, their key with references as uids. A minted row with no uid
- *    or `birth_fp` keeps its whole group pending.
- * 3. **HLC.** `tick(at_ms)` per op in `seq` order; the transaction's HLC is
- *    its maximum.
- * 4. **Write.** `_sync_txn`, `_sync_op`; `_sync_row_meta` upserted per op
+ *    group boundary. Apply and rebase frames wait for S5's intent subtraction.
+ * 2. **Draft ops (§2.6).** Each capture becomes one draft. Values are decoded
+ *    from the capture's `enc()` text to typed wire values; references become
+ *    uids (resolved from the local key when the capture saw none); secret
+ *    columns and the local columns a stored ref uid is derived from (`ac_id`)
+ *    are removed. Natural rows carry `k`, their key with references as uids.
+ *    An unreadable capture is quarantined (`_sync_quarantine`, its table
+ *    suspect) and never stalls the outbox (T13036).
+ * 3. **Net (§2.4, {@link netTransaction}).** Per (table, uid) inside the
+ *    transaction. Across transactions, the dead incarnation of a row that
+ *    never got a uid (its captures up to its delete) is dropped whole
+ *    (T13036). A minted row with no uid or `birth_fp` keeps its group
+ *    pending, and nothing after it seals first (§2.9).
+ * 4. **HLC.** `tick(at_ms)` per op in order, at its last capture's time; the
+ *    transaction's HLC is its maximum.
+ * 5. **Write.** `_sync_txn`, `_sync_op`; `_sync_row_meta` upserted per op
  *    (version, origin, actor, per-field `fhlc`, tombstone on D, key on
  *    natural rows) and MOVED on K (hlc, fhlc, version and chash kept);
  *    `chash` recomputed from the live row once no live capture of that row
- *    remains; `_sync_ledger` per table.
- * 5. **Consume.** Sealed captures are deleted, and frames no live capture
- *    references.
+ *    remains; `_sync_ledger` per table; the `sealer.local_seq` counter.
+ * 6. **Consume.** Sealed, dropped and quarantined captures are deleted, and
+ *    frames no live capture references.
  *
- * Netting (§2.4 table, S3b), intent subtraction (S3b), `$inc` counters
- * (S3b), canonical wire timestamps (S3c), tombstone minimisation (S3c) and
- * the step-0 fill and repair diff (S3d) are later slices; this module leaves
- * each op exactly as captured.
+ * Canonical wire timestamps and tombstone compaction are S3c; the step-0
+ * fill and the repair diff of suspect tables are S3d. `sync.seal` stays
+ * unreleased until those land: the sealer refuses a persisted flag too.
  *
  * Phase B is synchronous: one `BEGIN IMMEDIATE` … `COMMIT` with no await, so
  * a caller on the accessor's transaction queue serializes it with every
@@ -51,7 +57,7 @@ import {
   SECRET_MARKER,
 } from './capture.js';
 import { tickClock, withImmediateTransaction } from './clock-store.js';
-import { isSyncFlagOn } from './flags.js';
+import { isSyncFlagOn, UNRELEASED_FLAGS } from './flags.js';
 import { type DraftOp, type MetaFacts, type NettedOp, netTransaction } from './netting.js';
 import { activeReplica } from './replica.js';
 import { hasTable } from './schema.js';
@@ -86,9 +92,28 @@ export interface SealReport {
   readonly unframed: number;
   /** Groups left pending (a minted row without uid or birth_fp), by first seq. */
   readonly pending: ReadonlyArray<{ readonly firstSeq: number; readonly reason: string }>;
+  /** Captures of dead incarnations dropped whole (I … D of a row with no uid; T13036). */
+  readonly dropped: number;
+  /** Unreadable captures moved to `_sync_quarantine` (T13036). */
+  readonly quarantined: ReadonlyArray<{
+    readonly seq: number;
+    readonly tbl: string;
+    readonly reason: string;
+  }>;
   /** Why nothing was sealed, when the preconditions refused. */
   readonly refused: string | null;
 }
+
+const emptyReport = (refused: string | null): SealReport => ({
+  txns: 0,
+  ops: 0,
+  captures: 0,
+  unframed: 0,
+  pending: [],
+  dropped: 0,
+  quarantined: [],
+  refused,
+});
 
 interface CaptureRow {
   readonly seq: number;
@@ -132,6 +157,11 @@ export interface SealOptions {
    * never holds the write lock for long (T13032). @defaultValue 200
    */
   readonly maxMs?: number;
+  /**
+   * Seal although `sync.seal` is unreleased (tests only; T13037). Never set
+   * from user input.
+   */
+  readonly allowUnreleased?: boolean;
 }
 
 /** The two identity columns an op carries as `u` / `bfp` instead of in its images. */
@@ -143,19 +173,40 @@ class SealInputError extends Error {}
 class TableContext {
   private readonly defs = new Map<string, CaptureTableDef | null>();
   private readonly stmts = new Map<string, StatementSync>();
+  private readonly sources = new Map<string, ReadonlySet<string>>();
   constructor(
     readonly db: DatabaseSync,
     readonly scope: TableScope,
   ) {}
 
   /** A statement prepared once per sealing pass (T13032). */
-  private stmt(sql: string): StatementSync {
+  stmt(sql: string): StatementSync {
     let st = this.stmts.get(sql);
     if (!st) {
       st = this.db.prepare(sql);
       this.stmts.set(sql, st);
     }
     return st;
+  }
+
+  /**
+   * The local columns a stored ref uid is derived from (`ac_id` for
+   * `ac_uid`): another replica's local ids, so they never travel or hash;
+   * the stored uid carries the reference (T13037).
+   */
+  refSources(table: string): ReadonlySet<string> {
+    let out = this.sources.get(table);
+    if (!out) {
+      const spec = rowIdentitySpec(this.scope, table);
+      out = new Set((spec?.storedRefUids ?? []).map((r) => r.from));
+      this.sources.set(table, out);
+    }
+    return out;
+  }
+
+  /** The table's key columns: a D-then-I U never carries them (§2.4). */
+  keyColumns(table: string): readonly string[] {
+    return rowIdentitySpec(this.scope, table)?.key ?? [];
   }
 
   /** The birth_fp row meta recorded for a uid (survives a delete or a re-key). */
@@ -264,6 +315,7 @@ function imageValues(
     // Only uid and birth_fp move to `u` / `bfp`; stored ref uids (ac_uid,
     // ac_text_hash) are row content and stay in the image (T13030).
     if (skipIdentity && OP_IDENTITY.has(col)) continue;
+    if (ctx.refSources(def.table).has(col)) continue;
     const v = columnValue(ctx, def, col, raw);
     if (v !== undefined) out[col] = v;
   }
@@ -309,10 +361,13 @@ function batchBirths(batch: readonly CaptureRow[]): BatchBirths {
       if (c.op === 'K') {
         const u = img[UID_COLUMN] as [string, string] | undefined;
         const f = img[BIRTH_FP_COLUMN] as [string, string] | undefined;
-        if (u && f) {
-          const [ou, nu] = [str(decodeEnc(u[0])), str(decodeEnc(u[1]))];
+        if (f) {
+          // A K that changes only birth_fp keeps its uid (the capture's).
+          const [ou, nu] = u
+            ? [str(decodeEnc(u[0])), str(decodeEnc(u[1]))]
+            : [c.uid ?? undefined, c.uid ?? undefined];
           const [of, nf] = [str(decodeEnc(f[0])), str(decodeEnc(f[1]))];
-          if (ou && of) out.set(rowKey(c.tbl, ou), of);
+          if (ou && of && ou !== nu) out.set(rowKey(c.tbl, ou), of);
           if (nu && nf) out.set(rowKey(c.tbl, nu), nf);
         }
         continue;
@@ -411,6 +466,7 @@ function buildDraft(ctx: TableContext, c: CaptureRow, births: BatchBirths): Draf
       const a: Record<string, WireValue> = {};
       const b: Record<string, WireValue> = {};
       for (const [col, pair] of Object.entries(img)) {
+        if (ctx.refSources(def.table).has(col)) continue;
         const [before, after] = pair as [unknown, unknown];
         const nv = columnValue(ctx, def, col, after);
         const ov = columnValue(ctx, def, col, before);
@@ -485,12 +541,13 @@ export function rowChash(
 function chashOf(ctx: TableContext, def: CaptureTableDef, uid: string): string | null {
   const spec = rowIdentitySpec(ctx.scope, def.table);
   const localKey = new Set(spec?.kind === 'minted' ? spec.key : []);
+  const sources = ctx.refSources(def.table);
   const cols = def.columns.filter(
-    (c) => !def.secret.has(c) && !OP_IDENTITY.has(c) && !localKey.has(c),
+    (c) => !def.secret.has(c) && !OP_IDENTITY.has(c) && !localKey.has(c) && !sources.has(c),
   );
   if (cols.length === 0) return null;
-  const row = ctx.db
-    .prepare(
+  const row = ctx
+    .stmt(
       `SELECT ${chunkedObject(cols.map((c) => [c, enc(q(c))] as const))} AS img FROM ${q(def.table)} WHERE ${q(UID_COLUMN)} = ?`,
     )
     .get(uid) as { img: string } | undefined;
@@ -526,12 +583,23 @@ function nextFhlc(
 // sealPending
 // ---------------------------------------------------------------------------
 
-/** Why the sealer refuses to run, or `null` when it may. */
-export function sealPreconditions(db: DatabaseSync, env: NodeJS.ProcessEnv): string | null {
+/**
+ * Why the sealer refuses to run, or `null` when it may. A persisted
+ * `sync.seal` is refused while the flag is unreleased (T13037), whatever
+ * wrote it.
+ */
+export function sealPreconditions(
+  db: DatabaseSync,
+  env: NodeJS.ProcessEnv,
+  allowUnreleased = false,
+): string | null {
   if (!hasTable(db, '_sync_capture') || !hasTable(db, '_sync_txn')) {
     return 'sync schema not installed';
   }
   if (!isSyncFlagOn(db, 'sync.seal', env)) return 'sync.seal is off';
+  if (UNRELEASED_FLAGS.has('sync.seal') && !allowUnreleased) {
+    return 'sync.seal is unreleased until S3b–S3d land (T13032)';
+  }
   return null;
 }
 
@@ -550,14 +618,10 @@ export const SEAL_COUNTER_KEY = 'sealer.local_seq';
  * @returns what was sealed, what stays pending, or why nothing ran.
  */
 export function sealPending(db: DatabaseSync, opts: SealOptions): SealReport {
-  const refused = sealPreconditions(db, opts.env ?? process.env);
-  if (refused) {
-    return { txns: 0, ops: 0, captures: 0, unframed: 0, pending: [], refused };
-  }
+  const refused = sealPreconditions(db, opts.env ?? process.env, opts.allowUnreleased === true);
+  if (refused) return emptyReport(refused);
   const replica = opts.replica ?? activeReplica(db, opts.scope)?.replicaId;
-  if (!replica) {
-    return { txns: 0, ops: 0, captures: 0, unframed: 0, pending: [], refused: 'no bound replica' };
-  }
+  if (!replica) return emptyReport('no bound replica');
   const now = opts.now ?? Date.now;
   const budget = Math.max(1, opts.budget ?? 5000);
   return withImmediateTransaction(db, () =>
@@ -586,6 +650,63 @@ export function sealBacklog(db: DatabaseSync): {
 
 const CAPTURE_COLS = 'seq, tbl, op, rk, uid, img, at_ms, frame';
 
+/**
+ * The seqs of the dead incarnation that starts at draft `d` (T13036), or
+ * null. `d` has no uid; its row's live captures from `d` on run to a delete
+ * of the same local row; and none of them names a uid row meta knows as live
+ * (then some replica knew the row after all, and it waits for the fill).
+ */
+function deadIncarnation(ctx: TableContext, facts: MetaFacts, d: DraftOp): number[] | null {
+  const rows = ctx
+    .stmt(
+      "SELECT seq, op, uid, img FROM _sync_capture WHERE state = 'live' AND tbl = ? AND rk = ? AND seq >= ? ORDER BY seq",
+    )
+    .all(d.t, d.rk, d.seq) as Array<{ seq: number; op: string; uid: string | null; img: string }>;
+  const out: number[] = [];
+  for (const r of rows) {
+    out.push(r.seq);
+    const uids = [r.uid];
+    if (r.op === 'K') {
+      try {
+        const pair = (JSON.parse(r.img) as Record<string, unknown>)[UID_COLUMN];
+        if (Array.isArray(pair) && typeof pair[1] === 'string')
+          uids.push(str(decodeEnc(pair[1])) ?? null);
+      } catch {
+        return null;
+      }
+    }
+    if (uids.some((u) => u !== null && u !== undefined && facts.live(d.t, u))) return null;
+    if (r.op === 'D') return out;
+  }
+  return null;
+}
+
+/**
+ * The net row-count effect of a table's live captures, for the ledger's
+ * first sight (§4.3; T13037), mirroring how they will seal: per local row,
+ * `(exists after the last capture) − (existed before the first)`. A first I
+ * counts as a new row unless its uid is one row meta knows live: that is a
+ * foreign REPLACE, which seals as a U and adds nothing.
+ */
+function waitingEffect(db: DatabaseSync, tbl: string, facts: MetaFacts): number {
+  const rows = db
+    .prepare("SELECT rk, op, uid FROM _sync_capture WHERE tbl = ? AND state = 'live' ORDER BY seq")
+    .all(tbl) as Array<{ rk: string; op: string; uid: string | null }>;
+  const span = new Map<string, { first: (typeof rows)[number]; last: (typeof rows)[number] }>();
+  for (const r of rows) {
+    const s = span.get(r.rk);
+    if (s) s.last = r;
+    else span.set(r.rk, { first: r, last: r });
+  }
+  let n = 0;
+  for (const { first, last } of span.values()) {
+    const before = first.op === 'I' && !(first.uid !== null && facts.live(tbl, first.uid)) ? 0 : 1;
+    const after = last.op === 'D' ? 0 : 1;
+    n += after - before;
+  }
+  return n;
+}
+
 function sealInTransaction(
   db: DatabaseSync,
   opts: SealOptions & { readonly replica: string },
@@ -603,8 +724,7 @@ function sealInTransaction(
   let batch = db
     .prepare(`SELECT ${CAPTURE_COLS} FROM _sync_capture WHERE state = 'live' ORDER BY seq LIMIT ?`)
     .all(budget) as unknown as CaptureRow[];
-  if (batch.length === 0)
-    return { txns: 0, ops: 0, captures: 0, unframed: 0, pending: [], refused: null };
+  if (batch.length === 0) return emptyReport(null);
   const lastFrame = batch[batch.length - 1]?.frame ?? null;
   if (lastFrame !== null && batch.length === budget) {
     if (batch[0]?.frame === lastFrame) {
@@ -691,7 +811,7 @@ function sealInTransaction(
   let txns = 0;
   let ops = 0;
   let unframed = 0;
-  const consumed: number[] = [];
+  const consumed = new Set<number>();
   const pending: Array<{ firstSeq: number; reason: string }> = [];
   const touched = new Map<string, { tbl: string; uid: string; rk: string }>();
   const ledgerDelta = new Map<string, number>();
@@ -699,51 +819,98 @@ function sealInTransaction(
   const metaFacts: MetaFacts = {
     sent: (t, u) => (meta.flags.get(t, u) as { sent: number } | undefined)?.sent === 1,
     live: (t, u) => (meta.flags.get(t, u) as { deleted: number } | undefined)?.deleted === 0,
+    known: (t, u) => meta.flags.get(t, u) !== undefined,
   };
+  const quarantine = db.prepare(
+    `INSERT INTO _sync_quarantine
+       (seq, tbl, op, rk, uid, img, at_ms, frame, reason, quarantined_at_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (seq) DO NOTHING`,
+  );
+  const dead = new Set<number>();
+  let dropped = 0;
+  const quarantined: Array<{ seq: number; tbl: string; reason: string }> = [];
 
   for (const g of groups) {
     // Bound the time this transaction holds the write lock (T13032).
     if (txns > 0 && performance.now() - started > maxMs) break;
-    const head = g.captures[0]?.seq ?? 0;
-    const capOf = new Map(g.captures.map((c) => [c.seq, c] as const));
+    const captures = g.captures.filter((c) => !dead.has(c.seq));
+    if (captures.length === 0) continue;
+    const head = captures[0]?.seq ?? 0;
+    if (g.frame !== null && (g.kind === 'apply' || g.kind === 'rebase')) {
+      // §3.3: an apply or rebase frame is sealed only after its apply intents
+      // are subtracted, which is S5. Until then it waits (T13037).
+      pending.push({ firstSeq: head, reason: `${g.kind} frames wait for S5 intent subtraction` });
+      break;
+    }
+    const capOf = new Map(captures.map((c) => [c.seq, c] as const));
     let drafts: DraftOp[] = [];
-    let unreadable: string | null = null;
-    for (const c of g.captures) {
+    for (const c of captures) {
       try {
         drafts.push(buildDraft(ctx, c, births));
       } catch (err) {
         if (!(err instanceof SealInputError)) throw err;
-        unreadable = `${c.tbl} seq ${c.seq}: ${err.message}`;
-        drafts = [];
-        break;
+        // T13036: an unreadable capture never stalls the outbox. It moves to
+        // _sync_quarantine, which marks its table suspect for S3d's repair
+        // diff, and the rest of the group seals.
+        quarantine.run(
+          c.seq,
+          c.tbl,
+          c.op,
+          c.rk,
+          c.uid,
+          c.img,
+          c.at_ms,
+          c.frame,
+          err.message,
+          now(),
+        );
+        quarantined.push({ seq: c.seq, tbl: c.tbl, reason: err.message });
+        consumed.add(c.seq);
       }
     }
-    const netted = unreadable === null ? netTransaction(drafts, metaFacts) : null;
-    const wait =
-      unreadable ?? netted?.ops.map((op) => unsealable(ctx, op)).find((r) => r !== null) ?? null;
-    if (wait !== null || netted === null) {
+    // T13036: a row that never had a uid and is gone again is a dead
+    // incarnation no replica ever knew (§2.4: an I and a later D of a uid
+    // that never left the device drop both). Its captures, up to its delete,
+    // are dropped wherever they sit, so it cannot hold the outbox forever.
+    for (const d of drafts) {
+      if (d.u !== null || d.o === 'K' || dead.has(d.seq)) continue;
+      for (const seq of deadIncarnation(ctx, metaFacts, d) ?? []) {
+        if (dead.has(seq)) continue;
+        dead.add(seq);
+        consumed.add(seq);
+        dropped += 1;
+      }
+    }
+    drafts = drafts.filter((d) => !dead.has(d.seq));
+    const netted = netTransaction(drafts, metaFacts, { keyColumns: (t) => ctx.keyColumns(t) });
+    const wait = netted.ops.map((op) => unsealable(ctx, op)).find((r) => r !== null) ?? null;
+    if (wait !== null) {
       // §2.9: stop here. Nothing after a waiting group seals before it.
-      pending.push({ firstSeq: head, reason: wait ?? 'unreadable capture' });
+      pending.push({ firstSeq: head, reason: wait });
       break;
     }
-    // Dropped re-keys (uid never left the device): the meta follows the row.
+    // Dropped re-keys (no sealed op carried the old uid): the meta follows the row.
     for (const r of netted.renames) {
       meta.remove.run(r.t, r.to);
       meta.move.run(r.to, null, null, r.t, r.from);
     }
-    for (const c of g.captures) consumed.push(c.seq);
+    for (const c of captures) consumed.add(c.seq);
     if (netted.ops.length === 0) continue; // everything netted away
 
     localSeq += 1;
     const txn = `${replica}:${localSeq}`;
-    const sealedOps: Array<SealedOp & { readonly seq: number }> = netted.ops.map((op) => {
-      const { seq, ...rest } = op;
-      return {
-        ...(rest as Omit<SealedOp, 'h'>),
-        seq,
-        h: tickClock(db, replica, capOf.get(seq)?.at_ms ?? now()),
-      };
-    });
+    // An op's time and local key are its LAST capture's (T13037).
+    const at = (op: { seq: number; last: number }) => capOf.get(op.last) ?? capOf.get(op.seq);
+    const sealedOps: Array<SealedOp & { readonly seq: number; readonly last: number }> =
+      netted.ops.map((op) => {
+        const { seq, last, ...rest } = op;
+        return {
+          ...(rest as Omit<SealedOp, 'h'>),
+          seq,
+          last,
+          h: tickClock(db, replica, at(op)?.at_ms ?? now()),
+        };
+      });
     const txnHlc = sealedOps.reduce((m, o) => (o.h > m ? o.h : m), sealedOps[0]?.h ?? '');
     const kind = g.frame !== null && TXN_KINDS.has(g.kind) ? g.kind : 'write';
     insTxn.run(
@@ -760,14 +927,15 @@ function sealInTransaction(
       sealedOps.length,
       now(),
     );
-    sealedOps.forEach(({ seq, ...op }, i) => {
-      const rk = capOf.get(seq)?.rk ?? '';
+    sealedOps.forEach(({ seq, last, ...op }, i) => {
+      const rk = at({ seq, last })?.rk ?? '';
       insOp.run(txn, i, op.t, op.u, op.o, op.h, canonicalJson(op));
       const def = ctx.def(op.t);
       const prev = meta.get.get(op.t, op.u) as MetaRow | undefined;
       const keyJson = op.k ? canonicalJson(op.k) : null;
       if (op.o === 'K' && op.nu !== undefined) {
-        meta.remove.run(op.t, op.nu);
+        // A K that keeps its uid changes only birth_fp: its meta stays put.
+        if (op.nu !== op.u) meta.remove.run(op.t, op.nu);
         if (prev) {
           meta.move.run(op.nu, keyJson, op.bfp ?? null, op.t, op.u);
         } else {
@@ -851,15 +1019,17 @@ function sealInTransaction(
       continue;
     }
     const count = (db.prepare(`SELECT count(*) AS n FROM ${q(tbl)}`).get() as { n: number }).n;
-    const waiting = (
-      db
-        .prepare(
-          "SELECT coalesce(sum(CASE op WHEN 'I' THEN 1 WHEN 'D' THEN -1 ELSE 0 END), 0) AS n FROM _sync_capture WHERE tbl = ? AND state = 'live'",
-        )
-        .get(tbl) as { n: number }
-    ).n;
-    ledgerSet.run(tbl, count - waiting);
+    ledgerSet.run(tbl, count - waitingEffect(db, tbl, metaFacts));
   }
 
-  return { txns, ops, captures: consumed.length, unframed, pending, refused: null };
+  return {
+    txns,
+    ops,
+    captures: consumed.size,
+    unframed,
+    pending,
+    dropped,
+    quarantined,
+    refused: null,
+  };
 }

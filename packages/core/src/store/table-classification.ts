@@ -154,6 +154,12 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'journal spec t12342-t12343-journal-design §4.3, §3.5 Rule 5 (T12984)',
     note: 'per sync-set table, the sealed live row count and the rows a rebase holds; the ledger check compares count(*) + held with it on this device. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12984)',
   },
+  _sync_quarantine: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §2.5, §4.4 (T13036)',
+    note: 'captures the sealer could not read, moved out of the outbox so they never stall it; a table with rows here is suspect for the repair diff. Describes this store only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13036)',
+  },
   _sync_clock: {
     class: 'local-only',
     status: 'optional-transient',
@@ -1327,6 +1333,12 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     status: 'optional-transient',
     source: 'journal spec t12342-t12343-journal-design §4.3, §3.5 Rule 5 (T12984)',
     note: 'per sync-set table, the sealed live row count and the rows a rebase holds; the ledger check compares count(*) + held with it on this device. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12984)',
+  },
+  _sync_quarantine: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §2.5, §4.4 (T13036)',
+    note: 'captures the sealer could not read, moved out of the outbox so they never stall it; a table with rows here is suspect for the repair diff. Describes this store only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13036)',
   },
   _sync_clock: {
     class: 'local-only',

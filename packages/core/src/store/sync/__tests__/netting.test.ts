@@ -21,13 +21,14 @@ const d = (o: DraftOp['o'], rest: Partial<DraftOp> = {}): DraftOp => ({
   ...rest,
 });
 
-const none: MetaFacts = { sent: () => false, live: () => false };
-const facts = (sent: string[] = [], live: string[] = []): MetaFacts => ({
+const none: MetaFacts = { sent: () => false, live: () => false, known: () => false };
+const facts = (sent: string[] = [], live: string[] = [], known: string[] = []): MetaFacts => ({
   sent: (_t, u) => sent.includes(u),
   live: (_t, u) => live.includes(u),
+  known: (_t, u) => known.includes(u) || sent.includes(u) || live.includes(u),
 });
 const strip = (ops: ReturnType<typeof netTransaction>['ops']) =>
-  ops.map(({ seq: _s, ...rest }) => rest);
+  ops.map(({ seq: _s, last: _l, ...rest }) => rest);
 
 describe('netTransaction: §2.4 table', () => {
   it('I, then any U: I with the final image', () => {
@@ -182,6 +183,23 @@ describe('netTransaction: re-keys', () => {
     expect(r.renames).toEqual([]);
   });
 
+  it('a K on an unsent uid that a sealed op already carried is kept (T13035)', () => {
+    // Row meta knows x (an earlier transaction sealed it), nothing was sent:
+    // the earlier sealed ops are never rewritten, so the K must travel.
+    const r = netTransaction(
+      [
+        d('K', { u: 'x', nu: 'y', bfp: 'f1' }),
+        d('U', { u: 'y', a: { title: 'b' }, b: { title: 'a' } }),
+      ],
+      facts([], [], ['x']),
+    );
+    expect(strip(r.ops).map((o) => [o.o, o.u])).toEqual([
+      ['K', 'x'],
+      ['U', 'y'],
+    ]);
+    expect(r.renames).toEqual([]);
+  });
+
   it('a clear with no fill in the transaction leaves an op without a uid (the sealer keeps it pending)', () => {
     const r = netTransaction(
       [d('U', { u: 'x', a: { title: 'b' }, b: { title: 'a' } }), d('K', { u: 'x', nu: null })],
@@ -199,7 +217,7 @@ describe('netTransaction: counters (§2.6)', () => {
         d('U', { a: { hits: 9 }, b: { hits: 5 } }),
       ],
       none,
-      { [T]: ['hits'] },
+      { counters: { [T]: ['hits'] } },
     );
     expect(strip(r.ops)).toEqual([
       { t: T, u: 'u1', o: 'U', a: { hits: { $inc: 7 }, note: 'x' }, b: { hits: 2, note: 'w' } },
@@ -207,7 +225,74 @@ describe('netTransaction: counters (§2.6)', () => {
   });
 
   it('an insert keeps the absolute counter value', () => {
-    const r = netTransaction([d('I', { a: { hits: 3 } })], none, { [T]: ['hits'] });
+    const r = netTransaction([d('I', { a: { hits: 3 } })], none, { counters: { [T]: ['hits'] } });
     expect(r.ops[0]?.a).toEqual({ hits: 3 });
+  });
+});
+
+describe('netTransaction: per uid across local keys (T13035)', () => {
+  const A = 'tasks_task_acceptance_criteria';
+  const ac = (o: DraftOp['o'], rk: string, rest: Partial<DraftOp> = {}): DraftOp => ({
+    t: A,
+    rk,
+    seq: ++seq,
+    o,
+    u: 'X',
+    ...rest,
+  });
+
+  it('a delete of one local row and an insert of another under the same uid net to one U of the non-key columns', () => {
+    const r = netTransaction(
+      [
+        ac('D', '["1"]', { b: { id: 1, text: 'old', ordinal: 1 } }),
+        ac('I', '["2"]', { a: { id: 2, text: 'new', ordinal: 1 } }),
+      ],
+      facts([], ['X']),
+      { keyColumns: (t) => (t === A ? ['id'] : []) },
+    );
+    expect(strip(r.ops)).toEqual([
+      { t: A, u: 'X', o: 'U', a: { text: 'new' }, b: { text: 'old' } },
+    ]);
+  });
+
+  it('a relink whose insert takes the uid from the fill (K NULL → X) also nets to one U', () => {
+    const r = netTransaction(
+      [
+        ac('D', '["1"]', { b: { id: 1, text: 'old' } }),
+        ac('I', '["2"]', { u: null, a: { id: 2, text: 'new' } }),
+        ac('K', '["2"]', { u: null, nu: 'X', bfp: 'fx' }),
+      ],
+      facts([], ['X']),
+      { keyColumns: () => ['id'] },
+    );
+    expect(strip(r.ops)).toEqual([
+      { t: A, u: 'X', o: 'U', bfp: 'fx', a: { text: 'new' }, b: { text: 'old' } },
+    ]);
+  });
+
+  it('an I after a same-transaction D of its uid in an unmerged chain stays an I', () => {
+    // The insert's chain re-keys X → Z (X is known), so it does not merge
+    // with the D; row meta still says X is live, but the transaction deleted
+    // it first, so the I is not a foreign REPLACE.
+    const r = netTransaction(
+      [
+        ac('D', '["1"]', { b: { text: 'old' } }),
+        ac('I', '["2"]', { a: { text: 'new' } }),
+        ac('K', '["2"]', { u: 'X', nu: 'Z' }),
+      ],
+      facts([], ['X']),
+    );
+    expect(strip(r.ops).map((o) => [o.o, o.u])).toEqual([
+      ['D', 'X'],
+      ['I', 'X'],
+      ['K', 'X'],
+    ]);
+  });
+
+  it('each op records its last capture for the HLC (T13037)', () => {
+    const first = d('U', { a: { title: 'b' }, b: { title: 'a' } });
+    const second = d('U', { a: { title: 'c' }, b: { title: 'b' } });
+    const r = netTransaction([first, second], none);
+    expect(r.ops[0]).toMatchObject({ seq: first.seq, last: second.seq });
   });
 });
