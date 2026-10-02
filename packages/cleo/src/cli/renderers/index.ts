@@ -820,11 +820,22 @@ export interface CliErrorDetails {
   alternatives?: Array<{ action: string; command: string }>;
 }
 
+/** Options for {@link cliError}. */
+export interface CliErrorOptions {
+  /**
+   * Write the JSON error envelope to stderr instead of stdout. Only for a
+   * command whose stdout belongs to a child process: `cleo run --passthrough`,
+   * an explicit ADR-086 exception (T12979).
+   */
+  readonly stderr?: boolean;
+}
+
 /**
  * Output an error in the resolved format.
  *
  * In JSON format (default / agent mode): emits a canonical `CliEnvelope` error
- * envelope to stdout. The envelope always includes `meta` (ADR-039).
+ * envelope to stdout (to stderr with `options.stderr`). The envelope always
+ * includes `meta` (ADR-039).
  * All optional fields (`codeName`, `fix`, `alternatives`, `details`) are
  * included only when they are actually present — no `undefined` keys are emitted.
  *
@@ -835,6 +846,7 @@ export interface CliErrorDetails {
  * @param code    - Numeric exit code or string error code.
  * @param details - Optional structured details (codeName, fix, alternatives, …).
  * @param meta    - Optional partial meta to merge into the error envelope.
+ * @param options - Where the envelope goes; see {@link CliErrorOptions}.
  *
  * @task T4666
  * @task T4813
@@ -846,6 +858,7 @@ export function cliError(
   code?: number | string,
   details?: CliErrorDetails,
   meta?: Partial<CliMeta>,
+  options?: CliErrorOptions,
 ): void {
   const ctx = getFormatContext();
   const outputMode = getOutputMode();
@@ -911,5 +924,9 @@ export function cliError(
     meta: errorMeta,
   };
 
+  if (options?.stderr === true) {
+    process.stderr.write(`${JSON.stringify(envelope)}\n`);
+    return;
+  }
   process.stdout.write(JSON.stringify(envelope) + '\n');
 }

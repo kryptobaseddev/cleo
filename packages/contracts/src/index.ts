@@ -2269,6 +2269,8 @@ export {
   RESOURCE_BACKPRESSURE_CODE,
   RESOURCE_CLASSES,
   RESOURCE_DEFERRED_CODE,
+  RUN_COMMAND_FAILED_CODE,
+  RUN_DEFERRED_EXIT_CODE,
 } from './resource-governor.js';
 // === Result Types (Dashboard, Stats, Log, Context, Sequence, Analysis, Deps) ===
 export type {

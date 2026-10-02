@@ -1,13 +1,17 @@
 /**
  * ResourceMonitor platform backend interface.
  *
- * Concrete implementations read OS-level pressure/memory data.
- * The Linux backend is complete; other platforms register here for parity.
+ * Concrete implementations read OS-level pressure/memory data: Linux
+ * (`linux-backend.ts`, PSI) and macOS (`darwin-backend.ts`, kernel pressure
+ * level + load mapped onto the same PSI shape). {@link defaultResourceBackend}
+ * in `monitor.ts` picks one by platform.
  *
  * ## Sampling discipline
  *
  * The {@link ResourceBackend.sample} call MUST:
- * - Spawn NO child process
+ * - Spawn NO child process (darwin amendment, T12981: macOS has no sysctl
+ *   binding, so its backend runs ONE `sysctl` exec, cached process-wide for
+ *   2 s, so a poll loop or admission burst spawns at most one per TTL)
  * - Perform a BOUNDED number of file reads (PSI + meminfo + slice-pressure only)
  * - Return quickly — callers validate read-count via injected readers in tests
  *
@@ -100,6 +104,15 @@ export interface ResourceSample {
    * `null` when the cgroup v2 slice path is absent or unreadable.
    */
   readonly slicePressure: PsiData | null;
+
+  /**
+   * CPU saturation in PSI shape (`some` = share of runnable work waiting for a
+   * core). macOS derives it from the load average per core. Absent or `null`
+   * when the backend does not report it (Linux today).
+   *
+   * @task T12981
+   */
+  readonly cpuPressure?: PsiData | null;
 
   /**
    * WAL sidecar size observations for configured DB paths.

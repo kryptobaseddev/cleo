@@ -102,4 +102,21 @@ describe('safeRunTick — db-heavy admission (T12001 AC3)', () => {
     expect(pickTask).toHaveBeenCalledOnce();
     expect(release).toHaveBeenCalledOnce();
   });
+
+  it('runs the tick ungated when the governor cannot write its state (#1777 R8-1)', async () => {
+    vi.spyOn(governorModule.governor, 'tryAcquire').mockRejectedValue(
+      Object.assign(new Error('EROFS: read-only file system'), { code: 'EROFS' }),
+    );
+    const pickTask = vi.fn(async () => null);
+    const checkAndDream = vi.fn(async () => ({
+      triggered: false,
+      tier: null,
+      skippedReason: 'test',
+    }));
+
+    const outcome = await safeRunTick(mkTickOpts(root, { pickTask, checkAndDream }));
+
+    expect(outcome.kind).toBe('no-task'); // not a pressure skip, not a throw
+    expect(pickTask).toHaveBeenCalledOnce();
+  });
 });

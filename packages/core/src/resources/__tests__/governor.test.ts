@@ -8,15 +8,25 @@
  * @task T11999
  */
 
+import { chmodSync, existsSync } from 'node:fs';
 import { isResourceGrant, RESOURCE_DEFERRED_CODE } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ResourceSample } from '../backend.js';
 import {
   _resetGovernorStateForTest,
+  admitFailOpen,
   computeClassBudget,
+  governorSlotDir,
   ResourceGovernor,
   resolveGovernorMode,
 } from '../governor.js';
+import {
+  processGroupOf,
+  processStart,
+  type RunJob,
+  removeRunJob,
+  writeRunJob,
+} from '../run-admission.js';
 
 const GB = 1024 * 1024 * 1024;
 
@@ -183,6 +193,94 @@ describe('ResourceGovernor.acquire (T11999)', () => {
     expect(RESOURCE_DEFERRED_CODE).toBe('E_RESOURCE_DEFERRED');
   });
 
+  it('a forged CLEO_RUN_CLASS outside any cleo run job grants nothing (#1777 round 3, M-2)', async () => {
+    process.env.CLEO_RUN_CLASS = 'db-heavy';
+    try {
+      const s = makeSample({ someAvg10: 0 }); // db-heavy budget = 1
+      const first = await gov.acquire('db-heavy', { sample: s, blocking: false });
+      const second = await gov.acquire('db-heavy', { sample: s, blocking: false });
+      expect(isResourceGrant(first)).toBe(true);
+      expect(isResourceGrant(second)).toBe(false);
+      if (isResourceGrant(first)) await first.release();
+    } finally {
+      delete process.env.CLEO_RUN_CLASS;
+    }
+  });
+
+  it('an env grant marker never bypasses admission (#1777 round 2, N1)', async () => {
+    process.env.CLEO_GOVERNOR_GRANT = 'db-heavy';
+    try {
+      const s = makeSample({ someAvg10: 0 }); // db-heavy budget = 1
+      const first = await gov.acquire('db-heavy', { sample: s, blocking: false });
+      const second = await gov.acquire('db-heavy', { sample: s, blocking: false });
+      expect(isResourceGrant(first)).toBe(true);
+      expect(isResourceGrant(second)).toBe(false);
+      if (isResourceGrant(first)) await first.release();
+    } finally {
+      delete process.env.CLEO_GOVERNOR_GRANT;
+    }
+  });
+
+  describe('a live job record covers a nested acquire only on an exact match (#1777 round 4)', () => {
+    // Real `ps` for our own group and its leader's start time (read-only).
+    const pgid = processGroupOf(process.pid);
+    const leaderStart = pgid === null ? null : processStart(pgid);
+
+    /** With a db-heavy slot held, can a CLEO_RUN_CLASS acquire get another? */
+    async function nestedGetsThrough(over: Partial<RunJob>): Promise<boolean> {
+      const now = Date.now();
+      const record: RunJob = {
+        id: `${process.pid}-${now}`,
+        pid: process.pid,
+        runnerStart: null,
+        childPid: pgid,
+        childStart: leaderStart,
+        class: 'db-heavy',
+        command: 'pnpm test',
+        cwd: '/',
+        startedAtMs: now,
+        sessionId: null,
+        pausedAtMs: null,
+        pausable: true,
+        heartbeatAtMs: now,
+        ...over,
+      };
+      writeRunJob(record);
+      process.env.CLEO_RUN_CLASS = 'db-heavy';
+      const s = makeSample({ someAvg10: 0 }); // db-heavy budget = 1
+      const first = await gov.acquire('db-heavy', { sample: s, blocking: false });
+      try {
+        const second = await gov.acquire('db-heavy', { sample: s, blocking: false });
+        if (isResourceGrant(second)) await second.release();
+        return isResourceGrant(second);
+      } finally {
+        if (isResourceGrant(first)) await first.release();
+        delete process.env.CLEO_RUN_CLASS;
+        removeRunJob(record.id);
+      }
+    }
+
+    it('our group with a different leader start time: no pass-through', async () => {
+      expect(pgid).not.toBeNull();
+      expect(await nestedGetsThrough({ childStart: 'Thu Jan  1 00:00:00 1970' })).toBe(false);
+    });
+
+    it("another group with our leader's start time: no pass-through", async () => {
+      expect(await nestedGetsThrough({ childPid: 999_999 })).toBe(false);
+    });
+
+    it('a matching job of another class: no pass-through (MED-1)', async () => {
+      expect(await nestedGetsThrough({ class: 'full-build' })).toBe(false);
+    });
+
+    // Control: the same record with group, start and class all matching does
+    // pass through, so the cases above fail for the reason they name. Skipped
+    // only where our group leader has exited and `ps` cannot read its start.
+    it.skipIf(leaderStart === null)('an exact match passes through (control)', async () => {
+      expect(await nestedGetsThrough({})).toBe(true);
+    });
+  });
+
   it('a saturated single-slot class defers the second non-blocking acquire, then recovers on release', async () => {
     const s = makeSample({ someAvg10: 0 }); // db-heavy budget = 1
     const first = await gov.acquire('db-heavy', { sample: s, blocking: false });
@@ -246,5 +344,76 @@ describe('resolveGovernorMode (T11999)', () => {
       expect(r.slot).toBeGreaterThanOrEqual(0);
       await r.release();
     }
+  });
+});
+
+describe('an unwritable slot dir is an error, never a busy slot (#1777 R8-1)', () => {
+  // Root ignores directory permissions: the read-only case cannot be staged.
+  const asRoot = process.getuid?.() === 0;
+  const s = makeSample({ someAvg10: 0 }); // db-heavy budget = 1
+  let gov: ResourceGovernor;
+  let dir: string;
+
+  beforeEach(async () => {
+    _resetGovernorStateForTest();
+    delete process.env.CLEO_RESOURCES_MODE;
+    gov = new ResourceGovernor();
+    dir = governorSlotDir('db-heavy');
+    // A home that already has its slot dir (an earlier unsandboxed run).
+    const first = await gov.tryAcquire('db-heavy', { sample: s });
+    expect(isResourceGrant(first)).toBe(true);
+    if (isResourceGrant(first)) await first.release();
+    expect(existsSync(dir)).toBe(true);
+  });
+  afterEach(() => {
+    if (existsSync(dir)) chmodSync(dir, 0o755);
+    _resetGovernorStateForTest();
+  });
+
+  it.skipIf(asRoot)('a read-only slot dir makes tryAcquire throw, not defer', async () => {
+    chmodSync(dir, 0o555);
+    await expect(gov.tryAcquire('db-heavy', { sample: s })).rejects.toMatchObject({
+      code: expect.stringMatching(/^(EACCES|EPERM)$/),
+    });
+  });
+
+  it.skipIf(asRoot)(
+    'a blocking acquire throws at once instead of waiting out its timeout',
+    async () => {
+      chmodSync(dir, 0o555);
+      const t0 = Date.now();
+      await expect(
+        gov.acquire('db-heavy', { sample: s, timeoutMs: 20_000, pollMs: 10 }),
+      ).rejects.toMatchObject({ code: expect.stringMatching(/^(EACCES|EPERM)$/) });
+      expect(Date.now() - t0).toBeLessThan(10_000);
+    },
+  );
+
+  it.skipIf(asRoot)('admitFailOpen turns it into an ungated grant that says why', async () => {
+    chmodSync(dir, 0o555);
+    const r = await admitFailOpen('db-heavy', () => gov.tryAcquire('db-heavy', { sample: s }));
+    expect(r.admission).toMatchObject({ deferred: false, class: 'db-heavy', slot: -1 });
+    expect(r.ungoverned?.code).toMatch(/^(EACCES|EPERM)$/);
+  });
+
+  it.skipIf(asRoot)('available() does not count an unwritable slot as held', async () => {
+    chmodSync(dir, 0o555);
+    expect(await gov.available('db-heavy', { sample: s })).toBe(1);
+  });
+
+  it('a slot held by someone else is still busy: a deferral, no throw', async () => {
+    const held = await gov.tryAcquire('db-heavy', { sample: s });
+    expect(isResourceGrant(held)).toBe(true);
+    const second = await gov.tryAcquire('db-heavy', { sample: s });
+    expect(second.deferred).toBe(true);
+    if (isResourceGrant(held)) await held.release();
+  });
+
+  it('admitFailOpen lets any other error through: it is a bug, not a sandbox', async () => {
+    await expect(
+      admitFailOpen('db-heavy', async () => {
+        throw new TypeError('cannot read properties of undefined');
+      }),
+    ).rejects.toThrow(TypeError);
   });
 });

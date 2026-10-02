@@ -89,7 +89,7 @@ import type { ConduitSubscriptionConfig } from '../orchestration/spawn-prompt.js
 import { resolveEffectiveTier } from '../orchestration/tier-selector.js';
 import { validateSpawnReadiness } from '../orchestration/validate-spawn.js';
 import { getProjectRoot } from '../paths.js';
-import { governor } from '../resources/governor.js';
+import { admitFailOpen, governor } from '../resources/governor.js';
 import { provisionIsolatedShell } from '../sdk/isolation.js';
 import { spawnWorktree } from '../sentient/worktree-dispatch.js';
 import { initializeDefaultAdapters, spawnRegistry } from '../spawn/adapter-registry.js';
@@ -820,7 +820,17 @@ export async function orchestrateSpawnExecute(
   // the OOM. The grant is held for the provisioning + dispatch window and
   // released in the `finally` (point-in-time admission; lifetime process-group
   // ownership is the supervisor-mode backend's job, T11998).
-  const admit = await governor.tryAcquire('agent-session');
+  // Fail open (#1777 R8-1): a governor that can't write its state (sandboxed or
+  // read-only CLEO home) spawns ungated instead of deferring forever.
+  const { admission: admit, ungoverned } = await admitFailOpen('agent-session', () =>
+    governor.tryAcquire('agent-session'),
+  );
+  if (ungoverned !== null) {
+    getLogger('engine:orchestrate').warn(
+      { taskId, ...ungoverned },
+      'agent-session admission skipped: governor state is not writable; spawning ungated',
+    );
+  }
   if (admit.deferred) {
     return engineError(RESOURCE_DEFERRED_CODE, admit.reason, {
       exitCode: 75,

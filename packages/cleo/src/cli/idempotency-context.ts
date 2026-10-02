@@ -46,6 +46,12 @@ export function extractIdempotencyKeyArg(argv: string[]): {
 
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i];
+    // Everything after `--` belongs to a child command (`cleo run -- …`, T12979):
+    // pass it through untouched.
+    if (token === '--') {
+      sanitized.push(...argv.slice(i));
+      break;
+    }
     if (token === '--idempotency-key') {
       const next = argv[i + 1];
       if (next !== undefined && !next.startsWith('--')) {

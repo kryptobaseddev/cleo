@@ -143,6 +143,8 @@ async function startCli(): Promise<void> {
   let describeFlag = false;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
+    // T12979: flags after `--` are a child command's (`cleo run -- … --output x`).
+    if (arg === '--') break;
     if (arg === '--json') rawOpts['json'] = true;
     else if (arg === '--human') rawOpts['human'] = true;
     else if (arg === '--quiet') rawOpts['quiet'] = true;
