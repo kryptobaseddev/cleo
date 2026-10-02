@@ -8,6 +8,9 @@ import type { ErrorCode } from '@cleocode/contracts/cloud';
 export type ClientErrorCode = ErrorCode | 'E_NETWORK' | 'E_PROTOCOL';
 
 export class NexusError extends Error {
+  /** The server's own message, without the code prefix and request id `message` carries. */
+  readonly serverMessage: string;
+
   constructor(
     readonly code: ClientErrorCode,
     message: string,
@@ -17,6 +20,7 @@ export class NexusError extends Error {
   ) {
     super(`${code}: ${message}${requestId ? ` (request ${requestId})` : ''}`);
     this.name = 'NexusError';
+    this.serverMessage = message;
   }
 }
 
