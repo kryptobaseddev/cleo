@@ -20,6 +20,7 @@ import {
   foreignKeyViolations,
   MigrationForeignKeyError,
   rebuiltTables,
+  renamedTables,
   runBracketedMigrations,
 } from '../migration-runner.js';
 
@@ -270,5 +271,94 @@ describe('hook order at a migration (NEW-8, spec §2.3a rule 3)', () => {
     ).toThrow();
     expect(log.filter((l) => l.startsWith('after'))).toEqual([]);
     expect(log[0]).toBe('before');
+  });
+});
+
+describe('renames keep pre-existing orphans (T13027)', () => {
+  const orphan = () => {
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec("INSERT INTO c VALUES ('C9', 'GONE', 'orphan')");
+    db.exec('PRAGMA foreign_keys = ON');
+  };
+  const journal = () => count('SELECT count(*) AS n FROM "__drizzle_migrations"');
+
+  it('parses rename chains in statement order', () => {
+    expect(
+      [
+        ...renamedTables([
+          'ALTER TABLE `a` RENAME TO `b`',
+          '-- ALTER TABLE x RENAME TO y (prose)',
+          'ALTER TABLE b RENAME TO c',
+          'ALTER TABLE `__new_d` RENAME TO `d`',
+        ]),
+      ].sort(),
+    ).toEqual([
+      ['__new_d', 'd'],
+      ['a', 'c'],
+    ]);
+  });
+
+  it('a renamed child keeps its orphan: the file applies', () => {
+    orphan();
+    migration('ALTER TABLE `c` RENAME TO `c2`;');
+    expect(() => run()).not.toThrow();
+    expect(journal()).toBe(2);
+    expect(foreignKeyViolations(db, ['c2']).size).toBe(1);
+  });
+
+  it('a renamed parent keeps the child orphan: the file applies', () => {
+    orphan();
+    migration('ALTER TABLE `p` RENAME TO `p2`;');
+    expect(() => run()).not.toThrow();
+    expect(journal()).toBe(2);
+  });
+
+  it('a rebuild that renames the FK column keeps the orphan: the file applies', () => {
+    orphan();
+    migration(`PRAGMA foreign_keys=OFF;
+--> statement-breakpoint
+CREATE TABLE \`__new_c\` (id TEXT PRIMARY KEY, parent_id TEXT REFERENCES p(id) ON DELETE CASCADE, v TEXT);
+--> statement-breakpoint
+INSERT INTO \`__new_c\`(id, parent_id, v) SELECT id, pid, v FROM \`c\`;
+--> statement-breakpoint
+DROP TABLE \`c\`;
+--> statement-breakpoint
+ALTER TABLE \`__new_c\` RENAME TO \`c\`;
+--> statement-breakpoint
+PRAGMA foreign_keys=ON;`);
+    expect(() => run()).not.toThrow();
+    expect(journal()).toBe(2);
+  });
+
+  it('a t11622-shaped file (rename parent and child, then rebuild the child) applies', () => {
+    orphan();
+    migration(`PRAGMA foreign_keys=OFF;
+--> statement-breakpoint
+ALTER TABLE \`p\` RENAME TO \`np\`;
+--> statement-breakpoint
+ALTER TABLE \`c\` RENAME TO \`nc\`;
+--> statement-breakpoint
+CREATE TABLE \`__new_nc\` (id TEXT PRIMARY KEY, np_id TEXT REFERENCES np(id) ON DELETE CASCADE, v TEXT);
+--> statement-breakpoint
+INSERT INTO \`__new_nc\`(id, np_id, v) SELECT id, pid, v FROM \`nc\`;
+--> statement-breakpoint
+DROP TABLE \`nc\`;
+--> statement-breakpoint
+ALTER TABLE \`__new_nc\` RENAME TO \`nc\`;
+--> statement-breakpoint
+PRAGMA foreign_keys=ON;`);
+    expect(() => run()).not.toThrow();
+    expect(journal()).toBe(2);
+    expect(foreignKeyViolations(db, ['nc']).size).toBe(1);
+  });
+
+  it('a NEW violation after a rename still rolls back', () => {
+    orphan();
+    migration(
+      "ALTER TABLE `c` RENAME TO `c2`;\n--> statement-breakpoint\nINSERT INTO c2 (id, pid, v) VALUES ('C8', 'NOPE', 'bad');",
+    );
+    expect(() => run()).toThrow(MigrationForeignKeyError);
+    expect(journal()).toBe(1);
+    expect(count("SELECT count(*) AS n FROM sqlite_master WHERE name = 'c'")).toBe(1);
   });
 });

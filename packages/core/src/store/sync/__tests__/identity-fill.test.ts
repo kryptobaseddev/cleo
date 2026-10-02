@@ -26,6 +26,8 @@ import {
   openCaptureFrame,
   setCaptureEnabled,
 } from '../capture.js';
+import { prepareRowIdentityUnderCapture } from '../identity-fill.js';
+import { ensureSyncSchema } from '../schema.js';
 import { suspectTables } from '../structural.js';
 
 const SYNC_SCHEMA = resolve(import.meta.dirname, '../../../../migrations/sync-journal');
@@ -158,5 +160,38 @@ describe('the open-time identity fill with capture on', () => {
     const seen = maxSeq(again);
     const third = await open();
     expect(maxSeq(third)).toBe(seen);
+  });
+});
+
+describe('the fill keys on the capture flag and never throws (T13025)', () => {
+  it('a linked store (sync tables, capture off) fills on the plain path: nothing suspect, no capture', async () => {
+    const db = await open();
+    ensureSyncSchema(db, { root: SYNC_SCHEMA }); // what `cleo project link` leaves
+    db.prepare(
+      "INSERT INTO tasks_tasks (id, title, type, status) VALUES ('T1', 'x', 'task', 'pending')",
+    ).run();
+    db.prepare("UPDATE tasks_tasks SET uid = NULL, birth_fp = NULL WHERE id = 'T1'").run();
+    const r = prepareRowIdentityUnderCapture(db, 'project');
+    expect(r.suspect).toEqual([]);
+    expect(r.remints).toEqual({});
+    expect(suspectTables(db)).toEqual([]);
+    expect(
+      (db.prepare("SELECT uid FROM tasks_tasks WHERE id = 'T1'").get() as { uid: string | null })
+        .uid,
+    ).toBeTruthy();
+  });
+
+  it('with capture on, a bracket that cannot run is logged, not thrown', async () => {
+    const db = await captureStoreWithTask();
+    db.exec('BEGIN'); // the bracket must open the only transaction: it refuses here
+    try {
+      let r: ReturnType<typeof prepareRowIdentityUnderCapture> | undefined;
+      expect(() => {
+        r = prepareRowIdentityUnderCapture(db, 'project');
+      }).not.toThrow();
+      expect(r).toEqual({ report: null, suspect: [], remints: {} });
+    } finally {
+      db.exec('ROLLBACK');
+    }
   });
 });

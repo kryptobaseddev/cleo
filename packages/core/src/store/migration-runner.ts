@@ -192,6 +192,24 @@ export function rebuiltTables(statements: readonly string[]): string[] {
 }
 
 /** The tables a migration's DML writes (INSERT / UPDATE / DELETE / REPLACE). */
+/**
+ * Where each table a migration file renames ends up: every `ALTER TABLE a RENAME TO b`, in statement
+ * order and composed, so `a → b` then `b → c` gives `a → c` (T13027). Unrenamed tables are absent.
+ */
+export function renamedTables(statements: readonly string[]): Map<string, string> {
+  const out = new Map<string, string>();
+  const rename = new RegExp(String.raw`\bALTER\s+TABLE\s+${IDENT}\s+RENAME\s+TO\s+${IDENT}`, 'gi');
+  for (const s of statements.map(code)) {
+    for (const m of s.matchAll(rename)) {
+      const from = m[1] as string;
+      const to = m[2] as string;
+      const original = [...out.entries()].find(([, now]) => now === from)?.[0] ?? from;
+      out.set(original, to);
+    }
+  }
+  return out;
+}
+
 export function dmlTables(statements: readonly string[]): string[] {
   const out = new Set<string>();
   for (const s of statements.map(code)) {
@@ -264,7 +282,11 @@ interface ColInfo {
  * The foreign-key violations of `tables`, as a multiset keyed by rowid-free
  * identity (R5-2): (table, the child's primary-key values normalized by
  * column affinity — or the whole row for a table without a declared PK,
- * parent table, the child's FK columns and their values). Duplicates count.
+ * parent table, the child's FK values). Duplicates count.
+ *
+ * FK column NAMES are not part of the key: a rebuild may rename an FK column
+ * while the violation stays the same row and value (T13027). Two orphaned
+ * FKs of one row with equal values are still counted twice.
  */
 export function foreignKeyViolations(
   db: DatabaseSync,
@@ -325,10 +347,35 @@ export function foreignKeyViolations(
         seenNoRowid.add(v.fkid);
       }
       for (const id of identities) {
-        const key = JSON.stringify([table, id.k, v.parent, fkCols.map((f) => f.from), id.f]);
+        const key = JSON.stringify([table, id.k, v.parent, id.f]);
         out.set(key, (out.get(key) ?? 0) + 1);
       }
     }
+  }
+  return out;
+}
+
+/**
+ * A before-snapshot re-keyed to the names its tables have after a file's
+ * renames (T13027): child and parent tables move through `renames` when the
+ * new name exists afterwards. A table renamed away and dropped (`x → __old_x`
+ * in a rebuild) keeps its name, since its rows now live under the old name.
+ */
+export function renameViolations(
+  before: Map<string, number>,
+  renames: ReadonlyMap<string, string>,
+  exists: (table: string) => boolean,
+): Map<string, number> {
+  if (renames.size === 0) return before;
+  const to = (t: string) => {
+    const r = renames.get(t);
+    return r !== undefined && exists(r) ? r : t;
+  };
+  const out = new Map<string, number>();
+  for (const [k, n] of before) {
+    const [table, pk, parent, values] = JSON.parse(k) as [string, string, string, string];
+    const key = JSON.stringify([to(table), pk, to(parent), values]);
+    out.set(key, (out.get(key) ?? 0) + n);
   }
   return out;
 }
@@ -470,7 +517,10 @@ function migrationBracket(
     if (rebuild) {
       // Re-scope after the statements: the rebuild may have created tables.
       const after = foreignKeyViolations(nativeDb, foreignKeyScope(nativeDb, scopeTables));
-      const added = newViolations(before, after);
+      // A renamed table keeps its pre-existing orphans: compare under the new names (T13027).
+      const live = new Set(listTables(nativeDb));
+      const renamed = renameViolations(before, renamedTables(statements), (t) => live.has(t));
+      const added = newViolations(renamed, after);
       // @sync-invariant none:local-only a migration that adds FK violations is refused locally before commit; schema, not synced rows
       if (added.length > 0) throw new MigrationForeignKeyError(migration.name ?? '', added);
     }

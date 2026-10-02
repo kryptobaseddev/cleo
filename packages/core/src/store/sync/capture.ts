@@ -57,7 +57,12 @@ import {
 import { classifyTable, isPortableTableClass } from '../table-classification.js';
 import { readSyncFlags, setSyncFlag } from './flags.js';
 import { ensureSyncSchema, hasTable, healSyncSchema } from './schema.js';
-import { CAPTURE_TRIGGER_PREFIX, normalizeSql, suspendClause } from './trigger-classes.js';
+import {
+  atomicDdl,
+  CAPTURE_TRIGGER_PREFIX,
+  normalizeSql,
+  suspendClause,
+} from './trigger-classes.js';
 import { raiseMinWriterVersion } from './writer-version.js';
 
 /** How one table is captured. Built from the registries, or by tests. */
@@ -485,19 +490,22 @@ export function installCaptureTriggers(db: DatabaseSync, scope: TableScope): Cap
   const live = liveCaptureTriggers(db);
   const report: CaptureInstallReport = { installed: [], replaced: [], dropped: [] };
   const wanted = new Set(want.map((t) => t.name));
-  for (const [name] of live) {
-    if (!wanted.has(name)) {
-      db.exec(`DROP TRIGGER IF EXISTS ${q(name)}`);
-      report.dropped.push(name);
-    }
-  }
-  for (const t of want) {
+  for (const [name] of live) if (!wanted.has(name)) report.dropped.push(name);
+  const changes = want.filter((t) => {
     const have = live.get(t.name);
-    if (have !== undefined && normalizeSql(have) === normalizeSql(t.sql)) continue;
-    if (have !== undefined) db.exec(`DROP TRIGGER IF EXISTS ${q(t.name)}`);
-    db.exec(t.sql);
+    if (have !== undefined && normalizeSql(have) === normalizeSql(t.sql)) return false;
     (have === undefined ? report.installed : report.replaced).push(t.name);
-  }
+    return true;
+  });
+  if (report.dropped.length + changes.length === 0) return report;
+  // One unit (T13024 MED-2): a failed CREATE never leaves a dropped trigger committed.
+  atomicDdl(db, () => {
+    for (const name of report.dropped) db.exec(`DROP TRIGGER IF EXISTS ${q(name)}`);
+    for (const t of changes) {
+      if (live.has(t.name)) db.exec(`DROP TRIGGER IF EXISTS ${q(t.name)}`);
+      db.exec(t.sql);
+    }
+  });
   return report;
 }
 

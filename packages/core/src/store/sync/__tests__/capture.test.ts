@@ -499,6 +499,36 @@ describe('the accessor frame (§2.3)', () => {
   });
 });
 
+describe('the accessor frame fails safe (T13024 MED-1)', () => {
+  it('a failing frame INSERT rolls back: no open transaction, and the next write works', async () => {
+    const env = await createTestDb();
+    try {
+      await seedTasks(env.accessor, [{ id: 'T1', title: 'first' }]);
+      const native = getNativeTasksDb(env.tempDir) as DatabaseSync;
+      setCaptureEnabled(native, 'project', true, { schemaRoot: SYNC_SCHEMA });
+      // The frame INSERT now fails, the way a dropped _sync_frame or a full disk would.
+      native.exec(
+        "CREATE TRIGGER zz_fail_frame BEFORE INSERT ON _sync_frame BEGIN SELECT RAISE(ABORT, 'frame insert failed'); END",
+      );
+      await expect(
+        env.accessor.transaction(async (tx) => {
+          await tx.updateTaskFields('T1', { title: 'second' });
+        }),
+      ).rejects.toThrow(/frame insert failed/);
+      expect(native.isTransaction).toBe(false);
+      native.exec('DROP TRIGGER zz_fail_frame');
+      await env.accessor.transaction(async (tx) => {
+        await tx.updateTaskFields('T1', { title: 'third' });
+      });
+      expect(native.prepare("SELECT title FROM tasks_tasks WHERE id = 'T1'").get()).toEqual({
+        title: 'third',
+      });
+    } finally {
+      await env.cleanup();
+    }
+  });
+});
+
 describe('structural safety (§2.3a, H4, N3)', () => {
   it('a migration that rebuilds a referenced table (tasks_tasks) and adds a captured column runs in the bracket and regenerates the triggers', async () => {
     const db = await captureOn();

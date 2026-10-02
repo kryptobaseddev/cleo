@@ -21,6 +21,7 @@
 
 import type { DatabaseSync } from 'node:sqlite';
 import type { TableScope } from '@cleocode/contracts';
+import { getLogger } from '../../logger.js';
 import { prepareRowIdentity, ROW_IDENTITY, type RowUidFillReport } from '../row-identity.js';
 import {
   captureRemints,
@@ -28,6 +29,7 @@ import {
   finishCaptureFrame,
   openCaptureFrame,
 } from './capture.js';
+import { readSyncFlags } from './flags.js';
 import { hasTable } from './schema.js';
 import { markSuspect, touchSet, withSyncTriggersSuspended } from './structural.js';
 
@@ -59,19 +61,40 @@ export function filledTables(scope: TableScope, report: RowUidFillReport): strin
 }
 
 /**
- * Run the open-time identity fill ({@link prepareRowIdentity}). On a store
- * with the sync schema: with the capture triggers dropped, the written
- * tables marked suspect, and re-mint K captures for identities a captured
- * write cleared. Without it: exactly {@link prepareRowIdentity}.
+ * Run the open-time identity fill ({@link prepareRowIdentity}). With
+ * `sync.capture` on: with the capture triggers dropped, the written tables
+ * marked suspect, and re-mint K captures for identities a captured write
+ * cleared. With it off: exactly {@link prepareRowIdentity}, even when the
+ * sync tables exist (`cleo project link` creates them, T13025).
+ *
+ * Never throws, like {@link prepareRowIdentity}: a failed bracket (busy,
+ * a broken sync schema) is logged and reported as no fill.
  */
 export function prepareRowIdentityUnderCapture(
   db: DatabaseSync,
   scope: TableScope,
   options: Parameters<typeof prepareRowIdentity>[2] = {},
 ): IdentityFillUnderCapture {
-  if (!hasTable(db, '_sync_capture')) {
+  const capture = readSyncFlags(db)['sync.capture'] && hasTable(db, '_sync_capture');
+  if (!capture) {
     return { report: prepareRowIdentity(db, scope, options), suspect: [], remints: {} };
   }
+  try {
+    return bracketedFill(db, scope, options);
+  } catch (err) {
+    getLogger('row-identity').warn(
+      { scope, err: err instanceof Error ? err.message : String(err) },
+      'identity fill under capture failed; the store opens without it (T13025)',
+    );
+    return { report: null, suspect: [], remints: {} };
+  }
+}
+
+function bracketedFill(
+  db: DatabaseSync,
+  scope: TableScope,
+  options: Parameters<typeof prepareRowIdentity>[2],
+): IdentityFillUnderCapture {
   return withSyncTriggersSuspended(db, scope, () => {
     const report = prepareRowIdentity(db, scope, options);
     const suspect = report ? markSuspect(db, scope, touchSet(db, filledTables(scope, report))) : [];

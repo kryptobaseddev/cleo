@@ -334,6 +334,8 @@ export function verifyOwnedTriggers(
     db.prepare("SELECT 1 FROM main.sqlite_master WHERE type = 'table' AND name = ?").get(t) !==
     undefined;
   const findings: OwnedTriggerFinding[] = [];
+  // Repairs are planned first and applied in one unit (T13024 MED-2).
+  const work: Array<{ name: string; create: string | null }> = [];
   for (const [name, cls] of Object.entries(OWNED_TRIGGERS)) {
     const want = ddl.get(name) as string;
     const onTable = /\bON\s+[`"]?(\w+)[`"]?/i.exec(want.slice(0, want.search(/\bBEGIN\b/i)))?.[1];
@@ -343,7 +345,7 @@ export function verifyOwnedTriggers(
     const row = live.get(name);
     if ((OWNED_TRIGGER_REQUIRES[name] ?? []).some((t) => !hasTable(t))) {
       if (!row) continue;
-      if (options.repair) db.exec(`DROP TRIGGER IF EXISTS \`${name}\``);
+      if (options.repair) work.push({ name, create: null });
       findings.push({ name, problem: 'dangling', repaired: options.repair === true });
       continue;
     }
@@ -355,15 +357,46 @@ export function verifyOwnedTriggers(
         : 'no-clause';
     }
     if (!problem) continue;
-    let repaired = false;
-    if (options.repair) {
-      db.exec(`DROP TRIGGER IF EXISTS \`${name}\``);
-      db.exec(want);
-      repaired = true;
-    }
-    findings.push({ name, problem, repaired });
+    if (options.repair) work.push({ name, create: want });
+    findings.push({ name, problem, repaired: options.repair === true });
+  }
+  if (work.length > 0) {
+    atomicDdl(db, () => {
+      for (const w of work) {
+        db.exec(`DROP TRIGGER IF EXISTS \`${w.name}\``);
+        if (w.create !== null) db.exec(w.create);
+      }
+    });
   }
   return findings;
+}
+
+/**
+ * Run DDL as one unit (T13024 MED-2): `BEGIN IMMEDIATE` … `COMMIT` on an idle
+ * connection, a SAVEPOINT inside a caller's transaction. A failure rolls the
+ * whole unit back, so a DROP never commits without its CREATE.
+ */
+export function atomicDdl<T>(db: DatabaseSync, fn: () => T): T {
+  if (db.isTransaction) {
+    db.exec('SAVEPOINT cleo_atomic_ddl');
+    try {
+      const out = fn();
+      db.exec('RELEASE cleo_atomic_ddl');
+      return out;
+    } catch (err) {
+      db.exec('ROLLBACK TO cleo_atomic_ddl; RELEASE cleo_atomic_ddl');
+      throw err;
+    }
+  }
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const out = fn();
+    db.exec('COMMIT');
+    return out;
+  } catch (err) {
+    if (db.isTransaction) db.exec('ROLLBACK');
+    throw err;
+  }
 }
 
 /**

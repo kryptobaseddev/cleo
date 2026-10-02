@@ -2418,9 +2418,13 @@ async function createOwnedSqliteDataAccessor(
               nativeDb.prepare(`SAVEPOINT ${spName}`).run();
             }
             // T12343: the outer transaction is one capture frame (null when
-            // capture is off on this connection: nothing is written).
-            const frame = isOuter ? openCaptureFrame(nativeDb, 'write') : null;
+            // capture is off on this connection: nothing is written). Opened
+            // inside the try, so a failed frame INSERT (the table dropped by
+            // another process, SQLITE_FULL) rolls back instead of leaving the
+            // connection in its transaction holding RESERVED (T13024).
+            let frame: string | null = null;
             try {
+              frame = isOuter ? openCaptureFrame(nativeDb, 'write') : null;
               // The birth of each task an upsert replaced, for clearTaskIdentity
               // (T12806): sameness is decided on the birth before the overwrite.
               const replacedBirths = new Map<string, ReplacedTaskBirth>();

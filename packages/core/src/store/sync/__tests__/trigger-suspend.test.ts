@@ -219,6 +219,29 @@ describe('the open pass', () => {
     expect(verifyOwnedTriggers(again)).toEqual([]);
   });
 
+  it('a repair whose CREATE fails rolls back its DROP: the old trigger stays (T13024 MED-2)', async () => {
+    const db = await openStore();
+    db.exec(`DROP TRIGGER tasks_tasks_lease_iso_insert;
+             CREATE TRIGGER tasks_tasks_lease_iso_insert BEFORE INSERT ON tasks_tasks
+             WHEN NEW.claimed_at IS NOT NULL AND NEW.claimed_at NOT GLOB '[0-9]*'
+             BEGIN SELECT RAISE(ABORT, 'old'); END;`);
+    const before = liveSql(db, 'tasks_tasks_lease_iso_insert');
+    const ddl = new Map(ownedTriggerDdl());
+    ddl.set(
+      'tasks_tasks_lease_iso_insert',
+      'CREATE TRIGGER tasks_tasks_lease_iso_insert BROKEN SQL',
+    );
+    expect(() => verifyOwnedTriggers(db, { repair: true, ddl })).toThrow();
+    expect(liveSql(db, 'tasks_tasks_lease_iso_insert')).toBe(before);
+    expect(db.isTransaction).toBe(false);
+    // Inside a caller's transaction the unit is a savepoint: same outcome, transaction kept.
+    db.exec('BEGIN IMMEDIATE');
+    expect(() => verifyOwnedTriggers(db, { repair: true, ddl })).toThrow();
+    expect(db.isTransaction).toBe(true);
+    db.exec('ROLLBACK');
+    expect(liveSql(db, 'tasks_tasks_lease_iso_insert')).toBe(before);
+  });
+
   it('a store without the AC graveyard table (T12341 probe-stamped) keeps AC deletes working, and the next open heals it', async () => {
     const db = await openStore();
     db.exec('DROP TRIGGER trg_tasks_ac_uid_graveyard; DROP TABLE tasks_ac_uid_graveyard;');
