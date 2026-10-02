@@ -200,9 +200,41 @@ function keyUnavailable(message: string, fix?: string): NexusAccountError {
   return new NexusAccountError('E_NEXUS_VAULT_KEY_UNAVAILABLE', message, fix);
 }
 
+/**
+ * The server answered 404 because it has no such route, not because the resource is missing: its
+ * fallback handler says `E_NOT_FOUND` "route not found" (cleo-nexus app.notFound), while a missing
+ * escrow is "key escrow not found" (T13049).
+ */
+function isRouteMissing(err: unknown): boolean {
+  return (
+    err instanceof NexusError &&
+    err.status === 404 &&
+    err.code === 'E_NOT_FOUND' &&
+    err.serverMessage === 'route not found'
+  );
+}
+
+/** A Cleo Nexus server older than account key escrow (cleo-nexus T082) cannot hold a vault (T13049). */
+function vaultUnsupported(): NexusAccountError {
+  return new NexusAccountError(
+    'E_NEXUS_VAULT_UNSUPPORTED',
+    'this Cleo Nexus server does not support the cloud vault yet: it has no account key escrow',
+    'upgrade the Cleo Nexus server (account key escrow, cleo-nexus T082), or point CLEO at one that has it; nothing was written',
+  );
+}
+
 async function openEscrow(conn: NexusVaultConnection): Promise<{ mk: Buffer; kv: number } | null> {
-  const grant = await conn.find('/v1/account/keys/escrow', KeyEscrowGrant);
-  if (grant === null) return null;
+  let grant: z.infer<typeof KeyEscrowGrant>;
+  try {
+    grant = await conn.raw('GET', '/v1/account/keys/escrow', KeyEscrowGrant);
+  } catch (err) {
+    if (isRouteMissing(err)) throw vaultUnsupported();
+    // A supporting server with nothing escrowed yet: the account has no vault key. Only the
+    // server's own E_NOT_FOUND counts; a 404 page from something else (a proxy, a wrong
+    // --api-url) is a failed request, never an empty vault.
+    if (err instanceof NexusError && err.status === 404 && err.code === 'E_NOT_FOUND') return null;
+    throw nexusApiErrorToAccountError(err);
+  }
   if (grant.deviceId !== conn.deviceId) {
     throw keyUnavailable('the server released the account key to another device id');
   }
@@ -242,6 +274,9 @@ async function mintEscrow(conn: NexusVaultConnection): Promise<{ mk: Buffer; kv:
     });
     return { mk, kv: 1 };
   } catch (err) {
+    // Backstop: unreachable while GET and PUT escrow ship together (cleo-nexus #24), since
+    // openEscrow already refused; kept for a server that exposes one without the other.
+    if (isRouteMissing(err)) throw vaultUnsupported();
     if (!isConflict(err)) throw nexusApiErrorToAccountError(err);
     // Another device escrowed first: use its key.
     const won = await openEscrow(conn);
@@ -292,7 +327,8 @@ async function ensureCertified(
  *   `E_NEXUS_VAULT_EMPTY`.
  * @returns The key, its version and the trusted signers.
  * @throws {NexusAccountError} `E_NEXUS_VAULT_KEY_UNAVAILABLE` when the key
- *   cannot be obtained or verified; a mapped API error otherwise.
+ *   cannot be obtained or verified; `E_NEXUS_VAULT_UNSUPPORTED` when the server
+ *   has no key escrow route; a mapped API error otherwise.
  */
 export async function unlockNexusAccountKey(
   conn: NexusVaultConnection,

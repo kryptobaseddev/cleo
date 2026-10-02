@@ -84,6 +84,11 @@ export const NEXUS_ACCOUNT_ERROR_CODES = [
   'E_NEXUS_VAULT_NOT_LINKED',
   /** The cloud holds no snapshot to restore. */
   'E_NEXUS_VAULT_EMPTY',
+  /**
+   * The Cleo Nexus server predates account key escrow (cleo-nexus T082), so it cannot hold a
+   * vault (T13049). Nothing was written.
+   */
+  'E_NEXUS_VAULT_UNSUPPORTED',
   /** The server refused the snapshot (lineage or regression check). */
   'E_NEXUS_VAULT_REFUSED',
   /**

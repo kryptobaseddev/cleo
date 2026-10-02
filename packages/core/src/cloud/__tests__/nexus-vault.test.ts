@@ -201,6 +201,8 @@ class ApiFail extends Error {
     readonly status: number,
     readonly code: string,
     readonly details?: Record<string, unknown>,
+    /** The server's message, when a test depends on it (cleo-nexus's "route not found", T13049). */
+    readonly serverMessage?: string,
   ) {
     super(code);
   }
@@ -218,6 +220,10 @@ class FakeNexus {
   devices = new Map<string, FakeDevice>();
   certificates: DeviceCertificateRecord[] = [];
   escrow: { mk: Buffer; keyVersion: number; verifier: string; updatedAt: string } | null = null;
+  /** `false` plays a server older than account key escrow (cleo-nexus T082): no escrow routes (T13049). */
+  escrowRoutes = true;
+  /** `true` answers the escrow route with a bare HTML 404, as a proxy or a wrong URL would (T13049). */
+  escrowHtml404 = false;
   /** Runs before an escrow PUT is applied (simulates a concurrent first device). */
   beforeEscrowPut: (() => void) | null = null;
   projectKeys = new Map<string, Array<{ wrappedProjectKey: string; keyVersion: number }>>();
@@ -293,6 +299,12 @@ class FakeNexus {
   readonly fetch: FetchLike = async (input, init) => {
     const url = new URL(input);
     const method = init?.method ?? 'GET';
+    if (this.escrowHtml404 && url.pathname.endsWith('/v1/account/keys/escrow')) {
+      return new Response('<html><body>Not Found</body></html>', {
+        status: 404,
+        headers: { 'content-type': 'text/html' },
+      });
+    }
     try {
       if (url.origin === BLOB_HOST) return this.blob(method, url, init);
       const token = (new Headers(init?.headers).get('authorization') ?? '').replace(/^Bearer /, '');
@@ -328,7 +340,7 @@ class FakeNexus {
           success: false,
           error: {
             code: err.code,
-            message: `${err.code} from fake`,
+            message: err.serverMessage ?? `${err.code} from fake`,
             requestId: 'r',
             ...(err.details ? { details: err.details } : {}),
           },
@@ -409,8 +421,11 @@ class FakeNexus {
       return this.ok({ deviceId: id, keyVersion: record.keyVersion });
     }
     if (route === 'GET /v1/account/keys') throw new ApiFail(404, 'E_NOT_FOUND');
+    if (!this.escrowRoutes && route.endsWith(' /v1/account/keys/escrow')) {
+      throw new ApiFail(404, 'E_NOT_FOUND', undefined, 'route not found');
+    }
     if (route === 'GET /v1/account/keys/escrow') {
-      if (!this.escrow) throw new ApiFail(404, 'E_NOT_FOUND');
+      if (!this.escrow) throw new ApiFail(404, 'E_NOT_FOUND', undefined, 'key escrow not found');
       const sealed = sealTo(
         Buffer.from(dev.encryptionPublicKey, 'base64'),
         this.escrow.mk,
@@ -1638,6 +1653,59 @@ describe('cloud vault key escrow', () => {
     expect(fake.certificates).toEqual([]);
     expect(fake.projectKeys.size).toBe(0);
     expect(fake.writes).toEqual([]);
+  });
+
+  it('a server without key escrow is UNSUPPORTED on push, pull, restore, verify and status, writing nothing (T13049)', async () => {
+    fake.escrowRoutes = false;
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A });
+    seedProject(a, 2);
+    link(a);
+    const runs: Array<[string, () => Promise<object>]> = [
+      ['push', () => pushNexusVault(vopts(a))],
+      ['pull', () => restoreNexusVault(vopts(a, { mode: 'pull' }))],
+      [
+        'restore',
+        () =>
+          restoreNexusVault(
+            vopts(a, { mode: 'restore', projectId: REMOTE_PROJECT, into: path.join(a.root, 'x') }),
+          ),
+      ],
+      ['verify', () => verifyNexusVault(vopts(a))],
+      ['status', () => nexusVaultStatus(vopts(a))],
+    ];
+    for (const [name, run] of runs) {
+      const err = await failure(on(a, run));
+      expect({ name, code: err.code }).toEqual({ name, code: 'E_NEXUS_VAULT_UNSUPPORTED' });
+      expect(err.message).toMatch(/does not support the cloud vault/);
+      expect(err.fix).toMatch(/key escrow/);
+    }
+    expect(fake.escrow).toBeNull();
+    expect(fake.certificates).toEqual([]);
+    expect(fake.writes).toEqual([]);
+  });
+
+  it('a 404 page that is not from Cleo Nexus is a failed request, not an empty vault (T13049)', async () => {
+    fake.escrowHtml404 = true;
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A });
+    seedProject(a, 2);
+    link(a);
+    for (const run of [() => verifyNexusVault(vopts(a)), () => pushNexusVault(vopts(a))]) {
+      const err = await failure(on(a, run));
+      expect(err.code).toBe('E_NEXUS_REQUEST_FAILED');
+    }
+    expect(fake.escrow).toBeNull();
+    expect(fake.writes).toEqual([]);
+  });
+
+  it('a supporting server with nothing escrowed yet stays EMPTY, not UNSUPPORTED (T13049)', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A });
+    seedProject(a, 2);
+    link(a);
+    const err = await failure(on(a, () => verifyNexusVault(vopts(a))));
+    expect(err.code).toBe('E_NEXUS_VAULT_EMPTY');
   });
 
   it('a restore on an account that never pushed is EMPTY and writes nothing (T12974)', async () => {
