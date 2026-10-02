@@ -98,14 +98,16 @@ export function assertTestEnv(dbPath: string): void {
 export async function createDataAccessor(
   cwd?: string,
 ): Promise<import('@cleocode/contracts').DataAccessor> {
-  // T13021: a cloud vault placeholder (another machine's project) never becomes a root here.
-  const { assertNotVaultRemotePath } = await import('./dual-scope-db.js');
-  assertNotVaultRemotePath(cwd);
+  // The default project and the inherited scope are captured before the first await.
   const root = resolve(cwd ?? getProjectRoot());
-  assertNotVaultRemotePath(root);
   const inherited = worktreeScope.getStore();
   const captured = inherited ? { ...inherited } : undefined;
   captured?.execution?.assertActive();
+  // T13021: a cloud vault placeholder (another machine's project), as given or
+  // resolved, never becomes a root here; refused before any store is opened.
+  const { assertNotVaultRemotePath } = await import('./dual-scope-db.js');
+  assertNotVaultRemotePath(cwd);
+  assertNotVaultRemotePath(root);
   const { createSqliteDataAccessor, captureTaskAccessorScope, bindTaskAccessorScope } =
     await import('./sqlite-data-accessor.js');
   const scope = captureTaskAccessorScope(root, captured);
