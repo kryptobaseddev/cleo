@@ -86,6 +86,12 @@ export const NEXUS_ACCOUNT_ERROR_CODES = [
   'E_NEXUS_VAULT_EMPTY',
   /** The server refused the snapshot (lineage or regression check). */
   'E_NEXUS_VAULT_REFUSED',
+  /**
+   * The stream moved past what this CLEO's vault writes (T13034): it takes only checkpoint/v3
+   * snapshots (the server's `E_STREAM_VERSION`), or it holds data of a newer sync schema.
+   * Pull, restore and verify still work; nothing was written.
+   */
+  'E_NEXUS_VAULT_STREAM_UPGRADED',
   /** Another CLEO process is writing to the store a restore would replace. */
   'E_NEXUS_VAULT_STORE_BUSY',
   /** A project restore target already holds a different project. */

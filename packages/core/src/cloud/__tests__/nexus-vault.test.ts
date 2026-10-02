@@ -3,9 +3,12 @@
  * `cleo cloud activity` against an in-process fake Cleo Nexus API: two
  * simulated devices (separate CLEO homes, device stores and project copies)
  * share one fake server's state. The fake follows the cleo-nexus route
- * semantics the vault relies on: replicaSeq continuity (E_CONFLICT), lineage
- * (E_LINEAGE), the count-regression rule (E_REGRESSION via checkManifest),
- * the replica map check, blob presign/upload/complete, writer leases
+ * semantics the vault relies on: segment and checkpoint signatures (v2 and
+ * v3 domains), the segment contract (txnDeltas sum check), replicaSeq
+ * continuity (E_CONFLICT), lineage (E_LINEAGE), the exact checkpoint rule of
+ * journal spec §2.11 with the v3 ratchet (E_REGRESSION, E_MANIFEST_ACCOUNTING,
+ * E_STREAM_VERSION via checkManifestV3) and the stream's voided set, the
+ * replica map check, blob presign/upload/complete, writer leases
  * (E_LEASE_HELD, forced takes labelled as forks) and key escrow.
  *
  * No request leaves the process; every store lives in a temp directory.
@@ -14,6 +17,7 @@
  * @task T12337
  * @task T12338
  * @task T12951
+ * @task T13034
  * @epic T12322
  */
 
@@ -25,14 +29,15 @@ import os from 'node:os';
 import path from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { gunzipSync } from 'node:zlib';
-import type { PortableBundleManifest } from '@cleocode/contracts';
-import type {
-  Checkpoint,
-  DeviceCertificateRecord,
+import { type PortableBundleManifest, SYNC_SCHEMA_VERSION } from '@cleocode/contracts';
+import {
+  AppendSegmentRequest,
+  type Checkpoint,
+  type DeviceCertificateRecord,
   Manifest,
-  ReplicaHeads,
-  Segment,
-  TableDeltas,
+  type ReplicaHeads,
+  type Segment,
+  type TableDeltas,
 } from '@cleocode/contracts/cloud';
 import { create as tarCreate, extract as tarExtract } from 'tar';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -46,11 +51,26 @@ import {
   sealTo,
   sha256Hex,
   uuidv7,
+  verifyEd25519,
 } from '../crypto.js';
 import { type FetchLike, Http } from '../http.js';
-import { cursorFromCheckpoint, Journal } from '../journal.js';
+import {
+  cursorFromCheckpoint,
+  Journal,
+  manifestHash,
+  replicasHash,
+  segmentMetaHash,
+} from '../journal.js';
 import { masterKeyVerifier, unwrapProjectKey } from '../keys.js';
-import { checkManifest, sumDeltas } from '../manifest-check.js';
+import {
+  checkManifestV3,
+  type DeclaredTxn,
+  manifestVersion,
+  nextVoidedSet,
+  schemaRises,
+  txnRefKey,
+  windowOf,
+} from '../manifest-check.js';
 import { NexusAccountError } from '../nexus-auth.js';
 import { nexusCloudActivity } from '../nexus-cloud-activity.js';
 import { FileNexusTokenStore } from '../nexus-credentials.js';
@@ -74,7 +94,12 @@ import {
   unlockNexusAccountKey,
 } from '../nexus-vault-keys.js';
 import { NexusVaultState } from '../nexus-vault-state.js';
-import { replicasCanonical } from '../signing.js';
+import {
+  checkpointSigningMessage,
+  replicasCanonical,
+  segmentSigningMessage,
+  segmentSigningVersion,
+} from '../signing.js';
 
 /** Runs just before the vault places a verified snapshot (after its safety export). */
 const importHooks = vi.hoisted(() => ({ beforeImport: null as (() => void) | null }));
@@ -141,6 +166,18 @@ interface FakeStream {
   headCheckpointId: string | null;
   segments: Segment[];
   checkpoints: Checkpoint[];
+  /** The stream's cumulative voided set (journal spec §2.11 §4), moved by each accepted checkpoint. */
+  voided: DeclaredTxn[];
+}
+
+/** The declared transactions of segments: a v2 segment is one transaction (txn 0) with its deltas. */
+function txnsOf(segments: readonly Segment[]): DeclaredTxn[] {
+  return segments.flatMap((x) =>
+    (x.txnDeltas ?? [{ txn: 0, deltas: x.deltas }]).map((t) => ({
+      ref: { replicaId: x.replicaId, replicaSeq: x.replicaSeq, txn: t.txn },
+      deltas: t.deltas,
+    })),
+  );
 }
 
 interface FakeActivity {
@@ -189,6 +226,10 @@ class FakeNexus {
   beforeSegment: { deviceId: string; run: () => Promise<void> } | null = null;
   /** Codes the next checkpoint creates are refused with, in order. */
   refuseCheckpoint: string[] = [];
+  /** Runs once before the next checkpoint create by `deviceId` (simulates a concurrent author). */
+  beforeCheckpoint: { deviceId: string; run: () => Promise<void> } | null = null;
+  /** The server's MAX_SCHEMA_VERSION. */
+  maxSchemaVersion = 10_000;
   /** Largest activity page this server serves (the real one: 200). */
   activityPageSize = 200;
   now = () => new Date();
@@ -207,6 +248,7 @@ class FakeNexus {
       headCheckpointId: null,
       segments: [],
       checkpoints: [],
+      voided: [],
     });
   }
 
@@ -220,6 +262,7 @@ class FakeNexus {
         headCheckpointId: null,
         segments: [],
         checkpoints: [],
+        voided: [],
       };
       this.streams.set(streamId, s);
     }
@@ -258,6 +301,16 @@ class FakeNexus {
       ) {
         this.beforeSegment = null;
         await hook.run();
+      }
+      const cpHook = this.beforeCheckpoint;
+      if (
+        cpHook !== null &&
+        cpHook.deviceId === device.deviceId &&
+        method === 'POST' &&
+        url.pathname.endsWith('/checkpoints')
+      ) {
+        this.beforeCheckpoint = null;
+        await cpHook.run();
       }
       return this.route(device, method, url, body);
     } catch (err) {
@@ -478,12 +531,36 @@ class FakeNexus {
         kind: s.kind,
         headSeq: s.headSeq,
         headCheckpointId: s.headCheckpointId,
-        maxSchemaVersion: 1,
+        maxSchemaVersion: Math.max(1, ...s.segments.map((x) => x.schemaVersion)),
       });
     }
     if (route === 'POST /segments') {
-      if (body['deviceId'] !== dev.deviceId) throw new ApiFail(403, 'E_FORBIDDEN');
-      const replicaId = body['replicaId'] as string;
+      // The server parses the contract (with the txnDeltas sum check) and verifies the signature
+      // under the domain the metadata picks (segment/v2, or v3 with txnDeltas).
+      const parsed = AppendSegmentRequest.safeParse(body);
+      if (!parsed.success) throw new ApiFail(400, 'E_VALIDATION');
+      const req = parsed.data;
+      if (req.deviceId !== dev.deviceId) throw new ApiFail(403, 'E_FORBIDDEN');
+      if (req.schemaVersion > this.maxSchemaVersion) throw new ApiFail(422, 'E_SCHEMA_AHEAD');
+      const signed = segmentSigningMessage({
+        streamId,
+        replicaId: req.replicaId,
+        deviceId: dev.deviceId,
+        replicaSeq: req.replicaSeq,
+        segmentHash: req.segmentHash,
+        metaHash: segmentMetaHash(req),
+        version: segmentSigningVersion(req),
+      });
+      if (
+        !verifyEd25519(
+          Buffer.from(dev.signingPublicKey, 'base64'),
+          signed,
+          Buffer.from(req.signature, 'base64'),
+        )
+      ) {
+        throw new ApiFail(403, 'E_FORBIDDEN', { reason: 'bad-segment-signature' });
+      }
+      const replicaId = req.replicaId;
       const dup = s.segments.find(
         (x) => x.replicaId === replicaId && x.segmentHash === body['segmentHash'],
       );
@@ -509,6 +586,7 @@ class FakeNexus {
         hlcMin: body['hlcMin'] as string,
         hlcMax: body['hlcMax'] as string,
         deltas: body['deltas'] as TableDeltas,
+        txnDeltas: req.txnDeltas ?? null,
         signature: body['signature'] as string,
         ciphertext: (body['ciphertext'] as string | undefined) ?? null,
         blobSha256: (body['blobSha256'] as string | undefined) ?? null,
@@ -530,7 +608,44 @@ class FakeNexus {
     }
     if (route === 'POST /checkpoints') {
       if (body['deviceId'] !== dev.deviceId) throw new ApiFail(403, 'E_FORBIDDEN');
+      const parsedManifest = Manifest.safeParse(body['manifest']);
+      if (!parsedManifest.success) throw new ApiFail(400, 'E_VALIDATION');
+      const manifest = parsedManifest.data;
+      const signed = checkpointSigningMessage({
+        streamId,
+        checkpointId: body['checkpointId'] as string,
+        parentCheckpointId: (body['parentCheckpointId'] as string | null) ?? null,
+        replicaId: body['replicaId'] as string,
+        deviceId: dev.deviceId,
+        coversSeq: body['coversSeq'] as number,
+        manifestHash: manifestHash(manifest),
+        replicasHash: replicasHash(body['replicas'] as ReplicaHeads),
+        blobSha256: body['blobSha256'] as string,
+        sizeBytes: body['sizeBytes'] as number,
+        version: manifestVersion(manifest),
+      });
+      if (
+        !verifyEd25519(
+          Buffer.from(dev.signingPublicKey, 'base64'),
+          signed,
+          Buffer.from(body['signature'] as string, 'base64'),
+        )
+      ) {
+        throw new ApiFail(403, 'E_FORBIDDEN', { reason: 'bad-checkpoint-signature' });
+      }
       const refuse = this.refuseCheckpoint.shift();
+      if (refuse === 'E_STREAM_VERSION') {
+        // As the server words its v3 ratchet refusal.
+        throw new ApiFail(409, refuse, {
+          verdict: {
+            ok: false,
+            code: 'E_STREAM_VERSION',
+            reason: 'stream-v3',
+            parentVersion: 3,
+            nextVersion: 2,
+          },
+        });
+      }
       if (refuse !== undefined) throw new ApiFail(409, refuse);
       const parentId = (body['parentCheckpointId'] as string | null) ?? null;
       if (parentId !== s.headCheckpointId) {
@@ -553,18 +668,28 @@ class FakeNexus {
       const blob = this.blobs.get(body['blobSha256'] as string);
       if (!blob?.verified) throw new ApiFail(409, 'E_BLOB_MISSING');
       if (blob.size !== body['sizeBytes']) throw new ApiFail(400, 'E_VALIDATION');
-      const between = s.segments
-        .filter((x) => x.seq > fromSeq && x.seq <= coversSeq)
-        .map((x) => x.deltas);
-      const verdict = checkManifest(
-        parent?.manifest ?? null,
-        body['manifest'] as Manifest,
-        sumDeltas(between),
-        2,
-      );
+      // The exact rule of journal spec §2.11 (cleo-nexus checkManifestV3): a v2 manifest is the v3
+      // one with empty lists, a v2 segment one transaction; after a v3 checkpoint a v2 one is refused.
+      const window = s.segments.filter((x) => x.seq > fromSeq && x.seq <= coversSeq);
+      const parentPending = new Set((parent?.manifest.pending ?? []).map(txnRefKey));
+      const verdict = checkManifestV3({
+        parent: parent?.manifest ?? null,
+        next: manifest,
+        window: windowOf(
+          txnsOf(window),
+          window.map((x) => ({ seq: x.seq, schemaVersion: x.schemaVersion })),
+        ),
+        parentPending: txnsOf(s.segments.filter((x) => x.seq <= fromSeq)).filter((t) =>
+          parentPending.has(txnRefKey(t.ref)),
+        ),
+        voidedBefore: s.voided,
+        maxAcceptedSchemaVersion: this.maxSchemaVersion,
+      });
       if (!verdict.ok) {
         this.record(dev, `checkpoint.refused.${verdict.code}`, streamId);
-        throw new ApiFail(409, verdict.code, { verdict });
+        throw new ApiFail(verdict.code === 'E_SCHEMA_AHEAD' ? 422 : 409, verdict.code, {
+          verdict,
+        });
       }
       const cp: Checkpoint = {
         checkpointId: body['checkpointId'] as string,
@@ -573,7 +698,7 @@ class FakeNexus {
         replicaId: body['replicaId'] as string,
         deviceId: dev.deviceId,
         coversSeq,
-        manifest: body['manifest'] as Manifest,
+        manifest,
         replicas: body['replicas'] as ReplicaHeads,
         blobSha256: body['blobSha256'] as string,
         sizeBytes: body['sizeBytes'] as number,
@@ -583,6 +708,7 @@ class FakeNexus {
       };
       s.checkpoints.push(cp);
       s.headCheckpointId = cp.checkpointId;
+      s.voided = nextVoidedSet(s.voided, manifest.voided ?? [], manifest.revived ?? []);
       this.record(dev, 'checkpoint.create', streamId);
       return this.ok({ checkpoint: cp }, 201);
     }
@@ -2663,5 +2789,255 @@ describe('cloud vault round 4 (#1773)', () => {
     expect((await on(b, () => verifyNexusVault(vopts(b)))).verdict).toBe('match');
     write(b, 'adrs/tracked.md', 'b edit\n');
     expect((await on(b, () => verifyNexusVault(vopts(b)))).verdict).toBe('ahead');
+  });
+});
+
+describe('cloud vault on a stream the change journal writes (segment/v3, checkpoint/v3; T13034)', () => {
+  const PIN_HASH = 'c'.repeat(64);
+  const insertTask = (m: Machine, id: string) =>
+    exec(m, `INSERT INTO tasks_tasks (id, title) VALUES ('${id}', 'new')`);
+  const hlc = (replicaId: string, n: number) =>
+    `${String(Date.now()).padStart(13, '0')}-${String(n).padStart(6, '0')}-${replicaId}`;
+
+  /** The project data key, as every device unwraps it. */
+  function projectDataKey(): Buffer {
+    const wrapped = fake.projectKeys.get(REMOTE_PROJECT)?.[0];
+    return unwrapProjectKey(
+      fake.escrow?.mk ?? Buffer.alloc(0),
+      wrapped?.wrappedProjectKey ?? '',
+      REMOTE_PROJECT,
+      1,
+    );
+  }
+
+  /** `m`'s replica as the change journal drives it: its own segments and checkpoints. */
+  function journalOf(m: Machine): Journal {
+    return new Journal({
+      http: new Http({ baseUrl: API, token: m.token, deviceId: m.deviceId, fetch: fake.fetch }),
+      streamId: STREAM,
+      replicaId: m.replicaId,
+      deviceId: m.deviceId,
+      signing: m.keys.signing,
+      key: projectDataKey(),
+      fetch: fake.fetch,
+    });
+  }
+
+  /** Both devices certified: each trusts the other's signatures. */
+  async function certify(...ms: Machine[]): Promise<Map<string, Uint8Array>> {
+    for (const m of ms) {
+      await on(m, async () => unlockNexusAccountKey(await connectNexusVault(vopts(m))));
+    }
+    return new Map(ms.map((m) => [m.deviceId, m.keys.signing.publicKey]));
+  }
+
+  /**
+   * A checkpoint/v3 by `m`'s journal over the head `parent`: the parent's bundle and tables (the
+   * journal applied nothing the vault counts), every window transaction listed in `voided` whole,
+   * and the replay pin's transitions computed by the server's rise rule.
+   */
+  async function journalCheckpointV3(
+    m: Machine,
+    parent: Checkpoint,
+    signers: Map<string, Uint8Array>,
+    voided: Array<{
+      ref: { replicaId: string; replicaSeq: number; txn: number };
+      deltas: TableDeltas;
+    }>,
+  ): Promise<Checkpoint> {
+    const j = journalOf(m);
+    const page = await j.pull(cursorFromCheckpoint(parent), signers, 200);
+    const window = fake.stream(STREAM).segments.filter((x) => x.seq > parent.coversSeq);
+    const transitions = schemaRises(
+      parent.manifest.schemaVersion,
+      window.map((x) => ({ seq: x.seq, schemaVersion: x.schemaVersion })),
+    ).map((t) => ({ ...t, journal: PIN_HASH }));
+    const { bundle } = await j.restoreCheckpoint(parent.checkpointId, signers);
+    return j.pushCheckpoint({
+      bundle,
+      manifest: {
+        schemaVersion: Math.max(
+          parent.manifest.schemaVersion,
+          ...transitions.map((t) => t.schemaVersion),
+        ),
+        tables: parent.manifest.tables,
+        pending: [],
+        voided,
+        revived: [],
+        pruned: {},
+        replayPin: { journal: PIN_HASH, triggerSetHash: PIN_HASH, transitions },
+      },
+      cursor: page.cursor,
+      parentCheckpointId: parent.checkpointId,
+    });
+  }
+
+  it('mixed v2-then-v3 lineage: a segment/v3 window folds into a v2 snapshot; a checkpoint/v3 head pulls, verifies and refuses a push', async () => {
+    const { a, b } = await twoMachines();
+    const s = fake.stream(STREAM);
+    await on(a, () => pushNexusVault(vopts(a)));
+    // The vault stamps the shared sync schema on what it writes, not its manifest format.
+    expect(s.checkpoints[0]?.manifest.schemaVersion).toBe(SYNC_SCHEMA_VERSION);
+    const signers = await certify(a, b);
+
+    // B's journal appends a segment/v3: two transactions, per-transaction deltas.
+    await journalOf(b).push(0, Buffer.from('{"txns":2}'), {
+      opCount: 2,
+      hlcMin: hlc(REPLICA_B, 0),
+      hlcMax: hlc(REPLICA_B, 1),
+      deltas: { tasks_tasks: { created: 2, deleted: 0 } },
+      txnDeltas: [
+        { txn: 0, deltas: { tasks_tasks: { created: 1, deleted: 0 } } },
+        { txn: 1, deltas: { tasks_tasks: { created: 1, deleted: 0 } } },
+      ],
+      schemaVersion: SYNC_SCHEMA_VERSION,
+    });
+    expect(s.segments[0]?.txnDeltas).toHaveLength(2);
+    expect(segmentSigningVersion(s.segments[0] ?? {})).toBe(3);
+
+    // A holds the same two rows: its replay verifies the v3 segment and needs no delta of its own.
+    insertTask(a, 'J1');
+    insertTask(a, 'J2');
+    const folded = await on(a, () => pushNexusVault(vopts(a)));
+    expect(folded.status).toBe('pushed');
+    expect(folded.deltaSegmentSeq).toBeNull();
+    const v2Head = s.checkpoints.at(-1);
+    if (!v2Head) throw new Error('fixture');
+    expect(manifestVersion(v2Head.manifest)).toBe(2);
+    expect(v2Head.coversSeq).toBe(1);
+    expect(v2Head.replicas[REPLICA_B]).toEqual({ deviceId: DEVICE_B, lastReplicaSeq: 0 });
+    expect(v2Head.manifest.tables['tasks_tasks']?.rows).toBe(7);
+
+    // A pushes a new row; while it uploads, B's journal checkpoints v3 over the head. Its window holds
+    // A's cleo-vault-delta/v1 segment, accounted as one transaction (txn 0) and voided whole.
+    insertTask(a, 'A1');
+    let v3Head: Checkpoint | null = null;
+    fake.beforeCheckpoint = {
+      deviceId: DEVICE_A,
+      run: async () => {
+        const delta = s.segments.at(-1);
+        if (!delta || delta.replicaId !== REPLICA_A) throw new Error('fixture: no vault delta');
+        expect(delta.schemaVersion).toBe(SYNC_SCHEMA_VERSION);
+        expect(delta.txnDeltas).toBeNull();
+        v3Head = await journalCheckpointV3(b, v2Head, signers, [
+          {
+            ref: { replicaId: REPLICA_A, replicaSeq: delta.replicaSeq, txn: 0 },
+            deltas: delta.deltas,
+          },
+        ]);
+      },
+    };
+    const raced = await failure(on(a, () => pushNexusVault(vopts(a))));
+    expect(raced.code).toBe('E_NEXUS_VAULT_BEHIND');
+    const head = v3Head as Checkpoint | null;
+    if (!head) throw new Error('fixture: no v3 checkpoint');
+    expect(s.headCheckpointId).toBe(head.checkpointId);
+    expect(manifestVersion(head.manifest)).toBe(3);
+    expect(s.voided.map((v) => v.ref)).toEqual([{ replicaId: REPLICA_A, replicaSeq: 0, txn: 0 }]);
+
+    // A push onto the v3 head is refused before anything is written: no lease, no upload, and no
+    // delta segment left orphaned in the journal (A still holds a row the head does not).
+    const writes = fake.writes.length;
+    const segments = s.segments.length;
+    for (const force of [false, true]) {
+      const refused = await failure(on(a, () => pushNexusVault(vopts(a, { force }))));
+      expect(refused.code).toBe('E_NEXUS_VAULT_STREAM_UPGRADED');
+      expect(refused.message).toContain('checkpoint/v3');
+      expect(refused.fix).toContain('cleo cloud pull');
+    }
+    expect(
+      fake.writes.slice(writes).filter((w) => w.includes('/v1/streams/') || w.includes('/blobs/')),
+    ).toEqual([]);
+    expect(s.segments).toHaveLength(segments);
+    expect(s.headCheckpointId).toBe(head.checkpointId);
+    expect(fake.leases.size).toBe(0);
+
+    // Verify trusts the v3 head (its checkpoint/v3 signature verifies) and compares with it.
+    const verify = await on(a, () => verifyNexusVault(vopts(a)));
+    expect(verify.head?.checkpointId).toBe(head.checkpointId);
+    expect(verify.warnings.some((w) => w.code === 'W_NEXUS_VAULT_UNTRUSTED_SNAPSHOT')).toBe(false);
+    expect(verify.verdict).toBe('diverged');
+
+    // Pull restores the v3 head (signature, bundle and manifest verified); the stores then match.
+    const pulled = await on(a, () => restoreNexusVault(vopts(a, { mode: 'pull', force: true })));
+    expect(pulled.status).toBe('restored');
+    expect(pulled.verified).toBe(true);
+    expect(pulled.snapshot?.checkpointId).toBe(head.checkpointId);
+    expect(taskCount(a)).toBe(7);
+    expect((await on(a, () => verifyNexusVault(vopts(a)))).verdict).toBe('match');
+
+    // A new machine restores the v3 head too.
+    const { result } = await restoreOntoB(b);
+    expect(result.status).toBe('restored');
+    expect(result.verified).toBe(true);
+    expect(result.snapshot?.checkpointId).toBe(head.checkpointId);
+    expect((await on(b, () => verifyNexusVault(vopts(b)))).verdict).toBe('match');
+  });
+
+  it("the server's E_STREAM_VERSION maps to E_NEXUS_VAULT_STREAM_UPGRADED, with nothing left behind", async () => {
+    const { a } = await twoMachines();
+    const s = fake.stream(STREAM);
+    await on(a, () => pushNexusVault(vopts(a)));
+    // Same counts, new content: the push needs no delta segment, only a checkpoint.
+    exec(a, "UPDATE tasks_tasks SET title = 'renamed' WHERE id = 'T0'");
+    fake.refuseCheckpoint = ['E_STREAM_VERSION'];
+    const refused = await failure(on(a, () => pushNexusVault(vopts(a))));
+    expect(refused.code).toBe('E_NEXUS_VAULT_STREAM_UPGRADED');
+    expect(refused.message).toContain('checkpoint/v3');
+    expect(refused.fix).toContain('cleo cloud pull');
+    expect(s.segments).toHaveLength(0);
+    expect(s.checkpoints).toHaveLength(1);
+    expect(fake.leases.size).toBe(0);
+  });
+
+  it('a segment of a newer sync schema since the head refuses the push before its delta segment', async () => {
+    const { a, b } = await twoMachines();
+    const s = fake.stream(STREAM);
+    await on(a, () => pushNexusVault(vopts(a)));
+    await certify(a, b);
+    await journalOf(b).push(0, Buffer.from('{}'), {
+      opCount: 1,
+      hlcMin: hlc(REPLICA_B, 0),
+      hlcMax: hlc(REPLICA_B, 0),
+      deltas: { tasks_tasks: { created: 1, deleted: 0 } },
+      schemaVersion: SYNC_SCHEMA_VERSION + 1,
+    });
+    // Two new rows here against one declared: this push would need a delta segment.
+    insertTask(a, 'A1');
+    insertTask(a, 'A2');
+    const refused = await failure(on(a, () => pushNexusVault(vopts(a))));
+    expect(refused.code).toBe('E_NEXUS_VAULT_STREAM_UPGRADED');
+    expect(refused.message).toContain(`sync schema ${SYNC_SCHEMA_VERSION + 1}`);
+    expect(refused.fix).toContain('upgrade CLEO');
+    expect(s.segments.map((x) => x.replicaId)).toEqual([REPLICA_B]);
+    expect(s.checkpoints).toHaveLength(1);
+    expect(fake.leases.size).toBe(0);
+  });
+
+  it('the fake holds the server v3 rules: a v2 checkpoint after a v3 one is E_STREAM_VERSION', async () => {
+    const { a, b } = await twoMachines();
+    const s = fake.stream(STREAM);
+    await on(a, () => pushNexusVault(vopts(a)));
+    const signers = await certify(a, b);
+    const genesis = s.checkpoints[0];
+    if (!genesis) throw new Error('fixture');
+    const v3 = await journalCheckpointV3(b, genesis, signers, []);
+    // A v2 checkpoint over it, signed correctly, as an older vault (without the pre-check) would send.
+    const j = journalOf(b);
+    const { bundle } = await j.restoreCheckpoint(v3.checkpointId, signers);
+    const err = await j
+      .pushCheckpoint({
+        bundle,
+        manifest: { schemaVersion: SYNC_SCHEMA_VERSION, tables: v3.manifest.tables },
+        cursor: cursorFromCheckpoint(v3),
+        parentCheckpointId: v3.checkpointId,
+      })
+      .then(
+        () => null,
+        (e: Error & { code?: string; details?: Record<string, unknown> }) => e,
+      );
+    expect(err?.code).toBe('E_STREAM_VERSION');
+    expect(err?.details?.['verdict']).toMatchObject({ reason: 'stream-v3' });
+    expect(s.headCheckpointId).toBe(v3.checkpointId);
   });
 });

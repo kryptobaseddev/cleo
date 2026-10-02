@@ -33,7 +33,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
-import type { TableScope } from '@cleocode/contracts';
+import { SYNC_SCHEMA_VERSION, type TableScope } from '@cleocode/contracts';
 import { isVaultRemotePath, VAULT_REMOTE_PATH_PREFIX } from '@cleocode/paths';
 import {
   RELOCATED_JSON_FILES,
@@ -58,11 +58,18 @@ const { DatabaseSync } = _require('node:sqlite') as {
 };
 
 /**
- * Version of the manifest computation; recorded as the manifest's
- * `schemaVersion`. 2: non-syncing columns hash as NULL, plus the
+ * Version of the manifest computation (which cells hash, and how; which
+ * pseudo-entries exist). 2: non-syncing columns hash as NULL, plus the
  * `zz_vault_db_*` and `zz_vault_files` entries (T12967, T12969).
+ *
+ * It is not the manifest's wire `schemaVersion`: that is
+ * {@link SYNC_SCHEMA_VERSION}, the stream data numbering the vault shares with
+ * the change journal (T13034), and a computation change must not move it (the
+ * server reads a rise there as a schema transition every v3 checkpoint pins).
+ * The format never reaches the wire: a snapshot hashed under another format
+ * compares as changed, never as the same data.
  */
-export const VAULT_MANIFEST_SCHEMA_VERSION = 2;
+export const VAULT_MANIFEST_FORMAT_VERSION = 2;
 
 /** A manifest key the wire contract accepts. */
 const MANIFEST_KEY = /^[a-z][a-z0-9_]{0,62}$/;
@@ -80,7 +87,7 @@ export interface VaultTableEntry {
 
 /** A snapshot manifest, in the wire shape (`Manifest` of the Nexus contract). */
 export interface VaultManifest {
-  /** {@link VAULT_MANIFEST_SCHEMA_VERSION}. */
+  /** The wire `schemaVersion`: {@link SYNC_SCHEMA_VERSION} on what the vault writes. */
   schemaVersion: number;
   /** Per table. */
   tables: Record<string, VaultTableEntry>;
@@ -279,7 +286,7 @@ export function buildVaultManifest(
   } finally {
     db.close();
   }
-  return { manifest: { schemaVersion: VAULT_MANIFEST_SCHEMA_VERSION, tables }, skipped };
+  return { manifest: { schemaVersion: SYNC_SCHEMA_VERSION, tables }, skipped };
 }
 
 /**

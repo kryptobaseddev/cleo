@@ -13,6 +13,7 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
+import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts';
 import { VAULT_REMOTE_PATH_PREFIX } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { TRIGGER_SUSPEND_TABLE_DDL } from '../sync/trigger-classes.js';
@@ -25,7 +26,6 @@ import {
   isVaultManifestTable,
   sameVaultManifest,
   VAULT_FORK_KEY,
-  VAULT_MANIFEST_SCHEMA_VERSION,
   vaultDatabaseKey,
   vaultFileDigest,
   vaultFilesEntry,
@@ -120,7 +120,8 @@ describe('isVaultManifestTable', () => {
 describe('buildVaultManifest', () => {
   it('lists only syncing non-secret tables, with row counts', () => {
     const { manifest, skipped } = build(projectDb('a'));
-    expect(manifest.schemaVersion).toBe(VAULT_MANIFEST_SCHEMA_VERSION);
+    // The wire schemaVersion is the shared sync schema, not the vault's computation format (T13034).
+    expect(manifest.schemaVersion).toBe(SYNC_SCHEMA_VERSION);
     expect(Object.keys(manifest.tables).sort()).toEqual([
       'brain_observations',
       'tasks_sessions',

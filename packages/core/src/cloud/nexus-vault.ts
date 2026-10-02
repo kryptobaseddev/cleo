@@ -30,6 +30,13 @@
  *   or over another device's lease, carries `zz_vault_fork` (0 rows) in its
  *   signed manifest, so every device's verify still sees the fork after the
  *   lease is released (T13007).
+ * - **Stream format** (T13034): the vault writes checkpoint/v2 and stamps
+ *   `SYNC_SCHEMA_VERSION` (shared with the change journal) on its segments
+ *   and manifests. It reads and verifies the segment/v3 and checkpoint/v3 the
+ *   journal writes, and refuses a push onto a stream whose head snapshot is
+ *   checkpoint/v3 (the server's `E_STREAM_VERSION` ratchet) or that holds a
+ *   newer sync schema before it writes anything
+ *   (`E_NEXUS_VAULT_STREAM_UPGRADED`).
  *
  * Restore downloads, verifies the author's signature, decrypts, and checks
  * every table's count and hash against the manifest before anything is
@@ -67,6 +74,7 @@ import {
   nexusCloudDevicePageSchema,
   nexusLeaseAcquireSchema,
   nexusStreamHeadSchema,
+  SYNC_SCHEMA_VERSION,
 } from '@cleocode/contracts';
 import {
   type Checkpoint,
@@ -100,7 +108,6 @@ import {
   VAULT_FILES_KEY,
   VAULT_FORK_KEY,
   VAULT_GLOBAL_CONFIG_LOCAL_KEYS,
-  VAULT_MANIFEST_SCHEMA_VERSION,
   type VaultManifest,
   vaultDatabaseEntry,
   vaultDatabaseKey,
@@ -114,6 +121,7 @@ import { deriveKey } from './crypto.js';
 import { NexusError } from './http.js';
 import { cursorFromCheckpoint, initialPullCursor, Journal, type PullCursor } from './journal.js';
 import type { TrustedSigners } from './keys.js';
+import { manifestVersion } from './manifest-check.js';
 import { canonicalGlobalReplicaBinder } from './nexus-attach.js';
 import { NexusAccountError } from './nexus-auth.js';
 import { nexusApiErrorToAccountError } from './nexus-enrol.js';
@@ -456,7 +464,11 @@ async function releaseLeaseQuietly(conn: NexusVaultConnection, t: VaultTarget): 
   }
 }
 
-/** Every segment after `cursor`, replayed through the journal (signatures and gaps checked). */
+/**
+ * Every segment after `cursor`, replayed through the journal (signatures and
+ * gaps checked, segment/v2 and /v3 alike): the per-segment deltas, and the
+ * highest segment `schemaVersion` seen (0 when there is none).
+ */
 async function replaySegments(
   journal: Journal,
   cursor: PullCursor,
@@ -464,15 +476,64 @@ async function replaySegments(
 ): Promise<{
   cursor: PullCursor;
   deltas: Array<Record<string, { created: number; deleted: number }>>;
+  maxSchemaVersion: number;
 }> {
   const deltas: Array<Record<string, { created: number; deleted: number }>> = [];
+  let maxSchemaVersion = 0;
   let c = cursor;
   for (;;) {
     const page = await journal.pull(c, signers, 200);
-    for (const s of page.segments) deltas.push(s.meta.deltas);
+    for (const s of page.segments) {
+      deltas.push(s.meta.deltas);
+      maxSchemaVersion = Math.max(maxSchemaVersion, s.meta.schemaVersion);
+    }
     c = page.cursor;
-    if (page.segments.length === 0 || c.after >= page.head) return { cursor: c, deltas };
+    if (page.segments.length === 0 || c.after >= page.head) {
+      return { cursor: c, deltas, maxSchemaVersion };
+    }
   }
+}
+
+/**
+ * Why the stream no longer takes a push from this CLEO's vault (T13034), or
+ * `null`. Checked on the head before the export and the lease, and on the
+ * replayed window before any upload or delta segment (the push then hands
+ * the lease back), so a refusal never appends a segment it would orphan.
+ *
+ * - The head snapshot is checkpoint/v3: the change journal writes the stream,
+ *   and the server refuses a v2 checkpoint after a v3 one (`E_STREAM_VERSION`,
+ *   reason `stream-v3`). The vault writes v2 only: a v3 checkpoint carries the
+ *   journal's replay pin, which endorsers recompute by replay, and its bundle
+ *   carries the unresolved journal entries (journal spec §2.11 §6, §7). A
+ *   store snapshot has neither, so the vault never claims them.
+ * - The stream holds data of a newer sync schema than this CLEO writes (the
+ *   head snapshot, or a segment since it, above {@link SYNC_SCHEMA_VERSION}):
+ *   a snapshot stamped with the older schema would sit below what the stream
+ *   already reached.
+ */
+function streamUpgradedRefusal(
+  t: VaultTarget,
+  parent: Checkpoint | null,
+  windowSchemaVersion = 0,
+): NexusAccountError | null {
+  if (parent && manifestVersion(parent.manifest) === 3) {
+    return streamUpgradedError(
+      `${t.streamId} takes only checkpoint/v3 snapshots: its head snapshot ${parent.checkpointId} is one (the change journal writes this stream), and the server refuses the checkpoint/v2 snapshots this CLEO's vault writes after it`,
+      'nothing was written; `cleo cloud pull`, `cleo cloud restore` and `cleo cloud verify` still work on this stream. Push from a CLEO whose vault writes checkpoint/v3 snapshots',
+    );
+  }
+  const ahead = Math.max(parent?.manifest.schemaVersion ?? 0, windowSchemaVersion);
+  if (ahead > SYNC_SCHEMA_VERSION) {
+    return streamUpgradedError(
+      `${t.streamId} holds data of sync schema ${ahead}, newer than the schema ${SYNC_SCHEMA_VERSION} this CLEO writes`,
+      'nothing was written; upgrade CLEO on this machine, then push again',
+    );
+  }
+  return null;
+}
+
+function streamUpgradedError(message: string, fix: string): NexusAccountError {
+  return vaultError('E_NEXUS_VAULT_STREAM_UPGRADED', message, fix);
 }
 
 /**
@@ -943,6 +1004,9 @@ async function pushNexusVaultImpl(
     );
   }
   if (parent) journal.verifyCheckpoint(parent, key.signers);
+  // A stream past what this vault writes refuses before the export, lease and upload (T13034).
+  const upgraded = streamUpgradedRefusal(t, parent);
+  if (upgraded) throw upgraded;
   const { state: synced, adopted } = syncedState(
     conn,
     t,
@@ -1014,7 +1078,7 @@ async function pushNexusVaultImpl(
     // A table the parent lists must stay listed (0 rows when it is gone); the
     // parent's fork label is not a table and is not carried.
     const manifest: VaultManifest = {
-      schemaVersion: VAULT_MANIFEST_SCHEMA_VERSION,
+      schemaVersion: SYNC_SCHEMA_VERSION,
       tables: { ...vault.tables },
     };
     if (parent) {
@@ -1065,6 +1129,9 @@ async function pushNexusVaultImpl(
           key.signers,
         );
         let cursor = replay.cursor;
+        // A segment of a newer sync schema since the head: refused before our delta is appended.
+        const ahead = streamUpgradedRefusal(t, parent, replay.maxSchemaVersion);
+        if (ahead) throw ahead;
         if (parent) {
           const between: Record<string, { created: number; deleted: number }> = {};
           for (const d of replay.deltas) {
@@ -1110,7 +1177,7 @@ async function pushNexusVaultImpl(
                 hlcMin: hlc,
                 hlcMax: hlc,
                 deltas,
-                schemaVersion: VAULT_MANIFEST_SCHEMA_VERSION,
+                schemaVersion: SYNC_SCHEMA_VERSION,
               },
             );
             deltaSegmentSeq = appended.seq;
@@ -1137,6 +1204,14 @@ async function pushNexusVaultImpl(
               'E_NEXUS_VAULT_BEHIND',
               'another device pushed a snapshot while this one was uploading',
               'run `cleo cloud pull`, then push again',
+            );
+          }
+          // The server's v3 ratchet (reason `stream-v3`). The check above refuses a v3 head before
+          // anything is written; this maps a server whose head this client did not see as v3.
+          if (err instanceof NexusError && err.code === 'E_STREAM_VERSION') {
+            throw streamUpgradedError(
+              `the server refused the snapshot: ${t.streamId} takes only checkpoint/v3 snapshots (${err.message})`,
+              '`cleo cloud pull`, `cleo cloud restore` and `cleo cloud verify` still work on this stream. Push from a CLEO whose vault writes checkpoint/v3 snapshots',
             );
           }
           const countRefusal =
@@ -1803,7 +1878,7 @@ async function verifyNexusVaultImpl(
   const git = gitTracking(t);
   if (git.mode === 'unknown') warnings.push(gitUnknownWarning(t));
   const read = await localManifest(t, git, untrackedComparison(t, git, synced));
-  const local = read?.manifest ?? { schemaVersion: VAULT_MANIFEST_SCHEMA_VERSION, tables: {} };
+  const local = read?.manifest ?? { schemaVersion: SYNC_SCHEMA_VERSION, tables: {} };
   // Files changed since the last sync, path by path (T13038).
   const fileChanges = read ? fileChangesSinceSync(read.files, t, git, synced) : null;
   const last = synced ? trusted.find((c) => c.checkpointId === synced.lastCheckpointId) : undefined;
@@ -1943,7 +2018,8 @@ async function mapped<T>(run: () => Promise<T>): Promise<T> {
  *   `hold` (keep the writer lease after the push instead of releasing it) and overrides.
  * @returns What was pushed.
  * @throws {NexusAccountError} `E_NEXUS_VAULT_LEASE_HELD`, `E_NEXUS_VAULT_BEHIND`, `E_NEXUS_VAULT_REFUSED`,
- *   `E_NEXUS_VAULT_NOT_LINKED`, `E_NEXUS_VAULT_KEY_UNAVAILABLE`, or a mapped API error.
+ *   `E_NEXUS_VAULT_STREAM_UPGRADED`, `E_NEXUS_VAULT_NOT_LINKED`, `E_NEXUS_VAULT_KEY_UNAVAILABLE`, or a
+ *   mapped API error.
  */
 export function pushNexusVault(
   opts: NexusVaultCommandOptions & { force?: boolean; hold?: boolean } = {},

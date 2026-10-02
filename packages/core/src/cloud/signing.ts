@@ -1,8 +1,11 @@
 import type {
   Manifest,
+  RefDeltas,
   ReplicaHeads,
   RevocationPins,
   TableDeltas,
+  TxnDelta,
+  TxnRef,
 } from '@cleocode/contracts/cloud';
 
 /*
@@ -25,6 +28,8 @@ export interface SegmentMetaFields {
   hlcMin: string;
   hlcMax: string;
   deltas: TableDeltas;
+  /** segment/v3 only: per-transaction declared deltas (journal spec §2.11). Null or absent: v2. */
+  txnDeltas?: readonly TxnDelta[] | null | undefined;
 }
 
 const sortedDeltas = (deltas: TableDeltas) =>
@@ -50,14 +55,30 @@ export function segmentMetaCanonical(m: SegmentMetaFields): string {
     hlcMin: m.hlcMin,
     opCount: m.opCount,
     schemaVersion: m.schemaVersion,
+    // v3: in transaction order, each { deltas, txn } with sorted tables.
+    ...(m.txnDeltas === undefined || m.txnDeltas === null
+      ? {}
+      : {
+          txnDeltas: [...m.txnDeltas]
+            .sort((a, b) => a.txn - b.txn)
+            .map((t) => ({ deltas: sortedDeltas(t.deltas), txn: t.txn })),
+        }),
   });
 }
 
+/** 3 when the segment metadata carries per-transaction deltas (segment/v3), else 2. */
+export function segmentSigningVersion(m: {
+  txnDeltas?: readonly TxnDelta[] | null | undefined;
+}): 2 | 3 {
+  return m.txnDeltas === undefined || m.txnDeltas === null ? 2 : 3;
+}
+
 /**
- * The bytes a device signs (Ed25519) for a journal segment, v2. It binds the ciphertext hash and the
+ * The bytes a device signs (Ed25519) for a journal segment. It binds the ciphertext hash and the
  * metadata hash to the stream, the replica, the signing device and the replica's position, so a valid
  * segment cannot be replayed into another stream or position, claimed for another device's replica, or
- * served with forged metadata.
+ * served with forged metadata. v3 ({@link segmentSigningVersion}) is the same message under its own
+ * domain, for metadata whose hash covers `txnDeltas`.
  */
 export function segmentSigningMessage(parts: {
   streamId: string;
@@ -66,9 +87,11 @@ export function segmentSigningMessage(parts: {
   replicaSeq: number;
   segmentHash: string;
   metaHash: string;
+  /** 3 when the metadata carries txnDeltas ({@link segmentSigningVersion}), else 2. No default. */
+  version: 2 | 3;
 }): Uint8Array {
   return lines(
-    'cleo-nexus/segment/v2',
+    `cleo-nexus/segment/v${parts.version}`,
     parts.streamId,
     parts.replicaId,
     parts.deviceId,
@@ -78,18 +101,53 @@ export function segmentSigningMessage(parts: {
   );
 }
 
-/** Canonical JSON of a checkpoint manifest: keys sorted at every level. */
+/** Canonical order of transaction refs: replica id, then replicaSeq, then txn. */
+export function compareTxnRefs(a: TxnRef, b: TxnRef): number {
+  if (a.replicaId !== b.replicaId) return a.replicaId < b.replicaId ? -1 : 1;
+  return a.replicaSeq - b.replicaSeq || a.txn - b.txn;
+}
+
+const refCanonical = (r: TxnRef) => ({
+  replicaId: r.replicaId,
+  replicaSeq: r.replicaSeq,
+  txn: r.txn,
+});
+const refDeltasCanonical = (list: readonly RefDeltas[]) =>
+  [...list]
+    .sort((a, b) => compareTxnRefs(a.ref, b.ref))
+    .map((v) => ({ deltas: sortedDeltas(v.deltas), ref: refCanonical(v.ref) }));
+
+/**
+ * Canonical JSON of a checkpoint manifest: keys sorted at every level. A v3 manifest adds `pending`,
+ * `pruned`, `replayPin`, `revived` and `voided` in key order, each list sorted by transaction ref.
+ */
 export function manifestCanonical(m: Manifest): string {
+  const tables = Object.fromEntries(
+    Object.keys(m.tables)
+      .sort()
+      .map((t) => {
+        const e = m.tables[t] ?? { rows: 0, hash: '' };
+        return [t, { hash: e.hash, rows: e.rows }];
+      }),
+  );
+  if (m.replayPin === undefined) {
+    return JSON.stringify({ schemaVersion: m.schemaVersion, tables });
+  }
+  const pin = m.replayPin;
   return JSON.stringify({
+    pending: [...(m.pending ?? [])].sort(compareTxnRefs).map(refCanonical),
+    pruned: sortedRecord(m.pruned ?? {}, (n) => n),
+    replayPin: {
+      journal: pin.journal,
+      transitions: [...pin.transitions]
+        .sort((a, b) => a.seq - b.seq)
+        .map((t) => ({ journal: t.journal, schemaVersion: t.schemaVersion, seq: t.seq })),
+      triggerSetHash: pin.triggerSetHash,
+    },
+    revived: refDeltasCanonical(m.revived ?? []),
     schemaVersion: m.schemaVersion,
-    tables: Object.fromEntries(
-      Object.keys(m.tables)
-        .sort()
-        .map((t) => {
-          const e = m.tables[t] ?? { rows: 0, hash: '' };
-          return [t, { hash: e.hash, rows: e.rows }];
-        }),
-    ),
+    tables,
+    voided: refDeltasCanonical(m.voided ?? []),
   });
 }
 
@@ -128,6 +186,8 @@ export interface CheckpointSigningParts {
   replicasHash: string;
   blobSha256: string;
   sizeBytes: number;
+  /** 3 for a v3 manifest (manifestVersion), else 2. No default: the caller derives it from the manifest. */
+  version: 2 | 3;
 }
 
 const checkpointFields = (p: CheckpointSigningParts) => [
@@ -144,13 +204,13 @@ const checkpointFields = (p: CheckpointSigningParts) => [
 ];
 
 /**
- * The bytes the authoring device signs (Ed25519) for a checkpoint, v2. `parentCheckpointId` is `-` for
- * a genesis checkpoint. A client verifies this before restoring, so an older checkpoint cannot be served
- * under a newer id, a record's fields cannot be edited, and the replica map that seeds the pull cursor
- * is the author's.
+ * The bytes the authoring device signs (Ed25519) for a checkpoint: `cleo-nexus/checkpoint/v2`, or `/v3`
+ * for a v3 manifest. `parentCheckpointId` is `-` for a genesis checkpoint. A client verifies this before
+ * restoring, so an older checkpoint cannot be served under a newer id, a record's fields cannot be
+ * edited, and the replica map that seeds the pull cursor is the author's.
  */
 export function checkpointSigningMessage(parts: CheckpointSigningParts): Uint8Array {
-  return lines('cleo-nexus/checkpoint/v2', ...checkpointFields(parts));
+  return lines(`cleo-nexus/checkpoint/v${parts.version}`, ...checkpointFields(parts));
 }
 
 /**

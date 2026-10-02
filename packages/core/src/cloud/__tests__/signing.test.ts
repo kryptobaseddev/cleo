@@ -6,6 +6,7 @@
  */
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
+import { manifestVersion } from '../manifest-check.js';
 import {
   checkpointEndorsementMessage,
   checkpointSigningMessage,
@@ -15,8 +16,10 @@ import {
   manifestCanonical,
   replicasCanonical,
   revocationPinsCanonical,
+  type SegmentMetaFields,
   segmentMetaCanonical,
   segmentSigningMessage,
+  segmentSigningVersion,
 } from '../signing.js';
 
 const sha = (b: Uint8Array | string) => createHash('sha256').update(b).digest('hex');
@@ -81,6 +84,7 @@ const checkpointParts = {
   replicasHash: sha(replicasCanonical(replicas)),
   blobSha256: 'c'.repeat(64),
   sizeBytes: 1234,
+  version: 2 as const,
 };
 
 describe('golden vectors: canonical encodings and signed messages', () => {
@@ -100,6 +104,7 @@ describe('golden vectors: canonical encodings and signed messages', () => {
       replicaSeq: 4,
       segmentHash: 'd'.repeat(64),
       metaHash: VECTORS.metaHash,
+      version: 2,
     });
     expect(new TextDecoder().decode(seg)).toBe(VECTORS.segmentSigningMessageText);
     expect(sha(seg)).toBe(VECTORS.segmentSigningMessage);
@@ -143,5 +148,97 @@ describe('golden vectors: canonical encodings and signed messages', () => {
         }),
       ),
     ).toBe(VECTORS.deviceRevocationMessage);
+  });
+});
+
+/**
+ * v3 (journal spec §2.11, T089): per-transaction deltas in the segment metadata (segment/v3), and
+ * the manifest's applied-effect accounting (checkpoint/v3). Inputs are deliberately unsorted.
+ */
+describe('golden vectors: segment/v3 and checkpoint/v3', () => {
+  const meta3: SegmentMetaFields = {
+    ...meta,
+    txnDeltas: [
+      { txn: 1, deltas: { tasks_tasks: { deleted: 0, created: 1 } } },
+      {
+        deltas: {
+          tasks_tasks: { created: 1, deleted: 0 },
+          brain_observations: { created: 0, deleted: 1 },
+        },
+        txn: 0,
+      },
+    ],
+  };
+  const manifest3 = {
+    ...manifest,
+    voided: [
+      {
+        deltas: { tasks_tasks: { created: 1, deleted: 0 } },
+        ref: { txn: 1, replicaSeq: 4, replicaId: R1 },
+      },
+    ],
+    revived: [],
+    pending: [
+      { replicaId: R2, replicaSeq: 0, txn: 0 },
+      { replicaId: R1, replicaSeq: 5, txn: 2 },
+    ],
+    pruned: { brain_observations: 2 },
+    replayPin: {
+      triggerSetHash: 'e'.repeat(64),
+      journal: 'f'.repeat(64),
+      transitions: [
+        { seq: 9, schemaVersion: 2, journal: '1'.repeat(64) },
+        { schemaVersion: 1, seq: 3, journal: '0'.repeat(64) },
+      ],
+    },
+  };
+  const V3 = {
+    segmentMetaCanonical:
+      '{"deltas":{"brain_observations":{"created":0,"deleted":1},"tasks_tasks":{"created":2,"deleted":0}},"hlcMax":"1790545492501-000002-0192f1c2-7d3e-7abc-8def-0000000000a1","hlcMin":"1790545492500-000000-0192f1c2-7d3e-7abc-8def-0000000000a1","opCount":3,"schemaVersion":1,"txnDeltas":[{"deltas":{"brain_observations":{"created":0,"deleted":1},"tasks_tasks":{"created":1,"deleted":0}},"txn":0},{"deltas":{"tasks_tasks":{"created":1,"deleted":0}},"txn":1}]}',
+    metaHash: 'ab2b6d2f12dd682de29fda28fd982dd7d0b41aebe5d030b3ea2614dd9f383384',
+    segmentSigningMessage: '83b40d89dedfee3df5c22897730ee6aad6d407c137c14befe01f1d97328d233d',
+    manifestCanonical: `{"pending":[{"replicaId":"${R1}","replicaSeq":5,"txn":2},{"replicaId":"${R2}","replicaSeq":0,"txn":0}],"pruned":{"brain_observations":2},"replayPin":{"journal":"${'f'.repeat(64)}","transitions":[{"journal":"${'0'.repeat(64)}","schemaVersion":1,"seq":3},{"journal":"${'1'.repeat(64)}","schemaVersion":2,"seq":9}],"triggerSetHash":"${'e'.repeat(64)}"},"revived":[],"schemaVersion":1,"tables":{"brain_observations":{"hash":"${'b'.repeat(64)}","rows":0},"tasks_tasks":{"hash":"${'a'.repeat(64)}","rows":3}},"voided":[{"deltas":{"tasks_tasks":{"created":1,"deleted":0}},"ref":{"replicaId":"${R1}","replicaSeq":4,"txn":1}}]}`,
+    checkpointSigningMessage: 'accda06b463e91abca8b1e76bddc723106c532163a4c570e47ff1fe41595de71',
+  };
+
+  it('canonical forms: transactions by index, refs by (replica, seq, txn), transitions by seq', () => {
+    expect(segmentMetaCanonical(meta3)).toBe(V3.segmentMetaCanonical);
+    expect(sha(segmentMetaCanonical(meta3))).toBe(V3.metaHash);
+    expect(manifestCanonical(manifest3)).toBe(V3.manifestCanonical);
+    // v2 inputs keep their v2 encoding byte for byte.
+    expect(segmentMetaCanonical(meta)).toBe(VECTORS.segmentMetaCanonical);
+    expect(manifestCanonical(manifest)).toBe(VECTORS.manifestCanonical);
+  });
+
+  it('the format follows the fields: txnDeltas pick segment/v3, a replay pin picks checkpoint/v3', () => {
+    expect(segmentSigningVersion({ ...meta, txnDeltas: undefined })).toBe(2);
+    expect(segmentSigningVersion({ ...meta, txnDeltas: null })).toBe(2);
+    expect(segmentSigningVersion(meta3)).toBe(3);
+    expect(manifestVersion(manifest)).toBe(2);
+    expect(manifestVersion(manifest3)).toBe(3);
+  });
+
+  it('signed messages use the v3 domains', () => {
+    const seg = segmentSigningMessage({
+      streamId: S,
+      replicaId: R1,
+      deviceId: D1,
+      replicaSeq: 4,
+      segmentHash: 'd'.repeat(64),
+      metaHash: V3.metaHash,
+      version: 3,
+    });
+    expect(new TextDecoder().decode(seg).startsWith('cleo-nexus/segment/v3\n')).toBe(true);
+    expect(sha(seg)).toBe(V3.segmentSigningMessage);
+    expect(
+      sha(
+        checkpointSigningMessage({
+          ...checkpointParts,
+          manifestHash: sha(manifestCanonical(manifest3)),
+          replicasHash: sha('{}'),
+          version: 3,
+        }),
+      ),
+    ).toBe(V3.checkpointSigningMessage);
   });
 });
