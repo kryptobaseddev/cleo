@@ -178,6 +178,17 @@ describe('cleo run --passthrough (#1777 R7)', () => {
     expect(err.join('')).toContain('no slot free');
   });
 
+  it('a runner error goes to stderr (exit 1), never into the child stdout (R8-2)', async () => {
+    runGoverned.mockRejectedValue(
+      Object.assign(new Error("EACCES: permission denied, rmdir '/home/run/jobs/x.json'"), {
+        code: 'EACCES',
+      }),
+    );
+    await expect(invoke({ passthrough: true }, argv)).rejects.toThrow('exit 1');
+    expect(out).toEqual([]);
+    expect(err.join('')).toContain('cleo run failed: EACCES');
+  });
+
   it('invalid input goes to stderr too', async () => {
     await expect(invoke({ passthrough: true }, [])).rejects.toThrow('exit 6');
     expect(out).toEqual([]);

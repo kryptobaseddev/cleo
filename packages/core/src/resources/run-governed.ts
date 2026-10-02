@@ -44,7 +44,7 @@ import {
   type ResourceClass,
 } from '@cleocode/contracts';
 import type { ResourceSample } from './backend.js';
-import { governor } from './governor.js';
+import { admitFailOpen, type GovernorIoError, governor, passThroughGrant } from './governor.js';
 import { classifyPressure, type PressureState, pressureScore, ResourceMonitor } from './monitor.js';
 import {
   buildRunDeferral,
@@ -151,7 +151,8 @@ export interface RunGovernedOptions {
    * Keep the child in the runner's process group instead of a detached one:
    * a terminal's foreground job, so reading or configuring the terminal never
    * stops it (SIGTTIN/SIGTTOU) and Ctrl-C reaches it. Such a child is never
-   * paused, and runner signals are forwarded to it by pid.
+   * paused. SIGTERM and SIGHUP to the runner are forwarded to it by pid;
+   * SIGINT is not, since the terminal already sent it to the whole group.
    * @defaultValue false
    */
   readonly foreground?: boolean;
@@ -186,31 +187,11 @@ export type RunGovernedResult =
        * Set when the governor's state could not be written (a sandboxed or read-only CLEO home, a
        * full disk): the command ran ungoverned rather than not at all.
        */
-      readonly ungoverned: { readonly code: string; readonly path: string | null } | null;
+      readonly ungoverned: GovernorIoError | null;
     };
 
-/** Filesystem errors meaning the governor's state can't be written here. */
-const GOVERNOR_IO_CODES = new Set([
-  'EACCES',
-  'EPERM',
-  'EROFS',
-  'ENOSPC',
-  'EDQUOT',
-  'ENOTDIR',
-  'ELOOP',
-]);
-
-/**
- * The code and path of an error that means "the governor cannot keep state here" (a sandbox that
- * blocks writes to the CLEO home, a read-only or full disk, a broken CLEO home), or null for any
- * other error, which is a bug and must not be hidden.
- */
-export function governorIoError(err: unknown): { code: string; path: string | null } | null {
-  const e = err as NodeJS.ErrnoException | null;
-  if (!e || typeof e !== 'object' || typeof e.code !== 'string') return null;
-  if (!GOVERNOR_IO_CODES.has(e.code)) return null;
-  return { code: e.code, path: typeof e.path === 'string' ? e.path : null };
-}
+// The classifier moved to the governor, which every admission shares (R8-1).
+export { governorIoError } from './governor.js';
 
 function defaultDeps(): RunGovernedDeps {
   const monitor = new ResourceMonitor();
@@ -341,36 +322,22 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
   // workspace-write sandbox, Claude Code's sandboxed Bash, a read-only CLEO home), run the command
   // ungoverned instead of failing a test that would have passed. Only filesystem errors; anything
   // else is a bug and propagates. E_RESOURCE_DEFERRED is unchanged.
-  let ungoverned: { code: string; path: string | null } | null = null;
+  let ungoverned: GovernorIoError | null = null;
   const tryAcquire = async (s: ResourceSample): Promise<AdmissionResult> => {
-    try {
-      return await d.tryAcquire(opts.cls, s);
-    } catch (err) {
-      const io = governorIoError(err);
-      if (io === null) throw err;
+    const r = await admitFailOpen(opts.cls, () => d.tryAcquire(opts.cls, s));
+    if (r.ungoverned !== null) {
+      const io = r.ungoverned;
       ungoverned = io;
       notice(
         `governor state is not writable (${io.code}${io.path ? ` ${io.path}` : ''}): running ungoverned`,
         'warn',
       );
-      return {
-        deferred: false,
-        class: opts.cls,
-        slot: -1,
-        acquiredAtMs: d.now(),
-        release: async () => {},
-      };
     }
+    return r.admission;
   };
   let admission: AdmissionResult;
   if (parent) {
-    admission = {
-      deferred: false,
-      class: opts.cls,
-      slot: -1,
-      acquiredAtMs: d.now(),
-      release: async () => {},
-    };
+    admission = passThroughGrant(opts.cls);
     notice(
       `nested in a running ${parent.class} job (${parent.command}): running on its slot`,
       'info',
@@ -524,6 +491,10 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
   const forwardTo = leadsGroup ? d.signal : d.signalPid;
   const uninstall = d.onRunnerSignal((signal) => {
     if (childPid === undefined || exited) return;
+    // A terminal's Ctrl-C already reached its whole foreground group, child
+    // included: forwarding it would deliver a second SIGINT, which some
+    // runners treat as force-quit (#1777 R8). SIGTERM and SIGHUP still go.
+    if (opts.foreground === true && signal === 'SIGINT') return;
     forwardTo(childPid, 'SIGCONT');
     forwardTo(childPid, signal);
   });

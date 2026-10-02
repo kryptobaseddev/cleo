@@ -243,7 +243,8 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function passThroughGrant(cls: ResourceClass): ResourceGrant {
+/** An ungated grant (no slot held, `slot: -1`): `off` mode, `interactive-cli`, a nested run, fail-open. */
+export function passThroughGrant(cls: ResourceClass): ResourceGrant {
   return {
     deferred: false,
     class: cls,
@@ -255,6 +256,69 @@ function passThroughGrant(cls: ResourceClass): ResourceGrant {
 
 function deferral(cls: ResourceClass, reason: string, retryAfterMs: number): ResourceDeferral {
   return { deferred: true, class: cls, retryAfterMs, reason };
+}
+
+/** Filesystem errors meaning the governor's state can't be written here. */
+const GOVERNOR_IO_CODES = new Set([
+  'EACCES',
+  'EPERM',
+  'EROFS',
+  'ENOSPC',
+  'EDQUOT',
+  'ENOTDIR',
+  'ELOOP',
+]);
+
+/** Why the governor could not keep its state: the errno code and the path, when known. */
+export interface GovernorIoError {
+  readonly code: string;
+  readonly path: string | null;
+}
+
+/**
+ * The code and path of an error that means "the governor cannot keep state here" (a sandbox that
+ * blocks writes to the CLEO home, a read-only or full disk, a broken CLEO home), or null for any
+ * other error, which is a bug and must not be hidden.
+ */
+export function governorIoError(err: unknown): GovernorIoError | null {
+  const e = err as NodeJS.ErrnoException | null;
+  if (!e || typeof e !== 'object' || typeof e.code !== 'string') return null;
+  if (!GOVERNOR_IO_CODES.has(e.code)) return null;
+  return { code: e.code, path: typeof e.path === 'string' ? e.path : null };
+}
+
+/**
+ * Run an admission, failing OPEN when the governor cannot write its state
+ * ({@link governorIoError}): the work proceeds ungated with a
+ * {@link passThroughGrant}, and `ungoverned` says why. A sandboxed or
+ * read-only CLEO home must never turn into a deferral that never clears.
+ * Any other error is a bug and propagates.
+ *
+ * @example
+ * ```ts
+ * const { admission, ungoverned } = await admitFailOpen('agent-session', () =>
+ *   governor.tryAcquire('agent-session'),
+ * );
+ * ```
+ */
+export async function admitFailOpen(
+  cls: ResourceClass,
+  acquire: () => Promise<AdmissionResult>,
+): Promise<{ readonly admission: AdmissionResult; readonly ungoverned: GovernorIoError | null }> {
+  try {
+    return { admission: await acquire(), ungoverned: null };
+  } catch (err) {
+    const io = governorIoError(err);
+    if (io === null) throw err;
+    return { admission: passThroughGrant(cls), ungoverned: io };
+  }
+}
+
+/** proper-lockfile's "someone else holds this lock" code: the only failure that means busy. */
+const LOCK_HELD = 'ELOCKED';
+
+function isLockHeld(err: unknown): boolean {
+  return (err as NodeJS.ErrnoException | null)?.code === LOCK_HELD;
 }
 
 let _supervisorHolderSeq = 0;
@@ -301,6 +365,12 @@ export class ResourceGovernor {
    * Acquire one slot of `cls`. Returns a {@link ResourceGrant} on success or a
    * {@link ResourceDeferral} on denial. Never throws for admission control;
    * only genuinely unexpected I/O errors propagate.
+   *
+   * Only a held lock (`ELOCKED`) counts as a busy slot. Any other lock error
+   * (EACCES from a sandbox that can't write the slot dir, EROFS, ENOSPC…) is
+   * thrown once a pass found no free slot, never read as "busy": a slot that
+   * can never be taken would otherwise defer every caller until it times out
+   * (#1777 round 8, R8-1). Callers fail open with {@link admitFailOpen}.
    */
   async acquire(cls: ResourceClass, opts: AcquireOptions = {}): Promise<AdmissionResult> {
     // Ungated fast paths: off mode + interactive-cli are pure pass-through.
@@ -350,6 +420,7 @@ export class ResourceGovernor {
     do {
       // Re-shuffle each pass so concurrent acquirers don't collide on slot 0.
       const order = shuffledIndices(slots.length);
+      let lockError: { readonly err: unknown } | null = null;
       for (const idx of order) {
         const path = slots[idx];
         if (!path) continue;
@@ -386,10 +457,12 @@ export class ResourceGovernor {
               }
             },
           };
-        } catch {
-          // slot busy — try next
+        } catch (err) {
+          // Held by someone else: try the next slot. Anything else is not "busy".
+          if (!isLockHeld(err)) lockError ??= { err };
         }
       }
+      if (lockError !== null) throw lockError.err;
       if (!blocking) break;
       await sleep(pollMs);
     } while (Date.now() - startedAt < timeoutMs);
@@ -494,8 +567,9 @@ async function countHeldSlots(cls: ResourceClass, budget: number): Promise<numbe
     try {
       const release = await lockfile.lock(path, { retries: 0, stale: STALE_MS, realpath: false });
       await release();
-    } catch {
-      held++;
+    } catch (err) {
+      // Only a held lock is a holder; an unwritable slot dir is not (R8-1).
+      if (isLockHeld(err)) held++;
     }
   }
   return held;

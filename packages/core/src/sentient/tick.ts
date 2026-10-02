@@ -1229,8 +1229,11 @@ export async function safeRunTick(options: TickOptions): Promise<TickOutcome> {
   // pressure skip this tick cleanly (recorded skip reason, NO user-visible
   // error) and let the next cron interval retry. `off` mode is pass-through.
   // Lazy-imported to keep the test surface small (matches this file's pattern).
-  const { governor } = await import('../resources/governor.js');
-  const dbHeavy = await governor.tryAcquire('db-heavy');
+  // Fail open (#1777 R8-1): an unwritable governor state runs the tick ungated.
+  const { admitFailOpen, governor } = await import('../resources/governor.js');
+  const { admission: dbHeavy } = await admitFailOpen('db-heavy', () =>
+    governor.tryAcquire('db-heavy'),
+  );
   if (dbHeavy.deferred) {
     try {
       await incrementStats(options.statePath, { ticksExecuted: 1 });

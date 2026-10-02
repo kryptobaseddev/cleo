@@ -189,24 +189,39 @@ export const runCommand = defineCommand({
       );
     }
 
-    const result = await runGoverned({
-      argv,
-      cls,
-      cwd: process.cwd(),
-      env: { ...process.env, ...heavyToolEnv(canonicalForClass(cls)) },
-      sessionId: process.env.CLEO_SESSION_ID ?? process.env.CLAUDE_CODE_SESSION_ID ?? null,
-      wait: Boolean(args.wait),
-      timeoutMs,
-      passthrough,
-      // A terminal on stdin: keep the child in its foreground group.
-      foreground: passthrough && process.stdin.isTTY === true,
-      // Notices go to stderr; stdout carries only the final LAFS envelope, or
-      // with --passthrough only the child's output (and then only warnings).
-      notice: (line, level) => {
-        if (passthrough && level === 'info') return;
-        process.stderr.write(`[cleo run] ${line}\n`); // json-stream-hygiene-allowed: progress notices, not data
-      },
-    });
+    let result: RunGovernedResult;
+    try {
+      result = await runGoverned({
+        argv,
+        cls,
+        cwd: process.cwd(),
+        env: { ...process.env, ...heavyToolEnv(canonicalForClass(cls)) },
+        sessionId: process.env.CLEO_SESSION_ID ?? process.env.CLAUDE_CODE_SESSION_ID ?? null,
+        wait: Boolean(args.wait),
+        timeoutMs,
+        passthrough,
+        // A terminal on stdin: keep the child in its foreground group.
+        foreground: passthrough && process.stdin.isTTY === true,
+        // Notices go to stderr; stdout carries only the final LAFS envelope, or
+        // with --passthrough only the child's output (and then only warnings).
+        notice: (line, level) => {
+          if (passthrough && level === 'info') return;
+          process.stderr.write(`[cleo run] ${line}\n`); // json-stream-hygiene-allowed: progress notices, not data
+        },
+      });
+    } catch (err) {
+      // A runner error is reported here, not by the CLI's top-level catch,
+      // which writes to stdout: under --passthrough that is the child's
+      // byte stream (#1777 R8-2).
+      cliError(
+        `cleo run failed: ${err instanceof Error ? err.message : String(err)}`,
+        1,
+        { name: 'E_GENERAL' },
+        { operation: 'resources.run' },
+        { stderr: passthrough },
+      );
+      process.exit(1);
+    }
 
     if (result.kind === 'deferred') {
       cliError(

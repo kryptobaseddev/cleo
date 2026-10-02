@@ -10,7 +10,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,8 +31,13 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  const slots = join(cleoHome, 'locks', 'resource-full-build');
+  if (existsSync(slots)) chmodSync(slots, 0o755);
   rmSync(dir, { recursive: true, force: true });
 });
+
+// Root ignores directory permissions: the read-only case cannot be staged.
+const asRoot = process.getuid?.() === 0;
 
 function cleo(args: readonly string[], input?: string) {
   const r = spawnSync(process.execPath, [CLI_DIST, ...args], {
@@ -128,6 +133,35 @@ describe('cleo run --passthrough (compiled CLI)', () => {
     // only a side effect can prove it).
     expect(existsSync(join(dir, 'ran'))).toBe(false);
   });
+
+  (asRoot ? it.skip : live)(
+    'a home whose slot dir exists but is read-only runs the command ungoverned, not deferred (R8-1)',
+    () => {
+      // An earlier unsandboxed run created the full-build slot dir…
+      expect(cleo(['run', '--passthrough', '--class', 'full-build', '--', 'true']).status).toBe(0);
+      const slots = join(cleoHome, 'locks', 'resource-full-build');
+      expect(existsSync(slots)).toBe(true);
+      // …and now the sandbox denies writes to it.
+      chmodSync(slots, 0o555);
+      const r = cleo([
+        'run',
+        '--wait',
+        '--timeout',
+        '20',
+        '--passthrough',
+        '--class',
+        'full-build',
+        '--',
+        'sh',
+        '-c',
+        'echo ran; exit 3',
+      ]);
+      expect(r.status).toBe(3); // the child's code, not 75 after a 20 s queue
+      expect(r.stdout.toString('utf-8')).toBe('ran\n');
+      expect(r.stderr).toMatch(/not writable \((EACCES|EPERM)/);
+      expect(r.stderr).toContain('running ungoverned');
+    },
+  );
 
   live('invalid input exits 6 on stderr, nothing on stdout', () => {
     const r = cleo(['run', '--passthrough', '--']);

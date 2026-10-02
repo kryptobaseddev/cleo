@@ -14,6 +14,6 @@ Watch, dev and serve commands are refused because they would hold a slot forever
 
 `--passthrough` (what the T12983 hook emits) gives the child this process's stdin, stdout and stderr and exits with its code. cleo run writes nothing to stdout, an explicit ADR-086 exception: its own envelopes go to stderr, and it prints only a deferral, an ungoverned run, a pause or resume, or a one-line failure. With a terminal on stdin the child stays in the foreground process group (signalled by pid, never paused).
 
-If the governor cannot write its state (a sandboxed or read-only CLEO home, a full disk), the command runs ungoverned with a one-line notice instead of failing.
+If the governor cannot write its state (a sandboxed or read-only CLEO home, a full disk, including a home whose slot directories already exist), the command runs ungoverned with a one-line notice instead of failing or queueing forever: only a held lock counts as a busy slot, and any other lock error fails open. Agent spawns and the sentient tick fail open the same way. A runner error under `--passthrough` goes to stderr, never into the child's stdout.
 
 macOS now has a real pressure backend (`kern.memorystatus_vm_pressure_level`, free memory, load average), and CPU saturation narrows the class budgets too.

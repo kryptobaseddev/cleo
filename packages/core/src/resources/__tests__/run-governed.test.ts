@@ -19,12 +19,21 @@
  */
 
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AdmissionResult, ResourceClass } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ResourceSample } from '../backend.js';
+import { _resetGovernorStateForTest, governorSlotDir, ResourceGovernor } from '../governor.js';
 import { type RunJob, writeQueueTicket, writeRunJob } from '../run-admission.js';
 import { type GovernedChild, type RunGovernedDeps, runGoverned } from '../run-governed.js';
 
@@ -566,6 +575,48 @@ describe('fail open when the governor cannot write its state (#1781 review, HIGH
     expect(r).toMatchObject({ kind: 'exited', exitCode: 0, slot: 0, ungoverned: null });
   });
 
+  describe('with the REAL governor (R8-1)', () => {
+    // Root ignores directory permissions: the read-only case cannot be staged.
+    const asRoot = process.getuid?.() === 0;
+    const slotDir = governorSlotDir('db-heavy');
+    afterEach(() => {
+      if (existsSync(slotDir)) chmodSync(slotDir, 0o755);
+      _resetGovernorStateForTest();
+    });
+
+    it.skipIf(asRoot)(
+      'a home whose slot dir exists but is read-only runs ungoverned, exit code kept',
+      async () => {
+        _resetGovernorStateForTest();
+        const gov = new ResourceGovernor();
+        // An earlier unsandboxed run created the slot dir; now writes are denied.
+        const first = await gov.tryAcquire('db-heavy', { sample: sampleOf('ok') });
+        expect(first.deferred).toBe(false);
+        if (!first.deferred) await first.release();
+        chmodSync(slotDir, 0o555);
+
+        const notices: string[] = [];
+        const h = harness({ onSample: (n, hh) => n === 2 && hh.exit(4) });
+        const r = await runGoverned(
+          base(h, {
+            argv: ['pnpm', 'run', 'db:migrate'],
+            cls: 'db-heavy',
+            notice: (m: string) => notices.push(m),
+            deps: {
+              ...h.deps,
+              tryAcquire: (cls: ResourceClass, sample: ResourceSample) =>
+                gov.tryAcquire(cls, { sample }),
+            },
+          }),
+        );
+        expect(r).toMatchObject({ kind: 'exited', exitCode: 4, slot: -1 });
+        if (r.kind === 'exited') expect(r.ungoverned?.code).toMatch(/^(EACCES|EPERM)$/);
+        expect(h.spawned).toHaveLength(1);
+        expect(notices.some((m) => m.includes('running ungoverned'))).toBe(true);
+      },
+    );
+  });
+
   it('any other acquire error is a bug: it propagates and nothing runs', async () => {
     const h = harness({ acquireThrows: new TypeError('cannot read properties of undefined') });
     await expect(runGoverned(base(h))).rejects.toThrow(TypeError);
@@ -610,20 +661,23 @@ describe('--passthrough and a terminal in the foreground (#1777 R7)', () => {
         if (n === 2) {
           const own = readdirSync(join(dir, 'jobs')).find((f) => f !== 'older.json');
           record = JSON.parse(readFileSync(join(dir, 'jobs', own as string), 'utf8')) as RunJob;
+          // Ctrl-C already reached the whole foreground group: not forwarded.
           hh.forward('SIGINT');
+          hh.forward('SIGTERM');
         }
-        if (n === 3) hh.exit(null, 'SIGINT');
+        if (n === 3) hh.exit(null, 'SIGTERM');
       },
     });
     const r = await runGoverned(base(h, { passthrough: true, foreground: true }));
     expect(h.spawned[0]).toMatchObject({ detached: false, passthrough: true });
     expect(record).toMatchObject({ pausable: false, leadsGroup: false, holdsSlot: true });
-    // Younger at backoff and still never SIGSTOPped; the forward goes to the pid.
+    // Younger at backoff and still never SIGSTOPped; SIGTERM goes to the pid,
+    // SIGINT not at all (no second Ctrl-C for the child).
     expect(h.signals).toEqual([
       [500, 'pid:SIGCONT'],
-      [500, 'pid:SIGINT'],
+      [500, 'pid:SIGTERM'],
     ]);
-    expect(r).toMatchObject({ kind: 'exited', signal: 'SIGINT', pauses: 0, slot: 0 });
+    expect(r).toMatchObject({ kind: 'exited', signal: 'SIGTERM', pauses: 0, slot: 0 });
   });
 
   it('a detached run records that its child leads its group', async () => {

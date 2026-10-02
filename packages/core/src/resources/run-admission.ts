@@ -242,11 +242,7 @@ export function writeRunJob(job: RunJob, dir: string = runJobsDir()): void {
 
 /** Remove a job record. Never throws. */
 export function removeRunJob(id: string, dir: string = runJobsDir()): void {
-  try {
-    rmSync(join(dir, `${id}.json`), { force: true });
-  } catch {
-    // Best effort.
-  }
+  removeRecord(join(dir, `${id}.json`));
 }
 
 /** Injectable process probes for {@link listRunJobs} (tests). */
@@ -374,6 +370,19 @@ export function listRunJobs(
 }
 
 /**
+ * Remove a registry or queue file. Best effort: a read-only CLEO home must
+ * never turn a reap or a queue read into a thrown error (#1777 R8-2).
+ */
+function removeRecord(path: string): boolean {
+  try {
+    rmSync(path, { force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Reap the records of dead runners: resume and stop their orphaned child
  * groups ({@link recoverOrphan}) and delete the record, unless the child's
  * identity could not be read (kept for the next reap). Records whose runner
@@ -391,20 +400,14 @@ export function reapOrphans(
   for (const { path, job } of readRecords(dir)) {
     if (!job) {
       try {
-        if (p.now() - statSync(path).mtimeMs > JOB_STALE_MS) {
-          rmSync(path, { force: true });
-          removed++;
-        }
+        if (p.now() - statSync(path).mtimeMs > JOB_STALE_MS && removeRecord(path)) removed++;
       } catch {
         // Gone already.
       }
       continue;
     }
     if (runnerState(job, p) !== 'dead') continue;
-    if (recoverOrphan(job, p) === 'done') {
-      rmSync(path, { force: true });
-      removed++;
-    }
+    if (recoverOrphan(job, p) === 'done' && removeRecord(path)) removed++;
   }
   return removed;
 }
@@ -568,7 +571,7 @@ export function listQueueTickets(dir: string, probes: Partial<RegistryProbes> = 
       continue; // Torn write: its owner rewrites it within a poll.
     }
     if (!isTicket(v) || heartbeatStale(v.heartbeatAtMs, p.now()) || !p.alive(v.pid)) {
-      rmSync(path, { force: true });
+      removeRecord(path);
       continue;
     }
     tickets.push(v);

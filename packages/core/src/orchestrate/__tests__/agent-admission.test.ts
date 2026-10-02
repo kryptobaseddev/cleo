@@ -22,6 +22,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as governorModule from '../../resources/governor.js';
+import { spawnRegistry } from '../../spawn/adapter-registry.js';
 import { computeAgentAdmission } from '../admission.js';
 import { orchestrateReady, orchestrateWaves } from '../query-ops.js';
 import { orchestrateSpawnExecute } from '../spawn-ops.js';
@@ -208,5 +209,28 @@ describe('orchestrateSpawnExecute — agent-session admission gate', () => {
     const details = result.error.details as { class: string; retryAfterMs: number };
     expect(details.class).toBe('agent-session');
     expect(details.retryAfterMs).toBe(2000);
+  });
+
+  it('fails open when the governor cannot write its state: the spawn proceeds ungated (#1777 R8-1)', async () => {
+    vi.spyOn(governorModule.governor, 'tryAcquire').mockRejectedValue(
+      Object.assign(new Error("EACCES: permission denied, mkdir '…/slot-0.lock.lock'"), {
+        code: 'EACCES',
+      }),
+    );
+    // Stop right after admission: no adapter, so nothing is ever spawned.
+    vi.spyOn(spawnRegistry, 'listSpawnCapable').mockResolvedValue([]);
+
+    const result = await orchestrateSpawnExecute('T901', undefined, undefined, TEST_ROOT);
+
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error('expected no adapter');
+    expect(result.error.code).toBe('E_SPAWN_NO_ADAPTER'); // past the gate, not deferred
+  });
+
+  it('any other governor error still propagates', async () => {
+    vi.spyOn(governorModule.governor, 'tryAcquire').mockRejectedValue(new TypeError('boom'));
+    await expect(orchestrateSpawnExecute('T901', undefined, undefined, TEST_ROOT)).rejects.toThrow(
+      TypeError,
+    );
   });
 });

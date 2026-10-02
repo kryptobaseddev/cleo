@@ -8,12 +8,15 @@
  * @task T11999
  */
 
+import { chmodSync, existsSync } from 'node:fs';
 import { isResourceGrant, RESOURCE_DEFERRED_CODE } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ResourceSample } from '../backend.js';
 import {
   _resetGovernorStateForTest,
+  admitFailOpen,
   computeClassBudget,
+  governorSlotDir,
   ResourceGovernor,
   resolveGovernorMode,
 } from '../governor.js';
@@ -341,5 +344,76 @@ describe('resolveGovernorMode (T11999)', () => {
       expect(r.slot).toBeGreaterThanOrEqual(0);
       await r.release();
     }
+  });
+});
+
+describe('an unwritable slot dir is an error, never a busy slot (#1777 R8-1)', () => {
+  // Root ignores directory permissions: the read-only case cannot be staged.
+  const asRoot = process.getuid?.() === 0;
+  const s = makeSample({ someAvg10: 0 }); // db-heavy budget = 1
+  let gov: ResourceGovernor;
+  let dir: string;
+
+  beforeEach(async () => {
+    _resetGovernorStateForTest();
+    delete process.env.CLEO_RESOURCES_MODE;
+    gov = new ResourceGovernor();
+    dir = governorSlotDir('db-heavy');
+    // A home that already has its slot dir (an earlier unsandboxed run).
+    const first = await gov.tryAcquire('db-heavy', { sample: s });
+    expect(isResourceGrant(first)).toBe(true);
+    if (isResourceGrant(first)) await first.release();
+    expect(existsSync(dir)).toBe(true);
+  });
+  afterEach(() => {
+    if (existsSync(dir)) chmodSync(dir, 0o755);
+    _resetGovernorStateForTest();
+  });
+
+  it.skipIf(asRoot)('a read-only slot dir makes tryAcquire throw, not defer', async () => {
+    chmodSync(dir, 0o555);
+    await expect(gov.tryAcquire('db-heavy', { sample: s })).rejects.toMatchObject({
+      code: expect.stringMatching(/^(EACCES|EPERM)$/),
+    });
+  });
+
+  it.skipIf(asRoot)(
+    'a blocking acquire throws at once instead of waiting out its timeout',
+    async () => {
+      chmodSync(dir, 0o555);
+      const t0 = Date.now();
+      await expect(
+        gov.acquire('db-heavy', { sample: s, timeoutMs: 20_000, pollMs: 10 }),
+      ).rejects.toMatchObject({ code: expect.stringMatching(/^(EACCES|EPERM)$/) });
+      expect(Date.now() - t0).toBeLessThan(10_000);
+    },
+  );
+
+  it.skipIf(asRoot)('admitFailOpen turns it into an ungated grant that says why', async () => {
+    chmodSync(dir, 0o555);
+    const r = await admitFailOpen('db-heavy', () => gov.tryAcquire('db-heavy', { sample: s }));
+    expect(r.admission).toMatchObject({ deferred: false, class: 'db-heavy', slot: -1 });
+    expect(r.ungoverned?.code).toMatch(/^(EACCES|EPERM)$/);
+  });
+
+  it.skipIf(asRoot)('available() does not count an unwritable slot as held', async () => {
+    chmodSync(dir, 0o555);
+    expect(await gov.available('db-heavy', { sample: s })).toBe(1);
+  });
+
+  it('a slot held by someone else is still busy: a deferral, no throw', async () => {
+    const held = await gov.tryAcquire('db-heavy', { sample: s });
+    expect(isResourceGrant(held)).toBe(true);
+    const second = await gov.tryAcquire('db-heavy', { sample: s });
+    expect(second.deferred).toBe(true);
+    if (isResourceGrant(held)) await held.release();
+  });
+
+  it('admitFailOpen lets any other error through: it is a bug, not a sandbox', async () => {
+    await expect(
+      admitFailOpen('db-heavy', async () => {
+        throw new TypeError('cannot read properties of undefined');
+      }),
+    ).rejects.toThrow(TypeError);
   });
 });

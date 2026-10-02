@@ -16,7 +16,15 @@
  * @task T12980
  */
 
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -481,6 +489,66 @@ describe('parentRunJob (nested runs, M-2)', () => {
         groupOf: () => 500,
       }),
     ).toBeNull();
+  });
+});
+
+describe('a read-only registry never throws (#1777 R8-2)', () => {
+  // Root ignores directory permissions: the read-only case cannot be staged.
+  const asRoot = process.getuid?.() === 0;
+  const NOW = 10_000_000;
+  afterEach(() => {
+    chmodSync(dir, 0o755);
+  });
+
+  it.skipIf(asRoot)(
+    'reapOrphans still recovers the orphan and keeps the record it cannot delete',
+    () => {
+      writeRunJob(
+        job({
+          id: 'dead',
+          startedAtMs: 1,
+          heartbeatAtMs: NOW,
+          childPid: 77,
+          childStart: 'child-t0',
+        }),
+        dir,
+      );
+      chmodSync(dir, 0o555);
+      const signals: Array<[number, string]> = [];
+      const removed = reapOrphans(dir, {
+        alive: (pid) => pid === 77, // runner gone, child still there
+        start: (pid) => (pid === 77 ? 'child-t0' : null),
+        signal: (pid, sig) => {
+          signals.push([pid, sig]);
+          return true;
+        },
+        signalPid: () => true,
+        now: () => NOW,
+      });
+      expect(removed).toBe(0);
+      expect(signals).toEqual([
+        [77, 'SIGCONT'],
+        [77, 'SIGTERM'],
+      ]);
+      expect(readdirSync(dir)).toEqual(['dead.json']);
+    },
+  );
+
+  it.skipIf(asRoot)('listQueueTickets drops a stale ticket it cannot delete', () => {
+    writeQueueTicket(
+      {
+        id: 'stale',
+        pid: 4242,
+        runnerStart: null,
+        enqueuedAtMs: 1,
+        heartbeatAtMs: NOW - JOB_STALE_MS - 1,
+        command: 'x',
+      },
+      dir,
+    );
+    chmodSync(dir, 0o555);
+    expect(listQueueTickets(dir, { alive: () => true, now: () => NOW })).toEqual([]);
+    expect(readdirSync(dir)).toEqual(['stale.json']);
   });
 });
 
