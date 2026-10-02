@@ -23,6 +23,10 @@ export const KeyVersion = z.number().int().positive().max(MAX_KEY_VERSION);
 /** Largest inline segment. Larger segments go to R2 as a blob and are referenced by sha256. */
 export const MAX_INLINE_SEGMENT_BYTES = 1_048_576;
 export const MAX_PULL_LIMIT = 500;
+/** Most transactions one segment may declare deltas for (segment/v3, journal spec §2.11). */
+export const MAX_TXNS_PER_SEGMENT = 10_000;
+/** Most references in one v3 manifest list (`pending`, `voided`, `revived`). */
+export const MAX_MANIFEST_REFS = 100_000;
 
 // ---------- devices ----------
 
@@ -191,6 +195,41 @@ export const TableDeltas = z.record(
 );
 export type TableDeltas = z.infer<typeof TableDeltas>;
 
+/**
+ * One transaction's declared per-table deltas inside a segment (journal spec §2.11, segment/v3).
+ * `txn` is the transaction's index in the segment: 0, 1, 2, … in order.
+ */
+export const TxnDelta = z.object({ txn: z.number().int().nonnegative(), deltas: TableDeltas });
+export type TxnDelta = z.infer<typeof TxnDelta>;
+
+const NO_DELTA = { created: 0, deleted: 0 } as const;
+
+/**
+ * Why a segment's `txnDeltas` are malformed, or null: one entry per transaction, indexed 0..n-1 in
+ * order, summing per table to the segment's `deltas` (journal spec §2.11, the server's sum check).
+ * Module-private here: contracts export no runtime helpers (arch gate 10), so callers check a segment
+ * through {@link AppendSegmentRequest}, whose refinement runs it. The server exports the same function.
+ */
+function txnDeltasProblem(txnDeltas: readonly TxnDelta[], deltas: TableDeltas): string | null {
+  if (txnDeltas.length === 0) return 'txnDeltas is empty';
+  const sum = new Map<string, { created: number; deleted: number }>();
+  for (const [i, t] of txnDeltas.entries()) {
+    if (t.txn !== i) return `txnDeltas[${i}].txn must be ${i}`;
+    for (const [table, d] of Object.entries(t.deltas)) {
+      const s = sum.get(table) ?? NO_DELTA;
+      sum.set(table, { created: s.created + d.created, deleted: s.deleted + d.deleted });
+    }
+  }
+  for (const table of new Set([...sum.keys(), ...Object.keys(deltas)])) {
+    const a = sum.get(table) ?? NO_DELTA;
+    const b = Object.hasOwn(deltas, table) ? (deltas[table] ?? NO_DELTA) : NO_DELTA;
+    if (a.created !== b.created || a.deleted !== b.deleted) {
+      return `txnDeltas do not sum to deltas for ${table}`;
+    }
+  }
+  return null;
+}
+
 export const AppendSegmentRequest = z
   .object({
     replicaId: ReplicaId,
@@ -205,7 +244,14 @@ export const AppendSegmentRequest = z
     hlcMax: Hlc,
     deltas: TableDeltas,
     /**
-     * Ed25519 signature by the device signing key over segmentSigningMessage (v2), which covers the
+     * Per-transaction declared deltas (segment/v3, journal spec §2.11): one entry per transaction,
+     * indexed 0..n-1 and summing to `deltas`. When present the signature is segment/v3 and the
+     * metadata hash covers them. Absent: a v2 segment, counted as one transaction (index 0).
+     */
+    txnDeltas: z.array(TxnDelta).max(MAX_TXNS_PER_SEGMENT).optional(),
+    /**
+     * Ed25519 signature by the device signing key over segmentSigningMessage (v2, or v3 with
+     * txnDeltas), which covers the
      * stream, replica, device, replicaSeq, the ciphertext hash and the hash of every metadata field
      * above (segmentMetaCanonical). The server verifies it on append; every client re-verifies it on pull.
      */
@@ -217,7 +263,14 @@ export const AppendSegmentRequest = z
   .refine((r) => (r.ciphertext === undefined) !== (r.blobSha256 === undefined), {
     message: 'exactly one of ciphertext or blobSha256 is required',
   })
-  .refine((r) => r.hlcMin <= r.hlcMax, { message: 'hlcMin must not exceed hlcMax' });
+  .refine((r) => r.hlcMin <= r.hlcMax, { message: 'hlcMin must not exceed hlcMax' })
+  .refine((r) => r.txnDeltas === undefined || txnDeltasProblem(r.txnDeltas, r.deltas) === null, {
+    message: 'txnDeltas must index every transaction 0..n-1 in order and sum to deltas',
+  })
+  // Every transaction holds at least one op, so a segment cannot declare more transactions than ops.
+  .refine((r) => r.txnDeltas === undefined || r.txnDeltas.length <= r.opCount, {
+    message: 'txnDeltas cannot list more transactions than opCount',
+  });
 export type AppendSegmentRequest = z.infer<typeof AppendSegmentRequest>;
 
 export const AppendSegmentResult = z.object({
@@ -240,6 +293,11 @@ export const Segment = z.object({
   hlcMin: Hlc,
   hlcMax: Hlc,
   deltas: TableDeltas,
+  /**
+   * Per-transaction deltas of a segment/v3 segment; null for a v2 segment. Absent (a server from
+   * before segment/v3) reads as v2 too, so a client keeps working against an older server.
+   */
+  txnDeltas: z.array(TxnDelta).max(MAX_TXNS_PER_SEGMENT).nullish(),
   signature: Base64,
   ciphertext: Base64.nullable(),
   blobSha256: Sha256Hex.nullable(),
@@ -281,12 +339,94 @@ export const TableManifestEntry = z.object({
   hash: Sha256Hex,
 });
 
-/** Plaintext manifest: per-table counts and uid-keyed hashes. No content (ADR-093 §3). */
-export const Manifest = z.object({
-  schemaVersion: z.number().int().positive(),
-  tables: z.record(z.string().regex(/^[a-z][a-z0-9_]{0,62}$/), TableManifestEntry),
+/** One transaction inside one segment of a stream (journal spec §2.11). */
+export const TxnRef = z.object({
+  replicaId: ReplicaId,
+  replicaSeq: z.number().int().nonnegative(),
+  txn: z.number().int().nonnegative(),
 });
+export type TxnRef = z.infer<typeof TxnRef>;
+
+/**
+ * A transaction and per-table counts of its effects (voided or revived). Normal form, so that equal
+ * accounting has one canonical encoding: at least one table, and no table whose counts are both 0.
+ */
+export const RefDeltas = z.object({ ref: TxnRef, deltas: TableDeltas }).refine(
+  (v) => {
+    const counts = Object.values(v.deltas);
+    return counts.length > 0 && counts.every((c) => c.created > 0 || c.deleted > 0);
+  },
+  { message: 'voided and revived deltas list only tables with a non-zero count, and at least one' },
+);
+export type RefDeltas = z.infer<typeof RefDeltas>;
+
+/**
+ * What a checkpoint's tallies were replayed under (journal spec §2.11 §7): the hash of the whole
+ * ordered migration journal, the hash of the non-capture trigger set, and the transition points:
+ * each stream seq in this checkpoint's window at which the highest segment schemaVersion seen so far
+ * rises, starting from the parent checkpoint's schemaVersion. Both seq and schemaVersion strictly
+ * increase, so the list has one encoding. The server checks the points against the journal; it
+ * cannot check the journal hashes.
+ */
+export const ReplayPin = z.object({
+  journal: Sha256Hex,
+  triggerSetHash: Sha256Hex,
+  transitions: z
+    .array(
+      z.object({
+        seq: z.number().int().positive(),
+        schemaVersion: z.number().int().positive(),
+        journal: Sha256Hex,
+      }),
+    )
+    .max(1000)
+    .refine(
+      (ts) =>
+        ts.every(
+          (t, i) =>
+            i === 0 ||
+            (t.seq > (ts[i - 1]?.seq ?? 0) && t.schemaVersion > (ts[i - 1]?.schemaVersion ?? 0)),
+        ),
+      { message: 'transitions must strictly increase in seq and in schemaVersion' },
+    ),
+});
+export type ReplayPin = z.infer<typeof ReplayPin>;
+
+/** The fields a v3 manifest carries, all together (checkpoint/v3, journal spec §2.11 §3). */
+export const MANIFEST_V3_FIELDS = ['pending', 'voided', 'revived', 'pruned', 'replayPin'] as const;
+
+/**
+ * Plaintext manifest: per-table counts and uid-keyed hashes. No content (ADR-093 §3).
+ *
+ * v3 (checkpoint/v3, journal spec §2.11) adds the applied-effect accounting the exact regression rule
+ * needs under concurrent writers: `pending` (declared at or below coversSeq, not yet applied),
+ * `voided` (applied effects that did not land, this window), `revived` (earlier voided effects that
+ * landed now), `pruned` (rows removed by replicated range-prunes) and the `replayPin`. A manifest
+ * carries all five or none.
+ */
+export const Manifest = z
+  .object({
+    schemaVersion: z.number().int().positive(),
+    tables: z.record(z.string().regex(/^[a-z][a-z0-9_]{0,62}$/), TableManifestEntry),
+    pending: z.array(TxnRef).max(MAX_MANIFEST_REFS).optional(),
+    voided: z.array(RefDeltas).max(MAX_MANIFEST_REFS).optional(),
+    revived: z.array(RefDeltas).max(MAX_MANIFEST_REFS).optional(),
+    /** Rows removed by replicated range-prunes, per table; tables with none are left out. */
+    pruned: z
+      .record(z.string().regex(/^[a-z][a-z0-9_]{0,62}$/), z.number().int().positive())
+      .optional(),
+    replayPin: ReplayPin.optional(),
+  })
+  .refine(
+    (m) => {
+      const n = MANIFEST_V3_FIELDS.filter((k) => m[k] !== undefined).length;
+      return n === 0 || n === MANIFEST_V3_FIELDS.length;
+    },
+    { message: 'a v3 manifest carries pending, voided, revived, pruned and replayPin together' },
+  );
 export type Manifest = z.infer<typeof Manifest>;
+// The server's `manifestVersion(m)` (3 when `replayPin` is set, else 2) is a runtime helper, so here it
+// lives in `@cleocode/core` (`cloud/manifest-check.ts`): contracts export no runtime helpers (arch gate 10).
 
 /**
  * Where one replica stood at a checkpoint: the device that signs its segments and the last replicaSeq

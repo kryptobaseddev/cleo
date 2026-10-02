@@ -124,6 +124,7 @@ function nexus() {
         hlcMin: b.hlcMin,
         hlcMax: b.hlcMax,
         deltas: b.deltas,
+        txnDeltas: b.txnDeltas ?? null,
         signature: b.signature,
         ciphertext: b.ciphertext ?? null,
         blobSha256: b.blobSha256 ?? null,
@@ -308,6 +309,7 @@ describe('pull: verification of every segment before it is returned', () => {
         replicaSeq: 0,
         segmentHash: seg.segmentHash,
         metaHash: sha256Hex(Buffer.from(segmentMetaCanonical(seg))),
+        version: 2,
       }),
     ).toString('base64');
     await expect(x.reader.pull(initialPullCursor(), x.trusted)).rejects.toMatchObject(
@@ -544,6 +546,94 @@ describe('checkpoints: signed, AAD-bound, never rolled back (MEDIUM 4)', () => {
     await expect(x.reader.restoreCheckpoint(next.checkpointId, x.trusted)).rejects.toMatchObject({
       code: 'E_BLOB_INTEGRITY',
     });
+  });
+});
+
+describe('segment/v3 and checkpoint/v3 (journal spec §2.11, T13034)', () => {
+  const H = 'e'.repeat(64);
+  const v3meta = (n: number): SegmentMeta => ({
+    opCount: 2,
+    hlcMin: hlc(n, replicaA),
+    hlcMax: hlc(n, replicaA),
+    deltas: { tasks_tasks: { created: 2, deleted: 0 } },
+    txnDeltas: [
+      { txn: 0, deltas: { tasks_tasks: { created: 1, deleted: 0 } } },
+      { txn: 1, deltas: { tasks_tasks: { created: 1, deleted: 0 } } },
+    ],
+    schemaVersion: 2,
+  });
+  const v2manifest = { schemaVersion: 2, tables: { tasks_tasks: { rows: 2, hash: H } } };
+  const v3manifest = {
+    ...v2manifest,
+    pending: [],
+    voided: [],
+    revived: [],
+    pruned: {},
+    replayPin: { journal: H, triggerSetHash: H, transitions: [] },
+  };
+
+  it('pushes txnDeltas under the segment/v3 domain, and a pull verifies and returns them', async () => {
+    const x = nexus();
+    await x.writerA.push(0, ops(0), v3meta(0));
+    expect(x.segments[0]?.txnDeltas).toHaveLength(2);
+    const { segments } = await x.reader.pull(initialPullCursor(), x.trusted);
+    expect(segments[0]?.meta.txnDeltas).toEqual(v3meta(0).txnDeltas);
+    expect(segments[0]?.plaintext.toString()).toBe('ops-0');
+  });
+
+  it('refuses txnDeltas dropped from a v3 segment or added to a v2 one (the domain follows the field)', async () => {
+    const x = nexus();
+    await x.writerA.push(0, ops(0), v3meta(0));
+    (x.segments[0] as Segment).txnDeltas = null;
+    await expect(x.reader.pull(initialPullCursor(), x.trusted)).rejects.toMatchObject(
+      reason('bad-signature'),
+    );
+    const y = await withSegments(1);
+    (y.segments[0] as Segment).txnDeltas = [
+      { txn: 0, deltas: { tasks_tasks: { created: 1, deleted: 0 } } },
+    ];
+    await expect(y.reader.pull(initialPullCursor(), y.trusted)).rejects.toMatchObject(
+      reason('bad-signature'),
+    );
+  });
+
+  it('reads a segment without the txnDeltas key (a server before segment/v3) as v2', async () => {
+    const x = await withSegments(1);
+    const { txnDeltas: _gone, ...older } = x.segments[0] as Segment;
+    x.segments[0] = older;
+    const { segments } = await x.reader.pull(initialPullCursor(), x.trusted);
+    expect(segments[0]?.meta.txnDeltas).toBeUndefined();
+  });
+
+  it('signs a v3 manifest under checkpoint/v3; its fields can be neither stripped nor added', async () => {
+    const x = await withSegments(1);
+    const cursor = (await x.writerA.pull(initialPullCursor(), x.trusted)).cursor;
+    const v3 = await x.writerA.pushCheckpoint({
+      bundle: Buffer.from('v3'),
+      manifest: v3manifest,
+      cursor,
+      parentCheckpointId: null,
+    });
+    const r = await x.reader.restoreCheckpoint(v3.checkpointId, x.trusted);
+    expect(r.bundle.toString()).toBe('v3');
+    expect(r.checkpoint.manifest.replayPin).toEqual(v3manifest.replayPin);
+    const rec = x.checkpoints.find((c) => c.checkpointId === v3.checkpointId) as Checkpoint;
+    rec.manifest = structuredClone(v2manifest);
+    await expect(x.reader.restoreCheckpoint(v3.checkpointId, x.trusted)).rejects.toMatchObject(
+      reason('bad-signature'),
+    );
+
+    const v2 = await x.writerA.pushCheckpoint({
+      bundle: Buffer.from('v2'),
+      manifest: v2manifest,
+      cursor,
+      parentCheckpointId: null,
+    });
+    const rec2 = x.checkpoints.find((c) => c.checkpointId === v2.checkpointId) as Checkpoint;
+    rec2.manifest = structuredClone(v3manifest);
+    await expect(x.reader.restoreCheckpoint(v2.checkpointId, x.trusted)).rejects.toMatchObject(
+      reason('bad-signature'),
+    );
   });
 });
 

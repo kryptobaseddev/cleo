@@ -34,6 +34,7 @@ import {
   NexusError,
 } from './http.js';
 import { liveKeys, type SignerKey, signerKeys, type TrustedSigners } from './keys.js';
+import { manifestVersion } from './manifest-check.js';
 import {
   type CheckpointSigningParts,
   checkpointEndorsementMessage,
@@ -43,6 +44,7 @@ import {
   type SegmentMetaFields,
   segmentMetaCanonical,
   segmentSigningMessage,
+  segmentSigningVersion,
 } from './signing.js';
 
 export type Uploader = (
@@ -244,8 +246,11 @@ const checkpointParts = (
   replicasHash: replicasHash(cp.replicas),
   blobSha256: cp.blobSha256,
   sizeBytes: cp.sizeBytes,
+  version: manifestVersion(cp.manifest),
 });
 
+// The AAD contexts stay `segment/v2` and `checkpoint/v2` for v3 segments and manifests: the meta hash
+// already covers `txnDeltas`, and the signature carries the version (cleo-nexus e2e-keys.md).
 const segmentContext = (
   streamId: string,
   replicaId: string,
@@ -261,6 +266,8 @@ const metaOf = (s: SegmentMetaFields): SegmentMeta => ({
   hlcMax: s.hlcMax,
   deltas: s.deltas,
   schemaVersion: s.schemaVersion,
+  // segment/v3 only; a v2 segment (null, or absent from an older server) carries none.
+  ...(s.txnDeltas !== undefined && s.txnDeltas !== null ? { txnDeltas: s.txnDeltas } : {}),
 });
 
 /**
@@ -283,8 +290,9 @@ export class Journal {
   }
 
   /**
-   * Encrypt, sign and append one segment of ops. Safe to retry with the same replicaSeq, metadata and
-   * `sealed` bytes (from sealSegment): re-encrypting would change the hash and defeat idempotency.
+   * Encrypt, sign and append one segment of ops: segment/v2, or segment/v3 when `meta` carries
+   * `txnDeltas` (journal spec §2.11). Safe to retry with the same replicaSeq, metadata and `sealed`
+   * bytes (from sealSegment): re-encrypting would change the hash and defeat idempotency.
    */
   async push(
     replicaSeq: number,
@@ -298,15 +306,25 @@ export class Journal {
     const segmentHash = sha256Hex(ciphertext);
     const signature = signEd25519(
       this.o.signing,
-      segmentSigningMessage({ streamId, replicaId, deviceId, replicaSeq, segmentHash, metaHash }),
+      segmentSigningMessage({
+        streamId,
+        replicaId,
+        deviceId,
+        replicaSeq,
+        segmentHash,
+        metaHash,
+        version: segmentSigningVersion(meta),
+      }),
     ).toString('base64');
+    const { txnDeltas, ...v2Meta } = metaOf(meta);
     const body: AppendSegmentRequest = {
       replicaId,
       deviceId,
       segmentHash,
       replicaSeq,
       signature,
-      ...metaOf(meta),
+      ...v2Meta,
+      ...(txnDeltas ? { txnDeltas: [...txnDeltas] } : {}),
       ...(ciphertext.length > MAX_INLINE_SEGMENT_BYTES
         ? { blobSha256: await this.uploadBlob(ciphertext, 'segment') }
         : { ciphertext: ciphertext.toString('base64') }),
@@ -414,6 +432,7 @@ export class Journal {
       replicaSeq: s.replicaSeq,
       segmentHash: s.segmentHash,
       metaHash,
+      version: segmentSigningVersion(s),
     });
     const signature = Buffer.from(s.signature, 'base64');
     const signer = keys.find((k) => verifyEd25519(k.publicKey, msg, signature));
@@ -476,8 +495,9 @@ export class Journal {
    * Encrypt, upload and sign a checkpoint bundle, then register it. The client mints the checkpoint id,
    * because the signature and the bundle's AAD both cover it. `cursor` is this replica's pull cursor at
    * the point the bundle captures: it gives coversSeq and the signed replica map, so it must know every
-   * replica. The server verifies the signature and the replica map, and refuses lineage breaks and
-   * regressions. A retry of the same checkpoint returns it again.
+   * replica. The signature is checkpoint/v2, or checkpoint/v3 for a manifest with the §2.11 accounting
+   * fields ({@link manifestVersion}). The server verifies the signature and the replica map, and refuses
+   * lineage breaks and regressions. A retry of the same checkpoint returns it again.
    */
   async pushCheckpoint(args: {
     bundle: Uint8Array;
@@ -539,7 +559,9 @@ export class Journal {
 
   /**
    * Check a checkpoint record: it belongs to this stream, and a trusted key signed every field that
-   * matters (ids, lineage, coversSeq, manifest, replica map, bundle hash and size). Accepted signers:
+   * matters (ids, lineage, coversSeq, manifest, replica map, bundle hash and size), under the domain its
+   * manifest's format picks (checkpoint/v2 or /v3, so v3 fields can be neither dropped nor added after
+   * signing). Accepted signers:
    * - the author, with a live key, or with a revoked key whose pin for this stream covers coversSeq;
    * - otherwise, any live device that endorsed (re-signed) it.
    */

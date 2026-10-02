@@ -13,6 +13,7 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
+import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts';
 import { VAULT_REMOTE_PATH_PREFIX } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { TRIGGER_SUSPEND_TABLE_DDL } from '../sync/trigger-classes.js';
@@ -25,12 +26,15 @@ import {
   isVaultManifestTable,
   sameVaultManifest,
   VAULT_FORK_KEY,
-  VAULT_MANIFEST_SCHEMA_VERSION,
+  VAULT_FORMAT_KEY,
+  VAULT_MANIFEST_FORMAT_VERSION,
   vaultDatabaseKey,
   vaultFileDigest,
   vaultFilesEntry,
   vaultForkEntry,
+  vaultFormatEntry,
   vaultLocalColumns,
+  vaultManifestFormat,
   vaultStripColumns,
 } from '../vault-manifest.js';
 
@@ -120,7 +124,8 @@ describe('isVaultManifestTable', () => {
 describe('buildVaultManifest', () => {
   it('lists only syncing non-secret tables, with row counts', () => {
     const { manifest, skipped } = build(projectDb('a'));
-    expect(manifest.schemaVersion).toBe(VAULT_MANIFEST_SCHEMA_VERSION);
+    // The wire schemaVersion is the shared sync schema, not the vault's computation format (T13034).
+    expect(manifest.schemaVersion).toBe(SYNC_SCHEMA_VERSION);
     expect(Object.keys(manifest.tables).sort()).toEqual([
       'brain_observations',
       'tasks_sessions',
@@ -250,6 +255,43 @@ describe('compareVaultManifests / sameVaultManifest', () => {
     expect(sameVaultManifest(a, a)).toBe(true);
     expect(sameVaultManifest(a, b)).toBe(false);
     expect(sameVaultManifest(a, { tables: {} })).toBe(false);
+  });
+});
+
+describe('the format record (T13034)', () => {
+  const tables = { tasks_tasks: { rows: 1, hash: 'a'.repeat(64) } };
+  it('names the format its hashes use, keyed, and is never compared', () => {
+    const recorded = {
+      schemaVersion: SYNC_SCHEMA_VERSION,
+      tables: { ...tables, [VAULT_FORMAT_KEY]: vaultFormatEntry(KEY) },
+    };
+    expect(recorded.tables[VAULT_FORMAT_KEY]?.rows).toBe(0);
+    expect(vaultManifestFormat(recorded, KEY)).toBe(VAULT_MANIFEST_FORMAT_VERSION);
+    // Another key cannot read it: the version is not guessable from the plaintext manifest.
+    expect(vaultManifestFormat(recorded, crypto.randomBytes(32))).toBe('unknown');
+    expect(sameVaultManifest(recorded, { schemaVersion: SYNC_SCHEMA_VERSION, tables })).toBe(true);
+  });
+  it('reads a later format as unknown, and a snapshot without a record by its old wire schemaVersion', () => {
+    const later = {
+      schemaVersion: SYNC_SCHEMA_VERSION,
+      tables: {
+        ...tables,
+        [VAULT_FORMAT_KEY]: vaultFormatEntry(KEY, VAULT_MANIFEST_FORMAT_VERSION + 1),
+      },
+    };
+    expect(vaultManifestFormat(later, KEY)).toBe('unknown');
+    expect(vaultManifestFormat({ schemaVersion: 1, tables }, KEY)).toBe(1);
+    expect(vaultManifestFormat({ schemaVersion: 2, tables }, KEY)).toBe(2);
+  });
+  it('reads a record a pre-record build carried forward as an emptied table as format 2 (#1785 LOW-3)', () => {
+    const carried = {
+      schemaVersion: SYNC_SCHEMA_VERSION,
+      tables: {
+        ...tables,
+        [VAULT_FORMAT_KEY]: { rows: 0, hash: emptyVaultTableHash(KEY, VAULT_FORMAT_KEY) },
+      },
+    };
+    expect(vaultManifestFormat(carried, KEY)).toBe(2);
   });
 });
 

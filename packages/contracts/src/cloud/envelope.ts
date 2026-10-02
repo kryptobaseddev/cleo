@@ -17,6 +17,16 @@ export const ErrorCode = z.enum([
   'E_LINEAGE',
   /** The manifest loses rows that no tombstone in the covered segments accounts for. */
   'E_REGRESSION',
+  /**
+   * A v3 manifest's applied-effect accounting (pending, voided, revived, pruned) does not fit the
+   * journal: a ref outside the window, a void beyond what was declared, a revival of nothing voided.
+   */
+  'E_MANIFEST_ACCOUNTING',
+  /**
+   * The checkpoint's format is older than the stream's: once a stream has accepted a v3 (checkpoint/v3)
+   * manifest, a v2 manifest is refused (journal spec §2.11, reason `stream-v3`).
+   */
+  'E_STREAM_VERSION',
   /** A segment or manifest uses a schemaVersion newer than the stream accepts. It is quarantined, never dropped. */
   'E_SCHEMA_AHEAD',
   /** Another replica holds the exporter lease for this stream. */
@@ -52,6 +62,8 @@ export const errorStatus: Record<ErrorCode, number> = {
   E_CONFLICT: 409,
   E_LINEAGE: 409,
   E_REGRESSION: 409,
+  E_MANIFEST_ACCOUNTING: 409,
+  E_STREAM_VERSION: 409,
   E_LEASE_HELD: 409,
   E_SCHEMA_AHEAD: 422,
   E_BLOB_MISSING: 424,

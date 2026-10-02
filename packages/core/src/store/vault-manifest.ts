@@ -33,7 +33,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
-import type { TableScope } from '@cleocode/contracts';
+import { SYNC_SCHEMA_VERSION, type TableScope } from '@cleocode/contracts';
 import { isVaultRemotePath, VAULT_REMOTE_PATH_PREFIX } from '@cleocode/paths';
 import {
   RELOCATED_JSON_FILES,
@@ -58,11 +58,29 @@ const { DatabaseSync } = _require('node:sqlite') as {
 };
 
 /**
- * Version of the manifest computation; recorded as the manifest's
- * `schemaVersion`. 2: non-syncing columns hash as NULL, plus the
+ * Version of the manifest computation (which cells hash, and how; which
+ * pseudo-entries exist). 2: non-syncing columns hash as NULL, plus the
  * `zz_vault_db_*` and `zz_vault_files` entries (T12967, T12969).
+ *
+ * It is not the manifest's wire `schemaVersion`: that is
+ * {@link SYNC_SCHEMA_VERSION}, the stream data numbering the vault shares with
+ * the change journal (T13034), and a computation change must not move it (the
+ * server reads a rise there as a schema transition every v3 checkpoint pins).
+ * Each snapshot records its format in a {@link VAULT_FORMAT_KEY} entry
+ * ({@link vaultFormatEntry}), so a reader tells "hashed another way" from
+ * "does not match" ({@link vaultManifestFormat}). Bump it with any change to
+ * what a manifest hashes.
  */
-export const VAULT_MANIFEST_SCHEMA_VERSION = 2;
+export const VAULT_MANIFEST_FORMAT_VERSION = 2;
+
+/**
+ * Manifest key of a snapshot's format record (T13034): which
+ * {@link VAULT_MANIFEST_FORMAT_VERSION} its hashes were computed under. Zero
+ * rows, so the server's count check is unaffected; an annotation, never a
+ * table, so comparisons ignore it. Its hash is keyed: only key holders read
+ * the version.
+ */
+export const VAULT_FORMAT_KEY = 'zz_vault_format';
 
 /** A manifest key the wire contract accepts. */
 const MANIFEST_KEY = /^[a-z][a-z0-9_]{0,62}$/;
@@ -80,7 +98,7 @@ export interface VaultTableEntry {
 
 /** A snapshot manifest, in the wire shape (`Manifest` of the Nexus contract). */
 export interface VaultManifest {
-  /** {@link VAULT_MANIFEST_SCHEMA_VERSION}. */
+  /** The wire `schemaVersion`: {@link SYNC_SCHEMA_VERSION} on what the vault writes. */
   schemaVersion: number;
   /** Per table. */
   tables: Record<string, VaultTableEntry>;
@@ -279,7 +297,7 @@ export function buildVaultManifest(
   } finally {
     db.close();
   }
-  return { manifest: { schemaVersion: VAULT_MANIFEST_SCHEMA_VERSION, tables }, skipped };
+  return { manifest: { schemaVersion: SYNC_SCHEMA_VERSION, tables }, skipped };
 }
 
 /**
@@ -462,6 +480,71 @@ export function vaultForkEntry(hashKey: Uint8Array, overCheckpointId: string): V
 }
 
 /**
+ * The {@link VAULT_FORMAT_KEY} entry of a snapshot hashed under `format`.
+ *
+ * @param hashKey - The manifest hash key.
+ * @param format - The manifest format (default: this CLEO's).
+ * @returns The entry (0 rows; the hash names the format).
+ */
+export function vaultFormatEntry(
+  hashKey: Uint8Array,
+  format: number = VAULT_MANIFEST_FORMAT_VERSION,
+): VaultTableEntry {
+  return {
+    rows: 0,
+    hash: crypto
+      .createHmac('sha256', Buffer.from(hashKey))
+      .update(`cleo-vault-format/v1\n${format}\n`)
+      .digest('hex'),
+  };
+}
+
+/**
+ * The manifest format a snapshot's hashes were computed under (T13034): the
+ * version its {@link VAULT_FORMAT_KEY} entry names, or `'unknown'` when the
+ * entry names no format this CLEO knows (a different vault format wrote it,
+ * most likely a newer CLEO). Read as the legacy format 2:
+ *
+ * - no entry: the snapshot predates the record, when vaults stamped their
+ *   format as the wire `schemaVersion` (1 or 2), so it reads as 1 for
+ *   `schemaVersion` 1 and as 2 otherwise;
+ * - an entry holding the empty-table hash: a build from before the record
+ *   carried the parent's entry forward as an emptied table (it only skipped
+ *   the fork label), over hashes it computed in format 2. Reading it as
+ *   unknown would leave the stream unrestorable and unpushable for every
+ *   later CLEO.
+ *
+ * @param manifest - A checkpoint's manifest.
+ * @param hashKey - The manifest hash key.
+ * @returns The format, or `'unknown'`.
+ */
+export function vaultManifestFormat(
+  manifest: Pick<VaultManifest, 'schemaVersion' | 'tables'>,
+  hashKey: Uint8Array,
+): number | 'unknown' {
+  const entry = Object.hasOwn(manifest.tables, VAULT_FORMAT_KEY)
+    ? manifest.tables[VAULT_FORMAT_KEY]
+    : undefined;
+  if (entry === undefined) return manifest.schemaVersion === 1 ? 1 : 2;
+  if (entry.hash === emptyVaultTableHash(hashKey, VAULT_FORMAT_KEY)) return 2;
+  for (let format = 1; format <= VAULT_MANIFEST_FORMAT_VERSION; format++) {
+    if (vaultFormatEntry(hashKey, format).hash === entry.hash) return format;
+  }
+  return 'unknown';
+}
+
+/**
+ * Whether a manifest key is an annotation (the fork label, the format
+ * record) rather than a table: never compared, counted or carried forward.
+ *
+ * @param key - A manifest key.
+ * @returns `true` for {@link VAULT_FORK_KEY} and {@link VAULT_FORMAT_KEY}.
+ */
+export function isVaultAnnotationKey(key: string): boolean {
+  return key === VAULT_FORK_KEY || key === VAULT_FORMAT_KEY;
+}
+
+/**
  * Whether a snapshot manifest carries the fork label.
  *
  * @param manifest - A checkpoint's manifest.
@@ -474,8 +557,9 @@ export function isVaultForkManifest(manifest: Pick<VaultManifest, 'tables'>): bo
 /**
  * Compare two manifests table by table (union of both key sets, sorted). A
  * table one side does not list and the other lists with 0 rows is the same
- * (an emptied table stays listed on the cloud side); the fork label
- * ({@link VAULT_FORK_KEY}) is not a table and is left out.
+ * (an emptied table stays listed on the cloud side); the annotations
+ * ({@link isVaultAnnotationKey}: fork label, format record) are not tables
+ * and are left out.
  *
  * @param local - This side.
  * @param cloud - The other side.
@@ -486,7 +570,7 @@ export function compareVaultManifests(
   cloud: Pick<VaultManifest, 'tables'>,
 ): VaultTableComparison[] {
   const names = [...new Set([...Object.keys(local.tables), ...Object.keys(cloud.tables)])]
-    .filter((table) => table !== VAULT_FORK_KEY)
+    .filter((table) => !isVaultAnnotationKey(table))
     .sort();
   return names.map((table) => {
     const l = local.tables[table];
