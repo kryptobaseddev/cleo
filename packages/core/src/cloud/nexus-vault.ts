@@ -45,6 +45,7 @@
  * @epic T12322
  */
 
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -84,6 +85,7 @@ import {
   PROJECT_SECTION_RULES,
   type SectionScan,
   scanSection,
+  sha256File,
 } from '../store/portable-bundle-scan.js';
 import { FIRST_OPEN_LOCK_SUFFIX } from '../store/sqlite.js';
 import { readActiveReplicaId } from '../store/sync/replica.js';
@@ -97,6 +99,7 @@ import {
   sameVaultManifest,
   VAULT_FILES_KEY,
   VAULT_FORK_KEY,
+  VAULT_GLOBAL_CONFIG_LOCAL_KEYS,
   VAULT_MANIFEST_SCHEMA_VERSION,
   type VaultManifest,
   vaultDatabaseEntry,
@@ -129,10 +132,17 @@ import { homeStream, projectStream } from './streams.js';
 /** Default lease length of a push: long enough for a large upload, short enough to hand off. */
 export const NEXUS_VAULT_LEASE_TTL_SECONDS = 900;
 
+/** Why CLEO-installed global content is never in a vault snapshot (T13022). */
+const INSTALLED_BY_CLEO =
+  "installed by this machine's CLEO version (devices on other versions would downgrade it); never in a vault snapshot";
+
 /**
  * Global-home paths a vault snapshot never carries (T12968): this machine's
- * identity and runtime state. A global pull must leave them as they are, so
- * the bundle does not hold them at all. The config home is left out too.
+ * identity and runtime state, and the content CLEO's installer writes for its
+ * own version (T13022: templates, harness skills, hooks, extensions, the
+ * model catalog, migration markers, the CleoOS hub extensions and identity).
+ * A global pull must leave them as they are, so the bundle does not hold them
+ * at all. The config home is left out too.
  */
 export const VAULT_GLOBAL_EXCLUSIONS = {
   dirs: {
@@ -140,8 +150,16 @@ export const VAULT_GLOBAL_EXCLUSIONS = {
       'machine-local state (on macOS the replica registries live here); never in a vault snapshot',
     keys: 'machine-local keys (evidence cache key); never in a vault snapshot',
     'rate-limit-state': 'machine-local rate-limit counters; never in a vault snapshot',
+    templates: INSTALLED_BY_CLEO,
+    skills: INSTALLED_BY_CLEO,
+    hooks: INSTALLED_BY_CLEO,
+    extensions: INSTALLED_BY_CLEO,
+    'pi-extensions': INSTALLED_BY_CLEO,
+    'llm-catalog': INSTALLED_BY_CLEO,
+    '.migrations': INSTALLED_BY_CLEO,
   },
   files: {
+    'CLEOOS-IDENTITY.md': INSTALLED_BY_CLEO,
     'device-id': "this machine's stable device id; never in a vault snapshot",
     'web-server.json': 'machine-local web server runtime state; never in a vault snapshot',
     'sentient-state.json': 'machine-local daemon state; never in a vault snapshot',
@@ -164,7 +182,8 @@ export const VAULT_GLOBAL_EXCLUSIONS = {
  * - `skip`: never placed from a snapshot (`worktrees.json` names this
  *   machine's worktrees).
  * - `keep`: this machine's copy stays; the snapshot's is placed only where
- *   this machine has none: the replica link (`nexus-link.json`), files CLEO
+ *   this machine has none: the replica link (`nexus-link.json`), the
+ *   per-checkout identity cache (`project-info.json`, T13022), files CLEO
  *   regenerates on its own (`memory-bridge.md`, timestamped) and per-session
  *   scratch (top-level dotfiles, `tmp/`, `state/`), which would otherwise read
  *   as a change on every run.
@@ -175,6 +194,7 @@ export const VAULT_GLOBAL_EXCLUSIONS = {
 function machineLocalFile(relPath: string): 'keep' | 'skip' | null {
   if (relPath === 'worktrees.json') return 'skip';
   return relPath === 'nexus-link.json' ||
+    relPath === 'project-info.json' ||
     relPath === 'memory-bridge.md' ||
     (!relPath.includes('/') && relPath.startsWith('.')) ||
     relPath.startsWith('tmp/') ||
@@ -509,6 +529,7 @@ function syncedState(
         lastCheckpointId: head.checkpointId,
         lastCoversSeq: head.coversSeq,
         updatedAt: head.createdAt,
+        ...(recorded.gitTracked !== undefined ? { gitTracked: recorded.gitTracked } : {}),
       },
       adopted: head,
     };
@@ -516,17 +537,42 @@ function syncedState(
   return { state: recorded, adopted: null };
 }
 
-/** Record that this store holds `cp` on the stream. */
+/**
+ * Record that this store holds `cp` on the stream, with the paths the
+ * snapshot marks as git-tracked (T13019).
+ */
 function saveSynced(
   conn: NexusVaultConnection,
   t: VaultTarget,
   cp: Checkpoint,
+  gitTracked: readonly string[],
   streamId = t.streamId,
 ): void {
   conn.state.saveStream(conn.apiUrl, conn.userId, streamId, t.storeRoot, {
     lastCheckpointId: cp.checkpointId,
     lastCoversSeq: cp.coversSeq,
+    gitTracked,
   });
+}
+
+/**
+ * The paths a push marks as git-tracked (T13019): what this checkout's git
+ * tracks; on a machine without git, the marks of the snapshot it last synced,
+ * so tracked-ness travels with the data; with git unknown, the same.
+ */
+function trackedForPush(git: GitTracking, synced: VaultStreamState | null): ReadonlySet<string> {
+  return git.mode === 'known' ? git.tracked : new Set(synced?.gitTracked ?? []);
+}
+
+/**
+ * The paths left out of a file comparison with the snapshot this store last
+ * synced: those this checkout's git tracks, and those that snapshot marks (T13019).
+ */
+function untrackedComparison(
+  git: GitTracking,
+  synced: VaultStreamState | null,
+): ReadonlySet<string> {
+  return new Set([...git.tracked, ...(synced?.gitTracked ?? [])]);
 }
 
 /**
@@ -534,17 +580,103 @@ function saveSynced(
  * columns (T13007), and for the global store without machine-local state or
  * the config home (T12968).
  */
-async function exportVaultBundle(t: VaultTarget, outputPath: string, label: string): Promise<void> {
+async function exportVaultBundle(
+  t: VaultTarget,
+  outputPath: string,
+  label: string,
+  tracked: ReadonlySet<string>,
+): Promise<void> {
   await exportPortableBundle({
     scope: t.scope === 'global' ? 'global' : 'project',
     ...(t.scope === 'project' ? { projectRoot: t.storeRoot } : {}),
     ...(t.scope === 'global'
       ? { globalHomeExclusions: VAULT_GLOBAL_EXCLUSIONS, includeConfigHome: false }
       : {}),
+    ...(t.scope === 'project' && tracked.size > 0 ? { gitTrackedFiles: tracked } : {}),
     stripColumns: vaultStripColumns(tableScopeOf(t)),
     outputPath,
     label,
   });
+}
+
+/**
+ * What git says about a project section's plain files (T13019). Paths git
+ * tracks are git's job: the vault neither compares, overwrites nor removes
+ * them in a checkout, and places them only into a directory that is not one.
+ *
+ * - `none`: not a git checkout (the global home, or a directory with no
+ *   repository above it): every file is the vault's.
+ * - `known`: `tracked` holds the section's tracked paths (relative to `.cleo/`).
+ * - `unknown`: a checkout git could not list (timeout, broken repository, no
+ *   git): no file is compared, overwritten or removed.
+ */
+interface GitTracking {
+  mode: 'none' | 'known' | 'unknown';
+  tracked: ReadonlySet<string>;
+}
+
+/** How long `git ls-files` may run before the vault treats tracking as unknown. */
+const GIT_LS_FILES_TIMEOUT_MS = 15_000;
+
+/** Largest `git ls-files` output read (the `.cleo/` pathspec of a large repository). */
+const GIT_LS_FILES_MAX_BYTES = 64 * 1024 * 1024;
+
+/** Environment variables that would point git at another repository than the store's. */
+const GIT_LOCATION_ENV = [
+  'GIT_DIR',
+  'GIT_WORK_TREE',
+  'GIT_INDEX_FILE',
+  'GIT_COMMON_DIR',
+  'GIT_OBJECT_DIRECTORY',
+];
+
+/** The store's git tracking, each side from its own checkout (T13019). */
+function gitTracking(t: VaultTarget): GitTracking {
+  const none: GitTracking = { mode: 'none', tracked: new Set() };
+  if (t.scope === 'global') return none;
+  let dir = path.resolve(t.storeRoot);
+  for (;;) {
+    if (fs.existsSync(path.join(dir, '.git'))) break;
+    const up = path.dirname(dir);
+    if (up === dir) return none;
+    dir = up;
+  }
+  try {
+    const out = execFileSync('git', ['ls-files', '-z', '--', '.cleo'], {
+      cwd: t.storeRoot,
+      encoding: 'utf8',
+      timeout: GIT_LS_FILES_TIMEOUT_MS,
+      maxBuffer: GIT_LS_FILES_MAX_BYTES,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      env: Object.fromEntries(
+        Object.entries(process.env).filter(([k]) => !GIT_LOCATION_ENV.includes(k)),
+      ),
+    });
+    const tracked = new Set<string>();
+    for (const p of out.split('\0'))
+      if (p.startsWith('.cleo/')) tracked.add(p.slice('.cleo/'.length));
+    return { mode: 'known', tracked };
+  } catch {
+    return { mode: 'unknown', tracked: new Set() };
+  }
+}
+
+/** The warning for a checkout git could not list (T13019). */
+function gitUnknownWarning(t: VaultTarget): CloudWarning {
+  return {
+    code: 'W_NEXUS_VAULT_GIT_UNKNOWN',
+    message: `git could not list the tracked files of ${t.storeRoot}; the vault leaves every plain file under .cleo/ alone (not compared, overwritten or removed) until it can`,
+  };
+}
+
+/**
+ * A manifest as this store can compare it: without the file inventory when
+ * git tracking is unknown, since local files are then left alone (T13019).
+ */
+function comparable<M extends Pick<VaultManifest, 'tables'>>(m: M, git: GitTracking): M {
+  if (git.mode !== 'unknown' || !Object.hasOwn(m.tables, VAULT_FILES_KEY)) return m;
+  const { [VAULT_FILES_KEY]: _files, ...tables } = m.tables;
+  return { ...m, tables };
 }
 
 /**
@@ -578,10 +710,15 @@ async function snapshotManifest(
   }
   const files: Array<{ relPath: string; sha256: string }> = [];
   for (const f of section.files) {
-    if (f.secret || inventoryExcluded(f.relPath)) continue;
+    // Tracked by the pusher's git: git's job, never the vault's (T13019).
+    if (f.secret || f.gitTracked === true || inventoryExcluded(f.relPath)) continue;
     files.push({
       relPath: f.relPath,
-      sha256: await vaultFileDigest(path.join(extractDir, f.bundlePath), f.relPath, root, f.sha256),
+      sha256: await vaultFileDigest(path.join(extractDir, f.bundlePath), f.relPath, {
+        scope: tableScopeOf(t),
+        root,
+        sha256: f.sha256,
+      }),
     });
   }
   vault.tables[VAULT_FILES_KEY] = vaultFilesEntry(files, hashKey);
@@ -593,9 +730,10 @@ async function exportAndRead(
   t: VaultTarget,
   work: string,
   label: string,
-): Promise<{ bundlePath: string; vault: VaultManifest }> {
+  tracked: ReadonlySet<string>,
+): Promise<{ bundlePath: string; vault: VaultManifest; gitTracked: string[] }> {
   const bundlePath = path.join(work, 'snapshot.cleobundle.tar.gz');
-  await exportVaultBundle(t, bundlePath, label);
+  await exportVaultBundle(t, bundlePath, label, tracked);
   const extractDir = path.join(work, 'x');
   fs.mkdirSync(extractDir);
   await tarExtract({ file: bundlePath, cwd: extractDir });
@@ -603,7 +741,13 @@ async function exportAndRead(
     fs.readFileSync(path.join(extractDir, 'manifest.json'), 'utf8'),
   ) as PortableBundleManifest;
   const { vault } = await snapshotManifest(extractDir, bundleManifest, t);
-  return { bundlePath, vault };
+  return { bundlePath, vault, gitTracked: snapshotGitTracked(bundleManifest, t) };
+}
+
+/** The paths a snapshot's bundle marks as git-tracked (T13019). */
+function snapshotGitTracked(manifest: PortableBundleManifest, t: VaultTarget): string[] {
+  const section = t.scope === 'global' ? manifest.global?.home : manifest.projects[0];
+  return (section?.files ?? []).filter((f) => f.gitTracked === true).map((f) => f.relPath);
 }
 
 /**
@@ -612,9 +756,16 @@ async function exportAndRead(
  * transaction each) and a walk with the export's own rules: no export, no
  * VACUUM, so `cloud vault`, `verify` and the pull checks stay cheap (#1773 P0).
  * The values match {@link snapshotManifest} of a fresh export: credential
- * columns hash as NULL in every database, as the export clears them.
+ * columns hash as NULL in every database, as the export clears them. Paths
+ * in `untracked` (git-tracked here, or marked by the snapshot it is compared
+ * with) are left out; with tracking unknown the file inventory is left out
+ * entirely (T13019).
  */
-async function localManifest(t: VaultTarget): Promise<VaultManifest | null> {
+async function localManifest(
+  t: VaultTarget,
+  git: GitTracking,
+  untracked: ReadonlySet<string>,
+): Promise<VaultManifest | null> {
   if (!fs.existsSync(t.dbPath)) return null;
   const { sectionRoot, scan, primaryRel } = sectionScan(t);
   const hashKey = hashKeyOf(t.dataKey);
@@ -631,12 +782,16 @@ async function localManifest(t: VaultTarget): Promise<VaultManifest | null> {
       // Unreadable: the export leaves it out of an unencrypted bundle too.
     }
   }
+  if (git.mode === 'unknown') return vault;
   const files: Array<{ relPath: string; sha256: string }> = [];
   for (const rel of scan.files) {
-    if (inventoryExcluded(rel)) continue;
+    if (inventoryExcluded(rel) || untracked.has(rel)) continue;
     files.push({
       relPath: rel,
-      sha256: await vaultFileDigest(path.join(sectionRoot, rel), rel, root),
+      sha256: await vaultFileDigest(path.join(sectionRoot, rel), rel, {
+        scope: tableScopeOf(t),
+        root,
+      }),
     });
   }
   vault.tables[VAULT_FILES_KEY] = vaultFilesEntry(files, hashKey);
@@ -702,7 +857,7 @@ async function pushNexusVaultImpl(
     parent ? [parent] : [],
     head.headCheckpointId,
   );
-  if (adopted) saveSynced(conn, t, adopted);
+  if (adopted) saveSynced(conn, t, adopted, synced?.gitTracked ?? []);
   // Another device pushed since this store last synced: only `--force` pushes
   // over it, and that snapshot is labelled a fork on the checkpoint (T13007).
   const overUnsynced =
@@ -715,13 +870,20 @@ async function pushNexusVaultImpl(
     );
   }
 
+  const git = gitTracking(t);
+  if (git.mode === 'unknown') warnings.push(gitUnknownWarning(t));
   const work = tempDir('cleo-vault-push-');
   try {
-    const { bundlePath, vault } = await exportAndRead(t, work, `cloud-vault-${scope}`);
+    const { bundlePath, vault, gitTracked } = await exportAndRead(
+      t,
+      work,
+      `cloud-vault-${scope}`,
+      trackedForPush(git, synced),
+    );
     const names = await deviceNames(conn);
     // Nothing changed since the head: no lease, no upload (T12971).
     if (parent && sameVaultManifest(vault, parent.manifest)) {
-      saveSynced(conn, t, parent);
+      saveSynced(conn, t, parent, gitTracked);
       warnings.push(...conn.state.drainWarnings());
       return {
         apiUrl: conn.apiUrl,
@@ -877,7 +1039,7 @@ async function pushNexusVaultImpl(
           throw err;
         }
       }
-      saveSynced(conn, t, cp);
+      saveSynced(conn, t, cp, gitTracked);
       if (opts.hold !== true) await releaseLeaseQuietly(conn, t);
       warnings.push(...conn.state.drainWarnings());
       return {
@@ -995,17 +1157,50 @@ function rotateSafetyBundles(dir: string): void {
 }
 
 /**
+ * What a safety bundle holds of the store's section: each plain file's
+ * SHA-256, and each database (`null`; a VACUUM copy never hashes like the
+ * live file). Read from the bundle's own manifest.
+ */
+async function safetyInventory(
+  bundlePath: string,
+  t: VaultTarget,
+): Promise<Map<string, string | null>> {
+  const dir = tempDir('cleo-vault-safety-');
+  try {
+    await tarExtract({ file: bundlePath, cwd: dir, filter: (p) => p === 'manifest.json' });
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'),
+    ) as PortableBundleManifest;
+    const section = t.scope === 'global' ? manifest.global?.home : manifest.projects[0];
+    const out = new Map<string, string | null>();
+    for (const f of section?.files ?? []) out.set(f.relPath, f.sha256);
+    for (const d of section?.databases ?? []) out.set(d.relPath, null);
+    return out;
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
  * After a verified snapshot is placed, remove what this store holds inside
  * the vault's inventory scope that the snapshot does not list (T13004), so a
  * file or database another device deleted is deleted here too: inventory
  * files, and databases other than the primary store (with their sidecars).
- * Machine-local files ({@link machineLocalFile}), secrets and excluded
- * directories are outside that scope and never touched. Runs only after the
- * safety backup, under the store's first-open lock.
+ * Never removed (T13019, T13020): machine-local files
+ * ({@link machineLocalFile}), secrets and excluded directories (outside the
+ * scope); a path this checkout's git tracks (or any file, when git cannot
+ * say); and anything the safety bundle does not hold as it is now (a file
+ * created or edited after the safety export). Runs only after the safety
+ * backup, under the store's first-open lock.
  *
  * @returns The removed paths, relative to the section root.
  */
-function pruneUnlisted(t: VaultTarget, listed: ReadonlySet<string>): string[] {
+async function pruneUnlisted(
+  t: VaultTarget,
+  listed: ReadonlySet<string>,
+  git: GitTracking,
+  safety: ReadonlyMap<string, string | null>,
+): Promise<string[]> {
   const { sectionRoot, scan, primaryRel } = sectionScan(t);
   const removed: string[] = [];
   const remove = (rel: string, sidecars: boolean) => {
@@ -1029,9 +1224,74 @@ function pruneUnlisted(t: VaultTarget, listed: ReadonlySet<string>): string[] {
     }
     removed.push(rel);
   };
-  for (const rel of scan.files) if (!inventoryExcluded(rel) && !listed.has(rel)) remove(rel, false);
-  for (const rel of scan.sqlite) if (rel !== primaryRel && !listed.has(rel)) remove(rel, true);
+  if (git.mode !== 'unknown') {
+    for (const rel of scan.files) {
+      if (inventoryExcluded(rel) || listed.has(rel) || git.tracked.has(rel)) continue;
+      const held = safety.get(rel);
+      if (held === undefined || held === null) continue;
+      if ((await sha256File(path.join(sectionRoot, rel))) === held) remove(rel, false);
+    }
+  }
+  for (const rel of scan.sqlite) {
+    if (rel !== primaryRel && !listed.has(rel) && safety.has(rel)) remove(rel, true);
+  }
   return removed;
+}
+
+/** The global `config.json` install keys of a file, to keep them across a restore (T13022). */
+function readGlobalConfigLocalKeys(configPath: string): Map<string, string | null> {
+  const out = new Map<string, string | null>();
+  let doc: Record<string, Record<string, string | null> | null> | null = null;
+  try {
+    doc = JSON.parse(fs.readFileSync(configPath, 'utf8')) as typeof doc;
+  } catch {
+    doc = null;
+  }
+  for (const [section, key] of VAULT_GLOBAL_CONFIG_LOCAL_KEYS) {
+    const value = doc?.[section]?.[key];
+    out.set(`${section}.${key}`, typeof value === 'string' ? value : null);
+  }
+  return out;
+}
+
+/**
+ * Put this machine's install keys back into the placed global `config.json`
+ * (absent here: removed from the placed copy), so the snapshot's install id
+ * never becomes this machine's (T13022). A placed file that is not JSON is
+ * left as it is.
+ */
+function keepGlobalConfigLocalKeys(
+  configPath: string,
+  local: ReadonlyMap<string, string | null>,
+): void {
+  let doc: Record<string, Record<string, string> | string | number | boolean | null>;
+  try {
+    doc = JSON.parse(fs.readFileSync(configPath, 'utf8')) as typeof doc;
+  } catch {
+    return;
+  }
+  if (doc === null || typeof doc !== 'object' || Array.isArray(doc)) return;
+  let changed = false;
+  for (const [section, key] of VAULT_GLOBAL_CONFIG_LOCAL_KEYS) {
+    const want = local.get(`${section}.${key}`) ?? null;
+    const inner = doc[section];
+    const block =
+      inner !== null && typeof inner === 'object' && !Array.isArray(inner) ? inner : null;
+    const have = block?.[key];
+    if (want === null) {
+      if (block !== null && have !== undefined) {
+        delete block[key];
+        changed = true;
+      }
+    } else if (have !== want) {
+      doc[section] = { ...(block ?? {}), [key]: want };
+      changed = true;
+    }
+  }
+  if (!changed) return;
+  const tmp = `${configPath}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, `${JSON.stringify(doc, null, 2)}\n`);
+  fs.renameSync(tmp, configPath);
 }
 
 /** `cleo cloud pull` and `cleo cloud restore`. */
@@ -1078,7 +1338,7 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
   // Only a snapshot whose signature verifies says what this store holds (T13007).
   const trusted = trustedCheckpoints(journal, cps, key.signers, null);
   const { state: synced, adopted } = syncedState(conn, t, trusted, head.headCheckpointId);
-  if (adopted) saveSynced(conn, t, adopted);
+  if (adopted) saveSynced(conn, t, adopted, synced?.gitTracked ?? []);
   const names = await deviceNames(conn);
   if (opts.mode === 'pull' && synced?.lastCheckpointId === target && opts.force !== true) {
     const cp = cps.find((c) => c.checkpointId === target) ?? null;
@@ -1096,20 +1356,22 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
       warnings,
     };
   }
+  const git = gitTracking(t);
+  if (git.mode === 'unknown') warnings.push(gitUnknownWarning(t));
   // Never overwrite unsynced local work without --force: tables, other
   // databases and files alike (T12969).
   const hasLocal = fs.existsSync(t.dbPath);
-  const local = hasLocal && opts.force !== true ? await localManifest(t) : null;
+  const force = opts.force === true;
+  const last = synced ? trusted.find((c) => c.checkpointId === synced.lastCheckpointId) : undefined;
+  const local =
+    hasLocal && !force ? await localManifest(t, git, untrackedComparison(git, synced)) : null;
   if (local !== null) {
-    const last = synced
-      ? trusted.find((c) => c.checkpointId === synced.lastCheckpointId)
-      : undefined;
     const hasRows = Object.entries(local.tables).some(
       ([name, x]) => x.rows > 0 && name !== VAULT_FILES_KEY,
     );
-    if ((!last && hasRows) || (last && !sameVaultManifest(local, last.manifest))) {
+    if ((!last && hasRows) || (last && !sameVaultManifest(local, comparable(last.manifest, git)))) {
       const changed = last
-        ? compareVaultManifests(local, last.manifest)
+        ? compareVaultManifests(local, comparable(last.manifest, git))
             .filter((d) => !d.match)
             .map((d) => d.table)
         : [];
@@ -1122,6 +1384,9 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
       );
     }
   }
+  // Local files this store never synced (no synced snapshot to judge them by)
+  // are kept as they are without --force: never overwritten, never removed (T13020).
+  const keepUnsynced = hasLocal && !force && !last;
   const restored = await journal.restoreCheckpoint(target, key.signers, {
     minCoversSeq: opts.checkpointId ? 0 : (synced?.lastCoversSeq ?? 0),
   });
@@ -1132,6 +1397,7 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
     fs.writeFileSync(bundlePath, restored.bundle);
     if (hasLocal) await assertStoreQuiescent(t);
     let safetyBackup: string | null = null;
+    let safety: ReadonlyMap<string, string | null> = new Map();
     if (hasLocal) {
       const dir =
         t.scope === 'global'
@@ -1148,11 +1414,27 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
         outputPath: safetyBackup,
         label: 'cloud-vault-pre-restore',
       });
+      safety = await safetyInventory(safetyBackup, t);
       rotateSafetyBundles(dir);
     }
     let tables = 0;
     // Every path the snapshot lists in its section; the rest of the inventory is removed.
     const listed = new Set<string>();
+    // Paths the pusher's git tracks: placed only into a directory that is not a checkout (T13019).
+    const snapshotTracked = new Set<string>();
+    // Never-synced local files kept in place of the snapshot's copies (T13020).
+    const keptUnsynced: string[] = [];
+    const placement = (rel: string): 'keep' | 'skip' | null => {
+      const own = machineLocalFile(rel);
+      if (own !== null) return own;
+      if (git.mode !== 'none' && (snapshotTracked.has(rel) || git.tracked.has(rel))) return 'skip';
+      return git.mode === 'unknown' || keepUnsynced ? 'keep' : null;
+    };
+    const globalConfig = t.scope === 'global' ? path.join(t.storeRoot, 'config.json') : null;
+    const ownConfigKeys =
+      globalConfig !== null && fs.existsSync(globalConfig)
+        ? readGlobalConfigLocalKeys(globalConfig)
+        : new Map<string, string | null>();
     if (t.scope === 'project') fs.mkdirSync(t.storeRoot, { recursive: true });
     const place = () =>
       importPortableBundle({
@@ -1162,11 +1444,12 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
         cwd: t.storeRoot,
         confirmOwnerStore: true,
         requireLossless: false,
-        // This machine keeps its own link, worktree index and scratch (T13005).
-        machineLocalFile,
+        // This machine keeps its own link, worktree index, scratch, git-tracked
+        // files and never-synced files (T13005, T13019, T13020).
+        machineLocalFile: placement,
         onStaged: async (extractDir, manifest) => {
           // A project restored onto this machine never lands on another project (T12976).
-          if (opts.projectId && opts.force !== true) {
+          if (opts.projectId && !force) {
             const present = readDeclaredProjectIdentity(t.storeRoot);
             const incoming = manifest.projects[0]?.projectId ?? null;
             if (present && incoming !== null && present.projectId !== incoming) {
@@ -1198,6 +1481,28 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
           ]) {
             listed.add(e.relPath);
           }
+          for (const f of section?.files ?? [])
+            if (f.gitTracked === true) snapshotTracked.add(f.relPath);
+          if (keepUnsynced && git.mode !== 'unknown') {
+            const sectionRoot = sectionScan(t).sectionRoot;
+            const snapshotRoot = manifest.projects[0]?.originalPath ?? null;
+            for (const f of section?.files ?? []) {
+              const here = path.join(sectionRoot, f.relPath);
+              if (placement(f.relPath) !== 'keep' || machineLocalFile(f.relPath) !== null) continue;
+              if (!fs.existsSync(here)) continue;
+              const scope = tableScopeOf(t);
+              const mine = await vaultFileDigest(here, f.relPath, {
+                scope,
+                root: t.scope === 'global' ? null : t.storeRoot,
+              });
+              const theirs = await vaultFileDigest(path.join(extractDir, f.bundlePath), f.relPath, {
+                scope,
+                root: t.scope === 'global' ? null : snapshotRoot,
+                sha256: f.sha256,
+              });
+              if (mine !== theirs) keptUnsynced.push(f.relPath);
+            }
+          }
           // Checked again under the lock.
           if (hasLocal) await assertStoreQuiescent(t);
           // Keep this machine's own state: local-only tables and columns,
@@ -1216,9 +1521,14 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
       });
     const placeAndPrune = async () => {
       await place();
-      // Deletions propagate: what the snapshot no longer lists goes (T13004).
-      if (!hasLocal) return;
-      const removed = pruneUnlisted(t, listed);
+      // The snapshot's install id never becomes this machine's (T13022).
+      if (globalConfig !== null && fs.existsSync(globalConfig)) {
+        keepGlobalConfigLocalKeys(globalConfig, ownConfigKeys);
+      }
+      // Deletions propagate: what the snapshot no longer lists goes (T13004);
+      // without a synced snapshot, only --force removes anything (T13020).
+      if (!hasLocal || keepUnsynced) return;
+      const removed = await pruneUnlisted(t, listed, git, safety);
       if (removed.length > 0) {
         warnings.push({
           code: 'W_NEXUS_VAULT_REMOVED',
@@ -1232,7 +1542,13 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
     } else {
       await placeAndPrune();
     }
-    saveSynced(conn, t, restored.checkpoint);
+    if (keptUnsynced.length > 0) {
+      warnings.push({
+        code: 'W_NEXUS_VAULT_KEPT_LOCAL',
+        message: `kept ${keptUnsynced.length} local file(s) this store never synced with the cloud, in place of the snapshot's copies: ${keptUnsynced.slice(0, 8).join(', ')}${keptUnsynced.length > 8 ? ', …' : ''}; push to keep them, or pull with --force to take the snapshot's`,
+      });
+    }
+    saveSynced(conn, t, restored.checkpoint, [...snapshotTracked]);
     if (t.scope === 'project' && opts.relink) {
       for (const message of await opts.relink(t.storeRoot)) {
         warnings.push({ code: 'W_NEXUS_VAULT_RELINK', message });
@@ -1240,7 +1556,7 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
       // Later commands key this store by the stream its link names (T13007).
       const linked = readNexusProjectLink(t.storeRoot, conn.apiUrl);
       if (linked?.streamId && linked.streamId !== t.streamId) {
-        saveSynced(conn, t, restored.checkpoint, linked.streamId);
+        saveSynced(conn, t, restored.checkpoint, [...snapshotTracked], linked.streamId);
       }
     }
     warnings.push(...conn.state.drainWarnings());
@@ -1278,9 +1594,13 @@ async function nexusVaultStatusImpl(
   const trusted = trustedCheckpoints(journalFor(conn, t), cps, key.signers, warnings);
   const { state: synced } = syncedState(conn, t, trusted, head.headCheckpointId);
   const last = synced ? trusted.find((c) => c.checkpointId === synced.lastCheckpointId) : undefined;
-  const local = await localManifest(t);
+  const git = gitTracking(t);
+  if (git.mode === 'unknown') warnings.push(gitUnknownWarning(t));
+  const local = await localManifest(t, git, untrackedComparison(git, synced));
   const pendingChanges: CloudVaultTableDiff[] =
-    local && last ? compareVaultManifests(local, last.manifest).filter((d) => !d.match) : [];
+    local && last
+      ? compareVaultManifests(local, comparable(last.manifest, git)).filter((d) => !d.match)
+      : [];
   return {
     apiUrl: conn.apiUrl,
     scope: t.scope,
@@ -1343,19 +1663,21 @@ async function verifyNexusVaultImpl(
   const headCp = trusted.find((c) => c.checkpointId === head.headCheckpointId) ?? null;
   const headUntrusted = head.headCheckpointId !== null && headCp === null;
   const localIntegrity = fs.existsSync(t.dbPath) ? integrityCheck(t.dbPath) === 'ok' : false;
-  const local = (await localManifest(t)) ?? {
+  const { state: synced } = syncedState(conn, t, trusted, head.headCheckpointId);
+  const git = gitTracking(t);
+  if (git.mode === 'unknown') warnings.push(gitUnknownWarning(t));
+  const local = (await localManifest(t, git, untrackedComparison(git, synced))) ?? {
     schemaVersion: VAULT_MANIFEST_SCHEMA_VERSION,
     tables: {},
   };
-  const { state: synced } = syncedState(conn, t, trusted, head.headCheckpointId);
   const last = synced ? trusted.find((c) => c.checkpointId === synced.lastCheckpointId) : undefined;
-  const tables = headCp ? compareVaultManifests(local, headCp.manifest) : [];
+  const tables = headCp ? compareVaultManifests(local, comparable(headCp.manifest, git)) : [];
   let verdict: CloudVerifyResult['verdict'];
   if (headUntrusted) verdict = 'untrusted';
   else if (!headCp) verdict = 'empty';
   else if (tables.every((x) => x.match)) verdict = 'match';
   else {
-    const localChanged = last ? !sameVaultManifest(local, last.manifest) : true;
+    const localChanged = last ? !sameVaultManifest(local, comparable(last.manifest, git)) : true;
     const cloudAdvanced = synced?.lastCheckpointId !== headCp.checkpointId;
     verdict = localChanged && cloudAdvanced ? 'diverged' : cloudAdvanced ? 'behind' : 'ahead';
   }

@@ -17,6 +17,7 @@
  * @epic T12322
  */
 
+import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
@@ -32,7 +33,7 @@ import type {
   Segment,
   TableDeltas,
 } from '@cleocode/contracts/cloud';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { _resetDualScopeDbCache, openDualScopeDb } from '../../store/dual-scope-db.js';
 import { exportPortableBundle } from '../../store/portable-bundle.js';
 import {
@@ -72,6 +73,19 @@ import {
 } from '../nexus-vault-keys.js';
 import { NexusVaultState } from '../nexus-vault-state.js';
 import { replicasCanonical } from '../signing.js';
+
+/** Runs just before the vault places a verified snapshot (after its safety export). */
+const importHooks = vi.hoisted(() => ({ beforeImport: null as (() => void) | null }));
+vi.mock('../../store/portable-bundle-import.js', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../../store/portable-bundle-import.js')>();
+  return {
+    ...mod,
+    importPortableBundle: async (input: Parameters<typeof mod.importPortableBundle>[0]) => {
+      importHooks.beforeImport?.();
+      return mod.importPortableBundle(input);
+    },
+  };
+});
 
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
@@ -667,6 +681,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  importHooks.beforeImport = null;
   for (const [k, v] of Object.entries(saved)) {
     if (v === undefined) delete process.env[k];
     else process.env[k] = v;
@@ -1846,9 +1861,9 @@ describe('cloud vault global scope', () => {
     expect(
       homeSql(a, "SELECT project_path FROM nexus_project_registry WHERE project_id = 'p1'"),
     ).toEqual([{ project_path: `${a.home}/projects/p1` }]);
-    // A keeps its own git remote URL (a non-syncing cell, carried by key).
+    // A `strip` column is NULL after a restore, for this machine to re-probe (T13022).
     expect(homeSql(a, 'SELECT remote_url FROM nexus_project_git_state')).toEqual([
-      { remote_url: 'https://user:SEKRIT-TOKEN@git.example/r.git' },
+      { remote_url: null },
     ]);
     expect(replicaRows(a)).toEqual(replicasA);
     expect(fs.readFileSync(path.join(a.home, 'device-id'), 'utf8')).toBe('device-a\n');
@@ -1858,6 +1873,96 @@ describe('cloud vault global scope', () => {
     expect(lost?.message).toContain('re-issue agent keys');
     const va = await on(a, () => verifyNexusVault(vopts(a, { scope: 'global' })));
     expect(va.verdict).toBe('match');
+  });
+
+  it('CLEO-installed content and the install id stay per machine (T13022)', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    await seedHome(a, ['p1']);
+    await seedHome(b, ['p1']);
+    const installed = [
+      'templates/CLEO-INJECTION.md',
+      'skills/ct-x/SKILL.md',
+      'hooks/nexus-augment.sh',
+      'extensions/cleo-startup.js',
+      'pi-extensions/orchestrator.ts',
+      'llm-catalog/latest.json',
+      '.migrations/m1.done',
+      'CLEOOS-IDENTITY.md',
+    ];
+    const config = (m: Machine, model: string, installId: string | null) =>
+      fs.writeFileSync(
+        path.join(m.home, 'config.json'),
+        JSON.stringify({
+          llm: { model },
+          telemetry: { enabled: false, ...(installId ? { installId } : {}) },
+        }),
+      );
+    for (const m of [a, b]) {
+      for (const rel of installed) {
+        fs.mkdirSync(path.dirname(path.join(m.home, rel)), { recursive: true });
+        fs.writeFileSync(path.join(m.home, rel), `cleo version on ${m.name}`);
+      }
+      config(m, `model-${m.name}`, `install-${m.name}`);
+    }
+    // B runs a newer CLEO that installed one more skill.
+    fs.mkdirSync(path.join(b.home, 'skills', 'ct-new'), { recursive: true });
+    fs.writeFileSync(path.join(b.home, 'skills', 'ct-new', 'SKILL.md'), 'newer');
+
+    await on(a, () => pushNexusVault(vopts(a, { scope: 'global' })));
+    const cp = fake.stream(HOME_STREAM).checkpoints.at(-1);
+    if (!cp || !fake.escrow) throw new Error('fixture');
+    const tar = gunzipSync(
+      openAead(
+        nexusHomeDataKey(fake.escrow.mk),
+        fake.blobs.get(cp.blobSha256)?.bytes ?? Buffer.alloc(0),
+        'checkpoint',
+        `checkpoint/v2\n${cp.streamId}\n${cp.checkpointId}\n${cp.coversSeq}`,
+      ),
+    );
+    // None of A's installed files is in the snapshot (the manifest may name an exclusion).
+    expect(tar.includes(Buffer.from('cleo version on a'))).toBe(false);
+    expect(tar.includes(Buffer.from('model-a'))).toBe(true);
+
+    const pulled = await on(b, () =>
+      restoreNexusVault(vopts(b, { scope: 'global', mode: 'pull', force: true })),
+    );
+    expect(pulled.status).toBe('restored');
+    for (const rel of installed) {
+      expect(fs.readFileSync(path.join(b.home, rel), 'utf8')).toBe('cleo version on b');
+    }
+    expect(fs.readFileSync(path.join(b.home, 'skills', 'ct-new', 'SKILL.md'), 'utf8')).toBe(
+      'newer',
+    );
+    // The user's settings come from the snapshot; the install id stays this machine's.
+    expect(JSON.parse(fs.readFileSync(path.join(b.home, 'config.json'), 'utf8'))).toEqual({
+      llm: { model: 'model-a' },
+      telemetry: { enabled: false, installId: 'install-b' },
+    });
+    expect((await on(b, () => verifyNexusVault(vopts(b, { scope: 'global' })))).verdict).toBe(
+      'match',
+    );
+
+    // A's next push reaches B with a plain pull; B's installed files and id never count as changes.
+    config(a, 'model-a2', 'install-a');
+    await on(a, () => pushNexusVault(vopts(a, { scope: 'global' })));
+    const plain = await on(b, () => restoreNexusVault(vopts(b, { scope: 'global', mode: 'pull' })));
+    expect(plain.status).toBe('restored');
+    expect(JSON.parse(fs.readFileSync(path.join(b.home, 'config.json'), 'utf8'))).toEqual({
+      llm: { model: 'model-a2' },
+      telemetry: { enabled: false, installId: 'install-b' },
+    });
+
+    // A machine with no install id does not take the snapshot's.
+    config(b, 'model-a2', null);
+    const forced = await on(b, () =>
+      restoreNexusVault(vopts(b, { scope: 'global', mode: 'pull', force: true })),
+    );
+    expect(forced.status).toBe('restored');
+    expect(JSON.parse(fs.readFileSync(path.join(b.home, 'config.json'), 'utf8'))).toEqual({
+      llm: { model: 'model-a2' },
+      telemetry: { enabled: false },
+    });
   });
 });
 
@@ -2184,5 +2289,185 @@ describe('cloud vault round 3 (#1773)', () => {
     expect(b.state.stream(API, USER, linkedStream, b.root)?.lastCheckpointId).toBe(
       pushed.snapshot?.checkpointId,
     );
+  });
+});
+
+describe('cloud vault round 4 (#1773)', () => {
+  const cleoFile = (m: Machine, rel: string) => path.join(m.root, '.cleo', rel);
+  const write = (m: Machine, rel: string, text: string) => {
+    fs.mkdirSync(path.dirname(cleoFile(m, rel)), { recursive: true });
+    fs.writeFileSync(cleoFile(m, rel), text);
+  };
+  const read = (m: Machine, rel: string) =>
+    fs.existsSync(cleoFile(m, rel)) ? fs.readFileSync(cleoFile(m, rel), 'utf8') : null;
+  const insertTask = (m: Machine, id: string) =>
+    exec(m, `INSERT INTO tasks_tasks (id, title) VALUES ('${id}', 'new')`);
+  const warning = (r: { warnings: Array<{ code: string; message: string }> }, code: string) =>
+    r.warnings.find((w) => w.code === code);
+  /** git in `m`'s project, with no user hooks, signing or ambient repository. */
+  const git = (m: Machine, ...args: string[]) =>
+    execFileSync(
+      'git',
+      [
+        '-c',
+        'user.email=vault@test.invalid',
+        '-c',
+        'user.name=vault test',
+        '-c',
+        'commit.gpgsign=false',
+        '-c',
+        'core.hooksPath=/dev/null',
+        ...args,
+      ],
+      {
+        cwd: m.root,
+        encoding: 'utf8',
+        env: Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_'))),
+      },
+    );
+  const commit = (m: Machine, ...rels: string[]) => {
+    if (!fs.existsSync(path.join(m.root, '.git'))) git(m, 'init', '-q');
+    git(m, 'add', '--', ...rels.map((r) => `.cleo/${r}`));
+    git(m, 'commit', '-q', '-m', 'track');
+  };
+
+  it('R4PROBE-7: a plain pull never deletes or overwrites a git-tracked path (T13019)', async () => {
+    const { a, b } = await twoMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    await restoreOntoB(b);
+    // Two checkouts on different branches: B tracks a research note A lacks,
+    // and both track a shared ADR with different content.
+    write(a, 'adrs/shared.md', 'A branch\n');
+    commit(a, 'adrs/shared.md');
+    write(b, 'rcasd/T1/research.md', '# research\n');
+    write(b, 'adrs/shared.md', 'B branch\n');
+    commit(b, 'rcasd/T1/research.md', 'adrs/shared.md');
+    // Tracked paths are git's: a branch difference is not a local change.
+    expect((await on(b, () => verifyNexusVault(vopts(b)))).verdict).toBe('match');
+
+    insertTask(a, 'A1');
+    await on(a, () => pushNexusVault(vopts(a)));
+    const pulled = await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' })));
+    expect(pulled.status).toBe('restored');
+    expect(taskCount(b)).toBe(6);
+    expect(read(b, 'rcasd/T1/research.md')).toBe('# research\n');
+    expect(read(b, 'adrs/shared.md')).toBe('B branch\n');
+    expect(git(b, 'status', '--porcelain', '--', '.cleo/rcasd', '.cleo/adrs')).toBe('');
+    expect((await on(b, () => verifyNexusVault(vopts(b)))).verdict).toBe('match');
+  });
+
+  it('a directory that is not a git checkout gets the tracked files, and both sides keep pulling (T13019)', async () => {
+    const { a, b } = await twoMachines();
+    write(a, 'adrs/tracked.md', 'tracked\n');
+    commit(a, 'adrs/tracked.md');
+    await on(a, () => pushNexusVault(vopts(a)));
+    await restoreOntoB(b);
+    expect(read(b, 'adrs/tracked.md')).toBe('tracked\n');
+    expect((await on(b, () => verifyNexusVault(vopts(b)))).verdict).toBe('match');
+
+    insertTask(a, 'A1');
+    await on(a, () => pushNexusVault(vopts(a)));
+    expect((await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' })))).status).toBe(
+      'restored',
+    );
+    // B (no git) pushes; its snapshot still marks the path tracked, so A's plain pull works.
+    insertTask(b, 'B1');
+    await on(b, () => pushNexusVault(vopts(b)));
+    const pa = await on(a, () => restoreNexusVault(vopts(a, { mode: 'pull' })));
+    expect(pa.status).toBe('restored');
+    expect(taskCount(a)).toBe(7);
+    expect((await on(a, () => verifyNexusVault(vopts(a)))).verdict).toBe('match');
+  });
+
+  it('when git cannot list the tracked files, no file is compared, overwritten or removed (T13019)', async () => {
+    const { a, b } = await twoMachines();
+    write(a, 'adrs/x.md', 'x1\n');
+    write(a, 'adrs/gone.md', 'gone\n');
+    await on(a, () => pushNexusVault(vopts(a)));
+    await restoreOntoB(b);
+    // B's checkout is broken: git fails.
+    fs.writeFileSync(path.join(b.root, '.git'), 'gitdir: /nonexistent/cleo-vault-test\n');
+    write(b, 'adrs/x.md', 'b edit\n');
+    write(b, 'adrs/extra.md', 'extra\n');
+    write(a, 'adrs/x.md', 'x2\n');
+    fs.rmSync(cleoFile(a, 'adrs/gone.md'));
+    insertTask(a, 'A1');
+    await on(a, () => pushNexusVault(vopts(a)));
+    const pulled = await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' })));
+    expect(pulled.status).toBe('restored');
+    expect(warning(pulled, 'W_NEXUS_VAULT_GIT_UNKNOWN')?.message).toContain(b.root);
+    expect(taskCount(b)).toBe(6);
+    expect(read(b, 'adrs/x.md')).toBe('b edit\n');
+    expect(read(b, 'adrs/extra.md')).toBe('extra\n');
+    expect(read(b, 'adrs/gone.md')).toBe('gone\n');
+  });
+
+  it('R4PROBE-4: without a synced snapshot, a restore never removes or overwrites local files unless forced (T13020)', async () => {
+    const { a } = await twoMachines();
+    write(a, 'adrs/shared.md', 'from a\n');
+    await on(a, () => pushNexusVault(vopts(a)));
+    // C holds the same project with an empty store and files the cloud never saw.
+    const c = await machine('c', '0198a1b2-0000-7000-8000-0000000000d3', uuidv7());
+    fs.mkdirSync(path.join(c.root, '.cleo'), { recursive: true });
+    fs.writeFileSync(path.join(c.root, '.cleo', 'project-id'), `${LOCAL_PROJECT}\n`);
+    const empty = new DatabaseSync(path.join(c.root, '.cleo', 'cleo.db'));
+    empty.exec('CREATE TABLE tasks_tasks (id TEXT PRIMARY KEY, title TEXT, file_path TEXT)');
+    empty.close();
+    write(c, 'adrs/my-draft.md', 'draft\n');
+    write(c, 'adrs/shared.md', 'c version\n');
+    const opts = { mode: 'restore', projectId: REMOTE_PROJECT, into: c.root } as const;
+    const restored = await on(c, () => restoreNexusVault(vopts(c, opts)));
+    expect(restored.status).toBe('restored');
+    expect(taskCount(c)).toBe(5);
+    expect(read(c, 'adrs/my-draft.md')).toBe('draft\n');
+    expect(read(c, 'adrs/shared.md')).toBe('c version\n');
+    expect(warning(restored, 'W_NEXUS_VAULT_KEPT_LOCAL')?.message).toContain('adrs/shared.md');
+    expect(warning(restored, 'W_NEXUS_VAULT_REMOVED')).toBeUndefined();
+
+    // --force takes the snapshot, after the safety bundle.
+    const forced = await on(c, () => restoreNexusVault(vopts(c, { ...opts, force: true })));
+    expect(forced.safetyBackup).not.toBeNull();
+    expect(read(c, 'adrs/my-draft.md')).toBeNull();
+    expect(read(c, 'adrs/shared.md')).toBe('from a\n');
+  });
+
+  it('a file created or edited after the safety export is never removed (T13020)', async () => {
+    const { a, b } = await twoMachines();
+    write(a, 'adrs/gone.md', 'gone\n');
+    write(a, 'adrs/edited.md', 'v1\n');
+    await on(a, () => pushNexusVault(vopts(a)));
+    await restoreOntoB(b);
+    fs.rmSync(cleoFile(a, 'adrs/gone.md'));
+    fs.rmSync(cleoFile(a, 'adrs/edited.md'));
+    await on(a, () => pushNexusVault(vopts(a)));
+    // Between B's safety export and the removal step, B edits one file and writes another.
+    importHooks.beforeImport = () => {
+      write(b, 'adrs/edited.md', 'edited late\n');
+      write(b, 'adrs/late.md', 'late\n');
+    };
+    const pulled = await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' })));
+    expect(pulled.status).toBe('restored');
+    expect(read(b, 'adrs/gone.md')).toBeNull();
+    expect(read(b, 'adrs/edited.md')).toBe('edited late\n');
+    expect(read(b, 'adrs/late.md')).toBe('late\n');
+  });
+
+  it('project-info.json stays per checkout (T13022)', async () => {
+    const { a, b } = await twoMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    await restoreOntoB(b);
+    const info = JSON.stringify({ projectId: LOCAL_PROJECT, name: 'demo', checkoutNonce: 'b' });
+    fs.writeFileSync(cleoFile(b, 'project-info.json'), info);
+    expect((await on(b, () => verifyNexusVault(vopts(b)))).verdict).toBe('match');
+    fs.writeFileSync(
+      cleoFile(a, 'project-info.json'),
+      JSON.stringify({ projectId: LOCAL_PROJECT, name: 'demo', checkoutNonce: 'a' }),
+    );
+    insertTask(a, 'A1');
+    await on(a, () => pushNexusVault(vopts(a)));
+    expect((await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' })))).status).toBe(
+      'restored',
+    );
+    expect(read(b, 'project-info.json')).toBe(info);
   });
 });

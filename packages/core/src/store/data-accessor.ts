@@ -92,12 +92,17 @@ export function assertTestEnv(dbPath: string): void {
  * const store = await createDataAccessor('/projects/example');
  * const task = await store.loadSingleTask('T001');
  * ```
+ * @throws {CleoError} `NOT_FOUND` when `cwd` is a cloud vault placeholder, raw or resolved (T13021).
  * @task T9054 — engine parameter dropped; CLEO is SQLite-only (ADR-006).
  */
 export async function createDataAccessor(
   cwd?: string,
 ): Promise<import('@cleocode/contracts').DataAccessor> {
+  // T13021: a cloud vault placeholder (another machine's project) never becomes a root here.
+  const { assertNotVaultRemotePath } = await import('./dual-scope-db.js');
+  assertNotVaultRemotePath(cwd);
   const root = resolve(cwd ?? getProjectRoot());
+  assertNotVaultRemotePath(root);
   const inherited = worktreeScope.getStore();
   const captured = inherited ? { ...inherited } : undefined;
   captured?.execution?.assertActive();

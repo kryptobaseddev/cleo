@@ -50,6 +50,12 @@ const streamStateSchema = z.looseObject({
    * pushed over (T13007). Cleared when the snapshot is recorded.
    */
   pushInFlight: z.object({ parentCheckpointId: z.string().nullable(), at: z.string() }).optional(),
+  /**
+   * Paths (relative to the section root) the last synced snapshot marks as
+   * git-tracked: git's job, so they are left out of every file comparison
+   * with it, and a machine without git carries the marks on (T13019).
+   */
+  gitTracked: z.array(z.string()).optional(),
 });
 
 const accountStateSchema = z.looseObject({
@@ -281,11 +287,15 @@ export class NexusVaultState {
     userId: string,
     streamId: string,
     storeRoot: string,
-    value: { lastCheckpointId: string; lastCoversSeq: number },
+    value: { lastCheckpointId: string; lastCoversSeq: number; gitTracked?: readonly string[] },
   ): void {
+    const { gitTracked, ...rest } = value;
     this.update((s) => {
       this.account(s, apiUrl, userId).streams[vaultStreamKey(streamId, storeRoot)] = {
-        ...value,
+        ...rest,
+        ...(gitTracked !== undefined && gitTracked.length > 0
+          ? { gitTracked: [...gitTracked].sort() }
+          : {}),
         updatedAt: new Date().toISOString(),
       };
     });

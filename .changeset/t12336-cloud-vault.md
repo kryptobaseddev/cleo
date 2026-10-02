@@ -1,6 +1,6 @@
 ---
 id: t12336-cloud-vault
-tasks: [T12336, T12337, T12338, T12950, T12951, T12952, T12966, T12967, T12968, T12969, T12970, T12971, T12972, T12973, T12974, T12975, T12976, T13004, T13005, T13006, T13007]
+tasks: [T12336, T12337, T12338, T12950, T12951, T12952, T12966, T12967, T12968, T12969, T12970, T12971, T12972, T12973, T12974, T12975, T12976, T13004, T13005, T13006, T13007, T13019, T13020, T13021, T13022]
 kind: feat
 summary: cleo cloud push, pull, restore, verify, vault, lease release and activity back up and recover project and global stores as encrypted snapshots on Cleo Nexus (the key is escrowed on Cleo Nexus, released only to your approved devices), with lineage, a single-writer lease, verified restore that keeps this machine's own state and credentials, and a per-device integrity check; cleo login nexus also hands the device the encryption key and attaches its global store
 ---
@@ -14,14 +14,26 @@ counts reconcile with the journal. The manifest covers the syncing tables of
 `cleo.db`, one entry per other database in the bundle (blobs manifest,
 attachments index) and one entry for the plain-file inventory, so a new or
 edited document is a change: push uploads it, and pull refuses to overwrite it.
-`config.json` and `project-context.json` are part of it, hashed with their
-paths re-rooted so a relocated copy matches its source. Files that belong to
-the machine (`nexus-link.json`, `worktrees.json`, `memory-bridge.md`,
-top-level dotfiles, `tmp/`, `state/`) are outside it, and a restore keeps
-this machine's copy. Cells that never sync (credentials, machine-local
+`config.json` and `project-context.json` are part of it, hashed as JSON with
+sorted keys and their paths re-rooted, so a relocated or reordered copy
+matches its source; the global `config.json` is hashed without
+`telemetry.installId`, which a restore never changes. Files that belong to
+the machine (`nexus-link.json`, `project-info.json`, `worktrees.json`,
+`memory-bridge.md`, top-level dotfiles, `tmp/`, `state/`) are outside it, and
+a restore keeps this machine's copy. In a git checkout, paths git tracks are
+git's: they are left out of the comparison on both sides (each side asks its
+own git; a snapshot records which paths its checkout tracked, and a machine
+without git carries those marks on), and a restore never overwrites or
+removes them; they are placed only into a directory that is not a checkout.
+When git cannot answer, no file under `.cleo/` is compared, overwritten or
+removed (`W_NEXUS_VAULT_GIT_UNKNOWN`). A global snapshot leaves out what
+CLEO's installer writes for its own version (`templates/`, `skills/`,
+`hooks/`, `extensions/`, `pi-extensions/`, `llm-catalog/`, `.migrations/`,
+`CLEOOS-IDENTITY.md`). Cells that never sync (credentials, machine-local
 columns such as registry paths) are hashed as NULL; the registry's `strip`
-columns (a git remote URL can embed a token) and the docs audit key
-(`.cleo/audit/.audit-secret`) are never in a snapshot.
+columns (a git remote URL can embed a token, a derived `tree_id`) are never in
+a snapshot and are NULL after a restore, for this machine to recompute, and
+the docs audit key (`.cleo/audit/.audit-secret`) is never in a snapshot.
 
 **Encryption and escrow, plainly.** Snapshots are encrypted, and the key is
 escrowed on Cleo Nexus: the account master key is sent over TLS on first use
@@ -58,8 +70,12 @@ not zero-knowledge end-to-end encryption.
   machine-local tables. A credential with nowhere to go is reported with its
   re-entry remedy (`W_NEXUS_VAULT_CREDENTIALS_LOST`). After the snapshot is
   placed, files and databases it no longer lists are removed, so a deletion on
-  another device reaches this one (`W_NEXUS_VAULT_REMOVED`; machine-local
-  files and secrets are never touched). Local changes since the last sync are
+  another device reaches this one (`W_NEXUS_VAULT_REMOVED`). Machine-local
+  files, secrets and git-tracked paths are never touched, nor is a file the
+  safety bundle does not hold as it is now (created or edited after it was
+  written). A store with no synced snapshot keeps its files without
+  `--force`: nothing is removed, and a file that differs from the snapshot's
+  is kept (`W_NEXUS_VAULT_KEPT_LOCAL`). Local changes since the last sync are
   never overwritten without `--force`, judged only against a snapshot whose
   signature verifies, and a safety bundle is written first (the newest ten
   are kept). A restore refuses with `E_NEXUS_VAULT_STORE_BUSY` while another
@@ -82,9 +98,10 @@ not zero-knowledge end-to-end encryption.
   takes 1 to 200).
 - A registry row a global restore brought from another machine (a project
   that does not live here) holds a placeholder path. The registry read flags
-  it `remote`; sync, health and integrity checks skip it, and the store opener
-  refuses a placeholder path rather than creating a store under the current
-  directory.
+  it `remote`; sync, health and integrity checks, workspace status, agents and
+  routing, and the registry roots skip it, and the task accessor and store
+  opener refuse a placeholder path (raw or resolved against a directory)
+  rather than creating a store under the current directory.
 
 **Keys (owner decision 2026-10-01).** Adding a device needs only `cleo login
 nexus` and the one-time browser approval. The account master key is escrowed on
@@ -100,7 +117,8 @@ home-replica endpoints yields a warning, never a failure.
 
 `importPortableBundle` gains an `onStaged` hook that runs after the staged
 bundle is verified and before placement; `importPortableBundle` also gains `machineLocalFile` (files this machine
-keeps). `exportPortableBundle` gains `stripColumns`,
+keeps). `exportPortableBundle` gains `stripColumns`, `gitTrackedFiles` (bundle
+file entries record `gitTracked`),
 `globalHomeExclusions` and `includeConfigHome`, which the vault uses so a global
 snapshot never carries `device-id`, `state/` (the replica registries on macOS),
 `keys/`, `web-server.json`, `sentient-state.json`, `device-heartbeat.stamp`,

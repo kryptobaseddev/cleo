@@ -317,6 +317,27 @@ function cacheKey(scope: DualScope, dbPath: string): CacheKey {
 // ── Path resolution ──────────────────────────────────────────────────────────
 
 /**
+ * Refuse a cloud vault placeholder as a project directory (T13006, T13021):
+ * it names a project that lives on another machine, so resolving it (raw, or
+ * already resolved against a working directory) would open or create a store
+ * under the caller's directory.
+ *
+ * @param cwd - A project directory, as given or resolved.
+ * @throws {CleoError} `NOT_FOUND` for a placeholder.
+ */
+export function assertNotVaultRemotePath(cwd: string | undefined): void {
+  if (!isVaultRemotePath(cwd)) return;
+  // @sync-invariant none:local-only a placeholder path names no location on this machine; it gates a local store open, never a synced write
+  throw new CleoError(
+    ExitCode.NOT_FOUND,
+    `'${cwd}' is a cloud vault placeholder for a project that lives on another machine, not a path; it has no store here`,
+    {
+      fix: 'restore the project onto this machine with `cleo cloud restore --project <id> --into <dir>`',
+    },
+  );
+}
+
+/**
  * Resolve the absolute path to the dual-scope `cleo.db` for the given scope.
  *
  * - `project`: `resolveCleoDir(cwd)` + `'cleo.db'` (falls under `<root>/.cleo/`); a cloud
@@ -340,18 +361,7 @@ export function resolveDualScopeDbPath(
   capturedGlobalHome?: string,
 ): string {
   if (scope === 'project') {
-    // T13006: a cloud vault placeholder names a project on another machine. Resolved
-    // as a cwd it would open (or create) a store under the caller's directory.
-    if (isVaultRemotePath(cwd)) {
-      // @sync-invariant none:local-only a placeholder path names no location on this machine; it gates a local store open, never a synced write
-      throw new CleoError(
-        ExitCode.NOT_FOUND,
-        `'${cwd}' is a cloud vault placeholder for a project that lives on another machine, not a path; it has no store here`,
-        {
-          fix: 'restore the project onto this machine with `cleo cloud restore --project <id> --into <dir>`',
-        },
-      );
-    }
+    assertNotVaultRemotePath(cwd);
     return join(resolveCleoDir(cwd), 'cleo.db');
   }
   return join(capturedGlobalHome ?? getCleoHome(), 'cleo.db');

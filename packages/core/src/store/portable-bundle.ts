@@ -196,6 +196,12 @@ export interface ExportPortableBundleInput {
    * remote URL, which can embed a token (T13007). Rows are kept.
    */
   stripColumns?: Readonly<Record<string, readonly string[]>>;
+  /**
+   * Paths of the exported project's section (relative to its `.cleo/`) that
+   * its git checkout tracks; their file entries are marked `gitTracked`. The
+   * cloud vault leaves tracked files to git (T13019). Project scope only.
+   */
+  gitTrackedFiles?: ReadonlySet<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -398,6 +404,7 @@ async function stageSection(
   rules: SectionRules,
   tier: 'project' | 'global' | 'config',
   primaryRelPath: string | null,
+  gitTracked: ReadonlySet<string> | null = null,
 ): Promise<PortableSectionBase> {
   const scan = scanSection(root, rules, state.skipAbsolute);
   const section: PortableSectionBase = {
@@ -526,6 +533,7 @@ async function stageSection(
       size: fs.statSync(staged).size,
       sha256: await sha256File(staged),
       secret,
+      ...(gitTracked?.has(relPath) ? { gitTracked: true } : {}),
     };
     section.files.push(entry);
     state.archivePaths.push(archivePath);
@@ -603,6 +611,7 @@ async function stageProject(
   projectRoot: string,
   index: number,
   registryProjectId?: string,
+  gitTracked: ReadonlySet<string> | null = null,
 ): Promise<PortableProjectSection> {
   const cleoDir = path.join(projectRoot, '.cleo');
   if (!fs.existsSync(cleoDir)) {
@@ -619,6 +628,7 @@ async function stageProject(
     PROJECT_SECTION_RULES,
     'project',
     PRIMARY_STORE_BASENAME,
+    gitTracked,
   );
   const primary = base.databases.find((d) => d.role === 'primary');
   const projectId = info.projectId ?? (registryProjectId || null);
@@ -767,7 +777,15 @@ export async function exportPortableBundle(
     }
 
     if (withProject && input.projectRoot) {
-      projects.push(await stageProject(state, path.resolve(input.projectRoot), projects.length));
+      projects.push(
+        await stageProject(
+          state,
+          path.resolve(input.projectRoot),
+          projects.length,
+          undefined,
+          input.gitTrackedFiles ?? null,
+        ),
+      );
     }
 
     const manifest: PortableBundleManifest = {

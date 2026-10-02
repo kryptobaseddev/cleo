@@ -35,7 +35,11 @@ describe('isVaultRemotePath (T13006)', () => {
     expect(
       isVaultRemotePath(`${VAULT_REMOTE_PATH_PREFIX}nexus_project_registry:["p2"]:project_path`),
     ).toBe(true);
+    // Resolved against a working directory (T13021).
+    expect(isVaultRemotePath(`/tmp/x/${VAULT_REMOTE_PATH_PREFIX}t:["a/b"]:path`)).toBe(true);
+    expect(isVaultRemotePath(`C:\\x\\${VAULT_REMOTE_PATH_PREFIX}t:1:path`)).toBe(true);
     expect(isVaultRemotePath('/home/me/p2')).toBe(false);
+    expect(isVaultRemotePath('/home/me/not-cleo-vault-remote:x')).toBe(false);
     expect(isVaultRemotePath('superseded:p2')).toBe(false);
     expect(isVaultRemotePath('')).toBe(false);
     expect(isVaultRemotePath(null)).toBe(false);

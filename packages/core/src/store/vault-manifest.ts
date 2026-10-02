@@ -307,37 +307,97 @@ export function vaultDatabaseEntry(
   return { rows, hash: mac.digest('hex') };
 }
 
+/** A parsed JSON value. */
+type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+
+/** JSON text with every object's keys sorted, so key order is not content. */
+function canonicalJson(value: JsonValue): string {
+  return JSON.stringify(value, (_key, v: JsonValue) =>
+    v !== null && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : v,
+  );
+}
+
 /**
- * The digest a vault file inventory records for one plain file (T13005). The
- * project JSON files a restore relocates ({@link RELOCATED_JSON_FILES}:
- * `config.json`, `project-context.json`) are hashed with their paths re-rooted
- * from `root` onto a placeholder, as parsed JSON, so a relocated copy hashes
- * like its source and an edit is still a change. Every other file (and every
- * file of a store a restore does not relocate, `root` null) is its SHA-256.
+ * Keys of the global `config.json` that belong to the install, not to the
+ * user (T13022): never compared, and a restore keeps this machine's value.
+ */
+export const VAULT_GLOBAL_CONFIG_LOCAL_KEYS: ReadonlyArray<readonly [string, string]> = [
+  ['telemetry', 'installId'],
+];
+
+/** Options of {@link vaultFileDigest}. */
+export interface VaultFileDigestOptions {
+  /** Which store the file belongs to. */
+  scope: TableScope;
+  /** The store's root as written in the file (project), or `null`. */
+  root: string | null;
+  /** The file's SHA-256 when already known (a bundle manifest lists it). */
+  sha256?: string;
+}
+
+/**
+ * The digest a vault file inventory records for one plain file (T13005,
+ * T13022). Config files are hashed as JSON with sorted keys, so reordering is
+ * not a change: the project JSON files a restore relocates
+ * ({@link RELOCATED_JSON_FILES}: `config.json`, `project-context.json`) with
+ * their paths re-rooted from `root` onto a placeholder, so a relocated copy
+ * hashes like its source; the global `config.json` without its install keys
+ * ({@link VAULT_GLOBAL_CONFIG_LOCAL_KEYS}). Every other file, and a config
+ * file that is not JSON, is its SHA-256.
  *
  * @param absPath - The file.
  * @param relPath - Its path in the section.
- * @param root - The store's root as written in the file, or `null`.
- * @param sha256 - The file's SHA-256 when already known (a bundle manifest lists it).
+ * @param opts - Scope, root and known SHA-256.
  * @returns Hex digest.
  */
 export async function vaultFileDigest(
   absPath: string,
   relPath: string,
-  root: string | null,
-  sha256?: string,
+  opts: VaultFileDigestOptions,
 ): Promise<string> {
-  if (root !== null && RELOCATED_JSON_FILES.includes(relPath)) {
-    const canonical = relocatedJsonText(
-      fs.readFileSync(absPath, 'utf8'),
-      root.replace(/[\\/]+$/, ''),
-      ROOT_PLACEHOLDER,
-    );
-    if (canonical !== null) {
-      return crypto.createHash('sha256').update(`cleo-vault-json/v1\n${canonical}`).digest('hex');
+  const project = opts.scope === 'project' && opts.root !== null;
+  const globalConfig = opts.scope === 'global' && relPath === 'config.json';
+  if ((project && RELOCATED_JSON_FILES.includes(relPath)) || globalConfig) {
+    const text = fs.readFileSync(absPath, 'utf8');
+    const relocated =
+      project && opts.root !== null
+        ? relocatedJsonText(text, opts.root.replace(/[\\/]+$/, ''), ROOT_PLACEHOLDER)
+        : text;
+    let value: JsonValue | undefined;
+    try {
+      value = relocated === null ? undefined : (JSON.parse(relocated) as JsonValue);
+    } catch {
+      value = undefined;
+    }
+    if (value !== undefined) {
+      if (globalConfig) value = withoutGlobalConfigLocalKeys(value);
+      return crypto
+        .createHash('sha256')
+        .update(`cleo-vault-json/v2\n${canonicalJson(value)}`)
+        .digest('hex');
     }
   }
-  return sha256 ?? sha256File(absPath);
+  return opts.sha256 ?? sha256File(absPath);
+}
+
+/** A copy of a parsed global `config.json` without {@link VAULT_GLOBAL_CONFIG_LOCAL_KEYS}. */
+function withoutGlobalConfigLocalKeys(value: JsonValue): JsonValue {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return value;
+  const out = structuredClone(value);
+  for (const [section, key] of VAULT_GLOBAL_CONFIG_LOCAL_KEYS) {
+    const inner = out[section];
+    if (
+      inner !== undefined &&
+      inner !== null &&
+      typeof inner === 'object' &&
+      !Array.isArray(inner)
+    ) {
+      delete inner[key];
+    }
+  }
+  return out;
 }
 
 /**
@@ -553,10 +613,11 @@ function stableKey(
  *   snapshot's copies arrive with their secrets cleared). Without a stable
  *   key the live table is kept whole.
  * - Every other table: its non-syncing columns ({@link vaultLocalColumns}:
- *   credentials, machine-local paths, stripped values) are copied from the
- *   live row with the same stable key. A table without one is skipped and
- *   reported; rows are never matched by an integer id, which each machine
- *   mints for itself.
+ *   credentials, machine-local paths) are copied from the live row with the
+ *   same stable key. A table without one is skipped and reported; rows are
+ *   never matched by an integer id, which each machine mints for itself.
+ *   `strip` columns ({@link vaultStripColumns}) are not copied: they are NULL
+ *   on every row, so this machine recomputes them against the restored data.
  * - Rows only the snapshot has (a project or skill on another machine only,
  *   a task this machine has not seen) never bring that machine's own values:
  *   every non-syncing cell (claims, leases, counters, paths) is cleared (NULL).
@@ -643,6 +704,7 @@ export function carryMachineState(
       !isVaultRemotePath(v) &&
       absolute(v) &&
       !relocatedHere(v, relocatable);
+    const stripped = vaultStripColumns(scope);
     staged.exec('PRAGMA foreign_keys = OFF');
     staged.exec('BEGIN IMMEDIATE');
     try {
@@ -703,10 +765,11 @@ export function carryMachineState(
           lose(t, liveRows.filter(holdsSecret).length);
         } else {
           const { key, unstablePk } = stable;
+          // A `strip` column is recomputed here, never carried (T13022).
           const merge =
             c.class === 'portable-secret'
               ? [...common].filter((n) => !key.includes(n) && !unstablePk.includes(n))
-              : local.filter((n) => common.has(n));
+              : local.filter((n) => common.has(n) && !(stripped[t] ?? []).includes(n));
           const where = key.map((k) => `${quoteIdent(k)} = ?`).join(' AND ');
           const exists = staged.prepare(`SELECT 1 FROM ${quoteIdent(t)} WHERE ${where} LIMIT 1`);
           const update =
@@ -751,6 +814,17 @@ export function carryMachineState(
           }
           if (rows > 0) out.carried.push({ table: t, columns: merge, rows });
           lose(t, lost);
+        }
+
+        // `strip` columns (a derived pointer such as `tree_id`, a git remote URL)
+        // are NULL on every row, so this machine recomputes them (T13022).
+        const nullable = new Set(stagedInfo.filter((x) => x.notnull !== 1).map((x) => x.name));
+        for (const col of (stripped[t] ?? []).filter((n) => nullable.has(n))) {
+          staged
+            .prepare(
+              `UPDATE ${quoteIdent(t)} SET ${quoteIdent(col)} = NULL WHERE ${quoteIdent(col)} IS NOT NULL`,
+            )
+            .run();
         }
 
         // Rows only the snapshot has never bring another machine's own values.

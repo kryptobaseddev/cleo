@@ -689,18 +689,44 @@ describe('round 3 (#1773)', () => {
       fs.writeFileSync(f, JSON.stringify(body, null, 2));
       return f;
     };
+    const at = (root: string) => ({ scope: 'project' as const, root });
     const atA = write('a.json', { root: '/A/proj/data', note: 'x' });
-    const source = await vaultFileDigest(atA, 'config.json', '/A/proj');
+    const source = await vaultFileDigest(atA, 'config.json', at('/A/proj'));
     // The relocated copy (other root, other formatting) hashes like its source.
     const atB = path.join(tmp, 'b.json');
     fs.writeFileSync(atB, JSON.stringify({ root: '/B/proj/data', note: 'x' }));
-    expect(await vaultFileDigest(atB, 'config.json', '/B/proj')).toBe(source);
+    expect(await vaultFileDigest(atB, 'config.json', at('/B/proj'))).toBe(source);
+    // Key order is not content (T13022).
+    const reordered = write('r.json', { note: 'x', root: '/B/proj/data' });
+    expect(await vaultFileDigest(reordered, 'config.json', at('/B/proj'))).toBe(source);
     const edited = write('c.json', { root: '/B/proj/data', note: 'y' });
-    expect(await vaultFileDigest(edited, 'config.json', '/B/proj')).not.toBe(source);
-    // Any other file, or a store a restore does not relocate, is its plain SHA-256.
+    expect(await vaultFileDigest(edited, 'config.json', at('/B/proj'))).not.toBe(source);
+    // Any other file is its plain SHA-256.
     const plain = crypto.createHash('sha256').update(fs.readFileSync(atA)).digest('hex');
-    expect(await vaultFileDigest(atA, 'notes.json', '/A/proj')).toBe(plain);
-    expect(await vaultFileDigest(atA, 'config.json', null)).toBe(plain);
+    expect(await vaultFileDigest(atA, 'notes.json', at('/A/proj'))).toBe(plain);
+  });
+
+  it('hashes the global config.json by content, without its install id (T13022)', async () => {
+    const write = (name: string, body: object) => {
+      const f = path.join(tmp, name);
+      fs.writeFileSync(f, JSON.stringify(body, null, 2));
+      return f;
+    };
+    const global = { scope: 'global' as const, root: null };
+    const a = write('ga.json', { llm: { m: 1 }, telemetry: { enabled: false, installId: 'id-a' } });
+    const b = write('gb.json', { telemetry: { installId: 'id-b', enabled: false }, llm: { m: 1 } });
+    const none = write('gc.json', { llm: { m: 1 }, telemetry: { enabled: false } });
+    const changed = write('gd.json', {
+      llm: { m: 2 },
+      telemetry: { enabled: false, installId: 'id-a' },
+    });
+    const digest = (f: string) => vaultFileDigest(f, 'config.json', global);
+    expect(await digest(b)).toBe(await digest(a));
+    expect(await digest(none)).toBe(await digest(a));
+    expect(await digest(changed)).not.toBe(await digest(a));
+    // Another global file is its plain SHA-256.
+    const plain = crypto.createHash('sha256').update(fs.readFileSync(a)).digest('hex');
+    expect(await vaultFileDigest(a, 'other.json', global)).toBe(plain);
   });
 
   it('lists the registry strip columns a snapshot never carries', () => {
@@ -752,5 +778,34 @@ describe('round 3 (#1773)', () => {
       },
     ]);
     r.close();
+  });
+});
+
+describe('round 4 (#1773)', () => {
+  it('NULLs strip columns on every row instead of carrying this machine values (T13022)', () => {
+    const mk = (name: string, rows: Array<[string, number | null]>) => {
+      const f = path.join(tmp, `${name}.db`);
+      const db = new DatabaseSync(f);
+      db.exec(
+        'CREATE TABLE brain_observations (id TEXT PRIMARY KEY, narrative TEXT, tree_id INTEGER)',
+      );
+      const ins = db.prepare('INSERT INTO brain_observations VALUES (?, ?, ?)');
+      for (const [id, tree] of rows) ins.run(id, `n-${id}`, tree);
+      db.close();
+      return f;
+    };
+    // The snapshot's trees came from the pusher; this machine's tree ids point at its own.
+    const staged = mk('staged', [
+      ['O1', 7],
+      ['O2', 8],
+    ]);
+    const live = mk('live', [['O1', 42]]);
+    carryMachineState(staged, live, 'project', { snapshotRoot: '/A/root' });
+    const db = new DatabaseSync(staged, { readOnly: true });
+    expect(db.prepare('SELECT id, tree_id FROM brain_observations ORDER BY id').all()).toEqual([
+      { id: 'O1', tree_id: null },
+      { id: 'O2', tree_id: null },
+    ]);
+    db.close();
   });
 });

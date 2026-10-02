@@ -625,6 +625,44 @@ describe('cloud vault placeholder rows (T13006)', () => {
 
   it('the store opener refuses a placeholder instead of resolving it under the cwd', () => {
     expect(() => resolveDualScopeDbPath('project', PLACEHOLDER)).toThrow(/cloud vault placeholder/);
+    // Already resolved against a working directory (T13021).
+    expect(() => resolveDualScopeDbPath('project', join(testDir, PLACEHOLDER))).toThrow(
+      /cloud vault placeholder/,
+    );
+    expect(readdirSync(testDir).filter((n) => n.startsWith(VAULT_REMOTE_PATH_PREFIX))).toEqual([]);
+  });
+
+  it('the task accessor refuses a placeholder, raw or resolved, and creates nothing (T13021)', async () => {
+    await expect(dataAccessors.getTaskAccessor(PLACEHOLDER)).rejects.toThrow(
+      /cloud vault placeholder/,
+    );
+    await expect(dataAccessors.createDataAccessor(join(testDir, PLACEHOLDER))).rejects.toThrow(
+      /cloud vault placeholder/,
+    );
+    expect(readdirSync(testDir).filter((n) => n.startsWith(VAULT_REMOTE_PATH_PREFIX))).toEqual([]);
+  });
+
+  it('workspace status, agents and routing skip it, and so do the registry roots (T13021)', async () => {
+    await nexusRegister(projectDir, 'test-proj', 'read');
+    await insertRemoteRow();
+    const accessor = vi.spyOn(dataAccessors, 'getTaskAccessor');
+    const { routeDirective, workspaceAgents, workspaceStatus } = await import('../workspace.js');
+    const status = await workspaceStatus();
+    expect(status.projectCount).toBe(1);
+    expect(status.projects.map((p) => p.path)).not.toContain(PLACEHOLDER);
+    await workspaceAgents();
+    await routeDirective({
+      verb: 'done',
+      taskRefs: ['T999'],
+      agentId: 'agent-t13021',
+      messageId: 'm-1',
+      timestamp: new Date().toISOString(),
+    });
+    expect(accessor.mock.calls.length).toBeGreaterThan(0);
+    expect(accessor.mock.calls.map((c) => c[0])).not.toContain(PLACEHOLDER);
+    const { listRegistryParentRoots, parentRootsOf } = await import('../registry-roots.js');
+    const local = (await nexusList()).filter((p) => !p.remote).map((p) => p.path);
+    expect(await listRegistryParentRoots()).toEqual(parentRootsOf(local));
     expect(readdirSync(testDir).filter((n) => n.startsWith(VAULT_REMOTE_PATH_PREFIX))).toEqual([]);
   });
 });

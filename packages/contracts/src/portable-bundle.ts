@@ -79,6 +79,11 @@ export interface PortableFileEntry {
   sha256: string;
   /** True when the file was classified as a secret (only present in encrypted bundles). */
   secret: boolean;
+  /**
+   * True when the exporting checkout's git tracks this path (the cloud vault
+   * leaves tracked files to git, T13019). Absent otherwise.
+   */
+  gitTracked?: boolean;
 }
 
 /** A symbolic link inside the root whose target also stays inside the root. */
