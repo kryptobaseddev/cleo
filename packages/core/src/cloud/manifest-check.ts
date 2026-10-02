@@ -298,6 +298,19 @@ export function checkManifestV3(input: {
       Object.keys(pruned).length === 0 &&
       transitions.length === 0;
     if (!empty) findings.push({ reason: 'genesis-not-empty' });
+    // T090: a genesis that covers segments has already applied them all (its pending list is
+    // empty), so its schemaVersion is at least their highest rise; its child's rise points
+    // start from it. schemaRises, not a spread: a genesis window is unbounded.
+    if (next.replayPin !== undefined) {
+      const floor = schemaRises(0, input.window.schemaVersions).at(-1)?.schemaVersion ?? 0;
+      if (next.schemaVersion < floor) {
+        findings.push({
+          reason: 'schema-version-below-floor',
+          schemaVersion: next.schemaVersion,
+          floor,
+        });
+      }
+    }
     return findings.length > 0
       ? { ok: false, code: 'E_MANIFEST_ACCOUNTING', findings }
       : { ok: true };

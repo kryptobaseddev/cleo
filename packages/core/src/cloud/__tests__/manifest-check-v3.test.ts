@@ -333,6 +333,41 @@ describe('#30 review: v3 ratchet, transitions, Decl(A) and the exact rule', () =
     expect(check(parent4, { ...v3(10), schemaVersion: 4 }, windowOf([], []))).toEqual({ ok: true });
   });
 
+  it('T090: the floor is the highest rise, not the last window segment', () => {
+    // The window rises to 3, then a segment at 2 follows: the replay reached 3.
+    const w = windowOf(
+      [],
+      [
+        { seq: 3, schemaVersion: 3 },
+        { seq: 4, schemaVersion: 2 },
+      ],
+    );
+    const pin = { ...PIN, transitions: [{ seq: 3, schemaVersion: 3, journal: H }] };
+    expect(check(v3(10), { ...v3(10, { replayPin: pin }), schemaVersion: 2 }, w)).toMatchObject({
+      findings: [{ reason: 'schema-version-below-floor', schemaVersion: 2, floor: 3 }],
+    });
+    expect(check(v3(10), { ...v3(10, { replayPin: pin }), schemaVersion: 3 }, w)).toEqual({
+      ok: true,
+    });
+  });
+
+  it('T090: a genesis covering segments is floored by their highest rise (T13048)', () => {
+    const w = windowOf(
+      [],
+      [
+        { seq: 1, schemaVersion: 1 },
+        { seq: 2, schemaVersion: 2 },
+      ],
+    );
+    expect(check(null, { ...v3(5), schemaVersion: 1 }, w)).toMatchObject({
+      code: 'E_MANIFEST_ACCOUNTING',
+      findings: [{ reason: 'schema-version-below-floor', schemaVersion: 1, floor: 2 }],
+    });
+    expect(check(null, { ...v3(5), schemaVersion: 2 }, w)).toEqual({ ok: true });
+    // A genesis with no segments has no floor beyond its own version.
+    expect(check(null, v3(5), windowOf([], []))).toEqual({ ok: true });
+  });
+
   it('LOW-3: an absent table with net deletes, and a new table with undeclared rows, are refused', () => {
     const del = { ref: a, deltas: { brain_x: { created: 0, deleted: 3 } } };
     expect(check(v3(5), v3(5), [del])).toMatchObject({
