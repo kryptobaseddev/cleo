@@ -206,9 +206,15 @@ export interface RunJob {
   readonly leadsGroup?: boolean;
 }
 
-/** Whether a record's child leads its own process group (see {@link RunJob.leadsGroup}). */
+/**
+ * Whether a record's child leads its own process group (see
+ * {@link RunJob.leadsGroup}). Only a boolean is decisive: a missing or
+ * corrupt value (`"false"`, `1`) falls back to `parentJob`, so a truthy
+ * non-boolean never sends a group signal to a child that leads no group.
+ */
 function leadsOwnGroup(job: Pick<RunJob, 'leadsGroup' | 'parentJob'>): boolean {
-  return job.leadsGroup ?? typeof job.parentJob !== 'string';
+  if (typeof job.leadsGroup === 'boolean') return job.leadsGroup;
+  return typeof job.parentJob !== 'string';
 }
 
 /** A record whose heartbeat is older than this is checked for a dead runner. */
@@ -473,11 +479,12 @@ export function processAncestors(pid: number): number[] | null {
  * group can only be joined by processes in its own session, and the
  * start-time check rules out a reused pid.
  *
- * A child that leads no group (a `--passthrough` run in a terminal's
- * foreground group, or a nested run) is found by ancestry instead: `pid`
- * descends from it. Ancestry can't be forged either (the kernel sets the
- * parent; an orphan is reparented away from the job), and it costs one `ps`
- * of the process table, read only while such a job is running.
+ * When the group says nothing, ancestry decides: `pid` descends from the
+ * child of a live job that leads no group (a `--passthrough` run in a
+ * terminal's foreground group, OR a nested run). Ancestry can't be forged
+ * either (the kernel sets the parent; an orphan is reparented away from the
+ * job). It costs one `ps` of the process table, read only while at least one
+ * live job, foreground or nested, leads no group.
  *
  * Any failure to read `ps` returns null (normal admission).
  */

@@ -309,6 +309,56 @@ describe('job registry', () => {
     expect(readdirSync(dir)).toEqual([]);
   });
 
+  it.each([
+    ['"false"', '"false"'],
+    ['1', '1'],
+    ['"yes"', '"yes"'],
+  ])('a corrupt leadsGroup (%s) is not decisive: a nested record still goes by pid (R8)', (_label, raw) => {
+    // Written raw: the corrupt value can't be expressed through the RunJob type.
+    const record = JSON.stringify(
+      job({
+        id: 'dead',
+        startedAtMs: 1,
+        heartbeatAtMs: NOW,
+        childPid: 77,
+        childStart: 'child-t0',
+        parentJob: 'outer',
+      }),
+    ).replace(/}$/, `,"leadsGroup":${raw}}`);
+    writeFileSync(join(dir, 'dead.json'), `${record}\n`);
+    const r = recorder();
+    reapOrphans(dir, {
+      ...base,
+      alive: (pid) => pid === 77,
+      start: (pid) => (pid === 77 ? 'child-t0' : null),
+      signal: r.signal,
+      signalPid: r.signalPid,
+    });
+    expect(r.signals).toEqual([
+      [77, 'pid:SIGCONT'],
+      [77, 'pid:SIGTERM'],
+    ]);
+  });
+
+  it('a corrupt leadsGroup on a top-level record falls back to its own group', () => {
+    const record = JSON.stringify(
+      job({ id: 'dead', startedAtMs: 1, heartbeatAtMs: NOW, childPid: 77, childStart: 'child-t0' }),
+    ).replace(/}$/, ',"leadsGroup":"false"}');
+    writeFileSync(join(dir, 'dead.json'), `${record}\n`);
+    const r = recorder();
+    reapOrphans(dir, {
+      ...base,
+      alive: (pid) => pid === 77,
+      start: (pid) => (pid === 77 ? 'child-t0' : null),
+      signal: r.signal,
+      signalPid: r.signalPid,
+    });
+    expect(r.signals).toEqual([
+      [77, 'SIGCONT'],
+      [77, 'SIGTERM'],
+    ]);
+  });
+
   it('a foreground child that is gone gets no signal: it led no group (R7)', () => {
     deadRunner({ leadsGroup: false, childPid: 78 });
     const r = recorder();
@@ -552,7 +602,7 @@ describe('a read-only registry never throws (#1777 R8-2)', () => {
   });
 });
 
-describe('parentRunJob under a foreground job (ancestry, #1777 R7)', () => {
+describe('parentRunJob by ancestry: any live job that leads no group, foreground or nested (#1777 R7)', () => {
   const NOW = 10_000_000;
   const probes = {
     alive: () => true,
@@ -608,6 +658,29 @@ describe('parentRunJob under a foreground job (ancestry, #1777 R7)', () => {
         ancestorsOf: () => [680],
       }),
     ).toBeNull();
+  });
+
+  it('a nested job (no group of its own either) also triggers the ancestry read', () => {
+    writeRunJob(
+      job({
+        id: 'nested',
+        startedAtMs: 3,
+        heartbeatAtMs: NOW,
+        childPid: 710,
+        childStart: 'start-710',
+        parentJob: 'outer',
+      }),
+      dir,
+    );
+    let reads = 0;
+    const ancestorsOf = () => {
+      reads++;
+      return [9000, 710];
+    };
+    expect(
+      parentRunJob({ pid: 9001, jobsDir: dir, probes, groupOf: () => 650, ancestorsOf })?.id,
+    ).toBe('nested');
+    expect(reads).toBe(1);
   });
 
   it('the process table is read only while a job without its own group runs', () => {

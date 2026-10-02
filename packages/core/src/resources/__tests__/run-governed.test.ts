@@ -695,7 +695,7 @@ describe('--passthrough and a terminal in the foreground (#1777 R7)', () => {
     expect(record).toMatchObject({ leadsGroup: true, pausable: true });
   });
 
-  it('a run nested under a foreground job is found by ancestry and rides its slot', async () => {
+  it('a run under a foreground job (which leads no group) is found by ancestry and rides its slot', async () => {
     writeRunJob(
       { ...olderJob(), id: 'fg', childPid: 777, childStart: 'start-777', leadsGroup: false },
       join(dir, 'jobs'),
