@@ -251,7 +251,12 @@ export interface FkOrphanRepairSeams {
    * suspended, so the restore emits nothing.
    */
   readonly restoreParent: (db: DatabaseSync, table: string, uid: string) => void;
-  /** Persist a conflict record. */
+  /**
+   * Persist a conflict record. For a repair that writes (sentinel, NULL),
+   * it is called inside the repair's transaction, before the commit: a throw
+   * rolls the repair back, so no repair lands without its record (D3,
+   * T13044). It must not open its own transaction.
+   */
   readonly recordConflict: (conflict: FkOrphanConflict) => void;
 }
 
@@ -395,14 +400,17 @@ export function repairFkOrphans(
         }
         done.push({ ...c, outcome: 'reported' });
       }
+      // D3: every case writes its conflict record, in the same transaction as
+      // the repair, so a failed record (or a crash) never leaves a repair
+      // without one (T13044).
+      for (const resolution of ['sentinel', 'null', 'report'] as const) {
+        const outcome =
+          resolution === 'null' ? 'nulled' : resolution === 'report' ? 'reported' : 'sentinel';
+        const kids = done.filter((d) => d.outcome === outcome);
+        if (kids.length > 0) seams.recordConflict(conflictOf('fk-orphan', resolution, kids));
+      }
       finishCaptureFrame(db, frame);
     });
-    for (const resolution of ['sentinel', 'null', 'report'] as const) {
-      const outcome =
-        resolution === 'null' ? 'nulled' : resolution === 'report' ? 'reported' : 'sentinel';
-      const kids = done.filter((d) => d.outcome === outcome);
-      if (kids.length > 0) seams.recordConflict(conflictOf('fk-orphan', resolution, kids));
-    }
     out.push(...done);
   }
   return { mode: 'repair', orphans: out, sentinelCreated };

@@ -232,6 +232,25 @@ describe('repairFkOrphans', () => {
     expect(again.orphans).toEqual([]);
   });
 
+  it('a conflict record that cannot be written rolls the repair back (D3, T13044)', async () => {
+    const db = await store();
+    orphan(db, 'T2', 'task', 'T999');
+    const before = taskCount(db);
+    const h = seams(() => ({ state: 'unknown' }));
+    const failing = {
+      ...h.seams,
+      recordConflict: () => {
+        throw new Error('conflict store unavailable');
+      },
+    };
+    expect(() => repairFkOrphans(settled(db), 'project', failing)).toThrow(/conflict store/);
+    // Nothing landed: no re-parent, no sentinel, no repair captures.
+    expect(parentOf(db, 'T2')).toBe('T999');
+    expect(taskCount(db)).toBe(before);
+    expect(captures(db)).toEqual([]);
+    expect(db.prepare('SELECT count(*) AS n FROM _sync_frame').get()).toEqual({ n: 0 });
+  });
+
   it('a NOT NULL child is reported with a conflict, and left in place', async () => {
     const db = await store();
     db.exec('PRAGMA foreign_keys = OFF');

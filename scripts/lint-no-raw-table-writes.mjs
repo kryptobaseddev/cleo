@@ -297,7 +297,7 @@ export const EXEMPT = {
     _sync_row_meta: {
       count: 1,
       reason:
-        'tombstone compaction (local-only): shrinks covered full tombstones in THIS store\'s sealer row meta to the minimal form (T12986)',
+        "tombstone compaction (local-only): shrinks covered full tombstones in THIS store's sealer row meta to the minimal form (T12986)",
     },
   },
   'packages/core/src/store/sync/trigger-classes.ts': {
