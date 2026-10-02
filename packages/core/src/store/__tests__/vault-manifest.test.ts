@@ -26,11 +26,15 @@ import {
   isVaultManifestTable,
   sameVaultManifest,
   VAULT_FORK_KEY,
+  VAULT_FORMAT_KEY,
+  VAULT_MANIFEST_FORMAT_VERSION,
   vaultDatabaseKey,
   vaultFileDigest,
   vaultFilesEntry,
   vaultForkEntry,
+  vaultFormatEntry,
   vaultLocalColumns,
+  vaultManifestFormat,
   vaultStripColumns,
 } from '../vault-manifest.js';
 
@@ -251,6 +255,33 @@ describe('compareVaultManifests / sameVaultManifest', () => {
     expect(sameVaultManifest(a, a)).toBe(true);
     expect(sameVaultManifest(a, b)).toBe(false);
     expect(sameVaultManifest(a, { tables: {} })).toBe(false);
+  });
+});
+
+describe('the format record (T13034)', () => {
+  const tables = { tasks_tasks: { rows: 1, hash: 'a'.repeat(64) } };
+  it('names the format its hashes use, keyed, and is never compared', () => {
+    const recorded = {
+      schemaVersion: SYNC_SCHEMA_VERSION,
+      tables: { ...tables, [VAULT_FORMAT_KEY]: vaultFormatEntry(KEY) },
+    };
+    expect(recorded.tables[VAULT_FORMAT_KEY]?.rows).toBe(0);
+    expect(vaultManifestFormat(recorded, KEY)).toBe(VAULT_MANIFEST_FORMAT_VERSION);
+    // Another key cannot read it: the version is not guessable from the plaintext manifest.
+    expect(vaultManifestFormat(recorded, crypto.randomBytes(32))).toBe('newer');
+    expect(sameVaultManifest(recorded, { schemaVersion: SYNC_SCHEMA_VERSION, tables })).toBe(true);
+  });
+  it('reads a later format as newer, and a snapshot without a record by its old wire schemaVersion', () => {
+    const later = {
+      schemaVersion: SYNC_SCHEMA_VERSION,
+      tables: {
+        ...tables,
+        [VAULT_FORMAT_KEY]: vaultFormatEntry(KEY, VAULT_MANIFEST_FORMAT_VERSION + 1),
+      },
+    };
+    expect(vaultManifestFormat(later, KEY)).toBe('newer');
+    expect(vaultManifestFormat({ schemaVersion: 1, tables }, KEY)).toBe(1);
+    expect(vaultManifestFormat({ schemaVersion: 2, tables }, KEY)).toBe(2);
   });
 });
 

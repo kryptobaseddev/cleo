@@ -9,6 +9,11 @@
  * - The cloud vault stamps it on its `cleo-vault-delta/v1` segments and its
  *   checkpoint manifests.
  *
+ * Until the journal's sealer stamps segments, only the vault uses it. T13040
+ * (`SYNC_SET_VERSION`, which feeds the segment `schemaVersion`) must import
+ * this constant rather than define a second number, and test that a sealed
+ * segment's `schemaVersion` equals it.
+ *
  * One number for both, so a vault segment inside a journal window is never a
  * schema rise of its own: the server pins every rise in a checkpoint/v3
  * manifest (`replayPin.transitions`) and holds a v3 manifest's `schemaVersion`

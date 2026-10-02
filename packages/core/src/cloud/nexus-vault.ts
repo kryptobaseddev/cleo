@@ -103,17 +103,22 @@ import {
   carryMachineState,
   compareVaultManifests,
   emptyVaultTableHash,
+  isVaultAnnotationKey,
   isVaultForkManifest,
   sameVaultManifest,
   VAULT_FILES_KEY,
   VAULT_FORK_KEY,
+  VAULT_FORMAT_KEY,
   VAULT_GLOBAL_CONFIG_LOCAL_KEYS,
+  VAULT_MANIFEST_FORMAT_VERSION,
   type VaultManifest,
   vaultDatabaseEntry,
   vaultDatabaseKey,
   vaultFileDigest,
   vaultFilesEntry,
   vaultForkEntry,
+  vaultFormatEntry,
+  vaultManifestFormat,
   vaultStripColumns,
 } from '../store/vault-manifest.js';
 import { foreignWriterLeases, storeOpenElsewhere } from '../store/writer-lease.js';
@@ -495,45 +500,87 @@ async function replaySegments(
 }
 
 /**
- * Why the stream no longer takes a push from this CLEO's vault (T13034), or
- * `null`. Checked on the head before the export and the lease, and on the
- * replayed window before any upload or delta segment (the push then hands
- * the lease back), so a refusal never appends a segment it would orphan.
- *
- * - The head snapshot is checkpoint/v3: the change journal writes the stream,
- *   and the server refuses a v2 checkpoint after a v3 one (`E_STREAM_VERSION`,
- *   reason `stream-v3`). The vault writes v2 only: a v3 checkpoint carries the
- *   journal's replay pin, which endorsers recompute by replay, and its bundle
- *   carries the unresolved journal entries (journal spec §2.11 §6, §7). A
- *   store snapshot has neither, so the vault never claims them.
- * - The stream holds data of a newer sync schema than this CLEO writes (the
- *   head snapshot, or a segment since it, above {@link SYNC_SCHEMA_VERSION}):
- *   a snapshot stamped with the older schema would sit below what the stream
- *   already reached.
+ * What works on a stream the change journal writes (its head snapshot is
+ * checkpoint/v3), for every message that would otherwise say "push" (T13034).
  */
-function streamUpgradedRefusal(
+const JOURNAL_STREAM_REMEDY =
+  'on this stream local changes travel through the change journal (`sync.push`), not vault snapshots (vault snapshots of journal streams are tracked in T12999); `cleo cloud pull`, `cleo cloud restore` and `cleo cloud verify` still work';
+
+/** Whether a snapshot is checkpoint/v3: the change journal writes its stream (T13034). */
+function isJournalSnapshot(cp: Checkpoint | null | undefined): boolean {
+  return cp !== null && cp !== undefined && manifestVersion(cp.manifest) === 3;
+}
+
+/**
+ * Why this CLEO cannot push to the stream at all (T13034), or `null`: the
+ * stream holds data of a newer sync schema (a segment, or the head snapshot,
+ * above {@link SYNC_SCHEMA_VERSION}), so a snapshot stamped with the older
+ * schema would sit below what the stream already reached; or the head
+ * snapshot was hashed under a newer vault manifest format, so this store
+ * cannot even tell whether it changed. Checked on the stream head before the
+ * export and the lease (`maxSchemaVersion`, which the server raises on every
+ * append), and on the replayed window again before the delta segment, for a
+ * segment appended in between.
+ */
+function aheadOfThisCleo(
   t: VaultTarget,
+  schemaVersion: number,
   parent: Checkpoint | null,
-  windowSchemaVersion = 0,
 ): NexusAccountError | null {
-  if (parent && manifestVersion(parent.manifest) === 3) {
+  if (schemaVersion > SYNC_SCHEMA_VERSION) {
     return streamUpgradedError(
-      `${t.streamId} takes only checkpoint/v3 snapshots: its head snapshot ${parent.checkpointId} is one (the change journal writes this stream), and the server refuses the checkpoint/v2 snapshots this CLEO's vault writes after it`,
-      'nothing was written; `cleo cloud pull`, `cleo cloud restore` and `cleo cloud verify` still work on this stream. Push from a CLEO whose vault writes checkpoint/v3 snapshots',
+      `${t.streamId} holds data of sync schema ${schemaVersion}, newer than the schema ${SYNC_SCHEMA_VERSION} this CLEO writes`,
+      'nothing was written; upgrade CLEO on this machine, then push again',
     );
   }
-  const ahead = Math.max(parent?.manifest.schemaVersion ?? 0, windowSchemaVersion);
-  if (ahead > SYNC_SCHEMA_VERSION) {
+  if (parent && vaultManifestFormat(parent.manifest, hashKeyOf(t.dataKey)) === 'newer') {
     return streamUpgradedError(
-      `${t.streamId} holds data of sync schema ${ahead}, newer than the schema ${SYNC_SCHEMA_VERSION} this CLEO writes`,
+      `the head snapshot ${parent.checkpointId} was hashed under a newer vault manifest format than this CLEO's (${VAULT_MANIFEST_FORMAT_VERSION})`,
       'nothing was written; upgrade CLEO on this machine, then push again',
     );
   }
   return null;
 }
 
+/**
+ * The refusal of a push that would write over a checkpoint/v3 head (T13034).
+ * The server refuses a v2 checkpoint after a v3 one (`E_STREAM_VERSION`,
+ * reason `stream-v3`), and the vault writes v2 only: a v3 checkpoint carries
+ * the journal's replay pin, which endorsers recompute by replay, and its
+ * bundle carries the unresolved journal entries (journal spec §2.11 §6, §7).
+ * A store snapshot has neither, so the vault never claims them. Raised after
+ * the up-to-date check (an unchanged store reports up-to-date) and before the
+ * lease, upload or delta segment, so it never appends a segment it would
+ * orphan.
+ */
+function journalStreamRefusal(t: VaultTarget, parent: Checkpoint): NexusAccountError {
+  return streamUpgradedError(
+    `${t.streamId} takes only checkpoint/v3 snapshots: its head snapshot ${parent.checkpointId} is one (the change journal writes this stream), and the server refuses the checkpoint/v2 snapshots this CLEO's vault writes after it`,
+    `nothing was written; ${JOURNAL_STREAM_REMEDY}`,
+  );
+}
+
 function streamUpgradedError(message: string, fix: string): NexusAccountError {
   return vaultError('E_NEXUS_VAULT_STREAM_UPGRADED', message, fix);
+}
+
+/**
+ * A warning when a snapshot's hashes use another vault manifest format than
+ * this CLEO's (T13034): every table then compares as changed, so a verdict
+ * or a pending-change list against it says nothing. `null` when the formats
+ * match or there is no snapshot.
+ */
+function formatWarning(t: VaultTarget, cp: Checkpoint | null | undefined): CloudWarning | null {
+  if (!cp) return null;
+  const format = vaultManifestFormat(cp.manifest, hashKeyOf(t.dataKey));
+  if (format === VAULT_MANIFEST_FORMAT_VERSION) return null;
+  return {
+    code: 'W_NEXUS_VAULT_FORMAT',
+    message:
+      format === 'newer'
+        ? `snapshot ${cp.checkpointId} was hashed under a newer vault manifest format than this CLEO's (${VAULT_MANIFEST_FORMAT_VERSION}), so tables compared with it read as changed; upgrade CLEO on this machine`
+        : `snapshot ${cp.checkpointId} was hashed under vault manifest format ${format}, older than this CLEO's (${VAULT_MANIFEST_FORMAT_VERSION}), so tables compared with it read as changed; the next push records the current format`,
+  };
 }
 
 /**
@@ -1004,9 +1051,13 @@ async function pushNexusVaultImpl(
     );
   }
   if (parent) journal.verifyCheckpoint(parent, key.signers);
-  // A stream past what this vault writes refuses before the export, lease and upload (T13034).
-  const upgraded = streamUpgradedRefusal(t, parent);
-  if (upgraded) throw upgraded;
+  // A stream past this CLEO refuses before the export and the lease (T13034).
+  const ahead = aheadOfThisCleo(
+    t,
+    Math.max(head.maxSchemaVersion ?? 0, parent?.manifest.schemaVersion ?? 0),
+    parent,
+  );
+  if (ahead) throw ahead;
   const { state: synced, adopted } = syncedState(
     conn,
     t,
@@ -1027,7 +1078,9 @@ async function pushNexusVaultImpl(
     throw vaultError(
       'E_NEXUS_VAULT_BEHIND',
       `another device pushed snapshot ${head.headCheckpointId} after this machine's last sync`,
-      'run `cleo cloud pull` first (it refuses to overwrite local changes), or `--force` to push this store as a labelled fork',
+      isJournalSnapshot(parent)
+        ? `run \`cleo cloud pull\` first (it refuses to overwrite local changes); ${JOURNAL_STREAM_REMEDY}`
+        : 'run `cleo cloud pull` first (it refuses to overwrite local changes), or `--force` to push this store as a labelled fork',
     );
   }
 
@@ -1074,16 +1127,19 @@ async function pushNexusVaultImpl(
         warnings,
       };
     }
+    // A change onto a checkpoint/v3 head: refused before the lease (T13034).
+    if (parent && isJournalSnapshot(parent)) throw journalStreamRefusal(t, parent);
 
     // A table the parent lists must stay listed (0 rows when it is gone); the
-    // parent's fork label is not a table and is not carried.
+    // parent's annotations (fork label, format record) are not tables and are
+    // not carried. The snapshot records the format its hashes use (T13034).
     const manifest: VaultManifest = {
       schemaVersion: SYNC_SCHEMA_VERSION,
-      tables: { ...vault.tables },
+      tables: { ...vault.tables, [VAULT_FORMAT_KEY]: vaultFormatEntry(hashKeyOf(t.dataKey)) },
     };
     if (parent) {
       for (const table of Object.keys(parent.manifest.tables)) {
-        if (table === VAULT_FORK_KEY) continue;
+        if (isVaultAnnotationKey(table)) continue;
         manifest.tables[table] ??= { rows: 0, hash: buildEmptyHash(t, table) };
       }
     }
@@ -1129,9 +1185,10 @@ async function pushNexusVaultImpl(
           key.signers,
         );
         let cursor = replay.cursor;
-        // A segment of a newer sync schema since the head: refused before our delta is appended.
-        const ahead = streamUpgradedRefusal(t, parent, replay.maxSchemaVersion);
-        if (ahead) throw ahead;
+        // A segment of a newer sync schema appended since the head was read: refused
+        // before our delta segment (the push hands the lease back).
+        const windowAhead = aheadOfThisCleo(t, replay.maxSchemaVersion, null);
+        if (windowAhead) throw windowAhead;
         if (parent) {
           const between: Record<string, { created: number; deleted: number }> = {};
           for (const d of replay.deltas) {
@@ -1211,7 +1268,7 @@ async function pushNexusVaultImpl(
           if (err instanceof NexusError && err.code === 'E_STREAM_VERSION') {
             throw streamUpgradedError(
               `the server refused the snapshot: ${t.streamId} takes only checkpoint/v3 snapshots (${err.message})`,
-              '`cleo cloud pull`, `cleo cloud restore` and `cleo cloud verify` still work on this stream. Push from a CLEO whose vault writes checkpoint/v3 snapshots',
+              JOURNAL_STREAM_REMEDY,
             );
           }
           const countRefusal =
@@ -1549,6 +1606,21 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
       warnings,
     };
   }
+  // A snapshot hashed under another vault manifest format cannot be checked
+  // against its manifest here; say so instead of reporting a mismatch (T13034).
+  const targetCp = trusted.find((c) => c.checkpointId === target);
+  const format = targetCp ? vaultManifestFormat(targetCp.manifest, hashKeyOf(t.dataKey)) : null;
+  if (format !== null && format !== VAULT_MANIFEST_FORMAT_VERSION) {
+    throw vaultError(
+      'E_NEXUS_VAULT_VERIFY_FAILED',
+      format === 'newer'
+        ? `snapshot ${target} was hashed under a newer vault manifest format than this CLEO's (${VAULT_MANIFEST_FORMAT_VERSION}), so it cannot be verified here; nothing was restored`
+        : `snapshot ${target} was hashed under vault manifest format ${format}, older than this CLEO's (${VAULT_MANIFEST_FORMAT_VERSION}), so it cannot be verified here; nothing was restored`,
+      format === 'newer'
+        ? 'upgrade CLEO on this machine, then run the command again'
+        : 'push a new snapshot from a device that holds this data with a current CLEO, then run the command again',
+    );
+  }
   const git = gitTracking(t);
   if (git.mode === 'unknown') warnings.push(gitUnknownWarning(t));
   // Never overwrite unsynced local work without --force: tables, other
@@ -1577,7 +1649,9 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
         last
           ? `this store changed since its last cloud sync (${changed.slice(0, 8).join(', ')}); restoring would overwrite those changes`
           : 'this store holds data that was never synced with this cloud snapshot; restoring would replace it',
-        'run `cleo cloud push` to keep them (as a fork with --force if another device pushed since), or pass --force to restore anyway (a safety backup is taken first)',
+        isJournalSnapshot(targetCp)
+          ? `to keep them: ${JOURNAL_STREAM_REMEDY}; or pass --force to restore anyway (a safety backup is taken first)`
+          : 'run `cleo cloud push` to keep them (as a fork with --force if another device pushed since), or pass --force to restore anyway (a safety backup is taken first)',
       );
     }
   }
@@ -1670,7 +1744,7 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
             );
           }
           tables = Object.keys(restored.checkpoint.manifest.tables).filter(
-            (k) => k !== VAULT_FORK_KEY,
+            (k) => !isVaultAnnotationKey(k),
           ).length;
           const section = t.scope === 'global' ? manifest.global?.home : manifest.projects[0];
           for (const e of [
@@ -1744,7 +1818,7 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
     if (keptUnsynced.length > 0) {
       warnings.push({
         code: 'W_NEXUS_VAULT_KEPT_LOCAL',
-        message: `kept ${keptUnsynced.length} local file(s) this store never synced with the cloud, in place of the snapshot's copies: ${keptUnsynced.slice(0, 8).join(', ')}${keptUnsynced.length > 8 ? ', …' : ''}; push to keep them, or pull with --force to take the snapshot's`,
+        message: `kept ${keptUnsynced.length} local file(s) this store never synced with the cloud, in place of the snapshot's copies: ${keptUnsynced.slice(0, 8).join(', ')}${keptUnsynced.length > 8 ? ', …' : ''}; ${isJournalSnapshot(restored.checkpoint) ? `to keep them: ${JOURNAL_STREAM_REMEDY}; or` : 'push to keep them, or'} pull with --force to take the snapshot's`,
       });
     }
     saveSynced(conn, t, restored.checkpoint, {
@@ -1812,6 +1886,16 @@ async function nexusVaultStatusImpl(
           fileChangesSinceSync(local.files, t, git, synced),
         ).filter((d) => !d.match)
       : [];
+  const lastFormat = formatWarning(t, last);
+  if (lastFormat) warnings.push(lastFormat);
+  // On a stream the change journal writes, these changes do not go out with a push (T13034).
+  const headCp = trusted.find((c) => c.checkpointId === head.headCheckpointId);
+  if (headCp && isJournalSnapshot(headCp) && pendingChanges.length > 0) {
+    warnings.push({
+      code: 'W_NEXUS_VAULT_JOURNAL_STREAM',
+      message: `${pendingChanges.length} table(s) changed since the last sync, and the newest snapshot ${headCp.checkpointId} is checkpoint/v3 (the change journal writes this stream): ${JOURNAL_STREAM_REMEDY}`,
+    });
+  }
   return {
     apiUrl: conn.apiUrl,
     scope: t.scope,
@@ -1933,20 +2017,31 @@ async function verifyNexusVaultImpl(
       message: `the write lease was taken by force from replica ${forkedLease.forkedFromReplicaId}: the newest snapshot is a labelled fork`,
     });
   }
+  // A head hashed another way compares as changed everywhere; a head the change
+  // journal writes takes no push (T13034).
+  const headFormat = formatWarning(t, headCp);
+  if (headFormat) warnings.push(headFormat);
+  const journalHead = isJournalSnapshot(headCp);
   const remedy =
     verdict === 'untrusted'
       ? `the newest snapshot ${head.headCheckpointId} is not signed by a device this account trusts: do not pull it; see which device pushed it with \`cleo cloud vault\` and \`cleo cloud activity\`, and revoke that device if you do not recognise it`
-      : verdict === 'behind'
-        ? 'run `cleo cloud pull` to bring this machine to the newest snapshot'
-        : verdict === 'ahead'
-          ? 'run `cleo cloud push` to back up the local changes'
-          : verdict === 'diverged'
-            ? 'both sides changed: run `cleo cloud push --force` to keep this machine (a labelled fork), or `cleo cloud pull --force` to take the cloud (a safety backup is taken first)'
-            : verdict === 'empty'
-              ? 'run `cleo cloud push` to make the first snapshot'
-              : !localIntegrity
-                ? 'the local store failed its integrity check: run `cleo doctor` and `cleo cloud restore`'
-                : null;
+      : headCp && vaultManifestFormat(headCp.manifest, hashKeyOf(t.dataKey)) === 'newer'
+        ? 'the newest snapshot was hashed under a newer vault manifest format: upgrade CLEO on this machine, then verify again'
+        : verdict === 'behind'
+          ? 'run `cleo cloud pull` to bring this machine to the newest snapshot'
+          : verdict === 'ahead'
+            ? journalHead
+              ? `this machine changed since the newest snapshot, which is checkpoint/v3 (the change journal writes this stream): ${JOURNAL_STREAM_REMEDY}`
+              : 'run `cleo cloud push` to back up the local changes'
+            : verdict === 'diverged'
+              ? journalHead
+                ? `both sides changed, and the newest snapshot is checkpoint/v3 (the change journal writes this stream): ${JOURNAL_STREAM_REMEDY}; or \`cleo cloud pull --force\` to take the cloud (a safety backup is taken first)`
+                : 'both sides changed: run `cleo cloud push --force` to keep this machine (a labelled fork), or `cleo cloud pull --force` to take the cloud (a safety backup is taken first)'
+              : verdict === 'empty'
+                ? 'run `cleo cloud push` to make the first snapshot'
+                : !localIntegrity
+                  ? 'the local store failed its integrity check: run `cleo doctor` and `cleo cloud restore`'
+                  : null;
   return {
     apiUrl: conn.apiUrl,
     scope: t.scope,

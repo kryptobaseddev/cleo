@@ -25,16 +25,28 @@ and domain. Every signature check failed, so `cleo cloud pull`, `restore` and
   are ported, and the server's own cases run against them.
 - `cleo cloud pull`, `restore` and `verify` verify v3 checkpoints and replay
   v3 segments. A push folds segment/v3 windows into its v2 snapshot.
-- A push onto a stream whose head is checkpoint/v3, or that holds a newer
-  sync schema, is refused with `E_NEXUS_VAULT_STREAM_UPGRADED` before
-  anything is written: no lease, no upload, no delta segment left orphaned in
-  the journal. The server's `E_STREAM_VERSION` maps to the same code. The
-  vault does not write v3 itself. A v3 checkpoint's replay pin is recomputed
-  by endorsers through replay, and its bundle carries the unresolved journal
-  entries. A store snapshot has neither, so writing v3 is left to vault and
-  journal coexistence (T12999).
+- A push onto a stream whose head is checkpoint/v3 writes nothing: no lease,
+  no upload, no delta segment left orphaned in the journal. An unchanged
+  store reports `up-to-date`. A change is refused with
+  `E_NEXUS_VAULT_STREAM_UPGRADED`, and the server's `E_STREAM_VERSION` maps
+  to the same code. On such a stream, local changes travel through the change
+  journal (`sync.push`). The refusal, `cleo cloud verify`, `cleo cloud vault`
+  and a refused pull now say so instead of pointing to a push that would
+  fail. The vault does not write v3 itself. A v3 checkpoint's replay pin is
+  recomputed by endorsers through replay, and its bundle carries the
+  unresolved journal entries. A store snapshot has neither, so writing v3 is
+  left to vault and journal coexistence (T12999).
+- A stream holding a newer sync schema (the server's `maxSchemaVersion` on
+  the stream head) is refused before the export and the lease, so `--force`
+  never takes another device's lease for a push that cannot land. The
+  replayed window is checked again before the delta segment, for an older
+  server or a segment appended in between.
 - `SYNC_SCHEMA_VERSION` (2), in `@cleocode/contracts`, is one numbering for
   the change journal and the vault. The vault stamps it on its delta segments
-  and manifests in place of its manifest computation version, which is now
-  `VAULT_MANIFEST_FORMAT_VERSION` and never goes on the wire. The value stays
-  2, so nothing already stored changes.
+  and manifests in place of its manifest computation version. The value
+  stays 2, so nothing already stored changes. The computation version is now
+  `VAULT_MANIFEST_FORMAT_VERSION`, recorded in each snapshot as a
+  `zz_vault_format` entry: 0 rows, with a hash keyed so only key holders can
+  read the version. A restore of a snapshot hashed under another format now
+  says so and tells you what to do, instead of reporting a mismatch that looks
+  like tampering. Verify and status warn about it too.

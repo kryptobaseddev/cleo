@@ -69,6 +69,11 @@ export const nexusStreamHeadSchema = z.looseObject({
   kind: z.string().optional(),
   headSeq: z.number().int().nonnegative(),
   headCheckpointId: z.string().nullable(),
+  /**
+   * The highest segment `schemaVersion` the stream holds (the server raises it on every append).
+   * Absent from an older server.
+   */
+  maxSchemaVersion: z.number().int().nonnegative().optional(),
 });
 
 // ---------- wire: activity (E18 `GET /v1/account/activity`) ----------

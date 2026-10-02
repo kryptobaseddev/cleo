@@ -44,6 +44,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { _resetDualScopeDbCache, openDualScopeDb } from '../../store/dual-scope-db.js';
 import { computeManifestHash, exportPortableBundle } from '../../store/portable-bundle.js';
 import {
+  VAULT_FORMAT_KEY,
+  VAULT_MANIFEST_FORMAT_VERSION,
+  vaultFormatEntry,
+} from '../../store/vault-manifest.js';
+import {
+  deriveKey,
   generateEd25519,
   generateX25519,
   type KeyPair,
@@ -230,6 +236,8 @@ class FakeNexus {
   beforeCheckpoint: { deviceId: string; run: () => Promise<void> } | null = null;
   /** The server's MAX_SCHEMA_VERSION. */
   maxSchemaVersion = 10_000;
+  /** Whether the stream head carries `maxSchemaVersion` (a server from before it does not). */
+  reportMaxSchemaVersion = true;
   /** Largest activity page this server serves (the real one: 200). */
   activityPageSize = 200;
   now = () => new Date();
@@ -531,7 +539,10 @@ class FakeNexus {
         kind: s.kind,
         headSeq: s.headSeq,
         headCheckpointId: s.headCheckpointId,
-        maxSchemaVersion: Math.max(1, ...s.segments.map((x) => x.schemaVersion)),
+        // As the server keeps it: 0, raised to each appended segment's schemaVersion.
+        ...(this.reportMaxSchemaVersion
+          ? { maxSchemaVersion: Math.max(0, ...s.segments.map((x) => x.schemaVersion)) }
+          : {}),
       });
     }
     if (route === 'POST /segments') {
@@ -1039,12 +1050,13 @@ describe('cloud vault push (lineage, regression rule)', () => {
     const cp = fake.stream(STREAM).checkpoints[0];
     expect(cp?.parentCheckpointId).toBeNull();
     // Only syncing, non-secret tables are in the plaintext manifest.
-    // (plus the plain-file inventory, T12969).
+    // (plus the plain-file inventory, T12969, and the format record, T13034).
     expect(Object.keys(cp?.manifest.tables ?? {}).sort()).toEqual([
       'brain_observations',
       'tasks_sessions',
       'tasks_tasks',
       'zz_vault_files',
+      'zz_vault_format',
     ]);
     expect(cp?.manifest.tables['tasks_tasks']?.rows).toBe(5);
     // The uploaded bundle is ciphertext: no plaintext row content or credential leaks.
@@ -2798,6 +2810,9 @@ describe('cloud vault on a stream the change journal writes (segment/v3, checkpo
     exec(m, `INSERT INTO tasks_tasks (id, title) VALUES ('${id}', 'new')`);
   const hlc = (replicaId: string, n: number) =>
     `${String(Date.now()).padStart(13, '0')}-${String(n).padStart(6, '0')}-${replicaId}`;
+  /** Stream, blob and lease writes since `from` (a refusal before the lease makes none). */
+  const streamWrites = (from: number) =>
+    fake.writes.slice(from).filter((w) => w.includes('/v1/streams/') || w.includes('/blobs/'));
 
   /** The project data key, as every device unwraps it. */
   function projectDataKey(): Buffer {
@@ -2935,28 +2950,42 @@ describe('cloud vault on a stream the change journal writes (segment/v3, checkpo
     expect(manifestVersion(head.manifest)).toBe(3);
     expect(s.voided.map((v) => v.ref)).toEqual([{ replicaId: REPLICA_A, replicaSeq: 0, txn: 0 }]);
 
-    // A push onto the v3 head is refused before anything is written: no lease, no upload, and no
-    // delta segment left orphaned in the journal (A still holds a row the head does not).
+    // A push onto the v3 head writes nothing: no lease, no upload, and no delta segment left
+    // orphaned in the journal (A still holds a row the head does not). Not synced to it, A is told
+    // to pull first, never to fork with --force; with --force the change itself is refused.
     const writes = fake.writes.length;
     const segments = s.segments.length;
-    for (const force of [false, true]) {
-      const refused = await failure(on(a, () => pushNexusVault(vopts(a, { force }))));
-      expect(refused.code).toBe('E_NEXUS_VAULT_STREAM_UPGRADED');
-      expect(refused.message).toContain('checkpoint/v3');
-      expect(refused.fix).toContain('cleo cloud pull');
-    }
-    expect(
-      fake.writes.slice(writes).filter((w) => w.includes('/v1/streams/') || w.includes('/blobs/')),
-    ).toEqual([]);
+    const behind = await failure(on(a, () => pushNexusVault(vopts(a))));
+    expect(behind.code).toBe('E_NEXUS_VAULT_BEHIND');
+    expect(behind.fix).toContain('cleo cloud pull');
+    expect(behind.fix).toContain('change journal (`sync.push`)');
+    expect(behind.fix).not.toContain('--force');
+    const refused = await failure(on(a, () => pushNexusVault(vopts(a, { force: true }))));
+    expect(refused.code).toBe('E_NEXUS_VAULT_STREAM_UPGRADED');
+    expect(refused.message).toContain('checkpoint/v3');
+    expect(refused.fix).toContain('nothing was written');
+    expect(refused.fix).toContain('change journal (`sync.push`)');
+    expect(refused.fix).toContain('T12999');
+    expect(refused.fix).toContain('cleo cloud pull');
+    expect(streamWrites(writes)).toEqual([]);
     expect(s.segments).toHaveLength(segments);
     expect(s.headCheckpointId).toBe(head.checkpointId);
     expect(fake.leases.size).toBe(0);
 
-    // Verify trusts the v3 head (its checkpoint/v3 signature verifies) and compares with it.
+    // Verify trusts the v3 head (its checkpoint/v3 signature verifies) and compares with it; its
+    // remedy never points at a push the server would refuse.
     const verify = await on(a, () => verifyNexusVault(vopts(a)));
     expect(verify.head?.checkpointId).toBe(head.checkpointId);
     expect(verify.warnings.some((w) => w.code === 'W_NEXUS_VAULT_UNTRUSTED_SNAPSHOT')).toBe(false);
     expect(verify.verdict).toBe('diverged');
+    expect(verify.remedy).toContain('change journal (`sync.push`)');
+    expect(verify.remedy).toContain('cleo cloud pull --force');
+    expect(verify.remedy).not.toContain('cleo cloud push');
+    // A plain pull keeps the local change and says how it travels on this stream.
+    const kept = await failure(on(a, () => restoreNexusVault(vopts(a, { mode: 'pull' }))));
+    expect(kept.code).toBe('E_NEXUS_VAULT_LOCAL_CHANGES');
+    expect(kept.fix).toContain('change journal (`sync.push`)');
+    expect(kept.fix).not.toContain('cleo cloud push');
 
     // Pull restores the v3 head (signature, bundle and manifest verified); the stores then match.
     const pulled = await on(a, () => restoreNexusVault(vopts(a, { mode: 'pull', force: true })));
@@ -2965,6 +2994,29 @@ describe('cloud vault on a stream the change journal writes (segment/v3, checkpo
     expect(pulled.snapshot?.checkpointId).toBe(head.checkpointId);
     expect(taskCount(a)).toBe(7);
     expect((await on(a, () => verifyNexusVault(vopts(a)))).verdict).toBe('match');
+
+    // An unchanged store reports up-to-date on the v3 head, and writes nothing.
+    const quiet = fake.writes.length;
+    const upToDate = await on(a, () => pushNexusVault(vopts(a)));
+    expect(upToDate.status).toBe('up-to-date');
+    expect(upToDate.snapshot?.checkpointId).toBe(head.checkpointId);
+    expect(streamWrites(quiet)).toEqual([]);
+
+    // A local change: status and verify say it travels through the change journal; a push is refused.
+    insertTask(a, 'A2');
+    const status = await on(a, () => nexusVaultStatus(vopts(a)));
+    expect(status.pendingChanges.map((d) => d.table)).toContain('tasks_tasks');
+    expect(
+      status.warnings.find((w) => w.code === 'W_NEXUS_VAULT_JOURNAL_STREAM')?.message,
+    ).toContain('change journal (`sync.push`)');
+    const ahead = await on(a, () => verifyNexusVault(vopts(a)));
+    expect(ahead.verdict).toBe('ahead');
+    expect(ahead.remedy).toContain('change journal (`sync.push`)');
+    expect(ahead.remedy).not.toContain('cleo cloud push');
+    const changed = await failure(on(a, () => pushNexusVault(vopts(a))));
+    expect(changed.code).toBe('E_NEXUS_VAULT_STREAM_UPGRADED');
+    expect(changed.fix).toContain('nothing was written');
+    expect(streamWrites(quiet)).toEqual([]);
 
     // A new machine restores the v3 head too.
     const { result } = await restoreOntoB(b);
@@ -2985,12 +3037,14 @@ describe('cloud vault on a stream the change journal writes (segment/v3, checkpo
     expect(refused.code).toBe('E_NEXUS_VAULT_STREAM_UPGRADED');
     expect(refused.message).toContain('checkpoint/v3');
     expect(refused.fix).toContain('cleo cloud pull');
+    expect(refused.fix).toContain('change journal (`sync.push`)');
     expect(s.segments).toHaveLength(0);
     expect(s.checkpoints).toHaveLength(1);
     expect(fake.leases.size).toBe(0);
   });
 
-  it('a segment of a newer sync schema since the head refuses the push before its delta segment', async () => {
+  /** A's genesis, then B's journal appends a segment of the next sync schema; A then needs a delta. */
+  async function newerSchemaSegment(): Promise<{ a: Machine; b: Machine; s: FakeStream }> {
     const { a, b } = await twoMachines();
     const s = fake.stream(STREAM);
     await on(a, () => pushNexusVault(vopts(a)));
@@ -3005,13 +3059,99 @@ describe('cloud vault on a stream the change journal writes (segment/v3, checkpo
     // Two new rows here against one declared: this push would need a delta segment.
     insertTask(a, 'A1');
     insertTask(a, 'A2');
+    return { a, b, s };
+  }
+
+  it('a stream holding a newer sync schema refuses the push before the export and the lease, even with --force', async () => {
+    const { a, s } = await newerSchemaSegment();
+    // Another device's live lease, which a forced push would take.
+    fake.leases.set(`${STREAM}|writer`, {
+      streamId: STREAM,
+      role: 'writer',
+      leaseId: uuidv7(),
+      replicaId: REPLICA_B,
+      expiresAt: new Date(Date.now() + 600_000),
+      forkedFromReplicaId: null,
+      deviceId: DEVICE_B,
+      acquiredAt: NOW,
+    });
+    const held = fake.leases.get(`${STREAM}|writer`);
+    const writes = fake.writes.length;
+    for (const force of [false, true]) {
+      const refused = await failure(on(a, () => pushNexusVault(vopts(a, { force }))));
+      expect(refused.code).toBe('E_NEXUS_VAULT_STREAM_UPGRADED');
+      expect(refused.message).toContain(`sync schema ${SYNC_SCHEMA_VERSION + 1}`);
+      expect(refused.fix).toContain('upgrade CLEO');
+    }
+    // The server's stream head reported it (maxSchemaVersion): no lease taken, nothing written.
+    expect(streamWrites(writes)).toEqual([]);
+    expect(fake.writes.slice(writes).filter((w) => w.includes('/leases'))).toEqual([]);
+    expect(fake.leases.get(`${STREAM}|writer`)).toEqual(held);
+    expect(fake.activity.some((e) => e.action === 'lease.force_take')).toBe(false);
+    expect(s.segments.map((x) => x.replicaId)).toEqual([REPLICA_B]);
+    expect(s.checkpoints).toHaveLength(1);
+  });
+
+  it('against a server that does not report maxSchemaVersion, the replayed window refuses before the delta segment', async () => {
+    const { a, s } = await newerSchemaSegment();
+    fake.reportMaxSchemaVersion = false;
     const refused = await failure(on(a, () => pushNexusVault(vopts(a))));
     expect(refused.code).toBe('E_NEXUS_VAULT_STREAM_UPGRADED');
     expect(refused.message).toContain(`sync schema ${SYNC_SCHEMA_VERSION + 1}`);
-    expect(refused.fix).toContain('upgrade CLEO');
     expect(s.segments.map((x) => x.replicaId)).toEqual([REPLICA_B]);
     expect(s.checkpoints).toHaveLength(1);
+    // The lease this push took is handed back.
     expect(fake.leases.size).toBe(0);
+  });
+
+  it('a snapshot records its manifest format; one hashed under a newer format is refused clearly, not as a mismatch', async () => {
+    const { a, b } = await twoMachines();
+    const s = fake.stream(STREAM);
+    await on(a, () => pushNexusVault(vopts(a)));
+    const genesis = s.checkpoints[0];
+    if (!genesis) throw new Error('fixture');
+    const hashKey = deriveKey(projectDataKey(), 'vault-manifest');
+    // The record: 0 rows (no count moves), a keyed hash naming this CLEO's format; never compared.
+    expect(genesis.manifest.tables[VAULT_FORMAT_KEY]).toEqual(vaultFormatEntry(hashKey));
+    expect((await on(a, () => verifyNexusVault(vopts(a)))).verdict).toBe('match');
+
+    // The same data, recorded as hashed under the next format (as a newer CLEO would push it).
+    const signers = await certify(a, b);
+    const j = journalOf(a);
+    const { bundle } = await j.restoreCheckpoint(genesis.checkpointId, signers);
+    const newer = await j.pushCheckpoint({
+      bundle,
+      manifest: {
+        schemaVersion: SYNC_SCHEMA_VERSION,
+        tables: {
+          ...genesis.manifest.tables,
+          [VAULT_FORMAT_KEY]: vaultFormatEntry(hashKey, VAULT_MANIFEST_FORMAT_VERSION + 1),
+        },
+      },
+      cursor: cursorFromCheckpoint(genesis),
+      parentCheckpointId: genesis.checkpointId,
+    });
+    expect(s.headCheckpointId).toBe(newer.checkpointId);
+
+    // A restore says why it cannot verify the snapshot, and places nothing.
+    const refused = await failure(restoreOntoB(b));
+    expect(refused.code).toBe('E_NEXUS_VAULT_VERIFY_FAILED');
+    expect(refused.message).toContain('newer vault manifest format');
+    expect(refused.message).not.toContain('does not match its manifest');
+    expect(refused.fix).toContain('upgrade CLEO');
+    expect(fs.existsSync(path.join(b.root, '.cleo', 'cleo.db'))).toBe(false);
+
+    // Verify warns that its comparison means nothing, and says to upgrade.
+    const verify = await on(a, () => verifyNexusVault(vopts(a)));
+    expect(verify.warnings.some((w) => w.code === 'W_NEXUS_VAULT_FORMAT')).toBe(true);
+    expect(verify.remedy).toContain('upgrade CLEO');
+
+    // A push, even forced, is refused before the export and the lease.
+    const writes = fake.writes.length;
+    const pushed = await failure(on(a, () => pushNexusVault(vopts(a, { force: true }))));
+    expect(pushed.code).toBe('E_NEXUS_VAULT_STREAM_UPGRADED');
+    expect(pushed.message).toContain('newer vault manifest format');
+    expect(streamWrites(writes)).toEqual([]);
   });
 
   it('the fake holds the server v3 rules: a v2 checkpoint after a v3 one is E_STREAM_VERSION', async () => {

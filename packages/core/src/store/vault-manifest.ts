@@ -66,10 +66,21 @@ const { DatabaseSync } = _require('node:sqlite') as {
  * {@link SYNC_SCHEMA_VERSION}, the stream data numbering the vault shares with
  * the change journal (T13034), and a computation change must not move it (the
  * server reads a rise there as a schema transition every v3 checkpoint pins).
- * The format never reaches the wire: a snapshot hashed under another format
- * compares as changed, never as the same data.
+ * Each snapshot records its format in a {@link VAULT_FORMAT_KEY} entry
+ * ({@link vaultFormatEntry}), so a reader tells "hashed another way" from
+ * "does not match" ({@link vaultManifestFormat}). Bump it with any change to
+ * what a manifest hashes.
  */
 export const VAULT_MANIFEST_FORMAT_VERSION = 2;
+
+/**
+ * Manifest key of a snapshot's format record (T13034): which
+ * {@link VAULT_MANIFEST_FORMAT_VERSION} its hashes were computed under. Zero
+ * rows, so the server's count check is unaffected; an annotation, never a
+ * table, so comparisons ignore it. Its hash is keyed: only key holders read
+ * the version.
+ */
+export const VAULT_FORMAT_KEY = 'zz_vault_format';
 
 /** A manifest key the wire contract accepts. */
 const MANIFEST_KEY = /^[a-z][a-z0-9_]{0,62}$/;
@@ -469,6 +480,63 @@ export function vaultForkEntry(hashKey: Uint8Array, overCheckpointId: string): V
 }
 
 /**
+ * The {@link VAULT_FORMAT_KEY} entry of a snapshot hashed under `format`.
+ *
+ * @param hashKey - The manifest hash key.
+ * @param format - The manifest format (default: this CLEO's).
+ * @returns The entry (0 rows; the hash names the format).
+ */
+export function vaultFormatEntry(
+  hashKey: Uint8Array,
+  format: number = VAULT_MANIFEST_FORMAT_VERSION,
+): VaultTableEntry {
+  return {
+    rows: 0,
+    hash: crypto
+      .createHmac('sha256', Buffer.from(hashKey))
+      .update(`cleo-vault-format/v1\n${format}\n`)
+      .digest('hex'),
+  };
+}
+
+/**
+ * The manifest format a snapshot's hashes were computed under (T13034): the
+ * version its {@link VAULT_FORMAT_KEY} entry names, or `'newer'` when the
+ * entry names no format this CLEO knows (a later CLEO wrote it). A snapshot
+ * without the entry predates the record: vaults then stamped their format as
+ * the wire `schemaVersion` (1 or 2), so it reads as 1 for `schemaVersion` 1
+ * and as 2 otherwise.
+ *
+ * @param manifest - A checkpoint's manifest.
+ * @param hashKey - The manifest hash key.
+ * @returns The format, or `'newer'`.
+ */
+export function vaultManifestFormat(
+  manifest: Pick<VaultManifest, 'schemaVersion' | 'tables'>,
+  hashKey: Uint8Array,
+): number | 'newer' {
+  const entry = Object.hasOwn(manifest.tables, VAULT_FORMAT_KEY)
+    ? manifest.tables[VAULT_FORMAT_KEY]
+    : undefined;
+  if (entry === undefined) return manifest.schemaVersion === 1 ? 1 : 2;
+  for (let format = 1; format <= VAULT_MANIFEST_FORMAT_VERSION; format++) {
+    if (vaultFormatEntry(hashKey, format).hash === entry.hash) return format;
+  }
+  return 'newer';
+}
+
+/**
+ * Whether a manifest key is an annotation (the fork label, the format
+ * record) rather than a table: never compared, counted or carried forward.
+ *
+ * @param key - A manifest key.
+ * @returns `true` for {@link VAULT_FORK_KEY} and {@link VAULT_FORMAT_KEY}.
+ */
+export function isVaultAnnotationKey(key: string): boolean {
+  return key === VAULT_FORK_KEY || key === VAULT_FORMAT_KEY;
+}
+
+/**
  * Whether a snapshot manifest carries the fork label.
  *
  * @param manifest - A checkpoint's manifest.
@@ -481,8 +549,9 @@ export function isVaultForkManifest(manifest: Pick<VaultManifest, 'tables'>): bo
 /**
  * Compare two manifests table by table (union of both key sets, sorted). A
  * table one side does not list and the other lists with 0 rows is the same
- * (an emptied table stays listed on the cloud side); the fork label
- * ({@link VAULT_FORK_KEY}) is not a table and is left out.
+ * (an emptied table stays listed on the cloud side); the annotations
+ * ({@link isVaultAnnotationKey}: fork label, format record) are not tables
+ * and are left out.
  *
  * @param local - This side.
  * @param cloud - The other side.
@@ -493,7 +562,7 @@ export function compareVaultManifests(
   cloud: Pick<VaultManifest, 'tables'>,
 ): VaultTableComparison[] {
   const names = [...new Set([...Object.keys(local.tables), ...Object.keys(cloud.tables)])]
-    .filter((table) => table !== VAULT_FORK_KEY)
+    .filter((table) => !isVaultAnnotationKey(table))
     .sort();
   return names.map((table) => {
     const l = local.tables[table];
