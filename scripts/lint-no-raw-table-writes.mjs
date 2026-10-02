@@ -281,7 +281,7 @@ export const EXEMPT = {
   },
   'packages/core/src/store/sync/schema.ts': { _sync_meta: { count: 1, reason: SYNC_BOOKKEEPING } },
   'packages/core/src/store/sync/sealer.ts': {
-    _sync_capture: { count: 1, reason: SEALER },
+    _sync_capture: { count: 2, reason: SEALER },
     _sync_frame: { count: 1, reason: SEALER },
     _sync_ledger: { count: 1, reason: SEALER },
     _sync_meta: { count: 1, reason: SEALER },

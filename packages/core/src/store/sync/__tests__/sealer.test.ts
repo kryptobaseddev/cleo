@@ -27,6 +27,7 @@ import { rekeyRowUid } from '../../display-id-alias.js';
 import { _resetDualScopeDbCache, openDualScopeDbAtPath } from '../../dual-scope-db.js';
 import { naturalRowUid } from '../../row-identity.js';
 import {
+  captureRemints,
   captureTableDef,
   finishCaptureFrame,
   openCaptureFrame,
@@ -114,6 +115,7 @@ const txns = (db: DatabaseSync) =>
     via: string;
     kind: string;
     unframed: number;
+    partial: number;
     op_count: number;
     frame: string | null;
   }>;
@@ -716,5 +718,121 @@ describe('#1779 round 2 (T13035–T13037)', () => {
     expect(row.message).toMatch(/not_a_sync_table \(1\)/);
     expect(row.message).toMatch(/sync\.seal/);
     expect(row.message).toMatch(/2 capture\(s\) waiting, head seq/);
+  });
+});
+
+describe('#1779 round 3 (T13041)', () => {
+  const taskOps = (db: DatabaseSync) => ops(db).filter((o) => o.t === 'tasks_tasks');
+
+  it('a sealed row cleared and deleted in one frame seals D of its uid (MED-A, probe a)', async () => {
+    const db = await store();
+    framed(db, () => addTask(db, 'T1'));
+    seal(db);
+    framed(db, () => {
+      db.exec("UPDATE tasks_tasks SET uid = NULL WHERE id = 'T1'");
+      db.exec("DELETE FROM tasks_tasks WHERE id = 'T1'");
+    });
+    const r = seal(db);
+    expect(r.pending).toEqual([]);
+    expect(r.dropped).toBe(0);
+    expect(taskOps(db).map((o) => [o.o, o.u])).toEqual([
+      ['I', 'uid-T1'],
+      ['D', 'uid-T1'],
+    ]);
+    expect(meta(db, 'tasks_tasks', 'uid-T1')).toMatchObject({ deleted: 1 });
+    expect(liveCaptures(db)).toBe(0);
+  });
+
+  it('a clear and a delete in separate frames seal D of the uid and never stall (MED-A, probe a2)', async () => {
+    const db = await store();
+    framed(db, () => addTask(db, 'T1'));
+    seal(db);
+    framed(db, () => db.exec("UPDATE tasks_tasks SET uid = NULL WHERE id = 'T1'"));
+    framed(db, () => db.exec("DELETE FROM tasks_tasks WHERE id = 'T1'"));
+    const r = seal(db);
+    expect(r.pending).toEqual([]);
+    expect(taskOps(db).map((o) => [o.o, o.u])).toEqual([
+      ['I', 'uid-T1'],
+      ['D', 'uid-T1'],
+    ]);
+    expect(liveCaptures(db)).toBe(0);
+  });
+
+  it('a clear waits for its refill, then seals as one K across transactions (N8)', async () => {
+    const db = await store();
+    framed(db, () => addTask(db, 'T1'));
+    seal(db);
+    framed(db, () => db.exec("UPDATE tasks_tasks SET uid = NULL WHERE id = 'T1'"));
+    expect(seal(db).pending[0]?.reason).toMatch(/NULL uid/);
+    // The open-time fill re-mints the uid outside capture, then journals the
+    // new identity as K(NULL → y) (captureRemints, T12806 × S2).
+    db.exec('BEGIN IMMEDIATE');
+    db.exec(
+      "DELETE FROM cleo_trigger_suspend; INSERT INTO cleo_trigger_suspend (scope) VALUES ('capture')",
+    );
+    db.exec("UPDATE tasks_tasks SET uid = 'uid-T9' WHERE id = 'T1'");
+    db.exec('DELETE FROM cleo_trigger_suspend');
+    captureRemints(db, 'project');
+    db.exec('COMMIT');
+    const r = seal(db);
+    expect(r.pending).toEqual([]);
+    expect(taskOps(db).map((o) => [o.o, o.u, o.o === 'K' ? o.nu : undefined])).toEqual([
+      ['I', 'uid-T1', undefined],
+      ['K', 'uid-T1', 'uid-T9'],
+    ]);
+    expect(meta(db, 'tasks_tasks', 'uid-T9')).toMatchObject({ deleted: 0 });
+  });
+
+  it('a dead row never takes the identity of a later row under the same key (MED-B, probe c)', async () => {
+    const db = await store();
+    addTask(db, 'R1', null); // no uid, unframed
+    db.exec("DELETE FROM tasks_tasks WHERE id = 'R1'");
+    framed(db, () => addTask(db, 'R1')); // a new row, uid-R1
+    db.exec("UPDATE tasks_tasks SET title = 'new image' WHERE id = 'R1'");
+    const r = seal(db);
+    expect(r.pending).toEqual([]);
+    expect(r.dropped).toBe(2);
+    expect(taskOps(db).map((o) => [o.o, o.u])).toEqual([
+      ['I', 'uid-R1'],
+      ['U', 'uid-R1'],
+    ]);
+  });
+
+  it('a reference follows its key: a surviving row points at the row the key names now', async () => {
+    // FK semantics: the label still references T1 by key, so on this store it
+    // belongs to the new T1. Resolving the live row keeps receivers converged.
+    const db = await store();
+    addTask(db, 'T1', null);
+    framed(db, () =>
+      db.exec("INSERT INTO tasks_task_labels (task_id, label) VALUES ('T1', 'bug')"),
+    );
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec("DELETE FROM tasks_tasks WHERE id = 'T1'");
+    db.exec('PRAGMA foreign_keys = ON');
+    framed(db, () => addTask(db, 'T1'));
+    const r = seal(db);
+    expect(r.pending).toEqual([]);
+    expect(ops(db).find((o) => o.t === 'tasks_task_labels')?.k).toEqual({
+      task_id: 'uid-T1',
+      label: 'bug',
+    });
+  });
+
+  it('a quarantined capture marks its table suspect and flags the partial transaction (LOW)', async () => {
+    const db = await store();
+    db.exec('BEGIN IMMEDIATE');
+    const frame = openCaptureFrame(db, 'write', 'test');
+    addTask(db, 'T1');
+    db.prepare(
+      "INSERT INTO _sync_capture (seq, tbl, op, rk, uid, img, at_ms, state, frame) VALUES ((SELECT max(seq) + 1 FROM _sync_capture), 'tasks_tasks', 'U', '[\"\\u0027T1\\u0027\"]', 'uid-T1', '{\"title\":[\"not enc\",\"also not\"]}', 1, 'live', ?)",
+    ).run(frame);
+    finishCaptureFrame(db, frame);
+    db.exec('COMMIT');
+    const r = seal(db);
+    expect(r.quarantined).toHaveLength(1);
+    expect(txns(db).at(-1)).toMatchObject({ partial: 1 });
+    expect(
+      db.prepare("SELECT 1 AS ok FROM _sync_meta WHERE key = 'suspect:tasks_tasks'").get(),
+    ).toEqual({ ok: 1 });
   });
 });

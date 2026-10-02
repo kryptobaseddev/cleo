@@ -62,6 +62,7 @@ import { type DraftOp, type MetaFacts, type NettedOp, netTransaction } from './n
 import { activeReplica } from './replica.js';
 import { hasTable } from './schema.js';
 import { canonicalJson, decodeEnc, type WireValue } from './sealer-values.js';
+import { markSuspect } from './structural.js';
 
 export { sealBacklog } from './seal-backlog.js';
 export { canonicalJson, decodeEnc, type WireValue } from './sealer-values.js';
@@ -273,6 +274,17 @@ class TableContext {
     ).get(key) as { u: string | null } | undefined;
     return row?.u ?? null;
   }
+
+  /**
+   * The first live delete of (table, rk) after `seq`, if any (T13041). The
+   * live row under that local key is then a later incarnation, so it must
+   * not lend its uid to an earlier capture.
+   */
+  laterDelete(table: string, rk: string, seq: number): { uid: string | null } | undefined {
+    return this.stmt(
+      "SELECT uid FROM _sync_capture WHERE state = 'live' AND tbl = ? AND rk = ? AND op = 'D' AND seq > ? ORDER BY seq LIMIT 1",
+    ).get(table, rk, seq) as { uid: string | null } | undefined;
+  }
 }
 
 /**
@@ -440,8 +452,11 @@ function buildDraft(ctx: TableContext, c: CaptureRow, births: BatchBirths): Draf
     const raw = img[UID_COLUMN];
     if (typeof raw === 'string') uid = str(decodeEnc(raw)) ?? null;
   }
-  // Resolve a missing uid from the live row by its local key (§2.5 step 3).
-  if (uid === null) uid = ctx.uidByKey(c.tbl, c.rk);
+  // Resolve a missing uid from the live row by its local key (§2.5 step 3),
+  // unless a later capture deletes that local row: the live row is then a
+  // later incarnation, and this one is resolved by the netting or dropped as
+  // dead (T13041).
+  if (uid === null && !ctx.laterDelete(c.tbl, c.rk, c.seq)) uid = ctx.uidByKey(c.tbl, c.rk);
   // A natural row's uid is a function of its key with references as uids
   // (T12341 §5.3), so a capture taken before the fill still seals. Symmetric
   // edges need the fill's twin rule and wait for it (the step-0 fill, S3d).
@@ -632,13 +647,76 @@ export function sealPending(db: DatabaseSync, opts: SealOptions): SealReport {
 
 const CAPTURE_COLS = 'seq, tbl, op, rk, uid, img, at_ms, frame';
 
+/** The uid pair a K capture's image records, decoded; null when unreadable. */
+function kUids(img: string): [string | null, string | null] | null {
+  try {
+    const pair = (JSON.parse(img) as Record<string, unknown>)[UID_COLUMN];
+    if (!Array.isArray(pair) || typeof pair[0] !== 'string' || typeof pair[1] !== 'string') {
+      return null;
+    }
+    return [str(decodeEnc(pair[0])) ?? null, str(decodeEnc(pair[1])) ?? null];
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A clear K(x → NULL) and what follows it on the same local row (T13041).
+ * Until the row's next delete or its refill K(NULL → y), the row is still x:
+ * those captures are pointed at x (in `_sync_capture`, so a later pass sees
+ * it too) and the clear is consumed. A cleared-then-deleted row then seals as
+ * D(x), and a clear and refill in different transactions as K(x → y) (N8).
+ * With neither yet, the clear waits.
+ *
+ * @returns x and the seqs pointed at it, or null when `c` is not a clear or
+ *   must wait.
+ */
+function resolveClear(ctx: TableContext, c: CaptureRow): { uid: string; seqs: number[] } | null {
+  if (c.op !== 'K' || c.uid === null) return null;
+  const pair = kUids(c.img);
+  if (pair === null || pair[1] !== null) return null;
+  const end = ctx
+    .stmt(
+      "SELECT seq, op, img FROM _sync_capture WHERE state = 'live' AND tbl = ? AND rk = ? AND seq > ? AND op IN ('D', 'K') ORDER BY seq LIMIT 1",
+    )
+    .get(c.tbl, c.rk, c.seq) as { seq: number; op: string; img: string } | undefined;
+  if (!end) return null;
+  // Only a refill (a K from NULL) continues the cleared row.
+  if (end.op === 'K' && kUids(end.img)?.[0] !== null) return null;
+  const seqs = (
+    ctx
+      .stmt(
+        "SELECT seq FROM _sync_capture WHERE state = 'live' AND tbl = ? AND rk = ? AND seq > ? AND seq <= ? AND uid IS NULL ORDER BY seq",
+      )
+      .all(c.tbl, c.rk, c.seq, end.seq) as Array<{ seq: number }>
+  ).map((r) => r.seq);
+  ctx
+    .stmt(
+      "UPDATE _sync_capture SET uid = ? WHERE state = 'live' AND tbl = ? AND rk = ? AND seq > ? AND seq <= ? AND uid IS NULL",
+    )
+    .run(c.uid, c.tbl, c.rk, c.seq, end.seq);
+  return { uid: c.uid, seqs };
+}
+
 /**
  * The seqs of the dead incarnation that starts at draft `d` (T13036), or
  * null. `d` has no uid; its row's live captures from `d` on run to a delete
- * of the same local row; and none of them names a uid row meta knows as live
- * (then some replica knew the row after all, and it waits for the fill).
+ * of the same local row; none of them names a uid row meta knows as live;
+ * and no earlier capture of this incarnation (back to the previous delete of
+ * the local row) names a uid some sealed op carried (T13041). Otherwise some
+ * replica knew the row, and it waits.
  */
 function deadIncarnation(ctx: TableContext, facts: MetaFacts, d: DraftOp): number[] | null {
+  const earlier = ctx
+    .stmt(
+      "SELECT op, uid, img FROM _sync_capture WHERE state = 'live' AND tbl = ? AND rk = ? AND seq < ? ORDER BY seq DESC",
+    )
+    .all(d.t, d.rk, d.seq) as Array<{ op: string; uid: string | null; img: string }>;
+  for (const r of earlier) {
+    if (r.op === 'D') break;
+    const named = r.op === 'K' ? [r.uid, ...(kUids(r.img) ?? [])] : [r.uid];
+    if (named.some((u) => u !== null && u !== undefined && facts.known(d.t, u))) return null;
+  }
   const rows = ctx
     .stmt(
       "SELECT seq, op, uid, img FROM _sync_capture WHERE state = 'live' AND tbl = ? AND rk = ? AND seq >= ? ORDER BY seq",
@@ -773,8 +851,8 @@ function sealInTransaction(
     flags: db.prepare('SELECT sent, deleted FROM _sync_row_meta WHERE tbl = ? AND uid = ?'),
   };
   const insTxn = db.prepare(
-    `INSERT INTO _sync_txn (txn, local_seq, replica, hlc, scope, via, kind, actor, frame, unframed, op_count, sealed_at_ms)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO _sync_txn (txn, local_seq, replica, hlc, scope, via, kind, actor, frame, unframed, partial, op_count, sealed_at_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const insOp = db.prepare(
     'INSERT INTO _sync_op (txn, idx, tbl, uid, o, hlc, body) VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -809,13 +887,27 @@ function sealInTransaction(
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (seq) DO NOTHING`,
   );
   const dead = new Set<number>();
+  // Captures pointed at a cleared row's uid in this pass (T13041).
+  const pointedAt = new Map<number, string>();
   let dropped = 0;
   const quarantined: Array<{ seq: number; tbl: string; reason: string }> = [];
 
   for (const g of groups) {
     // Bound the time this transaction holds the write lock (T13032).
     if (txns > 0 && performance.now() - started > maxMs) break;
-    const captures = g.captures.filter((c) => !dead.has(c.seq));
+    // T13041: a clear whose row is deleted or refilled later is consumed, and
+    // what follows it on the row is pointed at the cleared uid.
+    for (const c of g.captures) {
+      if (dead.has(c.seq)) continue;
+      const cleared = resolveClear(ctx, c);
+      if (cleared === null) continue;
+      for (const seq of cleared.seqs) pointedAt.set(seq, cleared.uid);
+      dead.add(c.seq);
+      consumed.add(c.seq);
+    }
+    const captures = g.captures
+      .filter((c) => !dead.has(c.seq))
+      .map((c) => (pointedAt.has(c.seq) ? { ...c, uid: pointedAt.get(c.seq) ?? null } : c));
     if (captures.length === 0) continue;
     const head = captures[0]?.seq ?? 0;
     if (g.frame !== null && (g.kind === 'apply' || g.kind === 'rebase')) {
@@ -826,6 +918,7 @@ function sealInTransaction(
     }
     const capOf = new Map(captures.map((c) => [c.seq, c] as const));
     let drafts: DraftOp[] = [];
+    let partial = false;
     for (const c of captures) {
       try {
         drafts.push(buildDraft(ctx, c, births));
@@ -846,8 +939,10 @@ function sealInTransaction(
           err.message,
           now(),
         );
+        markSuspect(db, opts.scope, [c.tbl]);
         quarantined.push({ seq: c.seq, tbl: c.tbl, reason: err.message });
         consumed.add(c.seq);
+        partial = true;
       }
     }
     // T13036: a row that never had a uid and is gone again is a dead
@@ -906,6 +1001,7 @@ function sealInTransaction(
       g.actor,
       g.frame,
       g.frame === null ? 1 : 0,
+      partial ? 1 : 0,
       sealedOps.length,
       now(),
     );

@@ -9,7 +9,9 @@
 -- persisted segment carries the transaction (S4); `inherited` for rows a
 -- copied store carries from its original replica (§1.5); `folded` for
 -- transactions at or below a stream's genesis cut (§2.11 §10). `unframed`
--- marks a singleton sealed from a capture with no validated frame (ruling (c)).
+-- marks a singleton sealed from a capture with no validated frame (ruling (c));
+-- `partial` a frame sealed without a capture the sealer had to quarantine
+-- (T13041).
 --
 -- _sync_row_meta: per-row replication metadata (§1.6). Local-only; travels
 -- inside checkpoint bundles (shash stripped). `bfp` is a minted row's
@@ -42,6 +44,7 @@ CREATE TABLE IF NOT EXISTS _sync_txn (
   actor        TEXT,
   frame        TEXT,
   unframed     INTEGER NOT NULL DEFAULT 0,
+  partial      INTEGER NOT NULL DEFAULT 0,
   op_count     INTEGER NOT NULL,
   state        TEXT NOT NULL DEFAULT 'sealed'
                CHECK (state IN ('sealed', 'segmented', 'inherited', 'folded')),
