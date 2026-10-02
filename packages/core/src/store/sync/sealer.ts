@@ -63,6 +63,7 @@ import { activeReplica } from './replica.js';
 import { hasTable } from './schema.js';
 import { canonicalJson, decodeEnc, type WireValue } from './sealer-values.js';
 
+export { sealBacklog } from './seal-backlog.js';
 export { canonicalJson, decodeEnc, type WireValue } from './sealer-values.js';
 
 // ---------------------------------------------------------------------------
@@ -627,25 +628,6 @@ export function sealPending(db: DatabaseSync, opts: SealOptions): SealReport {
   return withImmediateTransaction(db, () =>
     sealInTransaction(db, { ...opts, replica }, budget, now),
   );
-}
-
-/**
- * The capture backlog, for `cleo doctor` (T13029): live captures, and the
- * oldest one's seq and age. A head that stays put across seals is stuck.
- * Read-only.
- */
-export function sealBacklog(db: DatabaseSync): {
-  readonly live: number;
-  readonly oldestSeq: number | null;
-  readonly oldestAtMs: number | null;
-} {
-  if (!hasTable(db, '_sync_capture')) return { live: 0, oldestSeq: null, oldestAtMs: null };
-  const r = db
-    .prepare(
-      "SELECT count(*) AS n, min(seq) AS s, (SELECT at_ms FROM _sync_capture WHERE state = 'live' ORDER BY seq LIMIT 1) AS a FROM _sync_capture WHERE state = 'live'",
-    )
-    .get() as { n: number; s: number | null; a: number | null };
-  return { live: r.n, oldestSeq: r.s, oldestAtMs: r.a };
 }
 
 const CAPTURE_COLS = 'seq, tbl, op, rk, uid, img, at_ms, frame';

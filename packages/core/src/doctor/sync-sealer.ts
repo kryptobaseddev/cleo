@@ -21,7 +21,7 @@ import { resolveDualScopeDbPath } from '../store/dual-scope-db.js';
 import { openCleoDbSnapshot } from '../store/open-cleo-db.js';
 import { readSyncFlags, UNRELEASED_FLAGS } from '../store/sync/flags.js';
 import { hasTable } from '../store/sync/schema.js';
-import { sealBacklog } from '../store/sync/sealer.js';
+import { sealBacklog } from '../store/sync/seal-backlog.js';
 
 /** The `sync_sealer` row of `cleo doctor`. */
 export interface SyncSealerDoctorCheck {
