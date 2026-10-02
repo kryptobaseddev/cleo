@@ -80,6 +80,10 @@ beforeEach(async () => {
   tmpProjectRoot = await mkdtemp(join(tmpdir(), 'cleo-viewer-regression-'));
   prevCleoHome = process.env.CLEO_HOME;
   process.env.CLEO_HOME = join(tmpProjectRoot, 'cleo-home');
+  // T13095: create CLEO_HOME up front, as an installed CLEO has it. Otherwise the
+  // tests that write viewer.pid directly depend on a background registration op
+  // having created it first, which a slow macOS runner loses (ENOENT).
+  await mkdir(process.env.CLEO_HOME, { recursive: true });
   prevCwd = process.cwd();
   await mkdir(join(tmpProjectRoot, '.cleo'), { recursive: true });
   // Create a proper git repo so CLEO project resolution works.
