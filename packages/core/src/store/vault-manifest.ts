@@ -43,7 +43,11 @@ import {
 } from './portable-bundle-relocate.js';
 import { CREDENTIAL_COLUMNS, credentialRemedy, sha256File } from './portable-bundle-scan.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
-import { hasTriggerSuspendTable, withTriggersSuspended } from './sync/trigger-classes.js';
+import {
+  hasTriggerSuspendTable,
+  TRIGGER_SUSPEND_TABLE,
+  withTriggersSuspended,
+} from './sync/trigger-classes.js';
 import { classifyTable, getTableRegistry, isPortableTableClass } from './table-classification.js';
 
 // node:sqlite interop (createRequire — Vitest strips `node:` prefix)
@@ -713,6 +717,9 @@ export function carryMachineState(
         for (const [t, sql] of [...tablesOf(staged)].sort(([a], [b]) =>
           a < b ? -1 : a > b ? 1 : 0,
         )) {
+          // The trigger-suspension flags are transient machinery the carry itself
+          // holds: carrying the live (empty) table would lift its own suspension.
+          if (t === TRIGGER_SUSPEND_TABLE) continue;
           const c = classifyTable(scope, t);
           if (c.kind !== 'entry' && c.kind !== 'pattern') continue;
           const credentialCols = CREDENTIAL_COLUMNS[t] ?? [];

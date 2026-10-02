@@ -49,7 +49,15 @@ const streamStateSchema = z.looseObject({
    * A push from this store that had not recorded its snapshot yet: the parent it
    * pushed over (T13007). Cleared when the snapshot is recorded.
    */
-  pushInFlight: z.object({ parentCheckpointId: z.string().nullable(), at: z.string() }).optional(),
+  pushInFlight: z
+    .object({
+      parentCheckpointId: z.string().nullable(),
+      at: z.string(),
+      /** The pushed snapshot's marks and per-path digests, for a recovered push (#1773 R6). */
+      gitTracked: z.array(z.string()).optional(),
+      files: z.record(z.string(), z.string()).optional(),
+    })
+    .optional(),
   /**
    * Paths (relative to the section root) the last synced snapshot marks as
    * git-tracked: git's job, so they are left out of every file comparison
@@ -263,7 +271,9 @@ export class NexusVaultState {
    * Record that a push from `storeRoot` is about to create a snapshot over
    * `parentCheckpointId` (T13007). {@link saveStream} clears the mark; when a
    * crash loses that write, the mark tells the next command that the head
-   * this device and replica pushed over that parent is this store's own.
+   * this device and replica pushed over that parent is this store's own, and
+   * what that snapshot marks and holds (`pushed`), so recovering it loses no
+   * per-path digest.
    */
   markPushInFlight(
     apiUrl: string,
@@ -271,6 +281,7 @@ export class NexusVaultState {
     streamId: string,
     storeRoot: string,
     parentCheckpointId: string | null,
+    pushed: { gitTracked?: readonly string[]; files?: Readonly<Record<string, string>> } = {},
   ): void {
     this.update((s) => {
       const streams = this.account(s, apiUrl, userId).streams;
@@ -282,7 +293,14 @@ export class NexusVaultState {
         lastCoversSeq: prior?.lastCoversSeq ?? 0,
         // Never synced: any fork is news to this store.
         updatedAt: prior?.updatedAt ?? new Date(0).toISOString(),
-        pushInFlight: { parentCheckpointId, at: new Date().toISOString() },
+        pushInFlight: {
+          parentCheckpointId,
+          at: new Date().toISOString(),
+          ...(pushed.gitTracked !== undefined && pushed.gitTracked.length > 0
+            ? { gitTracked: [...pushed.gitTracked].sort() }
+            : {}),
+          ...(pushed.files !== undefined ? { files: { ...pushed.files } } : {}),
+        },
       };
     });
   }

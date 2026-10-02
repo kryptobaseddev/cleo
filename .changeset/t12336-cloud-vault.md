@@ -27,7 +27,8 @@ checkout, or marked tracked by the snapshot; marks carry forward on every
 push, so they converge across checkouts), and a restore never overwrites or
 removes them; they are placed only into a directory that is not a checkout.
 On a machine without git every path is compared, so an edit to a file
-another checkout tracks is a local change there. A global snapshot never
+another checkout tracks is a local change there (a recovered push keeps its
+digests; without digests, such a machine counts its marked files as changed). A global snapshot never
 carries git marks; a flag in one is ignored.
 When git cannot answer, no file under `.cleo/` is compared, overwritten or
 removed (`W_NEXUS_VAULT_GIT_UNKNOWN`). A global snapshot leaves out what
@@ -35,7 +36,7 @@ CLEO's installer writes for its own version (`templates/`, `skills/`,
 `hooks/`, `extensions/`, `pi-extensions/`, `llm-catalog/`, `.migrations/`,
 `cant/starter/`, `CLEOOS-IDENTITY.md`). Carrying this machine's values into
 a staged snapshot runs with the capture and side-effect triggers suspended
-(journal S2); guards stay on. Cells that never sync (credentials, machine-local
+for every table (journal S2); guards stay on. Cells that never sync (credentials, machine-local
 columns such as registry paths) are hashed as NULL; the registry's `strip`
 columns (a git remote URL can embed a token, a derived `tree_id`) are never in
 a snapshot and are NULL after a restore, for this machine to recompute, and

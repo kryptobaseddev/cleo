@@ -15,6 +15,7 @@ import path from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { VAULT_REMOTE_PATH_PREFIX } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { TRIGGER_SUSPEND_TABLE_DDL } from '../sync/trigger-classes.js';
 import {
   buildVaultManifest,
   carryMachineState,
@@ -832,5 +833,37 @@ describe('carry and the journal triggers (#1778)', () => {
     expect(read.prepare('SELECT * FROM zz_captured').all()).toEqual([]);
     expect(read.prepare('SELECT * FROM cleo_trigger_suspend').all()).toEqual([]);
     read.close();
+  });
+});
+
+describe('carry keeps its own trigger suspension (#1773 R6-1)', () => {
+  it('R6PROBE-1: a table sorting after cleo_trigger_suspend is still carried with capture suspended', () => {
+    const mk = (name: string, token: string | null) => {
+      const f = path.join(tmp, `${name}.db`);
+      const db = new DatabaseSync(f);
+      db.exec(TRIGGER_SUSPEND_TABLE_DDL);
+      db.exec(`
+        CREATE TABLE tasks_sessions (id TEXT PRIMARY KEY, owner_auth_token TEXT);
+        CREATE TABLE zz_captured (id TEXT);
+        CREATE TRIGGER _sync_cap_tasks_sessions_u AFTER UPDATE ON tasks_sessions
+          WHEN NOT EXISTS (SELECT 1 FROM cleo_trigger_suspend WHERE scope IN ('capture', 'all'))
+          BEGIN INSERT INTO zz_captured VALUES (NEW.id); END;
+      `);
+      db.prepare('INSERT INTO tasks_sessions VALUES (?, ?)').run('S1', token);
+      db.close();
+      return f;
+    };
+    const staged = mk('staged', null);
+    const live = mk('live', 'OWNER-TOKEN');
+    carryMachineState(staged, live, 'project', { snapshotRoot: '/A/root' });
+    const db = new DatabaseSync(staged, { readOnly: true });
+    // The credential was carried (an UPDATE on a table sorting after the flag table)...
+    expect(db.prepare('SELECT owner_auth_token FROM tasks_sessions').all()).toEqual([
+      { owner_auth_token: 'OWNER-TOKEN' },
+    ]);
+    // ...without a capture, and the suspension left nothing behind.
+    expect(db.prepare('SELECT * FROM zz_captured').all()).toEqual([]);
+    expect(db.prepare('SELECT * FROM cleo_trigger_suspend').all()).toEqual([]);
+    db.close();
   });
 });

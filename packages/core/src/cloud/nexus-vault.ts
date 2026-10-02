@@ -526,12 +526,16 @@ function syncedState(
     head.checkpointId !== recorded.lastCheckpointId &&
     head.parentCheckpointId === recorded.pushInFlight.parentCheckpointId
   ) {
+    // The mark carries the pushed snapshot's marks and digests (#1773 R6).
+    const pushed = recorded.pushInFlight;
+    const gitTracked = pushed.gitTracked ?? recorded.gitTracked;
     return {
       state: {
         lastCheckpointId: head.checkpointId,
         lastCoversSeq: head.coversSeq,
         updatedAt: head.createdAt,
-        ...(recorded.gitTracked !== undefined ? { gitTracked: recorded.gitTracked } : {}),
+        ...(gitTracked !== undefined ? { gitTracked } : {}),
+        ...(pushed.files !== undefined ? { files: pushed.files } : {}),
       },
       adopted: head,
     };
@@ -543,14 +547,19 @@ function syncedState(
 interface SyncRecord {
   /** Paths the snapshot marks as git-tracked (project scope). */
   gitTracked: readonly string[];
-  /** The snapshot's plain files, path to digest; absent when not known (a recovered push). */
-  files?: ReadonlyMap<string, string>;
+  /** The snapshot's plain files, path to digest prefix ({@link syncFiles}); absent when not known. */
+  files?: Readonly<Record<string, string>>;
   /** Another stream key to record it under (the stream a project's link names). */
   streamId?: string;
 }
 
 /** Length of the digest prefix a sync records per file: 128 bits tell edits apart. */
 const SYNC_FILE_DIGEST_LENGTH = 32;
+
+/** Per-path digests as a sync records them (the digest prefix). */
+function syncFiles(files: ReadonlyMap<string, string>): Record<string, string> {
+  return Object.fromEntries([...files].map(([p, d]) => [p, d.slice(0, SYNC_FILE_DIGEST_LENGTH)]));
+}
 
 /** Record that this store holds `cp` on the stream, with its marks and per-path digests. */
 function saveSynced(
@@ -563,13 +572,7 @@ function saveSynced(
     lastCheckpointId: cp.checkpointId,
     lastCoversSeq: cp.coversSeq,
     gitTracked: t.scope === 'project' ? record.gitTracked : [],
-    ...(record.files !== undefined
-      ? {
-          files: Object.fromEntries(
-            [...record.files].map(([p, d]) => [p, d.slice(0, SYNC_FILE_DIGEST_LENGTH)]),
-          ),
-        }
-      : {}),
+    ...(record.files !== undefined ? { files: record.files } : {}),
   });
 }
 
@@ -595,14 +598,17 @@ function trackedForPush(
 
 /**
  * The paths left out of the file-inventory hash this store compares when it
- * has no per-path digests of its last sync: what this checkout's git tracks,
- * and what that snapshot marks (T13019).
+ * has no per-path digests of its last sync (T13019): in a checkout, what its
+ * git tracks and what that snapshot marks. A machine without git leaves
+ * nothing out: it holds the snapshot's copies of marked files, so without
+ * digests to judge them by they count as changed, never skipped (#1773 R6).
  */
 function untrackedComparison(
   t: VaultTarget,
   git: GitTracking,
   synced: VaultStreamState | null,
 ): ReadonlySet<string> {
+  if (git.mode !== 'known') return new Set();
   return new Set([...git.tracked, ...syncedMarks(t, synced)]);
 }
 
@@ -943,7 +949,12 @@ async function pushNexusVaultImpl(
     parent ? [parent] : [],
     head.headCheckpointId,
   );
-  if (adopted) saveSynced(conn, t, adopted, { gitTracked: syncedMarks(t, synced) });
+  if (adopted) {
+    saveSynced(conn, t, adopted, {
+      gitTracked: syncedMarks(t, synced),
+      ...(synced?.files !== undefined ? { files: synced.files } : {}),
+    });
+  }
   // Another device pushed since this store last synced: only `--force` pushes
   // over it, and that snapshot is labelled a fork on the checkpoint (T13007).
   const overUnsynced =
@@ -973,13 +984,18 @@ async function pushNexusVaultImpl(
       parent !== null && parent.checkpointId === synced?.lastCheckpointId
         ? fileChangesSinceSync(files, t, git, synced)
         : null;
+    // Without digests, a machine without git cannot judge the marked files it
+    // holds (their edits are out of the hash): they count as changed (#1773 R6).
+    const marksUnjudged =
+      changes === null && git.mode === 'none' && syncedMarks(t, synced).length > 0;
     const unchanged =
       parent !== null &&
+      !marksUnjudged &&
       compareVaultManifests(vault, parent.manifest).every((r) =>
         r.table === VAULT_FILES_KEY && changes !== null ? changes.length === 0 : r.match,
       );
     if (parent && unchanged) {
-      saveSynced(conn, t, parent, { gitTracked, files });
+      saveSynced(conn, t, parent, { gitTracked, files: syncFiles(files) });
       warnings.push(...conn.state.drainWarnings());
       return {
         apiUrl: conn.apiUrl,
@@ -1032,6 +1048,7 @@ async function pushNexusVaultImpl(
         t.streamId,
         t.storeRoot,
         parent?.checkpointId ?? null,
+        { gitTracked: t.scope === 'project' ? gitTracked : [], files: syncFiles(files) },
       );
       let deltaSegmentSeq: number | null = null;
       let cp: Checkpoint | null = null;
@@ -1135,7 +1152,7 @@ async function pushNexusVaultImpl(
           throw err;
         }
       }
-      saveSynced(conn, t, cp, { gitTracked, files });
+      saveSynced(conn, t, cp, { gitTracked, files: syncFiles(files) });
       if (opts.hold !== true) await releaseLeaseQuietly(conn, t);
       warnings.push(...conn.state.drainWarnings());
       return {
@@ -1434,7 +1451,12 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
   // Only a snapshot whose signature verifies says what this store holds (T13007).
   const trusted = trustedCheckpoints(journal, cps, key.signers, null);
   const { state: synced, adopted } = syncedState(conn, t, trusted, head.headCheckpointId);
-  if (adopted) saveSynced(conn, t, adopted, { gitTracked: syncedMarks(t, synced) });
+  if (adopted) {
+    saveSynced(conn, t, adopted, {
+      gitTracked: syncedMarks(t, synced),
+      ...(synced?.files !== undefined ? { files: synced.files } : {}),
+    });
+  }
   const names = await deviceNames(conn);
   if (opts.mode === 'pull' && synced?.lastCheckpointId === target && opts.force !== true) {
     const cp = cps.find((c) => c.checkpointId === target) ?? null;
@@ -1652,7 +1674,7 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
     }
     saveSynced(conn, t, restored.checkpoint, {
       gitTracked: [...snapshotTracked],
-      files: snapshotFiles,
+      files: syncFiles(snapshotFiles),
     });
     if (t.scope === 'project' && opts.relink) {
       for (const message of await opts.relink(t.storeRoot)) {
@@ -1663,7 +1685,7 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
       if (linked?.streamId && linked.streamId !== t.streamId) {
         saveSynced(conn, t, restored.checkpoint, {
           gitTracked: [...snapshotTracked],
-          files: snapshotFiles,
+          files: syncFiles(snapshotFiles),
           streamId: linked.streamId,
         });
       }

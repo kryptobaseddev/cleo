@@ -2609,4 +2609,59 @@ describe('cloud vault round 4 (#1773)', () => {
     expect([read(a, 'notes/y.md'), read(a, 'notes/z.md')]).toEqual(['y\n', 'z\n']);
     expect([read(b, 'notes/y.md'), read(b, 'notes/z.md')]).toEqual(['y\n', 'z\n']);
   });
+
+  it('R6PROBE-2: without digests, a machine without git counts its marked files as changed (#1773 R6)', async () => {
+    const { a, b } = await twoMachines();
+    write(a, 'adrs/tracked.md', 'v1\n');
+    commit(a, 'adrs/tracked.md');
+    await on(a, () => pushNexusVault(vopts(a)));
+    await restoreOntoB(b);
+    // An older state: marks, but no per-path digests.
+    const doc = JSON.parse(fs.readFileSync(b.state.path, 'utf8')) as {
+      accounts: Record<
+        string,
+        { streams: Record<string, { files?: object; gitTracked?: string[] }> }
+      >;
+    };
+    for (const account of Object.values(doc.accounts)) {
+      for (const stream of Object.values(account.streams)) {
+        expect(stream.gitTracked).toEqual(['adrs/tracked.md']);
+        delete stream.files;
+      }
+    }
+    fs.writeFileSync(b.state.path, JSON.stringify(doc, null, 2));
+    write(b, 'adrs/tracked.md', 'b edit\n');
+    expect((await on(b, () => verifyNexusVault(vopts(b)))).verdict).not.toBe('match');
+    insertTask(a, 'A1');
+    await on(a, () => pushNexusVault(vopts(a)));
+    const refused = await failure(on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' }))));
+    expect(refused.code).toBe('E_NEXUS_VAULT_LOCAL_CHANGES');
+    expect(read(b, 'adrs/tracked.md')).toBe('b edit\n');
+  });
+
+  it('a recovered push keeps its per-path digests, so a later edit is still seen (#1773 R6)', async () => {
+    const { a, b } = await twoMachines();
+    write(a, 'adrs/tracked.md', 'v1\n');
+    commit(a, 'adrs/tracked.md');
+    await on(a, () => pushNexusVault(vopts(a)));
+    await restoreOntoB(b);
+    insertTask(b, 'B1');
+    // B's push lands, but the crash loses its state write.
+    const saveStream = b.state.saveStream.bind(b.state);
+    b.state.saveStream = () => {
+      throw new Error('crashed before recording the snapshot');
+    };
+    await expect(on(b, () => pushNexusVault(vopts(b)))).rejects.toThrow(/crashed/);
+    b.state.saveStream = saveStream;
+    // The next command adopts B's own snapshot, with its digests.
+    expect((await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' })))).status).toBe(
+      'up-to-date',
+    );
+    const recorded = b.state.stream(API, USER, STREAM, b.root);
+    expect(recorded?.lastCheckpointId).toBe(fake.stream(STREAM).checkpoints.at(-1)?.checkpointId);
+    expect(Object.keys(recorded?.files ?? {})).toContain('adrs/tracked.md');
+    expect((await on(b, () => verifyNexusVault(vopts(b)))).verdict).toBe('match');
+    write(b, 'adrs/tracked.md', 'b edit\n');
+    expect((await on(b, () => verifyNexusVault(vopts(b)))).verdict).toBe('ahead');
+  });
 });
