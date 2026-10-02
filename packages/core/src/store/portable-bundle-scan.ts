@@ -22,6 +22,7 @@ import {
 } from '@cleocode/contracts';
 import { resolveDualScopeDbPath } from './dual-scope-db.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
+import { TRIGGER_SUSPEND_TABLE, withTriggersSuspended } from './sync/trigger-classes.js';
 
 // node:sqlite interop (createRequire — Vitest strips `node:` prefix)
 const _require = createRequire(import.meta.url);
@@ -665,38 +666,122 @@ export function clearSnapshotColumns(
   const db = new DatabaseSync(snapshotPath); // schema-guard-exempt: a snapshot copy this step owns; credential redaction is DML only
   try {
     db.exec('PRAGMA secure_delete = ON');
-    for (const [table, wanted] of Object.entries(columns)) {
-      const present = (
-        db.prepare(`PRAGMA table_info("${table}")`).all() as Array<{
-          name: string;
-          notnull: number;
-        }>
-      ).filter((c) => wanted.includes(c.name));
-      if (present.length === 0) continue;
-      const cond = present
-        .map((c) => `("${c.name}" IS NOT NULL AND "${c.name}" <> '')`)
-        .join(' OR ');
-      const rows = Number(
-        (db.prepare(`SELECT COUNT(*) AS n FROM "${table}" WHERE ${cond}`).get() as { n: number }).n,
-      );
-      if (rows === 0) continue;
-      const assignments = present
-        .map((c) => `"${c.name}" = ${c.notnull ? "''" : 'NULL'}`)
-        .join(', ');
-      db.exec(`UPDATE "${table}" SET ${assignments} WHERE ${cond}`);
-      const left = Number(
-        (db.prepare(`SELECT COUNT(*) AS n FROM "${table}" WHERE ${cond}`).get() as { n: number }).n,
-      );
-      if (left !== 0)
-        // @sync-invariant none:local-only checks the redaction of a snapshot copy this export owns; it never writes a synced store
-        throw new Error(`credential columns of ${table} were not cleared (${left} rows remain)`);
-      out.push({
-        table,
-        columns: present.map((c) => c.name),
-        rows,
-        remedy: credentialRemedy(table),
-      });
-    }
+    inSnapshotWriteBracket(db, () => clearColumnsIn(db, columns, out));
+    if (out.length > 0) db.exec('VACUUM');
+  } finally {
+    db.close();
+  }
+  return out;
+}
+
+/**
+ * Run a snapshot rewrite in one transaction with the snapshot's own capture and
+ * side-effect triggers suspended, when it has them (T13042). A snapshot of a
+ * store with sync capture on still carries its capture triggers: a clearing
+ * UPDATE would otherwise journal each cleared value into the snapshot's own
+ * `_sync_capture` (strip columns are captured whole), undoing the clearing
+ * inside the bundle.
+ */
+function inSnapshotWriteBracket(db: _DatabaseSyncType, fn: () => void): void {
+  const suspendable =
+    db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(TRIGGER_SUSPEND_TABLE) !== undefined;
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    if (suspendable) withTriggersSuspended(db, ['capture', 'side-effect'], 'forward', fn);
+    else fn();
+    db.exec('COMMIT');
+  } catch (err) {
+    if (db.isTransaction) db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+/** The clearing loop of {@link clearSnapshotColumns}, inside its write bracket. */
+function clearColumnsIn(
+  db: _DatabaseSyncType,
+  columns: Readonly<Record<string, readonly string[]>>,
+  out: CredentialRedaction[],
+): void {
+  for (const [table, wanted] of Object.entries(columns)) {
+    const present = (
+      db.prepare(`PRAGMA table_info("${table}")`).all() as Array<{
+        name: string;
+        notnull: number;
+      }>
+    ).filter((c) => wanted.includes(c.name));
+    if (present.length === 0) continue;
+    const cond = present.map((c) => `("${c.name}" IS NOT NULL AND "${c.name}" <> '')`).join(' OR ');
+    const rows = Number(
+      (db.prepare(`SELECT COUNT(*) AS n FROM "${table}" WHERE ${cond}`).get() as { n: number }).n,
+    );
+    if (rows === 0) continue;
+    const assignments = present.map((c) => `"${c.name}" = ${c.notnull ? "''" : 'NULL'}`).join(', ');
+    db.exec(`UPDATE "${table}" SET ${assignments} WHERE ${cond}`);
+    const left = Number(
+      (db.prepare(`SELECT COUNT(*) AS n FROM "${table}" WHERE ${cond}`).get() as { n: number }).n,
+    );
+    if (left !== 0)
+      // @sync-invariant none:local-only checks the redaction of a snapshot copy this export owns; it never writes a synced store
+      throw new Error(`credential columns of ${table} were not cleared (${left} rows remain)`);
+    out.push({
+      table,
+      columns: present.map((c) => c.name),
+      rows,
+      remedy: credentialRemedy(table),
+    });
+  }
+}
+
+/** One table {@link clearSnapshotTables} emptied. */
+export interface ClearedSnapshotTable {
+  /** Table name. */
+  table: string;
+  /** Rows deleted. */
+  rows: number;
+}
+
+/**
+ * Empty the given tables in a SNAPSHOT (never a live store), with the
+ * snapshot's capture and side-effect triggers suspended, then rebuild the file
+ * with `secure_delete` + `VACUUM` so the deleted rows are not left in free
+ * pages. The cloud vault empties this device's local-only change journal
+ * (`_sync_capture`, `_sync_undo`, `_sync_frame`), whose images hold values a
+ * snapshot strips; a restore takes those tables from the live store (T13042).
+ *
+ * @param snapshotPath - A VACUUM snapshot owned by the export staging area.
+ * @param tables - Tables to empty; absent tables are skipped.
+ * @returns The tables that held rows, with the count deleted.
+ * @throws {Error} When a table cannot be emptied; the caller must not ship the snapshot.
+ * @task T13042
+ */
+export function clearSnapshotTables(
+  snapshotPath: string,
+  tables: readonly string[],
+): ClearedSnapshotTable[] {
+  const out: ClearedSnapshotTable[] = [];
+  const db = new DatabaseSync(snapshotPath); // schema-guard-exempt: a snapshot copy this step owns; emptying local-only journal tables is DML only
+  try {
+    db.exec('PRAGMA secure_delete = ON');
+    inSnapshotWriteBracket(db, () => {
+      for (const table of tables) {
+        const present =
+          db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table) !==
+          undefined;
+        if (!present) continue;
+        const count = () =>
+          Number((db.prepare(`SELECT COUNT(*) AS n FROM "${table}"`).get() as { n: number }).n);
+        const rows = count();
+        if (rows === 0) continue;
+        db.exec(`DELETE FROM "${table}"`);
+        const left = count();
+        if (left !== 0)
+          // @sync-invariant none:local-only checks the emptying of a snapshot copy this export owns; it never writes a synced store
+          throw new Error(`${table} was not emptied in the snapshot (${left} rows remain)`);
+        out.push({ table, rows });
+      }
+    });
     if (out.length > 0) db.exec('VACUUM');
   } finally {
     db.close();

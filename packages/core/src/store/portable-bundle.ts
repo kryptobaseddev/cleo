@@ -70,6 +70,7 @@ import { resolveDualScopeDbPath } from './dual-scope-db.js';
 import {
   CONFIG_HOME_RULES,
   clearSnapshotColumns,
+  clearSnapshotTables,
   countRows,
   GLOBAL_HOME_RULES,
   LEGACY_STORE_BASENAMES,
@@ -196,6 +197,13 @@ export interface ExportPortableBundleInput {
    * remote URL, which can embed a token (T13007). Rows are kept.
    */
   stripColumns?: Readonly<Record<string, readonly string[]>>;
+  /**
+   * Tables emptied in every primary store snapshot. The cloud vault passes this
+   * device's local-only change journal (`_sync_capture`, `_sync_undo`,
+   * `_sync_frame`), whose images hold values the snapshot strips; a restore
+   * takes those tables from the live store (T13042).
+   */
+  clearTables?: readonly string[];
   /**
    * Paths of the exported project's section (relative to its `.cleo/`) that
    * its git checkout tracks; their file entries are marked `gitTracked`. The
@@ -336,6 +344,8 @@ interface StagingState {
   cleoHome: string;
   /** Columns cleared in every primary store snapshot ({@link ExportPortableBundleInput.stripColumns}). */
   stripColumns: Readonly<Record<string, readonly string[]>> | null;
+  /** Tables emptied in every primary store snapshot ({@link ExportPortableBundleInput.clearTables}). */
+  clearTables: readonly string[] | null;
 }
 
 /** Credential tables whose rows {@link listCredentialsForReentry} enumerates, by store. */
@@ -503,6 +513,16 @@ async function stageSection(
         throw new PortableBundleError(
           'E_REDACTION_FAILED',
           `Cannot clear stripped columns in the snapshot of ${path.join(root, relPath)}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    if (isPrimary && state.clearTables !== null) {
+      try {
+        clearSnapshotTables(staged, state.clearTables);
+      } catch (err) {
+        throw new PortableBundleError(
+          'E_REDACTION_FAILED',
+          `Cannot empty local-only tables in the snapshot of ${path.join(root, relPath)}: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }
@@ -715,6 +735,7 @@ export async function exportPortableBundle(
     passphrase: encrypt && input.passphrase ? input.passphrase : null,
     cleoHome,
     stripColumns: input.stripColumns ?? null,
+    clearTables: input.clearTables ?? null,
   };
 
   try {

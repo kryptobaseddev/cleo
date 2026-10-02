@@ -766,9 +766,16 @@ function compareWithSynced(
 }
 
 /**
+ * This device's local-only change journal, emptied in every vault snapshot
+ * (T13042): capture and undo images hold values the snapshot strips, and a
+ * restore takes these tables from the live store anyway.
+ */
+const VAULT_CLEARED_JOURNAL_TABLES = ['_sync_capture', '_sync_undo', '_sync_frame'] as const;
+
+/**
  * Export the store the way the vault snapshots it: no secrets, no `strip`
- * columns (T13007), and for the global store without machine-local state or
- * the config home (T12968).
+ * columns (T13007), no local change journal (T13042), and for the global
+ * store without machine-local state or the config home (T12968).
  */
 async function exportVaultBundle(
   t: VaultTarget,
@@ -784,6 +791,7 @@ async function exportVaultBundle(
       : {}),
     ...(t.scope === 'project' && tracked.size > 0 ? { gitTrackedFiles: tracked } : {}),
     stripColumns: vaultStripColumns(tableScopeOf(t)),
+    clearTables: VAULT_CLEARED_JOURNAL_TABLES,
     outputPath,
     label,
   });
