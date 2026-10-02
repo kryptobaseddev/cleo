@@ -231,6 +231,8 @@ class FakeNexus {
   beforeProjectKeyPut: ((projectId: string) => void) | null = null;
   /** Every project key PUT body, in order (T13098). */
   projectKeyPuts: Array<Record<string, unknown>> = [];
+  /** The user who registered each project (cleo-nexus #33: only they may create v1 from a device). */
+  registrants = new Map<string, string>();
   projectKeys = new Map<string, Array<{ wrappedProjectKey: string; keyVersion: number }>>();
   /** projectId -> replicaId -> deviceId. */
   replicas = new Map<string, Map<string, string>>();
@@ -259,7 +261,8 @@ class FakeNexus {
     this.devices.set(d.deviceId, d);
   }
 
-  addProject(projectId: string, replicas: Record<string, string>): void {
+  addProject(projectId: string, replicas: Record<string, string>, registrant = USER): void {
+    this.registrants.set(projectId, registrant);
     this.replicas.set(projectId, new Map(Object.entries(replicas)));
     this.streams.set(`project:${projectId}`, {
       streamId: `project:${projectId}`,
@@ -491,6 +494,24 @@ class FakeNexus {
       if (body['rotate'] === true) {
         if (kv !== max + 1 || body['expectedMax'] !== max) {
           throw new ApiFail(409, 'E_CONFLICT', { reason: 'rotation-stale', max });
+        }
+        // Every fake caller is a device credential (cleo-nexus T12877 + #33): it may create only
+        // v1, and only of a project its own user registered.
+        if (max > 0) {
+          throw new ApiFail(
+            403,
+            'E_FORBIDDEN',
+            { reason: 'session-required' },
+            'rotating the project key needs a signed-in session',
+          );
+        }
+        if ((this.registrants.get(projectId) ?? USER) !== USER) {
+          throw new ApiFail(
+            403,
+            'E_FORBIDDEN',
+            { reason: 'not-registrant' },
+            "only the project's registrant may create its first key from a device; use a signed-in session",
+          );
         }
       } else if (!existing.some((k) => k.keyVersion === kv)) {
         throw new ApiFail(
@@ -1793,6 +1814,37 @@ describe('cloud vault key escrow', () => {
         winner,
       ),
     ).toBe(true);
+  });
+
+  it("a project another account registered: the device's first key is refused with a remedy (T13098)", async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A }, 'another-user');
+    seedProject(a, 2);
+    link(a);
+    const err = await failure(on(a, () => pushNexusVault(vopts(a))));
+    expect(err.code).toBe('E_NEXUS_VAULT_KEY_UNAVAILABLE');
+    expect(err.message).toMatch(/only a device of the account that registered it/);
+    expect(err.fix).toMatch(/cleo project link/);
+    expect(fake.projectKeys.size).toBe(0);
+  });
+
+  it('a project whose key exists but was not shared: session-required explains it (T13098)', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A });
+    seedProject(a, 2);
+    link(a);
+    fake.beforeProjectKeyPut = () => {
+      fake.beforeProjectKeyPut = null;
+      throw new ApiFail(
+        403,
+        'E_FORBIDDEN',
+        { reason: 'session-required' },
+        'rotating the project key needs a signed-in session',
+      );
+    };
+    const err = await failure(on(a, () => pushNexusVault(vopts(a))));
+    expect(err.code).toBe('E_NEXUS_VAULT_KEY_UNAVAILABLE');
+    expect(err.message).toMatch(/has not been shared with this account/);
   });
 
   it("any other refusal of the project key names the server's reason, never 'not readable' (T13098)", async () => {
