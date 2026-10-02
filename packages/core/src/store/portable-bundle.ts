@@ -200,7 +200,7 @@ export interface ExportPortableBundleInput {
   /**
    * Tables emptied in every primary store snapshot. The cloud vault passes this
    * device's local-only change journal (`_sync_capture`, `_sync_undo`,
-   * `_sync_frame`), whose images hold values the snapshot strips; a restore
+   * `_sync_frame`, `_sync_quarantine`), whose images hold values the snapshot strips; a restore
    * takes those tables from the live store (T13042).
    */
   clearTables?: readonly string[];

@@ -18,6 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { _resetDualScopeDbCache, openDualScopeDbAtPath } from '../dual-scope-db.js';
 import { clearSnapshotColumns, clearSnapshotTables } from '../portable-bundle-scan.js';
 import { setCaptureEnabled } from '../sync/capture.js';
+import { TRIGGER_SUSPEND_TABLE_DDL } from '../sync/trigger-classes.js';
 
 const _require = createRequire(import.meta.url);
 const { DatabaseSync } = _require('node:sqlite') as {
@@ -131,6 +132,25 @@ describe('snapshot redaction with capture on (T13042)', () => {
     after.close();
     // secure_delete + VACUUM: the captured description is gone from the file.
     expect(readFileSync(snap).includes(Buffer.from(SECRET))).toBe(false);
+  });
+
+  it('a failed clear rolls the whole snapshot rewrite back and leaves no suspension row', () => {
+    const snap = join(root, 'failing.db');
+    const db = new DatabaseSync(snap);
+    db.exec(TRIGGER_SUSPEND_TABLE_DDL);
+    db.exec(`
+      CREATE TABLE a (id TEXT PRIMARY KEY, secret TEXT); INSERT INTO a VALUES ('1', 'sa');
+      CREATE TABLE b (id TEXT PRIMARY KEY, secret TEXT); INSERT INTO b VALUES ('1', 'sb');
+      CREATE TRIGGER b_refuses BEFORE UPDATE OF secret ON b BEGIN SELECT RAISE(ABORT, 'refused'); END;
+    `);
+    db.close();
+    expect(() => clearSnapshotColumns(snap, { a: ['secret'], b: ['secret'] })).toThrow(/refused/);
+    const after = new DatabaseSync(snap, { readOnly: true });
+    // Table a was cleared first, inside the same transaction: rolled back with b.
+    expect(after.prepare('SELECT secret FROM a').get()).toEqual({ secret: 'sa' });
+    expect(after.prepare('SELECT secret FROM b').get()).toEqual({ secret: 'sb' });
+    expect(count(after, 'SELECT count(*) FROM cleo_trigger_suspend')).toBe(0);
+    after.close();
   });
 
   it('a snapshot without the suspension table (a plain store) is still cleared', () => {

@@ -12,6 +12,6 @@ snapshot's `_sync_capture` and `_sync_undo`, undoing the clearing inside the bun
 now runs in one transaction with the snapshot's capture and side-effect triggers suspended.
 
 The vault also empties this device's local-only change journal (`_sync_capture`, `_sync_undo`,
-`_sync_frame`) in every snapshot, so their images never leave the machine. These tables never sync, the
+`_sync_frame`, `_sync_quarantine`) in every snapshot, so their images never leave the machine. These tables never sync, the
 manifest never hashes them, and a restore takes them from the live store, so the change has no effect
 on restores or on comparisons. `cleo backup export` changes only by the trigger suspension.

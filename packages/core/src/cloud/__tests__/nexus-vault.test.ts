@@ -1915,10 +1915,10 @@ describe('cloud vault global scope', () => {
     }
   }
 
-  it('a vault snapshot carries no local change journal: _sync_capture, _sync_undo, _sync_frame (T13042)', async () => {
+  it('a vault snapshot carries no local change journal: capture, undo, frame, quarantine (T13042)', async () => {
     const a = await machine('a', DEVICE_A, REPLICA_A);
     await seedHome(a, ['p1']);
-    const journal = ['_sync_capture', '_sync_undo', '_sync_frame'];
+    const journal = ['_sync_capture', '_sync_undo', '_sync_frame', '_sync_quarantine'];
     const sentinel = 'JOURNAL-IMAGE-SENTINEL-T13042';
     const live = new DatabaseSync(path.join(a.home, 'cleo.db'));
     ensureSyncSchema(live, {
@@ -1934,6 +1934,11 @@ describe('cloud vault global scope', () => {
     live
       .prepare(
         "INSERT INTO _sync_undo (seq, tbl, rk, op, before_full) VALUES (1, 'nexus_project_registry', 'p1', 'U', ?)",
+      )
+      .run(img);
+    live
+      .prepare(
+        "INSERT INTO _sync_quarantine (seq, tbl, op, rk, img, at_ms, reason, quarantined_at_ms) VALUES (1, 'nexus_project_registry', 'U', 'p1', ?, 0, 'test', 0)",
       )
       .run(img);
     live.close();

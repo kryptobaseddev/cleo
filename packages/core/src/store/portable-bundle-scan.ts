@@ -747,7 +747,7 @@ export interface ClearedSnapshotTable {
  * snapshot's capture and side-effect triggers suspended, then rebuild the file
  * with `secure_delete` + `VACUUM` so the deleted rows are not left in free
  * pages. The cloud vault empties this device's local-only change journal
- * (`_sync_capture`, `_sync_undo`, `_sync_frame`), whose images hold values a
+ * (`_sync_capture`, `_sync_undo`, `_sync_frame`, `_sync_quarantine`), whose images hold values a
  * snapshot strips; a restore takes those tables from the live store (T13042).
  *
  * @param snapshotPath - A VACUUM snapshot owned by the export staging area.

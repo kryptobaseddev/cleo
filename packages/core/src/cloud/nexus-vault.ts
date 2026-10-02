@@ -767,10 +767,15 @@ function compareWithSynced(
 
 /**
  * This device's local-only change journal, emptied in every vault snapshot
- * (T13042): capture and undo images hold values the snapshot strips, and a
- * restore takes these tables from the live store anyway.
+ * (T13042): capture, undo and quarantined images hold values the snapshot
+ * strips, and a restore takes these tables from the live store anyway.
  */
-const VAULT_CLEARED_JOURNAL_TABLES = ['_sync_capture', '_sync_undo', '_sync_frame'] as const;
+const VAULT_CLEARED_JOURNAL_TABLES = [
+  '_sync_capture',
+  '_sync_undo',
+  '_sync_frame',
+  '_sync_quarantine',
+] as const;
 
 /**
  * Export the store the way the vault snapshots it: no secrets, no `strip`
