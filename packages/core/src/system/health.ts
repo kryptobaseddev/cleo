@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import type { DependencyReport } from '@cleocode/contracts';
 import { findOnPath } from '@cleocode/paths';
 import { rowIdentityDoctorCheck } from '../doctor/row-identity.js';
+import { syncSealerDoctorCheck } from '../doctor/sync-sealer.js';
 import { syncTriggersDoctorCheck } from '../doctor/sync-triggers.js';
 import { twinCollapseDoctorCheck } from '../doctor/twin-collapse.js';
 import { checkGitHooks, type HookCheckResult } from '../hooks.js';
@@ -488,6 +489,13 @@ export async function getSystemHealth(
       status:
         triggers.status === 'error' ? 'fail' : triggers.status === 'warning' ? 'warn' : 'pass',
       message: triggers.fix ? `${triggers.message}. ${triggers.fix}` : triggers.message,
+    });
+    // T13036: the sealer's backlog head, quarantined captures, unreleased flags.
+    const sealer = syncSealerDoctorCheck(projectRoot);
+    checks.push({
+      name: sealer.check,
+      status: sealer.status === 'error' ? 'fail' : sealer.status === 'warning' ? 'warn' : 'pass',
+      message: sealer.fix ? `${sealer.message}. ${sealer.fix}` : sealer.message,
     });
   }
 
@@ -1081,6 +1089,8 @@ export async function coreDoctorReport(projectRoot: string): Promise<DoctorRepor
   // T12819: the trigger-suspension table and the owned triggers' clause
   // (read-only; the next open repairs).
   checks.push(syncTriggersDoctorCheck(projectRoot));
+  // T13036: the sealer's backlog head and quarantine (read-only).
+  checks.push(syncSealerDoctorCheck(projectRoot));
 
   // Agent definition presence check
   const agentDefPath = join(getAgentsHome(), 'agents', 'cleo-subagent');

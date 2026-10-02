@@ -35,6 +35,18 @@ const ALL_OFF: SyncFlagState = Object.freeze(
   Object.fromEntries(SYNC_FLAGS.map((f) => [f, false])) as Record<SyncFlag, boolean>,
 );
 
+/**
+ * Flags whose slices are not finished: turning one on is refused unless a
+ * test opts in (`allowUnreleased`). `sync.seal` stays here until S3b–S3d land
+ * (T13032); remove a flag when its slice ships.
+ */
+export const UNRELEASED_FLAGS: ReadonlySet<SyncFlag> = new Set([
+  'sync.seal',
+  'sync.push',
+  'sync.pull',
+  'sync.strict',
+]);
+
 /** The environment kill switch for a flag: `sync.push` → `CLEO_SYNC_PUSH`. */
 export function killSwitchVar(flag: SyncFlag): string {
   return `CLEO_SYNC_${flag.slice('sync.'.length).toUpperCase()}`;
@@ -89,10 +101,19 @@ export function setSyncFlag(
   db: DatabaseSync,
   flag: SyncFlag,
   on: boolean,
-  options: { now?: Date; schemaRoot?: string } = {},
+  options: { now?: Date; schemaRoot?: string; allowUnreleased?: boolean } = {},
 ): boolean {
   // @sync-invariant none:local-only unknown flag name from a local caller; sync flags are per-store settings, not synced rows
   if (!SYNC_FLAGS.includes(flag)) throw new Error(`unknown sync flag: ${flag}`);
+  if (on && UNRELEASED_FLAGS.has(flag) && options.allowUnreleased !== true) {
+    // @sync-invariant none:local-only a local operator cannot turn on an unfinished journal slice; a per-store setting, not synced rows
+    throw Object.assign(
+      new Error(
+        `E_SYNC_FLAG_UNRELEASED: ${flag} cannot be enabled until its slices land (T12343: S3b–S3d for sync.seal)`,
+      ),
+      { code: 'E_SYNC_FLAG_UNRELEASED' },
+    );
+  }
   if (!on && !hasTable(db, '_sync_meta')) return false;
   if (readSyncFlags(db)[flag] === on) return false;
   ensureSyncSchema(db, { root: options.schemaRoot, now: options.now });

@@ -171,6 +171,8 @@ const CAPTURE_MACHINERY =
   'change-journal capture machinery (local-only): trigger and TEMP-stamp text that writes the outbox, frames and undo (T12343)';
 const SYNC_BOOKKEEPING =
   'change journal bookkeeping (local-only): flags, clock and replica binding of THIS store file (T12342)';
+const SEALER =
+  'change-journal sealer (local-only): consumes the capture outbox into sealed transactions, ops, row meta, the ledger, the seal counter and the quarantine of THIS store (T12984)';
 
 /**
  * Raw writers of NON-SYNC tables, exempt per (file, table): file → table →
@@ -278,6 +280,16 @@ export const EXEMPT = {
     _sync_replica: { count: 2, reason: SYNC_BOOKKEEPING },
   },
   'packages/core/src/store/sync/schema.ts': { _sync_meta: { count: 1, reason: SYNC_BOOKKEEPING } },
+  'packages/core/src/store/sync/sealer.ts': {
+    _sync_capture: { count: 2, reason: SEALER },
+    _sync_frame: { count: 1, reason: SEALER },
+    _sync_ledger: { count: 1, reason: SEALER },
+    _sync_meta: { count: 1, reason: SEALER },
+    _sync_op: { count: 1, reason: SEALER },
+    _sync_quarantine: { count: 1, reason: SEALER },
+    _sync_row_meta: { count: 4, reason: SEALER },
+    _sync_txn: { count: 1, reason: SEALER },
+  },
   'packages/core/src/store/sync/structural.ts': {
     _sync_meta: { count: 1, reason: SYNC_BOOKKEEPING },
   },
