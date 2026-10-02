@@ -30,8 +30,10 @@ the tree content under test, with failed-first and flaky reruns (T12958).
 by the sentient daemon to re-check a worker's exit, now runs in the worker's
 own worktree (`WorkerReport.worktreePath`, the canonical task worktree, or a
 worktree adopted for the task with `cleo worktree adopt`, when exactly one is),
-never in the daemon's checkout. There it runs `tool:test-affected` first, and
-the full `tool:test` only when affected planning refuses. A busy test slot is
+never in the daemon's checkout. There it runs the affected scope first, planned
+by the scope-aware `tool:test` planner (`planScopedTestRun`, without a merge
+check), and the full `tool:test` only when that planner decides on the full
+suite. A busy test slot is
 retry-later, not a full run: it consumes no attempt, counts no failure and
 writes no mismatch audit row. The next tick re-runs only the verification, not
 the worker, after a backoff that doubles each time (30 s up to 16 min); a
@@ -52,7 +54,8 @@ override skips the governor.
 **Dead slot holders are reaped (T12963).** Each local governor slot and each
 tool-semaphore slot carries a `<slot>.holder.json` record: pid, the process
 start time (`ps lstart` under `LC_ALL=C TZ=UTC`), host, lock identity, and the
-process groups of the tools the holder started while holding it. Tools run
+process groups of the tools the holder started while holding it (tool runs,
+and the detached child of a `cleo run` job). Tools run
 detached, in their own process group, so a tool outlives a SIGKILLed cleo: a
 slot is freed only when its holder pid is gone (or, once the lock stopped
 being refreshed, recycled to a process with a different start time) AND every
@@ -60,7 +63,9 @@ recorded tool group is gone. It is then freed at once instead of after the
 10-minute stale timeout. A holder on another host, a record that does not
 describe the current lock (or a lock with no birth time), a lock close to
 proper-lockfile's own stale threshold, or a failed `kill`/`ps` probe is never
-reaped, and reaps run under a per-slot guard. Deferrals and timeout errors
+reaped, and reaps run under a per-slot guard. Governor slot locks refresh every
+15 s and log, rather than throw, when compromised; only a held lock reads as
+busy, so an unwritable slot directory still fails open. Deferrals and timeout errors
 name each holder and its tool groups. While a tool runs, SIGTERM, SIGINT,
 SIGHUP and process exit SIGTERM its process group, so ending cleo no longer
 leaves the tool running; a signal is then re-raised, so cleo still dies by it.

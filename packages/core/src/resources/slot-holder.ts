@@ -3,7 +3,7 @@
  * tool semaphore's per-tool slots (T12963, gh#1222).
  *
  * `proper-lockfile` frees a slot whose holder died only after
- * {@link GOVERNOR_SLOT_STALE_MS} (10 min) of mtime staleness. With a one-slot
+ * {@link SLOT_LOCK_STALE_MS} (10 min) of mtime staleness. With a one-slot
  * `test-run` budget, a SIGKILLed `cleo verify tool:test` blocked every later
  * heavy run for ten minutes, and the deferral named no one. Each slot carries
  * a `<slot>.holder.json` record: the holder's pid and process start time, the
@@ -34,8 +34,27 @@ function log(): ReturnType<typeof getLogger> {
   return _log;
 }
 
-/** `proper-lockfile` staleness of a slot: a holder that stops refreshing is freed after this. */
-export const GOVERNOR_SLOT_STALE_MS = 600_000;
+/**
+ * A slot lock older than this may be stolen (its holder presumed dead): the
+ * `proper-lockfile` stale window of every governor slot, and the default of
+ * every tool-semaphore slot.
+ */
+export const SLOT_LOCK_STALE_MS = 600_000;
+
+/**
+ * How often a governor slot holder refreshes its lock. Short, so a holder
+ * frozen by a job pause keeps its slot for nearly the whole stale window
+ * (#1777 round 6).
+ */
+export const SLOT_LOCK_UPDATE_MS = 15_000;
+
+/** `proper-lockfile`'s "someone else holds this lock" code: the only failure that means busy. */
+const LOCK_HELD = 'ELOCKED';
+
+/** Whether a `proper-lockfile` error means the lock is held by someone else. */
+function isLockHeld(err: unknown): boolean {
+  return (err as NodeJS.ErrnoException | null)?.code === LOCK_HELD;
+}
 
 /**
  * The liveness fields every slot holder record carries.
@@ -109,12 +128,16 @@ export interface PidProbe {
 export type GovernorHolderState = 'alive' | 'dead' | 'unknown';
 
 /**
- * A lock mtime younger than this was refreshed by its live holder:
- * `proper-lockfile` touches it every `GOVERNOR_SLOT_STALE_MS / 2`, plus slack
- * for a busy event loop. Within it a live pid is taken as the holder without
- * spawning `ps`.
+ * A lock mtime younger than this was refreshed by a live holder, which is
+ * then taken as the holder without spawning `ps`. It must cover the slowest
+ * refresher among the slots judged here: governor slots refresh every
+ * {@link SLOT_LOCK_UPDATE_MS} (15 s), tool-semaphore slots at
+ * `proper-lockfile`'s default of half their stale window (5 min); plus slack
+ * for a busy event loop. A holder frozen by a paused `cleo run` job stops
+ * refreshing but keeps its pid and start time, so it stays alive after the
+ * window too.
  */
-const LOCK_REFRESH_WINDOW_MS = GOVERNOR_SLOT_STALE_MS / 2 + 30_000;
+const LOCK_REFRESH_WINDOW_MS = SLOT_LOCK_STALE_MS / 2 + 30_000;
 
 /**
  * A lock this close to `proper-lockfile`'s own stale threshold is left to
@@ -352,10 +375,10 @@ function assessToolGroups(groups: unknown, probe: PidProbe): GovernorHolderState
  * - `alive`: otherwise, including a live pid whose start time was never
  *   recorded, and a dead holder whose tool is still running.
  *
- * A live holder's `proper-lockfile` timer refreshes the lock mtime every
- * `GOVERNOR_SLOT_STALE_MS / 2`. While the mtime is that fresh a live pid is
- * taken as the holder without asking `ps`, so a contended acquire spawns
- * nothing. A pid recycled inside that window therefore reads as alive until
+ * A live holder's `proper-lockfile` timer refreshes the lock mtime (governor
+ * slots every 15 s, tool slots every 5 min). While the mtime is within
+ * {@link LOCK_REFRESH_WINDOW_MS} a live pid is taken as the holder without
+ * asking `ps`, so a contended acquire spawns nothing. A pid recycled inside that window therefore reads as alive until
  * the refresh lapses; that is the safe direction.
  *
  * @param holder - The slot's record, or `null`.
@@ -425,7 +448,7 @@ export function reapSlotIfHolderDead(
   readHolder: (slotPath: string) => SlotHolderIdentity | null,
   opts: { staleMs?: number; probe?: PidProbe } = {},
 ): boolean {
-  const staleMs = opts.staleMs ?? GOVERNOR_SLOT_STALE_MS;
+  const staleMs = opts.staleMs ?? SLOT_LOCK_STALE_MS;
   const probe = opts.probe ?? defaultPidProbe;
   if (assessSlotHolder(readHolder(slotPath), slotPath, probe) !== 'dead') return false;
   let releaseGuard: () => void;
@@ -521,7 +544,12 @@ function holderRelease(
   };
 }
 
-/** Take a free slot without waiting; record the holder. `null` when busy. */
+/**
+ * Take a free slot without waiting; record the holder. `null` when the lock
+ * is held (`ELOCKED`). Any other lock error (EACCES from a sandbox, EROFS,
+ * ENOSPC…) is thrown, never read as busy: the governor surfaces it so its
+ * caller can fail open (#1777 round 8, R8-1).
+ */
 async function tryLockSlot(
   slotPath: string,
   cls: ResourceClass,
@@ -530,11 +558,23 @@ async function tryLockSlot(
   try {
     unlock = await lockfile.lock(slotPath, {
       retries: 0,
-      stale: GOVERNOR_SLOT_STALE_MS,
+      stale: SLOT_LOCK_STALE_MS,
+      update: SLOT_LOCK_UPDATE_MS,
       realpath: false,
+      // A long grant (cleo run) can outlive a lid-closed sleep; another
+      // process may then reclaim the "stale" slot. proper-lockfile's
+      // default throws from a timer and crashes the holder; log instead
+      // and keep running (#1777 round 3, L-7).
+      onCompromised: (err: Error) => {
+        log().warn(
+          { cls, slot: basename(slotPath), err: err.message },
+          'governor slot lock compromised (likely sleep or a stale reclaim); continuing',
+        );
+      },
     });
-  } catch {
-    return null;
+  } catch (err) {
+    if (isLockHeld(err)) return null;
+    throw err;
   }
   let holder: GovernorSlotHolder;
   const recording = recordToolGroupsWhileHeld(slotPath, () => holder);
@@ -556,6 +596,8 @@ async function tryLockSlot(
  * @param cls - Class the slot belongs to.
  * @returns The grant's release (drops the holder record, then the lock), or
  *   `null` when the slot is held.
+ * @throws Any lock error other than `ELOCKED` (an unwritable slot directory),
+ *   for the governor's fail-open path.
  *
  * @task T12963
  */

@@ -236,14 +236,9 @@ function ensureSlotFiles(dir: string, count: number): string[] {
   return paths;
 }
 
-/** A slot lock older than this may be stolen (its holder presumed dead). */
-export const SLOT_LOCK_STALE_MS = 600_000;
-/**
- * How often a holder refreshes its slot lock. Short, so a holder frozen by a
- * job pause keeps its slot for nearly the whole stale window (#1777 round 6).
- */
-export const SLOT_LOCK_UPDATE_MS = 15_000;
-const STALE_MS = SLOT_LOCK_STALE_MS;
+// The slot timing constants live with the slot locks (T12963); re-exported
+// for existing importers.
+export { SLOT_LOCK_STALE_MS, SLOT_LOCK_UPDATE_MS } from './slot-holder.js';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -318,13 +313,6 @@ export async function admitFailOpen(
     if (io === null) throw err;
     return { admission: passThroughGrant(cls), ungoverned: io };
   }
-}
-
-/** proper-lockfile's "someone else holds this lock" code: the only failure that means busy. */
-const LOCK_HELD = 'ELOCKED';
-
-function isLockHeld(err: unknown): boolean {
-  return (err as NodeJS.ErrnoException | null)?.code === LOCK_HELD;
 }
 
 let _supervisorHolderSeq = 0;

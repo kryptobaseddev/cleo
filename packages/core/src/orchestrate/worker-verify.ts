@@ -228,9 +228,21 @@ export interface ProjectTestDeps {
 // ---------------------------------------------------------------------------
 
 const defaultProjectTestDeps: Required<ProjectTestDeps> = {
+  // The same planner the scope-aware `tool:test` uses (T12959), without a
+  // merge check: this re-verifies a worker's pre-merge report. Its full-suite
+  // decisions (no template, `testing.preferAffected: false`, an untested
+  // dependent, a refused scope) come back as a refusal, so the full run
+  // follows.
   planAffected: async (storeRoot, executionRoot) => {
-    const { planAffectedTestRun } = await import('../tasks/affected-packages.js');
-    return planAffectedTestRun(storeRoot, executionRoot, { wait: true });
+    const { planScopedTestRun } = await import('../tasks/affected-packages.js');
+    const plan = await planScopedTestRun(storeRoot, executionRoot, { wait: true });
+    if (plan.scope === 'affected') return plan.run;
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_INSUFFICIENT',
+      reason: plan.reason ?? 'testing.affectedCommand is not configured',
+      ...(plan.scope === 'pending' ? { pending: true as const } : {}),
+    };
   },
   resolveTest: (storeRoot, executionRoot) =>
     resolveToolCommand('test', storeRoot, { executionRoot }),
@@ -298,13 +310,15 @@ export function resolveWorkerWorktree(projectRoot: string, taskId: string): stri
  * happens to run from: an affected diff taken in the main checkout would
  * measure unrelated edits there and could accept an untested change.
  *
- * - Worker tree known: plan `tool:test-affected` there (the packages its
- *   branch diff touches plus their dependents). Run the full `tool:test` in
- *   that tree only when affected planning REFUSES (no
- *   `testing.affectedCommand`, no default branch, a root-config change, an
- *   empty or unresolvable scope). A failing affected run is the verdict; it
- *   never escalates. A busy test slot is not a refusal: the result is a
- *   retryable rejection, never a full run.
+ * - Worker tree known: plan the affected scope there (the packages its
+ *   branch diff touches plus their dependents) with the scope-aware
+ *   `tool:test` planner (T12959, no merge check). Run the full `tool:test` in
+ *   that tree only when the planner decides on the full suite (no
+ *   `testing.affectedCommand`, `testing.preferAffected: false`, no default
+ *   branch, a root-config change, an untested dependent, an empty or
+ *   unresolvable scope). A failing affected run is the verdict; it never
+ *   escalates. A busy test slot is not a refusal: the result is a retryable
+ *   rejection, never a full run.
  * - Worker tree unknown (`null`): the full `tool:test` in `projectRoot`.
  *   Affected tests never run on a tree that is not the worker's.
  *
@@ -319,6 +333,7 @@ export function resolveWorkerWorktree(projectRoot: string, taskId: string): stri
  * @returns The verdict and which scope produced it.
  *
  * @task T1589
+ * @task T12959
  * @task T12962
  * @adr ADR-061
  */

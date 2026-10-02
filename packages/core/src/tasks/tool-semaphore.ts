@@ -62,10 +62,10 @@ import { ResourceMonitor } from '../resources/monitor.js';
 import {
   assessSlotHolder,
   currentLockId,
-  GOVERNOR_SLOT_STALE_MS,
   ownProcessStartedAt,
   reapSlotIfHolderDead,
   recordToolGroupsWhileHeld,
+  SLOT_LOCK_STALE_MS,
   type SlotHolderIdentity,
   writeHolderRecord,
 } from '../resources/slot-holder.js';
@@ -550,7 +550,7 @@ export function isHolderAlive(holder: SlotHolder | null, slotPath?: string): boo
  */
 export function reapSlotIfOrphaned(
   slotPath: string,
-  staleMs: number = GOVERNOR_SLOT_STALE_MS,
+  staleMs: number = SLOT_LOCK_STALE_MS,
 ): boolean {
   return reapSlotIfHolderDead(slotPath, readHolder, { staleMs });
 }
