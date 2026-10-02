@@ -198,14 +198,19 @@ export function rebuiltTables(statements: readonly string[]): string[] {
  */
 export function renamedTables(statements: readonly string[]): Map<string, string> {
   const out = new Map<string, string>();
-  const rename = new RegExp(String.raw`\bALTER\s+TABLE\s+${IDENT}\s+RENAME\s+TO\s+${IDENT}`, 'gi');
+  // Anchored: only a statement that IS the rename counts, never text inside a
+  // string literal or another statement's body.
+  const rename = new RegExp(
+    String.raw`^\s*ALTER\s+TABLE\s+${IDENT}\s+RENAME\s+TO\s+${IDENT}\s*;?\s*$`,
+    'i',
+  );
   for (const s of statements.map(code)) {
-    for (const m of s.matchAll(rename)) {
-      const from = m[1] as string;
-      const to = m[2] as string;
-      const original = [...out.entries()].find(([, now]) => now === from)?.[0] ?? from;
-      out.set(original, to);
-    }
+    const m = rename.exec(s);
+    if (!m) continue;
+    const from = m[1] as string;
+    const to = m[2] as string;
+    const original = [...out.entries()].find(([, now]) => now === from)?.[0] ?? from;
+    out.set(original, to);
   }
   return out;
 }

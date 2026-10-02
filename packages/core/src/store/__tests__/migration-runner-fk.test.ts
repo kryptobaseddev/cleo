@@ -290,6 +290,7 @@ describe('renames keep pre-existing orphans (T13027)', () => {
           '-- ALTER TABLE x RENAME TO y (prose)',
           'ALTER TABLE b RENAME TO c',
           'ALTER TABLE `__new_d` RENAME TO `d`',
+          "INSERT INTO notes (body) VALUES ('ALTER TABLE p RENAME TO zz')",
         ]),
       ].sort(),
     ).toEqual([
